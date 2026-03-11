@@ -16,7 +16,6 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 
 | ID | SEVERITY | TASK | SPECIALISTS | ACTIONABLE TECHNICAL DESCRIPTION |
 | :--- | :--- | :--- | :--- | :--- |
-| GC-021 | HIGH | Implement Index - Term | go-elite-developer | Create Term struct with Field (string) and Bytes (BytesRef) fields. Represents the atomic unit of search. Location: index/term.go |
 | GC-022 | HIGH | Implement Index - Terms abstraction | go-elite-developer | Create Terms interface with GetIterator, GetDocCount, GetSumDocFreq, GetSumTotalTermFreq methods. Abstracts term dictionary access. Location: index/terms.go |
 | GC-023 | HIGH | Implement Index - TermsEnum | go-elite-developer | Create TermsEnum interface extending BytesRefIterator with SeekCeil, SeekExact, Term, DocFreq, TotalTermFreq methods. Location: index/terms_enum.go |
 | GC-024 | HIGH | Implement Index - PostingsEnum | go-elite-developer | Create PostingsEnum interface extending DocIdSetIterator with Freq, NextPosition, StartOffset, EndOffset, GetPayload methods. Location: index/postings_enum.go |
@@ -125,8 +124,10 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 | GC-018 | HIGH | Implement Document - TextField | go-elite-developer | 2026-03-11 | Created TextField for tokenized, indexed text. Pre-configured FieldType with Indexed=true, Tokenized=true. Supports stored/non-stored variants. Location: document/text_field.go |
 | GC-019 | HIGH | Implement Document - StringField | go-elite-developer | 2026-03-11 | Created StringField for non-tokenized, indexed strings. Pre-configured with OmitNorms=true. Supports exact matching. Location: document/string_field.go |
 | GC-020 | HIGH | Implement Document - StoredField | go-elite-developer | 2026-03-11 | Created StoredField for stored-only fields (not indexed). Factory methods for string, bytes, int, float64. Location: document/stored_field.go |
+| GC-021 | HIGH | Implement Index - Term | go-elite-developer | 2026-03-11 | Created Term struct with Field (string) and Bytes (*BytesRef) fields. Implements comparison (Equals, CompareTo), cloning (Clone), hashing (HashCode), and prefix matching (StartsWith). Factory methods: NewTerm, NewTermFromBytes, NewTermFromBytesRef. Location: index/term.go |
 | GC-028 | HIGH | Implement Index - IndexOptions enum | go-elite-developer | 2026-03-11 | Created IndexOptions enum with NONE, DOCS, DOCS_AND_FREQS, DOCS_AND_FREQS_AND_POSITIONS, DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS. Includes IsIndexed, HasFreqs, HasPositions, HasOffsets methods. Location: index/index_options.go |
 | GC-029 | HIGH | Implement Index - DocValuesType enum | go-elite-developer | 2026-03-11 | Created DocValuesType enum with NONE, NUMERIC, BINARY, SORTED, SORTED_SET, SORTED_NUMERIC. Includes HasDocValues, IsSorted, IsMultiValued methods. Location: index/doc_values_type.go |
+| GC-021 | HIGH | Implement Index - Term | go-elite-developer | 2026-03-11 | Created Term struct with Field (string) and Bytes (*BytesRef) fields. Implements NewTerm, NewTermFromBytes, NewTermFromBytesRef constructors. Added Equals, CompareTo, Clone, HashCode methods. Includes prefix matching with StartsWith/StartsWithTerm. Location: index/term.go |
 
 ## Implementation Phases
 
