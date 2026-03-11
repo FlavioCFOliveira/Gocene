@@ -25,10 +25,11 @@ type IndexInput interface {
 	// GetFilePointer returns the current position in the file.
 	GetFilePointer() int64
 
-	// Seek changes the current position in the file.
+	// SetPosition changes the current position in the file.
 	// The next read will occur at the new position.
-	//nolint:stdmethods // Lucene-compatible signature differs from io.Seeker
-	Seek(pos int64) error
+	// This is the Lucene Seek() equivalent; renamed to avoid Go vet warnings
+	// about io.Seeker interface mismatch.
+	SetPosition(pos int64) error
 
 	// Length returns the total length of the file in bytes.
 	Length() int64
@@ -320,9 +321,9 @@ func (in *BufferedIndexInput) ReadBytesN(n int) ([]byte, error) {
 	return result, nil
 }
 
-// Seek changes the current position.
-//nolint:stdmethods // Lucene-compatible signature differs from io.Seeker
-func (in *BufferedIndexInput) Seek(pos int64) error {
+// SetPosition changes the current position.
+// This is the Lucene Seek() equivalent.
+func (in *BufferedIndexInput) SetPosition(pos int64) error {
 	if err := in.ValidateSeek(pos); err != nil {
 		return err
 	}
