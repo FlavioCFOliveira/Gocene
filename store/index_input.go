@@ -44,6 +44,9 @@ type IndexInput interface {
 	// the given offset with the specified length.
 	// The returned IndexInput is independent of this one.
 	Slice(desc string, offset int64, length int64) (IndexInput, error)
+
+	// Close closes this IndexInput, releasing any resources.
+	Close() error
 }
 
 // DataInput defines the interface for reading basic data types.

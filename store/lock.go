@@ -7,6 +7,8 @@ package store
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 )
 
 // Lock represents a lock obtained by a LockFactory.
@@ -76,13 +78,46 @@ func NewNativeFSLockFactory() *NativeFSLockFactory {
 }
 
 // ObtainLock obtains a lock using the native file system.
+// It creates a lock file with O_EXCL to ensure atomicity.
 func (f *NativeFSLockFactory) ObtainLock(dir Directory, lockName string) (Lock, error) {
-	// This is a simplified implementation
-	// A full implementation would use file locking syscalls
-	// (flock on Unix, LockFile on Windows)
+	// Get the directory path - try to cast to FSDirectory to get the path
+	var path string
+	if fsDir, ok := dir.(*FSDirectory); ok {
+		path = fsDir.GetPath()
+	} else if simpleDir, ok := dir.(*SimpleFSDirectory); ok {
+		path = simpleDir.GetPath()
+	}
+
+	// If we have a valid FSDirectory path, create a real file lock
+	if path != "" {
+		lockFile := filepath.Join(path, lockName+".lock")
+
+		// Try to create the lock file exclusively - fails if already exists
+		f2, err := os.OpenFile(lockFile, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+		if err != nil {
+			if os.IsExist(err) {
+				return nil, fmt.Errorf("lock already held: %s", lockName)
+			}
+			return nil, fmt.Errorf("failed to create lock file: %w", err)
+		}
+
+		// Write process ID to lock file for debugging
+		pid := os.Getpid()
+		fmt.Fprintf(f2, "%d\n", pid)
+		f2.Close()
+
+		return &NativeFSLock{
+			BaseLock: NewBaseLock(),
+			name:     lockName,
+			path:     lockFile,
+		}, nil
+	}
+
+	// Fallback: return a simple in-memory lock for testing or non-FS directories
 	return &NativeFSLock{
 		BaseLock: NewBaseLock(),
 		name:     lockName,
+		path:     "",
 	}, nil
 }
 
@@ -90,24 +125,48 @@ func (f *NativeFSLockFactory) ObtainLock(dir Directory, lockName string) (Lock, 
 type NativeFSLock struct {
 	*BaseLock
 	name string
+	path string
 }
 
-// Close releases the lock.
+// Close releases the lock by deleting the lock file.
 func (l *NativeFSLock) Close() error {
 	if !l.IsLocked() {
 		return nil
 	}
-	// In a full implementation, this would release the file lock
+
+	// Delete the lock file
+	if err := os.Remove(l.path); err != nil {
+		// Lock file may have been already removed - that's ok
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove lock file: %w", err)
+		}
+	}
+
 	l.MarkReleased()
 	return nil
 }
 
 // EnsureValid returns an error if the lock is no longer valid.
+// For file-based locks, we check if the lock file still exists.
 func (l *NativeFSLock) EnsureValid() error {
 	if err := l.VerifyLocked(); err != nil {
 		return fmt.Errorf("lock %s is not valid: %w", l.name, err)
 	}
-	// In a full implementation, this would verify the lock file still exists
+
+	// If no file path (in-memory lock), skip file check
+	if l.path == "" {
+		return nil
+	}
+
+	// Check if lock file still exists
+	if _, err := os.Stat(l.path); err != nil {
+		if os.IsNotExist(err) {
+			l.MarkReleased()
+			return fmt.Errorf("lock file was removed externally")
+		}
+		return fmt.Errorf("failed to stat lock file: %w", err)
+	}
+
 	return nil
 }
 
