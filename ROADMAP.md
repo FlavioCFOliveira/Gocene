@@ -16,11 +16,6 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 
 | ID | SEVERITY | TASK | SPECIALISTS | ACTIONABLE TECHNICAL DESCRIPTION |
 | :--- | :--- | :--- | :--- | :--- |
-| GC-016 | HIGH | Implement Document - FieldType | go-elite-developer | Create FieldType struct with Indexed, Stored, Tokenized, IndexOptions, DocValuesType, StoreTermVector fields. Include builder pattern. Location: document/field_type.go |
-| GC-017 | HIGH | Implement Document - Field base class | go-elite-developer | Create Field struct implementing IndexableField with common field functionality. Support binary, string, and reader-based field values. Location: document/field.go |
-| GC-018 | HIGH | Implement Document - TextField | go-elite-developer | Create TextField type extending Field for tokenized, indexed text content. Pre-configured FieldType with Indexed=true, Tokenized=true, Stored configurable. Location: document/text_field.go |
-| GC-019 | HIGH | Implement Document - StringField | go-elite-developer | Create StringField type for non-tokenized, indexed string values. Pre-configured FieldType with Indexed=true, Tokenized=false. Location: document/string_field.go |
-| GC-020 | HIGH | Implement Document - StoredField | go-elite-developer | Create StoredField type for stored-only fields (not indexed). Pre-configured FieldType with Stored=true, Indexed=false. Location: document/stored_field.go |
 | GC-021 | HIGH | Implement Index - Term | go-elite-developer | Create Term struct with Field (string) and Bytes (BytesRef) fields. Represents the atomic unit of search. Location: index/term.go |
 | GC-022 | HIGH | Implement Index - Terms abstraction | go-elite-developer | Create Terms interface with GetIterator, GetDocCount, GetSumDocFreq, GetSumTotalTermFreq methods. Abstracts term dictionary access. Location: index/terms.go |
 | GC-023 | HIGH | Implement Index - TermsEnum | go-elite-developer | Create TermsEnum interface extending BytesRefIterator with SeekCeil, SeekExact, Term, DocFreq, TotalTermFreq methods. Location: index/terms_enum.go |
@@ -28,8 +23,6 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 | GC-025 | HIGH | Implement Index - Fields | go-elite-developer | Create Fields interface with Iterator, Size, Terms methods. Container for all Terms in a segment/reader. Location: index/fields.go |
 | GC-026 | HIGH | Implement Index - FieldInfo | go-elite-developer | Create FieldInfo struct with Name, Number, IndexOptions, DocValuesType, Attributes, etc. Immutable metadata about a field. Location: index/field_info.go |
 | GC-027 | HIGH | Implement Index - FieldInfos | go-elite-developer | Create FieldInfos struct managing collection of FieldInfo with HasProx, HasFreq, HasOffsets methods. Location: index/field_infos.go |
-| GC-028 | HIGH | Implement Index - IndexOptions enum | go-elite-developer | Create IndexOptions type with NONE, DOCS, DOCS_AND_FREQS, DOCS_AND_FREQS_AND_POSITIONS, DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS constants. Location: index/index_options.go |
-| GC-029 | HIGH | Implement Index - DocValuesType enum | go-elite-developer | Create DocValuesType type with NONE, NUMERIC, BINARY, SORTED, SORTED_SET, SORTED_NUMERIC constants. Location: index/doc_values_type.go |
 | GC-030 | HIGH | Implement Index - SegmentInfo | go-elite-developer | Create SegmentInfo struct with Name, DocCount, Directory, Files, etc. Metadata about a segment including version and diagnostics. Location: index/segment_info.go |
 | GC-031 | HIGH | Implement Index - SegmentCommitInfo | go-elite-developer | Create SegmentCommitInfo struct wrapping SegmentInfo with DeletionCount, DelGen, FieldInfosGen for commit-specific metadata. Location: index/segment_commit_info.go |
 | GC-032 | HIGH | Implement Index - SegmentInfos | go-elite-developer | Create SegmentInfos struct managing slice of SegmentCommitInfo. Handle generation-based file naming (segments_N). Location: index/segment_infos.go |
@@ -125,6 +118,15 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 | GC-011 | HIGH | Implement Util - BytesRef | go-elite-developer | 2026-03-11 | Created BytesRef with Bytes/Offset/Length fields. Implements Append, Copy, Grow, Clone. Includes HashCode compatible with Java. Added IntsRef for integer operations. Location: util/bytes_ref.go |
 | GC-012 | HIGH | Implement Util - Bits interface | go-elite-developer | 2026-03-11 | Created Bits interface with Get/Length. Implemented FixedBitSet using []uint64 with Set, Clear, And, Or, Xor, Not. Includes NextSetBit, PrevSetBit, Cardinality with popcount. Location: util/bits.go, util/fixed_bit_set.go |
 | GC-013 | HIGH | Implement Util - PriorityQueue | go-elite-developer | 2026-03-11 | Created generic PriorityQueue[T] with binary heap. Implements Add, Pop, Top, UpdateTop. Supports custom less function and Add when full. Location: util/priority_queue.go |
+| GC-014 | HIGH | Implement Document - Document class | go-elite-developer | 2026-03-11 | Created Document struct with slice of IndexableField. Implements Add, Get, GetFields, RemoveField, Clear methods. Location: document/document.go |
+| GC-015 | HIGH | Implement Document - IndexableField interface | go-elite-developer | 2026-03-11 | Created IndexableField interface with Name, FieldType, StringValue, BinaryValue, NumericValue methods. Contract for all field types. Location: document/indexable_field.go |
+| GC-016 | HIGH | Implement Document - FieldType | go-elite-developer | 2026-03-11 | Created FieldType struct with Indexed, Stored, Tokenized, IndexOptions, DocValuesType fields. Includes builder pattern with Freeze support. Location: document/field_type.go |
+| GC-017 | HIGH | Implement Document - Field base class | go-elite-developer | 2026-03-11 | Created Field struct implementing IndexableField. Supports string, binary, reader, numeric values. Location: document/field.go |
+| GC-018 | HIGH | Implement Document - TextField | go-elite-developer | 2026-03-11 | Created TextField for tokenized, indexed text. Pre-configured FieldType with Indexed=true, Tokenized=true. Supports stored/non-stored variants. Location: document/text_field.go |
+| GC-019 | HIGH | Implement Document - StringField | go-elite-developer | 2026-03-11 | Created StringField for non-tokenized, indexed strings. Pre-configured with OmitNorms=true. Supports exact matching. Location: document/string_field.go |
+| GC-020 | HIGH | Implement Document - StoredField | go-elite-developer | 2026-03-11 | Created StoredField for stored-only fields (not indexed). Factory methods for string, bytes, int, float64. Location: document/stored_field.go |
+| GC-028 | HIGH | Implement Index - IndexOptions enum | go-elite-developer | 2026-03-11 | Created IndexOptions enum with NONE, DOCS, DOCS_AND_FREQS, DOCS_AND_FREQS_AND_POSITIONS, DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS. Includes IsIndexed, HasFreqs, HasPositions, HasOffsets methods. Location: index/index_options.go |
+| GC-029 | HIGH | Implement Index - DocValuesType enum | go-elite-developer | 2026-03-11 | Created DocValuesType enum with NONE, NUMERIC, BINARY, SORTED, SORTED_SET, SORTED_NUMERIC. Includes HasDocValues, IsSorted, IsMultiValued methods. Location: index/doc_values_type.go |
 
 ## Implementation Phases
 
