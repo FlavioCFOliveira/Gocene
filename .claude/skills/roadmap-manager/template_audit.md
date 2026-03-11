@@ -1,60 +1,60 @@
 ---
-skill_name: "[NOME_DA_SKILL]"
+skill_name: "[SKILL_NAME]"
 audit_date: "YYYY-MM-DD"
-specialty: "[EX: SEGURANÇA / PERFORMANCE / BACKEND]"
+specialty: "[EX: SECURITY / PERFORMANCE / BACKEND / GOCENE]"
 summary:
-  alta_prioridade: 0
-  media_prioridade: 0
-  baixa_prioridade: 0
-status: "CONCLUÍDO"
+  high_priority: 0
+  medium_priority: 0
+  low_priority: 0
+status: "COMPLETED"
 ---
 
-# RELATÓRIO DE AUDITORIA TÉCNICA: [NOME_DA_SKILL]
+# TECHNICAL AUDIT REPORT: [SKILL_NAME]
 
-## 1. RESUMO DA ESPECIALIDADE
+## 1. SPECIALTY SUMMARY
 
-Análise técnica objetiva do estado atual do projeto nesta especialidade. Identificação de riscos imediatos e
-oportunidades de melhoria estrutural.
+Objective technical analysis of the current state of the project in this specialty. Identification of immediate risks
+and structural improvement opportunities.
 
-## 2. LISTA DE TAREFAS POR SEVERIDADE
+## 2. TASK LIST BY SEVERITY
 
-As tarefas abaixo devem ser descritas como ordens de execução diretas para fluxos agentic.
+Tasks below must be described as direct execution orders for agentic flows.
 
-| ID          | SEVERIDADE | TAREFA         | DESCRIÇÃO TÉCNICA ACIONÁVEL                |
-|:------------|:-----------|:---------------|:-------------------------------------------|
-| [SKILL]-001 | ALTA       | Nome da Tarefa | Instrução técnica detalhada para execução. |
-| [SKILL]-002 | MÉDIA      | Nome da Tarefa | Instrução técnica detalhada para execução. |
-| [SKILL]-003 | BAIXA      | Nome da Tarefa | Instrução técnica detalhada para execução. |
+| ID          | SEVERITY | TASK         | SPECIALISTS | ACTIONABLE TECHNICAL DESCRIPTION           |
+|:------------|:---------|:-------------|:------------|:-------------------------------------------|
+| [SKILL]-001 | HIGH     | Task Name    | go-elite-developer | Detailed technical instruction for execution. |
+| [SKILL]-002 | MEDIUM   | Task Name    | go-gitflow, red-team-hacker | Detailed technical instruction for execution. |
+| [SKILL]-003 | LOW      | Task Name    |              | Detailed technical instruction for execution. |
 
-## 3. EVIDÊNCIAS TÉCNICAS E DIAGNÓSTICO DETALHADO
+**SPECIALISTS**: List the skill/agent names that should resolve this task. Available: go-elite-developer, go-gitflow, red-team-hacker, go-performance-advisor, gocene-lucene-specialist, frontend-design.
 
-Esta secção fundamenta as tarefas listadas acima com provas extraídas do código.
+## 3. TECHNICAL EVIDENCE AND DETAILED DIAGNOSIS
 
-### ID: [SKILL]-001 (ALTA)
+This section grounds the tasks listed above with evidence extracted from the code.
 
-- **Localização**: `src/api/auth.ts:45`
-- **Problema**: Ausência de validação de tokens JWT no middleware de rota.
-- **Impacto**: Possível bypass de autenticação em ambientes de produção.
-- **Sugestão de Solução**: Implementar a biblioteca `jsonwebtoken` e verificar a assinatura no `request header`.
+### ID: [SKILL]-001 (HIGH)
 
-### ID: [SKILL]-002 (MÉDIA)
+- **Location**: `src/api/auth.ts:45`
+- **Problem**: Missing JWT token validation in route middleware.
+- **Impact**: Possible authentication bypass in production environments.
+- **Solution Suggestion**: Implement `jsonwebtoken` library and verify signature in request header.
 
-- **Localização**: `src/components/DataList.tsx:112`
-- **Problema**: O loop de renderização não utiliza `memoization`, causando re-renders em cada alteração de estado
-  global.
-- **Impacto**: Degradação da performance da UI em listas com mais de 100 itens.
-- **Sugestão de Solução**: Aplicar `useMemo` nos cálculos de filtragem e `React.memo` no componente de linha.
+### ID: [SKILL]-002 (MEDIUM)
 
-### ID: [SKILL]-003 (BAIXA)
+- **Location**: `src/components/DataList.tsx:112`
+- **Problem**: Render loop does not use memoization, causing re-renders on every global state change.
+- **Impact**: UI performance degradation in lists with more than 100 items.
+- **Solution Suggestion**: Apply `useMemo` in filtering calculations and `React.memo` in row component.
 
-- **Localização**: `README.md`
-- **Problema**: As instruções de instalação estão desatualizadas em relação à versão atual do Node.js utilizada no
-  projeto.
-- **Impacto**: Dificuldade no onboarding de novos developers.
-- **Sugestão de Solução**: Atualizar a secção "Prerequisitos" para Node.js v20+.
+### ID: [SKILL]-003 (LOW)
 
-## 4. CRITÉRIOS DE SEVERIDADE APLICADOS
+- **Location**: `README.md`
+- **Problem**: Installation instructions are outdated relative to the current Node.js version used in the project.
+- **Impact**: Difficulty in onboarding new developers.
+- **Solution Suggestion**: Update "Prerequisites" section to Node.js v20+.
 
-- **ALTA**: Bloqueios de sistema, vulnerabilidades críticas de segurança ou falhas funcionais core.
-- **MÉDIA**: Otimização de performance necessária, refatoração de dívida técnica ou novas features planeadas.
-- **BAIXA**: Melhorias cosméticas, documentação técnica ou ajustes de experiência de developer.
+## 4. SEVERITY CRITERIA APPLIED
+
+- **HIGH**: System blocks, critical security vulnerabilities, or core functional failures.
+- **MEDIUM**: Performance optimization needed, technical debt refactoring, or planned new features.
+- **LOW**: Cosmetic improvements, technical documentation, or developer experience adjustments.

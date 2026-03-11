@@ -127,7 +127,11 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 
 | ID | SEVERITY | TASK | SPECIALISTS | COMPLETED | ACTIONABLE TECHNICAL DESCRIPTION |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| N/A | N/A | No tasks completed yet | N/A | N/A | Project initialization phase - development has not yet begun. |
+| GC-001 | HIGH | Implement Store Layer - Directory abstraction | go-elite-developer | 2026-03-11 | Created Directory interface with ListAll, FileExists, OpenInput, CreateOutput, DeleteFile, ObtainLock, Close methods. Ported Java abstract class to Go interface pattern with BaseDirectory providing common functionality. Location: store/directory.go |
+| GC-002 | HIGH | Implement Store Layer - IndexInput | go-elite-developer | 2026-03-11 | Created IndexInput interface with GetFilePointer, Seek, Length, Clone, Slice methods. Includes DataInput with ReadByte, ReadBytes. Implemented ByteArrayDataInput and BufferedIndexInput. Location: store/index_input.go |
+| GC-003 | HIGH | Implement Store Layer - IndexOutput | go-elite-developer | 2026-03-11 | Created IndexOutput interface with GetFilePointer, Length, GetName methods. Includes DataOutput with WriteByte, WriteBytes. Implemented ByteArrayDataOutput and BufferedIndexOutput. Added VInt/VLong encoding and IndexOutputWithDigest. Location: store/index_output.go |
+| GC-008 | HIGH | Implement Store Layer - Locking mechanism | go-elite-developer,red-team-hacker | 2026-03-11 | Implemented Lock interface with Close, EnsureValid, IsLocked methods. Created LockFactory with NativeFSLockFactory (file-based), SingleInstanceLockFactory (in-process), and NoLockFactory. Location: store/lock.go |
+| GC-010 | HIGH | Implement Store Layer - IOContext | go-elite-developer | 2026-03-11 | Created IOContext struct with Context enum (READ, WRITE, MERGE, FLUSH, READONCE). Includes MergeInfo and FlushInfo structs. Location: store/io_context.go |
 
 ---
 
