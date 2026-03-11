@@ -1,0 +1,24 @@
+# IDE configuration
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Claude Code configuration
+.claude/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Dependency directories
+vendor/
