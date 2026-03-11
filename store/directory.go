@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 )
 
 // ErrFileNotFound is returned when a file does not exist in the directory.
@@ -76,6 +77,7 @@ type BaseDirectory struct {
 
 	// openFiles tracks files currently open for reading/writing
 	openFiles map[string]int
+	openMu    sync.RWMutex
 }
 
 // NewBaseDirectory creates a new BaseDirectory with the given LockFactory.
@@ -173,11 +175,15 @@ func (d *BaseDirectory) GetDirectory() Directory {
 
 // AddOpenFile increments the open file count for the given file.
 func (d *BaseDirectory) AddOpenFile(name string) {
+	d.openMu.Lock()
+	defer d.openMu.Unlock()
 	d.openFiles[name]++
 }
 
 // RemoveOpenFile decrements the open file count for the given file.
 func (d *BaseDirectory) RemoveOpenFile(name string) {
+	d.openMu.Lock()
+	defer d.openMu.Unlock()
 	if count, ok := d.openFiles[name]; ok {
 		if count <= 1 {
 			delete(d.openFiles, name)
@@ -189,17 +195,23 @@ func (d *BaseDirectory) RemoveOpenFile(name string) {
 
 // IsFileOpen returns true if the file is currently open.
 func (d *BaseDirectory) IsFileOpen(name string) bool {
+	d.openMu.RLock()
+	defer d.openMu.RUnlock()
 	count, ok := d.openFiles[name]
 	return ok && count > 0
 }
 
 // GetOpenFileCount returns the number of open handles for a file.
 func (d *BaseDirectory) GetOpenFileCount(name string) int {
+	d.openMu.RLock()
+	defer d.openMu.RUnlock()
 	return d.openFiles[name]
 }
 
 // GetOpenFiles returns a copy of the open files map.
 func (d *BaseDirectory) GetOpenFiles() map[string]int {
+	d.openMu.RLock()
+	defer d.openMu.RUnlock()
 	result := make(map[string]int, len(d.openFiles))
 	for k, v := range d.openFiles {
 		result[k] = v
