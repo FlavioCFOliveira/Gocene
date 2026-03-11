@@ -44,8 +44,6 @@ feat(index): implement BTree index with concurrent reads
 - Using sync.RWMutex for thread-safe operations
 - Supports range queries and prefix matching
 - Benchmark: 40% faster than previous hash index
-
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 ```
 
 ## 3. Feature Start (`/feature-start <name>`)
@@ -379,8 +377,6 @@ Se o push for rejeitado (rejected), ofereça:
    - Detailed explanation of changes
    - Technical reasoning
    - Related issue/task ID (se aplicável)
-
-   Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
    ```
 
 3. Tipos válidos: feat, fix, refactor, test, docs, perf, chore, revert
