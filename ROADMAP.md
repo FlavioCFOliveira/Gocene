@@ -16,7 +16,6 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 
 | ID | SEVERITY | TASK | SPECIALISTS | ACTIONABLE TECHNICAL DESCRIPTION |
 | :--- | :--- | :--- | :--- | :--- |
-| GC-026 | HIGH | Implement Index - FieldInfo | go-elite-developer | Create FieldInfo struct with Name, Number, IndexOptions, DocValuesType, Attributes, etc. Immutable metadata about a field. Location: index/field_info.go |
 | GC-027 | HIGH | Implement Index - FieldInfos | go-elite-developer | Create FieldInfos struct managing collection of FieldInfo with HasProx, HasFreq, HasOffsets methods. Location: index/field_infos.go |
 | GC-030 | HIGH | Implement Index - SegmentInfo | go-elite-developer | Create SegmentInfo struct with Name, DocCount, Directory, Files, etc. Metadata about a segment including version and diagnostics. Location: index/segment_info.go |
 | GC-031 | HIGH | Implement Index - SegmentCommitInfo | go-elite-developer | Create SegmentCommitInfo struct wrapping SegmentInfo with DeletionCount, DelGen, FieldInfosGen for commit-specific metadata. Location: index/segment_commit_info.go |
@@ -125,6 +124,7 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 | GC-023 | HIGH | Implement Index - TermsEnum | go-elite-developer | 2026-03-11 | Created TermsEnum interface with Next, SeekCeil, SeekExact, Term, DocFreq, TotalTermFreq, Postings, PostingsWithLiveDocs methods. Implemented EmptyTermsEnum, SingleTermsEnum with positioning logic. Location: index/terms_enum.go |
 | GC-024 | HIGH | Implement Index - PostingsEnum | go-elite-developer | 2026-03-11 | Created PostingsEnum interface with NextDoc, Advance, DocID, Freq, NextPosition, StartOffset, EndOffset, GetPayload, Cost methods. Defined NO_MORE_DOCS and NO_MORE_POSITIONS constants. Implemented EmptyPostingsEnum, SingleDocPostingsEnum. Location: index/postings_enum.go |
 | GC-025 | HIGH | Implement Index - Fields | go-elite-developer | 2026-03-11 | Created Fields interface with Iterator, Size, Terms methods. FieldIterator for field name iteration. Implemented EmptyFields, MemoryFields (thread-safe with RWMutex), SingleFieldFields, MultiFields. Location: index/fields.go |
+| GC-026 | HIGH | Implement Index - FieldInfo | go-elite-developer | 2026-03-11 | Created FieldInfo struct with name, number, indexOptions, docValuesType fields. Immutable after construction with frozen flag. Includes stored, tokenized, omitNorms, storeTermVectors flags. FieldInfoBuilder fluent API. HasNorms, HasPayloads computed methods. Location: index/field_info.go |
 | GC-028 | HIGH | Implement Index - IndexOptions enum | go-elite-developer | 2026-03-11 | Created IndexOptions enum with NONE, DOCS, DOCS_AND_FREQS, DOCS_AND_FREQS_AND_POSITIONS, DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS. Includes IsIndexed, HasFreqs, HasPositions, HasOffsets methods. Location: index/index_options.go |
 | GC-029 | HIGH | Implement Index - DocValuesType enum | go-elite-developer | 2026-03-11 | Created DocValuesType enum with NONE, NUMERIC, BINARY, SORTED, SORTED_SET, SORTED_NUMERIC. Includes HasDocValues, IsSorted, IsMultiValued methods. Location: index/doc_values_type.go |
 
