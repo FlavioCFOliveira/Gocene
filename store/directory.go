@@ -39,6 +39,10 @@ type Directory interface {
 	// FileExists returns true if a file with the given name exists in this directory.
 	FileExists(name string) bool
 
+	// FileLength returns the length of a file in bytes.
+	// Returns ErrFileNotFound if the file does not exist.
+	FileLength(name string) (int64, error)
+
 	// OpenInput returns an IndexInput for reading an existing file.
 	// Returns ErrFileNotFound if the file does not exist.
 	OpenInput(name string, ctx IOContext) (IndexInput, error)
@@ -143,6 +147,11 @@ func (d *BaseDirectory) ListAll() ([]string, error) {
 // FileExists returns false - must be implemented by subclasses.
 func (d *BaseDirectory) FileExists(name string) bool {
 	return false
+}
+
+// FileLength returns error - must be implemented by subclasses.
+func (d *BaseDirectory) FileLength(name string) (int64, error) {
+	return 0, errors.New("FileLength not implemented")
 }
 
 // OpenInput returns error - must be implemented by subclasses.
