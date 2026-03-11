@@ -16,8 +16,6 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 
 | ID | SEVERITY | TASK | SPECIALISTS | ACTIONABLE TECHNICAL DESCRIPTION |
 | :--- | :--- | :--- | :--- | :--- |
-| GC-031 | HIGH | Implement Index - SegmentCommitInfo | go-elite-developer | Create SegmentCommitInfo struct wrapping SegmentInfo with DeletionCount, DelGen, FieldInfosGen for commit-specific metadata. Location: index/segment_commit_info.go |
-| GC-032 | HIGH | Implement Index - SegmentInfos | go-elite-developer | Create SegmentInfos struct managing slice of SegmentCommitInfo. Handle generation-based file naming (segments_N). Location: index/segment_infos.go |
 | GC-033 | MEDIUM | Implement Analysis - Attribute interface | go-elite-developer | Create Attribute marker interface for token attributes. Part of Go port of Lucene's attribute system. Location: analysis/attribute.go |
 | GC-034 | MEDIUM | Implement Analysis - AttributeSource | go-elite-developer | Create AttributeSource struct managing map[reflect.Type]Attribute with AddAttribute, GetAttribute, ClearAttributes methods. Go-specific implementation avoiding Java reflection costs. Location: analysis/attribute_source.go |
 | GC-035 | MEDIUM | Implement Analysis - TokenStream | go-elite-developer | Create TokenStream abstract base with AttributeSource, IncrementToken, End, Close methods. Core analysis pipeline component. Location: analysis/token_stream.go |
@@ -127,6 +125,8 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 | GC-028 | HIGH | Implement Index - IndexOptions enum | go-elite-developer | 2026-03-11 | Created IndexOptions enum with NONE, DOCS, DOCS_AND_FREQS, DOCS_AND_FREQS_AND_POSITIONS, DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS. Includes IsIndexed, HasFreqs, HasPositions, HasOffsets methods. Location: index/index_options.go |
 | GC-029 | HIGH | Implement Index - DocValuesType enum | go-elite-developer | 2026-03-11 | Created DocValuesType enum with NONE, NUMERIC, BINARY, SORTED, SORTED_SET, SORTED_NUMERIC. Includes HasDocValues, IsSorted, IsMultiValued methods. Location: index/doc_values_type.go |
 | GC-030 | HIGH | Implement Index - SegmentInfo | go-elite-developer | 2026-03-11 | Created SegmentInfo struct with name, docCount, directory, files, version, codec, isCompoundFile. Diagnostics and attributes maps. Index sort support with Sort, SortField, SortType. SegmentInfoList with aggregate methods. Location: index/segment_info.go |
+| GC-031 | HIGH | Implement Index - SegmentCommitInfo | go-elite-developer | 2026-03-11 | Created SegmentCommitInfo struct wrapping SegmentInfo with delCount, softDelCount, delGen, fieldInfosGen, docValuesGen. Includes AdvanceDelGen, AdvanceFieldInfosGen, AdvanceDocValuesGen methods. File naming GetDelFileName, GetFieldInfosFileName, GetDocValuesFileName. Location: index/segment_commit_info.go |
+| GC-032 | HIGH | Implement Index - SegmentInfos | go-elite-developer | 2026-03-11 | Created SegmentInfos struct managing slice of SegmentCommitInfo with generation-based file naming (segments_N). Includes NextGeneration, GetNextSegmentName, UpdateCounterFromSegments methods. Thread-safe with sync.RWMutex. Location: index/segment_infos.go |
 
 ## Implementation Phases
 

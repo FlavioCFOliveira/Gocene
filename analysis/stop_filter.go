@@ -1,0 +1,118 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
+package analysis
+
+import (
+	"reflect"
+)
+
+// StopFilter removes stop words from the token stream.
+//
+// This is the Go port of Lucene's org.apache.lucene.analysis.StopFilter.
+//
+// Stop words are common words that are filtered out because they don't
+// carry much semantic meaning (e.g., "the", "a", "is", "in").
+// This filter removes tokens that match any word in the stop set.
+type StopFilter struct {
+	*BaseTokenFilter
+
+	// stopWords is the set of words to filter out
+	stopWords map[string]struct{}
+
+	// termAttr holds the CharTermAttribute from the input stream
+	termAttr CharTermAttribute
+
+	// posIncrAttr holds the PositionIncrementAttribute
+	posIncrAttr PositionIncrementAttribute
+}
+
+// EnglishStopWords is a basic set of English stop words.
+var EnglishStopWords = []string{
+	"a", "an", "and", "are", "as", "at", "be", "but", "by",
+	"for", "if", "in", "into", "is", "it",
+	"no", "not", "of", "on", "or", "such",
+	"that", "the", "their", "then", "there", "these",
+	"they", "this", "to", "was", "will", "with",
+}
+
+// NewStopFilter creates a new StopFilter with the given stop words.
+func NewStopFilter(input TokenStream, stopWords []string) *StopFilter {
+	filter := &StopFilter{
+		BaseTokenFilter: NewBaseTokenFilter(input),
+		stopWords:       make(map[string]struct{}, len(stopWords)),
+	}
+
+	// Build stop word set
+	for _, word := range stopWords {
+		filter.stopWords[word] = struct{}{}
+	}
+
+	// Get attributes from input
+	if ts, ok := input.(*BaseTokenStream); ok {
+		src := ts.GetAttributeSource()
+		filter.termAttr = src.GetAttributeByType(
+			reflect.TypeOf(&charTermAttribute{})).(CharTermAttribute)
+		filter.posIncrAttr = src.GetAttributeByType(
+			reflect.TypeOf(&positionIncrementAttribute{})).(PositionIncrementAttribute)
+	}
+
+	return filter
+}
+
+// NewStopFilterWithEnglishStopWords creates a StopFilter with English stop words.
+func NewStopFilterWithEnglishStopWords(input TokenStream) *StopFilter {
+	return NewStopFilter(input, EnglishStopWords)
+}
+
+// IncrementToken advances to the next token, skipping stop words.
+func (f *StopFilter) IncrementToken() (bool, error) {
+	increments := 0
+
+	for {
+		hasToken, err := f.input.IncrementToken()
+		if err != nil {
+			return false, err
+		}
+		if !hasToken {
+			return false, nil
+		}
+
+		increments++
+
+		if f.termAttr != nil {
+			token := f.termAttr.String()
+			if _, isStopWord := f.stopWords[token]; !isStopWord {
+				// Not a stop word - adjust position increment and return
+				if f.posIncrAttr != nil && increments > 1 {
+					f.posIncrAttr.SetPositionIncrement(f.posIncrAttr.GetPositionIncrement() + increments - 1)
+				}
+				return true, nil
+			}
+			// This is a stop word - continue to next token
+		} else {
+			// No term attribute - just return the token
+			return true, nil
+		}
+	}
+}
+
+// IsStopWord checks if a word is in the stop word set.
+func (f *StopFilter) IsStopWord(word string) bool {
+	_, exists := f.stopWords[word]
+	return exists
+}
+
+// AddStopWord adds a word to the stop word set.
+func (f *StopFilter) AddStopWord(word string) {
+	f.stopWords[word] = struct{}{}
+}
+
+// RemoveStopWord removes a word from the stop word set.
+func (f *StopFilter) RemoveStopWord(word string) {
+	delete(f.stopWords, word)
+}
+
+// Ensure StopFilter implements TokenFilter
+var _ TokenFilter = (*StopFilter)(nil)
