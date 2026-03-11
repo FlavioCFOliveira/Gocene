@@ -16,7 +16,6 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 
 | ID | SEVERITY | TASK | SPECIALISTS | ACTIONABLE TECHNICAL DESCRIPTION |
 | :--- | :--- | :--- | :--- | :--- |
-| GC-030 | HIGH | Implement Index - SegmentInfo | go-elite-developer | Create SegmentInfo struct with Name, DocCount, Directory, Files, etc. Metadata about a segment including version and diagnostics. Location: index/segment_info.go |
 | GC-031 | HIGH | Implement Index - SegmentCommitInfo | go-elite-developer | Create SegmentCommitInfo struct wrapping SegmentInfo with DeletionCount, DelGen, FieldInfosGen for commit-specific metadata. Location: index/segment_commit_info.go |
 | GC-032 | HIGH | Implement Index - SegmentInfos | go-elite-developer | Create SegmentInfos struct managing slice of SegmentCommitInfo. Handle generation-based file naming (segments_N). Location: index/segment_infos.go |
 | GC-033 | MEDIUM | Implement Analysis - Attribute interface | go-elite-developer | Create Attribute marker interface for token attributes. Part of Go port of Lucene's attribute system. Location: analysis/attribute.go |
@@ -127,6 +126,7 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 | GC-027 | HIGH | Implement Index - FieldInfos | go-elite-developer | 2026-03-11 | Created FieldInfos struct managing collection of FieldInfo. Thread-safe with sync.RWMutex. Dual indexing byName and byNumber. Aggregate methods: HasProx, HasFreq, HasOffsets, HasDocValues, HasNorms, HasTermVectors. FieldInfosBuilder fluent API. Location: index/field_infos.go |
 | GC-028 | HIGH | Implement Index - IndexOptions enum | go-elite-developer | 2026-03-11 | Created IndexOptions enum with NONE, DOCS, DOCS_AND_FREQS, DOCS_AND_FREQS_AND_POSITIONS, DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS. Includes IsIndexed, HasFreqs, HasPositions, HasOffsets methods. Location: index/index_options.go |
 | GC-029 | HIGH | Implement Index - DocValuesType enum | go-elite-developer | 2026-03-11 | Created DocValuesType enum with NONE, NUMERIC, BINARY, SORTED, SORTED_SET, SORTED_NUMERIC. Includes HasDocValues, IsSorted, IsMultiValued methods. Location: index/doc_values_type.go |
+| GC-030 | HIGH | Implement Index - SegmentInfo | go-elite-developer | 2026-03-11 | Created SegmentInfo struct with name, docCount, directory, files, version, codec, isCompoundFile. Diagnostics and attributes maps. Index sort support with Sort, SortField, SortType. SegmentInfoList with aggregate methods. Location: index/segment_info.go |
 
 ## Implementation Phases
 
