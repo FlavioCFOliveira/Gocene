@@ -31,6 +31,9 @@ type IndexOutput interface {
 
 	// GetName returns the name of the file being written.
 	GetName() string
+
+	// Close closes this IndexOutput, releasing any resources.
+	Close() error
 }
 
 // DataOutput defines the interface for writing basic data types.
