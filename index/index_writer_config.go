@@ -20,14 +20,6 @@ const (
 	CREATE_OR_APPEND
 )
 
-// IndexDeletionPolicy controls keeping/deleting commits.
-type IndexDeletionPolicy interface {
-	// OnCommit is called when a commit is made.
-	OnCommit(commits []*IndexCommit) error
-	// OnInit is called when IndexWriter is initialized.
-	OnInit(commits []*IndexCommit) error
-}
-
 // IndexWriterConfig holds configuration for IndexWriter.
 type IndexWriterConfig struct {
 	openMode               OpenMode
