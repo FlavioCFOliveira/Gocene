@@ -16,6 +16,9 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 
 | ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | ACTIONABLE TECHNICAL DESCRIPTION |
 | :--- | :--- | :--- | :--- | :--- | :--- |
+| GC-080 | LOW | LOW | Implement Document - Numeric fields | go-elite-developer | Create IntField, LongField, FloatField, DoubleField with corresponding Point types for numeric indexing. **BLOCKED** - requires Point indexing (BKD Tree). Location: document/int_field.go, document/long_field.go, document/float_field.go, document/double_field.go |
+| GC-081 | LOW | LOW | Implement Document - DocValues fields | go-elite-developer | Create NumericDocValuesField, BinaryDocValuesField, SortedDocValuesField, SortedSetDocValuesField types. **BLOCKED** - requires DocValues format. Location: document/numeric_doc_values_field.go, document/binary_doc_values_field.go, document/sorted_doc_values_field.go, document/sorted_set_doc_values_field.go |
+| GC-104 | LOW | LOW | Implement Search - MoreLikeThis | go-elite-developer | Create MoreLikeThis for finding similar documents based on term frequency analysis. **BLOCKED** - requires Term vectors. Location: search/more_like_this.go |
 
 ---
 
