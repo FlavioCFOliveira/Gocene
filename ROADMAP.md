@@ -2,7 +2,7 @@
 
 **Project:** Gocene - Apache Lucene Port to Go
 **Module:** `github.com/FlavioCFOliveira/Gocene`
-**Last Updated:** 2026-03-12
+**Last Updated:** 2026-03-13
 
 ---
 
@@ -16,12 +16,6 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 
 | ID | SEVERITY | TASK | SPECIALISTS | ACTIONABLE TECHNICAL DESCRIPTION |
 | :--- | :--- | :--- | :--- | :--- |
-| GC-068 | LOW | Implement Codec - Codec base class | go-elite-developer | Create Codec struct with ForName, GetDefault methods. Abstracts index format encoding/decoding. Location: codecs/codec.go |
-| GC-069 | LOW | Implement Codec - PostingsFormat | go-elite-developer | Create PostingsFormat with FieldsConsumer, FieldsProducer methods for encoding/decoding postings. Location: codecs/postings_format.go |
-| GC-070 | LOW | Implement Codec - StoredFieldsFormat | go-elite-developer | Create StoredFieldsFormat with FieldsReader, FieldsWriter methods for stored field storage. Location: codecs/stored_fields_format.go |
-| GC-071 | LOW | Implement Codec - FieldInfosFormat | go-elite-developer | Create FieldInfosFormat with Read, Write methods for field metadata persistence. Location: codecs/field_infos_format.go |
-| GC-072 | LOW | Implement Codec - SegmentInfoFormat | go-elite-developer | Create SegmentInfoFormat with Read, Write methods for segment metadata persistence. Location: codecs/segment_info_format.go |
-| GC-073 | LOW | Implement Codec - Lucene104Codec | go-elite-developer | Create Lucene104Codec as default codec implementation. Combines all format implementations. Location: codecs/lucene104_codec.go |
 | GC-074 | LOW | Implement Index - MergePolicy | go-elite-developer | Create MergePolicy abstract base with FindMerges, FindForcedMerges, UseCompoundFile methods. Controls segment merging. Location: index/merge_policy.go |
 | GC-075 | LOW | Implement Index - TieredMergePolicy | go-elite-developer | Implement TieredMergePolicy as default merge policy. Groups similar-sized segments for efficient merging. Location: index/tiered_merge_policy.go |
 | GC-076 | LOW | Implement Index - MergeScheduler | go-elite-developer | Create MergeScheduler abstract base with Merge, Close methods. Schedules background merges. Location: index/merge_scheduler.go |
@@ -126,6 +120,12 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 | GC-064 | MEDIUM | Implement Search - TopDocsCollector | go-elite-developer | 2026-03-12 | Created TopDocsCollector extending Collector for collecting top-N documents by score. Location: search/top_docs_collector.go |
 | GC-065 | MEDIUM | Implement Search - Similarity base | go-elite-developer | 2026-03-12 | Created Similarity abstract base with ComputeNorm, ComputeWeight methods. Entry point for scoring customization. Location: search/similarity.go |
 | GC-066 | MEDIUM | Implement Search - BM25Similarity | go-elite-developer | 2026-03-12 | Implemented BM25Similarity as default scoring algorithm with configurable k1 and b parameters. Location: search/bm25_similarity.go |
+| GC-073 | LOW | Implement Codec - Lucene104Codec | go-elite-developer | 2026-03-13 | Created Lucene104Codec as default codec implementation. Combines all format implementations with proper codec registration. Location: codecs/lucene104_codec.go |
+| GC-072 | LOW | Implement Codec - SegmentInfosFormat | go-elite-developer | 2026-03-13 | Created SegmentInfosFormat with Read/Write methods for segment metadata persistence. Full binary serialization with header/footer, user data support. Location: codecs/segment_info_format.go |
+| GC-071 | LOW | Implement Codec - FieldInfosFormat | go-elite-developer | 2026-03-13 | Created FieldInfosFormat with Read/Write methods for field metadata persistence. Binary format with header, field options encoding, attribute serialization. Location: codecs/field_infos_format.go |
+| GC-070 | LOW | Implement Codec - StoredFieldsFormat | go-elite-developer | 2026-03-13 | Created StoredFieldsFormat with FieldsReader, FieldsWriter interfaces and Lucene104StoredFieldsFormat implementation. Stored field storage abstraction. Location: codecs/stored_fields_format.go |
+| GC-069 | LOW | Implement Codec - PostingsFormat | go-elite-developer | 2026-03-13 | Created PostingsFormat with FieldsConsumer, FieldsProducer interfaces and Lucene104PostingsFormat implementation. Segment read/write state support. Location: codecs/postings_format.go |
+| GC-068 | LOW | Implement Codec - Codec base class | go-elite-developer | 2026-03-13 | Created Codec interface with ForName, GetDefault methods. Added CodecRegistry for codec management with thread-safe registration/lookup. Location: codecs/codec.go |
 | GC-066 | MEDIUM | Implement Search - BM25Similarity | go-elite-developer | 2026-03-12 | Implemented BM25Similarity as default scoring algorithm with configurable k1 and b parameters. Location: search/bm25_similarity.go |
 | GC-065 | MEDIUM | Implement Search - Similarity base | go-elite-developer | 2026-03-12 | Created Similarity abstract base with ComputeNorm, ComputeWeight methods. Entry point for scoring customization. Location: search/similarity.go |
 | GC-064 | MEDIUM | Implement Search - TopDocsCollector | go-elite-developer | 2026-03-12 | Created TopDocsCollector extending Collector for collecting top-N documents by score. Location: search/top_docs_collector.go |
@@ -158,6 +158,12 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 | GC-037 | MEDIUM | Implement Analysis - TokenFilter | go-elite-developer | 2026-03-12 | Created TokenFilter extending TokenStream wrapping another TokenStream. Base for filters that modify token stream. Location: analysis/token_filter.go |
 | GC-036 | MEDIUM | Implement Analysis - Tokenizer | go-elite-developer | 2026-03-12 | Created Tokenizer extending TokenStream with SetReader, Close, Reset methods. Base for tokenizers that process Reader input. Location: analysis/tokenizer.go |
 | GC-035 | MEDIUM | Implement Analysis - TokenStream | go-elite-developer | 2026-03-12 | Created TokenStream abstract base with AttributeSource, IncrementToken, End, Close methods. Core analysis pipeline component. Location: analysis/token_stream.go |
+| GC-073 | LOW | Implement Codec - Lucene104Codec | go-elite-developer | 2026-03-13 | Created Lucene104Codec as default codec implementation combining all format implementations. Includes postings, stored fields, field infos, and segment infos formats. Location: codecs/lucene104_codec.go |
+| GC-072 | LOW | Implement Codec - SegmentInfoFormat | go-elite-developer | 2026-03-13 | Created Lucene104SegmentInfosFormat with Read/Write methods for segment metadata persistence. Supports automatic segments file discovery and full segment commit info serialization. Location: codecs/segment_info_format.go |
+| GC-071 | LOW | Implement Codec - FieldInfosFormat | go-elite-developer | 2026-03-13 | Created Lucene104FieldInfosFormat with Read/Write methods for field metadata persistence. Implements binary format with header, field metadata, attributes, and checksum. Location: codecs/field_infos_format.go |
+| GC-070 | LOW | Implement Codec - StoredFieldsFormat | go-elite-developer | 2026-03-13 | Created StoredFieldsFormat with FieldsReader, FieldsWriter interfaces for stored field storage. Lucene104StoredFieldsFormat placeholder implementation. Location: codecs/stored_fields_format.go |
+| GC-069 | LOW | Implement Codec - PostingsFormat | go-elite-developer | 2026-03-13 | Created PostingsFormat with FieldsConsumer, FieldsProducer interfaces for encoding/decoding postings. Lucene104PostingsFormat placeholder implementation. Location: codecs/postings_format.go |
+| GC-068 | LOW | Implement Codec - Codec base class | go-elite-developer | 2026-03-13 | Created Codec interface with registry pattern. Implements ForName, GetDefault, RegisterCodec, AvailableCodecs. Auto-registers Lucene104 as default codec. Location: codecs/codec.go |
 | GC-034 | MEDIUM | Implement Analysis - AttributeSource | go-elite-developer | 2026-03-12 | Created AttributeSource struct managing map[reflect.Type]Attribute with AddAttribute, GetAttribute, ClearAttributes methods. Location: analysis/attribute_source.go |
 | GC-033 | MEDIUM | Implement Analysis - Attribute interface | go-elite-developer | 2026-03-12 | Created Attribute marker interface for token attributes. Part of Go port of Lucene's attribute system. Location: analysis/attribute.go |
 
