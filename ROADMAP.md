@@ -2,7 +2,7 @@
 
 **Project:** Gocene - Apache Lucene Port to Go
 **Module:** `github.com/FlavioCFOliveira/Gocene`
-**Last Updated:** 2026-03-20
+**Last Updated:** 2026-03-12
 
 ---
 
@@ -14,10 +14,7 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 
 ## PENDING TASKS
 
-| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | ACTIONABLE TECHNICAL DESCRIPTION |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| GC-081 | LOW | LOW | Implement Document - DocValues fields | go-elite-developer | Create NumericDocValuesField, BinaryDocValuesField, SortedDocValuesField, SortedSetDocValuesField types. **READY** - GC-106 completed. Location: document/numeric_doc_values_field.go, document/binary_doc_values_field.go, document/sorted_doc_values_field.go, document/sorted_set_doc_values_field.go |
-| GC-104 | LOW | LOW | Implement Search - MoreLikeThis | go-elite-developer | Create MoreLikeThis for finding similar documents based on term frequency analysis. **READY** - GC-108 completed. Location: search/more_like_this.go |
+*No pending tasks. All planned tasks have been completed.*
 
 ---
 
@@ -100,11 +97,15 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 **Dependencies:** Phases 8, 10, 11 (Query implementations must be complete)
 **Status:** BLOCKED until query types are implemented
 
-### Phase 14: Advanced Features (In Progress)
-**Tasks:** GC-081, GC-104
+### Phase 14: Advanced Features
+**Status:** COMPLETED | **Tasks:** 2 | **Completed:** 2026-03-20
 **Focus:** DocValues fields, MoreLikeThis
 **Dependencies:** Phase 15 (Infrastructure completed)
-**Status:** IN PROGRESS - GC-080 completed, GC-081 and GC-104 ready for implementation
+
+| Task ID | Task Name | Specialists | SEVERITY | PRIORITY |
+|:--------|:----------|:------------|:---------|:---------|
+| GC-081 | DocValues Fields | go-elite-developer | LOW | LOW |
+| GC-104 | MoreLikeThis | go-elite-developer | LOW | LOW |
 
 ### Phase 15: Infrastructure Development
 **Tasks:** GC-106, GC-107, GC-108
