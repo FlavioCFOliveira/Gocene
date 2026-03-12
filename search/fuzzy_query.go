@@ -67,3 +67,55 @@ func (q *FuzzyQuery) MaxExpansions() int {
 func (q *FuzzyQuery) TranspositionsAllowed() bool {
 	return q.transpositions
 }
+
+// Clone creates a copy of this query.
+func (q *FuzzyQuery) Clone() Query {
+	if q.term == nil {
+		return &FuzzyQuery{
+			BaseQuery:      &BaseQuery{},
+			term:           nil,
+			maxEdits:       q.maxEdits,
+			prefixLength:   q.prefixLength,
+			maxExpansions:  q.maxExpansions,
+			transpositions: q.transpositions,
+		}
+	}
+	return &FuzzyQuery{
+		BaseQuery:      &BaseQuery{},
+		term:           q.term.Clone(),
+		maxEdits:       q.maxEdits,
+		prefixLength:   q.prefixLength,
+		maxExpansions:  q.maxExpansions,
+		transpositions: q.transpositions,
+	}
+}
+
+// Equals checks if this query equals another.
+func (q *FuzzyQuery) Equals(other Query) bool {
+	if o, ok := other.(*FuzzyQuery); ok {
+		if q.maxEdits != o.maxEdits || q.prefixLength != o.prefixLength ||
+			q.maxExpansions != o.maxExpansions || q.transpositions != o.transpositions {
+			return false
+		}
+		if q.term == nil || o.term == nil {
+			return q.term == nil && o.term == nil
+		}
+		return q.term.Equals(o.term)
+	}
+	return false
+}
+
+// HashCode returns a hash code for this query.
+func (q *FuzzyQuery) HashCode() int {
+	hash := 0
+	if q.term != nil {
+		hash = q.term.HashCode()
+	}
+	hash = hash*31 + q.maxEdits
+	hash = hash*31 + q.prefixLength
+	hash = hash*31 + q.maxExpansions
+	if q.transpositions {
+		hash = hash*31 + 1
+	}
+	return hash
+}

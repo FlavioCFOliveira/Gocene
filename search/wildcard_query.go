@@ -44,3 +44,36 @@ func (q *WildcardQuery) Pattern() []byte {
 	}
 	return nil
 }
+
+// Clone creates a copy of this query.
+func (q *WildcardQuery) Clone() Query {
+	if q.term == nil {
+		return &WildcardQuery{
+			BaseQuery: &BaseQuery{},
+			term:      nil,
+		}
+	}
+	return &WildcardQuery{
+		BaseQuery: &BaseQuery{},
+		term:      q.term.Clone(),
+	}
+}
+
+// Equals checks if this query equals another.
+func (q *WildcardQuery) Equals(other Query) bool {
+	if o, ok := other.(*WildcardQuery); ok {
+		if q.term == nil || o.term == nil {
+			return q.term == nil && o.term == nil
+		}
+		return q.term.Equals(o.term)
+	}
+	return false
+}
+
+// HashCode returns a hash code for this query.
+func (q *WildcardQuery) HashCode() int {
+	if q.term != nil {
+		return q.term.HashCode()
+	}
+	return 0
+}

@@ -29,3 +29,42 @@ func (q *BoostQuery) Query() Query {
 func (q *BoostQuery) Boost() float32 {
 	return q.boost
 }
+
+// Clone creates a copy of this query.
+func (q *BoostQuery) Clone() Query {
+	if q.query == nil {
+		return &BoostQuery{
+			BaseQuery: &BaseQuery{},
+			query:     nil,
+			boost:     q.boost,
+		}
+	}
+	return &BoostQuery{
+		BaseQuery: &BaseQuery{},
+		query:     q.query.Clone(),
+		boost:     q.boost,
+	}
+}
+
+// Equals checks if this query equals another.
+func (q *BoostQuery) Equals(other Query) bool {
+	if o, ok := other.(*BoostQuery); ok {
+		if q.boost != o.boost {
+			return false
+		}
+		if q.query == nil || o.query == nil {
+			return q.query == nil && o.query == nil
+		}
+		return q.query.Equals(o.query)
+	}
+	return false
+}
+
+// HashCode returns a hash code for this query.
+func (q *BoostQuery) HashCode() int {
+	hash := 0
+	if q.query != nil {
+		hash = q.query.HashCode()
+	}
+	return hash*31 + int(q.boost*1000)
+}

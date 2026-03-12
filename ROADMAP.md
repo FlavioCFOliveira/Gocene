@@ -20,10 +20,7 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 | GC-079 | LOW | LOW | Implement QueryParser - QueryParserTokenManager | go-elite-developer | Create token manager for query parser using recursive descent or generated lexer. Location: queryparser/query_parser_token_manager.go |
 | GC-080 | LOW | LOW | Implement Document - Numeric fields | go-elite-developer | Create IntField, LongField, FloatField, DoubleField with corresponding Point types for numeric indexing. Location: document/int_field.go, document/long_field.go, document/float_field.go, document/double_field.go |
 | GC-081 | LOW | LOW | Implement Document - DocValues fields | go-elite-developer | Create NumericDocValuesField, BinaryDocValuesField, SortedDocValuesField, SortedSetDocValuesField types. Location: document/numeric_doc_values_field.go, document/binary_doc_values_field.go, document/sorted_doc_values_field.go, document/sorted_set_doc_values_field.go |
-| GC-082 | LOW | LOW | Implement Search - PhraseQuery | go-elite-developer | Create PhraseQuery for exact phrase matching with optional slop parameter. Location: search/phrase_query.go |
-| GC-084 | LOW | LOW | Implement Search - RangeQuery | go-elite-developer | Create TermRangeQuery and PointRangeQuery for range queries on terms and numeric points. Location: search/term_range_query.go, search/point_range_query.go |
-| GC-085 | LOW | LOW | Implement Search - WildcardQuery | go-elite-developer | Create WildcardQuery for wildcard pattern matching (? and *). Location: search/wildcard_query.go |
-| GC-086 | LOW | LOW | Implement Search - FuzzyQuery | go-elite-developer | Create FuzzyQuery for fuzzy/approximate string matching with edit distance parameter. Location: search/fuzzy_query.go |
+| GC-105 | LOW | HIGH | Implementar Cache de Termos | go-elite-developer,go-performance-advisor | Criar cache LRU para termos frequentemente acessados, reduzindo I/O em consultas repetidas. Location: index/term_cache.go |
 | GC-093 | LOW | LOW | Implement Search - DisjunctionMaxQuery | go-elite-developer | Create DisjunctionMaxQuery for disjunction with maximum scoring (useful for searching across fields). Location: search/disjunction_max_query.go |
 | GC-094 | LOW | LOW | Implement Search - BoostQuery | go-elite-developer | Create BoostQuery wrapping another Query with score multiplier. Location: search/boost_query.go |
 | GC-095 | LOW | LOW | Implement Search - ConstantScoreQuery | go-elite-developer | Create ConstantScoreQuery wrapping another Query with constant score. Location: search/constant_score_query.go |
@@ -83,9 +80,18 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 | GC-100 | SimpleAnalyzer | go-elite-developer | LOW | LOW |
 
 ### Phase 10: Complex Query Types
-**Tasks:** GC-082, GC-084, GC-085, GC-086
+**Status:** COMPLETED | **Tasks:** 4 | **Completed:** 2026-03-17
 **Focus:** Advanced query implementations (Phrase, Range, Wildcard, Fuzzy)
 **Dependencies:** Phase 8 (Simple Query Types)
+
+| Task ID | Task Name | Specialists | SEVERITY | PRIORITY |
+|:--------|:----------|:------------|:---------|:---------|
+| GC-082 | PhraseQuery | go-elite-developer | LOW | LOW |
+| GC-084 | TermRangeQuery | go-elite-developer | LOW | LOW |
+| GC-085 | WildcardQuery | go-elite-developer | LOW | LOW |
+| GC-086 | FuzzyQuery | go-elite-developer | LOW | LOW |
+
+**Dependencies:** Phase 8 (GC-087, GC-103, GC-083)
 
 ### Phase 11: Query Wrapper Types
 **Tasks:** GC-093, GC-094, GC-095
@@ -123,7 +129,7 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 | 7 | COMPLETED | GC-074 to GC-077, GC-088 to GC-089, GC-091 to GC-092 | Merge System + Utilities | Phase 6 |
 | 8 | COMPLETED | GC-087, GC-103, GC-083 | Simple Query Types | Phase 5 |
 | 9 | COMPLETED | GC-099 to GC-100 | Additional Analysis | Phase 3 |
-| 10 | PENDING | GC-082, GC-084 to GC-086 | Complex Query Types | Phase 8 |
+| 10 | COMPLETED | GC-082, GC-084 to GC-086 | Complex Query Types | Phase 8 |
 | 11 | PENDING | GC-093 to GC-095 | Query Wrapper Types | Phase 8 |
 | 12 | PENDING | GC-096 | Alternative Similarity | Phase 5 |
 | 13 | PENDING | GC-078 to GC-079 | QueryParser | Phases 8, 10, 11 |

@@ -50,3 +50,43 @@ func (q *PhraseQuery) SetSlop(slop int) {
 func (q *PhraseQuery) AddTerm(term *index.Term) {
 	q.terms = append(q.terms, term)
 }
+
+// Clone creates a copy of this query.
+func (q *PhraseQuery) Clone() Query {
+	clonedTerms := make([]*index.Term, len(q.terms))
+	for i, term := range q.terms {
+		clonedTerms[i] = term.Clone()
+	}
+	return &PhraseQuery{
+		BaseQuery: &BaseQuery{},
+		field:     q.field,
+		terms:     clonedTerms,
+		slop:      q.slop,
+	}
+}
+
+// Equals checks if this query equals another.
+func (q *PhraseQuery) Equals(other Query) bool {
+	if o, ok := other.(*PhraseQuery); ok {
+		if q.field != o.field || q.slop != o.slop || len(q.terms) != len(o.terms) {
+			return false
+		}
+		for i, term := range q.terms {
+			if !term.Equals(o.terms[i]) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+// HashCode returns a hash code for this query.
+func (q *PhraseQuery) HashCode() int {
+	hash := 0
+	for _, term := range q.terms {
+		hash = hash*31 + term.HashCode()
+	}
+	hash = hash*31 + q.slop
+	return hash
+}
