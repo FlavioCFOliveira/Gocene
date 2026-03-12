@@ -2,7 +2,7 @@
 
 **Project:** Gocene - Apache Lucene Port to Go
 **Module:** `github.com/FlavioCFOliveira/Gocene`
-**Last Updated:** 2026-03-12
+**Last Updated:** 2026-03-17
 
 ---
 
@@ -21,12 +21,8 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 | GC-080 | LOW | LOW | Implement Document - Numeric fields | go-elite-developer | Create IntField, LongField, FloatField, DoubleField with corresponding Point types for numeric indexing. Location: document/int_field.go, document/long_field.go, document/float_field.go, document/double_field.go |
 | GC-081 | LOW | LOW | Implement Document - DocValues fields | go-elite-developer | Create NumericDocValuesField, BinaryDocValuesField, SortedDocValuesField, SortedSetDocValuesField types. Location: document/numeric_doc_values_field.go, document/binary_doc_values_field.go, document/sorted_doc_values_field.go, document/sorted_set_doc_values_field.go |
 | GC-105 | LOW | HIGH | Implementar Cache de Termos | go-elite-developer,go-performance-advisor | Criar cache LRU para termos frequentemente acessados, reduzindo I/O em consultas repetidas. Location: index/term_cache.go |
-| GC-093 | LOW | LOW | Implement Search - DisjunctionMaxQuery | go-elite-developer | Create DisjunctionMaxQuery for disjunction with maximum scoring (useful for searching across fields). Location: search/disjunction_max_query.go |
-| GC-094 | LOW | LOW | Implement Search - BoostQuery | go-elite-developer | Create BoostQuery wrapping another Query with score multiplier. Location: search/boost_query.go |
-| GC-095 | LOW | LOW | Implement Search - ConstantScoreQuery | go-elite-developer | Create ConstantScoreQuery wrapping another Query with constant score. Location: search/constant_score_query.go |
 | GC-096 | LOW | LOW | Implement Search - ClassicSimilarity | go-elite-developer | Implement ClassicSimilarity with TF/IDF scoring as alternative to BM25. Location: search/classic_similarity.go |
 | GC-104 | LOW | LOW | Implement Search - MoreLikeThis | go-elite-developer | Create MoreLikeThis for finding similar documents based on term frequency analysis. Location: search/more_like_this.go |
-| GC-105 | LOW | HIGH | Implementar Cache de Termos | go-elite-developer,go-performance-advisor | Criar cache LRU para termos frequentemente acessados, reduzindo I/O em consultas repetidas. Location: index/term_cache.go |
 
 ---
 
@@ -130,7 +126,7 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 | 8 | COMPLETED | GC-087, GC-103, GC-083 | Simple Query Types | Phase 5 |
 | 9 | COMPLETED | GC-099 to GC-100 | Additional Analysis | Phase 3 |
 | 10 | COMPLETED | GC-082, GC-084 to GC-086 | Complex Query Types | Phase 8 |
-| 11 | PENDING | GC-093 to GC-095 | Query Wrapper Types | Phase 8 |
+| 11 | COMPLETED | GC-093 to GC-095 | Query Wrapper Types | Phase 8 |
 | 12 | PENDING | GC-096 | Alternative Similarity | Phase 5 |
 | 13 | PENDING | GC-078 to GC-079 | QueryParser | Phases 8, 10, 11 |
 | 14 | BLOCKED | GC-080 to GC-081, GC-104 | Advanced Features | Infrastructure |
