@@ -20,7 +20,6 @@ Tasks for porting Apache Lucene test suite to ensure byte-level compatibility.
 
 | ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | ACTIONABLE TECHNICAL DESCRIPTION |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| GC-115 | HIGH | HIGH | Index Tests - IndexWriter Error Handling | lucene-test-analyzer, go-elite-developer | Port TestIndexWriterOnDiskFull, TestIndexWriterOnError, TestIndexWriterOutOfFileDescriptors, TestIndexWriterLockRelease. Test error recovery, resource exhaustion handling. Files: index/index_writer_test.go |
 | GC-116 | HIGH | HIGH | Index Tests - IndexWriter Merging | lucene-test-analyzer, go-elite-developer | Port TestIndexWriterMerging, TestIndexWriterForceMerge. Test background merge, force merge policies, merge scheduling. Files: index/index_writer_test.go, index/merge_policy_test.go |
 | GC-117 | HIGH | HIGH | Index Tests - Concurrent Operations | lucene-test-analyzer, go-elite-developer | Port TestIndexWriterWithThreads, TestConcurrentMergeScheduler. Test thread safety, concurrent indexing, merge scheduler behavior. Files: index/concurrent_merge_scheduler_test.go |
 | GC-118 | HIGH | HIGH | Index Tests - DirectoryReader | lucene-test-analyzer, go-elite-developer | Port TestDirectoryReaderReopen, TestFilterDirectoryReader, TestSegmentReader. Test reader reopening, atomic updates, filter wrapping. Files: index/directory_reader_test.go |
@@ -69,6 +68,7 @@ Tasks for porting Apache Lucene test suite to ensure byte-level compatibility.
 | ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | COMPLETED | ACTIONABLE TECHNICAL DESCRIPTION |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | GC-114 | HIGH | HIGH | Index Tests - IndexWriter Core | lucene-test-analyzer, go-elite-developer | 2026-03-20 | Port comprehensive TestIndexWriter suite. Test IndexWriter creation, close, commit, document counting (NumDocs/MaxDoc), configuration options (RAM buffer, merge policy, open modes), FSDirectory integration. Added tests for AddDocument, UpdateDocument, DeleteDocuments, and complete workflows. Files: index/index_writer_test.go |
+| GC-115 | HIGH | HIGH | Index Tests - IndexWriter Error Handling | lucene-test-analyzer, go-elite-developer | 2026-03-20 | Port TestIndexWriterOnDiskFull, TestIndexWriterOnError, TestIndexWriterOutOfFileDescriptors, TestIndexWriterLockRelease. Test disk full scenarios, general error recovery, resource exhaustion handling, lock release on close/error. Added errorInjectorDirectory test helper for simulating directory failures. Files: index/index_writer_error_test.go |
 
 ---
 
@@ -228,14 +228,14 @@ Tasks for porting Apache Lucene test suite to ensure byte-level compatibility.
 ---
 
 #### Phase 16.2: Index Tests
-**Status:** IN_PROGRESS | **Tasks:** 9 | **Started:** 2026-03-20
+**Status:** IN_PROGRESS | **Tasks:** 9 (2 completed) | **Started:** 2026-03-20
 **Focus:** Port Apache Lucene Index tests for byte-level compatibility
 **Dependencies:** Phase 4, 6, 7, 14, 15 (Index, Codec, Merge, DocValues implementations)
 
 | Task ID | Task Name | Status | Specialists | SEVERITY | PRIORITY |
 |:--------|:----------|:-------|:------------|:---------|:---------|
 | GC-114 | Index Tests - IndexWriter Core | COMPLETED | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
-| GC-115 | Index Tests - IndexWriter Error Handling | IN_PROGRESS | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-115 | Index Tests - IndexWriter Error Handling | COMPLETED | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
 | GC-116 | Index Tests - IndexWriter Merging | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
 | GC-117 | Index Tests - Concurrent Operations | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
 | GC-118 | Index Tests - DirectoryReader | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
