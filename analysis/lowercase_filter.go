@@ -33,9 +33,13 @@ func NewLowerCaseFilter(input TokenStream) *LowerCaseFilter {
 // getTermAttr retrieves the CharTermAttribute from the input.
 func (f *LowerCaseFilter) getTermAttr() CharTermAttribute {
 	if f.termAttr == nil {
-		if bs, ok := f.input.(*BaseTokenStream); ok {
-			f.termAttr = bs.GetAttributeSource().GetAttributeByType(
-				reflect.TypeOf(&charTermAttribute{})).(CharTermAttribute)
+		// Check if input has GetAttributeSource method
+		if hasAttrSrc, ok := f.input.(interface{ GetAttributeSource() *AttributeSource }); ok {
+			attr := hasAttrSrc.GetAttributeSource().GetAttributeByType(
+				reflect.TypeOf(&charTermAttribute{}))
+			if cta, ok := attr.(CharTermAttribute); ok {
+				f.termAttr = cta
+			}
 		}
 	}
 	return f.termAttr
@@ -49,6 +53,11 @@ func (f *LowerCaseFilter) IncrementToken() (bool, error) {
 	}
 	if !hasToken {
 		return false, nil
+	}
+
+	// Ensure we have the term attribute
+	if f.termAttr == nil {
+		f.getTermAttr()
 	}
 
 	// Convert the token to lowercase
