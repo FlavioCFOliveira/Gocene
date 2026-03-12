@@ -37,7 +37,7 @@ type BaseTokenFilter struct {
 func NewBaseTokenFilter(input TokenStream) *BaseTokenFilter {
 	return &BaseTokenFilter{
 		BaseTokenStream: *NewBaseTokenStream(),
-		input:         input,
+		input:           input,
 	}
 }
 

@@ -10,11 +10,11 @@ import "sort"
 type TieredMergePolicy struct {
 	*BaseMergePolicy
 
-	maxMergeAtOnce       int
+	maxMergeAtOnce         int
 	maxMergeAtOnceExplicit int
-	maxMergedSegmentMB   int64
-	floorSegmentMB       int64
-	tierExponent         float64
+	maxMergedSegmentMB     int64
+	floorSegmentMB         int64
+	tierExponent           float64
 }
 
 // NewTieredMergePolicy creates a new TieredMergePolicy with default settings.

@@ -6,8 +6,8 @@ package search
 
 // ScoreDoc represents a scored document.
 type ScoreDoc struct {
-	Doc       int
-	Score     float32
+	Doc        int
+	Score      float32
 	ShardIndex int
 }
 

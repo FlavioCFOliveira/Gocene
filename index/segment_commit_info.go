@@ -55,8 +55,8 @@ type SegmentCommitInfo struct {
 func NewSegmentCommitInfo(segmentInfo *SegmentInfo, delCount int, delGen int64) *SegmentCommitInfo {
 	return &SegmentCommitInfo{
 		segmentInfo:   segmentInfo,
-		delCount:    delCount,
-		softDelCount: 0,
+		delCount:      delCount,
+		softDelCount:  0,
 		delGen:        delGen,
 		fieldInfosGen: -1,
 		docValuesGen:  -1,

@@ -45,8 +45,8 @@ type BaseTokenizer struct {
 func NewBaseTokenizer() *BaseTokenizer {
 	return &BaseTokenizer{
 		BaseTokenStream: *NewBaseTokenStream(),
-		input:         nil,
-		inputFinished: false,
+		input:           nil,
+		inputFinished:   false,
 	}
 }
 
