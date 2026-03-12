@@ -2,7 +2,7 @@
 
 **Project:** Gocene - Apache Lucene Port to Go
 **Module:** `github.com/FlavioCFOliveira/Gocene`
-**Last Updated:** 2026-03-17
+**Last Updated:** 2026-03-18
 
 ---
 
@@ -16,8 +16,6 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 
 | ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | ACTIONABLE TECHNICAL DESCRIPTION |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| GC-078 | LOW | LOW | Implement QueryParser - QueryParser base | go-elite-developer | Create QueryParser for classic Lucene query syntax. Parse text queries into Query objects. Location: queryparser/query_parser.go |
-| GC-079 | LOW | LOW | Implement QueryParser - QueryParserTokenManager | go-elite-developer | Create token manager for query parser using recursive descent or generated lexer. Location: queryparser/query_parser_token_manager.go |
 | GC-080 | LOW | LOW | Implement Document - Numeric fields | go-elite-developer | Create IntField, LongField, FloatField, DoubleField with corresponding Point types for numeric indexing. Location: document/int_field.go, document/long_field.go, document/float_field.go, document/double_field.go |
 | GC-081 | LOW | LOW | Implement Document - DocValues fields | go-elite-developer | Create NumericDocValuesField, BinaryDocValuesField, SortedDocValuesField, SortedSetDocValuesField types. Location: document/numeric_doc_values_field.go, document/binary_doc_values_field.go, document/sorted_doc_values_field.go, document/sorted_set_doc_values_field.go |
 | GC-105 | LOW | HIGH | Implementar Cache de Termos | go-elite-developer,go-performance-advisor | Criar cache LRU para termos frequentemente acessados, reduzindo I/O em consultas repetidas. Location: index/term_cache.go |
@@ -127,7 +125,7 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 | 10 | COMPLETED | GC-082, GC-084 to GC-086 | Complex Query Types | Phase 8 |
 | 11 | COMPLETED | GC-093 to GC-095 | Query Wrapper Types | Phase 8 |
 | 12 | COMPLETED | GC-096 | Alternative Similarity | Phase 5 |
-| 13 | PENDING | GC-078 to GC-079 | QueryParser | Phases 8, 10, 11 |
+| 13 | COMPLETED | GC-078 to GC-079 | QueryParser | Phases 8, 10, 11 |
 | 14 | BLOCKED | GC-080 to GC-081, GC-104 | Advanced Features | Infrastructure |
 
 ---
