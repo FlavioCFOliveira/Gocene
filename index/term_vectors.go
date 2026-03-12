@@ -283,9 +283,14 @@ func FilterTermVector(tv *TermVector, mapper TermVectorMapper) *TermVector {
 // BytesToTermVector converts encoded bytes to a TermVector.
 // This is a placeholder for actual serialization.
 func BytesToTermVector(data []byte) (*TermVector, error) {
+	// Check for empty data
+	if len(data) == 0 {
+		return nil, fmt.Errorf("empty term vector data")
+	}
+
 	// Simple format: field\0term1\0freq1\0term2\0freq2...
 	parts := bytes.Split(data, []byte{0})
-	if len(parts) < 1 {
+	if len(parts) < 1 || (len(parts) == 1 && len(parts[0]) == 0) {
 		return nil, fmt.Errorf("invalid term vector data")
 	}
 
