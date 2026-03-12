@@ -2,7 +2,7 @@
 
 **Project:** Gocene - Apache Lucene Port to Go
 **Module:** `github.com/FlavioCFOliveira/Gocene`
-**Last Updated:** 2026-03-19
+**Last Updated:** 2026-03-20
 
 ---
 
@@ -16,12 +16,8 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 
 | ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | ACTIONABLE TECHNICAL DESCRIPTION |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| GC-080 | LOW | LOW | Implement Document - Numeric fields | go-elite-developer | Create IntField, LongField, FloatField, DoubleField with corresponding Point types for numeric indexing. **READY** - GC-107 completed. Location: document/int_field.go, document/long_field.go, document/float_field.go, document/double_field.go |
 | GC-081 | LOW | LOW | Implement Document - DocValues fields | go-elite-developer | Create NumericDocValuesField, BinaryDocValuesField, SortedDocValuesField, SortedSetDocValuesField types. **READY** - GC-106 completed. Location: document/numeric_doc_values_field.go, document/binary_doc_values_field.go, document/sorted_doc_values_field.go, document/sorted_set_doc_values_field.go |
 | GC-104 | LOW | LOW | Implement Search - MoreLikeThis | go-elite-developer | Create MoreLikeThis for finding similar documents based on term frequency analysis. **READY** - GC-108 completed. Location: search/more_like_this.go |
-| GC-080 | LOW | LOW | Implement Document - Numeric fields | go-elite-developer | Create IntField, LongField, FloatField, DoubleField with corresponding Point types for numeric indexing. **BLOCKED** - requires GC-107 (Point indexing). Location: document/int_field.go, document/long_field.go, document/float_field.go, document/double_field.go |
-| GC-081 | LOW | LOW | Implement Document - DocValues fields | go-elite-developer | Create NumericDocValuesField, BinaryDocValuesField, SortedDocValuesField, SortedSetDocValuesField types. **BLOCKED** - requires GC-106 (DocValues format). Location: document/numeric_doc_values_field.go, document/binary_doc_values_field.go, document/sorted_doc_values_field.go, document/sorted_set_doc_values_field.go |
-| GC-104 | LOW | LOW | Implement Search - MoreLikeThis | go-elite-developer | Create MoreLikeThis for finding similar documents based on term frequency analysis. **BLOCKED** - requires GC-108 (Term vectors). Location: search/more_like_this.go |
 
 ---
 
@@ -104,11 +100,11 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 **Dependencies:** Phases 8, 10, 11 (Query implementations must be complete)
 **Status:** BLOCKED until query types are implemented
 
-### Phase 14: Advanced Features (Blocked)
-**Tasks:** GC-080, GC-081, GC-104
-**Focus:** Numeric fields with Point indexing, DocValues, MoreLikeThis
-**Dependencies:** Missing infrastructure (Point indexing, DocValues format, Term vectors)
-**Status:** BLOCKED - requires Phase 15 completion
+### Phase 14: Advanced Features (In Progress)
+**Tasks:** GC-081, GC-104
+**Focus:** DocValues fields, MoreLikeThis
+**Dependencies:** Phase 15 (Infrastructure completed)
+**Status:** IN PROGRESS - GC-080 completed, GC-081 and GC-104 ready for implementation
 
 ### Phase 15: Infrastructure Development
 **Tasks:** GC-106, GC-107, GC-108
@@ -150,7 +146,7 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 | 11 | COMPLETED | GC-093 to GC-095 | Query Wrapper Types | Phase 8 |
 | 12 | COMPLETED | GC-096 | Alternative Similarity | Phase 5 |
 | 13 | COMPLETED | GC-078 to GC-079 | QueryParser | Phases 8, 10, 11 |
-| 14 | BLOCKED | GC-080 to GC-081, GC-104 | Advanced Features | Infrastructure |
+| 14 | IN_PROGRESS | GC-081, GC-104 | Advanced Features | Phase 15 |
 | 15 | IN_PROGRESS | GC-106 to GC-108 | Infrastructure Development | Phase 6 |
 | 15 | PENDING | GC-106 to GC-108 | Infrastructure Development | Phases 2-13 |
 
