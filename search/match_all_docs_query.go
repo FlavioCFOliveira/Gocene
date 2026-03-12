@@ -15,3 +15,19 @@ func NewMatchAllDocsQuery() *MatchAllDocsQuery {
 		BaseQuery: &BaseQuery{},
 	}
 }
+
+// Clone creates a copy of this query.
+func (q *MatchAllDocsQuery) Clone() Query {
+	return NewMatchAllDocsQuery()
+}
+
+// Equals checks if this query equals another.
+func (q *MatchAllDocsQuery) Equals(other Query) bool {
+	_, ok := other.(*MatchAllDocsQuery)
+	return ok
+}
+
+// HashCode returns a hash code for this query.
+func (q *MatchAllDocsQuery) HashCode() int {
+	return 0
+}
