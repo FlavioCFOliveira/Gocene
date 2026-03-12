@@ -31,7 +31,17 @@ func NewFuzzyQuery(term *index.Term) *FuzzyQuery {
 	}
 }
 
-// NewFuzzyQueryWithParams creates a FuzzyQuery with custom parameters.
+// NewFuzzyQueryWithMaxEdits creates a FuzzyQuery with specified max edits.
+func NewFuzzyQueryWithMaxEdits(term *index.Term, maxEdits int) *FuzzyQuery {
+	return &FuzzyQuery{
+		BaseQuery:      &BaseQuery{},
+		term:           term,
+		maxEdits:       maxEdits,
+		prefixLength:   0,
+		maxExpansions:  50,
+		transpositions: true,
+	}
+}
 func NewFuzzyQueryWithParams(term *index.Term, maxEdits, prefixLength, maxExpansions int) *FuzzyQuery {
 	return &FuzzyQuery{
 		BaseQuery:      &BaseQuery{},

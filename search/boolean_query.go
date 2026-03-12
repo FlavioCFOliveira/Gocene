@@ -81,3 +81,28 @@ func (q *BooleanQuery) SetMinimumNumberShouldMatch(min int) {
 func (q *BooleanQuery) MinimumNumberShouldMatch() int {
 	return q.minShouldMatch
 }
+
+// NewBooleanQueryOrWithQueries creates a BooleanQuery with OR semantics.
+func NewBooleanQueryOrWithQueries(queries ...Query) *BooleanQuery {
+	bq := NewBooleanQuery()
+	for _, q := range queries {
+		bq.Add(q, SHOULD)
+	}
+	return bq
+}
+
+// NewBooleanQueryAndWithQueries creates a BooleanQuery with AND semantics.
+func NewBooleanQueryAndWithQueries(queries ...Query) *BooleanQuery {
+	bq := NewBooleanQuery()
+	for _, q := range queries {
+		bq.Add(q, MUST)
+	}
+	return bq
+}
+
+// NewBooleanQueryNotWithQuery creates a BooleanQuery with NOT semantics.
+func NewBooleanQueryNotWithQuery(query Query) *BooleanQuery {
+	bq := NewBooleanQuery()
+	bq.Add(query, MUST_NOT)
+	return bq
+}
