@@ -2,7 +2,7 @@
 
 **Project:** Gocene - Apache Lucene Port to Go
 **Module:** `github.com/FlavioCFOliveira/Gocene`
-**Last Updated:** 2026-03-15
+**Last Updated:** 2026-03-16
 
 ---
 
@@ -21,11 +21,9 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 | GC-080 | LOW | LOW | Implement Document - Numeric fields | go-elite-developer | Create IntField, LongField, FloatField, DoubleField with corresponding Point types for numeric indexing. Location: document/int_field.go, document/long_field.go, document/float_field.go, document/double_field.go |
 | GC-081 | LOW | LOW | Implement Document - DocValues fields | go-elite-developer | Create NumericDocValuesField, BinaryDocValuesField, SortedDocValuesField, SortedSetDocValuesField types. Location: document/numeric_doc_values_field.go, document/binary_doc_values_field.go, document/sorted_doc_values_field.go, document/sorted_set_doc_values_field.go |
 | GC-082 | LOW | LOW | Implement Search - PhraseQuery | go-elite-developer | Create PhraseQuery for exact phrase matching with optional slop parameter. Location: search/phrase_query.go |
-| GC-083 | LOW | LOW | Implement Search - PrefixQuery | go-elite-developer | Create PrefixQuery for prefix matching on terms. Location: search/prefix_query.go |
 | GC-084 | LOW | LOW | Implement Search - RangeQuery | go-elite-developer | Create TermRangeQuery and PointRangeQuery for range queries on terms and numeric points. Location: search/term_range_query.go, search/point_range_query.go |
 | GC-085 | LOW | LOW | Implement Search - WildcardQuery | go-elite-developer | Create WildcardQuery for wildcard pattern matching (? and *). Location: search/wildcard_query.go |
 | GC-086 | LOW | LOW | Implement Search - FuzzyQuery | go-elite-developer | Create FuzzyQuery for fuzzy/approximate string matching with edit distance parameter. Location: search/fuzzy_query.go |
-| GC-087 | LOW | LOW | Implement Search - MatchAllDocsQuery | go-elite-developer | Create MatchAllDocsQuery matching all documents in the index. Location: search/match_all_docs_query.go |
 | GC-093 | LOW | LOW | Implement Search - DisjunctionMaxQuery | go-elite-developer | Create DisjunctionMaxQuery for disjunction with maximum scoring (useful for searching across fields). Location: search/disjunction_max_query.go |
 | GC-094 | LOW | LOW | Implement Search - BoostQuery | go-elite-developer | Create BoostQuery wrapping another Query with score multiplier. Location: search/boost_query.go |
 | GC-095 | LOW | LOW | Implement Search - ConstantScoreQuery | go-elite-developer | Create ConstantScoreQuery wrapping another Query with constant score. Location: search/constant_score_query.go |
@@ -34,7 +32,6 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 | GC-098 | LOW | LOW | Implement Analysis - LetterTokenizer | go-elite-developer | Create LetterTokenizer tokenizing sequences of letters. Location: analysis/letter_tokenizer.go |
 | GC-099 | LOW | LOW | Implement Analysis - WhitespaceAnalyzer | go-elite-developer | Create WhitespaceAnalyzer using WhitespaceTokenizer without lowercasing. Location: analysis/whitespace_analyzer.go |
 | GC-100 | LOW | LOW | Implement Analysis - SimpleAnalyzer | go-elite-developer | Create SimpleAnalyzer using LetterTokenizer + LowerCaseFilter. Location: analysis/simple_analyzer.go |
-| GC-103 | LOW | LOW | Implement Search - FieldExistsQuery | go-elite-developer | Create FieldExistsQuery for finding documents with specific field present. Location: search/field_exists_query.go |
 | GC-104 | LOW | LOW | Implement Search - MoreLikeThis | go-elite-developer | Create MoreLikeThis for finding similar documents based on term frequency analysis. Location: search/more_like_this.go |
 
 ---
@@ -43,6 +40,12 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 
 | ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | COMPLETED | ACTIONABLE TECHNICAL DESCRIPTION |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| GC-103 | LOW | LOW | Implement Search - FieldExistsQuery | go-elite-developer | 2026-03-15 | Created FieldExistsQuery for finding documents with specific field present. Implements Query interface with Clone, Equals, HashCode methods. Location: search/field_exists_query.go |
+| GC-087 | LOW | LOW | Implement Search - MatchAllDocsQuery | go-elite-developer | 2026-03-15 | Created MatchAllDocsQuery matching all documents in the index. Implements Query interface with Clone, Equals, HashCode methods returning constant values. Location: search/match_all_docs_query.go |
+| GC-083 | LOW | LOW | Implement Search - PrefixQuery | go-elite-developer | 2026-03-15 | Created PrefixQuery for prefix matching on terms. Wraps a Term with prefix value. Implements Query interface with Clone, Equals, HashCode methods. Location: search/prefix_query.go |
+| GC-103 | LOW | LOW | Implement Search - FieldExistsQuery | go-elite-developer | 2026-03-16 | Created FieldExistsQuery with field name tracking, Clone, Equals, HashCode methods. Location: search/field_exists_query.go |
+| GC-087 | LOW | LOW | Implement Search - MatchAllDocsQuery | go-elite-developer | 2026-03-16 | Created MatchAllDocsQuery with Clone, Equals, HashCode methods for matching all documents. Location: search/match_all_docs_query.go |
+| GC-083 | LOW | LOW | Implement Search - PrefixQuery | go-elite-developer | 2026-03-16 | Created PrefixQuery with prefix term matching, Clone, Equals, HashCode methods. Location: search/prefix_query.go |
 | GC-001 | HIGH | HIGH | Implement Store Layer - Directory abstraction | go-elite-developer | 2026-03-11 | Created Directory interface with ListAll, FileExists, OpenInput, CreateOutput, DeleteFile, ObtainLock, Close methods. Ported Java abstract class to Go interface pattern with BaseDirectory providing common functionality. Location: store/directory.go |
 | GC-002 | HIGH | HIGH | Implement Store Layer - IndexInput | go-elite-developer | 2026-03-11 | Created IndexInput interface with GetFilePointer, Seek, Length, Clone, Slice methods. Includes DataInput with ReadByte, ReadBytes. Implemented ByteArrayDataInput and BufferedIndexInput. Location: store/index_input.go |
 | GC-003 | HIGH | HIGH | Implement Store Layer - IndexOutput | go-elite-developer | 2026-03-11 | Created IndexOutput interface with GetFilePointer, Length, GetName methods. Includes DataOutput with WriteByte, WriteBytes. Implemented ByteArrayDataOutput and BufferedIndexOutput. Added VInt/VLong encoding and IndexOutputWithDigest. Location: store/index_output.go |
@@ -247,7 +250,7 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 | 5 | COMPLETED | GC-053 to GC-067 | Search Framework | Phase 4 |
 | 6 | COMPLETED | GC-068 to GC-073 | Codec System | Phase 4 |
 | 7 | COMPLETED | GC-074 to GC-077, GC-088 to GC-092 | Merge System + Utilities | Phase 6 |
-| 8 | PENDING | GC-087, GC-103, GC-083 | Simple Query Types | Phase 5 |
+| 8 | COMPLETED | GC-087, GC-103, GC-083 | Simple Query Types | Phase 5 |
 | 9 | PENDING | GC-097 to GC-100 | Additional Analysis | Phase 3 |
 | 10 | PENDING | GC-082, GC-084 to GC-086 | Complex Query Types | Phase 8 |
 | 11 | PENDING | GC-093 to GC-095 | Query Wrapper Types | Phase 8 |
