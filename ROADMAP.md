@@ -201,9 +201,17 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 **Focus:** Merge policies, background merging
 
 ### Phase 8: Simple Query Types
-**Tasks:** GC-087, GC-103, GC-083
+**Status:** COMPLETED | **Tasks:** 3 | **Completed:** 2026-03-16
 **Focus:** Basic query implementations building on existing infrastructure
 **Dependencies:** Phase 5 (Search Framework)
+
+| Task ID | Task Name | Specialists | SEVERITY | PRIORITY |
+|:--------|:----------|:------------|:---------|:---------|
+| GC-087 | MatchAllDocsQuery | go-elite-developer | LOW | LOW |
+| GC-103 | FieldExistsQuery | go-elite-developer | LOW | LOW |
+| GC-083 | PrefixQuery | go-elite-developer | LOW | LOW |
+
+**Dependencies:** Phase 5 (GC-053 through GC-067)
 
 ### Phase 9: Additional Analysis Components
 **Tasks:** GC-097 through GC-100
