@@ -34,3 +34,21 @@ func (q *PrefixQuery) GetField() string {
 	}
 	return ""
 }
+
+// Clone creates a copy of this query.
+func (q *PrefixQuery) Clone() Query {
+	return NewPrefixQuery(q.prefix.Clone())
+}
+
+// Equals checks if this query equals another.
+func (q *PrefixQuery) Equals(other Query) bool {
+	if o, ok := other.(*PrefixQuery); ok {
+		return q.prefix.Equals(o.prefix)
+	}
+	return false
+}
+
+// HashCode returns a hash code for this query.
+func (q *PrefixQuery) HashCode() int {
+	return q.prefix.HashCode()
+}
