@@ -98,6 +98,7 @@ func (d *TrackingDirectoryWrapper) DeleteFile(name string) error {
 	d.deletedFiles[name] = size
 	d.totalBytesDeleted += size
 	delete(d.fileSizes, name)
+	delete(d.createdFiles, name)
 
 	return nil
 }

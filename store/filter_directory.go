@@ -105,6 +105,13 @@ func (d *FilterDirectory) EnsureOpen() error {
 	if d.in == nil {
 		return fmt.Errorf("delegate directory is nil")
 	}
+	// Check if the underlying directory has an EnsureOpen method
+	type ensureOpener interface {
+		EnsureOpen() error
+	}
+	if o, ok := d.in.(ensureOpener); ok {
+		return o.EnsureOpen()
+	}
 	return nil
 }
 

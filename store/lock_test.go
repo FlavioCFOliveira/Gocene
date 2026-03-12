@@ -5,6 +5,7 @@
 package store
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -347,4 +348,172 @@ func TestBaseLock(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, tt.fn)
 	}
+}
+
+// TestLockFactoryStress tests lock factory behavior under stress conditions.
+// Ported from: org.apache.lucene.store.TestLockFactory
+func TestLockFactoryStress(t *testing.T) {
+	t.Run("single instance lock factory stress", func(t *testing.T) {
+		factory := NewSingleInstanceLockFactory()
+
+		// Obtain and release many locks
+		for i := 0; i < 100; i++ {
+			lockName := fmt.Sprintf("lock_%d", i)
+			lock, err := factory.ObtainLock(nil, lockName)
+			if err != nil {
+				t.Fatalf("Failed to obtain lock %s: %v", lockName, err)
+			}
+			if err := lock.Close(); err != nil {
+				t.Errorf("Failed to release lock %s: %v", lockName, err)
+			}
+		}
+	})
+
+	t.Run("lock released can be reobtained", func(t *testing.T) {
+		factory := NewSingleInstanceLockFactory()
+
+		// Obtain lock
+		lock1, err := factory.ObtainLock(nil, "reusable.lock")
+		if err != nil {
+			t.Fatalf("Failed to obtain lock: %v", err)
+		}
+
+		// Release lock
+		if err := lock1.Close(); err != nil {
+			t.Fatalf("Failed to release lock: %v", err)
+		}
+
+		// Should be able to obtain same lock again
+		lock2, err := factory.ObtainLock(nil, "reusable.lock")
+		if err != nil {
+			t.Errorf("Should be able to reobtain released lock: %v", err)
+		}
+		if lock2 != nil {
+			lock2.Close()
+		}
+	})
+
+	t.Run("multiple different locks", func(t *testing.T) {
+		factory := NewSingleInstanceLockFactory()
+
+		// Obtain multiple different locks
+		locks := make([]Lock, 10)
+		for i := 0; i < 10; i++ {
+			lockName := fmt.Sprintf("multi_%d.lock", i)
+			lock, err := factory.ObtainLock(nil, lockName)
+			if err != nil {
+				t.Fatalf("Failed to obtain lock %s: %v", lockName, err)
+			}
+			locks[i] = lock
+		}
+
+		// Verify all are locked
+		for i, lock := range locks {
+			if !lock.IsLocked() {
+				t.Errorf("Lock %d should be locked", i)
+			}
+		}
+
+		// Release all
+		for i, lock := range locks {
+			if err := lock.Close(); err != nil {
+				t.Errorf("Failed to release lock %d: %v", i, err)
+			}
+		}
+	})
+}
+
+// TestLockFactoryWithDirectory tests lock factory integration with directories.
+// Ported from: org.apache.lucene.store.TestLockFactory.testDirectoryLocking()
+func TestLockFactoryWithDirectory(t *testing.T) {
+	t.Run("native fs lock with byte buffers directory", func(t *testing.T) {
+		dir := NewByteBuffersDirectory()
+		defer dir.Close()
+
+		// Set NativeFSLockFactory
+		dir.SetLockFactory(NewNativeFSLockFactory())
+
+		// Obtain lock through directory
+		lock, err := dir.ObtainLock("test.lock")
+		if err != nil {
+			t.Fatalf("Failed to obtain lock: %v", err)
+		}
+		if lock == nil {
+			t.Fatal("Expected non-nil lock")
+		}
+		if !lock.IsLocked() {
+			t.Error("Expected lock to be locked")
+		}
+
+		// Release lock
+		if err := lock.Close(); err != nil {
+			t.Errorf("Failed to release lock: %v", err)
+		}
+	})
+
+	t.Run("single instance lock with byte buffers directory", func(t *testing.T) {
+		dir := NewByteBuffersDirectory()
+		defer dir.Close()
+
+		// Set SingleInstanceLockFactory
+		dir.SetLockFactory(NewSingleInstanceLockFactory())
+
+		// Obtain lock
+		lock1, err := dir.ObtainLock("single.lock")
+		if err != nil {
+			t.Fatalf("Failed to obtain first lock: %v", err)
+		}
+
+		// Try to obtain same lock again - should fail
+		_, err = dir.ObtainLock("single.lock")
+		if err == nil {
+			t.Error("Expected error obtaining same lock twice")
+		}
+
+		// Release first lock
+		lock1.Close()
+	})
+}
+
+// TestLockValidity tests lock validity checking.
+// Ported from: org.apache.lucene.store.TestLockFactory
+func TestLockValidity(t *testing.T) {
+	t.Run("native fs lock ensure valid", func(t *testing.T) {
+		lock := &NativeFSLock{
+			BaseLock: NewBaseLock(),
+			name:     "validity.lock",
+			path:     "", // In-memory lock for testing
+		}
+
+		// Should be valid when locked
+		if err := lock.EnsureValid(); err != nil {
+			t.Errorf("Expected no error when locked: %v", err)
+		}
+
+		// Release lock
+		lock.Close()
+
+		// Should be invalid after release
+		if err := lock.EnsureValid(); err == nil {
+			t.Error("Expected error when lock is released")
+		}
+	})
+
+	t.Run("single instance lock ensure valid", func(t *testing.T) {
+		factory := NewSingleInstanceLockFactory()
+		lock, _ := factory.ObtainLock(nil, "validity.lock")
+
+		// Should be valid when locked
+		if err := lock.EnsureValid(); err != nil {
+			t.Errorf("Expected no error when locked: %v", err)
+		}
+
+		// Release lock
+		lock.Close()
+
+		// Should be invalid after release
+		if err := lock.EnsureValid(); err == nil {
+			t.Error("Expected error when lock is released")
+		}
+	})
 }

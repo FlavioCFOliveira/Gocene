@@ -2,7 +2,7 @@
 
 **Project:** Gocene - Apache Lucene Port to Go
 **Module:** `github.com/FlavioCFOliveira/Gocene`
-**Last Updated:** 2026-03-12
+**Last Updated:** 2026-03-20 (Replan realizado)
 
 ---
 
@@ -14,7 +14,61 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 
 ## PENDING TASKS
 
-*No pending tasks. All planned tasks have been completed.*
+### Test Coverage Tasks (Lucene Compatibility)
+
+Tasks for porting Apache Lucene test suite to ensure byte-level compatibility.
+
+| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | ACTIONABLE TECHNICAL DESCRIPTION |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| GC-115 | HIGH | HIGH | Index Tests - IndexWriter Error Handling | lucene-test-analyzer, go-elite-developer | Port TestIndexWriterOnDiskFull, TestIndexWriterOnError, TestIndexWriterOutOfFileDescriptors, TestIndexWriterLockRelease. Test error recovery, resource exhaustion handling. Files: index/index_writer_test.go |
+| GC-116 | HIGH | HIGH | Index Tests - IndexWriter Merging | lucene-test-analyzer, go-elite-developer | Port TestIndexWriterMerging, TestIndexWriterForceMerge. Test background merge, force merge policies, merge scheduling. Files: index/index_writer_test.go, index/merge_policy_test.go |
+| GC-117 | HIGH | HIGH | Index Tests - Concurrent Operations | lucene-test-analyzer, go-elite-developer | Port TestIndexWriterWithThreads, TestConcurrentMergeScheduler. Test thread safety, concurrent indexing, merge scheduler behavior. Files: index/concurrent_merge_scheduler_test.go |
+| GC-118 | HIGH | HIGH | Index Tests - DirectoryReader | lucene-test-analyzer, go-elite-developer | Port TestDirectoryReaderReopen, TestFilterDirectoryReader, TestSegmentReader. Test reader reopening, atomic updates, filter wrapping. Files: index/directory_reader_test.go |
+| GC-119 | MEDIUM | HIGH | Index Tests - DocValues Comprehensive | lucene-test-analyzer, go-elite-developer | Port TestDocValues, TestNumericDocValuesUpdates, TestMultiDocValues. Test all DocValues types, updates, multi-valued fields. Files: index/doc_values_test.go |
+| GC-120 | MEDIUM | HIGH | Index Tests - Term Vectors | lucene-test-analyzer, go-elite-developer | Port TestTermVectors comprehensive suite. Test term vector storage, retrieval, positions, offsets. Files: index/term_vectors_test.go |
+| GC-121 | MEDIUM | HIGH | Index Tests - Terms and Postings | lucene-test-analyzer, go-elite-developer | Port TestTerms comprehensive suite, TestTermsHashPerField. Test term enumeration, postings iteration, term statistics. Files: index/terms_test.go, index/postings_enum_test.go |
+| GC-122 | MEDIUM | MEDIUM | Index Tests - Segment Management | lucene-test-analyzer, go-elite-developer | Port TestIndexingSequenceNumbers, TestIndexFileDeleter, TestIsCurrent. Test segment lifecycle, sequence numbers, index freshness checks. Files: index/segment_infos_test.go |
+| GC-123 | HIGH | HIGH | Search Tests - BooleanQuery | lucene-test-analyzer, go-elite-developer | Port TestBooleanQuery and TestBoolean2 comprehensive suites. Test MUST, SHOULD, MUST_NOT clauses, coordination factors, scoring. Files: search/boolean_query_test.go |
+| GC-124 | HIGH | HIGH | Search Tests - Term and Phrase Queries | lucene-test-analyzer, go-elite-developer | Port TestTermQuery, TestPhraseQuery. Test exact term matching, phrase slop, positional queries. Files: search/term_query_test.go, search/phrase_query_test.go |
+| GC-125 | MEDIUM | HIGH | Search Tests - Range and Prefix Queries | lucene-test-analyzer, go-elite-developer | Port TestTermRangeQuery, TestPrefixRandom. Test range boundaries, prefix matching, multi-term expansion. Files: search/range_query_test.go, search/prefix_query_test.go |
+| GC-126 | MEDIUM | HIGH | Search Tests - Wildcard and Fuzzy | lucene-test-analyzer, go-elite-developer | Port TestWildcardQuery, TestFuzzyQuery. Test pattern matching (? and *), edit distance calculations, Levenshtein automata. Files: search/wildcard_query_test.go, search/fuzzy_query_test.go |
+| GC-127 | MEDIUM | HIGH | Search Tests - IndexSearcher and Collectors | lucene-test-analyzer, go-elite-developer | Port TestIndexSearcher, TestTopDocs, TestSortRandom. Test search execution, top-N collection, sorting. Files: search/index_searcher_test.go, search/top_docs_test.go |
+| GC-128 | MEDIUM | MEDIUM | Search Tests - Similarity Implementations | lucene-test-analyzer, go-elite-developer | Port TestBM25Similarity comprehensive, TestSimilarityProvider, TestBooleanSimilarity. Test scoring algorithms, provider patterns. Files: search/similarity_test.go, search/bm25_similarity_test.go |
+| GC-129 | MEDIUM | MEDIUM | Search Tests - DocValues Queries | lucene-test-analyzer, go-elite-developer | Port TestDocValuesQueries. Test queries against DocValues fields (range, exists, sorting). Files: search/field_exists_query_test.go, search/range_query_test.go |
+| GC-130 | MEDIUM | MEDIUM | Search Tests - Query Rewriting and Combining | lucene-test-analyzer, go-elite-developer | Port TestMultiTermQueryRewrites, TestSynonymQuery, TestCombinedFieldQuery. Test query normalization, rewriting, combined scoring. Files: search/query_test.go |
+| GC-131 | MEDIUM | MEDIUM | Analysis Tests - Core Analyzers | lucene-test-analyzer, go-elite-developer | Port TestAnalyzers, TestCoreFactories. Test standard analyzer behavior, factory patterns. Files: analysis/analyzer_test.go |
+| GC-132 | MEDIUM | MEDIUM | Analysis Tests - Filters | lucene-test-analyzer, go-elite-developer | Port TestStopFilter, TestLowerCaseFilter. Test filtering behavior, attribute handling. Files: analysis/stop_filter_test.go, analysis/lowercase_filter_test.go |
+| GC-133 | MEDIUM | MEDIUM | Analysis Tests - TokenStream Framework | lucene-test-analyzer, go-elite-developer | Port TestTokenStream, TestAttributeSource. Test token stream chaining, attribute persistence, clear/fill operations. Files: analysis/token_stream_test.go, analysis/attribute_source_test.go |
+| GC-134 | MEDIUM | MEDIUM | Analysis Tests - Standard Tokenizer | lucene-test-analyzer, go-elite-developer | Port comprehensive StandardTokenizer tests. Test UAX#29 segmentation, Unicode handling, max token length. Files: analysis/standard_tokenizer_test.go |
+| GC-135 | HIGH | HIGH | Codecs Tests - Codec Utilities | lucene-test-analyzer, go-elite-developer | Port TestCodecUtil. Test codec header/footer, checksum validation, version checking. Files: codecs/codec_util_test.go |
+| GC-136 | HIGH | HIGH | Codecs Tests - FieldInfos Format | lucene-test-analyzer, go-elite-developer | Port TestFieldInfosFormat. Test field info serialization, format compatibility. Files: codecs/field_infos_format_test.go |
+| GC-137 | HIGH | HIGH | Codecs Tests - SegmentInfo Format | lucene-test-analyzer, go-elite-developer | Port TestSegmentInfoFormat. Test segment metadata serialization, version handling. Files: codecs/segment_info_format_test.go |
+| GC-138 | HIGH | HIGH | Codecs Tests - Postings Format | lucene-test-analyzer, go-elite-developer | Port TestPostingsFormat. Test postings list encoding/decoding, skip lists, term frequencies. Files: codecs/postings_format_test.go |
+| GC-139 | MEDIUM | HIGH | Codecs Tests - Stored Fields Format | lucene-test-analyzer, go-elite-developer | Port TestStoredFieldsFormat. Test stored document serialization, compression, field retrieval. Files: codecs/stored_fields_format_test.go |
+| GC-140 | MEDIUM | MEDIUM | Codecs Tests - Lucene99 Format Variants | lucene-test-analyzer, go-elite-developer | Port TestLucene99*Format variants. Test specific Lucene 9.9 format implementations. Files: codecs/lucene99_codec_test.go |
+| GC-141 | MEDIUM | MEDIUM | Document Tests - Numeric Range Fields | lucene-test-analyzer, go-elite-developer | Port TestFloatRange, TestDoubleRange, TestIntRange. Test range field encoding, point values. Files: document/numeric_fields_test.go |
+| GC-142 | LOW | LOW | Document Tests - Spatial and Feature Fields | lucene-test-analyzer, go-elite-developer | Port TestLatLonPoint*, TestXYPoint*, TestFeatureField. Test spatial indexing (if implemented). Skip if spatial features not yet in scope. |
+| GC-143 | MEDIUM | MEDIUM | Integration Tests - Dueling Codecs | lucene-test-analyzer, go-elite-developer | Port TestDuelingCodecs. Cross-validate codec implementations produce identical results. Test interop between different codec versions. Files: index/index_integration_test.go |
+
+---
+
+## COMPLETED TASKS
+
+### Phase 16.1: Store Tests (Completed 2026-03-20)
+
+| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | COMPLETED | ACTIONABLE TECHNICAL DESCRIPTION |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| GC-109 | MEDIUM | HIGH | Store Tests - Directory Implementations | lucene-test-analyzer, go-elite-developer | 2026-03-20 | Port Lucene TestDirectory comprehensive test suite. Test FileSwitchDirectory, FilterDirectory, TrackingDirectoryWrapper. Validate directory listing, file creation/deletion, locking behavior. File: store/directory_test.go |
+| GC-110 | MEDIUM | HIGH | Store Tests - ByteBuffers I/O | lucene-test-analyzer, go-elite-developer | 2026-03-20 | Port TestByteBuffersDataInput and TestByteBuffersDataOutput. Test buffer management, data serialization, edge cases with buffer boundaries. Files: store/byte_buffers_directory_test.go |
+| GC-111 | MEDIUM | MEDIUM | Store Tests - Lock Factory Variants | lucene-test-analyzer, go-elite-developer | 2026-03-20 | Port TestLockFactory variants (SingleInstanceLockFactory, NativeFSLockFactory, SimpleFSLockFactory). Test lock acquisition, release, reentrancy, stress scenarios. Files: store/lock_test.go |
+| GC-112 | MEDIUM | MEDIUM | Store Tests - MMap and NIOFS | lucene-test-analyzer, go-elite-developer | 2026-03-20 | Port TestMultiMMap, TestNRTCachingDirectory, TestMMapDirectory. Test memory-mapped file I/O, cache behavior, large file handling. Files: store/mmap_directory_test.go, store/niofs_directory_test.go |
+| GC-113 | MEDIUM | MEDIUM | Store Tests - Rate Limiting and Buffered I/O | lucene-test-analyzer, go-elite-developer | 2026-03-20 | Port TestRateLimiter, TestBufferedIndexInput, TestInputStreamDataInput. Test throttling, buffered reads, stream conversions. Files: store/index_input_test.go, store/rate_limiter_test.go |
+
+### Phase 16.2: Index Tests (In Progress)
+
+| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | COMPLETED | ACTIONABLE TECHNICAL DESCRIPTION |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| GC-114 | HIGH | HIGH | Index Tests - IndexWriter Core | lucene-test-analyzer, go-elite-developer | 2026-03-20 | Port comprehensive TestIndexWriter suite. Test IndexWriter creation, close, commit, document counting (NumDocs/MaxDoc), configuration options (RAM buffer, merge policy, open modes), FSDirectory integration. Added tests for AddDocument, UpdateDocument, DeleteDocuments, and complete workflows. Files: index/index_writer_test.go |
 
 ---
 
@@ -147,9 +201,123 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 | 11 | COMPLETED | GC-093 to GC-095 | Query Wrapper Types | Phase 8 |
 | 12 | COMPLETED | GC-096 | Alternative Similarity | Phase 5 |
 | 13 | COMPLETED | GC-078 to GC-079 | QueryParser | Phases 8, 10, 11 |
-| 14 | IN_PROGRESS | GC-081, GC-104 | Advanced Features | Phase 15 |
-| 15 | IN_PROGRESS | GC-106 to GC-108 | Infrastructure Development | Phase 6 |
-| 15 | PENDING | GC-106 to GC-108 | Infrastructure Development | Phases 2-13 |
+| 14 | COMPLETED | GC-081, GC-104 | Advanced Features | Phase 15 |
+| 15 | COMPLETED | GC-106 to GC-108 | Infrastructure Development | Phase 6 |
+| 16 | IN_PROGRESS | GC-109 to GC-143 | Test Coverage - Lucene Compatibility | Phases 2-15 |
+
+---
+
+### Phase 16: Test Coverage - Lucene Compatibility
+**Status:** IN_PROGRESS | **Tasks:** 35 | **Started:** 2026-03-20
+**Focus:** Port Apache Lucene Java test suite for byte-level compatibility
+**Dependencies:** Phases 2-15 (All implementation complete)
+
+#### Phase 16.1: Store Tests
+**Status:** COMPLETED | **Tasks:** 5 | **Completed:** 2026-03-20
+
+| Task ID | Task Name | Specialists | SEVERITY | PRIORITY |
+|:--------|:----------|:------------|:---------|:---------|
+| GC-109 | Store Tests - Directory Implementations | lucene-test-analyzer, go-elite-developer | MEDIUM | HIGH |
+| GC-110 | Store Tests - ByteBuffers I/O | lucene-test-analyzer, go-elite-developer | MEDIUM | HIGH |
+| GC-111 | Store Tests - Lock Factory Variants | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+| GC-112 | Store Tests - MMap and NIOFS | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+| GC-113 | Store Tests - Rate Limiting and Buffered I/O | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+
+**Dependencies:** Phase 2-6 (Store, Document, Codec implementations)
+
+---
+
+#### Phase 16.2: Index Tests
+**Status:** IN_PROGRESS | **Tasks:** 9 | **Started:** 2026-03-20
+**Focus:** Port Apache Lucene Index tests for byte-level compatibility
+**Dependencies:** Phase 4, 6, 7, 14, 15 (Index, Codec, Merge, DocValues implementations)
+
+| Task ID | Task Name | Status | Specialists | SEVERITY | PRIORITY |
+|:--------|:----------|:-------|:------------|:---------|:---------|
+| GC-114 | Index Tests - IndexWriter Core | COMPLETED | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-115 | Index Tests - IndexWriter Error Handling | IN_PROGRESS | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-116 | Index Tests - IndexWriter Merging | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-117 | Index Tests - Concurrent Operations | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-118 | Index Tests - DirectoryReader | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-119 | Index Tests - DocValues Comprehensive | lucene-test-analyzer, go-elite-developer | MEDIUM | HIGH |
+| GC-120 | Index Tests - Term Vectors | lucene-test-analyzer, go-elite-developer | MEDIUM | HIGH |
+| GC-121 | Index Tests - Terms and Postings | lucene-test-analyzer, go-elite-developer | MEDIUM | HIGH |
+| GC-122 | Index Tests - Segment Management | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+
+**Dependencies:** Phase 4, 6, 7, 14, 15 (Index, Codec, Merge, DocValues implementations)
+
+---
+
+#### Phase 16.3: Search Tests
+| Task ID | Task Name | Specialists | SEVERITY | PRIORITY |
+|:--------|:----------|:------------|:---------|:---------|
+| GC-123 | Search Tests - BooleanQuery | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-124 | Search Tests - Term and Phrase Queries | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-125 | Search Tests - Range and Prefix Queries | lucene-test-analyzer, go-elite-developer | MEDIUM | HIGH |
+| GC-126 | Search Tests - Wildcard and Fuzzy | lucene-test-analyzer, go-elite-developer | MEDIUM | HIGH |
+| GC-127 | Search Tests - IndexSearcher and Collectors | lucene-test-analyzer, go-elite-developer | MEDIUM | HIGH |
+| GC-128 | Search Tests - Similarity Implementations | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+| GC-129 | Search Tests - DocValues Queries | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+| GC-130 | Search Tests - Query Rewriting and Combining | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+
+**Dependencies:** Phase 5, 8, 10, 11, 12, 14 (Search, Query implementations, Similarity)
+
+---
+
+#### Phase 16.4: Analysis Tests
+| Task ID | Task Name | Specialists | SEVERITY | PRIORITY |
+|:--------|:----------|:------------|:---------|:---------|
+| GC-131 | Analysis Tests - Core Analyzers | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+| GC-132 | Analysis Tests - Filters | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+| GC-133 | Analysis Tests - TokenStream Framework | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+| GC-134 | Analysis Tests - Standard Tokenizer | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+
+**Dependencies:** Phase 3, 9 (Analysis Pipeline, Additional Analyzers)
+
+---
+
+#### Phase 16.5: Codecs Tests
+| Task ID | Task Name | Specialists | SEVERITY | PRIORITY |
+|:--------|:----------|:------------|:---------|:---------|
+| GC-135 | Codecs Tests - Codec Utilities | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-136 | Codecs Tests - FieldInfos Format | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-137 | Codecs Tests - SegmentInfo Format | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-138 | Codecs Tests - Postings Format | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-139 | Codecs Tests - Stored Fields Format | lucene-test-analyzer, go-elite-developer | MEDIUM | HIGH |
+| GC-140 | Codecs Tests - Lucene99 Format Variants | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+
+**Dependencies:** Phase 6 (Codec System)
+
+---
+
+#### Phase 16.6: Document and Integration Tests
+| Task ID | Task Name | Specialists | SEVERITY | PRIORITY |
+|:--------|:----------|:------------|:---------|:---------|
+| GC-141 | Document Tests - Numeric Range Fields | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+| GC-142 | Document Tests - Spatial and Feature Fields | lucene-test-analyzer, go-elite-developer | LOW | LOW |
+| GC-143 | Integration Tests - Dueling Codecs | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+
+**Dependencies:** Phase 2, 6, 15 (Document Model, Codecs, Point Indexing)
+
+---
+
+## COMPLETED TASKS
+
+### Phase 16.1: Store Tests (Completed: 2026-03-20)
+
+| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | COMPLETED | ACTIONABLE TECHNICAL DESCRIPTION |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| GC-109 | MEDIUM | HIGH | Store Tests - Directory Implementations | lucene-test-analyzer, go-elite-developer | 2026-03-20 | Port Lucene TestDirectory comprehensive test suite. Test FileSwitchDirectory, FilterDirectory, TrackingDirectoryWrapper. Validate directory listing, file creation/deletion, locking behavior. File: store/directory_test.go |
+| GC-110 | MEDIUM | HIGH | Store Tests - ByteBuffers I/O | lucene-test-analyzer, go-elite-developer | 2026-03-20 | Port TestByteBuffersDataInput and TestByteBuffersDataOutput. Test buffer management, data serialization, edge cases with buffer boundaries. Files: store/byte_buffers_directory_test.go |
+| GC-111 | MEDIUM | MEDIUM | Store Tests - Lock Factory Variants | lucene-test-analyzer, go-elite-developer | 2026-03-20 | Port TestLockFactory variants (SingleInstanceLockFactory, NativeFSLockFactory, SimpleFSLockFactory). Test lock acquisition, release, reentrancy, stress scenarios. Files: store/lock_test.go |
+| GC-112 | MEDIUM | MEDIUM | Store Tests - MMap and NIOFS | lucene-test-analyzer, go-elite-developer | 2026-03-20 | Port TestMultiMMap, TestNRTCachingDirectory, TestMMapDirectory. Test memory-mapped file I/O, cache behavior, large file handling. Files: store/mmap_directory_test.go, store/niofs_directory_test.go |
+| GC-113 | MEDIUM | MEDIUM | Store Tests - Rate Limiting and Buffered I/O | lucene-test-analyzer, go-elite-developer | 2026-03-20 | Port TestRateLimiter, TestBufferedIndexInput, TestInputStreamDataInput. Test throttling, buffered reads, stream conversions. Files: store/rate_limiter_test.go, store/index_input_test.go |
+
+### Phase 16.2: Index Tests (In Progress)
+
+| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | COMPLETED | ACTIONABLE TECHNICAL DESCRIPTION |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| GC-114 | HIGH | HIGH | Index Tests - IndexWriter Core | lucene-test-analyzer, go-elite-developer | 2026-03-20 | Port comprehensive TestIndexWriter suite. Test document creation, close, NumDocs, MaxDoc, Commit, configuration options (RAM buffer, merge policy, open modes), AddDocument, UpdateDocument, DeleteDocuments, workflow integration. File: index/index_writer_test.go |
 
 ---
 
@@ -239,6 +407,19 @@ The Phase 8 (Query Parser + Advanced Features) has been replanned into 7 distinc
 - *Dependencies: Missing infrastructure (Point indexing, DocValues format, Term vectors)*
 - *Status: BLOCKED - requires significant infrastructure development*
 
+**Phase 15: Test Coverage - Lucene Compatibility (35 tasks)**
+**Status:** PENDING | **Tasks:** 35 | **Focus:** Port Apache Lucene Java test suite for byte-level compatibility
+**Dependencies:** All previous phases (Phases 1-14)
+
+| Task ID | Task Name | Component | Tests Ported |
+|:--------|:----------|:----------|:-------------|
+| GC-109 to GC-113 | Store Tests | store | TestDirectory, TestByteBuffersDataInput/Output, TestLockFactory variants, TestMMap, TestRateLimiter |
+| GC-114 to GC-122 | Index Tests | index | TestIndexWriter (comprehensive), TestIndexWriter error handling, TestIndexWriter merging, TestConcurrentMergeScheduler, TestDirectoryReader, TestDocValues, TestTermVectors, TestTerms |
+| GC-123 to GC-130 | Search Tests | search | TestBooleanQuery, TestTermQuery, TestPhraseQuery, TestRangeQuery, TestWildcardQuery, TestFuzzyQuery, TestIndexSearcher, TestSimilarity implementations, TestDocValuesQueries |
+| GC-131 to GC-134 | Analysis Tests | analysis | TestAnalyzers, TestStopFilter, TestLowerCaseFilter, TestTokenStream, TestStandardTokenizer |
+| GC-135 to GC-140 | Codecs Tests | codecs | TestCodecUtil, TestFieldInfosFormat, TestSegmentInfoFormat, TestPostingsFormat, TestStoredFieldsFormat, TestLucene99Format |
+| GC-141 to GC-143 | Document/Integration | document/index | TestNumericRange, TestSpatialFields (optional), TestDuelingCodecs |
+
 ### Critical Infrastructure Gaps Identified
 
 1. **Point Indexing (BKD Tree)**: Required for proper numeric field range queries (GC-080)
@@ -254,6 +435,31 @@ The Phase 8 (Query Parser + Advanced Features) has been replanned into 7 distinc
 5. Complete Phase 12 (ClassicSimilarity)
 6. Implement Phase 13 (QueryParser) - after all query types are ready
 7. Plan and implement infrastructure for Phase 14 (requires new tasks)
+
+---
+
+## Summary of Test Coverage Tasks
+
+**Total Tasks Created:** 35
+
+### By Component:
+- **Store Tests:** 5 tasks (GC-109 to GC-113)
+- **Index Tests:** 9 tasks (GC-114 to GC-122)
+- **Search Tests:** 8 tasks (GC-123 to GC-130)
+- **Analysis Tests:** 4 tasks (GC-131 to GC-134)
+- **Codecs Tests:** 6 tasks (GC-135 to GC-140)
+- **Document Tests:** 2 tasks (GC-141 to GC-142)
+- **Integration Tests:** 1 task (GC-143)
+
+### By Severity:
+- **HIGH:** 12 tasks (Core IndexWriter, Search, Codecs)
+- **MEDIUM:** 22 tasks (Most test categories)
+- **LOW:** 1 task (Spatial fields - optional)
+
+### By Priority:
+- **HIGH:** 19 tasks (Foundation tests)
+- **MEDIUM:** 15 tasks (Extended coverage)
+- **LOW:** 1 task (Optional features)
 
 ---
 

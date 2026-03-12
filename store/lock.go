@@ -252,3 +252,32 @@ func (l *NoOpLock) EnsureValid() error { return nil }
 
 // IsLocked always returns false.
 func (l *NoOpLock) IsLocked() bool { return false }
+
+// MockLock is a lock implementation for testing.
+// It tracks whether it was created and can be released.
+type MockLock struct {
+	*BaseLock
+	name string
+}
+
+// NewMockLock creates a new MockLock for testing.
+func NewMockLock() *MockLock {
+	return &MockLock{
+		BaseLock: NewBaseLock(),
+		name:     "mock",
+	}
+}
+
+// Close releases the lock.
+func (l *MockLock) Close() error {
+	if !l.IsLocked() {
+		return nil
+	}
+	l.MarkReleased()
+	return nil
+}
+
+// EnsureValid returns an error if the lock is no longer valid.
+func (l *MockLock) EnsureValid() error {
+	return l.VerifyLocked()
+}

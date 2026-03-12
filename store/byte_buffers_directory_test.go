@@ -502,3 +502,339 @@ func TestByteBuffersDirectory_ConcurrentAccess(t *testing.T) {
 		in.Close()
 	}
 }
+
+// TestByteBuffersDataInput tests ByteBuffersIndexInput data reading operations.
+// Ported from: org.apache.lucene.store.TestByteBuffersDataInput
+func TestByteBuffersDataInput(t *testing.T) {
+	t.Run("read across buffer boundary", func(t *testing.T) {
+		dir := NewByteBuffersDirectory()
+		defer dir.Close()
+
+		// Create large data that spans multiple internal buffers
+		// Default buffer size is typically 1024 or larger
+		largeData := make([]byte, 2048)
+		for i := range largeData {
+			largeData[i] = byte(i % 256)
+		}
+
+		out, err := dir.CreateOutput("large_file", IOContext{})
+		if err != nil {
+			t.Fatalf("Failed to create output: %v", err)
+		}
+		if err := out.WriteBytes(largeData); err != nil {
+			t.Fatalf("Failed to write: %v", err)
+		}
+		if err := out.Close(); err != nil {
+			t.Fatalf("Failed to close: %v", err)
+		}
+
+		in, err := dir.OpenInput("large_file", IOContext{})
+		if err != nil {
+			t.Fatalf("Failed to open input: %v", err)
+		}
+		defer in.Close()
+
+		// Read across buffer boundary at offset 1020
+		if err := in.SetPosition(1020); err != nil {
+			t.Fatalf("Failed to seek: %v", err)
+		}
+
+		buf := make([]byte, 20)
+		if err := in.ReadBytes(buf); err != nil {
+			t.Fatalf("Failed to read across boundary: %v", err)
+		}
+
+		// Verify data integrity
+		for i, b := range buf {
+			expected := byte((1020 + i) % 256)
+			if b != expected {
+				t.Errorf("Byte at position %d: expected %d, got %d", 1020+i, expected, b)
+				break
+			}
+		}
+	})
+
+	t.Run("read empty file", func(t *testing.T) {
+		dir := NewByteBuffersDirectory()
+		defer dir.Close()
+
+		// Create empty file
+		out, err := dir.CreateOutput("empty", IOContext{})
+		if err != nil {
+			t.Fatalf("Failed to create output: %v", err)
+		}
+		if err := out.Close(); err != nil {
+			t.Fatalf("Failed to close: %v", err)
+		}
+
+		in, err := dir.OpenInput("empty", IOContext{})
+		if err != nil {
+			t.Fatalf("Failed to open input: %v", err)
+		}
+		defer in.Close()
+
+		// Try to read from empty file
+		_, err = in.ReadByte()
+		if err == nil {
+			t.Error("Expected error reading from empty file")
+		}
+	})
+
+	t.Run("read at exact buffer boundary", func(t *testing.T) {
+		dir := NewByteBuffersDirectory()
+		defer dir.Close()
+
+		// Create data of exactly buffer size
+		data := make([]byte, 1024)
+		for i := range data {
+			data[i] = byte(i % 256)
+		}
+
+		out, err := dir.CreateOutput("boundary", IOContext{})
+		if err != nil {
+			t.Fatalf("Failed to create output: %v", err)
+		}
+		if err := out.WriteBytes(data); err != nil {
+			t.Fatalf("Failed to write: %v", err)
+		}
+		if err := out.Close(); err != nil {
+			t.Fatalf("Failed to close: %v", err)
+		}
+
+		in, err := dir.OpenInput("boundary", IOContext{})
+		if err != nil {
+			t.Fatalf("Failed to open input: %v", err)
+		}
+		defer in.Close()
+
+		// Read at exact buffer boundary (position 1023 is last byte)
+		if err := in.SetPosition(1023); err != nil {
+			t.Fatalf("Failed to seek: %v", err)
+		}
+
+		b, err := in.ReadByte()
+		if err != nil {
+			t.Fatalf("Failed to read at boundary: %v", err)
+		}
+		if b != data[1023] {
+			t.Errorf("Expected %d, got %d", data[1023], b)
+		}
+	})
+
+	t.Run("random access reads", func(t *testing.T) {
+		dir := NewByteBuffersDirectory()
+		defer dir.Close()
+
+		// Create test data
+		data := make([]byte, 500)
+		for i := range data {
+			data[i] = byte(i % 256)
+		}
+
+		out, err := dir.CreateOutput("random", IOContext{})
+		if err != nil {
+			t.Fatalf("Failed to create output: %v", err)
+		}
+		if err := out.WriteBytes(data); err != nil {
+			t.Fatalf("Failed to write: %v", err)
+		}
+		if err := out.Close(); err != nil {
+			t.Fatalf("Failed to close: %v", err)
+		}
+
+		in, err := dir.OpenInput("random", IOContext{})
+		if err != nil {
+			t.Fatalf("Failed to open input: %v", err)
+		}
+		defer in.Close()
+
+		// Test random access at various positions
+		positions := []int64{0, 100, 250, 499}
+		for _, pos := range positions {
+			if err := in.SetPosition(pos); err != nil {
+				t.Fatalf("Failed to seek to %d: %v", pos, err)
+			}
+
+			b, err := in.ReadByte()
+			if err != nil {
+				t.Fatalf("Failed to read at position %d: %v", pos, err)
+			}
+			if b != data[pos] {
+				t.Errorf("Position %d: expected %d, got %d", pos, data[pos], b)
+			}
+		}
+	})
+}
+
+// TestByteBuffersDataOutput tests ByteBuffersIndexOutput data writing operations.
+// Ported from: org.apache.lucene.store.TestByteBuffersDataOutput
+func TestByteBuffersDataOutput(t *testing.T) {
+	t.Run("write across buffer boundary", func(t *testing.T) {
+		dir := NewByteBuffersDirectory()
+		defer dir.Close()
+
+		// Create data larger than typical buffer
+		largeData := make([]byte, 2048)
+		for i := range largeData {
+			largeData[i] = byte(i % 256)
+		}
+
+		out, err := dir.CreateOutput("large_write", IOContext{})
+		if err != nil {
+			t.Fatalf("Failed to create output: %v", err)
+		}
+
+		// Write in chunks to test buffer management
+		chunkSize := 100
+		for i := 0; i < len(largeData); i += chunkSize {
+			end := i + chunkSize
+			if end > len(largeData) {
+				end = len(largeData)
+			}
+			if err := out.WriteBytes(largeData[i:end]); err != nil {
+				t.Fatalf("Failed to write chunk at %d: %v", i, err)
+			}
+		}
+
+		if err := out.Close(); err != nil {
+			t.Fatalf("Failed to close: %v", err)
+		}
+
+		// Verify written data
+		length, _ := dir.FileLength("large_write")
+		if length != int64(len(largeData)) {
+			t.Errorf("Expected length %d, got %d", len(largeData), length)
+		}
+
+		in, err := dir.OpenInput("large_write", IOContext{})
+		if err != nil {
+			t.Fatalf("Failed to open input: %v", err)
+		}
+		defer in.Close()
+
+		readData := make([]byte, len(largeData))
+		if err := in.ReadBytes(readData); err != nil {
+			t.Fatalf("Failed to read: %v", err)
+		}
+
+		for i := range largeData {
+			if readData[i] != largeData[i] {
+				t.Errorf("Byte %d: expected %d, got %d", i, largeData[i], readData[i])
+				break
+			}
+		}
+	})
+
+	t.Run("write byte by byte across boundary", func(t *testing.T) {
+		dir := NewByteBuffersDirectory()
+		defer dir.Close()
+
+		out, err := dir.CreateOutput("byte_by_byte", IOContext{})
+		if err != nil {
+			t.Fatalf("Failed to create output: %v", err)
+		}
+
+		// Write 1500 bytes one at a time
+		for i := 0; i < 1500; i++ {
+			if err := out.WriteByte(byte(i % 256)); err != nil {
+				t.Fatalf("Failed to write byte %d: %v", i, err)
+			}
+		}
+
+		if err := out.Close(); err != nil {
+			t.Fatalf("Failed to close: %v", err)
+		}
+
+		// Verify
+		length, _ := dir.FileLength("byte_by_byte")
+		if length != 1500 {
+			t.Errorf("Expected length 1500, got %d", length)
+		}
+
+		in, err := dir.OpenInput("byte_by_byte", IOContext{})
+		if err != nil {
+			t.Fatalf("Failed to open input: %v", err)
+		}
+		defer in.Close()
+
+		// Check first and last bytes
+		first, _ := in.ReadByte()
+		if first != 0 {
+			t.Errorf("Expected first byte 0, got %d", first)
+		}
+
+		if err := in.SetPosition(1499); err != nil {
+			t.Fatalf("Failed to seek: %v", err)
+		}
+
+		last, _ := in.ReadByte()
+		if last != 1499%256 {
+			t.Errorf("Expected last byte %d, got %d", 1499%256, last)
+		}
+	})
+
+	t.Run("get file pointer during write", func(t *testing.T) {
+		dir := NewByteBuffersDirectory()
+		defer dir.Close()
+
+		out, err := dir.CreateOutput("pointer_test", IOContext{})
+		if err != nil {
+			t.Fatalf("Failed to create output: %v", err)
+		}
+
+		// Check initial position
+		if out.GetFilePointer() != 0 {
+			t.Errorf("Expected initial position 0, got %d", out.GetFilePointer())
+		}
+
+		// Write and check position
+		out.WriteByte(1)
+		if out.GetFilePointer() != 1 {
+			t.Errorf("Expected position 1, got %d", out.GetFilePointer())
+		}
+
+		out.WriteBytes([]byte{2, 3, 4})
+		if out.GetFilePointer() != 4 {
+			t.Errorf("Expected position 4, got %d", out.GetFilePointer())
+		}
+
+		if err := out.Close(); err != nil {
+			t.Fatalf("Failed to close: %v", err)
+		}
+	})
+
+	t.Run("write after get name", func(t *testing.T) {
+		dir := NewByteBuffersDirectory()
+		defer dir.Close()
+
+		out, err := dir.CreateOutput("name_test", IOContext{})
+		if err != nil {
+			t.Fatalf("Failed to create output: %v", err)
+		}
+
+		// Get name before writing
+		name := out.GetName()
+		if name != "name_test" {
+			t.Errorf("Expected name 'name_test', got %s", name)
+		}
+
+		// Write after getting name
+		if err := out.WriteBytes([]byte("data")); err != nil {
+			t.Fatalf("Failed to write: %v", err)
+		}
+
+		if err := out.Close(); err != nil {
+			t.Fatalf("Failed to close: %v", err)
+		}
+
+		// Verify file exists and has content
+		if !dir.FileExists("name_test") {
+			t.Error("File should exist")
+		}
+
+		length, _ := dir.FileLength("name_test")
+		if length != 4 {
+			t.Errorf("Expected length 4, got %d", length)
+		}
+	})
+}
