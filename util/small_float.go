@@ -22,7 +22,7 @@ func FloatToByte315(f float32) byte {
 	}
 
 	// Extract exponent and mantissa
-	exponent := int((bits >> 23) & 0xFF) - 127 + 1
+	exponent := int((bits>>23)&0xFF) - 127 + 1
 	mantissa := bits & 0x7FFFFF
 
 	// Round to 3 bits of mantissa
@@ -63,7 +63,7 @@ func FloatToByte52(f float32) byte {
 		return 0
 	}
 
-	exponent := int((bits >> 23) & 0xFF) - 127 + 1
+	exponent := int((bits>>23)&0xFF) - 127 + 1
 	mantissa := bits & 0x7FFFFF
 
 	mantissa5 := (mantissa >> 18) & 0x1F

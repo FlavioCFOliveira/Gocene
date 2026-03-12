@@ -12,21 +12,21 @@ import (
 // It uses the Damerau-Levenshtein algorithm to calculate edit distance.
 type FuzzyQuery struct {
 	*BaseQuery
-	term          *index.Term
-	maxEdits      int
-	prefixLength  int
-	maxExpansions int
+	term           *index.Term
+	maxEdits       int
+	prefixLength   int
+	maxExpansions  int
 	transpositions bool
 }
 
 // NewFuzzyQuery creates a new FuzzyQuery with default parameters.
 func NewFuzzyQuery(term *index.Term) *FuzzyQuery {
 	return &FuzzyQuery{
-		BaseQuery:     &BaseQuery{},
-		term:          term,
-		maxEdits:      2,
-		prefixLength:  0,
-		maxExpansions: 50,
+		BaseQuery:      &BaseQuery{},
+		term:           term,
+		maxEdits:       2,
+		prefixLength:   0,
+		maxExpansions:  50,
 		transpositions: true,
 	}
 }
@@ -34,11 +34,11 @@ func NewFuzzyQuery(term *index.Term) *FuzzyQuery {
 // NewFuzzyQueryWithParams creates a FuzzyQuery with custom parameters.
 func NewFuzzyQueryWithParams(term *index.Term, maxEdits, prefixLength, maxExpansions int) *FuzzyQuery {
 	return &FuzzyQuery{
-		BaseQuery:     &BaseQuery{},
-		term:          term,
-		maxEdits:      maxEdits,
-		prefixLength:  prefixLength,
-		maxExpansions: maxExpansions,
+		BaseQuery:      &BaseQuery{},
+		term:           term,
+		maxEdits:       maxEdits,
+		prefixLength:   prefixLength,
+		maxExpansions:  maxExpansions,
 		transpositions: true,
 	}
 }

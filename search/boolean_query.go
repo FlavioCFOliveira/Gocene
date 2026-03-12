@@ -49,15 +49,15 @@ func NewBooleanClause(query Query, occur Occur) *BooleanClause {
 // BooleanQuery matches documents matching boolean combinations of clauses.
 type BooleanQuery struct {
 	*BaseQuery
-	clauses []*BooleanClause
+	clauses        []*BooleanClause
 	minShouldMatch int
 }
 
 // NewBooleanQuery creates a new BooleanQuery.
 func NewBooleanQuery() *BooleanQuery {
 	return &BooleanQuery{
-		BaseQuery: &BaseQuery{},
-		clauses:   make([]*BooleanClause, 0),
+		BaseQuery:      &BaseQuery{},
+		clauses:        make([]*BooleanClause, 0),
 		minShouldMatch: 1,
 	}
 }

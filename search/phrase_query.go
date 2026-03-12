@@ -11,9 +11,9 @@ import (
 // PhraseQuery matches documents containing a particular sequence of terms.
 type PhraseQuery struct {
 	*BaseQuery
-	field     string
-	terms     []*index.Term
-	slop      int
+	field string
+	terms []*index.Term
+	slop  int
 }
 
 // NewPhraseQuery creates a new PhraseQuery.

@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // SegmentInfos manages a collection of SegmentCommitInfo representing a point-in-time
@@ -418,4 +420,41 @@ func (si *SegmentInfos) UpdateCounterFromSegments() {
 		}
 	}
 	si.counter = int(maxGen) + 1
+}
+
+// ReadSegmentInfos reads the SegmentInfos from a directory.
+// This is used when opening an existing index.
+func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
+	// List all files in the directory
+	files, err := directory.ListAll()
+	if err != nil {
+		return nil, fmt.Errorf("listing directory: %w", err)
+	}
+
+	// Find the most recent segments file
+	var maxGen int64 = -1
+	for _, file := range files {
+		if len(file) > 9 && file[:9] == "segments_" {
+			// Parse generation number
+			var gen int64
+			if _, err := fmt.Sscanf(file[9:], "%d", &gen); err == nil {
+				if gen > maxGen {
+					maxGen = gen
+					_ = file // track most recent segments file name
+				}
+			}
+		}
+	}
+
+	if maxGen < 0 {
+		return nil, fmt.Errorf("no segments file found in directory")
+	}
+
+	// TODO: Read and parse the segments file
+	// For now, return an empty SegmentInfos
+	si := NewSegmentInfos()
+	si.generation = maxGen
+	si.lastGeneration = maxGen
+
+	return si, nil
 }

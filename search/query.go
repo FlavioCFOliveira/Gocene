@@ -27,6 +27,6 @@ type Query interface {
 type BaseQuery struct{}
 
 func (q *BaseQuery) Rewrite(reader IndexReader) (Query, error) { return q, nil }
-func (q *BaseQuery) Clone() Query                               { return q }
-func (q *BaseQuery) Equals(other Query) bool                    { return false }
+func (q *BaseQuery) Clone() Query                              { return q }
+func (q *BaseQuery) Equals(other Query) bool                   { return false }
 func (q *BaseQuery) HashCode() int                             { return 0 }
