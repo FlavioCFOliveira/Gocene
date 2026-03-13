@@ -20,7 +20,6 @@ Tasks to complete the incomplete implementations identified in the codebase. The
 
 | ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | ACTIONABLE TECHNICAL DESCRIPTION |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| GC-144 | HIGH | HIGH | Core - Complete IndexWriter flush to disk | go-elite-developer | Implement flush to disk in index/documents_writer.go:165. Implement document processing at line 205. |
 | GC-145 | HIGH | HIGH | Core - Complete DirectoryReader implementation | go-elite-developer | Implement segment reading in index/directory_reader.go. Complete methods at lines 80, 86, 172. |
 | GC-146 | HIGH | HIGH | Core - Complete IndexReader methods | go-elite-developer | Implement all TODO methods in index/index_reader.go (lines 27, 33, 39, 45). |
 | GC-147 | HIGH | HIGH | Core - Complete PostingsFormat reader/writer | go-elite-developer | Implement FieldsConsumer at codecs/postings_format.go:77 and FieldsProducer at line 83. |
@@ -210,6 +209,12 @@ Tasks to complete the incomplete implementations identified in the codebase. The
 ---
 
 ## COMPLETED TASKS
+
+### Phase 17.1: Index Core Completeness (Completed: 2026-03-13)
+
+| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | COMPLETED | ACTIONABLE TECHNICAL DESCRIPTION |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| GC-144 | HIGH | HIGH | Core - Complete IndexWriter flush to disk | go-elite-developer, gocene-lucene-specialist | 2026-03-13 | Implemented DocumentsWriter and DocumentsWriterPerThread with full document processing and flush to disk support. Files: index/documents_writer.go, index/documents_writer_per_thread.go, index/codec_interface.go |
 
 ### Phase 16.1: Store Tests (Completed: 2026-03-20)
 
