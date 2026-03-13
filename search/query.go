@@ -21,6 +21,8 @@ type Query interface {
 	Equals(other Query) bool
 	// HashCode returns a hash code for this query.
 	HashCode() int
+	// CreateWeight creates a Weight for this query.
+	CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error)
 }
 
 // BaseQuery provides common functionality for queries.
@@ -30,3 +32,6 @@ func (q *BaseQuery) Rewrite(reader IndexReader) (Query, error) { return q, nil }
 func (q *BaseQuery) Clone() Query                              { return q }
 func (q *BaseQuery) Equals(other Query) bool                   { return false }
 func (q *BaseQuery) HashCode() int                             { return 0 }
+func (q *BaseQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+	return nil, nil
+}

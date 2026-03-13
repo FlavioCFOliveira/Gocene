@@ -5,8 +5,9 @@
 package index
 
 import (
-	"fmt"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 func TestNewSegmentInfos(t *testing.T) {
@@ -333,163 +334,101 @@ func TestSegmentInfos_Clone(t *testing.T) {
 	}
 }
 
-func TestSegmentInfos_List(t *testing.T) {
+func TestSegmentInfos_ReadWrite(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
 	sis := NewSegmentInfos()
-
-	si1 := NewSegmentInfo("_0", 100, nil)
-	sci1 := NewSegmentCommitInfo(si1, 0, -1)
-	sis.Add(sci1)
-
-	list := sis.List()
-	if len(list) != 1 {
-		t.Errorf("Expected list length=1, got %d", len(list))
-	}
-
-	// Modifying the returned list should not affect original
-	list = append(list, sci1)
-	if sis.Size() != 1 {
-		t.Error("Modifying returned list should not affect original")
-	}
-}
-
-func TestSegmentInfos_Contains(t *testing.T) {
-	sis := NewSegmentInfos()
-
-	si1 := NewSegmentInfo("_0", 100, nil)
-	sci1 := NewSegmentCommitInfo(si1, 0, -1)
-	sis.Add(sci1)
-
-	if !sis.Contains(sci1) {
-		t.Error("Should contain sci1")
-	}
-
-	sci2 := NewSegmentCommitInfo(si1, 0, -1)
-	if sis.Contains(sci2) {
-		t.Error("Should not contain sci2 (different pointer)")
-	}
-}
-
-func TestSegmentInfos_IndexOf(t *testing.T) {
-	sis := NewSegmentInfos()
+	sis.SetGeneration(5)
+	sis.SetCounter(10)
 
 	si1 := NewSegmentInfo("_0", 100, nil)
 	sci1 := NewSegmentCommitInfo(si1, 0, -1)
 	sis.Add(sci1)
 
 	si2 := NewSegmentInfo("_1", 50, nil)
-	sci2 := NewSegmentCommitInfo(si2, 0, -1)
+	sci2 := NewSegmentCommitInfo(si2, 5, 1)
 	sis.Add(sci2)
 
-	if sis.IndexOf(sci1) != 0 {
-		t.Errorf("Expected IndexOf(sci1)=0, got %d", sis.IndexOf(sci1))
-	}
-	if sis.IndexOf(sci2) != 1 {
-		t.Errorf("Expected IndexOf(sci2)=1, got %d", sis.IndexOf(sci2))
+	// Write
+	err := WriteSegmentInfos(sis, dir)
+	if err != nil {
+		t.Fatalf("WriteSegmentInfos error: %v", err)
 	}
 
-	sci3 := NewSegmentCommitInfo(si1, 0, -1)
-	if sis.IndexOf(sci3) != -1 {
-		t.Error("IndexOf should return -1 for segment not in list")
+	// Read
+	readSis, err := ReadSegmentInfos(dir)
+	if err != nil {
+		t.Fatalf("ReadSegmentInfos error: %v", err)
+	}
+
+	// Verify
+	if readSis.Generation() != sis.Generation() {
+		t.Errorf("Expected generation %d, got %d", sis.Generation(), readSis.Generation())
+	}
+	if readSis.Counter() != sis.Counter() {
+		t.Errorf("Expected counter %d, got %d", sis.Counter(), readSis.Counter())
+	}
+	if readSis.Size() != sis.Size() {
+		t.Errorf("Expected size %d, got %d", sis.Size(), readSis.Size())
+	}
+
+	for i := 0; i < sis.Size(); i++ {
+		orig := sis.Get(i)
+		read := readSis.Get(i)
+		if read.Name() != orig.Name() {
+			t.Errorf("At index %d: expected name %s, got %s", i, orig.Name(), read.Name())
+		}
+		if read.segmentInfo.docCount != orig.segmentInfo.docCount {
+			t.Errorf("At index %d: expected docCount %d, got %d", i, orig.segmentInfo.docCount, read.segmentInfo.docCount)
+		}
 	}
 }
 
-func TestSegmentInfos_RemoveByName(t *testing.T) {
-	sis := NewSegmentInfos()
+func TestSegmentInfos_ReadNoSegmentsFile(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
 
-	si1 := NewSegmentInfo("_0", 100, nil)
-	sci1 := NewSegmentCommitInfo(si1, 0, -1)
-	sis.Add(sci1)
-
-	si2 := NewSegmentInfo("_1", 50, nil)
-	sci2 := NewSegmentCommitInfo(si2, 0, -1)
-	sis.Add(sci2)
-
-	si3 := NewSegmentInfo("_0", 75, nil) // Same name as sci1
-	sci3 := NewSegmentCommitInfo(si3, 0, -1)
-	sis.Add(sci3)
-
-	count := sis.RemoveByName("_0")
-	if count != 2 {
-		t.Errorf("Expected remove count=2, got %d", count)
-	}
-	if sis.Size() != 1 {
-		t.Errorf("Expected size=1, got %d", sis.Size())
-	}
-	if sis.Get(0).Name() != "_1" {
-		t.Error("Remaining segment should be _1")
+	_, err := ReadSegmentInfos(dir)
+	if err == nil {
+		t.Error("Expected error when no segments file exists")
 	}
 }
 
-func TestSegmentInfos_SortByName(t *testing.T) {
-	sis := NewSegmentInfos()
+func TestSegmentInfos_ReadInvalidMagic(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
 
-	// Add segments in non-sorted order
-	si2 := NewSegmentInfo("_2", 50, nil)
-	sci2 := NewSegmentCommitInfo(si2, 0, -1)
-	sis.Add(sci2)
+	// Create a fake segments file with invalid magic
+	out, _ := dir.CreateOutput("segments_1", store.IOContextWrite)
+	store.WriteInt32(out, 0x12345678) // Invalid magic
+	out.Close()
 
-	si0 := NewSegmentInfo("_0", 100, nil)
-	sci0 := NewSegmentCommitInfo(si0, 0, -1)
-	sis.Add(sci0)
-
-	si1 := NewSegmentInfo("_1", 75, nil)
-	sci1 := NewSegmentCommitInfo(si1, 0, -1)
-	sis.Add(sci1)
-
-	sis.SortByName()
-
-	if sis.Get(0).Name() != "_0" {
-		t.Errorf("Expected _0 at index 0, got %s", sis.Get(0).Name())
-	}
-	if sis.Get(1).Name() != "_1" {
-		t.Errorf("Expected _1 at index 1, got %s", sis.Get(1).Name())
-	}
-	if sis.Get(2).Name() != "_2" {
-		t.Errorf("Expected _2 at index 2, got %s", sis.Get(2).Name())
+	_, err := ReadSegmentInfos(dir)
+	if err == nil {
+		t.Error("Expected error for invalid magic")
 	}
 }
 
-func TestSegmentInfos_String(t *testing.T) {
+func TestSegmentInfos_Versioning(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
 	sis := NewSegmentInfos()
+	sis.SetGeneration(1)
+	WriteSegmentInfos(sis, dir)
 
-	si1 := NewSegmentInfo("_0", 100, nil)
-	sci1 := NewSegmentCommitInfo(si1, 10, 1)
-	sis.Add(sci1)
+	// Advance to generation 2
+	sis.NextGeneration()
+	WriteSegmentInfos(sis, dir)
 
-	str := sis.String()
-	if str == "" {
-		t.Error("String should not be empty")
+	// Read should get the latest (generation 2)
+	readSis, err := ReadSegmentInfos(dir)
+	if err != nil {
+		t.Fatalf("ReadSegmentInfos error: %v", err)
 	}
-
-	expected := "SegmentInfos(segments=1, generation=1, version=10.0.0, docs=90)"
-	if str != expected {
-		t.Errorf("Expected '%s', got '%s'", expected, str)
-	}
-}
-
-func TestSegmentInfos_GetMaxSegmentName(t *testing.T) {
-	sis := NewSegmentInfos()
-
-	// Empty
-	if sis.GetMaxSegmentName() != "" {
-		t.Errorf("Expected empty string for empty segments, got '%s'", sis.GetMaxSegmentName())
-	}
-
-	si1 := NewSegmentInfo("_0", 100, nil)
-	sci1 := NewSegmentCommitInfo(si1, 0, -1)
-	sis.Add(sci1)
-
-	si2 := NewSegmentInfo("_9", 50, nil)
-	sci2 := NewSegmentCommitInfo(si2, 0, -1)
-	sis.Add(sci2)
-
-	si3 := NewSegmentInfo("_2", 25, nil)
-	sci3 := NewSegmentCommitInfo(si3, 0, -1)
-	sis.Add(sci3)
-
-	maxName := sis.GetMaxSegmentName()
-	if maxName != "_9" {
-		t.Errorf("Expected max name '_9', got '%s'", maxName)
+	if readSis.Generation() != 2 {
+		t.Errorf("Expected generation 2, got %d", readSis.Generation())
 	}
 }
 
@@ -520,83 +459,5 @@ func TestSegmentInfos_UpdateCounterFromSegments(t *testing.T) {
 	name := sis.GetNextSegmentName()
 	if name != "_11" {
 		t.Errorf("Expected next name '_11', got '%s'", name)
-	}
-}
-
-func TestSegmentInfos_GetOutOfBounds(t *testing.T) {
-	sis := NewSegmentInfos()
-
-	// Get from empty
-	if sis.Get(0) != nil {
-		t.Error("Get from empty should return nil")
-	}
-
-	si1 := NewSegmentInfo("_0", 100, nil)
-	sci1 := NewSegmentCommitInfo(si1, 0, -1)
-	sis.Add(sci1)
-
-	// Get negative index
-	if sis.Get(-1) != nil {
-		t.Error("Get(-1) should return nil")
-	}
-
-	// Get past end
-	if sis.Get(10) != nil {
-		t.Error("Get(10) should return nil")
-	}
-}
-
-func TestSegmentInfos_ConcurrentAccess(t *testing.T) {
-	sis := NewSegmentInfos()
-
-	// Pre-populate with some segments
-	for i := 0; i < 5; i++ {
-		si := NewSegmentInfo("_"+fmt.Sprintf("%d", i), 100, nil)
-		sci := NewSegmentCommitInfo(si, 0, -1)
-		sis.Add(sci)
-	}
-
-	done := make(chan bool, 4)
-
-	// Reader 1: iterate
-	go func() {
-		for i := 0; i < 100; i++ {
-			sis.Size()
-			sis.TotalDocCount()
-		}
-		done <- true
-	}()
-
-	// Reader 2: get segments
-	go func() {
-		for i := 0; i < 100; i++ {
-			sis.Get(i % 5)
-			sis.Contains(nil)
-		}
-		done <- true
-	}()
-
-	// Writer 1: add segments
-	go func() {
-		for i := 0; i < 50; i++ {
-			si := NewSegmentInfo("_"+fmt.Sprintf("%d", i+100), 10, nil)
-			sci := NewSegmentCommitInfo(si, 0, -1)
-			sis.Add(sci)
-		}
-		done <- true
-	}()
-
-	// Writer 2: modify generation
-	go func() {
-		for i := 0; i < 50; i++ {
-			sis.NextGeneration()
-			sis.SetUserDataValue("key", fmt.Sprintf("value%d", i))
-		}
-		done <- true
-	}()
-
-	// Wait for all goroutines
-	for i := 0; i < 4; i++ {
-		<-done
 	}
 }

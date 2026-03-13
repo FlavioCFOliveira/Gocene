@@ -5,6 +5,8 @@
 package search
 
 import (
+	"fmt"
+
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
@@ -42,6 +44,8 @@ func NewFuzzyQueryWithMaxEdits(term *index.Term, maxEdits int) *FuzzyQuery {
 		transpositions: true,
 	}
 }
+
+// NewFuzzyQueryWithParams creates a FuzzyQuery with all parameters.
 func NewFuzzyQueryWithParams(term *index.Term, maxEdits, prefixLength, maxExpansions int) *FuzzyQuery {
 	return &FuzzyQuery{
 		BaseQuery:      &BaseQuery{},
@@ -128,4 +132,26 @@ func (q *FuzzyQuery) HashCode() int {
 		hash = hash*31 + 1
 	}
 	return hash
+}
+
+// Rewrite rewrites the query to a simpler form.
+func (q *FuzzyQuery) Rewrite(reader IndexReader) (Query, error) {
+	return q, nil
+}
+
+func (q *FuzzyQuery) String() string {
+	if q.term == nil {
+		return "<nil>~"
+	}
+	return q.term.String() + fmt.Sprintf("~%d", q.maxEdits)
+}
+
+// NewFuzzyQueryWithStrings creates a new FuzzyQuery using strings.
+func NewFuzzyQueryWithStrings(field string, text string) *FuzzyQuery {
+	return NewFuzzyQuery(index.NewTerm(field, text))
+}
+
+// NewFuzzyQueryWithStringsMaxEdits creates a new FuzzyQuery with max edits using strings.
+func NewFuzzyQueryWithStringsMaxEdits(field string, text string, maxEdits int) *FuzzyQuery {
+	return NewFuzzyQueryWithMaxEdits(index.NewTerm(field, text), maxEdits)
 }

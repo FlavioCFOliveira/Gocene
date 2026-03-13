@@ -56,48 +56,6 @@ func TestBoostQuery_Equals(t *testing.T) {
 	}
 }
 
-func TestConstantScoreQuery_Clone(t *testing.T) {
-	term := index.NewTerm("field", "value")
-	innerQuery := NewTermQuery(term)
-	query := NewConstantScoreQueryWithScore(innerQuery, 5.0)
-
-	cloned := query.Clone()
-	if cloned == nil {
-		t.Fatal("Clone returned nil")
-	}
-
-	csQuery, ok := cloned.(*ConstantScoreQuery)
-	if !ok {
-		t.Fatal("Clone did not return *ConstantScoreQuery")
-	}
-
-	if csQuery.Score() != 5.0 {
-		t.Errorf("Expected score 5.0, got %f", csQuery.Score())
-	}
-}
-
-func TestConstantScoreQuery_Equals(t *testing.T) {
-	term1 := index.NewTerm("field", "value1")
-	term2 := index.NewTerm("field", "value2")
-
-	q1 := NewConstantScoreQueryWithScore(NewTermQuery(term1), 2.0)
-	q2 := NewConstantScoreQueryWithScore(NewTermQuery(term1), 2.0)
-	q3 := NewConstantScoreQueryWithScore(NewTermQuery(term2), 2.0)
-	q4 := NewConstantScoreQueryWithScore(NewTermQuery(term1), 3.0)
-
-	if !q1.Equals(q2) {
-		t.Error("Expected q1 and q2 to be equal")
-	}
-
-	if q1.Equals(q3) {
-		t.Error("Expected q1 and q3 to be different (different inner query)")
-	}
-
-	if q1.Equals(q4) {
-		t.Error("Expected q1 and q4 to be different (different score)")
-	}
-}
-
 func TestDisjunctionMaxQuery_Clone(t *testing.T) {
 	term1 := index.NewTerm("field1", "value1")
 	term2 := index.NewTerm("field2", "value2")

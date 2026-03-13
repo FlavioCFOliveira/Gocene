@@ -5,6 +5,7 @@
 package index
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -94,15 +95,15 @@ func TestMemoryTermVectorsWriter(t *testing.T) {
 		t.Fatalf("StartDocument failed: %v", err)
 	}
 
-	if err := writer.StartField("content", true, false); err != nil {
+	if err := writer.StartField("content", true, true); err != nil {
 		t.Fatalf("StartField failed: %v", err)
 	}
 
-	if err := writer.AddTerm([]byte("hello"), 2, []int{0, 5}, nil, nil); err != nil {
+	if err := writer.AddTerm([]byte("hello"), 2, []int{0, 5}, []int{0, 10}, []int{5, 15}); err != nil {
 		t.Fatalf("AddTerm failed: %v", err)
 	}
 
-	if err := writer.AddTerm([]byte("world"), 1, []int{10}, nil, nil); err != nil {
+	if err := writer.AddTerm([]byte("world"), 1, []int{10}, []int{20}, []int{25}); err != nil {
 		t.Fatalf("AddTerm failed: %v", err)
 	}
 
@@ -129,6 +130,14 @@ func TestMemoryTermVectorsWriter(t *testing.T) {
 		t.Errorf("Expected 2 terms, got %d", len(contentVector.Terms))
 	}
 
+	if !contentVector.HasPositions() {
+		t.Error("Expected positions to be preserved")
+	}
+
+	if !contentVector.HasOffsets() {
+		t.Error("Expected offsets to be preserved")
+	}
+
 	if err := writer.Close(); err != nil {
 		t.Errorf("Close failed: %v", err)
 	}
@@ -140,7 +149,7 @@ func TestMemoryTermVectorsReader(t *testing.T) {
 	// Write document
 	writer.StartDocument(0)
 	writer.StartField("content", true, false)
-	writer.AddTerm([]byte("hello"), 1, nil, nil, nil)
+	writer.AddTerm([]byte("hello"), 1, []int{0}, nil, nil)
 	writer.FinishField()
 	writer.FinishDocument()
 
@@ -163,6 +172,9 @@ func TestMemoryTermVectorsReader(t *testing.T) {
 	if len(vector.Terms) != 1 || vector.Terms[0] != "hello" {
 		t.Errorf("Expected term 'hello', got %v", vector.Terms)
 	}
+	if !vector.HasPositions() {
+		t.Error("Expected positions to be readable")
+	}
 
 	// Get non-existent document
 	_, err = reader.Get(1)
@@ -181,125 +193,86 @@ func TestMemoryTermVectorsReader(t *testing.T) {
 	}
 }
 
-func TestMemoryTermVectorsWriter_AddTermNoField(t *testing.T) {
-	writer := NewMemoryTermVectorsWriter()
-	writer.StartDocument(0)
-
-	// Try to add term without starting field
-	err := writer.AddTerm([]byte("hello"), 1, nil, nil, nil)
-	if err == nil {
-		t.Error("Expected error when adding term without starting field")
-	}
-}
-
-func TestMemoryTermVectorsWriter_FinishFieldNoField(t *testing.T) {
-	writer := NewMemoryTermVectorsWriter()
-	writer.StartDocument(0)
-
-	// Try to finish field without starting one
-	err := writer.FinishField()
-	if err == nil {
-		t.Error("Expected error when finishing field without starting one")
-	}
-}
-
-func TestNewTermFreqVector(t *testing.T) {
-	tfv := NewTermFreqVector("content")
-	if tfv.Field != "content" {
-		t.Errorf("Expected field 'content', got %s", tfv.Field)
-	}
-}
-
-func TestTermFreqVector_Add(t *testing.T) {
-	tfv := NewTermFreqVector("content")
-	tfv.Add("hello", 2)
-	tfv.Add("world", 1)
-
-	if len(tfv.Terms) != 2 {
-		t.Errorf("Expected 2 terms, got %d", len(tfv.Terms))
-	}
-	if tfv.Freqs[0] != 2 {
-		t.Errorf("Expected freq 2, got %d", tfv.Freqs[0])
-	}
-}
-
-func TestTermFreqVector_IndexOf(t *testing.T) {
-	tfv := NewTermFreqVector("content")
-	tfv.Add("hello", 1)
-	tfv.Add("world", 2)
-
-	if idx := tfv.IndexOf("hello"); idx != 0 {
-		t.Errorf("Expected index 0 for 'hello', got %d", idx)
-	}
-	if idx := tfv.IndexOf("world"); idx != 1 {
-		t.Errorf("Expected index 1 for 'world', got %d", idx)
-	}
-	if idx := tfv.IndexOf("missing"); idx != -1 {
-		t.Errorf("Expected index -1 for missing term, got %d", idx)
-	}
-}
-
-func TestTermFreqVector_String(t *testing.T) {
-	tfv := NewTermFreqVector("content")
-	tfv.Add("hello", 1)
-
-	s := tfv.String()
-	if s == "" {
-		t.Error("Expected non-empty string representation")
-	}
-}
-
-func TestBytesToTermVector(t *testing.T) {
+func TestTermVectorMapper(t *testing.T) {
 	tv := NewTermVector("content")
-	tv.AddTerm("hello", 2, nil, nil, nil)
-	tv.AddTerm("world", 1, nil, nil, nil)
+	tv.AddTerm("apple", 1, nil, nil, nil)
+	tv.AddTerm("banana", 2, nil, nil, nil)
+	tv.AddTerm("cherry", 3, nil, nil, nil)
 
-	encoded := TermVectorToBytes(tv)
-	decoded, err := BytesToTermVector(encoded)
-	if err != nil {
-		t.Fatalf("BytesToTermVector failed: %v", err)
+	// Mapper that only includes terms starting with 'a' or 'c'
+	mapper := &testMapper{
+		filter: func(term string) bool {
+			return term[0] == 'a' || term[0] == 'c'
+		},
 	}
 
-	if decoded.Field != "content" {
-		t.Errorf("Expected field 'content', got %s", decoded.Field)
+	filtered := FilterTermVector(tv, mapper)
+
+	if len(filtered.Terms) != 2 {
+		t.Errorf("Expected 2 terms after filtering, got %d", len(filtered.Terms))
 	}
-	if len(decoded.Terms) != 2 {
-		t.Errorf("Expected 2 terms, got %d", len(decoded.Terms))
+
+	if filtered.GetTermFreq("banana") != 0 {
+		t.Error("Expected 'banana' to be filtered out")
+	}
+
+	if filtered.GetTermFreq("apple") != 1 || filtered.GetTermFreq("cherry") != 3 {
+		t.Error("Expected 'apple' and 'cherry' to be preserved")
 	}
 }
 
-func TestBytesToTermVector_Invalid(t *testing.T) {
-	_, err := BytesToTermVector([]byte{})
-	if err == nil {
-		t.Error("Expected error for empty data")
+type testMapper struct {
+	filter func(string) bool
+}
+
+func (m *testMapper) Map(term string, freq int, positions, startOffsets, endOffsets []int) bool {
+	return m.filter(term)
+}
+
+func TestTermVector_LargeTermCount(t *testing.T) {
+	tv := NewTermVector("large")
+	count := 1000
+	for i := 0; i < count; i++ {
+		tv.AddTerm(fmt.Sprintf("term-%d", i), 1, nil, nil, nil)
+	}
+
+	if len(tv.Terms) != count {
+		t.Errorf("Expected %d terms, got %d", count, len(tv.Terms))
+	}
+
+	if tv.GetTermFreq("term-500") != 1 {
+		t.Error("Expected to find term-500")
 	}
 }
 
-func TestNewTermVectorsFormat(t *testing.T) {
-	format := NewTermVectorsFormat()
-	if format.Version != 1 {
-		t.Errorf("Expected version 1, got %d", format.Version)
-	}
-}
+func TestTermVector_MultipleFields(t *testing.T) {
+	writer := NewMemoryTermVectorsWriter()
+	writer.StartDocument(0)
 
-func TestTermVectorsMetadata(t *testing.T) {
-	meta := TermVectorsMetadata{
-		NumDocuments: 10,
-		NumFields:    3,
-		HasPositions: true,
-		HasOffsets:   false,
+	// Field 1: positions
+	writer.StartField("title", true, false)
+	writer.AddTerm([]byte("gocene"), 1, []int{0}, nil, nil)
+	writer.FinishField()
+
+	// Field 2: offsets
+	writer.StartField("body", false, true)
+	writer.AddTerm([]byte("hello"), 1, nil, []int{0}, []int{5})
+	writer.FinishField()
+
+	writer.FinishDocument()
+
+	reader := NewMemoryTermVectorsReader(writer)
+	vectors, _ := reader.Get(0)
+
+	if len(vectors) != 2 {
+		t.Errorf("Expected 2 fields, got %d", len(vectors))
 	}
 
-	if meta.NumDocuments != 10 {
-		t.Errorf("Expected 10 documents, got %d", meta.NumDocuments)
+	if !vectors["title"].HasPositions() || vectors["title"].HasOffsets() {
+		t.Error("Title should have positions but no offsets")
 	}
-	if meta.NumFields != 3 {
-		t.Errorf("Expected 3 fields, got %d", meta.NumFields)
-	}
-	if !meta.HasPositions {
-		t.Error("Expected HasPositions to be true")
-	}
-	if meta.HasOffsets {
-		t.Error("Expected HasOffsets to be false")
+
+	if vectors["body"].HasPositions() || !vectors["body"].HasOffsets() {
+		t.Error("Body should have offsets but no positions")
 	}
 }

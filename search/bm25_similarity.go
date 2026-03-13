@@ -24,6 +24,12 @@ func NewBM25Similarity() *BM25Similarity {
 
 // NewBM25SimilarityWithParams creates a BM25Similarity with custom parameters.
 func NewBM25SimilarityWithParams(k1, b float64) *BM25Similarity {
+	if math.IsNaN(k1) || k1 < 0 || math.IsInf(k1, 0) {
+		panic("illegal k1 value")
+	}
+	if math.IsNaN(b) || b < 0 || b > 1 || math.IsInf(b, 0) {
+		panic("illegal b value")
+	}
 	return &BM25Similarity{
 		BaseSimilarity: NewBaseSimilarity(),
 		k1:             k1,

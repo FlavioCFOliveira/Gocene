@@ -81,13 +81,13 @@ func TestDocument_GetFields(t *testing.T) {
 	doc.AddField("tag", "lucene", StringFieldTypeStored)
 	doc.AddField("tag", "search", StringFieldTypeStored)
 
-	fields := doc.GetFields("tag")
+	fields := doc.GetFieldsByName("tag")
 	if len(fields) != 3 {
 		t.Errorf("Expected 3 fields, got %d", len(fields))
 	}
 
 	// Get non-existent
-	fields = doc.GetFields("nonexistent")
+	fields = doc.GetFieldsByName("nonexistent")
 	if len(fields) != 0 {
 		t.Error("Expected empty slice for non-existent field")
 	}

@@ -5,6 +5,8 @@
 package search
 
 import (
+	"fmt"
+
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
@@ -23,6 +25,16 @@ func NewPhraseQuery(field string, terms ...*index.Term) *PhraseQuery {
 		field:     field,
 		terms:     terms,
 		slop:      0,
+	}
+}
+
+// NewPhraseQueryWithSlop creates a new PhraseQuery with a custom slop.
+func NewPhraseQueryWithSlop(slop int, field string, terms ...*index.Term) *PhraseQuery {
+	return &PhraseQuery{
+		BaseQuery: &BaseQuery{},
+		field:     field,
+		terms:     terms,
+		slop:      slop,
 	}
 }
 
@@ -89,4 +101,36 @@ func (q *PhraseQuery) HashCode() int {
 	}
 	hash = hash*31 + q.slop
 	return hash
+}
+
+// Rewrite rewrites the query to a simpler form.
+func (q *PhraseQuery) Rewrite(reader IndexReader) (Query, error) {
+	if len(q.terms) == 1 {
+		return NewTermQuery(q.terms[0]), nil
+	}
+	return q, nil
+}
+
+func (q *PhraseQuery) String() string {
+	buffer := q.field + ":\""
+	for i, term := range q.terms {
+		if i > 0 {
+			buffer += " "
+		}
+		buffer += term.Text()
+	}
+	buffer += "\""
+	if q.slop > 0 {
+		buffer += fmt.Sprintf("~%d", q.slop)
+	}
+	return buffer
+}
+
+// NewPhraseQueryWithStrings creates a PhraseQuery from a field and multiple strings.
+func NewPhraseQueryWithStrings(field string, terms ...string) *PhraseQuery {
+	termObjects := make([]*index.Term, len(terms))
+	for i, t := range terms {
+		termObjects[i] = index.NewTerm(field, t)
+	}
+	return NewPhraseQuery(field, termObjects...)
 }

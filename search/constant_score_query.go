@@ -85,3 +85,18 @@ func (q *ConstantScoreQuery) HashCode() int {
 	}
 	return hash*31 + int(q.score*1000)
 }
+
+// Rewrite rewrites the query to a simpler form.
+func (q *ConstantScoreQuery) Rewrite(reader IndexReader) (Query, error) {
+	if q.query == nil {
+		return q, nil
+	}
+	rewritten, err := q.query.Rewrite(reader)
+	if err != nil {
+		return nil, err
+	}
+	if rewritten != q.query {
+		return NewConstantScoreQueryWithScore(rewritten, q.score), nil
+	}
+	return q, nil
+}

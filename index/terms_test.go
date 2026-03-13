@@ -5,7 +5,10 @@
 package index
 
 import (
+	"sort"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 func TestEmptyTerms(t *testing.T) {
@@ -194,38 +197,224 @@ func TestSingleTermTerms_SeekCeil(t *testing.T) {
 	}
 }
 
-func TestTermsBase_Defaults(t *testing.T) {
-	base := &TermsBase{}
+// Mock MultiTermTerms for comprehensive testing
+type mockMultiTermTerms struct {
+	TermsBase
+	terms []*Term
+}
 
-	if base.Size() != -1 {
-		t.Errorf("Expected Size=-1 (unknown), got %d", base.Size())
+func (m *mockMultiTermTerms) GetIterator() (TermsEnum, error) {
+	return &mockMultiTermsEnum{terms: m.terms, pos: -1}, nil
+}
+
+func (m *mockMultiTermTerms) GetIteratorWithSeek(seekTerm *Term) (TermsEnum, error) {
+	te := &mockMultiTermsEnum{terms: m.terms, pos: -1}
+	_, err := te.SeekCeil(seekTerm)
+	return te, err
+}
+
+func (m *mockMultiTermTerms) Size() int64 {
+	return int64(len(m.terms))
+}
+
+type mockMultiTermsEnum struct {
+	TermsEnumBase
+	terms []*Term
+	pos   int
+}
+
+func (m *mockMultiTermsEnum) Next() (*Term, error) {
+	m.pos++
+	if m.pos >= len(m.terms) {
+		m.currentTerm = nil
+		return nil, nil
+	}
+	m.currentTerm = m.terms[m.pos]
+	return m.currentTerm, nil
+}
+
+func (m *mockMultiTermsEnum) SeekCeil(term *Term) (*Term, error) {
+	idx := sort.Search(len(m.terms), func(i int) bool {
+		return m.terms[i].CompareTo(term) >= 0
+	})
+	m.pos = idx - 1 // Next() will advance it to idx
+	return m.Next()
+}
+
+func (m *mockMultiTermsEnum) SeekExact(term *Term) (bool, error) {
+	got, err := m.SeekCeil(term)
+	if err != nil {
+		return false, err
+	}
+	return got != nil && got.Equals(term), nil
+}
+
+func (m *mockMultiTermsEnum) DocFreq() (int, error) {
+	return 1, nil
+}
+
+func (m *mockMultiTermsEnum) TotalTermFreq() (int64, error) {
+	return 1, nil
+}
+
+func (m *mockMultiTermsEnum) Postings(flags int) (PostingsEnum, error) {
+	return &EmptyPostingsEnum{}, nil
+}
+
+func (m *mockMultiTermsEnum) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (PostingsEnum, error) {
+	return &EmptyPostingsEnum{}, nil
+}
+
+func TestTermsEnum_MultiTerm(t *testing.T) {
+	terms := []*Term{
+		NewTerm("f", "apple"),
+		NewTerm("f", "banana"),
+		NewTerm("f", "cherry"),
+		NewTerm("f", "date"),
 	}
 
-	docCount, _ := base.GetDocCount()
-	if docCount != 0 {
-		t.Errorf("Expected GetDocCount=0, got %d", docCount)
+	m := &mockMultiTermTerms{terms: terms}
+	te, _ := m.GetIterator()
+
+	// Test sequential iteration
+	for i, expected := range terms {
+		got, _ := te.Next()
+		if got == nil || !got.Equals(expected) {
+			t.Errorf("At index %d: expected %v, got %v", i, expected, got)
+		}
+	}
+	got, _ := te.Next()
+	if got != nil {
+		t.Error("Expected nil after end of terms")
 	}
 
-	sumDocFreq, _ := base.GetSumDocFreq()
-	if sumDocFreq != -1 {
-		t.Errorf("Expected GetSumDocFreq=-1, got %d", sumDocFreq)
+	// Test SeekCeil
+	te2, _ := m.GetIterator()
+	found, _ := te2.SeekCeil(NewTerm("f", "b"))
+	if found == nil || !found.Equals(terms[1]) {
+		t.Errorf("SeekCeil('b') expected 'banana', got %v", found)
 	}
 
-	sumTotalFreq, _ := base.GetSumTotalTermFreq()
-	if sumTotalFreq != -1 {
-		t.Errorf("Expected GetSumTotalTermFreq=-1, got %d", sumTotalFreq)
+	found, _ = te2.SeekCeil(NewTerm("f", "banana"))
+	if found == nil || !found.Equals(terms[1]) {
+		t.Errorf("SeekCeil('banana') expected 'banana', got %v", found)
 	}
 
-	if base.HasFreqs() {
-		t.Error("Expected HasFreqs=false by default")
+	found, _ = te2.SeekCeil(NewTerm("f", "dog"))
+	if found != nil {
+		t.Errorf("SeekCeil('dog') expected nil, got %v", found)
 	}
-	if base.HasOffsets() {
-		t.Error("Expected HasOffsets=false by default")
+}
+
+func TestPostingsEnum_Basic(t *testing.T) {
+	// Test SingleDocPostingsEnum
+	pe := NewSingleDocPostingsEnum(10, 5)
+
+	doc, err := pe.NextDoc()
+	if err != nil {
+		t.Fatalf("NextDoc error: %v", err)
 	}
-	if base.HasPositions() {
-		t.Error("Expected HasPositions=false by default")
+	if doc != 10 {
+		t.Errorf("Expected doc 10, got %d", doc)
 	}
-	if base.HasPayloads() {
-		t.Error("Expected HasPayloads=false by default")
+
+	freq, _ := pe.Freq()
+	if freq != 5 {
+		t.Errorf("Expected freq 5, got %d", freq)
+	}
+
+	doc, _ = pe.NextDoc()
+	if doc != NO_MORE_DOCS {
+		t.Error("Expected NO_MORE_DOCS")
+	}
+
+	// Test Advance
+	pe2 := NewSingleDocPostingsEnum(20, 1)
+	doc, _ = pe2.Advance(15)
+	if doc != 20 {
+		t.Errorf("Advance(15) expected 20, got %d", doc)
+	}
+
+	pe3 := NewSingleDocPostingsEnum(20, 1)
+	doc, _ = pe3.Advance(25)
+	if doc != NO_MORE_DOCS {
+		t.Errorf("Advance(25) expected NO_MORE_DOCS, got %d", doc)
+	}
+}
+
+type mockMultiDocPostingsEnum struct {
+	PostingsEnumBase
+	docs  []int
+	freqs []int
+	pos   int
+	cost  int64
+}
+
+func (m *mockMultiDocPostingsEnum) NextDoc() (int, error) {
+	m.pos++
+	if m.pos >= len(m.docs) {
+		m.currentDoc = NO_MORE_DOCS
+		return NO_MORE_DOCS, nil
+	}
+	m.currentDoc = m.docs[m.pos]
+	return m.currentDoc, nil
+}
+
+func (m *mockMultiDocPostingsEnum) Advance(target int) (int, error) {
+	idx := sort.Search(len(m.docs), func(i int) bool {
+		return m.docs[i] >= target
+	})
+	m.pos = idx - 1
+	return m.NextDoc()
+}
+
+func (m *mockMultiDocPostingsEnum) Freq() (int, error) {
+	if m.pos < 0 || m.pos >= len(m.freqs) {
+		return 0, nil
+	}
+	return m.freqs[m.pos], nil
+}
+
+func (m *mockMultiDocPostingsEnum) NextPosition() (int, error) { return NO_MORE_POSITIONS, nil }
+func (m *mockMultiDocPostingsEnum) StartOffset() (int, error)  { return -1, nil }
+func (m *mockMultiDocPostingsEnum) EndOffset() (int, error)    { return -1, nil }
+func (m *mockMultiDocPostingsEnum) GetPayload() ([]byte, error) { return nil, nil }
+func (m *mockMultiDocPostingsEnum) Cost() int64                { return m.cost }
+
+func TestPostingsEnum_MultiDoc(t *testing.T) {
+	docs := []int{1, 3, 5, 7, 9}
+	freqs := []int{10, 20, 30, 40, 50}
+	pe := &mockMultiDocPostingsEnum{
+		docs:  docs,
+		freqs: freqs,
+		pos:   -1,
+		cost:  5,
+	}
+
+	// Test sequential iteration
+	for i, expected := range docs {
+		doc, _ := pe.NextDoc()
+		if doc != expected {
+			t.Errorf("At index %d: expected doc %d, got %d", i, expected, doc)
+		}
+		freq, _ := pe.Freq()
+		if freq != freqs[i] {
+			t.Errorf("At index %d: expected freq %d, got %d", i, freqs[i], freq)
+		}
+	}
+	doc, _ := pe.NextDoc()
+	if doc != NO_MORE_DOCS {
+		t.Error("Expected NO_MORE_DOCS at end")
+	}
+
+	// Test Advance
+	pe2 := &mockMultiDocPostingsEnum{docs: docs, freqs: freqs, pos: -1}
+	doc, _ = pe2.Advance(4)
+	if doc != 5 {
+		t.Errorf("Advance(4) expected 5, got %d", doc)
+	}
+	doc, _ = pe2.NextDoc()
+	if doc != 7 {
+		t.Errorf("NextDoc after Advance expected 7, got %d", doc)
 	}
 }

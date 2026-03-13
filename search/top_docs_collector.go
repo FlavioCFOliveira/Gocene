@@ -47,7 +47,9 @@ func NewTopDocsCollector(numHits int) *TopDocsCollector {
 
 // GetLeafCollector returns a LeafCollector for the given context.
 func (c *TopDocsCollector) GetLeafCollector(reader IndexReader) (LeafCollector, error) {
-	return NewTopDocsLeafCollector(c), nil
+	// For now, we don't have a way to get the docBase from the reader here
+	// but the searcher will call a method to set it or we'll pass it.
+	return NewTopDocsLeafCollector(c, 0), nil
 }
 
 // TopDocs returns the collected top documents.
@@ -90,10 +92,11 @@ type TopDocsLeafCollector struct {
 }
 
 // NewTopDocsLeafCollector creates a new TopDocsLeafCollector.
-func NewTopDocsLeafCollector(collector *TopDocsCollector) *TopDocsLeafCollector {
+func NewTopDocsLeafCollector(collector *TopDocsCollector, docBase int) *TopDocsLeafCollector {
 	return &TopDocsLeafCollector{
 		BaseLeafCollector: NewBaseLeafCollector(),
 		collector:         collector,
+		docBase:           docBase,
 	}
 }
 
@@ -101,6 +104,11 @@ func NewTopDocsLeafCollector(collector *TopDocsCollector) *TopDocsLeafCollector 
 func (c *TopDocsLeafCollector) SetScorer(scorer Scorer) error {
 	c.scorer = scorer
 	return nil
+}
+
+// SetDocBase sets the doc base.
+func (c *TopDocsLeafCollector) SetDocBase(docBase int) {
+	c.docBase = docBase
 }
 
 // Collect collects a document.
@@ -174,8 +182,8 @@ func (pq *ScoreDocPriorityQueue) Push(x interface{}) {
 func (pq *ScoreDocPriorityQueue) Pop() interface{} {
 	old := pq.items
 	n := len(old)
-	item := old[0]
-	pq.items = old[1:n]
+	item := old[n-1]
+	pq.items = old[0 : n-1]
 	return item
 }
 

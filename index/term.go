@@ -143,7 +143,7 @@ func (t *Term) String() string {
 	if t == nil {
 		return "nil"
 	}
-	return fmt.Sprintf("Term(field=%s,text=%s)", t.Field, t.Text())
+	return fmt.Sprintf("%s:%s", t.Field, t.Text())
 }
 
 // SetBytesRef sets the bytes of this term.

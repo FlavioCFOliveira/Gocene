@@ -77,3 +77,20 @@ func (q *WildcardQuery) HashCode() int {
 	}
 	return 0
 }
+
+// Rewrite rewrites the query to a simpler form.
+func (q *WildcardQuery) Rewrite(reader IndexReader) (Query, error) {
+	return q, nil
+}
+
+func (q *WildcardQuery) String() string {
+	if q.term == nil {
+		return "<nil>"
+	}
+	return q.term.String()
+}
+
+// NewWildcardQueryWithStrings creates a new WildcardQuery using strings.
+func NewWildcardQueryWithStrings(field string, pattern string) *WildcardQuery {
+	return NewWildcardQuery(index.NewTerm(field, pattern))
+}

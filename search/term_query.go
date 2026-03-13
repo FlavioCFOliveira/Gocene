@@ -41,3 +41,12 @@ func (q *TermQuery) Equals(other Query) bool {
 func (q *TermQuery) HashCode() int {
 	return q.term.HashCode()
 }
+
+// Rewrite rewrites the query to a simpler form.
+func (q *TermQuery) Rewrite(reader IndexReader) (Query, error) {
+	return q, nil
+}
+
+func (q *TermQuery) String() string {
+	return q.term.String()
+}

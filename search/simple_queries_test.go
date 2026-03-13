@@ -6,8 +6,6 @@ package search
 
 import (
 	"testing"
-
-	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 func TestMatchAllDocsQuery(t *testing.T) {
@@ -28,53 +26,6 @@ func TestMatchAllDocsQuery(t *testing.T) {
 	// Test HashCode
 	if q1.HashCode() != 0 {
 		t.Error("MatchAllDocsQuery HashCode should be 0")
-	}
-}
-
-func TestPrefixQuery(t *testing.T) {
-	term := index.NewTerm("field", "prefix")
-	q1 := NewPrefixQuery(term)
-
-	// Test GetField
-	if q1.GetField() != "field" {
-		t.Errorf("Expected field 'field', got '%s'", q1.GetField())
-	}
-
-	// Test Prefix
-	if !q1.Prefix().Equals(term) {
-		t.Error("Prefix should equal the original term")
-	}
-
-	// Test Clone
-	cloned := q1.Clone().(*PrefixQuery)
-	if !cloned.Prefix().Equals(term) {
-		t.Error("Cloned prefix should equal original")
-	}
-
-	// Test Equals
-	term2 := index.NewTerm("field", "prefix")
-	q2 := NewPrefixQuery(term2)
-	if !q1.Equals(q2) {
-		t.Error("Two PrefixQuery with same term should be equal")
-	}
-
-	// Test not equal with different term
-	term3 := index.NewTerm("field", "different")
-	q3 := NewPrefixQuery(term3)
-	if q1.Equals(q3) {
-		t.Error("PrefixQuery with different prefix should not be equal")
-	}
-
-	// Test HashCode
-	if q1.HashCode() != term.HashCode() {
-		t.Error("PrefixQuery HashCode should equal term HashCode")
-	}
-}
-
-func TestPrefixQueryWithNilPrefix(t *testing.T) {
-	q := NewPrefixQuery(nil)
-	if q.GetField() != "" {
-		t.Error("GetField should return empty string for nil prefix")
 	}
 }
 

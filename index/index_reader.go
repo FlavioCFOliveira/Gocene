@@ -4,6 +4,14 @@
 
 package index
 
+// IndexReaderInterface is a minimal interface for reading indexes.
+type IndexReaderInterface interface {
+	DocCount() int
+	NumDocs() int
+	MaxDoc() int
+	Close() error
+}
+
 // IndexReader is an abstract base class for reading indexes.
 type IndexReader struct {
 	closed bool

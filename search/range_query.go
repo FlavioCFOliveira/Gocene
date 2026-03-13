@@ -97,6 +97,7 @@ func (q *TermRangeQuery) HashCode() int {
 	for _, b := range q.lowerTerm {
 		hash = hash*31 + int(b)
 	}
+	hash = hash*31 + 37 // separator
 	for _, b := range q.upperTerm {
 		hash = hash*31 + int(b)
 	}
@@ -107,4 +108,51 @@ func (q *TermRangeQuery) HashCode() int {
 		hash = hash*31 + 1
 	}
 	return hash
+}
+
+// Rewrite rewrites the query to a simpler form.
+func (q *TermRangeQuery) Rewrite(reader IndexReader) (Query, error) {
+	return q, nil
+}
+
+func (q *TermRangeQuery) String() string {
+	buffer := q.field + ":"
+	if q.includeLower {
+		buffer += "["
+	} else {
+		buffer += "{"
+	}
+
+	if q.lowerTerm == nil {
+		buffer += "*"
+	} else {
+		buffer += string(q.lowerTerm)
+	}
+
+	buffer += " TO "
+
+	if q.upperTerm == nil {
+		buffer += "*"
+	} else {
+		buffer += string(q.upperTerm)
+	}
+
+	if q.includeUpper {
+		buffer += "]"
+	} else {
+		buffer += "}"
+	}
+	return buffer
+}
+
+// NewTermRangeQueryWithStrings creates a new TermRangeQuery using strings.
+func NewTermRangeQueryWithStrings(field string, lowerTerm, upperTerm string, includeLower, includeUpper bool) *TermRangeQuery {
+	var lower, upper []byte
+	if lowerTerm != "" {
+		lower = []byte(lowerTerm)
+	}
+	if upperTerm != "" {
+		upper = []byte(upperTerm)
+	}
+	return NewTermRangeQuery(field, lower, upper, includeLower, includeUpper)
 }

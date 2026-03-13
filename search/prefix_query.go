@@ -52,3 +52,20 @@ func (q *PrefixQuery) Equals(other Query) bool {
 func (q *PrefixQuery) HashCode() int {
 	return q.prefix.HashCode()
 }
+
+// Rewrite rewrites the query to a simpler form.
+func (q *PrefixQuery) Rewrite(reader IndexReader) (Query, error) {
+	return q, nil
+}
+
+func (q *PrefixQuery) String() string {
+	if q.prefix == nil {
+		return "<nil>:*"
+	}
+	return q.prefix.Field + ":" + q.prefix.Text() + "*"
+}
+
+// NewPrefixQueryWithStrings creates a new PrefixQuery using strings.
+func NewPrefixQueryWithStrings(field string, prefix string) *PrefixQuery {
+	return NewPrefixQuery(index.NewTerm(field, prefix))
+}

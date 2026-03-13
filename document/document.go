@@ -53,9 +53,19 @@ func (d *Document) Get(name string) IndexableField {
 	return nil
 }
 
-// GetFields returns all fields with the given name.
+// GetFields returns all fields in this document as interface{} slice.
+// This is used to satisfy index.Document interface without circular imports.
+func (d *Document) GetFields() []interface{} {
+	result := make([]interface{}, len(d.fields))
+	for i, field := range d.fields {
+		result[i] = field
+	}
+	return result
+}
+
+// GetFieldsByName returns all fields with the given name.
 // Returns an empty slice if no fields with that name exist.
-func (d *Document) GetFields(name string) []IndexableField {
+func (d *Document) GetFieldsByName(name string) []IndexableField {
 	var result []IndexableField
 	for _, field := range d.fields {
 		if field.Name() == name {

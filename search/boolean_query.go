@@ -4,7 +4,9 @@
 
 package search
 
-import "fmt"
+import (
+	"fmt"
+)
 
 // Occur specifies how a clause should occur in a BooleanQuery.
 type Occur int
@@ -58,7 +60,7 @@ func NewBooleanQuery() *BooleanQuery {
 	return &BooleanQuery{
 		BaseQuery:      &BaseQuery{},
 		clauses:        make([]*BooleanClause, 0),
-		minShouldMatch: 1,
+		minShouldMatch: 0,
 	}
 }
 
@@ -105,4 +107,109 @@ func NewBooleanQueryNotWithQuery(query Query) *BooleanQuery {
 	bq := NewBooleanQuery()
 	bq.Add(query, MUST_NOT)
 	return bq
+}
+
+// Rewrite rewrites the query to a simpler form.
+func (q *BooleanQuery) Rewrite(reader IndexReader) (Query, error) {
+	if len(q.clauses) == 0 {
+		return NewMatchAllDocsQuery(), nil
+	}
+
+	// If there's only one clause, and it's MUST or FILTER, we can potentially simplify it
+	if len(q.clauses) == 1 {
+		clause := q.clauses[0]
+		if clause.Occur == MUST || clause.Occur == FILTER {
+			rewritten, err := clause.Query.Rewrite(reader)
+			if err != nil {
+				return nil, err
+			}
+			if clause.Occur == FILTER {
+				return NewConstantScoreQueryWithScore(rewritten, 0.0), nil
+			}
+			return rewritten, nil
+		}
+	}
+
+	// Default: return itself with rewritten clauses
+	newBQ := &BooleanQuery{
+		BaseQuery:      q.BaseQuery,
+		clauses:        make([]*BooleanClause, len(q.clauses)),
+		minShouldMatch: q.minShouldMatch,
+	}
+	for i, clause := range q.clauses {
+		rewritten, err := clause.Query.Rewrite(reader)
+		if err != nil {
+			return nil, err
+		}
+		newBQ.clauses[i] = &BooleanClause{
+			Query: rewritten,
+			Occur: clause.Occur,
+		}
+	}
+	return newBQ, nil
+}
+
+// Clone creates a copy of this query.
+func (q *BooleanQuery) Clone() Query {
+	clonedClauses := make([]*BooleanClause, len(q.clauses))
+	for i, clause := range q.clauses {
+		clonedClauses[i] = &BooleanClause{
+			Query: clause.Query.Clone(),
+			Occur: clause.Occur,
+		}
+	}
+	return &BooleanQuery{
+		BaseQuery:      q.BaseQuery,
+		clauses:        clonedClauses,
+		minShouldMatch: q.minShouldMatch,
+	}
+}
+
+// Equals checks if this query equals another.
+func (q *BooleanQuery) Equals(other Query) bool {
+	o, ok := other.(*BooleanQuery)
+	if !ok {
+		return false
+	}
+	if q.minShouldMatch != o.minShouldMatch || len(q.clauses) != len(o.clauses) {
+		return false
+	}
+	for i, clause := range q.clauses {
+		if clause.Occur != o.clauses[i].Occur || !clause.Query.Equals(o.clauses[i].Query) {
+			return false
+		}
+	}
+	return true
+}
+
+// HashCode returns a hash code for this query.
+func (q *BooleanQuery) HashCode() int {
+	hash := q.minShouldMatch
+	for _, clause := range q.clauses {
+		hash = hash*31 + int(clause.Occur)
+		hash = hash*31 + clause.Query.HashCode()
+	}
+	return hash
+}
+
+func (q *BooleanQuery) String() string {
+	buffer := ""
+	if q.minShouldMatch > 0 {
+		buffer += fmt.Sprintf("minShouldMatch=%d ", q.minShouldMatch)
+	}
+	for i, clause := range q.clauses {
+		if i > 0 {
+			buffer += " "
+		}
+		switch clause.Occur {
+		case MUST:
+			buffer += "+"
+		case MUST_NOT:
+			buffer += "-"
+		case FILTER:
+			buffer += "#"
+		}
+		buffer += fmt.Sprintf("%v", clause.Query)
+	}
+	return buffer
 }

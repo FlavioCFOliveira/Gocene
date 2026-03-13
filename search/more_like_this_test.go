@@ -5,6 +5,7 @@
 package search
 
 import (
+	"container/heap"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
@@ -259,6 +260,7 @@ func TestMoreLikeThisCreateQueryEmpty(t *testing.T) {
 
 func TestInterestingTermHeap(t *testing.T) {
 	h := &interestingTermHeap{}
+	heap.Init(h)
 
 	// Add terms with different scores
 	terms := []*interestingTerm{
@@ -268,7 +270,7 @@ func TestInterestingTermHeap(t *testing.T) {
 	}
 
 	for _, term := range terms {
-		h.Push(term)
+		heap.Push(h, term)
 	}
 
 	if h.Len() != 3 {
@@ -276,7 +278,7 @@ func TestInterestingTermHeap(t *testing.T) {
 	}
 
 	// Pop should return lowest score first (min heap)
-	lowest := h.Pop().(*interestingTerm)
+	lowest := heap.Pop(h).(*interestingTerm)
 	if lowest.score != 1.0 {
 		t.Errorf("Expected lowest score 1.0, got: %f", lowest.score)
 	}
