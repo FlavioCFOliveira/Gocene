@@ -7,9 +7,28 @@ package index
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"sync"
 	"time"
+
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
+
+// AutoDetectMergesAndThreads is a sentinel value for auto-detecting merge thread count.
+const AutoDetectMergesAndThreads = -1
+
+// MinMergeMBPerSec is the floor for IO write rate limit (minimum rate).
+const MinMergeMBPerSec = 5.0
+
+// MaxMergeMBPerSec is the ceiling for IO write rate limit (maximum rate).
+const MaxMergeMBPerSec = 10240.0
+
+// StartMBPerSec is the initial value for IO write rate limit when doAutoIOThrottle is true.
+const StartMBPerSec = 20.0
+
+// MinBigMergeMB is the threshold for what constitutes a "big" merge (below this size,
+// merges don't count against maxThreadCount).
+const MinBigMergeMB = 50.0
 
 // ConcurrentMergeScheduler performs merges concurrently using goroutines.
 // This is the Go port of Lucene's org.apache.lucene.index.ConcurrentMergeScheduler.
@@ -19,6 +38,7 @@ import (
 //   - Configurable number of concurrent merge threads
 //   - Graceful shutdown with merge completion
 //   - Merge throttling and prioritization
+//   - Rate limiting for I/O operations
 //   - Error handling and recovery
 //
 // This is the default merge scheduler for Lucene and provides the best
@@ -26,18 +46,33 @@ import (
 type ConcurrentMergeScheduler struct {
 	*BaseMergeScheduler
 
-	// maxThreadCount limits concurrent merge threads (default: 1)
-	// Set to 0 for auto (based on CPU count)
+	// maxThreadCount limits concurrent merge threads (default: auto-detect)
+	// Set to AutoDetectMergesAndThreads for auto (based on CPU count)
 	maxThreadCount int
 
 	// maxMergeCount limits total merges (running + pending)
 	maxMergeCount int
 
+	// doAutoIOThrottle enables automatic I/O throttling
+	doAutoIOThrottle bool
+
+	// targetMBPerSec is the current IO write throttle rate
+	targetMBPerSec float64
+
+	// forceMergeMBPerSec is the rate limit for forced merges
+	forceMergeMBPerSec float64
+
+	// mergeThreads tracks active merge goroutines
+	mergeThreads []*MergeThread
+
+	// mergeThreadCounter is used for naming threads
+	mergeThreadCounter int
+
+	// pendingMerges holds merges waiting to be executed
+	pendingMerges []*OneMerge
+
 	// runningMerges tracks active merge goroutines
 	runningMerges sync.WaitGroup
-
-	// mergeQueue holds pending merges
-	mergeQueue chan *mergeTask
 
 	// ctx controls the lifecycle of merge goroutines
 	ctx context.Context
@@ -50,13 +85,15 @@ type ConcurrentMergeScheduler struct {
 
 	// mu protects mutable fields
 	mu sync.Mutex
-}
 
-// mergeTask represents a merge operation to be executed.
-type mergeTask struct {
-	writer *IndexWriter
-	merge  *OneMerge
-	done   chan error
+	// mergeMu protects merge-related state
+	mergeMu sync.Mutex
+
+	// rateLimiter limits merge I/O
+	rateLimiter *MergeRateLimiter
+
+	// intraMergeExecutor provides parallelism within a single merge
+	// (not implemented yet - placeholder for future enhancement)
 }
 
 // NewConcurrentMergeScheduler creates a new ConcurrentMergeScheduler.
@@ -65,57 +102,20 @@ func NewConcurrentMergeScheduler() *ConcurrentMergeScheduler {
 
 	s := &ConcurrentMergeScheduler{
 		BaseMergeScheduler: NewBaseMergeScheduler(),
-		maxThreadCount:     1, // Default to single merge thread
-		maxMergeCount:      5, // Default max concurrent merges
-		mergeQueue:         make(chan *mergeTask, 100),
+		maxThreadCount:     AutoDetectMergesAndThreads,
+		maxMergeCount:      AutoDetectMergesAndThreads,
+		doAutoIOThrottle:   false,
+		targetMBPerSec:     StartMBPerSec,
+		forceMergeMBPerSec: float64(0), // No limit by default
+		mergeThreads:       make([]*MergeThread, 0),
+		pendingMerges:      make([]*OneMerge, 0),
 		ctx:                ctx,
 		cancel:             cancel,
 		mergeErrors:        make(chan error, 10),
+		rateLimiter:        NewMergeRateLimiter(),
 	}
-
-	// Start merge workers
-	s.startMergeWorkers()
 
 	return s
-}
-
-// startMergeWorkers starts the merge worker goroutines.
-func (s *ConcurrentMergeScheduler) startMergeWorkers() {
-	threadCount := s.maxThreadCount
-	if threadCount <= 0 {
-		// Auto: use number of CPUs
-		threadCount = 1
-	}
-
-	for i := 0; i < threadCount; i++ {
-		go s.mergeWorker()
-	}
-}
-
-// mergeWorker is the goroutine that processes merge tasks.
-func (s *ConcurrentMergeScheduler) mergeWorker() {
-	for {
-		select {
-		case <-s.ctx.Done():
-			return
-		case task := <-s.mergeQueue:
-			if task == nil {
-				return
-			}
-			err := s.doMerge(task.writer, task.merge)
-			if task.done != nil {
-				task.done <- err
-				close(task.done)
-			}
-			if err != nil {
-				select {
-				case s.mergeErrors <- err:
-				default:
-					// Error channel full, drop the error
-				}
-			}
-		}
-	}
 }
 
 // MaxThreadCount returns the maximum number of merge threads.
@@ -126,13 +126,10 @@ func (s *ConcurrentMergeScheduler) MaxThreadCount() int {
 }
 
 // SetMaxThreadCount sets the maximum number of merge threads.
-// Set to 0 for auto (based on available CPUs).
+// Set to AutoDetectMergesAndThreads for auto (based on available CPUs).
 func (s *ConcurrentMergeScheduler) SetMaxThreadCount(count int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if count < 0 {
-		count = 0
-	}
 	s.maxThreadCount = count
 }
 
@@ -154,64 +151,251 @@ func (s *ConcurrentMergeScheduler) SetMaxMergeCount(count int) {
 	s.SetMaxMerges(count)
 }
 
-// Merge schedules a merge to run in a goroutine.
-// If the merge queue is full, this method will block until space is available.
-func (s *ConcurrentMergeScheduler) Merge(writer *IndexWriter, merge *OneMerge) error {
-	if s.IsClosed() {
-		return fmt.Errorf("merge scheduler is closed")
-	}
+// SetMaxMergesAndThreads sets both maxMergeCount and maxThreadCount.
+// If both are set to AutoDetectMergesAndThreads, values are auto-detected.
+func (s *ConcurrentMergeScheduler) SetMaxMergesAndThreads(maxMergeCount, maxThreadCount int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	task := &mergeTask{
-		writer: writer,
-		merge:  merge,
-		done:   make(chan error, 1),
-	}
-
-	// Queue the merge
-	select {
-	case s.mergeQueue <- task:
-		// Successfully queued
-	case <-s.ctx.Done():
-		return fmt.Errorf("merge scheduler is shutting down")
-	}
-
-	// Wait for completion (for synchronous behavior)
-	// In async mode, we would return immediately
-	err := <-task.done
-	return err
-}
-
-// MergeAsync schedules a merge to run asynchronously.
-// Returns immediately without waiting for the merge to complete.
-func (s *ConcurrentMergeScheduler) MergeAsync(writer *IndexWriter, merge *OneMerge) error {
-	if s.IsClosed() {
-		return fmt.Errorf("merge scheduler is closed")
-	}
-
-	task := &mergeTask{
-		writer: writer,
-		merge:  merge,
-		done:   nil, // No notification needed for async
-	}
-
-	select {
-	case s.mergeQueue <- task:
+	if maxMergeCount == AutoDetectMergesAndThreads && maxThreadCount == AutoDetectMergesAndThreads {
+		s.maxMergeCount = AutoDetectMergesAndThreads
+		s.maxThreadCount = AutoDetectMergesAndThreads
 		return nil
-	case <-s.ctx.Done():
-		return fmt.Errorf("merge scheduler is shutting down")
-	default:
-		return fmt.Errorf("merge queue is full")
+	}
+
+	if maxMergeCount == AutoDetectMergesAndThreads || maxThreadCount == AutoDetectMergesAndThreads {
+		return fmt.Errorf("both maxMergeCount and maxThreadCount must be AutoDetectMergesAndThreads or both must be positive")
+	}
+
+	if maxThreadCount < 1 {
+		return fmt.Errorf("maxThreadCount should be at least 1")
+	}
+	if maxMergeCount < 1 {
+		return fmt.Errorf("maxMergeCount should be at least 1")
+	}
+	if maxThreadCount > maxMergeCount {
+		return fmt.Errorf("maxThreadCount should be <= maxMergeCount (= %d)", maxMergeCount)
+	}
+
+	s.maxThreadCount = maxThreadCount
+	s.maxMergeCount = maxMergeCount
+	return nil
+}
+
+// SetDefaultMaxMergesAndThreads sets defaults for rotational or non-rotational storage.
+func (s *ConcurrentMergeScheduler) SetDefaultMaxMergesAndThreads(spins bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if spins {
+		// Traditional spinning disk: single merge thread
+		s.maxThreadCount = 1
+		s.maxMergeCount = 6
+	} else {
+		// SSD or similar: use CPU count
+		coreCount := runtime.NumCPU()
+		s.maxThreadCount = max(1, coreCount/2)
+		s.maxMergeCount = s.maxThreadCount + 5
 	}
 }
 
-// doMerge performs the actual merge operation.
-func (s *ConcurrentMergeScheduler) doMerge(writer *IndexWriter, merge *OneMerge) error {
-	s.incrementRunningMerges()
-	defer s.decrementRunningMerges()
+// SetForceMergeMBPerSec sets the per-merge IO throttle rate for forced merges.
+func (s *ConcurrentMergeScheduler) SetForceMergeMBPerSec(mbPerSec float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.forceMergeMBPerSec = mbPerSec
+}
+
+// GetForceMergeMBPerSec returns the per-merge IO throttle rate for forced merges.
+func (s *ConcurrentMergeScheduler) GetForceMergeMBPerSec() float64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.forceMergeMBPerSec
+}
+
+// SetAutoIOThrottle enables or disables automatic I/O throttling.
+func (s *ConcurrentMergeScheduler) SetAutoIOThrottle(enabled bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.doAutoIOThrottle = enabled
+}
+
+// GetAutoIOThrottle returns whether automatic I/O throttling is enabled.
+func (s *ConcurrentMergeScheduler) GetAutoIOThrottle() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.doAutoIOThrottle
+}
+
+// getEffectiveMaxThreadCount gets the effective thread count, handling auto-detect.
+func (s *ConcurrentMergeScheduler) getEffectiveMaxThreadCount() int {
+	s.mu.Lock()
+	threadCount := s.maxThreadCount
+	s.mu.Unlock()
+
+	if threadCount == AutoDetectMergesAndThreads {
+		// Auto-detect: use half of CPU cores
+		coreCount := runtime.NumCPU()
+		threadCount = max(1, coreCount/2)
+	}
+	return threadCount
+}
+
+// getEffectiveMaxMergeCount gets the effective merge count, handling auto-detect.
+func (s *ConcurrentMergeScheduler) getEffectiveMaxMergeCount() int {
+	s.mu.Lock()
+	mergeCount := s.maxMergeCount
+	threadCount := s.maxThreadCount
+	s.mu.Unlock()
+
+	if mergeCount == AutoDetectMergesAndThreads {
+		// Auto-detect
+		if threadCount == AutoDetectMergesAndThreads {
+			coreCount := runtime.NumCPU()
+			threadCount = max(1, coreCount/2)
+		}
+		mergeCount = threadCount + 5
+	}
+	return mergeCount
+}
+
+// Merge runs the merges from the source using background goroutines.
+// This implements the MergeScheduler interface.
+func (s *ConcurrentMergeScheduler) Merge(source MergeSource, trigger MergeTrigger) error {
+	if s.IsClosed() {
+		return NewAlreadyClosedException("merge scheduler is closed", nil)
+	}
+
+	// Get effective thread and merge counts
+	maxThreadCount := s.getEffectiveMaxThreadCount()
+	maxMergeCount := s.getEffectiveMaxMergeCount()
+
+	// Main merge loop
+	for {
+		// Maybe stall if too many pending merges
+		if err := s.maybeStall(source, maxMergeCount); err != nil {
+			return err
+		}
+
+		// Get next merge
+		merge := source.GetNextMerge()
+		if merge == nil {
+			break
+		}
+
+		// Check if we should spawn a new merge thread
+		s.mergeMu.Lock()
+		activeThreads := len(s.mergeThreads)
+		s.mergeMu.Unlock()
+
+		if activeThreads < maxThreadCount {
+			// Spawn new merge thread
+			s.spawnMergeThread(source, merge)
+		} else {
+			// Wait for a thread to finish, then continue
+			s.waitForMergeThread()
+			// Re-queue this merge for later
+			s.mergeMu.Lock()
+			s.pendingMerges = append(s.pendingMerges, merge)
+			s.mergeMu.Unlock()
+		}
+	}
+
+	// Wait for all running merges to complete
+	s.waitForAllMerges()
+
+	return nil
+}
+
+// maybeStall stalls the calling goroutine if there are too many pending merges.
+func (s *ConcurrentMergeScheduler) maybeStall(source MergeSource, maxMergeCount int) error {
+	s.mergeMu.Lock()
+	pendingCount := len(s.mergeThreads) + len(s.pendingMerges)
+	s.mergeMu.Unlock()
+
+	// If we're over the limit, wait
+	for pendingCount >= maxMergeCount {
+		if s.IsClosed() {
+			return NewAlreadyClosedException("merge scheduler is closed", nil)
+		}
+
+		// Wait for a merge to complete
+		s.waitForMergeThread()
+
+		s.mergeMu.Lock()
+		pendingCount = len(s.mergeThreads) + len(s.pendingMerges)
+		s.mergeMu.Unlock()
+	}
+
+	return nil
+}
+
+// spawnMergeThread starts a new goroutine to execute a merge.
+func (s *ConcurrentMergeScheduler) spawnMergeThread(source MergeSource, merge *OneMerge) {
+	s.mergeThreadCounter++
+	threadName := fmt.Sprintf("MergeThread-%d", s.mergeThreadCounter)
+
+	thread := NewMergeThread(threadName, merge)
+	thread.SetRunning(true)
+
+	s.mergeMu.Lock()
+	s.mergeThreads = append(s.mergeThreads, thread)
+	s.mergeMu.Unlock()
 
 	s.runningMerges.Add(1)
-	defer s.runningMerges.Done()
+	s.IncrementRunningMerges()
 
+	go func() {
+		defer s.runningMerges.Done()
+		defer s.DecrementRunningMerges()
+		defer func() { thread.SetRunning(false); close(thread.done) }()
+
+		// Execute the merge
+		err := s.executeMerge(source, merge)
+		thread.SetError(err)
+
+		// Signal completion
+		source.OnMergeFinished(merge)
+
+		// Remove from active threads
+		s.removeMergeThread(thread)
+
+		if err != nil {
+			select {
+			case s.mergeErrors <- err:
+			default:
+				// Error channel full, drop the error
+			}
+		}
+	}()
+}
+
+// removeMergeThread removes a thread from the active list.
+func (s *ConcurrentMergeScheduler) removeMergeThread(thread *MergeThread) {
+	s.mergeMu.Lock()
+	defer s.mergeMu.Unlock()
+
+	for i, t := range s.mergeThreads {
+		if t == thread {
+			s.mergeThreads = append(s.mergeThreads[:i], s.mergeThreads[i+1:]...)
+			break
+		}
+	}
+}
+
+// waitForMergeThread waits for any merge thread to complete.
+func (s *ConcurrentMergeScheduler) waitForMergeThread() {
+	// Simple approach: wait a bit and check
+	time.Sleep(10 * time.Millisecond)
+}
+
+// waitForAllMerges waits for all running merges to complete.
+func (s *ConcurrentMergeScheduler) waitForAllMerges() {
+	s.runningMerges.Wait()
+}
+
+// executeMerge performs the actual merge operation.
+func (s *ConcurrentMergeScheduler) executeMerge(source MergeSource, merge *OneMerge) error {
 	// Check for cancellation
 	select {
 	case <-s.ctx.Done():
@@ -219,46 +403,11 @@ func (s *ConcurrentMergeScheduler) doMerge(writer *IndexWriter, merge *OneMerge)
 	default:
 	}
 
-	// Perform the merge
-	// In a full implementation, this would:
-	// 1. Create a MergeState from the source segments
-	// 2. Use the Codec to write the merged segment
-	// 3. Update the SegmentInfos
-	// 4. Handle any errors and cleanup
-
-	// For now, just simulate the merge
-	err := s.executeMerge(writer, merge)
+	// Execute the merge via the source
+	err := source.Merge(merge)
 	if err != nil {
 		return NewMergeException("merge failed", err, merge)
 	}
-
-	return nil
-}
-
-// executeMerge executes the actual merge logic.
-func (s *ConcurrentMergeScheduler) executeMerge(writer *IndexWriter, merge *OneMerge) error {
-	// This is a placeholder for the actual merge implementation
-	// In a full implementation, this would:
-	//
-	// 1. Create a MergeState from the source segments
-	//    mergeState := NewMergeState(merge.Segments, writer.GetSegmentInfo())
-	//
-	// 2. Get the codec and create segment writers
-	//    codec := writer.GetConfig().GetCodec()
-	//    segmentWriteState := NewSegmentWriteState(...)
-	//
-	// 3. Merge fields, postings, stored fields, doc values, etc.
-	//    fieldsConsumer := codec.PostingsFormat().FieldsConsumer(segmentWriteState)
-	//    storedFieldsWriter := codec.StoredFieldsFormat().FieldsWriter(...)
-	//
-	// 4. Write the merged segment files
-	//
-	// 5. Update SegmentInfos with the new segment
-	//
-	// 6. Clean up old segment files
-
-	// Simulate merge work
-	time.Sleep(1 * time.Millisecond)
 
 	return nil
 }
@@ -275,10 +424,7 @@ func (s *ConcurrentMergeScheduler) Close() error {
 	// Signal shutdown
 	s.cancel()
 
-	// Close the merge queue
-	close(s.mergeQueue)
-
-	// Wait for all merges to complete
+	// Wait for all merges to complete with timeout
 	done := make(chan struct{})
 	go func() {
 		s.runningMerges.Wait()
@@ -294,7 +440,6 @@ func (s *ConcurrentMergeScheduler) Close() error {
 		return fmt.Errorf("timeout waiting for merges to complete")
 	}
 
-	// Close base scheduler
 	return s.BaseMergeScheduler.Close()
 }
 
@@ -309,9 +454,6 @@ func (s *ConcurrentMergeScheduler) CloseWithContext(ctx context.Context) error {
 
 	// Signal shutdown
 	s.cancel()
-
-	// Close the merge queue
-	close(s.mergeQueue)
 
 	// Wait for all merges to complete
 	done := make(chan struct{})
@@ -333,7 +475,16 @@ func (s *ConcurrentMergeScheduler) CloseWithContext(ctx context.Context) error {
 
 // GetPendingMergeCount returns the number of pending merges in the queue.
 func (s *ConcurrentMergeScheduler) GetPendingMergeCount() int {
-	return len(s.mergeQueue)
+	s.mergeMu.Lock()
+	defer s.mergeMu.Unlock()
+	return len(s.pendingMerges)
+}
+
+// GetActiveThreadCount returns the number of active merge threads.
+func (s *ConcurrentMergeScheduler) GetActiveThreadCount() int {
+	s.mergeMu.Lock()
+	defer s.mergeMu.Unlock()
+	return len(s.mergeThreads)
 }
 
 // GetMergeErrors returns any errors that occurred during merges.
@@ -352,6 +503,25 @@ func (s *ConcurrentMergeScheduler) GetMergeErrors() []error {
 
 // String returns a string representation of the ConcurrentMergeScheduler.
 func (s *ConcurrentMergeScheduler) String() string {
-	return fmt.Sprintf("ConcurrentMergeScheduler(maxThreadCount=%d, maxMergeCount=%d, running=%d, pending=%d)",
-		s.MaxThreadCount(), s.MaxMergeCount(), s.GetRunningMergeCount(), s.GetPendingMergeCount())
+	return fmt.Sprintf("ConcurrentMergeScheduler(maxThreadCount=%d, maxMergeCount=%d, activeThreads=%d, running=%d, pending=%d)",
+		s.getEffectiveMaxThreadCount(),
+		s.getEffectiveMaxMergeCount(),
+		s.GetActiveThreadCount(),
+		s.GetRunningMergeCount(),
+		s.GetPendingMergeCount())
+}
+
+// WrapForMerge wraps a Directory for merge operations with rate limiting.
+// This is a simplified implementation.
+func (s *ConcurrentMergeScheduler) WrapForMerge(merge *OneMerge, directory store.Directory) store.Directory {
+	// In a full implementation, this would wrap the directory with rate limiting
+	return directory
+}
+
+// max returns the maximum of two integers.
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

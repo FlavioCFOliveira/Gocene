@@ -94,17 +94,20 @@ func (t *StandardTokenizer) IncrementToken() (bool, error) {
 
 	for t.scanner.Scan() {
 		r := []rune(t.scanner.Text())[0]
-		t.currentOffset++
 
 		// Check if this rune is part of a token
 		if isTokenChar(r) {
 			tokenChars = append(tokenChars, r)
+			t.currentOffset++
 		} else if len(tokenChars) > 0 {
-			// End of token
+			// End of token - endOffset should be the position after the last token character
 			t.emitToken(tokenChars, startOffset, t.currentOffset)
+			t.currentOffset++ // Skip the non-token character
 			return true, nil
+		} else {
+			// Skip non-token characters before any token
+			t.currentOffset++
 		}
-		// Otherwise skip non-token characters
 	}
 
 	// Emit final token if any

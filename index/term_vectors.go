@@ -7,7 +7,122 @@ package index
 import (
 	"bytes"
 	"fmt"
+	"sync"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
+
+// TermVectors provides access to term vectors for documents.
+// This is the Go port of Lucene's org.apache.lucene.index.TermVectors.
+//
+// TermVectors allows retrieving term vectors for documents.
+// It wraps a TermVectorsReader and provides thread-safe access.
+type TermVectors interface {
+	// Prefetch prefetches term vectors for the given document IDs.
+	// This is a hint to the implementation that these documents
+	// will likely be accessed soon.
+	Prefetch(docIDs []int) error
+
+	// Get retrieves the term vectors for a single document.
+	// Returns a Fields object containing all term vectors for the document.
+	Get(docID int) (Fields, error)
+
+	// GetField retrieves the term vector for a specific field in a document.
+	// Returns nil if the field has no term vector.
+	GetField(docID int, field string) (Terms, error)
+}
+
+// TermVectorsImpl is an implementation of TermVectors that wraps a TermVectorsReader.
+type TermVectorsImpl struct {
+	reader   TermVectorsReader
+	liveDocs util.Bits
+	mu       sync.RWMutex
+}
+
+// NewTermVectors creates a new TermVectors from a TermVectorsReader.
+func NewTermVectors(reader TermVectorsReader, liveDocs util.Bits) *TermVectorsImpl {
+	return &TermVectorsImpl{
+		reader:   reader,
+		liveDocs: liveDocs,
+	}
+}
+
+// Prefetch prefetches term vectors for the given document IDs.
+func (tv *TermVectorsImpl) Prefetch(docIDs []int) error {
+	tv.mu.RLock()
+	defer tv.mu.RUnlock()
+
+	if tv.reader == nil {
+		return fmt.Errorf("term vectors reader is closed")
+	}
+
+	// Default implementation: no-op
+	// Subclasses can override to implement actual prefetching
+	return nil
+}
+
+// Get retrieves the term vectors for a single document.
+func (tv *TermVectorsImpl) Get(docID int) (Fields, error) {
+	tv.mu.RLock()
+	defer tv.mu.RUnlock()
+
+	if tv.reader == nil {
+		return nil, fmt.Errorf("term vectors reader is closed")
+	}
+
+	// Check if document is live
+	if tv.liveDocs != nil && !tv.liveDocs.Get(docID) {
+		return nil, fmt.Errorf("document %d is deleted", docID)
+	}
+
+	return tv.reader.Get(docID)
+}
+
+// GetField retrieves the term vector for a specific field in a document.
+func (tv *TermVectorsImpl) GetField(docID int, field string) (Terms, error) {
+	tv.mu.RLock()
+	defer tv.mu.RUnlock()
+
+	if tv.reader == nil {
+		return nil, fmt.Errorf("term vectors reader is closed")
+	}
+
+	// Check if document is live
+	if tv.liveDocs != nil && !tv.liveDocs.Get(docID) {
+		return nil, fmt.Errorf("document %d is deleted", docID)
+	}
+
+	return tv.reader.GetField(docID, field)
+}
+
+// EmptyTermVectors is a TermVectors implementation with no term vectors.
+type EmptyTermVectors struct{}
+
+// NewEmptyTermVectors creates a new EmptyTermVectors.
+func NewEmptyTermVectors() *EmptyTermVectors {
+	return &EmptyTermVectors{}
+}
+
+// Prefetch does nothing.
+func (e *EmptyTermVectors) Prefetch(docIDs []int) error {
+	return nil
+}
+
+// Get returns nil (no term vectors).
+func (e *EmptyTermVectors) Get(docID int) (Fields, error) {
+	return nil, nil
+}
+
+// GetField returns nil (no term vectors).
+func (e *EmptyTermVectors) GetField(docID int, field string) (Terms, error) {
+	return nil, nil
+}
+
+// Ensure EmptyTermVectors implements TermVectors
+var _ TermVectors = (*EmptyTermVectors)(nil)
+
+// Ensure TermVectorsImpl implements TermVectors
+var _ TermVectors = (*TermVectorsImpl)(nil)
 
 // TermVector represents the term vector for a single field in a document.
 // It contains all terms, their frequencies, and positions in the field.
@@ -64,40 +179,6 @@ func (tv *TermVector) GetTermFreq(term string) int {
 // String returns a string representation of the term vector.
 func (tv *TermVector) String() string {
 	return fmt.Sprintf("TermVector(field=%s, terms=%d)", tv.Field, len(tv.Terms))
-}
-
-// TermVectorsWriter writes term vectors to the index.
-type TermVectorsWriter interface {
-	// StartDocument starts writing term vectors for a new document.
-	StartDocument(docID int) error
-
-	// StartField starts writing a term vector for the given field.
-	StartField(field string, hasPositions, hasOffsets bool) error
-
-	// AddTerm adds a term to the current field.
-	AddTerm(term []byte, freq int, positions, startOffsets, endOffsets []int) error
-
-	// FinishField finishes writing the current field.
-	FinishField() error
-
-	// FinishDocument finishes writing the current document.
-	FinishDocument() error
-
-	// Close closes the writer.
-	Close() error
-}
-
-// TermVectorsReader reads term vectors from the index.
-type TermVectorsReader interface {
-	// Get retrieves term vectors for the given document ID.
-	// Returns a map of field name to TermVector.
-	Get(docID int) (map[string]*TermVector, error)
-
-	// GetField retrieves the term vector for a specific field.
-	GetField(docID int, field string) (*TermVector, error)
-
-	// Close closes the reader.
-	Close() error
 }
 
 // MemoryTermVectorsWriter is an in-memory implementation of TermVectorsWriter.
@@ -179,25 +260,35 @@ func NewMemoryTermVectorsReader(writer *MemoryTermVectorsWriter) *MemoryTermVect
 }
 
 // Get retrieves term vectors for the given document ID.
-func (r *MemoryTermVectorsReader) Get(docID int) (map[string]*TermVector, error) {
+// Returns a Fields object containing all term vectors for the document.
+func (r *MemoryTermVectorsReader) Get(docID int) (Fields, error) {
 	vectors, ok := r.writer.GetDocument(docID)
 	if !ok {
 		return nil, fmt.Errorf("document %d not found", docID)
 	}
-	return vectors, nil
+
+	// Convert map[string]*TermVector to Fields
+	fields := NewMemoryFields()
+	for fieldName, tv := range vectors {
+		// Create a Terms implementation for the TermVector
+		terms := NewTermVectorTerms(tv)
+		fields.AddField(fieldName, terms)
+	}
+	return fields, nil
 }
 
 // GetField retrieves the term vector for a specific field.
-func (r *MemoryTermVectorsReader) GetField(docID int, field string) (*TermVector, error) {
+// Returns a Terms object for that field, or nil if the field doesn't exist.
+func (r *MemoryTermVectorsReader) GetField(docID int, field string) (Terms, error) {
 	vectors, ok := r.writer.GetDocument(docID)
 	if !ok {
 		return nil, fmt.Errorf("document %d not found", docID)
 	}
 	vector, ok := vectors[field]
 	if !ok {
-		return nil, fmt.Errorf("field %s not found in document %d", field, docID)
+		return nil, nil // field not found, return nil (not an error)
 	}
-	return vector, nil
+	return NewTermVectorTerms(vector), nil
 }
 
 // Close closes the reader.
@@ -205,15 +296,182 @@ func (r *MemoryTermVectorsReader) Close() error {
 	return nil
 }
 
-// TermVectorsFormat handles the encoding/decoding of term vectors.
-type TermVectorsFormat struct {
-	// Version of the format
-	Version int
+// TermVectorTerms is a Terms implementation backed by a TermVector.
+type TermVectorTerms struct {
+	tv *TermVector
 }
 
-// NewTermVectorsFormat creates a new TermVectorsFormat with the default version.
-func NewTermVectorsFormat() *TermVectorsFormat {
-	return &TermVectorsFormat{Version: 1}
+// NewTermVectorTerms creates a new Terms from a TermVector.
+func NewTermVectorTerms(tv *TermVector) *TermVectorTerms {
+	return &TermVectorTerms{tv: tv}
+}
+
+// GetIterator returns an iterator over all terms in this field.
+func (t *TermVectorTerms) GetIterator() (TermsEnum, error) {
+	return NewTermVectorTermsEnum(t.tv), nil
+}
+
+// GetIteratorWithSeek returns an iterator positioned at or after the given term.
+func (t *TermVectorTerms) GetIteratorWithSeek(seekTerm *Term) (TermsEnum, error) {
+	iter := NewTermVectorTermsEnum(t.tv)
+	// Seek to the term or after
+	if seekTerm != nil {
+		for {
+			term, err := iter.Next()
+			if err != nil {
+				return nil, err
+			}
+			if term == nil || term.CompareTo(seekTerm) >= 0 {
+				break
+			}
+		}
+	}
+	return iter, nil
+}
+
+// Size returns the number of unique terms.
+func (t *TermVectorTerms) Size() int64 {
+	return int64(len(t.tv.Terms))
+}
+
+// GetDocCount returns the number of documents containing at least one term.
+func (t *TermVectorTerms) GetDocCount() (int, error) {
+	return 1, nil // This is for a single document
+}
+
+// GetSumDocFreq returns the sum of docFreq across all terms.
+func (t *TermVectorTerms) GetSumDocFreq() (int64, error) {
+	// Each term appears in exactly one doc
+	return int64(len(t.tv.Terms)), nil
+}
+
+// GetSumTotalTermFreq returns the total occurrences of all terms.
+func (t *TermVectorTerms) GetSumTotalTermFreq() (int64, error) {
+	var total int64
+	for _, freq := range t.tv.TermFreqs {
+		total += int64(freq)
+	}
+	return total, nil
+}
+
+// HasFreqs returns true if term frequencies are available.
+func (t *TermVectorTerms) HasFreqs() bool {
+	return len(t.tv.TermFreqs) > 0
+}
+
+// HasOffsets returns true if term offsets are available.
+func (t *TermVectorTerms) HasOffsets() bool {
+	return t.tv.HasOffsets()
+}
+
+// HasPositions returns true if term positions are available.
+func (t *TermVectorTerms) HasPositions() bool {
+	return t.tv.HasPositions()
+}
+
+// HasPayloads returns true if payloads are available.
+func (t *TermVectorTerms) HasPayloads() bool {
+	return false // TermVector doesn't support payloads
+}
+
+// GetMin returns the smallest term.
+func (t *TermVectorTerms) GetMin() (*Term, error) {
+	if len(t.tv.Terms) == 0 {
+		return nil, nil
+	}
+	return NewTerm(t.tv.Field, t.tv.Terms[0]), nil
+}
+
+// GetMax returns the largest term.
+func (t *TermVectorTerms) GetMax() (*Term, error) {
+	if len(t.tv.Terms) == 0 {
+		return nil, nil
+	}
+	return NewTerm(t.tv.Field, t.tv.Terms[len(t.tv.Terms)-1]), nil
+}
+
+// TermVectorTermsEnum is a TermsEnum implementation backed by a TermVector.
+type TermVectorTermsEnum struct {
+	tv    *TermVector
+	index int
+}
+
+// NewTermVectorTermsEnum creates a new TermsEnum from a TermVector.
+func NewTermVectorTermsEnum(tv *TermVector) *TermVectorTermsEnum {
+	return &TermVectorTermsEnum{
+		tv:    tv,
+		index: -1,
+	}
+}
+
+// Next advances to the next term.
+func (e *TermVectorTermsEnum) Next() (*Term, error) {
+	e.index++
+	if e.index >= len(e.tv.Terms) {
+		return nil, nil
+	}
+	return NewTerm(e.tv.Field, e.tv.Terms[e.index]), nil
+}
+
+// DocFreq returns the document frequency of the current term.
+func (e *TermVectorTermsEnum) DocFreq() (int, error) {
+	return 1, nil // In term vectors, each term appears in exactly one doc
+}
+
+// TotalTermFreq returns the total frequency of the current term.
+func (e *TermVectorTermsEnum) TotalTermFreq() (int64, error) {
+	if e.index < 0 || e.index >= len(e.tv.TermFreqs) {
+		return 0, nil
+	}
+	return int64(e.tv.TermFreqs[e.index]), nil
+}
+
+// Postings returns a PostingsEnum for the current term.
+func (e *TermVectorTermsEnum) Postings(flags int) (PostingsEnum, error) {
+	return nil, fmt.Errorf("postings not supported for term vectors")
+}
+
+// SeekCeil seeks to the specified term or, if the term doesn't exist,
+// to the next term after it (ceiling).
+func (e *TermVectorTermsEnum) SeekCeil(term *Term) (*Term, error) {
+	if term == nil {
+		return e.Next()
+	}
+	// Find the first term >= seek term
+	for i, t := range e.tv.Terms {
+		if t >= term.Text() {
+			e.index = i - 1 // Will be incremented by Next
+			return e.Next()
+		}
+	}
+	return nil, nil
+}
+
+// SeekExact seeks to the specified term.
+func (e *TermVectorTermsEnum) SeekExact(term *Term) (bool, error) {
+	if term == nil {
+		return false, nil
+	}
+	for i, t := range e.tv.Terms {
+		if t == term.Text() {
+			e.index = i
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// Term returns the current term.
+func (e *TermVectorTermsEnum) Term() *Term {
+	if e.index < 0 || e.index >= len(e.tv.Terms) {
+		return nil
+	}
+	return NewTerm(e.tv.Field, e.tv.Terms[e.index])
+}
+
+// PostingsWithLiveDocs returns a PostingsEnum for the current term with live docs.
+func (e *TermVectorTermsEnum) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (PostingsEnum, error) {
+	return nil, fmt.Errorf("postings not supported for term vectors")
 }
 
 // TermVectorsMetadata holds metadata about term vectors for a segment.

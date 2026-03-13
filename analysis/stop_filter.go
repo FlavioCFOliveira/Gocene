@@ -21,10 +21,10 @@ type StopFilter struct {
 	// stopWords is the set of words to filter out
 	stopWords map[string]struct{}
 
-	// termAttr holds the CharTermAttribute from the input stream
+	// termAttr holds the CharTermAttribute from the shared attribute source
 	termAttr CharTermAttribute
 
-	// posIncrAttr holds the PositionIncrementAttribute
+	// posIncrAttr holds the PositionIncrementAttribute from the shared attribute source
 	posIncrAttr PositionIncrementAttribute
 }
 
@@ -49,13 +49,17 @@ func NewStopFilter(input TokenStream, stopWords []string) *StopFilter {
 		filter.stopWords[word] = struct{}{}
 	}
 
-	// Get attributes from input
-	if ts, ok := input.(*BaseTokenStream); ok {
-		src := ts.GetAttributeSource()
-		filter.termAttr = src.GetAttributeByType(
-			reflect.TypeOf(&charTermAttribute{})).(CharTermAttribute)
-		filter.posIncrAttr = src.GetAttributeByType(
-			reflect.TypeOf(&positionIncrementAttribute{})).(PositionIncrementAttribute)
+	// Get attributes from the shared AttributeSource
+	attrSource := filter.GetAttributeSource()
+	if attrSource != nil {
+		attr := attrSource.GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+		if attr != nil {
+			filter.termAttr = attr.(CharTermAttribute)
+		}
+		attr = attrSource.GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{}))
+		if attr != nil {
+			filter.posIncrAttr = attr.(PositionIncrementAttribute)
+		}
 	}
 
 	return filter

@@ -50,6 +50,13 @@ func (a *positionIncrementAttribute) CopyTo(target AttributeImpl) {
 	}
 }
 
+// Copy creates a deep copy of this attribute.
+func (a *positionIncrementAttribute) Copy() AttributeImpl {
+	copy := NewPositionIncrementAttribute()
+	copy.SetPositionIncrement(a.positionIncrement)
+	return copy
+}
+
 // GetPositionIncrement returns the position increment.
 func (a *positionIncrementAttribute) GetPositionIncrement() int {
 	return a.positionIncrement

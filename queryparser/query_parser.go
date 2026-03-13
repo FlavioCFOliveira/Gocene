@@ -135,12 +135,19 @@ func (p *QueryParser) parseAndExpression() (search.Query, error) {
 
 // isImplicitAnd checks if we should treat this as an implicit AND.
 func (p *QueryParser) isImplicitAnd() bool {
-	// Check if next token starts a new term/field/group
-	return p.lookAhead.Type == TokenTypeTerm ||
-		p.lookAhead.Type == TokenTypeField ||
-		p.lookAhead.Type == TokenTypeLParen ||
-		p.lookAhead.Type == TokenTypePlus ||
-		p.lookAhead.Type == TokenTypeMinus
+	// Don't treat as implicit AND if current token is an operator
+	if p.currentToken.Type == TokenTypeAND ||
+		p.currentToken.Type == TokenTypeOR ||
+		p.currentToken.Type == TokenTypeNOT {
+		return false
+	}
+	// Check if current token starts a new term/field/group
+	// This is for cases like "hello world" (implicit AND between terms)
+	return p.currentToken.Type == TokenTypeTerm ||
+		p.currentToken.Type == TokenTypeField ||
+		p.currentToken.Type == TokenTypeLParen ||
+		p.currentToken.Type == TokenTypePlus ||
+		p.currentToken.Type == TokenTypeMinus
 }
 
 // parseNotExpression parses a NOT expression.
@@ -190,7 +197,7 @@ func (p *QueryParser) parsePrimaryExpression() (search.Query, error) {
 		return p.parseGroup()
 	case TokenTypeField:
 		return p.parseFieldQuery()
-	case TokenTypeTerm:
+	case TokenTypeTerm, TokenTypeWildcard:
 		return p.parseTermQuery()
 	case TokenTypeQuote:
 		return p.parsePhraseQuery()
@@ -401,8 +408,8 @@ func (p *QueryParser) parseRangeQueryWithField(field string) (search.Query, erro
 	}
 	p.nextToken()
 
-	// Parse lower bound
-	if !p.match(TokenTypeTerm) {
+	// Parse lower bound (can be TERM or NUMBER)
+	if !p.match(TokenTypeTerm) && !p.match(TokenTypeNumber) {
 		return nil, fmt.Errorf("expected term at position %d", p.currentToken.Pos)
 	}
 	lowerTerm := p.currentToken.Value
@@ -414,8 +421,8 @@ func (p *QueryParser) parseRangeQueryWithField(field string) (search.Query, erro
 	}
 	p.nextToken()
 
-	// Parse upper bound
-	if !p.match(TokenTypeTerm) {
+	// Parse upper bound (can be TERM or NUMBER)
+	if !p.match(TokenTypeTerm) && !p.match(TokenTypeNumber) {
 		return nil, fmt.Errorf("expected term at position %d", p.currentToken.Pos)
 	}
 	upperTerm := p.currentToken.Value

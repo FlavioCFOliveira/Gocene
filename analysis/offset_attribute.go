@@ -54,6 +54,14 @@ func (a *offsetAttribute) CopyTo(target AttributeImpl) {
 	}
 }
 
+// Copy creates a deep copy of this attribute.
+func (a *offsetAttribute) Copy() AttributeImpl {
+	copy := NewOffsetAttribute()
+	copy.SetStartOffset(a.startOffset)
+	copy.SetEndOffset(a.endOffset)
+	return copy
+}
+
 // StartOffset returns the start offset.
 func (a *offsetAttribute) StartOffset() int {
 	return a.startOffset

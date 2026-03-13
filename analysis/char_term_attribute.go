@@ -91,6 +91,13 @@ func (a *charTermAttribute) CopyTo(target AttributeImpl) {
 	}
 }
 
+// Copy creates a deep copy of this attribute.
+func (a *charTermAttribute) Copy() AttributeImpl {
+	copy := NewCharTermAttribute()
+	copy.SetValue(a.String())
+	return copy
+}
+
 // SetEmpty clears the term buffer.
 func (a *charTermAttribute) SetEmpty() {
 	a.termLength = 0

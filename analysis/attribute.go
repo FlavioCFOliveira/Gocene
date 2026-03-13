@@ -32,6 +32,8 @@ type AttributeImpl interface {
 	Clear()
 	// CopyTo copies the contents of this attribute to another implementation.
 	CopyTo(target AttributeImpl)
+	// Copy creates a deep copy of this attribute.
+	Copy() AttributeImpl
 }
 
 // AttributeFactory creates instances of AttributeImpl.

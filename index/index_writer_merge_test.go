@@ -144,7 +144,7 @@ func TestIndexWriterMergePolicy(t *testing.T) {
 			t.Errorf("GetMaxMergeAtOnce() = %d, want 5", tieredPolicy.GetMaxMergeAtOnce())
 		}
 		if tieredPolicy.GetMaxMergedSegmentMB() != 1024 {
-			t.Errorf("GetMaxMergedSegmentMB() = %d, want 1024", tieredPolicy.GetMaxMergedSegmentMB())
+			t.Errorf("GetMaxMergedSegmentMB() = %f, want 1024", tieredPolicy.GetMaxMergedSegmentMB())
 		}
 	})
 }

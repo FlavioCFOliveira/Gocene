@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"reflect"
+	"strings"
 	"sync"
 )
 
@@ -56,9 +57,18 @@ func (as *AttributeSource) GetAttribute(name string) AttributeImpl {
 	as.mu.RLock()
 	defer as.mu.RUnlock()
 
-	// Try to find by type name
+	// Try to find by type name (case-insensitive)
 	for attrType, attr := range as.attributes {
-		if attrType.String() == name || attrType.Elem().Name() == name {
+		// Match full type string
+		if attrType.String() == name {
+			return attr
+		}
+		// Match element name (e.g., "charTermAttribute" from "*analysis.charTermAttribute")
+		if attrType.Elem().Name() == name {
+			return attr
+		}
+		// Case-insensitive match for element name
+		if strings.EqualFold(attrType.Elem().Name(), name) {
 			return attr
 		}
 	}
@@ -112,6 +122,7 @@ func (as *AttributeSource) GetAttributeClasses() []reflect.Type {
 
 // CaptureState captures the current state of all attributes.
 // Returns a State that can be restored later.
+// The returned State contains copies of attribute values, not references.
 func (as *AttributeSource) CaptureState() *State {
 	as.mu.RLock()
 	defer as.mu.RUnlock()
@@ -121,12 +132,43 @@ func (as *AttributeSource) CaptureState() *State {
 	}
 
 	for attrType, attr := range as.attributes {
-		// Clone the attribute
-		// Note: This is a shallow copy; implementations should implement Clone if needed
-		state.attributes[attrType] = attr
+		// Create a copy of the attribute value
+		// Use factory if available, otherwise create a new instance
+		var copy AttributeImpl
+		if factory, ok := as.factories[attrType]; ok {
+			copy = factory()
+		} else {
+			// Create new instance using reflection for known types
+			copy = newAttributeInstance(attrType)
+		}
+		if copy != nil {
+			attr.CopyTo(copy)
+			state.attributes[attrType] = copy
+		}
 	}
 
 	return state
+}
+
+// newAttributeInstance creates a new instance of an attribute type.
+func newAttributeInstance(attrType reflect.Type) AttributeImpl {
+	// Create a new instance by reflectively calling the constructor
+	// This handles the known attribute types
+	switch attrType {
+	case reflect.TypeOf(&charTermAttribute{}):
+		return NewCharTermAttribute()
+	case reflect.TypeOf(&offsetAttribute{}):
+		return NewOffsetAttribute()
+	case reflect.TypeOf(&positionIncrementAttribute{}):
+		return NewPositionIncrementAttribute()
+	default:
+		// Try to create via reflection
+		newVal := reflect.New(attrType.Elem())
+		if impl, ok := newVal.Interface().(AttributeImpl); ok {
+			return impl
+		}
+		return nil
+	}
 }
 
 // RestoreState restores the attribute state from a captured state.

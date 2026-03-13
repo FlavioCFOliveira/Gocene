@@ -30,12 +30,12 @@ func TestConcurrentMergeScheduler(t *testing.T) {
 		}
 		defer scheduler.Close()
 
-		// Check defaults
-		if scheduler.MaxThreadCount() != 1 {
-			t.Errorf("MaxThreadCount() = %d, want 1", scheduler.MaxThreadCount())
+		// Check defaults - should be auto-detect (-1)
+		if scheduler.MaxThreadCount() != index.AutoDetectMergesAndThreads {
+			t.Errorf("MaxThreadCount() = %d, want %d (auto-detect)", scheduler.MaxThreadCount(), index.AutoDetectMergesAndThreads)
 		}
-		if scheduler.MaxMergeCount() != 5 {
-			t.Errorf("MaxMergeCount() = %d, want 5", scheduler.MaxMergeCount())
+		if scheduler.MaxMergeCount() != index.AutoDetectMergesAndThreads {
+			t.Errorf("MaxMergeCount() = %d, want %d (auto-detect)", scheduler.MaxMergeCount(), index.AutoDetectMergesAndThreads)
 		}
 	})
 
@@ -53,10 +53,10 @@ func TestConcurrentMergeScheduler(t *testing.T) {
 		scheduler := index.NewConcurrentMergeScheduler()
 		defer scheduler.Close()
 
-		// Set to 0 for auto
-		scheduler.SetMaxThreadCount(0)
-		if scheduler.MaxThreadCount() != 0 {
-			t.Errorf("MaxThreadCount() = %d, want 0", scheduler.MaxThreadCount())
+		// Set to auto-detect
+		scheduler.SetMaxThreadCount(index.AutoDetectMergesAndThreads)
+		if scheduler.MaxThreadCount() != index.AutoDetectMergesAndThreads {
+			t.Errorf("MaxThreadCount() = %d, want %d (auto-detect)", scheduler.MaxThreadCount(), index.AutoDetectMergesAndThreads)
 		}
 	})
 

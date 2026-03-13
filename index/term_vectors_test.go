@@ -160,20 +160,52 @@ func TestMemoryTermVectorsReader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get failed: %v", err)
 	}
-	if len(vectors) != 1 {
-		t.Errorf("Expected 1 field, got %d", len(vectors))
+
+	// Check that we can iterate over fields
+	iter, err := vectors.Iterator()
+	if err != nil {
+		t.Fatalf("Iterator failed: %v", err)
+	}
+
+	count := 0
+	for {
+		field, err := iter.Next()
+		if err != nil {
+			t.Fatalf("Next failed: %v", err)
+		}
+		if field == "" {
+			break
+		}
+		count++
+	}
+	if count != 1 {
+		t.Errorf("Expected 1 field, got %d", count)
 	}
 
 	// Get specific field
-	vector, err := reader.GetField(0, "content")
+	terms, err := reader.GetField(0, "content")
 	if err != nil {
 		t.Fatalf("GetField failed: %v", err)
 	}
-	if len(vector.Terms) != 1 || vector.Terms[0] != "hello" {
-		t.Errorf("Expected term 'hello', got %v", vector.Terms)
+	if terms == nil {
+		t.Fatal("Expected Terms, got nil")
 	}
-	if !vector.HasPositions() {
-		t.Error("Expected positions to be readable")
+
+	// Verify we can iterate over terms
+	termsEnum, err := terms.GetIterator()
+	if err != nil {
+		t.Fatalf("GetIterator failed: %v", err)
+	}
+
+	term, err := termsEnum.Next()
+	if err != nil {
+		t.Fatalf("Next failed: %v", err)
+	}
+	if term == nil {
+		t.Fatal("Expected term, got nil")
+	}
+	if term.Text() != "hello" {
+		t.Errorf("Expected term 'hello', got %s", term.Text())
 	}
 
 	// Get non-existent document
@@ -183,9 +215,12 @@ func TestMemoryTermVectorsReader(t *testing.T) {
 	}
 
 	// Get non-existent field
-	_, err = reader.GetField(0, "missing")
-	if err == nil {
-		t.Error("Expected error for non-existent field")
+	terms, err = reader.GetField(0, "missing")
+	if err != nil {
+		t.Error("GetField should not return error for missing field, just nil")
+	}
+	if terms != nil {
+		t.Error("Expected nil for missing field")
 	}
 
 	if err := reader.Close(); err != nil {
@@ -264,15 +299,33 @@ func TestTermVector_MultipleFields(t *testing.T) {
 	reader := NewMemoryTermVectorsReader(writer)
 	vectors, _ := reader.Get(0)
 
-	if len(vectors) != 2 {
-		t.Errorf("Expected 2 fields, got %d", len(vectors))
+	// Check field count
+	size := vectors.Size()
+	if size != 2 {
+		t.Errorf("Expected 2 fields, got %d", size)
 	}
 
-	if !vectors["title"].HasPositions() || vectors["title"].HasOffsets() {
-		t.Error("Title should have positions but no offsets")
+	// Check title field has positions but not offsets
+	titleTerms, _ := vectors.Terms("title")
+	if titleTerms == nil {
+		t.Fatal("title field not found")
+	}
+	if !titleTerms.HasPositions() {
+		t.Error("Title should have positions")
+	}
+	if titleTerms.HasOffsets() {
+		t.Error("Title should not have offsets")
 	}
 
-	if vectors["body"].HasPositions() || !vectors["body"].HasOffsets() {
-		t.Error("Body should have offsets but no positions")
+	// Check body field has offsets but not positions
+	bodyTerms, _ := vectors.Terms("body")
+	if bodyTerms == nil {
+		t.Fatal("body field not found")
+	}
+	if bodyTerms.HasPositions() {
+		t.Error("Body should not have positions")
+	}
+	if !bodyTerms.HasOffsets() {
+		t.Error("Body should have offsets")
 	}
 }

@@ -227,6 +227,32 @@ func (fi *FieldInfos) HasTermVectors() bool {
 	return false
 }
 
+// HasPostings returns true if any field has postings (is indexed).
+func (fi *FieldInfos) HasPostings() bool {
+	fi.mu.RLock()
+	defer fi.mu.RUnlock()
+
+	for _, fieldInfo := range fi.byName {
+		if fieldInfo.IndexOptions().IsIndexed() {
+			return true
+		}
+	}
+	return false
+}
+
+// HasStoredFields returns true if any field has stored content.
+func (fi *FieldInfos) HasStoredFields() bool {
+	fi.mu.RLock()
+	defer fi.mu.RUnlock()
+
+	for _, fieldInfo := range fi.byName {
+		if fieldInfo.IsStored() {
+			return true
+		}
+	}
+	return false
+}
+
 // GetNextFieldNumber returns the next available field number.
 func (fi *FieldInfos) GetNextFieldNumber() int {
 	fi.mu.RLock()

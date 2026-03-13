@@ -13,6 +13,7 @@ import (
 // TestStopFilter_Basic tests basic stop word filtering.
 // Source: TestStopFilter.testStopFilter()
 // Purpose: Tests that stop words are removed from token stream.
+// Note: StopFilter is case-sensitive by default, so input should be lowercase.
 func TestStopFilter_Basic(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -22,7 +23,7 @@ func TestStopFilter_Basic(t *testing.T) {
 	}{
 		{
 			name:      "English stop words",
-			input:     "The quick brown fox jumps over the lazy dog",
+			input:     "the quick brown fox jumps over the lazy dog",
 			stopWords: EnglishStopWords,
 			expected:  []string{"quick", "brown", "fox", "jumps", "over", "lazy", "dog"},
 		},

@@ -6,7 +6,12 @@ package index
 
 import (
 	"fmt"
+	"sync"
 )
+
+// =============================================================================
+// KeepOnlyLastCommitDeletionPolicy
+// =============================================================================
 
 // KeepOnlyLastCommitDeletionPolicy is the default deletion policy which
 // keeps only the most recent commit and deletes all prior commits.
@@ -35,63 +40,49 @@ import (
 //	defer writer.Close()
 type KeepOnlyLastCommitDeletionPolicy struct {
 	*BaseIndexDeletionPolicy
-
-	// minCommitCountToKeep ensures we keep at least this many commits
-	minCommitCountToKeep int
 }
 
 // NewKeepOnlyLastCommitDeletionPolicy creates a new KeepOnlyLastCommitDeletionPolicy.
 func NewKeepOnlyLastCommitDeletionPolicy() *KeepOnlyLastCommitDeletionPolicy {
 	return &KeepOnlyLastCommitDeletionPolicy{
 		BaseIndexDeletionPolicy: &BaseIndexDeletionPolicy{},
-		minCommitCountToKeep:    1,
 	}
 }
 
 // OnCommit is called each time a commit is made.
-// Deletes all but the most recent commit.
+// It deletes all commits except the most recent one.
+//
+// Parameters:
+//   - commits: A list of all current commits, sorted by age (oldest first)
+//
+// Returns an error if any deletion fails.
 func (p *KeepOnlyLastCommitDeletionPolicy) OnCommit(commits []*IndexCommit) error {
-	return p.cleanupOldCommits(commits)
-}
-
-// OnInit is called when IndexWriter is being initialized.
-// Deletes all but the most recent commit.
-func (p *KeepOnlyLastCommitDeletionPolicy) OnInit(commits []*IndexCommit) error {
-	return p.cleanupOldCommits(commits)
-}
-
-// cleanupOldCommits deletes all but the most recent commit(s).
-func (p *KeepOnlyLastCommitDeletionPolicy) cleanupOldCommits(commits []*IndexCommit) error {
-	// Validate commits
-	if err := EnsureCommitsValid(commits); err != nil {
-		return fmt.Errorf("invalid commits: %w", err)
-	}
-
-	// Need at least one commit
-	if len(commits) <= p.minCommitCountToKeep {
+	if len(commits) <= 1 {
+		// Nothing to delete if we have 0 or 1 commits
 		return nil
 	}
 
-	// Sort by generation to ensure we keep the newest
-	IndexCommitList(commits).SortByGenerationDesc()
-
-	// Delete all but the last commit(s)
-	var lastErr error
-	for i := p.minCommitCountToKeep; i < len(commits); i++ {
-		commit := commits[i]
-
-		// Skip if already deleted
-		if commit.IsDeleted() {
-			continue
-		}
-
-		if err := commit.Delete(); err != nil {
-			// Log the error but continue trying to delete other commits
-			lastErr = err
+	// Delete all commits except the last one (most recent)
+	// Commits are sorted by age (oldest first), so we keep commits[len(commits)-1]
+	for i := 0; i < len(commits)-1; i++ {
+		if err := commits[i].Delete(); err != nil {
+			return fmt.Errorf("failed to delete commit %d: %w", i, err)
 		}
 	}
 
-	return lastErr
+	return nil
+}
+
+// OnInit is called when IndexWriter is being initialized.
+// It cleans up old commits after a crash by keeping only the most recent one.
+//
+// Parameters:
+//   - commits: A list of all current commits, sorted by age (oldest first)
+//
+// Returns an error if any deletion fails.
+func (p *KeepOnlyLastCommitDeletionPolicy) OnInit(commits []*IndexCommit) error {
+	// Same behavior as OnCommit - keep only the most recent commit
+	return p.OnCommit(commits)
 }
 
 // Clone returns a clone of this policy.
@@ -101,12 +92,22 @@ func (p *KeepOnlyLastCommitDeletionPolicy) Clone() IndexDeletionPolicy {
 
 // String returns a string representation of this policy.
 func (p *KeepOnlyLastCommitDeletionPolicy) String() string {
-	return fmt.Sprintf("KeepOnlyLastCommitDeletionPolicy(minCommitCountToKeep=%d)",
-		p.minCommitCountToKeep)
+	return "KeepOnlyLastCommitDeletionPolicy"
 }
+
+// =============================================================================
+// KeepAllDeletionPolicy
+// =============================================================================
 
 // KeepAllDeletionPolicy keeps all commits and never deletes anything.
 // This is useful for backup scenarios or when you want to manually manage commits.
+//
+// This is the Go port of Lucene's org.apache.lucene.index.KeepAllDeletionPolicy.
+//
+// This policy is useful for:
+//   - Backup scenarios where you want to preserve all index states
+//   - Scenarios where external processes need access to historical commits
+//   - Testing and debugging purposes
 //
 // WARNING: This can consume significant disk space over time.
 // Make sure to manually delete old commits if using this policy.
@@ -123,6 +124,11 @@ func NewKeepAllDeletionPolicy() *KeepAllDeletionPolicy {
 
 // OnCommit is called each time a commit is made.
 // Does nothing - keeps all commits.
+//
+// Parameters:
+//   - commits: A list of all current commits, sorted by age (oldest first)
+//
+// Always returns nil (no errors).
 func (p *KeepAllDeletionPolicy) OnCommit(commits []*IndexCommit) error {
 	// Keep all commits - do nothing
 	return nil
@@ -130,6 +136,11 @@ func (p *KeepAllDeletionPolicy) OnCommit(commits []*IndexCommit) error {
 
 // OnInit is called when IndexWriter is being initialized.
 // Does nothing - keeps all commits.
+//
+// Parameters:
+//   - commits: A list of all current commits, sorted by age (oldest first)
+//
+// Always returns nil (no errors).
 func (p *KeepAllDeletionPolicy) OnInit(commits []*IndexCommit) error {
 	// Keep all commits - do nothing
 	return nil
@@ -145,132 +156,316 @@ func (p *KeepAllDeletionPolicy) String() string {
 	return "KeepAllDeletionPolicy"
 }
 
+// =============================================================================
+// SnapshotDeletionPolicy
+// =============================================================================
+
 // SnapshotDeletionPolicy keeps commits that have active snapshots.
 // This is useful when you need to keep certain commits for point-in-time
 // search or backup purposes.
 //
+// This is the Go port of Lucene's org.apache.lucene.index.SnapshotDeletionPolicy.
+//
 // A snapshot can be taken to "pin" a commit, preventing it from being deleted.
 // When the snapshot is released, the commit becomes eligible for deletion.
+//
+// This policy is useful for:
+//   - Creating point-in-time snapshots of the index
+//   - Allowing external processes to read from old index commits
+//   - Backup operations that need a stable view of the index
+//
+// Thread Safety:
+//   - All snapshot operations are protected by a mutex
+//   - Safe for concurrent use from multiple goroutines
 type SnapshotDeletionPolicy struct {
 	*BaseIndexDeletionPolicy
 
-	// parent is the underlying deletion policy
-	parent IndexDeletionPolicy
+	// primary is the underlying deletion policy
+	primary IndexDeletionPolicy
 
-	// snapshots maps generation to snapshot count
-	snapshots map[int64]int
+	// snapshots tracks active snapshots by their generation number
+	// The value is the segments file name for reference
+	snapshots map[int64]string
 
-	// mu protects snapshots
-	// Note: In a full implementation, this would need proper synchronization
+	// mu protects concurrent access to snapshots
+	mu sync.RWMutex
 }
 
-// NewSnapshotDeletionPolicy creates a new SnapshotDeletionPolicy.
-func NewSnapshotDeletionPolicy(parent IndexDeletionPolicy) *SnapshotDeletionPolicy {
-	if parent == nil {
-		parent = NewKeepOnlyLastCommitDeletionPolicy()
+// NewSnapshotDeletionPolicy creates a new SnapshotDeletionPolicy wrapping
+// the given primary policy.
+//
+// Parameters:
+//   - primary: The underlying deletion policy to wrap (defaults to KeepOnlyLastCommitDeletionPolicy if nil)
+//
+// Example:
+//
+//	// Use with default underlying policy
+//	policy := index.NewSnapshotDeletionPolicy(nil)
+//
+//	// Use with custom underlying policy
+//	keepAll := index.NewKeepAllDeletionPolicy()
+//	policy := index.NewSnapshotDeletionPolicy(keepAll)
+func NewSnapshotDeletionPolicy(primary IndexDeletionPolicy) *SnapshotDeletionPolicy {
+	if primary == nil {
+		primary = NewKeepOnlyLastCommitDeletionPolicy()
 	}
+
 	return &SnapshotDeletionPolicy{
 		BaseIndexDeletionPolicy: &BaseIndexDeletionPolicy{},
-		parent:                  parent,
-		snapshots:               make(map[int64]int),
+		primary:                 primary,
+		snapshots:               make(map[int64]string),
 	}
-}
-
-// Snapshot takes a snapshot of the given commit.
-// This prevents the commit from being deleted until ReleaseSnapshot is called.
-func (p *SnapshotDeletionPolicy) Snapshot(commit *IndexCommit) error {
-	if commit == nil {
-		return fmt.Errorf("commit cannot be nil")
-	}
-
-	gen := commit.GetGeneration()
-	p.snapshots[gen]++
-	return nil
-}
-
-// ReleaseSnapshot releases a snapshot of the given commit.
-// After all snapshots are released, the commit becomes eligible for deletion.
-func (p *SnapshotDeletionPolicy) ReleaseSnapshot(commit *IndexCommit) error {
-	if commit == nil {
-		return fmt.Errorf("commit cannot be nil")
-	}
-
-	gen := commit.GetGeneration()
-	if p.snapshots[gen] > 0 {
-		p.snapshots[gen]--
-		if p.snapshots[gen] == 0 {
-			delete(p.snapshots, gen)
-		}
-	}
-	return nil
-}
-
-// IsSnapshotted returns true if the given commit has an active snapshot.
-func (p *SnapshotDeletionPolicy) IsSnapshotted(commit *IndexCommit) bool {
-	if commit == nil {
-		return false
-	}
-	return p.snapshots[commit.GetGeneration()] > 0
-}
-
-// GetSnapshotCount returns the number of snapshots for the given commit.
-func (p *SnapshotDeletionPolicy) GetSnapshotCount(commit *IndexCommit) int {
-	if commit == nil {
-		return 0
-	}
-	return p.snapshots[commit.GetGeneration()]
 }
 
 // OnCommit is called each time a commit is made.
+// It protects any snapshotted commits from deletion.
+//
+// Parameters:
+//   - commits: A list of all current commits, sorted by age (oldest first)
+//
+// Returns an error if any deletion fails.
 func (p *SnapshotDeletionPolicy) OnCommit(commits []*IndexCommit) error {
-	// Filter out snapshotted commits
-	commitsToDelete := p.filterSnapshottedCommits(commits)
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
-	// Delegate to parent policy
-	return p.parent.OnCommit(commitsToDelete)
+	return p.onCommitLocked(commits)
+}
+
+// onCommitLocked implements OnCommit assuming the lock is already held.
+func (p *SnapshotDeletionPolicy) onCommitLocked(commits []*IndexCommit) error {
+	if len(commits) == 0 {
+		return nil
+	}
+
+	// Build a set of generations that must be kept (snapshots + last commit)
+	toKeep := make(map[int64]bool)
+
+	// Add all snapshotted generations
+	for gen := range p.snapshots {
+		toKeep[gen] = true
+	}
+
+	// Always keep the last (most recent) commit
+	lastCommit := commits[len(commits)-1]
+	toKeep[lastCommit.GetGeneration()] = true
+
+	// Find commits that can be deleted (not in toKeep)
+	var toDelete []*IndexCommit
+	for _, commit := range commits {
+		if !toKeep[commit.GetGeneration()] {
+			toDelete = append(toDelete, commit)
+		}
+	}
+
+	// Delete the commits that can be removed
+	for _, commit := range toDelete {
+		if err := commit.Delete(); err != nil {
+			return fmt.Errorf("failed to delete commit with generation %d: %w",
+				commit.GetGeneration(), err)
+		}
+	}
+
+	return nil
 }
 
 // OnInit is called when IndexWriter is being initialized.
+// It protects any snapshotted commits and cleans up old commits.
+//
+// Parameters:
+//   - commits: A list of all current commits, sorted by age (oldest first)
+//
+// Returns an error if any deletion fails.
 func (p *SnapshotDeletionPolicy) OnInit(commits []*IndexCommit) error {
-	// Filter out snapshotted commits
-	commitsToDelete := p.filterSnapshottedCommits(commits)
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
-	// Delegate to parent policy
-	return p.parent.OnInit(commitsToDelete)
+	return p.onInitLocked(commits)
 }
 
-// filterSnapshottedCommits removes snapshotted commits from the list.
-func (p *SnapshotDeletionPolicy) filterSnapshottedCommits(commits []*IndexCommit) []*IndexCommit {
-	result := make(IndexCommitList, 0, len(commits))
-	for _, commit := range commits {
-		if !p.IsSnapshotted(commit) {
-			result = append(result, commit)
-		}
-	}
-	return result
+// onInitLocked implements OnInit assuming the lock is already held.
+func (p *SnapshotDeletionPolicy) onInitLocked(commits []*IndexCommit) error {
+	// Same behavior as OnCommit - protect snapshotted commits
+	return p.onCommitLocked(commits)
 }
 
 // Clone returns a clone of this policy.
+// Note: Snapshots are not transferred to the clone.
 func (p *SnapshotDeletionPolicy) Clone() IndexDeletionPolicy {
-	// Clone the parent policy
-	parentClone := p.parent.Clone()
-	if parentClone == nil {
-		parentClone = NewKeepOnlyLastCommitDeletionPolicy()
+	p.mu.RLock()
+	primaryClone := p.primary.Clone()
+	p.mu.RUnlock()
+
+	return NewSnapshotDeletionPolicy(primaryClone)
+}
+
+// Snapshot creates a snapshot of the given commit and returns its generation.
+// The commit will be protected from deletion until Release is called.
+//
+// Parameters:
+//   - commit: The commit to snapshot (must not be nil)
+//
+// Returns the generation number of the snapshotted commit.
+// Returns an error if the commit is nil or already deleted.
+//
+// Example:
+//
+//	gen, err := policy.Snapshot(commit)
+//	if err != nil {
+//	    // handle error
+//	}
+//	// ... use the snapshot ...
+//	policy.Release(gen)
+func (p *SnapshotDeletionPolicy) Snapshot(commit *IndexCommit) (int64, error) {
+	if commit == nil {
+		return 0, fmt.Errorf("cannot snapshot nil commit")
 	}
 
-	return &SnapshotDeletionPolicy{
-		BaseIndexDeletionPolicy: &BaseIndexDeletionPolicy{},
-		parent:                  parentClone,
-		snapshots:               make(map[int64]int),
+	if commit.IsDeleted() {
+		return 0, fmt.Errorf("cannot snapshot deleted commit")
 	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	gen := commit.GetGeneration()
+	segmentsFile := commit.GetSegmentsFileName()
+
+	// Check if already snapshotted
+	if _, exists := p.snapshots[gen]; exists {
+		return gen, nil // Already snapshotted, just return the generation
+	}
+
+	p.snapshots[gen] = segmentsFile
+	return gen, nil
+}
+
+// SnapshotGeneration creates a snapshot of a commit identified by generation.
+// This is useful when you only have the generation number, not the full commit.
+//
+// Parameters:
+//   - commits: List of available commits
+//   - generation: The generation number to snapshot
+//
+// Returns an error if the generation is not found in the commits list.
+func (p *SnapshotDeletionPolicy) SnapshotGeneration(commits []*IndexCommit, generation int64) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Find the commit with this generation
+	var targetCommit *IndexCommit
+	for _, commit := range commits {
+		if commit.GetGeneration() == generation {
+			targetCommit = commit
+			break
+		}
+	}
+
+	if targetCommit == nil {
+		return fmt.Errorf("commit with generation %d not found", generation)
+	}
+
+	if targetCommit.IsDeleted() {
+		return fmt.Errorf("cannot snapshot deleted commit")
+	}
+
+	p.snapshots[generation] = targetCommit.GetSegmentsFileName()
+	return nil
+}
+
+// Release removes a snapshot, allowing the commit to be deleted by future
+// OnCommit calls if the underlying policy decides to delete it.
+//
+// Parameters:
+//   - generation: The generation number of the snapshot to release
+//
+// Returns true if a snapshot was released, false if no snapshot existed.
+//
+// Example:
+//
+//	gen, _ := policy.Snapshot(commit)
+//	// ... use the snapshot ...
+//	released := policy.Release(gen)
+//	if !released {
+//	    // snapshot was not found
+//	}
+func (p *SnapshotDeletionPolicy) Release(generation int64) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	_, exists := p.snapshots[generation]
+	if exists {
+		delete(p.snapshots, generation)
+	}
+	return exists
+}
+
+// ReleaseAll releases all snapshots, allowing all commits to be deleted
+// by the underlying policy in future OnCommit calls.
+func (p *SnapshotDeletionPolicy) ReleaseAll() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.snapshots = make(map[int64]string)
+}
+
+// GetSnapshots returns the generations of all active snapshots.
+// The returned slice is sorted in ascending order.
+func (p *SnapshotDeletionPolicy) GetSnapshots() []int64 {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	generations := make([]int64, 0, len(p.snapshots))
+	for gen := range p.snapshots {
+		generations = append(generations, gen)
+	}
+
+	// Sort for consistent ordering
+	sortGenerations(generations)
+	return generations
+}
+
+// HasSnapshot returns true if there is an active snapshot for the given generation.
+func (p *SnapshotDeletionPolicy) HasSnapshot(generation int64) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	_, exists := p.snapshots[generation]
+	return exists
+}
+
+// SnapshotCount returns the number of active snapshots.
+func (p *SnapshotDeletionPolicy) SnapshotCount() int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return len(p.snapshots)
+}
+
+// GetPrimary returns the underlying deletion policy.
+func (p *SnapshotDeletionPolicy) GetPrimary() IndexDeletionPolicy {
+	return p.primary
 }
 
 // String returns a string representation of this policy.
 func (p *SnapshotDeletionPolicy) String() string {
-	totalSnapshots := 0
-	for _, count := range p.snapshots {
-		totalSnapshots += count
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return fmt.Sprintf("SnapshotDeletionPolicy(primary=%v, snapshotCount=%d)",
+		p.primary, len(p.snapshots))
+}
+
+// =============================================================================
+// Helper functions
+// =============================================================================
+
+// sortGenerations sorts a slice of generation numbers in ascending order.
+// This is implemented as a simple insertion sort for small slices,
+// which is typically sufficient for the number of snapshots we expect.
+func sortGenerations(generations []int64) {
+	// Simple insertion sort - good for small slices
+	for i := 1; i < len(generations); i++ {
+		for j := i; j > 0 && generations[j-1] > generations[j]; j-- {
+			generations[j-1], generations[j] = generations[j], generations[j-1]
+		}
 	}
-	return fmt.Sprintf("SnapshotDeletionPolicy(parent=%v, snapshots=%d)",
-		p.parent, totalSnapshots)
 }

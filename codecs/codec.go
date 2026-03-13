@@ -11,7 +11,7 @@ import (
 
 // Codec abstracts index format encoding/decoding.
 // A Codec provides codecs for different components
-// (postings, stored fields, field infos, segment infos).
+// (postings, stored fields, field infos, segment infos, term vectors).
 //
 // This is the Go port of Lucene's org.apache.lucene.codecs.Codec.
 type Codec interface {
@@ -29,6 +29,9 @@ type Codec interface {
 
 	// SegmentInfosFormat returns the segment infos format.
 	SegmentInfosFormat() SegmentInfosFormat
+
+	// TermVectorsFormat returns the term vectors format.
+	TermVectorsFormat() TermVectorsFormat
 }
 
 // BaseCodec provides common functionality.
@@ -63,6 +66,11 @@ func (c *BaseCodec) FieldInfosFormat() FieldInfosFormat {
 
 // SegmentInfosFormat returns the segment infos format.
 func (c *BaseCodec) SegmentInfosFormat() SegmentInfosFormat {
+	return nil
+}
+
+// TermVectorsFormat returns the term vectors format.
+func (c *BaseCodec) TermVectorsFormat() TermVectorsFormat {
 	return nil
 }
 

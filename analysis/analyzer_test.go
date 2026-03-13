@@ -141,6 +141,7 @@ func TestSimpleAnalyzer(t *testing.T) {
 // TestStandardAnalyzer tests the StandardAnalyzer.
 // Source: TestAnalyzers.testStandardAnalyzer()
 // Purpose: Tests standard tokenization with stop word removal.
+// Note: StandardAnalyzer does NOT filter numeric tokens by default.
 func TestStandardAnalyzer(t *testing.T) {
 	analyzer := NewStandardAnalyzer()
 	defer analyzer.Close()
@@ -159,7 +160,7 @@ func TestStandardAnalyzer(t *testing.T) {
 		},
 		{
 			input:    "Testing 123 numbers",
-			expected: []string{"testing", "numbers"},
+			expected: []string{"testing", "123", "numbers"},
 		},
 	}
 

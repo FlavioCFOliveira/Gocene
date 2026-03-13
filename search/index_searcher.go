@@ -109,9 +109,7 @@ func (s *IndexSearcher) searchLeaf(reader index.IndexReaderInterface, docBase in
 }
 
 // Doc returns the stored fields for a document.
-// This requires the StoredFieldsFormat to be implemented (GC-148).
-// For now, returns an empty document as a placeholder.
-func (s *IndexSearcher) Doc(docID int) (index.Document, error) {
+func (s *IndexSearcher) Doc(docID int) (*document.Document, error) {
 	// Find the segment that contains this document
 	if dr, ok := interface{}(s.reader).(*index.DirectoryReader); ok {
 		readers := dr.GetSegmentReaders()
@@ -120,19 +118,58 @@ func (s *IndexSearcher) Doc(docID int) (index.Document, error) {
 		for _, sr := range readers {
 			maxDoc := sr.MaxDoc()
 			if docID >= docBase && docID < docBase+maxDoc {
-				// Found the segment
-				// TODO: Use StoredFieldsReader to retrieve actual fields (requires GC-148)
-				// For now, return an empty document
-				return document.NewDocument(), nil
+				// Found the segment - convert to segment-local doc ID
+				segmentDocID := docID - docBase
+				return s.docFromSegment(sr, segmentDocID)
 			}
 			docBase += maxDoc
 		}
 		return nil, nil
 	}
 
-	// For single segment readers, return empty document
-	// TODO: Use StoredFieldsReader to retrieve actual fields (requires GC-148)
+	// For single segment readers
+	if sr, ok := interface{}(s.reader).(*index.SegmentReader); ok {
+		return s.docFromSegment(sr, docID)
+	}
+
+	// For LeafReader
+	if lr, ok := interface{}(s.reader).(*index.LeafReader); ok {
+		return s.docFromLeafReader(lr, docID)
+	}
+
 	return document.NewDocument(), nil
+}
+
+// docFromSegment retrieves a document from a SegmentReader.
+func (s *IndexSearcher) docFromSegment(sr *index.SegmentReader, docID int) (*document.Document, error) {
+	storedFields, err := sr.StoredFields()
+	if err != nil {
+		return nil, err
+	}
+
+	visitor := NewDocumentVisitor()
+	err = storedFields.Document(docID, visitor)
+	if err != nil {
+		return nil, err
+	}
+
+	return visitor.Document(), nil
+}
+
+// docFromLeafReader retrieves a document from a LeafReader.
+func (s *IndexSearcher) docFromLeafReader(lr *index.LeafReader, docID int) (*document.Document, error) {
+	storedFields, err := lr.StoredFields()
+	if err != nil {
+		return nil, err
+	}
+
+	visitor := NewDocumentVisitor()
+	err = storedFields.Document(docID, visitor)
+	if err != nil {
+		return nil, err
+	}
+
+	return visitor.Document(), nil
 }
 
 // GetIndexReader returns the IndexReader.
@@ -143,4 +180,57 @@ func (s *IndexSearcher) GetIndexReader() index.IndexReaderInterface {
 // Close closes the searcher.
 func (s *IndexSearcher) Close() error {
 	return nil
+}
+
+// DocumentVisitor is a StoredFieldVisitor that collects fields into a Document.
+type DocumentVisitor struct {
+	doc *document.Document
+}
+
+// NewDocumentVisitor creates a new DocumentVisitor.
+func NewDocumentVisitor() *DocumentVisitor {
+	return &DocumentVisitor{
+		doc: document.NewDocument(),
+	}
+}
+
+// StringField is called for a stored string field.
+func (v *DocumentVisitor) StringField(field string, value string) {
+	sf, _ := document.NewStoredField(field, value)
+	v.doc.Add(sf)
+}
+
+// BinaryField is called for a stored binary field.
+func (v *DocumentVisitor) BinaryField(field string, value []byte) {
+	sf, _ := document.NewStoredFieldFromBytes(field, value)
+	v.doc.Add(sf)
+}
+
+// IntField is called for a stored int field.
+func (v *DocumentVisitor) IntField(field string, value int) {
+	sf, _ := document.NewStoredFieldFromInt(field, value)
+	v.doc.Add(sf)
+}
+
+// LongField is called for a stored long field.
+func (v *DocumentVisitor) LongField(field string, value int64) {
+	sf, _ := document.NewStoredFieldFromInt64(field, value)
+	v.doc.Add(sf)
+}
+
+// FloatField is called for a stored float field.
+func (v *DocumentVisitor) FloatField(field string, value float32) {
+	sf, _ := document.NewStoredFieldFromFloat64(field, float64(value))
+	v.doc.Add(sf)
+}
+
+// DoubleField is called for a stored double field.
+func (v *DocumentVisitor) DoubleField(field string, value float64) {
+	sf, _ := document.NewStoredFieldFromFloat64(field, value)
+	v.doc.Add(sf)
+}
+
+// Document returns the collected Document.
+func (v *DocumentVisitor) Document() *document.Document {
+	return v.doc
 }

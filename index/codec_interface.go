@@ -26,6 +26,9 @@ type Codec interface {
 
 	// SegmentInfosFormat returns the segment infos format.
 	SegmentInfosFormat() SegmentInfosFormat
+
+	// TermVectorsFormat returns the term vectors format.
+	TermVectorsFormat() TermVectorsFormat
 }
 
 // PostingsFormat is an interface for encoding/decoding term postings.
@@ -137,6 +140,58 @@ type SegmentInfosFormat interface {
 
 	// Write writes segment infos to a directory.
 	Write(dir store.Directory, segmentInfos *SegmentInfos, context store.IOContext) error
+}
+
+// TermVectorsFormat is an interface for encoding/decoding term vectors.
+type TermVectorsFormat interface {
+	// Name returns the name of this format.
+	Name() string
+
+	// VectorsWriter returns a writer for term vectors.
+	VectorsWriter(state *SegmentWriteState) (TermVectorsWriter, error)
+
+	// VectorsReader returns a reader for term vectors.
+	VectorsReader(dir store.Directory, segmentInfo *SegmentInfo, fieldInfos *FieldInfos, context store.IOContext) (TermVectorsReader, error)
+}
+
+// TermVectorsWriter is an interface for writing term vectors.
+type TermVectorsWriter interface {
+	// StartDocument starts writing term vectors for a document.
+	StartDocument(numFields int) error
+
+	// StartField starts writing a term vector for a field.
+	StartField(fieldInfo *FieldInfo, numTerms int, hasPositions, hasOffsets, hasPayloads bool) error
+
+	// StartTerm starts a new term in the current field.
+	StartTerm(term []byte) error
+
+	// AddPosition adds a position for the current term.
+	AddPosition(position int, startOffset, endOffset int, payload []byte) error
+
+	// FinishTerm finishes the current term.
+	FinishTerm() error
+
+	// FinishField finishes the current field.
+	FinishField() error
+
+	// FinishDocument finishes the current document.
+	FinishDocument() error
+
+	// Close releases resources.
+	Close() error
+}
+
+// TermVectorsReader is an interface for reading term vectors.
+type TermVectorsReader interface {
+	// Get retrieves term vectors for the given document ID.
+	// Returns a Fields object containing the term vectors.
+	Get(docID int) (Fields, error)
+
+	// GetField retrieves the term vector for a specific field in a document.
+	GetField(docID int, field string) (Terms, error)
+
+	// Close releases resources.
+	Close() error
 }
 
 // IndexableField is an interface for fields that can be indexed.

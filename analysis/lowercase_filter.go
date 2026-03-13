@@ -19,30 +19,27 @@ import (
 type LowerCaseFilter struct {
 	*BaseTokenFilter
 
-	// termAttr holds the CharTermAttribute from the input stream
+	// termAttr holds the CharTermAttribute from the shared attribute source
 	termAttr CharTermAttribute
 }
 
 // NewLowerCaseFilter creates a new LowerCaseFilter wrapping the given input.
 func NewLowerCaseFilter(input TokenStream) *LowerCaseFilter {
-	return &LowerCaseFilter{
+	filter := &LowerCaseFilter{
 		BaseTokenFilter: NewBaseTokenFilter(input),
 	}
-}
 
-// getTermAttr retrieves the CharTermAttribute from the input.
-func (f *LowerCaseFilter) getTermAttr() CharTermAttribute {
-	if f.termAttr == nil {
-		// Check if input has GetAttributeSource method
-		if hasAttrSrc, ok := f.input.(interface{ GetAttributeSource() *AttributeSource }); ok {
-			attr := hasAttrSrc.GetAttributeSource().GetAttributeByType(
-				reflect.TypeOf(&charTermAttribute{}))
-			if cta, ok := attr.(CharTermAttribute); ok {
-				f.termAttr = cta
-			}
+	// Get the CharTermAttribute from the shared AttributeSource
+	// Note: We need to use the correct type - the tokenizer stores *charTermAttribute
+	attrSrc := filter.GetAttributeSource()
+	if attrSrc != nil {
+		attr := attrSrc.GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+		if attr != nil {
+			filter.termAttr = attr.(CharTermAttribute)
 		}
 	}
-	return f.termAttr
+
+	return filter
 }
 
 // IncrementToken advances to the next token and converts it to lowercase.
@@ -53,11 +50,6 @@ func (f *LowerCaseFilter) IncrementToken() (bool, error) {
 	}
 	if !hasToken {
 		return false, nil
-	}
-
-	// Ensure we have the term attribute
-	if f.termAttr == nil {
-		f.getTermAttr()
 	}
 
 	// Convert the token to lowercase

@@ -34,11 +34,20 @@ type BaseTokenFilter struct {
 }
 
 // NewBaseTokenFilter creates a new BaseTokenFilter wrapping the given input.
+// The filter shares the AttributeSource with its input if the input has one.
 func NewBaseTokenFilter(input TokenStream) *BaseTokenFilter {
-	return &BaseTokenFilter{
-		BaseTokenStream: *NewBaseTokenStream(),
-		input:           input,
+	bf := &BaseTokenFilter{
+		input: input,
 	}
+
+	// Share the AttributeSource with the input if it has one
+	if hasAttrSrc, ok := input.(interface{ GetAttributeSource() *AttributeSource }); ok {
+		bf.attributes = hasAttrSrc.GetAttributeSource()
+	} else {
+		bf.attributes = NewAttributeSource()
+	}
+
+	return bf
 }
 
 // GetInput returns the wrapped input TokenStream.
