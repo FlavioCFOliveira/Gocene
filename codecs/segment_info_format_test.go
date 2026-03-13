@@ -29,11 +29,11 @@ func TestSegmentInfoFormat_ReadWrite(t *testing.T) {
 	si.SetVersion("10.4.1")
 	si.SetCompoundFile(true)
 	si.SetDiagnostics(map[string]string{
-		"os":      "linux",
-		"java":    "21",
-		"gocene":  "0.1.0",
-		"source":  "flush",
-		"lucene":  "10.4.1",
+		"os":     "linux",
+		"java":   "21",
+		"gocene": "0.1.0",
+		"source": "flush",
+		"lucene": "10.4.1",
 	})
 	si.SetFiles([]string{"_0.fdt", "_0.fdx", "_0.nvd", "_0.nvm"})
 	si.SetAttribute("test_attr", "test_val")

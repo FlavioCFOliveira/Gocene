@@ -28,19 +28,19 @@ type FieldInfosFormat interface {
 type Lucene94FieldInfosFormat struct{}
 
 const (
-	fiCodecName            = "Lucene94FieldInfos"
-	fiFormatStart          = 0
-	fiFormatParentField    = 1
+	fiCodecName             = "Lucene94FieldInfos"
+	fiFormatStart           = 0
+	fiFormatParentField     = 1
 	fiFormatDocValueSkipper = 2
-	fiFormatCurrent        = fiFormatDocValueSkipper
+	fiFormatCurrent         = fiFormatDocValueSkipper
 
 	// Field flags
-	fiStoreTermvector    byte = 0x1
-	fiOmitNorms          byte = 0x2
-	fiStorePayloads      byte = 0x4
-	fiSoftDeletesField   byte = 0x8
-	fiParentFieldField   byte = 0x10
-	fiDocvaluesSkipper   byte = 0x20
+	fiStoreTermvector  byte = 0x1
+	fiOmitNorms        byte = 0x2
+	fiStorePayloads    byte = 0x4
+	fiSoftDeletesField byte = 0x8
+	fiParentFieldField byte = 0x10
+	fiDocvaluesSkipper byte = 0x20
 )
 
 func NewLucene94FieldInfosFormat() *Lucene94FieldInfosFormat {
