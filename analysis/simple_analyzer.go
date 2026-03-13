@@ -18,12 +18,13 @@ import (
 // but effective analyzer for basic text processing.
 //
 // The tokenization process:
-//   1. LetterTokenizer: Splits text into tokens at non-letter boundaries
-//   2. LowerCaseFilter: Converts all tokens to lowercase
+//  1. LetterTokenizer: Splits text into tokens at non-letter boundaries
+//  2. LowerCaseFilter: Converts all tokens to lowercase
 //
 // Example:
-//   Input: "Hello, World! 123 TEST."
-//   Output tokens: "hello", "world", "test"
+//
+//	Input: "Hello, World! 123 TEST."
+//	Output tokens: "hello", "world", "test"
 //
 // This analyzer is suitable for simple search use cases where you want
 // case-insensitive matching on word tokens without stop word removal.

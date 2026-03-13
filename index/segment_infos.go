@@ -422,6 +422,45 @@ func (si *SegmentInfos) UpdateCounterFromSegments() {
 	si.counter = int(maxGen) + 1
 }
 
+// WriteSegmentInfos writes the SegmentInfos to a directory.
+func WriteSegmentInfos(si *SegmentInfos, directory store.Directory) error {
+	si.mu.RLock()
+	defer si.mu.RUnlock()
+
+	fileName := si.GetFileName()
+	out, err := directory.CreateOutput(fileName, store.IOContextWrite)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	// Write header
+	if err := store.WriteInt32(out, 0x3d767); err != nil {
+		return err
+	}
+	if err := store.WriteInt64(out, si.generation); err != nil {
+		return err
+	}
+	if err := store.WriteInt32(out, int32(si.counter)); err != nil {
+		return err
+	}
+	if err := store.WriteInt32(out, int32(len(si.segments))); err != nil {
+		return err
+	}
+
+	// Write segments
+	for _, sci := range si.segments {
+		if err := store.WriteString(out, sci.Name()); err != nil {
+			return err
+		}
+		if err := store.WriteInt32(out, int32(sci.segmentInfo.docCount)); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // ReadSegmentInfos reads the SegmentInfos from a directory.
 // This is used when opening an existing index.
 func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
@@ -433,6 +472,7 @@ func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
 
 	// Find the most recent segments file
 	var maxGen int64 = -1
+	var latestFile string
 	for _, file := range files {
 		if len(file) > 9 && file[:9] == "segments_" {
 			// Parse generation number
@@ -440,7 +480,7 @@ func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
 			if _, err := fmt.Sscanf(file[9:], "%d", &gen); err == nil {
 				if gen > maxGen {
 					maxGen = gen
-					_ = file // track most recent segments file name
+					latestFile = file
 				}
 			}
 		}
@@ -450,11 +490,56 @@ func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
 		return nil, fmt.Errorf("no segments file found in directory")
 	}
 
-	// TODO: Read and parse the segments file
-	// For now, return an empty SegmentInfos
+	in, err := directory.OpenInput(latestFile, store.IOContextRead)
+	if err != nil {
+		return nil, err
+	}
+	defer in.Close()
+
+	// Read header
+	magic, err := store.ReadInt32(in)
+	if err != nil {
+		return nil, err
+	}
+	if magic != 0x3d767 {
+		return nil, fmt.Errorf("invalid segments file magic: %x", magic)
+	}
+
+	gen, err := store.ReadInt64(in)
+	if err != nil {
+		return nil, err
+	}
+
+	counter, err := store.ReadInt32(in)
+	if err != nil {
+		return nil, err
+	}
+
+	numSegments, err := store.ReadInt32(in)
+	if err != nil {
+		return nil, err
+	}
+
 	si := NewSegmentInfos()
-	si.generation = maxGen
-	si.lastGeneration = maxGen
+	si.generation = gen
+	si.lastGeneration = gen
+	si.counter = int(counter)
+
+	// Read segments
+	for i := 0; i < int(numSegments); i++ {
+		name, err := store.ReadString(in)
+		if err != nil {
+			return nil, err
+		}
+		docCount, err := store.ReadInt32(in)
+		if err != nil {
+			return nil, err
+		}
+
+		segmentInfo := NewSegmentInfo(name, int(docCount), nil)
+		sci := NewSegmentCommitInfo(segmentInfo, 0, -1)
+		si.Add(sci)
+	}
 
 	return si, nil
 }

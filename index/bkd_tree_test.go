@@ -14,13 +14,13 @@ func TestNewBKDTree(t *testing.T) {
 		bytesPerDim int
 		wantErr     bool
 	}{
-		{1, 4, false},  // Single dimension (int32)
-		{2, 8, false},  // Two dimensions (lat/lon as int64)
-		{1, 1, false},  // Minimum bytes
-		{1, 8, false},  // Maximum bytes
-		{0, 4, true},   // Invalid: 0 dimensions
-		{1, 0, true},   // Invalid: 0 bytes
-		{1, 9, true},   // Invalid: too many bytes
+		{1, 4, false}, // Single dimension (int32)
+		{2, 8, false}, // Two dimensions (lat/lon as int64)
+		{1, 1, false}, // Minimum bytes
+		{1, 8, false}, // Maximum bytes
+		{0, 4, true},  // Invalid: 0 dimensions
+		{1, 0, true},  // Invalid: 0 bytes
+		{1, 9, true},  // Invalid: too many bytes
 	}
 
 	for _, test := range tests {
@@ -90,10 +90,10 @@ func TestEncodeDecodeDimension(t *testing.T) {
 		{100, 4},
 		{-1, 4},
 		{-100, 4},
-		{0x7FFFFFFF, 4}, // Max int32
+		{0x7FFFFFFF, 4},  // Max int32
 		{-0x80000000, 4}, // Min int32
 		{0, 8},
-		{0x7FFFFFFFFFFFFFFF, 8}, // Max int64
+		{0x7FFFFFFFFFFFFFFF, 8},  // Max int64
 		{-0x8000000000000000, 8}, // Min int64
 	}
 

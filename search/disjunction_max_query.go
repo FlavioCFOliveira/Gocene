@@ -9,7 +9,7 @@ package search
 // plus a tie breaking increment for any additional matching subqueries.
 type DisjunctionMaxQuery struct {
 	*BaseQuery
-	disjuncts    []Query
+	disjuncts            []Query
 	tieBreakerMultiplier float32
 }
 

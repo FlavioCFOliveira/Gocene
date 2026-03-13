@@ -105,9 +105,11 @@ func TestIndexWriter_GeneralErrors(t *testing.T) {
 		err := writer.AddDocument(doc)
 
 		// Should return error for closed writer
-		// Currently stubbed, but proper implementation should check closed state
 		if err == nil {
-			t.Skip("AddDocument on closed writer should return error (not yet implemented)")
+			t.Fatal("AddDocument on closed writer should return error")
+		}
+		if _, ok := err.(*index.AlreadyClosedException); !ok {
+			t.Errorf("Expected AlreadyClosedException, got %T", err)
 		}
 	})
 
@@ -126,9 +128,10 @@ func TestIndexWriter_GeneralErrors(t *testing.T) {
 		}
 
 		// Index should be in consistent state
-		// Currently NumDocs() returns 0 (stubbed)
 		numDocs := writer.NumDocs()
-		t.Logf("NumDocs after operations: %d", numDocs)
+		if numDocs != 3 {
+			t.Errorf("Expected 3 docs, got %d", numDocs)
+		}
 	})
 }
 
@@ -164,9 +167,8 @@ func TestIndexWriter_ResourceExhaustion(t *testing.T) {
 		err := writer.AddDocument(doc)
 
 		// Should be able to continue operations
-		// Currently stubbed - full implementation would check for closed state
 		if err != nil {
-			t.Logf("AddDocument after resource exhaustion: %v", err)
+			t.Errorf("AddDocument after resource exhaustion should not fail: %v", err)
 		}
 	})
 }
@@ -210,7 +212,7 @@ func TestIndexWriter_LockRelease(t *testing.T) {
 		config := index.NewIndexWriterConfig(createTestAnalyzer())
 		writer, _ := index.NewIndexWriter(dir, config)
 
-		// Commit (currently stubbed)
+		// Commit
 		err := writer.Commit()
 		if err != nil {
 			t.Logf("Commit error: %v", err)
@@ -274,7 +276,6 @@ func TestIndexWriter_Rollback(t *testing.T) {
 		// }
 
 		// After rollback, count should return to initial
-		// Currently: AddDocument is stubbed so NumDocs() won't change
 		t.Skip("Rollback not yet implemented")
 
 		if writer.NumDocs() != initialCount {

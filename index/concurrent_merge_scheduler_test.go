@@ -369,3 +369,37 @@ func TestConcurrentMergeSchedulerStress(t *testing.T) {
 		wg.Wait()
 	})
 }
+
+// TestConcurrentMergeScheduler_DynamicLimits tests changing limits at runtime.
+func TestConcurrentMergeScheduler_DynamicLimits(t *testing.T) {
+	scheduler := index.NewConcurrentMergeScheduler()
+	defer scheduler.Close()
+
+	// Initial limits
+	scheduler.SetMaxThreadCount(2)
+	scheduler.SetMaxMergeCount(4)
+
+	if scheduler.MaxThreadCount() != 2 {
+		t.Errorf("MaxThreadCount() = %d, want 2", scheduler.MaxThreadCount())
+	}
+	if scheduler.MaxMergeCount() != 4 {
+		t.Errorf("MaxMergeCount() = %d, want 4", scheduler.MaxMergeCount())
+	}
+
+	// Change limits
+	scheduler.SetMaxThreadCount(1)
+	scheduler.SetMaxMergeCount(2)
+
+	if scheduler.MaxThreadCount() != 1 {
+		t.Errorf("MaxThreadCount() = %d, want 1", scheduler.MaxThreadCount())
+	}
+	if scheduler.MaxMergeCount() != 2 {
+		t.Errorf("MaxMergeCount() = %d, want 2", scheduler.MaxMergeCount())
+	}
+}
+
+// TestConcurrentMergeScheduler_MergeStalling tests that stalling logic is triggered.
+func TestConcurrentMergeScheduler_MergeStalling(t *testing.T) {
+	// This would require a way to simulate many merges and check if indexing stalls
+	t.Skip("Merge stalling test requires more complete implementation of CMS and IndexWriter")
+}

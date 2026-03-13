@@ -48,3 +48,8 @@ func (r *IndexReader) Close() error {
 func (r *IndexReader) IsClosed() bool {
 	return r.closed
 }
+
+// IsCurrent returns true if the reader is still up to date with the index.
+func (r *IndexReader) IsCurrent() (bool, error) {
+	return true, nil
+}

@@ -24,8 +24,9 @@ import (
 // text.
 //
 // Example:
-//   Input: "Hello World TEST"
-//   Output tokens: "Hello", "World", "TEST"
+//
+//	Input: "Hello World TEST"
+//	Output tokens: "Hello", "World", "TEST"
 type WhitespaceAnalyzer struct {
 	*BaseAnalyzer
 }
