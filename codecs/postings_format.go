@@ -88,7 +88,7 @@ func (f *Lucene104PostingsFormat) FieldsProducer(state *SegmentReadState) (Field
 // This is the Go port of Lucene's org.apache.lucene.codecs.FieldsConsumer.
 type FieldsConsumer interface {
 	// Write writes a field's postings.
-	Write(field string, terms *index.Terms) error
+	Write(field string, terms index.Terms) error
 
 	// Close releases resources.
 	Close() error
@@ -98,7 +98,7 @@ type FieldsConsumer interface {
 // This is the Go port of Lucene's org.apache.lucene.codecs.FieldsProducer.
 type FieldsProducer interface {
 	// Terms returns the terms for a field.
-	Terms(field string) (*index.Terms, error)
+	Terms(field string) (index.Terms, error)
 
 	// Close releases resources.
 	Close() error

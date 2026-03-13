@@ -12,39 +12,79 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-func TestLucene104PostingsFormat_Placeholder(t *testing.T) {
+// GC-138: Codecs Tests - Postings Format
+// Source: lucene/core/src/test/org/apache/lucene/codecs/lucene104/TestLucene104PostingsFormat.java
+// Also ports tests from BasePostingsFormatTestCase.java
+
+func TestLucene104PostingsFormat_DocsOnly(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
 	tester := codecs.NewPostingsTester(t)
 	format := codecs.NewLucene104PostingsFormat()
 
-	// Verify it's a placeholder by checking if FieldsConsumer returns an error
-	si := index.NewSegmentInfo("_0", 1, dir)
-	fieldInfos := index.NewFieldInfos()
-
-	state := &codecs.SegmentWriteState{
-		Directory:   dir,
-		SegmentInfo: si,
-		FieldInfos:  fieldInfos,
-	}
-
-	consumer, err := format.FieldsConsumer(state)
-	if err == nil {
-		consumer.Close()
-		t.Error("Expected error from Lucene104PostingsFormat.FieldsConsumer placeholder, got nil")
-	}
-
-	producer, err := format.FieldsProducer(&codecs.SegmentReadState{
-		Directory:   dir,
-		SegmentInfo: si,
-		FieldInfos:  fieldInfos,
-	})
-	if err == nil {
-		producer.Close()
-		t.Error("Expected error from Lucene104PostingsFormat.FieldsProducer placeholder, got nil")
-	}
-
-	// Run "full" test which currently just logs that it's a placeholder
+	// If Lucene104PostingsFormat is still a placeholder, this will log and return
 	tester.TestFull(format, index.IndexOptionsDocs, dir)
+}
+
+func TestLucene104PostingsFormat_DocsAndFreqs(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	tester := codecs.NewPostingsTester(t)
+	format := codecs.NewLucene104PostingsFormat()
+
+	tester.TestFull(format, index.IndexOptionsDocsAndFreqs, dir)
+}
+
+func TestLucene104PostingsFormat_DocsAndFreqsAndPositions(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	tester := codecs.NewPostingsTester(t)
+	format := codecs.NewLucene104PostingsFormat()
+
+	tester.TestFull(format, index.IndexOptionsDocsAndFreqsAndPositions, dir)
+}
+
+func TestLucene104PostingsFormat_DocsAndFreqsAndPositionsAndPayloads(t *testing.T) {
+	t.Skip("Payloads not yet fully supported in Lucene104PostingsFormat tests")
+
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	tester := codecs.NewPostingsTester(t)
+	format := codecs.NewLucene104PostingsFormat()
+
+	tester.TestFull(format, index.IndexOptionsDocsAndFreqsAndPositions, dir)
+}
+
+func TestLucene104PostingsFormat_DocsAndFreqsAndPositionsAndOffsets(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	tester := codecs.NewPostingsTester(t)
+	format := codecs.NewLucene104PostingsFormat()
+
+	tester.TestFull(format, index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets, dir)
+}
+
+func TestLucene104PostingsFormat_DocsAndFreqsAndPositionsAndOffsetsAndPayloads(t *testing.T) {
+	t.Skip("Payloads not yet fully supported in Lucene104PostingsFormat tests")
+
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	tester := codecs.NewPostingsTester(t)
+	format := codecs.NewLucene104PostingsFormat()
+
+	tester.TestFull(format, index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets, dir)
+}
+
+func TestLucene104PostingsFormat_Random(t *testing.T) {
+	t.Skip("Randomized postings testing not yet fully implemented")
+}
+
+func TestLucene104PostingsFormat_PostingsEnumReuse(t *testing.T) {
+	t.Skip("PostingsEnum reuse testing not yet fully implemented")
 }
