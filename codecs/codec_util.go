@@ -262,3 +262,17 @@ func RetrieveChecksum(in store.IndexInput) (int64, error) {
 	}
 	return ReadCRC(in)
 }
+
+// GetSegmentFileName returns the file name for a segment component.
+func GetSegmentFileName(segmentName string, segmentSuffix string, ext string) string {
+	if segmentSuffix == "" {
+		if ext != "" {
+			return segmentName + "." + ext
+		}
+		return segmentName
+	}
+	if ext != "" {
+		return segmentName + "_" + segmentSuffix + "." + ext
+	}
+	return segmentName + "_" + segmentSuffix
+}

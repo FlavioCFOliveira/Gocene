@@ -11,98 +11,49 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// SegmentInfosFormat handles encoding/decoding of segment metadata.
-// This is the Go port of Lucene's org.apache.lucene.codecs.SegmentInfosFormat.
-//
-// SegmentInfos are stored in files named "segments_N" where N is a
-// generation number. The file contains metadata about all segments in the index.
+// SegmentInfosFormat handles encoding/decoding of segment metadata (segments_N).
+// This is the Go port of Lucene's org.apache.lucene.index.SegmentInfos.
 type SegmentInfosFormat interface {
 	// Name returns the name of this format.
 	Name() string
 
-	// Read reads segment infos from the given directory and file name.
-	// Returns the SegmentInfos or an error if reading fails.
+	// Read reads segment infos from the given directory.
 	Read(dir store.Directory) (*index.SegmentInfos, error)
 
 	// Write writes segment infos to the given directory.
-	// Returns an error if writing fails.
 	Write(dir store.Directory, infos *index.SegmentInfos) error
 }
 
-// BaseSegmentInfosFormat provides common functionality.
-type BaseSegmentInfosFormat struct {
-	name string
+// SegmentInfoFormat handles encoding/decoding of a single segment's metadata (.si file).
+// This is the Go port of Lucene's org.apache.lucene.codecs.SegmentInfoFormat.
+type SegmentInfoFormat interface {
+	// Read reads segment info from the given directory.
+	Read(dir store.Directory, segmentName string, segmentID []byte, context store.IOContext) (*index.SegmentInfo, error)
+
+	// Write writes segment info to the given directory.
+	Write(dir store.Directory, info *index.SegmentInfo, context store.IOContext) error
 }
 
-// NewBaseSegmentInfosFormat creates a new BaseSegmentInfosFormat.
-func NewBaseSegmentInfosFormat(name string) *BaseSegmentInfosFormat {
-	return &BaseSegmentInfosFormat{name: name}
-}
+// Lucene104SegmentInfosFormat implements the Lucene 10.4 segment infos format (segments_N).
+type Lucene104SegmentInfosFormat struct{}
 
-// Name returns the format name.
-func (f *BaseSegmentInfosFormat) Name() string {
-	return f.name
-}
+const (
+	sisCodecName = "segments"
+	sisVersion   = 10 // Lucene 10.x
+)
 
-// Read reads segment infos (must be implemented by subclasses).
-func (f *BaseSegmentInfosFormat) Read(dir store.Directory) (*index.SegmentInfos, error) {
-	return nil, fmt.Errorf("Read not implemented")
-}
-
-// Write writes segment infos (must be implemented by subclasses).
-func (f *BaseSegmentInfosFormat) Write(dir store.Directory, infos *index.SegmentInfos) error {
-	return fmt.Errorf("Write not implemented")
-}
-
-// Lucene104SegmentInfosFormat is the Lucene 10.4 segment infos format.
-//
-// File format:
-//   - Header: Lucene codec header
-//   - Version (Int32)
-//   - Counter (Int32) - used for naming new segments
-//   - Segment count (Int32)
-//   - For each segment:
-//   - Segment name (String)
-//   - Segment generation (Int64)
-//   - Document count (Int32)
-//   - Compound file flag (Byte)
-//   - Codec name (String)
-//   - Has deletion flag (Byte)
-//   - If has deletions:
-//   - Deletion count (Int32)
-//   - Deletion generation (Int64)
-//   - Has field infos flag (Byte)
-//   - If has field infos:
-//   - Field infos generation (Int64)
-//   - Has doc values flag (Byte)
-//   - If has doc values:
-//   - Doc values generation (Int64)
-//   - Attributes count (Int32)
-//   - For each attribute:
-//   - Key (String)
-//   - Value (String)
-//   - User data count (Int32)
-//   - For each user data entry:
-//   - Key (String)
-//   - Value (String)
-//   - Footer: checksum
-type Lucene104SegmentInfosFormat struct {
-	*BaseSegmentInfosFormat
-}
-
-// NewLucene104SegmentInfosFormat creates a new Lucene104SegmentInfosFormat.
 func NewLucene104SegmentInfosFormat() *Lucene104SegmentInfosFormat {
-	return &Lucene104SegmentInfosFormat{
-		BaseSegmentInfosFormat: NewBaseSegmentInfosFormat("Lucene104SegmentInfosFormat"),
-	}
+	return &Lucene104SegmentInfosFormat{}
 }
 
-// Read reads segment infos from the given directory.
+func (f *Lucene104SegmentInfosFormat) Name() string {
+	return "Lucene104SegmentInfosFormat"
+}
+
 func (f *Lucene104SegmentInfosFormat) Read(dir store.Directory) (*index.SegmentInfos, error) {
-	// Find the most recent segments file
 	files, err := dir.ListAll()
 	if err != nil {
-		return nil, fmt.Errorf("listing directory: %w", err)
+		return nil, err
 	}
 
 	var maxGen int64 = -1
@@ -125,408 +76,440 @@ func (f *Lucene104SegmentInfosFormat) Read(dir store.Directory) (*index.SegmentI
 
 	in, err := dir.OpenInput(segmentsFile, store.IOContextRead)
 	if err != nil {
-		return nil, fmt.Errorf("opening segments file: %w", err)
+		return nil, err
 	}
-	defer in.Close()
+	checksumIn := store.NewChecksumIndexInput(in)
+	defer checksumIn.Close()
 
-	// Read header
-	if err := f.readHeader(in); err != nil {
-		return nil, fmt.Errorf("reading header: %w", err)
+	// Check header
+	_, err = CheckIndexHeader(checksumIn, sisCodecName, sisVersion, sisVersion, nil, fmt.Sprintf("%d", maxGen))
+	if err != nil {
+		return nil, err
+	}
+
+	// Read Lucene version
+	major, err := store.ReadVInt(checksumIn)
+	if err != nil {
+		return nil, err
+	}
+	minor, err := store.ReadVInt(checksumIn)
+	if err != nil {
+		return nil, err
+	}
+	bugfix, err := store.ReadVInt(checksumIn)
+	if err != nil {
+		return nil, err
+	}
+
+	// Read created major
+	createdMajor, err := store.ReadVInt(checksumIn)
+	if err != nil {
+		return nil, err
 	}
 
 	// Read version
-	version, err := store.ReadInt32(in)
+	version, err := store.ReadInt64(checksumIn)
 	if err != nil {
-		return nil, fmt.Errorf("reading version: %w", err)
+		return nil, err
 	}
 
 	// Read counter
-	counter, err := store.ReadInt32(in)
+	counter, err := store.ReadVLong(checksumIn)
 	if err != nil {
-		return nil, fmt.Errorf("reading counter: %w", err)
+		return nil, err
 	}
 
-	// Read number of segments
-	numSegments, err := store.ReadInt32(in)
+	// Read segment count
+	numSegments, err := store.ReadInt32(checksumIn)
 	if err != nil {
-		return nil, fmt.Errorf("reading number of segments: %w", err)
+		return nil, err
 	}
 
 	if numSegments < 0 {
 		return nil, fmt.Errorf("invalid number of segments: %d", numSegments)
 	}
 
+	// Read min segment version if any
+	if numSegments > 0 {
+		_, _ = store.ReadVInt(checksumIn) // major
+		_, _ = store.ReadVInt(checksumIn) // minor
+		_, _ = store.ReadVInt(checksumIn) // bugfix
+	}
+
 	sis := index.NewSegmentInfos()
-	sis.SetVersion(fmt.Sprintf("%d", version))
-	sis.SetCounter(int(counter))
+	sis.SetLuceneVersion(fmt.Sprintf("%d.%d.%d", major, minor, bugfix))
+	sis.SetIndexCreatedVersionMajor(createdMajor)
+	sis.SetVersion(version)
+	sis.SetCounter(counter)
 	sis.SetGeneration(maxGen)
 	sis.SetLastGeneration(maxGen)
 
-	// Read each segment
 	for i := int32(0); i < numSegments; i++ {
-		sci, err := f.readSegmentCommitInfo(in, dir)
+		sci, err := f.readSegmentCommitInfo(checksumIn, dir)
 		if err != nil {
-			return nil, fmt.Errorf("reading segment %d: %w", i, err)
+			return nil, err
 		}
 		sis.Add(sci)
 	}
 
-	// Read user data
-	userData, err := f.readUserData(in)
+	userData, err := store.ReadMapOfStrings(checksumIn)
 	if err != nil {
-		return nil, fmt.Errorf("reading user data: %w", err)
+		return nil, err
 	}
 	sis.SetUserData(userData)
 
-	// Read footer
-	if err := f.readFooter(in); err != nil {
-		return nil, fmt.Errorf("reading footer: %w", err)
+	_, err = CheckFooter(checksumIn)
+	if err != nil {
+		return nil, err
 	}
 
 	return sis, nil
 }
 
-// Write writes segment infos to the given directory.
+func (f *Lucene104SegmentInfosFormat) readSegmentCommitInfo(in store.IndexInput, dir store.Directory) (*index.SegmentCommitInfo, error) {
+	name, err := store.ReadString(in)
+	if err != nil {
+		return nil, err
+	}
+
+	id, err := in.ReadBytesN(16)
+	if err != nil {
+		return nil, err
+	}
+
+	codecName, err := store.ReadString(in)
+	if err != nil {
+		return nil, err
+	}
+
+	delGen, err := store.ReadInt64(in)
+	if err != nil {
+		return nil, err
+	}
+
+	delCount, err := store.ReadInt32(in)
+	if err != nil {
+		return nil, err
+	}
+
+	fieldInfosGen, err := store.ReadInt64(in)
+	if err != nil {
+		return nil, err
+	}
+
+	docValuesGen, err := store.ReadInt64(in)
+	if err != nil {
+		return nil, err
+	}
+
+	softDelCount, err := store.ReadInt32(in)
+	if err != nil {
+		return nil, err
+	}
+
+	hasSciID, err := in.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+	var sciID []byte
+	if hasSciID == 1 {
+		sciID, err = in.ReadBytesN(16)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	fieldInfosFiles, err := store.ReadSetOfStrings(in)
+	if err != nil {
+		return nil, err
+	}
+
+	docValuesUpdatesFiles, err := store.ReadMapOfIntToSetOfStrings(in)
+	if err != nil {
+		return nil, err
+	}
+
+	// For now, we don't have SegmentInfo fully populated from .si file here
+	// In Lucene, it's loaded lazily or passed in.
+	// We'll create a placeholder SegmentInfo.
+	si := index.NewSegmentInfo(name, 0, dir)
+	si.SetID(id)
+	si.SetCodec(codecName)
+
+	sci := index.NewSegmentCommitInfo(si, int(delCount), delGen)
+	sci.SetFieldInfosGen(fieldInfosGen)
+	sci.SetDocValuesGen(docValuesGen)
+	sci.SetSoftDelCount(int(softDelCount))
+	sci.SetID(sciID)
+	sci.SetFieldInfosFiles(fieldInfosFiles)
+	sci.SetDocValuesUpdatesFiles(docValuesUpdatesFiles)
+
+	return sci, nil
+}
+
 func (f *Lucene104SegmentInfosFormat) Write(dir store.Directory, infos *index.SegmentInfos) error {
-	// Get the next generation
 	generation := infos.NextGeneration()
 	fileName := index.GetSegmentFileName(generation)
 
 	out, err := dir.CreateOutput(fileName, store.IOContextWrite)
 	if err != nil {
-		return fmt.Errorf("creating segments file: %w", err)
+		return err
 	}
-	defer out.Close()
+	checksumOut := store.NewChecksumIndexOutput(out)
+	defer checksumOut.Close()
 
-	// Write header
-	if err := f.writeHeader(out); err != nil {
-		return fmt.Errorf("writing header: %w", err)
+	// Random ID for segments_N header
+	id := make([]byte, 16)
+	// In a real implementation, we should probably use a proper random source
+
+	err = WriteIndexHeader(checksumOut, sisCodecName, sisVersion, id, fmt.Sprintf("%d", generation))
+	if err != nil {
+		return err
 	}
+
+	// Write Lucene version
+	var major, minor, bugfix int32
+	fmt.Sscanf(infos.LuceneVersion(), "%d.%d.%d", &major, &minor, &bugfix)
+	store.WriteVInt(checksumOut, major)
+	store.WriteVInt(checksumOut, minor)
+	store.WriteVInt(checksumOut, bugfix)
+
+	// Write created major
+	store.WriteVInt(checksumOut, infos.IndexCreatedVersionMajor())
 
 	// Write version
-	version := int32(10) // Lucene 10.x
-	if err := store.WriteInt32(out, version); err != nil {
-		return fmt.Errorf("writing version: %w", err)
-	}
+	store.WriteInt64(checksumOut, infos.Version())
 
 	// Write counter
-	if err := store.WriteInt32(out, int32(infos.Counter())); err != nil {
-		return fmt.Errorf("writing counter: %w", err)
-	}
+	store.WriteVLong(checksumOut, infos.Counter())
 
-	// Write number of segments
+	// Write segment count
 	segments := infos.List()
-	if err := store.WriteInt32(out, int32(len(segments))); err != nil {
-		return fmt.Errorf("writing number of segments: %w", err)
+	store.WriteInt32(checksumOut, int32(len(segments)))
+
+	// Write min segment version if any
+	if len(segments) > 0 {
+		// Just write current version as min version for now
+		store.WriteVInt(checksumOut, major)
+		store.WriteVInt(checksumOut, minor)
+		store.WriteVInt(checksumOut, bugfix)
 	}
 
-	// Write each segment
 	for _, sci := range segments {
-		if err := f.writeSegmentCommitInfo(out, sci); err != nil {
-			return fmt.Errorf("writing segment: %w", err)
+		err = f.writeSegmentCommitInfo(checksumOut, sci)
+		if err != nil {
+			return err
 		}
 	}
 
-	// Write user data
-	if err := f.writeUserData(out, infos.GetUserData()); err != nil {
-		return fmt.Errorf("writing user data: %w", err)
+	store.WriteMapOfStrings(checksumOut, infos.GetUserData())
+
+	err = WriteFooter(checksumOut)
+	if err != nil {
+		return err
 	}
 
-	// Write footer
-	if err := f.writeFooter(out); err != nil {
-		return fmt.Errorf("writing footer: %w", err)
-	}
-
-	// Sync and close
-	if err := out.Close(); err != nil {
-		return fmt.Errorf("closing output: %w", err)
-	}
-
-	// Update last generation
 	infos.SetLastGeneration(generation)
+	return nil
+}
+
+func (f *Lucene104SegmentInfosFormat) writeSegmentCommitInfo(out store.IndexOutput, sci *index.SegmentCommitInfo) error {
+	store.WriteString(out, sci.Name())
+	out.WriteBytes(sci.SegmentInfo().GetID())
+	store.WriteString(out, sci.SegmentInfo().Codec())
+	store.WriteInt64(out, sci.DelGen())
+	store.WriteInt32(out, int32(sci.DelCount()))
+	store.WriteInt64(out, sci.FieldInfosGen())
+	store.WriteInt64(out, sci.DocValuesGen())
+	store.WriteInt32(out, int32(sci.SoftDelCount()))
+
+	sciID := sci.GetID()
+	if len(sciID) == 16 {
+		out.WriteByte(1)
+		out.WriteBytes(sciID)
+	} else {
+		out.WriteByte(0)
+	}
+
+	store.WriteSetOfStrings(out, sci.FieldInfosFiles())
+	store.WriteMapOfIntToSetOfStrings(out, sci.DocValuesUpdatesFiles())
 
 	return nil
 }
 
-// readHeader reads the file header.
-func (f *Lucene104SegmentInfosFormat) readHeader(in store.IndexInput) error {
-	// Read magic number
-	magic, err := store.ReadUint32(in)
-	if err != nil {
-		return fmt.Errorf("reading magic: %w", err)
-	}
-	if magic != 0x534c4366 { // 'fCLS' in little endian (segments file magic)
-		return fmt.Errorf("invalid magic number: %x", magic)
-	}
-	return nil
+// Lucene99SegmentInfoFormat implements Lucene 9.9/10.4 segment info format (.si).
+type Lucene99SegmentInfoFormat struct{}
+
+func NewLucene99SegmentInfoFormat() *Lucene99SegmentInfoFormat {
+	return &Lucene99SegmentInfoFormat{}
 }
 
-// writeHeader writes the file header.
-func (f *Lucene104SegmentInfosFormat) writeHeader(out store.IndexOutput) error {
-	// Write magic number
-	return store.WriteUint32(out, 0x534c4366)
-}
+const (
+	siFileCodecName = "Lucene90SegmentInfo"
+	siFileVersion   = 0
+)
 
-// readFooter reads the file footer.
-func (f *Lucene104SegmentInfosFormat) readFooter(in store.IndexInput) error {
-	// For now, just read and ignore checksum
-	_, err := store.ReadUint32(in)
+func (f *Lucene99SegmentInfoFormat) Read(dir store.Directory, segmentName string, segmentID []byte, context store.IOContext) (*index.SegmentInfo, error) {
+	fileName := GetSegmentFileName(segmentName, "", "si")
+	in, err := dir.OpenInput(fileName, context)
 	if err != nil {
-		return fmt.Errorf("reading checksum: %w", err)
+		return nil, err
 	}
-	return nil
-}
+	checksumIn := store.NewChecksumIndexInput(in)
+	defer checksumIn.Close()
 
-// writeFooter writes the file footer.
-func (f *Lucene104SegmentInfosFormat) writeFooter(out store.IndexOutput) error {
-	// For now, just write a dummy checksum
-	return store.WriteUint32(out, 0)
-}
-
-// readSegmentCommitInfo reads a single segment commit info.
-func (f *Lucene104SegmentInfosFormat) readSegmentCommitInfo(in store.IndexInput, dir store.Directory) (*index.SegmentCommitInfo, error) {
-	// Read segment name
-	name, err := store.ReadString(in)
+	_, err = CheckIndexHeader(checksumIn, siFileCodecName, siFileVersion, siFileVersion, segmentID, "")
 	if err != nil {
-		return nil, fmt.Errorf("reading segment name: %w", err)
+		return nil, err
 	}
 
-	// Read generation
-	gen, err := store.ReadInt64(in)
+	major, err := store.ReadInt32(checksumIn)
 	if err != nil {
-		return nil, fmt.Errorf("reading generation: %w", err)
+		return nil, err
 	}
-	_ = gen // generation might be used for verification
-
-	// Read document count
-	docCount, err := store.ReadInt32(in)
+	minor, err := store.ReadInt32(checksumIn)
 	if err != nil {
-		return nil, fmt.Errorf("reading doc count: %w", err)
+		return nil, err
+	}
+	bugfix, err := store.ReadInt32(checksumIn)
+	if err != nil {
+		return nil, err
+	}
+	luceneVersion := fmt.Sprintf("%d.%d.%d", major, minor, bugfix)
+
+	hasMinVersion, err := checksumIn.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+	if hasMinVersion != 0 {
+		_, err = store.ReadInt32(checksumIn) // minMajor
+		if err != nil {
+			return nil, err
+		}
+		_, err = store.ReadInt32(checksumIn) // minMinor
+		if err != nil {
+			return nil, err
+		}
+		_, err = store.ReadInt32(checksumIn) // minBugfix
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	// Read compound file flag
-	isCompoundFileByte, err := in.ReadByte()
+	docCount, err := store.ReadInt32(checksumIn)
 	if err != nil {
-		return nil, fmt.Errorf("reading compound file flag: %w", err)
+		return nil, err
+	}
+
+	isCompoundFileByte, err := checksumIn.ReadByte()
+	if err != nil {
+		return nil, err
 	}
 	isCompoundFile := isCompoundFileByte != 0
 
-	// Read codec name
-	codecName, err := store.ReadString(in)
+	_, err = checksumIn.ReadByte() // hasBlocks
 	if err != nil {
-		return nil, fmt.Errorf("reading codec name: %w", err)
+		return nil, err
 	}
-	_ = codecName // codec name might be used to load the right codec
 
-	// Create segment info
-	segmentInfo := index.NewSegmentInfo(name, int(docCount), dir)
-	segmentInfo.SetCompoundFile(isCompoundFile)
-	segmentInfo.SetCodec(codecName)
-
-	// Read deletion info
-	hasDeletionsByte, err := in.ReadByte()
+	diagnostics, err := store.ReadMapOfStrings(checksumIn)
 	if err != nil {
-		return nil, fmt.Errorf("reading has deletions flag: %w", err)
+		return nil, err
 	}
 
-	delCount := 0
-	delGen := int64(-1)
-	if hasDeletionsByte != 0 {
-		delCount32, err := store.ReadInt32(in)
-		if err != nil {
-			return nil, fmt.Errorf("reading deletion count: %w", err)
-		}
-		delCount = int(delCount32)
-
-		delGen, err = store.ReadInt64(in)
-		if err != nil {
-			return nil, fmt.Errorf("reading deletion generation: %w", err)
-		}
-	}
-
-	// Create segment commit info
-	sci := index.NewSegmentCommitInfo(segmentInfo, delCount, delGen)
-
-	// Read field infos generation
-	hasFieldInfosByte, err := in.ReadByte()
+	files, err := store.ReadSetOfStrings(checksumIn)
 	if err != nil {
-		return nil, fmt.Errorf("reading has field infos flag: %w", err)
-	}
-	if hasFieldInfosByte != 0 {
-		fieldInfosGen, err := store.ReadInt64(in)
-		if err != nil {
-			return nil, fmt.Errorf("reading field infos generation: %w", err)
-		}
-		sci.SetFieldInfosGen(fieldInfosGen)
+		return nil, err
 	}
 
-	// Read doc values generation
-	hasDocValuesByte, err := in.ReadByte()
+	attributes, err := store.ReadMapOfStrings(checksumIn)
 	if err != nil {
-		return nil, fmt.Errorf("reading has doc values flag: %w", err)
-	}
-	if hasDocValuesByte != 0 {
-		docValuesGen, err := store.ReadInt64(in)
-		if err != nil {
-			return nil, fmt.Errorf("reading doc values generation: %w", err)
-		}
-		sci.SetDocValuesGen(docValuesGen)
+		return nil, err
 	}
 
-	// Read attributes
-	numAttrs, err := store.ReadInt32(in)
+	// Index Sort
+	numSortFields, err := store.ReadVInt(checksumIn)
 	if err != nil {
-		return nil, fmt.Errorf("reading number of attributes: %w", err)
+		return nil, err
+	}
+	if numSortFields > 0 {
+		return nil, fmt.Errorf("index sort not yet supported in SegmentInfoFormat")
 	}
 
-	for i := int32(0); i < numAttrs; i++ {
-		key, err := store.ReadString(in)
-		if err != nil {
-			return nil, fmt.Errorf("reading attribute key: %w", err)
-		}
-		value, err := store.ReadString(in)
-		if err != nil {
-			return nil, fmt.Errorf("reading attribute value: %w", err)
-		}
-		sci.SetAttribute(key, value)
+	_, err = CheckFooter(checksumIn)
+	if err != nil {
+		return nil, err
 	}
 
-	return sci, nil
+	si := index.NewSegmentInfo(segmentName, int(docCount), dir)
+	si.SetID(segmentID)
+	si.SetVersion(luceneVersion)
+	si.SetCompoundFile(isCompoundFile)
+	si.SetDiagnostics(diagnostics)
+	fileList := make([]string, 0, len(files))
+	for f := range files {
+		fileList = append(fileList, f)
+	}
+	si.SetFiles(fileList)
+	for k, v := range attributes {
+		si.SetAttribute(k, v)
+	}
+
+	return si, nil
 }
 
-// writeSegmentCommitInfo writes a single segment commit info.
-func (f *Lucene104SegmentInfosFormat) writeSegmentCommitInfo(out store.IndexOutput, sci *index.SegmentCommitInfo) error {
-	// Write segment name
-	if err := store.WriteString(out, sci.Name()); err != nil {
-		return fmt.Errorf("writing segment name: %w", err)
+func (f *Lucene99SegmentInfoFormat) Write(dir store.Directory, info *index.SegmentInfo, context store.IOContext) error {
+	fileName := GetSegmentFileName(info.Name(), "", "si")
+	out, err := dir.CreateOutput(fileName, context)
+	if err != nil {
+		return err
+	}
+	checksumOut := store.NewChecksumIndexOutput(out)
+	defer checksumOut.Close()
+
+	err = WriteIndexHeader(checksumOut, siFileCodecName, siFileVersion, info.GetID(), "")
+	if err != nil {
+		return err
 	}
 
-	// Write generation
-	if err := store.WriteInt64(out, sci.GetGeneration()); err != nil {
-		return fmt.Errorf("writing generation: %w", err)
-	}
+	major, minor, bugfix := parseVersion(info.Version())
+	store.WriteInt32(checksumOut, major)
+	store.WriteInt32(checksumOut, minor)
+	store.WriteInt32(checksumOut, bugfix)
 
-	// Write document count
-	if err := store.WriteInt32(out, int32(sci.DocCount())); err != nil {
-		return fmt.Errorf("writing doc count: %w", err)
-	}
+	checksumOut.WriteByte(0) // hasMinVersion = false for now
 
-	// Write compound file flag
-	isCompoundFile := byte(0)
-	if sci.SegmentInfo().IsCompoundFile() {
+	store.WriteInt32(checksumOut, int32(info.DocCount()))
+
+	isCompoundFile := byte(255) // -1 in Java signed byte
+	if info.IsCompoundFile() {
 		isCompoundFile = 1
 	}
-	if err := out.WriteByte(isCompoundFile); err != nil {
-		return fmt.Errorf("writing compound file flag: %w", err)
-	}
+	checksumOut.WriteByte(isCompoundFile)
 
-	// Write codec name
-	if err := store.WriteString(out, sci.SegmentInfo().Codec()); err != nil {
-		return fmt.Errorf("writing codec name: %w", err)
-	}
+	checksumOut.WriteByte(0) // hasBlocks = false
 
-	// Write deletion info
-	hasDeletions := byte(0)
-	if sci.HasDeletions() {
-		hasDeletions = 1
-	}
-	if err := out.WriteByte(hasDeletions); err != nil {
-		return fmt.Errorf("writing has deletions flag: %w", err)
-	}
+	store.WriteMapOfStrings(checksumOut, info.GetDiagnostics())
 
-	if hasDeletions != 0 {
-		if err := store.WriteInt32(out, int32(sci.DelCount())); err != nil {
-			return fmt.Errorf("writing deletion count: %w", err)
-		}
-		if err := store.WriteInt64(out, sci.DelGen()); err != nil {
-			return fmt.Errorf("writing deletion generation: %w", err)
-		}
+	files := make(map[string]struct{})
+	for _, f := range info.Files() {
+		files[f] = struct{}{}
 	}
+	store.WriteSetOfStrings(checksumOut, files)
 
-	// Write field infos generation
-	hasFieldInfos := byte(0)
-	if sci.HasFieldInfosGen() {
-		hasFieldInfos = 1
-	}
-	if err := out.WriteByte(hasFieldInfos); err != nil {
-		return fmt.Errorf("writing has field infos flag: %w", err)
-	}
+	store.WriteMapOfStrings(checksumOut, info.GetAttributes())
 
-	if hasFieldInfos != 0 {
-		if err := store.WriteInt64(out, sci.FieldInfosGen()); err != nil {
-			return fmt.Errorf("writing field infos generation: %w", err)
-		}
-	}
+	store.WriteVInt(checksumOut, 0) // numSortFields = 0
 
-	// Write doc values generation
-	hasDocValues := byte(0)
-	if sci.HasDocValuesGen() {
-		hasDocValues = 1
-	}
-	if err := out.WriteByte(hasDocValues); err != nil {
-		return fmt.Errorf("writing has doc values flag: %w", err)
-	}
-
-	if hasDocValues != 0 {
-		if err := store.WriteInt64(out, sci.DocValuesGen()); err != nil {
-			return fmt.Errorf("writing doc values generation: %w", err)
-		}
-	}
-
-	// Write attributes
-	attrs := sci.GetAttributes()
-	if err := store.WriteInt32(out, int32(len(attrs))); err != nil {
-		return fmt.Errorf("writing number of attributes: %w", err)
-	}
-	for key, value := range attrs {
-		if err := store.WriteString(out, key); err != nil {
-			return fmt.Errorf("writing attribute key: %w", err)
-		}
-		if err := store.WriteString(out, value); err != nil {
-			return fmt.Errorf("writing attribute value: %w", err)
-		}
-	}
-
-	return nil
+	return WriteFooter(checksumOut)
 }
 
-// readUserData reads user data map.
-func (f *Lucene104SegmentInfosFormat) readUserData(in store.IndexInput) (map[string]string, error) {
-	count, err := store.ReadInt32(in)
-	if err != nil {
-		return nil, fmt.Errorf("reading user data count: %w", err)
-	}
-
-	userData := make(map[string]string, count)
-	for i := int32(0); i < count; i++ {
-		key, err := store.ReadString(in)
-		if err != nil {
-			return nil, fmt.Errorf("reading user data key: %w", err)
-		}
-		value, err := store.ReadString(in)
-		if err != nil {
-			return nil, fmt.Errorf("reading user data value: %w", err)
-		}
-		userData[key] = value
-	}
-
-	return userData, nil
+func (f *Lucene99SegmentInfoFormat) Name() string {
+	return "Lucene99SegmentInfoFormat"
 }
 
-// writeUserData writes user data map.
-func (f *Lucene104SegmentInfosFormat) writeUserData(out store.IndexOutput, userData map[string]string) error {
-	if err := store.WriteInt32(out, int32(len(userData))); err != nil {
-		return fmt.Errorf("writing user data count: %w", err)
-	}
-
-	for key, value := range userData {
-		if err := store.WriteString(out, key); err != nil {
-			return fmt.Errorf("writing user data key: %w", err)
-		}
-		if err := store.WriteString(out, value); err != nil {
-			return fmt.Errorf("writing user data value: %w", err)
-		}
-	}
-
-	return nil
+func parseVersion(v string) (int32, int32, int32) {
+	var major, minor, bugfix int32
+	fmt.Sscanf(v, "%d.%d.%d", &major, &minor, &bugfix)
+	return major, minor, bugfix
 }

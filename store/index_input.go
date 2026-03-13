@@ -486,3 +486,80 @@ func ReadString(in DataInput) (string, error) {
 	}
 	return string(bytes), nil
 }
+
+// ReadMapOfStrings reads a map of strings written by WriteMapOfStrings.
+func ReadMapOfStrings(in DataInput) (map[string]string, error) {
+	size, err := ReadVInt(in)
+	if err != nil {
+		return nil, err
+	}
+	if size < 0 {
+		return nil, errors.New("negative map size")
+	}
+	if size == 0 {
+		return nil, nil
+	}
+	m := make(map[string]string, size)
+	for i := int32(0); i < size; i++ {
+		key, err := ReadString(in)
+		if err != nil {
+			return nil, err
+		}
+		value, err := ReadString(in)
+		if err != nil {
+			return nil, err
+		}
+		m[key] = value
+	}
+	return m, nil
+}
+
+// ReadSetOfStrings reads a set of strings written by WriteSetOfStrings.
+func ReadSetOfStrings(in DataInput) (map[string]struct{}, error) {
+	size, err := ReadVInt(in)
+	if err != nil {
+		return nil, err
+	}
+	if size < 0 {
+		return nil, errors.New("negative set size")
+	}
+	if size == 0 {
+		return nil, nil
+	}
+	s := make(map[string]struct{}, size)
+	for i := int32(0); i < size; i++ {
+		str, err := ReadString(in)
+		if err != nil {
+			return nil, err
+		}
+		s[str] = struct{}{}
+	}
+	return s, nil
+}
+
+// ReadMapOfIntToSetOfStrings reads a map of int to set of strings written by WriteMapOfIntToSetOfStrings.
+func ReadMapOfIntToSetOfStrings(in DataInput) (map[int]map[string]struct{}, error) {
+	size, err := ReadVInt(in)
+	if err != nil {
+		return nil, err
+	}
+	if size < 0 {
+		return nil, errors.New("negative map size")
+	}
+	if size == 0 {
+		return nil, nil
+	}
+	m := make(map[int]map[string]struct{}, size)
+	for i := int32(0); i < size; i++ {
+		key, err := ReadVInt(in)
+		if err != nil {
+			return nil, err
+		}
+		value, err := ReadSetOfStrings(in)
+		if err != nil {
+			return nil, err
+		}
+		m[int(key)] = value
+	}
+	return m, nil
+}

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"hash"
 	"hash/adler32"
+	"sort"
 )
 
 // IndexOutput provides random access to write index files.
@@ -360,6 +361,63 @@ func WriteString(out DataOutput, s string) error {
 		return err
 	}
 	return out.WriteBytes([]byte(s))
+}
+
+// WriteMapOfStrings writes a map of strings as a VInt size followed by key-value pairs.
+func WriteMapOfStrings(out DataOutput, m map[string]string) error {
+	if err := WriteVInt(out, int32(len(m))); err != nil {
+		return err
+	}
+	for k, v := range m {
+		if err := WriteString(out, k); err != nil {
+			return err
+		}
+		if err := WriteString(out, v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WriteSetOfStrings writes a set of strings as a VInt size followed by strings.
+func WriteSetOfStrings(out DataOutput, s map[string]struct{}) error {
+	if err := WriteVInt(out, int32(len(s))); err != nil {
+		return err
+	}
+	// Sort for deterministic output
+	keys := make([]string, 0, len(s))
+	for k := range s {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if err := WriteString(out, k); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WriteMapOfIntToSetOfStrings writes a map of int to set of strings.
+func WriteMapOfIntToSetOfStrings(out DataOutput, m map[int]map[string]struct{}) error {
+	if err := WriteVInt(out, int32(len(m))); err != nil {
+		return err
+	}
+	// Sort for deterministic output
+	keys := make([]int, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Ints(keys)
+	for _, k := range keys {
+		if err := WriteVInt(out, int32(k)); err != nil {
+			return err
+		}
+		if err := WriteSetOfStrings(out, m[k]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // IndexOutputWithDigest wraps an IndexOutput and computes a digest (checksum).

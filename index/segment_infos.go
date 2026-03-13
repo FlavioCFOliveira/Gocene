@@ -31,11 +31,17 @@ type SegmentInfos struct {
 	// Used when opening an existing index
 	lastGeneration int64
 
-	// version is the index version (Lucene compatibility)
-	version string
+	// version counts how many times the index has been changed
+	version int64
+
+	// luceneVersion is the Lucene version that created this SegmentInfos
+	luceneVersion string
+
+	// indexCreatedVersionMajor is the major version of Lucene that created this index
+	indexCreatedVersionMajor int32
 
 	// counter is used to generate new segment names
-	counter int
+	counter int64
 
 	// userData holds optional user-supplied commit data
 	userData map[string]string
@@ -50,12 +56,14 @@ const defaultIndexVersion = "10.0.0"
 // NewSegmentInfos creates a new empty SegmentInfos.
 func NewSegmentInfos() *SegmentInfos {
 	return &SegmentInfos{
-		segments:       make(SegmentCommitInfoList, 0),
-		generation:     1,
-		lastGeneration: 0,
-		version:        defaultIndexVersion,
-		counter:        0,
-		userData:       make(map[string]string),
+		segments:                 make(SegmentCommitInfoList, 0),
+		generation:               1,
+		lastGeneration:           0,
+		version:                  0,
+		luceneVersion:            defaultIndexVersion,
+		indexCreatedVersionMajor: 10,
+		counter:                  0,
+		userData:                 make(map[string]string),
 	}
 }
 
@@ -204,28 +212,56 @@ func (si *SegmentInfos) GetLastFileName() string {
 }
 
 // Version returns the index version.
-func (si *SegmentInfos) Version() string {
+func (si *SegmentInfos) Version() int64 {
 	si.mu.RLock()
 	defer si.mu.RUnlock()
 	return si.version
 }
 
 // SetVersion sets the index version.
-func (si *SegmentInfos) SetVersion(version string) {
+func (si *SegmentInfos) SetVersion(version int64) {
 	si.mu.Lock()
 	defer si.mu.Unlock()
 	si.version = version
 }
 
+// LuceneVersion returns the Lucene version.
+func (si *SegmentInfos) LuceneVersion() string {
+	si.mu.RLock()
+	defer si.mu.RUnlock()
+	return si.luceneVersion
+}
+
+// SetLuceneVersion sets the Lucene version.
+func (si *SegmentInfos) SetLuceneVersion(v string) {
+	si.mu.Lock()
+	defer si.mu.Unlock()
+	si.luceneVersion = v
+}
+
+// IndexCreatedVersionMajor returns the major version of Lucene that created this index.
+func (si *SegmentInfos) IndexCreatedVersionMajor() int32 {
+	si.mu.RLock()
+	defer si.mu.RUnlock()
+	return si.indexCreatedVersionMajor
+}
+
+// SetIndexCreatedVersionMajor sets the major version of Lucene that created this index.
+func (si *SegmentInfos) SetIndexCreatedVersionMajor(v int32) {
+	si.mu.Lock()
+	defer si.mu.Unlock()
+	si.indexCreatedVersionMajor = v
+}
+
 // Counter returns the current segment name counter.
-func (si *SegmentInfos) Counter() int {
+func (si *SegmentInfos) Counter() int64 {
 	si.mu.RLock()
 	defer si.mu.RUnlock()
 	return si.counter
 }
 
 // SetCounter sets the segment name counter.
-func (si *SegmentInfos) SetCounter(counter int) {
+func (si *SegmentInfos) SetCounter(counter int64) {
 	si.mu.Lock()
 	defer si.mu.Unlock()
 	si.counter = counter
@@ -296,12 +332,14 @@ func (si *SegmentInfos) Clone() *SegmentInfos {
 	defer si.mu.RUnlock()
 
 	clone := &SegmentInfos{
-		segments:       make(SegmentCommitInfoList, len(si.segments)),
-		generation:     si.generation,
-		lastGeneration: si.lastGeneration,
-		version:        si.version,
-		counter:        si.counter,
-		userData:       make(map[string]string, len(si.userData)),
+		segments:                 make(SegmentCommitInfoList, len(si.segments)),
+		generation:               si.generation,
+		lastGeneration:           si.lastGeneration,
+		version:                  si.version,
+		luceneVersion:            si.luceneVersion,
+		indexCreatedVersionMajor: si.indexCreatedVersionMajor,
+		counter:                  si.counter,
+		userData:                 make(map[string]string, len(si.userData)),
 	}
 
 	copy(clone.segments, si.segments)
@@ -419,7 +457,7 @@ func (si *SegmentInfos) UpdateCounterFromSegments() {
 			maxGen = gen
 		}
 	}
-	si.counter = int(maxGen) + 1
+	si.counter = maxGen + 1
 }
 
 // WriteSegmentInfos writes the SegmentInfos to a directory.
@@ -441,7 +479,16 @@ func WriteSegmentInfos(si *SegmentInfos, directory store.Directory) error {
 	if err := store.WriteInt64(out, si.generation); err != nil {
 		return err
 	}
-	if err := store.WriteInt32(out, int32(si.counter)); err != nil {
+	if err := store.WriteInt64(out, si.version); err != nil {
+		return err
+	}
+	if err := store.WriteInt32(out, si.indexCreatedVersionMajor); err != nil {
+		return err
+	}
+	if err := store.WriteString(out, si.luceneVersion); err != nil {
+		return err
+	}
+	if err := store.WriteInt64(out, si.counter); err != nil {
 		return err
 	}
 	if err := store.WriteInt32(out, int32(len(si.segments))); err != nil {
@@ -454,6 +501,11 @@ func WriteSegmentInfos(si *SegmentInfos, directory store.Directory) error {
 			return err
 		}
 		if err := store.WriteInt32(out, int32(sci.segmentInfo.docCount)); err != nil {
+			return err
+		}
+		// Write ID
+		id := sci.segmentInfo.GetID()
+		if err := out.WriteBytes(id); err != nil {
 			return err
 		}
 	}
@@ -510,7 +562,22 @@ func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
 		return nil, err
 	}
 
-	counter, err := store.ReadInt32(in)
+	version, err := store.ReadInt64(in)
+	if err != nil {
+		return nil, err
+	}
+
+	createdMajor, err := store.ReadInt32(in)
+	if err != nil {
+		return nil, err
+	}
+
+	luceneVersion, err := store.ReadString(in)
+	if err != nil {
+		return nil, err
+	}
+
+	counter, err := store.ReadInt64(in)
 	if err != nil {
 		return nil, err
 	}
@@ -523,7 +590,10 @@ func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
 	si := NewSegmentInfos()
 	si.generation = gen
 	si.lastGeneration = gen
-	si.counter = int(counter)
+	si.version = version
+	si.indexCreatedVersionMajor = createdMajor
+	si.luceneVersion = luceneVersion
+	si.counter = counter
 
 	// Read segments
 	for i := 0; i < int(numSegments); i++ {
@@ -535,8 +605,14 @@ func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
 		if err != nil {
 			return nil, err
 		}
+		// Read ID
+		id, err := in.ReadBytesN(16)
+		if err != nil {
+			return nil, err
+		}
 
-		segmentInfo := NewSegmentInfo(name, int(docCount), nil)
+		segmentInfo := NewSegmentInfo(name, int(docCount), directory)
+		segmentInfo.SetID(id)
 		sci := NewSegmentCommitInfo(segmentInfo, 0, -1)
 		si.Add(sci)
 	}

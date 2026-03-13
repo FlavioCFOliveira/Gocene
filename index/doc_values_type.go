@@ -35,6 +35,29 @@ const (
 	DocValuesTypeSortedNumeric
 )
 
+// DocValuesSkipIndexType represents the type of doc values skip index.
+type DocValuesSkipIndexType int
+
+const (
+	// DocValuesSkipIndexTypeNone means no doc values skip index is stored.
+	DocValuesSkipIndexTypeNone DocValuesSkipIndexType = iota
+
+	// DocValuesSkipIndexTypeRange stores range information for doc values.
+	DocValuesSkipIndexTypeRange
+)
+
+// String returns the string representation of the DocValuesSkipIndexType.
+func (dvst DocValuesSkipIndexType) String() string {
+	switch dvst {
+	case DocValuesSkipIndexTypeNone:
+		return "NONE"
+	case DocValuesSkipIndexTypeRange:
+		return "RANGE"
+	default:
+		return fmt.Sprintf("UNKNOWN(%d)", dvst)
+	}
+}
+
 // String returns the string representation of the DocValuesType.
 func (dvt DocValuesType) String() string {
 	switch dvt {

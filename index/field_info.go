@@ -28,6 +28,12 @@ type FieldInfo struct {
 	// DocValuesType is the type of doc values, if any
 	docValuesType DocValuesType
 
+	// docValuesSkipIndexType is the type of doc values skip index
+	docValuesSkipIndexType DocValuesSkipIndexType
+
+	// docValuesGen is the generation count of the field's DocValues
+	docValuesGen int64
+
 	// Stored determines if the field value is stored
 	stored bool
 
@@ -49,6 +55,30 @@ type FieldInfo struct {
 	// StoreTermVectorPayloads determines if term vector payloads are stored
 	storeTermVectorPayloads bool
 
+	// pointDimensionCount is the number of dimensions for point values
+	pointDimensionCount int
+
+	// pointIndexDimensionCount is the number of index dimensions for point values
+	pointIndexDimensionCount int
+
+	// pointNumBytes is the number of bytes per dimension for point values
+	pointNumBytes int
+
+	// vectorDimension is the number of dimensions for vector values
+	vectorDimension int
+
+	// vectorEncoding is the encoding of vector values
+	vectorEncoding VectorEncoding
+
+	// vectorSimilarityFunction is the similarity function for vector values
+	vectorSimilarityFunction VectorSimilarityFunction
+
+	// isSoftDeletesField is true if this field is used for soft deletes
+	isSoftDeletesField bool
+
+	// isParentField is true if this field is used for parent-child relationship
+	isParentField bool
+
 	// Attributes holds custom per-field attributes
 	attributes map[string]string
 
@@ -63,6 +93,8 @@ type FieldInfo struct {
 type FieldInfoOptions struct {
 	IndexOptions             IndexOptions
 	DocValuesType            DocValuesType
+	DocValuesSkipIndexType   DocValuesSkipIndexType
+	DocValuesGen             int64
 	Stored                   bool
 	Tokenized                bool
 	OmitNorms                bool
@@ -70,13 +102,25 @@ type FieldInfoOptions struct {
 	StoreTermVectorPositions bool
 	StoreTermVectorOffsets   bool
 	StoreTermVectorPayloads  bool
+	PointDimensionCount      int
+	PointIndexDimensionCount int
+	PointNumBytes            int
+	VectorDimension          int
+	VectorEncoding           VectorEncoding
+	VectorSimilarityFunction VectorSimilarityFunction
+	IsSoftDeletesField       bool
+	IsParentField            bool
 }
 
 // DefaultFieldInfoOptions returns default FieldInfoOptions.
 func DefaultFieldInfoOptions() FieldInfoOptions {
 	return FieldInfoOptions{
-		IndexOptions:  IndexOptionsNone,
-		DocValuesType: DocValuesTypeNone,
+		IndexOptions:             IndexOptionsNone,
+		DocValuesType:            DocValuesTypeNone,
+		DocValuesSkipIndexType:   DocValuesSkipIndexTypeNone,
+		DocValuesGen:             -1,
+		VectorEncoding:           VectorEncodingFloat32,
+		VectorSimilarityFunction: VectorSimilarityFunctionEuclidean,
 	}
 }
 
@@ -88,6 +132,8 @@ func NewFieldInfo(name string, number int, opts FieldInfoOptions) *FieldInfo {
 		number:                   number,
 		indexOptions:             opts.IndexOptions,
 		docValuesType:            opts.DocValuesType,
+		docValuesSkipIndexType:   opts.DocValuesSkipIndexType,
+		docValuesGen:             opts.DocValuesGen,
 		stored:                   opts.Stored,
 		tokenized:                opts.Tokenized,
 		omitNorms:                opts.OmitNorms,
@@ -95,6 +141,14 @@ func NewFieldInfo(name string, number int, opts FieldInfoOptions) *FieldInfo {
 		storeTermVectorPositions: opts.StoreTermVectorPositions,
 		storeTermVectorOffsets:   opts.StoreTermVectorOffsets,
 		storeTermVectorPayloads:  opts.StoreTermVectorPayloads,
+		pointDimensionCount:      opts.PointDimensionCount,
+		pointIndexDimensionCount: opts.PointIndexDimensionCount,
+		pointNumBytes:            opts.PointNumBytes,
+		vectorDimension:          opts.VectorDimension,
+		vectorEncoding:           opts.VectorEncoding,
+		vectorSimilarityFunction: opts.VectorSimilarityFunction,
+		isSoftDeletesField:       opts.IsSoftDeletesField,
+		isParentField:            opts.IsParentField,
 		attributes:               make(map[string]string),
 		frozen:                   false,
 	}
@@ -139,6 +193,16 @@ func (fi *FieldInfo) DocValuesType() DocValuesType {
 	return fi.docValuesType
 }
 
+// DocValuesSkipIndexType returns the doc values skip index type.
+func (fi *FieldInfo) DocValuesSkipIndexType() DocValuesSkipIndexType {
+	return fi.docValuesSkipIndexType
+}
+
+// DocValuesGen returns the doc values generation count.
+func (fi *FieldInfo) DocValuesGen() int64 {
+	return fi.docValuesGen
+}
+
 // IsStored returns true if the field value is stored.
 func (fi *FieldInfo) IsStored() bool {
 	return fi.stored
@@ -172,6 +236,46 @@ func (fi *FieldInfo) StoreTermVectorOffsets() bool {
 // StoreTermVectorPayloads returns true if term vector payloads are stored.
 func (fi *FieldInfo) StoreTermVectorPayloads() bool {
 	return fi.storeTermVectorPayloads
+}
+
+// PointDimensionCount returns the number of dimensions for point values.
+func (fi *FieldInfo) PointDimensionCount() int {
+	return fi.pointDimensionCount
+}
+
+// PointIndexDimensionCount returns the number of index dimensions for point values.
+func (fi *FieldInfo) PointIndexDimensionCount() int {
+	return fi.pointIndexDimensionCount
+}
+
+// PointNumBytes returns the number of bytes per dimension for point values.
+func (fi *FieldInfo) PointNumBytes() int {
+	return fi.pointNumBytes
+}
+
+// VectorDimension returns the number of dimensions for vector values.
+func (fi *FieldInfo) VectorDimension() int {
+	return fi.vectorDimension
+}
+
+// VectorEncoding returns the encoding of vector values.
+func (fi *FieldInfo) VectorEncoding() VectorEncoding {
+	return fi.vectorEncoding
+}
+
+// VectorSimilarityFunction returns the similarity function for vector values.
+func (fi *FieldInfo) VectorSimilarityFunction() VectorSimilarityFunction {
+	return fi.vectorSimilarityFunction
+}
+
+// IsSoftDeletesField returns true if this field is used for soft deletes.
+func (fi *FieldInfo) IsSoftDeletesField() bool {
+	return fi.isSoftDeletesField
+}
+
+// IsParentField returns true if this field is used for parent-child relationship.
+func (fi *FieldInfo) IsParentField() bool {
+	return fi.isParentField
 }
 
 // HasNorms returns true if the field has norms (for scoring).
@@ -229,6 +333,8 @@ func (fi *FieldInfo) Clone(newNumber int) *FieldInfo {
 	opts := FieldInfoOptions{
 		IndexOptions:             fi.indexOptions,
 		DocValuesType:            fi.docValuesType,
+		DocValuesSkipIndexType:   fi.docValuesSkipIndexType,
+		DocValuesGen:             fi.docValuesGen,
 		Stored:                   fi.stored,
 		Tokenized:                fi.tokenized,
 		OmitNorms:                fi.omitNorms,
@@ -236,6 +342,14 @@ func (fi *FieldInfo) Clone(newNumber int) *FieldInfo {
 		StoreTermVectorPositions: fi.storeTermVectorPositions,
 		StoreTermVectorOffsets:   fi.storeTermVectorOffsets,
 		StoreTermVectorPayloads:  fi.storeTermVectorPayloads,
+		PointDimensionCount:      fi.pointDimensionCount,
+		PointIndexDimensionCount: fi.pointIndexDimensionCount,
+		PointNumBytes:            fi.pointNumBytes,
+		VectorDimension:          fi.vectorDimension,
+		VectorEncoding:           fi.vectorEncoding,
+		VectorSimilarityFunction: fi.vectorSimilarityFunction,
+		IsSoftDeletesField:       fi.isSoftDeletesField,
+		IsParentField:            fi.isParentField,
 	}
 
 	clone := NewFieldInfo(fi.name, newNumber, opts)
@@ -326,6 +440,18 @@ func (b *FieldInfoBuilder) SetDocValuesType(dvt DocValuesType) *FieldInfoBuilder
 	return b
 }
 
+// SetDocValuesSkipIndexType sets the doc values skip index type.
+func (b *FieldInfoBuilder) SetDocValuesSkipIndexType(dvst DocValuesSkipIndexType) *FieldInfoBuilder {
+	b.opts.DocValuesSkipIndexType = dvst
+	return b
+}
+
+// SetDocValuesGen sets the doc values generation count.
+func (b *FieldInfoBuilder) SetDocValuesGen(gen int64) *FieldInfoBuilder {
+	b.opts.DocValuesGen = gen
+	return b
+}
+
 // SetStored sets whether the field is stored.
 func (b *FieldInfoBuilder) SetStored(stored bool) *FieldInfoBuilder {
 	b.opts.Stored = stored
@@ -368,6 +494,34 @@ func (b *FieldInfoBuilder) SetStoreTermVectorPayloads(store bool) *FieldInfoBuil
 	return b
 }
 
+// SetPointDimensions sets the point dimension information.
+func (b *FieldInfoBuilder) SetPointDimensions(dataCount, indexCount, numBytes int) *FieldInfoBuilder {
+	b.opts.PointDimensionCount = dataCount
+	b.opts.PointIndexDimensionCount = indexCount
+	b.opts.PointNumBytes = numBytes
+	return b
+}
+
+// SetVectorAttributes sets the vector attribute information.
+func (b *FieldInfoBuilder) SetVectorAttributes(dimension int, encoding VectorEncoding, similarity VectorSimilarityFunction) *FieldInfoBuilder {
+	b.opts.VectorDimension = dimension
+	b.opts.VectorEncoding = encoding
+	b.opts.VectorSimilarityFunction = similarity
+	return b
+}
+
+// SetSoftDeletesField sets whether this field is used for soft deletes.
+func (b *FieldInfoBuilder) SetSoftDeletesField(isSoftDeletes bool) *FieldInfoBuilder {
+	b.opts.IsSoftDeletesField = isSoftDeletes
+	return b
+}
+
+// SetParentField sets whether this field is used for parent-child relationship.
+func (b *FieldInfoBuilder) SetParentField(isParent bool) *FieldInfoBuilder {
+	b.opts.IsParentField = isParent
+	return b
+}
+
 // SetAttribute sets a custom attribute.
 func (b *FieldInfoBuilder) SetAttribute(key, value string) *FieldInfoBuilder {
 	b.attrs[key] = value
@@ -381,6 +535,8 @@ func (b *FieldInfoBuilder) Build() *FieldInfo {
 		number:                   b.number,
 		indexOptions:             b.opts.IndexOptions,
 		docValuesType:            b.opts.DocValuesType,
+		docValuesSkipIndexType:   b.opts.DocValuesSkipIndexType,
+		docValuesGen:             b.opts.DocValuesGen,
 		stored:                   b.opts.Stored,
 		tokenized:                b.opts.Tokenized,
 		omitNorms:                b.opts.OmitNorms,
@@ -388,6 +544,14 @@ func (b *FieldInfoBuilder) Build() *FieldInfo {
 		storeTermVectorPositions: b.opts.StoreTermVectorPositions,
 		storeTermVectorOffsets:   b.opts.StoreTermVectorOffsets,
 		storeTermVectorPayloads:  b.opts.StoreTermVectorPayloads,
+		pointDimensionCount:      b.opts.PointDimensionCount,
+		pointIndexDimensionCount: b.opts.PointIndexDimensionCount,
+		pointNumBytes:            b.opts.PointNumBytes,
+		vectorDimension:          b.opts.VectorDimension,
+		vectorEncoding:           b.opts.VectorEncoding,
+		vectorSimilarityFunction: b.opts.VectorSimilarityFunction,
+		isSoftDeletesField:       b.opts.IsSoftDeletesField,
+		isParentField:            b.opts.IsParentField,
 		attributes:               make(map[string]string),
 		frozen:                   false,
 	}
