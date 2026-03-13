@@ -111,17 +111,48 @@ func (in *ChecksumIndexInput) ReadBytesN(n int) ([]byte, error) {
 }
 
 // SetPosition changes the current position in the file.
-// This operation resets the checksum since we cannot compute the checksum
-// for arbitrary positions.
+// If the new position is ahead of the current position, it skips bytes
+// to update the checksum. If it's behind, it resets the checksum.
 func (in *ChecksumIndexInput) SetPosition(pos int64) error {
-	if err := in.input.SetPosition(pos); err != nil {
-		return err
+	current := in.GetFilePointer()
+	if pos == current {
+		return nil
+	}
+	if pos < current {
+		if err := in.input.SetPosition(pos); err != nil {
+			return err
+		}
+		// Reset the checksum digest since we cannot maintain checksum across backward seeks
+		in.digest.Reset()
+		in.SetFilePointer(pos)
+		return nil
 	}
 
-	// Reset the checksum digest since we cannot maintain checksum across seeks
-	in.digest.Reset()
-	in.SetFilePointer(pos)
+	// Forward seek: skip bytes to update checksum
+	return in.SkipBytes(pos - current)
+}
 
+// SkipBytes skips n bytes forward in the input and updates the checksum.
+func (in *ChecksumIndexInput) SkipBytes(n int64) error {
+	if n < 0 {
+		return NewChecksumError("cannot skip negative bytes")
+	}
+	if n == 0 {
+		return nil
+	}
+
+	// We must read the bytes to update the checksum
+	buffer := make([]byte, 1024)
+	for n > 0 {
+		toRead := n
+		if toRead > int64(len(buffer)) {
+			toRead = int64(len(buffer))
+		}
+		if err := in.ReadBytes(buffer[:toRead]); err != nil {
+			return err
+		}
+		n -= toRead
+	}
 	return nil
 }
 
