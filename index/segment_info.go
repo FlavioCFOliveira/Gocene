@@ -46,6 +46,9 @@ type SegmentInfo struct {
 	// attributes holds custom per-segment attributes
 	attributes map[string]string
 
+	// id is a 16-byte unique identifier for this segment
+	id [16]byte
+
 	// indexSort describes how documents are sorted in this segment
 	// nil if documents are not sorted
 	indexSort *Sort
@@ -238,6 +241,29 @@ func (si *SegmentInfo) SetDiagnostic(key, value string) {
 	si.diagnostics[key] = value
 }
 
+// GetAttributes returns a copy of the attributes map.
+func (si *SegmentInfo) GetAttributes() map[string]string {
+	si.mu.RLock()
+	defer si.mu.RUnlock()
+
+	attributes := make(map[string]string, len(si.attributes))
+	for k, v := range si.attributes {
+		attributes[k] = v
+	}
+	return attributes
+}
+
+// SetAttributes sets the attributes.
+func (si *SegmentInfo) SetAttributes(attributes map[string]string) {
+	si.mu.Lock()
+	defer si.mu.Unlock()
+
+	si.attributes = make(map[string]string, len(attributes))
+	for k, v := range attributes {
+		si.attributes[k] = v
+	}
+}
+
 // GetAttribute returns a custom attribute value.
 func (si *SegmentInfo) GetAttribute(key string) string {
 	si.mu.RLock()
@@ -312,9 +338,23 @@ func (si *SegmentInfo) Clone() *SegmentInfo {
 }
 
 // GetID returns a unique identifier for this segment.
-// This is typically the segment name.
-func (si *SegmentInfo) GetID() string {
-	return si.name
+func (si *SegmentInfo) GetID() []byte {
+	si.mu.RLock()
+	defer si.mu.RUnlock()
+	id := make([]byte, 16)
+	copy(id, si.id[:])
+	return id
+}
+
+// SetID sets the unique identifier for this segment.
+func (si *SegmentInfo) SetID(id []byte) error {
+	if len(id) != 16 {
+		return fmt.Errorf("invalid id length: %d (expected 16)", len(id))
+	}
+	si.mu.Lock()
+	defer si.mu.Unlock()
+	copy(si.id[:], id)
+	return nil
 }
 
 // GetGeneration returns the segment generation from the name.

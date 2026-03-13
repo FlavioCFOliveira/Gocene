@@ -42,6 +42,17 @@ type SegmentCommitInfo struct {
 	// attributes holds custom per-commit attributes
 	attributes map[string]string
 
+	// fieldInfosFiles tracks files containing FieldInfo updates
+	fieldInfosFiles map[string]struct{}
+
+	// docValuesUpdatesFiles tracks files containing DocValues updates
+	// field number -> set of file names
+	docValuesUpdatesFiles map[int]map[string]struct{}
+
+	// id is a 16-byte unique identifier for this segment commit
+	// -1 if no ID is assigned
+	id []byte
+
 	// mu protects mutable fields
 	mu sync.RWMutex
 }
@@ -54,13 +65,79 @@ type SegmentCommitInfo struct {
 //   - delGen: deletion file generation (-1 if no deletions)
 func NewSegmentCommitInfo(segmentInfo *SegmentInfo, delCount int, delGen int64) *SegmentCommitInfo {
 	return &SegmentCommitInfo{
-		segmentInfo:   segmentInfo,
-		delCount:      delCount,
-		softDelCount:  0,
-		delGen:        delGen,
-		fieldInfosGen: -1,
-		docValuesGen:  -1,
-		attributes:    make(map[string]string),
+		segmentInfo:           segmentInfo,
+		delCount:              delCount,
+		softDelCount:          0,
+		delGen:                delGen,
+		fieldInfosGen:         -1,
+		docValuesGen:          -1,
+		attributes:            make(map[string]string),
+		fieldInfosFiles:       make(map[string]struct{}),
+		docValuesUpdatesFiles: make(map[int]map[string]struct{}),
+	}
+}
+
+// GetID returns the unique identifier for this segment commit.
+func (sci *SegmentCommitInfo) GetID() []byte {
+	sci.mu.RLock()
+	defer sci.mu.RUnlock()
+	return sci.id
+}
+
+// SetID sets the unique identifier for this segment commit.
+func (sci *SegmentCommitInfo) SetID(id []byte) {
+	sci.mu.Lock()
+	defer sci.mu.Unlock()
+	sci.id = id
+}
+
+// FieldInfosFiles returns the set of files for FieldInfo updates.
+func (sci *SegmentCommitInfo) FieldInfosFiles() map[string]struct{} {
+	sci.mu.RLock()
+	defer sci.mu.RUnlock()
+	copy := make(map[string]struct{}, len(sci.fieldInfosFiles))
+	for k, v := range sci.fieldInfosFiles {
+		copy[k] = v
+	}
+	return copy
+}
+
+// SetFieldInfosFiles sets the set of files for FieldInfo updates.
+func (sci *SegmentCommitInfo) SetFieldInfosFiles(files map[string]struct{}) {
+	sci.mu.Lock()
+	defer sci.mu.Unlock()
+	sci.fieldInfosFiles = make(map[string]struct{}, len(files))
+	for k, v := range files {
+		sci.fieldInfosFiles[k] = v
+	}
+}
+
+// DocValuesUpdatesFiles returns the map of field numbers to sets of files for DocValues updates.
+func (sci *SegmentCommitInfo) DocValuesUpdatesFiles() map[int]map[string]struct{} {
+	sci.mu.RLock()
+	defer sci.mu.RUnlock()
+	copy := make(map[int]map[string]struct{}, len(sci.docValuesUpdatesFiles))
+	for k, v := range sci.docValuesUpdatesFiles {
+		innerCopy := make(map[string]struct{}, len(v))
+		for k2, v2 := range v {
+			innerCopy[k2] = v2
+		}
+		copy[k] = innerCopy
+	}
+	return copy
+}
+
+// SetDocValuesUpdatesFiles sets the map of field numbers to sets of files for DocValues updates.
+func (sci *SegmentCommitInfo) SetDocValuesUpdatesFiles(files map[int]map[string]struct{}) {
+	sci.mu.Lock()
+	defer sci.mu.Unlock()
+	sci.docValuesUpdatesFiles = make(map[int]map[string]struct{}, len(files))
+	for k, v := range files {
+		innerCopy := make(map[string]struct{}, len(v))
+		for k2, v2 := range v {
+			innerCopy[k2] = v2
+		}
+		sci.docValuesUpdatesFiles[k] = innerCopy
 	}
 }
 
@@ -230,17 +307,30 @@ func (sci *SegmentCommitInfo) Clone() *SegmentCommitInfo {
 	defer sci.mu.RUnlock()
 
 	clone := &SegmentCommitInfo{
-		segmentInfo:   sci.segmentInfo,
-		delCount:      sci.delCount,
-		softDelCount:  sci.softDelCount,
-		delGen:        sci.delGen,
-		fieldInfosGen: sci.fieldInfosGen,
-		docValuesGen:  sci.docValuesGen,
-		attributes:    make(map[string]string, len(sci.attributes)),
+		segmentInfo:           sci.segmentInfo,
+		delCount:              sci.delCount,
+		softDelCount:          sci.softDelCount,
+		delGen:                sci.delGen,
+		fieldInfosGen:         sci.fieldInfosGen,
+		docValuesGen:          sci.docValuesGen,
+		attributes:            make(map[string]string, len(sci.attributes)),
+		fieldInfosFiles:       make(map[string]struct{}, len(sci.fieldInfosFiles)),
+		docValuesUpdatesFiles: make(map[int]map[string]struct{}, len(sci.docValuesUpdatesFiles)),
+		id:                    append([]byte(nil), sci.id...),
 	}
 
 	for k, v := range sci.attributes {
 		clone.attributes[k] = v
+	}
+	for k, v := range sci.fieldInfosFiles {
+		clone.fieldInfosFiles[k] = v
+	}
+	for k, v := range sci.docValuesUpdatesFiles {
+		inner := make(map[string]struct{}, len(v))
+		for k2, v2 := range v {
+			inner[k2] = v2
+		}
+		clone.docValuesUpdatesFiles[k] = inner
 	}
 
 	return clone

@@ -375,11 +375,11 @@ func (m *mockMultiDocPostingsEnum) Freq() (int, error) {
 	return m.freqs[m.pos], nil
 }
 
-func (m *mockMultiDocPostingsEnum) NextPosition() (int, error) { return NO_MORE_POSITIONS, nil }
-func (m *mockMultiDocPostingsEnum) StartOffset() (int, error)  { return -1, nil }
-func (m *mockMultiDocPostingsEnum) EndOffset() (int, error)    { return -1, nil }
+func (m *mockMultiDocPostingsEnum) NextPosition() (int, error)  { return NO_MORE_POSITIONS, nil }
+func (m *mockMultiDocPostingsEnum) StartOffset() (int, error)   { return -1, nil }
+func (m *mockMultiDocPostingsEnum) EndOffset() (int, error)     { return -1, nil }
 func (m *mockMultiDocPostingsEnum) GetPayload() ([]byte, error) { return nil, nil }
-func (m *mockMultiDocPostingsEnum) Cost() int64                { return m.cost }
+func (m *mockMultiDocPostingsEnum) Cost() int64                 { return m.cost }
 
 func TestPostingsEnum_MultiDoc(t *testing.T) {
 	docs := []int{1, 3, 5, 7, 9}

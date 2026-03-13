@@ -13,353 +13,335 @@ import (
 
 // FieldInfosFormat handles encoding/decoding of field metadata.
 // This is the Go port of Lucene's org.apache.lucene.codecs.FieldInfosFormat.
-//
-// FieldInfos are stored in .fnm files and contain metadata about
-// all fields in the index, including their types, options, and attributes.
 type FieldInfosFormat interface {
 	// Name returns the name of this format.
 	Name() string
 
-	// Read reads field infos from the given directory and file name.
-	// Returns the FieldInfos or an error if reading fails.
-	Read(dir store.Directory, segmentInfo *index.SegmentInfo, segmentSuffix string) (*index.FieldInfos, error)
+	// Read reads field infos from the given directory and segment info.
+	Read(dir store.Directory, segmentInfo *index.SegmentInfo, segmentSuffix string, context store.IOContext) (*index.FieldInfos, error)
 
-	// Write writes field infos to the given output.
-	// Returns an error if writing fails.
-	Write(dir store.Directory, segmentInfo *index.SegmentInfo, segmentSuffix string, infos *index.FieldInfos) error
+	// Write writes field infos to the given directory.
+	Write(dir store.Directory, segmentInfo *index.SegmentInfo, segmentSuffix string, infos *index.FieldInfos, context store.IOContext) error
 }
 
-// BaseFieldInfosFormat provides common functionality.
-type BaseFieldInfosFormat struct {
-	name string
+// Lucene94FieldInfosFormat implements the Lucene 9.4 field infos format.
+type Lucene94FieldInfosFormat struct{}
+
+const (
+	fiCodecName            = "Lucene94FieldInfos"
+	fiFormatStart          = 0
+	fiFormatParentField    = 1
+	fiFormatDocValueSkipper = 2
+	fiFormatCurrent        = fiFormatDocValueSkipper
+
+	// Field flags
+	fiStoreTermvector    byte = 0x1
+	fiOmitNorms          byte = 0x2
+	fiStorePayloads      byte = 0x4
+	fiSoftDeletesField   byte = 0x8
+	fiParentFieldField   byte = 0x10
+	fiDocvaluesSkipper   byte = 0x20
+)
+
+func NewLucene94FieldInfosFormat() *Lucene94FieldInfosFormat {
+	return &Lucene94FieldInfosFormat{}
 }
 
-// NewBaseFieldInfosFormat creates a new BaseFieldInfosFormat.
-func NewBaseFieldInfosFormat(name string) *BaseFieldInfosFormat {
-	return &BaseFieldInfosFormat{name: name}
+func (f *Lucene94FieldInfosFormat) Name() string {
+	return "Lucene94FieldInfosFormat"
 }
 
-// Name returns the format name.
-func (f *BaseFieldInfosFormat) Name() string {
-	return f.name
-}
-
-// Read reads field infos (must be implemented by subclasses).
-func (f *BaseFieldInfosFormat) Read(dir store.Directory, segmentInfo *index.SegmentInfo, segmentSuffix string) (*index.FieldInfos, error) {
-	return nil, fmt.Errorf("Read not implemented")
-}
-
-// Write writes field infos (must be implemented by subclasses).
-func (f *BaseFieldInfosFormat) Write(dir store.Directory, segmentInfo *index.SegmentInfo, segmentSuffix string, infos *index.FieldInfos) error {
-	return fmt.Errorf("Write not implemented")
-}
-
-// Lucene104FieldInfosFormat is the Lucene 10.4 field infos format.
-//
-// File format:
-//   - Header: Lucene codec header with version
-//   - Number of fields (VInt)
-//   - For each field:
-//   - Field name (String)
-//   - Field number (VInt)
-//   - Index options (Byte)
-//   - DocValues type (Byte)
-//   - Bits: stored, tokenized, omitNorms, storeTermVectors,
-//     storeTermVectorPositions, storeTermVectorOffsets, storeTermVectorPayloads
-//   - Number of attributes (VInt)
-//   - For each attribute: key (String), value (String)
-//   - Footer: checksum
-type Lucene104FieldInfosFormat struct {
-	*BaseFieldInfosFormat
-}
-
-// NewLucene104FieldInfosFormat creates a new Lucene104FieldInfosFormat.
-func NewLucene104FieldInfosFormat() *Lucene104FieldInfosFormat {
-	return &Lucene104FieldInfosFormat{
-		BaseFieldInfosFormat: NewBaseFieldInfosFormat("Lucene104FieldInfosFormat"),
-	}
-}
-
-// Read reads field infos from the given directory.
-func (f *Lucene104FieldInfosFormat) Read(dir store.Directory, segmentInfo *index.SegmentInfo, segmentSuffix string) (*index.FieldInfos, error) {
-	fileName := f.getFileName(segmentInfo.Name(), segmentSuffix)
-
-	in, err := dir.OpenInput(fileName, store.IOContextRead)
+func (f *Lucene94FieldInfosFormat) Read(dir store.Directory, segmentInfo *index.SegmentInfo, segmentSuffix string, context store.IOContext) (*index.FieldInfos, error) {
+	fileName := GetSegmentFileName(segmentInfo.Name(), segmentSuffix, "fnm")
+	in, err := dir.OpenInput(fileName, context)
 	if err != nil {
-		return nil, fmt.Errorf("opening field infos file: %w", err)
-	}
-	defer in.Close()
-
-	// Read header
-	if err := f.readHeader(in); err != nil {
-		return nil, fmt.Errorf("reading header: %w", err)
+		return nil, err
 	}
 
-	// Read number of fields
-	numFields, err := store.ReadVInt(in)
+	checksumIn := store.NewChecksumIndexInput(in)
+	defer checksumIn.Close()
+
+	var infos *index.FieldInfos
+	format, err := CheckIndexHeader(checksumIn, fiCodecName, fiFormatStart, fiFormatCurrent, segmentInfo.GetID(), segmentSuffix)
 	if err != nil {
-		return nil, fmt.Errorf("reading number of fields: %w", err)
+		return nil, err
 	}
 
-	if numFields < 0 {
-		return nil, fmt.Errorf("invalid number of fields: %d", numFields)
+	size, err := store.ReadVInt(checksumIn)
+	if err != nil {
+		return nil, err
 	}
 
-	infos := index.NewFieldInfos()
-
-	for i := int32(0); i < numFields; i++ {
-		fieldInfo, err := f.readFieldInfo(in)
+	builder := index.NewFieldInfosBuilder()
+	for i := int32(0); i < size; i++ {
+		name, err := store.ReadString(checksumIn)
 		if err != nil {
-			return nil, fmt.Errorf("reading field info %d: %w", i, err)
+			return nil, err
 		}
-		if err := infos.Add(fieldInfo); err != nil {
-			return nil, fmt.Errorf("adding field info %d: %w", i, err)
+		fieldNumber, err := store.ReadVInt(checksumIn)
+		if err != nil {
+			return nil, err
 		}
+		if fieldNumber < 0 {
+			return nil, fmt.Errorf("invalid field number for field: %s, fieldNumber=%d", name, fieldNumber)
+		}
+
+		bits, err := checksumIn.ReadByte()
+		if err != nil {
+			return nil, err
+		}
+
+		storeTermVector := (bits & fiStoreTermvector) != 0
+		omitNorms := (bits & fiOmitNorms) != 0
+		storePayloads := (bits & fiStorePayloads) != 0
+		isSoftDeletesField := (bits & fiSoftDeletesField) != 0
+		isParentField := false
+		if format >= fiFormatParentField {
+			isParentField = (bits & fiParentFieldField) != 0
+		}
+
+		indexOptionsByte, err := checksumIn.ReadByte()
+		if err != nil {
+			return nil, err
+		}
+		indexOptions := index.IndexOptions(indexOptionsByte)
+
+		docValuesTypeByte, err := checksumIn.ReadByte()
+		if err != nil {
+			return nil, err
+		}
+		docValuesType := index.DocValuesType(docValuesTypeByte)
+
+		var docValuesSkipIndex index.DocValuesSkipIndexType
+		if format >= fiFormatDocValueSkipper {
+			skipByte, err := checksumIn.ReadByte()
+			if err != nil {
+				return nil, err
+			}
+			docValuesSkipIndex = index.DocValuesSkipIndexType(skipByte)
+		} else {
+			docValuesSkipIndex = index.DocValuesSkipIndexTypeNone
+		}
+
+		dvGen, err := store.ReadInt64(checksumIn)
+		if err != nil {
+			return nil, err
+		}
+
+		attributes, err := store.ReadMapOfStrings(checksumIn)
+		if err != nil {
+			return nil, err
+		}
+
+		pointDataDimensionCount, err := store.ReadVInt(checksumIn)
+		if err != nil {
+			return nil, err
+		}
+		var pointNumBytes int32
+		pointIndexDimensionCount := pointDataDimensionCount
+		if pointDataDimensionCount != 0 {
+			pointIndexDimensionCount, err = store.ReadVInt(checksumIn)
+			if err != nil {
+				return nil, err
+			}
+			pointNumBytes, err = store.ReadVInt(checksumIn)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		vectorDimension, err := store.ReadVInt(checksumIn)
+		if err != nil {
+			return nil, err
+		}
+		vectorEncodingByte, err := checksumIn.ReadByte()
+		if err != nil {
+			return nil, err
+		}
+		vectorEncoding := index.VectorEncoding(vectorEncodingByte)
+
+		vectorDistFuncByte, err := checksumIn.ReadByte()
+		if err != nil {
+			return nil, err
+		}
+		vectorDistFunc := index.VectorSimilarityFunction(vectorDistFuncByte)
+
+		opts := index.FieldInfoOptions{
+			IndexOptions:             indexOptions,
+			DocValuesType:            docValuesType,
+			DocValuesSkipIndexType:   docValuesSkipIndex,
+			DocValuesGen:             dvGen,
+			StoreTermVectors:         storeTermVector,
+			OmitNorms:                omitNorms,
+			StoreTermVectorPayloads:  storePayloads, // Payloads are stored with TV positions
+			PointDimensionCount:      int(pointDataDimensionCount),
+			PointIndexDimensionCount: int(pointIndexDimensionCount),
+			PointNumBytes:            int(pointNumBytes),
+			VectorDimension:          int(vectorDimension),
+			VectorEncoding:           vectorEncoding,
+			VectorSimilarityFunction: vectorDistFunc,
+			IsSoftDeletesField:       isSoftDeletesField,
+			IsParentField:            isParentField,
+		}
+
+		// Payloads in bits means the field has payloads in postings
+		// StoreTermVectorPayloads in FieldInfoOptions usually means payloads in TV.
+		// Lucene FieldInfo has hasPayloads() which is separate from storeTermVectorPayloads.
+		// Actually, let's check FieldInfo constructor in Java.
+
+		fib := index.NewFieldInfoBuilder(name, int(fieldNumber)).
+			SetIndexOptions(opts.IndexOptions).
+			SetDocValuesType(opts.DocValuesType).
+			SetDocValuesSkipIndexType(opts.DocValuesSkipIndexType).
+			SetDocValuesGen(opts.DocValuesGen).
+			SetStored(opts.Stored).
+			SetTokenized(opts.Tokenized).
+			SetOmitNorms(opts.OmitNorms).
+			SetStoreTermVectors(opts.StoreTermVectors).
+			SetStoreTermVectorPositions(opts.StoreTermVectorPositions).
+			SetStoreTermVectorOffsets(opts.StoreTermVectorOffsets).
+			SetStoreTermVectorPayloads(opts.StoreTermVectorPayloads).
+			SetPointDimensions(opts.PointDimensionCount, opts.PointIndexDimensionCount, opts.PointNumBytes).
+			SetVectorAttributes(opts.VectorDimension, opts.VectorEncoding, opts.VectorSimilarityFunction).
+			SetSoftDeletesField(opts.IsSoftDeletesField).
+			SetParentField(opts.IsParentField)
+
+		for k, v := range attributes {
+			fib.SetAttribute(k, v)
+		}
+		builder.Add(fib.Build())
 	}
 
-	// Read footer (checksum)
-	if err := f.readFooter(in); err != nil {
-		return nil, fmt.Errorf("reading footer: %w", err)
+	_, err = CheckFooter(checksumIn)
+	if err != nil {
+		return nil, err
 	}
 
-	infos.Freeze()
+	infos = builder.Build()
 	return infos, nil
 }
 
-// Write writes field infos to the given directory.
-func (f *Lucene104FieldInfosFormat) Write(dir store.Directory, segmentInfo *index.SegmentInfo, segmentSuffix string, infos *index.FieldInfos) error {
-	fileName := f.getFileName(segmentInfo.Name(), segmentSuffix)
-
-	out, err := dir.CreateOutput(fileName, store.IOContextWrite)
+func (f *Lucene94FieldInfosFormat) Write(dir store.Directory, segmentInfo *index.SegmentInfo, segmentSuffix string, infos *index.FieldInfos, context store.IOContext) error {
+	fileName := GetSegmentFileName(segmentInfo.Name(), segmentSuffix, "fnm")
+	out, err := dir.CreateOutput(fileName, context)
 	if err != nil {
-		return fmt.Errorf("creating field infos file: %w", err)
-	}
-	defer out.Close()
-
-	// Write header
-	if err := f.writeHeader(out); err != nil {
-		return fmt.Errorf("writing header: %w", err)
-	}
-
-	// Write number of fields
-	if err := store.WriteVInt(out, int32(infos.Size())); err != nil {
-		return fmt.Errorf("writing number of fields: %w", err)
-	}
-
-	// Write each field info
-	iter := infos.Iterator()
-	for fieldInfo := iter.Next(); fieldInfo != nil; fieldInfo = iter.Next() {
-		if err := f.writeFieldInfo(out, fieldInfo); err != nil {
-			return fmt.Errorf("writing field info: %w", err)
-		}
-	}
-
-	// Write footer
-	if err := f.writeFooter(out); err != nil {
-		return fmt.Errorf("writing footer: %w", err)
-	}
-
-	return nil
-}
-
-// readHeader reads the file header.
-func (f *Lucene104FieldInfosFormat) readHeader(in store.IndexInput) error {
-	// Read magic number
-	magic, err := store.ReadUint32(in)
-	if err != nil {
-		return fmt.Errorf("reading magic: %w", err)
-	}
-	if magic != 0x3163614c { // 'Lac1' in little endian
-		return fmt.Errorf("invalid magic number: %x", magic)
-	}
-
-	// Read version
-	version, err := store.ReadUint32(in)
-	if err != nil {
-		return fmt.Errorf("reading version: %w", err)
-	}
-	if version != 0 {
-		return fmt.Errorf("unsupported version: %d", version)
-	}
-
-	return nil
-}
-
-// writeHeader writes the file header.
-func (f *Lucene104FieldInfosFormat) writeHeader(out store.IndexOutput) error {
-	// Write magic number 'Lac1'
-	if err := store.WriteUint32(out, 0x3163614c); err != nil {
 		return err
 	}
-	// Write version
-	return store.WriteUint32(out, 0)
-}
 
-// readFooter reads the file footer (checksum).
-func (f *Lucene104FieldInfosFormat) readFooter(in store.IndexInput) error {
-	// For now, just read and ignore checksum
-	// In a full implementation, we would verify the checksum
-	_, err := store.ReadUint32(in)
+	checksumOut := store.NewChecksumIndexOutput(out)
+	defer checksumOut.Close()
+
+	err = WriteIndexHeader(checksumOut, fiCodecName, fiFormatCurrent, segmentInfo.GetID(), segmentSuffix)
 	if err != nil {
-		return fmt.Errorf("reading checksum: %w", err)
+		return err
 	}
-	return nil
-}
 
-// writeFooter writes the file footer (checksum).
-func (f *Lucene104FieldInfosFormat) writeFooter(out store.IndexOutput) error {
-	// For now, just write a dummy checksum
-	// In a full implementation, we would compute a real checksum
-	return store.WriteUint32(out, 0)
-}
-
-// readFieldInfo reads a single field info.
-func (f *Lucene104FieldInfosFormat) readFieldInfo(in store.IndexInput) (*index.FieldInfo, error) {
-	// Read field name
-	name, err := store.ReadString(in)
+	err = store.WriteVInt(checksumOut, int32(infos.Size()))
 	if err != nil {
-		return nil, fmt.Errorf("reading field name: %w", err)
+		return err
 	}
 
-	// Read field number
-	number, err := store.ReadVInt(in)
-	if err != nil {
-		return nil, fmt.Errorf("reading field number: %w", err)
-	}
-
-	// Read index options
-	indexOptionsByte, err := in.ReadByte()
-	if err != nil {
-		return nil, fmt.Errorf("reading index options: %w", err)
-	}
-	indexOptions := index.IndexOptions(indexOptionsByte)
-
-	// Read doc values type
-	docValuesTypeByte, err := in.ReadByte()
-	if err != nil {
-		return nil, fmt.Errorf("reading doc values type: %w", err)
-	}
-	docValuesType := index.DocValuesType(docValuesTypeByte)
-
-	// Read bits
-	bits, err := in.ReadByte()
-	if err != nil {
-		return nil, fmt.Errorf("reading bits: %w", err)
-	}
-
-	stored := (bits & 0x01) != 0
-	tokenized := (bits & 0x02) != 0
-	omitNorms := (bits & 0x04) != 0
-	storeTermVectors := (bits & 0x08) != 0
-	storeTermVectorPositions := (bits & 0x10) != 0
-	storeTermVectorOffsets := (bits & 0x20) != 0
-	storeTermVectorPayloads := (bits & 0x40) != 0
-
-	opts := index.FieldInfoOptions{
-		IndexOptions:             indexOptions,
-		DocValuesType:            docValuesType,
-		Stored:                   stored,
-		Tokenized:                tokenized,
-		OmitNorms:                omitNorms,
-		StoreTermVectors:         storeTermVectors,
-		StoreTermVectorPositions: storeTermVectorPositions,
-		StoreTermVectorOffsets:   storeTermVectorOffsets,
-		StoreTermVectorPayloads:  storeTermVectorPayloads,
-	}
-
-	fieldInfo := index.NewFieldInfo(name, int(number), opts)
-
-	// Read attributes
-	numAttrs, err := store.ReadVInt(in)
-	if err != nil {
-		return nil, fmt.Errorf("reading number of attributes: %w", err)
-	}
-
-	for i := int32(0); i < numAttrs; i++ {
-		key, err := store.ReadString(in)
+	iter := infos.Iterator()
+	for iter.HasNext() {
+		fi := iter.Next()
+		err = store.WriteString(checksumOut, fi.Name())
 		if err != nil {
-			return nil, fmt.Errorf("reading attribute key: %w", err)
+			return err
 		}
-		value, err := store.ReadString(in)
+		err = store.WriteVInt(checksumOut, int32(fi.Number()))
 		if err != nil {
-			return nil, fmt.Errorf("reading attribute value: %w", err)
+			return err
 		}
-		fieldInfo.PutAttribute(key, value)
+
+		var bits byte
+		if fi.StoreTermVectors() {
+			bits |= fiStoreTermvector
+		}
+		if fi.OmitNorms() {
+			bits |= fiOmitNorms
+		}
+		if fi.HasPayloads() {
+			bits |= fiStorePayloads
+		}
+		if fi.IsSoftDeletesField() {
+			bits |= fiSoftDeletesField
+		}
+		if fi.IsParentField() {
+			bits |= fiParentFieldField
+		}
+		err = checksumOut.WriteByte(bits)
+		if err != nil {
+			return err
+		}
+
+		err = checksumOut.WriteByte(byte(fi.IndexOptions()))
+		if err != nil {
+			return err
+		}
+
+		err = checksumOut.WriteByte(byte(fi.DocValuesType()))
+		if err != nil {
+			return err
+		}
+
+		err = checksumOut.WriteByte(byte(fi.DocValuesSkipIndexType()))
+		if err != nil {
+			return err
+		}
+
+		err = store.WriteInt64(checksumOut, fi.DocValuesGen())
+		if err != nil {
+			return err
+		}
+
+		err = store.WriteMapOfStrings(checksumOut, fi.GetAttributes())
+		if err != nil {
+			return err
+		}
+
+		err = store.WriteVInt(checksumOut, int32(fi.PointDimensionCount()))
+		if err != nil {
+			return err
+		}
+		if fi.PointDimensionCount() != 0 {
+			err = store.WriteVInt(checksumOut, int32(fi.PointIndexDimensionCount()))
+			if err != nil {
+				return err
+			}
+			err = store.WriteVInt(checksumOut, int32(fi.PointNumBytes()))
+			if err != nil {
+				return err
+			}
+		}
+
+		err = store.WriteVInt(checksumOut, int32(fi.VectorDimension()))
+		if err != nil {
+			return err
+		}
+		err = checksumOut.WriteByte(byte(fi.VectorEncoding()))
+		if err != nil {
+			return err
+		}
+		err = checksumOut.WriteByte(byte(fi.VectorSimilarityFunction()))
+		if err != nil {
+			return err
+		}
 	}
 
-	return fieldInfo, nil
+	return WriteFooter(checksumOut)
 }
 
-// writeFieldInfo writes a single field info.
-func (f *Lucene104FieldInfosFormat) writeFieldInfo(out store.IndexOutput, fieldInfo *index.FieldInfo) error {
-	// Write field name
-	if err := store.WriteString(out, fieldInfo.Name()); err != nil {
-		return fmt.Errorf("writing field name: %w", err)
-	}
-
-	// Write field number
-	if err := store.WriteVInt(out, int32(fieldInfo.Number())); err != nil {
-		return fmt.Errorf("writing field number: %w", err)
-	}
-
-	// Write index options
-	if err := out.WriteByte(byte(fieldInfo.IndexOptions())); err != nil {
-		return fmt.Errorf("writing index options: %w", err)
-	}
-
-	// Write doc values type
-	if err := out.WriteByte(byte(fieldInfo.DocValuesType())); err != nil {
-		return fmt.Errorf("writing doc values type: %w", err)
-	}
-
-	// Write bits
-	var bits byte
-	if fieldInfo.IsStored() {
-		bits |= 0x01
-	}
-	if fieldInfo.IsTokenized() {
-		bits |= 0x02
-	}
-	if fieldInfo.OmitNorms() {
-		bits |= 0x04
-	}
-	if fieldInfo.StoreTermVectors() {
-		bits |= 0x08
-	}
-	if fieldInfo.StoreTermVectorPositions() {
-		bits |= 0x10
-	}
-	if fieldInfo.StoreTermVectorOffsets() {
-		bits |= 0x20
-	}
-	if fieldInfo.StoreTermVectorPayloads() {
-		bits |= 0x40
-	}
-	if err := out.WriteByte(bits); err != nil {
-		return fmt.Errorf("writing bits: %w", err)
-	}
-
-	// Write attributes
-	attrs := fieldInfo.GetAttributes()
-	if err := store.WriteVInt(out, int32(len(attrs))); err != nil {
-		return fmt.Errorf("writing number of attributes: %w", err)
-	}
-	for key, value := range attrs {
-		if err := store.WriteString(out, key); err != nil {
-			return fmt.Errorf("writing attribute key: %w", err)
-		}
-		if err := store.WriteString(out, value); err != nil {
-			return fmt.Errorf("writing attribute value: %w", err)
-		}
-	}
-
-	return nil
+// Lucene104FieldInfosFormat is a wrapper for Lucene94FieldInfosFormat
+type Lucene104FieldInfosFormat struct {
+	*Lucene94FieldInfosFormat
 }
 
-// getFileName returns the field infos file name.
-func (f *Lucene104FieldInfosFormat) getFileName(segmentName, segmentSuffix string) string {
-	if segmentSuffix != "" {
-		return fmt.Sprintf("_%s_%s.fnm", segmentName[1:], segmentSuffix)
+func NewLucene104FieldInfosFormat() *Lucene104FieldInfosFormat {
+	return &Lucene104FieldInfosFormat{
+		Lucene94FieldInfosFormat: NewLucene94FieldInfosFormat(),
 	}
-	return fmt.Sprintf("_%s.fnm", segmentName[1:])
+}
+
+func (f *Lucene104FieldInfosFormat) Name() string {
+	return "Lucene104FieldInfosFormat"
 }

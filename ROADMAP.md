@@ -26,9 +26,9 @@ Tasks for porting Apache Lucene test suite to ensure byte-level compatibility.
 | GC-128 | MEDIUM | MEDIUM | Search Tests - Similarity Implementations | lucene-test-analyzer, go-elite-developer | Port TestBM25Similarity comprehensive, TestSimilarityProvider, TestBooleanSimilarity. Test scoring algorithms, provider patterns. Files: search/similarity_test.go, search/bm25_similarity_test.go |
 | GC-129 | MEDIUM | MEDIUM | Search Tests - DocValues Queries | lucene-test-analyzer, go-elite-developer | Port TestDocValuesQueries. Test queries against DocValues fields (range, exists, sorting). Files: search/field_exists_query_test.go, search/range_query_test.go |
 | GC-130 | MEDIUM | MEDIUM | Search Tests - Query Rewriting and Combining | lucene-test-analyzer, go-elite-developer | Port TestMultiTermQueryRewrites, TestSynonymQuery, TestCombinedFieldQuery. Test query normalization, rewriting, combined scoring. Files: search/query_test.go |
-| GC-135 | HIGH | HIGH | Codecs Tests - Codec Utilities | lucene-test-analyzer, go-elite-developer | Port TestCodecUtil. Test codec header/footer, checksum validation, version checking. Files: codecs/codec_util_test.go |
-| GC-136 | HIGH | HIGH | Codecs Tests - FieldInfos Format | lucene-test-analyzer, go-elite-developer | Port TestFieldInfosFormat. Test field info serialization, format compatibility. Files: codecs/field_infos_format_test.go |
-| GC-137 | HIGH | HIGH | Codecs Tests - SegmentInfo Format | lucene-test-analyzer, go-elite-developer | Port TestSegmentInfoFormat. Test segment metadata serialization, version handling. Files: codecs/segment_info_format_test.go |
+| GC-135 | HIGH | HIGH | Codecs Tests - Codec Utilities | COMPLETED | lucene-test-analyzer, go-elite-developer | 2026-03-13 | Ported TestCodecUtil. Tested codec header/footer, checksum validation, and version checking. Files: codecs/codec_util_test.go |
+| GC-136 | HIGH | HIGH | Codecs Tests - FieldInfos Format | COMPLETED | lucene-test-analyzer, go-elite-developer | 2026-03-13 | Ported TestFieldInfosFormat. Tested field info serialization, format compatibility for Lucene 9.4. Files: codecs/field_infos_format_test.go |
+| GC-137 | HIGH | HIGH | Codecs Tests - SegmentInfo Format | COMPLETED | lucene-test-analyzer, go-elite-developer | 2026-03-13 | Ported TestSegmentInfoFormat. Tested segment metadata serialization, version handling for singular .si and plural segments_N files. Files: codecs/segment_info_format_test.go |
 | GC-138 | HIGH | HIGH | Codecs Tests - Postings Format | lucene-test-analyzer, go-elite-developer | Port TestPostingsFormat. Test postings list encoding/decoding, skip lists, term frequencies. Files: codecs/postings_format_test.go |
 | GC-139 | MEDIUM | HIGH | Codecs Tests - Stored Fields Format | lucene-test-analyzer, go-elite-developer | Port TestStoredFieldsFormat. Test stored document serialization, compression, field retrieval. Files: codecs/stored_fields_format_test.go |
 | GC-140 | MEDIUM | MEDIUM | Codecs Tests - Lucene99 Format Variants | lucene-test-analyzer, go-elite-developer | Port TestLucene99*Format variants. Test specific Lucene 9.9 format implementations. Files: codecs/lucene99_codec_test.go |
@@ -135,14 +135,14 @@ Tasks for porting Apache Lucene test suite to ensure byte-level compatibility.
 ---
 
 #### Phase 16.5: Codecs Tests
-| Task ID | Task Name | Specialists | SEVERITY | PRIORITY |
-|:--------|:----------|:------------|:---------|:---------|
-| GC-135 | Codecs Tests - Codec Utilities | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
-| GC-136 | Codecs Tests - FieldInfos Format | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
-| GC-137 | Codecs Tests - SegmentInfo Format | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
-| GC-138 | Codecs Tests - Postings Format | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
-| GC-139 | Codecs Tests - Stored Fields Format | lucene-test-analyzer, go-elite-developer | MEDIUM | HIGH |
-| GC-140 | Codecs Tests - Lucene99 Format Variants | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+| Task ID | Task Name | Status | Specialists | SEVERITY | PRIORITY |
+|:--------|:----------|:-------|:------------|:---------|:---------|
+| GC-135 | Codecs Tests - Codec Utilities | COMPLETED | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-136 | Codecs Tests - FieldInfos Format | COMPLETED | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-137 | Codecs Tests - SegmentInfo Format | COMPLETED | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-138 | Codecs Tests - Postings Format | PENDING | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-139 | Codecs Tests - Stored Fields Format | PENDING | lucene-test-analyzer, go-elite-developer | MEDIUM | HIGH |
+| GC-140 | Codecs Tests - Lucene99 Format Variants | PENDING | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
 
 **Dependencies:** Phase 6 (Codec System)
 
