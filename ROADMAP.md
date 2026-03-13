@@ -33,7 +33,7 @@ Tasks for porting Apache Lucene test suite to ensure byte-level compatibility.
 | GC-139 | MEDIUM | HIGH | Codecs Tests - Stored Fields Format | lucene-test-analyzer, go-elite-developer | Port TestStoredFieldsFormat. Test stored document serialization, compression, field retrieval. Files: codecs/stored_fields_format_test.go |
 | GC-140 | MEDIUM | MEDIUM | Codecs Tests - Lucene99 Format Variants | lucene-test-analyzer, go-elite-developer | Port TestLucene99*Format variants. Test specific Lucene 9.9 format implementations. Files: codecs/lucene99_codec_test.go |
 | GC-141 | MEDIUM | MEDIUM | Document Tests - Numeric Range Fields | lucene-test-analyzer, go-elite-developer | Port TestFloatRange, TestDoubleRange, TestIntRange. Test range field encoding, point values. Files: document/numeric_fields_test.go |
-| GC-142 | LOW | LOW | Document Tests - Spatial and Feature Fields | lucene-test-analyzer, go-elite-developer | Port TestLatLonPoint*, TestXYPoint*, TestFeatureField. Test spatial indexing (if implemented). Skip if spatial features not yet in scope. |
+| GC-142 | LOW | LOW | Document Tests - Spatial and Feature Fields | COMPLETED | lucene-test-analyzer, go-elite-developer | 2026-03-13 | Ported TestLatLonPoint, TestXYPoint, and TestFeatureField placeholders. Verified current tests skip correctly. Files: document/spatial_fields_test.go |
 | GC-143 | MEDIUM | MEDIUM | Integration Tests - Dueling Codecs | lucene-test-analyzer, go-elite-developer | Port TestDuelingCodecs. Cross-validate codec implementations produce identical results. Test interop between different codec versions. Files: index/index_integration_test.go |
 
 ---
