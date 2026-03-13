@@ -22,8 +22,11 @@ func TestNewSegmentInfos(t *testing.T) {
 	if sis.LastGeneration() != 0 {
 		t.Errorf("Expected lastGeneration=0, got %d", sis.LastGeneration())
 	}
-	if sis.Version() != "10.0.0" {
-		t.Errorf("Expected version='10.0.0', got '%s'", sis.Version())
+	if sis.Version() != 0 {
+		t.Errorf("Expected version=0, got %d", sis.Version())
+	}
+	if sis.LuceneVersion() != "10.0.0" {
+		t.Errorf("Expected luceneVersion='10.0.0', got '%s'", sis.LuceneVersion())
 	}
 	if sis.Counter() != 0 {
 		t.Errorf("Expected counter=0, got %d", sis.Counter())

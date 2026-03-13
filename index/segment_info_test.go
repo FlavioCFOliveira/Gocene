@@ -217,8 +217,12 @@ func TestSegmentInfo_IndexSort(t *testing.T) {
 func TestSegmentInfo_ID(t *testing.T) {
 	si := NewSegmentInfo("_5", 100, nil)
 
-	if si.GetID() != "_5" {
-		t.Errorf("Expected ID '_5', got '%s'", si.GetID())
+	id := make([]byte, 16)
+	copy(id, []byte("_5"))
+	si.SetID(id)
+
+	if string(si.GetID()[:2]) != "_5" {
+		t.Errorf("Expected ID starting with '_5', got '%s'", string(si.GetID()))
 	}
 }
 

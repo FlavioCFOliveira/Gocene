@@ -410,7 +410,7 @@ func (si *SegmentInfos) String() string {
 	si.mu.RLock()
 	defer si.mu.RUnlock()
 
-	return fmt.Sprintf("SegmentInfos(segments=%d, generation=%d, version=%s, docs=%d)",
+	return fmt.Sprintf("SegmentInfos(segments=%d, generation=%d, version=%d, docs=%d)",
 		len(si.segments), si.generation, si.version, si.segments.TotalNumDocs())
 }
 
