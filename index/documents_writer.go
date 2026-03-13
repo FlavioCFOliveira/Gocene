@@ -5,6 +5,7 @@
 package index
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
@@ -24,6 +25,9 @@ type DocumentsWriter struct {
 	// analyzer is the analyzer for text processing
 	analyzer analysis.Analyzer
 
+	// codec is the codec for encoding/decoding index data
+	codec Codec
+
 	// config is the IndexWriter configuration
 	config *IndexWriterConfig
 
@@ -33,17 +37,26 @@ type DocumentsWriter struct {
 	// perThreadPool manages per-thread writers
 	perThreadPool []*DocumentsWriterPerThread
 
-	// numDocsInRAM tracks documents in memory
+	// threadLock protects perThreadPool access
+	threadLock sync.RWMutex
+
+	// numDocsInRAM tracks documents in memory across all threads
 	numDocsInRAM int
 
-	// numDocs tracks total documents
+	// numDocs tracks total documents processed
 	numDocs int
+
+	// bytesUsed tracks memory usage
+	bytesUsed int64
 
 	// closed indicates if the writer is closed
 	closed bool
 
 	// mu protects mutable fields
 	mu sync.RWMutex
+
+	// segmentNameCounter is used to generate segment names
+	segmentNameCounter int64
 }
 
 // FlushPolicy controls when to flush documents to disk.
@@ -80,35 +93,28 @@ func (p *DefaultFlushPolicy) ShouldFlush(numDocs int, ramUsed int64) bool {
 	return false
 }
 
-// DocumentsWriterPerThread handles document processing for a single thread.
-type DocumentsWriterPerThread struct {
-	// indexWriter is the parent DocumentsWriter
-	indexWriter *DocumentsWriter
-
-	// segmentInfo holds segment information
-	segmentInfo *SegmentInfo
-
-	// fieldInfos holds field information
-	fieldInfos *FieldInfos
-
-	// numDocs tracks documents processed
-	numDocs int
-}
-
 // NewDocumentsWriter creates a new DocumentsWriter.
 func NewDocumentsWriter(directory store.Directory, config *IndexWriterConfig) (*DocumentsWriter, error) {
 	dw := &DocumentsWriter{
-		directory:     directory,
-		analyzer:      config.analyzer,
-		config:        config,
-		perThreadPool: make([]*DocumentsWriterPerThread, 0),
-		flushPolicy:   NewDefaultFlushPolicy(config.maxBufferedDocs, config.ramBufferSizeMB),
+		directory:         directory,
+		analyzer:          config.analyzer,
+		config:            config,
+		perThreadPool:     make([]*DocumentsWriterPerThread, 0),
+		flushPolicy:       NewDefaultFlushPolicy(config.maxBufferedDocs, config.ramBufferSizeMB),
+		segmentNameCounter: 0,
 	}
 
 	return dw, nil
 }
 
-// UpdateDocument updates a document.
+// SetCodec sets the codec for this writer.
+func (dw *DocumentsWriter) SetCodec(codec Codec) {
+	dw.mu.Lock()
+	defer dw.mu.Unlock()
+	dw.codec = codec
+}
+
+// UpdateDocument updates a document (adds a new document, optionally deleting an old one).
 func (dw *DocumentsWriter) UpdateDocument(doc Document, analyzer analysis.Analyzer, term *Term) error {
 	dw.mu.Lock()
 	defer dw.mu.Unlock()
@@ -116,16 +122,57 @@ func (dw *DocumentsWriter) UpdateDocument(doc Document, analyzer analysis.Analyz
 	// Get a per-thread writer
 	dwpt := dw.getPerThreadWriter()
 
+	// Use the provided analyzer or the default one
+	if analyzer == nil {
+		analyzer = dw.analyzer
+	}
+
 	// Process the document
-	if err := dwpt.processDocument(doc); err != nil {
+	if err := dwpt.ProcessDocument(doc); err != nil {
 		return err
 	}
 
 	dw.numDocsInRAM++
 	dw.numDocs++
 
+	// Update memory tracking
+	dw.bytesUsed += dwpt.GetBytesUsed()
+
 	// Check if flush is needed
-	if dw.flushPolicy.ShouldFlush(dw.numDocsInRAM, dw.ramUsed()) {
+	if dw.flushPolicy.ShouldFlush(dw.numDocsInRAM, dw.bytesUsed) {
+		return dw.flush()
+	}
+
+	return nil
+}
+
+// AddDocument adds a document to the index.
+// This is equivalent to UpdateDocument with term=nil.
+func (dw *DocumentsWriter) AddDocument(doc Document, analyzer analysis.Analyzer) error {
+	dw.mu.Lock()
+	defer dw.mu.Unlock()
+
+	// Get a per-thread writer
+	dwpt := dw.getPerThreadWriter()
+
+	// Use the provided analyzer or the default one
+	if analyzer == nil {
+		analyzer = dw.analyzer
+	}
+
+	// Process the document
+	if err := dwpt.ProcessDocument(doc); err != nil {
+		return err
+	}
+
+	dw.numDocsInRAM++
+	dw.numDocs++
+
+	// Update memory tracking
+	dw.bytesUsed += dwpt.GetBytesUsed()
+
+	// Check if flush is needed
+	if dw.flushPolicy.ShouldFlush(dw.numDocsInRAM, dw.bytesUsed) {
 		return dw.flush()
 	}
 
@@ -143,28 +190,101 @@ func (dw *DocumentsWriter) UpdateDocuments(docs []Document, analyzer analysis.An
 }
 
 // getPerThreadWriter returns a per-thread writer.
+// This method should be called with the lock held.
 func (dw *DocumentsWriter) getPerThreadWriter() *DocumentsWriterPerThread {
+	dw.threadLock.Lock()
+	defer dw.threadLock.Unlock()
+
 	// For now, create a new one each time
-	// In production, this would use thread-local storage
-	dwpt := &DocumentsWriterPerThread{
-		indexWriter: dw,
-		fieldInfos:  NewFieldInfos(),
-	}
+	// In production, this would use thread-local storage or a pool
+	dwpt := NewDocumentsWriterPerThread(dw)
 	dw.perThreadPool = append(dw.perThreadPool, dwpt)
 	return dwpt
 }
 
 // ramUsed returns the estimated RAM usage in bytes.
 func (dw *DocumentsWriter) ramUsed() int64 {
-	// Simplified estimation
-	return int64(dw.numDocsInRAM * 1024) // Estimate 1KB per document
+	dw.mu.RLock()
+	defer dw.mu.RUnlock()
+	return dw.bytesUsed
 }
 
 // flush flushes documents to disk.
+// This method should be called with the lock held.
 func (dw *DocumentsWriter) flush() error {
-	// TODO: Implement flush to disk
+	if dw.numDocsInRAM == 0 {
+		return nil // Nothing to flush
+	}
+
+	if dw.codec == nil {
+		// No codec set, cannot flush
+		dw.numDocsInRAM = 0
+		return nil
+	}
+
+	// Generate a new segment name
+	segmentName := dw.nextSegmentName()
+
+	// Get all per-thread writers
+	dw.threadLock.RLock()
+	dwpts := make([]*DocumentsWriterPerThread, len(dw.perThreadPool))
+	copy(dwpts, dw.perThreadPool)
+	dw.threadLock.RUnlock()
+
+	// Flush each DWPT and collect segment infos
+	var segments []*SegmentInfo
+	var totalDocsFlushed int
+
+	for _, dwpt := range dwpts {
+		if dwpt.GetNumDocs() == 0 {
+			continue // Nothing to flush in this DWPT
+		}
+
+		// Flush the DWPT
+		segmentInfo, err := dwpt.Flush(dw.directory, dw.codec, segmentName)
+		if err != nil {
+			return fmt.Errorf("failed to flush segment %s: %w", segmentName, err)
+		}
+
+		if segmentInfo != nil {
+			segments = append(segments, segmentInfo)
+			totalDocsFlushed += segmentInfo.DocCount()
+
+			// Generate next segment name for subsequent segments
+			segmentName = dw.nextSegmentName()
+		}
+	}
+
+	// Create segment commit infos for the flushed segments
+	for _, si := range segments {
+		// Write segment info to directory
+		if err := WriteSegmentInfo(si, dw.directory); err != nil {
+			return fmt.Errorf("failed to write segment info: %w", err)
+		}
+	}
+
+	// Reset counters
 	dw.numDocsInRAM = 0
+	dw.bytesUsed = 0
+
+	// Reset all DWPTs
+	for _, dwpt := range dwpts {
+		dwpt.Reset()
+	}
+
 	return nil
+}
+
+// Flush explicitly flushes all pending documents to disk.
+func (dw *DocumentsWriter) Flush() error {
+	dw.mu.Lock()
+	defer dw.mu.Unlock()
+
+	if dw.closed {
+		return fmt.Errorf("DocumentsWriter is closed")
+	}
+
+	return dw.flush()
 }
 
 // Close closes the DocumentsWriter.
@@ -199,9 +319,50 @@ func (dw *DocumentsWriter) GetNumDocsInRAM() int {
 	return dw.numDocsInRAM
 }
 
-// processDocument processes a single document.
-func (dwpt *DocumentsWriterPerThread) processDocument(doc Document) error {
-	dwpt.numDocs++
-	// TODO: Implement actual document processing
+// nextSegmentName generates the next segment name.
+func (dw *DocumentsWriter) nextSegmentName() string {
+	dw.mu.Lock()
+	defer dw.mu.Unlock()
+
+	name := fmt.Sprintf("_%d", dw.segmentNameCounter)
+	dw.segmentNameCounter++
+	return name
+}
+
+// WriteSegmentInfo writes a SegmentInfo to the directory.
+func WriteSegmentInfo(si *SegmentInfo, dir store.Directory) error {
+	// Create segment info file
+	fileName := si.Name() + ".si"
+	out, err := dir.CreateOutput(fileName, store.IOContextWrite)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	// Write header
+	if err := store.WriteInt32(out, 0x3d767); err != nil { // Magic number
+		return err
+	}
+
+	// Write segment info
+	if err := store.WriteString(out, si.Name()); err != nil {
+		return err
+	}
+	if err := store.WriteInt32(out, int32(si.DocCount())); err != nil {
+		return err
+	}
+
+	// Write codec name
+	if err := store.WriteString(out, si.Codec()); err != nil {
+		return err
+	}
+
+	// Write ID
+	id := si.GetID()
+	if err := out.WriteBytes(id); err != nil {
+		return err
+	}
+
 	return nil
 }
+
