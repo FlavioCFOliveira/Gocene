@@ -109,7 +109,7 @@ type interestingTermHeap []*interestingTerm
 
 func (h interestingTermHeap) Len() int           { return len(h) }
 func (h interestingTermHeap) Less(i, j int) bool { return h[i].score < h[j].score }
-func (h interestingTermHeap) Swap(i, j int)    { h[i], h[j] = h[j], h[i] }
+func (h interestingTermHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
 
 func (h *interestingTermHeap) Push(x interface{}) {
 	*h = append(*h, x.(*interestingTerm))

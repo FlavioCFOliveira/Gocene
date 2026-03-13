@@ -11,9 +11,9 @@ import (
 
 // TermCacheEntry represents a cached term with its associated data.
 type TermCacheEntry struct {
-	Term      *Term
-	TermStats *TermStats
-	DocFreq   int64
+	Term          *Term
+	TermStats     *TermStats
+	DocFreq       int64
 	TotalTermFreq int64
 }
 
@@ -57,18 +57,16 @@ func (c *TermCache) Get(term *Term) (*TermCacheEntry, bool) {
 		return nil, false
 	}
 
-	c.mu.RLock()
-	elem, found := c.items[term.String()]
-	c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
+	elem, found := c.items[term.String()]
 	if !found {
 		return nil, false
 	}
 
 	// Move to front (most recently used)
-	c.mu.Lock()
 	c.order.MoveToFront(elem)
-	c.mu.Unlock()
 
 	return elem.Value.(*termCacheNode).entry, true
 }

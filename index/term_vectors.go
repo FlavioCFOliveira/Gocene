@@ -12,12 +12,12 @@ import (
 // TermVector represents the term vector for a single field in a document.
 // It contains all terms, their frequencies, and positions in the field.
 type TermVector struct {
-	Field          string
-	Terms          []string
-	TermFreqs      []int
-	Positions      [][]int
-	StartOffsets   [][]int
-	EndOffsets     [][]int
+	Field        string
+	Terms        []string
+	TermFreqs    []int
+	Positions    [][]int
+	StartOffsets [][]int
+	EndOffsets   [][]int
 }
 
 // NewTermVector creates a new TermVector for the given field.
@@ -227,9 +227,9 @@ type TermVectorsMetadata struct {
 // TermFreqVector represents a simple term-frequency vector.
 // This is a simplified version for basic use cases.
 type TermFreqVector struct {
-	Field  string
-	Terms  []string
-	Freqs  []int
+	Field string
+	Terms []string
+	Freqs []int
 }
 
 // NewTermFreqVector creates a new TermFreqVector.

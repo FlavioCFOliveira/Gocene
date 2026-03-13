@@ -134,10 +134,10 @@ func TestWhitespaceAnalyzer_UnicodeWhitespace(t *testing.T) {
 		input    string
 		expected []string
 	}{
-		{"Hello\tWorld", []string{"Hello", "World"}},         // Tab
-		{"Hello\nWorld", []string{"Hello", "World"}},         // Newline
-		{"Hello\r\nWorld", []string{"Hello", "World"}},      // Carriage return + newline
-		{"Hello\u00A0World", []string{"Hello", "World"}},    // Non-breaking space
+		{"Hello\tWorld", []string{"Hello", "World"}},     // Tab
+		{"Hello\nWorld", []string{"Hello", "World"}},     // Newline
+		{"Hello\r\nWorld", []string{"Hello", "World"}},   // Carriage return + newline
+		{"Hello\u00A0World", []string{"Hello", "World"}}, // Non-breaking space
 	}
 
 	for _, tt := range tests {

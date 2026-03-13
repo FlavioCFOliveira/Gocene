@@ -122,7 +122,6 @@ func TestBaseDirectory(t *testing.T) {
 	}
 }
 
-
 // TestFilterDirectory tests the FilterDirectory wrapper implementation.
 // Ported from: org.apache.lucene.store.TestFilterDirectory
 func TestFilterDirectory(t *testing.T) {
@@ -691,7 +690,6 @@ func TestDirectoryNotDirectory(t *testing.T) {
 		t.Error("NewSimpleFSDirectory() should fail when path is a file")
 	}
 }
-
 
 // TestDirectoryClosed tests operations on closed directories.
 func TestDirectoryClosed(t *testing.T) {

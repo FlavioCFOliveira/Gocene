@@ -13,12 +13,12 @@ import (
 // This is the Lucene implementation of a BKD tree for efficient range queries
 // on numeric and multi-dimensional data.
 type BKDTree struct {
-	numDims     int       // Number of dimensions
-	bytesPerDim int       // Bytes per dimension
+	numDims             int // Number of dimensions
+	bytesPerDim         int // Bytes per dimension
 	maxPointsInLeafNode int
-	minPackedValue []byte // Min value per dimension
-	maxPackedValue []byte // Max value per dimension
-	pointCount  int
+	minPackedValue      []byte // Min value per dimension
+	maxPackedValue      []byte // Max value per dimension
+	pointCount          int
 }
 
 // NewBKDTree creates a new BKDTree with the specified dimensions.
@@ -123,7 +123,7 @@ func decodeDimension(buf []byte, bytesPerDim int) int64 {
 	// Sign extension for negative numbers (two's complement)
 	if bytesPerDim < 8 {
 		signBit := int64(1) << ((bytesPerDim * 8) - 1)
-		if value & signBit != 0 {
+		if value&signBit != 0 {
 			value |= ^((int64(1) << (bytesPerDim * 8)) - 1)
 		}
 	}
@@ -211,9 +211,9 @@ func (pv *PointValues) Clear() {
 
 // PointRangeQuery represents a range query over point values.
 type PointRangeQuery struct {
-	field       string
-	lowerValue  []int64
-	upperValue  []int64
+	field          string
+	lowerValue     []int64
+	upperValue     []int64
 	lowerInclusive bool
 	upperInclusive bool
 }
@@ -221,11 +221,11 @@ type PointRangeQuery struct {
 // NewPointRangeQuery creates a new PointRangeQuery.
 func NewPointRangeQuery(field string, lowerValue, upperValue []int64) *PointRangeQuery {
 	return &PointRangeQuery{
-		field:            field,
-		lowerValue:       lowerValue,
-		upperValue:       upperValue,
-		lowerInclusive:   true,
-		upperInclusive:   true,
+		field:          field,
+		lowerValue:     lowerValue,
+		upperValue:     upperValue,
+		lowerInclusive: true,
+		upperInclusive: true,
 	}
 }
 

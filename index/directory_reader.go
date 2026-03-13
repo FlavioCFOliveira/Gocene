@@ -175,9 +175,23 @@ func OpenDirectoryReaderFromCommit(directory store.Directory, commit *IndexCommi
 
 // Reopen reopens the index to see if any changes have been made.
 func (r *DirectoryReader) Reopen() (*DirectoryReader, error) {
-	// Check if segment infos have changed
-	// For now, just return the same reader
-	return r, nil
+	isCurrent, err := r.IsCurrent()
+	if err != nil {
+		return nil, err
+	}
+	if isCurrent {
+		return r, nil
+	}
+	return OpenDirectoryReader(r.directory)
+}
+
+// IsCurrent returns true if the reader is still up to date with the index.
+func (r *DirectoryReader) IsCurrent() (bool, error) {
+	segmentInfos, err := ReadSegmentInfos(r.directory)
+	if err != nil {
+		return false, err
+	}
+	return segmentInfos.generation == r.segmentInfos.generation, nil
 }
 
 // ReopenFromCommit reopens the index from a specific commit.

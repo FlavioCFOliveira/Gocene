@@ -23,8 +23,9 @@ import (
 // analyzers that need to process words in a language-agnostic way.
 //
 // Example:
-//   Input: "Hello, World! 123 Test."
-//   Output tokens: "Hello", "World", "Test"
+//
+//	Input: "Hello, World! 123 Test."
+//	Output tokens: "Hello", "World", "Test"
 type LetterTokenizer struct {
 	*BaseTokenizer
 

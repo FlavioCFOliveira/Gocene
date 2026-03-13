@@ -14,11 +14,11 @@ func TestQueryParser_Parse(t *testing.T) {
 	parser := NewQueryParserWithDefaultField("content")
 
 	tests := []struct {
-		name        string
-		query       string
-		wantNonNil  bool
-		wantType    string
-		wantErr     bool
+		name       string
+		query      string
+		wantNonNil bool
+		wantType   string
+		wantErr    bool
 	}{
 		{
 			name:       "empty query",
@@ -143,8 +143,8 @@ func TestQueryParser_ParseComplex(t *testing.T) {
 	parser := NewQueryParserWithDefaultField("content")
 
 	tests := []struct {
-		name  string
-		query string
+		name    string
+		query   string
 		wantErr bool
 	}{
 		{

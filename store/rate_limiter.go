@@ -30,10 +30,10 @@ type RateLimiter interface {
 
 // SimpleRateLimiter is a basic implementation of RateLimiter.
 type SimpleRateLimiter struct {
-	mbPerSec     float64
-	minPause     time.Duration
-	lastNS       int64
-	totalNS      int64
+	mbPerSec float64
+	minPause time.Duration
+	lastNS   int64
+	totalNS  int64
 }
 
 // NewSimpleRateLimiter creates a new SimpleRateLimiter.
