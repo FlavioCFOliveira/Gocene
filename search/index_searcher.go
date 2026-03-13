@@ -5,6 +5,7 @@
 package search
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
@@ -108,9 +109,30 @@ func (s *IndexSearcher) searchLeaf(reader index.IndexReaderInterface, docBase in
 }
 
 // Doc returns the stored fields for a document.
-func (s *IndexSearcher) Doc(docID int) (*index.Document, error) {
-	// TODO: Implement
-	return nil, nil
+// This requires the StoredFieldsFormat to be implemented (GC-148).
+// For now, returns an empty document as a placeholder.
+func (s *IndexSearcher) Doc(docID int) (index.Document, error) {
+	// Find the segment that contains this document
+	if dr, ok := interface{}(s.reader).(*index.DirectoryReader); ok {
+		readers := dr.GetSegmentReaders()
+		docBase := 0
+
+		for _, sr := range readers {
+			maxDoc := sr.MaxDoc()
+			if docID >= docBase && docID < docBase+maxDoc {
+				// Found the segment
+				// TODO: Use StoredFieldsReader to retrieve actual fields (requires GC-148)
+				// For now, return an empty document
+				return document.NewDocument(), nil
+			}
+			docBase += maxDoc
+		}
+		return nil, nil
+	}
+
+	// For single segment readers, return empty document
+	// TODO: Use StoredFieldsReader to retrieve actual fields (requires GC-148)
+	return document.NewDocument(), nil
 }
 
 // GetIndexReader returns the IndexReader.

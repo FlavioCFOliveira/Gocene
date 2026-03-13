@@ -14,36 +14,61 @@ type IndexReaderInterface interface {
 
 // IndexReader is an abstract base class for reading indexes.
 type IndexReader struct {
-	closed bool
+	closed     bool
+	docCount   int // total document count
+	numDocs    int // number of live documents
+	maxDoc     int // maximum document ID (one past the last)
+	fieldInfos *FieldInfos
 }
 
 // NewIndexReader creates a new IndexReader.
 func NewIndexReader() *IndexReader {
-	return &IndexReader{closed: false}
+	return &IndexReader{
+		closed:   false,
+		docCount: 0,
+		numDocs:  0,
+		maxDoc:   0,
+	}
+}
+
+// SetDocCount sets the total document count.
+func (r *IndexReader) SetDocCount(docCount int) {
+	r.docCount = docCount
+}
+
+// SetNumDocs sets the number of live documents.
+func (r *IndexReader) SetNumDocs(numDocs int) {
+	r.numDocs = numDocs
+}
+
+// SetMaxDoc sets the maximum document ID.
+func (r *IndexReader) SetMaxDoc(maxDoc int) {
+	r.maxDoc = maxDoc
+}
+
+// SetFieldInfos sets the FieldInfos.
+func (r *IndexReader) SetFieldInfos(infos *FieldInfos) {
+	r.fieldInfos = infos
 }
 
 // DocCount returns the total number of documents.
 func (r *IndexReader) DocCount() int {
-	// TODO: Implement
-	return 0
+	return r.docCount
 }
 
 // NumDocs returns the number of live documents.
 func (r *IndexReader) NumDocs() int {
-	// TODO: Implement
-	return 0
+	return r.numDocs
 }
 
 // MaxDoc returns the maximum document ID.
 func (r *IndexReader) MaxDoc() int {
-	// TODO: Implement
-	return 0
+	return r.maxDoc
 }
 
 // GetFieldInfos returns the FieldInfos for the index.
 func (r *IndexReader) GetFieldInfos() *FieldInfos {
-	// TODO: Implement
-	return nil
+	return r.fieldInfos
 }
 
 // Close closes the reader.

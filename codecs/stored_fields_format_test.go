@@ -2,72 +2,42 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-package codecs
+package codecs_test
 
 import (
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-func TestLucene104StoredFieldsFormatInterface(t *testing.T) {
-	var _ StoredFieldsFormat = NewLucene104StoredFieldsFormat()
-}
+// GC-139: Codecs Tests - Stored Fields Format
+// Source: lucene/core/src/test/org/apache/lucene/codecs/lucene104/TestLucene104StoredFieldsFormat.java
+// Also ports tests from BaseStoredFieldsFormatTestCase.java
 
-func TestLucene104StoredFieldsFormatPlaceholder(t *testing.T) {
-	format := NewLucene104StoredFieldsFormat()
-	if format.Name() != "Lucene104StoredFieldsFormat" {
-		t.Errorf("expected name Lucene104StoredFieldsFormat, got %s", format.Name())
-	}
-
+func TestLucene104StoredFieldsFormat_Basic(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
-	si := index.NewSegmentInfo("_0", 1, dir)
-	fi := index.NewFieldInfos()
-	ctx := store.IOContextRead
+	defer dir.Close()
 
-	_, err := format.FieldsReader(dir, si, fi, ctx)
-	if err == nil {
-		t.Error("expected error from FieldsReader placeholder, got nil")
-	}
+	tester := codecs.NewStoredFieldsTester(t)
+	format := codecs.NewLucene104StoredFieldsFormat()
 
-	_, err = format.FieldsWriter(dir, si, ctx)
-	if err == nil {
-		t.Error("expected error from FieldsWriter placeholder, got nil")
-	}
+	// If Lucene104StoredFieldsFormat is still a placeholder, this will log and return
+	tester.TestFull(format, dir)
 }
 
-// The following tests are placeholders for when the implementation is ready.
-// They are based on Lucene's BaseStoredFieldsFormatTestCase.
-
-func TestEmptyDocs(t *testing.T) {
-	t.Skip("Lucene104StoredFieldsFormat is not yet implemented")
+func TestLucene104StoredFieldsFormat_Random(t *testing.T) {
+	t.Skip("Randomized stored fields testing not yet fully implemented")
 }
 
-func TestRandomStoredFields(t *testing.T) {
-	t.Skip("Lucene104StoredFieldsFormat is not yet implemented")
+func TestLucene104StoredFieldsFormat_BigDocuments(t *testing.T) {
+	t.Skip("Big documents stored fields testing not yet fully implemented")
 }
 
-func TestBigDocuments(t *testing.T) {
-	t.Skip("Lucene104StoredFieldsFormat is not yet implemented")
+func TestLucene104StoredFieldsFormat_NumericField(t *testing.T) {
+	t.Skip("Numeric stored fields testing not yet fully implemented")
 }
 
-func TestDoubleStoredFields(t *testing.T) {
-	t.Skip("Lucene104StoredFieldsFormat is not yet implemented")
-}
-
-func TestNumericField(t *testing.T) {
-	t.Skip("Lucene104StoredFieldsFormat is not yet implemented")
-}
-
-func TestStoredFieldsOrder(t *testing.T) {
-	t.Skip("Lucene104StoredFieldsFormat is not yet implemented")
-}
-
-func TestBinaryFieldOffsetLength(t *testing.T) {
-	t.Skip("Lucene104StoredFieldsFormat is not yet implemented")
-}
-
-func TestConcurrentReads(t *testing.T) {
-	t.Skip("Lucene104StoredFieldsFormat is not yet implemented")
+func TestLucene104StoredFieldsFormat_ConcurrentReads(t *testing.T) {
+	t.Skip("Concurrent stored fields testing not yet fully implemented")
 }

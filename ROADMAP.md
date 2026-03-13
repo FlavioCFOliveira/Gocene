@@ -2,7 +2,7 @@
 
 **Project:** Gocene - Apache Lucene Port to Go
 **Module:** `github.com/FlavioCFOliveira/Gocene`
-**Last Updated:** 2026-03-20 (Replan realizado)
+**Last Updated:** 2026-03-13
 
 ---
 
@@ -14,29 +14,23 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 
 ## PENDING TASKS
 
-### Test Coverage Tasks (Lucene Compatibility)
+### Phase 17: Core Implementation Completeness
 
-Tasks for porting Apache Lucene test suite to ensure byte-level compatibility.
+Tasks to complete the incomplete implementations identified in the codebase. These are critical for making Gocene functional.
 
 | ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | ACTIONABLE TECHNICAL DESCRIPTION |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| GC-123 | HIGH | HIGH | Search Tests - BooleanQuery | COMPLETED | lucene-test-analyzer, go-elite-developer | 2026-03-13 | Ported TestBooleanQuery and TestBoolean2. File: search/boolean_query_test.go |
-| GC-124 | HIGH | HIGH | Search Tests - Term and Phrase Queries | COMPLETED | lucene-test-analyzer, go-elite-developer | 2026-03-13 | Ported TestTermQuery, TestPhraseQuery. Files: search/term_query_test.go, search/phrase_query_test.go |
-| GC-125 | MEDIUM | HIGH | Search Tests - Range and Prefix Queries | COMPLETED | lucene-test-analyzer, go-elite-developer | 2026-03-13 | Ported TestTermRangeQuery and TestPrefixQuery. Files: search/range_query_test.go, search/prefix_query_test.go |
-| GC-126 | MEDIUM | HIGH | Search Tests - Wildcard and Fuzzy | COMPLETED | lucene-test-analyzer, go-elite-developer | 2026-03-13 | Ported TestWildcardQuery, TestFuzzyQuery. Files: search/wildcard_query_test.go, search/fuzzy_query_test.go |
-| GC-127 | MEDIUM | HIGH | Search Tests - IndexSearcher and Collectors | COMPLETED | lucene-test-analyzer, go-elite-developer | 2026-03-13 | Ported TestIndexSearcher and TestTopDocs. Files: search/index_searcher_test.go, search/top_docs_test.go |
-| GC-128 | MEDIUM | MEDIUM | Search Tests - Similarity Implementations | COMPLETED | lucene-test-analyzer, go-elite-developer | 2026-03-13 | Ported TestBM25Similarity. Files: search/similarity_test.go, search/bm25_similarity_test.go |
-| GC-129 | MEDIUM | MEDIUM | Search Tests - DocValues Queries | COMPLETED | lucene-test-analyzer, go-elite-developer | 2026-03-13 | Ported TestDocValuesQueries. Files: search/field_exists_query_test.go, search/range_query_test.go |
-| GC-130 | MEDIUM | MEDIUM | Search Tests - Query Rewriting and Combining | COMPLETED | lucene-test-analyzer, go-elite-developer | 2026-03-13 | Ported TestMultiTermQueryRewrites. Files: search/query_test.go |
-| GC-135 | HIGH | HIGH | Codecs Tests - Codec Utilities | COMPLETED | lucene-test-analyzer, go-elite-developer | 2026-03-13 | Ported TestCodecUtil. Files: codecs/codec_util_test.go |
-| GC-136 | HIGH | HIGH | Codecs Tests - FieldInfos Format | COMPLETED | lucene-test-analyzer, go-elite-developer | 2026-03-13 | Ported TestFieldInfosFormat. Files: codecs/field_infos_format_test.go |
-| GC-137 | HIGH | HIGH | Codecs Tests - SegmentInfo Format | COMPLETED | lucene-test-analyzer, go-elite-developer | 2026-03-13 | Ported TestSegmentInfoFormat. Files: codecs/segment_info_format_test.go |
-| GC-138 | HIGH | HIGH | Codecs Tests - Postings Format | COMPLETED | lucene-test-analyzer, go-elite-developer | 2026-03-13 | Ported TestPostingsFormat and PostingsTester. Files: codecs/postings_format_test.go |
-| GC-139 | MEDIUM | HIGH | Codecs Tests - Stored Fields Format | COMPLETED | lucene-test-analyzer, go-elite-developer | 2026-03-13 | Ported TestStoredFieldsFormat. Files: codecs/stored_fields_format_test.go |
-| GC-140 | MEDIUM | MEDIUM | Codecs Tests - Lucene99 Format Variants | COMPLETED | lucene-test-analyzer, go-elite-developer | 2026-03-13 | Ported TestLucene99SegmentInfoFormat. Files: codecs/lucene99_codec_test.go |
-| GC-141 | MEDIUM | MEDIUM | Document Tests - Numeric Range Fields | COMPLETED | lucene-test-analyzer, go-elite-developer | 2026-03-13 | Ported numeric range field placeholders. Files: document/numeric_range_fields_test.go |
-| GC-142 | LOW | LOW | Document Tests - Spatial and Feature Fields | COMPLETED | lucene-test-analyzer, go-elite-developer | 2026-03-13 | Ported spatial field placeholders. Files: document/spatial_fields_test.go |
-| GC-143 | MEDIUM | MEDIUM | Integration Tests - Dueling Codecs | COMPLETED | lucene-test-analyzer, go-elite-developer | 2026-03-13 | Ported TestDuelingCodecs infrastructure. Files: index/index_integration_test.go |
+| GC-144 | HIGH | HIGH | Core - Complete IndexWriter flush to disk | go-elite-developer | Implement flush to disk in index/documents_writer.go:165. Implement document processing at line 205. |
+| GC-145 | HIGH | HIGH | Core - Complete DirectoryReader implementation | go-elite-developer | Implement segment reading in index/directory_reader.go. Complete methods at lines 80, 86, 172. |
+| GC-146 | HIGH | HIGH | Core - Complete IndexReader methods | go-elite-developer | Implement all TODO methods in index/index_reader.go (lines 27, 33, 39, 45). |
+| GC-147 | HIGH | HIGH | Core - Complete PostingsFormat reader/writer | go-elite-developer | Implement FieldsConsumer at codecs/postings_format.go:77 and FieldsProducer at line 83. |
+| GC-148 | HIGH | HIGH | Core - Complete StoredFieldsFormat reader/writer | go-elite-developer | Implement FieldsReader at codecs/stored_fields_format.go:77 and FieldsWriter at line 83. |
+| GC-149 | HIGH | HIGH | Core - Complete IndexSearcher implementation | go-elite-developer | Implement method at search/index_searcher.go:112 marked as TODO. |
+| GC-150 | HIGH | HIGH | Store - Complete Directory interface methods | go-elite-developer | Implement ListAll, FileLength, OpenInput, CreateOutput, DeleteFile in store/directory.go. |
+| GC-151 | HIGH | HIGH | Store - Complete IndexInput/Output operations | go-elite-developer | Implement readInternal at store/index_input.go:364 and writeInternal at store/index_output.go:269. |
+| GC-152 | MEDIUM | HIGH | Index - Complete MergeScheduler implementation | go-elite-developer | Implement Merge method at index/merge_scheduler.go:141. |
+| GC-153 | MEDIUM | HIGH | Index - Complete MergePolicy methods | go-elite-developer | Implement FindMerges, FindForcedMerges, FindForcedDeletesMerges in index/merge_policy.go. |
+| GC-154 | MEDIUM | HIGH | Index - Complete IndexDeletionPolicy | go-elite-developer | Implement OnCommit and OnInit in index/index_deletion_policy.go. |
 
 ---
 
@@ -59,6 +53,57 @@ Tasks for porting Apache Lucene test suite to ensure byte-level compatibility.
 | 14 | COMPLETED | GC-081, GC-104 | Advanced Features | Phase 15 |
 | 15 | COMPLETED | GC-106 to GC-108 | Infrastructure Development | Phase 6 |
 | 16 | COMPLETED | GC-109 to GC-143 | Test Coverage - Lucene Compatibility | Phases 2-15 |
+| 17 | PENDING | GC-144 to GC-153 | Core Implementation Completeness | Phase 16 |
+
+---
+
+### Phase 17: Core Implementation Completeness
+**Status:** PENDING | **Tasks:** 10 | **Focus:** Complete incomplete core implementations
+**Dependencies:** Phase 16 (Test coverage complete)
+
+#### Phase 17.1: Index Core Completeness
+
+| Task ID | Task Name | Specialists | SEVERITY | PRIORITY |
+|:--------|:----------|:------------|:---------|:---------|
+| GC-144 | Complete IndexWriter flush | go-elite-developer, gocene-lucene-specialist | HIGH | HIGH |
+| GC-145 | Complete DirectoryReader | go-elite-developer, gocene-lucene-specialist | HIGH | HIGH |
+| GC-146 | Complete IndexSearcher | go-elite-developer, gocene-lucene-specialist | HIGH | HIGH |
+
+**Dependencies:** Phase 4, 6 (Index, Codec implementations)
+
+---
+
+#### Phase 17.2: Codec Completeness
+
+| Task ID | Task Name | Specialists | SEVERITY | PRIORITY |
+|:--------|:----------|:------------|:---------|:---------|
+| GC-147 | Complete PostingsFormat | go-elite-developer, gocene-lucene-specialist | HIGH | HIGH |
+| GC-148 | Complete StoredFieldsFormat | go-elite-developer, gocene-lucene-specialist | HIGH | HIGH |
+
+**Dependencies:** Phase 6 (Codec System)
+
+---
+
+#### Phase 17.3: Store Layer Completeness
+
+| Task ID | Task Name | Specialists | SEVERITY | PRIORITY |
+|:--------|:----------|:------------|:---------|:---------|
+| GC-149 | Complete Directory interface | go-elite-developer, gocene-lucene-specialist | HIGH | HIGH |
+| GC-150 | Complete IndexInput/Output | go-elite-developer, gocene-lucene-specialist | HIGH | HIGH |
+
+**Dependencies:** Phase 1 (Store Layer)
+
+---
+
+#### Phase 17.4: Merge and Policy Completeness
+
+| Task ID | Task Name | Specialists | SEVERITY | PRIORITY |
+|:--------|:----------|:------------|:---------|:---------|
+| GC-151 | Complete MergeScheduler | go-elite-developer, gocene-lucene-specialist | MEDIUM | HIGH |
+| GC-152 | Complete MergePolicy | go-elite-developer, gocene-lucene-specialist | MEDIUM | HIGH |
+| GC-153 | Complete IndexDeletionPolicy | go-elite-developer, gocene-lucene-specialist | MEDIUM | MEDIUM |
+
+**Dependencies:** Phase 7 (Merge System)
 
 ---
 
