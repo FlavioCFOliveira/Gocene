@@ -151,7 +151,7 @@ Tasks for porting Apache Lucene test suite to ensure byte-level compatibility.
 #### Phase 16.6: Document and Integration Tests
 | Task ID | Task Name | Specialists | SEVERITY | PRIORITY |
 |:--------|:----------|:------------|:---------|:---------|
-| GC-141 | Document Tests - Numeric Range Fields | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+| GC-141 | Document Tests - Numeric Range Fields | COMPLETED | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM | 2026-03-13 | Ported TestFloatRange, TestDoubleRange, TestIntRange placeholders. Verified current numeric field tests pass. Files: document/numeric_range_fields_test.go |
 | GC-142 | Document Tests - Spatial and Feature Fields | lucene-test-analyzer, go-elite-developer | LOW | LOW |
 | GC-143 | Integration Tests - Dueling Codecs | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
 
