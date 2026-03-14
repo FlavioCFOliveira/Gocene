@@ -38,8 +38,6 @@ Critical analysis infrastructure tests for byte-level compatibility.
 | GC-160 | HIGH | HIGH | Test Coverage - KeywordTokenizer | lucene-test-analyzer, go-elite-developer | Port TestKeywordTokenizer.java. Test simple(), factory(), paramsFactory(), single-token tokenization. File: analysis/keyword_tokenizer_test.go |
 | GC-161 | HIGH | HIGH | Test Coverage - StopAnalyzer | lucene-test-analyzer, go-elite-developer | Port TestStopAnalyzer.java. Test defaults(), stopList(), stopListPositions(), position increment handling with stop words. File: analysis/stop_analyzer_test.go |
 | GC-162 | HIGH | HIGH | Test Coverage - KeywordAnalyzer | lucene-test-analyzer, go-elite-developer | Port TestKeywordAnalyzer.java. Single token analyzer behavior, full keyword handling. File: analysis/keyword_analyzer_test.go |
-| GC-163 | HIGH | HIGH | Test Coverage - Analyzers Core | lucene-test-analyzer, go-elite-developer | Port TestAnalyzers.java. Analyzer integration tests, comparison tests, dueling analyzers. File: analysis/analyzers_test.go |
-| GC-164 | HIGH | HIGH | Test Coverage - StandardAnalyzer Complete | lucene-test-analyzer, go-elite-developer | Complete TestStandardAnalyzer.java. URL/email handling, Unicode edge cases, complete standard analysis. File: analysis/standard_analyzer_test.go |
 | GC-165 | MEDIUM | HIGH | Test Coverage - CachingTokenFilter | lucene-test-analyzer, go-elite-developer | Port TestCachingTokenFilter.java. Test caching(), isCached(), reset behavior, token caching for reuse. File: analysis/caching_token_filter_test.go |
 | GC-166 | MEDIUM | HIGH | Test Coverage - GraphTokenizers | lucene-test-analyzer, go-elite-developer | Port TestGraphTokenizers.java. Complex multi-position token handling, position length attributes, graph-based token streams. File: analysis/graph_tokenizers_test.go |
 | GC-167 | MEDIUM | MEDIUM | Test Coverage - CharFilter | lucene-test-analyzer, go-elite-developer | Port TestCharFilter.java. Character filtering before tokenization, offset correction. File: analysis/char_filter_test.go |
@@ -477,6 +475,15 @@ Document model tests.
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | GC-141 | MEDIUM | MEDIUM | Document Tests - Numeric Range Fields | lucene-test-analyzer, go-elite-developer | 2026-03-13 | Ported numeric range field placeholders. Files: document/numeric_range_fields_test.go |
 | GC-142 | LOW | LOW | Document Tests - Spatial and Feature Fields | lucene-test-analyzer, go-elite-developer | 2026-03-13 | Ported spatial field placeholders. Files: document/spatial_fields_test.go |
+
+### Phase 18.1: Analysis Test Coverage (Completed: 2026-03-14)
+
+| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | COMPLETED | ACTIONABLE TECHNICAL DESCRIPTION |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| GC-163 | HIGH | HIGH | Test Coverage - Analyzers Core | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestAnalyzers.java with comprehensive analyzer tests for SimpleAnalyzer, WhitespaceAnalyzer, StopAnalyzer, and LowerCaseFilter. Files: analysis/analyzers_extended_test.go |
+| GC-164 | HIGH | HIGH | Test Coverage - StandardAnalyzer Complete | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Completed TestStandardAnalyzer.java with tokenization tests, delimiter handling, apostrophe handling, numeric tests, offset tracking, Unicode language support, emoji tests, and more. Files: analysis/standard_analyzer_test.go |
+
+### Phase 18.2: Analysis Test Coverage Expansion (Completed: 2026-03-14)
 | GC-143 | MEDIUM | MEDIUM | Integration Tests - Dueling Codecs | lucene-test-analyzer, go-elite-developer | 2026-03-13 | Ported TestDuelingCodecs infrastructure. Files: index/index_integration_test.go |
 
 ## Component Dependencies

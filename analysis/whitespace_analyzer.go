@@ -52,3 +52,42 @@ func (a *WhitespaceAnalyzer) TokenStream(fieldName string, reader io.Reader) (To
 
 // Ensure WhitespaceAnalyzer implements Analyzer
 var _ Analyzer = (*WhitespaceAnalyzer)(nil)
+
+// LowerCaseWhitespaceAnalyzer is an analyzer that tokenizes at whitespace
+// and converts tokens to lowercase.
+//
+// This analyzer is similar to WhitespaceAnalyzer but adds LowerCaseFilter.
+// It tokenizes text at whitespace boundaries and lowercases all tokens.
+//
+// Example:
+//
+//	Input: "Hello World TEST"
+//	Output tokens: "hello", "world", "test"
+type LowerCaseWhitespaceAnalyzer struct {
+	*BaseAnalyzer
+}
+
+// NewLowerCaseWhitespaceAnalyzer creates a new LowerCaseWhitespaceAnalyzer.
+func NewLowerCaseWhitespaceAnalyzer() *LowerCaseWhitespaceAnalyzer {
+	return &LowerCaseWhitespaceAnalyzer{
+		BaseAnalyzer: NewAnalyzer(),
+	}
+}
+
+// TokenStream creates a TokenStream for analyzing text.
+// Returns a TokenStream that tokenizes at whitespace and lowercases tokens.
+func (a *LowerCaseWhitespaceAnalyzer) TokenStream(fieldName string, reader io.Reader) (TokenStream, error) {
+	// Create the tokenizer
+	tokenizer := NewWhitespaceTokenizer()
+	if err := tokenizer.SetReader(reader); err != nil {
+		return nil, err
+	}
+
+	// Apply lowercase filter
+	lowerCaseFilter := NewLowerCaseFilter(tokenizer)
+
+	return lowerCaseFilter, nil
+}
+
+// Ensure LowerCaseWhitespaceAnalyzer implements Analyzer
+var _ Analyzer = (*LowerCaseWhitespaceAnalyzer)(nil)
