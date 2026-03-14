@@ -35,7 +35,7 @@ type SimpleAnalyzer struct {
 // NewSimpleAnalyzer creates a new SimpleAnalyzer.
 func NewSimpleAnalyzer() *SimpleAnalyzer {
 	return &SimpleAnalyzer{
-		BaseAnalyzer: NewBaseAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(),
 	}
 }
 

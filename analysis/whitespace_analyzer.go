@@ -34,7 +34,7 @@ type WhitespaceAnalyzer struct {
 // NewWhitespaceAnalyzer creates a new WhitespaceAnalyzer.
 func NewWhitespaceAnalyzer() *WhitespaceAnalyzer {
 	return &WhitespaceAnalyzer{
-		BaseAnalyzer: NewBaseAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(),
 	}
 }
 

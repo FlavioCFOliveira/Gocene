@@ -26,7 +26,7 @@ type StandardAnalyzer struct {
 // NewStandardAnalyzer creates a new StandardAnalyzer with English stop words.
 func NewStandardAnalyzer() *StandardAnalyzer {
 	return &StandardAnalyzer{
-		BaseAnalyzer: NewBaseAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(),
 		stopWords:    EnglishStopWords,
 	}
 }
@@ -34,7 +34,7 @@ func NewStandardAnalyzer() *StandardAnalyzer {
 // NewStandardAnalyzerWithStopWords creates a StandardAnalyzer with custom stop words.
 func NewStandardAnalyzerWithStopWords(stopWords []string) *StandardAnalyzer {
 	return &StandardAnalyzer{
-		BaseAnalyzer: NewBaseAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(),
 		stopWords:    stopWords,
 	}
 }

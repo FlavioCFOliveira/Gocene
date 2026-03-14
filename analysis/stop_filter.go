@@ -28,15 +28,6 @@ type StopFilter struct {
 	posIncrAttr PositionIncrementAttribute
 }
 
-// EnglishStopWords is a basic set of English stop words.
-var EnglishStopWords = []string{
-	"a", "an", "and", "are", "as", "at", "be", "but", "by",
-	"for", "if", "in", "into", "is", "it",
-	"no", "not", "of", "on", "or", "such",
-	"that", "the", "their", "then", "there", "these",
-	"they", "this", "to", "was", "will", "with",
-}
-
 // NewStopFilter creates a new StopFilter with the given stop words.
 func NewStopFilter(input TokenStream, stopWords []string) *StopFilter {
 	filter := &StopFilter{
@@ -120,3 +111,39 @@ func (f *StopFilter) RemoveStopWord(word string) {
 
 // Ensure StopFilter implements TokenFilter
 var _ TokenFilter = (*StopFilter)(nil)
+
+// StopFilterFactory creates StopFilter instances.
+type StopFilterFactory struct {
+	stopWords *CharArraySet
+}
+
+// NewStopFilterFactory creates a new StopFilterFactory with default English stop words.
+func NewStopFilterFactory() *StopFilterFactory {
+	return NewStopFilterFactoryWithWords(GetWordSetFromStrings(EnglishStopWords, true))
+}
+
+// NewStopFilterFactoryWithWords creates a new StopFilterFactory with custom stop words.
+func NewStopFilterFactoryWithWords(stopWords *CharArraySet) *StopFilterFactory {
+	return &StopFilterFactory{
+		stopWords: stopWords,
+	}
+}
+
+// Create creates a StopFilter wrapping the given input.
+func (f *StopFilterFactory) Create(input TokenStream) TokenFilter {
+	// Convert CharArraySet to []string for the StopFilter
+	words := make([]string, 0, f.stopWords.Size())
+	f.stopWords.ForEach(func(item string) bool {
+		words = append(words, item)
+		return true
+	})
+	return NewStopFilter(input, words)
+}
+
+// GetStopWords returns the stop words set.
+func (f *StopFilterFactory) GetStopWords() *CharArraySet {
+	return f.stopWords
+}
+
+// Ensure StopFilterFactory implements TokenFilterFactory
+var _ TokenFilterFactory = (*StopFilterFactory)(nil)

@@ -25,7 +25,6 @@ import (
 //	for stream.IncrementToken() {
 //		// Process token
 //	}
-
 type Analyzer interface {
 	// TokenStream creates a TokenStream for analyzing text from a Reader.
 	// The fieldName parameter identifies the field being analyzed.
@@ -33,6 +32,11 @@ type Analyzer interface {
 
 	// Close releases resources held by this Analyzer.
 	Close() error
+}
+
+// AnalyzerInterface is a convenience interface for analyzer factories.
+type AnalyzerInterface interface {
+	Analyzer
 }
 
 // TokenStreamComponents holds the Tokenizer and TokenStream chain.
@@ -77,6 +81,12 @@ func (tsc *TokenStreamComponents) SetSink(sink TokenStream) {
 //
 // Embed this struct in concrete Analyzer implementations.
 type BaseAnalyzer struct {
+	// TokenizerFactory creates the tokenizer
+	TokenizerFactory TokenizerFactory
+
+	// TokenFilterFactories create token filters in order
+	TokenFilterFactories []TokenFilterFactory
+
 	// reuseTokenStream tracks whether to reuse the token stream
 	reuseTokenStream bool
 
@@ -84,10 +94,11 @@ type BaseAnalyzer struct {
 	storedComponents *TokenStreamComponents
 }
 
-// NewBaseAnalyzer creates a new BaseAnalyzer.
-func NewBaseAnalyzer() *BaseAnalyzer {
+// NewAnalyzer creates a new BaseAnalyzer with default settings.
+func NewAnalyzer() *BaseAnalyzer {
 	return &BaseAnalyzer{
-		reuseTokenStream: true,
+		reuseTokenStream:     false,
+		TokenFilterFactories: make([]TokenFilterFactory, 0),
 	}
 }
 
@@ -101,12 +112,39 @@ func (a *BaseAnalyzer) IsReuseTokenStream() bool {
 	return a.reuseTokenStream
 }
 
-// TokenStream creates a TokenStream - must be implemented by subclasses.
+// AddTokenFilter adds a token filter factory to the chain.
+func (a *BaseAnalyzer) AddTokenFilter(factory TokenFilterFactory) {
+	a.TokenFilterFactories = append(a.TokenFilterFactories, factory)
+}
+
+// TokenStream creates a TokenStream for analyzing text.
 func (a *BaseAnalyzer) TokenStream(fieldName string, reader io.Reader) (TokenStream, error) {
-	return nil, nil
+	if a.TokenizerFactory == nil {
+		return nil, nil
+	}
+
+	// Create tokenizer
+	tokenizer := a.TokenizerFactory.Create()
+	if err := tokenizer.SetReader(reader); err != nil {
+		return nil, err
+	}
+
+	// Build filter chain
+	var stream TokenStream = tokenizer
+	for _, factory := range a.TokenFilterFactories {
+		stream = factory.Create(stream)
+	}
+
+	return stream, nil
 }
 
 // Close releases resources.
 func (a *BaseAnalyzer) Close() error {
 	return nil
+}
+
+// AnalyzerFactory creates Analyzer instances.
+type AnalyzerFactory interface {
+	// Create creates a new Analyzer.
+	Create() AnalyzerInterface
 }

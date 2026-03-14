@@ -72,3 +72,27 @@ func (f *BaseTokenFilter) Close() error {
 	}
 	return nil
 }
+
+// TokenFilterFactory creates TokenFilter instances.
+//
+// This is the Go port of Lucene's TokenFilterFactory interface.
+type TokenFilterFactory interface {
+	// Create creates a TokenFilter wrapping the given input.
+	Create(input TokenStream) TokenFilter
+}
+
+// LowerCaseFilterFactory creates LowerCaseFilter instances.
+type LowerCaseFilterFactory struct{}
+
+// NewLowerCaseFilterFactory creates a new LowerCaseFilterFactory.
+func NewLowerCaseFilterFactory() *LowerCaseFilterFactory {
+	return &LowerCaseFilterFactory{}
+}
+
+// Create creates a LowerCaseFilter wrapping the given input.
+func (f *LowerCaseFilterFactory) Create(input TokenStream) TokenFilter {
+	return NewLowerCaseFilter(input)
+}
+
+// Ensure LowerCaseFilterFactory implements TokenFilterFactory
+var _ TokenFilterFactory = (*LowerCaseFilterFactory)(nil)
