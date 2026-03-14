@@ -113,21 +113,15 @@ func ToUpperCase(buffer []rune, offset, limit int) {
 
 // ToCodePoints converts a sequence of runes (Java characters) to a sequence of Unicode code points.
 // Returns the number of code points written to the destination buffer.
+// In Go, each rune is already a Unicode code point, so this is essentially a copy.
 func ToCodePoints(src []rune, srcOff, srcLen int, dest []int, destOff int) (int, error) {
 	if srcLen < 0 {
 		return 0, errors.New("srcLen must be >= 0")
 	}
 	codePointCount := 0
-	for i := 0; i < srcLen; {
-		cp := src[srcOff+i]
-		charCount := 1
-		// Check for surrogate pairs
-		if utf8.RuneLen(cp) > 1 {
-			charCount = utf8.RuneLen(cp)
-		}
-		dest[destOff+codePointCount] = int(cp)
+	for i := 0; i < srcLen; i++ {
+		dest[destOff+codePointCount] = int(src[srcOff+i])
 		codePointCount++
-		i += charCount
 	}
 	return codePointCount, nil
 }
