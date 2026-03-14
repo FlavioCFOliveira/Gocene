@@ -239,7 +239,7 @@ Document model tests.
 | 15 | COMPLETED | GC-106 to GC-108 | Infrastructure Development | Phase 6 |
 | 16 | COMPLETED | GC-109 to GC-143 | Test Coverage - Lucene Compatibility | Phases 2-15 |
 | 17 | COMPLETED | GC-144 to GC-154 | Core Implementation Completeness | Phase 16 |
-| 18 | PENDING | GC-155 to GC-172 | Test Coverage - Analysis Package | Phase 17 |
+| 18 | COMPLETED | GC-155 to GC-172 | Test Coverage - Analysis Package | Phase 17 |
 | 19 | PENDING | GC-173 to GC-197 | Test Coverage - Index Package | Phase 18 |
 | 20 | PENDING | GC-198 to GC-218 | Test Coverage - Codecs Package | Phase 19 |
 | 21 | PENDING | GC-219 to GC-252 | Test Coverage - Search Package | Phase 20 |
@@ -484,7 +484,26 @@ Document model tests.
 | GC-164 | HIGH | HIGH | Test Coverage - StandardAnalyzer Complete | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Completed TestStandardAnalyzer.java with tokenization tests, delimiter handling, apostrophe handling, numeric tests, offset tracking, Unicode language support, emoji tests, and more. Files: analysis/standard_analyzer_test.go |
 
 ### Phase 18.2: Analysis Test Coverage Expansion (Completed: 2026-03-14)
-| GC-143 | MEDIUM | MEDIUM | Integration Tests - Dueling Codecs | lucene-test-analyzer, go-elite-developer | 2026-03-13 | Ported TestDuelingCodecs infrastructure. Files: index/index_integration_test.go |
+
+| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | COMPLETED | ACTIONABLE TECHNICAL DESCRIPTION |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| GC-155 | HIGH | HIGH | Test Coverage - CharArraySet | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestCharArraySet.java with tests for rehash(), nonZeroOffset(), objectContains(), clear(), modifyOnUnmodifiable(), case sensitivity, set operations. Files: analysis/char_array_set_test.go |
+| GC-156 | HIGH | HIGH | Test Coverage - CharArrayMap | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestCharArrayMap.java with tests for charArrayMap(), methods(), keySet(), values(), entrySet(), putAll(), remove(), case-insensitive operations. Files: analysis/char_array_map_test.go |
+| GC-158 | HIGH | HIGH | Test Coverage - StopFilter | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestStopFilter.java with tests for stop word filtering, posIncAttribute, endOfSentence handling, ignoreCase behavior. Files: analysis/stop_filter_test.go |
+| GC-159 | HIGH | HIGH | Test Coverage - LowerCaseFilter | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestLowerCaseFilter.java with tests for lowercase transformation, Unicode handling, Turkish locale issues. Files: analysis/lower_case_filter_test.go |
+| GC-160 | HIGH | HIGH | Test Coverage - ASCIIFoldingFilter | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestASCIIFoldingFilter.java with tests for ASCII folding, Unicode normalization, preserve original option. Files: analysis/ascii_folding_filter_test.go |
+| GC-161 | HIGH | HIGH | Test Coverage - PorterStemFilter | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestPorterStemFilter.java with tests for Porter stemming algorithm, edge cases, empty tokens. Files: analysis/porter_stem_filter_test.go |
+| GC-162 | HIGH | HIGH | Test Coverage - StandardTokenizer | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestStandardTokenizer.java with tests for tokenization rules, URL/email handling, CJK text, maxTokenLength. Files: analysis/standard_tokenizer_test.go |
+| GC-163 | HIGH | HIGH | Test Coverage - StandardAnalyzer | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestStandardAnalyzer.java with tests for analyzer configuration, tokenization pipeline, stop words handling. Files: analysis/standard_analyzer_test.go |
+| GC-164 | HIGH | HIGH | Test Coverage - Analyzers Core | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestAnalyzers.java with tests for core analyzer functionality, reusable token streams, thread safety. Files: analysis/analyzers_extended_test.go |
+| GC-165 | HIGH | HIGH | Test Coverage - TokenStream | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestTokenStream.java with tests for token stream iteration, attribute capture, end() method, close() behavior. Files: analysis/token_stream_test.go |
+| GC-166 | HIGH | HIGH | Test Coverage - TokenFilter | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestTokenFilter.java with tests for token filter chaining, input propagation, end() delegation. Files: analysis/token_filter_test.go |
+| GC-167 | HIGH | HIGH | Test Coverage - CachingTokenFilter | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestCachingTokenFilter.java with tests for token caching, multiple iterations, reset behavior. Files: analysis/caching_token_filter_test.go |
+| GC-168 | HIGH | HIGH | Test Coverage - TeeSinkTokenFilter | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestTeeSinkTokenFilter.java with tests for tee/sink pattern, multiple sinks, token consumption. Files: analysis/tee_sink_token_filter_test.go |
+| GC-169 | HIGH | HIGH | Test Coverage - TokenStreamComponents | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestTokenStreamComponents.java with tests for component lifecycle, reader reuse, source/sink management. Files: analysis/token_stream_components_test.go |
+| GC-170 | HIGH | HIGH | Test Coverage - ReusableStringReader | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestReusableStringReader.java with tests for string reader reuse, buffer management, close behavior. Files: analysis/reusable_string_reader_test.go |
+| GC-171 | HIGH | HIGH | Test Coverage - CharacterBuffer | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestCharacterBuffer.java with tests for buffer allocation, resize behavior, copy operations. Files: analysis/character_buffer_test.go |
+| GC-172 | HIGH | HIGH | Test Coverage - AnalyzerUtils | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestAnalyzerUtil.java with tests for utility methods, token position management, attribute handling. Files: analysis/analyzer_utils_test.go |
 
 ## Component Dependencies
 
