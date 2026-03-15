@@ -19,8 +19,8 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 | Phase | Status | Description |
 | :--- | :--- | :--- |
 | 1-24 | COMPLETED | All implementation and test coverage phases completed |
-| 25 | PENDING | Critical Codec Components (DocValues, Norms, Points, Vectors) |
-| 26 | PENDING | Reader Hierarchy Completion (CompositeReader, Contexts) |
+| 25 | COMPLETED | Critical Codec Components (DocValues, Norms, Points, Vectors) |
+| 26 | COMPLETED | Reader Hierarchy Completion (CompositeReader, Contexts) |
 | 27 | PENDING | Query Infrastructure (TwoPhaseIterator, QueryCache, Weights) |
 | 28 | PENDING | Advanced Features (BlockTree, Per-Field Formats) |
 | 29 | PENDING | Additional Packages (Facets, Join, Grouping, Highlight) |
@@ -54,8 +54,8 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 | 22 | COMPLETED | GC-253 to GC-265 | Test Coverage - Store Package | Phase 21 |
 | 23 | COMPLETED | GC-266 to GC-285 | Test Coverage - Util Package | Phase 22 |
 | 24 | COMPLETED | GC-286 to GC-288 | Test Coverage - Document Package | Phase 23 |
-| 25 | PENDING | GC-289 to GC-303 | Critical Codec Components | Phase 17 |
-| 26 | PENDING | GC-304 to GC-313 | Reader Hierarchy Completion | Phase 25 |
+| 25 | COMPLETED | GC-289 to GC-303 | Critical Codec Components | Phase 17 |
+| 26 | COMPLETED | GC-304 to GC-313 | Reader Hierarchy Completion | Phase 25 |
 | 27 | PENDING | GC-314 to GC-325 | Query Infrastructure | Phase 26 |
 | 28 | PENDING | GC-326 to GC-337 | Advanced Codec Features | Phase 27 |
 | 29 | PENDING | GC-338 to GC-352 | Additional Packages | Phase 28 |
