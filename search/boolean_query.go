@@ -213,3 +213,11 @@ func (q *BooleanQuery) String() string {
 	}
 	return buffer
 }
+
+// CreateWeight creates a Weight for this query.
+func (q *BooleanQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+	return NewBooleanWeight(q, searcher, needsScores)
+}
+
+// Ensure BooleanQuery implements Query
+var _ Query = (*BooleanQuery)(nil)

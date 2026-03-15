@@ -209,6 +209,19 @@ func (w *TermInSetWeight) Query() Query {
 	return w.query
 }
 
+// GetQuery returns the parent query.
+func (w *TermInSetWeight) GetQuery() Query {
+	return w.query
+}
+
+// GetValueForNormalization returns the value for normalization.
+func (w *TermInSetWeight) GetValueForNormalization() float32 {
+	return w.boost
+}
+
+// Normalize normalizes this weight.
+func (w *TermInSetWeight) Normalize(norm float32) {}
+
 // IsCacheable returns whether this weight is cacheable.
 func (w *TermInSetWeight) IsCacheable(ctx index.LeafReaderContext) bool {
 	return true
@@ -224,7 +237,7 @@ func TestTermInSetQuery_Basics(t *testing.T) {
 
 	numTerms := 100
 	for i := 0; i < numTerms; i++ {
-		termText := util.RandomRealisticUnicodeString(util.GetRandom())
+		termText := util.RandomRealisticUnicodeString(util.GetRandom(), 1, 20)
 		term := util.NewBytesRef([]byte(termText))
 		terms = append(terms, term)
 		uniqueTermSet[termText] = true

@@ -43,3 +43,11 @@ func (w *BaseWeight) GetValueForNormalization() float32 {
 
 // Normalize normalizes this weight.
 func (w *BaseWeight) Normalize(norm float32) {}
+
+// Scorer creates a scorer for this weight.
+func (w *BaseWeight) Scorer(reader index.IndexReaderInterface) (Scorer, error) {
+	return nil, nil
+}
+
+// Ensure BaseWeight implements Weight
+var _ Weight = (*BaseWeight)(nil)

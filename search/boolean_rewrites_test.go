@@ -100,7 +100,7 @@ func TestBooleanRewrites_OneClauseRewriteOptimization(t *testing.T) {
 	expected := NewTermQuery(index.NewTerm("content", "foo"))
 
 	// Build nested boolean queries with single clauses
-	actual := NewTermQuery(index.NewTerm("content", "foo"))
+	actual := Query(NewTermQuery(index.NewTerm("content", "foo")))
 	numLayers := 3
 
 	for i := 0; i < numLayers; i++ {
@@ -152,9 +152,9 @@ func TestBooleanRewrites_SingleMustMatchAll(t *testing.T) {
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), FILTER)
 
 	rewritten, _ := bq.Rewrite(reader)
-	expected := NewConstantScoreQuery(NewTermQuery(index.NewTerm("foo", "bar")))
-	if !rewritten.Equals(expected) {
-		t.Errorf("Expected %v, got %v", expected, rewritten)
+	expectedCSQ := NewConstantScoreQuery(NewTermQuery(index.NewTerm("foo", "bar")))
+	if !rewritten.Equals(expectedCSQ) {
+		t.Errorf("Expected %v, got %v", expectedCSQ, rewritten)
 	}
 
 	// MatchAllDocsQuery + Boost + FILTER -> Boost(ConstantScoreQuery)
@@ -163,7 +163,7 @@ func TestBooleanRewrites_SingleMustMatchAll(t *testing.T) {
 	bq.Add(NewTermQuery(index.NewTerm("foo", "bar")), FILTER)
 
 	rewritten, _ = bq.Rewrite(reader)
-	expected = NewBoostQuery(NewConstantScoreQuery(NewTermQuery(index.NewTerm("foo", "bar"))), 42)
+	expected := NewBoostQuery(NewConstantScoreQuery(NewTermQuery(index.NewTerm("foo", "bar"))), 42)
 	if !rewritten.Equals(expected) {
 		t.Errorf("Expected %v, got %v", expected, rewritten)
 	}
@@ -209,9 +209,9 @@ func TestBooleanRewrites_SingleMustMatchAll(t *testing.T) {
 	expectedFilter := NewBooleanQuery()
 	expectedFilter.Add(NewTermQuery(index.NewTerm("foo", "bar")), FILTER)
 	expectedFilter.Add(NewTermQuery(index.NewTerm("foo", "baz")), FILTER)
-	expected = NewConstantScoreQuery(expectedFilter)
-	if !rewritten.Equals(expected) {
-		t.Errorf("Expected %v, got %v", expected, rewritten)
+	expectedCSQ2 := NewConstantScoreQuery(expectedFilter)
+	if !rewritten.Equals(expectedCSQ2) {
+		t.Errorf("Expected %v, got %v", expectedCSQ2, rewritten)
 	}
 
 	// MatchAllDocsQuery + FILTER + MUST_NOT -> ConstantScoreQuery with filter and must_not
@@ -224,9 +224,9 @@ func TestBooleanRewrites_SingleMustMatchAll(t *testing.T) {
 	expectedFilter = NewBooleanQuery()
 	expectedFilter.Add(NewTermQuery(index.NewTerm("foo", "bar")), FILTER)
 	expectedFilter.Add(NewTermQuery(index.NewTerm("foo", "baz")), MUST_NOT)
-	expected = NewConstantScoreQuery(expectedFilter)
-	if !rewritten.Equals(expected) {
-		t.Errorf("Expected %v, got %v", expected, rewritten)
+	expectedCSQ3 := NewConstantScoreQuery(expectedFilter)
+	if !rewritten.Equals(expectedCSQ3) {
+		t.Errorf("Expected %v, got %v", expectedCSQ3, rewritten)
 	}
 
 	// MatchAllDocsQuery + SHOULD(TermQuery) -> unchanged (SHOULD needs scoring)
@@ -285,11 +285,11 @@ func TestBooleanRewrites_DeduplicateMustAndFilter(t *testing.T) {
 	bq.Add(NewTermQuery(index.NewTerm("foo", "baz")), FILTER)
 
 	rewritten, _ = bq.Rewrite(reader)
-	expected = NewBooleanQuery()
-	expected.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
-	expected.Add(NewTermQuery(index.NewTerm("foo", "baz")), FILTER)
-	if !rewritten.Equals(expected) {
-		t.Errorf("Expected %v, got %v", expected, rewritten)
+	expectedBQ := NewBooleanQuery()
+	expectedBQ.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
+	expectedBQ.Add(NewTermQuery(index.NewTerm("foo", "baz")), FILTER)
+	if !rewritten.Equals(expectedBQ) {
+		t.Errorf("Expected %v, got %v", expectedBQ, rewritten)
 	}
 }
 
@@ -318,13 +318,13 @@ func TestBooleanRewrites_ConvertShouldAndFilterToMust(t *testing.T) {
 	bq.SetMinimumNumberShouldMatch(2)
 
 	rewritten, _ = bq.Rewrite(reader)
-	expected = NewBooleanQuery()
-	expected.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
-	expected.Add(NewTermQuery(index.NewTerm("foo", "baz")), SHOULD)
-	expected.Add(NewTermQuery(index.NewTerm("foo", "quz")), SHOULD)
-	expected.SetMinimumNumberShouldMatch(1)
-	if !rewritten.Equals(expected) {
-		t.Errorf("Expected %v, got %v", expected, rewritten)
+	expectedBQ2 := NewBooleanQuery()
+	expectedBQ2.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
+	expectedBQ2.Add(NewTermQuery(index.NewTerm("foo", "baz")), SHOULD)
+	expectedBQ2.Add(NewTermQuery(index.NewTerm("foo", "quz")), SHOULD)
+	expectedBQ2.SetMinimumNumberShouldMatch(1)
+	if !rewritten.Equals(expectedBQ2) {
+		t.Errorf("Expected %v, got %v", expectedBQ2, rewritten)
 	}
 }
 
@@ -504,11 +504,11 @@ func TestBooleanRewrites_RemoveMatchAllFilter(t *testing.T) {
 	bq.Add(NewMatchAllDocsQuery(), FILTER)
 
 	rewritten, _ = bq.Rewrite(reader)
-	expected = NewBooleanQuery()
-	expected.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
-	expected.Add(NewTermQuery(index.NewTerm("foo", "baz")), MUST)
-	if !rewritten.Equals(expected) {
-		t.Errorf("Expected %v, got %v", expected, rewritten)
+	expectedBQ3 := NewBooleanQuery()
+	expectedBQ3.Add(NewTermQuery(index.NewTerm("foo", "bar")), MUST)
+	expectedBQ3.Add(NewTermQuery(index.NewTerm("foo", "baz")), MUST)
+	if !rewritten.Equals(expectedBQ3) {
+		t.Errorf("Expected %v, got %v", expectedBQ3, rewritten)
 	}
 
 	// FILTER + FILTER(MatchAll) -> ConstantScoreQuery with score 0
@@ -517,9 +517,9 @@ func TestBooleanRewrites_RemoveMatchAllFilter(t *testing.T) {
 	bq.Add(NewMatchAllDocsQuery(), FILTER)
 
 	rewritten, _ = bq.Rewrite(reader)
-	expected = NewBoostQuery(NewConstantScoreQuery(NewTermQuery(index.NewTerm("foo", "bar"))), 0.0)
-	if !rewritten.Equals(expected) {
-		t.Errorf("Expected %v, got %v", expected, rewritten)
+	expectedBQ5 := NewBoostQuery(NewConstantScoreQuery(NewTermQuery(index.NewTerm("foo", "bar"))), 0.0)
+	if !rewritten.Equals(expectedBQ5) {
+		t.Errorf("Expected %v, got %v", expectedBQ5, rewritten)
 	}
 
 	// FILTER(MatchAll) + FILTER(MatchAll) -> ConstantScoreQuery(MatchAll) with score 0
@@ -528,9 +528,9 @@ func TestBooleanRewrites_RemoveMatchAllFilter(t *testing.T) {
 	bq.Add(NewMatchAllDocsQuery(), FILTER)
 
 	rewritten, _ = bq.Rewrite(reader)
-	expected = NewBoostQuery(NewConstantScoreQuery(NewMatchAllDocsQuery()), 0.0)
-	if !rewritten.Equals(expected) {
-		t.Errorf("Expected %v, got %v", expected, rewritten)
+	expectedBQ6 := NewBoostQuery(NewConstantScoreQuery(NewMatchAllDocsQuery()), 0.0)
+	if !rewritten.Equals(expectedBQ6) {
+		t.Errorf("Expected %v, got %v", expectedBQ6, rewritten)
 	}
 }
 
@@ -556,11 +556,11 @@ func TestBooleanRewrites_DeduplicateShouldClauses(t *testing.T) {
 	bq.Add(NewTermQuery(index.NewTerm("foo", "quux")), SHOULD)
 
 	rewritten, _ = bq.Rewrite(reader)
-	expected = NewBooleanQuery()
-	expected.Add(NewBoostQuery(NewTermQuery(index.NewTerm("foo", "bar")), 3), SHOULD)
-	expected.Add(NewTermQuery(index.NewTerm("foo", "quux")), SHOULD)
-	if !rewritten.Equals(expected) {
-		t.Errorf("Expected %v, got %v", expected, rewritten)
+	expectedBQ4 := NewBooleanQuery()
+	expectedBQ4.Add(NewBoostQuery(NewTermQuery(index.NewTerm("foo", "bar")), 3), SHOULD)
+	expectedBQ4.Add(NewTermQuery(index.NewTerm("foo", "quux")), SHOULD)
+	if !rewritten.Equals(expectedBQ4) {
+		t.Errorf("Expected %v, got %v", expectedBQ4, rewritten)
 	}
 
 	// With minShouldMatch=2, deduplication doesn't apply
@@ -599,11 +599,11 @@ func TestBooleanRewrites_DeduplicateMustClauses(t *testing.T) {
 	bq.Add(NewTermQuery(index.NewTerm("foo", "quux")), MUST)
 
 	rewritten, _ = bq.Rewrite(reader)
-	expected = NewBooleanQuery()
-	expected.Add(NewBoostQuery(NewTermQuery(index.NewTerm("foo", "bar")), 3), MUST)
-	expected.Add(NewTermQuery(index.NewTerm("foo", "quux")), MUST)
-	if !rewritten.Equals(expected) {
-		t.Errorf("Expected %v, got %v", expected, rewritten)
+	expectedBQ7 := NewBooleanQuery()
+	expectedBQ7.Add(NewBoostQuery(NewTermQuery(index.NewTerm("foo", "bar")), 3), MUST)
+	expectedBQ7.Add(NewTermQuery(index.NewTerm("foo", "quux")), MUST)
+	if !rewritten.Equals(expectedBQ7) {
+		t.Errorf("Expected %v, got %v", expectedBQ7, rewritten)
 	}
 }
 
@@ -999,9 +999,9 @@ func TestBooleanRewrites_SimplifyFilterClauses(t *testing.T) {
 	bq.Add(NewConstantScoreQuery(NewTermQuery(index.NewTerm("foo", "bar"))), FILTER)
 
 	rewritten, _ = bq.Rewrite(reader)
-	expected = NewBoostQuery(NewConstantScoreQuery(NewTermQuery(index.NewTerm("foo", "bar"))), 0)
-	if !rewritten.Equals(expected) {
-		t.Errorf("Expected %v, got %v", expected, rewritten)
+	expectedBQ8 := NewBoostQuery(NewConstantScoreQuery(NewTermQuery(index.NewTerm("foo", "bar"))), 0)
+	if !rewritten.Equals(expectedBQ8) {
+		t.Errorf("Expected %v, got %v", expectedBQ8, rewritten)
 	}
 }
 

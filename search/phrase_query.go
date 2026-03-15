@@ -126,6 +126,14 @@ func (q *PhraseQuery) String() string {
 	return buffer
 }
 
+// CreateWeight creates a Weight for this query.
+func (q *PhraseQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+	return NewPhraseWeight(q, searcher, needsScores)
+}
+
+// Ensure PhraseQuery implements Query
+var _ Query = (*PhraseQuery)(nil)
+
 // NewPhraseQueryWithStrings creates a PhraseQuery from a field and multiple strings.
 func NewPhraseQueryWithStrings(field string, terms ...string) *PhraseQuery {
 	termObjects := make([]*index.Term, len(terms))

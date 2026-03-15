@@ -487,8 +487,8 @@ func TestSynonymQuery_NilHandling(t *testing.T) {
 	}
 
 	// Test Equals with different type
-	if query.Equals("not a query") {
-		t.Error("SynonymQuery should not equal a string")
+	if query.Equals(NewTermQuery(index.NewTerm("field", "different"))) {
+		t.Error("SynonymQuery should not equal a different query")
 	}
 }
 

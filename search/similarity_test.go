@@ -6,6 +6,8 @@ package search
 
 import (
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 // MockSimilarity is a simple similarity for testing
@@ -59,7 +61,9 @@ func TestSimilarity_BM25(t *testing.T) {
 	sim := NewBM25Similarity()
 	// Currently Scorer returns nil in BaseSimilarity, so this is just a placeholder
 	// until we implement full BM25 weighting and scoring
-	if sim.Scorer(nil) != nil {
+	collStats := NewCollectionStatistics("field", 100, 50, 1000, 500)
+	termStats := NewTermStatistics(index.NewTerm("field", "value"), 10, 5)
+	if sim.Scorer(collStats, termStats) != nil {
 		t.Errorf("Expected nil scorer for now")
 	}
 }

@@ -53,6 +53,19 @@ func (s *ConstantScoreScorer) Score() float32 {
 	return s.score
 }
 
+// DocIDRunEnd returns the end of the current run.
+func (s *ConstantScoreScorer) DocIDRunEnd() int {
+	return s.iterator.DocIDRunEnd()
+}
+
+// GetMaxScore returns the maximum score for documents up to the given doc.
+func (s *ConstantScoreScorer) GetMaxScore(upTo int) float32 {
+	return s.score
+}
+
+// Ensure ConstantScoreScorer implements Scorer
+var _ Scorer = (*ConstantScoreScorer)(nil)
+
 // DisiWrapper wraps a Scorer for use in disjunctions.
 // This is the Go port of Lucene's DisiWrapper.
 type DisiWrapper struct {
