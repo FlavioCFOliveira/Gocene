@@ -63,6 +63,18 @@ type DataInput interface {
 	// ReadBytesN reads exactly n bytes and returns them.
 	// Returns io.EOF if end of file is reached before reading n bytes.
 	ReadBytesN(n int) ([]byte, error)
+
+	// ReadShort reads a 16-bit value.
+	ReadShort() (int16, error)
+
+	// ReadInt reads a 32-bit value.
+	ReadInt() (int32, error)
+
+	// ReadLong reads a 64-bit value.
+	ReadLong() (int64, error)
+
+	// ReadString reads a string.
+	ReadString() (string, error)
 }
 
 // BaseIndexInput provides common functionality for IndexInput implementations.
@@ -191,6 +203,72 @@ func (in *ByteArrayDataInput) ReadBytesN(n int) ([]byte, error) {
 	return result, nil
 }
 
+// ReadShort reads a 16-bit value.
+func (in *ByteArrayDataInput) ReadShort() (int16, error) {
+	if in.pos+2 > len(in.bytes) {
+		return 0, io.EOF
+	}
+	v := binary.LittleEndian.Uint16(in.bytes[in.pos:])
+	in.pos += 2
+	return int16(v), nil
+}
+
+// ReadInt reads a 32-bit value.
+func (in *ByteArrayDataInput) ReadInt() (int32, error) {
+	if in.pos+4 > len(in.bytes) {
+		return 0, io.EOF
+	}
+	v := binary.LittleEndian.Uint32(in.bytes[in.pos:])
+	in.pos += 4
+	return int32(v), nil
+}
+
+// ReadLong reads a 64-bit value.
+func (in *ByteArrayDataInput) ReadLong() (int64, error) {
+	if in.pos+8 > len(in.bytes) {
+		return 0, io.EOF
+	}
+	v := binary.LittleEndian.Uint64(in.bytes[in.pos:])
+	in.pos += 8
+	return int64(v), nil
+}
+
+// ReadString reads a string.
+func (in *ByteArrayDataInput) ReadString() (string, error) {
+	length, err := in.ReadVInt()
+	if err != nil {
+		return "", err
+	}
+	if in.pos+int(length) > len(in.bytes) {
+		return "", io.EOF
+	}
+	s := string(in.bytes[in.pos : in.pos+int(length)])
+	in.pos += int(length)
+	return s, nil
+}
+
+// ReadVInt reads a variable-length integer.
+func (in *ByteArrayDataInput) ReadVInt() (int32, error) {
+	var result int32
+	shift := 0
+	for {
+		if in.pos >= len(in.bytes) {
+			return 0, io.EOF
+		}
+		b := in.bytes[in.pos]
+		in.pos++
+		result |= int32(b&0x7F) << shift
+		if (b & 0x80) == 0 {
+			break
+		}
+		shift += 7
+		if shift >= 32 {
+			return 0, fmt.Errorf("corrupted VInt")
+		}
+	}
+	return result, nil
+}
+
 // GetPosition returns the current position.
 func (in *ByteArrayDataInput) GetPosition() int {
 	return in.pos
@@ -214,6 +292,18 @@ func (in *ByteArrayDataInput) Length() int {
 func (in *ByteArrayDataInput) Reset(bytes []byte) {
 	in.bytes = bytes
 	in.pos = 0
+}
+
+// ResetWithSlice resets the input to read from a slice of bytes.
+// This is the Go equivalent of Java's reset(bytes, offset, len).
+func (in *ByteArrayDataInput) ResetWithSlice(bytes []byte, offset, length int) {
+	in.bytes = bytes[offset : offset+length]
+	in.pos = 0
+}
+
+// EOF returns true if the end of the input has been reached.
+func (in *ByteArrayDataInput) EOF() bool {
+	return in.pos >= len(in.bytes)
 }
 
 // BufferedIndexInput is a base class for buffered IndexInput implementations.
@@ -320,6 +410,67 @@ func (in *BufferedIndexInput) ReadBytesN(n int) ([]byte, error) {
 	result := make([]byte, n)
 	if err := in.ReadBytes(result); err != nil {
 		return nil, err
+	}
+	return result, nil
+}
+
+// ReadShort reads a 16-bit value.
+func (in *BufferedIndexInput) ReadShort() (int16, error) {
+	buf := make([]byte, 2)
+	if err := in.ReadBytes(buf); err != nil {
+		return 0, err
+	}
+	return int16(binary.LittleEndian.Uint16(buf)), nil
+}
+
+// ReadInt reads a 32-bit value.
+func (in *BufferedIndexInput) ReadInt() (int32, error) {
+	buf := make([]byte, 4)
+	if err := in.ReadBytes(buf); err != nil {
+		return 0, err
+	}
+	return int32(binary.LittleEndian.Uint32(buf)), nil
+}
+
+// ReadLong reads a 64-bit value.
+func (in *BufferedIndexInput) ReadLong() (int64, error) {
+	buf := make([]byte, 8)
+	if err := in.ReadBytes(buf); err != nil {
+		return 0, err
+	}
+	return int64(binary.LittleEndian.Uint64(buf)), nil
+}
+
+// ReadString reads a string.
+func (in *BufferedIndexInput) ReadString() (string, error) {
+	length, err := in.ReadVInt()
+	if err != nil {
+		return "", err
+	}
+	buf := make([]byte, length)
+	if err := in.ReadBytes(buf); err != nil {
+		return "", err
+	}
+	return string(buf), nil
+}
+
+// ReadVInt reads a variable-length integer.
+func (in *BufferedIndexInput) ReadVInt() (int32, error) {
+	var result int32
+	shift := 0
+	for {
+		b, err := in.ReadByte()
+		if err != nil {
+			return 0, err
+		}
+		result |= int32(b&0x7F) << shift
+		if (b & 0x80) == 0 {
+			break
+		}
+		shift += 7
+		if shift >= 32 {
+			return 0, fmt.Errorf("corrupted VInt")
+		}
 	}
 	return result, nil
 }
@@ -535,6 +686,16 @@ func ReadSetOfStrings(in DataInput) (map[string]struct{}, error) {
 		s[str] = struct{}{}
 	}
 	return s, nil
+}
+
+// RandomAccessInput provides random access to read primitive types from an IndexInput.
+// This is the Go port of Lucene's org.apache.lucene.store.RandomAccessInput.
+type RandomAccessInput interface {
+	// ReadByteAt reads a single byte at the given position.
+	ReadByteAt(pos int64) (byte, error)
+
+	// ReadLongAt reads a 64-bit value at the given position in big-endian format.
+	ReadLongAt(pos int64) (int64, error)
 }
 
 // ReadMapOfIntToSetOfStrings reads a map of int to set of strings written by WriteMapOfIntToSetOfStrings.

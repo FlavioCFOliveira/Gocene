@@ -4,7 +4,11 @@
 
 package document
 
-import "strconv"
+import (
+	"strconv"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+)
 
 // IntField is a field for indexing int values.
 type IntField struct {
@@ -16,6 +20,7 @@ func NewIntField(name string, value int, store bool) (*IntField, error) {
 	ft := NewFieldType()
 	ft.SetStored(store)
 	ft.SetIndexed(true)
+	ft.SetIndexOptions(index.IndexOptionsDocs)
 	ft.Freeze()
 
 	field, err := NewField(name, strconv.Itoa(value), ft)
@@ -35,6 +40,7 @@ type IntPoint struct {
 func NewIntPoint(name string, value int) (*IntPoint, error) {
 	ft := NewFieldType()
 	ft.SetIndexed(true)
+	ft.SetIndexOptions(index.IndexOptionsDocs)
 	ft.Freeze()
 
 	// Encode int as bytes for BKD tree (4 bytes, big-endian)

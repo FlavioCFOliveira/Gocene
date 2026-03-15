@@ -291,6 +291,39 @@ func (in *MMapIndexInput) ReadBytesN(n int) ([]byte, error) {
 	return b, nil
 }
 
+// ReadShort reads a 16-bit value.
+func (in *MMapIndexInput) ReadShort() (int16, error) {
+	b, err := in.ReadBytesN(2)
+	if err != nil {
+		return 0, err
+	}
+	return int16(b[0])<<8 | int16(b[1]), nil
+}
+
+// ReadInt reads a 32-bit value.
+func (in *MMapIndexInput) ReadInt() (int32, error) {
+	b, err := in.ReadBytesN(4)
+	if err != nil {
+		return 0, err
+	}
+	return int32(b[0])<<24 | int32(b[1])<<16 | int32(b[2])<<8 | int32(b[3]), nil
+}
+
+// ReadLong reads a 64-bit value.
+func (in *MMapIndexInput) ReadLong() (int64, error) {
+	b, err := in.ReadBytesN(8)
+	if err != nil {
+		return 0, err
+	}
+	return int64(b[0])<<56 | int64(b[1])<<48 | int64(b[2])<<40 | int64(b[3])<<32 |
+		int64(b[4])<<24 | int64(b[5])<<16 | int64(b[6])<<8 | int64(b[7]), nil
+}
+
+// ReadString reads a string.
+func (in *MMapIndexInput) ReadString() (string, error) {
+	return ReadString(in)
+}
+
 // SetPosition changes the current position in the file.
 func (in *MMapIndexInput) SetPosition(pos int64) error {
 	if pos < 0 || pos > in.Length() {

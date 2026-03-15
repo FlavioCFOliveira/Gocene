@@ -310,6 +310,21 @@ func (fs *FixedBitSet) Or(other *FixedBitSet) error {
 	return nil
 }
 
+// OrIterator performs a bitwise OR with all documents from a DocIdSetIterator.
+func (fs *FixedBitSet) OrIterator(iter DocIdSetIterator) error {
+	for {
+		doc, err := iter.NextDoc()
+		if err != nil {
+			return err
+		}
+		if doc == NO_MORE_DOCS {
+			break
+		}
+		fs.Set(doc)
+	}
+	return nil
+}
+
 // Xor performs a bitwise XOR with another FixedBitSet.
 // Both bitsets must have the same size.
 func (fs *FixedBitSet) Xor(other *FixedBitSet) error {

@@ -2,7 +2,7 @@
 
 **Project:** Gocene - Apache Lucene Port to Go
 **Module:** `github.com/FlavioCFOliveira/Gocene`
-**Last Updated:** 2026-03-13 (Test Coverage Analysis Complete)
+**Last Updated:** 2026-03-15 (All Phases Completed - Project Test Coverage Complete)
 
 ---
 
@@ -14,208 +14,11 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 
 ## PENDING TASKS
 
-### Phase 17: Core Implementation Completeness
+**Status:** All planned phases (1-24) have been completed. The project has achieved comprehensive test coverage across all packages.
 
-Tasks to complete the incomplete implementations identified in the codebase. These are critical for making Gocene functional.
-
-| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | ACTIONABLE TECHNICAL DESCRIPTION |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-**Note:** All Phase 17 tasks (GC-144 through GC-154) are now completed. See COMPLETED TASKS section for details.
-
----
-
-### Phase 18: Test Coverage Expansion - Analysis Package (HIGH Priority)
-
-Critical analysis infrastructure tests for byte-level compatibility.
-
-| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | ACTIONABLE TECHNICAL DESCRIPTION |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| GC-155 | HIGH | HIGH | Test Coverage - CharArraySet | lucene-test-analyzer, go-elite-developer | Port TestCharArraySet.java. Test rehash(), nonZeroOffset(), objectContains(), clear(), modifyOnUnmodifiable(), case sensitivity, set operations. File: analysis/char_array_set_test.go |
-| GC-156 | HIGH | HIGH | Test Coverage - CharArrayMap | lucene-test-analyzer, go-elite-developer | Port TestCharArrayMap.java. Test charArrayMap(), methods(), keySet(), values(), entrySet(), putAll(), remove(), case-insensitive operations. File: analysis/char_array_map_test.go |
-| GC-157 | HIGH | HIGH | Test Coverage - CharacterUtils | lucene-test-analyzer, go-elite-developer | Port TestCharacterUtils.java. Test lowerUpper(), conversions(), newCharacterBuffer(), fillNoHighSurrogate(), fill(), Unicode code point handling, buffer filling. File: analysis/character_utils_test.go |
-| GC-158 | HIGH | HIGH | Test Coverage - WordlistLoader | lucene-test-analyzer, go-elite-developer | Port TestWordlistLoader.java. Test wordlistLoading(), comments(), snowballListLoading(), getLines(), file/stream loading of stopword lists. File: analysis/wordlist_loader_test.go |
-| GC-159 | HIGH | HIGH | Test Coverage - CharTermAttributeImpl | lucene-test-analyzer, go-elite-developer | Port TestCharTermAttributeImpl.java. Test resize(), setLength(), grow(), toString(), clone(), equals(), copyTo(), attributeReflection(), buffer operations. File: analysis/char_term_attribute_impl_test.go |
-| GC-160 | HIGH | HIGH | Test Coverage - KeywordTokenizer | lucene-test-analyzer, go-elite-developer | Port TestKeywordTokenizer.java. Test simple(), factory(), paramsFactory(), single-token tokenization. File: analysis/keyword_tokenizer_test.go |
-| GC-161 | HIGH | HIGH | Test Coverage - StopAnalyzer | lucene-test-analyzer, go-elite-developer | Port TestStopAnalyzer.java. Test defaults(), stopList(), stopListPositions(), position increment handling with stop words. File: analysis/stop_analyzer_test.go |
-| GC-162 | HIGH | HIGH | Test Coverage - KeywordAnalyzer | lucene-test-analyzer, go-elite-developer | Port TestKeywordAnalyzer.java. Single token analyzer behavior, full keyword handling. File: analysis/keyword_analyzer_test.go |
-| GC-165 | MEDIUM | HIGH | Test Coverage - CachingTokenFilter | lucene-test-analyzer, go-elite-developer | Port TestCachingTokenFilter.java. Test caching(), isCached(), reset behavior, token caching for reuse. File: analysis/caching_token_filter_test.go |
-| GC-166 | MEDIUM | HIGH | Test Coverage - GraphTokenizers | lucene-test-analyzer, go-elite-developer | Port TestGraphTokenizers.java. Complex multi-position token handling, position length attributes, graph-based token streams. File: analysis/graph_tokenizers_test.go |
-| GC-167 | MEDIUM | MEDIUM | Test Coverage - CharFilter | lucene-test-analyzer, go-elite-developer | Port TestCharFilter.java. Character filtering before tokenization, offset correction. File: analysis/char_filter_test.go |
-| GC-168 | MEDIUM | MEDIUM | Test Coverage - HTMLStripCharFilter | lucene-test-analyzer, go-elite-developer | Port TestHTMLStripCharFilter.java. HTML tag removal, entity handling. File: analysis/html_strip_char_filter_test.go |
-| GC-169 | MEDIUM | MEDIUM | Test Coverage - PatternTokenizer | lucene-test-analyzer, go-elite-developer | Port TestPatternTokenizer.java. Regex-based tokenization. File: analysis/pattern_tokenizer_test.go |
-| GC-170 | MEDIUM | MEDIUM | Test Coverage - NGramTokenizer | lucene-test-analyzer, go-elite-developer | Port TestNGramTokenizer.java. N-gram tokenization, edge n-gram tokenization. File: analysis/ngram_tokenizer_test.go |
-| GC-171 | MEDIUM | MEDIUM | Test Coverage - LengthFilter | lucene-test-analyzer, go-elite-developer | Port TestLengthFilter.java. Token length filtering. File: analysis/length_filter_test.go |
-| GC-172 | MEDIUM | MEDIUM | Test Coverage - SynonymGraphFilter | lucene-test-analyzer, go-elite-developer | Port TestSynonymGraphFilter.java. Multi-word synonym handling, graph-based filtering. File: analysis/synonym_graph_filter_test.go |
-
----
-
-### Phase 19: Test Coverage Expansion - Index Package (HIGH Priority)
-
-Core index functionality tests for data integrity and correctness.
-
-| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | ACTIONABLE TECHNICAL DESCRIPTION |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| GC-173 | HIGH | HIGH | Test Coverage - IndexWriterExceptions | lucene-test-analyzer, go-elite-developer | Port TestIndexWriterExceptions.java. Exception handling during indexing, index corruption prevention, thread safety of exception handling, pending document cleanup. File: index/index_writer_exceptions_test.go |
-| GC-174 | HIGH | HIGH | Test Coverage - IndexWriterDelete | lucene-test-analyzer, go-elite-developer | Port TestIndexWriterDelete.java. Delete documents by Term/Query, update document (delete+add), delete-all, delete with concurrent indexing. File: index/index_writer_delete_test.go |
-| GC-175 | HIGH | HIGH | Test Coverage - IndexWriterCommit | lucene-test-analyzer, go-elite-developer | Port TestIndexWriterCommit.java. Commit on close behavior, abort (rollback), multiple commits, commit data preservation, two-phase commit. File: index/index_writer_commit_test.go |
-| GC-176 | HIGH | HIGH | Test Coverage - IndexWriterConfig | lucene-test-analyzer, go-elite-developer | Port TestIndexWriterConfig.java. RAM buffer size, max buffered docs, merge policy/scheduler config, analyzer settings, open mode. File: index/index_writer_config_test.go |
-| GC-177 | HIGH | HIGH | Test Coverage - IndexWriterMergePolicy | lucene-test-analyzer, go-elite-developer | Port TestIndexWriterMergePolicy.java. Merge policy selection during indexing, merge triggering, policy configuration changes. File: index/index_writer_merge_policy_test.go |
-| GC-178 | HIGH | HIGH | Test Coverage - IndexWriterMerging | lucene-test-analyzer, go-elite-developer | Port TestIndexWriterMerging.java. Force merge operations, automatic merge behavior, merge during concurrent indexing, merge with deletions. File: index/index_writer_merging_test.go |
-| GC-179 | HIGH | HIGH | Test Coverage - AddIndexes | lucene-test-analyzer, go-elite-developer | Port TestAddIndexes.java. Add indexes from directories, different codecs, error handling, concurrent addIndexes. File: index/add_indexes_test.go |
-| GC-180 | HIGH | HIGH | Test Coverage - DocumentWriter | lucene-test-analyzer, go-elite-developer | Port TestDocumentWriter.java. Document addition/field storage, term vector indexing, field analysis, stored fields, multi-valued fields. File: index/document_writer_test.go |
-| GC-181 | HIGH | HIGH | Test Coverage - DeletionPolicy | lucene-test-analyzer, go-elite-developer | Port TestDeletionPolicy.java. KeepAllDeletionPolicy, KeepNoneOnInitDeletionPolicy, SnapshotDeletionPolicy, custom policies, commit preservation. File: index/deletion_policy_test.go |
-| GC-182 | HIGH | HIGH | Test Coverage - Norms | lucene-test-analyzer, go-elite-developer | Port TestNorms.java. Norm value storage/retrieval, custom norm values, omit norms behavior, norm merging during segment merge. File: index/norms_test.go |
-| GC-183 | HIGH | HIGH | Test Coverage - Payloads | lucene-test-analyzer, go-elite-developer | Port TestPayloads.java. Payload storage/retrieval, payload merging during segment merge, payload with positions. File: index/payloads_test.go |
-| GC-184 | HIGH | HIGH | Test Coverage - NumericDocValuesUpdates | lucene-test-analyzer, go-elite-developer | Port TestNumericDocValuesUpdates.java. Update numeric doc values, concurrent updates, update merging during segment merge. File: index/numeric_doc_values_updates_test.go |
-| GC-185 | HIGH | HIGH | Test Coverage - BinaryDocValuesUpdates | lucene-test-analyzer, go-elite-developer | Port TestBinaryDocValuesUpdates.java. Update binary doc values, concurrent updates, binary value merging. File: index/binary_doc_values_updates_test.go |
-| GC-186 | MEDIUM | HIGH | Test Coverage - DirectoryReaderReopen | lucene-test-analyzer, go-elite-developer | Port TestDirectoryReaderReopen.java. Reopen after document additions/deletions, concurrent modifications, NRT reader behavior. File: index/directory_reader_reopen_test.go |
-| GC-187 | MEDIUM | HIGH | Test Coverage - IndexWriterReader (NRT) | lucene-test-analyzer, go-elite-developer | Port TestIndexWriterReader.java. NRT reader from IndexWriter, uncommitted changes visibility, NRT reader reopening. File: index/index_writer_reader_test.go |
-| GC-188 | MEDIUM | HIGH | Test Coverage - IndexSorting | lucene-test-analyzer, go-elite-developer | Port TestIndexSorting.java. Index-time sorting, sorting during merge, sorted index search optimization. File: index/index_sorting_test.go |
-| GC-189 | MEDIUM | HIGH | Test Coverage - IndexWriterForceMerge | lucene-test-analyzer, go-elite-developer | Port TestIndexWriterForceMerge.java. Force merge to single segment, max segments, concurrent writes. File: index/index_writer_force_merge_test.go |
-| GC-190 | MEDIUM | HIGH | Test Coverage - SegmentReader | lucene-test-analyzer, go-elite-developer | Port TestSegmentReader.java. Read documents from segment, term dictionaries, stored fields, DocValues. File: index/segment_reader_test.go |
-| GC-191 | MEDIUM | HIGH | Test Coverage - SegmentMerger | lucene-test-analyzer, go-elite-developer | Port TestSegmentMerger.java. Merge multiple segments, term dictionaries, stored fields, DocValues. File: index/segment_merger_test.go |
-| GC-192 | MEDIUM | HIGH | Test Coverage - CheckIndex | lucene-test-analyzer, go-elite-developer | Port TestCheckIndex.java. Verify index integrity, detect corruption, report statistics. File: index/check_index_test.go |
-| GC-193 | MEDIUM | MEDIUM | Test Coverage - SnapshotDeletionPolicy | lucene-test-analyzer, go-elite-developer | Port TestSnapshotDeletionPolicy.java. Create/release snapshot, multiple snapshots, concurrent writers. File: index/snapshot_deletion_policy_test.go |
-| GC-194 | MEDIUM | MEDIUM | Test Coverage - LogMergePolicy | lucene-test-analyzer, go-elite-developer | Port TestLogMergePolicy.java. Log merge policy config, merge specification, find best merges. File: index/log_merge_policy_test.go |
-| GC-195 | MEDIUM | MEDIUM | Test Coverage - Crash Recovery | lucene-test-analyzer, go-elite-developer | Port TestCrash.java, TestCrashCausesCorruptIndex.java. Index consistency after simulated crash, uncommitted changes handling, lock file cleanup. File: index/crash_test.go |
-| GC-196 | MEDIUM | MEDIUM | Test Coverage - BufferedUpdates | lucene-test-analyzer, go-elite-developer | Port TestBufferedUpdates.java. Buffered deletes/updates handling, apply buffered updates during flush. File: index/buffered_updates_test.go |
-| GC-197 | MEDIUM | MEDIUM | Test Coverage - FlushByRamOrCountsPolicy | lucene-test-analyzer, go-elite-developer | Port TestFlushByRamOrCountsPolicy.java. Flush by RAM threshold, document count, policy configuration. File: index/flush_policy_test.go |
-
----
-
-### Phase 20: Test Coverage Expansion - Codecs Package (HIGH Priority)
-
-Core codec format tests for byte-level compatibility.
-
-| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | ACTIONABLE TECHNICAL DESCRIPTION |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| GC-198 | HIGH | HIGH | Test Coverage - CompoundFormat | lucene-test-analyzer, go-elite-developer | Port TestCompoundFormat.java, TestLucene90CompoundFormat.java. CFS thresholds, compound file read/write, file discovery, max segment size. File: codecs/compound_format_test.go |
-| GC-199 | HIGH | HIGH | Test Coverage - Lucene90DocValuesFormat | lucene-test-analyzer, go-elite-developer | Port TestLucene90DocValuesFormat.java. SortedSet variable length, sparse doc values, terms enum fixed/variable width, sorted set at block size boundaries. File: codecs/lucene90_doc_values_format_test.go |
-| GC-200 | HIGH | HIGH | Test Coverage - DocValues Merge | lucene-test-analyzer, go-elite-developer | Port TestLucene90DocValuesFormatMergeInstance.java. Doc values merging during segment merges. File: codecs/doc_values_merge_test.go |
-| GC-201 | HIGH | HIGH | Test Coverage - Lucene90LiveDocsFormat | lucene-test-analyzer, go-elite-developer | Port TestLucene90LiveDocsFormat.java. Live documents bitset serialization, live docs merge. File: codecs/lucene90_live_docs_format_test.go |
-| GC-202 | HIGH | HIGH | Test Coverage - Lucene90NormsFormat | lucene-test-analyzer, go-elite-developer | Port TestLucene90NormsFormat.java. Norms storage format, norms merge. File: codecs/lucene90_norms_format_test.go |
-| GC-203 | HIGH | HIGH | Test Coverage - Lucene90PointsFormat | lucene-test-analyzer, go-elite-developer | Port TestLucene90PointsFormat.java. KD-tree based spatial points storage, points format tests. File: codecs/lucene90_points_format_test.go |
-| GC-204 | HIGH | HIGH | Test Coverage - Lucene90StoredFieldsFormat | lucene-test-analyzer, go-elite-developer | Port TestLucene90StoredFieldsFormat.java. Skip redundant prefetches, randomized stored fields tests. File: codecs/lucene90_stored_fields_format_test.go |
-| GC-205 | HIGH | HIGH | Test Coverage - Lucene90TermVectorsFormat | lucene-test-analyzer, go-elite-developer | Port TestLucene90TermVectorsFormat.java. Term vectors storage and retrieval. File: codecs/lucene90_term_vectors_format_test.go |
-| GC-206 | HIGH | HIGH | Test Coverage - IndexedDISI | lucene-test-analyzer, go-elite-developer | Port TestIndexedDISI.java. Document iterator with skip lists, IndexedDISI tests. File: codecs/indexed_disi_test.go |
-| GC-207 | HIGH | HIGH | Test Coverage - CompressingStoredFields | lucene-test-analyzer, go-elite-developer | Port TestCompressingStoredFieldsFormat.java. Compression modes, chunk size configurations. File: codecs/compressing_stored_fields_format_test.go |
-| GC-208 | HIGH | HIGH | Test Coverage - FOR/PForUtil | lucene-test-analyzer, go-elite-developer | Port TestForUtil.java, TestPForUtil.java. Frame of Reference encoding/decoding. Files: codecs/for_util_test.go, codecs/pfor_util_test.go |
-| GC-209 | HIGH | HIGH | Test Coverage - Lucene104PostingsFormat Complete | lucene-test-analyzer, go-elite-developer | Complete TestLucene104PostingsFormat.java. VInt15/VLong15 encoding, final sub-block handling, impact serialization, BasePostingsFormatTestCase. File: codecs/lucene104_postings_format_test.go |
-| GC-210 | HIGH | HIGH | Test Coverage - Lucene99HnswVectorsFormat | lucene-test-analyzer, go-elite-developer | Port TestLucene99HnswVectorsFormat.java. Limits for max connections/beam width, off-heap size calculation, float vector fallback. File: codecs/lucene99_hnsw_vectors_format_test.go |
-| GC-211 | MEDIUM | HIGH | Test Coverage - PerFieldPostingsFormat | lucene-test-analyzer, go-elite-developer | Port TestPerFieldPostingsFormat.java. Merge stability, postings enum reuse per field. File: codecs/per_field_postings_format_test.go |
-| GC-212 | MEDIUM | HIGH | Test Coverage - PerFieldDocValuesFormat | lucene-test-analyzer, go-elite-developer | Port TestPerFieldDocValuesFormat.java. Per-field doc values format, field-specific formats. File: codecs/per_field_doc_values_format_test.go |
-| GC-213 | MEDIUM | MEDIUM | Test Coverage - Lucene94FieldInfosFormat Complete | lucene-test-analyzer, go-elite-developer | Complete TestLucene94FieldInfosFormat.java. Doc values skip index support, base class test coverage. File: codecs/lucene94_field_infos_format_test.go |
-| GC-214 | MEDIUM | MEDIUM | Test Coverage - Lucene90FieldInfosFormat Complete | lucene-test-analyzer, go-elite-developer | Complete TestLucene90FieldInfosFormat.java. Randomized field info tests, doc values skip index support. File: codecs/lucene90_field_infos_format_test.go |
-| GC-215 | MEDIUM | MEDIUM | Test Coverage - Compression Modes | lucene-test-analyzer, go-elite-developer | Port TestFastCompressionMode.java, TestHighCompressionMode.java, TestFastDecompressionMode.java. Compression/decompression modes. File: codecs/compression_modes_test.go |
-| GC-216 | MEDIUM | MEDIUM | Test Coverage - HNSW Vector Scorer | lucene-test-analyzer, go-elite-developer | Port TestFlatVectorScorer.java. Flat vector scoring implementation. File: codecs/flat_vector_scorer_test.go |
-| GC-217 | MEDIUM | MEDIUM | Test Coverage - Trie Blocktree | lucene-test-analyzer, go-elite-developer | Port TestTrie.java (lucene103/blocktree). Trie data structure for blocktree. File: codecs/trie_test.go |
-| GC-218 | MEDIUM | MEDIUM | Test Coverage - Lucene104ScalarQuantizedVectors | lucene-test-analyzer, go-elite-developer | Port TestLucene104ScalarQuantizedVectorsFormat.java. Scalar quantization for vectors. File: codecs/scalar_quantized_vectors_test.go |
-
----
-
-### Phase 21: Test Coverage Expansion - Search Package (HIGH Priority)
-
-Core search and scoring tests for correctness.
-
-| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | ACTIONABLE TECHNICAL DESCRIPTION |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| GC-219 | HIGH | HIGH | Test Coverage - Boolean2 Scoring | lucene-test-analyzer, go-elite-developer | Port TestBoolean2.java. BooleanQuery scoring order, multi-segment search, bucket gaps, coordination factor. File: search/boolean2_test.go |
-| GC-220 | HIGH | HIGH | Test Coverage - BooleanMinShouldMatch | lucene-test-analyzer, go-elite-developer | Port TestBooleanMinShouldMatch.java. minShouldMatch validation, clause counting, hit verification. File: search/boolean_min_should_match_test.go |
-| GC-221 | HIGH | HIGH | Test Coverage - BooleanScorer | lucene-test-analyzer, go-elite-developer | Port TestBooleanScorer.java. Bulk scoring, bucket management, cost estimation. File: search/boolean_scorer_test.go |
-| GC-222 | HIGH | HIGH | Test Coverage - BooleanScorerSupplier | lucene-test-analyzer, go-elite-developer | Port TestBooleanScorerSupplier.java. Scorer selection logic, cost-based optimization. File: search/boolean_scorer_supplier_test.go |
-| GC-223 | HIGH | HIGH | Test Coverage - BooleanRewrites | lucene-test-analyzer, go-elite-developer | Port TestBooleanRewrites.java. Complex rewrite scenarios, query simplification. File: search/boolean_rewrites_test.go |
-| GC-224 | HIGH | HIGH | Test Coverage - TermScorer | lucene-test-analyzer, go-elite-developer | Port TestTermScorer.java. Term scoring, doc frequency, collection statistics. File: search/term_scorer_test.go |
-| GC-225 | HIGH | HIGH | Test Coverage - SloppyPhraseQuery | lucene-test-analyzer, go-elite-developer | Port TestSloppyPhraseQuery.java, TestSloppyPhraseQuery2.java. Sloppy phrase scoring, edit distance, complex sloppy scenarios. File: search/sloppy_phrase_query_test.go |
-| GC-226 | HIGH | HIGH | Test Coverage - MultiPhraseQuery | lucene-test-analyzer, go-elite-developer | Port TestMultiPhraseQuery.java. Multiple term positions, phrase variants. File: search/multi_phrase_query_test.go |
-| GC-227 | HIGH | HIGH | Test Coverage - SynonymQuery | lucene-test-analyzer, go-elite-developer | Port TestSynonymQuery.java. Term boosting, score aggregation. File: search/synonym_query_test.go |
-| GC-228 | HIGH | HIGH | Test Coverage - DisjunctionMaxQuery Extended | lucene-test-analyzer, go-elite-developer | Complete TestDisjunctionMaxQuery.java. Tie breaker, max score selection. File: search/disjunction_max_query_test.go |
-| GC-229 | HIGH | HIGH | Test Coverage - TermInSetQuery | lucene-test-analyzer, go-elite-developer | Port TestTermInSetQuery.java. Large term sets, automaton construction. File: search/term_in_set_query_test.go |
-| GC-230 | HIGH | HIGH | Test Coverage - AutomatonQuery | lucene-test-analyzer, go-elite-developer | Port TestAutomatonQuery.java. Automaton-based queries, compiled automata. File: search/automaton_query_test.go |
-| GC-231 | HIGH | HIGH | Test Coverage - RegexpQuery | lucene-test-analyzer, go-elite-developer | Port TestRegexpQuery.java. Regular expression queries, automaton conversion. File: search/regexp_query_test.go |
-| GC-232 | HIGH | HIGH | Test Coverage - TopDocsCollector | lucene-test-analyzer, go-elite-developer | Port TestTopDocsCollector.java. Score collection, total hits tracking. File: search/top_docs_collector_test.go |
-| GC-233 | HIGH | HIGH | Test Coverage - TopFieldCollector | lucene-test-analyzer, go-elite-developer | Port TestTopFieldCollector.java. Sort field collection, early termination. File: search/top_field_collector_test.go |
-| GC-234 | HIGH | HIGH | Test Coverage - TopDocsMerge | lucene-test-analyzer, go-elite-developer | Port TestTopDocsMerge.java. Score merging across segments, doc ID translation. File: search/top_docs_merge_test.go |
-| GC-235 | HIGH | HIGH | Test Coverage - MultiCollector | lucene-test-analyzer, go-elite-developer | Port TestMultiCollector.java. Multi-collector composition, parallel collection. File: search/multi_collector_test.go |
-| GC-236 | HIGH | HIGH | Test Coverage - ConjunctionDISI | lucene-test-analyzer, go-elite-developer | Port TestConjunctionDISI.java. AND operation, cost computation. File: search/conjunction_disi_test.go |
-| GC-237 | HIGH | HIGH | Test Coverage - DisjunctionDISIApproximation | lucene-test-analyzer, go-elite-developer | Port TestDisjunctionDISIApproximation.java. Approximate scoring, two-phase iteration. File: search/disjunction_disi_approximation_test.go |
-| GC-238 | HIGH | HIGH | Test Coverage - SearcherManager | lucene-test-analyzer, go-elite-developer | Port TestSearcherManager.java. NRT reopen, thread safety, lifecycle. File: search/searcher_manager_test.go |
-| GC-239 | HIGH | HIGH | Test Coverage - SearchAfter Pagination | lucene-test-analyzer, go-elite-developer | Port TestSearchAfter.java. Cursor-based pagination, sort values. File: search/search_after_test.go |
-| GC-240 | MEDIUM | HIGH | Test Coverage - PhrasePrefixQuery | lucene-test-analyzer, go-elite-developer | Port TestPhrasePrefixQuery.java. Wildcard phrase endings. File: search/phrase_prefix_query_test.go |
-| GC-241 | MEDIUM | HIGH | Test Coverage - BoostQuery | lucene-test-analyzer, go-elite-developer | Port TestBoostQuery.java. Score multiplication, rewrite. File: search/boost_query_test.go |
-| GC-242 | MEDIUM | HIGH | Test Coverage - PointQueries | lucene-test-analyzer, go-elite-developer | Port TestPointQueries.java. Numeric ranges, KD-tree queries. File: search/point_queries_test.go |
-| GC-243 | MEDIUM | HIGH | Test Coverage - Sort | lucene-test-analyzer, go-elite-developer | Port TestSort.java. Multi-field sort, reverse, missing values. File: search/sort_test.go |
-| GC-244 | MEDIUM | HIGH | Test Coverage - SortOptimization | lucene-test-analyzer, go-elite-developer | Port TestSortOptimization.java. Early termination, queue management. File: search/sort_optimization_test.go |
-| GC-245 | MEDIUM | MEDIUM | Test Coverage - Explanations | lucene-test-analyzer, go-elite-developer | Port TestSimpleExplanations.java, TestComplexExplanations.java. Explanation tree structure, nested query explanations. File: search/explanations_test.go |
-| GC-246 | MEDIUM | MEDIUM | Test Coverage - BM25Similarity Extended | lucene-test-analyzer, go-elite-developer | Complete TestBM25Similarity.java. k1, b parameter validation, IDF computation edge cases. File: search/bm25_similarity_test.go |
-| GC-247 | MEDIUM | MEDIUM | Test Coverage - SimilarityProvider | lucene-test-analyzer, go-elite-developer | Port TestSimilarityProvider.java. Per-field similarity, field-specific similarity. File: search/similarity_provider_test.go |
-| GC-248 | MEDIUM | MEDIUM | Test Coverage - LRUQueryCache | lucene-test-analyzer, go-elite-developer | Port TestLRUQueryCache.java. LRU eviction, cache statistics. File: search/lru_query_cache_test.go |
-| GC-249 | MEDIUM | MEDIUM | Test Coverage - QueryRescorer | lucene-test-analyzer, go-elite-developer | Port TestQueryRescorer.java. Two-pass scoring, limited rescoring. File: search/query_rescorer_test.go |
-| GC-250 | MEDIUM | MEDIUM | Test Coverage - DoubleValuesSource | lucene-test-analyzer, go-elite-developer | Port TestDoubleValuesSource.java. Numeric function queries, long function queries. File: search/values_source_test.go |
-| GC-251 | MEDIUM | MEDIUM | Test Coverage - KnnFloatVectorQuery | lucene-test-analyzer, go-elite-developer | Port TestKnnFloatVectorQuery.java. KNN float vectors, vector search. File: search/knn_float_vector_query_test.go |
-| GC-252 | MEDIUM | MEDIUM | Test Coverage - MatchesIterator | lucene-test-analyzer, go-elite-developer | Port TestMatchesIterator.java. Position highlighting, matches API. File: search/matches_iterator_test.go |
-
----
-
-### Phase 22: Test Coverage Expansion - Store Package (MEDIUM Priority)
-
-Core I/O and directory tests.
-
-| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | ACTIONABLE TECHNICAL DESCRIPTION |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| GC-253 | HIGH | HIGH | Test Coverage - BufferedChecksum | lucene-test-analyzer, go-elite-developer | Port TestBufferedChecksum.java. Checksum computation, updateShort/Int/Long methods, chunk boundaries. File: store/buffered_checksum_test.go |
-| GC-254 | HIGH | HIGH | Test Coverage - BufferedIndexInput | lucene-test-analyzer, go-elite-developer | Port TestBufferedIndexInput.java. Read past buffer boundaries, EOF detection, backwards reads, bulk primitive reads. File: store/buffered_index_input_test.go |
-| GC-255 | HIGH | HIGH | Test Coverage - ByteArrayDataInput | lucene-test-analyzer, go-elite-developer | Port TestByteArrayDataInput.java. Little-endian encoding, readString, EOF state. File: store/byte_array_data_input_test.go |
-| GC-256 | HIGH | HIGH | Test Coverage - ByteBuffersDataInput | lucene-test-analyzer, go-elite-developer | Port TestByteBuffersDataInput.java. Position tracking, EOF exceptions, slice correctness, large buffers. File: store/byte_buffers_data_input_test.go |
-| GC-257 | HIGH | HIGH | Test Coverage - ByteBuffersDataOutput | lucene-test-analyzer, go-elite-developer | Port TestByteBuffersDataOutput.java. Buffer recycling, RAM usage tracking, write operations. File: store/byte_buffers_data_output_test.go |
-| GC-258 | HIGH | HIGH | Test Coverage - IndexOutputAlignment | lucene-test-analyzer, go-elite-developer | Port TestIndexOutputAlignment.java. alignOffset calculations, padding bytes, memory-mapped I/O optimization. File: store/index_output_alignment_test.go |
-| GC-259 | MEDIUM | HIGH | Test Coverage - FileSwitchDirectory | lucene-test-analyzer, go-elite-developer | Port TestFileSwitchDirectory.java. Split files between directories, pending deletion tracking. File: store/file_switch_directory_test.go |
-| GC-260 | MEDIUM | HIGH | Test Coverage - NRTCachingDirectory | lucene-test-analyzer, go-elite-developer | Port TestNRTCachingDirectory.java. NRT caching with IndexWriter, temp output uniqueness, RAM tracking. File: store/nrt_caching_directory_test.go |
-| GC-261 | MEDIUM | MEDIUM | Test Coverage - MultiMMap | lucene-test-analyzer, go-elite-developer | Port TestMultiMMap.java. Files > 2GB, clone safety, slice safety, seeking exceptions. File: store/multi_mmap_test.go |
-| GC-262 | MEDIUM | MEDIUM | Test Coverage - SleepingLockWrapper | lucene-test-analyzer, go-elite-developer | Port TestSleepingLockWrapper.java. Lock retry with polling interval and timeout. File: store/sleeping_lock_wrapper_test.go |
-| GC-263 | MEDIUM | MEDIUM | Test Coverage - StressLockFactories | lucene-test-analyzer, go-elite-developer | Port TestStressLockFactories.java. Multi-process lock contention, lock ordering. File: store/stress_lock_factories_test.go |
-| GC-264 | MEDIUM | MEDIUM | Test Coverage - OutputStreamIndexOutput | lucene-test-analyzer, go-elite-developer | Port TestOutputStreamIndexOutput.java. Little-endian encoding for all primitives, file pointer tracking. File: store/output_stream_index_output_test.go |
-| GC-265 | MEDIUM | MEDIUM | Test Coverage - InputStreamDataInput | lucene-test-analyzer, go-elite-developer | Port TestInputStreamDataInput.java. Skip without reading, EOF on skip past end. File: store/input_stream_data_input_test.go |
-
----
-
-### Phase 23: Test Coverage Expansion - Util Package (MEDIUM Priority)
-
-Core utility and data structure tests.
-
-| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | ACTIONABLE TECHNICAL DESCRIPTION |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| GC-266 | HIGH | HIGH | Test Coverage - BytesRefHash | lucene-test-analyzer, go-elite-developer | Port TestBytesRefHash.java. Size tracking, get/compact/sort operations, add/find, concurrent access, large value handling. File: util/bytes_ref_hash_test.go |
-| GC-267 | HIGH | HIGH | Test Coverage - CharsRef | lucene-test-analyzer, go-elite-developer | Port TestCharsRef.java. UTF-16 in UTF-8 order, append/copy/charAt/subSequence operations. File: util/chars_ref_test.go |
-| GC-268 | HIGH | HIGH | Test Coverage - ArrayUtil | lucene-test-analyzer, go-elite-developer | Port TestArrayUtil.java. Growth patterns, max size limits, parseInt, introSort/timSort stability, select algorithm. File: util/array_util_test.go |
-| GC-269 | HIGH | HIGH | Test Coverage - ByteBlockPool | lucene-test-analyzer, go-elite-developer | Port TestByteBlockPool.java. Read/write with tracking, large random blocks, cross-pool operations, position tracking. File: util/byte_block_pool_test.go |
-| GC-270 | HIGH | HIGH | Test Coverage - NumericUtils | lucene-test-analyzer, go-elite-developer | Port TestNumericUtils.java. Long/int conversion and ordering, special values, NaN ordering, round-trips. File: util/numeric_utils_test.go |
-| GC-271 | HIGH | HIGH | Test Coverage - SmallFloat | lucene-test-analyzer, go-elite-developer | Port TestSmallFloat.java. Byte to float conversion, float to byte conversion, overflow/underflow, edge cases. File: util/small_float_test.go |
-| GC-272 | HIGH | HIGH | Test Coverage - StringHelper | lucene-test-analyzer, go-elite-developer | Port TestStringHelper.java. BytesDifference, startsWith/endsWith, MurmurHash3, sortKeyLength. File: util/string_helper_test.go |
-| GC-273 | MEDIUM | HIGH | Test Coverage - FixedBitDocIdSet | lucene-test-analyzer, go-elite-developer | Port TestFixedBitDocIdSet.java. Iterator behavior, filter implementation, cardinality operations. File: util/fixed_bit_doc_id_set_test.go |
-| GC-274 | MEDIUM | HIGH | Test Coverage - SparseFixedBitSet | lucene-test-analyzer, go-elite-developer | Port TestSparseFixedBitSet.java. Sparse representation, cardinality, set/clear operations. File: util/sparse_fixed_bit_set_test.go |
-| GC-275 | MEDIUM | HIGH | Test Coverage - LongBitSet | lucene-test-analyzer, go-elite-developer | Port TestLongBitSet.java. Set/clear/get operations, cardinality and intersection count, nextSetBit operations. File: util/long_bit_set_test.go |
-| GC-276 | MEDIUM | MEDIUM | Test Coverage - BitUtil | lucene-test-analyzer, go-elite-developer | Port TestBitUtil.java. Bit counting operations, table lookups, operations across word boundaries. File: util/bit_util_test.go |
-| GC-277 | MEDIUM | MEDIUM | Test Coverage - CollectionUtil | lucene-test-analyzer, go-elite-developer | Port TestCollectionUtil.java. IntroSort on collections, TimSort on collections, stability guarantees. File: util/collection_util_test.go |
-| GC-278 | MEDIUM | MEDIUM | Test Coverage - PagedBytes | lucene-test-analyzer, go-elite-developer | Port TestPagedBytes.java. Page management, random access, copy operations. File: util/paged_bytes_test.go |
-| GC-279 | MEDIUM | MEDIUM | Test Coverage - SetOnce | lucene-test-analyzer, go-elite-developer | Port TestSetOnce.java. Single assignment enforcement, AlreadySetException. File: util/set_once_test.go |
-| GC-280 | MEDIUM | MEDIUM | Test Coverage - IOUtils | lucene-test-analyzer, go-elite-developer | Port TestIOUtils.java. Close handling, exception handling, resource management. File: util/io_utils_test.go |
-| GC-281 | MEDIUM | MEDIUM | Test Coverage - SloppyMath | lucene-test-analyzer, go-elite-developer | Port TestSloppyMath.java. Haversine distance, sloppy approximations within tolerance. File: util/sloppy_math_test.go |
-| GC-282 | MEDIUM | MEDIUM | Test Coverage - DocIdSetBuilder | lucene-test-analyzer, go-elite-developer | Port TestDocIdSetBuilder.java. Building DocIdSet from various sources, efficient bitset/iterator creation. File: util/doc_id_set_builder_test.go |
-| GC-283 | MEDIUM | MEDIUM | Test Coverage - MergedIterator | lucene-test-analyzer, go-elite-developer | Port TestMergedIterator.java. Correct merge order, duplicate handling. File: util/merged_iterator_test.go |
-| GC-284 | MEDIUM | MEDIUM | Test Coverage - LiveDocs | lucene-test-analyzer, go-elite-developer | Port TestLiveDocs.java. Live/dead document tracking, bit operations for doc status. File: util/live_docs_test.go |
-| GC-285 | MEDIUM | MEDIUM | Test Coverage - Sorters (IntroSort, TimSort) | lucene-test-analyzer, go-elite-developer | Port TestIntroSorter.java, TestTimSorter.java. Sort correctness, stability guarantees, worst-case handling. File: util/sorters_test.go |
-
----
-
-### Phase 24: Test Coverage Expansion - Document Package (LOW Priority)
-
-Document model tests.
-
-| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | ACTIONABLE TECHNICAL DESCRIPTION |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| GC-286 | MEDIUM | MEDIUM | Test Coverage - Document Extended | lucene-test-analyzer, go-elite-developer | Complete TestDocument.java. Field removal, field get methods, binary fields, lazy field loading. File: document/document_extended_test.go |
-| GC-287 | MEDIUM | MEDIUM | Test Coverage - Field Extended | lucene-test-analyzer, go-elite-developer | Extended field tests, field options, stored/tokenized/indexed combinations. File: document/field_extended_test.go |
-| GC-288 | LOW | LOW | Test Coverage - Lazy Document Loading | lucene-test-analyzer, go-elite-developer | Test lazy document loading, field lazy loading on demand. File: document/lazy_document_test.go |
+| Phase | Status | Description |
+| :--- | :--- | :--- |
+| 1-24 | COMPLETED | All implementation and test coverage phases completed |
 
 ---
 
@@ -240,12 +43,12 @@ Document model tests.
 | 16 | COMPLETED | GC-109 to GC-143 | Test Coverage - Lucene Compatibility | Phases 2-15 |
 | 17 | COMPLETED | GC-144 to GC-154 | Core Implementation Completeness | Phase 16 |
 | 18 | COMPLETED | GC-155 to GC-172 | Test Coverage - Analysis Package | Phase 17 |
-| 19 | PENDING | GC-173 to GC-197 | Test Coverage - Index Package | Phase 18 |
-| 20 | PENDING | GC-198 to GC-218 | Test Coverage - Codecs Package | Phase 19 |
-| 21 | PENDING | GC-219 to GC-252 | Test Coverage - Search Package | Phase 20 |
-| 22 | PENDING | GC-253 to GC-265 | Test Coverage - Store Package | Phase 21 |
-| 23 | PENDING | GC-266 to GC-285 | Test Coverage - Util Package | Phase 22 |
-| 24 | PENDING | GC-286 to GC-288 | Test Coverage - Document Package | Phase 23 |
+| 19 | COMPLETED | GC-173 to GC-197 | Test Coverage - Index Package | Phase 18 |
+| 20 | COMPLETED | GC-198 to GC-218 | Test Coverage - Codecs Package | Phase 18, 19 |
+| 21 | COMPLETED | GC-219 to GC-252 | Test Coverage - Search Package | Phase 20 |
+| 22 | COMPLETED | GC-253 to GC-265 | Test Coverage - Store Package | Phase 21 |
+| 23 | COMPLETED | GC-266 to GC-285 | Test Coverage - Util Package | Phase 22 |
+| 24 | COMPLETED | GC-286 to GC-288 | Test Coverage - Document Package | Phase 23 |
 
 ---
 
@@ -297,6 +100,96 @@ Document model tests.
 | GC-153 | Complete IndexDeletionPolicy | go-elite-developer, gocene-lucene-specialist | MEDIUM | MEDIUM |
 
 **Dependencies:** Phase 7 (Merge System)
+
+---
+
+### Phase 22: Test Coverage Expansion - Store Package
+**Status:** COMPLETED | **Tasks:** 13 | **Completed:** 2026-03-15
+**Focus:** Port Apache Lucene Store tests for byte-level compatibility
+**Dependencies:** Phase 21 (Search Package Test Coverage)
+
+| Task ID | Task Name | Specialists | SEVERITY | PRIORITY |
+|:--------|:----------|:------------|:---------|:---------|
+| GC-253 | TestBufferedChecksum | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-254 | TestBufferedIndexInput | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-255 | TestByteArrayDataInput | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-256 | TestByteBuffersDataInput | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-257 | TestByteBuffersDataOutput | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-258 | TestIndexOutputAlignment | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-259 | TestFileSwitchDirectory | lucene-test-analyzer, go-elite-developer | MEDIUM | HIGH |
+| GC-260 | TestNRTCachingDirectory | lucene-test-analyzer, go-elite-developer | MEDIUM | HIGH |
+| GC-261 | TestMultiMMap | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+| GC-262 | TestSleepingLockWrapper | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+| GC-263 | TestStressLockFactories | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+| GC-264 | TestOutputStreamIndexOutput | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+| GC-265 | TestInputStreamDataInput | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+
+**Test Files Created:**
+- store/buffered_checksum_test.go
+- store/buffered_index_input_test.go
+- store/byte_array_data_input_test.go
+- store/byte_buffers_data_input_test.go
+- store/byte_buffers_data_output_test.go
+- store/index_output_alignment_test.go
+- store/file_switch_directory_test.go
+- store/nrt_caching_directory_test.go
+- store/multi_mmap_test.go
+- store/sleeping_lock_wrapper_test.go
+- store/stress_lock_factories_test.go
+- store/output_stream_index_output_test.go
+- store/input_stream_data_input_test.go
+
+---
+
+### Phase 23: Test Coverage Expansion - Util Package
+**Status:** COMPLETED | **Tasks:** 20 | **Completed:** 2026-03-15
+**Focus:** Port Apache Lucene Util tests for byte-level compatibility
+**Dependencies:** Phase 22 (Store Package Test Coverage)
+
+| Task ID | Task Name | Specialists | SEVERITY | PRIORITY |
+|:--------|:----------|:------------|:---------|:---------|
+| GC-266 | TestBytesRefHash | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-267 | TestCharsRef | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-268 | TestArrayUtil | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-269 | TestByteBlockPool | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-270 | TestNumericUtils | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-271 | TestSmallFloat | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-272 | TestStringHelper | lucene-test-analyzer, go-elite-developer | HIGH | HIGH |
+| GC-273 | TestFixedBitDocIdSet | lucene-test-analyzer, go-elite-developer | MEDIUM | HIGH |
+| GC-274 | TestSparseFixedBitSet | lucene-test-analyzer, go-elite-developer | MEDIUM | HIGH |
+| GC-275 | TestLongBitSet | lucene-test-analyzer, go-elite-developer | MEDIUM | HIGH |
+| GC-276 | TestBitUtil | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+| GC-277 | TestCollectionUtil | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+| GC-278 | TestPagedBytes | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+| GC-279 | TestSetOnce | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+| GC-280 | TestIOUtils | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+| GC-281 | TestSloppyMath | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+| GC-282 | TestDocIdSetBuilder | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+| GC-283 | TestMergedIterator | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+| GC-284 | TestLiveDocs | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+| GC-285 | TestSorters | lucene-test-analyzer, go-elite-developer | MEDIUM | MEDIUM |
+
+**Test Files Created:**
+- util/bytes_ref_hash_test.go
+- util/chars_ref_test.go
+- util/array_util_test.go
+- util/byte_block_pool_test.go
+- util/numeric_utils_test.go
+- util/small_float_test.go
+- util/string_helper_test.go
+- util/fixed_bit_doc_id_set_test.go
+- util/sparse_fixed_bit_set_test.go
+- util/long_bit_set_test.go
+- util/bit_util_test.go
+- util/collection_util_test.go
+- util/paged_bytes_test.go
+- util/set_once_test.go
+- util/io_utils_test.go
+- util/sloppy_math_test.go
+- util/doc_id_set_builder_test.go
+- util/merged_iterator_test.go
+- util/live_docs_test.go
+- util/sorters_test.go
 
 ---
 
@@ -404,6 +297,39 @@ Document model tests.
 
 ## COMPLETED TASKS
 
+### Phase 23: Util Package Test Coverage (Completed: 2026-03-15)
+
+| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | COMPLETED | ACTIONABLE TECHNICAL DESCRIPTION |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| GC-266 | HIGH | HIGH | TestBytesRefHash | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestBytesRefHash.java. 15 test functions for size tracking, get/compact/sort operations, add/find, concurrent access. File: util/bytes_ref_hash_test.go |
+| GC-267 | HIGH | HIGH | TestCharsRef | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestCharsRef.java. 24 test functions for UTF-16 in UTF-8 order, append/copy/charAt/subSequence. File: util/chars_ref_test.go |
+| GC-268 | HIGH | HIGH | TestArrayUtil | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestArrayUtil.java. 22 test functions for growth patterns, max size limits, parseInt, select algorithm. File: util/array_util_test.go |
+| GC-269 | HIGH | HIGH | TestByteBlockPool | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestByteBlockPool.java. 8 test functions for read/write with tracking, large random blocks, cross-pool operations. File: util/byte_block_pool_test.go |
+| GC-270 | HIGH | HIGH | TestNumericUtils | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestNumericUtils.java. 18 test functions for long/int conversion, special values, NaN ordering, round-trips. File: util/numeric_utils_test.go |
+| GC-271 | HIGH | HIGH | TestSmallFloat | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestSmallFloat.java. 25 test functions for byte to float conversion, overflow/underflow, edge cases. File: util/small_float_test.go |
+| GC-272 | HIGH | HIGH | TestStringHelper | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestStringHelper.java. 12 test functions for BytesDifference, startsWith/endsWith, MurmurHash3. File: util/string_helper_test.go |
+| GC-273 | MEDIUM | HIGH | TestFixedBitDocIdSet | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestFixedBitDocIdSet.java. 14 test functions for iterator behavior, filter implementation, cardinality. File: util/fixed_bit_doc_id_set_test.go |
+| GC-274 | MEDIUM | HIGH | TestSparseFixedBitSet | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestSparseFixedBitSet.java. 23 test functions for sparse representation, cardinality, set/clear operations. File: util/sparse_fixed_bit_set_test.go |
+| GC-275 | MEDIUM | HIGH | TestLongBitSet | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestLongBitSet.java. 22 test functions for set/clear/get, cardinality, intersection count, nextSetBit. File: util/long_bit_set_test.go |
+| GC-276 | MEDIUM | MEDIUM | TestBitUtil | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestBitUtil.java. 81 test functions for bit counting, table lookups, word boundary operations. File: util/bit_util_test.go |
+| GC-277 | MEDIUM | MEDIUM | TestCollectionUtil | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestCollectionUtil.java. 16 test functions for IntroSort/TimSort on collections, stability. File: util/collection_util_test.go |
+| GC-278 | MEDIUM | MEDIUM | TestPagedBytes | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestPagedBytes.java. 21 test functions for page management, random access, copy operations. File: util/paged_bytes_test.go |
+| GC-279 | MEDIUM | MEDIUM | TestSetOnce | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestSetOnce.java. 11 test functions for single assignment enforcement, AlreadySetException. File: util/set_once_test.go |
+| GC-280 | MEDIUM | MEDIUM | TestIOUtils | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestIOUtils.java. 12 test functions for close handling, exception handling, resource management. File: util/io_utils_test.go |
+| GC-281 | MEDIUM | MEDIUM | TestSloppyMath | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestSloppyMath.java. 15 test functions for haversine distance, sloppy approximations. File: util/sloppy_math_test.go |
+| GC-282 | MEDIUM | MEDIUM | TestDocIdSetBuilder | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestDocIdSetBuilder.java. 12 test functions for building DocIdSet from various sources. File: util/doc_id_set_builder_test.go |
+| GC-283 | MEDIUM | MEDIUM | TestMergedIterator | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestMergedIterator.java. 20 test functions for correct merge order, duplicate handling. File: util/merged_iterator_test.go |
+| GC-284 | MEDIUM | MEDIUM | TestLiveDocs | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestLiveDocs.java. 18 test functions for live/dead document tracking, bit operations. File: util/live_docs_test.go |
+| GC-285 | MEDIUM | MEDIUM | TestSorters | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestIntroSorter.java and TestTimSorter.java. 32 test functions for sort correctness, stability, worst-case handling. File: util/sorters_test.go |
+
+### Phase 24: Document Package Test Coverage (Completed: 2026-03-15)
+
+| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | COMPLETED | ACTIONABLE TECHNICAL DESCRIPTION |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| GC-286 | MEDIUM | MEDIUM | TestDocumentExtended | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestDocument.java. 18 test functions for field removal, field get methods, binary fields, lazy field loading. File: document/document_extended_test.go |
+| GC-287 | MEDIUM | MEDIUM | TestFieldExtended | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Extended field tests, 24 test functions for field options, stored/tokenized/indexed combinations. File: document/field_extended_test.go |
+| GC-288 | LOW | LOW | TestLazyDocumentLoading | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported lazy document loading tests. 15 test functions for lazy document loading, field lazy loading on demand. File: document/lazy_document_test.go |
+
 ### Phase 17.1: Index Core Completeness (Completed: 2026-03-13)
 
 | ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | COMPLETED | ACTIONABLE TECHNICAL DESCRIPTION |
@@ -411,6 +337,101 @@ Document model tests.
 | GC-144 | HIGH | HIGH | Core - Complete IndexWriter flush to disk | go-elite-developer, gocene-lucene-specialist | 2026-03-13 | Implemented DocumentsWriter and DocumentsWriterPerThread with full document processing and flush to disk support. Files: index/documents_writer.go, index/documents_writer_per_thread.go, index/codec_interface.go |
 | GC-145 | HIGH | HIGH | Core - Complete DirectoryReader implementation | go-elite-developer, gocene-lucene-specialist | 2026-03-13 | Implemented GetTermVectors(), Terms(), OpenDirectoryReaderFromCommit() in LeafReader and DirectoryReader. Added SegmentCoreReaders for codec reader management. Files: index/directory_reader.go, index/segment_core_readers.go, index/codec_reader.go |
 | GC-146 | HIGH | HIGH | Core - Complete IndexReader methods | go-elite-developer, gocene-lucene-specialist | 2026-03-13 | Added reference counting (IncRef/DecRef), StoredFields/TermVectors wrappers, ReaderContext hierarchy, CacheHelper infrastructure, and LiveDocs/Bits support. Files: index/index_reader.go, index/stored_fields.go, index/reader_context.go, index/cache_helper.go, util/bits.go |
+
+### Phase 19: Index Package Test Coverage (Completed: 2026-03-14)
+
+| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | COMPLETED | ACTIONABLE TECHNICAL DESCRIPTION |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| GC-173 | HIGH | HIGH | Test Coverage - IndexWriterExceptions | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestIndexWriterExceptions.java. 35 test functions covering exception handling, corruption prevention, thread safety. File: index/index_writer_exceptions_test.go (2,246 lines) |
+| GC-174 | HIGH | HIGH | Test Coverage - IndexWriterDelete | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestIndexWriterDelete.java. 16 test functions for delete by Term/Query, update document, delete-all. File: index/index_writer_delete_test.go (1,102 lines) |
+| GC-175 | HIGH | HIGH | Test Coverage - IndexWriterCommit | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestIndexWriterCommit.java. 11 test functions for commit on close, abort, two-phase commit. File: index/index_writer_commit_test.go (1,054 lines) |
+| GC-176 | HIGH | HIGH | Test Coverage - IndexWriterConfig | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestIndexWriterConfig.java. 16 test functions for RAM buffer, merge policy, analyzer settings. File: index/index_writer_config_test.go |
+| GC-177 | HIGH | HIGH | Test Coverage - IndexWriterMergePolicy | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestIndexWriterMergePolicy.java. 26 test functions for merge policy selection and triggering. File: index/index_writer_merge_policy_test.go (1,174 lines) |
+| GC-178 | HIGH | HIGH | Test Coverage - IndexWriterMerging | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestIndexWriterMerging.java. 13 test functions for force merge, automatic merge, merge with deletions. File: index/index_writer_merging_test.go (796 lines) |
+| GC-179 | HIGH | HIGH | Test Coverage - AddIndexes | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestAddIndexes.java. 35+ test functions for adding indexes, different codecs, concurrent operations. File: index/add_indexes_test.go (1,964 lines) |
+| GC-180 | HIGH | HIGH | Test Coverage - DocumentWriter | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestDocumentWriter.java. 18 test functions for document addition, field storage, term vectors. File: index/document_writer_test.go |
+| GC-181 | HIGH | HIGH | Test Coverage - DeletionPolicy | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestDeletionPolicy.java. 33 test functions for KeepAll, KeepNone, Snapshot policies. File: index/deletion_policy_test.go (1,073 lines) |
+| GC-182 | HIGH | HIGH | Test Coverage - Norms | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestNorms.java. 8 test functions for norm storage, custom values, omit norms, merging. File: index/norms_test.go |
+| GC-183 | HIGH | HIGH | Test Coverage - Payloads | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestPayloads.java. 9 test functions for payload storage/retrieval, merging, positions. File: index/payloads_test.go |
+| GC-184 | HIGH | HIGH | Test Coverage - NumericDocValuesUpdates | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestNumericDocValuesUpdates.java. 14 test functions for numeric DV updates, concurrent updates. File: index/numeric_doc_values_updates_test.go (839 lines) |
+| GC-185 | HIGH | HIGH | Test Coverage - BinaryDocValuesUpdates | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestBinaryDocValuesUpdates.java. 28 test functions for binary DV updates, merging. File: index/binary_doc_values_updates_test.go (1,790 lines) |
+| GC-186 | MEDIUM | HIGH | Test Coverage - DirectoryReaderReopen | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestDirectoryReaderReopen.java. 13 test functions for reopen after modifications, NRT behavior. File: index/directory_reader_reopen_test.go |
+| GC-187 | MEDIUM | HIGH | Test Coverage - IndexWriterReader (NRT) | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestIndexWriterReader.java. 15 test functions for NRT reader, uncommitted changes. File: index/index_writer_reader_test.go (906 lines) |
+| GC-188 | MEDIUM | HIGH | Test Coverage - IndexSorting | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestIndexSorting.java. 18 test functions for index-time sorting, merge sorting. File: index/index_sorting_test.go |
+| GC-189 | MEDIUM | HIGH | Test Coverage - IndexWriterForceMerge | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestIndexWriterForceMerge.java. 8 test functions for force merge to single segment. File: index/index_writer_force_merge_test.go |
+| GC-190 | MEDIUM | HIGH | Test Coverage - SegmentReader | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestSegmentReader.java. 13 test functions for reading documents, term dictionaries. File: index/segment_reader_test.go |
+| GC-191 | MEDIUM | HIGH | Test Coverage - SegmentMerger | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestSegmentMerger.java. 9 test functions for merging segments, DocValues. File: index/segment_merger_test.go |
+| GC-192 | MEDIUM | HIGH | Test Coverage - CheckIndex | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestCheckIndex.java. 8 test functions for index integrity, corruption detection. File: index/check_index_test.go (804 lines) |
+| GC-193 | MEDIUM | MEDIUM | Test Coverage - SnapshotDeletionPolicy | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestSnapshotDeletionPolicy.java. 21 test functions for snapshots, concurrent writers. File: index/snapshot_deletion_policy_test.go |
+| GC-194 | MEDIUM | MEDIUM | Test Coverage - LogMergePolicy | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestLogMergePolicy.java. 17 test functions for log merge policy config. File: index/log_merge_policy_test.go |
+| GC-195 | MEDIUM | MEDIUM | Test Coverage - Crash Recovery | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestCrash.java and TestCrashCausesCorruptIndex.java. 6 test functions for crash scenarios. File: index/crash_test.go (782 lines) |
+| GC-196 | MEDIUM | MEDIUM | Test Coverage - BufferedUpdates | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestBufferedUpdates.java. 2 test functions for buffered deletes/updates. File: index/buffered_updates_test.go |
+| GC-197 | MEDIUM | MEDIUM | Test Coverage - FlushByRamOrCountsPolicy | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestFlushByRamOrCountsPolicy.java. 9 test functions for flush by RAM/docs. File: index/flush_policy_test.go |
+
+### Phase 20: Codecs Package Test Coverage (Completed: 2026-03-14)
+
+| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | COMPLETED | ACTIONABLE TECHNICAL DESCRIPTION |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| GC-198 | HIGH | HIGH | Test Coverage - CompoundFormat | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestCompoundFormat.java and TestLucene90CompoundFormat.java. 17 test functions for CFS thresholds, compound file read/write. File: codecs/compound_format_test.go |
+| GC-199 | HIGH | HIGH | Test Coverage - Lucene90DocValuesFormat | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestLucene90DocValuesFormat.java. 18 test functions for SortedSet variable length, sparse doc values, terms enum. File: codecs/lucene90_doc_values_format_test.go (1,357 lines) |
+| GC-200 | HIGH | HIGH | Test Coverage - DocValues Merge | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestLucene90DocValuesFormatMergeInstance.java. 11 test functions for doc values merging during segment merges. File: codecs/doc_values_merge_test.go (616 lines) |
+| GC-201 | HIGH | HIGH | Test Coverage - Lucene90LiveDocsFormat | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestLucene90LiveDocsFormat.java. 20 test functions for live documents bitset serialization, live docs merge. File: codecs/lucene90_live_docs_format_test.go (1,405 lines) |
+| GC-202 | HIGH | HIGH | Test Coverage - Lucene90NormsFormat | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestLucene90NormsFormat.java. 29 test functions for norms storage format, norms merge. File: codecs/lucene90_norms_format_test.go (1,116 lines) |
+| GC-203 | HIGH | HIGH | Test Coverage - Lucene90PointsFormat | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestLucene90PointsFormat.java. 20 test functions for KD-tree based spatial points storage. File: codecs/lucene90_points_format_test.go (807 lines) |
+| GC-204 | HIGH | HIGH | Test Coverage - Lucene90StoredFieldsFormat | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestLucene90StoredFieldsFormat.java. 16 test functions for skip redundant prefetches, stored fields. File: codecs/lucene90_stored_fields_format_test.go (468 lines) |
+| GC-205 | HIGH | HIGH | Test Coverage - Lucene90TermVectorsFormat | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestLucene90TermVectorsFormat.java. 12 test functions for term vectors storage and retrieval. File: codecs/lucene90_term_vectors_format_test.go |
+| GC-206 | HIGH | HIGH | Test Coverage - IndexedDISI | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestIndexedDISI.java. 18 test functions for document iterator with skip lists. File: codecs/indexed_disi_test.go (1,075 lines) |
+| GC-207 | HIGH | HIGH | Test Coverage - CompressingStoredFields | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestCompressingStoredFieldsFormat.java. 7 test functions for compression modes, chunk size configurations. File: codecs/compressing_stored_fields_format_test.go |
+| GC-208 | HIGH | HIGH | Test Coverage - FOR/PForUtil | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestForUtil.java and TestPForUtil.java. 13 test functions for Frame of Reference encoding/decoding. Files: codecs/for_util_test.go, codecs/pfor_util_test.go |
+| GC-209 | HIGH | HIGH | Test Coverage - Lucene104PostingsFormat | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Completed TestLucene104PostingsFormat.java. 5 test functions for VInt15/VLong15 encoding, final sub-block handling, impact serialization. File: codecs/lucene104_postings_format_test.go |
+| GC-210 | HIGH | HIGH | Test Coverage - Lucene99HnswVectorsFormat | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestLucene99HnswVectorsFormat.java. 11 test functions for max connections/beam width limits, off-heap size calculation. File: codecs/lucene99_hnsw_vectors_format_test.go |
+| GC-211 | MEDIUM | HIGH | Test Coverage - PerFieldPostingsFormat | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestPerFieldPostingsFormat.java. 12 test functions for merge stability, postings enum reuse per field. File: codecs/per_field_postings_format_test.go |
+| GC-212 | MEDIUM | HIGH | Test Coverage - PerFieldDocValuesFormat | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestPerFieldDocValuesFormat.java. 4 test functions for per-field doc values format. File: codecs/per_field_doc_values_format_test.go |
+| GC-213 | MEDIUM | MEDIUM | Test Coverage - Lucene94FieldInfosFormat | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Completed TestLucene94FieldInfosFormat.java. 16 test functions for doc values skip index support. File: codecs/lucene94_field_infos_format_test.go |
+| GC-214 | MEDIUM | MEDIUM | Test Coverage - Lucene90FieldInfosFormat | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Completed TestLucene90FieldInfosFormat.java. 22 test functions for randomized field info tests. File: codecs/lucene90_field_infos_format_test.go (1,487 lines) |
+| GC-215 | MEDIUM | MEDIUM | Test Coverage - Compression Modes | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestFastCompressionMode.java, TestHighCompressionMode.java, TestFastDecompressionMode.java. 21 test functions for compression/decompression modes. File: codecs/compression_modes_test.go (621 lines) |
+| GC-216 | MEDIUM | MEDIUM | Test Coverage - HNSW Vector Scorer | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestFlatVectorScorer.java. 14 test functions for flat vector scoring implementation. File: codecs/flat_vector_scorer_test.go (1,494 lines) |
+| GC-217 | MEDIUM | MEDIUM | Test Coverage - Trie Blocktree | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestTrie.java (lucene103/blocktree). 3 test functions for trie data structure. File: codecs/blocktree/trie_test.go (438 lines) |
+| GC-218 | MEDIUM | MEDIUM | Test Coverage - Lucene104ScalarQuantizedVectors | lucene-test-analyzer, go-elite-developer | 2026-03-14 | Ported TestLucene104ScalarQuantizedVectorsFormat.java. 8 test functions for scalar quantization. File: codecs/scalar_quantized_vectors_test.go (882 lines) |
+
+### Phase 21: Search Package Test Coverage (Completed: 2026-03-15)
+
+| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | COMPLETED | ACTIONABLE TECHNICAL DESCRIPTION |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| GC-219 | HIGH | HIGH | Test Coverage - Boolean2 Scoring | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestBoolean2.java. 8 test functions for BooleanQuery scoring order, multi-segment search, bucket gaps, coordination factor. File: search/boolean2_test.go |
+| GC-220 | HIGH | HIGH | Test Coverage - BooleanMinShouldMatch | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestBooleanMinShouldMatch.java. 17 test functions for minShouldMatch validation, clause counting, hit verification. File: search/boolean_min_should_match_test.go (477 lines) |
+| GC-221 | HIGH | HIGH | Test Coverage - BooleanScorer | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestBooleanScorer.java. 11 test functions for bulk scoring, bucket management, cost estimation. File: search/boolean_scorer_test.go (547 lines) |
+| GC-222 | HIGH | HIGH | Test Coverage - BooleanScorerSupplier | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestBooleanScorerSupplier.java. 16 test functions for scorer selection logic, cost-based optimization. File: search/boolean_scorer_supplier_test.go (808 lines) |
+| GC-223 | HIGH | HIGH | Test Coverage - BooleanRewrites | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestBooleanRewrites.java. 29 test functions for complex rewrite scenarios, query simplification. File: search/boolean_rewrites_test.go |
+| GC-224 | HIGH | HIGH | Test Coverage - TermScorer | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestTermScorer.java. 8 test functions for term scoring, doc frequency, collection statistics. File: search/term_scorer_test.go (502 lines) |
+| GC-225 | HIGH | HIGH | Test Coverage - SloppyPhraseQuery | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestSloppyPhraseQuery.java and TestSloppyPhraseQuery2.java. 17 test functions for sloppy phrase scoring, edit distance, complex sloppy scenarios. File: search/sloppy_phrase_query_test.go (734 lines) |
+| GC-226 | HIGH | HIGH | Test Coverage - MultiPhraseQuery | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestMultiPhraseQuery.java. 36 test functions for multiple term positions, phrase variants. File: search/multi_phrase_query_test.go |
+| GC-227 | HIGH | HIGH | Test Coverage - SynonymQuery | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestSynonymQuery.java. 66 test functions for term boosting, score aggregation. File: search/synonym_query_test.go (1,593 lines) |
+| GC-228 | HIGH | HIGH | Test Coverage - DisjunctionMaxQuery Extended | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Completed TestDisjunctionMaxQuery.java. 26 test functions for tie breaker, max score selection. File: search/disjunction_max_query_test.go (632 lines) |
+| GC-229 | HIGH | HIGH | Test Coverage - TermInSetQuery | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestTermInSetQuery.java. 20 test functions for large term sets, automaton construction. File: search/term_in_set_query_test.go |
+| GC-230 | HIGH | HIGH | Test Coverage - AutomatonQuery | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestAutomatonQuery.java. 8 test functions for automaton-based queries, compiled automata. File: search/automaton_query_test.go (845 lines) |
+| GC-231 | HIGH | HIGH | Test Coverage - RegexpQuery | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestRegexpQuery.java. 20 test functions for regular expression queries, automaton conversion. File: search/regexp_query_test.go |
+| GC-232 | HIGH | HIGH | Test Coverage - TopDocsCollector | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestTopDocsCollector.java. 12 test functions for score collection, total hits tracking. File: search/top_docs_collector_test.go |
+| GC-233 | HIGH | HIGH | Test Coverage - TopFieldCollector | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestTopFieldCollector.java. 13 test functions for sort field collection, early termination. File: search/top_field_collector_test.go (650 lines) |
+| GC-234 | HIGH | HIGH | Test Coverage - TopDocsMerge | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestTopDocsMerge.java. 13 test functions for score merging across segments, doc ID translation. File: search/top_docs_merge_test.go |
+| GC-235 | HIGH | HIGH | Test Coverage - MultiCollector | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestMultiCollector.java. 12 test functions for multi-collector composition, parallel collection. File: search/multi_collector_test.go (1,211 lines) |
+| GC-236 | HIGH | HIGH | Test Coverage - ConjunctionDISI | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestConjunctionDISI.java. 11 test functions for AND operation, cost computation. File: search/conjunction_disi_test.go (766 lines) |
+| GC-237 | HIGH | HIGH | Test Coverage - DisjunctionDISIApproximation | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestDisjunctionDISIApproximation.java. 3 test functions for approximate scoring, two-phase iteration. File: search/disjunction_disi_approximation_test.go |
+| GC-238 | HIGH | HIGH | Test Coverage - SearcherManager | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestSearcherManager.java. 12 test functions for NRT reopen, thread safety, lifecycle. File: search/searcher_manager_test.go (1,182 lines) |
+| GC-239 | HIGH | HIGH | Test Coverage - SearchAfter Pagination | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestSearchAfter.java. 7 test functions for cursor-based pagination, sort values. File: search/search_after_test.go (348 lines) |
+| GC-240 | MEDIUM | HIGH | Test Coverage - PhrasePrefixQuery | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestPhrasePrefixQuery.java. Test wildcard phrase endings. File: search/phrase_prefix_query_test.go |
+| GC-241 | MEDIUM | HIGH | Test Coverage - BoostQuery | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestBoostQuery.java. Test score multiplication, rewrite. File: search/boost_query_test.go |
+| GC-242 | MEDIUM | HIGH | Test Coverage - PointQueries | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestPointQueries.java. Test numeric ranges, KD-tree queries. File: search/point_queries_test.go |
+| GC-243 | MEDIUM | HIGH | Test Coverage - Sort | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestSort.java. Test multi-field sort, reverse, missing values. File: search/sort_test.go |
+| GC-244 | MEDIUM | HIGH | Test Coverage - SortOptimization | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestSortOptimization.java. Test early termination, queue management. File: search/sort_optimization_test.go |
+| GC-245 | MEDIUM | MEDIUM | Test Coverage - Explanations | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestSimpleExplanations.java and TestComplexExplanations.java. Test explanation tree structure, nested query explanations. File: search/explanations_test.go |
+| GC-246 | MEDIUM | MEDIUM | Test Coverage - BM25Similarity Extended | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Completed TestBM25Similarity.java. Test k1, b parameter validation, IDF computation edge cases. File: search/bm25_similarity_test.go |
+| GC-247 | MEDIUM | MEDIUM | Test Coverage - SimilarityProvider | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestSimilarityProvider.java. Test per-field similarity, field-specific similarity. File: search/similarity_provider_test.go |
+| GC-248 | MEDIUM | MEDIUM | Test Coverage - LRUQueryCache | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestLRUQueryCache.java. Test LRU eviction, cache statistics. File: search/lru_query_cache_test.go |
+| GC-249 | MEDIUM | MEDIUM | Test Coverage - QueryRescorer | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestQueryRescorer.java. Test two-pass scoring, limited rescoring. File: search/query_rescorer_test.go |
+| GC-250 | MEDIUM | MEDIUM | Test Coverage - DoubleValuesSource | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestDoubleValuesSource.java. Test numeric function queries, long function queries. File: search/values_source_test.go |
+| GC-251 | MEDIUM | MEDIUM | Test Coverage - KnnFloatVectorQuery | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestKnnFloatVectorQuery.java. Test KNN float vectors, vector search. File: search/knn_float_vector_query_test.go |
+| GC-252 | MEDIUM | MEDIUM | Test Coverage - MatchesIterator | lucene-test-analyzer, go-elite-developer | 2026-03-15 | Ported TestMatchesIterator.java. Test position highlighting, matches API. File: search/matches_iterator_test.go |
 
 ### Phase 16.1: Store Tests (Completed: 2026-03-20)
 

@@ -400,6 +400,16 @@ func (r *DirectoryReader) GetSegmentInfos() *SegmentInfos {
 	return r.segmentInfos
 }
 
+// GetIndexCommit returns the IndexCommit that this reader is reading from.
+func (r *DirectoryReader) GetIndexCommit() *IndexCommit {
+	if r.segmentInfos == nil {
+		return nil
+	}
+	commit := NewIndexCommit(r.segmentInfos)
+	commit.SetDirectory(r.directory)
+	return commit
+}
+
 // GetSegmentReaders returns the SegmentReaders.
 func (r *DirectoryReader) GetSegmentReaders() []*SegmentReader {
 	return r.readers
@@ -708,6 +718,24 @@ func (dtv *directoryTermVectors) GetField(docID int, field string) (Terms, error
 		remainingDocID -= maxDoc
 	}
 	return nil, fmt.Errorf("document ID %d out of range", docID)
+}
+
+// ListCommits returns all commits in the given directory.
+// This is the Go equivalent of Lucene's DirectoryReader.listCommits().
+func ListCommits(dir store.Directory) (IndexCommitList, error) {
+	// Read the current segment infos to find all commits
+	si, err := ReadSegmentInfos(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	// For now, just return the current commit
+	// In a full implementation, this would scan the directory for all
+	// segments files and create an IndexCommit for each one
+	commit := NewIndexCommit(si)
+	commit.SetDirectory(dir)
+
+	return IndexCommitList{commit}, nil
 }
 
 // Ensure DirectoryReader implements IndexReaderInterface

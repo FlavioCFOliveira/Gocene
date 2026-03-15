@@ -539,7 +539,7 @@ func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
 	}
 
 	if maxGen < 0 {
-		return nil, fmt.Errorf("no segments file found in directory")
+		return nil, NewIndexNotFoundException("no segments* file found in directory", nil)
 	}
 
 	in, err := directory.OpenInput(latestFile, store.IOContextRead)

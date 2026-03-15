@@ -4,6 +4,8 @@
 
 package search
 
+import "github.com/FlavioCFOliveira/Gocene/index"
+
 // Weight is the internal representation of a query.
 type Weight interface {
 	// GetQuery returns the parent query.
@@ -16,7 +18,7 @@ type Weight interface {
 	Normalize(norm float32)
 
 	// Scorer creates a scorer for this weight.
-	Scorer(reader IndexReader) (Scorer, error)
+	Scorer(reader index.IndexReaderInterface) (Scorer, error)
 }
 
 // BaseWeight provides common functionality for weights.

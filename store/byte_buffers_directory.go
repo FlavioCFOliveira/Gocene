@@ -6,6 +6,7 @@ package store
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"sort"
 	"sync"
@@ -318,6 +319,67 @@ func (in *ByteBuffersIndexInput) ReadBytesN(n int) ([]byte, error) {
 	return b, nil
 }
 
+// ReadShort reads a 16-bit value.
+func (in *ByteBuffersIndexInput) ReadShort() (int16, error) {
+	buf := make([]byte, 2)
+	if err := in.ReadBytes(buf); err != nil {
+		return 0, err
+	}
+	return int16(binary.LittleEndian.Uint16(buf)), nil
+}
+
+// ReadInt reads a 32-bit value.
+func (in *ByteBuffersIndexInput) ReadInt() (int32, error) {
+	buf := make([]byte, 4)
+	if err := in.ReadBytes(buf); err != nil {
+		return 0, err
+	}
+	return int32(binary.LittleEndian.Uint32(buf)), nil
+}
+
+// ReadLong reads a 64-bit value.
+func (in *ByteBuffersIndexInput) ReadLong() (int64, error) {
+	buf := make([]byte, 8)
+	if err := in.ReadBytes(buf); err != nil {
+		return 0, err
+	}
+	return int64(binary.LittleEndian.Uint64(buf)), nil
+}
+
+// ReadString reads a string.
+func (in *ByteBuffersIndexInput) ReadString() (string, error) {
+	length, err := in.ReadVInt()
+	if err != nil {
+		return "", err
+	}
+	buf := make([]byte, length)
+	if err := in.ReadBytes(buf); err != nil {
+		return "", err
+	}
+	return string(buf), nil
+}
+
+// ReadVInt reads a variable-length integer.
+func (in *ByteBuffersIndexInput) ReadVInt() (int32, error) {
+	var result int32
+	shift := 0
+	for {
+		b, err := in.ReadByte()
+		if err != nil {
+			return 0, err
+		}
+		result |= int32(b&0x7F) << shift
+		if (b & 0x80) == 0 {
+			break
+		}
+		shift += 7
+		if shift >= 32 {
+			return 0, fmt.Errorf("corrupted VInt")
+		}
+	}
+	return result, nil
+}
+
 // SetPosition changes the current position.
 func (in *ByteBuffersIndexInput) SetPosition(pos int64) error {
 	if pos < 0 || pos > int64(len(in.content)) {
@@ -367,6 +429,30 @@ func (in *ByteBuffersIndexInput) Close() error {
 	return nil
 }
 
+// ReadByteAt reads a single byte at the given position.
+// This implements the RandomAccessInput interface.
+func (in *ByteBuffersIndexInput) ReadByteAt(pos int64) (byte, error) {
+	if !in.directory.IsOpen() {
+		return 0, ErrIllegalState
+	}
+	if pos < 0 || pos >= int64(len(in.content)) {
+		return 0, fmt.Errorf("position %d out of range [0, %d]", pos, len(in.content))
+	}
+	return in.content[pos], nil
+}
+
+// ReadLongAt reads a 64-bit value at the given position in big-endian format.
+// This implements the RandomAccessInput interface.
+func (in *ByteBuffersIndexInput) ReadLongAt(pos int64) (int64, error) {
+	if !in.directory.IsOpen() {
+		return 0, ErrIllegalState
+	}
+	if pos < 0 || pos+8 > int64(len(in.content)) {
+		return 0, fmt.Errorf("position %d out of range for 8-byte read [0, %d]", pos, len(in.content))
+	}
+	return int64(binary.BigEndian.Uint64(in.content[pos : pos+8])), nil
+}
+
 // ByteBuffersIndexOutput is an IndexOutput implementation for ByteBuffersDirectory.
 type ByteBuffersIndexOutput struct {
 	*BaseIndexOutput
@@ -409,6 +495,32 @@ func (out *ByteBuffersIndexOutput) WriteBytesN(b []byte, n int) error {
 		return fmt.Errorf("n exceeds buffer length")
 	}
 	return out.WriteBytes(b[:n])
+}
+
+// WriteShort writes a 16-bit value.
+func (out *ByteBuffersIndexOutput) WriteShort(i int16) error {
+	b := []byte{byte(i >> 8), byte(i)}
+	return out.WriteBytes(b)
+}
+
+// WriteInt writes a 32-bit value.
+func (out *ByteBuffersIndexOutput) WriteInt(i int32) error {
+	b := []byte{byte(i >> 24), byte(i >> 16), byte(i >> 8), byte(i)}
+	return out.WriteBytes(b)
+}
+
+// WriteLong writes a 64-bit value.
+func (out *ByteBuffersIndexOutput) WriteLong(i int64) error {
+	b := []byte{
+		byte(i >> 56), byte(i >> 48), byte(i >> 40), byte(i >> 32),
+		byte(i >> 24), byte(i >> 16), byte(i >> 8), byte(i),
+	}
+	return out.WriteBytes(b)
+}
+
+// WriteString writes a string.
+func (out *ByteBuffersIndexOutput) WriteString(s string) error {
+	return WriteString(out, s)
 }
 
 // Length returns the current length of the file being written.

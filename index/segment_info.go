@@ -71,6 +71,10 @@ type SortField struct {
 	descending bool
 	// sortType is the type of sorting
 	sortType SortType
+	// missingValue is the value to use for missing documents
+	missingValue interface{}
+	// selector is used for multi-valued fields (min, max, etc.)
+	selector string
 }
 
 // SortType represents how a field should be sorted.
@@ -88,6 +92,67 @@ const (
 	// SortTypeDouble sorts as doubles
 	SortTypeDouble
 )
+
+// NewSort creates a new Sort with the given fields.
+func NewSort(fields ...SortField) *Sort {
+	return &Sort{fields: fields}
+}
+
+// NewSortField creates a new SortField.
+func NewSortField(name string, sortType SortType) SortField {
+	return SortField{field: name, sortType: sortType}
+}
+
+// SetReverse sets whether this sort field is in reverse order.
+func (sf *SortField) SetReverse(reverse bool) {
+	sf.descending = reverse
+}
+
+// SetMissingValue sets the value to use for missing documents.
+// For numeric fields, this should be an int64.
+// For string fields, this should be a []byte.
+func (sf *SortField) SetMissingValue(value interface{}) {
+	sf.missingValue = value
+}
+
+// SortedNumericSortField represents a sort field for multi-valued numeric fields.
+type SortedNumericSortField struct {
+	SortField
+	selector string // min, max, etc.
+}
+
+// NewSortedNumericSortField creates a new SortedNumericSortField.
+func NewSortedNumericSortField(name string, sortType SortType) *SortedNumericSortField {
+	return &SortedNumericSortField{
+		SortField: SortField{
+			field:      name,
+			sortType:   sortType,
+			descending: false,
+			selector:   "min",
+		},
+	}
+}
+
+// SortedSetSortField represents a sort field for multi-valued string fields.
+type SortedSetSortField struct {
+	SortField
+}
+
+// NewSortedSetSortField creates a new SortedSetSortField.
+func NewSortedSetSortField(name string, reverse bool) *SortedSetSortField {
+	return &SortedSetSortField{
+		SortField: SortField{
+			field:      name,
+			sortType:   SortTypeString,
+			descending: reverse,
+			selector:   "min",
+		},
+	}
+}
+
+// SortRELEVANCE is a special sort that sorts by relevance (score).
+// This cannot be used as an index sort.
+var SortRELEVANCE = &Sort{fields: nil}
 
 // NewSegmentInfo creates a new SegmentInfo.
 func NewSegmentInfo(name string, docCount int, dir store.Directory) *SegmentInfo {

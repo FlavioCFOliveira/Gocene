@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"hash"
 	"hash/adler32"
+	"math"
 	"sort"
 )
 
@@ -48,6 +49,18 @@ type DataOutput interface {
 
 	// WriteBytesN writes exactly len(b) bytes from b.
 	WriteBytesN(b []byte, len int) error
+
+	// WriteShort writes a 16-bit value.
+	WriteShort(i int16) error
+
+	// WriteInt writes a 32-bit value.
+	WriteInt(i int32) error
+
+	// WriteLong writes a 64-bit value.
+	WriteLong(i int64) error
+
+	// WriteString writes a string.
+	WriteString(s string) error
 }
 
 // BaseIndexOutput provides common functionality for IndexOutput implementations.
@@ -149,6 +162,32 @@ func (out *ByteArrayDataOutput) WriteBytesN(b []byte, n int) error {
 	return nil
 }
 
+// WriteShort writes a 16-bit value.
+func (out *ByteArrayDataOutput) WriteShort(i int16) error {
+	b := []byte{byte(i >> 8), byte(i)}
+	return out.WriteBytes(b)
+}
+
+// WriteInt writes a 32-bit value.
+func (out *ByteArrayDataOutput) WriteInt(i int32) error {
+	b := []byte{byte(i >> 24), byte(i >> 16), byte(i >> 8), byte(i)}
+	return out.WriteBytes(b)
+}
+
+// WriteLong writes a 64-bit value.
+func (out *ByteArrayDataOutput) WriteLong(i int64) error {
+	b := []byte{
+		byte(i >> 56), byte(i >> 48), byte(i >> 40), byte(i >> 32),
+		byte(i >> 24), byte(i >> 16), byte(i >> 8), byte(i),
+	}
+	return out.WriteBytes(b)
+}
+
+// WriteString writes a string.
+func (out *ByteArrayDataOutput) WriteString(s string) error {
+	return WriteString(out, s)
+}
+
 // GetBytes returns the written bytes.
 func (out *ByteArrayDataOutput) GetBytes() []byte {
 	return out.bytes[:out.pos]
@@ -245,6 +284,32 @@ func (out *BufferedIndexOutput) WriteBytesN(b []byte, n int) error {
 	out.bufferPosition += n
 	out.IncrementFilePointer(int64(n))
 	return nil
+}
+
+// WriteShort writes a 16-bit value.
+func (out *BufferedIndexOutput) WriteShort(i int16) error {
+	b := []byte{byte(i >> 8), byte(i)}
+	return out.WriteBytes(b)
+}
+
+// WriteInt writes a 32-bit value.
+func (out *BufferedIndexOutput) WriteInt(i int32) error {
+	b := []byte{byte(i >> 24), byte(i >> 16), byte(i >> 8), byte(i)}
+	return out.WriteBytes(b)
+}
+
+// WriteLong writes a 64-bit value.
+func (out *BufferedIndexOutput) WriteLong(i int64) error {
+	b := []byte{
+		byte(i >> 56), byte(i >> 48), byte(i >> 40), byte(i >> 32),
+		byte(i >> 24), byte(i >> 16), byte(i >> 8), byte(i),
+	}
+	return out.WriteBytes(b)
+}
+
+// WriteString writes a string.
+func (out *BufferedIndexOutput) WriteString(s string) error {
+	return WriteString(out, s)
 }
 
 // Flush flushes any buffered bytes to the underlying output.
@@ -468,3 +533,57 @@ func (out *IndexOutputWithDigest) ResetDigest() {
 
 // ErrIO is a generic I/O error.
 var ErrIO = errors.New("I/O error")
+
+// AlignOffset aligns the given offset to multiples of alignmentBytes bytes by rounding up.
+// The alignment must be a power of 2.
+// This is the Go equivalent of Lucene's IndexOutput.alignOffset().
+//
+// Parameters:
+//   - offset: the offset to align (must be non-negative)
+//   - alignmentBytes: the alignment boundary (must be a positive power of 2)
+//
+// Returns:
+//   - the aligned offset
+//   - error if offset is negative or alignmentBytes is not a power of 2
+func AlignOffset(offset int64, alignmentBytes int) (int64, error) {
+	if offset < 0 {
+		return 0, errors.New("offset must be non-negative")
+	}
+	if alignmentBytes <= 0 || (alignmentBytes&(alignmentBytes-1)) != 0 {
+		return 0, errors.New("alignment must be a positive power of 2")
+	}
+	// Check for overflow: offset - 1 + alignmentBytes could overflow
+	if offset > 0 && offset-1 > math.MaxInt64-int64(alignmentBytes) {
+		return 0, errors.New("arithmetic overflow in alignOffset")
+	}
+	// Formula: ((offset - 1) + alignmentBytes) & (-alignmentBytes)
+	// This rounds up to the next multiple of alignmentBytes
+	return (offset - 1 + int64(alignmentBytes)) & (-int64(alignmentBytes)), nil
+}
+
+// AlignFilePointer aligns the current file pointer to multiples of alignmentBytes bytes
+// by writing zero bytes. This improves reads with memory-mapped I/O.
+// The alignment must be a power of 2.
+// This is the Go equivalent of Lucene's IndexOutput.alignFilePointer().
+//
+// Parameters:
+//   - out: the IndexOutput to align
+//   - alignmentBytes: the alignment boundary (must be a positive power of 2)
+//
+// Returns:
+//   - the new file pointer after alignment
+//   - error if alignment fails
+func AlignFilePointer(out IndexOutput, alignmentBytes int) (int64, error) {
+	offset := out.GetFilePointer()
+	alignedOffset, err := AlignOffset(offset, alignmentBytes)
+	if err != nil {
+		return 0, err
+	}
+	count := int(alignedOffset - offset)
+	for i := 0; i < count; i++ {
+		if err := out.WriteByte(0); err != nil {
+			return 0, err
+		}
+	}
+	return alignedOffset, nil
+}

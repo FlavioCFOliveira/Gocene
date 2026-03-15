@@ -9,6 +9,8 @@ type Scorer interface {
 	DocIdSetIterator
 	// Score returns the score of the current document.
 	Score() float32
+	// GetMaxScore returns the maximum score for documents up to the given doc.
+	GetMaxScore(upTo int) float32
 }
 
 // BaseScorer provides common functionality for scorers.
@@ -28,5 +30,10 @@ func (s *BaseScorer) GetWeight() Weight {
 
 // Score returns a default score.
 func (s *BaseScorer) Score() float32 {
+	return 1.0
+}
+
+// GetMaxScore returns the maximum score for documents up to the given doc.
+func (s *BaseScorer) GetMaxScore(upTo int) float32 {
 	return 1.0
 }

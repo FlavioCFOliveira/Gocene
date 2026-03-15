@@ -47,6 +47,11 @@ func (q *TermQuery) Rewrite(reader IndexReader) (Query, error) {
 	return q, nil
 }
 
+// CreateWeight creates a Weight for this query.
+func (q *TermQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+	return NewTermWeight(q, q.term, searcher, needsScores), nil
+}
+
 func (q *TermQuery) String() string {
 	return q.term.String()
 }

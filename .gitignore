@@ -22,3 +22,6 @@ Thumbs.db
 
 # Dependency directories
 vendor/
+
+
+lucene-*/

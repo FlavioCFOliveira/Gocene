@@ -109,6 +109,19 @@ func (d *Document) GetValues(name string) []string {
 	return values
 }
 
+// GetBinaryValue returns the first binary value for the given field name.
+// Returns nil if no field with that name exists or if the field has no binary value.
+func (d *Document) GetBinaryValue(name string) []byte {
+	for _, field := range d.fields {
+		if field.Name() == name {
+			if bv := field.BinaryValue(); bv != nil {
+				return bv
+			}
+		}
+	}
+	return nil
+}
+
 // GetBinaryValues returns all binary values for the given field name.
 func (d *Document) GetBinaryValues(name string) [][]byte {
 	var values [][]byte

@@ -134,3 +134,52 @@ func NewPhraseQueryWithStrings(field string, terms ...string) *PhraseQuery {
 	}
 	return NewPhraseQuery(field, termObjects...)
 }
+
+// PhraseQueryBuilder builds PhraseQuery instances with position support.
+type PhraseQueryBuilder struct {
+	field     string
+	terms     []*index.Term
+	positions []int
+	slop      int
+}
+
+// NewPhraseQueryBuilder creates a new builder for PhraseQuery.
+func NewPhraseQueryBuilder() *PhraseQueryBuilder {
+	return &PhraseQueryBuilder{
+		field:     "",
+		terms:     make([]*index.Term, 0),
+		positions: make([]int, 0),
+		slop:      0,
+	}
+}
+
+// SetSlop sets the phrase slop.
+func (b *PhraseQueryBuilder) SetSlop(slop int) *PhraseQueryBuilder {
+	b.slop = slop
+	return b
+}
+
+// AddTerm adds a term at the next position.
+func (b *PhraseQueryBuilder) AddTerm(term *index.Term) *PhraseQueryBuilder {
+	if b.field == "" {
+		b.field = term.Field
+	}
+	b.terms = append(b.terms, term.Clone())
+	b.positions = append(b.positions, len(b.terms)-1)
+	return b
+}
+
+// AddTermAtPosition adds a term at a specific position.
+func (b *PhraseQueryBuilder) AddTermAtPosition(term *index.Term, position int) *PhraseQueryBuilder {
+	if b.field == "" {
+		b.field = term.Field
+	}
+	b.terms = append(b.terms, term.Clone())
+	b.positions = append(b.positions, position)
+	return b
+}
+
+// Build creates a PhraseQuery from this builder.
+func (b *PhraseQueryBuilder) Build() *PhraseQuery {
+	return NewPhraseQueryWithSlop(b.slop, b.field, b.terms...)
+}

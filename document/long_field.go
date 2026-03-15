@@ -4,7 +4,11 @@
 
 package document
 
-import "strconv"
+import (
+	"strconv"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+)
 
 // LongField is a field for indexing int64 values.
 type LongField struct {
@@ -16,6 +20,7 @@ func NewLongField(name string, value int64, store bool) (*LongField, error) {
 	ft := NewFieldType()
 	ft.SetStored(store)
 	ft.SetIndexed(true)
+	ft.SetIndexOptions(index.IndexOptionsDocs)
 	ft.Freeze()
 
 	field, err := NewField(name, strconv.FormatInt(value, 10), ft)
@@ -35,6 +40,7 @@ type LongPoint struct {
 func NewLongPoint(name string, value int64) (*LongPoint, error) {
 	ft := NewFieldType()
 	ft.SetIndexed(true)
+	ft.SetIndexOptions(index.IndexOptionsDocs)
 	ft.Freeze()
 
 	field, err := NewField(name, strconv.FormatInt(value, 10), ft)

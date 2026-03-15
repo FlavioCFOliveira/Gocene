@@ -41,6 +41,52 @@ func CloseWhileHandlingException(c io.Closer, name string) error {
 	return nil
 }
 
+// CloseWhileSuppressingExceptions closes all given Closeables, suppressing exceptions.
+// If a primary error is provided, any close errors are added to it.
+// If a close throws a panic/recoverable error, it takes precedence over the primary error.
+// Returns the primary error (possibly with suppressed exceptions) or any new error/panic that occurred.
+func CloseWhileSuppressingExceptions(primaryErr error, closeables ...io.Closer) error {
+	var suppressed []error
+	var panicErr error
+
+	for _, c := range closeables {
+		if c == nil {
+			continue
+		}
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					panicErr = fmt.Errorf("panic during close: %v", r)
+				}
+			}()
+			if err := c.Close(); err != nil {
+				suppressed = append(suppressed, err)
+			}
+		}()
+	}
+
+	// If there was a panic, it takes precedence
+	if panicErr != nil {
+		// If we have a primary error, add it as suppressed to the panic error
+		if primaryErr != nil {
+			return fmt.Errorf("%w [suppressed: %v]", panicErr, primaryErr)
+		}
+		return panicErr
+	}
+
+	// If there's no primary error but we have suppressed errors, return them
+	if primaryErr == nil && len(suppressed) > 0 {
+		return fmt.Errorf("errors during close: %v", suppressed)
+	}
+
+	// Add suppressed errors to primary error
+	if primaryErr != nil && len(suppressed) > 0 {
+		return fmt.Errorf("%w [suppressed: %v]", primaryErr, suppressed)
+	}
+
+	return primaryErr
+}
+
 // CloseAll closes all given Closeables, collecting all errors.
 // Returns a single error containing all individual errors, or nil if all closed successfully.
 func CloseAll(closeables ...io.Closer) error {
@@ -73,6 +119,21 @@ func DeleteFilesIgnoringExceptions(files ...string) {
 	for _, file := range files {
 		_ = os.Remove(file)
 	}
+}
+
+// DeleteFilesIfExist deletes the given files if they exist.
+// Unlike DeleteFiles, this does not return an error for non-existent files.
+func DeleteFilesIfExist(files ...string) error {
+	var errs []error
+	for _, file := range files {
+		if err := os.Remove(file); err != nil && !os.IsNotExist(err) {
+			errs = append(errs, fmt.Errorf("failed to delete %s: %w", file, err))
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("errors deleting files: %v", errs)
+	}
+	return nil
 }
 
 // DeleteFiles deletes the given files, collecting all errors.

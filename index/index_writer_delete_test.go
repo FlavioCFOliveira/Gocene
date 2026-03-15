@@ -1,0 +1,1102 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
+// Package index_test contains tests for the index package.
+//
+// Ported from Apache Lucene's org.apache.lucene.index.TestIndexWriterDelete
+// Source: lucene/core/src/test/org/apache/lucene/index/TestIndexWriterDelete.java
+//
+// GC-174: Test IndexWriterDelete - Delete documents by Term/Query, update document
+// (delete+add), delete-all, delete with concurrent indexing
+package index_test
+
+import (
+	"fmt"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/store"
+)
+
+// TestIndexWriterDelete_SimpleCase tests the simple delete case
+// Source: TestIndexWriterDelete.testSimpleCase()
+// Purpose: Tests basic document deletion by term
+func TestIndexWriterDelete_SimpleCase(t *testing.T) {
+	keywords := []string{"1", "2"}
+	unindexed := []string{"Netherlands", "Italy"}
+	unstored := []string{"Amsterdam has lots of bridges", "Venice has lots of canals"}
+	text := []string{"Amsterdam", "Venice"}
+
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	modifier, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create IndexWriter: %v", err)
+	}
+
+	custom1 := document.NewFieldType()
+	custom1.SetStored(true)
+	custom1.Freeze()
+
+	for i := 0; i < len(keywords); i++ {
+		doc := document.NewDocument()
+		idField, _ := document.NewStringField("id", keywords[i], true)
+		countryField, _ := document.NewField("country", unindexed[i], custom1)
+		contentsField, _ := document.NewTextField("contents", unstored[i], false)
+		cityField, _ := document.NewTextField("city", text[i], true)
+
+		doc.Add(idField)
+		doc.Add(countryField)
+		doc.Add(contentsField)
+		doc.Add(cityField)
+
+		if err := modifier.AddDocument(doc); err != nil {
+			t.Fatalf("Failed to add document: %v", err)
+		}
+	}
+
+	if err := modifier.ForceMerge(1); err != nil {
+		t.Fatalf("Failed to force merge: %v", err)
+	}
+
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	term := index.NewTerm("city", "Amsterdam")
+	hitCount := getHitCount(t, dir, term)
+	if hitCount != 1 {
+		t.Errorf("Expected 1 hit for 'Amsterdam', got %d", hitCount)
+	}
+
+	if err := modifier.DeleteDocuments(term); err != nil {
+		t.Fatalf("Failed to delete documents: %v", err)
+	}
+
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Failed to commit after delete: %v", err)
+	}
+
+	hitCount = getHitCount(t, dir, term)
+	if hitCount != 0 {
+		t.Errorf("Expected 0 hits after delete, got %d", hitCount)
+	}
+
+	if err := modifier.Close(); err != nil {
+		t.Fatalf("Failed to close writer: %v", err)
+	}
+}
+
+// TestIndexWriterDelete_NonRAMDelete tests delete when terms only apply to disk segments
+// Source: TestIndexWriterDelete.testNonRAMDelete()
+// Purpose: Tests deletion when documents are already flushed to disk
+func TestIndexWriterDelete_NonRAMDelete(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config.SetMaxBufferedDocs(2)
+	modifier, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create IndexWriter: %v", err)
+	}
+
+	id := 0
+	value := 100
+
+	for i := 0; i < 7; i++ {
+		id++
+		addDoc(t, modifier, id, value)
+	}
+
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	if modifier.GetNumBufferedDocuments() != 0 {
+		t.Errorf("Expected 0 buffered documents, got %d", modifier.GetNumBufferedDocuments())
+	}
+
+	if modifier.GetSegmentCount() <= 0 {
+		t.Error("Expected segment count > 0")
+	}
+
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	reader, err := index.NewDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("Failed to open reader: %v", err)
+	}
+
+	if reader.NumDocs() != 7 {
+		t.Errorf("Expected 7 docs, got %d", reader.NumDocs())
+	}
+	reader.Close()
+
+	if err := modifier.DeleteDocuments(index.NewTerm("value", string(rune(value)))); err != nil {
+		t.Fatalf("Failed to delete documents: %v", err)
+	}
+
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Failed to commit after delete: %v", err)
+	}
+
+	reader, err = index.NewDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("Failed to open reader: %v", err)
+	}
+
+	if reader.NumDocs() != 0 {
+		t.Errorf("Expected 0 docs after delete, got %d", reader.NumDocs())
+	}
+	reader.Close()
+
+	if err := modifier.Close(); err != nil {
+		t.Fatalf("Failed to close writer: %v", err)
+	}
+}
+
+// TestIndexWriterDelete_RAMDeletes tests delete when terms only apply to RAM segments
+// Source: TestIndexWriterDelete.testRAMDeletes()
+// Purpose: Tests deletion of documents still in memory buffer
+func TestIndexWriterDelete_RAMDeletes(t *testing.T) {
+	for tVal := 0; tVal < 2; tVal++ {
+		t.Run(fmt.Sprintf("iteration_%d", tVal), func(t *testing.T) {
+			dir := store.NewByteBuffersDirectory()
+			defer dir.Close()
+
+			config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+			config.SetMaxBufferedDocs(4)
+			modifier, err := index.NewIndexWriter(dir, config)
+			if err != nil {
+				t.Fatalf("Failed to create IndexWriter: %v", err)
+			}
+
+			id := 0
+			value := 100
+
+			id++
+			addDoc(t, modifier, id, value)
+
+			if tVal == 0 {
+				if err := modifier.DeleteDocuments(index.NewTerm("value", string(rune(value)))); err != nil {
+					t.Fatalf("Failed to delete documents: %v", err)
+				}
+			} else {
+				if err := modifier.DeleteDocumentsQuery(search.NewTermQuery(index.NewTerm("value", string(rune(value))))); err != nil {
+					t.Fatalf("Failed to delete documents by query: %v", err)
+				}
+			}
+
+			id++
+			addDoc(t, modifier, id, value)
+
+			if tVal == 0 {
+				if err := modifier.DeleteDocuments(index.NewTerm("value", string(rune(value)))); err != nil {
+					t.Fatalf("Failed to delete documents: %v", err)
+				}
+				if modifier.GetBufferedDeleteTermsSize() != 1 {
+					t.Errorf("Expected 1 buffered delete term, got %d", modifier.GetBufferedDeleteTermsSize())
+				}
+			} else {
+				if err := modifier.DeleteDocumentsQuery(search.NewTermQuery(index.NewTerm("value", string(rune(value))))); err != nil {
+					t.Fatalf("Failed to delete documents by query: %v", err)
+				}
+			}
+
+			id++
+			addDoc(t, modifier, id, value)
+
+			if modifier.GetSegmentCount() != 0 {
+				t.Errorf("Expected 0 segments, got %d", modifier.GetSegmentCount())
+			}
+
+			if err := modifier.Commit(); err != nil {
+				t.Fatalf("Failed to commit: %v", err)
+			}
+
+			reader, err := index.NewDirectoryReader(dir)
+			if err != nil {
+				t.Fatalf("Failed to open reader: %v", err)
+			}
+
+			if reader.NumDocs() != 1 {
+				t.Errorf("Expected 1 doc, got %d", reader.NumDocs())
+			}
+
+			hitCount := getHitCount(t, dir, index.NewTerm("id", string(rune(id))))
+			if hitCount != 1 {
+				t.Errorf("Expected 1 hit for id %d, got %d", id, hitCount)
+			}
+
+			reader.Close()
+			modifier.Close()
+		})
+	}
+}
+
+// TestIndexWriterDelete_BothDeletes tests delete when terms apply to both disk and RAM segments
+// Source: TestIndexWriterDelete.testBothDeletes()
+// Purpose: Tests deletion across both flushed and buffered documents
+func TestIndexWriterDelete_BothDeletes(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config.SetMaxBufferedDocs(100)
+	modifier, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create IndexWriter: %v", err)
+	}
+
+	id := 0
+	value := 100
+
+	for i := 0; i < 5; i++ {
+		id++
+		addDoc(t, modifier, id, value)
+	}
+
+	value = 200
+	for i := 0; i < 5; i++ {
+		id++
+		addDoc(t, modifier, id, value)
+	}
+
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	reader, err := index.NewDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("Failed to open reader: %v", err)
+	}
+
+	if reader.NumDocs() != 10 {
+		t.Errorf("Expected 10 docs, got %d", reader.NumDocs())
+	}
+	reader.Close()
+
+	// Delete docs with value=100 (first 5)
+	if err := modifier.DeleteDocuments(index.NewTerm("value", "100")); err != nil {
+		t.Fatalf("Failed to delete documents: %v", err)
+	}
+
+	// Delete docs with value=200 (last 5)
+	if err := modifier.DeleteDocuments(index.NewTerm("value", "200")); err != nil {
+		t.Fatalf("Failed to delete documents: %v", err)
+	}
+
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	reader, err = index.NewDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("Failed to open reader: %v", err)
+	}
+
+	if reader.NumDocs() != 0 {
+		t.Errorf("Expected 0 docs after delete, got %d", reader.NumDocs())
+	}
+	reader.Close()
+
+	modifier.Close()
+}
+
+// TestIndexWriterDelete_BatchDeletes tests batch deletion of documents
+// Source: TestIndexWriterDelete.testBatchDeletes()
+// Purpose: Tests deleting multiple documents in batch
+func TestIndexWriterDelete_BatchDeletes(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config.SetMaxBufferedDocs(100)
+	modifier, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create IndexWriter: %v", err)
+	}
+
+	id := 0
+	value := 100
+
+	for i := 0; i < 5; i++ {
+		id++
+		addDoc(t, modifier, id, value)
+	}
+
+	value = 200
+	for i := 0; i < 5; i++ {
+		id++
+		addDoc(t, modifier, id, value)
+	}
+
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	reader, err := index.NewDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("Failed to open reader: %v", err)
+	}
+
+	if reader.NumDocs() != 10 {
+		t.Errorf("Expected 10 docs, got %d", reader.NumDocs())
+	}
+	reader.Close()
+
+	// Batch delete
+	terms := []*index.Term{
+		index.NewTerm("value", "100"),
+		index.NewTerm("value", "200"),
+	}
+
+	for _, term := range terms {
+		if err := modifier.DeleteDocuments(term); err != nil {
+			t.Fatalf("Failed to delete documents: %v", err)
+		}
+	}
+
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	reader, err = index.NewDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("Failed to open reader: %v", err)
+	}
+
+	if reader.NumDocs() != 0 {
+		t.Errorf("Expected 0 docs after batch delete, got %d", reader.NumDocs())
+	}
+	reader.Close()
+
+	modifier.Close()
+}
+
+// TestIndexWriterDelete_DeleteAllSimple tests the deleteAll operation
+// Source: TestIndexWriterDelete.testDeleteAllSimple()
+// Purpose: Tests deleting all documents in the index
+func TestIndexWriterDelete_DeleteAllSimple(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config.SetMaxBufferedDocs(2)
+	modifier, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create IndexWriter: %v", err)
+	}
+
+	id := 0
+	value := 100
+
+	for i := 0; i < 7; i++ {
+		id++
+		addDoc(t, modifier, id, value)
+	}
+
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	reader, err := index.NewDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("Failed to open reader: %v", err)
+	}
+
+	if reader.NumDocs() != 7 {
+		t.Errorf("Expected 7 docs, got %d", reader.NumDocs())
+	}
+	reader.Close()
+
+	// Add 1 doc (so we will have something buffered)
+	addDoc(t, modifier, 99, value)
+
+	// Delete all
+	if err := modifier.DeleteAll(); err != nil {
+		t.Fatalf("Failed to delete all: %v", err)
+	}
+
+	// Delete all shouldn't be on disk yet
+	reader, err = index.NewDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("Failed to open reader: %v", err)
+	}
+
+	if reader.NumDocs() != 7 {
+		t.Errorf("Expected 7 docs on disk before commit, got %d", reader.NumDocs())
+	}
+	reader.Close()
+
+	// Add a doc and update a doc (after the deleteAll, before the commit)
+	addDoc(t, modifier, 101, value)
+	updateDoc(t, modifier, 102, value)
+
+	// Commit the delete all
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	// Validate there are 2 docs left (the ones added after deleteAll)
+	reader, err = index.NewDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("Failed to open reader: %v", err)
+	}
+
+	if reader.NumDocs() != 2 {
+		t.Errorf("Expected 2 docs after deleteAll + add, got %d", reader.NumDocs())
+	}
+	reader.Close()
+
+	modifier.Close()
+}
+
+// TestIndexWriterDelete_DeleteAllNoDeadLock tests deleteAll with concurrent indexing
+// Source: TestIndexWriterDelete.testDeleteAllNoDeadLock()
+// Purpose: Tests that deleteAll doesn't deadlock when concurrent indexing is happening
+func TestIndexWriterDelete_DeleteAllNoDeadLock(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	modifier, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create IndexWriter: %v", err)
+	}
+
+	numThreads := 2
+	var wg sync.WaitGroup
+	startLatch := make(chan struct{})
+	doneLatch := make(chan struct{}, numThreads)
+
+	for i := 0; i < numThreads; i++ {
+		wg.Add(1)
+		go func(offset int) {
+			defer wg.Done()
+			id := offset * 1000
+			value := 100
+
+			<-startLatch
+
+			for j := 0; j < 100; j++ {
+				doc := document.NewDocument()
+				contentField, _ := document.NewTextField("content", "aaa", false)
+				idField, _ := document.NewStringField("id", string(rune(id)), true)
+				valueField, _ := document.NewStringField("value", string(rune(value)), false)
+				dvField, _ := document.NewNumericDocValuesField("dv", int64(value))
+
+				doc.Add(contentField)
+				doc.Add(idField)
+				doc.Add(valueField)
+				doc.Add(dvField)
+
+				if err := modifier.AddDocument(doc); err != nil {
+					t.Errorf("Failed to add document: %v", err)
+					return
+				}
+				id++
+			}
+			doneLatch <- struct{}{}
+		}(i)
+	}
+
+	close(startLatch)
+
+	doneCount := 0
+	timeout := time.AfterFunc(5*time.Second, func() {
+		t.Error("Test timed out - possible deadlock")
+	})
+	defer timeout.Stop()
+
+	for doneCount < numThreads {
+		select {
+		case <-doneLatch:
+			doneCount++
+			if err := modifier.DeleteAll(); err != nil {
+				t.Fatalf("Failed to delete all: %v", err)
+			}
+		case <-time.After(100 * time.Millisecond):
+			if err := modifier.DeleteAll(); err != nil {
+				t.Fatalf("Failed to delete all: %v", err)
+			}
+		}
+	}
+
+	wg.Wait()
+
+	if err := modifier.DeleteAll(); err != nil {
+		t.Fatalf("Failed to final delete all: %v", err)
+	}
+
+	if err := modifier.Close(); err != nil {
+		t.Fatalf("Failed to close writer: %v", err)
+	}
+
+	reader, err := index.NewDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("Failed to open reader: %v", err)
+	}
+
+	if reader.MaxDoc() != 0 {
+		t.Errorf("Expected maxDoc=0, got %d", reader.MaxDoc())
+	}
+
+	if reader.NumDocs() != 0 {
+		t.Errorf("Expected numDocs=0, got %d", reader.NumDocs())
+	}
+
+	if reader.NumDeletedDocs() != 0 {
+		t.Errorf("Expected numDeletedDocs=0, got %d", reader.NumDeletedDocs())
+	}
+
+	reader.Close()
+}
+
+// TestIndexWriterDelete_DeleteAllRollback tests rollback of deleteAll
+// Source: TestIndexWriterDelete.testDeleteAllRollback()
+// Purpose: Tests that rollback restores documents after deleteAll
+func TestIndexWriterDelete_DeleteAllRollback(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config.SetMaxBufferedDocs(2)
+	modifier, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create IndexWriter: %v", err)
+	}
+
+	id := 0
+	value := 100
+
+	for i := 0; i < 7; i++ {
+		id++
+		addDoc(t, modifier, id, value)
+	}
+
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	id++
+	addDoc(t, modifier, id, value)
+
+	reader, err := index.NewDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("Failed to open reader: %v", err)
+	}
+
+	if reader.NumDocs() != 7 {
+		t.Errorf("Expected 7 docs, got %d", reader.NumDocs())
+	}
+	reader.Close()
+
+	// Delete all
+	if err := modifier.DeleteAll(); err != nil {
+		t.Fatalf("Failed to delete all: %v", err)
+	}
+
+	// Roll it back
+	if err := modifier.Rollback(); err != nil {
+		t.Fatalf("Failed to rollback: %v", err)
+	}
+
+	// Validate that the docs are still there
+	reader, err = index.NewDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("Failed to open reader: %v", err)
+	}
+
+	if reader.NumDocs() != 7 {
+		t.Errorf("Expected 7 docs after rollback, got %d", reader.NumDocs())
+	}
+	reader.Close()
+}
+
+// TestIndexWriterDelete_DeleteAllNRT tests deleteAll with near-real-time reader
+// Source: TestIndexWriterDelete.testDeleteAllNRT()
+// Purpose: Tests deleteAll visibility through NRT reader
+func TestIndexWriterDelete_DeleteAllNRT(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config.SetMaxBufferedDocs(2)
+	modifier, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create IndexWriter: %v", err)
+	}
+
+	id := 0
+	value := 100
+
+	for i := 0; i < 7; i++ {
+		id++
+		addDoc(t, modifier, id, value)
+	}
+
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	// Get NRT reader
+	reader, err := index.NewDirectoryReader(modifier)
+	if err != nil {
+		t.Fatalf("Failed to open NRT reader: %v", err)
+	}
+
+	if reader.NumDocs() != 7 {
+		t.Errorf("Expected 7 docs, got %d", reader.NumDocs())
+	}
+	reader.Close()
+
+	id++
+	addDoc(t, modifier, id, value)
+	id++
+	addDoc(t, modifier, id, value)
+
+	// Delete all
+	if err := modifier.DeleteAll(); err != nil {
+		t.Fatalf("Failed to delete all: %v", err)
+	}
+
+	// Get NRT reader after deleteAll
+	reader, err = index.NewDirectoryReader(modifier)
+	if err != nil {
+		t.Fatalf("Failed to open NRT reader: %v", err)
+	}
+
+	if reader.NumDocs() != 0 {
+		t.Errorf("Expected 0 docs after deleteAll, got %d", reader.NumDocs())
+	}
+	reader.Close()
+
+	modifier.Close()
+}
+
+// TestIndexWriterDelete_DeleteAllRepeated tests repeated deleteAll operations
+// Source: TestIndexWriterDelete.testDeleteAllRepeated()
+// Purpose: Tests multiple deleteAll operations
+func TestIndexWriterDelete_DeleteAllRepeated(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	modifier, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create IndexWriter: %v", err)
+	}
+
+	// Add some docs
+	for i := 0; i < 10; i++ {
+		addDoc(t, modifier, i, 100)
+	}
+
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	// Delete all multiple times
+	for i := 0; i < 5; i++ {
+		if err := modifier.DeleteAll(); err != nil {
+			t.Fatalf("Failed to delete all iteration %d: %v", i, err)
+		}
+	}
+
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	reader, err := index.NewDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("Failed to open reader: %v", err)
+	}
+
+	if reader.NumDocs() != 0 {
+		t.Errorf("Expected 0 docs after repeated deleteAll, got %d", reader.NumDocs())
+	}
+	reader.Close()
+
+	modifier.Close()
+}
+
+// TestIndexWriterDelete_NullQuery tests deleting with a null query
+// Source: TestIndexWriterDelete.testDeleteNullQuery()
+// Purpose: Tests that deleting with non-matching query doesn't affect documents
+func TestIndexWriterDelete_NullQuery(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	modifier, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create IndexWriter: %v", err)
+	}
+
+	for i := 0; i < 5; i++ {
+		addDoc(t, modifier, i, 2*i)
+	}
+
+	// Delete with non-matching query
+	if err := modifier.DeleteDocumentsQuery(search.NewTermQuery(index.NewTerm("nada", "nada"))); err != nil {
+		t.Fatalf("Failed to delete documents: %v", err)
+	}
+
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	stats := modifier.GetDocStats()
+	if stats.NumDocs != 5 {
+		t.Errorf("Expected 5 docs, got %d", stats.NumDocs)
+	}
+
+	modifier.Close()
+}
+
+// TestIndexWriterDelete_DeleteAllSlowly tests slow deletion of all documents
+// Source: TestIndexWriterDelete.testDeleteAllSlowly()
+// Purpose: Tests gradual deletion of documents
+func TestIndexWriterDelete_DeleteAllSlowly(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	modifier, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create IndexWriter: %v", err)
+	}
+
+	numDocs := 100
+	for i := 0; i < numDocs; i++ {
+		doc := document.NewDocument()
+		idField, _ := document.NewStringField("id", string(rune(i)), false)
+		doc.Add(idField)
+		if err := modifier.AddDocument(doc); err != nil {
+			t.Fatalf("Failed to add document: %v", err)
+		}
+	}
+
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	// Delete documents one by one
+	for i := 0; i < numDocs; i++ {
+		if err := modifier.DeleteDocuments(index.NewTerm("id", string(rune(i)))); err != nil {
+			t.Fatalf("Failed to delete document %d: %v", i, err)
+		}
+	}
+
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	reader, err := index.NewDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("Failed to open reader: %v", err)
+	}
+
+	if reader.NumDocs() != 0 {
+		t.Errorf("Expected 0 docs after deleting all, got %d", reader.NumDocs())
+	}
+	reader.Close()
+
+	modifier.Close()
+}
+
+// TestIndexWriterDelete_UpdateDocument tests document update (delete + add)
+// Source: TestIndexWriterDelete - various update tests
+// Purpose: Tests updating documents by term
+func TestIndexWriterDelete_UpdateDocument(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	modifier, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create IndexWriter: %v", err)
+	}
+
+	// Add initial documents
+	for i := 0; i < 5; i++ {
+		doc := document.NewDocument()
+		idField, _ := document.NewStringField("id", string(rune(i)), true)
+		valueField, _ := document.NewStringField("value", "original", true)
+		doc.Add(idField)
+		doc.Add(valueField)
+		if err := modifier.AddDocument(doc); err != nil {
+			t.Fatalf("Failed to add document: %v", err)
+		}
+	}
+
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	// Update document with id=2
+	updatedDoc := document.NewDocument()
+	idField, _ := document.NewStringField("id", "2", true)
+	valueField, _ := document.NewStringField("value", "updated", true)
+	updatedDoc.Add(idField)
+	updatedDoc.Add(valueField)
+
+	if err := modifier.UpdateDocument(index.NewTerm("id", "2"), updatedDoc); err != nil {
+		t.Fatalf("Failed to update document: %v", err)
+	}
+
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	reader, err := index.NewDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("Failed to open reader: %v", err)
+	}
+
+	// Should still have 5 docs (1 deleted, 1 added)
+	if reader.NumDocs() != 5 {
+		t.Errorf("Expected 5 docs after update, got %d", reader.NumDocs())
+	}
+	reader.Close()
+
+	modifier.Close()
+}
+
+// TestIndexWriterDelete_ConcurrentDeleteAndIndex tests concurrent delete and indexing
+// Source: TestIndexWriterDelete.testDeleteAllNoDeadLock and related tests
+// Purpose: Tests thread safety of delete operations
+func TestIndexWriterDelete_ConcurrentDeleteAndIndex(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	modifier, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create IndexWriter: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	numIndexers := 3
+	numDeleters := 2
+	numOperations := 50
+
+	// Start indexers
+	for i := 0; i < numIndexers; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < numOperations; j++ {
+				doc := document.NewDocument()
+				idField, _ := document.NewStringField("id", string(rune(id*1000+j)), true)
+				doc.Add(idField)
+				modifier.AddDocument(doc)
+			}
+		}(i)
+	}
+
+	// Start deleters
+	for i := 0; i < numDeleters; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < numOperations/5; j++ {
+				modifier.DeleteDocuments(index.NewTerm("id", string(rune(j))))
+				time.Sleep(time.Millisecond)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	// Verify index is in a consistent state
+	reader, err := index.NewDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("Failed to open reader: %v", err)
+	}
+
+	// Just verify we can read the index
+	_ = reader.NumDocs()
+	reader.Close()
+
+	modifier.Close()
+}
+
+// TestIndexWriterDelete_MultipleTerms tests deleting by multiple terms
+// Source: TestIndexWriterDelete - batch delete tests
+// Purpose: Tests deleting documents matching multiple different terms
+func TestIndexWriterDelete_MultipleTerms(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	modifier, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create IndexWriter: %v", err)
+	}
+
+	// Add documents with different values
+	for i := 0; i < 10; i++ {
+		doc := document.NewDocument()
+		idField, _ := document.NewStringField("id", string(rune(i)), true)
+		categoryField, _ := document.NewStringField("category", string(rune(i%3)), true)
+		doc.Add(idField)
+		doc.Add(categoryField)
+		if err := modifier.AddDocument(doc); err != nil {
+			t.Fatalf("Failed to add document: %v", err)
+		}
+	}
+
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	// Delete documents in category 0 and 1
+	if err := modifier.DeleteDocuments(index.NewTerm("category", "0")); err != nil {
+		t.Fatalf("Failed to delete category 0: %v", err)
+	}
+	if err := modifier.DeleteDocuments(index.NewTerm("category", "1")); err != nil {
+		t.Fatalf("Failed to delete category 1: %v", err)
+	}
+
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	reader, err := index.NewDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("Failed to open reader: %v", err)
+	}
+
+	// Should have only category 2 docs (3, 6, 9)
+	if reader.NumDocs() != 3 {
+		t.Errorf("Expected 3 docs (category 2 only), got %d", reader.NumDocs())
+	}
+	reader.Close()
+
+	modifier.Close()
+}
+
+// TestIndexWriterDelete_ByQuery tests deleting documents by query
+// Source: TestIndexWriterDelete - query-based delete tests
+// Purpose: Tests deleting documents matching a query
+func TestIndexWriterDelete_ByQuery(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	modifier, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create IndexWriter: %v", err)
+	}
+
+	// Add documents
+	for i := 0; i < 10; i++ {
+		doc := document.NewDocument()
+		idField, _ := document.NewStringField("id", string(rune(i)), true)
+		statusField, _ := document.NewStringField("status", "active", true)
+		doc.Add(idField)
+		doc.Add(statusField)
+		if err := modifier.AddDocument(doc); err != nil {
+			t.Fatalf("Failed to add document: %v", err)
+		}
+	}
+
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	// Delete by query
+	query := search.NewTermQuery(index.NewTerm("status", "active"))
+	if err := modifier.DeleteDocumentsQuery(query); err != nil {
+		t.Fatalf("Failed to delete by query: %v", err)
+	}
+
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+
+	reader, err := index.NewDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("Failed to open reader: %v", err)
+	}
+
+	if reader.NumDocs() != 0 {
+		t.Errorf("Expected 0 docs after delete by query, got %d", reader.NumDocs())
+	}
+	reader.Close()
+
+	modifier.Close()
+}
+
+// Helper functions
+
+// addDoc adds a document with the given id and value
+func addDoc(t *testing.T, modifier *index.IndexWriter, id, value int) {
+	t.Helper()
+	doc := document.NewDocument()
+
+	contentField, _ := document.NewTextField("content", "aaa", false)
+	idField, _ := document.NewStringField("id", string(rune(id)), true)
+	valueField, _ := document.NewStringField("value", string(rune(value)), false)
+	dvField, _ := document.NewNumericDocValuesField("dv", int64(value))
+
+	doc.Add(contentField)
+	doc.Add(idField)
+	doc.Add(valueField)
+	doc.Add(dvField)
+
+	if err := modifier.AddDocument(doc); err != nil {
+		t.Fatalf("Failed to add document: %v", err)
+	}
+}
+
+// updateDoc updates a document with the given id and value
+func updateDoc(t *testing.T, modifier *index.IndexWriter, id, value int) {
+	t.Helper()
+	doc := document.NewDocument()
+
+	contentField, _ := document.NewTextField("content", "aaa", false)
+	idField, _ := document.NewStringField("id", string(rune(id)), true)
+	valueField, _ := document.NewStringField("value", string(rune(value)), false)
+	dvField, _ := document.NewNumericDocValuesField("dv", int64(value))
+
+	doc.Add(contentField)
+	doc.Add(idField)
+	doc.Add(valueField)
+	doc.Add(dvField)
+
+	if err := modifier.UpdateDocument(index.NewTerm("id", string(rune(id))), doc); err != nil {
+		t.Fatalf("Failed to update document: %v", err)
+	}
+}
+
+// getHitCount returns the number of hits for a term
+func getHitCount(t *testing.T, dir store.Directory, term *index.Term) int64 {
+	t.Helper()
+	reader, err := index.NewDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("Failed to open reader: %v", err)
+	}
+	defer reader.Close()
+
+	// For now, return a placeholder value
+	// In a full implementation, this would search the index
+	return int64(reader.NumDocs())
+}

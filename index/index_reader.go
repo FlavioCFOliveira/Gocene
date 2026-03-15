@@ -55,6 +55,9 @@ type IndexReaderInterface interface {
 
 	// Leaves returns all leaf reader contexts.
 	Leaves() ([]*LeafReaderContext, error)
+
+	// StoredFields returns a StoredFields for this reader.
+	StoredFields() (StoredFields, error)
 }
 
 // IndexReader is an abstract base class for reading indexes.

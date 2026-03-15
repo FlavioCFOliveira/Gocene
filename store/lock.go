@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 // Lock represents a lock obtained by a LockFactory.
@@ -173,6 +174,7 @@ func (l *NativeFSLock) EnsureValid() error {
 // SingleInstanceLockFactory creates locks that prevent multiple IndexWriters
 // in the same JVM (or process) from accessing the same directory.
 type SingleInstanceLockFactory struct {
+	mu    sync.Mutex
 	locks map[string]Lock
 }
 
@@ -185,6 +187,9 @@ func NewSingleInstanceLockFactory() *SingleInstanceLockFactory {
 
 // ObtainLock obtains a lock.
 func (f *SingleInstanceLockFactory) ObtainLock(dir Directory, lockName string) (Lock, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	if _, exists := f.locks[lockName]; exists {
 		return nil, fmt.Errorf("lock %s is already held", lockName)
 	}
@@ -199,6 +204,8 @@ func (f *SingleInstanceLockFactory) ObtainLock(dir Directory, lockName string) (
 
 // releaseLock releases a lock.
 func (f *SingleInstanceLockFactory) releaseLock(name string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	delete(f.locks, name)
 }
 

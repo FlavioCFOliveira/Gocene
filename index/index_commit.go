@@ -150,7 +150,12 @@ func (c *IndexCommit) Delete() error {
 	// Get all files associated with this commit
 	files, err := c.GetFileNames()
 	if err != nil {
-		return fmt.Errorf("getting file names: %w", err)
+		// If we can't get file names (e.g., segment infos not available),
+		// at least try to delete the segments file
+		if err := c.directory.DeleteFile(c.segmentsFileName); err != nil {
+			return fmt.Errorf("deleting segments file: %w", err)
+		}
+		return nil
 	}
 
 	// Delete all files

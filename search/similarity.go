@@ -12,8 +12,8 @@ type Similarity interface {
 	// ComputeWeight computes the weight for a query.
 	ComputeWeight(queryWeight float32, stats interface{}) Weight
 
-	// Scorer creates a SimScorer for scoring documents.
-	Scorer(stats interface{}) SimScorer
+	// Scorer creates a SimScorer for scoring documents given collection and term stats.
+	Scorer(collectionStats *CollectionStatistics, termStats *TermStatistics) SimScorer
 }
 
 // BaseSimilarity provides common functionality.
@@ -35,6 +35,6 @@ func (s *BaseSimilarity) ComputeWeight(queryWeight float32, stats interface{}) W
 }
 
 // Scorer creates a SimScorer.
-func (s *BaseSimilarity) Scorer(stats interface{}) SimScorer {
-	return nil
+func (s *BaseSimilarity) Scorer(collectionStats *CollectionStatistics, termStats *TermStatistics) SimScorer {
+	return NewBaseSimScorer()
 }

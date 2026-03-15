@@ -485,6 +485,39 @@ func (in *SimpleFSIndexInput) ReadBytesN(n int) ([]byte, error) {
 	return b, nil
 }
 
+// ReadShort reads a 16-bit value.
+func (in *SimpleFSIndexInput) ReadShort() (int16, error) {
+	b, err := in.ReadBytesN(2)
+	if err != nil {
+		return 0, err
+	}
+	return int16(b[0])<<8 | int16(b[1]), nil
+}
+
+// ReadInt reads a 32-bit value.
+func (in *SimpleFSIndexInput) ReadInt() (int32, error) {
+	b, err := in.ReadBytesN(4)
+	if err != nil {
+		return 0, err
+	}
+	return int32(b[0])<<24 | int32(b[1])<<16 | int32(b[2])<<8 | int32(b[3]), nil
+}
+
+// ReadLong reads a 64-bit value.
+func (in *SimpleFSIndexInput) ReadLong() (int64, error) {
+	b, err := in.ReadBytesN(8)
+	if err != nil {
+		return 0, err
+	}
+	return int64(b[0])<<56 | int64(b[1])<<48 | int64(b[2])<<40 | int64(b[3])<<32 |
+		int64(b[4])<<24 | int64(b[5])<<16 | int64(b[6])<<8 | int64(b[7]), nil
+}
+
+// ReadString reads a string.
+func (in *SimpleFSIndexInput) ReadString() (string, error) {
+	return ReadString(in)
+}
+
 // SetPosition changes the current position in the file.
 func (in *SimpleFSIndexInput) SetPosition(pos int64) error {
 	if pos < 0 || pos > in.Length() {
@@ -606,6 +639,32 @@ func (out *SimpleFSIndexOutput) WriteBytesN(b []byte, n int) error {
 		return fmt.Errorf("n exceeds buffer length")
 	}
 	return out.WriteBytes(b[:n])
+}
+
+// WriteShort writes a 16-bit value.
+func (out *SimpleFSIndexOutput) WriteShort(i int16) error {
+	b := []byte{byte(i >> 8), byte(i)}
+	return out.WriteBytes(b)
+}
+
+// WriteInt writes a 32-bit value.
+func (out *SimpleFSIndexOutput) WriteInt(i int32) error {
+	b := []byte{byte(i >> 24), byte(i >> 16), byte(i >> 8), byte(i)}
+	return out.WriteBytes(b)
+}
+
+// WriteLong writes a 64-bit value.
+func (out *SimpleFSIndexOutput) WriteLong(i int64) error {
+	b := []byte{
+		byte(i >> 56), byte(i >> 48), byte(i >> 40), byte(i >> 32),
+		byte(i >> 24), byte(i >> 16), byte(i >> 8), byte(i),
+	}
+	return out.WriteBytes(b)
+}
+
+// WriteString writes a string.
+func (out *SimpleFSIndexOutput) WriteString(s string) error {
+	return WriteString(out, s)
 }
 
 // Length returns the total length of the file written so far.

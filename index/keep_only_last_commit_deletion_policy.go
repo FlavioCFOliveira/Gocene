@@ -455,6 +455,102 @@ func (p *SnapshotDeletionPolicy) String() string {
 }
 
 // =============================================================================
+// KeepLastNCommitsDeletionPolicy
+// =============================================================================
+
+// KeepLastNCommitsDeletionPolicy keeps the last N commits and removes all prior
+// commits after a new commit is done. This policy is useful for maintaining
+// a history of recent commits while still managing index size.
+//
+// This is the Go port of Lucene's org.apache.lucene.index.KeepLastNCommitsDeletionPolicy.
+//
+// This policy is useful for:
+//   - Maintaining a rolling window of recent commits
+//   - Scenarios where you need limited history for rollback
+//   - Balancing between disk usage and commit history
+//
+// Example:
+//
+//	policy := index.NewKeepLastNCommitsDeletionPolicy(5) // Keep last 5 commits
+//	writer, err := index.NewIndexWriter(dir, config, policy)
+//	if err != nil {
+//	    // handle error
+//	}
+//	defer writer.Close()
+type KeepLastNCommitsDeletionPolicy struct {
+	*BaseIndexDeletionPolicy
+	numCommitsToKeep int
+}
+
+// NewKeepLastNCommitsDeletionPolicy creates a new KeepLastNCommitsDeletionPolicy.
+//
+// Parameters:
+//   - numCommitsToKeep: the number of most recent commits to retain
+//
+// Returns:
+//   - A new KeepLastNCommitsDeletionPolicy
+//
+// Panics:
+//   - If numCommitsToKeep is not positive
+//
+// Example:
+//
+//	policy := index.NewKeepLastNCommitsDeletionPolicy(10)
+func NewKeepLastNCommitsDeletionPolicy(numCommitsToKeep int) *KeepLastNCommitsDeletionPolicy {
+	if numCommitsToKeep <= 0 {
+		panic("number of recent commits to keep must be positive")
+	}
+	return &KeepLastNCommitsDeletionPolicy{
+		BaseIndexDeletionPolicy: &BaseIndexDeletionPolicy{},
+		numCommitsToKeep:        numCommitsToKeep,
+	}
+}
+
+// OnInit is called when IndexWriter is being initialized.
+// Delegates to OnCommit for the same deletion behavior.
+//
+// Parameters:
+//   - commits: A list of all current commits, sorted by age (oldest first)
+//
+// Returns an error if any deletion fails.
+func (p *KeepLastNCommitsDeletionPolicy) OnInit(commits []*IndexCommit) error {
+	return p.OnCommit(commits)
+}
+
+// OnCommit is called each time a commit is made.
+// Deletes all commits except the last N most recent ones.
+//
+// Parameters:
+//   - commits: A list of all current commits, sorted by age (oldest first)
+//
+// Returns an error if any deletion fails.
+func (p *KeepLastNCommitsDeletionPolicy) OnCommit(commits []*IndexCommit) error {
+	// The commits list is already sorted from oldest to newest
+	size := len(commits)
+	for i := 0; i < size-p.numCommitsToKeep; i++ {
+		if err := commits[i].Delete(); err != nil {
+			return fmt.Errorf("failed to delete commit %d: %w", i, err)
+		}
+	}
+	return nil
+}
+
+// Clone returns a clone of this policy.
+func (p *KeepLastNCommitsDeletionPolicy) Clone() IndexDeletionPolicy {
+	return NewKeepLastNCommitsDeletionPolicy(p.numCommitsToKeep)
+}
+
+// String returns a string representation of this policy.
+func (p *KeepLastNCommitsDeletionPolicy) String() string {
+	return fmt.Sprintf("KeepLastNCommitsDeletionPolicy(numToKeep=%d)", p.numCommitsToKeep)
+}
+
+// GetNumCommitsToKeep returns the number of commits this policy keeps.
+func (p *KeepLastNCommitsDeletionPolicy) GetNumCommitsToKeep() int {
+	return p.numCommitsToKeep
+}
+
+// =============================================================================
 // Helper functions
 // =============================================================================
 

@@ -118,6 +118,6 @@ func (s *ClassicSimilarity) ComputeWeight(queryWeight float32, stats interface{}
 }
 
 // Scorer creates a SimScorer for scoring documents (implements Similarity interface).
-func (s *ClassicSimilarity) Scorer(stats interface{}) SimScorer {
-	return nil
+func (s *ClassicSimilarity) Scorer(collectionStats *CollectionStatistics, termStats *TermStatistics) SimScorer {
+	return NewClassicSimScorer(s, collectionStats, termStats)
 }

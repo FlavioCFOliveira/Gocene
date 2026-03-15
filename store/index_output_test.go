@@ -390,3 +390,42 @@ func (m *mockIndexOutput) GetFilePointer() int64 { return m.pos }
 func (m *mockIndexOutput) Length() int64         { return int64(len(m.data)) }
 func (m *mockIndexOutput) GetName() string       { return m.name }
 func (m *mockIndexOutput) Close() error          { return nil }
+
+func (m *mockIndexOutput) WriteShort(i int16) error {
+	m.data = append(m.data, byte(i>>8), byte(i))
+	m.pos += 2
+	return nil
+}
+
+func (m *mockIndexOutput) WriteInt(i int32) error {
+	m.data = append(m.data, byte(i>>24), byte(i>>16), byte(i>>8), byte(i))
+	m.pos += 4
+	return nil
+}
+
+func (m *mockIndexOutput) WriteLong(i int64) error {
+	m.data = append(m.data,
+		byte(i>>56), byte(i>>48), byte(i>>40), byte(i>>32),
+		byte(i>>24), byte(i>>16), byte(i>>8), byte(i))
+	m.pos += 8
+	return nil
+}
+
+func (m *mockIndexOutput) WriteString(s string) error {
+	// VInt encoding for string length
+	length := len(s)
+	if length < 128 {
+		m.data = append(m.data, byte(length))
+		m.pos++
+	} else if length < 16384 {
+		m.data = append(m.data, byte((length>>7)|0x80), byte(length&0x7F))
+		m.pos += 2
+	} else {
+		// Simplified: just use 2 bytes for now
+		m.data = append(m.data, byte((length>>7)|0x80), byte(length&0x7F))
+		m.pos += 2
+	}
+	m.data = append(m.data, s...)
+	m.pos += int64(len(s))
+	return nil
+}
