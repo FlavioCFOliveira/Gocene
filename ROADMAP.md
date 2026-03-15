@@ -2,7 +2,7 @@
 
 **Project:** Gocene - Apache Lucene Port to Go
 **Module:** `github.com/FlavioCFOliveira/Gocene`
-**Last Updated:** 2026-03-15 (Phase 27 Completed - Query Infrastructure)
+**Last Updated:** 2026-03-15 (Phase 28 Completed - Advanced Codec Features)
 
 ---
 
@@ -14,15 +14,15 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 
 ## PENDING TASKS
 
-**Status:** Phases 1-27 completed. Phase 28 in progress (Advanced Codec Features).
+**Status:** Phases 1-28 completed. Phase 29 in progress (Additional Packages).
 
 | Phase | Status | Description |
 | :--- | :--- | :--- |
 | 1-24 | COMPLETED | All implementation and test coverage phases completed |
 | 25 | COMPLETED | Critical Codec Components (DocValues, Norms, Points, Vectors) |
 | 26 | COMPLETED | Reader Hierarchy Completion (CompositeReader, Contexts) |
-| 27 | PENDING | Query Infrastructure (TwoPhaseIterator, QueryCache, Weights) |
-| 28 | PENDING | Advanced Features (BlockTree, Per-Field Formats) |
+| 27 | COMPLETED | Query Infrastructure (TwoPhaseIterator, QueryCache, Weights) |
+| 28 | COMPLETED | Advanced Features (BlockTree, Per-Field Formats) |
 | 29 | PENDING | Additional Packages (Facets, Join, Grouping, Highlight) |
 
 ---
@@ -57,7 +57,7 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 | 25 | COMPLETED | GC-289 to GC-303 | Critical Codec Components | Phase 17 |
 | 26 | COMPLETED | GC-304 to GC-313 | Reader Hierarchy Completion | Phase 25 |
 | 27 | COMPLETED | GC-314 to GC-325 | Query Infrastructure | Phase 26 |
-| 28 | IN_PROGRESS | GC-326 to GC-337 | Advanced Codec Features | Phase 27 |
+| 28 | COMPLETED | GC-326 to GC-337 | Advanced Codec Features | Phase 27 |
 | 29 | PENDING | GC-338 to GC-352 | Additional Packages | Phase 28 |
 
 ---
@@ -723,6 +723,25 @@ Based on comprehensive gap analysis between Apache Lucene Java and Gocene, the f
 | GC-323 | MEDIUM | MEDIUM | Complete IndexSearcher CollectorManager | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Enhanced IndexSearcher with proper collector management and leaf collector creation for distributed search. Files: search/index_searcher.go |
 | GC-324 | MEDIUM | MEDIUM | Implement RegexpQuery | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Implemented RegexpQuery for regular expression pattern matching on indexed terms with automaton-based matching. File: search/regexp_query.go |
 | GC-325 | MEDIUM | MEDIUM | Implement PointRangeQuery | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Implemented PointRangeQuery for numeric range queries on fields indexed with point values, supporting multi-dimensional points. File: search/point_range_query.go |
+
+---
+
+### Phase 28: Advanced Codec Features (Completed: 2026-03-15)
+
+| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | COMPLETED | ACTIONABLE TECHNICAL DESCRIPTION |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| GC-326 | HIGH | HIGH | Implement BlockTreeTermsReader | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Implemented BlockTreeTermsReader for reading terms from block tree structure with trie-based index. File: codecs/blocktree/block_tree_terms_reader.go |
+| GC-327 | HIGH | HIGH | Implement BlockTreeTermsWriter | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Implemented BlockTreeTermsWriter for writing terms to block tree structure with trie-based index. File: codecs/blocktree/block_tree_terms_writer.go |
+| GC-328 | CRITICAL | HIGH | Implement FieldsProducer | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Implemented BaseFieldsProducer with thread-safe field management and concrete implementations. File: codecs/fields_producer.go |
+| GC-329 | CRITICAL | HIGH | Implement FieldsConsumer | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Implemented BaseFieldsConsumer with thread-safe field collection and concrete implementations. File: codecs/fields_consumer.go |
+| GC-330 | CRITICAL | HIGH | Implement StoredFieldsReader | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Implemented BaseStoredFieldsReader with thread-safe document access and visitor pattern. File: codecs/stored_fields_reader.go |
+| GC-331 | CRITICAL | HIGH | Implement StoredFieldsWriter | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Implemented BaseStoredFieldsWriter with thread-safe document writing and buffering. File: codecs/stored_fields_writer.go |
+| GC-332 | CRITICAL | HIGH | Implement TermVectorsReader | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Implemented BaseTermVectorsReader with thread-safe term vector access. File: codecs/term_vectors_reader.go |
+| GC-333 | CRITICAL | HIGH | Implement TermVectorsWriter | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Implemented BaseTermVectorsWriter with full term vector writing lifecycle. File: codecs/term_vectors_writer.go |
+| GC-334 | MEDIUM | MEDIUM | Implement PerFieldPostingsFormat | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Implemented PerFieldPostingsFormat for per-field postings format selection with delegation. File: codecs/per_field_postings_format.go |
+| GC-335 | MEDIUM | MEDIUM | Implement PerFieldDocValuesFormat | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Implemented PerFieldDocValuesFormat for per-field doc values format selection with delegation. File: codecs/per_field_doc_values_format.go |
+| GC-336 | CRITICAL | HIGH | Implement LiveDocsFormat | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Implemented LiveDocsFormat for live/deleted document tracking with Lucene90 implementation. File: codecs/live_docs_format.go |
+| GC-337 | MEDIUM | LOW | Implement CompoundFormat | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Implemented CompoundFormat for compound file support with Lucene90 implementation. File: codecs/compound_format.go |
 
 ---
 
