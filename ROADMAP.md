@@ -2,7 +2,7 @@
 
 **Project:** Gocene - Apache Lucene Port to Go
 **Module:** `github.com/FlavioCFOliveira/Gocene`
-**Last Updated:** 2026-03-15 (Gap Analysis Complete - Phases 25-29 Added)
+**Last Updated:** 2026-03-15 (Phase 27 Completed - Query Infrastructure)
 
 ---
 
@@ -14,7 +14,7 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 
 ## PENDING TASKS
 
-**Status:** Phases 1-24 completed. Phases 25-29 identified from comprehensive gap analysis.
+**Status:** Phases 1-27 completed. Phase 28 in progress (Advanced Codec Features).
 
 | Phase | Status | Description |
 | :--- | :--- | :--- |
@@ -56,8 +56,8 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 | 24 | COMPLETED | GC-286 to GC-288 | Test Coverage - Document Package | Phase 23 |
 | 25 | COMPLETED | GC-289 to GC-303 | Critical Codec Components | Phase 17 |
 | 26 | COMPLETED | GC-304 to GC-313 | Reader Hierarchy Completion | Phase 25 |
-| 27 | PENDING | GC-314 to GC-325 | Query Infrastructure | Phase 26 |
-| 28 | PENDING | GC-326 to GC-337 | Advanced Codec Features | Phase 27 |
+| 27 | COMPLETED | GC-314 to GC-325 | Query Infrastructure | Phase 26 |
+| 28 | IN_PROGRESS | GC-326 to GC-337 | Advanced Codec Features | Phase 27 |
 | 29 | PENDING | GC-338 to GC-352 | Additional Packages | Phase 28 |
 
 ---
@@ -635,7 +635,8 @@ Based on comprehensive gap analysis between Apache Lucene Java and Gocene, the f
 ---
 
 ### Phase 27: Query Infrastructure Completion
-**Status:** PENDING | **Tasks:** 12 | **Focus:** Complete query execution infrastructure
+**Status:** COMPLETED | **Tasks:** 12 | **Completed:** 2026-03-15
+**Focus:** Complete query execution infrastructure
 **Dependencies:** Phase 26
 
 | Task ID | Task Name | Specialists | SEVERITY | PRIORITY |
@@ -703,6 +704,25 @@ Based on comprehensive gap analysis between Apache Lucene Java and Gocene, the f
 | GC-352 | Implement AttributeImpl base class | go-elite-developer, gocene-lucene-specialist | MEDIUM | MEDIUM |
 
 **Dependencies:** Phase 28 (Advanced Codec Features)
+
+---
+
+### Phase 27: Query Infrastructure Completion (Completed: 2026-03-15)
+
+| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | COMPLETED | ACTIONABLE TECHNICAL DESCRIPTION |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| GC-314 | CRITICAL | HIGH | Implement TwoPhaseIterator | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Implemented TwoPhaseIterator pattern for efficient query matching with fast approximation and slow confirmation phases. File: search/two_phase_iterator.go |
+| GC-315 | HIGH | HIGH | Implement QueryCache interface | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Implemented QueryCache interface with DoCache method for caching query results. File: search/query_cache.go |
+| GC-316 | HIGH | HIGH | Implement QueryCachingPolicy | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Implemented QueryCachingPolicy interface with ShouldCache and OnUse methods for cache decision logic. File: search/query_cache.go |
+| GC-317 | HIGH | HIGH | Implement LRUQueryCache | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Implemented LRUQueryCache with size-based eviction, RAM bytes tracking, and concurrent access support. File: search/lru_query_cache.go |
+| GC-318 | HIGH | HIGH | Implement BooleanWeight | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Implemented BooleanWeight for coordinating scoring across BooleanQuery clauses with proper weight normalization. File: search/boolean_weight.go |
+| GC-319 | HIGH | HIGH | Implement PhraseWeight | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Implemented PhraseWeight for phrase query scoring with exact and sloppy matching support. File: search/phrase_weight.go |
+| GC-320 | HIGH | MEDIUM | Complete Scorer advanceShallow/getMaxScore | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Added DocIDRunEnd and GetMaxScore methods to Scorer interface and all implementations for proper scoring support. Files: search/scorer.go, search/disjunction_disi_approximation_test.go |
+| GC-321 | HIGH | HIGH | Implement TopFieldCollector | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Implemented TopFieldCollector for collecting top-N documents sorted by fields with priority queue management. File: search/top_field_collector.go |
+| GC-322 | MEDIUM | MEDIUM | Implement TopScoreDocCollector | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Implemented TopScoreDocCollector optimized for score-based sorting with pagination support via After parameter. File: search/top_score_doc_collector.go |
+| GC-323 | MEDIUM | MEDIUM | Complete IndexSearcher CollectorManager | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Enhanced IndexSearcher with proper collector management and leaf collector creation for distributed search. Files: search/index_searcher.go |
+| GC-324 | MEDIUM | MEDIUM | Implement RegexpQuery | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Implemented RegexpQuery for regular expression pattern matching on indexed terms with automaton-based matching. File: search/regexp_query.go |
+| GC-325 | MEDIUM | MEDIUM | Implement PointRangeQuery | go-elite-developer, gocene-lucene-specialist | 2026-03-15 | Implemented PointRangeQuery for numeric range queries on fields indexed with point values, supporting multi-dimensional points. File: search/point_range_query.go |
 
 ---
 
