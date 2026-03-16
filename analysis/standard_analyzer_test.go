@@ -260,9 +260,9 @@ func TestStandardAnalyzer_Offsets(t *testing.T) {
 	defer stream.Close()
 
 	type tokenInfo struct {
-		text   string
-		start  int
-		end    int
+		text  string
+		start int
+		end   int
 	}
 
 	expected := []tokenInfo{
@@ -431,32 +431,32 @@ func TestStandardAnalyzer_UnicodeLanguages(t *testing.T) {
 	}{
 		{
 			name:      "Chinese characters",
-			input:    "我是中国人",
+			input:     "我是中国人",
 			minTokens: 5, // Each character is a token
 		},
 		{
 			name:      "Korean",
-			input:    "안녕하세요 한글입니다",
+			input:     "안녕하세요 한글입니다",
 			minTokens: 2,
 		},
 		{
 			name:      "Japanese",
-			input:    "仮名遣い カタカナ",
+			input:     "仮名遣い カタカナ",
 			minTokens: 2,
 		},
 		{
 			name:      "Greek",
-			input:    "Γράφεται σε συνεργασία",
+			input:     "Γράφεται σε συνεργασία",
 			minTokens: 2,
 		},
 		{
 			name:      "Arabic",
-			input:    "الفيلم الوثائقي",
+			input:     "الفيلم الوثائقي",
 			minTokens: 2,
 		},
 		{
 			name:      "Thai",
-			input:    "การที่ได้ต้องแสดงว่างานดี",
+			input:     "การที่ได้ต้องแสดงว่างานดี",
 			minTokens: 1,
 		},
 	}
@@ -510,12 +510,12 @@ func TestStandardAnalyzer_Emoji(t *testing.T) {
 	}{
 		{
 			name:      "simple emoji",
-			input:    "💩 💩💩",
+			input:     "💩 💩💩",
 			minTokens: 1,
 		},
 		{
 			name:      "emoji with text",
-			input:    "poo💩poo",
+			input:     "poo💩poo",
 			minTokens: 2, // "poo" and "poo" with emoji in between
 		},
 	}

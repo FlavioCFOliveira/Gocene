@@ -15,9 +15,9 @@ import (
 // ReusableStringReader allows reusing the same reader instance with different
 // string inputs, avoiding allocation overhead for temporary string readers.
 type ReusableStringReader struct {
-	str   string
-	pos   int
-	size  int
+	str  string
+	pos  int
+	size int
 }
 
 // NewReusableStringReader creates a new ReusableStringReader.

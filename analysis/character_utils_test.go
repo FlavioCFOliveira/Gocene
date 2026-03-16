@@ -347,9 +347,9 @@ func TestCharacterUtils_CodePointAtInvalid(t *testing.T) {
 
 func TestCharacterUtils_CharCount(t *testing.T) {
 	tests := []struct {
-		name     string
+		name      string
 		codePoint rune
-		expected int
+		expected  int
 	}{
 		{"ASCII", 'a', 1},
 		{"BMP", '世', 1},

@@ -127,7 +127,7 @@ func (p *PorterStemmer) step1b() {
 		if p.endsWith("at") || p.endsWith("bl") || p.endsWith("iz") {
 			p.k++
 			p.b[p.k-1] = 'e'
-		} else if p.isDoubleConsonant(p.k-1) {
+		} else if p.isDoubleConsonant(p.k - 1) {
 			p.k--
 			if p.endsWith("l") || p.endsWith("s") || p.endsWith("z") {
 				p.k++
