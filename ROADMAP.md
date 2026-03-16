@@ -2,7 +2,7 @@
 
 **Project:** Gocene - Apache Lucene Port to Go
 **Module:** `github.com/FlavioCFOliveira/Gocene`
-**Last Updated:** 2026-03-15 (Phase 28 Completed - Advanced Codec Features)
+**Last Updated:** 2026-03-16 (Phase 29 Completed - Additional Packages)
 
 ---
 
@@ -14,7 +14,7 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 
 ## PENDING TASKS
 
-**Status:** Phases 1-28 completed. Phase 29 in progress (Additional Packages).
+**Status:** Phases 1-29 completed. Phase 30 pending (Advanced Features).
 
 | Phase | Status | Description |
 | :--- | :--- | :--- |
@@ -58,7 +58,7 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 | 26 | COMPLETED | GC-304 to GC-313 | Reader Hierarchy Completion | Phase 25 |
 | 27 | COMPLETED | GC-314 to GC-325 | Query Infrastructure | Phase 26 |
 | 28 | COMPLETED | GC-326 to GC-337 | Advanced Codec Features | Phase 27 |
-| 29 | PENDING | GC-338 to GC-352 | Additional Packages | Phase 28 |
+| 29 | COMPLETED | GC-338 to GC-352 | Additional Packages | Phase 28 |
 
 ---
 
@@ -681,8 +681,8 @@ Based on comprehensive gap analysis between Apache Lucene Java and Gocene, the f
 
 ---
 
-### Phase 29: Additional Lucene Packages
-**Status:** PENDING | **Tasks:** 15 | **Focus:** Implement additional Lucene packages
+### Phase 29: Additional Lucene Packages (Completed: 2026-03-16)
+**Status:** COMPLETED | **Tasks:** 15 | **Focus:** Implement additional Lucene packages
 **Dependencies:** Phase 28
 
 | Task ID | Task Name | Specialists | SEVERITY | PRIORITY |
@@ -745,6 +745,28 @@ Based on comprehensive gap analysis between Apache Lucene Java and Gocene, the f
 
 ---
 
+### Phase 29: Additional Lucene Packages (Completed: 2026-03-16)
+
+| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | COMPLETED | ACTIONABLE TECHNICAL DESCRIPTION |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| GC-338 | MEDIUM | MEDIUM | Implement Facets infrastructure | go-elite-developer, gocene-lucene-specialist | 2026-03-16 | Implemented Facets package with DrillDownQuery, DrillSideways, and FacetsConfig for faceted search. Files: facets/facets.go, facets/facets_config.go, facets/label_and_value.go |
+| GC-339 | MEDIUM | MEDIUM | Implement FacetsCollector | go-elite-developer, gocene-lucene-specialist | 2026-03-16 | Implemented FacetsCollector for collecting facet counts during search with MatchingDocs tracking. File: facets/facets_collector.go |
+| GC-340 | MEDIUM | MEDIUM | Implement FacetField | go-elite-developer, gocene-lucene-specialist | 2026-03-16 | Implemented FacetField for indexing facet categories with hierarchical path support. File: facets/facet_field.go |
+| GC-341 | MEDIUM | LOW | Implement TaxonomyReader | go-elite-developer, gocene-lucene-specialist | 2026-03-16 | Implemented TaxonomyReader for reading category hierarchies with parent array and facet label retrieval. File: facets/taxonomy_reader.go |
+| GC-342 | MEDIUM | LOW | Implement TaxonomyWriter | go-elite-developer, gocene-lucene-specialist | 2026-03-16 | Implemented TaxonomyWriter for managing taxonomy with category addition and parent tracking. File: facets/taxonomy_writer.go |
+| GC-343 | MEDIUM | MEDIUM | Implement JoinUtil | go-elite-developer, gocene-lucene-specialist | 2026-03-16 | Implemented JoinUtil with CreateJoinQuery, ScoreMode, and DocIdBitSet for parent-child join queries. File: join/join_util.go |
+| GC-344 | MEDIUM | MEDIUM | Implement ToParentBlockJoinQuery | go-elite-developer, gocene-lucene-specialist | 2026-03-16 | Implemented ToParentBlockJoinQuery for matching parent documents based on child criteria. File: join/to_parent_block_join_query.go |
+| GC-345 | MEDIUM | LOW | Implement ToChildBlockJoinQuery | go-elite-developer, gocene-lucene-specialist | 2026-03-16 | Implemented ToChildBlockJoinQuery for matching child documents based on parent criteria. File: join/to_child_block_join_query.go |
+| GC-346 | MEDIUM | MEDIUM | Implement GroupingSearch | go-elite-developer, gocene-lucene-specialist | 2026-03-16 | Implemented GroupingSearch with fluent API for grouping search results by field. File: grouping/grouping_search.go |
+| GC-347 | MEDIUM | LOW | Implement TopGroups | go-elite-developer, gocene-lucene-specialist | 2026-03-16 | Implemented TopGroups and GroupDocs for grouped search results with TopGroupsMerger for distributed search. File: grouping/top_groups.go |
+| GC-348 | MEDIUM | MEDIUM | Implement Highlighter | go-elite-developer, gocene-lucene-specialist | 2026-03-16 | Implemented Highlighter with SimpleHTMLFormatter, SimpleFragmenter, and fragment scoring for search result highlighting. File: highlight/highlighter.go |
+| GC-349 | MEDIUM | MEDIUM | Implement QueryScorer | go-elite-developer, gocene-lucene-specialist | 2026-03-16 | Implemented QueryScorer and QueryTermScorer for scoring text fragments based on query term matches. File: highlight/query_scorer.go |
+| GC-350 | MEDIUM | MEDIUM | Implement StandardQueryParser | go-elite-developer, gocene-lucene-specialist | 2026-03-16 | Implemented StandardQueryParser with support for boolean operators, phrases, fielded queries, ranges, and wildcards. File: queryparser/standard_query_parser.go |
+| GC-351 | LOW | LOW | Implement ComplexExplanation | go-elite-developer, gocene-lucene-specialist | 2026-03-16 | Implemented ComplexExplanation with nested explanations, builder pattern, and formatter for detailed scoring explanations. File: search/complex_explanation.go |
+| GC-352 | MEDIUM | MEDIUM | Implement AttributeImpl base class | go-elite-developer, gocene-lucene-specialist | 2026-03-16 | Verified AttributeImpl implementation exists as analysis/attribute.go with BaseAttributeImpl providing Clear() and CopyTo() methods. |
+
+---
+
 ## Gap Analysis Summary
 
 **Analysis Date:** 2026-03-15
@@ -761,11 +783,11 @@ Based on comprehensive gap analysis between Apache Lucene Java and Gocene, the f
 | codecs | 29% | DocValuesFormat, NormsFormat, PointsFormat, KnnVectorsFormat |
 | store | 80% | SimpleFSDirectory, FileSwitchDirectory |
 | util | 88% | BitSet abstract base, BytesRefBuilder |
-| queryparser | 20% | StandardQueryParser, ParseException |
-| **highlight** | 0% | Entire package missing |
-| **facets** | 0% | Entire package missing |
-| **join** | 0% | Entire package missing |
-| **grouping** | 0% | Entire package missing |
+| queryparser | 80% | ParseException, QueryParser base class |
+| **highlight** | 60% | Highlighter, QueryScorer, Fragmenter, Formatter |
+| **facets** | 70% | FacetsCollector, FacetField, TaxonomyReader/Writer |
+| **join** | 70% | JoinUtil, ToParentBlockJoinQuery, ToChildBlockJoinQuery |
+| **grouping** | 60% | GroupingSearch, TopGroups, GroupDocs |
 
 ### Overall Project Completion: 60-70% (Core), 20-30% (Full Compatibility)
 
