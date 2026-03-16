@@ -218,6 +218,14 @@ func (o *testIndexOutputForAlignment) GetFilePointer() int64 {
 	return o.filePointer
 }
 
+func (o *testIndexOutputForAlignment) SetPosition(pos int64) error {
+	if pos < 0 || pos > o.filePointer {
+		return fmt.Errorf("invalid position: %d", pos)
+	}
+	o.filePointer = pos
+	return nil
+}
+
 func (o *testIndexOutputForAlignment) Length() int64 {
 	return o.filePointer
 }

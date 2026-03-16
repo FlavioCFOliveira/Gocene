@@ -9,9 +9,53 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 )
+
+// validFileNamePattern matches allowed filename characters
+var validFileNamePattern = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+
+// validateFileName validates that a filename is safe for use in file operations.
+// It rejects:
+//   - Absolute paths
+//   - Paths containing .. (path traversal)
+//   - Paths with null bytes
+//   - Paths not matching the allowed pattern
+func validateFileName(name string) error {
+	// Reject empty names
+	if name == "" {
+		return fmt.Errorf("filename cannot be empty")
+	}
+
+	// Reject absolute paths
+	if filepath.IsAbs(name) {
+		return fmt.Errorf("absolute paths not allowed: %s", name)
+	}
+
+	// Reject paths containing ..
+	if strings.Contains(name, "..") {
+		return fmt.Errorf("path traversal not allowed: %s", name)
+	}
+
+	// Reject paths with null bytes
+	if strings.Contains(name, "\x00") {
+		return fmt.Errorf("null bytes not allowed: %s", name)
+	}
+
+	// Reject paths containing path separators
+	if strings.ContainsAny(name, string(filepath.Separator)+"/") {
+		return fmt.Errorf("path separators not allowed: %s", name)
+	}
+
+	// Validate against allowed pattern
+	if !validFileNamePattern.MatchString(name) {
+		return fmt.Errorf("invalid filename (must match [a-zA-Z0-9._-]+): %s", name)
+	}
+
+	return nil
+}
 
 // FSDirectory is the abstract base class for Directory implementations
 // that store the index in the file system.
@@ -108,6 +152,10 @@ func (d *FSDirectory) FileExists(name string) bool {
 		return false
 	}
 
+	if err := validateFileName(name); err != nil {
+		return false
+	}
+
 	path := filepath.Join(d.directory, name)
 	_, err := os.Stat(path)
 	return err == nil
@@ -116,6 +164,10 @@ func (d *FSDirectory) FileExists(name string) bool {
 // FileLength returns the length of a file in the directory.
 func (d *FSDirectory) FileLength(name string) (int64, error) {
 	if err := d.EnsureOpen(); err != nil {
+		return 0, err
+	}
+
+	if err := validateFileName(name); err != nil {
 		return 0, err
 	}
 
@@ -150,6 +202,10 @@ func (d *FSDirectory) CreateOutput(name string, ctx IOContext) (IndexOutput, err
 // DeleteFile deletes a file from the directory.
 func (d *FSDirectory) DeleteFile(name string) error {
 	if err := d.EnsureOpen(); err != nil {
+		return err
+	}
+
+	if err := validateFileName(name); err != nil {
 		return err
 	}
 
@@ -204,6 +260,10 @@ func (d *FSDirectory) Sync(names []string) error {
 	}
 
 	for _, name := range names {
+		if err := validateFileName(name); err != nil {
+			return err
+		}
+
 		path := filepath.Join(d.directory, name)
 		f, err := os.Open(path)
 		if err != nil {
@@ -227,6 +287,14 @@ func (d *FSDirectory) Sync(names []string) error {
 func (d *FSDirectory) Rename(source string, dest string) error {
 	if err := d.EnsureOpen(); err != nil {
 		return err
+	}
+
+	if err := validateFileName(source); err != nil {
+		return fmt.Errorf("invalid source name: %w", err)
+	}
+
+	if err := validateFileName(dest); err != nil {
+		return fmt.Errorf("invalid destination name: %w", err)
 	}
 
 	sourcePath := filepath.Join(d.directory, source)
@@ -257,6 +325,10 @@ func (d *FSDirectory) Rename(source string, dest string) error {
 func (d *FSDirectory) ObtainLock(name string) (Lock, error) {
 	if err := d.EnsureOpen(); err != nil {
 		return nil, err
+	}
+
+	if err := validateFileName(name); err != nil {
+		return nil, fmt.Errorf("invalid lock name: %w", err)
 	}
 
 	// Use the parent's LockFactory if configured, passing d (FSDirectory) instead of BaseDirectory
@@ -377,6 +449,10 @@ func (d *SimpleFSDirectory) OpenInput(name string, ctx IOContext) (IndexInput, e
 		return nil, err
 	}
 
+	if err := validateFileName(name); err != nil {
+		return nil, err
+	}
+
 	path := filepath.Join(d.directory, name)
 	file, err := os.Open(path)
 	if err != nil {
@@ -407,6 +483,10 @@ func (d *SimpleFSDirectory) OpenInput(name string, ctx IOContext) (IndexInput, e
 // CreateOutput returns an IndexOutput for writing a new file.
 func (d *SimpleFSDirectory) CreateOutput(name string, ctx IOContext) (IndexOutput, error) {
 	if err := d.EnsureOpen(); err != nil {
+		return nil, err
+	}
+
+	if err := validateFileName(name); err != nil {
 		return nil, err
 	}
 
@@ -674,6 +754,19 @@ func (out *SimpleFSIndexOutput) Length() int64 {
 		return out.GetFilePointer()
 	}
 	return info.Size()
+}
+
+// SetPosition sets the current position for writing using file seek.
+func (out *SimpleFSIndexOutput) SetPosition(pos int64) error {
+	if !out.directory.IsOpen() {
+		return ErrIllegalState
+	}
+	_, err := out.file.Seek(pos, 0)
+	if err != nil {
+		return fmt.Errorf("failed to seek to position %d: %w", pos, err)
+	}
+	out.SetFilePointer(pos)
+	return nil
 }
 
 // Close closes this IndexOutput.

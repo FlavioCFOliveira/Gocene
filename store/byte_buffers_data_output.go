@@ -5,7 +5,6 @@
 package store
 
 import (
-	"encoding/binary"
 	"fmt"
 	"math"
 )
@@ -152,23 +151,38 @@ func (o *ByteBuffersDataOutput) WriteBytes(b []byte) error {
 
 // WriteShort writes a 16-bit value.
 func (o *ByteBuffersDataOutput) WriteShort(v int16) error {
-	buf := make([]byte, 2)
-	binary.LittleEndian.PutUint16(buf, uint16(v))
-	return o.WriteBytes(buf)
+	// Ensure we have space for 2 bytes
+	if o.currentBlock == nil || len(o.currentBlock)+2 > o.blockSize() {
+		o.appendBlock()
+	}
+	// Write directly to avoid allocation
+	o.currentBlock = append(o.currentBlock, byte(v>>8), byte(v))
+	return nil
 }
 
 // WriteInt writes a 32-bit value.
 func (o *ByteBuffersDataOutput) WriteInt(v int32) error {
-	buf := make([]byte, 4)
-	binary.LittleEndian.PutUint32(buf, uint32(v))
-	return o.WriteBytes(buf)
+	// Ensure we have space for 4 bytes
+	if o.currentBlock == nil || len(o.currentBlock)+4 > o.blockSize() {
+		o.appendBlock()
+	}
+	// Write directly to avoid allocation
+	o.currentBlock = append(o.currentBlock,
+		byte(v>>24), byte(v>>16), byte(v>>8), byte(v))
+	return nil
 }
 
 // WriteLong writes a 64-bit value.
 func (o *ByteBuffersDataOutput) WriteLong(v int64) error {
-	buf := make([]byte, 8)
-	binary.LittleEndian.PutUint64(buf, uint64(v))
-	return o.WriteBytes(buf)
+	// Ensure we have space for 8 bytes
+	if o.currentBlock == nil || len(o.currentBlock)+8 > o.blockSize() {
+		o.appendBlock()
+	}
+	// Write directly to avoid allocation
+	o.currentBlock = append(o.currentBlock,
+		byte(v>>56), byte(v>>48), byte(v>>40), byte(v>>32),
+		byte(v>>24), byte(v>>16), byte(v>>8), byte(v))
+	return nil
 }
 
 // WriteBytesN writes exactly len(b) bytes from b.

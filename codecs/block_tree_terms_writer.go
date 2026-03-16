@@ -2,13 +2,12 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-package blocktree
+package codecs
 
 import (
 	"fmt"
 	"sync"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -18,7 +17,7 @@ import (
 // This is the Go port of Lucene's BlockTreeTermsWriter.
 // It provides efficient term dictionary writing using a trie-based index structure.
 type BlockTreeTermsWriter struct {
-	state      *codecs.SegmentWriteState
+	state      *SegmentWriteState
 	fields     map[string]*blockTreeFieldWriter
 	mu         sync.Mutex
 	closed     bool
@@ -46,7 +45,7 @@ type blockTreeTermEntry struct {
 
 // NewBlockTreeTermsWriter creates a new BlockTreeTermsWriter.
 // This is the Go port of BlockTreeTermsWriter constructor.
-func NewBlockTreeTermsWriter(state *codecs.SegmentWriteState) (*BlockTreeTermsWriter, error) {
+func NewBlockTreeTermsWriter(state *SegmentWriteState) (*BlockTreeTermsWriter, error) {
 	segmentName := state.SegmentInfo.Name()
 	suffix := state.SegmentSuffix
 	if suffix != "" {
@@ -398,4 +397,4 @@ func (w *BlockTreeTermsWriter) writePostings(postings []index.PostingsEnum) erro
 }
 
 // Ensure BlockTreeTermsWriter implements FieldsConsumer
-var _ codecs.FieldsConsumer = (*BlockTreeTermsWriter)(nil)
+var _ FieldsConsumer = (*BlockTreeTermsWriter)(nil)

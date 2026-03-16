@@ -189,6 +189,31 @@ func (r *CodecReader) GetCoreCacheKey() interface{} {
 	return NewCoreCacheKey(r.coreReaders.GetSegmentName())
 }
 
+// GetTermVectorsReader returns the TermVectorsReader for this segment.
+// Returns nil if term vectors are not available.
+func (r *CodecReader) GetTermVectorsReader() TermVectorsReader {
+	if r.coreReaders == nil {
+		return nil
+	}
+	return r.coreReaders.GetTermVectorsReader()
+}
+
+// GetStoredFieldsReader returns the StoredFieldsReader for this segment.
+func (r *CodecReader) GetStoredFieldsReader() StoredFieldsReader {
+	if r.coreReaders == nil {
+		return nil
+	}
+	return r.coreReaders.GetStoredFieldsReader()
+}
+
+// GetFieldsReader returns the FieldsProducer for this segment.
+func (r *CodecReader) GetFieldsReader() FieldsProducer {
+	if r.coreReaders == nil {
+		return nil
+	}
+	return r.coreReaders.GetFields()
+}
+
 // Ensure CodecReader implements the expected interfaces
 var _ LeafReaderInterface = (*CodecReader)(nil)
 

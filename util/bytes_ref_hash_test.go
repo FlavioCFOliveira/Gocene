@@ -19,8 +19,8 @@ func newTestPool() *ByteBlockPool {
 	return NewByteBlockPool(NewDirectAllocator())
 }
 
-// atLeast returns a value >= n using global rand
-func atLeast(n int) int {
+// atLeastGlobal returns a value >= n using global rand
+func atLeastGlobal(n int) int {
 	return n + rand.Intn(n)
 }
 
@@ -465,9 +465,9 @@ func TestBytesRefHash_ConcurrentAccess(t *testing.T) {
 		notEquals := atomic.Int32{}
 		wrongSize := atomic.Int32{}
 
-		numThreads := atLeast(3)
+		numThreads := atLeastGlobal(3)
 		var wg sync.WaitGroup
-		loops := atLeast(100)
+		loops := atLeastGlobal(100)
 
 		// Use a barrier to synchronize thread start
 		barrier := make(chan struct{})

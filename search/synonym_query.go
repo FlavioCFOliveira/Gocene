@@ -140,17 +140,39 @@ type SynonymWeight struct {
 }
 
 // Scorer creates a scorer for this weight.
-func (w *SynonymWeight) Scorer(reader index.IndexReaderInterface) (Scorer, error) {
+func (w *SynonymWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) {
 	return nil, nil
 }
 
-// GetValueForNormalization returns the value for normalization.
-func (w *SynonymWeight) GetValueForNormalization() float32 {
-	return 1.0
+// ScorerSupplier creates a scorer supplier for this weight.
+func (w *SynonymWeight) ScorerSupplier(context *index.LeafReaderContext) (ScorerSupplier, error) {
+	return nil, nil
 }
 
-// Normalize normalizes this weight.
-func (w *SynonymWeight) Normalize(norm float32) {}
+// Explain returns an explanation of the score for the given document.
+func (w *SynonymWeight) Explain(context *index.LeafReaderContext, doc int) (Explanation, error) {
+	return NewExplanation(false, 0, "SynonymWeight explanation not implemented"), nil
+}
+
+// BulkScorer creates a bulk scorer for efficient bulk scoring.
+func (w *SynonymWeight) BulkScorer(context *index.LeafReaderContext) (BulkScorer, error) {
+	return nil, nil
+}
+
+// IsCacheable returns true if this weight can be cached for the given leaf.
+func (w *SynonymWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
+	return true
+}
+
+// Count returns the count of matching documents in sub-linear time.
+func (w *SynonymWeight) Count(context *index.LeafReaderContext) (int, error) {
+	return -1, nil
+}
+
+// Matches returns the matches for a specific document.
+func (w *SynonymWeight) Matches(context *index.LeafReaderContext, doc int) (Matches, error) {
+	return nil, nil
+}
 
 // Ensure SynonymWeight implements Weight
 var _ Weight = (*SynonymWeight)(nil)

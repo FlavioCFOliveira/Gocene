@@ -639,12 +639,12 @@ func assertSameStreams(t *testing.T, msg string, expected, test store.IndexInput
 			readLen = len(expectedBuffer)
 		}
 
-		_, err := expected.ReadBytes(expectedBuffer, 0, readLen)
+		err := expected.ReadBytes(expectedBuffer[:readLen])
 		if err != nil {
 			t.Fatalf("%s: failed to read expected: %v", msg, err)
 		}
 
-		_, err = test.ReadBytes(testBuffer, 0, readLen)
+		err = test.ReadBytes(testBuffer[:readLen])
 		if err != nil {
 			t.Fatalf("%s: failed to read test: %v", msg, err)
 		}
@@ -690,8 +690,8 @@ func assertSameSeekBehavior(t *testing.T, msg string, expected, actual store.Ind
 // assertSameStreamsAt verifies streams are equal at a specific position.
 func assertSameStreamsAt(t *testing.T, msg string, expected, actual store.IndexInput, seekTo int64) {
 	if seekTo >= 0 && seekTo < expected.Length() {
-		expected.Seek(seekTo)
-		actual.Seek(seekTo)
+		expected.SetPosition(seekTo)
+		actual.SetPosition(seekTo)
 		assertSameStreams(t, msg, expected, actual)
 	}
 }

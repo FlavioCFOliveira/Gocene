@@ -74,13 +74,17 @@ func NewLucene104PostingsFormat() *Lucene104PostingsFormat {
 }
 
 // FieldsConsumer returns a fields consumer for writing postings.
+// Uses BlockTreeTermsWriter for efficient term dictionary encoding.
 func (f *Lucene104PostingsFormat) FieldsConsumer(state *SegmentWriteState) (FieldsConsumer, error) {
-	return NewLucene104FieldsConsumer(state), nil
+	// Use BlockTreeTermsWriter for Lucene-compatible block tree format
+	return NewBlockTreeTermsWriter(state)
 }
 
 // FieldsProducer returns a fields producer for reading postings.
+// Uses BlockTreeTermsReader for efficient term dictionary access.
 func (f *Lucene104PostingsFormat) FieldsProducer(state *SegmentReadState) (FieldsProducer, error) {
-	return NewLucene104FieldsProducer(state), nil
+	// Use BlockTreeTermsReader for Lucene-compatible block tree format
+	return NewBlockTreeTermsReader(state)
 }
 
 // Lucene104FieldsConsumer writes postings data to disk.

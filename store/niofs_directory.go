@@ -379,6 +379,23 @@ func (out *NIOFSIndexOutput) Length() int64 {
 	return info.Size()
 }
 
+// SetPosition sets the current position for writing using file seek.
+func (out *NIOFSIndexOutput) SetPosition(pos int64) error {
+	if !out.directory.IsOpen() {
+		return ErrIllegalState
+	}
+	// Flush any buffered data before seeking
+	if err := out.bufWriter.Flush(); err != nil {
+		return fmt.Errorf("failed to flush buffer: %w", err)
+	}
+	_, err := out.file.Seek(pos, 0)
+	if err != nil {
+		return fmt.Errorf("failed to seek to position %d: %w", pos, err)
+	}
+	out.SetFilePointer(pos)
+	return nil
+}
+
 // Close flushes any buffered data, syncs to disk, and closes the file.
 func (out *NIOFSIndexOutput) Close() error {
 	if out.file == nil {

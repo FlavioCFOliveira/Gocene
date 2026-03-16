@@ -114,24 +114,49 @@ func (w *ToChildBlockJoinWeight) GetQuery() search.Query {
 	return nil
 }
 
-// GetValueForNormalization returns the value for normalization.
-func (w *ToChildBlockJoinWeight) GetValueForNormalization() float32 {
-	if w.parentWeight != nil {
-		return w.parentWeight.GetValueForNormalization()
-	}
-	return 0
-}
-
-// Normalize normalizes this weight.
-func (w *ToChildBlockJoinWeight) Normalize(norm float32) {
-	if w.parentWeight != nil {
-		w.parentWeight.Normalize(norm)
-	}
-}
-
 // Scorer creates a scorer for this weight.
-func (w *ToChildBlockJoinWeight) Scorer(reader index.IndexReaderInterface) (search.Scorer, error) {
+func (w *ToChildBlockJoinWeight) Scorer(context *index.LeafReaderContext) (search.Scorer, error) {
 	return nil, fmt.Errorf("ToChildBlockJoinWeight scorer not yet implemented")
+}
+
+// ScorerSupplier creates a scorer supplier for this weight.
+func (w *ToChildBlockJoinWeight) ScorerSupplier(context *index.LeafReaderContext) (search.ScorerSupplier, error) {
+	return nil, nil
+}
+
+// Explain returns an explanation of the score for the given document.
+func (w *ToChildBlockJoinWeight) Explain(context *index.LeafReaderContext, doc int) (search.Explanation, error) {
+	return nil, nil
+}
+
+// BulkScorer creates a bulk scorer for efficient bulk scoring.
+func (w *ToChildBlockJoinWeight) BulkScorer(context *index.LeafReaderContext) (search.BulkScorer, error) {
+	return nil, nil
+}
+
+// IsCacheable returns true if this weight can be cached for the given leaf.
+func (w *ToChildBlockJoinWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
+	return false
+}
+
+// GetValueForNormalization returns the value for normalization of the weight.
+func (w *ToChildBlockJoinWeight) GetValueForNormalization() float32 {
+	return 1.0
+}
+
+// Normalize normalizes the weight with the given factor.
+func (w *ToChildBlockJoinWeight) Normalize(norm float32) {
+	// Stub implementation
+}
+
+// Count returns the count of matching documents in sub-linear time.
+func (w *ToChildBlockJoinWeight) Count(context *index.LeafReaderContext) (int, error) {
+	return -1, nil
+}
+
+// Matches returns the matches for a specific document.
+func (w *ToChildBlockJoinWeight) Matches(context *index.LeafReaderContext, doc int) (search.Matches, error) {
+	return nil, nil
 }
 
 // ToChildBlockJoinScorer is a scorer for ToChildBlockJoinQuery.

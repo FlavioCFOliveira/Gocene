@@ -2,9 +2,9 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Package blocktree provides trie-based indexing for blocktree postings format.
+// Package codecs provides trie-based indexing for blocktree postings format.
 // This is a Go port of Apache Lucene's lucene103 blocktree implementation.
-package blocktree
+package codecs
 
 import (
 	"errors"

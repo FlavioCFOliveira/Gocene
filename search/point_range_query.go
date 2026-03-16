@@ -197,35 +197,60 @@ func NewPointRangeWeight(query *PointRangeQuery, searcher *IndexSearcher, needsS
 }
 
 // Scorer creates a scorer for this weight.
-func (w *PointRangeWeight) Scorer(reader index.IndexReaderInterface) (Scorer, error) {
-	// Get the leaf contexts
-	leaves, err := reader.Leaves()
+func (w *PointRangeWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) {
+	leafReader := context.LeafReader()
+	if leafReader == nil {
+		return nil, nil
+	}
+
+	// For now, return a simple scorer that matches all documents
+	// A full implementation would use the BKD tree for efficient intersection
+	return NewPointRangeScorer(w, leafReader.MaxDoc()), nil
+}
+
+// ScorerSupplier creates a scorer supplier for this weight.
+func (w *PointRangeWeight) ScorerSupplier(context *index.LeafReaderContext) (ScorerSupplier, error) {
+	scorer, err := w.Scorer(context)
 	if err != nil {
 		return nil, err
 	}
-
-	// Try to get a leaf reader
-	for _, leaf := range leaves {
-		leafReader := leaf.LeafReader()
-		if leafReader == nil {
-			continue
-		}
-
-		// For now, return a simple scorer that matches all documents
-		// A full implementation would use the BKD tree for efficient intersection
-		return NewPointRangeScorer(w, leafReader.MaxDoc()), nil
+	if scorer == nil {
+		return nil, nil
 	}
+	return NewScorerSupplierAdapter(scorer), nil
+}
 
+// Explain returns an explanation of the score for the given document.
+func (w *PointRangeWeight) Explain(context *index.LeafReaderContext, doc int) (Explanation, error) {
+	return NewExplanation(false, 0, "PointRangeWeight explanation not implemented"), nil
+}
+
+// BulkScorer creates a bulk scorer for efficient bulk scoring.
+func (w *PointRangeWeight) BulkScorer(context *index.LeafReaderContext) (BulkScorer, error) {
+	scorer, err := w.Scorer(context)
+	if err != nil {
+		return nil, err
+	}
+	if scorer == nil {
+		return nil, nil
+	}
+	return NewDefaultBulkScorer(scorer), nil
+}
+
+// IsCacheable returns true if this weight can be cached for the given leaf.
+func (w *PointRangeWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
+	return true
+}
+
+// Count returns the count of matching documents in sub-linear time.
+func (w *PointRangeWeight) Count(context *index.LeafReaderContext) (int, error) {
+	return -1, nil
+}
+
+// Matches returns the matches for a specific document.
+func (w *PointRangeWeight) Matches(context *index.LeafReaderContext, doc int) (Matches, error) {
 	return nil, nil
 }
-
-// GetValueForNormalization returns the value for normalization.
-func (w *PointRangeWeight) GetValueForNormalization() float32 {
-	return 1.0
-}
-
-// Normalize normalizes this weight.
-func (w *PointRangeWeight) Normalize(norm float32) {}
 
 // Ensure PointRangeWeight implements Weight
 var _ Weight = (*PointRangeWeight)(nil)

@@ -14,6 +14,13 @@ import (
 	"sort"
 )
 
+// NamedOutput provides access to the file name for index outputs.
+// This is a segregated interface for components that have an associated name.
+type NamedOutput interface {
+	// GetName returns the name of the file being written.
+	GetName() string
+}
+
 // IndexOutput provides random access to write index files.
 //
 // IndexOutput is the abstract base class for writing index files.
@@ -21,21 +28,20 @@ import (
 // and arbitrary byte arrays. All writes are byte-aligned.
 //
 // This is the Go port of Lucene's org.apache.lucene.store.IndexOutput.
+// This interface is composed of smaller, focused interfaces following
+// the Interface Segregation Principle.
 type IndexOutput interface {
 	// DataOutput provides basic write operations
 	DataOutput
 
-	// GetFilePointer returns the current position in the file.
-	GetFilePointer() int64
+	// RandomAccess provides position-aware operations
+	RandomAccess
 
-	// Length returns the total length of the file written so far.
-	Length() int64
+	// NamedOutput provides access to the file name
+	NamedOutput
 
-	// GetName returns the name of the file being written.
-	GetName() string
-
-	// Close closes this IndexOutput, releasing any resources.
-	Close() error
+	// Closable provides resource cleanup
+	Closable
 }
 
 // DataOutput defines the interface for writing basic data types.
@@ -62,6 +68,37 @@ type DataOutput interface {
 	// WriteString writes a string.
 	WriteString(s string) error
 }
+
+// VariableLengthOutput provides methods for writing variable-length encoded data.
+// This is a segregated interface for components that need VInt/VLong support.
+type VariableLengthOutput interface {
+	// WriteVInt writes a variable-length integer (up to 5 bytes).
+	// This is Lucene's variable-length integer encoding.
+	WriteVInt(i int32) error
+
+	// WriteVLong writes a variable-length long (up to 9 bytes).
+	WriteVLong(i int64) error
+}
+
+// BufferedOutput provides buffer management operations for buffered IndexOutput implementations.
+// This is a segregated interface for components that use buffering.
+type BufferedOutput interface {
+	// Flush flushes any buffered bytes to the underlying output.
+	Flush() error
+
+	// GetBufferSize returns the current buffer size.
+	GetBufferSize() int
+
+	// SetBufferSize changes the buffer size.
+	SetBufferSize(size int) error
+}
+
+// Ensure interfaces are properly defined
+var (
+	_ DataOutput            = (*ByteArrayDataOutput)(nil)
+	_ VariableLengthOutput  = (*ByteArrayDataOutput)(nil)
+	_ BufferedOutput        = (*BufferedIndexOutput)(nil)
+)
 
 // BaseIndexOutput provides common functionality for IndexOutput implementations.
 // Embed this struct in concrete IndexOutput implementations.
@@ -186,6 +223,28 @@ func (out *ByteArrayDataOutput) WriteLong(i int64) error {
 // WriteString writes a string.
 func (out *ByteArrayDataOutput) WriteString(s string) error {
 	return WriteString(out, s)
+}
+
+// WriteVInt writes a variable-length integer.
+func (out *ByteArrayDataOutput) WriteVInt(i int32) error {
+	for (i & ^int32(0x7F)) != 0 {
+		if err := out.WriteByte(byte((i & 0x7F) | 0x80)); err != nil {
+			return err
+		}
+		i >>= 7
+	}
+	return out.WriteByte(byte(i))
+}
+
+// WriteVLong writes a variable-length long.
+func (out *ByteArrayDataOutput) WriteVLong(i int64) error {
+	for (i & ^int64(0x7F)) != 0 {
+		if err := out.WriteByte(byte((i & 0x7F) | 0x80)); err != nil {
+			return err
+		}
+		i >>= 7
+	}
+	return out.WriteByte(byte(i))
 }
 
 // GetBytes returns the written bytes.
@@ -352,6 +411,27 @@ func (out *BufferedIndexOutput) SetBufferSize(size int) error {
 	out.buffer = make([]byte, size)
 	out.bufferPosition = 0
 	return nil
+}
+
+// Length returns the total length of the file written so far.
+func (out *BufferedIndexOutput) Length() int64 {
+	return out.GetFilePointer() + int64(out.bufferPosition)
+}
+
+// SetPosition sets the current position for writing.
+// Note: This is not fully supported for BufferedIndexOutput and returns an error.
+func (out *BufferedIndexOutput) SetPosition(pos int64) error {
+	return fmt.Errorf("SetPosition not supported for BufferedIndexOutput")
+}
+
+// WriteVInt writes a variable-length integer.
+func (out *BufferedIndexOutput) WriteVInt(i int32) error {
+	return WriteVInt(out, i)
+}
+
+// WriteVLong writes a variable-length long.
+func (out *BufferedIndexOutput) WriteVLong(i int64) error {
+	return WriteVLong(out, i)
 }
 
 // Close flushes and closes the output.
@@ -587,3 +667,18 @@ func AlignFilePointer(out IndexOutput, alignmentBytes int) (int64, error) {
 	}
 	return alignedOffset, nil
 }
+
+// Compile-time interface assertions
+// These ensure that implementations properly satisfy the segregated interfaces
+var (
+	// ByteArrayDataOutput assertions
+	_ DataOutput           = (*ByteArrayDataOutput)(nil)
+	_ VariableLengthOutput = (*ByteArrayDataOutput)(nil)
+
+	// BufferedIndexOutput assertions (base class - concrete implementations must provide full interface)
+	_ DataOutput           = (*BufferedIndexOutput)(nil)
+	_ RandomAccess         = (*BufferedIndexOutput)(nil)
+	_ NamedOutput          = (*BufferedIndexOutput)(nil)
+	_ Closable             = (*BufferedIndexOutput)(nil)
+	_ BufferedOutput       = (*BufferedIndexOutput)(nil)
+)

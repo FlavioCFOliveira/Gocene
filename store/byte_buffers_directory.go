@@ -528,6 +528,12 @@ func (out *ByteBuffersIndexOutput) Length() int64 {
 	return int64(out.buffer.Len())
 }
 
+// SetPosition sets the current position for writing.
+// Note: This is not fully supported for ByteBuffersIndexOutput and returns an error.
+func (out *ByteBuffersIndexOutput) SetPosition(pos int64) error {
+	return fmt.Errorf("SetPosition not supported for ByteBuffersIndexOutput")
+}
+
 // Close finalizes the file and stores it in the directory.
 func (out *ByteBuffersIndexOutput) Close() error {
 	if out.file == nil {

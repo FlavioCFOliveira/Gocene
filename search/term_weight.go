@@ -60,67 +60,121 @@ func (w *TermWeight) getTermStats(searcher *IndexSearcher) *TermStatistics {
 }
 
 // Scorer creates a scorer for this weight.
-func (w *TermWeight) Scorer(reader index.IndexReaderInterface) (Scorer, error) {
-	// Get the leaf contexts
-	leaves, err := reader.Leaves()
+func (w *TermWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) {
+	leafReader := context.LeafReader()
+	if leafReader == nil {
+		return nil, nil
+	}
+
+	// Get the terms for the field
+	terms, err := leafReader.Terms(w.term.Field)
+	if err != nil {
+		return nil, err
+	}
+	if terms == nil {
+		return nil, nil
+	}
+
+	// Get the terms enum iterator
+	termsEnum, err := terms.GetIterator()
 	if err != nil {
 		return nil, err
 	}
 
-	// Try to get terms from the first leaf reader
-	for _, leaf := range leaves {
-		leafReader := leaf.LeafReader()
-		if leafReader == nil {
-			continue
-		}
-
-		// Get the terms for the field
-		terms, err := leafReader.Terms(w.term.Field)
-		if err != nil {
-			return nil, err
-		}
-		if terms == nil {
-			continue
-		}
-
-		// Get the terms enum iterator
-		termsEnum, err := terms.GetIterator()
-		if err != nil {
-			return nil, err
-		}
-
-		// Seek to the term
-		found, err := termsEnum.SeekExact(w.term)
-		if err != nil {
-			return nil, err
-		}
-		if !found {
-			return nil, nil
-		}
-
-		// Get the postings enum for the term
-		postingsEnum, err := termsEnum.Postings(0)
-		if err != nil {
-			return nil, err
-		}
-		if postingsEnum == nil {
-			return nil, nil
-		}
-
-		// Create and return the scorer
-		return NewTermScorer(w, postingsEnum, w.simScorer), nil
+	// Seek to the term
+	found, err := termsEnum.SeekExact(w.term)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, nil
 	}
 
+	// Get the postings enum for the term
+	postingsEnum, err := termsEnum.Postings(0)
+	if err != nil {
+		return nil, err
+	}
+	if postingsEnum == nil {
+		return nil, nil
+	}
+
+	// Create and return the scorer
+	return NewTermScorer(w, postingsEnum, w.simScorer), nil
+}
+
+// ScorerSupplier creates a scorer supplier for this weight.
+func (w *TermWeight) ScorerSupplier(context *index.LeafReaderContext) (ScorerSupplier, error) {
+	scorer, err := w.Scorer(context)
+	if err != nil {
+		return nil, err
+	}
+	if scorer == nil {
+		return nil, nil
+	}
+	return NewScorerSupplierAdapter(scorer), nil
+}
+
+// Explain returns an explanation of the score for the given document.
+func (w *TermWeight) Explain(context *index.LeafReaderContext, doc int) (Explanation, error) {
+	return NewExplanation(false, 0, "TermWeight explanation not implemented"), nil
+}
+
+// BulkScorer creates a bulk scorer for efficient bulk scoring.
+func (w *TermWeight) BulkScorer(context *index.LeafReaderContext) (BulkScorer, error) {
+	scorer, err := w.Scorer(context)
+	if err != nil {
+		return nil, err
+	}
+	if scorer == nil {
+		return nil, nil
+	}
+	return NewDefaultBulkScorer(scorer), nil
+}
+
+// IsCacheable returns true if this weight can be cached for the given leaf.
+func (w *TermWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
+	return true
+}
+
+// Count returns the count of matching documents in sub-linear time.
+func (w *TermWeight) Count(context *index.LeafReaderContext) (int, error) {
+	return -1, nil
+}
+
+// Matches returns the matches for a specific document.
+func (w *TermWeight) Matches(context *index.LeafReaderContext, doc int) (Matches, error) {
 	return nil, nil
 }
 
-// GetValueForNormalization returns the value for normalization.
-func (w *TermWeight) GetValueForNormalization() float32 {
-	return 1.0
-}
-
-// Normalize normalizes this weight.
-func (w *TermWeight) Normalize(norm float32) {}
-
 // Ensure TermWeight implements Weight
 var _ Weight = (*TermWeight)(nil)
+
+// ScorerSupplierAdapter adapts a Scorer to a ScorerSupplier.
+type ScorerSupplierAdapter struct {
+	scorer Scorer
+}
+
+// NewScorerSupplierAdapter creates a new ScorerSupplierAdapter.
+func NewScorerSupplierAdapter(scorer Scorer) *ScorerSupplierAdapter {
+	return &ScorerSupplierAdapter{scorer: scorer}
+}
+
+// Get returns the scorer.
+func (s *ScorerSupplierAdapter) Get(leadCost int64) (Scorer, error) {
+	return s.scorer, nil
+}
+
+// Cost returns the estimated cost.
+func (s *ScorerSupplierAdapter) Cost() int64 {
+	if s.scorer == nil {
+		return 0
+	}
+	return s.scorer.Cost()
+}
+
+// SetTopLevelScoringClause is a no-op.
+func (s *ScorerSupplierAdapter) SetTopLevelScoringClause() {}
+
+// Ensure ScorerSupplierAdapter implements ScorerSupplier
+var _ ScorerSupplier = (*ScorerSupplierAdapter)(nil)

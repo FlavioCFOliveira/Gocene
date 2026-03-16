@@ -11,17 +11,9 @@ import (
 	"io"
 )
 
-// IndexInput provides random access to an index file.
-//
-// IndexInput is the abstract base class for reading index files.
-// It provides methods for reading primitive types (byte, int, long, etc.)
-// and arbitrary byte arrays. All reads are byte-aligned.
-//
-// This is the Go port of Lucene's org.apache.lucene.store.IndexInput.
-type IndexInput interface {
-	// DataInput provides basic read operations
-	DataInput
-
+// RandomAccess provides position-aware operations for index files.
+// This is a segregated interface for components that need position tracking.
+type RandomAccess interface {
 	// GetFilePointer returns the current position in the file.
 	GetFilePointer() int64
 
@@ -33,20 +25,58 @@ type IndexInput interface {
 
 	// Length returns the total length of the file in bytes.
 	Length() int64
+}
 
+// Slicable provides the ability to create subsets of an IndexInput.
+// This is a segregated interface for components that support slicing.
+type Slicable interface {
+	// Slice returns a subset of this IndexInput starting at
+	// the given offset with the specified length.
+	// The returned IndexInput is independent of this one.
+	Slice(desc string, offset int64, length int64) (IndexInput, error)
+}
+
+// Closable provides the ability to release resources.
+// This is a segregated interface for resource cleanup.
+type Closable interface {
+	// Close closes this resource, releasing any resources.
+	Close() error
+}
+
+// Cloneable provides the ability to create independent copies.
+// This is a segregated interface for components that support cloning.
+type Cloneable interface {
 	// Clone returns a clone of this IndexInput.
 	// The clone initially shares the same file position, but
 	// subsequent reads/closes on either the original or clone
 	// do not affect the other.
 	Clone() IndexInput
+}
 
-	// Slice returns a subset of this IndexInput starting at
-	// the given offset with the specified length.
-	// The returned IndexInput is independent of this one.
-	Slice(desc string, offset int64, length int64) (IndexInput, error)
+// IndexInput provides random access to an index file.
+//
+// IndexInput is the abstract base class for reading index files.
+// It provides methods for reading primitive types (byte, int, long, etc.)
+// and arbitrary byte arrays. All reads are byte-aligned.
+//
+// This is the Go port of Lucene's org.apache.lucene.store.IndexInput.
+// This interface is composed of smaller, focused interfaces following
+// the Interface Segregation Principle.
+type IndexInput interface {
+	// DataInput provides basic read operations
+	DataInput
 
-	// Close closes this IndexInput, releasing any resources.
-	Close() error
+	// RandomAccess provides position-aware operations
+	RandomAccess
+
+	// Slicable provides the ability to create subsets
+	Slicable
+
+	// Cloneable provides the ability to create independent copies
+	Cloneable
+
+	// Closable provides resource cleanup
+	Closable
 }
 
 // DataInput defines the interface for reading basic data types.
@@ -76,6 +106,34 @@ type DataInput interface {
 	// ReadString reads a string.
 	ReadString() (string, error)
 }
+
+// VariableLengthInput provides methods for reading variable-length encoded data.
+// This is a segregated interface for components that need VInt/VLong support.
+type VariableLengthInput interface {
+	// ReadVInt reads a variable-length integer (up to 5 bytes).
+	// This is Lucene's variable-length integer encoding.
+	ReadVInt() (int32, error)
+
+	// ReadVLong reads a variable-length long (up to 9 bytes).
+	ReadVLong() (int64, error)
+}
+
+// BufferedInput provides buffer management operations for buffered IndexInput implementations.
+// This is a segregated interface for components that use buffering.
+type BufferedInput interface {
+	// GetBufferSize returns the current buffer size.
+	GetBufferSize() int
+
+	// SetBufferSize changes the buffer size.
+	SetBufferSize(size int)
+}
+
+// Ensure interfaces are properly defined
+var (
+	_ DataInput           = (*ByteArrayDataInput)(nil)
+	_ VariableLengthInput = (*ByteArrayDataInput)(nil)
+	_ BufferedInput       = (*BufferedIndexInput)(nil)
+)
 
 // BaseIndexInput provides common functionality for IndexInput implementations.
 // Embed this struct in concrete IndexInput implementations.
@@ -264,6 +322,28 @@ func (in *ByteArrayDataInput) ReadVInt() (int32, error) {
 		shift += 7
 		if shift >= 32 {
 			return 0, fmt.Errorf("corrupted VInt")
+		}
+	}
+	return result, nil
+}
+
+// ReadVLong reads a variable-length long.
+func (in *ByteArrayDataInput) ReadVLong() (int64, error) {
+	var result int64
+	shift := 0
+	for {
+		if in.pos >= len(in.bytes) {
+			return 0, io.EOF
+		}
+		b := in.bytes[in.pos]
+		in.pos++
+		result |= int64(b&0x7F) << shift
+		if (b & 0x80) == 0 {
+			break
+		}
+		shift += 7
+		if shift >= 64 {
+			return 0, fmt.Errorf("corrupted VLong")
 		}
 	}
 	return result, nil
@@ -530,6 +610,42 @@ func (in *BufferedIndexInput) SetBufferSize(size int) {
 	in.bufferPosition = 0
 }
 
+// ReadVLong reads a variable-length long.
+func (in *BufferedIndexInput) ReadVLong() (int64, error) {
+	var result int64
+	shift := 0
+	for {
+		b, err := in.ReadByte()
+		if err != nil {
+			return 0, err
+		}
+		result |= int64(b&0x7F) << shift
+		if (b & 0x80) == 0 {
+			break
+		}
+		shift += 7
+		if shift >= 64 {
+			return 0, fmt.Errorf("corrupted VLong")
+		}
+	}
+	return result, nil
+}
+
+// Slice returns a subset of this IndexInput.
+func (in *BufferedIndexInput) Slice(desc string, offset int64, length int64) (IndexInput, error) {
+	return nil, fmt.Errorf("Slice not implemented for BufferedIndexInput")
+}
+
+// Clone returns a clone of this IndexInput.
+func (in *BufferedIndexInput) Clone() IndexInput {
+	return nil
+}
+
+// Close closes this IndexInput.
+func (in *BufferedIndexInput) Close() error {
+	return nil
+}
+
 // ReadUint16 reads a 16-bit unsigned integer in big-endian format.
 func ReadUint16(in DataInput) (uint16, error) {
 	b, err := in.ReadBytesN(2)
@@ -724,3 +840,17 @@ func ReadMapOfIntToSetOfStrings(in DataInput) (map[int]map[string]struct{}, erro
 	}
 	return m, nil
 }
+
+// Compile-time interface assertions
+// These ensure that implementations properly satisfy the segregated interfaces
+var (
+	// ByteArrayDataInput assertions
+	_ DataInput           = (*ByteArrayDataInput)(nil)
+	_ VariableLengthInput = (*ByteArrayDataInput)(nil)
+
+	// BufferedIndexInput assertions (base class - concrete implementations must provide Clone, Slice)
+	_ DataInput           = (*BufferedIndexInput)(nil)
+	_ VariableLengthInput = (*BufferedIndexInput)(nil)
+	_ RandomAccess        = (*BufferedIndexInput)(nil)
+	_ BufferedInput       = (*BufferedIndexInput)(nil)
+)

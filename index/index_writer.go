@@ -6,6 +6,7 @@ package index
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -28,6 +29,9 @@ type IndexWriter struct {
 	// tragicError holds any unrecoverable error that occurred during an operation.
 	// Once set, the writer is considered closed and all subsequent operations will fail.
 	tragicError error
+
+	// documentsWriter handles the actual document processing and flushing
+	documentsWriter *DocumentsWriter
 }
 
 // NewIndexWriter creates a new IndexWriter.
@@ -36,10 +40,17 @@ func NewIndexWriter(dir store.Directory, config *IndexWriterConfig) (*IndexWrite
 		config.SetMergeScheduler(NewConcurrentMergeScheduler())
 	}
 
+	// Create the DocumentsWriter for actual document processing
+	docWriter, err := NewDocumentsWriter(dir, config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create DocumentsWriter: %w", err)
+	}
+
 	return &IndexWriter{
-		directory: dir,
-		config:    config,
-		closed:    false,
+		directory:       dir,
+		config:          config,
+		closed:          false,
+		documentsWriter: docWriter,
 	}, nil
 }
 
@@ -74,8 +85,15 @@ func (w *IndexWriter) AddDocument(doc Document) error {
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.docCount++
 
+	// Use the DocumentsWriter to actually process the document
+	if w.documentsWriter != nil {
+		if err := w.documentsWriter.AddDocument(doc, nil); err != nil {
+			return fmt.Errorf("failed to add document: %w", err)
+		}
+	}
+
+	w.docCount++
 	return nil
 }
 
@@ -87,7 +105,14 @@ func (w *IndexWriter) UpdateDocument(term *Term, doc Document) error {
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	// Simple implementation for testing
+
+	// Use the DocumentsWriter to process the document
+	if w.documentsWriter != nil {
+		if err := w.documentsWriter.UpdateDocument(doc, nil, term); err != nil {
+			return fmt.Errorf("failed to update document: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -173,7 +198,7 @@ func (w *IndexWriter) clearLiveCommitData() {
 // (adds, deletes, etc.) and the writer cannot be closed normally.
 func (w *IndexWriter) PrepareCommit() error {
 	if err := w.ensureOpen(); err != nil {
-		return err
+		return fmt.Errorf("cannot prepare commit: %w", err)
 	}
 
 	w.mu.Lock()
@@ -198,7 +223,7 @@ func (w *IndexWriter) PrepareCommit() error {
 // Commit commits all pending changes.
 func (w *IndexWriter) Commit() error {
 	if err := w.ensureOpen(); err != nil {
-		return err
+		return fmt.Errorf("cannot commit: %w", err)
 	}
 
 	w.mu.Lock()
@@ -231,7 +256,7 @@ func (w *IndexWriter) Commit() error {
 
 	err = WriteSegmentInfos(si, w.directory)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to write segment infos: %w", err)
 	}
 
 	// Clear the prepared commit flag
@@ -261,7 +286,7 @@ func (w *IndexWriter) Close() error {
 		if s := w.config.GetMergeScheduler(); s != nil {
 			_ = s.Close()
 		}
-		return err
+		return fmt.Errorf("failed to commit during close: %w", err)
 	}
 
 	w.mu.Lock()
