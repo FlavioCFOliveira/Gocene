@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -571,7 +572,7 @@ func TestDocValuesMergeInstance_MergeAwayAllValues(t *testing.T) {
 
 // Helper functions
 
-func createTestAnalyzer() index.Analyzer {
+func createTestAnalyzer() analysis.Analyzer {
 	// Return a simple analyzer for testing
 	return nil // Placeholder - will use default
 }
@@ -585,8 +586,12 @@ type testDocument struct {
 	fields []document.Field
 }
 
-func (d *testDocument) GetFields() []document.Field {
-	return d.fields
+func (d *testDocument) GetFields() []interface{} {
+	result := make([]interface{}, len(d.fields))
+	for i, f := range d.fields {
+		result[i] = f
+	}
+	return result
 }
 
 func (d *testDocument) GetField(name string) document.Field {
@@ -612,5 +617,5 @@ func (d *testDocument) RemoveField(name string) {
 	d.fields = newFields
 }
 
-// Ensure testDocument implements document.Document interface
-var _ document.Document = (*testDocument)(nil)
+// Ensure testDocument implements index.Document interface
+var _ index.Document = (*testDocument)(nil)
