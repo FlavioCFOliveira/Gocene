@@ -51,3 +51,23 @@ func SetRandomSeed(seed int64) {
 func GetRandom() *rand.Rand {
 	return testRandom
 }
+
+// RandomSimpleString returns a random simple string with characters from 'a' to 'z'
+// The string length will be between min and max (inclusive)
+func RandomSimpleString(rng *rand.Rand, min, max int) string {
+	if min < 0 {
+		min = 0
+	}
+	if max < min {
+		max = min
+	}
+	length := min
+	if max > min {
+		length += rng.Intn(max-min+1)
+	}
+	chars := make([]byte, length)
+	for i := range chars {
+		chars[i] = byte('a' + rng.Intn(26))
+	}
+	return string(chars)
+}

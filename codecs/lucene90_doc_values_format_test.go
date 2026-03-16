@@ -51,6 +51,25 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
+// Utility functions
+
+// atLeast returns at least n, or a larger value based on test mode
+func atLeast(n int, t *testing.T) int {
+	if testing.Short() {
+		return n
+	}
+	// Return n multiplied by a factor for more thorough testing
+	return n * 2
+}
+
+// nextInt returns a random int in [min, max)
+func nextInt(rng *rand.Rand, min, max int) int {
+	if min >= max {
+		return min
+	}
+	return min + rng.Intn(max-min)
+}
+
 // Lucene90DocValuesFormat constants
 const (
 	// DirectMonotonicBlockShift is the block shift for direct monotonic blocks
@@ -162,7 +181,7 @@ func TestLucene90DocValuesFormat_TermsEnumFixedWidth(t *testing.T) {
 	for i := 0; i < iterations; i++ {
 		numDocs := nextInt(rng, 1025, 5121)
 		valuesProducer := func() string {
-			return randomSimpleString(rng, 10, 10)
+			return util.RandomSimpleString(rng, 10, 10)
 		}
 		doTestTermsEnumRandom(t, rng, numDocs, valuesProducer)
 	}
@@ -183,7 +202,7 @@ func TestLucene90DocValuesFormat_TermsEnumVariableWidth(t *testing.T) {
 	for i := 0; i < iterations; i++ {
 		numDocs := nextInt(rng, 1025, 5121)
 		valuesProducer := func() string {
-			return randomSimpleString(rng, 1, 500)
+			return util.RandomSimpleString(rng, 1, 500)
 		}
 		doTestTermsEnumRandom(t, rng, numDocs, valuesProducer)
 	}
@@ -204,7 +223,7 @@ func TestLucene90DocValuesFormat_TermsEnumRandomMany(t *testing.T) {
 	for i := 0; i < iterations; i++ {
 		numDocs := nextInt(rng, 1025, 8121)
 		valuesProducer := func() string {
-			return randomSimpleString(rng, 1, 500)
+			return util.RandomSimpleString(rng, 1, 500)
 		}
 		doTestTermsEnumRandom(t, rng, numDocs, valuesProducer)
 	}
@@ -290,8 +309,8 @@ func TestLucene90DocValuesFormat_SortedSetAroundBlockSize(t *testing.T) {
 			expectedValues := make([]docValues, maxDoc)
 
 			for i := 0; i < maxDoc; i++ {
-				s1 := []byte(randomSimpleString(rng, 2, 2))
-				s2 := []byte(randomSimpleString(rng, 2, 2))
+				s1 := []byte(util.RandomSimpleString(rng, 2, 2))
+				s2 := []byte(util.RandomSimpleString(rng, 2, 2))
 
 				// Create sorted set values (deduplicated and sorted)
 				valueSet := make(map[string]struct{})
@@ -325,7 +344,7 @@ func TestLucene90DocValuesFormat_SortedSetAroundBlockSize(t *testing.T) {
 			writer.ForceMerge(1)
 
 			// Open reader
-			reader, err := index.NewDirectoryReader(dir)
+			reader, err := index.OpenDirectoryReader(dir)
 			if err != nil {
 				t.Fatalf("Failed to open reader: %v", err)
 			}
@@ -407,7 +426,7 @@ func TestLucene90DocValuesFormat_SortedNumericAroundBlockSize(t *testing.T) {
 			writer.ForceMerge(1)
 
 			// Open reader
-			reader, err := index.NewDirectoryReader(dir)
+			reader, err := index.OpenDirectoryReader(dir)
 			if err != nil {
 				t.Fatalf("Failed to open reader: %v", err)
 			}
@@ -547,7 +566,6 @@ func TestLucene90DocValuesFormat_NumericFieldJumpTables(t *testing.T) {
 		}
 	}
 
-	writer.Flush()
 	writer.ForceMerge(1)
 	writer.Commit()
 	writer.Close()
@@ -574,7 +592,7 @@ func TestLucene90DocValuesFormat_ReseekAfterSkipDecompression(t *testing.T) {
 	cardinality := (TermsDictBlockLZ4Size << 1) + 11
 	valueSet := make(map[string]struct{})
 	for len(valueSet) < cardinality {
-		valueSet[randomSimpleString(rng, 64, 64)] = struct{}{}
+		valueSet[util.RandomSimpleString(rng, 64, 64)] = struct{}{}
 	}
 
 	values := make([]string, 0, len(valueSet))
@@ -584,7 +602,7 @@ func TestLucene90DocValuesFormat_ReseekAfterSkipDecompression(t *testing.T) {
 	sort.Strings(values)
 
 	// Create non-existent value between block-1 and block-2
-	nonexistentValue := values[TermsDictBlockLZ4Size-1] + randomSimpleString(rng, 64, 128)
+	nonexistentValue := values[TermsDictBlockLZ4Size-1] + util.RandomSimpleString(rng, 64, 128)
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
@@ -615,7 +633,7 @@ func TestLucene90DocValuesFormat_ReseekAfterSkipDecompression(t *testing.T) {
 	writer.ForceMerge(1)
 
 	// Open reader
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -645,7 +663,7 @@ func TestLucene90DocValuesFormat_LargeTermsCompression(t *testing.T) {
 	valuesSet := make(map[string]struct{})
 	for len(valuesSet) < cardinality {
 		length := nextInt(rng, 512, 1024)
-		valuesSet[randomSimpleString(rng, length, length)] = struct{}{}
+		valuesSet[util.RandomSimpleString(rng, length, length)] = struct{}{}
 	}
 
 	values := make([]string, 0, len(valuesSet))
@@ -682,7 +700,7 @@ func TestLucene90DocValuesFormat_LargeTermsCompression(t *testing.T) {
 	writer.ForceMerge(1)
 
 	// Open reader
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -706,8 +724,6 @@ func TestLucene90DocValuesFormat_LargeTermsCompression(t *testing.T) {
 // Source: TestLucene90DocValuesFormat.testSortedTermsDictLookupOrd()
 // Purpose: Tests lookupOrd and seekExact(ord) for sorted doc values
 func TestLucene90DocValuesFormat_SortedTermsDictLookupOrd(t *testing.T) {
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
@@ -734,7 +750,7 @@ func TestLucene90DocValuesFormat_SortedTermsDictLookupOrd(t *testing.T) {
 	writer.ForceMerge(1)
 
 	// Open reader
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -752,8 +768,6 @@ func TestLucene90DocValuesFormat_SortedTermsDictLookupOrd(t *testing.T) {
 // Source: TestLucene90DocValuesFormat.testSortedSetTermsDictLookupOrd()
 // Purpose: Tests lookupOrd and seekExact(ord) for sorted set doc values
 func TestLucene90DocValuesFormat_SortedSetTermsDictLookupOrd(t *testing.T) {
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
@@ -780,7 +794,7 @@ func TestLucene90DocValuesFormat_SortedSetTermsDictLookupOrd(t *testing.T) {
 	writer.ForceMerge(1)
 
 	// Open reader
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -825,7 +839,7 @@ func TestLucene90DocValuesFormat_TermsEnumDictionary(t *testing.T) {
 	writer.ForceMerge(1)
 
 	// Open reader
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -843,8 +857,6 @@ func TestLucene90DocValuesFormat_TermsEnumDictionary(t *testing.T) {
 // Source: TestLucene90DocValuesFormat.testTermsEnumConsistency()
 // Purpose: Tests consistency after seekCeil to non-existent term (LUCENE-12555)
 func TestLucene90DocValuesFormat_TermsEnumConsistency(t *testing.T) {
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-
 	numTerms := TermsDictBlockLZ4Size + 10 // More than one block
 
 	dir := store.NewByteBuffersDirectory()
@@ -882,7 +894,7 @@ func TestLucene90DocValuesFormat_TermsEnumConsistency(t *testing.T) {
 	writer.ForceMerge(1)
 
 	// Open reader
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -913,7 +925,7 @@ func doTestSortedSetVsStoredFields(t *testing.T, rng *rand.Rand, numDocs, minLen
 	valueSet := make(map[string]struct{})
 	for i := 0; i < 10000 && len(valueSet) < maxUniqueValues; i++ {
 		length := nextInt(rng, minLength, maxLength)
-		valueSet[randomSimpleString(rng, length, length)] = struct{}{}
+		valueSet[util.RandomSimpleString(rng, length, length)] = struct{}{}
 	}
 	uniqueValues := make([]string, 0, len(valueSet))
 	for v := range valueSet {
@@ -1329,7 +1341,7 @@ func blocksOfVariousBPV(rng *rand.Rand) func() int64 {
 
 // assertDVIterate asserts that iterating over doc values works correctly.
 func assertDVIterate(t *testing.T, dir store.Directory) {
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -1341,7 +1353,7 @@ func assertDVIterate(t *testing.T, dir store.Directory) {
 
 // assertDVAdvance asserts that advance operations on doc values work correctly.
 func assertDVAdvance(t *testing.T, dir store.Directory, jumpStep int) {
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -1354,4 +1366,4 @@ func assertDVAdvance(t *testing.T, dir store.Directory, jumpStep int) {
 // Utility functions - these are defined in other test files in the same package:
 // - atLeast(n int, t *testing.T) int
 // - nextInt(rng *rand.Rand, min, max int) int
-// - randomSimpleString(rng *rand.Rand, min, max int) string
+// - util.RandomSimpleString(rng *rand.Rand, min, max int) string
