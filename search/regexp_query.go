@@ -156,87 +156,114 @@ func NewRegexpWeight(query *RegexpQuery, searcher *IndexSearcher, needsScores bo
 }
 
 // Scorer creates a scorer for this weight.
-func (w *RegexpWeight) Scorer(reader index.IndexReaderInterface) (Scorer, error) {
-	// Get the leaf contexts
-	leaves, err := reader.Leaves()
+func (w *RegexpWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) {
+	leafReader := context.LeafReader()
+	if leafReader == nil {
+		return nil, nil
+	}
+
+	// Get the terms for the field
+	terms, err := leafReader.Terms(w.query.field)
+	if err != nil {
+		return nil, err
+	}
+	if terms == nil {
+		return nil, nil
+	}
+
+	// Get the terms enum iterator
+	termsEnum, err := terms.GetIterator()
 	if err != nil {
 		return nil, err
 	}
 
-	// Try to get terms from the first leaf reader
-	for _, leaf := range leaves {
-		leafReader := leaf.LeafReader()
-		if leafReader == nil {
-			continue
-		}
-
-		// Get the terms for the field
-		terms, err := leafReader.Terms(w.query.field)
+	// Collect matching terms
+	var matchingDocs []int
+	for {
+		term, err := termsEnum.Next()
 		if err != nil {
 			return nil, err
 		}
-		if terms == nil {
-			continue
+		if term == nil {
+			break
 		}
 
-		// Get the terms enum iterator
-		termsEnum, err := terms.GetIterator()
-		if err != nil {
-			return nil, err
-		}
-
-		// Collect matching terms
-		var matchingDocs []int
-		for {
-			term, err := termsEnum.Next()
+		// Check if the term text matches the pattern
+		if w.query.Matches(term.Text()) {
+			// Get postings for this term
+			postingsEnum, err := termsEnum.Postings(0)
 			if err != nil {
 				return nil, err
 			}
-			if term == nil {
-				break
+			if postingsEnum == nil {
+				continue
 			}
 
-			// Check if the term text matches the pattern
-			if w.query.Matches(term.Text()) {
-				// Get postings for this term
-				postingsEnum, err := termsEnum.Postings(0)
+			// Collect documents
+			for {
+				doc, err := postingsEnum.NextDoc()
 				if err != nil {
 					return nil, err
 				}
-				if postingsEnum == nil {
-					continue
+				if doc == -1 { // NO_MORE_DOCS
+					break
 				}
-
-				// Collect documents
-				for {
-					doc, err := postingsEnum.NextDoc()
-					if err != nil {
-						return nil, err
-					}
-					if doc == -1 { // NO_MORE_DOCS
-						break
-					}
-					matchingDocs = append(matchingDocs, doc)
-				}
+				matchingDocs = append(matchingDocs, doc)
 			}
 		}
+	}
 
-		// Create a scorer for the matching documents
-		if len(matchingDocs) > 0 {
-			return NewRegexpScorer(w, matchingDocs), nil
-		}
+	// Create a scorer for the matching documents
+	if len(matchingDocs) > 0 {
+		return NewRegexpScorer(w, matchingDocs), nil
 	}
 
 	return nil, nil
 }
 
-// GetValueForNormalization returns the value for normalization.
-func (w *RegexpWeight) GetValueForNormalization() float32 {
-	return 1.0
+// ScorerSupplier creates a scorer supplier for this weight.
+func (w *RegexpWeight) ScorerSupplier(context *index.LeafReaderContext) (ScorerSupplier, error) {
+	scorer, err := w.Scorer(context)
+	if err != nil {
+		return nil, err
+	}
+	if scorer == nil {
+		return nil, nil
+	}
+	return NewScorerSupplierAdapter(scorer), nil
 }
 
-// Normalize normalizes this weight.
-func (w *RegexpWeight) Normalize(norm float32) {}
+// Explain returns an explanation of the score for the given document.
+func (w *RegexpWeight) Explain(context *index.LeafReaderContext, doc int) (Explanation, error) {
+	return NewExplanation(false, 0, "RegexpWeight explanation not implemented"), nil
+}
+
+// BulkScorer creates a bulk scorer for efficient bulk scoring.
+func (w *RegexpWeight) BulkScorer(context *index.LeafReaderContext) (BulkScorer, error) {
+	scorer, err := w.Scorer(context)
+	if err != nil {
+		return nil, err
+	}
+	if scorer == nil {
+		return nil, nil
+	}
+	return NewDefaultBulkScorer(scorer), nil
+}
+
+// IsCacheable returns true if this weight can be cached for the given leaf.
+func (w *RegexpWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
+	return true
+}
+
+// Count returns the count of matching documents in sub-linear time.
+func (w *RegexpWeight) Count(context *index.LeafReaderContext) (int, error) {
+	return -1, nil
+}
+
+// Matches returns the matches for a specific document.
+func (w *RegexpWeight) Matches(context *index.LeafReaderContext, doc int) (Matches, error) {
+	return nil, nil
+}
 
 // Ensure RegexpWeight implements Weight
 var _ Weight = (*RegexpWeight)(nil)

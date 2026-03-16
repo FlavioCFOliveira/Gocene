@@ -2,13 +2,12 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-package blocktree
+package codecs
 
 import (
 	"fmt"
 	"sync"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -18,7 +17,7 @@ import (
 // This is the Go port of Lucene's BlockTreeTermsReader.
 // It provides efficient term dictionary access using a trie-based index structure.
 type BlockTreeTermsReader struct {
-	state      *codecs.SegmentReadState
+	state      *SegmentReadState
 	fields     map[string]*BlockTreeTerms
 	fieldNames []string
 	mu         sync.RWMutex
@@ -27,7 +26,7 @@ type BlockTreeTermsReader struct {
 
 // NewBlockTreeTermsReader creates a new BlockTreeTermsReader.
 // This is the Go port of BlockTreeTermsReader constructor.
-func NewBlockTreeTermsReader(state *codecs.SegmentReadState) (*BlockTreeTermsReader, error) {
+func NewBlockTreeTermsReader(state *SegmentReadState) (*BlockTreeTermsReader, error) {
 	reader := &BlockTreeTermsReader{
 		state:  state,
 		fields: make(map[string]*BlockTreeTerms),
@@ -491,7 +490,7 @@ func (pe *blockTreeLiveDocsPostingsEnum) Advance(target int) (int, error) {
 }
 
 // Ensure BlockTreeTermsReader implements FieldsProducer
-var _ codecs.FieldsProducer = (*BlockTreeTermsReader)(nil)
+var _ FieldsProducer = (*BlockTreeTermsReader)(nil)
 
 // Ensure BlockTreeTerms implements index.Terms
 var _ index.Terms = (*BlockTreeTerms)(nil)

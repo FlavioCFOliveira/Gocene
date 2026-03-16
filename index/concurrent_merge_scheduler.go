@@ -332,8 +332,10 @@ func (s *ConcurrentMergeScheduler) maybeStall(source MergeSource, maxMergeCount 
 
 // spawnMergeThread starts a new goroutine to execute a merge.
 func (s *ConcurrentMergeScheduler) spawnMergeThread(source MergeSource, merge *OneMerge) {
+	s.mu.Lock()
 	s.mergeThreadCounter++
 	threadName := fmt.Sprintf("MergeThread-%d", s.mergeThreadCounter)
+	s.mu.Unlock()
 
 	thread := NewMergeThread(threadName, merge)
 	thread.SetRunning(true)
@@ -385,8 +387,26 @@ func (s *ConcurrentMergeScheduler) removeMergeThread(thread *MergeThread) {
 
 // waitForMergeThread waits for any merge thread to complete.
 func (s *ConcurrentMergeScheduler) waitForMergeThread() {
-	// Simple approach: wait a bit and check
-	time.Sleep(10 * time.Millisecond)
+	s.mergeMu.Lock()
+	// Get a reference to one of the running threads
+	var threadToWait *MergeThread
+	if len(s.mergeThreads) > 0 {
+		threadToWait = s.mergeThreads[0]
+	}
+	s.mergeMu.Unlock()
+
+	if threadToWait != nil {
+		// Wait for the thread's done channel
+		select {
+		case <-threadToWait.Done():
+			// Thread completed
+		case <-time.After(30 * time.Second):
+			// Timeout - continue anyway
+		}
+	} else {
+		// No threads running, just yield
+		time.Sleep(1 * time.Millisecond)
+	}
 }
 
 // waitForAllMerges waits for all running merges to complete.

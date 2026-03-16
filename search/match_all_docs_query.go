@@ -59,9 +59,63 @@ func NewMatchAllDocsWeight(query Query, boost float32) *MatchAllDocsWeight {
 }
 
 // Scorer creates a scorer for this weight.
-func (w *MatchAllDocsWeight) Scorer(reader index.IndexReaderInterface) (Scorer, error) {
+func (w *MatchAllDocsWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) {
+	reader := context.Reader()
+	if reader == nil {
+		return nil, nil
+	}
 	return NewMatchAllDocsScorer(w, reader.MaxDoc(), w.boost), nil
 }
+
+// ScorerSupplier creates a scorer supplier for this weight.
+func (w *MatchAllDocsWeight) ScorerSupplier(context *index.LeafReaderContext) (ScorerSupplier, error) {
+	scorer, err := w.Scorer(context)
+	if err != nil {
+		return nil, err
+	}
+	if scorer == nil {
+		return nil, nil
+	}
+	return NewScorerSupplierAdapter(scorer), nil
+}
+
+// Explain returns an explanation of the score for the given document.
+func (w *MatchAllDocsWeight) Explain(context *index.LeafReaderContext, doc int) (Explanation, error) {
+	if doc >= 0 && doc < context.Reader().MaxDoc() {
+		return NewExplanation(true, w.boost, "MatchAllDocsQuery, product of:"), nil
+	}
+	return NewExplanation(false, 0, "MatchAllDocsQuery, no document"), nil
+}
+
+// BulkScorer creates a bulk scorer for efficient bulk scoring.
+func (w *MatchAllDocsWeight) BulkScorer(context *index.LeafReaderContext) (BulkScorer, error) {
+	scorer, err := w.Scorer(context)
+	if err != nil {
+		return nil, err
+	}
+	if scorer == nil {
+		return nil, nil
+	}
+	return NewDefaultBulkScorer(scorer), nil
+}
+
+// IsCacheable returns true if this weight can be cached for the given leaf.
+func (w *MatchAllDocsWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
+	return true
+}
+
+// Count returns the count of matching documents in sub-linear time.
+func (w *MatchAllDocsWeight) Count(context *index.LeafReaderContext) (int, error) {
+	return context.Reader().NumDocs(), nil
+}
+
+// Matches returns the matches for a specific document.
+func (w *MatchAllDocsWeight) Matches(context *index.LeafReaderContext, doc int) (Matches, error) {
+	return nil, nil
+}
+
+// Ensure MatchAllDocsWeight implements Weight
+var _ Weight = (*MatchAllDocsWeight)(nil)
 
 // MatchAllDocsScorer is the Scorer implementation for MatchAllDocsQuery.
 type MatchAllDocsScorer struct {
@@ -192,17 +246,42 @@ func NewMatchNoDocsWeight(query Query) *MatchNoDocsWeight {
 }
 
 // Scorer creates a scorer for this weight.
-func (w *MatchNoDocsWeight) Scorer(reader index.IndexReaderInterface) (Scorer, error) {
+func (w *MatchNoDocsWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) {
 	return NewMatchNoDocsScorer(w), nil
 }
 
-// GetValueForNormalization returns the value for normalization.
-func (w *MatchNoDocsWeight) GetValueForNormalization() float32 {
-	return 0
+// ScorerSupplier creates a scorer supplier for this weight.
+func (w *MatchNoDocsWeight) ScorerSupplier(context *index.LeafReaderContext) (ScorerSupplier, error) {
+	return nil, nil
 }
 
-// Normalize normalizes this weight.
-func (w *MatchNoDocsWeight) Normalize(norm float32) {}
+// Explain returns an explanation of the score for the given document.
+func (w *MatchNoDocsWeight) Explain(context *index.LeafReaderContext, doc int) (Explanation, error) {
+	return NewExplanation(false, 0, "MatchNoDocsQuery"), nil
+}
+
+// BulkScorer creates a bulk scorer for efficient bulk scoring.
+func (w *MatchNoDocsWeight) BulkScorer(context *index.LeafReaderContext) (BulkScorer, error) {
+	return nil, nil
+}
+
+// IsCacheable returns true if this weight can be cached for the given leaf.
+func (w *MatchNoDocsWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
+	return true
+}
+
+// Count returns the count of matching documents in sub-linear time.
+func (w *MatchNoDocsWeight) Count(context *index.LeafReaderContext) (int, error) {
+	return 0, nil
+}
+
+// Matches returns the matches for a specific document.
+func (w *MatchNoDocsWeight) Matches(context *index.LeafReaderContext, doc int) (Matches, error) {
+	return nil, nil
+}
+
+// Ensure MatchNoDocsWeight implements Weight
+var _ Weight = (*MatchNoDocsWeight)(nil)
 
 // MatchNoDocsScorer is the Scorer implementation for MatchNoDocsQuery.
 type MatchNoDocsScorer struct {

@@ -669,3 +669,133 @@ func TestOpen(t *testing.T) {
 		}
 	})
 }
+
+func TestValidateFileName(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{"valid simple name", "test.txt", false},
+		{"valid with underscore", "test_file.txt", false},
+		{"valid with hyphen", "test-file.txt", false},
+		{"valid with numbers", "test123.txt", false},
+		{"valid with dot", "test.file.txt", false},
+		{"empty name", "", true},
+		{"path traversal double dot", "../etc/passwd", true},
+		{"path traversal single", "..", true},
+		{"path traversal nested", "foo/../../../etc/passwd", true},
+		{"absolute path unix", "/etc/passwd", true},
+		{"null byte", "test\x00.txt", true},
+		{"forward slash", "test/file.txt", true},
+		{"backslash", "test\\file.txt", true},
+		{"invalid chars space", "test file.txt", true},
+		{"invalid chars colon", "test:file.txt", true},
+		{"invalid chars star", "test*file.txt", true},
+		{"invalid chars question", "test?file.txt", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateFileName(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateFileName(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestFSDirectory_PathTraversalProtection(t *testing.T) {
+	// Create a temporary directory for testing
+	tempDir, err := os.MkdirTemp("", "gocene_security_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Create a file outside the temp directory to test protection
+	outsideFile := filepath.Join(tempDir, "..", "outside_test.txt")
+
+	dir, err := NewSimpleFSDirectory(tempDir)
+	if err != nil {
+		t.Fatalf("NewSimpleFSDirectory() error = %v", err)
+	}
+	defer dir.Close()
+
+	// Test CreateOutput with path traversal
+	t.Run("create output blocks path traversal", func(t *testing.T) {
+		_, err := dir.CreateOutput("../outside_test.txt", IOContext{})
+		if err == nil {
+			t.Error("CreateOutput() should reject path traversal")
+		}
+	})
+
+	// Test OpenInput with path traversal
+	t.Run("open input blocks path traversal", func(t *testing.T) {
+		_, err := dir.OpenInput("../outside_test.txt", IOContext{})
+		if err == nil {
+			t.Error("OpenInput() should reject path traversal")
+		}
+	})
+
+	// Test DeleteFile with path traversal
+	t.Run("delete file blocks path traversal", func(t *testing.T) {
+		err := dir.DeleteFile("../outside_test.txt")
+		if err == nil {
+			t.Error("DeleteFile() should reject path traversal")
+		}
+	})
+
+	// Test FileExists with path traversal
+	t.Run("file exists blocks path traversal", func(t *testing.T) {
+		exists := dir.FileExists("../outside_test.txt")
+		if exists {
+			t.Error("FileExists() should reject path traversal and return false")
+		}
+	})
+
+	// Test FileLength with path traversal
+	t.Run("file length blocks path traversal", func(t *testing.T) {
+		_, err := dir.FileLength("../outside_test.txt")
+		if err == nil {
+			t.Error("FileLength() should reject path traversal")
+		}
+	})
+
+	// Test Rename with path traversal in source
+	t.Run("rename blocks path traversal in source", func(t *testing.T) {
+		err := dir.Rename("../outside_test.txt", "dest.txt")
+		if err == nil {
+			t.Error("Rename() should reject path traversal in source")
+		}
+	})
+
+	// Test Rename with path traversal in destination
+	t.Run("rename blocks path traversal in destination", func(t *testing.T) {
+		err := dir.Rename("source.txt", "../outside_test.txt")
+		if err == nil {
+			t.Error("Rename() should reject path traversal in destination")
+		}
+	})
+
+	// Test Sync with path traversal
+	t.Run("sync blocks path traversal", func(t *testing.T) {
+		err := dir.Sync([]string{"../outside_test.txt"})
+		if err == nil {
+			t.Error("Sync() should reject path traversal")
+		}
+	})
+
+	// Test ObtainLock with path traversal
+	t.Run("obtain lock blocks path traversal", func(t *testing.T) {
+		_, err := dir.ObtainLock("../outside_lock")
+		if err == nil {
+			t.Error("ObtainLock() should reject path traversal")
+		}
+	})
+
+	// Verify the outside file was not created
+	if _, err := os.Stat(outsideFile); err == nil {
+		t.Error("Path traversal protection failed - outside file was created")
+	}
+}

@@ -67,79 +67,104 @@ func (w *PhraseWeight) getTermStats(searcher *IndexSearcher) *TermStatistics {
 }
 
 // Scorer creates a scorer for this weight.
-func (w *PhraseWeight) Scorer(reader index.IndexReaderInterface) (Scorer, error) {
-	// Get the leaf contexts
-	leaves, err := reader.Leaves()
+func (w *PhraseWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) {
+	leafReader := context.LeafReader()
+	if leafReader == nil {
+		return nil, nil
+	}
+
+	// Get the terms for the field
+	terms, err := leafReader.Terms(w.query.field)
+	if err != nil {
+		return nil, err
+	}
+	if terms == nil {
+		return nil, nil
+	}
+
+	// For phrase queries, we need to find documents containing all terms
+	// in the correct positions. This is a simplified implementation.
+	// A full implementation would use phrase positions and slop.
+
+	// Get postings for the first term
+	if len(w.query.terms) == 0 {
+		return nil, nil
+	}
+
+	termsEnum, err := terms.GetIterator()
 	if err != nil {
 		return nil, err
 	}
 
-	// Try to get postings from the first leaf reader
-	for _, leaf := range leaves {
-		leafReader := leaf.LeafReader()
-		if leafReader == nil {
-			continue
-		}
-
-		// Get the terms for the field
-		terms, err := leafReader.Terms(w.query.field)
-		if err != nil {
-			return nil, err
-		}
-		if terms == nil {
-			continue
-		}
-
-		// For phrase queries, we need to find documents containing all terms
-		// in the correct positions. This is a simplified implementation.
-		// A full implementation would use phrase positions and slop.
-
-		// Get postings for the first term
-		if len(w.query.terms) == 0 {
-			return nil, nil
-		}
-
-		termsEnum, err := terms.GetIterator()
-		if err != nil {
-			return nil, err
-		}
-
-		// Seek to the first term
-		found, err := termsEnum.SeekExact(w.query.terms[0])
-		if err != nil {
-			return nil, err
-		}
-		if !found {
-			return nil, nil
-		}
-
-		// Get the postings enum for the term
-		postingsEnum, err := termsEnum.Postings(0)
-		if err != nil {
-			return nil, err
-		}
-		if postingsEnum == nil {
-			return nil, nil
-		}
-
-		// Create and return the scorer
-		// For phrase queries with slop > 0, we'd need a SloppyPhraseScorer
-		if w.query.slop > 0 {
-			return NewSloppyPhraseScorer(w, postingsEnum, w.simScorer, w.query.slop), nil
-		}
-		return NewPhraseScorer(w, postingsEnum, w.simScorer), nil
+	// Seek to the first term
+	found, err := termsEnum.SeekExact(w.query.terms[0])
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, nil
 	}
 
+	// Get the postings enum for the term
+	postingsEnum, err := termsEnum.Postings(0)
+	if err != nil {
+		return nil, err
+	}
+	if postingsEnum == nil {
+		return nil, nil
+	}
+
+	// Create and return the scorer
+	// For phrase queries with slop > 0, we'd need a SloppyPhraseScorer
+	if w.query.slop > 0 {
+		return NewSloppyPhraseScorer(w, postingsEnum, w.simScorer, w.query.slop), nil
+	}
+	return NewPhraseScorer(w, postingsEnum, w.simScorer), nil
+}
+
+// ScorerSupplier creates a scorer supplier for this weight.
+func (w *PhraseWeight) ScorerSupplier(context *index.LeafReaderContext) (ScorerSupplier, error) {
+	scorer, err := w.Scorer(context)
+	if err != nil {
+		return nil, err
+	}
+	if scorer == nil {
+		return nil, nil
+	}
+	return NewScorerSupplierAdapter(scorer), nil
+}
+
+// Explain returns an explanation of the score for the given document.
+func (w *PhraseWeight) Explain(context *index.LeafReaderContext, doc int) (Explanation, error) {
+	return NewExplanation(false, 0, "PhraseWeight explanation not implemented"), nil
+}
+
+// BulkScorer creates a bulk scorer for efficient bulk scoring.
+func (w *PhraseWeight) BulkScorer(context *index.LeafReaderContext) (BulkScorer, error) {
+	scorer, err := w.Scorer(context)
+	if err != nil {
+		return nil, err
+	}
+	if scorer == nil {
+		return nil, nil
+	}
+	return NewDefaultBulkScorer(scorer), nil
+}
+
+// IsCacheable returns true if this weight can be cached for the given leaf.
+func (w *PhraseWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
+	return true
+}
+
+// Count returns the count of matching documents in sub-linear time.
+func (w *PhraseWeight) Count(context *index.LeafReaderContext) (int, error) {
+	return -1, nil
+}
+
+// Matches returns the matches for a specific document.
+func (w *PhraseWeight) Matches(context *index.LeafReaderContext, doc int) (Matches, error) {
 	return nil, nil
 }
-
-// GetValueForNormalization returns the value for normalization.
-func (w *PhraseWeight) GetValueForNormalization() float32 {
-	return 1.0
-}
-
-// Normalize normalizes this weight.
-func (w *PhraseWeight) Normalize(norm float32) {}
 
 // Ensure PhraseWeight implements Weight
 var _ Weight = (*PhraseWeight)(nil)

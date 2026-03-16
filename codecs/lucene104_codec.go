@@ -11,6 +11,7 @@ package codecs
 //   - Lucene104FieldInfosFormat for field metadata
 //   - Lucene104SegmentInfosFormat for segment metadata
 //   - Lucene104TermVectorsFormat for term vectors
+//   - Lucene90DocValuesFormat for doc values (Lucene 10.x uses the same format as 9.x)
 //
 // This is the Go port of Lucene's org.apache.lucene.codecs.lucene104.Lucene104Codec.
 type Lucene104Codec struct {
@@ -20,6 +21,7 @@ type Lucene104Codec struct {
 	fieldInfosFormat   FieldInfosFormat
 	segmentInfosFormat SegmentInfosFormat
 	termVectorsFormat  TermVectorsFormat
+	docValuesFormat    DocValuesFormat
 }
 
 // NewLucene104Codec creates a new Lucene104Codec.
@@ -31,6 +33,7 @@ func NewLucene104Codec() *Lucene104Codec {
 		fieldInfosFormat:   NewLucene104FieldInfosFormat(),
 		segmentInfosFormat: NewLucene104SegmentInfosFormat(),
 		termVectorsFormat:  NewLucene104TermVectorsFormat(),
+		docValuesFormat:    NewLucene90DocValuesFormat(),
 	}
 }
 
@@ -57,4 +60,9 @@ func (c *Lucene104Codec) SegmentInfosFormat() SegmentInfosFormat {
 // TermVectorsFormat returns the term vectors format.
 func (c *Lucene104Codec) TermVectorsFormat() TermVectorsFormat {
 	return c.termVectorsFormat
+}
+
+// DocValuesFormat returns the doc values format.
+func (c *Lucene104Codec) DocValuesFormat() DocValuesFormat {
+	return c.docValuesFormat
 }

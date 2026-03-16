@@ -188,12 +188,6 @@ type TermInSetWeight struct {
 	boost float32
 }
 
-// Scorer creates a Scorer for this weight.
-func (w *TermInSetWeight) Scorer(reader index.IndexReaderInterface) (Scorer, error) {
-	// Placeholder - full implementation would use automaton-based matching
-	return nil, nil
-}
-
 // ScoreMode returns the score mode for this weight.
 func (w *TermInSetWeight) ScoreMode() ScoreMode {
 	return COMPLETE_NO_SCORES
@@ -223,8 +217,38 @@ func (w *TermInSetWeight) GetValueForNormalization() float32 {
 func (w *TermInSetWeight) Normalize(norm float32) {}
 
 // IsCacheable returns whether this weight is cacheable.
-func (w *TermInSetWeight) IsCacheable(ctx index.LeafReaderContext) bool {
+func (w *TermInSetWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
 	return true
+}
+
+// Explain returns an explanation of the score for the given document.
+func (w *TermInSetWeight) Explain(ctx *index.LeafReaderContext, doc int) (Explanation, error) {
+	return nil, nil
+}
+
+// ScorerSupplier creates a ScorerSupplier for this weight.
+func (w *TermInSetWeight) ScorerSupplier(ctx *index.LeafReaderContext) (ScorerSupplier, error) {
+	return nil, nil
+}
+
+// Scorer creates a scorer for this weight.
+func (w *TermInSetWeight) Scorer(ctx *index.LeafReaderContext) (Scorer, error) {
+	return nil, nil
+}
+
+// BulkScorer creates a bulk scorer for this weight.
+func (w *TermInSetWeight) BulkScorer(ctx *index.LeafReaderContext) (BulkScorer, error) {
+	return nil, nil
+}
+
+// Count returns the count of matching documents.
+func (w *TermInSetWeight) Count(ctx *index.LeafReaderContext) (int, error) {
+	return -1, nil
+}
+
+// Matches returns the matches for a specific document.
+func (w *TermInSetWeight) Matches(ctx *index.LeafReaderContext, doc int) (Matches, error) {
+	return nil, nil
 }
 
 // TestTermInSetQuery_Basics tests basic TermInSetQuery functionality.

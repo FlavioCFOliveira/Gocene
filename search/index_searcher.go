@@ -69,6 +69,9 @@ func (s *IndexSearcher) SearchWithCollector(query Query, collector Collector) er
 }
 
 func (s *IndexSearcher) searchLeaf(reader index.IndexReaderInterface, docBase int, weight Weight, collector Collector) error {
+	// Create a LeafReaderContext for the reader
+	ctx := index.NewLeafReaderContext(reader.(*index.LeafReader), nil, 0, docBase)
+
 	leafCollector, err := collector.GetLeafCollector(reader)
 	if err != nil {
 		return err
@@ -79,7 +82,7 @@ func (s *IndexSearcher) searchLeaf(reader index.IndexReaderInterface, docBase in
 		tdc.SetDocBase(docBase)
 	}
 
-	scorer, err := weight.Scorer(reader)
+	scorer, err := weight.Scorer(ctx)
 	if err != nil {
 		return err
 	}

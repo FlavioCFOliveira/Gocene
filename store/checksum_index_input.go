@@ -386,6 +386,11 @@ func (out *ChecksumIndexOutput) Length() int64 {
 	return out.output.Length()
 }
 
+// SetPosition sets the current position for writing by delegating to the underlying output.
+func (out *ChecksumIndexOutput) SetPosition(pos int64) error {
+	return out.output.SetPosition(pos)
+}
+
 // GetChecksum returns the current checksum value.
 func (out *ChecksumIndexOutput) GetChecksum() uint32 {
 	return out.digest.Sum32()

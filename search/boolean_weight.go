@@ -46,7 +46,7 @@ func NewBooleanWeight(query *BooleanQuery, searcher *IndexSearcher, needsScores 
 }
 
 // Scorer creates a scorer for this weight.
-func (w *BooleanWeight) Scorer(reader index.IndexReaderInterface) (Scorer, error) {
+func (w *BooleanWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) {
 	// Collect scorers for each clause
 	var allScorers []Scorer
 
@@ -55,7 +55,7 @@ func (w *BooleanWeight) Scorer(reader index.IndexReaderInterface) (Scorer, error
 			continue
 		}
 
-		scorer, err := weight.Scorer(reader)
+		scorer, err := weight.Scorer(context)
 		if err != nil {
 			return nil, err
 		}
@@ -74,22 +74,53 @@ func (w *BooleanWeight) Scorer(reader index.IndexReaderInterface) (Scorer, error
 	return NewBooleanScorer(allScorers, scoreMode, w.query.minShouldMatch), nil
 }
 
-// GetValueForNormalization returns the value for normalization.
-func (w *BooleanWeight) GetValueForNormalization() float32 {
-	sum := float32(0)
-	for i, weight := range w.weights {
-		if w.query.clauses[i].Occur == MUST || w.query.clauses[i].Occur == SHOULD {
-			sum += weight.GetValueForNormalization()
-		}
+// ScorerSupplier creates a scorer supplier for this weight.
+func (w *BooleanWeight) ScorerSupplier(context *index.LeafReaderContext) (ScorerSupplier, error) {
+	scorer, err := w.Scorer(context)
+	if err != nil {
+		return nil, err
 	}
-	return sum
+	if scorer == nil {
+		return nil, nil
+	}
+	return NewScorerSupplierAdapter(scorer), nil
 }
 
-// Normalize normalizes this weight.
-func (w *BooleanWeight) Normalize(norm float32) {
-	for _, weight := range w.weights {
-		weight.Normalize(norm)
+// Explain returns an explanation of the score for the given document.
+func (w *BooleanWeight) Explain(context *index.LeafReaderContext, doc int) (Explanation, error) {
+	return NewExplanation(false, 0, "BooleanWeight explanation not implemented"), nil
+}
+
+// BulkScorer creates a bulk scorer for efficient bulk scoring.
+func (w *BooleanWeight) BulkScorer(context *index.LeafReaderContext) (BulkScorer, error) {
+	scorer, err := w.Scorer(context)
+	if err != nil {
+		return nil, err
 	}
+	if scorer == nil {
+		return nil, nil
+	}
+	return NewDefaultBulkScorer(scorer), nil
+}
+
+// IsCacheable returns true if this weight can be cached for the given leaf.
+func (w *BooleanWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
+	for _, weight := range w.weights {
+		if weight != nil && !weight.IsCacheable(ctx) {
+			return false
+		}
+	}
+	return true
+}
+
+// Count returns the count of matching documents in sub-linear time.
+func (w *BooleanWeight) Count(context *index.LeafReaderContext) (int, error) {
+	return -1, nil
+}
+
+// Matches returns the matches for a specific document.
+func (w *BooleanWeight) Matches(context *index.LeafReaderContext, doc int) (Matches, error) {
+	return nil, nil
 }
 
 // Ensure BooleanWeight implements Weight

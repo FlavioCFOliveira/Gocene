@@ -118,8 +118,8 @@ func (h *BytesRefHash) Get(bytesID int, ref *BytesRef) *BytesRef {
 	if h.bytesStart == nil {
 		panic("bytesStart is nil - not initialized")
 	}
-	if bytesID >= len(h.bytesStart) {
-		panic(fmt.Sprintf("bytesID exceeds byteStart len: %d", len(h.bytesStart)))
+	if bytesID < 0 || bytesID >= len(h.bytesStart) {
+		panic(fmt.Sprintf("bytesID out of range: %d (len: %d)", bytesID, len(h.bytesStart)))
 	}
 	h.pool.FillBytesRef(ref, h.bytesStart[bytesID])
 	return ref

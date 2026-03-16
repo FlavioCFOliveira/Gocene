@@ -5,6 +5,7 @@
 package store
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -387,6 +388,13 @@ func (m *mockIndexOutput) WriteBytesN(b []byte, n int) error {
 }
 
 func (m *mockIndexOutput) GetFilePointer() int64 { return m.pos }
+func (m *mockIndexOutput) SetPosition(pos int64) error {
+	if pos < 0 || pos > int64(len(m.data)) {
+		return fmt.Errorf("invalid position: %d", pos)
+	}
+	m.pos = pos
+	return nil
+}
 func (m *mockIndexOutput) Length() int64         { return int64(len(m.data)) }
 func (m *mockIndexOutput) GetName() string       { return m.name }
 func (m *mockIndexOutput) Close() error          { return nil }

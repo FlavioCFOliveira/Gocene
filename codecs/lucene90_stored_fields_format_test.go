@@ -55,6 +55,26 @@ func (f *FilterIndexInput) ReadBytesN(n int) ([]byte, error) {
 	return f.in.ReadBytesN(n)
 }
 
+// ReadShort delegates to the wrapped input.
+func (f *FilterIndexInput) ReadShort() (int16, error) {
+	return f.in.ReadShort()
+}
+
+// ReadInt delegates to the wrapped input.
+func (f *FilterIndexInput) ReadInt() (int32, error) {
+	return f.in.ReadInt()
+}
+
+// ReadLong delegates to the wrapped input.
+func (f *FilterIndexInput) ReadLong() (int64, error) {
+	return f.in.ReadLong()
+}
+
+// ReadString delegates to the wrapped input.
+func (f *FilterIndexInput) ReadString() (string, error) {
+	return f.in.ReadString()
+}
+
 // GetFilePointer delegates to the wrapped input.
 func (f *FilterIndexInput) GetFilePointer() int64 {
 	return f.in.GetFilePointer()

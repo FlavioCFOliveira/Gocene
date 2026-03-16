@@ -6,14 +6,13 @@
 // Source: lucene/core/src/test/org/apache/lucene/codecs/lucene103/blocktree/TestTrie.java
 // Purpose: Tests Trie data structure for blocktree
 
-package blocktree_test
+package codecs
 
 import (
 	"bytes"
 	"math/rand"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs/blocktree"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -23,26 +22,26 @@ import (
 // Source: TestTrie.testStrategyChoose()
 func TestTrie_StrategyChoose(t *testing.T) {
 	// bits use 32 bytes while reverse_array use 31 bytes, choose reverse_array
-	strategy := blocktree.ChildSaveStrategyChoose(0, 255, 226)
-	if strategy != blocktree.ChildSaveStrategyReverseArray {
+	strategy := ChildSaveStrategyChoose(0, 255, 226)
+	if strategy != ChildSaveStrategyReverseArray {
 		t.Errorf("Expected REVERSE_ARRAY for (0, 255, 226), got %v", strategy)
 	}
 
 	// array and bits both use 32 position bytes, we choose bits
-	strategy = blocktree.ChildSaveStrategyChoose(0, 255, 33)
-	if strategy != blocktree.ChildSaveStrategyBits {
+	strategy = ChildSaveStrategyChoose(0, 255, 33)
+	if strategy != ChildSaveStrategyBits {
 		t.Errorf("Expected BITS for (0, 255, 33), got %v", strategy)
 	}
 
 	// reverse_array and bits both use 32 position bytes, we choose bits
-	strategy = blocktree.ChildSaveStrategyChoose(0, 255, 225)
-	if strategy != blocktree.ChildSaveStrategyBits {
+	strategy = ChildSaveStrategyChoose(0, 255, 225)
+	if strategy != ChildSaveStrategyBits {
 		t.Errorf("Expected BITS for (0, 255, 225), got %v", strategy)
 	}
 
 	// bits use 32 bytes while array use 31 bytes, choose array
-	strategy = blocktree.ChildSaveStrategyChoose(0, 255, 32)
-	if strategy != blocktree.ChildSaveStrategyArray {
+	strategy = ChildSaveStrategyChoose(0, 255, 32)
+	if strategy != ChildSaveStrategyArray {
 		t.Errorf("Expected ARRAY for (0, 255, 32), got %v", strategy)
 	}
 }
@@ -51,7 +50,7 @@ func TestTrie_StrategyChoose(t *testing.T) {
 // Source: TestTrie.testRandomTerms()
 func TestTrie_RandomTerms(t *testing.T) {
 	supplier := randomBytes
-	testTrieBuilder(t, supplier, atLeast(1000))
+	testTrieBuilder(t, supplier, atLeastTest(1000))
 	testTrieLookup(t, supplier, 12)
 }
 
@@ -61,7 +60,7 @@ func TestTrie_OneByteTerms(t *testing.T) {
 	supplier := func() []byte {
 		return []byte{byte(rand.Int())}
 	}
-	round := atLeast(5)
+	round := atLeastTest(5)
 	for i := 0; i < round; i++ {
 		testTrieLookup(t, supplier, 10)
 	}
@@ -70,14 +69,14 @@ func TestTrie_OneByteTerms(t *testing.T) {
 // testTrieBuilder tests building a trie with random keys and values.
 // Source: TestTrie.testTrieBuilder()
 func testTrieBuilder(t *testing.T, randomBytesSupplier func() []byte, count int) {
-	expected := make(map[string]*blocktree.TrieOutput)
+	expected := make(map[string]*TrieOutput)
 	emptyKey := util.NewBytesRefEmpty()
-	emptyOutput := blocktree.NewTrieOutput(0, false, util.NewBytesRef([]byte("emptyOutput")))
+	emptyOutput := NewTrieOutput(0, false, util.NewBytesRef([]byte("emptyOutput")))
 	expected[emptyKey.String()] = emptyOutput
 
 	for i := 0; i < count; i++ {
 		key := util.NewBytesRef(randomBytesSupplier())
-		value := blocktree.NewTrieOutput(
+		value := NewTrieOutput(
 			rand.Int63()&(1<<62-1), // random positive long < 1L << 62
 			rand.Int()%2 == 0,       // random boolean
 			util.NewBytesRef(randomBytesSupplier()),
@@ -85,13 +84,13 @@ func testTrieBuilder(t *testing.T, randomBytesSupplier func() []byte, count int)
 		expected[key.String()] = value
 	}
 
-	trieBuilder := blocktree.BytesRefToTrie(emptyKey, emptyOutput)
+	trieBuilder := BytesRefToTrie(emptyKey, emptyOutput)
 	for keyStr, value := range expected {
 		key := util.NewBytesRef([]byte(keyStr))
 		if keyStr == "" {
 			continue
 		}
-		add := blocktree.BytesRefToTrie(key, value)
+		add := BytesRefToTrie(key, value)
 		trieBuilder.Append(add)
 
 		// Verify that appending to a destroyed trie throws error
@@ -107,8 +106,8 @@ func testTrieBuilder(t *testing.T, randomBytesSupplier func() []byte, count int)
 		}
 	}
 
-	actual := make(map[string]*blocktree.TrieOutput)
-	trieBuilder.Visit(func(key *util.BytesRef, output *blocktree.TrieOutput) {
+	actual := make(map[string]*TrieOutput)
+	trieBuilder.Visit(func(key *util.BytesRef, output *TrieOutput) {
 		actual[key.String()] = output
 	})
 
@@ -133,9 +132,9 @@ func testTrieBuilder(t *testing.T, randomBytesSupplier func() []byte, count int)
 // Source: TestTrie.testTrieLookup()
 func testTrieLookup(t *testing.T, randomBytesSupplier func() []byte, round int) {
 	for iter := 1; iter <= round; iter++ {
-		expected := make(map[string]*blocktree.TrieOutput)
+		expected := make(map[string]*TrieOutput)
 		emptyKey := util.NewBytesRefEmpty()
-		emptyOutput := blocktree.NewTrieOutput(0, false, util.NewBytesRef([]byte("emptyOutput")))
+		emptyOutput := NewTrieOutput(0, false, util.NewBytesRef([]byte("emptyOutput")))
 		expected[emptyKey.String()] = emptyOutput
 
 		n := 1 << iter
@@ -147,7 +146,7 @@ func testTrieLookup(t *testing.T, randomBytesSupplier func() []byte, round int) 
 			} else {
 				floorData = util.NewBytesRef(randomBytesSupplier())
 			}
-			value := blocktree.NewTrieOutput(
+			value := NewTrieOutput(
 				rand.Int63()&(1<<62-1),
 				rand.Int()%2 == 0,
 				floorData,
@@ -155,13 +154,13 @@ func testTrieLookup(t *testing.T, randomBytesSupplier func() []byte, round int) 
 			expected[key.String()] = value
 		}
 
-		trieBuilder := blocktree.BytesRefToTrie(emptyKey, emptyOutput)
+		trieBuilder := BytesRefToTrie(emptyKey, emptyOutput)
 		for keyStr, value := range expected {
 			key := util.NewBytesRef([]byte(keyStr))
 			if keyStr == "" {
 				continue
 			}
-			add := blocktree.BytesRefToTrie(key, value)
+			add := BytesRefToTrie(key, value)
 			trieBuilder.Append(add)
 
 			// Verify that appending to a destroyed trie throws error
@@ -202,7 +201,7 @@ func testTrieLookup(t *testing.T, randomBytesSupplier func() []byte, round int) 
 		}
 
 		// Verify that appending to a saved trie throws error
-		emptyTrie := blocktree.BytesRefToTrie(util.NewBytesRefEmpty(), blocktree.NewTrieOutput(0, true, nil))
+		emptyTrie := BytesRefToTrie(util.NewBytesRefEmpty(), NewTrieOutput(0, true, nil))
 		err = trieBuilder.Append(emptyTrie)
 		if err == nil {
 			t.Error("Expected error when appending to saved trie, got nil")
@@ -243,7 +242,7 @@ func testTrieLookup(t *testing.T, randomBytesSupplier func() []byte, round int) 
 			t.Fatalf("Failed to slice input: %v", err)
 		}
 
-		reader, err := blocktree.NewTrieReader(slicedInput, rootFP)
+		reader, err := NewTrieReader(slicedInput, rootFP)
 		if err != nil {
 			t.Fatalf("Failed to create TrieReader: %v", err)
 		}
@@ -255,7 +254,7 @@ func testTrieLookup(t *testing.T, randomBytesSupplier func() []byte, round int) 
 		}
 
 		// Test not-found keys
-		testNotFound := atLeast(100)
+		testNotFound := atLeastTest(100)
 		for i := 0; i < testNotFound; i++ {
 			key := util.NewBytesRef(randomBytes())
 			for {
@@ -274,7 +273,7 @@ func testTrieLookup(t *testing.T, randomBytesSupplier func() []byte, round int) 
 					}
 					mismatch1 := bytesMismatch(lastK, key)
 					mismatch2 := bytesMismatch(k, key)
-					assertNotFoundOnLevelN(t, reader, key, max(mismatch1, mismatch2))
+					assertNotFoundOnLevelN(t, reader, key, maxInt(mismatch1, mismatch2))
 					break
 				}
 				lastK = k
@@ -285,9 +284,9 @@ func testTrieLookup(t *testing.T, randomBytesSupplier func() []byte, round int) 
 
 // assertResult asserts that the trie lookup result matches the expected output.
 // Source: TestTrie.assertResult()
-func assertResult(t *testing.T, reader *blocktree.TrieReader, term *util.BytesRef, expected *blocktree.TrieOutput) {
+func assertResult(t *testing.T, reader *TrieReader, term *util.BytesRef, expected *TrieOutput) {
 	parent := reader.Root
-	child := blocktree.NewTrieNode()
+	child := NewTrieNode()
 
 	termBytes := term.ValidBytes()
 	for i := 0; i < len(termBytes); i++ {
@@ -301,7 +300,7 @@ func assertResult(t *testing.T, reader *blocktree.TrieReader, term *util.BytesRe
 			return
 		}
 		parent = child
-		child = blocktree.NewTrieNode()
+		child = NewTrieNode()
 	}
 
 	if !parent.HasOutput() {
@@ -342,9 +341,9 @@ func assertResult(t *testing.T, reader *blocktree.TrieReader, term *util.BytesRe
 
 // assertNotFoundOnLevelN asserts that a term is not found at a specific level.
 // Source: TestTrie.assertNotFoundOnLevelN()
-func assertNotFoundOnLevelN(t *testing.T, reader *blocktree.TrieReader, term *util.BytesRef, n int) {
+func assertNotFoundOnLevelN(t *testing.T, reader *TrieReader, term *util.BytesRef, n int) {
 	parent := reader.Root
-	child := blocktree.NewTrieNode()
+	child := NewTrieNode()
 
 	termBytes := term.ValidBytes()
 	for i := 0; i < len(termBytes); i++ {
@@ -367,7 +366,7 @@ func assertNotFoundOnLevelN(t *testing.T, reader *blocktree.TrieReader, term *ut
 		}
 
 		parent = child
-		child = blocktree.NewTrieNode()
+		child = NewTrieNode()
 	}
 }
 
@@ -383,7 +382,7 @@ func randomBytes() []byte {
 }
 
 // trieOutputEquals compares two TrieOutput values for equality.
-func trieOutputEquals(a, b *blocktree.TrieOutput) bool {
+func trieOutputEquals(a, b *TrieOutput) bool {
 	if a == b {
 		return true
 	}
@@ -422,15 +421,15 @@ func bytesMismatch(a, b *util.BytesRef) int {
 	return -1
 }
 
-// atLeast returns a value that is at least the given minimum, scaled for testing.
-func atLeast(min int) int {
+// atLeastTest returns a value that is at least the given minimum, scaled for testing.
+func atLeastTest(min int) int {
 	// In Lucene tests, this scales with the test iteration
 	// For simplicity, we return min * 2 to ensure good coverage
 	return min * 2
 }
 
 // max returns the maximum of two integers.
-func max(a, b int) int {
+func maxInt(a, b int) int {
 	if a > b {
 		return a
 	}

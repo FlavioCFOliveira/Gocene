@@ -224,23 +224,53 @@ type CachedWeight struct {
 }
 
 // Scorer creates a scorer for this weight, using the cache if available.
-func (w *CachedWeight) Scorer(reader index.IndexReaderInterface) (Scorer, error) {
+func (w *CachedWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) {
 	// Try to get from cache
-	if cached := w.cache.Get(w.query, reader); cached != nil {
-		return cached.Scorer(reader)
+	if cached := w.cache.Get(w.query, context.Reader()); cached != nil {
+		return cached.Scorer(context)
 	}
 
 	// Create the scorer
-	scorer, err := w.Weight.Scorer(reader)
+	scorer, err := w.Weight.Scorer(context)
 	if err != nil {
 		return nil, err
 	}
 
 	// Cache the weight for future use
 	// Note: We cache the weight, not the scorer, as scorers are per-segment
-	w.cache.Put(w.query, reader, w.Weight)
+	w.cache.Put(w.query, context.Reader(), w.Weight)
 
 	return scorer, nil
+}
+
+// ScorerSupplier creates a scorer supplier for this weight.
+func (w *CachedWeight) ScorerSupplier(context *index.LeafReaderContext) (ScorerSupplier, error) {
+	return w.Weight.ScorerSupplier(context)
+}
+
+// Explain returns an explanation of the score for the given document.
+func (w *CachedWeight) Explain(context *index.LeafReaderContext, doc int) (Explanation, error) {
+	return w.Weight.Explain(context, doc)
+}
+
+// BulkScorer creates a bulk scorer for efficient bulk scoring.
+func (w *CachedWeight) BulkScorer(context *index.LeafReaderContext) (BulkScorer, error) {
+	return w.Weight.BulkScorer(context)
+}
+
+// IsCacheable returns true if this weight can be cached for the given leaf.
+func (w *CachedWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
+	return w.Weight.IsCacheable(ctx)
+}
+
+// Count returns the count of matching documents in sub-linear time.
+func (w *CachedWeight) Count(context *index.LeafReaderContext) (int, error) {
+	return w.Weight.Count(context)
+}
+
+// Matches returns the matches for a specific document.
+func (w *CachedWeight) Matches(context *index.LeafReaderContext, doc int) (Matches, error) {
+	return w.Weight.Matches(context, doc)
 }
 
 // Ensure CachedWeight implements Weight

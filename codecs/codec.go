@@ -32,6 +32,9 @@ type Codec interface {
 
 	// TermVectorsFormat returns the term vectors format.
 	TermVectorsFormat() TermVectorsFormat
+
+	// DocValuesFormat returns the doc values format.
+	DocValuesFormat() DocValuesFormat
 }
 
 // BaseCodec provides common functionality.
@@ -71,6 +74,11 @@ func (c *BaseCodec) SegmentInfosFormat() SegmentInfosFormat {
 
 // TermVectorsFormat returns the term vectors format.
 func (c *BaseCodec) TermVectorsFormat() TermVectorsFormat {
+	return nil
+}
+
+// DocValuesFormat returns the doc values format.
+func (c *BaseCodec) DocValuesFormat() DocValuesFormat {
 	return nil
 }
 
