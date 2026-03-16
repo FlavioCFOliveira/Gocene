@@ -806,7 +806,7 @@ Based on comprehensive gap analysis between Apache Lucene Java and Gocene, the f
 | GC-368 | Implement Lucene99HnswVectorsFormat | go-elite-developer, gocene-lucene-specialist | CRITICAL | HIGH | COMPLETED (2026-03-16) |
 | GC-369 | Implement Lucene99HnswVectorsReader | go-elite-developer, gocene-lucene-specialist | CRITICAL | HIGH | COMPLETED (2026-03-16) |
 | GC-370 | Implement Lucene99HnswVectorsWriter | go-elite-developer, gocene-lucene-specialist | CRITICAL | HIGH | COMPLETED (2026-03-16) |
-| GC-371 | Implement Vector Scorer Components | go-elite-developer, gocene-lucene-specialist | HIGH | HIGH | PENDING |
+| GC-371 | Implement Vector Scorer Components | go-elite-developer, gocene-lucene-specialist | HIGH | HIGH | COMPLETED (2026-03-16) |
 | GC-372 | Implement Scalar Quantized Vectors | go-elite-developer, gocene-lucene-specialist | MEDIUM | MEDIUM | PENDING |
 | GC-373 | Implement Flat Vector Scorer | go-elite-developer, gocene-lucene-specialist | MEDIUM | MEDIUM | PENDING |
 | GC-374 | Complete Test Coverage for Vector Search | go-elite-developer, gocene-lucene-specialist | MEDIUM | HIGH | PENDING |
