@@ -59,7 +59,7 @@ const (
 
 // setupTestDoc creates a test document with various field types
 // Equivalent to DocHelper.setupDoc() in Lucene
-func setupTestDoc() *document.Document {
+func readerSetupTestDoc() *document.Document {
 	doc := &document.Document{}
 
 	// Field 1: stored text field without term vectors
@@ -156,7 +156,7 @@ func setupSegmentReader(t *testing.T) (store.Directory, *document.Document, *ind
 	t.Helper()
 
 	dir := store.NewByteBuffersDirectory()
-	testDoc := setupTestDoc()
+	testDoc := readerSetupTestDoc()
 
 	// Create a segment info
 	segmentInfo := index.NewSegmentInfo("_0", 1, dir)
@@ -188,7 +188,7 @@ func setupSegmentReader(t *testing.T) (store.Directory, *document.Document, *ind
 // TestSegmentReader_Basic tests basic setup
 // Source: TestSegmentReader.test()
 // Purpose: Verifies directory and reader are properly initialized
-func TestSegmentReader_Basic(t *testing.T) {
+func TestSegmentReader_SegmentOperations(t *testing.T) {
 	dir, _, reader := setupSegmentReader(t)
 	defer dir.Close()
 	defer reader.Close()
