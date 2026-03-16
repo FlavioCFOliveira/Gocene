@@ -109,7 +109,7 @@ func TestLucene90PointsFormat_Basic(t *testing.T) {
 	writer.Close()
 
 	// Verify points can be read
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -183,7 +183,7 @@ func TestLucene90PointsFormat_EstimatePointCount(t *testing.T) {
 		t.Fatalf("ForceMerge failed: %v", err)
 	}
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestLucene90PointsFormat_EstimatePointCount2Dims(t *testing.T) {
 		t.Fatalf("ForceMerge failed: %v", err)
 	}
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -315,7 +315,7 @@ func TestLucene90PointsFormat_Merge(t *testing.T) {
 	}
 	writer.Close()
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -359,7 +359,7 @@ func TestLucene90PointsFormat_MultiValued(t *testing.T) {
 
 	writer.Close()
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -402,7 +402,7 @@ func TestLucene90PointsFormat_AllEqual(t *testing.T) {
 
 	writer.Close()
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -482,7 +482,7 @@ func testRandomBinaryPoints(t *testing.T, numDocs int) {
 
 	writer.Close()
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -502,7 +502,7 @@ func TestLucene90PointsFormat_AddIndexes(t *testing.T) {
 	defer dir2.Close()
 
 	// Create first index with points
-	iwc1 := index.NewIndexWriterConfig()
+	iwc1 := index.NewIndexWriterConfig(nil)
 	writer1, _ := index.NewIndexWriter(dir1, iwc1)
 	for i := 0; i < 10; i++ {
 		doc := document.NewDocument()
@@ -515,7 +515,7 @@ func TestLucene90PointsFormat_AddIndexes(t *testing.T) {
 	writer1.Close()
 
 	// Create second index
-	iwc2 := index.NewIndexWriterConfig()
+	iwc2 := index.NewIndexWriterConfig(nil)
 	writer2, _ := index.NewIndexWriter(dir2, iwc2)
 
 	// Add indexes from first directory
@@ -524,7 +524,7 @@ func TestLucene90PointsFormat_AddIndexes(t *testing.T) {
 	}
 	writer2.Close()
 
-	reader, err := index.NewDirectoryReader(dir2)
+	reader, err := index.OpenDirectoryReader(dir2)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -562,7 +562,8 @@ func TestLucene90PointsFormat_MergeMissing(t *testing.T) {
 	// Add docs without points
 	for i := 0; i < 5; i++ {
 		doc := document.NewDocument()
-		doc.Add(document.NewTextField("text", "value", true))
+		tf, _ := document.NewTextField("text", "value", true)
+		doc.Add(tf)
 		if err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -570,7 +571,7 @@ func TestLucene90PointsFormat_MergeMissing(t *testing.T) {
 
 	writer.Close()
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -596,7 +597,7 @@ func TestLucene90PointsFormat_DocCountEdgeCases(t *testing.T) {
 	// Test empty index
 	writer.Close()
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -641,7 +642,7 @@ func TestLucene90PointsFormat_RandomDocCount(t *testing.T) {
 
 	writer.Close()
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -689,7 +690,7 @@ func TestLucene90PointsFormat_MismatchedFields(t *testing.T) {
 
 	writer.Close()
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -719,8 +720,10 @@ func TestLucene90PointsFormat_AllPointDocsDeleted(t *testing.T) {
 		encodeInt32Sortable(i, point)
 		bp, _ := document.NewBinaryPoint("dim", point)
 		doc.Add(bp)
-		doc.Add(document.NewStringField("id", string(rune('0'+i)), true))
-		doc.Add(document.NewTextField("x", "x", true))
+		sf, _ := document.NewStringField("id", string(rune('0'+i)), true)
+		doc.Add(sf)
+		tf, _ := document.NewTextField("x", "x", true)
+		doc.Add(tf)
 		if err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -728,16 +731,17 @@ func TestLucene90PointsFormat_AllPointDocsDeleted(t *testing.T) {
 
 	// Add doc without points
 	doc := document.NewDocument()
-	doc.Add(document.NewTextField("other", "value", true))
+	tf, _ := document.NewTextField("other", "value", true)
+	doc.Add(tf)
 	if err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("Failed to add document: %v", err)
 	}
 
 	// Delete docs with "x" field
-	writer.DeleteDocuments(document.NewTerm("x", "x"))
+	writer.DeleteDocuments(index.NewTerm("x", "x"))
 	writer.Close()
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}

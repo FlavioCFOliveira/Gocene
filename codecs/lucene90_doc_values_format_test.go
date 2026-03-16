@@ -53,8 +53,8 @@ import (
 
 // Utility functions
 
-// atLeast returns at least n, or a larger value based on test mode
-func atLeast(n int, t *testing.T) int {
+// dvAtLeast returns at least n, or a larger value based on test mode
+func dvAtLeast(n int, t *testing.T) int {
 	if testing.Short() {
 		return n
 	}
@@ -63,7 +63,7 @@ func atLeast(n int, t *testing.T) int {
 }
 
 // nextInt returns a random int in [min, max)
-func nextInt(rng *rand.Rand, min, max int) int {
+func dvNextInt(rng *rand.Rand, min, max int) int {
 	if min >= max {
 		return min
 	}
@@ -95,7 +95,7 @@ const (
 // Purpose: Tests sorted set with variable length values (1-32766 bytes)
 func TestLucene90DocValuesFormat_SortedSetVariableLengthBigVsStoredFields(t *testing.T) {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	iterations := atLeast(1, t)
+	iterations := dvAtLeast(1, t)
 
 	for i := 0; i < iterations; i++ {
 		numDocs := 10
@@ -117,10 +117,10 @@ func TestLucene90DocValuesFormat_SortedSetVariableLengthManyVsStoredFields(t *te
 	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	iterations := atLeast(1, t)
+	iterations := dvAtLeast(1, t)
 
 	for i := 0; i < iterations; i++ {
-		numDocs := nextInt(rng, 1024, 2049)
+		numDocs := dvNextInt(rng, 1024, 2049)
 		doTestSortedSetVsStoredFields(t, rng, numDocs, 1, 500, 16, 100)
 	}
 }
@@ -136,12 +136,12 @@ func TestLucene90DocValuesFormat_SortedVariableLengthBigVsStoredFields(t *testin
 	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	iterations := atLeast(1, t)
+	iterations := dvAtLeast(1, t)
 
 	for i := 0; i < iterations; i++ {
 		numDocs := 100
 		if !testing.Short() {
-			numDocs = atLeast(100, t)
+			numDocs = dvAtLeast(100, t)
 		}
 		doTestSortedVsStoredFields(t, rng, numDocs, 1.0, 1, 32766)
 	}
@@ -158,10 +158,10 @@ func TestLucene90DocValuesFormat_SortedVariableLengthManyVsStoredFields(t *testi
 	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	iterations := atLeast(1, t)
+	iterations := dvAtLeast(1, t)
 
 	for i := 0; i < iterations; i++ {
-		numDocs := nextInt(rng, 1024, 2049)
+		numDocs := dvNextInt(rng, 1024, 2049)
 		doTestSortedVsStoredFields(t, rng, numDocs, 1.0, 1, 500)
 	}
 }
@@ -176,10 +176,10 @@ func TestLucene90DocValuesFormat_TermsEnumFixedWidth(t *testing.T) {
 	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	iterations := atLeast(1, t)
+	iterations := dvAtLeast(1, t)
 
 	for i := 0; i < iterations; i++ {
-		numDocs := nextInt(rng, 1025, 5121)
+		numDocs := dvNextInt(rng, 1025, 5121)
 		valuesProducer := func() string {
 			return util.RandomSimpleString(rng, 10, 10)
 		}
@@ -197,10 +197,10 @@ func TestLucene90DocValuesFormat_TermsEnumVariableWidth(t *testing.T) {
 	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	iterations := atLeast(1, t)
+	iterations := dvAtLeast(1, t)
 
 	for i := 0; i < iterations; i++ {
-		numDocs := nextInt(rng, 1025, 5121)
+		numDocs := dvNextInt(rng, 1025, 5121)
 		valuesProducer := func() string {
 			return util.RandomSimpleString(rng, 1, 500)
 		}
@@ -218,10 +218,10 @@ func TestLucene90DocValuesFormat_TermsEnumRandomMany(t *testing.T) {
 	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	iterations := atLeast(1, t)
+	iterations := dvAtLeast(1, t)
 
 	for i := 0; i < iterations; i++ {
-		numDocs := nextInt(rng, 1025, 8121)
+		numDocs := dvNextInt(rng, 1025, 8121)
 		valuesProducer := func() string {
 			return util.RandomSimpleString(rng, 1, 500)
 		}
@@ -240,10 +240,10 @@ func TestLucene90DocValuesFormat_TermsEnumLongSharedPrefixes(t *testing.T) {
 	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	iterations := atLeast(1, t)
+	iterations := dvAtLeast(1, t)
 
 	for i := 0; i < iterations; i++ {
-		numDocs := nextInt(rng, 1025, 5121)
+		numDocs := dvNextInt(rng, 1025, 5121)
 		valuesProducer := func() string {
 			length := rng.Intn(500)
 			chars := make([]byte, length)
@@ -266,7 +266,7 @@ func TestLucene90DocValuesFormat_TermsEnumLongSharedPrefixes(t *testing.T) {
 // Purpose: Tests sparse compression when less than 1% of docs have values
 func TestLucene90DocValuesFormat_SparseDocValuesVsStoredFields(t *testing.T) {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	iterations := atLeast(1, t)
+	iterations := dvAtLeast(1, t)
 
 	for i := 0; i < iterations; i++ {
 		doTestSparseDocValuesVsStoredFields(t, rng)
@@ -463,7 +463,7 @@ func TestLucene90DocValuesFormat_SortedNumericBlocksOfVariousBitsPerValue(t *tes
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	counts := func() int64 {
-		return int64(nextInt(rng, 1, 3))
+		return int64(dvNextInt(rng, 1, 3))
 	}
 	doTestSortedNumericBlocksOfVariousBitsPerValue(t, rng, counts)
 }
@@ -480,7 +480,7 @@ func TestLucene90DocValuesFormat_SparseSortedNumericBlocksOfVariousBitsPerValue(
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	counts := func() int64 {
-		return int64(nextInt(rng, 0, 2))
+		return int64(dvNextInt(rng, 0, 2))
 	}
 	doTestSortedNumericBlocksOfVariousBitsPerValue(t, rng, counts)
 }
@@ -662,7 +662,7 @@ func TestLucene90DocValuesFormat_LargeTermsCompression(t *testing.T) {
 	cardinality := 64
 	valuesSet := make(map[string]struct{})
 	for len(valuesSet) < cardinality {
-		length := nextInt(rng, 512, 1024)
+		length := dvNextInt(rng, 512, 1024)
 		valuesSet[util.RandomSimpleString(rng, length, length)] = struct{}{}
 	}
 
@@ -735,7 +735,7 @@ func TestLucene90DocValuesFormat_SortedTermsDictLookupOrd(t *testing.T) {
 	}
 
 	doc := document.NewDocument()
-	numDocs := atLeast(TermsDictBlockLZ4Size+1, t)
+	numDocs := dvAtLeast(TermsDictBlockLZ4Size+1, t)
 
 	for i := 0; i < numDocs; i++ {
 		dvField, _ := document.NewSortedDocValuesField("foo", []byte(fmt.Sprintf("%d", i)))
@@ -779,7 +779,7 @@ func TestLucene90DocValuesFormat_SortedSetTermsDictLookupOrd(t *testing.T) {
 	}
 
 	doc := document.NewDocument()
-	numDocs := atLeast(2*TermsDictBlockLZ4Size+1, t)
+	numDocs := dvAtLeast(2*TermsDictBlockLZ4Size+1, t)
 
 	for i := 0; i < numDocs; i++ {
 		dvField, _ := document.NewSortedSetDocValuesField("foo", [][]byte{[]byte(fmt.Sprintf("%d", i))})
@@ -924,7 +924,7 @@ func doTestSortedSetVsStoredFields(t *testing.T, rng *rand.Rand, numDocs, minLen
 	// Generate unique values
 	valueSet := make(map[string]struct{})
 	for i := 0; i < 10000 && len(valueSet) < maxUniqueValues; i++ {
-		length := nextInt(rng, minLength, maxLength)
+		length := dvNextInt(rng, minLength, maxLength)
 		valueSet[util.RandomSimpleString(rng, length, length)] = struct{}{}
 	}
 	uniqueValues := make([]string, 0, len(valueSet))
@@ -941,7 +941,7 @@ func doTestSortedSetVsStoredFields(t *testing.T, rng *rand.Rand, numDocs, minLen
 		doc.Add(idField)
 
 		// Generate random set of values
-		numValues := nextInt(rng, 0, maxValuesPerDoc)
+		numValues := dvNextInt(rng, 0, maxValuesPerDoc)
 		values := make(map[string]struct{})
 		for v := 0; v < numValues; v++ {
 			values[uniqueValues[rng.Intn(len(uniqueValues))]] = struct{}{}
@@ -1023,7 +1023,7 @@ func doTestSortedVsStoredFields(t *testing.T, rng *rand.Rand, numDocs int, densi
 		doc.Add(idField)
 
 		// Generate random value
-		length := nextInt(rng, minLength, maxLength)
+		length := dvNextInt(rng, minLength, maxLength)
 		value := make([]byte, length)
 		rng.Read(value)
 
@@ -1138,7 +1138,7 @@ func doTestTermsEnumRandom(t *testing.T, rng *rand.Rand, numDocs int, valuesProd
 // doTestSparseDocValuesVsStoredFields tests sparse doc values against stored fields.
 func doTestSparseDocValuesVsStoredFields(t *testing.T, rng *rand.Rand) {
 	// Generate random values
-	values := make([]int64, nextInt(rng, 1, 500))
+	values := make([]int64, dvNextInt(rng, 1, 500))
 	for i := range values {
 		values[i] = rng.Int63()
 	}
@@ -1156,7 +1156,7 @@ func doTestSparseDocValuesVsStoredFields(t *testing.T, rng *rand.Rand) {
 
 	// Sparse compression is only enabled if less than 1% of docs have a value
 	avgGap := 100
-	numDocs := atLeast(200, t)
+	numDocs := dvAtLeast(200, t)
 
 	// Add initial gap
 	for i := 0; i < rng.Intn(avgGap*2); i++ {
@@ -1165,7 +1165,7 @@ func doTestSparseDocValuesVsStoredFields(t *testing.T, rng *rand.Rand) {
 
 	maxNumValuesPerDoc := 1
 	if rng.Intn(2) == 0 {
-		maxNumValuesPerDoc = nextInt(rng, 2, 5)
+		maxNumValuesPerDoc = dvNextInt(rng, 2, 5)
 	}
 
 	for i := 0; i < numDocs; i++ {
@@ -1183,7 +1183,7 @@ func doTestSparseDocValuesVsStoredFields(t *testing.T, rng *rand.Rand) {
 		doc.Add(storedField)
 
 		// Multi-valued
-		numValues := nextInt(rng, 1, maxNumValuesPerDoc)
+		numValues := dvNextInt(rng, 1, maxNumValuesPerDoc)
 		for j := 0; j < numValues; j++ {
 			docValue = values[rng.Intn(len(values))]
 			sortedNumericDV, _ := document.NewSortedNumericDocValuesField("sorted_numeric", []int64{docValue})
@@ -1200,7 +1200,7 @@ func doTestSparseDocValuesVsStoredFields(t *testing.T, rng *rand.Rand) {
 		}
 
 		// Add gap
-		for j := 0; j < nextInt(rng, 0, avgGap*2); j++ {
+		for j := 0; j < dvNextInt(rng, 0, avgGap*2); j++ {
 			writer.AddDocument(document.NewDocument())
 		}
 	}
@@ -1229,7 +1229,7 @@ func doTestSortedNumericBlocksOfVariousBitsPerValue(t *testing.T, rng *rand.Rand
 		t.Fatalf("Failed to create IndexWriter: %v", err)
 	}
 
-	numDocs := atLeast(NumericBlockSize*3, t)
+	numDocs := dvAtLeast(NumericBlockSize*3, t)
 	values := blocksOfVariousBPV(rng)
 
 	writeDocValues := make([][]int64, numDocs)
@@ -1287,7 +1287,7 @@ func doTestSparseNumericBlocksOfVariousBitsPerValue(t *testing.T, rng *rand.Rand
 		t.Fatalf("Failed to create IndexWriter: %v", err)
 	}
 
-	numDocs := atLeast(NumericBlockSize*3, t)
+	numDocs := dvAtLeast(NumericBlockSize*3, t)
 	values := blocksOfVariousBPV(rng)
 
 	for i := 0; i < numDocs; i++ {
@@ -1322,7 +1322,7 @@ func doTestSparseNumericBlocksOfVariousBitsPerValue(t *testing.T, rng *rand.Rand
 // blocksOfVariousBPV returns a function that generates values with varying
 // bits per value across blocks.
 func blocksOfVariousBPV(rng *rand.Rand) func() int64 {
-	mul := int64(nextInt(rng, 1, 100))
+	mul := int64(dvNextInt(rng, 1, 100))
 	min := rng.Int63()
 
 	i := NumericBlockSize
@@ -1364,6 +1364,6 @@ func assertDVAdvance(t *testing.T, dir store.Directory, jumpStep int) {
 }
 
 // Utility functions - these are defined in other test files in the same package:
-// - atLeast(n int, t *testing.T) int
-// - nextInt(rng *rand.Rand, min, max int) int
+// - dvAtLeast(n int, t *testing.T) int
+// - dvNextInt(rng *rand.Rand, min, max int) int
 // - util.RandomSimpleString(rng *rand.Rand, min, max int) string
