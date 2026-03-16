@@ -62,7 +62,7 @@ func TestDocValuesMergeInstance_Numeric(t *testing.T) {
 	}
 
 	// Verify the index can be opened after merge
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Logf("DirectoryReader not fully implemented: %v", err)
 		return
@@ -106,7 +106,7 @@ func TestDocValuesMergeInstance_Binary(t *testing.T) {
 		t.Fatalf("Failed to close writer: %v", err)
 	}
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Logf("DirectoryReader not fully implemented: %v", err)
 		return
@@ -151,7 +151,7 @@ func TestDocValuesMergeInstance_Sorted(t *testing.T) {
 		t.Fatalf("Failed to close writer: %v", err)
 	}
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Logf("DirectoryReader not fully implemented: %v", err)
 		return
@@ -198,7 +198,7 @@ func TestDocValuesMergeInstance_SortedSet(t *testing.T) {
 		t.Fatalf("Failed to close writer: %v", err)
 	}
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Logf("DirectoryReader not fully implemented: %v", err)
 		return
@@ -242,7 +242,7 @@ func TestDocValuesMergeInstance_SortedNumeric(t *testing.T) {
 		t.Fatalf("Failed to close writer: %v", err)
 	}
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Logf("DirectoryReader not fully implemented: %v", err)
 		return
@@ -292,7 +292,7 @@ func TestDocValuesMergeInstance_Sparse(t *testing.T) {
 		t.Fatalf("Failed to close writer: %v", err)
 	}
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Logf("DirectoryReader not fully implemented: %v", err)
 		return
@@ -357,7 +357,7 @@ func TestDocValuesMergeInstance_MixedTypes(t *testing.T) {
 		t.Fatalf("Failed to close writer: %v", err)
 	}
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Logf("DirectoryReader not fully implemented: %v", err)
 		return
@@ -380,7 +380,7 @@ func TestDocValuesMergeInstance_Deletes(t *testing.T) {
 
 	// Add documents with IDs for deletion
 	for i := 0; i < 30; i++ {
-		idField := document.NewStringField("id", fmt.Sprintf("doc%d", i), true)
+		idField, _ := document.NewStringField("id", fmt.Sprintf("doc%d", i), true)
 		numericField, _ := document.NewNumericDocValuesField("num", int64(i))
 		doc := createTestDocument(idField, numericField)
 		if err := writer.AddDocument(doc); err != nil {
@@ -408,7 +408,7 @@ func TestDocValuesMergeInstance_Deletes(t *testing.T) {
 		t.Fatalf("Failed to close writer: %v", err)
 	}
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Logf("DirectoryReader not fully implemented: %v", err)
 		return
@@ -462,7 +462,7 @@ func TestDocValuesMergeInstance_UniqueValuesCompression(t *testing.T) {
 		t.Fatalf("Failed to close writer: %v", err)
 	}
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Logf("DirectoryReader not fully implemented: %v", err)
 		return
@@ -506,7 +506,7 @@ func TestDocValuesMergeInstance_LargeSegment(t *testing.T) {
 		t.Fatalf("Failed to close writer: %v", err)
 	}
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Logf("DirectoryReader not fully implemented: %v", err)
 		return
@@ -529,7 +529,7 @@ func TestDocValuesMergeInstance_MergeAwayAllValues(t *testing.T) {
 	}
 
 	// Add document with DocValues
-	idField := document.NewStringField("id", "1", true)
+	idField, _ := document.NewStringField("id", "1", true)
 	sortedField, _ := document.NewSortedDocValuesField("field", []byte("hello"))
 	doc := createTestDocument(idField, sortedField)
 	if err := writer.AddDocument(doc); err != nil {
@@ -560,7 +560,7 @@ func TestDocValuesMergeInstance_MergeAwayAllValues(t *testing.T) {
 		t.Fatalf("Failed to close writer: %v", err)
 	}
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Logf("DirectoryReader not fully implemented: %v", err)
 		return
@@ -577,13 +577,34 @@ func createTestAnalyzer() analysis.Analyzer {
 	return nil // Placeholder - will use default
 }
 
-func createTestDocument(fields ...document.Field) *testDocument {
-	return &testDocument{fields: fields}
+func createTestDocument(fields ...interface{}) *testDocument {
+	var docFields []*document.Field
+	for _, f := range fields {
+		switch field := f.(type) {
+		case *document.Field:
+			docFields = append(docFields, field)
+		case *document.NumericDocValuesField:
+			docFields = append(docFields, field.Field)
+		case *document.BinaryDocValuesField:
+			docFields = append(docFields, field.Field)
+		case *document.SortedDocValuesField:
+			docFields = append(docFields, field.Field)
+		case *document.SortedSetDocValuesField:
+			docFields = append(docFields, field.Field)
+		case *document.SortedNumericDocValuesField:
+			docFields = append(docFields, field.Field)
+		case *document.StringField:
+			docFields = append(docFields, field.Field)
+		default:
+			// Skip unknown types
+		}
+	}
+	return &testDocument{fields: docFields}
 }
 
 // testDocument is a simple document implementation for testing
 type testDocument struct {
-	fields []document.Field
+	fields []*document.Field
 }
 
 func (d *testDocument) GetFields() []interface{} {
@@ -594,7 +615,7 @@ func (d *testDocument) GetFields() []interface{} {
 	return result
 }
 
-func (d *testDocument) GetField(name string) document.Field {
+func (d *testDocument) GetField(name string) *document.Field {
 	for _, f := range d.fields {
 		if f.Name() == name {
 			return f
@@ -603,12 +624,12 @@ func (d *testDocument) GetField(name string) document.Field {
 	return nil
 }
 
-func (d *testDocument) AddField(field document.Field) {
+func (d *testDocument) AddField(field *document.Field) {
 	d.fields = append(d.fields, field)
 }
 
 func (d *testDocument) RemoveField(name string) {
-	var newFields []document.Field
+	var newFields []*document.Field
 	for _, f := range d.fields {
 		if f.Name() != name {
 			newFields = append(newFields, f)

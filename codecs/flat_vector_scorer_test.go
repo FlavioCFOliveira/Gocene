@@ -16,6 +16,7 @@ import (
 	"math"
 	"math/rand"
 	"testing"
+	"unsafe"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -1465,7 +1466,9 @@ func TestFlatVectorScorer_StoreIntegration(t *testing.T) {
 
 	for _, vec := range vectors {
 		for _, f := range vec {
-			store.WriteFloat32(out, f)
+			if err := binaryWriteFloat(out, f); err != nil {
+				t.Fatalf("Failed to write float: %v", err)
+			}
 		}
 	}
 	out.Close()
@@ -1484,11 +1487,44 @@ func TestFlatVectorScorer_StoreIntegration(t *testing.T) {
 	}
 
 	// Read and verify first vector
-	f, err := store.ReadFloat32(in)
-	if err != nil {
+	var f float32
+	if err := binaryReadFloat(in, &f); err != nil {
 		t.Fatalf("Failed to read float: %v", err)
 	}
 	if f != 1.0 {
 		t.Errorf("Expected first float 1.0, got %f", f)
 	}
+}
+
+// binaryReadFloat reads a float32 from the input
+func binaryReadFloat(in store.IndexInput, v *float32) error {
+	b, err := in.ReadBytesN(4)
+	if err != nil {
+		return err
+	}
+	*v = float32frombits(uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3]))
+	return nil
+}
+
+// binaryWriteFloat writes a float32 to the output
+func binaryWriteFloat(out store.IndexOutput, v float32) error {
+	val := float32bits(v)
+	b := []byte{
+		byte(val >> 24),
+		byte(val >> 16),
+		byte(val >> 8),
+		byte(val),
+	}
+	return out.WriteBytes(b)
+}
+
+// float32bits returns the IEEE 754 binary representation of f
+func float32bits(f float32) uint32 {
+	return *(*uint32)(unsafe.Pointer(&f))
+}
+
+// float32frombits returns the floating-point number corresponding
+// to the IEEE 754 binary representation b
+func float32frombits(b uint32) float32 {
+	return *(*float32)(unsafe.Pointer(&b))
 }

@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math"
+	mrand "math/rand"
 	"testing"
 	"unicode/utf8"
 
@@ -18,6 +19,9 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
+
+// Use math/rand for random number generation
+var _ = mrand.Intn
 
 // TestLucene90FieldInfosFormat_OneField tests field infos read/write with a single field.
 // Ported from: BaseFieldInfoFormatTestCase.testOneField()
@@ -60,7 +64,7 @@ func TestLucene90FieldInfosFormat_OneField(t *testing.T) {
 	infos := builder.Build()
 
 	format := codecs.NewLucene94FieldInfosFormat()
-	context := store.IOContextDefault
+	context := store.IOContextRead
 
 	// Write
 	err := format.Write(dir, si, "", infos, context)
@@ -128,29 +132,6 @@ func TestLucene90FieldInfosFormat_ImmutableAttributes(t *testing.T) {
 	si := index.NewSegmentInfo("_123", 10000, dir)
 	si.SetID(id)
 
-	opts := index.FieldInfoOptions{
-		IndexOptions:             index.IndexOptionsDocsAndFreqsAndPositions,
-		DocValuesType:              index.DocValuesTypeNone,
-		DocValuesSkipIndexType:     index.DocValuesSkipIndexTypeNone,
-		DocValuesGen:               -1,
-		Stored:                     true,
-		Tokenized:                true,
-		OmitNorms:                false,
-		StoreTermVectors:         false,
-		StoreTermVectorPositions: false,
-		StoreTermVectorOffsets:   false,
-		StoreTermVectorPayloads:  false,
-		PointDimensionCount:      0,
-		PointIndexDimensionCount: 0,
-		PointNumBytes:            0,
-		VectorDimension:          0,
-		VectorEncoding:           index.VectorEncodingFloat32,
-		VectorSimilarityFunction: index.VectorSimilarityFunctionEuclidean,
-		IsSoftDeletesField:       false,
-		IsParentField:            false,
-	}
-	fi := index.NewFieldInfo("field", 0, opts)
-
 	// Add attributes before building
 	fi2 := index.NewFieldInfoBuilder("field", 0).
 		SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions).
@@ -164,7 +145,7 @@ func TestLucene90FieldInfosFormat_ImmutableAttributes(t *testing.T) {
 	infos := builder.Build()
 
 	format := codecs.NewLucene94FieldInfosFormat()
-	context := store.IOContextDefault
+	context := store.IOContextRead
 
 	// Write
 	err := format.Write(dir, si, "", infos, context)
@@ -221,7 +202,7 @@ func TestLucene90FieldInfosFormat_ExceptionOnCreateOutput(t *testing.T) {
 	infos := builder.Build()
 
 	format := codecs.NewLucene94FieldInfosFormat()
-	context := store.IOContextDefault
+	context := store.IOContextRead
 
 	// Enable failure
 	failDir.shouldFail = true
@@ -255,7 +236,7 @@ func TestLucene90FieldInfosFormat_ExceptionOnCloseOutput(t *testing.T) {
 	infos := builder.Build()
 
 	format := codecs.NewLucene94FieldInfosFormat()
-	context := store.IOContextDefault
+	context := store.IOContextRead
 
 	// Enable failure
 	failDir.shouldFail = true
@@ -289,7 +270,7 @@ func TestLucene90FieldInfosFormat_ExceptionOnOpenInput(t *testing.T) {
 	infos := builder.Build()
 
 	format := codecs.NewLucene94FieldInfosFormat()
-	context := store.IOContextDefault
+	context := store.IOContextRead
 
 	// First write without failure
 	failDir.shouldFail = false
@@ -330,7 +311,7 @@ func TestLucene90FieldInfosFormat_ExceptionOnCloseInput(t *testing.T) {
 	infos := builder.Build()
 
 	format := codecs.NewLucene94FieldInfosFormat()
-	context := store.IOContextDefault
+	context := store.IOContextRead
 
 	// First write without failure
 	failDir.shouldFail = false
@@ -386,7 +367,7 @@ func TestLucene90FieldInfosFormat_Random(t *testing.T) {
 	infos := builder.Build()
 
 	format := codecs.NewLucene94FieldInfosFormat()
-	context := store.IOContextDefault
+	context := store.IOContextRead
 
 	// Write
 	err := format.Write(dir, si, "", infos, context)
@@ -444,7 +425,7 @@ func TestLucene90FieldInfosFormat_NoDocValuesSkipIndex(t *testing.T) {
 	infos := builder.Build()
 
 	format := codecs.NewLucene94FieldInfosFormat()
-	context := store.IOContextDefault
+	context := store.IOContextRead
 
 	// Write
 	err := format.Write(dir, si, "", infos, context)
@@ -503,7 +484,7 @@ func TestLucene90FieldInfosFormat_VariousDocValuesTypes(t *testing.T) {
 			infos := builder.Build()
 
 			format := codecs.NewLucene94FieldInfosFormat()
-			context := store.IOContextDefault
+			context := store.IOContextRead
 
 			// Write
 			err := format.Write(dir, si, "", infos, context)
@@ -559,7 +540,7 @@ func TestLucene90FieldInfosFormat_VariousIndexOptions(t *testing.T) {
 			infos := builder.Build()
 
 			format := codecs.NewLucene94FieldInfosFormat()
-			context := store.IOContextDefault
+			context := store.IOContextRead
 
 			// Write
 			err := format.Write(dir, si, "", infos, context)
@@ -607,7 +588,7 @@ func TestLucene90FieldInfosFormat_Points(t *testing.T) {
 	infos := builder.Build()
 
 	format := codecs.NewLucene94FieldInfosFormat()
-	context := store.IOContextDefault
+	context := store.IOContextRead
 
 	// Write
 	err := format.Write(dir, si, "", infos, context)
@@ -673,7 +654,7 @@ func TestLucene90FieldInfosFormat_Vectors(t *testing.T) {
 			infos := builder.Build()
 
 			format := codecs.NewLucene94FieldInfosFormat()
-			context := store.IOContextDefault
+			context := store.IOContextRead
 
 			// Write
 			err := format.Write(dir, si, "", infos, context)
@@ -754,7 +735,7 @@ func TestLucene90FieldInfosFormat_TermVectors(t *testing.T) {
 			infos := fib.Build()
 
 			format := codecs.NewLucene94FieldInfosFormat()
-			context := store.IOContextDefault
+			context := store.IOContextRead
 
 			// Write
 			err := format.Write(dir, si, "", infos, context)
@@ -813,7 +794,7 @@ func TestLucene90FieldInfosFormat_SoftDeletesField(t *testing.T) {
 	infos := builder.Build()
 
 	format := codecs.NewLucene94FieldInfosFormat()
-	context := store.IOContextDefault
+	context := store.IOContextRead
 
 	// Write
 	err := format.Write(dir, si, "", infos, context)
@@ -858,7 +839,7 @@ func TestLucene90FieldInfosFormat_ParentField(t *testing.T) {
 	infos := builder.Build()
 
 	format := codecs.NewLucene94FieldInfosFormat()
-	context := store.IOContextDefault
+	context := store.IOContextRead
 
 	// Write
 	err := format.Write(dir, si, "", infos, context)
@@ -904,7 +885,7 @@ func TestLucene90FieldInfosFormat_Attributes(t *testing.T) {
 	infos := builder.Build()
 
 	format := codecs.NewLucene94FieldInfosFormat()
-	context := store.IOContextDefault
+	context := store.IOContextRead
 
 	// Write
 	err := format.Write(dir, si, "", infos, context)
@@ -976,7 +957,7 @@ func TestLucene90FieldInfosFormat_MultipleFields(t *testing.T) {
 	infos := builder.Build()
 
 	format := codecs.NewLucene94FieldInfosFormat()
-	context := store.IOContextDefault
+	context := store.IOContextRead
 
 	// Write
 	err := format.Write(dir, si, "", infos, context)
@@ -1020,7 +1001,7 @@ func TestLucene90FieldInfosFormat_EmptyFieldInfos(t *testing.T) {
 	infos := builder.Build()
 
 	format := codecs.NewLucene94FieldInfosFormat()
-	context := store.IOContextDefault
+	context := store.IOContextRead
 
 	// Write
 	err := format.Write(dir, si, "", infos, context)
@@ -1148,20 +1129,20 @@ func assertFieldInfoEqual(t *testing.T, expected, actual *index.FieldInfo) {
 // generateRandomUnicodeString generates a random unicode string similar to Lucene's TestUtil.randomUnicodeString().
 func generateRandomUnicodeString() string {
 	// Generate a random length between 1 and 20
-	length := 1 + rand.Intn(20)
+	length := 1 + mrand.Intn(20)
 
 	var result []rune
 	for i := 0; i < length; i++ {
 		// Generate a random unicode code point
 		// Focus on BMP (Basic Multilingual Plane) for simplicity
-		codePoint := rand.Intn(0x10000)
+		codePoint := mrand.Intn(0x10000)
 
 		// Ensure valid unicode
 		if utf8.ValidRune(rune(codePoint)) && codePoint != 0 {
 			result = append(result, rune(codePoint))
 		} else {
 			// Fallback to ASCII
-			result = append(result, rune('a'+rand.Intn(26)))
+			result = append(result, rune('a'+mrand.Intn(26)))
 		}
 	}
 
@@ -1180,20 +1161,20 @@ func generateRandomFieldInfo(name string, number int) *index.FieldInfo {
 		index.IndexOptionsDocsAndFreqsAndPositions,
 		index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets,
 	}
-	selectedIndexOpts := indexOpts[rand.Intn(len(indexOpts))]
+	selectedIndexOpts := indexOpts[mrand.Intn(len(indexOpts))]
 	builder.SetIndexOptions(selectedIndexOpts)
 
 	if selectedIndexOpts.IsIndexed() {
-		builder.SetOmitNorms(rand.Intn(2) == 0)
-		builder.SetStored(rand.Intn(2) == 0)
+		builder.SetOmitNorms(mrand.Intn(2) == 0)
+		builder.SetStored(mrand.Intn(2) == 0)
 
-		if rand.Intn(2) == 0 {
+		if mrand.Intn(2) == 0 {
 			builder.SetStoreTermVectors(true)
 			if selectedIndexOpts.HasPositions() {
-				if rand.Intn(2) == 0 {
+				if mrand.Intn(2) == 0 {
 					builder.SetStoreTermVectorPositions(true)
 				}
-				if rand.Intn(2) == 0 {
+				if mrand.Intn(2) == 0 {
 					builder.SetStoreTermVectorOffsets(true)
 				}
 			}
@@ -1201,7 +1182,7 @@ func generateRandomFieldInfo(name string, number int) *index.FieldInfo {
 	}
 
 	// Random doc values type
-	if rand.Intn(2) == 0 {
+	if mrand.Intn(2) == 0 {
 		dvTypes := []index.DocValuesType{
 			index.DocValuesTypeNone,
 			index.DocValuesTypeNumeric,
@@ -1210,7 +1191,7 @@ func generateRandomFieldInfo(name string, number int) *index.FieldInfo {
 			index.DocValuesTypeSortedSet,
 			index.DocValuesTypeSortedNumeric,
 		}
-		selectedDvType := dvTypes[rand.Intn(len(dvTypes))]
+		selectedDvType := dvTypes[mrand.Intn(len(dvTypes))]
 		builder.SetDocValuesType(selectedDvType)
 
 		// Lucene90 does not support doc values skip index, so always NONE
@@ -1218,16 +1199,16 @@ func generateRandomFieldInfo(name string, number int) *index.FieldInfo {
 	}
 
 	// Random points
-	if rand.Intn(2) == 0 {
-		dimension := 1 + rand.Intn(8) // 1-8 dimensions
-		indexDimension := 1 + rand.Intn(dimension)
-		numBytes := 1 + rand.Intn(16) // 1-16 bytes
+	if mrand.Intn(2) == 0 {
+		dimension := 1 + mrand.Intn(8) // 1-8 dimensions
+		indexDimension := 1 + mrand.Intn(dimension)
+		numBytes := 1 + mrand.Intn(16) // 1-16 bytes
 		builder.SetPointDimensions(dimension, indexDimension, numBytes)
 	}
 
 	// Random vectors
-	if rand.Intn(2) == 0 {
-		vectorDim := 1 + rand.Intn(1024)
+	if mrand.Intn(2) == 0 {
+		vectorDim := 1 + mrand.Intn(1024)
 		vectorEncodings := []index.VectorEncoding{
 			index.VectorEncodingByte,
 			index.VectorEncodingFloat32,
@@ -1238,14 +1219,14 @@ func generateRandomFieldInfo(name string, number int) *index.FieldInfo {
 			index.VectorSimilarityFunctionCosine,
 			index.VectorSimilarityFunctionMaximumInnerProduct,
 		}
-		selectedEncoding := vectorEncodings[rand.Intn(len(vectorEncodings))]
-		selectedSim := vectorSims[rand.Intn(len(vectorSims))]
+		selectedEncoding := vectorEncodings[mrand.Intn(len(vectorEncodings))]
+		selectedSim := vectorSims[mrand.Intn(len(vectorSims))]
 		builder.SetVectorAttributes(vectorDim, selectedEncoding, selectedSim)
 	}
 
 	// Random attributes
-	if rand.Intn(2) == 0 {
-		builder.SetAttribute("random_attr", fmt.Sprintf("value_%d", rand.Intn(1000)))
+	if mrand.Intn(2) == 0 {
+		builder.SetAttribute("random_attr", fmt.Sprintf("value_%d", mrand.Intn(1000)))
 	}
 
 	return builder.Build()
@@ -1305,7 +1286,7 @@ func TestLucene90FieldInfosFormat_LargeFieldNumber(t *testing.T) {
 	infos := builder.Build()
 
 	format := codecs.NewLucene94FieldInfosFormat()
-	context := store.IOContextDefault
+	context := store.IOContextRead
 
 	// Write
 	err := format.Write(dir, si, "", infos, context)
@@ -1364,7 +1345,7 @@ func TestLucene90FieldInfosFormat_UnicodeFieldNames(t *testing.T) {
 			infos := builder.Build()
 
 			format := codecs.NewLucene94FieldInfosFormat()
-			context := store.IOContextDefault
+			context := store.IOContextRead
 
 			// Write
 			err := format.Write(dir, si, "", infos, context)
@@ -1413,7 +1394,7 @@ func TestLucene90FieldInfosFormat_DocValuesGen(t *testing.T) {
 	infos := builder.Build()
 
 	format := codecs.NewLucene94FieldInfosFormat()
-	context := store.IOContextDefault
+	context := store.IOContextRead
 
 	// Write
 	err := format.Write(dir, si, "", infos, context)
@@ -1458,7 +1439,7 @@ func TestLucene90FieldInfosFormat_OmitNorms(t *testing.T) {
 	infos := builder.Build()
 
 	format := codecs.NewLucene94FieldInfosFormat()
-	context := store.IOContextDefault
+	context := store.IOContextRead
 
 	// Write
 	err := format.Write(dir, si, "", infos, context)
