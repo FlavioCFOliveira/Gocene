@@ -410,8 +410,8 @@ func BenchmarkSimilarityCalculation(b *testing.B) {
 	}
 }
 
-// BenchmarkQuantization benchmarks vector quantization
-func BenchmarkQuantization(b *testing.B) {
+// BenchmarkQuantizationVectorSearch benchmarks vector quantization
+func BenchmarkQuantizationVectorSearch(b *testing.B) {
 	vector := make([]float32, 128)
 	for i := range vector {
 		vector[i] = float32(i) * 0.01
