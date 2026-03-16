@@ -14,7 +14,7 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 
 ## PENDING TASKS
 
-**Status:** Phases 1-30 completed. Ready for Phase 31 planning.
+**Status:** Phases 1-30 completed. Phase 31 in progress (Vector Search and Advanced Features).
 
 | Phase | Status | Description |
 | :--- | :--- | :--- |
@@ -25,6 +25,7 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 | 28 | COMPLETED | Advanced Features (BlockTree, Per-Field Formats) |
 | 29 | COMPLETED | Additional Packages (Facets, Join, Grouping, Highlight) |
 | 30 | COMPLETED | Critical Codec Components (CompositeReader, DocValues, Points, Norms, StoredFields) |
+| 31 | PENDING | Vector Search and Advanced Features (HNSW Vectors, Vector Scorer) |
 
 ---
 
@@ -61,6 +62,7 @@ This roadmap outlines the complete development plan for porting Apache Lucene 10
 | 28 | COMPLETED | GC-326 to GC-337 | Advanced Codec Features | Phase 27 |
 | 29 | COMPLETED | GC-338 to GC-352 | Additional Packages | Phase 28 |
 | 30 | COMPLETED | GC-353 to GC-367 | Critical Codec Components | Phase 29 |
+| 31 | PENDING | GC-368 to GC-375 | Vector Search and Advanced Features | Phase 30 |
 
 ---
 
@@ -792,6 +794,23 @@ Based on comprehensive gap analysis between Apache Lucene Java and Gocene, the f
 | GC-367 | Implement TermVectorsFormat | go-elite-developer, gocene-lucene-specialist | CRITICAL | HIGH | COMPLETED (2026-03-16) |
 
 **Dependencies:** Phase 29 (Additional Packages)
+
+---
+
+### Phase 31: Vector Search and Advanced Features (PENDING)
+**Status:** PENDING | **Tasks:** 8 | **Focus:** Implement vector search and remaining advanced features
+**Dependencies:** Phase 30
+
+| Task ID | Task Name | Specialists | SEVERITY | PRIORITY | Status |
+|:--------|:----------|:------------|:---------|:---------|:-------|
+| GC-368 | Implement Lucene99HnswVectorsFormat | go-elite-developer, gocene-lucene-specialist | CRITICAL | HIGH | PENDING |
+| GC-369 | Implement Lucene99HnswVectorsReader | go-elite-developer, gocene-lucene-specialist | CRITICAL | HIGH | PENDING |
+| GC-370 | Implement Lucene99HnswVectorsWriter | go-elite-developer, gocene-lucene-specialist | CRITICAL | HIGH | PENDING |
+| GC-371 | Implement Vector Scorer Components | go-elite-developer, gocene-lucene-specialist | HIGH | HIGH | PENDING |
+| GC-372 | Implement Scalar Quantized Vectors | go-elite-developer, gocene-lucene-specialist | MEDIUM | MEDIUM | PENDING |
+| GC-373 | Implement Flat Vector Scorer | go-elite-developer, gocene-lucene-specialist | MEDIUM | MEDIUM | PENDING |
+| GC-374 | Complete Test Coverage for Vector Search | go-elite-developer, gocene-lucene-specialist | MEDIUM | HIGH | PENDING |
+| GC-375 | Fix Analysis Test Failures | go-elite-developer, gocene-lucene-specialist | MEDIUM | MEDIUM | PENDING |
 
 ---
 
