@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
-	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 // TestVectorSearchIntegration tests the complete vector search pipeline
