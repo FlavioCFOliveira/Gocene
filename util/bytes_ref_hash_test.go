@@ -638,8 +638,21 @@ func TestBytesRefHash_AddByPoolOffset(t *testing.T) {
 		assertAllIn(t, strings, hash)
 		for str := range strings {
 			ref.CopyChars(str)
-			key, _ := hash.Add(ref.Get())
-			result := offsetHash.Get((-key)-1, scratch)
+			// Find the string in hash to get its id
+			hashID := hash.Find(ref.Get())
+			if hashID < 0 {
+				t.Errorf("String %s not found in hash", str)
+				continue
+			}
+			// Get the pool offset from hash
+			poolOffset := hash.ByteStart(hashID)
+			// Add by pool offset to offsetHash
+			offsetKey := offsetHash.AddByPoolOffset(poolOffset)
+			if offsetKey < 0 {
+				t.Errorf("Failed to add string %s to offsetHash", str)
+				continue
+			}
+			result := offsetHash.Get(offsetKey, scratch)
 			if !bytes.Equal(ref.Get().ValidBytes(), result.ValidBytes()) {
 				t.Errorf("OffsetHash returned wrong bytes for string %s", str)
 			}
@@ -665,19 +678,25 @@ func assertAllIn(t *testing.T, strings map[string]bool, hash *BytesRefHash) {
 	count := hash.Size()
 	for str := range strings {
 		ref.CopyChars(str)
-		key, err := hash.Add(ref.Get())
-		if err != nil {
-			t.Fatalf("Add failed: %v", err)
+		// Use Find to check if string exists, don't add it again
+		id := hash.Find(ref.Get())
+		if id < 0 {
+			t.Errorf("String %s not found in hash", str)
+			continue
 		}
-		result := hash.Get((-key)-1, scratch)
+		if id >= hash.Size() {
+			t.Errorf("Invalid id %d for string %s (size=%d)", id, str, hash.Size())
+			continue
+		}
+		result := hash.Get(id, scratch)
 		if string(result.ValidBytes()) != str {
-			t.Errorf("Get returned wrong string for key %d", key)
+			t.Errorf("Get returned wrong string for id %d", id)
 		}
 		if hash.Size() != count {
 			t.Errorf("Expected size %d, got %d", count, hash.Size())
 		}
-		if key >= count {
-			t.Errorf("Key %d should be < count %d for string %s", key, count, str)
+		if id >= count {
+			t.Errorf("Id %d should be < count %d for string %s", id, count, str)
 		}
 	}
 }

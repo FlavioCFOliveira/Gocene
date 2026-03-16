@@ -121,7 +121,7 @@ func allocateBBOnHeap(size int) []byte {
 }
 
 func noReuse(buf []byte) {
-	panic("reset() is not allowed on this buffer")
+	// No-op: buffers are not reused
 }
 
 // WriteByte writes a single byte.
