@@ -32,38 +32,38 @@ const (
 	mergerField2Text    = "field field field two text"
 	mergerTextField2Key = "textField2"
 	// Fields will be lexicographically sorted: field, text, two
-	field2Freqs = "3,1,1"
+	mergerField2Freqs = "3,1,1"
 
 	// Field 3 - text field with omitNorms
-	field3Text    = "aaaNoNorms aaaNoNorms bbbNoNorms"
-	textField3Key = "textField3"
+	mergerField3Text    = "aaaNoNorms aaaNoNorms bbbNoNorms"
+	mergerTextField3Key = "textField3"
 
 	// Keyword field
-	keywordText     = "Keyword"
-	keywordFieldKey = "keyField"
+	mergerKeywordText     = "Keyword"
+	mergerKeywordFieldKey = "keyField"
 
 	// No norms field
-	noNormsText = "omitNormsText"
-	noNormsKey  = "omitNorms"
+	mergerNoNormsText = "omitNormsText"
+	mergerNoNormsKey  = "omitNorms"
 
 	// No TF field
-	noTFText = "analyzed with no tf and positions"
-	noTFKey  = "omitTermFreqAndPositions"
+	mergerNoTFText = "analyzed with no tf and positions"
+	mergerNoTFKey  = "omitTermFreqAndPositions"
 
 	// Unindexed field
-	unindexedText = "unindexed field text"
-	unindexedKey  = "unIndField"
+	mergerUnindexedText = "unindexed field text"
+	mergerUnindexedKey  = "unIndField"
 
 	// Unstored fields
-	unstored1Text = "unstored field text"
-	unstored1Key  = "unStoredField1"
-	unstored2Text = "unstored field text"
-	unstored2Key  = "unStoredField2"
+	mergerUnstored1Text = "unstored field text"
+	mergerUnstored1Key  = "unStoredField1"
+	mergerUnstored2Text = "unstored field text"
+	mergerUnstored2Key  = "unStoredField2"
 )
 
-// setupTestDoc creates a test document with various field types
+// mergerSetupTestDoc creates a test document with various field types
 // Equivalent to DocHelper.setupDoc() in Lucene
-func setupTestDoc() *document.Document {
+func mergerSetupTestDoc() *document.Document {
 	doc := &document.Document{}
 
 	// Field 1: stored text field without term vectors
@@ -91,11 +91,11 @@ func setupTestDoc() *document.Document {
 	customType3.SetOmitNorms(true)
 	customType3.SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions)
 	customType3.Freeze()
-	f3, _ := document.NewField(textField3Key, field3Text, customType3)
+	f3, _ := document.NewField(mergerTextField3Key, mergerField3Text, customType3)
 	doc.Add(f3)
 
 	// Keyword field (StringField equivalent)
-	f4, _ := document.NewStringField(keywordFieldKey, keywordText, true)
+	f4, _ := document.NewStringField(mergerKeywordFieldKey, mergerKeywordText, true)
 	doc.Add(f4)
 
 	// No norms field
@@ -104,7 +104,7 @@ func setupTestDoc() *document.Document {
 	customType5.SetOmitNorms(true)
 	customType5.SetIndexOptions(index.IndexOptionsDocs)
 	customType5.Freeze()
-	f5, _ := document.NewField(noNormsKey, noNormsText, customType5)
+	f5, _ := document.NewField(mergerNoNormsKey, mergerNoNormsText, customType5)
 	doc.Add(f5)
 
 	// No TF field
@@ -112,18 +112,18 @@ func setupTestDoc() *document.Document {
 	customType6.SetIndexed(true).SetStored(true).SetTokenized(true)
 	customType6.SetIndexOptions(index.IndexOptionsDocs)
 	customType6.Freeze()
-	f6, _ := document.NewField(noTFKey, noTFText, customType6)
+	f6, _ := document.NewField(mergerNoTFKey, mergerNoTFText, customType6)
 	doc.Add(f6)
 
 	// Unindexed field (stored only)
 	customType7 := document.NewFieldType()
 	customType7.SetStored(true)
 	customType7.Freeze()
-	f7, _ := document.NewField(unindexedKey, unindexedText, customType7)
+	f7, _ := document.NewField(mergerUnindexedKey, mergerUnindexedText, customType7)
 	doc.Add(f7)
 
 	// Unstored field 1
-	f8, _ := document.NewTextField(unstored1Key, unstored1Text, false)
+	f8, _ := document.NewTextField(mergerUnstored1Key, mergerUnstored1Text, false)
 	doc.Add(f8)
 
 	// Unstored field 2 with term vectors
@@ -132,7 +132,7 @@ func setupTestDoc() *document.Document {
 	customType8.SetStoreTermVectors(true)
 	customType8.SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions)
 	customType8.Freeze()
-	f9, _ := document.NewField(unstored2Key, unstored2Text, customType8)
+	f9, _ := document.NewField(mergerUnstored2Key, mergerUnstored2Text, customType8)
 	doc.Add(f9)
 
 	return doc
@@ -171,7 +171,7 @@ func setupSecondTestDoc() *document.Document {
 	doc.Add(f3)
 
 	// Keyword field
-	f4, _ := document.NewStringField(keywordFieldKey, "SecondKeyword", true)
+	f4, _ := document.NewStringField(mergerKeywordFieldKey, "SecondKeyword", true)
 	doc.Add(f4)
 
 	// No norms field
@@ -180,7 +180,7 @@ func setupSecondTestDoc() *document.Document {
 	customType5.SetOmitNorms(true)
 	customType5.SetIndexOptions(index.IndexOptionsDocs)
 	customType5.Freeze()
-	f5, _ := document.NewField(noNormsKey, "secondNoNorms", customType5)
+	f5, _ := document.NewField(mergerNoNormsKey, "secondNoNorms", customType5)
 	doc.Add(f5)
 
 	// No TF field
@@ -188,18 +188,18 @@ func setupSecondTestDoc() *document.Document {
 	customType6.SetIndexed(true).SetStored(true).SetTokenized(true)
 	customType6.SetIndexOptions(index.IndexOptionsDocs)
 	customType6.Freeze()
-	f6, _ := document.NewField(noTFKey, "second no tf", customType6)
+	f6, _ := document.NewField(mergerNoTFKey, "second no tf", customType6)
 	doc.Add(f6)
 
 	// Unindexed field
 	customType7 := document.NewFieldType()
 	customType7.SetStored(true)
 	customType7.Freeze()
-	f7, _ := document.NewField(unindexedKey, "second unindexed", customType7)
+	f7, _ := document.NewField(mergerUnindexedKey, "second unindexed", customType7)
 	doc.Add(f7)
 
 	// Unstored field 1
-	f8, _ := document.NewTextField(unstored1Key, "second unstored", false)
+	f8, _ := document.NewTextField(mergerUnstored1Key, "second unstored", false)
 	doc.Add(f8)
 
 	// Unstored field 2 with term vectors
@@ -208,7 +208,7 @@ func setupSecondTestDoc() *document.Document {
 	customType8.SetStoreTermVectors(true)
 	customType8.SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions)
 	customType8.Freeze()
-	f9, _ := document.NewField(unstored2Key, "second unstored tv", customType8)
+	f9, _ := document.NewField(mergerUnstored2Key, "second unstored tv", customType8)
 	doc.Add(f9)
 
 	return doc
@@ -240,7 +240,7 @@ func TestSegmentMerger_Setup(t *testing.T) {
 	}
 
 	// Create documents
-	doc1 := setupTestDoc()
+	doc1 := mergerSetupTestDoc()
 	doc2 := setupSecondTestDoc()
 
 	if doc1 == nil {
@@ -336,7 +336,7 @@ func TestSegmentMerger_Merge(t *testing.T) {
 	defer merge2Dir.Close()
 
 	// Create and write first document
-	doc1 := setupTestDoc()
+	doc1 := mergerSetupTestDoc()
 	config1 := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
 	writer1, err := index.NewIndexWriter(merge1Dir, config1)
 	if err != nil {

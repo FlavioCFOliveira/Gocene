@@ -32,11 +32,11 @@ func TestCheckIndex_DeletedDocs(t *testing.T) {
 	// Add 19 documents
 	for i := 0; i < 19; i++ {
 		doc := document.NewDocument()
-		field := document.NewTextField("field", "aaa"+string(rune('0'+i)), document.StoreYes)
-		field.SetStoreTermVectors(true)
-		field.SetStoreTermVectorPositions(true)
-		field.SetStoreTermVectorOffsets(true)
-		doc.AddField(field)
+		field, err := document.NewTextField("field", "aaa"+string(rune('0'+i)), true)
+		if err != nil {
+			t.Fatalf("Failed to create text field: %v", err)
+		}
+		doc.Add(field)
 		if err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
