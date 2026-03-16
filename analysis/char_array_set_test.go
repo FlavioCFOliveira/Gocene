@@ -693,7 +693,7 @@ func TestCharArraySet_FromCollection(t *testing.T) {
 func BenchmarkCharArraySet_Add(b *testing.B) {
 	set := NewCharArraySet(b.N, true)
 	for i := 0; i < b.N; i++ {
-		set.Add(string(rune('a' + i%26)) + string(rune('a' + (i+1)%26)))
+		set.Add(string(rune('a'+i%26)) + string(rune('a'+(i+1)%26)))
 	}
 }
 

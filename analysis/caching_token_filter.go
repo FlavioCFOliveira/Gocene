@@ -26,9 +26,9 @@ type CachingTokenFilter struct {
 
 // cachedToken represents a single cached token with all its attributes.
 type cachedToken struct {
-	term      string
-	startOffset int
-	endOffset   int
+	term              string
+	startOffset       int
+	endOffset         int
 	positionIncrement int
 }
 
@@ -100,7 +100,7 @@ func (f *CachingTokenFilter) IncrementToken() (bool, error) {
 		if attr := f.GetAttributeSource().GetAttribute("OffsetAttribute"); attr != nil {
 			if offsetAttr, ok := attr.(OffsetAttribute); ok {
 				offsetAttr.SetStartOffset(token.startOffset)
-			offsetAttr.SetEndOffset(token.endOffset)
+				offsetAttr.SetEndOffset(token.endOffset)
 			}
 		}
 

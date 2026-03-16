@@ -281,16 +281,16 @@ func TestAnalyzers_Normalize(t *testing.T) {
 		expected  string
 	}{
 		{
-			name:      "SimpleAnalyzer normalize",
-			analyzer:  NewSimpleAnalyzer(),
-			input:     "\"\\À3[]()! Cz@",
-			expected:  "\"à3[]()! cz@",
+			name:     "SimpleAnalyzer normalize",
+			analyzer: NewSimpleAnalyzer(),
+			input:    "\"\\À3[]()! Cz@",
+			expected: "\"à3[]()! cz@",
 		},
 		{
-			name:      "WhitespaceAnalyzer normalize",
-			analyzer:  NewWhitespaceAnalyzer(),
-			input:     "\"\\À3[]()! Cz@",
-			expected:  "\"\\À3[]()! Cz@",
+			name:     "WhitespaceAnalyzer normalize",
+			analyzer: NewWhitespaceAnalyzer(),
+			input:    "\"\\À3[]()! Cz@",
+			expected: "\"\\À3[]()! Cz@",
 		},
 	}
 

@@ -39,7 +39,7 @@ type TokenData struct {
 func NewTeeSinkTokenFilter(input TokenStream) *TeeSinkTokenFilter {
 	return &TeeSinkTokenFilter{
 		BaseTokenFilter: NewBaseTokenFilter(input),
-		sinks:         make([]*TokenSink, 0),
+		sinks:           make([]*TokenSink, 0),
 	}
 }
 
