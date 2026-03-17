@@ -331,3 +331,79 @@ func (hf *HighlighterFactory) extractTerms(query search.Query) []string {
 func (hf *HighlighterFactory) String() string {
 	return fmt.Sprintf("HighlighterFactory(field=%s)", hf.defaultField)
 }
+
+// Encoder encodes text for output.
+//
+// This is the Go port of Lucene's org.apache.lucene.search.highlight.Encoder.
+//
+// Encoders transform text to make it safe for the output format,
+// such as escaping HTML special characters.
+type Encoder interface {
+	// EncodeText encodes the given text for output.
+	// Returns the encoded text.
+	EncodeText(originalText string) string
+}
+
+// SimpleHTMLEncoder encodes text for HTML output.
+//
+// This is the Go port of Lucene's org.apache.lucene.search.highlight.SimpleHTMLEncoder.
+// It escapes HTML special characters to prevent XSS attacks and ensure valid HTML.
+type SimpleHTMLEncoder struct{}
+
+// NewSimpleHTMLEncoder creates a new SimpleHTMLEncoder.
+func NewSimpleHTMLEncoder() *SimpleHTMLEncoder {
+	return &SimpleHTMLEncoder{}
+}
+
+// EncodeText encodes the given text for HTML output.
+// It escapes the following characters:
+//   - & becomes &amp;
+//   - < becomes &lt;
+//   - > becomes &gt;
+//   - " becomes &quot;
+//   - ' becomes &#x27;
+func (e *SimpleHTMLEncoder) EncodeText(originalText string) string {
+	var result strings.Builder
+	result.Grow(len(originalText))
+
+	for _, ch := range originalText {
+		switch ch {
+		case '&':
+			result.WriteString("&amp;")
+		case '<':
+			result.WriteString("&lt;")
+		case '>':
+			result.WriteString("&gt;")
+		case '"':
+			result.WriteString("&quot;")
+		case '\'':
+			result.WriteString("&#x27;")
+		default:
+			result.WriteRune(ch)
+		}
+	}
+
+	return result.String()
+}
+
+// DefaultEncoder is a no-op encoder that returns text unchanged.
+//
+// Use this when no encoding is needed or when the output format
+// doesn't require special character escaping.
+type DefaultEncoder struct{}
+
+// NewDefaultEncoder creates a new DefaultEncoder.
+func NewDefaultEncoder() *DefaultEncoder {
+	return &DefaultEncoder{}
+}
+
+// EncodeText returns the original text unchanged.
+func (e *DefaultEncoder) EncodeText(originalText string) string {
+	return originalText
+}
+
+// Ensure interfaces are implemented
+var (
+	_ Encoder = (*SimpleHTMLEncoder)(nil)
+	_ Encoder = (*DefaultEncoder)(nil)
+)
