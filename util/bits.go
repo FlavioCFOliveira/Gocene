@@ -48,3 +48,45 @@ func BitsMatchNone(bits Bits) bool {
 	}
 	return true
 }
+
+// MatchAllBits is a Bits implementation where all bits are set.
+// This is the Go port of Lucene's Bits.MatchAllBits.
+type MatchAllBits struct {
+	length int
+}
+
+// NewMatchAllBits creates a new MatchAllBits with the given length.
+func NewMatchAllBits(length int) *MatchAllBits {
+	return &MatchAllBits{length: length}
+}
+
+// Get always returns true for MatchAllBits.
+func (m *MatchAllBits) Get(index int) bool {
+	return index >= 0 && index < m.length
+}
+
+// Length returns the number of bits.
+func (m *MatchAllBits) Length() int {
+	return m.length
+}
+
+// MatchNoBits is a Bits implementation where no bits are set.
+// This is the Go port of Lucene's Bits.MatchNoBits.
+type MatchNoBits struct {
+	length int
+}
+
+// NewMatchNoBits creates a new MatchNoBits with the given length.
+func NewMatchNoBits(length int) *MatchNoBits {
+	return &MatchNoBits{length: length}
+}
+
+// Get always returns false for MatchNoBits.
+func (m *MatchNoBits) Get(index int) bool {
+	return false
+}
+
+// Length returns the number of bits.
+func (m *MatchNoBits) Length() int {
+	return m.length
+}
