@@ -31,22 +31,40 @@ func NewLongField(name string, value int64, store bool) (*LongField, error) {
 	return &LongField{Field: field}, nil
 }
 
-// LongPoint is an indexed int64 point field for range queries.
+// LongPoint is an indexed int64 point field for range queries using the Point API.
 type LongPoint struct {
-	*Field
+	Point
 }
 
-// NewLongPoint creates a new LongPoint.
-func NewLongPoint(name string, value int64) (*LongPoint, error) {
-	ft := NewFieldType()
-	ft.SetIndexed(true)
-	ft.SetIndexOptions(index.IndexOptionsDocs)
-	ft.Freeze()
+// NewLongPoint creates a new LongPoint with a single value.
+func NewLongPoint(name string, value int64) *LongPoint {
+	return NewLongPoints(name, value)
+}
 
-	field, err := NewField(name, strconv.FormatInt(value, 10), ft)
-	if err != nil {
-		return nil, err
+// NewLongPoints creates a new LongPoint with multiple values.
+func NewLongPoints(name string, values ...int64) *LongPoint {
+	if len(values) == 0 {
+		return nil
 	}
 
-	return &LongPoint{Field: field}, nil
+	encoded := PackLongs(values)
+	ft := PointFieldType()
+	ft.DimensionNumBytes = 8
+
+	point, _ := NewPoint(name, ft, encoded, 1, 8)
+	return &LongPoint{Point: *point}
+}
+
+// LongValue returns the first long value.
+func (lp *LongPoint) LongValue() int64 {
+	values := lp.LongValues()
+	if len(values) > 0 {
+		return values[0]
+	}
+	return 0
+}
+
+// LongValues returns all long values.
+func (lp *LongPoint) LongValues() []int64 {
+	return UnpackLongs(lp.PointValues())
 }

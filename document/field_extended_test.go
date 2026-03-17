@@ -6,6 +6,7 @@ package document
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -438,22 +439,22 @@ func TestField_PointFields(t *testing.T) {
 	}{
 		{
 			name:       "IntPoint",
-			createFunc: func() (IndexableField, error) { f, err := NewIntPoint("ip", 42); return f, err },
-			wantValue:  42,
+			createFunc: func() (IndexableField, error) { f := NewIntPoint("ip", 42); if f == nil { return nil, fmt.Errorf("nil") }; return f, nil },
+			wantValue:  int32(42),
 		},
 		{
 			name:       "LongPoint",
-			createFunc: func() (IndexableField, error) { f, err := NewLongPoint("lp", int64(123)); return f, err },
+			createFunc: func() (IndexableField, error) { f := NewLongPoint("lp", int64(123)); if f == nil { return nil, fmt.Errorf("nil") }; return f, nil },
 			wantValue:  int64(123),
 		},
 		{
 			name:       "FloatPoint",
-			createFunc: func() (IndexableField, error) { f, err := NewFloatPoint("fp", float32(3.14)); return f, err },
+			createFunc: func() (IndexableField, error) { f := NewFloatPoint("fp", float32(3.14)); if f == nil { return nil, fmt.Errorf("nil") }; return f, nil },
 			wantValue:  float32(3.14),
 		},
 		{
 			name:       "DoublePoint",
-			createFunc: func() (IndexableField, error) { f, err := NewDoublePoint("dp", 3.14159); return f, err },
+			createFunc: func() (IndexableField, error) { f := NewDoublePoint("dp", 3.14159); if f == nil { return nil, fmt.Errorf("nil") }; return f, nil },
 			wantValue:  3.14159,
 		},
 	}
@@ -855,8 +856,8 @@ func TestField_EncodingDecoding(t *testing.T) {
 	t.Run("int32_encoding", func(t *testing.T) {
 		tests := []int{0, 1, -1, 2147483647, -2147483648, 42, -100}
 		for _, v := range tests {
-			encoded := encodeInt32(v)
-			decoded := decodeInt32(encoded)
+			encoded := encodeInt32Legacy(v)
+			decoded := decodeInt32Legacy(encoded)
 			if decoded != v {
 				t.Errorf("int32: expected %d, got %d", v, decoded)
 			}
@@ -866,8 +867,8 @@ func TestField_EncodingDecoding(t *testing.T) {
 	t.Run("float32_encoding", func(t *testing.T) {
 		tests := []float32{0.0, 1.0, -1.0, 3.14, -99.99, 1.5e10, -1.5e-10}
 		for _, v := range tests {
-			encoded := encodeFloat32(v)
-			decoded := decodeFloat32(encoded)
+			encoded := encodeFloat32Legacy(v)
+			decoded := decodeFloat32Legacy(encoded)
 			if decoded != v {
 				t.Errorf("float32: expected %f, got %f", v, decoded)
 			}
@@ -877,8 +878,8 @@ func TestField_EncodingDecoding(t *testing.T) {
 	t.Run("float64_encoding", func(t *testing.T) {
 		tests := []float64{0.0, 1.0, -1.0, 3.14159265359, -999999.999999, 1.5e100, -1.5e-100}
 		for _, v := range tests {
-			encoded := encodeFloat64(v)
-			decoded := decodeFloat64(encoded)
+			encoded := encodeFloat64Legacy(v)
+			decoded := decodeFloat64Legacy(encoded)
 			if decoded != v {
 				t.Errorf("float64: expected %f, got %f", v, decoded)
 			}

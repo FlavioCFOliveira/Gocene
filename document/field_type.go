@@ -52,6 +52,14 @@ type FieldType struct {
 	// See index.DocValuesType for details.
 	DocValuesType index.DocValuesType
 
+	// DimensionCount is the number of dimensions for point fields.
+	// Only used for Point-based fields (IntPoint, LongPoint, etc.).
+	DimensionCount int
+
+	// DimensionNumBytes is the number of bytes per dimension for point fields.
+	// Only used for Point-based fields.
+	DimensionNumBytes int
+
 	// frozen tracks whether this FieldType has been frozen (made immutable).
 	frozen bool
 }

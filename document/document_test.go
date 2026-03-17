@@ -122,17 +122,6 @@ func TestDocument_GetFieldNames(t *testing.T) {
 	}
 }
 
-func TestDocument_GetValues(t *testing.T) {
-	doc := NewDocument()
-	doc.AddField("tag", "go", StringFieldTypeStored)
-	doc.AddField("tag", "lucene", StringFieldTypeStored)
-
-	values := doc.GetValues("tag")
-	if len(values) != 2 {
-		t.Errorf("Expected 2 values, got %d", len(values))
-	}
-}
-
 func TestDocument_RemoveField(t *testing.T) {
 	doc := NewDocument()
 	doc.AddField("title", "Hello", TextFieldTypeStored)
@@ -167,16 +156,7 @@ func TestDocument_RemoveFields(t *testing.T) {
 	}
 }
 
-func TestDocument_Clear(t *testing.T) {
-	doc := NewDocument()
-	doc.AddField("title", "Hello", TextFieldTypeStored)
-	doc.AddField("body", "World", TextFieldTypeStored)
-
-	doc.Clear()
-	if !doc.IsEmpty() {
-		t.Error("Expected document to be empty after clear")
-	}
-}
+// Note: TestDocument_GetValues and TestDocument_Clear are also defined in document_extended_test.go
 
 func TestDocument_HasField(t *testing.T) {
 	doc := NewDocument()

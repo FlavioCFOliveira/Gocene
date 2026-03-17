@@ -5,7 +5,6 @@
 package document
 
 import (
-	"math"
 	"strconv"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -38,65 +37,50 @@ func (f *DoubleField) DoubleValue() float64 {
 	return val
 }
 
-// DoublePoint is an indexed float64 point field for range queries.
+// encodeFloat64Legacy encodes a float64 to a sortable byte representation.
+func encodeFloat64Legacy(f float64) []byte {
+	return PackDouble(f)
+}
+
+// decodeFloat64Legacy decodes a byte representation back to float64.
+func decodeFloat64Legacy(buf []byte) float64 {
+	return UnpackDouble(buf)
+}
+
+// DoublePoint is an indexed float64 point field for range queries using the Point API.
 type DoublePoint struct {
-	*Field
+	Point
 }
 
-// NewDoublePoint creates a new DoublePoint.
-func NewDoublePoint(name string, value float64) (*DoublePoint, error) {
-	ft := NewFieldType()
-	ft.SetIndexed(true)
-	ft.SetIndexOptions(index.IndexOptionsDocs)
-	ft.Freeze()
-
-	// Encode float64 as sortable int64 for BKD tree
-	encoded := encodeFloat64(value)
-	field, err := NewField(name, encoded, ft)
-	if err != nil {
-		return nil, err
-	}
-
-	return &DoublePoint{Field: field}, nil
+// NewDoublePoint creates a new DoublePoint with a single value.
+func NewDoublePoint(name string, value float64) *DoublePoint {
+	return NewDoublePoints(name, value)
 }
 
-// encodeFloat64 encodes a float64 to a sortable byte representation.
-// Uses IEEE 754 float64 bits with sign flip for correct ordering.
-func encodeFloat64(f float64) []byte {
-	bits := math.Float64bits(f)
-	// Flip sign bit for correct ordering (negative < positive)
-	if bits&0x8000000000000000 != 0 {
-		bits = ^bits // Flip all bits for negative
-	} else {
-		bits |= 0x8000000000000000 // Set sign bit for positive
+// NewDoublePoints creates a new DoublePoint with multiple values.
+func NewDoublePoints(name string, values ...float64) *DoublePoint {
+	if len(values) == 0 {
+		return nil
 	}
 
-	buf := make([]byte, 8)
-	buf[0] = byte(bits >> 56)
-	buf[1] = byte(bits >> 48)
-	buf[2] = byte(bits >> 40)
-	buf[3] = byte(bits >> 32)
-	buf[4] = byte(bits >> 24)
-	buf[5] = byte(bits >> 16)
-	buf[6] = byte(bits >> 8)
-	buf[7] = byte(bits)
-	return buf
+	encoded := PackDoubles(values)
+	ft := PointFieldType()
+	ft.DimensionNumBytes = 8
+
+	point, _ := NewPoint(name, ft, encoded, 1, 8)
+	return &DoublePoint{Point: *point}
 }
 
-// decodeFloat64 decodes a byte representation back to float64.
-func decodeFloat64(buf []byte) float64 {
-	if len(buf) < 8 {
-		return 0
+// DoubleValue returns the first double value.
+func (dp *DoublePoint) DoubleValue() float64 {
+	values := dp.DoubleValues()
+	if len(values) > 0 {
+		return values[0]
 	}
-	bits := uint64(buf[0])<<56 | uint64(buf[1])<<48 | uint64(buf[2])<<40 | uint64(buf[3])<<32 |
-		uint64(buf[4])<<24 | uint64(buf[5])<<16 | uint64(buf[6])<<8 | uint64(buf[7])
+	return 0
+}
 
-	// Reverse the encoding
-	if bits&0x8000000000000000 != 0 {
-		bits &= 0x7FFFFFFFFFFFFFFF // Clear sign bit
-	} else {
-		bits = ^bits // Flip all bits
-	}
-
-	return math.Float64frombits(bits)
+// DoubleValues returns all double values.
+func (dp *DoublePoint) DoubleValues() []float64 {
+	return UnpackDoubles(dp.PointValues())
 }

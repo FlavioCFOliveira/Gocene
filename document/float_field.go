@@ -5,7 +5,6 @@
 package document
 
 import (
-	"math"
 	"strconv"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -38,60 +37,50 @@ func (f *FloatField) FloatValue() float32 {
 	return float32(val)
 }
 
-// FloatPoint is an indexed float32 point field for range queries.
+// encodeFloat32Legacy encodes a float32 to a sortable byte representation.
+func encodeFloat32Legacy(f float32) []byte {
+	return PackFloat(f)
+}
+
+// decodeFloat32Legacy decodes a byte representation back to float32.
+func decodeFloat32Legacy(buf []byte) float32 {
+	return UnpackFloat(buf)
+}
+
+// FloatPoint is an indexed float32 point field for range queries using the Point API.
 type FloatPoint struct {
-	*Field
+	Point
 }
 
-// NewFloatPoint creates a new FloatPoint.
-func NewFloatPoint(name string, value float32) (*FloatPoint, error) {
-	ft := NewFieldType()
-	ft.SetIndexed(true)
-	ft.SetIndexOptions(index.IndexOptionsDocs)
-	ft.Freeze()
-
-	// Encode float32 as sortable int32 for BKD tree
-	encoded := encodeFloat32(value)
-	field, err := NewField(name, encoded, ft)
-	if err != nil {
-		return nil, err
-	}
-
-	return &FloatPoint{Field: field}, nil
+// NewFloatPoint creates a new FloatPoint with a single value.
+func NewFloatPoint(name string, value float32) *FloatPoint {
+	return NewFloatPoints(name, value)
 }
 
-// encodeFloat32 encodes a float32 to a sortable byte representation.
-// Uses IEEE 754 float32 bits with sign flip for correct ordering.
-func encodeFloat32(f float32) []byte {
-	bits := math.Float32bits(f)
-	// Flip sign bit for correct ordering (negative < positive)
-	if bits&0x80000000 != 0 {
-		bits = ^bits // Flip all bits for negative
-	} else {
-		bits |= 0x80000000 // Set sign bit for positive
+// NewFloatPoints creates a new FloatPoint with multiple values.
+func NewFloatPoints(name string, values ...float32) *FloatPoint {
+	if len(values) == 0 {
+		return nil
 	}
 
-	buf := make([]byte, 4)
-	buf[0] = byte(bits >> 24)
-	buf[1] = byte(bits >> 16)
-	buf[2] = byte(bits >> 8)
-	buf[3] = byte(bits)
-	return buf
+	encoded := PackFloats(values)
+	ft := PointFieldType()
+	ft.DimensionNumBytes = 4
+
+	point, _ := NewPoint(name, ft, encoded, 1, 4)
+	return &FloatPoint{Point: *point}
 }
 
-// decodeFloat32 decodes a byte representation back to float32.
-func decodeFloat32(buf []byte) float32 {
-	if len(buf) < 4 {
-		return 0
+// FloatValue returns the first float value.
+func (fp *FloatPoint) FloatValue() float32 {
+	values := fp.FloatValues()
+	if len(values) > 0 {
+		return values[0]
 	}
-	bits := uint32(buf[0])<<24 | uint32(buf[1])<<16 | uint32(buf[2])<<8 | uint32(buf[3])
+	return 0
+}
 
-	// Reverse the encoding
-	if bits&0x80000000 != 0 {
-		bits &= 0x7FFFFFFF // Clear sign bit
-	} else {
-		bits = ^bits // Flip all bits
-	}
-
-	return math.Float32frombits(bits)
+// FloatValues returns all float values.
+func (fp *FloatPoint) FloatValues() []float32 {
+	return UnpackFloats(fp.PointValues())
 }

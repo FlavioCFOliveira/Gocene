@@ -44,11 +44,11 @@ func TestEncodeDecodeFloat32(t *testing.T) {
 	tests := []float32{0.0, 1.0, -1.0, 3.14159, -3.14159, 1e30, -1e30}
 
 	for _, val := range tests {
-		encoded := encodeFloat32(val)
+		encoded := encodeFloat32Legacy(val)
 		if len(encoded) != 4 {
 			t.Errorf("Expected 4 bytes, got %d", len(encoded))
 		}
-		decoded := decodeFloat32(encoded)
+		decoded := decodeFloat32Legacy(encoded)
 		// Allow small floating point differences
 		if decoded != val {
 			t.Errorf("Expected %f, got %f", val, decoded)
@@ -60,11 +60,11 @@ func TestEncodeDecodeFloat64(t *testing.T) {
 	tests := []float64{0.0, 1.0, -1.0, 3.14159265359, -3.14159265359, 1e300, -1e300}
 
 	for _, val := range tests {
-		encoded := encodeFloat64(val)
+		encoded := encodeFloat64Legacy(val)
 		if len(encoded) != 8 {
 			t.Errorf("Expected 8 bytes, got %d", len(encoded))
 		}
-		decoded := decodeFloat64(encoded)
+		decoded := decodeFloat64Legacy(encoded)
 		// Allow small floating point differences
 		if decoded != val {
 			t.Errorf("Expected %f, got %f", val, decoded)
@@ -78,7 +78,7 @@ func TestEncodeFloat32Ordering(t *testing.T) {
 	encoded := make([][]byte, len(values))
 
 	for i, v := range values {
-		encoded[i] = encodeFloat32(v)
+		encoded[i] = encodeFloat32Legacy(v)
 	}
 
 	// Check ordering
@@ -95,7 +95,7 @@ func TestEncodeFloat64Ordering(t *testing.T) {
 	encoded := make([][]byte, len(values))
 
 	for i, v := range values {
-		encoded[i] = encodeFloat64(v)
+		encoded[i] = encodeFloat64Legacy(v)
 	}
 
 	// Check ordering
@@ -107,10 +107,7 @@ func TestEncodeFloat64Ordering(t *testing.T) {
 }
 
 func TestNewFloatPoint(t *testing.T) {
-	p, err := NewFloatPoint("lat", 45.5)
-	if err != nil {
-		t.Fatalf("NewFloatPoint failed: %v", err)
-	}
+	p := NewFloatPoint("lat", 45.5)
 	if p == nil {
 		t.Fatal("NewFloatPoint returned nil")
 	}
@@ -120,10 +117,7 @@ func TestNewFloatPoint(t *testing.T) {
 }
 
 func TestNewDoublePoint(t *testing.T) {
-	p, err := NewDoublePoint("lat", 45.5)
-	if err != nil {
-		t.Fatalf("NewDoublePoint failed: %v", err)
-	}
+	p := NewDoublePoint("lat", 45.5)
 	if p == nil {
 		t.Fatal("NewDoublePoint returned nil")
 	}
