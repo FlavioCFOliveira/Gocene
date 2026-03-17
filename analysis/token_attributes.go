@@ -31,6 +31,18 @@ func (ta *TypeAttribute) Clone() *TypeAttribute {
 	return &TypeAttribute{Type: ta.Type}
 }
 
+// Copy creates a deep copy of this attribute (implements AttributeImpl).
+func (ta *TypeAttribute) Copy() AttributeImpl {
+	return ta.Clone()
+}
+
+// CopyTo copies this attribute to another implementation (implements AttributeImpl).
+func (ta *TypeAttribute) CopyTo(target AttributeImpl) {
+	if t, ok := target.(*TypeAttribute); ok {
+		t.Type = ta.Type
+	}
+}
+
 // Clear resets this attribute to its default value.
 func (ta *TypeAttribute) Clear() {
 	ta.Type = "word"
@@ -175,6 +187,18 @@ func (ka *KeywordAttribute) IsKeywordToken() bool {
 // Clone returns a copy of this attribute.
 func (ka *KeywordAttribute) Clone() *KeywordAttribute {
 	return &KeywordAttribute{IsKeyword: ka.IsKeyword}
+}
+
+// Copy creates a deep copy of this attribute (implements AttributeImpl).
+func (ka *KeywordAttribute) Copy() AttributeImpl {
+	return ka.Clone()
+}
+
+// CopyTo copies this attribute to another implementation (implements AttributeImpl).
+func (ka *KeywordAttribute) CopyTo(target AttributeImpl) {
+	if t, ok := target.(*KeywordAttribute); ok {
+		t.IsKeyword = ka.IsKeyword
+	}
 }
 
 // Clear resets this attribute.
