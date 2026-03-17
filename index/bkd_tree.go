@@ -272,3 +272,52 @@ func (q *PointRangeQuery) Matches(values []int64) bool {
 func (q *PointRangeQuery) String() string {
 	return fmt.Sprintf("PointRangeQuery(field=%s)", q.field)
 }
+
+// PointValuesIterator iterates over point values.
+// This is the Go port of Lucene's org.apache.lucene.index.PointValuesIterator.
+type PointValuesIterator struct {
+	points [][]byte
+	docIDs []int
+	index  int
+}
+
+// NewPointValuesIterator creates a new PointValuesIterator.
+func NewPointValuesIterator(points [][]byte, docIDs []int) *PointValuesIterator {
+	return &PointValuesIterator{
+		points: points,
+		docIDs: docIDs,
+		index:  -1,
+	}
+}
+
+// Next advances to the next value.
+func (it *PointValuesIterator) Next() bool {
+	it.index++
+	return it.index < len(it.points)
+}
+
+// DocID returns the current document ID.
+func (it *PointValuesIterator) DocID() int {
+	if it.index < 0 || it.index >= len(it.docIDs) {
+		return -1
+	}
+	return it.docIDs[it.index]
+}
+
+// Value returns the current packed value.
+func (it *PointValuesIterator) Value() []byte {
+	if it.index < 0 || it.index >= len(it.points) {
+		return nil
+	}
+	return it.points[it.index]
+}
+
+// Reset resets the iterator to the beginning.
+func (it *PointValuesIterator) Reset() {
+	it.index = -1
+}
+
+// Size returns the number of values.
+func (it *PointValuesIterator) Size() int {
+	return len(it.points)
+}
