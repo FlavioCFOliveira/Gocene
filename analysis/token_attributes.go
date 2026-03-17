@@ -104,6 +104,18 @@ func (pa *PayloadAttribute) HasPayload() bool {
 	return pa.Payload != nil && len(pa.Payload) > 0
 }
 
+// Copy creates a deep copy of this attribute (implements AttributeImpl).
+func (pa *PayloadAttribute) Copy() AttributeImpl {
+	return pa.Clone()
+}
+
+// CopyTo copies this attribute to another implementation (implements AttributeImpl).
+func (pa *PayloadAttribute) CopyTo(target AttributeImpl) {
+	if t, ok := target.(*PayloadAttribute); ok {
+		t.SetPayload(pa.Payload)
+	}
+}
+
 // FlagsAttribute provides a way to store custom flags for a token.
 // This is the Go port of Lucene's org.apache.lucene.analysis.tokenattributes.FlagsAttribute.
 type FlagsAttribute struct {
@@ -139,6 +151,18 @@ func (fa *FlagsAttribute) Clone() *FlagsAttribute {
 // Clear resets this attribute.
 func (fa *FlagsAttribute) Clear() {
 	fa.Flags = 0
+}
+
+// Copy creates a deep copy of this attribute (implements AttributeImpl).
+func (fa *FlagsAttribute) Copy() AttributeImpl {
+	return fa.Clone()
+}
+
+// CopyTo copies this attribute to another implementation (implements AttributeImpl).
+func (fa *FlagsAttribute) CopyTo(target AttributeImpl) {
+	if t, ok := target.(*FlagsAttribute); ok {
+		t.Flags = fa.Flags
+	}
 }
 
 // IsFlagSet returns true if the given flag bit is set.
@@ -247,6 +271,18 @@ func (pla *PositionLengthAttribute) Clear() {
 	pla.PositionLength = 1
 }
 
+// Copy creates a deep copy of this attribute (implements AttributeImpl).
+func (pla *PositionLengthAttribute) Copy() AttributeImpl {
+	return pla.Clone()
+}
+
+// CopyTo copies this attribute to another implementation (implements AttributeImpl).
+func (pla *PositionLengthAttribute) CopyTo(target AttributeImpl) {
+	if t, ok := target.(*PositionLengthAttribute); ok {
+		t.PositionLength = pla.PositionLength
+	}
+}
+
 // TermFrequencyAttribute provides the term frequency for a token.
 // This can be used to encode term frequencies in the token stream.
 // This is the Go port of Lucene's org.apache.lucene.analysis.tokenattributes.TermFrequencyAttribute.
@@ -284,4 +320,16 @@ func (tfa *TermFrequencyAttribute) Clone() *TermFrequencyAttribute {
 // Clear resets this attribute.
 func (tfa *TermFrequencyAttribute) Clear() {
 	tfa.TermFrequency = 1
+}
+
+// Copy creates a deep copy of this attribute (implements AttributeImpl).
+func (tfa *TermFrequencyAttribute) Copy() AttributeImpl {
+	return tfa.Clone()
+}
+
+// CopyTo copies this attribute to another implementation (implements AttributeImpl).
+func (tfa *TermFrequencyAttribute) CopyTo(target AttributeImpl) {
+	if t, ok := target.(*TermFrequencyAttribute); ok {
+		t.TermFrequency = tfa.TermFrequency
+	}
 }
