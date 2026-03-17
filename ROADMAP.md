@@ -17,7 +17,7 @@ Este roadmap contém todas as tarefas pendentes para completar o port de Apache 
 | 34 | COMPLETED | 45 | Simples | Foundation | Phase 33 |
 | 35 | COMPLETED | 50 | Simples-Média | Core Extensions | Phase 34 |
 | 36 | COMPLETED | 45 | Média | Analysis Filters | Phase 35 |
-| 37 | PENDING | 40 | Média-Alta | Point Fields | Phase 35 |
+| 37 | COMPLETED | 18 | Média-Alta | Point Fields | Phase 35 |
 | 38 | PENDING | 45 | Alta | Span Queries | Phase 37 |
 | 39 | PENDING | 35 | Média | Language Analyzers (Major) | Phase 36 |
 | 40 | PENDING | 40 | Média-Alta | CheckIndex | Phase 38 |
@@ -227,7 +227,7 @@ Tarefas que podem ser implementadas independentemente, sem dependências de outr
 
 ## FASE 37: Point Fields e Campos Numéricos (Numeric Fields)
 
-**Status:** PENDING | **Tasks:** 40 | **Focus:** Point fields and numeric ranges
+**Status:** COMPLETED | **Tasks:** 18 | **Completed:** 2026-03-17 | **Focus:** Point fields and numeric ranges
 **Dependencies:** Phase 35 (Core Extensions)
 
 ### 37.1: Point Fields Core
@@ -864,6 +864,28 @@ Tarefas que podem ser implementadas independentemente, sem dependências de outr
 | GC-556 | PatternReplaceFilter | analysis |
 | GC-557 | RemoveDuplicatesTokenFilter | analysis |
 
+### Fase 37: Point Fields e Campos Numéricos (2026-03-17)
+
+| Task ID | Task Name | Component |
+|:--------|:----------|:----------|
+| GC-514 | IntPoint | document |
+| GC-515 | LongPoint | document |
+| GC-516 | FloatPoint | document |
+| GC-517 | DoublePoint | document |
+| GC-518 | PointQuery Base | search |
+| GC-519 | PointInSetQuery | search |
+| GC-521 | PointValuesIterator | index |
+| GC-522 | IntRange | document |
+| GC-523 | LongRange | document |
+| GC-524 | FloatRange | document |
+| GC-525 | DoubleRange | document |
+| GC-526 | BinaryRange | document |
+| GC-527 | RangeFieldQuery | search |
+| GC-528 | DateTools | document |
+| GC-529 | DateTools.Resolution | document |
+| GC-530 | DateTimeField | document |
+| GC-531 | DateRangeQuery | search |
+
 ---
 
 ## Estratégia de Implementação
@@ -873,7 +895,7 @@ Tarefas que podem ser implementadas independentemente, sem dependências de outr
 1. ~~**Fase 34** (45 tarefas)~~: ✅ COMPLETED - Foundation components
 2. ~~**Fase 35** (50 tarefas)~~: ✅ COMPLETED - Core Extensions
 3. ~~**Fase 36** (20 tarefas)~~: ✅ COMPLETED - Analysis Filters
-4. **Fase 37** (40 tarefas): Point Fields e campos numéricos (IN PROGRESS)
+4. ~~**Fase 37** (18 tarefas)~~: ✅ COMPLETED - Point Fields e campos numéricos
 5. **Fase 38** (45 tarefas): Span queries e search avançado
 6. **Fases 39-40** (75 tarefas): Analisadores de idiomas e ferramentas de diagnóstico
 7. **Fases 41-43** (120 tarefas): QueryParser flexível, facets avançados, join/grouping/highlight completos
