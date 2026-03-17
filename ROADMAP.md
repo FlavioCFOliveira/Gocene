@@ -4,9 +4,9 @@
 
 Este roadmap contém todas as tarefas pendentes para completar o port de Apache Lucene 10.x para Go, organizadas por complexidade e dependências.
 
-**Total de Tarefas Pendentes:** 475
-**Fases Ativas:** 35-47
-**Fases Completadas:** 34
+**Total de Tarefas Pendentes:** 380
+**Fases Ativas:** 37-47
+**Fases Completadas:** 34-36
 
 ---
 
@@ -15,8 +15,8 @@ Este roadmap contém todas as tarefas pendentes para completar o port de Apache 
 | Fase | Status | Tarefas | Complexidade | Foco | Dependências |
 |:-----|:-------|:--------|:-------------|:-----|:-------------|
 | 34 | COMPLETED | 45 | Simples | Foundation | Phase 33 |
-| 35 | PENDING | 50 | Simples-Média | Core Extensions | Phase 34 |
-| 36 | PENDING | 45 | Média | Analysis Filters | Phase 35 |
+| 35 | COMPLETED | 50 | Simples-Média | Core Extensions | Phase 34 |
+| 36 | COMPLETED | 45 | Média | Analysis Filters | Phase 35 |
 | 37 | PENDING | 40 | Média-Alta | Point Fields | Phase 35 |
 | 38 | PENDING | 45 | Alta | Span Queries | Phase 37 |
 | 39 | PENDING | 35 | Média | Language Analyzers (Major) | Phase 36 |
@@ -105,7 +105,7 @@ Tarefas que podem ser implementadas independentemente, sem dependências de outr
 
 ## FASE 35: Tarefas com Dependências Simples (Core Extensions)
 
-**Status:** PENDING | **Tasks:** 50 | **Focus:** Components depending on Phase 34
+**Status:** COMPLETED | **Tasks:** 50 | **Completed:** 2026-03-17 | **Focus:** Components depending on Phase 34
 **Dependencies:** Phase 34 (Foundation)
 
 ### 35.1: QueryParser Foundation
@@ -175,7 +175,7 @@ Tarefas que podem ser implementadas independentemente, sem dependências de outr
 
 ## FASE 36: NGram, Shingle e Filtros de Análise (Analysis Advanced)
 
-**Status:** PENDING | **Tasks:** 45 | **Focus:** Analysis filters and tokenizers
+**Status:** COMPLETED | **Tasks:** 20 | **Completed:** 2026-03-17 | **Focus:** Analysis filters and tokenizers
 **Dependencies:** Phase 35 (Core Extensions)
 
 ### 36.1: NGram e EdgeNGram
@@ -811,6 +811,59 @@ Tarefas que podem ser implementadas independentemente, sem dependências de outr
 | GC-447 | BitSetProducer | join |
 | GC-441 | BlockJoinCollector | join |
 
+### Fase 35: Core Extensions (2026-03-17)
+
+| Task ID | Task Name | Component |
+|:--------|:----------|:----------|
+| GC-408 | QueryParserBase Implementation | queryparser |
+| GC-410 | CharStream and FastCharStream | queryparser |
+| GC-411 | Analyzer Integration for QueryParser | queryparser |
+| GC-412 | MultiFieldQueryParser | queryparser |
+| GC-414 | TokenManager Advanced Tokens | queryparser |
+| GC-424 | DrillDownQuery Implementation | facets |
+| GC-429 | LongValueFacetCounts | facets |
+| GC-430 | RangeFacetCounts | facets |
+| GC-442 | ToParentBlockJoinCollector | join |
+| GC-443 | ToChildBlockJoinCollector | join |
+| GC-448 | QueryBitSetProducer | join |
+| GC-449 | FixedBitSetCachingWrapper | join |
+| GC-453 | AllGroupHeadsCollector | grouping |
+| GC-454 | BlockGroupingCollector | grouping |
+| GC-455 | TermGroupSelector | grouping |
+| GC-456 | ValueSourceGroupSelector | grouping |
+| GC-457 | ValueSource | grouping |
+| GC-469 | QueryTermScorer | highlight |
+| GC-471 | TokenGroup | highlight |
+| GC-565 | HTMLStripCharFilter | analysis |
+| GC-566 | MappingCharFilter | analysis |
+| GC-567 | NormalizeCharFilter | analysis |
+| GC-568 | PatternReplaceCharFilter | analysis |
+
+### Fase 36: Analysis Advanced (2026-03-17)
+
+| Task ID | Task Name | Component |
+|:--------|:----------|:----------|
+| GC-532 | NGramTokenizer | analysis |
+| GC-533 | NGramFilter | analysis |
+| GC-534 | EdgeNGramTokenizer | analysis |
+| GC-535 | EdgeNGramFilter | analysis |
+| GC-537 | ShingleFilter | analysis |
+| GC-538 | ShingleMatrixFilter | analysis |
+| GC-539 | WordDelimiterFilter | analysis |
+| GC-540 | WordDelimiterGraphFilter | analysis |
+| GC-541 | WordDelimiterIterator | analysis |
+| GC-542 | SynonymMap | analysis |
+| GC-543 | SynonymFilter | analysis |
+| GC-544 | SynonymGraphFilter | analysis |
+| GC-546 | FlattenGraphFilter | analysis |
+| GC-547 | UAX29URLEmailTokenizer | analysis |
+| GC-548 | PathHierarchyTokenizer | analysis |
+| GC-549 | PatternTokenizer | analysis |
+| GC-550 | SimplePatternTokenizer | analysis |
+| GC-551 | SimplePatternSplitTokenizer | analysis |
+| GC-556 | PatternReplaceFilter | analysis |
+| GC-557 | RemoveDuplicatesTokenFilter | analysis |
+
 ---
 
 ## Estratégia de Implementação
@@ -818,13 +871,14 @@ Tarefas que podem ser implementadas independentemente, sem dependências de outr
 ### Ordem de Execução
 
 1. ~~**Fase 34** (45 tarefas)~~: ✅ COMPLETED - Foundation components
-2. **Fase 35** (50 tarefas): Construir sobre a base com componentes core (IN PROGRESS)
-3. **Fases 36-37** (85 tarefas): Análise avançada e campos numéricos em paralelo
-4. **Fase 38** (45 tarefas): Span queries e search avançado
-5. **Fases 39-40** (75 tarefas): Analisadores de idiomas e ferramentas de diagnóstico
-6. **Fases 41-43** (120 tarefas): QueryParser flexível, facets avançados, join/grouping/highlight completos
-7. **Fases 44-46** (110 tarefas): Codecs, spatial, NRT
-8. **Fase 47** (40 tarefas): Idiomas adicionais
+2. ~~**Fase 35** (50 tarefas)~~: ✅ COMPLETED - Core Extensions
+3. ~~**Fase 36** (20 tarefas)~~: ✅ COMPLETED - Analysis Filters
+4. **Fase 37** (40 tarefas): Point Fields e campos numéricos (IN PROGRESS)
+5. **Fase 38** (45 tarefas): Span queries e search avançado
+6. **Fases 39-40** (75 tarefas): Analisadores de idiomas e ferramentas de diagnóstico
+7. **Fases 41-43** (120 tarefas): QueryParser flexível, facets avançados, join/grouping/highlight completos
+8. **Fases 44-46** (110 tarefas): Codecs, spatial, NRT
+9. **Fase 47** (40 tarefas): Idiomas adicionais
 
 ### Vantagens desta Estrutura
 
