@@ -119,6 +119,21 @@ func (tr *TaxonomyReader) GetAllPaths() []string {
 	return paths
 }
 
+// GetDimensions returns all top-level dimensions (root categories).
+func (tr *TaxonomyReader) GetDimensions() []string {
+	tr.mu.RLock()
+	defer tr.mu.RUnlock()
+
+	dims := make([]string, 0)
+	for ord, path := range tr.paths {
+		if tr.parent[ord] == 0 || tr.parent[ord] == -1 {
+			// This is a root - extract the dimension name
+			dims = append(dims, path)
+		}
+	}
+	return dims
+}
+
 // GetRootOrdinals returns all root-level ordinals (those with no parent).
 func (tr *TaxonomyReader) GetRootOrdinals() []int {
 	tr.mu.RLock()
