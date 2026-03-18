@@ -128,26 +128,6 @@ func NewDrillDownQueryWithPath(dim string, path []string, value string) *DrillDo
 	return ddq
 }
 
-// DrillSideways represents a drill sideways operation that computes
-// facet counts for all sibling values when drilling down.
-type DrillSideways struct {
-	// Facets is the base facets instance
-	Facets Facets
-
-	// Dimensions are the dimensions to compute sideways counts for
-	Dimensions []string
-}
-
-// NewDrillSideways creates a new DrillSideways for the given facets and dimensions.
-func NewDrillSideways(facets Facets, dimensions []string) *DrillSideways {
-	dims := make([]string, len(dimensions))
-	copy(dims, dimensions)
-	return &DrillSideways{
-		Facets:     facets,
-		Dimensions: dims,
-	}
-}
-
 // DrillSidewaysResult holds the result of a drill sideways operation.
 type DrillSidewaysResult struct {
 	// FacetResults contains the facet results for each dimension

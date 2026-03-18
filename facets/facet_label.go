@@ -192,4 +192,3 @@ func (fl *FacetLabel) Copy() *FacetLabel {
 	}
 	return NewFacetLabel(fl.Components...)
 }
-

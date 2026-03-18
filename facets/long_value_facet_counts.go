@@ -163,9 +163,9 @@ type LongValueCount struct {
 
 // LongValueFacetCollector collects long value facets from search results.
 type LongValueFacetCollector struct {
-	field      string
-	counts     *LongValueFacetCounts
-	reader     index.IndexReader
+	field  string
+	counts *LongValueFacetCounts
+	reader index.IndexReader
 }
 
 // NewLongValueFacetCollector creates a new LongValueFacetCollector.
