@@ -1,6 +1,7 @@
 package highlight
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -68,6 +69,141 @@ func TestSimpleHighlighterSetters(t *testing.T) {
 
 	// Test SetMaxDocBytesToAnalyze
 	h.SetMaxDocBytesToAnalyze(1000)
+}
+
+func TestNewGradientFormatter(t *testing.T) {
+	f := NewGradientFormatter(0.0, 1.0, "000000", "FFFFFF")
+	if f == nil {
+		t.Fatal("Expected GradientFormatter to be created")
+	}
+
+	if f.minScore != 0.0 {
+		t.Errorf("Expected minScore 0.0, got %f", f.minScore)
+	}
+
+	if f.maxScore != 1.0 {
+		t.Errorf("Expected maxScore 1.0, got %f", f.maxScore)
+	}
+
+	if f.minForegroundColor != "000000" {
+		t.Errorf("Expected minForegroundColor '000000', got '%s'", f.minForegroundColor)
+	}
+
+	if f.maxForegroundColor != "FFFFFF" {
+		t.Errorf("Expected maxForegroundColor 'FFFFFF', got '%s'", f.maxForegroundColor)
+	}
+}
+
+func TestNewGradientFormatterWithBackground(t *testing.T) {
+	f := NewGradientFormatterWithBackground(0.0, 1.0, "000000", "FFFFFF", "FF0000", "00FF00")
+	if f == nil {
+		t.Fatal("Expected GradientFormatter to be created")
+	}
+
+	if f.minBackgroundColor != "FF0000" {
+		t.Errorf("Expected minBackgroundColor 'FF0000', got '%s'", f.minBackgroundColor)
+	}
+
+	if f.maxBackgroundColor != "00FF00" {
+		t.Errorf("Expected maxBackgroundColor '00FF00', got '%s'", f.maxBackgroundColor)
+	}
+}
+
+func TestGradientFormatterHighlight(t *testing.T) {
+	f := NewGradientFormatter(0.0, 1.0, "000000", "FFFFFF")
+
+	text := "This is a test sentence with test words."
+	terms := []string{"test"}
+	result := f.Highlight(text, terms)
+
+	if result == "" {
+		t.Error("Expected non-empty result")
+	}
+
+	// Check that span with style was added
+	if !strings.Contains(result, "<span style=\"") {
+		t.Error("Expected result to contain span with style")
+	}
+
+	if !strings.Contains(result, "</span>") {
+		t.Error("Expected result to contain closing span")
+	}
+}
+
+func TestGradientFormatterHighlightWithBackground(t *testing.T) {
+	f := NewGradientFormatterWithBackground(0.0, 1.0, "000000", "FFFFFF", "FF0000", "00FF00")
+
+	text := "This is a test sentence."
+	terms := []string{"test"}
+	result := f.Highlight(text, terms)
+
+	// Check that background-color is in the style
+	if !strings.Contains(result, "background-color:") {
+		t.Error("Expected result to contain background-color")
+	}
+}
+
+func TestGradientFormatterInterpolateColor(t *testing.T) {
+	f := NewGradientFormatter(0.0, 1.0, "000000", "FFFFFF")
+
+	// Test mid-point interpolation
+	color := f.interpolateColor("000000", "FFFFFF", 0.5)
+	// 0.5 * 255 = 127.5, which truncates to 127 (0x7F)
+	if color != "7F7F7F" {
+		t.Errorf("Expected interpolated color '7F7F7F' for mid-point, got '%s'", color)
+	}
+
+	// Test min point
+	color = f.interpolateColor("000000", "FFFFFF", 0.0)
+	if color != "000000" {
+		t.Errorf("Expected color '000000' for min point, got '%s'", color)
+	}
+
+	// Test max point
+	color = f.interpolateColor("000000", "FFFFFF", 1.0)
+	if color != "FFFFFF" {
+		t.Errorf("Expected color 'FFFFFF' for max point, got '%s'", color)
+	}
+}
+
+func TestHexToByte(t *testing.T) {
+	tests := []struct {
+		hex      string
+		expected byte
+	}{
+		{"00", 0},
+		{"FF", 255},
+		{"ff", 255},
+		{"80", 128},
+		{"0A", 10},
+		{"0a", 10},
+	}
+
+	for _, test := range tests {
+		result := hexToByte(test.hex)
+		if result != test.expected {
+			t.Errorf("hexToByte('%s') = %d, expected %d", test.hex, result, test.expected)
+		}
+	}
+}
+
+func TestByteToHex(t *testing.T) {
+	tests := []struct {
+		b        byte
+		expected string
+	}{
+		{0, "00"},
+		{255, "FF"},
+		{128, "80"},
+		{10, "0A"},
+	}
+
+	for _, test := range tests {
+		result := byteToHex(test.b)
+		if result != test.expected {
+			t.Errorf("byteToHex(%d) = '%s', expected '%s'", test.b, result, test.expected)
+		}
+	}
 }
 
 func TestNewSimpleFragmenter(t *testing.T) {
