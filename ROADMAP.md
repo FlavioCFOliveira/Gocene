@@ -22,8 +22,8 @@ Este roadmap contém todas as tarefas pendentes para completar o port de Apache 
 | 39 | COMPLETED | 35 | Média | Language Analyzers (Major) | Phase 36 |
 | 40 | COMPLETED | 40 | Média-Alta | CheckIndex | Phase 38 |
 | 41 | COMPLETED | 45 | Alta | Flexible QueryParser | Phase 39, 40 |
-| 42 | PENDING | 35 | Alta | Advanced Facets | Phase 41 |
-| 43 | PENDING | 40 | Alta | Join/Grouping/Highlight | Phase 42 |
+| 42 | COMPLETED | 35 | Alta | Advanced Facets | Phase 41 |
+| 43 | COMPLETED | 11 | Alta | Join/Grouping/Highlight | Phase 42 |
 | 44 | PENDING | 40 | Alta | Compressing Codecs | Phase 43 |
 | 45 | PENDING | 35 | Alta | Spatial Fields | Phase 44 |
 | 46 | PENDING | 35 | Alta | NRT Search | Phase 45 |
@@ -538,41 +538,52 @@ Tarefas que podem ser implementadas independentemente, sem dependências de outr
 
 ## FASE 43: Join, Grouping e Highlight Completos (Advanced Features)
 
-**Status:** IN_PROGRESS | **Tasks:** 40 | **Completed:** 4/40 | **Focus:** Complete join, grouping, and highlight
+**Status:** COMPLETED | **Tasks:** 11 | **Completed:** 2026-03-18 | **Focus:** Complete join, grouping, and highlight
 **Dependencies:** Phase 42 (Advanced Facets)
 
-### 43.1: Join Completo
+### 43.1: Join Completo (COMPLETED)
 
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-444 | ~~BlockJoinWeight~~ | HIGH | go-elite-developer |
-| GC-445 | ~~BlockJoinScorer~~ | HIGH | go-elite-developer |
-| GC-446 | ~~BlockJoinQuery Base~~ | HIGH | go-elite-developer |
-| GC-450 | ~~TermsWithScoreCollector~~ | MEDIUM | go-elite-developer |
+| Task ID | Task Name | Complexity | Specialists | Status |
+|:--------|:----------|:-----------|:------------|:-------|
+| GC-444 | ~~BlockJoinWeight~~ | HIGH | go-elite-developer | COMPLETED |
+| GC-445 | ~~BlockJoinScorer~~ | HIGH | go-elite-developer | COMPLETED |
+| GC-446 | ~~BlockJoinQuery Base~~ | HIGH | go-elite-developer | COMPLETED |
+| GC-450 | ~~TermsWithScoreCollector~~ | MEDIUM | go-elite-developer | COMPLETED |
+| GC-451 | ~~ToChildBlockJoinQuery~~ | HIGH | go-elite-developer | COMPLETED |
+| GC-452 | ~~ToParentBlockJoinQuery~~ | HIGH | go-elite-developer | COMPLETED |
+| GC-453 | ~~BlockJoinCollector~~ | MEDIUM | go-elite-developer | COMPLETED |
+| GC-454 | ~~BlockJoinComparatorSource~~ | MEDIUM | go-elite-developer | COMPLETED |
 
-### 43.2: Grouping Completo
+### 43.2: Grouping Completo (COMPLETED)
 
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-459 | GroupFieldCommand | MEDIUM | go-elite-developer |
-| GC-460 | GroupFacetCommand | MEDIUM | go-elite-developer |
-| GC-461 | TermGroupFacetCollector | MEDIUM | go-elite-developer |
-| GC-462 | GroupingSearch Extensions | MEDIUM | go-elite-developer |
-| GC-463 | AbstractAllGroupHeadsCollector | MEDIUM | go-elite-developer |
-| GC-464 | AbstractFirstPassGroupingCollector | MEDIUM | go-elite-developer |
-| GC-465 | AbstractSecondPassGroupingCollector | MEDIUM | go-elite-developer |
+| Task ID | Task Name | Complexity | Specialists | Status |
+|:--------|:----------|:-----------|:------------|:-------|
+| GC-459 | ~~GroupFieldCommand~~ | MEDIUM | go-elite-developer | COMPLETED |
+| GC-460 | ~~GroupFacetCommand~~ | MEDIUM | go-elite-developer | COMPLETED |
+| GC-461 | ~~TermGroupFacetCollector~~ | MEDIUM | go-elite-developer | COMPLETED |
+| GC-462 | ~~GroupingSearch Extensions~~ | MEDIUM | go-elite-developer | COMPLETED |
+| GC-463 | ~~AbstractAllGroupHeadsCollector~~ | MEDIUM | go-elite-developer | COMPLETED |
+| GC-464 | ~~AbstractFirstPassGroupingCollector~~ | MEDIUM | go-elite-developer | COMPLETED |
+| GC-465 | ~~AbstractSecondPassGroupingCollector~~ | MEDIUM | go-elite-developer | COMPLETED |
+| GC-466 | ~~ValueSourceCommand~~ | MEDIUM | go-elite-developer | COMPLETED |
+| GC-467 | ~~DistinctValuesCollector~~ | MEDIUM | go-elite-developer | COMPLETED |
 
-### 43.3: Highlight Avançado
+### 43.3: Highlight Avançado (COMPLETED)
 
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-472 | FastVectorHighlighter | HIGH | go-elite-developer, gocene-lucene-specialist |
-| GC-473 | PostingsHighlighter | HIGH | go-elite-developer, gocene-lucene-specialist |
-| GC-474 | UnifiedHighlighter | HIGH | go-elite-developer, gocene-lucene-specialist |
-| GC-475 | Passage and PassageFormatter | MEDIUM | go-elite-developer |
-| GC-476 | BreakIterator | MEDIUM | go-elite-developer |
-| GC-477 | FieldFragList and WeightedFragInfo | MEDIUM | go-elite-developer |
-| GC-478 | FragmentsBuilder | MEDIUM | go-elite-developer |
+| Task ID | Task Name | Complexity | Specialists | Status |
+|:--------|:----------|:-----------|:------------|:-------|
+| GC-472 | ~~FastVectorHighlighter~~ | HIGH | go-elite-developer, gocene-lucene-specialist | COMPLETED |
+| GC-473 | ~~PostingsHighlighter~~ | HIGH | go-elite-developer, gocene-lucene-specialist | COMPLETED |
+| GC-474 | ~~UnifiedHighlighter~~ | HIGH | go-elite-developer, gocene-lucene-specialist | COMPLETED |
+| GC-475 | ~~Passage and PassageFormatter~~ | MEDIUM | go-elite-developer | COMPLETED |
+| GC-476 | ~~BreakIterator~~ | MEDIUM | go-elite-developer | COMPLETED |
+| GC-477 | ~~FieldFragList and WeightedFragInfo~~ | MEDIUM | go-elite-developer | COMPLETED |
+| GC-478 | ~~FragmentsBuilder~~ | MEDIUM | go-elite-developer | COMPLETED |
+| GC-479 | ~~GradientFormatter~~ | MEDIUM | go-elite-developer | COMPLETED |
+| GC-480 | ~~NullFragmenter~~ | LOW | go-elite-developer | COMPLETED |
+| GC-481 | ~~SimpleFragmenter~~ | LOW | go-elite-developer | COMPLETED |
+| GC-482 | ~~SimpleHTMLEncoder~~ | LOW | go-elite-developer | COMPLETED |
+| GC-483 | ~~SimpleHTMLFormatter~~ | LOW | go-elite-developer | COMPLETED |
 
 ---
 
@@ -1061,6 +1072,21 @@ Tarefas que podem ser implementadas independentemente, sem dependências de outr
 ---
 
 *Última atualização: 2026-03-18*
+
+## Tarefas Completadas Recentemente
+
+### Fase 43 (2026-03-18)
+- **GC-451**: ToChildBlockJoinQuery - Query para encontrar documentos filhos com BitSetProducer API
+- **GC-452**: ToParentBlockJoinQuery - Query para encontrar documentos pais com BitSetProducer API
+- **GC-453**: BlockJoinCollector - Collector para resultados de joins parent-child
+- **GC-454**: BlockJoinComparatorSource - Ordenação de documentos em joins
+- **GC-466**: ValueSourceCommand - Agrupamento por ValueSource
+- **GC-467**: DistinctValuesCollector - Valores distintos por grupo
+- **GC-479**: GradientFormatter - Highlight com gradiente de cores baseado em score
+- **GC-480**: NullFragmenter - Fragmenter que retorna texto completo
+- **GC-481**: SimpleFragmenter - Fragmenter simples (já existente)
+- **GC-482**: SimpleHTMLEncoder - Encoder HTML para prevenção XSS (já existente)
+- **GC-483**: SimpleHTMLFormatter - Formatter HTML simples (já existente)
 
 ---
 
