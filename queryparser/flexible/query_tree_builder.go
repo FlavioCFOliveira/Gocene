@@ -103,16 +103,24 @@ func NewBooleanQueryNodeBuilder(queryTreeBuilder *QueryTreeBuilder) *BooleanQuer
 
 // Build builds a BooleanQuery from a BooleanQueryNode.
 func (b *BooleanQueryNodeBuilder) Build(node QueryNode) (search.Query, error) {
-	booleanNode, ok := node.(*BooleanQueryNode)
-	if !ok {
-		return nil, fmt.Errorf("expected BooleanQueryNode, got %T", node)
+	var children []QueryNode
+
+	switch n := node.(type) {
+	case *BooleanQueryNode:
+		children = n.GetChildren()
+	case *AndQueryNode:
+		children = n.GetChildren()
+	case *OrQueryNode:
+		children = n.GetChildren()
+	default:
+		return nil, fmt.Errorf("expected BooleanQueryNode, AndQueryNode, or OrQueryNode, got %T", node)
 	}
 
 	// Build boolean query
 	booleanQuery := search.NewBooleanQuery()
 
 	// Process children
-	for _, child := range booleanNode.GetChildren() {
+	for _, child := range children {
 		childQuery, err := b.queryTreeBuilder.Build(child)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build child query: %w", err)
