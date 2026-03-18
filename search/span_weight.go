@@ -6,29 +6,41 @@ package search
 
 import "github.com/FlavioCFOliveira/Gocene/index"
 
+// SpanQuery is the interface for span queries.
+// Span queries are used for positional/proximity-based search.
+type SpanQuery interface {
+	Query
+	// GetField returns the field for this query.
+	GetField() string
+	// String returns a string representation of this query.
+	String(field string) string
+}
+
 // SpanWeight is the base class for SpanQuery weights.
 // SpanWeights are used for scoring and matching span queries.
 //
 // This is the Go port of Lucene's org.apache.lucene.search.spans.SpanWeight.
 type SpanWeight struct {
+	*BaseWeight
 	// Query is the SpanQuery this weight is for
-	Query *SpanQuery
+	SpanQuery SpanQuery
 
 	// Similarity is the similarity used for scoring
 	Similarity Similarity
 }
 
 // NewSpanWeight creates a new SpanWeight for the given query.
-func NewSpanWeight(query *SpanQuery, similarity Similarity) *SpanWeight {
+func NewSpanWeight(query SpanQuery, similarity Similarity) *SpanWeight {
 	return &SpanWeight{
-		Query:      query,
+		BaseWeight: NewBaseWeight(query),
+		SpanQuery:  query,
 		Similarity: similarity,
 	}
 }
 
-// GetQuery returns the SpanQuery this weight is for.
-func (sw *SpanWeight) GetQuery() *SpanQuery {
-	return sw.Query
+// GetSpanQuery returns the SpanQuery this weight is for.
+func (sw *SpanWeight) GetSpanQuery() SpanQuery {
+	return sw.SpanQuery
 }
 
 // GetValue returns the weight value (used for scoring).
@@ -41,30 +53,64 @@ func (sw *SpanWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
 	return true
 }
 
-// SpanQuery represents a span query.
-// This is a placeholder for the full SpanQuery implementation.
-type SpanQuery struct {
-	// Field is the field being queried
-	Field string
-
-	// Term is the term being searched
-	Term string
-}
-
-// NewSpanQuery creates a new SpanQuery.
-func NewSpanQuery(field, term string) *SpanQuery {
-	return &SpanQuery{
-		Field: field,
-		Term:  term,
+// Scorer creates a scorer for this weight.
+func (sw *SpanWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) {
+	// Create a basic spans iterator for the field
+	field := sw.SpanQuery.GetField()
+	if field == "" {
+		return nil, nil
 	}
+
+	// For now, create a simple scorer that doesn't actually match spans
+	// This is a placeholder implementation that should be overridden by specific span query weights
+	spans := &Spans{
+		doc:    -1,
+		docs:   []int{},
+		starts: []int{},
+		ends:   []int{},
+		index:  -1,
+	}
+	return NewSpanScorer(spans, 1.0), nil
 }
 
-// GetField returns the field for this query.
-func (sq *SpanQuery) GetField() string {
-	return sq.Field
+// ScorerSupplier creates a scorer supplier for this weight.
+func (sw *SpanWeight) ScorerSupplier(context *index.LeafReaderContext) (ScorerSupplier, error) {
+	scorer, err := sw.Scorer(context)
+	if err != nil {
+		return nil, err
+	}
+	if scorer == nil {
+		return nil, nil
+	}
+	return NewScorerSupplierAdapter(scorer), nil
 }
 
-// GetTerm returns the term for this query.
-func (sq *SpanQuery) GetTerm() string {
-	return sq.Term
+// Explain returns an explanation of the score for the given document.
+func (sw *SpanWeight) Explain(context *index.LeafReaderContext, doc int) (Explanation, error) {
+	return NewExplanation(false, 0, "SpanWeight explanation not implemented"), nil
 }
+
+// BulkScorer creates a bulk scorer for efficient bulk scoring.
+func (sw *SpanWeight) BulkScorer(context *index.LeafReaderContext) (BulkScorer, error) {
+	scorer, err := sw.Scorer(context)
+	if err != nil {
+		return nil, err
+	}
+	if scorer == nil {
+		return nil, nil
+	}
+	return NewDefaultBulkScorer(scorer), nil
+}
+
+// Count returns the count of matching documents.
+func (sw *SpanWeight) Count(context *index.LeafReaderContext) (int, error) {
+	return -1, nil
+}
+
+// Matches returns the matches for a specific document.
+func (sw *SpanWeight) Matches(context *index.LeafReaderContext, doc int) (Matches, error) {
+	return nil, nil
+}
+
+// Ensure SpanWeight implements Weight
+var _ Weight = (*SpanWeight)(nil)

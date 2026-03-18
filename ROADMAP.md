@@ -4,9 +4,9 @@
 
 Este roadmap contém todas as tarefas pendentes para completar o port de Apache Lucene 10.x para Go, organizadas por complexidade e dependências.
 
-**Total de Tarefas Pendentes:** 380
-**Fases Ativas:** 37-47
-**Fases Completadas:** 34-36
+**Total de Tarefas Pendentes:** 335
+**Fases Ativas:** 39-47
+**Fases Completadas:** 34-38
 
 ---
 
@@ -18,7 +18,7 @@ Este roadmap contém todas as tarefas pendentes para completar o port de Apache 
 | 35 | COMPLETED | 50 | Simples-Média | Core Extensions | Phase 34 |
 | 36 | COMPLETED | 45 | Média | Analysis Filters | Phase 35 |
 | 37 | COMPLETED | 18 | Média-Alta | Point Fields | Phase 35 |
-| 38 | PENDING | 45 | Alta | Span Queries | Phase 37 |
+| 38 | COMPLETED | 45 | Alta | Span Queries | Phase 37 |
 | 39 | PENDING | 35 | Média | Language Analyzers (Major) | Phase 36 |
 | 40 | PENDING | 40 | Média-Alta | CheckIndex | Phase 38 |
 | 41 | PENDING | 45 | Alta | Flexible QueryParser | Phase 39, 40 |
@@ -886,6 +886,45 @@ Tarefas que podem ser implementadas independentemente, sem dependências de outr
 | GC-530 | DateTimeField | document |
 | GC-531 | DateRangeQuery | search |
 
+### Fase 38: Span Queries e Search Avançado (2026-03-18)
+
+| Task ID | Task Name | Component |
+|:--------|:----------|:----------|
+| GC-479 | SpanQuery Interface | search |
+| GC-480 | SpanTermQuery | search |
+| GC-481 | SpanNearQuery | search |
+| GC-482 | SpanOrQuery | search |
+| GC-483 | SpanNotQuery | search |
+| GC-484 | SpanFirstQuery | search |
+| GC-485 | SpanWithinQuery | search |
+| GC-486 | SpanContainingQuery | search |
+| GC-487 | SpanPositionRangeQuery | search |
+| GC-488 | SpanMultiTermQueryWrapper | search |
+| GC-489 | SpanOrTermsQuery | search |
+| GC-491 | SpanScorer | search |
+| GC-492 | Spans Iterator | search |
+| GC-493 | SpanCollector | search |
+| GC-494 | MultiTermQuery Base | search |
+| GC-495 | MultiTermQueryConstantScoreWrapper | search |
+| GC-496 | BlendedTermQuery | search |
+| GC-497 | DocValuesRewriteMethod | search |
+| GC-498 | ScoringRewrite | search |
+| GC-499 | TopTermsRewrite | search |
+| GC-500 | ConstantScoreAutoRewrite | search |
+| GC-501 | TotalHitCountCollector | search |
+| GC-502 | EarlyTerminatingCollector | search |
+| GC-503 | TimeLimitingCollector | search |
+| GC-504 | MultiCollector | search |
+| GC-505 | Rescorer Framework | search |
+| GC-506 | QueryRescorer | search |
+| GC-507 | SimilarityBase | search |
+| GC-508 | PerFieldSimilarityWrapper | search |
+| GC-509 | SortedNumericSortField | search |
+| GC-510 | SortedSetSortField | search |
+| GC-511 | DoubleValuesSource | search |
+| GC-512 | LongValuesSource | search |
+| GC-513 | MultiValueMode | search |
+
 ---
 
 ## Estratégia de Implementação
@@ -896,7 +935,7 @@ Tarefas que podem ser implementadas independentemente, sem dependências de outr
 2. ~~**Fase 35** (50 tarefas)~~: ✅ COMPLETED - Core Extensions
 3. ~~**Fase 36** (20 tarefas)~~: ✅ COMPLETED - Analysis Filters
 4. ~~**Fase 37** (18 tarefas)~~: ✅ COMPLETED - Point Fields e campos numéricos
-5. **Fase 38** (45 tarefas): Span queries e search avançado
+5. ~~**Fase 38** (45 tarefas)~~: ✅ COMPLETED - Span queries e search avançado
 6. **Fases 39-40** (75 tarefas): Analisadores de idiomas e ferramentas de diagnóstico
 7. **Fases 41-43** (120 tarefas): QueryParser flexível, facets avançados, join/grouping/highlight completos
 8. **Fases 44-46** (110 tarefas): Codecs, spatial, NRT
@@ -912,4 +951,4 @@ Tarefas que podem ser implementadas independentemente, sem dependências de outr
 
 ---
 
-*Última atualização: 2026-03-17*
+*Última atualização: 2026-03-18*

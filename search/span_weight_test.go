@@ -4,27 +4,31 @@
 
 package search
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+)
 
 func TestNewSpanWeight(t *testing.T) {
-	query := NewSpanQuery("field", "term")
+	query := NewSpanTermQuery(index.NewTerm("field", "term"))
 
 	sw := NewSpanWeight(query, nil)
 
-	if sw.Query != query {
-		t.Error("Expected Query to be set")
+	if sw.SpanQuery != query {
+		t.Error("Expected SpanQuery to be set")
 	}
 	if sw.Similarity != nil {
 		t.Error("Expected Similarity to be nil")
 	}
 }
 
-func TestSpanWeightGetQuery(t *testing.T) {
-	query := NewSpanQuery("field", "term")
+func TestSpanWeightGetSpanQuery(t *testing.T) {
+	query := NewSpanTermQuery(index.NewTerm("field", "term"))
 	sw := NewSpanWeight(query, nil)
 
-	if sw.GetQuery() != query {
-		t.Error("GetQuery should return the query")
+	if sw.GetSpanQuery() != query {
+		t.Error("GetSpanQuery should return the query")
 	}
 }
 
@@ -45,27 +49,27 @@ func TestSpanWeightIsCacheable(t *testing.T) {
 	}
 }
 
-func TestNewSpanQuery(t *testing.T) {
-	sq := NewSpanQuery("content", "hello")
+func TestNewSpanTermQuery(t *testing.T) {
+	sq := NewSpanTermQuery(index.NewTerm("content", "hello"))
 
-	if sq.Field != "content" {
-		t.Errorf("Expected field 'content', got '%s'", sq.Field)
+	if sq.GetField() != "content" {
+		t.Errorf("Expected field 'content', got '%s'", sq.GetField())
 	}
-	if sq.Term != "hello" {
-		t.Errorf("Expected term 'hello', got '%s'", sq.Term)
+	if sq.Term().Text() != "hello" {
+		t.Errorf("Expected term 'hello', got '%s'", sq.Term().Text())
 	}
 }
 
-func TestSpanQueryGetField(t *testing.T) {
-	sq := NewSpanQuery("field", "term")
+func TestSpanTermQueryGetField(t *testing.T) {
+	sq := NewSpanTermQuery(index.NewTerm("field", "term"))
 	if sq.GetField() != "field" {
 		t.Error("GetField should return the field")
 	}
 }
 
-func TestSpanQueryGetTerm(t *testing.T) {
-	sq := NewSpanQuery("field", "term")
-	if sq.GetTerm() != "term" {
-		t.Error("GetTerm should return the term")
+func TestSpanTermQueryTerm(t *testing.T) {
+	sq := NewSpanTermQuery(index.NewTerm("field", "term"))
+	if sq.Term().Text() != "term" {
+		t.Error("Term should return the term")
 	}
 }
