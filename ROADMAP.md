@@ -20,7 +20,7 @@ Este roadmap contém todas as tarefas pendentes para completar o port de Apache 
 | 37 | COMPLETED | 18 | Média-Alta | Point Fields | Phase 35 |
 | 38 | COMPLETED | 45 | Alta | Span Queries | Phase 37 |
 | 39 | COMPLETED | 35 | Média | Language Analyzers (Major) | Phase 36 |
-| 40 | PENDING | 40 | Média-Alta | CheckIndex | Phase 38 |
+| 40 | COMPLETED | 40 | Média-Alta | CheckIndex | Phase 38 |
 | 41 | PENDING | 45 | Alta | Flexible QueryParser | Phase 39, 40 |
 | 42 | PENDING | 35 | Alta | Advanced Facets | Phase 41 |
 | 43 | PENDING | 40 | Alta | Join/Grouping/Highlight | Phase 42 |
@@ -373,7 +373,7 @@ Tarefas que podem ser implementadas independentemente, sem dependências de outr
 
 ## FASE 40: CheckIndex e Ferramentas de Diagnóstico (Index Tools)
 
-**Status:** PENDING | **Tasks:** 40 | **Focus:** CheckIndex and index management tools
+**Status:** COMPLETED | **Tasks:** 40 | **Completed:** 2026-03-18 | **Focus:** CheckIndex and index management tools
 **Dependencies:** Phase 38 (Advanced Search)
 
 ### 40.1: CheckIndex Core
@@ -925,6 +925,42 @@ Tarefas que podem ser implementadas independentemente, sem dependências de outr
 | GC-512 | LongValuesSource | search |
 | GC-513 | MultiValueMode | search |
 
+### Fase 40: CheckIndex e Ferramentas de Diagnóstico (2026-03-18)
+
+| Task ID | Task Name | Component |
+|:--------|:----------|:----------|
+| GC-615 | CheckIndex Main | index |
+| GC-616 | CheckIndex.Status | index |
+| GC-617 | CheckIndex.SegmentInfoStatus | index |
+| GC-618 | CheckIndex.FieldNormStatus | index |
+| GC-619 | CheckIndex.TermIndexStatus | index |
+| GC-620 | CheckIndex.StoredFieldStatus | index |
+| GC-621 | CheckIndex.TermVectorStatus | index |
+| GC-622 | CheckIndex.DocValuesStatus | index |
+| GC-623 | CheckIndex.PointsStatus | index |
+| GC-624 | CheckIndex.VectorValuesStatus | index |
+| GC-625 | IndexUpgrader | index |
+| GC-626 | IndexSplitter | index |
+| GC-627 | PersistentSnapshotDeletionPolicy | index |
+| GC-629 | updateDocuments | index |
+| GC-630 | updateNumericDocValue | index |
+| GC-631 | updateBinaryDocValue | index |
+| GC-632 | addIndexesSlowly | index |
+| GC-633 | tryDeleteDocument | index |
+| GC-634 | flushOnUpdate | index |
+| GC-635 | getPendingNumDocs | index |
+| GC-636 | LogMergePolicy | index |
+| GC-637 | LogByteSizeMergePolicy | index |
+| GC-638 | LogDocMergePolicy | index |
+| GC-639 | NoMergePolicy | index |
+| GC-640 | ForceMergePolicy | index |
+| GC-641 | openIfChanged | index |
+| GC-642 | getTermVectors | index |
+| GC-643 | numDeletedDocs | index |
+| GC-644 | getDocCount | index |
+| GC-645 | getSumDocFreq | index |
+| GC-646 | getSumTotalTermFreq | index |
+
 ### Fase 39: Analisadores de Idiomas Principais (2026-03-18)
 
 | Task ID | Task Name | Component |
@@ -960,8 +996,8 @@ Tarefas que podem ser implementadas independentemente, sem dependências de outr
 4. ~~**Fase 37** (18 tarefas)~~: ✅ COMPLETED - Point Fields e campos numéricos
 5. ~~**Fase 38** (45 tarefas)~~: ✅ COMPLETED - Span queries e search avançado
 6. ~~**Fase 39** (35 tarefas)~~: ✅ COMPLETED - Analisadores de idiomas principais
-7. **Fase 40** (40 tarefas): Ferramentas de diagnóstico (CheckIndex)
-7. **Fases 41-43** (120 tarefas): QueryParser flexível, facets avançados, join/grouping/highlight completos
+7. ~~**Fase 40** (40 tarefas)~~: ✅ COMPLETED - Ferramentas de diagnóstico (CheckIndex)
+8. **Fases 41-43** (120 tarefas): QueryParser flexível, facets avançados, join/grouping/highlight completos
 8. **Fases 44-46** (110 tarefas): Codecs, spatial, NRT
 9. **Fase 47** (40 tarefas): Idiomas adicionais
 
@@ -976,3 +1012,64 @@ Tarefas que podem ser implementadas independentemente, sem dependências de outr
 ---
 
 *Última atualização: 2026-03-18*
+
+---
+
+## FASE 41: QueryParser Flexible Framework (Flexible QueryParser)
+
+**Status:** IN_PROGRESS | **Tasks:** 45 | **Focus:** Flexible query parser framework
+**Dependencies:** Phase 39 (Major Language Analyzers), Phase 40 (Index Tools)
+
+### 41.1: QueryNode Tree (Core Nodes)
+
+| Task ID | Task Name | Complexity | Specialists |
+|:--------|:----------|:-----------|:------------|
+| GC-415 | QueryNode Interface | MEDIUM | go-elite-developer, gocene-lucene-specialist |
+| GC-416 | QueryNodeImpl | MEDIUM | go-elite-developer |
+| GC-417 | FieldQueryNode | MEDIUM | go-elite-developer |
+| GC-418 | BooleanQueryNode | MEDIUM | go-elite-developer |
+| GC-419 | AndQueryNode | LOW | go-elite-developer |
+| GC-420 | OrQueryNode | LOW | go-elite-developer |
+| GC-421 | ModifierQueryNode | MEDIUM | go-elite-developer |
+| GC-422 | BoostQueryNode | MEDIUM | go-elite-developer |
+| GC-423 | FuzzyQueryNode | MEDIUM | go-elite-developer |
+| GC-424 | RangeQueryNode | MEDIUM | go-elite-developer |
+| GC-425 | PhraseSlopQueryNode | MEDIUM | go-elite-developer |
+| GC-426 | GroupQueryNode | LOW | go-elite-developer |
+| GC-427 | MatchAllDocsQueryNode | LOW | go-elite-developer |
+| GC-428 | MatchNoDocsQueryNode | LOW | go-elite-developer |
+
+### 41.2: QueryNode Processors
+
+| Task ID | Task Name | Complexity | Specialists |
+|:--------|:----------|:-----------|:------------|
+| GC-429 | QueryNodeProcessor Interface | MEDIUM | go-elite-developer |
+| GC-430 | QueryNodeProcessorImpl | MEDIUM | go-elite-developer |
+| GC-431 | QueryNodeProcessorPipeline | HIGH | go-elite-developer |
+| GC-432 | NoChildOptimizationProcessor | MEDIUM | go-elite-developer |
+| GC-433 | RemoveDeletedQueryNodesProcessor | MEDIUM | go-elite-developer |
+
+### 41.3: QueryNode Builders
+
+| Task ID | Task Name | Complexity | Specialists |
+|:--------|:----------|:-----------|:------------|
+| GC-434 | QueryBuilder Interface | MEDIUM | go-elite-developer |
+| GC-435 | QueryTreeBuilder | HIGH | go-elite-developer |
+| GC-436 | BooleanQueryNodeBuilder | MEDIUM | go-elite-developer |
+| GC-437 | FieldQueryNodeBuilder | MEDIUM | go-elite-developer |
+| GC-438 | BoostQueryNodeBuilder | MEDIUM | go-elite-developer |
+| GC-439 | FuzzyQueryNodeBuilder | MEDIUM | go-elite-developer |
+| GC-440 | RangeQueryNodeBuilder | MEDIUM | go-elite-developer |
+| GC-441 | PhraseQueryNodeBuilder | MEDIUM | go-elite-developer |
+| GC-442 | TermRangeQueryNodeBuilder | MEDIUM | go-elite-developer |
+| GC-443 | WildcardQueryNodeBuilder | MEDIUM | go-elite-developer |
+
+### 41.4: Standard QueryParser
+
+| Task ID | Task Name | Complexity | Specialists |
+|:--------|:----------|:-----------|:------------|
+| GC-444 | StandardQueryConfigHandler | MEDIUM | go-elite-developer |
+| GC-445 | StandardSyntaxParser | HIGH | go-elite-developer, gocene-lucene-specialist |
+| GC-446 | StandardQueryNodeProcessorPipeline | HIGH | go-elite-developer |
+| GC-447 | StandardQueryTreeBuilder | HIGH | go-elite-developer |
+| GC-448 | StandardQueryParser | HIGH | go-elite-developer, gocene-lucene-specialist |
