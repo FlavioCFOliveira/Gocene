@@ -13,8 +13,8 @@ import (
 // MockIndexReader is a mock implementation of IndexReaderInterface for testing
 type MockIndexReader struct {
 	*IndexReader
-	maxDocVal   int
-	numDocsVal  int
+	maxDocVal    int
+	numDocsVal   int
 	hasDeletions bool
 }
 
@@ -202,17 +202,17 @@ func TestBaseCompositeReaderReaderIndex(t *testing.T) {
 		docID    int
 		expected int
 	}{
-		{0, 0},   // First reader
-		{5, 0},   // First reader
-		{9, 0},   // First reader (last doc)
-		{10, 1},  // Second reader (first doc)
-		{15, 1},  // Second reader
-		{29, 1},  // Second reader (last doc)
-		{30, 2},  // Third reader (first doc)
-		{45, 2},  // Third reader
-		{59, 2},  // Third reader (last doc)
-		{-1, -1}, // Invalid
-		{60, -1}, // Invalid (equal to maxDoc)
+		{0, 0},    // First reader
+		{5, 0},    // First reader
+		{9, 0},    // First reader (last doc)
+		{10, 1},   // Second reader (first doc)
+		{15, 1},   // Second reader
+		{29, 1},   // Second reader (last doc)
+		{30, 2},   // Third reader (first doc)
+		{45, 2},   // Third reader
+		{59, 2},   // Third reader (last doc)
+		{-1, -1},  // Invalid
+		{60, -1},  // Invalid (equal to maxDoc)
 		{100, -1}, // Invalid
 	}
 

@@ -12,8 +12,8 @@ import "fmt"
 //
 // This is the Go port of Lucene's org.apache.lucene.search.PointQuery.
 type PointQuery struct {
-	field string
-	numDims int
+	field       string
+	numDims     int
 	bytesPerDim int
 }
 

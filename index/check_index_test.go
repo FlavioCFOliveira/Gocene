@@ -730,10 +730,10 @@ func TestCheckIndex_StatusStructure(t *testing.T) {
 	}
 
 	segStatus.TermIndexStatus = &index.TermIndexStatus{
-		TermCount:   100,
+		TermCount:    100,
 		DelTermCount: 0,
-		TotFreq:     200,
-		TotPos:      300,
+		TotFreq:      200,
+		TotPos:       300,
 	}
 
 	segStatus.StoredFieldStatus = &index.StoredFieldStatus{
@@ -742,18 +742,18 @@ func TestCheckIndex_StatusStructure(t *testing.T) {
 	}
 
 	segStatus.TermVectorStatus = &index.TermVectorStatus{
-		DocCount:  10,
+		DocCount:   10,
 		TotVectors: 10,
 	}
 
 	segStatus.DocValuesStatus = &index.DocValuesStatus{
-		TotalValueFields:       5,
-		TotalNumericFields:     2,
-		TotalBinaryFields:      1,
-		TotalSortedFields:      1,
+		TotalValueFields:         5,
+		TotalNumericFields:       2,
+		TotalBinaryFields:        1,
+		TotalSortedFields:        1,
 		TotalSortedNumericFields: 0,
-		TotalSortedSetFields:   1,
-		TotalSkippingIndex:     1,
+		TotalSortedSetFields:     1,
+		TotalSkippingIndex:       1,
 	}
 
 	segStatus.PointsStatus = &index.PointsStatus{
@@ -762,7 +762,7 @@ func TestCheckIndex_StatusStructure(t *testing.T) {
 	}
 
 	segStatus.VectorValuesStatus = &index.VectorValuesStatus{
-		TotalVectorValues:  20,
+		TotalVectorValues:    20,
 		TotalKnnVectorFields: 2,
 	}
 

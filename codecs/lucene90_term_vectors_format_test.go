@@ -307,7 +307,7 @@ type TestOptions struct {
 func ValidOptions() []TestOptions {
 	return []TestOptions{
 		{Positions: false, Offsets: false, Payloads: false}, // Term frequencies only
-		{Positions: true, Offsets: false, Payloads: false},   // + Positions
+		{Positions: true, Offsets: false, Payloads: false},  // + Positions
 		{Positions: false, Offsets: true, Payloads: false},  // + Offsets
 		{Positions: true, Offsets: true, Payloads: false},   // + Positions and Offsets
 		{Positions: true, Offsets: false, Payloads: true},   // + Positions and Payloads

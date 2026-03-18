@@ -7,10 +7,10 @@ package search
 // SpanScorer scores span queries.
 // This is the Go port of Lucene's org.apache.lucene.search.spans.SpanScorer.
 type SpanScorer struct {
-	spans     *Spans
-	score     float32
-	doc       int
-	freq      float32
+	spans *Spans
+	score float32
+	doc   int
+	freq  float32
 }
 
 // NewSpanScorer creates a new SpanScorer.

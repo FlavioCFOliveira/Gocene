@@ -193,9 +193,9 @@ type DirectoryReader struct {
 type SegmentReader struct {
 	*LeafReader
 	segmentCommitInfo *SegmentCommitInfo
-	coreReaders        *SegmentCoreReaders
-	fieldInfos         *FieldInfos
-	codec              Codec
+	coreReaders       *SegmentCoreReaders
+	fieldInfos        *FieldInfos
+	codec             Codec
 }
 
 // NewSegmentReader creates a new SegmentReader.

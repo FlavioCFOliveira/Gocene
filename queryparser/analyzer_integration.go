@@ -16,8 +16,8 @@ import (
 // AnalyzerIntegration provides integration between the query parser and analysis components.
 // This enables proper tokenization and analysis of query text.
 type AnalyzerIntegration struct {
-	analyzer          analysis.Analyzer
-	defaultField      string
+	analyzer           analysis.Analyzer
+	defaultField       string
 	positionIncrements bool
 }
 
@@ -186,11 +186,11 @@ func (ai *AnalyzerIntegration) IsMultiTerm(field, text string) bool {
 
 // TokenInfo holds information about a token.
 type TokenInfo struct {
-	Term      string
-	Position  int
+	Term        string
+	Position    int
 	StartOffset int
 	EndOffset   int
-	Type      string
+	Type        string
 }
 
 // QueryAnalyzer provides high-level query analysis functionality.

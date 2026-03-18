@@ -743,7 +743,7 @@ func TestPagedBytes_CopyUsingLengthPrefixErrors(t *testing.T) {
 	}
 
 	// Test data too large for block
-	pb2, _ := NewPagedBytes(5) // 32 byte blocks
+	pb2, _ := NewPagedBytes(5)     // 32 byte blocks
 	mediumData := make([]byte, 50) // Exceeds block size - 2
 	br2 := NewBytesRef(mediumData)
 	_, err = pb2.CopyUsingLengthPrefix(br2)

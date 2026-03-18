@@ -157,32 +157,32 @@ func TestWordDelimiterFilter_PreserveOriginal(t *testing.T) {
 // Purpose: Tests that position increments are set correctly for split tokens.
 func TestWordDelimiterFilter_PositionIncrement(t *testing.T) {
 	tests := []struct {
-		name            string
-		input           string
+		name             string
+		input            string
 		preserveOriginal bool
-		expectedTokens  []string
-		expectedPosIncs []int
+		expectedTokens   []string
+		expectedPosIncs  []int
 	}{
 		{
-			name:            "Split without original",
-			input:           "PowerShot",
+			name:             "Split without original",
+			input:            "PowerShot",
 			preserveOriginal: false,
-			expectedTokens:  []string{"Power", "Shot"},
-			expectedPosIncs: []int{1, 0},
+			expectedTokens:   []string{"Power", "Shot"},
+			expectedPosIncs:  []int{1, 0},
 		},
 		{
-			name:            "Split with original",
-			input:           "PowerShot",
+			name:             "Split with original",
+			input:            "PowerShot",
 			preserveOriginal: true,
-			expectedTokens:  []string{"PowerShot", "Power", "Shot"},
-			expectedPosIncs: []int{1, 0, 0},
+			expectedTokens:   []string{"PowerShot", "Power", "Shot"},
+			expectedPosIncs:  []int{1, 0, 0},
 		},
 		{
-			name:            "Multiple words split",
-			input:           "j2se test",
+			name:             "Multiple words split",
+			input:            "j2se test",
 			preserveOriginal: false,
-			expectedTokens:  []string{"j", "2", "se", "test"},
-			expectedPosIncs: []int{1, 0, 0, 1},
+			expectedTokens:   []string{"j", "2", "se", "test"},
+			expectedPosIncs:  []int{1, 0, 0, 1},
 		},
 	}
 

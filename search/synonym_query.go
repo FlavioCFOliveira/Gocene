@@ -12,8 +12,8 @@ import (
 // This is the Go port of Lucene's org.apache.lucene.search.SynonymQuery.
 type SynonymQuery struct {
 	*BaseQuery
-	field string
-	terms []*index.Term
+	field  string
+	terms  []*index.Term
 	boosts []float32
 }
 

@@ -10,7 +10,7 @@ import (
 type MockQuery struct{}
 
 func (q *MockQuery) Rewrite(reader search.IndexReader) (search.Query, error) { return q, nil }
-func (q *MockQuery) Clone() search.Query                                      { return &MockQuery{} }
+func (q *MockQuery) Clone() search.Query                                     { return &MockQuery{} }
 func (q *MockQuery) Equals(other search.Query) bool                          { _, ok := other.(*MockQuery); return ok }
 func (q *MockQuery) HashCode() int                                           { return 42 }
 func (q *MockQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
@@ -108,27 +108,20 @@ func TestToParentBlockJoinQueryString(t *testing.T) {
 	}
 }
 
-func TestNewToParentBlockJoinWeight(t *testing.T) {
+func TestBlockJoinWeightFromParentQuery(t *testing.T) {
 	// This is a basic test since we can't easily create real weights
-	w := NewToParentBlockJoinWeight(nil, nil, Max)
+	childQuery := &MockQuery{}
+	w := NewBlockJoinWeight(childQuery, nil, nil, Max)
 
 	if w == nil {
-		t.Fatal("Expected ToParentBlockJoinWeight to be created")
+		t.Fatal("Expected BlockJoinWeight to be created")
 	}
 
-	if w.scoreMode != Max {
-		t.Errorf("Expected score mode Max, got %v", w.scoreMode)
+	if w.GetScoreMode() != Max {
+		t.Errorf("Expected score mode Max, got %v", w.GetScoreMode())
 	}
-}
 
-func TestToParentBlockJoinWeightGetValueForNormalization(t *testing.T) {
-	w := NewToParentBlockJoinWeight(nil, nil, Max)
-	// Should not panic with nil weights
-	_ = w.GetValueForNormalization()
-}
-
-func TestToParentBlockJoinWeightNormalize(t *testing.T) {
-	w := NewToParentBlockJoinWeight(nil, nil, Max)
-	// Should not panic with nil weights
-	w.Normalize(1.0)
+	if w.GetQuery() != childQuery {
+		t.Error("Expected query to match")
+	}
 }

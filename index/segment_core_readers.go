@@ -64,10 +64,10 @@ func NewSegmentCoreReaders(
 	context store.IOContext,
 ) (*SegmentCoreReaders, error) {
 	core := &SegmentCoreReaders{
-		refCount:     atomic.Int32{},
-		fieldInfos:   fieldInfos,
-		segmentName:  segmentInfo.Name(),
-		directory:    directory,
+		refCount:    atomic.Int32{},
+		fieldInfos:  fieldInfos,
+		segmentName: segmentInfo.Name(),
+		directory:   directory,
 	}
 	core.refCount.Store(1)
 

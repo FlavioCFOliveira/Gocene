@@ -316,7 +316,7 @@ func TestConjunctionDISI_IllegalAdvancementOfSubIterators(t *testing.T) {
 
 	conjunction, err := search.IntersectIterators(iterators)
 	if err != nil {
-			t.Fatalf("Failed to create conjunction: %v", err)
+		t.Fatalf("Failed to create conjunction: %v", err)
 	}
 
 	// Illegally advance one of the sub-iterators

@@ -12,11 +12,11 @@ import (
 // Constants for ByteBuffersDataOutput
 const (
 	DefaultMinBitsPerBlock        = 10 // 1024 B
-	DefaultMaxBitsPerBlock          = 26 // 64 MB
-	LimitMinBitsPerBlock            = 1
-	LimitMaxBitsPerBlock            = 31
-	MaxBlocksBeforeBlockExpansion   = 100
-	NumBytesObjectRef               = 8 // On 64-bit systems
+	DefaultMaxBitsPerBlock        = 26 // 64 MB
+	LimitMinBitsPerBlock          = 1
+	LimitMaxBitsPerBlock          = 31
+	MaxBlocksBeforeBlockExpansion = 100
+	NumBytesObjectRef             = 8 // On 64-bit systems
 )
 
 // ByteBuffersDataOutput is a DataOutput implementation that stores data in a list of byte buffers.

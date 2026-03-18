@@ -36,7 +36,7 @@ const (
 
 // Constants for sin/cos table generation
 const (
-	pio2      = math.Pi / 2.0
+	pio2           = math.Pi / 2.0
 	sinCosTabsSize = (1 << 11) + 1
 )
 
@@ -45,9 +45,9 @@ var (
 	// 1.57079632673412561417e+00 first 33 bits of pi/2
 	pio2Hi = math.Float64frombits(0x3FF921FB54400000)
 	// 6.07710050650619224932e-11 pi/2 - PIO2_HI
-	pio2Lo = math.Float64frombits(0x3DD0B4611A626331)
-	twoPiHi = 4 * pio2Hi
-	twoPiLo = 4 * pio2Lo
+	pio2Lo        = math.Float64frombits(0x3DD0B4611A626331)
+	twoPiHi       = 4 * pio2Hi
+	twoPiLo       = 4 * pio2Lo
 	sinCosDeltaHi = twoPiHi / (sinCosTabsSize - 1)
 	sinCosDeltaLo = twoPiLo / (sinCosTabsSize - 1)
 	sinCosIndexer = 1.0 / (sinCosDeltaHi + sinCosDeltaLo)

@@ -41,8 +41,8 @@ type MockDirectoryWrapper struct {
 	crashOnClose     bool
 	mu               sync.RWMutex
 	// Track open files for cleanup verification
-	openOutputs      map[string]bool
-	openInputs       map[string]bool
+	openOutputs map[string]bool
+	openInputs  map[string]bool
 }
 
 // NewMockDirectoryWrapper creates a new MockDirectoryWrapper wrapping the given directory.

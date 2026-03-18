@@ -89,10 +89,10 @@ func (f *Lucene104PostingsFormat) FieldsProducer(state *SegmentReadState) (Field
 
 // Lucene104FieldsConsumer writes postings data to disk.
 type Lucene104FieldsConsumer struct {
-	state   *SegmentWriteState
-	fields  map[string]*fieldData
-	mu      sync.Mutex
-	closed  bool
+	state  *SegmentWriteState
+	fields map[string]*fieldData
+	mu     sync.Mutex
+	closed bool
 }
 
 // fieldData stores all data for a single field
@@ -352,10 +352,10 @@ func (c *Lucene104FieldsConsumer) Close() error {
 
 // Lucene104FieldsProducer reads postings data from disk.
 type Lucene104FieldsProducer struct {
-	state    *SegmentReadState
-	fields   map[string]*fieldDataRead
-	mu       sync.RWMutex
-	closed   bool
+	state  *SegmentReadState
+	fields map[string]*fieldDataRead
+	mu     sync.RWMutex
+	closed bool
 }
 
 // fieldDataRead stores all data for a single field (read format)

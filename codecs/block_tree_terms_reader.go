@@ -293,10 +293,10 @@ func (t *BlockTreeTerms) GetMax() (*index.Term, error) {
 
 // BlockTreeTermsEnum implements index.TermsEnum for block tree terms.
 type BlockTreeTermsEnum struct {
-	terms      *BlockTreeTerms
-	current    *TrieNode
-	termBytes  *util.BytesRefBuilder
-	seekTerm   *index.Term
+	terms       *BlockTreeTerms
+	current     *TrieNode
+	termBytes   *util.BytesRefBuilder
+	seekTerm    *index.Term
 	seekPending bool
 }
 

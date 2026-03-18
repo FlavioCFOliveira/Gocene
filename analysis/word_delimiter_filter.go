@@ -55,10 +55,10 @@ type WordDelimiterFilter struct {
 
 // savedToken represents a token to be emitted
 type savedToken struct {
-	text       string
+	text        string
 	startOffset int
 	endOffset   int
-	posInc     int
+	posInc      int
 }
 
 // NewWordDelimiterFilter creates a new WordDelimiterFilter with the given configuration.

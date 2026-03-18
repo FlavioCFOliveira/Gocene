@@ -69,9 +69,9 @@ type LogMergePolicy struct {
 func NewLogMergePolicy() *LogMergePolicy {
 	return &LogMergePolicy{
 		BaseMergePolicy:            NewBaseMergePolicy(),
-		minMergeSize:               1677721, // 1.6 MB
-		maxMergeSize:               2048 * 1024 * 1024,              // 2 GB
-		maxMergeSizeForForcedMerge: 0,                               // unlimited
+		minMergeSize:               1677721,            // 1.6 MB
+		maxMergeSize:               2048 * 1024 * 1024, // 2 GB
+		maxMergeSizeForForcedMerge: 0,                  // unlimited
 		mergeFactor:                10,
 		noCFSRatio:                 0.0,
 		maxMergeDocs:               math.MaxInt32,

@@ -12,11 +12,11 @@ import (
 
 // Lucene99HnswVectorsReader reads HNSW vector data for Lucene 9.9+ format.
 type Lucene99HnswVectorsReader struct {
-	state          *SegmentReadState
-	closed         bool
-	vectorDataIn   store.IndexInput
-	vectorIndexIn  store.IndexInput
-	vectorDataSize int64
+	state           *SegmentReadState
+	closed          bool
+	vectorDataIn    store.IndexInput
+	vectorIndexIn   store.IndexInput
+	vectorDataSize  int64
 	vectorIndexSize int64
 }
 

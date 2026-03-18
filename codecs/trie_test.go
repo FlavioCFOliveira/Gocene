@@ -78,7 +78,7 @@ func testTrieBuilder(t *testing.T, randomBytesSupplier func() []byte, count int)
 		key := util.NewBytesRef(randomBytesSupplier())
 		value := NewTrieOutput(
 			rand.Int63()&(1<<62-1), // random positive long < 1L << 62
-			rand.Int()%2 == 0,       // random boolean
+			rand.Int()%2 == 0,      // random boolean
 			util.NewBytesRef(randomBytesSupplier()),
 		)
 		expected[key.String()] = value

@@ -21,9 +21,9 @@ const (
 	TokenNOT = 10
 
 	// Modifiers and prefixes.
-	TokenPLUS      = 11
-	TokenMINUS     = 12
-	TokenBAREOPER  = 13
+	TokenPLUS     = 11
+	TokenMINUS    = 12
+	TokenBAREOPER = 13
 
 	// Structural tokens.
 	TokenLPAREN = 14
@@ -33,22 +33,22 @@ const (
 	TokenCARAT  = 18
 
 	// Term types.
-	TokenQUOTED      = 19
-	TokenTERM        = 20
-	TokenFUZZY_SLOP  = 21
-	TokenPREFIXTERM  = 22
-	TokenWILDTERM    = 23
-	TokenREGEXPTERM  = 24
-	TokenNUMBER      = 25
+	TokenQUOTED     = 19
+	TokenTERM       = 20
+	TokenFUZZY_SLOP = 21
+	TokenPREFIXTERM = 22
+	TokenWILDTERM   = 23
+	TokenREGEXPTERM = 24
+	TokenNUMBER     = 25
 
 	// Range query tokens.
-	TokenRANGEIN_START  = 26
-	TokenRANGEIN_END    = 27
-	TokenRANGEEX_START  = 28
-	TokenRANGEEX_END    = 29
-	TokenRANGE_TO       = 30
-	TokenRANGE_QUOTED   = 31
-	TokenRANGE_GOOP     = 32
+	TokenRANGEIN_START = 26
+	TokenRANGEIN_END   = 27
+	TokenRANGEEX_START = 28
+	TokenRANGEEX_END   = 29
+	TokenRANGE_TO      = 30
+	TokenRANGE_QUOTED  = 31
+	TokenRANGE_GOOP    = 32
 
 	// Lexical states.
 	DefaultState = 0
@@ -100,31 +100,31 @@ var TokenImage = []string{
 // TokenNames maps token constants to their human-readable names.
 // Useful for debugging and error messages.
 var TokenNames = map[int]string{
-	EOF:               "EOF",
-	NumChar:           "NUM_CHAR",
-	EscapedChar:       "ESCAPED_CHAR",
-	TermStartChar:     "TERM_START_CHAR",
-	TermChar:          "TERM_CHAR",
-	Whitespace:        "WHITESPACE",
-	QuotedChar:        "QUOTED_CHAR",
-	TokenAND:          "AND",
-	TokenOR:           "OR",
-	TokenNOT:          "NOT",
-	TokenPLUS:         "PLUS",
-	TokenMINUS:        "MINUS",
-	TokenBAREOPER:     "BAREOPER",
-	TokenLPAREN:       "LPAREN",
-	TokenRPAREN:       "RPAREN",
-	TokenCOLON:        "COLON",
-	TokenSTAR:         "STAR",
-	TokenCARAT:        "CARAT",
-	TokenQUOTED:       "QUOTED",
-	TokenTERM:         "TERM",
-	TokenFUZZY_SLOP:   "FUZZY_SLOP",
-	TokenPREFIXTERM:   "PREFIXTERM",
-	TokenWILDTERM:     "WILDTERM",
-	TokenREGEXPTERM:   "REGEXPTERM",
-	TokenNUMBER:       "NUMBER",
+	EOF:                "EOF",
+	NumChar:            "NUM_CHAR",
+	EscapedChar:        "ESCAPED_CHAR",
+	TermStartChar:      "TERM_START_CHAR",
+	TermChar:           "TERM_CHAR",
+	Whitespace:         "WHITESPACE",
+	QuotedChar:         "QUOTED_CHAR",
+	TokenAND:           "AND",
+	TokenOR:            "OR",
+	TokenNOT:           "NOT",
+	TokenPLUS:          "PLUS",
+	TokenMINUS:         "MINUS",
+	TokenBAREOPER:      "BAREOPER",
+	TokenLPAREN:        "LPAREN",
+	TokenRPAREN:        "RPAREN",
+	TokenCOLON:         "COLON",
+	TokenSTAR:          "STAR",
+	TokenCARAT:         "CARAT",
+	TokenQUOTED:        "QUOTED",
+	TokenTERM:          "TERM",
+	TokenFUZZY_SLOP:    "FUZZY_SLOP",
+	TokenPREFIXTERM:    "PREFIXTERM",
+	TokenWILDTERM:      "WILDTERM",
+	TokenREGEXPTERM:    "REGEXPTERM",
+	TokenNUMBER:        "NUMBER",
 	TokenRANGEIN_START: "RANGEIN_START",
 	TokenRANGEIN_END:   "RANGEIN_END",
 	TokenRANGEEX_START: "RANGEEX_START",

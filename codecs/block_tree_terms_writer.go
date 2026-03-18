@@ -17,14 +17,14 @@ import (
 // This is the Go port of Lucene's BlockTreeTermsWriter.
 // It provides efficient term dictionary writing using a trie-based index structure.
 type BlockTreeTermsWriter struct {
-	state      *SegmentWriteState
-	fields     map[string]*blockTreeFieldWriter
-	mu         sync.Mutex
-	closed     bool
+	state  *SegmentWriteState
+	fields map[string]*blockTreeFieldWriter
+	mu     sync.Mutex
+	closed bool
 
 	// Output files
-	timOut     store.IndexOutput  // Terms block file (.tim)
-	tipOut     store.IndexOutput  // Terms index file (.tip)
+	timOut store.IndexOutput // Terms block file (.tim)
+	tipOut store.IndexOutput // Terms index file (.tip)
 }
 
 // blockTreeFieldWriter handles writing for a single field
@@ -37,10 +37,10 @@ type blockTreeFieldWriter struct {
 
 // blockTreeTermEntry represents a single term entry to be written
 type blockTreeTermEntry struct {
-	termText     string
-	docFreq      int
+	termText      string
+	docFreq       int
 	totalTermFreq int64
-	postings     []index.PostingsEnum
+	postings      []index.PostingsEnum
 }
 
 // NewBlockTreeTermsWriter creates a new BlockTreeTermsWriter.

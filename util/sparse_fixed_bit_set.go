@@ -12,9 +12,9 @@ import (
 
 // SparseFixedBitSet is a bit set that only stores longs that have at least one bit set.
 // The space of bits is divided into blocks of 4096 bits (64 longs). For each block:
-// - a long[] which stores the non-zero longs for that block
-// - a long so that bit i being set means that the i-th long of the block is non-null,
-//   and its offset in the array of longs is the number of one bits on the right of the i-th bit
+//   - a long[] which stores the non-zero longs for that block
+//   - a long so that bit i being set means that the i-th long of the block is non-null,
+//     and its offset in the array of longs is the number of one bits on the right of the i-th bit
 //
 // This is the Go port of Lucene's org.apache.lucene.util.SparseFixedBitSet.
 type SparseFixedBitSet struct {
@@ -102,7 +102,7 @@ func (sfs *SparseFixedBitSet) ApproximateCardinality() int {
 	// We are assuming that bits are uniformly set and use the linear counting
 	// algorithm to estimate the number of bits that are set based on the number
 	// of longs that are different from zero
-	totalLongs := (sfs.length + 63) >> 6 // total number of longs in the space
+	totalLongs := (sfs.length + 63) >> 6           // total number of longs in the space
 	zeroLongs := totalLongs - sfs.nonZeroLongCount // number of longs that are zeros
 
 	if zeroLongs == 0 {

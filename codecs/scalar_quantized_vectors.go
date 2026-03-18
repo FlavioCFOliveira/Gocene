@@ -229,7 +229,7 @@ func NewLucene104ScalarQuantizedVectorsWriter(state *SegmentWriteState, encoding
 
 	return &Lucene104ScalarQuantizedVectorsWriter{
 		encoding:      encoding,
-		segmentState:    state,
+		segmentState:  state,
 		vectorDataOut: vectorDataOut,
 		metaOut:       metaOut,
 		fieldWriters:  make(map[string]*quantizedFieldWriter),

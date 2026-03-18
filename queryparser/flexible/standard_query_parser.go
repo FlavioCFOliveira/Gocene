@@ -128,9 +128,9 @@ func (p *StandardSyntaxParser) Parse(query string) (QueryNode, error) {
 
 // queryStringParser is a recursive descent parser for query strings.
 type queryStringParser struct {
-	input    string
-	pos      int
-	config   *StandardQueryConfigHandler
+	input  string
+	pos    int
+	config *StandardQueryConfigHandler
 }
 
 // newQueryStringParser creates a new queryStringParser.

@@ -55,4 +55,3 @@ func TestBoostQuery_Equals(t *testing.T) {
 		t.Error("Expected q1 and q4 to be different (different boost)")
 	}
 }
-

@@ -13,10 +13,10 @@ import (
 //
 // This is the Go port of Lucene's org.apache.lucene.search.RangeFieldQuery.
 type RangeFieldQuery struct {
-	field          string
-	queryMin       []byte
-	queryMax       []byte
-	queryType      RangeFieldQueryType
+	field     string
+	queryMin  []byte
+	queryMax  []byte
+	queryType RangeFieldQueryType
 }
 
 // RangeFieldQueryType defines the type of range query.

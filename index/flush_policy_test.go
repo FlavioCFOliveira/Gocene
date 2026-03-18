@@ -27,14 +27,14 @@ import (
 type MockFlushPolicy struct {
 	index.FlushPolicy
 
-	maxBufferedDocs        int
-	ramBufferSizeMB        float64
-	flushOnRAM             bool
-	flushOnDocCount        bool
-	peakBytesWithoutFlush  int64
+	maxBufferedDocs          int
+	ramBufferSizeMB          float64
+	flushOnRAM               bool
+	flushOnDocCount          bool
+	peakBytesWithoutFlush    int64
 	peakDocCountWithoutFlush int
-	hasMarkedPending       bool
-	mu                     sync.RWMutex
+	hasMarkedPending         bool
+	mu                       sync.RWMutex
 }
 
 // NewMockFlushPolicy creates a new MockFlushPolicy.
@@ -119,15 +119,15 @@ func (p *MockFlushPolicy) HasMarkedPending() bool {
 // IndexThread simulates a thread that indexes documents.
 // This is the Go equivalent of the IndexThread inner class in Java.
 type IndexThread struct {
-	writer          *index.IndexWriter
-	pendingDocs     *atomic.Int32
-	numThreads      int
-	docs            []document.Document
-	doRandomCommit  bool
-	ramSize         int64
-	mu              sync.RWMutex
-	err             error
-	done            chan bool
+	writer         *index.IndexWriter
+	pendingDocs    *atomic.Int32
+	numThreads     int
+	docs           []document.Document
+	doRandomCommit bool
+	ramSize        int64
+	mu             sync.RWMutex
+	err            error
+	done           chan bool
 }
 
 // NewIndexThread creates a new IndexThread.
@@ -413,7 +413,7 @@ func TestFlushPolicyRandom(t *testing.T) {
 
 	// Create flush policy with random settings
 	flushPolicy := NewMockFlushPolicy(
-		10+rng.Intn(50),    // maxBufferedDocs
+		10+rng.Intn(50),      // maxBufferedDocs
 		1.0+rng.Float64()*10, // ramBufferSizeMB
 	)
 

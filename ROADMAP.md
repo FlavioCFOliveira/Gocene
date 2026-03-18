@@ -538,16 +538,16 @@ Tarefas que podem ser implementadas independentemente, sem dependências de outr
 
 ## FASE 43: Join, Grouping e Highlight Completos (Advanced Features)
 
-**Status:** PENDING | **Tasks:** 40 | **Focus:** Complete join, grouping, and highlight
+**Status:** IN_PROGRESS | **Tasks:** 40 | **Completed:** 3/40 | **Focus:** Complete join, grouping, and highlight
 **Dependencies:** Phase 42 (Advanced Facets)
 
 ### 43.1: Join Completo
 
 | Task ID | Task Name | Complexity | Specialists |
 |:--------|:----------|:-----------|:------------|
-| GC-444 | BlockJoinWeight | HIGH | go-elite-developer |
-| GC-445 | BlockJoinScorer | HIGH | go-elite-developer |
-| GC-446 | BlockJoinQuery Base | HIGH | go-elite-developer |
+| GC-444 | ~~BlockJoinWeight~~ | HIGH | go-elite-developer |
+| GC-445 | ~~BlockJoinScorer~~ | HIGH | go-elite-developer |
+| GC-446 | ~~BlockJoinQuery Base~~ | HIGH | go-elite-developer |
 | GC-450 | TermsWithScoreCollector | MEDIUM | go-elite-developer |
 
 ### 43.2: Grouping Completo
@@ -810,6 +810,14 @@ Tarefas que podem ser implementadas independentemente, sem dependências de outr
 | GC-470 | TokenSources | highlight |
 | GC-447 | BitSetProducer | join |
 | GC-441 | BlockJoinCollector | join |
+
+### Fase 43: Join Completo (2026-03-18)
+
+| Task ID | Task Name | Component |
+|:--------|:----------|:----------|
+| GC-444 | BlockJoinWeight | join |
+| GC-445 | BlockJoinScorer | join |
+| GC-446 | BlockJoinQuery Base | join |
 
 ### Fase 35: Core Extensions (2026-03-17)
 

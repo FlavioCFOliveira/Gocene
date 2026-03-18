@@ -3,7 +3,6 @@ package join
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -96,129 +95,24 @@ func (q *ToParentBlockJoinQuery) HashCode() int {
 
 // CreateWeight creates a Weight for this query.
 func (q *ToParentBlockJoinQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
-	// In a full implementation, this would create a specialized weight
-	// that handles the block join logic
-	return nil, fmt.Errorf("ToParentBlockJoinQuery weight not yet implemented")
+	// Create the child query weight
+	childWeight, err := q.childQuery.CreateWeight(searcher, needsScores, boost)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create child weight: %w", err)
+	}
+
+	// Create the parent filter weight (always needs scores for parent matching)
+	parentWeight, err := q.parentFilter.CreateWeight(searcher, false, boost)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create parent weight: %w", err)
+	}
+
+	// Create and return the BlockJoinWeight
+	return NewBlockJoinWeight(q, childWeight, parentWeight, q.scoreMode), nil
 }
 
 // String returns a string representation of this query.
 func (q *ToParentBlockJoinQuery) String() string {
 	return fmt.Sprintf("ToParentBlockJoinQuery(child=%v, parent=%v, scoreMode=%s)",
 		q.childQuery, q.parentFilter, q.scoreMode)
-}
-
-// ToParentBlockJoinWeight is the weight for ToParentBlockJoinQuery.
-type ToParentBlockJoinWeight struct {
-	childWeight   search.Weight
-	parentWeight  search.Weight
-	scoreMode     ScoreMode
-}
-
-// NewToParentBlockJoinWeight creates a new ToParentBlockJoinWeight.
-func NewToParentBlockJoinWeight(childWeight search.Weight, parentWeight search.Weight, scoreMode ScoreMode) *ToParentBlockJoinWeight {
-	return &ToParentBlockJoinWeight{
-		childWeight:  childWeight,
-		parentWeight: parentWeight,
-		scoreMode:    scoreMode,
-	}
-}
-
-// GetQuery returns the parent query.
-func (w *ToParentBlockJoinWeight) GetQuery() search.Query {
-	return nil
-}
-
-// Scorer creates a scorer for this weight.
-func (w *ToParentBlockJoinWeight) Scorer(context *index.LeafReaderContext) (search.Scorer, error) {
-	return nil, fmt.Errorf("ToParentBlockJoinWeight scorer not yet implemented")
-}
-
-// ScorerSupplier creates a scorer supplier for this weight.
-func (w *ToParentBlockJoinWeight) ScorerSupplier(context *index.LeafReaderContext) (search.ScorerSupplier, error) {
-	return nil, nil
-}
-
-// Explain returns an explanation of the score for the given document.
-func (w *ToParentBlockJoinWeight) Explain(context *index.LeafReaderContext, doc int) (search.Explanation, error) {
-	return nil, nil
-}
-
-// BulkScorer creates a bulk scorer for efficient bulk scoring.
-func (w *ToParentBlockJoinWeight) BulkScorer(context *index.LeafReaderContext) (search.BulkScorer, error) {
-	return nil, nil
-}
-
-// IsCacheable returns true if this weight can be cached for the given leaf.
-func (w *ToParentBlockJoinWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
-	return false
-}
-
-// GetValueForNormalization returns the value for normalization of the weight.
-func (w *ToParentBlockJoinWeight) GetValueForNormalization() float32 {
-	return 1.0
-}
-
-// Normalize normalizes the weight with the given factor.
-func (w *ToParentBlockJoinWeight) Normalize(norm float32) {
-	// Stub implementation
-}
-
-// Count returns the count of matching documents in sub-linear time.
-func (w *ToParentBlockJoinWeight) Count(context *index.LeafReaderContext) (int, error) {
-	return -1, nil
-}
-
-// Matches returns the matches for a specific document.
-func (w *ToParentBlockJoinWeight) Matches(context *index.LeafReaderContext, doc int) (search.Matches, error) {
-	return nil, nil
-}
-
-// ToParentBlockJoinScorer is a scorer for ToParentBlockJoinQuery.
-type ToParentBlockJoinScorer struct {
-	childScorer  search.Scorer
-	parentScorer search.Scorer
-	scoreMode    ScoreMode
-}
-
-// NewToParentBlockJoinScorer creates a new ToParentBlockJoinScorer.
-func NewToParentBlockJoinScorer(childScorer search.Scorer, parentScorer search.Scorer, scoreMode ScoreMode) *ToParentBlockJoinScorer {
-	return &ToParentBlockJoinScorer{
-		childScorer:  childScorer,
-		parentScorer: parentScorer,
-		scoreMode:    scoreMode,
-	}
-}
-
-// NextDoc advances to the next document.
-func (s *ToParentBlockJoinScorer) NextDoc() (int, error) {
-	// In a full implementation, this would advance to the next parent document
-	// that has matching children
-	return 0, nil
-}
-
-// DocID returns the current document ID.
-func (s *ToParentBlockJoinScorer) DocID() int {
-	return s.parentScorer.DocID()
-}
-
-// Score returns the score of the current document.
-func (s *ToParentBlockJoinScorer) Score() float32 {
-	// In a full implementation, this would combine child scores
-	// based on the score mode
-	return s.parentScorer.Score()
-}
-
-// GetMaxScore returns the maximum score for documents up to the given doc.
-func (s *ToParentBlockJoinScorer) GetMaxScore(upTo int) float32 {
-	return s.parentScorer.GetMaxScore(upTo)
-}
-
-// Advance advances to the given document.
-func (s *ToParentBlockJoinScorer) Advance(target int) (int, error) {
-	return s.parentScorer.Advance(target)
-}
-
-// Cost returns the estimated cost of this scorer.
-func (s *ToParentBlockJoinScorer) Cost() int64 {
-	return s.parentScorer.Cost()
 }

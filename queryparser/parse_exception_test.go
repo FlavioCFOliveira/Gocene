@@ -8,9 +8,9 @@ import (
 
 func TestParseException(t *testing.T) {
 	tests := []struct {
-		name     string
-		exc      *ParseException
-		wantMsg  string
+		name      string
+		exc       *ParseException
+		wantMsg   string
 		wantQuery string
 	}{
 		{
@@ -54,9 +54,9 @@ func TestParseExceptionUnwrap(t *testing.T) {
 
 func TestTokenMgrError(t *testing.T) {
 	tests := []struct {
-		name    string
-		err     *TokenMgrError
-		wantMsg string
+		name     string
+		err      *TokenMgrError
+		wantMsg  string
 		wantCode int
 	}{
 		{

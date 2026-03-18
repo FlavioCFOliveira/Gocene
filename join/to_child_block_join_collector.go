@@ -43,11 +43,11 @@ type ToChildBlockJoinCollector struct {
 func NewToChildBlockJoinCollector(parentQuery search.Query, childFilter BitSetProducer, scoreMode ScoreMode) *ToChildBlockJoinCollector {
 	return &ToChildBlockJoinCollector{
 		parentQuery:       parentQuery,
-		childFilter:     childFilter,
+		childFilter:       childFilter,
 		collectedChildren: make([]int, 0),
-		childScores:     make([]float32, 0),
-		scoreMode:       scoreMode,
-		currentParentDoc: -1,
+		childScores:       make([]float32, 0),
+		scoreMode:         scoreMode,
+		currentParentDoc:  -1,
 	}
 }
 

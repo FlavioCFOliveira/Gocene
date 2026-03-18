@@ -23,11 +23,11 @@ type mockGraphTokenStream struct {
 }
 
 type mockToken struct {
-	term           string
-	posIncr        int
-	posLen         int
-	startOffset    int
-	endOffset      int
+	term        string
+	posIncr     int
+	posLen      int
+	startOffset int
+	endOffset   int
 }
 
 func newMockGraphTokenStream(tokens []mockToken) *mockGraphTokenStream {
@@ -178,11 +178,11 @@ func TestFlattenGraphFilter_MultiWordSynonym(t *testing.T) {
 	defer filter.Close()
 
 	var results []struct {
-		term      string
-		posIncr   int
-		posLen    int
-		startOff  int
-		endOff    int
+		term     string
+		posIncr  int
+		posLen   int
+		startOff int
+		endOff   int
 	}
 
 	for {

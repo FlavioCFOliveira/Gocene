@@ -339,7 +339,7 @@ func (p *ByteBlockPool) GetBuffer(bufferIndex int) []byte {
 
 // BytesRefBuilder is a builder for BytesRef that allows growing without copying.
 type BytesRefBuilder struct {
-	bytes []byte
+	bytes  []byte
 	length int
 }
 

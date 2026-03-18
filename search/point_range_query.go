@@ -17,10 +17,10 @@ import (
 // This is the Go port of Lucene's org.apache.lucene.search.PointRangeQuery.
 type PointRangeQuery struct {
 	*BaseQuery
-	field      string
-	lowerValue []byte
-	upperValue []byte
-	numDims    int
+	field       string
+	lowerValue  []byte
+	upperValue  []byte
+	numDims     int
 	bytesPerDim int
 }
 
@@ -60,7 +60,7 @@ func NewPointRangeQueryMultiDim(field string, lowerValue, upperValue []byte, num
 	if len(lowerValue) != len(upperValue) {
 		return nil, fmt.Errorf("lower and upper values must have same length")
 	}
-	if len(lowerValue) % numDims != 0 {
+	if len(lowerValue)%numDims != 0 {
 		return nil, fmt.Errorf("value length must be divisible by numDims")
 	}
 

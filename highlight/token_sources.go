@@ -31,7 +31,6 @@ func (ts *TokenSources) GetTokenStream(field string, fieldValue string, analyzer
 	return analyzer.TokenStream(field, strings.NewReader(fieldValue))
 }
 
-
 // TokenGroup represents a group of tokens for scoring.
 //
 // This is the Go port of Lucene's org.apache.lucene.search.highlight.TokenGroup.
@@ -119,4 +118,3 @@ func (tg *TokenGroup) IsDistinct(startOffset, endOffset int) bool {
 	}
 	return true
 }
-

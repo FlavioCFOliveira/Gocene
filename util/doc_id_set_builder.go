@@ -103,7 +103,7 @@ var _ BulkAdder = (*BufferAdder)(nil)
 type DocIdSetBuilder struct {
 	maxDoc          int
 	threshold       int
-	Multivalued     bool   // Exported for testing
+	Multivalued     bool    // Exported for testing
 	NumValuesPerDoc float64 // Exported for testing
 
 	buffers        []*Buffer
@@ -123,10 +123,10 @@ func NewDocIdSetBuilder(maxDoc int) *DocIdSetBuilder {
 // valueCount is the total number of values.
 func NewDocIdSetBuilderWithStats(maxDoc, docCount int, valueCount int64) *DocIdSetBuilder {
 	builder := &DocIdSetBuilder{
-		maxDoc:   maxDoc,
-		bitSet:   nil,
-		counter:  -1,
-		buffers:  make([]*Buffer, 0),
+		maxDoc:  maxDoc,
+		bitSet:  nil,
+		counter: -1,
+		buffers: make([]*Buffer, 0),
 	}
 
 	builder.Multivalued = docCount < 0 || int64(docCount) != valueCount

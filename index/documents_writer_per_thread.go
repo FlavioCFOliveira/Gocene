@@ -338,7 +338,9 @@ func (dwpt *DocumentsWriterPerThread) indexField(docID int, field IndexableField
 						break
 					}
 					// Get the term attribute from the token stream
-					if attrSrc, ok := tokenStream.(interface{ GetAttributeSource() *analysis.AttributeSource }); ok {
+					if attrSrc, ok := tokenStream.(interface {
+						GetAttributeSource() *analysis.AttributeSource
+					}); ok {
 						if attr := attrSrc.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
 							if termAttr, ok := attr.(analysis.CharTermAttribute); ok {
 								tokens = append(tokens, termAttr.String())
@@ -624,16 +626,16 @@ func (s *storedFieldAdapter) ReaderValue() io.Reader { return nil }
 // simpleFieldType provides a simple FieldTypeInterface implementation
 type simpleFieldType struct{}
 
-func (f *simpleFieldType) IsIndexed() bool                { return false }
-func (f *simpleFieldType) IsStored() bool                 { return true }
-func (f *simpleFieldType) IsTokenized() bool              { return false }
+func (f *simpleFieldType) IsIndexed() bool               { return false }
+func (f *simpleFieldType) IsStored() bool                { return true }
+func (f *simpleFieldType) IsTokenized() bool             { return false }
 func (f *simpleFieldType) GetIndexOptions() IndexOptions { return IndexOptionsNone }
 func (f *simpleFieldType) GetDocValuesType() DocValuesType {
 	return DocValuesTypeNone
 }
-func (f *simpleFieldType) StoreTermVectors() bool          { return false }
-func (f *simpleFieldType) StoreTermVectorPositions() bool  { return false }
-func (f *simpleFieldType) StoreTermVectorOffsets() bool    { return false }
+func (f *simpleFieldType) StoreTermVectors() bool         { return false }
+func (f *simpleFieldType) StoreTermVectorPositions() bool { return false }
+func (f *simpleFieldType) StoreTermVectorOffsets() bool   { return false }
 
 // postingTermsAdapter adapts FieldPostings to Terms interface.
 type postingTermsAdapter struct {
@@ -689,10 +691,12 @@ func (p *postingTermsAdapter) GetSumTotalTermFreq() (int64, error) {
 	return sum, nil
 }
 
-func (p *postingTermsAdapter) HasFreqs() bool      { return true }
-func (p *postingTermsAdapter) HasOffsets() bool    { return false }
-func (p *postingTermsAdapter) HasPositions() bool  { return p.postings.fieldInfo != nil && p.postings.fieldInfo.IndexOptions().HasPositions() }
-func (p *postingTermsAdapter) HasPayloads() bool   { return false }
+func (p *postingTermsAdapter) HasFreqs() bool   { return true }
+func (p *postingTermsAdapter) HasOffsets() bool { return false }
+func (p *postingTermsAdapter) HasPositions() bool {
+	return p.postings.fieldInfo != nil && p.postings.fieldInfo.IndexOptions().HasPositions()
+}
+func (p *postingTermsAdapter) HasPayloads() bool      { return false }
 func (p *postingTermsAdapter) GetMin() (*Term, error) { return nil, nil }
 func (p *postingTermsAdapter) GetMax() (*Term, error) { return nil, nil }
 

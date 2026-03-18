@@ -16,11 +16,11 @@ import (
 // This is the Go port of Lucene's org.apache.lucene.codecs.lucene90.IndexedDISI.
 type IndexedDISI struct {
 	// Stub implementation
-	in           store.IndexInput
-	blockCount   int
-	jumpTable    []int64
+	in             store.IndexInput
+	blockCount     int
+	jumpTable      []int64
 	denseRankPower int8
-	cardinality  int64
+	cardinality    int64
 }
 
 // NewIndexedDISI creates a new IndexedDISI from the given IndexInput.

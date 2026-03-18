@@ -162,7 +162,7 @@ func (f *ForUtil) Decode(bitsPerValue int, in store.IndexInput, ints []int64) er
 // collapse8 collapses 4 bytes into 1 int (256 ints -> 64 ints)
 func (f *ForUtil) collapse8(arr []int32) {
 	for i := 0; i < 64; i++ {
-		arr[i] = (arr[i]<<24) | (arr[64+i]<<16) | (arr[128+i]<<8) | arr[192+i]
+		arr[i] = (arr[i] << 24) | (arr[64+i] << 16) | (arr[128+i] << 8) | arr[192+i]
 	}
 }
 
@@ -287,7 +287,7 @@ func (f *ForUtil) decodeSlow(bitsPerValue int, in store.IndexInput, ints []int64
 
 	// Unpack first numInts values
 	for i := 0; i < numInts; i++ {
-		ints[i] = int64(tmp[i] >> uint(32-bitsPerValue)) & int64(mask)
+		ints[i] = int64(tmp[i]>>uint(32-bitsPerValue)) & int64(mask)
 	}
 
 	// Handle remaining values

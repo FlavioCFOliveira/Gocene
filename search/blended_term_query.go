@@ -10,8 +10,8 @@ import "github.com/FlavioCFOliveira/Gocene/index"
 // This is the Go port of Lucene's org.apache.lucene.search.BlendedTermQuery.
 type BlendedTermQuery struct {
 	BaseQuery
-	terms   []*index.Term
-	boosts  []float32
+	terms  []*index.Term
+	boosts []float32
 }
 
 // NewBlendedTermQuery creates a new BlendedTermQuery.
@@ -21,8 +21,8 @@ func NewBlendedTermQuery(terms ...*index.Term) *BlendedTermQuery {
 		boosts[i] = 1.0
 	}
 	return &BlendedTermQuery{
-		terms:     terms,
-		boosts:    boosts,
+		terms:  terms,
+		boosts: boosts,
 	}
 }
 

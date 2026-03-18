@@ -96,11 +96,11 @@ func (p *DefaultFlushPolicy) ShouldFlush(numDocs int, ramUsed int64) bool {
 // NewDocumentsWriter creates a new DocumentsWriter.
 func NewDocumentsWriter(directory store.Directory, config *IndexWriterConfig) (*DocumentsWriter, error) {
 	dw := &DocumentsWriter{
-		directory:         directory,
-		analyzer:          config.analyzer,
-		config:            config,
-		perThreadPool:     make([]*DocumentsWriterPerThread, 0),
-		flushPolicy:       NewDefaultFlushPolicy(config.maxBufferedDocs, config.ramBufferSizeMB),
+		directory:          directory,
+		analyzer:           config.analyzer,
+		config:             config,
+		perThreadPool:      make([]*DocumentsWriterPerThread, 0),
+		flushPolicy:        NewDefaultFlushPolicy(config.maxBufferedDocs, config.ramBufferSizeMB),
 		segmentNameCounter: 0,
 	}
 
@@ -365,4 +365,3 @@ func WriteSegmentInfo(si *SegmentInfo, dir store.Directory) error {
 
 	return nil
 }
-

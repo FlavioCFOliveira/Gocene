@@ -192,11 +192,11 @@ func NewOneMerge(segments []*SegmentCommitInfo) *OneMerge {
 	}
 
 	merge := &OneMerge{
-		Segments:         segments,
-		TotalDocCount:    0,
-		TotalNumDocs:     0,
-		MaxNumSegments:   -1,
-		Progress:         NewOneMergeProgress(),
+		Segments:          segments,
+		TotalDocCount:     0,
+		TotalNumDocs:      0,
+		MaxNumSegments:    -1,
+		Progress:          NewOneMergeProgress(),
 		UsesPooledReaders: true,
 	}
 

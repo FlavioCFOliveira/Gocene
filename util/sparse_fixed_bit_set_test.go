@@ -502,10 +502,10 @@ func TestSparseFixedBitSet_BlockBoundaries(t *testing.T) {
 	sfs, _ := NewSparseFixedBitSet(10000)
 
 	// Set bits at block boundaries (4096 bits per block)
-	sfs.Set(4095)  // Last bit of first block
-	sfs.Set(4096)  // First bit of second block
-	sfs.Set(8191)  // Last bit of second block
-	sfs.Set(8192)  // First bit of third block
+	sfs.Set(4095) // Last bit of first block
+	sfs.Set(4096) // First bit of second block
+	sfs.Set(8191) // Last bit of second block
+	sfs.Set(8192) // First bit of third block
 
 	// Verify all bits
 	if !sfs.Get(4095) {

@@ -579,11 +579,11 @@ func TestWordDelimiterIterator_Reset(t *testing.T) {
 // Purpose: Tests that bounds are correctly calculated.
 func TestWordDelimiterIterator_Bounds(t *testing.T) {
 	tests := []struct {
-		name              string
-		input             string
-		expectedStart     int
-		expectedEnd       int
-		expectedSubwords  []string
+		name             string
+		input            string
+		expectedStart    int
+		expectedEnd      int
+		expectedSubwords []string
 	}{
 		{
 			name:             "No leading/trailing delimiters",
@@ -670,13 +670,13 @@ func TestWordDelimiterIterator_CustomTable(t *testing.T) {
 // Purpose: Tests the IsAlpha, IsDigit, IsUpper, IsLower, IsSubwordDelim functions.
 func TestWordDelimiterIterator_TypeChecks(t *testing.T) {
 	tests := []struct {
-		name     string
-		type_    int
-		isAlpha  bool
-		isDigit  bool
-		isUpper  bool
-		isLower  bool
-		isDelim  bool
+		name    string
+		type_   int
+		isAlpha bool
+		isDigit bool
+		isUpper bool
+		isLower bool
+		isDelim bool
 	}{
 		{
 			name:    "LOWER only",
@@ -719,8 +719,8 @@ func TestWordDelimiterIterator_TypeChecks(t *testing.T) {
 			type_:   ALPHA,
 			isAlpha: true,
 			isDigit: false,
-			isUpper: true,  // ALPHA contains UPPER bit
-			isLower: true,  // ALPHA contains LOWER bit
+			isUpper: true, // ALPHA contains UPPER bit
+			isLower: true, // ALPHA contains LOWER bit
 			isDelim: false,
 		},
 		{
@@ -728,8 +728,8 @@ func TestWordDelimiterIterator_TypeChecks(t *testing.T) {
 			type_:   ALPHANUM,
 			isAlpha: true,
 			isDigit: true,
-			isUpper: true,  // ALPHANUM contains UPPER bit
-			isLower: true,  // ALPHANUM contains LOWER bit
+			isUpper: true, // ALPHANUM contains UPPER bit
+			isLower: true, // ALPHANUM contains LOWER bit
 			isDelim: false,
 		},
 	}

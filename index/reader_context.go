@@ -272,7 +272,9 @@ func GetLeafReaderContexts(ctx IndexReaderContext) []*LeafReaderContext {
 // GetReaderContext gets the context for a reader.
 func GetReaderContext(reader IndexReaderInterface) (IndexReaderContext, error) {
 	// Check for CompositeReader with GetContext method
-	if withContext, ok := reader.(interface{ GetContext() (IndexReaderContext, error) }); ok {
+	if withContext, ok := reader.(interface {
+		GetContext() (IndexReaderContext, error)
+	}); ok {
 		return withContext.GetContext()
 	}
 

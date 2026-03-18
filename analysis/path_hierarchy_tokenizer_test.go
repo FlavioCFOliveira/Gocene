@@ -372,9 +372,9 @@ func TestPathHierarchyTokenizer_Offsets(t *testing.T) {
 		start int
 		end   int
 	}{
-		{0, 2},  // "/a"
-		{0, 4},  // "/a/b"
-		{0, 6},  // "/a/b/c"
+		{0, 2}, // "/a"
+		{0, 4}, // "/a/b"
+		{0, 6}, // "/a/b/c"
 	}
 
 	tokenIndex := 0

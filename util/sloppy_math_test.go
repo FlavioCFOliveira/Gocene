@@ -15,10 +15,10 @@ import (
 
 // Accuracy constants matching the Java test
 const (
-	testCosDelta              = 1e-15
-	testSinDelta              = 1e-12
-	testAsinDelta             = 1e-7
-	testHaversinDelta         = 38e-2
+	testCosDelta                = 1e-15
+	testSinDelta                = 1e-12
+	testAsinDelta               = 1e-7
+	testHaversinDelta           = 38e-2
 	testReasonableHaversinDelta = 1e-5
 )
 

@@ -63,7 +63,7 @@ func RandomSimpleString(rng *rand.Rand, min, max int) string {
 	}
 	length := min
 	if max > min {
-		length += rng.Intn(max-min+1)
+		length += rng.Intn(max - min + 1)
 	}
 	chars := make([]byte, length)
 	for i := range chars {

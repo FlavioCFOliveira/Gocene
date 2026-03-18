@@ -7,14 +7,14 @@ import "fmt"
 // or sequences during tokenization of the query string.
 // In Java Lucene, this extends Error. In Go, we implement it as a custom error type.
 type TokenMgrError struct {
-	Message   string
-	ErrorCode int
-	EOFSeen   bool
-	LexState  int
-	ErrorLine int
-	ErrorCol  int
+	Message    string
+	ErrorCode  int
+	EOFSeen    bool
+	LexState   int
+	ErrorLine  int
+	ErrorCol   int
 	ErrorAfter string
-	CurChar   rune
+	CurChar    rune
 }
 
 // Error codes for TokenMgrError, matching Lucene's Java implementation.

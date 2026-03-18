@@ -15,12 +15,12 @@ import (
 // This can be embedded in custom TermVectorsWriter implementations to get
 // default implementations for common methods.
 type BaseTermVectorsWriter struct {
-	mu          sync.Mutex
-	closed      bool
-	state       *SegmentWriteState
-	currentDoc  int
+	mu           sync.Mutex
+	closed       bool
+	state        *SegmentWriteState
+	currentDoc   int
 	currentField string
-	currentTerm []byte
+	currentTerm  []byte
 }
 
 // NewBaseTermVectorsWriter creates a new BaseTermVectorsWriter.
@@ -142,8 +142,8 @@ func (w *BaseTermVectorsWriter) Close() error {
 // that writes term vectors to memory.
 type TermVectorsWriterImpl struct {
 	*BaseTermVectorsWriter
-	docs        []TermVectorDocumentWriter
-	currentDocW *TermVectorDocumentWriter
+	docs          []TermVectorDocumentWriter
+	currentDocW   *TermVectorDocumentWriter
 	currentFieldW *TermVectorFieldWriter
 	currentTermW  *TermVectorTermWriter
 }

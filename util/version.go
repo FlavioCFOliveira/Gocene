@@ -118,8 +118,8 @@ func (v *Version) String() string {
 // CompareTo compares this version to another.
 // Returns:
 //   - -1 if this version is less than other
-//   -  0 if this version equals other
-//   -  1 if this version is greater than other
+//   - 0 if this version equals other
+//   - 1 if this version is greater than other
 func (v *Version) CompareTo(other *Version) int {
 	if other == nil {
 		return 1

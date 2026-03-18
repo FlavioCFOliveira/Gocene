@@ -36,17 +36,17 @@ const (
 // bytesPerElement: Bytes used by each element of the array.
 func Oversize(minTargetSize, bytesPerElement int) int {
 	if minTargetSize < 0 {
-	// catch usage that accidentally overflows int
-	panic("invalid array size")
+		// catch usage that accidentally overflows int
+		panic("invalid array size")
 	}
 
 	if minTargetSize == 0 {
-	// wait until at least one element is requested
-	return 0
+		// wait until at least one element is requested
+		return 0
 	}
 
 	if minTargetSize > MaxArrayLength {
-	panic("requested array size exceeds maximum array length")
+		panic("requested array size exceeds maximum array length")
 	}
 
 	// asymptotic exponential growth by 1/8th, favors
@@ -54,17 +54,17 @@ func Oversize(minTargetSize, bytesPerElement int) int {
 	extra := minTargetSize >> 3
 
 	if extra < 3 {
-	// for very small arrays, where constant overhead of
-	// realloc is presumably relatively high, we grow faster
-	extra = 3
+		// for very small arrays, where constant overhead of
+		// realloc is presumably relatively high, we grow faster
+		extra = 3
 	}
 
 	newSize := minTargetSize + extra
 
 	// add 7 to allow for worst case byte alignment addition below:
 	if newSize+7 < 0 || newSize+7 > MaxArrayLength {
-	// int overflowed, or we exceeded the maximum array length
-	return MaxArrayLength
+		// int overflowed, or we exceeded the maximum array length
+		return MaxArrayLength
 	}
 
 	// Round up to alignment based on bytesPerElement
@@ -76,20 +76,20 @@ func Oversize(minTargetSize, bytesPerElement int) int {
 func roundUpToAlignment(size, bytesPerElement int) int {
 	switch bytesPerElement {
 	case 4:
-	// round up to multiple of 2
-	return (size + 1) &^ 1
+		// round up to multiple of 2
+		return (size + 1) &^ 1
 	case 2:
-	// round up to multiple of 4
-	return (size + 3) &^ 3
+		// round up to multiple of 4
+		return (size + 3) &^ 3
 	case 1:
-	// round up to multiple of 8
-	return (size + 7) &^ 7
+		// round up to multiple of 8
+		return (size + 7) &^ 7
 	case 8:
-	// no rounding needed for 8-byte elements
-	return size
+		// no rounding needed for 8-byte elements
+		return size
 	default:
-	// odd (invalid?) size - return as-is
-	return size
+		// odd (invalid?) size - return as-is
+		return size
 	}
 }
 
@@ -110,22 +110,22 @@ func ParseInt(chars []rune, offset, length int) int {
 // Returns int the value represented by the argument
 func ParseIntRadix(chars []rune, offset, length, radix int) int {
 	if chars == nil || radix < 2 || radix > 36 {
-	panic("NumberFormatException: invalid radix or null chars")
+		panic("NumberFormatException: invalid radix or null chars")
 	}
 
 	if length == 0 {
-	panic("NumberFormatException: chars length is 0")
+		panic("NumberFormatException: chars length is 0")
 	}
 
 	i := 0
 	negative := chars[offset+i] == '-'
 	if negative && i+1 == length {
-	panic("NumberFormatException: can't convert to an int")
+		panic("NumberFormatException: can't convert to an int")
 	}
 
 	if negative {
-	offset++
-	length--
+		offset++
+		length--
 	}
 
 	return parseIntInternal(chars, offset, length, radix, negative)
@@ -136,40 +136,40 @@ func parseIntInternal(chars []rune, offset, length, radix int, negative bool) in
 	result := 0
 
 	for i := 0; i < length; i++ {
-	c := chars[i+offset]
+		c := chars[i+offset]
 
-	// Convert rune to digit
-	var digit int
-	if c >= '0' && c <= '9' {
-		digit = int(c - '0')
-	} else if c >= 'a' && c <= 'z' {
-		digit = int(c-'a') + 10
-	} else if c >= 'A' && c <= 'Z' {
-		digit = int(c-'A') + 10
-	} else {
-		panic("NumberFormatException: Unable to parse")
-	}
+		// Convert rune to digit
+		var digit int
+		if c >= '0' && c <= '9' {
+			digit = int(c - '0')
+		} else if c >= 'a' && c <= 'z' {
+			digit = int(c-'a') + 10
+		} else if c >= 'A' && c <= 'Z' {
+			digit = int(c-'A') + 10
+		} else {
+			panic("NumberFormatException: Unable to parse")
+		}
 
-	if digit >= radix {
-		panic("NumberFormatException: Unable to parse")
-	}
+		if digit >= radix {
+			panic("NumberFormatException: Unable to parse")
+		}
 
-	if max > result {
-		panic("NumberFormatException: Unable to parse")
-	}
+		if max > result {
+			panic("NumberFormatException: Unable to parse")
+		}
 
-	next := result*radix - digit
-	if next > result {
-		panic("NumberFormatException: Unable to parse")
-	}
-	result = next
+		next := result*radix - digit
+		if next > result {
+			panic("NumberFormatException: Unable to parse")
+		}
+		result = next
 	}
 
 	if !negative {
-	result = -result
-	if result < 0 {
-		panic("NumberFormatException: Unable to parse")
-	}
+		result = -result
+		if result < 0 {
+			panic("NumberFormatException: Unable to parse")
+		}
 	}
 
 	return result
@@ -181,7 +181,7 @@ func parseIntInternal(chars []rune, offset, length, radix int, negative bool) in
 // without over-allocating. The original array elements are copied to the new array.
 func GrowExact[T any](array []T, newLength int) []T {
 	if newLength < len(array) {
-	panic("IndexOutOfBoundsException: newLength must be >= len(array)")
+		panic("IndexOutOfBoundsException: newLength must be >= len(array)")
 	}
 	copy_ := make([]T, newLength)
 	copy(copy_, array)
@@ -191,7 +191,7 @@ func GrowExact[T any](array []T, newLength int) []T {
 // GrowExactInt16 returns a new int16 array of exactly newLength
 func GrowExactInt16(array []int16, newLength int) []int16 {
 	if newLength < len(array) {
-	panic("IndexOutOfBoundsException")
+		panic("IndexOutOfBoundsException")
 	}
 	copy_ := make([]int16, newLength)
 	copy(copy_, array)
@@ -201,7 +201,7 @@ func GrowExactInt16(array []int16, newLength int) []int16 {
 // GrowExactInt32 returns a new int32 array of exactly newLength
 func GrowExactInt32(array []int32, newLength int) []int32 {
 	if newLength < len(array) {
-	panic("IndexOutOfBoundsException")
+		panic("IndexOutOfBoundsException")
 	}
 	copy_ := make([]int32, newLength)
 	copy(copy_, array)
@@ -211,7 +211,7 @@ func GrowExactInt32(array []int32, newLength int) []int32 {
 // GrowExactInt64 returns a new int64 array of exactly newLength
 func GrowExactInt64(array []int64, newLength int) []int64 {
 	if newLength < len(array) {
-	panic("IndexOutOfBoundsException")
+		panic("IndexOutOfBoundsException")
 	}
 	copy_ := make([]int64, newLength)
 	copy(copy_, array)
@@ -221,7 +221,7 @@ func GrowExactInt64(array []int64, newLength int) []int64 {
 // GrowExactFloat32 returns a new float32 array of exactly newLength
 func GrowExactFloat32(array []float32, newLength int) []float32 {
 	if newLength < len(array) {
-	panic("IndexOutOfBoundsException")
+		panic("IndexOutOfBoundsException")
 	}
 	copy_ := make([]float32, newLength)
 	copy(copy_, array)
@@ -231,7 +231,7 @@ func GrowExactFloat32(array []float32, newLength int) []float32 {
 // GrowExactFloat64 returns a new float64 array of exactly newLength
 func GrowExactFloat64(array []float64, newLength int) []float64 {
 	if newLength < len(array) {
-	panic("IndexOutOfBoundsException")
+		panic("IndexOutOfBoundsException")
 	}
 	copy_ := make([]float64, newLength)
 	copy(copy_, array)
@@ -241,7 +241,7 @@ func GrowExactFloat64(array []float64, newLength int) []float64 {
 // GrowExactByte returns a new byte array of exactly newLength
 func GrowExactByte(array []byte, newLength int) []byte {
 	if newLength < len(array) {
-	panic("IndexOutOfBoundsException")
+		panic("IndexOutOfBoundsException")
 	}
 	copy_ := make([]byte, newLength)
 	copy(copy_, array)
@@ -254,20 +254,20 @@ func GrowExactByte(array []byte, newLength int) []byte {
 // over-allocating exponentially, but never allocating more than maxLength elements.
 func GrowInRange(array []int, minLength, maxLength int) []int {
 	if minLength < 0 {
-	panic("AssertionError: length must be positive")
+		panic("AssertionError: length must be positive")
 	}
 
 	if minLength > maxLength {
-	panic("IllegalArgumentException: minLength > maxLength")
+		panic("IllegalArgumentException: minLength > maxLength")
 	}
 
 	if len(array) >= minLength {
-	return array
+		return array
 	}
 
 	potentialLength := Oversize(minLength, 4) // int is 4 bytes
 	if potentialLength > maxLength {
-	potentialLength = maxLength
+		potentialLength = maxLength
 	}
 
 	return GrowExact(array, potentialLength)
@@ -276,20 +276,20 @@ func GrowInRange(array []int, minLength, maxLength int) []int {
 // GrowInRangeFloat returns an array whose size is at least minLength but not over maxLength
 func GrowInRangeFloat(array []float32, minLength, maxLength int) []float32 {
 	if minLength < 0 {
-	panic("AssertionError: minLength must be positive")
+		panic("AssertionError: minLength must be positive")
 	}
 
 	if minLength > maxLength {
-	panic("IllegalArgumentException: minLength > maxLength")
+		panic("IllegalArgumentException: minLength > maxLength")
 	}
 
 	if len(array) >= minLength {
-	return array
+		return array
 	}
 
 	potentialLength := Oversize(minLength, 4) // float32 is 4 bytes
 	if potentialLength > maxLength {
-	potentialLength = maxLength
+		potentialLength = maxLength
 	}
 
 	return GrowExact(array, potentialLength)
@@ -302,7 +302,7 @@ func GrowInRangeFloat(array []float32, minLength, maxLength int) []float32 {
 // to: the final index of range to be copied (exclusive)
 func CopyOfSubArrayGeneric[T any](array []T, from, to int) []T {
 	if from < 0 || to > len(array) || from > to {
-	panic("IndexOutOfBoundsException: invalid range")
+		panic("IndexOutOfBoundsException: invalid range")
 	}
 	result := make([]T, to-from)
 	copy(result, array[from:to])
@@ -324,7 +324,7 @@ func CopyOfSubArrayGeneric[T any](array []T, from, to int) []T {
 // comp: Comparison function
 func Select[T any](arr []T, from, to, k int, comp func(a, b T) int) {
 	if to-from <= 1 {
-	return
+		return
 	}
 
 	// Use introselect algorithm (quickselect with fallback to heapsort)
@@ -335,44 +335,44 @@ func Select[T any](arr []T, from, to, k int, comp func(a, b T) int) {
 func log2(n int) int {
 	result := 0
 	for n > 1 {
-	n >>= 1
-	result++
+		n >>= 1
+		result++
 	}
 	return result
 }
 
 func selectRecursive[T any](arr []T, from, to, k int, comp func(a, b T) int, maxDepth int) {
 	for {
-	if from >= to {
-		return
-	}
-
-	if to-from == 1 {
-		if from == k {
-		return
+		if from >= to {
+			return
 		}
-		return
-	}
 
-	if maxDepth == 0 {
-		// Fallback to sorting
-		heapSortRange(arr, from, to, comp)
-		return
-	}
+		if to-from == 1 {
+			if from == k {
+				return
+			}
+			return
+		}
 
-	maxDepth--
+		if maxDepth == 0 {
+			// Fallback to sorting
+			heapSortRange(arr, from, to, comp)
+			return
+		}
 
-	// Partition
-	pivotIndex := medianOfThree(arr, from, to, comp)
-	pivotIndex = partition(arr, from, to, pivotIndex, comp)
+		maxDepth--
 
-	if k == pivotIndex {
-		return
-	} else if k < pivotIndex {
-		to = pivotIndex
-	} else {
-		from = pivotIndex + 1
-	}
+		// Partition
+		pivotIndex := medianOfThree(arr, from, to, comp)
+		pivotIndex = partition(arr, from, to, pivotIndex, comp)
+
+		if k == pivotIndex {
+			return
+		} else if k < pivotIndex {
+			to = pivotIndex
+		} else {
+			from = pivotIndex + 1
+		}
 	}
 }
 
@@ -383,13 +383,13 @@ func medianOfThree[T any](arr []T, from, to int, comp func(a, b T) int) int {
 
 	// Sort the three elements
 	if comp(arr[from], arr[mid]) > 0 {
-	arr[from], arr[mid] = arr[mid], arr[from]
+		arr[from], arr[mid] = arr[mid], arr[from]
 	}
 	if comp(arr[from], arr[to]) > 0 {
-	arr[from], arr[to] = arr[to], arr[from]
+		arr[from], arr[to] = arr[to], arr[from]
 	}
 	if comp(arr[mid], arr[to]) > 0 {
-	arr[mid], arr[to] = arr[to], arr[mid]
+		arr[mid], arr[to] = arr[to], arr[mid]
 	}
 
 	return mid
@@ -402,10 +402,10 @@ func partition[T any](arr []T, from, to, pivotIndex int, comp func(a, b T) int) 
 
 	storeIndex := from
 	for i := from; i < to-1; i++ {
-	if comp(arr[i], pivotValue) < 0 {
-		arr[storeIndex], arr[i] = arr[i], arr[storeIndex]
-		storeIndex++
-	}
+		if comp(arr[i], pivotValue) < 0 {
+			arr[storeIndex], arr[i] = arr[i], arr[storeIndex]
+			storeIndex++
+		}
 	}
 	arr[storeIndex], arr[to-1] = arr[to-1], arr[storeIndex]
 	return storeIndex
@@ -417,13 +417,13 @@ func heapSortRange[T any](arr []T, from, to int, comp func(a, b T) int) {
 
 	// Build heap
 	for i := n/2 - 1; i >= 0; i-- {
-	heapify(arr, from, n, i, comp)
+		heapify(arr, from, n, i, comp)
 	}
 
 	// Extract elements from heap one by one
 	for i := n - 1; i > 0; i-- {
-	arr[from], arr[from+i] = arr[from+i], arr[from]
-	heapify(arr, from, i, 0, comp)
+		arr[from], arr[from+i] = arr[from+i], arr[from]
+		heapify(arr, from, i, 0, comp)
 	}
 }
 
@@ -434,16 +434,16 @@ func heapify[T any](arr []T, offset, n, i int, comp func(a, b T) int) {
 	right := 2*i + 2
 
 	if left < n && comp(arr[offset+left], arr[offset+largest]) > 0 {
-	largest = left
+		largest = left
 	}
 
 	if right < n && comp(arr[offset+right], arr[offset+largest]) > 0 {
-	largest = right
+		largest = right
 	}
 
 	if largest != i {
-	arr[offset+i], arr[offset+largest] = arr[offset+largest], arr[offset+i]
-	heapify(arr, offset, n, largest, comp)
+		arr[offset+i], arr[offset+largest] = arr[offset+largest], arr[offset+i]
+		heapify(arr, offset, n, largest, comp)
 	}
 }
 
@@ -453,17 +453,17 @@ func heapify[T any](arr []T, offset, n, i int, comp func(a, b T) int) {
 // Returns negative if a < b, positive if a > b, 0 if equal.
 func CompareUnsigned4(a []byte, aOffset int, b []byte, bOffset int) int {
 	if len(a) < aOffset+4 || len(b) < bOffset+4 {
-	panic("IndexOutOfBoundsException")
+		panic("IndexOutOfBoundsException")
 	}
 
 	av := binary.BigEndian.Uint32(a[aOffset:])
 	bv := binary.BigEndian.Uint32(b[bOffset:])
 
 	if av < bv {
-	return -1
+		return -1
 	}
 	if av > bv {
-	return 1
+		return 1
 	}
 	return 0
 }
@@ -472,17 +472,17 @@ func CompareUnsigned4(a []byte, aOffset int, b []byte, bOffset int) int {
 // Returns negative if a < b, positive if a > b, 0 if equal.
 func CompareUnsigned8(a []byte, aOffset int, b []byte, bOffset int) int {
 	if len(a) < aOffset+8 || len(b) < bOffset+8 {
-	panic("IndexOutOfBoundsException")
+		panic("IndexOutOfBoundsException")
 	}
 
 	av := binary.BigEndian.Uint64(a[aOffset:])
 	bv := binary.BigEndian.Uint64(b[bOffset:])
 
 	if av < bv {
-	return -1
+		return -1
 	}
 	if av > bv {
-	return 1
+		return 1
 	}
 	return 0
 }

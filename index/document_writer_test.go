@@ -23,40 +23,40 @@ import (
 // Test helper constants mirroring Lucene's DocHelper
 const (
 	// Field 1 - stored text field without term vectors
-	field1Text     = "field one text"
-	textField1Key  = "textField1"
+	field1Text    = "field one text"
+	textField1Key = "textField1"
 
 	// Field 2 - stored text field with term vectors
-	field2Text     = "field field field two text"
-	textField2Key  = "textField2"
+	field2Text    = "field field field two text"
+	textField2Key = "textField2"
 	// Fields will be lexicographically sorted: field, text, two
-	field2Freqs    = "3,1,1"
+	field2Freqs = "3,1,1"
 
 	// Field 3 - text field with omitNorms
-	field3Text     = "aaaNoNorms aaaNoNorms bbbNoNorms"
-	textField3Key  = "textField3"
+	field3Text    = "aaaNoNorms aaaNoNorms bbbNoNorms"
+	textField3Key = "textField3"
 
 	// Keyword field
-	keywordText    = "Keyword"
+	keywordText     = "Keyword"
 	keywordFieldKey = "keyField"
 
 	// No norms field
-	noNormsText    = "omitNormsText"
-	noNormsKey     = "omitNorms"
+	noNormsText = "omitNormsText"
+	noNormsKey  = "omitNorms"
 
 	// No TF field
-	noTFText       = "analyzed with no tf and positions"
-	noTFKey        = "omitTermFreqAndPositions"
+	noTFText = "analyzed with no tf and positions"
+	noTFKey  = "omitTermFreqAndPositions"
 
 	// Unindexed field
-	unindexedText  = "unindexed field text"
-	unindexedKey   = "unIndField"
+	unindexedText = "unindexed field text"
+	unindexedKey  = "unIndField"
 
 	// Unstored fields
-	unstored1Text  = "unstored field text"
-	unstored1Key   = "unStoredField1"
-	unstored2Text  = "unstored field text"
-	unstored2Key   = "unStoredField2"
+	unstored1Text = "unstored field text"
+	unstored1Key  = "unStoredField1"
+	unstored2Text = "unstored field text"
+	unstored2Key  = "unStoredField2"
 )
 
 // setupTestDoc creates a test document with various field types
@@ -939,4 +939,3 @@ func TestDocumentWriter_StoredOnlyFields(t *testing.T) {
 		}
 	})
 }
-
