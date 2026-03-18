@@ -149,3 +149,19 @@ func (t *StandardTokenizer) End() error {
 
 // Ensure StandardTokenizer implements Tokenizer
 var _ Tokenizer = (*StandardTokenizer)(nil)
+
+// StandardTokenizerFactory creates StandardTokenizer instances.
+type StandardTokenizerFactory struct{}
+
+// NewStandardTokenizerFactory creates a new StandardTokenizerFactory.
+func NewStandardTokenizerFactory() *StandardTokenizerFactory {
+	return &StandardTokenizerFactory{}
+}
+
+// Create creates a new StandardTokenizer.
+func (f *StandardTokenizerFactory) Create() Tokenizer {
+	return NewStandardTokenizer()
+}
+
+// Ensure StandardTokenizerFactory implements TokenizerFactory
+var _ TokenizerFactory = (*StandardTokenizerFactory)(nil)
