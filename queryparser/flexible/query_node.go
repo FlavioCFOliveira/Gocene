@@ -16,6 +16,9 @@ type QueryNode interface {
 	// SetTag sets a tag value for the given key.
 	SetTag(key string, value interface{})
 
+	// HasTag returns true if the tag exists.
+	HasTag(key string) bool
+
 	// String returns a string representation of this node.
 	String() string
 
