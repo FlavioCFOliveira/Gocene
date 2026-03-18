@@ -239,4 +239,3 @@ func TestFacetLabelCopy(t *testing.T) {
 		t.Error("Modifying copy should not affect original")
 	}
 }
-
