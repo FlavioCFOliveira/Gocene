@@ -19,7 +19,7 @@ Este roadmap contém todas as tarefas pendentes para completar o port de Apache 
 | 36 | COMPLETED | 45 | Média | Analysis Filters | Phase 35 |
 | 37 | COMPLETED | 18 | Média-Alta | Point Fields | Phase 35 |
 | 38 | COMPLETED | 45 | Alta | Span Queries | Phase 37 |
-| 39 | PENDING | 35 | Média | Language Analyzers (Major) | Phase 36 |
+| 39 | COMPLETED | 35 | Média | Language Analyzers (Major) | Phase 36 |
 | 40 | PENDING | 40 | Média-Alta | CheckIndex | Phase 38 |
 | 41 | PENDING | 45 | Alta | Flexible QueryParser | Phase 39, 40 |
 | 42 | PENDING | 35 | Alta | Advanced Facets | Phase 41 |
@@ -925,6 +925,29 @@ Tarefas que podem ser implementadas independentemente, sem dependências de outr
 | GC-512 | LongValuesSource | search |
 | GC-513 | MultiValueMode | search |
 
+### Fase 39: Analisadores de Idiomas Principais (2026-03-18)
+
+| Task ID | Task Name | Component |
+|:--------|:----------|:----------|
+| GC-576 | CustomAnalyzer | analysis |
+| GC-569 | EnglishAnalyzer | analysis |
+| GC-570 | FrenchAnalyzer | analysis |
+| GC-571 | GermanAnalyzer | analysis |
+| GC-572 | SpanishAnalyzer | analysis |
+| GC-573 | PortugueseAnalyzer | analysis |
+| GC-574 | ItalianAnalyzer | analysis |
+| GC-575 | RussianAnalyzer | analysis |
+| GC-587 | DanishAnalyzer | analysis |
+| GC-588 | DutchAnalyzer | analysis |
+| GC-590 | FinnishAnalyzer | analysis |
+| GC-592 | GreekAnalyzer | analysis |
+| GC-602 | NorwegianAnalyzer | analysis |
+| GC-607 | SwedishAnalyzer | analysis |
+| GC-584 | ChineseAnalyzer | analysis |
+| GC-598 | JapaneseAnalyzer | analysis |
+| GC-599 | KoreanAnalyzer | analysis |
+| GC-614 | CJKAnalyzer | analysis |
+
 ---
 
 ## Estratégia de Implementação
@@ -936,7 +959,8 @@ Tarefas que podem ser implementadas independentemente, sem dependências de outr
 3. ~~**Fase 36** (20 tarefas)~~: ✅ COMPLETED - Analysis Filters
 4. ~~**Fase 37** (18 tarefas)~~: ✅ COMPLETED - Point Fields e campos numéricos
 5. ~~**Fase 38** (45 tarefas)~~: ✅ COMPLETED - Span queries e search avançado
-6. **Fases 39-40** (75 tarefas): Analisadores de idiomas e ferramentas de diagnóstico
+6. ~~**Fase 39** (35 tarefas)~~: ✅ COMPLETED - Analisadores de idiomas principais
+7. **Fase 40** (40 tarefas): Ferramentas de diagnóstico (CheckIndex)
 7. **Fases 41-43** (120 tarefas): QueryParser flexível, facets avançados, join/grouping/highlight completos
 8. **Fases 44-46** (110 tarefas): Codecs, spatial, NRT
 9. **Fase 47** (40 tarefas): Idiomas adicionais
