@@ -1,6 +1,10 @@
 package facets
 
 import (
+	"fmt"
+	"sort"
+	"strings"
+
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
@@ -11,6 +15,27 @@ import (
 type FacetsConfig struct {
 	// dimConfigs maps dimension names to their configuration
 	dimConfigs map[string]*DimConfig
+
+	// indexFieldName is the default index field name for facets
+	indexFieldName string
+
+	// drillDownFieldName is the field name used for drill-down queries
+	drillDownFieldName string
+
+	// validateFields indicates whether to validate facet fields during build
+	validateFields bool
+
+	// autoDetectHierarchical indicates whether to auto-detect hierarchical facets
+	autoDetectHierarchical bool
+
+	// defaultMultiValued is the default value for multi-valued fields
+	defaultMultiValued bool
+
+	// defaultHierarchical is the default value for hierarchical fields
+	defaultHierarchical bool
+
+	// defaultRequireDimCount is the default value for require dim count
+	defaultRequireDimCount bool
 }
 
 // DimConfig holds the configuration for a single facet dimension.
@@ -34,7 +59,14 @@ type DimConfig struct {
 // NewFacetsConfig creates a new empty FacetsConfig.
 func NewFacetsConfig() *FacetsConfig {
 	return &FacetsConfig{
-		dimConfigs: make(map[string]*DimConfig),
+		dimConfigs:             make(map[string]*DimConfig),
+		indexFieldName:         "$facets",
+		drillDownFieldName:     "$facets.drilldown",
+		validateFields:         true,
+		autoDetectHierarchical: true,
+		defaultMultiValued:     false,
+		defaultHierarchical:    false,
+		defaultRequireDimCount: false,
 	}
 }
 
@@ -137,7 +169,260 @@ func (fc *FacetsConfig) GetDims() []string {
 	for dim := range fc.dimConfigs {
 		dims = append(dims, dim)
 	}
+	sort.Strings(dims)
 	return dims
+}
+
+// SetDefaultIndexFieldName sets the default index field name for facets.
+func (fc *FacetsConfig) SetDefaultIndexFieldName(name string) {
+	fc.indexFieldName = name
+}
+
+// GetDefaultIndexFieldName returns the default index field name for facets.
+func (fc *FacetsConfig) GetDefaultIndexFieldName() string {
+	return fc.indexFieldName
+}
+
+// SetDrillDownFieldName sets the field name used for drill-down queries.
+func (fc *FacetsConfig) SetDrillDownFieldName(name string) {
+	fc.drillDownFieldName = name
+}
+
+// GetDrillDownFieldName returns the field name used for drill-down queries.
+func (fc *FacetsConfig) GetDrillDownFieldName() string {
+	return fc.drillDownFieldName
+}
+
+// SetValidateFields sets whether to validate facet fields during build.
+func (fc *FacetsConfig) SetValidateFields(validate bool) {
+	fc.validateFields = validate
+}
+
+// IsValidateFields returns true if facet fields should be validated during build.
+func (fc *FacetsConfig) IsValidateFields() bool {
+	return fc.validateFields
+}
+
+// SetAutoDetectHierarchical sets whether to auto-detect hierarchical facets.
+func (fc *FacetsConfig) SetAutoDetectHierarchical(autoDetect bool) {
+	fc.autoDetectHierarchical = autoDetect
+}
+
+// IsAutoDetectHierarchical returns true if hierarchical facets should be auto-detected.
+func (fc *FacetsConfig) IsAutoDetectHierarchical() bool {
+	return fc.autoDetectHierarchical
+}
+
+// SetDefaultMultiValued sets the default value for multi-valued fields.
+func (fc *FacetsConfig) SetDefaultMultiValued(multiValued bool) {
+	fc.defaultMultiValued = multiValued
+}
+
+// IsDefaultMultiValued returns the default value for multi-valued fields.
+func (fc *FacetsConfig) IsDefaultMultiValued() bool {
+	return fc.defaultMultiValued
+}
+
+// SetDefaultHierarchical sets the default value for hierarchical fields.
+func (fc *FacetsConfig) SetDefaultHierarchical(hierarchical bool) {
+	fc.defaultHierarchical = hierarchical
+}
+
+// IsDefaultHierarchical returns the default value for hierarchical fields.
+func (fc *FacetsConfig) IsDefaultHierarchical() bool {
+	return fc.defaultHierarchical
+}
+
+// SetDefaultRequireDimCount sets the default value for require dim count.
+func (fc *FacetsConfig) SetDefaultRequireDimCount(require bool) {
+	fc.defaultRequireDimCount = require
+}
+
+// IsDefaultRequireDimCount returns the default value for require dim count.
+func (fc *FacetsConfig) IsDefaultRequireDimCount() bool {
+	return fc.defaultRequireDimCount
+}
+
+// Validate validates the configuration.
+// Returns an error if the configuration is invalid.
+func (fc *FacetsConfig) Validate() error {
+	// Check for duplicate index field names
+	indexFieldNames := make(map[string]string) // maps index field name to dim
+	for dim, config := range fc.dimConfigs {
+		if config.IndexFieldName == "" {
+			continue
+		}
+		if existingDim, exists := indexFieldNames[config.IndexFieldName]; exists {
+			return fmt.Errorf("dimensions %q and %q share the same index field name %q",
+				existingDim, dim, config.IndexFieldName)
+		}
+		indexFieldNames[config.IndexFieldName] = dim
+	}
+
+	// Validate each dimension configuration
+	for dim, config := range fc.dimConfigs {
+		if err := fc.validateDimConfig(dim, config); err != nil {
+			return fmt.Errorf("invalid configuration for dimension %q: %w", dim, err)
+		}
+	}
+
+	return nil
+}
+
+// validateDimConfig validates a single dimension configuration.
+func (fc *FacetsConfig) validateDimConfig(dim string, config *DimConfig) error {
+	if config == nil {
+		return fmt.Errorf("configuration is nil")
+	}
+
+	if config.Dim != dim {
+		return fmt.Errorf("dimension name mismatch: expected %q, got %q", dim, config.Dim)
+	}
+
+	// Validate hierarchical configuration
+	if config.Hierarchical {
+		// Hierarchical facets should have path-like values
+		// This is just a validation check, actual validation happens during indexing
+	}
+
+	return nil
+}
+
+// HasDimension returns true if the configuration has the specified dimension.
+func (fc *FacetsConfig) HasDimension(dim string) bool {
+	_, exists := fc.dimConfigs[dim]
+	return exists
+}
+
+// RemoveDimension removes the specified dimension from the configuration.
+func (fc *FacetsConfig) RemoveDimension(dim string) bool {
+	if _, exists := fc.dimConfigs[dim]; exists {
+		delete(fc.dimConfigs, dim)
+		return true
+	}
+	return false
+}
+
+// Clear removes all dimension configurations.
+func (fc *FacetsConfig) Clear() {
+	fc.dimConfigs = make(map[string]*DimConfig)
+}
+
+// GetDimensionCount returns the number of configured dimensions.
+func (fc *FacetsConfig) GetDimensionCount() int {
+	return len(fc.dimConfigs)
+}
+
+// IsEmpty returns true if no dimensions are configured.
+func (fc *FacetsConfig) IsEmpty() bool {
+	return len(fc.dimConfigs) == 0
+}
+
+// Clone creates a deep copy of the configuration.
+func (fc *FacetsConfig) Clone() *FacetsConfig {
+	clone := NewFacetsConfig()
+	clone.indexFieldName = fc.indexFieldName
+	clone.drillDownFieldName = fc.drillDownFieldName
+	clone.validateFields = fc.validateFields
+	clone.autoDetectHierarchical = fc.autoDetectHierarchical
+	clone.defaultMultiValued = fc.defaultMultiValued
+	clone.defaultHierarchical = fc.defaultHierarchical
+	clone.defaultRequireDimCount = fc.defaultRequireDimCount
+
+	for dim, config := range fc.dimConfigs {
+		clone.dimConfigs[dim] = &DimConfig{
+			Dim:             config.Dim,
+			IndexFieldName:  config.IndexFieldName,
+			MultiValued:     config.MultiValued,
+			RequireDimCount: config.RequireDimCount,
+			Hierarchical:    config.Hierarchical,
+		}
+	}
+
+	return clone
+}
+
+// Merge merges another FacetsConfig into this one.
+// Dimensions from the other config take precedence if there are conflicts.
+func (fc *FacetsConfig) Merge(other *FacetsConfig) error {
+	if other == nil {
+		return fmt.Errorf("cannot merge nil configuration")
+	}
+
+	for dim, config := range other.dimConfigs {
+		fc.dimConfigs[dim] = &DimConfig{
+			Dim:             config.Dim,
+			IndexFieldName:  config.IndexFieldName,
+			MultiValued:     config.MultiValued,
+			RequireDimCount: config.RequireDimCount,
+			Hierarchical:    config.Hierarchical,
+		}
+	}
+
+	return nil
+}
+
+// GetAllDimConfigs returns all dimension configurations.
+func (fc *FacetsConfig) GetAllDimConfigs() map[string]*DimConfig {
+	result := make(map[string]*DimConfig)
+	for dim, config := range fc.dimConfigs {
+		result[dim] = &DimConfig{
+			Dim:             config.Dim,
+			IndexFieldName:  config.IndexFieldName,
+			MultiValued:     config.MultiValued,
+			RequireDimCount: config.RequireDimCount,
+			Hierarchical:    config.Hierarchical,
+		}
+	}
+	return result
+}
+
+// GetHierarchicalDims returns all dimensions configured as hierarchical.
+func (fc *FacetsConfig) GetHierarchicalDims() []string {
+	var dims []string
+	for dim, config := range fc.dimConfigs {
+		if config.Hierarchical {
+			dims = append(dims, dim)
+		}
+	}
+	sort.Strings(dims)
+	return dims
+}
+
+// GetMultiValuedDims returns all dimensions configured as multi-valued.
+func (fc *FacetsConfig) GetMultiValuedDims() []string {
+	var dims []string
+	for dim, config := range fc.dimConfigs {
+		if config.MultiValued {
+			dims = append(dims, dim)
+		}
+	}
+	sort.Strings(dims)
+	return dims
+}
+
+// String returns a string representation of the configuration.
+func (fc *FacetsConfig) String() string {
+	var parts []string
+	parts = append(parts, fmt.Sprintf("FacetsConfig{"))
+	parts = append(parts, fmt.Sprintf("  indexFieldName: %q", fc.indexFieldName))
+	parts = append(parts, fmt.Sprintf("  drillDownFieldName: %q", fc.drillDownFieldName))
+	parts = append(parts, fmt.Sprintf("  validateFields: %v", fc.validateFields))
+	parts = append(parts, fmt.Sprintf("  autoDetectHierarchical: %v", fc.autoDetectHierarchical))
+	parts = append(parts, fmt.Sprintf("  defaultMultiValued: %v", fc.defaultMultiValued))
+	parts = append(parts, fmt.Sprintf("  defaultHierarchical: %v", fc.defaultHierarchical))
+	parts = append(parts, fmt.Sprintf("  defaultRequireDimCount: %v", fc.defaultRequireDimCount))
+	parts = append(parts, fmt.Sprintf("  dimensions: [%d]", len(fc.dimConfigs)))
+
+	dims := fc.GetDims()
+	for _, dim := range dims {
+		config := fc.dimConfigs[dim]
+		parts = append(parts, fmt.Sprintf("    %s: {multiValued=%v, hierarchical=%v, requireDimCount=%v, indexFieldName=%q}",
+			dim, config.MultiValued, config.Hierarchical, config.RequireDimCount, config.IndexFieldName))
+	}
+	parts = append(parts, "}")
+
+	return strings.Join(parts, "\n")
 }
 
 // FacetsConfigField is a field that can be added to documents to configure
