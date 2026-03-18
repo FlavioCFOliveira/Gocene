@@ -216,3 +216,37 @@ func (q *MockQuery) HashCode() int                                           { r
 func (q *MockQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
 	return nil, nil
 }
+
+func TestNewNullFragmenter(t *testing.T) {
+	f := NewNullFragmenter()
+	if f == nil {
+		t.Fatal("Expected NullFragmenter to be created")
+	}
+}
+
+func TestNullFragmenterGetFragments(t *testing.T) {
+	f := NewNullFragmenter()
+
+	// Test empty text
+	fragments := f.GetFragments("", 1)
+	if len(fragments) != 0 {
+		t.Errorf("Expected 0 fragments for empty text, got %d", len(fragments))
+	}
+
+	// Test with text - should return entire text as single fragment
+	text := "This is a long text that should not be fragmented. It should be returned as a single fragment."
+	fragments = f.GetFragments(text, 5)
+	if len(fragments) != 1 {
+		t.Errorf("Expected 1 fragment, got %d", len(fragments))
+	}
+
+	if fragments[0] != text {
+		t.Errorf("Expected fragment to match original text, got '%s'", fragments[0])
+	}
+
+	// Test that maxNumFragments is ignored
+	fragments = f.GetFragments(text, 1)
+	if len(fragments) != 1 {
+		t.Errorf("Expected 1 fragment regardless of maxNumFragments, got %d", len(fragments))
+	}
+}

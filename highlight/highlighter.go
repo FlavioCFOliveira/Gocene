@@ -150,6 +150,28 @@ type Fragmenter interface {
 	GetFragments(text string, maxNumFragments int) []string
 }
 
+// NullFragmenter is a fragmenter that returns the entire text as a single fragment.
+// This is useful when you want to highlight the entire text without breaking it into pieces.
+//
+// This is the Go port of Lucene's org.apache.lucene.search.highlight.NullFragmenter.
+type NullFragmenter struct{}
+
+// NewNullFragmenter creates a new NullFragmenter.
+func NewNullFragmenter() *NullFragmenter {
+	return &NullFragmenter{}
+}
+
+// GetFragments returns the entire text as a single fragment.
+func (f *NullFragmenter) GetFragments(text string, maxNumFragments int) []string {
+	if text == "" {
+		return []string{}
+	}
+	return []string{text}
+}
+
+// Ensure NullFragmenter implements Fragmenter
+var _ Fragmenter = (*NullFragmenter)(nil)
+
 // SimpleFragmenter is a simple implementation of Fragmenter.
 type SimpleFragmenter struct {
 	// fragmentSize is the target size of each fragment
