@@ -353,6 +353,51 @@ func (q *MockQuery) CreateWeight(searcher *search.IndexSearcher, needsScores boo
 	return nil, nil
 }
 
+func TestNewSimpleHTMLEncoder(t *testing.T) {
+	e := NewSimpleHTMLEncoder()
+	if e == nil {
+		t.Fatal("Expected SimpleHTMLEncoder to be created")
+	}
+}
+
+func TestSimpleHTMLEncoderEncodeText(t *testing.T) {
+	e := NewSimpleHTMLEncoder()
+
+	// Test encoding of special HTML characters
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"Hello World", "Hello World"},
+		{"<script>", "&lt;script&gt;"},
+		{"A & B", "A &amp; B"},
+		{`"quoted"`, "&quot;quoted&quot;"},
+		{"It's", "It&#x27;s"},
+		{"<div class=\"test\">A & B</div>", "&lt;div class=&quot;test&quot;&gt;A &amp; B&lt;/div&gt;"},
+	}
+
+	for _, test := range tests {
+		result := e.EncodeText(test.input)
+		if result != test.expected {
+			t.Errorf("EncodeText('%s') = '%s', expected '%s'", test.input, result, test.expected)
+		}
+	}
+}
+
+func TestNewDefaultEncoder(t *testing.T) {
+	e := NewDefaultEncoder()
+	if e == nil {
+		t.Fatal("Expected DefaultEncoder to be created")
+	}
+
+	// Test that text is returned unchanged
+	text := "<script>alert('xss')</script>"
+	result := e.EncodeText(text)
+	if result != text {
+		t.Errorf("Expected text unchanged, got '%s'", result)
+	}
+}
+
 func TestNewNullFragmenter(t *testing.T) {
 	f := NewNullFragmenter()
 	if f == nil {
