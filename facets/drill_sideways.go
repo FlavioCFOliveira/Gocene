@@ -399,10 +399,5 @@ func (dsq *DrillSidewaysQuery) HashCode() int {
 
 // CreateWeight creates a Weight for this query.
 func (dsq *DrillSidewaysQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
-	// This would create a DrillSidewaysWeight
-	// For now, delegate to base query
-	if dsq.BaseQuery != nil {
-		return dsq.BaseQuery.CreateWeight(searcher, needsScores, boost)
-	}
-	return nil, fmt.Errorf("no base query")
+	return NewDrillSidewaysWeight(dsq, searcher, needsScores, boost)
 }
