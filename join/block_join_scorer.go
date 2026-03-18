@@ -234,3 +234,160 @@ func (s *BlockJoinScorer) collectChildScores(parentDoc int) error {
 
 // Ensure BlockJoinScorer implements Scorer
 var _ search.Scorer = (*BlockJoinScorer)(nil)
+
+// ToChildBlockJoinScorer is a scorer for ToChildBlockJoinQuery.
+// It matches child documents whose parent documents match the parent query.
+//
+// This is the Go port of Lucene's org.apache.lucene.search.join.ToChildBlockJoinScorer.
+type ToChildBlockJoinScorer struct {
+	// weight is the parent weight
+	weight *ToChildBlockJoinWeight
+
+	// parentScorer is the scorer for parent documents
+	parentScorer search.Scorer
+
+	// parentsBits is the bitset identifying parent documents
+	parentsBits *FixedBitSet
+
+	// scoreMode determines how parent scores are propagated
+	scoreMode ScoreMode
+
+	// boost is the query boost
+	boost float32
+
+	// currentChildDoc is the current child document ID
+	currentChildDoc int
+
+	// currentParentDoc is the current parent document ID
+	currentParentDoc int
+
+	// parentScore is the score of the current parent
+	parentScore float32
+}
+
+// NewToChildBlockJoinScorer creates a new ToChildBlockJoinScorer.
+func NewToChildBlockJoinScorer(weight *ToChildBlockJoinWeight, parentScorer search.Scorer, parentsBits *FixedBitSet, scoreMode ScoreMode, boost float32) *ToChildBlockJoinScorer {
+	return &ToChildBlockJoinScorer{
+		weight:           weight,
+		parentScorer:     parentScorer,
+		parentsBits:      parentsBits,
+		scoreMode:        scoreMode,
+		boost:            boost,
+		currentChildDoc:  -1,
+		currentParentDoc: -1,
+		parentScore:      0,
+	}
+}
+
+// DocID returns the current document ID.
+func (s *ToChildBlockJoinScorer) DocID() int {
+	return s.currentChildDoc
+}
+
+// NextDoc advances to the next document.
+func (s *ToChildBlockJoinScorer) NextDoc() (int, error) {
+	for {
+		// Advance parent scorer to next parent
+		parentDoc, err := s.parentScorer.NextDoc()
+		if err != nil {
+			return 0, err
+		}
+
+		if parentDoc == search.NO_MORE_DOCS {
+			s.currentChildDoc = search.NO_MORE_DOCS
+			return search.NO_MORE_DOCS, nil
+		}
+
+		s.currentParentDoc = parentDoc
+		s.parentScore = s.parentScorer.Score()
+
+		// Find the previous parent to determine the start of this child block
+		startDoc := s.findPreviousParent(parentDoc) + 1
+
+		// Return the first child in this block
+		if startDoc < parentDoc {
+			s.currentChildDoc = startDoc
+			return startDoc, nil
+		}
+		// If no children (parent follows parent), continue to next parent
+	}
+}
+
+// findPreviousParent finds the document ID of the previous parent before the given doc.
+func (s *ToChildBlockJoinScorer) findPreviousParent(doc int) int {
+	// Search backwards to find the previous set bit
+	for i := doc - 1; i >= 0; i-- {
+		if s.parentsBits.Get(i) {
+			return i
+		}
+	}
+	return -1
+}
+
+// Score returns the score of the current document.
+func (s *ToChildBlockJoinScorer) Score() float32 {
+	if s.scoreMode == None {
+		return s.boost
+	}
+	return s.parentScore * s.boost
+}
+
+// Advance advances to the given document.
+func (s *ToChildBlockJoinScorer) Advance(target int) (int, error) {
+	// Advance parent scorer to find which block contains the target
+	if target > s.currentParentDoc {
+		parentDoc, err := s.parentScorer.Advance(target)
+		if err != nil {
+			return 0, err
+		}
+
+		if parentDoc == search.NO_MORE_DOCS {
+			s.currentChildDoc = search.NO_MORE_DOCS
+			return search.NO_MORE_DOCS, nil
+		}
+
+		s.currentParentDoc = parentDoc
+		s.parentScore = s.parentScorer.Score()
+
+		// Find the start of this child block
+		startDoc := s.findPreviousParent(parentDoc) + 1
+
+		if startDoc <= target && target < parentDoc {
+			s.currentChildDoc = target
+			return target, nil
+		}
+
+		if startDoc < parentDoc {
+			s.currentChildDoc = startDoc
+			return startDoc, nil
+		}
+	}
+
+	// Otherwise, use NextDoc
+	return s.NextDoc()
+}
+
+// GetMaxScore returns the maximum score for documents up to the given doc.
+func (s *ToChildBlockJoinScorer) GetMaxScore(upTo int) float32 {
+	// Return the max score from parent scorer
+	return s.parentScorer.GetMaxScore(upTo) * s.boost
+}
+
+// Cost returns the estimated cost of this scorer.
+func (s *ToChildBlockJoinScorer) Cost() int64 {
+	return s.parentScorer.Cost()
+}
+
+// DocIDRunEnd returns the end of the run of consecutive doc IDs.
+func (s *ToChildBlockJoinScorer) DocIDRunEnd() int {
+	// Return the parent doc as the end of the run
+	return s.currentParentDoc
+}
+
+// GetChildren returns child scorers.
+func (s *ToChildBlockJoinScorer) GetChildren() search.Scorer {
+	return s.parentScorer
+}
+
+// Ensure ToChildBlockJoinScorer implements Scorer
+var _ search.Scorer = (*ToChildBlockJoinScorer)(nil)
