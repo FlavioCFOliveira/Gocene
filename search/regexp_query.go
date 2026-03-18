@@ -271,9 +271,9 @@ var _ Weight = (*RegexpWeight)(nil)
 // RegexpScorer is a scorer for regexp queries.
 type RegexpScorer struct {
 	*BaseScorer
-	docs    []int
-	pos     int
-	doc     int
+	docs []int
+	pos  int
+	doc  int
 }
 
 // NewRegexpScorer creates a new RegexpScorer.

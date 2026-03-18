@@ -52,10 +52,10 @@ func NewParseExceptionWithQuery(query string, cause error) *ParseException {
 func NewParseExceptionWithLocation(query string, line, column int, cause error) *ParseException {
 	msg := fmt.Sprintf("Cannot parse '%s' at line %d, column %d: %s", query, line, column, cause.Error())
 	return &ParseException{
-		Message:  msg,
-		Query:    query,
-		Line:     line,
-		Column:   column,
-		Cause:    cause,
+		Message: msg,
+		Query:   query,
+		Line:    line,
+		Column:  column,
+		Cause:   cause,
 	}
 }

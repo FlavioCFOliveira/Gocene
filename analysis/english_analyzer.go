@@ -16,10 +16,10 @@ import (
 // and Porter stemming. It also applies ASCII folding for compatibility.
 //
 // The analysis chain:
-//   1. StandardTokenizer - tokenizes text following UTS#39 rules
-//   2. LowerCaseFilter - converts to lowercase
-//   3. StopFilter - removes English stop words
-//   4. PorterStemFilter - applies Porter stemming algorithm
+//  1. StandardTokenizer - tokenizes text following UTS#39 rules
+//  2. LowerCaseFilter - converts to lowercase
+//  3. StopFilter - removes English stop words
+//  4. PorterStemFilter - applies Porter stemming algorithm
 //
 // Example:
 //

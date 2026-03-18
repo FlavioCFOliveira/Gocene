@@ -38,10 +38,10 @@ func TestLucene90FieldInfosFormat_OneField(t *testing.T) {
 	// Create a simple field info
 	opts := index.FieldInfoOptions{
 		IndexOptions:             index.IndexOptionsDocsAndFreqsAndPositions,
-		DocValuesType:              index.DocValuesTypeNone,
-		DocValuesSkipIndexType:     index.DocValuesSkipIndexTypeNone,
-		DocValuesGen:               -1,
-		Stored:                     true,
+		DocValuesType:            index.DocValuesTypeNone,
+		DocValuesSkipIndexType:   index.DocValuesSkipIndexTypeNone,
+		DocValuesGen:             -1,
+		Stored:                   true,
 		Tokenized:                true,
 		OmitNorms:                false,
 		StoreTermVectors:         false,
@@ -691,11 +691,11 @@ func TestLucene90FieldInfosFormat_Vectors(t *testing.T) {
 // TestLucene90FieldInfosFormat_TermVectors tests term vector options.
 func TestLucene90FieldInfosFormat_TermVectors(t *testing.T) {
 	testCases := []struct {
-		name       string
-		storeTV    bool
-		storePos   bool
-		storeOff   bool
-		storePay   bool
+		name     string
+		storeTV  bool
+		storePos bool
+		storeOff bool
+		storePay bool
 	}{
 		{"term_vectors_only", true, false, false, false},
 		{"term_vectors_positions", true, true, false, false},
@@ -1026,10 +1026,10 @@ func TestLucene90FieldInfosFormat_EmptyFieldInfos(t *testing.T) {
 func createTestFieldInfo(name string, number int) *index.FieldInfo {
 	opts := index.FieldInfoOptions{
 		IndexOptions:             index.IndexOptionsDocsAndFreqsAndPositions,
-		DocValuesType:              index.DocValuesTypeNone,
-		DocValuesSkipIndexType:     index.DocValuesSkipIndexTypeNone,
-		DocValuesGen:               -1,
-		Stored:                     true,
+		DocValuesType:            index.DocValuesTypeNone,
+		DocValuesSkipIndexType:   index.DocValuesSkipIndexTypeNone,
+		DocValuesGen:             -1,
+		Stored:                   true,
 		Tokenized:                true,
 		OmitNorms:                false,
 		StoreTermVectors:         false,

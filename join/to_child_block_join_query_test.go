@@ -85,22 +85,19 @@ func TestToChildBlockJoinQueryString(t *testing.T) {
 	}
 }
 
-func TestNewToChildBlockJoinWeight(t *testing.T) {
-	w := NewToChildBlockJoinWeight(nil, nil)
+func TestBlockJoinWeightFromChildQuery(t *testing.T) {
+	parentQuery := &MockQuery{}
+	w := NewBlockJoinWeight(parentQuery, nil, nil, None)
 
 	if w == nil {
-		t.Fatal("Expected ToChildBlockJoinWeight to be created")
+		t.Fatal("Expected BlockJoinWeight to be created")
 	}
-}
 
-func TestToChildBlockJoinWeightGetValueForNormalization(t *testing.T) {
-	w := NewToChildBlockJoinWeight(nil, nil)
-	// Should not panic with nil weights
-	_ = w.GetValueForNormalization()
-}
+	if w.GetScoreMode() != None {
+		t.Errorf("Expected score mode None, got %v", w.GetScoreMode())
+	}
 
-func TestToChildBlockJoinWeightNormalize(t *testing.T) {
-	w := NewToChildBlockJoinWeight(nil, nil)
-	// Should not panic with nil weights
-	w.Normalize(1.0)
+	if w.GetQuery() != parentQuery {
+		t.Error("Expected query to match")
+	}
 }

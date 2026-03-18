@@ -589,4 +589,3 @@ func TestNRTCachingDirectory_FSCacheSizeTracking(t *testing.T) {
 		t.Errorf("Expected 5 files in delegate, got %d", len(delegateFiles))
 	}
 }
-

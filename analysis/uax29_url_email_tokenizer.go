@@ -214,7 +214,7 @@ func (t *UAX29URLEmailTokenizer) tryMatchURL() string {
 			for i := 0; i < schemeEnd; i++ {
 				c := lowerRemaining[i]
 				if i == 0 {
-					if !((c >= 'a' && c <= 'z')) {
+					if !(c >= 'a' && c <= 'z') {
 						validScheme = false
 						break
 					}
@@ -323,27 +323,27 @@ func (t *UAX29URLEmailTokenizer) tokenizeWord() (bool, error) {
 	startOffset := t.currentOffset
 
 	// UAX#29 Word Boundary Rules (simplified implementation):
-// WB1: sot ÷ (start of text always breaks)
-// WB2: ÷ eot (end of text always breaks)
-// WB3: CR × LF (carriage return doesn't break before line feed)
-// WB3a: (CR | LF | NL) ÷
-// WB3b: ÷ (CR | LF | NL)
-// WB4: X (Extend | Format)* → X
-// WB5: (ALetter | Hebrew_Letter) × (ALetter | Hebrew_Letter)
-// WB6: (ALetter | Hebrew_Letter) × (MidLetter | MidNumLet | Single_Quote) (ALetter | Hebrew_Letter)
-// WB7: (ALetter | Hebrew_Letter) (MidLetter | MidNumLet | Single_Quote) × (ALetter | Hebrew_Letter)
-// WB7a: Hebrew_Letter × Single_Quote
-// WB7b: Hebrew_Letter × Double_Quote Hebrew_Letter
-// WB7c: Hebrew_Letter Double_Quote × Hebrew_Letter
-// WB8: Numeric × Numeric
-// WB9: (ALetter | Hebrew_Letter) × Numeric
-// WB10: Numeric × (ALetter | Hebrew_Letter)
-// WB11: Numeric (MidNum | MidNumLet) × Numeric
-// WB12: Numeric × (MidNum | MidNumLet) Numeric
-// WB13: Katakana × Katakana
-// WB13a: (ALetter | Hebrew_Letter | Numeric | Katakana | ExtendNumLet) × ExtendNumLet
-// WB13b: ExtendNumLet × (ALetter | Hebrew_Letter | Numeric | Katakana)
-// WB14: Any ÷ Any
+	// WB1: sot ÷ (start of text always breaks)
+	// WB2: ÷ eot (end of text always breaks)
+	// WB3: CR × LF (carriage return doesn't break before line feed)
+	// WB3a: (CR | LF | NL) ÷
+	// WB3b: ÷ (CR | LF | NL)
+	// WB4: X (Extend | Format)* → X
+	// WB5: (ALetter | Hebrew_Letter) × (ALetter | Hebrew_Letter)
+	// WB6: (ALetter | Hebrew_Letter) × (MidLetter | MidNumLet | Single_Quote) (ALetter | Hebrew_Letter)
+	// WB7: (ALetter | Hebrew_Letter) (MidLetter | MidNumLet | Single_Quote) × (ALetter | Hebrew_Letter)
+	// WB7a: Hebrew_Letter × Single_Quote
+	// WB7b: Hebrew_Letter × Double_Quote Hebrew_Letter
+	// WB7c: Hebrew_Letter Double_Quote × Hebrew_Letter
+	// WB8: Numeric × Numeric
+	// WB9: (ALetter | Hebrew_Letter) × Numeric
+	// WB10: Numeric × (ALetter | Hebrew_Letter)
+	// WB11: Numeric (MidNum | MidNumLet) × Numeric
+	// WB12: Numeric × (MidNum | MidNumLet) Numeric
+	// WB13: Katakana × Katakana
+	// WB13a: (ALetter | Hebrew_Letter | Numeric | Katakana | ExtendNumLet) × ExtendNumLet
+	// WB13b: ExtendNumLet × (ALetter | Hebrew_Letter | Numeric | Katakana)
+	// WB14: Any ÷ Any
 
 	// Build the token
 	for t.bufferPosition < len(t.inputBuffer) {

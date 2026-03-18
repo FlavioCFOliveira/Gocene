@@ -16,9 +16,9 @@ import (
 type mockQuery struct{}
 
 func (q *mockQuery) Rewrite(reader search.IndexReader) (search.Query, error) { return q, nil }
-func (q *mockQuery) Clone() search.Query                                    { return &mockQuery{} }
-func (q *mockQuery) Equals(other search.Query) bool                         { _, ok := other.(*mockQuery); return ok }
-func (q *mockQuery) HashCode() int                                          { return 0 }
+func (q *mockQuery) Clone() search.Query                                     { return &mockQuery{} }
+func (q *mockQuery) Equals(other search.Query) bool                          { _, ok := other.(*mockQuery); return ok }
+func (q *mockQuery) HashCode() int                                           { return 0 }
 func (q *mockQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
 	return nil, nil
 }
@@ -40,7 +40,7 @@ func (w *mockWeight) Scorer(context *index.LeafReaderContext) (search.Scorer, er
 func (w *mockWeight) BulkScorer(context *index.LeafReaderContext) (search.BulkScorer, error) {
 	return nil, nil
 }
-func (w *mockWeight) IsCacheable(ctx *index.LeafReaderContext) bool { return false }
+func (w *mockWeight) IsCacheable(ctx *index.LeafReaderContext) bool       { return false }
 func (w *mockWeight) Count(context *index.LeafReaderContext) (int, error) { return -1, nil }
 func (w *mockWeight) Matches(context *index.LeafReaderContext, doc int) (search.Matches, error) {
 	return nil, nil

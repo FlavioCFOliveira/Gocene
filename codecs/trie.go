@@ -114,10 +114,10 @@ func (o *TrieOutput) FloorData() *util.BytesRef {
 // This is the Go port of TrieBuilder.
 type TrieBuilder struct {
 	// TODO: Implement the actual trie builder structure
-	status    trieStatus
-	root      *trieNode
-	minKey    *util.BytesRef
-	maxKey    *util.BytesRef
+	status      trieStatus
+	root        *trieNode
+	minKey      *util.BytesRef
+	maxKey      *util.BytesRef
 	emptyOutput *TrieOutput
 }
 
@@ -130,14 +130,14 @@ const (
 )
 
 type trieNode struct {
-	label      int
-	output     *TrieOutput
+	label       int
+	output      *TrieOutput
 	childrenNum int
-	next       *trieNode
-	firstChild *trieNode
-	lastChild  *trieNode
-	fp         int64
-	savedTo    *trieNode
+	next        *trieNode
+	firstChild  *trieNode
+	lastChild   *trieNode
+	fp          int64
+	savedTo     *trieNode
 }
 
 // BytesRefToTrie creates a TrieBuilder from a single key-value pair.
@@ -255,19 +255,19 @@ type TrieNode struct {
 	ChildDeltaFp int64
 
 	// multi children
-	StrategyFp          int64
-	ChildSaveStrategy   int
-	StrategyBytes       int
+	StrategyFp           int64
+	ChildSaveStrategy    int
+	StrategyBytes        int
 	ChildrenDeltaFpBytes int
 
 	// common
-	Sign            int
-	Fp              int64
+	Sign             int
+	Fp               int64
 	MinChildrenLabel int
-	Label           int
-	OutputFp        int64
-	HasTerms        bool
-	FloorDataFp     int64
+	Label            int
+	OutputFp         int64
+	HasTerms         bool
+	FloorDataFp      int64
 }
 
 // NewTrieNode creates a new empty TrieNode.

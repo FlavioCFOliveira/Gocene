@@ -30,13 +30,14 @@ import (
 //  4. Emitting tokens in linear order with adjusted position increments
 //
 // Example:
-//   Input graph ("wifi" synonym of "wireless network"):
-//     Position 0: "wifi" (posLen=2), "wireless" (posLen=1)
-//     Position 1: "network" (posLen=1)
-//   Output stream:
-//     "wifi" (posIncr=1, posLen=2)
-//     "wireless" (posIncr=0, posLen=1)
-//     "network" (posIncr=1, posLen=1)
+//
+//	Input graph ("wifi" synonym of "wireless network"):
+//	  Position 0: "wifi" (posLen=2), "wireless" (posLen=1)
+//	  Position 1: "network" (posLen=1)
+//	Output stream:
+//	  "wifi" (posIncr=1, posLen=2)
+//	  "wireless" (posIncr=0, posLen=1)
+//	  "network" (posIncr=1, posLen=1)
 type FlattenGraphFilter struct {
 	*BaseTokenFilter
 
@@ -125,13 +126,13 @@ type flattenTokenData struct {
 // NewFlattenGraphFilter creates a new FlattenGraphFilter wrapping the given input.
 func NewFlattenGraphFilter(input TokenStream) *FlattenGraphFilter {
 	filter := &FlattenGraphFilter{
-		BaseTokenFilter: NewBaseTokenFilter(input),
-		tokenData:       make([]*flattenTokenData, 0),
-		outputTokens:    make([]*flattenTokenData, 0),
+		BaseTokenFilter:    NewBaseTokenFilter(input),
+		tokenData:          make([]*flattenTokenData, 0),
+		outputTokens:       make([]*flattenTokenData, 0),
 		currentOutputIndex: 0,
-		inputExhausted:  false,
-		endOffset:       0,
-		maxPos:          0,
+		inputExhausted:     false,
+		endOffset:          0,
+		maxPos:             0,
 	}
 
 	filter.initAttributes()

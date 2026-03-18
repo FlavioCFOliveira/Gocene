@@ -216,9 +216,9 @@ func (p *PerFieldFieldsProducer) Close() error {
 // MapFieldPostingsFormatProvider is a FieldPostingsFormatProvider that
 // maps specific fields to specific PostingsFormats.
 type MapFieldPostingsFormatProvider struct {
-	mu             sync.RWMutex
-	fieldFormats   map[string]PostingsFormat
-	defaultFormat  PostingsFormat
+	mu            sync.RWMutex
+	fieldFormats  map[string]PostingsFormat
+	defaultFormat PostingsFormat
 }
 
 // NewMapFieldPostingsFormatProvider creates a new MapFieldPostingsFormatProvider.

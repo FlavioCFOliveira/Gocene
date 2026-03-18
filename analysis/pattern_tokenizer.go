@@ -15,10 +15,10 @@ import (
 // This is the Go port of Lucene's org.apache.lucene.analysis.pattern.PatternTokenizer.
 //
 // The tokenizer works in two modes:
-// 1. Split mode (default): The pattern is used as a delimiter to split the input.
-//    Tokens are the text between pattern matches.
-// 2. Match mode: The pattern is used to find tokens. Only text that matches
-//    the pattern is emitted as tokens.
+//  1. Split mode (default): The pattern is used as a delimiter to split the input.
+//     Tokens are the text between pattern matches.
+//  2. Match mode: The pattern is used to find tokens. Only text that matches
+//     the pattern is emitted as tokens.
 //
 // In match mode, capturing groups can be used to extract specific parts of
 // the match. The group parameter specifies which capturing group to use (0 = entire match).

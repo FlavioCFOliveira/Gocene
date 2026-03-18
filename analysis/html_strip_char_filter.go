@@ -18,9 +18,9 @@ import (
 // This is the Go port of Lucene's org.apache.lucene.analysis.charfilter.HTMLStripCharFilter.
 type HTMLStripCharFilter struct {
 	*CharFilter
-	buffer     []byte
-	position   int
-	htmlRegex  *regexp.Regexp
+	buffer      []byte
+	position    int
+	htmlRegex   *regexp.Regexp
 	entityRegex *regexp.Regexp
 }
 

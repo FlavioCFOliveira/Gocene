@@ -113,7 +113,7 @@ func NewEdgeNGramFilterWithOptions(input TokenStream, minGram, maxGram int, pres
 	}
 
 	filter := &EdgeNGramFilter{
-		BaseTokenFilter:    NewBaseTokenFilter(input),
+		BaseTokenFilter:  NewBaseTokenFilter(input),
 		minGram:          minGram,
 		maxGram:          maxGram,
 		preserveOriginal: preserveOriginal,

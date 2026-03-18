@@ -491,13 +491,13 @@ type MergeThread struct {
 func NewMergeThread(name string, merge *OneMerge) *MergeThread {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &MergeThread{
-		Name:    name,
-		Merge:   merge,
-		Running: false,
+		Name:      name,
+		Merge:     merge,
+		Running:   false,
 		StartedNS: 0,
-		ctx:     ctx,
-		cancel:  cancel,
-		done:    make(chan struct{}),
+		ctx:       ctx,
+		cancel:    cancel,
+		done:      make(chan struct{}),
 	}
 }
 

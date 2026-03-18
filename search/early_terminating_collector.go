@@ -7,9 +7,9 @@ package search
 // EarlyTerminatingCollector terminates collection after a specified number of documents.
 // This is the Go port of Lucene's org.apache.lucene.search.EarlyTerminatingCollector.
 type EarlyTerminatingCollector struct {
-	delegate    Collector
-	maxDocs     int
-	collected   int
+	delegate  Collector
+	maxDocs   int
+	collected int
 }
 
 // NewEarlyTerminatingCollector creates a new EarlyTerminatingCollector.

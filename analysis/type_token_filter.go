@@ -4,7 +4,6 @@
 
 package analysis
 
-
 // TypeTokenFilter filters tokens based on their type attribute.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.TypeTokenFilter.

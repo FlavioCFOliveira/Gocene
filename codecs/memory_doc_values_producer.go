@@ -15,13 +15,13 @@ import (
 // MemoryDocValuesProducer is an in-memory implementation of DocValuesProducer.
 // This is useful for testing and for small indexes that fit in memory.
 type MemoryDocValuesProducer struct {
-	numericFields      map[string]*memoryNumericDocValues
-	binaryFields       map[string]*memoryBinaryDocValues
-	sortedFields       map[string]*memorySortedDocValues
-	sortedSetFields    map[string]*memorySortedSetDocValues
+	numericFields       map[string]*memoryNumericDocValues
+	binaryFields        map[string]*memoryBinaryDocValues
+	sortedFields        map[string]*memorySortedDocValues
+	sortedSetFields     map[string]*memorySortedSetDocValues
 	sortedNumericFields map[string]*memorySortedNumericDocValues
-	mu                 sync.RWMutex
-	closed             bool
+	mu                  sync.RWMutex
+	closed              bool
 }
 
 // NewMemoryDocValuesProducer creates a new MemoryDocValuesProducer.
@@ -170,10 +170,10 @@ func (p *MemoryDocValuesProducer) SetSortedNumericField(name string, dv *memoryS
 
 // memoryNumericDocValues is an in-memory implementation of NumericDocValues.
 type memoryNumericDocValues struct {
-	values   map[int]int64
-	docIDs   []int
-	pos      int
-	currDoc  int
+	values  map[int]int64
+	docIDs  []int
+	pos     int
+	currDoc int
 }
 
 // NewMemoryNumericDocValues creates a new memoryNumericDocValues.
@@ -359,11 +359,11 @@ func (dv *memorySortedDocValues) GetValueCount() int {
 
 // memorySortedSetDocValues is an in-memory implementation of SortedSetDocValues.
 type memorySortedSetDocValues struct {
-	values   map[int][]int // docID -> list of ords
-	docIDs   []int
-	pos      int
-	currDoc  int
-	currOrd  int
+	values     map[int][]int // docID -> list of ords
+	docIDs     []int
+	pos        int
+	currDoc    int
+	currOrd    int
 	ordToValue map[int][]byte
 }
 

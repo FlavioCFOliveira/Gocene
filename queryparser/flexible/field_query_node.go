@@ -10,11 +10,11 @@ import (
 // on a specific field.
 type FieldQueryNode struct {
 	*QueryNodeImpl
-	field      string
-	text       string
-	begin      int
-	end        int
-	position   int
+	field    string
+	text     string
+	begin    int
+	end      int
+	position int
 }
 
 // NewFieldQueryNode creates a new FieldQueryNode.
@@ -84,7 +84,7 @@ func (n *FieldQueryNode) ToQueryString(escapeSpecialSyntax bool) string {
 
 	if n.field != "" {
 		sb.WriteString(n.field)
-	sb.WriteString(":")
+		sb.WriteString(":")
 	}
 
 	if escapeSpecialSyntax {

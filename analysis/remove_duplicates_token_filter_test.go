@@ -15,10 +15,10 @@ import (
 // Purpose: Tests that duplicate tokens at the same position are removed.
 func TestRemoveDuplicatesTokenFilter_Basic(t *testing.T) {
 	tests := []struct {
-		name             string
-		input            []tokenInfo
-		expectedTokens   []string
-		expectedPosIncr  []int
+		name            string
+		input           []tokenInfo
+		expectedTokens  []string
+		expectedPosIncr []int
 	}{
 		{
 			name: "No duplicates - different positions",

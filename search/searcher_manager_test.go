@@ -432,7 +432,7 @@ type TopDocs struct {
 
 // TotalHits represents total hit count
 type TotalHits struct {
-	Value int64
+	Value    int64
 	Relation TotalHitsRelation
 }
 

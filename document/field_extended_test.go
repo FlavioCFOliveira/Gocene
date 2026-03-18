@@ -438,24 +438,48 @@ func TestField_PointFields(t *testing.T) {
 		wantValue  interface{}
 	}{
 		{
-			name:       "IntPoint",
-			createFunc: func() (IndexableField, error) { f := NewIntPoint("ip", 42); if f == nil { return nil, fmt.Errorf("nil") }; return f, nil },
-			wantValue:  int32(42),
+			name: "IntPoint",
+			createFunc: func() (IndexableField, error) {
+				f := NewIntPoint("ip", 42)
+				if f == nil {
+					return nil, fmt.Errorf("nil")
+				}
+				return f, nil
+			},
+			wantValue: int32(42),
 		},
 		{
-			name:       "LongPoint",
-			createFunc: func() (IndexableField, error) { f := NewLongPoint("lp", int64(123)); if f == nil { return nil, fmt.Errorf("nil") }; return f, nil },
-			wantValue:  int64(123),
+			name: "LongPoint",
+			createFunc: func() (IndexableField, error) {
+				f := NewLongPoint("lp", int64(123))
+				if f == nil {
+					return nil, fmt.Errorf("nil")
+				}
+				return f, nil
+			},
+			wantValue: int64(123),
 		},
 		{
-			name:       "FloatPoint",
-			createFunc: func() (IndexableField, error) { f := NewFloatPoint("fp", float32(3.14)); if f == nil { return nil, fmt.Errorf("nil") }; return f, nil },
-			wantValue:  float32(3.14),
+			name: "FloatPoint",
+			createFunc: func() (IndexableField, error) {
+				f := NewFloatPoint("fp", float32(3.14))
+				if f == nil {
+					return nil, fmt.Errorf("nil")
+				}
+				return f, nil
+			},
+			wantValue: float32(3.14),
 		},
 		{
-			name:       "DoublePoint",
-			createFunc: func() (IndexableField, error) { f := NewDoublePoint("dp", 3.14159); if f == nil { return nil, fmt.Errorf("nil") }; return f, nil },
-			wantValue:  3.14159,
+			name: "DoublePoint",
+			createFunc: func() (IndexableField, error) {
+				f := NewDoublePoint("dp", 3.14159)
+				if f == nil {
+					return nil, fmt.Errorf("nil")
+				}
+				return f, nil
+			},
+			wantValue: 3.14159,
 		},
 	}
 
@@ -626,9 +650,9 @@ func TestField_ValueAccessors(t *testing.T) {
 // TestField_IndexOptions tests field with different index options
 func TestField_IndexOptions(t *testing.T) {
 	tests := []struct {
-		name        string
-		options     index.IndexOptions
-		shouldWork  bool
+		name       string
+		options    index.IndexOptions
+		shouldWork bool
 	}{
 		{"docs_only", index.IndexOptionsDocs, true},
 		{"docs_and_freqs", index.IndexOptionsDocsAndFreqs, true},
@@ -740,7 +764,7 @@ func TestField_NilHandling(t *testing.T) {
 // TestField_DocValuesType tests field with doc values
 func TestField_DocValuesType(t *testing.T) {
 	tests := []struct {
-		name        string
+		name          string
 		docValuesType index.DocValuesType
 	}{
 		{"numeric", index.DocValuesTypeNumeric},
@@ -771,9 +795,9 @@ func TestField_DocValuesType(t *testing.T) {
 // TestField_TermVectorOptions tests field with term vector options
 func TestField_TermVectorOptions(t *testing.T) {
 	tests := []struct {
-		name     string
-		setup    func(*FieldType)
-		wantErr  bool
+		name    string
+		setup   func(*FieldType)
+		wantErr bool
 	}{
 		{
 			name: "valid_term_vectors",

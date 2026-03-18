@@ -29,12 +29,12 @@ type QueryParserBase struct {
 	allowLeadingWildcard     bool
 	enablePositionIncrements bool
 	lowercaseExpandedTerms   bool
-	allowFuzzyAndWildcard      bool
+	allowFuzzyAndWildcard    bool
 
 	// Default values
-	fuzzyMinSim      float64
+	fuzzyMinSim       float64
 	fuzzyPrefixLength int
-	phraseSlop       int
+	phraseSlop        int
 
 	// Locale and timezone for date parsing
 	locale   string

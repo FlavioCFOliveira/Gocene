@@ -28,8 +28,8 @@ type BaseStoredFieldsReader struct {
 func NewBaseStoredFieldsReader(dir store.Directory, segmentInfo *index.SegmentInfo, fieldInfos *index.FieldInfos) *BaseStoredFieldsReader {
 	return &BaseStoredFieldsReader{
 		directory:   dir,
-		segmentInfo:   segmentInfo,
-		fieldInfos:    fieldInfos,
+		segmentInfo: segmentInfo,
+		fieldInfos:  fieldInfos,
 	}
 }
 

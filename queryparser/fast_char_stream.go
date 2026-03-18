@@ -33,8 +33,8 @@ type FastCharStream struct {
 	column int
 
 	// Configuration
-	tabSize          int
-	trackLineColumn  bool
+	tabSize         int
+	trackLineColumn bool
 }
 
 // NewFastCharStream creates a new FastCharStream from a string.

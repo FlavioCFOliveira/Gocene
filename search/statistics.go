@@ -12,11 +12,11 @@ import (
 //
 // This is the Go port of Lucene's org.apache.lucene.search.CollectionStatistics.
 type CollectionStatistics struct {
-	field        string
-	maxDoc       int
-	docCount     int
+	field            string
+	maxDoc           int
+	docCount         int
 	sumTotalTermFreq int64
-	sumDocFreq   int64
+	sumDocFreq       int64
 }
 
 // NewCollectionStatistics creates new collection statistics.
@@ -59,8 +59,8 @@ func (s *CollectionStatistics) SumDocFreq() int64 {
 //
 // This is the Go port of Lucene's org.apache.lucene.search.TermStatistics.
 type TermStatistics struct {
-	term     *index.Term
-	docFreq  int
+	term          *index.Term
+	docFreq       int
 	totalTermFreq int64
 }
 

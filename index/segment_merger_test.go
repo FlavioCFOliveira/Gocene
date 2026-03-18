@@ -497,7 +497,7 @@ func TestSegmentMerger_BuildDocMap(t *testing.T) {
 			// Verify the mapping is compact
 			for i := 0; i < maxDoc; i++ {
 				if liveDocs.Get(i) {
-					expected := i - (i/2) // Number of deleted docs before i
+					expected := i - (i / 2) // Number of deleted docs before i
 					if docMap[i] != expected {
 						t.Errorf("Doc %d: expected mapped doc %d, got %d", i, expected, docMap[i])
 					}

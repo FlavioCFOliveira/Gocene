@@ -122,9 +122,9 @@ func testAlignFilePointerWithAlignment(t *testing.T, alignment int) {
 	// Create a test IndexOutput using ByteArrayDataOutput as the underlying implementation
 	// We wrap it to provide IndexOutput interface
 	out := &testIndexOutputForAlignment{
-		name:         "test_output",
-		dataOutput:   NewByteArrayDataOutput(8192),
-		filePointer:  0,
+		name:        "test_output",
+		dataOutput:  NewByteArrayDataOutput(8192),
+		filePointer: 0,
 	}
 
 	// Run multiple iterations with random byte writes
@@ -410,14 +410,14 @@ func TestAlignFilePointerEdgeCases(t *testing.T) {
 func TestAlignOffsetMemoryMappedOptimization(t *testing.T) {
 	// Common alignment values used for memory-mapped file optimization
 	mmapAlignments := []int{
-		1,   // Byte alignment (no alignment)
-		2,   // Short alignment
-		4,   // Int alignment (common for 32-bit values)
-		8,   // Long alignment (common for 64-bit values)
-		16,  // Cache line alignment
-		32,  // Larger cache line
-		64,  // Common cache line size
-		128, // Large alignment for vector operations
+		1,    // Byte alignment (no alignment)
+		2,    // Short alignment
+		4,    // Int alignment (common for 32-bit values)
+		8,    // Long alignment (common for 64-bit values)
+		16,   // Cache line alignment
+		32,   // Larger cache line
+		64,   // Common cache line size
+		128,  // Large alignment for vector operations
 		4096, // Page alignment (common for mmap)
 	}
 

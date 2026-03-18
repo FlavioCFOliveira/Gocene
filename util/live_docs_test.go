@@ -1005,13 +1005,13 @@ func TestFirstAndLastDocDeletion(t *testing.T) {
 	if sparse.Get(0) {
 		t.Error("Sparse first doc should be deleted")
 	}
-	if sparse.Get(maxDoc-1) {
+	if sparse.Get(maxDoc - 1) {
 		t.Error("Sparse last doc should be deleted")
 	}
 	if dense.Get(0) {
 		t.Error("Dense first doc should be deleted")
 	}
-	if dense.Get(maxDoc-1) {
+	if dense.Get(maxDoc - 1) {
 		t.Error("Dense last doc should be deleted")
 	}
 	if len(sparseDeleted) != 2 {

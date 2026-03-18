@@ -17,15 +17,15 @@ import (
 //
 // This is the Go port of Lucene's org.apache.lucene.util.PagedBytes.
 type PagedBytes struct {
-	blocks          [][]byte
-	numBlocks       int
-	blockSize       int
-	blockBits       int
-	blockMask       int
-	didSkipBytes    bool
-	frozen          bool
-	upto            int
-	currentBlock    []byte
+	blocks            [][]byte
+	numBlocks         int
+	blockSize         int
+	blockBits         int
+	blockMask         int
+	didSkipBytes      bool
+	frozen            bool
+	upto              int
+	currentBlock      []byte
 	bytesUsedPerBlock int64
 }
 
@@ -33,10 +33,10 @@ var emptyBytes = make([]byte, 0)
 
 // Reader provides methods to read BytesRefs from a frozen PagedBytes.
 type Reader struct {
-	blocks           [][]byte
-	blockBits        int
-	blockMask        int
-	blockSize        int
+	blocks            [][]byte
+	blockBits         int
+	blockMask         int
+	blockSize         int
 	bytesUsedPerBlock int64
 }
 
@@ -252,14 +252,14 @@ func (p *PagedBytes) GetDataInput() (*PagedBytesDataInput, error) {
 		}, nil
 	}
 	return &PagedBytesDataInput{
-		pagedBytes:       p,
-		blocks:           p.blocks,
-		currentBlock:     p.blocks[0],
-		blockBits:        p.blockBits,
-		blockMask:        p.blockMask,
-		blockSize:        p.blockSize,
+		pagedBytes:        p,
+		blocks:            p.blocks,
+		currentBlock:      p.blocks[0],
+		blockBits:         p.blockBits,
+		blockMask:         p.blockMask,
+		blockSize:         p.blockSize,
 		currentBlockIndex: 0,
-		currentBlockUpto: 0,
+		currentBlockUpto:  0,
 	}, nil
 }
 

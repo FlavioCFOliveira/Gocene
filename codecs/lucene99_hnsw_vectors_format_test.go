@@ -17,12 +17,12 @@ import (
 
 // Lucene99HnswVectorsFormat constants (mirroring Java implementation)
 const (
-	Lucene99HnswVectorsFormat_DEFAULT_MAX_CONN       = 16
-	Lucene99HnswVectorsFormat_DEFAULT_BEAM_WIDTH     = 100
-	Lucene99HnswVectorsFormat_MAXIMUM_MAX_CONN       = 512
-	Lucene99HnswVectorsFormat_MAXIMUM_BEAM_WIDTH     = 3200
+	Lucene99HnswVectorsFormat_DEFAULT_MAX_CONN         = 16
+	Lucene99HnswVectorsFormat_DEFAULT_BEAM_WIDTH       = 100
+	Lucene99HnswVectorsFormat_MAXIMUM_MAX_CONN         = 512
+	Lucene99HnswVectorsFormat_MAXIMUM_BEAM_WIDTH       = 3200
 	Lucene99HnswVectorsFormat_DEFAULT_NUM_MERGE_WORKER = 1
-	Lucene99HnswVectorsFormat_HNSW_GRAPH_THRESHOLD   = 100
+	Lucene99HnswVectorsFormat_HNSW_GRAPH_THRESHOLD     = 100
 )
 
 // Lucene99HnswVectorsFormatConfig holds the configuration for the format

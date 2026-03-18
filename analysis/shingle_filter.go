@@ -15,7 +15,8 @@ import (
 // A shingle is a token that combines multiple adjacent tokens. For example,
 // with input tokens ["please", "divide", "this", "sentence"], a shingle filter
 // with maxShingleSize=2 produces:
-//   ["please", "please divide", "divide", "divide this", "this", "this sentence", "sentence"]
+//
+//	["please", "please divide", "divide", "divide this", "this", "this sentence", "sentence"]
 //
 // Shingles are useful for phrase-like matching without requiring expensive
 // phrase queries. They can help with:

@@ -11,9 +11,9 @@ import "math"
 // This is the Go port of Lucene's ClassicSimilarity scoring logic.
 type ClassicSimScorer struct {
 	*BaseSimScorer
-	similarity   *ClassicSimilarity
-	idf          float64
-	weight       float64
+	similarity *ClassicSimilarity
+	idf        float64
+	weight     float64
 }
 
 // NewClassicSimScorer creates a new ClassicSimScorer.

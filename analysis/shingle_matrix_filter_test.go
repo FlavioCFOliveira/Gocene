@@ -22,8 +22,8 @@ func TestShingleMatrixFilter_Basic(t *testing.T) {
 		expectedPos []int
 	}{
 		{
-			name:        "Simple sentence",
-			input:       "please divide this sentence",
+			name:  "Simple sentence",
+			input: "please divide this sentence",
 			// Matrix pattern: unigrams first, then bigrams
 			expected:    []string{"please", "divide", "this", "sentence", "please divide", "divide this", "this sentence"},
 			expectedPos: []int{1, 0, 0, 0, 0, 0, 0},
@@ -158,17 +158,17 @@ func TestShingleMatrixFilter_LargerSize(t *testing.T) {
 		expectedPos []int
 	}{
 		{
-			name:        "Size 3",
-			input:       "a b c d",
-			maxSize:     3,
+			name:    "Size 3",
+			input:   "a b c d",
+			maxSize: 3,
 			// Matrix: unigrams, bigrams, trigrams
 			expected:    []string{"a", "b", "c", "d", "a b", "b c", "c d", "a b c", "b c d"},
 			expectedPos: []int{1, 0, 0, 0, 0, 0, 0, 0, 0},
 		},
 		{
-			name:        "Size 4",
-			input:       "a b c d e",
-			maxSize:     4,
+			name:    "Size 4",
+			input:   "a b c d e",
+			maxSize: 4,
 			// Matrix: unigrams, bigrams, trigrams, 4-grams
 			expected:    []string{"a", "b", "c", "d", "e", "a b", "b c", "c d", "d e", "a b c", "b c d", "c d e", "a b c d", "b c d e"},
 			expectedPos: []int{1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
@@ -232,18 +232,18 @@ func TestShingleMatrixFilter_MinMaxSize(t *testing.T) {
 		expected []string
 	}{
 		{
-			name:     "Min 2 Max 3",
-			input:    "a b c d",
-			minSize:  2,
-			maxSize:  3,
+			name:    "Min 2 Max 3",
+			input:   "a b c d",
+			minSize: 2,
+			maxSize: 3,
 			// Matrix: bigrams, trigrams (no unigrams)
 			expected: []string{"a b", "b c", "c d", "a b c", "b c d"},
 		},
 		{
-			name:     "Min 3 Max 3",
-			input:    "a b c d e",
-			minSize:  3,
-			maxSize:  3,
+			name:    "Min 3 Max 3",
+			input:   "a b c d e",
+			minSize: 3,
+			maxSize: 3,
 			// Matrix: trigrams only
 			expected: []string{"a b c", "b c d", "c d e"},
 		},
@@ -297,7 +297,7 @@ func TestShingleMatrixFilter_TokenSeparator(t *testing.T) {
 			input:     "hello world test",
 			separator: "_",
 			// Matrix: unigrams, then bigrams
-			expected:  []string{"hello", "world", "test", "hello_world", "world_test"},
+			expected: []string{"hello", "world", "test", "hello_world", "world_test"},
 		},
 		{
 			name:      "Empty separator",
@@ -795,8 +795,8 @@ func TestShingleMatrixFilter_SpecialCharacters(t *testing.T) {
 		expected []string
 	}{
 		{
-			name:     "Tokens with punctuation",
-			input:    "hello, world! test.",
+			name:  "Tokens with punctuation",
+			input: "hello, world! test.",
 			// Matrix: unigrams, then bigrams
 			expected: []string{"hello,", "world!", "test.", "hello, world!", "world! test."},
 		},

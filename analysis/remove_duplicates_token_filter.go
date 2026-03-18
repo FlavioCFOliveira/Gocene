@@ -21,8 +21,9 @@ import (
 // the position increment of the next non-duplicate token is adjusted.
 //
 // Example:
-//   Input:  "A"(pos=1) "A"(pos=0) "B"(pos=1) "B"(pos=0)
-//   Output: "A"(pos=1) "B"(pos=1)
+//
+//	Input:  "A"(pos=1) "A"(pos=0) "B"(pos=1) "B"(pos=0)
+//	Output: "A"(pos=1) "B"(pos=1)
 //
 // Note: This filter only removes duplicates at the same position. Tokens with
 // the same text at different positions are preserved.

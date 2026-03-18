@@ -220,10 +220,12 @@ func (h *cacheHelpers) GetLiveDocs(reader IndexReaderInterface) interface {
 	Get(index int) bool
 	Length() int
 } {
-	if withLiveDocs, ok := reader.(interface{ GetLiveDocs() interface {
-		Get(index int) bool
-		Length() int
-	} }); ok {
+	if withLiveDocs, ok := reader.(interface {
+		GetLiveDocs() interface {
+			Get(index int) bool
+			Length() int
+		}
+	}); ok {
 		return withLiveDocs.GetLiveDocs()
 	}
 	return nil

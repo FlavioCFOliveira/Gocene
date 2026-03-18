@@ -599,10 +599,10 @@ func TestPatternReplaceFilter_FactorySetters(t *testing.T) {
 // Purpose: Tests that common filter functions work correctly.
 func TestPatternReplaceFilter_CommonFilters(t *testing.T) {
 	tests := []struct {
-		name         string
-		input        string
-		filterFunc   func(TokenStream) *PatternReplaceFilter
-		expected     []string
+		name       string
+		input      string
+		filterFunc func(TokenStream) *PatternReplaceFilter
+		expected   []string
 	}{
 		{
 			name:       "DigitRemovalFilter",

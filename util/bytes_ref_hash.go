@@ -157,7 +157,7 @@ func (h *BytesRefHash) Sort() []int {
 
 	// Create a slice of indices to sort
 	type entry struct {
-		id   int
+		id    int
 		bytes []byte
 	}
 	entries := make([]entry, h.count)

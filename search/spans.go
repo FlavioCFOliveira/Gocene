@@ -7,15 +7,15 @@ package search
 // Spans is an iterator over span matches.
 // This is the Go port of Lucene's org.apache.lucene.search.spans.Spans.
 type Spans struct {
-	doc       int
-	freq      int
-	position  int
-	start     int
-	end       int
-	docs      []int
-	starts    []int
-	ends      []int
-	index     int
+	doc      int
+	freq     int
+	position int
+	start    int
+	end      int
+	docs     []int
+	starts   []int
+	ends     []int
+	index    int
 }
 
 // NewSpans creates a new Spans iterator.

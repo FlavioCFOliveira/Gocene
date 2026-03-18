@@ -185,8 +185,8 @@ func TestEdgeNGramFilter_PositionIncrement(t *testing.T) {
 	defer filter.Close()
 
 	type tokenInfo struct {
-		text           string
-		posIncrement   int
+		text         string
+		posIncrement int
 	}
 
 	var tokens []tokenInfo

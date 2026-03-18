@@ -104,18 +104,18 @@ type matrixTokenData struct {
 // Default: minShingleSize=2, maxShingleSize=2, tokenSeparator=" ", outputUnigrams=true
 func NewShingleMatrixFilter(input TokenStream) *ShingleMatrixFilter {
 	filter := &ShingleMatrixFilter{
-		BaseTokenFilter:  NewBaseTokenFilter(input),
-		minShingleSize:   2,
-		maxShingleSize:   2,
-		tokenSeparator:   " ",
-		outputUnigrams:   true,
-		isFirstToken:     true,
-		tokenMatrix:      make([][]*matrixTokenData, 0),
-		currentRow:       0,
-		currentCol:       0,
-		tokensConsumed:   0,
-		matrixBuilt:      false,
-		inputExhausted:   false,
+		BaseTokenFilter: NewBaseTokenFilter(input),
+		minShingleSize:  2,
+		maxShingleSize:  2,
+		tokenSeparator:  " ",
+		outputUnigrams:  true,
+		isFirstToken:    true,
+		tokenMatrix:     make([][]*matrixTokenData, 0),
+		currentRow:      0,
+		currentCol:      0,
+		tokensConsumed:  0,
+		matrixBuilt:     false,
+		inputExhausted:  false,
 	}
 
 	// Get attributes from the shared AttributeSource

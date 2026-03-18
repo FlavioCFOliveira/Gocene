@@ -381,12 +381,12 @@ func TestBoolean2ScoringOrder(t *testing.T) {
 
 	// Create documents with varying term frequencies
 	docs := []string{
-		"a",           // 1 term
-		"a a",         // 2 of same term
-		"a b",         // 2 different terms
-		"a a a",       // 3 of same term
-		"a b c",       // 3 different terms
-		"a a a a",     // 4 of same term
+		"a",       // 1 term
+		"a a",     // 2 of same term
+		"a b",     // 2 different terms
+		"a a a",   // 3 of same term
+		"a b c",   // 3 different terms
+		"a a a a", // 4 of same term
 	}
 
 	for _, text := range docs {
@@ -438,13 +438,13 @@ func TestBoolean2CoordFactor(t *testing.T) {
 
 	// Documents with different overlap with query terms
 	docs := []string{
-		"x y z",       // matches all 3
-		"x y",         // matches 2 of 3
-		"x z",         // matches 2 of 3
-		"y z",         // matches 2 of 3
-		"x",           // matches 1 of 3
-		"y",           // matches 1 of 3
-		"z",           // matches 1 of 3
+		"x y z", // matches all 3
+		"x y",   // matches 2 of 3
+		"x z",   // matches 2 of 3
+		"y z",   // matches 2 of 3
+		"x",     // matches 1 of 3
+		"y",     // matches 1 of 3
+		"z",     // matches 1 of 3
 	}
 
 	for _, text := range docs {
@@ -550,13 +550,13 @@ func TestBoolean2MinShouldMatch(t *testing.T) {
 
 	// Documents with different term combinations
 	docs := []string{
-		"a b c",       // matches all 3
-		"a b",         // matches 2
-		"a c",         // matches 2
-		"b c",         // matches 2
-		"a",           // matches 1
-		"b",           // matches 1
-		"c",           // matches 1
+		"a b c", // matches all 3
+		"a b",   // matches 2
+		"a c",   // matches 2
+		"b c",   // matches 2
+		"a",     // matches 1
+		"b",     // matches 1
+		"c",     // matches 1
 	}
 
 	for _, text := range docs {

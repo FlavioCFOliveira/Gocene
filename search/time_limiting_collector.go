@@ -12,9 +12,9 @@ import (
 // TimeLimitingCollector terminates collection if it exceeds a time limit.
 // This is the Go port of Lucene's org.apache.lucene.search.TimeLimitingCollector.
 type TimeLimitingCollector struct {
-	delegate  Collector
-	timeout   time.Duration
-	baseline  time.Time
+	delegate Collector
+	timeout  time.Duration
+	baseline time.Time
 }
 
 // ErrTimeLimitExceeded is returned when the time limit is exceeded.

@@ -37,13 +37,14 @@ import (
 //   - generateNumberParts: emit number subwords (default: true)
 //
 // Example with default settings:
-//   Input: "PowerShot12Mpx"
-//   Output graph:
-//     Position 0: "Power" (posLen=1)
-//     Position 0: "PowerShot" (posLen=2, if catenateWords=true)
-//     Position 1: "Shot" (posLen=1)
-//     Position 2: "12" (posLen=1)
-//     Position 3: "Mpx" (posLen=1)
+//
+//	Input: "PowerShot12Mpx"
+//	Output graph:
+//	  Position 0: "Power" (posLen=1)
+//	  Position 0: "PowerShot" (posLen=2, if catenateWords=true)
+//	  Position 1: "Shot" (posLen=1)
+//	  Position 2: "12" (posLen=1)
+//	  Position 3: "Mpx" (posLen=1)
 type WordDelimiterGraphFilter struct {
 	*BaseTokenFilter
 
@@ -94,24 +95,24 @@ type WordDelimiterGraphFilter struct {
 
 // subWord represents a single subword (part) extracted from the input token
 type subWord struct {
-	start     int
-	end       int
-	wordType  int
-	position  int
+	start    int
+	end      int
+	wordType int
+	position int
 }
 
 // WordDelimiterGraphFilter configuration constants
 const (
 	// Default flags
-	DEFAULT_SPLIT_ON_CASE_CHANGE     = true
-	DEFAULT_SPLIT_ON_NUMERICS        = true
-	DEFAULT_STEM_ENGLISH_POSSESSIVE  = true
-	DEFAULT_CATENATE_WORDS           = false
-	DEFAULT_CATENATE_NUMBERS         = false
-	DEFAULT_CATENATE_ALL             = false
-	DEFAULT_PRESERVE_ORIGINAL        = false
-	DEFAULT_GENERATE_WORD_PARTS      = true
-	DEFAULT_GENERATE_NUMBER_PARTS    = true
+	DEFAULT_SPLIT_ON_CASE_CHANGE    = true
+	DEFAULT_SPLIT_ON_NUMERICS       = true
+	DEFAULT_STEM_ENGLISH_POSSESSIVE = true
+	DEFAULT_CATENATE_WORDS          = false
+	DEFAULT_CATENATE_NUMBERS        = false
+	DEFAULT_CATENATE_ALL            = false
+	DEFAULT_PRESERVE_ORIGINAL       = false
+	DEFAULT_GENERATE_WORD_PARTS     = true
+	DEFAULT_GENERATE_NUMBER_PARTS   = true
 )
 
 // NewWordDelimiterGraphFilter creates a new WordDelimiterGraphFilter with default settings.
@@ -305,9 +306,9 @@ func (f *WordDelimiterGraphFilter) IncrementToken() (bool, error) {
 			return false, nil
 		}
 
-	// Process the input token
-	f.newInputToken = true
-	f.processInputToken()
+		// Process the input token
+		f.newInputToken = true
+		f.processInputToken()
 	}
 }
 

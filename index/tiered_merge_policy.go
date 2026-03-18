@@ -79,15 +79,15 @@ type TieredMergePolicy struct {
 func NewTieredMergePolicy() *TieredMergePolicy {
 	return &TieredMergePolicy{
 		BaseMergePolicy:             NewBaseMergePolicy(),
-		maxMergedSegmentBytes:      5 * 1024 * 1024 * 1024, // 5GB
-		floorSegmentBytes:          16 * 1024 * 1024,       // 16MB
-		segsPerTier:                8.0,
+		maxMergedSegmentBytes:       5 * 1024 * 1024 * 1024, // 5GB
+		floorSegmentBytes:           16 * 1024 * 1024,       // 16MB
+		segsPerTier:                 8.0,
 		forceMergeDeletesPctAllowed: 10.0,
-		deletesPctAllowed:          20.0,
-		targetSearchConcurrency:    1,
-		maxMergeAtOnce:             10,
-		maxMergeAtOnceExplicit:     30,
-		noCFSRatio:                 0.1,
+		deletesPctAllowed:           20.0,
+		targetSearchConcurrency:     1,
+		maxMergeAtOnce:              10,
+		maxMergeAtOnceExplicit:      30,
+		noCFSRatio:                  0.1,
 	}
 }
 

@@ -66,8 +66,8 @@ func (ncm *NormalizeCharMap) Clear() {
 // This is the Go port of Lucene's org.apache.lucene.analysis.charfilter.MappingCharFilter.
 type MappingCharFilter struct {
 	*CharFilter
-	charMap *NormalizeCharMap
-	buffer  []rune
+	charMap  *NormalizeCharMap
+	buffer   []rune
 	position int
 }
 
@@ -198,12 +198,12 @@ func GetSmartQuotesMap() *NormalizeCharMap {
 	m := NewNormalizeCharMap()
 
 	// Smart quotes to straight quotes
-	m.AddMapping('\u201c', '"') // Left double quotation mark
-	m.AddMapping('\u201d', '"') // Right double quotation mark
+	m.AddMapping('\u201c', '"')  // Left double quotation mark
+	m.AddMapping('\u201d', '"')  // Right double quotation mark
 	m.AddMapping('\u2018', '\'') // Left single quotation mark
 	m.AddMapping('\u2019', '\'') // Right single quotation mark
 	m.AddMapping('\u201a', ',')  // Single low-9 quotation mark
-	m.AddMapping('\u201e', '"') // Double low-9 quotation mark
+	m.AddMapping('\u201e', '"')  // Double low-9 quotation mark
 
 	return m
 }

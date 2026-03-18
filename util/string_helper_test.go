@@ -392,9 +392,9 @@ func TestMurmurHash3EdgeCases(t *testing.T) {
 
 	// Test various lengths to exercise tail handling
 	testCases := []struct {
-		input  string
-		seed   int
-		desc   string
+		input string
+		seed  int
+		desc  string
 	}{
 		{"a", 0, "1 byte"},
 		{"ab", 0, "2 bytes"},

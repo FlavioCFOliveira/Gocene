@@ -173,12 +173,12 @@ func (s *Sorter) SiftDown(i, from, to int, impl SorterInterface) {
 
 // HeapParent returns the parent index in a heap.
 func HeapParent(from, i int) int {
-	return ((i-1-from)>>1) + from
+	return ((i - 1 - from) >> 1) + from
 }
 
 // HeapChild returns the left child index in a heap.
 func HeapChild(from, i int) int {
-	return ((i-from)<<1) + 1 + from
+	return ((i - from) << 1) + 1 + from
 }
 
 // Lower finds the first position in [from, to) where val could be inserted.

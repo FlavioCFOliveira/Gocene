@@ -33,15 +33,17 @@ import (
 //
 // The graph structure allows for proper phrase query matching across synonyms.
 // For example, with synonym "quick" -> "fast", input "quick brown fox" produces:
-//   Position 0: "quick" (posLen=1), "fast" (posLen=1, posIncr=0)
-//   Position 1: "brown" (posLen=1)
-//   Position 2: "fox" (posLen=1)
+//
+//	Position 0: "quick" (posLen=1), "fast" (posLen=1, posIncr=0)
+//	Position 1: "brown" (posLen=1)
+//	Position 2: "fox" (posLen=1)
 //
 // For multi-word synonyms like "united states" -> "usa", input "united states of america" produces:
-//   Position 0: "united" (posLen=1), "usa" (posLen=2, posIncr=0)
-//   Position 1: "states" (posLen=1)
-//   Position 2: "of" (posLen=1)
-//   Position 3: "america" (posLen=1)
+//
+//	Position 0: "united" (posLen=1), "usa" (posLen=2, posIncr=0)
+//	Position 1: "states" (posLen=1)
+//	Position 2: "of" (posLen=1)
+//	Position 3: "america" (posLen=1)
 //
 // The filter uses a buffer to look ahead for multi-word synonym matches.
 // The maximum lookahead is determined by SynonymMap.GetMaxHorizontalContext().

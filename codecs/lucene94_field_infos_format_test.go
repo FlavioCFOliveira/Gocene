@@ -714,21 +714,21 @@ func TestLucene94FieldInfosFormat_Random(t *testing.T) {
 
 // randomFieldType holds random field configuration
 type randomFieldType struct {
-	indexOptions               index.IndexOptions
-	stored                     bool
-	omitNorms                  bool
-	storeTermVectors           bool
-	storeTermVectorPositions   bool
-	storeTermVectorOffsets     bool
-	storeTermVectorPayloads    bool
-	docValuesType              index.DocValuesType
-	docValuesSkipIndexType     index.DocValuesSkipIndexType
-	pointDimensionCount        int
-	pointIndexDimensionCount   int
-	pointNumBytes              int
-	vectorDimension            int
-	vectorEncoding             index.VectorEncoding
-	vectorSimilarityFunction   index.VectorSimilarityFunction
+	indexOptions             index.IndexOptions
+	stored                   bool
+	omitNorms                bool
+	storeTermVectors         bool
+	storeTermVectorPositions bool
+	storeTermVectorOffsets   bool
+	storeTermVectorPayloads  bool
+	docValuesType            index.DocValuesType
+	docValuesSkipIndexType   index.DocValuesSkipIndexType
+	pointDimensionCount      int
+	pointIndexDimensionCount int
+	pointNumBytes            int
+	vectorDimension          int
+	vectorEncoding           index.VectorEncoding
+	vectorSimilarityFunction index.VectorSimilarityFunction
 }
 
 // generateRandomFieldType generates a random field type configuration
@@ -788,7 +788,7 @@ func generateRandomFieldType(t *testing.T, fieldName string) randomFieldType {
 
 	// Random points
 	if rand.Intn(2) == 0 {
-		maxDimensions := 8 // PointValues.MAX_DIMENSIONS
+		maxDimensions := 8      // PointValues.MAX_DIMENSIONS
 		maxIndexDimensions := 4 // PointValues.MAX_INDEX_DIMENSIONS
 		ft.pointDimensionCount = 1 + rand.Intn(maxDimensions)
 		ft.pointIndexDimensionCount = 1 + rand.Intn(min(ft.pointDimensionCount, maxIndexDimensions))

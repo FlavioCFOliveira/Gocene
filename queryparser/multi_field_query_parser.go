@@ -15,8 +15,8 @@ import (
 // This is the Go port of Lucene's org.apache.lucene.queryparser.MultiFieldQueryParser.
 type MultiFieldQueryParser struct {
 	*QueryParserBase
-	fields        []string
-	boosts        map[string]float32
+	fields          []string
+	boosts          map[string]float32
 	defaultOperator BooleanClauseOccur
 }
 

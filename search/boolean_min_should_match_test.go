@@ -30,9 +30,9 @@ import (
 
 // testDocument represents a document in the test index
 type testDocument struct {
-	id   string
-	all  string
-	data string
+	id      string
+	all     string
+	data    string
 	hasData bool
 }
 

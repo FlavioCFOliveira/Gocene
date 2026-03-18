@@ -286,4 +286,3 @@ func TestOutputStreamIndexOutput_Close(t *testing.T) {
 		t.Errorf("close failed: %v", err)
 	}
 }
-

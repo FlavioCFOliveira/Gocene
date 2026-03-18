@@ -116,15 +116,15 @@ func TestNextHighestPowerOfTwoInt64(t *testing.T) {
 		input    int64
 		expected int64
 	}{
-		{0, 0},                 // 0 stays 0
-		{1, 1},                 // 1 is already a power of two
-		{2, 2},                 // 2 is already a power of two
-		{3, 4},                 // next power of two after 3 is 4
-		{4, 4},                 // 4 is already a power of two
-		{5, 8},                 // next power of two after 5 is 8
-		{100, 128},             // next power of two after 100 is 128
-		{1023, 1024},           // next power of two after 1023 is 1024
-		{1 << 30, 1 << 30},   // already a power of two
+		{0, 0},                   // 0 stays 0
+		{1, 1},                   // 1 is already a power of two
+		{2, 2},                   // 2 is already a power of two
+		{3, 4},                   // next power of two after 3 is 4
+		{4, 4},                   // 4 is already a power of two
+		{5, 8},                   // next power of two after 5 is 8
+		{100, 128},               // next power of two after 100 is 128
+		{1023, 1024},             // next power of two after 1023 is 1024
+		{1 << 30, 1 << 30},       // already a power of two
 		{(1 << 30) + 1, 1 << 31}, // next power of two
 	}
 
@@ -143,11 +143,11 @@ func TestInterleave(t *testing.T) {
 		odd      int
 		expected int64
 	}{
-		{0, 0, 0},                    // interleaving 0s gives 0
-		{1, 0, 1},                    // interleave(1, 0) = 1
-		{0, 1, 2},                    // interleave(0, 1) = 2
-		{1, 1, 3},                    // interleave(1, 1) = 3
-		{0xFFFFFFFF, 0, 0x5555555555555555}, // all even bits set
+		{0, 0, 0},                            // interleaving 0s gives 0
+		{1, 0, 1},                            // interleave(1, 0) = 1
+		{0, 1, 2},                            // interleave(0, 1) = 2
+		{1, 1, 3},                            // interleave(1, 1) = 3
+		{0xFFFFFFFF, 0, 0x5555555555555555},  // all even bits set
 		{0, 0xFFFFFFFF, -0x5555555555555556}, // 0xAAAAAAAAAAAAAAAA as signed = -0x5555555555555556
 	}
 
@@ -167,8 +167,8 @@ func TestDeinterleave(t *testing.T) {
 	}{
 		{0, 0},
 		{1, 1},
-		{2, 0}, // deinterleave of 2 (binary 10) extracts even bits which is 0
-		{3, 1}, // deinterleave of 3 (binary 11) extracts even bits which is 1
+		{2, 0},                           // deinterleave of 2 (binary 10) extracts even bits which is 0
+		{3, 1},                           // deinterleave of 3 (binary 11) extracts even bits which is 1
 		{0x5555555555555555, 0xFFFFFFFF}, // all even bits set -> all 32 bits set in result
 	}
 
@@ -257,16 +257,16 @@ func TestZigZagEncodeInt(t *testing.T) {
 		input    int
 		expected int
 	}{
-		{0, 0},                    // 0 encodes to 0
-		{-1, 1},                   // -1 encodes to 1
-		{1, 2},                    // 1 encodes to 2
-		{-2, 3},                   // -2 encodes to 3
-		{2, 4},                    // 2 encodes to 4
-		{-3, 5},                   // -3 encodes to 5
-		{3, 6},                    // 3 encodes to 6
-		{-4, 7},                   // -4 encodes to 7
-		{4, 8},                    // 4 encodes to 8
-		{math.MaxInt32, -2},       // MaxInt32 encodes to -2 (0x7FFFFFFF -> 0xFFFFFFFE)
+		{0, 0},                         // 0 encodes to 0
+		{-1, 1},                        // -1 encodes to 1
+		{1, 2},                         // 1 encodes to 2
+		{-2, 3},                        // -2 encodes to 3
+		{2, 4},                         // 2 encodes to 4
+		{-3, 5},                        // -3 encodes to 5
+		{3, 6},                         // 3 encodes to 6
+		{-4, 7},                        // -4 encodes to 7
+		{4, 8},                         // 4 encodes to 8
+		{math.MaxInt32, -2},            // MaxInt32 encodes to -2 (0x7FFFFFFF -> 0xFFFFFFFE)
 		{math.MinInt32, math.MaxInt32}, // MinInt32 encodes to MaxInt32
 	}
 
@@ -284,15 +284,15 @@ func TestZigZagDecodeInt(t *testing.T) {
 		input    int
 		expected int
 	}{
-		{0, 0},                    // 0 decodes to 0
-		{1, -1},                   // 1 decodes to -1
-		{2, 1},                    // 2 decodes to 1
-		{3, -2},                   // 3 decodes to -2
-		{4, 2},                    // 4 decodes to 2
-		{5, -3},                   // 5 decodes to -3
-		{6, 3},                    // 6 decodes to 3
-		{7, -4},                   // 7 decodes to -4
-		{8, 4},                    // 8 decodes to 4
+		{0, 0},  // 0 decodes to 0
+		{1, -1}, // 1 decodes to -1
+		{2, 1},  // 2 decodes to 1
+		{3, -2}, // 3 decodes to -2
+		{4, 2},  // 4 decodes to 2
+		{5, -3}, // 5 decodes to -3
+		{6, 3},  // 6 decodes to 3
+		{7, -4}, // 7 decodes to -4
+		{8, 4},  // 8 decodes to 4
 	}
 
 	for _, tc := range testCases {
@@ -409,11 +409,11 @@ func TestBitUtilEdgeCases(t *testing.T) {
 		val      int
 		expected bool
 	}{
-		{0, true},    // 0 is considered a power of two
-		{1, true},    // 1 is 2^0
-		{-1, false},  // -1 is all bits set
-		{-2, false},  // -2 is ...1110
-		{-8, false},  // negative numbers are not powers of two
+		{0, true},   // 0 is considered a power of two
+		{1, true},   // 1 is 2^0
+		{-1, false}, // -1 is all bits set
+		{-2, false}, // -2 is ...1110
+		{-8, false}, // negative numbers are not powers of two
 	}
 
 	for _, tc := range edgeCases {

@@ -95,9 +95,9 @@ type BufferedOutput interface {
 
 // Ensure interfaces are properly defined
 var (
-	_ DataOutput            = (*ByteArrayDataOutput)(nil)
-	_ VariableLengthOutput  = (*ByteArrayDataOutput)(nil)
-	_ BufferedOutput        = (*BufferedIndexOutput)(nil)
+	_ DataOutput           = (*ByteArrayDataOutput)(nil)
+	_ VariableLengthOutput = (*ByteArrayDataOutput)(nil)
+	_ BufferedOutput       = (*BufferedIndexOutput)(nil)
 )
 
 // BaseIndexOutput provides common functionality for IndexOutput implementations.
@@ -676,9 +676,9 @@ var (
 	_ VariableLengthOutput = (*ByteArrayDataOutput)(nil)
 
 	// BufferedIndexOutput assertions (base class - concrete implementations must provide full interface)
-	_ DataOutput           = (*BufferedIndexOutput)(nil)
-	_ RandomAccess         = (*BufferedIndexOutput)(nil)
-	_ NamedOutput          = (*BufferedIndexOutput)(nil)
-	_ Closable             = (*BufferedIndexOutput)(nil)
-	_ BufferedOutput       = (*BufferedIndexOutput)(nil)
+	_ DataOutput     = (*BufferedIndexOutput)(nil)
+	_ RandomAccess   = (*BufferedIndexOutput)(nil)
+	_ NamedOutput    = (*BufferedIndexOutput)(nil)
+	_ Closable       = (*BufferedIndexOutput)(nil)
+	_ BufferedOutput = (*BufferedIndexOutput)(nil)
 )

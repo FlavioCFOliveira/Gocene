@@ -227,31 +227,31 @@ func TestRegexpQuery_CharacterClasses(t *testing.T) {
 
 	// Test cases: regex -> expected hits
 	testCases := []struct {
-		regex     string
-		expected  int64
-		name      string
+		regex    string
+		expected int64
+		name     string
 	}{
-		{"\\d", 0, "single digit"},                    // No single digit tokens
-		{"\\d*", 1, "zero or more digits"},           // Matches empty or numeric tokens
-		{"\\d{6}", 1, "exactly 6 digits"},            // Matches 493432
-		{"[a\\d]{6}", 1, "6 chars of a or digit"},    // Matches 493432
-		{"\\d{2,7}", 1, "2 to 7 digits"},             // Matches 493432
-		{"\\d{4}", 0, "exactly 4 digits"},            // No 4-digit token
-		{"\\dog", 0, "digit followed by 'og'"},       // No such token
-		{"493\\d32", 1, "493 followed by digit and 32"}, // Matches 493432
-		{"\\wox", 1, "word char followed by 'ox'"}, // Matches fox
-		{"493\\w32", 1, "493, word char, 32"},        // Matches 493432
-		{"\\?\\?\\?", 1, "three question marks"},    // Matches ???
-		{"\\?\\W\\?", 1, "question, non-word, question"}, // Matches ???
-		{"\\?\\S\\?", 1, "question, non-space, question"}, // Matches ???
-		{"\\[foo\\]", 1, "literal [foo]"},            // Matches [foo]
-		{"\\[\\w{3}\\]", 1, "bracket with 3 word chars"}, // Matches [foo]
-		{"\\s.*", 0, "whitespace followed by anything"}, // No matches (whitespace stripped)
-		{"\\S*ck", 1, "non-space chars ending in 'ck'"}, // Matches quick
-		{"[\\d\\.]{3,10}", 1, "3-10 digits or dots"}, // Matches 12.3
+		{"\\d", 0, "single digit"},                                // No single digit tokens
+		{"\\d*", 1, "zero or more digits"},                        // Matches empty or numeric tokens
+		{"\\d{6}", 1, "exactly 6 digits"},                         // Matches 493432
+		{"[a\\d]{6}", 1, "6 chars of a or digit"},                 // Matches 493432
+		{"\\d{2,7}", 1, "2 to 7 digits"},                          // Matches 493432
+		{"\\d{4}", 0, "exactly 4 digits"},                         // No 4-digit token
+		{"\\dog", 0, "digit followed by 'og'"},                    // No such token
+		{"493\\d32", 1, "493 followed by digit and 32"},           // Matches 493432
+		{"\\wox", 1, "word char followed by 'ox'"},                // Matches fox
+		{"493\\w32", 1, "493, word char, 32"},                     // Matches 493432
+		{"\\?\\?\\?", 1, "three question marks"},                  // Matches ???
+		{"\\?\\W\\?", 1, "question, non-word, question"},          // Matches ???
+		{"\\?\\S\\?", 1, "question, non-space, question"},         // Matches ???
+		{"\\[foo\\]", 1, "literal [foo]"},                         // Matches [foo]
+		{"\\[\\w{3}\\]", 1, "bracket with 3 word chars"},          // Matches [foo]
+		{"\\s.*", 0, "whitespace followed by anything"},           // No matches (whitespace stripped)
+		{"\\S*ck", 1, "non-space chars ending in 'ck'"},           // Matches quick
+		{"[\\d\\.]{3,10}", 1, "3-10 digits or dots"},              // Matches 12.3
 		{"\\d{1,3}(\\.(\\d{1,2}))+", 1, "decimal number pattern"}, // Matches 12.3
-		{"\\\\", 1, "single backslash"},            // Matches \
-		{"\\\\.*", 1, "backslash followed by anything"}, // Matches \
+		{"\\\\", 1, "single backslash"},                           // Matches \
+		{"\\\\.*", 1, "backslash followed by anything"},           // Matches \
 	}
 
 	for _, tc := range testCases {

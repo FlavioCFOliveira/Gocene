@@ -13,9 +13,9 @@ import (
 // accessed with a long index. Use it only if you intend to store more than 2.1B bits,
 // otherwise you should use FixedBitSet.
 type LongBitSet struct {
-	bits    []uint64 // Array of uint64s holding the bits
-	numBits int64    // The number of bits in use
-	numWords int     // The exact number of longs needed to hold numBits (<= len(bits))
+	bits     []uint64 // Array of uint64s holding the bits
+	numBits  int64    // The number of bits in use
+	numWords int      // The exact number of longs needed to hold numBits (<= len(bits))
 }
 
 // MaxNumBits is the maximum numBits supported
@@ -82,7 +82,7 @@ func EnsureCapacity(bits *LongBitSet, numBits int64) *LongBitSet {
 	return &LongBitSet{
 		bits:     arr,
 		numBits:  int64(len(arr)) << 6,
-		numWords:   len(arr),
+		numWords: len(arr),
 	}
 }
 
@@ -112,7 +112,7 @@ func (b *LongBitSet) Get(index int64) bool {
 	if index < 0 || index >= b.numBits {
 		panic(fmt.Sprintf("index=%d, numBits=%d", index, b.numBits))
 	}
-	i := index >> 6 // div 64
+	i := index >> 6                        // div 64
 	bitmask := uint64(1) << (index & 0x3f) // mod 64
 	return (b.bits[i] & bitmask) != 0
 }
@@ -194,7 +194,7 @@ func (b *LongBitSet) PrevSetBit(index int64) int64 {
 		panic(fmt.Sprintf("index=%d, numBits=%d", index, b.numBits))
 	}
 	i := int(index >> 6)
-	subIndex := int(index & 0x3f) // index within the word
+	subIndex := int(index & 0x3f)        // index within the word
 	word := b.bits[i] << (63 - subIndex) // skip all the bits to the left of index
 
 	if word != 0 {

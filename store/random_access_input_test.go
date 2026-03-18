@@ -158,10 +158,10 @@ func TestByteArrayRandomAccessInput_Slice(t *testing.T) {
 		{2, 4, 4, false},
 		{4, 4, 4, false},
 		{0, 8, 8, false},
-		{8, 0, 0, false},  // empty slice at end
-		{-1, 4, 0, true},  // negative offset
-		{0, 9, 0, true},   // length exceeds
-		{4, 5, 0, true},   // offset + length exceeds
+		{8, 0, 0, false}, // empty slice at end
+		{-1, 4, 0, true}, // negative offset
+		{0, 9, 0, true},  // length exceeds
+		{4, 5, 0, true},  // offset + length exceeds
 	}
 
 	for _, tt := range tests {

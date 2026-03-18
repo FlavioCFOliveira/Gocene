@@ -34,12 +34,12 @@ const (
 // lockVerifyServer is a TCP server that verifies at most one client holds
 // the lock at any time. This is the Go equivalent of LockVerifyServer.
 type lockVerifyServer struct {
-	listener     net.Listener
-	maxClients   int
-	lockedID     atomic.Int32 // -1 = unlocked, -2 = error, >=0 = client ID holding lock
-	startingGun  chan struct{}
-	wg           sync.WaitGroup
-	t            *testing.T
+	listener    net.Listener
+	maxClients  int
+	lockedID    atomic.Int32 // -1 = unlocked, -2 = error, >=0 = client ID holding lock
+	startingGun chan struct{}
+	wg          sync.WaitGroup
+	t           *testing.T
 }
 
 // newLockVerifyServer creates a new lock verification server.
@@ -180,13 +180,13 @@ func (s *lockVerifyServer) handleClient(clientID int, conn net.Conn) {
 
 // lockStressClient represents a client process that stresses the lock factory.
 type lockStressClient struct {
-	id              int
-	serverAddr      string
-	lockFactory     LockFactory
-	lockDir         string
-	delayMs         int
-	rounds          int
-	t               *testing.T
+	id          int
+	serverAddr  string
+	lockFactory LockFactory
+	lockDir     string
+	delayMs     int
+	rounds      int
+	t           *testing.T
 }
 
 // run executes the stress test client.

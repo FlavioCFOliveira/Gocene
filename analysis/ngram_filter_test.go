@@ -335,39 +335,39 @@ func TestNGramFilter_ShortToken(t *testing.T) {
 // Purpose: Tests that min and max gram sizes are validated.
 func TestNGramFilter_MinMaxValidation(t *testing.T) {
 	tests := []struct {
-		name         string
-		minGram      int
-		maxGram      int
-		expectedMin  int
-		expectedMax  int
+		name        string
+		minGram     int
+		maxGram     int
+		expectedMin int
+		expectedMax int
 	}{
 		{
-			name:         "Valid min and max",
-			minGram:      2,
-			maxGram:      4,
-			expectedMin:  2,
-			expectedMax:  4,
+			name:        "Valid min and max",
+			minGram:     2,
+			maxGram:     4,
+			expectedMin: 2,
+			expectedMax: 4,
 		},
 		{
-			name:         "Min less than 1",
-			minGram:      0,
-			maxGram:      3,
-			expectedMin:  1,
-			expectedMax:  3,
+			name:        "Min less than 1",
+			minGram:     0,
+			maxGram:     3,
+			expectedMin: 1,
+			expectedMax: 3,
 		},
 		{
-			name:         "Max less than min",
-			minGram:      3,
-			maxGram:      2,
-			expectedMin:  3,
-			expectedMax:  3,
+			name:        "Max less than min",
+			minGram:     3,
+			maxGram:     2,
+			expectedMin: 3,
+			expectedMax: 3,
 		},
 		{
-			name:         "Negative min",
-			minGram:      -1,
-			maxGram:      3,
-			expectedMin:  1,
-			expectedMax:  3,
+			name:        "Negative min",
+			minGram:     -1,
+			maxGram:     3,
+			expectedMin: 1,
+			expectedMax: 3,
 		},
 	}
 

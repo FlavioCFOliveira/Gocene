@@ -560,11 +560,11 @@ func TestSynonymGraphFilterPositionLength(t *testing.T) {
 
 // synonymTokenInfo holds information about a collected token.
 type synonymTokenInfo struct {
-	term       string
-	posIncr    int
-	posLen     int
+	term        string
+	posIncr     int
+	posLen      int
 	startOffset int
-	endOffset  int
+	endOffset   int
 }
 
 // collectSynonymTokens collects all tokens from a TokenStream.

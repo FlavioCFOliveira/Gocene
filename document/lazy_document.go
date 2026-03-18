@@ -17,12 +17,12 @@ import (
 //
 // This is the Go port of Lucene's org.apache.lucene.misc.document.LazyDocument.
 type LazyDocument struct {
-	reader  index.IndexReaderInterface
-	docID   int
-	doc     *Document
-	fields  map[int][]*LazyField
+	reader     index.IndexReaderInterface
+	docID      int
+	doc        *Document
+	fields     map[int][]*LazyField
 	fieldNames map[string]struct{}
-	mu      sync.Mutex
+	mu         sync.Mutex
 }
 
 // NewLazyDocument creates a new LazyDocument for the given reader and document ID.

@@ -35,7 +35,7 @@ func TestSynonymFilter_BasicSingleWord(t *testing.T) {
 	defer filter.Close()
 
 	type tokenInfo struct {
-		text            string
+		text              string
 		positionIncrement int
 	}
 
@@ -104,7 +104,7 @@ func TestSynonymFilter_MultipleInputWords(t *testing.T) {
 	defer filter.Close()
 
 	type tokenInfo struct {
-		text            string
+		text              string
 		positionIncrement int
 	}
 
@@ -214,7 +214,7 @@ func TestSynonymFilter_MixedMatch(t *testing.T) {
 	defer filter.Close()
 
 	type tokenInfo struct {
-		text            string
+		text              string
 		positionIncrement int
 	}
 
@@ -326,7 +326,7 @@ func TestSynonymFilter_MultipleSynonyms(t *testing.T) {
 	defer filter.Close()
 
 	type tokenInfo struct {
-		text            string
+		text              string
 		positionIncrement int
 	}
 
@@ -610,7 +610,7 @@ func TestSynonymFilter_MultiWordOutput(t *testing.T) {
 	defer filter.Close()
 
 	type tokenInfo struct {
-		text            string
+		text              string
 		positionIncrement int
 	}
 
@@ -681,7 +681,7 @@ func TestSynonymFilter_ConsecutiveMatches(t *testing.T) {
 	defer filter.Close()
 
 	type tokenInfo struct {
-		text            string
+		text              string
 		positionIncrement int
 	}
 
@@ -857,7 +857,7 @@ func TestSynonymFilter_LongerMatchPreferred(t *testing.T) {
 	defer filter.Close()
 
 	type tokenInfo struct {
-		text            string
+		text              string
 		positionIncrement int
 	}
 
