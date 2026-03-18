@@ -538,7 +538,7 @@ Tarefas que podem ser implementadas independentemente, sem dependências de outr
 
 ## FASE 43: Join, Grouping e Highlight Completos (Advanced Features)
 
-**Status:** IN_PROGRESS | **Tasks:** 40 | **Completed:** 3/40 | **Focus:** Complete join, grouping, and highlight
+**Status:** IN_PROGRESS | **Tasks:** 40 | **Completed:** 4/40 | **Focus:** Complete join, grouping, and highlight
 **Dependencies:** Phase 42 (Advanced Facets)
 
 ### 43.1: Join Completo
@@ -548,7 +548,7 @@ Tarefas que podem ser implementadas independentemente, sem dependências de outr
 | GC-444 | ~~BlockJoinWeight~~ | HIGH | go-elite-developer |
 | GC-445 | ~~BlockJoinScorer~~ | HIGH | go-elite-developer |
 | GC-446 | ~~BlockJoinQuery Base~~ | HIGH | go-elite-developer |
-| GC-450 | TermsWithScoreCollector | MEDIUM | go-elite-developer |
+| GC-450 | ~~TermsWithScoreCollector~~ | MEDIUM | go-elite-developer |
 
 ### 43.2: Grouping Completo
 
@@ -818,6 +818,7 @@ Tarefas que podem ser implementadas independentemente, sem dependências de outr
 | GC-444 | BlockJoinWeight | join |
 | GC-445 | BlockJoinScorer | join |
 | GC-446 | BlockJoinQuery Base | join |
+| GC-450 | TermsWithScoreCollector | join |
 
 ### Fase 35: Core Extensions (2026-03-17)
 
