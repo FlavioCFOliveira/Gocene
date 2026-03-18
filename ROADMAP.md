@@ -21,7 +21,7 @@ Este roadmap contém todas as tarefas pendentes para completar o port de Apache 
 | 38 | COMPLETED | 45 | Alta | Span Queries | Phase 37 |
 | 39 | COMPLETED | 35 | Média | Language Analyzers (Major) | Phase 36 |
 | 40 | COMPLETED | 40 | Média-Alta | CheckIndex | Phase 38 |
-| 41 | PENDING | 45 | Alta | Flexible QueryParser | Phase 39, 40 |
+| 41 | COMPLETED | 45 | Alta | Flexible QueryParser | Phase 39, 40 |
 | 42 | PENDING | 35 | Alta | Advanced Facets | Phase 41 |
 | 43 | PENDING | 40 | Alta | Join/Grouping/Highlight | Phase 42 |
 | 44 | PENDING | 40 | Alta | Compressing Codecs | Phase 43 |
@@ -925,6 +925,45 @@ Tarefas que podem ser implementadas independentemente, sem dependências de outr
 | GC-512 | LongValuesSource | search |
 | GC-513 | MultiValueMode | search |
 
+### Fase 41: Flexible QueryParser Framework (2026-03-18)
+
+| Task ID | Task Name | Component |
+|:--------|:----------|:----------|
+| GC-415 | QueryNode Interface | queryparser/flexible |
+| GC-416 | QueryNodeImpl | queryparser/flexible |
+| GC-417 | FieldQueryNode | queryparser/flexible |
+| GC-418 | BooleanQueryNode | queryparser/flexible |
+| GC-419 | AndQueryNode | queryparser/flexible |
+| GC-420 | OrQueryNode | queryparser/flexible |
+| GC-421 | ModifierQueryNode | queryparser/flexible |
+| GC-422 | BoostQueryNode | queryparser/flexible |
+| GC-423 | FuzzyQueryNode | queryparser/flexible |
+| GC-424 | RangeQueryNode | queryparser/flexible |
+| GC-425 | PhraseSlopQueryNode | queryparser/flexible |
+| GC-426 | GroupQueryNode | queryparser/flexible |
+| GC-427 | MatchAllDocsQueryNode | queryparser/flexible |
+| GC-428 | MatchNoDocsQueryNode | queryparser/flexible |
+| GC-429 | QueryNodeProcessor Interface | queryparser/flexible |
+| GC-430 | QueryNodeProcessorImpl | queryparser/flexible |
+| GC-431 | QueryNodeProcessorPipeline | queryparser/flexible |
+| GC-432 | NoChildOptimizationProcessor | queryparser/flexible |
+| GC-433 | RemoveDeletedQueryNodesProcessor | queryparser/flexible |
+| GC-434 | QueryBuilder Interface | queryparser/flexible |
+| GC-435 | QueryTreeBuilder | queryparser/flexible |
+| GC-436 | BooleanQueryNodeBuilder | queryparser/flexible |
+| GC-437 | FieldQueryNodeBuilder | queryparser/flexible |
+| GC-438 | BoostQueryNodeBuilder | queryparser/flexible |
+| GC-439 | FuzzyQueryNodeBuilder | queryparser/flexible |
+| GC-440 | RangeQueryNodeBuilder | queryparser/flexible |
+| GC-441 | PhraseQueryNodeBuilder | queryparser/flexible |
+| GC-442 | TermRangeQueryNodeBuilder | queryparser/flexible |
+| GC-443 | WildcardQueryNodeBuilder | queryparser/flexible |
+| GC-444 | StandardQueryConfigHandler | queryparser/flexible |
+| GC-445 | StandardSyntaxParser | queryparser/flexible |
+| GC-446 | StandardQueryNodeProcessorPipeline | queryparser/flexible |
+| GC-447 | StandardQueryTreeBuilder | queryparser/flexible |
+| GC-448 | StandardQueryParser | queryparser/flexible |
+
 ### Fase 40: CheckIndex e Ferramentas de Diagnóstico (2026-03-18)
 
 | Task ID | Task Name | Component |
@@ -997,7 +1036,8 @@ Tarefas que podem ser implementadas independentemente, sem dependências de outr
 5. ~~**Fase 38** (45 tarefas)~~: ✅ COMPLETED - Span queries e search avançado
 6. ~~**Fase 39** (35 tarefas)~~: ✅ COMPLETED - Analisadores de idiomas principais
 7. ~~**Fase 40** (40 tarefas)~~: ✅ COMPLETED - Ferramentas de diagnóstico (CheckIndex)
-8. **Fases 41-43** (120 tarefas): QueryParser flexível, facets avançados, join/grouping/highlight completos
+8. ~~**Fase 41** (45 tarefas)~~: ✅ COMPLETED - Flexible QueryParser Framework
+9. **Fases 42-43** (75 tarefas): Facets avançados, join/grouping/highlight completos
 8. **Fases 44-46** (110 tarefas): Codecs, spatial, NRT
 9. **Fase 47** (40 tarefas): Idiomas adicionais
 
@@ -1017,7 +1057,7 @@ Tarefas que podem ser implementadas independentemente, sem dependências de outr
 
 ## FASE 41: QueryParser Flexible Framework (Flexible QueryParser)
 
-**Status:** IN_PROGRESS | **Tasks:** 45 | **Focus:** Flexible query parser framework
+**Status:** COMPLETED | **Tasks:** 45 | **Completed:** 2026-03-18 | **Focus:** Flexible query parser framework
 **Dependencies:** Phase 39 (Major Language Analyzers), Phase 40 (Index Tools)
 
 ### 41.1: QueryNode Tree (Core Nodes)
