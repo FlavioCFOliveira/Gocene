@@ -127,29 +127,3 @@ func NewDrillDownQueryWithPath(dim string, path []string, value string) *DrillDo
 	ddq.Path = append(ddq.Path, path...)
 	return ddq
 }
-
-// DrillSidewaysResult holds the result of a drill sideways operation.
-type DrillSidewaysResult struct {
-	// FacetResults contains the facet results for each dimension
-	FacetResults map[string]*FacetResult
-
-	// HitsCount is the total number of hits for the drill down query
-	HitsCount int64
-}
-
-// NewDrillSidewaysResult creates a new empty DrillSidewaysResult.
-func NewDrillSidewaysResult() *DrillSidewaysResult {
-	return &DrillSidewaysResult{
-		FacetResults: make(map[string]*FacetResult),
-	}
-}
-
-// AddFacetResult adds a facet result for the given dimension.
-func (dsr *DrillSidewaysResult) AddFacetResult(dim string, result *FacetResult) {
-	dsr.FacetResults[dim] = result
-}
-
-// GetFacetResult returns the facet result for the given dimension.
-func (dsr *DrillSidewaysResult) GetFacetResult(dim string) *FacetResult {
-	return dsr.FacetResults[dim]
-}
