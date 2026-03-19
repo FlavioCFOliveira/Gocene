@@ -197,10 +197,12 @@ func deflateDecompress(data []byte, uncompressedLen int) ([]byte, error) {
 
 // chunk represents a compressed chunk of documents.
 type chunk struct {
-	docStart        int // First document in this chunk
-	docCount        int // Number of documents in this chunk
-	compressed      []byte
-	uncompressedLen int
+	docStart        int    // First document in this chunk
+	docCount        int    // Number of documents in this chunk
+	startPointer    int64  // File offset where this chunk begins
+	compressed      []byte // Compressed data
+	compressedLen   int    // Length of compressed data
+	uncompressedLen int    // Length of uncompressed data
 }
 
 // CompressingStoredFieldsReader reads stored fields from compressed chunks.
@@ -306,7 +308,11 @@ func (r *CompressingStoredFieldsReader) loadIndex(fileName string) error {
 		if err != nil {
 			return fmt.Errorf("failed to read chunk doc count: %w", err)
 		}
-		_, err = store.ReadVInt(in) // compressedLen - skip for now
+		startPointer, err := store.ReadVInt(in)
+		if err != nil {
+			return fmt.Errorf("failed to read chunk start pointer: %w", err)
+		}
+		compressedLen, err := store.ReadVInt(in)
 		if err != nil {
 			return fmt.Errorf("failed to read chunk compressed length: %w", err)
 		}
@@ -318,6 +324,8 @@ func (r *CompressingStoredFieldsReader) loadIndex(fileName string) error {
 		r.chunks[i] = chunk{
 			docStart:        int(docStart),
 			docCount:        int(docCount),
+			startPointer:    int64(startPointer),
+			compressedLen:   int(compressedLen),
 			uncompressedLen: int(uncompressedLen),
 		}
 
@@ -356,13 +364,15 @@ func (r *CompressingStoredFieldsReader) loadData(fileName string) error {
 		return fmt.Errorf("unsupported data version: %d", version)
 	}
 
-	// Read chunks
+	// Read chunks using index information
 	for i := range r.chunks {
-		compressedData := make([]byte, r.chunks[i].uncompressedLen) // Will be adjusted
-		// Actually, we need to read the compressed length from somewhere
-		// For now, this is a simplified version
-		_ = compressedData
-		r.chunks[i].compressed = make([]byte, r.chunks[i].uncompressedLen)
+		// Seek to chunk position
+		if err := in.SetPosition(r.chunks[i].startPointer); err != nil {
+			return fmt.Errorf("failed to seek to chunk %d: %w", i, err)
+		}
+
+		// Read compressed data
+		r.chunks[i].compressed = make([]byte, r.chunks[i].compressedLen)
 		if err := in.ReadBytes(r.chunks[i].compressed); err != nil {
 			return fmt.Errorf("failed to read chunk %d: %w", i, err)
 		}
@@ -527,6 +537,15 @@ func (r *CompressingStoredFieldsReader) Close() error {
 	return nil
 }
 
+// chunkMeta stores metadata about a written chunk
+type chunkMeta struct {
+	startDocID         int
+	docCount           int
+	startPointer       int64
+	compressedLength   int
+	uncompressedLength int
+}
+
 // CompressingStoredFieldsWriter writes stored fields in compressed chunks.
 type CompressingStoredFieldsWriter struct {
 	directory       store.Directory
@@ -537,6 +556,8 @@ type CompressingStoredFieldsWriter struct {
 	docs            [][]storedField
 	currentChunk    []byte
 	currentDocIdx   int
+	chunks          []chunkMeta
+	totalDocs       int
 	mu              sync.Mutex
 	closed          bool
 	out             store.IndexOutput
@@ -558,6 +579,7 @@ func NewCompressingStoredFieldsWriter(dir store.Directory, segmentInfo *index.Se
 		maxDocsPerChunk: maxDocsPerChunk,
 		docs:            make([][]storedField, 0),
 		currentChunk:    make([]byte, 0, chunkSize),
+		chunks:          make([]chunkMeta, 0),
 		out:             out,
 	}
 
@@ -665,6 +687,9 @@ func (w *CompressingStoredFieldsWriter) flushChunk() error {
 		return nil
 	}
 
+	// Get current file position for this chunk
+	startPointer := w.out.Length()
+
 	// Build uncompressed chunk data
 	var chunkData []byte
 
@@ -682,6 +707,8 @@ func (w *CompressingStoredFieldsWriter) flushChunk() error {
 		chunkData = append(chunkData, docData...)
 	}
 
+	uncompressedLength := len(chunkData)
+
 	// Compress
 	compressor := w.compressionMode.compressor()
 	compressed, err := compressor(chunkData)
@@ -689,10 +716,23 @@ func (w *CompressingStoredFieldsWriter) flushChunk() error {
 		return fmt.Errorf("failed to compress chunk: %w", err)
 	}
 
+	compressedLength := len(compressed)
+
 	// Write compressed data
 	if err := w.out.WriteBytes(compressed); err != nil {
 		return fmt.Errorf("failed to write chunk: %w", err)
 	}
+
+	// Record chunk metadata
+	w.chunks = append(w.chunks, chunkMeta{
+		startDocID:         w.totalDocs,
+		docCount:           len(w.docs),
+		startPointer:       startPointer,
+		compressedLength:   compressedLength,
+		uncompressedLength: uncompressedLength,
+	})
+
+	w.totalDocs += len(w.docs)
 
 	// Reset for next chunk
 	w.docs = w.docs[:0]
@@ -803,8 +843,29 @@ func (w *CompressingStoredFieldsWriter) writeIndex() error {
 		return fmt.Errorf("failed to write index version: %w", err)
 	}
 
-	// Note: In a full implementation, we would track chunks and their metadata
-	// For now, this is a simplified version
+	// Write number of chunks
+	if err := store.WriteVInt(out, int32(len(w.chunks))); err != nil {
+		return fmt.Errorf("failed to write chunk count: %w", err)
+	}
+
+	// Write chunk metadata
+	for _, chunk := range w.chunks {
+		if err := store.WriteVInt(out, int32(chunk.startDocID)); err != nil {
+			return fmt.Errorf("failed to write chunk start docID: %w", err)
+		}
+		if err := store.WriteVInt(out, int32(chunk.docCount)); err != nil {
+			return fmt.Errorf("failed to write chunk doc count: %w", err)
+		}
+		if err := store.WriteVInt(out, int32(chunk.startPointer)); err != nil {
+			return fmt.Errorf("failed to write chunk start pointer: %w", err)
+		}
+		if err := store.WriteVInt(out, int32(chunk.compressedLength)); err != nil {
+			return fmt.Errorf("failed to write chunk compressed length: %w", err)
+		}
+		if err := store.WriteVInt(out, int32(chunk.uncompressedLength)); err != nil {
+			return fmt.Errorf("failed to write chunk uncompressed length: %w", err)
+		}
+	}
 
 	return nil
 }
