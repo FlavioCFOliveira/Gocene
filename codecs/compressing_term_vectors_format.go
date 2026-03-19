@@ -12,6 +12,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // CompressingTermVectorsFormat is a TermVectorsFormat that compresses term vectors
@@ -433,6 +434,32 @@ type CompressingTermVectorsReader struct {
 	maxDocsPerChunk int
 	mu              sync.RWMutex
 	closed          bool
+	// docVectors maps document IDs to their term vectors
+	docVectors map[int]*docTermVectors
+}
+
+// docTermVectors holds term vectors for a single document
+type docTermVectors struct {
+	fields map[string]*fieldTermVector
+}
+
+// fieldTermVector holds term vector data for a single field
+type fieldTermVector struct {
+	name         string
+	terms        []termVector
+	hasPositions bool
+	hasOffsets   bool
+	hasPayloads  bool
+}
+
+// termVector represents a single term with its positions, offsets, and payloads
+type termVector struct {
+	term       []byte
+	freq       int
+	positions  []int
+	startOffsets []int
+	endOffsets   []int
+	payloads   [][]byte
 }
 
 // NewCompressingTermVectorsReader creates a new CompressingTermVectorsReader.
@@ -490,8 +517,164 @@ func (r *CompressingTermVectorsReader) loadData(fileName string) error {
 		return fmt.Errorf("unsupported data version: %d", version)
 	}
 
-	// Note: In a full implementation, we would read and decompress chunks here
-	// For now, this is a simplified version
+	// Read the rest of the file (compressed data)
+	length := in.Length() - in.GetFilePointer()
+	compressedData := make([]byte, length)
+	if err := in.ReadBytes(compressedData); err != nil {
+		return fmt.Errorf("failed to read compressed data: %w", err)
+	}
+
+	// Decompress if there's data
+	if len(compressedData) > 0 {
+		decompressor := r.compressionMode.decompressor()
+		chunkData, err := decompressor(compressedData, int(length)*10) // Estimate decompressed size
+		if err != nil {
+			return fmt.Errorf("failed to decompress data: %w", err)
+		}
+
+		// Parse the chunk data
+		if err := r.parseChunkData(chunkData); err != nil {
+			return fmt.Errorf("failed to parse chunk data: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// parseChunkData parses decompressed chunk data into docVectors
+func (r *CompressingTermVectorsReader) parseChunkData(data []byte) error {
+	r.docVectors = make(map[int]*docTermVectors)
+
+	buf := bytes.NewReader(data)
+
+	// Read number of documents
+	var numDocs int32
+	if err := binary.Read(buf, binary.BigEndian, &numDocs); err != nil {
+		return fmt.Errorf("failed to read number of documents: %w", err)
+	}
+
+	docID := 0
+	for i := int32(0); i < numDocs; i++ {
+		docVectors := &docTermVectors{
+			fields: make(map[string]*fieldTermVector),
+		}
+
+		// Read number of fields
+		var numFields int32
+		if err := binary.Read(buf, binary.BigEndian, &numFields); err != nil {
+			return fmt.Errorf("failed to read number of fields: %w", err)
+		}
+
+		for j := int32(0); j < numFields; j++ {
+			// Read field name length and name
+			var nameLen int32
+			if err := binary.Read(buf, binary.BigEndian, &nameLen); err != nil {
+				return fmt.Errorf("failed to read field name length: %w", err)
+			}
+			nameBytes := make([]byte, nameLen)
+			if _, err := buf.Read(nameBytes); err != nil {
+				return fmt.Errorf("failed to read field name: %w", err)
+			}
+			name := string(nameBytes)
+
+			// Read flags
+			flags := make([]byte, 1)
+			if _, err := buf.Read(flags); err != nil {
+				return fmt.Errorf("failed to read flags: %w", err)
+			}
+			hasPositions := flags[0]&0x01 != 0
+			hasOffsets := flags[0]&0x02 != 0
+			hasPayloads := flags[0]&0x04 != 0
+
+			// Read number of terms
+			var numTerms int32
+			if err := binary.Read(buf, binary.BigEndian, &numTerms); err != nil {
+				return fmt.Errorf("failed to read number of terms: %w", err)
+			}
+
+			field := &fieldTermVector{
+				name:         name,
+				terms:        make([]termVector, 0, numTerms),
+				hasPositions: hasPositions,
+				hasOffsets:   hasOffsets,
+				hasPayloads:  hasPayloads,
+			}
+
+			for k := int32(0); k < numTerms; k++ {
+				// Read term length and term
+				var termLen int32
+				if err := binary.Read(buf, binary.BigEndian, &termLen); err != nil {
+					return fmt.Errorf("failed to read term length: %w", err)
+				}
+				termBytes := make([]byte, termLen)
+				if _, err := buf.Read(termBytes); err != nil {
+					return fmt.Errorf("failed to read term: %w", err)
+				}
+
+				// Read frequency
+				var freq int32
+				if err := binary.Read(buf, binary.BigEndian, &freq); err != nil {
+					return fmt.Errorf("failed to read frequency: %w", err)
+				}
+
+				tv := termVector{
+					term: termBytes,
+					freq: int(freq),
+				}
+
+				// Read positions
+				if hasPositions {
+					tv.positions = make([]int, freq)
+					tv.startOffsets = make([]int, freq)
+					tv.endOffsets = make([]int, freq)
+					if hasPayloads {
+						tv.payloads = make([][]byte, freq)
+					}
+
+					for p := 0; p < int(freq); p++ {
+						var pos int32
+						if err := binary.Read(buf, binary.BigEndian, &pos); err != nil {
+							return fmt.Errorf("failed to read position: %w", err)
+						}
+						tv.positions[p] = int(pos)
+
+						if hasOffsets {
+							var startOffset, endOffset int32
+							if err := binary.Read(buf, binary.BigEndian, &startOffset); err != nil {
+								return fmt.Errorf("failed to read start offset: %w", err)
+							}
+							if err := binary.Read(buf, binary.BigEndian, &endOffset); err != nil {
+								return fmt.Errorf("failed to read end offset: %w", err)
+							}
+							tv.startOffsets[p] = int(startOffset)
+							tv.endOffsets[p] = int(endOffset)
+						}
+
+						if hasPayloads {
+							var payloadLen int32
+							if err := binary.Read(buf, binary.BigEndian, &payloadLen); err != nil {
+								return fmt.Errorf("failed to read payload length: %w", err)
+							}
+							if payloadLen > 0 {
+								payload := make([]byte, payloadLen)
+								if _, err := buf.Read(payload); err != nil {
+									return fmt.Errorf("failed to read payload: %w", err)
+								}
+								tv.payloads[p] = payload
+							}
+						}
+					}
+				}
+
+				field.terms = append(field.terms, tv)
+			}
+
+			docVectors.fields[name] = field
+		}
+
+		r.docVectors[docID] = docVectors
+		docID++
+	}
 
 	return nil
 }
@@ -505,8 +688,12 @@ func (r *CompressingTermVectorsReader) Get(docID int) (index.Fields, error) {
 		return nil, fmt.Errorf("reader is closed")
 	}
 
-	// Placeholder: Return empty fields
-	return &emptyFields{}, nil
+	docVectors, exists := r.docVectors[docID]
+	if !exists {
+		return &emptyFields{}, nil
+	}
+
+	return &termVectorsFields{docVectors: docVectors}, nil
 }
 
 // GetField retrieves the term vector for a specific field in a document.
@@ -518,8 +705,17 @@ func (r *CompressingTermVectorsReader) GetField(docID int, field string) (index.
 		return nil, fmt.Errorf("reader is closed")
 	}
 
-	// Placeholder: Return empty terms
-	return &emptyTerms{}, nil
+	docVectors, exists := r.docVectors[docID]
+	if !exists {
+		return nil, nil
+	}
+
+	fieldVector, exists := docVectors.fields[field]
+	if !exists {
+		return nil, nil
+	}
+
+	return &termVectorsTerms{field: fieldVector}, nil
 }
 
 // Close releases resources.
@@ -559,3 +755,277 @@ func (t *emptyTerms) HasPositions() bool                  { return false }
 func (t *emptyTerms) HasPayloads() bool                   { return false }
 func (t *emptyTerms) GetMin() (*index.Term, error)        { return nil, nil }
 func (t *emptyTerms) GetMax() (*index.Term, error)        { return nil, nil }
+
+// termVectorsFields implements index.Fields for term vectors
+type termVectorsFields struct {
+	docVectors *docTermVectors
+}
+
+func (f *termVectorsFields) Iterator() (index.FieldIterator, error) {
+	fieldNames := make([]string, 0, len(f.docVectors.fields))
+	for name := range f.docVectors.fields {
+		fieldNames = append(fieldNames, name)
+	}
+	return &termVectorsFieldIterator{fields: fieldNames, index: -1}, nil
+}
+
+func (f *termVectorsFields) Size() int {
+	return len(f.docVectors.fields)
+}
+
+func (f *termVectorsFields) Terms(field string) (index.Terms, error) {
+	fieldVector, exists := f.docVectors.fields[field]
+	if !exists {
+		return nil, nil
+	}
+	return &termVectorsTerms{field: fieldVector}, nil
+}
+
+// termVectorsFieldIterator implements index.FieldIterator for term vectors
+type termVectorsFieldIterator struct {
+	fields []string
+	index  int
+}
+
+func (it *termVectorsFieldIterator) Next() (string, error) {
+	it.index++
+	if it.index >= len(it.fields) {
+		return "", nil
+	}
+	return it.fields[it.index], nil
+}
+
+func (it *termVectorsFieldIterator) HasNext() bool {
+	return it.index+1 < len(it.fields)
+}
+
+// termVectorsTerms implements index.Terms for term vectors
+type termVectorsTerms struct {
+	field *fieldTermVector
+}
+
+func (t *termVectorsTerms) GetIterator() (index.TermsEnum, error) {
+	return &termVectorsTermsEnum{field: t.field, index: -1}, nil
+}
+
+func (t *termVectorsTerms) GetIteratorWithSeek(seekTerm *index.Term) (index.TermsEnum, error) {
+	// For term vectors, we don't support seeking - just return a regular iterator
+	return t.GetIterator()
+}
+
+func (t *termVectorsTerms) Size() int64 {
+	return int64(len(t.field.terms))
+}
+
+func (t *termVectorsTerms) GetDocCount() (int, error) {
+	return 1, nil // Term vectors are per-document, so doc count is always 1
+}
+
+func (t *termVectorsTerms) GetSumDocFreq() (int64, error) {
+	return int64(len(t.field.terms)), nil
+}
+
+func (t *termVectorsTerms) GetSumTotalTermFreq() (int64, error) {
+	var total int64
+	for _, term := range t.field.terms {
+		total += int64(term.freq)
+	}
+	return total, nil
+}
+
+func (t *termVectorsTerms) HasFreqs() bool {
+	return true
+}
+
+func (t *termVectorsTerms) HasOffsets() bool {
+	return t.field.hasOffsets
+}
+
+func (t *termVectorsTerms) HasPositions() bool {
+	return t.field.hasPositions
+}
+
+func (t *termVectorsTerms) HasPayloads() bool {
+	return t.field.hasPayloads
+}
+
+func (t *termVectorsTerms) GetMin() (*index.Term, error) {
+	if len(t.field.terms) == 0 {
+		return nil, nil
+	}
+	return index.NewTermFromBytes(t.field.name, t.field.terms[0].term), nil
+}
+
+func (t *termVectorsTerms) GetMax() (*index.Term, error) {
+	if len(t.field.terms) == 0 {
+		return nil, nil
+	}
+	return index.NewTermFromBytes(t.field.name, t.field.terms[len(t.field.terms)-1].term), nil
+}
+
+// termVectorsTermsEnum implements index.TermsEnum for term vectors
+type termVectorsTermsEnum struct {
+	field *fieldTermVector
+	index int
+}
+
+func (e *termVectorsTermsEnum) Next() (*index.Term, error) {
+	e.index++
+	if e.index >= len(e.field.terms) {
+		return nil, nil
+	}
+	return index.NewTermFromBytes(e.field.name, e.field.terms[e.index].term), nil
+}
+
+func (e *termVectorsTermsEnum) DocFreq() (int, error) {
+	if e.index < 0 || e.index >= len(e.field.terms) {
+		return 0, fmt.Errorf("iterator not positioned")
+	}
+	return 1, nil // Each term appears in exactly one document for term vectors
+}
+
+func (e *termVectorsTermsEnum) TotalTermFreq() (int64, error) {
+	if e.index < 0 || e.index >= len(e.field.terms) {
+		return 0, fmt.Errorf("iterator not positioned")
+	}
+	return int64(e.field.terms[e.index].freq), nil
+}
+
+func (e *termVectorsTermsEnum) Postings(flags int) (index.PostingsEnum, error) {
+	if e.index < 0 || e.index >= len(e.field.terms) {
+		return nil, fmt.Errorf("iterator not positioned")
+	}
+	term := e.field.terms[e.index]
+	return &termVectorsPostingsEnum{
+		term:         term,
+		hasPositions: e.field.hasPositions,
+		hasOffsets:   e.field.hasOffsets,
+		hasPayloads:  e.field.hasPayloads,
+	}, nil
+}
+
+func (e *termVectorsTermsEnum) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (index.PostingsEnum, error) {
+	// Term vectors don't support live docs filtering - just return regular postings
+	return e.Postings(flags)
+}
+
+func (e *termVectorsTermsEnum) SeekCeil(text *index.Term) (*index.Term, error) {
+	// Simple linear search for now
+	textStr := text.Bytes.String()
+	for i, term := range e.field.terms {
+		if string(term.term) >= textStr {
+			e.index = i
+			return index.NewTermFromBytes(e.field.name, term.term), nil
+		}
+	}
+	return nil, nil
+}
+
+func (e *termVectorsTermsEnum) SeekExact(text *index.Term) (bool, error) {
+	textStr := text.Bytes.String()
+	for i, term := range e.field.terms {
+		if string(term.term) == textStr {
+			e.index = i
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (e *termVectorsTermsEnum) Term() *index.Term {
+	if e.index < 0 || e.index >= len(e.field.terms) {
+		return nil
+	}
+	return index.NewTermFromBytes(e.field.name, e.field.terms[e.index].term)
+}
+
+// termVectorsPostingsEnum implements index.PostingsEnum for term vectors
+type termVectorsPostingsEnum struct {
+	term         termVector
+	posIndex     int
+	hasPositions bool
+	hasOffsets   bool
+	hasPayloads  bool
+}
+
+func (p *termVectorsPostingsEnum) NextDoc() (int, error) {
+	// Term vectors only have one document, so return NO_MORE_DOCS after first call
+	if p.posIndex == 0 {
+		p.posIndex = 1
+		return 0, nil // Return docID 0
+	}
+	return index.NO_MORE_DOCS, nil
+}
+
+func (p *termVectorsPostingsEnum) Advance(target int) (int, error) {
+	// Term vectors only have one document (docID 0)
+	if target <= 0 && p.posIndex == 0 {
+		p.posIndex = 1
+		return 0, nil
+	}
+	return index.NO_MORE_DOCS, nil
+}
+
+func (p *termVectorsPostingsEnum) DocID() int {
+	if p.posIndex == 0 {
+		return -1 // Not started
+	}
+	if p.posIndex > 0 {
+		return 0 // Current doc
+	}
+	return index.NO_MORE_DOCS
+}
+
+func (p *termVectorsPostingsEnum) Freq() (int, error) {
+	return p.term.freq, nil
+}
+
+func (p *termVectorsPostingsEnum) NextPosition() (int, error) {
+	if !p.hasPositions {
+		return -1, fmt.Errorf("positions not available")
+	}
+	if p.posIndex >= len(p.term.positions) {
+		return -1, nil // No more positions
+	}
+	pos := p.term.positions[p.posIndex]
+	p.posIndex++
+	return pos, nil
+}
+
+func (p *termVectorsPostingsEnum) StartOffset() (int, error) {
+	if !p.hasOffsets {
+		return -1, fmt.Errorf("offsets not available")
+	}
+	if p.posIndex <= 0 || p.posIndex > len(p.term.startOffsets) {
+		return -1, fmt.Errorf("no current position")
+	}
+	return p.term.startOffsets[p.posIndex-1], nil
+}
+
+func (p *termVectorsPostingsEnum) EndOffset() (int, error) {
+	if !p.hasOffsets {
+		return -1, fmt.Errorf("offsets not available")
+	}
+	if p.posIndex <= 0 || p.posIndex > len(p.term.endOffsets) {
+		return -1, fmt.Errorf("no current position")
+	}
+	return p.term.endOffsets[p.posIndex-1], nil
+}
+
+func (p *termVectorsPostingsEnum) Payload() ([]byte, error) {
+	if !p.hasPayloads {
+		return nil, nil
+	}
+	if p.posIndex <= 0 || p.posIndex > len(p.term.payloads) {
+		return nil, fmt.Errorf("no current position")
+	}
+	return p.term.payloads[p.posIndex-1], nil
+}
+
+func (p *termVectorsPostingsEnum) GetPayload() ([]byte, error) {
+	return p.Payload()
+}
+
+func (p *termVectorsPostingsEnum) Cost() int64 {
+	return int64(p.term.freq)
+}

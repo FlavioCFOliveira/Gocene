@@ -76,7 +76,7 @@ Implement compression codecs for efficient storage.
 | GC-667 | XXHash64 | LOW | XXHash64 algorithm |
 | GC-668 | ChecksumIndexInput | MEDIUM | Checksum index input |
 | GC-669 | ChecksumIndexOutput | MEDIUM | Checksum index output |
-| GC-670 | CompressedStoredFieldsFormat Tests | HIGH | Comprehensive test suite |
+| GC-670 | ~~CompressedStoredFieldsFormat Tests~~ | HIGH | ~~COMPLETED 2026-03-19:~~ Comprehensive test suite with ZFloat, ZDouble, TLong compression |
 | GC-671 | CompressionBenchmark | MEDIUM | Performance benchmarks |
 | GC-672 | CompressingDocValuesFormat | HIGH | DocValues compression format |
 | GC-673 | CompressingDocValuesProducer | MEDIUM | DocValues compression producer |

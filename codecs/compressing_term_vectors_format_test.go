@@ -341,6 +341,61 @@ func TestCompressingTermVectorsReader_GetField(t *testing.T) {
 	fieldInfos := index.NewFieldInfos()
 
 	format := DefaultCompressingTermVectorsFormat()
+
+	// Write term vectors first
+	state := &SegmentWriteState{
+		Directory:   dir,
+		SegmentInfo: segmentInfo,
+		FieldInfos:  fieldInfos,
+	}
+
+	writer, err := format.VectorsWriter(state)
+	if err != nil {
+		t.Fatalf("VectorsWriter failed: %v", err)
+	}
+
+	// Write a document with term vectors
+	if err := writer.StartDocument(1); err != nil {
+		t.Fatalf("StartDocument failed: %v", err)
+	}
+
+	opts := index.FieldInfoOptions{
+		IndexOptions:             index.IndexOptionsDocsAndFreqsAndPositions,
+		DocValuesType:            index.DocValuesTypeNone,
+		StoreTermVectors:         true,
+		StoreTermVectorPositions: true,
+	}
+	fieldInfo := index.NewFieldInfo("test_field", 0, opts)
+
+	if err := writer.StartField(fieldInfo, 1, true, false, false); err != nil {
+		t.Fatalf("StartField failed: %v", err)
+	}
+
+	if err := writer.StartTerm([]byte("term1")); err != nil {
+		t.Fatalf("StartTerm failed: %v", err)
+	}
+
+	if err := writer.AddPosition(0, -1, -1, nil); err != nil {
+		t.Fatalf("AddPosition failed: %v", err)
+	}
+
+	if err := writer.FinishTerm(); err != nil {
+		t.Fatalf("FinishTerm failed: %v", err)
+	}
+
+	if err := writer.FinishField(); err != nil {
+		t.Fatalf("FinishField failed: %v", err)
+	}
+
+	if err := writer.FinishDocument(); err != nil {
+		t.Fatalf("FinishDocument failed: %v", err)
+	}
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// Now read the term vectors
 	reader, err := format.VectorsReader(dir, segmentInfo, fieldInfos, store.IOContext{Context: store.ContextRead})
 	if err != nil {
 		t.Fatalf("VectorsReader failed: %v", err)
