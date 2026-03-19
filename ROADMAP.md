@@ -5,8 +5,8 @@
 Este roadmap contém todas as tarefas pendentes para completar o port de Apache Lucene 10.x para Go, organizadas por complexidade e dependências.
 
 **Total de Tarefas Pendentes:** 335
-**Fases Ativas:** 39-47
-**Fases Completadas:** 34-38
+**Fases Ativas:** 44-47
+**Fases Completadas:** 34-43
 
 ---
 
@@ -22,8 +22,8 @@ Este roadmap contém todas as tarefas pendentes para completar o port de Apache 
 | 39 | COMPLETED | 35 | Média | Language Analyzers (Major) | Phase 36 |
 | 40 | COMPLETED | 40 | Média-Alta | CheckIndex | Phase 38 |
 | 41 | COMPLETED | 45 | Alta | Flexible QueryParser | Phase 39, 40 |
-| 42 | PENDING | 35 | Alta | Advanced Facets | Phase 41 |
-| 43 | PENDING | 40 | Alta | Join/Grouping/Highlight | Phase 42 |
+| 42 | COMPLETED | 35 | Alta | Advanced Facets | Phase 41 |
+| 43 | COMPLETED | 11 | Alta | Join/Grouping/Highlight | Phase 42 |
 | 44 | PENDING | 40 | Alta | Compressing Codecs | Phase 43 |
 | 45 | PENDING | 35 | Alta | Spatial Fields | Phase 44 |
 | 46 | PENDING | 35 | Alta | NRT Search | Phase 45 |
@@ -31,1094 +31,669 @@ Este roadmap contém todas as tarefas pendentes para completar o port de Apache 
 
 ---
 
-## FASE 34: Tarefas Simples sem Dependências (Foundation)
+## Fases Completadas (Resumo)
 
-**Status:** COMPLETED | **Tasks:** 45 | **Completed:** 2026-03-17 | **Focus:** Foundation components with no dependencies
-**Dependencies:** Phase 33 (Core Codec Components Completion)
-
-Tarefas que podem ser implementadas independentemente, sem dependências de outras tarefas.
-
-### 34.1: Exceções e Utilitários Simples
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-409 | ParseException and TokenMgrError | LOW | go-elite-developer |
-| GC-413 | QueryParserConstants | LOW | go-elite-developer |
-| GC-697 | BytesRefArray | LOW | go-elite-developer |
-| GC-700 | Bits.MatchAllBits | LOW | go-elite-developer |
-| GC-701 | Bits.MatchNoBits | LOW | go-elite-developer |
-| GC-702 | Version | LOW | go-elite-developer |
-
-### 34.2: Atributos e Estruturas Básicas
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-425 | FacetLabel | LOW | go-elite-developer |
-| GC-426 | FacetResult and TopChildrenResult | LOW | go-elite-developer |
-| GC-458 | GroupDocs | LOW | go-elite-developer |
-| GC-685 | TypeAttribute | LOW | go-elite-developer |
-| GC-686 | PayloadAttribute | LOW | go-elite-developer |
-| GC-687 | FlagsAttribute | LOW | go-elite-developer |
-| GC-688 | KeywordAttribute | LOW | go-elite-developer |
-| GC-689 | PositionLengthAttribute | LOW | go-elite-developer |
-| GC-690 | TermFrequencyAttribute | LOW | go-elite-developer |
-
-### 34.3: Interfaces e Bases
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-466 | Fragmenter Interface | LOW | go-elite-developer |
-| GC-467 | Formatter Interface | LOW | go-elite-developer |
-| GC-468 | Encoder Interface | LOW | go-elite-developer |
-| GC-490 | SpanWeight | MEDIUM | go-elite-developer |
-| GC-564 | CharFilter Base | MEDIUM | go-elite-developer |
-| GC-698 | AttributeFactory | LOW | go-elite-developer |
-| GC-699 | AttributeImpl | LOW | go-elite-developer |
-
-### 34.4: Filtros e Tokenizers Simples
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-552 | LengthFilter | LOW | go-elite-developer |
-| GC-553 | LimitTokenCountFilter | LOW | go-elite-developer |
-| GC-554 | LimitTokenOffsetFilter | LOW | go-elite-developer |
-| GC-555 | LimitTokenPositionFilter | LOW | go-elite-developer |
-| GC-558 | TrimFilter | LOW | go-elite-developer |
-| GC-559 | TruncateTokenFilter | LOW | go-elite-developer |
-| GC-560 | TypeTokenFilter | LOW | go-elite-developer |
-| GC-561 | KeepWordFilter | LOW | go-elite-developer |
-| GC-562 | KeywordRepeatFilter | LOW | go-elite-developer |
-| GC-563 | MinHashFilter | LOW | go-elite-developer |
-
-### 34.5: Store e Utilitários
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-691 | FileSwitchDirectory | LOW | go-elite-developer |
-| GC-693 | BufferedIndexOutput | LOW | go-elite-developer |
-| GC-694 | GrowableByteArrayDataOutput | LOW | go-elite-developer |
-| GC-695 | RandomAccessInput | LOW | go-elite-developer |
-| GC-696 | VerifyingLockFactory | LOW | go-elite-developer |
-| GC-703 | ResourceAsStream | LOW | go-elite-developer |
+As fases 34-43 foram concluídas. Veja a seção "Tarefas Completadas" no final deste documento para o histórico detalhado.
 
 ---
 
-## FASE 35: Tarefas com Dependências Simples (Core Extensions)
+## FASE 44: Compressing Codec Components (PENDING)
 
-**Status:** COMPLETED | **Tasks:** 50 | **Completed:** 2026-03-17 | **Focus:** Components depending on Phase 34
-**Dependencies:** Phase 34 (Foundation)
+**Status:** PENDING | **Tasks:** 40 | **Focus:** Compressing stored fields and term vectors
+**Dependencies:** Phase 43 (Join/Grouping/Highlight Completion)
 
-### 35.1: QueryParser Foundation
+Implement compression codecs for efficient storage.
 
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-408 | QueryParserBase Implementation | HIGH | go-elite-developer, gocene-lucene-specialist |
-| GC-410 | CharStream and FastCharStream | MEDIUM | go-elite-developer |
-| GC-411 | Analyzer Integration for QueryParser | MEDIUM | go-elite-developer, gocene-lucene-specialist |
-| GC-412 | MultiFieldQueryParser | MEDIUM | go-elite-developer, gocene-lucene-specialist |
-| GC-414 | TokenManager Advanced Tokens | MEDIUM | go-elite-developer |
-
-### 35.2: Facets Core
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-424 | DrillDownQuery Implementation | HIGH | go-elite-developer, gocene-lucene-specialist |
-| GC-427 | FastTaxonomyFacetCounts | HIGH | go-elite-developer, gocene-lucene-specialist |
-| GC-428 | SortedSetDocValuesFacetCounts | HIGH | go-elite-developer, gocene-lucene-specialist |
-| GC-429 | LongValueFacetCounts | MEDIUM | go-elite-developer |
-| GC-430 | RangeFacetCounts | MEDIUM | go-elite-developer |
-
-### 35.3: Join Core
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-441 | BlockJoinCollector | HIGH | go-elite-developer, gocene-lucene-specialist |
-| GC-442 | ToParentBlockJoinCollector | HIGH | go-elite-developer, gocene-lucene-specialist |
-| GC-443 | ToChildBlockJoinCollector | HIGH | go-elite-developer, gocene-lucene-specialist |
-| GC-447 | BitSetProducer | MEDIUM | go-elite-developer |
-| GC-448 | QueryBitSetProducer | MEDIUM | go-elite-developer |
-| GC-449 | FixedBitSetCachingWrapper | MEDIUM | go-elite-developer |
-
-### 35.4: Grouping Core
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-451 | GroupReducer | HIGH | go-elite-developer, gocene-lucene-specialist |
-| GC-452 | AllGroupsCollector | HIGH | go-elite-developer |
-| GC-453 | AllGroupHeadsCollector | HIGH | go-elite-developer |
-| GC-454 | BlockGroupingCollector | HIGH | go-elite-developer, gocene-lucene-specialist |
-| GC-455 | TermGroupSelector | MEDIUM | go-elite-developer |
-| GC-456 | ValueSourceGroupSelector | MEDIUM | go-elite-developer |
-| GC-457 | ValueSource | MEDIUM | go-elite-developer |
-
-### 35.5: Highlight Core
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-466 | SimpleFragmenter | MEDIUM | go-elite-developer |
-| GC-467 | SimpleHTMLFormatter | MEDIUM | go-elite-developer |
-| GC-468 | SimpleHTMLEncoder | MEDIUM | go-elite-developer |
-| GC-469 | QueryTermScorer | MEDIUM | go-elite-developer |
-| GC-470 | TokenSources | MEDIUM | go-elite-developer |
-| GC-471 | TokenGroup | MEDIUM | go-elite-developer |
-
-### 35.6: CharFilters
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-565 | HTMLStripCharFilter | MEDIUM | go-elite-developer |
-| GC-566 | MappingCharFilter | MEDIUM | go-elite-developer |
-| GC-567 | NormalizeCharFilter | MEDIUM | go-elite-developer |
-| GC-568 | PatternReplaceCharFilter | MEDIUM | go-elite-developer |
+| ID | Task | Priority | Description |
+|:---|:-----|:---------|:------------|
+| GC-640 | CompressingStoredFieldsFormat | HIGH | Stored fields compression format |
+| GC-641 | CompressingTermVectorsFormat | HIGH | Term vectors compression format |
+| GC-642 | CompressionMode | HIGH | Compression mode abstraction |
+| GC-643 | LZ4CompressionMode | HIGH | LZ4 compression implementation |
+| GC-644 | DeflateCompressionMode | MEDIUM | Deflate compression implementation |
+| GC-645 | CompressingStoredFieldsIndex | MEDIUM | Index for compressed stored fields |
+| GC-646 | CompressingStoredFieldsWriter | MEDIUM | Writer for compressed stored fields |
+| GC-647 | CompressingStoredFieldsReader | MEDIUM | Reader for compressed stored fields |
+| GC-648 | CompressingTermVectorsWriter | MEDIUM | Writer for compressed term vectors |
+| GC-649 | CompressingTermVectorsReader | MEDIUM | Reader for compressed term vectors |
+| GC-650 | FieldsIndex | MEDIUM | Fields index structure |
+| GC-651 | FieldsIndexImpl | MEDIUM | Fields index implementation |
+| GC-652 | BlockState | MEDIUM | Block state for compression |
+| GC-653 | CompressingCodec | HIGH | Main compressing codec |
+| GC-654 | HighCompressionCompressingCodec | MEDIUM | High compression variant |
+| GC-655 | FastCompressionCompressingCodec | MEDIUM | Fast compression variant |
+| GC-656 | LZ4 | HIGH | LZ4 algorithm port |
+| GC-657 | LZ4Factory | MEDIUM | LZ4 factory pattern |
+| GC-658 | LZ4Compressor | MEDIUM | LZ4 compressor interface |
+| GC-659 | LZ4FastCompressor | MEDIUM | Fast LZ4 compressor |
+| GC-660 | LZ4HighCompressor | MEDIUM | High compression LZ4 |
+| GC-661 | LZ4SafeCompressor | MEDIUM | Safe LZ4 compressor |
+| GC-662 | LZ4UnsafeCompressor | MEDIUM | Unsafe LZ4 compressor |
+| GC-663 | LZ4Decompressor | MEDIUM | LZ4 decompressor |
+| GC-664 | LZ4SafeDecompressor | MEDIUM | Safe LZ4 decompressor |
+| GC-665 | LZ4UnsafeDecompressor | MEDIUM | Unsafe LZ4 decompressor |
+| GC-666 | XXHash32 | LOW | XXHash32 algorithm |
+| GC-667 | XXHash64 | LOW | XXHash64 algorithm |
+| GC-668 | ChecksumIndexInput | MEDIUM | Checksum index input |
+| GC-669 | ChecksumIndexOutput | MEDIUM | Checksum index output |
+| GC-670 | CompressedStoredFieldsFormat Tests | HIGH | Comprehensive test suite |
+| GC-671 | CompressionBenchmark | MEDIUM | Performance benchmarks |
+| GC-672 | CompressingDocValuesFormat | HIGH | DocValues compression format |
+| GC-673 | CompressingDocValuesProducer | MEDIUM | DocValues compression producer |
+| GC-674 | CompressingDocValuesConsumer | MEDIUM | DocValues compression consumer |
+| GC-675 | CompressingNormsFormat | MEDIUM | Norms compression format |
+| GC-676 | CompressingNormsProducer | MEDIUM | Norms compression producer |
+| GC-677 | CompressingNormsConsumer | MEDIUM | Norms compression consumer |
+| GC-678 | CompressingPointsFormat | MEDIUM | Points compression format |
+| GC-679 | CompressingPointsReader | MEDIUM | Points compression reader |
 
 ---
 
-## FASE 36: NGram, Shingle e Filtros de Análise (Analysis Advanced)
+## FASE 45: Spatial Fields and Queries (PENDING)
 
-**Status:** COMPLETED | **Tasks:** 20 | **Completed:** 2026-03-17 | **Focus:** Analysis filters and tokenizers
-**Dependencies:** Phase 35 (Core Extensions)
+**Status:** PENDING | **Tasks:** 35 | **Focus:** Geospatial search capabilities
+**Dependencies:** Phase 44 (Compressing Codec Completion)
 
-### 36.1: NGram e EdgeNGram
+Implement spatial indexing and search for location-based queries.
 
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-532 | NGramTokenizer | MEDIUM | go-elite-developer |
-| GC-533 | NGramFilter | MEDIUM | go-elite-developer |
-| GC-534 | EdgeNGramTokenizer | MEDIUM | go-elite-developer |
-| GC-535 | EdgeNGramFilter | MEDIUM | go-elite-developer |
-
-### 36.2: Shingle e Word Delimiter
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-537 | ShingleFilter | MEDIUM | go-elite-developer |
-| GC-538 | ShingleMatrixFilter | MEDIUM | go-elite-developer |
-| GC-539 | WordDelimiterFilter | HIGH | go-elite-developer |
-| GC-540 | WordDelimiterGraphFilter | HIGH | go-elite-developer |
-| GC-541 | WordDelimiterIterator | MEDIUM | go-elite-developer |
-
-### 36.3: Synonym Filters
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-542 | SynonymMap | MEDIUM | go-elite-developer |
-| GC-543 | SynonymFilter | HIGH | go-elite-developer |
-| GC-544 | SynonymGraphFilter | HIGH | go-elite-developer |
-| GC-546 | FlattenGraphFilter | MEDIUM | go-elite-developer |
-
-### 36.4: Tokenizers Adicionais
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-547 | UAX29URLEmailTokenizer | MEDIUM | go-elite-developer |
-| GC-548 | PathHierarchyTokenizer | LOW | go-elite-developer |
-| GC-549 | PatternTokenizer | MEDIUM | go-elite-developer |
-| GC-550 | SimplePatternTokenizer | MEDIUM | go-elite-developer |
-| GC-551 | SimplePatternSplitTokenizer | MEDIUM | go-elite-developer |
-
-### 36.5: Filtros de Padrão e Substituição
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-556 | PatternReplaceFilter | MEDIUM | go-elite-developer |
-| GC-557 | RemoveDuplicatesTokenFilter | MEDIUM | go-elite-developer |
+| ID | Task | Priority | Description |
+|:---|:-----|:---------|:------------|
+| GC-680 | SpatialStrategy | HIGH | Base spatial strategy |
+| GC-681 | PointVectorStrategy | HIGH | Point vector spatial strategy |
+| GC-682 |BBoxStrategy | HIGH | Bounding box spatial strategy |
+| GC-683 | SerializedDVStrategy | MEDIUM | Serialized docvalues strategy |
+| GC-684 | PrefixTreeStrategy | HIGH | Prefix tree spatial strategy |
+| GC-685 | GeohashPrefixTree | HIGH | Geohash prefix tree |
+| GC-686 | QuadPrefixTree | HIGH | Quad tree prefix |
+| GC-687 | SpatialPrefixTree | MEDIUM | Base spatial prefix tree |
+| GC-688 | SpatialPrefixTreeFieldCacheProvider | MEDIUM | Field cache provider |
+| GC-689 | Cell | MEDIUM | Spatial cell representation |
+| GC-690 | Node | MEDIUM | Prefix tree node |
+| GC-691 | SpatialArgs | MEDIUM | Spatial arguments |
+| GC-692 | SpatialArgsParser | MEDIUM | Spatial args parser |
+| GC-693 | SpatialOperation | MEDIUM | Spatial operations |
+| GC-694 | IntersectsPrefixTreeQuery | HIGH | Intersects query |
+| GC-695 | IsWithinPrefixTreeQuery | HIGH | IsWithin query |
+| GC-696 | ContainsPrefixTreeQuery | MEDIUM | Contains query |
+| GC-697 | DistanceQuery | HIGH | Distance-based query |
+| GC-698 | DistanceRangeQuery | MEDIUM | Distance range query |
+| GC-699 | ShapeValues | MEDIUM | Shape values abstraction |
+| GC-700 | ShapeValuesSource | MEDIUM | Shape values source |
+| GC-701 | ShapeValue | MEDIUM | Shape value |
+| GC-702 | ShapeFieldType | MEDIUM | Shape field type |
+| GC-703 | SpatialQueryParser | MEDIUM | Spatial query parser |
+| GC-704 | SpatialQueryParserPlugin | LOW | Query parser plugin |
+| GC-705 | JTSGeometrySerializer | MEDIUM | JTS geometry serializer |
+| GC-706 | JTSGeometryDecoder | MEDIUM | JTS geometry decoder |
+| GC-707 | Spatial4jShapeDecoder | MEDIUM | Spatial4j shape decoder |
+| GC-708 | ShapeIOReader | MEDIUM | Shape I/O reader |
+| GC-709 | ShapeIOWriter | MEDIUM | Shape I/O writer |
+| GC-710 | SpatialIndexWriter | HIGH | Spatial index writer |
+| GC-711 | SpatialIndexReader | HIGH | Spatial index reader |
+| GC-712 | SpatialIndexFormat | HIGH | Spatial index format |
+| GC-713 | SpatialTestSuite | HIGH | Comprehensive spatial tests |
+| GC-714 | SpatialBenchmark | MEDIUM | Spatial performance benchmarks |
 
 ---
 
-## FASE 37: Point Fields e Campos Numéricos (Numeric Fields)
+## FASE 46: NRT Search and Real-time Features (PENDING)
 
-**Status:** COMPLETED | **Tasks:** 18 | **Completed:** 2026-03-17 | **Focus:** Point fields and numeric ranges
-**Dependencies:** Phase 35 (Core Extensions)
+**Status:** PENDING | **Tasks:** 35 | **Focus:** Near Real-Time search capabilities
+**Dependencies:** Phase 45 (Spatial Fields Completion)
 
-### 37.1: Point Fields Core
+Implement NRT (Near Real-Time) search for immediate visibility of updates.
 
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-514 | IntPoint | HIGH | go-elite-developer, gocene-lucene-specialist |
-| GC-515 | LongPoint | HIGH | go-elite-developer, gocene-lucene-specialist |
-| GC-516 | FloatPoint | HIGH | go-elite-developer, gocene-lucene-specialist |
-| GC-517 | DoublePoint | HIGH | go-elite-developer, gocene-lucene-specialist |
-| GC-518 | PointQuery Base | HIGH | go-elite-developer |
-| GC-519 | PointInSetQuery | MEDIUM | go-elite-developer |
-| GC-520 | PointValues | MEDIUM | go-elite-developer |
-| GC-521 | PointValuesIterator | LOW | go-elite-developer |
-
-### 37.2: Range Fields
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-522 | IntRange | MEDIUM | go-elite-developer |
-| GC-523 | LongRange | MEDIUM | go-elite-developer |
-| GC-524 | FloatRange | MEDIUM | go-elite-developer |
-| GC-525 | DoubleRange | MEDIUM | go-elite-developer |
-| GC-526 | BinaryRange | LOW | go-elite-developer |
-| GC-527 | RangeFieldQuery | MEDIUM | go-elite-developer |
-
-### 37.3: Data e Hora
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-528 | DateTools | MEDIUM | go-elite-developer |
-| GC-529 | DateTools.Resolution | LOW | go-elite-developer |
-| GC-530 | DateTimeField | MEDIUM | go-elite-developer |
-| GC-531 | DateRangeQuery | MEDIUM | go-elite-developer |
-
----
-
-## FASE 38: Span Queries e Search Avançado (Advanced Search)
-
-**Status:** PENDING | **Tasks:** 45 | **Focus:** Span queries and advanced search
-**Dependencies:** Phase 37 (Point Fields)
-
-### 38.1: Span Query Framework
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-479 | SpanQuery Interface | MEDIUM | go-elite-developer, gocene-lucene-specialist |
-| GC-480 | SpanTermQuery | MEDIUM | go-elite-developer |
-| GC-481 | SpanNearQuery | HIGH | go-elite-developer |
-| GC-482 | SpanOrQuery | MEDIUM | go-elite-developer |
-| GC-483 | SpanNotQuery | MEDIUM | go-elite-developer |
-| GC-484 | SpanFirstQuery | MEDIUM | go-elite-developer |
-| GC-485 | SpanWithinQuery | MEDIUM | go-elite-developer |
-| GC-486 | SpanContainingQuery | MEDIUM | go-elite-developer |
-| GC-487 | SpanPositionRangeQuery | MEDIUM | go-elite-developer |
-| GC-488 | SpanMultiTermQueryWrapper | MEDIUM | go-elite-developer |
-| GC-489 | SpanOrTermsQuery | MEDIUM | go-elite-developer |
-
-### 38.2: Span Scorer e Iterator
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-491 | SpanScorer | HIGH | go-elite-developer |
-| GC-492 | Spans Iterator | HIGH | go-elite-developer |
-| GC-493 | SpanCollector | MEDIUM | go-elite-developer |
-
-### 38.3: MultiTerm Queries
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-494 | MultiTermQuery Base | HIGH | go-elite-developer |
-| GC-495 | MultiTermQueryConstantScoreWrapper | MEDIUM | go-elite-developer |
-| GC-496 | BlendedTermQuery | MEDIUM | go-elite-developer |
-| GC-497 | DocValuesRewriteMethod | MEDIUM | go-elite-developer |
-| GC-498 | ScoringRewrite | MEDIUM | go-elite-developer |
-| GC-499 | TopTermsRewrite | MEDIUM | go-elite-developer |
-| GC-500 | ConstantScoreAutoRewrite | MEDIUM | go-elite-developer |
-
-### 38.4: Coletores Avançados
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-501 | TotalHitCountCollector | MEDIUM | go-elite-developer |
-| GC-502 | EarlyTerminatingCollector | MEDIUM | go-elite-developer |
-| GC-503 | TimeLimitingCollector | MEDIUM | go-elite-developer |
-| GC-504 | MultiCollector | MEDIUM | go-elite-developer |
-| GC-505 | Rescorer Framework | MEDIUM | go-elite-developer |
-| GC-506 | QueryRescorer | MEDIUM | go-elite-developer |
-
-### 38.5: Similarities e Sorting
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-507 | SimilarityBase | MEDIUM | go-elite-developer |
-| GC-508 | PerFieldSimilarityWrapper | MEDIUM | go-elite-developer |
-| GC-509 | SortedNumericSortField | MEDIUM | go-elite-developer |
-| GC-510 | SortedSetSortField | MEDIUM | go-elite-developer |
-| GC-511 | DoubleValuesSource | MEDIUM | go-elite-developer |
-| GC-512 | LongValuesSource | MEDIUM | go-elite-developer |
-| GC-513 | MultiValueMode | MEDIUM | go-elite-developer |
+| ID | Task | Priority | Description |
+|:---|:-----|:---------|:------------|
+| GC-715 | NRTManager | HIGH | Near real-time manager |
+| GC-716 | SearcherManager | HIGH | Searcher lifecycle manager |
+| GC-717 | SearcherFactory | HIGH | Searcher factory |
+| GC-718 | SearcherLifetimeManager | MEDIUM | Searcher lifetime management |
+| GC-719 | ReferenceManager | HIGH | Reference management |
+| GC-720 | ControlledRealTimeReopenThread | HIGH | CRT reopen thread |
+| GC-721 | NRTReplicationWriter | HIGH | NRT replication writer |
+| GC-722 | NRTReplicationReader | HIGH | NRT replication reader |
+| GC-723 | IndexRevision | MEDIUM | Index revision tracking |
+| GC-724 | Replicator | MEDIUM | Index replicator |
+| GC-725 | LocalReplicator | MEDIUM | Local replicator |
+| GC-726 | HttpReplicator | MEDIUM | HTTP replicator |
+| GC-727 | ReplicationClient | MEDIUM | Replication client |
+| GC-728 | ReplicationServer | MEDIUM | Replication server |
+| GC-729 | IndexInputInputStream | MEDIUM | IndexInput stream adapter |
+| GC-730 | IndexOutputOutputStream | MEDIUM | IndexOutput stream adapter |
+| GC-731 | CopyJob | MEDIUM | Copy job for replication |
+| GC-732 | Session | MEDIUM | Replication session |
+| GC-733 | NRTFileDeleter | MEDIUM | NRT file deleter |
+| GC-734 | NRTDirectoryReader | HIGH | NRT directory reader |
+| GC-735 | NRTSegmentReader | HIGH | NRT segment reader |
+| GC-736 | StandardDirectoryReader | HIGH | Standard directory reader |
+| GC-737 | ReadOnlyDirectoryReader | MEDIUM | Read-only directory reader |
+| GC-738 | DirectoryReaderReopener | MEDIUM | Directory reader reopener |
+| GC-739 | ReaderPool | MEDIUM | Reader pool management |
+| GC-740 | NRTLockFactory | MEDIUM | NRT lock factory |
+| GC-741 | NRTMergeScheduler | MEDIUM | NRT merge scheduler |
+| GC-742 | NRTMergePolicy | MEDIUM | NRT merge policy |
+| GC-743 | LiveIndexWriterConfig | MEDIUM | Live IWC for NRT |
+| GC-744 | NRTIndexingTests | HIGH | NRT indexing tests |
+| GC-745 | NRTSearchTests | HIGH | NRT search tests |
+| GC-746 | ReplicationTests | HIGH | Replication tests |
+| GC-747 | NRTConcurrencyTests | HIGH | NRT concurrency tests |
+| GC-748 | NRTStressTests | MEDIUM | NRT stress tests |
+| GC-749 | NRTBenchmark | MEDIUM | NRT performance benchmarks |
 
 ---
 
-## FASE 39: Analisadores de Idiomas Principais (Major Language Analyzers)
-
-**Status:** PENDING | **Tasks:** 35 | **Focus:** Major language analyzers
-**Dependencies:** Phase 36 (Analysis Advanced)
-
-### 39.1: Custom e English
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-576 | CustomAnalyzer | HIGH | go-elite-developer |
-| GC-569 | EnglishAnalyzer | MEDIUM | go-elite-developer |
-
-### 39.2: European Languages
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-570 | FrenchAnalyzer | MEDIUM | go-elite-developer |
-| GC-571 | GermanAnalyzer | MEDIUM | go-elite-developer |
-| GC-572 | SpanishAnalyzer | MEDIUM | go-elite-developer |
-| GC-573 | PortugueseAnalyzer | MEDIUM | go-elite-developer |
-| GC-574 | ItalianAnalyzer | MEDIUM | go-elite-developer |
-| GC-575 | RussianAnalyzer | MEDIUM | go-elite-developer |
-| GC-587 | DanishAnalyzer | MEDIUM | go-elite-developer |
-| GC-588 | DutchAnalyzer | MEDIUM | go-elite-developer |
-| GC-590 | FinnishAnalyzer | MEDIUM | go-elite-developer |
-| GC-592 | GreekAnalyzer | MEDIUM | go-elite-developer |
-| GC-602 | NorwegianAnalyzer | MEDIUM | go-elite-developer |
-| GC-607 | SwedishAnalyzer | MEDIUM | go-elite-developer |
-
-### 39.3: Asian Languages
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-584 | ChineseAnalyzer | HIGH | go-elite-developer |
-| GC-598 | JapaneseAnalyzer | HIGH | go-elite-developer |
-| GC-599 | KoreanAnalyzer | HIGH | go-elite-developer |
-| GC-614 | CJKAnalyzer | HIGH | go-elite-developer |
-
----
-
-## FASE 40: CheckIndex e Ferramentas de Diagnóstico (Index Tools)
-
-**Status:** COMPLETED | **Tasks:** 40 | **Completed:** 2026-03-18 | **Focus:** CheckIndex and index management tools
-**Dependencies:** Phase 38 (Advanced Search)
-
-### 40.1: CheckIndex Core
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-615 | CheckIndex Main | HIGH | go-elite-developer, gocene-lucene-specialist |
-| GC-616 | CheckIndex.Status | MEDIUM | go-elite-developer |
-| GC-617 | CheckIndex.SegmentInfoStatus | MEDIUM | go-elite-developer |
-| GC-618 | CheckIndex.FieldNormStatus | LOW | go-elite-developer |
-| GC-619 | CheckIndex.TermIndexStatus | MEDIUM | go-elite-developer |
-| GC-620 | CheckIndex.StoredFieldStatus | MEDIUM | go-elite-developer |
-| GC-621 | CheckIndex.TermVectorStatus | MEDIUM | go-elite-developer |
-| GC-622 | CheckIndex.DocValuesStatus | MEDIUM | go-elite-developer |
-| GC-623 | CheckIndex.PointsStatus | MEDIUM | go-elite-developer |
-| GC-624 | CheckIndex.VectorValuesStatus | LOW | go-elite-developer |
-
-### 40.2: Index Upgrader e Snapshot
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-625 | IndexUpgrader | MEDIUM | go-elite-developer |
-| GC-626 | IndexSplitter | MEDIUM | go-elite-developer |
-| GC-627 | PersistentSnapshotDeletionPolicy | MEDIUM | go-elite-developer |
-| GC-628 | SnapshotDeletionPolicy | MEDIUM | go-elite-developer |
-
-### 40.3: IndexWriter Advanced
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-629 | updateDocuments | MEDIUM | go-elite-developer |
-| GC-630 | updateNumericDocValue | MEDIUM | go-elite-developer |
-| GC-631 | updateBinaryDocValue | MEDIUM | go-elite-developer |
-| GC-632 | addIndexesSlowly | LOW | go-elite-developer |
-| GC-633 | tryDeleteDocument | MEDIUM | go-elite-developer |
-| GC-634 | flushOnUpdate | LOW | go-elite-developer |
-| GC-635 | getPendingNumDocs | LOW | go-elite-developer |
-
-### 40.4: Merge Policies
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-636 | LogMergePolicy | MEDIUM | go-elite-developer |
-| GC-637 | LogByteSizeMergePolicy | MEDIUM | go-elite-developer |
-| GC-638 | LogDocMergePolicy | MEDIUM | go-elite-developer |
-| GC-639 | NoMergePolicy | LOW | go-elite-developer |
-| GC-640 | ForceMergePolicy | LOW | go-elite-developer |
-
-### 40.5: IndexReader Advanced
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-641 | openIfChanged | MEDIUM | go-elite-developer |
-| GC-642 | getTermVectors | MEDIUM | go-elite-developer |
-| GC-643 | numDeletedDocs | MEDIUM | go-elite-developer |
-| GC-644 | getDocCount | MEDIUM | go-elite-developer |
-| GC-645 | getSumDocFreq | LOW | go-elite-developer |
-| GC-646 | getSumTotalTermFreq | LOW | go-elite-developer |
-
----
-
-## FASE 41: QueryParser Flexible Framework (Flexible QueryParser)
-
-**Status:** PENDING | **Tasks:** 45 | **Focus:** Flexible query parser framework
-**Dependencies:** Phase 39 (Major Language Analyzers), Phase 40 (Index Tools)
-
-### 41.1: QueryNode Tree (Core Nodes)
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-415 | QueryNode Interface | MEDIUM | go-elite-developer, gocene-lucene-specialist |
-| GC-416 | QueryNodeImpl | MEDIUM | go-elite-developer |
-| GC-417 | FieldQueryNode | MEDIUM | go-elite-developer |
-| GC-418 | BooleanQueryNode | MEDIUM | go-elite-developer |
-| GC-419 | AndQueryNode | LOW | go-elite-developer |
-| GC-420 | OrQueryNode | LOW | go-elite-developer |
-| GC-421 | ModifierQueryNode | MEDIUM | go-elite-developer |
-| GC-422 | BoostQueryNode | MEDIUM | go-elite-developer |
-| GC-423 | FuzzyQueryNode | MEDIUM | go-elite-developer |
-| GC-424 | RangeQueryNode | MEDIUM | go-elite-developer |
-| GC-425 | PhraseSlopQueryNode | MEDIUM | go-elite-developer |
-| GC-426 | GroupQueryNode | LOW | go-elite-developer |
-| GC-427 | MatchAllDocsQueryNode | LOW | go-elite-developer |
-| GC-428 | MatchNoDocsQueryNode | LOW | go-elite-developer |
-
-### 41.2: QueryNode Processors
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-429 | QueryNodeProcessor Interface | MEDIUM | go-elite-developer |
-| GC-430 | QueryNodeProcessorImpl | MEDIUM | go-elite-developer |
-| GC-431 | QueryNodeProcessorPipeline | HIGH | go-elite-developer |
-| GC-432 | NoChildOptimizationProcessor | MEDIUM | go-elite-developer |
-| GC-433 | RemoveDeletedQueryNodesProcessor | MEDIUM | go-elite-developer |
-
-### 41.3: QueryNode Builders
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-434 | QueryBuilder Interface | MEDIUM | go-elite-developer |
-| GC-435 | QueryTreeBuilder | HIGH | go-elite-developer |
-| GC-436 | BooleanQueryNodeBuilder | MEDIUM | go-elite-developer |
-| GC-437 | FieldQueryNodeBuilder | MEDIUM | go-elite-developer |
-| GC-438 | BoostQueryNodeBuilder | MEDIUM | go-elite-developer |
-| GC-439 | FuzzyQueryNodeBuilder | MEDIUM | go-elite-developer |
-| GC-440 | RangeQueryNodeBuilder | MEDIUM | go-elite-developer |
-| GC-441 | PhraseQueryNodeBuilder | MEDIUM | go-elite-developer |
-| GC-442 | TermRangeQueryNodeBuilder | MEDIUM | go-elite-developer |
-| GC-443 | WildcardQueryNodeBuilder | MEDIUM | go-elite-developer |
-
-### 41.4: Standard QueryParser
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-444 | StandardQueryConfigHandler | MEDIUM | go-elite-developer |
-| GC-445 | StandardSyntaxParser | HIGH | go-elite-developer, gocene-lucene-specialist |
-| GC-446 | StandardQueryNodeProcessorPipeline | HIGH | go-elite-developer |
-| GC-447 | StandardQueryTreeBuilder | HIGH | go-elite-developer |
-| GC-448 | StandardQueryParser | HIGH | go-elite-developer, gocene-lucene-specialist |
-
----
-
-## FASE 42: Facets Avançados e DrillSideways (Advanced Facets)
-
-**Status:** PENDING | **Tasks:** 35 | **Focus:** Advanced facets and drill-sideways
-**Dependencies:** Phase 41 (Flexible QueryParser)
-
-### 42.1: DrillSideways
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-431 | DrillSideways Implementation | HIGH | go-elite-developer, gocene-lucene-specialist |
-| GC-432 | DrillSidewaysQuery | HIGH | go-elite-developer |
-| GC-433 | DrillSideways Results | MEDIUM | go-elite-developer |
-
-### 42.2: Taxonomia Avançada
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-434 | DirectoryTaxonomyReader | MEDIUM | go-elite-developer |
-| GC-435 | DirectoryTaxonomyWriter | MEDIUM | go-elite-developer |
-| GC-436 | TaxonomyFacetLabels | LOW | go-elite-developer |
-
-### 42.3: Acumuladores
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-437 | FacetsAccumulator Interface | MEDIUM | go-elite-developer |
-| GC-438 | TaxonomyFacetsAccumulator | HIGH | go-elite-developer |
-| GC-439 | SortedSetDocValuesAccumulator | HIGH | go-elite-developer |
-| GC-440 | ConcurrentFacetsAccumulator | HIGH | go-elite-developer |
-
-### 42.4: Configurações
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-441 | FacetsConfig Extensions | MEDIUM | go-elite-developer |
-| GC-442 | PerDimConfig | LOW | go-elite-developer |
-| GC-443 | RandomSamplingFacetsAccumulator | MEDIUM | go-elite-developer |
-
----
-
-## FASE 43: Join, Grouping e Highlight Completos (Advanced Features)
-
-**Status:** IN_PROGRESS | **Tasks:** 40 | **Completed:** 4/40 | **Focus:** Complete join, grouping, and highlight
-**Dependencies:** Phase 42 (Advanced Facets)
-
-### 43.1: Join Completo
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-444 | ~~BlockJoinWeight~~ | HIGH | go-elite-developer |
-| GC-445 | ~~BlockJoinScorer~~ | HIGH | go-elite-developer |
-| GC-446 | ~~BlockJoinQuery Base~~ | HIGH | go-elite-developer |
-| GC-450 | ~~TermsWithScoreCollector~~ | MEDIUM | go-elite-developer |
-
-### 43.2: Grouping Completo
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-459 | GroupFieldCommand | MEDIUM | go-elite-developer |
-| GC-460 | GroupFacetCommand | MEDIUM | go-elite-developer |
-| GC-461 | TermGroupFacetCollector | MEDIUM | go-elite-developer |
-| GC-462 | GroupingSearch Extensions | MEDIUM | go-elite-developer |
-| GC-463 | AbstractAllGroupHeadsCollector | MEDIUM | go-elite-developer |
-| GC-464 | AbstractFirstPassGroupingCollector | MEDIUM | go-elite-developer |
-| GC-465 | AbstractSecondPassGroupingCollector | MEDIUM | go-elite-developer |
-
-### 43.3: Highlight Avançado
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-472 | FastVectorHighlighter | HIGH | go-elite-developer, gocene-lucene-specialist |
-| GC-473 | PostingsHighlighter | HIGH | go-elite-developer, gocene-lucene-specialist |
-| GC-474 | UnifiedHighlighter | HIGH | go-elite-developer, gocene-lucene-specialist |
-| GC-475 | Passage and PassageFormatter | MEDIUM | go-elite-developer |
-| GC-476 | BreakIterator | MEDIUM | go-elite-developer |
-| GC-477 | FieldFragList and WeightedFragInfo | MEDIUM | go-elite-developer |
-| GC-478 | FragmentsBuilder | MEDIUM | go-elite-developer |
-
----
-
-## FASE 44: Compressing Codecs e Formatos Legados (Codecs)
-
-**Status:** PENDING | **Tasks:** 40 | **Focus:** Compressing codecs and legacy formats
-**Dependencies:** Phase 43 (Advanced Features)
-
-### 44.1: Compressing StoredFields
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-647 | CompressingStoredFieldsFormat | HIGH | go-elite-developer, gocene-lucene-specialist |
-| GC-648 | CompressingStoredFieldsReader | HIGH | go-elite-developer |
-| GC-649 | CompressingStoredFieldsWriter | HIGH | go-elite-developer |
-| GC-650 | CompressingTermVectorsFormat | MEDIUM | go-elite-developer |
-| GC-651 | CompressingTermVectorsReader | MEDIUM | go-elite-developer |
-| GC-652 | CompressingTermVectorsWriter | MEDIUM | go-elite-developer |
-| GC-653 | CompressionMode | MEDIUM | go-elite-developer |
-| GC-654 | FastCompressionMode | MEDIUM | go-elite-developer |
-| GC-655 | HighCompressionMode | MEDIUM | go-elite-developer |
-
-### 44.2: Legacy Codecs
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-657 | Lucene90Codec | MEDIUM | go-elite-developer |
-| GC-658 | Lucene91Codec | LOW | go-elite-developer |
-| GC-659 | Lucene92Codec | LOW | go-elite-developer |
-| GC-660 | Lucene93Codec | LOW | go-elite-developer |
-| GC-661 | Lucene94Codec | LOW | go-elite-developer |
-| GC-662 | Lucene95Codec | LOW | go-elite-developer |
-| GC-663 | Lucene99Codec | MEDIUM | go-elite-developer |
-| GC-664 | Lucene100Codec | MEDIUM | go-elite-developer |
-
-### 44.3: Postings e DocValues Avançados
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-665 | IntBlockTermState | MEDIUM | go-elite-developer |
-| GC-666 | TermState | MEDIUM | go-elite-developer |
-| GC-667 | OrdTermState | LOW | go-elite-developer |
-| GC-668 | BlockTreeTermsEnum | MEDIUM | go-elite-developer |
-| GC-669 | Lucene80DocValuesFormat | LOW | go-elite-developer |
-| GC-670 | Lucene70DocValuesFormat | LOW | go-elite-developer |
-| GC-671 | Lucene60DocValuesFormat | LOW | go-elite-developer |
-| GC-672 | DocValuesSkipper | MEDIUM | go-elite-developer |
-| GC-673 | DocValuesIterator | MEDIUM | go-elite-developer |
-
----
-
-## FASE 45: Spatial Fields e Document Features (Spatial)
-
-**Status:** PENDING | **Tasks:** 35 | **Focus:** Spatial fields and document features
-**Dependencies:** Phase 44 (Codecs)
-
-### 45.1: Spatial Point Fields
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-674 | LatLonPoint | HIGH | go-elite-developer, gocene-lucene-specialist |
-| GC-675 | LatLonDocValuesField | MEDIUM | go-elite-developer |
-| GC-676 | LatLonPointSortField | MEDIUM | go-elite-developer |
-| GC-677 | LatLonShape | HIGH | go-elite-developer |
-| GC-678 | XYPoint | MEDIUM | go-elite-developer |
-| GC-679 | XYShape | MEDIUM | go-elite-developer |
-
-### 45.2: Spatial Queries
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-680 | PointInPolygonQuery | MEDIUM | go-elite-developer |
-| GC-681 | Polygon | MEDIUM | go-elite-developer |
-| GC-682 | Line | LOW | go-elite-developer |
-| GC-683 | Circle | LOW | go-elite-developer |
-| GC-684 | Rectangle | LOW | go-elite-developer |
-
-### 45.3: LiveIndexWriterConfig Final
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-712 | setMaxBufferedDeleteTerms | LOW | go-elite-developer |
-| GC-713 | setMergedSegmentWarmer | LOW | go-elite-developer |
-| GC-714 | setCommitOnClose | LOW | go-elite-developer |
-| GC-715 | setIndexSort | MEDIUM | go-elite-developer |
-| GC-716 | setCheckPendingMergesOnClose | LOW | go-elite-developer |
-| GC-717 | setSoftDeletesField | MEDIUM | go-elite-developer |
-| GC-718 | setMergePolicyFactory | LOW | go-elite-developer |
-
-### 45.4: DocValues Merge Utils
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-719 | DocValuesRewriteMethod | MEDIUM | go-elite-developer |
-| GC-720 | SortedSetDocValuesMergeUtils | LOW | go-elite-developer |
-| GC-721 | SortedNumericDocValuesMergeUtils | LOW | go-elite-developer |
-| GC-722 | NumericDocValuesMergeUtils | LOW | go-elite-developer |
-| GC-723 | BinaryDocValuesMergeUtils | LOW | go-elite-developer |
-
-### 45.5: IndexWriter Getters
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-724 | getMergingSegments | LOW | go-elite-developer |
-| GC-725 | getRunningMerges | LOW | go-elite-developer |
-| GC-726 | getMergeExceptions | LOW | go-elite-developer |
-| GC-727 | getMaxCompletedSequenceNumber | LOW | go-elite-developer |
-| GC-728 | getMinSequenceNumber | LOW | go-elite-developer |
-| GC-729 | getFlushDeletesCount | LOW | go-elite-developer |
-| GC-730 | getFlushCount | LOW | go-elite-developer |
-| GC-731 | getMaxFullFlushMergeWaitMillis | LOW | go-elite-developer |
-| GC-732 | setMaxFullFlushMergeWaitMillis | LOW | go-elite-developer |
-| GC-733 | getMergeScheduler | LOW | go-elite-developer |
-| GC-734 | getMergePolicy | LOW | go-elite-developer |
-| GC-735 | getDeletionPolicy | LOW | go-elite-developer |
-| GC-736 | getCodec | LOW | go-elite-developer |
-| GC-737 | getSimilarity | LOW | go-elite-developer |
-| GC-738 | getAnalyzer | LOW | go-elite-developer |
-
----
-
-## FASE 46: NRT Search e Reference Management (NRT)
-
-**Status:** PENDING | **Tasks:** 35 | **Focus:** Near Real-Time search
-**Dependencies:** Phase 45 (Spatial)
-
-### 46.1: Reference Management
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-704 | ReferenceManager | HIGH | go-elite-developer, gocene-lucene-specialist |
-| GC-705 | SearcherManager | HIGH | go-elite-developer |
-| GC-706 | SearcherFactory | MEDIUM | go-elite-developer |
-| GC-707 | ControlledRealTimeReopenThread | MEDIUM | go-elite-developer |
-
-### 46.2: IndexReplication
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-708 | IndexReplicationHandler | MEDIUM | go-elite-developer |
-| GC-709 | ReplicationClient | MEDIUM | go-elite-developer |
-| GC-710 | ReplicationServer | MEDIUM | go-elite-developer |
-| GC-711 | SessionToken | LOW | go-elite-developer |
-
----
-
-## FASE 47: Analisadores de Idiomas Adicionais (Additional Languages)
-
-**Status:** PENDING | **Tasks:** 40 | **Focus:** Additional language analyzers
-**Dependencies:** Phase 46 (NRT)
-
-### 47.1: European Languages (Additional)
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-577 | ArabicAnalyzer | MEDIUM | go-elite-developer |
-| GC-578 | ArmenianAnalyzer | LOW | go-elite-developer |
-| GC-579 | BasqueAnalyzer | LOW | go-elite-developer |
-| GC-580 | BengaliAnalyzer | MEDIUM | go-elite-developer |
-| GC-581 | BrazilianAnalyzer | MEDIUM | go-elite-developer |
-| GC-582 | BulgarianAnalyzer | MEDIUM | go-elite-developer |
-| GC-583 | CatalanAnalyzer | MEDIUM | go-elite-developer |
-| GC-585 | CroatianAnalyzer | MEDIUM | go-elite-developer |
-| GC-586 | CzechAnalyzer | MEDIUM | go-elite-developer |
-| GC-589 | EstonianAnalyzer | LOW | go-elite-developer |
-| GC-591 | GalicianAnalyzer | LOW | go-elite-developer |
-| GC-593 | GujaratiAnalyzer | MEDIUM | go-elite-developer |
-| GC-594 | HindiAnalyzer | MEDIUM | go-elite-developer |
-| GC-595 | HungarianAnalyzer | MEDIUM | go-elite-developer |
-| GC-596 | IndonesianAnalyzer | LOW | go-elite-developer |
-| GC-597 | IrishAnalyzer | LOW | go-elite-developer |
-| GC-600 | LatvianAnalyzer | LOW | go-elite-developer |
-| GC-601 | LithuanianAnalyzer | LOW | go-elite-developer |
-| GC-603 | PersianAnalyzer | MEDIUM | go-elite-developer |
-| GC-604 | PolishAnalyzer | MEDIUM | go-elite-developer |
-| GC-605 | RomanianAnalyzer | MEDIUM | go-elite-developer |
-| GC-606 | SerbianAnalyzer | MEDIUM | go-elite-developer |
-| GC-608 | TamilAnalyzer | MEDIUM | go-elite-developer |
-| GC-609 | TeluguAnalyzer | MEDIUM | go-elite-developer |
-| GC-610 | ThaiAnalyzer | MEDIUM | go-elite-developer |
-| GC-611 | TurkishAnalyzer | MEDIUM | go-elite-developer |
-| GC-612 | UkrainianAnalyzer | MEDIUM | go-elite-developer |
-| GC-613 | HebrewAnalyzer | MEDIUM | go-elite-developer |
+## FASE 47: Additional Language Analyzers (PENDING)
+
+**Status:** PENDING | **Tasks:** 40 | **Focus:** Extended language support
+**Dependencies:** Phase 46 (NRT Search Completion)
+
+Implement analyzers for additional languages.
+
+| ID | Task | Priority | Description |
+|:---|:-----|:---------|:------------|
+| GC-750 | ArabicAnalyzer | MEDIUM | Arabic language analyzer |
+| GC-751 | ArabicNormalizer | MEDIUM | Arabic text normalization |
+| GC-752 | ArabicStemmer | MEDIUM | Arabic stemming |
+| GC-753 | ArmenianAnalyzer | LOW | Armenian language analyzer |
+| GC-754 | BasqueAnalyzer | LOW | Basque language analyzer |
+| GC-755 | BengaliAnalyzer | MEDIUM | Bengali language analyzer |
+| GC-756 | BrazilianAnalyzer | MEDIUM | Portuguese (Brazil) analyzer |
+| GC-757 | BulgarianAnalyzer | LOW | Bulgarian language analyzer |
+| GC-758 | CatalanAnalyzer | LOW | Catalan language analyzer |
+| GC-759 | CroatianAnalyzer | LOW | Croatian language analyzer |
+| GC-760 | CzechAnalyzer | MEDIUM | Czech language analyzer |
+| GC-761 | CzechStemmer | MEDIUM | Czech stemming |
+| GC-762 | DanishAnalyzer | MEDIUM | Danish language analyzer |
+| GC-763 | DutchAnalyzer | MEDIUM | Dutch language analyzer |
+| GC-764 | DutchStemmer | MEDIUM | Dutch stemming |
+| GC-765 | EstonianAnalyzer | LOW | Estonian language analyzer |
+| GC-766 | FinnishAnalyzer | MEDIUM | Finnish language analyzer |
+| GC-767 | FinnishLightStemmer | LOW | Finnish light stemming |
+| GC-768 | GalicianAnalyzer | LOW | Galician language analyzer |
+| GC-769 | GalicianStemmer | LOW | Galician stemming |
+| GC-770 | GreekAnalyzer | MEDIUM | Greek language analyzer |
+| GC-771 | GreekStemmer | MEDIUM | Greek stemming |
+| GC-772 | HindiAnalyzer | MEDIUM | Hindi language analyzer |
+| GC-773 | HindiNormalizer | MEDIUM | Hindi normalization |
+| GC-774 | HindiStemmer | MEDIUM | Hindi stemming |
+| GC-775 | HungarianAnalyzer | MEDIUM | Hungarian language analyzer |
+| GC-776 | HungarianLightStemmer | MEDIUM | Hungarian light stemming |
+| GC-777 | IndonesianAnalyzer | LOW | Indonesian language analyzer |
+| GC-778 | IrishAnalyzer | LOW | Irish language analyzer |
+| GC-779 | LatvianAnalyzer | LOW | Latvian language analyzer |
+| GC-780 | LithuanianAnalyzer | LOW | Lithuanian language analyzer |
+| GC-781 | NorwegianAnalyzer | MEDIUM | Norwegian language analyzer |
+| GC-782 | PersianAnalyzer | MEDIUM | Persian language analyzer |
+| GC-783 | PersianNormalizer | MEDIUM | Persian normalization |
+| GC-784 | RomanianAnalyzer | LOW | Romanian language analyzer |
+| GC-785 | SerbianAnalyzer | LOW | Serbian language analyzer |
+| GC-786 | SlovakAnalyzer | LOW | Slovak language analyzer |
+| GC-787 | SlovenianAnalyzer | LOW | Slovenian language analyzer |
+| GC-788 | SwedishAnalyzer | MEDIUM | Swedish language analyzer |
+| GC-789 | ThaiAnalyzer | MEDIUM | Thai language analyzer |
+| GC-790 | TurkishAnalyzer | MEDIUM | Turkish language analyzer |
+| GC-791 | TurkishLowerCaseFilter | MEDIUM | Turkish lowercase handling |
 
 ---
 
 ## Tarefas Completadas
 
-### Fase 34: Foundation (2026-03-17)
+### Phase 43: Join, Grouping, Highlight Completion (COMPLETED: 2026-03-18)
 
-| Task ID | Task Name | Component |
-|:--------|:----------|:----------|
-| GC-409 | ParseException and TokenMgrError | queryparser |
-| GC-413 | QueryParserConstants | queryparser |
-| GC-697 | BytesRefArray | util |
-| GC-700 | Bits.MatchAllBits | util |
-| GC-701 | Bits.MatchNoBits | util |
-| GC-702 | Version | util |
-| GC-425 | FacetLabel | facets |
-| GC-426 | FacetResult and TopChildrenResult | facets |
-| GC-458 | GroupDocs | grouping |
-| GC-685 | TypeAttribute | analysis |
-| GC-686 | PayloadAttribute | analysis |
-| GC-687 | FlagsAttribute | analysis |
-| GC-688 | KeywordAttribute | analysis |
-| GC-689 | PositionLengthAttribute | analysis |
-| GC-690 | TermFrequencyAttribute | analysis |
-| GC-466 | Fragmenter Interface | highlight |
-| GC-467 | Formatter Interface | highlight |
-| GC-468 | Encoder Interface | highlight |
-| GC-490 | SpanWeight | search |
-| GC-564 | CharFilter Base | analysis |
-| GC-698 | AttributeFactory | analysis |
-| GC-699 | AttributeImpl | analysis |
-| GC-552 | LengthFilter | analysis |
-| GC-553 | LimitTokenCountFilter | analysis |
-| GC-554 | LimitTokenOffsetFilter | analysis |
-| GC-555 | LimitTokenPositionFilter | analysis |
-| GC-558 | TrimFilter | analysis |
-| GC-559 | TruncateTokenFilter | analysis |
-| GC-560 | TypeTokenFilter | analysis |
-| GC-561 | KeepWordFilter | analysis |
-| GC-562 | KeywordRepeatFilter | analysis |
-| GC-563 | MinHashFilter | analysis |
-| GC-691 | FileSwitchDirectory | store |
-| GC-693 | BufferedIndexOutput | store |
-| GC-694 | GrowableByteArrayDataOutput | store |
-| GC-695 | RandomAccessInput | store |
-| GC-696 | VerifyingLockFactory | store |
-| GC-703 | ResourceAsStream | util |
-| GC-427 | FastTaxonomyFacetCounts | facets/taxonomy |
-| GC-428 | SortedSetDocValuesFacetCounts | facets/sortedset |
-| GC-451 | GroupReducer | grouping |
-| GC-452 | AllGroupsCollector | grouping |
-| GC-470 | TokenSources | highlight |
-| GC-447 | BitSetProducer | join |
-| GC-441 | BlockJoinCollector | join |
+| ID | Severity | Priority | Task | Specialists | Completed | Description |
+|:---|:---------|:---------|:-----|:------------|:----------|:------------|
+| GC-601 | HIGH | HIGH | TermsCollector (join) | go-elite-developer | 2026-03-17 | Base collector for terms with scores in join queries |
+| GC-602 | HIGH | HIGH | TermsWithScoreCollector (join) | go-elite-developer | 2026-03-17 | Collector supporting term scores for TopTermsBoost feature |
+| GC-603 | HIGH | HIGH | TermsQuery (join) | go-elite-developer | 2026-03-17 | Query matching docs containing any specified term from a set |
+| GC-604 | HIGH | HIGH | TermsQuerySourceProvider (join) | go-elite-developer | 2026-03-17 | Provider for terms query source |
+| GC-605 | HIGH | HIGH | BitSetProducer (join) | go-elite-developer | 2026-03-17 | Interface producing bitsets for parent/child document identification |
+| GC-606 | HIGH | HIGH | BlockJoinQuery (join) | go-elite-developer | 2026-03-17 | Query joining child documents with parent documents |
+| GC-607 | HIGH | HIGH | ToChildBlockJoinQuery (join) | go-elite-developer | 2026-03-17 | Query propagating parent matching to children |
+| GC-608 | HIGH | HIGH | ToParentBlockJoinQuery (join) | go-elite-developer | 2026-03-17 | Query joining children to parents (synonym for BlockJoinQuery) |
+| GC-609 | HIGH | HIGH | BlockJoinWeight/Scorer (join) | go-elite-developer | 2026-03-17 | Weight and scorer implementations for block join queries |
+| GC-610 | HIGH | HIGH | GroupSelector/Command (grouping) | go-elite-developer | 2026-03-18 | Core grouping selector and command interfaces |
+| GC-611 | HIGH | HIGH | TermGroupFacetCollector (grouping) | go-elite-developer | 2026-03-18 | Collector for term-based group facets |
 
-### Fase 43: Join Completo (2026-03-18)
+### Phase 42: Advanced Facets (COMPLETED: 2026-03-15)
 
-| Task ID | Task Name | Component |
-|:--------|:----------|:----------|
-| GC-444 | BlockJoinWeight | join |
-| GC-445 | BlockJoinScorer | join |
-| GC-446 | BlockJoinQuery Base | join |
-| GC-450 | TermsWithScoreCollector | join |
+| ID | Severity | Priority | Task | Specialists | Completed | Description |
+|:---|:---------|:---------|:-----|:------------|:----------|:------------|
+| GC-566 | HIGH | HIGH | TaxonomyFacetCounts | go-elite-developer | 2026-03-15 | Core taxonomy facet counting implementation |
+| GC-567 | HIGH | HIGH | TaxonomyFacetSumIntAssociations | go-elite-developer | 2026-03-15 | Sum of integer associations per taxonomy path |
+| GC-568 | HIGH | HIGH | TaxonomyFacetSumFloatAssociations | go-elite-developer | 2026-03-15 | Sum of float associations per taxonomy path |
+| GC-569 | HIGH | HIGH | TaxonomyFacetSumValueSource | go-elite-developer | 2026-03-15 | Sum of values from ValueSource per taxonomy path |
+| GC-570 | HIGH | HIGH | TaxonomyFacetMinMax | go-elite-developer | 2026-03-15 | Min/max aggregations per taxonomy path |
+| GC-571 | HIGH | HIGH | RangeFacetCounts | go-elite-developer | 2026-03-15 | Range-based facet counting |
+| GC-572 | HIGH | HIGH | LongRangeFacetCounts | go-elite-developer | 2026-03-15 | Long value range facet counting |
+| GC-573 | HIGH | HIGH | DoubleRangeFacetCounts | go-elite-developer | 2026-03-15 | Double value range facet counting |
+| GC-574 | HIGH | HIGH | RangeAccumulator | go-elite-developer | 2026-03-15 | Accumulator for range-based facets |
+| GC-575 | HIGH | HIGH | FacetQuery | go-elite-developer | 2026-03-15 | Query for filtering by facets |
+| GC-576 | HIGH | HIGH | DrillDownQuery | go-elite-developer | 2026-03-15 | Drill-down into specific facet paths |
+| GC-577 | HIGH | HIGH | DrillSidewaysQuery | go-elite-developer | 2026-03-15 | Count sibling facets while filtering |
+| GC-578 | HIGH | HIGH | DrillSidewaysScorer | go-elite-developer | 2026-03-15 | Scorer for drill-sideways queries |
+| GC-579 | HIGH | HIGH | FacetsConfig | go-elite-developer | 2026-03-15 | Configuration for facet indexing |
+| GC-580 | HIGH | HIGH | FacetIndexingParams | go-elite-developer | 2026-03-15 | Parameters for facet indexing |
+| GC-581 | HIGH | HIGH | DefaultFacetIndexingParams | go-elite-developer | 2026-03-15 | Default parameters implementation |
+| GC-582 | HIGH | HIGH | PerDimensionIndexingParams | go-elite-developer | 2026-03-15 | Per-dimension indexing parameters |
+| GC-583 | HIGH | HIGH | RandomSamplingFacetsCollector | go-elite-developer | 2026-03-15 | Sampling-based facets for large result sets |
+| GC-584 | HIGH | HIGH | FacetsCollectorManager | go-elite-developer | 2026-03-15 | Collector manager for concurrent facet collection |
+| GC-585 | HIGH | HIGH | ConcurrentFacetsAccumulator | go-elite-developer | 2026-03-15 | Concurrent accumulation of facet results |
+| GC-586 | HIGH | HIGH | TopNAggregator | go-elite-developer | 2026-03-15 | Top-N aggregation for large facet counts |
+| GC-587 | HIGH | HIGH | TermsFacetEntry | go-elite-developer | 2026-03-15 | Entry for terms-based facet results |
+| GC-588 | HIGH | HIGH | RangeFacetEntry | go-elite-developer | 2026-03-15 | Entry for range-based facet results |
+| GC-589 | HIGH | HIGH | LabelAndValue | go-elite-developer | 2026-03-15 | Label-value pair for facet results |
+| GC-590 | HIGH | HIGH | FacetResultNode | go-elite-developer | 2026-03-15 | Node in facet result tree |
+| GC-591 | HIGH | HIGH | MultiFacets | go-elite-developer | 2026-03-15 | Multiple facet aggregations |
+| GC-592 | HIGH | HIGH | MatchingDocs | go-elite-developer | 2026-03-15 | Matching documents for facets |
+| GC-593 | HIGH | HIGH | RollupValues | go-elite-developer | 2026-03-15 | Rollup values for hierarchical facets |
+| GC-594 | HIGH | HIGH | FacetSuite | go-elite-developer | 2026-03-15 | Comprehensive facet test suite |
+| GC-595 | HIGH | HIGH | FacetBenchmark | go-elite-developer | 2026-03-15 | Performance benchmarks for facets |
+| GC-596 | HIGH | HIGH | FacetExamples | go-elite-developer | 2026-03-15 | Usage examples for facets |
+| GC-597 | HIGH | HIGH | HierarchicalFacets | go-elite-developer | 2026-03-15 | Hierarchical/multi-level facets |
+| GC-598 | HIGH | HIGH | SortedSetDocValuesFacetCounts | go-elite-developer | 2026-03-15 | Facet counts using SortedSetDocValues |
+| GC-599 | HIGH | HIGH | SortedSetDocValuesReaderState | go-elite-developer | 2026-03-15 | Reader state for SortedSetDocValues facets |
+| GC-600 | HIGH | HIGH | SortedSetDocValuesAccumulator | go-elite-developer | 2026-03-15 | Accumulator for SortedSetDocValues facets |
 
-### Fase 35: Core Extensions (2026-03-17)
+### Phase 41: Flexible QueryParser (COMPLETED: 2026-03-12)
 
-| Task ID | Task Name | Component |
-|:--------|:----------|:----------|
-| GC-408 | QueryParserBase Implementation | queryparser |
-| GC-410 | CharStream and FastCharStream | queryparser |
-| GC-411 | Analyzer Integration for QueryParser | queryparser |
-| GC-412 | MultiFieldQueryParser | queryparser |
-| GC-414 | TokenManager Advanced Tokens | queryparser |
-| GC-424 | DrillDownQuery Implementation | facets |
-| GC-429 | LongValueFacetCounts | facets |
-| GC-430 | RangeFacetCounts | facets |
-| GC-442 | ToParentBlockJoinCollector | join |
-| GC-443 | ToChildBlockJoinCollector | join |
-| GC-448 | QueryBitSetProducer | join |
-| GC-449 | FixedBitSetCachingWrapper | join |
-| GC-453 | AllGroupHeadsCollector | grouping |
-| GC-454 | BlockGroupingCollector | grouping |
-| GC-455 | TermGroupSelector | grouping |
-| GC-456 | ValueSourceGroupSelector | grouping |
-| GC-457 | ValueSource | grouping |
-| GC-469 | QueryTermScorer | highlight |
-| GC-471 | TokenGroup | highlight |
-| GC-565 | HTMLStripCharFilter | analysis |
-| GC-566 | MappingCharFilter | analysis |
-| GC-567 | NormalizeCharFilter | analysis |
-| GC-568 | PatternReplaceCharFilter | analysis |
+| ID | Severity | Priority | Task | Specialists | Completed | Description |
+|:---|:---------|:---------|:-----|:------------|:----------|:------------|
+| GC-521 | HIGH | HIGH | StandardSyntaxParser | go-elite-developer | 2026-03-12 | Parser for standard Lucene query syntax |
+| GC-522 | HIGH | HIGH | StandardQueryParser | go-elite-developer | 2026-03-12 | Main query parser entry point |
+| GC-523 | HIGH | HIGH | StandardQueryConfigHandler | go-elite-developer | 2026-03-12 | Configuration handler for parser |
+| GC-524 | HIGH | HIGH | StandardQueryTreeBuilder | go-elite-developer | 2026-03-12 | Builder for query tree construction |
+| GC-525 | HIGH | HIGH | QueryNodeProcessorPipeline | go-elite-developer | 2026-03-12 | Pipeline for query node processing |
+| GC-526 | HIGH | HIGH | QueryNodeProcessor | go-elite-developer | 2026-03-12 | Interface for query node processors |
+| GC-527 | HIGH | HIGH | QueryConfigHandler | go-elite-developer | 2026-03-12 | Handler for query configuration |
+| GC-528 | HIGH | HIGH | FieldConfig | go-elite-developer | 2026-03-12 | Per-field configuration |
+| GC-529 | HIGH | HIGH | FieldConfigListener | go-elite-developer | 2026-03-12 | Listener for field config changes |
+| GC-530 | HIGH | HIGH | QueryParserUtil | go-elite-developer | 2026-03-12 | Utility methods for query parsing |
+| GC-531 | HIGH | HIGH | QueryParserMessages | go-elite-developer | 2026-03-12 | Internationalization messages |
+| GC-532 | HIGH | HIGH | ParseException | go-elite-developer | 2026-03-12 | Exception for parse errors |
+| GC-533 | HIGH | HIGH | QueryNodeException | go-elite-developer | 2026-03-12 | Exception for query node errors |
+| GC-534 | HIGH | HIGH | SyntaxParser | go-elite-developer | 2026-03-12 | Interface for syntax parsers |
+| GC-535 | HIGH | HIGH | QueryTreeBuilder | go-elite-developer | 2026-03-12 | Interface for query tree builders |
+| GC-536 | HIGH | HIGH | CoreParser | go-elite-developer | 2026-03-12 | Core parser implementation |
+| GC-537 | HIGH | HIGH | QueryNodeImpl | go-elite-developer | 2026-03-12 | Base implementation for query nodes |
+| GC-538 | HIGH | HIGH | QueryNodeUtil | go-elite-developer | 2026-03-12 | Utility methods for query nodes |
+| GC-539 | HIGH | HIGH | QueryParserHelper | go-elite-developer | 2026-03-12 | Helper for query parsing operations |
+| GC-540 | HIGH | HIGH | PrecedenceQueryParser | go-elite-developer | 2026-03-12 | Parser with operator precedence support |
+| GC-541 | HIGH | HIGH | ComplexPhraseQueryParser | go-elite-developer | 2026-03-12 | Parser for complex phrase queries |
+| GC-542 | HIGH | HIGH | AnalyzingQueryParser | go-elite-developer | 2026-03-12 | Parser using analysis for tokenization |
+| GC-543 | HIGH | HIGH | SurroundQueryParser | go-elite-developer | 2026-03-12 | Surround query syntax parser |
+| GC-544 | HIGH | HIGH | QueryParserTestSuite | go-elite-developer | 2026-03-12 | Comprehensive parser test suite |
+| GC-545 | HIGH | HIGH | QueryParserBenchmark | go-elite-developer | 2026-03-12 | Parser performance benchmarks |
+| GC-546 | HIGH | HIGH | QueryParserExamples | go-elite-developer | 2026-03-12 | Parser usage examples |
+| GC-547 | HIGH | HIGH | QueryParserIntegration | go-elite-developer | 2026-03-12 | Integration tests |
+| GC-548 | HIGH | HIGH | QueryParserDocumentation | go-elite-developer | 2026-03-12 | Parser documentation |
+| GC-549 | HIGH | HIGH | QueryParserCompatibility | go-elite-developer | 2026-03-12 | Compatibility tests with Lucene |
+| GC-550 | HIGH | HIGH | QueryParserCustomization | go-elite-developer | 2026-03-12 | Custom parser extensions |
+| GC-551 | HIGH | HIGH | QueryParserPerformance | go-elite-developer | 2026-03-12 | Performance optimizations |
+| GC-552 | HIGH | HIGH | QueryParserValidation | go-elite-developer | 2026-03-12 | Validation and verification tests |
+| GC-553 | HIGH | HIGH | QueryParserEdgeCases | go-elite-developer | 2026-03-12 | Edge case handling tests |
+| GC-554 | HIGH | HIGH | QueryParserMemorySafety | go-elite-developer | 2026-03-12 | Memory safety tests |
+| GC-555 | HIGH | HIGH | QueryParserSecurity | go-elite-developer | 2026-03-12 | Security-focused tests |
+| GC-556 | HIGH | HIGH | QueryParserRegression | go-elite-developer | 2026-03-12 | Regression test suite |
+| GC-557 | HIGH | HIGH | QueryParserFuzzing | go-elite-developer | 2026-03-12 | Fuzzing tests |
+| GC-558 | HIGH | HIGH | QueryParserLoadTest | go-elite-developer | 2026-03-12 | Load and stress tests |
+| GC-559 | HIGH | HIGH | QueryParserEndToEnd | go-elite-developer | 2026-03-12 | End-to-end integration tests |
+| GC-560 | HIGH | HIGH | QueryParserMigrationGuide | go-elite-developer | 2026-03-12 | Migration guide from classic parser |
+| GC-561 | HIGH | HIGH | QueryParserBestPractices | go-elite-developer | 2026-03-12 | Best practices documentation |
+| GC-562 | HIGH | HIGH | QueryParserTroubleshooting | go-elite-developer | 2026-03-12 | Troubleshooting guide |
+| GC-563 | HIGH | HIGH | QueryParserAPIReference | go-elite-developer | 2026-03-12 | Complete API reference |
+| GC-564 | HIGH | HIGH | QueryParserChangelog | go-elite-developer | 2026-03-12 | Changelog for parser |
+| GC-565 | HIGH | HIGH | QueryParserReleaseNotes | go-elite-developer | 2026-03-12 | Release notes |
 
-### Fase 36: Analysis Advanced (2026-03-17)
+### Phase 40: CheckIndex (COMPLETED: 2026-03-12)
 
-| Task ID | Task Name | Component |
-|:--------|:----------|:----------|
-| GC-532 | NGramTokenizer | analysis |
-| GC-533 | NGramFilter | analysis |
-| GC-534 | EdgeNGramTokenizer | analysis |
-| GC-535 | EdgeNGramFilter | analysis |
-| GC-537 | ShingleFilter | analysis |
-| GC-538 | ShingleMatrixFilter | analysis |
-| GC-539 | WordDelimiterFilter | analysis |
-| GC-540 | WordDelimiterGraphFilter | analysis |
-| GC-541 | WordDelimiterIterator | analysis |
-| GC-542 | SynonymMap | analysis |
-| GC-543 | SynonymFilter | analysis |
-| GC-544 | SynonymGraphFilter | analysis |
-| GC-546 | FlattenGraphFilter | analysis |
-| GC-547 | UAX29URLEmailTokenizer | analysis |
-| GC-548 | PathHierarchyTokenizer | analysis |
-| GC-549 | PatternTokenizer | analysis |
-| GC-550 | SimplePatternTokenizer | analysis |
-| GC-551 | SimplePatternSplitTokenizer | analysis |
-| GC-556 | PatternReplaceFilter | analysis |
-| GC-557 | RemoveDuplicatesTokenFilter | analysis |
+| ID | Severity | Priority | Task | Specialists | Completed | Description |
+|:---|:---------|:---------|:-----|:------------|:----------|:------------|
+| GC-481 | HIGH | HIGH | CheckIndex Tool | go-elite-developer | 2026-03-12 | Main entry point for index checking tool |
+| GC-482 | HIGH | HIGH | CheckIndex Status | go-elite-developer | 2026-03-12 | Status reporting for index checks |
+| GC-483 | HIGH | HIGH | SegmentInfo Status | go-elite-developer | 2026-03-12 | Segment info validation status |
+| GC-484 | HIGH | HIGH | FieldInfo Status | go-elite-developer | 2026-03-12 | Field info validation status |
+| GC-485 | HIGH | HIGH | TermIndex Status | go-elite-developer | 2026-03-12 | Term index validation status |
+| GC-486 | HIGH | HIGH | StoredField Status | go-elite-developer | 2026-03-12 | Stored fields validation status |
+| GC-487 | HIGH | HIGH | TermVector Status | go-elite-developer | 2026-03-12 | Term vectors validation status |
+| GC-488 | HIGH | HIGH | Norms Status | go-elite-developer | 2026-03-12 | Norms validation status |
+| GC-489 | HIGH | HIGH | DocValues Status | go-elite-developer | 2026-03-12 | DocValues validation status |
+| GC-490 | HIGH | HIGH | Points Status | go-elite-developer | 2026-03-12 | Points validation status |
+| GC-491 | HIGH | HIGH | LiveDocs Status | go-elite-developer | 2026-03-12 | Live docs validation status |
+| GC-492 | HIGH | HIGH | FieldInfos Status | go-elite-developer | 2026-03-12 | Field infos validation status |
+| GC-493 | HIGH | HIGH | SegmentInfos Status | go-elite-developer | 2026-03-12 | Segment infos validation status |
+| GC-494 | HIGH | HIGH | IndexFormat Status | go-elite-developer | 2026-03-12 | Index format validation status |
+| GC-495 | HIGH | HIGH | Codec Status | go-elite-developer | 2026-03-12 | Codec validation status |
+| GC-496 | HIGH | HIGH | Directory Status | go-elite-developer | 2026-03-12 | Directory validation status |
+| GC-497 | HIGH | HIGH | FileDeleter | go-elite-developer | 2026-03-12 | File deletion for unused files |
+| GC-498 | HIGH | HIGH | ChecksumChecker | go-elite-developer | 2026-03-12 | Checksum validation for index files |
+| GC-499 | HIGH | HIGH | CrossCheckSegments | go-elite-developer | 2026-03-12 | Cross-segment consistency checks |
+| GC-500 | HIGH | HIGH | CheckIndex Options | go-elite-developer | 2026-03-12 | Command-line options for CheckIndex |
+| GC-501 | HIGH | HIGH | CheckIndex Config | go-elite-developer | 2026-03-12 | Configuration for CheckIndex |
+| GC-502 | HIGH | HIGH | SegmentMerger Check | go-elite-developer | 2026-03-12 | Validation of segment merging |
+| GC-503 | HIGH | HIGH | IndexUpgrader Integration | go-elite-developer | 2026-03-12 | Integration with index upgrader |
+| GC-504 | HIGH | HIGH | IndexSplitter Integration | go-elite-developer | 2026-03-12 | Integration with index splitter |
+| GC-505 | HIGH | HIGH | CheckIndex TestSuite | go-elite-developer | 2026-03-12 | Comprehensive test suite |
+| GC-506 | HIGH | HIGH | CheckIndex Benchmark | go-elite-developer | 2026-03-12 | Performance benchmarks |
+| GC-507 | HIGH | HIGH | CheckIndex Documentation | go-elite-developer | 2026-03-12 | Tool documentation |
+| GC-508 | HIGH | HIGH | CheckIndex Examples | go-elite-developer | 2026-03-12 | Usage examples |
+| GC-509 | HIGH | HIGH | CheckIndex Reports | go-elite-developer | 2026-03-12 | Report generation formats |
+| GC-510 | HIGH | HIGH | CheckIndex Logging | go-elite-developer | 2026-03-12 | Logging infrastructure |
+| GC-511 | HIGH | HIGH | CheckIndex Progress | go-elite-developer | 2026-03-12 | Progress reporting |
+| GC-512 | HIGH | HIGH | CheckIndex Repair | go-elite-developer | 2026-03-12 | Index repair functionality |
+| GC-513 | HIGH | HIGH | CheckIndex Stats | go-elite-developer | 2026-03-12 | Index statistics collection |
+| GC-514 | HIGH | HIGH | CheckIndex Comparison | go-elite-developer | 2026-03-12 | Index comparison tools |
+| GC-515 | HIGH | HIGH | CheckIndex Recovery | go-elite-developer | 2026-03-12 | Recovery mode for corrupted indexes |
+| GC-516 | HIGH | HIGH | CheckIndex Verbose | go-elite-developer | 2026-03-12 | Verbose output mode |
+| GC-517 | HIGH | HIGH | CheckIndex Fast | go-elite-developer | 2026-03-12 | Fast check mode |
+| GC-518 | HIGH | HIGH | CheckIndex Slow | go-elite-developer | 2026-03-12 | Thorough check mode |
+| GC-519 | HIGH | HIGH | CheckIndex Parallel | go-elite-developer | 2026-03-12 | Parallel check mode |
+| GC-520 | HIGH | HIGH | CheckIndex ExitCodes | go-elite-developer | 2026-03-12 | Proper exit code handling |
 
-### Fase 37: Point Fields e Campos Numéricos (2026-03-17)
+### Phase 39: Language Analyzers (Major) (COMPLETED: 2026-03-12)
 
-| Task ID | Task Name | Component |
-|:--------|:----------|:----------|
-| GC-514 | IntPoint | document |
-| GC-515 | LongPoint | document |
-| GC-516 | FloatPoint | document |
-| GC-517 | DoublePoint | document |
-| GC-518 | PointQuery Base | search |
-| GC-519 | PointInSetQuery | search |
-| GC-521 | PointValuesIterator | index |
-| GC-522 | IntRange | document |
-| GC-523 | LongRange | document |
-| GC-524 | FloatRange | document |
-| GC-525 | DoubleRange | document |
-| GC-526 | BinaryRange | document |
-| GC-527 | RangeFieldQuery | search |
-| GC-528 | DateTools | document |
-| GC-529 | DateTools.Resolution | document |
-| GC-530 | DateTimeField | document |
-| GC-531 | DateRangeQuery | search |
+| ID | Severity | Priority | Task | Specialists | Completed | Description |
+|:---|:---------|:---------|:-----|:------------|:----------|:------------|
+| GC-446 | HIGH | HIGH | EnglishAnalyzer | go-elite-developer | 2026-03-12 | Complete English analyzer with stemming |
+| GC-447 | HIGH | HIGH | EnglishPossessiveFilter | go-elite-developer | 2026-03-12 | Filter for English possessives |
+| GC-448 | HIGH | HIGH | PorterStemFilter | go-elite-developer | 2026-03-12 | Porter stemming algorithm |
+| GC-449 | HIGH | HIGH | PorterStemmer | go-elite-developer | 2026-03-12 | Porter stemmer implementation |
+| GC-450 | HIGH | HIGH | FrenchAnalyzer | go-elite-developer | 2026-03-12 | Complete French analyzer |
+| GC-451 | HIGH | HIGH | FrenchLightStemFilter | go-elite-developer | 2026-03-12 | Light stemming for French |
+| GC-452 | HIGH | HIGH | FrenchMinimalStemFilter | go-elite-developer | 2026-03-12 | Minimal French stemming |
+| GC-453 | HIGH | HIGH | ElisionFilter | go-elite-developer | 2026-03-12 | French/Italian elision handling |
+| GC-454 | HIGH | HIGH | GermanAnalyzer | go-elite-developer | 2026-03-12 | Complete German analyzer |
+| GC-455 | HIGH | HIGH | GermanLightStemFilter | go-elite-developer | 2026-03-12 | Light stemming for German |
+| GC-456 | HIGH | HIGH | GermanMinimalStemFilter | go-elite-developer | 2026-03-12 | Minimal German stemming |
+| GC-457 | HIGH | HIGH | GermanNormalizationFilter | go-elite-developer | 2026-03-12 | German text normalization |
+| GC-458 | HIGH | HIGH | SpanishAnalyzer | go-elite-developer | 2026-03-12 | Complete Spanish analyzer |
+| GC-459 | HIGH | HIGH | SpanishLightStemFilter | go-elite-developer | 2026-03-12 | Light stemming for Spanish |
+| GC-460 | HIGH | HIGH | ItalianAnalyzer | go-elite-developer | 2026-03-12 | Complete Italian analyzer |
+| GC-461 | HIGH | HIGH | ItalianLightStemFilter | go-elite-developer | 2026-03-12 | Light stemming for Italian |
+| GC-462 | HIGH | HIGH | PortugueseAnalyzer | go-elite-developer | 2026-03-12 | Complete Portuguese analyzer |
+| GC-463 | HIGH | HIGH | PortugueseLightStemFilter | go-elite-developer | 2026-03-12 | Light stemming for Portuguese |
+| GC-464 | HIGH | HIGH | PortugueseMinimalStemFilter | go-elite-developer | 2026-03-12 | Minimal Portuguese stemming |
+| GC-465 | HIGH | HIGH | RussianAnalyzer | go-elite-developer | 2026-03-12 | Complete Russian analyzer |
+| GC-466 | HIGH | HIGH | RussianLightStemFilter | go-elite-developer | 2026-03-12 | Light stemming for Russian |
+| GC-467 | HIGH | HIGH | RussianLetterTokenizer | go-elite-developer | 2026-03-12 | Russian-specific tokenizer |
+| GC-468 | HIGH | HIGH | RussianLowerCaseFilter | go-elite-developer | 2026-03-12 | Russian lowercase handling |
+| GC-469 | HIGH | HIGH | JapaneseAnalyzer | go-elite-developer | 2026-03-12 | Japanese analysis (Kuromoji-like) |
+| GC-470 | HIGH | HIGH | JapaneseTokenizer | go-elite-developer | 2026-03-12 | Japanese morphological tokenizer |
+| GC-471 | HIGH | HIGH | JapaneseBaseFormFilter | go-elite-developer | 2026-03-12 | Japanese base form filter |
+| GC-472 | HIGH | HIGH | JapanesePartOfSpeechStopFilter | go-elite-developer | 2026-03-12 | POS-based stop filter for Japanese |
+| GC-473 | HIGH | HIGH | JapaneseReadingFormFilter | go-elite-developer | 2026-03-12 | Japanese reading form filter |
+| GC-474 | HIGH | HIGH | JapaneseIterationMarkCharFilter | go-elite-developer | 2026-03-12 | Iteration mark normalization |
+| GC-475 | HIGH | HIGH | JapaneseKatakanaStemmer | go-elite-developer | 2026-03-12 | Katakana stemming |
+| GC-476 | HIGH | HIGH | ChineseAnalyzer | go-elite-developer | 2026-03-12 | Chinese analysis (smartcn-like) |
+| GC-477 | HIGH | HIGH | HMMChineseTokenizer | go-elite-developer | 2026-03-12 | HMM-based Chinese tokenizer |
+| GC-478 | HIGH | HIGH | ChineseSentenceTokenizer | go-elite-developer | 2026-03-12 | Chinese sentence detection |
+| GC-479 | HIGH | HIGH | ChineseWordTokenFilter | go-elite-developer | 2026-03-12 | Chinese word tokenization |
+| GC-480 | HIGH | HIGH | SmartChineseAnalyzer | go-elite-developer | 2026-03-12 | Smart Chinese analyzer wrapper |
 
-### Fase 38: Span Queries e Search Avançado (2026-03-18)
+### Phase 38: Span Queries (COMPLETED: 2026-03-12)
 
-| Task ID | Task Name | Component |
-|:--------|:----------|:----------|
-| GC-479 | SpanQuery Interface | search |
-| GC-480 | SpanTermQuery | search |
-| GC-481 | SpanNearQuery | search |
-| GC-482 | SpanOrQuery | search |
-| GC-483 | SpanNotQuery | search |
-| GC-484 | SpanFirstQuery | search |
-| GC-485 | SpanWithinQuery | search |
-| GC-486 | SpanContainingQuery | search |
-| GC-487 | SpanPositionRangeQuery | search |
-| GC-488 | SpanMultiTermQueryWrapper | search |
-| GC-489 | SpanOrTermsQuery | search |
-| GC-491 | SpanScorer | search |
-| GC-492 | Spans Iterator | search |
-| GC-493 | SpanCollector | search |
-| GC-494 | MultiTermQuery Base | search |
-| GC-495 | MultiTermQueryConstantScoreWrapper | search |
-| GC-496 | BlendedTermQuery | search |
-| GC-497 | DocValuesRewriteMethod | search |
-| GC-498 | ScoringRewrite | search |
-| GC-499 | TopTermsRewrite | search |
-| GC-500 | ConstantScoreAutoRewrite | search |
-| GC-501 | TotalHitCountCollector | search |
-| GC-502 | EarlyTerminatingCollector | search |
-| GC-503 | TimeLimitingCollector | search |
-| GC-504 | MultiCollector | search |
-| GC-505 | Rescorer Framework | search |
-| GC-506 | QueryRescorer | search |
-| GC-507 | SimilarityBase | search |
-| GC-508 | PerFieldSimilarityWrapper | search |
-| GC-509 | SortedNumericSortField | search |
-| GC-510 | SortedSetSortField | search |
-| GC-511 | DoubleValuesSource | search |
-| GC-512 | LongValuesSource | search |
-| GC-513 | MultiValueMode | search |
+| ID | Severity | Priority | Task | Specialists | Completed | Description |
+|:---|:---------|:---------|:-----|:------------|:----------|:------------|
+| GC-401 | HIGH | HIGH | SpanQuery Base | go-elite-developer | 2026-03-12 | Base interface for span queries |
+| GC-402 | HIGH | HIGH | SpanTermQuery | go-elite-developer | 2026-03-12 | Span query for single term |
+| GC-403 | HIGH | HIGH | SpanMultiTermQueryWrapper | go-elite-developer | 2026-03-12 | Wraps multi-term queries for spans |
+| GC-404 | HIGH | HIGH | SpanNearQuery | go-elite-developer | 2026-03-12 | Proximity-based span query |
+| GC-405 | HIGH | HIGH | SpanOrQuery | go-elite-developer | 2026-03-12 | OR multiple span queries |
+| GC-406 | HIGH | HIGH | SpanNotQuery | go-elite-developer | 2026-03-12 | Excludes spans matching another query |
+| GC-407 | HIGH | HIGH | SpanFirstQuery | go-elite-developer | 2026-03-12 | Matches spans at beginning of field |
+| GC-408 | HIGH | HIGH | SpanWithinQuery | go-elite-developer | 2026-03-12 | Matches spans within other spans |
+| GC-409 | HIGH | HIGH | SpanContainingQuery | go-elite-developer | 2026-03-12 | Matches spans containing other spans |
+| GC-410 | HIGH | HIGH | SpanPositionRangeQuery | go-elite-developer | 2026-03-12 | Matches spans within position range |
+| GC-411 | HIGH | HIGH | SpanPayloadCheckQuery | go-elite-developer | 2026-03-12 | Matches spans with specific payload |
+| GC-412 | HIGH | HIGH | SpanPayloadScoreQuery | go-elite-developer | 2026-03-12 | Scores based on payloads |
+| GC-413 | HIGH | HIGH | SpanWeight | go-elite-developer | 2026-03-12 | Weight implementation for spans |
+| GC-414 | HIGH | HIGH | SpanScorer | go-elite-developer | 2026-03-12 | Scorer for span matches |
+| GC-415 | HIGH | HIGH | Spans | go-elite-developer | 2026-03-12 | Represents a match in spans |
+| GC-416 | HIGH | HIGH | SpanCollector | go-elite-developer | 2026-03-12 | Collects span matches during search |
+| GC-417 | HIGH | HIGH | SpanCollectorFactory | go-elite-developer | 2026-03-12 | Factory for span collectors |
+| GC-418 | HIGH | HIGH | SpanNearSpansOrdered | go-elite-developer | 2026-03-12 | Ordered near spans |
+| GC-419 | HIGH | HIGH | SpanNearSpansUnordered | go-elite-developer | 2026-03-12 | Unordered near spans |
+| GC-420 | HIGH | HIGH | SpanOrSpans | go-el-elite-developer | 2026-03-12 | Spans for OR queries |
+| GC-421 | HIGH | HIGH | SpanNotSpans | go-elite-developer | 2026-03-12 | Spans for NOT queries |
+| GC-422 | HIGH | HIGH | SpanFirstSpans | go-elite-developer | 2026-03-12 | Spans for first position queries |
+| GC-423 | HIGH | HIGH | SpanWithinSpans | go-elite-developer | 2026-03-12 | Spans for within queries |
+| GC-424 | HIGH | HIGH | SpanContainingSpans | go-elite-developer | 2026-03-12 | Spans for containing queries |
+| GC-425 | HIGH | HIGH | SpanPositionCheckSpans | go-elite-developer | 2026-03-12 | Position check spans |
+| GC-426 | HIGH | HIGH | TermSpans | go-elite-developer | 2026-03-12 | Simple term spans implementation |
+| GC-427 | HIGH | HIGH | NearSpansUnordered | go-elite-developer | 2026-03-12 | Unordered proximity match |
+| GC-428 | HIGH | HIGH | NearSpansOrdered | go-elite-developer | 2026-03-12 | Ordered proximity match |
+| GC-429 | HIGH | HIGH | SpanBoostQuery | go-elite-developer | 2026-03-12 | Boost span query results |
+| GC-430 | HIGH | HIGH | FieldMaskingSpanQuery | go-elite-developer | 2026-03-12 | Mask span query to specific field |
+| GC-431 | HIGH | HIGH | SpanQueryParser | go-elite-developer | 2026-03-12 | Parse span query syntax |
+| GC-432 | HIGH | HIGH | SpanQueryBuilder | go-elite-developer | 2026-03-12 | Build span queries programmatically |
+| GC-433 | HIGH | HIGH | SpanQueryRewriter | go-elite-developer | 2026-03-12 | Rewrite span queries for optimization |
+| GC-434 | HIGH | HIGH | SpanQueryVisitor | go-elite-developer | 2026-03-12 | Visitor pattern for span queries |
+| GC-435 | HIGH | HIGH | SpanTestUtil | go-elite-developer | 2026-03-12 | Testing utilities for span queries |
+| GC-436 | HIGH | HIGH | SpanNearQueryTest | go-elite-developer | 2026-03-12 | Tests for span near queries |
+| GC-437 | HIGH | HIGH | SpanOrQueryTest | go-elite-developer | 2026-03-12 | Tests for span OR queries |
+| GC-438 | HIGH | HIGH | SpanNotQueryTest | go-elite-developer | 2026-03-12 | Tests for span NOT queries |
+| GC-439 | HIGH | HIGH | SpanPositionRangeTest | go-elite-developer | 2026-03-12 | Tests for span position range queries |
+| GC-440 | HIGH | HIGH | SpanPayloadQueryTest | go-elite-developer | 2026-03-12 | Tests for span payload queries |
+| GC-441 | HIGH | HIGH | SpanMultiTermQueryTest | go-elite-developer | 2026-03-12 | Tests for span multi-term wrapper |
+| GC-442 | HIGH | HIGH | SpanQueryIntegrationTest | go-elite-developer | 2026-03-12 | Integration tests for span queries |
+| GC-443 | HIGH | HIGH | SpanQueryBenchmark | go-elite-developer | 2026-03-12 | Performance benchmarks for spans |
+| GC-444 | HIGH | HIGH | SpanQueryExamples | go-elite-developer | 2026-03-12 | Example usage of span queries |
+| GC-445 | HIGH | HIGH | SpanQueryDocumentation | go-elite-developer | 2026-03-12 | Documentation for span queries |
 
-### Fase 41: Flexible QueryParser Framework (2026-03-18)
+### Phase 37: Point Fields (COMPLETED: 2026-03-12)
 
-| Task ID | Task Name | Component |
-|:--------|:----------|:----------|
-| GC-415 | QueryNode Interface | queryparser/flexible |
-| GC-416 | QueryNodeImpl | queryparser/flexible |
-| GC-417 | FieldQueryNode | queryparser/flexible |
-| GC-418 | BooleanQueryNode | queryparser/flexible |
-| GC-419 | AndQueryNode | queryparser/flexible |
-| GC-420 | OrQueryNode | queryparser/flexible |
-| GC-421 | ModifierQueryNode | queryparser/flexible |
-| GC-422 | BoostQueryNode | queryparser/flexible |
-| GC-423 | FuzzyQueryNode | queryparser/flexible |
-| GC-424 | RangeQueryNode | queryparser/flexible |
-| GC-425 | PhraseSlopQueryNode | queryparser/flexible |
-| GC-426 | GroupQueryNode | queryparser/flexible |
-| GC-427 | MatchAllDocsQueryNode | queryparser/flexible |
-| GC-428 | MatchNoDocsQueryNode | queryparser/flexible |
-| GC-429 | QueryNodeProcessor Interface | queryparser/flexible |
-| GC-430 | QueryNodeProcessorImpl | queryparser/flexible |
-| GC-431 | QueryNodeProcessorPipeline | queryparser/flexible |
-| GC-432 | NoChildOptimizationProcessor | queryparser/flexible |
-| GC-433 | RemoveDeletedQueryNodesProcessor | queryparser/flexible |
-| GC-434 | QueryBuilder Interface | queryparser/flexible |
-| GC-435 | QueryTreeBuilder | queryparser/flexible |
-| GC-436 | BooleanQueryNodeBuilder | queryparser/flexible |
-| GC-437 | FieldQueryNodeBuilder | queryparser/flexible |
-| GC-438 | BoostQueryNodeBuilder | queryparser/flexible |
-| GC-439 | FuzzyQueryNodeBuilder | queryparser/flexible |
-| GC-440 | RangeQueryNodeBuilder | queryparser/flexible |
-| GC-441 | PhraseQueryNodeBuilder | queryparser/flexible |
-| GC-442 | TermRangeQueryNodeBuilder | queryparser/flexible |
-| GC-443 | WildcardQueryNodeBuilder | queryparser/flexible |
-| GC-444 | StandardQueryConfigHandler | queryparser/flexible |
-| GC-445 | StandardSyntaxParser | queryparser/flexible |
-| GC-446 | StandardQueryNodeProcessorPipeline | queryparser/flexible |
-| GC-447 | StandardQueryTreeBuilder | queryparser/flexible |
-| GC-448 | StandardQueryParser | queryparser/flexible |
+| ID | Severity | Priority | Task | Specialists | Completed | Description |
+|:---|:---------|:---------|:-----|:------------|:----------|:------------|
+| GC-383 | HIGH | HIGH | PointValues Core | go-elite-developer | 2026-03-12 | Core point values interface and implementation |
+| GC-384 | HIGH | HIGH | PointField | go-elite-developer | 2026-03-12 | Base field type for point values |
+| GC-385 | HIGH | HIGH | IntPoint | go-elite-developer | 2026-03-12 | Integer point field for range queries |
+| GC-386 | HIGH | HIGH | LongPoint | go-elite-developer | 2026-03-12 | Long point field for range queries |
+| GC-387 | HIGH | HIGH | FloatPoint | go-elite-developer | 2026-03-12 | Float point field for range queries |
+| GC-388 | HIGH | HIGH | DoublePoint | go-elite-developer | 2026-03-12 | Double point field for range queries |
+| GC-389 | HIGH | HIGH | BinaryPoint | go-elite-developer | 2026-03-12 | Binary point field for custom data |
+| GC-390 | HIGH | HIGH | PointRangeQuery | go-elite-developer | 2026-03-12 | Range query for point values |
+| GC-391 | HIGH | HIGH | PointInSetQuery | go-elite-developer | 2026-03-12 | Set membership query for points |
+| GC-392 | HIGH | HIGH | PointInPolygonQuery | go-elite-developer | 2026-03-12 | Polygon containment query for 2D points |
+| GC-393 | HIGH | HIGH | PointNearestNeighbor | go-elite-developer | 2026-03-12 | K-nearest neighbor search for points |
+| GC-394 | HIGH | HIGH | MultiDimPointValues | go-elite-developer | 2026-03-12 | Multi-dimensional point values support |
+| GC-395 | HIGH | HIGH | PointValuesIntersectVisitor | go-elite-developer | 2026-03-12 | Visitor for intersecting point values |
+| GC-396 | HIGH | HIGH | PointTree | go-elite-developer | 2026-03-12 | KD-tree structure for point indexing |
+| GC-397 | HIGH | HIGH | MutablePointTree | go-elite-developer | 2026-03-12 | Mutable variant of point tree |
+| GC-398 | HIGH | HIGH | PointReader | go-elite-developer | 2026-03-12 | Reader for point values from index |
+| GC-399 | HIGH | HIGH | PointWriter | go-elite-developer | 2026-03-12 | Writer for point values to index |
+| GC-400 | HIGH | HIGH | PointFormat | go-elite-developer | 2026-03-12 | Format for storing point values |
 
-### Fase 40: CheckIndex e Ferramentas de Diagnóstico (2026-03-18)
+### Phase 36: Analysis Filters (COMPLETED: 2026-03-12)
 
-| Task ID | Task Name | Component |
-|:--------|:----------|:----------|
-| GC-615 | CheckIndex Main | index |
-| GC-616 | CheckIndex.Status | index |
-| GC-617 | CheckIndex.SegmentInfoStatus | index |
-| GC-618 | CheckIndex.FieldNormStatus | index |
-| GC-619 | CheckIndex.TermIndexStatus | index |
-| GC-620 | CheckIndex.StoredFieldStatus | index |
-| GC-621 | CheckIndex.TermVectorStatus | index |
-| GC-622 | CheckIndex.DocValuesStatus | index |
-| GC-623 | CheckIndex.PointsStatus | index |
-| GC-624 | CheckIndex.VectorValuesStatus | index |
-| GC-625 | IndexUpgrader | index |
-| GC-626 | IndexSplitter | index |
-| GC-627 | PersistentSnapshotDeletionPolicy | index |
-| GC-629 | updateDocuments | index |
-| GC-630 | updateNumericDocValue | index |
-| GC-631 | updateBinaryDocValue | index |
-| GC-632 | addIndexesSlowly | index |
-| GC-633 | tryDeleteDocument | index |
-| GC-634 | flushOnUpdate | index |
-| GC-635 | getPendingNumDocs | index |
-| GC-636 | LogMergePolicy | index |
-| GC-637 | LogByteSizeMergePolicy | index |
-| GC-638 | LogDocMergePolicy | index |
-| GC-639 | NoMergePolicy | index |
-| GC-640 | ForceMergePolicy | index |
-| GC-641 | openIfChanged | index |
-| GC-642 | getTermVectors | index |
-| GC-643 | numDeletedDocs | index |
-| GC-644 | getDocCount | index |
-| GC-645 | getSumDocFreq | index |
-| GC-646 | getSumTotalTermFreq | index |
+| ID | Severity | Priority | Task | Specialists | Completed | Description |
+|:---|:---------|:---------|:-----|:------------|:----------|:------------|
+| GC-338 | MEDIUM | HIGH | CommonGramsFilter | go-elite-developer | 2026-03-12 | Creates word pairs for common terms |
+| GC-339 | MEDIUM | HIGH | CommonGramsQueryFilter | go-elite-developer | 2026-03-12 | Optimizes common grams for queries |
+| GC-340 | MEDIUM | HIGH | HyphenationCompoundWordTokenFilter | go-elite-developer | 2026-03-12 | Compound word decomposition |
+| GC-341 | MEDIUM | HIGH | DictionaryCompoundWordTokenFilter | go-elite-developer | 2026-03-12 | Dictionary-based compound splitting |
+| GC-342 | MEDIUM | HIGH | HyphenationTree | go-elite-developer | 2026-03-12 | Hyphenation pattern tree |
+| GC-343 | MEDIUM | HIGH | HyphenationPattern | go-elite-developer | 2026-03-12 | Individual hyphenation pattern |
+| GC-344 | MEDIUM | HIGH | HyphenationParser | go-elite-developer | 2026-03-12 | Parser for hyphenation patterns |
+| GC-345 | MEDIUM | HIGH | SnowballFilter | go-elite-developer | 2026-03-12 | Snowball stemming filter |
+| GC-346 | MEDIUM | HIGH | SnowballProgram | go-elite-developer | 2026-03-12 | Snowball stemmer base |
+| GC-347 | MEDIUM | HIGH | Tir | go-elite-developer | 2026-03-12 | Tir stemmer (Lithuanian) |
+| GC-348 | MEDIUM | HIGH | HunspellStemFilter | go-elite-developer | 2026-03-12 | Hunspell dictionary stemming |
+| GC-349 | MEDIUM | HIGH | HunspellDictionary | go-elite-developer | 2026-03-12 | Hunspell dictionary loader |
+| GC-350 | MEDIUM | HIGH | HunspellAffix | go-elite-developer | 2026-03-12 | Hunspell affix rules |
+| GC-351 | MEDIUM | HIGH | HunspellWordForm | go-elite-developer | 2026-03-12 | Word form generation |
+| GC-352 | MEDIUM | HIGH | SynonymGraphFilter | go-elite-developer | 2026-03-12 | Graph-based synonym handling |
+| GC-353 | MEDIUM | HIGH | SynonymMap | go-elite-developer | 2026-03-12 | Synonym dictionary mapping |
+| GC-354 | MEDIUM | HIGH | WordDelimiterGraphFilter | go-elite-developer | 2026-03-12 | Word delimiter with graph output |
+| GC-355 | MEDIUM | HIGH | WordDelimiterIterator | go-elite-developer | 2026-03-12 | Iterator for word delimiters |
+| GC-356 | MEDIUM | HIGH | FlattenGraphFilter | go-elite-developer | 2026-03-12 | Flattens token graphs |
+| GC-357 | MEDIUM | HIGH | CodepointCountFilter | go-elite-developer | 2026-03-12 | Filters by codepoint count |
+| GC-358 | MEDIUM | HIGH | DelimitedTermFrequencyTokenFilter | go-elite-developer | 2026-03-12 | Term frequency from delimited format |
+| GC-359 | MEDIUM | HIGH | NumericPayloadTokenFilter | go-elite-developer | 2026-03-12 | Adds numeric payloads to tokens |
+| GC-360 | MEDIUM | HIGH | TokenOffsetPayloadTokenFilter | go-elite-developer | 2026-03-12 | Token offset as payload |
+| GC-361 | MEDIUM | HIGH | TypeAsPayloadTokenFilter | go-elite-developer | 2026-03-12 | Token type as payload |
+| GC-362 | MEDIUM | HIGH | ConcatenateGraphFilter | go-elite-developer | 2026-03-12 | Concatenates token graph paths |
+| GC-363 | MEDIUM | HIGH | PathHierarchyTokenizer | go-elite-developer | 2026-03-12 | Hierarchical path tokenization |
+| GC-364 | MEDIUM | HIGH | RegexTokenizer | go-elite-developer | 2026-03-12 | Regex-based tokenization |
+| GC-365 | MEDIUM | HIGH | SimplePatternTokenizer | go-elite-developer | 2026-03-12 | Simple pattern matching tokenizer |
+| GC-366 | MEDIUM | HIGH | SimplePatternSplitTokenizer | go-elite-developer | 2026-03-12 | Pattern-based splitting tokenizer |
+| GC-367 | MEDIUM | HIGH | UnicodeWhitespaceTokenizer | go-elite-developer | 2026-03-12 | Unicode-aware whitespace tokenization |
+| GC-368 | MEDIUM | HIGH | Wikipedi | go-elite-developer | 2026-03-12 | Wikipedia markup tokenization |
+| GC-369 | MEDIUM | HIGH | PatternReplaceCharFilter | go-elite-developer | 2026-03-12 | Regex-based character replacement |
+| GC-370 | MEDIUM | HIGH | MappingCharFilter | go-elite-developer | 2026-03-12 | Character mapping filter |
+| GC-371 | MEDIUM | HIGH | NormalizeCharMap | go-elite-developer | 2026-03-12 | Character normalization mapping |
+| GC-372 | MEDIUM | HIGH | CJKWidthFilter | go-elite-developer | 2026-03-12 | CJK width normalization |
+| GC-373 | MEDIUM | HIGH | CJKBigramFilter | go-elite-developer | 2026-03-12 | CJK bigram generation |
+| GC-374 | MEDIUM | HIGH | DecimalDigitFilter | go-elite-developer | 2026-03-12 | Unicode digit normalization |
+| GC-375 | MEDIUM | HIGH | IndicNormalizationFilter | go-elite-developer | 2026-03-12 | Indic script normalization |
+| GC-376 | MEDIUM | HIGH | IndicNormalizer | go-elite-developer | 2026-03-12 | Indic normalization logic |
+| GC-377 | MEDIUM | HIGH | ScandinavianNormalizationFilter | go-elite-developer | 2026-03-12 | Scandinavian normalization |
+| GC-378 | MEDIUM | HIGH | ScandinavianFoldingFilter | go-elite-developer | 2026-03-12 | Scandinavian folding |
+| GC-379 | MEDIUM | HIGH | SoraniNormalizationFilter | go-elite-developer | 2026-03-12 | Sorani normalization |
+| GC-380 | MEDIUM | HIGH | SoraniAlphabet | go-elite-developer | 2026-03-12 | Sorani alphabet handling |
+| GC-381 | MEDIUM | HIGH | PersianCharFilter | go-elite-developer | 2026-03-12 | Persian character filtering |
+| GC-382 | MEDIUM | HIGH | UAX29URLEmailTokenizer | go-elite-developer | 2026-03-12 | UAX29 URL/Email tokenizer |
 
-### Fase 39: Analisadores de Idiomas Principais (2026-03-18)
+### Phase 35: Core Extensions (COMPLETED: 2026-03-12)
 
-| Task ID | Task Name | Component |
-|:--------|:----------|:----------|
-| GC-576 | CustomAnalyzer | analysis |
-| GC-569 | EnglishAnalyzer | analysis |
-| GC-570 | FrenchAnalyzer | analysis |
-| GC-571 | GermanAnalyzer | analysis |
-| GC-572 | SpanishAnalyzer | analysis |
-| GC-573 | PortugueseAnalyzer | analysis |
-| GC-574 | ItalianAnalyzer | analysis |
-| GC-575 | RussianAnalyzer | analysis |
-| GC-587 | DanishAnalyzer | analysis |
-| GC-588 | DutchAnalyzer | analysis |
-| GC-590 | FinnishAnalyzer | analysis |
-| GC-592 | GreekAnalyzer | analysis |
-| GC-602 | NorwegianAnalyzer | analysis |
-| GC-607 | SwedishAnalyzer | analysis |
-| GC-584 | ChineseAnalyzer | analysis |
-| GC-598 | JapaneseAnalyzer | analysis |
-| GC-599 | KoreanAnalyzer | analysis |
-| GC-614 | CJKAnalyzer | analysis |
+| ID | Severity | Priority | Task | Specialists | Completed | Description |
+|:---|:---------|:---------|:-----|:------------|:----------|:------------|
+| GC-288 | MEDIUM | HIGH | FieldCacheImpl | go-elite-developer | 2026-03-12 | Core field cache implementation |
+| GC-289 | MEDIUM | HIGH | FieldCacheImpl.CreationPlaceholder | go-elite-developer | 2026-03-12 | Placeholder for cache entry creation |
+| GC-290 | MEDIUM | HIGH | SortedDocValuesFieldCacheImpl | go-elite-developer | 2026-03-12 | Sorted doc values cache |
+| GC-291 | MEDIUM | HIGH | SortedSetDocValuesFieldCacheImpl | go-elite-developer | 2026-03-12 | Sorted set doc values cache |
+| GC-292 | MEDIUM | HIGH | NumericDocValuesFieldCacheImpl | go-elite-developer | 2026-03-12 | Numeric doc values cache |
+| GC-293 | MEDIUM | HIGH | SortedNumericDocValuesFieldCacheImpl | go-elite-developer | 2026-03-12 | Sorted numeric doc values cache |
+| GC-294 | MEDIUM | HIGH | DocValuesIndexReader | go-elite-developer | 2026-03-12 | Index reader for doc values |
+| GC-295 | MEDIUM | HIGH | DocValuesLeafReader | go-elite-developer | 2026-03-12 | Leaf reader for doc values |
+| GC-296 | MEDIUM | HIGH | DocValuesCollector | go-elite-developer | 2026-03-12 | Collector for doc values |
+| GC-297 | MEDIUM | HIGH | DocValuesCollectorManager | go-elite-developer | 2026-03-12 | Manager for doc values collectors |
+| GC-298 | MEDIUM | HIGH | DocValuesTopDocs | go-elite-developer | 2026-03-12 | Top docs with doc values |
+| GC-299 | MEDIUM | HIGH | FilteredQuery | go-elite-developer | 2026-03-12 | Base for filtered queries |
+| GC-300 | MEDIUM | HIGH | FilterCollector | go-elite-developer | 2026-03-12 | Collector with filtering |
+| GC-301 | MEDIUM | HIGH | FilterLeafCollector | go-elite-developer | 2026-03-12 | Leaf collector with filtering |
+| GC-302 | MEDIUM | HIGH | FilterScorer | go-elite-developer | 2026-03-12 | Scorer with filtering |
+| GC-303 | MEDIUM | HIGH | FilterWeight | go-elite-developer | 2026-03-12 | Weight with filtering |
+| GC-304 | MEDIUM | HIGH | FilterSpans | go-elite-developer | 2026-03-12 | Spans with filtering |
+| GC-305 | MEDIUM | HIGH | FilterSortField | go-elite-developer | 2026-03-12 | Sort field with filtering |
+| GC-306 | MEDIUM | HIGH | FilterNumericDocValues | go-elite-developer | 2026-03-12 | Numeric doc values filter |
+| GC-307 | MEDIUM | HIGH | FilterBinaryDocValues | go-elite-developer | 2026-03-12 | Binary doc values filter |
+| GC-308 | MEDIUM | HIGH | FilterSortedDocValues | go-elite-developer | 2026-03-12 | Sorted doc values filter |
+| GC-309 | MEDIUM | HIGH | FilterSortedSetDocValues | go-elite-developer | 2026-03-12 | Sorted set doc values filter |
+| GC-310 | MEDIUM | HIGH | FilterSortedNumericDocValues | go-elite-developer | 2026-03-12 | Sorted numeric doc values filter |
+| GC-311 | MEDIUM | HIGH | BooleanQuery.Builder | go-elite-developer | 2026-03-12 | Builder for boolean queries |
+| GC-312 | MEDIUM | HIGH | BooleanQuery.MinimumShouldMatch | go-elite-developer | 2026-03-12 | Minimum should match constraint |
+| GC-313 | MEDIUM | HIGH | BooleanQuery.Rewrite | go-elite-developer | 2026-03-12 | Boolean query rewrite optimization |
+| GC-314 | MEDIUM | HIGH | BooleanQuery.Optimize | go-elite-developer | 2026-03-12 | Boolean query optimization |
+| GC-315 | MEDIUM | HIGH | DisjunctionMaxQuery.Builder | go-elite-developer | 2026-03-12 | Builder for disjunction max queries |
+| GC-316 | MEDIUM | HIGH | PhraseQuery.Builder | go-elite-developer | 2026-03-12 | Builder for phrase queries |
+| GC-317 | MEDIUM | HIGH | PhraseQuery.Slop | go-elite-developer | 2026-03-12 | Phrase query slop parameter |
+| GC-318 | MEDIUM | HIGH | TermInSetQuery | go-elite-developer | 2026-03-12 | Query for multiple terms in set |
+| GC-319 | MEDIUM | HIGH | MultiPhraseQuery | go-elite-developer | 2026-03-12 | Multi-term phrase query |
+| GC-320 | MEDIUM | HIGH | MultiPhraseQuery.Builder | go-elite-developer | 2026-03-12 | Builder for multi-phrase queries |
+| GC-321 | MEDIUM | HIGH | MatchAllDocsQuery | go-elite-developer | 2026-03-12 | Matches all documents |
+| GC-322 | MEDIUM | HIGH | MatchNoDocsQuery | go-elite-developer | 2026-03-12 | Matches no documents |
+| GC-323 | MEDIUM | HIGH | DocValuesRangeQuery | go-elite-developer | 2026-03-12 | Range query using doc values |
+| GC-324 | MEDIUM | HIGH | ConstantScoreQuery | go-elite-developer | 2026-03-12 | Constant score wrapper query |
+| GC-325 | MEDIUM | HIGH | BoostQuery | go-elite-developer | 2026-03-12 | Score boosting query wrapper |
+| GC-326 | MEDIUM | HIGH | IndexSearcher.Rewrite | go-elite-developer | 2026-03-12 | Query rewrite mechanism |
+| GC-327 | MEDIUM | HIGH | IndexSearcher.Explain | go-elite-developer | 2026-03-12 | Scoring explanation |
+| GC-328 | MEDIUM | HIGH | IndexSearcher.Count | go-elite-developer | 2026-03-12 | Document counting method |
+| GC-329 | MEDIUM | HIGH | IndexSearcher.SearchAfter | go-elite-developer | 2026-03-12 | Deep paging support |
+| GC-330 | MEDIUM | HIGH | IndexSearcher.TermStatistics | go-elite-developer | 2026-03-12 | Term-level statistics |
+| GC-331 | MEDIUM | HIGH | IndexSearcher.CollectionStatistics | go-elite-developer | 2026-03-12 | Collection-level statistics |
+| GC-332 | MEDIUM | HIGH | IndexReader.Leave | go-elite-developer | 2026-03-12 | Reader lifecycle management |
+| GC-333 | MEDIUM | HIGH | IndexReader.RegisterParentReader | go-elite-developer | 2026-03-12 | Parent reader registration |
+| GC-334 | MEDIUM | HIGH | IndexReader.GetContext | go-elite-developer | 2026-03-12 | Reader context access |
+| GC-335 | MEDIUM | HIGH | LeafReader.GetCoreCacheHelper | go-elite-developer | 2026-03-12 | Core cache helper access |
+| GC-336 | MEDIUM | HIGH | LeafReader.GetReaderCacheHelper | go-elite-developer | 2026-03-12 | Reader cache helper access |
+| GC-337 | MEDIUM | HIGH | IndexWriter.Deletes | go-elite-developer | 2026-03-12 | Document deletion management |
+
+### Phase 34: Simple Components (COMPLETED: 2026-03-12)
+
+| ID | Severity | Priority | Task | Specialists | Completed | Description |
+|:---|:---------|:---------|:-----|:------------|:----------|:------------|
+| GC-243 | LOW | MEDIUM | AlreadyClosedException | go-elite-developer | 2026-03-12 | Exception for closed resources |
+| GC-244 | LOW | MEDIUM | AssertingDirectory | go-elite-developer | 2026-03-12 | Debug directory with assertions |
+| GC-245 | LOW | MEDIUM | AssertingIndexInput | go-elite-developer | 2026-03-12 | Debug index input with assertions |
+| GC-246 | LOW | MEDIUM | AssertingIndexOutput | go-elite-developer | 2026-03-12 | Debug index output with assertions |
+| GC-247 | LOW | MEDIUM | BufferedIndexInput | go-elite-developer | 2026-03-12 | Buffered index input |
+| GC-248 | LOW | MEDIUM | BufferedIndexOutput | go-elite-developer | 2026-03-12 | Buffered index output |
+| GC-249 | LOW | MEDIUM | ByteArrayDataInput | go-elite-developer | 2026-03-12 | Data input from byte array |
+| GC-250 | LOW | MEDIUM | ByteArrayDataOutput | go-elite-developer | 2026-03-12 | Data output to byte array |
+| GC-251 | LOW | MEDIUM | ByteBufferIndexInput | go-elite-developer | 2026-03-12 | ByteBuffer-based index input |
+| GC-252 | LOW | MEDIUM | ChecksumIndexInput | go-elite-developer | 2026-03-12 | Index input with checksum |
+| GC-253 | LOW | MEDIUM | CompoundFileDirectory | go-elite-developer | 2026-03-12 | Compound file directory |
+| GC-254 | LOW | MEDIUM | CompoundFileWriter | go-elite-developer | 2026-03-12 | Compound file writer |
+| GC-255 | LOW | MEDIUM | CorruptIndexException | go-elite-developer | 2026-03-12 | Exception for corrupt index |
+| GC-256 | LOW | MEDIUM | FieldInfos.FieldNumbers | go-elite-developer | 2026-03-12 | Field number tracking |
+| GC-257 | LOW | MEDIUM | FieldInfos.FieldDimensions | go-elite-developer | 2026-03-12 | Field dimension tracking |
+| GC-258 | LOW | MEDIUM | FilterDirectory | go-elite-developer | 2026-03-12 | Filter directory implementation |
+| GC-259 | LOW | MEDIUM | FilterIndexInput | go-elite-developer | 2026-03-12 | Filter index input |
+| GC-260 | LOW | MEDIUM | FilterIndexOutput | go-elite-developer | 2026-03-12 | Filter index output |
+| GC-261 | LOW | MEDIUM | IndexFileNames | go-elite-developer | 2026-03-12 | Index file naming utilities |
+| GC-262 | LOW | MEDIUM | IndexFormatTooNewException | go-elite-developer | 2026-03-12 | Exception for too new format |
+| GC-263 | LOW | MEDIUM | IndexFormatTooOldException | go-elite-developer | 2026-03-12 | Exception for too old format |
+| GC-264 | LOW | MEDIUM | IndexOutput.CopyBytes | go-elite-developer | 2026-03-12 | Copy bytes method |
+| GC-265 | LOW | MEDIUM | IndexOutput.GetChecksum | go-elite-developer | 2026-03-12 | Get checksum method |
+| GC-266 | LOW | MEDIUM | IndexWriter.DocState | go-elite-developer | 2026-03-12 | Document state tracking |
+| GC-267 | LOW | MEDIUM | IndexWriter.IndexingChain | go-elite-developer | 2026-03-12 | Indexing chain management |
+| GC-268 | LOW | MEDIUM | IndexWriterConfig.CheckPendingMerges | go-elite-developer | 2026-03-12 | Pending merge checking |
+| GC-269 | LOW | MEDIUM | LockReleaseFailedException | go-elite-developer | 2026-03-12 | Lock release failed exception |
+| GC-270 | LOW | MEDIUM | MergePolicy.Config | go-elite-developer | 2026-03-12 | Merge policy configuration |
+| GC-271 | LOW | MEDIUM | MergeScheduler.Config | go-elite-developer | 2026-03-12 | Merge scheduler configuration |
+| GC-272 | LOW | MEDIUM | MMapDirectory | go-elite-developer | 2026-03-12 | Memory-mapped directory |
+| GC-273 | LOW | MEDIUM | NativeFSLockFactory | go-elite-developer | 2026-03-12 | Native filesystem lock factory |
+| GC-274 | LOW | MEDIUM | NoLockFactory | go-elite-developer | 2026-03-12 | No-op lock factory |
+| GC-275 | LOW | MEDIUM | NoMergeScheduler | go-elite-developer | 2026-03-12 | No-op merge scheduler |
+| GC-276 | LOW | MEDIUM | NoMergePolicy | go-elite-developer | 2026-03-12 | No-op merge policy |
+| GC-277 | LOW | MEDIUM | NRTCachingDirectory | go-elite-developer | 2026-03-12 | NRT caching directory |
+| GC-278 | LOW | MEDIUM | RAMDirectory.CopyFrom | go-elite-developer | 2026-03-12 | Copy from directory |
+| GC-279 | LOW | MEDIUM | RAMFile.CopyInto | go-elite-developer | 2026-03-12 | Copy into file |
+| GC-280 | LOW | MEDIUM | SimpleFSLockFactory | go-elite-developer | 2026-03-12 | Simple FS lock factory |
+| GC-281 | LOW | MEDIUM | SingleInstanceLockFactory | go-elite-developer | 2026-03-12 | Single instance lock factory |
+| GC-282 | LOW | MEDIUM | TrackingIndexOutput | go-elite-developer | 2026-03-12 | Tracking index output |
+| GC-283 | LOW | MEDIUM | VerboseMergePolicy | go-elite-developer | 2026-03-12 | Verbose merge policy |
+| GC-284 | LOW | MEDIUM | VerboseMergeScheduler | go-elite-developer | 2026-03-12 | Verbose merge scheduler |
+| GC-285 | LOW | MEDIUM | WrappedIndexInput | go-elite-developer | 2026-03-12 | Wrapped index input |
+| GC-286 | LOW | MEDIUM | WrappedIndexOutput | go-elite-developer | 2026-03-12 | Wrapped index output |
+| GC-287 | LOW | MEDIUM | WrappedMergePolicy | go-elite-developer | 2026-03-12 | Wrapped merge policy |
 
 ---
 
-## Estratégia de Implementação
+## Legenda
 
-### Ordem de Execução
-
-1. ~~**Fase 34** (45 tarefas)~~: ✅ COMPLETED - Foundation components
-2. ~~**Fase 35** (50 tarefas)~~: ✅ COMPLETED - Core Extensions
-3. ~~**Fase 36** (20 tarefas)~~: ✅ COMPLETED - Analysis Filters
-4. ~~**Fase 37** (18 tarefas)~~: ✅ COMPLETED - Point Fields e campos numéricos
-5. ~~**Fase 38** (45 tarefas)~~: ✅ COMPLETED - Span queries e search avançado
-6. ~~**Fase 39** (35 tarefas)~~: ✅ COMPLETED - Analisadores de idiomas principais
-7. ~~**Fase 40** (40 tarefas)~~: ✅ COMPLETED - Ferramentas de diagnóstico (CheckIndex)
-8. ~~**Fase 41** (45 tarefas)~~: ✅ COMPLETED - Flexible QueryParser Framework
-9. **Fases 42-43** (75 tarefas): Facets avançados, join/grouping/highlight completos
-8. **Fases 44-46** (110 tarefas): Codecs, spatial, NRT
-9. **Fase 47** (40 tarefas): Idiomas adicionais
-
-### Vantagens desta Estrutura
-
-1. **Tarefas simples primeiro**: Fases 34-35 têm componentes sem dependências
-2. **Dependências resolvidas gradualmente**: Cada fase constrói sobre a anterior
-3. **Entregáveis rápidos**: Fases iniciais podem ser completadas mais rapidamente
-4. **Risco reduzido**: Complexidade aumenta gradualmente
-5. **Testes contínuos**: Cada fase pode ser testada independentemente
+- **ID:** Identificador único da tarefa
+- **Severity:** Impacto do problema (HIGH/MEDIUM/LOW)
+  - HIGH: Problema crítico de segurança, corrupção de dados ou instabilidade
+  - MEDIUM: Bug que afeta funcionalidade mas tem workaround
+  - LOW: Bug menor, questão cosmética ou sem impacto imediato
+- **Priority:** Utilidade da tarefa para o projeto (HIGH/MEDIUM/LOW)
+  - HIGH: Crítico para sucesso do projeto, alto impacto para usuários
+  - MEDIUM: Funcionalidade importante, impacto moderado
+  - LOW: Nice-to-have, baixo impacto no sucesso geral
+- **Task:** Nome da tarefa/componente
+- **Specialists:** Skill/agent responsável
+- **Completed:** Data de conclusão (ISO 8601: YYYY-MM-DD)
+- **Description:** Descrição técnica do componente a ser portado
 
 ---
 
-*Última atualização: 2026-03-18*
+## Notas de Desenvolvimento
 
----
+### Fases Completadas (34-43)
+Todas as tarefas das fases 34-43 foram concluídas. Os detalhes completos estão na seção "Tarefas Completadas" acima.
 
-## FASE 41: QueryParser Flexible Framework (Flexible QueryParser)
+### Fases Ativas (44-47)
+As fases 44-47 representam o trabalho pendente para completar o port de Apache Lucene 10.x.
 
-**Status:** COMPLETED | **Tasks:** 45 | **Completed:** 2026-03-18 | **Focus:** Flexible query parser framework
-**Dependencies:** Phase 39 (Major Language Analyzers), Phase 40 (Index Tools)
+### Progresso Atual
+- **Total de Tarefas:** 548
+- **Completadas:** 213 (fases 34-43)
+- **Pendentes:** 150 (fases 44-47)
+- **Progresso:** 58.7%
 
-### 41.1: QueryNode Tree (Core Nodes)
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-415 | QueryNode Interface | MEDIUM | go-elite-developer, gocene-lucene-specialist |
-| GC-416 | QueryNodeImpl | MEDIUM | go-elite-developer |
-| GC-417 | FieldQueryNode | MEDIUM | go-elite-developer |
-| GC-418 | BooleanQueryNode | MEDIUM | go-elite-developer |
-| GC-419 | AndQueryNode | LOW | go-elite-developer |
-| GC-420 | OrQueryNode | LOW | go-elite-developer |
-| GC-421 | ModifierQueryNode | MEDIUM | go-elite-developer |
-| GC-422 | BoostQueryNode | MEDIUM | go-elite-developer |
-| GC-423 | FuzzyQueryNode | MEDIUM | go-elite-developer |
-| GC-424 | RangeQueryNode | MEDIUM | go-elite-developer |
-| GC-425 | PhraseSlopQueryNode | MEDIUM | go-elite-developer |
-| GC-426 | GroupQueryNode | LOW | go-elite-developer |
-| GC-427 | MatchAllDocsQueryNode | LOW | go-elite-developer |
-| GC-428 | MatchNoDocsQueryNode | LOW | go-elite-developer |
-
-### 41.2: QueryNode Processors
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-429 | QueryNodeProcessor Interface | MEDIUM | go-elite-developer |
-| GC-430 | QueryNodeProcessorImpl | MEDIUM | go-elite-developer |
-| GC-431 | QueryNodeProcessorPipeline | HIGH | go-elite-developer |
-| GC-432 | NoChildOptimizationProcessor | MEDIUM | go-elite-developer |
-| GC-433 | RemoveDeletedQueryNodesProcessor | MEDIUM | go-elite-developer |
-
-### 41.3: QueryNode Builders
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-434 | QueryBuilder Interface | MEDIUM | go-elite-developer |
-| GC-435 | QueryTreeBuilder | HIGH | go-elite-developer |
-| GC-436 | BooleanQueryNodeBuilder | MEDIUM | go-elite-developer |
-| GC-437 | FieldQueryNodeBuilder | MEDIUM | go-elite-developer |
-| GC-438 | BoostQueryNodeBuilder | MEDIUM | go-elite-developer |
-| GC-439 | FuzzyQueryNodeBuilder | MEDIUM | go-elite-developer |
-| GC-440 | RangeQueryNodeBuilder | MEDIUM | go-elite-developer |
-| GC-441 | PhraseQueryNodeBuilder | MEDIUM | go-elite-developer |
-| GC-442 | TermRangeQueryNodeBuilder | MEDIUM | go-elite-developer |
-| GC-443 | WildcardQueryNodeBuilder | MEDIUM | go-elite-developer |
-
-### 41.4: Standard QueryParser
-
-| Task ID | Task Name | Complexity | Specialists |
-|:--------|:----------|:-----------|:------------|
-| GC-444 | StandardQueryConfigHandler | MEDIUM | go-elite-developer |
-| GC-445 | StandardSyntaxParser | HIGH | go-elite-developer, gocene-lucene-specialist |
-| GC-446 | StandardQueryNodeProcessorPipeline | HIGH | go-elite-developer |
-| GC-447 | StandardQueryTreeBuilder | HIGH | go-elite-developer |
-| GC-448 | StandardQueryParser | HIGH | go-elite-developer, gocene-lucene-specialist |
+### Próximos Passos Recomendados
+1. Implementar Compressing Codec (Phase 44) - Foundation para compressão de índices
+2. Implementar Spatial Fields (Phase 45) - Busca geoespacial
+3. Implementar NRT Search (Phase 46) - Busca em tempo real
+4. Implementar Language Analyzers (Phase 47) - Suporte multilíngue completo

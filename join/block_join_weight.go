@@ -249,3 +249,345 @@ func (w *BlockJoinWeight) Matches(context *index.LeafReaderContext, doc int) (se
 
 // Ensure BlockJoinWeight implements Weight
 var _ search.Weight = (*BlockJoinWeight)(nil)
+
+// ToChildBlockJoinWeight is the Weight implementation for ToChildBlockJoinQuery.
+// It handles the child document scoring based on parent document matches.
+//
+// This is the Go port of Lucene's org.apache.lucene.search.join.ToChildBlockJoinWeight.
+type ToChildBlockJoinWeight struct {
+	// query is the parent ToChildBlockJoinQuery
+	query *ToChildBlockJoinQuery
+
+	// parentWeight is the weight of the parent query
+	parentWeight search.Weight
+
+	// parentsFilter identifies parent documents
+	parentsFilter BitSetProducer
+
+	// scoreMode determines how parent scores are combined
+	scoreMode ScoreMode
+
+	// boost is the query boost
+	boost float32
+}
+
+// NewToChildBlockJoinWeight creates a new ToChildBlockJoinWeight.
+func NewToChildBlockJoinWeight(query *ToChildBlockJoinQuery, parentWeight search.Weight, parentsFilter BitSetProducer, scoreMode ScoreMode, boost float32) *ToChildBlockJoinWeight {
+	return &ToChildBlockJoinWeight{
+		query:         query,
+		parentWeight:  parentWeight,
+		parentsFilter: parentsFilter,
+		scoreMode:     scoreMode,
+		boost:         boost,
+	}
+}
+
+// GetQuery returns the parent query.
+func (w *ToChildBlockJoinWeight) GetQuery() search.Query {
+	return w.query
+}
+
+// GetParentWeight returns the parent weight.
+func (w *ToChildBlockJoinWeight) GetParentWeight() search.Weight {
+	return w.parentWeight
+}
+
+// GetParentsFilter returns the parents filter.
+func (w *ToChildBlockJoinWeight) GetParentsFilter() BitSetProducer {
+	return w.parentsFilter
+}
+
+// GetScoreMode returns the score mode.
+func (w *ToChildBlockJoinWeight) GetScoreMode() ScoreMode {
+	return w.scoreMode
+}
+
+// Scorer creates a scorer for this weight.
+func (w *ToChildBlockJoinWeight) Scorer(context *index.LeafReaderContext) (search.Scorer, error) {
+	// Get the parents BitSet for this context
+	parentsBits, err := w.parentsFilter.GetBitSet(context)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get parents bitset: %w", err)
+	}
+
+	if parentsBits == nil {
+		return nil, nil
+	}
+
+	// Create the parent scorer
+	parentScorer, err := w.parentWeight.Scorer(context)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create parent scorer: %w", err)
+	}
+
+	if parentScorer == nil {
+		return nil, nil
+	}
+
+	// Create and return the ToChildBlockJoinScorer
+	return NewToChildBlockJoinScorer(w, parentScorer, parentsBits, w.scoreMode, w.boost), nil
+}
+
+// ScorerSupplier creates a ScorerSupplier for this weight.
+func (w *ToChildBlockJoinWeight) ScorerSupplier(context *index.LeafReaderContext) (search.ScorerSupplier, error) {
+	scorer, err := w.Scorer(context)
+	if err != nil {
+		return nil, err
+	}
+	if scorer == nil {
+		return nil, nil
+	}
+	return &simpleScorerSupplier{scorer: scorer}, nil
+}
+
+// simpleScorerSupplier is a simple implementation of ScorerSupplier.
+type simpleScorerSupplier struct {
+	scorer search.Scorer
+}
+
+// Get returns the scorer.
+func (s *simpleScorerSupplier) Get(leadCost int64) (search.Scorer, error) {
+	return s.scorer, nil
+}
+
+// Cost returns the cost.
+func (s *simpleScorerSupplier) Cost() int64 {
+	return s.scorer.Cost()
+}
+
+// SetTopLevelScoringClause marks this as a top-level scoring clause.
+func (s *simpleScorerSupplier) SetTopLevelScoringClause() {}
+
+// Explain returns an explanation of the score for the given document.
+func (w *ToChildBlockJoinWeight) Explain(context *index.LeafReaderContext, doc int) (search.Explanation, error) {
+	scorer, err := w.Scorer(context)
+	if err != nil {
+		return nil, err
+	}
+
+	if scorer == nil {
+		return search.NewExplanation(false, 0, "no matching documents"), nil
+	}
+
+	actualDoc, err := scorer.Advance(doc)
+	if err != nil {
+		return nil, err
+	}
+
+	if actualDoc != doc {
+		return search.NewExplanation(false, 0, fmt.Sprintf("document %d does not match", doc)), nil
+	}
+
+	score := scorer.Score()
+	return search.NewExplanation(true, score, fmt.Sprintf("ToChildBlockJoinQuery, score mode: %s", w.scoreMode)), nil
+}
+
+// BulkScorer creates a bulk scorer for efficient bulk scoring.
+func (w *ToChildBlockJoinWeight) BulkScorer(context *index.LeafReaderContext) (search.BulkScorer, error) {
+	scorer, err := w.Scorer(context)
+	if err != nil {
+		return nil, err
+	}
+	if scorer == nil {
+		return nil, nil
+	}
+	return search.NewDefaultBulkScorer(scorer), nil
+}
+
+// IsCacheable returns true if this weight can be cached for the given leaf.
+func (w *ToChildBlockJoinWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
+	return false
+}
+
+// Count returns the count of matching documents in sub-linear time.
+func (w *ToChildBlockJoinWeight) Count(context *index.LeafReaderContext) (int, error) {
+	return -1, nil
+}
+
+// Matches returns the matches for a specific document.
+func (w *ToChildBlockJoinWeight) Matches(context *index.LeafReaderContext, doc int) (search.Matches, error) {
+	scorer, err := w.Scorer(context)
+	if err != nil {
+		return nil, err
+	}
+
+	if scorer == nil {
+		return nil, nil
+	}
+
+	actualDoc, err := scorer.Advance(doc)
+	if err != nil {
+		return nil, err
+	}
+
+	if actualDoc != doc {
+		return nil, nil
+	}
+
+	return search.NewBaseMatches(w.query, doc), nil
+}
+
+// Ensure ToChildBlockJoinWeight implements Weight
+var _ search.Weight = (*ToChildBlockJoinWeight)(nil)
+
+// ToParentBlockJoinWeight is the Weight implementation for ToParentBlockJoinQuery.
+// It handles the parent document scoring based on matching child documents.
+//
+// This is the Go port of Lucene's org.apache.lucene.search.join.ToParentBlockJoinWeight.
+type ToParentBlockJoinWeight struct {
+	// query is the parent ToParentBlockJoinQuery
+	query *ToParentBlockJoinQuery
+
+	// childWeight is the weight of the child query
+	childWeight search.Weight
+
+	// parentsFilter identifies parent documents
+	parentsFilter BitSetProducer
+
+	// scoreMode determines how child scores are combined
+	scoreMode ScoreMode
+
+	// boost is the query boost
+	boost float32
+}
+
+// NewToParentBlockJoinWeight creates a new ToParentBlockJoinWeight.
+func NewToParentBlockJoinWeight(query *ToParentBlockJoinQuery, childWeight search.Weight, parentsFilter BitSetProducer, scoreMode ScoreMode, boost float32) *ToParentBlockJoinWeight {
+	return &ToParentBlockJoinWeight{
+		query:         query,
+		childWeight:   childWeight,
+		parentsFilter: parentsFilter,
+		scoreMode:     scoreMode,
+		boost:         boost,
+	}
+}
+
+// GetQuery returns the parent query.
+func (w *ToParentBlockJoinWeight) GetQuery() search.Query {
+	return w.query
+}
+
+// GetChildWeight returns the child weight.
+func (w *ToParentBlockJoinWeight) GetChildWeight() search.Weight {
+	return w.childWeight
+}
+
+// GetParentsFilter returns the parents filter.
+func (w *ToParentBlockJoinWeight) GetParentsFilter() BitSetProducer {
+	return w.parentsFilter
+}
+
+// GetScoreMode returns the score mode.
+func (w *ToParentBlockJoinWeight) GetScoreMode() ScoreMode {
+	return w.scoreMode
+}
+
+// Scorer creates a scorer for this weight.
+func (w *ToParentBlockJoinWeight) Scorer(context *index.LeafReaderContext) (search.Scorer, error) {
+	// Get the parents BitSet for this context
+	parentsBits, err := w.parentsFilter.GetBitSet(context)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get parents bitset: %w", err)
+	}
+
+	if parentsBits == nil {
+		return nil, nil
+	}
+
+	// Create the child scorer
+	childScorer, err := w.childWeight.Scorer(context)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create child scorer: %w", err)
+	}
+
+	if childScorer == nil {
+		return nil, nil
+	}
+
+	// Create and return the ToParentBlockJoinScorer
+	return NewToParentBlockJoinScorer(w, childScorer, parentsBits, w.scoreMode, w.boost), nil
+}
+
+// ScorerSupplier creates a ScorerSupplier for this weight.
+func (w *ToParentBlockJoinWeight) ScorerSupplier(context *index.LeafReaderContext) (search.ScorerSupplier, error) {
+	scorer, err := w.Scorer(context)
+	if err != nil {
+		return nil, err
+	}
+	if scorer == nil {
+		return nil, nil
+	}
+	return &simpleScorerSupplier{scorer: scorer}, nil
+}
+
+// Explain returns an explanation of the score for the given document.
+func (w *ToParentBlockJoinWeight) Explain(context *index.LeafReaderContext, doc int) (search.Explanation, error) {
+	scorer, err := w.Scorer(context)
+	if err != nil {
+		return nil, err
+	}
+
+	if scorer == nil {
+		return search.NewExplanation(false, 0, "no matching documents"), nil
+	}
+
+	actualDoc, err := scorer.Advance(doc)
+	if err != nil {
+		return nil, err
+	}
+
+	if actualDoc != doc {
+		return search.NewExplanation(false, 0, fmt.Sprintf("document %d does not match", doc)), nil
+	}
+
+	score := scorer.Score()
+	return search.NewExplanation(true, score, fmt.Sprintf("ToParentBlockJoinQuery, score mode: %s", w.scoreMode)), nil
+}
+
+// BulkScorer creates a bulk scorer for efficient bulk scoring.
+func (w *ToParentBlockJoinWeight) BulkScorer(context *index.LeafReaderContext) (search.BulkScorer, error) {
+	scorer, err := w.Scorer(context)
+	if err != nil {
+		return nil, err
+	}
+	if scorer == nil {
+		return nil, nil
+	}
+	return search.NewDefaultBulkScorer(scorer), nil
+}
+
+// IsCacheable returns true if this weight can be cached for the given leaf.
+func (w *ToParentBlockJoinWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
+	return false
+}
+
+// Count returns the count of matching documents in sub-linear time.
+func (w *ToParentBlockJoinWeight) Count(context *index.LeafReaderContext) (int, error) {
+	return -1, nil
+}
+
+// Matches returns the matches for a specific document.
+func (w *ToParentBlockJoinWeight) Matches(context *index.LeafReaderContext, doc int) (search.Matches, error) {
+	scorer, err := w.Scorer(context)
+	if err != nil {
+		return nil, err
+	}
+
+	if scorer == nil {
+		return nil, nil
+	}
+
+	actualDoc, err := scorer.Advance(doc)
+	if err != nil {
+		return nil, err
+	}
+
+	if actualDoc != doc {
+		return nil, nil
+	}
+
+	return search.NewBaseMatches(w.query, doc), nil
+}
+
+// Ensure ToParentBlockJoinWeight implements Weight
+var _ search.Weight = (*ToParentBlockJoinWeight)(nil)

@@ -150,6 +150,28 @@ type Fragmenter interface {
 	GetFragments(text string, maxNumFragments int) []string
 }
 
+// NullFragmenter is a fragmenter that returns the entire text as a single fragment.
+// This is useful when you want to highlight the entire text without breaking it into pieces.
+//
+// This is the Go port of Lucene's org.apache.lucene.search.highlight.NullFragmenter.
+type NullFragmenter struct{}
+
+// NewNullFragmenter creates a new NullFragmenter.
+func NewNullFragmenter() *NullFragmenter {
+	return &NullFragmenter{}
+}
+
+// GetFragments returns the entire text as a single fragment.
+func (f *NullFragmenter) GetFragments(text string, maxNumFragments int) []string {
+	if text == "" {
+		return []string{}
+	}
+	return []string{text}
+}
+
+// Ensure NullFragmenter implements Fragmenter
+var _ Fragmenter = (*NullFragmenter)(nil)
+
 // SimpleFragmenter is a simple implementation of Fragmenter.
 type SimpleFragmenter struct {
 	// fragmentSize is the target size of each fragment
@@ -200,6 +222,162 @@ type Formatter interface {
 	// Highlight highlights the given text with the specified terms.
 	Highlight(text string, terms []string) string
 }
+
+// GradientFormatter formats highlighted text with a color gradient based on score.
+// Higher scores get more intense colors.
+//
+// This is the Go port of Lucene's org.apache.lucene.search.highlight.GradientFormatter.
+type GradientFormatter struct {
+	// minScore is the minimum score threshold
+	minScore float32
+
+	// maxScore is the maximum score threshold
+	maxScore float32
+
+	// minForegroundColor is the RGB color for minimum score (format: "RRGGBB")
+	minForegroundColor string
+
+	// maxForegroundColor is the RGB color for maximum score (format: "RRGGBB")
+	maxForegroundColor string
+
+	// minBackgroundColor is the RGB background color for minimum score
+	minBackgroundColor string
+
+	// maxBackgroundColor is the RGB background color for maximum score
+	maxBackgroundColor string
+}
+
+// NewGradientFormatter creates a new GradientFormatter.
+// Parameters:
+//   - minScore: minimum score threshold
+//   - maxScore: maximum score threshold
+//   - minForegroundColor: foreground color for min score (RRGGBB format)
+//   - maxForegroundColor: foreground color for max score (RRGGBB format)
+func NewGradientFormatter(minScore, maxScore float32, minForegroundColor, maxForegroundColor string) *GradientFormatter {
+	return &GradientFormatter{
+		minScore:           minScore,
+		maxScore:           maxScore,
+		minForegroundColor: minForegroundColor,
+		maxForegroundColor: maxForegroundColor,
+		minBackgroundColor: "",
+		maxBackgroundColor: "",
+	}
+}
+
+// NewGradientFormatterWithBackground creates a new GradientFormatter with background colors.
+func NewGradientFormatterWithBackground(minScore, maxScore float32, minForegroundColor, maxForegroundColor, minBackgroundColor, maxBackgroundColor string) *GradientFormatter {
+	return &GradientFormatter{
+		minScore:           minScore,
+		maxScore:           maxScore,
+		minForegroundColor: minForegroundColor,
+		maxForegroundColor: maxForegroundColor,
+		minBackgroundColor: minBackgroundColor,
+		maxBackgroundColor: maxBackgroundColor,
+	}
+}
+
+// Highlight highlights the given text with gradient colors based on score.
+func (f *GradientFormatter) Highlight(text string, terms []string) string {
+	// Calculate color intensity based on assumed mid-score
+	score := (f.minScore + f.maxScore) / 2
+
+	// Get interpolated colors
+	fgColor := f.interpolateColor(f.minForegroundColor, f.maxForegroundColor, score)
+	bgColor := ""
+	if f.minBackgroundColor != "" && f.maxBackgroundColor != "" {
+		bgColor = f.interpolateColor(f.minBackgroundColor, f.maxBackgroundColor, score)
+	}
+
+	// Build style attribute
+	style := "color:#" + fgColor + ";"
+	if bgColor != "" {
+		style += "background-color:#" + bgColor + ";"
+	}
+
+	// Format the text
+	result := text
+	for _, term := range terms {
+		lowerText := strings.ToLower(result)
+		lowerTerm := strings.ToLower(term)
+
+		var sb strings.Builder
+		start := 0
+		for {
+			idx := strings.Index(lowerText[start:], lowerTerm)
+			if idx == -1 {
+				sb.WriteString(result[start:])
+				break
+			}
+			idx += start
+			sb.WriteString(result[start:idx])
+			sb.WriteString("<span style=\"" + style + "\">")
+			sb.WriteString(result[idx : idx+len(term)])
+			sb.WriteString("</span>")
+			start = idx + len(term)
+		}
+		result = sb.String()
+	}
+
+	return result
+}
+
+// interpolateColor interpolates between two colors based on score.
+func (f *GradientFormatter) interpolateColor(minColor, maxColor string, score float32) string {
+	// Normalize score to 0-1 range
+	ratio := float32(0)
+	if f.maxScore > f.minScore {
+		ratio = (score - f.minScore) / (f.maxScore - f.minScore)
+	}
+	if ratio < 0 {
+		ratio = 0
+	} else if ratio > 1 {
+		ratio = 1
+	}
+
+	// Parse colors
+	minR := hexToByte(minColor[0:2])
+	minG := hexToByte(minColor[2:4])
+	minB := hexToByte(minColor[4:6])
+
+	maxR := hexToByte(maxColor[0:2])
+	maxG := hexToByte(maxColor[2:4])
+	maxB := hexToByte(maxColor[4:6])
+
+	// Interpolate
+	r := byte(float32(minR) + float32(maxR-minR)*ratio)
+	g := byte(float32(minG) + float32(maxG-minG)*ratio)
+	b := byte(float32(minB) + float32(maxB-minB)*ratio)
+
+	// Convert back to hex
+	return byteToHex(r) + byteToHex(g) + byteToHex(b)
+}
+
+// hexToByte converts a hex string to a byte.
+func hexToByte(hex string) byte {
+	var result byte
+	for i := 0; i < len(hex); i++ {
+		result *= 16
+		c := hex[i]
+		switch {
+		case c >= '0' && c <= '9':
+			result += c - '0'
+		case c >= 'a' && c <= 'f':
+			result += c - 'a' + 10
+		case c >= 'A' && c <= 'F':
+			result += c - 'A' + 10
+		}
+	}
+	return result
+}
+
+// byteToHex converts a byte to a hex string.
+func byteToHex(b byte) string {
+	hex := "0123456789ABCDEF"
+	return string([]byte{hex[b/16], hex[b%16]})
+}
+
+// Ensure GradientFormatter implements Formatter
+var _ Formatter = (*GradientFormatter)(nil)
 
 // SimpleHTMLFormatter is a simple HTML formatter.
 type SimpleHTMLFormatter struct {

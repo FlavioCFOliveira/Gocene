@@ -12,11 +12,14 @@ import (
 //
 // This is the Go port of Lucene's org.apache.lucene.search.join.ToParentBlockJoinQuery.
 type ToParentBlockJoinQuery struct {
+	// originalChildQuery stores the original child query before rewrite
+	originalChildQuery search.Query
+
 	// childQuery is the query to match child documents
 	childQuery search.Query
 
-	// parentFilter is the filter identifying parent documents
-	parentFilter search.Query
+	// parentsFilter identifies parent documents using a BitSetProducer
+	parentsFilter BitSetProducer
 
 	// scoreMode determines how child scores are combined
 	scoreMode ScoreMode
@@ -25,13 +28,14 @@ type ToParentBlockJoinQuery struct {
 // NewToParentBlockJoinQuery creates a new ToParentBlockJoinQuery.
 // Parameters:
 //   - childQuery: the query to match child documents
-//   - parentFilter: the filter identifying parent documents
+//   - parentsFilter: the BitSetProducer identifying parent documents
 //   - scoreMode: how to combine scores from child documents
-func NewToParentBlockJoinQuery(childQuery search.Query, parentFilter search.Query, scoreMode ScoreMode) *ToParentBlockJoinQuery {
+func NewToParentBlockJoinQuery(childQuery search.Query, parentsFilter BitSetProducer, scoreMode ScoreMode) *ToParentBlockJoinQuery {
 	return &ToParentBlockJoinQuery{
-		childQuery:   childQuery,
-		parentFilter: parentFilter,
-		scoreMode:    scoreMode,
+		originalChildQuery: childQuery,
+		childQuery:         childQuery,
+		parentsFilter:      parentsFilter,
+		scoreMode:          scoreMode,
 	}
 }
 
@@ -40,9 +44,14 @@ func (q *ToParentBlockJoinQuery) GetChildQuery() search.Query {
 	return q.childQuery
 }
 
-// GetParentFilter returns the parent filter.
-func (q *ToParentBlockJoinQuery) GetParentFilter() search.Query {
-	return q.parentFilter
+// GetOriginalChildQuery returns the original child query before any rewrites.
+func (q *ToParentBlockJoinQuery) GetOriginalChildQuery() search.Query {
+	return q.originalChildQuery
+}
+
+// GetParentsFilter returns the BitSetProducer that identifies parent documents.
+func (q *ToParentBlockJoinQuery) GetParentsFilter() BitSetProducer {
+	return q.parentsFilter
 }
 
 // GetScoreMode returns the score mode.
@@ -57,13 +66,8 @@ func (q *ToParentBlockJoinQuery) Rewrite(reader search.IndexReader) (search.Quer
 		return nil, err
 	}
 
-	rewrittenParent, err := q.parentFilter.Rewrite(reader)
-	if err != nil {
-		return nil, err
-	}
-
-	if rewrittenChild != q.childQuery || rewrittenParent != q.parentFilter {
-		return NewToParentBlockJoinQuery(rewrittenChild, rewrittenParent, q.scoreMode), nil
+	if rewrittenChild != q.childQuery {
+		return NewToParentBlockJoinQuery(rewrittenChild, q.parentsFilter, q.scoreMode), nil
 	}
 
 	return q, nil
@@ -73,7 +77,7 @@ func (q *ToParentBlockJoinQuery) Rewrite(reader search.IndexReader) (search.Quer
 func (q *ToParentBlockJoinQuery) Clone() search.Query {
 	return NewToParentBlockJoinQuery(
 		q.childQuery.Clone(),
-		q.parentFilter.Clone(),
+		q.parentsFilter,
 		q.scoreMode,
 	)
 }
@@ -82,7 +86,7 @@ func (q *ToParentBlockJoinQuery) Clone() search.Query {
 func (q *ToParentBlockJoinQuery) Equals(other search.Query) bool {
 	if o, ok := other.(*ToParentBlockJoinQuery); ok {
 		return q.childQuery.Equals(o.childQuery) &&
-			q.parentFilter.Equals(o.parentFilter) &&
+			q.parentsFilter == o.parentsFilter &&
 			q.scoreMode == o.scoreMode
 	}
 	return false
@@ -90,7 +94,9 @@ func (q *ToParentBlockJoinQuery) Equals(other search.Query) bool {
 
 // HashCode returns a hash code for this query.
 func (q *ToParentBlockJoinQuery) HashCode() int {
-	return 31*(31*q.childQuery.HashCode()+q.parentFilter.HashCode()) + int(q.scoreMode)
+	// Use the child query hash code and score mode
+	// The parentsFilter is an interface, so we use a constant contribution
+	return 31*(31*q.childQuery.HashCode()+17) + int(q.scoreMode)
 }
 
 // CreateWeight creates a Weight for this query.
@@ -101,18 +107,14 @@ func (q *ToParentBlockJoinQuery) CreateWeight(searcher *search.IndexSearcher, ne
 		return nil, fmt.Errorf("failed to create child weight: %w", err)
 	}
 
-	// Create the parent filter weight (always needs scores for parent matching)
-	parentWeight, err := q.parentFilter.CreateWeight(searcher, false, boost)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create parent weight: %w", err)
-	}
-
-	// Create and return the BlockJoinWeight
-	return NewBlockJoinWeight(q, childWeight, parentWeight, q.scoreMode), nil
+	// Create and return the ToParentBlockJoinWeight
+	// For ToParentBlockJoinQuery, we need a special weight that handles
+	// the child-to-parent relationship using the BitSetProducer
+	return NewToParentBlockJoinWeight(q, childWeight, q.parentsFilter, q.scoreMode, boost), nil
 }
 
 // String returns a string representation of this query.
 func (q *ToParentBlockJoinQuery) String() string {
-	return fmt.Sprintf("ToParentBlockJoinQuery(child=%v, parent=%v, scoreMode=%s)",
-		q.childQuery, q.parentFilter, q.scoreMode)
+	return fmt.Sprintf("ToParentBlockJoinQuery(child=%v, scoreMode=%s)",
+		q.childQuery, q.scoreMode)
 }
