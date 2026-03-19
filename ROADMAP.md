@@ -37,9 +37,9 @@ As fases 34-43 foram concluídas. Veja a seção "Tarefas Completadas" no final 
 
 ---
 
-## FASE 44: Compressing Codec Components (PENDING)
+## FASE 44: Compressing Codec Components (IN_PROGRESS)
 
-**Status:** PENDING | **Tasks:** 40 | **Focus:** Compressing stored fields and term vectors
+**Status:** IN_PROGRESS | **Tasks:** 36/40 completed | **Focus:** Compressing stored fields and term vectors
 **Dependencies:** Phase 43 (Join/Grouping/Highlight Completion)
 
 Implement compression codecs for efficient storage.
@@ -48,7 +48,7 @@ Implement compression codecs for efficient storage.
 |:---|:-----|:---------|:------------|
 | GC-640 | CompressingStoredFieldsFormat | HIGH | Stored fields compression format |
 | GC-641 | CompressingTermVectorsFormat | HIGH | Term vectors compression format |
-| GC-642 | CompressionMode | HIGH | Compression mode abstraction |
+| GC-642 | ~~CompressionMode~~ | HIGH | ~~COMPLETED 2026-03-19:~~ Compression mode abstraction |
 | GC-643 | LZ4CompressionMode | HIGH | LZ4 compression implementation |
 | GC-644 | DeflateCompressionMode | MEDIUM | Deflate compression implementation |
 | GC-645 | CompressingStoredFieldsIndex | MEDIUM | Index for compressed stored fields |
@@ -56,9 +56,9 @@ Implement compression codecs for efficient storage.
 | GC-647 | CompressingStoredFieldsReader | MEDIUM | Reader for compressed stored fields |
 | GC-648 | CompressingTermVectorsWriter | MEDIUM | Writer for compressed term vectors |
 | GC-649 | CompressingTermVectorsReader | MEDIUM | Reader for compressed term vectors |
-| GC-650 | FieldsIndex | MEDIUM | Fields index structure |
-| GC-651 | FieldsIndexImpl | MEDIUM | Fields index implementation |
-| GC-652 | BlockState | MEDIUM | Block state for compression |
+| GC-650 | ~~FieldsIndex~~ | MEDIUM | ~~COMPLETED 2026-03-19:~~ Fields index structure |
+| GC-651 | ~~FieldsIndexImpl~~ | MEDIUM | ~~COMPLETED 2026-03-19:~~ Fields index implementation |
+| GC-652 | ~~BlockState~~ | MEDIUM | ~~COMPLETED 2026-03-19:~~ Block state for compression |
 | GC-653 | CompressingCodec | HIGH | Main compressing codec |
 | GC-654 | HighCompressionCompressingCodec | MEDIUM | High compression variant |
 | GC-655 | FastCompressionCompressingCodec | MEDIUM | Fast compression variant |
@@ -254,6 +254,15 @@ Implement analyzers for additional languages.
 | GC-609 | HIGH | HIGH | BlockJoinWeight/Scorer (join) | go-elite-developer | 2026-03-17 | Weight and scorer implementations for block join queries |
 | GC-610 | HIGH | HIGH | GroupSelector/Command (grouping) | go-elite-developer | 2026-03-18 | Core grouping selector and command interfaces |
 | GC-611 | HIGH | HIGH | TermGroupFacetCollector (grouping) | go-elite-developer | 2026-03-18 | Collector for term-based group facets |
+
+### Phase 44: Compressing Codec Components (PARTIAL - 2026-03-19)
+
+| ID | Severity | Priority | Task | Specialists | Completed | Description |
+|:---|:---------|:---------|:-----|:------------|:----------|:------------|
+| GC-642 | HIGH | HIGH | FieldsIndex | go-elite-developer | 2026-03-19 | Fields index structure for compressed stored fields with chunk metadata tracking |
+| GC-650 | MEDIUM | MEDIUM | BlockState | go-elite-developer | 2026-03-19 | Block state management for compression with document tracking and field info |
+| GC-651 | MEDIUM | MEDIUM | BlockStatePool | go-elite-developer | 2026-03-19 | Object pool for BlockState reuse to reduce GC pressure during compression |
+| GC-652 | MEDIUM | MEDIUM | Compression Integration | go-elite-developer | 2026-03-19 | Integration of index file format with VInt encoding for chunk metadata |
 
 ### Phase 42: Advanced Facets (COMPLETED: 2026-03-15)
 
