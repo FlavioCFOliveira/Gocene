@@ -875,130 +875,138 @@ func (w *CompressingStoredFieldsWriter) writeIndex() error {
 // Values -1 to 123 are encoded in a single byte.
 func WriteZFloat(out store.IndexOutput, value float32) error {
 	bits := math.Float32bits(value)
-
-	// Check for special values and small integers
-	if bits == 0x80000000 { // -0.0f
-		return out.WriteByte(byte(0x80))
-	}
-	if bits == 0 { // +0.0f
-		return out.WriteByte(byte(0x00))
-	}
-	if bits == 0x7F800000 { // POSITIVE_INFINITY
-		return out.WriteByte(byte(0x7E))
-	}
-	if bits == 0xFF800000 { // NEGATIVE_INFINITY
-		return out.WriteByte(byte(0x7F))
-	}
-	if bits == 0x7F800001 || bits > 0x7F800001 && bits <= 0x7FFFFFFF { // NaN
-		return out.WriteByte(byte(0x7D))
-	}
-	if bits == 0x00800000 { // MIN_NORMAL
-		return out.WriteByte(byte(0x7B))
-	}
-	if bits == 0x7F7FFFFF { // MAX_VALUE
-		return out.WriteByte(byte(0x7C))
-	}
-
-	// Check if value is a small integer (-1 to 123)
 	intVal := int(value)
-	if float32(intVal) == value && intVal >= -1 && intVal <= 123 {
-		return out.WriteByte(byte(intVal + 1))
+
+	// Case 1: Integer-equivalent values in range [-1, 125], excluding negative zero
+	// Stored as: 0x80 | (1 + intVal) - high bit marks Case 1
+	if float32(intVal) == value && intVal >= -1 && intVal <= 0x7D && bits != 0x80000000 {
+		return out.WriteByte(byte(0x80 | (1 + intVal)))
 	}
 
-	// Encode sign and remaining bits
-	sign := (bits >> 31) & 1
-	encoded := bits & 0x7FFFFFFF
-
-	if sign == 0 {
-		// Positive: encode in 1-4 bytes using variable-length encoding
-		return writeVInt32(out, encoded+124)
+	// Case 2: Positive floats (sign bit is 0)
+	// Stored as: byte (bits 24-31) + short (bits 8-23) + byte (bits 0-7)
+	if (bits >> 31) == 0 {
+		if err := out.WriteByte(byte(bits >> 24)); err != nil {
+			return err
+		}
+		if err := out.WriteShort(int16(bits >> 8)); err != nil {
+			return err
+		}
+		return out.WriteByte(byte(bits))
 	}
-	// Negative: encode in 1-5 bytes
-	return out.WriteByte(byte(0x81)) // Marker for negative
+
+	// Case 3: Negative floats (including -0.0, special values, etc.)
+	// Stored as: 0xFF marker + 4 bytes IEEE 754 bits
+	if err := out.WriteByte(byte(0xFF)); err != nil {
+		return err
+	}
+	return out.WriteInt(int32(bits))
 }
 
 // WriteZDouble writes a double using ZDouble compression.
 // Similar to ZFloat but for double precision values.
 func WriteZDouble(out store.IndexOutput, value float64) error {
 	bits := math.Float64bits(value)
-
-	// Check for special values and small integers
-	if bits == 0x8000000000000000 { // -0.0d
-		return out.WriteByte(byte(0x80))
-	}
-	if bits == 0 { // +0.0d
-		return out.WriteByte(byte(0x00))
-	}
-	if bits == 0x7FF0000000000000 { // POSITIVE_INFINITY
-		return out.WriteByte(byte(0x7E))
-	}
-	if bits == 0xFFF0000000000000 { // NEGATIVE_INFINITY
-		return out.WriteByte(byte(0x7F))
-	}
-	if bits > 0x7FF0000000000000 { // NaN
-		return out.WriteByte(byte(0x7D))
-	}
-	if bits == 0x0010000000000000 { // MIN_NORMAL
-		return out.WriteByte(byte(0x7B))
-	}
-	if bits == 0x7FEFFFFFFFFFFFFF { // MAX_VALUE
-		return out.WriteByte(byte(0x7C))
-	}
-
-	// Check if value is a small integer (-1 to 124)
 	intVal := int64(value)
-	if float64(intVal) == value && intVal >= -1 && intVal <= 124 {
-		return out.WriteByte(byte(intVal + 1))
+
+	// Case 1: Integer-equivalent values in range [-1, 124], excluding negative zero
+	// Range is limited to 124 because 0xFE and 0xFF are reserved markers
+	// Stored as: 0x80 | (intVal + 1)
+	if float64(intVal) == value && intVal >= -1 && intVal <= 0x7C && bits != 0x8000000000000000 {
+		return out.WriteByte(byte(0x80 | (intVal + 1)))
 	}
 
-	// Check if value can be represented as a float
+	// Case 2: Can be represented as float without precision loss
+	// Stored as: 0xFE marker + 4-byte float bits
 	floatVal := float32(value)
 	if float64(floatVal) == value {
-		// Encode as float marker + ZFloat
 		if err := out.WriteByte(byte(0xFE)); err != nil {
 			return err
 		}
-		return WriteZFloat(out, floatVal)
+		floatBits := math.Float32bits(floatVal)
+		return out.WriteInt(int32(floatBits))
 	}
 
-	// Encode sign and remaining bits
-	sign := (bits >> 63) & 1
-	encoded := bits & 0x7FFFFFFFFFFFFFFF
-
-	if sign == 0 {
-		// Positive: encode in 1-8 bytes
-		return writeVInt64(out, encoded+125)
+	// Case 3: Positive double (sign bit is 0)
+	// Stored in 7 bytes by omitting the leading 0x00 byte
+	if (bits >> 63) == 0 {
+		if err := out.WriteByte(byte(bits >> 56)); err != nil {
+			return err
+		}
+		if err := out.WriteInt(int32(bits >> 24)); err != nil {
+			return err
+		}
+		if err := out.WriteShort(int16(bits >> 8)); err != nil {
+			return err
+		}
+		return out.WriteByte(byte(bits))
 	}
-	// Negative: encode in 1-9 bytes
-	return out.WriteByte(byte(0xFF)) // Marker for negative
+
+	// Case 4: Negative values or other cases requiring full precision
+	// Stored as: 0xFF marker + 8-byte raw double
+	if err := out.WriteByte(byte(0xFF)); err != nil {
+		return err
+	}
+	return out.WriteLong(int64(bits))
 }
 
 // WriteTLong writes a long using TLong compression.
 // Optimized for time-based values (timestamps with second/hour/day precision).
 func WriteTLong(out store.IndexOutput, value int64) error {
-	// Check for small values that fit in single byte
-	if value >= -16 && value <= 15 {
-		return out.WriteByte(byte(value + 16))
+	const (
+		second = int64(1000)
+		hour   = 60 * 60 * second
+		day    = 24 * hour
+	)
+
+	header := 0
+	switch {
+	case value%day == 0:
+		header = 3 << 6 // Day encoding in upper 2 bits
+		value /= day
+	case value%hour == 0:
+		header = 2 << 6 // Hour encoding
+		value /= hour
+	case value%second == 0:
+		header = 1 << 6 // Second encoding
+		value /= second
+	default:
+		header = 0 // No compression
 	}
 
-	// Try second/hour/day compression
-	for i, mul := range []int64{1000, 60 * 60 * 1000, 24 * 60 * 60 * 1000} {
-		if value%mul == 0 {
-			div := value / mul
-			if div >= -16 && div <= 15 {
-				// Encode as compressed time value
-				marker := byte(0x40 | (i << 4) | int(div+16))
-				return out.WriteByte(marker)
-			}
-		}
+	// Zigzag encode the value
+	zigZag := zigZagEncode(value)
+
+	// Put lower 5 bits of zigzag into header's lower 5 bits
+	header |= int(zigZag & 0x1F)
+	upperBits := zigZag >> 5
+
+	// Set bit 5 (0x20) if there are more bits to write
+	if upperBits != 0 {
+		header |= 0x20
 	}
 
-	// Encode sign and absolute value
-	if value >= 0 {
-		return writeVInt64(out, uint64(value)+32)
+	// Write header byte
+	if err := out.WriteByte(byte(header)); err != nil {
+		return err
 	}
-	// Negative value
-	return out.WriteByte(byte(0xBF)) // Marker for negative
+
+	// Write remaining bits using VLong if needed
+	if upperBits != 0 {
+		return writeVInt64(out, upperBits)
+	}
+	return nil
+}
+
+// zigZagEncode converts a signed int64 to unsigned using zigzag encoding.
+// This maps small signed values to small unsigned values.
+func zigZagEncode(value int64) uint64 {
+	return uint64((value << 1) ^ (value >> 63))
+}
+
+// zigZagDecode converts a zigzag-encoded uint64 back to signed int64.
+func zigZagDecode(value uint64) int64 {
+	return int64((value >> 1) ^ -(value & 1))
 }
 
 // writeVInt32 writes a variable-length encoded uint32.
@@ -1021,4 +1029,175 @@ func writeVInt64(out store.IndexOutput, value uint64) error {
 	}
 	buf = append(buf, byte(value))
 	return out.WriteBytes(buf)
+}
+
+// readVInt32 reads a variable-length encoded uint32.
+func readVInt32(in store.IndexInput) (uint32, error) {
+	var value uint32
+	var shift uint32
+	for {
+		b, err := in.ReadByte()
+		if err != nil {
+			return 0, err
+		}
+		value |= uint32(b&0x7F) << shift
+		if b&0x80 == 0 {
+			break
+		}
+		shift += 7
+		if shift >= 32 {
+			return 0, fmt.Errorf("vint too long")
+		}
+	}
+	return value, nil
+}
+
+// readVInt64 reads a variable-length encoded uint64.
+func readVInt64(in store.IndexInput) (uint64, error) {
+	var value uint64
+	var shift uint64
+	for {
+		b, err := in.ReadByte()
+		if err != nil {
+			return 0, err
+		}
+		value |= uint64(b&0x7F) << shift
+		if b&0x80 == 0 {
+			break
+		}
+		shift += 7
+		if shift >= 64 {
+			return 0, fmt.Errorf("vlong too long")
+		}
+	}
+	return value, nil
+}
+
+// ReadZFloat reads a float that was written using ZFloat compression.
+func ReadZFloat(in store.IndexInput) (float32, error) {
+	b, err := in.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+
+	// Case 3: 0xFF marker means full IEEE 754 bits follow
+	if b == 0xFF {
+		bits, err := in.ReadInt()
+		if err != nil {
+			return 0, err
+		}
+		return math.Float32frombits(uint32(bits)), nil
+	}
+
+	// Case 1: High bit set (0x80) indicates compressed integer
+	if (b & 0x80) != 0 {
+		return float32(int32(b&0x7F) - 1), nil
+	}
+
+	// Case 2: Positive float, reconstruct IEEE 754 bits
+	// bits = byte (bits 24-31) + short (bits 8-23) + byte (bits 0-7)
+	s, err := in.ReadShort()
+	if err != nil {
+		return 0, err
+	}
+	lastByte, err := in.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	bits := uint32(b)<<24 | uint32(uint16(s))<<8 | uint32(lastByte)
+	return math.Float32frombits(bits), nil
+}
+
+// ReadZDouble reads a double that was written using ZDouble compression.
+func ReadZDouble(in store.IndexInput) (float64, error) {
+	b, err := in.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+
+	// Case 4: Full 8-byte storage marker
+	if b == 0xFF {
+		bits, err := in.ReadLong()
+		if err != nil {
+			return 0, err
+		}
+		return math.Float64frombits(uint64(bits)), nil
+	}
+
+	// Case 2: Float-convertible marker
+	if b == 0xFE {
+		floatBits, err := in.ReadInt()
+		if err != nil {
+			return 0, err
+		}
+		return float64(math.Float32frombits(uint32(floatBits))), nil
+	}
+
+	// Case 1: Small integer (high bit set)
+	if (b & 0x80) != 0 {
+		return float64(int64(b&0x7F) - 1), nil
+	}
+
+	// Case 3: Positive double (reconstruct from scattered bytes)
+	// bits = byte (bits 56-63) + int (bits 24-55) + short (bits 8-23) + byte (bits 0-7)
+	i, err := in.ReadInt()
+	if err != nil {
+		return 0, err
+	}
+	s, err := in.ReadShort()
+	if err != nil {
+		return 0, err
+	}
+	lastByte, err := in.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	bits := uint64(b)<<56 | uint64(uint32(i))<<24 | uint64(uint16(s))<<8 | uint64(lastByte)
+	return math.Float64frombits(bits), nil
+}
+
+// ReadTLong reads a long that was written using TLong compression.
+func ReadTLong(in store.IndexInput) (int64, error) {
+	const (
+		second = int64(1000)
+		hour   = 60 * 60 * second
+		day    = 24 * hour
+	)
+
+	b, err := in.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+
+	header := int(b)
+
+	// Extract lower 5 bits from header
+	bits := uint64(header & 0x1F)
+
+	// Check if more data follows (bit 5 set)
+	if (header & 0x20) != 0 {
+		// Read VLong and shift left 5 bits to make room for header bits
+		upperBits, err := readVInt64(in)
+		if err != nil {
+			return 0, err
+		}
+		bits |= upperBits << 5
+	}
+
+	// Zigzag decode
+	value := zigZagDecode(bits)
+
+	// Restore original scale based on encoding type (upper 2 bits)
+	switch (header >> 6) & 0x03 {
+	case 1:
+		value *= second
+	case 2:
+		value *= hour
+	case 3:
+		value *= day
+	case 0:
+		// No compression
+	}
+
+	return value, nil
 }
