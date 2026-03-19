@@ -57,8 +57,8 @@ func NewCompressingStoredFieldsFormat(mode CompressionMode, chunkSize, maxDocsPe
 	return &CompressingStoredFieldsFormat{
 		BaseStoredFieldsFormat: NewBaseStoredFieldsFormat("CompressingStoredFieldsFormat"),
 		compressionMode:        mode,
-		chunkSize:             chunkSize,
-		maxDocsPerChunk:       maxDocsPerChunk,
+		chunkSize:              chunkSize,
+		maxDocsPerChunk:        maxDocsPerChunk,
 	}
 }
 
@@ -197,9 +197,9 @@ func deflateDecompress(data []byte, uncompressedLen int) ([]byte, error) {
 
 // chunk represents a compressed chunk of documents.
 type chunk struct {
-	docStart    int // First document in this chunk
-	docCount    int // Number of documents in this chunk
-	compressed  []byte
+	docStart        int // First document in this chunk
+	docCount        int // Number of documents in this chunk
+	compressed      []byte
 	uncompressedLen int
 }
 
@@ -926,7 +926,7 @@ func WriteTLong(out store.IndexOutput, value int64) error {
 			div := value / mul
 			if div >= -16 && div <= 15 {
 				// Encode as compressed time value
-				marker := byte(0x40 | (i << 4) | int(div + 16))
+				marker := byte(0x40 | (i << 4) | int(div+16))
 				return out.WriteByte(marker)
 			}
 		}

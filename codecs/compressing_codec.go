@@ -18,18 +18,18 @@ import (
 // The codec is byte-compatible with Apache Lucene's implementation.
 type CompressingCodec struct {
 	*BaseCodec
-	storedFieldsFormat   StoredFieldsFormat
-	termVectorsFormat    TermVectorsFormat
-	fieldInfosFormat     FieldInfosFormat
-	segmentInfosFormat   SegmentInfosFormat
-	postingsFormat       PostingsFormat
-	docValuesFormat      DocValuesFormat
-	normsFormat          NormsFormat
-	liveDocsFormat       LiveDocsFormat
-	pointsFormat         PointsFormat
-	compressionMode      CompressionMode
-	chunkSize            int
-	maxDocsPerChunk      int
+	storedFieldsFormat StoredFieldsFormat
+	termVectorsFormat  TermVectorsFormat
+	fieldInfosFormat   FieldInfosFormat
+	segmentInfosFormat SegmentInfosFormat
+	postingsFormat     PostingsFormat
+	docValuesFormat    DocValuesFormat
+	normsFormat        NormsFormat
+	liveDocsFormat     LiveDocsFormat
+	pointsFormat       PointsFormat
+	compressionMode    CompressionMode
+	chunkSize          int
+	maxDocsPerChunk    int
 }
 
 // DefaultCompressingCodec creates a new CompressingCodec with default settings.

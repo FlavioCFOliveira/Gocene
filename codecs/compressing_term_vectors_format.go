@@ -104,10 +104,10 @@ type termVectorTerm struct {
 
 // termPosition represents a position with optional offsets and payload
 type termPosition struct {
-	position   int
+	position    int
 	startOffset int
 	endOffset   int
-	payload    []byte
+	payload     []byte
 }
 
 // CompressingTermVectorsWriter writes term vectors in compressed chunks.
@@ -538,22 +538,24 @@ func (r *CompressingTermVectorsReader) Close() error {
 // emptyFields is a placeholder implementation of index.Fields
 type emptyFields struct{}
 
-func (f *emptyFields) Iterator() (index.FieldIterator, error) { return nil, nil }
-func (f *emptyFields) Size() int { return 0 }
+func (f *emptyFields) Iterator() (index.FieldIterator, error)  { return nil, nil }
+func (f *emptyFields) Size() int                               { return 0 }
 func (f *emptyFields) Terms(field string) (index.Terms, error) { return nil, nil }
 
 // emptyTerms is a placeholder implementation of index.Terms
 type emptyTerms struct{}
 
 func (t *emptyTerms) GetIterator() (index.TermsEnum, error) { return nil, nil }
-func (t *emptyTerms) GetIteratorWithSeek(seekTerm *index.Term) (index.TermsEnum, error) { return nil, nil }
-func (t *emptyTerms) Size() int64 { return 0 }
-func (t *emptyTerms) GetDocCount() (int, error) { return 0, nil }
-func (t *emptyTerms) GetSumDocFreq() (int64, error) { return 0, nil }
+func (t *emptyTerms) GetIteratorWithSeek(seekTerm *index.Term) (index.TermsEnum, error) {
+	return nil, nil
+}
+func (t *emptyTerms) Size() int64                         { return 0 }
+func (t *emptyTerms) GetDocCount() (int, error)           { return 0, nil }
+func (t *emptyTerms) GetSumDocFreq() (int64, error)       { return 0, nil }
 func (t *emptyTerms) GetSumTotalTermFreq() (int64, error) { return 0, nil }
-func (t *emptyTerms) HasFreqs() bool { return false }
-func (t *emptyTerms) HasOffsets() bool { return false }
-func (t *emptyTerms) HasPositions() bool { return false }
-func (t *emptyTerms) HasPayloads() bool { return false }
-func (t *emptyTerms) GetMin() (*index.Term, error) { return nil, nil }
-func (t *emptyTerms) GetMax() (*index.Term, error) { return nil, nil }
+func (t *emptyTerms) HasFreqs() bool                      { return false }
+func (t *emptyTerms) HasOffsets() bool                    { return false }
+func (t *emptyTerms) HasPositions() bool                  { return false }
+func (t *emptyTerms) HasPayloads() bool                   { return false }
+func (t *emptyTerms) GetMin() (*index.Term, error)        { return nil, nil }
+func (t *emptyTerms) GetMax() (*index.Term, error)        { return nil, nil }
