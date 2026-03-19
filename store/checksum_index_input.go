@@ -18,6 +18,10 @@ const (
 	ChecksumAdler32 ChecksumType = iota
 	// ChecksumCRC32 uses CRC32 checksum algorithm (slower, more robust)
 	ChecksumCRC32
+	// ChecksumXXHash32 uses XXHash32 algorithm (very fast, good distribution)
+	ChecksumXXHash32
+	// ChecksumXXHash64 uses XXHash64 algorithm (very fast, good distribution, 64-bit)
+	ChecksumXXHash64
 )
 
 // String returns the string representation of the checksum type.
@@ -27,6 +31,10 @@ func (c ChecksumType) String() string {
 		return "Adler32"
 	case ChecksumCRC32:
 		return "CRC32"
+	case ChecksumXXHash32:
+		return "XXHash32"
+	case ChecksumXXHash64:
+		return "XXHash64"
 	default:
 		return "Unknown"
 	}
@@ -57,6 +65,8 @@ func NewChecksumIndexInputWithType(input IndexInput, checksumType ChecksumType) 
 		digest = adler32.New()
 	case ChecksumCRC32:
 		digest = crc32.NewIEEE()
+	case ChecksumXXHash32:
+		digest = NewXXHash32()
 	default:
 		digest = crc32.NewIEEE()
 	}
@@ -229,6 +239,8 @@ func (in *ChecksumIndexInput) cloneDigest() hash.Hash32 {
 		return adler32.New()
 	case ChecksumCRC32:
 		return crc32.NewIEEE()
+	case ChecksumXXHash32:
+		return NewXXHash32()
 	default:
 		return crc32.NewIEEE()
 	}
@@ -309,6 +321,8 @@ func NewChecksumIndexOutputWithType(output IndexOutput, checksumType ChecksumTyp
 		digest = adler32.New()
 	case ChecksumCRC32:
 		digest = crc32.NewIEEE()
+	case ChecksumXXHash32:
+		digest = NewXXHash32()
 	default:
 		digest = crc32.NewIEEE()
 	}
