@@ -50,24 +50,24 @@ type BlockState struct {
 
 // fieldBlockInfo tracks information about a field within a block.
 type fieldBlockInfo struct {
-	Name          string
-	Type          document.FieldType
-	NumValues     int
+	Name             string
+	Type             document.FieldType
+	NumValues        int
 	NumDocsWithField int
-	MinValue      interface{}
-	MaxValue      interface{}
+	MinValue         interface{}
+	MaxValue         interface{}
 }
 
 // NewBlockState creates a new BlockState.
 func NewBlockState(chunkID, startDocID int) *BlockState {
 	return &BlockState{
-		ChunkID:        chunkID,
-		StartDocID:     startDocID,
-		NumDocs:        0,
-		Docs:           make([][]storedField, 0),
-		FieldsUsed:     make(map[string]bool),
-		FieldInfos:     make(map[string]*fieldBlockInfo),
-		SortedFields:   make([]string, 0),
+		ChunkID:      chunkID,
+		StartDocID:   startDocID,
+		NumDocs:      0,
+		Docs:         make([][]storedField, 0),
+		FieldsUsed:   make(map[string]bool),
+		FieldInfos:   make(map[string]*fieldBlockInfo),
+		SortedFields: make([]string, 0),
 	}
 }
 

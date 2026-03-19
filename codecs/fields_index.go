@@ -51,14 +51,14 @@ type ChunkInfo struct {
 // FieldsIndexImpl is the standard implementation of FieldsIndex.
 // This is the Go port of Lucene's FieldsIndexImpl.
 type FieldsIndexImpl struct {
-	chunks        []ChunkInfo
-	docToChunk    []int // Maps docID -> chunk index
-	numChunks     int
-	docsPerChunk  int
-	minDocID      int
-	maxDocID      int
-	mu            sync.RWMutex
-	closed        bool
+	chunks       []ChunkInfo
+	docToChunk   []int // Maps docID -> chunk index
+	numChunks    int
+	docsPerChunk int
+	minDocID     int
+	maxDocID     int
+	mu           sync.RWMutex
+	closed       bool
 }
 
 // NewFieldsIndexImpl creates a new FieldsIndexImpl from chunk information.
