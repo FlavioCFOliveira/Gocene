@@ -26,8 +26,8 @@ type BlockJoinComparatorSource struct {
 //   - parentsFilter: the BitSetProducer identifying parent documents
 func NewBlockJoinComparatorSource(parentComparator search.FieldComparator, parentsFilter BitSetProducer) *BlockJoinComparatorSource {
 	return &BlockJoinComparatorSource{
-		parentComparator:   parentComparator,
-		parentsFilter:      parentsFilter,
+		parentComparator: parentComparator,
+		parentsFilter:    parentsFilter,
 	}
 }
 
@@ -56,10 +56,10 @@ type BlockJoinComparator struct {
 // NewBlockJoinComparator creates a new BlockJoinComparator.
 func NewBlockJoinComparator(parentComparator search.FieldComparator, parentsFilter BitSetProducer, numHits int) *BlockJoinComparator {
 	return &BlockJoinComparator{
-		parentComparator:   parentComparator,
-		parentsFilter:      parentsFilter,
-		parentDocs:         make([]int, numHits),
-		numHits:            numHits,
+		parentComparator: parentComparator,
+		parentsFilter:    parentsFilter,
+		parentDocs:       make([]int, numHits),
+		numHits:          numHits,
 	}
 }
 

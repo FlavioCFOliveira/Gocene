@@ -18,11 +18,11 @@ func (m *mockBitSetProducer2) GetBitSet(context *index.LeafReaderContext) (*Fixe
 
 // MockFieldComparator is a mock FieldComparator for testing
 type MockFieldComparator struct {
-	compareFunc      func(doc1, doc2 int) int
-	setBottomFunc    func(doc int)
+	compareFunc       func(doc1, doc2 int) int
+	setBottomFunc     func(doc int)
 	compareBottomFunc func(doc int) int
-	copyFunc         func(slot int, doc int)
-	setScorerFunc    func(scorer search.Scorer)
+	copyFunc          func(slot int, doc int)
+	setScorerFunc     func(scorer search.Scorer)
 }
 
 func (m *MockFieldComparator) Compare(doc1, doc2 int) int {

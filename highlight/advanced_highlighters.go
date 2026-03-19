@@ -172,10 +172,10 @@ type PostingsHighlighter struct {
 //   - a new PostingsHighlighter instance
 func NewPostingsHighlighter() *PostingsHighlighter {
 	return &PostingsHighlighter{
-		maxLength:         10000,
-		maxNumFragments:   5,
-		fragmentsBuilder:  NewFragmentsBuilder(),
-		passageFormatter:  NewDefaultPassageFormatter(),
+		maxLength:        10000,
+		maxNumFragments:  5,
+		fragmentsBuilder: NewFragmentsBuilder(),
+		passageFormatter: NewDefaultPassageFormatter(),
 	}
 }
 
@@ -366,11 +366,11 @@ type UnifiedHighlighter struct {
 //   - a new UnifiedHighlighter instance
 func NewUnifiedHighlighter() *UnifiedHighlighter {
 	return &UnifiedHighlighter{
-		maxLength:         10000,
-		maxNumFragments:   5,
-		passageFormatter:  NewDefaultPassageFormatter(),
-		passageScorer:     NewDefaultPassageScorer(),
-		breakIterator:     NewSentenceBreakIterator(),
+		maxLength:        10000,
+		maxNumFragments:  5,
+		passageFormatter: NewDefaultPassageFormatter(),
+		passageScorer:    NewDefaultPassageScorer(),
+		breakIterator:    NewSentenceBreakIterator(),
 	}
 }
 

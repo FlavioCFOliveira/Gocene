@@ -33,7 +33,7 @@ type ToChildBlockJoinQuery struct {
 func NewToChildBlockJoinQuery(parentQuery search.Query, parentsFilter BitSetProducer, scoreMode ScoreMode) *ToChildBlockJoinQuery {
 	return &ToChildBlockJoinQuery{
 		parentQuery:         parentQuery,
-		originalParentQuery:   parentQuery,
+		originalParentQuery: parentQuery,
 		parentsFilter:       parentsFilter,
 		scoreMode:           scoreMode,
 	}
