@@ -265,6 +265,107 @@ func TestLZ4SafeDecompressor_ShortSource(t *testing.T) {
 	}
 }
 
+// TestLZ4UnsafeCompressor_Basic tests the unsafe compressor
+func TestLZ4UnsafeCompressor_Basic(t *testing.T) {
+	compressor := NewLZ4UnsafeCompressor(false)
+	if compressor == nil {
+		t.Fatal("NewLZ4UnsafeCompressor returned nil")
+	}
+
+	if compressor.Name() != "LZ4UnsafeCompressor" {
+		t.Errorf("expected name 'LZ4UnsafeCompressor', got '%s'", compressor.Name())
+	}
+
+	// Test high compression variant
+	highCompressor := NewLZ4UnsafeCompressor(true)
+	if highCompressor.Name() != "LZ4UnsafeHighCompressor" {
+		t.Errorf("expected name 'LZ4UnsafeHighCompressor', got '%s'", highCompressor.Name())
+	}
+}
+
+// TestLZ4UnsafeCompressor_Compress tests compression
+func TestLZ4UnsafeCompressor_Compress(t *testing.T) {
+	compressor := NewLZ4UnsafeCompressor(false)
+	src := []byte("Hello, World! This is a test string for compression.")
+	dst := make([]byte, compressor.MaxCompressedLength(len(src)))
+
+	compressed, err := compressor.Compress(src, dst)
+	if err != nil {
+		t.Fatalf("Compress failed: %v", err)
+	}
+
+	if len(compressed) == 0 {
+		t.Error("expected non-empty compressed data")
+	}
+}
+
+// TestLZ4UnsafeDecompressor_Basic tests the unsafe decompressor
+func TestLZ4UnsafeDecompressor_Basic(t *testing.T) {
+	decompressor := NewLZ4UnsafeDecompressor()
+	if decompressor == nil {
+		t.Fatal("NewLZ4UnsafeDecompressor returned nil")
+	}
+
+	if decompressor.Name() != "LZ4UnsafeDecompressor" {
+		t.Errorf("expected name 'LZ4UnsafeDecompressor', got '%s'", decompressor.Name())
+	}
+}
+
+// TestLZ4UnsafeRoundTrip tests a full compress/decompress cycle with unsafe variants
+func TestLZ4UnsafeRoundTrip(t *testing.T) {
+	compressor := NewLZ4UnsafeCompressor(false)
+	decompressor := NewLZ4UnsafeDecompressor()
+
+	src := []byte("Hello, World! This is a test string for round-trip compression and decompression.")
+	dst := make([]byte, compressor.MaxCompressedLength(len(src)))
+
+	compressed, err := compressor.Compress(src, dst)
+	if err != nil {
+		t.Fatalf("Compress failed: %v", err)
+	}
+
+	decompressed := make([]byte, len(src))
+	err = decompressor.Decompress(compressed, decompressed)
+	if err != nil {
+		t.Fatalf("Decompress failed: %v", err)
+	}
+}
+
+// BenchmarkLZ4Unsafe_Compress benchmarks unsafe compression
+func BenchmarkLZ4Unsafe_Compress(b *testing.B) {
+	compressor := NewLZ4UnsafeCompressor(false)
+
+	data := make([]byte, 1024)
+	for i := range data {
+		data[i] = byte(i % 256)
+	}
+	dst := make([]byte, compressor.MaxCompressedLength(len(data)))
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		compressor.Compress(data, dst)
+	}
+}
+
+// BenchmarkLZ4Unsafe_Decompress benchmarks unsafe decompression
+func BenchmarkLZ4Unsafe_Decompress(b *testing.B) {
+	compressor := NewLZ4UnsafeCompressor(false)
+	decompressor := NewLZ4UnsafeDecompressor()
+
+	data := make([]byte, 1024)
+	for i := range data {
+		data[i] = byte(i % 256)
+	}
+	dst := make([]byte, compressor.MaxCompressedLength(len(data)))
+	compressed, _ := compressor.Compress(data, dst)
+	decompressed := make([]byte, len(data))
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		decompressor.Decompress(compressed, decompressed)
+	}
+}
+
 // TestLZ4RoundTrip tests a full compress/decompress cycle
 func TestLZ4RoundTrip(t *testing.T) {
 	factory := NewLZ4Factory(false, false)

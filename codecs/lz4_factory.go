@@ -302,3 +302,71 @@ func (d *lz4SafeDecompressor) Decompress(src, dst []byte) error {
 func (d *lz4SafeDecompressor) Name() string {
 	return d.name
 }
+
+// lz4UnsafeCompressor is an unsafe LZ4 compressor that skips bounds checking for performance.
+// This should only be used when performance is critical and input is trusted.
+type lz4UnsafeCompressor struct {
+	highCompression bool
+	name            string
+}
+
+// NewLZ4UnsafeCompressor creates a new unsafe LZ4 compressor.
+func NewLZ4UnsafeCompressor(highCompression bool) LZ4Compressor {
+	name := "LZ4UnsafeCompressor"
+	if highCompression {
+		name = "LZ4UnsafeHighCompressor"
+	}
+	return &lz4UnsafeCompressor{
+		highCompression: highCompression,
+		name:            name,
+	}
+}
+
+// Compress compresses the source data without bounds checking.
+func (c *lz4UnsafeCompressor) Compress(src, dst []byte) ([]byte, error) {
+	// Directly call compression without safety checks
+	if c.highCompression {
+		return lz4HighCompress(src)
+	}
+	return lz4FastCompress(src)
+}
+
+// MaxCompressedLength returns the maximum compressed length.
+func (c *lz4UnsafeCompressor) MaxCompressedLength(srcLen int) int {
+	return srcLen + 4 + (srcLen / 255) + 16
+}
+
+// Name returns the compressor name.
+func (c *lz4UnsafeCompressor) Name() string {
+	return c.name
+}
+
+// lz4UnsafeDecompressor is an unsafe LZ4 decompressor that skips bounds checking.
+// This should only be used when performance is critical and input is trusted.
+type lz4UnsafeDecompressor struct {
+	name string
+}
+
+// NewLZ4UnsafeDecompressor creates a new unsafe LZ4 decompressor.
+func NewLZ4UnsafeDecompressor() LZ4Decompressor {
+	return &lz4UnsafeDecompressor{
+		name: "LZ4UnsafeDecompressor",
+	}
+}
+
+// Decompress decompresses the source data without bounds checking.
+func (d *lz4UnsafeDecompressor) Decompress(src, dst []byte) error {
+	// Skip safety checks and directly decompress
+	decompressed, err := lz4Decompress(src, len(dst))
+	if err != nil {
+		return err
+	}
+
+	copy(dst, decompressed)
+	return nil
+}
+
+// Name returns the decompressor name.
+func (d *lz4UnsafeDecompressor) Name() string {
+	return d.name
+}
