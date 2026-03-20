@@ -25,7 +25,7 @@ Este roadmap contém todas as tarefas pendentes para completar o port de Apache 
 | 42 | COMPLETED | 35 | Alta | Advanced Facets | Phase 41 |
 | 43 | COMPLETED | 11 | Alta | Join/Grouping/Highlight | Phase 42 |
 | 44 | COMPLETED | 40 | Alta | Compressing Codecs | Phase 43 |
-| 45 | IN_PROGRESS | 35 | Alta | Spatial Fields | Phase 44 |
+| 45 | IN_PROGRESS | 17/35 completed | Alta | Spatial Fields | Phase 44 |
 | 46 | PENDING | 35 | Alta | NRT Search | Phase 45 |
 | 47 | PENDING | 40 | Média | Additional Languages | Phase 46 |
 
@@ -91,7 +91,7 @@ Implement compression codecs for efficient storage.
 
 ## FASE 45: Spatial Fields and Queries (IN_PROGRESS)
 
-**Status:** IN_PROGRESS | **Tasks:** 5/35 completed | **Focus:** Geospatial search capabilities
+**Status:** IN_PROGRESS | **Tasks:** 17/35 completed | **Focus:** Geospatial search capabilities
 **Dependencies:** Phase 44 (Compressing Codec Completion)
 
 Implement spatial indexing and search for location-based queries.
@@ -103,22 +103,22 @@ Implement spatial indexing and search for location-based queries.
 | GC-682 |~~BBoxStrategy~~ | HIGH | ~~COMPLETED 2026-03-20:~~ Bounding box spatial strategy with four DoublePoint fields (minX, maxX, minY, maxY) and spatial operations |
 | GC-683 |~~SerializedDVStrategy~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ Serialized docvalues strategy with binary shape serialization for Point and Rectangle |
 | GC-684 |~~PrefixTreeStrategy~~ | HIGH | ~~COMPLETED 2026-03-20:~~ Prefix tree spatial strategy with configurable detail levels and grid-based indexing |
-| GC-685 | GeohashPrefixTree | HIGH | Geohash prefix tree |
-| GC-686 | QuadPrefixTree | HIGH | Quad tree prefix |
-| GC-687 | SpatialPrefixTree | MEDIUM | Base spatial prefix tree |
-| GC-688 | SpatialPrefixTreeFieldCacheProvider | MEDIUM | Field cache provider |
-| GC-689 | Cell | MEDIUM | Spatial cell representation |
-| GC-690 | Node | MEDIUM | Prefix tree node |
-| GC-691 | SpatialArgs | MEDIUM | Spatial arguments |
-| GC-692 | SpatialArgsParser | MEDIUM | Spatial args parser |
-| GC-693 | SpatialOperation | MEDIUM | Spatial operations |
-| GC-694 | IntersectsPrefixTreeQuery | HIGH | Intersects query |
-| GC-695 | IsWithinPrefixTreeQuery | HIGH | IsWithin query |
-| GC-696 | ContainsPrefixTreeQuery | MEDIUM | Contains query |
-| GC-697 | DistanceQuery | HIGH | Distance-based query |
-| GC-698 | DistanceRangeQuery | MEDIUM | Distance range query |
-| GC-699 | ShapeValues | MEDIUM | Shape values abstraction |
-| GC-700 | ShapeValuesSource | MEDIUM | Shape values source |
+| GC-685 | ~~GeohashPrefixTree~~ | HIGH | ~~COMPLETED 2026-03-20:~~ Geohash prefix tree with base32 encoding and 32-subdivision cells |
+| GC-686 | ~~QuadPrefixTree~~ | HIGH | ~~COMPLETED 2026-03-20:~~ Quad tree prefix with 4-subdivision cells (SW, SE, NW, NE) |
+| GC-687 | ~~SpatialPrefixTree~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ Base spatial prefix tree interface with common functionality |
+| GC-688 | SpatialPrefixTreeFieldCacheProvider | MEDIUM | Field cache provider for spatial prefix trees |
+| GC-689 | Cell | MEDIUM | ~~COMPLETED 2026-03-20:~~ Spatial cell interface and implementations (GeohashCell, QuadCell) |
+| GC-690 | Node | MEDIUM | Prefix tree node implementation |
+| GC-691 | ~~SpatialArgs~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ Spatial arguments container with operation, shape, and error parameters |
+| GC-692 | ~~SpatialArgsParser~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ Spatial args parser supporting POINT, CIRCLE, ENVELOPE, BBOX, RECTANGLE formats |
+| GC-693 | ~~SpatialOperation~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ Spatial operations (Intersects, Within, Contains, Disjoint, Equals, Overlaps, BBoxIntersects, BBoxWithin) |
+| GC-694 | ~~IntersectsPrefixTreeQuery~~ | HIGH | ~~COMPLETED 2026-03-20:~~ Intersects query for prefix tree indexed documents |
+| GC-695 | ~~IsWithinPrefixTreeQuery~~ | HIGH | ~~COMPLETED 2026-03-20:~~ IsWithin query for prefix tree indexed documents |
+| GC-696 | ~~ContainsPrefixTreeQuery~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ Contains query for prefix tree indexed documents |
+| GC-697 | ~~DistanceQuery~~ | HIGH | ~~COMPLETED 2026-03-20:~~ Distance-based query for finding documents within distance from point |
+| GC-698 | ~~DistanceRangeQuery~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ Distance range query for donut-shaped search areas |
+| GC-699 | ~~ShapeValues~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ Shape values abstraction for accessing spatial data |
+| GC-700 | ~~ShapeValuesSource~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ Shape values source for distance-based value calculations |
 | GC-701 | ShapeValue | MEDIUM | Shape value |
 | GC-702 | ShapeFieldType | MEDIUM | Shape field type |
 | GC-703 | SpatialQueryParser | MEDIUM | Spatial query parser |
