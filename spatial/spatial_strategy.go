@@ -215,6 +215,36 @@ func (p Point) String() string {
 	return fmt.Sprintf("Point(%f, %f)", p.X, p.Y)
 }
 
+// GetBoundingBox returns the bounding box of the point (as a zero-area rectangle).
+func (p Point) GetBoundingBox() *Rectangle {
+	return NewRectangle(p.X, p.Y, p.X, p.Y)
+}
+
+// GetCenter returns the center point of the point (itself).
+func (p Point) GetCenter() Point {
+	return p
+}
+
+// Intersects checks if this point intersects with another shape.
+// A point intersects if it is within the other shape's bounding box.
+func (p Point) Intersects(other Shape) bool {
+	return other.GetBoundingBox().ContainsPoint(p)
+}
+
+// Contains checks if this point contains another shape.
+// A point can only contain another point if they are equal.
+func (p Point) Contains(other Shape) bool {
+	if otherPoint, ok := other.(Point); ok {
+		return p.X == otherPoint.X && p.Y == otherPoint.Y
+	}
+	return false
+}
+
+// IsWithin checks if this point is within another shape.
+func (p Point) IsWithin(other Shape) bool {
+	return other.GetBoundingBox().ContainsPoint(p)
+}
+
 // Rectangle represents an axis-aligned bounding box.
 type Rectangle struct {
 	MinX float64
@@ -234,11 +264,9 @@ func NewRectangle(minX, minY, maxX, maxY float64) *Rectangle {
 }
 
 // Center returns the center point of the rectangle.
+// Deprecated: Use GetCenter instead.
 func (r *Rectangle) Center() Point {
-	return Point{
-		X: (r.MinX + r.MaxX) / 2,
-		Y: (r.MinY + r.MaxY) / 2,
-	}
+	return r.GetCenter()
 }
 
 // ContainsPoint checks if the rectangle contains the given point.
@@ -246,11 +274,6 @@ func (r *Rectangle) ContainsPoint(p Point) bool {
 	return p.X >= r.MinX && p.X <= r.MaxX && p.Y >= r.MinY && p.Y <= r.MaxY
 }
 
-// Intersects checks if this rectangle intersects another rectangle.
-func (r *Rectangle) Intersects(other *Rectangle) bool {
-	return r.MinX <= other.MaxX && r.MaxX >= other.MinX &&
-		r.MinY <= other.MaxY && r.MaxY >= other.MinY
-}
 
 // Width returns the width of the rectangle.
 func (r *Rectangle) Width() float64 {
@@ -270,6 +293,44 @@ func (r *Rectangle) Area() float64 {
 // String returns a string representation of the rectangle.
 func (r *Rectangle) String() string {
 	return fmt.Sprintf("Rectangle(%f, %f, %f, %f)", r.MinX, r.MinY, r.MaxX, r.MaxY)
+}
+
+// GetBoundingBox returns the bounding box of the rectangle (itself).
+func (r *Rectangle) GetBoundingBox() *Rectangle {
+	return r
+}
+
+// GetCenter returns the center point of the rectangle.
+func (r *Rectangle) GetCenter() Point {
+	return Point{
+		X: (r.MinX + r.MaxX) / 2,
+		Y: (r.MinY + r.MaxY) / 2,
+	}
+}
+
+// Intersects checks if this rectangle intersects with another shape.
+func (r *Rectangle) Intersects(other Shape) bool {
+	return r.IntersectsRect(other.GetBoundingBox())
+}
+
+// IntersectsRect checks if this rectangle intersects another rectangle.
+func (r *Rectangle) IntersectsRect(other *Rectangle) bool {
+	return r.MinX <= other.MaxX && r.MaxX >= other.MinX &&
+		r.MinY <= other.MaxY && r.MaxY >= other.MinY
+}
+
+// Contains checks if this rectangle contains another shape.
+func (r *Rectangle) Contains(other Shape) bool {
+	otherBbox := other.GetBoundingBox()
+	return r.MinX <= otherBbox.MinX && r.MaxX >= otherBbox.MaxX &&
+		r.MinY <= otherBbox.MinY && r.MaxY >= otherBbox.MaxY
+}
+
+// IsWithin checks if this rectangle is within another shape.
+func (r *Rectangle) IsWithin(other Shape) bool {
+	otherBbox := other.GetBoundingBox()
+	return otherBbox.MinX <= r.MinX && otherBbox.MaxX >= r.MaxX &&
+		otherBbox.MinY <= r.MinY && otherBbox.MaxY >= r.MaxY
 }
 
 // Shape is the interface for all spatial shapes.
