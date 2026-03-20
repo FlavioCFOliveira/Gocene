@@ -25,7 +25,7 @@ Este roadmap contém todas as tarefas pendentes para completar o port de Apache 
 | 42 | COMPLETED | 35 | Alta | Advanced Facets | Phase 41 |
 | 43 | COMPLETED | 11 | Alta | Join/Grouping/Highlight | Phase 42 |
 | 44 | COMPLETED | 40 | Alta | Compressing Codecs | Phase 43 |
-| 45 | IN_PROGRESS | 26/35 completed | Alta | Spatial Fields | Phase 44 |
+| 45 | COMPLETED | 35/35 completed | Alta | Spatial Fields | Phase 44 |
 | 46 | PENDING | 35 | Alta | NRT Search | Phase 45 |
 | 47 | PENDING | 40 | Média | Additional Languages | Phase 46 |
 
@@ -89,9 +89,9 @@ Implement compression codecs for efficient storage.
 
 ---
 
-## FASE 45: Spatial Fields and Queries (IN_PROGRESS)
+## FASE 45: Spatial Fields and Queries (COMPLETED)
 
-**Status:** IN_PROGRESS | **Tasks:** 26/35 completed | **Focus:** Geospatial search capabilities
+**Status:** COMPLETED | **Tasks:** 35/35 completed | **Completed:** 2026-03-20 | **Focus:** Geospatial search capabilities
 **Dependencies:** Phase 44 (Compressing Codec Completion)
 
 Implement spatial indexing and search for location-based queries.
