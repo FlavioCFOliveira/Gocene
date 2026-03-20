@@ -33,24 +33,6 @@ type NRTReplicationWriter struct {
 	commitCount int64
 }
 
-// IndexRevision represents a point-in-time snapshot of the index.
-type IndexRevision struct {
-	// Generation is the commit generation
-	Generation int64
-
-	// Version is the index version
-	Version int64
-
-	// Timestamp is when this revision was created
-	Timestamp time.Time
-
-	// Files is the list of files in this revision
-	Files []string
-
-	// SegmentInfos contains segment information
-	SegmentInfos *SegmentInfos
-}
-
 // ReplicationSession represents an active replication session.
 type ReplicationSession struct {
 	// ID is the unique session identifier
