@@ -7,7 +7,18 @@ package store
 import (
 	"fmt"
 	"math"
+	"sync"
 )
+
+// copyBuffersPool is a sync.Pool for reusable byte buffers used in CopyBytes.
+// This eliminates heap allocations when copying data between inputs/outputs.
+var copyBuffersPool = sync.Pool{
+	New: func() interface{} {
+		// Default buffer size of 8KB - covers most common use cases
+		// Larger copies will allocate their own buffer
+		return make([]byte, 8192)
+	},
+}
 
 // Constants for ByteBuffersDataOutput
 const (
@@ -237,12 +248,39 @@ func (o *ByteBuffersDataOutput) WriteString(s string) error {
 }
 
 // CopyBytes copies bytes from a DataInput.
+// Uses a pooled buffer to avoid heap allocations for copies up to 8KB.
 func (o *ByteBuffersDataOutput) CopyBytes(input DataInput, numBytes int64) error {
-	buf := make([]byte, numBytes)
-	if err := input.ReadBytes(buf); err != nil {
-		return err
+	remaining := numBytes
+
+	// For large copies, use the pooled buffer in chunks
+	for remaining > 0 {
+		// Get a buffer from the pool
+		buf := copyBuffersPool.Get().([]byte)
+
+		// Determine how much to read in this iteration
+		toRead := int64(len(buf))
+		if remaining < toRead {
+			toRead = remaining
+		}
+
+		// Read the data
+		if err := input.ReadBytes(buf[:toRead]); err != nil {
+			copyBuffersPool.Put(buf)
+			return err
+		}
+
+		// Write the data
+		if err := o.WriteBytes(buf[:toRead]); err != nil {
+			copyBuffersPool.Put(buf)
+			return err
+		}
+
+		// Return the buffer to the pool
+		copyBuffersPool.Put(buf)
+
+		remaining -= toRead
 	}
-	o.WriteBytes(buf)
+
 	return nil
 }
 
