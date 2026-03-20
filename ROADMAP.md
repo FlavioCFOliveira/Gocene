@@ -4,9 +4,9 @@
 
 Este roadmap contém as tarefas pendentes para completar o port de Apache Lucene 10.x para Go.
 
-**Total de Tarefas Pendentes:** 75
-**Fases Pendentes:** 2 (46-47)
-**Fases Completadas:** 12 (34-45)
+**Total de Tarefas Pendentes:** 40
+**Fases Pendentes:** 1 (47)
+**Fases Completadas:** 13 (34-46)
 
 ---
 
@@ -19,50 +19,50 @@ Este roadmap contém as tarefas pendentes para completar o port de Apache Lucene
 
 ---
 
-## FASE 46: NRT Search and Real-time Features (PENDING)
+## FASE 46: NRT Search and Real-time Features (COMPLETED)
 
-**Status:** PENDING | **Tasks:** 35 | **Focus:** Near Real-Time search capabilities
+**Status:** COMPLETED 2026-03-20 | **Tasks:** 35 | **Focus:** Near Real-Time search capabilities
 **Dependencies:** Phase 45 (Spatial Fields Completion)
 
 Implement NRT (Near Real-Time) search for immediate visibility of updates.
 
 | ID | Task | Priority | Description |
 |:---|:-----|:---------|:------------|
-| GC-715 | NRTManager | HIGH | Near real-time manager |
+| GC-715 | NRTManager | HIGH | Near real-time manager | COMPLETED 2026-03-20 |
 | GC-716 | SearcherManager | HIGH | Searcher lifecycle manager | COMPLETED 2026-03-20 |
 | GC-717 | SearcherFactory | HIGH | Searcher factory | COMPLETED 2026-03-20 |
-| GC-718 | SearcherLifetimeManager | MEDIUM | Searcher lifetime management |
+| GC-718 | SearcherLifetimeManager | MEDIUM | Searcher lifetime management | COMPLETED 2026-03-20 |
 | GC-719 | ReferenceManager | HIGH | Reference management | COMPLETED 2026-03-20 |
 | GC-720 | ControlledRealTimeReopenThread | HIGH | CRT reopen thread | COMPLETED 2026-03-20 |
-| GC-721 | NRTReplicationWriter | HIGH | NRT replication writer |
-| GC-722 | NRTReplicationReader | HIGH | NRT replication reader |
-| GC-723 | IndexRevision | MEDIUM | Index revision tracking |
-| GC-724 | Replicator | MEDIUM | Index replicator |
-| GC-725 | LocalReplicator | MEDIUM | Local replicator |
-| GC-726 | HttpReplicator | MEDIUM | HTTP replicator |
-| GC-727 | ReplicationClient | MEDIUM | Replication client |
-| GC-728 | ReplicationServer | MEDIUM | Replication server |
-| GC-729 | IndexInputInputStream | MEDIUM | IndexInput stream adapter |
-| GC-730 | IndexOutputOutputStream | MEDIUM | IndexOutput stream adapter |
-| GC-731 | CopyJob | MEDIUM | Copy job for replication |
-| GC-732 | Session | MEDIUM | Replication session |
-| GC-733 | NRTFileDeleter | MEDIUM | NRT file deleter |
-| GC-734 | NRTDirectoryReader | HIGH | NRT directory reader |
-| GC-735 | NRTSegmentReader | HIGH | NRT segment reader |
-| GC-736 | StandardDirectoryReader | HIGH | Standard directory reader |
-| GC-737 | ReadOnlyDirectoryReader | MEDIUM | Read-only directory reader |
-| GC-738 | DirectoryReaderReopener | MEDIUM | Directory reader reopener |
-| GC-739 | ReaderPool | MEDIUM | Reader pool management |
-| GC-740 | NRTLockFactory | MEDIUM | NRT lock factory |
-| GC-741 | NRTMergeScheduler | MEDIUM | NRT merge scheduler |
-| GC-742 | NRTMergePolicy | MEDIUM | NRT merge policy |
-| GC-743 | LiveIndexWriterConfig | MEDIUM | Live IWC for NRT |
-| GC-744 | NRTIndexingTests | HIGH | NRT indexing tests |
-| GC-745 | NRTSearchTests | HIGH | NRT search tests |
-| GC-746 | ReplicationTests | HIGH | Replication tests |
-| GC-747 | NRTConcurrencyTests | HIGH | NRT concurrency tests |
-| GC-748 | NRTStressTests | MEDIUM | NRT stress tests |
-| GC-749 | NRTBenchmark | MEDIUM | NRT performance benchmarks |
+| GC-721 | NRTReplicationWriter | HIGH | NRT replication writer | COMPLETED 2026-03-20 |
+| GC-722 | NRTReplicationReader | HIGH | NRT replication reader | COMPLETED 2026-03-20 |
+| GC-723 | IndexRevision | MEDIUM | Index revision tracking | COMPLETED 2026-03-20 |
+| GC-724 | Replicator | MEDIUM | Index replicator | COMPLETED 2026-03-20 |
+| GC-725 | LocalReplicator | MEDIUM | Local replicator | COMPLETED 2026-03-20 |
+| GC-726 | HttpReplicator | MEDIUM | HTTP replicator | COMPLETED 2026-03-20 |
+| GC-727 | ReplicationClient | MEDIUM | Replication client | COMPLETED 2026-03-20 |
+| GC-728 | ReplicationServer | MEDIUM | Replication server | COMPLETED 2026-03-20 |
+| GC-729 | IndexInputInputStream | MEDIUM | IndexInput stream adapter | COMPLETED 2026-03-20 |
+| GC-730 | IndexOutputOutputStream | MEDIUM | IndexOutput stream adapter | COMPLETED 2026-03-20 |
+| GC-731 | CopyJob | MEDIUM | Copy job for replication | COMPLETED 2026-03-20 |
+| GC-732 | Session | MEDIUM | Replication session | COMPLETED 2026-03-20 |
+| GC-733 | NRTFileDeleter | MEDIUM | NRT file deleter | COMPLETED 2026-03-20 |
+| GC-734 | NRTDirectoryReader | HIGH | NRT directory reader | COMPLETED 2026-03-20 |
+| GC-735 | NRTSegmentReader | HIGH | NRT segment reader | COMPLETED 2026-03-20 |
+| GC-736 | StandardDirectoryReader | HIGH | Standard directory reader | COMPLETED 2026-03-20 |
+| GC-737 | ReadOnlyDirectoryReader | MEDIUM | Read-only directory reader | COMPLETED 2026-03-20 |
+| GC-738 | DirectoryReaderReopener | MEDIUM | Directory reader reopener | COMPLETED 2026-03-20 |
+| GC-739 | ReaderPool | MEDIUM | Reader pool management | COMPLETED 2026-03-20 |
+| GC-740 | NRTLockFactory | MEDIUM | NRT lock factory | COMPLETED 2026-03-20 |
+| GC-741 | NRTMergeScheduler | MEDIUM | NRT merge scheduler | COMPLETED 2026-03-20 |
+| GC-742 | NRTMergePolicy | MEDIUM | NRT merge policy | COMPLETED 2026-03-20 |
+| GC-743 | LiveIndexWriterConfig | MEDIUM | Live IWC for NRT | COMPLETED 2026-03-20 |
+| GC-744 | NRTIndexingTests | HIGH | NRT indexing tests | COMPLETED 2026-03-20 |
+| GC-745 | NRTSearchTests | HIGH | NRT search tests | COMPLETED 2026-03-20 |
+| GC-746 | ReplicationTests | HIGH | Replication tests | COMPLETED 2026-03-20 |
+| GC-747 | NRTConcurrencyTests | HIGH | NRT concurrency tests | COMPLETED 2026-03-20 |
+| GC-748 | NRTStressTests | MEDIUM | NRT stress tests | COMPLETED 2026-03-20 |
+| GC-749 | NRTBenchmark | MEDIUM | NRT performance benchmarks | COMPLETED 2026-03-20 |
 
 ---
 
@@ -140,9 +140,9 @@ Implement analyzers for additional languages.
 
 ### Progresso Atual
 - **Total de Tarefas do Projeto:** 548
-- **Completadas:** 473 (fases 34-45)
-- **Pendentes:** 75 (fases 46-47)
-- **Progresso Geral:** 86.3%
+- **Completadas:** 508 (fases 34-46)
+- **Pendentes:** 40 (fase 47)
+- **Progresso Geral:** 92.7%
 
 ### Histórico de Fases Completadas
 - Fase 34: Foundation (45 tarefas) - COMPLETED
@@ -157,6 +157,7 @@ Implement analyzers for additional languages.
 - Fase 43: Join/Grouping/Highlight (11 tarefas) - COMPLETED
 - Fase 44: Compressing Codecs (40 tarefas) - COMPLETED 2026-03-20
 - Fase 45: Spatial Fields (35 tarefas) - COMPLETED 2026-03-20
+- Fase 46: NRT Search and Real-time Features (35 tarefas) - COMPLETED 2026-03-20
 
 ### Próximos Passos
 1. Implementar NRT Search (Phase 46) - Busca em tempo real

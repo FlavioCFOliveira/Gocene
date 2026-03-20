@@ -1905,12 +1905,30 @@ func (n *nullMergePolicy) FindForcedDeletesMerges(infos *index.SegmentInfos, mer
 	return nil, nil
 }
 
-func (n *nullMergePolicy) UseCompoundFile(segments []*index.SegmentCommitInfo, mergedSegment *index.SegmentInfo) bool {
+func (n *nullMergePolicy) UseCompoundFile(infos *index.SegmentInfos, mergedSegmentInfo *index.SegmentInfo) bool {
 	return true
 }
 
 func (n *nullMergePolicy) GetMaxMergeDocs() int {
 	return 0
+}
+
+func (n *nullMergePolicy) GetMaxMergedSegmentBytes() int64 {
+	return 0
+}
+
+func (n *nullMergePolicy) SetMaxMergedSegmentBytes(maxMergedSegmentBytes int64) {
+}
+
+func (n *nullMergePolicy) SetMaxMergeDocs(maxMergeDocs int) {
+}
+
+func (n *nullMergePolicy) KeepFullyDeletedSegment(info *index.SegmentCommitInfo) bool {
+	return false
+}
+
+func (n *nullMergePolicy) NumDeletesToMerge(info *index.SegmentCommitInfo, delCount int) int {
+	return delCount
 }
 
 // emptyMergePolicy is a merge policy that returns empty specification
@@ -1928,12 +1946,30 @@ func (e *emptyMergePolicy) FindForcedDeletesMerges(infos *index.SegmentInfos, me
 	return index.NewMergeSpecification(), nil
 }
 
-func (e *emptyMergePolicy) UseCompoundFile(segments []*index.SegmentCommitInfo, mergedSegment *index.SegmentInfo) bool {
+func (e *emptyMergePolicy) UseCompoundFile(infos *index.SegmentInfos, mergedSegmentInfo *index.SegmentInfo) bool {
 	return true
 }
 
 func (e *emptyMergePolicy) GetMaxMergeDocs() int {
 	return 0
+}
+
+func (e *emptyMergePolicy) GetMaxMergedSegmentBytes() int64 {
+	return 0
+}
+
+func (e *emptyMergePolicy) SetMaxMergedSegmentBytes(maxMergedSegmentBytes int64) {
+}
+
+func (e *emptyMergePolicy) SetMaxMergeDocs(maxMergeDocs int) {
+}
+
+func (e *emptyMergePolicy) KeepFullyDeletedSegment(info *index.SegmentCommitInfo) bool {
+	return false
+}
+
+func (e *emptyMergePolicy) NumDeletesToMerge(info *index.SegmentCommitInfo, delCount int) int {
+	return delCount
 }
 
 // customTestCodec is a test codec for codec compatibility tests

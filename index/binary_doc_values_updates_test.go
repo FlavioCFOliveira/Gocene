@@ -409,8 +409,8 @@ func TestBinaryDocValuesUpdates_MultipleDocValuesTypes(t *testing.T) {
 		fields = append(fields, sdvField)
 
 		// Add SortedSetDocValuesField
-		ssdvField1, _ := document.NewSortedSetDocValuesField("ssdv", []byte(fmt.Sprintf("%d", i)))
-		ssdvField2, _ := document.NewSortedSetDocValuesField("ssdv", []byte(fmt.Sprintf("%d", i*2)))
+		ssdvField1, _ := document.NewSortedSetDocValuesField("ssdv", [][]byte{[]byte(fmt.Sprintf("%d", i))})
+		ssdvField2, _ := document.NewSortedSetDocValuesField("ssdv", [][]byte{[]byte(fmt.Sprintf("%d", i*2))})
 		fields = append(fields, ssdvField1, ssdvField2)
 
 		doc := &testDocument{fields: fields}
@@ -1628,7 +1628,7 @@ func TestBinaryDocValuesUpdates_IOContext(t *testing.T) {
 
 	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
 	config.SetMaxBufferedDocs(100) // Manually flush
-	config.SetRAMBufferSizeMB(index.IndexWriterConfigDisableAutoFlush)
+	config.SetRAMBufferSizeMB(index.DISABLE_AUTO_FLUSH)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
