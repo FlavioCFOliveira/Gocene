@@ -25,7 +25,7 @@ Este roadmap contém todas as tarefas pendentes para completar o port de Apache 
 | 42 | COMPLETED | 35 | Alta | Advanced Facets | Phase 41 |
 | 43 | COMPLETED | 11 | Alta | Join/Grouping/Highlight | Phase 42 |
 | 44 | COMPLETED | 40 | Alta | Compressing Codecs | Phase 43 |
-| 45 | IN_PROGRESS | 24/35 completed | Alta | Spatial Fields | Phase 44 |
+| 45 | IN_PROGRESS | 25/35 completed | Alta | Spatial Fields | Phase 44 |
 | 46 | PENDING | 35 | Alta | NRT Search | Phase 45 |
 | 47 | PENDING | 40 | Média | Additional Languages | Phase 46 |
 
@@ -91,7 +91,7 @@ Implement compression codecs for efficient storage.
 
 ## FASE 45: Spatial Fields and Queries (IN_PROGRESS)
 
-**Status:** IN_PROGRESS | **Tasks:** 24/35 completed | **Focus:** Geospatial search capabilities
+**Status:** IN_PROGRESS | **Tasks:** 25/35 completed | **Focus:** Geospatial search capabilities
 **Dependencies:** Phase 44 (Compressing Codec Completion)
 
 Implement spatial indexing and search for location-based queries.
@@ -126,7 +126,7 @@ Implement spatial indexing and search for location-based queries.
 | GC-705 | ~~JTSGeometrySerializer~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ JTS geometry serializer with WKB format support |
 | GC-706 | ~~JTSGeometryDecoder~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ JTS geometry decoder with WKB format support |
 | GC-707 | ~~Spatial4jShapeDecoder~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ Spatial4j shape decoder with WKT and binary format support |
-| GC-708 | ShapeIOReader | MEDIUM | Shape I/O reader |
+| GC-708 | ~~ShapeIOReader~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ Shape I/O reader with buffered reading and batch support |
 | GC-709 | ShapeIOWriter | MEDIUM | Shape I/O writer |
 | GC-710 | SpatialIndexWriter | HIGH | Spatial index writer |
 | GC-711 | SpatialIndexReader | HIGH | Spatial index reader |
@@ -282,6 +282,7 @@ Implement analyzers for additional languages.
 | GC-705 | MEDIUM | MEDIUM | JTSGeometrySerializer | go-elite-developer | 2026-03-20 | JTS geometry serializer with WKB format support, Point and Rectangle serialization |
 | GC-706 | MEDIUM | MEDIUM | JTSGeometryDecoder | go-elite-developer | 2026-03-20 | JTS geometry decoder with WKB format support, Point/Polygon/LineString deserialization |
 | GC-707 | MEDIUM | MEDIUM | Spatial4jShapeDecoder | go-elite-developer | 2026-03-20 | Spatial4j shape decoder with WKT and binary format support |
+| GC-708 | MEDIUM | MEDIUM | ShapeIOReader | go-elite-developer | 2026-03-20 | Shape I/O reader with buffered reading and batch support |
 
 ### Phase 42: Advanced Facets (COMPLETED: 2026-03-15)
 
