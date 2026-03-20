@@ -194,6 +194,10 @@ func (op SpatialOperation) String() string {
 		return "Equals"
 	case SpatialOperationOverlaps:
 		return "Overlaps"
+	case SpatialOperationBboxIntersects:
+		return "BBoxIntersects"
+	case SpatialOperationBboxWithin:
+		return "BBoxWithin"
 	default:
 		return "Unknown"
 	}
