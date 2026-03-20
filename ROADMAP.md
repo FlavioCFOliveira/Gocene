@@ -29,11 +29,11 @@ Implement NRT (Near Real-Time) search for immediate visibility of updates.
 | ID | Task | Priority | Description |
 |:---|:-----|:---------|:------------|
 | GC-715 | NRTManager | HIGH | Near real-time manager |
-| GC-716 | SearcherManager | HIGH | Searcher lifecycle manager |
-| GC-717 | SearcherFactory | HIGH | Searcher factory |
+| GC-716 | SearcherManager | HIGH | Searcher lifecycle manager | COMPLETED 2026-03-20 |
+| GC-717 | SearcherFactory | HIGH | Searcher factory | COMPLETED 2026-03-20 |
 | GC-718 | SearcherLifetimeManager | MEDIUM | Searcher lifetime management |
 | GC-719 | ReferenceManager | HIGH | Reference management | COMPLETED 2026-03-20 |
-| GC-720 | ControlledRealTimeReopenThread | HIGH | CRT reopen thread |
+| GC-720 | ControlledRealTimeReopenThread | HIGH | CRT reopen thread | COMPLETED 2026-03-20 |
 | GC-721 | NRTReplicationWriter | HIGH | NRT replication writer |
 | GC-722 | NRTReplicationReader | HIGH | NRT replication reader |
 | GC-723 | IndexRevision | MEDIUM | Index revision tracking |
