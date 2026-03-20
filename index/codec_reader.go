@@ -214,6 +214,51 @@ func (r *CodecReader) GetFieldsReader() FieldsProducer {
 	return r.coreReaders.GetFields()
 }
 
+// GetPostingsReader returns the FieldsProducer for this segment (provides postings access).
+// Returns nil if postings are not available.
+func (r *CodecReader) GetPostingsReader() FieldsProducer {
+	if r.coreReaders == nil {
+		return nil
+	}
+	return r.coreReaders.GetFields()
+}
+
+// GetDocValuesReader returns the DocValuesProducer for this segment.
+// Returns nil if doc values are not available.
+func (r *CodecReader) GetDocValuesReader() interface{} {
+	if r.coreReaders == nil {
+		return nil
+	}
+	return r.coreReaders.GetDocValuesProducer()
+}
+
+// GetNormsReader returns the NormsProducer for this segment.
+// Returns nil if norms are not available.
+func (r *CodecReader) GetNormsReader() interface{} {
+	if r.coreReaders == nil {
+		return nil
+	}
+	return r.coreReaders.GetNormsProducer()
+}
+
+// GetPointsReader returns the PointsReader for this segment.
+// Returns nil if points are not available.
+func (r *CodecReader) GetPointsReader() interface{} {
+	if r.coreReaders == nil {
+		return nil
+	}
+	return r.coreReaders.GetPointsReader()
+}
+
+// GetVectorReader returns the KnnVectorsReader for this segment.
+// Returns nil if vectors are not available.
+func (r *CodecReader) GetVectorReader() interface{} {
+	if r.coreReaders == nil {
+		return nil
+	}
+	return r.coreReaders.GetVectorReader()
+}
+
 // Ensure CodecReader implements the expected interfaces
 var _ LeafReaderInterface = (*CodecReader)(nil)
 

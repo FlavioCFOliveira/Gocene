@@ -33,6 +33,18 @@ type SegmentCoreReaders struct {
 	// storedFieldsReader is the stored fields reader
 	storedFieldsReader StoredFieldsReader
 
+	// docValuesProducer is the doc values producer (codecs.DocValuesProducer)
+	docValuesProducer interface{}
+
+	// normsProducer is the norms producer (codecs.NormsProducer)
+	normsProducer interface{}
+
+	// pointsReader is the points reader (codecs.PointsReader)
+	pointsReader interface{}
+
+	// vectorsReader is the KNN vectors reader (codecs.KnnVectorsReader)
+	vectorsReader interface{}
+
 	// fieldInfos is the field infos for this segment
 	fieldInfos *FieldInfos
 
@@ -182,6 +194,42 @@ func (core *SegmentCoreReaders) close() error {
 		}
 	}
 
+	// Close doc values producer
+	if core.docValuesProducer != nil {
+		if closer, ok := core.docValuesProducer.(interface{ Close() error }); ok {
+			if err := closer.Close(); err != nil {
+				lastErr = err
+			}
+		}
+	}
+
+	// Close norms producer
+	if core.normsProducer != nil {
+		if closer, ok := core.normsProducer.(interface{ Close() error }); ok {
+			if err := closer.Close(); err != nil {
+				lastErr = err
+			}
+		}
+	}
+
+	// Close points reader
+	if core.pointsReader != nil {
+		if closer, ok := core.pointsReader.(interface{ Close() error }); ok {
+			if err := closer.Close(); err != nil {
+				lastErr = err
+			}
+		}
+	}
+
+	// Close vectors reader
+	if core.vectorsReader != nil {
+		if closer, ok := core.vectorsReader.(interface{ Close() error }); ok {
+			if err := closer.Close(); err != nil {
+				lastErr = err
+			}
+		}
+	}
+
 	// Notify listeners
 	for _, listener := range core.closedListeners {
 		listener()
@@ -211,6 +259,26 @@ func (core *SegmentCoreReaders) GetTermVectorsReader() TermVectorsReader {
 // GetStoredFieldsReader returns the StoredFieldsReader.
 func (core *SegmentCoreReaders) GetStoredFieldsReader() StoredFieldsReader {
 	return core.storedFieldsReader
+}
+
+// GetDocValuesProducer returns the DocValuesProducer.
+func (core *SegmentCoreReaders) GetDocValuesProducer() interface{} {
+	return core.docValuesProducer
+}
+
+// GetNormsProducer returns the NormsProducer.
+func (core *SegmentCoreReaders) GetNormsProducer() interface{} {
+	return core.normsProducer
+}
+
+// GetPointsReader returns the PointsReader.
+func (core *SegmentCoreReaders) GetPointsReader() interface{} {
+	return core.pointsReader
+}
+
+// GetVectorReader returns the KnnVectorsReader.
+func (core *SegmentCoreReaders) GetVectorReader() interface{} {
+	return core.vectorsReader
 }
 
 // GetFieldInfos returns the FieldInfos for this core.
