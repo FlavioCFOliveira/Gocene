@@ -1,6 +1,7 @@
 package index
 
 import (
+	"container/heap"
 	"context"
 	"errors"
 	"testing"

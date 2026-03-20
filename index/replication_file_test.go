@@ -372,7 +372,7 @@ func TestReplicationFile_ConcurrentOperations(t *testing.T) {
 		for i := 0; i < 100; i++ {
 			file.GetStatus()
 			file.GetProgress()
-			file.TransferredBytes
+			_ = file.TransferredBytes // Read the field to ensure no data races
 			time.Sleep(1 * time.Millisecond)
 		}
 		done <- true
