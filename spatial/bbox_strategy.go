@@ -172,8 +172,8 @@ func (s *BBoxStrategy) makeIntersectsQuery(shape Shape) (search.Query, error) {
 	bbox := shape.GetBoundingBox()
 
 	// For intersection, we need:
-// indexed_minX <= query_maxX AND indexed_maxX >= query_minX
-// indexed_minY <= query_maxY AND indexed_maxY >= query_minY
+	// indexed_minX <= query_maxX AND indexed_maxX >= query_minX
+	// indexed_minY <= query_maxY AND indexed_maxY >= query_minY
 
 	// Create range queries for each condition
 	minXQuery, err := search.NewPointRangeQuery(
@@ -231,8 +231,8 @@ func (s *BBoxStrategy) makeIsWithinQuery(shape Shape) (search.Query, error) {
 	bbox := shape.GetBoundingBox()
 
 	// For "within", we need:
-// indexed_minX >= query_minX AND indexed_maxX <= query_maxX
-// indexed_minY >= query_minY AND indexed_maxY <= query_maxY
+	// indexed_minX >= query_minX AND indexed_maxX <= query_maxX
+	// indexed_minY >= query_minY AND indexed_maxY <= query_maxY
 
 	minXQuery, err := search.NewPointRangeQuery(
 		s.minXFieldName,
@@ -289,8 +289,8 @@ func (s *BBoxStrategy) makeContainsQuery(shape Shape) (search.Query, error) {
 	bbox := shape.GetBoundingBox()
 
 	// For "contains", we need:
-// indexed_minX <= query_minX AND indexed_maxX >= query_maxX
-// indexed_minY <= query_minY AND indexed_maxY >= query_maxY
+	// indexed_minX <= query_minX AND indexed_maxX >= query_maxX
+	// indexed_minY <= query_minY AND indexed_maxY >= query_maxY
 
 	minXQuery, err := search.NewPointRangeQuery(
 		s.minXFieldName,
