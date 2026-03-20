@@ -133,7 +133,7 @@ func TestIndexWriterDelete_NonRAMDelete(t *testing.T) {
 		t.Fatalf("Failed to commit: %v", err)
 	}
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestIndexWriterDelete_NonRAMDelete(t *testing.T) {
 		t.Fatalf("Failed to commit after delete: %v", err)
 	}
 
-	reader, err = index.NewDirectoryReader(dir)
+	reader, err = index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestIndexWriterDelete_RAMDeletes(t *testing.T) {
 				t.Fatalf("Failed to commit: %v", err)
 			}
 
-			reader, err := index.NewDirectoryReader(dir)
+			reader, err := index.OpenDirectoryReader(dir)
 			if err != nil {
 				t.Fatalf("Failed to open reader: %v", err)
 			}
@@ -277,7 +277,7 @@ func TestIndexWriterDelete_BothDeletes(t *testing.T) {
 		t.Fatalf("Failed to commit: %v", err)
 	}
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -301,7 +301,7 @@ func TestIndexWriterDelete_BothDeletes(t *testing.T) {
 		t.Fatalf("Failed to commit: %v", err)
 	}
 
-	reader, err = index.NewDirectoryReader(dir)
+	reader, err = index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -346,7 +346,7 @@ func TestIndexWriterDelete_BatchDeletes(t *testing.T) {
 		t.Fatalf("Failed to commit: %v", err)
 	}
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -372,7 +372,7 @@ func TestIndexWriterDelete_BatchDeletes(t *testing.T) {
 		t.Fatalf("Failed to commit: %v", err)
 	}
 
-	reader, err = index.NewDirectoryReader(dir)
+	reader, err = index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -411,7 +411,7 @@ func TestIndexWriterDelete_DeleteAllSimple(t *testing.T) {
 		t.Fatalf("Failed to commit: %v", err)
 	}
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -430,7 +430,7 @@ func TestIndexWriterDelete_DeleteAllSimple(t *testing.T) {
 	}
 
 	// Delete all shouldn't be on disk yet
-	reader, err = index.NewDirectoryReader(dir)
+	reader, err = index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -450,7 +450,7 @@ func TestIndexWriterDelete_DeleteAllSimple(t *testing.T) {
 	}
 
 	// Validate there are 2 docs left (the ones added after deleteAll)
-	reader, err = index.NewDirectoryReader(dir)
+	reader, err = index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -544,7 +544,7 @@ func TestIndexWriterDelete_DeleteAllNoDeadLock(t *testing.T) {
 		t.Fatalf("Failed to close writer: %v", err)
 	}
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -593,7 +593,7 @@ func TestIndexWriterDelete_DeleteAllRollback(t *testing.T) {
 	id++
 	addDoc(t, modifier, id, value)
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -614,7 +614,7 @@ func TestIndexWriterDelete_DeleteAllRollback(t *testing.T) {
 	}
 
 	// Validate that the docs are still there
-	reader, err = index.NewDirectoryReader(dir)
+	reader, err = index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -652,7 +652,7 @@ func TestIndexWriterDelete_DeleteAllNRT(t *testing.T) {
 	}
 
 	// Get NRT reader
-	reader, err := index.NewDirectoryReader(modifier)
+	reader, err := index.OpenDirectoryReader(modifier)
 	if err != nil {
 		t.Fatalf("Failed to open NRT reader: %v", err)
 	}
@@ -673,7 +673,7 @@ func TestIndexWriterDelete_DeleteAllNRT(t *testing.T) {
 	}
 
 	// Get NRT reader after deleteAll
-	reader, err = index.NewDirectoryReader(modifier)
+	reader, err = index.OpenDirectoryReader(modifier)
 	if err != nil {
 		t.Fatalf("Failed to open NRT reader: %v", err)
 	}
@@ -719,7 +719,7 @@ func TestIndexWriterDelete_DeleteAllRepeated(t *testing.T) {
 		t.Fatalf("Failed to commit: %v", err)
 	}
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -804,7 +804,7 @@ func TestIndexWriterDelete_DeleteAllSlowly(t *testing.T) {
 		t.Fatalf("Failed to commit: %v", err)
 	}
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -861,7 +861,7 @@ func TestIndexWriterDelete_UpdateDocument(t *testing.T) {
 		t.Fatalf("Failed to commit: %v", err)
 	}
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -926,7 +926,7 @@ func TestIndexWriterDelete_ConcurrentDeleteAndIndex(t *testing.T) {
 	}
 
 	// Verify index is in a consistent state
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -979,7 +979,7 @@ func TestIndexWriterDelete_MultipleTerms(t *testing.T) {
 		t.Fatalf("Failed to commit: %v", err)
 	}
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -1032,7 +1032,7 @@ func TestIndexWriterDelete_ByQuery(t *testing.T) {
 		t.Fatalf("Failed to commit: %v", err)
 	}
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -1090,7 +1090,7 @@ func updateDoc(t *testing.T, modifier *index.IndexWriter, id, value int) {
 // getHitCount returns the number of hits for a term
 func getHitCount(t *testing.T, dir store.Directory, term *index.Term) int64 {
 	t.Helper()
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}

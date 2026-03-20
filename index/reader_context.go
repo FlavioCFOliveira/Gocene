@@ -42,8 +42,8 @@ type IndexReaderContext interface {
 // It provides information about the reader's position in the composite structure
 // and its document ID range.
 type LeafReaderContext struct {
-	// reader is the underlying LeafReader
-	reader *LeafReader
+	// reader is the underlying LeafReader (can be *LeafReader or *SegmentReader)
+	reader IndexReaderInterface
 
 	// parent is the parent context
 	parent IndexReaderContext
@@ -56,7 +56,7 @@ type LeafReaderContext struct {
 }
 
 // NewLeafReaderContext creates a new LeafReaderContext.
-func NewLeafReaderContext(reader *LeafReader, parent IndexReaderContext, ord int, docBase int) *LeafReaderContext {
+func NewLeafReaderContext(reader IndexReaderInterface, parent IndexReaderContext, ord int, docBase int) *LeafReaderContext {
 	return &LeafReaderContext{
 		reader:  reader,
 		parent:  parent,
@@ -96,8 +96,16 @@ func (ctx *LeafReaderContext) Ord() int {
 }
 
 // LeafReader returns the underlying LeafReader.
-func (ctx *LeafReaderContext) LeafReader() *LeafReader {
-	return ctx.reader
+// This returns the reader as LeafReaderInterface.
+func (ctx *LeafReaderContext) LeafReader() LeafReaderInterface {
+	if leafReader, ok := ctx.reader.(LeafReaderInterface); ok {
+		return leafReader
+	}
+	// Try to get from SegmentReader
+	if segReader, ok := ctx.reader.(*SegmentReader); ok {
+		return segReader
+	}
+	return nil
 }
 
 // CompositeReaderContext provides context information for a CompositeReader.

@@ -101,7 +101,7 @@ func (ssdvfc *SortedSetDocValuesFacetCounts) ensureCapacity(ord int) {
 }
 
 // getSortedSetDocValues returns SortedSetDocValues for the given reader.
-func (ssdvfc *SortedSetDocValuesFacetCounts) getSortedSetDocValues(reader *index.LeafReader) SortedSetDocValues {
+func (ssdvfc *SortedSetDocValuesFacetCounts) getSortedSetDocValues(reader index.LeafReaderInterface) SortedSetDocValues {
 	// This is a placeholder - in a real implementation, this would
 	// retrieve SortedSetDocValues from the reader's DocValues
 	return &sortedSetDocValuesImpl{}

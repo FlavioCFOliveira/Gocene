@@ -69,7 +69,7 @@ func (dvs *DoubleValueSource) Description() string {
 
 type doubleValueSourceValues struct {
 	field  string
-	reader *index.LeafReader
+	reader index.LeafReaderInterface
 	values map[int]float64
 }
 
@@ -131,7 +131,7 @@ func (lvs *LongValueSource) Description() string {
 
 type longValueSourceValues struct {
 	field  string
-	reader *index.LeafReader
+	reader index.LeafReaderInterface
 	values map[int]int64
 }
 
