@@ -4,9 +4,9 @@
 
 Este roadmap contém as tarefas pendentes para completar o port de Apache Lucene 10.x para Go.
 
-**Total de Tarefas Pendentes:** 102
-**Fases Pendentes:** 3 (48-50)
-**Fases Completadas:** 14 (34-47)
+**Total de Tarefas Pendentes:** 87
+**Fases Pendentes:** 2 (49-50)
+**Fases Completadas:** 15 (34-48)
 
 ---
 
@@ -16,7 +16,7 @@ Este roadmap contém as tarefas pendentes para completar o port de Apache Lucene
 |:-----|:-------|:--------|:-------------|:-----|:-------------|
 | 46 | COMPLETED | 35 | Alta | NRT Search | Phase 45 |
 | 47 | COMPLETED | 40 | Média | Additional Languages | Phase 46 |
-| 48 | PENDING | 15 | Alta | Core Reader Hierarchy | Phase 47 |
+| 48 | COMPLETED | 15 | Alta | Core Reader Hierarchy | Phase 47 |
 | 49 | PENDING | 32 | Alta | Performance Optimization | Phase 48 |
 | 50 | PENDING | 55 | Alta | Advanced Features | Phase 49 |
 
@@ -126,6 +126,7 @@ Implement analyzers for additional languages.
 ## FASE 48: Core Reader Hierarchy and API Completion (COMPLETED)
 
 **Status:** COMPLETED 2026-03-20 | **Tasks:** 15 | **Focus:** Fix Lucene reader hierarchy compatibility
+**Dependencies:** Phase 47 (Additional Language Analyzers)
 **Dependencies:** Phase 47 (Additional Language Analyzers)
 
 Address critical Lucene compatibility gaps identified in audit. Fix reader hierarchy, complete APIs, and implement missing core abstractions.
