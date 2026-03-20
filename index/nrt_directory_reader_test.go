@@ -2,10 +2,22 @@ package index
 
 import (
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
+// createTestDirectoryReader creates a minimal DirectoryReader for testing
+func createNRTTestDirectoryReader(t *testing.T) *DirectoryReader {
+	dir := store.NewByteBuffersDirectory()
+	reader, err := OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("failed to create directory reader: %v", err)
+	}
+	return reader
+}
+
 func TestNewNRTDirectoryReader(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createNRTTestDirectoryReader(t)
 
 	nrtReader, err := NewNRTDirectoryReader(reader, nil)
 	if err != nil {
@@ -34,7 +46,7 @@ func TestNewNRTDirectoryReader_Nil(t *testing.T) {
 }
 
 func TestNRTDirectoryReader_GetWriter(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createNRTTestDirectoryReader(t)
 
 	// Without writer
 	nrtReader1, _ := NewNRTDirectoryReader(reader, nil)
@@ -55,7 +67,7 @@ func TestNRTDirectoryReader_GetWriter(t *testing.T) {
 }
 
 func TestNRTDirectoryReader_Version(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createNRTTestDirectoryReader(t)
 
 	nrtReader, err := NewNRTDirectoryReader(reader, nil)
 	if err != nil {
@@ -75,7 +87,7 @@ func TestNRTDirectoryReader_Version(t *testing.T) {
 }
 
 func TestNRTDirectoryReader_NRTSegmentReaders(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createNRTTestDirectoryReader(t)
 
 	nrtReader, err := NewNRTDirectoryReader(reader, nil)
 	if err != nil {
@@ -111,7 +123,7 @@ func TestNRTDirectoryReader_NRTSegmentReaders(t *testing.T) {
 }
 
 func TestNRTDirectoryReader_IsCurrent(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createNRTTestDirectoryReader(t)
 
 	nrtReader, err := NewNRTDirectoryReader(reader, nil)
 	if err != nil {
@@ -132,7 +144,7 @@ func TestNRTDirectoryReader_IsCurrent(t *testing.T) {
 }
 
 func TestNRTDirectoryReader_ApplyAllDeletes(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createNRTTestDirectoryReader(t)
 
 	nrtReader, err := NewNRTDirectoryReader(reader, nil)
 	if err != nil {
@@ -153,7 +165,7 @@ func TestNRTDirectoryReader_ApplyAllDeletes(t *testing.T) {
 }
 
 func TestNRTDirectoryReader_Refresh(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createNRTTestDirectoryReader(t)
 
 	nrtReader, err := NewNRTDirectoryReader(reader, nil)
 	if err != nil {
@@ -169,7 +181,7 @@ func TestNRTDirectoryReader_Refresh(t *testing.T) {
 }
 
 func TestNRTDirectoryReader_Close(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createNRTTestDirectoryReader(t)
 
 	nrtReader, err := NewNRTDirectoryReader(reader, nil)
 	if err != nil {
@@ -187,7 +199,7 @@ func TestNRTDirectoryReader_Close(t *testing.T) {
 }
 
 func TestNRTDirectoryReader_Clone(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createNRTTestDirectoryReader(t)
 
 	nrtReader, err := NewNRTDirectoryReader(reader, nil)
 	if err != nil {
@@ -221,7 +233,7 @@ func TestNRTDirectoryReader_Clone(t *testing.T) {
 }
 
 func TestNRTDirectoryReader_ForEachNRTSegment(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createNRTTestDirectoryReader(t)
 
 	nrtReader, err := NewNRTDirectoryReader(reader, nil)
 	if err != nil {

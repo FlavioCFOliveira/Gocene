@@ -2,10 +2,22 @@ package index
 
 import (
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
+// createTestDirectoryReader creates a minimal DirectoryReader for testing
+func createROTestDirectoryReader(t *testing.T) *DirectoryReader {
+	dir := store.NewByteBuffersDirectory()
+	reader, err := OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("failed to create directory reader: %v", err)
+	}
+	return reader
+}
+
 func TestNewReadOnlyDirectoryReader(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createROTestDirectoryReader(t)
 
 	roReader, err := NewReadOnlyDirectoryReader(reader)
 	if err != nil {
@@ -30,7 +42,7 @@ func TestNewReadOnlyDirectoryReader_Nil(t *testing.T) {
 }
 
 func TestReadOnlyDirectoryReader_Close(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createROTestDirectoryReader(t)
 
 	roReader, err := NewReadOnlyDirectoryReader(reader)
 	if err != nil {
@@ -54,7 +66,7 @@ func TestReadOnlyDirectoryReader_Close(t *testing.T) {
 }
 
 func TestReadOnlyDirectoryReader_EnsureOpen(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createROTestDirectoryReader(t)
 
 	roReader, err := NewReadOnlyDirectoryReader(reader)
 	if err != nil {
@@ -77,7 +89,7 @@ func TestReadOnlyDirectoryReader_EnsureOpen(t *testing.T) {
 }
 
 func TestReadOnlyDirectoryReader_Clone(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createROTestDirectoryReader(t)
 
 	roReader, err := NewReadOnlyDirectoryReader(reader)
 	if err != nil {
@@ -97,7 +109,7 @@ func TestReadOnlyDirectoryReader_Clone(t *testing.T) {
 }
 
 func TestReadOnlyDirectoryReader_Clone_Closed(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createROTestDirectoryReader(t)
 
 	roReader, err := NewReadOnlyDirectoryReader(reader)
 	if err != nil {
@@ -113,7 +125,7 @@ func TestReadOnlyDirectoryReader_Clone_Closed(t *testing.T) {
 }
 
 func TestReadOnlyDirectoryReader_Reopen(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createROTestDirectoryReader(t)
 
 	roReader, err := NewReadOnlyDirectoryReader(reader)
 	if err != nil {
@@ -134,7 +146,7 @@ func TestReadOnlyDirectoryReader_Reopen(t *testing.T) {
 }
 
 func TestReadOnlyDirectoryReader_Reopen_Closed(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createROTestDirectoryReader(t)
 
 	roReader, err := NewReadOnlyDirectoryReader(reader)
 	if err != nil {
@@ -150,7 +162,7 @@ func TestReadOnlyDirectoryReader_Reopen_Closed(t *testing.T) {
 }
 
 func TestReadOnlyDirectoryReader_NumDocs(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createROTestDirectoryReader(t)
 
 	roReader, err := NewReadOnlyDirectoryReader(reader)
 	if err != nil {
@@ -170,7 +182,7 @@ func TestReadOnlyDirectoryReader_NumDocs(t *testing.T) {
 }
 
 func TestReadOnlyDirectoryReader_MaxDoc(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createROTestDirectoryReader(t)
 
 	roReader, err := NewReadOnlyDirectoryReader(reader)
 	if err != nil {
@@ -190,7 +202,7 @@ func TestReadOnlyDirectoryReader_MaxDoc(t *testing.T) {
 }
 
 func TestReadOnlyDirectoryReader_HasDeletions(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createROTestDirectoryReader(t)
 
 	roReader, err := NewReadOnlyDirectoryReader(reader)
 	if err != nil {
@@ -210,7 +222,7 @@ func TestReadOnlyDirectoryReader_HasDeletions(t *testing.T) {
 }
 
 func TestReadOnlyDirectoryReader_IsCurrent(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createROTestDirectoryReader(t)
 
 	roReader, err := NewReadOnlyDirectoryReader(reader)
 	if err != nil {
@@ -230,7 +242,7 @@ func TestReadOnlyDirectoryReader_IsCurrent(t *testing.T) {
 }
 
 func TestReadOnlyDirectoryReader_IsCurrent_Closed(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createROTestDirectoryReader(t)
 
 	roReader, err := NewReadOnlyDirectoryReader(reader)
 	if err != nil {
@@ -246,7 +258,7 @@ func TestReadOnlyDirectoryReader_IsCurrent_Closed(t *testing.T) {
 }
 
 func TestReadOnlyDirectoryReader_GetDirectory(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createROTestDirectoryReader(t)
 
 	roReader, err := NewReadOnlyDirectoryReader(reader)
 	if err != nil {
@@ -267,7 +279,7 @@ func TestReadOnlyDirectoryReader_GetDirectory(t *testing.T) {
 }
 
 func TestReadOnlyDirectoryReader_String(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createROTestDirectoryReader(t)
 
 	roReader, err := NewReadOnlyDirectoryReader(reader)
 	if err != nil {
