@@ -182,3 +182,77 @@ func (s *SingleDocPostingsEnum) GetPayload() ([]byte, error) {
 func (s *SingleDocPostingsEnum) Cost() int64 {
 	return 1
 }
+
+// SinglePostingsEnum is a PostingsEnum for a single posting (used by SingleTermTerms).
+type SinglePostingsEnum struct {
+	PostingsEnumBase
+	docFreq int
+	freq    int
+	count   int
+}
+
+// NewSinglePostingsEnum creates a new SinglePostingsEnum.
+func NewSinglePostingsEnum(docFreq, freq int) *SinglePostingsEnum {
+	return &SinglePostingsEnum{
+		docFreq:          docFreq,
+		freq:             freq,
+		count:            0,
+		PostingsEnumBase: PostingsEnumBase{currentDoc: -1},
+	}
+}
+
+// NextDoc advances to the next document.
+func (s *SinglePostingsEnum) NextDoc() (int, error) {
+	if s.count == 0 {
+		s.count = 1
+		s.currentDoc = 0 // Single document at position 0
+		return s.currentDoc, nil
+	}
+	s.currentDoc = NO_MORE_DOCS
+	return NO_MORE_DOCS, nil
+}
+
+// Advance advances to the document if it matches.
+func (s *SinglePostingsEnum) Advance(target int) (int, error) {
+	if s.count == 0 && target <= 0 {
+		s.count = 1
+		s.currentDoc = 0
+		return 0, nil
+	}
+	s.count = 1
+	s.currentDoc = NO_MORE_DOCS
+	return NO_MORE_DOCS, nil
+}
+
+// Freq returns the term frequency.
+func (s *SinglePostingsEnum) Freq() (int, error) {
+	if s.currentDoc == NO_MORE_DOCS {
+		return 0, nil
+	}
+	return s.freq, nil
+}
+
+// NextPosition returns NO_MORE_POSITIONS.
+func (s *SinglePostingsEnum) NextPosition() (int, error) {
+	return NO_MORE_POSITIONS, nil
+}
+
+// StartOffset returns -1.
+func (s *SinglePostingsEnum) StartOffset() (int, error) {
+	return -1, nil
+}
+
+// EndOffset returns -1.
+func (s *SinglePostingsEnum) EndOffset() (int, error) {
+	return -1, nil
+}
+
+// GetPayload returns nil.
+func (s *SinglePostingsEnum) GetPayload() ([]byte, error) {
+	return nil, nil
+}
+
+// Cost returns the docFreq.
+func (s *SinglePostingsEnum) Cost() int64 {
+	return int64(s.docFreq)
+}

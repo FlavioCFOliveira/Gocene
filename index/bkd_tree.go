@@ -131,16 +131,16 @@ func decodeDimension(buf []byte, bytesPerDim int) int64 {
 	return value
 }
 
-// PointValues represents a set of points in the BKD tree.
-type PointValues struct {
+// PointValuesImpl represents a set of points in the BKD tree.
+type PointValuesImpl struct {
 	tree   *BKDTree
 	points [][]byte
 	docIDs []int
 }
 
-// NewPointValues creates a new PointValues for the given tree.
-func NewPointValues(tree *BKDTree) *PointValues {
-	return &PointValues{
+// NewPointValues creates a new PointValuesImpl for the given tree.
+func NewPointValues(tree *BKDTree) *PointValuesImpl {
+	return &PointValuesImpl{
 		tree:   tree,
 		points: make([][]byte, 0),
 		docIDs: make([]int, 0),
@@ -149,7 +149,7 @@ func NewPointValues(tree *BKDTree) *PointValues {
 
 // Add adds a point with its associated document ID.
 // values must have length == tree.NumDims().
-func (pv *PointValues) Add(docID int, values []int64) error {
+func (pv *PointValuesImpl) Add(docID int, values []int64) error {
 	packed, err := pv.tree.Pack(values)
 	if err != nil {
 		return err
@@ -161,7 +161,7 @@ func (pv *PointValues) Add(docID int, values []int64) error {
 }
 
 // Sort sorts the points by the given dimension.
-func (pv *PointValues) Sort(dim int) {
+func (pv *PointValuesImpl) Sort(dim int) {
 	if dim < 0 || dim >= pv.tree.numDims {
 		return
 	}
@@ -173,7 +173,7 @@ func (pv *PointValues) Sort(dim int) {
 
 // Intersect finds all points intersecting the given range.
 // minPacked and maxPacked define the query range.
-func (pv *PointValues) Intersect(minPacked, maxPacked []byte) []int {
+func (pv *PointValuesImpl) Intersect(minPacked, maxPacked []byte) []int {
 	var result []int
 	for i, point := range pv.points {
 		if pv.pointInRange(point, minPacked, maxPacked) {
@@ -184,7 +184,7 @@ func (pv *PointValues) Intersect(minPacked, maxPacked []byte) []int {
 }
 
 // pointInRange checks if a point is within the given range.
-func (pv *PointValues) pointInRange(point, minPacked, maxPacked []byte) bool {
+func (pv *PointValuesImpl) pointInRange(point, minPacked, maxPacked []byte) bool {
 	for dim := 0; dim < pv.tree.numDims; dim++ {
 		offset := dim * pv.tree.bytesPerDim
 		dimVal := decodeDimension(point[offset:offset+pv.tree.bytesPerDim], pv.tree.bytesPerDim)
@@ -199,12 +199,12 @@ func (pv *PointValues) pointInRange(point, minPacked, maxPacked []byte) bool {
 }
 
 // Size returns the number of points.
-func (pv *PointValues) Size() int {
+func (pv *PointValuesImpl) Size() int {
 	return len(pv.points)
 }
 
 // Clear clears all points.
-func (pv *PointValues) Clear() {
+func (pv *PointValuesImpl) Clear() {
 	pv.points = pv.points[:0]
 	pv.docIDs = pv.docIDs[:0]
 }

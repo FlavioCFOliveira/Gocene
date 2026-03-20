@@ -608,6 +608,15 @@ func (t *memoryTerms) GetMax() (*index.Term, error) {
 	return index.NewTerm("", termTexts[len(termTexts)-1]), nil
 }
 
+// GetPostingsReader returns the postings for a term.
+func (t *memoryTerms) GetPostingsReader(termText string, flags int) (index.PostingsEnum, error) {
+	td, ok := t.fieldData.terms[termText]
+	if !ok {
+		return nil, nil
+	}
+	return &memoryPostingsEnum{postings: td.postings, pos: -1}, nil
+}
+
 // memoryTermsEnum implements index.TermsEnum for in-memory data.
 type memoryTermsEnum struct {
 	terms     map[string]*termDataRead

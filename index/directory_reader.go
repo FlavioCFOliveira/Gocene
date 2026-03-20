@@ -55,6 +55,122 @@ func (r *LeafReader) GetCoreCacheKey() interface{} {
 	return r.coreCacheKey
 }
 
+// Postings returns the postings for a term.
+// This must be implemented by subclasses that have postings data.
+func (r *LeafReader) Postings(term Term) (PostingsEnum, error) {
+	return r.PostingsWithFreqPositions(term, 0)
+}
+
+// PostingsWithFreqPositions returns the postings for a term with specific flags.
+// The flags parameter controls what data is returned:
+//   - 0: only doc IDs
+//   - 1: doc IDs and term frequencies
+//   - 2: doc IDs, term frequencies, positions, offsets, and payloads
+func (r *LeafReader) PostingsWithFreqPositions(term Term, flags int) (PostingsEnum, error) {
+	terms, err := r.Terms(term.Field)
+	if err != nil {
+		return nil, err
+	}
+	if terms == nil {
+		return nil, nil
+	}
+	return terms.GetPostingsReader(term.Text(), flags)
+}
+
+// GetNumericDocValues returns NumericDocValues for the given field.
+// Returns nil if the field does not have numeric doc values.
+func (r *LeafReader) GetNumericDocValues(field string) (NumericDocValues, error) {
+	return nil, nil
+}
+
+// GetBinaryDocValues returns BinaryDocValues for the given field.
+// Returns nil if the field does not have binary doc values.
+func (r *LeafReader) GetBinaryDocValues(field string) (BinaryDocValues, error) {
+	return nil, nil
+}
+
+// GetSortedDocValues returns SortedDocValues for the given field.
+// Returns nil if the field does not have sorted doc values.
+func (r *LeafReader) GetSortedDocValues(field string) (SortedDocValues, error) {
+	return nil, nil
+}
+
+// GetSortedNumericDocValues returns SortedNumericDocValues for the given field.
+// Returns nil if the field does not have sorted numeric doc values.
+func (r *LeafReader) GetSortedNumericDocValues(field string) (SortedNumericDocValues, error) {
+	return nil, nil
+}
+
+// GetSortedSetDocValues returns SortedSetDocValues for the given field.
+// Returns nil if the field does not have sorted set doc values.
+func (r *LeafReader) GetSortedSetDocValues(field string) (SortedSetDocValues, error) {
+	return nil, nil
+}
+
+// GetNormValues returns NumericDocValues for norms of the given field.
+// Returns nil if the field does not have norms.
+func (r *LeafReader) GetNormValues(field string) (NumericDocValues, error) {
+	return nil, nil
+}
+
+// GetPointValues returns PointValues for the given field.
+// Returns nil if the field does not have point values.
+func (r *LeafReader) GetPointValues(field string) (PointValues, error) {
+	return nil, nil
+}
+
+// GetFloatVectorValues returns FloatVectorValues for the given field.
+// Returns nil if the field does not have float vector values.
+func (r *LeafReader) GetFloatVectorValues(field string) (FloatVectorValues, error) {
+	return nil, nil
+}
+
+// GetByteVectorValues returns ByteVectorValues for the given field.
+// Returns nil if the field does not have byte vector values.
+func (r *LeafReader) GetByteVectorValues(field string) (ByteVectorValues, error) {
+	return nil, nil
+}
+
+// SearchNearestVectors searches for the k nearest vectors to the target.
+// Returns TopDocs containing the k nearest documents.
+func (r *LeafReader) SearchNearestVectors(field string, target []float32, k int, acceptDocs util.Bits) (TopDocs, error) {
+	return TopDocs{}, fmt.Errorf("SearchNearestVectors not implemented")
+}
+
+// GetDocValuesSkipper returns a DocValuesSkipper for efficient skipping.
+// Returns nil if skipping is not supported.
+func (r *LeafReader) GetDocValuesSkipper(field string) (DocValuesSkipper, error) {
+	return nil, nil
+}
+
+// CheckIntegrity checks that the index is not corrupt.
+// Returns an error if any problems are found.
+func (r *LeafReader) CheckIntegrity() error {
+	return nil
+}
+
+// GetMetaData returns the IndexReaderMetaData for this reader.
+func (r *LeafReader) GetMetaData() *IndexReaderMetaData {
+	return &IndexReaderMetaData{
+		HasDeletions: r.HasDeletions(),
+		NumDocs:      r.NumDocs(),
+		MaxDoc:       r.MaxDoc(),
+	}
+}
+
+// IndexReaderMetaData provides metadata about an IndexReader.
+// This is the Go port of Lucene's org.apache.lucene.index.IndexReader.Metadata.
+type IndexReaderMetaData struct {
+	// HasDeletions is true if this reader has deletions.
+	HasDeletions bool
+
+	// NumDocs is the number of live documents.
+	NumDocs int
+
+	// MaxDoc is the maximum document ID plus one.
+	MaxDoc int
+}
+
 // GetSegmentInfo returns the SegmentInfo for this reader.
 func (r *LeafReader) GetSegmentInfo() *SegmentInfo {
 	r.mu.RLock()

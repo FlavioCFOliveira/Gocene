@@ -390,6 +390,22 @@ func (t *TermVectorTerms) GetMax() (*Term, error) {
 	return NewTerm(t.tv.Field, t.tv.Terms[len(t.tv.Terms)-1]), nil
 }
 
+// GetPostingsReader returns the postings for a term.
+func (t *TermVectorTerms) GetPostingsReader(termText string, flags int) (PostingsEnum, error) {
+	// Find the term in the term vector
+	for i, term := range t.tv.Terms {
+		if term == termText {
+			// Found the term - create postings enum
+			freq := 1
+			if i < len(t.tv.TermFreqs) {
+				freq = t.tv.TermFreqs[i]
+			}
+			return NewSinglePostingsEnum(1, freq), nil
+		}
+	}
+	return nil, nil
+}
+
 // TermVectorTermsEnum is a TermsEnum implementation backed by a TermVector.
 type TermVectorTermsEnum struct {
 	tv    *TermVector

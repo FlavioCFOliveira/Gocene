@@ -755,6 +755,9 @@ func (t *emptyTerms) HasPositions() bool                  { return false }
 func (t *emptyTerms) HasPayloads() bool                   { return false }
 func (t *emptyTerms) GetMin() (*index.Term, error)        { return nil, nil }
 func (t *emptyTerms) GetMax() (*index.Term, error)        { return nil, nil }
+func (t *emptyTerms) GetPostingsReader(termText string, flags int) (index.PostingsEnum, error) {
+	return nil, nil
+}
 
 // termVectorsFields implements index.Fields for term vectors
 type termVectorsFields struct {
@@ -861,6 +864,17 @@ func (t *termVectorsTerms) GetMax() (*index.Term, error) {
 		return nil, nil
 	}
 	return index.NewTermFromBytes(t.field.name, t.field.terms[len(t.field.terms)-1].term), nil
+}
+
+func (t *termVectorsTerms) GetPostingsReader(termText string, flags int) (index.PostingsEnum, error) {
+	// Find the term in the field
+	for _, term := range t.field.terms {
+		if string(term.term) == termText {
+			// Found the term - create postings enum
+			return index.NewSinglePostingsEnum(1, term.freq), nil
+		}
+	}
+	return nil, nil
 }
 
 // termVectorsTermsEnum implements index.TermsEnum for term vectors
