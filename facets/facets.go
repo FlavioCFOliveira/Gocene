@@ -82,7 +82,7 @@ func (md *MatchingDocs) GetDocCount() int {
 }
 
 // GetLeafReader returns the leaf reader for this matching docs set.
-func (md *MatchingDocs) GetLeafReader() *index.LeafReader {
+func (md *MatchingDocs) GetLeafReader() index.LeafReaderInterface {
 	if md.Context != nil {
 		return md.Context.LeafReader()
 	}

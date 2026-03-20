@@ -239,7 +239,7 @@ type distanceValueSourceValues struct {
 	center     Point
 	multiplier float64
 	calculator DistanceCalculator
-	reader     *index.LeafReader
+	reader     index.LeafReaderInterface
 	xValues    map[int]float64
 	yValues    map[int]float64
 }

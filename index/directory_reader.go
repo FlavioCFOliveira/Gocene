@@ -49,7 +49,7 @@ func NewLeafReaderWithFieldInfos(segmentInfo *SegmentInfo, fieldInfos *FieldInfo
 
 // GetCoreCacheKey returns the cache key for this reader.
 // Used for caching per-segment data structures.
-func (r *LeafReader) GetCoreCacheKey() *CacheKey {
+func (r *LeafReader) GetCoreCacheKey() interface{} {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.coreCacheKey
@@ -163,15 +163,15 @@ type SegmentCoreReadersHolder interface {
 	GetCoreReaders() *SegmentCoreReaders
 }
 
-// DirectoryReader is a LeafReader that reads from a Directory.
+// DirectoryReader is a CompositeReader that reads from a Directory.
 //
 // This is the Go port of Lucene's org.apache.lucene.index.DirectoryReader.
 //
-// DirectoryReader is the main implementation of IndexReader for reading
+// DirectoryReader is the main implementation of CompositeReader for reading
 // indexes stored in a Directory. It manages a collection of SegmentReaders
 // (each wrapping a LeafReader) for all segments in the index.
 type DirectoryReader struct {
-	*LeafReader
+	*CompositeReader
 
 	// directory is the source directory
 	directory store.Directory
@@ -317,18 +317,31 @@ func OpenDirectoryReader(directory store.Directory) (*DirectoryReader, error) {
 
 // OpenDirectoryReaderWithInfos opens a DirectoryReader with existing SegmentInfos.
 func OpenDirectoryReaderWithInfos(directory store.Directory, segmentInfos *SegmentInfos) (*DirectoryReader, error) {
-	reader := &DirectoryReader{
-		LeafReader:   NewLeafReader(nil),
-		directory:    directory,
-		segmentInfos: segmentInfos,
-		readers:      make([]*SegmentReader, 0, segmentInfos.Size()),
-	}
-
 	// Create a reader for each segment
+	readers := make([]*SegmentReader, 0, segmentInfos.Size())
 	for i := 0; i < segmentInfos.Size(); i++ {
 		segmentCommitInfo := segmentInfos.Get(i)
 		segmentReader := NewSegmentReader(segmentCommitInfo)
-		reader.readers = append(reader.readers, segmentReader)
+		readers = append(readers, segmentReader)
+	}
+
+	// Create sub-readers slice for CompositeReader
+	subReaders := make([]IndexReaderInterface, len(readers))
+	for i, r := range readers {
+		subReaders[i] = r
+	}
+
+	// Create CompositeReader with sub-readers
+	compReader, err := NewCompositeReaderWithSubReaders(subReaders)
+	if err != nil {
+		return nil, err
+	}
+
+	reader := &DirectoryReader{
+		CompositeReader: compReader,
+		directory:       directory,
+		segmentInfos:    segmentInfos,
+		readers:         readers,
 	}
 
 	return reader, nil
@@ -346,19 +359,32 @@ func OpenDirectoryReaderFromCommit(directory store.Directory, commit *IndexCommi
 		return nil, fmt.Errorf("commit has no segment infos")
 	}
 
-	// Create the DirectoryReader with the commit's segment infos
-	reader := &DirectoryReader{
-		LeafReader:   NewLeafReader(nil),
-		directory:    directory,
-		segmentInfos: segmentInfos,
-		readers:      make([]*SegmentReader, 0, segmentInfos.Size()),
-	}
-
 	// Create a reader for each segment in the commit
+	readers := make([]*SegmentReader, 0, segmentInfos.Size())
 	for i := 0; i < segmentInfos.Size(); i++ {
 		segmentCommitInfo := segmentInfos.Get(i)
 		segmentReader := NewSegmentReader(segmentCommitInfo)
-		reader.readers = append(reader.readers, segmentReader)
+		readers = append(readers, segmentReader)
+	}
+
+	// Create sub-readers slice for CompositeReader
+	subReaders := make([]IndexReaderInterface, len(readers))
+	for i, r := range readers {
+		subReaders[i] = r
+	}
+
+	// Create CompositeReader with sub-readers
+	compReader, err := NewCompositeReaderWithSubReaders(subReaders)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create the DirectoryReader with the commit's segment infos
+	reader := &DirectoryReader{
+		CompositeReader: compReader,
+		directory:       directory,
+		segmentInfos:    segmentInfos,
+		readers:         readers,
 	}
 
 	return reader, nil
@@ -629,7 +655,7 @@ func buildDirectoryReaderContext(reader *DirectoryReader, parent IndexReaderCont
 	docBase := 0
 
 	for i, subReader := range reader.readers {
-		leafCtx := NewLeafReaderContext(subReader.LeafReader, parent, i, docBase)
+		leafCtx := NewLeafReaderContext(subReader, parent, i, docBase)
 		children[i] = leafCtx
 		leaves = append(leaves, leafCtx)
 		docBase += subReader.MaxDoc()

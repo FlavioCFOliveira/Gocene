@@ -58,6 +58,9 @@ type IndexReaderInterface interface {
 
 	// StoredFields returns a StoredFields for this reader.
 	StoredFields() (StoredFields, error)
+
+	// TermVectors returns a TermVectors for this reader.
+	TermVectors() (TermVectors, error)
 }
 
 // IndexReader is an abstract base class for reading indexes.

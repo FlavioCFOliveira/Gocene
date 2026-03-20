@@ -4,7 +4,7 @@
 
 // Package index_test contains tests for the index package.
 //
-// Ported from Apache Lucene's org.apache.lucene.index.TestDirectoryReaderReopen
+// Ported from Apache Lucene's org.apache.lucene.idx.TestDirectoryReaderReopen
 // GC-186: Test DirectoryReader Reopen
 //
 // Test Coverage:
@@ -24,7 +24,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
-	"github.com/FlavioCFOliveira/Gocene/index"
+	idx "github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -39,7 +39,7 @@ func TestDirectoryReaderReopen_Basic(t *testing.T) {
 		createTestIndex(t, dir, false)
 
 		// Open initial reader
-		reader1, err := index.OpenDirectoryReader(dir)
+		reader1, err := idx.OpenDirectoryReader(dir)
 		if err != nil {
 			t.Fatalf("Failed to open reader: %v", err)
 		}
@@ -73,7 +73,7 @@ func TestDirectoryReaderReopen_Basic(t *testing.T) {
 		// Create index with multiple segments
 		createTestIndex(t, dir, true)
 
-		reader, err := index.OpenDirectoryReader(dir)
+		reader, err := idx.OpenDirectoryReader(dir)
 		if err != nil {
 			t.Fatalf("Failed to open reader: %v", err)
 		}
@@ -97,7 +97,7 @@ func TestDirectoryReaderReopen_WithModifications(t *testing.T) {
 		// Create initial index
 		createTestIndex(t, dir, false)
 
-		reader1, err := index.OpenDirectoryReader(dir)
+		reader1, err := idx.OpenDirectoryReader(dir)
 		if err != nil {
 			t.Fatalf("Failed to open reader: %v", err)
 		}
@@ -105,9 +105,9 @@ func TestDirectoryReaderReopen_WithModifications(t *testing.T) {
 		initialDocs := reader1.NumDocs()
 
 		// Add more documents
-		config := index.NewIndexWriterConfig(createTestAnalyzer())
-		config.SetOpenMode(index.APPEND)
-		writer, err := index.NewIndexWriter(dir, config)
+		config := idx.NewIndexWriterConfig(createTestAnalyzer())
+		config.SetOpenMode(idx.APPEND)
+		writer, err := idx.NewIndexWriter(dir, config)
 		if err != nil {
 			reader1.Close()
 			t.Fatalf("Failed to create writer: %v", err)
@@ -169,7 +169,7 @@ func TestDirectoryReaderReopen_WithModifications(t *testing.T) {
 		// Create initial index
 		createTestIndex(t, dir, false)
 
-		reader1, err := index.OpenDirectoryReader(dir)
+		reader1, err := idx.OpenDirectoryReader(dir)
 		if err != nil {
 			t.Fatalf("Failed to open reader: %v", err)
 		}
@@ -177,16 +177,16 @@ func TestDirectoryReaderReopen_WithModifications(t *testing.T) {
 		initialDocs := reader1.NumDocs()
 
 		// Delete some documents
-		config := index.NewIndexWriterConfig(createTestAnalyzer())
-		config.SetOpenMode(index.APPEND)
-		writer, err := index.NewIndexWriter(dir, config)
+		config := idx.NewIndexWriterConfig(createTestAnalyzer())
+		config.SetOpenMode(idx.APPEND)
+		writer, err := idx.NewIndexWriter(dir, config)
 		if err != nil {
 			reader1.Close()
 			t.Fatalf("Failed to create writer: %v", err)
 		}
 
 		// Delete documents with specific field values
-		term := index.NewTerm("field2", "a11")
+		term := idx.NewTerm("field2", "a11")
 		if err := writer.DeleteDocuments(term); err != nil {
 			writer.Close()
 			reader1.Close()
@@ -225,11 +225,11 @@ func TestDirectoryReaderReopen_CommitReopen(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetOpenMode(index.CREATE)
-	config.SetMergeScheduler(index.NewSerialMergeScheduler())
+	config := idx.NewIndexWriterConfig(createTestAnalyzer())
+	config.SetOpenMode(idx.CREATE)
+	config.SetMergeScheduler(idx.NewSerialMergeScheduler())
 
-	writer, err := index.NewIndexWriter(dir, config)
+	writer, err := idx.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create writer: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestDirectoryReaderReopen_CommitReopen(t *testing.T) {
 		t.Fatalf("Failed to commit: %v", err)
 	}
 
-	reader, err := index.OpenDirectoryReader(dir)
+	reader, err := idx.OpenDirectoryReader(dir)
 	if err != nil {
 		writer.Close()
 		t.Fatalf("Failed to open reader: %v", err)
@@ -297,11 +297,11 @@ func TestDirectoryReaderReopen_CommitRecreate(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetOpenMode(index.CREATE)
-	config.SetMergeScheduler(index.NewSerialMergeScheduler())
+	config := idx.NewIndexWriterConfig(createTestAnalyzer())
+	config.SetOpenMode(idx.CREATE)
+	config.SetMergeScheduler(idx.NewSerialMergeScheduler())
 
-	writer, err := index.NewIndexWriter(dir, config)
+	writer, err := idx.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create writer: %v", err)
 	}
@@ -311,7 +311,7 @@ func TestDirectoryReaderReopen_CommitRecreate(t *testing.T) {
 		t.Fatalf("Failed to commit: %v", err)
 	}
 
-	reader, err := index.OpenDirectoryReader(dir)
+	reader, err := idx.OpenDirectoryReader(dir)
 	if err != nil {
 		writer.Close()
 		t.Fatalf("Failed to open reader: %v", err)
@@ -339,7 +339,7 @@ func TestDirectoryReaderReopen_CommitRecreate(t *testing.T) {
 
 		// Close old reader and create new one
 		reader.Close()
-		reader, err = index.OpenDirectoryReader(dir)
+		reader, err = idx.OpenDirectoryReader(dir)
 		if err != nil {
 			writer.Close()
 			t.Fatalf("Failed to open new reader: %v", err)
@@ -367,8 +367,8 @@ func TestDirectoryReaderReopen_ThreadSafety(t *testing.T) {
 	n := 20 // Number of threads
 
 	// Create initial index
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
+	config := idx.NewIndexWriterConfig(createTestAnalyzer())
+	writer, err := idx.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create writer: %v", err)
 	}
@@ -384,7 +384,7 @@ func TestDirectoryReaderReopen_ThreadSafety(t *testing.T) {
 	// Note: ForceMerge not yet implemented in Gocene
 	writer.Close()
 
-	reader, err := index.OpenDirectoryReader(dir)
+	reader, err := idx.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -402,8 +402,8 @@ func TestDirectoryReaderReopen_ThreadSafety(t *testing.T) {
 			r := rand.New(rand.NewSource(int64(index)))
 
 			// Add document
-			modifierConfig := index.NewIndexWriterConfig(createTestAnalyzer())
-			modifier, err := index.NewIndexWriter(dir, modifierConfig)
+			modifierConfig := idx.NewIndexWriterConfig(createTestAnalyzer())
+			modifier, err := idx.NewIndexWriter(dir, modifierConfig)
 			if err != nil {
 				errors <- fmt.Errorf("thread %d: failed to create modifier: %v", index, err)
 				return
@@ -453,8 +453,8 @@ func TestDirectoryReaderReopen_NRTReader(t *testing.T) {
 		dir := store.NewByteBuffersDirectory()
 		defer dir.Close()
 
-		config := index.NewIndexWriterConfig(createTestAnalyzer())
-		writer, err := index.NewIndexWriter(dir, config)
+		config := idx.NewIndexWriterConfig(createTestAnalyzer())
+		writer, err := idx.NewIndexWriter(dir, config)
 		if err != nil {
 			t.Fatalf("Failed to create writer: %v", err)
 		}
@@ -475,7 +475,7 @@ func TestDirectoryReaderReopen_NRTReader(t *testing.T) {
 		}
 
 		// Open reader
-		reader, err := index.OpenDirectoryReader(dir)
+		reader, err := idx.OpenDirectoryReader(dir)
 		if err != nil {
 			writer.Close()
 			t.Fatalf("Failed to open reader: %v", err)
@@ -535,13 +535,13 @@ func TestDirectoryReaderReopen_ReaderEquality(t *testing.T) {
 	createTestIndex(t, dir, false)
 
 	// Open two readers
-	reader1, err := index.OpenDirectoryReader(dir)
+	reader1, err := idx.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader1: %v", err)
 	}
 	defer reader1.Close()
 
-	reader2, err := index.OpenDirectoryReader(dir)
+	reader2, err := idx.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader2: %v", err)
 	}
@@ -567,10 +567,10 @@ func TestDirectoryReaderReopen_SegmentReuse(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
+	config := idx.NewIndexWriterConfig(createTestAnalyzer())
 	// Note: NoMergePolicy not yet implemented, using default TieredMergePolicy
 
-	writer, err := index.NewIndexWriter(dir, config)
+	writer, err := idx.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create writer: %v", err)
 	}
@@ -598,7 +598,7 @@ func TestDirectoryReaderReopen_SegmentReuse(t *testing.T) {
 		t.Fatalf("Failed to commit: %v", err)
 	}
 
-	reader, err := index.OpenDirectoryReader(dir)
+	reader, err := idx.OpenDirectoryReader(dir)
 	if err != nil {
 		writer.Close()
 		t.Fatalf("Failed to open reader: %v", err)
@@ -660,8 +660,8 @@ func TestDirectoryReaderReopen_ConcurrentAccess(t *testing.T) {
 	defer dir.Close()
 
 	// Create initial index
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
+	config := idx.NewIndexWriterConfig(createTestAnalyzer())
+	writer, err := idx.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create writer: %v", err)
 	}
@@ -680,7 +680,7 @@ func TestDirectoryReaderReopen_ConcurrentAccess(t *testing.T) {
 	}
 	writer.Close()
 
-	reader, err := index.OpenDirectoryReader(dir)
+	reader, err := idx.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -718,7 +718,7 @@ func TestDirectoryReaderReopen_RefCount(t *testing.T) {
 
 	createTestIndex(t, dir, false)
 
-	reader, err := index.OpenDirectoryReader(dir)
+	reader, err := idx.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -760,10 +760,10 @@ func TestDirectoryReaderReopen_MultipleCommits(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetOpenMode(index.CREATE)
+	config := idx.NewIndexWriterConfig(createTestAnalyzer())
+	config.SetOpenMode(idx.CREATE)
 
-	writer, err := index.NewIndexWriter(dir, config)
+	writer, err := idx.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create writer: %v", err)
 	}
@@ -787,7 +787,7 @@ func TestDirectoryReaderReopen_MultipleCommits(t *testing.T) {
 
 	// Delete documents
 	for i := 0; i < 4; i++ {
-		term := index.NewTerm("id", fmt.Sprintf("%d", i))
+		term := idx.NewTerm("id", fmt.Sprintf("%d", i))
 		if err := writer.DeleteDocuments(term); err != nil {
 			writer.Close()
 			t.Fatalf("Failed to delete documents: %v", err)
@@ -802,7 +802,7 @@ func TestDirectoryReaderReopen_MultipleCommits(t *testing.T) {
 	writer.Close()
 
 	// Open reader - should see 0 documents
-	reader, err := index.OpenDirectoryReader(dir)
+	reader, err := idx.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -820,10 +820,10 @@ func TestDirectoryReaderReopen_EmptyIndex(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetOpenMode(index.CREATE)
+	config := idx.NewIndexWriterConfig(createTestAnalyzer())
+	config.SetOpenMode(idx.CREATE)
 
-	writer, err := index.NewIndexWriter(dir, config)
+	writer, err := idx.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create writer: %v", err)
 	}
@@ -834,7 +834,7 @@ func TestDirectoryReaderReopen_EmptyIndex(t *testing.T) {
 	}
 	writer.Close()
 
-	reader, err := index.OpenDirectoryReader(dir)
+	reader, err := idx.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -869,17 +869,17 @@ func TestDirectoryReaderReopen_ForceMerge(t *testing.T) {
 	// Create multi-segment index
 	createTestIndex(t, dir, true)
 
-	reader1, err := index.OpenDirectoryReader(dir)
+	reader1, err := idx.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
 
-	initialSegments := len(reader1.GetSegmentReaders())
+	_ = len(reader1.GetSegmentReaders()) // initialSegments
 
 	// Force merge
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetOpenMode(index.APPEND)
-	writer, err := index.NewIndexWriter(dir, config)
+	config := idx.NewIndexWriterConfig(createTestAnalyzer())
+	config.SetOpenMode(idx.APPEND)
+	writer, err := idx.NewIndexWriter(dir, config)
 	if err != nil {
 		reader1.Close()
 		t.Fatalf("Failed to create writer: %v", err)
@@ -919,12 +919,12 @@ func TestDirectoryReaderReopen_ForceMerge(t *testing.T) {
 
 // createTestIndex creates a test index with the specified number of segments
 func createTestIndex(t *testing.T, dir store.Directory, multiSegment bool) {
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
+	config := idx.NewIndexWriterConfig(createTestAnalyzer())
 	// Note: NoMergePolicy not yet implemented, using default TieredMergePolicy
 	// For multi-segment, we commit frequently to create more segments
 	// For single segment, we let the merge policy work
 
-	writer, err := index.NewIndexWriter(dir, config)
+	writer, err := idx.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create writer: %v", err)
 	}

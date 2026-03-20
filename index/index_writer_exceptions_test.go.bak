@@ -196,7 +196,7 @@ func TestIndexWriter_RandomExceptions(t *testing.T) {
 	}
 
 	// Verify index consistency
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -272,7 +272,7 @@ func TestIndexWriter_RandomExceptionsThreads(t *testing.T) {
 	}
 
 	// Verify index consistency
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -449,7 +449,7 @@ func TestIndexWriter_ExceptionFromTokenStream(t *testing.T) {
 	}
 
 	// Verify index state
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -567,7 +567,7 @@ func TestIndexWriter_DocumentsWriterExceptions(t *testing.T) {
 		}
 
 		// Verify index
-		reader, err := index.NewDirectoryReader(dir)
+		reader, err := index.OpenDirectoryReader(dir)
 		if err != nil {
 			t.Fatalf("Failed to open reader: %v", err)
 		}
@@ -629,7 +629,7 @@ func TestIndexWriter_DocumentsWriterExceptionFailOneDoc(t *testing.T) {
 		}
 
 		// Verify index
-		reader, err := index.NewDirectoryReader(dir)
+		reader, err := index.OpenDirectoryReader(dir)
 		if err != nil {
 			t.Fatalf("Failed to open reader: %v", err)
 		}
@@ -715,7 +715,7 @@ func TestIndexWriter_DocumentsWriterExceptionThreads(t *testing.T) {
 		}
 
 		// Verify index
-		reader, err := index.NewDirectoryReader(dir)
+		reader, err := index.OpenDirectoryReader(dir)
 		if err != nil {
 			t.Fatalf("Failed to open reader: %v", err)
 		}
@@ -768,7 +768,7 @@ func TestIndexWriter_ExceptionDuringSync(t *testing.T) {
 	}
 
 	// Verify index
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -1022,7 +1022,7 @@ func TestIndexWriter_SegmentsChecksumError(t *testing.T) {
 	// In real implementation, would modify checksum byte
 
 	// Opening should throw CorruptIndexException
-	_, err = index.NewDirectoryReader(dir)
+	_, err = index.OpenDirectoryReader(dir)
 	if err == nil {
 		t.Error("Expected CorruptIndexException when opening corrupted index")
 	}
@@ -1059,7 +1059,7 @@ func TestIndexWriter_SimulatedCorruptIndex1(t *testing.T) {
 	// In real implementation, would copy all but last byte
 
 	// Opening should throw exception
-	_, err = index.NewDirectoryReader(dir)
+	_, err = index.OpenDirectoryReader(dir)
 	if err == nil {
 		t.Error("Expected exception when opening truncated index")
 	}
@@ -1099,7 +1099,7 @@ func TestIndexWriter_SimulatedCorruptIndex2(t *testing.T) {
 	// In real implementation, would delete a random file from segment
 
 	// Opening should throw exception
-	_, err = index.NewDirectoryReader(dir)
+	_, err = index.OpenDirectoryReader(dir)
 	if err == nil {
 		t.Error("Expected exception when opening index with missing file")
 	}
@@ -1359,7 +1359,7 @@ func TestIndexWriter_NullStoredField(t *testing.T) {
 	}
 
 	// Verify good doc is in index
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -1408,7 +1408,7 @@ func TestIndexWriter_NullStoredFieldReuse(t *testing.T) {
 	}
 
 	// Verify good doc is in index
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -1456,7 +1456,7 @@ func TestIndexWriter_NullStoredBytesField(t *testing.T) {
 	}
 
 	// Verify good doc is in index
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -1505,7 +1505,7 @@ func TestIndexWriter_NullStoredBytesFieldReuse(t *testing.T) {
 	}
 
 	// Verify good doc is in index
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -1553,7 +1553,7 @@ func TestIndexWriter_NullStoredBytesRefField(t *testing.T) {
 	}
 
 	// Verify good doc is in index
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -1602,7 +1602,7 @@ func TestIndexWriter_NullStoredBytesRefFieldReuse(t *testing.T) {
 	}
 
 	// Verify good doc is in index
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -1650,7 +1650,7 @@ func TestIndexWriter_NullStoredDataInputField(t *testing.T) {
 	}
 
 	// Verify good doc is in index
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -1704,7 +1704,7 @@ func TestIndexWriter_CrazyPositionIncrementGap(t *testing.T) {
 	}
 
 	// Verify good doc is in index
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -1772,7 +1772,7 @@ func TestIndexWriter_TooManyFileException(t *testing.T) {
 		t.Fatalf("Failed to commit: %v", err)
 	}
 
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -1805,7 +1805,7 @@ func TestIndexWriter_TooManyFileException(t *testing.T) {
 			t.Logf("Close error (may be expected): %v", err)
 		}
 
-		reader, err := index.NewDirectoryReader(dir)
+		reader, err := index.OpenDirectoryReader(dir)
 		if err != nil {
 			t.Fatalf("Failed to open reader: %v", err)
 		}
@@ -1818,7 +1818,7 @@ func TestIndexWriter_TooManyFileException(t *testing.T) {
 	}
 
 	// Verify document still exists
-	reader, err = index.NewDirectoryReader(dir)
+	reader, err = index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -1910,7 +1910,7 @@ func TestIndexWriter_ExceptionDuringRollback(t *testing.T) {
 	}
 
 	// Verify index state
-	reader, err = index.NewDirectoryReader(dir)
+	reader, err = index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
@@ -1977,7 +1977,7 @@ func TestIndexWriter_RandomExceptionDuringRollback(t *testing.T) {
 		}
 
 		// Verify index state
-		reader, err = index.NewDirectoryReader(dir)
+		reader, err = index.OpenDirectoryReader(dir)
 		if err != nil {
 			t.Logf("Open reader error (may be expected): %v", err)
 			dir.Close()
@@ -2119,7 +2119,7 @@ func TestIndexWriter_ExceptionOnSyncMetadata(t *testing.T) {
 	}
 
 	// Should be able to open index
-	reader, err := index.NewDirectoryReader(dir)
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("Failed to open reader: %v", err)
 	}
