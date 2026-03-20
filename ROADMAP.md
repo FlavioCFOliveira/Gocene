@@ -129,7 +129,7 @@ Implement spatial indexing and search for location-based queries.
 | GC-708 | ~~ShapeIOReader~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ Shape I/O reader with buffered reading and batch support |
 | GC-709 | ~~ShapeIOWriter~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ Shape I/O writer with buffered writing and batch support |
 | GC-710 | ~~SpatialIndexWriter~~ | HIGH | ~~COMPLETED 2026-03-20:~~ Spatial index writer with strategy registration and document lifecycle management |
-| GC-711 | SpatialIndexReader | HIGH | Spatial index reader |
+| GC-711 | ~~SpatialIndexReader~~ | HIGH | ~~COMPLETED 2026-03-20:~~ Spatial index reader with query creation and distance value source support |
 | GC-712 | SpatialIndexFormat | HIGH | Spatial index format |
 | GC-713 | SpatialTestSuite | HIGH | Comprehensive spatial tests |
 | GC-714 | SpatialBenchmark | MEDIUM | Spatial performance benchmarks |
@@ -284,6 +284,7 @@ Implement analyzers for additional languages.
 | GC-707 | MEDIUM | MEDIUM | Spatial4jShapeDecoder | go-elite-developer | 2026-03-20 | Spatial4j shape decoder with WKT and binary format support |
 | GC-708 | MEDIUM | MEDIUM | ShapeIOReader | go-elite-developer | 2026-03-20 | Shape I/O reader with buffered reading and batch support |
 | GC-710 | HIGH | HIGH | SpatialIndexWriter | go-elite-developer | 2026-03-20 | Spatial index writer with strategy registration and document lifecycle management |
+| GC-711 | HIGH | HIGH | SpatialIndexReader | go-elite-developer | 2026-03-20 | Spatial index reader with query creation and distance value source support |
 
 ### Phase 42: Advanced Facets (COMPLETED: 2026-03-15)
 
