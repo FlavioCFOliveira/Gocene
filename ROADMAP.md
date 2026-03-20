@@ -25,7 +25,7 @@ Este roadmap contém todas as tarefas pendentes para completar o port de Apache 
 | 42 | COMPLETED | 35 | Alta | Advanced Facets | Phase 41 |
 | 43 | COMPLETED | 11 | Alta | Join/Grouping/Highlight | Phase 42 |
 | 44 | COMPLETED | 40 | Alta | Compressing Codecs | Phase 43 |
-| 45 | IN_PROGRESS | 17/35 completed | Alta | Spatial Fields | Phase 44 |
+| 45 | IN_PROGRESS | 18/35 completed | Alta | Spatial Fields | Phase 44 |
 | 46 | PENDING | 35 | Alta | NRT Search | Phase 45 |
 | 47 | PENDING | 40 | Média | Additional Languages | Phase 46 |
 
@@ -91,7 +91,7 @@ Implement compression codecs for efficient storage.
 
 ## FASE 45: Spatial Fields and Queries (IN_PROGRESS)
 
-**Status:** IN_PROGRESS | **Tasks:** 17/35 completed | **Focus:** Geospatial search capabilities
+**Status:** IN_PROGRESS | **Tasks:** 18/35 completed | **Focus:** Geospatial search capabilities
 **Dependencies:** Phase 44 (Compressing Codec Completion)
 
 Implement spatial indexing and search for location-based queries.
@@ -106,7 +106,7 @@ Implement spatial indexing and search for location-based queries.
 | GC-685 | ~~GeohashPrefixTree~~ | HIGH | ~~COMPLETED 2026-03-20:~~ Geohash prefix tree with base32 encoding and 32-subdivision cells |
 | GC-686 | ~~QuadPrefixTree~~ | HIGH | ~~COMPLETED 2026-03-20:~~ Quad tree prefix with 4-subdivision cells (SW, SE, NW, NE) |
 | GC-687 | ~~SpatialPrefixTree~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ Base spatial prefix tree interface with common functionality |
-| GC-688 | SpatialPrefixTreeFieldCacheProvider | MEDIUM | Field cache provider for spatial prefix trees |
+| GC-688 | ~~SpatialPrefixTreeFieldCacheProvider~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ Field cache provider for spatial prefix trees with thread-safe caching |
 | GC-689 | Cell | MEDIUM | ~~COMPLETED 2026-03-20:~~ Spatial cell interface and implementations (GeohashCell, QuadCell) |
 | GC-690 | Node | MEDIUM | Prefix tree node implementation |
 | GC-691 | ~~SpatialArgs~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ Spatial arguments container with operation, shape, and error parameters |
@@ -273,6 +273,7 @@ Implement analyzers for additional languages.
 | GC-682 | HIGH | HIGH | BBoxStrategy | go-elite-developer | 2026-03-20 | Bounding box spatial strategy with four DoublePoint fields (minX, maxX, minY, maxY) and spatial operations |
 | GC-683 | MEDIUM | MEDIUM | SerializedDVStrategy | go-elite-developer | 2026-03-20 | Serialized docvalues strategy with binary shape serialization for Point and Rectangle |
 | GC-684 | HIGH | HIGH | PrefixTreeStrategy | go-elite-developer | 2026-03-20 | Prefix tree spatial strategy with configurable detail levels and grid-based indexing |
+| GC-688 | MEDIUM | MEDIUM | SpatialPrefixTreeFieldCacheProvider | go-elite-developer | 2026-03-20 | Field cache provider for spatial prefix trees with thread-safe caching using sync.RWMutex |
 
 ### Phase 42: Advanced Facets (COMPLETED: 2026-03-15)
 
