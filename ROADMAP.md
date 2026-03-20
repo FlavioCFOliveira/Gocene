@@ -25,7 +25,7 @@ Este roadmap contém todas as tarefas pendentes para completar o port de Apache 
 | 42 | COMPLETED | 35 | Alta | Advanced Facets | Phase 41 |
 | 43 | COMPLETED | 11 | Alta | Join/Grouping/Highlight | Phase 42 |
 | 44 | COMPLETED | 40 | Alta | Compressing Codecs | Phase 43 |
-| 45 | IN_PROGRESS | 20/35 completed | Alta | Spatial Fields | Phase 44 |
+| 45 | IN_PROGRESS | 21/35 completed | Alta | Spatial Fields | Phase 44 |
 | 46 | PENDING | 35 | Alta | NRT Search | Phase 45 |
 | 47 | PENDING | 40 | Média | Additional Languages | Phase 46 |
 
@@ -91,7 +91,7 @@ Implement compression codecs for efficient storage.
 
 ## FASE 45: Spatial Fields and Queries (IN_PROGRESS)
 
-**Status:** IN_PROGRESS | **Tasks:** 20/35 completed | **Focus:** Geospatial search capabilities
+**Status:** IN_PROGRESS | **Tasks:** 21/35 completed | **Focus:** Geospatial search capabilities
 **Dependencies:** Phase 44 (Compressing Codec Completion)
 
 Implement spatial indexing and search for location-based queries.
@@ -120,7 +120,7 @@ Implement spatial indexing and search for location-based queries.
 | GC-699 | ~~ShapeValues~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ Shape values abstraction for accessing spatial data |
 | GC-700 | ~~ShapeValuesSource~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ Shape values source for distance-based value calculations |
 | GC-701 | ~~ShapeValue~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ Single shape value with serialization support for Point and Rectangle types |
-| GC-702 | ShapeFieldType | MEDIUM | Shape field type |
+| GC-702 | ~~ShapeFieldType~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ Spatial shape field type with indexing, storage and doc values configuration |
 | GC-703 | SpatialQueryParser | MEDIUM | Spatial query parser |
 | GC-704 | SpatialQueryParserPlugin | LOW | Query parser plugin |
 | GC-705 | JTSGeometrySerializer | MEDIUM | JTS geometry serializer |
@@ -276,6 +276,7 @@ Implement analyzers for additional languages.
 | GC-688 | MEDIUM | MEDIUM | SpatialPrefixTreeFieldCacheProvider | go-elite-developer | 2026-03-20 | Field cache provider for spatial prefix trees with thread-safe caching using sync.RWMutex |
 | GC-690 | MEDIUM | MEDIUM | Node | go-elite-developer | 2026-03-20 | Prefix tree node implementation with parent-child relationships and tree traversal |
 | GC-701 | MEDIUM | MEDIUM | ShapeValue | go-elite-developer | 2026-03-20 | Single shape value with serialization support for Point and Rectangle types |
+| GC-702 | MEDIUM | MEDIUM | ShapeFieldType | go-elite-developer | 2026-03-20 | Spatial shape field type with indexing, storage and doc values configuration |
 
 ### Phase 42: Advanced Facets (COMPLETED: 2026-03-15)
 
