@@ -377,7 +377,7 @@ func (list ShapeValueList) Swap(i, j int) {
 // ShapeValueListByDocID sorts ShapeValueList by document ID.
 type ShapeValueListByDocID ShapeValueList
 
-func (list ShapeValueListByDocID) Len() int { return len(list) }
+func (list ShapeValueListByDocID) Len() int      { return len(list) }
 func (list ShapeValueListByDocID) Swap(i, j int) { list[i], list[j] = list[j], list[i] }
 func (list ShapeValueListByDocID) Less(i, j int) bool {
 	return list[i].GetDocID() < list[j].GetDocID()
@@ -386,7 +386,7 @@ func (list ShapeValueListByDocID) Less(i, j int) bool {
 // ShapeValueListByFieldName sorts ShapeValueList by field name.
 type ShapeValueListByFieldName ShapeValueList
 
-func (list ShapeValueListByFieldName) Len() int { return len(list) }
+func (list ShapeValueListByFieldName) Len() int      { return len(list) }
 func (list ShapeValueListByFieldName) Swap(i, j int) { list[i], list[j] = list[j], list[i] }
 func (list ShapeValueListByFieldName) Less(i, j int) bool {
 	return list[i].GetFieldName() < list[j].GetFieldName()

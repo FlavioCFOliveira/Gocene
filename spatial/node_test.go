@@ -18,40 +18,40 @@ type NodeTestMockCell struct {
 
 func (m *NodeTestMockCell) GetToken() string                 { return m.token }
 func (m *NodeTestMockCell) GetLevel() int                    { return m.level }
-func (m *NodeTestMockCell) GetShape() Shape                 { return m.bbox }
-func (m *NodeTestMockCell) IsLeaf() bool                    { return m.isLeaf }
-func (m *NodeTestMockCell) GetBoundingBox() *Rectangle      { return m.bbox }
+func (m *NodeTestMockCell) GetShape() Shape                  { return m.bbox }
+func (m *NodeTestMockCell) IsLeaf() bool                     { return m.isLeaf }
+func (m *NodeTestMockCell) GetBoundingBox() *Rectangle       { return m.bbox }
 func (m *NodeTestMockCell) IntersectsShape(shape Shape) bool { return true }
 
 func TestNewNode(t *testing.T) {
 	cell := &NodeTestMockCell{token: "abc", level: 3, bbox: NewRectangle(0, 0, 1, 1), isLeaf: false}
 
 	tests := []struct {
-		name     string
-		cell     Cell
-		parent   *Node
-		wantNil  bool
+		name      string
+		cell      Cell
+		parent    *Node
+		wantNil   bool
 		wantLevel int
 	}{
 		{
-			name:     "valid node with cell",
-			cell:     cell,
-			parent:   nil,
-			wantNil:  false,
+			name:      "valid node with cell",
+			cell:      cell,
+			parent:    nil,
+			wantNil:   false,
 			wantLevel: 3,
 		},
 		{
-			name:     "nil cell returns nil",
-			cell:     nil,
-			parent:   nil,
-			wantNil:  true,
+			name:      "nil cell returns nil",
+			cell:      nil,
+			parent:    nil,
+			wantNil:   true,
 			wantLevel: 0,
 		},
 		{
-			name:     "node with parent",
-			cell:     &NodeTestMockCell{token: "abcd", level: 4, bbox: NewRectangle(0, 0, 1, 1)},
-			parent:   NewNode(cell, nil),
-			wantNil:  false,
+			name:      "node with parent",
+			cell:      &NodeTestMockCell{token: "abcd", level: 4, bbox: NewRectangle(0, 0, 1, 1)},
+			parent:    NewNode(cell, nil),
+			wantNil:   false,
 			wantLevel: 4,
 		},
 	}
