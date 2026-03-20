@@ -2,13 +2,16 @@ package index
 
 import (
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // mockSegmentCommitInfo creates a mock SegmentCommitInfo for testing
 func mockSegmentCommitInfoForNRT() *SegmentCommitInfo {
+	dir := store.NewByteBuffersDirectory()
 	return NewSegmentCommitInfo(
-		NewSegmentInfo("test", 100, 7, 1000, "test", nil, nil, nil),
-		0, 0, "",
+		NewSegmentInfo("test", 100, dir),
+		0, 0,
 	)
 }
 

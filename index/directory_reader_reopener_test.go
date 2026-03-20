@@ -4,10 +4,24 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
+// createTestDirectoryReader creates a minimal DirectoryReader for testing
+func createTestDirectoryReader(t *testing.T) *DirectoryReader {
+	dir := store.NewByteBuffersDirectory()
+	reader, err := OpenDirectoryReader(dir)
+	if err != nil {
+		// If we can't open (no segments), create a minimal reader
+		// by using a basic DirectoryReader with the directory
+		t.Fatalf("failed to create directory reader: %v", err)
+	}
+	return reader
+}
+
 func TestNewDirectoryReaderReopener(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createTestDirectoryReader(t)
 
 	reopener, err := NewDirectoryReaderReopener(reader)
 	if err != nil {
@@ -36,7 +50,7 @@ func TestNewDirectoryReaderReopener_Nil(t *testing.T) {
 }
 
 func TestNewDirectoryReaderReopenerWithWriter(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createTestDirectoryReader(t)
 	writer := &IndexWriter{}
 
 	reopener, err := NewDirectoryReaderReopenerWithWriter(reader, writer)
@@ -55,7 +69,7 @@ func TestNewDirectoryReaderReopenerWithWriter(t *testing.T) {
 }
 
 func TestDirectoryReaderReopener_MaybeReopen(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createTestDirectoryReader(t)
 
 	reopener, err := NewDirectoryReaderReopener(reader)
 	if err != nil {
@@ -76,7 +90,7 @@ func TestDirectoryReaderReopener_MaybeReopen(t *testing.T) {
 }
 
 func TestDirectoryReaderReopener_MaybeReopen_Closed(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createTestDirectoryReader(t)
 
 	reopener, err := NewDirectoryReaderReopener(reader)
 	if err != nil {
@@ -92,7 +106,7 @@ func TestDirectoryReaderReopener_MaybeReopen_Closed(t *testing.T) {
 }
 
 func TestDirectoryReaderReopener_Reopen(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createTestDirectoryReader(t)
 
 	reopener, err := NewDirectoryReaderReopener(reader)
 	if err != nil {
@@ -112,7 +126,7 @@ func TestDirectoryReaderReopener_Reopen(t *testing.T) {
 }
 
 func TestDirectoryReaderReopener_Reopen_Closed(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createTestDirectoryReader(t)
 
 	reopener, err := NewDirectoryReaderReopener(reader)
 	if err != nil {
@@ -128,7 +142,7 @@ func TestDirectoryReaderReopener_Reopen_Closed(t *testing.T) {
 }
 
 func TestDirectoryReaderReopener_GetCurrent(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createTestDirectoryReader(t)
 
 	reopener, err := NewDirectoryReaderReopener(reader)
 	if err != nil {
@@ -143,7 +157,7 @@ func TestDirectoryReaderReopener_GetCurrent(t *testing.T) {
 }
 
 func TestDirectoryReaderReopener_Close(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createTestDirectoryReader(t)
 
 	reopener, err := NewDirectoryReaderReopener(reader)
 	if err != nil {
@@ -167,7 +181,7 @@ func TestDirectoryReaderReopener_Close(t *testing.T) {
 }
 
 func TestDirectoryReaderReopener_SetApplyAllDeletes(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createTestDirectoryReader(t)
 
 	reopener, err := NewDirectoryReaderReopener(reader)
 	if err != nil {
@@ -188,7 +202,7 @@ func TestDirectoryReaderReopener_SetApplyAllDeletes(t *testing.T) {
 }
 
 func TestDirectoryReaderReopener_SetMinReopenInterval(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createTestDirectoryReader(t)
 
 	reopener, err := NewDirectoryReaderReopener(reader)
 	if err != nil {
@@ -210,11 +224,11 @@ func TestDirectoryReaderReopener_SetMinReopenInterval(t *testing.T) {
 
 // mockReopenListener is a mock implementation of ReopenListener for testing
 type mockReopenListener struct {
-	onReopenCalled     bool
+	onReopenCalled      bool
 	onReopenErrorCalled bool
-	lastOldReader      *DirectoryReader
-	lastNewReader      *DirectoryReader
-	lastError          error
+	lastOldReader       *DirectoryReader
+	lastNewReader       *DirectoryReader
+	lastError           error
 }
 
 func (m *mockReopenListener) OnReopen(oldReader, newReader *DirectoryReader) {
@@ -229,7 +243,7 @@ func (m *mockReopenListener) OnReopenError(err error) {
 }
 
 func TestDirectoryReaderReopener_AddReopenListener(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createTestDirectoryReader(t)
 
 	reopener, err := NewDirectoryReaderReopener(reader)
 	if err != nil {
@@ -249,7 +263,7 @@ func TestDirectoryReaderReopener_AddReopenListener(t *testing.T) {
 }
 
 func TestDirectoryReaderReopener_RemoveReopenListener(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createTestDirectoryReader(t)
 
 	reopener, err := NewDirectoryReaderReopener(reader)
 	if err != nil {
@@ -270,7 +284,7 @@ func TestDirectoryReaderReopener_RemoveReopenListener(t *testing.T) {
 }
 
 func TestDirectoryReaderReopener_SetCommitUserData(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createTestDirectoryReader(t)
 
 	reopener, err := NewDirectoryReaderReopener(reader)
 	if err != nil {
@@ -302,7 +316,7 @@ func TestDirectoryReaderReopener_SetCommitUserData(t *testing.T) {
 }
 
 func TestDirectoryReaderReopener_HasWriter(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createTestDirectoryReader(t)
 
 	// Without writer
 	reopener1, _ := NewDirectoryReaderReopener(reader)
@@ -322,7 +336,7 @@ func TestDirectoryReaderReopener_HasWriter(t *testing.T) {
 }
 
 func TestDirectoryReaderReopener_GetLastReopenTime(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createTestDirectoryReader(t)
 
 	reopener, err := NewDirectoryReaderReopener(reader)
 	if err != nil {
@@ -345,7 +359,7 @@ func TestDirectoryReaderReopener_GetLastReopenTime(t *testing.T) {
 }
 
 func TestDirectoryReaderReopener_MinReopenInterval(t *testing.T) {
-	reader := NewDirectoryReader()
+	reader := createTestDirectoryReader(t)
 
 	reopener, err := NewDirectoryReaderReopener(reader)
 	if err != nil {
