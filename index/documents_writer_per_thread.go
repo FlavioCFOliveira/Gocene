@@ -700,6 +700,15 @@ func (p *postingTermsAdapter) HasPayloads() bool      { return false }
 func (p *postingTermsAdapter) GetMin() (*Term, error) { return nil, nil }
 func (p *postingTermsAdapter) GetMax() (*Term, error) { return nil, nil }
 
+// GetPostingsReader returns the postings for a term.
+func (p *postingTermsAdapter) GetPostingsReader(termText string, flags int) (PostingsEnum, error) {
+	posting, ok := p.postings.terms[termText]
+	if !ok {
+		return nil, nil
+	}
+	return NewSingleDocPostingsEnum(posting.docIDs[0], posting.freqs[0]), nil
+}
+
 // getSortedTerms returns sorted term strings from postings
 func getSortedTerms(postings *FieldPostings) []string {
 	postings.mu.RLock()

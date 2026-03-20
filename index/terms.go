@@ -21,6 +21,14 @@ type Terms interface {
 	// Returns nil TermsEnum if there are no terms on or after the given term.
 	GetIteratorWithSeek(seekTerm *Term) (TermsEnum, error)
 
+	// GetPostingsReader returns a PostingsEnum for the given term text.
+	// The flags parameter controls what data is returned:
+	//   - 0: only doc IDs
+	//   - 1: doc IDs and term frequencies
+	//   - 2: doc IDs, term frequencies, positions, offsets, and payloads
+	// Returns nil if the term is not found.
+	GetPostingsReader(termText string, flags int) (PostingsEnum, error)
+
 	// Size returns the number of unique terms in this field.
 	// Returns -1 if the size is unknown (e.g., for multi-segment indexes).
 	Size() int64
@@ -144,6 +152,11 @@ func (e *EmptyTerms) GetIteratorWithSeek(seekTerm *Term) (TermsEnum, error) {
 	return &EmptyTermsEnum{}, nil
 }
 
+// GetPostingsReader returns nil for empty terms.
+func (e *EmptyTerms) GetPostingsReader(termText string, flags int) (PostingsEnum, error) {
+	return nil, nil
+}
+
 // GetMin returns nil.
 func (e *EmptyTerms) GetMin() (*Term, error) {
 	return nil, nil
@@ -224,4 +237,12 @@ func (s *SingleTermTerms) GetMin() (*Term, error) {
 // GetMax returns the single term.
 func (s *SingleTermTerms) GetMax() (*Term, error) {
 	return s.term, nil
+}
+
+// GetPostingsReader returns a SinglePostingsEnum for the term if it matches.
+func (s *SingleTermTerms) GetPostingsReader(termText string, flags int) (PostingsEnum, error) {
+	if s.term == nil || s.term.Text() != termText {
+		return nil, nil
+	}
+	return NewSinglePostingsEnum(s.docFreq, int(s.totalFreq)), nil
 }

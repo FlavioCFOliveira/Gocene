@@ -291,6 +291,30 @@ func (t *BlockTreeTerms) GetMax() (*index.Term, error) {
 	return nil, nil
 }
 
+// GetPostingsReader returns the postings for a term.
+func (t *BlockTreeTerms) GetPostingsReader(termText string, flags int) (index.PostingsEnum, error) {
+	// Create a term to seek
+	seekTerm := index.NewTerm(t.fieldName, termText)
+
+	// Get iterator positioned at the term
+	iter, err := t.GetIteratorWithSeek(seekTerm)
+	if err != nil {
+		return nil, err
+	}
+	if iter == nil {
+		return nil, nil
+	}
+
+	// Get current term
+	currTerm := iter.Term()
+	if currTerm == nil || currTerm.Text() != termText {
+		return nil, nil
+	}
+
+	// Get postings
+	return iter.Postings(flags)
+}
+
 // BlockTreeTermsEnum implements index.TermsEnum for block tree terms.
 type BlockTreeTermsEnum struct {
 	terms       *BlockTreeTerms
