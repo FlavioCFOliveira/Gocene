@@ -121,7 +121,7 @@ Implement spatial indexing and search for location-based queries.
 | GC-700 | ~~ShapeValuesSource~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ Shape values source for distance-based value calculations |
 | GC-701 | ~~ShapeValue~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ Single shape value with serialization support for Point and Rectangle types |
 | GC-702 | ~~ShapeFieldType~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ Spatial shape field type with indexing, storage and doc values configuration |
-| GC-703 | SpatialQueryParser | MEDIUM | Spatial query parser |
+| GC-703 | ~~SpatialQueryParser~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ Spatial query parser with support for Intersects, IsWithin, Contains, function-style queries (geo_distance, geo_box), and multiple point formats |
 | GC-704 | SpatialQueryParserPlugin | LOW | Query parser plugin |
 | GC-705 | JTSGeometrySerializer | MEDIUM | JTS geometry serializer |
 | GC-706 | JTSGeometryDecoder | MEDIUM | JTS geometry decoder |
@@ -277,6 +277,7 @@ Implement analyzers for additional languages.
 | GC-690 | MEDIUM | MEDIUM | Node | go-elite-developer | 2026-03-20 | Prefix tree node implementation with parent-child relationships and tree traversal |
 | GC-701 | MEDIUM | MEDIUM | ShapeValue | go-elite-developer | 2026-03-20 | Single shape value with serialization support for Point and Rectangle types |
 | GC-702 | MEDIUM | MEDIUM | ShapeFieldType | go-elite-developer | 2026-03-20 | Spatial shape field type with indexing, storage and doc values configuration |
+| GC-703 | MEDIUM | MEDIUM | SpatialQueryParser | go-elite-developer | 2026-03-20 | Spatial query parser with support for Intersects, IsWithin, Contains, function-style queries (geo_distance, geo_box), and multiple point formats |
 
 ### Phase 42: Advanced Facets (COMPLETED: 2026-03-15)
 
