@@ -132,7 +132,7 @@ Implement spatial indexing and search for location-based queries.
 | GC-711 | ~~SpatialIndexReader~~ | HIGH | ~~COMPLETED 2026-03-20:~~ Spatial index reader with query creation and distance value source support |
 | GC-712 | ~~SpatialIndexFormat~~ | HIGH | ~~COMPLETED 2026-03-20:~~ Spatial index format with file header and metadata support |
 | GC-713 | ~~SpatialTestSuite~~ | HIGH | ~~COMPLETED 2026-03-20:~~ Comprehensive spatial test suite with 17 test functions |
-| GC-714 | SpatialBenchmark | MEDIUM | Spatial performance benchmarks |
+| GC-714 | ~~SpatialBenchmark~~ | MEDIUM | ~~COMPLETED 2026-03-20:~~ Spatial performance benchmarks with 16 benchmark functions |
 
 ---
 
@@ -287,6 +287,7 @@ Implement analyzers for additional languages.
 | GC-711 | HIGH | HIGH | SpatialIndexReader | go-elite-developer | 2026-03-20 | Spatial index reader with query creation and distance value source support |
 | GC-712 | HIGH | HIGH | SpatialIndexFormat | go-elite-developer | 2026-03-20 | Spatial index format with file header and metadata support |
 | GC-713 | HIGH | HIGH | SpatialTestSuite | go-elite-developer | 2026-03-20 | Comprehensive spatial test suite with 17 test functions |
+| GC-714 | MEDIUM | MEDIUM | SpatialBenchmark | go-elite-developer | 2026-03-20 | Spatial performance benchmarks with 16 benchmark functions |
 
 ### Phase 42: Advanced Facets (COMPLETED: 2026-03-15)
 
