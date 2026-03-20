@@ -86,15 +86,15 @@ func TestNewBBoxStrategyWithFieldNames(t *testing.T) {
 	ctx := NewSpatialContext()
 
 	tests := []struct {
-		name         string
-		fieldName    string
-		minXField    string
-		maxXField    string
-		minYField    string
-		maxYField    string
-		ctx          *SpatialContext
-		wantErr      bool
-		errContains  string
+		name        string
+		fieldName   string
+		minXField   string
+		maxXField   string
+		minYField   string
+		maxYField   string
+		ctx         *SpatialContext
+		wantErr     bool
+		errContains string
 	}{
 		{
 			name:      "valid custom field names",

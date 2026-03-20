@@ -31,8 +31,8 @@ import (
 // This is the Go port of Lucene's PrefixTreeStrategy.
 type PrefixTreeStrategy struct {
 	*BaseSpatialStrategy
-	prefixTree       SpatialPrefixTree
-	detailLevel      int
+	prefixTree          SpatialPrefixTree
+	detailLevel         int
 	prefixGridFieldName string
 }
 
@@ -243,12 +243,12 @@ func (s *PrefixTreeStrategy) MakeDistanceValueSource(center Point, multiplier fl
 
 // PrefixTreeDistanceValueSource provides distance values from prefix tree cells.
 type PrefixTreeDistanceValueSource struct {
-	fieldName    string
-	center       Point
-	multiplier   float64
-	calculator   DistanceCalculator
-	prefixTree   SpatialPrefixTree
-	detailLevel  int
+	fieldName   string
+	center      Point
+	multiplier  float64
+	calculator  DistanceCalculator
+	prefixTree  SpatialPrefixTree
+	detailLevel int
 }
 
 // NewPrefixTreeDistanceValueSource creates a new PrefixTreeDistanceValueSource.

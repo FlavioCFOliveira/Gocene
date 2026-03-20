@@ -41,8 +41,8 @@ type SpatialStrategy interface {
 
 // BaseSpatialStrategy provides common functionality for all spatial strategies.
 type BaseSpatialStrategy struct {
-	fieldName       string
-	spatialContext  *SpatialContext
+	fieldName      string
+	spatialContext *SpatialContext
 }
 
 // NewBaseSpatialStrategy creates a new base spatial strategy.
@@ -273,7 +273,6 @@ func (r *Rectangle) Center() Point {
 func (r *Rectangle) ContainsPoint(p Point) bool {
 	return p.X >= r.MinX && p.X <= r.MaxX && p.Y >= r.MinY && p.Y <= r.MaxY
 }
-
 
 // Width returns the width of the rectangle.
 func (r *Rectangle) Width() float64 {
