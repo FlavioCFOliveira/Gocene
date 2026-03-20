@@ -36,19 +36,6 @@ func (s *MockSimScorer) Score(doc int, freq float32) float32 {
 	return s.score
 }
 
-// PerFieldSimilarityWrapper mock
-type PerFieldSimilarityWrapper struct {
-	*BaseSimilarity
-	fooSim Similarity
-	barSim Similarity
-}
-
-func (s *PerFieldSimilarityWrapper) Scorer(stats interface{}) SimScorer {
-	// In a real implementation, we would look at the field in stats
-	// For this test, we'll just return a mock that depends on some state
-	return nil
-}
-
 func TestSimilarity_Basics(t *testing.T) {
 	sim := NewMockSimilarity(10.0)
 	scorer := sim.Scorer(nil)
