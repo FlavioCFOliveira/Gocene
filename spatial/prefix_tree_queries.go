@@ -48,6 +48,7 @@ func (q *PrefixTreeQuery) GetQueryShape() Shape {
 // prefix tree cell intersections.
 type IntersectsPrefixTreeQuery struct {
 	*PrefixTreeQuery
+	fieldCacheProvider *SpatialPrefixTreeFieldCacheProvider
 }
 
 // NewIntersectsPrefixTreeQuery creates a new intersects query.
