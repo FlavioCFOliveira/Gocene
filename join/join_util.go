@@ -64,7 +64,7 @@ func (ju *JoinUtil) CollectValues(query search.Query, field string, searcher *se
 }
 
 // BuildBitSet builds a bit set of matching documents for the given query.
-func (ju *JoinUtil) BuildBitSet(query search.Query, reader index.IndexReader) (*DocIdBitSet, error) {
+func (ju *JoinUtil) BuildBitSet(query search.Query, reader *index.IndexReader) (*DocIdBitSet, error) {
 	bitSet := NewDocIdBitSet(reader.MaxDoc())
 
 	// In a full implementation, this would:

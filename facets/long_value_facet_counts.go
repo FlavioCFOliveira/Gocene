@@ -165,11 +165,11 @@ type LongValueCount struct {
 type LongValueFacetCollector struct {
 	field  string
 	counts *LongValueFacetCounts
-	reader index.IndexReader
+	reader *index.IndexReader
 }
 
 // NewLongValueFacetCollector creates a new LongValueFacetCollector.
-func NewLongValueFacetCollector(field string, reader index.IndexReader) *LongValueFacetCollector {
+func NewLongValueFacetCollector(field string, reader *index.IndexReader) *LongValueFacetCollector {
 	return &LongValueFacetCollector{
 		field:  field,
 		counts: NewLongValueFacetCounts(field),
