@@ -82,7 +82,7 @@ Implement remaining Lucene features: advanced queries, similarities, joins, grou
 | GC-845 | Implement Soft Deletes | MEDIUM | Missing SoftDeletesRetentionMergePolicy, SoftDeletesDirectoryReaderWrapper. | COMPLETED 2026-03-21 |
 | GC-846 | Implement DocValues Updates | MEDIUM | Missing NumericDocValuesUpdate, BinaryDocValuesUpdate and update application. |
 | GC-847 | Implement Complete CheckIndex | MEDIUM | CheckIndex exists but missing many consistency checks: term vector validation, doc values validation, point value validation, vector validation. |
-| GC-848 | Implement AutomatonQuery | MEDIUM | Missing AutomatonQuery for regular expression matching. |
+| GC-848 | Implement AutomatonQuery | MEDIUM | Missing AutomatonQuery for regular expression matching. | COMPLETED 2026-03-21 |
 | GC-849 | Implement BlendedTermQuery | MEDIUM | Missing BlendedTermQuery for blending term statistics across multiple fields. |
 | GC-850 | Implement CombinedFieldQuery | MEDIUM | Missing CombinedFieldQuery for searching across multiple fields as single field. |
 | GC-851 | Implement DocAndScoreQuery | MEDIUM | Missing DocAndScoreQuery for document ID and score based queries. |
