@@ -166,7 +166,7 @@ Address performance bottlenecks identified in audit. Focus on memory allocation,
 | GC-810 | Fix Lock Copying Issues | HIGH | CRITICAL: Address go vet findings in index_writer.go and taxonomy_reader.go. Use pointer receivers or ensure structs are not copied. | COMPLETED 2026-03-21 |
 | GC-811 | Fix TokenStream Inlining | HIGH | TokenStream method cost 225 exceeds inline budget 80. Break into smaller inlineable functions. | COMPLETED 2026-03-21 |
 | GC-812 | Remove Defer from Hot Paths | HIGH | Defer prevents inlining in Tokenize and TokenizeWithAnalyzer. Use explicit close calls in performance-critical code paths. | COMPLETED 2026-03-21 |
-| GC-813 | Optimize ForUtil Decode Loops | HIGH | Buffer allocation inside hot loop in decode8. Use sync.Pool for buffers or make buf a field of ForUtil struct. |
+| GC-813 | Optimize ForUtil Decode Loops | HIGH | Buffer allocation inside hot loop in decode8. Use sync.Pool for buffers or make buf a field of ForUtil struct. | COMPLETED 2026-03-21 |
 | GC-814 | Fix String to Byte Conversion | HIGH | String-to-byte conversion allocates in WriteString. Use unsafe.StringHeader or accept string as-is if writer can handle it. | COMPLETED 2026-03-21 |
 | GC-815 | Fix Slice Capacity Planning | HIGH | Zero-capacity slice growth in ByteBuffersDataOutput. Pre-allocate with reasonable capacity: make([][]byte, 0, 16). | COMPLETED 2026-03-21 |
 | GC-816 | Implement Buffer Pool | HIGH | No buffer pool in InputStreamDataInput. ReadByte allocates every call. Use sync.Pool for buffers. | COMPLETED 2026-03-21 |
