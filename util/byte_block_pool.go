@@ -273,44 +273,57 @@ func (p *ByteBlockPool) AppendFromPool(srcPool *ByteBlockPool, srcOffset int64, 
 
 // appendBytesSingleBuffer copies from source pool until no bytes left.
 // length must fit within the current head buffer.
+// Optimized to minimize bounds checks by pre-computing slice limits.
 func (p *ByteBlockPool) appendBytesSingleBuffer(srcPool *ByteBlockPool, srcOffset int64, length int) {
 	if length > ByteBlockSize-p.ByteUpto {
 		panic(fmt.Sprintf("length %d exceeds buffer space %d", length, ByteBlockSize-p.ByteUpto))
 	}
 	// doing a loop as the bytes to copy might span across multiple byte[] in srcPool
+	byteUpto := p.ByteUpto
+	destBuffer := p.Buffer[byteUpto : byteUpto+length] // Pre-compute destination slice
 	for length > 0 {
 		srcBufferIndex := int(srcOffset >> ByteBlockShift)
 		srcPos := int(srcOffset & ByteBlockMask)
-		bytesToCopy := length
-		if ByteBlockSize-srcPos < bytesToCopy {
-			bytesToCopy = ByteBlockSize - srcPos
+		// Pre-compute source slice to avoid bounds checks in inner loop
+		srcBuffer := srcPool.buffers[srcBufferIndex]
+		maxCopy := ByteBlockSize - srcPos
+		if maxCopy > length {
+			maxCopy = length
 		}
-		copy(p.Buffer[p.ByteUpto:], srcPool.buffers[srcBufferIndex][srcPos:srcPos+bytesToCopy])
-		length -= bytesToCopy
-		srcOffset += int64(bytesToCopy)
-		p.ByteUpto += bytesToCopy
+		// Calculate actual bytes copied
+		n := copy(destBuffer, srcBuffer[srcPos:srcPos+maxCopy])
+		length -= n
+		srcOffset += int64(n)
+		byteUpto += n
+		destBuffer = destBuffer[n:] // Advance destination slice
 	}
+	p.ByteUpto = byteUpto
 }
 
 // ReadBytes reads bytes out of the pool starting at the given offset with the given length
 // into the given byte array at offset off.
 // Note: this method allows to copy across block boundaries.
+// Optimized to minimize bounds checks by using pre-computed slices.
 func (p *ByteBlockPool) ReadBytes(offset int64, bytes []byte, bytesOffset, bytesLength int) {
 	bytesLeft := bytesLength
 	bufferIndex := int(offset >> ByteBlockShift)
 	pos := int(offset & ByteBlockMask)
+	// Pre-compute destination slice to avoid repeated bounds checks
+	destSlice := bytes[bytesOffset : bytesOffset+bytesLength]
 	for bytesLeft > 0 {
 		buffer := p.buffers[bufferIndex]
 		if buffer == nil {
 			panic(fmt.Sprintf("buffer at index %d is nil", bufferIndex))
 		}
-		chunk := bytesLeft
-		if ByteBlockSize-pos < chunk {
-			chunk = ByteBlockSize - pos
+		// Calculate max bytes we can copy from this buffer
+		maxCopy := ByteBlockSize - pos
+		if maxCopy > bytesLeft {
+			maxCopy = bytesLeft
 		}
-		copy(bytes[bytesOffset:], buffer[pos:pos+chunk])
-		bytesOffset += chunk
-		bytesLeft -= chunk
+		// Copy using pre-computed slices
+		n := copy(destSlice, buffer[pos:pos+maxCopy])
+		bytesLeft -= n
+		destSlice = destSlice[n:] // Advance destination slice
 		bufferIndex++
 		pos = 0
 	}
