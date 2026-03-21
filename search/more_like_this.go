@@ -374,3 +374,62 @@ func (q *MoreLikeThisQuery) Rewrite(reader IndexReader) (Query, error) {
 	}
 	return q.mlt.Like(reader, q.docID)
 }
+
+// CreateWeight creates a Weight for this query.
+func (q *MoreLikeThisQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+	rewritten, err := q.Rewrite(searcher.GetIndexReader())
+	if err != nil {
+		return nil, err
+	}
+	return rewritten.CreateWeight(searcher, needsScores, boost)
+}
+
+// Clone creates a copy of this query.
+func (q *MoreLikeThisQuery) Clone() Query {
+	clone := &MoreLikeThisQuery{
+		mlt:    q.mlt,
+		docID:  q.docID,
+		text:   q.text,
+		isText: q.isText,
+	}
+	return clone
+}
+
+// Equals checks if this query equals another.
+func (q *MoreLikeThisQuery) Equals(other Query) bool {
+	if other == nil {
+		return false
+	}
+	if o, ok := other.(*MoreLikeThisQuery); ok {
+		return q.docID == o.docID && q.text == o.text && q.isText == o.isText
+	}
+	return false
+}
+
+// HashCode returns a hash code for this query.
+func (q *MoreLikeThisQuery) HashCode() int {
+	h := 17
+	h = 31*h + q.docID
+	for _, c := range q.text {
+		h = 31*h + int(c)
+	}
+	if q.isText {
+		h = 31*h + 1
+	}
+	return h
+}
+
+// String returns a string representation of the query.
+func (q *MoreLikeThisQuery) String() string {
+	if q.isText {
+		prefixLen := len(q.text)
+		if prefixLen > 50 {
+			prefixLen = 50
+		}
+		return "MoreLikeThisQuery(text=" + q.text[:prefixLen] + ")"
+	}
+	return "MoreLikeThisQuery(docID=" + string(rune(q.docID)) + ")"
+}
+
+// Ensure MoreLikeThisQuery implements Query
+var _ Query = (*MoreLikeThisQuery)(nil)
