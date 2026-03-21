@@ -257,11 +257,11 @@ func (tr *TaxonomyReader) Close() error {
 // TaxonomyReaderFactory creates TaxonomyReader instances.
 type TaxonomyReaderFactory struct {
 	// reader is the index reader to use
-	reader index.IndexReader
+	reader *index.IndexReader
 }
 
 // NewTaxonomyReaderFactory creates a new TaxonomyReaderFactory.
-func NewTaxonomyReaderFactory(reader index.IndexReader) *TaxonomyReaderFactory {
+func NewTaxonomyReaderFactory(reader *index.IndexReader) *TaxonomyReaderFactory {
 	return &TaxonomyReaderFactory{
 		reader: reader,
 	}
