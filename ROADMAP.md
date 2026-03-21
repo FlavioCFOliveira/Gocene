@@ -4,9 +4,9 @@
 
 Este roadmap contém as tarefas pendentes para completar o port de Apache Lucene 10.x para Go.
 
-**Total de Tarefas Pendentes:** 55 (Fase 50)
+**Total de Tarefas Pendentes:** 49 (Fase 50)
 **Fases Pendentes:** 1 (50)
-**Fases Completadas:** 19 (34-49)
+**Fases Completadas:** 19 (34-49), GC-839, GC-840, GC-841, GC-842, GC-843, GC-844, GC-845
 
 ---
 
@@ -73,13 +73,13 @@ Implement remaining Lucene features: advanced queries, similarities, joins, grou
 
 | ID | Task | Priority | Description |
 |:---|:-----|:---------|:------------|
-| GC-839 | Implement ExitableDirectoryReader | MEDIUM | Missing ExitableDirectoryReader for cancellable searches. Wraps reader to check query timeout during iteration. |
-| GC-840 | Implement FilterLeafReader Hierarchy | MEDIUM | Missing FilterLeafReader, FilterCodecReader wrappers for modifying reader behavior transparently. |
-| GC-841 | Implement ReaderPool Caching | MEDIUM | Missing ReaderPool for caching SegmentReader instances during NRT operations. |
-| GC-842 | Implement Full ReferenceManager | MEDIUM | ReferenceManager exists but missing NRTReferenceManager variant and full listener support. |
-| GC-843 | Implement ControlledRealTimeReopenThread | MEDIUM | Basic implementation exists but missing proper reopen scheduling, waiting, and tracking. |
-| GC-844 | Implement IndexSorting Support | MEDIUM | Missing IndexSorter and sorting during flush/merge. Required for sorted indexes. |
-| GC-845 | Implement Soft Deletes | MEDIUM | Missing SoftDeletesRetentionMergePolicy, SoftDeletesDirectoryReaderWrapper. |
+| GC-839 | Implement ExitableDirectoryReader | MEDIUM | Missing ExitableDirectoryReader for cancellable searches. Wraps reader to check query timeout during iteration. | COMPLETED 2026-03-21 |
+| GC-840 | Implement FilterLeafReader Hierarchy | MEDIUM | Missing FilterLeafReader, FilterCodecReader wrappers for modifying reader behavior transparently. | COMPLETED 2026-03-21 |
+| GC-841 | Implement ReaderPool Caching | MEDIUM | Missing ReaderPool for caching SegmentReader instances during NRT operations. | COMPLETED 2026-03-21 |
+| GC-842 | Implement Full ReferenceManager | MEDIUM | ReferenceManager exists but missing NRTReferenceManager variant and full listener support. | COMPLETED 2026-03-21 |
+| GC-843 | Implement ControlledRealTimeReopenThread | MEDIUM | Basic implementation exists but missing proper reopen scheduling, waiting, and tracking. | COMPLETED 2026-03-21 |
+| GC-844 | Implement IndexSorting Support | MEDIUM | Missing IndexSorter and sorting during flush/merge. Required for sorted indexes. | COMPLETED 2026-03-21 |
+| GC-845 | Implement Soft Deletes | MEDIUM | Missing SoftDeletesRetentionMergePolicy, SoftDeletesDirectoryReaderWrapper. | COMPLETED 2026-03-21 |
 | GC-846 | Implement DocValues Updates | MEDIUM | Missing NumericDocValuesUpdate, BinaryDocValuesUpdate and update application. |
 | GC-847 | Implement Complete CheckIndex | MEDIUM | CheckIndex exists but missing many consistency checks: term vector validation, doc values validation, point value validation, vector validation. |
 | GC-848 | Implement AutomatonQuery | MEDIUM | Missing AutomatonQuery for regular expression matching. |
