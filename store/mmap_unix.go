@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"syscall"
+	"unsafe"
 )
 
 // mmapFile represents a memory-mapped file on Unix systems.
@@ -54,6 +55,11 @@ func mmap(f *os.File, offset int64, length int64) (*mmapFile, error) {
 		return nil, fmt.Errorf("failed to mmap file at offset %d: %w", offset, err)
 	}
 
+	// Advise the kernel about sequential access pattern
+	// This helps with read-ahead optimization for Lucene's typically sequential access
+	// Note: We ignore errors from madvise as it's a hint, not a requirement
+	madviseSequential(data)
+
 	return &mmapFile{
 		data:   data,
 		length: length,
@@ -76,4 +82,16 @@ func (m *mmapFile) unmap() error {
 // The file is closed by MMapDirectory after all chunks are mapped.
 func (m *mmapFile) close() error {
 	return nil
+}
+
+// madviseSequential advises the kernel that the mapped memory will be accessed sequentially.
+// This is a hint that can improve read-ahead behavior for Lucene's typical access patterns.
+func madviseSequential(data []byte) {
+	if len(data) == 0 {
+		return
+	}
+	// MADV_SEQUENTIAL = 2 - Expect sequential page references
+	// This tells the kernel to aggressively read ahead
+	const MADV_SEQUENTIAL = 2
+	syscall.Syscall(syscall.SYS_MADVISE, uintptr(unsafe.Pointer(&data[0])), uintptr(len(data)), uintptr(MADV_SEQUENTIAL))
 }
