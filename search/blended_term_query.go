@@ -63,11 +63,11 @@ func (q *BlendedTermQuery) Rewrite(reader IndexReader) (Query, error) {
 	bq := NewBooleanQuery()
 	for i, term := range q.terms {
 		tq := NewTermQuery(term)
-		bq.Add(tq, SHOULD)
 		// Apply boost if different from 1.0
 		if q.boosts[i] != 1.0 {
-			// Note: TermQuery doesn't have SetBoost, so we use BoostQuery wrapper
 			bq.Add(NewBoostQuery(tq, q.boosts[i]), SHOULD)
+		} else {
+			bq.Add(tq, SHOULD)
 		}
 	}
 	return bq, nil
@@ -75,7 +75,12 @@ func (q *BlendedTermQuery) Rewrite(reader IndexReader) (Query, error) {
 
 // CreateWeight creates a Weight for this query.
 func (q *BlendedTermQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	return NewSpanWeight(q, nil), nil
+	// Rewrite to boolean query and create weight
+	rewritten, err := q.Rewrite(searcher.GetIndexReader())
+	if err != nil {
+		return nil, err
+	}
+	return rewritten.CreateWeight(searcher, needsScores, boost)
 }
 
 // Clone creates a copy of this query.
@@ -119,8 +124,8 @@ func (q *BlendedTermQuery) HashCode() int {
 }
 
 // String returns a string representation of the query.
-func (q *BlendedTermQuery) String(field string) string {
-	return "BlendedTermQuery(terms=" + string(len(q.terms)) + ")"
+func (q *BlendedTermQuery) String() string {
+	return "BlendedTermQuery(terms=" + string(rune(len(q.terms)+'0')) + ")"
 }
 
 // Ensure BlendedTermQuery implements Query
