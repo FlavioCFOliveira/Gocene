@@ -12,6 +12,11 @@ import (
 	"path/filepath"
 )
 
+// NIOFSBufferSize is the size of the buffered I/O buffer.
+// Default is 32KB for better sequential read performance.
+// Can be set to 8KB, 16KB, 32KB, or 64KB depending on workload.
+const NIOFSBufferSize = 32 * 1024 // 32KB
+
 // NIOFSDirectory is a Directory implementation that uses buffered I/O
 // for reading and writing files.
 //
@@ -65,7 +70,7 @@ func (d *NIOFSDirectory) OpenInput(name string, ctx IOContext) (IndexInput, erro
 
 	return &NIOFSIndexInput{
 		file:           file,
-		bufReader:      bufio.NewReaderSize(file, 8192), // 8KB buffer
+		bufReader:      bufio.NewReaderSize(file, NIOFSBufferSize), // Configurable buffer size
 		path:           path,
 		name:           name,
 		directory:      d,
@@ -96,7 +101,7 @@ func (d *NIOFSDirectory) CreateOutput(name string, ctx IOContext) (IndexOutput, 
 
 	return &NIOFSIndexOutput{
 		file:            file,
-		bufWriter:       bufio.NewWriterSize(file, 8192), // 8KB buffer
+		bufWriter:       bufio.NewWriterSize(file, NIOFSBufferSize), // Buffered output
 		path:            path,
 		name:            name,
 		directory:       d,
@@ -245,7 +250,7 @@ func (in *NIOFSIndexInput) Clone() IndexInput {
 	clone := &NIOFSIndexInput{
 		BaseIndexInput: NewBaseIndexInput(in.GetDescription(), in.Length()),
 		file:           file,
-		bufReader:      bufio.NewReaderSize(file, 8192),
+		bufReader:      bufio.NewReaderSize(file, NIOFSBufferSize),
 		path:           in.path,
 		name:           in.name,
 		directory:      in.directory,
@@ -278,7 +283,7 @@ func (in *NIOFSIndexInput) Slice(desc string, offset int64, length int64) (Index
 	return &NIOFSIndexInput{
 		BaseIndexInput: NewBaseIndexInput(desc, length),
 		file:           file,
-		bufReader:      bufio.NewReaderSize(file, 8192),
+		bufReader:      bufio.NewReaderSize(file, NIOFSBufferSize),
 		path:           in.path,
 		name:           in.name,
 		directory:      in.directory,
