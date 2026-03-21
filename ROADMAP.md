@@ -87,7 +87,7 @@ Implement remaining Lucene features: advanced queries, similarities, joins, grou
 | GC-850 | Implement CombinedFieldQuery | MEDIUM | Missing CombinedFieldQuery for searching across multiple fields as single field. | COMPLETED 2026-03-21 |
 | GC-851 | Implement DocAndScoreQuery | MEDIUM | Missing DocAndScoreQuery for document ID and score based queries. | COMPLETED 2026-03-21 |
 | GC-852 | Implement FeatureQuery | MEDIUM | Missing FeatureQuery for machine learning feature queries. | COMPLETED 2026-03-21 |
-| GC-853 | Implement MoreLikeThis | MEDIUM | Missing MoreLikeThis for finding similar documents. |
+| GC-853 | Implement MoreLikeThis | MEDIUM | Missing MoreLikeThis for finding similar documents. | COMPLETED 2026-03-21 |
 | GC-854 | Implement SpanQuery Hierarchy | MEDIUM | Missing SpanQuery implementations: SpanTermQuery, SpanNearQuery, SpanOrQuery, SpanNotQuery, etc. |
 | GC-855 | Implement TermRangeQuery | MEDIUM | Missing TermRangeQuery for range queries on terms. | COMPLETED 2026-03-21 |
 | GC-856 | Implement WildcardQuery | MEDIUM | Missing WildcardQuery for wildcard pattern matching. | COMPLETED 2026-03-21 |
