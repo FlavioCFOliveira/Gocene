@@ -40,8 +40,8 @@ func (s *PerFieldSimilarityWrapper) ComputeNorm(field string, stats interface{})
 }
 
 // ComputeWeight computes the weight for a query.
-func (s *PerFieldSimilarityWrapper) ComputeWeight(queryWeight float32, stats interface{}) Weight {
-	return s.defaultSimilarity.ComputeWeight(queryWeight, stats)
+func (s *PerFieldSimilarityWrapper) ComputeWeight(boost float32, collectionStats *CollectionStatistics, termStats *TermStatistics) SimWeight {
+	return s.defaultSimilarity.ComputeWeight(boost, collectionStats, termStats)
 }
 
 // Scorer creates a SimScorer for scoring documents.

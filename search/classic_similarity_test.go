@@ -96,15 +96,15 @@ func TestClassicSimilarity_QueryNorm(t *testing.T) {
 
 	// QueryNorm(4) = 1/sqrt(4) = 0.5
 	result := sim.QueryNorm(4.0)
-	expected := 0.5
-	if math.Abs(result-expected) > 0.0001 {
+	expected := float32(0.5)
+	if math.Abs(float64(result-expected)) > 0.0001 {
 		t.Errorf("QueryNorm(4.0) = %f, expected %f", result, expected)
 	}
 
 	// QueryNorm(1) = 1/sqrt(1) = 1.0
 	result = sim.QueryNorm(1.0)
-	expected = 1.0
-	if math.Abs(result-expected) > 0.0001 {
+	expected = float32(1.0)
+	if math.Abs(float64(result-expected)) > 0.0001 {
 		t.Errorf("QueryNorm(1.0) = %f, expected %f", result, expected)
 	}
 }
@@ -115,17 +115,17 @@ func TestClassicSimilarity_Coord(t *testing.T) {
 	tests := []struct {
 		overlap    int
 		maxOverlap int
-		expected   float64
+		expected   float32
 	}{
 		{1, 1, 1.0},
-		{2, 3, 2.0 / 3.0},
+		{2, 3, float32(2.0 / 3.0)},
 		{3, 3, 1.0},
 		{0, 5, 0.0},
 	}
 
 	for _, test := range tests {
 		result := sim.Coord(test.overlap, test.maxOverlap)
-		if math.Abs(result-test.expected) > 0.0001 {
+		if math.Abs(float64(result-test.expected)) > 0.0001 {
 			t.Errorf("Coord(%d, %d) = %f, expected %f", test.overlap, test.maxOverlap, result, test.expected)
 		}
 	}
