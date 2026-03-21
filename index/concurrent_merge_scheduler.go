@@ -107,8 +107,8 @@ func NewConcurrentMergeScheduler() *ConcurrentMergeScheduler {
 		doAutoIOThrottle:   false,
 		targetMBPerSec:     StartMBPerSec,
 		forceMergeMBPerSec: float64(0), // No limit by default
-		mergeThreads:       make([]*MergeThread, 0),
-		pendingMerges:      make([]*OneMerge, 0),
+		mergeThreads:       make([]*MergeThread, 0, 4),
+		pendingMerges:      make([]*OneMerge, 0, 8),
 		ctx:                ctx,
 		cancel:             cancel,
 		mergeErrors:        make(chan error, 10),

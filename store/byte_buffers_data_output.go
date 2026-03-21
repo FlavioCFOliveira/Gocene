@@ -87,7 +87,7 @@ func NewByteBuffersDataOutputWithRecycler(minBits, maxBits int, allocator func(i
 		minBitsPerBlock: minBits,
 		maxBitsPerBlock: maxBits,
 		blockBits:       minBits,
-		blocks:          make([][]byte, 0),
+		blocks:          make([][]byte, 0, 16), // Pre-allocate capacity to avoid frequent reallocations
 		currentBlock:    nil,
 		ramBytesUsed:    0,
 		allocator:       allocator,
