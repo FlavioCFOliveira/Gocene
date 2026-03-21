@@ -8,6 +8,10 @@ import (
 	"io"
 )
 
+// DefaultInputStreamBufferSize is the default buffer size for InputStreamDataInput.
+// Increased from 8KB to 64KB for better I/O performance.
+const DefaultInputStreamBufferSize = 64 * 1024 // 64KB
+
 // InputStreamDataInput implements DataInput by wrapping an io.Reader.
 // This is the Go port of Lucene's org.apache.lucene.store.InputStreamDataInput.
 // Uses pre-allocated buffers and sync.Pool to eliminate heap allocations.
@@ -18,16 +22,29 @@ type InputStreamDataInput struct {
 	// byteBuf is a reusable 1-byte buffer for ReadByte
 	byteBuf [1]byte
 
-	// skipBuf is a reusable buffer for SkipBytes (8KB)
+	// skipBuf is a reusable buffer for SkipBytes
 	skipBuf []byte
 }
 
 // NewInputStreamDataInput creates a new InputStreamDataInput wrapping the given reader.
+// Uses DefaultInputStreamBufferSize (64KB) for the skip buffer.
 func NewInputStreamDataInput(reader io.Reader) *InputStreamDataInput {
+	return NewInputStreamDataInputWithBufferSize(reader, DefaultInputStreamBufferSize)
+}
+
+// NewInputStreamDataInputWithBufferSize creates a new InputStreamDataInput with a custom buffer size.
+//
+// Parameters:
+//   - reader: the underlying io.Reader
+//   - bufferSize: the size of the skip buffer (min 8KB)
+func NewInputStreamDataInputWithBufferSize(reader io.Reader, bufferSize int) *InputStreamDataInput {
+	if bufferSize < 8192 {
+		bufferSize = 8192 // Minimum 8KB
+	}
 	return &InputStreamDataInput{
 		reader:  reader,
 		closed:  false,
-		skipBuf: make([]byte, 8192),
+		skipBuf: make([]byte, bufferSize),
 	}
 }
 
