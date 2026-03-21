@@ -22,14 +22,30 @@ const ForUtilBlockSizeLog2 = 8
 
 // ForUtil provides Frame of Reference encoding/decoding.
 // It encodes multiple integers using bit packing for SIMD-like speedups.
+// Buffers are pre-allocated to avoid heap allocations during encode/decode.
 type ForUtil struct {
+	// tmp is a reusable buffer for encoding/decoding operations
+	// Sized for the largest tmp usage (120 ints for decode15)
 	tmp []int32
+
+	// encodeBuf is a reusable buffer for encoding (256 ints)
+	encodeBuf []int32
+
+	// byteBuf is a reusable 4-byte buffer for reading/writing
+	byteBuf []byte
+
+	// decodeSlowBuf is a reusable buffer for decodeSlow (max 256 ints)
+	decodeSlowBuf []int32
 }
 
-// NewForUtil creates a new ForUtil instance
+// NewForUtil creates a new ForUtil instance with pre-allocated buffers
+// to eliminate heap allocations during encode/decode operations.
 func NewForUtil() *ForUtil {
 	return &ForUtil{
-		tmp: make([]int32, ForUtilBlockSize),
+		tmp:           make([]int32, 256), // Largest tmp usage
+		encodeBuf:     make([]int32, 256), // For block encoding
+		byteBuf:       make([]byte, 4),    // Reusable byte buffer
+		decodeSlowBuf: make([]int32, 256), // For decodeSlow
 	}
 }
 
@@ -45,8 +61,8 @@ func (f *ForUtil) Encode(ints []int32, bitsPerValue int, out store.IndexOutput) 
 		return errors.New("ints array must have at least 256 elements")
 	}
 
-	// Make a copy since we may modify the array
-	data := make([]int32, ForUtilBlockSize)
+	// Use pre-allocated buffer instead of allocating new one
+	data := f.encodeBuf
 	copy(data, ints)
 
 	var nextPrimitive int
@@ -258,11 +274,10 @@ func (f *ForUtil) encodeInternal(ints []int32, bitsPerValue, primitiveSize int, 
 		}
 	}
 
-	// Write the packed data
-	buf := make([]byte, 4)
+	// Write the packed data using pre-allocated buffer
 	for i := 0; i < numIntsPerShift; i++ {
-		binary.BigEndian.PutUint32(buf, uint32(f.tmp[i]))
-		if err := out.WriteBytes(buf); err != nil {
+		binary.BigEndian.PutUint32(f.byteBuf, uint32(f.tmp[i]))
+		if err := out.WriteBytes(f.byteBuf); err != nil {
 			return err
 		}
 	}
@@ -275,14 +290,13 @@ func (f *ForUtil) decodeSlow(bitsPerValue int, in store.IndexInput, ints []int64
 	numInts := bitsPerValue << 3
 	mask := mask32(bitsPerValue)
 
-	// Read packed integers
-	buf := make([]byte, 4)
-	tmp := make([]int32, numInts)
+	// Read packed integers using pre-allocated buffers
+	tmp := f.decodeSlowBuf[:numInts]
 	for i := 0; i < numInts; i++ {
-		if err := in.ReadBytes(buf); err != nil {
+		if err := in.ReadBytes(f.byteBuf); err != nil {
 			return err
 		}
-		tmp[i] = int32(binary.BigEndian.Uint32(buf))
+		tmp[i] = int32(binary.BigEndian.Uint32(f.byteBuf))
 	}
 
 	// Unpack first numInts values
@@ -319,24 +333,22 @@ func (f *ForUtil) decodeSlow(bitsPerValue int, in store.IndexInput, ints []int64
 
 // decode1-16 handle specific bits per value cases
 func (f *ForUtil) decode1(in store.IndexInput, ints []int64) error {
-	buf := make([]byte, 4)
 	for i := 0; i < 8; i++ {
-		if err := in.ReadBytes(buf); err != nil {
+		if err := in.ReadBytes(f.byteBuf); err != nil {
 			return err
 		}
-		v := binary.BigEndian.Uint32(buf)
+		v := binary.BigEndian.Uint32(f.byteBuf)
 		ints[i] = int64(v >> 7)
 	}
 	return nil
 }
 
 func (f *ForUtil) decode2(in store.IndexInput, ints []int64) error {
-	buf := make([]byte, 4)
 	for i := 0; i < 16; i++ {
-		if err := in.ReadBytes(buf); err != nil {
+		if err := in.ReadBytes(f.byteBuf); err != nil {
 			return err
 		}
-		v := binary.BigEndian.Uint32(buf)
+		v := binary.BigEndian.Uint32(f.byteBuf)
 		ints[i] = int64(v >> 6)
 	}
 	return nil
@@ -344,12 +356,11 @@ func (f *ForUtil) decode2(in store.IndexInput, ints []int64) error {
 
 func (f *ForUtil) decode3(in store.IndexInput, ints []int64) error {
 	// Read 24 ints (72 bytes)
-	buf := make([]byte, 4)
 	for i := 0; i < 24; i++ {
-		if err := in.ReadBytes(buf); err != nil {
+		if err := in.ReadBytes(f.byteBuf); err != nil {
 			return err
 		}
-		f.tmp[i] = int32(binary.BigEndian.Uint32(buf))
+		f.tmp[i] = int32(binary.BigEndian.Uint32(f.byteBuf))
 	}
 
 	// Process 8 iterations
@@ -373,24 +384,22 @@ func (f *ForUtil) decode3(in store.IndexInput, ints []int64) error {
 }
 
 func (f *ForUtil) decode4(in store.IndexInput, ints []int64) error {
-	buf := make([]byte, 4)
 	for i := 0; i < 32; i++ {
-		if err := in.ReadBytes(buf); err != nil {
+		if err := in.ReadBytes(f.byteBuf); err != nil {
 			return err
 		}
-		v := binary.BigEndian.Uint32(buf)
+		v := binary.BigEndian.Uint32(f.byteBuf)
 		ints[i] = int64(v >> 4)
 	}
 	return nil
 }
 
 func (f *ForUtil) decode5(in store.IndexInput, ints []int64) error {
-	buf := make([]byte, 4)
 	for i := 0; i < 40; i++ {
-		if err := in.ReadBytes(buf); err != nil {
+		if err := in.ReadBytes(f.byteBuf); err != nil {
 			return err
 		}
-		f.tmp[i] = int32(binary.BigEndian.Uint32(buf))
+		f.tmp[i] = int32(binary.BigEndian.Uint32(f.byteBuf))
 	}
 
 	for iter := 0; iter < 8; iter++ {
@@ -416,12 +425,11 @@ func (f *ForUtil) decode5(in store.IndexInput, ints []int64) error {
 }
 
 func (f *ForUtil) decode6(in store.IndexInput, ints []int64) error {
-	buf := make([]byte, 4)
 	for i := 0; i < 48; i++ {
-		if err := in.ReadBytes(buf); err != nil {
+		if err := in.ReadBytes(f.byteBuf); err != nil {
 			return err
 		}
-		f.tmp[i] = int32(binary.BigEndian.Uint32(buf))
+		f.tmp[i] = int32(binary.BigEndian.Uint32(f.byteBuf))
 	}
 
 	for iter := 0; iter < 16; iter++ {
@@ -441,12 +449,11 @@ func (f *ForUtil) decode6(in store.IndexInput, ints []int64) error {
 }
 
 func (f *ForUtil) decode7(in store.IndexInput, ints []int64) error {
-	buf := make([]byte, 4)
 	for i := 0; i < 56; i++ {
-		if err := in.ReadBytes(buf); err != nil {
+		if err := in.ReadBytes(f.byteBuf); err != nil {
 			return err
 		}
-		f.tmp[i] = int32(binary.BigEndian.Uint32(buf))
+		f.tmp[i] = int32(binary.BigEndian.Uint32(f.byteBuf))
 	}
 
 	for iter := 0; iter < 8; iter++ {
@@ -470,23 +477,21 @@ func (f *ForUtil) decode7(in store.IndexInput, ints []int64) error {
 }
 
 func (f *ForUtil) decode8(in store.IndexInput, ints []int64) error {
-	buf := make([]byte, 4)
 	for i := 0; i < 64; i++ {
-		if err := in.ReadBytes(buf); err != nil {
+		if err := in.ReadBytes(f.byteBuf); err != nil {
 			return err
 		}
-		ints[i] = int64(binary.BigEndian.Uint32(buf))
+		ints[i] = int64(binary.BigEndian.Uint32(f.byteBuf))
 	}
 	return nil
 }
 
 func (f *ForUtil) decode9(in store.IndexInput, ints []int64) error {
-	buf := make([]byte, 4)
 	for i := 0; i < 72; i++ {
-		if err := in.ReadBytes(buf); err != nil {
+		if err := in.ReadBytes(f.byteBuf); err != nil {
 			return err
 		}
-		f.tmp[i] = int32(binary.BigEndian.Uint32(buf))
+		f.tmp[i] = int32(binary.BigEndian.Uint32(f.byteBuf))
 	}
 
 	for iter := 0; iter < 8; iter++ {
@@ -524,12 +529,11 @@ func (f *ForUtil) decode9(in store.IndexInput, ints []int64) error {
 }
 
 func (f *ForUtil) decode10(in store.IndexInput, ints []int64) error {
-	buf := make([]byte, 4)
 	for i := 0; i < 80; i++ {
-		if err := in.ReadBytes(buf); err != nil {
+		if err := in.ReadBytes(f.byteBuf); err != nil {
 			return err
 		}
-		f.tmp[i] = int32(binary.BigEndian.Uint32(buf))
+		f.tmp[i] = int32(binary.BigEndian.Uint32(f.byteBuf))
 	}
 
 	for iter := 0; iter < 16; iter++ {
@@ -555,12 +559,11 @@ func (f *ForUtil) decode10(in store.IndexInput, ints []int64) error {
 }
 
 func (f *ForUtil) decode11(in store.IndexInput, ints []int64) error {
-	buf := make([]byte, 4)
 	for i := 0; i < 88; i++ {
-		if err := in.ReadBytes(buf); err != nil {
+		if err := in.ReadBytes(f.byteBuf); err != nil {
 			return err
 		}
-		f.tmp[i] = int32(binary.BigEndian.Uint32(buf))
+		f.tmp[i] = int32(binary.BigEndian.Uint32(f.byteBuf))
 	}
 
 	for iter := 0; iter < 8; iter++ {
@@ -596,12 +599,11 @@ func (f *ForUtil) decode11(in store.IndexInput, ints []int64) error {
 }
 
 func (f *ForUtil) decode12(in store.IndexInput, ints []int64) error {
-	buf := make([]byte, 4)
 	for i := 0; i < 96; i++ {
-		if err := in.ReadBytes(buf); err != nil {
+		if err := in.ReadBytes(f.byteBuf); err != nil {
 			return err
 		}
-		f.tmp[i] = int32(binary.BigEndian.Uint32(buf))
+		f.tmp[i] = int32(binary.BigEndian.Uint32(f.byteBuf))
 	}
 
 	for iter := 0; iter < 32; iter++ {
@@ -621,12 +623,11 @@ func (f *ForUtil) decode12(in store.IndexInput, ints []int64) error {
 }
 
 func (f *ForUtil) decode13(in store.IndexInput, ints []int64) error {
-	buf := make([]byte, 4)
 	for i := 0; i < 104; i++ {
-		if err := in.ReadBytes(buf); err != nil {
+		if err := in.ReadBytes(f.byteBuf); err != nil {
 			return err
 		}
-		f.tmp[i] = int32(binary.BigEndian.Uint32(buf))
+		f.tmp[i] = int32(binary.BigEndian.Uint32(f.byteBuf))
 	}
 
 	for iter := 0; iter < 8; iter++ {
@@ -660,12 +661,11 @@ func (f *ForUtil) decode13(in store.IndexInput, ints []int64) error {
 }
 
 func (f *ForUtil) decode14(in store.IndexInput, ints []int64) error {
-	buf := make([]byte, 4)
 	for i := 0; i < 112; i++ {
-		if err := in.ReadBytes(buf); err != nil {
+		if err := in.ReadBytes(f.byteBuf); err != nil {
 			return err
 		}
-		f.tmp[i] = int32(binary.BigEndian.Uint32(buf))
+		f.tmp[i] = int32(binary.BigEndian.Uint32(f.byteBuf))
 	}
 
 	for iter := 0; iter < 16; iter++ {
@@ -689,12 +689,11 @@ func (f *ForUtil) decode14(in store.IndexInput, ints []int64) error {
 }
 
 func (f *ForUtil) decode15(in store.IndexInput, ints []int64) error {
-	buf := make([]byte, 4)
 	for i := 0; i < 120; i++ {
-		if err := in.ReadBytes(buf); err != nil {
+		if err := in.ReadBytes(f.byteBuf); err != nil {
 			return err
 		}
-		f.tmp[i] = int32(binary.BigEndian.Uint32(buf))
+		f.tmp[i] = int32(binary.BigEndian.Uint32(f.byteBuf))
 	}
 
 	for iter := 0; iter < 8; iter++ {
@@ -726,12 +725,11 @@ func (f *ForUtil) decode15(in store.IndexInput, ints []int64) error {
 }
 
 func (f *ForUtil) decode16(in store.IndexInput, ints []int64) error {
-	buf := make([]byte, 4)
 	for i := 0; i < 128; i++ {
-		if err := in.ReadBytes(buf); err != nil {
+		if err := in.ReadBytes(f.byteBuf); err != nil {
 			return err
 		}
-		ints[i] = int64(binary.BigEndian.Uint32(buf))
+		ints[i] = int64(binary.BigEndian.Uint32(f.byteBuf))
 	}
 	return nil
 }
