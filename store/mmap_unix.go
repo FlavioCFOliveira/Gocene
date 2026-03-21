@@ -21,16 +21,20 @@ type mmapFile struct {
 	file   *os.File
 }
 
-// mmap maps the file into memory using Unix syscalls.
-func mmap(f *os.File, length int64) (*mmapFile, error) {
+// mmap maps a region of the file into memory using Unix syscalls.
+// Parameters:
+//   - f: the file to map
+//   - offset: the offset in the file to start mapping from
+//   - length: the number of bytes to map
+func mmap(f *os.File, offset int64, length int64) (*mmapFile, error) {
 	// Get file info to check size
 	info, err := f.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat file: %w", err)
 	}
 
-	if info.Size() < length {
-		return nil, fmt.Errorf("file size too small: expected at least %d, got %d", length, info.Size())
+	if info.Size() < offset+length {
+		return nil, fmt.Errorf("file size too small: expected at least %d, got %d", offset+length, info.Size())
 	}
 
 	// Handle empty file
@@ -42,12 +46,12 @@ func mmap(f *os.File, length int64) (*mmapFile, error) {
 		}, nil
 	}
 
-	// Memory map the file
+	// Memory map the file at the specified offset
 	// PROT_READ: pages may be read
 	// MAP_SHARED: share this mapping
-	data, err := syscall.Mmap(int(f.Fd()), 0, int(length), syscall.PROT_READ, syscall.MAP_SHARED)
+	data, err := syscall.Mmap(int(f.Fd()), offset, int(length), syscall.PROT_READ, syscall.MAP_SHARED)
 	if err != nil {
-		return nil, fmt.Errorf("failed to mmap file: %w", err)
+		return nil, fmt.Errorf("failed to mmap file at offset %d: %w", offset, err)
 	}
 
 	return &mmapFile{
@@ -68,10 +72,8 @@ func (m *mmapFile) unmap() error {
 	return err
 }
 
-// close closes the underlying file.
+// close is a no-op since the file handle is now shared and managed externally.
+// The file is closed by MMapDirectory after all chunks are mapped.
 func (m *mmapFile) close() error {
-	if m.file != nil {
-		return m.file.Close()
-	}
 	return nil
 }

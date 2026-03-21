@@ -128,6 +128,9 @@ func (d *MMapDirectory) OpenInput(name string, ctx IOContext) (IndexInput, error
 	numChunks := int((length + chunkSize - 1) / chunkSize)
 
 	// Map each chunk
+	// Note: We reuse the same file handle for all chunks, which is safe
+	// because each chunk maps a different non-overlapping region.
+	// This optimization reduces file descriptor usage.
 	chunks := make([]*mmapFile, numChunks)
 	for i := 0; i < numChunks; i++ {
 		offset := int64(i) * chunkSize
@@ -136,40 +139,22 @@ func (d *MMapDirectory) OpenInput(name string, ctx IOContext) (IndexInput, error
 			remaining = chunkSize
 		}
 
-		// For multi-chunk files, we need to reopen the file for each chunk
-		// because we can't map overlapping regions with the same file handle
-		var f *os.File
-		if i == 0 {
-			f = file
-		} else {
-			f, err = os.Open(path)
-			if err != nil {
-				// Clean up already mapped chunks
-				for j := 0; j < i; j++ {
-					chunks[j].unmap()
-					chunks[j].close()
-				}
-				return nil, fmt.Errorf("failed to open file for chunk %d: %w", i, err)
-			}
-		}
-
-		chunk, err := mmap(f, remaining)
+		chunk, err := mmap(file, offset, remaining)
 		if err != nil {
 			// Clean up already mapped chunks
 			for j := 0; j < i; j++ {
 				chunks[j].unmap()
-				chunks[j].close()
 			}
-			if i > 0 {
-				f.Close()
-			} else {
-				file.Close()
-			}
+			file.Close()
 			return nil, fmt.Errorf("failed to mmap chunk %d: %w", i, err)
 		}
 
 		chunks[i] = chunk
 	}
+
+	// Close the file handle - the mmap keeps the file open internally
+	// This is safe because the kernel keeps the file open until all mappings are unmapped
+	file.Close()
 
 	d.AddOpenFile(name)
 
