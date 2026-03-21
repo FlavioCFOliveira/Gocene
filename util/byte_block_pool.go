@@ -118,10 +118,28 @@ func (d *DirectTrackingAllocator) GetByteBlock() []byte {
 	return make([]byte, ByteBlockSize)
 }
 
+// DefaultInitialBufferCapacity is the default initial capacity for the buffers slice.
+// Increased from previous value of 10 to reduce reallocations for typical use cases.
+const DefaultInitialBufferCapacity = 64
+
 // NewByteBlockPool creates a new ByteBlockPool with the given allocator.
+// Uses DefaultInitialBufferCapacity (64) as the initial capacity.
 func NewByteBlockPool(allocator Allocator) *ByteBlockPool {
+	return NewByteBlockPoolWithCapacity(allocator, DefaultInitialBufferCapacity)
+}
+
+// NewByteBlockPoolWithCapacity creates a new ByteBlockPool with custom initial capacity.
+// Use this when you expect a large number of buffers to avoid repeated reallocations.
+//
+// Parameters:
+//   - allocator: the Allocator to use for byte block allocation
+//   - initialCapacity: initial capacity for the buffers slice (min 16)
+func NewByteBlockPoolWithCapacity(allocator Allocator, initialCapacity int) *ByteBlockPool {
+	if initialCapacity < 16 {
+		initialCapacity = 16
+	}
 	return &ByteBlockPool{
-		buffers:    make([][]byte, 10),
+		buffers:    make([][]byte, initialCapacity),
 		bufferUpto: -1,
 		ByteUpto:   ByteBlockSize,
 		ByteOffset: -ByteBlockSize,
@@ -410,6 +428,8 @@ func addExact(x, y int) int {
 }
 
 // oversize returns a new size for an array that is at least minSize.
+// Uses exponential growth: 2x for smaller arrays (up to 1024 elements),
+// then switches to 1.5x for larger arrays to balance memory usage and performance.
 func oversize(minSize, bytesPerElement int) int {
 	if minSize < 0 {
 		panic("minSize must be non-negative")
@@ -418,12 +438,18 @@ func oversize(minSize, bytesPerElement int) int {
 		panic("bytesPerElement must be positive")
 	}
 
-	// Grow by 1.5x, but at least by 4 elements
-	extra := minSize / 2
-	if extra < 4 {
-		extra = 4
+	var newSize int
+	if minSize < 1024 {
+		// For smaller arrays, use 2x growth to minimize reallocations
+		// This is beneficial for ByteBlockPool which often needs many small buffers
+		newSize = minSize * 2
+		if newSize < 16 {
+			newSize = 16 // Minimum growth of 16 elements
+		}
+	} else {
+		// For larger arrays, use 1.5x growth to avoid excessive memory usage
+		newSize = minSize + minSize/2
 	}
-	newSize := minSize + extra
 
 	// Ensure we don't overflow int
 	if newSize < 0 || newSize > math.MaxInt32 {
