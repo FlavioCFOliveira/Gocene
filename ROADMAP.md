@@ -42,7 +42,7 @@ Address performance bottlenecks identified in audit. Focus on memory allocation,
 | GC-818 | Fix TopDocsCollector Lock Contention | HIGH | Mutex held for every document collected during search. Use per-segment collectors that merge results at the end. | COMPLETED 2026-03-21 |
 | GC-819 | Optimize CopyBytes | MEDIUM | Large allocations for copying data. Use chunked copying with fixed-size buffer from a pool. | COMPLETED 2026-03-21 |
 | GC-820 | Improve ByteBlockPool Capacity | MEDIUM | Frequent slice reallocation. Consider larger initial capacity or exponential growth factor. | COMPLETED 2026-03-21 |
-| GC-821 | Optimize PagedBytes Growth | MEDIUM | Doubling strategy good but initial capacity may be too small. Allow configurable initial capacity. |
+| GC-821 | Optimize PagedBytes Growth | MEDIUM | Doubling strategy good but initial capacity may be too small. Allow configurable initial capacity. | COMPLETED 2026-03-21 |
 | GC-822 | Fix Loop Bounds in ByteBlockPool | MEDIUM | Inner loop range causes bounds checks. Use explicit indexing with pre-computed length. |
 | GC-823 | Improve Merge Scheduler Synchronization | MEDIUM | Busy wait with sleep in waitForMergeThread. Use condition variables or channels. |
 | GC-824 | Implement Worker Pool for Merges | MEDIUM | New goroutine created for each merge. Use worker pool with fixed goroutines. |
