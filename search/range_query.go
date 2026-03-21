@@ -145,6 +145,11 @@ func (q *TermRangeQuery) String() string {
 	return buffer
 }
 
+// CreateWeight creates a Weight for this query.
+func (q *TermRangeQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+	return NewConstantScoreQuery(q).CreateWeight(searcher, needsScores, boost)
+}
+
 // NewTermRangeQueryWithStrings creates a new TermRangeQuery using strings.
 func NewTermRangeQueryWithStrings(field string, lowerTerm, upperTerm string, includeLower, includeUpper bool) *TermRangeQuery {
 	var lower, upper []byte

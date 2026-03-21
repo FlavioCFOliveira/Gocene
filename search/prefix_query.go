@@ -60,9 +60,14 @@ func (q *PrefixQuery) Rewrite(reader IndexReader) (Query, error) {
 
 func (q *PrefixQuery) String() string {
 	if q.prefix == nil {
-		return "<nil>:*"
+		return "PrefixQuery<nil>"
 	}
-	return q.prefix.Field + ":" + q.prefix.Text() + "*"
+	return "PrefixQuery(field=" + q.prefix.Field + ", prefix=" + q.prefix.Text() + ")"
+}
+
+// CreateWeight creates a Weight for this query.
+func (q *PrefixQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+	return NewConstantScoreQuery(q).CreateWeight(searcher, needsScores, boost)
 }
 
 // NewPrefixQueryWithStrings creates a new PrefixQuery using strings.
