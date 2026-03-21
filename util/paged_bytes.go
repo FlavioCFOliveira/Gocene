@@ -6,11 +6,20 @@ package util
 
 import (
 	"fmt"
-	"math"
+	"sync"
 	"unsafe"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
+
+// pagedBytesCopyPool is a sync.Pool for reusable byte buffers used in CopyBytes.
+// This eliminates heap allocations when copying data between inputs/outputs.
+var pagedBytesCopyPool = sync.Pool{
+	New: func() interface{} {
+		// Default buffer size of 8KB - covers most common use cases
+		return make([]byte, 8192)
+	},
+}
 
 // PagedBytes represents a logical byte[] as a series of pages.
 // You can write-once into the logical byte[] (append only), using copy,
@@ -684,22 +693,38 @@ func (out *PagedBytesDataOutput) WriteString(s string) error {
 }
 
 // CopyBytes copies bytes from a DataInput.
+// Uses a pooled buffer to avoid heap allocations for copies up to 8KB.
 func (out *PagedBytesDataOutput) CopyBytes(input store.DataInput, numBytes int64) error {
-	buf := make([]byte, int(math.Min(float64(numBytes), 8192)))
 	remaining := numBytes
+
+	// For large copies, use the pooled buffer in chunks
 	for remaining > 0 {
+		// Get a buffer from the pool
+		buf := pagedBytesCopyPool.Get().([]byte)
+
+		// Determine how much to read in this iteration
 		toRead := int64(len(buf))
 		if remaining < toRead {
 			toRead = remaining
 		}
-		n, err := input.ReadBytesN(int(toRead))
-		if err != nil {
+
+		// Read the data - use ReadBytes directly with slice
+		if err := input.ReadBytes(buf[:toRead]); err != nil {
+			pagedBytesCopyPool.Put(buf)
 			return err
 		}
-		if err := out.WriteBytes(n); err != nil {
+
+		// Write the data
+		if err := out.WriteBytes(buf[:toRead]); err != nil {
+			pagedBytesCopyPool.Put(buf)
 			return err
 		}
+
+		// Return the buffer to the pool
+		pagedBytesCopyPool.Put(buf)
+
 		remaining -= toRead
 	}
+
 	return nil
 }
