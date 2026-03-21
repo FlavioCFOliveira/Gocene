@@ -46,7 +46,7 @@ Address performance bottlenecks identified in audit. Focus on memory allocation,
 | GC-822 | Fix Loop Bounds in ByteBlockPool | MEDIUM | Inner loop range causes bounds checks. Use explicit indexing with pre-computed length. | COMPLETED 2026-03-21 |
 | GC-823 | Improve Merge Scheduler Synchronization | MEDIUM | Busy wait with sleep in waitForMergeThread. Use condition variables or channels. | COMPLETED 2026-03-21 |
 | GC-824 | Implement Worker Pool for Merges | MEDIUM | New goroutine created for each merge. Use worker pool with fixed goroutines. | COMPLETED 2026-03-21 |
-| GC-825 | Optimize ShouldFlush Branch Prediction | MEDIUM | Multiple conditional branches in hot path. Use branchless techniques or ensure predictable patterns. |
+| GC-825 | Optimize ShouldFlush Branch Prediction | MEDIUM | Multiple conditional branches in hot path. Use branchless techniques or ensure predictable patterns. | COMPLETED 2026-03-21 |
 | GC-826 | Fix DocumentsWriter Write Lock | MEDIUM | Write lock held during document processing. Process document outside lock, only hold lock for state updates. |
 | GC-827 | Improve NIOFSDirectory Buffering | MEDIUM | Direct file reads without buffering. Wrap file reads with bufio.Reader for small sequential reads. |
 | GC-828 | Optimize MMapDirectory File Opens | MEDIUM | File opened multiple times for multi-chunk mappings. Use single file handle with different offsets. |
