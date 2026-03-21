@@ -86,12 +86,12 @@ Implement remaining Lucene features: advanced queries, similarities, joins, grou
 | GC-849 | Implement BlendedTermQuery | MEDIUM | Missing BlendedTermQuery for blending term statistics across multiple fields. | COMPLETED 2026-03-21 |
 | GC-850 | Implement CombinedFieldQuery | MEDIUM | Missing CombinedFieldQuery for searching across multiple fields as single field. | COMPLETED 2026-03-21 |
 | GC-851 | Implement DocAndScoreQuery | MEDIUM | Missing DocAndScoreQuery for document ID and score based queries. | COMPLETED 2026-03-21 |
-| GC-852 | Implement FeatureQuery | MEDIUM | Missing FeatureQuery for machine learning feature queries. |
+| GC-852 | Implement FeatureQuery | MEDIUM | Missing FeatureQuery for machine learning feature queries. | COMPLETED 2026-03-21 |
 | GC-853 | Implement MoreLikeThis | MEDIUM | Missing MoreLikeThis for finding similar documents. |
 | GC-854 | Implement SpanQuery Hierarchy | MEDIUM | Missing SpanQuery implementations: SpanTermQuery, SpanNearQuery, SpanOrQuery, SpanNotQuery, etc. |
-| GC-855 | Implement TermRangeQuery | MEDIUM | Missing TermRangeQuery for range queries on terms. |
-| GC-856 | Implement WildcardQuery | MEDIUM | Missing WildcardQuery for wildcard pattern matching. |
-| GC-857 | Implement PrefixQuery | MEDIUM | Missing PrefixQuery for prefix matching. |
+| GC-855 | Implement TermRangeQuery | MEDIUM | Missing TermRangeQuery for range queries on terms. | COMPLETED 2026-03-21 |
+| GC-856 | Implement WildcardQuery | MEDIUM | Missing WildcardQuery for wildcard pattern matching. | COMPLETED 2026-03-21 |
+| GC-857 | Implement PrefixQuery | MEDIUM | Missing PrefixQuery for prefix matching. | COMPLETED 2026-03-21 |
 | GC-858 | Implement FuzzyQuery Full | MEDIUM | FuzzyQuery exists but missing full implementation with all options. |
 | GC-859 | Implement AxiomaticSimilarity | MEDIUM | Missing AxiomaticSimilarity for axiomatic retrieval model. |
 | GC-860 | Implement BM25Similarity Full | MEDIUM | BM25Similarity exists but is partial. Complete full implementation. |
