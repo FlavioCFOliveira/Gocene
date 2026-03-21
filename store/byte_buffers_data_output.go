@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"unsafe"
 )
 
 // copyBuffersPool is a sync.Pool for reusable byte buffers used in CopyBytes.
@@ -239,12 +240,19 @@ func (o *ByteBuffersDataOutput) WriteZLong(v int64) error {
 }
 
 // WriteString writes a string.
+// Uses unsafe conversion to avoid heap allocation when converting string to bytes.
+// Safe because WriteBytes only reads the data and does not modify it.
 func (o *ByteBuffersDataOutput) WriteString(s string) error {
-	data := []byte(s)
-	if err := o.WriteVInt(int32(len(data))); err != nil {
+	if err := o.WriteVInt(int32(len(s))); err != nil {
 		return err
 	}
-	return o.WriteBytes(data)
+	// Unsafe conversion: string -> []byte without allocation
+	// Safe because WriteBytes only reads the data
+	if len(s) > 0 {
+		data := unsafe.Slice(unsafe.StringData(s), len(s))
+		return o.WriteBytes(data)
+	}
+	return nil
 }
 
 // CopyBytes copies bytes from a DataInput.

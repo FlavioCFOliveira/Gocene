@@ -6,6 +6,7 @@ package util
 
 import (
 	"fmt"
+	"unsafe"
 )
 
 // GrowableByteArrayDataOutput is a DataOutput that writes to a growable byte array.
@@ -116,8 +117,13 @@ func (g *GrowableByteArrayDataOutput) String() string {
 }
 
 // WriteString writes a string as UTF-8 bytes.
+// Uses unsafe conversion to avoid heap allocation.
 func (g *GrowableByteArrayDataOutput) WriteString(s string) error {
-	return g.WriteBytes([]byte(s))
+	if len(s) > 0 {
+		data := unsafe.Slice(unsafe.StringData(s), len(s))
+		return g.WriteBytes(data)
+	}
+	return nil
 }
 
 // WriteInt32 writes a 32-bit integer in big-endian format.
