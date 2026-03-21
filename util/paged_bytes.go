@@ -7,6 +7,7 @@ package util
 import (
 	"fmt"
 	"math"
+	"unsafe"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
@@ -668,11 +669,18 @@ func (out *PagedBytesDataOutput) WriteZLong(v int64) error {
 }
 
 // WriteString writes a string.
+// Uses unsafe conversion to avoid heap allocation.
 func (out *PagedBytesDataOutput) WriteString(s string) error {
 	if err := out.WriteVInt(int32(len(s))); err != nil {
 		return err
 	}
-	return out.WriteBytes([]byte(s))
+	// Unsafe conversion: string -> []byte without allocation
+	// Safe because WriteBytes only reads the data
+	if len(s) > 0 {
+		data := unsafe.Slice(unsafe.StringData(s), len(s))
+		return out.WriteBytes(data)
+	}
+	return nil
 }
 
 // CopyBytes copies bytes from a DataInput.

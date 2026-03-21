@@ -12,6 +12,7 @@ import (
 	"hash/adler32"
 	"math"
 	"sort"
+	"unsafe"
 )
 
 // NamedOutput provides access to the file name for index outputs.
@@ -501,11 +502,18 @@ func WriteVLong(out DataOutput, i int64) error {
 
 // WriteString writes a string as length-prefixed UTF-8.
 // The length is written as a VInt, followed by the UTF-8 bytes.
+// Uses unsafe conversion to avoid heap allocation.
 func WriteString(out DataOutput, s string) error {
 	if err := WriteVInt(out, int32(len(s))); err != nil {
 		return err
 	}
-	return out.WriteBytes([]byte(s))
+	// Unsafe conversion: string -> []byte without allocation
+	// Safe because WriteBytes only reads the data
+	if len(s) > 0 {
+		data := unsafe.Slice(unsafe.StringData(s), len(s))
+		return out.WriteBytes(data)
+	}
+	return nil
 }
 
 // WriteMapOfStrings writes a map of strings as a VInt size followed by key-value pairs.
