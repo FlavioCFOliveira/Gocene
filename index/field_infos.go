@@ -40,7 +40,7 @@ func NewFieldInfos() *FieldInfos {
 	return &FieldInfos{
 		byName:          make(map[string]*FieldInfo),
 		byNumber:        make(map[int]*FieldInfo),
-		names:           make([]string, 0),
+		names:           make([]string, 0, 16), // Pre-allocate capacity
 		nextFieldNumber: 0,
 		frozen:          false,
 	}
@@ -285,7 +285,7 @@ func (fi *FieldInfos) Clear() {
 
 	fi.byName = make(map[string]*FieldInfo)
 	fi.byNumber = make(map[int]*FieldInfo)
-	fi.names = make([]string, 0)
+	fi.names = make([]string, 0, 16)
 	fi.nextFieldNumber = 0
 }
 
