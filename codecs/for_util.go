@@ -333,22 +333,24 @@ func (f *ForUtil) decodeSlow(bitsPerValue int, in store.IndexInput, ints []int64
 
 // decode1-16 handle specific bits per value cases
 func (f *ForUtil) decode1(in store.IndexInput, ints []int64) error {
+	var buf [4]byte
 	for i := 0; i < 8; i++ {
-		if err := in.ReadBytes(f.byteBuf); err != nil {
+		if err := in.ReadBytes(buf[:]); err != nil {
 			return err
 		}
-		v := binary.BigEndian.Uint32(f.byteBuf)
+		v := binary.BigEndian.Uint32(buf[:])
 		ints[i] = int64(v >> 7)
 	}
 	return nil
 }
 
 func (f *ForUtil) decode2(in store.IndexInput, ints []int64) error {
+	var buf [4]byte
 	for i := 0; i < 16; i++ {
-		if err := in.ReadBytes(f.byteBuf); err != nil {
+		if err := in.ReadBytes(buf[:]); err != nil {
 			return err
 		}
-		v := binary.BigEndian.Uint32(f.byteBuf)
+		v := binary.BigEndian.Uint32(buf[:])
 		ints[i] = int64(v >> 6)
 	}
 	return nil
@@ -384,11 +386,12 @@ func (f *ForUtil) decode3(in store.IndexInput, ints []int64) error {
 }
 
 func (f *ForUtil) decode4(in store.IndexInput, ints []int64) error {
+	var buf [4]byte
 	for i := 0; i < 32; i++ {
-		if err := in.ReadBytes(f.byteBuf); err != nil {
+		if err := in.ReadBytes(buf[:]); err != nil {
 			return err
 		}
-		v := binary.BigEndian.Uint32(f.byteBuf)
+		v := binary.BigEndian.Uint32(buf[:])
 		ints[i] = int64(v >> 4)
 	}
 	return nil
@@ -477,11 +480,13 @@ func (f *ForUtil) decode7(in store.IndexInput, ints []int64) error {
 }
 
 func (f *ForUtil) decode8(in store.IndexInput, ints []int64) error {
+	// Use stack-allocated buffer to avoid any heap escape issues
+	var buf [4]byte
 	for i := 0; i < 64; i++ {
-		if err := in.ReadBytes(f.byteBuf); err != nil {
+		if err := in.ReadBytes(buf[:]); err != nil {
 			return err
 		}
-		ints[i] = int64(binary.BigEndian.Uint32(f.byteBuf))
+		ints[i] = int64(binary.BigEndian.Uint32(buf[:]))
 	}
 	return nil
 }
@@ -725,11 +730,12 @@ func (f *ForUtil) decode15(in store.IndexInput, ints []int64) error {
 }
 
 func (f *ForUtil) decode16(in store.IndexInput, ints []int64) error {
+	var buf [4]byte
 	for i := 0; i < 128; i++ {
-		if err := in.ReadBytes(f.byteBuf); err != nil {
+		if err := in.ReadBytes(buf[:]); err != nil {
 			return err
 		}
-		ints[i] = int64(binary.BigEndian.Uint32(f.byteBuf))
+		ints[i] = int64(binary.BigEndian.Uint32(buf[:]))
 	}
 	return nil
 }
