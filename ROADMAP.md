@@ -4,9 +4,9 @@
 
 Este roadmap contém as tarefas pendentes para completar o port de Apache Lucene 10.x para Go.
 
-**Total de Tarefas Pendentes:** 87
+**Total de Tarefas Pendentes:** 43
 **Fases Pendentes:** 2 (49-50)
-**Fases Completadas:** 15 (34-48)
+**Fases Completadas:** 18 (34-48)
 
 ---
 
@@ -14,146 +14,14 @@ Este roadmap contém as tarefas pendentes para completar o port de Apache Lucene
 
 | Fase | Status | Tarefas | Complexidade | Foco | Dependências |
 |:-----|:-------|:--------|:-------------|:-----|:-------------|
-| 46 | COMPLETED | 35 | Alta | NRT Search | Phase 45 |
-| 47 | COMPLETED | 40 | Média | Additional Languages | Phase 46 |
-| 48 | COMPLETED | 15 | Alta | Core Reader Hierarchy | Phase 47 |
-| 49 | PENDING | 32 | Alta | Performance Optimization | Phase 48 |
+| 49 | IN_PROGRESS | 20 | Alta | Performance Optimization | Phase 48 |
 | 50 | PENDING | 55 | Alta | Advanced Features | Phase 49 |
 
 ---
 
-## FASE 46: NRT Search and Real-time Features (COMPLETED)
+## FASE 49: Performance Optimization (IN_PROGRESS)
 
-**Status:** COMPLETED 2026-03-20 | **Tasks:** 35 | **Focus:** Near Real-Time search capabilities
-**Dependencies:** Phase 45 (Spatial Fields Completion)
-
-Implement NRT (Near Real-Time) search for immediate visibility of updates.
-
-| ID | Task | Priority | Description |
-|:---|:-----|:---------|:------------|
-| GC-715 | NRTManager | HIGH | Near real-time manager | COMPLETED 2026-03-20 |
-| GC-716 | SearcherManager | HIGH | Searcher lifecycle manager | COMPLETED 2026-03-20 |
-| GC-717 | SearcherFactory | HIGH | Searcher factory | COMPLETED 2026-03-20 |
-| GC-718 | SearcherLifetimeManager | MEDIUM | Searcher lifetime management | COMPLETED 2026-03-20 |
-| GC-719 | ReferenceManager | HIGH | Reference management | COMPLETED 2026-03-20 |
-| GC-720 | ControlledRealTimeReopenThread | HIGH | CRT reopen thread | COMPLETED 2026-03-20 |
-| GC-721 | NRTReplicationWriter | HIGH | NRT replication writer | COMPLETED 2026-03-20 |
-| GC-722 | NRTReplicationReader | HIGH | NRT replication reader | COMPLETED 2026-03-20 |
-| GC-723 | IndexRevision | MEDIUM | Index revision tracking | COMPLETED 2026-03-20 |
-| GC-724 | Replicator | MEDIUM | Index replicator | COMPLETED 2026-03-20 |
-| GC-725 | LocalReplicator | MEDIUM | Local replicator | COMPLETED 2026-03-20 |
-| GC-726 | HttpReplicator | MEDIUM | HTTP replicator | COMPLETED 2026-03-20 |
-| GC-727 | ReplicationClient | MEDIUM | Replication client | COMPLETED 2026-03-20 |
-| GC-728 | ReplicationServer | MEDIUM | Replication server | COMPLETED 2026-03-20 |
-| GC-729 | IndexInputInputStream | MEDIUM | IndexInput stream adapter | COMPLETED 2026-03-20 |
-| GC-730 | IndexOutputOutputStream | MEDIUM | IndexOutput stream adapter | COMPLETED 2026-03-20 |
-| GC-731 | CopyJob | MEDIUM | Copy job for replication | COMPLETED 2026-03-20 |
-| GC-732 | Session | MEDIUM | Replication session | COMPLETED 2026-03-20 |
-| GC-733 | NRTFileDeleter | MEDIUM | NRT file deleter | COMPLETED 2026-03-20 |
-| GC-734 | NRTDirectoryReader | HIGH | NRT directory reader | COMPLETED 2026-03-20 |
-| GC-735 | NRTSegmentReader | HIGH | NRT segment reader | COMPLETED 2026-03-20 |
-| GC-736 | StandardDirectoryReader | HIGH | Standard directory reader | COMPLETED 2026-03-20 |
-| GC-737 | ReadOnlyDirectoryReader | MEDIUM | Read-only directory reader | COMPLETED 2026-03-20 |
-| GC-738 | DirectoryReaderReopener | MEDIUM | Directory reader reopener | COMPLETED 2026-03-20 |
-| GC-739 | ReaderPool | MEDIUM | Reader pool management | COMPLETED 2026-03-20 |
-| GC-740 | NRTLockFactory | MEDIUM | NRT lock factory | COMPLETED 2026-03-20 |
-| GC-741 | NRTMergeScheduler | MEDIUM | NRT merge scheduler | COMPLETED 2026-03-20 |
-| GC-742 | NRTMergePolicy | MEDIUM | NRT merge policy | COMPLETED 2026-03-20 |
-| GC-743 | LiveIndexWriterConfig | MEDIUM | Live IWC for NRT | COMPLETED 2026-03-20 |
-| GC-744 | NRTIndexingTests | HIGH | NRT indexing tests | COMPLETED 2026-03-20 |
-| GC-745 | NRTSearchTests | HIGH | NRT search tests | COMPLETED 2026-03-20 |
-| GC-746 | ReplicationTests | HIGH | Replication tests | COMPLETED 2026-03-20 |
-| GC-747 | NRTConcurrencyTests | HIGH | NRT concurrency tests | COMPLETED 2026-03-20 |
-| GC-748 | NRTStressTests | MEDIUM | NRT stress tests | COMPLETED 2026-03-20 |
-| GC-749 | NRTBenchmark | MEDIUM | NRT performance benchmarks | COMPLETED 2026-03-20 |
-
----
-
-## FASE 47: Additional Language Analyzers (COMPLETED)
-
-**Status:** COMPLETED 2026-03-20 | **Tasks:** 40 | **Focus:** Extended language support
-**Dependencies:** Phase 46 (NRT Search Completion)
-
-Implement analyzers for additional languages.
-
-| ID | Task | Priority | Description |
-|:---|:-----|:---------|:------------|
-| GC-750 | ArabicAnalyzer | MEDIUM | Arabic language analyzer | COMPLETED 2026-03-20 |
-| GC-751 | ArabicNormalizer | MEDIUM | Arabic text normalization | COMPLETED 2026-03-20 |
-| GC-752 | ArabicStemmer | MEDIUM | Arabic stemming | COMPLETED 2026-03-20 |
-| GC-753 | ArmenianAnalyzer | LOW | Armenian language analyzer | COMPLETED 2026-03-20 |
-| GC-754 | BasqueAnalyzer | LOW | Basque language analyzer | COMPLETED 2026-03-20 |
-| GC-755 | BengaliAnalyzer | MEDIUM | Bengali language analyzer | COMPLETED 2026-03-20 |
-| GC-756 | BrazilianAnalyzer | MEDIUM | Portuguese (Brazil) analyzer | COMPLETED 2026-03-20 |
-| GC-757 | BulgarianAnalyzer | LOW | Bulgarian language analyzer | COMPLETED 2026-03-20 |
-| GC-758 | CatalanAnalyzer | LOW | Catalan language analyzer | COMPLETED 2026-03-20 |
-| GC-759 | CroatianAnalyzer | LOW | Croatian language analyzer | COMPLETED 2026-03-20 |
-| GC-760 | CzechAnalyzer | MEDIUM | Czech language analyzer | COMPLETED 2026-03-20 |
-| GC-761 | CzechStemmer | MEDIUM | Czech stemming | COMPLETED 2026-03-20 |
-| GC-762 | DanishAnalyzer | MEDIUM | Danish language analyzer | COMPLETED 2026-03-20 |
-| GC-763 | DutchAnalyzer | MEDIUM | Dutch language analyzer | COMPLETED 2026-03-20 |
-| GC-764 | DutchStemmer | MEDIUM | Dutch stemming | COMPLETED 2026-03-20 |
-| GC-765 | EstonianAnalyzer | LOW | Estonian language analyzer | COMPLETED 2026-03-20 |
-| GC-766 | FinnishAnalyzer | MEDIUM | Finnish language analyzer | COMPLETED 2026-03-20 |
-| GC-767 | FinnishLightStemmer | LOW | Finnish light stemming | COMPLETED 2026-03-20 |
-| GC-768 | GalicianAnalyzer | LOW | Galician language analyzer | COMPLETED 2026-03-20 |
-| GC-769 | GalicianStemmer | LOW | Galician stemming | COMPLETED 2026-03-20 |
-| GC-770 | GreekAnalyzer | MEDIUM | Greek language analyzer | COMPLETED 2026-03-20 |
-| GC-771 | GreekStemmer | MEDIUM | Greek stemming | COMPLETED 2026-03-20 |
-| GC-772 | HindiAnalyzer | MEDIUM | Hindi language analyzer | COMPLETED 2026-03-20 |
-| GC-773 | HindiNormalizer | MEDIUM | Hindi normalization | COMPLETED 2026-03-20 |
-| GC-774 | HindiStemmer | MEDIUM | Hindi stemming | COMPLETED 2026-03-20 |
-| GC-775 | HungarianAnalyzer | MEDIUM | Hungarian language analyzer | COMPLETED 2026-03-20 |
-| GC-776 | HungarianLightStemmer | MEDIUM | Hungarian light stemming | COMPLETED 2026-03-20 |
-| GC-777 | IndonesianAnalyzer | LOW | Indonesian language analyzer | COMPLETED 2026-03-20 |
-| GC-778 | IrishAnalyzer | LOW | Irish language analyzer | COMPLETED 2026-03-20 |
-| GC-779 | LatvianAnalyzer | LOW | Latvian language analyzer | COMPLETED 2026-03-20 |
-| GC-780 | LithuanianAnalyzer | LOW | Lithuanian language analyzer | COMPLETED 2026-03-20 |
-| GC-781 | NorwegianAnalyzer | MEDIUM | Norwegian language analyzer | COMPLETED 2026-03-20 |
-| GC-782 | PersianAnalyzer | MEDIUM | Persian language analyzer | COMPLETED 2026-03-20 |
-| GC-783 | PersianNormalizer | MEDIUM | Persian normalization | COMPLETED 2026-03-20 |
-| GC-784 | RomanianAnalyzer | LOW | Romanian language analyzer | COMPLETED 2026-03-20 |
-| GC-785 | SerbianAnalyzer | LOW | Serbian language analyzer | COMPLETED 2026-03-20 |
-| GC-786 | SlovakAnalyzer | LOW | Slovak language analyzer | COMPLETED 2026-03-20 |
-| GC-787 | SlovenianAnalyzer | LOW | Slovenian language analyzer | COMPLETED 2026-03-20 |
-| GC-788 | SwedishAnalyzer | MEDIUM | Swedish language analyzer | COMPLETED 2026-03-20 |
-| GC-789 | ThaiAnalyzer | MEDIUM | Thai language analyzer | COMPLETED 2026-03-20 |
-| GC-790 | TurkishAnalyzer | MEDIUM | Turkish language analyzer | COMPLETED 2026-03-20 |
-| GC-791 | TurkishLowerCaseFilter | MEDIUM | Turkish lowercase handling | COMPLETED 2026-03-20 |
-
----
-
-## FASE 48: Core Reader Hierarchy and API Completion (COMPLETED)
-
-**Status:** COMPLETED 2026-03-20 | **Tasks:** 15 | **Focus:** Fix Lucene reader hierarchy compatibility
-**Dependencies:** Phase 47 (Additional Language Analyzers)
-**Dependencies:** Phase 47 (Additional Language Analyzers)
-
-Address critical Lucene compatibility gaps identified in audit. Fix reader hierarchy, complete APIs, and implement missing core abstractions.
-
-| ID | Task | Priority | Description |
-|:---|:-----|:---------|:------------|
-| GC-792 | Correct Reader Hierarchy | HIGH | Fix inheritance: IndexReader should be sealed base with CompositeReader and LeafReader as permitted subclasses. Currently DirectoryReader incorrectly embeds LeafReader. | COMPLETED 2026-03-20 |
-| GC-793 | Implement Complete LeafReader API | HIGH | LeafReader missing: postings(Term), getNumericDocValues, getBinaryDocValues, getSortedDocValues, getSortedNumericDocValues, getSortedSetDocValues, getNormValues, getPointValues, getFloatVectorValues, getByteVectorValues, searchNearestVectors, getDocValuesSkipper, checkIntegrity, getMetaData. | COMPLETED 2026-03-20 |
-| GC-794 | Implement CompositeReader Abstraction | HIGH | Missing CompositeReader intermediate class between IndexReader and DirectoryReader. Must implement getSequentialSubReaders() returning ordered sub-readers. | COMPLETED 2026-03-20 |
-| GC-795 | Implement BaseCompositeReader | HIGH | Missing BaseCompositeReader with document ID mapping utilities: readerIndex(docID) to find correct segment, readerBase(readerIndex) to get doc base offset. | COMPLETED 2026-03-20 |
-| GC-796 | Implement CodecReader Abstraction | HIGH | Missing abstract CodecReader between LeafReader and SegmentReader. Must provide codec reader getters: getFieldsReader(), getTermVectorsReader(), getPostingsReader(), getDocValuesReader(), getNormsReader(), getPointsReader(), getVectorReader(). | COMPLETED 2026-03-20 |
-| GC-797 | Implement IndexReaderContext Hierarchy | HIGH | Missing sealed IndexReaderContext hierarchy: IndexReaderContext (base with parent, isTopLevel, docBaseInParent, ordInParent), LeafReaderContext (ord, docBase, reader), CompositeReaderContext (children, leaves). | COMPLETED 2026-03-20 |
-| GC-798 | Implement StoredFields Wrapper | HIGH | Missing StoredFields class that wraps StoredFieldsReader. Must implement prefetch(), document(docID, visitor) methods. | COMPLETED 2026-03-20 |
-| GC-799 | Implement TermVectors Wrapper | HIGH | Missing TermVectors class that wraps TermVectorsReader. Must implement get(docID), prefetch() methods. | COMPLETED 2026-03-20 |
-| GC-800 | Implement DocValues Full API | HIGH | Missing complete DocValues implementations: NumericDocValues, BinaryDocValues, SortedDocValues, SortedNumericDocValues, SortedSetDocValues with full iterator API. | COMPLETED 2026-03-20 |
-| GC-801 | Implement Vector Search Support | HIGH | Missing KNN vector search: FloatVectorValues, ByteVectorValues interfaces, KnnVectorsReader/Writer, HNSW graph implementation. | COMPLETED 2026-03-20 |
-| GC-802 | Implement PointValues API | HIGH | Missing PointValues for numeric range queries. Required for IntPoint, LongPoint, FloatPoint, DoublePoint, BinaryPoint field types. | COMPLETED 2026-03-20 |
-| GC-803 | Implement Full IndexWriter Feature Set | HIGH | IndexWriter missing: soft deletes, doc values updates (numeric/binary), live field updates, full merge control, commit/rollback semantics, two-phase commit, sequence numbers, event listeners. | COMPLETED 2026-03-20 |
-| GC-804 | Implement DirectoryReader NRT Support | HIGH | Missing near-real-time (NRT) reader support from IndexWriter. DirectoryReader.open(IndexWriter) static methods not implemented. | COMPLETED 2026-03-20 |
-| GC-805 | Implement LiveDocs with Iteration Support | HIGH | Missing LiveDocs interface with efficient deleted document iteration via deletedDocsIterator(). Current Bits implementation requires O(maxDoc) scanning. | COMPLETED 2026-03-20 |
-| GC-806 | Implement MultiReader/ParallelCompositeReader | HIGH | Missing MultiReader for reading multiple indexes and ParallelCompositeReader for parallel searching across sub-readers. | COMPLETED 2026-03-20 |
-
----
-
-## FASE 49: Performance Optimization (PENDING)
-
-**Status:** PENDING | **Tasks:** 32 | **Focus:** Critical performance improvements
+**Status:** IN_PROGRESS | **Tasks:** 32 total, 20 pendentes, 12 completadas | **Focus:** Critical performance improvements
 **Dependencies:** Phase 48 (Core Reader Hierarchy)
 
 Address performance bottlenecks identified in audit. Focus on memory allocation, concurrency, and hot path optimization.
@@ -172,7 +40,7 @@ Address performance bottlenecks identified in audit. Focus on memory allocation,
 | GC-816 | Implement Buffer Pool | HIGH | No buffer pool in InputStreamDataInput. ReadByte allocates every call. Use sync.Pool for buffers. | COMPLETED 2026-03-21 |
 | GC-817 | Improve AttributeSource Concurrency | HIGH | Lock per attribute access during tokenization. Use sync.Map or pre-computed attribute indices. | COMPLETED 2026-03-21 |
 | GC-818 | Fix TopDocsCollector Lock Contention | HIGH | Mutex held for every document collected during search. Use per-segment collectors that merge results at the end. | COMPLETED 2026-03-21 |
-| GC-819 | Optimize CopyBytes | MEDIUM | Large allocations for copying data. Use chunked copying with fixed-size buffer from a pool. |
+| GC-819 | Optimize CopyBytes | MEDIUM | Large allocations for copying data. Use chunked copying with fixed-size buffer from a pool. | COMPLETED 2026-03-21 |
 | GC-820 | Improve ByteBlockPool Capacity | MEDIUM | Frequent slice reallocation. Consider larger initial capacity or exponential growth factor. |
 | GC-821 | Optimize PagedBytes Growth | MEDIUM | Doubling strategy good but initial capacity may be too small. Allow configurable initial capacity. |
 | GC-822 | Fix Loop Bounds in ByteBlockPool | MEDIUM | Inner loop range causes bounds checks. Use explicit indexing with pre-computed length. |
@@ -288,9 +156,9 @@ Implement remaining Lucene features: advanced queries, similarities, joins, grou
 
 ### Progresso Atual
 - **Total de Tarefas do Projeto:** 650
-- **Completadas:** 548 (fases 34-47)
-- **Pendentes:** 102 (fases 48-50)
-- **Progresso Geral:** 84%
+- **Completadas:** 560 (fases 34-48 + otimizações críticas da fase 49)
+- **Pendentes:** 90 (fases 49-50)
+- **Progresso Geral:** 86%
 
 ### Histórico de Fases Completadas
 - Fase 34: Foundation (45 tarefas) - COMPLETED
@@ -307,11 +175,11 @@ Implement remaining Lucene features: advanced queries, similarities, joins, grou
 - Fase 45: Spatial Fields (35 tarefas) - COMPLETED 2026-03-20
 - Fase 46: NRT Search and Real-time Features (35 tarefas) - COMPLETED 2026-03-20
 - Fase 47: Additional Language Analyzers (40 tarefas) - COMPLETED 2026-03-20
+- Fase 48: Core Reader Hierarchy and API Completion (15 tarefas) - COMPLETED 2026-03-20
 
 ### Próximos Passos
-1. Implementar Core Reader Hierarchy (Phase 48) - Corrigir hierarquia de readers Lucene
-2. Implementar Performance Optimization (Phase 49) - Otimizações críticas de performance
-3. Implementar Advanced Features (Phase 50) - Completar feature parity com Lucene
+1. Completar otimizações de Performance (Fase 49) - 20 tarefas pendentes
+2. Implementar Advanced Features (Fase 50) - 55 tarefas para feature parity completa
 
 ### Auditorias Recentes
 - **2026-03-20:** Auditoria de Compatibilidade Lucene - 291 findings (78 HIGH, 124 MEDIUM, 89 LOW)
