@@ -89,6 +89,10 @@ type ConcurrentMergeScheduler struct {
 	// mergeMu protects merge-related state
 	mergeMu sync.Mutex
 
+	// threadDoneCond is signaled when a merge thread completes
+	// Used by waitForMergeThread to avoid busy-waiting
+	threadDoneCond *sync.Cond
+
 	// rateLimiter limits merge I/O
 	rateLimiter *MergeRateLimiter
 
@@ -114,6 +118,9 @@ func NewConcurrentMergeScheduler() *ConcurrentMergeScheduler {
 		mergeErrors:        make(chan error, 10),
 		rateLimiter:        NewMergeRateLimiter(),
 	}
+
+	// Initialize condition variable for thread completion signaling
+	s.threadDoneCond = sync.NewCond(&s.mergeMu)
 
 	return s
 }
@@ -373,6 +380,7 @@ func (s *ConcurrentMergeScheduler) spawnMergeThread(source MergeSource, merge *O
 }
 
 // removeMergeThread removes a thread from the active list.
+// Signals threadDoneCond to wake up any waiters.
 func (s *ConcurrentMergeScheduler) removeMergeThread(thread *MergeThread) {
 	s.mergeMu.Lock()
 	defer s.mergeMu.Unlock()
@@ -383,29 +391,23 @@ func (s *ConcurrentMergeScheduler) removeMergeThread(thread *MergeThread) {
 			break
 		}
 	}
+
+	// Signal that a thread completed - wakes up waitForMergeThread
+	if s.threadDoneCond != nil {
+		s.threadDoneCond.Broadcast()
+	}
 }
 
 // waitForMergeThread waits for any merge thread to complete.
+// Uses sync.Cond for efficient waiting instead of busy-wait with sleep.
 func (s *ConcurrentMergeScheduler) waitForMergeThread() {
 	s.mergeMu.Lock()
-	// Get a reference to one of the running threads
-	var threadToWait *MergeThread
-	if len(s.mergeThreads) > 0 {
-		threadToWait = s.mergeThreads[0]
-	}
-	s.mergeMu.Unlock()
+	defer s.mergeMu.Unlock()
 
-	if threadToWait != nil {
-		// Wait for the thread's done channel
-		select {
-		case <-threadToWait.Done():
-			// Thread completed
-		case <-time.After(30 * time.Second):
-			// Timeout - continue anyway
-		}
-	} else {
-		// No threads running, just yield
-		time.Sleep(1 * time.Millisecond)
+	// Wait while there are active threads
+	// The condition is checked in a loop because spurious wakeups can occur
+	for len(s.mergeThreads) > 0 {
+		s.threadDoneCond.Wait()
 	}
 }
 
