@@ -43,11 +43,11 @@ func NewNRTReplicationReader(source string) (*NRTReplicationReader, error) {
 	}
 
 	rr := &NRTReplicationReader{
-		currentRevision:  &IndexRevision{},
-		pendingFiles:   make(map[string]bool),
-		completedFiles: make(map[string]bool),
-		lastSyncTime:   time.Now(),
-		source:         source,
+		currentRevision: &IndexRevision{},
+		pendingFiles:    make(map[string]bool),
+		completedFiles:  make(map[string]bool),
+		lastSyncTime:    time.Now(),
+		source:          source,
 	}
 
 	rr.isOpen.Store(true)

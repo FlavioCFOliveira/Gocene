@@ -79,11 +79,11 @@ func NewSearcherLifetimeManager(manager *SearcherManager, maxAge time.Duration, 
 	}
 
 	lm := &SearcherLifetimeManager{
-		manager:      manager,
+		manager:        manager,
 		maxSearcherAge: maxAge,
 		maxSearchers:   maxSearchers,
-		searchers:    make([]*managedSearcher, 0),
-		stopChan:     make(chan struct{}),
+		searchers:      make([]*managedSearcher, 0),
+		stopChan:       make(chan struct{}),
 	}
 
 	lm.isOpen.Store(true)

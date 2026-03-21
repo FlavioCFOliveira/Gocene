@@ -171,4 +171,3 @@ func HasArabicText(s string) bool {
 	}
 	return false
 }
-

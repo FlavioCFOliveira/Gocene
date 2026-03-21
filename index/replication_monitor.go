@@ -57,10 +57,10 @@ type ReplicationMonitor struct {
 // NewReplicationMonitor creates a new ReplicationMonitor.
 func NewReplicationMonitor() *ReplicationMonitor {
 	return &ReplicationMonitor{
-		tasks:        make(map[string]*ReplicationTask),
-		files:        make(map[string]*ReplicationFile),
-		listeners:    make([]ReplicationListener, 0),
-		stopChan:     make(chan struct{}),
+		tasks:          make(map[string]*ReplicationTask),
+		files:          make(map[string]*ReplicationFile),
+		listeners:      make([]ReplicationListener, 0),
+		stopChan:       make(chan struct{}),
 		updateInterval: 1 * time.Second,
 	}
 }
@@ -392,12 +392,12 @@ func (m *ReplicationMonitor) GetSummary() ReplicationSummary {
 	defer m.mu.RUnlock()
 
 	return ReplicationSummary{
-		TotalTasks:       len(m.tasks),
-		ActiveTasks:      m.getActiveTaskCount(),
-		CompletedTasks:   m.getCompletedTaskCount(),
-		FailedTasks:      m.getFailedTaskCount(),
-		TotalFiles:       len(m.files),
-		OverallProgress:  m.getOverallProgress(),
+		TotalTasks:      len(m.tasks),
+		ActiveTasks:     m.getActiveTaskCount(),
+		CompletedTasks:  m.getCompletedTaskCount(),
+		FailedTasks:     m.getFailedTaskCount(),
+		TotalFiles:      len(m.files),
+		OverallProgress: m.getOverallProgress(),
 	}
 }
 

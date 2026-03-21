@@ -181,7 +181,7 @@ func (s *NRTMergeScheduler) Merge(source MergeSource, trigger MergeTrigger) erro
 
 	// Wrap the source to add NRT-aware behavior
 	nrtSource := &nrtMergeSource{
-		wrapped:  source,
+		wrapped:   source,
 		scheduler: s,
 	}
 
@@ -294,10 +294,10 @@ func (s *NRTMergeScheduler) GetStats() NRTMergeStats {
 	defer s.stats.mu.RUnlock()
 
 	return NRTMergeStats{
-		TotalMerges:      s.stats.TotalMerges,
-		DeferredMerges:   s.stats.DeferredMerges,
-		PausedMerges:     s.stats.PausedMerges,
-		TotalMergeTime:   s.stats.TotalMergeTime,
+		TotalMerges:    s.stats.TotalMerges,
+		DeferredMerges: s.stats.DeferredMerges,
+		PausedMerges:   s.stats.PausedMerges,
+		TotalMergeTime: s.stats.TotalMergeTime,
 	}
 }
 

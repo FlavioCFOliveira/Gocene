@@ -104,10 +104,10 @@ func TestSession_RemoveFile(t *testing.T) {
 	session.AddFile("file3")
 
 	tests := []struct {
-		name     string
-		fileName string
+		name        string
+		fileName    string
 		wantRemoved bool
-		wantErr  bool
+		wantErr     bool
 	}{
 		{
 			name:        "remove existing file",

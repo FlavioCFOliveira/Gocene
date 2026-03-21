@@ -114,12 +114,12 @@ func TestIsArabicLetter(t *testing.T) {
 		r        rune
 		expected bool
 	}{
-		{r: 'ك', expected: true},     // Arabic letter
-		{r: 'a', expected: false},    // Latin letter
-		{r: '1', expected: false},    // Digit
-		{r: 'é', expected: false},    // Accented Latin
-		{r: 0x060C, expected: true},  // Arabic comma
-		{r: 0x061F, expected: true},  // Arabic question mark
+		{r: 'ك', expected: true},    // Arabic letter
+		{r: 'a', expected: false},   // Latin letter
+		{r: '1', expected: false},   // Digit
+		{r: 'é', expected: false},   // Accented Latin
+		{r: 0x060C, expected: true}, // Arabic comma
+		{r: 0x061F, expected: true}, // Arabic question mark
 	}
 
 	for _, tc := range tests {

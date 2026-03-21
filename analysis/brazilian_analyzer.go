@@ -35,7 +35,7 @@ var BrazilianPortugueseStopWords = []string{
 	"quanto", "quantos", "quanta", "quantas", "que", "quem", "se",
 	"seu", "seus", "sua", "suas", "tal", "tão", "tanto", "tantos",
 	"tanta", "tantas", "te", "teu", "teus", "toda", "todas", "todo",
-	"todos","tudo", "um", "uma", "uns", "umas", "você", "vocês",
+	"todos", "tudo", "um", "uma", "uns", "umas", "você", "vocês",
 	// Conjunctions
 	"e", "nem", "ou", "ora", "já", "que", "porque", "pois", "mas",
 	"porém", "todavia", "contudo", "entretanto", "então", "logo",

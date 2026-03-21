@@ -6,7 +6,9 @@ package search
 
 import (
 	"container/heap"
+	"math"
 	"sync"
+	"sync/atomic"
 )
 
 // TopDocsCollector collects top-N documents by score.
@@ -15,6 +17,7 @@ import (
 //
 // This collector maintains a priority queue of the top scoring documents
 // and returns them as TopDocs when the search is complete.
+// Uses atomic operations for hot path counters to minimize lock contention.
 type TopDocsCollector struct {
 	*SimpleCollector
 
@@ -24,25 +27,26 @@ type TopDocsCollector struct {
 	// pq is the priority queue of scored documents
 	pq *ScoreDocPriorityQueue
 
-	// totalHits tracks the total number of hits
-	totalHits int
+	// totalHits tracks the total number of hits (atomic for lock-free increments)
+	totalHits atomic.Int32
 
-	// maxScore tracks the maximum score seen
-	maxScore float32
+	// maxScore tracks the maximum score seen as uint32 bits (atomic for lock-free updates)
+	maxScore atomic.Uint32
 
-	// mu protects mutable fields
+	// mu protects priority queue operations (not for counters)
 	mu sync.RWMutex
 }
 
 // NewTopDocsCollector creates a new TopDocsCollector.
 func NewTopDocsCollector(numHits int) *TopDocsCollector {
-	return &TopDocsCollector{
+	c := &TopDocsCollector{
 		SimpleCollector: NewSimpleCollector(COMPLETE),
 		numHits:         numHits,
 		pq:              NewScoreDocPriorityQueue(numHits),
-		totalHits:       0,
-		maxScore:        0,
 	}
+	c.totalHits.Store(0)
+	c.maxScore.Store(0) // 0 bits for float32 0.0
+	return c
 }
 
 // GetLeafCollector returns a LeafCollector for the given context.
@@ -54,8 +58,8 @@ func (c *TopDocsCollector) GetLeafCollector(reader IndexReader) (LeafCollector, 
 
 // TopDocs returns the collected top documents.
 func (c *TopDocsCollector) TopDocs() *TopDocs {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	scoreDocs := make([]*ScoreDoc, c.pq.Len())
 	for i := len(scoreDocs) - 1; i >= 0; i-- {
@@ -63,24 +67,20 @@ func (c *TopDocsCollector) TopDocs() *TopDocs {
 	}
 
 	return &TopDocs{
-		TotalHits: NewTotalHits(int64(c.totalHits), EQUAL_TO),
+		TotalHits: NewTotalHits(int64(c.totalHits.Load()), EQUAL_TO),
 		ScoreDocs: scoreDocs,
-		MaxScore:  c.maxScore,
+		MaxScore:  math.Float32frombits(c.maxScore.Load()),
 	}
 }
 
 // GetTotalHits returns the total number of hits collected.
 func (c *TopDocsCollector) GetTotalHits() int {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.totalHits
+	return int(c.totalHits.Load())
 }
 
 // GetMaxScore returns the maximum score seen.
 func (c *TopDocsCollector) GetMaxScore() float32 {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.maxScore
+	return math.Float32frombits(c.maxScore.Load())
 }
 
 // TopDocsLeafCollector collects documents for a single segment.
@@ -112,22 +112,32 @@ func (c *TopDocsLeafCollector) SetDocBase(docBase int) {
 }
 
 // Collect collects a document.
+// Uses atomic operations for counters to minimize lock contention.
 func (c *TopDocsLeafCollector) Collect(doc int) error {
-	c.collector.mu.Lock()
-	defer c.collector.mu.Unlock()
-
-	c.collector.totalHits++
 	score := c.scorer.Score()
 
-	if score > c.collector.maxScore {
-		c.collector.maxScore = score
+	// Atomic increment for totalHits (lock-free)
+	c.collector.totalHits.Add(1)
+
+	// Atomic update for maxScore using uint32 comparison (lock-free)
+	scoreBits := math.Float32bits(score)
+	for {
+		oldMaxBits := c.collector.maxScore.Load()
+		oldMax := math.Float32frombits(oldMaxBits)
+		if score <= oldMax {
+			break
+		}
+		if c.collector.maxScore.CompareAndSwap(oldMaxBits, scoreBits) {
+			break
+		}
 	}
 
 	// Create a ScoreDoc for this document
 	docID := c.docBase + doc
 	scoreDoc := NewScoreDoc(docID, score, 0)
 
-	// Add to priority queue
+	// Only lock for priority queue operations
+	c.collector.mu.Lock()
 	if c.collector.pq.Len() < c.collector.numHits {
 		heap.Push(c.collector.pq, scoreDoc)
 	} else if c.collector.pq.Len() > 0 {
@@ -138,6 +148,7 @@ func (c *TopDocsLeafCollector) Collect(doc int) error {
 			heap.Push(c.collector.pq, scoreDoc)
 		}
 	}
+	c.collector.mu.Unlock()
 
 	return nil
 }

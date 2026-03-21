@@ -9,15 +9,19 @@ import (
 // mockDirectory is a minimal mock implementation of store.Directory for testing
 type mockDirectory struct{}
 
-func (m *mockDirectory) ListAll() ([]string, error)                                 { return nil, nil }
-func (m *mockDirectory) FileExists(name string) bool                              { return false }
-func (m *mockDirectory) FileLength(name string) (int64, error)                    { return 0, nil }
-func (m *mockDirectory) CreateOutput(name string, ctx store.IOContext) (store.IndexOutput, error) { return nil, nil }
-func (m *mockDirectory) OpenInput(name string, ctx store.IOContext) (store.IndexInput, error)   { return nil, nil }
-func (m *mockDirectory) DeleteFile(name string) error                            { return nil }
-func (m *mockDirectory) ObtainLock(name string) (store.Lock, error)                { return nil, nil }
-func (m *mockDirectory) Close() error                                            { return nil }
-func (m *mockDirectory) GetDirectory() store.Directory                            { return m }
+func (m *mockDirectory) ListAll() ([]string, error)            { return nil, nil }
+func (m *mockDirectory) FileExists(name string) bool           { return false }
+func (m *mockDirectory) FileLength(name string) (int64, error) { return 0, nil }
+func (m *mockDirectory) CreateOutput(name string, ctx store.IOContext) (store.IndexOutput, error) {
+	return nil, nil
+}
+func (m *mockDirectory) OpenInput(name string, ctx store.IOContext) (store.IndexInput, error) {
+	return nil, nil
+}
+func (m *mockDirectory) DeleteFile(name string) error               { return nil }
+func (m *mockDirectory) ObtainLock(name string) (store.Lock, error) { return nil, nil }
+func (m *mockDirectory) Close() error                               { return nil }
+func (m *mockDirectory) GetDirectory() store.Directory              { return m }
 
 func TestNewNRTFileDeleter(t *testing.T) {
 	dir := &mockDirectory{}
