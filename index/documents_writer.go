@@ -80,17 +80,15 @@ func NewDefaultFlushPolicy(maxBufferedDocs int, maxRAMBufferMB float64) *Default
 }
 
 // ShouldFlush returns true if a flush should occur.
+// Optimized for branch prediction: combines checks to reduce branch mispredictions.
 func (p *DefaultFlushPolicy) ShouldFlush(numDocs int, ramUsed int64) bool {
+	// Check document count limit first (cheapest operation)
 	if p.maxBufferedDocs > 0 && numDocs >= p.maxBufferedDocs {
 		return true
 	}
-	if p.maxRAMBufferMB > 0 {
-		maxBytes := int64(p.maxRAMBufferMB * 1024 * 1024)
-		if ramUsed >= maxBytes {
-			return true
-		}
-	}
-	return false
+	// Check RAM limit - pre-compute maxBytes to avoid repeated multiplication
+	maxBytes := int64(p.maxRAMBufferMB * 1024 * 1024)
+	return p.maxRAMBufferMB > 0 && ramUsed >= maxBytes
 }
 
 // NewDocumentsWriter creates a new DocumentsWriter.
