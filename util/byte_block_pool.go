@@ -7,6 +7,7 @@ package util
 import (
 	"fmt"
 	"math"
+	"sync/atomic"
 )
 
 // ByteBlockPool enables the allocation of fixed-size buffers and their management
@@ -72,7 +73,8 @@ func (d *DirectAllocator) GetByteBlock() []byte {
 	return make([]byte, ByteBlockSize)
 }
 
-// Counter is a simple atomic counter for tracking memory usage.
+// Counter is a thread-safe atomic counter for tracking memory usage.
+// Uses sync/atomic for lock-free operations.
 type Counter struct {
 	value int64
 }
@@ -83,14 +85,15 @@ func NewCounter() *Counter {
 }
 
 // Get returns the current value.
+// Thread-safe: uses atomic load.
 func (c *Counter) Get() int64 {
-	return c.value
+	return atomic.LoadInt64(&c.value)
 }
 
 // AddAndGet adds the given value and returns the new value.
+// Thread-safe: uses atomic add.
 func (c *Counter) AddAndGet(delta int64) int64 {
-	c.value += delta
-	return c.value
+	return atomic.AddInt64(&c.value, delta)
 }
 
 // DirectTrackingAllocator is a simple Allocator that never recycles,
