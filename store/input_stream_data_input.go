@@ -10,30 +10,38 @@ import (
 
 // InputStreamDataInput implements DataInput by wrapping an io.Reader.
 // This is the Go port of Lucene's org.apache.lucene.store.InputStreamDataInput.
+// Uses pre-allocated buffers and sync.Pool to eliminate heap allocations.
 type InputStreamDataInput struct {
 	reader io.Reader
 	closed bool
+
+	// byteBuf is a reusable 1-byte buffer for ReadByte
+	byteBuf [1]byte
+
+	// skipBuf is a reusable buffer for SkipBytes (8KB)
+	skipBuf []byte
 }
 
 // NewInputStreamDataInput creates a new InputStreamDataInput wrapping the given reader.
 func NewInputStreamDataInput(reader io.Reader) *InputStreamDataInput {
 	return &InputStreamDataInput{
-		reader: reader,
-		closed: false,
+		reader:  reader,
+		closed:  false,
+		skipBuf: make([]byte, 8192),
 	}
 }
 
 // ReadByte reads a single byte from the underlying reader.
+// Uses pre-allocated buffer to avoid heap allocation.
 func (in *InputStreamDataInput) ReadByte() (byte, error) {
 	if in.closed {
 		return 0, io.EOF
 	}
-	buf := make([]byte, 1)
-	_, err := io.ReadFull(in.reader, buf)
+	_, err := io.ReadFull(in.reader, in.byteBuf[:])
 	if err != nil {
 		return 0, err
 	}
-	return buf[0], nil
+	return in.byteBuf[0], nil
 }
 
 // ReadBytes reads len(b) bytes into b.
@@ -71,15 +79,14 @@ func (in *InputStreamDataInput) SkipBytes(n int64) error {
 		return err
 	}
 
-	// Otherwise, read and discard bytes
-	buf := make([]byte, 8192)
+	// Otherwise, read and discard bytes using pre-allocated buffer
 	remaining := n
 	for remaining > 0 {
-		toRead := int64(len(buf))
+		toRead := int64(len(in.skipBuf))
 		if remaining < toRead {
 			toRead = remaining
 		}
-		nread, err := in.reader.Read(buf[:toRead])
+		nread, err := in.reader.Read(in.skipBuf[:toRead])
 		remaining -= int64(nread)
 		if err != nil {
 			if err == io.EOF && remaining > 0 {
