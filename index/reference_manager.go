@@ -92,10 +92,10 @@ func NewReferenceManagerWithFuncs[T any](
 	releaseFunc func(T) error,
 ) *ReferenceManager[T] {
 	return &ReferenceManager[T]{
-		current:       initial,
-		generation:    1,
-		acquireFunc:   acquireFunc,
-		releaseFunc:   releaseFunc,
+		current:     initial,
+		generation:  1,
+		acquireFunc: acquireFunc,
+		releaseFunc: releaseFunc,
 	}
 }
 

@@ -184,9 +184,9 @@ func TestCopyJob_Execute_Directory(t *testing.T) {
 
 	// Create files
 	files := map[string]string{
-		filepath.Join(sourceDir, "file1.txt"):        "content1",
-		filepath.Join(sourceDir, "file2.txt"):        "content2",
-		filepath.Join(subDir, "file3.txt"):           "content3",
+		filepath.Join(sourceDir, "file1.txt"): "content1",
+		filepath.Join(sourceDir, "file2.txt"): "content2",
+		filepath.Join(subDir, "file3.txt"):    "content3",
 	}
 
 	for path, content := range files {

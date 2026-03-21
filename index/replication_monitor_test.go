@@ -8,12 +8,12 @@ import (
 
 // mockReplicationListener is a mock implementation of ReplicationListener.
 type mockReplicationListener struct {
-	taskStarted       bool
-	taskCompleted     bool
-	taskFailed        bool
-	fileTransferStarted bool
+	taskStarted           bool
+	taskCompleted         bool
+	taskFailed            bool
+	fileTransferStarted   bool
 	fileTransferCompleted bool
-	progressUpdates     int
+	progressUpdates       int
 }
 
 func (m *mockReplicationListener) OnTaskStarted(task *ReplicationTask) {
@@ -233,12 +233,12 @@ func TestReplicationMonitor_String(t *testing.T) {
 
 func TestReplicationSummary(t *testing.T) {
 	summary := ReplicationSummary{
-		TotalTasks:       10,
-		ActiveTasks:      5,
-		CompletedTasks:   3,
-		FailedTasks:      2,
-		TotalFiles:       100,
-		OverallProgress:  50,
+		TotalTasks:      10,
+		ActiveTasks:     5,
+		CompletedTasks:  3,
+		FailedTasks:     2,
+		TotalFiles:      100,
+		OverallProgress: 50,
 	}
 
 	if summary.TotalTasks != 10 {

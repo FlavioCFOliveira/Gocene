@@ -150,9 +150,9 @@ func (f *NRTLockFactory) ObtainLockWithType(lockName string, lockType NRTLockTyp
 	}
 
 	return &NRTLock{
-		factory:   f,
-		entry:     entry,
-		lockType:  lockType,
+		factory:    f,
+		entry:      entry,
+		lockType:   lockType,
 		acquiredAt: time.Now(),
 	}, nil
 }

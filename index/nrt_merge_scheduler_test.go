@@ -11,11 +11,11 @@ import (
 
 // mockMergeSource is a mock implementation of MergeSource for testing
 type mockMergeSource struct {
-	merges        []*OneMerge
-	mergeIndex    int
-	mergeCalled   bool
-	finishCalled  bool
-	hasPending    bool
+	merges       []*OneMerge
+	mergeIndex   int
+	mergeCalled  bool
+	finishCalled bool
+	hasPending   bool
 }
 
 func (m *mockMergeSource) GetNextMerge() *OneMerge {
@@ -42,11 +42,11 @@ func (m *mockMergeSource) Merge(merge *OneMerge) error {
 
 func TestNewNRTMergeScheduler(t *testing.T) {
 	tests := []struct {
-		name        string
-		wrapped     MergeScheduler
-		wantErr     bool
-		wantMaxMB   float64
-		wantPause   bool
+		name      string
+		wrapped   MergeScheduler
+		wantErr   bool
+		wantMaxMB float64
+		wantPause bool
 	}{
 		{
 			name:      "with nil wrapped scheduler",

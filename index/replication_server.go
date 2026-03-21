@@ -94,8 +94,8 @@ func (rs *ReplicationServer) Start() error {
 
 	// Create HTTP server
 	rs.httpServer = &http.Server{
-		Handler:     rs.handler,
-		ReadTimeout: 30 * time.Second,
+		Handler:      rs.handler,
+		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 	}
 

@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // AttributeSource manages a collection of Attribute implementations.
@@ -18,6 +19,7 @@ import (
 // It provides a type-safe way to access attributes by their type.
 //
 // In Go, we use reflect.Type as the key since we don't have Java's class literals.
+// Optimized with pre-computed indices for lock-free read operations.
 type AttributeSource struct {
 	// attributes holds the attribute implementations by type
 	attributes map[reflect.Type]AttributeImpl
@@ -27,6 +29,13 @@ type AttributeSource struct {
 
 	// mu protects mutable fields
 	mu sync.RWMutex
+
+	// Pre-computed indices for fast lookup (atomic for thread-safe cache)
+	nameIndex     atomic.Pointer[map[string]reflect.Type]
+	elemNameIndex atomic.Pointer[map[string]reflect.Type]
+
+	// dirty flag indicates if indices need rebuild
+	dirty atomic.Bool
 }
 
 // NewAttributeSource creates a new empty AttributeSource.
@@ -45,25 +54,57 @@ func (as *AttributeSource) AddAttribute(attr AttributeImpl) {
 	}
 
 	as.mu.Lock()
-	defer as.mu.Unlock()
-
 	attrType := reflect.TypeOf(attr)
 	as.attributes[attrType] = attr
+	as.dirty.Store(true)
+	as.rebuildIndices()
+	as.mu.Unlock()
 }
 
 // GetAttribute retrieves an attribute by its type.
 // Returns nil if the attribute doesn't exist.
+// Uses pre-computed indices for lock-free lookup on hot path.
 func (as *AttributeSource) GetAttribute(name string) AttributeImpl {
+	// Fast path: use pre-computed index
+	nameIdx := as.nameIndex.Load()
+	elemIdx := as.elemNameIndex.Load()
+
+	if nameIdx != nil && elemIdx != nil && !as.dirty.Load() {
+		// Lock-free lookup using cached indices
+		if attrType, ok := (*nameIdx)[name]; ok {
+			as.mu.RLock()
+			attr := as.attributes[attrType]
+			as.mu.RUnlock()
+			return attr
+		}
+		if attrType, ok := (*elemIdx)[name]; ok {
+			as.mu.RLock()
+			attr := as.attributes[attrType]
+			as.mu.RUnlock()
+			return attr
+		}
+		// Try case-insensitive match
+		lowerName := strings.ToLower(name)
+		if attrType, ok := (*elemIdx)[lowerName]; ok {
+			as.mu.RLock()
+			attr := as.attributes[attrType]
+			as.mu.RUnlock()
+			return attr
+		}
+		return nil
+	}
+
+	// Slow path: rebuild indices and search
 	as.mu.RLock()
 	defer as.mu.RUnlock()
 
-	// Try to find by type name (case-insensitive)
+	// Try to find by type name
 	for attrType, attr := range as.attributes {
 		// Match full type string
 		if attrType.String() == name {
 			return attr
 		}
-		// Match element name (e.g., "charTermAttribute" from "*analysis.charTermAttribute")
+		// Match element name
 		if attrType.Elem().Name() == name {
 			return attr
 		}
@@ -73,6 +114,23 @@ func (as *AttributeSource) GetAttribute(name string) AttributeImpl {
 		}
 	}
 	return nil
+}
+
+// rebuildIndices rebuilds the pre-computed lookup indices.
+// Must be called with write lock held.
+func (as *AttributeSource) rebuildIndices() {
+	nameIdx := make(map[string]reflect.Type, len(as.attributes))
+	elemIdx := make(map[string]reflect.Type, len(as.attributes)*2)
+
+	for attrType := range as.attributes {
+		nameIdx[attrType.String()] = attrType
+		elemIdx[attrType.Elem().Name()] = attrType
+		elemIdx[strings.ToLower(attrType.Elem().Name())] = attrType
+	}
+
+	as.nameIndex.Store(&nameIdx)
+	as.elemNameIndex.Store(&elemIdx)
+	as.dirty.Store(false)
 }
 
 // GetAttributeByType retrieves an attribute by its reflect.Type.
@@ -104,8 +162,10 @@ func (as *AttributeSource) ClearAttributes() {
 // RemoveAttribute removes an attribute by type.
 func (as *AttributeSource) RemoveAttribute(attrType reflect.Type) {
 	as.mu.Lock()
-	defer as.mu.Unlock()
 	delete(as.attributes, attrType)
+	as.dirty.Store(true)
+	as.rebuildIndices()
+	as.mu.Unlock()
 }
 
 // GetAttributeClasses returns all attribute types currently stored.
@@ -178,8 +238,6 @@ func (as *AttributeSource) RestoreState(state *State) {
 	}
 
 	as.mu.Lock()
-	defer as.mu.Unlock()
-
 	for attrType, attr := range state.attributes {
 		if existing, ok := as.attributes[attrType]; ok {
 			// Copy values from state to existing attribute
@@ -189,6 +247,9 @@ func (as *AttributeSource) RestoreState(state *State) {
 			as.attributes[attrType] = attr
 		}
 	}
+	as.dirty.Store(true)
+	as.rebuildIndices()
+	as.mu.Unlock()
 }
 
 // RegisterFactory registers a factory function for creating attributes.

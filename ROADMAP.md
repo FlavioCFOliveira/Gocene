@@ -160,16 +160,16 @@ Address performance bottlenecks identified in audit. Focus on memory allocation,
 
 | ID | Task | Priority | Description |
 |:---|:-----|:---------|:------------|
-| GC-807 | Fix Heap Allocations in WriteShort/Int/Long | HIGH | CRITICAL: Byte slice escapes to heap in ByteBuffersDataOutput. Use sync.Pool for write buffers or implement stack-allocated encoding. |
-| GC-808 | Refactor IndexWriter Locking | HIGH | CRITICAL: Global mutex in IndexWriter hot path. Implement sharded locks or lock-free counters. Minimize critical section in AddDocument. |
-| GC-809 | Optimize ForUtil Buffer Management | HIGH | CRITICAL: Buffer allocation in encodeInternal and decodeSlow. Pre-allocate buffers in struct, reuse across encode/decode operations. |
-| GC-810 | Fix Lock Copying Issues | HIGH | CRITICAL: Address go vet findings in index_writer.go and taxonomy_reader.go. Use pointer receivers or ensure structs are not copied. |
-| GC-811 | Fix TokenStream Inlining | HIGH | TokenStream method cost 225 exceeds inline budget 80. Break into smaller inlineable functions. |
-| GC-812 | Remove Defer from Hot Paths | HIGH | Defer prevents inlining in Tokenize and TokenizeWithAnalyzer. Use explicit close calls in performance-critical code paths. |
+| GC-807 | Fix Heap Allocations in WriteShort/Int/Long | HIGH | CRITICAL: Byte slice escapes to heap in ByteBuffersDataOutput. Use sync.Pool for write buffers or implement stack-allocated encoding. | COMPLETED 2026-03-20 |
+| GC-808 | Refactor IndexWriter Locking | HIGH | CRITICAL: Global mutex in IndexWriter hot path. Implement sharded locks or lock-free counters. Minimize critical section in AddDocument. | COMPLETED 2026-03-20 |
+| GC-809 | Optimize ForUtil Buffer Management | HIGH | CRITICAL: Buffer allocation in encodeInternal and decodeSlow. Pre-allocate buffers in struct, reuse across encode/decode operations. | COMPLETED 2026-03-21 |
+| GC-810 | Fix Lock Copying Issues | HIGH | CRITICAL: Address go vet findings in index_writer.go and taxonomy_reader.go. Use pointer receivers or ensure structs are not copied. | COMPLETED 2026-03-21 |
+| GC-811 | Fix TokenStream Inlining | HIGH | TokenStream method cost 225 exceeds inline budget 80. Break into smaller inlineable functions. | COMPLETED 2026-03-21 |
+| GC-812 | Remove Defer from Hot Paths | HIGH | Defer prevents inlining in Tokenize and TokenizeWithAnalyzer. Use explicit close calls in performance-critical code paths. | COMPLETED 2026-03-21 |
 | GC-813 | Optimize ForUtil Decode Loops | HIGH | Buffer allocation inside hot loop in decode8. Use sync.Pool for buffers or make buf a field of ForUtil struct. |
-| GC-814 | Fix String to Byte Conversion | HIGH | String-to-byte conversion allocates in WriteString. Use unsafe.StringHeader or accept string as-is if writer can handle it. |
-| GC-815 | Fix Slice Capacity Planning | HIGH | Zero-capacity slice growth in ByteBuffersDataOutput. Pre-allocate with reasonable capacity: make([][]byte, 0, 16). |
-| GC-816 | Implement Buffer Pool | HIGH | No buffer pool in InputStreamDataInput. ReadByte allocates every call. Use sync.Pool for buffers. |
+| GC-814 | Fix String to Byte Conversion | HIGH | String-to-byte conversion allocates in WriteString. Use unsafe.StringHeader or accept string as-is if writer can handle it. | COMPLETED 2026-03-21 |
+| GC-815 | Fix Slice Capacity Planning | HIGH | Zero-capacity slice growth in ByteBuffersDataOutput. Pre-allocate with reasonable capacity: make([][]byte, 0, 16). | COMPLETED 2026-03-21 |
+| GC-816 | Implement Buffer Pool | HIGH | No buffer pool in InputStreamDataInput. ReadByte allocates every call. Use sync.Pool for buffers. | COMPLETED 2026-03-21 |
 | GC-817 | Improve AttributeSource Concurrency | HIGH | Lock per attribute access during tokenization. Use sync.Map or pre-computed attribute indices. |
 | GC-818 | Fix TopDocsCollector Lock Contention | HIGH | Mutex held for every document collected during search. Use per-segment collectors that merge results at the end. |
 | GC-819 | Optimize CopyBytes | MEDIUM | Large allocations for copying data. Use chunked copying with fixed-size buffer from a pool. |

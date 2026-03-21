@@ -561,19 +561,19 @@ func TestNRTMergePolicy_isMergeSizeAcceptable(t *testing.T) {
 	policy := NewNRTMergePolicy()
 
 	tests := []struct {
-		name      string
-		merge     *OneMerge
-		want      bool
+		name  string
+		merge *OneMerge
+		want  bool
 	}{
 		{
-			name:      "nil merge",
-			merge:     nil,
-			want:      false,
+			name:  "nil merge",
+			merge: nil,
+			want:  false,
 		},
 		{
-			name:      "empty merge",
-			merge:     &OneMerge{Segments: []*SegmentCommitInfo{}},
-			want:      false,
+			name:  "empty merge",
+			merge: &OneMerge{Segments: []*SegmentCommitInfo{}},
+			want:  false,
 		},
 	}
 

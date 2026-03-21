@@ -46,9 +46,9 @@ func NewCompositeReaderWithSubReaders(subReaders []IndexReaderInterface) (*Compo
 	}
 
 	reader := &CompositeReader{
-		IndexReader:  NewIndexReader(),
-		subReaders:   make([]IndexReaderInterface, len(subReaders)),
-		starts:       make([]int, len(subReaders)+1),
+		IndexReader: NewIndexReader(),
+		subReaders:  make([]IndexReaderInterface, len(subReaders)),
+		starts:      make([]int, len(subReaders)+1),
 	}
 
 	// Copy sub-readers and calculate starts

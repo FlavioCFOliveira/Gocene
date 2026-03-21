@@ -454,12 +454,12 @@ type fieldTermVector struct {
 
 // termVector represents a single term with its positions, offsets, and payloads
 type termVector struct {
-	term       []byte
-	freq       int
-	positions  []int
+	term         []byte
+	freq         int
+	positions    []int
 	startOffsets []int
 	endOffsets   []int
-	payloads   [][]byte
+	payloads     [][]byte
 }
 
 // NewCompressingTermVectorsReader creates a new CompressingTermVectorsReader.

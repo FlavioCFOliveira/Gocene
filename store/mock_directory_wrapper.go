@@ -58,9 +58,9 @@ type MockDirectoryWrapper struct {
 	openFileCount atomic.Int32
 
 	// callbacks for operations
-	openInputCallback   func(name string)
+	openInputCallback    func(name string)
 	createOutputCallback func(name string)
-	deleteFileCallback  func(name string)
+	deleteFileCallback   func(name string)
 
 	// mu protects non-atomic fields
 	mu sync.RWMutex

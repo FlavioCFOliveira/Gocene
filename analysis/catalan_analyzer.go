@@ -33,7 +33,7 @@ var CatalanStopWords = []string{
 	"països", "pel", "pels", "per", "per a", "però", "perquè", "pertot",
 	"poc", "poca", "pocs", "poques", "potser", "preu", "propi", "qual",
 	"quals", "quan", "quant", "que", "quelcom", "qüestió", "qui", "quin",
-	"quina", "quines", "quins","regir", "respecte", "sí", "sobre", "sobretot",
+	"quina", "quines", "quins", "regir", "respecte", "sí", "sobre", "sobretot",
 	"solament", "sols", "son", "són", "sota", "sou", "sovint", "t'ha",
 	"t'han", "t'hem", "ta", "tal", "tals", "també", "tampoc", "tan",
 	"tanta", "tantes", "tant", "tants", "teu", "teus", "teva", "teves",
