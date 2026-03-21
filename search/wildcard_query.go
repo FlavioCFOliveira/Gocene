@@ -85,9 +85,14 @@ func (q *WildcardQuery) Rewrite(reader IndexReader) (Query, error) {
 
 func (q *WildcardQuery) String() string {
 	if q.term == nil {
-		return "<nil>"
+		return "WildcardQuery<nil>"
 	}
-	return q.term.String()
+	return "WildcardQuery(field=" + q.term.Field + ", pattern=" + q.term.Text() + ")"
+}
+
+// CreateWeight creates a Weight for this query.
+func (q *WildcardQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+	return NewConstantScoreQuery(q).CreateWeight(searcher, needsScores, boost)
 }
 
 // NewWildcardQueryWithStrings creates a new WildcardQuery using strings.

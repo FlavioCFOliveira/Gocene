@@ -83,9 +83,9 @@ Implement remaining Lucene features: advanced queries, similarities, joins, grou
 | GC-846 | Implement DocValues Updates | MEDIUM | Missing NumericDocValuesUpdate, BinaryDocValuesUpdate and update application. |
 | GC-847 | Implement Complete CheckIndex | MEDIUM | CheckIndex exists but missing many consistency checks: term vector validation, doc values validation, point value validation, vector validation. |
 | GC-848 | Implement AutomatonQuery | MEDIUM | Missing AutomatonQuery for regular expression matching. | COMPLETED 2026-03-21 |
-| GC-849 | Implement BlendedTermQuery | MEDIUM | Missing BlendedTermQuery for blending term statistics across multiple fields. |
-| GC-850 | Implement CombinedFieldQuery | MEDIUM | Missing CombinedFieldQuery for searching across multiple fields as single field. |
-| GC-851 | Implement DocAndScoreQuery | MEDIUM | Missing DocAndScoreQuery for document ID and score based queries. |
+| GC-849 | Implement BlendedTermQuery | MEDIUM | Missing BlendedTermQuery for blending term statistics across multiple fields. | COMPLETED 2026-03-21 |
+| GC-850 | Implement CombinedFieldQuery | MEDIUM | Missing CombinedFieldQuery for searching across multiple fields as single field. | COMPLETED 2026-03-21 |
+| GC-851 | Implement DocAndScoreQuery | MEDIUM | Missing DocAndScoreQuery for document ID and score based queries. | COMPLETED 2026-03-21 |
 | GC-852 | Implement FeatureQuery | MEDIUM | Missing FeatureQuery for machine learning feature queries. |
 | GC-853 | Implement MoreLikeThis | MEDIUM | Missing MoreLikeThis for finding similar documents. |
 | GC-854 | Implement SpanQuery Hierarchy | MEDIUM | Missing SpanQuery implementations: SpanTermQuery, SpanNearQuery, SpanOrQuery, SpanNotQuery, etc. |
