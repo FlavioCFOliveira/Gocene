@@ -170,8 +170,8 @@ Address performance bottlenecks identified in audit. Focus on memory allocation,
 | GC-814 | Fix String to Byte Conversion | HIGH | String-to-byte conversion allocates in WriteString. Use unsafe.StringHeader or accept string as-is if writer can handle it. | COMPLETED 2026-03-21 |
 | GC-815 | Fix Slice Capacity Planning | HIGH | Zero-capacity slice growth in ByteBuffersDataOutput. Pre-allocate with reasonable capacity: make([][]byte, 0, 16). | COMPLETED 2026-03-21 |
 | GC-816 | Implement Buffer Pool | HIGH | No buffer pool in InputStreamDataInput. ReadByte allocates every call. Use sync.Pool for buffers. | COMPLETED 2026-03-21 |
-| GC-817 | Improve AttributeSource Concurrency | HIGH | Lock per attribute access during tokenization. Use sync.Map or pre-computed attribute indices. |
-| GC-818 | Fix TopDocsCollector Lock Contention | HIGH | Mutex held for every document collected during search. Use per-segment collectors that merge results at the end. |
+| GC-817 | Improve AttributeSource Concurrency | HIGH | Lock per attribute access during tokenization. Use sync.Map or pre-computed attribute indices. | COMPLETED 2026-03-21 |
+| GC-818 | Fix TopDocsCollector Lock Contention | HIGH | Mutex held for every document collected during search. Use per-segment collectors that merge results at the end. | COMPLETED 2026-03-21 |
 | GC-819 | Optimize CopyBytes | MEDIUM | Large allocations for copying data. Use chunked copying with fixed-size buffer from a pool. |
 | GC-820 | Improve ByteBlockPool Capacity | MEDIUM | Frequent slice reallocation. Consider larger initial capacity or exponential growth factor. |
 | GC-821 | Optimize PagedBytes Growth | MEDIUM | Doubling strategy good but initial capacity may be too small. Allow configurable initial capacity. |
