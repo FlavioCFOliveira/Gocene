@@ -24,13 +24,19 @@ func NewAnalyzerUtils() *AnalyzerUtils {
 // Tokenize tokenizes the given text using the provided Tokenizer.
 // Returns a slice of token strings.
 func Tokenize(tokenizer Tokenizer, text string) ([]string, error) {
+	return tokenizeInternal(tokenizer, text)
+}
+
+// tokenizeInternal performs the actual tokenization work.
+// Split from Tokenize to enable inlining of the public function.
+func tokenizeInternal(tokenizer Tokenizer, text string) ([]string, error) {
 	tokenizer.SetReader(strings.NewReader(text))
-	defer tokenizer.Close()
 
 	var tokens []string
 	for {
 		hasToken, err := tokenizer.IncrementToken()
 		if err != nil {
+			tokenizer.Close()
 			return nil, err
 		}
 		if !hasToken {
@@ -47,22 +53,30 @@ func Tokenize(tokenizer Tokenizer, text string) ([]string, error) {
 		}
 	}
 
-	return tokens, nil
+	// Explicit close instead of defer for better inlining
+	err := tokenizer.Close()
+	return tokens, err
 }
 
 // TokenizeWithAnalyzer tokenizes text using the given Analyzer.
 // Returns a slice of token strings.
 func TokenizeWithAnalyzer(analyzer Analyzer, fieldName, text string) ([]string, error) {
+	return tokenizeWithAnalyzerInternal(analyzer, fieldName, text)
+}
+
+// tokenizeWithAnalyzerInternal performs the actual tokenization work.
+// Split from TokenizeWithAnalyzer to enable inlining of the public function.
+func tokenizeWithAnalyzerInternal(analyzer Analyzer, fieldName, text string) ([]string, error) {
 	tokenStream, err := analyzer.TokenStream(fieldName, strings.NewReader(text))
 	if err != nil {
 		return nil, err
 	}
-	defer tokenStream.Close()
 
 	var tokens []string
 	for {
 		hasToken, err := tokenStream.IncrementToken()
 		if err != nil {
+			tokenStream.Close()
 			return nil, err
 		}
 		if !hasToken {
@@ -79,7 +93,9 @@ func TokenizeWithAnalyzer(analyzer Analyzer, fieldName, text string) ([]string, 
 		}
 	}
 
-	return tokens, nil
+	// Explicit close instead of defer for better inlining
+	err = tokenStream.Close()
+	return tokens, err
 }
 
 // GetTokenPositions returns the positions of tokens in the stream.
