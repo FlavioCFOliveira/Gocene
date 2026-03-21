@@ -50,15 +50,32 @@ type Reader struct {
 	bytesUsedPerBlock int64
 }
 
+// DefaultInitialBlocksCapacity is the default initial capacity for the blocks slice.
+const DefaultInitialBlocksCapacity = 64
+
 // NewPagedBytes creates a new PagedBytes with the given block bits.
+// Uses DefaultInitialBlocksCapacity (64) as the initial blocks capacity.
 // 1<<blockBits must be bigger than biggest single BytesRef slice that will be pulled.
 func NewPagedBytes(blockBits int) (*PagedBytes, error) {
+	return NewPagedBytesWithCapacity(blockBits, DefaultInitialBlocksCapacity)
+}
+
+// NewPagedBytesWithCapacity creates a new PagedBytes with custom initial blocks capacity.
+// Use this when you expect a large number of blocks to avoid repeated reallocations.
+//
+// Parameters:
+//   - blockBits: determines block size as 1<<blockBits
+//   - initialCapacity: initial capacity for the blocks slice (min 16)
+func NewPagedBytesWithCapacity(blockBits int, initialCapacity int) (*PagedBytes, error) {
 	if blockBits <= 0 || blockBits > 31 {
 		return nil, fmt.Errorf("blockBits must be between 1 and 31, got %d", blockBits)
 	}
+	if initialCapacity < 16 {
+		initialCapacity = 16
+	}
 	blockSize := 1 << blockBits
 	return &PagedBytes{
-		blocks:            make([][]byte, 16),
+		blocks:            make([][]byte, initialCapacity),
 		blockSize:         blockSize,
 		blockBits:         blockBits,
 		blockMask:         blockSize - 1,
@@ -68,11 +85,22 @@ func NewPagedBytes(blockBits int) (*PagedBytes, error) {
 	}, nil
 }
 
-// addBlock adds a block to the blocks array
+// addBlock adds a block to the blocks array.
+// Uses adaptive growth: 2x for smaller arrays (up to 1024 blocks),
+// then switches to 1.5x to balance memory usage and performance.
 func (p *PagedBytes) addBlock(block []byte) {
 	if p.numBlocks == len(p.blocks) {
-		// Grow blocks array
-		newBlocks := make([][]byte, len(p.blocks)*2)
+		// Grow blocks array using adaptive strategy
+		var newCapacity int
+		currentCap := len(p.blocks)
+		if currentCap < 1024 {
+			// 2x growth for smaller arrays to minimize reallocations
+			newCapacity = currentCap * 2
+		} else {
+			// 1.5x growth for larger arrays to avoid excessive memory
+			newCapacity = currentCap + currentCap/2
+		}
+		newBlocks := make([][]byte, newCapacity)
 		copy(newBlocks, p.blocks)
 		p.blocks = newBlocks
 	}
