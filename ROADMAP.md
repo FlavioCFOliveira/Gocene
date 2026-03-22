@@ -111,11 +111,11 @@ Implement remaining Lucene features: advanced queries, similarities, joins, grou
 | GC-874 | Implement AllGroupHeadsCollector | MEDIUM | Implemented AllGroupHeadsCollector for collecting the first document (head) of each group | COMPLETED 2026-03-22 |
 | GC-875 | Implement BlockGroupingCollector | MEDIUM | Implemented BlockGroupingCollector for block-based grouping with parent-child document structures | COMPLETED 2026-03-22 |
 | GC-876 | Implement TermGroupSelector | MEDIUM | Implemented TermGroupSelector for term-based group selection with GroupSelector interface | COMPLETED 2026-03-22 |
-| GC-877 | Implement FacetsCollector | MEDIUM | Missing FacetsCollector for collecting facet counts. |
-| GC-878 | Implement FastTaxonomyFacetCounts | MEDIUM | Missing FastTaxonomyFacetCounts for fast taxonomy-based facet counting. |
-| GC-879 | Implement SortedSetDocValuesFacetCounts | MEDIUM | Missing SortedSetDocValuesFacetCounts for sorted set doc values facets. |
-| GC-880 | Implement RangeFacetCounts | MEDIUM | Missing RangeFacetCounts for range-based facets. |
-| GC-881 | Implement TaxonomyReader | MEDIUM | Missing TaxonomyReader for reading taxonomy data. |
+| GC-877 | Implement FacetsCollector | MEDIUM | Implemented FacetsCollector for collecting facet counts during search | COMPLETED 2026-03-22 |
+| GC-878 | Implement FastTaxonomyFacetCounts | MEDIUM | Implemented FastTaxonomyFacetCounts for fast taxonomy-based facet counting with optimized performance | COMPLETED 2026-03-22 |
+| GC-879 | Implement SortedSetDocValuesFacetCounts | MEDIUM | Implemented SortedSetDocValuesFacetCounts for sorted set doc values facets with per-segment counting | COMPLETED 2026-03-22 |
+| GC-880 | Implement RangeFacetCounts | MEDIUM | Implemented RangeFacetCounts for range-based facets with configurable ranges | COMPLETED 2026-03-22 |
+| GC-881 | Implement TaxonomyReader | MEDIUM | Implemented TaxonomyReader interface with DirectoryTaxonomyReader for reading taxonomy data | COMPLETED 2026-03-22 |
 | GC-882 | Implement FastVectorHighlighter | MEDIUM | Missing FastVectorHighlighter for fast vector-based highlighting. |
 | GC-883 | Implement PostingsHighlighter | MEDIUM | Missing PostingsHighlighter for postings-based highlighting. |
 | GC-884 | Implement UnifiedHighlighter | MEDIUM | Missing UnifiedHighlighter for unified highlighting approach. |
