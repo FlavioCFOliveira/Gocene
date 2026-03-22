@@ -5,17 +5,47 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
+
+// Helper function to create a SearcherManager for testing
+func createTestSearcherManager(t *testing.T, dir store.Directory) *SearcherManager {
+	// Create initial index with a writer
+	config := index.NewIndexWriterConfig(nil)
+	writer, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("failed to create IndexWriter: %v", err)
+	}
+	defer writer.Close()
+
+	// Commit to create initial segments
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("failed to commit: %v", err)
+	}
+
+	// Get a reader
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("failed to create DirectoryReader: %v", err)
+	}
+
+	// Create initial searcher
+	searcher := NewIndexSearcher(reader)
+
+	// Create SearcherManager
+	sm, err := NewSearcherManager(searcher, nil, nil)
+	if err != nil {
+		t.Fatalf("failed to create SearcherManager: %v", err)
+	}
+	return sm
+}
 
 func TestNewNRTSearcher(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	sm, err := NewSearcherManager(dir, nil)
-	if err != nil {
-		t.Fatalf("failed to create SearcherManager: %v", err)
-	}
+	sm := createTestSearcherManager(t, dir)
 	defer sm.Close()
 
 	searcher, err := NewNRTSearcher(sm)
@@ -52,7 +82,7 @@ func TestNRTSearcher_Refresh(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	sm, _ := NewSearcherManager(dir, nil)
+	sm := createTestSearcherManager(t, dir)
 	defer sm.Close()
 
 	searcher, _ := NewNRTSearcher(sm)
@@ -80,7 +110,7 @@ func TestNRTSearcher_Refresh_Closed(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	sm, _ := NewSearcherManager(dir, nil)
+	sm := createTestSearcherManager(t, dir)
 	defer sm.Close()
 
 	searcher, _ := NewNRTSearcher(sm)
@@ -97,7 +127,7 @@ func TestNRTSearcher_IncrementVersion(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	sm, _ := NewSearcherManager(dir, nil)
+	sm := createTestSearcherManager(t, dir)
 	defer sm.Close()
 
 	searcher, _ := NewNRTSearcher(sm)
@@ -116,7 +146,7 @@ func TestNRTSearcher_GetLastRefreshTime(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	sm, _ := NewSearcherManager(dir, nil)
+	sm := createTestSearcherManager(t, dir)
 	defer sm.Close()
 
 	searcher, _ := NewNRTSearcher(sm)
@@ -141,7 +171,7 @@ func TestNRTSearcher_AutoRefresh(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	sm, _ := NewSearcherManager(dir, nil)
+	sm := createTestSearcherManager(t, dir)
 	defer sm.Close()
 
 	searcher, _ := NewNRTSearcher(sm)
@@ -176,7 +206,7 @@ func TestNRTSearcher_StartAutoRefresh_AlreadyRunning(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	sm, _ := NewSearcherManager(dir, nil)
+	sm := createTestSearcherManager(t, dir)
 	defer sm.Close()
 
 	searcher, _ := NewNRTSearcher(sm)
@@ -194,7 +224,7 @@ func TestNRTSearcher_StartAutoRefresh_InvalidInterval(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	sm, _ := NewSearcherManager(dir, nil)
+	sm := createTestSearcherManager(t, dir)
 	defer sm.Close()
 
 	searcher, _ := NewNRTSearcher(sm)
@@ -215,7 +245,7 @@ func TestNRTSearcher_StartAutoRefresh_Closed(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	sm, _ := NewSearcherManager(dir, nil)
+	sm := createTestSearcherManager(t, dir)
 	defer sm.Close()
 
 	searcher, _ := NewNRTSearcher(sm)
@@ -231,7 +261,7 @@ func TestNRTSearcher_GetManager(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	sm, _ := NewSearcherManager(dir, nil)
+	sm := createTestSearcherManager(t, dir)
 	defer sm.Close()
 
 	searcher, _ := NewNRTSearcher(sm)
@@ -246,7 +276,7 @@ func TestNRTSearcher_Close(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	sm, _ := NewSearcherManager(dir, nil)
+	sm := createTestSearcherManager(t, dir)
 	defer sm.Close()
 
 	searcher, _ := NewNRTSearcher(sm)
@@ -270,7 +300,7 @@ func TestNRTSearcher_Close_WithAutoRefresh(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	sm, _ := NewSearcherManager(dir, nil)
+	sm := createTestSearcherManager(t, dir)
 	defer sm.Close()
 
 	searcher, _ := NewNRTSearcher(sm)
@@ -294,7 +324,7 @@ func TestNRTSearcher_String(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	sm, _ := NewSearcherManager(dir, nil)
+	sm := createTestSearcherManager(t, dir)
 	defer sm.Close()
 
 	searcher, _ := NewNRTSearcher(sm)
