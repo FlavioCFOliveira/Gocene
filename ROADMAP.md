@@ -92,7 +92,7 @@ Implement remaining Lucene features: advanced queries, similarities, joins, grou
 | GC-855 | Implement TermRangeQuery | MEDIUM | Missing TermRangeQuery for range queries on terms. | COMPLETED 2026-03-21 |
 | GC-856 | Implement WildcardQuery | MEDIUM | Missing WildcardQuery for wildcard pattern matching. | COMPLETED 2026-03-21 |
 | GC-857 | Implement PrefixQuery | MEDIUM | Missing PrefixQuery for prefix matching. | COMPLETED 2026-03-21 |
-| GC-858 | Implement FuzzyQuery Full | MEDIUM | FuzzyQuery exists but missing full implementation with all options. |
+| GC-858 | Implement FuzzyQuery Full | MEDIUM | Implemented full FuzzyQuery with Damerau-Levenshtein and Levenshtein distance algorithms, configurable maxEdits, prefixLength, maxExpansions, and transpositions support | COMPLETED 2026-03-22 |
 | GC-859 | Implement AxiomaticSimilarity | MEDIUM | Missing AxiomaticSimilarity for axiomatic retrieval model. | COMPLETED 2026-03-22 |
 | GC-860 | Implement BM25Similarity Full | MEDIUM | BM25Similarity exists but is partial. Complete full implementation. | COMPLETED 2026-03-22 |
 | GC-861 | Implement DFRSimilarity | MEDIUM | Missing DFRSimilarity for divergence from randomness model. | COMPLETED 2026-03-22 |
