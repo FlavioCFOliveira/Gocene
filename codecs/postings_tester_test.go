@@ -103,6 +103,34 @@ func (t *SeedTerms) HasPayloads() bool {
 	return t.HasPositions()
 }
 
+func (t *SeedTerms) GetPostingsReader(termText string, flags int) (index.PostingsEnum, error) {
+	// Find the term and return its postings
+	for _, term := range t.terms {
+		if term.Text() == termText {
+			postings, ok := t.termToDocs[termText]
+			if !ok {
+				return nil, nil
+			}
+			return &SeedPostingsEnum{
+				postings: postings,
+				pos:      -1,
+			}, nil
+		}
+	}
+	return nil, nil
+}
+
+func (t *SeedTerms) GetDocCount() (int, error) {
+	// Return the number of unique documents across all terms
+	docSet := make(map[int]struct{})
+	for _, postings := range t.termToDocs {
+		for _, p := range postings {
+			docSet[p.docID] = struct{}{}
+		}
+	}
+	return len(docSet), nil
+}
+
 type SeedPosting struct {
 	docID     int
 	freq      int
