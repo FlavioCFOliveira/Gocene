@@ -6,14 +6,53 @@ package search
 
 import "math"
 
+// ClassicSimWeight holds the weight for ClassicSimilarity.
+type ClassicSimWeight struct {
+	sim             *ClassicSimilarity
+	collectionStats *CollectionStatistics
+	termStats       *TermStatistics
+	boost           float32
+	idf             float64
+}
+
+// NewClassicSimWeight creates a new ClassicSimWeight.
+func NewClassicSimWeight(sim *ClassicSimilarity, collectionStats *CollectionStatistics, termStats *TermStatistics, boost float32) *ClassicSimWeight {
+	idf := 1.0
+	if termStats != nil && collectionStats != nil && termStats.DocFreq() > 0 {
+		idf = sim.Idf(collectionStats.MaxDoc(), termStats.DocFreq())
+	}
+	return &ClassicSimWeight{
+		sim:             sim,
+		collectionStats: collectionStats,
+		termStats:       termStats,
+		boost:           boost,
+		idf:             idf,
+	}
+}
+
+// GetValue returns the value for this weight.
+func (w *ClassicSimWeight) GetValue() float32 {
+	return w.boost * float32(w.idf)
+}
+
+// Normalize normalizes this weight.
+func (w *ClassicSimWeight) Normalize(norm float32) {
+	w.boost *= norm
+}
+
+// Scorer creates a scorer for this weight.
+func (w *ClassicSimWeight) Scorer() SimScorer {
+	return NewClassicSimScorerWithWeight(w)
+}
+
 // ClassicSimScorer implements TF/IDF scoring for ClassicSimilarity.
 //
 // This is the Go port of Lucene's ClassicSimilarity scoring logic.
 type ClassicSimScorer struct {
 	*BaseSimScorer
 	similarity *ClassicSimilarity
+	weight     *ClassicSimWeight
 	idf        float64
-	weight     float64
 }
 
 // NewClassicSimScorer creates a new ClassicSimScorer.
@@ -26,7 +65,16 @@ func NewClassicSimScorer(similarity *ClassicSimilarity, collectionStats *Collect
 		BaseSimScorer: NewBaseSimScorer(),
 		similarity:    similarity,
 		idf:           idf,
-		weight:        1.0,
+	}
+}
+
+// NewClassicSimScorerWithWeight creates a new ClassicSimScorer with weight.
+func NewClassicSimScorerWithWeight(weight *ClassicSimWeight) *ClassicSimScorer {
+	return &ClassicSimScorer{
+		BaseSimScorer: NewBaseSimScorer(),
+		similarity:    weight.sim,
+		weight:        weight,
+		idf:           weight.idf,
 	}
 }
 
@@ -34,7 +82,10 @@ func NewClassicSimScorer(similarity *ClassicSimilarity, collectionStats *Collect
 // Formula: tf * idf * weight
 func (s *ClassicSimScorer) Score(doc int, freq float32) float32 {
 	tf := s.similarity.Tf(float64(freq))
-	score := tf * s.idf * s.weight
+	score := tf * s.idf
+	if s.weight != nil {
+		score *= float64(s.weight.boost)
+	}
 	return float32(score)
 }
 

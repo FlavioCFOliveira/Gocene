@@ -87,3 +87,16 @@ func (s *TermStatistics) DocFreq() int {
 func (s *TermStatistics) TotalTermFreq() int64 {
 	return s.totalTermFreq
 }
+
+// SimWeight is the interface for similarity weights.
+// This is used internally by Similarity implementations.
+type SimWeight interface {
+	// GetValue returns the value for this weight.
+	GetValue() float32
+
+	// Normalize normalizes this weight.
+	Normalize(norm float32)
+
+	// Scorer creates a SimScorer for scoring documents.
+	Scorer() SimScorer
+}

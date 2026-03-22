@@ -30,27 +30,27 @@ type State struct {
 
 // Transition represents a transition between states.
 type Transition struct {
-	to   int
-	min  int // inclusive
-	max  int // inclusive
+	to  int
+	min int // inclusive
+	max int // inclusive
 }
 
 // Automaton represents a finite-state automaton.
 type Automaton struct {
-	states      []*State
-	initial     int
+	states        []*State
+	initial       int
 	deterministic bool
-	minimized   bool
-	totality    int // Total number of transitions
+	minimized     bool
+	totality      int // Total number of transitions
 }
 
 // NewAutomaton creates a new empty automaton.
 func NewAutomaton() *Automaton {
 	return &Automaton{
-		states:      make([]*State, 0),
-		initial:     invalidState,
+		states:        make([]*State, 0),
+		initial:       invalidState,
 		deterministic: true,
-		minimized:   false,
+		minimized:     false,
 	}
 }
 

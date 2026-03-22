@@ -8,9 +8,9 @@ package search
 // This query allows incorporating ML model features into the search scoring.
 type FeatureQuery struct {
 	BaseQuery
-	fieldName string
+	fieldName    string
 	featureValue float32
-	boost float32
+	boost        float32
 }
 
 // NewFeatureQuery creates a new FeatureQuery.

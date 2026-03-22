@@ -10,10 +10,13 @@ type Similarity interface {
 	ComputeNorm(field string, stats interface{}) float32
 
 	// ComputeWeight computes the weight for a query.
-	ComputeWeight(queryWeight float32, stats interface{}) Weight
+	ComputeWeight(queryWeight float32, collectionStats *CollectionStatistics, termStats *TermStatistics) SimWeight
 
 	// Scorer creates a SimScorer for scoring documents given collection and term stats.
 	Scorer(collectionStats *CollectionStatistics, termStats *TermStatistics) SimScorer
+
+	// Coord returns the coordination factor for matching terms.
+	Coord(overlap, maxOverlap int) float32
 }
 
 // BaseSimilarity provides common functionality.
@@ -30,11 +33,16 @@ func (s *BaseSimilarity) ComputeNorm(field string, stats interface{}) float32 {
 }
 
 // ComputeWeight computes the weight.
-func (s *BaseSimilarity) ComputeWeight(queryWeight float32, stats interface{}) Weight {
+func (s *BaseSimilarity) ComputeWeight(boost float32, collectionStats *CollectionStatistics, termStats *TermStatistics) SimWeight {
 	return nil
 }
 
 // Scorer creates a SimScorer.
 func (s *BaseSimilarity) Scorer(collectionStats *CollectionStatistics, termStats *TermStatistics) SimScorer {
 	return NewBaseSimScorer()
+}
+
+// Coord returns the coordination factor.
+func (s *BaseSimilarity) Coord(overlap, maxOverlap int) float32 {
+	return float32(overlap) / float32(maxOverlap)
 }

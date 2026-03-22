@@ -71,15 +71,15 @@ func (s *ClassicSimilarity) Score(freq float64, totalDocs, docFreq int) float64 
 
 // QueryNorm computes the query normalization factor.
 // This normalizes query weights so that the sum of squared weights equals 1.
-func (s *ClassicSimilarity) QueryNorm(sumOfSquaredWeights float64) float64 {
-	return 1.0 / math.Sqrt(sumOfSquaredWeights)
+func (s *ClassicSimilarity) QueryNorm(sumOfSquaredWeights float32) float32 {
+	return 1.0 / float32(math.Sqrt(float64(sumOfSquaredWeights)))
 }
 
 // Coord is the coordination factor.
 // Rewards documents that contain more query terms.
 // Returns overlap / maxOverlap.
-func (s *ClassicSimilarity) Coord(overlap, maxOverlap int) float64 {
-	return float64(overlap) / float64(maxOverlap)
+func (s *ClassicSimilarity) Coord(overlap, maxOverlap int) float32 {
+	return float32(overlap) / float32(maxOverlap)
 }
 
 // SloppyFreq computes the sloppy term frequency.
@@ -113,8 +113,8 @@ func (s *ClassicSimilarity) String() string {
 }
 
 // ComputeWeight computes the weight for a query (implements Similarity interface).
-func (s *ClassicSimilarity) ComputeWeight(queryWeight float32, stats interface{}) Weight {
-	return nil
+func (s *ClassicSimilarity) ComputeWeight(boost float32, collectionStats *CollectionStatistics, termStats *TermStatistics) SimWeight {
+	return NewClassicSimWeight(s, collectionStats, termStats, boost)
 }
 
 // Scorer creates a SimScorer for scoring documents (implements Similarity interface).
