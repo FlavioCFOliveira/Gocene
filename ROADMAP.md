@@ -106,11 +106,11 @@ Implement remaining Lucene features: advanced queries, similarities, joins, grou
 | GC-869 | Implement ToChildBlockJoinQuery | MEDIUM | Implemented ToChildBlockJoinQuery for matching child documents based on parent criteria with ScoreMode support | COMPLETED 2026-03-22 |
 | GC-870 | Implement TermsCollector | MEDIUM | Implemented TermsWithScoreCollector for collecting terms with scores in join queries, supporting all ScoreMode options | COMPLETED 2026-03-22 |
 | GC-871 | Implement ScoreMode | MEDIUM | Implemented ScoreMode enum with None, Avg, Max, Total, Min options for controlling score aggregation in join queries | COMPLETED 2026-03-22 |
-| GC-872 | Implement GroupingSearch | MEDIUM | Missing GroupingSearch for grouping documents by field. |
-| GC-873 | Implement AllGroupsCollector | MEDIUM | Missing AllGroupsCollector for collecting all groups. |
-| GC-874 | Implement AllGroupHeadsCollector | MEDIUM | Missing AllGroupHeadsCollector for collecting group heads. |
-| GC-875 | Implement BlockGroupingCollector | MEDIUM | Missing BlockGroupingCollector for block-based grouping. |
-| GC-876 | Implement TermGroupSelector | MEDIUM | Missing TermGroupSelector for term-based group selection. |
+| GC-872 | Implement GroupingSearch | MEDIUM | Implemented GroupingSearch with configurable groupSort, docSort, offsets and limits for grouping documents by field | COMPLETED 2026-03-22 |
+| GC-873 | Implement AllGroupsCollector | MEDIUM | Implemented AllGroupsCollector for collecting all unique group values | COMPLETED 2026-03-22 |
+| GC-874 | Implement AllGroupHeadsCollector | MEDIUM | Implemented AllGroupHeadsCollector for collecting the first document (head) of each group | COMPLETED 2026-03-22 |
+| GC-875 | Implement BlockGroupingCollector | MEDIUM | Implemented BlockGroupingCollector for block-based grouping with parent-child document structures | COMPLETED 2026-03-22 |
+| GC-876 | Implement TermGroupSelector | MEDIUM | Implemented TermGroupSelector for term-based group selection with GroupSelector interface | COMPLETED 2026-03-22 |
 | GC-877 | Implement FacetsCollector | MEDIUM | Missing FacetsCollector for collecting facet counts. |
 | GC-878 | Implement FastTaxonomyFacetCounts | MEDIUM | Missing FastTaxonomyFacetCounts for fast taxonomy-based facet counting. |
 | GC-879 | Implement SortedSetDocValuesFacetCounts | MEDIUM | Missing SortedSetDocValuesFacetCounts for sorted set doc values facets. |
