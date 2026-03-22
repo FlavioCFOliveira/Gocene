@@ -4,9 +4,9 @@
 
 Este roadmap contém as tarefas pendentes para completar o port de Apache Lucene 10.x para Go.
 
-**Total de Tarefas Pendentes:** 501
-**Fases Pendentes:** 32 (53-85)
-**Fases Completadas:** 52 (34-52)
+**Total de Tarefas Pendentes:** 513
+**Fases Pendentes:** 33 (53-85)
+**Fases Completadas:** 52 (1-52)
 
 ---
 
@@ -14,9 +14,6 @@ Este roadmap contém as tarefas pendentes para completar o port de Apache Lucene
 
 | Fase | Status | Tarefas | Complexidade | Foco | Dependências |
 |:-----|:-------|:--------|:-------------|:-----|:-------------|
-| 50 | COMPLETED | 55 | Alta | Advanced Features | Phase 49 |
-| 51 | COMPLETED | 40 | Alta | Integration Tests | Phase 50 |
-| 52 | COMPLETED | 12 | Alta | Span Queries Core | Phase 51 |
 | 53 | PENDING | 10 | Alta | Span Queries Spans | Phase 52 |
 | 54 | PENDING | 15 | Alta | Point Fields Core | Phase 51 |
 | 55 | PENDING | 12 | Alta | BKD Tree Implementation | Phase 54 |
@@ -54,26 +51,6 @@ Este roadmap contém as tarefas pendentes para completar o port de Apache Lucene
 ---
 
 ## TAREFAS PENDENTES
-
----
-
-## TAREFAS COMPLETADAS
-
-### Phase 52: Span Queries Core Framework (COMPLETED 2026-03-22)
-| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | COMPLETED | DESCRIPTION |
-|:---|:---------|:---------|:-----|:------------|:----------|:------------|
-| GC-1001 | MEDIUM | HIGH | SpanQuery base class | go-elite-developer | 2026-03-22 | Implemented SpanQuery interface in base_span_query.go with Query methods and GetField(). |
-| GC-1002 | MEDIUM | HIGH | Spans iterator interface | go-elite-developer | 2026-03-22 | Implemented Spans struct with NextDoc(), Advance(), NextStartPosition() for (doc, start, end) tuples. |
-| GC-1003 | MEDIUM | HIGH | SpanWeight implementation | go-elite-developer | 2026-03-22 | Implemented SpanWeight with GetSpans(), Scorer(), and SimScorer support. |
-| GC-1004 | MEDIUM | HIGH | SpanScorer implementation | go-elite-developer | 2026-03-22 | Implemented SpanScorer with sloppy frequency calculation via setFreqCurrentDoc(). |
-| GC-1005 | MEDIUM | HIGH | SpanTermQuery | go-elite-developer | 2026-03-22 | SpanTermQuery already implemented in span_term_query.go for term position matching. |
-| GC-1006 | MEDIUM | HIGH | SpanNearQuery | go-elite-developer | 2026-03-22 | SpanNearQuery already implemented with slop and inOrder support. |
-| GC-1007 | MEDIUM | HIGH | SpanOrQuery | go-elite-developer | 2026-03-22 | SpanOrQuery already implemented for union of span queries. |
-| GC-1008 | MEDIUM | HIGH | SpanNotQuery | go-elite-developer | 2026-03-22 | SpanNotQuery already implemented for removing overlapping matches. |
-| GC-1009 | LOW | MEDIUM | SpanFirstQuery | go-elite-developer | 2026-03-22 | SpanFirstQuery already implemented for matching near document start. |
-| GC-1010 | LOW | MEDIUM | SpanPositionRangeQuery | go-elite-developer | 2026-03-22 | SpanPositionRangeQuery already implemented for position range filtering. |
-| GC-1011 | MEDIUM | MEDIUM | SpanContainingQuery | go-elite-developer | 2026-03-22 | SpanContainingQuery already implemented for big spans containing little spans. |
-| GC-1012 | MEDIUM | HIGH | SpanMultiTermQueryWrapper | go-elite-developer | 2026-03-22 | SpanMultiTermQueryWrapper already implemented for wrapping MultiTermQuery as SpanQuery. |
 
 ### Phase 53: Span Queries Spans Implementations
 | ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | DESCRIPTION |
@@ -742,34 +719,21 @@ Este roadmap contém as tarefas pendentes para completar o port de Apache Lucene
 - **Progresso Geral:** 55.9%
 
 ### Histórico de Fases Completadas
-- Fase 34: Foundation (45 tarefas) - COMPLETED
-- Fase 35: Core Extensions (50 tarefas) - COMPLETED
-- Fase 36: Analysis Filters (45 tarefas) - COMPLETED
-- Fase 37: Point Fields (18 tarefas) - COMPLETED
-- Fase 38: Span Queries (45 tarefas) - COMPLETED
-- Fase 39: Language Analyzers - Major (35 tarefas) - COMPLETED
-- Fase 40: CheckIndex (40 tarefas) - COMPLETED
-- Fase 41: Flexible QueryParser (45 tarefas) - COMPLETED
-- Fase 42: Advanced Facets (35 tarefas) - COMPLETED
-- Fase 43: Join/Grouping/Highlight (11 tarefas) - COMPLETED
-- Fase 44: Compressing Codecs (40 tarefas) - COMPLETED 2026-03-20
-- Fase 45: Spatial Fields (35 tarefas) - COMPLETED 2026-03-20
-- Fase 46: NRT Search and Real-time Features (35 tarefas) - COMPLETED 2026-03-20
-- Fase 47: Additional Language Analyzers (40 tarefas) - COMPLETED 2026-03-20
-- Fase 48: Core Reader Hierarchy and API Completion (15 tarefas) - COMPLETED 2026-03-20
-- Fase 49: Performance Optimization (32 tarefas) - COMPLETED 2026-03-21
-- Fase 50: Advanced Features and Modules (55 tarefas) - COMPLETED 2026-03-22
-- Fase 51: Integration Tests (40 tarefas) - COMPLETED 2026-03-22
-- Fase 52: Span Queries Core Framework (12 tarefas) - COMPLETED 2026-03-22
+
+> **Nota:** Fases 1-52 (650 tarefas) foram concluídas. O histórico detalhado foi arquivado.
+> Consulte o git history para detalhes das tarefas completadas.
+
+- **Fases 1-33:** Foundation, Core API, Index, Search, Analysis básico
+- **Fases 34-52:** Extensions, QueryParsers, Facets, Join, Grouping, Highlight, Codecs, NRT, Tests
+- **Total Completado:** 650 tarefas (55.9% do projeto)
 
 ### Fases em Andamento
-- **Nenhuma fase em andamento** - Todas as fases planejadas até o momento foram concluídas.
-- **Próxima fase:** Fase 52 - Span Queries Core Framework
+- **Fase 53:** Span Queries Spans Implementations - Aguardando início
 
-### Fases Planejadas (52-85)
+### Fases Planejadas (53-85)
 | Fase | Componente | Tarefas | Prioridade | Estimativa |
 |:-----|:-----------|:--------|:-----------|:-----------|
-| 52-53 | Span Queries | 22 | CRÍTICA | 16-21 semanas |
+| 53 | Span Queries Spans | 10 | CRÍTICA | 5-7 semanas |
 | 54-55 | Point Fields | 27 | CRÍTICA | 13-19 semanas |
 | 56 | NRT/SearcherManager | 8 | CRÍTICA | 8-12 semanas |
 | 57-58 | Analysis Core/Filters | 40 | ALTA | 15-20 semanas |
@@ -799,22 +763,16 @@ Este roadmap contém as tarefas pendentes para completar o port de Apache Lucene
 | 85 | Codecs | 15 | BAIXA | 4-6 semanas |
 
 ### Próximos Passos
-1. **Concluído:** Fase 51 - Testes de Integração (40 tarefas implementadas)
-2. **Em andamento:** Fase 52 - Span Queries Core Framework
-3. **Planejado:** Fases 52-85 - 33 fases de implementação para 100% de cobertura
+1. **Concluído:** Fases 1-52 (650 tarefas implementadas) - Histórico arquivado
+2. **Próxima:** Fase 53 - Span Queries Spans Implementations (10 tarefas)
+3. **Planejado:** Fases 53-85 - 33 fases de implementação para 100% de cobertura
    - **Prioridade CRÍTICA:** Span Queries, Point Fields, NRT/SearcherManager
    - **Prioridade ALTA:** Analysis (CharFilters, Tokenizers, SynonymFilter), QueryParser, Facets
    - **Prioridade MÉDIA:** Language Analyzers, Join avançado, Grouping, Highlight
    - **Prioridade BAIXA:** Util avançado, Codecs legados, funcionalidades especializadas
-4. **Estimativa total:** 473 tarefas pendentes (~220-300 semanas de desenvolvimento)
+4. **Estimativa total:** 513 tarefas pendentes (~220-300 semanas de desenvolvimento)
 
 ### Auditorias Recentes
 - **2026-03-22:** Análise de gaps completa para 100% de cobertura - 473 novas tarefas identificadas
-- **2026-03-22:** Fase 51 criada - 40 tarefas de Integration Tests adicionadas
-- **2026-03-22:** Fase 50 concluída - 55 tarefas de Advanced Features implementadas
-- Relatórios disponíveis em: `.claude/skills/roadmap-manager/AUDIT/`
-
-### Auditorias Recentes
-- **2026-03-22:** Fase 51 criada - 40 tarefas de Integration Tests adicionadas ao roadmap
-- **2026-03-22:** Fase 50 concluída - 55 tarefas de Advanced Features implementadas
+- **2026-03-22:** Fase 52 concluída - Span Queries Core Framework (12 tarefas)
 - Relatórios disponíveis em: `.claude/skills/roadmap-manager/AUDIT/`
