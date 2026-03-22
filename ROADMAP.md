@@ -4,9 +4,9 @@
 
 Este roadmap contém as tarefas pendentes para completar o port de Apache Lucene 10.x para Go.
 
-**Total de Tarefas Pendentes:** 513
-**Fases Pendentes:** 33 (52-85)
-**Fases Completadas:** 51 (34-51)
+**Total de Tarefas Pendentes:** 501
+**Fases Pendentes:** 32 (53-85)
+**Fases Completadas:** 52 (34-52)
 
 ---
 
@@ -16,7 +16,7 @@ Este roadmap contém as tarefas pendentes para completar o port de Apache Lucene
 |:-----|:-------|:--------|:-------------|:-----|:-------------|
 | 50 | COMPLETED | 55 | Alta | Advanced Features | Phase 49 |
 | 51 | COMPLETED | 40 | Alta | Integration Tests | Phase 50 |
-| 52 | PENDING | 12 | Alta | Span Queries Core | Phase 51 |
+| 52 | COMPLETED | 12 | Alta | Span Queries Core | Phase 51 |
 | 53 | PENDING | 10 | Alta | Span Queries Spans | Phase 52 |
 | 54 | PENDING | 15 | Alta | Point Fields Core | Phase 51 |
 | 55 | PENDING | 12 | Alta | BKD Tree Implementation | Phase 54 |
@@ -55,21 +55,25 @@ Este roadmap contém as tarefas pendentes para completar o port de Apache Lucene
 
 ## TAREFAS PENDENTES
 
-### Phase 52: Span Queries Core Framework
-| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | DESCRIPTION |
-|:---|:---------|:---------|:-----|:------------|:------------|
-| GC-1001 | MEDIUM | HIGH | SpanQuery base class | go-elite-developer | Implement SpanQuery abstract base class for all span-based queries. Extends Query with positional search capabilities. |
-| GC-1002 | MEDIUM | HIGH | Spans iterator interface | go-elite-developer | Implement Spans iterator for (doc, start, end) tuples. Core abstraction for span enumeration. |
-| GC-1003 | MEDIUM | HIGH | SpanWeight implementation | go-elite-developer | Implement SpanWeight class managing scoring, term state extraction, and Spans access. |
-| GC-1004 | MEDIUM | HIGH | SpanScorer implementation | go-elite-developer | Implement SpanScorer computing sloppy frequency and span-based scores. |
-| GC-1005 | MEDIUM | HIGH | SpanTermQuery | go-elite-developer | Implement SpanTermQuery matching spans containing specific terms. |
-| GC-1006 | MEDIUM | HIGH | SpanNearQuery | go-elite-developer | Implement SpanNearQuery for proximity matching with slop and ordered/unordered modes. |
-| GC-1007 | MEDIUM | HIGH | SpanOrQuery | go-elite-developer | Implement SpanOrQuery for union of multiple span queries. |
-| GC-1008 | MEDIUM | HIGH | SpanNotQuery | go-elite-developer | Implement SpanNotQuery removing matches overlapping with another SpanQuery. |
-| GC-1009 | LOW | MEDIUM | SpanFirstQuery | go-elite-developer | Implement SpanFirstQuery matching spans near document start. |
-| GC-1010 | LOW | MEDIUM | SpanPositionRangeQuery | go-elite-developer | Implement SpanPositionRangeQuery filtering to position range. |
-| GC-1011 | MEDIUM | MEDIUM | SpanContainingQuery | go-elite-developer | Implement SpanContainingQuery matching big spans containing little spans. |
-| GC-1012 | MEDIUM | HIGH | SpanMultiTermQueryWrapper | go-elite-developer | Implement SpanMultiTermQueryWrapper wrapping MultiTermQuery as SpanQuery. |
+---
+
+## TAREFAS COMPLETADAS
+
+### Phase 52: Span Queries Core Framework (COMPLETED 2026-03-22)
+| ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | COMPLETED | DESCRIPTION |
+|:---|:---------|:---------|:-----|:------------|:----------|:------------|
+| GC-1001 | MEDIUM | HIGH | SpanQuery base class | go-elite-developer | 2026-03-22 | Implemented SpanQuery interface in base_span_query.go with Query methods and GetField(). |
+| GC-1002 | MEDIUM | HIGH | Spans iterator interface | go-elite-developer | 2026-03-22 | Implemented Spans struct with NextDoc(), Advance(), NextStartPosition() for (doc, start, end) tuples. |
+| GC-1003 | MEDIUM | HIGH | SpanWeight implementation | go-elite-developer | 2026-03-22 | Implemented SpanWeight with GetSpans(), Scorer(), and SimScorer support. |
+| GC-1004 | MEDIUM | HIGH | SpanScorer implementation | go-elite-developer | 2026-03-22 | Implemented SpanScorer with sloppy frequency calculation via setFreqCurrentDoc(). |
+| GC-1005 | MEDIUM | HIGH | SpanTermQuery | go-elite-developer | 2026-03-22 | SpanTermQuery already implemented in span_term_query.go for term position matching. |
+| GC-1006 | MEDIUM | HIGH | SpanNearQuery | go-elite-developer | 2026-03-22 | SpanNearQuery already implemented with slop and inOrder support. |
+| GC-1007 | MEDIUM | HIGH | SpanOrQuery | go-elite-developer | 2026-03-22 | SpanOrQuery already implemented for union of span queries. |
+| GC-1008 | MEDIUM | HIGH | SpanNotQuery | go-elite-developer | 2026-03-22 | SpanNotQuery already implemented for removing overlapping matches. |
+| GC-1009 | LOW | MEDIUM | SpanFirstQuery | go-elite-developer | 2026-03-22 | SpanFirstQuery already implemented for matching near document start. |
+| GC-1010 | LOW | MEDIUM | SpanPositionRangeQuery | go-elite-developer | 2026-03-22 | SpanPositionRangeQuery already implemented for position range filtering. |
+| GC-1011 | MEDIUM | MEDIUM | SpanContainingQuery | go-elite-developer | 2026-03-22 | SpanContainingQuery already implemented for big spans containing little spans. |
+| GC-1012 | MEDIUM | HIGH | SpanMultiTermQueryWrapper | go-elite-developer | 2026-03-22 | SpanMultiTermQueryWrapper already implemented for wrapping MultiTermQuery as SpanQuery. |
 
 ### Phase 53: Span Queries Spans Implementations
 | ID | SEVERITY | PRIORITY | TASK | SPECIALISTS | DESCRIPTION |
@@ -756,6 +760,7 @@ Este roadmap contém as tarefas pendentes para completar o port de Apache Lucene
 - Fase 49: Performance Optimization (32 tarefas) - COMPLETED 2026-03-21
 - Fase 50: Advanced Features and Modules (55 tarefas) - COMPLETED 2026-03-22
 - Fase 51: Integration Tests (40 tarefas) - COMPLETED 2026-03-22
+- Fase 52: Span Queries Core Framework (12 tarefas) - COMPLETED 2026-03-22
 
 ### Fases em Andamento
 - **Nenhuma fase em andamento** - Todas as fases planejadas até o momento foram concluídas.
