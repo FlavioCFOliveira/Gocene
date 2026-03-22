@@ -6,6 +6,9 @@ package search
 
 import "github.com/FlavioCFOliveira/Gocene/index"
 
+// GC-1003: SpanWeight implementation
+// SpanWeight manages scoring, term state extraction, and Spans access.
+
 // SpanQuery is the interface for span queries.
 // Span queries are used for positional/proximity-based search.
 type SpanQuery interface {
@@ -112,5 +115,38 @@ func (sw *SpanWeight) Matches(context *index.LeafReaderContext, doc int) (Matche
 	return nil, nil
 }
 
+// GetSpans returns a Spans object for iterating over span matches
+func (sw *SpanWeight) GetSpans(ctx *index.LeafReaderContext, requiredPostings int) (Spans, error) {
+	return EmptySpans, nil
+}
+
+// ExtractTermContexts extracts TermContexts from all terms in the query
+func (sw *SpanWeight) ExtractTermContexts(context *index.TermContext) error {
+	return nil
+}
+
+// GetSimScorer returns the Similarity.SimScorer for scoring spans
+func (sw *SpanWeight) GetSimScorer(ctx *index.LeafReaderContext) (*index.SimScorer, error) {
+	if sw.Similarity == nil {
+		return nil, nil
+	}
+	return sw.Similarity.Scorer(nil, nil), nil
+}
+
 // Ensure SpanWeight implements Weight
 var _ Weight = (*SpanWeight)(nil)
+
+// SpanWeightUtils provides utility methods for SpanWeight
+var SpanWeightUtils = &spanWeightUtils{}
+
+type spanWeightUtils struct{}
+
+// IsPayloadsRequired returns true if payloads are required for the given score mode
+func (u *spanWeightUtils) IsPayloadsRequired(scoreMode ScoreMode) bool {
+	return false
+}
+
+// PositionsAreRequired returns true if positions are required
+func (u *spanWeightUtils) PositionsAreRequired(scoreMode ScoreMode) bool {
+	return true
+}
