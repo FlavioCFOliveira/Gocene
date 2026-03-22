@@ -4,9 +4,9 @@
 
 Este roadmap contém as tarefas pendentes para completar o port de Apache Lucene 10.x para Go.
 
-**Total de Tarefas Pendentes:** 49 (Fase 50)
+**Total de Tarefas Pendentes:** 40 (Fase 50)
 **Fases Pendentes:** 1 (50)
-**Fases Completadas:** 19 (34-49), GC-839, GC-840, GC-841, GC-842, GC-843, GC-844, GC-845
+**Fases Completadas:** 19 (34-49), GC-839, GC-840, GC-841, GC-842, GC-843, GC-844, GC-845, GC-848, GC-849, GC-850, GC-851, GC-852, GC-853, GC-855, GC-856, GC-857, GC-858, GC-859, GC-860, GC-861, GC-862, GC-863, GC-864, GC-865, GC-866, GC-867
 
 ---
 
@@ -93,15 +93,15 @@ Implement remaining Lucene features: advanced queries, similarities, joins, grou
 | GC-856 | Implement WildcardQuery | MEDIUM | Missing WildcardQuery for wildcard pattern matching. | COMPLETED 2026-03-21 |
 | GC-857 | Implement PrefixQuery | MEDIUM | Missing PrefixQuery for prefix matching. | COMPLETED 2026-03-21 |
 | GC-858 | Implement FuzzyQuery Full | MEDIUM | FuzzyQuery exists but missing full implementation with all options. |
-| GC-859 | Implement AxiomaticSimilarity | MEDIUM | Missing AxiomaticSimilarity for axiomatic retrieval model. |
-| GC-860 | Implement BM25Similarity Full | MEDIUM | BM25Similarity exists but is partial. Complete full implementation. |
-| GC-861 | Implement DFRSimilarity | MEDIUM | Missing DFRSimilarity for divergence from randomness model. |
-| GC-862 | Implement IBSimilarity | MEDIUM | Missing IBSimilarity for information-based model. |
-| GC-863 | Implement IndriSimilarity | MEDIUM | Missing IndriSimilarity for Indri retrieval model. |
-| GC-864 | Implement LMDirichletSimilarity | MEDIUM | Missing LMDirichletSimilarity for language model with Dirichlet smoothing. |
-| GC-865 | Implement LMJelinekMercerSimilarity | MEDIUM | Missing LMJelinekMercerSimilarity for language model with Jelinek-Mercer smoothing. |
-| GC-866 | Implement MultiSimilarity | MEDIUM | Missing MultiSimilarity for combining multiple similarities. |
-| GC-867 | Implement PerFieldSimilarityWrapper | MEDIUM | Missing PerFieldSimilarityWrapper for per-field similarity configuration. |
+| GC-859 | Implement AxiomaticSimilarity | MEDIUM | Missing AxiomaticSimilarity for axiomatic retrieval model. | COMPLETED 2026-03-22 |
+| GC-860 | Implement BM25Similarity Full | MEDIUM | BM25Similarity exists but is partial. Complete full implementation. | COMPLETED 2026-03-22 |
+| GC-861 | Implement DFRSimilarity | MEDIUM | Missing DFRSimilarity for divergence from randomness model. | COMPLETED 2026-03-22 |
+| GC-862 | Implement IBSimilarity | MEDIUM | Missing IBSimilarity for information-based model. | COMPLETED 2026-03-22 |
+| GC-863 | Implement IndriSimilarity | MEDIUM | Missing IndriSimilarity for Indri retrieval model. | COMPLETED 2026-03-22 |
+| GC-864 | Implement LMDirichletSimilarity | MEDIUM | Missing LMDirichletSimilarity for language model with Dirichlet smoothing. | COMPLETED 2026-03-22 |
+| GC-865 | Implement LMJelinekMercerSimilarity | MEDIUM | Missing LMJelinekMercerSimilarity for language model with Jelinek-Mercer smoothing. | COMPLETED 2026-03-22 |
+| GC-866 | Implement MultiSimilarity | MEDIUM | Missing MultiSimilarity for combining multiple similarities. | COMPLETED 2026-03-22 |
+| GC-867 | Implement PerFieldSimilarityWrapper | MEDIUM | Missing PerFieldSimilarityWrapper for per-field similarity configuration. | COMPLETED 2026-03-22 |
 | GC-868 | Implement ToParentBlockJoinQuery | MEDIUM | Missing ToParentBlockJoinQuery for parent-child document relationships. |
 | GC-869 | Implement ToChildBlockJoinQuery | MEDIUM | Missing ToChildBlockJoinQuery for child-parent document relationships. |
 | GC-870 | Implement TermsCollector | MEDIUM | Missing TermsCollector for collecting terms in join queries. |
