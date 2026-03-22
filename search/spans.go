@@ -4,7 +4,8 @@
 
 package search
 
-// Spans is an iterator over span matches.
+// GC-1002: Spans iterator interface
+// Spans is an iterator over span matches for (doc, start, end) tuples.
 // This is the Go port of Lucene's org.apache.lucene.search.spans.Spans.
 type Spans struct {
 	doc      int

@@ -24,4 +24,4 @@ Thumbs.db
 vendor/
 
 
-lucene-*/
+lucene-*/.lucene_ref/
