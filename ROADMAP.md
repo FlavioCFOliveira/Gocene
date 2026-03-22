@@ -102,10 +102,10 @@ Implement remaining Lucene features: advanced queries, similarities, joins, grou
 | GC-865 | Implement LMJelinekMercerSimilarity | MEDIUM | Missing LMJelinekMercerSimilarity for language model with Jelinek-Mercer smoothing. | COMPLETED 2026-03-22 |
 | GC-866 | Implement MultiSimilarity | MEDIUM | Missing MultiSimilarity for combining multiple similarities. | COMPLETED 2026-03-22 |
 | GC-867 | Implement PerFieldSimilarityWrapper | MEDIUM | Missing PerFieldSimilarityWrapper for per-field similarity configuration. | COMPLETED 2026-03-22 |
-| GC-868 | Implement ToParentBlockJoinQuery | MEDIUM | Missing ToParentBlockJoinQuery for parent-child document relationships. |
-| GC-869 | Implement ToChildBlockJoinQuery | MEDIUM | Missing ToChildBlockJoinQuery for child-parent document relationships. |
-| GC-870 | Implement TermsCollector | MEDIUM | Missing TermsCollector for collecting terms in join queries. |
-| GC-871 | Implement ScoreMode | MEDIUM | Missing ScoreMode for controlling score propagation in joins. |
+| GC-868 | Implement ToParentBlockJoinQuery | MEDIUM | Implemented ToParentBlockJoinQuery for matching parent documents based on child criteria with ScoreMode support | COMPLETED 2026-03-22 |
+| GC-869 | Implement ToChildBlockJoinQuery | MEDIUM | Implemented ToChildBlockJoinQuery for matching child documents based on parent criteria with ScoreMode support | COMPLETED 2026-03-22 |
+| GC-870 | Implement TermsCollector | MEDIUM | Implemented TermsWithScoreCollector for collecting terms with scores in join queries, supporting all ScoreMode options | COMPLETED 2026-03-22 |
+| GC-871 | Implement ScoreMode | MEDIUM | Implemented ScoreMode enum with None, Avg, Max, Total, Min options for controlling score aggregation in join queries | COMPLETED 2026-03-22 |
 | GC-872 | Implement GroupingSearch | MEDIUM | Missing GroupingSearch for grouping documents by field. |
 | GC-873 | Implement AllGroupsCollector | MEDIUM | Missing AllGroupsCollector for collecting all groups. |
 | GC-874 | Implement AllGroupHeadsCollector | MEDIUM | Missing AllGroupHeadsCollector for collecting group heads. |
