@@ -122,3 +122,12 @@ func (s *Spans) DocIDRunEnd() int {
 
 // Ensure Spans implements DocIdSetIterator
 var _ DocIdSetIterator = (*Spans)(nil)
+
+// EmptySpans is a Spans with no documents.
+var EmptySpans = &Spans{
+	doc:    NO_MORE_DOCS,
+	docs:   []int{},
+	starts: []int{},
+	ends:   []int{},
+	index:  -1,
+}
