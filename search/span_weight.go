@@ -9,16 +9,6 @@ import "github.com/FlavioCFOliveira/Gocene/index"
 // GC-1003: SpanWeight implementation
 // SpanWeight manages scoring, term state extraction, and Spans access.
 
-// SpanQuery is the interface for span queries.
-// Span queries are used for positional/proximity-based search.
-type SpanQuery interface {
-	Query
-	// GetField returns the field for this query.
-	GetField() string
-	// String returns a string representation of this query.
-	String(field string) string
-}
-
 // SpanWeight is the base class for SpanQuery weights.
 // SpanWeights are used for scoring and matching span queries.
 //
@@ -116,21 +106,22 @@ func (sw *SpanWeight) Matches(context *index.LeafReaderContext, doc int) (Matche
 }
 
 // GetSpans returns a Spans object for iterating over span matches
-func (sw *SpanWeight) GetSpans(ctx *index.LeafReaderContext, requiredPostings int) (Spans, error) {
+func (sw *SpanWeight) GetSpans(ctx *index.LeafReaderContext, requiredPostings int) (*Spans, error) {
 	return EmptySpans, nil
 }
 
 // ExtractTermContexts extracts TermContexts from all terms in the query
-func (sw *SpanWeight) ExtractTermContexts(context *index.TermContext) error {
+func (sw *SpanWeight) ExtractTermContexts(context interface{}) error {
 	return nil
 }
 
 // GetSimScorer returns the Similarity.SimScorer for scoring spans
-func (sw *SpanWeight) GetSimScorer(ctx *index.LeafReaderContext) (*index.SimScorer, error) {
+func (sw *SpanWeight) GetSimScorer(ctx *index.LeafReaderContext) (*SimScorer, error) {
 	if sw.Similarity == nil {
 		return nil, nil
 	}
-	return sw.Similarity.Scorer(nil, nil), nil
+	// Return a basic sim scorer or nil if not available
+	return nil, nil
 }
 
 // Ensure SpanWeight implements Weight

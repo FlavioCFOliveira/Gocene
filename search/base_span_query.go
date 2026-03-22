@@ -4,6 +4,21 @@
 
 package search
 
+// SpanQuery is the interface for span queries.
+// Span queries are used for positional/proximity-based search.
+// This is the Go port of Lucene's org.apache.lucene.search.spans.SpanQuery.
+type SpanQuery interface {
+	// Query methods
+	CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error)
+	Rewrite(reader IndexReader) (Query, error)
+	Clone() Query
+	Equals(other Query) bool
+	HashCode() int
+	String(field string) string
+	// Span-specific method
+	GetField() string
+}
+
 // BaseSpanQuery provides common functionality for span queries.
 // This is the Go port of Lucene's org.apache.lucene.search.spans.SpanQuery base functionality.
 type BaseSpanQuery struct {

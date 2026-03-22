@@ -389,9 +389,9 @@ func TestTermDictionary_EdgeCases(t *testing.T) {
 		id      string
 		content string
 	}{
-		{"1", ""},                                    // Empty content
-		{"2", "single"},                              // Single term
-		{"3", "a b c d e f g h i j"},                 // Many short terms
+		{"1", ""},                    // Empty content
+		{"2", "single"},              // Single term
+		{"3", "a b c d e f g h i j"}, // Many short terms
 		{"4", "verylongwordthatspansmultiplebytes"}, // Long term
 	}
 
