@@ -116,12 +116,12 @@ Implement remaining Lucene features: advanced queries, similarities, joins, grou
 | GC-879 | Implement SortedSetDocValuesFacetCounts | MEDIUM | Implemented SortedSetDocValuesFacetCounts for sorted set doc values facets with per-segment counting | COMPLETED 2026-03-22 |
 | GC-880 | Implement RangeFacetCounts | MEDIUM | Implemented RangeFacetCounts for range-based facets with configurable ranges | COMPLETED 2026-03-22 |
 | GC-881 | Implement TaxonomyReader | MEDIUM | Implemented TaxonomyReader interface with DirectoryTaxonomyReader for reading taxonomy data | COMPLETED 2026-03-22 |
-| GC-882 | Implement FastVectorHighlighter | MEDIUM | Missing FastVectorHighlighter for fast vector-based highlighting. |
-| GC-883 | Implement PostingsHighlighter | MEDIUM | Missing PostingsHighlighter for postings-based highlighting. |
-| GC-884 | Implement UnifiedHighlighter | MEDIUM | Missing UnifiedHighlighter for unified highlighting approach. |
-| GC-885 | Implement Fragmenter | MEDIUM | Missing Fragmenter for text fragment selection. |
-| GC-886 | Implement Scorer | MEDIUM | Missing Scorer for highlight scoring. |
-| GC-887 | Implement Encoder | MEDIUM | Missing Encoder for encoding highlighted text. |
+| GC-882 | Implement FastVectorHighlighter | MEDIUM | Implemented FastVectorHighlighter using term vectors for fast highlighting with FragListBuilder and FragmentsBuilder | COMPLETED 2026-03-22 |
+| GC-883 | Implement PostingsHighlighter | MEDIUM | Implemented PostingsHighlighter using term positions for efficient highlighting without requiring term vectors | COMPLETED 2026-03-22 |
+| GC-884 | Implement UnifiedHighlighter | MEDIUM | Implemented UnifiedHighlighter combining features of other highlighters with BreakIterator and PassageScorer | COMPLETED 2026-03-22 |
+| GC-885 | Implement Fragmenter | MEDIUM | Implemented Fragmenter interface with NullFragmenter and SimpleFragmenter for text fragment selection | COMPLETED 2026-03-22 |
+| GC-886 | Implement Scorer | MEDIUM | Implemented FragmentScorer interface with SimpleFragmentScorer and QueryScorer for highlight scoring | COMPLETED 2026-03-22 |
+| GC-887 | Implement Encoder | MEDIUM | Implemented Encoder interface with SimpleHTMLEncoder and DefaultEncoder for encoding highlighted text | COMPLETED 2026-03-22 |
 | GC-888 | Implement PerFieldPostingsFormat Full | MEDIUM | PerFieldPostingsFormat exists but missing full integration with IndexWriter. |
 | GC-889 | Implement All Compression Modes | MEDIUM | Missing FAST, HIGH_COMPRESSION, FAST_DECOMPRESSION modes in CompressingCodec. |
 | GC-890 | Implement MemoryIndex | MEDIUM | Missing MemoryIndex for in-memory indexing of single documents. |
