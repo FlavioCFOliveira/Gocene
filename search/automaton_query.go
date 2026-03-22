@@ -275,8 +275,8 @@ func (aq *AutomatonQuery) String() string {
 // AutomatonWeight is the weight for AutomatonQuery.
 type AutomatonWeight struct {
 	BaseWeight
-	query  *AutomatonQuery
-	boost  float32
+	query *AutomatonQuery
+	boost float32
 }
 
 // NewAutomatonWeight creates a new AutomatonWeight.
@@ -328,9 +328,9 @@ func (w *AutomatonWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
 // AutomatonScorer is a scorer for AutomatonQuery.
 type AutomatonScorer struct {
 	BaseScorer
-	weight    *AutomatonWeight
-	doc       int
-	score     float32
+	weight *AutomatonWeight
+	doc    int
+	score  float32
 }
 
 // NewAutomatonScorer creates a new AutomatonScorer.

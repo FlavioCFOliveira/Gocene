@@ -17,8 +17,8 @@ import "math"
 // - tfNormalization handles term frequency saturation
 type DFRSimilarity struct {
 	*BaseSimilarity
-	basicModel BasicModel // The basic model (e.g., Poisson, Geometric)
-	afterEffect AfterEffect // The after effect (e.g., Laplace, Dirichlet)
+	basicModel    BasicModel    // The basic model (e.g., Poisson, Geometric)
+	afterEffect   AfterEffect   // The after effect (e.g., Laplace, Dirichlet)
 	normalization Normalization // Term frequency normalization
 }
 

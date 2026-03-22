@@ -32,8 +32,8 @@ func NewMultiSimilarity(similarities []Similarity) *MultiSimilarity {
 
 	return &MultiSimilarity{
 		BaseSimilarity: NewBaseSimilarity(),
-		similarities: similarities,
-		weights:      weights,
+		similarities:   similarities,
+		weights:        weights,
 	}
 }
 
@@ -48,8 +48,8 @@ func NewMultiSimilarityWithWeights(similarities []Similarity, weights []float64)
 
 	return &MultiSimilarity{
 		BaseSimilarity: NewBaseSimilarity(),
-		similarities: similarities,
-		weights:      weights,
+		similarities:   similarities,
+		weights:        weights,
 	}
 }
 

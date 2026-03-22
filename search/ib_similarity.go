@@ -16,7 +16,7 @@ import "math"
 // - Normalization: Document length normalization
 type IBSimilarity struct {
 	*BaseSimilarity
-	distribution DistributionModel // The probability distribution
+	distribution  DistributionModel // The probability distribution
 	normalization NormalizationIB   // Term frequency normalization
 }
 

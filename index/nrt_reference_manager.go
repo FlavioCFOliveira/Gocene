@@ -64,8 +64,8 @@ func NewNRTReferenceManager(writer *IndexWriter, reader *DirectoryReader) (*NRTR
 
 	nrt := &NRTReferenceManager{
 		ReferenceManager: rm,
-		writer:          writer,
-		reopenComplete:  make(chan struct{}),
+		writer:           writer,
+		reopenComplete:   make(chan struct{}),
 	}
 
 	return nrt, nil
