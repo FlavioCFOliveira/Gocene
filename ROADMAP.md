@@ -4,9 +4,9 @@
 
 Este roadmap contém as tarefas pendentes para completar o port de Apache Lucene 10.x para Go.
 
-**Total de Tarefas Pendentes:** 39 (Fase 50)
+**Total de Tarefas Pendentes:** 38 (Fase 50)
 **Fases Pendentes:** 1 (50)
-**Fases Completadas:** 19 (34-49), GC-839, GC-840, GC-841, GC-842, GC-843, GC-844, GC-845, GC-848, GC-849, GC-850, GC-851, GC-852, GC-853, GC-855, GC-856, GC-857, GC-858, GC-859, GC-860, GC-861, GC-862, GC-863, GC-864, GC-865, GC-866, GC-867
+**Fases Completadas:** 19 (34-49), GC-839, GC-840, GC-841, GC-842, GC-843, GC-844, GC-845, GC-846, GC-847, GC-848, GC-849, GC-850, GC-851, GC-852, GC-853, GC-855, GC-856, GC-857, GC-858, GC-859, GC-860, GC-861, GC-862, GC-863, GC-864, GC-865, GC-866, GC-867
 
 ---
 
@@ -81,7 +81,7 @@ Implement remaining Lucene features: advanced queries, similarities, joins, grou
 | GC-844 | Implement IndexSorting Support | MEDIUM | Missing IndexSorter and sorting during flush/merge. Required for sorted indexes. | COMPLETED 2026-03-21 |
 | GC-845 | Implement Soft Deletes | MEDIUM | Missing SoftDeletesRetentionMergePolicy, SoftDeletesDirectoryReaderWrapper. | COMPLETED 2026-03-21 |
 | GC-846 | Implement DocValues Updates | MEDIUM | Missing NumericDocValuesUpdate, BinaryDocValuesUpdate and update application. | COMPLETED 2026-03-22 |
-| GC-847 | Implement Complete CheckIndex | MEDIUM | CheckIndex exists but missing many consistency checks: term vector validation, doc values validation, point value validation, vector validation. |
+| GC-847 | Implement Complete CheckIndex | MEDIUM | CheckIndex exists but missing many consistency checks: term vector validation, doc values validation, point value validation, vector validation. | COMPLETED 2026-03-22 |
 | GC-848 | Implement AutomatonQuery | MEDIUM | Missing AutomatonQuery for regular expression matching. | COMPLETED 2026-03-21 |
 | GC-849 | Implement BlendedTermQuery | MEDIUM | Missing BlendedTermQuery for blending term statistics across multiple fields. | COMPLETED 2026-03-21 |
 | GC-850 | Implement CombinedFieldQuery | MEDIUM | Missing CombinedFieldQuery for searching across multiple fields as single field. | COMPLETED 2026-03-21 |
