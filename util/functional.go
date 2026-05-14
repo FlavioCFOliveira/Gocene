@@ -86,3 +86,15 @@ type IOFunction[T any, R any] func(T) (R, error)
 //
 //	lucene/core/src/java/org/apache/lucene/util/IORunnable.java
 type IORunnable func() error
+
+// IOSupplier is the Go port of org.apache.lucene.util.IOSupplier.
+//
+// Java declares it as a generic @FunctionalInterface whose single
+// method {@code T get() throws IOException} produces a value of type
+// T and may raise an IOException. The Go port pairs the value with an
+// error return.
+//
+// Lucene 10.4.0 reference:
+//
+//	lucene/core/src/java/org/apache/lucene/util/IOSupplier.java
+type IOSupplier[T any] func() (T, error)

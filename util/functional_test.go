@@ -133,3 +133,20 @@ func TestIORunnable(t *testing.T) {
 		}
 	})
 }
+
+func TestIOSupplier(t *testing.T) {
+	t.Run("supplies value", func(t *testing.T) {
+		var s IOSupplier[int] = func() (int, error) { return 42, nil }
+		v, err := s()
+		if err != nil || v != 42 {
+			t.Fatalf("got (%d,%v) want (42,nil)", v, err)
+		}
+	})
+	t.Run("propagates error", func(t *testing.T) {
+		var s IOSupplier[string] = func() (string, error) { return "", errSentinel }
+		_, err := s()
+		if err != errSentinel {
+			t.Fatalf("got %v want errSentinel", err)
+		}
+	})
+}
