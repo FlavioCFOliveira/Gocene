@@ -811,3 +811,30 @@ func TestLongBitSet_PrevSetBitEdgeCases(t *testing.T) {
 		t.Errorf("Expected 0, got %d", b.PrevSetBit(99))
 	}
 }
+
+// TestLongBitSet_RamBytesUsed verifies the Accountable contract: the
+// reported size is at least the size of the backing word slice plus a
+// fixed-size struct header, and a larger bitset reports more bytes.
+func TestLongBitSet_RamBytesUsed(t *testing.T) {
+	b, _ := NewLongBitSet(1024)
+	got := b.RamBytesUsed()
+	const wantMin = int64(NumBytesArrayHeader + 16 + 16*8)
+	if got < wantMin {
+		t.Fatalf("RamBytesUsed=%d < wantMin=%d", got, wantMin)
+	}
+
+	big, _ := NewLongBitSet(1 << 20)
+	if big.RamBytesUsed() <= got {
+		t.Fatalf("larger bitset must report larger RAM: small=%d big=%d", got, big.RamBytesUsed())
+	}
+}
+
+// TestLongBitSet_AccountableInterface ensures LongBitSet can be passed
+// as Accountable through helpers requiring the interface.
+func TestLongBitSet_AccountableInterface(t *testing.T) {
+	b, _ := NewLongBitSet(64)
+	var a Accountable = b
+	if a.RamBytesUsed() == 0 {
+		t.Fatalf("RamBytesUsed via interface returned 0")
+	}
+}
