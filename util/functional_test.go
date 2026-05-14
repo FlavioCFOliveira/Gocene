@@ -1,0 +1,52 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
+package util
+
+import (
+	"math"
+	"testing"
+)
+
+// TestFloatToFloatFunction exercises the FloatToFloatFunction type as a
+// drop-in replacement for the Java FunctionalInterface: literal,
+// composition, identity, and special float values.
+func TestFloatToFloatFunction(t *testing.T) {
+	t.Run("identity", func(t *testing.T) {
+		var id FloatToFloatFunction = func(v float32) float32 { return v }
+		if got := id(1.5); got != 1.5 {
+			t.Fatalf("identity(1.5) got %v want 1.5", got)
+		}
+	})
+
+	t.Run("scale", func(t *testing.T) {
+		var scale FloatToFloatFunction = func(v float32) float32 { return v * 2 }
+		if got := scale(3); got != 6 {
+			t.Fatalf("scale(3) got %v want 6", got)
+		}
+		if got := scale(-1.5); got != -3 {
+			t.Fatalf("scale(-1.5) got %v want -3", got)
+		}
+	})
+
+	t.Run("composition", func(t *testing.T) {
+		var inc FloatToFloatFunction = func(v float32) float32 { return v + 1 }
+		var sq FloatToFloatFunction = func(v float32) float32 { return v * v }
+		composed := func(v float32) float32 { return sq(inc(v)) }
+		if got := composed(3); got != 16 {
+			t.Fatalf("composed(3) got %v want 16", got)
+		}
+	})
+
+	t.Run("special values", func(t *testing.T) {
+		var negate FloatToFloatFunction = func(v float32) float32 { return -v }
+		if got := negate(float32(math.Inf(1))); !math.IsInf(float64(got), -1) {
+			t.Fatalf("negate(+Inf) got %v want -Inf", got)
+		}
+		nan := float32(math.NaN())
+		if got := negate(nan); !math.IsNaN(float64(got)) {
+			t.Fatalf("negate(NaN) got %v want NaN", got)
+		}
+	})
+}
