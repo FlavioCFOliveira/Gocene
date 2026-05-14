@@ -15,7 +15,6 @@ package util
 
 import (
 	"fmt"
-	"math"
 	"strings"
 )
 
@@ -59,30 +58,8 @@ func (tv *TermAndVector) Size() int {
 func (tv *TermAndVector) NormalizeVector() *TermAndVector {
 	cloned := make([]float32, len(tv.Vector))
 	copy(cloned, tv.Vector)
-	tvL2Normalize(cloned)
+	L2Normalize(cloned)
 	return &TermAndVector{Term: tv.Term, Vector: cloned}
-}
-
-// tvL2Normalize replicates Lucene's VectorUtil.l2normalize(float[], true)
-// pre-emptively, so TermAndVector remains self-contained until VectorUtil is
-// ported (rmp task #1147). When VectorUtil lands, NormalizeVector will be
-// rewired to call util.L2Normalize and this helper will be removed.
-func tvL2Normalize(v []float32) {
-	const epsilon = 1e-4
-	var l1norm float64
-	for _, x := range v {
-		l1norm += float64(x) * float64(x)
-	}
-	if l1norm == 0 {
-		panic("Cannot normalize a zero-length vector")
-	}
-	if math.Abs(l1norm-1.0) <= epsilon {
-		return
-	}
-	l2norm := math.Sqrt(l1norm)
-	for i := range v {
-		v[i] = float32(float64(v[i]) / l2norm)
-	}
 }
 
 // String returns a textual representation matching Lucene's TermAndVector.toString.
