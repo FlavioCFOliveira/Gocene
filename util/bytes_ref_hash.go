@@ -7,6 +7,7 @@ package util
 import (
 	"bytes"
 	"fmt"
+	"time"
 )
 
 // BytesRefHash is a special purpose hash-map like data-structure optimized for
@@ -230,13 +231,16 @@ func (h *BytesRefHash) shrink(targetSize int) bool {
 }
 
 // Clear clears the BytesRefHash. If resetPool is true, the pool is also reset.
+// After Clear, the hash is immediately usable without calling Reinit.
 func (h *BytesRefHash) Clear(resetPool bool) {
 	h.lastCount = h.count
 	h.count = 0
 	if resetPool {
 		h.pool.Reset()
 	}
-	h.bytesStart = h.bytesStartArray.Clear()
+	h.bytesStartArray.Clear()
+	// Re-initialize bytesStart so the hash is immediately usable after clear.
+	h.bytesStart = h.bytesStartArray.Init()
 	if h.lastCount != -1 && h.shrink(h.lastCount) {
 		// shrink clears the hash entries
 		return
@@ -414,8 +418,31 @@ func doHash(bytes []byte, offset, length int) int {
 	return MurmurHash3_x86_32(bytes, offset, length, GoodFastHashSeed)
 }
 
-// GoodFastHashSeed is a good seed for fast hashing.
-const GoodFastHashSeed = 0x5a827999 // A constant from the SHA-1 algorithm
+// GoodFastHashSeed is the per-process randomized salt used by
+// MurmurHash3-based hashing. Initialised once at package init() from
+// time.Now().UnixNano() so each process has a distinct distribution,
+// matching Lucene's System.currentTimeMillis()-seeded behaviour.
+//
+// The value is intentionally a var (not a const) to allow per-process
+// variability; tests that need determinism can override it via
+// SetGoodFastHashSeed.
+var GoodFastHashSeed = int(uint32(initGoodFastHashSeed()))
+
+// initGoodFastHashSeed returns the initial seed. Pulled into its own
+// function so the var initializer reads naturally and so tests can
+// recompute the seed deterministically.
+func initGoodFastHashSeed() int64 {
+	// time.Now().UnixNano() always advances, so two processes started
+	// in close succession will still see distinct seeds.
+	return time.Now().UnixNano()
+}
+
+// SetGoodFastHashSeed overrides the per-process seed. Intended for
+// tests that need a stable hash distribution; production callers
+// should not invoke this.
+func SetGoodFastHashSeed(seed int) {
+	GoodFastHashSeed = seed
+}
 
 // IsPowerOfTwo returns true if n is a power of two.
 func IsPowerOfTwo(n int) bool {
@@ -547,14 +574,15 @@ func (p *BytesRefBlockPool) AddBytesRef(bytes *BytesRef) (int, error) {
 // FillBytesRef fills the given BytesRef with bytes at the given offset.
 func (p *BytesRefBlockPool) FillBytesRef(ref *BytesRef, offset int) {
 	// Read length
-	firstByte := p.pool.ReadByte(int64(offset))
+	firstByte := p.pool.ReadByteAt(int64(offset))
 	length := 0
 	if firstByte&0x80 == 0 {
 		length = int(firstByte)
 		offset++
 	} else {
-		secondByte := p.pool.ReadByte(int64(offset + 1))
-		length = int((firstByte&0x7F)<<8) | int(secondByte)
+		secondByte := p.pool.ReadByteAt(int64(offset + 1))
+		// Cast to int before shifting to avoid byte-width overflow.
+		length = (int(firstByte&0x7F) << 8) | int(secondByte)
 		offset += 2
 	}
 
@@ -580,14 +608,15 @@ func (p *BytesRefBlockPool) FillBytesRef(ref *BytesRef, offset int) {
 // Equals checks if the bytes at the given offset equal the given BytesRef.
 func (p *BytesRefBlockPool) Equals(offset int, bytes *BytesRef) bool {
 	// Read length
-	firstByte := p.pool.ReadByte(int64(offset))
+	firstByte := p.pool.ReadByteAt(int64(offset))
 	length := 0
 	if firstByte&0x80 == 0 {
 		length = int(firstByte)
 		offset++
 	} else {
-		secondByte := p.pool.ReadByte(int64(offset + 1))
-		length = int((firstByte&0x7F)<<8) | int(secondByte)
+		secondByte := p.pool.ReadByteAt(int64(offset + 1))
+		// Cast to int before shifting to avoid byte-width overflow.
+		length = (int(firstByte&0x7F) << 8) | int(secondByte)
 		offset += 2
 	}
 
@@ -614,14 +643,15 @@ func (p *BytesRefBlockPool) Equals(offset int, bytes *BytesRef) bool {
 // Hash returns the hash code for the bytes at the given offset.
 func (p *BytesRefBlockPool) Hash(offset int) int {
 	// Read length
-	firstByte := p.pool.ReadByte(int64(offset))
+	firstByte := p.pool.ReadByteAt(int64(offset))
 	length := 0
 	if firstByte&0x80 == 0 {
 		length = int(firstByte)
 		offset++
 	} else {
-		secondByte := p.pool.ReadByte(int64(offset + 1))
-		length = int((firstByte&0x7F)<<8) | int(secondByte)
+		secondByte := p.pool.ReadByteAt(int64(offset + 1))
+		// Cast to int before shifting to avoid byte-width overflow.
+		length = (int(firstByte&0x7F) << 8) | int(secondByte)
 		offset += 2
 	}
 

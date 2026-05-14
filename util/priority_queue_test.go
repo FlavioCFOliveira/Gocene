@@ -319,3 +319,101 @@ func TestPriorityQueue_CustomType(t *testing.T) {
 		t.Errorf("Expected 'high', got %s", top.Name)
 	}
 }
+
+// TestPriorityQueue_AddAll covers the Floyd build-heap bulk-add path.
+func TestPriorityQueue_AddAll(t *testing.T) {
+	pq, _ := NewPriorityQueue(10, func(a, b int) bool { return a < b })
+	if err := pq.AddAll([]int{5, 1, 4, 2, 3}); err != nil {
+		t.Fatalf("AddAll: %v", err)
+	}
+	want := []int{1, 2, 3, 4, 5}
+	for i, w := range want {
+		got := pq.Pop()
+		if got != w {
+			t.Fatalf("pos %d: got=%d want=%d", i, got, w)
+		}
+	}
+}
+
+// TestPriorityQueue_AddAllOverflow verifies the capacity guard.
+func TestPriorityQueue_AddAllOverflow(t *testing.T) {
+	pq, _ := NewPriorityQueue(3, func(a, b int) bool { return a < b })
+	if err := pq.AddAll([]int{1, 2, 3, 4}); err == nil {
+		t.Fatalf("expected error for AddAll exceeding maxSize")
+	}
+}
+
+// TestPriorityQueue_InsertWithOverflow covers all three branches of
+// the Java contract.
+func TestPriorityQueue_InsertWithOverflow(t *testing.T) {
+	pq, _ := NewPriorityQueue(3, func(a, b int) bool { return a < b })
+
+	// Branch 1: room available, returns zero, ok=false.
+	if v, ok := pq.InsertWithOverflow(10); v != 0 || ok {
+		t.Fatalf("expected (0,false) when room, got (%d,%t)", v, ok)
+	}
+	pq.Add(5)
+	pq.Add(7) // pq = [5,7,10] (min-heap top=5)
+
+	// Branch 2: queue full, smaller-than-current-top element rejected.
+	// With min-heap and lessFunc(a<b), top is smallest. lessFunc(top,e)
+	// is true iff top<e — meaning e is *bigger*. A bigger e replaces the
+	// top. A smaller e (<=top) is rejected.
+	if v, ok := pq.InsertWithOverflow(1); v != 1 || !ok {
+		t.Fatalf("expected (1,true) for rejected smaller insert, got (%d,%t)", v, ok)
+	}
+
+	// Branch 3: full, element replaces displaced top.
+	if v, ok := pq.InsertWithOverflow(20); v != 5 || !ok {
+		t.Fatalf("expected (5,true) for replacement, got (%d,%t)", v, ok)
+	}
+}
+
+// TestPriorityQueue_UpdateTopWith verifies the Java updateTop(newTop).
+func TestPriorityQueue_UpdateTopWith(t *testing.T) {
+	pq, _ := NewPriorityQueue(5, func(a, b int) bool { return a < b })
+	pq.Add(1)
+	pq.Add(3)
+	pq.Add(5)
+	pq.UpdateTopWith(100)
+	// 100 should bubble down; min should now be 3.
+	if top := pq.Top(); top != 3 {
+		t.Fatalf("after UpdateTopWith(100), top=%d want 3", top)
+	}
+}
+
+// TestPriorityQueue_Remove exercises identity-based removal.
+func TestPriorityQueue_Remove(t *testing.T) {
+	pq, _ := NewPriorityQueue(5, func(a, b int) bool { return a < b })
+	for _, v := range []int{5, 1, 3, 2, 4} {
+		pq.Add(v)
+	}
+	if !pq.Remove(func(v int) bool { return v == 3 }) {
+		t.Fatalf("Remove returned false for present element")
+	}
+	out := []int{}
+	for pq.Size() > 0 {
+		out = append(out, pq.Pop())
+	}
+	want := []int{1, 2, 4, 5}
+	for i := range want {
+		if out[i] != want[i] {
+			t.Fatalf("after Remove(3) pop order = %v want %v", out, want)
+		}
+	}
+}
+
+// TestPriorityQueue_All exercises the range-over-func iterator.
+func TestPriorityQueue_All(t *testing.T) {
+	pq, _ := NewPriorityQueue(5, func(a, b int) bool { return a < b })
+	for _, v := range []int{3, 1, 4, 1, 5} {
+		pq.Add(v)
+	}
+	count := 0
+	for range pq.All {
+		count++
+	}
+	if count != pq.Size() {
+		t.Fatalf("All iterated %d, expected %d", count, pq.Size())
+	}
+}

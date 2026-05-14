@@ -48,7 +48,7 @@ func TestIndexUpgrader_BasicUpgrade(t *testing.T) {
 	writer.Close()
 
 	// Upgrade index
-	upgrader := index.NewIndexUpgrader(dir, config, true)
+	upgrader := index.NewIndexUpgrader(dir)
 	if err := upgrader.Upgrade(); err != nil {
 		t.Logf("upgrader may not be fully implemented: %v", err)
 		t.Skip("upgrader not implemented")
@@ -93,7 +93,7 @@ func TestIndexUpgrader_MultipleSegments(t *testing.T) {
 	writer.Close()
 
 	// Upgrade
-	upgrader := index.NewIndexUpgrader(dir, config, true)
+	upgrader := index.NewIndexUpgrader(dir)
 	if err := upgrader.Upgrade(); err != nil {
 		t.Logf("upgrader may not be fully implemented: %v", err)
 		t.Skip("upgrader not implemented")
@@ -129,7 +129,7 @@ func BenchmarkIndexUpgrader_Upgrade(b *testing.B) {
 	writer.Commit()
 	writer.Close()
 
-	upgrader := index.NewIndexUpgrader(dir, config, true)
+	upgrader := index.NewIndexUpgrader(dir)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

@@ -13,7 +13,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"math"
 	"math/rand"
 	"testing"
 	"time"
@@ -28,7 +27,7 @@ type ByteBuffersDataInput interface {
 	// Position returns the current position in the input.
 	Position() int64
 	// Seek sets the current position.
-	Seek(pos int64) error
+	SeekTo(pos int64) error
 	// SkipBytes skips the specified number of bytes.
 	SkipBytes(n int64) error
 	// Slice returns a slice of this input starting at offset with the given length.
@@ -89,7 +88,7 @@ func (in *byteBuffersDataInputImpl) ReadShort() (int16, error) {
 	if err := in.ReadBytes(buf); err != nil {
 		return 0, err
 	}
-	return int16(binary.LittleEndian.Uint16(buf)), nil
+	return int16(binary.BigEndian.Uint16(buf)), nil
 }
 
 func (in *byteBuffersDataInputImpl) ReadInt() (int32, error) {
@@ -97,7 +96,7 @@ func (in *byteBuffersDataInputImpl) ReadInt() (int32, error) {
 	if err := in.ReadBytes(buf); err != nil {
 		return 0, err
 	}
-	return int32(binary.LittleEndian.Uint32(buf)), nil
+	return int32(binary.BigEndian.Uint32(buf)), nil
 }
 
 func (in *byteBuffersDataInputImpl) ReadLong() (int64, error) {
@@ -105,19 +104,43 @@ func (in *byteBuffersDataInputImpl) ReadLong() (int64, error) {
 	if err := in.ReadBytes(buf); err != nil {
 		return 0, err
 	}
-	return int64(binary.LittleEndian.Uint64(buf)), nil
+	return int64(binary.BigEndian.Uint64(buf)), nil
 }
 
 func (in *byteBuffersDataInputImpl) ReadString() (string, error) {
-	length, err := in.ReadInt()
+	// Lucene strings are prefixed with a VInt length.
+	// Decode VInt from the stream.
+	length, err := readVInt(in)
 	if err != nil {
 		return "", err
+	}
+	if length == 0 {
+		return "", nil
 	}
 	buf := make([]byte, length)
 	if err := in.ReadBytes(buf); err != nil {
 		return "", err
 	}
 	return string(buf), nil
+}
+
+// readVInt reads a variable-length integer from the given reader.
+func readVInt(in *byteBuffersDataInputImpl) (int32, error) {
+	b, err := in.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	result := int32(b & 0x7F)
+	shift := uint(7)
+	for b&0x80 != 0 {
+		b, err = in.ReadByte()
+		if err != nil {
+			return 0, err
+		}
+		result |= int32(b&0x7F) << shift
+		shift += 7
+	}
+	return result, nil
 }
 
 func (in *byteBuffersDataInputImpl) Length() int64 {
@@ -128,7 +151,7 @@ func (in *byteBuffersDataInputImpl) Position() int64 {
 	return in.pos
 }
 
-func (in *byteBuffersDataInputImpl) Seek(pos int64) error {
+func (in *byteBuffersDataInputImpl) SeekTo(pos int64) error {
 	if pos > int64(len(in.data)) {
 		in.pos = int64(len(in.data))
 		return io.EOF
@@ -141,7 +164,7 @@ func (in *byteBuffersDataInputImpl) SkipBytes(n int64) error {
 	if n < 0 {
 		return fmt.Errorf("numBytes must be >= 0, got %d", n)
 	}
-	return in.Seek(in.pos + n)
+	return in.SeekTo(in.pos + n)
 }
 
 func (in *byteBuffersDataInputImpl) Slice(offset int64, length int64) (ByteBuffersDataInput, error) {
@@ -352,18 +375,18 @@ func TestByteBuffersDataInput_SeekEmpty(t *testing.T) {
 	out := NewByteBuffersDataOutput()
 	in := toByteBuffersDataInput(out.ToDataInput())
 
-	err := in.Seek(0)
+	err := in.SeekTo(0)
 	if err != nil {
 		t.Fatalf("unexpected error seeking to 0: %v", err)
 	}
 
 	// Seeking past end should return EOF
-	err = in.Seek(1)
+	err = in.SeekTo(1)
 	if err != io.EOF {
 		t.Errorf("expected EOF, got %v", err)
 	}
 
-	err = in.Seek(0)
+	err = in.SeekTo(0)
 	if err != nil {
 		t.Fatalf("unexpected error seeking to 0: %v", err)
 	}
@@ -410,7 +433,7 @@ func TestByteBuffersDataInput_SeekAndSkip(t *testing.T) {
 		}
 
 		// Test seeking to 0 and reading all
-		err = in.Seek(0)
+		err = in.SeekTo(0)
 		if err != nil {
 			t.Fatalf("unexpected error seeking to 0: %v", err)
 		}
@@ -426,7 +449,7 @@ func TestByteBuffersDataInput_SeekAndSkip(t *testing.T) {
 		}
 
 		// Test seeking to 0 again
-		err = in.Seek(0)
+		err = in.SeekTo(0)
 		if err != nil {
 			t.Fatalf("unexpected error seeking to 0: %v", err)
 		}
@@ -434,7 +457,7 @@ func TestByteBuffersDataInput_SeekAndSkip(t *testing.T) {
 		// Test random seeks
 		for i := 0; i < 100 && i < int(sliceLen); i++ {
 			offs := rnd.Int63n(sliceLen)
-			err = in.Seek(offs)
+			err = in.SeekTo(offs)
 			if err != nil {
 				t.Fatalf("unexpected error seeking to %d: %v", offs, err)
 			}
@@ -452,7 +475,7 @@ func TestByteBuffersDataInput_SeekAndSkip(t *testing.T) {
 		}
 
 		// Test skipping
-		err = in.Seek(0)
+		err = in.SeekTo(0)
 		if err != nil {
 			t.Fatalf("unexpected error seeking to 0: %v", err)
 		}
@@ -478,7 +501,7 @@ func TestByteBuffersDataInput_SeekAndSkip(t *testing.T) {
 		}
 
 		// Seek to end and verify EOF
-		err = in.Seek(in.Length())
+		err = in.SeekTo(in.Length())
 		if err != nil {
 			t.Fatalf("unexpected error seeking to end: %v", err)
 		}
@@ -586,8 +609,10 @@ func TestByteBuffersDataInput_SlicingLargeBuffers(t *testing.T) {
 	// Add some head shift
 	shift := rnd.Intn(len(pageBytes) / 2)
 
-	// Simulate large length (we'll use a smaller one for testing)
-	simulatedLength := int64(rnd.Intn(2018)) + 4*int64(math.MaxInt32)
+	// Simulate large length. The full Lucene test uses > 4 GB, which is
+	// impractical on memory-constrained systems, so we cap at 16 MB by
+	// default and reduce further with -short.
+	simulatedLength := int64(rnd.Intn(2018)) + int64(16*MB)
 	if testing.Short() {
 		simulatedLength = int64(rnd.Intn(100)) + int64(4*MB)
 	}
@@ -697,7 +722,7 @@ func TestByteBuffersDataInput_PositionTracking(t *testing.T) {
 	}
 
 	// Seek
-	err = in.Seek(1)
+	err = in.SeekTo(1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -847,13 +872,13 @@ func TestByteBuffersDataInput_EmptyInput(t *testing.T) {
 	}
 
 	// Seek to 0 should work
-	err = in.Seek(0)
+	err = in.SeekTo(0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	// Seek past end should return EOF
-	err = in.Seek(1)
+	err = in.SeekTo(1)
 	if err != io.EOF {
 		t.Errorf("expected EOF, got %v", err)
 	}
@@ -937,7 +962,7 @@ func TestByteBuffersDataInput_SkipBytes(t *testing.T) {
 	}
 
 	// Negative skip should error
-	in.Seek(0)
+	in.SeekTo(0)
 	err = in.SkipBytes(-1)
 	if err == nil {
 		t.Error("expected error for negative skip")

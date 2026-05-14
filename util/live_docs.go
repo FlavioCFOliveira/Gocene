@@ -4,6 +4,8 @@
 
 package util
 
+import "fmt"
+
 // NO_MORE_DOCS indicates the end of the document iterator.
 const NO_MORE_DOCS = 2147483647
 
@@ -147,10 +149,15 @@ type DenseLiveDocs struct {
 	deletedCount int
 }
 
-// DenseLiveDocsBuilder builds a DenseLiveDocs instance.
+// DenseLiveDocsBuilder builds a DenseLiveDocs instance. Mirrors
+// org.apache.lucene.util.DenseLiveDocs.Builder. The builder is
+// mutable until Build is called; once built, the resulting
+// *DenseLiveDocs is immutable.
 type DenseLiveDocsBuilder struct {
-	liveBits *FixedBitSet
-	maxDoc   int
+	liveBits           *FixedBitSet
+	maxDoc             int
+	deletedCount       int
+	deletedCountIsUser bool
 }
 
 // NewDenseLiveDocsBuilder creates a new builder for DenseLiveDocs.
@@ -161,17 +168,65 @@ func NewDenseLiveDocsBuilder(liveBits *FixedBitSet, maxDoc int) *DenseLiveDocsBu
 	}
 }
 
-// Build creates a DenseLiveDocs instance.
+// WithDeletedCount sets the pre-computed deleted-document count,
+// avoiding an O(n) cardinality scan at Build time. Mirrors
+// {@code DenseLiveDocs.Builder.withDeletedCount}. Returns the builder
+// so calls can be chained.
+//
+// Passing a deletedCount that disagrees with the actual cardinality
+// of liveBits is a programming error; Build will return an error in
+// that case to surface the inconsistency early.
+func (b *DenseLiveDocsBuilder) WithDeletedCount(deletedCount int) *DenseLiveDocsBuilder {
+	b.deletedCount = deletedCount
+	b.deletedCountIsUser = true
+	return b
+}
+
+// Build returns the immutable *DenseLiveDocs. When the builder has a
+// user-supplied deletedCount, the value is validated against maxDoc
+// and (if liveBits is non-nil) against maxDoc - liveBits.Cardinality().
+//
+// The variant that does not return an error stays available as
+// MustBuild for backwards compatibility.
 func (b *DenseLiveDocsBuilder) Build() *DenseLiveDocs {
-	deletedCount := 0
-	if b.liveBits != nil {
+	d, _ := b.BuildE()
+	return d
+}
+
+// MustBuild is an alias of Build that panics if validation fails.
+// Kept narrow and explicit so callers opt in to the panic semantics.
+func (b *DenseLiveDocsBuilder) MustBuild() *DenseLiveDocs {
+	d, err := b.BuildE()
+	if err != nil {
+		panic(err)
+	}
+	return d
+}
+
+// BuildE is the error-returning sibling of Build. It validates a
+// user-supplied deletedCount against the maxDoc range and against
+// the liveBits cardinality when available.
+func (b *DenseLiveDocsBuilder) BuildE() (*DenseLiveDocs, error) {
+	var deletedCount int
+	switch {
+	case b.deletedCountIsUser:
+		deletedCount = b.deletedCount
+		if deletedCount < 0 || deletedCount > b.maxDoc {
+			return nil, fmt.Errorf("deletedCount=%d is outside valid range [0, %d]", deletedCount, b.maxDoc)
+		}
+		if b.liveBits != nil {
+			if actual := b.maxDoc - b.liveBits.Cardinality(); actual != deletedCount {
+				return nil, fmt.Errorf("deletedCount=%d does not match maxDoc - liveBits.Cardinality()=%d", deletedCount, actual)
+			}
+		}
+	case b.liveBits != nil:
 		deletedCount = b.maxDoc - b.liveBits.Cardinality()
 	}
 	return &DenseLiveDocs{
 		liveBits:     b.liveBits,
 		maxDoc:       b.maxDoc,
 		deletedCount: deletedCount,
-	}
+	}, nil
 }
 
 // Get returns true if the document is live.
@@ -504,3 +559,8 @@ var _ LiveDocs = (*SparseLiveDocs)(nil)
 var _ LiveDocs = (*DenseLiveDocs)(nil)
 var _ DocIdSetIterator = (*sparseLiveDocsIterator)(nil)
 var _ DocIdSetIterator = (*denseLiveDocsIterator)(nil)
+
+// SparseLiveDocs and DenseLiveDocs are Bits-typed views: callers that
+// only need {Get, Length} can pass them where any [Bits] is accepted.
+var _ Bits = (*SparseLiveDocs)(nil)
+var _ Bits = (*DenseLiveDocs)(nil)

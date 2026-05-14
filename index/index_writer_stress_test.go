@@ -7,7 +7,6 @@ package index_test
 import (
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"

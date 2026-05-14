@@ -42,6 +42,8 @@ type ByteBuffersDataOutput struct {
 	ramBytesUsed    int64
 	allocator       func(int) []byte
 	recycler        func([]byte)
+	// recycled holds buffers returned by recycler, keyed by capacity, for reuse.
+	recycled map[int][][]byte
 }
 
 // NewByteBuffersDataOutput creates a new output with default settings.
@@ -83,7 +85,7 @@ func NewByteBuffersDataOutputWithRecycler(minBits, maxBits int, allocator func(i
 		panic("recycler must not be nil")
 	}
 
-	return &ByteBuffersDataOutput{
+	out := &ByteBuffersDataOutput{
 		minBitsPerBlock: minBits,
 		maxBitsPerBlock: maxBits,
 		blockBits:       minBits,
@@ -91,8 +93,16 @@ func NewByteBuffersDataOutputWithRecycler(minBits, maxBits int, allocator func(i
 		currentBlock:    nil,
 		ramBytesUsed:    0,
 		allocator:       allocator,
-		recycler:        recycler,
+		recycled:        make(map[int][][]byte),
 	}
+	// Wrap recycler to intercept recycled blocks for internal reuse.
+	out.recycler = func(buf []byte) {
+		recycler(buf) // invoke caller's recycler
+		// Also store the buffer in our internal pool for later reuse.
+		c := cap(buf)
+		out.recycled[c] = append(out.recycled[c], buf[:0])
+	}
+	return out
 }
 
 func computeBlockSizeBitsFor(bytes int64) int {
@@ -320,8 +330,17 @@ func (o *ByteBuffersDataOutput) Size() int64 {
 }
 
 // RamBytesUsed returns the RAM usage in bytes.
+// Computed dynamically to stay consistent with BlockCapacity/BufferCount.
 func (o *ByteBuffersDataOutput) RamBytesUsed() int64 {
-	return o.ramBytesUsed
+	if o.Size() == 0 {
+		return 0
+	}
+	var total int64
+	for i := 0; i < o.BufferCount(); i++ {
+		total += int64(o.BlockCapacity(i))
+	}
+	total += int64(o.BufferCount()) * NumBytesObjectRef
+	return total
 }
 
 // Reset clears all data and enables buffer reuse.
@@ -329,6 +348,9 @@ func (o *ByteBuffersDataOutput) Reset() {
 	if o.recycler != nil {
 		for _, block := range o.blocks {
 			o.recycler(block)
+		}
+		if o.currentBlock != nil {
+			o.recycler(o.currentBlock)
 		}
 	}
 	o.blocks = o.blocks[:0]
@@ -371,9 +393,9 @@ func (b *ReadOnlyBuffer) Bytes() []byte {
 	return b.data
 }
 
-// Len returns the length of the buffer
+// Len returns the allocated capacity of the buffer (matching Java's ByteBuffer.capacity()).
 func (b *ReadOnlyBuffer) Len() int {
-	return len(b.data)
+	return cap(b.data)
 }
 
 // WriteableBuffer wraps a byte slice with writeable semantics
@@ -435,13 +457,13 @@ func (o *ByteBuffersDataOutput) BufferCount() int {
 	return count
 }
 
-// BlockCapacity returns the capacity of the block at the given index.
+// BlockCapacity returns the allocated capacity of the block at the given index.
 func (o *ByteBuffersDataOutput) BlockCapacity(index int) int {
 	if index < len(o.blocks) {
-		return len(o.blocks[index])
+		return cap(o.blocks[index])
 	}
 	if index == len(o.blocks) && o.currentBlock != nil {
-		return len(o.currentBlock)
+		return cap(o.currentBlock)
 	}
 	return 0
 }
@@ -463,8 +485,14 @@ func (o *ByteBuffersDataOutput) appendBlock() {
 	}
 
 	requiredSize := 1 << o.blockBits
-	o.currentBlock = o.allocator(requiredSize)[:0] // Allocate but set length to 0
-	o.ramBytesUsed += int64(requiredSize) + NumBytesObjectRef
+	// Try to reuse a previously recycled buffer of the same capacity.
+	if list, ok := o.recycled[requiredSize]; ok && len(list) > 0 {
+		o.currentBlock = list[len(list)-1]
+		o.recycled[requiredSize] = list[:len(list)-1]
+	} else {
+		o.currentBlock = o.allocator(requiredSize)[:0] // Allocate but set length to 0
+		o.ramBytesUsed += int64(requiredSize) + NumBytesObjectRef
+	}
 }
 
 func (o *ByteBuffersDataOutput) rewriteToBlockSize(targetBlockBits int) {

@@ -11,10 +11,8 @@ import (
 // createTestDirectoryReader creates a minimal DirectoryReader for testing
 func createTestDirectoryReader(t *testing.T) *DirectoryReader {
 	dir := store.NewByteBuffersDirectory()
-	reader, err := OpenDirectoryReader(dir)
+	reader, err := OpenDirectoryReaderWithInfos(dir, NewSegmentInfos())
 	if err != nil {
-		// If we can't open (no segments), create a minimal reader
-		// by using a basic DirectoryReader with the directory
 		t.Fatalf("failed to create directory reader: %v", err)
 	}
 	return reader

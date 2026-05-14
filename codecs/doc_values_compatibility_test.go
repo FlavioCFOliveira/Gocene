@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -133,7 +132,7 @@ func TestDocValuesCompatibility_SortedDocValues(t *testing.T) {
 		doc.Add(idField)
 
 		// Sorted doc value
-		sortedField, _ := document.NewSortedDocValuesField("category", categories[i%5])
+		sortedField, _ := document.NewSortedDocValuesField("category", []byte(categories[i%5]))
 		doc.Add(sortedField)
 
 		if err := writer.AddDocument(doc); err != nil {
@@ -179,7 +178,7 @@ func TestDocValuesCompatibility_SortedNumericDocValues(t *testing.T) {
 		doc.Add(idField)
 
 		// Sorted numeric doc value
-		sortedNumericField, _ := document.NewSortedNumericDocValuesField("sorted_numeric", int64(i*100))
+		sortedNumericField, _ := document.NewSortedNumericDocValuesField("sorted_numeric", []int64{int64(i * 100)})
 		doc.Add(sortedNumericField)
 
 		if err := writer.AddDocument(doc); err != nil {
@@ -225,8 +224,9 @@ func TestDocValuesCompatibility_SortedSetDocValues(t *testing.T) {
 		doc.Add(idField)
 
 		// Sorted set doc value
-		tags := []string{"tag" + string(rune('A'+i%5)), "tag" + string(rune('B'+i%5))}
-		sortedSetField, _ := document.NewSortedSetDocValuesField("tags", tags)
+		tag0 := "tag" + string(rune('A'+i%5))
+		tag1 := "tag" + string(rune('B'+i%5))
+		sortedSetField, _ := document.NewSortedSetDocValuesField("tags", [][]byte{[]byte(tag0), []byte(tag1)})
 		doc.Add(sortedSetField)
 
 		if err := writer.AddDocument(doc); err != nil {
@@ -302,10 +302,6 @@ func TestDocValuesCompatibility_Lucene90Format(t *testing.T) {
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
 	config := index.NewIndexWriterConfig(analyzer)
-
-	// Use Lucene90 codec
-	codec := codecs.NewLucene90Codec()
-	config.SetCodec(codec)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {

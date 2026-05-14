@@ -219,3 +219,62 @@ func TestLuceneVersion(t *testing.T) {
 		t.Errorf("Expected bugfix %d, got %d", LuceneVersionBugfix, LuceneVersion.Bugfix)
 	}
 }
+
+// TestLatestAlias confirms Latest aliases LuceneVersion (Java parity for
+// Version.LATEST).
+func TestLatestAlias(t *testing.T) {
+	if Latest != LuceneVersion {
+		t.Fatalf("Latest must alias LuceneVersion (Latest=%v LuceneVersion=%v)",
+			Latest, LuceneVersion)
+	}
+	if Latest.Major != 10 || Latest.Minor != 4 || Latest.Bugfix != 0 {
+		t.Fatalf("Latest=%+v, want 10.4.0", Latest)
+	}
+}
+
+// TestMinSupportedMajor checks the LATEST.major - 1 invariant.
+func TestMinSupportedMajor(t *testing.T) {
+	if MinSupportedMajor != LuceneVersionMajor-1 {
+		t.Fatalf("MinSupportedMajor=%d, want %d", MinSupportedMajor, LuceneVersionMajor-1)
+	}
+}
+
+// TestParseAcceptsDotForm covers the canonical "10.4.0" path.
+func TestParseAcceptsDotForm(t *testing.T) {
+	v, err := Parse("10.4.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if v.Major != 10 || v.Minor != 4 || v.Bugfix != 0 {
+		t.Fatalf("got %+v, want 10.4.0", v)
+	}
+}
+
+// TestParseAcceptsUnderscoreForm covers the "10_4_0" alternative.
+func TestParseAcceptsUnderscoreForm(t *testing.T) {
+	v, err := Parse("10_4_0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if v.Major != 10 || v.Minor != 4 || v.Bugfix != 0 {
+		t.Fatalf("got %+v, want 10.4.0", v)
+	}
+}
+
+// TestParseStripsLucenePrefix covers Lucene's "LUCENE_X_Y_Z" constant names.
+func TestParseStripsLucenePrefix(t *testing.T) {
+	v, err := Parse("LUCENE_10_4_0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if v.Major != 10 || v.Minor != 4 || v.Bugfix != 0 {
+		t.Fatalf("got %+v, want 10.4.0", v)
+	}
+}
+
+// TestParseRejectsEmpty exercises the empty-string guard.
+func TestParseRejectsEmpty(t *testing.T) {
+	if _, err := Parse(""); err == nil {
+		t.Fatalf("expected error for empty input")
+	}
+}

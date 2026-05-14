@@ -30,6 +30,11 @@ type NumericUtils struct{}
 //
 // See SortableLongToDouble for the reverse conversion.
 func DoubleToSortableLong(value float64) int64 {
+	if math.IsNaN(value) {
+		// Normalize all NaN representations to canonical positive NaN so they
+		// sort consistently after positive infinity (matches Java Double.compare).
+		value = math.NaN()
+	}
 	return SortableDoubleBits(math.Float64bits(value))
 }
 
@@ -37,11 +42,8 @@ func DoubleToSortableLong(value float64) int64 {
 //
 // See DoubleToSortableLong for the reverse conversion.
 func SortableLongToDouble(encoded int64) float64 {
-	// Apply the same bit transformation to get back original bits
-	bits := uint64(encoded)
-	// Reverse: bits ^ ((bits >> 63) & 0x7fffffffffffffff)
-	// For the reverse, we need to apply the XOR again
-	return math.Float64frombits(bits ^ ((bits >> 63) & 0x7fffffffffffffff))
+	// SortableDoubleBits is its own inverse (applying the same XOR mask twice is identity).
+	return math.Float64frombits(uint64(SortableDoubleBits(uint64(encoded))))
 }
 
 // FloatToSortableInt converts a float value to a sortable signed int.
@@ -52,6 +54,11 @@ func SortableLongToDouble(encoded int64) float64 {
 //
 // See SortableIntToFloat for the reverse conversion.
 func FloatToSortableInt(value float32) int32 {
+	if math.IsNaN(float64(value)) {
+		// Normalize all NaN representations to canonical positive NaN so they
+		// sort consistently after positive infinity (matches Java Float.compare).
+		value = float32(math.NaN())
+	}
 	return SortableFloatBits(math.Float32bits(value))
 }
 
@@ -59,21 +66,28 @@ func FloatToSortableInt(value float32) int32 {
 //
 // See FloatToSortableInt for the reverse conversion.
 func SortableIntToFloat(encoded int32) float32 {
-	// Apply the same bit transformation to get back original bits
-	bits := uint32(encoded)
-	return math.Float32frombits(bits ^ ((bits >> 31) & 0x7fffffff))
+	// SortableFloatBits is its own inverse (applying the same XOR mask twice is identity).
+	return math.Float32frombits(uint32(SortableFloatBits(uint32(encoded))))
 }
 
 // SortableDoubleBits converts IEEE 754 representation of a double to sortable order
 // (or back to the original). This is a bidirectional transformation.
+//
+// Port of Java: long sortableDoubleBits(long bits) { return bits ^ (bits >> 63) & 0x7fffffffffffffffL; }
+// Java >> is arithmetic (sign-extending), & has higher precedence than ^.
 func SortableDoubleBits(bits uint64) int64 {
-	return int64(bits ^ ((bits >> 63) & 0x7fffffffffffffff))
+	b := int64(bits)
+	return b ^ (b>>63)&0x7fffffffffffffff
 }
 
 // SortableFloatBits converts IEEE 754 representation of a float to sortable order
 // (or back to the original). This is a bidirectional transformation.
+//
+// Port of Java: int sortableFloatBits(int bits) { return bits ^ (bits >> 31) & 0x7fffffff; }
+// Java >> is arithmetic (sign-extending), & has higher precedence than ^.
 func SortableFloatBits(bits uint32) int32 {
-	return int32(bits ^ ((bits >> 31) & 0x7fffffff))
+	b := int32(bits)
+	return b ^ (b>>31)&0x7fffffff
 }
 
 // Subtract computes result = a - b, where a >= b.
@@ -210,25 +224,43 @@ func SortableBytesToLong(encoded []byte, offset int) int64 {
 //
 // See SortableBytesToBigInt for the reverse conversion.
 func BigIntToSortableBytes(bigInt *big.Int, bigIntSize int, result []byte, offset int) error {
-	bigIntBytes := bigInt.Bytes()
 	fullBigIntBytes := make([]byte, bigIntSize)
 
-	if len(bigIntBytes) < bigIntSize {
-		// Copy bytes to the end of fullBigIntBytes
-		copy(fullBigIntBytes[bigIntSize-len(bigIntBytes):], bigIntBytes)
-		// Sign extend if negative
-		if len(bigIntBytes) > 0 && (bigIntBytes[0]&0x80) != 0 {
-			for i := 0; i < bigIntSize-len(bigIntBytes); i++ {
-				fullBigIntBytes[i] = 0xff
-			}
+	if bigInt.Sign() < 0 {
+		// Negative: produce two's complement representation.
+		// big.Int.Bytes() returns magnitude (absolute value), so we negate first.
+		mag := new(big.Int).Neg(bigInt).Bytes()
+		if len(mag) > bigIntSize {
+			return errors.New("BigInteger requires more than " + string(rune(bigIntSize)) + " bytes storage")
 		}
-	} else if len(bigIntBytes) == bigIntSize {
-		copy(fullBigIntBytes, bigIntBytes)
+		// Place magnitude at end of buffer (sign-extend with 0x00).
+		copy(fullBigIntBytes[bigIntSize-len(mag):], mag)
+		// Two's complement: bitwise-NOT then add 1.
+		carry := 1
+		for i := bigIntSize - 1; i >= 0; i-- {
+			v := int(^fullBigIntBytes[i]) + carry
+			fullBigIntBytes[i] = byte(v)
+			carry = v >> 8
+		}
 	} else {
-		return errors.New("BigInteger requires more than " + string(rune(bigIntSize)) + " bytes storage")
+		bigIntBytes := bigInt.Bytes()
+		// For two's complement representation a positive number needs a leading 0x00 byte
+		// if its first magnitude byte has the MSB set (to distinguish it from negative).
+		neededSize := len(bigIntBytes)
+		if len(bigIntBytes) > 0 && bigIntBytes[0] >= 0x80 {
+			neededSize++
+		}
+		if neededSize == 0 {
+			neededSize = 1 // zero value needs at least 1 byte
+		}
+		if bigIntSize < neededSize {
+			return errors.New("BigInteger requires more than " + string(rune(bigIntSize)) + " bytes storage")
+		}
+		// Copy magnitude right-aligned; leading bytes remain 0x00 (sign byte).
+		copy(fullBigIntBytes[bigIntSize-len(bigIntBytes):], bigIntBytes)
 	}
 
-	// Flip the sign bit so negative bigints sort before positive bigints
+	// Flip the sign bit so negative bigints sort before positive bigints.
 	fullBigIntBytes[0] ^= 0x80
 
 	copy(result[offset:], fullBigIntBytes)
@@ -239,9 +271,23 @@ func BigIntToSortableBytes(bigInt *big.Int, bigIntSize int, result []byte, offse
 //
 // See BigIntToSortableBytes for the reverse conversion.
 func SortableBytesToBigInt(encoded []byte, offset, length int) *big.Int {
-	bigIntBytes := make([]byte, length)
-	copy(bigIntBytes, encoded[offset:offset+length])
-	// Flip the sign bit back to the original
-	bigIntBytes[0] ^= 0x80
-	return new(big.Int).SetBytes(bigIntBytes)
+	buf := make([]byte, length)
+	copy(buf, encoded[offset:offset+length])
+	// Check sign BEFORE flipping: encoded byte[0] MSB=1 means original was positive,
+	// MSB=0 means original was negative (we flipped during encoding).
+	isPositive := buf[0]&0x80 != 0
+	buf[0] ^= 0x80 // restore original two's complement sign bit
+
+	if isPositive {
+		// Positive number: interpret as unsigned big-endian (leading 0x00 sign byte possible)
+		return new(big.Int).SetBytes(buf)
+	}
+	// Negative number in two's complement: invert bits and add 1 to get magnitude.
+	carry := 1
+	for i := length - 1; i >= 0; i-- {
+		v := int(^buf[i]) + carry
+		buf[i] = byte(v)
+		carry = v >> 8
+	}
+	return new(big.Int).Neg(new(big.Int).SetBytes(buf))
 }

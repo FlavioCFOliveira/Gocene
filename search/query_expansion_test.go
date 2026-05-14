@@ -96,8 +96,8 @@ func TestQueryExpansion_BooleanRewrite(t *testing.T) {
 
 	// Boolean query rewrite
 	boolQuery := search.NewBooleanQuery()
-	boolQuery.Add(search.NewTermQuery(index.NewTerm("id", "1")), search.BooleanClauseShould)
-	boolQuery.Add(search.NewTermQuery(index.NewTerm("id", "2")), search.BooleanClauseShould)
+	boolQuery.Add(search.NewTermQuery(index.NewTerm("id", "1")), search.SHOULD)
+	boolQuery.Add(search.NewTermQuery(index.NewTerm("id", "2")), search.SHOULD)
 
 	rewritten, err := boolQuery.Rewrite(reader)
 	if err != nil {
@@ -138,9 +138,10 @@ func TestQueryExpansion_PhraseRewrite(t *testing.T) {
 	defer reader.Close()
 
 	// Phrase query rewrite
-	phraseQuery := search.NewPhraseQuery()
-	phraseQuery.AddTerm(index.NewTerm("id", "1"))
-	phraseQuery.AddTerm(index.NewTerm("id", "2"))
+	phraseQuery := search.NewPhraseQueryBuilder().
+		AddTerm(index.NewTerm("id", "1")).
+		AddTerm(index.NewTerm("id", "2")).
+		Build()
 
 	rewritten, err := phraseQuery.Rewrite(reader)
 	if err != nil {

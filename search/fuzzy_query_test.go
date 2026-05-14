@@ -44,8 +44,8 @@ func TestFuzzyQuery_Basics(t *testing.T) {
 	}
 
 	// Test String
-	if q.String() != "field:abc~2" {
-		t.Errorf("Expected field:abc~2, got %q", q.String())
+	if q.String("field") != "field:abc~2" {
+		t.Errorf("Expected field:abc~2, got %q", q.String("field"))
 	}
 }
 

@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -212,10 +211,6 @@ func TestTermVectorsCompatibility_Lucene90Format(t *testing.T) {
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
 	config := index.NewIndexWriterConfig(analyzer)
-
-	// Use Lucene90 codec
-	codec := codecs.NewLucene90Codec()
-	config.SetCodec(codec)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {

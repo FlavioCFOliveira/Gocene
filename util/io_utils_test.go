@@ -332,17 +332,19 @@ func TestApplyToAll(t *testing.T) {
 
 	t.Run("MultipleErrors", func(t *testing.T) {
 		items := []int{1, 2, 3}
+		processed := 0
 
 		err := ApplyToAll(items, func(i int) error {
+			processed++
 			return errors.New("error")
 		})
 
 		if err == nil {
 			t.Fatal("Expected error")
 		}
-		// Error message should indicate multiple errors
-		if !strings.Contains(err.Error(), "errors applying function") {
-			t.Errorf("Expected error message about multiple errors, got: %v", err)
+		// All items should still be processed (Lucene semantics).
+		if processed != 3 {
+			t.Errorf("Expected all 3 items processed, got %d", processed)
 		}
 	})
 }

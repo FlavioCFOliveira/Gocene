@@ -5,11 +5,9 @@
 package queryparser_test
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/queryparser"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
@@ -34,7 +32,6 @@ func TestQueryParserCompatibility_TermQuery(t *testing.T) {
 	}
 
 	parser := queryparser.NewQueryParserWithDefaultField("content")
-	parser.SetAnalyzer(analysis.NewWhitespaceAnalyzer())
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -50,13 +47,13 @@ func TestQueryParserCompatibility_TermQuery(t *testing.T) {
 				return
 			}
 
-			term := termQuery.GetTerm()
+			term := termQuery.Term()
 			if term.Text() != tc.expectedTerm {
 				t.Errorf("expected term %q, got %q", tc.expectedTerm, term.Text())
 			}
 
-			if term.Field() != tc.expectedField {
-				t.Errorf("expected field %q, got %q", tc.expectedField, term.Field())
+			if term.Field != tc.expectedField {
+				t.Errorf("expected field %q, got %q", tc.expectedField, term.Field)
 			}
 		})
 	}
@@ -75,7 +72,6 @@ func TestQueryParserCompatibility_BooleanAND(t *testing.T) {
 	}
 
 	parser := queryparser.NewQueryParserWithDefaultField("content")
-	parser.SetAnalyzer(analysis.NewWhitespaceAnalyzer())
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -99,8 +95,8 @@ func TestQueryParserCompatibility_BooleanAND(t *testing.T) {
 
 			// All clauses should be MUST (required)
 			for i, clause := range clauses {
-				if clause.GetOccur() != search.BooleanClauseMust {
-					t.Errorf("clause %d: expected MUST, got %v", i, clause.GetOccur())
+				if clause.Occur != search.MUST {
+					t.Errorf("clause %d: expected MUST, got %v", i, clause.Occur)
 				}
 			}
 		})
@@ -120,7 +116,6 @@ func TestQueryParserCompatibility_BooleanOR(t *testing.T) {
 	}
 
 	parser := queryparser.NewQueryParserWithDefaultField("content")
-	parser.SetAnalyzer(analysis.NewWhitespaceAnalyzer())
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -143,8 +138,8 @@ func TestQueryParserCompatibility_BooleanOR(t *testing.T) {
 
 			// All clauses should be SHOULD
 			for i, clause := range clauses {
-				if clause.GetOccur() != search.BooleanClauseShould {
-					t.Errorf("clause %d: expected SHOULD, got %v", i, clause.GetOccur())
+				if clause.Occur != search.SHOULD {
+					t.Errorf("clause %d: expected SHOULD, got %v", i, clause.Occur)
 				}
 			}
 		})
@@ -165,7 +160,6 @@ func TestQueryParserCompatibility_BooleanNOT(t *testing.T) {
 	}
 
 	parser := queryparser.NewQueryParserWithDefaultField("content")
-	parser.SetAnalyzer(analysis.NewWhitespaceAnalyzer())
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -185,7 +179,7 @@ func TestQueryParserCompatibility_BooleanNOT(t *testing.T) {
 			// Check prohibited clauses
 			prohibitedCount := 0
 			for _, clause := range clauses {
-				if clause.GetOccur() == search.BooleanClauseMustNot {
+				if clause.Occur == search.MUST_NOT {
 					prohibitedCount++
 				}
 			}
@@ -213,7 +207,6 @@ func TestQueryParserCompatibility_RequiredProhibited(t *testing.T) {
 	}
 
 	parser := queryparser.NewQueryParserWithDefaultField("content")
-	parser.SetAnalyzer(analysis.NewWhitespaceAnalyzer())
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -232,12 +225,12 @@ func TestQueryParserCompatibility_RequiredProhibited(t *testing.T) {
 			mustCount, mustNotCount, shouldCount := 0, 0, 0
 
 			for _, clause := range clauses {
-				switch clause.GetOccur() {
-				case search.BooleanClauseMust:
+				switch clause.Occur {
+				case search.MUST:
 					mustCount++
-				case search.BooleanClauseMustNot:
+				case search.MUST_NOT:
 					mustNotCount++
-				case search.BooleanClauseShould:
+				case search.SHOULD:
 					shouldCount++
 				}
 			}
@@ -268,7 +261,6 @@ func TestQueryParserCompatibility_PhraseQuery(t *testing.T) {
 	}
 
 	parser := queryparser.NewQueryParserWithDefaultField("content")
-	parser.SetAnalyzer(analysis.NewWhitespaceAnalyzer())
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -280,15 +272,15 @@ func TestQueryParserCompatibility_PhraseQuery(t *testing.T) {
 			// Should be a phrase query or multi-term query
 			switch q := query.(type) {
 			case *search.PhraseQuery:
-				terms := q.GetTerms()
+				terms := q.Terms()
 				if len(terms) != len(tc.expectedTerms) {
 					t.Errorf("expected %d terms, got %d", len(tc.expectedTerms), len(terms))
 				}
 			case *search.MultiPhraseQuery:
 				// Multi-phrase is also acceptable
-				terms := q.GetTerms()
-				if len(terms) != len(tc.expectedTerms) {
-					t.Errorf("expected %d term arrays, got %d", len(tc.expectedTerms), len(terms))
+				termArrays := q.GetTermArrays()
+				if len(termArrays) != len(tc.expectedTerms) {
+					t.Errorf("expected %d term arrays, got %d", len(tc.expectedTerms), len(termArrays))
 				}
 			default:
 				t.Logf("query type: %T", query)
@@ -311,7 +303,6 @@ func TestQueryParserCompatibility_Wildcard(t *testing.T) {
 	}
 
 	parser := queryparser.NewQueryParserWithDefaultField("content")
-	parser.SetAnalyzer(analysis.NewWhitespaceAnalyzer())
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -329,7 +320,7 @@ func TestQueryParserCompatibility_Wildcard(t *testing.T) {
 				}
 			case *search.BoostQuery:
 				// Wildcard with boost
-				t.Logf("got boost query: %s", q.String())
+				t.Logf("got boost query: boost=%v", q.Boost())
 			default:
 				t.Logf("query type for %s: %T", tc.query, query)
 			}
@@ -352,7 +343,6 @@ func TestQueryParserCompatibility_Fuzzy(t *testing.T) {
 	}
 
 	parser := queryparser.NewQueryParserWithDefaultField("content")
-	parser.SetAnalyzer(analysis.NewWhitespaceAnalyzer())
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -364,12 +354,12 @@ func TestQueryParserCompatibility_Fuzzy(t *testing.T) {
 			// Check if it's a fuzzy query (possibly wrapped)
 			switch q := query.(type) {
 			case *search.FuzzyQuery:
-				if q.GetTerm().Text() != tc.term {
-					t.Errorf("expected term %q, got %q", tc.term, q.GetTerm().Text())
+				if q.Term().Text() != tc.term {
+					t.Errorf("expected term %q, got %q", tc.term, q.Term().Text())
 				}
 			case *search.BoostQuery:
 				// Fuzzy with boost
-				t.Logf("got boost query: %s", q.String())
+				t.Logf("got boost query: boost=%v", q.Boost())
 			default:
 				t.Logf("query type for %s: %T", tc.query, query)
 			}
@@ -390,7 +380,6 @@ func TestQueryParserCompatibility_Boost(t *testing.T) {
 	}
 
 	parser := queryparser.NewQueryParserWithDefaultField("content")
-	parser.SetAnalyzer(analysis.NewWhitespaceAnalyzer())
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -406,7 +395,7 @@ func TestQueryParserCompatibility_Boost(t *testing.T) {
 				return
 			}
 
-			boost := boostQuery.GetBoost()
+			boost := boostQuery.Boost()
 			if boost != tc.boostValue {
 				t.Errorf("expected boost %f, got %f", tc.boostValue, boost)
 			}
@@ -428,7 +417,6 @@ func TestQueryParserCompatibility_RangeQuery(t *testing.T) {
 	}
 
 	parser := queryparser.NewQueryParserWithDefaultField("content")
-	parser.SetAnalyzer(analysis.NewWhitespaceAnalyzer())
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -462,7 +450,6 @@ func TestQueryParserCompatibility_Grouping(t *testing.T) {
 	}
 
 	parser := queryparser.NewQueryParserWithDefaultField("content")
-	parser.SetAnalyzer(analysis.NewWhitespaceAnalyzer())
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -491,7 +478,6 @@ func TestQueryParserCompatibility_Escape(t *testing.T) {
 	}
 
 	parser := queryparser.NewQueryParserWithDefaultField("content")
-	parser.SetAnalyzer(analysis.NewWhitespaceAnalyzer())
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -512,7 +498,6 @@ func TestQueryParserCompatibility_Escape(t *testing.T) {
 // TestQueryParserCompatibility_EmptyQuery validates empty query handling.
 func TestQueryParserCompatibility_EmptyQuery(t *testing.T) {
 	parser := queryparser.NewQueryParserWithDefaultField("content")
-	parser.SetAnalyzer(analysis.NewWhitespaceAnalyzer())
 
 	query, err := parser.Parse("")
 	if err != nil {
@@ -529,7 +514,6 @@ func TestQueryParserCompatibility_EmptyQuery(t *testing.T) {
 func TestQueryParserCompatibility_MultipleFields(t *testing.T) {
 	query := "title:hello AND content:world AND author:john"
 	parser := queryparser.NewQueryParserWithDefaultField("content")
-	parser.SetAnalyzer(analysis.NewWhitespaceAnalyzer())
 
 	parsed, err := parser.Parse(query)
 	if err != nil {
@@ -549,7 +533,6 @@ func TestQueryParserCompatibility_MultipleFields(t *testing.T) {
 // BenchmarkQueryParser_TermQuery benchmarks term query parsing.
 func BenchmarkQueryParser_TermQuery(b *testing.B) {
 	parser := queryparser.NewQueryParserWithDefaultField("content")
-	parser.SetAnalyzer(analysis.NewWhitespaceAnalyzer())
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -560,7 +543,6 @@ func BenchmarkQueryParser_TermQuery(b *testing.B) {
 // BenchmarkQueryParser_BooleanQuery benchmarks boolean query parsing.
 func BenchmarkQueryParser_BooleanQuery(b *testing.B) {
 	parser := queryparser.NewQueryParserWithDefaultField("content")
-	parser.SetAnalyzer(analysis.NewWhitespaceAnalyzer())
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

@@ -10,16 +10,19 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/memory"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // GC-924: Memory Index Tests
-// Validate MemoryIndex implementation produces identical results to Java Lucene RAM directory.
+// Validate in-memory indexing produces identical results to Java Lucene RAM directory.
+//
+// MemoryIndex is Lucene's single-document text analyser; it is not a store.Directory.
+// For integration tests that exercise the full write/read pipeline, we use
+// store.NewByteBuffersDirectory() — the Go equivalent of Lucene's RAMDirectory.
 
 func TestMemoryIndex_BasicOperations(t *testing.T) {
-	// Create memory index
-	dir := memory.NewMemoryIndex()
+	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
@@ -31,7 +34,6 @@ func TestMemoryIndex_BasicOperations(t *testing.T) {
 	}
 	defer writer.Close()
 
-	// Add documents
 	docs := []struct {
 		id      string
 		content string
@@ -72,7 +74,7 @@ func TestMemoryIndex_BasicOperations(t *testing.T) {
 }
 
 func TestMemoryIndex_Search(t *testing.T) {
-	dir := memory.NewMemoryIndex()
+	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
@@ -84,7 +86,6 @@ func TestMemoryIndex_Search(t *testing.T) {
 	}
 	defer writer.Close()
 
-	// Add documents
 	for i := 0; i < 10; i++ {
 		doc := document.NewDocument()
 		idField, _ := document.NewStringField("id", string(rune('0'+i%5)), true)
@@ -111,7 +112,7 @@ func TestMemoryIndex_Search(t *testing.T) {
 	searcher := search.NewIndexSearcher(reader)
 	query := search.NewTermQuery(index.NewTerm("content", "memory"))
 
-	topDocs, err := searcher.Search(query, nil, 10)
+	topDocs, err := searcher.Search(query, 10)
 	if err != nil {
 		t.Logf("search may not be fully implemented: %v", err)
 		t.Skip("search not implemented")
@@ -121,7 +122,7 @@ func TestMemoryIndex_Search(t *testing.T) {
 }
 
 func TestMemoryIndex_LargeData(t *testing.T) {
-	dir := memory.NewMemoryIndex()
+	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
@@ -133,7 +134,6 @@ func TestMemoryIndex_LargeData(t *testing.T) {
 	}
 	defer writer.Close()
 
-	// Add many documents
 	for i := 0; i < 1000; i++ {
 		doc := document.NewDocument()
 		idField, _ := document.NewStringField("id", string(rune('0'+i%10)), true)
@@ -165,7 +165,7 @@ func TestMemoryIndex_LargeData(t *testing.T) {
 }
 
 func TestMemoryIndex_MultipleCommits(t *testing.T) {
-	dir := memory.NewMemoryIndex()
+	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
@@ -177,7 +177,6 @@ func TestMemoryIndex_MultipleCommits(t *testing.T) {
 	}
 	defer writer.Close()
 
-	// Multiple commits
 	for round := 0; round < 5; round++ {
 		for i := 0; i < 20; i++ {
 			doc := document.NewDocument()
@@ -211,7 +210,7 @@ func TestMemoryIndex_MultipleCommits(t *testing.T) {
 }
 
 func BenchmarkMemoryIndex_Write(b *testing.B) {
-	dir := memory.NewMemoryIndex()
+	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
@@ -240,7 +239,7 @@ func BenchmarkMemoryIndex_Write(b *testing.B) {
 }
 
 func BenchmarkMemoryIndex_Read(b *testing.B) {
-	dir := memory.NewMemoryIndex()
+	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()

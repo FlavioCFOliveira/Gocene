@@ -121,8 +121,9 @@ func (r *NRTDirectoryReader) IsCurrent() (bool, error) {
 		return true, nil
 	}
 
-	// If writer has uncommitted changes, we're not current
-	return false, nil
+	// If the writer has buffered documents that haven't been committed,
+	// the reader is stale. Otherwise consider it current.
+	return r.writer.GetNumBufferedDocuments() == 0, nil
 }
 
 // NumDocs returns the number of live documents in the index.

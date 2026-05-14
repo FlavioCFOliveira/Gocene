@@ -32,9 +32,11 @@ type byteBufferFile struct {
 }
 
 // NewByteBuffersDirectory creates a new in-memory directory.
+// Uses SingleInstanceLockFactory so that locks are correctly shared within
+// the same process, matching Java's ByteBuffersDirectory semantics.
 func NewByteBuffersDirectory() *ByteBuffersDirectory {
 	return &ByteBuffersDirectory{
-		BaseDirectory: NewBaseDirectory(nil),
+		BaseDirectory: NewBaseDirectory(NewSingleInstanceLockFactory()),
 		files:         make(map[string]*byteBufferFile),
 	}
 }
@@ -90,13 +92,13 @@ func (d *ByteBuffersDirectory) FileLength(name string) (int64, error) {
 }
 
 // DeleteFile deletes a file from the directory.
+// Unlike some implementations, deleting an open file is allowed: the file
+// is removed from the directory index immediately, but open handles remain
+// valid until they are closed. This matches Java's ByteBuffersDirectory
+// semantics where reference-counting keeps data alive past deletion.
 func (d *ByteBuffersDirectory) DeleteFile(name string) error {
 	if err := d.EnsureOpen(); err != nil {
 		return err
-	}
-
-	if d.IsFileOpen(name) {
-		return fmt.Errorf("%w: %s", ErrFileIsOpen, name)
 	}
 
 	d.mu.Lock()
@@ -243,13 +245,7 @@ func (d *ByteBuffersDirectory) ObtainLock(name string) (Lock, error) {
 	if err := d.EnsureOpen(); err != nil {
 		return nil, err
 	}
-
-	if d.GetLockFactory() != nil {
-		return d.GetLockFactory().ObtainLock(d, name)
-	}
-
-	// Default: single-instance lock
-	return NewSingleInstanceLockFactory().ObtainLock(d, name)
+	return d.BaseDirectory.ObtainLock(name)
 }
 
 // Close releases all resources associated with this directory.

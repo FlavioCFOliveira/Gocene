@@ -212,17 +212,20 @@ func (br *BytesRef) DeepCopyEquals(other *BytesRef) bool {
 	return BytesRefEquals(br, other)
 }
 
-// HashCode returns a hash code for this BytesRef.
-// This is compatible with Java's String hashCode for ASCII strings.
+// HashCode returns the MurmurHash3_x86_32 hash of this BytesRef's
+// valid bytes, using [GoodFastHashSeed] as the seed. Mirrors
+// {@code BytesRef#hashCode()} which Lucene documents as MurmurHash3
+// with GOOD_FAST_HASH_SEED.
+//
+// Two BytesRefs with equal valid bytes return equal hash codes. Nil
+// or empty BytesRefs return 0; this is a small departure from Lucene
+// (which returns the seed-derived fmix of 0 for the empty input) but
+// is the convention chosen for the Go port from inception.
 func (br *BytesRef) HashCode() int {
 	if br == nil || br.Length == 0 {
 		return 0
 	}
-	h := 0
-	for i := br.Offset; i < br.Offset+br.Length; i++ {
-		h = 31*h + int(br.Bytes[i])
-	}
-	return h
+	return MurmurHash3_x86_32_BytesRef(br, GoodFastHashSeed)
 }
 
 // IntsRef is a wrapper for an int slice with offset and length.

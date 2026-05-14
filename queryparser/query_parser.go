@@ -7,6 +7,7 @@ package queryparser
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -94,43 +95,56 @@ func (p *QueryParser) matchLookAhead(expected TokenType) bool {
 }
 
 // parseExpression parses an expression (handles OR).
+// All consecutive OR operands are collected into a single flat BooleanQuery
+// (rather than nesting left-associatively), matching Lucene's query parser
+// behavior of producing a single BQ with N SHOULD clauses for "a OR b OR c".
 func (p *QueryParser) parseExpression() (search.Query, error) {
-	left, err := p.parseAndExpression()
+	first, err := p.parseAndExpression()
 	if err != nil {
 		return nil, err
 	}
 
+	if !p.match(TokenTypeOR) {
+		return first, nil
+	}
+
+	operands := []search.Query{first}
 	for p.match(TokenTypeOR) {
 		p.nextToken()
-		right, err := p.parseAndExpression()
+		next, err := p.parseAndExpression()
 		if err != nil {
 			return nil, err
 		}
-		left = search.NewBooleanQueryOrWithQueries(left, right)
+		operands = append(operands, next)
 	}
-
-	return left, nil
+	return search.NewBooleanQueryOrWithQueries(operands...), nil
 }
 
 // parseAndExpression parses an AND expression.
+// All consecutive AND operands are collected into a single flat BooleanQuery
+// with N MUST clauses (rather than nesting), matching Lucene's behavior.
 func (p *QueryParser) parseAndExpression() (search.Query, error) {
-	left, err := p.parseNotExpression()
+	first, err := p.parseNotExpression()
 	if err != nil {
 		return nil, err
 	}
 
+	if !p.match(TokenTypeAND) && !p.isImplicitAnd() {
+		return first, nil
+	}
+
+	operands := []search.Query{first}
 	for p.match(TokenTypeAND) || p.isImplicitAnd() {
 		if p.match(TokenTypeAND) {
 			p.nextToken()
 		}
-		right, err := p.parseNotExpression()
+		next, err := p.parseNotExpression()
 		if err != nil {
 			return nil, err
 		}
-		left = search.NewBooleanQueryAndWithQueries(left, right)
+		operands = append(operands, next)
 	}
-
-	return left, nil
+	return search.NewBooleanQueryAndWithQueries(operands...), nil
 }
 
 // isImplicitAnd checks if we should treat this as an implicit AND.
@@ -521,10 +535,61 @@ func (p *QueryParser) applyProximity(query search.Query) (search.Query, error) {
 	return query, nil
 }
 
-// createTermQuery creates a term query.
+// createTermQuery creates a term query, running the input text through the
+// configured analyzer (so e.g. "Hello" becomes "hello" under StandardAnalyzer).
+//
+// If the analyzer emits a single token, a plain TermQuery is returned.
+// If multiple tokens are produced, they are wrapped in a BooleanQuery (SHOULD).
+// If the analyzer emits no tokens (text was filtered out, e.g. a stop word),
+// the un-analyzed text is used so the query is not silently dropped.
 func (p *QueryParser) createTermQuery(field, text string) search.Query {
-	term := index.NewTerm(field, text)
-	return search.NewTermQuery(term)
+	tokens := p.analyzeText(field, text)
+	switch len(tokens) {
+	case 0:
+		// Analyzer dropped the token (e.g. stop word); fall back to raw text
+		// so the query still has something to match against.
+		return search.NewTermQuery(index.NewTerm(field, text))
+	case 1:
+		return search.NewTermQuery(index.NewTerm(field, tokens[0]))
+	default:
+		bq := search.NewBooleanQuery()
+		for _, tok := range tokens {
+			bq.Add(search.NewTermQuery(index.NewTerm(field, tok)), search.SHOULD)
+		}
+		return bq
+	}
+}
+
+// analyzeText runs text through the configured analyzer and returns the
+// resulting token terms. If the analyzer is nil or fails, the original text
+// is returned unchanged.
+func (p *QueryParser) analyzeText(field, text string) []string {
+	if p.analyzer == nil {
+		return []string{text}
+	}
+	ts, err := p.analyzer.TokenStream(field, strings.NewReader(text))
+	if err != nil || ts == nil {
+		return []string{text}
+	}
+	defer ts.Close()
+
+	var tokens []string
+	for {
+		hasNext, err := ts.IncrementToken()
+		if err != nil || !hasNext {
+			break
+		}
+		if attrSrc, ok := ts.(interface {
+			GetAttributeSource() *analysis.AttributeSource
+		}); ok {
+			if attr := attrSrc.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if termAttr, ok := attr.(analysis.CharTermAttribute); ok {
+					tokens = append(tokens, termAttr.String())
+				}
+			}
+		}
+	}
+	return tokens
 }
 
 // createWildcardQuery creates a wildcard query.

@@ -183,10 +183,9 @@ func (w *IndexWriter) getLiveCommitData() map[string]string {
 	return result
 }
 
-// clearLiveCommitData clears the live commit data
+// clearLiveCommitData clears the live commit data.
+// Must be called with w.mu held.
 func (w *IndexWriter) clearLiveCommitData() {
-	w.mu.Lock()
-	defer w.mu.Unlock()
 	liveCommitData = nil
 }
 
@@ -378,9 +377,7 @@ func (w *IndexWriter) ForceMerge(maxNumSegments int) error {
 		return err
 	}
 
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	// Simple implementation - just commit to flush any buffered docs
+	// Commit flushes buffered docs; it acquires w.mu itself.
 	return w.Commit()
 }
 
@@ -503,7 +500,7 @@ func (w *IndexWriter) AddIndexes(dirs ...store.Directory) error {
 
 // AddIndexesFromReader adds indexes from the provided IndexReaders.
 // This is used to add segments from existing readers to this writer.
-func (w *IndexWriter) AddIndexesFromReader(readers ...IndexReader) error {
+func (w *IndexWriter) AddIndexesFromReader(readers ...*IndexReader) error {
 	if err := w.ensureOpen(); err != nil {
 		return err
 	}

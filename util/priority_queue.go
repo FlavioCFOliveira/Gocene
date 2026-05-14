@@ -189,6 +189,101 @@ func (pq *PriorityQueue[T]) ToSlice() []T {
 	return result
 }
 
+// AddAll bulk-adds elements using the O(n) Floyd build-heap, which is
+// faster than O(n log n) individual Adds when all elements are known
+// up-front. Returns an error when the addition would exceed maxSize,
+// matching the Java ArrayIndexOutOfBoundsException semantics.
+func (pq *PriorityQueue[T]) AddAll(elements []T) error {
+	if pq.size+len(elements) > pq.maxSize {
+		return fmt.Errorf("cannot add %d elements to a queue with remaining capacity %d",
+			len(elements), pq.maxSize-pq.size)
+	}
+	for _, e := range elements {
+		pq.heap = append(pq.heap, e)
+		pq.size++
+	}
+	// Floyd build-heap: sift down every non-leaf, starting from the
+	// last parent.
+	for i := pq.size/2 - 1; i >= 0; i-- {
+		pq.downHeap(i)
+	}
+	return nil
+}
+
+// InsertWithOverflow inserts element and returns:
+//   - (zero, false) when the queue had room and the element was added;
+//   - (overflowed, true) when the queue was full and element replaced
+//     a strictly-smaller top, with overflowed being the displaced
+//     value;
+//   - (element, true) when the queue was full and element was rejected
+//     (its priority did not beat the top).
+//
+// Mirrors the Java insertWithOverflow contract.
+func (pq *PriorityQueue[T]) InsertWithOverflow(element T) (T, bool) {
+	var zero T
+	if pq.size < pq.maxSize {
+		pq.Add(element)
+		return zero, false
+	}
+	if pq.size > 0 && pq.lessFunc(pq.heap[0], element) {
+		ret := pq.heap[0]
+		pq.heap[0] = element
+		pq.downHeap(0)
+		return ret, true
+	}
+	return element, true
+}
+
+// UpdateTopWith replaces the top with newTop and re-heapifies,
+// matching Java's updateTop(T newTop). The previous top is discarded.
+func (pq *PriorityQueue[T]) UpdateTopWith(newTop T) {
+	if pq.size == 0 {
+		return
+	}
+	pq.heap[0] = newTop
+	pq.downHeap(0)
+}
+
+// Remove removes the first element for which eq returns true. Returns
+// true on success. Cost is O(n). Mirrors Java's remove(T element)
+// where Java relies on == (object identity); the Go port accepts a
+// caller-provided equality predicate so users can choose identity- or
+// value-based semantics.
+func (pq *PriorityQueue[T]) Remove(eq func(T) bool) bool {
+	if eq == nil {
+		return false
+	}
+	for i := 0; i < pq.size; i++ {
+		if eq(pq.heap[i]) {
+			// Move the last element into slot i, shrink, then restore
+			// the heap invariant. Java only sifts up *or* down; we
+			// always run both because the displaced element may be
+			// out-of-order in either direction.
+			pq.heap[i] = pq.heap[pq.size-1]
+			pq.heap = pq.heap[:pq.size-1]
+			pq.size--
+			if i < pq.size {
+				pq.upHeap(i)
+				pq.downHeap(i)
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// All returns an iterator over the queue contents in heap order
+// (NOT sorted). Mirrors Java's iterator() method using Go's
+// range-over-func iterator pattern. Suitable for read-only traversal;
+// callers must not mutate the queue during iteration.
+func (pq *PriorityQueue[T]) All(yield func(T) bool) {
+	for i := 0; i < pq.size; i++ {
+		if !yield(pq.heap[i]) {
+			return
+		}
+	}
+}
+
 // IntPriorityQueue is a convenience type for int priority queues.
 type IntPriorityQueue = PriorityQueue[int]
 

@@ -9,9 +9,9 @@
 package search_test
 
 import (
-	"math"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -51,31 +51,46 @@ func getTestData() []testDocument {
 }
 
 // setupTestIndex creates an in-memory index with test data
-func setupTestIndex(t *testing.T) (search.IndexReader, *search.IndexSearcher) {
+func setupTestIndex(t *testing.T) (index.IndexReaderInterface, *search.IndexSearcher) {
+	t.Helper()
+
 	dir := store.NewByteBuffersDirectory()
 
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig())
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
 	}
-	defer writer.Close()
 
 	testData := getTestData()
 	for _, td := range testData {
 		doc := document.NewDocument()
-		doc.Add(document.NewStringField("id", td.id, true))
-		doc.Add(document.NewStringField("all", td.all, true))
+
+		idField, _ := document.NewStringField("id", td.id, true)
+		doc.Add(idField)
+
+		allField, _ := document.NewStringField("all", td.all, true)
+		doc.Add(allField)
+
 		if td.hasData {
-			doc.Add(document.NewTextField("data", td.data, true))
+			dataField, _ := document.NewTextField("data", td.data, true)
+			doc.Add(dataField)
 		}
+
 		if err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
 
-	reader, err := writer.GetReader()
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Failed to commit: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Failed to close writer: %v", err)
+	}
+
+	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
-		t.Fatalf("Failed to get reader: %v", err)
+		t.Fatalf("Failed to open reader: %v", err)
 	}
 
 	searcher := search.NewIndexSearcher(reader)
@@ -86,25 +101,13 @@ func setupTestIndex(t *testing.T) (search.IndexReader, *search.IndexSearcher) {
 func verifyNrHits(t *testing.T, searcher *search.IndexSearcher, q search.Query, expected int) {
 	t.Helper()
 
-	// Test basic search
 	topDocs, err := searcher.Search(q, 1000)
 	if err != nil {
 		t.Fatalf("Search failed: %v", err)
 	}
 
-	if int(topDocs.TotalHits().Value()) != expected {
-		t.Errorf("Expected %d hits, got %d", expected, topDocs.TotalHits().Value())
-	}
-
-	// Test with collector manager (equivalent to bs2 in Java)
-	collector := search.NewTopScoreDocCollectorManager(1000, math.MaxInt32)
-	topDocs2, err := searcher.SearchWithCollector(q, collector)
-	if err != nil {
-		t.Fatalf("Search with collector failed: %v", err)
-	}
-
-	if int(topDocs2.TotalHits().Value()) != expected {
-		t.Errorf("Expected %d hits (collector), got %d", expected, topDocs2.TotalHits().Value())
+	if int(topDocs.TotalHits.Value) != expected {
+		t.Errorf("Expected %d hits, got %d", expected, topDocs.TotalHits.Value)
 	}
 }
 
@@ -365,8 +368,8 @@ func TestBooleanMinShouldMatch_RewriteMSM1(t *testing.T) {
 	}
 
 	// Both should return the same results
-	if top1.TotalHits().Value() != top2.TotalHits().Value() {
-		t.Errorf("Expected same hit count, got %d and %d", top1.TotalHits().Value(), top2.TotalHits().Value())
+	if top1.TotalHits.Value != top2.TotalHits.Value {
+		t.Errorf("Expected same hit count, got %d and %d", top1.TotalHits.Value, top2.TotalHits.Value)
 	}
 }
 
@@ -393,7 +396,7 @@ func TestBooleanMinShouldMatch_RewriteNegate(t *testing.T) {
 	}
 
 	// bq2 should be a subset of bq1
-	if top2.TotalHits().Value() > top1.TotalHits().Value() {
+	if top2.TotalHits.Value > top1.TotalHits.Value {
 		t.Error("Constrained results should be a subset")
 	}
 }

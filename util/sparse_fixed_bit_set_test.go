@@ -725,3 +725,29 @@ func BenchmarkSparseFixedBitSet_NextSetBit(b *testing.B) {
 		sfs.NextSetBit(i % 100000)
 	}
 }
+
+// TestSparseFixedBitSet_OrIterator verifies that OrIterator unions
+// the doc ids produced by an iterator into the receiver, mirroring
+// the Java SparseFixedBitSet.or(DocIdSetIterator) contract.
+func TestSparseFixedBitSet_OrIterator(t *testing.T) {
+	sfs, err := NewSparseFixedBitSet(1024)
+	if err != nil {
+		t.Fatalf("NewSparseFixedBitSet: %v", err)
+	}
+	sfs.Set(5)
+	sfs.Set(100)
+
+	it := NewIntArrayDocIdSetIterator([]int{3, 5, 17, 999}, 4)
+	if err := sfs.OrIterator(it); err != nil {
+		t.Fatalf("OrIterator: %v", err)
+	}
+
+	for _, want := range []int{3, 5, 17, 100, 999} {
+		if !sfs.Get(want) {
+			t.Fatalf("Get(%d)=false after OrIterator", want)
+		}
+	}
+	if sfs.Cardinality() != 5 {
+		t.Fatalf("Cardinality()=%d want 5", sfs.Cardinality())
+	}
+}

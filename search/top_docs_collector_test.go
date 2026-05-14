@@ -31,8 +31,9 @@ var testScores = []float32{
 
 const maxTestScore float32 = 9.17561
 
-// setupTestIndex creates a test index with the specified number of empty documents
-func setupTestIndex(t *testing.T, numDocs int) (store.Directory, index.IndexReaderInterface, func()) {
+// setupTestIndexN creates a test index with the specified number of empty documents.
+// Renamed to avoid collision with setupTestIndex in boolean_min_should_match_test.go.
+func setupTestIndexN(t *testing.T, numDocs int) (store.Directory, index.IndexReaderInterface, func()) {
 	t.Helper()
 
 	dir := store.NewByteBuffersDirectory()
@@ -71,7 +72,7 @@ func setupTestIndex(t *testing.T, numDocs int) (store.Directory, index.IndexRead
 // TestTopDocsCollector_InvalidArguments tests invalid arguments for TopDocs
 // Source: TestTopDocsCollector.testInvalidArguments()
 func TestTopDocsCollector_InvalidArguments(t *testing.T) {
-	dir, reader, cleanup := setupTestIndex(t, 30)
+	_, reader, cleanup := setupTestIndexN(t, 30)
 	defer cleanup()
 
 	numResults := 5
@@ -124,7 +125,7 @@ func TestTopDocsCollector_ZeroResults(t *testing.T) {
 // TestTopDocsCollector_FirstResultsPage tests retrieving the first page of results
 // Source: TestTopDocsCollector.testFirstResultsPage()
 func TestTopDocsCollector_FirstResultsPage(t *testing.T) {
-	dir, reader, cleanup := setupTestIndex(t, 30)
+	_, reader, cleanup := setupTestIndexN(t, 30)
 	defer cleanup()
 
 	searcher := search.NewIndexSearcher(reader)
@@ -150,7 +151,7 @@ func TestTopDocsCollector_FirstResultsPage(t *testing.T) {
 // TestTopDocsCollector_SecondResultsPages tests retrieving subsequent pages of results
 // Source: TestTopDocsCollector.testSecondResultsPages()
 func TestTopDocsCollector_SecondResultsPages(t *testing.T) {
-	dir, reader, cleanup := setupTestIndex(t, 30)
+	_, reader, cleanup := setupTestIndexN(t, 30)
 	defer cleanup()
 
 	searcher := search.NewIndexSearcher(reader)
@@ -174,7 +175,7 @@ func TestTopDocsCollector_SecondResultsPages(t *testing.T) {
 // TestTopDocsCollector_GetAllResults tests retrieving all results
 // Source: TestTopDocsCollector.testGetAllResults()
 func TestTopDocsCollector_GetAllResults(t *testing.T) {
-	dir, reader, cleanup := setupTestIndex(t, 30)
+	_, reader, cleanup := setupTestIndexN(t, 30)
 	defer cleanup()
 
 	searcher := search.NewIndexSearcher(reader)
@@ -200,7 +201,7 @@ func TestTopDocsCollector_GetAllResults(t *testing.T) {
 // TestTopDocsCollector_ResultsFromStart tests retrieving results from a specific start position
 // Source: TestTopDocsCollector.testGetResultsFromStart()
 func TestTopDocsCollector_ResultsFromStart(t *testing.T) {
-	dir, reader, cleanup := setupTestIndex(t, 30)
+	_, reader, cleanup := setupTestIndexN(t, 30)
 	defer cleanup()
 
 	searcher := search.NewIndexSearcher(reader)
@@ -228,7 +229,7 @@ func TestTopDocsCollector_ResultsFromStart(t *testing.T) {
 // TestTopDocsCollector_TotalHits tests total hits tracking
 // Source: TestTopDocsCollector.testTotalHits()
 func TestTopDocsCollector_TotalHits(t *testing.T) {
-	dir, reader, cleanup := setupTestIndex(t, 30)
+	_, reader, cleanup := setupTestIndexN(t, 30)
 	defer cleanup()
 
 	searcher := search.NewIndexSearcher(reader)

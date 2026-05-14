@@ -66,33 +66,62 @@ func NewNRTManager(writer *IndexWriter) (*NRTManager, error) {
 	return manager, nil
 }
 
-// GetReader returns the current NRT reader.
-// If no reader exists, creates one from the writer.
+// GetReader returns the current NRT reader, creating one from the writer if none exists.
 func (m *NRTManager) GetReader() (*NRTDirectoryReader, error) {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
+	open := m.isOpen.Load()
+	reader := m.currentReader
+	m.mu.RUnlock()
 
-	if !m.isOpen.Load() {
+	if !open {
 		return nil, fmt.Errorf("manager is closed")
 	}
 
-	if m.currentReader != nil {
-		return m.currentReader, nil
+	if reader != nil {
+		return reader, nil
 	}
 
-	// Need to create a new reader - upgrade to write lock
-	m.mu.RUnlock()
+	// No reader yet — create one from the writer's directory under write lock.
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
-	// Double-check after acquiring write lock
+	// Double-check after acquiring write lock.
 	if m.currentReader != nil {
-		return m.currentReader, nil
+		r := m.currentReader
+		m.mu.Unlock()
+		return r, nil
 	}
 
-	// Create initial reader - in real implementation this would come from writer
-	// For now, return nil as we need a proper Directory to open a reader
-	return nil, fmt.Errorf("no reader available")
+	// Create initial reader from the writer's directory.
+	var dir = m.writer.directory
+	var dirReader *DirectoryReader
+	var err error
+	if dir != nil {
+		dirReader, err = OpenDirectoryReader(dir)
+		if err != nil {
+			m.mu.Unlock()
+			return nil, fmt.Errorf("opening directory reader: %w", err)
+		}
+	} else {
+		// Writer has no directory; construct a bare empty DirectoryReader.
+		dirReader = &DirectoryReader{
+			CompositeReader: &CompositeReader{
+				IndexReader: NewIndexReader(),
+				subReaders:  []IndexReaderInterface{},
+				starts:      []int{0},
+			},
+			segmentInfos: NewSegmentInfos(),
+		}
+	}
+
+	nrtReader, err := NewNRTDirectoryReader(dirReader, m.writer)
+	if err != nil {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("creating NRT reader: %w", err)
+	}
+
+	m.currentReader = nrtReader
+	m.mu.Unlock()
+	return nrtReader, nil
 }
 
 // MaybeRefresh checks if the index has changed and refreshes the reader if necessary.

@@ -318,10 +318,8 @@ func (dw *DocumentsWriter) GetNumDocsInRAM() int {
 }
 
 // nextSegmentName generates the next segment name.
+// Must be called with dw.mu held (write lock).
 func (dw *DocumentsWriter) nextSegmentName() string {
-	dw.mu.Lock()
-	defer dw.mu.Unlock()
-
 	name := fmt.Sprintf("_%d", dw.segmentNameCounter)
 	dw.segmentNameCounter++
 	return name

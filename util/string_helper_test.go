@@ -465,3 +465,131 @@ func BenchmarkMurmurHash3(b *testing.B) {
 		MurmurHash3_x86_32_BytesRef(data, 0)
 	}
 }
+
+// TestMurmurHash3_KnownVectors checks the bit-exact output of the
+// MurmurHash3_x86_32 implementation against well-known fixtures.
+// Reference values from Yonik's java_util MurmurHash3Test.java, the
+// same source Lucene quotes in its StringHelper javadoc.
+func TestMurmurHash3_KnownVectors(t *testing.T) {
+	cases := []struct {
+		data string
+		seed int
+		want uint32
+	}{
+		// empty input, seed 0
+		{"", 0, 0},
+		// "abc", seed 0 -> 0xB3DD93FA
+		{"abc", 0, 0xB3DD93FA},
+		// "abcd", seed 0 -> 0x43ED676A (from Yonik vectors)
+		{"abcd", 0, 0x43ED676A},
+	}
+	for _, c := range cases {
+		got := MurmurHash3_x86_32([]byte(c.data), 0, len(c.data), c.seed)
+		if uint32(int32(got)) != c.want {
+			t.Errorf("MurmurHash3_x86_32(%q, seed=%d)=0x%08X want 0x%08X",
+				c.data, c.seed, uint32(int32(got)), c.want)
+		}
+	}
+}
+
+func TestRandomId_DistinctAndCorrectLength(t *testing.T) {
+	a := RandomId()
+	b := RandomId()
+	if len(a) != IDLength || len(b) != IDLength {
+		t.Fatalf("RandomId lengths: %d, %d (want %d)", len(a), len(b), IDLength)
+	}
+	// Successive ids must differ (counter +1 mod 2^128).
+	same := true
+	for i := range a {
+		if a[i] != b[i] {
+			same = false
+			break
+		}
+	}
+	if same {
+		t.Fatalf("two RandomId calls returned identical bytes: %x", a)
+	}
+}
+
+func TestIdToString_RoundTrip(t *testing.T) {
+	id := RandomId()
+	s := IdToString(id)
+	if s == "(null)" {
+		t.Fatal("non-nil id rendered as (null)")
+	}
+	if got := IdToString(nil); got != "(null)" {
+		t.Fatalf("IdToString(nil)=%q want \"(null)\"", got)
+	}
+	bad := IdToString([]byte{1, 2, 3})
+	if !stringHelperHasSubstring(bad, "(INVALID FORMAT)") {
+		t.Fatalf("short id should be flagged INVALID FORMAT, got %q", bad)
+	}
+}
+
+func stringHelperHasSubstring(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
+}
+
+func TestStartsWithBytes(t *testing.T) {
+	ref := []byte("hello world")
+	prefix := NewBytesRef([]byte("hello"))
+	if !StartsWithBytes(ref, prefix) {
+		t.Fatal("expected match for hello")
+	}
+	if StartsWithBytes(ref, NewBytesRef([]byte("world"))) {
+		t.Fatal("unexpected match for world")
+	}
+	if StartsWithBytes([]byte("hi"), NewBytesRef([]byte("hello"))) {
+		t.Fatal("prefix longer than ref should yield false")
+	}
+}
+
+func TestIntsRefToBytesRef_HappyPath(t *testing.T) {
+	ints := NewIntsRef([]int{72, 101, 108, 108, 111})
+	br, err := IntsRefToBytesRef(ints)
+	if err != nil {
+		t.Fatalf("IntsRefToBytesRef: %v", err)
+	}
+	if string(br.ValidBytes()) != "Hello" {
+		t.Fatalf("got %q want Hello", br.ValidBytes())
+	}
+}
+
+func TestIntsRefToBytesRef_OutOfRange(t *testing.T) {
+	ints := NewIntsRef([]int{1, 256})
+	if _, err := IntsRefToBytesRef(ints); err == nil {
+		t.Fatal("expected error for value > 255")
+	}
+	ints = NewIntsRef([]int{1, -1})
+	if _, err := IntsRefToBytesRef(ints); err == nil {
+		t.Fatal("expected error for negative value")
+	}
+}
+
+func TestRandomBytes_Deterministic(t *testing.T) {
+	a := RandomBytes(42, 16)
+	b := RandomBytes(42, 16)
+	if string(a) != string(b) {
+		t.Fatalf("RandomBytes not deterministic for same seed: %x vs %x", a, b)
+	}
+}
+
+func TestGoodFastHashSeed_NonZero(t *testing.T) {
+	if GoodFastHashSeed == 0 {
+		t.Fatal("GoodFastHashSeed must be initialised; got 0")
+	}
+}
+
+func TestSetGoodFastHashSeed_Roundtrip(t *testing.T) {
+	old := GoodFastHashSeed
+	defer SetGoodFastHashSeed(old)
+	SetGoodFastHashSeed(12345)
+	if GoodFastHashSeed != 12345 {
+		t.Fatalf("SetGoodFastHashSeed failed: got %d want 12345", GoodFastHashSeed)
+	}
+}

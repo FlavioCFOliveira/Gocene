@@ -26,7 +26,7 @@ func TestNRTCachingDirectory_NRTAndCommit(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	// Create delegate directory
-	delegate, err := NewFSDirectory(tempDir)
+	delegate, err := NewSimpleFSDirectory(tempDir)
 	if err != nil {
 		t.Fatalf("Failed to create FSDirectory: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestNRTCachingDirectory_CreateTempOutputSameName(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	// Create delegate directory
-	delegate, err := NewFSDirectory(tempDir)
+	delegate, err := NewSimpleFSDirectory(tempDir)
 	if err != nil {
 		t.Fatalf("Failed to create FSDirectory: %v", err)
 	}
@@ -525,7 +525,7 @@ func TestNRTCachingDirectory_FSCacheSizeTracking(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	// Create delegate directory
-	delegate, err := NewFSDirectory(tempDir)
+	delegate, err := NewSimpleFSDirectory(tempDir)
 	if err != nil {
 		t.Fatalf("Failed to create FSDirectory: %v", err)
 	}

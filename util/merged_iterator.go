@@ -1,10 +1,20 @@
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
+//
+// Licensed to the Apache Software Foundation (ASF) under one or more
+// contributor license agreements.  See the NOTICE file distributed with
+// this work for additional information regarding copyright ownership.
+// The ASF licenses this file to You under the Apache License, Version 2.0
+// (the "License"); you may not use this file except in compliance with
+// the License.  You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
 
 package util
 
 import (
+	"cmp"
 	"fmt"
 )
 
@@ -185,6 +195,162 @@ func (mi *MergedIterator) pushTop() {
 		} else {
 			// No more elements
 			mi.top[i].hasCurrent = false
+		}
+	}
+	mi.numTop = 0
+}
+
+// -----------------------------------------------------------------------------
+// Generic MergedIteratorG[T] — mirrors the Java MergedIterator<T extends Comparable<T>>
+// public contract. The legacy int-specialised type above is preserved for
+// backwards compatibility with existing call sites.
+
+// IteratorG is the generic equivalent of [Iterator] over T.
+type IteratorG[T any] interface {
+	HasNext() bool
+	Next() T
+}
+
+// SliceIteratorG is a [IteratorG] backed by a slice.
+type SliceIteratorG[T any] struct {
+	slice []T
+	index int
+}
+
+// NewSliceIteratorG returns a new generic slice iterator.
+func NewSliceIteratorG[T any](s []T) *SliceIteratorG[T] {
+	return &SliceIteratorG[T]{slice: s}
+}
+
+// HasNext reports whether more elements are available.
+func (s *SliceIteratorG[T]) HasNext() bool { return s.index < len(s.slice) }
+
+// Next returns the next element. Panics when no element is available.
+func (s *SliceIteratorG[T]) Next() T {
+	if s.index >= len(s.slice) {
+		panic("no more elements")
+	}
+	v := s.slice[s.index]
+	s.index++
+	return v
+}
+
+// subIteratorG is the generic SubIterator analogue.
+type subIteratorG[T cmp.Ordered] struct {
+	iterator IteratorG[T]
+	current  T
+	index    int
+}
+
+// MergedIteratorG provides a merged sorted view over several sorted
+// generic iterators. It mirrors the contract of the Java MergedIterator<T>
+// for any [cmp.Ordered] T.
+//
+// Caveats are the same as the Java original:
+//   - Behavior is undefined if input iterators are not sorted.
+//   - Within a single iterator duplicates are not deduplicated.
+//   - When duplicates are removed across iterators it is undefined which
+//     one is returned.
+//   - With removeDuplicates=false the order in which duplicates are
+//     returned across iterators is undefined.
+type MergedIteratorG[T cmp.Ordered] struct {
+	current          T
+	hasCurrent       bool
+	queue            *PriorityQueue[*subIteratorG[T]]
+	top              []*subIteratorG[T]
+	removeDuplicates bool
+	numTop           int
+}
+
+// NewMergedIteratorG creates a new generic MergedIteratorG that
+// deduplicates equal values across iterators.
+func NewMergedIteratorG[T cmp.Ordered](iterators ...IteratorG[T]) (*MergedIteratorG[T], error) {
+	return NewMergedIteratorGWithOptions(true, iterators...)
+}
+
+// NewMergedIteratorGWithOptions creates a new generic MergedIteratorG
+// configured by removeDuplicates.
+func NewMergedIteratorGWithOptions[T cmp.Ordered](removeDuplicates bool, iterators ...IteratorG[T]) (*MergedIteratorG[T], error) {
+	mi := &MergedIteratorG[T]{
+		removeDuplicates: removeDuplicates,
+		top:              make([]*subIteratorG[T], len(iterators)),
+	}
+
+	q, err := NewPriorityQueue(len(iterators), func(a, b *subIteratorG[T]) bool {
+		if a.current != b.current {
+			return a.current < b.current
+		}
+		return a.index < b.index
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create priority queue: %w", err)
+	}
+	mi.queue = q
+
+	idx := 0
+	for _, it := range iterators {
+		if it.HasNext() {
+			sub := &subIteratorG[T]{iterator: it, index: idx}
+			sub.current = it.Next()
+			mi.queue.Add(sub)
+			idx++
+		}
+	}
+	return mi, nil
+}
+
+// HasNext reports whether more elements are available.
+func (mi *MergedIteratorG[T]) HasNext() bool {
+	if mi.queue.Size() > 0 {
+		return true
+	}
+	for i := 0; i < mi.numTop; i++ {
+		if mi.top[i].iterator.HasNext() {
+			return true
+		}
+	}
+	return false
+}
+
+// Next returns the next element in merged order.
+func (mi *MergedIteratorG[T]) Next() T {
+	mi.pushTop()
+	if mi.queue.Size() > 0 {
+		mi.pullTop()
+	} else {
+		mi.hasCurrent = false
+	}
+	if !mi.hasCurrent {
+		panic("no more elements")
+	}
+	return mi.current
+}
+
+func (mi *MergedIteratorG[T]) pullTop() {
+	mi.numTop = 0
+	mi.top[mi.numTop] = mi.queue.Pop()
+	mi.numTop++
+
+	if mi.removeDuplicates {
+		for mi.queue.Size() > 0 {
+			top := mi.queue.Top()
+			if mi.top[0].current == top.current {
+				mi.top[mi.numTop] = mi.queue.Pop()
+				mi.numTop++
+			} else {
+				break
+			}
+		}
+	}
+	mi.current = mi.top[0].current
+	mi.hasCurrent = true
+}
+
+func (mi *MergedIteratorG[T]) pushTop() {
+	for i := 0; i < mi.numTop; i++ {
+		if mi.top[i].iterator.HasNext() {
+			mi.top[i].current = mi.top[i].iterator.Next()
+			mi.queue.Add(mi.top[i])
 		}
 	}
 	mi.numTop = 0

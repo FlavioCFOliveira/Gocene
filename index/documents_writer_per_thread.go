@@ -402,10 +402,8 @@ func (dwpt *DocumentsWriterPerThread) addTerm(docID int, fieldName, term string,
 }
 
 // addDocValue adds a doc value for a field.
+// Must be called with dwpt.mu held (write lock).
 func (dwpt *DocumentsWriterPerThread) addDocValue(fieldName string, docID int, field IndexableField, dvType DocValuesType) {
-	dwpt.mu.Lock()
-	defer dwpt.mu.Unlock()
-
 	buf, exists := dwpt.docValues[fieldName]
 	if !exists {
 		buf = &DocValuesBuffer{
@@ -415,9 +413,7 @@ func (dwpt *DocumentsWriterPerThread) addDocValue(fieldName string, docID int, f
 		dwpt.docValues[fieldName] = buf
 	}
 
-	buf.mu.Lock()
 	buf.values = append(buf.values, field.NumericValue())
-	buf.mu.Unlock()
 }
 
 // buildTermVector builds term vector data for a field.

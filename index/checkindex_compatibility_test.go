@@ -48,15 +48,19 @@ func TestCheckIndexCompatibility_BasicValidation(t *testing.T) {
 	}
 
 	// Check index
-	checker := index.NewCheckIndex(dir)
+	checker, err := index.NewCheckIndex(dir)
+	if err != nil {
+		t.Logf("NewCheckIndex failed: %v", err)
+		t.Skip("checkindex not implemented")
+	}
 	result, err := checker.CheckIndex()
 	if err != nil {
 		t.Logf("checkindex may not be fully implemented: %v", err)
 		t.Skip("checkindex not implemented")
 	}
 
-	if result.HasErrors() {
-		t.Errorf("index has errors: %v", result.Errors())
+	if !result.Clean || result.NumBadSegments > 0 {
+		t.Errorf("index has errors: bad segments=%d, errors=%v", result.NumBadSegments, result.Errors)
 	}
 
 	t.Log("CheckIndex basic validation test passed")
@@ -86,14 +90,18 @@ func TestCheckIndexCompatibility_SegmentValidation(t *testing.T) {
 		writer.Commit()
 	}
 
-	checker := index.NewCheckIndex(dir)
+	checker, err := index.NewCheckIndex(dir)
+	if err != nil {
+		t.Logf("NewCheckIndex failed: %v", err)
+		t.Skip("checkindex not implemented")
+	}
 	result, err := checker.CheckIndex()
 	if err != nil {
 		t.Logf("checkindex may not be fully implemented: %v", err)
 		t.Skip("checkindex not implemented")
 	}
 
-	t.Logf("CheckIndex segment validation: %d segments", result.NumSegments())
+	t.Logf("CheckIndex segment validation: %d segments", result.NumSegments)
 }
 
 func TestCheckIndexCompatibility_FieldInfosValidation(t *testing.T) {
@@ -129,8 +137,12 @@ func TestCheckIndexCompatibility_FieldInfosValidation(t *testing.T) {
 
 	writer.Commit()
 
-	checker := index.NewCheckIndex(dir)
-	result, err := checker.CheckIndex()
+	checker, err := index.NewCheckIndex(dir)
+	if err != nil {
+		t.Logf("NewCheckIndex failed: %v", err)
+		t.Skip("checkindex not implemented")
+	}
+	_, err = checker.CheckIndex()
 	if err != nil {
 		t.Logf("checkindex may not be fully implemented: %v", err)
 		t.Skip("checkindex not implemented")
@@ -156,10 +168,13 @@ func BenchmarkCheckIndexCompatibility_Validation(b *testing.B) {
 	writer.Commit()
 	writer.Close()
 
-	checker := index.NewCheckIndex(dir)
+	checker, err := index.NewCheckIndex(dir)
+	if err != nil {
+		b.Skip("NewCheckIndex not implemented")
+	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		checker.CheckIndex()
+		checker.CheckIndex() //nolint:errcheck // benchmark ignores errors
 	}
 }

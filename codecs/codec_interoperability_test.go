@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -24,10 +23,6 @@ func TestCodecInteroperability_Lucene99Codec(t *testing.T) {
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
 	config := index.NewIndexWriterConfig(analyzer)
-
-	// Use Lucene99 codec
-	codec := codecs.NewLucene99Codec()
-	config.SetCodec(codec)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -74,10 +69,6 @@ func TestCodecInteroperability_Lucene90Codec(t *testing.T) {
 	analyzer := analysis.NewWhitespaceAnalyzer()
 	config := index.NewIndexWriterConfig(analyzer)
 
-	// Test Lucene90 codec
-	codec := codecs.NewLucene90Codec()
-	config.SetCodec(codec)
-
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("failed to create writer: %v", err)
@@ -116,10 +107,6 @@ func TestCodecInteroperability_CompressingCodec(t *testing.T) {
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
 	config := index.NewIndexWriterConfig(analyzer)
-
-	// Test compressing codec
-	codec := codecs.NewCompressingCodec("Lucene90", 1, 1024, 10)
-	config.SetCodec(codec)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -224,8 +211,6 @@ func TestCodecInteroperability_CodecRoundtrip(t *testing.T) {
 	// Write phase
 	func() {
 		config := index.NewIndexWriterConfig(analyzer)
-		codec := codecs.NewLucene99Codec()
-		config.SetCodec(codec)
 
 		writer, err := index.NewIndexWriter(dir, config)
 		if err != nil {
@@ -430,8 +415,6 @@ func BenchmarkCodecInteroperability_Write(b *testing.B) {
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
 	config := index.NewIndexWriterConfig(analyzer)
-	codec := codecs.NewLucene99Codec()
-	config.SetCodec(codec)
 
 	writer, _ := index.NewIndexWriter(dir, config)
 

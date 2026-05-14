@@ -257,17 +257,17 @@ func TestZigZagEncodeInt(t *testing.T) {
 		input    int
 		expected int
 	}{
-		{0, 0},                         // 0 encodes to 0
-		{-1, 1},                        // -1 encodes to 1
-		{1, 2},                         // 1 encodes to 2
-		{-2, 3},                        // -2 encodes to 3
-		{2, 4},                         // 2 encodes to 4
-		{-3, 5},                        // -3 encodes to 5
-		{3, 6},                         // 3 encodes to 6
-		{-4, 7},                        // -4 encodes to 7
-		{4, 8},                         // 4 encodes to 8
-		{math.MaxInt32, -2},            // MaxInt32 encodes to -2 (0x7FFFFFFF -> 0xFFFFFFFE)
-		{math.MinInt32, math.MaxInt32}, // MinInt32 encodes to MaxInt32
+		{0, 0},              // 0 encodes to 0
+		{-1, 1},             // -1 encodes to 1
+		{1, 2},              // 1 encodes to 2
+		{-2, 3},             // -2 encodes to 3
+		{2, 4},              // 2 encodes to 4
+		{-3, 5},             // -3 encodes to 5
+		{3, 6},              // 3 encodes to 6
+		{-4, 7},             // -4 encodes to 7
+		{4, 8},              // 4 encodes to 8
+		{math.MaxInt32, -2}, // MaxInt32 -> 0xFFFFFFFE = -2 (int32 truncation)
+		{math.MinInt32, -1}, // MinInt32 -> 0xFFFFFFFF = -1 (int32 truncation)
 	}
 
 	for _, tc := range testCases {
@@ -336,13 +336,13 @@ func TestZigZagEncodeInt64(t *testing.T) {
 		input    int64
 		expected int64
 	}{
-		{0, 0},                         // 0 encodes to 0
-		{-1, 1},                        // -1 encodes to 1
-		{1, 2},                         // 1 encodes to 2
-		{-2, 3},                        // -2 encodes to 3
-		{2, 4},                         // 2 encodes to 4
-		{math.MaxInt64, -2},            // MaxInt64 encodes to -2
-		{math.MinInt64, math.MaxInt64}, // MinInt64 encodes to MaxInt64
+		{0, 0},              // 0 encodes to 0
+		{-1, 1},             // -1 encodes to 1
+		{1, 2},              // 1 encodes to 2
+		{-2, 3},             // -2 encodes to 3
+		{2, 4},              // 2 encodes to 4
+		{math.MaxInt64, -2}, // MaxInt64 -> 0xFFFFFFFFFFFFFFFE = -2
+		{math.MinInt64, -1}, // MinInt64 -> 0xFFFFFFFFFFFFFFFF = -1
 	}
 
 	for _, tc := range testCases {

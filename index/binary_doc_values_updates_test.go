@@ -40,14 +40,17 @@ func createMockAnalyzerForBinaryDV() analysis.Analyzer {
 
 // toBytes encodes a long into a byte slice as VLong.
 // This produces varying numbers of bytes for different values.
+// Negative values take 10 bytes (full 64-bit unsigned representation).
 func toBytes(value int64) []byte {
-	// Negative longs may take 10 bytes
 	bytes := make([]byte, 0, 10)
-	for (value & ^0x7F) != 0 {
-		bytes = append(bytes, byte((value&0x7F)|0x80))
-		value >>= 7
+	// Treat as uint64 so the right shift is logical (not arithmetic),
+	// ensuring the loop terminates for negative values too.
+	u := uint64(value)
+	for u > 0x7F {
+		bytes = append(bytes, byte((u&0x7F)|0x80))
+		u >>= 7
 	}
-	bytes = append(bytes, byte(value))
+	bytes = append(bytes, byte(u))
 	return bytes
 }
 
@@ -56,15 +59,16 @@ func getValue(bytes []byte) int64 {
 	if len(bytes) == 0 {
 		return 0
 	}
-	idx := 0
-	b := bytes[idx]
-	value := int64(b & 0x7F)
-	for (b & 0x80) != 0 {
-		idx++
-		b = bytes[idx]
-		value |= int64(b&0x7F) << (7 * idx)
+	var u uint64
+	var shift uint
+	for _, b := range bytes {
+		u |= uint64(b&0x7F) << shift
+		shift += 7
+		if b&0x80 == 0 {
+			break
+		}
 	}
-	return value
+	return int64(u)
 }
 
 // createBinaryDoc creates a document with id and binary doc values

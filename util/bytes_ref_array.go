@@ -247,6 +247,46 @@ func (bra *BytesRefArray) SortByBytes() *BytesRefArraySortState {
 	})
 }
 
+// SortStable returns a [BytesRefArraySortState] like [BytesRefArray.Sort]
+// but using a stable sort: equal elements preserve their insertion
+// order. Mirrors the {@code stable=true} branch of Lucene's
+// {@code BytesRefArray#sort(Comparator, boolean)}.
+func (bra *BytesRefArray) SortStable(less func(a, b *BytesRef) bool) *BytesRefArraySortState {
+	if bra.size == 0 {
+		return &BytesRefArraySortState{indices: []int{}}
+	}
+	indices := make([]int, bra.size)
+	for i := range indices {
+		indices[i] = i
+	}
+	var spareA, spareB BytesRef
+	sort.SliceStable(indices, func(i, j int) bool {
+		bra.Get(indices[i], &spareA)
+		bra.Get(indices[j], &spareB)
+		return less(&spareA, &spareB)
+	})
+	return &BytesRefArraySortState{
+		array:   bra,
+		indices: indices,
+	}
+}
+
+// Ord returns the original insertion ordinal for the element at the
+// current position of the sort state. Mirrors
+// {@code IndexedBytesRefIterator#ord()} in Lucene; callers iterating a
+// [BytesRefArraySortState] use it to detect stable-sort tie-breaks.
+//
+// The returned ordinal is the index originally returned by
+// [BytesRefArray.Append] when the element was inserted. Returns -1 if
+// the sort state has not advanced past the first element or has been
+// exhausted.
+func (ss *BytesRefArraySortState) Ord() int {
+	if ss.pos == 0 || ss.pos > len(ss.indices) {
+		return -1
+	}
+	return ss.indices[ss.pos-1]
+}
+
 // BytesRefArraySortState provides ordered iteration over sorted elements.
 type BytesRefArraySortState struct {
 	array   *BytesRefArray

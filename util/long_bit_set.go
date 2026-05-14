@@ -445,3 +445,16 @@ func min(a, b int) int {
 	}
 	return b
 }
+
+// RamBytesUsed returns the approximate amount of memory used by this
+// LongBitSet, mirroring Lucene's Accountable.ramBytesUsed contract.
+// The estimate covers the struct header and the backing word slice.
+func (b *LongBitSet) RamBytesUsed() int64 {
+	// Struct: bits header (slice = 24B), numBits (8B), numWords (8B);
+	// align upward to NumBytesArrayHeader for parity with RamUsageEstimator.
+	const base = int64(NumBytesArrayHeader + 8 + 8)
+	return base + int64(len(b.bits))*8
+}
+
+// Compile-time assertion that LongBitSet satisfies Accountable.
+var _ Accountable = (*LongBitSet)(nil)

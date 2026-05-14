@@ -352,36 +352,40 @@ func (d *NRTCachingDirectory) unCache(fileName string) error {
 		return err
 	}
 
-	// Manual copy
-	in, err := d.cacheDir.OpenInput(fileName, IOContextRead)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := d.GetDelegate().CreateOutput(fileName, IOContextWrite)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	// Copy data
-	buf := make([]byte, 8192)
-	for {
-		err := in.ReadBytes(buf)
+	// Manual copy — open and close explicitly so the file is not tracked as
+	// open when we call DeleteFile at the end.
+	if err := func() error {
+		in, err := d.cacheDir.OpenInput(fileName, IOContextRead)
 		if err != nil {
-			// Check if we've reached EOF
-			if err.Error() == "EOF" || err.Error() == "not enough data available" {
-				break
+			return err
+		}
+		defer in.Close()
+
+		out, err := d.GetDelegate().CreateOutput(fileName, IOContextWrite)
+		if err != nil {
+			return err
+		}
+		defer out.Close()
+
+		buf := make([]byte, 8192)
+		for {
+			if err := in.ReadBytes(buf); err != nil {
+				if err.Error() == "EOF" || err.Error() == "not enough data available" {
+					break
+				}
+				return err
 			}
-			return err
+			if err := out.WriteBytes(buf); err != nil {
+				return err
+			}
 		}
-		if err := out.WriteBytes(buf); err != nil {
-			return err
-		}
+		return nil
+	}(); err != nil {
+		return err
 	}
 
-	// Update cache size and delete from cache
+	// Update cache size and delete from cache.
+	// The file must be closed before DeleteFile (ByteBuffersDirectory rejects open files).
 	d.cacheSize.Add(-size)
 	return d.cacheDir.DeleteFile(fileName)
 }

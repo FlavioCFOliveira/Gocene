@@ -104,6 +104,10 @@ func (m *factoryMockIndexReader) StoredFields() (index.StoredFields, error) {
 	return nil, nil
 }
 
+func (m *factoryMockIndexReader) TermVectors() (index.TermVectors, error) {
+	return nil, nil
+}
+
 func newFactoryMockIndexReader(numDocs int) *factoryMockIndexReader {
 	return &factoryMockIndexReader{
 		numDocs:  numDocs,

@@ -155,12 +155,11 @@ func (r *IndexRevision) GetMetadata(key string) string {
 }
 
 // IsNewerThan returns true if this revision is newer than the other.
+// A nil receiver or a nil other both result in false — neither an absent
+// revision nor a comparison against an absent revision constitutes "newer".
 func (r *IndexRevision) IsNewerThan(other *IndexRevision) bool {
-	if r == nil {
+	if r == nil || other == nil {
 		return false
-	}
-	if other == nil {
-		return true
 	}
 	return r.Generation > other.Generation
 }

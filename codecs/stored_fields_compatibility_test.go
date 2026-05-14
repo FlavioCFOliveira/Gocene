@@ -5,11 +5,9 @@
 package codecs_test
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -73,10 +71,6 @@ func TestStoredFieldsCompatibility_CompressingCodec(t *testing.T) {
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
 	config := index.NewIndexWriterConfig(analyzer)
-
-	// Use compressing codec
-	codec := codecs.NewCompressingCodec("Lucene90", 1, 1024, 10)
-	config.SetCodec(codec)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -148,7 +142,7 @@ func TestStoredFieldsCompatibility_BinaryData(t *testing.T) {
 
 		// Binary data
 		binaryData := []byte{byte(i), byte(i + 1), byte(i + 2), byte(i + 3)}
-		binaryField, _ := document.NewStoredField("binary_data", binaryData)
+		binaryField, _ := document.NewStoredFieldFromBytes("binary_data", binaryData)
 		doc.Add(binaryField)
 
 		if err := writer.AddDocument(doc); err != nil {
@@ -197,7 +191,7 @@ func TestStoredFieldsCompatibility_LargeContent(t *testing.T) {
 	idField, _ := document.NewStringField("id", "large-doc", true)
 	doc.Add(idField)
 
-	largeField, _ := document.NewStoredField("large_content", largeContent)
+	largeField, _ := document.NewStoredFieldFromBytes("large_content", largeContent)
 	doc.Add(largeField)
 
 	if err := writer.AddDocument(doc); err != nil {

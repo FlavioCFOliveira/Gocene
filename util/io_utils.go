@@ -177,19 +177,17 @@ func FSyncDirectory(dir string) error {
 	return nil
 }
 
-// ApplyToAll applies the given function to all items, collecting errors.
-// Returns a single error containing all individual errors, or nil if all succeeded.
+// ApplyToAll applies the given function to all items.
+// All items are always processed; the first non-nil error is returned.
+// This matches Lucene's IOUtils.applyToAll semantics.
 func ApplyToAll[T any](items []T, fn func(T) error) error {
-	var errs []error
+	var firstErr error
 	for _, item := range items {
-		if err := fn(item); err != nil {
-			errs = append(errs, err)
+		if err := fn(item); err != nil && firstErr == nil {
+			firstErr = err
 		}
 	}
-	if len(errs) > 0 {
-		return fmt.Errorf("errors applying function: %v", errs)
-	}
-	return nil
+	return firstErr
 }
 
 // CloseChan closes the given channel safely.

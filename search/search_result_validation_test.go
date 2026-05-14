@@ -74,7 +74,7 @@ func TestSearchResultValidation_TermQuery(t *testing.T) {
 
 	// Test term query for "apple"
 	query := search.NewTermQuery(index.NewTerm("content", "apple"))
-	topDocs, err := searcher.Search(query, nil, 10)
+	topDocs, err := searcher.Search(query, 10)
 	if err != nil {
 		t.Fatalf("failed to search: %v", err)
 	}
@@ -157,10 +157,10 @@ func TestSearchResultValidation_BooleanQuery(t *testing.T) {
 
 	// Test Boolean OR query: content:"apple" OR title:"fruit"
 	bq := search.NewBooleanQuery()
-	bq.Add(search.NewTermQuery(index.NewTerm("content", "apple")), search.BooleanClauseShould)
-	bq.Add(search.NewTermQuery(index.NewTerm("title", "fruit")), search.BooleanClauseShould)
+	bq.Add(search.NewTermQuery(index.NewTerm("content", "apple")), search.SHOULD)
+	bq.Add(search.NewTermQuery(index.NewTerm("title", "fruit")), search.SHOULD)
 
-	topDocs, err := searcher.Search(bq, nil, 10)
+	topDocs, err := searcher.Search(bq, 10)
 	if err != nil {
 		t.Fatalf("failed to search: %v", err)
 	}
@@ -172,10 +172,10 @@ func TestSearchResultValidation_BooleanQuery(t *testing.T) {
 
 	// Test Boolean AND query: content:"apple" AND content:"banana"
 	bq2 := search.NewBooleanQuery()
-	bq2.Add(search.NewTermQuery(index.NewTerm("content", "apple")), search.BooleanClauseMust)
-	bq2.Add(search.NewTermQuery(index.NewTerm("content", "banana")), search.BooleanClauseMust)
+	bq2.Add(search.NewTermQuery(index.NewTerm("content", "apple")), search.MUST)
+	bq2.Add(search.NewTermQuery(index.NewTerm("content", "banana")), search.MUST)
 
-	topDocs2, err := searcher.Search(bq2, nil, 10)
+	topDocs2, err := searcher.Search(bq2, 10)
 	if err != nil {
 		t.Fatalf("failed to search: %v", err)
 	}
@@ -238,14 +238,13 @@ func TestSearchResultValidation_PhraseQuery(t *testing.T) {
 	searcher := search.NewIndexSearcher(reader)
 
 	// Test phrase query for "quick brown fox"
-	terms := []*index.Term{
-		index.NewTerm("content", "quick"),
-		index.NewTerm("content", "brown"),
-		index.NewTerm("content", "fox"),
-	}
-	query := search.NewPhraseQuery(terms...)
+	query := search.NewPhraseQueryBuilder().
+		AddTerm(index.NewTerm("content", "quick")).
+		AddTerm(index.NewTerm("content", "brown")).
+		AddTerm(index.NewTerm("content", "fox")).
+		Build()
 
-	topDocs, err := searcher.Search(query, nil, 10)
+	topDocs, err := searcher.Search(query, 10)
 	if err != nil {
 		t.Fatalf("failed to search: %v", err)
 	}
@@ -300,7 +299,7 @@ func TestSearchResultValidation_RangeQuery(t *testing.T) {
 
 	// Test range query: value between "10" and "20"
 	query := search.NewTermRangeQueryWithStrings("id", "10", "20", true, true)
-	topDocs, err := searcher.Search(query, nil, 50)
+	topDocs, err := searcher.Search(query, 50)
 	if err != nil {
 		t.Fatalf("failed to search: %v", err)
 	}
@@ -312,7 +311,7 @@ func TestSearchResultValidation_RangeQuery(t *testing.T) {
 
 	// Test range query: value between "0" and "9" (exclusive of "10")
 	query2 := search.NewTermRangeQueryWithStrings("id", "0", "10", true, false)
-	topDocs2, err := searcher.Search(query2, nil, 50)
+	topDocs2, err := searcher.Search(query2, 50)
 	if err != nil {
 		t.Fatalf("failed to search: %v", err)
 	}
@@ -377,7 +376,7 @@ func TestSearchResultValidation_Sorting(t *testing.T) {
 
 	// Search for "test" - results should be sorted by relevance (score)
 	query := search.NewTermQuery(index.NewTerm("content", "test"))
-	topDocs, err := searcher.Search(query, nil, 10)
+	topDocs, err := searcher.Search(query, 10)
 	if err != nil {
 		t.Fatalf("failed to search: %v", err)
 	}
@@ -441,7 +440,7 @@ func TestSearchResultValidation_Reproducibility(t *testing.T) {
 	// Execute search multiple times and compare results
 	var firstResult *search.TopDocs
 	for i := 0; i < 5; i++ {
-		topDocs, err := searcher.Search(query, nil, 50)
+		topDocs, err := searcher.Search(query, 50)
 		if err != nil {
 			t.Fatalf("failed to search: %v", err)
 		}
@@ -530,7 +529,7 @@ func TestSearchResultValidation_ScoreNormalization(t *testing.T) {
 
 	// Search for "a"
 	query := search.NewTermQuery(index.NewTerm("content", "a"))
-	topDocs, err := searcher.Search(query, nil, 10)
+	topDocs, err := searcher.Search(query, 10)
 	if err != nil {
 		t.Fatalf("failed to search: %v", err)
 	}
@@ -591,12 +590,12 @@ func TestSearchResultValidation_MatchAllDocs(t *testing.T) {
 
 	// MatchAllDocsQuery should return all documents
 	query := search.NewMatchAllDocsQuery()
-	topDocs, err := searcher.Search(query, nil, numDocs+10)
+	topDocs, err := searcher.Search(query, numDocs+10)
 	if err != nil {
 		t.Fatalf("failed to search: %v", err)
 	}
 
-	if topDocs.TotalHits.Value != numDocs {
+	if topDocs.TotalHits.Value != int64(numDocs) {
 		t.Errorf("expected %d hits for MatchAllDocsQuery, got %d", numDocs, topDocs.TotalHits.Value)
 	}
 
@@ -657,7 +656,7 @@ func TestSearchResultValidation_TopN(t *testing.T) {
 	// Test with different top N values
 	testCases := []int{1, 5, 10, 50, 100}
 	for _, n := range testCases {
-		topDocs, err := searcher.Search(query, nil, n)
+		topDocs, err := searcher.Search(query, n)
 		if err != nil {
 			t.Fatalf("failed to search with top %d: %v", n, err)
 		}
@@ -707,6 +706,6 @@ func BenchmarkSearchResultValidation_TermQuery(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		searcher.Search(query, nil, 10)
+		searcher.Search(query, 10)
 	}
 }

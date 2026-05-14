@@ -359,21 +359,28 @@ func (t *TestAutomatonQuery) Setup() error {
 		return err
 	}
 
+	addTextField := func(doc *document.Document, name, text string) {
+		f, err := document.NewTextField(name, text, false)
+		if err == nil {
+			doc.Add(f)
+		}
+	}
+
 	// Add documents
 	doc1 := document.NewDocument()
-	doc1.Add(document.NewTextField("title", "some title"))
-	doc1.Add(document.NewTextField("field", "this is document one 2345"))
-	doc1.Add(document.NewTextField("footer", "a footer"))
+	addTextField(doc1, "title", "some title")
+	addTextField(doc1, "field", "this is document one 2345")
+	addTextField(doc1, "footer", "a footer")
 
 	doc2 := document.NewDocument()
-	doc2.Add(document.NewTextField("title", "some title"))
-	doc2.Add(document.NewTextField("field", "some text from doc two a short piece 5678.91"))
-	doc2.Add(document.NewTextField("footer", "a footer"))
+	addTextField(doc2, "title", "some title")
+	addTextField(doc2, "field", "some text from doc two a short piece 5678.91")
+	addTextField(doc2, "footer", "a footer")
 
 	doc3 := document.NewDocument()
-	doc3.Add(document.NewTextField("title", "some title"))
-	doc3.Add(document.NewTextField("field", "doc three has some different stuff with numbers 1234 5678.9 and letter b"))
-	doc3.Add(document.NewTextField("footer", "a footer"))
+	addTextField(doc3, "title", "some title")
+	addTextField(doc3, "field", "doc three has some different stuff with numbers 1234 5678.9 and letter b")
+	addTextField(doc3, "footer", "a footer")
 
 	if err := writer.AddDocument(doc1); err != nil {
 		return err
@@ -389,15 +396,18 @@ func (t *TestAutomatonQuery) Setup() error {
 	if err := writer.Commit(); err != nil {
 		return err
 	}
+	if err := writer.Close(); err != nil {
+		return err
+	}
 
-	t.reader, err = writer.GetReader()
+	t.reader, err = index.OpenDirectoryReader(t.directory)
 	if err != nil {
 		return err
 	}
 
 	t.searcher = search.NewIndexSearcher(t.reader)
 
-	return writer.Close()
+	return nil
 }
 
 // Teardown cleans up the test fixture.
@@ -722,7 +732,6 @@ func TestAutomatonQuery_EmptyOptimization(t *testing.T) {
 // TestAutomatonQuery_HashCodeWithThreads tests thread safety of hashCode.
 // Source: TestAutomatonQuery.testHashCodeWithThreads()
 func TestAutomatonQuery_HashCodeWithThreads(t *testing.T) {
-	automata := Automata{}
 	ops := Operations{}
 	testUtil := AutomatonTestUtil{}
 

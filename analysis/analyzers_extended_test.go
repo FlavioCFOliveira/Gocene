@@ -384,12 +384,13 @@ func TestAnalyzers_EmptyAndPunctuation(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
-		expected int // number of tokens
+		expected map[string]int // expected token count per analyzer
 	}{
-		{"empty string", "", 0},
-		{"only whitespace", "   ", 0},
-		{"only punctuation", ".,!?;:", 0},
-		{"mixed whitespace", "\t\n\r", 0},
+		{"empty string", "", map[string]int{"simple": 0, "whitespace": 0, "stop": 0, "standard": 0}},
+		{"only whitespace", "   ", map[string]int{"simple": 0, "whitespace": 0, "stop": 0, "standard": 0}},
+		// WhitespaceAnalyzer splits only on whitespace, so a run of punctuation is one token.
+		{"only punctuation", ".,!?;:", map[string]int{"simple": 0, "whitespace": 1, "stop": 0, "standard": 0}},
+		{"mixed whitespace", "\t\n\r", map[string]int{"simple": 0, "whitespace": 0, "stop": 0, "standard": 0}},
 	}
 
 	for _, analyzer := range analyzers {
@@ -400,8 +401,9 @@ func TestAnalyzers_EmptyAndPunctuation(t *testing.T) {
 				if err != nil {
 					t.Fatalf("TokenStream failed: %v", err)
 				}
-				if len(tokens) != tc.expected {
-					t.Errorf("Expected %d tokens, got %d: %v", tc.expected, len(tokens), tokens)
+				want := tc.expected[analyzer.name]
+				if len(tokens) != want {
+					t.Errorf("Expected %d tokens, got %d: %v", want, len(tokens), tokens)
 				}
 			})
 		}

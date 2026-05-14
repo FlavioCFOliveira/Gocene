@@ -5,10 +5,21 @@
 package util
 
 import (
+	"errors"
 	"sync/atomic"
 )
 
+// ErrAlreadySet is the sentinel returned by [SetOnce.Set] when the
+// slot already holds a value. Callers should match it with errors.Is
+// rather than the deprecated [AlreadySetException] concrete type.
+var ErrAlreadySet = errors.New("the object cannot be set twice")
+
 // AlreadySetException is thrown when SetOnce.Set is called more than once.
+//
+// Kept for Java parity and backwards compatibility. New code should
+// use errors.Is(err, ErrAlreadySet) instead of type-asserting against
+// this concrete type. The instance returned by Set wraps
+// [ErrAlreadySet] so errors.Is matches transparently.
 type AlreadySetException struct {
 	msg string
 }
@@ -20,6 +31,9 @@ func (e *AlreadySetException) Error() string {
 	}
 	return "The object cannot be set twice!"
 }
+
+// Unwrap returns [ErrAlreadySet] so callers may use errors.Is.
+func (e *AlreadySetException) Unwrap() error { return ErrAlreadySet }
 
 // wrapper holds the object and marks that it was already set.
 type wrapper[T any] struct {
@@ -74,4 +88,14 @@ func (s *SetOnce[T]) Get() T {
 // IsSet returns true if the value has been set, false otherwise.
 func (s *SetOnce[T]) IsSet() bool {
 	return s.set.Load() != nil
+}
+
+// Reset clears the slot so the next Set succeeds.
+//
+// Reset is not part of Lucene's SetOnce surface; it exists to support
+// test scaffolding in callers that share a single SetOnce across
+// table-driven cases. Callers must ensure that no concurrent
+// Get/Set/IsSet observer can race with Reset.
+func (s *SetOnce[T]) Reset() {
+	s.set.Store(nil)
 }

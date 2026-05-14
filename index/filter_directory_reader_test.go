@@ -131,7 +131,7 @@ func TestFilterLeafReaderPostings(t *testing.T) {
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 
-	term := Term{Field: "test", Text: "value"}
+	term := *NewTerm("test", "value")
 	postings, err := filterReader.Postings(term)
 	if err != nil {
 		t.Fatalf("Postings returned error: %v", err)

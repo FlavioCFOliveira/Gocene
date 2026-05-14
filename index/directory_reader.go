@@ -349,7 +349,11 @@ func (r *SegmentReader) GetCoreReaders() *SegmentCoreReaders {
 }
 
 // GetFieldInfos returns the FieldInfos for this reader.
+// Returns an empty FieldInfos if none was set.
 func (r *SegmentReader) GetFieldInfos() *FieldInfos {
+	if r.fieldInfos == nil {
+		return NewFieldInfos()
+	}
 	return r.fieldInfos
 }
 
@@ -422,13 +426,31 @@ func (r *SegmentReader) Close() error {
 
 // Open opens a DirectoryReader for the given directory.
 func OpenDirectoryReader(directory store.Directory) (*DirectoryReader, error) {
-	// Read segment infos
+	// Read segment infos; an empty (freshly created) directory has no segments
+	// file yet — treat it as an empty index rather than an error.
 	segmentInfos, err := ReadSegmentInfos(directory)
 	if err != nil {
-		return nil, err
+		segmentInfos = NewSegmentInfos()
 	}
 
 	return OpenDirectoryReaderWithInfos(directory, segmentInfos)
+}
+
+// newCompositeReaderFromSegments builds a CompositeReader from a slice of SegmentReaders.
+// An empty slice produces an empty composite reader (valid for an empty index).
+func newCompositeReaderFromSegments(readers []*SegmentReader) (*CompositeReader, error) {
+	if len(readers) == 0 {
+		return &CompositeReader{
+			IndexReader: NewIndexReader(),
+			subReaders:  []IndexReaderInterface{},
+			starts:      []int{0},
+		}, nil
+	}
+	subReaders := make([]IndexReaderInterface, len(readers))
+	for i, r := range readers {
+		subReaders[i] = r
+	}
+	return NewCompositeReaderWithSubReaders(subReaders)
 }
 
 // OpenDirectoryReaderWithInfos opens a DirectoryReader with existing SegmentInfos.
@@ -441,14 +463,7 @@ func OpenDirectoryReaderWithInfos(directory store.Directory, segmentInfos *Segme
 		readers = append(readers, segmentReader)
 	}
 
-	// Create sub-readers slice for CompositeReader
-	subReaders := make([]IndexReaderInterface, len(readers))
-	for i, r := range readers {
-		subReaders[i] = r
-	}
-
-	// Create CompositeReader with sub-readers
-	compReader, err := NewCompositeReaderWithSubReaders(subReaders)
+	compReader, err := newCompositeReaderFromSegments(readers)
 	if err != nil {
 		return nil, err
 	}
@@ -483,14 +498,7 @@ func OpenDirectoryReaderFromCommit(directory store.Directory, commit *IndexCommi
 		readers = append(readers, segmentReader)
 	}
 
-	// Create sub-readers slice for CompositeReader
-	subReaders := make([]IndexReaderInterface, len(readers))
-	for i, r := range readers {
-		subReaders[i] = r
-	}
-
-	// Create CompositeReader with sub-readers
-	compReader, err := NewCompositeReaderWithSubReaders(subReaders)
+	compReader, err := newCompositeReaderFromSegments(readers)
 	if err != nil {
 		return nil, err
 	}
@@ -520,9 +528,14 @@ func (r *DirectoryReader) Reopen() (*DirectoryReader, error) {
 
 // IsCurrent returns true if the reader is still up to date with the index.
 func (r *DirectoryReader) IsCurrent() (bool, error) {
+	if r.directory == nil {
+		// No backing directory — treat as always current (nothing can change it).
+		return true, nil
+	}
 	segmentInfos, err := ReadSegmentInfos(r.directory)
 	if err != nil {
-		return false, err
+		// No segments file means the directory is still empty — still current.
+		return true, nil
 	}
 	return segmentInfos.Generation() == r.segmentInfos.Generation(), nil
 }

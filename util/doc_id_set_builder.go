@@ -18,6 +18,13 @@ type BulkAdder interface {
 	AddBatch(docs []int)
 	// AddIterator adds all document IDs from a DocIdSetIterator.
 	AddIterator(iter DocIdSetIterator) error
+	// AddIntsRef adds every document ID in the IntsRef's valid range.
+	// Equivalent to Java's add(IntsRef docs).
+	AddIntsRef(docs *IntsRef)
+	// AddIntsRefBounded adds every document ID in the IntsRef's
+	// valid range whose value is >= docLowerBoundInclusive.
+	// Equivalent to Java's add(IntsRef docs, int docLowerBoundInclusive).
+	AddIntsRefBounded(docs *IntsRef, docLowerBoundInclusive int)
 }
 
 // FixedBitSetAdder adds documents to a FixedBitSet.
@@ -50,6 +57,31 @@ func (f *FixedBitSetAdder) AddIterator(iter DocIdSetIterator) error {
 		f.bitSet.Set(doc)
 	}
 	return nil
+}
+
+// AddIntsRef adds every document ID in the IntsRef's valid range.
+func (f *FixedBitSetAdder) AddIntsRef(docs *IntsRef) {
+	if docs == nil {
+		return
+	}
+	end := docs.Offset + docs.Length
+	for i := docs.Offset; i < end; i++ {
+		f.bitSet.Set(docs.Ints[i])
+	}
+}
+
+// AddIntsRefBounded adds every document ID in the IntsRef's valid
+// range whose value is >= docLowerBoundInclusive.
+func (f *FixedBitSetAdder) AddIntsRefBounded(docs *IntsRef, docLowerBoundInclusive int) {
+	if docs == nil {
+		return
+	}
+	end := docs.Offset + docs.Length
+	for i := docs.Offset; i < end; i++ {
+		if docs.Ints[i] >= docLowerBoundInclusive {
+			f.bitSet.Set(docs.Ints[i])
+		}
+	}
 }
 
 // Ensure FixedBitSetAdder implements BulkAdder
@@ -91,6 +123,31 @@ func (b *BufferAdder) AddIterator(iter DocIdSetIterator) error {
 		b.Add(doc)
 	}
 	return nil
+}
+
+// AddIntsRef appends every document ID in the IntsRef's valid range.
+func (b *BufferAdder) AddIntsRef(docs *IntsRef) {
+	if docs == nil {
+		return
+	}
+	end := docs.Offset + docs.Length
+	for i := docs.Offset; i < end; i++ {
+		b.Add(docs.Ints[i])
+	}
+}
+
+// AddIntsRefBounded appends every document ID in the IntsRef's valid
+// range whose value is >= docLowerBoundInclusive.
+func (b *BufferAdder) AddIntsRefBounded(docs *IntsRef, docLowerBoundInclusive int) {
+	if docs == nil {
+		return
+	}
+	end := docs.Offset + docs.Length
+	for i := docs.Offset; i < end; i++ {
+		if docs.Ints[i] >= docLowerBoundInclusive {
+			b.Add(docs.Ints[i])
+		}
+	}
 }
 
 // Ensure BufferAdder implements BulkAdder

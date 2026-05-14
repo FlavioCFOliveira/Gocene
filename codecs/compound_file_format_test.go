@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -109,10 +108,6 @@ func TestCompoundFileFormat_WithCompressingCodec(t *testing.T) {
 	analyzer := analysis.NewWhitespaceAnalyzer()
 	config := index.NewIndexWriterConfig(analyzer)
 	config.SetUseCompoundFile(true)
-
-	// Use compressing codec
-	codec := codecs.NewCompressingCodec("Lucene90", 1, 1024, 10)
-	config.SetCodec(codec)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {

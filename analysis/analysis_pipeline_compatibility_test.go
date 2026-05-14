@@ -6,16 +6,110 @@ package analysis_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // GC-903: Analysis Pipeline Compatibility
 // These tests validate that all analyzers, tokenizers, and filters
 // produce identical tokens to Java Lucene for same input text
 // across all supported languages.
+
+// tokenInfo holds the text and offset information extracted from a token stream.
+type tokenInfo struct {
+	text        string
+	startOffset int
+	endOffset   int
+}
+
+func (ti tokenInfo) String() string   { return ti.text }
+func (ti tokenInfo) StartOffset() int { return ti.startOffset }
+func (ti tokenInfo) EndOffset() int   { return ti.endOffset }
+
+// nextToken advances the token stream by one token and returns the extracted
+// token information, or (nil, nil) when the stream is exhausted.
+func nextToken(ts interface {
+	IncrementToken() (bool, error)
+	GetAttribute(string) analysis.AttributeImpl
+}) (*tokenInfo, error) {
+	ok, err := ts.IncrementToken()
+	if !ok || err != nil {
+		return nil, err
+	}
+
+	var text string
+	if attr := ts.GetAttribute("CharTermAttribute"); attr != nil {
+		if termAttr, ok := attr.(analysis.CharTermAttribute); ok {
+			text = termAttr.String()
+		}
+	}
+
+	ti := &tokenInfo{text: text}
+
+	if attr := ts.GetAttribute("OffsetAttribute"); attr != nil {
+		if offsetAttr, ok := attr.(analysis.OffsetAttribute); ok {
+			ti.startOffset = offsetAttr.StartOffset()
+			ti.endOffset = offsetAttr.EndOffset()
+		}
+	}
+
+	return ti, nil
+}
+
+// collectTokenStrings drains a token stream, returning all token texts.
+func collectTokenStrings(ts interface {
+	IncrementToken() (bool, error)
+	GetAttribute(string) analysis.AttributeImpl
+}) ([]string, error) {
+	var tokens []string
+	for {
+		ti, err := nextToken(ts)
+		if err != nil {
+			return nil, err
+		}
+		if ti == nil {
+			break
+		}
+		tokens = append(tokens, ti.text)
+	}
+	return tokens, nil
+}
+
+// collectFromAnalyzer drains the TokenStream returned by an Analyzer.
+func collectFromAnalyzer(a analysis.Analyzer, field, text string) ([]string, error) {
+	ts, err := a.TokenStream(field, strings.NewReader(text))
+	if err != nil {
+		return nil, err
+	}
+	defer ts.Close()
+
+	// TokenStream from analyzers embed BaseTokenStream which exposes GetAttribute.
+	type attributeGetter interface {
+		IncrementToken() (bool, error)
+		GetAttribute(string) analysis.AttributeImpl
+	}
+
+	ag, ok := ts.(attributeGetter)
+	if !ok {
+		// Fallback: just count tokens without extracting text.
+		var dummy []string
+		for {
+			hasToken, err := ts.IncrementToken()
+			if err != nil {
+				return nil, err
+			}
+			if !hasToken {
+				break
+			}
+			dummy = append(dummy, "")
+		}
+		return dummy, nil
+	}
+
+	return collectTokenStrings(ag)
+}
 
 // TestAnalysisPipeline_TokenizerWhitespace validates whitespace tokenizer.
 func TestAnalysisPipeline_TokenizerWhitespace(t *testing.T) {
@@ -34,24 +128,17 @@ func TestAnalysisPipeline_TokenizerWhitespace(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("input_%q", tc.input), func(t *testing.T) {
-			reader := util.NewStringReader(tc.input)
-			tokenizer.SetReader(reader)
+			tokenizer.SetReader(strings.NewReader(tc.input))
 
-			var tokens []string
-			for {
-				token, err := tokenizer.NextToken()
-				if err != nil || token == nil {
-					break
-				}
-				tokens = append(tokens, token.String())
+			tokens, err := collectTokenStrings(tokenizer)
+			if err != nil {
+				t.Fatalf("tokenization error: %v", err)
 			}
-
 			if len(tokens) != len(tc.expected) {
 				t.Errorf("expected %d tokens, got %d: %v", len(tc.expected), len(tokens), tokens)
 				return
 			}
-
-			for i := 0; i < len(tokens) && i < len(tc.expected); i++ {
+			for i := range tokens {
 				if tokens[i] != tc.expected[i] {
 					t.Errorf("token %d: expected %q, got %q", i, tc.expected[i], tokens[i])
 				}
@@ -77,24 +164,17 @@ func TestAnalysisPipeline_TokenizerLetter(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("input_%q", tc.input), func(t *testing.T) {
-			reader := util.NewStringReader(tc.input)
-			tokenizer.SetReader(reader)
+			tokenizer.SetReader(strings.NewReader(tc.input))
 
-			var tokens []string
-			for {
-				token, err := tokenizer.NextToken()
-				if err != nil || token == nil {
-					break
-				}
-				tokens = append(tokens, token.String())
+			tokens, err := collectTokenStrings(tokenizer)
+			if err != nil {
+				t.Fatalf("tokenization error: %v", err)
 			}
-
 			if len(tokens) != len(tc.expected) {
 				t.Errorf("expected %d tokens, got %d: %v", len(tc.expected), len(tokens), tokens)
 				return
 			}
-
-			for i := 0; i < len(tokens) && i < len(tc.expected); i++ {
+			for i := range tokens {
 				if tokens[i] != tc.expected[i] {
 					t.Errorf("token %d: expected %q, got %q", i, tc.expected[i], tokens[i])
 				}
@@ -120,24 +200,17 @@ func TestAnalysisPipeline_LowerCaseFilter(t *testing.T) {
 			tokenizer := analysis.NewWhitespaceTokenizer()
 			filter := analysis.NewLowerCaseFilter(tokenizer)
 
-			reader := util.NewStringReader(tc.input)
-			tokenizer.SetReader(reader)
+			tokenizer.SetReader(strings.NewReader(tc.input))
 
-			var tokens []string
-			for {
-				token, err := filter.NextToken()
-				if err != nil || token == nil {
-					break
-				}
-				tokens = append(tokens, token.String())
+			tokens, err := collectTokenStrings(filter)
+			if err != nil {
+				t.Fatalf("tokenization error: %v", err)
 			}
-
 			if len(tokens) != len(tc.expected) {
 				t.Errorf("expected %d tokens, got %d: %v", len(tc.expected), len(tokens), tokens)
 				return
 			}
-
-			for i := 0; i < len(tokens) && i < len(tc.expected); i++ {
+			for i := range tokens {
 				if tokens[i] != tc.expected[i] {
 					t.Errorf("token %d: expected %q, got %q", i, tc.expected[i], tokens[i])
 				}
@@ -148,12 +221,18 @@ func TestAnalysisPipeline_LowerCaseFilter(t *testing.T) {
 
 // TestAnalysisPipeline_StopFilter validates stop word filter.
 func TestAnalysisPipeline_StopFilter(t *testing.T) {
-	stopWords := map[string]struct{}{
+	stopWordSet := map[string]struct{}{
 		"the": {},
 		"a":   {},
 		"an":  {},
 		"is":  {},
 		"are": {},
+	}
+
+	// Convert the set to a slice for NewStopFilter.
+	stopWords := make([]string, 0, len(stopWordSet))
+	for w := range stopWordSet {
+		stopWords = append(stopWords, w)
 	}
 
 	testCases := []struct {
@@ -171,24 +250,17 @@ func TestAnalysisPipeline_StopFilter(t *testing.T) {
 			tokenizer := analysis.NewWhitespaceTokenizer()
 			filter := analysis.NewStopFilter(tokenizer, stopWords)
 
-			reader := util.NewStringReader(tc.input)
-			tokenizer.SetReader(reader)
+			tokenizer.SetReader(strings.NewReader(tc.input))
 
-			var tokens []string
-			for {
-				token, err := filter.NextToken()
-				if err != nil || token == nil {
-					break
-				}
-				tokens = append(tokens, token.String())
+			tokens, err := collectTokenStrings(filter)
+			if err != nil {
+				t.Fatalf("tokenization error: %v", err)
 			}
-
 			if len(tokens) != len(tc.expected) {
 				t.Errorf("expected %d tokens, got %d: %v", len(tc.expected), len(tokens), tokens)
 				return
 			}
-
-			for i := 0; i < len(tokens) && i < len(tc.expected); i++ {
+			for i := range tokens {
 				if tokens[i] != tc.expected[i] {
 					t.Errorf("token %d: expected %q, got %q", i, tc.expected[i], tokens[i])
 				}
@@ -216,24 +288,17 @@ func TestAnalysisPipeline_PorterStemFilter(t *testing.T) {
 			lowerFilter := analysis.NewLowerCaseFilter(tokenizer)
 			stemFilter := analysis.NewPorterStemFilter(lowerFilter)
 
-			reader := util.NewStringReader(tc.input)
-			tokenizer.SetReader(reader)
+			tokenizer.SetReader(strings.NewReader(tc.input))
 
-			var tokens []string
-			for {
-				token, err := stemFilter.NextToken()
-				if err != nil || token == nil {
-					break
-				}
-				tokens = append(tokens, token.String())
+			tokens, err := collectTokenStrings(stemFilter)
+			if err != nil {
+				t.Fatalf("tokenization error: %v", err)
 			}
-
 			if len(tokens) != len(tc.expected) {
 				t.Errorf("expected %d tokens, got %d: %v", len(tc.expected), len(tokens), tokens)
 				return
 			}
-
-			for i := 0; i < len(tokens) && i < len(tc.expected); i++ {
+			for i := range tokens {
 				if tokens[i] != tc.expected[i] {
 					t.Errorf("token %d: expected %q, got %q", i, tc.expected[i], tokens[i])
 				}
@@ -257,26 +322,15 @@ func TestAnalysisPipeline_AnalyzerWhitespace(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("input_%q", tc.input), func(t *testing.T) {
-			tokenStream, err := analyzer.Tokenize("field", tc.input)
+			tokens, err := collectFromAnalyzer(analyzer, "field", tc.input)
 			if err != nil {
 				t.Fatalf("failed to tokenize: %v", err)
 			}
-
-			var tokens []string
-			for {
-				token, err := tokenStream.NextToken()
-				if err != nil || token == nil {
-					break
-				}
-				tokens = append(tokens, token.String())
-			}
-
 			if len(tokens) != len(tc.expected) {
 				t.Errorf("expected %d tokens, got %d: %v", len(tc.expected), len(tokens), tokens)
 				return
 			}
-
-			for i := 0; i < len(tokens) && i < len(tc.expected); i++ {
+			for i := range tokens {
 				if tokens[i] != tc.expected[i] {
 					t.Errorf("token %d: expected %q, got %q", i, tc.expected[i], tokens[i])
 				}
@@ -300,26 +354,15 @@ func TestAnalysisPipeline_AnalyzerSimple(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("input_%q", tc.input), func(t *testing.T) {
-			tokenStream, err := analyzer.Tokenize("field", tc.input)
+			tokens, err := collectFromAnalyzer(analyzer, "field", tc.input)
 			if err != nil {
 				t.Fatalf("failed to tokenize: %v", err)
 			}
-
-			var tokens []string
-			for {
-				token, err := tokenStream.NextToken()
-				if err != nil || token == nil {
-					break
-				}
-				tokens = append(tokens, token.String())
-			}
-
 			if len(tokens) != len(tc.expected) {
 				t.Errorf("expected %d tokens, got %d: %v", len(tc.expected), len(tokens), tokens)
 				return
 			}
-
-			for i := 0; i < len(tokens) && i < len(tc.expected); i++ {
+			for i := range tokens {
 				if tokens[i] != tc.expected[i] {
 					t.Errorf("token %d: expected %q, got %q", i, tc.expected[i], tokens[i])
 				}
@@ -330,7 +373,7 @@ func TestAnalysisPipeline_AnalyzerSimple(t *testing.T) {
 
 // TestAnalysisPipeline_AnalyzerStandard validates standard analyzer.
 func TestAnalysisPipeline_AnalyzerStandard(t *testing.T) {
-	analyzer := analysis.NewStandardAnalyzer(nil)
+	analyzer := analysis.NewStandardAnalyzer()
 
 	testCases := []struct {
 		input    string
@@ -344,21 +387,12 @@ func TestAnalysisPipeline_AnalyzerStandard(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("input_%q", tc.input), func(t *testing.T) {
-			tokenStream, err := analyzer.Tokenize("field", tc.input)
+			tokens, err := collectFromAnalyzer(analyzer, "field", tc.input)
 			if err != nil {
 				t.Fatalf("failed to tokenize: %v", err)
 			}
-
-			var tokens []string
-			for {
-				token, err := tokenStream.NextToken()
-				if err != nil || token == nil {
-					break
-				}
-				tokens = append(tokens, token.String())
-			}
-
-			// Standard analyzer may behave differently
+			// Standard analyzer may behave differently from Java Lucene;
+			// log the result without asserting exact output.
 			t.Logf("Standard analyzer produced %d tokens: %v", len(tokens), tokens)
 		})
 	}
@@ -366,7 +400,6 @@ func TestAnalysisPipeline_AnalyzerStandard(t *testing.T) {
 
 // TestAnalysisPipeline_MultiLanguage validates multi-language support.
 func TestAnalysisPipeline_MultiLanguage(t *testing.T) {
-	// Test different language inputs
 	testCases := []struct {
 		name     string
 		input    string
@@ -384,26 +417,15 @@ func TestAnalysisPipeline_MultiLanguage(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			tokenStream, err := analyzer.Tokenize("field", tc.input)
+			tokens, err := collectFromAnalyzer(analyzer, "field", tc.input)
 			if err != nil {
 				t.Fatalf("failed to tokenize: %v", err)
 			}
-
-			var tokens []string
-			for {
-				token, err := tokenStream.NextToken()
-				if err != nil || token == nil {
-					break
-				}
-				tokens = append(tokens, token.String())
-			}
-
 			if len(tokens) != len(tc.expected) {
 				t.Errorf("expected %d tokens, got %d: %v", len(tc.expected), len(tokens), tokens)
 				return
 			}
-
-			for i := 0; i < len(tokens) && i < len(tc.expected); i++ {
+			for i := range tokens {
 				if tokens[i] != tc.expected[i] {
 					t.Errorf("token %d: expected %q, got %q", i, tc.expected[i], tokens[i])
 				}
@@ -414,23 +436,13 @@ func TestAnalysisPipeline_MultiLanguage(t *testing.T) {
 
 // TestAnalysisPipeline_Consistency validates token consistency.
 func TestAnalysisPipeline_Consistency(t *testing.T) {
-	// Same input should always produce same output
 	input := "the quick brown fox"
 	analyzer := analysis.NewSimpleAnalyzer()
 
 	for i := 0; i < 10; i++ {
-		tokenStream, err := analyzer.Tokenize("field", input)
+		tokens, err := collectFromAnalyzer(analyzer, "field", input)
 		if err != nil {
-			t.Fatalf("failed to tokenize: %v", err)
-		}
-
-		var tokens []string
-		for {
-			token, err := tokenStream.NextToken()
-			if err != nil || token == nil {
-				break
-			}
-			tokens = append(tokens, token.String())
+			t.Fatalf("run %d: failed to tokenize: %v", i, err)
 		}
 
 		expected := []string{"the", "quick", "brown", "fox"}
@@ -438,8 +450,7 @@ func TestAnalysisPipeline_Consistency(t *testing.T) {
 			t.Errorf("run %d: expected %d tokens, got %d", i, len(expected), len(tokens))
 			continue
 		}
-
-		for j := 0; j < len(tokens); j++ {
+		for j := range tokens {
 			if tokens[j] != expected[j] {
 				t.Errorf("run %d, token %d: expected %q, got %q", i, j, expected[j], tokens[j])
 			}
@@ -451,44 +462,22 @@ func TestAnalysisPipeline_Consistency(t *testing.T) {
 func TestAnalysisPipeline_ReusableTokenStream(t *testing.T) {
 	analyzer := analysis.NewWhitespaceAnalyzer()
 
-	// First tokenization
-	ts1, err := analyzer.Tokenize("field", "hello world")
+	tokens1, err := collectFromAnalyzer(analyzer, "field", "hello world")
 	if err != nil {
-		t.Fatalf("failed to tokenize: %v", err)
+		t.Fatalf("first tokenization failed: %v", err)
 	}
 
-	var tokens1 []string
-	for {
-		token, err := ts1.NextToken()
-		if err != nil || token == nil {
-			break
-		}
-		tokens1 = append(tokens1, token.String())
-	}
-
-	// Second tokenization with same analyzer
-	ts2, err := analyzer.Tokenize("field", "foo bar baz")
+	tokens2, err := collectFromAnalyzer(analyzer, "field", "foo bar baz")
 	if err != nil {
-		t.Fatalf("failed to tokenize: %v", err)
+		t.Fatalf("second tokenization failed: %v", err)
 	}
 
-	var tokens2 []string
-	for {
-		token, err := ts2.NextToken()
-		if err != nil || token == nil {
-			break
-		}
-		tokens2 = append(tokens2, token.String())
-	}
-
-	// Verify second result
 	expected := []string{"foo", "bar", "baz"}
 	if len(tokens2) != len(expected) {
 		t.Errorf("expected %d tokens, got %d: %v", len(expected), len(tokens2), tokens2)
 		return
 	}
-
-	for i := 0; i < len(tokens2); i++ {
+	for i := range tokens2 {
 		if tokens2[i] != expected[i] {
 			t.Errorf("token %d: expected %q, got %q", i, expected[i], tokens2[i])
 		}
@@ -506,25 +495,15 @@ func TestAnalysisPipeline_EmptyInput(t *testing.T) {
 	}{
 		{"Whitespace", analysis.NewWhitespaceAnalyzer()},
 		{"Simple", analysis.NewSimpleAnalyzer()},
-		{"Standard", analysis.NewStandardAnalyzer(nil)},
+		{"Standard", analysis.NewStandardAnalyzer()},
 	}
 
 	for _, a := range analyzers {
 		t.Run(a.name, func(t *testing.T) {
-			tokenStream, err := a.analyzer.Tokenize("field", "")
+			tokens, err := collectFromAnalyzer(a.analyzer, "field", "")
 			if err != nil {
 				t.Fatalf("failed to tokenize: %v", err)
 			}
-
-			var tokens []string
-			for {
-				token, err := tokenStream.NextToken()
-				if err != nil || token == nil {
-					break
-				}
-				tokens = append(tokens, token.String())
-			}
-
 			if len(tokens) != 0 {
 				t.Errorf("expected 0 tokens for empty input, got %d: %v", len(tokens), tokens)
 			}
@@ -534,30 +513,27 @@ func TestAnalysisPipeline_EmptyInput(t *testing.T) {
 
 // TestAnalysisPipeline_PositionIncrement validates position increments.
 func TestAnalysisPipeline_PositionIncrement(t *testing.T) {
-	// Test that position increments are correctly set
 	input := "one two three"
 	tokenizer := analysis.NewWhitespaceTokenizer()
-	reader := util.NewStringReader(input)
-	tokenizer.SetReader(reader)
+	tokenizer.SetReader(strings.NewReader(input))
 
-	expectedPositions := []int{1, 1, 1}
-	pos := 0
+	expectedCount := 3
+	count := 0
 
 	for {
-		token, err := tokenizer.NextToken()
-		if err != nil || token == nil {
+		ti, err := nextToken(tokenizer)
+		if err != nil {
+			t.Fatalf("tokenization error: %v", err)
+		}
+		if ti == nil {
 			break
 		}
-
-		if pos < len(expectedPositions) {
-			// Position increment should be 1 for consecutive tokens
-			t.Logf("Token %q at position increment %d", token.String(), expectedPositions[pos])
-		}
-		pos++
+		t.Logf("Token %q at offsets [%d, %d)", ti.text, ti.startOffset, ti.endOffset)
+		count++
 	}
 
-	if pos != len(expectedPositions) {
-		t.Errorf("expected %d tokens, got %d", len(expectedPositions), pos)
+	if count != expectedCount {
+		t.Errorf("expected %d tokens, got %d", expectedCount, count)
 	}
 }
 
@@ -565,23 +541,24 @@ func TestAnalysisPipeline_PositionIncrement(t *testing.T) {
 func TestAnalysisPipeline_TokenAttributes(t *testing.T) {
 	input := "Hello World"
 	tokenizer := analysis.NewWhitespaceTokenizer()
-	reader := util.NewStringReader(input)
-	tokenizer.SetReader(reader)
+	tokenizer.SetReader(strings.NewReader(input))
 
-	tokens := make([]*analysis.Token, 0)
+	var tokens []*tokenInfo
 	for {
-		token, err := tokenizer.NextToken()
-		if err != nil || token == nil {
+		ti, err := nextToken(tokenizer)
+		if err != nil {
+			t.Fatalf("tokenization error: %v", err)
+		}
+		if ti == nil {
 			break
 		}
-		tokens = append(tokens, token)
+		tokens = append(tokens, ti)
 	}
 
 	if len(tokens) != 2 {
 		t.Fatalf("expected 2 tokens, got %d", len(tokens))
 	}
 
-	// Verify each token has required attributes
 	for i, token := range tokens {
 		if token.String() == "" {
 			t.Errorf("token %d has empty string", i)
@@ -602,13 +579,17 @@ func BenchmarkAnalysisPipeline_Whitespace(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		ts, _ := analyzer.Tokenize("field", input)
+		ts, _ := analyzer.TokenStream("field", strings.NewReader(input))
+		if ts == nil {
+			continue
+		}
 		for {
-			token, err := ts.NextToken()
-			if err != nil || token == nil {
+			ok, err := ts.IncrementToken()
+			if !ok || err != nil {
 				break
 			}
 		}
+		ts.Close()
 	}
 }
 
@@ -619,12 +600,16 @@ func BenchmarkAnalysisPipeline_Simple(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		ts, _ := analyzer.Tokenize("field", input)
+		ts, _ := analyzer.TokenStream("field", strings.NewReader(input))
+		if ts == nil {
+			continue
+		}
 		for {
-			token, err := ts.NextToken()
-			if err != nil || token == nil {
+			ok, err := ts.IncrementToken()
+			if !ok || err != nil {
 				break
 			}
 		}
+		ts.Close()
 	}
 }
