@@ -75,3 +75,14 @@ type IOConsumer[T any] func(T) error
 //
 //	lucene/core/src/java/org/apache/lucene/util/IOFunction.java
 type IOFunction[T any, R any] func(T) (R, error)
+
+// IORunnable is the Go port of org.apache.lucene.util.IORunnable.
+//
+// Java declares it as a @FunctionalInterface whose single method
+// {@code void run() throws IOException} performs an action and may
+// raise an IOException. The Go port returns an error.
+//
+// Lucene 10.4.0 reference:
+//
+//	lucene/core/src/java/org/apache/lucene/util/IORunnable.java
+type IORunnable func() error

@@ -117,3 +117,19 @@ func TestIOFunction(t *testing.T) {
 		}
 	})
 }
+
+func TestIORunnable(t *testing.T) {
+	t.Run("invocation runs", func(t *testing.T) {
+		var ran bool
+		var r IORunnable = func() error { ran = true; return nil }
+		if err := r(); err != nil || !ran {
+			t.Fatalf("got err=%v ran=%v", err, ran)
+		}
+	})
+	t.Run("propagates error", func(t *testing.T) {
+		var r IORunnable = func() error { return errSentinel }
+		if err := r(); err != errSentinel {
+			t.Fatalf("got %v want errSentinel", err)
+		}
+	})
+}
