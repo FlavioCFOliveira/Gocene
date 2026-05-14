@@ -41,6 +41,14 @@ const (
 // LuceneVersion is the current Lucene version that Gocene is compatible with.
 var LuceneVersion = NewVersion(LuceneVersionMajor, LuceneVersionMinor, LuceneVersionBugfix)
 
+// Latest is the Go equivalent of org.apache.lucene.util.Version.LATEST. It
+// aliases LuceneVersion for parity with Lucene's naming.
+var Latest = LuceneVersion
+
+// MinSupportedMajor is the lowest major index version Gocene can read,
+// matching Lucene's Version.MIN_SUPPORTED_MAJOR (LATEST.major - 1).
+const MinSupportedMajor = LuceneVersionMajor - 1
+
 // NewVersion creates a new Version with the given major, minor, and bugfix numbers.
 func NewVersion(major, minor, bugfix int) *Version {
 	return &Version{
@@ -58,6 +66,23 @@ func NewVersionWithPrerelease(major, minor, bugfix int, prerelease string) *Vers
 		Bugfix:     bugfix,
 		Prerelease: prerelease,
 	}
+}
+
+// Parse parses a version string in the canonical "major.minor.bugfix" form
+// and also accepts Lucene's "major_minor_bugfix" alternative spelling used by
+// constant names like LUCENE_10_4_0. The leading "LUCENE_" prefix is stripped
+// when present. Returns the parsed Version or an error describing why
+// parsing failed.
+func Parse(s string) (*Version, error) {
+	if s == "" {
+		return nil, fmt.Errorf("empty version string")
+	}
+	trimmed := strings.TrimPrefix(s, "LUCENE_")
+	// Normalise "_" separators to "." so ParseVersion can do the heavy lifting.
+	if strings.ContainsRune(trimmed, '_') {
+		trimmed = strings.ReplaceAll(trimmed, "_", ".")
+	}
+	return ParseVersion(trimmed)
 }
 
 // ParseVersion parses a version string in the format "major.minor.bugfix" or "major.minor.bugfix-prerelease".
