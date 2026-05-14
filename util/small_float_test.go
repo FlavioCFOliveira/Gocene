@@ -1,303 +1,236 @@
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
-
+//
 // Source: lucene/core/src/test/org/apache/lucene/util/TestSmallFloat.java
-// Purpose: Tests for SmallFloat byte encoding/decoding including byte-to-float
-//          and float-to-byte conversions, overflow/underflow handling, and edge cases.
+// Purpose: byte-level parity for SmallFloat encoders.
 
 package util
 
 import (
 	"math"
+	"math/rand"
 	"testing"
 )
 
-// TestByteToFloat315_Zero tests that byte 0 decodes to float 0
-func TestByteToFloat315_Zero(t *testing.T) {
-	result := ByteToFloat315(0)
-	if result != 0 {
-		t.Errorf("ByteToFloat315(0): expected 0, got %v", result)
+// orig315 mirrors the Java reference implementation. Used as a slow
+// oracle to validate the optimised implementation byte-for-byte.
+func origFloatToByte(f float32, numMantissaBits, zeroExp int) byte {
+	if f < 0 {
+		f = 0
+	}
+	if f == 0 {
+		return 0
+	}
+	bits := int32(math.Float32bits(f))
+	smallfloat := int(bits >> (24 - numMantissaBits))
+	fzero := (63 - zeroExp) << numMantissaBits
+	switch {
+	case smallfloat <= fzero:
+		return 1
+	case smallfloat >= fzero+0x100:
+		return 0xFF
+	default:
+		return byte(smallfloat - fzero)
 	}
 }
 
-// TestByteToFloat315_AllByteValues tests that all byte values decode without panic
-func TestByteToFloat315_AllByteValues(t *testing.T) {
+func TestSmallFloat_ByteToFloatRoundTripAllBytes_315(t *testing.T) {
 	for i := 0; i < 256; i++ {
-		_ = ByteToFloat315(byte(i))
-	}
-}
-
-// TestByteToFloat315_Monotonicity tests that byte values map to monotonically increasing floats
-func TestByteToFloat315_Monotonicity(t *testing.T) {
-	var prev float32 = -1
-	for i := 0; i < 256; i++ {
-		f := ByteToFloat315(byte(i))
-		if f < prev {
-			t.Errorf("ByteToFloat315(%d) = %v, but previous value was %v (not monotonic)", i, f, prev)
-		}
-		prev = f
-	}
-}
-
-// TestByteToFloat315_PositiveValues tests that all non-zero bytes decode to positive values
-func TestByteToFloat315_PositiveValues(t *testing.T) {
-	for i := 1; i < 256; i++ {
-		f := ByteToFloat315(byte(i))
-		if f <= 0 {
-			t.Errorf("ByteToFloat315(%d) = %v, expected positive value", i, f)
-		}
-	}
-}
-
-// TestFloatToByte315_Zero tests float to byte conversion for zero
-func TestFloatToByte315_Zero(t *testing.T) {
-	result := FloatToByte315(0)
-	if result != 0 {
-		t.Errorf("FloatToByte315(0): expected 0, got %d", result)
-	}
-}
-
-// TestFloatToByte315_NegativeValues tests negative value handling
-// NOTE: Current implementation does not properly handle negative values
-func TestFloatToByte315_NegativeValues(t *testing.T) {
-	// Test that negative values are handled (implementation may need fixing)
-	testCases := []float32{
-		-math.SmallestNonzeroFloat32,
-		-math.MaxFloat32,
-		-1.0,
-		-0.5,
-		-1000.0,
-		float32(math.Inf(-1)),
-	}
-
-	for _, f := range testCases {
-		// Just verify no panic occurs
-		result := FloatToByte315(f)
-		// According to Lucene spec, negatives should round up to 0
-		// Current implementation has a bug - this documents actual behavior
-		_ = result
-	}
-}
-
-// TestFloatToByte315_PositiveValues tests that positive values encode without panic
-func TestFloatToByte315_PositiveValues(t *testing.T) {
-	testCases := []float32{
-		math.SmallestNonzeroFloat32,
-		1.0,
-		10.0,
-		100.0,
-		1000.0,
-		float32(math.Inf(1)),
-	}
-
-	for _, f := range testCases {
-		// Just verify no panic occurs
-		_ = FloatToByte315(f)
-	}
-}
-
-// TestFloatToByte315_Overflow tests overflow handling
-// NOTE: Current implementation may not handle overflow correctly
-func TestFloatToByte315_Overflow(t *testing.T) {
-	// Just verify no panic occurs for large values
-	_ = FloatToByte315(math.MaxFloat32)
-	_ = FloatToByte315(float32(math.Inf(1)))
-}
-
-// TestFloatToByte315_Underflow tests underflow handling
-// NOTE: Current implementation may not handle underflow correctly
-func TestFloatToByte315_Underflow(t *testing.T) {
-	// Just verify no panic occurs for very small values
-	_ = FloatToByte315(math.SmallestNonzeroFloat32)
-}
-
-// TestFloatToByte315_NaN tests that NaN is handled without panic
-func TestFloatToByte315_NaN(t *testing.T) {
-	// Just verify NaN doesn't panic
-	_ = FloatToByte315(float32(math.NaN()))
-}
-
-// TestFloatToByte315_RandomValues tests float to byte conversion with random values
-func TestFloatToByte315_RandomValues(t *testing.T) {
-	// Test with many random values - just verify no panic
-	for i := 0; i < 100000; i++ {
-		bits := uint32(RandomInt())
-		f := math.Float32frombits(bits)
-		_ = FloatToByte315(f)
-	}
-}
-
-// TestRoundTrip_ByteToFloatToByte tests that byte->float->byte is consistent
-func TestRoundTrip_ByteToFloatToByte(t *testing.T) {
-	for i := 0; i < 256; i++ {
-		b1 := byte(i)
-		f := ByteToFloat315(b1)
+		b := byte(i)
+		f := Byte315ToFloat(b)
 		b2 := FloatToByte315(f)
-
-		// Note: Not all byte values round-trip exactly due to precision loss
-		// But byte 0 should always round-trip to 0
-		if i == 0 && b2 != 0 {
-			t.Errorf("Round-trip failed for 0: got %d", b2)
-		}
-	}
-}
-
-// TestRoundTrip_FloatToByteToFloat tests that float->byte->float is consistent
-func TestRoundTrip_FloatToByteToFloat(t *testing.T) {
-	// Test with specific values
-	testValues := []float32{
-		0, 1, 2, 4, 8, 16, 32, 64, 128, 256,
-		0.5, 0.25, 0.125,
-		10, 100, 1000,
-	}
-
-	for _, f := range testValues {
-		b := FloatToByte315(f)
-		f2 := ByteToFloat315(b)
-		b2 := FloatToByte315(f2)
-
-		// The second encoding should match the first
 		if b != b2 {
-			t.Errorf("FloatToByte315(ByteToFloat315(FloatToByte315(%v))): expected %d, got %d", f, b, b2)
+			t.Fatalf("round-trip 315 failed for byte %d: got %d (f=%v)", b, b2, f)
 		}
 	}
 }
 
-// TestByteToFloat52_Zero tests that byte 0 decodes to float 0
-func TestByteToFloat52_Zero(t *testing.T) {
-	result := ByteToFloat52(0)
-	if result != 0 {
-		t.Errorf("ByteToFloat52(0): expected 0, got %v", result)
-	}
-}
-
-// TestByteToFloat52_AllByteValues tests that all byte values decode without panic
-func TestByteToFloat52_AllByteValues(t *testing.T) {
-	for i := 0; i < 256; i++ {
-		_ = ByteToFloat52(byte(i))
-	}
-}
-
-// TestByteToFloat52_Monotonicity tests that byte values map to monotonically increasing floats
-func TestByteToFloat52_Monotonicity(t *testing.T) {
-	var prev float32 = -1
-	for i := 0; i < 256; i++ {
-		f := ByteToFloat52(byte(i))
-		if f < prev {
-			t.Errorf("ByteToFloat52(%d) = %v, but previous value was %v (not monotonic)", i, f, prev)
+func TestSmallFloat_ByteToFloatRoundTripAllBytes_Generic(t *testing.T) {
+	// Iterate over the (numMantissaBits, zeroExp) configurations Lucene
+	// actually uses (and the broader range still produces valid IEEE
+	// floats). The pair (nm=1, ze=0) overflows the sign bit and is
+	// not a supported configuration in Lucene.
+	for nm := 2; nm <= 5; nm++ {
+		for ze := nm; ze <= 32; ze++ {
+			for i := 0; i < 256; i++ {
+				b := byte(i)
+				f := ByteToFloat(b, nm, ze)
+				b2 := FloatToByte(f, nm, ze)
+				if b != b2 {
+					t.Fatalf("round-trip generic failed for nm=%d ze=%d byte=%d: got %d (f=%v)", nm, ze, b, b2, f)
+				}
+			}
 		}
-		prev = f
 	}
 }
 
-// TestFloatToByte52_Zero tests the 5-bit mantissa, 2-bit exponent encoding for zero
-func TestFloatToByte52_Zero(t *testing.T) {
-	result := FloatToByte52(0)
-	if result != 0 {
-		t.Errorf("FloatToByte52(0): expected 0, got %d", result)
+func TestSmallFloat_NegativeMapsToZero(t *testing.T) {
+	for _, f := range []float32{-1, -math.MaxFloat32, -math.SmallestNonzeroFloat32} {
+		if FloatToByte315(f) != 0 {
+			t.Fatalf("FloatToByte315(%v) want 0", f)
+		}
+		if FloatToByte(f, 3, 15) != 0 {
+			t.Fatalf("FloatToByte(%v) want 0", f)
+		}
 	}
 }
 
-// TestFloatToByte52_NegativeValues tests negative value handling
-// NOTE: Current implementation does not properly handle negative values
-func TestFloatToByte52_NegativeValues(t *testing.T) {
-	// Just verify no panic occurs
-	_ = FloatToByte52(-1)
-	_ = FloatToByte52(-100)
-	_ = FloatToByte52(float32(math.Inf(-1)))
+func TestSmallFloat_UnderflowRoundsUpToOne(t *testing.T) {
+	f := float32(math.SmallestNonzeroFloat32)
+	if b := FloatToByte315(f); b != 1 {
+		t.Fatalf("underflow 315: got %d want 1", b)
+	}
+	if b := FloatToByte(f, 3, 15); b != 1 {
+		t.Fatalf("underflow generic: got %d want 1", b)
+	}
 }
 
-// TestFloatToByte52_Overflow tests overflow handling
-// NOTE: Current implementation may not handle overflow correctly
-func TestFloatToByte52_Overflow(t *testing.T) {
-	// Just verify no panic occurs for large values
-	_ = FloatToByte52(math.MaxFloat32)
-	_ = FloatToByte52(float32(math.Inf(1)))
+func TestSmallFloat_OverflowSaturates(t *testing.T) {
+	f := float32(math.MaxFloat32)
+	if b := FloatToByte315(f); b != 0xFF {
+		t.Fatalf("overflow 315: got %d want 0xFF", b)
+	}
+	if b := FloatToByte(f, 3, 15); b != 0xFF {
+		t.Fatalf("overflow generic: got %d want 0xFF", b)
+	}
 }
 
-// TestFloatToByte52_Underflow tests underflow handling
-// NOTE: Current implementation may not handle underflow correctly
-func TestFloatToByte52_Underflow(t *testing.T) {
-	// Just verify no panic occurs for very small values
-	_ = FloatToByte52(math.SmallestNonzeroFloat32)
+func TestSmallFloat_ByteToFloat315IsMonotonic(t *testing.T) {
+	prev := float32(-1)
+	for i := 0; i < 256; i++ {
+		v := Byte315ToFloat(byte(i))
+		if v < prev {
+			t.Fatalf("non-monotonic at byte %d: %v < %v", i, v, prev)
+		}
+		prev = v
+	}
 }
 
-// TestFloatToByte52_RandomValues tests float to byte conversion with random values
-func TestFloatToByte52_RandomValues(t *testing.T) {
-	// Test with many random values - just verify no panic
-	for i := 0; i < 100000; i++ {
-		bits := uint32(RandomInt())
+func TestSmallFloat_RandomFloatAgainstOracle(t *testing.T) {
+	rng := rand.New(rand.NewSource(42))
+	for k := 0; k < 100_000; k++ {
+		bits := rng.Uint32()
 		f := math.Float32frombits(bits)
-		_ = FloatToByte52(f)
+		if math.IsNaN(float64(f)) {
+			continue
+		}
+		want315 := origFloatToByte(f, 3, 15)
+		if got := FloatToByte315(f); got != want315 {
+			t.Fatalf("FloatToByte315 mismatch f=%v: got %d want %d", f, got, want315)
+		}
+		if got := FloatToByte(f, 3, 15); got != want315 {
+			t.Fatalf("FloatToByte mismatch f=%v: got %d want %d", f, got, want315)
+		}
 	}
 }
 
-// TestRoundTrip52_ByteToFloatToByte tests round-trip for 52 format
-func TestRoundTrip52_ByteToFloatToByte(t *testing.T) {
+func TestSmallFloat_FloatToByte315KnownVectors(t *testing.T) {
+	// Vectors derived from the Lucene 10.4.0 algorithm with
+	// numMantissaBits=3, zeroExp=15 and verified bit-by-bit against
+	// the reference implementation.
+	//
+	//   smallfloat = floatBits >> 21
+	//   fzero      = (63 - 15) << 3 = 384
+	//   byte       = smallfloat - fzero (clamped to [1, 0xFF])
+	cases := []struct {
+		f float32
+		b byte
+	}{
+		{0, 0},
+		{1, 124},   // 0x3F800000 >> 21 = 508; 508-384 = 124
+		{2, 128},   // 0x40000000 >> 21 = 512; 512-384 = 128
+		{0.5, 120}, // 0x3F000000 >> 21 = 504; 504-384 = 120
+		{0.125, 112},
+		{1e9, 243},
+	}
+	for _, c := range cases {
+		if got := FloatToByte315(c.f); got != c.b {
+			t.Fatalf("FloatToByte315(%v)=%d want %d", c.f, got, c.b)
+		}
+	}
+}
+
+func TestLongToInt4_RoundTrip(t *testing.T) {
+	for _, v := range []int64{0, 1, 7, 8, 15, 16, 31, 100, 1 << 30, math.MaxInt32} {
+		enc, err := LongToInt4(v)
+		if err != nil {
+			t.Fatalf("LongToInt4(%d): %v", v, err)
+		}
+		got := Int4ToLong(enc)
+		if v < 8 && got != v {
+			t.Fatalf("subnormal LongToInt4 round-trip: %d -> %d -> %d", v, enc, got)
+		}
+		// For normal values we keep the 4 most significant bits, so
+		// the decoded value may lose low-order bits; ensure ordering
+		// is preserved by also testing monotonicity below.
+		_ = got
+	}
+}
+
+func TestLongToInt4_Monotonicity(t *testing.T) {
+	prev := -1
+	for v := int64(0); v < 1024; v++ {
+		enc, err := LongToInt4(v)
+		if err != nil {
+			t.Fatalf("LongToInt4(%d): %v", v, err)
+		}
+		if enc < prev {
+			t.Fatalf("non-monotonic at %d: %d < %d", v, enc, prev)
+		}
+		prev = enc
+	}
+}
+
+func TestLongToInt4_NegativeRejected(t *testing.T) {
+	if _, err := LongToInt4(-1); err == nil {
+		t.Fatal("expected error for negative input")
+	}
+}
+
+func TestIntToByte4_RoundTripBoundary(t *testing.T) {
+	for _, v := range []int{0, 1, 7, NumFreeValues() - 1, NumFreeValues(), NumFreeValues() + 1, math.MaxInt32} {
+		b, err := IntToByte4(v)
+		if err != nil {
+			t.Fatalf("IntToByte4(%d): %v", v, err)
+		}
+		got := Byte4ToInt(b)
+		if v < NumFreeValues() {
+			if got != v {
+				t.Fatalf("free range round-trip lost value: %d -> %d -> %d", v, b, got)
+			}
+		}
+	}
+}
+
+func TestIntToByte4_NegativeRejected(t *testing.T) {
+	if _, err := IntToByte4(-1); err == nil {
+		t.Fatal("expected error for negative input")
+	}
+}
+
+func TestIntToByte4_Monotonicity(t *testing.T) {
+	prev := -1
+	for v := 0; v < 4096; v++ {
+		b, err := IntToByte4(v)
+		if err != nil {
+			t.Fatalf("IntToByte4(%d): %v", v, err)
+		}
+		if int(b) < prev {
+			t.Fatalf("non-monotonic at %d: %d < %d", v, b, prev)
+		}
+		prev = int(b)
+	}
+}
+
+// Preserve the original 5.2 round-trip coverage.
+func TestSmallFloat_ByteToFloatRoundTripAllBytes_52(t *testing.T) {
 	for i := 0; i < 256; i++ {
-		b1 := byte(i)
-		f := ByteToFloat52(b1)
+		b := byte(i)
+		f := ByteToFloat52(b)
 		b2 := FloatToByte52(f)
-
-		// Byte 0 should always round-trip to 0
-		if i == 0 && b2 != 0 {
-			t.Errorf("Round-trip failed for 0: got %d", b2)
-		}
-	}
-}
-
-// TestRoundTrip52_FloatToByteToFloat tests round-trip for 52 format
-func TestRoundTrip52_FloatToByteToFloat(t *testing.T) {
-	// Test with specific values
-	testValues := []float32{
-		0, 1, 2, 4, 8, 16, 32, 64, 128,
-		0.5, 0.25, 0.125,
-	}
-
-	for _, f := range testValues {
-		b := FloatToByte52(f)
-		f2 := ByteToFloat52(b)
-		b2 := FloatToByte52(f2)
-
-		// The second encoding should match the first
 		if b != b2 {
-			t.Errorf("FloatToByte52(ByteToFloat52(FloatToByte52(%v))): expected %d, got %d", f, b, b2)
-		}
-	}
-}
-
-// TestFloatToByte315_SpecificValues tests encoding for specific known values
-func TestFloatToByte315_SpecificValues(t *testing.T) {
-	// Test that specific values produce expected results
-	testCases := []struct {
-		input    float32
-		expected byte
-	}{
-		{0, 0},
-	}
-
-	for _, tc := range testCases {
-		result := FloatToByte315(tc.input)
-		if result != tc.expected {
-			t.Errorf("FloatToByte315(%v): expected %d, got %d", tc.input, tc.expected, result)
-		}
-	}
-}
-
-// TestFloatToByte52_SpecificValues tests encoding for specific known values
-func TestFloatToByte52_SpecificValues(t *testing.T) {
-	testCases := []struct {
-		input    float32
-		expected byte
-	}{
-		{0, 0},
-	}
-
-	for _, tc := range testCases {
-		result := FloatToByte52(tc.input)
-		if result != tc.expected {
-			t.Errorf("FloatToByte52(%v): expected %d, got %d", tc.input, tc.expected, result)
+			t.Fatalf("round-trip 52 failed for byte %d: got %d (f=%v)", b, b2, f)
 		}
 	}
 }
