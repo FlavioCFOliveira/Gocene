@@ -404,6 +404,59 @@ func TestIntSliceIterator(t *testing.T) {
 	}
 }
 
+// TestMergedIteratorG_Strings tests the generic MergedIteratorG[string]
+// against the same behavior the Java MergedIterator<String> exhibits in
+// TestMergedIterator. Source: TestMergedIterator (parameterized over T).
+func TestMergedIteratorG_Strings(t *testing.T) {
+	a := NewSliceIteratorG([]string{"a", "c", "e"})
+	b := NewSliceIteratorG([]string{"b", "c", "d"})
+
+	merged, err := NewMergedIteratorG[string](a, b)
+	if err != nil {
+		t.Fatalf("Failed to create MergedIteratorG: %v", err)
+	}
+
+	want := []string{"a", "b", "c", "d", "e"}
+	got := make([]string, 0, len(want))
+	for merged.HasNext() {
+		got = append(got, merged.Next())
+	}
+	if len(got) != len(want) {
+		t.Fatalf("len=%d want %d (%v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("pos %d: got %q want %q", i, got[i], want[i])
+		}
+	}
+}
+
+// TestMergedIteratorG_KeepDups confirms removeDuplicates=false on the
+// generic variant preserves duplicates across iterators.
+func TestMergedIteratorG_KeepDups(t *testing.T) {
+	a := NewSliceIteratorG([]int{1, 2, 3})
+	b := NewSliceIteratorG([]int{2, 3, 4})
+
+	merged, err := NewMergedIteratorGWithOptions(false, IteratorG[int](a), IteratorG[int](b))
+	if err != nil {
+		t.Fatalf("Failed to create MergedIteratorG: %v", err)
+	}
+
+	want := []int{1, 2, 2, 3, 3, 4}
+	got := make([]int, 0, len(want))
+	for merged.HasNext() {
+		got = append(got, merged.Next())
+	}
+	if len(got) != len(want) {
+		t.Fatalf("len=%d want %d (%v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("pos %d: got %d want %d", i, got[i], want[i])
+		}
+	}
+}
+
 // TestMergedIterator_PanicOnEmptyNext tests that Next panics when empty.
 // Purpose: Verifies error handling for empty iterator
 func TestMergedIterator_PanicOnEmptyNext(t *testing.T) {
