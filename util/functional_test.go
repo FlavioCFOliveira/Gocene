@@ -73,3 +73,25 @@ func TestIOBooleanSupplier(t *testing.T) {
 		}
 	})
 }
+
+func TestIOConsumer(t *testing.T) {
+	t.Run("invocation captures value", func(t *testing.T) {
+		var seen int
+		var c IOConsumer[int] = func(v int) error {
+			seen = v
+			return nil
+		}
+		if err := c(42); err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if seen != 42 {
+			t.Fatalf("seen got %d want 42", seen)
+		}
+	})
+	t.Run("propagates error", func(t *testing.T) {
+		var c IOConsumer[string] = func(string) error { return errSentinel }
+		if err := c("x"); err != errSentinel {
+			t.Fatalf("got %v want errSentinel", err)
+		}
+	})
+}

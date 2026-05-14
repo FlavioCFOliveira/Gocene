@@ -51,3 +51,15 @@ type FloatToFloatFunction func(value float32) float32
 //
 //	lucene/core/src/java/org/apache/lucene/util/IOBooleanSupplier.java
 type IOBooleanSupplier func() (bool, error)
+
+// IOConsumer is the Go port of org.apache.lucene.util.IOConsumer.
+//
+// Java declares it as a generic @FunctionalInterface whose single
+// method {@code void accept(T t) throws IOException} consumes a value
+// and may raise an IOException. In Go it becomes a generic function
+// type that returns error.
+//
+// Lucene 10.4.0 reference:
+//
+//	lucene/core/src/java/org/apache/lucene/util/IOConsumer.java
+type IOConsumer[T any] func(T) error
