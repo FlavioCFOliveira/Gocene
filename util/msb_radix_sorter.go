@@ -50,6 +50,17 @@ type MSBRadixSorter struct {
 	histograms   [msbLevelThreshold][]int32
 	endOffsets   [msbHistogramSize]int32
 	commonPrefix []int
+
+	// reorderFn is an optional override for the bucket-reorder step.
+	// When nil the default Dutch-flag implementation runs. Subclasses
+	// such as [StableMSBRadixSorter] install a stable variant here.
+	reorderFn func(from, to int, startOffsets, endOffsets []int32, k int)
+
+	// fallbackSorterFn is an optional override for the small-bucket
+	// fallback sorter. When nil the default IntroSorter-based path
+	// runs. Stable subclasses install a merge-sort variant here so the
+	// fallback also preserves equal-key ordering.
+	fallbackSorterFn func(from, to, k int)
 }
 
 // NewMSBRadixSorter creates a fresh MSBRadixSorter for keys of at most
@@ -89,7 +100,12 @@ func (s *MSBRadixSorter) shouldFallback(from, to, l int) bool {
 // fallbackSort runs an IntroSorter that assumes the first k bytes of
 // every entry in [from, to) are equal. Mirrors getFallbackSorter(k) in
 // the Java reference, which constructs an inline anonymous IntroSorter.
+// Subclasses can override this dispatch by installing fallbackSorterFn.
 func (s *MSBRadixSorter) fallbackSort(from, to, k int) {
+	if s.fallbackSorterFn != nil {
+		s.fallbackSorterFn(from, to, k)
+		return
+	}
 	adapter := &msbIntroAdapter{owner: s, k: k}
 	NewIntroSorter(adapter).Sort(from, to)
 }
@@ -118,7 +134,11 @@ func (s *MSBRadixSorter) radixSort(from, to, k, l int) {
 	startOffsets := hist
 	endOffsets := s.endOffsets[:]
 	msbSumHistogram(hist, endOffsets)
-	s.reorder(from, to, startOffsets, endOffsets, k)
+	if s.reorderFn != nil {
+		s.reorderFn(from, to, startOffsets, endOffsets, k)
+	} else {
+		s.reorder(from, to, startOffsets, endOffsets, k)
+	}
 	endOffsets = startOffsets
 
 	if k+1 < s.maxLength {
