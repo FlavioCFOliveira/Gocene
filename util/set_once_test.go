@@ -5,10 +5,50 @@
 package util
 
 import (
+	"errors"
 	"sync"
 	"testing"
 	"time"
 )
+
+// TestSetOnce_ErrAlreadySetIsMatchable verifies that the error
+// returned by Set matches the ErrAlreadySet sentinel via errors.Is,
+// independently of the concrete AlreadySetException wrapper.
+func TestSetOnce_ErrAlreadySetIsMatchable(t *testing.T) {
+	s := NewSetOnce[int]()
+	if err := s.Set(1); err != nil {
+		t.Fatalf("first Set: %v", err)
+	}
+	err := s.Set(2)
+	if err == nil {
+		t.Fatal("expected error on second Set")
+	}
+	if !errors.Is(err, ErrAlreadySet) {
+		t.Fatalf("errors.Is(err, ErrAlreadySet) = false; err=%v", err)
+	}
+}
+
+// TestSetOnce_Reset verifies that Reset returns the slot to its
+// initial state so Set can succeed again.
+func TestSetOnce_Reset(t *testing.T) {
+	s := NewSetOnce[int]()
+	if err := s.Set(1); err != nil {
+		t.Fatalf("first Set: %v", err)
+	}
+	if !s.IsSet() {
+		t.Fatal("IsSet=false after Set")
+	}
+	s.Reset()
+	if s.IsSet() {
+		t.Fatal("IsSet=true after Reset")
+	}
+	if err := s.Set(2); err != nil {
+		t.Fatalf("Set after Reset: %v", err)
+	}
+	if got := s.Get(); got != 2 {
+		t.Fatalf("Get()=%d want 2", got)
+	}
+}
 
 // TestSetOnce_EmptyCtor tests that a SetOnce created with the empty constructor
 // returns nil (zero value) when Get is called before setting.
