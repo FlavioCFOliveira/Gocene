@@ -128,9 +128,9 @@ func TestIsValidUTF8(t *testing.T) {
 		nil,
 		[]byte(""),
 		[]byte("ascii"),
-		[]byte("café"),                       // 2-byte UTF-8
-		[]byte("日本語"),                        // 3-byte UTF-8
-		[]byte("\xF0\x9F\x98\x80"),           // 4-byte UTF-8 (😀)
+		[]byte("café"),             // 2-byte UTF-8
+		[]byte("日本語"),              // 3-byte UTF-8
+		[]byte("\xF0\x9F\x98\x80"), // 4-byte UTF-8 (😀)
 	}
 	for i, p := range good {
 		if !isValidUTF8(p) {

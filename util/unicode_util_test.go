@@ -66,8 +66,8 @@ func TestUnicodeUtil_UTF16ToUTF8_Vectors(t *testing.T) {
 		want  []byte
 	}{
 		{"ascii", []uint16{'A', 'B', 'C'}, []byte{0x41, 0x42, 0x43}},
-		{"two-byte", []uint16{0x00A2}, []byte{0xC2, 0xA2}},               // ¢
-		{"three-byte", []uint16{0x20AC}, []byte{0xE2, 0x82, 0xAC}},       // €
+		{"two-byte", []uint16{0x00A2}, []byte{0xC2, 0xA2}},                      // ¢
+		{"three-byte", []uint16{0x20AC}, []byte{0xE2, 0x82, 0xAC}},              // €
 		{"four-byte", []uint16{0xD83D, 0xDE00}, []byte{0xF0, 0x9F, 0x98, 0x80}}, // 😀
 		{"lone high", []uint16{0xD83D}, []byte{0xEF, 0xBF, 0xBD}},
 		{"lone low", []uint16{0xDC00}, []byte{0xEF, 0xBF, 0xBD}},

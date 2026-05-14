@@ -205,4 +205,3 @@ func (it *fixedLengthSortedIter) Next() (*BytesRef, error) {
 	it.pos++
 	return br, nil
 }
-

@@ -291,9 +291,9 @@ func (qb *QueryBuilder) createFieldQuery(operator Occur, field, queryText string
 	}
 
 	type token struct {
-		bytes    []byte
-		posIncr  int
-		posLen   int
+		bytes   []byte
+		posIncr int
+		posLen  int
 	}
 	var tokens []token
 	for {

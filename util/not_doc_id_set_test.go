@@ -44,7 +44,7 @@ func (it *intsDocIdSetIter) Advance(target int) (int, error) {
 		}
 	}
 }
-func (it *intsDocIdSetIter) Cost() int64    { return int64(len(it.docs)) }
+func (it *intsDocIdSetIter) Cost() int64      { return int64(len(it.docs)) }
 func (it *intsDocIdSetIter) DocIDRunEnd() int { return it.doc + 1 }
 
 // TestNotDocIdSet_Complement walks the negated iterator and verifies

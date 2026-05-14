@@ -289,8 +289,8 @@ func TestVectorUtil_FindNextGEQ(t *testing.T) {
 
 // TestVectorUtil_SquareDistanceBytes verifies the signed-byte path.
 func TestVectorUtil_SquareDistanceBytes(t *testing.T) {
-	a := []byte{0, 0, 0xFF}  // 0, 0, -1
-	b := []byte{1, 2, 1}     // 1, 2, 1
+	a := []byte{0, 0, 0xFF} // 0, 0, -1
+	b := []byte{1, 2, 1}    // 1, 2, 1
 	if got := SquareDistanceBytes(a, b); got != 1+4+4 {
 		t.Fatalf("got %d, want %d", got, 1+4+4)
 	}

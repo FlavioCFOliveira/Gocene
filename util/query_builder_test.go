@@ -23,11 +23,11 @@ type fakeToken struct {
 	posLen  int
 }
 
-func (f *fakeTokenStream) Reset() error                  { f.idx = 0; return nil }
-func (f *fakeTokenStream) Close() error                  { return nil }
-func (f *fakeTokenStream) TermBytes() []byte             { return f.tokens[f.idx-1].bytes }
-func (f *fakeTokenStream) PositionIncrement() int        { return f.tokens[f.idx-1].posIncr }
-func (f *fakeTokenStream) PositionLength() int           { return f.tokens[f.idx-1].posLen }
+func (f *fakeTokenStream) Reset() error           { f.idx = 0; return nil }
+func (f *fakeTokenStream) Close() error           { return nil }
+func (f *fakeTokenStream) TermBytes() []byte      { return f.tokens[f.idx-1].bytes }
+func (f *fakeTokenStream) PositionIncrement() int { return f.tokens[f.idx-1].posIncr }
+func (f *fakeTokenStream) PositionLength() int    { return f.tokens[f.idx-1].posLen }
 
 func (f *fakeTokenStream) IncrementToken() (bool, error) {
 	if f.idx >= len(f.tokens) {
@@ -55,7 +55,7 @@ type fakeQueryFactory struct {
 }
 
 type fakeBooleanQuery struct {
-	clauses []QueryLike
+	clauses  []QueryLike
 	minMatch int
 }
 
