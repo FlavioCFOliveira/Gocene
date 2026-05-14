@@ -7,6 +7,7 @@ package util
 import (
 	"bytes"
 	"fmt"
+	"time"
 )
 
 // BytesRefHash is a special purpose hash-map like data-structure optimized for
@@ -417,8 +418,31 @@ func doHash(bytes []byte, offset, length int) int {
 	return MurmurHash3_x86_32(bytes, offset, length, GoodFastHashSeed)
 }
 
-// GoodFastHashSeed is a good seed for fast hashing.
-const GoodFastHashSeed = 0x5a827999 // A constant from the SHA-1 algorithm
+// GoodFastHashSeed is the per-process randomized salt used by
+// MurmurHash3-based hashing. Initialised once at package init() from
+// time.Now().UnixNano() so each process has a distinct distribution,
+// matching Lucene's System.currentTimeMillis()-seeded behaviour.
+//
+// The value is intentionally a var (not a const) to allow per-process
+// variability; tests that need determinism can override it via
+// SetGoodFastHashSeed.
+var GoodFastHashSeed = int(uint32(initGoodFastHashSeed()))
+
+// initGoodFastHashSeed returns the initial seed. Pulled into its own
+// function so the var initializer reads naturally and so tests can
+// recompute the seed deterministically.
+func initGoodFastHashSeed() int64 {
+	// time.Now().UnixNano() always advances, so two processes started
+	// in close succession will still see distinct seeds.
+	return time.Now().UnixNano()
+}
+
+// SetGoodFastHashSeed overrides the per-process seed. Intended for
+// tests that need a stable hash distribution; production callers
+// should not invoke this.
+func SetGoodFastHashSeed(seed int) {
+	GoodFastHashSeed = seed
+}
 
 // IsPowerOfTwo returns true if n is a power of two.
 func IsPowerOfTwo(n int) bool {
