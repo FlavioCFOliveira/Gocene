@@ -72,16 +72,19 @@ func (b *BitSetIterator) Cost() int64 {
 	return b.cost
 }
 
-// DocIDRunEnd returns the end of the current run of consecutive doc IDs.
+// DocIDRunEnd returns the exclusive end of the current run of consecutive doc IDs
+// and advances the iterator to the last set bit in the run.
 func (b *BitSetIterator) DocIDRunEnd() int {
 	if b.doc < 0 || b.doc >= b.length {
 		return b.doc + 1
 	}
-	// Find the end of consecutive set bits
+	// Find the exclusive end of the consecutive run of set bits
 	runEnd := b.doc + 1
 	for runEnd < b.length && b.bits.Get(runEnd) {
 		runEnd++
 	}
+	// Advance to the last set bit in the run (Lucene semantics)
+	b.doc = runEnd - 1
 	return runEnd
 }
 

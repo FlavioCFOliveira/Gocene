@@ -17,7 +17,10 @@ import (
 
 // mmapFile represents a memory-mapped file on Unix systems.
 type mmapFile struct {
-	data   []byte
+	// data is the slice visible to callers, starting at the requested offset.
+	data []byte
+	// raw is the full mmap allocation from the page-aligned offset; used for Munmap.
+	raw    []byte
 	length int64
 	file   *os.File
 }
@@ -47,33 +50,44 @@ func mmap(f *os.File, offset int64, length int64) (*mmapFile, error) {
 		}, nil
 	}
 
-	// Memory map the file at the specified offset
-	// PROT_READ: pages may be read
-	// MAP_SHARED: share this mapping
-	data, err := syscall.Mmap(int(f.Fd()), offset, int(length), syscall.PROT_READ, syscall.MAP_SHARED)
+	// mmap requires the offset to be a multiple of the system page size.
+	// Align the offset down to the nearest page boundary, then adjust the
+	// returned slice so that callers see data starting at the original offset.
+	pageSize := int64(os.Getpagesize())
+	alignedOffset := (offset / pageSize) * pageSize
+	delta := offset - alignedOffset // bytes between aligned offset and requested offset
+
+	raw, err := syscall.Mmap(int(f.Fd()), alignedOffset, int(length+delta), syscall.PROT_READ, syscall.MAP_SHARED)
 	if err != nil {
 		return nil, fmt.Errorf("failed to mmap file at offset %d: %w", offset, err)
 	}
 
+	// data is the caller-visible slice starting at the requested offset.
+	data := raw[delta:]
+
 	// Advise the kernel about sequential access pattern
 	// This helps with read-ahead optimization for Lucene's typically sequential access
 	// Note: We ignore errors from madvise as it's a hint, not a requirement
-	madviseSequential(data)
+	madviseSequential(raw)
 
 	return &mmapFile{
 		data:   data,
+		raw:    raw,
 		length: length,
 		file:   f,
 	}, nil
 }
 
 // unmap unmaps the file from memory.
+// Munmap must be called with the pointer returned by Mmap, which is raw
+// (the page-aligned allocation), not data (the trimmed caller-visible slice).
 func (m *mmapFile) unmap() error {
-	if m.data == nil {
+	if m.raw == nil {
 		return nil
 	}
 
-	err := syscall.Munmap(m.data)
+	err := syscall.Munmap(m.raw)
+	m.raw = nil
 	m.data = nil
 	return err
 }

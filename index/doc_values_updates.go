@@ -388,13 +388,13 @@ func (m *DocValuesUpdateMerger) MergeUpdates(segmentInfos *SegmentInfos) (*DocVa
 
 // DocValuesUpdateApplication applies doc values updates to a segment.
 type DocValuesUpdateApplication struct {
-	reader     IndexReader
+	reader     *IndexReader
 	writer     *DocValuesUpdateWriter
 	commitLock sync.Mutex
 }
 
 // NewDocValuesUpdateApplication creates a new update application.
-func NewDocValuesUpdateApplication(reader IndexReader, writer *DocValuesUpdateWriter) *DocValuesUpdateApplication {
+func NewDocValuesUpdateApplication(reader *IndexReader, writer *DocValuesUpdateWriter) *DocValuesUpdateApplication {
 	return &DocValuesUpdateApplication{
 		reader: reader,
 		writer: writer,

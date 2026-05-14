@@ -196,7 +196,7 @@ func TestFieldInfos_BinaryFields(t *testing.T) {
 
 		// Binary stored field
 		binaryData := []byte{byte(i), byte(i + 1), byte(i + 2)}
-		binaryField, _ := document.NewStoredField("binary_data", binaryData)
+		binaryField, _ := document.NewStoredFieldFromBytes("binary_data", binaryData)
 		doc.Add(binaryField)
 
 		if err := writer.AddDocument(doc); err != nil {

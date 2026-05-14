@@ -139,7 +139,11 @@ func NewQueryBitSetProducer(query search.Query) *QueryBitSetProducer {
 // GetBitSet returns a BitSet of matching documents for the given context.
 func (p *QueryBitSetProducer) GetBitSet(context *index.LeafReaderContext) (*FixedBitSet, error) {
 	reader := context.LeafReader()
-	bitSet := NewFixedBitSet(reader.NumDocs())
+	numDocs := 0
+	if reader != nil {
+		numDocs = reader.NumDocs()
+	}
+	bitSet := NewFixedBitSet(numDocs)
 
 	// Create a simple collector that sets bits for matching documents
 	collector := &bitSetCollector{

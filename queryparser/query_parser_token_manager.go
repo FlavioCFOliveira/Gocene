@@ -173,17 +173,14 @@ func (tm *QueryParserTokenManager) NextToken() Token {
 		return Token{Type: TokenTypeEOF, Value: "", Pos: startPos}
 	}
 
-	// Check for operators (AND, OR, NOT)
-	if tm.isOperator() {
-		return tm.readOperator()
-	}
-
 	// Check for number (after ^ or ~)
 	if unicode.IsDigit(rune(ch)) {
 		return tm.readNumber()
 	}
 
-	// Read term or field
+	// Read term, field, or boolean operator (AND/OR/NOT/TO).
+	// We must NOT pre-dispatch to readOperator() based on the first letter alone:
+	// e.g. "title:test" starts with 'T' but is a field, not the TO operator.
 	return tm.readTermOrField()
 }
 
@@ -209,43 +206,6 @@ func (tm *QueryParserTokenManager) advance() {
 func (tm *QueryParserTokenManager) skipWhitespace() {
 	for tm.pos < tm.len && unicode.IsSpace(rune(tm.current())) {
 		tm.advance()
-	}
-}
-
-// isOperator checks if we're at an operator (AND, OR, NOT, TO).
-func (tm *QueryParserTokenManager) isOperator() bool {
-	if tm.pos >= tm.len {
-		return false
-	}
-	ch := unicode.ToUpper(rune(tm.current()))
-	return ch == 'A' || ch == 'O' || ch == 'N' || ch == 'T'
-}
-
-// readOperator reads an operator token.
-func (tm *QueryParserTokenManager) readOperator() Token {
-	startPos := tm.pos
-	var sb strings.Builder
-
-	for tm.pos < tm.len && unicode.IsLetter(rune(tm.current())) {
-		sb.WriteByte(tm.current())
-		tm.advance()
-	}
-
-	word := strings.ToUpper(sb.String())
-	pos := startPos
-
-	switch word {
-	case "AND":
-		return Token{Type: TokenTypeAND, Value: "AND", Pos: pos}
-	case "OR":
-		return Token{Type: TokenTypeOR, Value: "OR", Pos: pos}
-	case "NOT":
-		return Token{Type: TokenTypeNOT, Value: "NOT", Pos: pos}
-	case "TO":
-		return Token{Type: TokenTypeTO, Value: "TO", Pos: pos}
-	default:
-		// Not an operator, treat as term
-		return Token{Type: TokenTypeTerm, Value: sb.String(), Pos: pos}
 	}
 }
 
@@ -340,6 +300,19 @@ func (tm *QueryParserTokenManager) readTermOrField() Token {
 	}
 	if hasWildcard {
 		return Token{Type: TokenTypeWildcard, Value: term, Pos: startPos}
+	}
+	// Detect boolean operators only after confirming the word is NOT a field
+	// (i.e. not followed by ':'). Operator detection is case-insensitive to
+	// accept both "AND" and "and" forms.
+	switch strings.ToUpper(term) {
+	case "AND":
+		return Token{Type: TokenTypeAND, Value: "AND", Pos: startPos}
+	case "OR":
+		return Token{Type: TokenTypeOR, Value: "OR", Pos: startPos}
+	case "NOT":
+		return Token{Type: TokenTypeNOT, Value: "NOT", Pos: startPos}
+	case "TO":
+		return Token{Type: TokenTypeTO, Value: "TO", Pos: startPos}
 	}
 	return Token{Type: TokenTypeTerm, Value: term, Pos: startPos}
 }

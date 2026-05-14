@@ -93,16 +93,18 @@ func (t *ControlledRealTimeReopenThread) Start() error {
 // Blocks until the thread has finished.
 func (t *ControlledRealTimeReopenThread) Stop() error {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 
 	if !t.isRunning.Load() {
+		t.mu.Unlock()
 		return nil
 	}
 
 	t.isRunning.Store(false)
 	close(t.stopChan)
+	// Release the lock before waiting so the goroutine (which may be holding
+	// an RLock on t.mu) can finish without deadlocking.
+	t.mu.Unlock()
 
-	// Wait for goroutine to finish
 	t.wg.Wait()
 
 	return nil

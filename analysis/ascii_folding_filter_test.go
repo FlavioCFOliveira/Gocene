@@ -21,7 +21,7 @@ func TestASCIIFoldingFilter_Basic(t *testing.T) {
 		{"naïve", "naive"},
 		{"résumé", "resume"},
 		{"über", "uber"},
-		{"Æther", "Aether"},
+		{"Æther", "AEther"},
 		{"naïveté", "naivete"},
 		{"déjà vu", "deja vu"},
 		{"Français", "Francais"},

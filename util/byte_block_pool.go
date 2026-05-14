@@ -332,8 +332,8 @@ func (p *ByteBlockPool) ReadBytes(offset int64, bytes []byte, bytesOffset, bytes
 	}
 }
 
-// ReadByte reads a single byte at the given offset.
-func (p *ByteBlockPool) ReadByte(offset int64) byte {
+// ReadByteAt reads a single byte at the given offset.
+func (p *ByteBlockPool) ReadByteAt(offset int64) byte {
 	bufferIndex := int(offset >> ByteBlockShift)
 	pos := int(offset & ByteBlockMask)
 	return p.buffers[bufferIndex][pos]

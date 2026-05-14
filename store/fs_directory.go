@@ -443,6 +443,29 @@ func NewSimpleFSDirectory(path string) (*SimpleFSDirectory, error) {
 	}, nil
 }
 
+// CreateTempOutput creates a temporary output file with a unique name.
+// Overrides FSDirectory.CreateTempOutput to call SimpleFSDirectory.CreateOutput,
+// avoiding the Go embedding pitfall where the embedded method would dispatch to
+// FSDirectory.CreateOutput (the abstract stub) instead of the concrete override.
+func (d *SimpleFSDirectory) CreateTempOutput(prefix string, suffix string, ctx IOContext) (IndexOutput, error) {
+	if err := d.EnsureOpen(); err != nil {
+		return nil, err
+	}
+
+	// Generate unique filename using os.CreateTemp as a name source.
+	tempFile, err := os.CreateTemp(d.directory, prefix+"*"+suffix)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tempFile.Close()
+	name := filepath.Base(tempFile.Name())
+	if err := os.Remove(tempFile.Name()); err != nil {
+		return nil, fmt.Errorf("failed to remove temp file placeholder: %w", err)
+	}
+
+	return d.CreateOutput(name, ctx)
+}
+
 // OpenInput returns an IndexInput for reading an existing file.
 func (d *SimpleFSDirectory) OpenInput(name string, ctx IOContext) (IndexInput, error) {
 	if err := d.EnsureOpen(); err != nil {

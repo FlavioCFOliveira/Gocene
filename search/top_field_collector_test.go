@@ -451,7 +451,7 @@ func TestTopFieldCollector_RelationVsTopDocsCount(t *testing.T) {
 		if expectedLen > 10 {
 			expectedLen = 10
 		}
-		if int64(len(topDocs.ScoreDocs)) != expectedLen {
+		if len(topDocs.ScoreDocs) != expectedLen {
 			t.Errorf("Expected %d score docs with numHits=%d, got %d", expectedLen, tc.numHits, len(topDocs.ScoreDocs))
 		}
 	}

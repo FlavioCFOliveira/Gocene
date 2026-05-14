@@ -63,6 +63,9 @@ const DefaultCheckEvery = 1024
 // The config parameter specifies the timeout behavior. If config.QueryContext is nil,
 // the function will return an error.
 func NewExitableDirectoryReader(in *DirectoryReader, config ExitableReaderConfig) (*ExitableDirectoryReader, error) {
+	if in == nil {
+		return nil, fmt.Errorf("DirectoryReader cannot be nil")
+	}
 	if config.QueryContext == nil {
 		return nil, fmt.Errorf("QueryContext is required")
 	}

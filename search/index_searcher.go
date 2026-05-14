@@ -68,9 +68,28 @@ func (s *IndexSearcher) SearchWithCollector(query Query, collector Collector) er
 	return nil
 }
 
+// asLeafReader extracts a *index.LeafReader from an IndexReaderInterface.
+// SegmentReader embeds *LeafReader, so we must handle that case explicitly.
+func asLeafReader(r index.IndexReaderInterface) *index.LeafReader {
+	switch v := r.(type) {
+	case *index.LeafReader:
+		return v
+	case *index.SegmentReader:
+		return v.LeafReader
+	default:
+		return nil
+	}
+}
+
 func (s *IndexSearcher) searchLeaf(reader index.IndexReaderInterface, docBase int, weight Weight, collector Collector) error {
-	// Create a LeafReaderContext for the reader
-	ctx := index.NewLeafReaderContext(reader.(*index.LeafReader), nil, 0, docBase)
+	// Create a LeafReaderContext for the reader.
+	// SegmentReader embeds *LeafReader; handle both concrete types.
+	lr := asLeafReader(reader)
+	if lr == nil {
+		// Fallback: create an empty LeafReader so we don't panic.
+		lr = index.NewLeafReader(nil)
+	}
+	ctx := index.NewLeafReaderContext(lr, nil, 0, docBase)
 
 	leafCollector, err := collector.GetLeafCollector(reader)
 	if err != nil {

@@ -33,6 +33,8 @@ type IntroSorterInterface interface {
 }
 
 // NewIntroSorter creates a new IntroSorter with the given implementation.
+// If impl also satisfies IntroSorterInterface, pivot operations are delegated
+// to it so that SetPivot copies the value rather than the index.
 func NewIntroSorter(impl SorterInterface) *IntroSorter {
 	return &IntroSorter{impl: impl}
 }
@@ -170,12 +172,21 @@ func (is *IntroSorter) median(i, j, k int) int {
 }
 
 // SetPivot saves the value at slot i as the pivot.
+// If the underlying impl supports IntroSorterInterface, the value is copied
+// so that subsequent swaps do not corrupt the pivot.
 func (is *IntroSorter) SetPivot(i int) {
-	is.Sorter.SetPivot(i, is.impl)
+	if iface, ok := is.impl.(IntroSorterInterface); ok {
+		iface.SetPivot(i)
+	} else {
+		is.Sorter.SetPivot(i, is.impl)
+	}
 }
 
 // ComparePivot compares the saved pivot with slot j.
 func (is *IntroSorter) ComparePivot(j int) int {
+	if iface, ok := is.impl.(IntroSorterInterface); ok {
+		return iface.ComparePivot(j)
+	}
 	return is.Sorter.ComparePivot(j, is.impl)
 }
 

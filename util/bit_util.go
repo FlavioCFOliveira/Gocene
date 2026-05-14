@@ -97,11 +97,13 @@ func FlipFlop(b int64) int64 {
 }
 
 // ZigZagEncodeInt encodes the provided int using zig-zag encoding.
+// Operates with 32-bit signed integer semantics (matching Java int behavior).
 // This is useful for signed integers where small absolute values
 // should have small encoded values.
 // See: https://developers.google.com/protocol-buffers/docs/encoding#types
 func ZigZagEncodeInt(i int) int {
-	return (i >> 31) ^ (i << 1)
+	v := int32(i)
+	return int((v >> 31) ^ (v << 1))
 }
 
 // ZigZagEncodeInt64 encodes the provided int64 using zig-zag encoding.
@@ -113,13 +115,18 @@ func ZigZagEncodeInt64(l int64) int64 {
 }
 
 // ZigZagDecodeInt decodes an int previously encoded with ZigZagEncodeInt.
+// Uses unsigned right shift (32-bit) to correctly decode all values including
+// the encoded form of math.MinInt32.
 func ZigZagDecodeInt(i int) int {
-	return ((i >> 1) ^ -(i & 1))
+	u := uint32(i)
+	return int(int32((u >> 1) ^ uint32(-(int32(i & 1)))))
 }
 
 // ZigZagDecodeInt64 decodes an int64 previously encoded with ZigZagEncodeInt64.
+// Uses unsigned right shift to correctly decode all values including
+// the encoded form of math.MinInt64.
 func ZigZagDecodeInt64(l int64) int64 {
-	return ((l >> 1) ^ -(l & 1))
+	return int64(uint64(l)>>1) ^ -(l & 1)
 }
 
 // IsZeroOrPowerOfTwo returns true if, and only if, the provided integer - treated as

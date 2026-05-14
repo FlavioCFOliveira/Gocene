@@ -32,16 +32,23 @@ type KeywordRepeatFilter struct {
 }
 
 // NewKeywordRepeatFilter creates a new KeywordRepeatFilter wrapping the given input.
+//
+// The KeywordAttribute is registered on the shared AttributeSource if it does
+// not already exist, ensuring downstream filters can read it even when the
+// upstream Tokenizer did not advertise the attribute itself.
 func NewKeywordRepeatFilter(input TokenStream) *KeywordRepeatFilter {
 	filter := &KeywordRepeatFilter{
 		BaseTokenFilter: NewBaseTokenFilter(input),
 	}
 
-	// Get attributes from the shared AttributeSource
 	attrSrc := filter.GetAttributeSource()
 	if attrSrc != nil {
-		if attr := attrSrc.GetAttribute("KeywordAttribute"); attr != nil {
+		// Ensure KeywordAttribute is present on the shared source.
+		if attr := attrSrc.GetAttributeByType(reflect.TypeOf(&KeywordAttribute{})); attr != nil {
 			filter.keywordAttr = attr.(*KeywordAttribute)
+		} else {
+			filter.keywordAttr = NewKeywordAttribute()
+			attrSrc.AddAttribute(filter.keywordAttr)
 		}
 
 		if attr := attrSrc.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); attr != nil {

@@ -98,11 +98,16 @@ func (lr *LocalReplicator) performReplication(ctx context.Context) error {
 	// Record statistics
 	lr.base.RecordBytesTransferred(totalBytes)
 
-	// Update current revision
+	// Update current revision.
 	lr.mu.Lock()
+	var prevGen, prevVer int64
+	if lr.currentRevision != nil {
+		prevGen = lr.currentRevision.Generation
+		prevVer = lr.currentRevision.Version
+	}
 	lr.currentRevision = &IndexRevision{
-		Generation: lr.currentRevision.Generation + 1,
-		Version:    lr.currentRevision.Version + 1,
+		Generation: prevGen + 1,
+		Version:    prevVer + 1,
 		Files:      files,
 	}
 	lr.mu.Unlock()
@@ -195,9 +200,6 @@ func (lr *LocalReplicator) Start() error {
 
 // Stop stops the replicator.
 func (lr *LocalReplicator) Stop() error {
-	lr.mu.Lock()
-	defer lr.mu.Unlock()
-
 	return lr.base.Stop()
 }
 

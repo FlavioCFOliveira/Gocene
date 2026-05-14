@@ -30,6 +30,9 @@ type ReaderPool struct {
 
 	// cleanupInterval is the interval for cleanup goroutine
 	cleanupInterval time.Duration
+
+	// stopChan signals the cleanup goroutine to exit
+	stopChan chan struct{}
 }
 
 // NewReaderPool creates a new ReaderPool with the given maximum size per segment.
@@ -45,6 +48,7 @@ func NewReaderPool(maxSize int) *ReaderPool {
 		maxSize:         maxSize,
 		lastAccess:      make(map[string]time.Time),
 		cleanupInterval: 5 * time.Minute,
+		stopChan:        make(chan struct{}),
 	}
 
 	// Start cleanup goroutine
@@ -193,9 +197,9 @@ func (rp *ReaderPool) ClearSegment(segmentName string) error {
 // Close closes the reader pool and all its readers.
 func (rp *ReaderPool) Close() error {
 	rp.mu.Lock()
-	defer rp.mu.Unlock()
 
 	if rp.isClosed {
+		rp.mu.Unlock()
 		return nil // Already closed
 	}
 
@@ -213,6 +217,10 @@ func (rp *ReaderPool) Close() error {
 
 	// Note: We don't close active readers as they are still in use
 	// The caller is responsible for releasing active readers
+	rp.mu.Unlock()
+
+	// Signal the cleanup goroutine to exit.
+	close(rp.stopChan)
 
 	return nil
 }
@@ -275,7 +283,11 @@ func (rp *ReaderPool) cleanupLoop() {
 	defer ticker.Stop()
 
 	for {
-		<-ticker.C
+		select {
+		case <-rp.stopChan:
+			return
+		case <-ticker.C:
+		}
 
 		rp.mu.Lock()
 		if rp.isClosed {

@@ -41,12 +41,11 @@ func TestSleepingLockWrapper_Basics(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			dir := store.NewByteBuffersDirectory()
 			defer dir.Close()
 
-			// Create SleepingLockWrapper with test parameters
-			// Note: This assumes SleepingLockWrapper will be implemented
 			sleepingDir := store.NewSleepingLockWrapper(dir, tt.lockWaitTimeout, tt.pollInterval)
 			defer sleepingDir.Close()
 
@@ -59,11 +58,16 @@ func TestSleepingLockWrapper_Basics(t *testing.T) {
 				t.Fatal("Expected non-nil lock")
 			}
 
-			// Should not be able to get the lock twice
-			_, err = sleepingDir.ObtainLock("commit")
-			if err == nil {
-				t.Error("Expected error when obtaining same lock twice")
+			if tt.lockWaitTimeout != store.LOCK_OBTAIN_WAIT_FOREVER {
+				// With a finite timeout, a second attempt on the held lock must fail.
+				_, err = sleepingDir.ObtainLock("commit")
+				if err == nil {
+					t.Error("Expected error when obtaining same lock twice")
+				}
 			}
+			// With LOCK_OBTAIN_WAIT_FOREVER a second attempt on a held lock would
+			// block indefinitely — that behavior is tested in
+			// TestSleepingLockWrapper_RetryBehavior instead.
 
 			// Release lock
 			if err := lock.Close(); err != nil {
@@ -158,8 +162,9 @@ func TestSleepingLockWrapper_ObtainConcurrently(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	// Use short timeout for faster test execution
-	sleepingDir := store.NewSleepingLockWrapper(dir, 500, 5)
+	// Use a very short timeout so that any contended attempt times out quickly,
+	// guaranteeing failCount > 0 while still allowing at least some successes.
+	sleepingDir := store.NewSleepingLockWrapper(dir, 1, 1)
 	defer sleepingDir.Close()
 
 	numThreads := 5

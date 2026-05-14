@@ -85,18 +85,42 @@ func (in *InputStreamDataInput) ReadBytesN(n int) ([]byte, error) {
 
 // SkipBytes skips n bytes by reading and discarding them.
 // This implementation uses the underlying reader's skip capability if available.
+// Returns io.EOF if n bytes are not available in the stream.
 func (in *InputStreamDataInput) SkipBytes(n int64) error {
 	if in.closed {
 		return io.EOF
 	}
 
-	// Try to use Seeker if available (more efficient)
-	if seeker, ok := in.reader.(io.Seeker); ok {
-		_, err := seeker.Seek(n, io.SeekCurrent)
+	// Try to use ReadSeeker if available (more efficient).
+	// We use both Seeker and a size-query to detect past-end seeks.
+	if seeker, ok := in.reader.(io.ReadSeeker); ok {
+		// Get the current position.
+		cur, err := seeker.Seek(0, io.SeekCurrent)
+		if err != nil {
+			return err
+		}
+		// Get the total size.
+		end, err := seeker.Seek(0, io.SeekEnd)
+		if err != nil {
+			return err
+		}
+		// Restore position.
+		if _, err = seeker.Seek(cur, io.SeekStart); err != nil {
+			return err
+		}
+		remaining := end - cur
+		if n > remaining {
+			// Seek to end and return EOF.
+			if _, err = seeker.Seek(0, io.SeekEnd); err != nil {
+				return err
+			}
+			return io.EOF
+		}
+		_, err = seeker.Seek(n, io.SeekCurrent)
 		return err
 	}
 
-	// Otherwise, read and discard bytes using pre-allocated buffer
+	// Otherwise, read and discard bytes using pre-allocated buffer.
 	remaining := n
 	for remaining > 0 {
 		toRead := int64(len(in.skipBuf))

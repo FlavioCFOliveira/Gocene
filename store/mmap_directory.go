@@ -221,7 +221,13 @@ func (in *MMapIndexInput) ReadByte() (byte, error) {
 		return 0, io.EOF
 	}
 
-	b := in.chunks[chunkIndex].data[chunkOffset]
+	chunk := in.chunks[chunkIndex]
+	if chunk.data == nil {
+		// Chunk has been unmapped (e.g. the owning input was closed).
+		return 0, ErrIllegalState
+	}
+
+	b := chunk.data[chunkOffset]
 	in.SetFilePointer(pos + 1)
 	return b, nil
 }
@@ -252,7 +258,14 @@ func (in *MMapIndexInput) ReadBytes(b []byte) error {
 		}
 
 		chunk := in.chunks[chunkIndex]
+		if chunk.data == nil {
+			// Chunk has been unmapped (e.g. the owning input was closed).
+			return ErrIllegalState
+		}
 		chunkRemaining := int64(len(chunk.data)) - chunkOffset
+		if chunkRemaining <= 0 {
+			return io.EOF
+		}
 		toRead := int64(len(b) - offset)
 		if toRead > chunkRemaining {
 			toRead = chunkRemaining
@@ -320,11 +333,12 @@ func (in *MMapIndexInput) SetPosition(pos int64) error {
 
 // Clone returns a clone of this IndexInput.
 // The clone starts at position 0 and is independent of the original.
+// If this input is a slice, the clone has the same slice bounds.
 func (in *MMapIndexInput) Clone() IndexInput {
-	// For cloning, we need to reopen and remap the file
-	clone, err := in.directory.OpenInput(in.name, IOContextRead)
+	// Reopen the file so the clone is fully independent.
+	full, err := in.directory.OpenInput(in.name, IOContextRead)
 	if err != nil {
-		// Return a clone that will fail on read
+		// Return a clone that will fail on read.
 		return &MMapIndexInput{
 			BaseIndexInput: NewBaseIndexInput(in.GetDescription(), in.Length()),
 			path:           in.path,
@@ -336,8 +350,25 @@ func (in *MMapIndexInput) Clone() IndexInput {
 		}
 	}
 
-	// Clone starts at position 0 (independent of original)
-	return clone
+	// If this input is a slice, restrict the clone to the same region so that
+	// reads start at the correct logical offset within the file.
+	if in.sliceOffset == 0 {
+		return full
+	}
+	sliced, err := full.Slice(in.GetDescription(), in.sliceOffset, in.Length())
+	if err != nil {
+		full.Close()
+		return &MMapIndexInput{
+			BaseIndexInput: NewBaseIndexInput(in.GetDescription(), in.Length()),
+			path:           in.path,
+			name:           in.name,
+			directory:      in.directory,
+			chunks:         nil,
+			chunkSize:      in.chunkSize,
+			sliceOffset:    in.sliceOffset,
+		}
+	}
+	return sliced
 }
 
 // Slice returns a subset of this IndexInput.

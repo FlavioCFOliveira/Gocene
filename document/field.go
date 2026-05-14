@@ -7,7 +7,6 @@ package document
 import (
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
@@ -35,7 +34,7 @@ type stringValue string
 
 func (v stringValue) String() string       { return string(v) }
 func (v stringValue) Binary() []byte       { return []byte(v) }
-func (v stringValue) Reader() io.Reader    { return strings.NewReader(string(v)) }
+func (v stringValue) Reader() io.Reader    { return nil }
 func (v stringValue) Numeric() interface{} { return nil }
 
 // binaryValue wraps a binary value.

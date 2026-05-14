@@ -11,7 +11,7 @@ func TestNewNRTReader(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	reader, err := OpenDirectoryReader(dir)
+	reader, err := OpenDirectoryReaderWithInfos(dir, NewSegmentInfos())
 	if err != nil {
 		t.Fatalf("failed to open directory reader: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestNRTReader_Refresh(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	reader, _ := OpenDirectoryReader(dir)
+	reader, _ := OpenDirectoryReaderWithInfos(dir, NewSegmentInfos())
 	nrtReader, _ := NewNRTReader(reader, nil)
 	defer nrtReader.Close()
 
@@ -78,7 +78,7 @@ func TestNRTReader_Refresh_Closed(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	reader, _ := OpenDirectoryReader(dir)
+	reader, _ := OpenDirectoryReaderWithInfos(dir, NewSegmentInfos())
 	nrtReader, _ := NewNRTReader(reader, nil)
 	nrtReader.Close()
 
@@ -92,7 +92,7 @@ func TestNRTReader_IncrementVersion(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	reader, _ := OpenDirectoryReader(dir)
+	reader, _ := OpenDirectoryReaderWithInfos(dir, NewSegmentInfos())
 	nrtReader, _ := NewNRTReader(reader, nil)
 	defer nrtReader.Close()
 
@@ -109,7 +109,7 @@ func TestNRTReader_GetLastRefreshTime(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	reader, _ := OpenDirectoryReader(dir)
+	reader, _ := OpenDirectoryReaderWithInfos(dir, NewSegmentInfos())
 	nrtReader, _ := NewNRTReader(reader, nil)
 	defer nrtReader.Close()
 
@@ -132,7 +132,7 @@ func TestNRTReader_NumDocs(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	reader, _ := OpenDirectoryReader(dir)
+	reader, _ := OpenDirectoryReaderWithInfos(dir, NewSegmentInfos())
 	nrtReader, _ := NewNRTReader(reader, nil)
 	defer nrtReader.Close()
 
@@ -151,7 +151,7 @@ func TestNRTReader_MaxDoc(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	reader, _ := OpenDirectoryReader(dir)
+	reader, _ := OpenDirectoryReaderWithInfos(dir, NewSegmentInfos())
 	nrtReader, _ := NewNRTReader(reader, nil)
 	defer nrtReader.Close()
 
@@ -170,7 +170,7 @@ func TestNRTReader_HasDeletions(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	reader, _ := OpenDirectoryReader(dir)
+	reader, _ := OpenDirectoryReaderWithInfos(dir, NewSegmentInfos())
 	nrtReader, _ := NewNRTReader(reader, nil)
 	defer nrtReader.Close()
 
@@ -189,7 +189,7 @@ func TestNRTReader_GetWriter(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	reader, _ := OpenDirectoryReader(dir)
+	reader, _ := OpenDirectoryReaderWithInfos(dir, NewSegmentInfos())
 	writer := &IndexWriter{}
 	nrtReader, _ := NewNRTReader(reader, writer)
 	defer nrtReader.Close()
@@ -203,7 +203,7 @@ func TestNRTReader_NRTSegmentReaders(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	reader, _ := OpenDirectoryReader(dir)
+	reader, _ := OpenDirectoryReaderWithInfos(dir, NewSegmentInfos())
 	nrtReader, _ := NewNRTReader(reader, nil)
 	defer nrtReader.Close()
 
@@ -227,7 +227,7 @@ func TestNRTReader_Close(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	reader, _ := OpenDirectoryReader(dir)
+	reader, _ := OpenDirectoryReaderWithInfos(dir, NewSegmentInfos())
 	nrtReader, _ := NewNRTReader(reader, nil)
 
 	err := nrtReader.Close()
@@ -250,7 +250,7 @@ func TestNRTReader_String(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	reader, _ := OpenDirectoryReader(dir)
+	reader, _ := OpenDirectoryReaderWithInfos(dir, NewSegmentInfos())
 	nrtReader, _ := NewNRTReader(reader, nil)
 	defer nrtReader.Close()
 

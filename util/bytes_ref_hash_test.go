@@ -399,9 +399,9 @@ func TestBytesRefHash_Find(t *testing.T) {
 			count := hash.Size()
 			key := hash.Find(ref.Get())
 			if key >= 0 {
-				// string found in hash
-				if strings[str] {
-					t.Errorf("String %s should not be found as new", str)
+				// String found in hash — must have been added previously.
+				if !strings[str] {
+					t.Errorf("String %s found in hash but was not previously added", str)
 				}
 				if key >= count {
 					t.Errorf("Key %d out of range for count %d", key, count)
@@ -414,12 +414,13 @@ func TestBytesRefHash_Find(t *testing.T) {
 					t.Errorf("Expected size %d, got %d", count, hash.Size())
 				}
 			} else {
+				// String not found — it must not have been added previously.
+				if strings[str] {
+					t.Errorf("String %s should be in hash (was previously added) but Find returned -1", str)
+				}
 				key, err := hash.Add(ref.Get())
 				if err != nil {
 					t.Fatalf("Add failed: %v", err)
-				}
-				if !strings[str] {
-					t.Errorf("String %s should be new", str)
 				}
 				if key != uniqueCount {
 					t.Errorf("Expected key %d, got %d", uniqueCount, key)
@@ -427,6 +428,7 @@ func TestBytesRefHash_Find(t *testing.T) {
 				if hash.Size() != count+1 {
 					t.Errorf("Expected size %d, got %d", count+1, hash.Size())
 				}
+				strings[str] = true
 				uniqueCount++
 			}
 		}
@@ -646,13 +648,16 @@ func TestBytesRefHash_AddByPoolOffset(t *testing.T) {
 			}
 			// Get the pool offset from hash
 			poolOffset := hash.ByteStart(hashID)
-			// Add by pool offset to offsetHash
+			// Add by pool offset to offsetHash.
+			// AddByPoolOffset returns >= 0 for new entries and -(id+1) for existing.
 			offsetKey := offsetHash.AddByPoolOffset(poolOffset)
+			var resolvedKey int
 			if offsetKey < 0 {
-				t.Errorf("Failed to add string %s to offsetHash", str)
-				continue
+				resolvedKey = (-offsetKey) - 1
+			} else {
+				resolvedKey = offsetKey
 			}
-			result := offsetHash.Get(offsetKey, scratch)
+			result := offsetHash.Get(resolvedKey, scratch)
 			if !bytes.Equal(ref.Get().ValidBytes(), result.ValidBytes()) {
 				t.Errorf("OffsetHash returned wrong bytes for string %s", str)
 			}

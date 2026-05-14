@@ -77,7 +77,9 @@ func (s *entryIntroSorter) ComparePivot(j int) int {
 	return compareEntry(s.pivot, s.arr[j])
 }
 
-func (s *entryIntroSorter) Sort(from, to int) {}
+func (s *entryIntroSorter) Sort(from, to int) {
+	NewIntroSorter(s).Sort(from, to)
+}
 
 // entryTimSorter adapts a slice of entries for use with TimSorter.
 type entryTimSorter struct {

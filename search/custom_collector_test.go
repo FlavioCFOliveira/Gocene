@@ -59,7 +59,7 @@ func TestCustomCollector_TotalHitCollector(t *testing.T) {
 
 	// Use custom collector
 	collector := search.NewTotalHitCountCollector()
-	if err := searcher.Search(query, collector); err != nil {
+	if err := searcher.SearchWithCollector(query, collector); err != nil {
 		t.Logf("custom collector may not be fully implemented: %v", err)
 		t.Skip("custom collector not implemented")
 	}
@@ -108,7 +108,7 @@ func TestCustomCollector_TopDocsCollector(t *testing.T) {
 	query := search.NewTermQuery(index.NewTerm("content", "collector"))
 
 	// TopDocs collector
-	topDocs, err := searcher.Search(query, nil, 10)
+	topDocs, err := searcher.Search(query, 10)
 	if err != nil {
 		t.Logf("search may not be fully implemented: %v", err)
 		t.Skip("search not implemented")
@@ -146,6 +146,6 @@ func BenchmarkCustomCollector_Collection(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		searcher.Search(query, nil, 10)
+		searcher.Search(query, 10)
 	}
 }

@@ -149,17 +149,21 @@ func (rc *ReplicationClient) StartAutoSync(interval time.Duration) error {
 // StopAutoSync stops automatic synchronization.
 func (rc *ReplicationClient) StopAutoSync() error {
 	rc.mu.Lock()
-	defer rc.mu.Unlock()
-
 	if rc.autoSyncInterval == 0 {
+		rc.mu.Unlock()
 		return nil
 	}
 
+	// Signal stop and release lock before waiting so the goroutine can finish.
 	close(rc.stopChan)
+	rc.mu.Unlock()
+
 	rc.wg.Wait()
 
+	rc.mu.Lock()
 	rc.autoSyncInterval = 0
 	rc.stopChan = make(chan struct{})
+	rc.mu.Unlock()
 
 	return nil
 }
@@ -298,24 +302,32 @@ func (rc *ReplicationClient) GetLastSyncTime() time.Time {
 // Close closes the ReplicationClient.
 func (rc *ReplicationClient) Close() error {
 	rc.mu.Lock()
-	defer rc.mu.Unlock()
-
 	if !rc.isOpen.Load() {
+		rc.mu.Unlock()
 		return nil
 	}
 
 	rc.isOpen.Store(false)
 
-	// Stop auto-sync if running
-	if rc.autoSyncInterval > 0 {
+	// Signal auto-sync goroutine to stop, then release lock before waiting.
+	needWait := rc.autoSyncInterval > 0
+	if needWait {
 		close(rc.stopChan)
-		rc.wg.Wait()
 	}
 
 	// Disconnect if connected
 	if rc.sessionID != "" {
 		ctx := context.Background()
 		rc.disconnectInternal(ctx)
+	}
+	rc.mu.Unlock()
+
+	if needWait {
+		rc.wg.Wait()
+		rc.mu.Lock()
+		rc.autoSyncInterval = 0
+		rc.stopChan = make(chan struct{})
+		rc.mu.Unlock()
 	}
 
 	return nil

@@ -310,7 +310,7 @@ func TestSloppyPhraseQuery_SlopWithHoles(t *testing.T) {
 // TestSloppyPhraseQuery_InfiniteFreq1 tests LUCENE-3215.
 // Verifies that no scores are infinite with specific document pattern.
 func TestSloppyPhraseQuery_InfiniteFreq1(t *testing.T) {
-	document := "drug druggy drug drug drug"
+	docText := "drug druggy drug drug drug"
 
 	dir := store.NewByteBuffersDirectory()
 	analyzer := analysis.NewWhitespaceAnalyzer()
@@ -326,7 +326,7 @@ func TestSloppyPhraseQuery_InfiniteFreq1(t *testing.T) {
 		SetTokenized(true).
 		SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions)
 	ft.Freeze()
-	field, _ := document.NewField("lyrics", document, ft)
+	field, _ := document.NewField("lyrics", docText, ft)
 	doc.Add(field)
 
 	if err := writer.AddDocument(doc); err != nil {
@@ -367,7 +367,7 @@ func TestSloppyPhraseQuery_InfiniteFreq1(t *testing.T) {
 // TestSloppyPhraseQuery_InfiniteFreq2 tests LUCENE-3215 with a longer document.
 // Verifies that no scores are infinite with complex document pattern.
 func TestSloppyPhraseQuery_InfiniteFreq2(t *testing.T) {
-	document := "So much fun to be had in my head " +
+	docText := "So much fun to be had in my head " +
 		"No more sunshine " +
 		"So much fun just lying in my bed " +
 		"No more sunshine " +
@@ -411,7 +411,7 @@ func TestSloppyPhraseQuery_InfiniteFreq2(t *testing.T) {
 		SetTokenized(true).
 		SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions)
 	ft.Freeze()
-	field, _ := document.NewField("lyrics", document, ft)
+	field, _ := document.NewField("lyrics", docText, ft)
 	doc.Add(field)
 
 	if err := writer.AddDocument(doc); err != nil {

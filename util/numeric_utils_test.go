@@ -19,8 +19,20 @@ func float64Equal(a, b float64) bool {
 	return a == b
 }
 
-// compareFloat64 compares two float64 values: -1 if a < b, 0 if a == b, 1 if a > b
+// compareFloat64 compares two float64 values using Java Double.compare semantics:
+// NaN is greater than any other value (including NaN == NaN gives 0).
 func compareFloat64(a, b float64) int {
+	aNaN := math.IsNaN(a)
+	bNaN := math.IsNaN(b)
+	if aNaN && bNaN {
+		return 0
+	}
+	if aNaN {
+		return 1
+	}
+	if bNaN {
+		return -1
+	}
 	if a < b {
 		return -1
 	}
@@ -574,6 +586,9 @@ func TestLongsRoundTrip(t *testing.T) {
 }
 
 // TestFloatsRoundTrip tests round-trip encoding of random floats.
+// All NaN bit-patterns are normalized to canonical NaN during encoding
+// (matching Java's Float.floatToIntBits), so the round-trip check
+// uses an IsNaN-aware comparison instead of raw bit equality.
 func TestFloatsRoundTrip(t *testing.T) {
 	encoded := make([]byte, 4)
 
@@ -581,6 +596,12 @@ func TestFloatsRoundTrip(t *testing.T) {
 		value := math.Float32frombits(uint32(RandomInt()))
 		IntToSortableBytes(FloatToSortableInt(value), encoded, 0)
 		actual := SortableIntToFloat(SortableBytesToInt(encoded, 0))
+		if math.IsNaN(float64(value)) {
+			if !math.IsNaN(float64(actual)) {
+				t.Errorf("Round-trip failed: expected NaN, got %v", actual)
+			}
+			continue
+		}
 		if math.Float32bits(value) != math.Float32bits(actual) {
 			t.Errorf("Round-trip failed: expected %v, got %v", value, actual)
 		}
@@ -588,6 +609,9 @@ func TestFloatsRoundTrip(t *testing.T) {
 }
 
 // TestDoublesRoundTrip tests round-trip encoding of random doubles.
+// All NaN bit-patterns are normalized to canonical NaN during encoding
+// (matching Java's Double.doubleToLongBits), so the round-trip check
+// uses an IsNaN-aware comparison instead of raw bit equality.
 func TestDoublesRoundTrip(t *testing.T) {
 	encoded := make([]byte, 8)
 
@@ -595,6 +619,12 @@ func TestDoublesRoundTrip(t *testing.T) {
 		value := math.Float64frombits(uint64(RandomInt())<<32 | uint64(RandomInt()))
 		LongToSortableBytes(DoubleToSortableLong(value), encoded, 0)
 		actual := SortableLongToDouble(SortableBytesToLong(encoded, 0))
+		if math.IsNaN(value) {
+			if !math.IsNaN(actual) {
+				t.Errorf("Round-trip failed: expected NaN, got %v", actual)
+			}
+			continue
+		}
 		if math.Float64bits(value) != math.Float64bits(actual) {
 			t.Errorf("Round-trip failed: expected %v, got %v", value, actual)
 		}
@@ -608,9 +638,15 @@ func TestBigIntsRoundTrip(t *testing.T) {
 		maxLength := RandomIntN(16) + 1
 		value := new(big.Int).Rand(GetRandom(), new(big.Int).Lsh(big.NewInt(1), uint(8*maxLength)))
 
-		length := len(value.Bytes())
+		rawBytes := value.Bytes()
+		length := len(rawBytes)
 		if length == 0 {
 			length = 1
+		}
+		// Positive numbers whose first magnitude byte has MSB set need an extra sign byte
+		// in the two's complement encoding to sort correctly.
+		if len(rawBytes) > 0 && rawBytes[0] >= 0x80 {
+			length++
 		}
 
 		// Make sure sign extension is tested: sometimes pad to more bytes when encoding
@@ -748,7 +784,11 @@ func TestBigIntsCompare(t *testing.T) {
 	for i := 0; i < 10000; i++ {
 		maxLength := RandomIntN(16) + 1
 
-		leftValue := new(big.Int).Rand(GetRandom(), new(big.Int).Lsh(big.NewInt(1), uint(8*maxLength)))
+		// Restrict to [0, 2^(8*maxLength-1)) so values always fit in maxLength bytes
+		// with the two's complement sign bit clear (MSB of first byte = 0).
+		maxValue := new(big.Int).Lsh(big.NewInt(1), uint(8*maxLength-1))
+
+		leftValue := new(big.Int).Rand(GetRandom(), maxValue)
 		left := &BytesRef{
 			Bytes:  make([]byte, maxLength),
 			Offset: 0,
@@ -759,7 +799,7 @@ func TestBigIntsCompare(t *testing.T) {
 			t.Fatalf("Failed to encode left BigInt: %v", err)
 		}
 
-		rightValue := new(big.Int).Rand(GetRandom(), new(big.Int).Lsh(big.NewInt(1), uint(8*maxLength)))
+		rightValue := new(big.Int).Rand(GetRandom(), maxValue)
 		right := &BytesRef{
 			Bytes:  make([]byte, maxLength),
 			Offset: 0,
@@ -814,19 +854,23 @@ func signum(x int64) int {
 // Additional tests for edge cases
 
 // TestSortableDoubleBits tests the sortable double bits conversion directly.
+// Java: sortableDoubleBits(bits) = bits ^ (bits >> 63) & 0x7fffffffffffffffL
+// where >> is arithmetic (sign-extending) on signed long, & binds tighter than ^.
+// Positive inputs (bit 63 = 0): bits >> 63 = 0, so result = bits unchanged.
+// Negative inputs (bit 63 = 1): bits >> 63 = -1, mask = 0x7fffffffffffffff, result = bits ^ mask.
 func TestSortableDoubleBits(t *testing.T) {
 	tests := []struct {
 		input    uint64
 		expected int64
 	}{
-		{0x0000000000000000, 0x0000000000000000},          // +0.0
-		{0x8000000000000000, int64(-9223372036854775808)}, // -0.0
-		{0x3ff0000000000000, 0x3ff0000000000000},          // 1.0
-		{0xbff0000000000000, 0x4000000000000000},          // -1.0
-		{0x7ff0000000000000, 0x7ff0000000000000},          // +Inf
-		{0xfff0000000000000, int64(-9223372036854775808)}, // -Inf
-		{0x7ff8000000000000, 0x7ff8000000000000},          // NaN
-		{0x8000000000000001, 0x7fffffffffffffff},          // Smallest negative
+		{0x0000000000000000, 0x0000000000000000},          // +0.0: positive, identity
+		{0x8000000000000000, int64(-1)},                   // -0.0: 0x8000000000000000 ^ 0x7fffffffffffffff = -1
+		{0x3ff0000000000000, 0x3ff0000000000000},          // +1.0: positive, identity
+		{0xbff0000000000000, int64(-4607182418800017409)}, // -1.0: 0xbff0000000000000 ^ 0x7fffffffffffffff = 0xc00fffffffffffff
+		{0x7ff0000000000000, 0x7ff0000000000000},          // +Inf: positive, identity
+		{0xfff0000000000000, int64(-9218868437227405313)}, // -Inf: 0xfff0000000000000 ^ 0x7fffffffffffffff = 0x800fffffffffffff
+		{0x7ff8000000000000, 0x7ff8000000000000},          // NaN: positive, identity
+		{0x8000000000000001, int64(-2)},                   // smallest neg: 0x8000000000000001 ^ 0x7fffffffffffffff = 0xfffffffffffffffe = -2
 	}
 
 	for _, tc := range tests {
@@ -844,12 +888,12 @@ func TestSortableFloatBits(t *testing.T) {
 		expected int32
 	}{
 		{0x00000000, 0x00000000},         // +0.0
-		{0x80000000, int32(-2147483648)}, // -0.0
-		{0x3f800000, 0x3f800000},         // 1.0
-		{0xbf800000, 0x40000000},         // -1.0
-		{0x7f800000, 0x7f800000},         // +Inf
-		{0xff800000, int32(-2147483648)}, // -Inf
-		{0x7fc00000, 0x7fc00000},         // NaN
+		{0x80000000, int32(-1)},          // -0.0: bits^((bits>>31)&0x7fffffff) = 0x80000000^0x7fffffff = 0xffffffff = -1
+		{0x3f800000, 0x3f800000},         // +1.0: positive, identity
+		{0xbf800000, int32(-1065353217)}, // -1.0: 0xbf800000^0x7fffffff = 0xc07fffff
+		{0x7f800000, 0x7f800000},         // +Inf: positive, identity
+		{0xff800000, int32(-2139095041)}, // -Inf: 0xff800000^0x7fffffff = 0x807fffff
+		{0x7fc00000, 0x7fc00000},         // NaN: positive, identity
 	}
 
 	for _, tc := range tests {

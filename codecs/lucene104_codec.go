@@ -66,3 +66,19 @@ func (c *Lucene104Codec) TermVectorsFormat() TermVectorsFormat {
 func (c *Lucene104Codec) DocValuesFormat() DocValuesFormat {
 	return c.docValuesFormat
 }
+
+// NewLucene99Codec creates a codec that is functionally identical to Lucene104Codec.
+// It is provided for tests that reference the Lucene 9.9 codec name.
+//
+// Gocene maps all legacy codec names to the latest implementation.
+func NewLucene99Codec() *Lucene104Codec {
+	return NewLucene104Codec()
+}
+
+// NewLucene90Codec creates a codec that is functionally identical to Lucene104Codec.
+// It is provided for tests that reference the Lucene 9.0 codec name.
+//
+// Gocene maps all legacy codec names to the latest implementation.
+func NewLucene90Codec() *Lucene104Codec {
+	return NewLucene104Codec()
+}

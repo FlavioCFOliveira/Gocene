@@ -43,10 +43,10 @@ func NewCachingTokenFilter(input TokenStream) *CachingTokenFilter {
 }
 
 // IncrementToken processes the next token.
-// On the first pass, caches all tokens from the input.
-// On subsequent passes, returns cached tokens.
+// On the first pass, caches all tokens from the input and emits them live.
+// After Reset(), returns cached tokens (without re-reading the input).
 func (f *CachingTokenFilter) IncrementToken() (bool, error) {
-	// If we have cached tokens and haven't finished caching, continue caching
+	// First pass: read from input and cache, returning live tokens.
 	if !f.finished {
 		hasToken, err := f.input.IncrementToken()
 		if err != nil {
@@ -80,11 +80,13 @@ func (f *CachingTokenFilter) IncrementToken() (bool, error) {
 			return true, nil
 		}
 
-		// No more tokens from input
+		// Input exhausted on the first pass. Do NOT fall through to the cache —
+		// callers must invoke Reset() before replaying cached tokens.
 		f.finished = true
+		return false, nil
 	}
 
-	// Return cached tokens
+	// Replay cached tokens (after Reset()).
 	if f.currentPos < len(f.cachedTokens) {
 		token := f.cachedTokens[f.currentPos]
 		f.currentPos++

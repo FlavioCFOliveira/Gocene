@@ -68,13 +68,13 @@ func TestSearchScoringReproducibility_TermQuery(t *testing.T) {
 	searcher := search.NewIndexSearcher(reader)
 	query := search.NewTermQuery(index.NewTerm("content", "lucene"))
 
-	topDocs1, err := searcher.Search(query, nil, 10)
+	topDocs1, err := searcher.Search(query, 10)
 	if err != nil {
 		t.Logf("search may not be fully implemented: %v", err)
 		t.Skip("search not implemented")
 	}
 
-	topDocs2, err := searcher.Search(query, nil, 10)
+	topDocs2, err := searcher.Search(query, 10)
 	if err != nil {
 		t.Fatalf("second search failed: %v", err)
 	}
@@ -127,12 +127,12 @@ func TestSearchScoringReproducibility_BooleanQuery(t *testing.T) {
 	// Boolean query
 	searcher := search.NewIndexSearcher(reader)
 	boolQuery := search.NewBooleanQuery()
-	boolQuery.Add(search.NewTermQuery(index.NewTerm("content", "test")), search.BooleanClauseShould)
-	boolQuery.Add(search.NewTermQuery(index.NewTerm("content", "reproducible")), search.BooleanClauseShould)
+	boolQuery.Add(search.NewTermQuery(index.NewTerm("content", "test")), search.SHOULD)
+	boolQuery.Add(search.NewTermQuery(index.NewTerm("content", "reproducible")), search.SHOULD)
 
 	// Run search multiple times
 	for i := 0; i < 5; i++ {
-		topDocs, err := searcher.Search(boolQuery, nil, 10)
+		topDocs, err := searcher.Search(boolQuery, 10)
 		if err != nil {
 			t.Logf("boolean search may not be fully implemented: %v", err)
 			t.Skip("boolean search not implemented")
@@ -189,13 +189,14 @@ func TestSearchScoringReproducibility_PhraseQuery(t *testing.T) {
 
 	// Phrase query
 	searcher := search.NewIndexSearcher(reader)
-	phraseQuery := search.NewPhraseQuery()
-	phraseQuery.AddTerm(index.NewTerm("content", "quick"))
-	phraseQuery.AddTerm(index.NewTerm("content", "brown"))
+	phraseQuery := search.NewPhraseQueryBuilder().
+		AddTerm(index.NewTerm("content", "quick")).
+		AddTerm(index.NewTerm("content", "brown")).
+		Build()
 
 	// Run multiple times
 	for i := 0; i < 5; i++ {
-		topDocs, err := searcher.Search(phraseQuery, nil, 10)
+		topDocs, err := searcher.Search(phraseQuery, 10)
 		if err != nil {
 			t.Logf("phrase search may not be fully implemented: %v", err)
 			t.Skip("phrase search not implemented")
@@ -247,7 +248,7 @@ func TestSearchScoringReproducibility_NewReader(t *testing.T) {
 		}
 
 		searcher := search.NewIndexSearcher(reader)
-		topDocs, err := searcher.Search(query, nil, 10)
+		topDocs, err := searcher.Search(query, 10)
 		if err != nil {
 			reader.Close()
 			t.Logf("search may not be fully implemented: %v", err)
@@ -290,6 +291,6 @@ func BenchmarkSearchScoringReproducibility_Repeated(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		searcher.Search(query, nil, 10)
+		searcher.Search(query, 10)
 	}
 }

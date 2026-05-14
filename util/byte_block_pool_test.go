@@ -272,7 +272,7 @@ func TestByteBlockPool_ReadByte(t *testing.T) {
 
 	// Read back single bytes
 	for i := 0; i < len(data); i++ {
-		b := pool.ReadByte(int64(i))
+		b := pool.ReadByteAt(int64(i))
 		if b != data[i] {
 			t.Errorf("byte at %d: expected %d, got %d", i, data[i], b)
 		}

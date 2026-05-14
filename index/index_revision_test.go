@@ -267,7 +267,7 @@ func TestIndexRevision_IsNewerThan(t *testing.T) {
 	}
 
 	var nilRevision *IndexRevision
-	if !nilRevision.IsNewerThan(revision1) {
+	if nilRevision.IsNewerThan(revision1) {
 		t.Error("expected nil to not be newer than any revision")
 	}
 }
