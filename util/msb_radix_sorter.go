@@ -262,7 +262,7 @@ func (a *msbIntroAdapter) Compare(i, j int) int {
 	return 0
 }
 
-func (a *msbIntroAdapter) Swap(i, j int)    { a.owner.impl.Swap(i, j) }
+func (a *msbIntroAdapter) Swap(i, j int)     { a.owner.impl.Swap(i, j) }
 func (a *msbIntroAdapter) Sort(from, to int) {}
 
 func (a *msbIntroAdapter) SetPivot(i int) {
