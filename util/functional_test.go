@@ -5,9 +5,14 @@
 package util
 
 import (
+	"errors"
 	"math"
 	"testing"
 )
+
+// errSentinel is a shared error used by functional-interface tests to
+// verify that error returns propagate through the func-type wrappers.
+var errSentinel = errors.New("sentinel error")
 
 // TestFloatToFloatFunction exercises the FloatToFloatFunction type as a
 // drop-in replacement for the Java FunctionalInterface: literal,
@@ -47,6 +52,24 @@ func TestFloatToFloatFunction(t *testing.T) {
 		nan := float32(math.NaN())
 		if got := negate(nan); !math.IsNaN(float64(got)) {
 			t.Fatalf("negate(NaN) got %v want NaN", got)
+		}
+	})
+}
+
+func TestIOBooleanSupplier(t *testing.T) {
+	t.Run("returns true with no error", func(t *testing.T) {
+		var s IOBooleanSupplier = func() (bool, error) { return true, nil }
+		v, err := s()
+		if err != nil || !v {
+			t.Fatalf("got (%v,%v) want (true,nil)", v, err)
+		}
+	})
+	t.Run("propagates error", func(t *testing.T) {
+		want := errSentinel
+		var s IOBooleanSupplier = func() (bool, error) { return false, want }
+		v, err := s()
+		if err != want || v {
+			t.Fatalf("got (%v,%v) want (false, errSentinel)", v, err)
 		}
 	})
 }

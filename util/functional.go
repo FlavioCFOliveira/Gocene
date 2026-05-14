@@ -38,3 +38,16 @@ package util
 //
 //	lucene/core/src/java/org/apache/lucene/util/FloatToFloatFunction.java
 type FloatToFloatFunction func(value float32) float32
+
+// IOBooleanSupplier is the Go port of
+// org.apache.lucene.util.IOBooleanSupplier.
+//
+// Java declares it as a @FunctionalInterface whose single method
+// {@code boolean get() throws IOException} produces a boolean and may
+// raise an IOException. In Go the checked exception becomes an error
+// return.
+//
+// Lucene 10.4.0 reference:
+//
+//	lucene/core/src/java/org/apache/lucene/util/IOBooleanSupplier.java
+type IOBooleanSupplier func() (bool, error)
