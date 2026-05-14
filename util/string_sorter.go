@@ -37,9 +37,9 @@ type StringSorter struct {
 	cmp    BytesRefComparator
 	natCmp func(o1, o2 *BytesRef) int
 
-	scratch1     *BytesRefBuilder
-	scratch2     *BytesRefBuilder
-	pivotBuilder *BytesRefBuilder
+	scratch1      *BytesRefBuilder
+	scratch2      *BytesRefBuilder
+	pivotBuilder  *BytesRefBuilder
 	scratchBytes1 BytesRef
 	scratchBytes2 BytesRef
 	pivot         BytesRef

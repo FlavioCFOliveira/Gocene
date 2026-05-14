@@ -291,4 +291,3 @@ func IntsRefToBytesRef(ints *IntsRef) (*BytesRef, error) {
 	}
 	return NewBytesRef(out), nil
 }
-
