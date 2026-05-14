@@ -1137,3 +1137,53 @@ func TestAdvanceToCurrentDoc(t *testing.T) {
 		t.Errorf("Expected advance(51) to return 60, got %d", doc)
 	}
 }
+
+// TestSparseLiveDocs_AsBits verifies that SparseLiveDocs can be
+// passed through the [Bits] interface, mirroring Lucene's use of
+// LiveDocs wherever a Bits is required.
+func TestSparseLiveDocs_AsBits(t *testing.T) {
+	deleted, err := NewSparseFixedBitSet(100)
+	if err != nil {
+		t.Fatalf("NewSparseFixedBitSet: %v", err)
+	}
+	deleted.Set(3)
+	deleted.Set(7)
+	deleted.Set(50)
+
+	sld := NewSparseLiveDocsBuilder(deleted, 100).Build()
+	var bits Bits = sld
+
+	if bits.Length() != 100 {
+		t.Fatalf("Length()=%d want 100", bits.Length())
+	}
+	if bits.Get(3) {
+		t.Fatal("deleted doc 3 reported as live via Bits")
+	}
+	if !bits.Get(4) {
+		t.Fatal("live doc 4 reported as deleted via Bits")
+	}
+}
+
+// TestDenseLiveDocs_AsBits is the dense counterpart.
+func TestDenseLiveDocs_AsBits(t *testing.T) {
+	live, err := NewFixedBitSet(100)
+	if err != nil {
+		t.Fatalf("NewFixedBitSet: %v", err)
+	}
+	for i := 0; i < 100; i++ {
+		live.Set(i)
+	}
+	live.Clear(42)
+	dld := NewDenseLiveDocsBuilder(live, 100).Build()
+
+	var bits Bits = dld
+	if bits.Length() != 100 {
+		t.Fatalf("Length()=%d want 100", bits.Length())
+	}
+	if bits.Get(42) {
+		t.Fatal("deleted doc 42 reported as live via Bits")
+	}
+	if !bits.Get(0) {
+		t.Fatal("live doc 0 reported as deleted via Bits")
+	}
+}

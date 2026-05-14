@@ -559,3 +559,8 @@ var _ LiveDocs = (*SparseLiveDocs)(nil)
 var _ LiveDocs = (*DenseLiveDocs)(nil)
 var _ DocIdSetIterator = (*sparseLiveDocsIterator)(nil)
 var _ DocIdSetIterator = (*denseLiveDocsIterator)(nil)
+
+// SparseLiveDocs and DenseLiveDocs are Bits-typed views: callers that
+// only need {Get, Length} can pass them where any [Bits] is accepted.
+var _ Bits = (*SparseLiveDocs)(nil)
+var _ Bits = (*DenseLiveDocs)(nil)
