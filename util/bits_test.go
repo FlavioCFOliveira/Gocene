@@ -111,3 +111,71 @@ func TestMatchNoBitsZeroLength(t *testing.T) {
 		t.Error("Expected Get(0) to return false for zero-length")
 	}
 }
+
+// TestApplyMask_MatchAllPreservesBits verifies the Lucene default
+// applyMask: a Bits whose Get always returns true never clears any
+// FixedBitSet bit.
+func TestApplyMask_MatchAllPreservesBits(t *testing.T) {
+	fbs, err := NewFixedBitSet(16)
+	if err != nil {
+		t.Fatalf("NewFixedBitSet: %v", err)
+	}
+	fbs.Set(1)
+	fbs.Set(5)
+	fbs.Set(15)
+
+	ApplyMask(NewMatchAllBits(32), fbs, 0)
+
+	for _, i := range []int{1, 5, 15} {
+		if !fbs.Get(i) {
+			t.Errorf("bit %d should remain set after MatchAllBits mask", i)
+		}
+	}
+}
+
+// TestApplyMask_MatchNoneClearsAll verifies the Lucene default
+// applyMask: a Bits whose Get always returns false clears every set
+// bit in the FixedBitSet.
+func TestApplyMask_MatchNoneClearsAll(t *testing.T) {
+	fbs, err := NewFixedBitSet(16)
+	if err != nil {
+		t.Fatalf("NewFixedBitSet: %v", err)
+	}
+	fbs.Set(1)
+	fbs.Set(5)
+	fbs.Set(15)
+
+	ApplyMask(NewMatchNoBits(32), fbs, 0)
+
+	if fbs.Cardinality() != 0 {
+		t.Errorf("after MatchNoBits mask cardinality = %d, want 0", fbs.Cardinality())
+	}
+}
+
+// TestApplyMask_RespectsOffset verifies the offset semantics: the mask
+// is consulted at (offset + i), not i.
+func TestApplyMask_RespectsOffset(t *testing.T) {
+	fbs, err := NewFixedBitSet(8)
+	if err != nil {
+		t.Fatalf("NewFixedBitSet: %v", err)
+	}
+	for i := 0; i < 8; i++ {
+		fbs.Set(i)
+	}
+
+	// Mask: bits 8-15 are set (false elsewhere). With offset=8, all
+	// fbs bits should be preserved.
+	mask := NewMatchAllBits(16)
+	ApplyMask(mask, fbs, 8)
+	if fbs.Cardinality() != 8 {
+		t.Errorf("offset shift broke MatchAllBits semantics: cardinality = %d", fbs.Cardinality())
+	}
+}
+
+// TestEmptyBitsArrayIsEmpty ensures the package-level constant is the
+// documented zero-length slice.
+func TestEmptyBitsArrayIsEmpty(t *testing.T) {
+	if len(EmptyBitsArray) != 0 {
+		t.Errorf("EmptyBitsArray should be empty, got len %d", len(EmptyBitsArray))
+	}
+}
