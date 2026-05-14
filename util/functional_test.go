@@ -95,3 +95,25 @@ func TestIOConsumer(t *testing.T) {
 		}
 	})
 }
+
+func TestIOFunction(t *testing.T) {
+	t.Run("maps input", func(t *testing.T) {
+		var f IOFunction[int, string] = func(v int) (string, error) {
+			if v == 0 {
+				return "", nil
+			}
+			return "x", nil
+		}
+		got, err := f(7)
+		if err != nil || got != "x" {
+			t.Fatalf("got (%q,%v) want (\"x\",nil)", got, err)
+		}
+	})
+	t.Run("propagates error", func(t *testing.T) {
+		var f IOFunction[int, int] = func(int) (int, error) { return 0, errSentinel }
+		_, err := f(1)
+		if err != errSentinel {
+			t.Fatalf("got %v want errSentinel", err)
+		}
+	})
+}

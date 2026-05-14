@@ -63,3 +63,15 @@ type IOBooleanSupplier func() (bool, error)
 //
 //	lucene/core/src/java/org/apache/lucene/util/IOConsumer.java
 type IOConsumer[T any] func(T) error
+
+// IOFunction is the Go port of org.apache.lucene.util.IOFunction.
+//
+// Java declares it as a generic @FunctionalInterface with a single
+// {@code R apply(T t) throws IOException} method, mapping an input of
+// type T to a result of type R and possibly throwing an IOException.
+// The Go port pairs the result with an error return.
+//
+// Lucene 10.4.0 reference:
+//
+//	lucene/core/src/java/org/apache/lucene/util/IOFunction.java
+type IOFunction[T any, R any] func(T) (R, error)
