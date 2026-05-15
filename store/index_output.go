@@ -200,23 +200,24 @@ func (out *ByteArrayDataOutput) WriteBytesN(b []byte, n int) error {
 	return nil
 }
 
-// WriteShort writes a 16-bit value.
+// WriteShort writes a 16-bit value as little-endian to match Lucene 9+
+// on-disk format (and ByteArrayDataInput, which reads little-endian).
 func (out *ByteArrayDataOutput) WriteShort(i int16) error {
-	b := []byte{byte(i >> 8), byte(i)}
+	b := []byte{byte(i), byte(i >> 8)}
 	return out.WriteBytes(b)
 }
 
-// WriteInt writes a 32-bit value.
+// WriteInt writes a 32-bit value as little-endian.
 func (out *ByteArrayDataOutput) WriteInt(i int32) error {
-	b := []byte{byte(i >> 24), byte(i >> 16), byte(i >> 8), byte(i)}
+	b := []byte{byte(i), byte(i >> 8), byte(i >> 16), byte(i >> 24)}
 	return out.WriteBytes(b)
 }
 
-// WriteLong writes a 64-bit value.
+// WriteLong writes a 64-bit value as little-endian.
 func (out *ByteArrayDataOutput) WriteLong(i int64) error {
 	b := []byte{
-		byte(i >> 56), byte(i >> 48), byte(i >> 40), byte(i >> 32),
-		byte(i >> 24), byte(i >> 16), byte(i >> 8), byte(i),
+		byte(i), byte(i >> 8), byte(i >> 16), byte(i >> 24),
+		byte(i >> 32), byte(i >> 40), byte(i >> 48), byte(i >> 56),
 	}
 	return out.WriteBytes(b)
 }
