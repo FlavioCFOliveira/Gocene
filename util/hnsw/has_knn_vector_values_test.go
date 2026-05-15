@@ -4,15 +4,21 @@
 
 package hnsw
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
 
 type stubKnnVectorValues struct {
 	dim int
 	n   int
 }
 
-func (s *stubKnnVectorValues) Dimension() int { return s.dim }
-func (s *stubKnnVectorValues) Size() int      { return s.n }
+func (s *stubKnnVectorValues) Dimension() int                              { return s.dim }
+func (s *stubKnnVectorValues) Size() int                                   { return s.n }
+func (s *stubKnnVectorValues) OrdToDoc(ord int) int                        { return ord }
+func (s *stubKnnVectorValues) GetAcceptOrds(acceptDocs util.Bits) util.Bits { return acceptDocs }
 
 type stubHasKnnVectorValues struct {
 	values KnnVectorValues

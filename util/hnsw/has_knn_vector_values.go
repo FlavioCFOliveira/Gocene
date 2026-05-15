@@ -13,12 +13,14 @@
 
 package hnsw
 
+import "github.com/FlavioCFOliveira/Gocene/util"
+
 // KnnVectorValues is a temporary local stub of
 // org.apache.lucene.index.KnnVectorValues. The full type lives in
 // Lucene's `index` package and has not been ported yet to Gocene.
 // HasKnnVectorValues only needs to reference an opaque type for
 // future binding, so this local interface intentionally exposes the
-// minimal surface needed across the hnsw package: dimension and size.
+// minimal surface needed across the hnsw package.
 //
 // TODO(rmp): unify with the canonical index.KnnVectorValues once
 // that port lands (index sprint, currently L22 in the roadmap).
@@ -28,6 +30,16 @@ type KnnVectorValues interface {
 
 	// Size returns the number of vectors for the field.
 	Size() int
+
+	// OrdToDoc translates a vector ordinal to the document ID; the
+	// default implementation in Lucene is the identity function for
+	// dense values.
+	OrdToDoc(ord int) int
+
+	// GetAcceptOrds returns the Bits representing live documents
+	// restricted to the supplied acceptDocs; the default in Lucene
+	// is identity.
+	GetAcceptOrds(acceptDocs util.Bits) util.Bits
 }
 
 // HasKnnVectorValues is implemented by types that can return the
