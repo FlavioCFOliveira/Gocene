@@ -23,16 +23,16 @@ func newTrackingByteOutput(initialCapacity int) *trackingByteOutput {
 	return &trackingByteOutput{out: store.NewByteArrayDataOutput(initialCapacity)}
 }
 
-func (t *trackingByteOutput) WriteByte(b byte) error        { return t.out.WriteByte(b) }
-func (t *trackingByteOutput) WriteBytes(b []byte) error     { return t.out.WriteBytes(b) }
+func (t *trackingByteOutput) WriteByte(b byte) error    { return t.out.WriteByte(b) }
+func (t *trackingByteOutput) WriteBytes(b []byte) error { return t.out.WriteBytes(b) }
 func (t *trackingByteOutput) WriteBytesN(b []byte, n int) error {
 	return t.out.WriteBytesN(b, n)
 }
-func (t *trackingByteOutput) WriteShort(i int16) error  { return t.out.WriteShort(i) }
-func (t *trackingByteOutput) WriteInt(i int32) error    { return t.out.WriteInt(i) }
-func (t *trackingByteOutput) WriteLong(i int64) error   { return t.out.WriteLong(i) }
+func (t *trackingByteOutput) WriteShort(i int16) error   { return t.out.WriteShort(i) }
+func (t *trackingByteOutput) WriteInt(i int32) error     { return t.out.WriteInt(i) }
+func (t *trackingByteOutput) WriteLong(i int64) error    { return t.out.WriteLong(i) }
 func (t *trackingByteOutput) WriteString(s string) error { return t.out.WriteString(s) }
-func (t *trackingByteOutput) GetFilePointer() int64     { return int64(len(t.out.GetBytes())) }
+func (t *trackingByteOutput) GetFilePointer() int64      { return int64(len(t.out.GetBytes())) }
 
 func (t *trackingByteOutput) Bytes() []byte { return t.out.GetBytes() }
 
