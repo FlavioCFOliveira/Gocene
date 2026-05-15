@@ -22,14 +22,14 @@ func (s *stubPointReader) Close() error { s.closed = true; return nil }
 // stubPointWriter mirrors stubPointReader.
 type stubPointWriter struct{ n int64 }
 
-func (s *stubPointWriter) Append(packedValue []byte, docID int) error      { s.n++; return nil }
-func (s *stubPointWriter) AppendPointValue(pointValue PointValue) error    { s.n++; return nil }
+func (s *stubPointWriter) Append(packedValue []byte, docID int) error   { s.n++; return nil }
+func (s *stubPointWriter) AppendPointValue(pointValue PointValue) error { s.n++; return nil }
 func (s *stubPointWriter) GetReader(startPoint, length int64) (PointReader, error) {
 	return &stubPointReader{}, nil
 }
-func (s *stubPointWriter) Count() int64    { return s.n }
-func (s *stubPointWriter) Destroy() error  { return nil }
-func (s *stubPointWriter) Close() error    { return nil }
+func (s *stubPointWriter) Count() int64   { return s.n }
+func (s *stubPointWriter) Destroy() error { return nil }
+func (s *stubPointWriter) Close() error   { return nil }
 
 func TestPointReaderInterface(t *testing.T) {
 	var r PointReader = &stubPointReader{}
