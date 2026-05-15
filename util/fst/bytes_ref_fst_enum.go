@@ -37,12 +37,17 @@ import (
 // *fstEnum[T] and implements the fstEnumLabels interface that the base
 // uses for label-buffer access.
 
-// InputOutput holds a single (input BytesRef, output T) pair, the Go
-// counterpart to Lucene's BytesRefFSTEnum.InputOutput<T> inner class.
-// The Input pointer is stable across calls — it always points at the
-// enumerator's internal current BytesRef, so callers that need a copy
-// should clone it themselves.
-type InputOutput[T any] struct {
+// BytesRefInputOutput holds a single (input BytesRef, output T) pair,
+// the Go counterpart to Lucene's BytesRefFSTEnum.InputOutput<T> inner
+// class. The Input pointer is stable across calls — it always points
+// at the enumerator's internal current BytesRef, so callers that need
+// a copy should clone it themselves.
+//
+// Naming rationale: Java disambiguates via nested types
+// (BytesRefFSTEnum.InputOutput<T> vs IntsRefFSTEnum.InputOutput<T>).
+// Go has no inner classes, so we prefix each struct with the input
+// kind it carries to keep both names unambiguous in the same package.
+type BytesRefInputOutput[T any] struct {
 	Input  *util.BytesRef
 	Output T
 }
@@ -54,7 +59,7 @@ type InputOutput[T any] struct {
 type BytesRefFSTEnum[T any] struct {
 	enum    *fstEnum[T]
 	current *util.BytesRef
-	result  *InputOutput[T]
+	result  *BytesRefInputOutput[T]
 	target  *util.BytesRef
 }
 
@@ -76,7 +81,7 @@ func NewBytesRefFSTEnum[T any](fst *FST[T]) (*BytesRefFSTEnum[T], error) {
 	current := &util.BytesRef{Bytes: make([]byte, 10), Offset: 1, Length: 0}
 	be := &BytesRefFSTEnum[T]{
 		current: current,
-		result:  &InputOutput[T]{Input: current},
+		result:  &BytesRefInputOutput[T]{Input: current},
 	}
 	be.enum = newFSTEnum(fst, be)
 	return be, nil
@@ -89,7 +94,7 @@ func NewBytesRefFSTEnum[T any](fst *FST[T]) (*BytesRefFSTEnum[T], error) {
 // The pointer returned aliases the enumerator's internal state; the
 // Input BytesRef in particular is mutated by the next call. Callers
 // who need a stable copy must clone it.
-func (be *BytesRefFSTEnum[T]) Current() *InputOutput[T] {
+func (be *BytesRefFSTEnum[T]) Current() *BytesRefInputOutput[T] {
 	if be.enum.upto == 0 {
 		return nil
 	}
@@ -99,7 +104,7 @@ func (be *BytesRefFSTEnum[T]) Current() *InputOutput[T] {
 // Next advances the enumerator to the next (input, output) pair in
 // ascending input order. Returns (nil, nil) when there are no more
 // terms (EOF), mirroring Lucene's null return.
-func (be *BytesRefFSTEnum[T]) Next() (*InputOutput[T], error) {
+func (be *BytesRefFSTEnum[T]) Next() (*BytesRefInputOutput[T], error) {
 	if err := be.enum.doNext(); err != nil {
 		return nil, err
 	}
@@ -109,7 +114,7 @@ func (be *BytesRefFSTEnum[T]) Next() (*InputOutput[T], error) {
 // SeekCeil seeks to the smallest term >= target. Returns (nil, nil)
 // when there is no such term (i.e. every term in the FST is strictly
 // less than target). Mirrors BytesRefFSTEnum.seekCeil.
-func (be *BytesRefFSTEnum[T]) SeekCeil(target *util.BytesRef) (*InputOutput[T], error) {
+func (be *BytesRefFSTEnum[T]) SeekCeil(target *util.BytesRef) (*BytesRefInputOutput[T], error) {
 	if target == nil {
 		return nil, errors.New("fst.BytesRefFSTEnum.SeekCeil: target is nil")
 	}
@@ -124,7 +129,7 @@ func (be *BytesRefFSTEnum[T]) SeekCeil(target *util.BytesRef) (*InputOutput[T], 
 // SeekFloor seeks to the largest term <= target. Returns (nil, nil)
 // when there is no such term (i.e. every term in the FST is strictly
 // greater than target). Mirrors BytesRefFSTEnum.seekFloor.
-func (be *BytesRefFSTEnum[T]) SeekFloor(target *util.BytesRef) (*InputOutput[T], error) {
+func (be *BytesRefFSTEnum[T]) SeekFloor(target *util.BytesRef) (*BytesRefInputOutput[T], error) {
 	if target == nil {
 		return nil, errors.New("fst.BytesRefFSTEnum.SeekFloor: target is nil")
 	}
@@ -140,7 +145,7 @@ func (be *BytesRefFSTEnum[T]) SeekFloor(target *util.BytesRef) (*InputOutput[T],
 // is not in the FST. Faster than SeekCeil / SeekFloor because it
 // short-circuits as soon as the match is not found. Mirrors
 // BytesRefFSTEnum.seekExact.
-func (be *BytesRefFSTEnum[T]) SeekExact(target *util.BytesRef) (*InputOutput[T], error) {
+func (be *BytesRefFSTEnum[T]) SeekExact(target *util.BytesRef) (*BytesRefInputOutput[T], error) {
 	if target == nil {
 		return nil, errors.New("fst.BytesRefFSTEnum.SeekExact: target is nil")
 	}
@@ -210,7 +215,7 @@ func (be *BytesRefFSTEnum[T]) Grow() {
 // (upto == 0) it returns nil; otherwise it adjusts current.Length to
 // the active prefix and stores the cumulative output. Mirrors
 // BytesRefFSTEnum.setResult.
-func (be *BytesRefFSTEnum[T]) setResult() *InputOutput[T] {
+func (be *BytesRefFSTEnum[T]) setResult() *BytesRefInputOutput[T] {
 	if be.enum.upto == 0 {
 		return nil
 	}
