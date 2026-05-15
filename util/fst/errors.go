@@ -20,3 +20,12 @@ import "errors"
 // java.lang.UnsupportedOperationException thrown by Outputs.merge in
 // Lucene's reference implementation.
 var ErrUnsupportedMerge = errors.New("fst: merge not supported by this Outputs")
+
+// errNotVariableLengthOutput is returned when an Outputs implementation
+// needs WriteVInt/WriteVLong on its DataOutput but the concrete value
+// does not implement store.VariableLengthOutput.
+var errNotVariableLengthOutput = errors.New("fst: DataOutput does not implement VariableLengthOutput")
+
+// errNotVariableLengthInput is the input-side counterpart of
+// errNotVariableLengthOutput.
+var errNotVariableLengthInput = errors.New("fst: DataInput does not implement VariableLengthInput")
