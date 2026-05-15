@@ -128,18 +128,18 @@ func (aq *AutomatonQuery) GetRewriteMethod() string {
 // This method implements the Query interface.
 func (aq *AutomatonQuery) Rewrite(reader IndexReader) (Query, error) {
 	// Check if automaton is empty (matches nothing)
-	if aq.compiledAutomaton.Type() == "NONE" {
+	if aq.compiledAutomaton.TypeName() == "NONE" {
 		return NewMatchNoDocsQuery(), nil
 	}
 
 	// Check if automaton matches all strings
-	if aq.compiledAutomaton.Type() == "ALL" {
+	if aq.compiledAutomaton.TypeName() == "ALL" {
 		// Rewrite to field exists query
 		return NewFieldExistsQuery(aq.term.Field), nil
 	}
 
 	// Check if automaton matches a single term
-	if aq.compiledAutomaton.Type() == "SINGLE" {
+	if aq.compiledAutomaton.TypeName() == "SINGLE" {
 		singleTerm := aq.compiledAutomaton.GetTerm()
 		return NewTermQuery(index.NewTerm(aq.term.Field, singleTerm)), nil
 	}
