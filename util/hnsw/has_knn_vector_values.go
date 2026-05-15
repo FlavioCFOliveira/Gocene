@@ -40,6 +40,42 @@ type KnnVectorValues interface {
 	// restricted to the supplied acceptDocs; the default in Lucene
 	// is identity.
 	GetAcceptOrds(acceptDocs util.Bits) util.Bits
+
+	// Iterator returns a [DocIndexIterator] over the (docId, ordinal)
+	// pairs backing this view. Mirrors Java's
+	// KnnVectorValues.iterator() factory. Implementations should
+	// return a fresh iterator per call; the returned iterator is not
+	// safe for concurrent use.
+	Iterator() DocIndexIterator
+}
+
+// DocIndexIterator iterates the (docId, ordinal) pairs of a
+// [KnnVectorValues] view in document order. It is the Go
+// counterpart of org.apache.lucene.index.KnnVectorValues.DocIndexIterator
+// (Lucene 10.4.0), itself a thin DocIdSetIterator subtype that
+// exposes a per-position ordinal via Index().
+//
+// NextDoc returns the next document id in ascending order, or
+// util.NO_MORE_DOCS once the iterator is exhausted. After NextDoc
+// returns util.NO_MORE_DOCS, callers must not invoke Index again
+// (its return value is undefined past exhaustion, mirroring the
+// Java reference).
+//
+// DocIndexIterator is not safe for concurrent use; per-iterator
+// state is local to the receiver.
+type DocIndexIterator interface {
+	// NextDoc advances the iterator and returns the next document
+	// id, or util.NO_MORE_DOCS when exhausted. The error channel is
+	// retained for parity with the rest of the Gocene I/O surface
+	// (Lucene throws IOException from DocIdSetIterator.nextDoc).
+	NextDoc() (int, error)
+
+	// Index returns the ordinal corresponding to the current
+	// position of the iterator — i.e. the vector index that would
+	// pair with the most recent NextDoc result. Calling Index before
+	// the first NextDoc or after NextDoc has returned
+	// util.NO_MORE_DOCS is undefined.
+	Index() int
 }
 
 // HasKnnVectorValues is implemented by types that can return the

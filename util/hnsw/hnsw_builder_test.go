@@ -41,7 +41,7 @@ func (s *stubHnswBuilder) AddGraphNodeWithEntryPoints(node int, eps map[int]stru
 }
 
 func (s *stubHnswBuilder) SetInfoStream(infoStream util.InfoStream) { s.stream = infoStream }
-func (s *stubHnswBuilder) GetGraph() *OnHeapHnswGraph              { return s.graph }
+func (s *stubHnswBuilder) GetGraph() *OnHeapHnswGraph               { return s.graph }
 func (s *stubHnswBuilder) GetCompletedGraph() (*OnHeapHnswGraph, error) {
 	s.completed = true
 	return s.graph, nil
