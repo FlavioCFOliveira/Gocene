@@ -19,8 +19,9 @@ type fakeBytesReader struct {
 	pos int64
 }
 
-func (f *fakeBytesReader) GetPosition() int64    { return f.pos }
-func (f *fakeBytesReader) SetPosition(pos int64) { f.pos = pos }
+func (f *fakeBytesReader) GetPosition() int64      { return f.pos }
+func (f *fakeBytesReader) SetPosition(pos int64)   { f.pos = pos }
+func (f *fakeBytesReader) SkipBytes(n int64) error { f.pos -= n; return nil }
 
 // fakeFSTReader exercises the FSTReader contract.
 type fakeFSTReader struct {

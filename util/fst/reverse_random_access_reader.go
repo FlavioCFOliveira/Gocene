@@ -172,3 +172,10 @@ func (r *ReverseRandomAccessReader) GetPosition() int64 { return r.pos }
 
 // SetPosition implements BytesReader.
 func (r *ReverseRandomAccessReader) SetPosition(pos int64) { r.pos = pos }
+
+// SkipBytes implements BytesReader. See ReverseBytesReader.SkipBytes
+// for the reverse-direction semantics.
+func (r *ReverseRandomAccessReader) SkipBytes(n int64) error {
+	r.pos -= n
+	return nil
+}
