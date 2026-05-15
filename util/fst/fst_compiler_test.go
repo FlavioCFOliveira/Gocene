@@ -230,26 +230,10 @@ func TestFSTCompilerByteFormatFixture(t *testing.T) {
 	}
 }
 
-// lookupInt64 mirrors Lucene's Util.get(FST<Long>, BytesRef) for
-// PositiveIntOutputs. Returns the accumulated output, true on
-// acceptance, false otherwise. Mirrors the algorithm in
-// org.apache.lucene.util.fst.Util.get.
+// lookupInt64 is a thin []byte adapter around the package-level
+// [GetBytesRef] (the Go port of Lucene's
+// {@code Util.get(FST<Long>, BytesRef)}). It exists only to spare the
+// test sites from constructing a [util.BytesRef] manually.
 func lookupInt64(fst *FST[int64], input []byte) (int64, bool, error) {
-	arc := fst.GetFirstArc(&Arc[int64]{})
-	reader := fst.GetBytesReader()
-	output := fst.outputs.GetNoOutput()
-	for i := 0; i < len(input); i++ {
-		found, err := fst.FindTargetArc(int(input[i])&0xFF, arc, arc, reader)
-		if err != nil {
-			return 0, false, err
-		}
-		if found == nil {
-			return 0, false, nil
-		}
-		output = fst.outputs.Add(output, arc.Output())
-	}
-	if !arc.IsFinal() {
-		return 0, false, nil
-	}
-	return fst.outputs.Add(output, arc.NextFinalOutput()), true, nil
+	return GetBytesRef(fst, util.NewBytesRef(input))
 }
