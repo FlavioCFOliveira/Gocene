@@ -30,4 +30,14 @@ type BytesReader interface {
 
 	// SetPosition seeks the reader to the given position.
 	SetPosition(pos int64)
+
+	// SkipBytes advances the reader position by n bytes in the
+	// reader's natural direction. For reverse readers (which iterate
+	// "backward" through the underlying stream) a positive n moves
+	// the underlying position backward — that is, "forward" in the
+	// reverse iteration order — so internally r.pos -= n. Negative
+	// values are allowed and skip in the opposite direction; this
+	// matches Lucene's contract (BitTableUtil.previousBitSet calls
+	// reader.skipBytes(-2)).
+	SkipBytes(n int64) error
 }

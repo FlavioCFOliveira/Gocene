@@ -187,3 +187,13 @@ func (r *ReverseBytesReader) GetPosition() int64 { return r.pos }
 
 // SetPosition implements BytesReader.
 func (r *ReverseBytesReader) SetPosition(pos int64) { r.pos = pos }
+
+// SkipBytes implements BytesReader. In the reverse direction a
+// positive n moves the underlying byte index backward (i.e.
+// "forward" in the reverse iteration order). Negative n is
+// permitted and moves the underlying index forward; this matches
+// Lucene's contract (BitTableUtil.previousBitSet skips by -2).
+func (r *ReverseBytesReader) SkipBytes(n int64) error {
+	r.pos -= n
+	return nil
+}
