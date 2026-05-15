@@ -1,337 +1,258 @@
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
+//
+// Port of org.apache.lucene.util.automaton.CompiledAutomaton from Apache
+// Lucene 10.4.0 (Apache License 2.0).
 
 package automaton
 
-// CompiledAutomaton is an immutable compiled automaton for efficient matching.
-// It provides fast execution by using a pre-computed transition table.
+import (
+	"math"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
+// AutomatonType enumerates the simplified forms a compiled automaton may take.
+type AutomatonType int
+
+// AutomatonType values.
+const (
+	AutomatonTypeNone   AutomatonType = iota // accepts nothing
+	AutomatonTypeAll                         // accepts everything
+	AutomatonTypeSingle                      // accepts exactly one fixed term
+	AutomatonTypeNormal                      // catch-all
+)
+
+// CompiledAutomaton holds an analysed, ready-to-run automaton along with the
+// simplification hints used by term-dictionary intersections.
 type CompiledAutomaton struct {
-	automaton    *Automaton
-	start        int
-	accept       map[int]bool
-	transitions  [][]int // state x input -> next state
-	classCount   int     // number of character classes
-	classMap     []int   // maps code points to class indices
-	minCodePoint int
-	maxCodePoint int
+	// Type is the simplified classification (NONE, ALL, SINGLE, NORMAL).
+	Type AutomatonType
+
+	// Term holds the singleton term when Type == SINGLE.
+	Term *util.BytesRef
+
+	// RunAutomaton is the byte-level run automaton for Type == NORMAL DFAs.
+	RunAutomaton *ByteRunAutomaton
+
+	// Automaton is the underlying byte-level Automaton for Type == NORMAL DFAs.
+	Automaton *Automaton
+
+	// CommonSuffixRef is the longest common suffix accepted by NORMAL infinite DFAs (optional).
+	CommonSuffixRef *util.BytesRef
+
+	// Finite reports whether the source automaton accepts a finite language.
+	Finite bool
+
+	// SinkState identifies a sink state when one exists, else -1.
+	SinkState int
+
+	// NfaRunAutomaton holds the lazily-determinizing NFA runner for NORMAL NFAs.
+	NfaRunAutomaton *NFARunAutomaton
+
+	// Binary tracks whether the source was already a byte-level automaton.
+	Binary bool
 }
 
-// Compile compiles an automaton for efficient execution.
+// Compile classifies the automaton, attempting basic simplifications.
+// simplify=true mirrors Lucene's default constructor (CompiledAutomaton(a)).
 func Compile(a *Automaton) *CompiledAutomaton {
-	if a.IsEmpty() {
-		return &CompiledAutomaton{
-			automaton:    NewAutomaton(),
-			start:        -1,
-			accept:       make(map[int]bool),
-			transitions:  make([][]int, 0),
-			classCount:   0,
-			minCodePoint: 0,
-			maxCodePoint: 0,
+	return CompileFull(a, false, true, false)
+}
+
+// CompileFull mirrors Lucene's CompiledAutomaton(Automaton, finite, simplify, isBinary).
+func CompileFull(a *Automaton, finite, simplify, isBinary bool) *CompiledAutomaton {
+	if a.NumStates() == 0 {
+		a = NewAutomaton()
+		a.CreateState()
+	}
+
+	c := &CompiledAutomaton{
+		SinkState: -1,
+		Binary:    isBinary,
+	}
+
+	// Simplification path requires a DFA.
+	if simplify && a.IsDeterministic() {
+		if IsEmpty(a) {
+			c.Type = AutomatonTypeNone
+			c.Finite = true
+			return c
 		}
-	}
-
-	// Determinize and minimize first
-	det := a.Determinize(DefaultDeterminizeWorkLimit)
-	if det == nil {
-		det = a
-	}
-	min := det.Minimize()
-
-	// Compute character classes
-	classMap, classCount, minCP, maxCP := computeCharClasses(min)
-
-	// Build transition table
-	numStates := min.NumStates()
-	transitions := make([][]int, numStates)
-	for i := 0; i < numStates; i++ {
-		transitions[i] = make([]int, classCount)
-		for j := 0; j < classCount; j++ {
-			transitions[i][j] = -1 // Default: no transition
+		var isTotal bool
+		if isBinary {
+			isTotal = IsTotalRange(a, 0, 0xFF)
+		} else {
+			isTotal = IsTotal(a)
 		}
-	}
-
-	// Fill transition table
-	for i := 0; i < numStates; i++ {
-		for _, trans := range min.GetTransitions(i) {
-			for c := trans.min; c <= trans.max; c++ {
-				if c >= minCP && c <= maxCP {
-					class := classMap[c-minCP]
-					transitions[i][class] = trans.to
+		if isTotal {
+			c.Type = AutomatonTypeAll
+			c.Finite = false
+			return c
+		}
+		if single := GetSingleton(a); single != nil {
+			c.Type = AutomatonTypeSingle
+			c.Finite = true
+			if isBinary {
+				bs := make([]byte, len(single))
+				for i, cp := range single {
+					bs[i] = byte(cp)
 				}
+				c.Term = &util.BytesRef{Bytes: bs, Offset: 0, Length: len(bs)}
+			} else {
+				// Encode the single code-point sequence as UTF-8.
+				bs := make([]byte, 0, len(single)*4)
+				for _, cp := range single {
+					bs = appendUTF8(bs, cp)
+				}
+				c.Term = &util.BytesRef{Bytes: bs, Offset: 0, Length: len(bs)}
+			}
+			return c
+		}
+	}
+
+	c.Type = AutomatonTypeNormal
+	c.Finite = finite
+
+	var binary *Automaton
+	if isBinary {
+		binary = a
+	} else {
+		binary = NewUTF32ToUTF8().Convert(a)
+	}
+
+	// We always run on a DFA; if the source automaton might be an NFA, defer to NFARunAutomaton.
+	if !a.IsDeterministic() && !binary.IsDeterministic() {
+		c.NfaRunAutomaton = NewNFARunAutomatonAlphabet(binary, 0xFF+1)
+		return c
+	}
+
+	det, err := Determinize(binary, math.MaxInt32)
+	if err != nil {
+		// Fall back to NFA runner.
+		c.NfaRunAutomaton = NewNFARunAutomatonAlphabet(binary, 0xFF+1)
+		return c
+	}
+	c.RunAutomaton = NewByteRunAutomatonBinary(det, true)
+	c.Automaton = c.RunAutomaton.GetAutomaton()
+	c.SinkState = findSinkState(c.Automaton)
+	return c
+}
+
+// findSinkState mirrors Lucene's helper for prefix-style sink detection.
+func findSinkState(a *Automaton) int {
+	t := NewTransition()
+	for s := 0; s < a.NumStates(); s++ {
+		if !a.IsAccept(s) {
+			continue
+		}
+		count := a.InitTransition(s, t)
+		for i := 0; i < count; i++ {
+			a.GetNextTransition(t)
+			if t.Dest == s && t.Min == 0 && t.Max == 0xFF {
+				return s
 			}
 		}
 	}
-
-	// Build accept map
-	accept := make(map[int]bool)
-	for i := 0; i < numStates; i++ {
-		if min.IsAccept(i) {
-			accept[i] = true
-		}
-	}
-
-	return &CompiledAutomaton{
-		automaton:    min,
-		start:        min.GetInitialState(),
-		accept:       accept,
-		transitions:  transitions,
-		classCount:   classCount,
-		classMap:     classMap,
-		minCodePoint: minCP,
-		maxCodePoint: maxCP,
-	}
+	return -1
 }
 
-// Run runs the compiled automaton on input bytes.
+// RunString reports whether the compiled automaton accepts the Unicode string s.
+// For Type==SINGLE comparisons are done byte-wise against the UTF-8 encoding.
+func (c *CompiledAutomaton) RunString(s string) bool {
+	return c.Run([]byte(s))
+}
+
+// Run reports whether the compiled automaton accepts the byte slice.
 func (c *CompiledAutomaton) Run(input []byte) bool {
-	if c.start == -1 {
+	switch c.Type {
+	case AutomatonTypeNone:
 		return false
-	}
-
-	state := c.start
-	for _, b := range input {
-		if state == -1 {
-			return false
-		}
-
-		// Get character class
-		cp := int(b)
-		if cp < c.minCodePoint || cp > c.maxCodePoint {
-			return false
-		}
-		class := c.classMap[cp-c.minCodePoint]
-
-		// Follow transition
-		if class >= c.classCount {
-			return false
-		}
-		state = c.transitions[state][class]
-	}
-
-	return c.accept[state]
-}
-
-// RunString runs the compiled automaton on a string input.
-func (c *CompiledAutomaton) RunString(input string) bool {
-	return c.Run([]byte(input))
-}
-
-// GetAutomaton returns the underlying automaton.
-func (c *CompiledAutomaton) GetAutomaton() *Automaton {
-	return c.automaton
-}
-
-// GetStartState returns the start state.
-func (c *CompiledAutomaton) GetStartState() int {
-	return c.start
-}
-
-// IsAccept returns true if the state is accepting.
-func (c *CompiledAutomaton) IsAccept(state int) bool {
-	return c.accept[state]
-}
-
-// GetNextState returns the next state given current state and input character.
-func (c *CompiledAutomaton) GetNextState(state int, input int) int {
-	if state < 0 || state >= len(c.transitions) {
-		return -1
-	}
-
-	if input < c.minCodePoint || input > c.maxCodePoint {
-		return -1
-	}
-
-	class := c.classMap[input-c.minCodePoint]
-	if class >= c.classCount {
-		return -1
-	}
-
-	return c.transitions[state][class]
-}
-
-// Type returns the type of this automaton.
-// Returns: NONE, ALL, SINGLE, or NORMAL.
-func (c *CompiledAutomaton) Type() string {
-	if c.start == -1 {
-		return "NONE"
-	}
-
-	numStates := len(c.transitions)
-	if numStates == 0 {
-		return "NONE"
-	}
-
-	// Check if it's a single string
-	if c.isSingleString() {
-		return "SINGLE"
-	}
-
-	// Check if it's "all" (accepts everything)
-	if c.acceptsAll() {
-		return "ALL"
-	}
-
-	return "NORMAL"
-}
-
-// isSingleString returns true if the automaton accepts exactly one string.
-func (c *CompiledAutomaton) isSingleString() bool {
-	// Check that there's exactly one accepting path
-	// and no branching
-	if !c.accept[c.start] && len(c.transitions[c.start]) == 0 {
-		return false
-	}
-
-	visited := make(map[int]bool)
-	var checkPath func(int) bool
-	checkPath = func(state int) bool {
-		if visited[state] {
-			return true // Cycle found
-		}
-		visited[state] = true
-
-		// Count outgoing transitions
-		count := 0
-		for _, next := range c.transitions[state] {
-			if next != -1 {
-				count++
-				if !checkPath(next) {
-					return false
-				}
-			}
-		}
-
-		// Should have at most 1 transition (if not accepting)
-		// or 0 transitions (if accepting)
-		if !c.accept[state] && count > 1 {
-			return false
-		}
-
+	case AutomatonTypeAll:
 		return true
+	case AutomatonTypeSingle:
+		return bytesEqual(c.Term, input)
+	default:
+		if c.RunAutomaton != nil {
+			return c.RunAutomaton.Run(input, 0, len(input))
+		}
+		if c.NfaRunAutomaton != nil {
+			return RunBytes(c.NfaRunAutomaton, input, 0, len(input))
+		}
+		return false
 	}
-
-	return checkPath(c.start)
 }
 
-// acceptsAll returns true if the automaton accepts all strings.
-func (c *CompiledAutomaton) acceptsAll() bool {
-	// All states should be accepting
-	// and there should be transitions for all inputs
-	for i := 0; i < len(c.transitions); i++ {
-		if !c.accept[i] {
+func bytesEqual(term *util.BytesRef, input []byte) bool {
+	if term == nil {
+		return false
+	}
+	if term.Length != len(input) {
+		return false
+	}
+	for i := 0; i < term.Length; i++ {
+		if term.Bytes[term.Offset+i] != input[i] {
 			return false
 		}
 	}
-
-	// Check that initial state has self-loop for all inputs
-	for _, next := range c.transitions[c.start] {
-		if next != c.start {
-			return false
-		}
-	}
-
 	return true
 }
 
-// GetTerm returns the single term this automaton matches (if Type is SINGLE).
+// GetTerm returns the singleton term as a Go string (Unicode for non-binary
+// automatons, raw bytes for binary). Empty for non-SINGLE types.
 func (c *CompiledAutomaton) GetTerm() string {
-	if c.Type() != "SINGLE" {
+	if c.Term == nil {
 		return ""
 	}
-
-	// Follow the single path from start
-	var result []rune
-	state := c.start
-
-	for !c.accept[state] {
-		// Find the single transition
-		for class, next := range c.transitions[state] {
-			if next != -1 {
-				// Find a code point in this class
-				for cp := c.minCodePoint; cp <= c.maxCodePoint; cp++ {
-					if c.classMap[cp-c.minCodePoint] == class {
-						result = append(result, rune(cp))
-						state = next
-						break
-					}
-				}
-				break
-			}
-		}
-	}
-
-	return string(result)
+	return string(c.Term.Bytes[c.Term.Offset : c.Term.Offset+c.Term.Length])
 }
 
-// computeCharClasses computes character classes for the automaton.
-// It partitions the code point space into equivalence classes.
-func computeCharClasses(a *Automaton) ([]int, int, int, int) {
-	if a.IsEmpty() {
-		return []int{}, 0, 0, 0
+// TypeName returns the Lucene-style type name ("NONE"/"ALL"/"SINGLE"/"NORMAL").
+func (c *CompiledAutomaton) TypeName() string {
+	switch c.Type {
+	case AutomatonTypeNone:
+		return "NONE"
+	case AutomatonTypeAll:
+		return "ALL"
+	case AutomatonTypeSingle:
+		return "SINGLE"
+	default:
+		return "NORMAL"
 	}
-
-	// Find min and max code points used
-	minCP := 0x10FFFF + 1
-	maxCP := -1
-
-	for i := 0; i < a.NumStates(); i++ {
-		for _, trans := range a.GetTransitions(i) {
-			if trans.min < minCP {
-				minCP = trans.min
-			}
-			if trans.max > maxCP {
-				maxCP = trans.max
-			}
-		}
-	}
-
-	if maxCP < minCP {
-		return []int{}, 0, 0, 0
-	}
-
-	// Collect all transition boundaries
-	boundaries := make(map[int]bool)
-	boundaries[minCP] = true
-
-	for i := 0; i < a.NumStates(); i++ {
-		for _, trans := range a.GetTransitions(i) {
-			boundaries[trans.min] = true
-			if trans.max+1 <= maxCP {
-				boundaries[trans.max+1] = true
-			}
-		}
-	}
-
-	// Sort boundaries
-	bounds := make([]int, 0, len(boundaries))
-	for b := range boundaries {
-		bounds = append(bounds, b)
-	}
-	sortInts(bounds)
-
-	// Create class map
-	classCount := len(bounds)
-	classMap := make([]int, maxCP-minCP+1)
-
-	currentClass := 0
-	for i := minCP; i <= maxCP; i++ {
-		if currentClass+1 < classCount && i >= bounds[currentClass+1] {
-			currentClass++
-		}
-		classMap[i-minCP] = currentClass
-	}
-
-	return classMap, classCount, minCP, maxCP
 }
 
-// sortInts sorts a slice of integers (helper function).
-func sortInts(a []int) {
-	for i := 0; i < len(a); i++ {
-		for j := i + 1; j < len(a); j++ {
-			if a[j] < a[i] {
-				a[i], a[j] = a[j], a[i]
-			}
-		}
+// GetAutomaton returns the underlying byte-level Automaton (may be nil for
+// NONE/ALL/SINGLE). For NORMAL DFAs this is the deterministic byte-level form.
+func (c *CompiledAutomaton) GetAutomaton() *Automaton { return c.Automaton }
+
+// HashCode returns a small structural hash, suitable for cache keying.
+func (c *CompiledAutomaton) HashCode() int {
+	const prime = 31
+	result := 1
+	if c.RunAutomaton != nil {
+		result = prime*result + c.RunAutomaton.HashCode()
+	}
+	if c.NfaRunAutomaton != nil {
+		result = prime*result + c.NfaRunAutomaton.HashCode()
+	}
+	if c.Term != nil {
+		result = prime*result + c.Term.HashCode()
+	}
+	result = prime*result + int(c.Type)
+	return result
+}
+
+// appendUTF8 appends the UTF-8 encoding of code point cp to dst.
+func appendUTF8(dst []byte, cp int) []byte {
+	switch {
+	case cp < 0x80:
+		return append(dst, byte(cp))
+	case cp < 0x800:
+		return append(dst, byte(0xC0|(cp>>6)), byte(0x80|(cp&0x3F)))
+	case cp < 0x10000:
+		return append(dst, byte(0xE0|(cp>>12)), byte(0x80|((cp>>6)&0x3F)), byte(0x80|(cp&0x3F)))
+	default:
+		return append(dst, byte(0xF0|(cp>>18)), byte(0x80|((cp>>12)&0x3F)), byte(0x80|((cp>>6)&0x3F)), byte(0x80|(cp&0x3F)))
 	}
 }

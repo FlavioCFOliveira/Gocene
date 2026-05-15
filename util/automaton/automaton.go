@@ -1,537 +1,596 @@
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
+//
+// Port of org.apache.lucene.util.automaton.Automaton from Apache Lucene 10.4.0.
+// Original work licensed under the Apache License 2.0 to the Apache Software
+// Foundation; portions derived from dk.brics.automaton, Copyright (c) 2001-2009
+// Anders Moeller, redistributed under the BSD-style licence reproduced in the
+// upstream Lucene source.
 
-// Package automaton provides finite-state automata for regular expressions.
-// This is a Go port of Lucene's automaton package.
 package automaton
 
 import (
 	"fmt"
 	"sort"
 	"strings"
-	"unicode/utf8"
 )
 
-const (
-	// DefaultDeterminizeWorkLimit is the default work limit for determinization.
-	DefaultDeterminizeWorkLimit = 10000
+// MinCodePoint is the smallest Unicode code point (inclusive).
+const MinCodePoint = 0
 
-	// Special state values
-	invalidState = -1
-)
+// MaxCodePoint is the largest Unicode code point (inclusive).
+const MaxCodePoint = 0x10FFFF
 
-// State represents a state in the automaton.
-type State struct {
-	id          int
-	transitions []*Transition
-	accept      bool
-}
-
-// Transition represents a transition between states.
+// Transition represents a single labelled transition from an Automaton state.
+// Source/Dest/Min/Max are mutable to match Lucene's iterator pattern via
+// InitTransition/GetNextTransition; transitionUpto is internal bookkeeping.
 type Transition struct {
-	to  int
-	min int // inclusive
-	max int // inclusive
+	// Source is the originating state.
+	Source int
+	// Dest is the destination state.
+	Dest int
+	// Min is the minimum accepted code point label (inclusive).
+	Min int
+	// Max is the maximum accepted code point label (inclusive).
+	Max int
+
+	// transitionUpto tracks the current position when iterating via
+	// GetNextTransition. Initialised to -1 so misuse fails loudly.
+	transitionUpto int
 }
 
-// Automaton represents a finite-state automaton.
+// NewTransition returns a zero-valued Transition ready for iteration.
+func NewTransition() *Transition {
+	return &Transition{transitionUpto: -1}
+}
+
+// String renders the transition in the same shape as Lucene's
+// "src --> dst min-max" debug representation.
+func (t *Transition) String() string {
+	return fmt.Sprintf("%d --> %d %c-%c", t.Source, t.Dest, rune(t.Min), rune(t.Max))
+}
+
+// Automaton represents a finite-state automaton over Unicode code points
+// using Lucene's packed int[] representation. State 0 is always the initial
+// state once at least one state has been created. Add all transitions for a
+// single source state before moving on; FinishState (or starting another
+// source) sorts and reduces the transitions for that state.
 type Automaton struct {
-	states        []*State
-	initial       int
+	// states packs (transitionsOffset, transitionCount) pairs.
+	// states[2*s]   = offset into transitions for state s (or -1 if none yet)
+	// states[2*s+1] = number of transitions leaving state s
+	states []int
+
+	// nextState is the write cursor for states; increments by 2 per createState.
+	nextState int
+
+	// transitions packs (dest, min, max) triples for each transition, sorted
+	// per-source via finishCurrentState.
+	transitions []int
+
+	// nextTransition is the write cursor for transitions; increments by 3.
+	nextTransition int
+
+	// curState is the source state for which AddTransition is currently appending.
+	// Moving to a different source triggers finishCurrentState on the previous.
+	curState int
+
+	// isAccept is the accept-state bitmap.
+	isAccept []uint64
+
+	// deterministic is true when no state has two transitions whose labels overlap.
 	deterministic bool
-	minimized     bool
-	totality      int // Total number of transitions
 }
 
-// NewAutomaton creates a new empty automaton.
+// NewAutomaton creates an empty Automaton with default capacity.
 func NewAutomaton() *Automaton {
+	return NewAutomatonWithCapacity(2, 2)
+}
+
+// NewAutomatonWithCapacity creates an Automaton pre-sized for the given number
+// of states and transitions to reduce reallocation pressure.
+func NewAutomatonWithCapacity(numStates, numTransitions int) *Automaton {
+	if numStates < 1 {
+		numStates = 1
+	}
+	if numTransitions < 1 {
+		numTransitions = 1
+	}
 	return &Automaton{
-		states:        make([]*State, 0),
-		initial:       invalidState,
+		states:        make([]int, 0, numStates*2),
+		transitions:   make([]int, 0, numTransitions*3),
+		curState:      -1,
 		deterministic: true,
-		minimized:     false,
 	}
 }
 
-// CreateState creates a new state and returns its ID.
+// CreateState appends a new state and returns its id. The very first state
+// created is the initial state (state 0).
 func (a *Automaton) CreateState() int {
-	state := &State{
-		id:          len(a.states),
-		transitions: make([]*Transition, 0),
-		accept:      false,
-	}
-	a.states = append(a.states, state)
-	if a.initial == invalidState {
-		a.initial = state.id
-	}
-	return state.id
-}
-
-// SetAccept marks a state as accepting.
-func (a *Automaton) SetAccept(state int, accept bool) {
-	if state >= 0 && state < len(a.states) {
-		a.states[state].accept = accept
-	}
-}
-
-// IsAccept returns true if the state is accepting.
-func (a *Automaton) IsAccept(state int) bool {
-	if state >= 0 && state < len(a.states) {
-		return a.states[state].accept
-	}
-	return false
-}
-
-// GetInitialState returns the initial state.
-func (a *Automaton) GetInitialState() int {
-	return a.initial
-}
-
-// AddTransition adds a transition between states.
-func (a *Automaton) AddTransition(from, to, min, max int) {
-	if from < 0 || from >= len(a.states) || to < 0 || to >= len(a.states) {
-		return
-	}
-	trans := &Transition{
-		to:  to,
-		min: min,
-		max: max,
-	}
-	a.states[from].transitions = append(a.states[from].transitions, trans)
-	a.totality++
-	a.minimized = false
-}
-
-// GetTransitions returns all transitions from a state.
-func (a *Automaton) GetTransitions(state int) []*Transition {
-	if state >= 0 && state < len(a.states) {
-		return a.states[state].transitions
-	}
-	return nil
-}
-
-// IsEmpty returns true if the automaton accepts no strings.
-func (a *Automaton) IsEmpty() bool {
-	return len(a.states) == 0 || a.initial == invalidState
-}
-
-// IsEmptyString returns true if the automaton accepts only the empty string.
-func (a *Automaton) IsEmptyString() bool {
-	if a.IsEmpty() {
-		return false
-	}
-	return a.IsAccept(a.initial) && len(a.GetTransitions(a.initial)) == 0
-}
-
-// IsDeterministic returns true if the automaton is deterministic.
-func (a *Automaton) IsDeterministic() bool {
-	return a.deterministic
+	state := a.nextState / 2
+	// states[2*state] = -1 (no transitions yet), states[2*state+1] = 0
+	a.states = append(a.states, -1, 0)
+	a.nextState += 2
+	a.ensureIsAcceptCapacity(state)
+	return state
 }
 
 // NumStates returns the number of states.
 func (a *Automaton) NumStates() int {
-	return len(a.states)
+	return a.nextState / 2
 }
 
-// IsFinite returns true if the automaton is finite (accepts finite language).
-func (a *Automaton) IsFinite() bool {
-	// Simple check: if there's a cycle that can reach an accept state, it's infinite
-	visited := make([]bool, len(a.states))
-	recStack := make([]bool, len(a.states))
+// NumTransitions returns the total transition count across all states.
+func (a *Automaton) NumTransitions() int {
+	return a.nextTransition / 3
+}
 
-	var hasCycleToAccept func(int) bool
-	hasCycleToAccept = func(state int) bool {
-		visited[state] = true
-		recStack[state] = true
+// SetAccept marks state as accepting (or not).
+func (a *Automaton) SetAccept(state int, accept bool) {
+	a.checkState(state)
+	a.ensureIsAcceptCapacity(state)
+	word := state >> 6
+	bit := uint(state & 63)
+	if accept {
+		a.isAccept[word] |= 1 << bit
+	} else {
+		a.isAccept[word] &^= 1 << bit
+	}
+}
 
-		for _, trans := range a.states[state].transitions {
-			if !visited[trans.to] {
-				if hasCycleToAccept(trans.to) {
-					return true
-				}
-			} else if recStack[trans.to] && a.states[trans.to].accept {
-				return true
-			}
-		}
-
-		recStack[state] = false
+// IsAccept reports whether state is an accepting state.
+func (a *Automaton) IsAccept(state int) bool {
+	if state < 0 || state >= a.NumStates() {
 		return false
 	}
-
-	return !hasCycleToAccept(a.initial)
-}
-
-// String returns a string representation of the automaton.
-func (a *Automaton) String() string {
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Automaton(%d states, initial=%d):\n", len(a.states), a.initial))
-	for i, state := range a.states {
-		acceptStr := ""
-		if state.accept {
-			acceptStr = " [accept]"
-		}
-		sb.WriteString(fmt.Sprintf("  State %d%s:\n", i, acceptStr))
-		for _, trans := range state.transitions {
-			label := fmt.Sprintf("%c-%c", trans.min, trans.max)
-			if trans.min == trans.max {
-				if trans.min >= 0 && trans.min <= 127 {
-					label = fmt.Sprintf("%c", trans.min)
-				} else {
-					label = fmt.Sprintf("\\u%04x", trans.min)
-				}
-			}
-			sb.WriteString(fmt.Sprintf("    -> %d on %s\n", trans.to, label))
-		}
-	}
-	return sb.String()
-}
-
-// HashCode returns a hash code for the automaton.
-func (a *Automaton) HashCode() int {
-	h := len(a.states)
-	h = 31*h + a.initial
-	for i, state := range a.states {
-		h = 31*h + i
-		if state.accept {
-			h = 31*h + 1
-		}
-		for _, trans := range state.transitions {
-			h = 31*h + trans.to
-			h = 31*h + trans.min
-			h = 31*h + trans.max
-		}
-	}
-	return h
-}
-
-// Equals checks if two automatons are equal.
-func (a *Automaton) Equals(other *Automaton) bool {
-	if a == other {
-		return true
-	}
-	if a == nil || other == nil {
+	word := state >> 6
+	bit := uint(state & 63)
+	if word >= len(a.isAccept) {
 		return false
 	}
-	if len(a.states) != len(other.states) {
-		return false
-	}
-
-	// Check state by state
-	for i := range a.states {
-		if a.states[i].accept != other.states[i].accept {
-			return false
-		}
-		if len(a.states[i].transitions) != len(other.states[i].transitions) {
-			return false
-		}
-		for j, trans := range a.states[i].transitions {
-			otherTrans := other.states[i].transitions[j]
-			if trans.to != otherTrans.to || trans.min != otherTrans.min || trans.max != otherTrans.max {
-				return false
-			}
-		}
-	}
-	return a.initial == other.initial
+	return a.isAccept[word]&(1<<bit) != 0
 }
 
-// Clone creates a deep copy of the automaton.
-func (a *Automaton) Clone() *Automaton {
-	result := NewAutomaton()
-	result.initial = a.initial
-	result.deterministic = a.deterministic
-	result.minimized = a.minimized
-
-	// Create states
-	for i := 0; i < len(a.states); i++ {
-		result.CreateState()
-		result.SetAccept(i, a.states[i].accept)
-	}
-
-	// Copy transitions
-	for i, state := range a.states {
-		for _, trans := range state.transitions {
-			result.AddTransition(i, trans.to, trans.min, trans.max)
-		}
-	}
-
-	return result
-}
-
-// Step performs a single transition from state on input.
-// Returns the destination state or -1 if no transition.
-func (a *Automaton) Step(state int, input int) int {
-	if state < 0 || state >= len(a.states) {
+// NextAcceptState returns the smallest accepting state id >= from, or -1.
+// Equivalent to Lucene's BitSet.nextSetBit on the accept-state bitmap.
+func (a *Automaton) NextAcceptState(from int) int {
+	numStates := a.NumStates()
+	if from >= numStates {
 		return -1
 	}
-	for _, trans := range a.states[state].transitions {
-		if input >= trans.min && input <= trans.max {
-			return trans.to
+	if from < 0 {
+		from = 0
+	}
+	for s := from; s < numStates; s++ {
+		if a.IsAccept(s) {
+			return s
 		}
 	}
 	return -1
 }
 
-// Determinize converts the automaton to a deterministic one.
-func (a *Automaton) Determinize(workLimit int) *Automaton {
-	if a.deterministic {
-		return a
-	}
-
-	// Subset construction algorithm
-	result := NewAutomaton()
-
-	// Map from set of states to new state ID
-	stateSets := make(map[string]int)
-
-	// Initial state set
-	initialSet := []int{a.initial}
-	initialKey := stateSetKey(initialSet)
-	stateSets[initialKey] = result.CreateState()
-
-	// Work list for states to process
-	toProcess := [][]int{initialSet}
-
-	workDone := 0
-	for len(toProcess) > 0 {
-		if workLimit > 0 && workDone >= workLimit {
-			// Work limit exceeded, return original
-			return a
-		}
-
-		currentSet := toProcess[0]
-		toProcess = toProcess[1:]
-
-		currentKey := stateSetKey(currentSet)
-		currentState := stateSets[currentKey]
-
-		// Check if this is an accept state
-		isAccept := false
-		for _, s := range currentSet {
-			if a.IsAccept(s) {
-				isAccept = true
-				break
-			}
-		}
-		result.SetAccept(currentState, isAccept)
-
-		// Collect all transitions from states in currentSet
-		transMap := make(map[int][]int) // input -> set of destination states
-		for _, s := range currentSet {
-			for _, trans := range a.GetTransitions(s) {
-				for c := trans.min; c <= trans.max; c++ {
-					transMap[c] = append(transMap[c], trans.to)
-				}
-			}
-		}
-
-		// Sort inputs for deterministic behavior
-		inputs := make([]int, 0, len(transMap))
-		for c := range transMap {
-			inputs = append(inputs, c)
-		}
-		sort.Ints(inputs)
-
-		// Create transitions for each input
-		for _, c := range inputs {
-			destSet := transMap[c]
-			// Remove duplicates and sort
-			destSet = uniqueInts(destSet)
-			sort.Ints(destSet)
-
-			destKey := stateSetKey(destSet)
-			destState, exists := stateSets[destKey]
-			if !exists {
-				destState = result.CreateState()
-				stateSets[destKey] = destState
-				toProcess = append(toProcess, destSet)
-			}
-
-			result.AddTransition(currentState, destState, c, c)
-			workDone++
+// AcceptCardinality returns the number of accepting states.
+func (a *Automaton) AcceptCardinality() int {
+	count := 0
+	numStates := a.NumStates()
+	for s := 0; s < numStates; s++ {
+		if a.IsAccept(s) {
+			count++
 		}
 	}
-
-	result.deterministic = true
-	return result
+	return count
 }
 
-// Minimize minimizes the automaton.
-func (a *Automaton) Minimize() *Automaton {
-	if a.minimized {
-		return a
+// AddTransition adds a transition source -> dest for the inclusive label range
+// [minLabel, maxLabel]. All transitions for a given source must be appended
+// before moving to a different source.
+func (a *Automaton) AddTransition(source, dest, minLabel, maxLabel int) {
+	a.checkState(source)
+	a.checkState(dest)
+	if a.curState != source {
+		if a.curState != -1 {
+			a.finishCurrentState()
+		}
+		a.curState = source
+		if a.states[2*source] != -1 {
+			panic(fmt.Sprintf("automaton: source state %d already has transitions finalised", source))
+		}
+		a.states[2*source] = a.nextTransition
 	}
+	a.transitions = append(a.transitions, dest, minLabel, maxLabel)
+	a.nextTransition += 3
+	a.states[2*source+1]++
+}
 
-	if !a.deterministic {
-		a = a.Determinize(DefaultDeterminizeWorkLimit)
+// AddTransitionSingle is a sugar wrapper for label-only transitions.
+func (a *Automaton) AddTransitionSingle(source, dest, label int) {
+	a.AddTransition(source, dest, label, label)
+}
+
+// AddEpsilon adds a virtual epsilon edge by copying dest's outgoing
+// transitions onto source, and propagating dest's accept bit.
+// dest must already have all its transitions added.
+func (a *Automaton) AddEpsilon(source, dest int) {
+	t := NewTransition()
+	count := a.InitTransition(dest, t)
+	for i := 0; i < count; i++ {
+		a.GetNextTransition(t)
+		a.AddTransition(source, t.Dest, t.Min, t.Max)
 	}
-
-	// Hopcroft's algorithm for DFA minimization
-	// Simplified implementation
-	numStates := len(a.states)
-	if numStates == 0 {
-		return NewAutomaton()
+	if a.IsAccept(dest) {
+		a.SetAccept(source, true)
 	}
+}
 
-	// Partition states into accept and non-accept
-	partitions := make([]int, numStates)
-	acceptPartition := 1
-	nonAcceptPartition := 0
-
-	for i := 0; i < numStates; i++ {
-		if a.IsAccept(i) {
-			partitions[i] = acceptPartition
-		} else {
-			partitions[i] = nonAcceptPartition
+// Copy appends a deep copy of other onto this automaton; the copied states
+// are numbered contiguously starting at the current state count.
+func (a *Automaton) Copy(other *Automaton) {
+	stateOffset := a.NumStates()
+	// Allocate state slots and copy accept bits.
+	otherNumStates := other.NumStates()
+	for s := 0; s < otherNumStates; s++ {
+		a.CreateState()
+		if other.IsAccept(s) {
+			a.SetAccept(stateOffset+s, true)
 		}
 	}
+	// Copy transitions while remapping destinations.
+	t := NewTransition()
+	for s := 0; s < otherNumStates; s++ {
+		n := other.InitTransition(s, t)
+		for i := 0; i < n; i++ {
+			other.GetNextTransition(t)
+			a.AddTransition(stateOffset+s, stateOffset+t.Dest, t.Min, t.Max)
+		}
+	}
+	if !other.deterministic {
+		a.deterministic = false
+	}
+}
 
-	// Refine partitions
-	changed := true
-	for changed && numStates > 1 {
-		changed = false
-		newPartitions := make([]int, numStates)
-		copy(newPartitions, partitions)
+// FinishState finishes the current source state, sorting and reducing its
+// transitions. Must be called once you've finished adding transitions to the
+// last source state.
+func (a *Automaton) FinishState() {
+	if a.curState != -1 {
+		a.finishCurrentState()
+		a.curState = -1
+	}
+}
 
-		// Check each state
-		for i := 0; i < numStates; i++ {
-			for j := i + 1; j < numStates; j++ {
-				if partitions[i] == partitions[j] {
-					// Check if states are distinguishable
-					if a.areDistinguishable(i, j, partitions) {
-						// Split partition
-						newPartitions[j] = len(newPartitions)
-						changed = true
-					}
-				}
+// IsDeterministic reports whether this automaton is deterministic. Note that
+// this flag is only authoritative after FinishState has been called.
+func (a *Automaton) IsDeterministic() bool {
+	return a.deterministic
+}
+
+// GetNumTransitions returns the number of transitions leaving state.
+func (a *Automaton) GetNumTransitions(state int) int {
+	a.checkState(state)
+	count := a.states[2*state+1]
+	if count == -1 {
+		return 0
+	}
+	return count
+}
+
+// InitTransition primes t for iteration over the transitions leaving state.
+// Returns the number of transitions; iterate by calling GetNextTransition
+// exactly that many times.
+func (a *Automaton) InitTransition(state int, t *Transition) int {
+	a.checkState(state)
+	t.Source = state
+	t.transitionUpto = a.states[2*state]
+	return a.GetNumTransitions(state)
+}
+
+// GetNextTransition advances t to the next transition for the source state
+// previously primed via InitTransition.
+func (a *Automaton) GetNextTransition(t *Transition) {
+	t.Dest = a.transitions[t.transitionUpto]
+	t.Min = a.transitions[t.transitionUpto+1]
+	t.Max = a.transitions[t.transitionUpto+2]
+	t.transitionUpto += 3
+}
+
+// GetTransition loads the index-th transition leaving state into t.
+func (a *Automaton) GetTransition(state, index int, t *Transition) {
+	a.checkState(state)
+	off := a.states[2*state] + 3*index
+	t.Source = state
+	t.Dest = a.transitions[off]
+	t.Min = a.transitions[off+1]
+	t.Max = a.transitions[off+2]
+	t.transitionUpto = off + 3
+}
+
+// Step performs a single step from state on label, assuming determinism.
+// Returns the destination state, or -1 if there is no matching transition.
+func (a *Automaton) Step(state, label int) int {
+	if state < 0 || state >= a.NumStates() {
+		return -1
+	}
+	off := a.states[2*state]
+	numTransitions := a.states[2*state+1]
+	if off == -1 || numTransitions <= 0 {
+		return -1
+	}
+	low, high := 0, numTransitions-1
+	for low <= high {
+		mid := (low + high) >> 1
+		trIdx := off + 3*mid
+		minLabel := a.transitions[trIdx+1]
+		if minLabel > label {
+			high = mid - 1
+			continue
+		}
+		maxLabel := a.transitions[trIdx+2]
+		if maxLabel < label {
+			low = mid + 1
+			continue
+		}
+		return a.transitions[trIdx]
+	}
+	return -1
+}
+
+// GetStartPoints returns the sorted set of distinct interval start points
+// across all transitions. The result always begins with MinCodePoint and adds
+// max+1 for each transition whose max < MaxCodePoint.
+func (a *Automaton) GetStartPoints() []int {
+	seen := make(map[int]struct{}, 16)
+	seen[MinCodePoint] = struct{}{}
+	numStates := a.NumStates()
+	for s := 0; s < numStates; s++ {
+		off := a.states[2*s]
+		count := a.states[2*s+1]
+		if off == -1 || count <= 0 {
+			continue
+		}
+		for i := 0; i < count; i++ {
+			min := a.transitions[off+3*i+1]
+			max := a.transitions[off+3*i+2]
+			seen[min] = struct{}{}
+			if max < MaxCodePoint {
+				seen[max+1] = struct{}{}
 			}
 		}
-		partitions = newPartitions
 	}
-
-	// Build minimized automaton
-	result := NewAutomaton()
-	stateMap := make(map[int]int) // old partition -> new state
-
-	for i := 0; i < numStates; i++ {
-		partition := partitions[i]
-		if _, exists := stateMap[partition]; !exists {
-			stateMap[partition] = result.CreateState()
-			result.SetAccept(stateMap[partition], a.IsAccept(i))
-		}
+	points := make([]int, 0, len(seen))
+	for p := range seen {
+		points = append(points, p)
 	}
-
-	// Copy transitions (one per partition pair)
-	seenTrans := make(map[string]bool)
-	for i := 0; i < numStates; i++ {
-		fromPartition := partitions[i]
-		newFrom := stateMap[fromPartition]
-
-		for _, trans := range a.GetTransitions(i) {
-			toPartition := partitions[trans.to]
-			newTo := stateMap[toPartition]
-
-			key := fmt.Sprintf("%d:%d:%d:%d", newFrom, newTo, trans.min, trans.max)
-			if !seenTrans[key] {
-				seenTrans[key] = true
-				result.AddTransition(newFrom, newTo, trans.min, trans.max)
-			}
-		}
-	}
-
-	result.initial = stateMap[partitions[a.initial]]
-	result.deterministic = true
-	result.minimized = true
-
-	return result
+	sort.Ints(points)
+	return points
 }
 
-// areDistinguishable checks if two states are distinguishable.
-func (a *Automaton) areDistinguishable(s1, s2 int, partitions []int) bool {
-	// Check if transitions lead to different partitions
-	trans1 := a.GetTransitions(s1)
-	trans2 := a.GetTransitions(s2)
-
-	if len(trans1) != len(trans2) {
-		return true
+// Next implements deterministic transition lookup matching Lucene's
+// Automaton.next. transition.transitionUpto on entry is the per-state
+// transition index from which to begin the binary search; on return it is
+// updated to the matched transition index (or to the insertion point on miss).
+func (a *Automaton) Next(transition *Transition, label int) int {
+	state := transition.Source
+	off := a.states[2*state]
+	numTransitions := a.states[2*state+1]
+	low := transition.transitionUpto
+	if low < 0 {
+		low = 0
 	}
-
-	// Build transition maps
-	map1 := make(map[int]int) // input -> partition
-	for _, t := range trans1 {
-		for c := t.min; c <= t.max; c++ {
-			map1[c] = partitions[t.to]
+	high := numTransitions - 1
+	for low <= high {
+		mid := (low + high) >> 1
+		idx := off + 3*mid
+		minLabel := a.transitions[idx+1]
+		if minLabel > label {
+			high = mid - 1
+			continue
 		}
-	}
-
-	for _, t := range trans2 {
-		for c := t.min; c <= t.max; c++ {
-			if p, exists := map1[c]; !exists || p != partitions[t.to] {
-				return true
-			}
+		maxLabel := a.transitions[idx+2]
+		if maxLabel < label {
+			low = mid + 1
+			continue
 		}
+		dest := a.transitions[idx]
+		transition.Dest = dest
+		transition.Min = minLabel
+		transition.Max = maxLabel
+		transition.transitionUpto = mid
+		return dest
 	}
-
-	return false
+	transition.Dest = -1
+	transition.transitionUpto = low
+	return -1
 }
 
-// Run runs the automaton on input starting from state.
-// Returns true if the automaton accepts the input.
-func (a *Automaton) Run(input []byte, state int) bool {
-	current := state
-	for _, b := range input {
-		current = a.Step(current, int(b))
-		if current == -1 {
-			return false
-		}
-	}
-	return a.IsAccept(current)
-}
-
-// RunString runs the automaton on a string input.
-func (a *Automaton) RunString(input string) bool {
-	return a.Run([]byte(input), a.initial)
-}
-
-// Helper functions
-
-func stateSetKey(states []int) string {
+// String renders the automaton in a stable, human-readable form (states then
+// transitions). The exact format is not part of the public contract.
+func (a *Automaton) String() string {
 	var sb strings.Builder
-	for i, s := range states {
-		if i > 0 {
-			sb.WriteByte(',')
+	numStates := a.NumStates()
+	fmt.Fprintf(&sb, "Automaton(states=%d, transitions=%d, deterministic=%v)\n",
+		numStates, a.NumTransitions(), a.deterministic)
+	t := NewTransition()
+	for s := 0; s < numStates; s++ {
+		acceptStr := ""
+		if a.IsAccept(s) {
+			acceptStr = " [accept]"
 		}
-		sb.WriteString(fmt.Sprintf("%d", s))
+		fmt.Fprintf(&sb, "  state %d%s\n", s, acceptStr)
+		count := a.InitTransition(s, t)
+		for i := 0; i < count; i++ {
+			a.GetNextTransition(t)
+			fmt.Fprintf(&sb, "    --> %d  %d-%d\n", t.Dest, t.Min, t.Max)
+		}
 	}
 	return sb.String()
 }
 
-func uniqueInts(ints []int) []int {
-	seen := make(map[int]bool)
-	result := make([]int, 0, len(ints))
-	for _, i := range ints {
-		if !seen[i] {
-			seen[i] = true
-			result = append(result, i)
+// --- internal helpers ---
+
+func (a *Automaton) checkState(state int) {
+	if state < 0 || state >= a.NumStates() {
+		panic(fmt.Sprintf("automaton: state %d out of bounds (numStates=%d)", state, a.NumStates()))
+	}
+}
+
+func (a *Automaton) ensureIsAcceptCapacity(state int) {
+	required := (state >> 6) + 1
+	if len(a.isAccept) < required {
+		grown := make([]uint64, required)
+		copy(grown, a.isAccept)
+		a.isAccept = grown
+	}
+}
+
+// finishCurrentState sorts the current source state's transitions and merges
+// adjacent transitions with the same dest. It also detects determinism loss.
+func (a *Automaton) finishCurrentState() {
+	state := a.curState
+	off := a.states[2*state]
+	num := a.states[2*state+1]
+	if num <= 0 {
+		return
+	}
+
+	// First: sort by (dest, min, max) to merge adjacent transitions with same dest.
+	a.sortTransitions(off, num, sortByDestMinMax)
+
+	upto := 0
+	min := -1
+	max := -1
+	dest := -1
+	for i := 0; i < num; i++ {
+		td := a.transitions[off+3*i]
+		tmin := a.transitions[off+3*i+1]
+		tmax := a.transitions[off+3*i+2]
+		if dest == td {
+			if tmin <= max+1 {
+				if tmax > max {
+					max = tmax
+				}
+			} else {
+				if dest != -1 {
+					a.transitions[off+3*upto] = dest
+					a.transitions[off+3*upto+1] = min
+					a.transitions[off+3*upto+2] = max
+					upto++
+				}
+				min = tmin
+				max = tmax
+			}
+		} else {
+			if dest != -1 {
+				a.transitions[off+3*upto] = dest
+				a.transitions[off+3*upto+1] = min
+				a.transitions[off+3*upto+2] = max
+				upto++
+			}
+			dest = td
+			min = tmin
+			max = tmax
 		}
 	}
-	return result
-}
-
-// ByteToInt converts a byte to an int code point.
-func ByteToInt(b byte) int {
-	return int(b)
-}
-
-// RuneToInt converts a rune to an int code point.
-func RuneToInt(r rune) int {
-	return int(r)
-}
-
-// IntToRune converts an int code point to a rune.
-func IntToRune(i int) rune {
-	if i < 0 || i > utf8.MaxRune {
-		return utf8.RuneError
+	if dest != -1 {
+		a.transitions[off+3*upto] = dest
+		a.transitions[off+3*upto+1] = min
+		a.transitions[off+3*upto+2] = max
+		upto++
 	}
-	return rune(i)
+
+	removed := num - upto
+	if removed > 0 {
+		// Shift the tail of the transitions slice left and shrink length.
+		copy(a.transitions[off+3*upto:], a.transitions[off+3*num:])
+		a.transitions = a.transitions[:len(a.transitions)-3*removed]
+		a.nextTransition -= 3 * removed
+		// Fix up offsets of later states (higher than curState) that point past this region.
+		for s := 0; s < a.NumStates(); s++ {
+			if s == state {
+				continue
+			}
+			o := a.states[2*s]
+			if o > off {
+				a.states[2*s] = o - 3*removed
+			}
+		}
+	}
+	a.states[2*state+1] = upto
+
+	// Then: sort by (min, max, dest) for binary-search-friendly layout.
+	a.sortTransitions(off, upto, sortByMinMaxDest)
+
+	if a.deterministic && upto > 1 {
+		lastMax := a.transitions[off+2]
+		for i := 1; i < upto; i++ {
+			mn := a.transitions[off+3*i+1]
+			if mn <= lastMax {
+				a.deterministic = false
+				break
+			}
+			lastMax = a.transitions[off+3*i+2]
+		}
+	}
+}
+
+// transitionsView returns a sortable view over num transitions starting at off.
+type transitionView struct {
+	data []int
+	off  int
+	num  int
+	mode int
+}
+
+const (
+	sortByDestMinMax = 1
+	sortByMinMaxDest = 2
+)
+
+func (a *Automaton) sortTransitions(off, num, mode int) {
+	if num <= 1 {
+		return
+	}
+	tv := &transitionView{data: a.transitions, off: off, num: num, mode: mode}
+	sort.Sort(tv)
+}
+
+func (v *transitionView) Len() int { return v.num }
+func (v *transitionView) Swap(i, j int) {
+	iStart := v.off + 3*i
+	jStart := v.off + 3*j
+	v.data[iStart], v.data[jStart] = v.data[jStart], v.data[iStart]
+	v.data[iStart+1], v.data[jStart+1] = v.data[jStart+1], v.data[iStart+1]
+	v.data[iStart+2], v.data[jStart+2] = v.data[jStart+2], v.data[iStart+2]
+}
+func (v *transitionView) Less(i, j int) bool {
+	iStart := v.off + 3*i
+	jStart := v.off + 3*j
+	switch v.mode {
+	case sortByDestMinMax:
+		// dest ascending, min ascending, max ascending
+		iDest := v.data[iStart]
+		jDest := v.data[jStart]
+		if iDest != jDest {
+			return iDest < jDest
+		}
+		iMin := v.data[iStart+1]
+		jMin := v.data[jStart+1]
+		if iMin != jMin {
+			return iMin < jMin
+		}
+		return v.data[iStart+2] < v.data[jStart+2]
+	default:
+		// sortByMinMaxDest: min ascending, max ascending, dest ascending
+		iMin := v.data[iStart+1]
+		jMin := v.data[jStart+1]
+		if iMin != jMin {
+			return iMin < jMin
+		}
+		iMax := v.data[iStart+2]
+		jMax := v.data[jStart+2]
+		if iMax != jMax {
+			return iMax < jMax
+		}
+		return v.data[iStart] < v.data[jStart]
+	}
 }

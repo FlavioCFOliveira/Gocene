@@ -1,597 +1,1141 @@
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
+//
+// Port of org.apache.lucene.util.automaton.Operations from Apache Lucene
+// 10.4.0 (Apache License 2.0, derived from dk.brics.automaton).
 
 package automaton
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 )
 
-// TooComplexToDeterminizeException is thrown when determinization fails
-type TooComplexToDeterminizeException struct {
-	msg string
-}
+// DefaultDeterminizeWorkLimit matches Lucene's default work limit for
+// powerset construction in Operations.determinize.
+const DefaultDeterminizeWorkLimit = 10000
 
-func (e *TooComplexToDeterminizeException) Error() string {
-	return e.msg
-}
+// ErrTooComplexToDeterminize signals that determinization exceeded the
+// configured effort budget.
+var ErrTooComplexToDeterminize = errors.New("automaton: too complex to determinize")
 
-// Operations provides operations on automata.
-type Operations struct{}
+// Determinize converts a possibly non-deterministic automaton into an
+// equivalent deterministic one using powerset construction. workLimit caps
+// the cumulative effort spent; pass DefaultDeterminizeWorkLimit when in doubt.
+func Determinize(a *Automaton, workLimit int) (*Automaton, error) {
+	if a.IsDeterministic() {
+		return a, nil
+	}
+	if a.NumStates() <= 1 {
+		return a, nil
+	}
 
-// NewOperations creates a new Operations instance.
-func NewOperations() *Operations {
-	return &Operations{}
-}
+	b := NewBuilder()
+	b.CreateState()
+	b.SetAccept(0, a.IsAccept(0))
 
-// Determinize determinizes an automaton.
-func (o *Operations) Determinize(a *Automaton, workLimit int) (*Automaton, error) {
-	result := a.Determinize(workLimit)
-	if result == a && !a.IsDeterministic() {
-		return nil, &TooComplexToDeterminizeException{
-			msg: fmt.Sprintf("Determinization work limit exceeded: %d", workLimit),
+	type frozenSet struct {
+		values   []int
+		hash     uint64
+		newState int
+	}
+
+	keyFor := func(values []int) string {
+		// values is already sorted unique
+		var sb [4096]byte
+		buf := sb[:0]
+		for i, v := range values {
+			if i > 0 {
+				buf = append(buf, ',')
+			}
+			buf = append(buf, []byte(fmt.Sprintf("%d", v))...)
+		}
+		return string(buf)
+	}
+
+	initial := []int{0}
+	initialKey := keyFor(initial)
+	newstate := map[string]int{initialKey: 0}
+
+	worklist := []frozenSet{{values: initial, newState: 0}}
+
+	points := newPointTransitionSet()
+	statesSet := newRefCountSet()
+
+	t := NewTransition()
+	var effortSpent int64
+	effortLimit := int64(workLimit) * 10
+
+	for len(worklist) > 0 {
+		s := worklist[0]
+		worklist = worklist[1:]
+
+		effortSpent += int64(len(s.values))
+		if effortSpent >= effortLimit {
+			return nil, fmt.Errorf("%w: states=%d transitions=%d limit=%d", ErrTooComplexToDeterminize,
+				a.NumStates(), a.NumTransitions(), workLimit)
+		}
+
+		for _, s0 := range s.values {
+			count := a.InitTransition(s0, t)
+			for i := 0; i < count; i++ {
+				a.GetNextTransition(t)
+				points.add(t)
+			}
+		}
+		if points.count == 0 {
+			continue
+		}
+
+		points.sort()
+
+		lastPoint := -1
+		accCount := 0
+		r := s.newState
+
+		for i := 0; i < points.count; i++ {
+			point := points.points[i].point
+
+			if statesSet.size() > 0 {
+				if lastPoint == -1 {
+					panic("automaton: determinize invariant violated (lastPoint == -1)")
+				}
+				values := statesSet.values()
+				key := keyFor(values)
+				q, ok := newstate[key]
+				if !ok {
+					q = b.CreateState()
+					worklist = append(worklist, frozenSet{values: append([]int(nil), values...), newState: q})
+					b.SetAccept(q, accCount > 0)
+					newstate[key] = q
+				}
+				b.AddTransition(r, q, lastPoint, point-1)
+			}
+
+			// Process transitions ending at this point.
+			ends := points.points[i].ends
+			for j := 0; j < ends.next; j += 3 {
+				dest := ends.data[j]
+				statesSet.decr(dest)
+				if a.IsAccept(dest) {
+					accCount--
+				}
+			}
+			ends.next = 0
+
+			// Process transitions starting at this point.
+			starts := points.points[i].starts
+			for j := 0; j < starts.next; j += 3 {
+				dest := starts.data[j]
+				statesSet.incr(dest)
+				if a.IsAccept(dest) {
+					accCount++
+				}
+			}
+			lastPoint = point
+			starts.next = 0
+		}
+		points.reset()
+		if statesSet.size() != 0 {
+			panic("automaton: determinize invariant violated (statesSet not empty)")
 		}
 	}
+
+	result := b.Finish()
 	return result, nil
 }
 
-// Union returns the union of multiple automata.
-func (o *Operations) Union(automata []*Automaton) *Automaton {
-	if len(automata) == 0 {
-		return NewAutomaton()
+// IsEmpty returns true when the automaton accepts no strings.
+func IsEmpty(a *Automaton) bool {
+	if a.NumStates() == 0 {
+		return true
 	}
-	if len(automata) == 1 {
-		return automata[0].Clone()
+	if !a.IsAccept(0) && a.GetNumTransitions(0) == 0 {
+		return true
 	}
-
-	result := NewAutomaton()
-
-	// Create a new initial state
-	newInitial := result.CreateState()
-
-	// Offset for state IDs from each automaton
-	offsets := make([]int, len(automata))
-	currentOffset := 1 // Start after new initial state
-
-	for i, a := range automata {
-		offsets[i] = currentOffset
-		currentOffset += a.NumStates()
-	}
-
-	// Copy states and transitions from each automaton
-	for i, a := range automata {
-		offset := offsets[i]
-
-		// Create states
-		for s := 0; s < a.NumStates(); s++ {
-			result.CreateState()
-			result.SetAccept(offset+s, a.IsAccept(s))
-		}
-
-		// Copy transitions
-		for s := 0; s < a.NumStates(); s++ {
-			for _, trans := range a.GetTransitions(s) {
-				result.AddTransition(offset+s, offset+trans.to, trans.min, trans.max)
-			}
-		}
-
-		// Add epsilon transition from new initial to old initial
-		// (simulated by copying the initial state's transitions)
-		initialTrans := a.GetTransitions(a.GetInitialState())
-		for _, trans := range initialTrans {
-			result.AddTransition(newInitial, offset+trans.to, trans.min, trans.max)
-		}
-
-		// If old initial was accepting, new initial should be too
-		if a.IsAccept(a.GetInitialState()) {
-			result.SetAccept(newInitial, true)
-		}
-	}
-
-	result.deterministic = false
-	return result
-}
-
-// Intersection returns the intersection of two automata.
-func (o *Operations) Intersection(a1, a2 *Automaton) *Automaton {
-	// Product construction
-	result := NewAutomaton()
-
-	// Map from (s1, s2) to new state
-	stateMap := make(map[string]int)
-
-	// Initial state is (initial1, initial2)
-	initial1 := a1.GetInitialState()
-	initial2 := a2.GetInitialState()
-
-	if initial1 == -1 || initial2 == -1 {
-		return result
-	}
-
-	initialKey := fmt.Sprintf("%d,%d", initial1, initial2)
-	stateMap[initialKey] = result.CreateState()
-
-	// Work list
-	toProcess := [][2]int{{initial1, initial2}}
-
-	for len(toProcess) > 0 {
-		pair := toProcess[0]
-		toProcess = toProcess[1:]
-		s1, s2 := pair[0], pair[1]
-
-		key := fmt.Sprintf("%d,%d", s1, s2)
-		newState := stateMap[key]
-
-		// Set accept if both states are accept
-		result.SetAccept(newState, a1.IsAccept(s1) && a2.IsAccept(s2))
-
-		// Get transitions from both states
-		trans1 := a1.GetTransitions(s1)
-		trans2 := a2.GetTransitions(s2)
-
-		// Build transition maps
-		map1 := make(map[int]int) // input -> to
-		for _, t := range trans1 {
-			for c := t.min; c <= t.max; c++ {
-				map1[c] = t.to
-			}
-		}
-
-		for _, t := range trans2 {
-			for c := t.min; c <= t.max; c++ {
-				if to1, exists := map1[c]; exists {
-					newKey := fmt.Sprintf("%d,%d", to1, t.to)
-					newTo, exists := stateMap[newKey]
-					if !exists {
-						newTo = result.CreateState()
-						stateMap[newKey] = newTo
-						toProcess = append(toProcess, [2]int{to1, t.to})
-					}
-					result.AddTransition(newState, newTo, c, c)
-				}
-			}
-		}
-	}
-
-	result.deterministic = a1.IsDeterministic() && a2.IsDeterministic()
-	return result
-}
-
-// Concatenate concatenates multiple automata.
-func (o *Operations) Concatenate(automata []*Automaton) *Automaton {
-	if len(automata) == 0 {
-		return NewAutomaton()
-	}
-	if len(automata) == 1 {
-		return automata[0].Clone()
-	}
-
-	result := NewAutomaton()
-
-	// Offset for state IDs from each automaton
-	offsets := make([]int, len(automata))
-	currentOffset := 0
-
-	for i, a := range automata {
-		offsets[i] = currentOffset
-		currentOffset += a.NumStates()
-	}
-
-	// Copy states and transitions
-	acceptStates := make([][]int, len(automata)) // accept states for each automaton
-
-	for i, a := range automata {
-		offset := offsets[i]
-
-		// Create states
-		for s := 0; s < a.NumStates(); s++ {
-			result.CreateState()
-			if a.IsAccept(s) {
-				acceptStates[i] = append(acceptStates[i], offset+s)
-			}
-		}
-
-		// Copy transitions
-		for s := 0; s < a.NumStates(); s++ {
-			for _, trans := range a.GetTransitions(s) {
-				result.AddTransition(offset+s, offset+trans.to, trans.min, trans.max)
-			}
-		}
-	}
-
-	// Connect accept states to next automaton's initial state
-	for i := 0; i < len(automata)-1; i++ {
-		nextOffset := offsets[i+1]
-
-		for _, acceptState := range acceptStates[i] {
-			// Add transitions from accept state to next initial
-			initialTrans := automata[i+1].GetTransitions(automata[i+1].GetInitialState())
-			for _, trans := range initialTrans {
-				result.AddTransition(acceptState, nextOffset+trans.to, trans.min, trans.max)
-			}
-
-			// If next initial is accepting, this state should also be accepting
-			if automata[i+1].IsAccept(automata[i+1].GetInitialState()) {
-				result.SetAccept(acceptState, true)
-			} else {
-				result.SetAccept(acceptState, false)
-			}
-		}
-	}
-
-	result.initial = offsets[0] + automata[0].GetInitialState()
-
-	// Accept states are from the last automaton
-	for _, s := range acceptStates[len(automata)-1] {
-		result.SetAccept(s, true)
-	}
-
-	result.deterministic = false
-	return result
-}
-
-// Minus returns the difference of two automata (a1 - a2).
-func (o *Operations) Minus(a1, a2 *Automaton) *Automaton {
-	// a1 - a2 = a1 AND NOT(a2)
-	notA2 := o.Complement(a2)
-	return o.Intersection(a1, notA2)
-}
-
-// Complement returns the complement of an automaton.
-func (o *Operations) Complement(a *Automaton) *Automaton {
-	// Complement: swap accept and non-accept states
-	result := a.Clone()
-	for i := 0; i < result.NumStates(); i++ {
-		result.SetAccept(i, !a.IsAccept(i))
-	}
-	return result
-}
-
-// Optional makes an automaton optional (accepts empty string or original language).
-func (o *Operations) Optional(a *Automaton) *Automaton {
-	result := a.Clone()
-	result.SetAccept(result.GetInitialState(), true)
-	return result
-}
-
-// Repeat returns the Kleene star of an automaton.
-func (o *Operations) Repeat(a *Automaton) *Automaton {
-	result := a.Clone()
-
-	// Make initial state accepting (for empty string)
-	result.SetAccept(result.GetInitialState(), true)
-
-	// Add transitions from accept states back to initial
-	for i := 0; i < result.NumStates(); i++ {
-		if result.IsAccept(i) && i != result.GetInitialState() {
-			// Copy initial transitions
-			initialTrans := result.GetTransitions(result.GetInitialState())
-			for _, trans := range initialTrans {
-				result.AddTransition(i, trans.to, trans.min, trans.max)
-			}
-		}
-	}
-
-	return result
-}
-
-// RepeatMin returns the Kleene plus (one or more repetitions).
-func (o *Operations) RepeatMin(a *Automaton, min int) *Automaton {
-	if min == 0 {
-		return o.Repeat(a)
-	}
-
-	// Concatenate min copies
-	automata := make([]*Automaton, min)
-	for i := 0; i < min; i++ {
-		automata[i] = a
-	}
-	return o.Concatenate(automata)
-}
-
-// RepeatMinMax returns an automaton accepting between min and max repetitions.
-func (o *Operations) RepeatMinMax(a *Automaton, min, max int) *Automaton {
-	if min > max {
-		return NewAutomaton()
-	}
-
-	// Create min required copies
-	base := o.RepeatMin(a, min)
-
-	// Add optional copies up to max
-	for i := min; i < max; i++ {
-		opt := o.Optional(a)
-		base = o.Concatenate([]*Automaton{base, opt})
-	}
-
-	return base
-}
-
-// IsEmptyLanguage returns true if the automaton accepts no strings.
-func (o *Operations) IsEmptyLanguage(a *Automaton) bool {
-	return a.IsEmpty()
-}
-
-// IsEmptyString returns true if the automaton accepts only the empty string.
-func (o *Operations) IsEmptyString(a *Automaton) bool {
-	return a.IsEmptyString()
-}
-
-// IsTotal returns true if the automaton accepts all strings.
-func (o *Operations) IsTotal(a *Automaton) bool {
-	// Check if initial state is accepting and has self-loop for all chars
-	if !a.IsAccept(a.GetInitialState()) {
+	if a.IsAccept(0) {
 		return false
 	}
-
-	// Check for self-loop on all possible inputs
-	for _, trans := range a.GetTransitions(a.GetInitialState()) {
-		if trans.to != a.GetInitialState() {
+	// BFS from initial state.
+	worklist := []int{0}
+	seen := make([]bool, a.NumStates())
+	seen[0] = true
+	t := NewTransition()
+	for len(worklist) > 0 {
+		s := worklist[0]
+		worklist = worklist[1:]
+		if a.IsAccept(s) {
 			return false
 		}
-	}
-
-	// Check if there are no other transitions
-	for i := 0; i < a.NumStates(); i++ {
-		if i != a.GetInitialState() && len(a.GetTransitions(i)) > 0 {
-			return false
+		n := a.InitTransition(s, t)
+		for i := 0; i < n; i++ {
+			a.GetNextTransition(t)
+			if !seen[t.Dest] {
+				seen[t.Dest] = true
+				worklist = append(worklist, t.Dest)
+			}
 		}
 	}
-
 	return true
 }
 
-// SameLanguage returns true if two automata accept the same language.
-func (o *Operations) SameLanguage(a1, a2 *Automaton) bool {
-	// Two automata accept the same language if:
-	// (a1 - a2) is empty AND (a2 - a1) is empty
-	minus1 := o.Minus(a1, a2)
-	minus2 := o.Minus(a2, a1)
-
-	return o.IsEmptyLanguage(minus1) && o.IsEmptyLanguage(minus2)
+// IsTotal reports whether the deterministic automaton accepts every string
+// composed of code points in [MinCodePoint, MaxCodePoint].
+func IsTotal(a *Automaton) bool {
+	return IsTotalRange(a, MinCodePoint, MaxCodePoint)
 }
 
-// SubsetOf returns true if the language of a1 is a subset of a2.
-func (o *Operations) SubsetOf(a1, a2 *Automaton) bool {
-	// a1 is subset of a2 iff (a1 - a2) is empty
-	minus := o.Minus(a1, a2)
-	return o.IsEmptyLanguage(minus)
-}
-
-// HasDeadStates returns true if the automaton has unreachable or dead states.
-func (o *Operations) HasDeadStates(a *Automaton) bool {
-	// Find reachable states
-	reachable := make(map[int]bool)
-	toProcess := []int{a.GetInitialState()}
-
-	for len(toProcess) > 0 {
-		state := toProcess[0]
-		toProcess = toProcess[1:]
-
-		if reachable[state] {
+// IsTotalRange reports whether the deterministic automaton accepts every
+// string composed of code points in [minAlphabet, maxAlphabet].
+func IsTotalRange(a *Automaton, minAlphabet, maxAlphabet int) bool {
+	live := getLiveStates(a)
+	t := NewTransition()
+	seenStates := 0
+	for state := 0; state < len(live); state++ {
+		if !live[state] {
 			continue
 		}
-		reachable[state] = true
-
-		for _, trans := range a.GetTransitions(state) {
-			if !reachable[trans.to] {
-				toProcess = append(toProcess, trans.to)
-			}
+		if !a.IsAccept(state) {
+			return false
 		}
+		previousLabel := minAlphabet - 1
+		count := a.GetNumTransitions(state)
+		for i := 0; i < count; i++ {
+			a.GetTransition(state, i, t)
+			if t.Min > previousLabel+1 {
+				return false
+			}
+			previousLabel = t.Max
+		}
+		if previousLabel < maxAlphabet {
+			return false
+		}
+		seenStates++
 	}
-
-	// Check if all states are reachable
-	return len(reachable) != a.NumStates()
+	return seenStates > 0
 }
 
-// RemoveDeadStates removes unreachable and dead states.
-func (o *Operations) RemoveDeadStates(a *Automaton) *Automaton {
-	// Find reachable states
-	reachable := make(map[int]bool)
-	toProcess := []int{a.GetInitialState()}
-
-	for len(toProcess) > 0 {
-		state := toProcess[0]
-		toProcess = toProcess[1:]
-
-		if reachable[state] {
-			continue
+// Run returns true when the deterministic automaton accepts the Unicode
+// string s. For full performance, use a RunAutomaton.
+func Run(a *Automaton, s string) bool {
+	state := 0
+	for _, r := range s {
+		next := a.Step(state, int(r))
+		if next == -1 {
+			return false
 		}
-		reachable[state] = true
+		state = next
+	}
+	return a.IsAccept(state)
+}
 
-		for _, trans := range a.GetTransitions(state) {
-			if !reachable[trans.to] {
-				toProcess = append(toProcess, trans.to)
-			}
+// RemoveDeadStates removes states that are unreachable from the initial
+// state or that cannot reach any accept state.
+func RemoveDeadStates(a *Automaton) *Automaton {
+	numStates := a.NumStates()
+	live := getLiveStates(a)
+	count := 0
+	for _, v := range live {
+		if v {
+			count++
 		}
 	}
-
-	// Find states that can reach accept states
-	canReachAccept := make(map[int]bool)
-	for i := 0; i < a.NumStates(); i++ {
-		if a.IsAccept(i) {
-			canReachAccept[i] = true
-		}
+	if count == numStates {
+		return a
 	}
-
-	// Propagate backwards
-	changed := true
-	for changed {
-		changed = false
-		for i := 0; i < a.NumStates(); i++ {
-			if canReachAccept[i] {
-				continue
-			}
-			for _, trans := range a.GetTransitions(i) {
-				if canReachAccept[trans.to] {
-					canReachAccept[i] = true
-					changed = true
-					break
-				}
-			}
-		}
+	stateMap := make([]int, numStates)
+	for i := range stateMap {
+		stateMap[i] = -1
 	}
-
-	// Build new automaton with only useful states
 	result := NewAutomaton()
-	stateMap := make(map[int]int)
-
-	for i := 0; i < a.NumStates(); i++ {
-		if reachable[i] && canReachAccept[i] {
+	for i := 0; i < numStates; i++ {
+		if live[i] {
 			stateMap[i] = result.CreateState()
 			result.SetAccept(stateMap[i], a.IsAccept(i))
 		}
 	}
-
-	// Copy transitions
-	for i := 0; i < a.NumStates(); i++ {
-		if from, exists := stateMap[i]; exists {
-			for _, trans := range a.GetTransitions(i) {
-				if to, exists := stateMap[trans.to]; exists {
-					result.AddTransition(from, to, trans.min, trans.max)
-				}
+	t := NewTransition()
+	for i := 0; i < numStates; i++ {
+		if !live[i] {
+			continue
+		}
+		n := a.InitTransition(i, t)
+		for k := 0; k < n; k++ {
+			a.GetNextTransition(t)
+			if live[t.Dest] {
+				result.AddTransition(stateMap[i], stateMap[t.Dest], t.Min, t.Max)
 			}
 		}
 	}
-
-	if initial, exists := stateMap[a.GetInitialState()]; exists {
-		result.initial = initial
-	}
-
+	result.FinishState()
 	return result
 }
 
-// GetLiveStates returns the set of states that can reach an accept state.
-func (o *Operations) GetLiveStates(a *Automaton) map[int]bool {
-	live := make(map[int]bool)
-
-	// Accept states are live
-	for i := 0; i < a.NumStates(); i++ {
-		if a.IsAccept(i) {
-			live[i] = true
+// Reverse returns an automaton accepting the reverse language.
+func Reverse(a *Automaton) *Automaton {
+	if IsEmpty(a) {
+		return NewAutomaton()
+	}
+	numStates := a.NumStates()
+	b := NewBuilder()
+	// Reserve state 0 as the new initial; offset old states by +1.
+	b.CreateState()
+	for s := 0; s < numStates; s++ {
+		b.CreateState()
+	}
+	b.SetAccept(1, true)
+	t := NewTransition()
+	for s := 0; s < numStates; s++ {
+		n := a.InitTransition(s, t)
+		for i := 0; i < n; i++ {
+			a.GetNextTransition(t)
+			b.AddTransition(t.Dest+1, s+1, t.Min, t.Max)
 		}
 	}
+	result := b.Finish()
+	for s := 0; s < numStates; s++ {
+		if a.IsAccept(s) {
+			result.AddEpsilon(0, s+1)
+		}
+	}
+	result.FinishState()
+	return RemoveDeadStates(result)
+}
 
-	// Propagate backwards
-	changed := true
-	for changed {
-		changed = false
-		for i := 0; i < a.NumStates(); i++ {
-			if live[i] {
-				continue
+// Union returns an automaton accepting the union of the input languages.
+func Union(list []*Automaton) *Automaton {
+	result := NewAutomaton()
+	result.CreateState()
+	for _, a := range list {
+		result.Copy(a)
+	}
+	stateOffset := 1
+	for _, a := range list {
+		if a.NumStates() == 0 {
+			continue
+		}
+		result.AddEpsilon(0, stateOffset)
+		stateOffset += a.NumStates()
+	}
+	result.FinishState()
+	return MergeAcceptStatesWithNoTransition(RemoveDeadStates(result))
+}
+
+// Concatenate returns an automaton that accepts the concatenation of the
+// input languages, in order.
+func Concatenate(list []*Automaton) *Automaton {
+	result := NewAutomaton()
+	for _, a := range list {
+		if a.NumStates() == 0 {
+			return MakeEmpty()
+		}
+		for s := 0; s < a.NumStates(); s++ {
+			result.CreateState()
+		}
+	}
+	stateOffset := 0
+	t := NewTransition()
+	for i, a := range list {
+		numStates := a.NumStates()
+		var nextA *Automaton
+		if i != len(list)-1 {
+			nextA = list[i+1]
+		}
+		for s := 0; s < numStates; s++ {
+			n := a.InitTransition(s, t)
+			for j := 0; j < n; j++ {
+				a.GetNextTransition(t)
+				result.AddTransition(stateOffset+s, stateOffset+t.Dest, t.Min, t.Max)
 			}
-			for _, trans := range a.GetTransitions(i) {
-				if live[trans.to] {
-					live[i] = true
-					changed = true
-					break
+			if a.IsAccept(s) {
+				followA := nextA
+				followOffset := stateOffset
+				upto := i + 1
+				for {
+					if followA != nil {
+						n2 := followA.InitTransition(0, t)
+						for j := 0; j < n2; j++ {
+							followA.GetNextTransition(t)
+							result.AddTransition(stateOffset+s, followOffset+numStates+t.Dest, t.Min, t.Max)
+						}
+						if followA.IsAccept(0) {
+							followOffset += followA.NumStates()
+							if upto == len(list)-1 {
+								followA = nil
+							} else {
+								followA = list[upto+1]
+								upto++
+							}
+						} else {
+							break
+						}
+					} else {
+						result.SetAccept(stateOffset+s, true)
+						break
+					}
 				}
 			}
 		}
+		stateOffset += numStates
+	}
+	if result.NumStates() == 0 {
+		result.CreateState()
+	}
+	result.FinishState()
+	return RemoveDeadStates(result)
+}
+
+// Optional returns an automaton accepting the empty string plus the input language.
+func Optional(a *Automaton) *Automaton {
+	if a.IsAccept(0) {
+		return a
+	}
+	hasIncomingToInitial := false
+	t := NewTransition()
+	for state := 0; state < a.NumStates() && !hasIncomingToInitial; state++ {
+		n := a.InitTransition(state, t)
+		for i := 0; i < n; i++ {
+			a.GetNextTransition(t)
+			if t.Dest == 0 {
+				hasIncomingToInitial = true
+				break
+			}
+		}
+	}
+	if !hasIncomingToInitial {
+		result := NewAutomaton()
+		result.Copy(a)
+		if result.NumStates() == 0 {
+			result.CreateState()
+		}
+		result.SetAccept(0, true)
+		return result
+	}
+	result := NewAutomaton()
+	result.CreateState()
+	result.SetAccept(0, true)
+	if a.NumStates() > 0 {
+		result.Copy(a)
+		result.AddEpsilon(0, 1)
+	}
+	result.FinishState()
+	return result
+}
+
+// Repeat returns the Kleene star (zero or more) of a.
+func Repeat(a *Automaton) *Automaton {
+	if a.NumStates() == 0 {
+		return a
+	}
+	if a.IsAccept(0) && a.AcceptCardinality() == 1 {
+		return a
+	}
+	b := NewBuilder()
+	b.CreateState()
+	b.SetAccept(0, true)
+	stateMap := make([]int, a.NumStates())
+	for s := 0; s < a.NumStates(); s++ {
+		if !a.IsAccept(s) {
+			stateMap[s] = b.CreateState()
+		} else if a.GetNumTransitions(s) == 0 {
+			stateMap[s] = 0
+		} else {
+			ns := b.CreateState()
+			stateMap[s] = ns
+			b.SetAccept(ns, true)
+		}
+	}
+	t := NewTransition()
+	for s := 0; s < a.NumStates(); s++ {
+		src := stateMap[s]
+		n := a.InitTransition(s, t)
+		for i := 0; i < n; i++ {
+			a.GetNextTransition(t)
+			b.AddTransition(src, stateMap[t.Dest], t.Min, t.Max)
+		}
+	}
+	// Copy transitions of the initial state to our new initial state.
+	n := a.InitTransition(0, t)
+	for i := 0; i < n; i++ {
+		a.GetNextTransition(t)
+		b.AddTransition(0, stateMap[t.Dest], t.Min, t.Max)
+	}
+	// Loop accept-state transitions back via the start state.
+	for s := 0; s < a.NumStates(); s++ {
+		if a.IsAccept(s) && stateMap[s] != 0 {
+			nn := a.InitTransition(0, t)
+			for i := 0; i < nn; i++ {
+				a.GetNextTransition(t)
+				b.AddTransition(stateMap[s], stateMap[t.Dest], t.Min, t.Max)
+			}
+		}
+	}
+	return RemoveDeadStates(b.Finish())
+}
+
+// RepeatN returns an automaton accepting >= n concatenated repetitions of a.
+func RepeatN(a *Automaton, n int) *Automaton {
+	if n == 0 {
+		return Repeat(a)
+	}
+	list := make([]*Automaton, 0, n+1)
+	for ; n > 0; n-- {
+		list = append(list, a)
+	}
+	list = append(list, Repeat(a))
+	return Concatenate(list)
+}
+
+// RepeatRange returns an automaton accepting between min and max repetitions of a.
+func RepeatRange(a *Automaton, min, max int) *Automaton {
+	if min > max {
+		return MakeEmpty()
+	}
+	var head *Automaton
+	switch {
+	case min == 0:
+		head = MakeEmptyString()
+	case min == 1:
+		head = NewAutomaton()
+		head.Copy(a)
+	default:
+		list := make([]*Automaton, 0, min)
+		for i := 0; i < min; i++ {
+			list = append(list, a)
+		}
+		head = Concatenate(list)
+	}
+	prevAccept := acceptSet(head, 0)
+	b := NewBuilder()
+	b.Copy(head)
+	for i := min; i < max; i++ {
+		numStates := b.GetNumStates()
+		b.Copy(a)
+		for _, s := range prevAccept {
+			b.AddEpsilon(s, numStates)
+		}
+		prevAccept = acceptSet(a, numStates)
+	}
+	return RemoveDeadStates(b.Finish())
+}
+
+func acceptSet(a *Automaton, offset int) []int {
+	out := []int{}
+	for s := 0; s < a.NumStates(); s++ {
+		if a.IsAccept(s) {
+			out = append(out, offset+s)
+		}
+	}
+	return out
+}
+
+// Complement returns an automaton accepting the complement of the input.
+func Complement(a *Automaton, workLimit int) (*Automaton, error) {
+	det, err := Determinize(a, workLimit)
+	if err != nil {
+		return nil, err
+	}
+	tot := Totalize(det)
+	for s := 0; s < tot.NumStates(); s++ {
+		tot.SetAccept(s, !tot.IsAccept(s))
+	}
+	return RemoveDeadStates(tot), nil
+}
+
+// Minus returns an automaton accepting strings in a1 but not in a2.
+func Minus(a1, a2 *Automaton, workLimit int) (*Automaton, error) {
+	if IsEmpty(a1) || a1 == a2 {
+		return MakeEmpty(), nil
+	}
+	if IsEmpty(a2) {
+		return a1, nil
+	}
+	comp, err := Complement(a2, workLimit)
+	if err != nil {
+		return nil, err
+	}
+	return Intersection(a1, comp), nil
+}
+
+// Intersection returns an automaton accepting strings in both a1 and a2.
+func Intersection(a1, a2 *Automaton) *Automaton {
+	if a1 == a2 {
+		return a1
+	}
+	if a1.NumStates() == 0 {
+		return a1
+	}
+	if a2.NumStates() == 0 {
+		return a2
+	}
+	// Snapshot transitions for both automatons to enable random access.
+	type tr struct{ dest, min, max int }
+	t := NewTransition()
+	snap := func(a *Automaton) [][]tr {
+		out := make([][]tr, a.NumStates())
+		for s := 0; s < a.NumStates(); s++ {
+			n := a.InitTransition(s, t)
+			out[s] = make([]tr, n)
+			for i := 0; i < n; i++ {
+				a.GetNextTransition(t)
+				out[s][i] = tr{t.Dest, t.Min, t.Max}
+			}
+		}
+		return out
+	}
+	t1 := snap(a1)
+	t2 := snap(a2)
+
+	c := NewAutomaton()
+	c.CreateState()
+	type pair struct{ s1, s2 int }
+	stateMap := map[pair]int{{0, 0}: 0}
+	worklist := []pair{{0, 0}}
+
+	for len(worklist) > 0 {
+		p := worklist[0]
+		worklist = worklist[1:]
+		me := stateMap[p]
+		c.SetAccept(me, a1.IsAccept(p.s1) && a2.IsAccept(p.s2))
+		row1 := t1[p.s1]
+		row2 := t2[p.s2]
+		for n1 := 0; n1 < len(row1); n1++ {
+			r1 := row1[n1]
+			for n2 := 0; n2 < len(row2); n2++ {
+				r2 := row2[n2]
+				if r2.max < r1.min {
+					continue
+				}
+				if r2.min > r1.max {
+					break
+				}
+				min := r1.min
+				if r2.min > min {
+					min = r2.min
+				}
+				max := r1.max
+				if r2.max < max {
+					max = r2.max
+				}
+				newPair := pair{r1.dest, r2.dest}
+				np, ok := stateMap[newPair]
+				if !ok {
+					np = c.CreateState()
+					stateMap[newPair] = np
+					worklist = append(worklist, newPair)
+				}
+				c.AddTransition(me, np, min, max)
+			}
+		}
+	}
+	c.FinishState()
+	return RemoveDeadStates(c)
+}
+
+// Totalize returns an automaton accepting the same language with a sink state
+// added so that every (state, label) has a defined transition.
+func Totalize(a *Automaton) *Automaton {
+	result := NewAutomaton()
+	numStates := a.NumStates()
+	for s := 0; s < numStates; s++ {
+		result.CreateState()
+		result.SetAccept(s, a.IsAccept(s))
+	}
+	dead := result.CreateState()
+	result.AddTransition(dead, dead, MinCodePoint, MaxCodePoint)
+	t := NewTransition()
+	for s := 0; s < numStates; s++ {
+		maxi := MinCodePoint
+		n := a.InitTransition(s, t)
+		for i := 0; i < n; i++ {
+			a.GetNextTransition(t)
+			result.AddTransition(s, t.Dest, t.Min, t.Max)
+			if t.Min > maxi {
+				result.AddTransition(s, dead, maxi, t.Min-1)
+			}
+			if t.Max+1 > maxi {
+				maxi = t.Max + 1
+			}
+		}
+		if maxi <= MaxCodePoint {
+			result.AddTransition(s, dead, maxi, MaxCodePoint)
+		}
+	}
+	result.FinishState()
+	return result
+}
+
+// SameLanguage returns true when a1 and a2 accept the same language.
+func SameLanguage(a1, a2 *Automaton, workLimit int) (bool, error) {
+	d1, err := Minus(a1, a2, workLimit)
+	if err != nil {
+		return false, err
+	}
+	if !IsEmpty(d1) {
+		return false, nil
+	}
+	d2, err := Minus(a2, a1, workLimit)
+	if err != nil {
+		return false, err
+	}
+	return IsEmpty(d2), nil
+}
+
+// SubsetOf returns true when L(a1) ⊆ L(a2).
+func SubsetOf(a1, a2 *Automaton, workLimit int) (bool, error) {
+	m, err := Minus(a1, a2, workLimit)
+	if err != nil {
+		return false, err
+	}
+	return IsEmpty(m), nil
+}
+
+// HasDeadStates reports whether some reachable state cannot reach an accept state
+// or some state is unreachable.
+func HasDeadStates(a *Automaton) bool {
+	live := getLiveStates(a)
+	num := 0
+	for _, v := range live {
+		if v {
+			num++
+		}
+	}
+	return num < a.NumStates()
+}
+
+// HasDeadStatesFromInitial reports whether there are reachable-from-initial
+// states that cannot reach any accept state.
+func HasDeadStatesFromInitial(a *Automaton) bool {
+	fromInitial := liveStatesFromInitial(a)
+	toAccept := liveStatesToAccept(a)
+	for i := range fromInitial {
+		if fromInitial[i] && !toAccept[i] {
+			return true
+		}
+	}
+	return false
+}
+
+// GetCommonPrefix returns the longest prefix shared by all accepted strings.
+func GetCommonPrefix(a *Automaton) (string, error) {
+	if HasDeadStatesFromInitial(a) {
+		return "", fmt.Errorf("automaton: input has dead states")
+	}
+	if IsEmpty(a) {
+		return "", nil
+	}
+	var sb []rune
+	t := NewTransition()
+	visited := make([]bool, a.NumStates())
+	current := []bool{}
+	if len(visited) > 0 {
+		current = make([]bool, a.NumStates())
+		current[0] = true
+	}
+	next := make([]bool, len(visited))
+	for {
+		label := -1
+		stop := false
+		for state := 0; state < len(current); state++ {
+			if !current[state] {
+				continue
+			}
+			visited[state] = true
+			if a.IsAccept(state) {
+				stop = true
+				break
+			}
+			count := a.GetNumTransitions(state)
+			for i := 0; i < count; i++ {
+				a.GetTransition(state, i, t)
+				if label == -1 {
+					label = t.Min
+				}
+				if t.Min != t.Max || t.Min != label {
+					stop = true
+					break
+				}
+				next[t.Dest] = true
+			}
+			if stop {
+				break
+			}
+		}
+		if stop {
+			break
+		}
+		if label == -1 {
+			break
+		}
+		sb = append(sb, rune(label))
+		// Swap current and next, clear next.
+		current, next = next, current
+		for i := range next {
+			next[i] = false
+		}
+	}
+	return string(sb), nil
+}
+
+// GetSingleton returns the single accepted code-point sequence if any, else nil.
+// Requires the automaton to be deterministic.
+func GetSingleton(a *Automaton) []int {
+	if !a.IsDeterministic() {
+		return nil
+	}
+	var out []int
+	visited := make(map[int]bool)
+	s := 0
+	t := NewTransition()
+	for {
+		visited[s] = true
+		accept := a.IsAccept(s)
+		count := a.GetNumTransitions(s)
+		if !accept {
+			if count == 1 {
+				a.GetTransition(s, 0, t)
+				if t.Min == t.Max && !visited[t.Dest] {
+					out = append(out, t.Min)
+					s = t.Dest
+					continue
+				}
+			}
+			return nil
+		}
+		if count == 0 {
+			return out
+		}
+		return nil
+	}
+}
+
+// TopoSortStates returns reachable states in topological order or an error
+// if the automaton has a cycle. Equivalent to Lucene's topoSortStates.
+func TopoSortStates(a *Automaton) ([]int, error) {
+	if a.NumStates() == 0 {
+		return nil, nil
+	}
+	numStates := a.NumStates()
+	onStack := make([]bool, numStates)
+	visited := make([]bool, numStates)
+	stack := []int{0}
+	visited[0] = true
+	out := make([]int, 0, numStates)
+	t := NewTransition()
+	for len(stack) > 0 {
+		state := stack[len(stack)-1]
+		pushed := false
+		count := a.InitTransition(state, t)
+		for i := 0; i < count; i++ {
+			a.GetNextTransition(t)
+			if !visited[t.Dest] {
+				visited[t.Dest] = true
+				stack = append(stack, t.Dest)
+				onStack[state] = true
+				pushed = true
+				break
+			}
+			if onStack[t.Dest] {
+				return nil, errors.New("automaton: input has a cycle")
+			}
+		}
+		if !pushed {
+			onStack[state] = false
+			stack = stack[:len(stack)-1]
+			out = append(out, state)
+		}
+	}
+	// Reverse for post-order topo sort.
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out, nil
+}
+
+// MergeAcceptStatesWithNoTransition merges accept states that have no outgoing
+// transitions into a single shared state. Reduces output of operations like
+// concatenation that produce many equivalent accept states.
+func MergeAcceptStatesWithNoTransition(a *Automaton) *Automaton {
+	numStates := a.NumStates()
+	mergeable := make([]int, 0)
+	for i := 0; i < numStates; i++ {
+		if a.IsAccept(i) && a.GetNumTransitions(i) == 0 {
+			mergeable = append(mergeable, i)
+		}
+	}
+	if len(mergeable) <= 1 {
+		return a
+	}
+	// mergeable is already in ascending order.
+	remap := func(s int) int {
+		idx := sort.SearchInts(mergeable, s)
+		if idx < len(mergeable) && mergeable[idx] == s {
+			return mergeable[0]
+		}
+		if idx <= 1 {
+			return s
+		}
+		return s - (idx - 1)
 	}
 
+	result := NewAutomaton()
+	for s := 0; s < numStates; s++ {
+		newS := remap(s)
+		for result.NumStates() <= newS {
+			result.CreateState()
+		}
+		if a.IsAccept(s) {
+			result.SetAccept(newS, true)
+		}
+	}
+	t := NewTransition()
+	for s := 0; s < numStates; s++ {
+		rs := remap(s)
+		n := a.InitTransition(s, t)
+		for i := 0; i < n; i++ {
+			a.GetNextTransition(t)
+			result.AddTransition(rs, remap(t.Dest), t.Min, t.Max)
+		}
+	}
+	result.FinishState()
+	return result
+}
+
+// --- live state computation ---
+
+func liveStatesFromInitial(a *Automaton) []bool {
+	live := make([]bool, a.NumStates())
+	if a.NumStates() == 0 {
+		return live
+	}
+	live[0] = true
+	worklist := []int{0}
+	t := NewTransition()
+	for len(worklist) > 0 {
+		s := worklist[0]
+		worklist = worklist[1:]
+		n := a.InitTransition(s, t)
+		for i := 0; i < n; i++ {
+			a.GetNextTransition(t)
+			if !live[t.Dest] {
+				live[t.Dest] = true
+				worklist = append(worklist, t.Dest)
+			}
+		}
+	}
 	return live
 }
 
-// SortStates sorts the states by some criteria (for determinism).
-func (o *Operations) SortStates(a *Automaton) *Automaton {
-	result := a.Clone()
-	// Sorting transitions for each state
-	for i := 0; i < result.NumStates(); i++ {
-		trans := result.GetTransitions(i)
-		sort.Slice(trans, func(j, k int) bool {
-			if trans[j].min != trans[k].min {
-				return trans[j].min < trans[k].min
-			}
-			return trans[j].to < trans[k].to
-		})
-	}
-	return result
-}
-
-// TopologicalSort returns a topological sort of states (if acyclic).
-func (o *Operations) TopologicalSort(a *Automaton) ([]int, bool) {
-	// Kahn's algorithm
-	inDegree := make([]int, a.NumStates())
-
-	// Calculate in-degrees
-	for i := 0; i < a.NumStates(); i++ {
-		for _, trans := range a.GetTransitions(i) {
-			inDegree[trans.to]++
+func liveStatesToAccept(a *Automaton) []bool {
+	// Build reversed adjacency once.
+	numStates := a.NumStates()
+	type edge struct{ src int }
+	rev := make([][]edge, numStates)
+	t := NewTransition()
+	for s := 0; s < numStates; s++ {
+		n := a.InitTransition(s, t)
+		for i := 0; i < n; i++ {
+			a.GetNextTransition(t)
+			rev[t.Dest] = append(rev[t.Dest], edge{src: s})
 		}
 	}
-
-	// Queue of nodes with no incoming edges
-	queue := make([]int, 0)
-	for i := 0; i < a.NumStates(); i++ {
-		if inDegree[i] == 0 {
-			queue = append(queue, i)
+	live := make([]bool, numStates)
+	worklist := make([]int, 0)
+	for s := 0; s < numStates; s++ {
+		if a.IsAccept(s) {
+			live[s] = true
+			worklist = append(worklist, s)
 		}
 	}
-
-	result := make([]int, 0, a.NumStates())
-
-	for len(queue) > 0 {
-		state := queue[0]
-		queue = queue[1:]
-		result = append(result, state)
-
-		for _, trans := range a.GetTransitions(state) {
-			inDegree[trans.to]--
-			if inDegree[trans.to] == 0 {
-				queue = append(queue, trans.to)
+	for len(worklist) > 0 {
+		s := worklist[0]
+		worklist = worklist[1:]
+		for _, e := range rev[s] {
+			if !live[e.src] {
+				live[e.src] = true
+				worklist = append(worklist, e.src)
 			}
 		}
 	}
-
-	// If result doesn't include all states, there's a cycle
-	return result, len(result) == a.NumStates()
+	return live
 }
 
-// IsFinite returns true if the automaton accepts a finite language.
-func (o *Operations) IsFinite(a *Automaton) bool {
-	return a.IsFinite()
+func getLiveStates(a *Automaton) []bool {
+	from := liveStatesFromInitial(a)
+	to := liveStatesToAccept(a)
+	for i := range from {
+		from[i] = from[i] && to[i]
+	}
+	return from
 }
 
-// GetFiniteStrings returns all strings accepted by a finite automaton.
-// Limited to maxCount strings.
-func (o *Operations) GetFiniteStrings(a *Automaton, maxCount int) []string {
-	if !a.IsFinite() {
-		return nil
-	}
+// --- internal data structures supporting determinization ---
 
-	// BFS from initial state
-	results := make([]string, 0)
-	type state struct {
-		node int
-		path string
-	}
+type transitionList struct {
+	data []int // packed (dest, min, max) triples
+	next int
+}
 
-	queue := []state{{a.GetInitialState(), ""}}
-	visited := make(map[string]bool)
-
-	for len(queue) > 0 && len(results) < maxCount {
-		curr := queue[0]
-		queue = queue[1:]
-
-		if a.IsAccept(curr.node) {
-			results = append(results, curr.path)
+func (tl *transitionList) add(t *Transition) {
+	if cap(tl.data) < tl.next+3 {
+		ngrow := cap(tl.data)*2 + 3
+		if ngrow < tl.next+3 {
+			ngrow = tl.next + 3
 		}
+		gd := make([]int, len(tl.data), ngrow)
+		copy(gd, tl.data)
+		tl.data = gd
+	}
+	tl.data = append(tl.data, t.Dest, t.Min, t.Max)
+	tl.next += 3
+}
 
-		// Visit transitions
-		for _, trans := range a.GetTransitions(curr.node) {
-			for c := trans.min; c <= trans.max && len(results) < maxCount; c++ {
-				newPath := curr.path + string(rune(c))
-				key := fmt.Sprintf("%d:%s", trans.to, newPath)
-				if !visited[key] {
-					visited[key] = true
-					queue = append(queue, state{trans.to, newPath})
-				}
-			}
+type pointTransitions struct {
+	point  int
+	ends   *transitionList
+	starts *transitionList
+}
+
+func newPointTransitions(point int) *pointTransitions {
+	return &pointTransitions{
+		point:  point,
+		ends:   &transitionList{},
+		starts: &transitionList{},
+	}
+}
+
+func (pt *pointTransitions) reset(point int) {
+	pt.point = point
+	pt.ends.next = 0
+	pt.ends.data = pt.ends.data[:0]
+	pt.starts.next = 0
+	pt.starts.data = pt.starts.data[:0]
+}
+
+type pointTransitionSet struct {
+	count    int
+	points   []*pointTransitions
+	useHash  bool
+	pointMap map[int]*pointTransitions
+}
+
+const pointTransitionHashCutover = 30
+
+func newPointTransitionSet() *pointTransitionSet {
+	return &pointTransitionSet{
+		points:   make([]*pointTransitions, 0, 8),
+		pointMap: make(map[int]*pointTransitions),
+	}
+}
+
+func (s *pointTransitionSet) next(point int) *pointTransitions {
+	if s.count == len(s.points) {
+		s.points = append(s.points, newPointTransitions(point))
+		s.count++
+		return s.points[s.count-1]
+	}
+	pt := s.points[s.count]
+	if pt == nil {
+		pt = newPointTransitions(point)
+		s.points[s.count] = pt
+	} else {
+		pt.reset(point)
+	}
+	s.count++
+	return pt
+}
+
+func (s *pointTransitionSet) find(point int) *pointTransitions {
+	if s.useHash {
+		if pt, ok := s.pointMap[point]; ok {
+			return pt
+		}
+		pt := s.next(point)
+		s.pointMap[point] = pt
+		return pt
+	}
+	for i := 0; i < s.count; i++ {
+		if s.points[i].point == point {
+			return s.points[i]
 		}
 	}
+	pt := s.next(point)
+	if s.count == pointTransitionHashCutover {
+		for i := 0; i < s.count; i++ {
+			s.pointMap[s.points[i].point] = s.points[i]
+		}
+		s.useHash = true
+	}
+	return pt
+}
 
-	return results
+func (s *pointTransitionSet) add(t *Transition) {
+	s.find(t.Min).starts.add(t)
+	s.find(t.Max + 1).ends.add(t)
+}
+
+func (s *pointTransitionSet) sort() {
+	sort.Slice(s.points[:s.count], func(i, j int) bool {
+		return s.points[i].point < s.points[j].point
+	})
+}
+
+func (s *pointTransitionSet) reset() {
+	if s.useHash {
+		for k := range s.pointMap {
+			delete(s.pointMap, k)
+		}
+		s.useHash = false
+	}
+	s.count = 0
+}
+
+// refCountSet is a small reference-counted set of state ids.
+type refCountSet struct {
+	counts map[int]int
+	cache  []int
+	dirty  bool
+}
+
+func newRefCountSet() *refCountSet {
+	return &refCountSet{counts: make(map[int]int)}
+}
+
+func (r *refCountSet) incr(state int) {
+	r.counts[state]++
+	r.dirty = true
+}
+
+func (r *refCountSet) decr(state int) {
+	r.counts[state]--
+	if r.counts[state] == 0 {
+		delete(r.counts, state)
+		r.dirty = true
+	}
+}
+
+func (r *refCountSet) size() int { return len(r.counts) }
+
+func (r *refCountSet) values() []int {
+	if !r.dirty {
+		return r.cache
+	}
+	out := make([]int, 0, len(r.counts))
+	for k := range r.counts {
+		out = append(out, k)
+	}
+	sort.Ints(out)
+	r.cache = out
+	r.dirty = false
+	return out
+}
+
+func (r *refCountSet) reset() {
+	for k := range r.counts {
+		delete(r.counts, k)
+	}
+	r.cache = nil
+	r.dirty = false
 }
