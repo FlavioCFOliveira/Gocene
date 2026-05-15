@@ -24,7 +24,9 @@ import (
 // TestDenseWithGap mirrors the Java testDenseWithGap. Six entries
 // share the labels 'a', 'b', 'c', 'd', 'f', 'g' (a gap at 'e'), which
 // produces a direct-addressing node with a presence-bit hole. Each
-// input must be locatable via lookup.
+// input must be locatable via BytesRefFSTEnum.SeekExact — this is
+// what the Java original (TestFSTDirectAddressing.testDenseWithGap)
+// uses, so the Go test exercises the same code path.
 func TestDenseWithGap(t *testing.T) {
 	words := []string{"ah", "bi", "cj", "dk", "fl", "gm"}
 	entries := make([][]byte, len(words))
@@ -32,12 +34,16 @@ func TestDenseWithGap(t *testing.T) {
 		entries[i] = []byte(w)
 	}
 	fst := buildNoOutputsFST(t, entries, DirectAddressingMaxOversizingFactor)
+	enum, err := NewBytesRefFSTEnum(fst)
+	if err != nil {
+		t.Fatalf("NewBytesRefFSTEnum: %v", err)
+	}
 	for _, entry := range entries {
-		found, err := lookupNoOutputs(fst, entry)
+		got, err := enum.SeekExact(util.NewBytesRef(entry))
 		if err != nil {
-			t.Fatalf("lookup %q: %v", entry, err)
+			t.Fatalf("SeekExact %q: %v", entry, err)
 		}
-		if !found {
+		if got == nil {
 			t.Fatalf("entry %q not found in FST", entry)
 		}
 	}
@@ -165,22 +171,4 @@ func bytesToIntsRef(entry []byte, scratch *util.IntsRefBuilder) {
 		scratch.SetIntAt(i, int(b))
 	}
 	scratch.SetLength(len(entry))
-}
-
-// lookupNoOutputs implements the equivalent of Lucene's
-// BytesRefFSTEnum.seekExact(entry) != null for an FST built with
-// NoOutputs. Returns true iff the FST accepts the input.
-func lookupNoOutputs(fst *FST[*noOutputMarker], input []byte) (bool, error) {
-	arc := fst.GetFirstArc(&Arc[*noOutputMarker]{})
-	reader := fst.GetBytesReader()
-	for i := 0; i < len(input); i++ {
-		found, err := fst.FindTargetArc(int(input[i])&0xFF, arc, arc, reader)
-		if err != nil {
-			return false, err
-		}
-		if found == nil {
-			return false, nil
-		}
-	}
-	return arc.IsFinal(), nil
 }
