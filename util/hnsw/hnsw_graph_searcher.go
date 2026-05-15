@@ -167,9 +167,14 @@ func SearchWithCollector(
 
 // SearchWithCollectorAndFilter mirrors the five-arg
 // HnswGraphSearcher.search overload that also receives a precomputed
-// filteredDocCount. The filteredDocCount is currently unused (the
-// filtered-search path is deferred); accepted to keep the call shape
-// stable for downstream callers.
+// filteredDocCount. Dispatches to [FilteredHnswGraphSearcher] when the
+// collector's HnswStrategy says the filtered code path is preferred
+// for the given filter ratio; otherwise it falls back to the regular
+// [HnswGraphSearcher].
+//
+// Mirrors the Java entry point HnswGraphSearcher.search(scorer,
+// knnCollector, graph, acceptOrds, filteredDocCount). The Seeded
+// branch is not yet ported.
 func SearchWithCollectorAndFilter(
 	scorer RandomVectorScorer,
 	collector KnnCollector,
@@ -180,12 +185,39 @@ func SearchWithCollectorAndFilter(
 	if filteredDocCount < 0 || filteredDocCount > graph.Size() {
 		panic("hnsw: filteredDocCount must be in [0, graph.Size()]")
 	}
-	// TODO(rmp): once FilteredHnswGraphSearcher and
-	// SeededHnswGraphSearcher land, dispatch here on the collector's
-	// search strategy (HnswStrategy.UseFilteredSearch /
-	// Seeded.numberOfEntryPoints). For now the regular searcher
-	// handles every case correctly; the strategy is read by the
-	// SearchLevel loop via NextVectorsBlock callbacks.
+
+	// Resolve the HnswStrategy. Falls back to the package default
+	// (threshold == 0, never use filtered) when the collector has no
+	// strategy of the expected type. Mirrors the Java instanceof
+	// dispatch on KnnSearchStrategy.Hnsw.
+	hnswStrategy := DefaultHnswStrategy
+	if s, ok := collector.GetSearchStrategy().(*HnswStrategy); ok {
+		hnswStrategy = s
+	}
+
+	gSize := graph.Size()
+	// The filtered path requires every condition Java enforces:
+	// non-nil acceptOrds, a known MaxConn, a positive
+	// filteredDocCount, a filterDocCount that does not cover the
+	// whole graph, and a strategy that opts in for this filter
+	// ratio. The graph-size check duplicates the validation in
+	// FilteredHnswGraphSearcher.create so a misconfigured caller
+	// degrades gracefully here rather than panicking deeper in the
+	// search path.
+	if acceptOrds != nil &&
+		graph.MaxConn() != UnknownMaxConn &&
+		filteredDocCount > 0 &&
+		filteredDocCount < gSize &&
+		gSize > 0 &&
+		hnswStrategy.UseFilteredSearch(float32(filteredDocCount)/float32(gSize)) {
+		filtered := NewFilteredHnswGraphSearcher(
+			collector.K(), graph, filteredDocCount, acceptOrds,
+		)
+		return Search(filtered, collector, scorer, graph, acceptOrds)
+	}
+
+	// TODO(rmp): wire the Seeded branch here when
+	// SeededHnswGraphSearcher lands.
 	searcher := NewHnswGraphSearcher(
 		NewNeighborQueue(collector.K(), true),
 		createBitSet(collector.K(), graphSize(graph)),
