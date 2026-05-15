@@ -433,6 +433,7 @@ func (s *stubGraph) NumLevels() (int, error)           { return s.numLevelsVal, 
 func (s *stubGraph) MaxConn() int                      { return s.maxConnVal }
 func (s *stubGraph) EntryNode() (int, error)           { return s.entryNodeVal, nil }
 func (s *stubGraph) NeighborCount() int                { return s.neighborCount }
+func (s *stubGraph) MaxNodeID() int                    { return s.size - 1 }
 
 func (s *stubGraph) GetNodesOnLevel(level int) (NodesIterator, error) {
 	s.getNodesOnLevelCalls++

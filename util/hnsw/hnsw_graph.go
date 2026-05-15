@@ -29,10 +29,13 @@ const UnknownMaxConn = -1
 // vectors. Port of org.apache.lucene.util.hnsw.HnswGraph (Lucene 10.4.0).
 //
 // Java's abstract class becomes a Go interface here: concrete implementations
-// such as OnHeapHnswGraph (deferred) must implement every method. The default
-// methods provided by the Java reference (maxNodeId, getSortedNodes) are
-// exposed as free functions [MaxNodeID] and [GetSortedNodes] so they may be
-// reused across implementations without forcing a concrete embedding type.
+// such as OnHeapHnswGraph must implement every method. MaxNodeID is part of
+// the interface because non-contiguous-ordinal implementations (e.g.
+// OnHeapHnswGraph constructed with a larger capacity than the current
+// size) need to override Java's default behaviour of Size() - 1. The other
+// default method on the Java reference, getSortedNodes, is exposed as a
+// free function [GetSortedNodes] so it may be reused across implementations
+// without forcing a concrete embedding type.
 //
 // The nomenclature mirrors the original paper "Efficient and robust approximate
 // nearest neighbor search using Hierarchical Navigable Small World graphs"
@@ -86,14 +89,27 @@ type HnswGraph interface {
 	// yield before returning util.NO_MORE_DOCS, not counting any already
 	// consumed.
 	NeighborCount() int
+
+	// MaxNodeID returns the maximum node id, inclusive. For
+	// implementations that expose contiguous node ordinals this is
+	// Size()-1; implementations that allocate slot space ahead of the
+	// current Size (e.g. [OnHeapHnswGraph] when constructed with an
+	// explicit numNodes) must override this so callers sizing buffers
+	// to MaxNodeID()+1 do not underestimate the ordinal range.
+	//
+	// Mirrors Java's HnswGraph#maxNodeId default method, which serves
+	// as a default for non-contiguous implementations to override.
+	MaxNodeID() int
 }
 
-// MaxNodeID returns the maximum node id, inclusive. For implementations that
-// expose contiguous node ordinals this is Size()-1; the helper exists to
-// mirror Java's HnswGraph#maxNodeId default method, which serves as a default
-// for non-contiguous implementations to override.
+// MaxNodeID returns the maximum node id, inclusive, by dispatching to the
+// graph's own [HnswGraph.MaxNodeID] method.
+//
+// The free function is preserved as a thin wrapper so call sites that
+// existed before MaxNodeID was promoted to a method on the interface do
+// not need to change. New code should prefer the method form directly.
 func MaxNodeID(g HnswGraph) int {
-	return g.Size() - 1
+	return g.MaxNodeID()
 }
 
 // GetSortedNodes returns a NodesIterator over the nodes on the requested
@@ -146,6 +162,10 @@ func (emptyHnswGraph) NeighborCount() int { return 0 }
 
 // MaxConn returns [UnknownMaxConn] on the empty graph.
 func (emptyHnswGraph) MaxConn() int { return UnknownMaxConn }
+
+// MaxNodeID returns -1 on the empty graph: the contiguous-ordinal
+// default is Size() - 1 = -1, which correctly signals "no nodes".
+func (emptyHnswGraph) MaxNodeID() int { return -1 }
 
 // GetNodesOnLevel returns the empty NodesIterator regardless of the
 // requested level.

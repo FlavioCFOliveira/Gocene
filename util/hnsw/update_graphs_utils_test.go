@@ -328,6 +328,7 @@ func (e *errorHnswGraph) NeighborCount() int         { return 0 }
 func (e *errorHnswGraph) GetNodesOnLevel(level int) (NodesIterator, error) {
 	return NewDenseNodesIterator(e.size), nil
 }
+func (e *errorHnswGraph) MaxNodeID() int { return e.size - 1 }
 
 // sentinelError is a trivial named error used by the propagation test
 // so error identity (==) is meaningful.

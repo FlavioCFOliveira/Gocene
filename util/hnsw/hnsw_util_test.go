@@ -84,6 +84,11 @@ func (m *mockHnswGraph) NeighborCount() int {
 // limit.
 func (m *mockHnswGraph) MaxConn() int { return UnknownMaxConn }
 
+// MaxNodeID implements HnswGraph.MaxNodeID. The mock graph uses
+// contiguous ordinals on level 0, so the default Size() - 1 yields
+// the inclusive maximum.
+func (m *mockHnswGraph) MaxNodeID() int { return m.Size() - 1 }
+
 // GetNodesOnLevel implements HnswGraph.GetNodesOnLevel. The returned
 // iterator yields, in ascending order, every node ordinal whose slice on
 // the requested level is non-nil. The Java original implements this

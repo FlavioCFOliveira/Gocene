@@ -366,6 +366,7 @@ func (u *unknownMaxConnGraph) NeighborCount() int         { return u.inner.Neigh
 func (u *unknownMaxConnGraph) GetNodesOnLevel(level int) (NodesIterator, error) {
 	return u.inner.GetNodesOnLevel(level)
 }
+func (u *unknownMaxConnGraph) MaxNodeID() int { return u.inner.MaxNodeID() }
 
 // TestFilteredHnswGraphSearcher_VisitLimit verifies the filtered
 // searcher honours the collector's visit budget and reports an
