@@ -19,8 +19,8 @@ package store
 // average rate over multiple calls stays within bound.
 type RateLimitedIndexOutput struct {
 	*FilterIndexOutput
-	rateLimiter             RateLimiter
-	bytesSinceLastPause     int64
+	rateLimiter               RateLimiter
+	bytesSinceLastPause       int64
 	currentMinPauseCheckBytes int64
 }
 

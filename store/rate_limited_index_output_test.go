@@ -21,8 +21,8 @@ type recordingRateLimiter struct {
 	minPauseBytes int64
 }
 
-func (r *recordingRateLimiter) GetMBPerSec() float64      { return r.mbPerSec }
-func (r *recordingRateLimiter) SetMBPerSec(v float64)     { r.mbPerSec = v }
+func (r *recordingRateLimiter) GetMBPerSec() float64         { return r.mbPerSec }
+func (r *recordingRateLimiter) SetMBPerSec(v float64)        { r.mbPerSec = v }
 func (r *recordingRateLimiter) GetMinPauseCheckBytes() int64 { return r.minPauseBytes }
 func (r *recordingRateLimiter) Pause(bytes int64) int64 {
 	r.pauses.Add(1)
@@ -35,19 +35,19 @@ type capturingOutput struct {
 	buf []byte
 }
 
-func (c *capturingOutput) WriteByte(b byte) error   { c.buf = append(c.buf, b); return nil }
+func (c *capturingOutput) WriteByte(b byte) error    { c.buf = append(c.buf, b); return nil }
 func (c *capturingOutput) WriteBytes(b []byte) error { c.buf = append(c.buf, b...); return nil }
 func (c *capturingOutput) WriteBytesN(b []byte, n int) error {
 	c.buf = append(c.buf, b[:n]...)
 	return nil
 }
-func (c *capturingOutput) WriteShort(int16) error { return nil }
-func (c *capturingOutput) WriteInt(int32) error   { return nil }
-func (c *capturingOutput) WriteLong(int64) error  { return nil }
+func (c *capturingOutput) WriteShort(int16) error   { return nil }
+func (c *capturingOutput) WriteInt(int32) error     { return nil }
+func (c *capturingOutput) WriteLong(int64) error    { return nil }
 func (c *capturingOutput) WriteString(string) error { return nil }
-func (c *capturingOutput) Close() error            { return nil }
-func (c *capturingOutput) SetPosition(int64) error { return nil }
-func (c *capturingOutput) Length() int64           { return int64(len(c.buf)) }
+func (c *capturingOutput) Close() error             { return nil }
+func (c *capturingOutput) SetPosition(int64) error  { return nil }
+func (c *capturingOutput) Length() int64            { return int64(len(c.buf)) }
 
 func TestRateLimitedIndexOutput_PausesAtThreshold(t *testing.T) {
 	rl := &recordingRateLimiter{mbPerSec: 1.0, minPauseBytes: 16}
