@@ -5,6 +5,7 @@
 package analysis
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -105,4 +106,96 @@ func TestAttributeInterface(t *testing.T) {
 
 	// Verify that MockAttribute implements AttributeImpl
 	var _ AttributeImpl = (*MockAttribute)(nil)
+}
+
+// reflectableMockAttribute is a MockAttribute variant that opts into
+// AttributeReflectable, used to exercise the Sprint 12 reflection
+// helpers in [TestReflectWith_OptIn] and [TestReflectAsString_Format].
+type reflectableMockAttribute struct {
+	MockAttribute
+}
+
+func (r *reflectableMockAttribute) ReflectWith(reflector AttributeReflector) {
+	reflector(reflect.TypeOf((*Attribute)(nil)).Elem(), "value", r.value)
+}
+
+// endingMockAttribute is a MockAttribute variant that opts into
+// AttributeEnder with a distinct end-of-field state.
+type endingMockAttribute struct {
+	MockAttribute
+	ended bool
+}
+
+func (e *endingMockAttribute) End() {
+	e.value = ""
+	e.ended = true
+}
+
+// TestReflectWith_OptIn verifies that the [ReflectWith] helper invokes
+// an impl's ReflectWith hook when it opts into [AttributeReflectable]
+// and is a no-op otherwise. Mirrors the Lucene contract that the
+// default {@code reflectWith} emits nothing.
+func TestReflectWith_OptIn(t *testing.T) {
+	got := make(map[string]any)
+	collector := func(_ reflect.Type, key string, value any) {
+		got[key] = value
+	}
+
+	// Bare AttributeImpl does not opt in: helper is a no-op.
+	ReflectWith(&MockAttribute{value: "ignored"}, collector)
+	if len(got) != 0 {
+		t.Fatalf("ReflectWith on non-Reflectable impl emitted %d triples, want 0", len(got))
+	}
+
+	// Opting in dispatches the hook.
+	ReflectWith(&reflectableMockAttribute{MockAttribute{value: "v"}}, collector)
+	if v, ok := got["value"]; !ok || v != "v" {
+		t.Fatalf("ReflectWith on Reflectable impl: got %#v, want value=v", got)
+	}
+}
+
+// TestEnd_DefaultsToClear verifies that the [End] helper falls back to
+// Clear when the impl does not opt into [AttributeEnder], matching the
+// Java default {@code AttributeImpl#end() -> clear()}, and dispatches
+// the override when the impl opts in.
+func TestEnd_DefaultsToClear(t *testing.T) {
+	// Default: End delegates to Clear.
+	plain := &MockAttribute{value: "stale"}
+	End(plain)
+	if plain.value != "" {
+		t.Fatalf("End fallback: value=%q, want %q", plain.value, "")
+	}
+
+	// Opt-in: End override is invoked.
+	custom := &endingMockAttribute{MockAttribute: MockAttribute{value: "stale"}}
+	End(custom)
+	if !custom.ended {
+		t.Fatal("End on AttributeEnder did not invoke override")
+	}
+	if custom.value != "" {
+		t.Fatalf("End on AttributeEnder: value=%q, want %q", custom.value, "")
+	}
+}
+
+// TestReflectAsString_Format verifies both rendering modes documented
+// by [ReflectAsString], byte-for-byte against the Lucene reference for
+// a single-key impl.
+func TestReflectAsString_Format(t *testing.T) {
+	attr := &reflectableMockAttribute{MockAttribute{value: "v"}}
+
+	got := ReflectAsString(attr, false)
+	if want := "value=v"; got != want {
+		t.Fatalf("ReflectAsString(false)=%q, want %q", got, want)
+	}
+
+	got = ReflectAsString(attr, true)
+	want := "analysis.Attribute#value=v"
+	if got != want {
+		t.Fatalf("ReflectAsString(true)=%q, want %q", got, want)
+	}
+
+	// Empty impl renders to the empty string.
+	if got := ReflectAsString(&MockAttribute{}, true); got != "" {
+		t.Fatalf("ReflectAsString on non-Reflectable impl: %q, want empty", got)
+	}
 }
