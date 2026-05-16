@@ -140,6 +140,16 @@ type HnswGraphBuilder struct {
 	// field is exported via [HnswGraphBuilder.GetGraph].
 	hnsw *OnHeapHnswGraph
 
+	// hnswLock is the optional striped lock that guards concurrent
+	// mutation of the graph's neighbour arrays. When nil the builder
+	// uses the single-thread fast path (no locking, matching Java's
+	// `hnswLock == null` branch). When non-nil — set by
+	// [HnswConcurrentMergeBuilder] for its worker builders —
+	// addDiverseNeighbors takes a per-(level, node) write lock around
+	// each neighbour update and the merge-aware searcher takes a read
+	// lock around each graphSeek.
+	hnswLock *HnswLock
+
 	// infoStream is the diagnostic sink for HNSW build messages.
 	infoStream util.InfoStream
 
@@ -179,6 +189,34 @@ func NewHnswGraphBuilderFromGraph(
 		return nil, errors.New("hnsw: NewHnswGraphBuilderFromGraph: graph must not be nil")
 	}
 	return newHnswGraphBuilderWithGraph(scorerSupplier, graph.MaxConn(), beamWidth, seed, graph)
+}
+
+// newHnswGraphBuilderWithLock is the constructor variant used by
+// [HnswConcurrentMergeBuilder] to plug in the striped HnswLock and a
+// pre-built [HnswGraphSearcher] whose seek/next policies serialise
+// reads against concurrent neighbour updates. The lock and searcher
+// arguments may both be nil, in which case the call is equivalent to
+// [newHnswGraphBuilderWithGraph].
+//
+// Exposed unexported because every legitimate caller lives inside this
+// package; the public surface keeps the single-thread constructors.
+func newHnswGraphBuilderWithLock(
+	scorerSupplier RandomVectorScorerSupplier,
+	m, beamWidth int,
+	seed int64,
+	graph *OnHeapHnswGraph,
+	hnswLock *HnswLock,
+	searcher *HnswGraphSearcher,
+) (*HnswGraphBuilder, error) {
+	b, err := newHnswGraphBuilderWithGraph(scorerSupplier, m, beamWidth, seed, graph)
+	if err != nil {
+		return nil, err
+	}
+	b.hnswLock = hnswLock
+	if searcher != nil {
+		b.graphSearcher = searcher
+	}
+	return b, nil
 }
 
 // newHnswGraphBuilderWithGraph is the unexported workhorse the public
@@ -530,22 +568,45 @@ func (b *HnswGraphBuilder) addDiverseNeighbors(
 	}
 
 	// Re-fold the new node into each selected candidate's neighbour
-	// list. Java's HnswLock branch is not yet ported (HnswLock is
-	// deferred); the unlocked path matches Java verbatim.
+	// list. When hnswLock is non-nil (concurrent merge path) we take
+	// the per-(level, nbr) write lock around the update; otherwise we
+	// follow the unlocked fast path, matching Java verbatim.
+	//
+	// NOTE (mirrors the Java comment): we deliberately read nbr from
+	// the local `candidates` / `mask` and not from the new node's
+	// `neighbors` array — once an incoming link is added, the new node
+	// becomes discoverable by concurrent searches and its neighbour
+	// array may be mutated underneath us.
 	for i := 0; i < candidates.Size(); i++ {
 		if !mask[i] {
 			continue
 		}
 		nbr := candidates.Nodes()[i]
-		if err := b.updateNeighbor(
-			b.hnsw.GetNeighbors(level, nbr),
-			node,
-			candidates.GetScore(i),
-			nbr,
-			scorer,
-			isLinkRepair,
-		); err != nil {
-			return err
+		if b.hnswLock != nil {
+			release := b.hnswLock.WriteLock(level, nbr)
+			err := b.updateNeighbor(
+				b.hnsw.GetNeighbors(level, nbr),
+				node,
+				candidates.GetScore(i),
+				nbr,
+				scorer,
+				isLinkRepair,
+			)
+			release()
+			if err != nil {
+				return err
+			}
+		} else {
+			if err := b.updateNeighbor(
+				b.hnsw.GetNeighbors(level, nbr),
+				node,
+				candidates.GetScore(i),
+				nbr,
+				scorer,
+				isLinkRepair,
+			); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
