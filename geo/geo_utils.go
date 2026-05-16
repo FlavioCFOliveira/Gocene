@@ -30,6 +30,31 @@ const (
 	MaxLonIncl = 180.0
 )
 
+// EarthMeanRadiusMeters is the WGS84 mean Earth radius in metres,
+// matching org.apache.lucene.geo.GeoUtils.EARTH_MEAN_RADIUS_METERS
+// and org.apache.lucene.util.SloppyMath's internal `toMeters`
+// constant. Used by Rectangle.FromPointDistance, Circle, and the
+// haversine helpers.
+const EarthMeanRadiusMeters = 6_371_008.7714
+
+// Radian counterparts of the inclusive degree bounds. Mirror the Java
+// constants org.apache.lucene.geo.GeoUtils.MIN_LAT_RADIANS,
+// MAX_LAT_RADIANS, MIN_LON_RADIANS, MAX_LON_RADIANS, each defined as
+// Math.toRadians of the corresponding degree bound.
+var (
+	// MinLatRadians is MinLatIncl converted to radians.
+	MinLatRadians = MinLatIncl * math.Pi / 180
+
+	// MaxLatRadians is MaxLatIncl converted to radians.
+	MaxLatRadians = MaxLatIncl * math.Pi / 180
+
+	// MinLonRadians is MinLonIncl converted to radians.
+	MinLonRadians = MinLonIncl * math.Pi / 180
+
+	// MaxLonRadians is MaxLonIncl converted to radians.
+	MaxLonRadians = MaxLonIncl * math.Pi / 180
+)
+
 // ErrInvalidLatitude / ErrInvalidLongitude provide a sentinel type
 // for callers that want to distinguish coordinate-validation errors
 // from other failure modes. The error returned by CheckLatitude /
