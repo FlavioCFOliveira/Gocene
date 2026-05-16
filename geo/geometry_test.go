@@ -30,12 +30,33 @@ func (s stubGeometry) toComponent2D() Component2D { return s.component }
 // need a non-nil reference.
 type stubComponent2D struct{}
 
-func (stubComponent2D) MinX() float64                                { return 0 }
-func (stubComponent2D) MaxX() float64                                { return 0 }
-func (stubComponent2D) MinY() float64                                { return 0 }
-func (stubComponent2D) MaxY() float64                                { return 0 }
-func (stubComponent2D) Contains(_ float64, _ float64) bool           { return false }
-func (stubComponent2D) Relate(_, _, _, _ float64) Relation           { return CellOutsideQuery }
+func (stubComponent2D) MinX() float64                          { return 0 }
+func (stubComponent2D) MaxX() float64                          { return 0 }
+func (stubComponent2D) MinY() float64                          { return 0 }
+func (stubComponent2D) MaxY() float64                          { return 0 }
+func (stubComponent2D) Contains(_ float64, _ float64) bool     { return false }
+func (stubComponent2D) Relate(_, _, _, _ float64) Relation     { return CellOutsideQuery }
+func (stubComponent2D) IntersectsLine(_, _, _, _, _, _, _, _ float64) bool {
+	return false
+}
+func (stubComponent2D) IntersectsTriangle(_, _, _, _, _, _, _, _, _, _ float64) bool {
+	return false
+}
+func (stubComponent2D) ContainsLine(_, _, _, _, _, _, _, _ float64) bool {
+	return false
+}
+func (stubComponent2D) ContainsTriangle(_, _, _, _, _, _, _, _, _, _ float64) bool {
+	return false
+}
+func (stubComponent2D) WithinPoint(_, _ float64) WithinRelation {
+	return WithinDisjoint
+}
+func (stubComponent2D) WithinLine(_, _, _, _, _, _ float64, _ bool, _, _ float64) WithinRelation {
+	return WithinDisjoint
+}
+func (stubComponent2D) WithinTriangle(_, _, _, _, _, _ float64, _ bool, _, _ float64, _ bool, _, _ float64, _ bool) WithinRelation {
+	return WithinDisjoint
+}
 
 func TestGeometryInterfaceShape(t *testing.T) {
 	t.Parallel()

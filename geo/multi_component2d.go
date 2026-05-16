@@ -3,15 +3,12 @@
 // used for performance when multiple Component2D instances are joined
 // via LatLonGeometry.create / XYGeometry.create; its topology is not
 // part of any public or serialised contract, so a functionally
-// equivalent linear composite is acceptable while the full
-// ComponentTree port is deferred to task #277.
+// equivalent linear composite is acceptable.
 
 package geo
 
 // multiComponent2D answers Component2D queries as the set-union over
-// a fixed list of child components. It is constructed once from the
-// input slice and is safe for concurrent reads; the child slice is
-// copied defensively at construction time.
+// a fixed list of child components.
 type multiComponent2D struct {
 	components []Component2D
 	minX       float64
@@ -21,18 +18,10 @@ type multiComponent2D struct {
 }
 
 // newMultiComponent2D builds a composite over the provided children.
-// The caller must guarantee components is non-empty and free of nil
-// entries; callers in this package satisfy that precondition by
-// validating their inputs before calling.
 func newMultiComponent2D(components []Component2D) *multiComponent2D {
 	if len(components) == 0 {
-		// Defensive: this should never happen because all callers
-		// inside the geo package validate first, but a panic here is
-		// preferable to a silent zero-value Component2D.
 		panic("geo: newMultiComponent2D requires at least one component")
 	}
-	// Defensive copy so the composite is immune to caller-side
-	// mutation of the original slice.
 	copied := make([]Component2D, len(components))
 	copy(copied, components)
 
@@ -55,26 +44,16 @@ func newMultiComponent2D(components []Component2D) *multiComponent2D {
 	}
 	return &multiComponent2D{
 		components: copied,
-		minX:       minX,
-		maxX:       maxX,
-		minY:       minY,
-		maxY:       maxY,
+		minX:       minX, maxX: maxX, minY: minY, maxY: maxY,
 	}
 }
 
-// MinX returns the union minimum X across all child components.
 func (m *multiComponent2D) MinX() float64 { return m.minX }
-
-// MaxX returns the union maximum X across all child components.
 func (m *multiComponent2D) MaxX() float64 { return m.maxX }
-
-// MinY returns the union minimum Y across all child components.
 func (m *multiComponent2D) MinY() float64 { return m.minY }
-
-// MaxY returns the union maximum Y across all child components.
 func (m *multiComponent2D) MaxY() float64 { return m.maxY }
 
-// Contains reports whether any child component contains the point.
+// Contains returns true if any child contains the point.
 func (m *multiComponent2D) Contains(x, y float64) bool {
 	for _, c := range m.components {
 		if c.Contains(x, y) {
@@ -84,13 +63,9 @@ func (m *multiComponent2D) Contains(x, y float64) bool {
 	return false
 }
 
-// Relate returns the union relation: INSIDE wins as soon as any
-// child reports INSIDE; otherwise CROSSES wins if any child crosses
-// or is inside; otherwise OUTSIDE.
-//
-// This matches the union semantics implemented by Lucene's
-// ComponentTree, which short-circuits on INSIDE and aggregates
-// CROSSES/OUTSIDE the same way.
+// Relate aggregates per-child relations: INSIDE on any child wins;
+// otherwise CROSSES if any child crosses; OUTSIDE only when every
+// child is OUTSIDE.
 func (m *multiComponent2D) Relate(minX, maxX, minY, maxY float64) Relation {
 	hasCrosses := false
 	for _, c := range m.components {
@@ -105,4 +80,97 @@ func (m *multiComponent2D) Relate(minX, maxX, minY, maxY float64) Relation {
 		return CellCrossesQuery
 	}
 	return CellOutsideQuery
+}
+
+// IntersectsLine returns true if any child intersects the segment.
+func (m *multiComponent2D) IntersectsLine(minX, maxX, minY, maxY, aX, aY, bX, bY float64) bool {
+	for _, c := range m.components {
+		if c.IntersectsLine(minX, maxX, minY, maxY, aX, aY, bX, bY) {
+			return true
+		}
+	}
+	return false
+}
+
+// IntersectsTriangle returns true if any child intersects the
+// triangle.
+func (m *multiComponent2D) IntersectsTriangle(minX, maxX, minY, maxY, aX, aY, bX, bY, cX, cY float64) bool {
+	for _, c := range m.components {
+		if c.IntersectsTriangle(minX, maxX, minY, maxY, aX, aY, bX, bY, cX, cY) {
+			return true
+		}
+	}
+	return false
+}
+
+// ContainsLine returns true if any single child contains the segment.
+// The Java ComponentTree applies the same semantics: the segment
+// counts as contained once any leaf says so.
+func (m *multiComponent2D) ContainsLine(minX, maxX, minY, maxY, aX, aY, bX, bY float64) bool {
+	for _, c := range m.components {
+		if c.ContainsLine(minX, maxX, minY, maxY, aX, aY, bX, bY) {
+			return true
+		}
+	}
+	return false
+}
+
+// ContainsTriangle returns true if any single child contains the
+// triangle.
+func (m *multiComponent2D) ContainsTriangle(minX, maxX, minY, maxY, aX, aY, bX, bY, cX, cY float64) bool {
+	for _, c := range m.components {
+		if c.ContainsTriangle(minX, maxX, minY, maxY, aX, aY, bX, bY, cX, cY) {
+			return true
+		}
+	}
+	return false
+}
+
+// WithinPoint aggregates per-child within relations following the
+// standard precedence: NOTWITHIN dominates, then CANDIDATE, then
+// DISJOINT. Mirrors how ComponentTree walks its children.
+func (m *multiComponent2D) WithinPoint(x, y float64) WithinRelation {
+	relation := WithinDisjoint
+	for _, c := range m.components {
+		switch c.WithinPoint(x, y) {
+		case WithinNotWithin:
+			return WithinNotWithin
+		case WithinCandidate:
+			relation = WithinCandidate
+		}
+	}
+	return relation
+}
+
+// WithinLine aggregates per-child relations as above.
+func (m *multiComponent2D) WithinLine(minX, maxX, minY, maxY, aX, aY float64, ab bool, bX, bY float64) WithinRelation {
+	relation := WithinDisjoint
+	for _, c := range m.components {
+		switch c.WithinLine(minX, maxX, minY, maxY, aX, aY, ab, bX, bY) {
+		case WithinNotWithin:
+			return WithinNotWithin
+		case WithinCandidate:
+			relation = WithinCandidate
+		}
+	}
+	return relation
+}
+
+// WithinTriangle aggregates per-child relations as above.
+func (m *multiComponent2D) WithinTriangle(
+	minX, maxX, minY, maxY,
+	aX, aY float64, ab bool,
+	bX, bY float64, bc bool,
+	cX, cY float64, ca bool,
+) WithinRelation {
+	relation := WithinDisjoint
+	for _, c := range m.components {
+		switch c.WithinTriangle(minX, maxX, minY, maxY, aX, aY, ab, bX, bY, bc, cX, cY, ca) {
+		case WithinNotWithin:
+			return WithinNotWithin
+		case WithinCandidate:
+			relation = WithinCandidate
+		}
+	}
+	return relation
 }
