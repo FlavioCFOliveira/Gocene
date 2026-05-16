@@ -804,14 +804,54 @@ func ReadSetOfStrings(in DataInput) (map[string]struct{}, error) {
 	return s, nil
 }
 
-// RandomAccessInput provides random access to read primitive types from an IndexInput.
-// This is the Go port of Lucene's org.apache.lucene.store.RandomAccessInput.
+// RandomAccessInput provides random access to read primitive types from an
+// IndexInput.
+//
+// This is the Go port of org.apache.lucene.store.RandomAccessInput. Unlike
+// IndexInput, RandomAccessInput has no concept of file position: all reads
+// are absolute. Like IndexInput, it is only intended for use by a single
+// thread. All numeric reads use little-endian byte order to match the Lucene
+// on-disk format.
 type RandomAccessInput interface {
-	// ReadByteAt reads a single byte at the given position.
+	// Length returns the number of bytes in the underlying file.
+	Length() int64
+
+	// ReadByteAt reads a byte at the given absolute position.
 	ReadByteAt(pos int64) (byte, error)
 
-	// ReadLongAt reads a 64-bit value at the given position in big-endian format.
+	// ReadShortAt reads a 16-bit little-endian value at the given absolute
+	// position.
+	ReadShortAt(pos int64) (int16, error)
+
+	// ReadIntAt reads a 32-bit little-endian value at the given absolute
+	// position.
+	ReadIntAt(pos int64) (int32, error)
+
+	// ReadLongAt reads a 64-bit little-endian value at the given absolute
+	// position.
 	ReadLongAt(pos int64) (int64, error)
+}
+
+// PrefetchableRandomAccessInput is an optional capability that a
+// RandomAccessInput may implement to advertise prefetching support. Callers
+// should type-assert to it before calling Prefetch.
+//
+// Mirrors RandomAccessInput.prefetch in Lucene 10.4.0 which defaults to a
+// no-op; Gocene exposes it as an optional interface to keep the base
+// RandomAccessInput interface minimal.
+type PrefetchableRandomAccessInput interface {
+	Prefetch(offset int64, length int64) error
+}
+
+// LoadedReporterRandomAccessInput is an optional capability that a
+// RandomAccessInput may implement to expose whether its data is currently
+// resident in physical memory. Returns (isLoaded, true) when the answer is
+// known, or (false, false) otherwise.
+//
+// Mirrors RandomAccessInput.isLoaded() in Lucene 10.4.0 which returns an
+// Optional<Boolean>; the (bool, bool) return value is the idiomatic Go shape.
+type LoadedReporterRandomAccessInput interface {
+	IsLoaded() (loaded bool, known bool)
 }
 
 // ReadMapOfIntToSetOfStrings reads a map of int to set of strings written by WriteMapOfIntToSetOfStrings.
