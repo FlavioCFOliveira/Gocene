@@ -4,14 +4,26 @@
 
 package analysis
 
+import (
+	"bytes"
+	"reflect"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
 // CharTermAttribute stores the text of a token.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.tokenattributes.CharTermAttribute.
 //
 // This attribute holds the actual text content of a token after tokenization.
 // Tokenizers set this attribute, and filters may modify it.
+//
+// Sprint 12 brings the interface closer to Lucene parity by embedding
+// [TermToBytesRefAttribute]: callers can read the term as a BytesRef
+// uniformly with [BytesTermAttribute] through GetBytesRef.
 type CharTermAttribute interface {
 	AttributeImpl
+	TermToBytesRefAttribute
 
 	// SetEmpty clears the term buffer and sets it to empty.
 	SetEmpty()
@@ -69,7 +81,23 @@ type CharTermAttribute interface {
 type charTermAttribute struct {
 	termBuffer []byte
 	termLength int
+
+	// builder is a reusable scratch BytesRef holder returned by
+	// GetBytesRef. Lucene uses a BytesRefBuilder; here we keep a single
+	// *util.BytesRef and re-point its slice to avoid per-call
+	// allocations on the indexing hot path.
+	builder *util.BytesRef
 }
+
+// Compile-time assertions to lock in the contracts this impl
+// participates in. The opt-in interfaces are wired through Sprint 12
+// option (d).
+var (
+	_ AttributeImpl           = (*charTermAttribute)(nil)
+	_ CharTermAttribute       = (*charTermAttribute)(nil)
+	_ TermToBytesRefAttribute = (*charTermAttribute)(nil)
+	_ AttributeReflectable    = (*charTermAttribute)(nil)
+)
 
 // NewCharTermAttribute creates a new empty CharTermAttribute.
 func NewCharTermAttribute() CharTermAttribute {
@@ -198,4 +226,61 @@ func (a *charTermAttribute) Grow(minCapacity int) []byte {
 		a.termBuffer = newBuffer
 	}
 	return a.termBuffer
+}
+
+// GetBytesRef satisfies [TermToBytesRefAttribute]. The returned
+// BytesRef wraps the live term buffer (slice {0, termLength}) and
+// stays valid only until the next mutation of this attribute, matching
+// the Lucene "reused on increment" contract.
+func (a *charTermAttribute) GetBytesRef() *util.BytesRef {
+	if a.builder == nil {
+		a.builder = &util.BytesRef{}
+	}
+	a.builder.Bytes = a.termBuffer
+	a.builder.Offset = 0
+	a.builder.Length = a.termLength
+	return a.builder
+}
+
+// End is the opt-in [AttributeEnder] hook. CharTermAttributeImpl in
+// Lucene does not override end(), so end() == clear() (the base
+// default). We reproduce that explicitly for clarity.
+func (a *charTermAttribute) End() {
+	a.Clear()
+}
+
+// ReflectWith is the opt-in [AttributeReflectable] hook. The Lucene
+// reference emits the term as a String under the CharTermAttribute
+// key; the Go port emits it under the same key, as a string built from
+// the live buffer.
+func (a *charTermAttribute) ReflectWith(reflector AttributeReflector) {
+	reflector(reflect.TypeOf((*CharTermAttribute)(nil)).Elem(), "term", a.String())
+	reflector(reflect.TypeOf((*TermToBytesRefAttribute)(nil)).Elem(), "bytes", a.GetBytesRef())
+}
+
+// Equals returns true if other is a [charTermAttribute] whose term
+// buffer slice {0, termLength} compares equal. Matches Lucene's
+// {@code Arrays.equals(termBuffer, 0, termLength, ...)} semantics.
+func (a *charTermAttribute) Equals(other any) bool {
+	if a == other {
+		return true
+	}
+	o, ok := other.(*charTermAttribute)
+	if !ok {
+		return false
+	}
+	if a.termLength != o.termLength {
+		return false
+	}
+	return bytes.Equal(a.termBuffer[:a.termLength], o.termBuffer[:o.termLength])
+}
+
+// HashCode returns a hash matching Lucene's term-buffer hash code:
+// h = 31*h + b for each byte in [0, termLength).
+func (a *charTermAttribute) HashCode() int {
+	code := 0
+	for i := 0; i < a.termLength; i++ {
+		code = code*31 + int(int8(a.termBuffer[i]))
+	}
+	return code
 }
