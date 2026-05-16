@@ -30,6 +30,46 @@ const (
 	MaxLonIncl = 180.0
 )
 
+// WindingOrder describes the orientation of a polygon's vertices.
+// It is the Go port of org.apache.lucene.geo.GeoUtils.WindingOrder.
+//
+// The integer Sign() values match the Java enum: CW=-1, COLINEAR=0,
+// CCW=+1.
+type WindingOrder int
+
+const (
+	// WindingClockwise is the clockwise winding order. Used for the
+	// shell of a polygon (Lucene convention).
+	WindingClockwise WindingOrder = -1
+
+	// WindingColinear means the polygon is degenerate (its signed
+	// area is exactly zero).
+	WindingColinear WindingOrder = 0
+
+	// WindingCounterClockwise is the counter-clockwise winding
+	// order. Used for holes in a polygon (Lucene convention).
+	WindingCounterClockwise WindingOrder = 1
+)
+
+// Sign returns the integer sign of the winding order (-1, 0, or +1),
+// matching the Java enum's sign() accessor.
+func (w WindingOrder) Sign() int { return int(w) }
+
+// String returns the symbolic name of the winding order, matching
+// the Java enum constant names (CW, COLINEAR, CCW).
+func (w WindingOrder) String() string {
+	switch w {
+	case WindingClockwise:
+		return "CW"
+	case WindingColinear:
+		return "COLINEAR"
+	case WindingCounterClockwise:
+		return "CCW"
+	default:
+		return "UNKNOWN"
+	}
+}
+
 // EarthMeanRadiusMeters is the WGS84 mean Earth radius in metres,
 // matching org.apache.lucene.geo.GeoUtils.EARTH_MEAN_RADIUS_METERS
 // and org.apache.lucene.util.SloppyMath's internal `toMeters`
