@@ -4,12 +4,21 @@
 
 package analysis
 
+import (
+	"fmt"
+	"reflect"
+)
+
 // OffsetAttribute stores the character offsets of a token in the original text.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.tokenattributes.OffsetAttribute.
 //
 // Offsets are used for highlighting and to store the position of the token
 // in the original input text. StartOffset is inclusive, EndOffset is exclusive.
+//
+// Sprint 12 adds the combined SetOffset(start, end) form to bring the
+// interface in line with the Lucene reference; the legacy per-field
+// setters are retained for back-compat with existing consumers.
 type OffsetAttribute interface {
 	AttributeImpl
 
@@ -24,6 +33,12 @@ type OffsetAttribute interface {
 
 	// SetEndOffset sets the end offset of the token.
 	SetEndOffset(offset int)
+
+	// SetOffset is the Lucene-faithful combined setter. It panics with
+	// an explanatory message when startOffset is negative or
+	// endOffset < startOffset, matching the IllegalArgumentException
+	// thrown by org.apache.lucene.analysis.tokenattributes.OffsetAttributeImpl.
+	SetOffset(startOffset, endOffset int)
 }
 
 // offsetAttribute is the default implementation of OffsetAttribute.
@@ -31,6 +46,14 @@ type offsetAttribute struct {
 	startOffset int
 	endOffset   int
 }
+
+// Compile-time assertions to lock in the contracts this impl
+// participates in.
+var (
+	_ AttributeImpl        = (*offsetAttribute)(nil)
+	_ OffsetAttribute      = (*offsetAttribute)(nil)
+	_ AttributeReflectable = (*offsetAttribute)(nil)
+)
 
 // NewOffsetAttribute creates a new OffsetAttribute with zero offsets.
 func NewOffsetAttribute() OffsetAttribute {
@@ -80,4 +103,45 @@ func (a *offsetAttribute) EndOffset() int {
 // SetEndOffset sets the end offset.
 func (a *offsetAttribute) SetEndOffset(offset int) {
 	a.endOffset = offset
+}
+
+// SetOffset is the Lucene-faithful combined setter. It validates the
+// arguments against the same invariants as
+// {@code OffsetAttributeImpl#setOffset(int, int)} and panics with an
+// explanatory message when they are violated.
+func (a *offsetAttribute) SetOffset(startOffset, endOffset int) {
+	if startOffset < 0 || endOffset < startOffset {
+		panic(fmt.Sprintf(
+			"OffsetAttribute.SetOffset: startOffset must be non-negative and endOffset must be >= startOffset; got startOffset=%d, endOffset=%d",
+			startOffset, endOffset))
+	}
+	a.startOffset = startOffset
+	a.endOffset = endOffset
+}
+
+// ReflectWith is the opt-in [AttributeReflectable] hook. It emits the
+// two parity triples expected by the Lucene reference: startOffset and
+// endOffset, both under the OffsetAttribute key.
+func (a *offsetAttribute) ReflectWith(reflector AttributeReflector) {
+	attType := reflect.TypeOf((*OffsetAttribute)(nil)).Elem()
+	reflector(attType, "startOffset", a.startOffset)
+	reflector(attType, "endOffset", a.endOffset)
+}
+
+// Equals returns true if other is an [offsetAttribute] whose start and
+// end offsets compare equal, matching Lucene's instance-of guard.
+func (a *offsetAttribute) Equals(other any) bool {
+	if a == other {
+		return true
+	}
+	o, ok := other.(*offsetAttribute)
+	if !ok {
+		return false
+	}
+	return a.startOffset == o.startOffset && a.endOffset == o.endOffset
+}
+
+// HashCode returns the Lucene-parity hash: 31 * startOffset + endOffset.
+func (a *offsetAttribute) HashCode() int {
+	return a.startOffset*31 + a.endOffset
 }
