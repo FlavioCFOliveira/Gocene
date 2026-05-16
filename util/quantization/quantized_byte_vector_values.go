@@ -53,7 +53,7 @@ type QuantizedByteVectorValues interface {
 	// stored byte vectors, or an error wrapping [ErrUnsupportedOperation]
 	// when the implementation has no quantizer to expose. Mirrors
 	// Java's `getScalarQuantizer()` default.
-	GetScalarQuantizer() (ScalarQuantizer, error)
+	GetScalarQuantizer() (*ScalarQuantizer, error)
 
 	// GetScoreCorrectionConstant returns the score correction
 	// constant for the vector at the given ordinal. Mirrors Java's
@@ -101,7 +101,7 @@ type AbstractQuantizedByteVectorValues struct{}
 // GetScalarQuantizer mirrors the Java default, which throws
 // UnsupportedOperationException. Concrete embedders override this
 // when they can expose their quantizer.
-func (*AbstractQuantizedByteVectorValues) GetScalarQuantizer() (ScalarQuantizer, error) {
+func (*AbstractQuantizedByteVectorValues) GetScalarQuantizer() (*ScalarQuantizer, error) {
 	return nil, ErrUnsupportedOperation
 }
 

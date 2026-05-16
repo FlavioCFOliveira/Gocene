@@ -36,5 +36,5 @@ type QuantizedVectorsReader interface {
 	// GetQuantizationState returns the ScalarQuantizer used for the
 	// given field's quantization (or nil if the field is not
 	// quantized).
-	GetQuantizationState(fieldName string) ScalarQuantizer
+	GetQuantizationState(fieldName string) *ScalarQuantizer
 }

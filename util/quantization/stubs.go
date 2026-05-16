@@ -157,12 +157,33 @@ type HasIndexSlice interface {
 	GetSlice() store.IndexInput
 }
 
-// ScalarQuantizer is an opaque forward declaration of the in-package
-// org.apache.lucene.util.quantization.ScalarQuantizer (Lucene 10.4.0).
-// The full type will be ported in a later task in this sprint; until
-// then it is carried as an opaque handle by
-// [QuantizedByteVectorValues.GetScalarQuantizer].
+// FloatVectorValues is a temporary local stub of
+// org.apache.lucene.index.FloatVectorValues (Lucene 10.4.0). The full
+// type lives in Lucene's `index` package and has not been ported with
+// the modern KnnVectorValues-derived shape yet; the index package
+// currently exposes a different per-doc API better suited to legacy
+// readers. This stub mirrors Lucene 10.4.0's ordinal-keyed access
+// pattern, which is what [ScalarQuantizer.FromVectors] consumes.
 //
-// TODO(rmp): replace this opaque alias with the ported ScalarQuantizer
-// struct once that task lands in the current sprint.
-type ScalarQuantizer = any
+// Only the surface consumed by ScalarQuantizer is exposed: dimension
+// reporting, ordinal-keyed vectorValue lookup, and an iterator that
+// yields (docId, ordinal) pairs.
+//
+// TODO(rmp): unify with the canonical index.FloatVectorValues once
+// the index sprint ports the KnnVectorValues-derived shape.
+type FloatVectorValues interface {
+	// Dimension returns the dimensionality of the vectors.
+	Dimension() int
+
+	// VectorValue returns the float vector for the given ordinal,
+	// which must lie in [0, live-vector-count). The returned slice may
+	// be shared across calls on the same view; callers must not mutate
+	// it and must copy it before retaining beyond the next call.
+	VectorValue(ord int) ([]float32, error)
+
+	// Iterator returns a fresh [DocIndexIterator] over the (docId,
+	// ordinal) pairs of this view. Implementations must return a new
+	// iterator per call; the returned iterator is not safe for
+	// concurrent use.
+	Iterator() DocIndexIterator
+}

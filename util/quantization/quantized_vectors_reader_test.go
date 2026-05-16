@@ -13,7 +13,7 @@ import (
 // the interface shape compiles.
 type stubQuantizedVectorsReader struct {
 	values QuantizedByteVectorValues
-	state  ScalarQuantizer
+	state  *ScalarQuantizer
 	closed bool
 }
 
@@ -24,7 +24,7 @@ func (s *stubQuantizedVectorsReader) GetQuantizedVectorValues(fieldName string) 
 	return s.values, nil
 }
 
-func (s *stubQuantizedVectorsReader) GetQuantizationState(fieldName string) ScalarQuantizer {
+func (s *stubQuantizedVectorsReader) GetQuantizationState(fieldName string) *ScalarQuantizer {
 	return s.state
 }
 
