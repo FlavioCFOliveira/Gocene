@@ -5,6 +5,7 @@
 package analysis
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -98,4 +99,86 @@ func TestOffsetAttribute_Copy(t *testing.T) {
 func TestOffsetAttribute_Interface(t *testing.T) {
 	var _ Attribute = NewOffsetAttribute()
 	var _ AttributeImpl = NewOffsetAttribute()
+}
+
+// TestOffsetAttribute_SetOffset_Validation verifies the Lucene-faithful
+// combined setter rejects illegal inputs with a panic, matching the
+// IllegalArgumentException thrown by OffsetAttributeImpl#setOffset.
+func TestOffsetAttribute_SetOffset_Validation(t *testing.T) {
+	cases := []struct {
+		name       string
+		start, end int
+		wantPanic  bool
+	}{
+		{"valid_zero", 0, 0, false},
+		{"valid", 3, 5, false},
+		{"start_equals_end", 4, 4, false},
+		{"negative_start", -1, 5, true},
+		{"end_before_start", 5, 3, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			attr := NewOffsetAttribute()
+			defer func() {
+				r := recover()
+				if (r != nil) != tc.wantPanic {
+					t.Fatalf("panic=%v, want panic=%v", r, tc.wantPanic)
+				}
+			}()
+			attr.SetOffset(tc.start, tc.end)
+			if !tc.wantPanic {
+				if attr.StartOffset() != tc.start || attr.EndOffset() != tc.end {
+					t.Fatalf("start=%d end=%d, want %d/%d",
+						attr.StartOffset(), attr.EndOffset(), tc.start, tc.end)
+				}
+			}
+		})
+	}
+}
+
+// TestOffsetAttribute_ReflectWith verifies that the two parity triples
+// expected by the Lucene reference (startOffset and endOffset under
+// the OffsetAttribute key) are emitted in order.
+func TestOffsetAttribute_ReflectWith(t *testing.T) {
+	attr := NewOffsetAttribute().(*offsetAttribute)
+	attr.SetOffset(3, 7)
+
+	var keys []string
+	var values []int
+	attr.ReflectWith(func(_ reflect.Type, key string, value any) {
+		keys = append(keys, key)
+		values = append(values, value.(int))
+	})
+	if len(keys) != 2 || keys[0] != "startOffset" || keys[1] != "endOffset" {
+		t.Fatalf("emitted keys=%v, want [startOffset endOffset]", keys)
+	}
+	if values[0] != 3 || values[1] != 7 {
+		t.Fatalf("emitted values=%v, want [3 7]", values)
+	}
+}
+
+// TestOffsetAttribute_EqualsHashCode verifies the equals/hashCode
+// contract: identical offsets => equal & same hash; differing offsets
+// => not equal.
+func TestOffsetAttribute_EqualsHashCode(t *testing.T) {
+	a := NewOffsetAttribute().(*offsetAttribute)
+	b := NewOffsetAttribute().(*offsetAttribute)
+	a.SetOffset(2, 9)
+	b.SetOffset(2, 9)
+
+	if !a.Equals(b) {
+		t.Fatal("equal offsets not equal")
+	}
+	if a.HashCode() != b.HashCode() {
+		t.Fatalf("hash mismatch: %d vs %d", a.HashCode(), b.HashCode())
+	}
+
+	b.SetOffset(2, 10)
+	if a.Equals(b) {
+		t.Fatal("differing offsets compared equal")
+	}
+
+	if a.Equals(&MockAttribute{}) {
+		t.Fatal("Equals against unrelated type returned true")
+	}
 }
