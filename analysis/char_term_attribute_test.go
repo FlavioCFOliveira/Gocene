@@ -5,6 +5,7 @@
 package analysis
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -309,6 +310,90 @@ func TestCharTermAttribute_MultipleOperations(t *testing.T) {
 	attr.SetLength(3)
 	if attr.String() != "new" {
 		t.Errorf("After SetLength(3) = %q, want 'new'", attr.String())
+	}
+}
+
+// TestCharTermAttribute_GetBytesRef verifies that GetBytesRef returns
+// a BytesRef view of the current term, that the view reflects later
+// mutations (Lucene's "reused on increment" contract), and that the
+// view's payload equals the term's UTF-8 bytes.
+//
+// This satisfies the Sprint 12 TermToBytesRefAttribute parity hook.
+func TestCharTermAttribute_GetBytesRef(t *testing.T) {
+	attr := NewCharTermAttribute()
+	attr.SetValue("hello")
+
+	ref := attr.GetBytesRef()
+	if ref == nil {
+		t.Fatal("GetBytesRef returned nil")
+	}
+	if got := ref.String(); got != "hello" {
+		t.Fatalf("first GetBytesRef view=%q, want %q", got, "hello")
+	}
+
+	attr.SetValue("world")
+	ref2 := attr.GetBytesRef()
+	if got := ref2.String(); got != "world" {
+		t.Fatalf("after mutation: view=%q, want %q", got, "world")
+	}
+}
+
+// TestCharTermAttribute_End verifies that End is an alias for Clear
+// (the Lucene default for CharTermAttributeImpl, which does not
+// override end()).
+func TestCharTermAttribute_End(t *testing.T) {
+	attr := NewCharTermAttribute().(*charTermAttribute)
+	attr.SetValue("stale")
+	attr.End()
+	if attr.Length() != 0 {
+		t.Fatalf("End: length=%d, want 0", attr.Length())
+	}
+}
+
+// TestCharTermAttribute_ReflectWith verifies that ReflectWith emits
+// the two parity triples used by the Sprint 12 contract: the
+// CharTermAttribute "term" key (string view) and the
+// TermToBytesRefAttribute "bytes" key (BytesRef view).
+func TestCharTermAttribute_ReflectWith(t *testing.T) {
+	attr := NewCharTermAttribute().(*charTermAttribute)
+	attr.SetValue("hi")
+
+	var keys []string
+	attr.ReflectWith(func(_ reflect.Type, key string, _ any) {
+		keys = append(keys, key)
+	})
+	if len(keys) != 2 || keys[0] != "term" || keys[1] != "bytes" {
+		t.Fatalf("emitted keys=%v, want [term bytes]", keys)
+	}
+}
+
+// TestCharTermAttribute_EqualsHashCode verifies the equals/hashCode
+// contract: equal term content => equal hash; differing length or
+// content => not equal.
+func TestCharTermAttribute_EqualsHashCode(t *testing.T) {
+	a := NewCharTermAttribute().(*charTermAttribute)
+	b := NewCharTermAttribute().(*charTermAttribute)
+	a.SetValue("abc")
+	b.SetValue("abc")
+	if !a.Equals(b) {
+		t.Fatal("equal content not equal")
+	}
+	if a.HashCode() != b.HashCode() {
+		t.Fatalf("hash mismatch: %d vs %d", a.HashCode(), b.HashCode())
+	}
+
+	b.SetValue("abd")
+	if a.Equals(b) {
+		t.Fatal("differing content compared equal")
+	}
+
+	b.SetValue("abcd")
+	if a.Equals(b) {
+		t.Fatal("differing length compared equal")
+	}
+
+	if a.Equals(&MockAttribute{}) {
+		t.Fatal("Equals against unrelated type returned true")
 	}
 }
 
