@@ -4,6 +4,11 @@
 
 package analysis
 
+import (
+	"fmt"
+	"reflect"
+)
+
 // PositionIncrementAttribute controls the position increment between tokens.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.tokenattributes.PositionIncrementAttribute.
@@ -29,6 +34,16 @@ type PositionIncrementAttribute interface {
 type positionIncrementAttribute struct {
 	positionIncrement int
 }
+
+// Compile-time assertions to lock in the contracts this impl
+// participates in. Sprint 12 adds opt-in End/ReflectWith hooks via the
+// AttributeEnder and AttributeReflectable interfaces.
+var (
+	_ AttributeImpl              = (*positionIncrementAttribute)(nil)
+	_ PositionIncrementAttribute = (*positionIncrementAttribute)(nil)
+	_ AttributeEnder             = (*positionIncrementAttribute)(nil)
+	_ AttributeReflectable       = (*positionIncrementAttribute)(nil)
+)
 
 // NewPositionIncrementAttribute creates a new PositionIncrementAttribute
 // with the default increment of 1.
@@ -62,7 +77,50 @@ func (a *positionIncrementAttribute) GetPositionIncrement() int {
 	return a.positionIncrement
 }
 
-// SetPositionIncrement sets the position increment.
+// SetPositionIncrement sets the position increment. It panics with an
+// explanatory message when the value is negative, matching the
+// IllegalArgumentException thrown by
+// org.apache.lucene.analysis.tokenattributes.PositionIncrementAttributeImpl#setPositionIncrement.
 func (a *positionIncrementAttribute) SetPositionIncrement(positionIncrement int) {
+	if positionIncrement < 0 {
+		panic(fmt.Sprintf(
+			"PositionIncrementAttribute.SetPositionIncrement: position increment must be zero or greater; got %d",
+			positionIncrement))
+	}
 	a.positionIncrement = positionIncrement
+}
+
+// End is the opt-in [AttributeEnder] hook. The Lucene reference
+// overrides {@code end()} to set positionIncrement = 0 (distinct from
+// Clear, which resets to 1).
+func (a *positionIncrementAttribute) End() {
+	a.positionIncrement = 0
+}
+
+// ReflectWith is the opt-in [AttributeReflectable] hook. It emits a
+// single (PositionIncrementAttribute, "positionIncrement", value)
+// triple, matching the Lucene reference exactly.
+func (a *positionIncrementAttribute) ReflectWith(reflector AttributeReflector) {
+	reflector(reflect.TypeOf((*PositionIncrementAttribute)(nil)).Elem(),
+		"positionIncrement", a.positionIncrement)
+}
+
+// Equals returns true if other is a [positionIncrementAttribute] whose
+// positionIncrement compares equal, matching Lucene's instance-of
+// guard.
+func (a *positionIncrementAttribute) Equals(other any) bool {
+	if a == other {
+		return true
+	}
+	o, ok := other.(*positionIncrementAttribute)
+	if !ok {
+		return false
+	}
+	return a.positionIncrement == o.positionIncrement
+}
+
+// HashCode returns the position increment itself, matching Lucene's
+// {@code hashCode()}.
+func (a *positionIncrementAttribute) HashCode() int {
+	return a.positionIncrement
 }
