@@ -24,8 +24,20 @@ func (s *stubRandomAccessInput) ReadByteAt(pos int64) (byte, error) {
 	return s.bytes[pos], nil
 }
 
+func (s *stubRandomAccessInput) ReadShortAt(pos int64) (int16, error) {
+	return 0, errors.New("stubRandomAccessInput: ReadShortAt not implemented")
+}
+
+func (s *stubRandomAccessInput) ReadIntAt(pos int64) (int32, error) {
+	return 0, errors.New("stubRandomAccessInput: ReadIntAt not implemented")
+}
+
 func (s *stubRandomAccessInput) ReadLongAt(pos int64) (int64, error) {
 	return 0, errors.New("stubRandomAccessInput: ReadLongAt not implemented")
+}
+
+func (s *stubRandomAccessInput) Length() int64 {
+	return int64(len(s.bytes))
 }
 
 func TestOffHeapFSTStoreReverseRead(t *testing.T) {

@@ -10,202 +10,20 @@ package store
 
 import (
 	"bytes"
-	"encoding/binary"
-	"fmt"
 	"io"
 	"math/rand"
 	"testing"
 	"time"
 )
 
-// ByteBuffersDataInput is a DataInput implementation that reads from a list of byte buffers.
-// This interface defines the expected behavior based on Lucene's ByteBuffersDataInput.
-type ByteBuffersDataInput interface {
-	DataInput
-	// Length returns the total number of bytes available.
-	Length() int64
-	// Position returns the current position in the input.
-	Position() int64
-	// Seek sets the current position.
-	SeekTo(pos int64) error
-	// SkipBytes skips the specified number of bytes.
-	SkipBytes(n int64) error
-	// Slice returns a slice of this input starting at offset with the given length.
-	Slice(offset int64, length int64) (ByteBuffersDataInput, error)
-	// ReadByteAt reads a byte at the specified position without changing the current position.
-	ReadByteAt(pos int64) (byte, error)
-	// RamBytesUsed returns an estimate of the memory used by this input.
-	RamBytesUsed() int64
-}
+// Production ByteBuffersDataInput type, mock impl and helper are defined in
+// byte_buffers_data_input.go. This file keeps only the test cases that
+// exercise the contract defined there.
 
-// byteBuffersDataInputImpl is a mock implementation of ByteBuffersDataInput for testing.
-// This will be replaced by the actual implementation when available.
-type byteBuffersDataInputImpl struct {
-	data   []byte
-	pos    int64
-	offset int64
-}
-
-// newByteBuffersDataInput creates a new ByteBuffersDataInput from the given data.
-func newByteBuffersDataInput(data []byte) ByteBuffersDataInput {
-	return &byteBuffersDataInputImpl{
-		data:   data,
-		pos:    0,
-		offset: 0,
-	}
-}
-
-func (in *byteBuffersDataInputImpl) ReadByte() (byte, error) {
-	if in.pos >= int64(len(in.data)) {
-		return 0, io.EOF
-	}
-	b := in.data[in.pos]
-	in.pos++
-	return b, nil
-}
-
-func (in *byteBuffersDataInputImpl) ReadBytes(b []byte) error {
-	if in.pos+int64(len(b)) > int64(len(in.data)) {
-		return io.EOF
-	}
-	copy(b, in.data[in.pos:in.pos+int64(len(b))])
-	in.pos += int64(len(b))
-	return nil
-}
-
-func (in *byteBuffersDataInputImpl) ReadBytesN(n int) ([]byte, error) {
-	if in.pos+int64(n) > int64(len(in.data)) {
-		return nil, io.EOF
-	}
-	result := make([]byte, n)
-	copy(result, in.data[in.pos:in.pos+int64(n)])
-	in.pos += int64(n)
-	return result, nil
-}
-
-func (in *byteBuffersDataInputImpl) ReadShort() (int16, error) {
-	buf := make([]byte, 2)
-	if err := in.ReadBytes(buf); err != nil {
-		return 0, err
-	}
-	return int16(binary.BigEndian.Uint16(buf)), nil
-}
-
-func (in *byteBuffersDataInputImpl) ReadInt() (int32, error) {
-	buf := make([]byte, 4)
-	if err := in.ReadBytes(buf); err != nil {
-		return 0, err
-	}
-	return int32(binary.BigEndian.Uint32(buf)), nil
-}
-
-func (in *byteBuffersDataInputImpl) ReadLong() (int64, error) {
-	buf := make([]byte, 8)
-	if err := in.ReadBytes(buf); err != nil {
-		return 0, err
-	}
-	return int64(binary.BigEndian.Uint64(buf)), nil
-}
-
-func (in *byteBuffersDataInputImpl) ReadString() (string, error) {
-	// Lucene strings are prefixed with a VInt length.
-	// Decode VInt from the stream.
-	length, err := readVInt(in)
-	if err != nil {
-		return "", err
-	}
-	if length == 0 {
-		return "", nil
-	}
-	buf := make([]byte, length)
-	if err := in.ReadBytes(buf); err != nil {
-		return "", err
-	}
-	return string(buf), nil
-}
-
-// readVInt reads a variable-length integer from the given reader.
-func readVInt(in *byteBuffersDataInputImpl) (int32, error) {
-	b, err := in.ReadByte()
-	if err != nil {
-		return 0, err
-	}
-	result := int32(b & 0x7F)
-	shift := uint(7)
-	for b&0x80 != 0 {
-		b, err = in.ReadByte()
-		if err != nil {
-			return 0, err
-		}
-		result |= int32(b&0x7F) << shift
-		shift += 7
-	}
-	return result, nil
-}
-
-func (in *byteBuffersDataInputImpl) Length() int64 {
-	return int64(len(in.data))
-}
-
-func (in *byteBuffersDataInputImpl) Position() int64 {
-	return in.pos
-}
-
-func (in *byteBuffersDataInputImpl) SeekTo(pos int64) error {
-	if pos > int64(len(in.data)) {
-		in.pos = int64(len(in.data))
-		return io.EOF
-	}
-	in.pos = pos
-	return nil
-}
-
-func (in *byteBuffersDataInputImpl) SkipBytes(n int64) error {
-	if n < 0 {
-		return fmt.Errorf("numBytes must be >= 0, got %d", n)
-	}
-	return in.SeekTo(in.pos + n)
-}
-
-func (in *byteBuffersDataInputImpl) Slice(offset int64, length int64) (ByteBuffersDataInput, error) {
-	if offset < 0 || length < 0 || offset+length > int64(len(in.data)) {
-		return nil, fmt.Errorf("slice(offset=%d, length=%d) is out of bounds", offset, length)
-	}
-	return &byteBuffersDataInputImpl{
-		data:   in.data[offset : offset+length],
-		pos:    0,
-		offset: offset,
-	}, nil
-}
-
-func (in *byteBuffersDataInputImpl) ReadByteAt(pos int64) (byte, error) {
-	if pos >= int64(len(in.data)) {
-		return 0, io.EOF
-	}
-	return in.data[pos], nil
-}
-
-func (in *byteBuffersDataInputImpl) RamBytesUsed() int64 {
-	return int64(len(in.data))
-}
-
-// toByteBuffersDataInput converts a DataInput to ByteBuffersDataInput.
-// This is a helper function for testing.
-func toByteBuffersDataInput(di DataInput) ByteBuffersDataInput {
-	// For now, we read all data and create a new ByteBuffersDataInput
-	// In the actual implementation, this would be a direct conversion
-	if badi, ok := di.(*ByteArrayDataInput); ok {
-		// Get the underlying data
-		data := make([]byte, badi.Length())
-		badi.SetPosition(0)
-		for i := 0; i < len(data); i++ {
-			b, _ := badi.ReadByte()
-			data[i] = b
-		}
-		return newByteBuffersDataInput(data)
-	}
-	return nil
-}
+var (
+	_ = bytes.Equal
+	_ = time.Now
+)
 
 // TestByteBuffersDataInput_Sanity tests basic sanity checks for ByteBuffersDataInput.
 // Source: TestByteBuffersDataInput.testSanity()
