@@ -40,23 +40,51 @@ type boxComponent2D struct {
 	minX, maxX, minY, maxY float64
 }
 
-func (b boxComponent2D) MinX() float64        { return b.minX }
-func (b boxComponent2D) MaxX() float64        { return b.maxX }
-func (b boxComponent2D) MinY() float64        { return b.minY }
-func (b boxComponent2D) MaxY() float64        { return b.maxY }
+func (b boxComponent2D) MinX() float64 { return b.minX }
+func (b boxComponent2D) MaxX() float64 { return b.maxX }
+func (b boxComponent2D) MinY() float64 { return b.minY }
+func (b boxComponent2D) MaxY() float64 { return b.maxY }
 func (b boxComponent2D) Contains(x, y float64) bool {
 	return x >= b.minX && x <= b.maxX && y >= b.minY && y <= b.maxY
 }
 func (b boxComponent2D) Relate(minX, maxX, minY, maxY float64) Relation {
-	// Disjoint -> outside.
 	if maxX < b.minX || minX > b.maxX || maxY < b.minY || minY > b.maxY {
 		return CellOutsideQuery
 	}
-	// Query fully inside this box -> inside.
 	if minX >= b.minX && maxX <= b.maxX && minY >= b.minY && maxY <= b.maxY {
 		return CellInsideQuery
 	}
 	return CellCrossesQuery
+}
+func (b boxComponent2D) IntersectsLine(_, _, _, _, aX, aY, bX, bY float64) bool {
+	return b.Contains(aX, aY) || b.Contains(bX, bY)
+}
+func (b boxComponent2D) IntersectsTriangle(_, _, _, _, aX, aY, bX, bY, cX, cY float64) bool {
+	return b.Contains(aX, aY) || b.Contains(bX, bY) || b.Contains(cX, cY)
+}
+func (b boxComponent2D) ContainsLine(_, _, _, _, aX, aY, bX, bY float64) bool {
+	return b.Contains(aX, aY) && b.Contains(bX, bY)
+}
+func (b boxComponent2D) ContainsTriangle(_, _, _, _, aX, aY, bX, bY, cX, cY float64) bool {
+	return b.Contains(aX, aY) && b.Contains(bX, bY) && b.Contains(cX, cY)
+}
+func (b boxComponent2D) WithinPoint(x, y float64) WithinRelation {
+	if b.Contains(x, y) {
+		return WithinNotWithin
+	}
+	return WithinDisjoint
+}
+func (b boxComponent2D) WithinLine(_, _, _, _, aX, aY float64, _ bool, bX, bY float64) WithinRelation {
+	if b.Contains(aX, aY) || b.Contains(bX, bY) {
+		return WithinNotWithin
+	}
+	return WithinDisjoint
+}
+func (b boxComponent2D) WithinTriangle(_, _, _, _, aX, aY float64, _ bool, bX, bY float64, _ bool, cX, cY float64, _ bool) WithinRelation {
+	if b.Contains(aX, aY) || b.Contains(bX, bY) || b.Contains(cX, cY) {
+		return WithinNotWithin
+	}
+	return WithinDisjoint
 }
 
 func newFakeBox(minX, maxX, minY, maxY float64) fakeLatLonGeometry {

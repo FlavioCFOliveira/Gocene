@@ -1,14 +1,8 @@
 // Code in this file mirrors org.apache.lucene.geo.Line2D from Apache
-// Lucene 10.4.0. The Java type is package-private; the Go port keeps
-// it unexported (line2D / newLine2D) for the same reason.
-//
-// The Java reference uses an EdgeTree (a balanced interval-tree of
-// segments) to accelerate point-on-line and crossing queries. The
-// EdgeTree port lands together with the full Component2D contract
-// in task #277; until then, this implementation uses a linear scan
-// over the segments. The observable behaviour is identical for the
-// Component2D methods currently in the contract (MinX/MaxX/MinY/MaxY,
-// Contains, Relate); only the asymptotic cost differs.
+// Lucene 10.4.0. The Java reference uses an EdgeTree for O(log n)
+// crossing tests; this Go port iterates linearly over the segments,
+// preserving observable behaviour at slower asymptotic cost. The
+// EdgeTree port can land later without changing this contract.
 
 package geo
 
@@ -44,25 +38,43 @@ func newLine2DFromLine(l Line) *line2D {
 	}
 }
 
-// MinX returns the inclusive minimum X (longitude or cartesian X) of
-// the line's bounding box.
+// newLine2DFromXY builds the Component2D for an XY Line. Mirrors
+// Lucene's Line2D.create(XYLine) which casts the float coordinates
+// up to double via XYEncodingUtils.floatArrayToDoubleArray.
+func newLine2DFromXY(xs, ys []float64) *line2D {
+	xs2 := make([]float64, len(xs))
+	ys2 := make([]float64, len(ys))
+	copy(xs2, xs)
+	copy(ys2, ys)
+	minX, maxX := xs[0], xs[0]
+	minY, maxY := ys[0], ys[0]
+	for i := 1; i < len(xs); i++ {
+		if xs[i] < minX {
+			minX = xs[i]
+		}
+		if xs[i] > maxX {
+			maxX = xs[i]
+		}
+		if ys[i] < minY {
+			minY = ys[i]
+		}
+		if ys[i] > maxY {
+			maxY = ys[i]
+		}
+	}
+	return &line2D{xs: xs2, ys: ys2, minX: minX, maxX: maxX, minY: minY, maxY: maxY}
+}
+
+// MinX / MaxX / MinY / MaxY accessors.
 func (l *line2D) MinX() float64 { return l.minX }
-
-// MaxX returns the inclusive maximum X of the line's bounding box.
 func (l *line2D) MaxX() float64 { return l.maxX }
-
-// MinY returns the inclusive minimum Y of the line's bounding box.
 func (l *line2D) MinY() float64 { return l.minY }
-
-// MaxY returns the inclusive maximum Y of the line's bounding box.
 func (l *line2D) MaxY() float64 { return l.maxY }
 
 // Contains reports whether (x, y) lies exactly on one of the line's
-// segments. Mirrors Lucene's Line2D.contains, which first does a
-// cheap bounding-box test and then delegates to EdgeTree.isPointOnLine
-// for the precise collinearity check.
+// segments.
 func (l *line2D) Contains(x, y float64) bool {
-	if x < l.minX || x > l.maxX || y < l.minY || y > l.maxY {
+	if !BoxContainsPoint(x, y, l.minX, l.maxX, l.minY, l.maxY) {
 		return false
 	}
 	for i := 1; i < len(l.xs); i++ {
@@ -73,70 +85,128 @@ func (l *line2D) Contains(x, y float64) bool {
 	return false
 }
 
-// Relate returns the spatial relation between the line and the
-// supplied query bounding box.
-//
-// Mirrors Lucene's Line2D.relate semantics. A poly-line has zero
-// area, so it can never report CellInsideQuery; it is either fully
-// disjoint from the query box (OUTSIDE) or partially intersects it
-// (CROSSES). Lucene further short-circuits the CROSSES check when the
-// query box completely contains the line's bounding box; we keep the
-// same short-circuit. Without an EdgeTree we then iterate over the
-// segments to look for a crossing.
+// Relate matches Lucene's Line2D.relate semantics: zero-area shape,
+// so INSIDE never appears; OUTSIDE on disjoint bbox; CROSSES when
+// the line bbox is fully enclosed by the query or any segment
+// crosses the query box.
 func (l *line2D) Relate(minX, maxX, minY, maxY float64) Relation {
-	if maxY < l.minY || minY > l.maxY || maxX < l.minX || minX > l.maxX {
+	if Disjoint(l.minX, l.maxX, l.minY, l.maxY, minX, maxX, minY, maxY) {
 		return CellOutsideQuery
 	}
-	// Query box fully encloses the line bbox -> definitely intersects.
-	if l.minX >= minX && l.maxX <= maxX && l.minY >= minY && l.maxY <= maxY {
+	if WithinBBox(l.minX, l.maxX, l.minY, l.maxY, minX, maxX, minY, maxY) {
 		return CellCrossesQuery
 	}
-	// Quick check: any vertex inside the box -> CROSSES.
-	for i := range l.xs {
-		if l.xs[i] >= minX && l.xs[i] <= maxX && l.ys[i] >= minY && l.ys[i] <= maxY {
-			return CellCrossesQuery
-		}
-	}
-	// Otherwise, scan segments for an intersection with any of the
-	// four box edges.
-	for i := 1; i < len(l.xs); i++ {
-		ax, ay := l.xs[i-1], l.ys[i-1]
-		bx, by := l.xs[i], l.ys[i]
-		if segmentCrossesBox(ax, ay, bx, by, minX, maxX, minY, maxY) {
-			return CellCrossesQuery
-		}
+	if l.crossesBox(minX, maxX, minY, maxY) {
+		return CellCrossesQuery
 	}
 	return CellOutsideQuery
 }
 
-// pointOnSegment reports whether (px, py) lies exactly on the
-// segment (a, b), within a tight tolerance for floating-point
-// rounding. The test is the standard "collinear and within bounding
-// box" check used by computational-geometry libraries.
+// IntersectsLine reports whether any of the line's segments crosses
+// the query segment (a, b).
+func (l *line2D) IntersectsLine(minX, maxX, minY, maxY, aX, aY, bX, bY float64) bool {
+	if Disjoint(l.minX, l.maxX, l.minY, l.maxY, minX, maxX, minY, maxY) {
+		return false
+	}
+	for i := 1; i < len(l.xs); i++ {
+		if LineCrossesLineWithBoundary(l.xs[i-1], l.ys[i-1], l.xs[i], l.ys[i], aX, aY, bX, bY) {
+			return true
+		}
+	}
+	return false
+}
+
+// IntersectsTriangle reports whether any of the line's segments
+// crosses any edge of the triangle, or whether the line lies wholly
+// inside the triangle.
+func (l *line2D) IntersectsTriangle(minX, maxX, minY, maxY, aX, aY, bX, bY, cX, cY float64) bool {
+	if Disjoint(l.minX, l.maxX, l.minY, l.maxY, minX, maxX, minY, maxY) {
+		return false
+	}
+	// First vertex of the line inside the triangle is sufficient.
+	if PointInTriangle(minX, maxX, minY, maxY, l.xs[0], l.ys[0], aX, aY, bX, bY, cX, cY) {
+		return true
+	}
+	for i := 1; i < len(l.xs); i++ {
+		x0, y0 := l.xs[i-1], l.ys[i-1]
+		x1, y1 := l.xs[i], l.ys[i]
+		if LineCrossesLineWithBoundary(x0, y0, x1, y1, aX, aY, bX, bY) ||
+			LineCrossesLineWithBoundary(x0, y0, x1, y1, bX, bY, cX, cY) ||
+			LineCrossesLineWithBoundary(x0, y0, x1, y1, cX, cY, aX, aY) {
+			return true
+		}
+	}
+	return false
+}
+
+// ContainsLine always returns false: a 1D line cannot strictly
+// contain another non-degenerate line. Matches Java.
+func (l *line2D) ContainsLine(_, _, _, _, _, _, _, _ float64) bool { return false }
+
+// ContainsTriangle always returns false.
+func (l *line2D) ContainsTriangle(_, _, _, _, _, _, _, _, _, _ float64) bool { return false }
+
+// WithinPoint returns CANDIDATE if the point is on the line,
+// DISJOINT otherwise.
+func (l *line2D) WithinPoint(x, y float64) WithinRelation {
+	if l.Contains(x, y) {
+		return WithinCandidate
+	}
+	return WithinDisjoint
+}
+
+// WithinLine is approximated as IntersectsLine in the Java reference
+// ("can be improved?" comment in Lucene). We mirror that behaviour.
+func (l *line2D) WithinLine(minX, maxX, minY, maxY, aX, aY float64, ab bool, bX, bY float64) WithinRelation {
+	if l.IntersectsLine(minX, maxX, minY, maxY, aX, aY, bX, bY) {
+		return WithinCandidate
+	}
+	return WithinDisjoint
+}
+
+// WithinTriangle is approximated as IntersectsTriangle in the Java
+// reference for Line2D ("can be improved?" comment). We mirror it.
+func (l *line2D) WithinTriangle(
+	minX, maxX, minY, maxY,
+	aX, aY float64, ab bool,
+	bX, bY float64, bc bool,
+	cX, cY float64, ca bool,
+) WithinRelation {
+	if l.IntersectsTriangle(minX, maxX, minY, maxY, aX, aY, bX, bY, cX, cY) {
+		return WithinCandidate
+	}
+	return WithinDisjoint
+}
+
+// crossesBox reports whether any segment crosses the query box.
+func (l *line2D) crossesBox(minX, maxX, minY, maxY float64) bool {
+	for i := 1; i < len(l.xs); i++ {
+		ax, ay := l.xs[i-1], l.ys[i-1]
+		bx, by := l.xs[i], l.ys[i]
+		if segmentCrossesBox(ax, ay, bx, by, minX, maxX, minY, maxY) {
+			return true
+		}
+	}
+	return false
+}
+
+// ----- helpers used by line2D.Contains and tests -----
+
+// pointOnSegment reports whether (px, py) lies on segment (a, b)
+// within a tight float tolerance.
 func pointOnSegment(ax, ay, bx, by, px, py float64) bool {
-	// First the bounding-box rejection (fast and exact).
 	if px < math.Min(ax, bx) || px > math.Max(ax, bx) ||
 		py < math.Min(ay, by) || py > math.Max(ay, by) {
 		return false
 	}
-	// Cross-product test for collinearity. A non-zero result means
-	// the point is off the line through (a, b).
 	cross := (bx-ax)*(py-ay) - (by-ay)*(px-ax)
-	// Tolerance scaled to the segment length squared so we accept
-	// the same true positives Lucene's exact integer-encoded checks
-	// would accept at typical input precision (~1ulp of float64).
 	const eps = 1e-12
 	return math.Abs(cross) <= eps
 }
 
-// segmentCrossesBox reports whether the segment (a, b) intersects
-// any edge of the axis-aligned box defined by (minX, maxX, minY,
-// maxY). The implementation walks the four box edges and applies
-// the standard segment-segment intersection test.
+// segmentCrossesBox reports whether segment (a, b) intersects any
+// edge of the axis-aligned box.
 func segmentCrossesBox(ax, ay, bx, by, minX, maxX, minY, maxY float64) bool {
-	// Box edges in order: (minX, minY)-(maxX, minY) bottom,
-	// (maxX, minY)-(maxX, maxY) right, (maxX, maxY)-(minX, maxY) top,
-	// (minX, maxY)-(minX, minY) left.
 	if segmentsIntersect(ax, ay, bx, by, minX, minY, maxX, minY) {
 		return true
 	}
@@ -152,21 +222,15 @@ func segmentCrossesBox(ax, ay, bx, by, minX, maxX, minY, maxY float64) bool {
 	return false
 }
 
-// segmentsIntersect uses the classic 4-orientation test to decide
-// whether the open segments (a, b) and (c, d) intersect, including
-// endpoint touches. The implementation is allocation-free and uses
-// only multiplications and comparisons, matching what Lucene's
-// EdgeTree.crossesLine does at the leaf level.
+// segmentsIntersect uses the classic 4-orientation test.
 func segmentsIntersect(ax, ay, bx, by, cx, cy, dx, dy float64) bool {
 	o1 := orient2d(ax, ay, bx, by, cx, cy)
 	o2 := orient2d(ax, ay, bx, by, dx, dy)
 	o3 := orient2d(cx, cy, dx, dy, ax, ay)
 	o4 := orient2d(cx, cy, dx, dy, bx, by)
-
 	if o1 != o2 && o3 != o4 {
 		return true
 	}
-	// Collinear cases.
 	if o1 == 0 && onSegment(ax, ay, cx, cy, bx, by) {
 		return true
 	}
@@ -182,9 +246,7 @@ func segmentsIntersect(ax, ay, bx, by, cx, cy, dx, dy float64) bool {
 	return false
 }
 
-// orient2d returns -1, 0, or +1 according to the orientation of the
-// triple (a, b, c). +1 is counter-clockwise, -1 is clockwise, 0 is
-// collinear. The convention matches Lucene's GeoUtils.orient.
+// orient2d returns -1, 0, or +1.
 func orient2d(ax, ay, bx, by, cx, cy float64) int {
 	v := (by-ay)*(cx-bx) - (bx-ax)*(cy-by)
 	switch {
@@ -197,9 +259,7 @@ func orient2d(ax, ay, bx, by, cx, cy float64) int {
 	}
 }
 
-// onSegment reports whether (qx, qy) lies inside the axis-aligned
-// bounding box of segment (p, r). Used by segmentsIntersect to
-// disambiguate collinear cases.
+// onSegment reports whether (qx, qy) lies inside the bbox of (p, r).
 func onSegment(px, py, qx, qy, rx, ry float64) bool {
 	return qx <= math.Max(px, rx) && qx >= math.Min(px, rx) &&
 		qy <= math.Max(py, ry) && qy >= math.Min(py, ry)
