@@ -5,6 +5,7 @@
 package analysis
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -89,5 +90,85 @@ func TestPositionIncrementAttribute_Zero(t *testing.T) {
 
 	if attr.GetPositionIncrement() != 0 {
 		t.Errorf("Position increment should be 0, got %d", attr.GetPositionIncrement())
+	}
+}
+
+// TestPositionIncrementAttribute_SetNegative_Panics verifies that the
+// Lucene-faithful validation rejects negative values with a panic
+// (mirroring IllegalArgumentException).
+func TestPositionIncrementAttribute_SetNegative_Panics(t *testing.T) {
+	attr := NewPositionIncrementAttribute()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("SetPositionIncrement(-1) did not panic")
+		}
+	}()
+	attr.SetPositionIncrement(-1)
+}
+
+// TestPositionIncrementAttribute_End verifies that End sets the
+// increment to 0, distinct from Clear which resets to 1 (Lucene
+// reference: PositionIncrementAttributeImpl#end).
+func TestPositionIncrementAttribute_End(t *testing.T) {
+	attr := NewPositionIncrementAttribute().(*positionIncrementAttribute)
+	attr.SetPositionIncrement(4)
+	attr.End()
+	if got := attr.GetPositionIncrement(); got != 0 {
+		t.Fatalf("End: positionIncrement=%d, want 0", got)
+	}
+}
+
+// TestPositionIncrementAttribute_ReflectWith verifies the single
+// (PositionIncrementAttribute, "positionIncrement", value) triple
+// expected by the Lucene reference.
+func TestPositionIncrementAttribute_ReflectWith(t *testing.T) {
+	attr := NewPositionIncrementAttribute().(*positionIncrementAttribute)
+	attr.SetPositionIncrement(2)
+
+	var got []struct {
+		k string
+		v int
+		t reflect.Type
+	}
+	attr.ReflectWith(func(attType reflect.Type, key string, value any) {
+		got = append(got, struct {
+			k string
+			v int
+			t reflect.Type
+		}{key, value.(int), attType})
+	})
+
+	if len(got) != 1 {
+		t.Fatalf("emitted %d triples, want 1", len(got))
+	}
+	wantType := reflect.TypeOf((*PositionIncrementAttribute)(nil)).Elem()
+	if got[0].k != "positionIncrement" || got[0].v != 2 || got[0].t != wantType {
+		t.Fatalf("triple=%+v, want {positionIncrement 2 %v}", got[0], wantType)
+	}
+}
+
+// TestPositionIncrementAttribute_EqualsHashCode verifies the
+// equals/hashCode contract: equal positionIncrement => equal, hash
+// equals positionIncrement.
+func TestPositionIncrementAttribute_EqualsHashCode(t *testing.T) {
+	a := NewPositionIncrementAttribute().(*positionIncrementAttribute)
+	b := NewPositionIncrementAttribute().(*positionIncrementAttribute)
+	a.SetPositionIncrement(3)
+	b.SetPositionIncrement(3)
+
+	if !a.Equals(b) {
+		t.Fatal("equal increments not equal")
+	}
+	if a.HashCode() != 3 {
+		t.Fatalf("HashCode=%d, want 3", a.HashCode())
+	}
+
+	b.SetPositionIncrement(4)
+	if a.Equals(b) {
+		t.Fatal("differing increments compared equal")
+	}
+
+	if a.Equals(&MockAttribute{}) {
+		t.Fatal("Equals against unrelated type returned true")
 	}
 }
