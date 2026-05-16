@@ -6,16 +6,17 @@ package store
 
 import (
 	"fmt"
+	"sync"
 	"time"
 )
 
 // RateLimiter is used to limit the rate of IO operations.
 //
-// This is the Go port of Lucene's org.apache.lucene.store.RateLimiter.
-//
-// RateLimiter is used to throttle IO operations to a specified
-// rate in MB/sec. This is useful for preventing IO operations
-// from monopolizing system resources.
+// This is the Go port of org.apache.lucene.store.RateLimiter from Apache
+// Lucene 10.4.0. Implementations are typically shared across multiple
+// IndexInputs or IndexOutputs (for example all the inputs involved in a
+// merge). Those inputs/outputs should call Pause whenever they have read or
+// written more than GetMinPauseCheckBytes bytes.
 type RateLimiter interface {
 	// GetMBPerSec returns the current rate limit in MB/sec.
 	GetMBPerSec() float64
@@ -23,76 +24,120 @@ type RateLimiter interface {
 	// SetMBPerSec sets the rate limit in MB/sec.
 	SetMBPerSec(mbPerSec float64)
 
-	// Pause pauses if necessary to ensure the IO rate does not exceed the limit.
-	// Returns the number of nanoseconds paused.
+	// Pause pauses if necessary to ensure the IO rate does not exceed the
+	// limit. Returns the number of nanoseconds paused.
 	Pause(bytes int64) int64
+
+	// GetMinPauseCheckBytes returns how many bytes a caller should accumulate
+	// before invoking Pause. The value may change over time; callers should
+	// refresh their local copy whenever they cross the previous threshold.
+	GetMinPauseCheckBytes() int64
 }
 
-// SimpleRateLimiter is a basic implementation of RateLimiter.
+// simpleRateLimiterMinPauseCheckMS is the minimum number of milliseconds
+// represented by GetMinPauseCheckBytes, matching Lucene's
+// MIN_PAUSE_CHECK_MSEC constant.
+const simpleRateLimiterMinPauseCheckMS = 5
+
+// SimpleRateLimiter is a basic, thread-safe implementation of RateLimiter
+// matching Lucene's SimpleRateLimiter inner class.
 type SimpleRateLimiter struct {
-	mbPerSec float64
-	minPause time.Duration
-	lastNS   int64
-	totalNS  int64
+	mu sync.Mutex
+
+	mbPerSec           float64
+	minPauseCheckBytes int64
+	minPause           time.Duration
+	lastNS             int64
+	totalNS            int64
 }
 
-// NewSimpleRateLimiter creates a new SimpleRateLimiter.
-// mbPerSec is the initial rate limit in MB/sec. Use 0.0 for no limit.
+// NewSimpleRateLimiter creates a new SimpleRateLimiter. mbPerSec is the
+// initial rate limit; passing 0.0 disables the limit.
 func NewSimpleRateLimiter(mbPerSec float64) *SimpleRateLimiter {
-	return &SimpleRateLimiter{
-		mbPerSec: mbPerSec,
+	r := &SimpleRateLimiter{
 		minPause: time.Millisecond,
 		lastNS:   time.Now().UnixNano(),
 	}
+	r.SetMBPerSec(mbPerSec)
+	return r
 }
 
 // GetMBPerSec returns the current rate limit.
 func (r *SimpleRateLimiter) GetMBPerSec() float64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return r.mbPerSec
 }
 
-// SetMBPerSec sets the rate limit.
+// SetMBPerSec sets the rate limit and recomputes the pause-check threshold.
 func (r *SimpleRateLimiter) SetMBPerSec(mbPerSec float64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.mbPerSec = mbPerSec
+	r.minPauseCheckBytes = int64((float64(simpleRateLimiterMinPauseCheckMS) / 1000.0) * mbPerSec * 1024 * 1024)
 }
 
-// Pause pauses to maintain the rate limit.
-// Returns the number of nanoseconds paused.
+// GetMinPauseCheckBytes returns the current pause-check threshold in bytes,
+// matching Lucene's getMinPauseCheckBytes.
+func (r *SimpleRateLimiter) GetMinPauseCheckBytes() int64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.minPauseCheckBytes
+}
+
+// Pause pauses, if necessary, to keep the instantaneous IO rate at or below
+// the target. Returns the number of nanoseconds paused. Thread-safe.
+//
+// Per Lucene's contract the caller should only invoke Pause when their
+// accumulated bytes exceed GetMinPauseCheckBytes; otherwise the sleep is
+// likely to be much longer than expected.
 func (r *SimpleRateLimiter) Pause(bytes int64) int64 {
+	startNS := time.Now().UnixNano()
+
+	r.mu.Lock()
 	if r.mbPerSec <= 0 {
+		r.lastNS = startNS
+		r.mu.Unlock()
 		return 0
 	}
 
-	now := time.Now().UnixNano()
-	elapsedNS := now - r.lastNS
-	if elapsedNS < 0 {
-		// Time went backwards - adjust
-		elapsedNS = 0
+	secondsToPause := (float64(bytes) / 1024.0 / 1024.0) / r.mbPerSec
+	targetNS := r.lastNS + int64(1e9*secondsToPause)
+	if startNS >= targetNS {
+		// We are already past the target; enforce instantaneous rate, not
+		// averaged-over-history rate.
+		r.lastNS = startNS
+		r.mu.Unlock()
+		return 0
 	}
+	r.lastNS = targetNS
+	r.mu.Unlock()
 
-	// Calculate expected time for this many bytes
-	bytesPerSec := r.mbPerSec * 1024 * 1024
-	expectedNS := int64(float64(bytes) / bytesPerSec * 1e9)
-
-	// Calculate pause needed
-	pauseNS := expectedNS - elapsedNS
-	if pauseNS < int64(r.minPause) {
-		pauseNS = 0
-	}
-
-	if pauseNS > 0 {
+	// Sleep loop because time.Sleep may return early. We reload curNS each
+	// iteration to handle short sleeps.
+	curNS := startNS
+	for {
+		pauseNS := targetNS - curNS
+		if pauseNS <= 0 {
+			break
+		}
 		time.Sleep(time.Duration(pauseNS))
-		r.lastNS = now + pauseNS
-		r.totalNS += pauseNS
-	} else {
-		r.lastNS = now
+		curNS = time.Now().UnixNano()
 	}
 
-	return pauseNS
+	delta := curNS - startNS
+
+	r.mu.Lock()
+	r.totalNS += delta
+	r.mu.Unlock()
+
+	return delta
 }
 
-// GetTotalPauseNS returns the total nanoseconds paused.
+// GetTotalPauseNS returns the cumulative nanoseconds paused across all calls.
 func (r *SimpleRateLimiter) GetTotalPauseNS() int64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return r.totalNS
 }
 
