@@ -65,6 +65,11 @@ type LuceneSimilarityBase struct {
 	score      LuceneScoreFunc
 	subExplain LuceneSubExplainFunc
 	toString   LuceneToStringFunc
+
+	// fillExtra is invoked after the base FillBasicStats so subclasses
+	// (e.g. LM) can populate auxiliary fields (collectionProbability).
+	// Nil disables the hook.
+	fillExtra func(stats *LuceneBasicStats, collectionStats *CollectionStatistics, termStats *TermStatistics)
 }
 
 // NewLuceneSimilarityBase constructs a LuceneSimilarityBase with the given
@@ -113,6 +118,10 @@ func (b *LuceneSimilarityBase) NewStats(field string, boost float64) *LuceneBasi
 // reference asserts the invariants below; we keep them as soft checks
 // (returning zeroed stats) so production code does not panic on degenerate
 // data, but tests can verify the same constraints.
+//
+// Subclass-installed fillExtra hooks (e.g. LMSimilarity) run after the
+// base population so they can use the freshly-set fields when computing
+// auxiliary values like the collection probability.
 func (b *LuceneSimilarityBase) FillBasicStats(stats *LuceneBasicStats, collectionStats *CollectionStatistics, termStats *TermStatistics) {
 	if stats == nil || collectionStats == nil || termStats == nil {
 		return
@@ -126,6 +135,16 @@ func (b *LuceneSimilarityBase) FillBasicStats(stats *LuceneBasicStats, collectio
 	stats.SetAvgFieldLength(avg)
 	stats.SetDocFreq(int64(termStats.DocFreq()))
 	stats.SetTotalTermFreq(termStats.TotalTermFreq())
+	if b.fillExtra != nil {
+		b.fillExtra(stats, collectionStats, termStats)
+	}
+}
+
+// SetFillExtra installs (or clears, when nil) the subclass hook invoked at
+// the end of FillBasicStats. Intended for LMSimilarity and similar
+// subclasses that need to populate auxiliary fields.
+func (b *LuceneSimilarityBase) SetFillExtra(hook func(stats *LuceneBasicStats, collectionStats *CollectionStatistics, termStats *TermStatistics)) {
+	b.fillExtra = hook
 }
 
 // Scorer104 mirrors SimilarityBase.scorer. It builds one BasicSimScorer per
