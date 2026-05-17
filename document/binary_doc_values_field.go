@@ -21,6 +21,11 @@ var (
 	// BinaryDocValuesFieldType is the FieldType for a BinaryDocValuesField.
 	// The field is not indexed or stored, but has binary DocValues.
 	BinaryDocValuesFieldType *FieldType
+
+	// BinaryDocValuesFieldTYPE is the Lucene-canonical alias for
+	// BinaryDocValuesFieldType (mirrors the Java `public static final
+	// FieldType TYPE` constant).
+	BinaryDocValuesFieldTYPE *FieldType
 )
 
 func init() {
@@ -30,6 +35,7 @@ func init() {
 		SetStored(false).
 		SetDocValuesType(index.DocValuesTypeBinary)
 	BinaryDocValuesFieldType.Freeze()
+	BinaryDocValuesFieldTYPE = BinaryDocValuesFieldType
 }
 
 // NewBinaryDocValuesField creates a new BinaryDocValuesField with the given name and value.

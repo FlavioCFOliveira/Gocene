@@ -426,8 +426,10 @@ func (ft *FieldType) Validate() error {
 		return &FieldTypeValidationError{msg: "cannot store term vector payloads without storing term vectors"}
 	}
 
-	// If indexed, IndexOptions must be valid
-	if ft.Indexed && ft.IndexOptions == index.IndexOptionsNone {
+	// If indexed via the inverted index (no point dimensions), IndexOptions
+	// must be set. Point-only indexed fields (e.g. IntField/LongField) keep
+	// IndexOptions=NONE — the index path is the BKD tree, not the postings.
+	if ft.Indexed && ft.IndexOptions == index.IndexOptionsNone && ft.DimensionCount == 0 {
 		return &FieldTypeValidationError{msg: "indexed field cannot have IndexOptionsNone"}
 	}
 
