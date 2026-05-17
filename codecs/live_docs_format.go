@@ -70,8 +70,26 @@ func (f *BaseLiveDocsFormat) Files(segmentInfo *index.SegmentInfo) []string {
 	return nil
 }
 
-// Lucene90LiveDocsFormat is the Lucene 9.0 live docs format.
-// This format stores live docs as a bitset in a .liv file.
+// Lucene90LiveDocsFormat is the Lucene 9.0 live docs format. The .liv file
+// stores a FixedBitSet (1 = doc is live; 0 = doc is deleted), framed by a
+// CodecUtil IndexHeader and Footer. The IndexHeader's suffix carries the
+// del-generation in Character.MAX_RADIX (36).
+//
+// Wire-format-faithful port of
+// org.apache.lucene.codecs.lucene90.Lucene90LiveDocsFormat.
+//
+// DEVIATIONS from the Java reference (documented):
+//
+//   - SparseLiveDocs / DenseLiveDocs / Bits.applyMask are not yet ported;
+//     the read path always returns a util.FixedBitSet (the dense
+//     representation). The format is wire-format equivalent regardless of
+//     in-memory representation.
+//   - The simple LiveDocsFormat interface (ReadLiveDocs / WriteLiveDocs
+//     without del-gen + del-count) is kept for backward compatibility but
+//     defaults gen=0 and skips the cross-check against the expected
+//     del-count. The lucene-faithful methods Lucene90LiveDocsFormat
+//     .ReadLiveDocsLucene90 / .WriteLiveDocsLucene90 take an explicit
+//     del-gen and expectedDelCount.
 type Lucene90LiveDocsFormat struct {
 	*BaseLiveDocsFormat
 }
@@ -83,121 +101,259 @@ func NewLucene90LiveDocsFormat() *Lucene90LiveDocsFormat {
 	}
 }
 
+// Lucene90LiveDocsCodec is the codec name stamped into the .liv IndexHeader.
+const Lucene90LiveDocsCodec = "Lucene90LiveDocs"
+
+// Lucene90LiveDocsVersionStart is the inclusive minimum supported version.
+const Lucene90LiveDocsVersionStart int32 = 0
+
+// Lucene90LiveDocsVersionCurrent is the current version of the format.
+const Lucene90LiveDocsVersionCurrent int32 = Lucene90LiveDocsVersionStart
+
+// Lucene90LiveDocsExtension is the file extension for the .liv file.
+const Lucene90LiveDocsExtension = "liv"
+
 // NewLiveDocs returns a new FixedBitSet for tracking live documents.
 func (f *Lucene90LiveDocsFormat) NewLiveDocs(numDocs int) (*util.FixedBitSet, error) {
 	return util.NewFixedBitSet(numDocs)
 }
 
-// ReadLiveDocs reads the live docs from the directory.
-func (f *Lucene90LiveDocsFormat) ReadLiveDocs(dir store.Directory, segmentInfo *index.SegmentInfo) (util.Bits, error) {
-	fileName := segmentInfo.Name() + ".liv"
-
-	if !dir.FileExists(fileName) {
-		// No live docs file means all documents are live
-		return nil, nil
-	}
-
-	in, err := dir.OpenInput(fileName, store.IOContext{Context: store.ContextRead})
-	if err != nil {
-		return nil, fmt.Errorf("failed to open live docs file: %w", err)
-	}
-	defer in.Close()
-
-	// Read header
-	magic, err := store.ReadUint32(in)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read magic number: %w", err)
-	}
-	if magic != 0x4C495600 { // "LIV\0"
-		return nil, fmt.Errorf("invalid magic number: expected 0x4C495600, got 0x%08x", magic)
-	}
-
-	version, err := store.ReadUint32(in)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read version: %w", err)
-	}
-	if version != 1 {
-		return nil, fmt.Errorf("unsupported version: %d", version)
-	}
-
-	// Read number of docs
-	numDocs, err := store.ReadVInt(in)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read doc count: %w", err)
-	}
-
-	// Read the bitset
-	bits, err := util.NewFixedBitSet(int(numDocs))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create bitset: %w", err)
-	}
-	numLongs := (int(numDocs) + 63) / 64
-
-	for i := 0; i < numLongs; i++ {
-		val, err := store.ReadInt64(in)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read bitset value at index %d: %w", i, err)
-		}
-		// Set bits from the long value
-		for j := 0; j < 64 && i*64+j < int(numDocs); j++ {
-			if val&(1<<j) != 0 {
-				bits.Set(i*64 + j)
-			}
-		}
-	}
-
-	return bits, nil
+// ReadLiveDocs (backward-compat overload) reads live docs using del-gen 0
+// and no expected-del-count cross-check. Prefer ReadLiveDocsLucene90 for
+// faithful semantics.
+func (f *Lucene90LiveDocsFormat) ReadLiveDocs(dir store.Directory, si *index.SegmentInfo) (util.Bits, error) {
+	bits, _, err := f.ReadLiveDocsLucene90(dir, si, 0, -1, si.DocCount())
+	return bits, err
 }
 
-// WriteLiveDocs writes the live docs to the directory.
-func (f *Lucene90LiveDocsFormat) WriteLiveDocs(bits util.Bits, dir store.Directory, segmentInfo *index.SegmentInfo) error {
+// ReadLiveDocsLucene90 reads the .liv file produced by WriteLiveDocsLucene90
+// against the given segment info and del-generation. Returns the bitset and
+// the actual delCount measured from it. When expectedDelCount >= 0, returns
+// an error if the on-disk bitset does not match it.
+func (f *Lucene90LiveDocsFormat) ReadLiveDocsLucene90(dir store.Directory, si *index.SegmentInfo, delGen int64, expectedDelCount int, maxDoc int) (util.Bits, int, error) {
+	name := fileNameFromGeneration(si.Name(), Lucene90LiveDocsExtension, delGen)
+	if !dir.FileExists(name) {
+		return nil, 0, nil
+	}
+	raw, err := dir.OpenInput(name, store.IOContext{Context: store.ContextRead})
+	if err != nil {
+		return nil, 0, err
+	}
+	defer raw.Close()
+	in := store.NewChecksumIndexInput(raw)
+
+	if _, err := CheckIndexHeader(in, Lucene90LiveDocsCodec, Lucene90LiveDocsVersionStart, Lucene90LiveDocsVersionCurrent, si.GetID(), genSuffix(delGen)); err != nil {
+		return nil, 0, fmt.Errorf("lucene90 live docs: header: %w", err)
+	}
+
+	bits, err := readDenseLiveDocsBitSet(in, maxDoc)
+	if err != nil {
+		return nil, 0, err
+	}
+	delCount := maxDoc - bits.Cardinality()
+	if _, err := CheckFooter(in); err != nil {
+		return nil, 0, fmt.Errorf("lucene90 live docs: footer: %w", err)
+	}
+	if expectedDelCount >= 0 && delCount != expectedDelCount {
+		return nil, 0, fmt.Errorf("lucene90 live docs: bits.deleted=%d expected=%d", delCount, expectedDelCount)
+	}
+	return bits, delCount, nil
+}
+
+// WriteLiveDocs (backward-compat overload) writes with delGen=0 and no
+// cross-check on the resulting del-count.
+func (f *Lucene90LiveDocsFormat) WriteLiveDocs(bits util.Bits, dir store.Directory, si *index.SegmentInfo) error {
 	if bits == nil {
 		return nil
 	}
+	return f.WriteLiveDocsLucene90(bits, dir, si, 0, -1, -1)
+}
 
-	fileName := segmentInfo.Name() + ".liv"
-
-	out, err := dir.CreateOutput(fileName, store.IOContext{Context: store.ContextWrite})
+// WriteLiveDocsLucene90 writes the .liv file at the given del-generation
+// with the segment's ID stamped into the IndexHeader. The bits payload is
+// a dense FixedBitSet whose ghost bits (past maxDoc within the last word)
+// must already be cleared by the caller.
+//
+// When expectedTotalDelCount >= 0, the method verifies that the bits
+// represent exactly that many deletions and returns an error otherwise.
+// The Java reference passes info.delCount + newDelCount.
+func (f *Lucene90LiveDocsFormat) WriteLiveDocsLucene90(bits util.Bits, dir store.Directory, si *index.SegmentInfo, delGen int64, expectedTotalDelCount int, ignoreNewDelCount int) error {
+	name := fileNameFromGeneration(si.Name(), Lucene90LiveDocsExtension, delGen)
+	raw, err := dir.CreateOutput(name, store.IOContext{Context: store.ContextWrite})
 	if err != nil {
-		return fmt.Errorf("failed to create live docs file: %w", err)
+		return err
 	}
-	defer out.Close()
+	out := store.NewChecksumIndexOutput(raw)
 
-	// Write header
-	if err := store.WriteUint32(out, 0x4C495600); err != nil { // "LIV\0"
-		return fmt.Errorf("failed to write magic number: %w", err)
-	}
-
-	if err := store.WriteUint32(out, 1); err != nil { // Version
-		return fmt.Errorf("failed to write version: %w", err)
+	if err := WriteIndexHeader(out, Lucene90LiveDocsCodec, Lucene90LiveDocsVersionCurrent, si.GetID(), genSuffix(delGen)); err != nil {
+		_ = out.Close()
+		return fmt.Errorf("lucene90 live docs: header: %w", err)
 	}
 
-	// Write number of docs
-	numDocs := bits.Length()
-	if err := store.WriteVInt(out, int32(numDocs)); err != nil {
-		return fmt.Errorf("failed to write doc count: %w", err)
+	delCount, err := writeDenseLiveDocsBitSet(out, bits)
+	if err != nil {
+		_ = out.Close()
+		return fmt.Errorf("lucene90 live docs: write bits: %w", err)
 	}
-
-	// Write the bitset as longs
-	numLongs := (numDocs + 63) / 64
-	for i := 0; i < numLongs; i++ {
-		var val int64
-		for j := 0; j < 64 && i*64+j < numDocs; j++ {
-			if bits.Get(i*64 + j) {
-				val |= 1 << j
-			}
-		}
-		if err := store.WriteInt64(out, val); err != nil {
-			return fmt.Errorf("failed to write bitset value at index %d: %w", i, err)
-		}
+	if err := WriteFooter(out); err != nil {
+		_ = out.Close()
+		return fmt.Errorf("lucene90 live docs: footer: %w", err)
 	}
-
+	if err := out.Close(); err != nil {
+		return err
+	}
+	if expectedTotalDelCount >= 0 && delCount != expectedTotalDelCount {
+		return fmt.Errorf("lucene90 live docs: bits.deleted=%d expected=%d", delCount, expectedTotalDelCount)
+	}
 	return nil
 }
 
-// Files returns the files used by this format for the given segment.
-func (f *Lucene90LiveDocsFormat) Files(segmentInfo *index.SegmentInfo) []string {
-	return []string{segmentInfo.Name() + ".liv"}
+// Files returns the files used by this format for the given segment. The
+// backward-compat overload assumes del-gen 0.
+func (f *Lucene90LiveDocsFormat) Files(si *index.SegmentInfo) []string {
+	return []string{fileNameFromGeneration(si.Name(), Lucene90LiveDocsExtension, 0)}
+}
+
+// readDenseLiveDocsBitSet reads a dense FixedBitSet of length maxDoc, 64
+// bits per long, little-endian, matching IndexInput.readLongs.
+func readDenseLiveDocsBitSet(in store.DataInput, maxDoc int) (*util.FixedBitSet, error) {
+	numLongs := (maxDoc + 63) / 64
+	words := make([]uint64, numLongs)
+	for i := 0; i < numLongs; i++ {
+		v, err := readLongLE(in)
+		if err != nil {
+			return nil, err
+		}
+		words[i] = uint64(v)
+	}
+	return util.NewFixedBitSetOfBits(words, maxDoc)
+}
+
+// writeDenseLiveDocsBitSet writes the bits as 64-bit little-endian longs
+// in 1024-bit batches (matches Java's writeBits). Returns the number of
+// deleted docs (= total bits length - cardinality), used by the caller to
+// cross-check against expectedTotalDelCount.
+func writeDenseLiveDocsBitSet(out store.IndexOutput, bits util.Bits) (int, error) {
+	length := bits.Length()
+	delCount := length
+
+	const batchBits = 1024
+	for offset := 0; offset < length; offset += batchBits {
+		numBitsToCopy := batchBits
+		if length-offset < numBitsToCopy {
+			numBitsToCopy = length - offset
+		}
+		// Materialise the chunk as 16 longs, all bits initially set; for
+		// each position in [0, numBitsToCopy), copy bit from source.
+		const numLongs = batchBits / 64 // 16
+		var words [numLongs]uint64
+		for i := 0; i < numLongs; i++ {
+			words[i] = ^uint64(0)
+		}
+		if numBitsToCopy < batchBits {
+			// Clear ghost bits at the tail.
+			for b := numBitsToCopy; b < batchBits; b++ {
+				words[b>>6] &^= uint64(1) << uint(b&63)
+			}
+		}
+		// Apply the source bits.
+		for b := 0; b < numBitsToCopy; b++ {
+			doc := offset + b
+			if !bits.Get(doc) {
+				words[b>>6] &^= uint64(1) << uint(b&63)
+			}
+		}
+		// Count cardinality (live count) of this chunk and subtract.
+		cardinality := 0
+		copyLongs := (numBitsToCopy + 63) / 64
+		for i := 0; i < copyLongs; i++ {
+			cardinality += popcountUint64(words[i])
+		}
+		delCount -= cardinality
+		// Emit the longs (only the meaningful chunk longCount).
+		for i := 0; i < copyLongs; i++ {
+			if err := writeLongLEOut(out, int64(words[i])); err != nil {
+				return 0, err
+			}
+		}
+	}
+	return delCount, nil
+}
+
+// readLongLE reads an 8-byte little-endian signed long via DataInput.ReadByte
+// to remain endian-correct against the project's BE/LE divergence.
+func readLongLE(in store.DataInput) (int64, error) {
+	var v uint64
+	for i := 0; i < 8; i++ {
+		b, err := in.ReadByte()
+		if err != nil {
+			return 0, err
+		}
+		v |= uint64(b) << (8 * uint(i))
+	}
+	return int64(v), nil
+}
+
+// writeLongLEOut writes an 8-byte little-endian signed long via WriteByte.
+func writeLongLEOut(out store.IndexOutput, v int64) error {
+	uv := uint64(v)
+	for i := 0; i < 8; i++ {
+		if err := out.WriteByte(byte(uv >> (8 * uint(i)))); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// popcountUint64 mirrors math/bits.OnesCount64 in a function form for use
+// in hot loops.
+func popcountUint64(v uint64) int {
+	v = v - ((v >> 1) & 0x5555555555555555)
+	v = (v & 0x3333333333333333) + ((v >> 2) & 0x3333333333333333)
+	v = (v + (v >> 4)) & 0x0F0F0F0F0F0F0F0F
+	return int((v * 0x0101010101010101) >> 56)
+}
+
+// fileNameFromGeneration mirrors IndexFileNames.fileNameFromGeneration:
+// when generation is 0, returns "<segment>.<ext>"; otherwise it appends
+// "_<generation in base 36>.<ext>" to disambiguate per-generation files.
+func fileNameFromGeneration(segmentName, ext string, generation int64) string {
+	if generation == 0 {
+		return segmentName + "." + ext
+	}
+	return segmentName + "_" + strconvBase36(generation) + "." + ext
+}
+
+// genSuffix encodes the del-generation as the index header suffix using
+// base 36 (Character.MAX_RADIX in Java).
+func genSuffix(generation int64) string {
+	return strconvBase36(generation)
+}
+
+// strconvBase36 returns generation as a base-36 string (lowercase a-z).
+// Equivalent to Long.toString(g, Character.MAX_RADIX) in Java.
+func strconvBase36(generation int64) string {
+	if generation == 0 {
+		return "0"
+	}
+	neg := generation < 0
+	g := uint64(generation)
+	if neg {
+		g = uint64(-generation)
+	}
+	const alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+	var buf [13]byte // 64-bit unsigned fits in 13 base-36 digits
+	i := len(buf)
+	for g > 0 {
+		i--
+		buf[i] = alphabet[g%36]
+		g /= 36
+	}
+	out := string(buf[i:])
+	if neg {
+		out = "-" + out
+	}
+	return out
 }
 
 // LiveDocsReader provides read access to live docs.
