@@ -194,22 +194,36 @@ type TermVectorsReader interface {
 	Close() error
 }
 
-// IndexableField is an interface for fields that can be indexed.
-// This is defined here to avoid import cycles.
+// IndexableField is the index-package contract for fields that can be
+// indexed. It is intentionally a minimal subset of Apache Lucene 10.4.0's
+// org.apache.lucene.index.IndexableField, scoped to what
+// DocumentsWriterPerThread and codec stored-fields writers consume.
+//
+// Divergence from Lucene 10.4.0:
+//   - TokenStream(Analyzer, TokenStream) is omitted (analysis is handled
+//     via getOrCreateTokenStream in the writer chain).
+//   - ReaderValue() io.Reader is omitted.
+//   - StoredValue() and InvertableType() are omitted; their information is
+//     reconstructed from FieldType() in Gocene's writer paths.
+//   - GetCharSequenceValue() is folded into StringValue().
+//
+// The canonical, document-facing IndexableField with the full Lucene surface
+// lives in package document (document.IndexableField). Codec WriteField
+// implementations in package codecs accept document.IndexableField directly.
 type IndexableField interface {
 	// Name returns the name of the field.
 	Name() string
 
-	// FieldType returns the field type.
+	// FieldType returns the field type properties.
 	FieldType() FieldTypeInterface
 
-	// StringValue returns the string value of the field.
+	// StringValue returns the string value of the field, or "" if none.
 	StringValue() string
 
-	// BinaryValue returns the binary value of the field.
+	// BinaryValue returns the binary value of the field, or nil if none.
 	BinaryValue() []byte
 
-	// NumericValue returns the numeric value of the field.
+	// NumericValue returns the numeric value of the field, or nil if none.
 	NumericValue() interface{}
 }
 
