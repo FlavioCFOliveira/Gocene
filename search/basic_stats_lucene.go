@@ -1,0 +1,71 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
+package search
+
+// LuceneBasicStats stores the statistics commonly used by the SimilarityBase
+// family of ranking methods. It mirrors
+// org.apache.lucene.search.similarities.BasicStats from Lucene 10.4.0.
+//
+// The legacy [BasicStats] struct (used by DFR) is intentionally left
+// untouched to avoid breaking the in-repo DFR scorer. New code should
+// prefer LuceneBasicStats when targeting the Lucene 10.4 canonical
+// surface.
+//
+// Field types match the Java reference (long → int64, double → float64).
+type LuceneBasicStats struct {
+	field string
+
+	numberOfDocuments   int64
+	numberOfFieldTokens int64
+	avgFieldLength      float64
+	docFreq             int64
+	totalTermFreq       int64
+
+	boost float64
+}
+
+// NewLuceneBasicStats builds a LuceneBasicStats with the given field name
+// and query boost. All other fields default to zero, mirroring Java.
+func NewLuceneBasicStats(field string, boost float64) *LuceneBasicStats {
+	return &LuceneBasicStats{field: field, boost: boost}
+}
+
+// Field returns the field name these statistics describe.
+func (s *LuceneBasicStats) Field() string { return s.field }
+
+// NumberOfDocuments returns the number of documents in the collection.
+func (s *LuceneBasicStats) NumberOfDocuments() int64 { return s.numberOfDocuments }
+
+// SetNumberOfDocuments sets the number of documents in the collection.
+func (s *LuceneBasicStats) SetNumberOfDocuments(n int64) { s.numberOfDocuments = n }
+
+// NumberOfFieldTokens returns the total number of tokens in the field
+// across the collection.
+func (s *LuceneBasicStats) NumberOfFieldTokens() int64 { return s.numberOfFieldTokens }
+
+// SetNumberOfFieldTokens sets the total number of tokens in the field.
+func (s *LuceneBasicStats) SetNumberOfFieldTokens(n int64) { s.numberOfFieldTokens = n }
+
+// AvgFieldLength returns the average field length across the collection.
+func (s *LuceneBasicStats) AvgFieldLength() float64 { return s.avgFieldLength }
+
+// SetAvgFieldLength sets the average field length.
+func (s *LuceneBasicStats) SetAvgFieldLength(v float64) { s.avgFieldLength = v }
+
+// DocFreq returns the document frequency of the term.
+func (s *LuceneBasicStats) DocFreq() int64 { return s.docFreq }
+
+// SetDocFreq sets the document frequency of the term.
+func (s *LuceneBasicStats) SetDocFreq(n int64) { s.docFreq = n }
+
+// TotalTermFreq returns the total number of occurrences of the term across
+// all documents.
+func (s *LuceneBasicStats) TotalTermFreq() int64 { return s.totalTermFreq }
+
+// SetTotalTermFreq sets the total number of occurrences of the term.
+func (s *LuceneBasicStats) SetTotalTermFreq(n int64) { s.totalTermFreq = n }
+
+// Boost returns the multiplicative query boost.
+func (s *LuceneBasicStats) Boost() float64 { return s.boost }
