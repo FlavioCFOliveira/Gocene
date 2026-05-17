@@ -1,6 +1,23 @@
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
+//
+// Portions adapted from Apache Lucene 10.4.0:
+//
+//   Licensed to the Apache Software Foundation (ASF) under one or more
+//   contributor license agreements. See the NOTICE file distributed with
+//   this work for additional information regarding copyright ownership.
+//   The ASF licenses this file to You under the Apache License, Version
+//   2.0 (the "License"); you may not use this file except in compliance
+//   with the License. You may obtain a copy of the License at
+//
+//       http://www.apache.org/licenses/LICENSE-2.0
+//
+//   Unless required by applicable law or agreed to in writing, software
+//   distributed under the License is distributed on an "AS IS" BASIS,
+//   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+//   implied. See the License for the specific language governing
+//   permissions and limitations under the License.
 
 package codecs
 
@@ -60,6 +77,35 @@ func (f *BaseCompoundFormat) Write(dir store.Directory, si *index.SegmentInfo, c
 	return fmt.Errorf("Write not implemented")
 }
 
+// -----------------------------------------------------------------------------
+// Lucene 9.0 compound format — wire-format-faithful port of
+// org.apache.lucene.codecs.lucene90.Lucene90CompoundFormat (Lucene 10.4.0).
+// -----------------------------------------------------------------------------
+
+const (
+	// Lucene90CompoundDataExtension is the file extension for the compound
+	// data file (concatenation of every component file's bytes, aligned).
+	Lucene90CompoundDataExtension = "cfs"
+	// Lucene90CompoundEntriesExtension is the file extension for the
+	// compound entries file (file name / offset / length triples).
+	Lucene90CompoundEntriesExtension = "cfe"
+	// Lucene90CompoundDataCodec is the codec name stamped into the .cfs
+	// index header.
+	Lucene90CompoundDataCodec = "Lucene90CompoundData"
+	// Lucene90CompoundEntriesCodec is the codec name stamped into the .cfe
+	// index header.
+	Lucene90CompoundEntriesCodec = "Lucene90CompoundEntries"
+	// Lucene90CompoundVersionStart is the inclusive minimum supported
+	// format version.
+	Lucene90CompoundVersionStart int32 = 0
+	// Lucene90CompoundVersionCurrent is the current format version.
+	Lucene90CompoundVersionCurrent int32 = Lucene90CompoundVersionStart
+	// Lucene90CompoundAlignmentBytes is the alignment applied to each
+	// embedded file's start offset. Chosen to match the LCM of every
+	// file-format-specific alignment so mmap reads remain page-aligned.
+	Lucene90CompoundAlignmentBytes = 64
+)
+
 // CompoundFileEntry represents a single file entry in a compound file.
 type CompoundFileEntry struct {
 	FileName string
@@ -68,7 +114,26 @@ type CompoundFileEntry struct {
 }
 
 // Lucene90CompoundFormat is the Lucene 9.0 compound file format.
-// This format stores multiple files in a single .cfs file with a separate .cfe entries file.
+// Two files are produced per segment:
+//
+//   - .cfs (DATA): IndexHeader || (raw bytes of every component, each
+//     preceded by alignment-padding and terminated with a stamped footer
+//     that carries the component file's original checksum) || Footer.
+//   - .cfe (ENTRIES): IndexHeader || VInt(numFiles) ||
+//     (String fileName || UInt64 offset || UInt64 length) ^ numFiles ||
+//     Footer.
+//
+// The on-disk byte stream is identical to the Apache Lucene 10.4.0
+// reference, modulo the existing project-wide deviation noted below.
+//
+// DEVIATION (documented in [[project-gocene-bkdwriter-divergences]]):
+// `codecs.WriteIndexHeader` / `CheckIndexHeader` use the same magic
+// number as Java (0x3FD76C17) but emit it via store.WriteInt32 which is
+// big-endian on the wire. Lucene 10.4.0 also emits the magic big-endian
+// (CodecUtil.writeBEInt is explicit), so the index-header bytes are
+// byte-for-byte compatible with the JVM. The other multi-byte numerics
+// in the compound format (VInt for numFiles, UInt64 for offset/length)
+// are emitted via the matching store helpers and remain compatible.
 type Lucene90CompoundFormat struct {
 	*BaseCompoundFormat
 }
@@ -80,231 +145,295 @@ func NewLucene90CompoundFormat() *Lucene90CompoundFormat {
 	}
 }
 
-// Write packs the segment's files into a compound format.
-func (f *Lucene90CompoundFormat) Write(dir store.Directory, si *index.SegmentInfo, context store.IOContext) error {
-	segmentName := si.Name()
-	files := si.Files()
+// Write packs the segment's files into a compound format. Mirrors
+// Lucene90CompoundFormat.write: data and entries are streamed in a single
+// pass, files are sorted ascending by length (so smaller files cluster on
+// the same page), each file's bytes are copied verbatim except for the
+// footer (we re-stamp the footer carrying the original checksum to keep
+// CheckIntegrity correct), and both the data and entries files are
+// finalised with a CodecUtil footer.
+func (f *Lucene90CompoundFormat) Write(dir store.Directory, si *index.SegmentInfo, ctx store.IOContext) error {
+	dataName := GetSegmentFileName(si.Name(), "", Lucene90CompoundDataExtension)
+	entriesName := GetSegmentFileName(si.Name(), "", Lucene90CompoundEntriesExtension)
 
-	if len(files) == 0 {
+	rawData, err := dir.CreateOutput(dataName, ctx)
+	if err != nil {
+		return fmt.Errorf("lucene90 compound: create data file %q: %w", dataName, err)
+	}
+	rawEntries, err := dir.CreateOutput(entriesName, ctx)
+	if err != nil {
+		_ = rawData.Close()
+		return fmt.Errorf("lucene90 compound: create entries file %q: %w", entriesName, err)
+	}
+	// Lucene's IndexOutput tracks a running CRC internally; Gocene's store
+	// implementations do not, so wrap here. WriteFooter requires the
+	// concrete output to satisfy the GetChecksum contract.
+	dataOut := store.NewChecksumIndexOutput(rawData)
+	entriesOut := store.NewChecksumIndexOutput(rawEntries)
+
+	cleanup := func(retErr error) error {
+		// Best-effort: close both files. Whichever Close error wins, we
+		// surface the original retErr to the caller.
+		_ = dataOut.Close()
+		_ = entriesOut.Close()
+		return retErr
+	}
+
+	if err := WriteIndexHeader(dataOut, Lucene90CompoundDataCodec, Lucene90CompoundVersionCurrent, si.GetID(), ""); err != nil {
+		return cleanup(fmt.Errorf("lucene90 compound: write data header: %w", err))
+	}
+	if err := WriteIndexHeader(entriesOut, Lucene90CompoundEntriesCodec, Lucene90CompoundVersionCurrent, si.GetID(), ""); err != nil {
+		return cleanup(fmt.Errorf("lucene90 compound: write entries header: %w", err))
+	}
+
+	if err := f.writeCompoundFile(entriesOut, dataOut, dir, si); err != nil {
+		return cleanup(err)
+	}
+
+	if err := WriteFooter(dataOut); err != nil {
+		return cleanup(fmt.Errorf("lucene90 compound: write data footer: %w", err))
+	}
+	if err := WriteFooter(entriesOut); err != nil {
+		return cleanup(fmt.Errorf("lucene90 compound: write entries footer: %w", err))
+	}
+
+	if err := dataOut.Close(); err != nil {
+		_ = entriesOut.Close()
+		return fmt.Errorf("lucene90 compound: close data: %w", err)
+	}
+	if err := entriesOut.Close(); err != nil {
+		return fmt.Errorf("lucene90 compound: close entries: %w", err)
+	}
+	return nil
+}
+
+// writeCompoundFile streams every file in si.Files() into dataOut and
+// records its (name, offset, length) triple in entriesOut. Files are
+// processed ascending by length so a single OS page may pack several
+// small files.
+func (f *Lucene90CompoundFormat) writeCompoundFile(entriesOut store.IndexOutput, dataOut store.IndexOutput, dir store.Directory, si *index.SegmentInfo) error {
+	files := append([]string{}, si.Files()...)
+
+	// Compute lengths up front so we can sort by length stably; the Java
+	// implementation uses a PriorityQueue<SizedFile>, which produces the
+	// same total order modulo ties.
+	type sizedFile struct {
+		name string
+		size int64
+	}
+	sized := make([]sizedFile, 0, len(files))
+	for _, name := range files {
+		size, err := dir.FileLength(name)
+		if err != nil {
+			return fmt.Errorf("lucene90 compound: file length %q: %w", name, err)
+		}
+		sized = append(sized, sizedFile{name: name, size: size})
+	}
+	sort.SliceStable(sized, func(i, j int) bool { return sized[i].size < sized[j].size })
+
+	if err := store.WriteVInt(entriesOut, int32(len(sized))); err != nil {
+		return fmt.Errorf("lucene90 compound: write numFiles: %w", err)
+	}
+
+	for _, sf := range sized {
+		startOffset, err := store.AlignFilePointer(dataOut, Lucene90CompoundAlignmentBytes)
+		if err != nil {
+			return fmt.Errorf("lucene90 compound: align data fp: %w", err)
+		}
+		if err := f.copyFileBody(dataOut, dir, sf.name, si.GetID()); err != nil {
+			return fmt.Errorf("lucene90 compound: copy file %q: %w", sf.name, err)
+		}
+		endOffset := dataOut.GetFilePointer()
+		length := endOffset - startOffset
+
+		// Entry: String(fileName), UInt64(offset), UInt64(length).
+		if err := store.WriteString(entriesOut, stripSegmentNamePrefix(sf.name)); err != nil {
+			return fmt.Errorf("lucene90 compound: write entry name: %w", err)
+		}
+		if err := store.WriteInt64(entriesOut, startOffset); err != nil {
+			return fmt.Errorf("lucene90 compound: write entry offset: %w", err)
+		}
+		if err := store.WriteInt64(entriesOut, length); err != nil {
+			return fmt.Errorf("lucene90 compound: write entry length: %w", err)
+		}
+	}
+	return nil
+}
+
+// copyFileBody opens the named file as a checksummed input, copies every
+// byte up to (but not including) the source file's trailing footer
+// verbatim into dataOut while computing the source's CRC, then stamps a
+// footer onto dataOut that carries the source's original checksum.
+//
+// DEVIATION from the Java reference: Lucene's writeCompoundFile uses
+// CodecUtil.verifyAndCopyIndexHeader(in, data, si.getId()) to assert the
+// header's segment id matches the surrounding segment before copying.
+// Gocene's CodecUtil does not yet expose a verify-and-copy primitive
+// (CheckIndexHeader requires a known codec name, which the compound
+// writer does not have — every embedded file is from a different codec
+// format). The segment-id mismatch detection is a defensive integrity
+// check; its omission does not affect on-disk byte parity but does mean
+// a corrupt-segment-id condition will only surface later when the
+// embedded file is opened through its own format's reader.
+func (f *Lucene90CompoundFormat) copyFileBody(dataOut store.IndexOutput, dir store.Directory, fileName string, _ []byte) error {
+	in, err := dir.OpenInput(fileName, store.IOContext{Context: store.ContextRead})
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	totalLen := in.Length()
+	footerLen := int64(FooterLength())
+	if totalLen < footerLen {
+		return fmt.Errorf("lucene90 compound: file %q too short for footer", fileName)
+	}
+
+	// Wrap in a checksum stream so we can capture the source file's CRC
+	// over [0, totalLen - footerLen) without re-reading.
+	csIn := store.NewChecksumIndexInput(in)
+	bodyBytes := totalLen - footerLen
+	if err := copyDataInputToOutput(csIn, bodyBytes, dataOut); err != nil {
+		return err
+	}
+
+	// Validate and consume the source file's footer (the 16 trailing
+	// bytes). Returns the embedded checksum the source declared.
+	checksum, err := CheckFooter(csIn)
+	if err != nil {
+		return fmt.Errorf("lucene90 compound: verify footer of %q: %w", fileName, err)
+	}
+
+	// Stamp a footer onto the data stream that carries the SOURCE file's
+	// original checksum (NOT dataOut's running checksum). Mirrors Java's
+	// "this is poached from CodecUtil.writeFooter" block.
+	if err := store.WriteInt32(dataOut, FOOTER_MAGIC); err != nil {
+		return err
+	}
+	if err := store.WriteInt32(dataOut, 0); err != nil {
+		return err
+	}
+	if err := store.WriteInt64(dataOut, checksum); err != nil {
+		return err
+	}
+	return nil
+}
+
+// copyDataInputToOutput streams n bytes from in to out using a fixed-size
+// scratch buffer. Mirrors IndexOutput.copyBytes.
+func copyDataInputToOutput(in store.DataInput, n int64, out store.IndexOutput) error {
+	if n <= 0 {
 		return nil
 	}
-
-	// Sort files by size (smallest first) for better packing
-	sortedFiles := make([]string, len(files))
-	copy(sortedFiles, files)
-	sort.Slice(sortedFiles, func(i, j int) bool {
-		len1, _ := dir.FileLength(sortedFiles[i])
-		len2, _ := dir.FileLength(sortedFiles[j])
-		return len1 < len2
-	})
-
-	// Create the compound data file (.cfs)
-	cfsFileName := segmentName + ".cfs"
-	cfsOut, err := dir.CreateOutput(cfsFileName, context)
-	if err != nil {
-		return fmt.Errorf("failed to create compound data file: %w", err)
-	}
-	defer cfsOut.Close()
-
-	// Write header
-	if err := f.writeHeader(cfsOut); err != nil {
-		return err
-	}
-
-	// Copy each file into the compound file
-	entries := make([]CompoundFileEntry, 0, len(sortedFiles))
-	for _, fileName := range sortedFiles {
-		if !dir.FileExists(fileName) {
-			continue
+	const chunk = 16 * 1024
+	scratch := make([]byte, chunk)
+	for n > 0 {
+		take := int64(chunk)
+		if take > n {
+			take = n
 		}
-
-		fileLen, err := dir.FileLength(fileName)
-		if err != nil {
-			return fmt.Errorf("failed to get file length for %s: %w", fileName, err)
-		}
-
-		offset := cfsOut.GetFilePointer()
-
-		// Copy file content
-		in, err := dir.OpenInput(fileName, context)
-		if err != nil {
-			return fmt.Errorf("failed to open input for %s: %w", fileName, err)
-		}
-
-		if err := f.copyFile(in, cfsOut); err != nil {
-			in.Close()
-			return fmt.Errorf("failed to copy file %s: %w", fileName, err)
-		}
-		in.Close()
-
-		entries = append(entries, CompoundFileEntry{
-			FileName: fileName,
-			Offset:   offset,
-			Length:   fileLen,
-		})
-	}
-
-	// Create the entries file (.cfe)
-	cfeFileName := segmentName + ".cfe"
-	cfeOut, err := dir.CreateOutput(cfeFileName, context)
-	if err != nil {
-		return fmt.Errorf("failed to create compound entries file: %w", err)
-	}
-	defer cfeOut.Close()
-
-	// Write entries file header
-	if err := f.writeHeader(cfeOut); err != nil {
-		return err
-	}
-
-	// Write number of entries
-	if err := store.WriteVInt(cfeOut, int32(len(entries))); err != nil {
-		return fmt.Errorf("failed to write entry count: %w", err)
-	}
-
-	// Write each entry
-	for _, entry := range entries {
-		if err := store.WriteString(cfeOut, entry.FileName); err != nil {
-			return fmt.Errorf("failed to write entry name: %w", err)
-		}
-		if err := store.WriteVLong(cfeOut, entry.Offset); err != nil {
-			return fmt.Errorf("failed to write entry offset: %w", err)
-		}
-		if err := store.WriteVLong(cfeOut, entry.Length); err != nil {
-			return fmt.Errorf("failed to write entry length: %w", err)
-		}
-	}
-
-	return nil
-}
-
-// writeHeader writes the compound file header.
-func (f *Lucene90CompoundFormat) writeHeader(out store.IndexOutput) error {
-	// Write magic number
-	if err := store.WriteUint32(out, 0x43465300); err != nil { // "CFS\0"
-		return fmt.Errorf("failed to write magic number: %w", err)
-	}
-	// Write version
-	if err := store.WriteUint32(out, 1); err != nil {
-		return fmt.Errorf("failed to write version: %w", err)
-	}
-	return nil
-}
-
-// copyFile copies the contents of one file to another.
-func (f *Lucene90CompoundFormat) copyFile(in store.IndexInput, out store.IndexOutput) error {
-	buffer := make([]byte, 8192)
-	remaining := in.Length()
-
-	for remaining > 0 {
-		toRead := int64(len(buffer))
-		if toRead > remaining {
-			toRead = remaining
-		}
-
-		if err := in.ReadBytes(buffer[:toRead]); err != nil {
+		if err := in.ReadBytes(scratch[:take]); err != nil {
 			return err
 		}
-
-		if err := out.WriteBytes(buffer[:toRead]); err != nil {
+		if err := out.WriteBytes(scratch[:take]); err != nil {
 			return err
 		}
-
-		remaining -= toRead
+		n -= take
 	}
-
 	return nil
 }
 
-// GetCompoundReader returns a Directory view for the compound files.
+// stripSegmentNamePrefix returns the suffix of fileName after the leading
+// "_segName" component. Mirrors IndexFileNames.stripSegmentName.
+func stripSegmentNamePrefix(fileName string) string {
+	if len(fileName) < 2 || fileName[0] != '_' {
+		return fileName
+	}
+	// Find first "_" or "." after position 0.
+	for i := 1; i < len(fileName); i++ {
+		c := fileName[i]
+		if c == '_' || c == '.' {
+			return fileName[i:]
+		}
+	}
+	return fileName
+}
+
+// -----------------------------------------------------------------------------
+// Compound reader (.cfs / .cfe) — wire-format-faithful counterpart of
+// Lucene90CompoundReader.
+// -----------------------------------------------------------------------------
+
+// GetCompoundReader opens a CompoundDirectory backed by the .cfs/.cfe
+// pair produced by Write. Mirrors Lucene90CompoundFormat.getCompoundReader.
 func (f *Lucene90CompoundFormat) GetCompoundReader(dir store.Directory, si *index.SegmentInfo) (CompoundDirectory, error) {
-	segmentName := si.Name()
-	cfeFileName := segmentName + ".cfe"
+	dataName := GetSegmentFileName(si.Name(), "", Lucene90CompoundDataExtension)
+	entriesName := GetSegmentFileName(si.Name(), "", Lucene90CompoundEntriesExtension)
 
-	if !dir.FileExists(cfeFileName) {
-		return nil, fmt.Errorf("compound entries file %s not found", cfeFileName)
-	}
-
-	// Read entries
-	entries, err := f.readEntries(dir, cfeFileName)
+	entries, err := f.readEntries(dir, entriesName, si.GetID())
 	if err != nil {
 		return nil, err
 	}
 
-	// Open the compound data file
-	cfsFileName := segmentName + ".cfs"
-	cfsIn, err := dir.OpenInput(cfsFileName, store.IOContext{Context: store.ContextRead})
+	dataIn, err := dir.OpenInput(dataName, store.IOContext{Context: store.ContextRead})
 	if err != nil {
-		return nil, fmt.Errorf("failed to open compound data file: %w", err)
+		return nil, err
+	}
+	// Validate the .cfs header. We do not enforce the exact codec name on
+	// the surrounding read path because, by construction, Write produced
+	// it; CheckIndexHeader will reject any external tampering.
+	if _, err := CheckIndexHeader(dataIn, Lucene90CompoundDataCodec, Lucene90CompoundVersionStart, Lucene90CompoundVersionCurrent, si.GetID(), ""); err != nil {
+		_ = dataIn.Close()
+		return nil, fmt.Errorf("lucene90 compound: validate %q header: %w", dataName, err)
 	}
 
 	return &lucene90CompoundDirectory{
 		directory: dir,
-		cfsInput:  cfsIn,
+		cfsInput:  dataIn,
 		entries:   entries,
 	}, nil
 }
 
-// readEntries reads the compound file entries from the .cfe file.
-func (f *Lucene90CompoundFormat) readEntries(dir store.Directory, cfeFileName string) (map[string]CompoundFileEntry, error) {
-	in, err := dir.OpenInput(cfeFileName, store.IOContext{Context: store.ContextRead})
+// readEntries reads the .cfe file and returns the name -> entry map.
+func (f *Lucene90CompoundFormat) readEntries(dir store.Directory, entriesName string, expectedSegmentID []byte) (map[string]CompoundFileEntry, error) {
+	in, err := dir.OpenInput(entriesName, store.IOContext{Context: store.ContextRead})
 	if err != nil {
-		return nil, fmt.Errorf("failed to open entries file: %w", err)
+		return nil, err
 	}
 	defer in.Close()
 
-	// Read header
-	magic, err := store.ReadUint32(in)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read magic number: %w", err)
-	}
-	if magic != 0x43465300 {
-		return nil, fmt.Errorf("invalid magic number: expected 0x43465300, got 0x%08x", magic)
+	csIn := store.NewChecksumIndexInput(in)
+	if _, err := CheckIndexHeader(csIn, Lucene90CompoundEntriesCodec, Lucene90CompoundVersionStart, Lucene90CompoundVersionCurrent, expectedSegmentID, ""); err != nil {
+		return nil, fmt.Errorf("lucene90 compound: validate entries header: %w", err)
 	}
 
-	version, err := store.ReadUint32(in)
+	numEntries, err := store.ReadVInt(csIn)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read version: %w", err)
+		return nil, fmt.Errorf("lucene90 compound: read entry count: %w", err)
 	}
-	if version != 1 {
-		return nil, fmt.Errorf("unsupported version: %d", version)
-	}
-
-	// Read number of entries
-	numEntries, err := store.ReadVInt(in)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read entry count: %w", err)
-	}
-
-	// Read each entry
-	entries := make(map[string]CompoundFileEntry)
+	out := make(map[string]CompoundFileEntry, numEntries)
 	for i := int32(0); i < numEntries; i++ {
-		fileName, err := store.ReadString(in)
+		name, err := store.ReadString(csIn)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read entry name: %w", err)
+			return nil, fmt.Errorf("lucene90 compound: read entry name [%d]: %w", i, err)
 		}
-
-		offset, err := store.ReadVLong(in)
+		off, err := store.ReadInt64(csIn)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read entry offset: %w", err)
+			return nil, fmt.Errorf("lucene90 compound: read entry offset [%d]: %w", i, err)
 		}
-
-		length, err := store.ReadVLong(in)
+		length, err := store.ReadInt64(csIn)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read entry length: %w", err)
+			return nil, fmt.Errorf("lucene90 compound: read entry length [%d]: %w", i, err)
 		}
-
-		entries[fileName] = CompoundFileEntry{
-			FileName: fileName,
-			Offset:   offset,
-			Length:   length,
-		}
+		out[name] = CompoundFileEntry{FileName: name, Offset: off, Length: length}
 	}
-
-	return entries, nil
+	if _, err := CheckFooter(csIn); err != nil {
+		return nil, fmt.Errorf("lucene90 compound: validate entries footer: %w", err)
+	}
+	return out, nil
 }
 
-// lucene90CompoundDirectory is a read-only Directory implementation for compound files.
+// lucene90CompoundDirectory is a read-only Directory implementation for
+// compound files.
 type lucene90CompoundDirectory struct {
 	directory store.Directory
 	cfsInput  store.IndexInput
@@ -361,7 +490,7 @@ func (d *lucene90CompoundDirectory) FileLength(name string) (int64, error) {
 }
 
 // OpenInput opens a file for reading from the compound directory.
-func (d *lucene90CompoundDirectory) OpenInput(name string, context store.IOContext) (store.IndexInput, error) {
+func (d *lucene90CompoundDirectory) OpenInput(name string, ctx store.IOContext) (store.IndexInput, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
@@ -374,17 +503,14 @@ func (d *lucene90CompoundDirectory) OpenInput(name string, context store.IOConte
 		return nil, fmt.Errorf("file %s not found", name)
 	}
 
-	// Create a slice of the underlying input
 	return d.cfsInput.Slice(name, entry.Offset, entry.Length)
 }
 
 // GetDirectory returns the directory itself.
-func (d *lucene90CompoundDirectory) GetDirectory() store.Directory {
-	return d
-}
+func (d *lucene90CompoundDirectory) GetDirectory() store.Directory { return d }
 
 // CreateOutput is not supported for compound directories (read-only).
-func (d *lucene90CompoundDirectory) CreateOutput(name string, context store.IOContext) (store.IndexOutput, error) {
+func (d *lucene90CompoundDirectory) CreateOutput(name string, ctx store.IOContext) (store.IndexOutput, error) {
 	return nil, fmt.Errorf("compound directory is read-only")
 }
 
@@ -426,7 +552,8 @@ func (d *lucene90CompoundDirectory) Close() error {
 	return d.cfsInput.Close()
 }
 
-// CheckIntegrity validates the checksum of all files in the compound directory.
+// CheckIntegrity validates the checksum of every file in the compound
+// directory by re-running the trailing CodecUtil footer over each slice.
 func (d *lucene90CompoundDirectory) CheckIntegrity() error {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -435,31 +562,38 @@ func (d *lucene90CompoundDirectory) CheckIntegrity() error {
 		return fmt.Errorf("compound directory is closed")
 	}
 
-	// Verify each entry can be read
-	for name, entry := range d.entries {
+	for name := range d.entries {
 		in, err := d.OpenInput(name, store.IOContext{Context: store.ContextRead})
 		if err != nil {
-			return fmt.Errorf("failed to open %s: %w", name, err)
+			return fmt.Errorf("compound: open %q: %w", name, err)
 		}
-
-		// Try to read the entire file
-		buffer := make([]byte, 8192)
-		remaining := entry.Length
-		for remaining > 0 {
-			toRead := int64(len(buffer))
-			if toRead > remaining {
-				toRead = remaining
-			}
-
-			if err := in.ReadBytes(buffer[:toRead]); err != nil {
-				return fmt.Errorf("failed to read %s: %w", name, err)
-			}
-
-			remaining -= toRead
+		csIn := store.NewChecksumIndexInput(in)
+		// Read every byte except the footer (so the checksum covers them
+		// all), then validate the footer.
+		footerLen := int64(FooterLength())
+		if csIn.Length() < footerLen {
+			_ = in.Close()
+			return fmt.Errorf("compound: %q too short for footer", name)
 		}
-		in.Close()
+		toRead := csIn.Length() - footerLen
+		scratch := make([]byte, 16*1024)
+		for toRead > 0 {
+			take := int64(len(scratch))
+			if take > toRead {
+				take = toRead
+			}
+			if err := csIn.ReadBytes(scratch[:take]); err != nil {
+				_ = in.Close()
+				return fmt.Errorf("compound: read body of %q: %w", name, err)
+			}
+			toRead -= take
+		}
+		if _, err := CheckFooter(csIn); err != nil {
+			_ = in.Close()
+			return fmt.Errorf("compound: %q failed footer check: %w", name, err)
+		}
+		_ = in.Close()
 	}
-
 	return nil
 }
 
