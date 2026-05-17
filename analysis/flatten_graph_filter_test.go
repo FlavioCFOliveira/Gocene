@@ -787,13 +787,6 @@ func TestFlattenGraphFilter_Factory(t *testing.T) {
 	filter.Close()
 }
 
-// FlattenGraphFilterFactory creates FlattenGraphFilter instances.
-type FlattenGraphFilterFactory struct{}
-
-// Create creates a FlattenGraphFilter wrapping the given input.
-func (f *FlattenGraphFilterFactory) Create(input TokenStream) TokenFilter {
-	return NewFlattenGraphFilter(input)
-}
-
-// Ensure FlattenGraphFilterFactory implements TokenFilterFactory
-var _ TokenFilterFactory = (*FlattenGraphFilterFactory)(nil)
+// FlattenGraphFilterFactory was previously declared in this test
+// file. Sprint 28 moved the type to core_factories.go to expose it
+// from the production package; tests now use the production type.
