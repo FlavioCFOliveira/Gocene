@@ -34,10 +34,10 @@ type ImpactSimScorer interface {
 //
 // Mirrors org.apache.lucene.search.MaxScoreCache.
 type MaxScoreCache struct {
-	src     ImpactsSource
-	scorer  ImpactSimScorer
-	maxes   []float32 // cached max score per impact level (NaN means uncached)
-	global  float32
+	src    ImpactsSource
+	scorer ImpactSimScorer
+	maxes  []float32 // cached max score per impact level (NaN means uncached)
+	global float32
 }
 
 // NewMaxScoreCache creates an empty cache wired to src and scorer. The global

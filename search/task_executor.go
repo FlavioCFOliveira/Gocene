@@ -51,8 +51,8 @@ func InvokeAll[R any](te *TaskExecutor, ctx context.Context, callables []Callabl
 	defer cancel()
 
 	var (
-		wg      sync.WaitGroup
-		errOnce sync.Once
+		wg       sync.WaitGroup
+		errOnce  sync.Once
 		firstErr error
 	)
 	report := func(err error) {

@@ -11,11 +11,11 @@ import "math"
 //
 // Mirrors org.apache.lucene.search.ImpactsDISI.
 type ImpactsDISI struct {
-	in        DocIdSetIterator
-	maxes     *MaxScoreCache
-	minScore  float32
-	upTo      int
-	maxScore  float32
+	in       DocIdSetIterator
+	maxes    *MaxScoreCache
+	minScore float32
+	upTo     int
+	maxScore float32
 }
 
 // NewImpactsDISI wraps in with a max-score cache.

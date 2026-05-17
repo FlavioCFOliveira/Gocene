@@ -55,7 +55,7 @@ func (l *positiveScoresOnlyLeafCollector) Collect(doc int) error {
 
 // Compile-time guard
 var (
-	_ Collector                       = (*PositiveScoresOnlyCollector)(nil)
-	_ LeafCollector                   = (*positiveScoresOnlyLeafCollector)(nil)
-	_ *index.LeafReaderContext        = (*index.LeafReaderContext)(nil) // keep import
+	_ Collector                = (*PositiveScoresOnlyCollector)(nil)
+	_ LeafCollector            = (*positiveScoresOnlyLeafCollector)(nil)
+	_ *index.LeafReaderContext = (*index.LeafReaderContext)(nil) // keep import
 )

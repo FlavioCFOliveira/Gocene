@@ -13,9 +13,9 @@ import "sort"
 //
 // Mirrors org.apache.lucene.search.LateInteractionRescorer.
 type LateInteractionRescorer struct {
-	src              *LateInteractionFloatValuesSource
-	fetchVector      func(docID int) ([][]float32, bool, error)
-	fallbackToFirst  bool
+	src             *LateInteractionFloatValuesSource
+	fetchVector     func(docID int) ([][]float32, bool, error)
+	fallbackToFirst bool
 }
 
 // NewLateInteractionRescorer creates a rescorer wired to a value source.

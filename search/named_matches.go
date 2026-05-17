@@ -58,8 +58,8 @@ type namedQuery struct {
 	inner Query
 }
 
-func (q *namedQuery) Name() string  { return q.name }
-func (q *namedQuery) Inner() Query  { return q.inner }
+func (q *namedQuery) Name() string   { return q.name }
+func (q *namedQuery) Inner() Query   { return q.inner }
 func (q *namedQuery) String() string { return "NamedQuery(" + q.name + ")" }
 
 func (q *namedQuery) Equals(other Query) bool {

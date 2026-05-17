@@ -10,9 +10,9 @@ package search
 //
 // Mirrors org.apache.lucene.search.IndriScorer.
 type IndriScorer struct {
-	weight  Weight
-	boost   float32
-	subs    []Scorer
+	weight Weight
+	boost  float32
+	subs   []Scorer
 }
 
 // NewIndriScorer constructs an IndriScorer wired to weight, boost and clause

@@ -12,10 +12,10 @@ import "fmt"
 // Mirrors org.apache.lucene.search.SeededKnnVectorQuery.
 type SeededKnnVectorQuery struct {
 	BaseQuery
-	field  string
-	inner  Query // typically a KnnFloatVectorQuery or KnnByteVectorQuery
-	seed   Query // produces the candidate ordinals
-	maxK   int
+	field string
+	inner Query // typically a KnnFloatVectorQuery or KnnByteVectorQuery
+	seed  Query // produces the candidate ordinals
+	maxK  int
 }
 
 // NewSeededKnnVectorQuery wraps inner with seed providing initial candidates.

@@ -55,8 +55,8 @@ type emptyQueryVisitor struct{}
 func (emptyQueryVisitor) ConsumeTerms(query Query, terms ...*index.Term) {}
 func (emptyQueryVisitor) ConsumeTermsMatching(query Query, field string, automaton func() ByteRunAutomaton) {
 }
-func (emptyQueryVisitor) VisitLeaf(query Query)             {}
-func (emptyQueryVisitor) AcceptField(field string) bool     { return true }
+func (emptyQueryVisitor) VisitLeaf(query Query)         {}
+func (emptyQueryVisitor) AcceptField(field string) bool { return true }
 func (emptyQueryVisitor) GetSubVisitor(o Occur, p Query) QueryVisitor {
 	return EmptyQueryVisitor
 }
@@ -91,8 +91,8 @@ type EmptyQueryVisitorBase struct{}
 func (EmptyQueryVisitorBase) ConsumeTerms(query Query, terms ...*index.Term) {}
 func (EmptyQueryVisitorBase) ConsumeTermsMatching(query Query, field string, automaton func() ByteRunAutomaton) {
 }
-func (EmptyQueryVisitorBase) VisitLeaf(query Query)             {}
-func (EmptyQueryVisitorBase) AcceptField(field string) bool     { return true }
+func (EmptyQueryVisitorBase) VisitLeaf(query Query)         {}
+func (EmptyQueryVisitorBase) AcceptField(field string) bool { return true }
 func (EmptyQueryVisitorBase) GetSubVisitor(o Occur, p Query) QueryVisitor {
 	return EmptyQueryVisitor
 }

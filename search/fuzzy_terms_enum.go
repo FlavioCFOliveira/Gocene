@@ -30,12 +30,12 @@ type FuzzyTermsEnum interface {
 // FuzzyTermsEnum. Concrete implementations live next to the terms-dictionary
 // codec that exposes the underlying TermsEnum.
 type FuzzyTermsEnumConfig struct {
-	Term            []byte
-	MaxEdits        int
-	PrefixLength    int
-	MaxExpansions   int
-	Transpositions  bool
-	BoostAttribute  MaxNonCompetitiveBoostAttribute
+	Term           []byte
+	MaxEdits       int
+	PrefixLength   int
+	MaxExpansions  int
+	Transpositions bool
+	BoostAttribute MaxNonCompetitiveBoostAttribute
 }
 
 // NewFuzzyTermsEnumConfig returns a FuzzyTermsEnumConfig with the canonical
