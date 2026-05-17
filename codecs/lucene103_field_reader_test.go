@@ -73,7 +73,7 @@ func TestLucene103FieldReader_ConstructorReadsHeaderAndExposesStats(t *testing.T
 	fi := index.NewFieldInfo("field1", 5, index.FieldInfoOptions{
 		IndexOptions: index.IndexOptionsDocsAndFreqs,
 	})
-	parent := NewLucene103BlockTreeTermsReader("_0")
+	parent := newReaderForTest("_0")
 
 	minTerm := util.NewBytesRef([]byte("alpha"))
 	maxTerm := util.NewBytesRef([]byte("omega"))
@@ -195,7 +195,7 @@ func TestLucene103FieldReader_StringFormat(t *testing.T) {
 	defer indexIn.Close()
 
 	fi := index.NewFieldInfo("f", 0, index.FieldInfoOptions{IndexOptions: index.IndexOptionsDocs})
-	parent := NewLucene103BlockTreeTermsReader("_42")
+	parent := newReaderForTest("_42")
 	fr, err := NewLucene103FieldReader(parent, fi, 7, 21, 14, 5, metaIn, indexIn, util.NewBytesRefEmpty(), util.NewBytesRefEmpty())
 	if err != nil {
 		t.Fatalf("NewLucene103FieldReader: %v", err)
@@ -286,4 +286,12 @@ func openExistingInput(t *testing.T, dir store.Directory, name string) store.Ind
 		t.Fatalf("OpenInput(%s): %v", name, err)
 	}
 	return in
+}
+
+// newReaderForTest constructs a minimal Lucene103BlockTreeTermsReader
+// suitable for tests that only need a non-nil parent pointer and a stable
+// segment name. The canonical constructor requires a PostingsReaderBase
+// (backlog task #2691) which is not needed for FieldReader-level checks.
+func newReaderForTest(segment string) *Lucene103BlockTreeTermsReader {
+	return &Lucene103BlockTreeTermsReader{segment: segment}
 }
