@@ -25,6 +25,14 @@ var (
 	// StringFieldTypeNotStored is the FieldType for a non-stored StringField.
 	// The string is indexed as a single term but not stored.
 	StringFieldTypeNotStored *FieldType
+
+	// StringFieldTYPESTORED is the Lucene-canonical alias for
+	// StringFieldTypeStored (mirrors public static final FieldType TYPE_STORED).
+	StringFieldTYPESTORED *FieldType
+
+	// StringFieldTYPENOTSTORED is the Lucene-canonical alias for
+	// StringFieldTypeNotStored (mirrors public static final FieldType TYPE_NOT_STORED).
+	StringFieldTYPENOTSTORED *FieldType
 )
 
 func init() {
@@ -44,6 +52,16 @@ func init() {
 		SetOmitNorms(true).
 		SetIndexOptions(index.IndexOptionsDocs)
 	StringFieldTypeNotStored.Freeze()
+
+	StringFieldTYPESTORED = StringFieldTypeStored
+	StringFieldTYPENOTSTORED = StringFieldTypeNotStored
+}
+
+// NewStringFieldFromBytesRef mirrors Lucene's
+// StringField(String, BytesRef, Store) constructor. The Gocene version uses
+// a []byte instead of a BytesRef.
+func NewStringFieldFromBytesRef(name string, value []byte, stored bool) (*StringField, error) {
+	return NewStringFieldFromBytes(name, value, stored)
 }
 
 // NewStringField creates a new StringField with the given name and value.

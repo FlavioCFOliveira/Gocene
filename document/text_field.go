@@ -27,6 +27,14 @@ var (
 	// TextFieldTypeNotStored is the FieldType for a non-stored TextField.
 	// The text is tokenized and indexed, but not stored.
 	TextFieldTypeNotStored *FieldType
+
+	// TextFieldTYPESTORED is the Lucene-canonical alias for
+	// TextFieldTypeStored (mirrors public static final FieldType TYPE_STORED).
+	TextFieldTYPESTORED *FieldType
+
+	// TextFieldTYPENOTSTORED is the Lucene-canonical alias for
+	// TextFieldTypeNotStored (mirrors public static final FieldType TYPE_NOT_STORED).
+	TextFieldTYPENOTSTORED *FieldType
 )
 
 func init() {
@@ -44,6 +52,9 @@ func init() {
 		SetTokenized(true).
 		SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions)
 	TextFieldTypeNotStored.Freeze()
+
+	TextFieldTYPESTORED = TextFieldTypeStored
+	TextFieldTYPENOTSTORED = TextFieldTypeNotStored
 }
 
 // NewTextField creates a new TextField with the given name and value.
