@@ -231,4 +231,3 @@ func (r *MultiLevelSkipListReader) Close() error {
 	}
 	return firstErr
 }
-

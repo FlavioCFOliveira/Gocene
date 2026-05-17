@@ -38,12 +38,12 @@ import (
 //	    return &myCodecKnnWriter{BufferingKnnVectorsWriter: codecs.NewBufferingKnnVectorsWriter(state, hook)}, nil
 //	}
 type BufferingKnnVectorsWriter struct {
-	state   *SegmentWriteState
-	hook    BufferingKnnVectorsHook
-	mu      sync.Mutex
-	closed  bool
-	floats  map[string]*BufferedFloatVectorField
-	bytes   map[string]*BufferedByteVectorField
+	state      *SegmentWriteState
+	hook       BufferingKnnVectorsHook
+	mu         sync.Mutex
+	closed     bool
+	floats     map[string]*BufferedFloatVectorField
+	bytes      map[string]*BufferedByteVectorField
 	fieldOrder []string // insertion order so flush dispatch is deterministic
 }
 
