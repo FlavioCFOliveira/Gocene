@@ -9,6 +9,15 @@ import (
 	"strconv"
 )
 
+// StandardTokenizerFactoryName is the Lucene-faithful SPI identifier
+// for this factory. Lucene's SPI registry uses this string to look
+// up the factory from Solr-style configuration files. Gocene has no
+// SPI registry yet, so the constant is exposed for parity and to
+// support future registry work; instantiating the factory still
+// requires calling [NewStandardTokenizerFactory] or
+// [NewStandardTokenizerFactoryWithArgs] directly.
+const StandardTokenizerFactoryName = "standard"
+
 // StandardTokenizerFactory creates StandardTokenizer instances.
 //
 // This is the Go port of
@@ -19,10 +28,14 @@ import (
 // every Tokenizer it creates. The default is
 // [DefaultMaxTokenLength].
 //
-// Lucene exposes the factory through its SPI registry. Gocene has
-// no SPI registry yet, so consumers must instantiate the factory
-// directly via [NewStandardTokenizerFactory] or
-// [NewStandardTokenizerFactoryWithArgs].
+// Deviation from Lucene: Lucene's reference factory throws from
+// the no-arg constructor (it is reserved for the SPI registry) and
+// the args-bearing constructor throws on unknown args. Gocene's
+// [NewStandardTokenizerFactory] is a usable defaults constructor
+// (the 20+ language analyzers in this package call it directly);
+// the args-bearing form [NewStandardTokenizerFactoryWithArgs]
+// returns an error on unknown args to match Lucene's runtime
+// guard.
 type StandardTokenizerFactory struct {
 	maxTokenLength int
 }
