@@ -2,166 +2,195 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
+//go:generate go run ../cmd/gen-unicode-wb
+
 package analysis
 
 import (
-	"bufio"
+	"fmt"
 	"io"
-	"regexp"
-	"unicode"
+	"reflect"
 )
 
-// StandardTokenizer is a grammar-based tokenizer constructed with JFlex.
+// DefaultMaxTokenLength is declared in uax29_url_email_tokenizer.go
+// and shared by both tokenizers; it matches
+// org.apache.lucene.analysis.standard.StandardAnalyzer.DEFAULT_MAX_TOKEN_LENGTH.
+
+// StandardTokenizer is the grammar-based tokenizer that implements
+// the Word Break rules from the Unicode Text Segmentation algorithm
+// (Unicode Standard Annex #29). It is the Go port of
+// org.apache.lucene.analysis.standard.StandardTokenizer from Lucene
+// 10.4.0.
 //
-// This is a simplified Go port of Lucene's org.apache.lucene.analysis.standard.StandardTokenizer.
+// Tokens produced are typed by [StandardTokenTypes] and one of the
+// following type integers:
 //
-// This tokenizer implements the Word Break rules from the Unicode Text Segmentation
-// algorithm (Unicode Standard Annex #29) for tokenizing text.
+//   - [TokenTypeAlphanum]:        a run of alphabetic / numeric runes.
+//   - [TokenTypeNum]:             a number.
+//   - [TokenTypeSoutheastAsian]:  a run of South-East Asian runes (Thai,
+//     Lao, Myanmar, Khmer, ...).
+//   - [TokenTypeIdeographic]:     a single CJKV ideographic rune.
+//   - [TokenTypeHiragana]:        a single Hiragana rune.
+//   - [TokenTypeKatakana]:        a run of Katakana runes.
+//   - [TokenTypeHangul]:          a run of Hangul runes.
+//   - [TokenTypeEmoji]:           an Emoji sequence (modifier, ZWJ,
+//     key-cap, regional indicator pair, or tag).
 //
-// The tokenizer recognizes:
-// - Alphanumeric tokens (words)
-// - Internet tokens (email, URLs)
-// - Numbers with decimal points
-//
-// Note: This is a simplified implementation. A full implementation would require
-// a complete state machine or regex-based approach matching UTS #51.
+// The tokenizer exposes four attributes through its
+// [AttributeSource]: [CharTermAttribute], [OffsetAttribute],
+// [PositionIncrementAttribute] and [TypeAttribute].
 type StandardTokenizer struct {
 	*BaseTokenizer
 
-	// scanner reads from the input
-	scanner *bufio.Scanner
+	// scanner is the UAX#29 word-break state machine.
+	scanner *standardTokenizerImpl
 
-	// termAttr holds the CharTermAttribute
-	termAttr CharTermAttribute
+	// maxTokenLength caps the length, in runes, of any emitted
+	// token. Tokens longer than this are chunked at the boundary;
+	// the scanner is rewound to the chunk's end so the remainder
+	// is re-tokenised on the next call.
+	maxTokenLength int
 
-	// offsetAttr holds the OffsetAttribute
-	offsetAttr OffsetAttribute
-
-	// posIncrAttr holds the PositionIncrementAttribute
+	// Bound attributes. Captured once at construction so the hot
+	// path does not pay the AttributeSource lookup cost on every
+	// token.
+	termAttr    CharTermAttribute
+	offsetAttr  OffsetAttribute
 	posIncrAttr PositionIncrementAttribute
-
-	// currentOffset tracks the current position in input
-	currentOffset int
-
-	// tokenRe is the regex pattern for standard tokens
-	tokenRe *regexp.Regexp
+	typeAttr    *TypeAttribute
 }
 
-// tokenPattern matches standard word tokens.
-// This is a simplified pattern - the real StandardTokenizer is more sophisticated.
-var tokenPattern = regexp.MustCompile(`[A-Za-z0-9]+([._-][A-Za-z0-9]+)*`)
-
-// NewStandardTokenizer creates a new StandardTokenizer.
+// NewStandardTokenizer creates a new StandardTokenizer with default
+// maxTokenLength ([DefaultMaxTokenLength]).
+//
+// The caller must invoke [StandardTokenizer.SetReader] before the
+// first call to IncrementToken.
 func NewStandardTokenizer() *StandardTokenizer {
 	t := &StandardTokenizer{
-		BaseTokenizer: NewBaseTokenizer(),
-		tokenRe:       tokenPattern,
+		BaseTokenizer:  NewBaseTokenizer(),
+		scanner:        newStandardTokenizerImpl(),
+		maxTokenLength: DefaultMaxTokenLength,
 	}
 
-	// Add attributes
 	t.termAttr = NewCharTermAttribute()
 	t.offsetAttr = NewOffsetAttribute()
 	t.posIncrAttr = NewPositionIncrementAttribute()
+	t.typeAttr = NewTypeAttribute()
 
 	t.AddAttribute(t.termAttr)
 	t.AddAttribute(t.offsetAttr)
 	t.AddAttribute(t.posIncrAttr)
+	t.AddAttribute(t.typeAttr)
 
 	return t
 }
 
-// SetReader sets the input source for this Tokenizer.
-func (t *StandardTokenizer) SetReader(input io.Reader) error {
-	t.BaseTokenizer.SetReader(input)
-	t.scanner = bufio.NewScanner(input)
-	t.scanner.Split(bufio.ScanRunes)
-	t.currentOffset = 0
+// MaxTokenLength returns the current maximum token length in
+// characters.
+func (t *StandardTokenizer) MaxTokenLength() int {
+	return t.maxTokenLength
+}
+
+// SetMaxTokenLength configures the maximum token length. Length must
+// be in the inclusive range [1, MaxTokenLengthLimit]. Returns an
+// error matching the IllegalArgumentException thrown by Lucene's
+// StandardTokenizer.setMaxTokenLength when length is out of range.
+func (t *StandardTokenizer) SetMaxTokenLength(length int) error {
+	if length < 1 {
+		return fmt.Errorf("maxTokenLength must be greater than zero")
+	}
+	if length > MaxTokenLengthLimit {
+		return fmt.Errorf("maxTokenLength may not exceed %d", MaxTokenLengthLimit)
+	}
+	t.maxTokenLength = length
 	return nil
 }
 
-// IncrementToken advances to the next token.
+// SetReader attaches the input source and resets the underlying
+// scanner. It satisfies the [Tokenizer] contract.
+func (t *StandardTokenizer) SetReader(input io.Reader) error {
+	if err := t.BaseTokenizer.SetReader(input); err != nil {
+		return err
+	}
+	if err := t.scanner.yyreset(input); err != nil {
+		return err
+	}
+	return nil
+}
+
+// IncrementToken advances to the next token. Returns (false, nil) at
+// end of input. Tokens larger than the configured maxTokenLength are
+// chunked into pieces of at most maxTokenLength runes, mirroring the
+// effect of Lucene's StandardTokenizer.setBufferSize on the
+// JFlex-generated scanner: the buffer cap forces the scanner to
+// return partial matches and the wrapper resumes from the cut.
 func (t *StandardTokenizer) IncrementToken() (bool, error) {
-	if t.input == nil || t.scanner == nil {
+	t.ClearAttributes()
+
+	tokenType := t.scanner.getNextToken()
+	if tokenType == yyeof {
 		return false, nil
 	}
 
-	// Clear attributes for new token
-	t.ClearAttributes()
-
-	// Build token character by character
-	var tokenChars []rune
-	startOffset := t.currentOffset
-
-	for t.scanner.Scan() {
-		r := []rune(t.scanner.Text())[0]
-
-		// Check if this rune is part of a token
-		if isTokenChar(r) {
-			tokenChars = append(tokenChars, r)
-			t.currentOffset++
-		} else if len(tokenChars) > 0 {
-			// End of token - endOffset should be the position after the last token character
-			t.emitToken(tokenChars, startOffset, t.currentOffset)
-			t.currentOffset++ // Skip the non-token character
-			return true, nil
-		} else {
-			// Skip non-token characters before any token
-			t.currentOffset++
-		}
+	length := t.scanner.yylength()
+	if length > t.maxTokenLength {
+		// Cut the match to the maxTokenLength boundary and rewind
+		// the scanner so the remainder is re-tokenised on the next
+		// call. The retained chunk inherits the type of the
+		// original match.
+		t.scanner.markedPos = t.scanner.startRead + t.maxTokenLength
+		t.scanner.pos = t.scanner.markedPos
+		length = t.maxTokenLength
 	}
 
-	// Emit final token if any
-	if len(tokenChars) > 0 {
-		t.emitToken(tokenChars, startOffset, t.currentOffset)
-		return true, nil
-	}
-
-	return false, t.scanner.Err()
-}
-
-// isTokenChar checks if a rune is a valid token character.
-func isTokenChar(r rune) bool {
-	return unicode.IsLetter(r) || unicode.IsDigit(r)
-}
-
-// emitToken emits a token with the given properties.
-func (t *StandardTokenizer) emitToken(chars []rune, startOffset, endOffset int) {
-	t.termAttr.SetValue(string(chars))
-	t.offsetAttr.SetStartOffset(startOffset)
-	t.offsetAttr.SetEndOffset(endOffset)
 	t.posIncrAttr.SetPositionIncrement(1)
+	t.scanner.getText(t.termAttr)
+	start := t.scanner.yychar()
+	// Offsets are reported in runes for consistency with Gocene's
+	// UTF-8 attribute storage; the underlying scanner counts code
+	// points.
+	t.offsetAttr.SetOffset(start, start+length)
+	t.typeAttr.SetType(StandardTokenTypes[tokenType])
+	return true, nil
 }
 
-// Reset resets the tokenizer.
-func (t *StandardTokenizer) Reset() error {
-	t.BaseTokenizer.Reset()
-	t.currentOffset = 0
+// End performs end-of-stream operations. It sets the final offset
+// to the rune index just past the last token, matching Lucene's
+// StandardTokenizer.end().
+func (t *StandardTokenizer) End() error {
+	if err := t.BaseTokenizer.End(); err != nil {
+		return err
+	}
+	finalOffset := t.scanner.yychar() + t.scanner.yylength()
+	t.offsetAttr.SetOffset(finalOffset, finalOffset)
 	return nil
 }
 
-// End performs end-of-stream operations.
-func (t *StandardTokenizer) End() error {
-	if t.offsetAttr != nil {
-		t.offsetAttr.SetEndOffset(t.currentOffset)
+// Reset prepares the tokenizer for re-use against a freshly attached
+// reader. It satisfies the [Tokenizer] contract.
+func (t *StandardTokenizer) Reset() error {
+	if err := t.BaseTokenizer.Reset(); err != nil {
+		return err
+	}
+	if err := t.scanner.yyreset(t.GetReader()); err != nil {
+		return err
 	}
 	return nil
 }
 
-// Ensure StandardTokenizer implements Tokenizer
+// Close releases resources held by the tokenizer.
+func (t *StandardTokenizer) Close() error {
+	// Detach the reader so a subsequent SetReader call gets a
+	// pristine scanner state. Lucene's StandardTokenizer.close()
+	// calls yyreset(input) to release input buffers.
+	_ = t.scanner.yyreset(nil)
+	return t.BaseTokenizer.Close()
+}
+
+// Ensure StandardTokenizer implements the Tokenizer contract.
 var _ Tokenizer = (*StandardTokenizer)(nil)
 
-// StandardTokenizerFactory creates StandardTokenizer instances.
-type StandardTokenizerFactory struct{}
-
-// NewStandardTokenizerFactory creates a new StandardTokenizerFactory.
-func NewStandardTokenizerFactory() *StandardTokenizerFactory {
-	return &StandardTokenizerFactory{}
-}
-
-// Create creates a new StandardTokenizer.
-func (f *StandardTokenizerFactory) Create() Tokenizer {
-	return NewStandardTokenizer()
-}
-
-// Ensure StandardTokenizerFactory implements TokenizerFactory
-var _ TokenizerFactory = (*StandardTokenizerFactory)(nil)
+// charTermAttributeType is the cached reflect.Type for the default
+// CharTermAttribute impl, used by downstream filters to look the
+// attribute up by type. Computed lazily to avoid an init-time cost.
+var charTermAttributeType = reflect.TypeOf(&charTermAttribute{})
