@@ -134,18 +134,27 @@ func NewLucene103BlockTreeTermsWriterAtVersion(
 		scratchBytes:    store.NewByteBuffersDataOutput(),
 	}
 
+	// Outputs are wrapped in ChecksumIndexOutput so WriteFooter can emit
+	// the CRC32 trailer. Lucene's Directory.createOutput returns a
+	// checksum-tracking IndexOutput natively; Gocene's CreateOutput
+	// returns the raw output, so we layer the checksum wrapper on
+	// here to stay byte-for-byte compatible with the on-disk footer
+	// layout.
 	termsName := GetSegmentFileName(segmentName, segmentSuffix, Lucene103BlockTreeTermsExtension)
-	termsOut, err := directory.CreateOutput(termsName, store.IOContext{Context: store.ContextWrite})
+	rawTermsOut, err := directory.CreateOutput(termsName, store.IOContext{Context: store.ContextWrite})
 	if err != nil {
 		return nil, fmt.Errorf("create %s: %w", termsName, err)
 	}
+	termsOut := store.NewChecksumIndexOutput(rawTermsOut)
+
 	success := false
+	var rawIndexOut, rawMetaOut store.IndexOutput
 	var indexOut, metaOut store.IndexOutput
 	defer func() {
 		if success {
 			return
 		}
-		closeQuietly(metaOut, termsOut, indexOut)
+		closeQuietly(metaOut, termsOut, indexOut, rawMetaOut, rawTermsOut, rawIndexOut)
 	}()
 
 	if err := WriteIndexHeader(termsOut, Lucene103BlockTreeTermsCodecName, version, segmentID, segmentSuffix); err != nil {
@@ -153,19 +162,21 @@ func NewLucene103BlockTreeTermsWriterAtVersion(
 	}
 
 	indexName := GetSegmentFileName(segmentName, segmentSuffix, Lucene103BlockTreeTermsIndexExtension)
-	indexOut, err = directory.CreateOutput(indexName, store.IOContext{Context: store.ContextWrite})
+	rawIndexOut, err = directory.CreateOutput(indexName, store.IOContext{Context: store.ContextWrite})
 	if err != nil {
 		return nil, fmt.Errorf("create %s: %w", indexName, err)
 	}
+	indexOut = store.NewChecksumIndexOutput(rawIndexOut)
 	if err := WriteIndexHeader(indexOut, Lucene103BlockTreeTermsIndexCodecName, version, segmentID, segmentSuffix); err != nil {
 		return nil, fmt.Errorf("write index header: %w", err)
 	}
 
 	metaName := GetSegmentFileName(segmentName, segmentSuffix, Lucene103BlockTreeTermsMetaExtension)
-	metaOut, err = directory.CreateOutput(metaName, store.IOContext{Context: store.ContextWrite})
+	rawMetaOut, err = directory.CreateOutput(metaName, store.IOContext{Context: store.ContextWrite})
 	if err != nil {
 		return nil, fmt.Errorf("create %s: %w", metaName, err)
 	}
+	metaOut = store.NewChecksumIndexOutput(rawMetaOut)
 	if err := WriteIndexHeader(metaOut, Lucene103BlockTreeTermsMetaCodecName, version, segmentID, segmentSuffix); err != nil {
 		return nil, fmt.Errorf("write meta header: %w", err)
 	}
