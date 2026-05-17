@@ -35,9 +35,9 @@ type EdgeNGramTokenFilter struct {
 	maxGram          int
 	preserveOriginal bool
 
-	curRunes      []rune
-	curGramSize   int
-	curPosIncr    int
+	curRunes    []rune
+	curGramSize int
+	curPosIncr  int
 
 	termAttr    CharTermAttribute
 	posIncrAttr PositionIncrementAttribute

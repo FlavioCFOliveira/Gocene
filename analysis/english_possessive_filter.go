@@ -7,7 +7,7 @@ package analysis
 import "reflect"
 
 // EnglishPossessiveFilter strips trailing "'s" or "'S" suffixes
-// (with ASCII apostrophe '\'', right single quotation mark
+// (with ASCII apostrophe '\”, right single quotation mark
 // U+2019, or fullwidth apostrophe U+FF07) from each incoming token.
 //
 // This is the Go port of

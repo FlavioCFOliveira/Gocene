@@ -25,13 +25,13 @@ import (
 type HyphenatedWordsFilter struct {
 	*BaseTokenFilter
 
-	hyphenated      strings.Builder
-	savedStart      int
-	savedHasState   bool
-	lastEndOffset   int
-	exhausted       bool
-	termAttr        CharTermAttribute
-	offsetAttr      OffsetAttribute
+	hyphenated    strings.Builder
+	savedStart    int
+	savedHasState bool
+	lastEndOffset int
+	exhausted     bool
+	termAttr      CharTermAttribute
+	offsetAttr    OffsetAttribute
 }
 
 // NewHyphenatedWordsFilter wraps input.

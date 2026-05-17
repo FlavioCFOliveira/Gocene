@@ -23,14 +23,14 @@ const (
 // persianSuffixes lists the suffix strings the Persian stemmer
 // strips, in the order applied by org.apache.lucene.analysis.fa.PersianStemmer.
 var persianSuffixes = []string{
-	string(rune(faALEF)) + string(rune(faTEH)),                                                // ات
-	string(rune(faALEF)) + string(rune(faNOON)),                                               // ان
-	string(rune(faTEH)) + string(rune(faREH)) + string(rune(faYEH)) + string(rune(faNOON)),   // ترین
-	string(rune(faTEH)) + string(rune(faREH)),                                                 // تر
-	string(rune(faYEH)) + string(rune(faYEH)),                                                 // یی
-	string(rune(faYEH)),                                                                       // ی
-	string(rune(faHEH)) + string(rune(faALEF)),                                                // ها
-	string(rune(faZWNJ)),                                                                      // ZWNJ
+	string(rune(faALEF)) + string(rune(faTEH)),                                             // ات
+	string(rune(faALEF)) + string(rune(faNOON)),                                            // ان
+	string(rune(faTEH)) + string(rune(faREH)) + string(rune(faYEH)) + string(rune(faNOON)), // ترین
+	string(rune(faTEH)) + string(rune(faREH)),                                              // تر
+	string(rune(faYEH)) + string(rune(faYEH)),                                              // یی
+	string(rune(faYEH)),                        // ی
+	string(rune(faHEH)) + string(rune(faALEF)), // ها
+	string(rune(faZWNJ)),                       // ZWNJ
 }
 
 // PersianStemmer applies a fixed list of Persian inflectional

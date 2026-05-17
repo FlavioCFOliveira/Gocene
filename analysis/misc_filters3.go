@@ -76,9 +76,9 @@ func (w *PerFieldAnalyzerWrapper) FieldAnalyzers() map[string]Analyzer {
 type LimitTokenCountAnalyzer struct {
 	*AnalyzerWrapper
 
-	delegate            Analyzer
-	maxTokenCount       int
-	consumeAllTokens    bool
+	delegate         Analyzer
+	maxTokenCount    int
+	consumeAllTokens bool
 }
 
 // NewLimitTokenCountAnalyzer wraps delegate, capping each field's
@@ -172,7 +172,7 @@ const DateRecognizerType = "date"
 type DateRecognizerFilter struct {
 	*BaseTokenFilter
 
-	layouts []string
+	layouts  []string
 	termAttr CharTermAttribute
 }
 
@@ -310,4 +310,3 @@ func (f *ConditionalTokenFilter) IncrementToken() (bool, error) {
 
 // Ensure ConditionalTokenFilter implements TokenFilter.
 var _ TokenFilter = (*ConditionalTokenFilter)(nil)
-

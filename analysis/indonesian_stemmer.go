@@ -10,7 +10,7 @@ import "reflect"
 // remember which prefix was removed so that conflicting suffixes can
 // be skipped during derivational stemming.
 const (
-	indonesianRemovedKe   = 1 << iota
+	indonesianRemovedKe = 1 << iota
 	indonesianRemovedPeng
 	indonesianRemovedDi
 	indonesianRemovedMeng
@@ -24,8 +24,8 @@ const (
 // 10.4.0. The stemmer removes Indonesian particle, possessive
 // pronoun, prefix, and suffix morphology.
 type IndonesianStemmer struct {
-	flags         int
-	numSyllables  int
+	flags        int
+	numSyllables int
 }
 
 // NewIndonesianStemmer returns a fresh stateless stemmer. The

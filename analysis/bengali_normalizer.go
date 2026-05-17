@@ -9,33 +9,33 @@ import "reflect"
 // Bengali (Bangla) Unicode code points used by the normalisation
 // rules.
 const (
-	bnCHANDRABINDU       = 0x0981
-	bnVISARGA            = 0x0983
-	bnDIRGHO_I_KAR       = 0x09C0
-	bnROSSHO_I_KAR       = 0x09BF
-	bnDIRGHO_U_KAR       = 0x09C2
-	bnROSSHO_U_KAR       = 0x09C1
-	bnKA                 = 0x0995
-	bnKHA                = 0x0996
-	bnHOSHONTO           = 0x09CD
-	bnROSSHO_I           = 0x09BF
-	bnNGA                = 0x0999
-	bnANUSVARA           = 0x0982
-	bnJA                 = 0x09AF
-	bnE_KAR              = 0x09C7
-	bnAA_KAR             = 0x09BE
-	bnBA                 = 0x09AC
-	bnSHA                = 0x09B6
-	bnSSHA               = 0x09B7
-	bnSA                 = 0x09B8
-	bnHA                 = 0x09B9
-	bnNA_MURDHANYA       = 0x09A3
-	bnNA                 = 0x09A8
-	bnRA_DOWN            = 0x09DC
-	bnRHA                = 0x09DD
-	bnRA                 = 0x09B0
-	bnKHANDA_TA          = 0x09CE
-	bnTA                 = 0x09A4
+	bnCHANDRABINDU = 0x0981
+	bnVISARGA      = 0x0983
+	bnDIRGHO_I_KAR = 0x09C0
+	bnROSSHO_I_KAR = 0x09BF
+	bnDIRGHO_U_KAR = 0x09C2
+	bnROSSHO_U_KAR = 0x09C1
+	bnKA           = 0x0995
+	bnKHA          = 0x0996
+	bnHOSHONTO     = 0x09CD
+	bnROSSHO_I     = 0x09BF
+	bnNGA          = 0x0999
+	bnANUSVARA     = 0x0982
+	bnJA           = 0x09AF
+	bnE_KAR        = 0x09C7
+	bnAA_KAR       = 0x09BE
+	bnBA           = 0x09AC
+	bnSHA          = 0x09B6
+	bnSSHA         = 0x09B7
+	bnSA           = 0x09B8
+	bnHA           = 0x09B9
+	bnNA_MURDHANYA = 0x09A3
+	bnNA           = 0x09A8
+	bnRA_DOWN      = 0x09DC
+	bnRHA          = 0x09DD
+	bnRA           = 0x09B0
+	bnKHANDA_TA    = 0x09CE
+	bnTA           = 0x09A4
 )
 
 // BengaliNormalizer normalises Bengali (Bangla) orthography.
