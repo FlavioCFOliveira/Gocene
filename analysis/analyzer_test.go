@@ -141,9 +141,11 @@ func TestSimpleAnalyzer(t *testing.T) {
 // TestStandardAnalyzer tests the StandardAnalyzer.
 // Source: TestAnalyzers.testStandardAnalyzer()
 // Purpose: Tests standard tokenization with stop word removal.
-// Note: StandardAnalyzer does NOT filter numeric tokens by default.
+// Note: StandardAnalyzer does NOT filter numeric tokens by default,
+// and Lucene 10.4.0 ships with no default stop words; the English
+// stop list must be requested explicitly.
 func TestStandardAnalyzer(t *testing.T) {
-	analyzer := NewStandardAnalyzer()
+	analyzer := NewStandardAnalyzerWithStopWords(EnglishStopWords)
 	defer analyzer.Close()
 
 	tests := []struct {
