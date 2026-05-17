@@ -325,6 +325,23 @@ func (fi *FieldInfo) PutAttribute(key, value string) {
 	fi.attributes[key] = value
 }
 
+// PutCodecAttribute sets a codec-owned attribute value, bypassing the frozen check.
+//
+// Lucene's FieldInfo is immutable after construction for regular attributes, but
+// codec writers (notably PerFieldPostingsFormat, PerFieldDocValuesFormat, and
+// PerFieldKnnVectorsFormat) need to record the chosen format-name and integer
+// suffix on each FieldInfo at write time. This method is the Go analogue of
+// FieldInfo.putAttribute in Java, which carries no frozen contract.
+//
+// Use PutCodecAttribute only from codec writers when recording per-field codec
+// metadata. Application code must continue to use PutAttribute, which enforces
+// immutability and panics on frozen FieldInfos.
+func (fi *FieldInfo) PutCodecAttribute(key, value string) {
+	fi.mu.Lock()
+	defer fi.mu.Unlock()
+	fi.attributes[key] = value
+}
+
 // Clone creates a copy of this FieldInfo with a new number.
 func (fi *FieldInfo) Clone(newNumber int) *FieldInfo {
 	fi.mu.RLock()

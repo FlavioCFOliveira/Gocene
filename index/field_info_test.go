@@ -143,6 +143,47 @@ func TestFieldInfo_Attributes(t *testing.T) {
 	fi.PutAttribute("key", "value")
 }
 
+// TestFieldInfo_PutCodecAttribute verifies that PutCodecAttribute writes
+// attributes on a frozen FieldInfo without panicking and that the value
+// is observable through GetAttribute and GetAttributes. This is the
+// escape hatch used by per-field codec writers to record format metadata.
+func TestFieldInfo_PutCodecAttribute(t *testing.T) {
+	fi := NewFieldInfo("field", 0, FieldInfoOptions{})
+
+	// Sanity: FieldInfo is frozen after construction.
+	if !fi.frozen {
+		t.Fatalf("FieldInfo should be frozen after construction")
+	}
+
+	// Codec writers must be able to record attributes on frozen FieldInfos.
+	fi.PutCodecAttribute("PerFieldPostingsFormat.format", "Lucene104PostingsFormat")
+	fi.PutCodecAttribute("PerFieldPostingsFormat.suffix", "0")
+
+	if got := fi.GetAttribute("PerFieldPostingsFormat.format"); got != "Lucene104PostingsFormat" {
+		t.Errorf("GetAttribute(format) = %q, want %q", got, "Lucene104PostingsFormat")
+	}
+	if got := fi.GetAttribute("PerFieldPostingsFormat.suffix"); got != "0" {
+		t.Errorf("GetAttribute(suffix) = %q, want %q", got, "0")
+	}
+
+	// Last write wins; codec writers may overwrite their own keys.
+	fi.PutCodecAttribute("PerFieldPostingsFormat.suffix", "1")
+	if got := fi.GetAttribute("PerFieldPostingsFormat.suffix"); got != "1" {
+		t.Errorf("GetAttribute(suffix) after overwrite = %q, want %q", got, "1")
+	}
+
+	// Snapshot returned by GetAttributes must reflect the codec writes.
+	attrs := fi.GetAttributes()
+	if attrs["PerFieldPostingsFormat.format"] != "Lucene104PostingsFormat" {
+		t.Errorf("GetAttributes()[format] = %q, want %q",
+			attrs["PerFieldPostingsFormat.format"], "Lucene104PostingsFormat")
+	}
+	if attrs["PerFieldPostingsFormat.suffix"] != "1" {
+		t.Errorf("GetAttributes()[suffix] = %q, want %q",
+			attrs["PerFieldPostingsFormat.suffix"], "1")
+	}
+}
+
 func TestFieldInfo_Clone(t *testing.T) {
 	// Use builder to set attributes before freezing
 	fi := NewFieldInfoBuilder("title", 0).
