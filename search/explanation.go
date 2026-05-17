@@ -61,3 +61,15 @@ func (e *BaseExplanation) GetDetails() []Explanation {
 func (e *BaseExplanation) AddDetail(detail Explanation) {
 	e.details = append(e.details, detail)
 }
+
+// MatchExplanation creates a match explanation with the given value and description.
+// Mirrors Explanation.match in Lucene.
+func MatchExplanation(value float32, description string) *BaseExplanation {
+	return NewExplanation(true, value, description)
+}
+
+// NoMatchExplanation creates a non-match explanation with the given description.
+// Mirrors Explanation.noMatch in Lucene.
+func NoMatchExplanation(description string) *BaseExplanation {
+	return NewExplanation(false, 0, description)
+}
