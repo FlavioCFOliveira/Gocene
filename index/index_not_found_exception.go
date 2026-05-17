@@ -6,8 +6,15 @@ package index
 
 import "fmt"
 
-// IndexNotFoundException is thrown when an index cannot be found in a directory.
-// This is the Go port of Lucene's org.apache.lucene.index.IndexNotFoundException.
+// IndexNotFoundException signals that no index was found in the Directory.
+// May indicate that the directory is empty, or that an index corruption has
+// hidden the segments file. Mirrors
+// org.apache.lucene.index.IndexNotFoundException from Apache Lucene 10.4.0,
+// which extends FileNotFoundException in Java.
+//
+// Gocene preserves the (message, cause) constructor used internally by the
+// existing code (segment_infos.go), while also exposing the Lucene-canonical
+// single-argument constructor IndexNotFoundExceptionFromMessage.
 type IndexNotFoundException struct {
 	Message string
 	Cause   error
@@ -26,10 +33,18 @@ func (e *IndexNotFoundException) Unwrap() error {
 	return e.Cause
 }
 
-// NewIndexNotFoundException creates a new IndexNotFoundException.
+// NewIndexNotFoundException creates a new IndexNotFoundException carrying an
+// optional cause. The cause is appended via standard error wrapping.
 func NewIndexNotFoundException(message string, cause error) *IndexNotFoundException {
 	return &IndexNotFoundException{
 		Message: message,
 		Cause:   cause,
 	}
+}
+
+// IndexNotFoundExceptionFromMessage matches the Java
+// IndexNotFoundException(String msg) constructor for parity with Lucene code
+// that uses only the descriptive message.
+func IndexNotFoundExceptionFromMessage(msg string) *IndexNotFoundException {
+	return &IndexNotFoundException{Message: msg}
 }
