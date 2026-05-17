@@ -112,6 +112,19 @@ func (q *namedQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boo
 	return q.inner.CreateWeight(searcher, needsScores, boost)
 }
 
+// sprintQuery is a tiny helper that calls Stringer if available, otherwise
+// returns the type name placeholder. Shared across queries that need to
+// render their composition for debugging.
+func sprintQuery(q Query) string {
+	if q == nil {
+		return "<nil>"
+	}
+	if s, ok := q.(interface{ String() string }); ok {
+		return s.String()
+	}
+	return "Query"
+}
+
 // FindNamedMatches walks a Matches tree (using GetSubMatches) and returns
 // every NamedMatches it finds via breadth-first traversal.
 //
