@@ -74,17 +74,24 @@ func NewLucene104PostingsFormat() *Lucene104PostingsFormat {
 }
 
 // FieldsConsumer returns a fields consumer for writing postings.
-// Uses BlockTreeTermsWriter for efficient term dictionary encoding.
+//
+// The strict Lucene103BlockTreeTermsWriter requires a concrete
+// PostingsWriterBase plus min/max block sizes (Lucene103DefaultMinBlockSize
+// / Lucene103DefaultMaxBlockSize). Until Lucene103PostingsFormat is ported
+// (backlog task #2691) there is no PostingsWriterBase to wire, so this
+// shim returns a clear error pointing at the backlog task instead of
+// silently fabricating a half-working consumer.
 func (f *Lucene104PostingsFormat) FieldsConsumer(state *SegmentWriteState) (FieldsConsumer, error) {
-	// Use BlockTreeTermsWriter for Lucene-compatible block tree format
-	return NewBlockTreeTermsWriter(state)
+	return nil, fmt.Errorf("Lucene104PostingsFormat.FieldsConsumer: not implemented — Lucene103BlockTreeTermsWriter requires a PostingsWriterBase; see backlog task #2691 (Port Lucene103PostingsFormat)")
 }
 
 // FieldsProducer returns a fields producer for reading postings.
-// Uses BlockTreeTermsReader for efficient term dictionary access.
+//
+// Symmetrically to FieldsConsumer, the strict Lucene103BlockTreeTermsReader
+// requires a PostingsReaderBase. Returns a clear error pointing at backlog
+// task #2691 until Lucene103PostingsFormat lands.
 func (f *Lucene104PostingsFormat) FieldsProducer(state *SegmentReadState) (FieldsProducer, error) {
-	// Use BlockTreeTermsReader for Lucene-compatible block tree format
-	return NewBlockTreeTermsReader(state)
+	return nil, fmt.Errorf("Lucene104PostingsFormat.FieldsProducer: not implemented — Lucene103BlockTreeTermsReader requires a PostingsReaderBase; see backlog task #2691 (Port Lucene103PostingsFormat)")
 }
 
 // Lucene104FieldsConsumer writes postings data to disk.
