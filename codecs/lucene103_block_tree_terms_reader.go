@@ -66,8 +66,30 @@ const (
 // The reader is safe for concurrent term lookup once construction has
 // returned; per-term iteration (Iterator / Intersect on FieldReader)
 // requires the deferred SegmentTermsEnum port (backlog task #2692).
+//
+// The full constructor (open files, walk metadata, build per-field
+// FieldReaders) lands together with backlog task #2691; today this type
+// is the minimal handle [Lucene103FieldReader] needs to identify its
+// owning segment.
 type Lucene103BlockTreeTermsReader struct {
-	// Implementation lives further down once the FieldReader / TermsEnum
-	// dependencies land in tasks #95 and #2692. The shell type is
-	// declared here so the constants and the SPI shim can compile.
+	// segment is the segment name (state.segmentInfo.name in Java).
+	// Stored so FieldReader.toString can format the BlockTreeTerms(...)
+	// label without keeping a back-pointer to SegmentInfo.
+	segment string
+}
+
+// NewLucene103BlockTreeTermsReader returns a minimal reader handle bound
+// to a given segment name. The wire-format constructor (opening .tim /
+// .tip / .tmd, validating headers, building per-field FieldReaders) is
+// deferred to backlog task #2691.
+func NewLucene103BlockTreeTermsReader(segment string) *Lucene103BlockTreeTermsReader {
+	return &Lucene103BlockTreeTermsReader{segment: segment}
+}
+
+// SegmentName returns the segment label stamped on construction.
+func (r *Lucene103BlockTreeTermsReader) SegmentName() string {
+	if r == nil {
+		return ""
+	}
+	return r.segment
 }
