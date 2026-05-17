@@ -27,7 +27,7 @@ type fakePushWriter struct {
 func (w *fakePushWriter) Init(termsOut store.IndexOutput, state *SegmentWriteState) error {
 	return nil
 }
-func (w *fakePushWriter) NewTermState() *BlockTermState               { return NewBlockTermState() }
+func (w *fakePushWriter) NewTermState() *BlockTermState                    { return NewBlockTermState() }
 func (w *fakePushWriter) SetField(fieldInfo *index.FieldInfo) (int, error) { return 0, nil }
 func (w *fakePushWriter) StartTerm(norms index.NumericDocValues) error     { return nil }
 func (w *fakePushWriter) FinishTerm(state *BlockTermState) error           { return nil }

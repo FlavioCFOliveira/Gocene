@@ -18,11 +18,11 @@ func TestComputeNumberOfSkipLevels(t *testing.T) {
 		df, skipInterval, skipMultiplier, maxSkipLevels int
 		want                                            int
 	}{
-		{df: 100, skipInterval: 128, skipMultiplier: 8, maxSkipLevels: 10, want: 1},  // df < skipInterval
-		{df: 128, skipInterval: 128, skipMultiplier: 8, maxSkipLevels: 10, want: 1},  // df == skipInterval
-		{df: 200, skipInterval: 128, skipMultiplier: 8, maxSkipLevels: 10, want: 1},  // ratio 1.56 → log_8 < 1
-		{df: 1024, skipInterval: 128, skipMultiplier: 8, maxSkipLevels: 10, want: 2}, // ratio 8 → log_8 = 1
-		{df: 10000, skipInterval: 128, skipMultiplier: 8, maxSkipLevels: 10, want: 3}, // ratio ~78 → log_8 ~ 2.09
+		{df: 100, skipInterval: 128, skipMultiplier: 8, maxSkipLevels: 10, want: 1},       // df < skipInterval
+		{df: 128, skipInterval: 128, skipMultiplier: 8, maxSkipLevels: 10, want: 1},       // df == skipInterval
+		{df: 200, skipInterval: 128, skipMultiplier: 8, maxSkipLevels: 10, want: 1},       // ratio 1.56 → log_8 < 1
+		{df: 1024, skipInterval: 128, skipMultiplier: 8, maxSkipLevels: 10, want: 2},      // ratio 8 → log_8 = 1
+		{df: 10000, skipInterval: 128, skipMultiplier: 8, maxSkipLevels: 10, want: 3},     // ratio ~78 → log_8 ~ 2.09
 		{df: 10_000_000, skipInterval: 128, skipMultiplier: 8, maxSkipLevels: 4, want: 4}, // capped
 	}
 	for _, c := range cases {
