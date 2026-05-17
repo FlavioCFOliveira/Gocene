@@ -626,9 +626,11 @@ func TestStandardAnalyzer_HugeDoc(t *testing.T) {
 
 // TestStandardAnalyzer_StopWords tests stop word removal.
 // Source: Various tests
-// Purpose: Tests that English stop words are removed by default.
+// Purpose: Tests that English stop words are removed when the
+// analyzer is constructed with the English stop list explicitly
+// (Lucene 10.4.0 defaults to no stop words; consumers opt in).
 func TestStandardAnalyzer_StopWords(t *testing.T) {
-	analyzer := NewStandardAnalyzer()
+	analyzer := NewStandardAnalyzerWithStopWords(EnglishStopWords)
 	defer analyzer.Close()
 
 	// "the" is a stop word and should be removed
@@ -808,6 +810,55 @@ func TestStandardAnalyzer_Reuse(t *testing.T) {
 		if len(tokens) == 0 {
 			t.Errorf("Expected tokens for input %q", input)
 		}
+	}
+}
+
+// TestStandardAnalyzer_MaxTokenLengthGetterSetter verifies the
+// MaxTokenLength / SetMaxTokenLength accessors and that the value
+// is propagated to every StandardTokenizer the analyzer creates.
+// Source: TestStandardAnalyzer.testMaxTokenLengthNonDefault().
+func TestStandardAnalyzer_MaxTokenLengthGetterSetter(t *testing.T) {
+	analyzer := NewStandardAnalyzer()
+	defer analyzer.Close()
+
+	if got := analyzer.MaxTokenLength(); got != DefaultMaxTokenLength {
+		t.Errorf("default MaxTokenLength: got %d, want %d", got, DefaultMaxTokenLength)
+	}
+
+	if err := analyzer.SetMaxTokenLength(0); err == nil {
+		t.Error("SetMaxTokenLength(0) should return an error")
+	}
+	if err := analyzer.SetMaxTokenLength(5); err != nil {
+		t.Fatalf("SetMaxTokenLength(5): %v", err)
+	}
+	if got := analyzer.MaxTokenLength(); got != 5 {
+		t.Errorf("after SetMaxTokenLength(5): got %d, want 5", got)
+	}
+
+	tokens, err := collectTokensFromAnalyzer(analyzer, "ab cd toolong xy z")
+	if err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+	want := []string{"ab", "cd", "toolo", "ng", "xy", "z"}
+	if !reflect.DeepEqual(tokens, want) {
+		t.Errorf("got %v, want %v", tokens, want)
+	}
+}
+
+// TestStandardAnalyzer_DefaultEmptyStopSet verifies that the no-arg
+// constructor matches Lucene's CharArraySet.EMPTY_SET semantics:
+// no English stop word is removed unless the analyzer is
+// constructed via NewStandardAnalyzerWithStopWords.
+func TestStandardAnalyzer_DefaultEmptyStopSet(t *testing.T) {
+	analyzer := NewStandardAnalyzer()
+	defer analyzer.Close()
+	tokens, err := collectTokensFromAnalyzer(analyzer, "the quick brown fox")
+	if err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+	want := []string{"the", "quick", "brown", "fox"}
+	if !reflect.DeepEqual(tokens, want) {
+		t.Errorf("got %v, want %v", tokens, want)
 	}
 }
 
