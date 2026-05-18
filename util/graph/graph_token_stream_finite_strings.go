@@ -28,6 +28,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
@@ -198,7 +199,7 @@ func (g *GraphTokenStreamFiniteStrings) ArticulationPoints() ([]int, error) {
 // build is the port of Lucene's private build(TokenStream) -> Automaton.
 func (g *GraphTokenStreamFiniteStrings) build(in analysis.TokenStream) (*automaton.Automaton, error) {
 	src := in.(interface {
-		GetAttribute(string) analysis.AttributeImpl
+		GetAttribute(string) util.AttributeImpl
 	})
 
 	posIncRaw := src.GetAttribute("PositionIncrementAttribute")

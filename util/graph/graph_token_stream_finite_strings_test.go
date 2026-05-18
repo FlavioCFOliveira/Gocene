@@ -14,6 +14,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // cannedToken is a local stand-in for org.apache.lucene.tests.analysis.Token.
@@ -80,7 +81,7 @@ func assertTokenStream(t *testing.T, ts analysis.TokenStream, terms []string, in
 		t.Fatalf("test bug: terms (%d) and increments (%d) must have equal length", len(terms), len(increments))
 	}
 	termAtt, ok := ts.(interface {
-		GetAttribute(string) analysis.AttributeImpl
+		GetAttribute(string) util.AttributeImpl
 	})
 	if !ok {
 		t.Fatalf("ts %T does not expose GetAttribute", ts)
