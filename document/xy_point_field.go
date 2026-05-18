@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -74,4 +75,38 @@ func DecodeXY(encoded []byte) (float32, float32, error) {
 	x := geo.XYDecode(util.SortableBytesToInt(encoded, 0))
 	y := geo.XYDecode(util.SortableBytesToInt(encoded, 4))
 	return x, y, nil
+}
+
+// CheckXYPointCompatible mirrors the package-private
+// XYPointField.checkCompatible(FieldInfo) helper in Lucene 10.4.0. It
+// returns an error when the supplied FieldInfo was indexed with a point
+// shape (dim count / bytes per dim) that does not match XYPointFieldType.
+// Per the Java reference, an "unset" (zero) shape is tolerated because
+// the field could have been written by another field type (e.g. a stored
+// field with the same name) in the same segment.
+//
+// Exported as CheckXYPointCompatible to keep the package surface stable
+// and let cross-package callers (notably the XY*-in-geometry queries in
+// search/) reuse the validation without re-implementing it.
+func CheckXYPointCompatible(fi *index.FieldInfo) error {
+	if fi == nil {
+		return fmt.Errorf("field info must not be nil")
+	}
+	dims := fi.PointDimensionCount()
+	wantDims := XYPointFieldType.PointDimensionCount()
+	if dims != 0 && dims != wantDims {
+		return fmt.Errorf(
+			"field=%q was indexed with numDims=%d but XYPointField expects numDims=%d, is the field really an XYPoint?",
+			fi.Name(), dims, wantDims,
+		)
+	}
+	bytesPerDim := fi.PointNumBytes()
+	wantBytesPerDim := XYPointFieldType.PointNumBytes()
+	if bytesPerDim != 0 && bytesPerDim != wantBytesPerDim {
+		return fmt.Errorf(
+			"field=%q was indexed with bytesPerDim=%d but XYPointField expects bytesPerDim=%d, is the field really an XYPoint?",
+			fi.Name(), bytesPerDim, wantBytesPerDim,
+		)
+	}
+	return nil
 }
