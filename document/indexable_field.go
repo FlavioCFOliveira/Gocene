@@ -12,6 +12,21 @@ import (
 // be added to a Document.
 //
 // This is the Go port of Lucene's org.apache.lucene.index.IndexableField.
+//
+// Architectural note: Gocene exposes two complementary IndexableField
+// interfaces by design:
+//
+//   - document.IndexableField (this file) is the document-facing surface
+//     and carries the full document-side API including ReaderValue.
+//   - index.IndexableField is the codec-facing surface, a narrower
+//     interface accepted by SegmentWriteState/StoredFieldsWriter chains
+//     (see index/codec_interface.go for the full divergence note).
+//
+// Every concrete field type implements both because every method on
+// index.IndexableField is also present on document.IndexableField (with
+// a compatible signature once FieldType is dispatched through
+// FieldTypeInterface). Callers driving the codec layer use the index
+// alias; callers building documents use this one.
 type IndexableField interface {
 	// Name returns the name of the field.
 	Name() string
