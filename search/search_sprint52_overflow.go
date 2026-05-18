@@ -16,20 +16,11 @@ type ConjunctionUtils struct{}
 // NewConjunctionUtils builds a ConjunctionUtils.
 func NewConjunctionUtils() *ConjunctionUtils { return &ConjunctionUtils{} }
 
-// ConstantScoreScorerSupplier mirrors
-// org.apache.lucene.search.ConstantScoreScorerSupplier.
-type ConstantScoreScorerSupplier struct{}
-
-// NewConstantScoreScorerSupplier builds a ConstantScoreScorerSupplier.
-func NewConstantScoreScorerSupplier() *ConstantScoreScorerSupplier {
-	return &ConstantScoreScorerSupplier{}
-}
-
-// ConstantScoreWeight mirrors org.apache.lucene.search.ConstantScoreWeight.
-type ConstantScoreWeight struct{}
-
-// NewConstantScoreWeight builds a ConstantScoreWeight.
-func NewConstantScoreWeight() *ConstantScoreWeight { return &ConstantScoreWeight{} }
+// ConstantScoreScorerSupplier and ConstantScoreWeight have been
+// promoted out of the Sprint 52 stub pool. The concrete impls now
+// live in constant_score_scorer_supplier.go and
+// constant_score_weight.go respectively, alongside the real
+// ConstantScoreScorer in constant_score_scorer.go.
 
 // ControlledRealTimeReopenThread mirrors
 // org.apache.lucene.search.ControlledRealTimeReopenThread.
