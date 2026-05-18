@@ -7,6 +7,7 @@ package index
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -189,12 +190,13 @@ func (si *SegmentInfos) GetNextSegmentName() string {
 }
 
 // GetSegmentFileName returns the segments file name for a given generation.
-// The format is "segments_N" where N is the generation number.
+// The format is "segments_N" where N is the generation encoded in base-36
+// (lowercase), matching Lucene's Long.toString(gen, Character.MAX_RADIX).
 func GetSegmentFileName(generation int64) string {
 	if generation < 0 {
 		return ""
 	}
-	return fmt.Sprintf("segments_%d", generation)
+	return "segments_" + strconv.FormatInt(generation, 36)
 }
 
 // GetFileName returns the segments file name for the current generation.
@@ -527,9 +529,8 @@ func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
 	var latestFile string
 	for _, file := range files {
 		if len(file) > 9 && file[:9] == "segments_" {
-			// Parse generation number
-			var gen int64
-			if _, err := fmt.Sscanf(file[9:], "%d", &gen); err == nil {
+			// Parse generation number (base-36, matching Lucene Long.parseLong).
+			if gen, err := strconv.ParseInt(file[9:], 36, 64); err == nil {
 				if gen > maxGen {
 					maxGen = gen
 					latestFile = file

@@ -175,10 +175,18 @@ func TestSegmentInfos_GetFileName(t *testing.T) {
 		gen      int64
 		expected string
 	}{
+		// Single base-36 digit (0-9, a-z).
+		{0, "segments_0"},
 		{1, "segments_1"},
 		{5, "segments_5"},
-		{100, "segments_100"},
-		{0, "segments_0"},
+		{9, "segments_9"},
+		{10, "segments_a"},
+		{35, "segments_z"},
+		// First two-digit base-36 value.
+		{36, "segments_10"},
+		// Multi-digit base-36 (Lucene-compatible).
+		{100, "segments_2s"},
+		// Negative is treated as invalid.
 		{-1, ""},
 	}
 
