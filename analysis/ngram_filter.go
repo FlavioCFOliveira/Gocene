@@ -5,7 +5,6 @@
 package analysis
 
 import (
-	"reflect"
 	"unicode/utf8"
 )
 
@@ -97,13 +96,13 @@ func NewNGramFilter(input TokenStream, minGram, maxGram int) *NGramFilter {
 	// Get attributes from the shared AttributeSource
 	attrSrc := filter.GetAttributeSource()
 	if attrSrc != nil {
-		if attr := attrSrc.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); attr != nil {
+		if attr := attrSrc.GetAttribute(CharTermAttributeType); attr != nil {
 			filter.termAttr = attr.(CharTermAttribute)
 		}
-		if attr := attrSrc.GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{})); attr != nil {
+		if attr := attrSrc.GetAttribute(PositionIncrementAttributeType); attr != nil {
 			filter.posIncrAttr = attr.(PositionIncrementAttribute)
 		}
-		if attr := attrSrc.GetAttributeByType(reflect.TypeOf(&offsetAttribute{})); attr != nil {
+		if attr := attrSrc.GetAttribute(OffsetAttributeType); attr != nil {
 			filter.offsetAttr = attr.(OffsetAttribute)
 		}
 	}

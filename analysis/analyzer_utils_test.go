@@ -7,6 +7,8 @@ package analysis
 import (
 	"strings"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TestAnalyzerUtils_Tokenize tests the Tokenize function.
@@ -139,15 +141,18 @@ func TestAnalyzerUtils_IsEmpty_NotEmpty(t *testing.T) {
 	}
 }
 
-// TestAnalyzerUtils_ClearAttributes tests clearing attributes.
-// Source: TestAnalyzerUtil.java
-// Purpose: Tests that attributes can be cleared.
+// TestAnalyzerUtils_ClearAttributes tests clearing attributes via the
+// [util.AttributeSource]-based [ClearAttributes] helper.
+//
+// Sprint 54 Phase 4 migrated the helper signatures from the legacy
+// [analysis.AttributeSource] to [util.AttributeSource]; the test was
+// updated accordingly to exercise the new API.
 func TestAnalyzerUtils_ClearAttributes(t *testing.T) {
-	source := NewAttributeSource()
-	source.AddAttribute(NewCharTermAttribute())
+	source := util.NewAttributeSource()
+	source.AddAttributeImpl(NewCharTermAttribute())
 
 	// Get the attribute and set a value
-	if attr := source.GetAttribute("CharTermAttribute"); attr != nil {
+	if attr := source.GetAttribute(CharTermAttributeType); attr != nil {
 		if termAttr, ok := attr.(CharTermAttribute); ok {
 			termAttr.AppendString("test")
 		}
@@ -157,7 +162,7 @@ func TestAnalyzerUtils_ClearAttributes(t *testing.T) {
 	ClearAttributes(source)
 
 	// Verify cleared
-	if attr := source.GetAttribute("CharTermAttribute"); attr != nil {
+	if attr := source.GetAttribute(CharTermAttributeType); attr != nil {
 		if termAttr, ok := attr.(CharTermAttribute); ok {
 			if termAttr.String() != "" {
 				t.Error("Attributes should be cleared")
@@ -166,12 +171,13 @@ func TestAnalyzerUtils_ClearAttributes(t *testing.T) {
 	}
 }
 
-// TestAnalyzerUtils_HasAttribute tests checking for attribute existence.
-// Source: TestAnalyzerUtil.java
-// Purpose: Tests that attribute existence can be checked.
+// TestAnalyzerUtils_HasAttribute tests checking for attribute existence
+// via the canonical-name-keyed [HasAttribute] helper (Phase 4 retained
+// the string-keyed signature as a back-compat shim that resolves through
+// the [canonicalAttributeInterfaces] registry).
 func TestAnalyzerUtils_HasAttribute(t *testing.T) {
-	source := NewAttributeSource()
-	source.AddAttribute(NewCharTermAttribute())
+	source := util.NewAttributeSource()
+	source.AddAttributeImpl(NewCharTermAttribute())
 
 	if !HasAttribute(source, "CharTermAttribute") {
 		t.Error("Should have CharTermAttribute")

@@ -5,7 +5,6 @@
 package analysis
 
 import (
-	"reflect"
 	"unicode/utf8"
 )
 
@@ -125,13 +124,13 @@ func NewEdgeNGramFilterWithOptions(input TokenStream, minGram, maxGram int, pres
 	// Get attributes from the shared AttributeSource
 	attrSource := filter.GetAttributeSource()
 	if attrSource != nil {
-		if attr := attrSource.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); attr != nil {
+		if attr := attrSource.GetAttribute(CharTermAttributeType); attr != nil {
 			filter.termAttr = attr.(CharTermAttribute)
 		}
-		if attr := attrSource.GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{})); attr != nil {
+		if attr := attrSource.GetAttribute(PositionIncrementAttributeType); attr != nil {
 			filter.posIncrAttr = attr.(PositionIncrementAttribute)
 		}
-		if attr := attrSource.GetAttributeByType(reflect.TypeOf(&offsetAttribute{})); attr != nil {
+		if attr := attrSource.GetAttribute(OffsetAttributeType); attr != nil {
 			filter.offsetAttr = attr.(OffsetAttribute)
 		}
 	}

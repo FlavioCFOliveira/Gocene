@@ -31,7 +31,7 @@ func TestTokenFilter_Chaining(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := stopFilter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := stopFilter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}

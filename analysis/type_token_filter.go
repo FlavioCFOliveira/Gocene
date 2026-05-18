@@ -36,7 +36,7 @@ func NewTypeTokenFilter(input TokenStream, types map[string]bool, useWhitelist b
 	// Get the TypeAttribute from the shared AttributeSource
 	attrSrc := filter.GetAttributeSource()
 	if attrSrc != nil {
-		if attr := attrSrc.GetAttribute("TypeAttribute"); attr != nil {
+		if attr := attrSrc.GetAttribute(TypeAttributeType); attr != nil {
 			filter.typeAttr = attr.(TypeAttribute)
 		}
 	}

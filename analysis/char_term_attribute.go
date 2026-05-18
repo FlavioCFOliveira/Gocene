@@ -107,11 +107,25 @@ type charTermAttribute struct {
 // participates in. The opt-in interfaces are wired through Sprint 12
 // option (d).
 var (
-	_ AttributeImpl           = (*charTermAttribute)(nil)
-	_ CharTermAttribute       = (*charTermAttribute)(nil)
-	_ TermToBytesRefAttribute = (*charTermAttribute)(nil)
-	_ AttributeReflectable    = (*charTermAttribute)(nil)
+	_ AttributeImpl                   = (*charTermAttribute)(nil)
+	_ CharTermAttribute               = (*charTermAttribute)(nil)
+	_ TermToBytesRefAttribute         = (*charTermAttribute)(nil)
+	_ AttributeReflectable            = (*charTermAttribute)(nil)
+	_ util.AttributeInterfaceProvider = (*charTermAttribute)(nil)
 )
+
+// AttributeInterfaces satisfies [util.AttributeInterfaceProvider]: it
+// declares the Attribute interface types this impl satisfies so that
+// [util.AttributeSource.AddAttributeImpl] can register them without
+// relying on the package-level [util.RegisterAttributeImpl] registry.
+//
+// This is the Lucene-faithful equivalent of Java's reflective
+// Class#getInterfaces enumeration: Go reflection cannot enumerate
+// interface satisfaction without a candidate set, so the impl declares
+// its set explicitly.
+func (a *charTermAttribute) AttributeInterfaces() []reflect.Type {
+	return []reflect.Type{CharTermAttributeType, TermToBytesRefAttributeType}
+}
 
 // NewCharTermAttribute creates a new empty CharTermAttribute.
 func NewCharTermAttribute() CharTermAttribute {

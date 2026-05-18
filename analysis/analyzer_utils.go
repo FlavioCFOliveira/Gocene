@@ -6,6 +6,8 @@ package analysis
 
 import (
 	"strings"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // AnalyzerUtils provides utility methods for analysis operations.
@@ -180,13 +182,17 @@ func SetInput(filter TokenFilter, input TokenStream) {
 }
 
 // ClearAttributes clears all attributes in the given AttributeSource.
-func ClearAttributes(source *AttributeSource) {
+func ClearAttributes(source *util.AttributeSource) {
 	source.ClearAttributes()
 }
 
-// HasAttribute checks if the given attribute type exists in the source.
-func HasAttribute(source *AttributeSource, attrType string) bool {
-	return source.GetAttribute(attrType) != nil
+// HasAttribute checks if the given attribute name exists in the
+// source, looked up via the [canonicalAttributeInterfaces] registry.
+func HasAttribute(source *util.AttributeSource, attrType string) bool {
+	if t, ok := canonicalAttributeInterfaces[attrType]; ok {
+		return source.HasAttribute(t)
+	}
+	return false
 }
 
 // IsEmpty checks if a token stream has no tokens.
@@ -218,7 +224,9 @@ func CountTokens(tokenStream TokenStream) (int, error) {
 func (f *BaseTokenFilter) SetInput(input TokenStream) {
 	f.input = input
 	// Update AttributeSource
-	if hasAttrSrc, ok := input.(interface{ GetAttributeSource() *AttributeSource }); ok {
+	if hasAttrSrc, ok := input.(interface {
+		GetAttributeSource() *util.AttributeSource
+	}); ok {
 		f.attributes = hasAttrSrc.GetAttributeSource()
 	}
 }

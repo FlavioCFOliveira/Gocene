@@ -12,6 +12,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // QueryParser parses query strings into Query objects using the classic Lucene query syntax.
@@ -580,9 +581,9 @@ func (p *QueryParser) analyzeText(field, text string) []string {
 			break
 		}
 		if attrSrc, ok := ts.(interface {
-			GetAttributeSource() *analysis.AttributeSource
+			GetAttributeSource() *util.AttributeSource
 		}); ok {
-			if attr := attrSrc.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+			if attr := attrSrc.GetAttributeSource().GetAttribute(analysis.CharTermAttributeType); attr != nil {
 				if termAttr, ok := attr.(analysis.CharTermAttribute); ok {
 					tokens = append(tokens, termAttr.String())
 				}

@@ -4,10 +4,6 @@
 
 package analysis
 
-import (
-	"reflect"
-)
-
 // TruncateTokenFilter truncates tokens to a maximum length.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.TruncateTokenFilter.
@@ -34,7 +30,7 @@ func NewTruncateTokenFilter(input TokenStream, maxLength int) *TruncateTokenFilt
 	// Get the CharTermAttribute from the shared AttributeSource
 	attrSrc := filter.GetAttributeSource()
 	if attrSrc != nil {
-		attr := attrSrc.GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+		attr := attrSrc.GetAttribute(CharTermAttributeType)
 		if attr != nil {
 			filter.termAttr = attr.(CharTermAttribute)
 		}

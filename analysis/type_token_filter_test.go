@@ -61,7 +61,7 @@ func TestTypeTokenFilter_Whitelist(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 					tokens = append(tokens, attr.(CharTermAttribute).String())
 				}
 			}
@@ -113,7 +113,7 @@ func TestTypeTokenFilter_Blacklist(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 					tokens = append(tokens, attr.(CharTermAttribute).String())
 				}
 			}

@@ -124,7 +124,7 @@ func TestStandardTokenizerFactory_TokenizerProducesExpectedTokens(t *testing.T) 
 		}
 		ct := tk.(*StandardTokenizer).
 			GetAttributeSource().
-			GetAttribute("CharTermAttribute").(CharTermAttribute)
+			GetAttribute(CharTermAttributeType).(CharTermAttribute)
 		tokens = append(tokens, ct.String())
 	}
 	want := []string{"Hello", "World", "123"}

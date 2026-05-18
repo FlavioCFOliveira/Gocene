@@ -6,7 +6,6 @@ package analysis
 
 import (
 	"errors"
-	"reflect"
 
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
@@ -131,16 +130,16 @@ func newAutomatonTokenStream(edges [][]autEdgeToken) *automatonTokenStream {
 	ts.AddAttribute(NewPositionLengthAttribute())
 
 	src := ts.GetAttributeSource()
-	if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+	if a := src.GetAttribute(CharTermAttributeType); a != nil {
 		ts.termAttr, _ = a.(CharTermAttribute)
 	}
-	if a := src.GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{})); a != nil {
+	if a := src.GetAttribute(PositionIncrementAttributeType); a != nil {
 		ts.posIncAttr, _ = a.(PositionIncrementAttribute)
 	}
-	if a := src.GetAttributeByType(PositionLengthAttributeType); a != nil {
+	if a := src.GetAttribute(PositionLengthAttributeType); a != nil {
 		ts.posLenAttr, _ = a.(PositionLengthAttribute)
 	}
-	if a := src.GetAttributeByType(reflect.TypeOf(&offsetAttribute{})); a != nil {
+	if a := src.GetAttribute(OffsetAttributeType); a != nil {
 		ts.offsetAttr, _ = a.(OffsetAttribute)
 	}
 	return ts

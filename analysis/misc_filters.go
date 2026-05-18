@@ -6,7 +6,6 @@ package analysis
 
 import (
 	"errors"
-	"reflect"
 	"strings"
 	"unicode/utf8"
 )
@@ -78,7 +77,7 @@ func NewCodepointCountFilter(input TokenStream, min, max int) (*CodepointCountFi
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
 	}
@@ -155,7 +154,7 @@ func NewFixBrokenOffsetsFilter(input TokenStream) *FixBrokenOffsetsFilter {
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&offsetAttribute{})); a != nil {
+		if a := src.GetAttribute(OffsetAttributeType); a != nil {
 			f.offsetAttr = a.(OffsetAttribute)
 		}
 	}
@@ -241,10 +240,10 @@ func NewKeywordMarkerFilter(input TokenStream, isKeyword func() bool) *KeywordMa
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(KeywordAttributeType); a != nil {
+		if a := src.GetAttribute(KeywordAttributeType); a != nil {
 			f.keywordAttr = a.(KeywordAttribute)
 		}
 	}
@@ -358,16 +357,16 @@ func NewTypeAsSynonymFilterWithConfig(input TokenStream, prefix string, ignore [
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(TypeAttributeType); a != nil {
+		if a := src.GetAttribute(TypeAttributeType); a != nil {
 			f.typeAttr = a.(TypeAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{})); a != nil {
+		if a := src.GetAttribute(PositionIncrementAttributeType); a != nil {
 			f.posIncrAttr = a.(PositionIncrementAttribute)
 		}
-		if a := src.GetAttributeByType(FlagsAttributeType); a != nil {
+		if a := src.GetAttribute(FlagsAttributeType); a != nil {
 			f.flagsAttr = a.(FlagsAttribute)
 		}
 	}

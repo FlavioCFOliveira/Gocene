@@ -4,8 +4,6 @@
 
 package analysis
 
-import "reflect"
-
 // ElisionFilter removes elided particles (e.g. "l'", "qu'", "d'") at
 // the head of each token when the prefix is present in the configured
 // articles set.
@@ -35,7 +33,7 @@ func NewElisionFilter(input TokenStream, articles *CharArraySet) *ElisionFilter 
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
 	}

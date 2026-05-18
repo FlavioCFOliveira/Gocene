@@ -4,10 +4,6 @@
 
 package analysis
 
-import (
-	"reflect"
-)
-
 // MinHashFilter computes MinHash signatures for tokens.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.minhash.MinHashFilter.
@@ -51,7 +47,7 @@ func NewMinHashFilter(input TokenStream, hashCount, bucketCount int) *MinHashFil
 	// Get the CharTermAttribute from the shared AttributeSource
 	attrSrc := filter.GetAttributeSource()
 	if attrSrc != nil {
-		attr := attrSrc.GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+		attr := attrSrc.GetAttribute(CharTermAttributeType)
 		if attr != nil {
 			filter.termAttr = attr.(CharTermAttribute)
 		}

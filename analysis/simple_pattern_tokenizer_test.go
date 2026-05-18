@@ -5,7 +5,6 @@
 package analysis
 
 import (
-	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -102,7 +101,7 @@ func TestSimplePatternTokenizer_Basic(t *testing.T) {
 					break
 				}
 
-				termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+				termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 				if termAttr == nil {
 					t.Fatal("CharTermAttribute is nil")
 				}
@@ -155,8 +154,8 @@ func TestSimplePatternTokenizer_Offsets(t *testing.T) {
 			t.Fatalf("Expected token %d", i)
 		}
 
-		termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
-		offsetAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&offsetAttribute{}))
+		termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
+		offsetAttr := tokenizer.GetAttributeSource().GetAttribute(OffsetAttributeType)
 
 		if termAttr == nil {
 			t.Fatal("CharTermAttribute is nil")
@@ -200,7 +199,7 @@ func TestSimplePatternTokenizer_PositionIncrement(t *testing.T) {
 			t.Fatalf("Expected token %d", i)
 		}
 
-		posIncrAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{}))
+		posIncrAttr := tokenizer.GetAttributeSource().GetAttribute(PositionIncrementAttributeType)
 		if posIncrAttr == nil {
 			t.Fatal("PositionIncrementAttribute is nil")
 		}
@@ -230,7 +229,7 @@ func TestSimplePatternTokenizer_Reset(t *testing.T) {
 		t.Fatal("Expected token from first input")
 	}
 
-	termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+	termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 	term := termAttr.(CharTermAttribute).String()
 	if term != "first" {
 		t.Errorf("First token = %q, want 'first'", term)
@@ -253,7 +252,7 @@ func TestSimplePatternTokenizer_Reset(t *testing.T) {
 		t.Fatal("Expected token from second input")
 	}
 
-	termAttr = tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+	termAttr = tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 	term = termAttr.(CharTermAttribute).String()
 	if term != "third" {
 		t.Errorf("Token after reset = %q, want 'third'", term)
@@ -288,7 +287,7 @@ func TestSimplePatternTokenizer_End(t *testing.T) {
 		t.Fatalf("End failed: %v", err)
 	}
 
-	offsetAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&offsetAttribute{}))
+	offsetAttr := tokenizer.GetAttributeSource().GetAttribute(OffsetAttributeType)
 	if offsetAttr == nil {
 		t.Fatal("OffsetAttribute is nil")
 	}
@@ -332,7 +331,7 @@ func TestSimplePatternTokenizer_WithPrecompiledRegexp(t *testing.T) {
 		t.Fatal("Expected token")
 	}
 
-	termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+	termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 	term := termAttr.(CharTermAttribute).String()
 	if term != "hello" {
 		t.Errorf("Token = %q, want 'hello'", term)
@@ -388,7 +387,7 @@ func TestSimplePatternTokenizer_Unicode(t *testing.T) {
 					break
 				}
 
-				termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+				termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 				term := termAttr.(CharTermAttribute).String()
 				tokens = append(tokens, term)
 			}
@@ -473,7 +472,7 @@ func TestSimplePatternTokenizer_Factory(t *testing.T) {
 		t.Fatal("Expected token")
 	}
 
-	termAttr := concreteTokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+	termAttr := concreteTokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 	term := termAttr.(CharTermAttribute).String()
 	if term != "hello" {
 		t.Errorf("Token = %q, want 'hello'", term)
@@ -510,7 +509,7 @@ func TestSimplePatternTokenizer_OverlappingMatches(t *testing.T) {
 		t.Fatal("Expected token")
 	}
 
-	termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+	termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 	term := termAttr.(CharTermAttribute).String()
 	if term != "aaaa" {
 		t.Errorf("Token = %q, want 'aaaa'", term)
@@ -542,7 +541,7 @@ func TestSimplePatternTokenizer_SingleToken(t *testing.T) {
 		t.Fatal("Expected token")
 	}
 
-	termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+	termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 	term := termAttr.(CharTermAttribute).String()
 	if term != "single" {
 		t.Errorf("Token = %q, want 'single'", term)

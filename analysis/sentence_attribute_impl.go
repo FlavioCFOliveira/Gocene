@@ -28,10 +28,16 @@ type SentenceAttributeImpl struct {
 // Compile-time assertions to lock in the contracts this impl
 // participates in.
 var (
-	_ AttributeImpl        = (*SentenceAttributeImpl)(nil)
-	_ SentenceAttribute    = (*SentenceAttributeImpl)(nil)
-	_ AttributeReflectable = (*SentenceAttributeImpl)(nil)
+	_ AttributeImpl                   = (*SentenceAttributeImpl)(nil)
+	_ SentenceAttribute               = (*SentenceAttributeImpl)(nil)
+	_ AttributeReflectable            = (*SentenceAttributeImpl)(nil)
+	_ util.AttributeInterfaceProvider = (*SentenceAttributeImpl)(nil)
 )
+
+// AttributeInterfaces satisfies [util.AttributeInterfaceProvider].
+func (s *SentenceAttributeImpl) AttributeInterfaces() []reflect.Type {
+	return []reflect.Type{SentenceAttributeType}
+}
 
 // NewSentenceAttributeImpl initialises this attribute with the default
 // sentence index of 0, matching the Lucene no-arg constructor.

@@ -5,9 +5,10 @@
 package analysis
 
 import (
-	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TestStopAnalyzer_DefaultStopWords tests StopAnalyzer with default English stop words.
@@ -130,8 +131,11 @@ func TestStopAnalyzer_PositionIncrement(t *testing.T) {
 		t.Fatal("Expected token 'quick'")
 	}
 
-	attrSrc := stream.(interface{ GetAttributeSource() *AttributeSource }).GetAttributeSource()
-	posIncrAttr := attrSrc.GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{}))
+	attrSrc := stream.(interface {
+		GetAttributeSource() *util.AttributeSource
+		GetAttribute(string) AttributeImpl
+	}).GetAttributeSource()
+	posIncrAttr := attrSrc.GetAttribute(PositionIncrementAttributeType)
 	if posIncrAttr == nil {
 		t.Fatal("PositionIncrementAttribute is nil")
 	}
@@ -260,8 +264,11 @@ func collectTokens(analyzer Analyzer, input string) ([]string, error) {
 			break
 		}
 
-		attrSrc := stream.(interface{ GetAttributeSource() *AttributeSource }).GetAttributeSource()
-		termAttr := attrSrc.GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+		attrSrc := stream.(interface {
+			GetAttributeSource() *util.AttributeSource
+			GetAttribute(string) AttributeImpl
+		}).GetAttributeSource()
+		termAttr := attrSrc.GetAttribute(CharTermAttributeType)
 		if termAttr != nil {
 			tokens = append(tokens, termAttr.(CharTermAttribute).String())
 		}

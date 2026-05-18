@@ -166,7 +166,7 @@ func (qpb *QueryParserBase) Analyze(field, text string) []string {
 		// Get the term attribute using the attribute source
 		if baseTs, ok := tokenStream.(*analysis.BaseTokenStream); ok {
 			attrSource := baseTs.GetAttributeSource()
-			if termAttr := attrSource.GetAttribute("CharTermAttribute"); termAttr != nil {
+			if termAttr := attrSource.GetAttribute(analysis.CharTermAttributeType); termAttr != nil {
 				if cta, ok := termAttr.(analysis.CharTermAttribute); ok {
 					term := cta.String()
 					if term != "" {

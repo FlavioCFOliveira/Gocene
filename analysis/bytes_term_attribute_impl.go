@@ -28,11 +28,17 @@ type BytesTermAttributeImpl struct {
 // Compile-time assertions to lock in the contract this impl
 // participates in.
 var (
-	_ AttributeImpl           = (*BytesTermAttributeImpl)(nil)
-	_ BytesTermAttribute      = (*BytesTermAttributeImpl)(nil)
-	_ TermToBytesRefAttribute = (*BytesTermAttributeImpl)(nil)
-	_ AttributeReflectable    = (*BytesTermAttributeImpl)(nil)
+	_ AttributeImpl                   = (*BytesTermAttributeImpl)(nil)
+	_ BytesTermAttribute              = (*BytesTermAttributeImpl)(nil)
+	_ TermToBytesRefAttribute         = (*BytesTermAttributeImpl)(nil)
+	_ AttributeReflectable            = (*BytesTermAttributeImpl)(nil)
+	_ util.AttributeInterfaceProvider = (*BytesTermAttributeImpl)(nil)
 )
+
+// AttributeInterfaces satisfies [util.AttributeInterfaceProvider].
+func (b *BytesTermAttributeImpl) AttributeInterfaces() []reflect.Type {
+	return []reflect.Type{BytesTermAttributeType, TermToBytesRefAttributeType}
+}
 
 // NewBytesTermAttributeImpl initialises this attribute with no bytes,
 // matching the Lucene no-arg constructor.

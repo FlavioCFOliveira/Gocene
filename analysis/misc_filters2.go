@@ -5,7 +5,6 @@
 package analysis
 
 import (
-	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -41,10 +40,10 @@ func NewHyphenatedWordsFilter(input TokenStream) *HyphenatedWordsFilter {
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&offsetAttribute{})); a != nil {
+		if a := src.GetAttribute(OffsetAttributeType); a != nil {
 			f.offsetAttr = a.(OffsetAttribute)
 		}
 	}
@@ -197,7 +196,7 @@ func NewCapitalizationFilterWithConfig(input TokenStream, onlyFirstWord, forceFi
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
 	}
@@ -358,16 +357,16 @@ func NewFingerprintFilterWithConfig(input TokenStream, maxOutputTokenSize int, s
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{})); a != nil {
+		if a := src.GetAttribute(PositionIncrementAttributeType); a != nil {
 			f.posIncrAttr = a.(PositionIncrementAttribute)
 		}
-		if a := src.GetAttributeByType(TypeAttributeType); a != nil {
+		if a := src.GetAttribute(TypeAttributeType); a != nil {
 			f.typeAttr = a.(TypeAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&offsetAttribute{})); a != nil {
+		if a := src.GetAttribute(OffsetAttributeType); a != nil {
 			f.offsetAttr = a.(OffsetAttribute)
 		}
 	}
@@ -488,7 +487,7 @@ func NewDropIfFlaggedFilter(input TokenStream, dropFlags int) *DropIfFlaggedFilt
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(FlagsAttributeType); a != nil {
+		if a := src.GetAttribute(FlagsAttributeType); a != nil {
 			f.flagsAttr = a.(FlagsAttribute)
 		}
 	}
@@ -567,10 +566,10 @@ func NewDelimitedTermFrequencyTokenFilterWithDelimiter(input TokenStream, delimi
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(TermFrequencyAttributeType); a != nil {
+		if a := src.GetAttribute(TermFrequencyAttributeType); a != nil {
 			f.tfAttr = a.(TermFrequencyAttribute)
 		}
 	}

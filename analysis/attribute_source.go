@@ -157,18 +157,12 @@ func (as *AttributeSource) rebuildIndices() {
 	as.dirty.Store(false)
 }
 
-// canonicalAttributeInterfaces maps the legacy string names used by
-// {@link GetAttribute} to the canonical reflect.Type of each
-// Sprint 54-promoted Attribute interface. Lookups against either
-// the concrete-pointer key or one of these names route to the same impl.
-var canonicalAttributeInterfaces = map[string]reflect.Type{
-	"TypeAttribute":           TypeAttributeType,
-	"PayloadAttribute":        PayloadAttributeType,
-	"FlagsAttribute":          FlagsAttributeType,
-	"KeywordAttribute":        KeywordAttributeType,
-	"PositionLengthAttribute": PositionLengthAttributeType,
-	"TermFrequencyAttribute":  TermFrequencyAttributeType,
-}
+// canonicalAttributeInterfaces is defined in token_stream.go (Sprint 54
+// Phase 4) so that the registry covers every analysis-package Attribute
+// interface, not just the Phase 3 promotions. The legacy
+// [analysis.AttributeSource.GetAttribute] still consults it as a
+// fallback for unknown string names; new lookup paths route through
+// [BaseTokenStream.GetAttribute] which uses the same registry.
 
 // GetAttributeByType retrieves an attribute by its reflect.Type.
 //

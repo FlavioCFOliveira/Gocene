@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TestAnalyzers_SimpleAnalyzer tests SimpleAnalyzer behavior.
@@ -255,7 +257,7 @@ func TestAnalyzers_WhitespaceTokenizer(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := tokenizer.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -500,8 +502,11 @@ func collectTokensFromAnalyzer(analyzer Analyzer, input string) ([]string, error
 			break
 		}
 
-		attrSrc := stream.(interface{ GetAttributeSource() *AttributeSource }).GetAttributeSource()
-		termAttr := attrSrc.GetAttribute("CharTermAttribute")
+		attrSrc := stream.(interface {
+			GetAttributeSource() *util.AttributeSource
+			GetAttribute(string) AttributeImpl
+		}).GetAttributeSource()
+		termAttr := attrSrc.GetAttribute(CharTermAttributeType)
 		if termAttr != nil {
 			if ct, ok := termAttr.(CharTermAttribute); ok {
 				tokens = append(tokens, ct.String())

@@ -4,8 +4,6 @@
 
 package analysis
 
-import "reflect"
-
 // SerbianNormalizationFilter remaps Serbian Cyrillic letters to
 // "bald" Latin (no diacritics), expanding multi-letter Cyrillic
 // graphemes (đ→dj, љ→lj, њ→nj, џ→dz) and demoting Latin diacritics
@@ -30,7 +28,7 @@ func NewSerbianNormalizationFilter(input TokenStream) *SerbianNormalizationFilte
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
 	}

@@ -4,8 +4,6 @@
 
 package analysis
 
-import "reflect"
-
 // ApostropheFilter truncates each incoming token at the first
 // occurrence of an ASCII apostrophe (U+0027) or the right single
 // quotation mark (U+2019). This is the customary handling for
@@ -36,7 +34,7 @@ func NewApostropheFilter(input TokenStream) *ApostropheFilter {
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
 	}

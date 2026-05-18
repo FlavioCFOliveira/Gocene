@@ -4,10 +4,6 @@
 
 package analysis
 
-import (
-	"reflect"
-)
-
 // KeepWordFilter keeps only tokens that are in a specified word set.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.KeepWordFilter.
@@ -34,7 +30,7 @@ func NewKeepWordFilter(input TokenStream, keepWords map[string]bool) *KeepWordFi
 	// Get the CharTermAttribute from the shared AttributeSource
 	attrSrc := filter.GetAttributeSource()
 	if attrSrc != nil {
-		attr := attrSrc.GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+		attr := attrSrc.GetAttribute(CharTermAttributeType)
 		if attr != nil {
 			filter.termAttr = attr.(CharTermAttribute)
 		}

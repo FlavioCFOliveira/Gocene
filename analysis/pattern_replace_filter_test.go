@@ -87,7 +87,7 @@ func TestPatternReplaceFilter_Basic(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -171,7 +171,7 @@ func TestPatternReplaceFilter_CaptureGroups(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -205,7 +205,7 @@ func TestPatternReplaceFilter_NoMatch(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -266,7 +266,7 @@ func TestPatternReplaceFilter_EmptyReplacement(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -299,7 +299,7 @@ func TestPatternReplaceFilter_PositionIncrement(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttributeSource().GetAttribute("PositionIncrementAttribute"); attr != nil {
+		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
 			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
 				positions = append(positions, posAttr.GetPositionIncrement())
 			}
@@ -340,12 +340,12 @@ func TestPatternReplaceFilter_Offset(t *testing.T) {
 		}
 
 		var info tokenInfo
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				info.text = termAttr.String()
 			}
 		}
-		if attr := filter.GetAttributeSource().GetAttribute("OffsetAttribute"); attr != nil {
+		if attr := filter.GetAttribute("OffsetAttribute"); attr != nil {
 			if offsetAttr, ok := attr.(OffsetAttribute); ok {
 				info.startOffset = offsetAttr.StartOffset()
 				info.endOffset = offsetAttr.EndOffset()
@@ -391,7 +391,7 @@ func TestPatternReplaceFilter_Chaining(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := replaceFilter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := replaceFilter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -476,7 +476,7 @@ func TestPatternReplaceFilter_ConvenienceConstructors(t *testing.T) {
 			if !hasToken {
 				break
 			}
-			if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+			if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 				if termAttr, ok := attr.(CharTermAttribute); ok {
 					tokens = append(tokens, termAttr.String())
 				}
@@ -506,7 +506,7 @@ func TestPatternReplaceFilter_ConvenienceConstructors(t *testing.T) {
 			if !hasToken {
 				break
 			}
-			if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+			if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 				if termAttr, ok := attr.(CharTermAttribute); ok {
 					tokens = append(tokens, termAttr.String())
 				}
@@ -678,7 +678,7 @@ func TestPatternReplaceFilter_CommonFilters(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -755,7 +755,7 @@ func TestPatternReplaceFilter_ComplexPatterns(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -845,7 +845,7 @@ func TestPatternReplaceFilter_EdgeCases(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -915,7 +915,7 @@ func TestPatternReplaceFilter_Unicode(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}

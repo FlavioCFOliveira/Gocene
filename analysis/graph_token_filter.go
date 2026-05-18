@@ -6,7 +6,8 @@ package analysis
 
 import (
 	"errors"
-	"reflect"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // MaxGraphStackSize is the maximum permitted number of routes through a
@@ -65,17 +66,17 @@ func NewGraphTokenFilter(input TokenStream) *GraphTokenFilter {
 		finalOffsets:      -1,
 	}
 	if src := f.GetAttributeSource(); src != nil {
-		if attr := src.GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{})); attr != nil {
+		if attr := src.GetAttribute(PositionIncrementAttributeType); attr != nil {
 			if pi, ok := attr.(PositionIncrementAttribute); ok {
 				f.posIncAtt = pi
 			}
 		}
-		if attr := src.GetAttributeByType(reflect.TypeOf(&offsetAttribute{})); attr != nil {
+		if attr := src.GetAttribute(OffsetAttributeType); attr != nil {
 			if off, ok := attr.(OffsetAttribute); ok {
 				f.offsetAtt = off
 			}
 		}
-		if attr := src.GetAttributeByType(PositionLengthAttributeType); attr != nil {
+		if attr := src.GetAttribute(PositionLengthAttributeType); attr != nil {
 			if pl, ok := attr.(PositionLengthAttribute); ok {
 				f.posLenAtt = pl
 			}
@@ -362,7 +363,7 @@ func (f *GraphTokenFilter) currentPosLen() int {
 // graphToken caches the attribute state of a single token together with the
 // position-increment and position-length needed for graph traversal.
 type graphToken struct {
-	state    *State
+	state    *util.AttributeState
 	posInc   int
 	posLen   int
 	nextRef  *graphToken

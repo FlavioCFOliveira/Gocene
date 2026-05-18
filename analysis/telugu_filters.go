@@ -4,8 +4,6 @@
 
 package analysis
 
-import "reflect"
-
 // TeluguNormalizer applies spelling-variation normalisation to Telugu
 // text. The rules below match
 // org.apache.lucene.analysis.te.TeluguNormalizer from Apache Lucene
@@ -91,7 +89,7 @@ func NewTeluguNormalizationFilter(input TokenStream) *TeluguNormalizationFilter 
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
 	}
@@ -200,10 +198,10 @@ func NewTeluguStemFilter(input TokenStream) *TeluguStemFilter {
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(KeywordAttributeType); a != nil {
+		if a := src.GetAttribute(KeywordAttributeType); a != nil {
 			f.keywordAttr = a.(KeywordAttribute)
 		}
 	}

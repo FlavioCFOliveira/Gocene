@@ -89,7 +89,7 @@ func TestLengthFilter_IncrementToken(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 					tokens = append(tokens, attr.(CharTermAttribute).String())
 				}
 			}

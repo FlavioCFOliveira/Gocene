@@ -5,7 +5,6 @@
 package analysis
 
 import (
-	"reflect"
 	"regexp"
 )
 
@@ -67,7 +66,7 @@ func NewPatternReplaceFilter(input TokenStream, pattern *regexp.Regexp, replacem
 	// Get the CharTermAttribute from the shared AttributeSource
 	attrSrc := filter.GetAttributeSource()
 	if attrSrc != nil {
-		attr := attrSrc.GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+		attr := attrSrc.GetAttribute(CharTermAttributeType)
 		if attr != nil {
 			filter.termAttr = attr.(CharTermAttribute)
 		}

@@ -26,10 +26,10 @@ func NewTypeAsPayloadTokenFilter(input TokenStream) *TypeAsPayloadTokenFilter {
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(TypeAttributeType); a != nil {
+		if a := src.GetAttribute(TypeAttributeType); a != nil {
 			f.typeAttr = a.(TypeAttribute)
 		}
-		if a := src.GetAttributeByType(PayloadAttributeType); a != nil {
+		if a := src.GetAttribute(PayloadAttributeType); a != nil {
 			f.payloadAttr = a.(PayloadAttribute)
 		}
 	}

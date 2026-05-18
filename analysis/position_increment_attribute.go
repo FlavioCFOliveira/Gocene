@@ -55,11 +55,18 @@ type positionIncrementAttribute struct {
 // participates in. Sprint 12 adds opt-in End/ReflectWith hooks via the
 // AttributeEnder and AttributeReflectable interfaces.
 var (
-	_ AttributeImpl              = (*positionIncrementAttribute)(nil)
-	_ PositionIncrementAttribute = (*positionIncrementAttribute)(nil)
-	_ AttributeEnder             = (*positionIncrementAttribute)(nil)
-	_ AttributeReflectable       = (*positionIncrementAttribute)(nil)
+	_ AttributeImpl                   = (*positionIncrementAttribute)(nil)
+	_ PositionIncrementAttribute      = (*positionIncrementAttribute)(nil)
+	_ AttributeEnder                  = (*positionIncrementAttribute)(nil)
+	_ AttributeReflectable            = (*positionIncrementAttribute)(nil)
+	_ util.AttributeInterfaceProvider = (*positionIncrementAttribute)(nil)
 )
+
+// AttributeInterfaces satisfies [util.AttributeInterfaceProvider] (see
+// charTermAttribute.AttributeInterfaces for the rationale).
+func (a *positionIncrementAttribute) AttributeInterfaces() []reflect.Type {
+	return []reflect.Type{PositionIncrementAttributeType}
+}
 
 // NewPositionIncrementAttribute creates a new PositionIncrementAttribute
 // with the default increment of 1.

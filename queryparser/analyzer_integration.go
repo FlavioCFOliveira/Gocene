@@ -101,7 +101,7 @@ func (ai *AnalyzerIntegration) Tokenize(field, text string) ([]TokenInfo, error)
 			attrSource := baseTs.GetAttributeSource()
 
 			// Get CharTermAttribute
-			if termAttr := attrSource.GetAttribute("CharTermAttribute"); termAttr != nil {
+			if termAttr := attrSource.GetAttribute(analysis.CharTermAttributeType); termAttr != nil {
 				if cta, ok := termAttr.(analysis.CharTermAttribute); ok {
 					term := cta.String()
 					if term == "" {
@@ -109,7 +109,7 @@ func (ai *AnalyzerIntegration) Tokenize(field, text string) ([]TokenInfo, error)
 					}
 
 					// Get position increment if available
-					if posIncAttr := attrSource.GetAttribute("PositionIncrementAttribute"); posIncAttr != nil {
+					if posIncAttr := attrSource.GetAttribute(analysis.PositionIncrementAttributeType); posIncAttr != nil {
 						if pia, ok := posIncAttr.(analysis.PositionIncrementAttribute); ok && ai.positionIncrements {
 							position += pia.GetPositionIncrement()
 						} else {

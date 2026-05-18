@@ -5,7 +5,6 @@
 package analysis
 
 import (
-	"reflect"
 	"strings"
 	"unicode"
 )
@@ -177,39 +176,39 @@ func (f *WordDelimiterGraphFilter) initAttributes() {
 	}
 
 	// Get CharTermAttribute
-	attr := attrSource.GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+	attr := attrSource.GetAttribute(CharTermAttributeType)
 	if attr != nil {
 		f.termAttr = attr.(CharTermAttribute)
 	}
 
 	// Get PositionIncrementAttribute
-	attr = attrSource.GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{}))
+	attr = attrSource.GetAttribute(PositionIncrementAttributeType)
 	if attr != nil {
 		f.posIncrAttr = attr.(PositionIncrementAttribute)
 	}
 
 	// Get or add PositionLengthAttribute
-	attr = attrSource.GetAttributeByType(PositionLengthAttributeType)
+	attr = attrSource.GetAttribute(PositionLengthAttributeType)
 	if attr != nil {
 		f.posLenAttr = attr.(PositionLengthAttribute)
 	} else {
 		f.posLenAttr = NewPositionLengthAttribute()
-		attrSource.AddAttribute(f.posLenAttr)
+		attrSource.AddAttributeImpl(f.posLenAttr)
 	}
 
 	// Get OffsetAttribute
-	attr = attrSource.GetAttributeByType(reflect.TypeOf(&offsetAttribute{}))
+	attr = attrSource.GetAttribute(OffsetAttributeType)
 	if attr != nil {
 		f.offsetAttr = attr.(OffsetAttribute)
 	}
 
 	// Get or add TypeAttribute
-	attr = attrSource.GetAttributeByType(TypeAttributeType)
+	attr = attrSource.GetAttribute(TypeAttributeType)
 	if attr != nil {
 		f.typeAttr = attr.(TypeAttribute)
 	} else {
 		f.typeAttr = NewTypeAttribute()
-		attrSource.AddAttribute(f.typeAttr)
+		attrSource.AddAttributeImpl(f.typeAttr)
 	}
 }
 

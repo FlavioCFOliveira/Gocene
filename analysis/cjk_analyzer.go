@@ -147,7 +147,7 @@ func (t *CJKTokenizer) IncrementToken() (bool, error) {
 
 		// Set token text
 		tokenText := string(t.input[start:end])
-		if termAttr := t.GetAttributeSource().GetAttribute("CharTermAttribute"); termAttr != nil {
+		if termAttr := t.GetAttributeSource().GetAttribute(CharTermAttributeType); termAttr != nil {
 			if cta, ok := termAttr.(CharTermAttribute); ok {
 				cta.SetEmpty()
 				cta.AppendString(tokenText)
@@ -155,7 +155,7 @@ func (t *CJKTokenizer) IncrementToken() (bool, error) {
 		}
 
 		// Set offset
-		if offsetAttr := t.GetAttributeSource().GetAttribute("OffsetAttribute"); offsetAttr != nil {
+		if offsetAttr := t.GetAttributeSource().GetAttribute(OffsetAttributeType); offsetAttr != nil {
 			if oa, ok := offsetAttr.(OffsetAttribute); ok {
 				oa.SetStartOffset(start)
 				oa.SetEndOffset(end)
@@ -175,7 +175,7 @@ func (t *CJKTokenizer) IncrementToken() (bool, error) {
 	if t.position > start {
 		// Set token text
 		tokenText := string(t.input[start:t.position])
-		if termAttr := t.GetAttributeSource().GetAttribute("CharTermAttribute"); termAttr != nil {
+		if termAttr := t.GetAttributeSource().GetAttribute(CharTermAttributeType); termAttr != nil {
 			if cta, ok := termAttr.(CharTermAttribute); ok {
 				cta.SetEmpty()
 				cta.AppendString(tokenText)
@@ -183,7 +183,7 @@ func (t *CJKTokenizer) IncrementToken() (bool, error) {
 		}
 
 		// Set offset
-		if offsetAttr := t.GetAttributeSource().GetAttribute("OffsetAttribute"); offsetAttr != nil {
+		if offsetAttr := t.GetAttributeSource().GetAttribute(OffsetAttributeType); offsetAttr != nil {
 			if oa, ok := offsetAttr.(OffsetAttribute); ok {
 				oa.SetStartOffset(start)
 				oa.SetEndOffset(t.position)

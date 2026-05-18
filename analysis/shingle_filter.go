@@ -5,7 +5,7 @@
 package analysis
 
 import (
-	"reflect"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // ShingleFilter combines multiple tokens into shingles (word n-grams).
@@ -122,17 +122,17 @@ func NewShingleFilterWithSizes(input TokenStream, minShingleSize, maxShingleSize
 func (f *ShingleFilter) initAttributes() {
 	attrSource := f.GetAttributeSource()
 	if attrSource != nil {
-		attr := attrSource.GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+		attr := attrSource.GetAttribute(CharTermAttributeType)
 		if attr != nil {
 			f.termAttr = attr.(CharTermAttribute)
 		}
 
-		attr = attrSource.GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{}))
+		attr = attrSource.GetAttribute(PositionIncrementAttributeType)
 		if attr != nil {
 			f.posIncrAttr = attr.(PositionIncrementAttribute)
 		}
 
-		attr = attrSource.GetAttributeByType(reflect.TypeOf(&offsetAttribute{}))
+		attr = attrSource.GetAttribute(OffsetAttributeType)
 		if attr != nil {
 			offsetAttr := attr.(OffsetAttribute)
 			f.offsetAttr = offsetAttr
@@ -363,10 +363,12 @@ func (f *ShingleFilter) End() error {
 	// Set final offset if available
 	if f.offsetAttr != nil && f.input != nil {
 		// Try to get the end offset from the input
-		if hasAttrSrc, ok := f.input.(interface{ GetAttributeSource() *AttributeSource }); ok {
+		if hasAttrSrc, ok := f.input.(interface {
+			GetAttributeSource() *util.AttributeSource
+		}); ok {
 			src := hasAttrSrc.GetAttributeSource()
 			if src != nil {
-				attr := src.GetAttributeByType(reflect.TypeOf(&offsetAttribute{}))
+				attr := src.GetAttribute(OffsetAttributeType)
 				if attr != nil {
 					inputOffset := attr.(OffsetAttribute)
 					f.offsetAttr.SetEndOffset(inputOffset.EndOffset())

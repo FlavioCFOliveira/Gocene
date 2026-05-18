@@ -58,7 +58,7 @@ func TestLowerCaseFilter_Basic(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := lowerFilter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := lowerFilter.GetAttribute("CharTermAttribute"); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -115,7 +115,7 @@ func TestLowerCaseFilter_Unicode(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := lowerFilter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := lowerFilter.GetAttribute("CharTermAttribute"); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -175,7 +175,7 @@ func TestLowerCaseFilter_PositionIncrement(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := lowerFilter.GetAttributeSource().GetAttribute("PositionIncrementAttribute"); attr != nil {
+		if attr := lowerFilter.GetAttribute("PositionIncrementAttribute"); attr != nil {
 			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
 				positions = append(positions, posAttr.GetPositionIncrement())
 			}
@@ -215,12 +215,12 @@ func TestLowerCaseFilter_Offset(t *testing.T) {
 		}
 
 		var info tokenInfo
-		if attr := lowerFilter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := lowerFilter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				info.text = termAttr.String()
 			}
 		}
-		if attr := lowerFilter.GetAttributeSource().GetAttribute("OffsetAttribute"); attr != nil {
+		if attr := lowerFilter.GetAttribute("OffsetAttribute"); attr != nil {
 			if offsetAttr, ok := attr.(OffsetAttribute); ok {
 				info.startOffset = offsetAttr.StartOffset()
 				info.endOffset = offsetAttr.EndOffset()
@@ -291,7 +291,7 @@ func TestLowerCaseFilter_Chaining(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := lowerFilter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := lowerFilter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -347,7 +347,7 @@ func TestLowerCaseFilter_SpecialCharacters(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := lowerFilter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := lowerFilter.GetAttribute("CharTermAttribute"); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}

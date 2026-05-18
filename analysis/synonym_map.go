@@ -486,14 +486,14 @@ func (p *Parser) Analyze(text string) ([]byte, error) {
 	var termAttr CharTermAttribute
 	var posIncAttr PositionIncrementAttribute
 
-	if attrSrc, ok := ts.(interface{ GetAttributeSource() *AttributeSource }); ok {
+	if attrSrc, ok := ts.(interface{ GetAttributeSource() *util.AttributeSource }); ok {
 		as := attrSrc.GetAttributeSource()
-		if attr := as.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := as.GetAttribute(CharTermAttributeType); attr != nil {
 			if ta, ok := attr.(CharTermAttribute); ok {
 				termAttr = ta
 			}
 		}
-		if attr := as.GetAttribute("PositionIncrementAttribute"); attr != nil {
+		if attr := as.GetAttribute(PositionIncrementAttributeType); attr != nil {
 			if pa, ok := attr.(PositionIncrementAttribute); ok {
 				posIncAttr = pa
 			}

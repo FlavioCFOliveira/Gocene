@@ -93,7 +93,9 @@ func (c *TokenStreamToAutomaton) ToAutomaton(in TokenStream) (*automaton.Automat
 	builder := automaton.NewBuilder()
 	builder.CreateState()
 
-	src, ok := in.(interface{ GetAttributeSource() *AttributeSource })
+	src, ok := in.(interface {
+		GetAttributeSource() *util.AttributeSource
+	})
 	if !ok {
 		return nil, errNoAttributeSource
 	}
@@ -101,21 +103,21 @@ func (c *TokenStreamToAutomaton) ToAutomaton(in TokenStream) (*automaton.Automat
 	// TermToBytesRefAttribute is an interface; locate any registered
 	// attribute that implements it (CharTermAttribute does).
 	var termBytesAtt TermToBytesRefAttribute
-	for _, ty := range as.GetAttributeClasses() {
-		if attr := as.GetAttributeByType(ty); attr != nil {
+	for _, ty := range as.GetAttributeClassesIterator() {
+		if attr := as.GetAttribute(ty); attr != nil {
 			if tb, ok := attr.(TermToBytesRefAttribute); ok {
 				termBytesAtt = tb
 				break
 			}
 		}
 	}
-	posIncAtt, _ := as.GetAttribute("PositionIncrementAttribute").(PositionIncrementAttribute)
-	posLengthAttRaw := as.GetAttributeByType(PositionLengthAttributeType)
+	posIncAtt, _ := as.GetAttribute(PositionIncrementAttributeType).(PositionIncrementAttribute)
+	posLengthAttRaw := as.GetAttribute(PositionLengthAttributeType)
 	var posLengthAtt PositionLengthAttribute
 	if posLengthAttRaw != nil {
 		posLengthAtt, _ = posLengthAttRaw.(PositionLengthAttribute)
 	}
-	offsetAtt, _ := as.GetAttribute("OffsetAttribute").(OffsetAttribute)
+	offsetAtt, _ := as.GetAttribute(OffsetAttributeType).(OffsetAttribute)
 
 	if termBytesAtt == nil {
 		return nil, errMissingTermBytes

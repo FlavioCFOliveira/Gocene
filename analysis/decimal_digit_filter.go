@@ -5,7 +5,6 @@
 package analysis
 
 import (
-	"reflect"
 	"strings"
 	"unicode"
 )
@@ -35,7 +34,7 @@ func NewDecimalDigitFilter(input TokenStream) *DecimalDigitFilter {
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
 	}

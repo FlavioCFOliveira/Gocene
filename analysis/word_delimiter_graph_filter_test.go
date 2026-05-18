@@ -5,7 +5,6 @@
 package analysis
 
 import (
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -36,19 +35,19 @@ func collectWDGFTokens(t *testing.T, filter *WordDelimiterGraphFilter) []wdgfTok
 	var offsetAttr OffsetAttribute
 	var typeAttr TypeAttribute
 
-	if attr := attrSource.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); attr != nil {
+	if attr := attrSource.GetAttribute(CharTermAttributeType); attr != nil {
 		termAttr = attr.(CharTermAttribute)
 	}
-	if attr := attrSource.GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{})); attr != nil {
+	if attr := attrSource.GetAttribute(PositionIncrementAttributeType); attr != nil {
 		posIncrAttr = attr.(PositionIncrementAttribute)
 	}
-	if attr := attrSource.GetAttributeByType(PositionLengthAttributeType); attr != nil {
+	if attr := attrSource.GetAttribute(PositionLengthAttributeType); attr != nil {
 		posLenAttr = attr.(PositionLengthAttribute)
 	}
-	if attr := attrSource.GetAttributeByType(reflect.TypeOf(&offsetAttribute{})); attr != nil {
+	if attr := attrSource.GetAttribute(OffsetAttributeType); attr != nil {
 		offsetAttr = attr.(OffsetAttribute)
 	}
-	if attr := attrSource.GetAttributeByType(TypeAttributeType); attr != nil {
+	if attr := attrSource.GetAttribute(TypeAttributeType); attr != nil {
 		typeAttr = attr.(TypeAttribute)
 	}
 

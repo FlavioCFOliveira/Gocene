@@ -5,7 +5,6 @@
 package analysis
 
 import (
-	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -100,7 +99,7 @@ func TestPatternTokenizer_SplitMode(t *testing.T) {
 					break
 				}
 
-				termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+				termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 				if termAttr == nil {
 					t.Fatal("CharTermAttribute is nil")
 				}
@@ -221,7 +220,7 @@ func TestPatternTokenizer_MatchMode(t *testing.T) {
 					break
 				}
 
-				termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+				termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 				if termAttr == nil {
 					t.Fatal("CharTermAttribute is nil")
 				}
@@ -299,7 +298,7 @@ func TestPatternTokenizer_Offsets(t *testing.T) {
 					break
 				}
 
-				offsetAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&offsetAttribute{}))
+				offsetAttr := tokenizer.GetAttributeSource().GetAttribute(OffsetAttributeType)
 				if offsetAttr == nil {
 					t.Fatal("OffsetAttribute is nil")
 				}
@@ -344,7 +343,7 @@ func TestPatternTokenizer_TypeAttribute(t *testing.T) {
 		t.Fatal("Expected token")
 	}
 
-	typeAttr := tokenizer.GetAttributeSource().GetAttributeByType(TypeAttributeType)
+	typeAttr := tokenizer.GetAttributeSource().GetAttribute(TypeAttributeType)
 	if typeAttr == nil {
 		t.Fatal("TypeAttribute is nil")
 	}
@@ -375,7 +374,7 @@ func TestPatternTokenizer_PositionIncrement(t *testing.T) {
 			break
 		}
 
-		posIncrAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{}))
+		posIncrAttr := tokenizer.GetAttributeSource().GetAttribute(PositionIncrementAttributeType)
 		if posIncrAttr == nil {
 			t.Fatal("PositionIncrementAttribute is nil")
 		}
@@ -459,7 +458,7 @@ func TestPatternTokenizer_End(t *testing.T) {
 		t.Fatalf("End failed: %v", err)
 	}
 
-	offsetAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&offsetAttribute{}))
+	offsetAttr := tokenizer.GetAttributeSource().GetAttribute(OffsetAttributeType)
 	if offsetAttr == nil {
 		t.Fatal("OffsetAttribute is nil")
 	}
@@ -528,7 +527,7 @@ func TestPatternTokenizer_Unicode(t *testing.T) {
 					break
 				}
 
-				termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+				termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 				if termAttr == nil {
 					t.Fatal("CharTermAttribute is nil")
 				}
@@ -597,7 +596,7 @@ func TestPatternTokenizer_ConsecutiveDelimiters(t *testing.T) {
 			break
 		}
 
-		termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+		termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 		if termAttr == nil {
 			t.Fatal("CharTermAttribute is nil")
 		}

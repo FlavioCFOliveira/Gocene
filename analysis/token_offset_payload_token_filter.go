@@ -4,8 +4,6 @@
 
 package analysis
 
-import "reflect"
-
 // TokenOffsetPayloadTokenFilter encodes the current token's
 // start/end offsets into an 8-byte payload: bytes [0:4) are the start
 // offset and bytes [4:8) are the end offset, each big-endian int32.
@@ -28,10 +26,10 @@ func NewTokenOffsetPayloadTokenFilter(input TokenStream) *TokenOffsetPayloadToke
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&offsetAttribute{})); a != nil {
+		if a := src.GetAttribute(OffsetAttributeType); a != nil {
 			f.offsetAttr = a.(OffsetAttribute)
 		}
-		if a := src.GetAttributeByType(PayloadAttributeType); a != nil {
+		if a := src.GetAttribute(PayloadAttributeType); a != nil {
 			f.payloadAttr = a.(PayloadAttribute)
 		}
 	}

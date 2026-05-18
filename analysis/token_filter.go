@@ -4,6 +4,8 @@
 
 package analysis
 
+import "github.com/FlavioCFOliveira/Gocene/util"
+
 // TokenFilter is a TokenStream that wraps another TokenStream.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.TokenFilter.
@@ -33,18 +35,20 @@ type BaseTokenFilter struct {
 	input TokenStream
 }
 
-// NewBaseTokenFilter creates a new BaseTokenFilter wrapping the given input.
-// The filter shares the AttributeSource with its input if the input has one.
+// NewBaseTokenFilter creates a new BaseTokenFilter wrapping the given
+// input. The filter shares the [util.AttributeSource] with its input
+// when input exposes one; otherwise a fresh AttributeSource is created.
 func NewBaseTokenFilter(input TokenStream) *BaseTokenFilter {
 	bf := &BaseTokenFilter{
 		input: input,
 	}
 
-	// Share the AttributeSource with the input if it has one
-	if hasAttrSrc, ok := input.(interface{ GetAttributeSource() *AttributeSource }); ok {
+	if hasAttrSrc, ok := input.(interface {
+		GetAttributeSource() *util.AttributeSource
+	}); ok {
 		bf.attributes = hasAttrSrc.GetAttributeSource()
 	} else {
-		bf.attributes = NewAttributeSource()
+		bf.attributes = util.NewAttributeSource()
 	}
 
 	return bf

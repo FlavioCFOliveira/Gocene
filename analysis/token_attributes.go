@@ -78,11 +78,17 @@ type typeAttributeImpl struct {
 // Compile-time assertions lock in the contracts this impl participates
 // in.
 var (
-	_ TypeAttribute        = (*typeAttributeImpl)(nil)
-	_ util.AttributeImpl   = (*typeAttributeImpl)(nil)
-	_ AttributeImpl        = (*typeAttributeImpl)(nil)
-	_ AttributeReflectable = (*typeAttributeImpl)(nil)
+	_ TypeAttribute                   = (*typeAttributeImpl)(nil)
+	_ util.AttributeImpl              = (*typeAttributeImpl)(nil)
+	_ AttributeImpl                   = (*typeAttributeImpl)(nil)
+	_ AttributeReflectable            = (*typeAttributeImpl)(nil)
+	_ util.AttributeInterfaceProvider = (*typeAttributeImpl)(nil)
 )
+
+// AttributeInterfaces satisfies [util.AttributeInterfaceProvider].
+func (ta *typeAttributeImpl) AttributeInterfaces() []reflect.Type {
+	return []reflect.Type{TypeAttributeType}
+}
 
 // NewTypeAttribute creates a new TypeAttribute with the default type
 // "word".
@@ -175,11 +181,17 @@ type payloadAttributeImpl struct {
 }
 
 var (
-	_ PayloadAttribute     = (*payloadAttributeImpl)(nil)
-	_ util.AttributeImpl   = (*payloadAttributeImpl)(nil)
-	_ AttributeImpl        = (*payloadAttributeImpl)(nil)
-	_ AttributeReflectable = (*payloadAttributeImpl)(nil)
+	_ PayloadAttribute                = (*payloadAttributeImpl)(nil)
+	_ util.AttributeImpl              = (*payloadAttributeImpl)(nil)
+	_ AttributeImpl                   = (*payloadAttributeImpl)(nil)
+	_ AttributeReflectable            = (*payloadAttributeImpl)(nil)
+	_ util.AttributeInterfaceProvider = (*payloadAttributeImpl)(nil)
 )
+
+// AttributeInterfaces satisfies [util.AttributeInterfaceProvider].
+func (pa *payloadAttributeImpl) AttributeInterfaces() []reflect.Type {
+	return []reflect.Type{PayloadAttributeType}
+}
 
 // NewPayloadAttribute creates a new empty PayloadAttribute.
 func NewPayloadAttribute() PayloadAttribute {
@@ -303,11 +315,17 @@ type flagsAttributeImpl struct {
 }
 
 var (
-	_ FlagsAttribute       = (*flagsAttributeImpl)(nil)
-	_ util.AttributeImpl   = (*flagsAttributeImpl)(nil)
-	_ AttributeImpl        = (*flagsAttributeImpl)(nil)
-	_ AttributeReflectable = (*flagsAttributeImpl)(nil)
+	_ FlagsAttribute                  = (*flagsAttributeImpl)(nil)
+	_ util.AttributeImpl              = (*flagsAttributeImpl)(nil)
+	_ AttributeImpl                   = (*flagsAttributeImpl)(nil)
+	_ AttributeReflectable            = (*flagsAttributeImpl)(nil)
+	_ util.AttributeInterfaceProvider = (*flagsAttributeImpl)(nil)
 )
+
+// AttributeInterfaces satisfies [util.AttributeInterfaceProvider].
+func (fa *flagsAttributeImpl) AttributeInterfaces() []reflect.Type {
+	return []reflect.Type{FlagsAttributeType}
+}
 
 // NewFlagsAttribute creates a new FlagsAttribute with flags set to 0.
 func NewFlagsAttribute() FlagsAttribute {
@@ -408,11 +426,17 @@ type keywordAttributeImpl struct {
 }
 
 var (
-	_ KeywordAttribute     = (*keywordAttributeImpl)(nil)
-	_ util.AttributeImpl   = (*keywordAttributeImpl)(nil)
-	_ AttributeImpl        = (*keywordAttributeImpl)(nil)
-	_ AttributeReflectable = (*keywordAttributeImpl)(nil)
+	_ KeywordAttribute                = (*keywordAttributeImpl)(nil)
+	_ util.AttributeImpl              = (*keywordAttributeImpl)(nil)
+	_ AttributeImpl                   = (*keywordAttributeImpl)(nil)
+	_ AttributeReflectable            = (*keywordAttributeImpl)(nil)
+	_ util.AttributeInterfaceProvider = (*keywordAttributeImpl)(nil)
 )
+
+// AttributeInterfaces satisfies [util.AttributeInterfaceProvider].
+func (ka *keywordAttributeImpl) AttributeInterfaces() []reflect.Type {
+	return []reflect.Type{KeywordAttributeType}
+}
 
 // NewKeywordAttribute creates a new KeywordAttribute with the keyword
 // flag set to false.
@@ -516,11 +540,17 @@ type positionLengthAttributeImpl struct {
 }
 
 var (
-	_ PositionLengthAttribute = (*positionLengthAttributeImpl)(nil)
-	_ util.AttributeImpl      = (*positionLengthAttributeImpl)(nil)
-	_ AttributeImpl           = (*positionLengthAttributeImpl)(nil)
-	_ AttributeReflectable    = (*positionLengthAttributeImpl)(nil)
+	_ PositionLengthAttribute         = (*positionLengthAttributeImpl)(nil)
+	_ util.AttributeImpl              = (*positionLengthAttributeImpl)(nil)
+	_ AttributeImpl                   = (*positionLengthAttributeImpl)(nil)
+	_ AttributeReflectable            = (*positionLengthAttributeImpl)(nil)
+	_ util.AttributeInterfaceProvider = (*positionLengthAttributeImpl)(nil)
 )
+
+// AttributeInterfaces satisfies [util.AttributeInterfaceProvider].
+func (pla *positionLengthAttributeImpl) AttributeInterfaces() []reflect.Type {
+	return []reflect.Type{PositionLengthAttributeType}
+}
 
 // NewPositionLengthAttribute creates a new PositionLengthAttribute with
 // length 1.
@@ -631,12 +661,18 @@ type termFrequencyAttributeImpl struct {
 }
 
 var (
-	_ TermFrequencyAttribute = (*termFrequencyAttributeImpl)(nil)
-	_ util.AttributeImpl     = (*termFrequencyAttributeImpl)(nil)
-	_ AttributeImpl          = (*termFrequencyAttributeImpl)(nil)
-	_ AttributeReflectable   = (*termFrequencyAttributeImpl)(nil)
-	_ AttributeEnder         = (*termFrequencyAttributeImpl)(nil)
+	_ TermFrequencyAttribute          = (*termFrequencyAttributeImpl)(nil)
+	_ util.AttributeImpl              = (*termFrequencyAttributeImpl)(nil)
+	_ AttributeImpl                   = (*termFrequencyAttributeImpl)(nil)
+	_ AttributeReflectable            = (*termFrequencyAttributeImpl)(nil)
+	_ AttributeEnder                  = (*termFrequencyAttributeImpl)(nil)
+	_ util.AttributeInterfaceProvider = (*termFrequencyAttributeImpl)(nil)
 )
+
+// AttributeInterfaces satisfies [util.AttributeInterfaceProvider].
+func (tfa *termFrequencyAttributeImpl) AttributeInterfaces() []reflect.Type {
+	return []reflect.Type{TermFrequencyAttributeType}
+}
 
 // NewTermFrequencyAttribute creates a new TermFrequencyAttribute with
 // frequency 1.

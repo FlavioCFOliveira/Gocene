@@ -46,7 +46,7 @@ func TestASCIIFoldingFilter_Basic(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := foldFilter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := foldFilter.GetAttribute("CharTermAttribute"); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -80,7 +80,7 @@ func TestASCIIFoldingFilter_ASCIIOnly(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := foldFilter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := foldFilter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -118,7 +118,7 @@ func TestASCIIFoldingFilter_PreserveOriginal(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := foldFilter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := foldFilter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -159,7 +159,7 @@ func TestASCIIFoldingFilter_MultipleAccents(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := foldFilter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := foldFilter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -209,7 +209,7 @@ func TestASCIIFoldingFilter_SpecialCharacters(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := foldFilter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := foldFilter.GetAttribute("CharTermAttribute"); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}

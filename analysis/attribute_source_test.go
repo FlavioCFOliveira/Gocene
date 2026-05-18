@@ -18,7 +18,7 @@ func TestAttributeSource_AddAttribute(t *testing.T) {
 	termAttr := NewCharTermAttribute()
 	as.AddAttribute(termAttr)
 
-	retrieved := as.GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+	retrieved := as.GetAttributeByType(CharTermAttributeType)
 	if retrieved == nil {
 		t.Error("Expected to retrieve added attribute")
 	}
@@ -52,7 +52,7 @@ func TestAttributeSource_GetAttribute(t *testing.T) {
 	termAttr.SetValue("test")
 	as.AddAttribute(termAttr)
 
-	retrieved := as.GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+	retrieved := as.GetAttributeByType(CharTermAttributeType)
 	if retrieved == nil {
 		t.Fatal("Expected to retrieve attribute")
 	}
@@ -92,7 +92,7 @@ func TestAttributeSource_GetNonExistentAttribute(t *testing.T) {
 		t.Error("Expected nil for non-existent attribute")
 	}
 
-	retrievedByType := as.GetAttributeByType(reflect.TypeOf(&offsetAttribute{}))
+	retrievedByType := as.GetAttributeByType(OffsetAttributeType)
 	if retrievedByType != nil {
 		t.Error("Expected nil for non-existent attribute type")
 	}
@@ -239,7 +239,7 @@ func TestAttributeSource_Clone(t *testing.T) {
 		t.Fatal("Expected non-nil clone")
 	}
 
-	retrieved := clone.GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+	retrieved := clone.GetAttributeByType(CharTermAttributeType)
 	if retrieved == nil {
 		t.Error("Clone should have the attribute")
 	}
@@ -296,7 +296,7 @@ func TestAttributeSource_ConcurrentAccess(t *testing.T) {
 		go func(id int) {
 			for j := 0; j < 100; j++ {
 				as.HasAttribute(reflect.TypeOf(&charTermAttribute{}))
-				as.GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+				as.GetAttributeByType(CharTermAttributeType)
 			}
 			done <- true
 		}(i)

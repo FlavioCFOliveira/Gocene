@@ -4,8 +4,6 @@
 
 package analysis
 
-import "reflect"
-
 // ScandinavianFolding identifies a single folding rule consumed by
 // ScandinavianNormalizer. The Lucene reference exposes the same set
 // as a Java EnumSet.
@@ -163,7 +161,7 @@ func NewScandinavianNormalizationFilterWithFoldings(input TokenStream, foldings 
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
 	}
@@ -235,7 +233,7 @@ func NewScandinavianFoldingFilter(input TokenStream) *ScandinavianFoldingFilter 
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
 	}
@@ -320,7 +318,7 @@ func NewNorwegianNormalizationFilter(input TokenStream) *NorwegianNormalizationF
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
 	}

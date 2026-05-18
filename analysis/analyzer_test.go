@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TestAnalyzer_Reuse tests that analyzers properly reuse token streams.
@@ -33,8 +35,11 @@ func TestAnalyzer_Reuse(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if bts, ok := stream1.(interface{ GetAttributeSource() *AttributeSource }); ok {
-			if attr := bts.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); attr != nil {
+		if bts, ok := stream1.(interface {
+			GetAttributeSource() *util.AttributeSource
+			GetAttribute(string) AttributeImpl
+		}); ok {
+			if attr := bts.GetAttributeSource().GetAttribute(CharTermAttributeType); attr != nil {
 				if termAttr, ok := attr.(CharTermAttribute); ok {
 					tokens1 = append(tokens1, termAttr.String())
 				}
@@ -59,8 +64,11 @@ func TestAnalyzer_Reuse(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if bts, ok := stream2.(interface{ GetAttributeSource() *AttributeSource }); ok {
-			if attr := bts.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if bts, ok := stream2.(interface {
+			GetAttributeSource() *util.AttributeSource
+			GetAttribute(string) AttributeImpl
+		}); ok {
+			if attr := bts.GetAttribute("CharTermAttribute"); attr != nil {
 				if termAttr, ok := attr.(CharTermAttribute); ok {
 					tokens2 = append(tokens2, termAttr.String())
 				}
@@ -122,8 +130,11 @@ func TestSimpleAnalyzer(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if bts, ok := stream.(interface{ GetAttributeSource() *AttributeSource }); ok {
-					if attr := bts.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if bts, ok := stream.(interface {
+					GetAttributeSource() *util.AttributeSource
+					GetAttribute(string) AttributeImpl
+				}); ok {
+					if attr := bts.GetAttribute("CharTermAttribute"); attr != nil {
 						if termAttr, ok := attr.(CharTermAttribute); ok {
 							tokens = append(tokens, termAttr.String())
 						}
@@ -184,8 +195,11 @@ func TestStandardAnalyzer(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if bts, ok := stream.(interface{ GetAttributeSource() *AttributeSource }); ok {
-					if attr := bts.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if bts, ok := stream.(interface {
+					GetAttributeSource() *util.AttributeSource
+					GetAttribute(string) AttributeImpl
+				}); ok {
+					if attr := bts.GetAttribute("CharTermAttribute"); attr != nil {
 						if termAttr, ok := attr.(CharTermAttribute); ok {
 							tokens = append(tokens, termAttr.String())
 						}
@@ -239,8 +253,11 @@ func TestWhitespaceAnalyzer(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if bts, ok := stream.(interface{ GetAttributeSource() *AttributeSource }); ok {
-					if attr := bts.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if bts, ok := stream.(interface {
+					GetAttributeSource() *util.AttributeSource
+					GetAttribute(string) AttributeImpl
+				}); ok {
+					if attr := bts.GetAttribute("CharTermAttribute"); attr != nil {
 						if termAttr, ok := attr.(CharTermAttribute); ok {
 							tokens = append(tokens, termAttr.String())
 						}

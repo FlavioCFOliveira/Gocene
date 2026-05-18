@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"fmt"
+	"reflect"
 
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -41,20 +42,41 @@ type PackedTokenAttributeImpl struct {
 }
 
 // Compile-time assertions to lock in every interface contract this
-// impl participates in. The Sprint 12 option (d) snapshot keeps
-// PositionLengthAttribute, TypeAttribute and TermFrequencyAttribute as
-// bare structs (no interface+impl split), so contract enforcement for
-// those is method-set-driven rather than interface-driven; the bundle
-// is verified by the [PackedTokenAttributeImpl_BareStructParity] test.
+// impl participates in. Sprint 54 Phase 4 elevates the previously
+// method-set-only assertions for PositionLength/Type/TermFrequency to
+// proper interface assertions now that the Phase 3 promotion is in
+// place and the matching Validated variants are present on this impl.
 var (
-	_ AttributeImpl              = (*PackedTokenAttributeImpl)(nil)
-	_ CharTermAttribute          = (*PackedTokenAttributeImpl)(nil)
-	_ TermToBytesRefAttribute    = (*PackedTokenAttributeImpl)(nil)
-	_ OffsetAttribute            = (*PackedTokenAttributeImpl)(nil)
-	_ PositionIncrementAttribute = (*PackedTokenAttributeImpl)(nil)
-	_ AttributeReflectable       = (*PackedTokenAttributeImpl)(nil)
-	_ AttributeEnder             = (*PackedTokenAttributeImpl)(nil)
+	_ AttributeImpl                   = (*PackedTokenAttributeImpl)(nil)
+	_ CharTermAttribute               = (*PackedTokenAttributeImpl)(nil)
+	_ TermToBytesRefAttribute         = (*PackedTokenAttributeImpl)(nil)
+	_ OffsetAttribute                 = (*PackedTokenAttributeImpl)(nil)
+	_ PositionIncrementAttribute      = (*PackedTokenAttributeImpl)(nil)
+	_ TypeAttribute                   = (*PackedTokenAttributeImpl)(nil)
+	_ PositionLengthAttribute         = (*PackedTokenAttributeImpl)(nil)
+	_ TermFrequencyAttribute          = (*PackedTokenAttributeImpl)(nil)
+	_ AttributeReflectable            = (*PackedTokenAttributeImpl)(nil)
+	_ AttributeEnder                  = (*PackedTokenAttributeImpl)(nil)
+	_ util.AttributeInterfaceProvider = (*PackedTokenAttributeImpl)(nil)
 )
+
+// AttributeInterfaces satisfies [util.AttributeInterfaceProvider]. The
+// Lucene reference
+// {@code PackedTokenAttributeImpl extends CharTermAttributeImpl} packs
+// every common token attribute into one impl; we list them in the order
+// Lucene exposes them so insertion-order iteration in
+// [util.AttributeSource] matches the reference.
+func (p *PackedTokenAttributeImpl) AttributeInterfaces() []reflect.Type {
+	return []reflect.Type{
+		CharTermAttributeType,
+		TermToBytesRefAttributeType,
+		OffsetAttributeType,
+		PositionIncrementAttributeType,
+		PositionLengthAttributeType,
+		TypeAttributeType,
+		TermFrequencyAttributeType,
+	}
+}
 
 // NewPackedTokenAttributeImpl initialises this impl with the Lucene
 // defaults: empty term, type "word", positionIncrement 1,
@@ -137,6 +159,14 @@ func (p *PackedTokenAttributeImpl) SetPositionLength(positionLength int) {
 	p.positionLength = positionLength
 }
 
+// SetPositionLengthValidated satisfies the [PositionLengthAttribute]
+// interface. PackedTokenAttributeImpl's SetPositionLength is already
+// validating, so this method is a synonym for it. Lucene reference does
+// not distinguish the two on this packed impl.
+func (p *PackedTokenAttributeImpl) SetPositionLengthValidated(positionLength int) {
+	p.SetPositionLength(positionLength)
+}
+
 // --- TermFrequencyAttribute -----------------------------------------
 
 // GetTermFrequency returns the term frequency.
@@ -150,6 +180,14 @@ func (p *PackedTokenAttributeImpl) SetTermFrequency(termFrequency int) {
 			termFrequency))
 	}
 	p.termFrequency = termFrequency
+}
+
+// SetTermFrequencyValidated satisfies the [TermFrequencyAttribute]
+// interface. PackedTokenAttributeImpl's SetTermFrequency is already
+// validating, so this method is a synonym for it. Lucene reference does
+// not distinguish the two on this packed impl.
+func (p *PackedTokenAttributeImpl) SetTermFrequencyValidated(termFrequency int) {
+	p.SetTermFrequency(termFrequency)
 }
 
 // --- AttributeImpl ---------------------------------------------------

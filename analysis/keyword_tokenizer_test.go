@@ -5,7 +5,6 @@
 package analysis
 
 import (
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -43,7 +42,7 @@ func TestKeywordTokenizer_Simple(t *testing.T) {
 				t.Fatalf("IncrementToken returned false, expected true")
 			}
 
-			termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+			termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 			if termAttr == nil {
 				t.Fatal("CharTermAttribute is nil")
 			}
@@ -97,7 +96,7 @@ func TestKeywordTokenizer_Empty(t *testing.T) {
 		t.Error("Expected one empty token, got none")
 	}
 
-	termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+	termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 	if termAttr == nil {
 		t.Fatal("CharTermAttribute is nil")
 	}
@@ -124,7 +123,7 @@ func TestKeywordTokenizer_OffsetAttribute(t *testing.T) {
 		t.Fatal("Expected token")
 	}
 
-	offsetAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&offsetAttribute{}))
+	offsetAttr := tokenizer.GetAttributeSource().GetAttribute(OffsetAttributeType)
 	if offsetAttr == nil {
 		t.Fatal("OffsetAttribute is nil")
 	}
@@ -170,7 +169,7 @@ func TestKeywordTokenizer_Reset(t *testing.T) {
 		t.Fatal("Expected token from second input")
 	}
 
-	termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+	termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 	term := termAttr.(CharTermAttribute).String()
 	if term != "second" {
 		t.Errorf("Token after reset = %q, want 'second'", term)
@@ -195,7 +194,7 @@ func TestKeywordTokenizer_LargeInput(t *testing.T) {
 		t.Fatal("Expected token")
 	}
 
-	termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+	termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 	term := termAttr.(CharTermAttribute).String()
 	if term != large {
 		t.Errorf("Large token length = %d, want %d", len(term), len(large))
@@ -231,7 +230,7 @@ func TestKeywordTokenizer_Unicode(t *testing.T) {
 				t.Fatal("Expected token")
 			}
 
-			termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+			termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 			term := termAttr.(CharTermAttribute).String()
 			if term != tt.input {
 				t.Errorf("Unicode token = %q, want %q", term, tt.input)

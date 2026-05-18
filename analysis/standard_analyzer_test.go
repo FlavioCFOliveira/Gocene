@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TestStandardAnalyzer_BasicTokenization tests basic tokenization.
@@ -283,14 +285,17 @@ func TestStandardAnalyzer_Offsets(t *testing.T) {
 		}
 
 		var info tokenInfo
-		attrSrc := stream.(interface{ GetAttributeSource() *AttributeSource }).GetAttributeSource()
+		attrSrc := stream.(interface {
+			GetAttributeSource() *util.AttributeSource
+			GetAttribute(string) AttributeImpl
+		}).GetAttributeSource()
 
-		if attr := attrSrc.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := attrSrc.GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				info.text = termAttr.String()
 			}
 		}
-		if attr := attrSrc.GetAttribute("OffsetAttribute"); attr != nil {
+		if attr := attrSrc.GetAttribute(OffsetAttributeType); attr != nil {
 			if offsetAttr, ok := attr.(OffsetAttribute); ok {
 				info.start = offsetAttr.StartOffset()
 				info.end = offsetAttr.EndOffset()
@@ -874,8 +879,11 @@ func collectTokensFromStream(stream TokenStream) ([]string, error) {
 			break
 		}
 
-		attrSrc := stream.(interface{ GetAttributeSource() *AttributeSource }).GetAttributeSource()
-		termAttr := attrSrc.GetAttribute("CharTermAttribute")
+		attrSrc := stream.(interface {
+			GetAttributeSource() *util.AttributeSource
+			GetAttribute(string) AttributeImpl
+		}).GetAttributeSource()
+		termAttr := attrSrc.GetAttribute(CharTermAttributeType)
 		if termAttr != nil {
 			if ct, ok := termAttr.(CharTermAttribute); ok {
 				tokens = append(tokens, ct.String())

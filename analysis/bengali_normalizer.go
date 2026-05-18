@@ -4,8 +4,6 @@
 
 package analysis
 
-import "reflect"
-
 // Bengali (Bangla) Unicode code points used by the normalisation
 // rules.
 const (
@@ -270,10 +268,10 @@ func NewBengaliNormalizationFilter(input TokenStream) *BengaliNormalizationFilte
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(KeywordAttributeType); a != nil {
+		if a := src.GetAttribute(KeywordAttributeType); a != nil {
 			f.keywordAttr = a.(KeywordAttribute)
 		}
 	}
@@ -347,10 +345,10 @@ func NewBengaliStemFilter(input TokenStream) *BengaliStemFilter {
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(KeywordAttributeType); a != nil {
+		if a := src.GetAttribute(KeywordAttributeType); a != nil {
 			f.keywordAttr = a.(KeywordAttribute)
 		}
 	}

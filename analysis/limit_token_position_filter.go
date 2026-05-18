@@ -51,7 +51,7 @@ func (f *LimitTokenPositionFilter) IncrementToken() (bool, error) {
 		// In a full implementation, we'd need to track the cumulative position
 		attrSrc := f.GetAttributeSource()
 		if attrSrc != nil {
-			if attr := attrSrc.GetAttribute("PositionIncrementAttribute"); attr != nil {
+			if attr := attrSrc.GetAttribute(PositionIncrementAttributeType); attr != nil {
 				if posAttr, ok := attr.(PositionIncrementAttribute); ok {
 					// For simplicity, we use the position increment directly
 					// A full implementation would track cumulative position

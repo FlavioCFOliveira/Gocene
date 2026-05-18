@@ -4,8 +4,6 @@
 
 package analysis
 
-import "reflect"
-
 // Marker constants for ReverseStringFilter. The first three are
 // useful prefixes for indexing reversed tokens that callers want to
 // re-identify after retrieval; RTLDirectionMarker prepends a U+200F
@@ -64,7 +62,7 @@ func NewReverseStringFilterWithMarker(input TokenStream, marker rune) *ReverseSt
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
 	}

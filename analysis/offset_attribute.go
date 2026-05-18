@@ -66,10 +66,17 @@ type offsetAttribute struct {
 // Compile-time assertions to lock in the contracts this impl
 // participates in.
 var (
-	_ AttributeImpl        = (*offsetAttribute)(nil)
-	_ OffsetAttribute      = (*offsetAttribute)(nil)
-	_ AttributeReflectable = (*offsetAttribute)(nil)
+	_ AttributeImpl                   = (*offsetAttribute)(nil)
+	_ OffsetAttribute                 = (*offsetAttribute)(nil)
+	_ AttributeReflectable            = (*offsetAttribute)(nil)
+	_ util.AttributeInterfaceProvider = (*offsetAttribute)(nil)
 )
+
+// AttributeInterfaces satisfies [util.AttributeInterfaceProvider] (see
+// charTermAttribute.AttributeInterfaces for the rationale).
+func (a *offsetAttribute) AttributeInterfaces() []reflect.Type {
+	return []reflect.Type{OffsetAttributeType}
+}
 
 // NewOffsetAttribute creates a new OffsetAttribute with zero offsets.
 func NewOffsetAttribute() OffsetAttribute {
