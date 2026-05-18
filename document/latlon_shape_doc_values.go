@@ -63,7 +63,16 @@ type LatLonShapeDocValuesField struct {
 // from a Polygon. The polygon is tessellated; an error is returned if
 // the pre-existing tessellator stub cannot handle it.
 func NewLatLonShapeDocValuesField(name string, polygon geo.Polygon) (*LatLonShapeDocValuesField, error) {
-	triangles, err := geo.Tessellate(polygon, false)
+	return NewLatLonShapeDocValuesFieldPolygonChecked(name, polygon, false)
+}
+
+// NewLatLonShapeDocValuesFieldPolygonChecked creates a new
+// LatLonShapeDocValuesField from a Polygon, honouring the
+// checkSelfIntersections flag forwarded to the tessellator.
+//
+// Mirrors Java LatLonShape#createDocValueField(String, Polygon, boolean).
+func NewLatLonShapeDocValuesFieldPolygonChecked(name string, polygon geo.Polygon, checkSelfIntersections bool) (*LatLonShapeDocValuesField, error) {
+	triangles, err := geo.Tessellate(polygon, checkSelfIntersections)
 	if err != nil {
 		return nil, fmt.Errorf("tessellate polygon: %w", err)
 	}
@@ -82,6 +91,111 @@ func NewLatLonShapeDocValuesField(name string, polygon geo.Polygon) (*LatLonShap
 		}
 		payload = append(payload, buf...)
 	}
+	return assembleLatLonShapeDocValuesField(name, payload)
+}
+
+// NewLatLonShapeDocValuesFieldLine creates a LatLonShapeDocValuesField
+// over the segments of the supplied Line. Each segment is encoded as a
+// degenerate "line" triangle.
+//
+// Mirrors Java LatLonShape#createDocValueField(String, Line).
+func NewLatLonShapeDocValuesFieldLine(name string, line geo.Line) (*LatLonShapeDocValuesField, error) {
+	numPoints := line.NumPoints()
+	if numPoints < 2 {
+		return nil, fmt.Errorf("line requires at least two vertices; got %d", numPoints)
+	}
+	payload := make([]byte, 0, (numPoints-1)*ShapeFieldBytes)
+	for i := 0; i+1 < numPoints; i++ {
+		ay := geo.EncodeLatitude(line.Lat(i))
+		ax := geo.EncodeLongitude(line.Lon(i))
+		by := geo.EncodeLatitude(line.Lat(i + 1))
+		bx := geo.EncodeLongitude(line.Lon(i + 1))
+		// Third vertex coincides with the first (degenerate "line" triangle).
+		buf, err := EncodeTriangle(ax, ay, bx, by, ax, ay, true, true, true)
+		if err != nil {
+			return nil, err
+		}
+		payload = append(payload, buf...)
+	}
+	return assembleLatLonShapeDocValuesField(name, payload)
+}
+
+// NewLatLonShapeDocValuesFieldPoint creates a LatLonShapeDocValuesField
+// holding a single (lat, lon) point as a degenerate triangle.
+//
+// Mirrors Java LatLonShape#createDocValueField(String, double, double).
+func NewLatLonShapeDocValuesFieldPoint(name string, latitude, longitude float64) (*LatLonShapeDocValuesField, error) {
+	if err := validateLatLon(latitude, longitude); err != nil {
+		return nil, err
+	}
+	x := geo.EncodeLongitude(longitude)
+	y := geo.EncodeLatitude(latitude)
+	buf, err := EncodeTriangle(x, y, x, y, x, y, true, true, true)
+	if err != nil {
+		return nil, err
+	}
+	return assembleLatLonShapeDocValuesField(name, buf)
+}
+
+// NewLatLonShapeDocValuesFieldFromBytes wraps an already-encoded triangle
+// byte payload as a LatLonShapeDocValuesField.
+//
+// Mirrors Java LatLonShape#createDocValueField(String, BytesRef). The
+// caller retains ownership of binaryValue; the underlying constructor
+// copies before storing.
+func NewLatLonShapeDocValuesFieldFromBytes(name string, binaryValue []byte) (*LatLonShapeDocValuesField, error) {
+	if len(binaryValue)%ShapeFieldBytes != 0 {
+		return nil, fmt.Errorf("triangle stream length %d not a multiple of %d", len(binaryValue), ShapeFieldBytes)
+	}
+	return assembleLatLonShapeDocValuesField(name, binaryValue)
+}
+
+// NewLatLonShapeDocValuesFieldFromTriangles encodes the supplied slice
+// of DecodedTriangle records into a LatLonShapeDocValuesField.
+//
+// Mirrors Java LatLonShape#createDocValueField(String, List<DecodedTriangle>).
+//
+// Note: the Gocene EncodeTriangle layout does not round-trip BX/BY/CX/CY
+// today (full Lucene rotation is deferred — backlog #2697). For now the
+// supplied B/C vertices are encoded but cannot be recovered intact by
+// DecodeTriangle. Edge flags and AX/AY round-trip cleanly.
+func NewLatLonShapeDocValuesFieldFromTriangles(name string, triangles []DecodedTriangle) (*LatLonShapeDocValuesField, error) {
+	payload := make([]byte, 0, len(triangles)*ShapeFieldBytes)
+	for _, t := range triangles {
+		buf, err := EncodeTriangle(t.AX, t.AY, t.BX, t.BY, t.CX, t.CY, t.AB, t.BC, t.CA)
+		if err != nil {
+			return nil, err
+		}
+		payload = append(payload, buf...)
+	}
+	return assembleLatLonShapeDocValuesField(name, payload)
+}
+
+// NewLatLonShapeDocValuesFieldFromFields aggregates the encoded payloads
+// of a slice of ShapeFieldTriangle indexable fields into a single
+// LatLonShapeDocValuesField.
+//
+// Mirrors Java LatLonShape#createDocValueField(String, Field[]).
+func NewLatLonShapeDocValuesFieldFromFields(name string, indexableFields []*ShapeFieldTriangle) (*LatLonShapeDocValuesField, error) {
+	payload := make([]byte, 0, len(indexableFields)*ShapeFieldBytes)
+	for i, f := range indexableFields {
+		if f == nil {
+			return nil, fmt.Errorf("nil indexable field at index %d", i)
+		}
+		bv := f.BinaryValue()
+		if len(bv) != ShapeFieldBytes {
+			return nil, fmt.Errorf("indexable field %d binary length %d != %d", i, len(bv), ShapeFieldBytes)
+		}
+		payload = append(payload, bv...)
+	}
+	return assembleLatLonShapeDocValuesField(name, payload)
+}
+
+// assembleLatLonShapeDocValuesField builds a LatLonShapeDocValuesField
+// from a fully encoded triangle byte stream. The payload is the source
+// of truth; the wrapped LatLonShapeDocValues is built from a copy held
+// inside the field so reader and writer paths share no mutable buffer.
+func assembleLatLonShapeDocValuesField(name string, payload []byte) (*LatLonShapeDocValuesField, error) {
 	dv, err := NewLatLonShapeDocValues(payload)
 	if err != nil {
 		return nil, err
