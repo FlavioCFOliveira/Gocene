@@ -75,23 +75,24 @@ func NewLucene104PostingsFormat() *Lucene104PostingsFormat {
 
 // FieldsConsumer returns a fields consumer for writing postings.
 //
-// The strict Lucene103BlockTreeTermsWriter requires a concrete
-// PostingsWriterBase plus min/max block sizes (Lucene103DefaultMinBlockSize
-// / Lucene103DefaultMaxBlockSize). Until Lucene103PostingsFormat is ported
-// (backlog task #2691) there is no PostingsWriterBase to wire, so this
-// shim returns a clear error pointing at the backlog task instead of
-// silently fabricating a half-working consumer.
+// The Go port currently wires the simplified Lucene104FieldsConsumer
+// (single .pst file with V-int encoded postings). The strict
+// Lucene103BlockTreeTermsWriter + Lucene103PostingsWriter path lives in
+// codecs/lucene103_postings_format.go as a typed stub awaiting the deep
+// behavioural port; once that lands, this method will route to the
+// Lucene103PostingsFormat instance.
 func (f *Lucene104PostingsFormat) FieldsConsumer(state *SegmentWriteState) (FieldsConsumer, error) {
-	return nil, fmt.Errorf("Lucene104PostingsFormat.FieldsConsumer: not implemented — Lucene103BlockTreeTermsWriter requires a PostingsWriterBase; see backlog task #2691 (Port Lucene103PostingsFormat)")
+	return NewLucene104FieldsConsumer(state), nil
 }
 
 // FieldsProducer returns a fields producer for reading postings.
 //
-// Symmetrically to FieldsConsumer, the strict Lucene103BlockTreeTermsReader
-// requires a PostingsReaderBase. Returns a clear error pointing at backlog
-// task #2691 until Lucene103PostingsFormat lands.
+// Symmetrically to FieldsConsumer, this method currently wires the
+// simplified Lucene104FieldsProducer until the strict
+// Lucene103BlockTreeTermsReader + Lucene103PostingsReader pipeline is
+// deep-ported (typed stubs already in lucene103_postings_format.go).
 func (f *Lucene104PostingsFormat) FieldsProducer(state *SegmentReadState) (FieldsProducer, error) {
-	return nil, fmt.Errorf("Lucene104PostingsFormat.FieldsProducer: not implemented — Lucene103BlockTreeTermsReader requires a PostingsReaderBase; see backlog task #2691 (Port Lucene103PostingsFormat)")
+	return NewLucene104FieldsProducer(state), nil
 }
 
 // Lucene104FieldsConsumer writes postings data to disk.

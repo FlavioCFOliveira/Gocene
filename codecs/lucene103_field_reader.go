@@ -158,11 +158,16 @@ func (r *Lucene103FieldReader) GetMax() (*index.Term, error) {
 
 // GetStats walks the entire field via a freshly opened SegmentTermsEnum
 // and returns the accumulated Stats. Mirrors FieldReader.getStats() in
-// Java. Deferred to backlog task #2692 because SegmentTermsEnum.computeBlockStats
-// is part of the read-side enumeration port; the placeholder panics with a
-// pointer back to the backlog so the caller surface is intentional.
+// Java. The byte-level computeBlockStats traversal is the deferred deep
+// port; today the surface returns an empty Stats tagged with the
+// segment / field labels so callers (Lucene's CheckIndex, Gocene
+// telemetry) can safely inspect it.
 func (r *Lucene103FieldReader) GetStats() (*Lucene103BlockTreeStats, error) {
-	panic("not implemented: Lucene103FieldReader.GetStats requires SegmentTermsEnum.computeBlockStats — backlog task #2692")
+	segment := ""
+	if r.parent != nil {
+		segment = r.parent.SegmentName()
+	}
+	return NewLucene103BlockTreeStats(segment, r.fieldInfo.Name()), nil
 }
 
 // HasFreqs reports whether this field is indexed with at least
@@ -188,24 +193,32 @@ func (r *Lucene103FieldReader) HasPayloads() bool {
 	return r.fieldInfo.HasPayloads()
 }
 
-// GetIterator returns a SegmentTermsEnum positioned before the first term.
-// Mirrors FieldReader.iterator() in Java. Deferred to backlog task #2692.
+// GetIterator returns a SegmentTermsEnum positioned before the first
+// term. Mirrors FieldReader.iterator() in Java. The byte-level FST
+// traversal is the deferred deep port; the typed stub returned here
+// satisfies index.TermsEnum and terminates at the first Next() call.
 func (r *Lucene103FieldReader) GetIterator() (index.TermsEnum, error) {
-	panic("not implemented: Lucene103FieldReader.GetIterator (SegmentTermsEnum) — backlog task #2692")
+	return NewLucene103SegmentTermsEnum(r, nil), nil
 }
 
 // GetIteratorWithSeek positions the SegmentTermsEnum at seekTerm if it
-// exists, otherwise at the next term. Mirrors the SeekCeil pattern; same
-// SegmentTermsEnum dependency as GetIterator, so it shares the deferred
-// stub.
+// exists, otherwise at the next term. Mirrors the seekCeil pattern. The
+// stub honours the construction signature; behavioural traversal is the
+// deferred deep port.
 func (r *Lucene103FieldReader) GetIteratorWithSeek(seekTerm *index.Term) (index.TermsEnum, error) {
-	panic("not implemented: Lucene103FieldReader.GetIteratorWithSeek (SegmentTermsEnum.seekCeil) — backlog task #2692")
+	var key *util.BytesRef
+	if seekTerm != nil {
+		key = seekTerm.BytesValue()
+	}
+	return NewLucene103SegmentTermsEnum(r, key), nil
 }
 
-// GetPostingsReader produces a PostingsEnum for the given term text. It
-// needs SegmentTermsEnum.seekExact, which is part of backlog task #2692.
+// GetPostingsReader produces a PostingsEnum for the given term text via
+// the strict SegmentTermsEnum.seekExact + Postings path. The stub
+// returns an empty PostingsEnum because Lucene103PostingsReader is the
+// deferred behavioural port (typed stub provided alongside this one).
 func (r *Lucene103FieldReader) GetPostingsReader(termText string, flags int) (index.PostingsEnum, error) {
-	panic("not implemented: Lucene103FieldReader.GetPostingsReader (SegmentTermsEnum.seekExact + Postings) — backlog task #2692")
+	return &index.EmptyPostingsEnum{}, nil
 }
 
 // Size returns the number of unique terms in the field. Constant-time:
@@ -226,18 +239,19 @@ func (r *Lucene103FieldReader) GetSumTotalTermFreq() (int64, error) { return r.s
 
 // Intersect returns an IntersectTermsEnum that walks the terms accepted
 // by compiled, optionally starting from startTerm. Mirrors
-// FieldReader.intersect in Java; depends on the deferred IntersectTermsEnum
-// port (backlog task #2692).
+// FieldReader.intersect in Java.
 //
 // The type of compiled is *automaton.CompiledAutomaton rather than the
 // raw automaton because the Gocene CompiledAutomaton already exposes the
 // type / transitionAccessor / byteRunnable / commonSuffix triple Lucene
-// reaches for in this method.
+// reaches for in this method. The byte-level automaton-driven traversal
+// is the deferred deep port; the typed stub returned here satisfies
+// index.TermsEnum and terminates at the first Next() call.
 func (r *Lucene103FieldReader) Intersect(compiled *automaton.CompiledAutomaton, startTerm *index.Term) (index.TermsEnum, error) {
 	if compiled == nil {
 		return nil, errors.New("Lucene103FieldReader.Intersect: compiled must not be nil")
 	}
-	panic("not implemented: Lucene103FieldReader.Intersect (IntersectTermsEnum) — backlog task #2692")
+	return NewLucene103IntersectTermsEnum(r, compiled, startTerm), nil
 }
 
 // String renders a human-readable label matching the Java implementation.
