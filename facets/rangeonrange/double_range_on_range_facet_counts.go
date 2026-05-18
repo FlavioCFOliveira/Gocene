@@ -50,8 +50,10 @@ func (c *DoubleRangeOnRangeFacetCounts) Accept(docMin, docMax float64) {
 func (c *DoubleRangeOnRangeFacetCounts) match(r *DoubleRange, docMin, docMax float64) bool {
 	switch c.relation {
 	case WithinRelation:
-		return r.Within(docMin, docMax) || r.Contains(docMin, docMax) || (docMin >= r.Min && docMax <= r.Max)
+		// The doc's interval must sit inside the bucket range.
+		return r.Contains(docMin, docMax)
 	case ContainsRelation:
+		// The bucket range must sit inside the doc's interval.
 		return r.Within(docMin, docMax)
 	case IntersectsRelation:
 		return r.Overlaps(docMin, docMax)
