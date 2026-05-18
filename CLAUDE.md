@@ -27,6 +27,21 @@ When implementing Lucene features in Go:
 - Consider how to translate Java's object-oriented patterns to Go's interface-based approach
 - Test against Lucene's expected behavior for byte-level compatibility
 
+## Lucene Reference Repository
+
+The authoritative reference for the port is the upstream Apache Lucene source tree at release tag `releases/lucene/10.4.0` (commit `9983b7c`).
+
+- **Expected local path**: `/tmp/lucene` (shallow clone of `https://github.com/apache/lucene.git` at tag `releases/lucene/10.4.0`).
+- **If `/tmp/lucene` is absent or empty**, clone it before starting any inventory, planning, or porting task:
+
+  ```bash
+  git clone --depth=1 --branch releases/lucene/10.4.0 \
+      https://github.com/apache/lucene.git /tmp/lucene
+  ```
+
+- Module sources live under `/tmp/lucene/lucene/<module>/src/java/...` (production code), `/tmp/lucene/lucene/<module>/src/java21/...` (JDK-21 specific code, where present), and `/tmp/lucene/lucene/<module>/src/test/...` (tests). Some modules also expose `src/test-files/...` (test resources).
+- The reference tree must be treated as read-only context; never modify it.
+
 ## Initial Setup
 
 Once development begins, initialize the Go module:

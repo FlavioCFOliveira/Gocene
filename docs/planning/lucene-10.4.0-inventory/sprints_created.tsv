@@ -1,0 +1,37 @@
+draft_idx	rmp_id	module	subpkgs	task_count
+1	55	core	document,test/document	75
+2	56	core	util,test/util,store,test/store,geo,test/geo,internal/hppc,internal/tests,internal/vectorization,test/internal/vectorization	119
+3	57	core	codecs,test/codecs,index	99
+4	58	core	test/index	127
+5	59	core	search	82
+6	60	core	test/search,analysis,test/analysis,test/TestAssertions.java,test/TestDemo.java,test/TestExternalCodecs.java,test/TestMergeSchedulerExternal.java,test/TestSearch.java,test/TestSearchForDuplicates.java	109
+7	61	backward-codecs	backward_codecs	56
+8	62	backward-codecs	test/backward_codecs,test/backward_index	100
+9	63	codecs	codecs,test/codecs	30
+10	64	analysis/common	analysis (chunk 1/2)	120
+11	65	analysis/common	analysis (chunk 2/2)	50
+12	66	analysis/common	collation,misc,test/analysis	90
+13	67	analysis/icu	analysis,test/analysis	25
+14	68	analysis/kuromoji	analysis,test/analysis	56
+15	69	analysis/nori	analysis,test/analysis	35
+16	70	analysis/morfologik	analysis,test/analysis	7
+17	71	analysis/opennlp	analysis	17
+18	72	analysis/phonetic	analysis	8
+19	73	analysis/smartcn	analysis	18
+20	74	analysis/stempel	analysis,misc,test/misc	15
+21	75	queries	queries,test/queries	81
+22	76	queryparser	queryparser,test/queryparser	58
+23	77	suggest	search,test/search	14
+24	78	facet	facet,test/facet	31
+25	79	grouping	search,test/search	7
+26	80	highlighter	search,test/search	21
+27	81	join	search,test/search	21
+28	82	memory	test/index	2
+29	83	misc	misc,test/misc	4
+30	84	expressions	expressions,test/expressions	20
+31	85	sandbox	sandbox,test/sandbox	38
+32	86	monitor	monitor,test/monitor	66
+33	87	classification	classification,test/classification	19
+34	88	spatial-extras	spatial,test/spatial	39
+35	89	spatial3d	spatial3d,test/spatial3d	112
+36	90	replicator	replicator,test/replicator	20
