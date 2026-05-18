@@ -7,7 +7,15 @@ package analysis
 import (
 	"fmt"
 	"reflect"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
+
+// OffsetAttributeType is the reflect.Type of the OffsetAttribute
+// interface, used as the lookup key for AttributeSource. Phase 4
+// (consumer migration) converts all string-keyed GetAttribute calls to
+// use these vars.
+var OffsetAttributeType = reflect.TypeOf((*OffsetAttribute)(nil)).Elem()
 
 // OffsetAttribute stores the character offsets of a token in the original text.
 //
@@ -21,6 +29,14 @@ import (
 // setters are retained for back-compat with existing consumers.
 type OffsetAttribute interface {
 	AttributeImpl
+
+	// Copy returns a deep copy of this attribute. Retained as part of the
+	// OffsetAttribute interface contract for Sprint 54 Phase 2: when
+	// [AttributeImpl] became an alias for [util.AttributeImpl], its
+	// CloneAttribute method replaced the legacy Copy on the underlying
+	// interface; preserving Copy here keeps existing consumer code
+	// compiling while migration to CloneAttribute is rolled out.
+	Copy() AttributeImpl
 
 	// StartOffset returns the inclusive start offset of the token.
 	StartOffset() int
@@ -84,6 +100,14 @@ func (a *offsetAttribute) Copy() AttributeImpl {
 	copy.SetEndOffset(a.endOffset)
 	return copy
 }
+
+// End implements util.AttributeImpl.End. Lucene default behavior is to
+// call clear(); concrete impls override when end-of-field state differs.
+func (a *offsetAttribute) End() { a.Clear() }
+
+// CloneAttribute implements util.AttributeImpl.CloneAttribute. Returns
+// a deep copy as util.AttributeImpl. Delegates to the existing Copy().
+func (a *offsetAttribute) CloneAttribute() util.AttributeImpl { return a.Copy() }
 
 // StartOffset returns the start offset.
 func (a *offsetAttribute) StartOffset() int {

@@ -57,6 +57,14 @@ func (b *BytesTermAttributeImpl) Clear() {
 	b.bytes = nil
 }
 
+// End implements util.AttributeImpl.End. Lucene default behavior is to
+// call clear(); concrete impls override when end-of-field state differs.
+func (b *BytesTermAttributeImpl) End() { b.Clear() }
+
+// CloneAttribute implements util.AttributeImpl.CloneAttribute. Returns
+// a deep copy as util.AttributeImpl. Delegates to the existing Copy().
+func (b *BytesTermAttributeImpl) CloneAttribute() util.AttributeImpl { return b.Copy() }
+
 // CopyTo deep-copies this impl's BytesRef onto target. The target must
 // be a [BytesTermAttributeImpl], matching the Lucene cast contract; a
 // panic with an explanatory message is raised otherwise.

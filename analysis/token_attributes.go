@@ -4,6 +4,18 @@
 
 package analysis
 
+import (
+	"reflect"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
+// TypeAttributeType is the reflect.Type used as the lookup key for
+// TypeAttribute in an [AttributeSource]. Sprint 54 Phase 3 will replace
+// the pointer-to-bare-struct key with `(*Interface)(nil).Elem()` once
+// the bare-struct attributes gain a Lucene-style interface split.
+var TypeAttributeType = reflect.TypeOf(&TypeAttribute{})
+
 // TypeAttribute provides a way to store the token type.
 // This is the Go port of Lucene's org.apache.lucene.analysis.tokenattributes.TypeAttribute.
 type TypeAttribute struct {
@@ -47,6 +59,21 @@ func (ta *TypeAttribute) CopyTo(target AttributeImpl) {
 func (ta *TypeAttribute) Clear() {
 	ta.Type = "word"
 }
+
+// End implements util.AttributeImpl.End. Lucene default behavior is to
+// call clear(); concrete impls override when end-of-field state differs.
+func (ta *TypeAttribute) End() { ta.Clear() }
+
+// CloneAttribute implements util.AttributeImpl.CloneAttribute. Returns
+// a deep copy as util.AttributeImpl. Delegates to the existing Copy().
+// ReflectWith is supplied by token_attributes_parity.go.
+func (ta *TypeAttribute) CloneAttribute() util.AttributeImpl { return ta.Copy() }
+
+// PayloadAttributeType is the reflect.Type used as the lookup key for
+// PayloadAttribute in an [AttributeSource]. Sprint 54 Phase 3 will
+// replace the pointer-to-bare-struct key with `(*Interface)(nil).Elem()`
+// once the bare-struct attributes gain a Lucene-style interface split.
+var PayloadAttributeType = reflect.TypeOf(&PayloadAttribute{})
 
 // PayloadAttribute provides a way to store a payload for a token.
 // Payloads are arbitrary byte arrays that can be associated with tokens.
@@ -116,6 +143,21 @@ func (pa *PayloadAttribute) CopyTo(target AttributeImpl) {
 	}
 }
 
+// End implements util.AttributeImpl.End. Lucene default behavior is to
+// call clear(); concrete impls override when end-of-field state differs.
+func (pa *PayloadAttribute) End() { pa.Clear() }
+
+// CloneAttribute implements util.AttributeImpl.CloneAttribute. Returns
+// a deep copy as util.AttributeImpl. Delegates to the existing Copy().
+// ReflectWith is supplied by token_attributes_parity.go.
+func (pa *PayloadAttribute) CloneAttribute() util.AttributeImpl { return pa.Copy() }
+
+// FlagsAttributeType is the reflect.Type used as the lookup key for
+// FlagsAttribute in an [AttributeSource]. Sprint 54 Phase 3 will
+// replace the pointer-to-bare-struct key with `(*Interface)(nil).Elem()`
+// once the bare-struct attributes gain a Lucene-style interface split.
+var FlagsAttributeType = reflect.TypeOf(&FlagsAttribute{})
+
 // FlagsAttribute provides a way to store custom flags for a token.
 // This is the Go port of Lucene's org.apache.lucene.analysis.tokenattributes.FlagsAttribute.
 type FlagsAttribute struct {
@@ -179,6 +221,21 @@ func (fa *FlagsAttribute) SetFlag(flag int, set bool) {
 	}
 }
 
+// End implements util.AttributeImpl.End. Lucene default behavior is to
+// call clear(); concrete impls override when end-of-field state differs.
+func (fa *FlagsAttribute) End() { fa.Clear() }
+
+// CloneAttribute implements util.AttributeImpl.CloneAttribute. Returns
+// a deep copy as util.AttributeImpl. Delegates to the existing Copy().
+// ReflectWith is supplied by token_attributes_parity.go.
+func (fa *FlagsAttribute) CloneAttribute() util.AttributeImpl { return fa.Copy() }
+
+// KeywordAttributeType is the reflect.Type used as the lookup key for
+// KeywordAttribute in an [AttributeSource]. Sprint 54 Phase 3 will
+// replace the pointer-to-bare-struct key with `(*Interface)(nil).Elem()`
+// once the bare-struct attributes gain a Lucene-style interface split.
+var KeywordAttributeType = reflect.TypeOf(&KeywordAttribute{})
+
 // KeywordAttribute marks a token as a keyword.
 // Keyword tokens are typically not modified by subsequent filters
 // (e.g., not lowercased, not stemmed).
@@ -229,6 +286,22 @@ func (ka *KeywordAttribute) CopyTo(target AttributeImpl) {
 func (ka *KeywordAttribute) Clear() {
 	ka.IsKeyword = false
 }
+
+// End implements util.AttributeImpl.End. Lucene default behavior is to
+// call clear(); concrete impls override when end-of-field state differs.
+func (ka *KeywordAttribute) End() { ka.Clear() }
+
+// CloneAttribute implements util.AttributeImpl.CloneAttribute. Returns
+// a deep copy as util.AttributeImpl. Delegates to the existing Copy().
+// ReflectWith is supplied by token_attributes_parity.go.
+func (ka *KeywordAttribute) CloneAttribute() util.AttributeImpl { return ka.Copy() }
+
+// PositionLengthAttributeType is the reflect.Type used as the lookup
+// key for PositionLengthAttribute in an [AttributeSource]. Sprint 54
+// Phase 3 will replace the pointer-to-bare-struct key with
+// `(*Interface)(nil).Elem()` once the bare-struct attributes gain a
+// Lucene-style interface split.
+var PositionLengthAttributeType = reflect.TypeOf(&PositionLengthAttribute{})
 
 // PositionLengthAttribute provides the position length of a token.
 // The position length indicates how many positions this token spans.
@@ -283,6 +356,22 @@ func (pla *PositionLengthAttribute) CopyTo(target AttributeImpl) {
 	}
 }
 
+// End implements util.AttributeImpl.End. Lucene default behavior is to
+// call clear(); concrete impls override when end-of-field state differs.
+func (pla *PositionLengthAttribute) End() { pla.Clear() }
+
+// CloneAttribute implements util.AttributeImpl.CloneAttribute. Returns
+// a deep copy as util.AttributeImpl. Delegates to the existing Copy().
+// ReflectWith is supplied by token_attributes_parity.go.
+func (pla *PositionLengthAttribute) CloneAttribute() util.AttributeImpl { return pla.Copy() }
+
+// TermFrequencyAttributeType is the reflect.Type used as the lookup key
+// for TermFrequencyAttribute in an [AttributeSource]. Sprint 54 Phase 3
+// will replace the pointer-to-bare-struct key with
+// `(*Interface)(nil).Elem()` once the bare-struct attributes gain a
+// Lucene-style interface split.
+var TermFrequencyAttributeType = reflect.TypeOf(&TermFrequencyAttribute{})
+
 // TermFrequencyAttribute provides the term frequency for a token.
 // This can be used to encode term frequencies in the token stream.
 // This is the Go port of Lucene's org.apache.lucene.analysis.tokenattributes.TermFrequencyAttribute.
@@ -333,3 +422,8 @@ func (tfa *TermFrequencyAttribute) CopyTo(target AttributeImpl) {
 		t.TermFrequency = tfa.TermFrequency
 	}
 }
+
+// CloneAttribute implements util.AttributeImpl.CloneAttribute. Returns
+// a deep copy as util.AttributeImpl. Delegates to the existing Copy().
+// End and ReflectWith are supplied by token_attributes_parity.go.
+func (tfa *TermFrequencyAttribute) CloneAttribute() util.AttributeImpl { return tfa.Copy() }

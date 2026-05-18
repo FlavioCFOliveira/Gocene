@@ -7,6 +7,8 @@ package analysis
 import (
 	"fmt"
 	"reflect"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // PackedTokenAttributeImpl is the Go port of Lucene's
@@ -221,6 +223,10 @@ func (p *PackedTokenAttributeImpl) Copy() AttributeImpl {
 	p.CopyTo(clone)
 	return clone
 }
+
+// CloneAttribute implements util.AttributeImpl.CloneAttribute. Returns
+// a deep copy as util.AttributeImpl. Delegates to the existing Copy().
+func (p *PackedTokenAttributeImpl) CloneAttribute() util.AttributeImpl { return p.Copy() }
 
 // ReflectWith emits the exact triple set required by the Lucene
 // reference: the CharTermAttributeImpl reflection (term + bytes

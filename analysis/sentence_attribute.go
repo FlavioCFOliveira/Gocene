@@ -4,6 +4,8 @@
 
 package analysis
 
+import "reflect"
+
 // SentenceAttribute is the Go port of Lucene's
 // org.apache.lucene.analysis.tokenattributes.SentenceAttribute.
 //
@@ -23,3 +25,9 @@ type SentenceAttribute interface {
 	// SetSentenceIndex sets the sentence index for the current token.
 	SetSentenceIndex(sentenceIndex int)
 }
+
+// SentenceAttributeType is the reflect.Type of the SentenceAttribute
+// interface, used as the lookup key for AttributeSource. Phase 4
+// (consumer migration) converts all string-keyed GetAttribute calls to
+// use these vars.
+var SentenceAttributeType = reflect.TypeOf((*SentenceAttribute)(nil)).Elem()

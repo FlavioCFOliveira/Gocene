@@ -7,7 +7,15 @@ package analysis
 import (
 	"fmt"
 	"reflect"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
+
+// PositionIncrementAttributeType is the reflect.Type of the
+// PositionIncrementAttribute interface, used as the lookup key for
+// AttributeSource. Phase 4 (consumer migration) converts all
+// string-keyed GetAttribute calls to use these vars.
+var PositionIncrementAttributeType = reflect.TypeOf((*PositionIncrementAttribute)(nil)).Elem()
 
 // PositionIncrementAttribute controls the position increment between tokens.
 //
@@ -21,6 +29,14 @@ import (
 // 0 will be matched by phrase queries as if they were at the same position.
 type PositionIncrementAttribute interface {
 	AttributeImpl
+
+	// Copy returns a deep copy of this attribute. Retained as part of the
+	// PositionIncrementAttribute interface contract for Sprint 54 Phase 2:
+	// when [AttributeImpl] became an alias for [util.AttributeImpl], its
+	// CloneAttribute method replaced the legacy Copy on the underlying
+	// interface; preserving Copy here keeps existing consumer code
+	// compiling while migration to CloneAttribute is rolled out.
+	Copy() AttributeImpl
 
 	// GetPositionIncrement returns the position increment.
 	// Default is 1.
@@ -71,6 +87,10 @@ func (a *positionIncrementAttribute) Copy() AttributeImpl {
 	copy.SetPositionIncrement(a.positionIncrement)
 	return copy
 }
+
+// CloneAttribute implements util.AttributeImpl.CloneAttribute. Returns
+// a deep copy as util.AttributeImpl. Delegates to the existing Copy().
+func (a *positionIncrementAttribute) CloneAttribute() util.AttributeImpl { return a.Copy() }
 
 // GetPositionIncrement returns the position increment.
 func (a *positionIncrementAttribute) GetPositionIncrement() int {

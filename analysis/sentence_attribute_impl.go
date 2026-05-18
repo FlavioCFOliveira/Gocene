@@ -4,7 +4,11 @@
 
 package analysis
 
-import "reflect"
+import (
+	"reflect"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
 
 // SentenceAttributeImpl is the Go port of Lucene's
 // org.apache.lucene.analysis.tokenattributes.SentenceAttributeImpl.
@@ -66,6 +70,14 @@ func (s *SentenceAttributeImpl) CopyTo(target AttributeImpl) {
 func (s *SentenceAttributeImpl) Copy() AttributeImpl {
 	return &SentenceAttributeImpl{index: s.index}
 }
+
+// End implements util.AttributeImpl.End. Lucene default behavior is to
+// call clear(); concrete impls override when end-of-field state differs.
+func (s *SentenceAttributeImpl) End() { s.Clear() }
+
+// CloneAttribute implements util.AttributeImpl.CloneAttribute. Returns
+// a deep copy as util.AttributeImpl. Delegates to the existing Copy().
+func (s *SentenceAttributeImpl) CloneAttribute() util.AttributeImpl { return s.Copy() }
 
 // ReflectWith pushes the single (SentenceAttribute, "sentences", index)
 // triple through reflector, matching the Lucene reference exactly

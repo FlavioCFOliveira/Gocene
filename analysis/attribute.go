@@ -27,6 +27,8 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // Attribute is a marker interface for token attributes.
@@ -40,49 +42,23 @@ import (
 //
 // In Go, this is implemented as an empty interface that concrete
 // attribute types implement.
+//
+// Deprecated: prefer [util.Attribute]. This marker is retained as a
+// legacy compatibility shim while Sprint 54 migrates consumers to the
+// util.AttributeSource API.
 type Attribute interface {
 	// Attribute is a marker interface - implementations provide their own methods
 }
 
-// AttributeImpl is the base implementation for all Attribute implementations.
-//
-// This is the Go port of Lucene's org.apache.lucene.util.AttributeImpl.
-//
-// AttributeImpl provides common functionality for attribute implementations
-// including cloning and clear operations.
-//
-// Sprint 12 extends the surface area through optional sibling
-// interfaces ([AttributeReflectable], [AttributeEnder]) instead of
-// adding methods to this interface, which would break the ~396
-// consumer references that depend on it today.
-type AttributeImpl interface {
-	Attribute
-	// Clear clears this attribute, resetting its state.
-	// This is called at the end of a token stream.
-	Clear()
-	// CopyTo copies the contents of this attribute to another implementation.
-	CopyTo(target AttributeImpl)
-	// Copy creates a deep copy of this attribute.
-	Copy() AttributeImpl
-}
+// AttributeImpl is a thin re-export of util.AttributeImpl (Sprint 54 Phase 2).
+// The legacy 3-method Gocene SPI has been unified with the Lucene-faithful
+// 5-method surface in util — impls must now satisfy End/ReflectWith/CloneAttribute
+// in addition to Clear/CopyTo. The legacy Copy() method is preserved on impls
+// for backwards compat and is not part of this interface.
+type AttributeImpl = util.AttributeImpl
 
-// AttributeReflector is the Go port of
-// org.apache.lucene.util.AttributeReflector.
-//
-// In Java this is a {@code @FunctionalInterface} with the single method
-// {@code reflect(Class<? extends Attribute>, String key, Object value)}.
-// In Go we model it as a function type, which is the canonical Go
-// equivalent of a single-method interface.
-//
-// The first argument is the Attribute interface type (obtained via
-// {@code reflect.TypeOf((*FooAttribute)(nil)).Elem()}); the second is
-// the property key; the third is the property value, or nil for an
-// absent value.
-//
-// Lucene 10.4.0 reference:
-//
-//	lucene/core/src/java/org/apache/lucene/util/AttributeReflector.java
-type AttributeReflector func(attType reflect.Type, key string, value any)
+// AttributeReflector is a thin re-export of util.AttributeReflector (Sprint 54 Phase 2).
+type AttributeReflector = util.AttributeReflector
 
 // AttributeReflectable is the opt-in counterpart to Lucene's
 // {@code AttributeImpl#reflectWith(AttributeReflector)}. An impl that
@@ -94,6 +70,11 @@ type AttributeReflector func(attType reflect.Type, key string, value any)
 // set of (attType, key, value) triples in the same order on every
 // call, so that callers can rely on deterministic output (see
 // [ReflectAsString]).
+//
+// Deprecated: Sprint 54 Phase 2 made [AttributeImpl] an alias for
+// [util.AttributeImpl], which already mandates ReflectWith on every
+// impl. This interface is retained as a legacy compatibility shim and
+// will be removed once consumer migration is complete.
 type AttributeReflectable interface {
 	// ReflectWith pushes each (attType, key, value) triple this impl
 	// exposes through reflector.
@@ -106,36 +87,40 @@ type AttributeReflectable interface {
 // distinct end-of-field state need to implement this interface. The
 // [End] helper falls back to [AttributeImpl.Clear] when the impl does
 // not opt in.
+//
+// Deprecated: Sprint 54 Phase 2 made [AttributeImpl] an alias for
+// [util.AttributeImpl], which already mandates End on every impl. This
+// interface is retained as a legacy compatibility shim and will be
+// removed once consumer migration is complete.
 type AttributeEnder interface {
 	// End resets this impl to its end-of-field state.
 	End()
 }
 
-// ReflectWith dispatches reflector against impl. If impl implements
-// [AttributeReflectable] its own ReflectWith is invoked; otherwise the
-// helper is a no-op, matching the Lucene contract where the base
-// {@code reflectWith} default is to emit nothing for impls that have
-// not overridden the hook in a meaningful way.
+// ReflectWith dispatches reflector against impl. Sprint 54 Phase 2
+// elevates ReflectWith to a mandatory method on [util.AttributeImpl]
+// (the underlying type of the analysis.AttributeImpl alias), so the
+// helper now always invokes impl.ReflectWith directly. The legacy
+// AttributeReflectable opt-in check is retained for callers that pass
+// in a value typed as the legacy interface; the result is the same.
 //
-// Callers should prefer this helper over a manual type assertion so
-// that the opt-in surface remains the single point of change when the
-// Sprint 12 follow-up migrates consumers to [util.AttributeImpl].
+// Deprecated: prefer calling impl.ReflectWith(reflector) directly. This
+// helper is retained as a legacy compatibility shim.
 func ReflectWith(impl AttributeImpl, reflector AttributeReflector) {
-	if r, ok := impl.(AttributeReflectable); ok {
-		r.ReflectWith(reflector)
-	}
+	impl.ReflectWith(reflector)
 }
 
-// End dispatches the end-of-field hook for impl. If impl implements
-// [AttributeEnder] its End method is invoked; otherwise End falls back
-// to Clear, which matches the Java default
-// {@code AttributeImpl#end() -> clear()}.
+// End dispatches the end-of-field hook for impl. Sprint 54 Phase 2
+// elevates End to a mandatory method on [util.AttributeImpl] (the
+// underlying type of the analysis.AttributeImpl alias), so the helper
+// now always invokes impl.End() directly. The Lucene default
+// {@code end() -> clear()} is now implemented per-impl by each
+// concrete End method (most delegate to Clear).
+//
+// Deprecated: prefer calling impl.End() directly. This helper is
+// retained as a legacy compatibility shim.
 func End(impl AttributeImpl) {
-	if e, ok := impl.(AttributeEnder); ok {
-		e.End()
-		return
-	}
-	impl.Clear()
+	impl.End()
 }
 
 // ReflectAsString is the Go port of
@@ -146,12 +131,14 @@ func End(impl AttributeImpl) {
 //	prependAttClass=true  : "AttributeClass#key=value,AttributeClass#key=value"
 //	prependAttClass=false : "key=value,key=value"
 //
-// Impls that do not opt into [AttributeReflectable] produce the empty
-// string, matching the Lucene default. nil values render as the
-// literal "null", matching the Java reference.
+// nil values render as the literal "null", matching the Java reference.
+//
+// Deprecated: prefer [util.ReflectAsString]. This helper is retained as
+// a legacy compatibility shim and currently mirrors the util variant's
+// output for impls that emit at least one triple.
 func ReflectAsString(impl AttributeImpl, prependAttClass bool) string {
 	var sb strings.Builder
-	ReflectWith(impl, func(attType reflect.Type, key string, value any) {
+	impl.ReflectWith(func(attType reflect.Type, key string, value any) {
 		if sb.Len() > 0 {
 			sb.WriteByte(',')
 		}

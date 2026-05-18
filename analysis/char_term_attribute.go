@@ -11,6 +11,12 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
+// CharTermAttributeType is the reflect.Type of the CharTermAttribute
+// interface, used as the lookup key for AttributeSource. Phase 4
+// (consumer migration) converts all string-keyed GetAttribute calls to
+// use these vars.
+var CharTermAttributeType = reflect.TypeOf((*CharTermAttribute)(nil)).Elem()
+
 // CharTermAttribute stores the text of a token.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.tokenattributes.CharTermAttribute.
@@ -24,6 +30,14 @@ import (
 type CharTermAttribute interface {
 	AttributeImpl
 	TermToBytesRefAttribute
+
+	// Copy returns a deep copy of this attribute. Retained as part of the
+	// CharTermAttribute interface contract for Sprint 54 Phase 2: when
+	// [AttributeImpl] became an alias for [util.AttributeImpl], its
+	// CloneAttribute method replaced the legacy Copy on the underlying
+	// interface; preserving Copy here keeps existing consumer code
+	// compiling while migration to CloneAttribute is rolled out.
+	Copy() AttributeImpl
 
 	// SetEmpty clears the term buffer and sets it to empty.
 	SetEmpty()
@@ -125,6 +139,10 @@ func (a *charTermAttribute) Copy() AttributeImpl {
 	copy.SetValue(a.String())
 	return copy
 }
+
+// CloneAttribute implements util.AttributeImpl.CloneAttribute. Returns
+// a deep copy as util.AttributeImpl. Delegates to the existing Copy().
+func (a *charTermAttribute) CloneAttribute() util.AttributeImpl { return a.Copy() }
 
 // SetEmpty clears the term buffer.
 func (a *charTermAttribute) SetEmpty() {

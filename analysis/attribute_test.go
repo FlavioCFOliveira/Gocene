@@ -7,6 +7,8 @@ package analysis
 import (
 	"reflect"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // MockAttribute is a mock implementation of AttributeImpl for testing.
@@ -27,6 +29,21 @@ func (m *MockAttribute) CopyTo(target AttributeImpl) {
 func (m *MockAttribute) Copy() AttributeImpl {
 	return &MockAttribute{value: m.value}
 }
+
+// End satisfies the Sprint 54 Phase 2 util.AttributeImpl surface. The
+// default (Lucene-faithful) behaviour is to delegate to Clear; this
+// mirrors the Java {@code AttributeImpl#end() -> clear()} contract.
+func (m *MockAttribute) End() { m.Clear() }
+
+// ReflectWith is a no-op for the bare MockAttribute, matching the
+// Sprint 12 contract where a mock that does not opt into reflection
+// emits no triples. [reflectableMockAttribute] overrides this method to
+// exercise the opt-in path.
+func (m *MockAttribute) ReflectWith(reflector AttributeReflector) {}
+
+// CloneAttribute satisfies util.AttributeImpl.CloneAttribute by
+// delegating to the existing Copy().
+func (m *MockAttribute) CloneAttribute() util.AttributeImpl { return m.Copy() }
 
 // TestAttributeImpl_Clear tests the Clear method.
 // Source: TestAttributeImpl.java
