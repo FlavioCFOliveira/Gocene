@@ -9,63 +9,6 @@ import (
 	"testing"
 )
 
-// ConstantScoreScorer is a Scorer that returns a constant score for all documents.
-// This is the Go port of Lucene's ConstantScoreScorer.
-type ConstantScoreScorer struct {
-	score         float32
-	scoreMode     ScoreMode
-	approximation DocIdSetIterator
-	iterator      DocIdSetIterator
-}
-
-// NewConstantScoreScorer creates a new ConstantScoreScorer.
-func NewConstantScoreScorer(score float32, scoreMode ScoreMode, disi DocIdSetIterator) *ConstantScoreScorer {
-	return &ConstantScoreScorer{
-		score:         score,
-		scoreMode:     scoreMode,
-		approximation: disi,
-		iterator:      disi,
-	}
-}
-
-// DocID returns the current document ID.
-func (s *ConstantScoreScorer) DocID() int {
-	return s.iterator.DocID()
-}
-
-// NextDoc advances to the next document.
-func (s *ConstantScoreScorer) NextDoc() (int, error) {
-	return s.iterator.NextDoc()
-}
-
-// Advance advances to the target document.
-func (s *ConstantScoreScorer) Advance(target int) (int, error) {
-	return s.iterator.Advance(target)
-}
-
-// Cost returns the estimated cost.
-func (s *ConstantScoreScorer) Cost() int64 {
-	return s.iterator.Cost()
-}
-
-// Score returns the constant score.
-func (s *ConstantScoreScorer) Score() float32 {
-	return s.score
-}
-
-// DocIDRunEnd returns the end of the current run.
-func (s *ConstantScoreScorer) DocIDRunEnd() int {
-	return s.iterator.DocIDRunEnd()
-}
-
-// GetMaxScore returns the maximum score for documents up to the given doc.
-func (s *ConstantScoreScorer) GetMaxScore(upTo int) float32 {
-	return s.score
-}
-
-// Ensure ConstantScoreScorer implements Scorer
-var _ Scorer = (*ConstantScoreScorer)(nil)
-
 // DisiWrapper wraps a Scorer for use in disjunctions.
 // This is the Go port of Lucene's DisiWrapper.
 type DisiWrapper struct {
