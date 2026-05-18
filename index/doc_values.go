@@ -180,3 +180,44 @@ func (s *singletonSortedSet) LookupOrd(ord int) ([]byte, error) {
 func (s *singletonSortedSet) GetValueCount() int {
 	return s.wrapped.GetValueCount()
 }
+
+// IsDocValuesCacheable mirrors the static helper
+// org.apache.lucene.index.DocValues#isCacheable(LeafReaderContext, String...).
+//
+// A query that consumes doc values for the supplied fields is cacheable on a
+// given leaf only when none of those fields have an associated doc-values
+// update generation. A non-negative DocValuesGen means the field's doc
+// values have been overwritten by an in-place update, so the segment-level
+// values can change underfoot and caching the matching doc set would be
+// stale.
+//
+// The reader exposed by LeafReaderContext is the generic
+// IndexReaderInterface, which does not declare GetFieldInfos directly. The
+// helper unwraps the concrete reader through a narrow type assertion that
+// every production leaf (LeafReader, SegmentReader, FilterLeafReader,
+// CodecReader, ...) already satisfies; readers without a FieldInfos surface
+// default to cacheable, matching the Java reference's behaviour when
+// fieldInfo lookup returns null.
+func IsDocValuesCacheable(ctx *LeafReaderContext, fields ...string) bool {
+	if ctx == nil {
+		return true
+	}
+	type fieldInfosReader interface {
+		GetFieldInfos() *FieldInfos
+	}
+	reader, ok := ctx.LeafReader().(fieldInfosReader)
+	if !ok || reader == nil {
+		return true
+	}
+	infos := reader.GetFieldInfos()
+	if infos == nil {
+		return true
+	}
+	for _, name := range fields {
+		fi := infos.GetByName(name)
+		if fi != nil && fi.DocValuesGen() > -1 {
+			return false
+		}
+	}
+	return true
+}
