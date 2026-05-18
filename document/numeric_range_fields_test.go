@@ -15,9 +15,8 @@ func TestIntRange(t *testing.T) {
 	t.Skip("IntRange is not yet implemented in Gocene")
 }
 
-func TestLongRange(t *testing.T) {
-	t.Skip("LongRange is not yet implemented in Gocene")
-}
+// TestLongRange (placeholder) was retired by GOC-3219; canonical
+// LongRange coverage lives in long_range_test.go.
 
 func TestFloatRange(t *testing.T) {
 	t.Skip("FloatRange is not yet implemented in Gocene")

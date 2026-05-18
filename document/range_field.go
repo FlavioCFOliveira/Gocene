@@ -57,61 +57,9 @@ func (r *IntRange) String() string {
 	return fmt.Sprintf("IntRange(name=%s, min=%d, max=%d)", r.name, r.min, r.max)
 }
 
-// LongRange is a field for indexing long ranges.
-type LongRange struct {
-	Field
-	min int64
-	max int64
-}
-
-// NewLongRange creates a new LongRange field.
-func NewLongRange(name string, min, max int64) *LongRange {
-	// Encode range as binary data
-	encoded := make([]byte, 16)
-	// Store min in first 8 bytes
-	encoded[0] = byte(min >> 56)
-	encoded[1] = byte(min >> 48)
-	encoded[2] = byte(min >> 40)
-	encoded[3] = byte(min >> 32)
-	encoded[4] = byte(min >> 24)
-	encoded[5] = byte(min >> 16)
-	encoded[6] = byte(min >> 8)
-	encoded[7] = byte(min)
-	// Store max in next 8 bytes
-	encoded[8] = byte(max >> 56)
-	encoded[9] = byte(max >> 48)
-	encoded[10] = byte(max >> 40)
-	encoded[11] = byte(max >> 32)
-	encoded[12] = byte(max >> 24)
-	encoded[13] = byte(max >> 16)
-	encoded[14] = byte(max >> 8)
-	encoded[15] = byte(max)
-
-	ft := PointFieldType()
-	ft.DimensionNumBytes = 8
-
-	field, _ := NewField(name, encoded, ft)
-	return &LongRange{
-		Field: *field,
-		min:   min,
-		max:   max,
-	}
-}
-
-// Min returns the minimum value.
-func (r *LongRange) Min() int64 {
-	return r.min
-}
-
-// Max returns the maximum value.
-func (r *LongRange) Max() int64 {
-	return r.max
-}
-
-// String returns a string representation.
-func (r *LongRange) String() string {
-	return fmt.Sprintf("LongRange(name=%s, min=%d, max=%d)", r.name, r.min, r.max)
-}
+// NOTE: The canonical LongRange (Lucene 10.4.0-compatible, N-dimensional,
+// sortable-bytes encoded) lives in long_range.go. The legacy single-dim
+// stub formerly defined here was removed by GOC-3219.
 
 // FloatRange is a field for indexing float ranges.
 type FloatRange struct {

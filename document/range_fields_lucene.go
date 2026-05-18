@@ -89,57 +89,16 @@ func EncodeIntRangeLucene(min, max []int32) ([]byte, error) {
 	return out, nil
 }
 
-// LongRangeLucene is the Lucene 10.4.0 LongRange field — variadic dimensions.
-type LongRangeLucene struct {
-	*Field
-	numDims int
-	min     []int64
-	max     []int64
-}
+// Deprecated: use [LongRange] / [NewLongRange] / [EncodeLongRange] (Lucene
+// canonical names). Retained for backward compatibility (GOC-3219). The
+// canonical implementation lives in long_range.go.
+type LongRangeLucene = LongRange
 
-// NewLongRangeLucene creates a new LongRangeLucene with N-dimensional ranges.
-func NewLongRangeLucene(name string, min, max []int64) (*LongRangeLucene, error) {
-	if err := validateRangePairs(len(min), len(max)); err != nil {
-		return nil, err
-	}
-	encoded, err := EncodeLongRangeLucene(min, max)
-	if err != nil {
-		return nil, err
-	}
-	field, err := NewField(name, encoded, rangeFieldType(len(min), 8))
-	if err != nil {
-		return nil, err
-	}
-	dupMin := make([]int64, len(min))
-	dupMax := make([]int64, len(max))
-	copy(dupMin, min)
-	copy(dupMax, max)
-	return &LongRangeLucene{Field: field, numDims: len(min), min: dupMin, max: dupMax}, nil
-}
+// Deprecated: use [NewLongRange]. Retained for backward compatibility (GOC-3219).
+var NewLongRangeLucene = NewLongRange
 
-// GetMin returns the minimum value for the given dimension.
-func (r *LongRangeLucene) GetMin(dim int) int64 { return r.min[dim] }
-
-// GetMax returns the maximum value for the given dimension.
-func (r *LongRangeLucene) GetMax(dim int) int64 { return r.max[dim] }
-
-// EncodeLongRangeLucene packs N-dimensional long min/max into Lucene's
-// sortable-byte layout.
-func EncodeLongRangeLucene(min, max []int64) ([]byte, error) {
-	if err := validateRangePairs(len(min), len(max)); err != nil {
-		return nil, err
-	}
-	n := len(min)
-	out := make([]byte, 2*n*8)
-	for i := 0; i < n; i++ {
-		if min[i] > max[i] {
-			return nil, fmt.Errorf("dim %d: min %d > max %d", i, min[i], max[i])
-		}
-		util.LongToSortableBytes(min[i], out, i*8)
-		util.LongToSortableBytes(max[i], out, n*8+i*8)
-	}
-	return out, nil
-}
+// Deprecated: use [EncodeLongRange]. Retained for backward compatibility (GOC-3219).
+var EncodeLongRangeLucene = EncodeLongRange
 
 // FloatRangeLucene is the Lucene 10.4.0 FloatRange field.
 type FloatRangeLucene struct {
