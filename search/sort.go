@@ -22,6 +22,9 @@ const (
 	SortFieldTypeFloat
 	// SortFieldTypeDouble sorts by double value.
 	SortFieldTypeDouble
+	// SortFieldTypeCustom sorts using a custom FieldComparatorSource. Mirrors
+	// Lucene's SortField.Type.CUSTOM.
+	SortFieldTypeCustom
 )
 
 // MissingValueStrategy defines how to handle missing values during sorting.
