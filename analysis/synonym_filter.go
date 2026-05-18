@@ -47,7 +47,7 @@ type SynonymFilter struct {
 	posIncrAttr PositionIncrementAttribute
 
 	// posLenAttr holds the PositionLengthAttribute from the shared attribute source
-	posLenAttr *PositionLengthAttribute
+	posLenAttr PositionLengthAttribute
 
 	// offsetAttr holds the OffsetAttribute from the shared attribute source
 	offsetAttr OffsetAttribute
@@ -141,9 +141,9 @@ func NewSynonymFilterWithOptions(input TokenStream, synonymMap *SynonymMap, igno
 		if attr != nil {
 			filter.posIncrAttr = attr.(PositionIncrementAttribute)
 		}
-		attr = attrSource.GetAttributeByType(reflect.TypeOf(&PositionLengthAttribute{}))
+		attr = attrSource.GetAttributeByType(PositionLengthAttributeType)
 		if attr != nil {
-			filter.posLenAttr = attr.(*PositionLengthAttribute)
+			filter.posLenAttr = attr.(PositionLengthAttribute)
 		}
 		attr = attrSource.GetAttributeByType(reflect.TypeOf(&offsetAttribute{}))
 		if attr != nil {

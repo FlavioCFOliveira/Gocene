@@ -576,7 +576,7 @@ func collectSynonymTokens(t *testing.T, ts TokenStream) []synonymTokenInfo {
 	// Get attributes
 	var termAttr CharTermAttribute
 	var posIncrAttr PositionIncrementAttribute
-	var posLenAttr *PositionLengthAttribute
+	var posLenAttr PositionLengthAttribute
 
 	if attrSrc, ok := ts.(interface{ GetAttributeSource() *AttributeSource }); ok {
 		as := attrSrc.GetAttributeSource()
@@ -591,7 +591,7 @@ func collectSynonymTokens(t *testing.T, ts TokenStream) []synonymTokenInfo {
 			}
 		}
 		if attr := as.GetAttribute("PositionLengthAttribute"); attr != nil {
-			if pla, ok := attr.(*PositionLengthAttribute); ok {
+			if pla, ok := attr.(PositionLengthAttribute); ok {
 				posLenAttr = pla
 			}
 		}
@@ -632,7 +632,7 @@ func collectSynonymTokensWithOffsets(t *testing.T, ts TokenStream) []synonymToke
 	// Get attributes
 	var termAttr CharTermAttribute
 	var posIncrAttr PositionIncrementAttribute
-	var posLenAttr *PositionLengthAttribute
+	var posLenAttr PositionLengthAttribute
 	var offsetAttr OffsetAttribute
 
 	if attrSrc, ok := ts.(interface{ GetAttributeSource() *AttributeSource }); ok {
@@ -648,7 +648,7 @@ func collectSynonymTokensWithOffsets(t *testing.T, ts TokenStream) []synonymToke
 			}
 		}
 		if attr := as.GetAttribute("PositionLengthAttribute"); attr != nil {
-			if pla, ok := attr.(*PositionLengthAttribute); ok {
+			if pla, ok := attr.(PositionLengthAttribute); ok {
 				posLenAttr = pla
 			}
 		}

@@ -55,13 +55,13 @@ type WordDelimiterGraphFilter struct {
 	posIncrAttr PositionIncrementAttribute
 
 	// posLenAttr holds the PositionLengthAttribute from the shared attribute source
-	posLenAttr *PositionLengthAttribute
+	posLenAttr PositionLengthAttribute
 
 	// offsetAttr holds the OffsetAttribute from the shared attribute source
 	offsetAttr OffsetAttribute
 
 	// typeAttr holds the TypeAttribute from the shared attribute source
-	typeAttr *TypeAttribute
+	typeAttr TypeAttribute
 
 	// iterator is used to find word boundaries
 	iterator *WordDelimiterIterator
@@ -189,10 +189,9 @@ func (f *WordDelimiterGraphFilter) initAttributes() {
 	}
 
 	// Get or add PositionLengthAttribute
-	posLenType := reflect.TypeOf(&PositionLengthAttribute{})
-	attr = attrSource.GetAttributeByType(posLenType)
+	attr = attrSource.GetAttributeByType(PositionLengthAttributeType)
 	if attr != nil {
-		f.posLenAttr = attr.(*PositionLengthAttribute)
+		f.posLenAttr = attr.(PositionLengthAttribute)
 	} else {
 		f.posLenAttr = NewPositionLengthAttribute()
 		attrSource.AddAttribute(f.posLenAttr)
@@ -205,9 +204,9 @@ func (f *WordDelimiterGraphFilter) initAttributes() {
 	}
 
 	// Get or add TypeAttribute
-	attr = attrSource.GetAttributeByType(reflect.TypeOf(&TypeAttribute{}))
+	attr = attrSource.GetAttributeByType(TypeAttributeType)
 	if attr != nil {
-		f.typeAttr = attr.(*TypeAttribute)
+		f.typeAttr = attr.(TypeAttribute)
 	} else {
 		f.typeAttr = NewTypeAttribute()
 		attrSource.AddAttribute(f.typeAttr)

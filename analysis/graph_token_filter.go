@@ -52,7 +52,7 @@ type GraphTokenFilter struct {
 
 	posIncAtt PositionIncrementAttribute
 	offsetAtt OffsetAttribute
-	posLenAtt *PositionLengthAttribute
+	posLenAtt PositionLengthAttribute
 }
 
 // NewGraphTokenFilter wraps the given input stream and initializes the
@@ -75,8 +75,8 @@ func NewGraphTokenFilter(input TokenStream) *GraphTokenFilter {
 				f.offsetAtt = off
 			}
 		}
-		if attr := src.GetAttributeByType(reflect.TypeOf(&PositionLengthAttribute{})); attr != nil {
-			if pl, ok := attr.(*PositionLengthAttribute); ok {
+		if attr := src.GetAttributeByType(PositionLengthAttributeType); attr != nil {
+			if pl, ok := attr.(PositionLengthAttribute); ok {
 				f.posLenAtt = pl
 			}
 		}

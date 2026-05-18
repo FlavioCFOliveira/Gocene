@@ -83,7 +83,7 @@ type PersianStemFilter struct {
 
 	stemmer     *PersianStemmer
 	termAttr    CharTermAttribute
-	keywordAttr *KeywordAttribute
+	keywordAttr KeywordAttribute
 }
 
 // NewPersianStemFilter wraps input with the Persian stemmer.
@@ -97,8 +97,8 @@ func NewPersianStemFilter(input TokenStream) *PersianStemFilter {
 		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&KeywordAttribute{})); a != nil {
-			f.keywordAttr = a.(*KeywordAttribute)
+		if a := src.GetAttributeByType(KeywordAttributeType); a != nil {
+			f.keywordAttr = a.(KeywordAttribute)
 		}
 	}
 	return f
@@ -117,7 +117,7 @@ func (f *PersianStemFilter) IncrementToken() (bool, error) {
 	if f.termAttr == nil {
 		return true, nil
 	}
-	if f.keywordAttr != nil && f.keywordAttr.IsKeyword {
+	if f.keywordAttr != nil && f.keywordAttr.IsKeywordToken() {
 		return true, nil
 	}
 	s := f.termAttr.String()

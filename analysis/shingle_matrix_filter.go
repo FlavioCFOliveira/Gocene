@@ -52,7 +52,7 @@ type ShingleMatrixFilter struct {
 	posIncrAttr PositionIncrementAttribute
 
 	// posLenAttr holds the PositionLengthAttribute from the shared attribute source
-	posLenAttr *PositionLengthAttribute
+	posLenAttr PositionLengthAttribute
 
 	// offsetAttr holds the OffsetAttribute from the shared attribute source
 	offsetAttr OffsetAttribute
@@ -149,10 +149,9 @@ func (f *ShingleMatrixFilter) initAttributes() {
 		}
 
 		// PositionLengthAttribute is needed for shingles - add it if not present
-		posLenType := reflect.TypeOf(&PositionLengthAttribute{})
-		attr = attrSource.GetAttributeByType(posLenType)
+		attr = attrSource.GetAttributeByType(PositionLengthAttributeType)
 		if attr != nil {
-			f.posLenAttr = attr.(*PositionLengthAttribute)
+			f.posLenAttr = attr.(PositionLengthAttribute)
 		} else {
 			// Add PositionLengthAttribute to the attribute source
 			f.posLenAttr = NewPositionLengthAttribute()

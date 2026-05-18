@@ -487,7 +487,7 @@ func TestStandardTokenizer_AttributesExist(t *testing.T) {
 		t.Error("Expected PositionIncrementAttribute to exist")
 	}
 
-	if !attrSource.HasAttribute(reflect.TypeOf(&TypeAttribute{})) {
+	if !attrSource.HasAttribute(TypeAttributeType) {
 		t.Error("Expected TypeAttribute to exist")
 	}
 
@@ -584,7 +584,7 @@ func TestStandardTokenizer_TypeAttribute(t *testing.T) {
 			t.Errorf("input %q: missing TypeAttribute", tc.input)
 			continue
 		}
-		got := typeAttr.(*TypeAttribute).GetType()
+		got := typeAttr.(TypeAttribute).GetType()
 		if got != tc.wantType {
 			t.Errorf("input %q: type=%q want %q", tc.input, got, tc.wantType)
 		}

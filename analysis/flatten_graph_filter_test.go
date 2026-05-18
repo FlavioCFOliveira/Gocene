@@ -18,7 +18,7 @@ type mockGraphTokenStream struct {
 	currentIdx  int
 	termAttr    CharTermAttribute
 	posIncrAttr PositionIncrementAttribute
-	posLenAttr  *PositionLengthAttribute
+	posLenAttr  PositionLengthAttribute
 	offsetAttr  OffsetAttribute
 }
 
@@ -215,7 +215,7 @@ func TestFlattenGraphFilter_MultiWordSynonym(t *testing.T) {
 		}
 
 		if attr := filter.GetAttributeSource().GetAttribute("PositionLengthAttribute"); attr != nil {
-			if posLenAttr, ok := attr.(*PositionLengthAttribute); ok {
+			if posLenAttr, ok := attr.(PositionLengthAttribute); ok {
 				token.posLen = posLenAttr.GetPositionLength()
 			}
 		}
@@ -445,7 +445,7 @@ func TestFlattenGraphFilter_PositionLengthPreserved(t *testing.T) {
 		}
 
 		if attr := filter.GetAttributeSource().GetAttribute("PositionLengthAttribute"); attr != nil {
-			if posLenAttr, ok := attr.(*PositionLengthAttribute); ok {
+			if posLenAttr, ok := attr.(PositionLengthAttribute); ok {
 				posLens = append(posLens, posLenAttr.GetPositionLength())
 			}
 		}
@@ -700,7 +700,7 @@ func TestFlattenGraphFilter_LongPositionLength(t *testing.T) {
 		}
 
 		if attr := filter.GetAttributeSource().GetAttribute("PositionLengthAttribute"); attr != nil {
-			if posLenAttr, ok := attr.(*PositionLengthAttribute); ok {
+			if posLenAttr, ok := attr.(PositionLengthAttribute); ok {
 				token.posLen = posLenAttr.GetPositionLength()
 			}
 		}

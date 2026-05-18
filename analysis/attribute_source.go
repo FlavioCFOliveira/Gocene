@@ -113,11 +113,28 @@ func (as *AttributeSource) GetAttribute(name string) AttributeImpl {
 			return attr
 		}
 	}
+	// Sprint 54 Phase 3 fallback: if the legacy name corresponds to one
+	// of the Sprint 54-promoted Attribute interfaces, look up the impl
+	// that satisfies that interface.
+	if ifaceType, ok := canonicalAttributeInterfaces[name]; ok {
+		for attrType, attr := range as.attributes {
+			if attrType.Implements(ifaceType) {
+				return attr
+			}
+		}
+	}
 	return nil
 }
 
 // rebuildIndices rebuilds the pre-computed lookup indices.
 // Must be called with write lock held.
+//
+// Sprint 54 Phase 3: when an impl type satisfies one of the registered
+// canonical Attribute interfaces (e.g. *positionLengthAttributeImpl
+// satisfies PositionLengthAttribute), the interface's Go name is also
+// indexed so callers using the legacy string-keyed lookup
+// (GetAttribute("PositionLengthAttribute")) continue to work
+// post-refactor.
 func (as *AttributeSource) rebuildIndices() {
 	nameIdx := make(map[string]reflect.Type, len(as.attributes))
 	elemIdx := make(map[string]reflect.Type, len(as.attributes)*2)
@@ -126,6 +143,13 @@ func (as *AttributeSource) rebuildIndices() {
 		nameIdx[attrType.String()] = attrType
 		elemIdx[attrType.Elem().Name()] = attrType
 		elemIdx[strings.ToLower(attrType.Elem().Name())] = attrType
+
+		for ifaceName, ifaceType := range canonicalAttributeInterfaces {
+			if attrType.Implements(ifaceType) {
+				elemIdx[ifaceName] = attrType
+				elemIdx[strings.ToLower(ifaceName)] = attrType
+			}
+		}
 	}
 
 	as.nameIndex.Store(&nameIdx)
@@ -133,20 +157,64 @@ func (as *AttributeSource) rebuildIndices() {
 	as.dirty.Store(false)
 }
 
+// canonicalAttributeInterfaces maps the legacy string names used by
+// {@link GetAttribute} to the canonical reflect.Type of each
+// Sprint 54-promoted Attribute interface. Lookups against either
+// the concrete-pointer key or one of these names route to the same impl.
+var canonicalAttributeInterfaces = map[string]reflect.Type{
+	"TypeAttribute":           TypeAttributeType,
+	"PayloadAttribute":        PayloadAttributeType,
+	"FlagsAttribute":          FlagsAttributeType,
+	"KeywordAttribute":        KeywordAttributeType,
+	"PositionLengthAttribute": PositionLengthAttributeType,
+	"TermFrequencyAttribute":  TermFrequencyAttributeType,
+}
+
 // GetAttributeByType retrieves an attribute by its reflect.Type.
-// Returns nil if the attribute doesn't exist.
+//
+// Two key shapes are accepted:
+//
+//   - Concrete pointer type (e.g. reflect.TypeOf(&offsetAttribute{})):
+//     direct map lookup, the original Gocene convention.
+//   - Interface type (e.g. PositionLengthAttributeType, the
+//     reflect.TypeOf((*PositionLengthAttribute)(nil)).Elem() shape used by
+//     Sprint 54 Phase 3): fallback that scans the registered impls for
+//     one whose dynamic type implements attrType.
+//
+// Returns nil if no attribute of the given type exists.
 func (as *AttributeSource) GetAttributeByType(attrType reflect.Type) AttributeImpl {
 	as.mu.RLock()
 	defer as.mu.RUnlock()
-	return as.attributes[attrType]
+	if attr, ok := as.attributes[attrType]; ok {
+		return attr
+	}
+	if attrType != nil && attrType.Kind() == reflect.Interface {
+		for implType, attr := range as.attributes {
+			if implType.Implements(attrType) {
+				return attr
+			}
+		}
+	}
+	return nil
 }
 
-// HasAttribute checks if an attribute of the given type exists.
+// HasAttribute checks if an attribute of the given type exists. As with
+// [AttributeSource.GetAttributeByType], the caller may pass either the
+// concrete pointer type or the Sprint 54 interface type.
 func (as *AttributeSource) HasAttribute(attrType reflect.Type) bool {
 	as.mu.RLock()
 	defer as.mu.RUnlock()
-	_, exists := as.attributes[attrType]
-	return exists
+	if _, exists := as.attributes[attrType]; exists {
+		return true
+	}
+	if attrType != nil && attrType.Kind() == reflect.Interface {
+		for implType := range as.attributes {
+			if implType.Implements(attrType) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ClearAttributes clears all attributes.

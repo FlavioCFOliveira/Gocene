@@ -213,7 +213,7 @@ func (g *GraphTokenStreamFiniteStrings) build(in analysis.TokenStream) (*automat
 	if posLenRaw == nil {
 		return nil, errors.New("graph: input TokenStream lacks PositionLengthAttribute")
 	}
-	posLenAtt, ok := posLenRaw.(*analysis.PositionLengthAttribute)
+	posLenAtt, ok := posLenRaw.(analysis.PositionLengthAttribute)
 	if !ok {
 		return nil, errors.New("graph: PositionLengthAttribute has unexpected type")
 	}
@@ -402,7 +402,7 @@ type finiteStringsTokenStream struct {
 
 	termAtt    analysis.CharTermAttribute
 	posIncrAtt analysis.PositionIncrementAttribute
-	posLenAtt  *analysis.PositionLengthAttribute
+	posLenAtt  analysis.PositionLengthAttribute
 }
 
 func newFiniteStringsTokenStream(tokens []*tokenSnapshot, ids []int) *finiteStringsTokenStream {

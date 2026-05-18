@@ -57,7 +57,7 @@ type StandardTokenizer struct {
 	termAttr    CharTermAttribute
 	offsetAttr  OffsetAttribute
 	posIncrAttr PositionIncrementAttribute
-	typeAttr    *TypeAttribute
+	typeAttr    TypeAttribute
 }
 
 // NewStandardTokenizer creates a new StandardTokenizer with default

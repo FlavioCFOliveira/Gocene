@@ -945,7 +945,7 @@ func TestShingleMatrixFilter_PositionLength(t *testing.T) {
 			}
 		}
 		if attr := filter.GetAttributeSource().GetAttribute("PositionLengthAttribute"); attr != nil {
-			if posLenAttr, ok := attr.(*PositionLengthAttribute); ok {
+			if posLenAttr, ok := attr.(PositionLengthAttribute); ok {
 				info.positionLength = posLenAttr.GetPositionLength()
 			}
 		}

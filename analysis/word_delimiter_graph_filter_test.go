@@ -32,9 +32,9 @@ func collectWDGFTokens(t *testing.T, filter *WordDelimiterGraphFilter) []wdgfTok
 
 	var termAttr CharTermAttribute
 	var posIncrAttr PositionIncrementAttribute
-	var posLenAttr *PositionLengthAttribute
+	var posLenAttr PositionLengthAttribute
 	var offsetAttr OffsetAttribute
-	var typeAttr *TypeAttribute
+	var typeAttr TypeAttribute
 
 	if attr := attrSource.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); attr != nil {
 		termAttr = attr.(CharTermAttribute)
@@ -42,14 +42,14 @@ func collectWDGFTokens(t *testing.T, filter *WordDelimiterGraphFilter) []wdgfTok
 	if attr := attrSource.GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{})); attr != nil {
 		posIncrAttr = attr.(PositionIncrementAttribute)
 	}
-	if attr := attrSource.GetAttributeByType(reflect.TypeOf(&PositionLengthAttribute{})); attr != nil {
-		posLenAttr = attr.(*PositionLengthAttribute)
+	if attr := attrSource.GetAttributeByType(PositionLengthAttributeType); attr != nil {
+		posLenAttr = attr.(PositionLengthAttribute)
 	}
 	if attr := attrSource.GetAttributeByType(reflect.TypeOf(&offsetAttribute{})); attr != nil {
 		offsetAttr = attr.(OffsetAttribute)
 	}
-	if attr := attrSource.GetAttributeByType(reflect.TypeOf(&TypeAttribute{})); attr != nil {
-		typeAttr = attr.(*TypeAttribute)
+	if attr := attrSource.GetAttributeByType(TypeAttributeType); attr != nil {
+		typeAttr = attr.(TypeAttribute)
 	}
 
 	for {

@@ -20,7 +20,7 @@ type TypeTokenFilter struct {
 	useWhitelist bool
 
 	// typeAttr holds the TypeAttribute from the shared attribute source
-	typeAttr *TypeAttribute
+	typeAttr TypeAttribute
 }
 
 // NewTypeTokenFilter creates a new TypeTokenFilter wrapping the given input.
@@ -37,7 +37,7 @@ func NewTypeTokenFilter(input TokenStream, types map[string]bool, useWhitelist b
 	attrSrc := filter.GetAttributeSource()
 	if attrSrc != nil {
 		if attr := attrSrc.GetAttribute("TypeAttribute"); attr != nil {
-			filter.typeAttr = attr.(*TypeAttribute)
+			filter.typeAttr = attr.(TypeAttribute)
 		}
 	}
 

@@ -228,7 +228,7 @@ type KeywordMarkerFilter struct {
 
 	IsKeywordFunc func() bool
 	termAttr      CharTermAttribute
-	keywordAttr   *KeywordAttribute
+	keywordAttr   KeywordAttribute
 }
 
 // NewKeywordMarkerFilter wraps input with a marker filter that calls
@@ -244,8 +244,8 @@ func NewKeywordMarkerFilter(input TokenStream, isKeyword func() bool) *KeywordMa
 		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&KeywordAttribute{})); a != nil {
-			f.keywordAttr = a.(*KeywordAttribute)
+		if a := src.GetAttributeByType(KeywordAttributeType); a != nil {
+			f.keywordAttr = a.(KeywordAttribute)
 		}
 	}
 	return f
@@ -333,9 +333,9 @@ type TypeAsSynonymFilter struct {
 	savedPosLen  int
 
 	termAttr    CharTermAttribute
-	typeAttr    *TypeAttribute
+	typeAttr    TypeAttribute
 	posIncrAttr PositionIncrementAttribute
-	flagsAttr   *FlagsAttribute
+	flagsAttr   FlagsAttribute
 }
 
 // NewTypeAsSynonymFilter wraps input with default settings (no
@@ -361,14 +361,14 @@ func NewTypeAsSynonymFilterWithConfig(input TokenStream, prefix string, ignore [
 		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&TypeAttribute{})); a != nil {
-			f.typeAttr = a.(*TypeAttribute)
+		if a := src.GetAttributeByType(TypeAttributeType); a != nil {
+			f.typeAttr = a.(TypeAttribute)
 		}
 		if a := src.GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{})); a != nil {
 			f.posIncrAttr = a.(PositionIncrementAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&FlagsAttribute{})); a != nil {
-			f.flagsAttr = a.(*FlagsAttribute)
+		if a := src.GetAttributeByType(FlagsAttributeType); a != nil {
+			f.flagsAttr = a.(FlagsAttribute)
 		}
 	}
 	return f
@@ -391,7 +391,7 @@ func (f *TypeAsSynonymFilter) IncrementToken() (bool, error) {
 			f.posIncrAttr.SetPositionIncrement(0)
 		}
 		if f.typeAttr != nil {
-			f.typeAttr.Type = f.savedType
+			f.typeAttr.SetType(f.savedType)
 		}
 		if f.flagsAttr != nil {
 			f.flagsAttr.SetFlags(f.savedFlags & f.synFlagsMask)
@@ -403,7 +403,7 @@ func (f *TypeAsSynonymFilter) IncrementToken() (bool, error) {
 		return ok, err
 	}
 	if f.typeAttr != nil {
-		t := f.typeAttr.Type
+		t := f.typeAttr.GetType()
 		if _, ignored := f.ignore[t]; !ignored {
 			f.saved = true
 			f.savedType = t

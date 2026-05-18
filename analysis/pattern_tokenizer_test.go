@@ -344,12 +344,12 @@ func TestPatternTokenizer_TypeAttribute(t *testing.T) {
 		t.Fatal("Expected token")
 	}
 
-	typeAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&TypeAttribute{}))
+	typeAttr := tokenizer.GetAttributeSource().GetAttributeByType(TypeAttributeType)
 	if typeAttr == nil {
 		t.Fatal("TypeAttribute is nil")
 	}
 
-	ta := typeAttr.(*TypeAttribute)
+	ta := typeAttr.(TypeAttribute)
 	if ta.GetType() != "word" {
 		t.Errorf("Type = %q, want 'word'", ta.GetType())
 	}

@@ -6,7 +6,6 @@ package analysis
 
 import (
 	"fmt"
-	"reflect"
 
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -194,11 +193,11 @@ func (p *PackedTokenAttributeImpl) CopyTo(target AttributeImpl) {
 		return
 	}
 	// Fallback: defer to CharTermAttributeImpl#copyTo for the term
-	// buffer, then forward each remaining attribute. Interface targets
-	// are routed through the interface (Lucene parity); bare-struct
-	// attributes (PositionLengthAttribute, TypeAttribute and
-	// TermFrequencyAttribute under Sprint 12 option d) are matched as
-	// pointer-to-struct, since they ship no Lucene-style interface yet.
+	// buffer, then forward each remaining attribute. Every target is
+	// matched against its Lucene-style interface; Sprint 54 Phase 3
+	// promoted PositionLengthAttribute, TypeAttribute and
+	// TermFrequencyAttribute to interface+impl pairs so the previous
+	// bare-struct pointer assertions are replaced by interface ones.
 	p.charTermAttribute.CopyTo(target)
 	if t, ok := target.(OffsetAttribute); ok {
 		t.SetOffset(p.startOffset, p.endOffset)
@@ -206,13 +205,13 @@ func (p *PackedTokenAttributeImpl) CopyTo(target AttributeImpl) {
 	if t, ok := target.(PositionIncrementAttribute); ok {
 		t.SetPositionIncrement(p.positionIncrement)
 	}
-	if t, ok := target.(*PositionLengthAttribute); ok {
+	if t, ok := target.(PositionLengthAttribute); ok {
 		t.SetPositionLength(p.positionLength)
 	}
-	if t, ok := target.(*TypeAttribute); ok {
+	if t, ok := target.(TypeAttribute); ok {
 		t.SetType(p.tokenType)
 	}
-	if t, ok := target.(*TermFrequencyAttribute); ok {
+	if t, ok := target.(TermFrequencyAttribute); ok {
 		t.SetTermFrequency(p.termFrequency)
 	}
 }
@@ -234,16 +233,12 @@ func (p *PackedTokenAttributeImpl) CloneAttribute() util.AttributeImpl { return 
 // type/termFrequency.
 func (p *PackedTokenAttributeImpl) ReflectWith(reflector AttributeReflector) {
 	p.charTermAttribute.ReflectWith(reflector)
-	offsetType := reflect.TypeOf((*OffsetAttribute)(nil)).Elem()
-	reflector(offsetType, "startOffset", p.startOffset)
-	reflector(offsetType, "endOffset", p.endOffset)
-	reflector(reflect.TypeOf((*PositionIncrementAttribute)(nil)).Elem(),
-		"positionIncrement", p.positionIncrement)
-	reflector(reflect.TypeOf((*PositionLengthAttribute)(nil)).Elem(),
-		"positionLength", p.positionLength)
-	reflector(reflect.TypeOf((*TypeAttribute)(nil)).Elem(), "type", p.tokenType)
-	reflector(reflect.TypeOf((*TermFrequencyAttribute)(nil)).Elem(),
-		"termFrequency", p.termFrequency)
+	reflector(OffsetAttributeType, "startOffset", p.startOffset)
+	reflector(OffsetAttributeType, "endOffset", p.endOffset)
+	reflector(PositionIncrementAttributeType, "positionIncrement", p.positionIncrement)
+	reflector(PositionLengthAttributeType, "positionLength", p.positionLength)
+	reflector(TypeAttributeType, "type", p.tokenType)
+	reflector(TermFrequencyAttributeType, "termFrequency", p.termFrequency)
 }
 
 // Equals returns true if other is a [PackedTokenAttributeImpl] whose

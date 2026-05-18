@@ -185,7 +185,7 @@ func TestDefaultAttributeFactory_TypeAttribute(t *testing.T) {
 		t.Fatal("CreateAttributeInstance() returned nil")
 	}
 
-	typeAttr, ok := attr.(*TypeAttribute)
+	typeAttr, ok := attr.(TypeAttribute)
 	if !ok {
 		t.Fatal("CreateAttributeInstance() did not return TypeAttribute")
 	}
@@ -203,7 +203,7 @@ func TestDefaultAttributeFactory_PayloadAttribute(t *testing.T) {
 		t.Fatal("CreateAttributeInstance() returned nil")
 	}
 
-	payloadAttr, ok := attr.(*PayloadAttribute)
+	payloadAttr, ok := attr.(PayloadAttribute)
 	if !ok {
 		t.Fatal("CreateAttributeInstance() did not return PayloadAttribute")
 	}
@@ -221,7 +221,7 @@ func TestDefaultAttributeFactory_KeywordAttribute(t *testing.T) {
 		t.Fatal("CreateAttributeInstance() returned nil")
 	}
 
-	keywordAttr, ok := attr.(*KeywordAttribute)
+	keywordAttr, ok := attr.(KeywordAttribute)
 	if !ok {
 		t.Fatal("CreateAttributeInstance() did not return KeywordAttribute")
 	}
@@ -239,7 +239,7 @@ func TestDefaultAttributeFactory_PositionLengthAttribute(t *testing.T) {
 		t.Fatal("CreateAttributeInstance() returned nil")
 	}
 
-	posLenAttr, ok := attr.(*PositionLengthAttribute)
+	posLenAttr, ok := attr.(PositionLengthAttribute)
 	if !ok {
 		t.Fatal("CreateAttributeInstance() did not return PositionLengthAttribute")
 	}
@@ -257,7 +257,7 @@ func TestDefaultAttributeFactory_TermFrequencyAttribute(t *testing.T) {
 		t.Fatal("CreateAttributeInstance() returned nil")
 	}
 
-	tfAttr, ok := attr.(*TermFrequencyAttribute)
+	tfAttr, ok := attr.(TermFrequencyAttribute)
 	if !ok {
 		t.Fatal("CreateAttributeInstance() did not return TermFrequencyAttribute")
 	}
@@ -275,7 +275,7 @@ func TestDefaultAttributeFactory_FlagsAttribute(t *testing.T) {
 		t.Fatal("CreateAttributeInstance() returned nil")
 	}
 
-	flagsAttr, ok := attr.(*FlagsAttribute)
+	flagsAttr, ok := attr.(FlagsAttribute)
 	if !ok {
 		t.Fatal("CreateAttributeInstance() did not return FlagsAttribute")
 	}

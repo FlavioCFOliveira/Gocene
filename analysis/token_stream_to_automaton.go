@@ -5,7 +5,6 @@
 package analysis
 
 import (
-	"reflect"
 	"unicode/utf8"
 
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -111,10 +110,10 @@ func (c *TokenStreamToAutomaton) ToAutomaton(in TokenStream) (*automaton.Automat
 		}
 	}
 	posIncAtt, _ := as.GetAttribute("PositionIncrementAttribute").(PositionIncrementAttribute)
-	posLengthAttRaw := as.GetAttributeByType(reflect.TypeOf(&PositionLengthAttribute{}))
-	var posLengthAtt *PositionLengthAttribute
+	posLengthAttRaw := as.GetAttributeByType(PositionLengthAttributeType)
+	var posLengthAtt PositionLengthAttribute
 	if posLengthAttRaw != nil {
-		posLengthAtt, _ = posLengthAttRaw.(*PositionLengthAttribute)
+		posLengthAtt, _ = posLengthAttRaw.(PositionLengthAttribute)
 	}
 	offsetAtt, _ := as.GetAttribute("OffsetAttribute").(OffsetAttribute)
 

@@ -19,7 +19,7 @@ type KeywordRepeatFilter struct {
 	*BaseTokenFilter
 
 	// keywordAttr holds the KeywordAttribute from the shared attribute source
-	keywordAttr *KeywordAttribute
+	keywordAttr KeywordAttribute
 
 	// termAttr holds the CharTermAttribute from the shared attribute source
 	termAttr CharTermAttribute
@@ -44,8 +44,8 @@ func NewKeywordRepeatFilter(input TokenStream) *KeywordRepeatFilter {
 	attrSrc := filter.GetAttributeSource()
 	if attrSrc != nil {
 		// Ensure KeywordAttribute is present on the shared source.
-		if attr := attrSrc.GetAttributeByType(reflect.TypeOf(&KeywordAttribute{})); attr != nil {
-			filter.keywordAttr = attr.(*KeywordAttribute)
+		if attr := attrSrc.GetAttributeByType(KeywordAttributeType); attr != nil {
+			filter.keywordAttr = attr.(KeywordAttribute)
 		} else {
 			filter.keywordAttr = NewKeywordAttribute()
 			attrSrc.AddAttribute(filter.keywordAttr)

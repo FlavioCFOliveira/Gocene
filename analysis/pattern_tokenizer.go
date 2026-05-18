@@ -59,7 +59,7 @@ type PatternTokenizer struct {
 	posIncrAttr PositionIncrementAttribute
 
 	// typeAttr holds the TypeAttribute
-	typeAttr *TypeAttribute
+	typeAttr TypeAttribute
 
 	// inputStr holds the entire input as a string
 	inputStr string

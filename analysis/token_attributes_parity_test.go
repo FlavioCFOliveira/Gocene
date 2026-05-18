@@ -28,11 +28,13 @@ func captureReflect(r AttributeReflectable) []reflectorCapture {
 // TestTypeAttribute_Parity exercises the Sprint 12 additions for
 // TypeAttribute: ReflectWith emits a single "type" triple, Equals
 // matches on string content and HashCode uses the Java string-hash
-// formula (h*31+ch).
+// formula (h*31+ch). Sprint 54 Phase 3 promoted TypeAttribute to an
+// interface+impl pair so Equals/HashCode are reached through the
+// concrete *typeAttributeImpl receiver.
 func TestTypeAttribute_Parity(t *testing.T) {
-	a := NewTypeAttribute()
+	a := NewTypeAttribute().(*typeAttributeImpl)
 	a.SetType("foo")
-	b := NewTypeAttribute()
+	b := NewTypeAttribute().(*typeAttributeImpl)
 	b.SetType("foo")
 
 	if !a.Equals(b) {
@@ -60,8 +62,8 @@ func TestTypeAttribute_Parity(t *testing.T) {
 // treats two nil payloads as equal) and the Java-style byte-array hash
 // for non-nil values.
 func TestPayloadAttribute_Parity(t *testing.T) {
-	a := NewPayloadAttribute()
-	b := NewPayloadAttribute()
+	a := NewPayloadAttribute().(*payloadAttributeImpl)
+	b := NewPayloadAttribute().(*payloadAttributeImpl)
 	if !a.Equals(b) {
 		t.Fatal("two empty payloads not equal")
 	}
@@ -91,9 +93,9 @@ func TestPayloadAttribute_Parity(t *testing.T) {
 
 // TestFlagsAttribute_Parity covers the Lucene flags hash (hash == flags).
 func TestFlagsAttribute_Parity(t *testing.T) {
-	a := NewFlagsAttribute()
+	a := NewFlagsAttribute().(*flagsAttributeImpl)
 	a.SetFlags(0xABCD)
-	b := NewFlagsAttribute()
+	b := NewFlagsAttribute().(*flagsAttributeImpl)
 	b.SetFlags(0xABCD)
 
 	if !a.Equals(b) {
@@ -117,8 +119,8 @@ func TestFlagsAttribute_Parity(t *testing.T) {
 // TestKeywordAttribute_Parity covers the Lucene hash {31 if keyword
 // else 37}.
 func TestKeywordAttribute_Parity(t *testing.T) {
-	on := NewKeywordAttributeWithValue(true)
-	off := NewKeywordAttributeWithValue(false)
+	on := NewKeywordAttributeWithValue(true).(*keywordAttributeImpl)
+	off := NewKeywordAttributeWithValue(false).(*keywordAttributeImpl)
 	if on.HashCode() != 31 {
 		t.Fatalf("HashCode(true)=%d, want 31", on.HashCode())
 	}
@@ -138,13 +140,13 @@ func TestKeywordAttribute_Parity(t *testing.T) {
 // TestPositionLengthAttribute_Parity covers Equals/HashCode and the
 // validated setter that panics on length < 1.
 func TestPositionLengthAttribute_Parity(t *testing.T) {
-	a := NewPositionLengthAttribute()
+	a := NewPositionLengthAttribute().(*positionLengthAttributeImpl)
 	a.SetPositionLengthValidated(5)
 	if a.HashCode() != 5 {
 		t.Fatalf("HashCode=%d, want 5", a.HashCode())
 	}
 
-	b := NewPositionLengthAttribute()
+	b := NewPositionLengthAttribute().(*positionLengthAttributeImpl)
 	b.SetPositionLengthValidated(5)
 	if !a.Equals(b) {
 		t.Fatal("equal positionLength not equal")
@@ -167,13 +169,13 @@ func TestPositionLengthAttribute_Parity(t *testing.T) {
 // validated setter (panic on freq < 1) and the End hook (which mirrors
 // Clear by resetting to 1).
 func TestTermFrequencyAttribute_Parity(t *testing.T) {
-	a := NewTermFrequencyAttribute()
+	a := NewTermFrequencyAttribute().(*termFrequencyAttributeImpl)
 	a.SetTermFrequencyValidated(9)
 	if a.HashCode() != 9 {
 		t.Fatalf("HashCode=%d, want 9", a.HashCode())
 	}
 
-	b := NewTermFrequencyAttribute()
+	b := NewTermFrequencyAttribute().(*termFrequencyAttributeImpl)
 	b.SetTermFrequencyValidated(9)
 	if !a.Equals(b) {
 		t.Fatal("equal termFrequency not equal")
@@ -186,8 +188,8 @@ func TestTermFrequencyAttribute_Parity(t *testing.T) {
 
 	// End resets to 1 (parity with Lucene's end() override).
 	a.End()
-	if a.TermFrequency != 1 {
-		t.Fatalf("End: termFrequency=%d, want 1", a.TermFrequency)
+	if a.GetTermFrequency() != 1 {
+		t.Fatalf("End: termFrequency=%d, want 1", a.GetTermFrequency())
 	}
 
 	defer func() {
@@ -199,23 +201,26 @@ func TestTermFrequencyAttribute_Parity(t *testing.T) {
 }
 
 // TestBareStructAttributes_AttributeImplCompliance verifies that the
-// six bare-struct attributes satisfy [AttributeImpl] and opt into
-// [AttributeReflectable]. End() is exposed via [AttributeEnder] only
-// for TermFrequencyAttribute (matches Lucene).
+// six interface+impl attribute pairs (post-Sprint 54 Phase 3) satisfy
+// [AttributeImpl] and opt into [AttributeReflectable]. End() is exposed
+// via [AttributeEnder] only for TermFrequencyAttribute (matches Lucene).
+//
+// The test name is preserved for git-history continuity even though
+// the underlying impls are no longer bare structs.
 func TestBareStructAttributes_AttributeImplCompliance(t *testing.T) {
 	var (
-		_ AttributeImpl        = (*TypeAttribute)(nil)
-		_ AttributeImpl        = (*PayloadAttribute)(nil)
-		_ AttributeImpl        = (*FlagsAttribute)(nil)
-		_ AttributeImpl        = (*KeywordAttribute)(nil)
-		_ AttributeImpl        = (*PositionLengthAttribute)(nil)
-		_ AttributeImpl        = (*TermFrequencyAttribute)(nil)
-		_ AttributeReflectable = (*TypeAttribute)(nil)
-		_ AttributeReflectable = (*PayloadAttribute)(nil)
-		_ AttributeReflectable = (*FlagsAttribute)(nil)
-		_ AttributeReflectable = (*KeywordAttribute)(nil)
-		_ AttributeReflectable = (*PositionLengthAttribute)(nil)
-		_ AttributeReflectable = (*TermFrequencyAttribute)(nil)
-		_ AttributeEnder       = (*TermFrequencyAttribute)(nil)
+		_ AttributeImpl        = (*typeAttributeImpl)(nil)
+		_ AttributeImpl        = (*payloadAttributeImpl)(nil)
+		_ AttributeImpl        = (*flagsAttributeImpl)(nil)
+		_ AttributeImpl        = (*keywordAttributeImpl)(nil)
+		_ AttributeImpl        = (*positionLengthAttributeImpl)(nil)
+		_ AttributeImpl        = (*termFrequencyAttributeImpl)(nil)
+		_ AttributeReflectable = (*typeAttributeImpl)(nil)
+		_ AttributeReflectable = (*payloadAttributeImpl)(nil)
+		_ AttributeReflectable = (*flagsAttributeImpl)(nil)
+		_ AttributeReflectable = (*keywordAttributeImpl)(nil)
+		_ AttributeReflectable = (*positionLengthAttributeImpl)(nil)
+		_ AttributeReflectable = (*termFrequencyAttributeImpl)(nil)
+		_ AttributeEnder       = (*termFrequencyAttributeImpl)(nil)
 	)
 }

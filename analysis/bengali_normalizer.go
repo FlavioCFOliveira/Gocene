@@ -259,7 +259,7 @@ type BengaliNormalizationFilter struct {
 
 	normalizer  *BengaliNormalizer
 	termAttr    CharTermAttribute
-	keywordAttr *KeywordAttribute
+	keywordAttr KeywordAttribute
 }
 
 // NewBengaliNormalizationFilter wraps input with the normaliser.
@@ -273,8 +273,8 @@ func NewBengaliNormalizationFilter(input TokenStream) *BengaliNormalizationFilte
 		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&KeywordAttribute{})); a != nil {
-			f.keywordAttr = a.(*KeywordAttribute)
+		if a := src.GetAttributeByType(KeywordAttributeType); a != nil {
+			f.keywordAttr = a.(KeywordAttribute)
 		}
 	}
 	return f
@@ -293,7 +293,7 @@ func (f *BengaliNormalizationFilter) IncrementToken() (bool, error) {
 	if f.termAttr == nil {
 		return true, nil
 	}
-	if f.keywordAttr != nil && f.keywordAttr.IsKeyword {
+	if f.keywordAttr != nil && f.keywordAttr.IsKeywordToken() {
 		return true, nil
 	}
 	s := f.termAttr.String()
@@ -336,7 +336,7 @@ type BengaliStemFilter struct {
 
 	stemmer     *BengaliStemmer
 	termAttr    CharTermAttribute
-	keywordAttr *KeywordAttribute
+	keywordAttr KeywordAttribute
 }
 
 // NewBengaliStemFilter wraps input with the stemmer.
@@ -350,8 +350,8 @@ func NewBengaliStemFilter(input TokenStream) *BengaliStemFilter {
 		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&KeywordAttribute{})); a != nil {
-			f.keywordAttr = a.(*KeywordAttribute)
+		if a := src.GetAttributeByType(KeywordAttributeType); a != nil {
+			f.keywordAttr = a.(KeywordAttribute)
 		}
 	}
 	return f
@@ -370,7 +370,7 @@ func (f *BengaliStemFilter) IncrementToken() (bool, error) {
 	if f.termAttr == nil {
 		return true, nil
 	}
-	if f.keywordAttr != nil && f.keywordAttr.IsKeyword {
+	if f.keywordAttr != nil && f.keywordAttr.IsKeywordToken() {
 		return true, nil
 	}
 	s := f.termAttr.String()

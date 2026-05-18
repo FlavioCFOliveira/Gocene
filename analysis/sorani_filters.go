@@ -85,7 +85,7 @@ type SoraniStemFilter struct {
 
 	stemmer     *SoraniStemmer
 	termAttr    CharTermAttribute
-	keywordAttr *KeywordAttribute
+	keywordAttr KeywordAttribute
 }
 
 // NewSoraniStemFilter wraps input with the Sorani stemmer.
@@ -99,8 +99,8 @@ func NewSoraniStemFilter(input TokenStream) *SoraniStemFilter {
 		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&KeywordAttribute{})); a != nil {
-			f.keywordAttr = a.(*KeywordAttribute)
+		if a := src.GetAttributeByType(KeywordAttributeType); a != nil {
+			f.keywordAttr = a.(KeywordAttribute)
 		}
 	}
 	return f
@@ -119,7 +119,7 @@ func (f *SoraniStemFilter) IncrementToken() (bool, error) {
 	if f.termAttr == nil {
 		return true, nil
 	}
-	if f.keywordAttr != nil && f.keywordAttr.IsKeyword {
+	if f.keywordAttr != nil && f.keywordAttr.IsKeywordToken() {
 		return true, nil
 	}
 	text := f.termAttr.String()

@@ -63,7 +63,7 @@ type SynonymGraphFilter struct {
 	posIncrAttr PositionIncrementAttribute
 
 	// posLenAttr holds the PositionLengthAttribute from the shared attribute source
-	posLenAttr *PositionLengthAttribute
+	posLenAttr PositionLengthAttribute
 
 	// offsetAttr holds the OffsetAttribute from the shared attribute source
 	offsetAttr OffsetAttribute
@@ -144,10 +144,9 @@ func (f *SynonymGraphFilter) initAttributes() {
 		}
 
 		// PositionLengthAttribute is needed for graph synonyms - add it if not present
-		posLenType := reflect.TypeOf(&PositionLengthAttribute{})
-		attr = attrSource.GetAttributeByType(posLenType)
+		attr = attrSource.GetAttributeByType(PositionLengthAttributeType)
 		if attr != nil {
-			f.posLenAttr = attr.(*PositionLengthAttribute)
+			f.posLenAttr = attr.(PositionLengthAttribute)
 		} else {
 			f.posLenAttr = NewPositionLengthAttribute()
 			attrSource.AddAttribute(f.posLenAttr)

@@ -37,7 +37,7 @@ type cannedTokenStream struct {
 	cursor     int
 	termAtt    analysis.CharTermAttribute
 	posIncrAtt analysis.PositionIncrementAttribute
-	posLenAtt  *analysis.PositionLengthAttribute
+	posLenAtt  analysis.PositionLengthAttribute
 }
 
 func newCannedTokenStream(tokens ...cannedToken) *cannedTokenStream {
@@ -87,7 +87,7 @@ func assertTokenStream(t *testing.T, ts analysis.TokenStream, terms []string, in
 	}
 	tA := termAtt.GetAttribute("CharTermAttribute").(analysis.CharTermAttribute)
 	iA := termAtt.GetAttribute("PositionIncrementAttribute").(analysis.PositionIncrementAttribute)
-	lA := termAtt.GetAttribute("PositionLengthAttribute").(*analysis.PositionLengthAttribute)
+	lA := termAtt.GetAttribute("PositionLengthAttribute").(analysis.PositionLengthAttribute)
 	offset := 0
 	for {
 		ok, err := ts.IncrementToken()

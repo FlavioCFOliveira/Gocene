@@ -4,8 +4,6 @@
 
 package analysis
 
-import "reflect"
-
 // TypeAsPayloadTokenFilter copies the value of the TypeAttribute into
 // the PayloadAttribute, encoded as UTF-8. Tokens with an empty or nil
 // type are passed through unchanged.
@@ -16,8 +14,8 @@ import "reflect"
 type TypeAsPayloadTokenFilter struct {
 	*BaseTokenFilter
 
-	typeAttr    *TypeAttribute
-	payloadAttr *PayloadAttribute
+	typeAttr    TypeAttribute
+	payloadAttr PayloadAttribute
 }
 
 // NewTypeAsPayloadTokenFilter wraps input with the type-to-payload
@@ -28,11 +26,11 @@ func NewTypeAsPayloadTokenFilter(input TokenStream) *TypeAsPayloadTokenFilter {
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&TypeAttribute{})); a != nil {
-			f.typeAttr = a.(*TypeAttribute)
+		if a := src.GetAttributeByType(TypeAttributeType); a != nil {
+			f.typeAttr = a.(TypeAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&PayloadAttribute{})); a != nil {
-			f.payloadAttr = a.(*PayloadAttribute)
+		if a := src.GetAttributeByType(PayloadAttributeType); a != nil {
+			f.payloadAttr = a.(PayloadAttribute)
 		}
 	}
 	return f
@@ -48,8 +46,10 @@ func (f *TypeAsPayloadTokenFilter) IncrementToken() (bool, error) {
 	if !ok {
 		return false, nil
 	}
-	if f.typeAttr != nil && f.payloadAttr != nil && f.typeAttr.Type != "" {
-		f.payloadAttr.SetPayload([]byte(f.typeAttr.Type))
+	if f.typeAttr != nil && f.payloadAttr != nil {
+		if t := f.typeAttr.GetType(); t != "" {
+			f.payloadAttr.SetPayload([]byte(t))
+		}
 	}
 	return true, nil
 }

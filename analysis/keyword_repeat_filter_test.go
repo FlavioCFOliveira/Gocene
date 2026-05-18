@@ -40,7 +40,7 @@ func TestKeywordRepeatFilter_IncrementToken(t *testing.T) {
 		}
 
 		if attr := filter.GetAttributeSource().GetAttribute("KeywordAttribute"); attr != nil {
-			keywords = append(keywords, attr.(*KeywordAttribute).IsKeywordToken())
+			keywords = append(keywords, attr.(KeywordAttribute).IsKeywordToken())
 		}
 	}
 

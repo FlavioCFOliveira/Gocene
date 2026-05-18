@@ -39,7 +39,7 @@ type DelimitedPayloadTokenFilter struct {
 	encoder   PayloadEncoder
 
 	termAttr    CharTermAttribute
-	payloadAttr *PayloadAttribute
+	payloadAttr PayloadAttribute
 }
 
 // NewDelimitedPayloadTokenFilter wraps input with a filter that splits
@@ -61,8 +61,8 @@ func NewDelimitedPayloadTokenFilter(input TokenStream, delimiter byte, encoder P
 		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&PayloadAttribute{})); a != nil {
-			f.payloadAttr = a.(*PayloadAttribute)
+		if a := src.GetAttributeByType(PayloadAttributeType); a != nil {
+			f.payloadAttr = a.(PayloadAttribute)
 		}
 	}
 	return f

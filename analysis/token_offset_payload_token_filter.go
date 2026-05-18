@@ -17,7 +17,7 @@ type TokenOffsetPayloadTokenFilter struct {
 	*BaseTokenFilter
 
 	offsetAttr  OffsetAttribute
-	payloadAttr *PayloadAttribute
+	payloadAttr PayloadAttribute
 }
 
 // NewTokenOffsetPayloadTokenFilter wraps input with the offset-to-payload
@@ -31,8 +31,8 @@ func NewTokenOffsetPayloadTokenFilter(input TokenStream) *TokenOffsetPayloadToke
 		if a := src.GetAttributeByType(reflect.TypeOf(&offsetAttribute{})); a != nil {
 			f.offsetAttr = a.(OffsetAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&PayloadAttribute{})); a != nil {
-			f.payloadAttr = a.(*PayloadAttribute)
+		if a := src.GetAttributeByType(PayloadAttributeType); a != nil {
+			f.payloadAttr = a.(PayloadAttribute)
 		}
 	}
 	return f
