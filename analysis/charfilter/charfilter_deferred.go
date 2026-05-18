@@ -11,4 +11,3 @@ type BaseCharFilter struct{}
 
 // NewBaseCharFilter builds a BaseCharFilter.
 func NewBaseCharFilter() *BaseCharFilter { return &BaseCharFilter{} }
-

@@ -27,7 +27,6 @@ package analysis
 //   es: SpanishMinimalStemmer / SpanishMinimalStemFilter
 
 import (
-	"reflect"
 	"unicode"
 )
 
@@ -39,7 +38,7 @@ type minimalStemFilter struct {
 
 	stemFunc    func(runes []rune, length int) int
 	termAttr    CharTermAttribute
-	keywordAttr *KeywordAttribute
+	keywordAttr KeywordAttribute
 }
 
 func newMinimalStemFilter(input TokenStream, stemFunc func([]rune, int) int) minimalStemFilter {
@@ -49,11 +48,11 @@ func newMinimalStemFilter(input TokenStream, stemFunc func([]rune, int) int) min
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&KeywordAttribute{})); a != nil {
-			f.keywordAttr = a.(*KeywordAttribute)
+		if a := src.GetAttribute(KeywordAttributeType); a != nil {
+			f.keywordAttr = a.(KeywordAttribute)
 		}
 	}
 	return f
@@ -73,7 +72,7 @@ func (f *minimalStemFilter) incrementToken() (bool, error) {
 	if f.termAttr == nil {
 		return true, nil
 	}
-	if f.keywordAttr != nil && f.keywordAttr.IsKeyword {
+	if f.keywordAttr != nil && f.keywordAttr.IsKeywordToken() {
 		return true, nil
 	}
 	runes := []rune(f.termAttr.String())

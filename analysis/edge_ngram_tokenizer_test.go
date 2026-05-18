@@ -5,7 +5,6 @@
 package analysis
 
 import (
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -112,7 +111,7 @@ func TestEdgeNGramTokenizer_Basic(t *testing.T) {
 					break
 				}
 
-				termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+				termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 				if termAttr != nil {
 					if cta, ok := termAttr.(CharTermAttribute); ok {
 						tokens = append(tokens, cta.String())
@@ -201,7 +200,7 @@ func TestEdgeNGramTokenizer_Unicode(t *testing.T) {
 					break
 				}
 
-				termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+				termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 				if termAttr != nil {
 					if cta, ok := termAttr.(CharTermAttribute); ok {
 						tokens = append(tokens, cta.String())
@@ -289,8 +288,8 @@ func TestEdgeNGramTokenizer_Offsets(t *testing.T) {
 					break
 				}
 
-				termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
-				offsetAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&offsetAttribute{}))
+				termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
+				offsetAttr := tokenizer.GetAttributeSource().GetAttribute(OffsetAttributeType)
 
 				cta, ok1 := termAttr.(CharTermAttribute)
 				oa, ok2 := offsetAttr.(OffsetAttribute)
@@ -346,7 +345,7 @@ func TestEdgeNGramTokenizer_PositionIncrement(t *testing.T) {
 			break
 		}
 
-		posIncrAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{}))
+		posIncrAttr := tokenizer.GetAttributeSource().GetAttribute(PositionIncrementAttributeType)
 		pia, ok := posIncrAttr.(PositionIncrementAttribute)
 		if !ok {
 			t.Fatalf("Failed to cast PositionIncrementAttribute")
@@ -382,7 +381,7 @@ func TestEdgeNGramTokenizer_Reset(t *testing.T) {
 			break
 		}
 
-		termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+		termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 		if cta, ok := termAttr.(CharTermAttribute); ok {
 			tokens1 = append(tokens1, cta.String())
 		}
@@ -409,7 +408,7 @@ func TestEdgeNGramTokenizer_Reset(t *testing.T) {
 			break
 		}
 
-		termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+		termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 		if cta, ok := termAttr.(CharTermAttribute); ok {
 			tokens2 = append(tokens2, cta.String())
 		}
@@ -473,7 +472,7 @@ func TestEdgeNGramTokenizer_End(t *testing.T) {
 	}
 
 	// Check final offset
-	offsetAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&offsetAttribute{}))
+	offsetAttr := tokenizer.GetAttributeSource().GetAttribute(OffsetAttributeType)
 	oa, ok := offsetAttr.(OffsetAttribute)
 	if !ok {
 		t.Fatalf("Failed to cast OffsetAttribute")

@@ -5,7 +5,6 @@
 package analysis
 
 import (
-	"reflect"
 	"strings"
 	"unicode"
 )
@@ -33,7 +32,7 @@ func NewLowerCaseFilter(input TokenStream) *LowerCaseFilter {
 	// Note: We need to use the correct type - the tokenizer stores *charTermAttribute
 	attrSrc := filter.GetAttributeSource()
 	if attrSrc != nil {
-		attr := attrSrc.GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+		attr := attrSrc.GetAttribute(CharTermAttributeType)
 		if attr != nil {
 			filter.termAttr = attr.(CharTermAttribute)
 		}

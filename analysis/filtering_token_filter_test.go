@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TestFilteringTokenFilter_KeepsAccepted verifies the basic filter contract:
@@ -78,11 +80,14 @@ func TestFilteringTokenFilter_PositionIncrementGap(t *testing.T) {
 // AttributeSource. Fails the test if missing.
 func lookupCharTermAttribute(t *testing.T, stream TokenStream) CharTermAttribute {
 	t.Helper()
-	src, ok := stream.(interface{ GetAttributeSource() *AttributeSource })
+	src, ok := stream.(interface {
+		GetAttributeSource() *util.AttributeSource
+		GetAttribute(string) util.AttributeImpl
+	})
 	if !ok {
 		t.Fatal("stream has no AttributeSource")
 	}
-	attr := src.GetAttributeSource().GetAttribute("CharTermAttribute")
+	attr := src.GetAttribute("CharTermAttribute")
 	if attr == nil {
 		t.Fatal("CharTermAttribute not found")
 	}
@@ -97,11 +102,14 @@ func lookupCharTermAttribute(t *testing.T, stream TokenStream) CharTermAttribute
 // from the stream's AttributeSource. Fails the test if missing.
 func lookupPositionIncrementAttribute(t *testing.T, stream TokenStream) PositionIncrementAttribute {
 	t.Helper()
-	src, ok := stream.(interface{ GetAttributeSource() *AttributeSource })
+	src, ok := stream.(interface {
+		GetAttributeSource() *util.AttributeSource
+		GetAttribute(string) util.AttributeImpl
+	})
 	if !ok {
 		t.Fatal("stream has no AttributeSource")
 	}
-	attr := src.GetAttributeSource().GetAttribute("PositionIncrementAttribute")
+	attr := src.GetAttribute("PositionIncrementAttribute")
 	if attr == nil {
 		t.Fatal("PositionIncrementAttribute not found")
 	}

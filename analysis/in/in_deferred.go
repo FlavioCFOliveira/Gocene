@@ -16,5 +16,6 @@ func NewIndicNormalizationFilter() *IndicNormalizationFilter { return &IndicNorm
 type IndicNormalizationFilterFactory struct{}
 
 // NewIndicNormalizationFilterFactory builds a IndicNormalizationFilterFactory.
-func NewIndicNormalizationFilterFactory() *IndicNormalizationFilterFactory { return &IndicNormalizationFilterFactory{} }
-
+func NewIndicNormalizationFilterFactory() *IndicNormalizationFilterFactory {
+	return &IndicNormalizationFilterFactory{}
+}

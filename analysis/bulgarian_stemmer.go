@@ -4,8 +4,6 @@
 
 package analysis
 
-import "reflect"
-
 // BulgarianStemmer is the Go port of
 // org.apache.lucene.analysis.bg.BulgarianStemmer from Apache Lucene
 // 10.4.0. It strips Bulgarian article and plural suffixes from
@@ -130,7 +128,7 @@ type BulgarianStemFilter struct {
 
 	stemmer     *BulgarianStemmer
 	termAttr    CharTermAttribute
-	keywordAttr *KeywordAttribute
+	keywordAttr KeywordAttribute
 }
 
 // NewBulgarianStemFilter wraps input.
@@ -141,11 +139,11 @@ func NewBulgarianStemFilter(input TokenStream) *BulgarianStemFilter {
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&KeywordAttribute{})); a != nil {
-			f.keywordAttr = a.(*KeywordAttribute)
+		if a := src.GetAttribute(KeywordAttributeType); a != nil {
+			f.keywordAttr = a.(KeywordAttribute)
 		}
 	}
 	return f
@@ -160,7 +158,7 @@ func (f *BulgarianStemFilter) IncrementToken() (bool, error) {
 	if f.termAttr == nil {
 		return true, nil
 	}
-	if f.keywordAttr != nil && f.keywordAttr.IsKeyword {
+	if f.keywordAttr != nil && f.keywordAttr.IsKeywordToken() {
 		return true, nil
 	}
 	s := f.termAttr.String()

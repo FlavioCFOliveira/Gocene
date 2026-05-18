@@ -4,10 +4,6 @@
 
 package analysis
 
-import (
-	"reflect"
-)
-
 // WordDelimiterFilter splits tokens at word boundaries.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.miscellaneous.WordDelimiterFilter.
@@ -83,13 +79,13 @@ func NewWordDelimiterFilter(input TokenStream, splitOnCaseChange, splitOnNumeric
 	// Get attributes from the shared AttributeSource
 	attrSrc := filter.GetAttributeSource()
 	if attrSrc != nil {
-		if attr := attrSrc.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); attr != nil {
+		if attr := attrSrc.GetAttribute(CharTermAttributeType); attr != nil {
 			filter.termAttr = attr.(CharTermAttribute)
 		}
-		if attr := attrSrc.GetAttributeByType(reflect.TypeOf(&offsetAttribute{})); attr != nil {
+		if attr := attrSrc.GetAttribute(OffsetAttributeType); attr != nil {
 			filter.offsetAttr = attr.(OffsetAttribute)
 		}
-		if attr := attrSrc.GetAttribute("PositionIncrementAttribute"); attr != nil {
+		if attr := attrSrc.GetAttribute(PositionIncrementAttributeType); attr != nil {
 			filter.posIncAttr = attr.(PositionIncrementAttribute)
 		}
 	}
@@ -120,13 +116,13 @@ func NewWordDelimiterFilterWithTable(input TokenStream, charTypeTable []byte, sp
 	// Get attributes from the shared AttributeSource
 	attrSrc := filter.GetAttributeSource()
 	if attrSrc != nil {
-		if attr := attrSrc.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); attr != nil {
+		if attr := attrSrc.GetAttribute(CharTermAttributeType); attr != nil {
 			filter.termAttr = attr.(CharTermAttribute)
 		}
-		if attr := attrSrc.GetAttributeByType(reflect.TypeOf(&offsetAttribute{})); attr != nil {
+		if attr := attrSrc.GetAttribute(OffsetAttributeType); attr != nil {
 			filter.offsetAttr = attr.(OffsetAttribute)
 		}
-		if attr := attrSrc.GetAttribute("PositionIncrementAttribute"); attr != nil {
+		if attr := attrSrc.GetAttribute(PositionIncrementAttributeType); attr != nil {
 			filter.posIncAttr = attr.(PositionIncrementAttribute)
 		}
 	}

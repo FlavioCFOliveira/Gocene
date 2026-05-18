@@ -5,7 +5,6 @@
 package analysis
 
 import (
-	"reflect"
 	"sort"
 )
 
@@ -48,22 +47,22 @@ type FlattenGraphFilter struct {
 	posIncrAttr PositionIncrementAttribute
 
 	// posLenAttr holds the PositionLengthAttribute from the shared attribute source
-	posLenAttr *PositionLengthAttribute
+	posLenAttr PositionLengthAttribute
 
 	// offsetAttr holds the OffsetAttribute from the shared attribute source
 	offsetAttr OffsetAttribute
 
 	// typeAttr holds the TypeAttribute from the shared attribute source
-	typeAttr *TypeAttribute
+	typeAttr TypeAttribute
 
 	// payloadAttr holds the PayloadAttribute from the shared attribute source
-	payloadAttr *PayloadAttribute
+	payloadAttr PayloadAttribute
 
 	// flagsAttr holds the FlagsAttribute from the shared attribute source
-	flagsAttr *FlagsAttribute
+	flagsAttr FlagsAttribute
 
 	// keywordAttr holds the KeywordAttribute from the shared attribute source
-	keywordAttr *KeywordAttribute
+	keywordAttr KeywordAttribute
 
 	// tokenData holds all buffered tokens from the input
 	tokenData []*flattenTokenData
@@ -147,43 +146,43 @@ func (f *FlattenGraphFilter) initAttributes() {
 	}
 
 	// Get CharTermAttribute
-	if attr := attrSource.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); attr != nil {
+	if attr := attrSource.GetAttribute(CharTermAttributeType); attr != nil {
 		f.termAttr = attr.(CharTermAttribute)
 	}
 
 	// Get PositionIncrementAttribute
-	if attr := attrSource.GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{})); attr != nil {
+	if attr := attrSource.GetAttribute(PositionIncrementAttributeType); attr != nil {
 		f.posIncrAttr = attr.(PositionIncrementAttribute)
 	}
 
 	// Get PositionLengthAttribute
-	if attr := attrSource.GetAttributeByType(reflect.TypeOf(&PositionLengthAttribute{})); attr != nil {
-		f.posLenAttr = attr.(*PositionLengthAttribute)
+	if attr := attrSource.GetAttribute(PositionLengthAttributeType); attr != nil {
+		f.posLenAttr = attr.(PositionLengthAttribute)
 	}
 
 	// Get OffsetAttribute
-	if attr := attrSource.GetAttributeByType(reflect.TypeOf(&offsetAttribute{})); attr != nil {
+	if attr := attrSource.GetAttribute(OffsetAttributeType); attr != nil {
 		f.offsetAttr = attr.(OffsetAttribute)
 	}
 
 	// Get TypeAttribute
-	if attr := attrSource.GetAttributeByType(reflect.TypeOf(&TypeAttribute{})); attr != nil {
-		f.typeAttr = attr.(*TypeAttribute)
+	if attr := attrSource.GetAttribute(TypeAttributeType); attr != nil {
+		f.typeAttr = attr.(TypeAttribute)
 	}
 
 	// Get PayloadAttribute
-	if attr := attrSource.GetAttributeByType(reflect.TypeOf(&PayloadAttribute{})); attr != nil {
-		f.payloadAttr = attr.(*PayloadAttribute)
+	if attr := attrSource.GetAttribute(PayloadAttributeType); attr != nil {
+		f.payloadAttr = attr.(PayloadAttribute)
 	}
 
 	// Get FlagsAttribute
-	if attr := attrSource.GetAttributeByType(reflect.TypeOf(&FlagsAttribute{})); attr != nil {
-		f.flagsAttr = attr.(*FlagsAttribute)
+	if attr := attrSource.GetAttribute(FlagsAttributeType); attr != nil {
+		f.flagsAttr = attr.(FlagsAttribute)
 	}
 
 	// Get KeywordAttribute
-	if attr := attrSource.GetAttributeByType(reflect.TypeOf(&KeywordAttribute{})); attr != nil {
-		f.keywordAttr = attr.(*KeywordAttribute)
+	if attr := attrSource.GetAttribute(KeywordAttributeType); attr != nil {
+		f.keywordAttr = attr.(KeywordAttribute)
 	}
 }
 

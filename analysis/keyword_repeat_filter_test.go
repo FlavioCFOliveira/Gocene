@@ -35,12 +35,12 @@ func TestKeywordRepeatFilter_IncrementToken(t *testing.T) {
 			break
 		}
 
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			tokens = append(tokens, attr.(CharTermAttribute).String())
 		}
 
-		if attr := filter.GetAttributeSource().GetAttribute("KeywordAttribute"); attr != nil {
-			keywords = append(keywords, attr.(*KeywordAttribute).IsKeywordToken())
+		if attr := filter.GetAttribute("KeywordAttribute"); attr != nil {
+			keywords = append(keywords, attr.(KeywordAttribute).IsKeywordToken())
 		}
 	}
 
@@ -80,7 +80,7 @@ func TestKeywordRepeatFilter_SingleToken(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			tokens = append(tokens, attr.(CharTermAttribute).String())
 		}
 	}

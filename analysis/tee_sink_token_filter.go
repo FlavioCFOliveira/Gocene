@@ -64,20 +64,20 @@ func (f *TeeSinkTokenFilter) IncrementToken() (bool, error) {
 		// Capture token data
 		token := TokenData{}
 
-		if attr := f.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := f.GetAttributeSource().GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				token.Term = termAttr.String()
 			}
 		}
 
-		if attr := f.GetAttributeSource().GetAttribute("OffsetAttribute"); attr != nil {
+		if attr := f.GetAttributeSource().GetAttribute(OffsetAttributeType); attr != nil {
 			if offsetAttr, ok := attr.(OffsetAttribute); ok {
 				token.StartOffset = offsetAttr.StartOffset()
 				token.EndOffset = offsetAttr.EndOffset()
 			}
 		}
 
-		if attr := f.GetAttributeSource().GetAttribute("PositionIncrementAttribute"); attr != nil {
+		if attr := f.GetAttributeSource().GetAttribute(PositionIncrementAttributeType); attr != nil {
 			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
 				token.PositionIncrement = posAttr.GetPositionIncrement()
 			}

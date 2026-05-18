@@ -49,7 +49,7 @@ func (f *LimitTokenOffsetFilter) IncrementToken() (bool, error) {
 		// Check if this token's start offset exceeds the limit
 		attrSrc := f.GetAttributeSource()
 		if attrSrc != nil {
-			if attr := attrSrc.GetAttribute("OffsetAttribute"); attr != nil {
+			if attr := attrSrc.GetAttribute(OffsetAttributeType); attr != nil {
 				if offsetAttr, ok := attr.(OffsetAttribute); ok {
 					if offsetAttr.StartOffset() > f.maxStartOffset {
 						f.exceeded = true

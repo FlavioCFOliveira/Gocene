@@ -6,10 +6,11 @@ package analysis
 
 import (
 	"math/rand"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TestKeywordAnalyzer_Basic tests basic keyword analyzer functionality.
@@ -47,8 +48,11 @@ func TestKeywordAnalyzer_Basic(t *testing.T) {
 			}
 
 			// Get attribute source
-			attrSrc := stream.(interface{ GetAttributeSource() *AttributeSource }).GetAttributeSource()
-			termAttr := attrSrc.GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+			attrSrc := stream.(interface {
+				GetAttributeSource() *util.AttributeSource
+				GetAttribute(string) util.AttributeImpl
+			}).GetAttributeSource()
+			termAttr := attrSrc.GetAttribute(CharTermAttributeType)
 			if termAttr == nil {
 				t.Fatal("CharTermAttribute is nil")
 			}
@@ -90,8 +94,11 @@ func TestKeywordAnalyzer_OffsetAttribute(t *testing.T) {
 		t.Fatal("Expected token")
 	}
 
-	attrSrc := stream.(interface{ GetAttributeSource() *AttributeSource }).GetAttributeSource()
-	offsetAttr := attrSrc.GetAttributeByType(reflect.TypeOf(&offsetAttribute{}))
+	attrSrc := stream.(interface {
+		GetAttributeSource() *util.AttributeSource
+		GetAttribute(string) util.AttributeImpl
+	}).GetAttributeSource()
+	offsetAttr := attrSrc.GetAttribute(OffsetAttributeType)
 	if offsetAttr == nil {
 		t.Fatal("OffsetAttribute is nil")
 	}
@@ -140,8 +147,11 @@ func TestKeywordAnalyzer_Unicode(t *testing.T) {
 				t.Fatal("Expected token")
 			}
 
-			attrSrc := stream.(interface{ GetAttributeSource() *AttributeSource }).GetAttributeSource()
-			termAttr := attrSrc.GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+			attrSrc := stream.(interface {
+				GetAttributeSource() *util.AttributeSource
+				GetAttribute(string) util.AttributeImpl
+			}).GetAttributeSource()
+			termAttr := attrSrc.GetAttribute(CharTermAttributeType)
 			term := termAttr.(CharTermAttribute).String()
 			if term != tt.input {
 				t.Errorf("Unicode token = %q, want %q", term, tt.input)
@@ -182,8 +192,11 @@ func TestKeywordAnalyzer_PreserveInput(t *testing.T) {
 			defer stream.Close()
 
 			stream.IncrementToken()
-			attrSrc := stream.(interface{ GetAttributeSource() *AttributeSource }).GetAttributeSource()
-			termAttr := attrSrc.GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+			attrSrc := stream.(interface {
+				GetAttributeSource() *util.AttributeSource
+				GetAttribute(string) util.AttributeImpl
+			}).GetAttributeSource()
+			termAttr := attrSrc.GetAttribute(CharTermAttributeType)
 			term := termAttr.(CharTermAttribute).String()
 
 			if term != input {
@@ -224,8 +237,11 @@ func TestKeywordAnalyzer_MultipleDocuments(t *testing.T) {
 				t.Fatal("Expected token")
 			}
 
-			attrSrc := stream.(interface{ GetAttributeSource() *AttributeSource }).GetAttributeSource()
-			termAttr := attrSrc.GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+			attrSrc := stream.(interface {
+				GetAttributeSource() *util.AttributeSource
+				GetAttribute(string) util.AttributeImpl
+			}).GetAttributeSource()
+			termAttr := attrSrc.GetAttribute(CharTermAttributeType)
 			term := termAttr.(CharTermAttribute).String()
 
 			if term != tt.input {
@@ -273,8 +289,11 @@ func TestKeywordAnalyzer_RandomStrings(t *testing.T) {
 			t.Fatalf("Expected token at iteration %d", i)
 		}
 
-		attrSrc := stream.(interface{ GetAttributeSource() *AttributeSource }).GetAttributeSource()
-		termAttr := attrSrc.GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+		attrSrc := stream.(interface {
+			GetAttributeSource() *util.AttributeSource
+			GetAttribute(string) util.AttributeImpl
+		}).GetAttributeSource()
+		termAttr := attrSrc.GetAttribute(CharTermAttributeType)
 		term := termAttr.(CharTermAttribute).String()
 
 		// KeywordAnalyzer should preserve the entire input as a single token
@@ -330,8 +349,11 @@ func TestKeywordAnalyzer_Offsets(t *testing.T) {
 		t.Fatal("Expected token")
 	}
 
-	attrSrc := stream.(interface{ GetAttributeSource() *AttributeSource }).GetAttributeSource()
-	offsetAttr := attrSrc.GetAttributeByType(reflect.TypeOf(&offsetAttribute{}))
+	attrSrc := stream.(interface {
+		GetAttributeSource() *util.AttributeSource
+		GetAttribute(string) util.AttributeImpl
+	}).GetAttributeSource()
+	offsetAttr := attrSrc.GetAttribute(OffsetAttributeType)
 	if offsetAttr == nil {
 		t.Fatal("OffsetAttribute is nil")
 	}

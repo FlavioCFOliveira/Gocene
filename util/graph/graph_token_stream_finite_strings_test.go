@@ -14,6 +14,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // cannedToken is a local stand-in for org.apache.lucene.tests.analysis.Token.
@@ -37,7 +38,7 @@ type cannedTokenStream struct {
 	cursor     int
 	termAtt    analysis.CharTermAttribute
 	posIncrAtt analysis.PositionIncrementAttribute
-	posLenAtt  *analysis.PositionLengthAttribute
+	posLenAtt  analysis.PositionLengthAttribute
 }
 
 func newCannedTokenStream(tokens ...cannedToken) *cannedTokenStream {
@@ -80,14 +81,14 @@ func assertTokenStream(t *testing.T, ts analysis.TokenStream, terms []string, in
 		t.Fatalf("test bug: terms (%d) and increments (%d) must have equal length", len(terms), len(increments))
 	}
 	termAtt, ok := ts.(interface {
-		GetAttribute(string) analysis.AttributeImpl
+		GetAttribute(string) util.AttributeImpl
 	})
 	if !ok {
 		t.Fatalf("ts %T does not expose GetAttribute", ts)
 	}
 	tA := termAtt.GetAttribute("CharTermAttribute").(analysis.CharTermAttribute)
 	iA := termAtt.GetAttribute("PositionIncrementAttribute").(analysis.PositionIncrementAttribute)
-	lA := termAtt.GetAttribute("PositionLengthAttribute").(*analysis.PositionLengthAttribute)
+	lA := termAtt.GetAttribute("PositionLengthAttribute").(analysis.PositionLengthAttribute)
 	offset := 0
 	for {
 		ok, err := ts.IncrementToken()

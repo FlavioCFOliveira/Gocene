@@ -52,7 +52,7 @@ func TestPorterStemFilter_Basic(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := stemFilter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := stemFilter.GetAttribute("CharTermAttribute"); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -89,7 +89,7 @@ func TestPorterStemFilter_MultipleWords(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := stemFilter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := stemFilter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -127,7 +127,7 @@ func TestPorterStemFilter_EmptyTokens(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := stemFilter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := stemFilter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}

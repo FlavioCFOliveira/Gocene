@@ -4,8 +4,6 @@
 
 package analysis
 
-import "reflect"
-
 // SoraniNormalizationFilter is a TokenFilter that applies
 // SoraniNormalizer to each token's text.
 //
@@ -27,7 +25,7 @@ func NewSoraniNormalizationFilter(input TokenStream) *SoraniNormalizationFilter 
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
 	}
@@ -85,7 +83,7 @@ type SoraniStemFilter struct {
 
 	stemmer     *SoraniStemmer
 	termAttr    CharTermAttribute
-	keywordAttr *KeywordAttribute
+	keywordAttr KeywordAttribute
 }
 
 // NewSoraniStemFilter wraps input with the Sorani stemmer.
@@ -96,11 +94,11 @@ func NewSoraniStemFilter(input TokenStream) *SoraniStemFilter {
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&KeywordAttribute{})); a != nil {
-			f.keywordAttr = a.(*KeywordAttribute)
+		if a := src.GetAttribute(KeywordAttributeType); a != nil {
+			f.keywordAttr = a.(KeywordAttribute)
 		}
 	}
 	return f
@@ -119,7 +117,7 @@ func (f *SoraniStemFilter) IncrementToken() (bool, error) {
 	if f.termAttr == nil {
 		return true, nil
 	}
-	if f.keywordAttr != nil && f.keywordAttr.IsKeyword {
+	if f.keywordAttr != nil && f.keywordAttr.IsKeywordToken() {
 		return true, nil
 	}
 	text := f.termAttr.String()

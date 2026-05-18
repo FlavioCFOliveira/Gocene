@@ -4,7 +4,11 @@
 
 package analysis
 
-import "reflect"
+import (
+	"reflect"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
 
 // SentenceAttributeImpl is the Go port of Lucene's
 // org.apache.lucene.analysis.tokenattributes.SentenceAttributeImpl.
@@ -24,10 +28,15 @@ type SentenceAttributeImpl struct {
 // Compile-time assertions to lock in the contracts this impl
 // participates in.
 var (
-	_ AttributeImpl        = (*SentenceAttributeImpl)(nil)
-	_ SentenceAttribute    = (*SentenceAttributeImpl)(nil)
-	_ AttributeReflectable = (*SentenceAttributeImpl)(nil)
+	_ util.AttributeImpl              = (*SentenceAttributeImpl)(nil)
+	_ SentenceAttribute               = (*SentenceAttributeImpl)(nil)
+	_ util.AttributeInterfaceProvider = (*SentenceAttributeImpl)(nil)
 )
+
+// AttributeInterfaces satisfies [util.AttributeInterfaceProvider].
+func (s *SentenceAttributeImpl) AttributeInterfaces() []reflect.Type {
+	return []reflect.Type{SentenceAttributeType}
+}
 
 // NewSentenceAttributeImpl initialises this attribute with the default
 // sentence index of 0, matching the Lucene no-arg constructor.
@@ -54,7 +63,7 @@ func (s *SentenceAttributeImpl) Clear() {
 // CopyTo copies the sentence index onto target, which must satisfy
 // [SentenceAttribute]; a panic with an explanatory message is raised
 // otherwise (Lucene cast contract).
-func (s *SentenceAttributeImpl) CopyTo(target AttributeImpl) {
+func (s *SentenceAttributeImpl) CopyTo(target util.AttributeImpl) {
 	other, ok := target.(SentenceAttribute)
 	if !ok {
 		panic("SentenceAttributeImpl.CopyTo: target must implement SentenceAttribute")
@@ -63,14 +72,22 @@ func (s *SentenceAttributeImpl) CopyTo(target AttributeImpl) {
 }
 
 // Copy returns a deep clone of this impl.
-func (s *SentenceAttributeImpl) Copy() AttributeImpl {
+func (s *SentenceAttributeImpl) Copy() util.AttributeImpl {
 	return &SentenceAttributeImpl{index: s.index}
 }
+
+// End implements util.AttributeImpl.End. Lucene default behavior is to
+// call clear(); concrete impls override when end-of-field state differs.
+func (s *SentenceAttributeImpl) End() { s.Clear() }
+
+// CloneAttribute implements util.AttributeImpl.CloneAttribute. Returns
+// a deep copy as util.AttributeImpl. Delegates to the existing Copy().
+func (s *SentenceAttributeImpl) CloneAttribute() util.AttributeImpl { return s.Copy() }
 
 // ReflectWith pushes the single (SentenceAttribute, "sentences", index)
 // triple through reflector, matching the Lucene reference exactly
 // (including the unusual plural key "sentences").
-func (s *SentenceAttributeImpl) ReflectWith(reflector AttributeReflector) {
+func (s *SentenceAttributeImpl) ReflectWith(reflector util.AttributeReflector) {
 	reflector(reflect.TypeOf((*SentenceAttribute)(nil)).Elem(), "sentences", s.index)
 }
 

@@ -5,7 +5,6 @@
 package analysis
 
 import (
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -14,7 +13,7 @@ import (
 func getWhitespaceTokenAttribute(stream TokenStream) (CharTermAttribute, bool) {
 	// WhitespaceAnalyzer returns WhitespaceTokenizer directly
 	if wt, ok := stream.(*WhitespaceTokenizer); ok {
-		attr := wt.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+		attr := wt.GetAttributeSource().GetAttribute(CharTermAttributeType)
 		if cta, ok := attr.(CharTermAttribute); ok {
 			return cta, true
 		}

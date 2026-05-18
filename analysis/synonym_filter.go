@@ -5,7 +5,7 @@
 package analysis
 
 import (
-	"reflect"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // SynonymFilter is a TokenFilter that applies synonym mappings to tokens.
@@ -47,7 +47,7 @@ type SynonymFilter struct {
 	posIncrAttr PositionIncrementAttribute
 
 	// posLenAttr holds the PositionLengthAttribute from the shared attribute source
-	posLenAttr *PositionLengthAttribute
+	posLenAttr PositionLengthAttribute
 
 	// offsetAttr holds the OffsetAttribute from the shared attribute source
 	offsetAttr OffsetAttribute
@@ -87,7 +87,7 @@ type sfBufferedToken struct {
 	positionLength    int
 	startOffset       int
 	endOffset         int
-	state             *State
+	state             *util.AttributeState
 }
 
 // sfOutputToken represents a synonym output to be emitted.
@@ -133,19 +133,19 @@ func NewSynonymFilterWithOptions(input TokenStream, synonymMap *SynonymMap, igno
 	// Get attributes from the shared AttributeSource
 	attrSource := filter.GetAttributeSource()
 	if attrSource != nil {
-		attr := attrSource.GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+		attr := attrSource.GetAttribute(CharTermAttributeType)
 		if attr != nil {
 			filter.termAttr = attr.(CharTermAttribute)
 		}
-		attr = attrSource.GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{}))
+		attr = attrSource.GetAttribute(PositionIncrementAttributeType)
 		if attr != nil {
 			filter.posIncrAttr = attr.(PositionIncrementAttribute)
 		}
-		attr = attrSource.GetAttributeByType(reflect.TypeOf(&PositionLengthAttribute{}))
+		attr = attrSource.GetAttribute(PositionLengthAttributeType)
 		if attr != nil {
-			filter.posLenAttr = attr.(*PositionLengthAttribute)
+			filter.posLenAttr = attr.(PositionLengthAttribute)
 		}
-		attr = attrSource.GetAttributeByType(reflect.TypeOf(&offsetAttribute{}))
+		attr = attrSource.GetAttribute(OffsetAttributeType)
 		if attr != nil {
 			filter.offsetAttr = attr.(OffsetAttribute)
 		}

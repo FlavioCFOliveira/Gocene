@@ -11,4 +11,3 @@ type TeluguAnalyzer struct{}
 
 // NewTeluguAnalyzer builds a TeluguAnalyzer.
 func NewTeluguAnalyzer() *TeluguAnalyzer { return &TeluguAnalyzer{} }
-

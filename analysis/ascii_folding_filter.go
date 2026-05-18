@@ -44,7 +44,7 @@ func NewASCIIFoldingFilterWithOptions(input TokenStream, preserveOriginal bool) 
 func (f *ASCIIFoldingFilter) IncrementToken() (bool, error) {
 	// If we have pending output from preserveOriginal, return it
 	if f.pendingOutput != "" {
-		if attr := f.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := f.GetAttributeSource().GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				termAttr.SetEmpty()
 				termAttr.AppendString(f.pendingOutput)
@@ -63,7 +63,7 @@ func (f *ASCIIFoldingFilter) IncrementToken() (bool, error) {
 		return false, nil
 	}
 
-	if attr := f.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+	if attr := f.GetAttributeSource().GetAttribute(CharTermAttributeType); attr != nil {
 		if termAttr, ok := attr.(CharTermAttribute); ok {
 			term := termAttr.String()
 			folded := f.foldToASCII(term)

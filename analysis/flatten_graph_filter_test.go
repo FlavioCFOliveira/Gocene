@@ -18,7 +18,7 @@ type mockGraphTokenStream struct {
 	currentIdx  int
 	termAttr    CharTermAttribute
 	posIncrAttr PositionIncrementAttribute
-	posLenAttr  *PositionLengthAttribute
+	posLenAttr  PositionLengthAttribute
 	offsetAttr  OffsetAttribute
 }
 
@@ -97,7 +97,7 @@ func TestFlattenGraphFilter_Basic(t *testing.T) {
 			break
 		}
 
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				results = append(results, termAttr.String())
 			}
@@ -136,13 +136,13 @@ func TestFlattenGraphFilter_SynonymGraph(t *testing.T) {
 			break
 		}
 
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				results = append(results, termAttr.String())
 			}
 		}
 
-		if attr := filter.GetAttributeSource().GetAttribute("PositionIncrementAttribute"); attr != nil {
+		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
 			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
 				posIncrs = append(posIncrs, posAttr.GetPositionIncrement())
 			}
@@ -202,25 +202,25 @@ func TestFlattenGraphFilter_MultiWordSynonym(t *testing.T) {
 			endOff   int
 		}
 
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				token.term = termAttr.String()
 			}
 		}
 
-		if attr := filter.GetAttributeSource().GetAttribute("PositionIncrementAttribute"); attr != nil {
+		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
 			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
 				token.posIncr = posAttr.GetPositionIncrement()
 			}
 		}
 
-		if attr := filter.GetAttributeSource().GetAttribute("PositionLengthAttribute"); attr != nil {
-			if posLenAttr, ok := attr.(*PositionLengthAttribute); ok {
+		if attr := filter.GetAttribute("PositionLengthAttribute"); attr != nil {
+			if posLenAttr, ok := attr.(PositionLengthAttribute); ok {
 				token.posLen = posLenAttr.GetPositionLength()
 			}
 		}
 
-		if attr := filter.GetAttributeSource().GetAttribute("OffsetAttribute"); attr != nil {
+		if attr := filter.GetAttribute("OffsetAttribute"); attr != nil {
 			if offAttr, ok := attr.(OffsetAttribute); ok {
 				token.startOff = offAttr.StartOffset()
 				token.endOff = offAttr.EndOffset()
@@ -277,13 +277,13 @@ func TestFlattenGraphFilter_Gap(t *testing.T) {
 			break
 		}
 
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				results = append(results, termAttr.String())
 			}
 		}
 
-		if attr := filter.GetAttributeSource().GetAttribute("PositionIncrementAttribute"); attr != nil {
+		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
 			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
 				posIncrs = append(posIncrs, posAttr.GetPositionIncrement())
 			}
@@ -352,13 +352,13 @@ func TestFlattenGraphFilter_SingleToken(t *testing.T) {
 			break
 		}
 
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				results = append(results, termAttr.String())
 			}
 		}
 
-		if attr := filter.GetAttributeSource().GetAttribute("PositionIncrementAttribute"); attr != nil {
+		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
 			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
 				posIncrs = append(posIncrs, posAttr.GetPositionIncrement())
 			}
@@ -404,7 +404,7 @@ func TestFlattenGraphFilter_ComplexGraph(t *testing.T) {
 			break
 		}
 
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				results = append(results, termAttr.String())
 			}
@@ -444,8 +444,8 @@ func TestFlattenGraphFilter_PositionLengthPreserved(t *testing.T) {
 			break
 		}
 
-		if attr := filter.GetAttributeSource().GetAttribute("PositionLengthAttribute"); attr != nil {
-			if posLenAttr, ok := attr.(*PositionLengthAttribute); ok {
+		if attr := filter.GetAttribute("PositionLengthAttribute"); attr != nil {
+			if posLenAttr, ok := attr.(PositionLengthAttribute); ok {
 				posLens = append(posLens, posLenAttr.GetPositionLength())
 			}
 		}
@@ -486,7 +486,7 @@ func TestFlattenGraphFilter_OffsetPreserved(t *testing.T) {
 			break
 		}
 
-		if attr := filter.GetAttributeSource().GetAttribute("OffsetAttribute"); attr != nil {
+		if attr := filter.GetAttribute("OffsetAttribute"); attr != nil {
 			if offAttr, ok := attr.(OffsetAttribute); ok {
 				offsets = append(offsets, offsetInfo{offAttr.StartOffset(), offAttr.EndOffset()})
 			}
@@ -529,7 +529,7 @@ func TestFlattenGraphFilter_EndMethod(t *testing.T) {
 	}
 
 	// Check that end offset is preserved
-	if attr := filter.GetAttributeSource().GetAttribute("OffsetAttribute"); attr != nil {
+	if attr := filter.GetAttribute("OffsetAttribute"); attr != nil {
 		if offAttr, ok := attr.(OffsetAttribute); ok {
 			if offAttr.EndOffset() != 4 {
 				t.Errorf("Expected end offset 4, got %d", offAttr.EndOffset())
@@ -565,13 +565,13 @@ func TestFlattenGraphFilter_MultipleSynonymsAtPosition(t *testing.T) {
 			break
 		}
 
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				results = append(results, termAttr.String())
 			}
 		}
 
-		if attr := filter.GetAttributeSource().GetAttribute("PositionIncrementAttribute"); attr != nil {
+		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
 			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
 				posIncrs = append(posIncrs, posAttr.GetPositionIncrement())
 			}
@@ -609,7 +609,7 @@ func TestFlattenGraphFilter_WithRealTokenizer(t *testing.T) {
 			break
 		}
 
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				results = append(results, termAttr.String())
 			}
@@ -643,7 +643,7 @@ func TestFlattenGraphFilter_Chaining(t *testing.T) {
 			break
 		}
 
-		if attr := flattenFilter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := flattenFilter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				results = append(results, termAttr.String())
 			}
@@ -693,19 +693,19 @@ func TestFlattenGraphFilter_LongPositionLength(t *testing.T) {
 			posIncr int
 		}
 
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				token.term = termAttr.String()
 			}
 		}
 
-		if attr := filter.GetAttributeSource().GetAttribute("PositionLengthAttribute"); attr != nil {
-			if posLenAttr, ok := attr.(*PositionLengthAttribute); ok {
+		if attr := filter.GetAttribute("PositionLengthAttribute"); attr != nil {
+			if posLenAttr, ok := attr.(PositionLengthAttribute); ok {
 				token.posLen = posLenAttr.GetPositionLength()
 			}
 		}
 
-		if attr := filter.GetAttributeSource().GetAttribute("PositionIncrementAttribute"); attr != nil {
+		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
 			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
 				token.posIncr = posAttr.GetPositionIncrement()
 			}

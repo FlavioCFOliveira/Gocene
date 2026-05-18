@@ -23,4 +23,3 @@ type ShingleAnalyzerWrapper struct{}
 
 // NewShingleAnalyzerWrapper builds a ShingleAnalyzerWrapper.
 func NewShingleAnalyzerWrapper() *ShingleAnalyzerWrapper { return &ShingleAnalyzerWrapper{} }
-

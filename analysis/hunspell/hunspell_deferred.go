@@ -58,7 +58,9 @@ func NewSortingStrategy() *SortingStrategy { return &SortingStrategy{} }
 type SuggestionTimeoutException struct{}
 
 // NewSuggestionTimeoutException builds a SuggestionTimeoutException.
-func NewSuggestionTimeoutException() *SuggestionTimeoutException { return &SuggestionTimeoutException{} }
+func NewSuggestionTimeoutException() *SuggestionTimeoutException {
+	return &SuggestionTimeoutException{}
+}
 
 // TimeoutPolicy mirrors org.apache.lucene.analysis.hunspell.TimeoutPolicy.
 type TimeoutPolicy struct{}
@@ -95,4 +97,3 @@ type WordFormGenerator struct{}
 
 // NewWordFormGenerator builds a WordFormGenerator.
 func NewWordFormGenerator() *WordFormGenerator { return &WordFormGenerator{} }
-

@@ -10,11 +10,12 @@ package email
 type UAX29URLEmailTokenizerImpl struct{}
 
 // NewUAX29URLEmailTokenizerImpl builds a UAX29URLEmailTokenizerImpl.
-func NewUAX29URLEmailTokenizerImpl() *UAX29URLEmailTokenizerImpl { return &UAX29URLEmailTokenizerImpl{} }
+func NewUAX29URLEmailTokenizerImpl() *UAX29URLEmailTokenizerImpl {
+	return &UAX29URLEmailTokenizerImpl{}
+}
 
 // UAX29URLEmailAnalyzer mirrors org.apache.lucene.analysis.email.UAX29URLEmailAnalyzer.
 type UAX29URLEmailAnalyzer struct{}
 
 // NewUAX29URLEmailAnalyzer builds a UAX29URLEmailAnalyzer.
 func NewUAX29URLEmailAnalyzer() *UAX29URLEmailAnalyzer { return &UAX29URLEmailAnalyzer{} }
-

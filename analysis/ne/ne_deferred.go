@@ -11,4 +11,3 @@ type NepaliAnalyzer struct{}
 
 // NewNepaliAnalyzer builds a NepaliAnalyzer.
 func NewNepaliAnalyzer() *NepaliAnalyzer { return &NepaliAnalyzer{} }
-

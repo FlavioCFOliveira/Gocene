@@ -4,8 +4,6 @@
 
 package analysis
 
-import "reflect"
-
 // Indonesian stemmer flags. The Java reference uses a bit mask to
 // remember which prefix was removed so that conflicting suffixes can
 // be skipped during derivational stemming.
@@ -263,7 +261,7 @@ type IndonesianStemFilter struct {
 
 	stemDerivational bool
 	termAttr         CharTermAttribute
-	keywordAttr      *KeywordAttribute
+	keywordAttr      KeywordAttribute
 }
 
 // NewIndonesianStemFilter wraps input with derivational stemming
@@ -281,11 +279,11 @@ func NewIndonesianStemFilterWithDerivational(input TokenStream, stemDerivational
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&KeywordAttribute{})); a != nil {
-			f.keywordAttr = a.(*KeywordAttribute)
+		if a := src.GetAttribute(KeywordAttributeType); a != nil {
+			f.keywordAttr = a.(KeywordAttribute)
 		}
 	}
 	return f
@@ -300,7 +298,7 @@ func (f *IndonesianStemFilter) IncrementToken() (bool, error) {
 	if f.termAttr == nil {
 		return true, nil
 	}
-	if f.keywordAttr != nil && f.keywordAttr.IsKeyword {
+	if f.keywordAttr != nil && f.keywordAttr.IsKeywordToken() {
 		return true, nil
 	}
 	// Allocate a fresh stemmer per token so concurrent filter chains

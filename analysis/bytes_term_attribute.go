@@ -4,7 +4,11 @@
 
 package analysis
 
-import "github.com/FlavioCFOliveira/Gocene/util"
+import (
+	"reflect"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
 
 // BytesTermAttribute is the Go port of Lucene's
 // org.apache.lucene.analysis.tokenattributes.BytesTermAttribute.
@@ -26,3 +30,9 @@ type BytesTermAttribute interface {
 	// SetBytesRef sets the BytesRef of the current term.
 	SetBytesRef(bytes *util.BytesRef)
 }
+
+// BytesTermAttributeType is the reflect.Type of the BytesTermAttribute
+// interface, used as the lookup key for AttributeSource. Phase 4
+// (consumer migration) converts all string-keyed GetAttribute calls to
+// use these vars.
+var BytesTermAttributeType = reflect.TypeOf((*BytesTermAttribute)(nil)).Elem()

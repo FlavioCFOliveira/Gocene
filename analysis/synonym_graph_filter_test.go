@@ -19,6 +19,8 @@ package analysis
 
 import (
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TestSynonymGraphFilterBasic tests basic synonym functionality.
@@ -576,22 +578,25 @@ func collectSynonymTokens(t *testing.T, ts TokenStream) []synonymTokenInfo {
 	// Get attributes
 	var termAttr CharTermAttribute
 	var posIncrAttr PositionIncrementAttribute
-	var posLenAttr *PositionLengthAttribute
+	var posLenAttr PositionLengthAttribute
 
-	if attrSrc, ok := ts.(interface{ GetAttributeSource() *AttributeSource }); ok {
+	if attrSrc, ok := ts.(interface {
+		GetAttributeSource() *util.AttributeSource
+		GetAttribute(string) util.AttributeImpl
+	}); ok {
 		as := attrSrc.GetAttributeSource()
-		if attr := as.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := as.GetAttribute(CharTermAttributeType); attr != nil {
 			if ta, ok := attr.(CharTermAttribute); ok {
 				termAttr = ta
 			}
 		}
-		if attr := as.GetAttribute("PositionIncrementAttribute"); attr != nil {
+		if attr := as.GetAttribute(PositionIncrementAttributeType); attr != nil {
 			if pa, ok := attr.(PositionIncrementAttribute); ok {
 				posIncrAttr = pa
 			}
 		}
-		if attr := as.GetAttribute("PositionLengthAttribute"); attr != nil {
-			if pla, ok := attr.(*PositionLengthAttribute); ok {
+		if attr := as.GetAttribute(PositionLengthAttributeType); attr != nil {
+			if pla, ok := attr.(PositionLengthAttribute); ok {
 				posLenAttr = pla
 			}
 		}
@@ -632,27 +637,30 @@ func collectSynonymTokensWithOffsets(t *testing.T, ts TokenStream) []synonymToke
 	// Get attributes
 	var termAttr CharTermAttribute
 	var posIncrAttr PositionIncrementAttribute
-	var posLenAttr *PositionLengthAttribute
+	var posLenAttr PositionLengthAttribute
 	var offsetAttr OffsetAttribute
 
-	if attrSrc, ok := ts.(interface{ GetAttributeSource() *AttributeSource }); ok {
+	if attrSrc, ok := ts.(interface {
+		GetAttributeSource() *util.AttributeSource
+		GetAttribute(string) util.AttributeImpl
+	}); ok {
 		as := attrSrc.GetAttributeSource()
-		if attr := as.GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := as.GetAttribute(CharTermAttributeType); attr != nil {
 			if ta, ok := attr.(CharTermAttribute); ok {
 				termAttr = ta
 			}
 		}
-		if attr := as.GetAttribute("PositionIncrementAttribute"); attr != nil {
+		if attr := as.GetAttribute(PositionIncrementAttributeType); attr != nil {
 			if pa, ok := attr.(PositionIncrementAttribute); ok {
 				posIncrAttr = pa
 			}
 		}
-		if attr := as.GetAttribute("PositionLengthAttribute"); attr != nil {
-			if pla, ok := attr.(*PositionLengthAttribute); ok {
+		if attr := as.GetAttribute(PositionLengthAttributeType); attr != nil {
+			if pla, ok := attr.(PositionLengthAttribute); ok {
 				posLenAttr = pla
 			}
 		}
-		if attr := as.GetAttribute("OffsetAttribute"); attr != nil {
+		if attr := as.GetAttribute(OffsetAttributeType); attr != nil {
 			if oa, ok := attr.(OffsetAttribute); ok {
 				offsetAttr = oa
 			}

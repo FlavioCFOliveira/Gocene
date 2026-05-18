@@ -10,11 +10,12 @@ package es
 type SpanishPluralStemFilterFactory struct{}
 
 // NewSpanishPluralStemFilterFactory builds a SpanishPluralStemFilterFactory.
-func NewSpanishPluralStemFilterFactory() *SpanishPluralStemFilterFactory { return &SpanishPluralStemFilterFactory{} }
+func NewSpanishPluralStemFilterFactory() *SpanishPluralStemFilterFactory {
+	return &SpanishPluralStemFilterFactory{}
+}
 
 // SpanishPluralStemFilter mirrors org.apache.lucene.analysis.es.SpanishPluralStemFilter.
 type SpanishPluralStemFilter struct{}
 
 // NewSpanishPluralStemFilter builds a SpanishPluralStemFilter.
 func NewSpanishPluralStemFilter() *SpanishPluralStemFilter { return &SpanishPluralStemFilter{} }
-

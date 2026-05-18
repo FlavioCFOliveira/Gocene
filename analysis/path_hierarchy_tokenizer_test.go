@@ -5,7 +5,6 @@
 package analysis
 
 import (
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -81,7 +80,7 @@ func TestPathHierarchyTokenizer_ForwardBasic(t *testing.T) {
 					break
 				}
 
-				termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+				termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 				if termAttr == nil {
 					t.Fatal("CharTermAttribute is nil")
 				}
@@ -160,7 +159,7 @@ func TestPathHierarchyTokenizer_ReverseBasic(t *testing.T) {
 					break
 				}
 
-				termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+				termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 				if termAttr == nil {
 					t.Fatal("CharTermAttribute is nil")
 				}
@@ -234,7 +233,7 @@ func TestPathHierarchyTokenizer_CustomDelimiter(t *testing.T) {
 					break
 				}
 
-				termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+				termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 				if termAttr == nil {
 					t.Fatal("CharTermAttribute is nil")
 				}
@@ -337,7 +336,7 @@ func TestPathHierarchyTokenizer_Skip(t *testing.T) {
 					break
 				}
 
-				termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+				termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 				if termAttr == nil {
 					t.Fatal("CharTermAttribute is nil")
 				}
@@ -387,7 +386,7 @@ func TestPathHierarchyTokenizer_Offsets(t *testing.T) {
 			break
 		}
 
-		offsetAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&offsetAttribute{}))
+		offsetAttr := tokenizer.GetAttributeSource().GetAttribute(OffsetAttributeType)
 		if offsetAttr == nil {
 			t.Fatal("OffsetAttribute is nil")
 		}
@@ -432,7 +431,7 @@ func TestPathHierarchyTokenizer_PositionIncrement(t *testing.T) {
 			t.Fatalf("Expected token at index %d", i)
 		}
 
-		posIncrAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{}))
+		posIncrAttr := tokenizer.GetAttributeSource().GetAttribute(PositionIncrementAttributeType)
 		if posIncrAttr == nil {
 			t.Fatal("PositionIncrementAttribute is nil")
 		}
@@ -459,7 +458,7 @@ func TestPathHierarchyTokenizer_Reset(t *testing.T) {
 		t.Fatal("Expected token from first input")
 	}
 
-	termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+	termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 	term := termAttr.(CharTermAttribute).String()
 	if term != "/a" {
 		t.Errorf("First token = %q, want '/a'", term)
@@ -484,7 +483,7 @@ func TestPathHierarchyTokenizer_Reset(t *testing.T) {
 			break
 		}
 
-		termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+		termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 		term := termAttr.(CharTermAttribute).String()
 		tokens = append(tokens, term)
 	}
@@ -534,7 +533,7 @@ func TestPathHierarchyTokenizer_Factory(t *testing.T) {
 			break
 		}
 
-		termAttr := phTokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+		termAttr := phTokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 		term := termAttr.(CharTermAttribute).String()
 		tokens = append(tokens, term)
 	}
@@ -576,7 +575,7 @@ func TestPathHierarchyTokenizer_End(t *testing.T) {
 	}
 
 	// Check that end offset is set to input length
-	offsetAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&offsetAttribute{}))
+	offsetAttr := tokenizer.GetAttributeSource().GetAttribute(OffsetAttributeType)
 	if offsetAttr == nil {
 		t.Fatal("OffsetAttribute is nil")
 	}
@@ -628,7 +627,7 @@ func TestPathHierarchyTokenizer_Unicode(t *testing.T) {
 					break
 				}
 
-				termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+				termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 				if termAttr == nil {
 					t.Fatal("CharTermAttribute is nil")
 				}
@@ -692,7 +691,7 @@ func TestPathHierarchyTokenizer_URLPaths(t *testing.T) {
 					break
 				}
 
-				termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+				termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 				if termAttr == nil {
 					t.Fatal("CharTermAttribute is nil")
 				}

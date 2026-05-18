@@ -56,7 +56,7 @@ func TestStandardTokenizer_Basic(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := tokenizer.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -95,12 +95,12 @@ func TestStandardTokenizer_Offsets(t *testing.T) {
 		}
 
 		var info tokenInfo
-		if attr := tokenizer.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				info.text = termAttr.String()
 			}
 		}
-		if attr := tokenizer.GetAttributeSource().GetAttribute("OffsetAttribute"); attr != nil {
+		if attr := tokenizer.GetAttribute("OffsetAttribute"); attr != nil {
 			if offsetAttr, ok := attr.(OffsetAttribute); ok {
 				info.startOff = offsetAttr.StartOffset()
 				info.endOff = offsetAttr.EndOffset()
@@ -141,7 +141,7 @@ func TestStandardTokenizer_PositionIncrement(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := tokenizer.GetAttributeSource().GetAttribute("PositionIncrementAttribute"); attr != nil {
+		if attr := tokenizer.GetAttribute("PositionIncrementAttribute"); attr != nil {
 			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
 				positions = append(positions, posAttr.GetPositionIncrement())
 			}
@@ -258,7 +258,7 @@ func TestStandardTokenizer_MaxTokenLength(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		attr := tokenizer.GetAttributeSource().GetAttribute("CharTermAttribute")
+		attr := tokenizer.GetAttribute("CharTermAttribute")
 		if attr == nil {
 			t.Fatal("missing CharTermAttribute")
 		}
@@ -293,7 +293,7 @@ func TestStandardTokenizer_Reuse(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := tokenizer.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens1 = append(tokens1, termAttr.String())
 			}
@@ -312,7 +312,7 @@ func TestStandardTokenizer_Reuse(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := tokenizer.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens2 = append(tokens2, termAttr.String())
 			}
@@ -395,7 +395,7 @@ func TestStandardTokenizer_Numbers(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := tokenizer.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -450,7 +450,7 @@ func TestStandardTokenizer_Whitespace(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := tokenizer.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -475,19 +475,19 @@ func TestStandardTokenizer_AttributesExist(t *testing.T) {
 		t.Fatal("Expected non-nil AttributeSource")
 	}
 
-	if !attrSource.HasAttribute(reflect.TypeOf(&charTermAttribute{})) {
+	if !attrSource.HasAttribute(CharTermAttributeType) {
 		t.Error("Expected CharTermAttribute to exist")
 	}
 
-	if !attrSource.HasAttribute(reflect.TypeOf(&offsetAttribute{})) {
+	if !attrSource.HasAttribute(OffsetAttributeType) {
 		t.Error("Expected OffsetAttribute to exist")
 	}
 
-	if !attrSource.HasAttribute(reflect.TypeOf(&positionIncrementAttribute{})) {
+	if !attrSource.HasAttribute(PositionIncrementAttributeType) {
 		t.Error("Expected PositionIncrementAttribute to exist")
 	}
 
-	if !attrSource.HasAttribute(reflect.TypeOf(&TypeAttribute{})) {
+	if !attrSource.HasAttribute(TypeAttributeType) {
 		t.Error("Expected TypeAttribute to exist")
 	}
 
@@ -539,7 +539,7 @@ func TestStandardTokenizer_MaxTokenLengthNonDefault(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		attr := tokenizer.GetAttributeSource().GetAttribute("CharTermAttribute")
+		attr := tokenizer.GetAttribute("CharTermAttribute")
 		tokens = append(tokens, attr.(CharTermAttribute).String())
 	}
 	want := []string{"ab", "cd", "toolo", "ng", "xy", "z"}
@@ -578,13 +578,13 @@ func TestStandardTokenizer_TypeAttribute(t *testing.T) {
 			t.Errorf("input %q: no token", tc.input)
 			continue
 		}
-		typeAttr := tokenizer.GetAttributeSource().GetAttribute("TypeAttribute")
+		typeAttr := tokenizer.GetAttribute("TypeAttribute")
 		if typeAttr == nil {
 			tokenizer.Close()
 			t.Errorf("input %q: missing TypeAttribute", tc.input)
 			continue
 		}
-		got := typeAttr.(*TypeAttribute).GetType()
+		got := typeAttr.(TypeAttribute).GetType()
 		if got != tc.wantType {
 			t.Errorf("input %q: type=%q want %q", tc.input, got, tc.wantType)
 		}

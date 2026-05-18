@@ -41,4 +41,3 @@ type CJKWidthFilter struct{}
 
 // NewCJKWidthFilter builds a CJKWidthFilter.
 func NewCJKWidthFilter() *CJKWidthFilter { return &CJKWidthFilter{} }
-

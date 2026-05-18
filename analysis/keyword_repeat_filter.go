@@ -4,10 +4,6 @@
 
 package analysis
 
-import (
-	"reflect"
-)
-
 // KeywordRepeatFilter emits tokens twice - once as keyword and once as regular token.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.KeywordRepeatFilter.
@@ -19,7 +15,7 @@ type KeywordRepeatFilter struct {
 	*BaseTokenFilter
 
 	// keywordAttr holds the KeywordAttribute from the shared attribute source
-	keywordAttr *KeywordAttribute
+	keywordAttr KeywordAttribute
 
 	// termAttr holds the CharTermAttribute from the shared attribute source
 	termAttr CharTermAttribute
@@ -44,14 +40,14 @@ func NewKeywordRepeatFilter(input TokenStream) *KeywordRepeatFilter {
 	attrSrc := filter.GetAttributeSource()
 	if attrSrc != nil {
 		// Ensure KeywordAttribute is present on the shared source.
-		if attr := attrSrc.GetAttributeByType(reflect.TypeOf(&KeywordAttribute{})); attr != nil {
-			filter.keywordAttr = attr.(*KeywordAttribute)
+		if attr := attrSrc.GetAttribute(KeywordAttributeType); attr != nil {
+			filter.keywordAttr = attr.(KeywordAttribute)
 		} else {
 			filter.keywordAttr = NewKeywordAttribute()
-			attrSrc.AddAttribute(filter.keywordAttr)
+			attrSrc.AddAttributeImpl(filter.keywordAttr)
 		}
 
-		if attr := attrSrc.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); attr != nil {
+		if attr := attrSrc.GetAttribute(CharTermAttributeType); attr != nil {
 			filter.termAttr = attr.(CharTermAttribute)
 		}
 	}

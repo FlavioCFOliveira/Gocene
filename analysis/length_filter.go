@@ -4,10 +4,6 @@
 
 package analysis
 
-import (
-	"reflect"
-)
-
 // LengthFilter filters tokens based on their length.
 // It removes tokens that are shorter than minLength or longer than maxLength.
 //
@@ -40,7 +36,7 @@ func NewLengthFilter(input TokenStream, minLength, maxLength int) *LengthFilter 
 	// Get the CharTermAttribute from the shared AttributeSource
 	attrSrc := filter.GetAttributeSource()
 	if attrSrc != nil {
-		attr := attrSrc.GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+		attr := attrSrc.GetAttribute(CharTermAttributeType)
 		if attr != nil {
 			filter.termAttr = attr.(CharTermAttribute)
 		}

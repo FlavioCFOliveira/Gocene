@@ -178,7 +178,7 @@ func (f *FinnishLightStemFilter) IncrementToken() (bool, error) {
 	}
 
 	if hasToken {
-		if attr := f.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := f.GetAttributeSource().GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				term := termAttr.String()
 				stemmed := finnishLightStem(term)

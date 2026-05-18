@@ -26,7 +26,7 @@ func TestTokenStream_BasicIncrement(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := tokenizer.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -94,7 +94,7 @@ func TestTokenStream_ResetMethod(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := tokenizer.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens1 = append(tokens1, termAttr.String())
 			}
@@ -113,7 +113,7 @@ func TestTokenStream_ResetMethod(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := tokenizer.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens2 = append(tokens2, termAttr.String())
 			}
@@ -158,18 +158,26 @@ func TestTokenStream_EmptyInput(t *testing.T) {
 // TestTokenStream_ClearAttributes tests attribute clearing.
 // Source: TestTokenStream.testClearAttributes()
 // Purpose: Tests that attributes are properly cleared between tokens.
+//
+// Sprint 54 Phase 4: the tokenizer already registers its own
+// CharTermAttribute at construction; reach for the registered impl and
+// mutate it so ClearAttributes() observably resets state.
 func TestTokenStream_ClearAttributes(t *testing.T) {
 	tokenizer := NewWhitespaceTokenizer()
 	tokenizer.SetReader(strings.NewReader("a"))
 
-	customAttr := NewCharTermAttribute()
-	customAttr.SetValue("initial")
-	tokenizer.GetAttributeSource().AddAttribute(customAttr)
+	src := tokenizer.GetAttributeSource()
+	attr := src.GetAttribute(CharTermAttributeType)
+	if attr == nil {
+		t.Fatal("Tokenizer should have a CharTermAttribute registered")
+	}
+	termAttr := attr.(CharTermAttribute)
+	termAttr.SetValue("initial")
 
 	tokenizer.ClearAttributes()
 
-	if customAttr.String() != "" {
-		t.Errorf("Expected cleared attribute, got %s", customAttr.String())
+	if termAttr.String() != "" {
+		t.Errorf("Expected cleared attribute, got %s", termAttr.String())
 	}
 
 	tokenizer.Close()
@@ -184,7 +192,7 @@ func TestTokenStream_AddAttribute(t *testing.T) {
 	termAttr := NewCharTermAttribute()
 	ts.AddAttribute(termAttr)
 
-	retrieved := ts.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+	retrieved := ts.GetAttributeSource().GetAttribute(CharTermAttributeType)
 	if retrieved == nil {
 		t.Error("Expected to retrieve added attribute")
 	}
@@ -197,12 +205,12 @@ func TestTokenStream_GetAttribute(t *testing.T) {
 	tokenizer := NewWhitespaceTokenizer()
 	tokenizer.SetReader(strings.NewReader("test"))
 
-	attr := tokenizer.GetAttributeSource().GetAttribute("CharTermAttribute")
+	attr := tokenizer.GetAttribute("CharTermAttribute")
 	if attr == nil {
 		t.Error("Expected to retrieve CharTermAttribute")
 	}
 
-	nonExistent := tokenizer.GetAttributeSource().GetAttribute("NonExistent")
+	nonExistent := tokenizer.GetAttribute("NonExistent")
 	if nonExistent != nil {
 		t.Error("Expected nil for non-existent attribute")
 	}
@@ -252,7 +260,7 @@ func TestTokenStream_Chaining(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := lowerFilter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := lowerFilter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -339,7 +347,7 @@ func TestTokenStream_Unicode(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := tokenizer.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := tokenizer.GetAttribute("CharTermAttribute"); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -366,9 +374,9 @@ func TestTokenStream_AttributeSource(t *testing.T) {
 	}
 
 	termAttr := NewCharTermAttribute()
-	attrSource.AddAttribute(termAttr)
+	attrSource.AddAttributeImpl(termAttr)
 
-	if !attrSource.HasAttribute(reflect.TypeOf(&charTermAttribute{})) {
+	if !attrSource.HasAttribute(CharTermAttributeType) {
 		t.Error("Expected attribute to exist in source")
 	}
 }

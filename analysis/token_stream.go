@@ -4,6 +4,13 @@
 
 package analysis
 
+import (
+	"reflect"
+	"strings"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
 // TokenStream is an abstract base class for producing token streams.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.TokenStream.
@@ -35,31 +42,67 @@ type TokenStream interface {
 //
 // Embed this struct in concrete TokenStream implementations to inherit
 // common functionality.
+//
+// Sprint 54 Phase 4 migrated the embedded attribute source to
+// [util.AttributeSource], the Lucene-faithful 10.4.0-parity registry,
+// and Phase 6 retired the legacy local registry entirely. The public
+// surface ([BaseTokenStream.GetAttributeSource]) returns
+// [util.AttributeSource]; the legacy string-keyed
+// [BaseTokenStream.GetAttribute] is retained as a back-compat shim
+// that resolves via the [canonicalAttributeInterfaces] registry to a
+// typed [util.AttributeSource.GetAttribute] lookup.
 type BaseTokenStream struct {
 	// attributes holds the attribute source for this token stream
-	attributes *AttributeSource
+	attributes *util.AttributeSource
 }
 
-// NewBaseTokenStream creates a new BaseTokenStream.
+// NewBaseTokenStream creates a new BaseTokenStream backed by a fresh
+// [util.AttributeSource] using [util.DefaultAttributeFactoryInstance].
 func NewBaseTokenStream() *BaseTokenStream {
 	return &BaseTokenStream{
-		attributes: NewAttributeSource(),
+		attributes: util.NewAttributeSource(),
 	}
 }
 
-// GetAttributeSource returns the AttributeSource for this token stream.
-func (ts *BaseTokenStream) GetAttributeSource() *AttributeSource {
+// GetAttributeSource returns the underlying [util.AttributeSource].
+// Sprint 54 Phase 4 promoted the return type from the legacy
+// analysis-internal source (since retired in Phase 6) to the
+// Lucene-faithful [util.AttributeSource].
+func (ts *BaseTokenStream) GetAttributeSource() *util.AttributeSource {
 	return ts.attributes
 }
 
-// AddAttribute adds an attribute implementation to this token stream.
-func (ts *BaseTokenStream) AddAttribute(attr AttributeImpl) {
-	ts.attributes.AddAttribute(attr)
+// AddAttribute registers an [util.AttributeImpl] with the token
+// stream's AttributeSource. Routes through
+// [util.AttributeSource.AddAttributeImpl] which delegates to the impl's
+// [util.AttributeInterfaceProvider] declaration (Sprint 54 Phase 4
+// part A added that method to every analysis impl) to discover every
+// Attribute interface the impl satisfies.
+func (ts *BaseTokenStream) AddAttribute(attr util.AttributeImpl) {
+	if attr == nil {
+		return
+	}
+	ts.attributes.AddAttributeImpl(attr)
 }
 
-// GetAttribute returns an attribute by type name.
-func (ts *BaseTokenStream) GetAttribute(name string) AttributeImpl {
-	return ts.attributes.GetAttribute(name)
+// GetAttribute is a legacy back-compat shim that resolves name through
+// the [canonicalAttributeInterfaces] registry to a typed
+// [util.AttributeSource.GetAttribute] lookup. New code should call
+// [BaseTokenStream.GetAttributeSource] and use the typed
+// [util.AttributeSource.GetAttribute] API directly.
+func (ts *BaseTokenStream) GetAttribute(name string) util.AttributeImpl {
+	if t, ok := canonicalAttributeInterfaces[name]; ok {
+		return ts.attributes.GetAttribute(t)
+	}
+	// Case-insensitive fallback for the legacy "charTermAttribute" /
+	// "Charterm..." variants exercised by older consumers.
+	lower := strings.ToLower(name)
+	for n, t := range canonicalAttributeInterfaces {
+		if strings.ToLower(n) == lower {
+			return ts.attributes.GetAttribute(t)
+		}
+	}
+	return nil
 }
 
 // ClearAttributes clears all attributes.
@@ -81,4 +124,26 @@ func (ts *BaseTokenStream) End() error {
 // Close releases resources.
 func (ts *BaseTokenStream) Close() error {
 	return nil
+}
+
+// canonicalAttributeInterfaces maps the legacy string-keyed names used
+// by [BaseTokenStream.GetAttribute] to the canonical reflect.Type of
+// each Attribute interface declared in this package. The registry is
+// initialised once from [registerCanonicalAttributeInterface] calls
+// during package init to keep the map definition co-located with each
+// interface's type variable declaration.
+var canonicalAttributeInterfaces = map[string]reflect.Type{
+	"CharTermAttribute":          CharTermAttributeType,
+	"OffsetAttribute":            OffsetAttributeType,
+	"PositionIncrementAttribute": PositionIncrementAttributeType,
+	"TypeAttribute":              TypeAttributeType,
+	"PayloadAttribute":           PayloadAttributeType,
+	"FlagsAttribute":             FlagsAttributeType,
+	"KeywordAttribute":           KeywordAttributeType,
+	"PositionLengthAttribute":    PositionLengthAttributeType,
+	"TermFrequencyAttribute":     TermFrequencyAttributeType,
+	"SentenceAttribute":          SentenceAttributeType,
+	"BytesTermAttribute":         BytesTermAttributeType,
+	"TermToBytesRefAttribute":    TermToBytesRefAttributeType,
+	"BoostAttribute":             BoostAttributeType,
 }

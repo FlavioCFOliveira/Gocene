@@ -5,7 +5,6 @@
 package analysis
 
 import (
-	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -41,10 +40,10 @@ func NewHyphenatedWordsFilter(input TokenStream) *HyphenatedWordsFilter {
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&offsetAttribute{})); a != nil {
+		if a := src.GetAttribute(OffsetAttributeType); a != nil {
 			f.offsetAttr = a.(OffsetAttribute)
 		}
 	}
@@ -197,7 +196,7 @@ func NewCapitalizationFilterWithConfig(input TokenStream, onlyFirstWord, forceFi
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
 	}
@@ -340,7 +339,7 @@ type FingerprintFilter struct {
 	emitted            bool
 	termAttr           CharTermAttribute
 	posIncrAttr        PositionIncrementAttribute
-	typeAttr           *TypeAttribute
+	typeAttr           TypeAttribute
 	offsetAttr         OffsetAttribute
 }
 
@@ -358,16 +357,16 @@ func NewFingerprintFilterWithConfig(input TokenStream, maxOutputTokenSize int, s
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{})); a != nil {
+		if a := src.GetAttribute(PositionIncrementAttributeType); a != nil {
 			f.posIncrAttr = a.(PositionIncrementAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&TypeAttribute{})); a != nil {
-			f.typeAttr = a.(*TypeAttribute)
+		if a := src.GetAttribute(TypeAttributeType); a != nil {
+			f.typeAttr = a.(TypeAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&offsetAttribute{})); a != nil {
+		if a := src.GetAttribute(OffsetAttributeType); a != nil {
 			f.offsetAttr = a.(OffsetAttribute)
 		}
 	}
@@ -420,7 +419,7 @@ func (f *FingerprintFilter) IncrementToken() (bool, error) {
 		f.posIncrAttr.SetPositionIncrement(1)
 	}
 	if f.typeAttr != nil {
-		f.typeAttr.Type = "fingerprint"
+		f.typeAttr.SetType("fingerprint")
 	}
 	if f.offsetAttr != nil {
 		f.offsetAttr.SetOffset(0, lastEnd)
@@ -477,7 +476,7 @@ type DropIfFlaggedFilter struct {
 	*BaseTokenFilter
 
 	dropFlags int
-	flagsAttr *FlagsAttribute
+	flagsAttr FlagsAttribute
 }
 
 // NewDropIfFlaggedFilter wraps input with the drop mask.
@@ -488,8 +487,8 @@ func NewDropIfFlaggedFilter(input TokenStream, dropFlags int) *DropIfFlaggedFilt
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&FlagsAttribute{})); a != nil {
-			f.flagsAttr = a.(*FlagsAttribute)
+		if a := src.GetAttribute(FlagsAttributeType); a != nil {
+			f.flagsAttr = a.(FlagsAttribute)
 		}
 	}
 	return f
@@ -549,7 +548,7 @@ type DelimitedTermFrequencyTokenFilter struct {
 
 	delimiter byte
 	termAttr  CharTermAttribute
-	tfAttr    *TermFrequencyAttribute
+	tfAttr    TermFrequencyAttribute
 }
 
 // NewDelimitedTermFrequencyTokenFilter wraps input with the default
@@ -567,11 +566,11 @@ func NewDelimitedTermFrequencyTokenFilterWithDelimiter(input TokenStream, delimi
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&TermFrequencyAttribute{})); a != nil {
-			f.tfAttr = a.(*TermFrequencyAttribute)
+		if a := src.GetAttribute(TermFrequencyAttributeType); a != nil {
+			f.tfAttr = a.(TermFrequencyAttribute)
 		}
 	}
 	return f

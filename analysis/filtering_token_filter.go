@@ -4,10 +4,6 @@
 
 package analysis
 
-import (
-	"reflect"
-)
-
 // FilteringTokenFilter is the abstract base type for TokenFilters that may
 // remove tokens. Subclasses (in Go, callers) implement the AcceptFn callback;
 // IncrementToken returns only those tokens for which AcceptFn returned true,
@@ -47,7 +43,7 @@ func NewFilteringTokenFilter(input TokenStream, accept func() (bool, error)) *Fi
 		AcceptFn:        accept,
 	}
 	if src := f.GetAttributeSource(); src != nil {
-		if attr := src.GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{})); attr != nil {
+		if attr := src.GetAttribute(PositionIncrementAttributeType); attr != nil {
 			if pi, ok := attr.(PositionIncrementAttribute); ok {
 				f.posIncrAttr = pi
 			}

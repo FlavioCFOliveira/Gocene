@@ -11,6 +11,12 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
+// CharTermAttributeType is the reflect.Type of the CharTermAttribute
+// interface, used as the lookup key for AttributeSource. Phase 4
+// (consumer migration) converts all string-keyed GetAttribute calls to
+// use these vars.
+var CharTermAttributeType = reflect.TypeOf((*CharTermAttribute)(nil)).Elem()
+
 // CharTermAttribute stores the text of a token.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.tokenattributes.CharTermAttribute.
@@ -22,8 +28,14 @@ import (
 // [TermToBytesRefAttribute]: callers can read the term as a BytesRef
 // uniformly with [BytesTermAttribute] through GetBytesRef.
 type CharTermAttribute interface {
-	AttributeImpl
+	util.AttributeImpl
 	TermToBytesRefAttribute
+
+	// Copy returns a deep copy of this attribute. Retained as part of the
+	// CharTermAttribute interface contract while consumers migrate to
+	// [util.AttributeImpl.CloneAttribute], which Lucene 10.4.0 uses for
+	// the same purpose.
+	Copy() util.AttributeImpl
 
 	// SetEmpty clears the term buffer and sets it to empty.
 	SetEmpty()
@@ -93,11 +105,24 @@ type charTermAttribute struct {
 // participates in. The opt-in interfaces are wired through Sprint 12
 // option (d).
 var (
-	_ AttributeImpl           = (*charTermAttribute)(nil)
-	_ CharTermAttribute       = (*charTermAttribute)(nil)
-	_ TermToBytesRefAttribute = (*charTermAttribute)(nil)
-	_ AttributeReflectable    = (*charTermAttribute)(nil)
+	_ util.AttributeImpl              = (*charTermAttribute)(nil)
+	_ CharTermAttribute               = (*charTermAttribute)(nil)
+	_ TermToBytesRefAttribute         = (*charTermAttribute)(nil)
+	_ util.AttributeInterfaceProvider = (*charTermAttribute)(nil)
 )
+
+// AttributeInterfaces satisfies [util.AttributeInterfaceProvider]: it
+// declares the Attribute interface types this impl satisfies so that
+// [util.AttributeSource.AddAttributeImpl] can register them without
+// relying on the package-level [util.RegisterAttributeImpl] registry.
+//
+// This is the Lucene-faithful equivalent of Java's reflective
+// Class#getInterfaces enumeration: Go reflection cannot enumerate
+// interface satisfaction without a candidate set, so the impl declares
+// its set explicitly.
+func (a *charTermAttribute) AttributeInterfaces() []reflect.Type {
+	return []reflect.Type{CharTermAttributeType, TermToBytesRefAttributeType}
+}
 
 // NewCharTermAttribute creates a new empty CharTermAttribute.
 func NewCharTermAttribute() CharTermAttribute {
@@ -113,18 +138,22 @@ func (a *charTermAttribute) Clear() {
 }
 
 // CopyTo copies this attribute to another implementation.
-func (a *charTermAttribute) CopyTo(target AttributeImpl) {
+func (a *charTermAttribute) CopyTo(target util.AttributeImpl) {
 	if t, ok := target.(CharTermAttribute); ok {
 		t.SetValue(a.String())
 	}
 }
 
 // Copy creates a deep copy of this attribute.
-func (a *charTermAttribute) Copy() AttributeImpl {
+func (a *charTermAttribute) Copy() util.AttributeImpl {
 	copy := NewCharTermAttribute()
 	copy.SetValue(a.String())
 	return copy
 }
+
+// CloneAttribute implements util.AttributeImpl.CloneAttribute. Returns
+// a deep copy as util.AttributeImpl. Delegates to the existing Copy().
+func (a *charTermAttribute) CloneAttribute() util.AttributeImpl { return a.Copy() }
 
 // SetEmpty clears the term buffer.
 func (a *charTermAttribute) SetEmpty() {
@@ -242,18 +271,18 @@ func (a *charTermAttribute) GetBytesRef() *util.BytesRef {
 	return a.builder
 }
 
-// End is the opt-in [AttributeEnder] hook. CharTermAttributeImpl in
+// End is the [util.AttributeImpl.End] hook. CharTermAttributeImpl in
 // Lucene does not override end(), so end() == clear() (the base
 // default). We reproduce that explicitly for clarity.
 func (a *charTermAttribute) End() {
 	a.Clear()
 }
 
-// ReflectWith is the opt-in [AttributeReflectable] hook. The Lucene
+// ReflectWith implements [util.AttributeImpl.ReflectWith]. The Lucene
 // reference emits the term as a String under the CharTermAttribute
 // key; the Go port emits it under the same key, as a string built from
 // the live buffer.
-func (a *charTermAttribute) ReflectWith(reflector AttributeReflector) {
+func (a *charTermAttribute) ReflectWith(reflector util.AttributeReflector) {
 	reflector(reflect.TypeOf((*CharTermAttribute)(nil)).Elem(), "term", a.String())
 	reflector(reflect.TypeOf((*TermToBytesRefAttribute)(nil)).Elem(), "bytes", a.GetBytesRef())
 }

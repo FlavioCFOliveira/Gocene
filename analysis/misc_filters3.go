@@ -5,7 +5,6 @@
 package analysis
 
 import (
-	"reflect"
 	"regexp"
 	"time"
 )
@@ -190,7 +189,7 @@ func NewDateRecognizerFilterWithLayouts(input TokenStream, layouts []string) *Da
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
 	}

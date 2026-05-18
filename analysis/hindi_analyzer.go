@@ -135,7 +135,7 @@ func (f *HindiNormalizationFilter) IncrementToken() (bool, error) {
 	}
 
 	if hasToken {
-		if attr := f.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := f.GetAttributeSource().GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				term := termAttr.String()
 				normalized := f.normalizer.Normalize(term)
@@ -224,7 +224,7 @@ func (f *HindiStemFilter) IncrementToken() (bool, error) {
 	}
 
 	if hasToken {
-		if attr := f.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := f.GetAttributeSource().GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				term := termAttr.String()
 				stemmed := f.stemmer.Stem(term)

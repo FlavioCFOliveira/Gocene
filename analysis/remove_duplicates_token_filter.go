@@ -4,10 +4,6 @@
 
 package analysis
 
-import (
-	"reflect"
-)
-
 // RemoveDuplicatesTokenFilter removes duplicate tokens at the same position.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.RemoveDuplicatesTokenFilter.
@@ -62,10 +58,10 @@ func NewRemoveDuplicatesTokenFilter(input TokenStream) *RemoveDuplicatesTokenFil
 	// Get attributes from the shared AttributeSource
 	attrSource := filter.GetAttributeSource()
 	if attrSource != nil {
-		if attr := attrSource.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); attr != nil {
+		if attr := attrSource.GetAttribute(CharTermAttributeType); attr != nil {
 			filter.termAttr = attr.(CharTermAttribute)
 		}
-		if attr := attrSource.GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{})); attr != nil {
+		if attr := attrSource.GetAttribute(PositionIncrementAttributeType); attr != nil {
 			filter.posIncrAttr = attr.(PositionIncrementAttribute)
 		}
 	}

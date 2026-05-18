@@ -13,8 +13,8 @@ import (
 
 func TestNewTypeAttribute(t *testing.T) {
 	ta := NewTypeAttribute()
-	if ta.Type != "word" {
-		t.Errorf("Expected default type 'word', got '%s'", ta.Type)
+	if ta.GetType() != "word" {
+		t.Errorf("Expected default type 'word', got '%s'", ta.GetType())
 	}
 }
 
@@ -29,7 +29,7 @@ func TestTypeAttributeSetGet(t *testing.T) {
 func TestTypeAttributeClone(t *testing.T) {
 	ta := NewTypeAttribute()
 	ta.SetType("custom")
-	clone := ta.Clone()
+	clone := ta.CloneAttribute().(TypeAttribute)
 	if clone.GetType() != "custom" {
 		t.Error("Clone should have same type")
 	}
@@ -53,7 +53,7 @@ func TestTypeAttributeClear(t *testing.T) {
 
 func TestNewPayloadAttribute(t *testing.T) {
 	pa := NewPayloadAttribute()
-	if pa.Payload != nil {
+	if pa.GetPayload() != nil {
 		t.Error("Expected nil payload")
 	}
 }
@@ -61,12 +61,12 @@ func TestNewPayloadAttribute(t *testing.T) {
 func TestNewPayloadAttributeWithPayload(t *testing.T) {
 	data := []byte{0x01, 0x02, 0x03}
 	pa := NewPayloadAttributeWithPayload(data)
-	if !bytes.Equal(pa.Payload, data) {
+	if !bytes.Equal(pa.GetPayload(), data) {
 		t.Error("Payload should match input")
 	}
 	// Modifying original should not affect attribute
 	data[0] = 0xFF
-	if pa.Payload[0] != 0x01 {
+	if pa.GetPayload()[0] != 0x01 {
 		t.Error("Payload should be a copy")
 	}
 }
@@ -83,7 +83,7 @@ func TestPayloadAttributeSetGet(t *testing.T) {
 func TestPayloadAttributeSetNil(t *testing.T) {
 	pa := NewPayloadAttributeWithPayload([]byte{0x01})
 	pa.SetPayload(nil)
-	if pa.Payload != nil {
+	if pa.GetPayload() != nil {
 		t.Error("SetPayload(nil) should set payload to nil")
 	}
 }
@@ -105,13 +105,13 @@ func TestPayloadAttributeHasPayload(t *testing.T) {
 
 func TestPayloadAttributeClone(t *testing.T) {
 	pa := NewPayloadAttributeWithPayload([]byte{0x01, 0x02})
-	clone := pa.Clone()
-	if !bytes.Equal(clone.Payload, pa.Payload) {
+	clone := pa.CloneAttribute().(PayloadAttribute)
+	if !bytes.Equal(clone.GetPayload(), pa.GetPayload()) {
 		t.Error("Clone should have same payload")
 	}
 	// Modify original
-	pa.Payload[0] = 0xFF
-	if clone.Payload[0] != 0x01 {
+	pa.GetPayload()[0] = 0xFF
+	if clone.GetPayload()[0] != 0x01 {
 		t.Error("Clone should be independent")
 	}
 }
@@ -119,7 +119,7 @@ func TestPayloadAttributeClone(t *testing.T) {
 func TestPayloadAttributeClear(t *testing.T) {
 	pa := NewPayloadAttributeWithPayload([]byte{0x01})
 	pa.Clear()
-	if pa.Payload != nil {
+	if pa.GetPayload() != nil {
 		t.Error("Clear should set payload to nil")
 	}
 }
@@ -128,15 +128,15 @@ func TestPayloadAttributeClear(t *testing.T) {
 
 func TestNewFlagsAttribute(t *testing.T) {
 	fa := NewFlagsAttribute()
-	if fa.Flags != 0 {
-		t.Errorf("Expected flags 0, got %d", fa.Flags)
+	if fa.GetFlags() != 0 {
+		t.Errorf("Expected flags 0, got %d", fa.GetFlags())
 	}
 }
 
 func TestNewFlagsAttributeWithFlags(t *testing.T) {
 	fa := NewFlagsAttributeWithFlags(0x0F)
-	if fa.Flags != 0x0F {
-		t.Errorf("Expected flags 0x0F, got %d", fa.Flags)
+	if fa.GetFlags() != 0x0F {
+		t.Errorf("Expected flags 0x0F, got %d", fa.GetFlags())
 	}
 }
 
@@ -175,8 +175,8 @@ func TestFlagsAttributeSetFlag(t *testing.T) {
 
 func TestFlagsAttributeClone(t *testing.T) {
 	fa := NewFlagsAttributeWithFlags(0xFF)
-	clone := fa.Clone()
-	if clone.Flags != 0xFF {
+	clone := fa.CloneAttribute().(FlagsAttribute)
+	if clone.GetFlags() != 0xFF {
 		t.Error("Clone should have same flags")
 	}
 }
@@ -184,7 +184,7 @@ func TestFlagsAttributeClone(t *testing.T) {
 func TestFlagsAttributeClear(t *testing.T) {
 	fa := NewFlagsAttributeWithFlags(0xFF)
 	fa.Clear()
-	if fa.Flags != 0 {
+	if fa.GetFlags() != 0 {
 		t.Error("Clear should reset flags to 0")
 	}
 }
@@ -193,15 +193,15 @@ func TestFlagsAttributeClear(t *testing.T) {
 
 func TestNewKeywordAttribute(t *testing.T) {
 	ka := NewKeywordAttribute()
-	if ka.IsKeyword {
-		t.Error("Expected IsKeyword to be false by default")
+	if ka.IsKeywordToken() {
+		t.Error("Expected IsKeywordToken to be false by default")
 	}
 }
 
 func TestNewKeywordAttributeWithValue(t *testing.T) {
 	ka := NewKeywordAttributeWithValue(true)
-	if !ka.IsKeyword {
-		t.Error("Expected IsKeyword to be true")
+	if !ka.IsKeywordToken() {
+		t.Error("Expected IsKeywordToken to be true")
 	}
 }
 
@@ -219,8 +219,8 @@ func TestKeywordAttributeSetGet(t *testing.T) {
 
 func TestKeywordAttributeClone(t *testing.T) {
 	ka := NewKeywordAttributeWithValue(true)
-	clone := ka.Clone()
-	if !clone.IsKeyword {
+	clone := ka.CloneAttribute().(KeywordAttribute)
+	if !clone.IsKeywordToken() {
 		t.Error("Clone should have same value")
 	}
 }
@@ -228,7 +228,7 @@ func TestKeywordAttributeClone(t *testing.T) {
 func TestKeywordAttributeClear(t *testing.T) {
 	ka := NewKeywordAttributeWithValue(true)
 	ka.Clear()
-	if ka.IsKeyword {
+	if ka.IsKeywordToken() {
 		t.Error("Clear should reset IsKeyword to false")
 	}
 }
@@ -237,15 +237,15 @@ func TestKeywordAttributeClear(t *testing.T) {
 
 func TestNewPositionLengthAttribute(t *testing.T) {
 	pla := NewPositionLengthAttribute()
-	if pla.PositionLength != 1 {
-		t.Errorf("Expected default length 1, got %d", pla.PositionLength)
+	if pla.GetPositionLength() != 1 {
+		t.Errorf("Expected default length 1, got %d", pla.GetPositionLength())
 	}
 }
 
 func TestNewPositionLengthAttributeWithLength(t *testing.T) {
 	pla := NewPositionLengthAttributeWithLength(3)
-	if pla.PositionLength != 3 {
-		t.Errorf("Expected length 3, got %d", pla.PositionLength)
+	if pla.GetPositionLength() != 3 {
+		t.Errorf("Expected length 3, got %d", pla.GetPositionLength())
 	}
 }
 
@@ -259,8 +259,8 @@ func TestPositionLengthAttributeSetGet(t *testing.T) {
 
 func TestPositionLengthAttributeClone(t *testing.T) {
 	pla := NewPositionLengthAttributeWithLength(3)
-	clone := pla.Clone()
-	if clone.PositionLength != 3 {
+	clone := pla.CloneAttribute().(PositionLengthAttribute)
+	if clone.GetPositionLength() != 3 {
 		t.Error("Clone should have same length")
 	}
 }
@@ -268,7 +268,7 @@ func TestPositionLengthAttributeClone(t *testing.T) {
 func TestPositionLengthAttributeClear(t *testing.T) {
 	pla := NewPositionLengthAttributeWithLength(5)
 	pla.Clear()
-	if pla.PositionLength != 1 {
+	if pla.GetPositionLength() != 1 {
 		t.Error("Clear should reset length to 1")
 	}
 }
@@ -277,15 +277,15 @@ func TestPositionLengthAttributeClear(t *testing.T) {
 
 func TestNewTermFrequencyAttribute(t *testing.T) {
 	tfa := NewTermFrequencyAttribute()
-	if tfa.TermFrequency != 1 {
-		t.Errorf("Expected default frequency 1, got %d", tfa.TermFrequency)
+	if tfa.GetTermFrequency() != 1 {
+		t.Errorf("Expected default frequency 1, got %d", tfa.GetTermFrequency())
 	}
 }
 
 func TestNewTermFrequencyAttributeWithFrequency(t *testing.T) {
 	tfa := NewTermFrequencyAttributeWithFrequency(5)
-	if tfa.TermFrequency != 5 {
-		t.Errorf("Expected frequency 5, got %d", tfa.TermFrequency)
+	if tfa.GetTermFrequency() != 5 {
+		t.Errorf("Expected frequency 5, got %d", tfa.GetTermFrequency())
 	}
 }
 
@@ -299,8 +299,8 @@ func TestTermFrequencyAttributeSetGet(t *testing.T) {
 
 func TestTermFrequencyAttributeClone(t *testing.T) {
 	tfa := NewTermFrequencyAttributeWithFrequency(5)
-	clone := tfa.Clone()
-	if clone.TermFrequency != 5 {
+	clone := tfa.CloneAttribute().(TermFrequencyAttribute)
+	if clone.GetTermFrequency() != 5 {
 		t.Error("Clone should have same frequency")
 	}
 }
@@ -308,7 +308,7 @@ func TestTermFrequencyAttributeClone(t *testing.T) {
 func TestTermFrequencyAttributeClear(t *testing.T) {
 	tfa := NewTermFrequencyAttributeWithFrequency(10)
 	tfa.Clear()
-	if tfa.TermFrequency != 1 {
+	if tfa.GetTermFrequency() != 1 {
 		t.Error("Clear should reset frequency to 1")
 	}
 }

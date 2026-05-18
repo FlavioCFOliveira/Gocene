@@ -50,12 +50,12 @@ func TestSynonymFilter_BasicSingleWord(t *testing.T) {
 		}
 
 		var info tokenInfo
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				info.text = termAttr.String()
 			}
 		}
-		if attr := filter.GetAttributeSource().GetAttribute("PositionIncrementAttribute"); attr != nil {
+		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
 			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
 				info.positionIncrement = posAttr.GetPositionIncrement()
 			}
@@ -119,12 +119,12 @@ func TestSynonymFilter_MultipleInputWords(t *testing.T) {
 		}
 
 		var info tokenInfo
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				info.text = termAttr.String()
 			}
 		}
-		if attr := filter.GetAttributeSource().GetAttribute("PositionIncrementAttribute"); attr != nil {
+		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
 			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
 				info.positionIncrement = posAttr.GetPositionIncrement()
 			}
@@ -180,7 +180,7 @@ func TestSynonymFilter_NoMatch(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -229,12 +229,12 @@ func TestSynonymFilter_MixedMatch(t *testing.T) {
 		}
 
 		var info tokenInfo
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				info.text = termAttr.String()
 			}
 		}
-		if attr := filter.GetAttributeSource().GetAttribute("PositionIncrementAttribute"); attr != nil {
+		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
 			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
 				info.positionIncrement = posAttr.GetPositionIncrement()
 			}
@@ -341,12 +341,12 @@ func TestSynonymFilter_MultipleSynonyms(t *testing.T) {
 		}
 
 		var info tokenInfo
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				info.text = termAttr.String()
 			}
 		}
-		if attr := filter.GetAttributeSource().GetAttribute("PositionIncrementAttribute"); attr != nil {
+		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
 			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
 				info.positionIncrement = posAttr.GetPositionIncrement()
 			}
@@ -405,7 +405,7 @@ func TestSynonymFilter_CaseInsensitive(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -489,7 +489,7 @@ func TestSynonymFilter_Chaining(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := lowerFilter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := lowerFilter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -547,7 +547,7 @@ func TestSynonymFilter_Factory(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := synFilter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := synFilter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -625,12 +625,12 @@ func TestSynonymFilter_MultiWordOutput(t *testing.T) {
 		}
 
 		var info tokenInfo
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				info.text = termAttr.String()
 			}
 		}
-		if attr := filter.GetAttributeSource().GetAttribute("PositionIncrementAttribute"); attr != nil {
+		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
 			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
 				info.positionIncrement = posAttr.GetPositionIncrement()
 			}
@@ -696,12 +696,12 @@ func TestSynonymFilter_ConsecutiveMatches(t *testing.T) {
 		}
 
 		var info tokenInfo
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				info.text = termAttr.String()
 			}
 		}
-		if attr := filter.GetAttributeSource().GetAttribute("PositionIncrementAttribute"); attr != nil {
+		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
 			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
 				info.positionIncrement = posAttr.GetPositionIncrement()
 			}
@@ -766,12 +766,12 @@ func TestSynonymFilter_Offsets(t *testing.T) {
 		}
 
 		var info tokenInfo
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				info.text = termAttr.String()
 			}
 		}
-		if attr := filter.GetAttributeSource().GetAttribute("OffsetAttribute"); attr != nil {
+		if attr := filter.GetAttribute("OffsetAttribute"); attr != nil {
 			if offsetAttr, ok := attr.(OffsetAttribute); ok {
 				info.startOffset = offsetAttr.StartOffset()
 				info.endOffset = offsetAttr.EndOffset()
@@ -818,7 +818,7 @@ func TestSynonymFilter_EmptySynonymMap(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -872,12 +872,12 @@ func TestSynonymFilter_LongerMatchPreferred(t *testing.T) {
 		}
 
 		var info tokenInfo
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				info.text = termAttr.String()
 			}
 		}
-		if attr := filter.GetAttributeSource().GetAttribute("PositionIncrementAttribute"); attr != nil {
+		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
 			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
 				info.positionIncrement = posAttr.GetPositionIncrement()
 			}

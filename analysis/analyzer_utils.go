@@ -6,6 +6,8 @@ package analysis
 
 import (
 	"strings"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // AnalyzerUtils provides utility methods for analysis operations.
@@ -44,7 +46,9 @@ func tokenizeInternal(tokenizer Tokenizer, text string) ([]string, error) {
 		}
 
 		// Try to get term from the tokenizer if it's a BaseTokenStream
-		if baseTs, ok := tokenizer.(interface{ GetAttribute(string) AttributeImpl }); ok {
+		if baseTs, ok := tokenizer.(interface {
+			GetAttribute(string) util.AttributeImpl
+		}); ok {
 			if attr := baseTs.GetAttribute("CharTermAttribute"); attr != nil {
 				if termAttr, ok := attr.(CharTermAttribute); ok {
 					tokens = append(tokens, termAttr.String())
@@ -84,7 +88,9 @@ func tokenizeWithAnalyzerInternal(analyzer Analyzer, fieldName, text string) ([]
 		}
 
 		// Try to get term from the token stream if it's a BaseTokenStream
-		if baseTs, ok := tokenStream.(interface{ GetAttribute(string) AttributeImpl }); ok {
+		if baseTs, ok := tokenStream.(interface {
+			GetAttribute(string) util.AttributeImpl
+		}); ok {
 			if attr := baseTs.GetAttribute("CharTermAttribute"); attr != nil {
 				if termAttr, ok := attr.(CharTermAttribute); ok {
 					tokens = append(tokens, termAttr.String())
@@ -113,7 +119,9 @@ func GetTokenPositions(tokenStream TokenStream) ([]int, error) {
 		}
 
 		// Try to get position increment from the token stream
-		if baseTs, ok := tokenStream.(interface{ GetAttribute(string) AttributeImpl }); ok {
+		if baseTs, ok := tokenStream.(interface {
+			GetAttribute(string) util.AttributeImpl
+		}); ok {
 			if attr := baseTs.GetAttribute("PositionIncrementAttribute"); attr != nil {
 				if posAttr, ok := attr.(PositionIncrementAttribute); ok {
 					position += posAttr.GetPositionIncrement()
@@ -143,7 +151,9 @@ func GetTokenOffsets(tokenStream TokenStream) ([][2]int, error) {
 		}
 
 		// Try to get offsets from the token stream
-		if baseTs, ok := tokenStream.(interface{ GetAttribute(string) AttributeImpl }); ok {
+		if baseTs, ok := tokenStream.(interface {
+			GetAttribute(string) util.AttributeImpl
+		}); ok {
 			if attr := baseTs.GetAttribute("OffsetAttribute"); attr != nil {
 				if offsetAttr, ok := attr.(OffsetAttribute); ok {
 					offsets = append(offsets, [2]int{offsetAttr.StartOffset(), offsetAttr.EndOffset()})
@@ -180,13 +190,17 @@ func SetInput(filter TokenFilter, input TokenStream) {
 }
 
 // ClearAttributes clears all attributes in the given AttributeSource.
-func ClearAttributes(source *AttributeSource) {
+func ClearAttributes(source *util.AttributeSource) {
 	source.ClearAttributes()
 }
 
-// HasAttribute checks if the given attribute type exists in the source.
-func HasAttribute(source *AttributeSource, attrType string) bool {
-	return source.GetAttribute(attrType) != nil
+// HasAttribute checks if the given attribute name exists in the
+// source, looked up via the [canonicalAttributeInterfaces] registry.
+func HasAttribute(source *util.AttributeSource, attrType string) bool {
+	if t, ok := canonicalAttributeInterfaces[attrType]; ok {
+		return source.HasAttribute(t)
+	}
+	return false
 }
 
 // IsEmpty checks if a token stream has no tokens.
@@ -218,7 +232,9 @@ func CountTokens(tokenStream TokenStream) (int, error) {
 func (f *BaseTokenFilter) SetInput(input TokenStream) {
 	f.input = input
 	// Update AttributeSource
-	if hasAttrSrc, ok := input.(interface{ GetAttributeSource() *AttributeSource }); ok {
+	if hasAttrSrc, ok := input.(interface {
+		GetAttributeSource() *util.AttributeSource
+	}); ok {
 		f.attributes = hasAttrSrc.GetAttributeSource()
 	}
 }

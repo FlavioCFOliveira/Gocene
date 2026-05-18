@@ -57,20 +57,20 @@ func (f *CachingTokenFilter) IncrementToken() (bool, error) {
 			// Cache the current token's attributes
 			token := cachedToken{}
 
-			if attr := f.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+			if attr := f.GetAttributeSource().GetAttribute(CharTermAttributeType); attr != nil {
 				if termAttr, ok := attr.(CharTermAttribute); ok {
 					token.term = termAttr.String()
 				}
 			}
 
-			if attr := f.GetAttributeSource().GetAttribute("OffsetAttribute"); attr != nil {
+			if attr := f.GetAttributeSource().GetAttribute(OffsetAttributeType); attr != nil {
 				if offsetAttr, ok := attr.(OffsetAttribute); ok {
 					token.startOffset = offsetAttr.StartOffset()
 					token.endOffset = offsetAttr.EndOffset()
 				}
 			}
 
-			if attr := f.GetAttributeSource().GetAttribute("PositionIncrementAttribute"); attr != nil {
+			if attr := f.GetAttributeSource().GetAttribute(PositionIncrementAttributeType); attr != nil {
 				if posAttr, ok := attr.(PositionIncrementAttribute); ok {
 					token.positionIncrement = posAttr.GetPositionIncrement()
 				}
@@ -92,21 +92,21 @@ func (f *CachingTokenFilter) IncrementToken() (bool, error) {
 		f.currentPos++
 
 		// Restore token attributes
-		if attr := f.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := f.GetAttributeSource().GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				termAttr.SetEmpty()
 				termAttr.AppendString(token.term)
 			}
 		}
 
-		if attr := f.GetAttributeSource().GetAttribute("OffsetAttribute"); attr != nil {
+		if attr := f.GetAttributeSource().GetAttribute(OffsetAttributeType); attr != nil {
 			if offsetAttr, ok := attr.(OffsetAttribute); ok {
 				offsetAttr.SetStartOffset(token.startOffset)
 				offsetAttr.SetEndOffset(token.endOffset)
 			}
 		}
 
-		if attr := f.GetAttributeSource().GetAttribute("PositionIncrementAttribute"); attr != nil {
+		if attr := f.GetAttributeSource().GetAttribute(PositionIncrementAttributeType); attr != nil {
 			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
 				posAttr.SetPositionIncrement(token.positionIncrement)
 			}

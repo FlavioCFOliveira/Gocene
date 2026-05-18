@@ -5,9 +5,10 @@
 package analysis
 
 import (
-	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // getTokenAttribute helper to extract CharTermAttribute from a TokenStream
@@ -22,9 +23,12 @@ func getTokenAttribute(stream TokenStream) (CharTermAttribute, bool) {
 		if tf, ok := current.(interface{ GetInput() TokenStream }); ok {
 			input := tf.GetInput()
 			// Check if input has GetAttributeSource (Tokenizer or BaseTokenStream)
-			if hasAttrSrc, ok := input.(interface{ GetAttributeSource() *AttributeSource }); ok {
+			if hasAttrSrc, ok := input.(interface {
+				GetAttributeSource() *util.AttributeSource
+				GetAttribute(string) util.AttributeImpl
+			}); ok {
 				attrSrc := hasAttrSrc.GetAttributeSource()
-				attr := attrSrc.GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+				attr := attrSrc.GetAttribute(CharTermAttributeType)
 				if cta, ok := attr.(CharTermAttribute); ok {
 					return cta, true
 				}
@@ -34,9 +38,12 @@ func getTokenAttribute(stream TokenStream) (CharTermAttribute, bool) {
 			current = input
 		} else {
 			// No more wrapping, check if current itself has attributes
-			if hasAttrSrc, ok := current.(interface{ GetAttributeSource() *AttributeSource }); ok {
+			if hasAttrSrc, ok := current.(interface {
+				GetAttributeSource() *util.AttributeSource
+				GetAttribute(string) util.AttributeImpl
+			}); ok {
 				attrSrc := hasAttrSrc.GetAttributeSource()
-				attr := attrSrc.GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+				attr := attrSrc.GetAttribute(CharTermAttributeType)
 				if cta, ok := attr.(CharTermAttribute); ok {
 					return cta, true
 				}

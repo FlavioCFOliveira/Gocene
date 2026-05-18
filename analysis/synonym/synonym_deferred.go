@@ -17,4 +17,3 @@ type WordnetSynonymParser struct{}
 
 // NewWordnetSynonymParser builds a WordnetSynonymParser.
 func NewWordnetSynonymParser() *WordnetSynonymParser { return &WordnetSynonymParser{} }
-

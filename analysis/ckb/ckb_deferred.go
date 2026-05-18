@@ -11,4 +11,3 @@ type SoraniAnalyzer struct{}
 
 // NewSoraniAnalyzer builds a SoraniAnalyzer.
 func NewSoraniAnalyzer() *SoraniAnalyzer { return &SoraniAnalyzer{} }
-

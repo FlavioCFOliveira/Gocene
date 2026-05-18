@@ -16,5 +16,6 @@ func NewUnicodeWhitespaceAnalyzer() *UnicodeWhitespaceAnalyzer { return &Unicode
 type UnicodeWhitespaceTokenizer struct{}
 
 // NewUnicodeWhitespaceTokenizer builds a UnicodeWhitespaceTokenizer.
-func NewUnicodeWhitespaceTokenizer() *UnicodeWhitespaceTokenizer { return &UnicodeWhitespaceTokenizer{} }
-
+func NewUnicodeWhitespaceTokenizer() *UnicodeWhitespaceTokenizer {
+	return &UnicodeWhitespaceTokenizer{}
+}

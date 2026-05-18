@@ -4,10 +4,6 @@
 
 package analysis
 
-import (
-	"reflect"
-)
-
 // StopFilter removes stop words from the token stream.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.StopFilter.
@@ -43,11 +39,11 @@ func NewStopFilter(input TokenStream, stopWords []string) *StopFilter {
 	// Get attributes from the shared AttributeSource
 	attrSource := filter.GetAttributeSource()
 	if attrSource != nil {
-		attr := attrSource.GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+		attr := attrSource.GetAttribute(CharTermAttributeType)
 		if attr != nil {
 			filter.termAttr = attr.(CharTermAttribute)
 		}
-		attr = attrSource.GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{}))
+		attr = attrSource.GetAttribute(PositionIncrementAttributeType)
 		if attr != nil {
 			filter.posIncrAttr = attr.(PositionIncrementAttribute)
 		}

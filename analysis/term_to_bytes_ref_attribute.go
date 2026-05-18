@@ -4,7 +4,11 @@
 
 package analysis
 
-import "github.com/FlavioCFOliveira/Gocene/util"
+import (
+	"reflect"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
 
 // TermToBytesRefAttribute is the Go port of Lucene's
 // org.apache.lucene.analysis.tokenattributes.TermToBytesRefAttribute.
@@ -32,7 +36,7 @@ import "github.com/FlavioCFOliveira/Gocene/util"
 //
 //	lucene/core/src/java/org/apache/lucene/analysis/tokenattributes/TermToBytesRefAttribute.java
 type TermToBytesRefAttribute interface {
-	Attribute
+	util.Attribute
 
 	// GetBytesRef retrieves this attribute's BytesRef. The bytes are
 	// refreshed from the current term on each call. Implementations
@@ -41,3 +45,9 @@ type TermToBytesRefAttribute interface {
 	// incremented.
 	GetBytesRef() *util.BytesRef
 }
+
+// TermToBytesRefAttributeType is the reflect.Type of the
+// TermToBytesRefAttribute interface, used as the lookup key for
+// AttributeSource. Phase 4 (consumer migration) converts all
+// string-keyed GetAttribute calls to use these vars.
+var TermToBytesRefAttributeType = reflect.TypeOf((*TermToBytesRefAttribute)(nil)).Elem()

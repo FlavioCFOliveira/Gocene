@@ -4,332 +4,732 @@
 
 package analysis
 
+import (
+	"bytes"
+	"fmt"
+	"reflect"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
+// This file defines the six "small" token attributes shipped by the
+// Gocene port of Lucene 10.4.0 as interface+impl pairs:
+//
+//   - TypeAttribute / typeAttributeImpl
+//   - PayloadAttribute / payloadAttributeImpl
+//   - FlagsAttribute / flagsAttributeImpl
+//   - KeywordAttribute / keywordAttributeImpl
+//   - PositionLengthAttribute / positionLengthAttributeImpl
+//   - TermFrequencyAttribute / termFrequencyAttributeImpl
+//
+// Sprint 12 originally shipped these as bare structs to avoid the large
+// consumer-migration cost; Sprint 54 Phase 3 promotes them to the
+// Lucene-faithful interface+impl layout that the rest of Gocene's
+// attribute surface (CharTermAttribute, OffsetAttribute,
+// PackedTokenAttributeImpl, ...) already follows.
+//
+// The interface methods use the Go-idiomatic Get*/Set* naming preserved
+// throughout Gocene's attribute layer, not Lucene's raw Java getter
+// names (e.g. type() / setType(String)). Each concrete impl embeds
+// [util.BaseAttributeImpl] and satisfies [util.AttributeImpl].
+
+// --- TypeAttribute ---------------------------------------------------
+
+// TypeAttributeType is the reflect.Type of the [TypeAttribute]
+// interface, used as the lookup key for an [AttributeSource].
+var TypeAttributeType = reflect.TypeOf((*TypeAttribute)(nil)).Elem()
+
+// DefaultTypeAttributeValue mirrors {@code TypeAttribute#DEFAULT_TYPE}
+// ("word"), the value to which Clear() resets the token type.
+const DefaultTypeAttributeValue = "word"
+
 // TypeAttribute provides a way to store the token type.
-// This is the Go port of Lucene's org.apache.lucene.analysis.tokenattributes.TypeAttribute.
-type TypeAttribute struct {
-	// Type is the token type (e.g., "word", "acronym", "<ALPHANUM>", etc.)
-	Type string
+//
+// This is the Go port of
+// org.apache.lucene.analysis.tokenattributes.TypeAttribute. Token types
+// are short strings such as "word", "acronym", "<ALPHANUM>", ... emitted
+// by tokenizers and consumed by downstream filters.
+//
+// The interface embeds [util.AttributeImpl] so concrete values can be
+// used uniformly with the rest of Gocene's attribute layer (mirroring
+// the CharTermAttribute / OffsetAttribute conventions); [util.Attribute]
+// is the empty Lucene marker that AttributeImpl already carries via
+// embedding so it is not declared again here.
+type TypeAttribute interface {
+	util.AttributeImpl
+
+	// GetType returns the current token type.
+	GetType() string
+
+	// SetType replaces the token type.
+	SetType(tokenType string)
 }
 
-// NewTypeAttribute creates a new TypeAttribute with the default type "word".
-func NewTypeAttribute() *TypeAttribute {
-	return &TypeAttribute{Type: "word"}
+// typeAttributeImpl is the default [TypeAttribute] implementation. It
+// embeds [util.BaseAttributeImpl] for the no-op End default and provides
+// the full [util.AttributeImpl] surface (Clear, CopyTo, ReflectWith,
+// CloneAttribute) plus Equals/HashCode for Lucene parity.
+type typeAttributeImpl struct {
+	util.BaseAttributeImpl
+	tokenType string
 }
 
-// SetType sets the token type.
-func (ta *TypeAttribute) SetType(tokenType string) {
-	ta.Type = tokenType
+// Compile-time assertions lock in the contracts this impl participates
+// in.
+var (
+	_ TypeAttribute                   = (*typeAttributeImpl)(nil)
+	_ util.AttributeImpl              = (*typeAttributeImpl)(nil)
+	_ util.AttributeInterfaceProvider = (*typeAttributeImpl)(nil)
+)
+
+// AttributeInterfaces satisfies [util.AttributeInterfaceProvider].
+func (ta *typeAttributeImpl) AttributeInterfaces() []reflect.Type {
+	return []reflect.Type{TypeAttributeType}
+}
+
+// NewTypeAttribute creates a new TypeAttribute with the default type
+// "word".
+func NewTypeAttribute() TypeAttribute {
+	return &typeAttributeImpl{tokenType: DefaultTypeAttributeValue}
 }
 
 // GetType returns the token type.
-func (ta *TypeAttribute) GetType() string {
-	return ta.Type
-}
+func (ta *typeAttributeImpl) GetType() string { return ta.tokenType }
 
-// Clone returns a copy of this attribute.
-func (ta *TypeAttribute) Clone() *TypeAttribute {
-	return &TypeAttribute{Type: ta.Type}
-}
+// SetType replaces the token type.
+func (ta *typeAttributeImpl) SetType(tokenType string) { ta.tokenType = tokenType }
 
-// Copy creates a deep copy of this attribute (implements AttributeImpl).
-func (ta *TypeAttribute) Copy() AttributeImpl {
-	return ta.Clone()
-}
+// Clear resets the type to the Lucene default ("word"), matching
+// {@code TypeAttributeImpl#clear()}.
+func (ta *typeAttributeImpl) Clear() { ta.tokenType = DefaultTypeAttributeValue }
 
-// CopyTo copies this attribute to another implementation (implements AttributeImpl).
-func (ta *TypeAttribute) CopyTo(target AttributeImpl) {
-	if t, ok := target.(*TypeAttribute); ok {
-		t.Type = ta.Type
+// CopyTo copies this attribute's state onto target. Any target
+// satisfying [TypeAttribute] is supported; mismatched targets are
+// silently ignored, mirroring the Lucene fallback.
+func (ta *typeAttributeImpl) CopyTo(target util.AttributeImpl) {
+	if t, ok := target.(TypeAttribute); ok {
+		t.SetType(ta.tokenType)
 	}
 }
 
-// Clear resets this attribute to its default value.
-func (ta *TypeAttribute) Clear() {
-	ta.Type = "word"
+// CloneAttribute returns a deep clone of this impl as a
+// [util.AttributeImpl].
+func (ta *typeAttributeImpl) CloneAttribute() util.AttributeImpl {
+	return &typeAttributeImpl{tokenType: ta.tokenType}
 }
 
+// ReflectWith emits the single (TypeAttribute, "type", value) triple
+// expected by Lucene's reference reflectWith.
+func (ta *typeAttributeImpl) ReflectWith(reflector util.AttributeReflector) {
+	reflector(TypeAttributeType, "type", ta.tokenType)
+}
+
+// Equals returns true if other is a [TypeAttribute] with the same type
+// string. Matches both the concrete impl pointer and any other impl
+// satisfying the interface, mirroring Lucene's instance-of guard.
+func (ta *typeAttributeImpl) Equals(other any) bool {
+	if ta == other {
+		return true
+	}
+	o, ok := other.(TypeAttribute)
+	if !ok {
+		return false
+	}
+	return ta.tokenType == o.GetType()
+}
+
+// HashCode returns the Java-style hash of the type string (or 0 when
+// empty), matching {@code TypeAttributeImpl#hashCode()}.
+func (ta *typeAttributeImpl) HashCode() int {
+	return javaStringHash(ta.tokenType)
+}
+
+// --- PayloadAttribute ------------------------------------------------
+
+// PayloadAttributeType is the reflect.Type of the [PayloadAttribute]
+// interface, used as the lookup key for an [AttributeSource].
+var PayloadAttributeType = reflect.TypeOf((*PayloadAttribute)(nil)).Elem()
+
 // PayloadAttribute provides a way to store a payload for a token.
-// Payloads are arbitrary byte arrays that can be associated with tokens.
-// This is the Go port of Lucene's org.apache.lucene.analysis.tokenattributes.PayloadAttribute.
-type PayloadAttribute struct {
-	// Payload is the byte slice payload for this token.
-	// A nil payload means no payload.
-	Payload []byte
+// Payloads are arbitrary byte arrays that can be associated with
+// tokens.
+//
+// This is the Go port of
+// org.apache.lucene.analysis.tokenattributes.PayloadAttribute.
+type PayloadAttribute interface {
+	util.AttributeImpl
+
+	// GetPayload returns the current payload byte slice (or nil).
+	GetPayload() []byte
+
+	// SetPayload replaces the payload. A nil argument clears the
+	// payload; otherwise the bytes are copied to avoid sharing.
+	SetPayload(payload []byte)
+
+	// HasPayload reports whether the attribute holds a non-empty
+	// payload.
+	HasPayload() bool
+}
+
+// payloadAttributeImpl is the default [PayloadAttribute] implementation.
+type payloadAttributeImpl struct {
+	util.BaseAttributeImpl
+	payload []byte
+}
+
+var (
+	_ PayloadAttribute                = (*payloadAttributeImpl)(nil)
+	_ util.AttributeImpl              = (*payloadAttributeImpl)(nil)
+	_ util.AttributeInterfaceProvider = (*payloadAttributeImpl)(nil)
+)
+
+// AttributeInterfaces satisfies [util.AttributeInterfaceProvider].
+func (pa *payloadAttributeImpl) AttributeInterfaces() []reflect.Type {
+	return []reflect.Type{PayloadAttributeType}
 }
 
 // NewPayloadAttribute creates a new empty PayloadAttribute.
-func NewPayloadAttribute() *PayloadAttribute {
-	return &PayloadAttribute{}
+func NewPayloadAttribute() PayloadAttribute {
+	return &payloadAttributeImpl{}
 }
 
-// NewPayloadAttributeWithPayload creates a new PayloadAttribute with the given payload.
-func NewPayloadAttributeWithPayload(payload []byte) *PayloadAttribute {
-	copied := make([]byte, len(payload))
-	copy(copied, payload)
-	return &PayloadAttribute{Payload: copied}
-}
-
-// SetPayload sets the payload.
-func (pa *PayloadAttribute) SetPayload(payload []byte) {
-	if payload == nil {
-		pa.Payload = nil
-		return
-	}
-	pa.Payload = make([]byte, len(payload))
-	copy(pa.Payload, payload)
+// NewPayloadAttributeWithPayload creates a new PayloadAttribute with
+// the given payload (copied to avoid sharing).
+func NewPayloadAttributeWithPayload(payload []byte) PayloadAttribute {
+	pa := &payloadAttributeImpl{}
+	pa.SetPayload(payload)
+	return pa
 }
 
 // GetPayload returns the payload.
-func (pa *PayloadAttribute) GetPayload() []byte {
-	return pa.Payload
-}
+func (pa *payloadAttributeImpl) GetPayload() []byte { return pa.payload }
 
-// Clone returns a copy of this attribute.
-func (pa *PayloadAttribute) Clone() *PayloadAttribute {
-	if pa.Payload == nil {
-		return &PayloadAttribute{}
+// SetPayload replaces the payload. Bytes are copied to prevent the
+// caller's slice from aliasing the attribute's state.
+func (pa *payloadAttributeImpl) SetPayload(payload []byte) {
+	if payload == nil {
+		pa.payload = nil
+		return
 	}
-	copied := make([]byte, len(pa.Payload))
-	copy(copied, pa.Payload)
-	return &PayloadAttribute{Payload: copied}
+	pa.payload = make([]byte, len(payload))
+	copy(pa.payload, payload)
 }
 
-// Clear resets this attribute.
-func (pa *PayloadAttribute) Clear() {
-	pa.Payload = nil
+// HasPayload returns true if this attribute has a non-empty payload.
+func (pa *payloadAttributeImpl) HasPayload() bool {
+	return len(pa.payload) > 0
 }
 
-// HasPayload returns true if this attribute has a non-nil payload.
-func (pa *PayloadAttribute) HasPayload() bool {
-	return pa.Payload != nil && len(pa.Payload) > 0
-}
+// Clear resets the payload to nil.
+func (pa *payloadAttributeImpl) Clear() { pa.payload = nil }
 
-// Copy creates a deep copy of this attribute (implements AttributeImpl).
-func (pa *PayloadAttribute) Copy() AttributeImpl {
-	return pa.Clone()
-}
-
-// CopyTo copies this attribute to another implementation (implements AttributeImpl).
-func (pa *PayloadAttribute) CopyTo(target AttributeImpl) {
-	if t, ok := target.(*PayloadAttribute); ok {
-		t.SetPayload(pa.Payload)
+// CopyTo copies this attribute's state onto target.
+func (pa *payloadAttributeImpl) CopyTo(target util.AttributeImpl) {
+	if t, ok := target.(PayloadAttribute); ok {
+		t.SetPayload(pa.payload)
 	}
 }
+
+// CloneAttribute returns a deep clone of this impl.
+func (pa *payloadAttributeImpl) CloneAttribute() util.AttributeImpl {
+	cloned := &payloadAttributeImpl{}
+	if pa.payload != nil {
+		cloned.payload = make([]byte, len(pa.payload))
+		copy(cloned.payload, pa.payload)
+	}
+	return cloned
+}
+
+// ReflectWith emits the single (PayloadAttribute, "payload", value)
+// triple. The Lucene reference uses BytesRef; Gocene keeps []byte.
+func (pa *payloadAttributeImpl) ReflectWith(reflector util.AttributeReflector) {
+	reflector(PayloadAttributeType, "payload", pa.payload)
+}
+
+// Equals returns true if other is a [PayloadAttribute] whose payload is
+// byte-wise equal. Two nil payloads compare equal (Lucene fast-path).
+func (pa *payloadAttributeImpl) Equals(other any) bool {
+	if pa == other {
+		return true
+	}
+	o, ok := other.(PayloadAttribute)
+	if !ok {
+		return false
+	}
+	op := o.GetPayload()
+	if pa.payload == nil || op == nil {
+		return pa.payload == nil && op == nil
+	}
+	return bytes.Equal(pa.payload, op)
+}
+
+// HashCode returns the Java-style byte-array hash of the payload, or 0
+// when nil (matches {@code Objects.hashCode(payload)} +
+// {@code Arrays.hashCode}).
+func (pa *payloadAttributeImpl) HashCode() int {
+	if pa.payload == nil {
+		return 0
+	}
+	code := 1
+	for _, b := range pa.payload {
+		code = code*31 + int(int8(b))
+	}
+	return code
+}
+
+// --- FlagsAttribute --------------------------------------------------
+
+// FlagsAttributeType is the reflect.Type of the [FlagsAttribute]
+// interface, used as the lookup key for an [AttributeSource].
+var FlagsAttributeType = reflect.TypeOf((*FlagsAttribute)(nil)).Elem()
 
 // FlagsAttribute provides a way to store custom flags for a token.
-// This is the Go port of Lucene's org.apache.lucene.analysis.tokenattributes.FlagsAttribute.
-type FlagsAttribute struct {
-	// Flags contains custom flags for this token.
-	Flags int
+//
+// This is the Go port of
+// org.apache.lucene.analysis.tokenattributes.FlagsAttribute.
+type FlagsAttribute interface {
+	util.AttributeImpl
+
+	// GetFlags returns the current flag bitmask.
+	GetFlags() int
+
+	// SetFlags replaces the flag bitmask.
+	SetFlags(flags int)
+
+	// IsFlagSet returns true when the given flag bit is present.
+	IsFlagSet(flag int) bool
+
+	// SetFlag toggles the given flag bit on or off in place.
+	SetFlag(flag int, set bool)
+}
+
+// flagsAttributeImpl is the default [FlagsAttribute] implementation.
+type flagsAttributeImpl struct {
+	util.BaseAttributeImpl
+	flags int
+}
+
+var (
+	_ FlagsAttribute                  = (*flagsAttributeImpl)(nil)
+	_ util.AttributeImpl              = (*flagsAttributeImpl)(nil)
+	_ util.AttributeInterfaceProvider = (*flagsAttributeImpl)(nil)
+)
+
+// AttributeInterfaces satisfies [util.AttributeInterfaceProvider].
+func (fa *flagsAttributeImpl) AttributeInterfaces() []reflect.Type {
+	return []reflect.Type{FlagsAttributeType}
 }
 
 // NewFlagsAttribute creates a new FlagsAttribute with flags set to 0.
-func NewFlagsAttribute() *FlagsAttribute {
-	return &FlagsAttribute{Flags: 0}
+func NewFlagsAttribute() FlagsAttribute {
+	return &flagsAttributeImpl{}
 }
 
-// NewFlagsAttributeWithFlags creates a new FlagsAttribute with the given flags.
-func NewFlagsAttributeWithFlags(flags int) *FlagsAttribute {
-	return &FlagsAttribute{Flags: flags}
-}
-
-// SetFlags sets the flags.
-func (fa *FlagsAttribute) SetFlags(flags int) {
-	fa.Flags = flags
+// NewFlagsAttributeWithFlags creates a new FlagsAttribute with the
+// given flags.
+func NewFlagsAttributeWithFlags(flags int) FlagsAttribute {
+	return &flagsAttributeImpl{flags: flags}
 }
 
 // GetFlags returns the flags.
-func (fa *FlagsAttribute) GetFlags() int {
-	return fa.Flags
-}
+func (fa *flagsAttributeImpl) GetFlags() int { return fa.flags }
 
-// Clone returns a copy of this attribute.
-func (fa *FlagsAttribute) Clone() *FlagsAttribute {
-	return &FlagsAttribute{Flags: fa.Flags}
-}
-
-// Clear resets this attribute.
-func (fa *FlagsAttribute) Clear() {
-	fa.Flags = 0
-}
-
-// Copy creates a deep copy of this attribute (implements AttributeImpl).
-func (fa *FlagsAttribute) Copy() AttributeImpl {
-	return fa.Clone()
-}
-
-// CopyTo copies this attribute to another implementation (implements AttributeImpl).
-func (fa *FlagsAttribute) CopyTo(target AttributeImpl) {
-	if t, ok := target.(*FlagsAttribute); ok {
-		t.Flags = fa.Flags
-	}
-}
+// SetFlags replaces the flags.
+func (fa *flagsAttributeImpl) SetFlags(flags int) { fa.flags = flags }
 
 // IsFlagSet returns true if the given flag bit is set.
-func (fa *FlagsAttribute) IsFlagSet(flag int) bool {
-	return fa.Flags&flag != 0
+func (fa *flagsAttributeImpl) IsFlagSet(flag int) bool {
+	return fa.flags&flag != 0
 }
 
 // SetFlag sets or clears the given flag bit.
-func (fa *FlagsAttribute) SetFlag(flag int, set bool) {
+func (fa *flagsAttributeImpl) SetFlag(flag int, set bool) {
 	if set {
-		fa.Flags |= flag
+		fa.flags |= flag
 	} else {
-		fa.Flags &= ^flag
+		fa.flags &= ^flag
 	}
 }
+
+// Clear resets the flags to 0.
+func (fa *flagsAttributeImpl) Clear() { fa.flags = 0 }
+
+// CopyTo copies this attribute's state onto target.
+func (fa *flagsAttributeImpl) CopyTo(target util.AttributeImpl) {
+	if t, ok := target.(FlagsAttribute); ok {
+		t.SetFlags(fa.flags)
+	}
+}
+
+// CloneAttribute returns a deep clone of this impl.
+func (fa *flagsAttributeImpl) CloneAttribute() util.AttributeImpl {
+	return &flagsAttributeImpl{flags: fa.flags}
+}
+
+// ReflectWith emits the single (FlagsAttribute, "flags", value) triple.
+func (fa *flagsAttributeImpl) ReflectWith(reflector util.AttributeReflector) {
+	reflector(FlagsAttributeType, "flags", fa.flags)
+}
+
+// Equals returns true if other is a [FlagsAttribute] with the same
+// flag bitmask.
+func (fa *flagsAttributeImpl) Equals(other any) bool {
+	if fa == other {
+		return true
+	}
+	o, ok := other.(FlagsAttribute)
+	if !ok {
+		return false
+	}
+	return fa.flags == o.GetFlags()
+}
+
+// HashCode returns the flag bitmask itself, matching
+// {@code FlagsAttributeImpl#hashCode()}.
+func (fa *flagsAttributeImpl) HashCode() int { return fa.flags }
+
+// --- KeywordAttribute ------------------------------------------------
+
+// KeywordAttributeType is the reflect.Type of the [KeywordAttribute]
+// interface, used as the lookup key for an [AttributeSource].
+var KeywordAttributeType = reflect.TypeOf((*KeywordAttribute)(nil)).Elem()
 
 // KeywordAttribute marks a token as a keyword.
+//
 // Keyword tokens are typically not modified by subsequent filters
 // (e.g., not lowercased, not stemmed).
-// This is the Go port of Lucene's org.apache.lucene.analysis.tokenattributes.KeywordAttribute.
-type KeywordAttribute struct {
-	// IsKeyword is true if this token is a keyword.
-	IsKeyword bool
+//
+// This is the Go port of
+// org.apache.lucene.analysis.tokenattributes.KeywordAttribute.
+type KeywordAttribute interface {
+	util.AttributeImpl
+
+	// IsKeywordToken reports whether the current token is flagged as a
+	// keyword.
+	IsKeywordToken() bool
+
+	// SetKeyword toggles the keyword flag.
+	SetKeyword(isKeyword bool)
 }
 
-// NewKeywordAttribute creates a new KeywordAttribute with IsKeyword set to false.
-func NewKeywordAttribute() *KeywordAttribute {
-	return &KeywordAttribute{IsKeyword: false}
+// keywordAttributeImpl is the default [KeywordAttribute] implementation.
+type keywordAttributeImpl struct {
+	util.BaseAttributeImpl
+	isKeyword bool
 }
 
-// NewKeywordAttributeWithValue creates a new KeywordAttribute with the given value.
-func NewKeywordAttributeWithValue(isKeyword bool) *KeywordAttribute {
-	return &KeywordAttribute{IsKeyword: isKeyword}
+var (
+	_ KeywordAttribute                = (*keywordAttributeImpl)(nil)
+	_ util.AttributeImpl              = (*keywordAttributeImpl)(nil)
+	_ util.AttributeInterfaceProvider = (*keywordAttributeImpl)(nil)
+)
+
+// AttributeInterfaces satisfies [util.AttributeInterfaceProvider].
+func (ka *keywordAttributeImpl) AttributeInterfaces() []reflect.Type {
+	return []reflect.Type{KeywordAttributeType}
 }
 
-// SetKeyword sets whether this token is a keyword.
-func (ka *KeywordAttribute) SetKeyword(isKeyword bool) {
-	ka.IsKeyword = isKeyword
+// NewKeywordAttribute creates a new KeywordAttribute with the keyword
+// flag set to false.
+func NewKeywordAttribute() KeywordAttribute {
+	return &keywordAttributeImpl{}
 }
 
-// IsKeyword returns true if this token is a keyword.
-func (ka *KeywordAttribute) IsKeywordToken() bool {
-	return ka.IsKeyword
+// NewKeywordAttributeWithValue creates a new KeywordAttribute with the
+// given keyword flag.
+func NewKeywordAttributeWithValue(isKeyword bool) KeywordAttribute {
+	return &keywordAttributeImpl{isKeyword: isKeyword}
 }
 
-// Clone returns a copy of this attribute.
-func (ka *KeywordAttribute) Clone() *KeywordAttribute {
-	return &KeywordAttribute{IsKeyword: ka.IsKeyword}
-}
+// IsKeywordToken returns true if this token is a keyword.
+func (ka *keywordAttributeImpl) IsKeywordToken() bool { return ka.isKeyword }
 
-// Copy creates a deep copy of this attribute (implements AttributeImpl).
-func (ka *KeywordAttribute) Copy() AttributeImpl {
-	return ka.Clone()
-}
+// SetKeyword toggles the keyword flag.
+func (ka *keywordAttributeImpl) SetKeyword(isKeyword bool) { ka.isKeyword = isKeyword }
 
-// CopyTo copies this attribute to another implementation (implements AttributeImpl).
-func (ka *KeywordAttribute) CopyTo(target AttributeImpl) {
-	if t, ok := target.(*KeywordAttribute); ok {
-		t.IsKeyword = ka.IsKeyword
+// Clear resets the keyword flag to false.
+func (ka *keywordAttributeImpl) Clear() { ka.isKeyword = false }
+
+// CopyTo copies this attribute's state onto target.
+func (ka *keywordAttributeImpl) CopyTo(target util.AttributeImpl) {
+	if t, ok := target.(KeywordAttribute); ok {
+		t.SetKeyword(ka.isKeyword)
 	}
 }
 
-// Clear resets this attribute.
-func (ka *KeywordAttribute) Clear() {
-	ka.IsKeyword = false
+// CloneAttribute returns a deep clone of this impl.
+func (ka *keywordAttributeImpl) CloneAttribute() util.AttributeImpl {
+	return &keywordAttributeImpl{isKeyword: ka.isKeyword}
 }
 
+// ReflectWith emits the single (KeywordAttribute, "keyword", value)
+// triple.
+func (ka *keywordAttributeImpl) ReflectWith(reflector util.AttributeReflector) {
+	reflector(KeywordAttributeType, "keyword", ka.isKeyword)
+}
+
+// Equals returns true if other is a [KeywordAttribute] whose flag
+// matches.
+func (ka *keywordAttributeImpl) Equals(other any) bool {
+	if ka == other {
+		return true
+	}
+	o, ok := other.(KeywordAttribute)
+	if !ok {
+		return false
+	}
+	return ka.isKeyword == o.IsKeywordToken()
+}
+
+// HashCode mirrors {@code KeywordAttributeImpl#hashCode()}: 31 when
+// keyword=true, 37 otherwise.
+func (ka *keywordAttributeImpl) HashCode() int {
+	if ka.isKeyword {
+		return 31
+	}
+	return 37
+}
+
+// --- PositionLengthAttribute -----------------------------------------
+
+// PositionLengthAttributeType is the reflect.Type of the
+// [PositionLengthAttribute] interface, used as the lookup key for an
+// [AttributeSource].
+var PositionLengthAttributeType = reflect.TypeOf((*PositionLengthAttribute)(nil)).Elem()
+
 // PositionLengthAttribute provides the position length of a token.
+//
 // The position length indicates how many positions this token spans.
 // For most tokens, this is 1. For tokens that represent multiple words
 // (like those produced by a shingle filter), this can be greater than 1.
-// This is the Go port of Lucene's org.apache.lucene.analysis.tokenattributes.PositionLengthAttribute.
-type PositionLengthAttribute struct {
-	// PositionLength is the number of positions this token spans.
-	// Default is 1.
-	PositionLength int
+//
+// This is the Go port of
+// org.apache.lucene.analysis.tokenattributes.PositionLengthAttribute.
+type PositionLengthAttribute interface {
+	util.AttributeImpl
+
+	// GetPositionLength returns the position length.
+	GetPositionLength() int
+
+	// SetPositionLength replaces the position length. The Lucene
+	// reference throws IllegalArgumentException when length < 1; for
+	// back-compat with existing Gocene consumers SetPositionLength is
+	// permissive and SetPositionLengthValidated provides the Lucene
+	// invariant.
+	SetPositionLength(length int)
+
+	// SetPositionLengthValidated panics when length < 1, mirroring
+	// {@code PositionLengthAttributeImpl#setPositionLength(int)}.
+	SetPositionLengthValidated(length int)
 }
 
-// NewPositionLengthAttribute creates a new PositionLengthAttribute with length 1.
-func NewPositionLengthAttribute() *PositionLengthAttribute {
-	return &PositionLengthAttribute{PositionLength: 1}
+// positionLengthAttributeImpl is the default [PositionLengthAttribute]
+// implementation.
+type positionLengthAttributeImpl struct {
+	util.BaseAttributeImpl
+	positionLength int
 }
 
-// NewPositionLengthAttributeWithLength creates a new PositionLengthAttribute with the given length.
-func NewPositionLengthAttributeWithLength(length int) *PositionLengthAttribute {
-	return &PositionLengthAttribute{PositionLength: length}
+var (
+	_ PositionLengthAttribute         = (*positionLengthAttributeImpl)(nil)
+	_ util.AttributeImpl              = (*positionLengthAttributeImpl)(nil)
+	_ util.AttributeInterfaceProvider = (*positionLengthAttributeImpl)(nil)
+)
+
+// AttributeInterfaces satisfies [util.AttributeInterfaceProvider].
+func (pla *positionLengthAttributeImpl) AttributeInterfaces() []reflect.Type {
+	return []reflect.Type{PositionLengthAttributeType}
 }
 
-// SetPositionLength sets the position length.
-func (pla *PositionLengthAttribute) SetPositionLength(length int) {
-	pla.PositionLength = length
+// NewPositionLengthAttribute creates a new PositionLengthAttribute with
+// length 1.
+func NewPositionLengthAttribute() PositionLengthAttribute {
+	return &positionLengthAttributeImpl{positionLength: 1}
+}
+
+// NewPositionLengthAttributeWithLength creates a new
+// PositionLengthAttribute with the given length.
+func NewPositionLengthAttributeWithLength(length int) PositionLengthAttribute {
+	return &positionLengthAttributeImpl{positionLength: length}
 }
 
 // GetPositionLength returns the position length.
-func (pla *PositionLengthAttribute) GetPositionLength() int {
-	return pla.PositionLength
+func (pla *positionLengthAttributeImpl) GetPositionLength() int { return pla.positionLength }
+
+// SetPositionLength replaces the position length without validation.
+func (pla *positionLengthAttributeImpl) SetPositionLength(length int) {
+	pla.positionLength = length
 }
 
-// Clone returns a copy of this attribute.
-func (pla *PositionLengthAttribute) Clone() *PositionLengthAttribute {
-	return &PositionLengthAttribute{PositionLength: pla.PositionLength}
+// SetPositionLengthValidated panics when length < 1, mirroring Lucene.
+func (pla *positionLengthAttributeImpl) SetPositionLengthValidated(length int) {
+	if length < 1 {
+		panic(fmt.Sprintf(
+			"PositionLengthAttribute.SetPositionLengthValidated: position length must be 1 or greater; got %d",
+			length))
+	}
+	pla.positionLength = length
 }
 
-// Clear resets this attribute.
-func (pla *PositionLengthAttribute) Clear() {
-	pla.PositionLength = 1
-}
+// Clear resets the position length to 1.
+func (pla *positionLengthAttributeImpl) Clear() { pla.positionLength = 1 }
 
-// Copy creates a deep copy of this attribute (implements AttributeImpl).
-func (pla *PositionLengthAttribute) Copy() AttributeImpl {
-	return pla.Clone()
-}
-
-// CopyTo copies this attribute to another implementation (implements AttributeImpl).
-func (pla *PositionLengthAttribute) CopyTo(target AttributeImpl) {
-	if t, ok := target.(*PositionLengthAttribute); ok {
-		t.PositionLength = pla.PositionLength
+// CopyTo copies this attribute's state onto target.
+func (pla *positionLengthAttributeImpl) CopyTo(target util.AttributeImpl) {
+	if t, ok := target.(PositionLengthAttribute); ok {
+		t.SetPositionLength(pla.positionLength)
 	}
 }
 
+// CloneAttribute returns a deep clone of this impl.
+func (pla *positionLengthAttributeImpl) CloneAttribute() util.AttributeImpl {
+	return &positionLengthAttributeImpl{positionLength: pla.positionLength}
+}
+
+// ReflectWith emits the single (PositionLengthAttribute,
+// "positionLength", value) triple.
+func (pla *positionLengthAttributeImpl) ReflectWith(reflector util.AttributeReflector) {
+	reflector(PositionLengthAttributeType, "positionLength", pla.positionLength)
+}
+
+// Equals returns true if other is a [PositionLengthAttribute] with the
+// same value.
+func (pla *positionLengthAttributeImpl) Equals(other any) bool {
+	if pla == other {
+		return true
+	}
+	o, ok := other.(PositionLengthAttribute)
+	if !ok {
+		return false
+	}
+	return pla.positionLength == o.GetPositionLength()
+}
+
+// HashCode returns positionLength itself, matching
+// {@code PositionLengthAttributeImpl#hashCode()}.
+func (pla *positionLengthAttributeImpl) HashCode() int { return pla.positionLength }
+
+// --- TermFrequencyAttribute ------------------------------------------
+
+// TermFrequencyAttributeType is the reflect.Type of the
+// [TermFrequencyAttribute] interface, used as the lookup key for an
+// [AttributeSource].
+var TermFrequencyAttributeType = reflect.TypeOf((*TermFrequencyAttribute)(nil)).Elem()
+
 // TermFrequencyAttribute provides the term frequency for a token.
-// This can be used to encode term frequencies in the token stream.
-// This is the Go port of Lucene's org.apache.lucene.analysis.tokenattributes.TermFrequencyAttribute.
-type TermFrequencyAttribute struct {
-	// TermFrequency is the frequency of this term.
-	// Default is 1.
-	TermFrequency int
+//
+// This is the Go port of
+// org.apache.lucene.analysis.tokenattributes.TermFrequencyAttribute.
+type TermFrequencyAttribute interface {
+	util.AttributeImpl
+
+	// GetTermFrequency returns the term frequency.
+	GetTermFrequency() int
+
+	// SetTermFrequency replaces the term frequency. The Lucene
+	// reference throws IllegalArgumentException when freq < 1; for
+	// back-compat with existing Gocene consumers SetTermFrequency is
+	// permissive and SetTermFrequencyValidated provides the Lucene
+	// invariant.
+	SetTermFrequency(freq int)
+
+	// SetTermFrequencyValidated panics when freq < 1, mirroring
+	// {@code TermFrequencyAttributeImpl#setTermFrequency(int)}.
+	SetTermFrequencyValidated(freq int)
 }
 
-// NewTermFrequencyAttribute creates a new TermFrequencyAttribute with frequency 1.
-func NewTermFrequencyAttribute() *TermFrequencyAttribute {
-	return &TermFrequencyAttribute{TermFrequency: 1}
+// termFrequencyAttributeImpl is the default [TermFrequencyAttribute]
+// implementation. Unlike the other small attributes it overrides End
+// explicitly to mirror {@code TermFrequencyAttributeImpl#end()} which
+// resets to 1 (identical to Clear). The override is kept to document
+// the parity with Lucene; the embedding of [util.BaseAttributeImpl]
+// would otherwise install the no-op default.
+type termFrequencyAttributeImpl struct {
+	util.BaseAttributeImpl
+	termFrequency int
 }
 
-// NewTermFrequencyAttributeWithFrequency creates a new TermFrequencyAttribute with the given frequency.
-func NewTermFrequencyAttributeWithFrequency(freq int) *TermFrequencyAttribute {
-	return &TermFrequencyAttribute{TermFrequency: freq}
+var (
+	_ TermFrequencyAttribute          = (*termFrequencyAttributeImpl)(nil)
+	_ util.AttributeImpl              = (*termFrequencyAttributeImpl)(nil)
+	_ util.AttributeInterfaceProvider = (*termFrequencyAttributeImpl)(nil)
+)
+
+// AttributeInterfaces satisfies [util.AttributeInterfaceProvider].
+func (tfa *termFrequencyAttributeImpl) AttributeInterfaces() []reflect.Type {
+	return []reflect.Type{TermFrequencyAttributeType}
 }
 
-// SetTermFrequency sets the term frequency.
-func (tfa *TermFrequencyAttribute) SetTermFrequency(freq int) {
-	tfa.TermFrequency = freq
+// NewTermFrequencyAttribute creates a new TermFrequencyAttribute with
+// frequency 1.
+func NewTermFrequencyAttribute() TermFrequencyAttribute {
+	return &termFrequencyAttributeImpl{termFrequency: 1}
+}
+
+// NewTermFrequencyAttributeWithFrequency creates a new
+// TermFrequencyAttribute with the given frequency.
+func NewTermFrequencyAttributeWithFrequency(freq int) TermFrequencyAttribute {
+	return &termFrequencyAttributeImpl{termFrequency: freq}
 }
 
 // GetTermFrequency returns the term frequency.
-func (tfa *TermFrequencyAttribute) GetTermFrequency() int {
-	return tfa.TermFrequency
+func (tfa *termFrequencyAttributeImpl) GetTermFrequency() int { return tfa.termFrequency }
+
+// SetTermFrequency replaces the term frequency without validation.
+func (tfa *termFrequencyAttributeImpl) SetTermFrequency(freq int) {
+	tfa.termFrequency = freq
 }
 
-// Clone returns a copy of this attribute.
-func (tfa *TermFrequencyAttribute) Clone() *TermFrequencyAttribute {
-	return &TermFrequencyAttribute{TermFrequency: tfa.TermFrequency}
+// SetTermFrequencyValidated panics when freq < 1, mirroring Lucene.
+func (tfa *termFrequencyAttributeImpl) SetTermFrequencyValidated(freq int) {
+	if freq < 1 {
+		panic(fmt.Sprintf(
+			"TermFrequencyAttribute.SetTermFrequencyValidated: term frequency must be 1 or greater; got %d",
+			freq))
+	}
+	tfa.termFrequency = freq
 }
 
-// Clear resets this attribute.
-func (tfa *TermFrequencyAttribute) Clear() {
-	tfa.TermFrequency = 1
-}
+// Clear resets the term frequency to 1.
+func (tfa *termFrequencyAttributeImpl) Clear() { tfa.termFrequency = 1 }
 
-// Copy creates a deep copy of this attribute (implements AttributeImpl).
-func (tfa *TermFrequencyAttribute) Copy() AttributeImpl {
-	return tfa.Clone()
-}
+// End mirrors {@code TermFrequencyAttributeImpl#end()}: reset to 1,
+// identical to Clear. Lucene declares end() explicitly to document the
+// intent, so the Go port overrides the embedded
+// [util.BaseAttributeImpl.End] (which would otherwise be a no-op).
+func (tfa *termFrequencyAttributeImpl) End() { tfa.termFrequency = 1 }
 
-// CopyTo copies this attribute to another implementation (implements AttributeImpl).
-func (tfa *TermFrequencyAttribute) CopyTo(target AttributeImpl) {
-	if t, ok := target.(*TermFrequencyAttribute); ok {
-		t.TermFrequency = tfa.TermFrequency
+// CopyTo copies this attribute's state onto target.
+func (tfa *termFrequencyAttributeImpl) CopyTo(target util.AttributeImpl) {
+	if t, ok := target.(TermFrequencyAttribute); ok {
+		t.SetTermFrequency(tfa.termFrequency)
 	}
 }
+
+// CloneAttribute returns a deep clone of this impl.
+func (tfa *termFrequencyAttributeImpl) CloneAttribute() util.AttributeImpl {
+	return &termFrequencyAttributeImpl{termFrequency: tfa.termFrequency}
+}
+
+// ReflectWith emits the single (TermFrequencyAttribute,
+// "termFrequency", value) triple.
+func (tfa *termFrequencyAttributeImpl) ReflectWith(reflector util.AttributeReflector) {
+	reflector(TermFrequencyAttributeType, "termFrequency", tfa.termFrequency)
+}
+
+// Equals returns true if other is a [TermFrequencyAttribute] with the
+// same value.
+func (tfa *termFrequencyAttributeImpl) Equals(other any) bool {
+	if tfa == other {
+		return true
+	}
+	o, ok := other.(TermFrequencyAttribute)
+	if !ok {
+		return false
+	}
+	return tfa.termFrequency == o.GetTermFrequency()
+}
+
+// HashCode returns termFrequency itself, matching
+// {@code Integer.hashCode(termFrequency)} for non-negative values.
+func (tfa *termFrequencyAttributeImpl) HashCode() int { return tfa.termFrequency }

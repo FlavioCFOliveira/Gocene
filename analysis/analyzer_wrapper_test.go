@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TestAnalyzerWrapper_DelegatesByField verifies that AnalyzerWrapper picks
@@ -162,11 +164,14 @@ func collectTerms(t *testing.T, stream TokenStream) []string {
 		if !ok {
 			break
 		}
-		src, ok := stream.(interface{ GetAttributeSource() *AttributeSource })
+		src, ok := stream.(interface {
+			GetAttributeSource() *util.AttributeSource
+			GetAttribute(string) util.AttributeImpl
+		})
 		if !ok {
 			continue
 		}
-		attr := src.GetAttributeSource().GetAttribute("CharTermAttribute")
+		attr := src.GetAttribute("CharTermAttribute")
 		if attr == nil {
 			continue
 		}

@@ -7,7 +7,15 @@ package analysis
 import (
 	"fmt"
 	"reflect"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
+
+// OffsetAttributeType is the reflect.Type of the OffsetAttribute
+// interface, used as the lookup key for AttributeSource. Phase 4
+// (consumer migration) converts all string-keyed GetAttribute calls to
+// use these vars.
+var OffsetAttributeType = reflect.TypeOf((*OffsetAttribute)(nil)).Elem()
 
 // OffsetAttribute stores the character offsets of a token in the original text.
 //
@@ -20,7 +28,13 @@ import (
 // interface in line with the Lucene reference; the legacy per-field
 // setters are retained for back-compat with existing consumers.
 type OffsetAttribute interface {
-	AttributeImpl
+	util.AttributeImpl
+
+	// Copy returns a deep copy of this attribute. Retained as part of the
+	// OffsetAttribute interface contract while consumers migrate to
+	// [util.AttributeImpl.CloneAttribute], which Lucene 10.4.0 uses for
+	// the same purpose.
+	Copy() util.AttributeImpl
 
 	// StartOffset returns the inclusive start offset of the token.
 	StartOffset() int
@@ -50,10 +64,16 @@ type offsetAttribute struct {
 // Compile-time assertions to lock in the contracts this impl
 // participates in.
 var (
-	_ AttributeImpl        = (*offsetAttribute)(nil)
-	_ OffsetAttribute      = (*offsetAttribute)(nil)
-	_ AttributeReflectable = (*offsetAttribute)(nil)
+	_ util.AttributeImpl              = (*offsetAttribute)(nil)
+	_ OffsetAttribute                 = (*offsetAttribute)(nil)
+	_ util.AttributeInterfaceProvider = (*offsetAttribute)(nil)
 )
+
+// AttributeInterfaces satisfies [util.AttributeInterfaceProvider] (see
+// charTermAttribute.AttributeInterfaces for the rationale).
+func (a *offsetAttribute) AttributeInterfaces() []reflect.Type {
+	return []reflect.Type{OffsetAttributeType}
+}
 
 // NewOffsetAttribute creates a new OffsetAttribute with zero offsets.
 func NewOffsetAttribute() OffsetAttribute {
@@ -70,7 +90,7 @@ func (a *offsetAttribute) Clear() {
 }
 
 // CopyTo copies this attribute to another implementation.
-func (a *offsetAttribute) CopyTo(target AttributeImpl) {
+func (a *offsetAttribute) CopyTo(target util.AttributeImpl) {
 	if t, ok := target.(OffsetAttribute); ok {
 		t.SetStartOffset(a.startOffset)
 		t.SetEndOffset(a.endOffset)
@@ -78,12 +98,20 @@ func (a *offsetAttribute) CopyTo(target AttributeImpl) {
 }
 
 // Copy creates a deep copy of this attribute.
-func (a *offsetAttribute) Copy() AttributeImpl {
+func (a *offsetAttribute) Copy() util.AttributeImpl {
 	copy := NewOffsetAttribute()
 	copy.SetStartOffset(a.startOffset)
 	copy.SetEndOffset(a.endOffset)
 	return copy
 }
+
+// End implements util.AttributeImpl.End. Lucene default behavior is to
+// call clear(); concrete impls override when end-of-field state differs.
+func (a *offsetAttribute) End() { a.Clear() }
+
+// CloneAttribute implements util.AttributeImpl.CloneAttribute. Returns
+// a deep copy as util.AttributeImpl. Delegates to the existing Copy().
+func (a *offsetAttribute) CloneAttribute() util.AttributeImpl { return a.Copy() }
 
 // StartOffset returns the start offset.
 func (a *offsetAttribute) StartOffset() int {
@@ -119,10 +147,10 @@ func (a *offsetAttribute) SetOffset(startOffset, endOffset int) {
 	a.endOffset = endOffset
 }
 
-// ReflectWith is the opt-in [AttributeReflectable] hook. It emits the
+// ReflectWith implements [util.AttributeImpl.ReflectWith]. It emits the
 // two parity triples expected by the Lucene reference: startOffset and
 // endOffset, both under the OffsetAttribute key.
-func (a *offsetAttribute) ReflectWith(reflector AttributeReflector) {
+func (a *offsetAttribute) ReflectWith(reflector util.AttributeReflector) {
 	attType := reflect.TypeOf((*OffsetAttribute)(nil)).Elem()
 	reflector(attType, "startOffset", a.startOffset)
 	reflector(attType, "endOffset", a.endOffset)

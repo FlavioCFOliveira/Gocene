@@ -4,8 +4,6 @@
 
 package analysis
 
-import "reflect"
-
 // NumericPayloadTokenFilter attaches a pre-encoded float payload to
 // every token whose TypeAttribute equals the configured type string.
 //
@@ -23,8 +21,8 @@ type NumericPayloadTokenFilter struct {
 	typeMatch string
 	payload   []byte
 
-	payloadAttr *PayloadAttribute
-	typeAttr    *TypeAttribute
+	payloadAttr PayloadAttribute
+	typeAttr    TypeAttribute
 }
 
 // NewNumericPayloadTokenFilter wraps input with a filter that attaches
@@ -37,11 +35,11 @@ func NewNumericPayloadTokenFilter(input TokenStream, payload float32, typeMatch 
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&PayloadAttribute{})); a != nil {
-			f.payloadAttr = a.(*PayloadAttribute)
+		if a := src.GetAttribute(PayloadAttributeType); a != nil {
+			f.payloadAttr = a.(PayloadAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&TypeAttribute{})); a != nil {
-			f.typeAttr = a.(*TypeAttribute)
+		if a := src.GetAttribute(TypeAttributeType); a != nil {
+			f.typeAttr = a.(TypeAttribute)
 		}
 	}
 	return f
@@ -58,7 +56,7 @@ func (f *NumericPayloadTokenFilter) IncrementToken() (bool, error) {
 	if !ok {
 		return false, nil
 	}
-	if f.typeAttr != nil && f.payloadAttr != nil && f.typeAttr.Type == f.typeMatch {
+	if f.typeAttr != nil && f.payloadAttr != nil && f.typeAttr.GetType() == f.typeMatch {
 		f.payloadAttr.SetPayload(f.payload)
 	}
 	return true, nil

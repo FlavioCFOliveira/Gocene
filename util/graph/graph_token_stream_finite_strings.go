@@ -28,6 +28,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
@@ -198,7 +199,7 @@ func (g *GraphTokenStreamFiniteStrings) ArticulationPoints() ([]int, error) {
 // build is the port of Lucene's private build(TokenStream) -> Automaton.
 func (g *GraphTokenStreamFiniteStrings) build(in analysis.TokenStream) (*automaton.Automaton, error) {
 	src := in.(interface {
-		GetAttribute(string) analysis.AttributeImpl
+		GetAttribute(string) util.AttributeImpl
 	})
 
 	posIncRaw := src.GetAttribute("PositionIncrementAttribute")
@@ -213,7 +214,7 @@ func (g *GraphTokenStreamFiniteStrings) build(in analysis.TokenStream) (*automat
 	if posLenRaw == nil {
 		return nil, errors.New("graph: input TokenStream lacks PositionLengthAttribute")
 	}
-	posLenAtt, ok := posLenRaw.(*analysis.PositionLengthAttribute)
+	posLenAtt, ok := posLenRaw.(analysis.PositionLengthAttribute)
 	if !ok {
 		return nil, errors.New("graph: PositionLengthAttribute has unexpected type")
 	}
@@ -402,7 +403,7 @@ type finiteStringsTokenStream struct {
 
 	termAtt    analysis.CharTermAttribute
 	posIncrAtt analysis.PositionIncrementAttribute
-	posLenAtt  *analysis.PositionLengthAttribute
+	posLenAtt  analysis.PositionLengthAttribute
 }
 
 func newFiniteStringsTokenStream(tokens []*tokenSnapshot, ids []int) *finiteStringsTokenStream {

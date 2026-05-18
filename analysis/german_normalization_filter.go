@@ -4,8 +4,6 @@
 
 package analysis
 
-import "reflect"
-
 // State machine constants for GermanNormalizationFilter, matching
 // the N/U/V state symbols in the Lucene reference.
 const (
@@ -34,7 +32,7 @@ func NewGermanNormalizationFilter(input TokenStream) *GermanNormalizationFilter 
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
 	}

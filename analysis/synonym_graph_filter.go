@@ -18,7 +18,7 @@
 package analysis
 
 import (
-	"reflect"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // SynonymGraphFilter is a TokenFilter that produces a token graph with synonym paths.
@@ -63,7 +63,7 @@ type SynonymGraphFilter struct {
 	posIncrAttr PositionIncrementAttribute
 
 	// posLenAttr holds the PositionLengthAttribute from the shared attribute source
-	posLenAttr *PositionLengthAttribute
+	posLenAttr PositionLengthAttribute
 
 	// offsetAttr holds the OffsetAttribute from the shared attribute source
 	offsetAttr OffsetAttribute
@@ -133,27 +133,26 @@ func NewSynonymGraphFilter(input TokenStream, synonymMap *SynonymMap, ignoreCase
 func (f *SynonymGraphFilter) initAttributes() {
 	attrSource := f.GetAttributeSource()
 	if attrSource != nil {
-		attr := attrSource.GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+		attr := attrSource.GetAttribute(CharTermAttributeType)
 		if attr != nil {
 			f.termAttr = attr.(CharTermAttribute)
 		}
 
-		attr = attrSource.GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{}))
+		attr = attrSource.GetAttribute(PositionIncrementAttributeType)
 		if attr != nil {
 			f.posIncrAttr = attr.(PositionIncrementAttribute)
 		}
 
 		// PositionLengthAttribute is needed for graph synonyms - add it if not present
-		posLenType := reflect.TypeOf(&PositionLengthAttribute{})
-		attr = attrSource.GetAttributeByType(posLenType)
+		attr = attrSource.GetAttribute(PositionLengthAttributeType)
 		if attr != nil {
-			f.posLenAttr = attr.(*PositionLengthAttribute)
+			f.posLenAttr = attr.(PositionLengthAttribute)
 		} else {
 			f.posLenAttr = NewPositionLengthAttribute()
-			attrSource.AddAttribute(f.posLenAttr)
+			attrSource.AddAttributeImpl(f.posLenAttr)
 		}
 
-		attr = attrSource.GetAttributeByType(reflect.TypeOf(&offsetAttribute{}))
+		attr = attrSource.GetAttribute(OffsetAttributeType)
 		if attr != nil {
 			offsetAttr := attr.(*offsetAttribute)
 			f.offsetAttr = offsetAttr
@@ -471,10 +470,10 @@ func (f *SynonymGraphFilter) emitOutputToken(token *graphOutputToken) {
 func (f *SynonymGraphFilter) End() error {
 	// Set final offset if available
 	if f.offsetAttr != nil && f.input != nil {
-		if hasAttrSrc, ok := f.input.(interface{ GetAttributeSource() *AttributeSource }); ok {
+		if hasAttrSrc, ok := f.input.(interface{ GetAttributeSource() *util.AttributeSource }); ok {
 			src := hasAttrSrc.GetAttributeSource()
 			if src != nil {
-				attr := src.GetAttributeByType(reflect.TypeOf(&offsetAttribute{}))
+				attr := src.GetAttribute(OffsetAttributeType)
 				if attr != nil {
 					inputOffset := attr.(OffsetAttribute)
 					f.offsetAttr.SetEndOffset(inputOffset.EndOffset())

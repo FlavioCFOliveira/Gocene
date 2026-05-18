@@ -339,9 +339,9 @@ func (dwpt *DocumentsWriterPerThread) indexField(docID int, field IndexableField
 					}
 					// Get the term attribute from the token stream
 					if attrSrc, ok := tokenStream.(interface {
-						GetAttributeSource() *analysis.AttributeSource
+						GetAttributeSource() *util.AttributeSource
 					}); ok {
-						if attr := attrSrc.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+						if attr := attrSrc.GetAttributeSource().GetAttribute(analysis.CharTermAttributeType); attr != nil {
 							if termAttr, ok := attr.(analysis.CharTermAttribute); ok {
 								tokens = append(tokens, termAttr.String())
 							}

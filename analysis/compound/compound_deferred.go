@@ -10,29 +10,38 @@ package compound
 type CompoundWordTokenFilterBase struct{}
 
 // NewCompoundWordTokenFilterBase builds a CompoundWordTokenFilterBase.
-func NewCompoundWordTokenFilterBase() *CompoundWordTokenFilterBase { return &CompoundWordTokenFilterBase{} }
+func NewCompoundWordTokenFilterBase() *CompoundWordTokenFilterBase {
+	return &CompoundWordTokenFilterBase{}
+}
 
 // DictionaryCompoundWordTokenFilter mirrors org.apache.lucene.analysis.compound.DictionaryCompoundWordTokenFilter.
 type DictionaryCompoundWordTokenFilter struct{}
 
 // NewDictionaryCompoundWordTokenFilter builds a DictionaryCompoundWordTokenFilter.
-func NewDictionaryCompoundWordTokenFilter() *DictionaryCompoundWordTokenFilter { return &DictionaryCompoundWordTokenFilter{} }
+func NewDictionaryCompoundWordTokenFilter() *DictionaryCompoundWordTokenFilter {
+	return &DictionaryCompoundWordTokenFilter{}
+}
 
 // DictionaryCompoundWordTokenFilterFactory mirrors org.apache.lucene.analysis.compound.DictionaryCompoundWordTokenFilterFactory.
 type DictionaryCompoundWordTokenFilterFactory struct{}
 
 // NewDictionaryCompoundWordTokenFilterFactory builds a DictionaryCompoundWordTokenFilterFactory.
-func NewDictionaryCompoundWordTokenFilterFactory() *DictionaryCompoundWordTokenFilterFactory { return &DictionaryCompoundWordTokenFilterFactory{} }
+func NewDictionaryCompoundWordTokenFilterFactory() *DictionaryCompoundWordTokenFilterFactory {
+	return &DictionaryCompoundWordTokenFilterFactory{}
+}
 
 // HyphenationCompoundWordTokenFilter mirrors org.apache.lucene.analysis.compound.HyphenationCompoundWordTokenFilter.
 type HyphenationCompoundWordTokenFilter struct{}
 
 // NewHyphenationCompoundWordTokenFilter builds a HyphenationCompoundWordTokenFilter.
-func NewHyphenationCompoundWordTokenFilter() *HyphenationCompoundWordTokenFilter { return &HyphenationCompoundWordTokenFilter{} }
+func NewHyphenationCompoundWordTokenFilter() *HyphenationCompoundWordTokenFilter {
+	return &HyphenationCompoundWordTokenFilter{}
+}
 
 // HyphenationCompoundWordTokenFilterFactory mirrors org.apache.lucene.analysis.compound.HyphenationCompoundWordTokenFilterFactory.
 type HyphenationCompoundWordTokenFilterFactory struct{}
 
 // NewHyphenationCompoundWordTokenFilterFactory builds a HyphenationCompoundWordTokenFilterFactory.
-func NewHyphenationCompoundWordTokenFilterFactory() *HyphenationCompoundWordTokenFilterFactory { return &HyphenationCompoundWordTokenFilterFactory{} }
-
+func NewHyphenationCompoundWordTokenFilterFactory() *HyphenationCompoundWordTokenFilterFactory {
+	return &HyphenationCompoundWordTokenFilterFactory{}
+}

@@ -11,4 +11,3 @@ type IrishAnalyzer struct{}
 
 // NewIrishAnalyzer builds a IrishAnalyzer.
 func NewIrishAnalyzer() *IrishAnalyzer { return &IrishAnalyzer{} }
-

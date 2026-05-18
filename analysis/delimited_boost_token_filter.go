@@ -5,7 +5,6 @@
 package analysis
 
 import (
-	"reflect"
 	"strconv"
 )
 
@@ -27,7 +26,7 @@ type DelimitedBoostTokenFilter struct {
 
 	delimiter byte
 	termAttr  CharTermAttribute
-	boostAttr *BoostAttribute
+	boostAttr BoostAttribute
 }
 
 // NewDelimitedBoostTokenFilter wraps input with the given delimiter.
@@ -38,11 +37,11 @@ func NewDelimitedBoostTokenFilter(input TokenStream, delimiter byte) *DelimitedB
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&BoostAttribute{})); a != nil {
-			f.boostAttr = a.(*BoostAttribute)
+		if a := src.GetAttribute(BoostAttributeType); a != nil {
+			f.boostAttr = a.(BoostAttribute)
 		}
 	}
 	return f

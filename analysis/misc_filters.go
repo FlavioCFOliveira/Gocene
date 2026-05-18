@@ -6,7 +6,6 @@ package analysis
 
 import (
 	"errors"
-	"reflect"
 	"strings"
 	"unicode/utf8"
 )
@@ -78,7 +77,7 @@ func NewCodepointCountFilter(input TokenStream, min, max int) (*CodepointCountFi
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
 	}
@@ -155,7 +154,7 @@ func NewFixBrokenOffsetsFilter(input TokenStream) *FixBrokenOffsetsFilter {
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&offsetAttribute{})); a != nil {
+		if a := src.GetAttribute(OffsetAttributeType); a != nil {
 			f.offsetAttr = a.(OffsetAttribute)
 		}
 	}
@@ -228,7 +227,7 @@ type KeywordMarkerFilter struct {
 
 	IsKeywordFunc func() bool
 	termAttr      CharTermAttribute
-	keywordAttr   *KeywordAttribute
+	keywordAttr   KeywordAttribute
 }
 
 // NewKeywordMarkerFilter wraps input with a marker filter that calls
@@ -241,11 +240,11 @@ func NewKeywordMarkerFilter(input TokenStream, isKeyword func() bool) *KeywordMa
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&KeywordAttribute{})); a != nil {
-			f.keywordAttr = a.(*KeywordAttribute)
+		if a := src.GetAttribute(KeywordAttributeType); a != nil {
+			f.keywordAttr = a.(KeywordAttribute)
 		}
 	}
 	return f
@@ -333,9 +332,9 @@ type TypeAsSynonymFilter struct {
 	savedPosLen  int
 
 	termAttr    CharTermAttribute
-	typeAttr    *TypeAttribute
+	typeAttr    TypeAttribute
 	posIncrAttr PositionIncrementAttribute
-	flagsAttr   *FlagsAttribute
+	flagsAttr   FlagsAttribute
 }
 
 // NewTypeAsSynonymFilter wraps input with default settings (no
@@ -358,17 +357,17 @@ func NewTypeAsSynonymFilterWithConfig(input TokenStream, prefix string, ignore [
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&TypeAttribute{})); a != nil {
-			f.typeAttr = a.(*TypeAttribute)
+		if a := src.GetAttribute(TypeAttributeType); a != nil {
+			f.typeAttr = a.(TypeAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{})); a != nil {
+		if a := src.GetAttribute(PositionIncrementAttributeType); a != nil {
 			f.posIncrAttr = a.(PositionIncrementAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&FlagsAttribute{})); a != nil {
-			f.flagsAttr = a.(*FlagsAttribute)
+		if a := src.GetAttribute(FlagsAttributeType); a != nil {
+			f.flagsAttr = a.(FlagsAttribute)
 		}
 	}
 	return f
@@ -391,7 +390,7 @@ func (f *TypeAsSynonymFilter) IncrementToken() (bool, error) {
 			f.posIncrAttr.SetPositionIncrement(0)
 		}
 		if f.typeAttr != nil {
-			f.typeAttr.Type = f.savedType
+			f.typeAttr.SetType(f.savedType)
 		}
 		if f.flagsAttr != nil {
 			f.flagsAttr.SetFlags(f.savedFlags & f.synFlagsMask)
@@ -403,7 +402,7 @@ func (f *TypeAsSynonymFilter) IncrementToken() (bool, error) {
 		return ok, err
 	}
 	if f.typeAttr != nil {
-		t := f.typeAttr.Type
+		t := f.typeAttr.GetType()
 		if _, ignored := f.ignore[t]; !ignored {
 			f.saved = true
 			f.savedType = t

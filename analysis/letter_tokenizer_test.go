@@ -5,7 +5,6 @@
 package analysis
 
 import (
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -75,7 +74,7 @@ func TestLetterTokenizer_Basic(t *testing.T) {
 					break
 				}
 
-				termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+				termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 				if termAttr != nil {
 					if cta, ok := termAttr.(CharTermAttribute); ok {
 						tokens = append(tokens, cta.String())
@@ -138,7 +137,7 @@ func TestLetterTokenizer_Unicode(t *testing.T) {
 					break
 				}
 
-				termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+				termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 				if termAttr != nil {
 					if cta, ok := termAttr.(CharTermAttribute); ok {
 						tokens = append(tokens, cta.String())
@@ -192,8 +191,8 @@ func TestLetterTokenizer_Offsets(t *testing.T) {
 			break
 		}
 
-		termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
-		offsetAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&offsetAttribute{}))
+		termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
+		offsetAttr := tokenizer.GetAttributeSource().GetAttribute(OffsetAttributeType)
 
 		cta, ok1 := termAttr.(CharTermAttribute)
 		oa, ok2 := offsetAttr.(OffsetAttribute)
@@ -245,7 +244,7 @@ func TestLetterTokenizer_Reset(t *testing.T) {
 		t.Error("Expected token on second run")
 	}
 
-	termAttr := tokenizer.GetAttributeSource().GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+	termAttr := tokenizer.GetAttributeSource().GetAttribute(CharTermAttributeType)
 	cta, ok := termAttr.(CharTermAttribute)
 	if !ok {
 		t.Fatalf("Failed to cast attribute")

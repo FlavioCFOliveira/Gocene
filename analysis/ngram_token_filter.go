@@ -6,7 +6,6 @@ package analysis
 
 import (
 	"fmt"
-	"reflect"
 )
 
 // EdgeNGramTokenFilterDefaultPreserveOriginal is the upstream default
@@ -61,10 +60,10 @@ func NewEdgeNGramTokenFilter(input TokenStream, minGram, maxGram int, preserveOr
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{})); a != nil {
+		if a := src.GetAttribute(PositionIncrementAttributeType); a != nil {
 			f.posIncrAttr = a.(PositionIncrementAttribute)
 		}
 	}
@@ -201,10 +200,10 @@ func NewNGramTokenFilter(input TokenStream, minGram, maxGram int, preserveOrigin
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{})); a != nil {
+		if a := src.GetAttribute(PositionIncrementAttributeType); a != nil {
 			f.posIncrAttr = a.(PositionIncrementAttribute)
 		}
 	}

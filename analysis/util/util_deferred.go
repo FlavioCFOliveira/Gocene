@@ -47,4 +47,3 @@ type CharTokenizer struct{}
 
 // NewCharTokenizer builds a CharTokenizer.
 func NewCharTokenizer() *CharTokenizer { return &CharTokenizer{} }
-

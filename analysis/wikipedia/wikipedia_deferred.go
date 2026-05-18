@@ -17,4 +17,3 @@ type WikipediaTokenizerFactory struct{}
 
 // NewWikipediaTokenizerFactory builds a WikipediaTokenizerFactory.
 func NewWikipediaTokenizerFactory() *WikipediaTokenizerFactory { return &WikipediaTokenizerFactory{} }
-

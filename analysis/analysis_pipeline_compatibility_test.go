@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // GC-903: Analysis Pipeline Compatibility
@@ -32,7 +33,7 @@ func (ti tokenInfo) EndOffset() int   { return ti.endOffset }
 // token information, or (nil, nil) when the stream is exhausted.
 func nextToken(ts interface {
 	IncrementToken() (bool, error)
-	GetAttribute(string) analysis.AttributeImpl
+	GetAttribute(string) util.AttributeImpl
 }) (*tokenInfo, error) {
 	ok, err := ts.IncrementToken()
 	if !ok || err != nil {
@@ -61,7 +62,7 @@ func nextToken(ts interface {
 // collectTokenStrings drains a token stream, returning all token texts.
 func collectTokenStrings(ts interface {
 	IncrementToken() (bool, error)
-	GetAttribute(string) analysis.AttributeImpl
+	GetAttribute(string) util.AttributeImpl
 }) ([]string, error) {
 	var tokens []string
 	for {
@@ -88,7 +89,7 @@ func collectFromAnalyzer(a analysis.Analyzer, field, text string) ([]string, err
 	// TokenStream from analyzers embed BaseTokenStream which exposes GetAttribute.
 	type attributeGetter interface {
 		IncrementToken() (bool, error)
-		GetAttribute(string) analysis.AttributeImpl
+		GetAttribute(string) util.AttributeImpl
 	}
 
 	ag, ok := ts.(attributeGetter)

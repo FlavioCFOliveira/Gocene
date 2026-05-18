@@ -4,8 +4,6 @@
 
 package analysis
 
-import "reflect"
-
 // Romanian Unicode constants for the cedilla -> comma-below mapping.
 const (
 	roCapSCommaBelow = 0x0218 // Ș
@@ -64,7 +62,7 @@ func NewRomanianNormalizationFilter(input TokenStream) *RomanianNormalizationFil
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
 	}

@@ -5,7 +5,6 @@
 package analysis
 
 import (
-	"reflect"
 	"strings"
 	"unicode"
 )
@@ -55,13 +54,13 @@ type WordDelimiterGraphFilter struct {
 	posIncrAttr PositionIncrementAttribute
 
 	// posLenAttr holds the PositionLengthAttribute from the shared attribute source
-	posLenAttr *PositionLengthAttribute
+	posLenAttr PositionLengthAttribute
 
 	// offsetAttr holds the OffsetAttribute from the shared attribute source
 	offsetAttr OffsetAttribute
 
 	// typeAttr holds the TypeAttribute from the shared attribute source
-	typeAttr *TypeAttribute
+	typeAttr TypeAttribute
 
 	// iterator is used to find word boundaries
 	iterator *WordDelimiterIterator
@@ -177,40 +176,39 @@ func (f *WordDelimiterGraphFilter) initAttributes() {
 	}
 
 	// Get CharTermAttribute
-	attr := attrSource.GetAttributeByType(reflect.TypeOf(&charTermAttribute{}))
+	attr := attrSource.GetAttribute(CharTermAttributeType)
 	if attr != nil {
 		f.termAttr = attr.(CharTermAttribute)
 	}
 
 	// Get PositionIncrementAttribute
-	attr = attrSource.GetAttributeByType(reflect.TypeOf(&positionIncrementAttribute{}))
+	attr = attrSource.GetAttribute(PositionIncrementAttributeType)
 	if attr != nil {
 		f.posIncrAttr = attr.(PositionIncrementAttribute)
 	}
 
 	// Get or add PositionLengthAttribute
-	posLenType := reflect.TypeOf(&PositionLengthAttribute{})
-	attr = attrSource.GetAttributeByType(posLenType)
+	attr = attrSource.GetAttribute(PositionLengthAttributeType)
 	if attr != nil {
-		f.posLenAttr = attr.(*PositionLengthAttribute)
+		f.posLenAttr = attr.(PositionLengthAttribute)
 	} else {
 		f.posLenAttr = NewPositionLengthAttribute()
-		attrSource.AddAttribute(f.posLenAttr)
+		attrSource.AddAttributeImpl(f.posLenAttr)
 	}
 
 	// Get OffsetAttribute
-	attr = attrSource.GetAttributeByType(reflect.TypeOf(&offsetAttribute{}))
+	attr = attrSource.GetAttribute(OffsetAttributeType)
 	if attr != nil {
 		f.offsetAttr = attr.(OffsetAttribute)
 	}
 
 	// Get or add TypeAttribute
-	attr = attrSource.GetAttributeByType(reflect.TypeOf(&TypeAttribute{}))
+	attr = attrSource.GetAttribute(TypeAttributeType)
 	if attr != nil {
-		f.typeAttr = attr.(*TypeAttribute)
+		f.typeAttr = attr.(TypeAttribute)
 	} else {
 		f.typeAttr = NewTypeAttribute()
-		attrSource.AddAttribute(f.typeAttr)
+		attrSource.AddAttributeImpl(f.typeAttr)
 	}
 }
 

@@ -10,11 +10,12 @@ package snowball
 type SnowballPorterFilterFactory struct{}
 
 // NewSnowballPorterFilterFactory builds a SnowballPorterFilterFactory.
-func NewSnowballPorterFilterFactory() *SnowballPorterFilterFactory { return &SnowballPorterFilterFactory{} }
+func NewSnowballPorterFilterFactory() *SnowballPorterFilterFactory {
+	return &SnowballPorterFilterFactory{}
+}
 
 // SnowballFilter mirrors org.apache.lucene.analysis.snowball.SnowballFilter.
 type SnowballFilter struct{}
 
 // NewSnowballFilter builds a SnowballFilter.
 func NewSnowballFilter() *SnowballFilter { return &SnowballFilter{} }
-

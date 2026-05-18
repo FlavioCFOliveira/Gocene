@@ -6,7 +6,6 @@ package analysis
 
 import (
 	"fmt"
-	"reflect"
 )
 
 // DefaultPayloadDelimiter is the default delimiter byte separating the
@@ -39,7 +38,7 @@ type DelimitedPayloadTokenFilter struct {
 	encoder   PayloadEncoder
 
 	termAttr    CharTermAttribute
-	payloadAttr *PayloadAttribute
+	payloadAttr PayloadAttribute
 }
 
 // NewDelimitedPayloadTokenFilter wraps input with a filter that splits
@@ -58,11 +57,11 @@ func NewDelimitedPayloadTokenFilter(input TokenStream, delimiter byte, encoder P
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&PayloadAttribute{})); a != nil {
-			f.payloadAttr = a.(*PayloadAttribute)
+		if a := src.GetAttribute(PayloadAttributeType); a != nil {
+			f.payloadAttr = a.(PayloadAttribute)
 		}
 	}
 	return f

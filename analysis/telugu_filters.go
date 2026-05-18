@@ -4,8 +4,6 @@
 
 package analysis
 
-import "reflect"
-
 // TeluguNormalizer applies spelling-variation normalisation to Telugu
 // text. The rules below match
 // org.apache.lucene.analysis.te.TeluguNormalizer from Apache Lucene
@@ -91,7 +89,7 @@ func NewTeluguNormalizationFilter(input TokenStream) *TeluguNormalizationFilter 
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
 	}
@@ -189,7 +187,7 @@ type TeluguStemFilter struct {
 
 	stemmer     *TeluguStemmer
 	termAttr    CharTermAttribute
-	keywordAttr *KeywordAttribute
+	keywordAttr KeywordAttribute
 }
 
 // NewTeluguStemFilter wraps input.
@@ -200,11 +198,11 @@ func NewTeluguStemFilter(input TokenStream) *TeluguStemFilter {
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttributeByType(reflect.TypeOf(&KeywordAttribute{})); a != nil {
-			f.keywordAttr = a.(*KeywordAttribute)
+		if a := src.GetAttribute(KeywordAttributeType); a != nil {
+			f.keywordAttr = a.(KeywordAttribute)
 		}
 	}
 	return f
@@ -219,7 +217,7 @@ func (f *TeluguStemFilter) IncrementToken() (bool, error) {
 	if f.termAttr == nil {
 		return true, nil
 	}
-	if f.keywordAttr != nil && f.keywordAttr.IsKeyword {
+	if f.keywordAttr != nil && f.keywordAttr.IsKeywordToken() {
 		return true, nil
 	}
 	s := f.termAttr.String()

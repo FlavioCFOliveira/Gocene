@@ -35,4 +35,3 @@ type ClassicAnalyzer struct{}
 
 // NewClassicAnalyzer builds a ClassicAnalyzer.
 func NewClassicAnalyzer() *ClassicAnalyzer { return &ClassicAnalyzer{} }
-

@@ -66,13 +66,13 @@ func TestShingleFilter_Basic(t *testing.T) {
 					break
 				}
 
-				if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
 				}
 
-				if attr := filter.GetAttributeSource().GetAttribute("PositionIncrementAttribute"); attr != nil {
+				if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
 					if posAttr, ok := attr.(PositionIncrementAttribute); ok {
 						positions = append(positions, posAttr.GetPositionIncrement())
 					}
@@ -130,7 +130,7 @@ func TestShingleFilter_NoUnigrams(t *testing.T) {
 					break
 				}
 
-				if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -192,13 +192,13 @@ func TestShingleFilter_LargerSize(t *testing.T) {
 					break
 				}
 
-				if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
 				}
 
-				if attr := filter.GetAttributeSource().GetAttribute("PositionIncrementAttribute"); attr != nil {
+				if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
 					if posAttr, ok := attr.(PositionIncrementAttribute); ok {
 						positions = append(positions, posAttr.GetPositionIncrement())
 					}
@@ -262,7 +262,7 @@ func TestShingleFilter_MinMaxSize(t *testing.T) {
 					break
 				}
 
-				if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -325,7 +325,7 @@ func TestShingleFilter_TokenSeparator(t *testing.T) {
 					break
 				}
 
-				if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -366,12 +366,12 @@ func TestShingleFilter_Offsets(t *testing.T) {
 		}
 
 		var info tokenInfo
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				info.text = termAttr.String()
 			}
 		}
-		if attr := filter.GetAttributeSource().GetAttribute("OffsetAttribute"); attr != nil {
+		if attr := filter.GetAttribute("OffsetAttribute"); attr != nil {
 			if offsetAttr, ok := attr.(OffsetAttribute); ok {
 				info.startOffset = offsetAttr.StartOffset()
 				info.endOffset = offsetAttr.EndOffset()
@@ -449,7 +449,7 @@ func TestShingleFilter_SingleToken(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -484,7 +484,7 @@ func TestShingleFilter_Chaining(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := shingleFilter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := shingleFilter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -542,7 +542,7 @@ func TestShingleFilter_Reset(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens1 = append(tokens1, termAttr.String())
 			}
@@ -562,7 +562,7 @@ func TestShingleFilter_Reset(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens2 = append(tokens2, termAttr.String())
 			}
@@ -606,7 +606,7 @@ func TestShingleFilter_Factory(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -715,7 +715,7 @@ func TestShingleFilter_BoundaryConditions(t *testing.T) {
 					break
 				}
 
-				if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -752,7 +752,7 @@ func TestShingleFilter_LongTokens(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+		if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				tokens = append(tokens, termAttr.String())
 			}
@@ -821,7 +821,7 @@ func TestShingleFilter_SpecialCharacters(t *testing.T) {
 					break
 				}
 
-				if attr := filter.GetAttributeSource().GetAttribute("CharTermAttribute"); attr != nil {
+				if attr := filter.GetAttribute("CharTermAttribute"); attr != nil {
 					if termAttr, ok := attr.(CharTermAttribute); ok {
 						tokens = append(tokens, termAttr.String())
 					}
@@ -854,7 +854,7 @@ func TestShingleFilter_PositionIncrements(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttributeSource().GetAttribute("PositionIncrementAttribute"); attr != nil {
+		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
 			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
 				positions = append(positions, posAttr.GetPositionIncrement())
 			}
@@ -888,7 +888,7 @@ func TestShingleFilter_NoUnigramsPositionIncrements(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttributeSource().GetAttribute("PositionIncrementAttribute"); attr != nil {
+		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
 			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
 				positions = append(positions, posAttr.GetPositionIncrement())
 			}

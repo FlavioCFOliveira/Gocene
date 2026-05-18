@@ -7,6 +7,8 @@ package analysis
 import (
 	"fmt"
 	"reflect"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // PackedTokenAttributeImpl is the Go port of Lucene's
@@ -40,20 +42,39 @@ type PackedTokenAttributeImpl struct {
 }
 
 // Compile-time assertions to lock in every interface contract this
-// impl participates in. The Sprint 12 option (d) snapshot keeps
-// PositionLengthAttribute, TypeAttribute and TermFrequencyAttribute as
-// bare structs (no interface+impl split), so contract enforcement for
-// those is method-set-driven rather than interface-driven; the bundle
-// is verified by the [PackedTokenAttributeImpl_BareStructParity] test.
+// impl participates in. Sprint 54 Phase 4 elevates the previously
+// method-set-only assertions for PositionLength/Type/TermFrequency to
+// proper interface assertions now that the Phase 3 promotion is in
+// place and the matching Validated variants are present on this impl.
 var (
-	_ AttributeImpl              = (*PackedTokenAttributeImpl)(nil)
-	_ CharTermAttribute          = (*PackedTokenAttributeImpl)(nil)
-	_ TermToBytesRefAttribute    = (*PackedTokenAttributeImpl)(nil)
-	_ OffsetAttribute            = (*PackedTokenAttributeImpl)(nil)
-	_ PositionIncrementAttribute = (*PackedTokenAttributeImpl)(nil)
-	_ AttributeReflectable       = (*PackedTokenAttributeImpl)(nil)
-	_ AttributeEnder             = (*PackedTokenAttributeImpl)(nil)
+	_ util.AttributeImpl              = (*PackedTokenAttributeImpl)(nil)
+	_ CharTermAttribute               = (*PackedTokenAttributeImpl)(nil)
+	_ TermToBytesRefAttribute         = (*PackedTokenAttributeImpl)(nil)
+	_ OffsetAttribute                 = (*PackedTokenAttributeImpl)(nil)
+	_ PositionIncrementAttribute      = (*PackedTokenAttributeImpl)(nil)
+	_ TypeAttribute                   = (*PackedTokenAttributeImpl)(nil)
+	_ PositionLengthAttribute         = (*PackedTokenAttributeImpl)(nil)
+	_ TermFrequencyAttribute          = (*PackedTokenAttributeImpl)(nil)
+	_ util.AttributeInterfaceProvider = (*PackedTokenAttributeImpl)(nil)
 )
+
+// AttributeInterfaces satisfies [util.AttributeInterfaceProvider]. The
+// Lucene reference
+// {@code PackedTokenAttributeImpl extends CharTermAttributeImpl} packs
+// every common token attribute into one impl; we list them in the order
+// Lucene exposes them so insertion-order iteration in
+// [util.AttributeSource] matches the reference.
+func (p *PackedTokenAttributeImpl) AttributeInterfaces() []reflect.Type {
+	return []reflect.Type{
+		CharTermAttributeType,
+		TermToBytesRefAttributeType,
+		OffsetAttributeType,
+		PositionIncrementAttributeType,
+		PositionLengthAttributeType,
+		TypeAttributeType,
+		TermFrequencyAttributeType,
+	}
+}
 
 // NewPackedTokenAttributeImpl initialises this impl with the Lucene
 // defaults: empty term, type "word", positionIncrement 1,
@@ -136,6 +157,14 @@ func (p *PackedTokenAttributeImpl) SetPositionLength(positionLength int) {
 	p.positionLength = positionLength
 }
 
+// SetPositionLengthValidated satisfies the [PositionLengthAttribute]
+// interface. PackedTokenAttributeImpl's SetPositionLength is already
+// validating, so this method is a synonym for it. Lucene reference does
+// not distinguish the two on this packed impl.
+func (p *PackedTokenAttributeImpl) SetPositionLengthValidated(positionLength int) {
+	p.SetPositionLength(positionLength)
+}
+
 // --- TermFrequencyAttribute -----------------------------------------
 
 // GetTermFrequency returns the term frequency.
@@ -149,6 +178,14 @@ func (p *PackedTokenAttributeImpl) SetTermFrequency(termFrequency int) {
 			termFrequency))
 	}
 	p.termFrequency = termFrequency
+}
+
+// SetTermFrequencyValidated satisfies the [TermFrequencyAttribute]
+// interface. PackedTokenAttributeImpl's SetTermFrequency is already
+// validating, so this method is a synonym for it. Lucene reference does
+// not distinguish the two on this packed impl.
+func (p *PackedTokenAttributeImpl) SetTermFrequencyValidated(termFrequency int) {
+	p.SetTermFrequency(termFrequency)
 }
 
 // --- AttributeImpl ---------------------------------------------------
@@ -178,7 +215,7 @@ func (p *PackedTokenAttributeImpl) End() {
 // itself a [PackedTokenAttributeImpl] the copy is fast-pathed
 // (single-shot field copy); otherwise CopyTo dispatches against the
 // individual attribute interfaces, matching the Lucene fallback path.
-func (p *PackedTokenAttributeImpl) CopyTo(target AttributeImpl) {
+func (p *PackedTokenAttributeImpl) CopyTo(target util.AttributeImpl) {
 	if to, ok := target.(*PackedTokenAttributeImpl); ok {
 		// Mirror the fast path in PackedTokenAttributeImpl#copyTo: copy
 		// the term buffer and every packed field directly.
@@ -192,11 +229,11 @@ func (p *PackedTokenAttributeImpl) CopyTo(target AttributeImpl) {
 		return
 	}
 	// Fallback: defer to CharTermAttributeImpl#copyTo for the term
-	// buffer, then forward each remaining attribute. Interface targets
-	// are routed through the interface (Lucene parity); bare-struct
-	// attributes (PositionLengthAttribute, TypeAttribute and
-	// TermFrequencyAttribute under Sprint 12 option d) are matched as
-	// pointer-to-struct, since they ship no Lucene-style interface yet.
+	// buffer, then forward each remaining attribute. Every target is
+	// matched against its Lucene-style interface; Sprint 54 Phase 3
+	// promoted PositionLengthAttribute, TypeAttribute and
+	// TermFrequencyAttribute to interface+impl pairs so the previous
+	// bare-struct pointer assertions are replaced by interface ones.
 	p.charTermAttribute.CopyTo(target)
 	if t, ok := target.(OffsetAttribute); ok {
 		t.SetOffset(p.startOffset, p.endOffset)
@@ -204,40 +241,40 @@ func (p *PackedTokenAttributeImpl) CopyTo(target AttributeImpl) {
 	if t, ok := target.(PositionIncrementAttribute); ok {
 		t.SetPositionIncrement(p.positionIncrement)
 	}
-	if t, ok := target.(*PositionLengthAttribute); ok {
+	if t, ok := target.(PositionLengthAttribute); ok {
 		t.SetPositionLength(p.positionLength)
 	}
-	if t, ok := target.(*TypeAttribute); ok {
+	if t, ok := target.(TypeAttribute); ok {
 		t.SetType(p.tokenType)
 	}
-	if t, ok := target.(*TermFrequencyAttribute); ok {
+	if t, ok := target.(TermFrequencyAttribute); ok {
 		t.SetTermFrequency(p.termFrequency)
 	}
 }
 
 // Copy returns a deep clone of this impl.
-func (p *PackedTokenAttributeImpl) Copy() AttributeImpl {
+func (p *PackedTokenAttributeImpl) Copy() util.AttributeImpl {
 	clone := NewPackedTokenAttributeImpl()
 	p.CopyTo(clone)
 	return clone
 }
 
+// CloneAttribute implements util.AttributeImpl.CloneAttribute. Returns
+// a deep copy as util.AttributeImpl. Delegates to the existing Copy().
+func (p *PackedTokenAttributeImpl) CloneAttribute() util.AttributeImpl { return p.Copy() }
+
 // ReflectWith emits the exact triple set required by the Lucene
 // reference: the CharTermAttributeImpl reflection (term + bytes
 // triples) plus startOffset/endOffset/positionIncrement/positionLength/
 // type/termFrequency.
-func (p *PackedTokenAttributeImpl) ReflectWith(reflector AttributeReflector) {
+func (p *PackedTokenAttributeImpl) ReflectWith(reflector util.AttributeReflector) {
 	p.charTermAttribute.ReflectWith(reflector)
-	offsetType := reflect.TypeOf((*OffsetAttribute)(nil)).Elem()
-	reflector(offsetType, "startOffset", p.startOffset)
-	reflector(offsetType, "endOffset", p.endOffset)
-	reflector(reflect.TypeOf((*PositionIncrementAttribute)(nil)).Elem(),
-		"positionIncrement", p.positionIncrement)
-	reflector(reflect.TypeOf((*PositionLengthAttribute)(nil)).Elem(),
-		"positionLength", p.positionLength)
-	reflector(reflect.TypeOf((*TypeAttribute)(nil)).Elem(), "type", p.tokenType)
-	reflector(reflect.TypeOf((*TermFrequencyAttribute)(nil)).Elem(),
-		"termFrequency", p.termFrequency)
+	reflector(OffsetAttributeType, "startOffset", p.startOffset)
+	reflector(OffsetAttributeType, "endOffset", p.endOffset)
+	reflector(PositionIncrementAttributeType, "positionIncrement", p.positionIncrement)
+	reflector(PositionLengthAttributeType, "positionLength", p.positionLength)
+	reflector(TypeAttributeType, "type", p.tokenType)
+	reflector(TermFrequencyAttributeType, "termFrequency", p.termFrequency)
 }
 
 // Equals returns true if other is a [PackedTokenAttributeImpl] whose

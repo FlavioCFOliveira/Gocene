@@ -4,8 +4,6 @@
 
 package analysis
 
-import "reflect"
-
 // EnglishPossessiveFilter strips trailing "'s" or "'S" suffixes
 // (with ASCII apostrophe '\”, right single quotation mark
 // U+2019, or fullwidth apostrophe U+FF07) from each incoming token.
@@ -32,7 +30,7 @@ func NewEnglishPossessiveFilter(input TokenStream) *EnglishPossessiveFilter {
 	}
 	src := f.GetAttributeSource()
 	if src != nil {
-		if a := src.GetAttributeByType(reflect.TypeOf(&charTermAttribute{})); a != nil {
+		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
 	}
