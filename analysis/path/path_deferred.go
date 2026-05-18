@@ -10,5 +10,6 @@ package path
 type ReversePathHierarchyTokenizer struct{}
 
 // NewReversePathHierarchyTokenizer builds a ReversePathHierarchyTokenizer.
-func NewReversePathHierarchyTokenizer() *ReversePathHierarchyTokenizer { return &ReversePathHierarchyTokenizer{} }
-
+func NewReversePathHierarchyTokenizer() *ReversePathHierarchyTokenizer {
+	return &ReversePathHierarchyTokenizer{}
+}

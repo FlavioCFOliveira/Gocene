@@ -31,8 +31,7 @@ import (
 // The interface methods use the Go-idiomatic Get*/Set* naming preserved
 // throughout Gocene's attribute layer, not Lucene's raw Java getter
 // names (e.g. type() / setType(String)). Each concrete impl embeds
-// [util.BaseAttributeImpl] and satisfies [util.AttributeImpl], plus the
-// optional [AttributeReflectable] / [AttributeEnder] surfaces.
+// [util.BaseAttributeImpl] and satisfies [util.AttributeImpl].
 
 // --- TypeAttribute ---------------------------------------------------
 
@@ -51,13 +50,13 @@ const DefaultTypeAttributeValue = "word"
 // are short strings such as "word", "acronym", "<ALPHANUM>", ... emitted
 // by tokenizers and consumed by downstream filters.
 //
-// The interface embeds [AttributeImpl] so concrete values can be used
-// uniformly with the rest of Gocene's attribute layer (mirroring the
-// CharTermAttribute / OffsetAttribute conventions); [util.Attribute] is
-// the empty Lucene marker that AttributeImpl already carries via
+// The interface embeds [util.AttributeImpl] so concrete values can be
+// used uniformly with the rest of Gocene's attribute layer (mirroring
+// the CharTermAttribute / OffsetAttribute conventions); [util.Attribute]
+// is the empty Lucene marker that AttributeImpl already carries via
 // embedding so it is not declared again here.
 type TypeAttribute interface {
-	AttributeImpl
+	util.AttributeImpl
 
 	// GetType returns the current token type.
 	GetType() string
@@ -80,8 +79,6 @@ type typeAttributeImpl struct {
 var (
 	_ TypeAttribute                   = (*typeAttributeImpl)(nil)
 	_ util.AttributeImpl              = (*typeAttributeImpl)(nil)
-	_ AttributeImpl                   = (*typeAttributeImpl)(nil)
-	_ AttributeReflectable            = (*typeAttributeImpl)(nil)
 	_ util.AttributeInterfaceProvider = (*typeAttributeImpl)(nil)
 )
 
@@ -109,7 +106,7 @@ func (ta *typeAttributeImpl) Clear() { ta.tokenType = DefaultTypeAttributeValue 
 // CopyTo copies this attribute's state onto target. Any target
 // satisfying [TypeAttribute] is supported; mismatched targets are
 // silently ignored, mirroring the Lucene fallback.
-func (ta *typeAttributeImpl) CopyTo(target AttributeImpl) {
+func (ta *typeAttributeImpl) CopyTo(target util.AttributeImpl) {
 	if t, ok := target.(TypeAttribute); ok {
 		t.SetType(ta.tokenType)
 	}
@@ -123,7 +120,7 @@ func (ta *typeAttributeImpl) CloneAttribute() util.AttributeImpl {
 
 // ReflectWith emits the single (TypeAttribute, "type", value) triple
 // expected by Lucene's reference reflectWith.
-func (ta *typeAttributeImpl) ReflectWith(reflector AttributeReflector) {
+func (ta *typeAttributeImpl) ReflectWith(reflector util.AttributeReflector) {
 	reflector(TypeAttributeType, "type", ta.tokenType)
 }
 
@@ -160,7 +157,7 @@ var PayloadAttributeType = reflect.TypeOf((*PayloadAttribute)(nil)).Elem()
 // This is the Go port of
 // org.apache.lucene.analysis.tokenattributes.PayloadAttribute.
 type PayloadAttribute interface {
-	AttributeImpl
+	util.AttributeImpl
 
 	// GetPayload returns the current payload byte slice (or nil).
 	GetPayload() []byte
@@ -183,8 +180,6 @@ type payloadAttributeImpl struct {
 var (
 	_ PayloadAttribute                = (*payloadAttributeImpl)(nil)
 	_ util.AttributeImpl              = (*payloadAttributeImpl)(nil)
-	_ AttributeImpl                   = (*payloadAttributeImpl)(nil)
-	_ AttributeReflectable            = (*payloadAttributeImpl)(nil)
 	_ util.AttributeInterfaceProvider = (*payloadAttributeImpl)(nil)
 )
 
@@ -229,7 +224,7 @@ func (pa *payloadAttributeImpl) HasPayload() bool {
 func (pa *payloadAttributeImpl) Clear() { pa.payload = nil }
 
 // CopyTo copies this attribute's state onto target.
-func (pa *payloadAttributeImpl) CopyTo(target AttributeImpl) {
+func (pa *payloadAttributeImpl) CopyTo(target util.AttributeImpl) {
 	if t, ok := target.(PayloadAttribute); ok {
 		t.SetPayload(pa.payload)
 	}
@@ -247,7 +242,7 @@ func (pa *payloadAttributeImpl) CloneAttribute() util.AttributeImpl {
 
 // ReflectWith emits the single (PayloadAttribute, "payload", value)
 // triple. The Lucene reference uses BytesRef; Gocene keeps []byte.
-func (pa *payloadAttributeImpl) ReflectWith(reflector AttributeReflector) {
+func (pa *payloadAttributeImpl) ReflectWith(reflector util.AttributeReflector) {
 	reflector(PayloadAttributeType, "payload", pa.payload)
 }
 
@@ -293,7 +288,7 @@ var FlagsAttributeType = reflect.TypeOf((*FlagsAttribute)(nil)).Elem()
 // This is the Go port of
 // org.apache.lucene.analysis.tokenattributes.FlagsAttribute.
 type FlagsAttribute interface {
-	AttributeImpl
+	util.AttributeImpl
 
 	// GetFlags returns the current flag bitmask.
 	GetFlags() int
@@ -317,8 +312,6 @@ type flagsAttributeImpl struct {
 var (
 	_ FlagsAttribute                  = (*flagsAttributeImpl)(nil)
 	_ util.AttributeImpl              = (*flagsAttributeImpl)(nil)
-	_ AttributeImpl                   = (*flagsAttributeImpl)(nil)
-	_ AttributeReflectable            = (*flagsAttributeImpl)(nil)
 	_ util.AttributeInterfaceProvider = (*flagsAttributeImpl)(nil)
 )
 
@@ -362,7 +355,7 @@ func (fa *flagsAttributeImpl) SetFlag(flag int, set bool) {
 func (fa *flagsAttributeImpl) Clear() { fa.flags = 0 }
 
 // CopyTo copies this attribute's state onto target.
-func (fa *flagsAttributeImpl) CopyTo(target AttributeImpl) {
+func (fa *flagsAttributeImpl) CopyTo(target util.AttributeImpl) {
 	if t, ok := target.(FlagsAttribute); ok {
 		t.SetFlags(fa.flags)
 	}
@@ -374,7 +367,7 @@ func (fa *flagsAttributeImpl) CloneAttribute() util.AttributeImpl {
 }
 
 // ReflectWith emits the single (FlagsAttribute, "flags", value) triple.
-func (fa *flagsAttributeImpl) ReflectWith(reflector AttributeReflector) {
+func (fa *flagsAttributeImpl) ReflectWith(reflector util.AttributeReflector) {
 	reflector(FlagsAttributeType, "flags", fa.flags)
 }
 
@@ -409,7 +402,7 @@ var KeywordAttributeType = reflect.TypeOf((*KeywordAttribute)(nil)).Elem()
 // This is the Go port of
 // org.apache.lucene.analysis.tokenattributes.KeywordAttribute.
 type KeywordAttribute interface {
-	AttributeImpl
+	util.AttributeImpl
 
 	// IsKeywordToken reports whether the current token is flagged as a
 	// keyword.
@@ -428,8 +421,6 @@ type keywordAttributeImpl struct {
 var (
 	_ KeywordAttribute                = (*keywordAttributeImpl)(nil)
 	_ util.AttributeImpl              = (*keywordAttributeImpl)(nil)
-	_ AttributeImpl                   = (*keywordAttributeImpl)(nil)
-	_ AttributeReflectable            = (*keywordAttributeImpl)(nil)
 	_ util.AttributeInterfaceProvider = (*keywordAttributeImpl)(nil)
 )
 
@@ -460,7 +451,7 @@ func (ka *keywordAttributeImpl) SetKeyword(isKeyword bool) { ka.isKeyword = isKe
 func (ka *keywordAttributeImpl) Clear() { ka.isKeyword = false }
 
 // CopyTo copies this attribute's state onto target.
-func (ka *keywordAttributeImpl) CopyTo(target AttributeImpl) {
+func (ka *keywordAttributeImpl) CopyTo(target util.AttributeImpl) {
 	if t, ok := target.(KeywordAttribute); ok {
 		t.SetKeyword(ka.isKeyword)
 	}
@@ -473,7 +464,7 @@ func (ka *keywordAttributeImpl) CloneAttribute() util.AttributeImpl {
 
 // ReflectWith emits the single (KeywordAttribute, "keyword", value)
 // triple.
-func (ka *keywordAttributeImpl) ReflectWith(reflector AttributeReflector) {
+func (ka *keywordAttributeImpl) ReflectWith(reflector util.AttributeReflector) {
 	reflector(KeywordAttributeType, "keyword", ka.isKeyword)
 }
 
@@ -515,7 +506,7 @@ var PositionLengthAttributeType = reflect.TypeOf((*PositionLengthAttribute)(nil)
 // This is the Go port of
 // org.apache.lucene.analysis.tokenattributes.PositionLengthAttribute.
 type PositionLengthAttribute interface {
-	AttributeImpl
+	util.AttributeImpl
 
 	// GetPositionLength returns the position length.
 	GetPositionLength() int
@@ -542,8 +533,6 @@ type positionLengthAttributeImpl struct {
 var (
 	_ PositionLengthAttribute         = (*positionLengthAttributeImpl)(nil)
 	_ util.AttributeImpl              = (*positionLengthAttributeImpl)(nil)
-	_ AttributeImpl                   = (*positionLengthAttributeImpl)(nil)
-	_ AttributeReflectable            = (*positionLengthAttributeImpl)(nil)
 	_ util.AttributeInterfaceProvider = (*positionLengthAttributeImpl)(nil)
 )
 
@@ -586,7 +575,7 @@ func (pla *positionLengthAttributeImpl) SetPositionLengthValidated(length int) {
 func (pla *positionLengthAttributeImpl) Clear() { pla.positionLength = 1 }
 
 // CopyTo copies this attribute's state onto target.
-func (pla *positionLengthAttributeImpl) CopyTo(target AttributeImpl) {
+func (pla *positionLengthAttributeImpl) CopyTo(target util.AttributeImpl) {
 	if t, ok := target.(PositionLengthAttribute); ok {
 		t.SetPositionLength(pla.positionLength)
 	}
@@ -599,7 +588,7 @@ func (pla *positionLengthAttributeImpl) CloneAttribute() util.AttributeImpl {
 
 // ReflectWith emits the single (PositionLengthAttribute,
 // "positionLength", value) triple.
-func (pla *positionLengthAttributeImpl) ReflectWith(reflector AttributeReflector) {
+func (pla *positionLengthAttributeImpl) ReflectWith(reflector util.AttributeReflector) {
 	reflector(PositionLengthAttributeType, "positionLength", pla.positionLength)
 }
 
@@ -632,7 +621,7 @@ var TermFrequencyAttributeType = reflect.TypeOf((*TermFrequencyAttribute)(nil)).
 // This is the Go port of
 // org.apache.lucene.analysis.tokenattributes.TermFrequencyAttribute.
 type TermFrequencyAttribute interface {
-	AttributeImpl
+	util.AttributeImpl
 
 	// GetTermFrequency returns the term frequency.
 	GetTermFrequency() int
@@ -663,9 +652,6 @@ type termFrequencyAttributeImpl struct {
 var (
 	_ TermFrequencyAttribute          = (*termFrequencyAttributeImpl)(nil)
 	_ util.AttributeImpl              = (*termFrequencyAttributeImpl)(nil)
-	_ AttributeImpl                   = (*termFrequencyAttributeImpl)(nil)
-	_ AttributeReflectable            = (*termFrequencyAttributeImpl)(nil)
-	_ AttributeEnder                  = (*termFrequencyAttributeImpl)(nil)
 	_ util.AttributeInterfaceProvider = (*termFrequencyAttributeImpl)(nil)
 )
 
@@ -714,7 +700,7 @@ func (tfa *termFrequencyAttributeImpl) Clear() { tfa.termFrequency = 1 }
 func (tfa *termFrequencyAttributeImpl) End() { tfa.termFrequency = 1 }
 
 // CopyTo copies this attribute's state onto target.
-func (tfa *termFrequencyAttributeImpl) CopyTo(target AttributeImpl) {
+func (tfa *termFrequencyAttributeImpl) CopyTo(target util.AttributeImpl) {
 	if t, ok := target.(TermFrequencyAttribute); ok {
 		t.SetTermFrequency(tfa.termFrequency)
 	}
@@ -727,7 +713,7 @@ func (tfa *termFrequencyAttributeImpl) CloneAttribute() util.AttributeImpl {
 
 // ReflectWith emits the single (TermFrequencyAttribute,
 // "termFrequency", value) triple.
-func (tfa *termFrequencyAttributeImpl) ReflectWith(reflector AttributeReflector) {
+func (tfa *termFrequencyAttributeImpl) ReflectWith(reflector util.AttributeReflector) {
 	reflector(TermFrequencyAttributeType, "termFrequency", tfa.termFrequency)
 }
 

@@ -37,7 +37,7 @@ var BoostAttributeType = reflect.TypeOf((*BoostAttribute)(nil)).Elem()
 // every other Sprint 12 / Sprint 54 attribute. The concrete impl is
 // [boostAttributeImpl].
 type BoostAttribute interface {
-	AttributeImpl
+	util.AttributeImpl
 
 	// GetBoost returns the boost. Defaults to [DefaultBoost] until
 	// SetBoost is called.
@@ -58,8 +58,6 @@ type boostAttributeImpl struct {
 var (
 	_ BoostAttribute                  = (*boostAttributeImpl)(nil)
 	_ util.AttributeImpl              = (*boostAttributeImpl)(nil)
-	_ AttributeImpl                   = (*boostAttributeImpl)(nil)
-	_ AttributeReflectable            = (*boostAttributeImpl)(nil)
 	_ util.AttributeInterfaceProvider = (*boostAttributeImpl)(nil)
 )
 
@@ -91,7 +89,7 @@ func (b *boostAttributeImpl) End() { b.Clear() }
 
 // ReflectWith pushes the single (BoostAttribute, "boost", value) triple
 // through reflector.
-func (b *boostAttributeImpl) ReflectWith(reflector AttributeReflector) {
+func (b *boostAttributeImpl) ReflectWith(reflector util.AttributeReflector) {
 	reflector(BoostAttributeType, "boost", b.boost)
 }
 
@@ -103,7 +101,7 @@ func (b *boostAttributeImpl) CloneAttribute() util.AttributeImpl {
 // CopyTo copies this attribute to target. Any target satisfying
 // [BoostAttribute] is supported; mismatched targets are silently
 // ignored, mirroring the Lucene fallback.
-func (b *boostAttributeImpl) CopyTo(target AttributeImpl) {
+func (b *boostAttributeImpl) CopyTo(target util.AttributeImpl) {
 	if t, ok := target.(BoostAttribute); ok {
 		t.SetBoost(b.boost)
 	}

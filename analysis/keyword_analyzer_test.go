@@ -50,7 +50,7 @@ func TestKeywordAnalyzer_Basic(t *testing.T) {
 			// Get attribute source
 			attrSrc := stream.(interface {
 				GetAttributeSource() *util.AttributeSource
-				GetAttribute(string) AttributeImpl
+				GetAttribute(string) util.AttributeImpl
 			}).GetAttributeSource()
 			termAttr := attrSrc.GetAttribute(CharTermAttributeType)
 			if termAttr == nil {
@@ -96,7 +96,7 @@ func TestKeywordAnalyzer_OffsetAttribute(t *testing.T) {
 
 	attrSrc := stream.(interface {
 		GetAttributeSource() *util.AttributeSource
-		GetAttribute(string) AttributeImpl
+		GetAttribute(string) util.AttributeImpl
 	}).GetAttributeSource()
 	offsetAttr := attrSrc.GetAttribute(OffsetAttributeType)
 	if offsetAttr == nil {
@@ -149,7 +149,7 @@ func TestKeywordAnalyzer_Unicode(t *testing.T) {
 
 			attrSrc := stream.(interface {
 				GetAttributeSource() *util.AttributeSource
-				GetAttribute(string) AttributeImpl
+				GetAttribute(string) util.AttributeImpl
 			}).GetAttributeSource()
 			termAttr := attrSrc.GetAttribute(CharTermAttributeType)
 			term := termAttr.(CharTermAttribute).String()
@@ -194,7 +194,7 @@ func TestKeywordAnalyzer_PreserveInput(t *testing.T) {
 			stream.IncrementToken()
 			attrSrc := stream.(interface {
 				GetAttributeSource() *util.AttributeSource
-				GetAttribute(string) AttributeImpl
+				GetAttribute(string) util.AttributeImpl
 			}).GetAttributeSource()
 			termAttr := attrSrc.GetAttribute(CharTermAttributeType)
 			term := termAttr.(CharTermAttribute).String()
@@ -239,7 +239,7 @@ func TestKeywordAnalyzer_MultipleDocuments(t *testing.T) {
 
 			attrSrc := stream.(interface {
 				GetAttributeSource() *util.AttributeSource
-				GetAttribute(string) AttributeImpl
+				GetAttribute(string) util.AttributeImpl
 			}).GetAttributeSource()
 			termAttr := attrSrc.GetAttribute(CharTermAttributeType)
 			term := termAttr.(CharTermAttribute).String()
@@ -291,7 +291,7 @@ func TestKeywordAnalyzer_RandomStrings(t *testing.T) {
 
 		attrSrc := stream.(interface {
 			GetAttributeSource() *util.AttributeSource
-			GetAttribute(string) AttributeImpl
+			GetAttribute(string) util.AttributeImpl
 		}).GetAttributeSource()
 		termAttr := attrSrc.GetAttribute(CharTermAttributeType)
 		term := termAttr.(CharTermAttribute).String()
@@ -351,7 +351,7 @@ func TestKeywordAnalyzer_Offsets(t *testing.T) {
 
 	attrSrc := stream.(interface {
 		GetAttributeSource() *util.AttributeSource
-		GetAttribute(string) AttributeImpl
+		GetAttribute(string) util.AttributeImpl
 	}).GetAttributeSource()
 	offsetAttr := attrSrc.GetAttribute(OffsetAttributeType)
 	if offsetAttr == nil {

@@ -95,4 +95,3 @@ type Viterbi struct{}
 
 // NewViterbi builds a Viterbi.
 func NewViterbi() *Viterbi { return &Viterbi{} }
-

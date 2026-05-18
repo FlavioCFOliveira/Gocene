@@ -504,7 +504,7 @@ func collectTokensFromAnalyzer(analyzer Analyzer, input string) ([]string, error
 
 		attrSrc := stream.(interface {
 			GetAttributeSource() *util.AttributeSource
-			GetAttribute(string) AttributeImpl
+			GetAttribute(string) util.AttributeImpl
 		}).GetAttributeSource()
 		termAttr := attrSrc.GetAttribute(CharTermAttributeType)
 		if termAttr != nil {

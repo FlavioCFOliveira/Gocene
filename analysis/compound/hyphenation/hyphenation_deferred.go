@@ -53,4 +53,3 @@ type TernaryTree struct{}
 
 // NewTernaryTree builds a TernaryTree.
 func NewTernaryTree() *TernaryTree { return &TernaryTree{} }
-

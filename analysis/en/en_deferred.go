@@ -10,7 +10,9 @@ package en
 type AbstractWordsFileFilterFactory struct{}
 
 // NewAbstractWordsFileFilterFactory builds a AbstractWordsFileFilterFactory.
-func NewAbstractWordsFileFilterFactory() *AbstractWordsFileFilterFactory { return &AbstractWordsFileFilterFactory{} }
+func NewAbstractWordsFileFilterFactory() *AbstractWordsFileFilterFactory {
+	return &AbstractWordsFileFilterFactory{}
+}
 
 // KStemFilter mirrors org.apache.lucene.analysis.en.KStemFilter.
 type KStemFilter struct{}
@@ -23,4 +25,3 @@ type KStemFilterFactory struct{}
 
 // NewKStemFilterFactory builds a KStemFilterFactory.
 func NewKStemFilterFactory() *KStemFilterFactory { return &KStemFilterFactory{} }
-

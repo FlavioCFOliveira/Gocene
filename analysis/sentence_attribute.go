@@ -4,7 +4,11 @@
 
 package analysis
 
-import "reflect"
+import (
+	"reflect"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
 
 // SentenceAttribute is the Go port of Lucene's
 // org.apache.lucene.analysis.tokenattributes.SentenceAttribute.
@@ -16,7 +20,7 @@ import "reflect"
 //
 //	lucene/core/src/java/org/apache/lucene/analysis/tokenattributes/SentenceAttribute.java
 type SentenceAttribute interface {
-	Attribute
+	util.Attribute
 
 	// GetSentenceIndex returns the sentence index for the current
 	// token.

@@ -11,4 +11,3 @@ type TamilAnalyzer struct{}
 
 // NewTamilAnalyzer builds a TamilAnalyzer.
 func NewTamilAnalyzer() *TamilAnalyzer { return &TamilAnalyzer{} }
-

@@ -16,7 +16,9 @@ func NewCommonGramsFilter() *CommonGramsFilter { return &CommonGramsFilter{} }
 type CommonGramsQueryFilterFactory struct{}
 
 // NewCommonGramsQueryFilterFactory builds a CommonGramsQueryFilterFactory.
-func NewCommonGramsQueryFilterFactory() *CommonGramsQueryFilterFactory { return &CommonGramsQueryFilterFactory{} }
+func NewCommonGramsQueryFilterFactory() *CommonGramsQueryFilterFactory {
+	return &CommonGramsQueryFilterFactory{}
+}
 
 // CommonGramsQueryFilter mirrors org.apache.lucene.analysis.commongrams.CommonGramsQueryFilter.
 type CommonGramsQueryFilter struct{}
@@ -29,4 +31,3 @@ type CommonGramsFilterFactory struct{}
 
 // NewCommonGramsFilterFactory builds a CommonGramsFilterFactory.
 func NewCommonGramsFilterFactory() *CommonGramsFilterFactory { return &CommonGramsFilterFactory{} }
-

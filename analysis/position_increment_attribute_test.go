@@ -7,6 +7,8 @@ package analysis
 import (
 	"reflect"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TestPositionIncrementAttribute_Basic tests basic PositionIncrementAttribute operations.
@@ -78,8 +80,8 @@ func TestPositionIncrementAttribute_Copy(t *testing.T) {
 
 // TestPositionIncrementAttribute_Interface tests interface compliance.
 func TestPositionIncrementAttribute_Interface(t *testing.T) {
-	var _ Attribute = NewPositionIncrementAttribute()
-	var _ AttributeImpl = NewPositionIncrementAttribute()
+	var _ util.Attribute = NewPositionIncrementAttribute()
+	var _ util.AttributeImpl = NewPositionIncrementAttribute()
 }
 
 // TestPositionIncrementAttribute_Zero tests zero position increment.
@@ -108,7 +110,7 @@ func TestPositionIncrementAttribute_SetNegative_Panics(t *testing.T) {
 
 // TestPositionIncrementAttribute_End verifies that End sets the
 // increment to 0, distinct from Clear which resets to 1 (Lucene
-// reference: PositionIncrementAttributeImpl#end).
+// reference: PositionIncrementutil.AttributeImpl#end).
 func TestPositionIncrementAttribute_End(t *testing.T) {
 	attr := NewPositionIncrementAttribute().(*positionIncrementAttribute)
 	attr.SetPositionIncrement(4)

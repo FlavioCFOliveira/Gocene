@@ -82,7 +82,7 @@ func lookupCharTermAttribute(t *testing.T, stream TokenStream) CharTermAttribute
 	t.Helper()
 	src, ok := stream.(interface {
 		GetAttributeSource() *util.AttributeSource
-		GetAttribute(string) AttributeImpl
+		GetAttribute(string) util.AttributeImpl
 	})
 	if !ok {
 		t.Fatal("stream has no AttributeSource")
@@ -104,7 +104,7 @@ func lookupPositionIncrementAttribute(t *testing.T, stream TokenStream) Position
 	t.Helper()
 	src, ok := stream.(interface {
 		GetAttributeSource() *util.AttributeSource
-		GetAttribute(string) AttributeImpl
+		GetAttribute(string) util.AttributeImpl
 	})
 	if !ok {
 		t.Fatal("stream has no AttributeSource")

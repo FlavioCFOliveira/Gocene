@@ -46,7 +46,9 @@ func tokenizeInternal(tokenizer Tokenizer, text string) ([]string, error) {
 		}
 
 		// Try to get term from the tokenizer if it's a BaseTokenStream
-		if baseTs, ok := tokenizer.(interface{ GetAttribute(string) AttributeImpl }); ok {
+		if baseTs, ok := tokenizer.(interface {
+			GetAttribute(string) util.AttributeImpl
+		}); ok {
 			if attr := baseTs.GetAttribute("CharTermAttribute"); attr != nil {
 				if termAttr, ok := attr.(CharTermAttribute); ok {
 					tokens = append(tokens, termAttr.String())
@@ -86,7 +88,9 @@ func tokenizeWithAnalyzerInternal(analyzer Analyzer, fieldName, text string) ([]
 		}
 
 		// Try to get term from the token stream if it's a BaseTokenStream
-		if baseTs, ok := tokenStream.(interface{ GetAttribute(string) AttributeImpl }); ok {
+		if baseTs, ok := tokenStream.(interface {
+			GetAttribute(string) util.AttributeImpl
+		}); ok {
 			if attr := baseTs.GetAttribute("CharTermAttribute"); attr != nil {
 				if termAttr, ok := attr.(CharTermAttribute); ok {
 					tokens = append(tokens, termAttr.String())
@@ -115,7 +119,9 @@ func GetTokenPositions(tokenStream TokenStream) ([]int, error) {
 		}
 
 		// Try to get position increment from the token stream
-		if baseTs, ok := tokenStream.(interface{ GetAttribute(string) AttributeImpl }); ok {
+		if baseTs, ok := tokenStream.(interface {
+			GetAttribute(string) util.AttributeImpl
+		}); ok {
 			if attr := baseTs.GetAttribute("PositionIncrementAttribute"); attr != nil {
 				if posAttr, ok := attr.(PositionIncrementAttribute); ok {
 					position += posAttr.GetPositionIncrement()
@@ -145,7 +151,9 @@ func GetTokenOffsets(tokenStream TokenStream) ([][2]int, error) {
 		}
 
 		// Try to get offsets from the token stream
-		if baseTs, ok := tokenStream.(interface{ GetAttribute(string) AttributeImpl }); ok {
+		if baseTs, ok := tokenStream.(interface {
+			GetAttribute(string) util.AttributeImpl
+		}); ok {
 			if attr := baseTs.GetAttribute("OffsetAttribute"); attr != nil {
 				if offsetAttr, ok := attr.(OffsetAttribute); ok {
 					offsets = append(offsets, [2]int{offsetAttr.StartOffset(), offsetAttr.EndOffset()})

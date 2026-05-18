@@ -10,11 +10,12 @@ package gl
 type GalicianMinimalStemFilterFactory struct{}
 
 // NewGalicianMinimalStemFilterFactory builds a GalicianMinimalStemFilterFactory.
-func NewGalicianMinimalStemFilterFactory() *GalicianMinimalStemFilterFactory { return &GalicianMinimalStemFilterFactory{} }
+func NewGalicianMinimalStemFilterFactory() *GalicianMinimalStemFilterFactory {
+	return &GalicianMinimalStemFilterFactory{}
+}
 
 // GalicianMinimalStemFilter mirrors org.apache.lucene.analysis.gl.GalicianMinimalStemFilter.
 type GalicianMinimalStemFilter struct{}
 
 // NewGalicianMinimalStemFilter builds a GalicianMinimalStemFilter.
 func NewGalicianMinimalStemFilter() *GalicianMinimalStemFilter { return &GalicianMinimalStemFilter{} }
-

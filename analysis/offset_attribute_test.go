@@ -7,6 +7,8 @@ package analysis
 import (
 	"reflect"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TestOffsetAttribute_Basic tests basic OffsetAttribute operations.
@@ -97,8 +99,8 @@ func TestOffsetAttribute_Copy(t *testing.T) {
 
 // TestOffsetAttribute_Interface tests interface compliance.
 func TestOffsetAttribute_Interface(t *testing.T) {
-	var _ Attribute = NewOffsetAttribute()
-	var _ AttributeImpl = NewOffsetAttribute()
+	var _ util.Attribute = NewOffsetAttribute()
+	var _ util.AttributeImpl = NewOffsetAttribute()
 }
 
 // TestOffsetAttribute_SetOffset_Validation verifies the Lucene-faithful

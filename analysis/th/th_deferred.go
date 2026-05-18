@@ -17,4 +17,3 @@ type ThaiTokenizer struct{}
 
 // NewThaiTokenizer builds a ThaiTokenizer.
 func NewThaiTokenizer() *ThaiTokenizer { return &ThaiTokenizer{} }
-

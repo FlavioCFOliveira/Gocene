@@ -16,7 +16,9 @@ func NewConcatenateGraphFilter() *ConcatenateGraphFilter { return &ConcatenateGr
 type ConcatenateGraphFilterFactory struct{}
 
 // NewConcatenateGraphFilterFactory builds a ConcatenateGraphFilterFactory.
-func NewConcatenateGraphFilterFactory() *ConcatenateGraphFilterFactory { return &ConcatenateGraphFilterFactory{} }
+func NewConcatenateGraphFilterFactory() *ConcatenateGraphFilterFactory {
+	return &ConcatenateGraphFilterFactory{}
+}
 
 // ConcatenatingTokenStream mirrors org.apache.lucene.analysis.miscellaneous.ConcatenatingTokenStream.
 type ConcatenatingTokenStream struct{}
@@ -34,7 +36,9 @@ func NewProtectedTermFilter() *ProtectedTermFilter { return &ProtectedTermFilter
 type ProtectedTermFilterFactory struct{}
 
 // NewProtectedTermFilterFactory builds a ProtectedTermFilterFactory.
-func NewProtectedTermFilterFactory() *ProtectedTermFilterFactory { return &ProtectedTermFilterFactory{} }
+func NewProtectedTermFilterFactory() *ProtectedTermFilterFactory {
+	return &ProtectedTermFilterFactory{}
+}
 
 // StemmerOverrideFilter mirrors org.apache.lucene.analysis.miscellaneous.StemmerOverrideFilter.
 type StemmerOverrideFilter struct{}
@@ -46,5 +50,6 @@ func NewStemmerOverrideFilter() *StemmerOverrideFilter { return &StemmerOverride
 type StemmerOverrideFilterFactory struct{}
 
 // NewStemmerOverrideFilterFactory builds a StemmerOverrideFilterFactory.
-func NewStemmerOverrideFilterFactory() *StemmerOverrideFilterFactory { return &StemmerOverrideFilterFactory{} }
-
+func NewStemmerOverrideFilterFactory() *StemmerOverrideFilterFactory {
+	return &StemmerOverrideFilterFactory{}
+}

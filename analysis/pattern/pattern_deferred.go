@@ -10,13 +10,17 @@ package pattern
 type PatternCaptureGroupFilterFactory struct{}
 
 // NewPatternCaptureGroupFilterFactory builds a PatternCaptureGroupFilterFactory.
-func NewPatternCaptureGroupFilterFactory() *PatternCaptureGroupFilterFactory { return &PatternCaptureGroupFilterFactory{} }
+func NewPatternCaptureGroupFilterFactory() *PatternCaptureGroupFilterFactory {
+	return &PatternCaptureGroupFilterFactory{}
+}
 
 // PatternCaptureGroupTokenFilter mirrors org.apache.lucene.analysis.pattern.PatternCaptureGroupTokenFilter.
 type PatternCaptureGroupTokenFilter struct{}
 
 // NewPatternCaptureGroupTokenFilter builds a PatternCaptureGroupTokenFilter.
-func NewPatternCaptureGroupTokenFilter() *PatternCaptureGroupTokenFilter { return &PatternCaptureGroupTokenFilter{} }
+func NewPatternCaptureGroupTokenFilter() *PatternCaptureGroupTokenFilter {
+	return &PatternCaptureGroupTokenFilter{}
+}
 
 // PatternTypingFilter mirrors org.apache.lucene.analysis.pattern.PatternTypingFilter.
 type PatternTypingFilter struct{}
@@ -28,11 +32,14 @@ func NewPatternTypingFilter() *PatternTypingFilter { return &PatternTypingFilter
 type SimplePatternSplitTokenizerFactory struct{}
 
 // NewSimplePatternSplitTokenizerFactory builds a SimplePatternSplitTokenizerFactory.
-func NewSimplePatternSplitTokenizerFactory() *SimplePatternSplitTokenizerFactory { return &SimplePatternSplitTokenizerFactory{} }
+func NewSimplePatternSplitTokenizerFactory() *SimplePatternSplitTokenizerFactory {
+	return &SimplePatternSplitTokenizerFactory{}
+}
 
 // PatternTypingFilterFactory mirrors org.apache.lucene.analysis.pattern.PatternTypingFilterFactory.
 type PatternTypingFilterFactory struct{}
 
 // NewPatternTypingFilterFactory builds a PatternTypingFilterFactory.
-func NewPatternTypingFilterFactory() *PatternTypingFilterFactory { return &PatternTypingFilterFactory{} }
-
+func NewPatternTypingFilterFactory() *PatternTypingFilterFactory {
+	return &PatternTypingFilterFactory{}
+}

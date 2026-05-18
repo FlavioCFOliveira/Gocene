@@ -143,10 +143,6 @@ func TestAnalyzerUtils_IsEmpty_NotEmpty(t *testing.T) {
 
 // TestAnalyzerUtils_ClearAttributes tests clearing attributes via the
 // [util.AttributeSource]-based [ClearAttributes] helper.
-//
-// Sprint 54 Phase 4 migrated the helper signatures from the legacy
-// [analysis.AttributeSource] to [util.AttributeSource]; the test was
-// updated accordingly to exercise the new API.
 func TestAnalyzerUtils_ClearAttributes(t *testing.T) {
 	source := util.NewAttributeSource()
 	source.AddAttributeImpl(NewCharTermAttribute())

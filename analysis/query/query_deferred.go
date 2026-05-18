@@ -11,4 +11,3 @@ type QueryAutoStopWordAnalyzer struct{}
 
 // NewQueryAutoStopWordAnalyzer builds a QueryAutoStopWordAnalyzer.
 func NewQueryAutoStopWordAnalyzer() *QueryAutoStopWordAnalyzer { return &QueryAutoStopWordAnalyzer{} }
-

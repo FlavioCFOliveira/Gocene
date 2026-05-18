@@ -133,7 +133,7 @@ func TestStopAnalyzer_PositionIncrement(t *testing.T) {
 
 	attrSrc := stream.(interface {
 		GetAttributeSource() *util.AttributeSource
-		GetAttribute(string) AttributeImpl
+		GetAttribute(string) util.AttributeImpl
 	}).GetAttributeSource()
 	posIncrAttr := attrSrc.GetAttribute(PositionIncrementAttributeType)
 	if posIncrAttr == nil {
@@ -266,7 +266,7 @@ func collectTokens(analyzer Analyzer, input string) ([]string, error) {
 
 		attrSrc := stream.(interface {
 			GetAttributeSource() *util.AttributeSource
-			GetAttribute(string) AttributeImpl
+			GetAttribute(string) util.AttributeImpl
 		}).GetAttributeSource()
 		termAttr := attrSrc.GetAttribute(CharTermAttributeType)
 		if termAttr != nil {

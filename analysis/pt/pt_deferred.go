@@ -10,13 +10,17 @@ package pt
 type PortugueseMinimalStemFilterFactory struct{}
 
 // NewPortugueseMinimalStemFilterFactory builds a PortugueseMinimalStemFilterFactory.
-func NewPortugueseMinimalStemFilterFactory() *PortugueseMinimalStemFilterFactory { return &PortugueseMinimalStemFilterFactory{} }
+func NewPortugueseMinimalStemFilterFactory() *PortugueseMinimalStemFilterFactory {
+	return &PortugueseMinimalStemFilterFactory{}
+}
 
 // PortugueseStemFilterFactory mirrors org.apache.lucene.analysis.pt.PortugueseStemFilterFactory.
 type PortugueseStemFilterFactory struct{}
 
 // NewPortugueseStemFilterFactory builds a PortugueseStemFilterFactory.
-func NewPortugueseStemFilterFactory() *PortugueseStemFilterFactory { return &PortugueseStemFilterFactory{} }
+func NewPortugueseStemFilterFactory() *PortugueseStemFilterFactory {
+	return &PortugueseStemFilterFactory{}
+}
 
 // RSLPStemmerBase mirrors org.apache.lucene.analysis.pt.RSLPStemmerBase.
 type RSLPStemmerBase struct{}
@@ -28,11 +32,12 @@ func NewRSLPStemmerBase() *RSLPStemmerBase { return &RSLPStemmerBase{} }
 type PortugueseMinimalStemFilter struct{}
 
 // NewPortugueseMinimalStemFilter builds a PortugueseMinimalStemFilter.
-func NewPortugueseMinimalStemFilter() *PortugueseMinimalStemFilter { return &PortugueseMinimalStemFilter{} }
+func NewPortugueseMinimalStemFilter() *PortugueseMinimalStemFilter {
+	return &PortugueseMinimalStemFilter{}
+}
 
 // PortugueseStemFilter mirrors org.apache.lucene.analysis.pt.PortugueseStemFilter.
 type PortugueseStemFilter struct{}
 
 // NewPortugueseStemFilter builds a PortugueseStemFilter.
 func NewPortugueseStemFilter() *PortugueseStemFilter { return &PortugueseStemFilter{} }
-

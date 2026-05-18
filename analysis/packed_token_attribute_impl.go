@@ -47,7 +47,7 @@ type PackedTokenAttributeImpl struct {
 // proper interface assertions now that the Phase 3 promotion is in
 // place and the matching Validated variants are present on this impl.
 var (
-	_ AttributeImpl                   = (*PackedTokenAttributeImpl)(nil)
+	_ util.AttributeImpl              = (*PackedTokenAttributeImpl)(nil)
 	_ CharTermAttribute               = (*PackedTokenAttributeImpl)(nil)
 	_ TermToBytesRefAttribute         = (*PackedTokenAttributeImpl)(nil)
 	_ OffsetAttribute                 = (*PackedTokenAttributeImpl)(nil)
@@ -55,8 +55,6 @@ var (
 	_ TypeAttribute                   = (*PackedTokenAttributeImpl)(nil)
 	_ PositionLengthAttribute         = (*PackedTokenAttributeImpl)(nil)
 	_ TermFrequencyAttribute          = (*PackedTokenAttributeImpl)(nil)
-	_ AttributeReflectable            = (*PackedTokenAttributeImpl)(nil)
-	_ AttributeEnder                  = (*PackedTokenAttributeImpl)(nil)
 	_ util.AttributeInterfaceProvider = (*PackedTokenAttributeImpl)(nil)
 )
 
@@ -217,7 +215,7 @@ func (p *PackedTokenAttributeImpl) End() {
 // itself a [PackedTokenAttributeImpl] the copy is fast-pathed
 // (single-shot field copy); otherwise CopyTo dispatches against the
 // individual attribute interfaces, matching the Lucene fallback path.
-func (p *PackedTokenAttributeImpl) CopyTo(target AttributeImpl) {
+func (p *PackedTokenAttributeImpl) CopyTo(target util.AttributeImpl) {
 	if to, ok := target.(*PackedTokenAttributeImpl); ok {
 		// Mirror the fast path in PackedTokenAttributeImpl#copyTo: copy
 		// the term buffer and every packed field directly.
@@ -255,7 +253,7 @@ func (p *PackedTokenAttributeImpl) CopyTo(target AttributeImpl) {
 }
 
 // Copy returns a deep clone of this impl.
-func (p *PackedTokenAttributeImpl) Copy() AttributeImpl {
+func (p *PackedTokenAttributeImpl) Copy() util.AttributeImpl {
 	clone := NewPackedTokenAttributeImpl()
 	p.CopyTo(clone)
 	return clone
@@ -269,7 +267,7 @@ func (p *PackedTokenAttributeImpl) CloneAttribute() util.AttributeImpl { return 
 // reference: the CharTermAttributeImpl reflection (term + bytes
 // triples) plus startOffset/endOffset/positionIncrement/positionLength/
 // type/termFrequency.
-func (p *PackedTokenAttributeImpl) ReflectWith(reflector AttributeReflector) {
+func (p *PackedTokenAttributeImpl) ReflectWith(reflector util.AttributeReflector) {
 	p.charTermAttribute.ReflectWith(reflector)
 	reflector(OffsetAttributeType, "startOffset", p.startOffset)
 	reflector(OffsetAttributeType, "endOffset", p.endOffset)

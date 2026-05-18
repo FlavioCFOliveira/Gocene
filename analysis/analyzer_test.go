@@ -37,7 +37,7 @@ func TestAnalyzer_Reuse(t *testing.T) {
 		}
 		if bts, ok := stream1.(interface {
 			GetAttributeSource() *util.AttributeSource
-			GetAttribute(string) AttributeImpl
+			GetAttribute(string) util.AttributeImpl
 		}); ok {
 			if attr := bts.GetAttributeSource().GetAttribute(CharTermAttributeType); attr != nil {
 				if termAttr, ok := attr.(CharTermAttribute); ok {
@@ -66,7 +66,7 @@ func TestAnalyzer_Reuse(t *testing.T) {
 		}
 		if bts, ok := stream2.(interface {
 			GetAttributeSource() *util.AttributeSource
-			GetAttribute(string) AttributeImpl
+			GetAttribute(string) util.AttributeImpl
 		}); ok {
 			if attr := bts.GetAttribute("CharTermAttribute"); attr != nil {
 				if termAttr, ok := attr.(CharTermAttribute); ok {
@@ -132,7 +132,7 @@ func TestSimpleAnalyzer(t *testing.T) {
 				}
 				if bts, ok := stream.(interface {
 					GetAttributeSource() *util.AttributeSource
-					GetAttribute(string) AttributeImpl
+					GetAttribute(string) util.AttributeImpl
 				}); ok {
 					if attr := bts.GetAttribute("CharTermAttribute"); attr != nil {
 						if termAttr, ok := attr.(CharTermAttribute); ok {
@@ -197,7 +197,7 @@ func TestStandardAnalyzer(t *testing.T) {
 				}
 				if bts, ok := stream.(interface {
 					GetAttributeSource() *util.AttributeSource
-					GetAttribute(string) AttributeImpl
+					GetAttribute(string) util.AttributeImpl
 				}); ok {
 					if attr := bts.GetAttribute("CharTermAttribute"); attr != nil {
 						if termAttr, ok := attr.(CharTermAttribute); ok {
@@ -255,7 +255,7 @@ func TestWhitespaceAnalyzer(t *testing.T) {
 				}
 				if bts, ok := stream.(interface {
 					GetAttributeSource() *util.AttributeSource
-					GetAttribute(string) AttributeImpl
+					GetAttribute(string) util.AttributeImpl
 				}); ok {
 					if attr := bts.GetAttribute("CharTermAttribute"); attr != nil {
 						if termAttr, ok := attr.(CharTermAttribute); ok {

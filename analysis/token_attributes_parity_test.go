@@ -7,17 +7,19 @@ package analysis
 import (
 	"reflect"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// reflectorCapture collects every triple emitted by an AttributeReflectable
-// for use by the parity assertions below.
+// reflectorCapture collects every triple emitted by a
+// [util.AttributeImpl] for use by the parity assertions below.
 type reflectorCapture struct {
 	t reflect.Type
 	k string
 	v any
 }
 
-func captureReflect(r AttributeReflectable) []reflectorCapture {
+func captureReflect(r util.AttributeImpl) []reflectorCapture {
 	var got []reflectorCapture
 	r.ReflectWith(func(attType reflect.Type, key string, value any) {
 		got = append(got, reflectorCapture{attType, key, value})
@@ -202,25 +204,19 @@ func TestTermFrequencyAttribute_Parity(t *testing.T) {
 
 // TestBareStructAttributes_AttributeImplCompliance verifies that the
 // six interface+impl attribute pairs (post-Sprint 54 Phase 3) satisfy
-// [AttributeImpl] and opt into [AttributeReflectable]. End() is exposed
-// via [AttributeEnder] only for TermFrequencyAttribute (matches Lucene).
+// [util.AttributeImpl] (which mandates End/ReflectWith/CloneAttribute
+// in addition to Clear/CopyTo, so the per-impl End and ReflectWith
+// methods are implicitly tested by satisfaction alone).
 //
 // The test name is preserved for git-history continuity even though
 // the underlying impls are no longer bare structs.
 func TestBareStructAttributes_AttributeImplCompliance(t *testing.T) {
 	var (
-		_ AttributeImpl        = (*typeAttributeImpl)(nil)
-		_ AttributeImpl        = (*payloadAttributeImpl)(nil)
-		_ AttributeImpl        = (*flagsAttributeImpl)(nil)
-		_ AttributeImpl        = (*keywordAttributeImpl)(nil)
-		_ AttributeImpl        = (*positionLengthAttributeImpl)(nil)
-		_ AttributeImpl        = (*termFrequencyAttributeImpl)(nil)
-		_ AttributeReflectable = (*typeAttributeImpl)(nil)
-		_ AttributeReflectable = (*payloadAttributeImpl)(nil)
-		_ AttributeReflectable = (*flagsAttributeImpl)(nil)
-		_ AttributeReflectable = (*keywordAttributeImpl)(nil)
-		_ AttributeReflectable = (*positionLengthAttributeImpl)(nil)
-		_ AttributeReflectable = (*termFrequencyAttributeImpl)(nil)
-		_ AttributeEnder       = (*termFrequencyAttributeImpl)(nil)
+		_ util.AttributeImpl = (*typeAttributeImpl)(nil)
+		_ util.AttributeImpl = (*payloadAttributeImpl)(nil)
+		_ util.AttributeImpl = (*flagsAttributeImpl)(nil)
+		_ util.AttributeImpl = (*keywordAttributeImpl)(nil)
+		_ util.AttributeImpl = (*positionLengthAttributeImpl)(nil)
+		_ util.AttributeImpl = (*termFrequencyAttributeImpl)(nil)
 	)
 }

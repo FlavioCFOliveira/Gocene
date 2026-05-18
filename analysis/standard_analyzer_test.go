@@ -287,7 +287,7 @@ func TestStandardAnalyzer_Offsets(t *testing.T) {
 		var info tokenInfo
 		attrSrc := stream.(interface {
 			GetAttributeSource() *util.AttributeSource
-			GetAttribute(string) AttributeImpl
+			GetAttribute(string) util.AttributeImpl
 		}).GetAttributeSource()
 
 		if attr := attrSrc.GetAttribute(CharTermAttributeType); attr != nil {
@@ -881,7 +881,7 @@ func collectTokensFromStream(stream TokenStream) ([]string, error) {
 
 		attrSrc := stream.(interface {
 			GetAttributeSource() *util.AttributeSource
-			GetAttribute(string) AttributeImpl
+			GetAttribute(string) util.AttributeImpl
 		}).GetAttributeSource()
 		termAttr := attrSrc.GetAttribute(CharTermAttributeType)
 		if termAttr != nil {

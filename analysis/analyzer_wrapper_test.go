@@ -166,7 +166,7 @@ func collectTerms(t *testing.T, stream TokenStream) []string {
 		}
 		src, ok := stream.(interface {
 			GetAttributeSource() *util.AttributeSource
-			GetAttribute(string) AttributeImpl
+			GetAttribute(string) util.AttributeImpl
 		})
 		if !ok {
 			continue

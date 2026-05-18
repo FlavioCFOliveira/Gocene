@@ -17,4 +17,3 @@ type LatvianStemFilter struct{}
 
 // NewLatvianStemFilter builds a LatvianStemFilter.
 func NewLatvianStemFilter() *LatvianStemFilter { return &LatvianStemFilter{} }
-

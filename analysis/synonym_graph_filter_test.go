@@ -582,7 +582,7 @@ func collectSynonymTokens(t *testing.T, ts TokenStream) []synonymTokenInfo {
 
 	if attrSrc, ok := ts.(interface {
 		GetAttributeSource() *util.AttributeSource
-		GetAttribute(string) AttributeImpl
+		GetAttribute(string) util.AttributeImpl
 	}); ok {
 		as := attrSrc.GetAttributeSource()
 		if attr := as.GetAttribute(CharTermAttributeType); attr != nil {
@@ -642,7 +642,7 @@ func collectSynonymTokensWithOffsets(t *testing.T, ts TokenStream) []synonymToke
 
 	if attrSrc, ok := ts.(interface {
 		GetAttributeSource() *util.AttributeSource
-		GetAttribute(string) AttributeImpl
+		GetAttribute(string) util.AttributeImpl
 	}); ok {
 		as := attrSrc.GetAttributeSource()
 		if attr := as.GetAttribute(CharTermAttributeType); attr != nil {

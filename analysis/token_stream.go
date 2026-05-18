@@ -43,13 +43,14 @@ type TokenStream interface {
 // Embed this struct in concrete TokenStream implementations to inherit
 // common functionality.
 //
-// Sprint 54 Phase 4 migrated the embedded [analysis.AttributeSource] to
-// [util.AttributeSource], the Lucene-faithful 10.4.0-parity registry.
-// The public surface ([BaseTokenStream.GetAttributeSource] now returns
-// [util.AttributeSource]; legacy string-keyed [BaseTokenStream.GetAttribute]
-// is retained as a back-compat shim that resolves via the
-// [canonicalAttributeInterfaces] registry to a typed
-// [util.AttributeSource.GetAttribute] lookup).
+// Sprint 54 Phase 4 migrated the embedded attribute source to
+// [util.AttributeSource], the Lucene-faithful 10.4.0-parity registry,
+// and Phase 6 retired the legacy local registry entirely. The public
+// surface ([BaseTokenStream.GetAttributeSource]) returns
+// [util.AttributeSource]; the legacy string-keyed
+// [BaseTokenStream.GetAttribute] is retained as a back-compat shim
+// that resolves via the [canonicalAttributeInterfaces] registry to a
+// typed [util.AttributeSource.GetAttribute] lookup.
 type BaseTokenStream struct {
 	// attributes holds the attribute source for this token stream
 	attributes *util.AttributeSource
@@ -65,19 +66,19 @@ func NewBaseTokenStream() *BaseTokenStream {
 
 // GetAttributeSource returns the underlying [util.AttributeSource].
 // Sprint 54 Phase 4 promoted the return type from the legacy
-// [analysis.AttributeSource] (now used by tests only) to the
+// analysis-internal source (since retired in Phase 6) to the
 // Lucene-faithful [util.AttributeSource].
 func (ts *BaseTokenStream) GetAttributeSource() *util.AttributeSource {
 	return ts.attributes
 }
 
-// AddAttribute registers an [AttributeImpl] with the token stream's
-// AttributeSource. Routes through [util.AttributeSource.AddAttributeImpl]
-// which delegates to the impl's [util.AttributeInterfaceProvider]
-// declaration (Sprint 54 Phase 4 part A added that method to every
-// analysis impl) to discover every Attribute interface the impl
-// satisfies.
-func (ts *BaseTokenStream) AddAttribute(attr AttributeImpl) {
+// AddAttribute registers an [util.AttributeImpl] with the token
+// stream's AttributeSource. Routes through
+// [util.AttributeSource.AddAttributeImpl] which delegates to the impl's
+// [util.AttributeInterfaceProvider] declaration (Sprint 54 Phase 4
+// part A added that method to every analysis impl) to discover every
+// Attribute interface the impl satisfies.
+func (ts *BaseTokenStream) AddAttribute(attr util.AttributeImpl) {
 	if attr == nil {
 		return
 	}
@@ -89,7 +90,7 @@ func (ts *BaseTokenStream) AddAttribute(attr AttributeImpl) {
 // [util.AttributeSource.GetAttribute] lookup. New code should call
 // [BaseTokenStream.GetAttributeSource] and use the typed
 // [util.AttributeSource.GetAttribute] API directly.
-func (ts *BaseTokenStream) GetAttribute(name string) AttributeImpl {
+func (ts *BaseTokenStream) GetAttribute(name string) util.AttributeImpl {
 	if t, ok := canonicalAttributeInterfaces[name]; ok {
 		return ts.attributes.GetAttribute(t)
 	}

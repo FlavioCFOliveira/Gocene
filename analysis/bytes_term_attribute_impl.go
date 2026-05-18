@@ -28,10 +28,9 @@ type BytesTermAttributeImpl struct {
 // Compile-time assertions to lock in the contract this impl
 // participates in.
 var (
-	_ AttributeImpl                   = (*BytesTermAttributeImpl)(nil)
+	_ util.AttributeImpl              = (*BytesTermAttributeImpl)(nil)
 	_ BytesTermAttribute              = (*BytesTermAttributeImpl)(nil)
 	_ TermToBytesRefAttribute         = (*BytesTermAttributeImpl)(nil)
-	_ AttributeReflectable            = (*BytesTermAttributeImpl)(nil)
 	_ util.AttributeInterfaceProvider = (*BytesTermAttributeImpl)(nil)
 )
 
@@ -74,7 +73,7 @@ func (b *BytesTermAttributeImpl) CloneAttribute() util.AttributeImpl { return b.
 // CopyTo deep-copies this impl's BytesRef onto target. The target must
 // be a [BytesTermAttributeImpl], matching the Lucene cast contract; a
 // panic with an explanatory message is raised otherwise.
-func (b *BytesTermAttributeImpl) CopyTo(target AttributeImpl) {
+func (b *BytesTermAttributeImpl) CopyTo(target util.AttributeImpl) {
 	other, ok := target.(*BytesTermAttributeImpl)
 	if !ok {
 		panic("BytesTermAttributeImpl.CopyTo: target must be *BytesTermAttributeImpl")
@@ -88,7 +87,7 @@ func (b *BytesTermAttributeImpl) CopyTo(target AttributeImpl) {
 
 // Copy returns a deep clone of this impl, matching the result of
 // {@code BytesTermAttributeImpl#clone()}.
-func (b *BytesTermAttributeImpl) Copy() AttributeImpl {
+func (b *BytesTermAttributeImpl) Copy() util.AttributeImpl {
 	clone := NewBytesTermAttributeImpl()
 	b.CopyTo(clone)
 	return clone
@@ -97,7 +96,7 @@ func (b *BytesTermAttributeImpl) Copy() AttributeImpl {
 // ReflectWith pushes the single (TermToBytesRefAttribute, "bytes",
 // bytes) triple through reflector, matching the Lucene reference
 // exactly.
-func (b *BytesTermAttributeImpl) ReflectWith(reflector AttributeReflector) {
+func (b *BytesTermAttributeImpl) ReflectWith(reflector util.AttributeReflector) {
 	reflector(reflect.TypeOf((*TermToBytesRefAttribute)(nil)).Elem(), "bytes", b.bytes)
 }
 

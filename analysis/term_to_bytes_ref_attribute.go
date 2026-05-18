@@ -36,7 +36,7 @@ import (
 //
 //	lucene/core/src/java/org/apache/lucene/analysis/tokenattributes/TermToBytesRefAttribute.java
 type TermToBytesRefAttribute interface {
-	Attribute
+	util.Attribute
 
 	// GetBytesRef retrieves this attribute's BytesRef. The bytes are
 	// refreshed from the current term on each call. Implementations
