@@ -15,20 +15,42 @@ import (
 //
 // Go port of Lucene 10.4.0's org.apache.lucene.document.LatLonShape.
 //
-// Sprint 21 ships the static factory surface; full tessellation is
-// limited by the pre-existing geo.Tessellator stub (rejects polygons it
-// cannot handle with ErrTessellatorUnsupported). Static query factories
-// (NewBoxQuery / NewDistanceQuery / NewPolygonQuery / NewGeometryQuery)
-// deferred — backlog #2697.
+// Sprint 21 shipped the initial static factory surface; Sprint 55 extends
+// it with the remaining Lucene-parity factories (checkSelfIntersections
+// variants, doc-value factories from Line / Point / BytesRef / triangle
+// list / indexable Field array, and CreateLatLonShapeDocValues).
+//
+// Full tessellation remains limited by the pre-existing geo.Tessellator
+// stub (rejects polygons with holes or self-intersections with
+// ErrTessellatorUnsupported). Static query factories (NewBoxQuery /
+// NewDistanceQuery / NewPolygonQuery / NewLineQuery / NewPointQuery /
+// NewGeometryQuery / NewSlowDocValuesBoxQuery) cannot live in this
+// package because document/ may not import search/ (cycle); they are
+// tracked under backlog #2697 and will live under search/ when ported.
 
 // CreateIndexableFieldsFromLatLonPolygon tessellates a Polygon and returns
 // the per-triangle ShapeFieldTriangle fields ready to be added to a
 // Document.
 //
+// Equivalent to Java's LatLonShape#createIndexableFields(String, Polygon).
+//
 // Returns an error wrapping geo.ErrTessellatorUnsupported when the
 // tessellator stub cannot decompose the supplied polygon.
 func CreateIndexableFieldsFromLatLonPolygon(fieldName string, polygon geo.Polygon) ([]*ShapeFieldTriangle, error) {
-	triangles, err := geo.Tessellate(polygon, false)
+	return CreateIndexableFieldsFromLatLonPolygonChecked(fieldName, polygon, false)
+}
+
+// CreateIndexableFieldsFromLatLonPolygonChecked tessellates a Polygon
+// optionally validating self-intersections, and returns the per-triangle
+// ShapeFieldTriangle fields ready to be added to a Document.
+//
+// Equivalent to Java's LatLonShape#createIndexableFields(String, Polygon, boolean).
+//
+// The checkSelfIntersections argument is forwarded to geo.Tessellate;
+// the current tessellator stub accepts it for API parity but treats it
+// as a no-op (callers must supply non-self-intersecting polygons).
+func CreateIndexableFieldsFromLatLonPolygonChecked(fieldName string, polygon geo.Polygon, checkSelfIntersections bool) ([]*ShapeFieldTriangle, error) {
+	triangles, err := geo.Tessellate(polygon, checkSelfIntersections)
 	if err != nil {
 		return nil, fmt.Errorf("tessellate latlon polygon: %w", err)
 	}
@@ -77,6 +99,10 @@ func CreateIndexableFieldsFromLatLonLine(fieldName string, line geo.Line) ([]*Sh
 
 // CreateIndexableFieldsFromLatLonPoint encodes a single (lat, lon) point
 // as a degenerate triangle where all three vertices coincide.
+//
+// Returns the single triangle field. For the Lucene-parity surface that
+// returns a one-element array (matching createIndexableFields(String,
+// double, double) -> Field[]) use CreateIndexableFieldsFromLatLonPointArray.
 func CreateIndexableFieldsFromLatLonPoint(fieldName string, latitude, longitude float64) (*ShapeFieldTriangle, error) {
 	if err := validateLatLon(latitude, longitude); err != nil {
 		return nil, err
@@ -84,4 +110,81 @@ func CreateIndexableFieldsFromLatLonPoint(fieldName string, latitude, longitude 
 	x := geo.EncodeLongitude(longitude)
 	y := geo.EncodeLatitude(latitude)
 	return NewShapeFieldTriangle(fieldName, x, y, x, y, x, y, false, false, false)
+}
+
+// CreateIndexableFieldsFromLatLonPointArray is the Lucene-parity variant
+// of CreateIndexableFieldsFromLatLonPoint that returns a single-element
+// slice (matching Java's createIndexableFields(String, double, double)
+// -> Field[]). Useful for callers that bulk-iterate indexable fields
+// without distinguishing point from line/polygon.
+func CreateIndexableFieldsFromLatLonPointArray(fieldName string, latitude, longitude float64) ([]*ShapeFieldTriangle, error) {
+	tri, err := CreateIndexableFieldsFromLatLonPoint(fieldName, latitude, longitude)
+	if err != nil {
+		return nil, err
+	}
+	return []*ShapeFieldTriangle{tri}, nil
+}
+
+// CreateDocValueFieldFromLatLonPolygon tessellates the supplied Polygon
+// (without self-intersection checks) and returns a doc-values backed
+// LatLonShapeDocValuesField, equivalent to Java's
+// LatLonShape#createDocValueField(String, Polygon).
+func CreateDocValueFieldFromLatLonPolygon(fieldName string, polygon geo.Polygon) (*LatLonShapeDocValuesField, error) {
+	return NewLatLonShapeDocValuesField(fieldName, polygon)
+}
+
+// CreateDocValueFieldFromLatLonPolygonChecked tessellates the supplied
+// Polygon honouring checkSelfIntersections, equivalent to Java's
+// LatLonShape#createDocValueField(String, Polygon, boolean).
+func CreateDocValueFieldFromLatLonPolygonChecked(fieldName string, polygon geo.Polygon, checkSelfIntersections bool) (*LatLonShapeDocValuesField, error) {
+	return NewLatLonShapeDocValuesFieldPolygonChecked(fieldName, polygon, checkSelfIntersections)
+}
+
+// CreateDocValueFieldFromLatLonLine returns a LatLonShapeDocValuesField
+// over the segments of the supplied Line, equivalent to Java's
+// LatLonShape#createDocValueField(String, Line).
+func CreateDocValueFieldFromLatLonLine(fieldName string, line geo.Line) (*LatLonShapeDocValuesField, error) {
+	return NewLatLonShapeDocValuesFieldLine(fieldName, line)
+}
+
+// CreateDocValueFieldFromLatLonPoint returns a LatLonShapeDocValuesField
+// holding a single point, equivalent to Java's
+// LatLonShape#createDocValueField(String, double, double).
+func CreateDocValueFieldFromLatLonPoint(fieldName string, latitude, longitude float64) (*LatLonShapeDocValuesField, error) {
+	return NewLatLonShapeDocValuesFieldPoint(fieldName, latitude, longitude)
+}
+
+// CreateDocValueFieldFromBytes wraps an already-encoded triangle byte
+// payload as a LatLonShapeDocValuesField, equivalent to Java's
+// LatLonShape#createDocValueField(String, BytesRef).
+//
+// The caller retains ownership of binaryValue; the constructor copies.
+func CreateDocValueFieldFromBytes(fieldName string, binaryValue []byte) (*LatLonShapeDocValuesField, error) {
+	return NewLatLonShapeDocValuesFieldFromBytes(fieldName, binaryValue)
+}
+
+// CreateDocValueFieldFromTriangles encodes a slice of DecodedTriangle
+// records as a LatLonShapeDocValuesField, equivalent to Java's
+// LatLonShape#createDocValueField(String, List<DecodedTriangle>).
+//
+// Each DecodedTriangle must carry the AX/AY plus the three edge bits;
+// vertex B/C are reconstructed from the rotated layout when
+// EncodeTriangle gains the full Lucene rotation (backlog #2697).
+func CreateDocValueFieldFromTriangles(fieldName string, triangles []DecodedTriangle) (*LatLonShapeDocValuesField, error) {
+	return NewLatLonShapeDocValuesFieldFromTriangles(fieldName, triangles)
+}
+
+// CreateDocValueFieldFromFields extracts the binary payload of each
+// indexable ShapeFieldTriangle and aggregates them into a
+// LatLonShapeDocValuesField, equivalent to Java's
+// LatLonShape#createDocValueField(String, Field[]).
+func CreateDocValueFieldFromFields(fieldName string, indexableFields []*ShapeFieldTriangle) (*LatLonShapeDocValuesField, error) {
+	return NewLatLonShapeDocValuesFieldFromFields(fieldName, indexableFields)
+}
+
+// CreateLatLonShapeDocValues wraps a pre-encoded triangle byte payload
+// as a LatLonShapeDocValues accessor, equivalent to Java's
+// LatLonShape#createLatLonShapeDocValues(BytesRef).
+func CreateLatLonShapeDocValues(binaryValue []byte) (*LatLonShapeDocValues, error) {
+	return NewLatLonShapeDocValues(binaryValue)
 }
