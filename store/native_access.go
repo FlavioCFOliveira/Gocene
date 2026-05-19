@@ -40,9 +40,5 @@ type NativeAccess interface {
 //
 // The boolean ok is the Go-idiomatic stand-in for java.util.Optional: it is
 // true only when a concrete implementation is wired for the build target.
-// This stub returns (nil, false) on every platform; the real Linux/macOS
-// wiring lands with GOC-3478 (PosixNativeAccess) and the platform-specific
-// build-tag files that follow it.
-func GetNativeAccess() (NativeAccess, bool) {
-	return nil, false
-}
+// The dispatch lives in native_access_posix.go (linux/darwin/*bsd) and
+// native_access_other.go (all other platforms, where it returns nil,false).
