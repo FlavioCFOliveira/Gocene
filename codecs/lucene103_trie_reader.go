@@ -274,7 +274,7 @@ func (r *TrieReader) loadSingleChildNode(n *TrieNode, fp int64, sign, term int, 
 		return err
 	}
 	encodedFP := encodedRaw & trieBytesMinus1Mask[encodedOutputFPBytesMinus1]
-	n.OutputFP = encodedFP >> 2
+	n.OutputFP = int64(uint64(encodedFP) >> 2)
 	n.HasTerms = encodedFP&trieNonLeafNodeHasTerms != 0
 	if encodedFP&trieNonLeafNodeHasFloor != 0 {
 		n.FloorDataFP = offset + int64(encodedOutputFPBytesMinus1) + 1
@@ -304,7 +304,7 @@ func (r *TrieReader) loadMultiChildrenNode(n *TrieNode, fp int64, term int, term
 			l = v
 		}
 		encodedFP := l & trieBytesMinus1Mask[encodedOutputFPBytesMinus1]
-		n.OutputFP = encodedFP >> 2
+		n.OutputFP = int64(uint64(encodedFP) >> 2)
 		n.HasTerms = encodedFP&trieNonLeafNodeHasTerms != 0
 		if encodedFP&trieNonLeafNodeHasFloor != 0 {
 			offset := fp + 4 + int64(encodedOutputFPBytesMinus1)

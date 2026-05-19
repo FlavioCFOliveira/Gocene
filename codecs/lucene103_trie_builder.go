@@ -657,7 +657,7 @@ var strategyBits = ChildSaveStrategy{
 		if err != nil {
 			return -1, err
 		}
-		mask := int64(1) << uint(bitIndex)
+		mask := int64(1) << uint(bitIndex&63)
 		if word&mask == 0 {
 			return -1, nil
 		}
