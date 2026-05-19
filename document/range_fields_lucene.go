@@ -11,8 +11,10 @@ import (
 )
 
 // This file adds Lucene 10.4.0-compatible multi-dimensional Range field
-// constructors. The pre-existing single-dim IntRange/LongRange/FloatRange/
-// DoubleRange/BinaryRange types in range_field.go are preserved.
+// constructors. The pre-existing single-dim IntRange/FloatRange/BinaryRange
+// types in range_field.go are preserved. The legacy single-dim LongRange
+// and DoubleRange were promoted to canonical Lucene names (GOC-3219 /
+// GOC-3222) and live in long_range.go and double_range.go.
 //
 // Layout: each Range field packs N dimensions of [min, max] pairs. The
 // FieldType dimensionCount is 2*N and the bytes-per-dimension matches the
@@ -152,57 +154,16 @@ func EncodeFloatRangeLucene(min, max []float32) ([]byte, error) {
 	return out, nil
 }
 
-// DoubleRangeLucene is the Lucene 10.4.0 DoubleRange field.
-type DoubleRangeLucene struct {
-	*Field
-	numDims int
-	min     []float64
-	max     []float64
-}
+// Deprecated: use [DoubleRange] / [NewDoubleRange] / [EncodeDoubleRange]
+// (Lucene canonical names). Retained for backward compatibility (GOC-3222).
+// The canonical implementation lives in double_range.go.
+type DoubleRangeLucene = DoubleRange
 
-// NewDoubleRangeLucene creates a new DoubleRangeLucene with N-dimensional ranges.
-func NewDoubleRangeLucene(name string, min, max []float64) (*DoubleRangeLucene, error) {
-	if err := validateRangePairs(len(min), len(max)); err != nil {
-		return nil, err
-	}
-	encoded, err := EncodeDoubleRangeLucene(min, max)
-	if err != nil {
-		return nil, err
-	}
-	field, err := NewField(name, encoded, rangeFieldType(len(min), 8))
-	if err != nil {
-		return nil, err
-	}
-	dupMin := make([]float64, len(min))
-	dupMax := make([]float64, len(max))
-	copy(dupMin, min)
-	copy(dupMax, max)
-	return &DoubleRangeLucene{Field: field, numDims: len(min), min: dupMin, max: dupMax}, nil
-}
+// Deprecated: use [NewDoubleRange]. Retained for backward compatibility (GOC-3222).
+var NewDoubleRangeLucene = NewDoubleRange
 
-// GetMin returns the minimum value for the given dimension.
-func (r *DoubleRangeLucene) GetMin(dim int) float64 { return r.min[dim] }
-
-// GetMax returns the maximum value for the given dimension.
-func (r *DoubleRangeLucene) GetMax(dim int) float64 { return r.max[dim] }
-
-// EncodeDoubleRangeLucene packs N-dimensional double ranges with Lucene
-// sortable-bytes (DoubleToSortableLong + LongToSortableBytes).
-func EncodeDoubleRangeLucene(min, max []float64) ([]byte, error) {
-	if err := validateRangePairs(len(min), len(max)); err != nil {
-		return nil, err
-	}
-	n := len(min)
-	out := make([]byte, 2*n*8)
-	for i := 0; i < n; i++ {
-		if min[i] > max[i] {
-			return nil, fmt.Errorf("dim %d: min %v > max %v", i, min[i], max[i])
-		}
-		util.LongToSortableBytes(util.DoubleToSortableLong(min[i]), out, i*8)
-		util.LongToSortableBytes(util.DoubleToSortableLong(max[i]), out, n*8+i*8)
-	}
-	return out, nil
-}
+// Deprecated: use [EncodeDoubleRange]. Retained for backward compatibility (GOC-3222).
+var EncodeDoubleRangeLucene = EncodeDoubleRange
 
 func validateRangePairs(nMin, nMax int) error {
 	if nMin == 0 || nMax == 0 {
