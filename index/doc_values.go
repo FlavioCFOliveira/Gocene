@@ -82,69 +82,58 @@ func UnwrapSingletonSortedSet(dv SortedSetDocValues) SortedDocValues {
 
 type emptyBinaryDV struct{ docID int }
 
-func (e *emptyBinaryDV) Get(int) ([]byte, error)    { return nil, nil }
-func (e *emptyBinaryDV) Advance(int) (int, error)   { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
-func (e *emptyBinaryDV) NextDoc() (int, error)      { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
-func (e *emptyBinaryDV) DocID() int                 { return e.docID }
+func (e *emptyBinaryDV) Get(int) ([]byte, error)  { return nil, nil }
+func (e *emptyBinaryDV) Advance(int) (int, error) { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
+func (e *emptyBinaryDV) NextDoc() (int, error)    { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
+func (e *emptyBinaryDV) DocID() int               { return e.docID }
 
 type emptyNumericDV struct{ docID int }
 
-func (e *emptyNumericDV) Get(int) (int64, error)     { return 0, nil }
-func (e *emptyNumericDV) Advance(int) (int, error)   { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
-func (e *emptyNumericDV) NextDoc() (int, error)      { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
-func (e *emptyNumericDV) DocID() int                 { return e.docID }
+func (e *emptyNumericDV) Get(int) (int64, error)   { return 0, nil }
+func (e *emptyNumericDV) Advance(int) (int, error) { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
+func (e *emptyNumericDV) NextDoc() (int, error)    { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
+func (e *emptyNumericDV) DocID() int               { return e.docID }
 
 type emptySortedDV struct{ docID int }
 
-func (e *emptySortedDV) Get(int) ([]byte, error)    { return nil, nil }
-func (e *emptySortedDV) Advance(int) (int, error)   { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
-func (e *emptySortedDV) NextDoc() (int, error)      { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
-func (e *emptySortedDV) DocID() int                 { return e.docID }
-func (e *emptySortedDV) GetOrd(int) (int, error)    { return -1, nil }
+func (e *emptySortedDV) Get(int) ([]byte, error)       { return nil, nil }
+func (e *emptySortedDV) Advance(int) (int, error)      { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
+func (e *emptySortedDV) NextDoc() (int, error)         { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
+func (e *emptySortedDV) DocID() int                    { return e.docID }
+func (e *emptySortedDV) GetOrd(int) (int, error)       { return -1, nil }
 func (e *emptySortedDV) LookupOrd(int) ([]byte, error) { return nil, nil }
-func (e *emptySortedDV) GetValueCount() int         { return 0 }
+func (e *emptySortedDV) GetValueCount() int            { return 0 }
 
 type emptySortedNumericDV struct{ docID int }
 
 func (e *emptySortedNumericDV) Get(int) ([]int64, error) { return nil, nil }
-func (e *emptySortedNumericDV) Advance(int) (int, error) { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
-func (e *emptySortedNumericDV) NextDoc() (int, error)    { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
-func (e *emptySortedNumericDV) DocID() int               { return e.docID }
+func (e *emptySortedNumericDV) Advance(int) (int, error) {
+	e.docID = NO_MORE_DOCS
+	return NO_MORE_DOCS, nil
+}
+func (e *emptySortedNumericDV) NextDoc() (int, error) {
+	e.docID = NO_MORE_DOCS
+	return NO_MORE_DOCS, nil
+}
+func (e *emptySortedNumericDV) DocID() int { return e.docID }
 
 type emptySortedSetDV struct{ docID int }
 
-func (e *emptySortedSetDV) Get(int) ([]int, error)     { return nil, nil }
-func (e *emptySortedSetDV) Advance(int) (int, error)   { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
-func (e *emptySortedSetDV) NextDoc() (int, error)      { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
-func (e *emptySortedSetDV) DocID() int                 { return e.docID }
+func (e *emptySortedSetDV) Get(int) ([]int, error) { return nil, nil }
+func (e *emptySortedSetDV) Advance(int) (int, error) {
+	e.docID = NO_MORE_DOCS
+	return NO_MORE_DOCS, nil
+}
+func (e *emptySortedSetDV) NextDoc() (int, error)         { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
+func (e *emptySortedSetDV) DocID() int                    { return e.docID }
 func (e *emptySortedSetDV) LookupOrd(int) ([]byte, error) { return nil, nil }
-func (e *emptySortedSetDV) GetValueCount() int         { return 0 }
+func (e *emptySortedSetDV) GetValueCount() int            { return 0 }
 
 // --- singleton wrappers ------------------------------------------------------
-
-type singletonSortedNumeric struct {
-	wrapped NumericDocValues
-}
-
-func (s *singletonSortedNumeric) Get(docID int) ([]int64, error) {
-	v, err := s.wrapped.Get(docID)
-	if err != nil {
-		return nil, err
-	}
-	return []int64{v}, nil
-}
-
-func (s *singletonSortedNumeric) Advance(target int) (int, error) {
-	return s.wrapped.Advance(target)
-}
-
-func (s *singletonSortedNumeric) NextDoc() (int, error) {
-	return s.wrapped.NextDoc()
-}
-
-func (s *singletonSortedNumeric) DocID() int {
-	return s.wrapped.DocID()
-}
+//
+// singletonSortedNumeric lives in singleton_sorted_numeric_doc_values.go;
+// see that file for the dedicated port of
+// org.apache.lucene.index.SingletonSortedNumericDocValues.
 
 type singletonSortedSet struct {
 	wrapped SortedDocValues
