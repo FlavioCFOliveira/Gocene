@@ -30,9 +30,9 @@ import (
 //   - FlushedSegment is aliased to FlushTicket (decision Q3) since the DWPT
 //     port reuses the FlushTicket struct as the in-memory flushed-segment
 //     handoff. When a dedicated FlushedSegment port lands, swap the alias.
-//   - FrozenBufferedUpdates is declared as a minimal placeholder struct
-//     (decision Q2) until the dedicated port arrives. The queue treats it
-//     purely as an opaque payload, so only the identity matters here.
+//   - FrozenBufferedUpdates is now the real port from
+//     frozen_buffered_updates.go (Sprint 55 GOC-3360). The queue still
+//     treats it as an opaque payload, so only the identity matters here.
 //
 // Concurrency contract (mirrors Lucene):
 //   - addTicket / addSegment / markTicketFailed / hasTickets / getTicketCount
@@ -58,10 +58,8 @@ var ErrFlushQueueAlreadyPublished = errors.New("flush queue ticket was already p
 // dedicated type when the FlushedSegment port lands.
 type FlushedSegment = FlushTicket
 
-// FrozenBufferedUpdates is a placeholder for the frozen global deletes
-// packet produced by BufferedUpdatesStream. It is treated as opaque by the
-// flush queue. Replace with the real port (see backlog) when available.
-type FrozenBufferedUpdates struct{}
+// FrozenBufferedUpdates is defined in frozen_buffered_updates.go and is
+// treated as an opaque payload by the flush queue.
 
 // flushQueueTicketSupplier mirrors java.util.function.Supplier<FlushTicket>.
 // Returning a nil ticket signals that no ticket should be enqueued (the
