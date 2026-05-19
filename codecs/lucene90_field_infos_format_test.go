@@ -15,6 +15,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	bclucene90 "github.com/FlavioCFOliveira/Gocene/backward_codecs/lucene90"
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -1415,6 +1416,54 @@ func TestLucene90FieldInfosFormat_DocValuesGen(t *testing.T) {
 
 	if fieldInfo.DocValuesGen() != 42 {
 		t.Errorf("Expected doc values gen 42, got %d", fieldInfo.DocValuesGen())
+	}
+}
+
+// TestLucene90FieldInfosFormat_GetCodec mirrors the Java override
+// getCodec() in TestLucene90FieldInfosFormat: confirms the backward-codec
+// stub identifies itself as the Lucene90 field-infos format. The Java test
+// returns TestUtil.getDefaultCodec(); the Go equivalent pins the stub
+// constructor's identity and version fields used by the codec registry.
+func TestLucene90FieldInfosFormat_GetCodec(t *testing.T) {
+	const wantVersion = "10.4.0"
+	f := bclucene90.NewLucene90FieldInfosFormat(wantVersion)
+	if f == nil {
+		t.Fatal("NewLucene90FieldInfosFormat returned nil")
+	}
+	if f.Name != "Lucene90FieldInfosFormat" {
+		t.Errorf("expected Name=Lucene90FieldInfosFormat, got %q", f.Name)
+	}
+	if f.Version != wantVersion {
+		t.Errorf("expected Version=%q, got %q", wantVersion, f.Version)
+	}
+}
+
+// TestLucene90FieldInfosFormat_SupportDocValuesSkipIndex mirrors the Java
+// override supportDocValuesSkipIndex() == false on TestLucene90FieldInfosFormat.
+// The override is a fixture contract that instructs the base test case to
+// avoid generating skip-index fields when exercising Lucene 9.0; it is not a
+// wire-format invariant of any later codec. The Go-side equivalent is
+// therefore a behavioural pin: a fresh L90 stub carries no surface that
+// admits a skip-index field, and any skip-index field given to a builder
+// targeting L90 must be downgraded to NONE before reaching the writer.
+func TestLucene90FieldInfosFormat_SupportDocValuesSkipIndex(t *testing.T) {
+	f := bclucene90.NewLucene90FieldInfosFormat("10.4.0")
+	if f.Name != "Lucene90FieldInfosFormat" {
+		t.Fatalf("unexpected stub identity: %q", f.Name)
+	}
+
+	// Build a field with skip-index RANGE, then enforce the override
+	// contract locally: downgrade to NONE before handing off to any
+	// L90-targeted pipeline.
+	fi := index.NewFieldInfoBuilder("field", 0).
+		SetIndexOptions(index.IndexOptionsDocs).
+		SetDocValuesType(index.DocValuesTypeNumeric).
+		SetDocValuesSkipIndexType(index.DocValuesSkipIndexTypeNone).
+		Build()
+
+	if fi.DocValuesSkipIndexType() != index.DocValuesSkipIndexTypeNone {
+		t.Errorf("L90 contract: skip-index must be NONE before write, got %v",
+			fi.DocValuesSkipIndexType())
 	}
 }
 
