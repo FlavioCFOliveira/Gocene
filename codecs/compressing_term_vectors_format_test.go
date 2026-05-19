@@ -332,6 +332,70 @@ func TestCompressingTermVectorsReader_Get(t *testing.T) {
 	}
 }
 
+// TestCompressingTermVectorsFormat_NoOrds is the 1:1 port of
+// TestCompressingTermVectorsFormat.testNoOrds (LUCENE-5156).
+//
+// Source: lucene/core/src/test/org/apache/lucene/codecs/lucene90/compressing/
+// TestCompressingTermVectorsFormat.java
+//
+// The Java test exercises the end-to-end pipeline:
+//
+//	RandomIndexWriter -> IndexWriter -> LeafReader.termVectors().get(...)
+//	-> Terms.iterator() -> TermsEnum.seekCeil(...) == SeekStatus.FOUND
+//	-> expectThrows(UnsupportedOperationException, termsEnum::ord)
+//	-> expectThrows(UnsupportedOperationException, () -> termsEnum.seekExact(0))
+//
+// The Gocene port currently lacks:
+//   - RandomIndexWriter test helper around index.IndexWriter
+//   - Wired termVectors() accessor on LeafReader/CodecReader returning the
+//     compressing TermVectors reader (only the standalone reader/writer
+//     are exposed today)
+//   - TermsEnum.SeekCeil returning SeekStatus.FOUND with the ord/seekExact
+//     UnsupportedOperationException semantics on the compressing path
+//
+// Until these land, this counterpart is registered as a skipped placeholder
+// so the 1:1 acceptance criterion is observable; the Writer/Reader
+// surfaces are already exercised by the lifecycle/Get tests above.
+func TestCompressingTermVectorsFormat_NoOrds(t *testing.T) {
+	t.Skip("testNoOrds requires RandomIndexWriter + LeafReader.termVectors + " +
+		"TermsEnum.SeekCeil/Ord UnsupportedOperationException semantics on the " +
+		"compressing path - not yet wired")
+}
+
+// TestCompressingTermVectorsFormat_ChunkCleanup is the 1:1 port of
+// TestCompressingTermVectorsFormat.testChunkCleanup.
+//
+// Source: lucene/core/src/test/org/apache/lucene/codecs/lucene90/compressing/
+// TestCompressingTermVectorsFormat.java
+//
+// The Java test verifies that dirty chunks accumulated across small flushed
+// segments are recompressed during forceMerge:
+//
+//  1. configure CompressingCodec(chunkSize=4KB, maxDocsPerChunk=4)
+//  2. open IndexWriter with NoMergePolicy
+//  3. add 5 docs, flushing each via openIfChanged
+//  4. assert reader.getNumDirtyDocs() > 0 and reader.getNumDirtyChunks() == 1
+//     per leaf
+//  5. switch to LogMergePolicy, forceMerge(1)
+//  6. add one more doc, forceMerge(1)
+//  7. assert reader.getNumDirtyChunks() <= 2 on the merged leaf
+//
+// The Gocene port currently lacks:
+//   - CompressingCodec test helper with the four-arg configuration constructor
+//   - NoMergePolicy/LogMergePolicy + forceMerge end-to-end on IndexWriter
+//   - DirectoryReader.openIfChanged returning a refreshed reader after flush
+//   - CompressingTermVectorsReader.GetNumDirtyDocs / GetNumDirtyChunks
+//     accessors (the underlying dirty-chunk bookkeeping is not yet ported)
+//
+// Until these land, this counterpart is a skipped placeholder so the 1:1
+// acceptance criterion is observable.
+func TestCompressingTermVectorsFormat_ChunkCleanup(t *testing.T) {
+	t.Skip("testChunkCleanup requires NoMergePolicy/LogMergePolicy forceMerge, " +
+		"openIfChanged, CompressingCodec configuration helper, and " +
+		"CompressingTermVectorsReader.GetNumDirty{Docs,Chunks} accessors - " +
+		"not yet wired")
+}
+
 // TestCompressingTermVectorsReader_GetField tests the GetField method
 func TestCompressingTermVectorsReader_GetField(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
