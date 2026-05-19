@@ -321,7 +321,7 @@ func TestShapeDocValues_Relate(t *testing.T) {
 		},
 	}
 	sdv, err := NewShapeDocValuesFromTessellation(
-		latLonShapeEncoder{}, tess, stubCentroidFn, stubBoundingBoxFn,
+		LatLonShapeDocValuesEncoder, tess, stubCentroidFn, stubBoundingBoxFn,
 	)
 	if err != nil {
 		t.Fatalf("NewShapeDocValuesFromTessellation: %v", err)
@@ -364,17 +364,6 @@ func TestShapeDocValues_Relate(t *testing.T) {
 		t.Errorf("Relate outside = %v; want CellOutsideQuery", rel)
 	}
 }
-
-// latLonShapeEncoder is a local lat/lon encoder used by the Relate
-// test only. It mirrors the future LatLonShapeDocValues.encoder
-// (GOC-3218) but is intentionally kept here so this file does not
-// depend on a subclass port that has not yet landed.
-type latLonShapeEncoder struct{}
-
-func (latLonShapeEncoder) EncodeX(x float64) int32 { return geo.EncodeLongitude(x) }
-func (latLonShapeEncoder) EncodeY(y float64) int32 { return geo.EncodeLatitude(y) }
-func (latLonShapeEncoder) DecodeX(i int32) float64 { return geo.DecodeLongitude(i) }
-func (latLonShapeEncoder) DecodeY(i int32) float64 { return geo.DecodeLatitude(i) }
 
 // TestShapeDocValues_NewGeometryQuery_Stub asserts the placeholder
 // method still returns nil while we wait for GOC-4532+ to wire the
