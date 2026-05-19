@@ -66,6 +66,20 @@ func (a *CompetitiveImpactAccumulator) AddAll(other *CompetitiveImpactAccumulato
 	}
 }
 
+// Copy replaces this accumulator's state with a snapshot of other. After the
+// call, GetCompetitiveFreqNormPairs returns the same impacts as other would,
+// and subsequent mutations of either accumulator do not affect the other.
+// Matches CompetitiveImpactAccumulator#copy in Apache Lucene 10.4.0.
+func (a *CompetitiveImpactAccumulator) Copy(other *CompetitiveImpactAccumulator) {
+	a.Clear()
+	if other == nil {
+		return
+	}
+	for norm, freq := range other.maxFreqs {
+		a.maxFreqs[norm] = freq
+	}
+}
+
 // GetCompetitiveFreqNormPairs returns the pruned set of competitive impacts
 // sorted by ascending freq, matching Lucene's
 // CompetitiveImpactAccumulator#getCompetitiveFreqNormPairs() contract.
