@@ -32,6 +32,38 @@ func NewLatLonShapeDocValues(triangles []byte) (*LatLonShapeDocValues, error) {
 	return &LatLonShapeDocValues{triangles: dup}, nil
 }
 
+// latLonShapeEncoder is the production ShapeDocValuesEncoder used by
+// the geographic LatLonShape family. Mirrors Lucene 10.4.0's
+// LatLonShapeDocValues.Encoder: X is longitude, Y is latitude, and
+// the int32 ⇆ float64 mapping is the quantised lat/lon scheme.
+//
+// The Java reference exposes this as the package-private Encoder
+// nested in LatLonShapeDocValues. In Gocene the Encoder must be
+// importable from the search package so the doc-values query family
+// (LatLonShapeDocValuesQuery, GOC-3225) can build a *ShapeDocValues
+// from a per-doc binary payload — Gocene splits the Java
+// "LatLonShapeDocValues extends ShapeDocValues" inheritance into two
+// unrelated types, so the encoder strategy must be reachable from
+// outside the document package.
+type latLonShapeEncoder struct{}
+
+// LatLonShapeDocValuesEncoder is the singleton instance of the
+// production lat/lon ShapeDocValuesEncoder. Stateless and concurrency
+// safe; callers should reuse the singleton.
+var LatLonShapeDocValuesEncoder ShapeDocValuesEncoder = latLonShapeEncoder{}
+
+// EncodeX maps a longitude in degrees to the int32 quantised value.
+func (latLonShapeEncoder) EncodeX(x float64) int32 { return geo.EncodeLongitude(x) }
+
+// EncodeY maps a latitude in degrees to the int32 quantised value.
+func (latLonShapeEncoder) EncodeY(y float64) int32 { return geo.EncodeLatitude(y) }
+
+// DecodeX maps a quantised int32 back to longitude in degrees.
+func (latLonShapeEncoder) DecodeX(x int32) float64 { return geo.DecodeLongitude(x) }
+
+// DecodeY maps a quantised int32 back to latitude in degrees.
+func (latLonShapeEncoder) DecodeY(y int32) float64 { return geo.DecodeLatitude(y) }
+
 // NumTriangles returns the number of triangles stored.
 func (d *LatLonShapeDocValues) NumTriangles() int { return len(d.triangles) / ShapeFieldBytes }
 
