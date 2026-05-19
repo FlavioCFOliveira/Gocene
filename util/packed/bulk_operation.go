@@ -60,6 +60,21 @@ type bulkOperationPacked struct {
 	intMask        uint32
 }
 
+// BulkOperationPacked is the exported alias of bulkOperationPacked, the
+// non-specialized BulkOperation that handles every bitsPerValue in
+// [1, 64] for FormatPacked. It is provided so external packages can
+// embed or reference the concrete type without losing zero-cost
+// identity with the internal implementation.
+type BulkOperationPacked = bulkOperationPacked
+
+// NewBulkOperationPacked returns a new BulkOperationPacked for the
+// given bitsPerValue in [1, 64]. It is the exported wrapper around
+// newBulkOperationPacked and preserves identical semantics, including
+// the panic on out-of-range bitsPerValue.
+func NewBulkOperationPacked(bitsPerValue int) *BulkOperationPacked {
+	return newBulkOperationPacked(bitsPerValue)
+}
+
 func newBulkOperationPacked(bitsPerValue int) *bulkOperationPacked {
 	if bitsPerValue < 1 || bitsPerValue > 64 {
 		panic(fmt.Sprintf("packed: bitsPerValue out of range: %d", bitsPerValue))
