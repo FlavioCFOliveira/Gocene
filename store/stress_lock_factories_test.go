@@ -5,599 +5,310 @@
 package store
 
 import (
+	"errors"
 	"fmt"
 	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strconv"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 )
 
-// TestStressLockFactories tests lock factory implementations under multi-process
-// contention scenarios. This is the Go port of Lucene's TestStressLockFactories.
+// TestStressLockFactories is the Go port of
+// org.apache.lucene.store.TestStressLockFactories.
 //
-// Source: org.apache.lucene.store.TestStressLockFactories
-// Purpose: Multi-process lock contention, lock ordering verification
+// The Java original spawns a fresh JVM per client and lets the in-process
+// LockVerifyServer arbitrate between them, exercising the cross-process
+// guarantees of NativeFSLockFactory and SimpleFSLockFactory. Doing the same
+// thing in Go requires re-exec'ing the test binary: TestMain intercepts the
+// "GOCENE_STRESS_LOCK_FACTORIES_CHILD" environment variable, dispatches into
+// [LockStressMain], and exits before the testing framework ever runs. The
+// parent test then drives [LockVerifyServerRun] in-process and spawns N child
+// processes through os.Args[0].
 //
-// The test verifies that:
-// - At most one process holds a lock at any time
-// - Lock acquisition and release work correctly under stress
-// - Different LockFactory implementations behave correctly
+// See [LockStressMain] / [LockVerifyServerRun] for the wire-protocol details,
+// which are byte-for-byte compatible with Lucene's LockStressTest /
+// LockVerifyServer pair.
 
-const (
-	// Protocol constants matching VerifyingLockFactory
-	msgLockReleased = 0
-	msgLockAcquired = 1
-	startGunSignal  = 43
-)
+// stressChildEnvVar is consumed by [TestMain] to decide whether the current
+// invocation is the parent test process or a re-exec'd stress client. The
+// value is the verbatim argv that should be handed to [LockStressMain], one
+// argument per line (newline-separated, no trailing newline). Using a single
+// env var avoids polluting Args with non-test flags that would confuse the
+// testing framework if dispatch ever missed.
+const stressChildEnvVar = "GOCENE_STRESS_LOCK_FACTORIES_CHILD"
 
-// lockVerifyServer is a TCP server that verifies at most one client holds
-// the lock at any time. This is the Go equivalent of LockVerifyServer.
-type lockVerifyServer struct {
-	listener    net.Listener
-	maxClients  int
-	lockedID    atomic.Int32 // -1 = unlocked, -2 = error, >=0 = client ID holding lock
-	startingGun chan struct{}
-	wg          sync.WaitGroup
-	t           *testing.T
-}
-
-// newLockVerifyServer creates a new lock verification server.
-func newLockVerifyServer(t *testing.T, maxClients int) (*lockVerifyServer, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create listener: %w", err)
+// TestMain dispatches re-exec'd child invocations into [LockStressMain] before
+// any test runs. In the parent process the env var is unset, so we fall
+// through to the standard m.Run() and exit with its status. Keeping this here
+// (rather than in a dedicated file) makes the dependency obvious to anyone
+// editing TestStressLockFactories.
+func TestMain(m *testing.M) {
+	if payload, ok := os.LookupEnv(stressChildEnvVar); ok {
+		os.Exit(LockStressMain(decodeChildArgs(payload)))
 	}
+	os.Exit(m.Run())
+}
 
-	server := &lockVerifyServer{
-		listener:    listener,
-		maxClients:  maxClients,
-		startingGun: make(chan struct{}),
-		t:           t,
+// decodeChildArgs reverses [encodeChildArgs]. Empty input yields a nil slice,
+// matching what [LockStressMain] expects for a usage error.
+func decodeChildArgs(payload string) []string {
+	if payload == "" {
+		return nil
 	}
-	server.lockedID.Store(-1)
-	return server, nil
-}
-
-// addr returns the server address.
-func (s *lockVerifyServer) addr() net.Addr {
-	return s.listener.Addr()
-}
-
-// run starts the server and waits for all clients to connect.
-func (s *lockVerifyServer) run() error {
-	defer s.listener.Close()
-
-	clients := make([]net.Conn, 0, s.maxClients)
-
-	// Accept connections from all clients
-	for i := 0; i < s.maxClients; i++ {
-		s.listener.(*net.TCPListener).SetDeadline(time.Now().Add(30 * time.Second))
-		conn, err := s.listener.Accept()
-		if err != nil {
-			// Close existing connections
-			for _, c := range clients {
-				c.Close()
-			}
-			return fmt.Errorf("failed to accept client %d: %w", i, err)
+	// Hand-rolled split to avoid pulling in the strings package for one call.
+	out := make([]string, 0, 7)
+	start := 0
+	for i := 0; i < len(payload); i++ {
+		if payload[i] == '\n' {
+			out = append(out, payload[start:i])
+			start = i + 1
 		}
-		clients = append(clients, conn)
 	}
-
-	// Handle each client in a separate goroutine
-	for i, conn := range clients {
-		s.wg.Add(1)
-		go s.handleClient(i, conn)
-	}
-
-	// Signal all clients to start
-	close(s.startingGun)
-
-	// Wait for all clients to finish
-	s.wg.Wait()
-	return nil
+	out = append(out, payload[start:])
+	return out
 }
 
-// handleClient handles communication with a single client.
-func (s *lockVerifyServer) handleClient(clientID int, conn net.Conn) {
-	defer s.wg.Done()
-	defer conn.Close()
-
-	buf := make([]byte, 1)
-
-	// Read client ID
-	if _, err := conn.Read(buf); err != nil {
-		s.t.Errorf("Client %d: failed to read ID: %v", clientID, err)
-		return
+// encodeChildArgs serialises a stress-test argv into the single
+// newline-delimited string consumed by [decodeChildArgs]. None of the
+// arguments produced by the parent test ever contain a newline, so this
+// simple framing is safe.
+func encodeChildArgs(args []string) string {
+	total := 0
+	for i, a := range args {
+		total += len(a)
+		if i > 0 {
+			total++
+		}
 	}
-	id := int(buf[0])
+	buf := make([]byte, 0, total)
+	for i, a := range args {
+		if i > 0 {
+			buf = append(buf, '\n')
+		}
+		buf = append(buf, a...)
+	}
+	return string(buf)
+}
 
-	// Wait for starting gun
-	<-s.startingGun
+// stressClientCount mirrors Lucene's `TEST_NIGHTLY ? 5 : 2`; we never run
+// nightly here, so the smaller cohort applies.
+const stressClientCount = 2
 
-	// Send start signal
-	buf[0] = startGunSignal
-	if _, err := conn.Write(buf); err != nil {
-		s.t.Errorf("Client %d: failed to send start signal: %v", clientID, err)
-		return
+// stressRounds mirrors Lucene's `(TEST_NIGHTLY ? 30000 : 500) * RANDOM_MULTIPLIER`
+// with RANDOM_MULTIPLIER fixed at 1, matching the default Gocene test
+// configuration.
+const stressRounds = 500
+
+// stressDelayMS matches Lucene's `final int delay = 1;`.
+const stressDelayMS = 1
+
+// stressClientTimeout caps how long the parent waits for any one child to
+// exit cleanly. Lucene uses 15 seconds; we keep the same budget. Note that
+// 500 rounds * 2 sleeps * 1ms = ~1s of pure sleep per client, leaving
+// generous headroom for filesystem and TCP jitter.
+const stressClientTimeout = 15 * time.Second
+
+// stressChildRecord pairs a spawned child process with the paths of its
+// captured stdout / stderr, so the parent can correlate exit-code failures
+// with what the child actually printed before dying.
+type stressChildRecord struct {
+	idx     int
+	cmd     *exec.Cmd
+	outPath string
+	errPath string
+}
+
+// runStressImpl drives one (server, N clients) cycle for the given factory
+// symbolic name (the form understood by [DefaultLockStressFactoryResolver]).
+// It is the Go analogue of Lucene's `runImpl(Class<? extends LockFactory>)`.
+func runStressImpl(t *testing.T, factoryName string) {
+	t.Helper()
+
+	if _, ok := os.LookupEnv(stressChildEnvVar); ok {
+		// Defensive: a re-exec'd child should have been intercepted in
+		// TestMain. Reaching this path means the dispatch was missed.
+		t.Fatalf("re-exec child reached test body; TestMain dispatch is broken")
 	}
 
-	// Process lock commands
-	for {
-		if _, err := conn.Read(buf); err != nil {
-			// Connection closed
+	const host = "127.0.0.1"
+
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatalf("locate test binary: %v", err)
+	}
+
+	lockDir := t.TempDir()
+	logDir := t.TempDir()
+
+	children := make([]*stressChildRecord, 0, stressClientCount)
+	var spawnErr error
+
+	err = LockVerifyServerRun(host, stressClientCount, func(addr net.Addr) {
+		tcpAddr, ok := addr.(*net.TCPAddr)
+		if !ok {
+			spawnErr = fmt.Errorf("expected *net.TCPAddr, got %T", addr)
 			return
 		}
-
-		command := buf[0]
-
-		// Check if another thread got an error
-		if s.lockedID.Load() == -2 {
-			return
-		}
-
-		switch command {
-		case msgLockAcquired:
-			// Try to acquire lock
-			currentLock := s.lockedID.Load()
-			if currentLock != -1 {
-				s.lockedID.Store(-2)
-				s.t.Errorf("Client %d got lock, but %d already holds the lock", id, currentLock)
-				return
-			}
-			if !s.lockedID.CompareAndSwap(-1, int32(id)) {
-				s.lockedID.Store(-2)
-				s.t.Errorf("Client %d: CAS failed when acquiring lock", id)
-				return
-			}
-
-		case msgLockReleased:
-			// Try to release lock
-			currentLock := s.lockedID.Load()
-			if currentLock != int32(id) {
-				s.lockedID.Store(-2)
-				s.t.Errorf("Client %d released lock, but %d is holding the lock", id, currentLock)
-				return
-			}
-			if !s.lockedID.CompareAndSwap(int32(id), -1) {
-				s.lockedID.Store(-2)
-				s.t.Errorf("Client %d: CAS failed when releasing lock", id)
-				return
-			}
-
-		default:
-			s.t.Errorf("Client %d: unrecognized command: %d", id, command)
-			return
-		}
-
-		// Acknowledge command
-		if _, err := conn.Write(buf); err != nil {
-			s.t.Errorf("Client %d: failed to acknowledge: %v", id, err)
-			return
-		}
-	}
-}
-
-// lockStressClient represents a client process that stresses the lock factory.
-type lockStressClient struct {
-	id          int
-	serverAddr  string
-	lockFactory LockFactory
-	lockDir     string
-	delayMs     int
-	rounds      int
-	t           *testing.T
-}
-
-// run executes the stress test client.
-func (c *lockStressClient) run() error {
-	// Connect to verification server
-	conn, err := net.DialTimeout("tcp", c.serverAddr, 3*time.Second)
-	if err != nil {
-		return fmt.Errorf("failed to connect to server: %w", err)
-	}
-	defer conn.Close()
-
-	// Send client ID
-	if _, err := conn.Write([]byte{byte(c.id)}); err != nil {
-		return fmt.Errorf("failed to send ID: %w", err)
-	}
-
-	// Wait for start signal
-	buf := make([]byte, 1)
-	if _, err := conn.Read(buf); err != nil {
-		return fmt.Errorf("failed to read start signal: %w", err)
-	}
-	if buf[0] != startGunSignal {
-		return fmt.Errorf("protocol violation: expected %d, got %d", startGunSignal, buf[0])
-	}
-
-	// Create verifying lock factory wrapper
-	vf := &verifyingLockFactory{
-		factory: c.lockFactory,
-		conn:    conn,
-	}
-
-	// Create FSDirectory for lock storage
-	fsDir, err := NewNIOFSDirectory(c.lockDir)
-	if err != nil {
-		return fmt.Errorf("failed to create NIOFSDirectory: %w", err)
-	}
-	defer fsDir.Close()
-
-	// Run stress test
-	for i := 0; i < c.rounds; i++ {
-		lock, err := vf.obtainLock(fsDir, "test.lock")
-		if err != nil {
-			// Lock obtain failed - this is expected in contention scenarios
-			time.Sleep(time.Duration(c.delayMs) * time.Millisecond)
-			continue
-		}
-
-		// Hold lock for a short time
-		time.Sleep(time.Duration(c.delayMs) * time.Millisecond)
-
-		// Release lock
-		if err := lock.Close(); err != nil {
-			return fmt.Errorf("failed to release lock: %w", err)
-		}
-
-		time.Sleep(time.Duration(c.delayMs) * time.Millisecond)
-	}
-
-	return nil
-}
-
-// verifyingLockFactory wraps a LockFactory and verifies operations with a server.
-type verifyingLockFactory struct {
-	factory LockFactory
-	conn    net.Conn
-}
-
-// obtainLock obtains a lock and verifies with the server.
-func (v *verifyingLockFactory) obtainLock(dir Directory, lockName string) (Lock, error) {
-	lock, err := v.factory.ObtainLock(dir, lockName)
-	if err != nil {
-		return nil, err
-	}
-
-	// Verify lock acquisition with server
-	if err := v.verify(msgLockAcquired); err != nil {
-		lock.Close()
-		return nil, err
-	}
-
-	return &verifyingLock{
-		Lock:    lock,
-		factory: v,
-	}, nil
-}
-
-// verify sends a message to the server and waits for acknowledgment.
-func (v *verifyingLockFactory) verify(message byte) error {
-	if _, err := v.conn.Write([]byte{message}); err != nil {
-		return fmt.Errorf("failed to send verification: %w", err)
-	}
-
-	buf := make([]byte, 1)
-	if _, err := v.conn.Read(buf); err != nil {
-		return fmt.Errorf("failed to read verification response: %w", err)
-	}
-
-	if buf[0] != message {
-		return fmt.Errorf("protocol violation: expected %d, got %d", message, buf[0])
-	}
-
-	return nil
-}
-
-// verifyingLock wraps a Lock and verifies release with the server.
-type verifyingLock struct {
-	Lock
-	factory *verifyingLockFactory
-}
-
-// Close releases the lock and verifies with the server.
-func (l *verifyingLock) Close() error {
-	if err := l.Lock.EnsureValid(); err != nil {
-		return err
-	}
-
-	if err := l.factory.verify(msgLockReleased); err != nil {
-		return err
-	}
-
-	return l.Lock.Close()
-}
-
-// Note: The original Lucene TestStressLockFactories uses multi-process testing
-// with LockVerifyServer and LockStressTest. In Go, we test the equivalent
-// functionality using goroutines for SingleInstanceLockFactory and basic
-// functionality tests for NativeFSLockFactory.
-
-// TestStressLockFactories_NativeFS tests NativeFSLockFactory under stress.
-// This is the Go port of TestStressLockFactories.testNativeFSLockFactory().
-//
-// Note: NativeFSLockFactory uses file-based locking which is designed to work
-// across processes. Within a single process, multiple goroutines can access the
-// same lock file. This test verifies the basic functionality and file operations.
-func TestStressLockFactories_NativeFS(t *testing.T) {
-	tempDir := t.TempDir()
-	dir, err := NewNIOFSDirectory(tempDir)
-	if err != nil {
-		t.Fatalf("Failed to create directory: %v", err)
-	}
-	defer dir.Close()
-
-	factory := NewNativeFSLockFactory()
-
-	// Test rapid lock acquire/release cycles
-	const cycles = 100
-	for i := 0; i < cycles; i++ {
-		lock, err := factory.ObtainLock(dir, "stress.lock")
-		if err != nil {
-			t.Fatalf("Cycle %d: failed to obtain lock: %v", i, err)
-		}
-
-		if !lock.IsLocked() {
-			t.Errorf("Cycle %d: lock should be held", i)
-		}
-
-		if err := lock.EnsureValid(); err != nil {
-			t.Errorf("Cycle %d: lock should be valid: %v", i, err)
-		}
-
-		if err := lock.Close(); err != nil {
-			t.Fatalf("Cycle %d: failed to release lock: %v", i, err)
-		}
-
-		if lock.IsLocked() {
-			t.Errorf("Cycle %d: lock should be released", i)
-		}
-	}
-
-	// Test that we can obtain different named locks
-	lockNames := []string{"lock1", "lock2", "write.lock", "commit.lock"}
-	locks := make([]Lock, 0, len(lockNames))
-
-	for _, name := range lockNames {
-		lock, err := factory.ObtainLock(dir, name)
-		if err != nil {
-			t.Fatalf("Failed to obtain lock %s: %v", name, err)
-		}
-		locks = append(locks, lock)
-	}
-
-	// Release all locks
-	for _, lock := range locks {
-		if err := lock.Close(); err != nil {
-			t.Errorf("Failed to release lock: %v", err)
-		}
-	}
-}
-
-// TestStressLockFactories_SingleInstance tests SingleInstanceLockFactory under stress.
-// Note: SingleInstanceLockFactory only works within a single process,
-// so this tests concurrent goroutine access rather than multi-process.
-func TestStressLockFactories_SingleInstance(t *testing.T) {
-	factory := NewSingleInstanceLockFactory()
-	tempDir := t.TempDir()
-
-	// Create a mock directory
-	dir, err := NewNIOFSDirectory(tempDir)
-	if err != nil {
-		t.Fatalf("Failed to create directory: %v", err)
-	}
-	defer dir.Close()
-
-	const numGoroutines = 10
-	const rounds = 50
-
-	var wg sync.WaitGroup
-	errors := make(chan error, numGoroutines)
-
-	for i := 0; i < numGoroutines; i++ {
-		wg.Add(1)
-		go func(id int) {
-			defer wg.Done()
-
-			for r := 0; r < rounds; r++ {
-				lock, err := factory.ObtainLock(dir, "stress.lock")
-				if err != nil {
-					// Lock contention is expected
-					time.Sleep(time.Millisecond)
-					continue
-				}
-
-				// Verify lock is held
-				if !lock.IsLocked() {
-					errors <- fmt.Errorf("goroutine %d: lock not held after obtain", id)
-					return
-				}
-
-				// Hold briefly
-				time.Sleep(time.Millisecond)
-
-				// Release
-				if err := lock.Close(); err != nil {
-					errors <- fmt.Errorf("goroutine %d: failed to release lock: %w", id, err)
-					return
-				}
-
-				time.Sleep(time.Millisecond)
-			}
-		}(i)
-	}
-
-	wg.Wait()
-	close(errors)
-
-	for err := range errors {
-		t.Errorf("Stress test error: %v", err)
-	}
-}
-
-// TestStressLockFactories_ConcurrentAccess tests concurrent lock access patterns.
-func TestStressLockFactories_ConcurrentAccess(t *testing.T) {
-	tests := []struct {
-		name    string
-		factory LockFactory
-	}{
-		{
-			name:    "NativeFSLockFactory",
-			factory: NewNativeFSLockFactory(),
-		},
-		{
-			name:    "SingleInstanceLockFactory",
-			factory: NewSingleInstanceLockFactory(),
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			tempDir := t.TempDir()
-			dir, err := NewNIOFSDirectory(tempDir)
+		for i := 0; i < stressClientCount; i++ {
+			rec, err := spawnStressClient(binary, lockDir, logDir, host, tcpAddr.Port, factoryName, i)
 			if err != nil {
-				t.Fatalf("Failed to create directory: %v", err)
+				spawnErr = fmt.Errorf("spawn client %d: %w", i, err)
+				return
 			}
-			defer dir.Close()
+			children = append(children, rec)
+		}
+	})
 
-			const numGoroutines = 5
-			const iterations = 20
+	if spawnErr != nil {
+		dumpChildLogs(t, children)
+		t.Fatalf("server failed during spawn: %v", spawnErr)
+	}
+	if err != nil {
+		dumpChildLogs(t, children)
+		t.Fatalf("server failed: %v", err)
+	}
 
-			var wg sync.WaitGroup
-			successCount := atomic.Int32{}
-			contentionCount := atomic.Int32{}
+	// Reap every child. We always invoke Wait on all of them so the OS
+	// release-resources path runs even when some children timed out.
+	var (
+		waitErrs []error
+		killWG   sync.WaitGroup
+	)
 
-			for i := 0; i < numGoroutines; i++ {
-				wg.Add(1)
-				go func(id int) {
-					defer wg.Done()
+	for _, c := range children {
+		c := c
+		done := make(chan error, 1)
+		go func() { done <- c.cmd.Wait() }()
 
-					for j := 0; j < iterations; j++ {
-						lock, err := tt.factory.ObtainLock(dir, "concurrent.lock")
-						if err != nil {
-							contentionCount.Add(1)
-							continue
-						}
-
-						// Verify lock
-						if err := lock.EnsureValid(); err != nil {
-							t.Errorf("Lock not valid: %v", err)
-						}
-
-						successCount.Add(1)
-						lock.Close()
-					}
-				}(i)
+		select {
+		case waitErr := <-done:
+			if waitErr != nil {
+				waitErrs = append(waitErrs, fmt.Errorf("client %d: %w", c.idx, waitErr))
+				dumpSingleChild(t, c)
 			}
+		case <-time.After(stressClientTimeout):
+			waitErrs = append(waitErrs, fmt.Errorf("client %d (pid %d): did not finish within %s", c.idx, c.cmd.Process.Pid, stressClientTimeout))
+			dumpSingleChild(t, c)
+			killWG.Add(1)
+			go func() {
+				defer killWG.Done()
+				_ = c.cmd.Process.Kill()
+				<-done
+			}()
+		}
+	}
 
-			wg.Wait()
+	killWG.Wait()
 
-			total := successCount.Load() + contentionCount.Load()
-			if total != numGoroutines*iterations {
-				t.Errorf("Expected %d attempts, got %d", numGoroutines*iterations, total)
-			}
-
-			t.Logf("Success: %d, Contention: %d", successCount.Load(), contentionCount.Load())
-		})
+	if len(waitErrs) > 0 {
+		t.Fatalf("stress run failed: %v", errors.Join(waitErrs...))
 	}
 }
 
-// TestStressLockFactories_LockOrdering tests that locks are properly ordered.
-func TestStressLockFactories_LockOrdering(t *testing.T) {
-	factory := NewSingleInstanceLockFactory()
-	tempDir := t.TempDir()
-	dir, err := NewNIOFSDirectory(tempDir)
+// spawnStressClient re-execs the test binary in "child" mode and wires its
+// stdout / stderr to per-client log files under logDir, mirroring Lucene's
+// `out-<i>.txt` / `err-<i>.txt` redirection.
+func spawnStressClient(binary, lockDir, logDir, host string, port int, factoryName string, idx int) (*stressChildRecord, error) {
+	args := []string{
+		strconv.Itoa(idx),
+		host,
+		strconv.Itoa(port),
+		factoryName,
+		lockDir,
+		strconv.Itoa(stressDelayMS),
+		strconv.Itoa(stressRounds),
+	}
+
+	outPath := filepath.Join(logDir, fmt.Sprintf("out-%d.txt", idx))
+	errPath := filepath.Join(logDir, fmt.Sprintf("err-%d.txt", idx))
+
+	outFile, err := os.Create(outPath)
 	if err != nil {
-		t.Fatalf("Failed to create directory: %v", err)
+		return nil, fmt.Errorf("create stdout log: %w", err)
 	}
-	defer dir.Close()
-
-	// Test that we can obtain multiple different locks
-	lockNames := []string{"lock1", "lock2", "lock3", "write.lock", "commit.lock"}
-	locks := make([]Lock, 0, len(lockNames))
-
-	for _, name := range lockNames {
-		lock, err := factory.ObtainLock(dir, name)
-		if err != nil {
-			t.Fatalf("Failed to obtain lock %s: %v", name, err)
-		}
-		locks = append(locks, lock)
+	errFile, err := os.Create(errPath)
+	if err != nil {
+		_ = outFile.Close()
+		return nil, fmt.Errorf("create stderr log: %w", err)
 	}
 
-	// Verify all locks are held
-	for i, lock := range locks {
-		if !lock.IsLocked() {
-			t.Errorf("Lock %d (%s) should be held", i, lockNames[i])
-		}
+	// Hand the binary a no-op test selector. We must run *something* under
+	// the testing framework's matcher to avoid `-run` selecting the
+	// well-known top-level tests on the child; TestMain intercepts before
+	// any test runs anyway, but the explicit selector keeps the contract
+	// obvious and prevents stray output if dispatch ever regresses.
+	cmd := exec.Command(binary, "-test.run=^$")
+	cmd.Env = append(os.Environ(), stressChildEnvVar+"="+encodeChildArgs(args))
+	cmd.Stdout = outFile
+	cmd.Stderr = errFile
+	// Inherit stdin like Lucene's Redirect.INHERIT.
+	cmd.Stdin = os.Stdin
+
+	if err := cmd.Start(); err != nil {
+		_ = outFile.Close()
+		_ = errFile.Close()
+		return nil, fmt.Errorf("start: %w", err)
 	}
 
-	// Release in reverse order
-	for i := len(locks) - 1; i >= 0; i-- {
-		if err := locks[i].Close(); err != nil {
-			t.Errorf("Failed to release lock %d: %v", i, err)
-		}
-	}
+	// We can close the file handles in the parent now; the OS keeps them
+	// open in the child for the lifetime of the process.
+	_ = outFile.Close()
+	_ = errFile.Close()
 
-	// Verify all locks are released
-	for i, lock := range locks {
-		if lock.IsLocked() {
-			t.Errorf("Lock %d (%s) should be released", i, lockNames[i])
-		}
+	return &stressChildRecord{idx: idx, cmd: cmd, outPath: outPath, errPath: errPath}, nil
+}
+
+// dumpChildLogs writes every child's captured stdout/stderr into the test
+// log, matching what Lucene's runImpl prints on failure.
+func dumpChildLogs(t *testing.T, children []*stressChildRecord) {
+	t.Helper()
+	for _, c := range children {
+		dumpSingleChild(t, c)
 	}
 }
 
-// TestStressLockFactories_RapidAcquireRelease tests rapid lock acquire/release cycles.
-func TestStressLockFactories_RapidAcquireRelease(t *testing.T) {
-	factory := NewSingleInstanceLockFactory()
-	tempDir := t.TempDir()
-	dir, err := NewNIOFSDirectory(tempDir)
-	if err != nil {
-		t.Fatalf("Failed to create directory: %v", err)
+func dumpSingleChild(t *testing.T, c *stressChildRecord) {
+	t.Helper()
+	if c == nil {
+		return
 	}
-	defer dir.Close()
-
-	const cycles = 1000
-
-	for i := 0; i < cycles; i++ {
-		lock, err := factory.ObtainLock(dir, "rapid.lock")
-		if err != nil {
-			t.Fatalf("Cycle %d: failed to obtain lock: %v", i, err)
-		}
-
-		if err := lock.Close(); err != nil {
-			t.Fatalf("Cycle %d: failed to release lock: %v", i, err)
-		}
+	pid := -1
+	if c.cmd != nil && c.cmd.Process != nil {
+		pid = c.cmd.Process.Pid
+	}
+	if data, err := os.ReadFile(c.errPath); err == nil && len(data) > 0 {
+		t.Logf("stderr for pid %d (client %d):\n%s", pid, c.idx, data)
+	}
+	if data, err := os.ReadFile(c.outPath); err == nil && len(data) > 0 {
+		t.Logf("stdout for pid %d (client %d):\n%s", pid, c.idx, data)
 	}
 }
 
-// TestStressLockFactories_DifferentLockNames tests that different lock names
-// don't interfere with each other.
-func TestStressLockFactories_DifferentLockNames(t *testing.T) {
-	factory := NewSingleInstanceLockFactory()
-	tempDir := t.TempDir()
-	dir, err := NewNIOFSDirectory(tempDir)
-	if err != nil {
-		t.Fatalf("Failed to create directory: %v", err)
+// TestStressLockFactoriesNativeFS is the Go port of
+// testNativeFSLockFactory().
+func TestStressLockFactoriesNativeFS(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping multi-process lock stress test in -short mode")
 	}
-	defer dir.Close()
+	runStressImpl(t, "native")
+}
 
-	// Obtain locks with different names - all should succeed
-	lock1, err := factory.ObtainLock(dir, "lock1")
-	if err != nil {
-		t.Fatalf("Failed to obtain lock1: %v", err)
+// TestStressLockFactoriesSimpleFS is the Go port of
+// testSimpleFSLockFactory(). On Windows, advisory file locks behave
+// differently from POSIX; the upstream test suite has historically
+// suppressed the SimpleFS variant in similar scenarios. We keep the test
+// enabled on POSIX hosts and skip on Windows to avoid spurious failures.
+func TestStressLockFactoriesSimpleFS(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping multi-process lock stress test in -short mode")
 	}
-	defer lock1.Close()
-
-	lock2, err := factory.ObtainLock(dir, "lock2")
-	if err != nil {
-		t.Fatalf("Failed to obtain lock2: %v", err)
+	if runtime.GOOS == "windows" {
+		t.Skip("SimpleFSLockFactory stress test is not exercised on windows")
 	}
-	defer lock2.Close()
-
-	// Both should be held
-	if !lock1.IsLocked() || !lock2.IsLocked() {
-		t.Error("Both locks should be held")
-	}
+	runStressImpl(t, "simple")
 }
