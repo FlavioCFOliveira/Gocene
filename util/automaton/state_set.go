@@ -92,35 +92,24 @@ func (s *StateSet) Reset() {
 
 // Freeze returns an immutable snapshot of this set associated with the given
 // state identifier. The snapshot retains existence only; reference counts are
-// discarded. The returned IntSet shares no storage with the receiver.
+// discarded. The returned FrozenIntSet shares no storage with the receiver.
 //
-// Lucene 10.4.0 returns a FrozenIntSet here; that type is not yet ported, so
-// this method returns the equivalent contents through the IntSet interface
-// via a private adapter (frozenSnapshot). The associated state identifier is
-// retained for callers that need it via FrozenState.
-func (s *StateSet) Freeze(state int32) IntSet {
+// Mirrors org.apache.lucene.util.automaton.StateSet.freeze(int) in Lucene
+// 10.4.0, which constructs a new FrozenIntSet with a copy of the backing
+// array, the cached longHashCode, and the supplied state identifier.
+func (s *StateSet) Freeze(state int32) *FrozenIntSet {
 	arr := append([]int32(nil), s.GetArray()...)
-	return &frozenSnapshot{values: arr, hashCode: s.LongHashCode(), state: state}
+	return NewFrozenIntSet(arr, s.LongHashCode(), state)
 }
-
-// frozenSnapshot is the StateSet.Freeze adapter standing in for Lucene's
-// FrozenIntSet until that type is ported. It satisfies IntSet and exposes
-// the associated state via FrozenState.
-type frozenSnapshot struct {
-	values   []int32
-	hashCode int64
-	state    int32
-}
-
-func (f *frozenSnapshot) GetArray() []int32   { return f.values }
-func (f *frozenSnapshot) Size() int           { return len(f.values) }
-func (f *frozenSnapshot) LongHashCode() int64 { return f.hashCode }
 
 // FrozenState returns the associated state of a snapshot produced by
-// StateSet.Freeze. It returns -1 when v was not produced by Freeze.
+// StateSet.Freeze. It returns -1 when v is not a *FrozenIntSet.
+//
+// Retained for back-compatibility with the pre-FrozenIntSet adapter; new
+// code should type-assert to *FrozenIntSet directly and read the State field.
 func FrozenState(v IntSet) int32 {
-	if f, ok := v.(*frozenSnapshot); ok {
-		return f.state
+	if f, ok := v.(*FrozenIntSet); ok {
+		return f.State
 	}
 	return -1
 }
