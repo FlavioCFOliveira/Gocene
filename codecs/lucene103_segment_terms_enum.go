@@ -7,7 +7,6 @@ package codecs
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
-	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
 // Lucene103SegmentTermsEnum is the Go port of
@@ -88,77 +87,12 @@ func (e *Lucene103SegmentTermsEnum) PostingsWithLiveDocs(liveDocs util.Bits, fla
 	return e.Postings(flags)
 }
 
-// Lucene103IntersectTermsEnum is the Go port of
-// org.apache.lucene.codecs.lucene103.blocktree.IntersectTermsEnum. It
-// drives the block-tree traversal with an [automaton.CompiledAutomaton]
-// so only terms accepted by the automaton are emitted.
-//
-// As with Lucene103SegmentTermsEnum, this is a typed stub: the
-// behavioural port (automaton walk + per-block prefix filtering) is
-// deferred. The struct satisfies [index.TermsEnum] and returns
-// end-of-enumeration on every advance.
-type Lucene103IntersectTermsEnum struct {
-	index.TermsEnumBase
+// Lucene103IntersectTermsEnum has moved to its own file
+// (lucene103_intersect_terms_enum.go) so the strict block-tree
+// SegmentTermsEnum port and the automaton-driven traversal can grow
+// independently — see Sprint 56 / GOC-3323.
 
-	field     *Lucene103FieldReader
-	compiled  *automaton.CompiledAutomaton
-	startTerm *index.Term
-	frame     *SegmentTermsEnumFrame
-}
-
-// NewLucene103IntersectTermsEnum opens an automaton-driven enumerator
-// over field. The caller is expected to validate compiled before
-// reaching the constructor; FieldReader.Intersect performs that
-// validation.
-func NewLucene103IntersectTermsEnum(field *Lucene103FieldReader, compiled *automaton.CompiledAutomaton, startTerm *index.Term) *Lucene103IntersectTermsEnum {
-	return &Lucene103IntersectTermsEnum{
-		field:     field,
-		compiled:  compiled,
-		startTerm: startTerm,
-		frame:     &SegmentTermsEnumFrame{},
-	}
-}
-
-// Compiled returns the CompiledAutomaton driving the enumeration.
-func (e *Lucene103IntersectTermsEnum) Compiled() *automaton.CompiledAutomaton { return e.compiled }
-
-// Next advances to the next term accepted by the automaton. The stub
-// returns nil because the traversal is the deferred port.
-func (e *Lucene103IntersectTermsEnum) Next() (*index.Term, error) {
-	return nil, nil
-}
-
-// SeekCeil is not part of IntersectTermsEnum's normal contract (the
-// traversal is automaton-driven), so the stub returns nil to mirror
-// EmptyTermsEnum.SeekCeil rather than panic.
-func (e *Lucene103IntersectTermsEnum) SeekCeil(term *index.Term) (*index.Term, error) {
-	return nil, nil
-}
-
-// SeekExact behaves like SeekCeil for the same reason.
-func (e *Lucene103IntersectTermsEnum) SeekExact(term *index.Term) (bool, error) {
-	return false, nil
-}
-
-// DocFreq returns 0 because no term is positioned in the stub.
-func (e *Lucene103IntersectTermsEnum) DocFreq() (int, error) { return 0, nil }
-
-// TotalTermFreq returns 0 because no term is positioned in the stub.
-func (e *Lucene103IntersectTermsEnum) TotalTermFreq() (int64, error) { return 0, nil }
-
-// Postings returns an empty PostingsEnum for the same reason as
-// SegmentTermsEnum.Postings.
-func (e *Lucene103IntersectTermsEnum) Postings(flags int) (index.PostingsEnum, error) {
-	return &index.EmptyPostingsEnum{}, nil
-}
-
-// PostingsWithLiveDocs forwards to Postings; the stub ignores liveDocs.
-func (e *Lucene103IntersectTermsEnum) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (index.PostingsEnum, error) {
-	return e.Postings(flags)
-}
-
-// Compile-time interface checks.
-var (
-	_ index.TermsEnum = (*Lucene103SegmentTermsEnum)(nil)
-	_ index.TermsEnum = (*Lucene103IntersectTermsEnum)(nil)
-)
+// Compile-time interface check for SegmentTermsEnum. The matching
+// check for Lucene103IntersectTermsEnum lives in
+// lucene103_intersect_terms_enum.go.
+var _ index.TermsEnum = (*Lucene103SegmentTermsEnum)(nil)
