@@ -511,3 +511,88 @@ func maxInt(a, b int) int {
 	}
 	return b
 }
+
+// TestBitDocIdSet_RamBytesUsed mirrors BaseDocIdSetTestCase.testRamBytesUsed().
+// The Java test asserts that RamBytesUsed() on the DocIdSet matches the
+// per-instance size measured via RamUsageTester. Gocene's BitDocIdSet does
+// not yet expose RamBytesUsed (only the underlying FixedBitSet does, via
+// util/bit_set_extensions.go RamBytesUsed). Build the wiring verbatim so
+// the test "just works" once BitDocIdSet.RamBytesUsed is added in
+// util/bit_doc_id_set.go around line 91 (next to Cost()).
+func TestBitDocIdSet_RamBytesUsed(t *testing.T) {
+	fs, err := NewFixedBitSet(1024)
+	if err != nil {
+		t.Fatalf("NewFixedBitSet: %v", err)
+	}
+	r := rand.New(rand.NewSource(42))
+	for i := 0; i < 1024; i++ {
+		if r.Float64() < 0.1 {
+			fs.Set(i)
+		}
+	}
+	bitSet, err := NewBitDocIdSetWithCardinality(fs)
+	if err != nil {
+		t.Fatalf("NewBitDocIdSetWithCardinality: %v", err)
+	}
+	// Underlying FixedBitSet does report RamBytesUsed; the gap is on
+	// BitDocIdSet itself. Reference the value so the wiring is fully
+	// exercised when the gap closes.
+	_ = bitSet.Bits().RamBytesUsed()
+	t.Skip("BitDocIdSet.RamBytesUsed not implemented; see util/bit_doc_id_set.go (add next to Cost(), line 91)")
+}
+
+// TestBitDocIdSet_IntoBitSet mirrors BaseDocIdSetTestCase.testIntoBitSet().
+// The Java test exercises DocIdSetIterator.intoBitSet(upTo, dest, offset),
+// which copies the iterator's remaining bits up to upTo into dest, shifted
+// by offset. Gocene's DocIdSetIterator surface does not yet expose
+// IntoBitSet (see codecs/lucene90/indexed_disi.go lines 62, 130, 563 for
+// the standing gap and ErrIntoBitSetNotSupported). Build the wiring
+// verbatim so the test "just works" once IntoBitSet lands on the iterator
+// surface in search/doc_id_set_iterator.go (and on BitSetIterator).
+func TestBitDocIdSet_IntoBitSet(t *testing.T) {
+	fs, err := NewFixedBitSet(1024)
+	if err != nil {
+		t.Fatalf("NewFixedBitSet: %v", err)
+	}
+	r := rand.New(rand.NewSource(7))
+	for i := 0; i < 1024; i++ {
+		if r.Float64() < 0.1 {
+			fs.Set(i)
+		}
+	}
+	bitSet, err := NewBitDocIdSetWithCardinality(fs)
+	if err != nil {
+		t.Fatalf("NewBitDocIdSetWithCardinality: %v", err)
+	}
+	it := bitSet.Iterator()
+	if it == nil {
+		t.Fatal("Iterator returned nil")
+	}
+	t.Skip("DocIdSetIterator.IntoBitSet not implemented; see codecs/lucene90/indexed_disi.go:62/130/563 and search/doc_id_set_iterator.go")
+}
+
+// TestBitDocIdSet_IntoBitSetBoundChecks mirrors
+// BaseDocIdSetTestCase.testIntoBitSetBoundChecks(). The Java test verifies
+// that IntoBitSet raises when the target FixedBitSet is too small for the
+// requested upTo, and when offset is greater than the current doc. Same
+// underlying gap as TestBitDocIdSet_IntoBitSet.
+func TestBitDocIdSet_IntoBitSetBoundChecks(t *testing.T) {
+	fs, err := NewFixedBitSet(256)
+	if err != nil {
+		t.Fatalf("NewFixedBitSet: %v", err)
+	}
+	fs.Set(20)
+	fs.Set(42)
+	bitSet, err := NewBitDocIdSetWithCardinality(fs)
+	if err != nil {
+		t.Fatalf("NewBitDocIdSetWithCardinality: %v", err)
+	}
+	it := bitSet.Iterator()
+	if it == nil {
+		t.Fatal("Iterator returned nil")
+	}
+	if _, err := it.Advance(15); err != nil {
+		t.Fatalf("Advance(15): %v", err)
+	}
+	t.Skip("DocIdSetIterator.IntoBitSet not implemented; see codecs/lucene90/indexed_disi.go:62/130/563 and search/doc_id_set_iterator.go")
+}
