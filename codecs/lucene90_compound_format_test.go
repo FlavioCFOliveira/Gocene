@@ -51,6 +51,12 @@ func TestLucene90CompoundFormat_RoundTripSingleFile(t *testing.T) {
 	if len(files) != 1 {
 		t.Fatalf("ListAll: got %d files want 1: %v", len(files), files)
 	}
+	// Lucene90CompoundReader.listAll prepends the segment name, mirroring
+	// the JVM reference. The original file was "_0.tmp" so the entry
+	// stripped to ".tmp" and ListAll must echo back "_0.tmp".
+	if want := "_0.tmp"; files[0] != want {
+		t.Fatalf("ListAll: got %q want %q", files[0], want)
+	}
 
 	got, err := readFileFromCompound(reader, files[0])
 	if err != nil {
@@ -98,6 +104,12 @@ func TestLucene90CompoundFormat_RoundTripManyFiles(t *testing.T) {
 		t.Fatalf("ListAll: got %d files want %d", len(got), len(sizes))
 	}
 	for _, name := range got {
+		// Every entry returned by ListAll must be the JVM-shape "_segName"
+		// prefixed name; the Lucene90CompoundReader.openInput contract
+		// requires that the caller may pass this form back unchanged.
+		if name[0] != '_' {
+			t.Fatalf("ListAll: %q missing segment-name prefix", name)
+		}
 		body, err := readFileFromCompound(reader, name)
 		if err != nil {
 			t.Fatalf("read %s: %v", name, err)
@@ -105,6 +117,19 @@ func TestLucene90CompoundFormat_RoundTripManyFiles(t *testing.T) {
 		want := payloads[stripPrefix(t, name)]
 		if !bytes.Equal(body, want) {
 			t.Fatalf("body mismatch for %s: got %d bytes want %d bytes", name, len(body), len(want))
+		}
+		// FileLength must accept both the full and the stripped form
+		// (Lucene strips via IndexFileNames.stripSegmentName before lookup).
+		full, err := reader.FileLength(name)
+		if err != nil {
+			t.Fatalf("FileLength(full) %s: %v", name, err)
+		}
+		stripped, err := reader.FileLength(stripPrefix(t, name))
+		if err != nil {
+			t.Fatalf("FileLength(stripped) %s: %v", name, err)
+		}
+		if full != stripped {
+			t.Fatalf("FileLength mismatch full=%d stripped=%d for %s", full, stripped, name)
 		}
 	}
 }
