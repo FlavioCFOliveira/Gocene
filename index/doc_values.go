@@ -132,43 +132,10 @@ func (e *emptySortedSetDV) GetValueCount() int            { return 0 }
 // --- singleton wrappers ------------------------------------------------------
 //
 // singletonSortedNumeric lives in singleton_sorted_numeric_doc_values.go;
-// see that file for the dedicated port of
-// org.apache.lucene.index.SingletonSortedNumericDocValues.
-
-type singletonSortedSet struct {
-	wrapped SortedDocValues
-}
-
-func (s *singletonSortedSet) Get(docID int) ([]int, error) {
-	ord, err := s.wrapped.GetOrd(docID)
-	if err != nil {
-		return nil, err
-	}
-	if ord < 0 {
-		return nil, nil
-	}
-	return []int{ord}, nil
-}
-
-func (s *singletonSortedSet) Advance(target int) (int, error) {
-	return s.wrapped.Advance(target)
-}
-
-func (s *singletonSortedSet) NextDoc() (int, error) {
-	return s.wrapped.NextDoc()
-}
-
-func (s *singletonSortedSet) DocID() int {
-	return s.wrapped.DocID()
-}
-
-func (s *singletonSortedSet) LookupOrd(ord int) ([]byte, error) {
-	return s.wrapped.LookupOrd(ord)
-}
-
-func (s *singletonSortedSet) GetValueCount() int {
-	return s.wrapped.GetValueCount()
-}
+// singletonSortedSet lives in singleton_sorted_set_doc_values.go.
+// See those files for the dedicated ports of
+// org.apache.lucene.index.SingletonSortedNumericDocValues and
+// org.apache.lucene.index.SingletonSortedSetDocValues respectively.
 
 // IsDocValuesCacheable mirrors the static helper
 // org.apache.lucene.index.DocValues#isCacheable(LeafReaderContext, String...).
