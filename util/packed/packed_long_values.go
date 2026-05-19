@@ -35,7 +35,8 @@ type packStrategy interface {
 // in Apache Lucene 10.4.0 (including DeltaPackedLongValues).
 type PackedLongValues struct {
 	values       []Reader
-	mins         []int64 // populated by delta strategy only; nil for packed
+	mins         []int64   // populated by delta/monotonic strategies; nil for packed
+	averages     []float32 // populated by monotonic strategy only; nil otherwise
 	pageShift    int
 	pageMask     int
 	size         int64
@@ -68,6 +69,12 @@ func (p *PackedLongValues) decodeBlock(block int, dest []int64) int {
 		min := p.mins[block]
 		for i := 0; i < size; i++ {
 			dest[i] += min
+		}
+	}
+	if p.averages != nil {
+		avg := p.averages[block]
+		for i := 0; i < size; i++ {
+			dest[i] += monotonicExpected(0, avg, i)
 		}
 	}
 	return size
@@ -130,6 +137,7 @@ type PackedLongValuesBuilder struct {
 	valuesOff               int
 	values                  []Reader
 	mins                    []int64
+	averages                []float32
 	strategy                packStrategy
 	ramBytesUsed            int64
 }
@@ -197,13 +205,19 @@ func (b *PackedLongValuesBuilder) Build() *PackedLongValues {
 		mins = make([]int64, b.valuesOff)
 		copy(mins, b.mins[:b.valuesOff])
 	}
+	var averages []float32
+	if b.averages != nil {
+		averages = make([]float32, b.valuesOff)
+		copy(averages, b.averages[:b.valuesOff])
+	}
 	return &PackedLongValues{
 		pageShift:    b.pageShift,
 		pageMask:     b.pageMask,
 		values:       values,
 		mins:         mins,
+		averages:     averages,
 		size:         b.size,
-		ramBytesUsed: packedLongValuesBytesUsed(values, mins),
+		ramBytesUsed: packedLongValuesBytesUsed(values, mins, averages),
 		strategy:     b.strategy,
 	}
 }
@@ -237,13 +251,19 @@ func (b *PackedLongValuesBuilder) grow(newBlockCount int) {
 		copy(nextMins, b.mins[:b.valuesOff])
 		b.mins = nextMins
 	}
+	if b.averages != nil {
+		nextAvg := make([]float32, cap)
+		copy(nextAvg, b.averages[:b.valuesOff])
+		b.averages = nextAvg
+	}
 }
 
 func (b *PackedLongValuesBuilder) pack() {
-	plv := &PackedLongValues{values: b.values, mins: b.mins, pageMask: b.pageMask}
+	plv := &PackedLongValues{values: b.values, mins: b.mins, averages: b.averages, pageMask: b.pageMask}
 	b.strategy.pack(b.pending, b.pendingOff, b.valuesOff, b.acceptableOverheadRatio, plv)
 	b.values = plv.values
 	b.mins = plv.mins
+	b.averages = plv.averages
 	b.valuesOff++
 	b.pendingOff = 0
 }
@@ -255,13 +275,16 @@ type packedLongValuesError string
 
 func (e packedLongValuesError) Error() string { return string(e) }
 
-func packedLongValuesBytesUsed(values []Reader, mins []int64) int64 {
+func packedLongValuesBytesUsed(values []Reader, mins []int64, averages []float32) int64 {
 	var bytes int64
 	for _, r := range values {
 		bytes += r.RamBytesUsed()
 	}
 	if mins != nil {
 		bytes += int64(8 * len(mins))
+	}
+	if averages != nil {
+		bytes += int64(4 * len(averages))
 	}
 	return bytes + 64
 }
