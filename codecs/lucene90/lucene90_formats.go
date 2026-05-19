@@ -8,15 +8,8 @@ package lucene90
 // typed stubs alongside the pre-existing concrete helpers
 // (indexed_disi.go, the LZ4/Deflate compression-mode pairs). Concrete
 // behaviour ports land progressively in follow-up deep-port sprints.
-
-// Lucene90StoredFieldsFormat mirrors
-// org.apache.lucene.codecs.lucene90.Lucene90StoredFieldsFormat.
-type Lucene90StoredFieldsFormat struct{}
-
-// NewLucene90StoredFieldsFormat builds a Lucene90StoredFieldsFormat.
-func NewLucene90StoredFieldsFormat() *Lucene90StoredFieldsFormat {
-	return &Lucene90StoredFieldsFormat{}
-}
+//
+// Lucene90StoredFieldsFormat lives in lucene90_stored_fields_format.go.
 
 // Lucene90TermVectorsFormat mirrors
 // org.apache.lucene.codecs.lucene90.Lucene90TermVectorsFormat.
