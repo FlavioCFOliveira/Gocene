@@ -4,52 +4,17 @@
 
 // Source: lucene/core/src/test/org/apache/lucene/util/TestIntroSorter.java
 // Source: lucene/core/src/test/org/apache/lucene/util/TestTimSorter.java
-// Source: lucene/core/src/test/org/apache/lucene/util/BaseSortTestCase.java
-// Purpose: Tests for IntroSorter and TimSorter implementations
+// Purpose: Tests for IntroSorter and TimSorter implementations. Shared sort
+// fixtures (entry, strategies, runSorterTest, assertSorted) live in
+// base_sort_test_case_test.go.
 
 package util
 
 import (
 	"math/rand"
-	"slices"
 	"testing"
 	"time"
 )
-
-// entry represents a sortable entry with value and original ordinal for stability testing.
-// This corresponds to BaseSortTestCase.Entry in Java.
-type entry struct {
-	value int
-	ord   int
-}
-
-// compareEntry compares two entries by value only.
-// This is used for non-stable sort verification.
-func compareEntry(a, b entry) int {
-	if a.value < b.value {
-		return -1
-	}
-	if a.value > b.value {
-		return 1
-	}
-	return 0
-}
-
-// compareEntryFull compares entries by value, then by ordinal for total ordering.
-// This is used for stable sort verification.
-func compareEntryFull(a, b entry) int {
-	cmp := compareEntry(a, b)
-	if cmp != 0 {
-		return cmp
-	}
-	if a.ord < b.ord {
-		return -1
-	}
-	if a.ord > b.ord {
-		return 1
-	}
-	return 0
-}
 
 // entryIntroSorter adapts a slice of entries for use with IntroSorter.
 type entryIntroSorter struct {
@@ -124,151 +89,6 @@ func (s *entryTimSorter) CompareSaved(i, j int) int {
 }
 
 func (s *entryTimSorter) Sort(from, to int) {}
-
-// assertSorted verifies that the sorted array matches the expected sorted order.
-// For stable sorts, it also verifies that original ordinals are preserved for equal values.
-func assertSorted(t *testing.T, original, sorted []entry, stable bool) {
-	t.Helper()
-
-	if len(original) != len(sorted) {
-		t.Errorf("Length mismatch: expected %d, got %d", len(original), len(sorted))
-		return
-	}
-
-	// Create expected sorted array
-	expected := make([]entry, len(original))
-	copy(expected, original)
-
-	if stable {
-		// For stable sort, sort by value then by ordinal
-		slices.SortFunc(expected, compareEntryFull)
-	} else {
-		// For non-stable sort, only sort by value
-		slices.SortFunc(expected, compareEntry)
-	}
-
-	for i := range original {
-		if sorted[i].value != expected[i].value {
-			t.Errorf("Value mismatch at index %d: expected %d, got %d", i, expected[i].value, sorted[i].value)
-			return
-		}
-		if stable && sorted[i].ord != expected[i].ord {
-			t.Errorf("Ordinal mismatch at index %d for value %d: expected %d, got %d",
-				i, sorted[i].value, expected[i].ord, sorted[i].ord)
-			return
-		}
-	}
-}
-
-// testStrategy defines different data generation strategies for testing sorts.
-type testStrategy int
-
-const (
-	strategyRandom testStrategy = iota
-	strategyRandomLowCardinality
-	strategyRandomMediumCardinality
-	strategyAscending
-	strategyDescending
-	strategyStrictlyDescending
-	strategyAscendingSequences
-	strategyMostlyAscending
-)
-
-// generateEntries generates a slice of entries using the specified strategy.
-func generateEntries(r *rand.Rand, strategy testStrategy, length int) []entry {
-	arr := make([]entry, length)
-
-	switch strategy {
-	case strategyRandom:
-		for i := 0; i < length; i++ {
-			arr[i] = entry{value: r.Int(), ord: i}
-		}
-
-	case strategyRandomLowCardinality:
-		for i := 0; i < length; i++ {
-			arr[i] = entry{value: r.Intn(6), ord: i}
-		}
-
-	case strategyRandomMediumCardinality:
-		for i := 0; i < length; i++ {
-			arr[i] = entry{value: r.Intn(length / 2), ord: i}
-		}
-
-	case strategyAscending:
-		for i := 0; i < length; i++ {
-			if i == 0 {
-				arr[i] = entry{value: r.Intn(6), ord: i}
-			} else {
-				arr[i] = entry{value: arr[i-1].value + r.Intn(6), ord: i}
-			}
-		}
-
-	case strategyDescending:
-		for i := 0; i < length; i++ {
-			if i == 0 {
-				arr[i] = entry{value: r.Intn(6), ord: i}
-			} else {
-				arr[i] = entry{value: arr[i-1].value - r.Intn(6), ord: i}
-			}
-		}
-
-	case strategyStrictlyDescending:
-		for i := 0; i < length; i++ {
-			if i == 0 {
-				arr[i] = entry{value: r.Intn(6), ord: i}
-			} else {
-				arr[i] = entry{value: arr[i-1].value - (1 + r.Intn(5)), ord: i}
-			}
-		}
-
-	case strategyAscendingSequences:
-		for i := 0; i < length; i++ {
-			if i == 0 {
-				arr[i] = entry{value: r.Intn(6), ord: i}
-			} else {
-				// 10% chance of breaking the ascending sequence
-				if r.Intn(10) == 0 {
-					arr[i] = entry{value: r.Intn(1000), ord: i}
-				} else {
-					arr[i] = entry{value: arr[i-1].value + r.Intn(6), ord: i}
-				}
-			}
-		}
-
-	case strategyMostlyAscending:
-		for i := 0; i < length; i++ {
-			if i == 0 {
-				arr[i] = entry{value: r.Intn(6), ord: i}
-			} else {
-				// Values from -8 to 10 relative to previous
-				delta := r.Intn(19) - 8
-				arr[i] = entry{value: arr[i-1].value + delta, ord: i}
-			}
-		}
-	}
-
-	return arr
-}
-
-// runSorterTest tests a sorter with the given strategy and length.
-func runSorterTest(t *testing.T, r *rand.Rand, strategy testStrategy, length int, newSorter func([]entry) SorterInterface) {
-	arr := generateEntries(r, strategy, length)
-
-	// Create a copy with offset padding like in Java tests
-	offset := r.Intn(1000)
-	toSort := make([]entry, offset+len(arr)+r.Intn(3))
-	copy(toSort[offset:], arr)
-
-	sorter := newSorter(toSort)
-	sorter.Sort(offset, offset+len(arr))
-
-	result := make([]entry, len(arr))
-	copy(result, toSort[offset:offset+len(arr)])
-
-	// Determine if this is a stable sort test
-	// For simplicity, we don't check stability in this generic test
-	assertSorted(t, arr, result, false)
-}
 
 // ==================== IntroSorter Tests ====================
 
