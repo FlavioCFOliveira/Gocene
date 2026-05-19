@@ -6,11 +6,11 @@ package search
 
 import (
 	"errors"
-	"fmt"
 	"slices"
-	"sort"
+	"strconv"
 	"strings"
 
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
@@ -37,20 +37,22 @@ import (
 // # Internal set representation
 //
 // Lucene 10.4.0 backs the query with DocValuesLongHashSet for O(1)
-// membership tests. That class has not been ported yet (tracked by a
-// dedicated backlog task); to keep this query self-contained without
-// pulling in a half-baked hash set, the values are stored as a sorted
-// []int64 with min/max bounds and contained via binary search. The
-// observable behaviour is identical (the public contract is "the doc's
-// value is in the set"); only the internal asymptotic profile differs
-// (O(log n) vs O(1) per contains call). The DocValuesLongHashSet swap
-// is a localised refactor: only minValue / maxValue / contains are
-// consulted from the scorer loop.
+// membership tests. Gocene mirrors that exactly via
+// [document.DocValuesLongHashSet] (the hash set lives in document/ to
+// preserve the Java location and is exported because search/ cannot
+// reach into a sibling package's unexported types). Only Min / Max /
+// Contains are consulted from the scorer loop, so the swap is local to
+// CreateWeight.
 type sortedNumericDocValuesSetQuery struct {
 	*BaseQuery
 
 	field   string
-	numbers int64SortedSet
+	numbers *document.DocValuesLongHashSet
+	// sorted is the de-duplicated, ascending-sorted view of the
+	// constructor input. It backs the deterministic Values accessor
+	// and the toString rendering, both of which must stay stable
+	// against the hash set's internal slot order.
+	sorted []int64
 }
 
 // errSortedNumericDocValuesSetQueryNilField mirrors the Java
@@ -80,10 +82,14 @@ func NewSortedNumericDocValuesSetQuery(field string, values []int64) (Query, err
 	// the query's identity.
 	vals := append([]int64(nil), values...)
 	slices.Sort(vals)
+	// Compact in place so the deterministic Values / String views see
+	// the same de-duplicated sequence the hash set ingests.
+	vals = slices.Compact(vals)
 	return &sortedNumericDocValuesSetQuery{
 		BaseQuery: &BaseQuery{},
 		field:     field,
-		numbers:   newInt64SortedSet(vals),
+		numbers:   document.NewDocValuesLongHashSet(vals),
+		sorted:    vals,
 	}, nil
 }
 
@@ -93,8 +99,8 @@ func (q *sortedNumericDocValuesSetQuery) Field() string { return q.field }
 // Values returns a copy of the sorted, de-duplicated value set. The
 // copy keeps the query's hash identity stable against caller mutation.
 func (q *sortedNumericDocValuesSetQuery) Values() []int64 {
-	out := make([]int64, len(q.numbers.values))
-	copy(out, q.numbers.values)
+	out := make([]int64, len(q.sorted))
+	copy(out, q.sorted)
 	return out
 }
 
@@ -108,7 +114,35 @@ func (q *sortedNumericDocValuesSetQuery) String(_ string) string {
 	var sb strings.Builder
 	sb.WriteString(q.field)
 	sb.WriteString(": ")
-	sb.WriteString(q.numbers.String())
+	// Render from the deterministic sorted view rather than from
+	// document.DocValuesLongHashSet.String, which iterates the hash
+	// table in slot order. The Java toString happens to coincide with
+	// the sorted view only at small inputs; the sorted rendering is
+	// what callers expect from a "value set" query string.
+	sb.WriteString(int64SliceString(q.sorted))
+	return sb.String()
+}
+
+// int64SliceString renders xs as "[v1, v2, ...]" using signed-decimal
+// formatting. Mirrors the joining helper Lucene uses in
+// DocValuesLongHashSet.toString for the empty-set rendering ("[]"),
+// while preserving the sorted iteration order required by the query.
+func int64SliceString(xs []int64) string {
+	if len(xs) == 0 {
+		return "[]"
+	}
+	var sb strings.Builder
+	sb.WriteByte('[')
+	for i, v := range xs {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		// strconv.FormatInt is the allocation-light counterpart to
+		// fmt.Sprintf("%d", v) and matches Long.toString's output
+		// (signed decimal, no separators) exactly.
+		sb.WriteString(strconv.FormatInt(v, 10))
+	}
+	sb.WriteByte(']')
 	return sb.String()
 }
 
@@ -122,7 +156,7 @@ func (q *sortedNumericDocValuesSetQuery) Equals(other Query) bool {
 	if q.field != o.field {
 		return false
 	}
-	return q.numbers.equals(o.numbers)
+	return q.numbers.Equals(o.numbers)
 }
 
 // HashCode mirrors SortedNumericDocValuesSetQuery.hashCode: a
@@ -135,7 +169,7 @@ func (q *sortedNumericDocValuesSetQuery) Equals(other Query) bool {
 func (q *sortedNumericDocValuesSetQuery) HashCode() int {
 	h := classHashSortedNumericDocValuesSetQuery
 	h = 31*h + stringHash(q.field)
-	h = 31*h + q.numbers.hashCode()
+	h = 31*h + q.numbers.HashCode()
 	return h
 }
 
@@ -152,7 +186,7 @@ func (q *sortedNumericDocValuesSetQuery) Visit(visitor QueryVisitor) {
 // folds to MatchNoDocsQuery (no document can possibly carry a value
 // from an empty set). Every non-empty query rewrites to itself.
 func (q *sortedNumericDocValuesSetQuery) Rewrite(_ IndexReader) (Query, error) {
-	if q.numbers.size() == 0 {
+	if q.numbers.Size() == 0 {
 		return NewMatchNoDocsQuery(), nil
 	}
 	return q, nil
@@ -211,8 +245,8 @@ func (q *sortedNumericDocValuesSetQuery) CreateWeight(_ *IndexSearcher, needsSco
 		// closure semantics already keep these references hot, but we
 		// hoist them to locals so the inner loop reads from the stack
 		// without re-dereferencing the struct each iteration.
-		minV, maxV := q.numbers.minValue, q.numbers.maxValue
-		contains := q.numbers.contains
+		minV, maxV := q.numbers.Min(), q.numbers.Max()
+		contains := q.numbers.Contains
 
 		// Singleton fast path: each doc has exactly one value. The
 		// Java reference unwraps SortedNumeric → Numeric and uses
@@ -280,122 +314,3 @@ var _ Query = (*sortedNumericDocValuesSetQuery)(nil)
 // self-describing and distinct from every other classHash in the
 // package.
 const classHashSortedNumericDocValuesSetQuery = 0x534e_5351 // "SNSQ"
-
-// int64SortedSet is the minimal sorted-int64 set the query uses for
-// membership tests. Values are sorted ascending and de-duplicated, so
-// minValue / maxValue are values[0] / values[len-1] respectively, and
-// contains is a binary search.
-//
-// This is a stand-in for the un-ported DocValuesLongHashSet (see the
-// type-level doc on sortedNumericDocValuesSetQuery). The receiver is a
-// value type because the set is immutable after construction and small
-// enough for the copy to be cheap; passing by value keeps the closures
-// in CreateWeight allocation-free.
-type int64SortedSet struct {
-	// values is sorted ascending and contains no duplicates.
-	values []int64
-	// minValue is values[0] when len(values) > 0, otherwise the Java
-	// reference's "empty set" sentinel (Long.MAX_VALUE). The sentinel
-	// is what makes the scorer loop reject every value when the set
-	// is empty (the rewrite already returns MatchNoDocsQuery, but the
-	// sentinel keeps the type usable in isolation and faithful to
-	// the Java DocValuesLongHashSet contract).
-	minValue int64
-	// maxValue is values[len-1] when len(values) > 0, otherwise the
-	// Java reference's "empty set" sentinel (Long.MIN_VALUE).
-	maxValue int64
-}
-
-// newInt64SortedSet builds a sorted, de-duplicated set from the given
-// already-sorted values. The caller must pass a sorted slice; the
-// constructor compacts duplicates in place.
-//
-// The Java DocValuesLongHashSet asserts that values are in sorted
-// order; the Go counterpart trusts the caller for the same reason
-// (NewSortedNumericDocValuesSetQuery is the only producer and it
-// sorts before calling).
-func newInt64SortedSet(sortedValues []int64) int64SortedSet {
-	if len(sortedValues) == 0 {
-		// Match the Java DocValuesLongHashSet sentinels for the
-		// empty-set case (Long.MAX_VALUE / Long.MIN_VALUE).
-		const maxInt64 = int64(^uint64(0) >> 1)
-		const minInt64 = -maxInt64 - 1
-		return int64SortedSet{
-			values:   nil,
-			minValue: maxInt64,
-			maxValue: minInt64,
-		}
-	}
-	// Compact duplicates in place. slices.Compact preserves the
-	// first occurrence; on a sorted input that gives us the
-	// de-duplicated sorted set without an extra allocation.
-	deduped := slices.Compact(sortedValues)
-	return int64SortedSet{
-		values:   deduped,
-		minValue: deduped[0],
-		maxValue: deduped[len(deduped)-1],
-	}
-}
-
-// contains reports whether v is in the set via binary search. The Java
-// reference does O(1) hash lookups; we do O(log n) on a sorted slice.
-// See the type-level doc on sortedNumericDocValuesSetQuery for the
-// rationale.
-func (s int64SortedSet) contains(v int64) bool {
-	if len(s.values) == 0 {
-		return false
-	}
-	// sort.Search returns the first index i for which
-	// s.values[i] >= v; if such index exists and the value matches,
-	// v is in the set.
-	i := sort.Search(len(s.values), func(i int) bool { return s.values[i] >= v })
-	return i < len(s.values) && s.values[i] == v
-}
-
-// size returns the number of elements in the set.
-func (s int64SortedSet) size() int { return len(s.values) }
-
-// equals reports whether two int64SortedSet are element-wise equal on
-// the sorted view. Mirrors DocValuesLongHashSet.equals (same size,
-// same minValue / maxValue, same backing values).
-func (s int64SortedSet) equals(o int64SortedSet) bool {
-	return s.minValue == o.minValue &&
-		s.maxValue == o.maxValue &&
-		slices.Equal(s.values, o.values)
-}
-
-// hashCode mirrors java.util.Arrays.hashCode on a long[]: seed at 1,
-// fold each element through 31*h + (element XOR (element >> 32)). The
-// folding matches what Java's Long.hashCode does, which is what
-// DocValuesLongHashSet ultimately stores in its table. Folding the
-// size, minValue and maxValue first keeps the hash sensitive to the
-// empty / non-empty boundary even when both slices are nil.
-func (s int64SortedSet) hashCode() int {
-	h := int32(1)
-	h = 31*h + int32(len(s.values))
-	h = 31*h + int32(s.minValue) ^ int32(s.minValue>>32)
-	h = 31*h + int32(s.maxValue) ^ int32(s.maxValue>>32)
-	for _, v := range s.values {
-		h = 31*h + int32(v) ^ int32(v>>32)
-	}
-	return int(h)
-}
-
-// String mirrors DocValuesLongHashSet.toString: "[v1, v2, ...]". The
-// values are already sorted ascending in the slice, so this is a
-// direct join.
-func (s int64SortedSet) String() string {
-	if len(s.values) == 0 {
-		return "[]"
-	}
-	var sb strings.Builder
-	sb.WriteByte('[')
-	for i, v := range s.values {
-		if i > 0 {
-			sb.WriteString(", ")
-		}
-		sb.WriteString(fmt.Sprintf("%d", v))
-	}
-	sb.WriteByte(']')
-	return sb.String()
-}
