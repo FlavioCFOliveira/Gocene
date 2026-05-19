@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util/compress"
 )
 
 // CompressionAlgorithm enumerates the compression schemes that may be applied
@@ -40,6 +41,13 @@ const (
 	// CompressionLZ4 uses LZ4 for blocks whose suffixes show enough redundancy.
 	CompressionLZ4 CompressionAlgorithm = 0x02
 )
+
+// compressionAlgorithmByCode mirrors the Java BY_CODE table (size 3).
+var compressionAlgorithmByCode = [3]CompressionAlgorithm{
+	CompressionNoCompression,
+	CompressionLowercaseASCII,
+	CompressionLZ4,
+}
 
 // Code returns the on-disk code byte used inside the block header.
 // Mirrors CompressionAlgorithm#code in Java.
@@ -65,27 +73,31 @@ func (a CompressionAlgorithm) String() string {
 // wire-format code, or an error for an unknown code.
 // Mirrors CompressionAlgorithm.byCode(int) in Java.
 func CompressionAlgorithmByCode(code int) (CompressionAlgorithm, error) {
-	switch code {
-	case 0x00:
-		return CompressionNoCompression, nil
-	case 0x01:
-		return CompressionLowercaseASCII, nil
-	case 0x02:
-		return CompressionLZ4, nil
-	default:
+	if code < 0 || code >= len(compressionAlgorithmByCode) {
 		return 0, fmt.Errorf("illegal code for a compression algorithm: %d", code)
 	}
+	return compressionAlgorithmByCode[code], nil
 }
 
-// Read decompresses len bytes from in into out[0:len], using this algorithm.
-// Mirrors CompressionAlgorithm#read(DataInput, byte[], int) in Java.
+// CompressionInput is the input surface required by [CompressionAlgorithm.Read].
+// It mirrors org.apache.lucene.store.DataInput's relevant subset: byte/range
+// reads plus variable-length integer reads (used by the LOWERCASE_ASCII path).
+type CompressionInput interface {
+	store.DataInput
+	store.VariableLengthInput
+}
+
+// Read decompresses length bytes from in into out[0:length], using this
+// algorithm. Mirrors CompressionAlgorithm#read(DataInput, byte[], int) in Java.
 //
-// For CompressionLowercaseASCII and CompressionLZ4 this currently panics with
-// a backlog-task pointer: the underlying decompressors are forward-deps that
-// will be wired by [[task-2692-segment-terms-enum]] (read-side enumeration).
-// CompressionNoCompression is fully functional today so that the writer's
-// happy path can be exercised end-to-end.
-func (a CompressionAlgorithm) Read(in store.DataInput, out []byte, length int) error {
+// Note on input type: Lucene's org.apache.lucene.store.DataInput exposes both
+// the byte-oriented methods and readVInt/readVLong. Gocene splits those into
+// [store.DataInput] and [store.VariableLengthInput], so Read accepts the
+// composite [CompressionInput] to satisfy both the LOWERCASE_ASCII and LZ4
+// code paths uniformly. All store-package inputs that ship VInt support
+// (e.g. ByteArrayDataInput, BufferedIndexInput-derived inputs) satisfy it
+// directly.
+func (a CompressionAlgorithm) Read(in CompressionInput, out []byte, length int) error {
 	if length < 0 || length > len(out) {
 		return fmt.Errorf("CompressionAlgorithm.Read: length %d out of range for out cap %d", length, len(out))
 	}
@@ -93,9 +105,10 @@ func (a CompressionAlgorithm) Read(in store.DataInput, out []byte, length int) e
 	case CompressionNoCompression:
 		return in.ReadBytes(out[:length])
 	case CompressionLowercaseASCII:
-		panic("not implemented: LowercaseAsciiCompression.decompress for block-tree suffix blocks — backlog task #2692 (SegmentTermsEnum port)")
+		return compress.Decompress(in, out, length)
 	case CompressionLZ4:
-		panic("not implemented: LZ4.decompress for block-tree suffix blocks — backlog task #2692 (SegmentTermsEnum port)")
+		_, err := compress.LZ4Decompress(in, length, out, 0)
+		return err
 	default:
 		return fmt.Errorf("unknown CompressionAlgorithm: %s", a)
 	}
