@@ -146,36 +146,69 @@ func (l *line2D) ContainsLine(_, _, _, _, _, _, _, _ float64) bool { return fals
 // ContainsTriangle always returns false.
 func (l *line2D) ContainsTriangle(_, _, _, _, _, _, _, _, _, _ float64) bool { return false }
 
-// WithinPoint returns CANDIDATE if the point is on the line,
-// DISJOINT otherwise.
+// WithinPoint mirrors Lucene's Line2D.withinPoint: NOTWITHIN if the
+// point sits on the line, DISJOINT otherwise. A 1D line cannot be
+// strictly within a 0D point, hence CANDIDATE is never returned.
 func (l *line2D) WithinPoint(x, y float64) WithinRelation {
 	if l.Contains(x, y) {
-		return WithinCandidate
+		return WithinNotWithin
 	}
 	return WithinDisjoint
 }
 
-// WithinLine is approximated as IntersectsLine in the Java reference
-// ("can be improved?" comment in Lucene). We mirror that behaviour.
+// WithinLine mirrors Lucene's Line2D.withinLine: NOTWITHIN when the
+// query segment is an edge of the original shape (ab=true) and the
+// line crosses it; DISJOINT otherwise. CANDIDATE is never produced.
 func (l *line2D) WithinLine(minX, maxX, minY, maxY, aX, aY float64, ab bool, bX, bY float64) WithinRelation {
-	if l.IntersectsLine(minX, maxX, minY, maxY, aX, aY, bX, bY) {
-		return WithinCandidate
+	if ab && l.IntersectsLine(minX, maxX, minY, maxY, aX, aY, bX, bY) {
+		return WithinNotWithin
 	}
 	return WithinDisjoint
 }
 
-// WithinTriangle is approximated as IntersectsTriangle in the Java
-// reference for Line2D ("can be improved?" comment). We mirror it.
+// WithinTriangle mirrors Lucene's Line2D.withinTriangle exactly:
+// per-edge classification using the ab/bc/ca shape-edge flags, with
+// a CANDIDATE upgrade when only non-shape edges are crossed, and a
+// final pointInTriangle probe using the line's first vertex.
 func (l *line2D) WithinTriangle(
 	minX, maxX, minY, maxY,
 	aX, aY float64, ab bool,
 	bX, bY float64, bc bool,
 	cX, cY float64, ca bool,
 ) WithinRelation {
-	if l.IntersectsTriangle(minX, maxX, minY, maxY, aX, aY, bX, bY, cX, cY) {
+	if Disjoint(l.minX, l.maxX, l.minY, l.maxY, minX, maxX, minY, maxY) {
+		return WithinDisjoint
+	}
+	relation := WithinDisjoint
+	for i := 1; i < len(l.xs); i++ {
+		x0, y0 := l.xs[i-1], l.ys[i-1]
+		x1, y1 := l.xs[i], l.ys[i]
+		if LineCrossesLineWithBoundary(x0, y0, x1, y1, aX, aY, bX, bY) {
+			if ab {
+				return WithinNotWithin
+			}
+			relation = WithinCandidate
+		}
+		if LineCrossesLineWithBoundary(x0, y0, x1, y1, bX, bY, cX, cY) {
+			if bc {
+				return WithinNotWithin
+			}
+			relation = WithinCandidate
+		}
+		if LineCrossesLineWithBoundary(x0, y0, x1, y1, cX, cY, aX, aY) {
+			if ca {
+				return WithinNotWithin
+			}
+			relation = WithinCandidate
+		}
+	}
+	if relation == WithinCandidate {
 		return WithinCandidate
 	}
-	return WithinDisjoint
+	if PointInTriangle(minX, maxX, minY, maxY, l.xs[0], l.ys[0], aX, aY, bX, bY, cX, cY) {
+		return WithinCandidate
+	}
+	return relation
 }
 
 // crossesBox reports whether any segment crosses the query box.
