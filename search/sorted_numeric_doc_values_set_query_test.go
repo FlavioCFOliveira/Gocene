@@ -5,9 +5,11 @@
 package search
 
 import (
+	"math"
 	"sort"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
@@ -43,9 +45,9 @@ func TestNewSortedNumericDocValuesSetQuery_DefensiveCopyAndSort(t *testing.T) {
 	if !sliceEqualInt64(got, want) {
 		t.Errorf("Values() = %v, want %v", got, want)
 	}
-	if concrete.numbers.minValue != 1 || concrete.numbers.maxValue != 3 {
+	if concrete.numbers.Min() != 1 || concrete.numbers.Max() != 3 {
 		t.Errorf("min/max = %d/%d, want 1/3",
-			concrete.numbers.minValue, concrete.numbers.maxValue)
+			concrete.numbers.Min(), concrete.numbers.Max())
 	}
 }
 
@@ -204,54 +206,53 @@ type setQueryVisitor struct {
 func (v *setQueryVisitor) AcceptField(_ string) bool { return v.accept }
 func (v *setQueryVisitor) VisitLeaf(_ Query)         { v.leafCalled = true }
 
-// TestInt64SortedSet_ContainsAndBounds exercises the membership
-// helper directly: it is the hot path consulted by the scorer loop
-// and must agree with the Java DocValuesLongHashSet contract on the
-// observable bits (minValue / maxValue / contains).
-func TestInt64SortedSet_ContainsAndBounds(t *testing.T) {
+// TestDocValuesLongHashSet_ContainsAndBoundsAsQueryBackend exercises
+// the membership backend used by the query: it is the hot path
+// consulted by the scorer loop and must agree with the Java
+// DocValuesLongHashSet contract on the observable bits (Min / Max /
+// Contains). The exhaustive unit tests for the hash set live next to
+// the implementation in document/; this test pins the surface the
+// query consumes.
+func TestDocValuesLongHashSet_ContainsAndBoundsAsQueryBackend(t *testing.T) {
 	t.Parallel()
 
 	t.Run("empty", func(t *testing.T) {
-		s := newInt64SortedSet(nil)
-		if s.size() != 0 {
-			t.Errorf("size = %d, want 0", s.size())
+		s := document.NewDocValuesLongHashSet(nil)
+		if s.Size() != 0 {
+			t.Errorf("Size = %d, want 0", s.Size())
 		}
-		const maxInt64 = int64(^uint64(0) >> 1)
-		const minInt64 = -maxInt64 - 1
-		if s.minValue != maxInt64 {
-			t.Errorf("minValue = %d, want %d (Long.MAX_VALUE)",
-				s.minValue, maxInt64)
+		if s.Min() != math.MaxInt64 {
+			t.Errorf("Min = %d, want MaxInt64 (Long.MAX_VALUE sentinel)", s.Min())
 		}
-		if s.maxValue != minInt64 {
-			t.Errorf("maxValue = %d, want %d (Long.MIN_VALUE)",
-				s.maxValue, minInt64)
+		if s.Max() != math.MinInt64 {
+			t.Errorf("Max = %d, want MinInt64 (Long.MIN_VALUE sentinel)", s.Max())
 		}
-		if s.contains(0) {
+		if s.Contains(0) {
 			t.Error("empty set should not contain 0")
 		}
 	})
 
 	t.Run("with-duplicates", func(t *testing.T) {
-		// Caller is expected to sort before calling; the set
-		// constructor only dedupes.
-		s := newInt64SortedSet([]int64{1, 1, 2, 3, 3, 3, 5})
-		if s.size() != 4 {
-			t.Errorf("size = %d, want 4 (after dedup)", s.size())
+		// DocValuesLongHashSet requires sorted input; duplicates are
+		// tolerated and collapsed by the constructor.
+		s := document.NewDocValuesLongHashSet([]int64{1, 1, 2, 3, 3, 3, 5})
+		if s.Size() != 4 {
+			t.Errorf("Size = %d, want 4 (after dedup)", s.Size())
 		}
-		if s.minValue != 1 {
-			t.Errorf("minValue = %d, want 1", s.minValue)
+		if s.Min() != 1 {
+			t.Errorf("Min = %d, want 1", s.Min())
 		}
-		if s.maxValue != 5 {
-			t.Errorf("maxValue = %d, want 5", s.maxValue)
+		if s.Max() != 5 {
+			t.Errorf("Max = %d, want 5", s.Max())
 		}
 		for _, in := range []int64{1, 2, 3, 5} {
-			if !s.contains(in) {
-				t.Errorf("contains(%d) = false, want true", in)
+			if !s.Contains(in) {
+				t.Errorf("Contains(%d) = false, want true", in)
 			}
 		}
 		for _, out := range []int64{-1, 0, 4, 6, 100} {
-			if s.contains(out) {
-				t.Errorf("contains(%d) = true, want false", out)
+			if s.Contains(out) {
+				t.Errorf("Contains(%d) = true, want false", out)
 			}
 		}
 	})
@@ -265,7 +266,7 @@ func TestInt64SortedSet_ContainsAndBounds(t *testing.T) {
 func TestSortedNumericDocValuesSetQuery_MatchLoop_MultiValue(t *testing.T) {
 	t.Parallel()
 
-	set := newInt64SortedSet([]int64{10, 20, 30})
+	set := document.NewDocValuesLongHashSet([]int64{10, 20, 30})
 
 	cases := []struct {
 		name string
@@ -300,8 +301,8 @@ func TestSortedNumericDocValuesSetQuery_MatchLoop_MultiValue(t *testing.T) {
 //
 // The body must stay byte-identical to the matches() loop in
 // CreateWeight; the test is the canary that flags any divergence.
-func setQueryMultiValueMatch(s int64SortedSet, vs []int64) bool {
-	minV, maxV := s.minValue, s.maxValue
+func setQueryMultiValueMatch(s *document.DocValuesLongHashSet, vs []int64) bool {
+	minV, maxV := s.Min(), s.Max()
 	for _, v := range vs {
 		if v < minV {
 			continue
@@ -309,7 +310,7 @@ func setQueryMultiValueMatch(s int64SortedSet, vs []int64) bool {
 		if v > maxV {
 			return false
 		}
-		if s.contains(v) {
+		if s.Contains(v) {
 			return true
 		}
 	}
@@ -408,8 +409,8 @@ func runSortedNumericSetQueryWithDV(
 	}
 
 	approx := newSortedNumericApproximation(dv, maxDoc)
-	minV, maxV := concrete.numbers.minValue, concrete.numbers.maxValue
-	contains := concrete.numbers.contains
+	minV, maxV := concrete.numbers.Min(), concrete.numbers.Max()
+	contains := concrete.numbers.Contains
 	singleton := index.UnwrapSingletonSortedNumeric(dv)
 
 	var matchFn func() (bool, error)
