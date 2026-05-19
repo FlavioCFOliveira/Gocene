@@ -150,6 +150,50 @@ func (r *rectangle2D) WithinTriangle(
 	return relation
 }
 
+// minLonInclQuantize / maxLonInclQuantize mirror Java's
+// MIN_LON_INCL_QUANTIZE / MAX_LON_INCL_QUANTIZE: the inclusive
+// longitude bounds after a round-trip through the latlon encoder.
+var (
+	minLonInclQuantize = DecodeLongitude(MinLonEncoded)
+	maxLonInclQuantize = DecodeLongitude(MaxLonEncoded)
+)
+
+// NewRectangle2DFromXY builds the Component2D for an XYRectangle.
+// Mirrors Rectangle2D.create(XYRectangle).
+func NewRectangle2DFromXY(rect XYRectangle) Component2D {
+	return newRectangle2D(
+		float64(rect.MinX()), float64(rect.MaxX()),
+		float64(rect.MinY()), float64(rect.MaxY()),
+	)
+}
+
+// NewRectangle2DFromLatLon builds the Component2D for a LatLon
+// Rectangle, quantising the bounds through the latlon encoder and
+// splitting dateline-crossing rectangles into a ComponentTree of two
+// rectangles. Mirrors Rectangle2D.create(Rectangle).
+func NewRectangle2DFromLatLon(rect Rectangle) Component2D {
+	minLongitude := rect.MinLon()
+	crossesDateline := rect.CrossesDateline()
+	// Java edge case: a rectangle anchored exactly at +180 that crosses
+	// the dateline collapses into a single component starting at -180.
+	if minLongitude == 180.0 && crossesDateline {
+		minLongitude = -180
+		crossesDateline = false
+	}
+	qMinLat := DecodeLatitude(EncodeLatitudeCeil(rect.MinLat()))
+	qMaxLat := DecodeLatitude(EncodeLatitude(rect.MaxLat()))
+	qMinLon := DecodeLongitude(EncodeLongitudeCeil(minLongitude))
+	qMaxLon := DecodeLongitude(EncodeLongitude(rect.MaxLon()))
+	if crossesDateline {
+		components := []Component2D{
+			newRectangle2D(minLonInclQuantize, qMaxLon, qMinLat, qMaxLat),
+			newRectangle2D(qMinLon, maxLonInclQuantize, qMinLat, qMaxLat),
+		}
+		return newComponentTree(components)
+	}
+	return newRectangle2D(qMinLon, qMaxLon, qMinLat, qMaxLat)
+}
+
 // edgesIntersect tests whether the segment (a, b) crosses any of the
 // rectangle's four edges (boundary-inclusive). Mirrors the Java
 // private helper of the same name.
