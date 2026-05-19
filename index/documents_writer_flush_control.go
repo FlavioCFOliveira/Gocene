@@ -223,6 +223,25 @@ func (c *DocumentsWriterFlushControl) ActiveBytes() int64 {
 	return c.activeBytes
 }
 
+// activeBytesLocked is the unlocked variant of ActiveBytes. The caller
+// must already hold c.mu. Used by flushControlPolicy.OnChange
+// implementations, which are invoked from within the monitor.
+func (c *DocumentsWriterFlushControl) activeBytesLocked() int64 {
+	return c.activeBytes
+}
+
+// invokePolicyOnChangeLocked acquires c.mu and dispatches a synthetic
+// OnChange event into the bound flush policy. It mirrors the in-monitor
+// dispatch path that DoAfterDocument and DoOnDelete take but does not
+// touch any bytesUsed accounting — it exists so package-internal tests
+// can drive the policy without simulating a full doc lifecycle. Not
+// part of the public API.
+func (c *DocumentsWriterFlushControl) invokePolicyOnChangeLocked(perThread flushControlDWPT) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.flushPolicy.OnChange(c, perThread)
+}
+
 // GetFlushingBytes returns the sum of bytesUsed across all flushing DWPTs.
 // Mirrors the volatile read of flushBytes in Lucene.
 func (c *DocumentsWriterFlushControl) GetFlushingBytes() int64 {
@@ -946,6 +965,14 @@ func (c *DocumentsWriterFlushControl) GetInfoStream() util.InfoStream {
 func (c *DocumentsWriterFlushControl) FindLargestNonPendingWriter() flushControlDWPT {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.findLargestNonPendingWriterLocked()
+}
+
+// findLargestNonPendingWriterLocked is the unlocked variant of
+// FindLargestNonPendingWriter. The caller must already hold c.mu. Used by
+// flushControlPolicy.OnChange implementations, which are invoked from
+// within the monitor.
+func (c *DocumentsWriterFlushControl) findLargestNonPendingWriterLocked() flushControlDWPT {
 	var maxRAMUsingWriter flushControlDWPT
 	maxRAMSoFar := int64(-1)
 	count := 0
