@@ -101,45 +101,9 @@ func (r *FloatRange) String() string {
 	return fmt.Sprintf("FloatRange(name=%s, min=%f, max=%f)", r.name, r.min, r.max)
 }
 
-// DoubleRange is a field for indexing double ranges.
-type DoubleRange struct {
-	Field
-	min float64
-	max float64
-}
-
-// NewDoubleRange creates a new DoubleRange field.
-func NewDoubleRange(name string, min, max float64) *DoubleRange {
-	// Encode using PackDouble
-	encoded := make([]byte, 16)
-	copy(encoded[0:8], PackDouble(min))
-	copy(encoded[8:16], PackDouble(max))
-
-	ft := PointFieldType()
-	ft.DimensionNumBytes = 8
-
-	field, _ := NewField(name, encoded, ft)
-	return &DoubleRange{
-		Field: *field,
-		min:   min,
-		max:   max,
-	}
-}
-
-// Min returns the minimum value.
-func (r *DoubleRange) Min() float64 {
-	return r.min
-}
-
-// Max returns the maximum value.
-func (r *DoubleRange) Max() float64 {
-	return r.max
-}
-
-// String returns a string representation.
-func (r *DoubleRange) String() string {
-	return fmt.Sprintf("DoubleRange(name=%s, min=%f, max=%f)", r.name, r.min, r.max)
-}
+// NOTE: The canonical DoubleRange (Lucene 10.4.0-compatible, N-dimensional,
+// sortable-bytes encoded) lives in double_range.go. The legacy single-dim
+// stub formerly defined here was removed by GOC-3222.
 
 // BinaryRange is a field for indexing binary ranges.
 type BinaryRange struct {
