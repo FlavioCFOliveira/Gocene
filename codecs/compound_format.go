@@ -24,7 +24,6 @@ package codecs
 import (
 	"fmt"
 	"sort"
-	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -359,246 +358,21 @@ func stripSegmentNamePrefix(fileName string) string {
 }
 
 // -----------------------------------------------------------------------------
-// Compound reader (.cfs / .cfe) — wire-format-faithful counterpart of
-// Lucene90CompoundReader.
+// Compound reader (.cfs / .cfe) — see lucene90_compound_reader.go for the
+// faithful Lucene90CompoundReader port. GetCompoundReader is a thin
+// constructor around it; keeping it here preserves the format/reader
+// pairing used by Lucene90CompoundFormat.
 // -----------------------------------------------------------------------------
 
 // GetCompoundReader opens a CompoundDirectory backed by the .cfs/.cfe
-// pair produced by Write. Mirrors Lucene90CompoundFormat.getCompoundReader.
+// pair produced by Write. Mirrors Lucene90CompoundFormat.getCompoundReader,
+// which simply forwards to `new Lucene90CompoundReader(dir, si)`.
 func (f *Lucene90CompoundFormat) GetCompoundReader(dir store.Directory, si *index.SegmentInfo) (CompoundDirectory, error) {
-	dataName := GetSegmentFileName(si.Name(), "", Lucene90CompoundDataExtension)
-	entriesName := GetSegmentFileName(si.Name(), "", Lucene90CompoundEntriesExtension)
-
-	entries, err := f.readEntries(dir, entriesName, si.GetID())
-	if err != nil {
-		return nil, err
-	}
-
-	dataIn, err := dir.OpenInput(dataName, store.IOContext{Context: store.ContextRead})
-	if err != nil {
-		return nil, err
-	}
-	// Validate the .cfs header. We do not enforce the exact codec name on
-	// the surrounding read path because, by construction, Write produced
-	// it; CheckIndexHeader will reject any external tampering.
-	if _, err := CheckIndexHeader(dataIn, Lucene90CompoundDataCodec, Lucene90CompoundVersionStart, Lucene90CompoundVersionCurrent, si.GetID(), ""); err != nil {
-		_ = dataIn.Close()
-		return nil, fmt.Errorf("lucene90 compound: validate %q header: %w", dataName, err)
-	}
-
-	return &lucene90CompoundDirectory{
-		directory: dir,
-		cfsInput:  dataIn,
-		entries:   entries,
-	}, nil
+	return NewLucene90CompoundReader(dir, si)
 }
 
-// readEntries reads the .cfe file and returns the name -> entry map.
-func (f *Lucene90CompoundFormat) readEntries(dir store.Directory, entriesName string, expectedSegmentID []byte) (map[string]CompoundFileEntry, error) {
-	in, err := dir.OpenInput(entriesName, store.IOContext{Context: store.ContextRead})
-	if err != nil {
-		return nil, err
-	}
-	defer in.Close()
-
-	csIn := store.NewChecksumIndexInput(in)
-	if _, err := CheckIndexHeader(csIn, Lucene90CompoundEntriesCodec, Lucene90CompoundVersionStart, Lucene90CompoundVersionCurrent, expectedSegmentID, ""); err != nil {
-		return nil, fmt.Errorf("lucene90 compound: validate entries header: %w", err)
-	}
-
-	numEntries, err := store.ReadVInt(csIn)
-	if err != nil {
-		return nil, fmt.Errorf("lucene90 compound: read entry count: %w", err)
-	}
-	out := make(map[string]CompoundFileEntry, numEntries)
-	for i := int32(0); i < numEntries; i++ {
-		name, err := store.ReadString(csIn)
-		if err != nil {
-			return nil, fmt.Errorf("lucene90 compound: read entry name [%d]: %w", i, err)
-		}
-		off, err := store.ReadInt64(csIn)
-		if err != nil {
-			return nil, fmt.Errorf("lucene90 compound: read entry offset [%d]: %w", i, err)
-		}
-		length, err := store.ReadInt64(csIn)
-		if err != nil {
-			return nil, fmt.Errorf("lucene90 compound: read entry length [%d]: %w", i, err)
-		}
-		out[name] = CompoundFileEntry{FileName: name, Offset: off, Length: length}
-	}
-	if _, err := CheckFooter(csIn); err != nil {
-		return nil, fmt.Errorf("lucene90 compound: validate entries footer: %w", err)
-	}
-	return out, nil
-}
-
-// lucene90CompoundDirectory is a read-only Directory implementation for
-// compound files.
-type lucene90CompoundDirectory struct {
-	directory store.Directory
-	cfsInput  store.IndexInput
-	entries   map[string]CompoundFileEntry
-	mu        sync.RWMutex
-	closed    bool
-}
-
-// ListAll returns all file names in the compound directory.
-func (d *lucene90CompoundDirectory) ListAll() ([]string, error) {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-
-	if d.closed {
-		return nil, fmt.Errorf("compound directory is closed")
-	}
-
-	names := make([]string, 0, len(d.entries))
-	for name := range d.entries {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names, nil
-}
-
-// FileExists returns true if the file exists in the compound directory.
-func (d *lucene90CompoundDirectory) FileExists(name string) bool {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-
-	if d.closed {
-		return false
-	}
-
-	_, exists := d.entries[name]
-	return exists
-}
-
-// FileLength returns the length of a file in the compound directory.
-func (d *lucene90CompoundDirectory) FileLength(name string) (int64, error) {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-
-	if d.closed {
-		return 0, fmt.Errorf("compound directory is closed")
-	}
-
-	entry, exists := d.entries[name]
-	if !exists {
-		return 0, fmt.Errorf("file %s not found", name)
-	}
-
-	return entry.Length, nil
-}
-
-// OpenInput opens a file for reading from the compound directory.
-func (d *lucene90CompoundDirectory) OpenInput(name string, ctx store.IOContext) (store.IndexInput, error) {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-
-	if d.closed {
-		return nil, fmt.Errorf("compound directory is closed")
-	}
-
-	entry, exists := d.entries[name]
-	if !exists {
-		return nil, fmt.Errorf("file %s not found", name)
-	}
-
-	return d.cfsInput.Slice(name, entry.Offset, entry.Length)
-}
-
-// GetDirectory returns the directory itself.
-func (d *lucene90CompoundDirectory) GetDirectory() store.Directory { return d }
-
-// CreateOutput is not supported for compound directories (read-only).
-func (d *lucene90CompoundDirectory) CreateOutput(name string, ctx store.IOContext) (store.IndexOutput, error) {
-	return nil, fmt.Errorf("compound directory is read-only")
-}
-
-// DeleteFile is not supported for compound directories (read-only).
-func (d *lucene90CompoundDirectory) DeleteFile(name string) error {
-	return fmt.Errorf("compound directory is read-only")
-}
-
-// Rename is not supported for compound directories (read-only).
-func (d *lucene90CompoundDirectory) Rename(from, to string) error {
-	return fmt.Errorf("compound directory is read-only")
-}
-
-// RenameFile is not supported for compound directories (read-only).
-func (d *lucene90CompoundDirectory) RenameFile(from, to string) error {
-	return fmt.Errorf("compound directory is read-only")
-}
-
-// Sync is not supported for compound directories (read-only).
-func (d *lucene90CompoundDirectory) Sync(names []string) error {
-	return fmt.Errorf("compound directory is read-only")
-}
-
-// ObtainLock is not supported for compound directories (read-only).
-func (d *lucene90CompoundDirectory) ObtainLock(name string) (store.Lock, error) {
-	return nil, fmt.Errorf("compound directory is read-only")
-}
-
-// Close closes the compound directory.
-func (d *lucene90CompoundDirectory) Close() error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	if d.closed {
-		return nil
-	}
-
-	d.closed = true
-	return d.cfsInput.Close()
-}
-
-// CheckIntegrity validates the checksum of every file in the compound
-// directory by re-running the trailing CodecUtil footer over each slice.
-func (d *lucene90CompoundDirectory) CheckIntegrity() error {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-
-	if d.closed {
-		return fmt.Errorf("compound directory is closed")
-	}
-
-	for name := range d.entries {
-		in, err := d.OpenInput(name, store.IOContext{Context: store.ContextRead})
-		if err != nil {
-			return fmt.Errorf("compound: open %q: %w", name, err)
-		}
-		csIn := store.NewChecksumIndexInput(in)
-		// Read every byte except the footer (so the checksum covers them
-		// all), then validate the footer.
-		footerLen := int64(FooterLength())
-		if csIn.Length() < footerLen {
-			_ = in.Close()
-			return fmt.Errorf("compound: %q too short for footer", name)
-		}
-		toRead := csIn.Length() - footerLen
-		scratch := make([]byte, 16*1024)
-		for toRead > 0 {
-			take := int64(len(scratch))
-			if take > toRead {
-				take = toRead
-			}
-			if err := csIn.ReadBytes(scratch[:take]); err != nil {
-				_ = in.Close()
-				return fmt.Errorf("compound: read body of %q: %w", name, err)
-			}
-			toRead -= take
-		}
-		if _, err := CheckFooter(csIn); err != nil {
-			_ = in.Close()
-			return fmt.Errorf("compound: %q failed footer check: %w", name, err)
-		}
-		_ = in.Close()
-	}
-	return nil
-}
-
-// Ensure implementations satisfy the interfaces
-var _ CompoundFormat = (*BaseCompoundFormat)(nil)
-var _ CompoundFormat = (*Lucene90CompoundFormat)(nil)
-var _ CompoundDirectory = (*lucene90CompoundDirectory)(nil)
-var _ store.Directory = (*lucene90CompoundDirectory)(nil)
+// Ensure implementations satisfy the interfaces.
+var (
+	_ CompoundFormat = (*BaseCompoundFormat)(nil)
+	_ CompoundFormat = (*Lucene90CompoundFormat)(nil)
+)
