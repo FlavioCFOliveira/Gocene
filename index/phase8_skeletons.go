@@ -48,15 +48,36 @@ type MultiLeafReader interface {
 // Lucene 10.4.0.
 //
 // Gocene skeleton: stores the sub-enumerators only — the actual round-robin
-// advance is deferred to backlog #2710 alongside MultiTermsEnum.
+// advance is deferred to backlog #2710 alongside MultiTermsEnum. The
+// EnumWithSlice payload is wired so MappingMultiPostingsEnum.Reset can
+// rebuild its per-sub-reader index already.
 type MultiPostingsEnum struct {
-	Subs []PostingsEnum
+	Subs          []PostingsEnum
+	SubsWithSlice []EnumWithSlice
+	NumSubs       int
 }
 
 // NewMultiPostingsEnum constructs a MultiPostingsEnum over subs.
 func NewMultiPostingsEnum(subs []PostingsEnum) *MultiPostingsEnum {
 	return &MultiPostingsEnum{Subs: subs}
 }
+
+// EnumWithSlice pairs a PostingsEnum with the ReaderSlice describing how
+// the sub-reader fits into the composite reader. Mirrors
+// org.apache.lucene.index.MultiPostingsEnum.EnumWithSlice from Apache
+// Lucene 10.4.0.
+type EnumWithSlice struct {
+	PostingsEnum PostingsEnum
+	Slice        ReaderSlice
+}
+
+// GetSubs returns the per-sub-reader (PostingsEnum, ReaderSlice) pairs
+// that back this MultiPostingsEnum. Mirrors getSubs() in Lucene.
+func (m *MultiPostingsEnum) GetSubs() []EnumWithSlice { return m.SubsWithSlice }
+
+// GetNumSubs returns the number of active sub-enumerators. Mirrors
+// getNumSubs() in Lucene.
+func (m *MultiPostingsEnum) GetNumSubs() int { return m.NumSubs }
 
 // --- ReaderManager -----------------------------------------------------------
 
@@ -136,8 +157,8 @@ func (SlowImpactsEnum) GetImpacts() (Impacts, error) {
 
 type slowSingleImpact struct{}
 
-func (slowSingleImpact) NumLevels() int                          { return 1 }
-func (slowSingleImpact) GetDocIDUpTo(_ int) int                  { return NO_MORE_DOCS }
+func (slowSingleImpact) NumLevels() int         { return 1 }
+func (slowSingleImpact) GetDocIDUpTo(_ int) int { return NO_MORE_DOCS }
 func (slowSingleImpact) GetImpacts(_ int) *FreqAndNormBuffer {
 	b := NewFreqAndNormBuffer()
 	b.Add(1, 1)
