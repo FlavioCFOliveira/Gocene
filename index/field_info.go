@@ -55,6 +55,12 @@ type FieldInfo struct {
 	// StoreTermVectorPayloads determines if term vector payloads are stored
 	storeTermVectorPayloads bool
 
+	// storePayloads records whether term-position payloads were observed
+	// during indexing for this field. Mirrors Lucene FieldInfo.storePayloads
+	// and is toggled by SetStorePayloads at flush time when FreqProx sees
+	// the first non-empty payload.
+	storePayloads bool
+
 	// pointDimensionCount is the number of dimensions for point values
 	pointDimensionCount int
 
@@ -340,6 +346,38 @@ func (fi *FieldInfo) PutCodecAttribute(key, value string) {
 	fi.mu.Lock()
 	defer fi.mu.Unlock()
 	fi.attributes[key] = value
+}
+
+// SetStorePayloads marks this field as having observed payloads during
+// indexing. Lucene's FreqProxTermsWriterPerField calls this from its
+// finish() hook whenever the field saw at least one non-empty payload in
+// the current segment, so the flushed FieldInfo can advertise hasPayloads
+// in the index.
+//
+// Like Lucene's package-private setStorePayloads, this method bypasses the
+// frozen contract. The flag is only honoured when the field is indexed with
+// positions; for lower index options the call is a no-op, matching the
+// guard in Lucene FieldInfo.setStorePayloads.
+//
+// Concurrent calls are serialised on the attribute mutex; reads of
+// HasStoredPayloads use the same lock.
+func (fi *FieldInfo) SetStorePayloads() {
+	if fi.indexOptions < IndexOptionsDocsAndFreqsAndPositions {
+		return
+	}
+	fi.mu.Lock()
+	fi.storePayloads = true
+	fi.mu.Unlock()
+}
+
+// HasStoredPayloads reports whether SetStorePayloads has been invoked for
+// this field. Codec writers consult it to decide whether to encode the
+// payload-bit in the postings stream. Existing callers should keep using
+// HasPayloads(), which mirrors the older positions-based heuristic.
+func (fi *FieldInfo) HasStoredPayloads() bool {
+	fi.mu.RLock()
+	defer fi.mu.RUnlock()
+	return fi.storePayloads
 }
 
 // Clone creates a copy of this FieldInfo with a new number.
