@@ -83,7 +83,7 @@ type Lucene103IntersectTermsEnum struct {
 	// initial five-slot reservation. Sprint 56 reserves the same five
 	// slots so the deferred port does not need to special-case the
 	// first push.
-	stack []*intersectTermsEnumFrame
+	stack []*IntersectTermsEnumFrame
 
 	// nodes mirrors the TrieReader.Node[] cache from the Java side.
 	// Slot zero is set from trieReader.root at construction time;
@@ -94,7 +94,7 @@ type Lucene103IntersectTermsEnum struct {
 
 	// currentFrame is the top-of-stack frame the behavioural port is
 	// scanning. Mirrors IntersectTermsEnum.currentFrame.
-	currentFrame *intersectTermsEnumFrame
+	currentFrame *IntersectTermsEnumFrame
 
 	// currentTransition is the live Transition the automaton is
 	// pointing at; pushFrame copies it from currentFrame.transition
@@ -114,61 +114,13 @@ type Lucene103IntersectTermsEnum struct {
 	savedStartTerm *util.BytesRef
 }
 
-// intersectTermsEnumFrame is the Go counterpart of
-// org.apache.lucene.codecs.lucene103.blocktree.IntersectTermsEnumFrame.
-// The full field set (suffixBytes, suffixesReader, transitionCount,
-// floorSuffix*, isLastInFloor, lastSubFP, fpEnd, …) lands with the
-// deferred deep-port follow-up — see backlog task #2692. Sprint 56
-// declares only the slots the surface exposes (ord, prefix, state,
-// node, transition) so the typed stack layout matches the Java
-// reference and the deferred port can grow the struct in place
-// instead of rewriting the cursor type.
-//
-// IMPORTANT: do not add fields, methods, or constructors here without
-// first updating backlog task #2692 — the surface here is the contract
-// the deep port must preserve.
-type intersectTermsEnumFrame struct {
-	// ord is the frame's position in the stack (0 == root). Mirrors
-	// IntersectTermsEnumFrame.ord.
-	ord int
-
-	// fp / fpOrig are the file pointers of the current floor sub-block
-	// and the parent floor block, respectively. The behavioural port
-	// uses (fp == fpOrig) to spot the parent's first emission.
-	fp     int64
-	fpOrig int64
-
-	// prefix is the depth in the trie (number of bytes shared by every
-	// term in the block). Mirrors IntersectTermsEnumFrame.prefix.
-	prefix int
-
-	// state is the automaton state at the entry of the frame; pushFrame
-	// computes it via getState() from the parent's suffix scan. Mirrors
-	// IntersectTermsEnumFrame.state.
-	state int
-
-	// lastState is the automaton state recorded just before the last
-	// suffix byte was consumed; the parent uses it when popping the
-	// child frame to restore the right resume point. Mirrors
-	// IntersectTermsEnumFrame.lastState.
-	lastState int
-
-	// node is the cached TrieReader.Node that this frame anchors at.
-	// Sprint 56 leaves it nil because the trie traversal has not
-	// landed yet.
-	node *TrieNode
-
-	// transition is the per-frame Transition object the automaton
-	// walks within this block. Java preallocates one per frame so the
-	// inner loop avoids re-allocation; the Go port mirrors that.
-	transition *automaton.Transition
-
-	// transitionIndex / transitionCount mirror the same names in
-	// Java. They are populated by setState() once the deferred port
-	// lands; today both fields stay at zero.
-	transitionIndex int
-	transitionCount int
-}
+// The IntersectTermsEnumFrame type itself lives in
+// lucene103_intersect_terms_enum_frame.go (GOC-3328): it is the Go port of
+// org.apache.lucene.codecs.lucene103.blocktree.IntersectTermsEnumFrame and
+// carries the full field set + decoder methods. The Sprint 56 stub kept
+// only a degraded subset here; promoting the type to its own file matches
+// the Lucene file map 1:1 and gives the deferred deep-port (backlog
+// #2692) the contract surface it needs.
 
 // NewLucene103IntersectTermsEnum opens an automaton-driven enumerator
 // over field. The caller is expected to validate compiled before
@@ -192,26 +144,34 @@ type intersectTermsEnumFrame struct {
 //     it through once the .tip read path is in.
 func NewLucene103IntersectTermsEnum(field *Lucene103FieldReader, compiled *automaton.CompiledAutomaton, startTerm *index.Term) *Lucene103IntersectTermsEnum {
 	const initialStackSize = 5
-	stack := make([]*intersectTermsEnumFrame, initialStackSize)
-	for i := range stack {
-		stack[i] = &intersectTermsEnumFrame{
-			ord:        i,
-			transition: &automaton.Transition{},
-		}
-	}
-	nodes := make([]*TrieNode, initialStackSize)
-	for i := 1; i < len(nodes); i++ {
-		nodes[i] = NewTrieNode()
-	}
 
 	e := &Lucene103IntersectTermsEnum{
 		fr:        field,
 		compiled:  compiled,
 		startTerm: startTerm,
-		stack:     stack,
-		nodes:     nodes,
 		term:      &util.BytesRef{},
 	}
+
+	stack := make([]*IntersectTermsEnumFrame, initialStackSize)
+	for i := range stack {
+		// NewIntersectTermsEnumFrame only fails on a nil enum, which
+		// cannot happen here — the error path is impossible.
+		f, err := NewIntersectTermsEnumFrame(e, i)
+		if err != nil {
+			// Defensive: should never trigger because e is non-nil
+			// above. Fall back to a bare frame so the slice still
+			// satisfies the stack contract.
+			f = &IntersectTermsEnumFrame{Ord: i, Transition: automaton.NewTransition(), ite: e}
+		}
+		stack[i] = f
+	}
+	nodes := make([]*TrieNode, initialStackSize)
+	for i := 1; i < len(nodes); i++ {
+		nodes[i] = NewTrieNode()
+	}
+	e.stack = stack
+	e.nodes = nodes
+
 	if compiled != nil {
 		// TODO(GOC-2692): once CompiledAutomaton exposes accessor
 		// methods, unpack the triple here. The current
