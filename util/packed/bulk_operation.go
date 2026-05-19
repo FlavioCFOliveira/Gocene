@@ -488,3 +488,15 @@ func (b *bulkOperationPackedSingleBlock) EncodeIntsToBytes(values []int32, value
 		valuesOffset += b.valueCount
 	}
 }
+
+// BulkOperationPackedSingleBlock is the exported alias of
+// [bulkOperationPackedSingleBlock] preserved for external Lucene-aligned
+// consumers. Behaviour and layout are identical to the unexported type.
+type BulkOperationPackedSingleBlock = bulkOperationPackedSingleBlock
+
+// NewBulkOperationPackedSingleBlock constructs a [BulkOperationPackedSingleBlock]
+// for the given bits-per-value. It mirrors the unexported
+// [newBulkOperationPackedSingleBlock] constructor.
+func NewBulkOperationPackedSingleBlock(bitsPerValue int) *BulkOperationPackedSingleBlock {
+	return newBulkOperationPackedSingleBlock(bitsPerValue)
+}
