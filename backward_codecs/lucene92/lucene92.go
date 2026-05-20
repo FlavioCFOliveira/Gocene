@@ -6,11 +6,4 @@ package lucene92
 // matching Lucene version.
 
 
-// Lucene92Codec mirrors org.apache.lucene.backward_codecs.lucene92.Lucene92Codec.
-type Lucene92Codec struct{ Name, Version string }
-
-// NewLucene92Codec builds a Lucene92Codec with the supplied version.
-func NewLucene92Codec(version string) *Lucene92Codec {
-	return &Lucene92Codec{Name: "Lucene92Codec", Version: version}
-}
 
