@@ -65,12 +65,38 @@ type MultiLevelSkipListReader struct {
 	// readSkipData decodes the codec-specific skip payload for the given
 	// level. Returns the doc delta (new_doc - skipDoc[level]) and any error.
 	readSkipData ReadSkipDataFunc
+
+	// onSetLastSkipData, when non-nil, is called immediately before the reader
+	// commits a new skip entry (i.e. when the current entry at level is about to
+	// be advanced). This mirrors the Java MultiLevelSkipListReader.setLastSkipData
+	// override hook. Concrete readers use it to snapshot per-level state as the
+	// "last accepted" skip data.
+	onSetLastSkipData func(level int)
+
+	// onSeekChild, when non-nil, is called when the reader resets a child level
+	// to the position indicated by the last accepted skip entry. This mirrors the
+	// Java MultiLevelSkipListReader.seekChild override hook.
+	onSeekChild func(level int)
 }
 
 // ReadSkipDataFunc is the codec hook invoked once per level for each
 // downward step. The implementation reads its per-level skip payload from
 // skipStream and returns the document delta gained by this skip.
 type ReadSkipDataFunc func(level int, skipStream store.IndexInput) (int, error)
+
+// SetOnSetLastSkipData registers an optional callback invoked immediately
+// before the reader advances past the current skip entry at the given level.
+// This mirrors the Java MultiLevelSkipListReader.setLastSkipData override.
+func (r *MultiLevelSkipListReader) SetOnSetLastSkipData(fn func(level int)) {
+	r.onSetLastSkipData = fn
+}
+
+// SetOnSeekChild registers an optional callback invoked when the reader
+// resets a child level to the position indicated by the last accepted skip
+// entry. This mirrors the Java MultiLevelSkipListReader.seekChild override.
+func (r *MultiLevelSkipListReader) SetOnSeekChild(fn func(level int)) {
+	r.onSeekChild = fn
+}
 
 // NewMultiLevelSkipListReader constructs a reader that will walk a skip list
 // stored in skipStream. skipInterval and skipMultiplier must match the
@@ -183,6 +209,15 @@ func (r *MultiLevelSkipListReader) SkipTo(target int) (int, error) {
 	numSkipped := 0
 	for level >= 0 {
 		for r.skipDoc[level] < target {
+			// Mirror Java's setLastSkipData(level): snapshot current state before
+			// advancing. Concrete readers (e.g. Lucene50SkipReader) use this hook
+			// to persist per-level pointers as the "last accepted" position.
+			if r.onSetLastSkipData != nil {
+				r.onSetLastSkipData(level)
+			}
+			r.lastDoc = r.skipDoc[level]
+			r.lastChildPointer = r.childPointer[level]
+
 			delta, err := r.readSkipData(level, r.skipStream[level])
 			if err != nil {
 				return numSkipped, fmt.Errorf("MultiLevelSkipListReader: readSkipData(level=%d): %w", level, err)
@@ -194,7 +229,18 @@ func (r *MultiLevelSkipListReader) SkipTo(target int) (int, error) {
 			r.skipDoc[level] += delta
 			if level == 0 {
 				numSkipped += r.skipInterval
-				r.lastDoc = r.skipDoc[0]
+			}
+		}
+		// Mirror Java's seekChild(level-1): when descending, reposition the
+		// child level if the last accepted child pointer is ahead of the
+		// current position.
+		if level > 0 && r.skipStream[level-1] != nil &&
+			r.lastChildPointer > r.skipStream[level-1].GetFilePointer() {
+			if r.onSeekChild != nil {
+				r.onSeekChild(level - 1)
+			}
+			if err := r.skipStream[level-1].SetPosition(r.lastChildPointer); err != nil {
+				return numSkipped, fmt.Errorf("MultiLevelSkipListReader: seekChild(level=%d): %w", level-1, err)
 			}
 		}
 		level--
