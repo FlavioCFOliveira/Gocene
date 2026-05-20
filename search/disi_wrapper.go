@@ -28,11 +28,18 @@ package search
 //   - twoPhaseView and matchCost are populated only when the scorer
 //     satisfies the scorerTwoPhaseProvider interface; otherwise both
 //     are left at their zero values (nil / 0).
+//   - iterator exposes the raw DISI (approximation when two-phase, else scorer)
+//     so that WANDScorer can advance it directly as Java does.
+//   - scaledMaxScore is the max score of this clause scaled as a long integer,
+//     used by WANDScorer for block-max pruning.
 type DisiWrapper struct {
 	// scorer is the original Scorer this wrapper was built from.
 	scorer Scorer
 	// scorable is used for scoring; in Gocene Scorer satisfies Scorable.
 	scorable Scorer
+	// iterator is the raw DocIdSetIterator used for direct advancement (same
+	// as approximation but named to mirror the Java field).
+	iterator DocIdSetIterator
 	// The DISI to use for approximation-based iteration.
 	approximation DocIdSetIterator
 	// cost is the estimated iteration cost (number of matching docs).
@@ -45,6 +52,9 @@ type DisiWrapper struct {
 	twoPhaseView *TwoPhaseIterator
 	// matchCost is twoPhaseView.MatchCost() when twoPhaseView != nil.
 	matchCost float32
+	// scaledMaxScore is the max score of this clause scaled as a long, used
+	// by WANDScorer for block-max pruning.  Zero when not in TOP_SCORES mode.
+	scaledMaxScore int64
 }
 
 // Doc returns the current document ID cached in this wrapper.
@@ -74,6 +84,7 @@ func NewDisiWrapper(scorer Scorer, _ bool) *DisiWrapper {
 	} else {
 		w.approximation = scorer
 	}
+	w.iterator = w.approximation
 	return w
 }
 
@@ -134,6 +145,42 @@ func (pq *DisiPriorityQueue) Pop() *DisiWrapper {
 func (pq *DisiPriorityQueue) UpdateTop() *DisiWrapper {
 	pq.downHeap(1)
 	return pq.heap[1]
+}
+
+// UpdateTopWith replaces the current top with w, re-heapifies, and returns
+// the new top.
+//
+// Mirrors DisiPriorityQueueN.updateTop(DisiWrapper) (Lucene 10.4.0).
+func (pq *DisiPriorityQueue) UpdateTopWith(w *DisiWrapper) *DisiWrapper {
+	pq.heap[1] = w
+	pq.downHeap(1)
+	return pq.heap[1]
+}
+
+// ─── 0-indexed heap helpers (DisiPriorityQueueN) ────────────────────────────
+
+// disiLeftNode returns the left child index in a 0-indexed binary heap.
+// Mirrors DisiPriorityQueueN.leftNode(int).
+func disiLeftNode(node int) int { return ((node + 1) << 1) - 1 }
+
+// disiRightNode returns the right child index given the left child index.
+// Mirrors DisiPriorityQueueN.rightNode(int).
+func disiRightNode(leftNode int) int { return leftNode + 1 }
+
+// disiParentNode returns the parent index in a 0-indexed binary heap.
+// Mirrors DisiPriorityQueueN.parentNode(int).
+func disiParentNode(node int) int { return ((node + 1) >> 1) - 1 }
+
+// HeapAll returns a range-over-func iterator over all entries in the heap
+// in heap order (not sorted by doc).  Suitable for read-only traversal.
+func (pq *DisiPriorityQueue) HeapAll() func(yield func(*DisiWrapper) bool) {
+	return func(yield func(*DisiWrapper) bool) {
+		for i := 1; i <= pq.size; i++ {
+			if !yield(pq.heap[i]) {
+				return
+			}
+		}
+	}
 }
 
 // TopList returns a linked list of all entries sharing the minimum docID.
