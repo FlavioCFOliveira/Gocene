@@ -10,12 +10,6 @@ package search
 // distinct org.apache.lucene.search.* type referenced by the Lucene
 // 10.4.0 source tree.
 
-// ConjunctionUtils mirrors org.apache.lucene.search.ConjunctionUtils.
-type ConjunctionUtils struct{}
-
-// NewConjunctionUtils builds a ConjunctionUtils.
-func NewConjunctionUtils() *ConjunctionUtils { return &ConjunctionUtils{} }
-
 // ConstantScoreScorerSupplier and ConstantScoreWeight have been
 // promoted out of the Sprint 52 stub pool. The concrete impls now
 // live in constant_score_scorer_supplier.go and
