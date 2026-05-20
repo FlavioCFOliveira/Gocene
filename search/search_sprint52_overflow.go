@@ -26,19 +26,74 @@ func NewControlledRealTimeReopenThread() *ControlledRealTimeReopenThread {
 	return &ControlledRealTimeReopenThread{}
 }
 
-// DocAndFloatFeatureBuffer mirrors
-// org.apache.lucene.search.DocAndFloatFeatureBuffer.
-type DocAndFloatFeatureBuffer struct{}
+// DocAndFloatFeatureBuffer stores parallel arrays of doc IDs and float
+// features (e.g., term frequency or score).
+//
+// Mirrors org.apache.lucene.search.DocAndFloatFeatureBuffer (Lucene 10.4.0).
+type DocAndFloatFeatureBuffer struct {
+	// Docs contains the doc IDs.
+	Docs []int
+	// Features contains the corresponding float-valued features.
+	Features []float32
+	// Size is the number of valid entries.
+	Size int
+}
 
-// NewDocAndFloatFeatureBuffer builds a DocAndFloatFeatureBuffer.
+// NewDocAndFloatFeatureBuffer builds an empty DocAndFloatFeatureBuffer.
 func NewDocAndFloatFeatureBuffer() *DocAndFloatFeatureBuffer { return &DocAndFloatFeatureBuffer{} }
 
-// DocAndScoreAccBuffer mirrors
-// org.apache.lucene.search.DocAndScoreAccBuffer.
-type DocAndScoreAccBuffer struct{}
+// GrowNoCopy grows both arrays to at least minSize entries; existing content may be discarded.
+func (b *DocAndFloatFeatureBuffer) GrowNoCopy(minSize int) {
+	if len(b.Docs) < minSize {
+		b.Docs = make([]int, minSize)
+		b.Features = make([]float32, minSize)
+	}
+}
 
-// NewDocAndScoreAccBuffer builds a DocAndScoreAccBuffer.
+// DocAndScoreAccBuffer stores parallel arrays of doc IDs and score accumulators.
+//
+// Mirrors org.apache.lucene.search.DocAndScoreAccBuffer (Lucene 10.4.0).
+type DocAndScoreAccBuffer struct {
+	// Docs contains the doc IDs.
+	Docs []int
+	// Scores contains the corresponding score accumulators.
+	Scores []float64
+	// Size is the number of valid entries.
+	Size int
+}
+
+// NewDocAndScoreAccBuffer builds an empty DocAndScoreAccBuffer.
 func NewDocAndScoreAccBuffer() *DocAndScoreAccBuffer { return &DocAndScoreAccBuffer{} }
+
+// GrowNoCopy grows both arrays to at least minSize entries; existing content may be discarded.
+func (b *DocAndScoreAccBuffer) GrowNoCopy(minSize int) {
+	if len(b.Docs) < minSize {
+		b.Docs = make([]int, minSize)
+		b.Scores = make([]float64, minSize)
+	}
+}
+
+// Grow grows both arrays to at least minSize entries, preserving content.
+func (b *DocAndScoreAccBuffer) Grow(minSize int) {
+	if len(b.Docs) < minSize {
+		newDocs := make([]int, minSize)
+		newScores := make([]float64, minSize)
+		copy(newDocs, b.Docs[:b.Size])
+		copy(newScores, b.Scores[:b.Size])
+		b.Docs = newDocs
+		b.Scores = newScores
+	}
+}
+
+// CopyFrom copies content from a DocAndFloatFeatureBuffer, widening float32 to float64.
+func (b *DocAndScoreAccBuffer) CopyFrom(buf *DocAndFloatFeatureBuffer) {
+	b.GrowNoCopy(buf.Size)
+	copy(b.Docs[:buf.Size], buf.Docs[:buf.Size])
+	for i := 0; i < buf.Size; i++ {
+		b.Scores[i] = float64(buf.Features[i])
+	}
+	b.Size = buf.Size
+}
 
 // DocIdSetBulkIterator mirrors
 // org.apache.lucene.search.DocIdSetBulkIterator.
