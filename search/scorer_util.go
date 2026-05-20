@@ -13,9 +13,18 @@
 
 package search
 
+import (
+	"math"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
 // Ported from Apache Lucene 10.4.0:
 //   lucene/core/src/java/org/apache/lucene/search/ScorerUtil.java
 //   (costWithMinShouldMatch only)
+
+// Ported from Apache Lucene 10.4.0:
+//   lucene/core/src/java/org/apache/lucene/search/ScorerUtil.java
 
 // CostWithMinShouldMatch estimates the iteration cost of a BooleanQuery
 // with minShouldMatch clauses.
@@ -81,4 +90,27 @@ func CostWithMinShouldMatch(costs []int64, numScorers, minShouldMatch int) int64
 		sum += v
 	}
 	return sum
+}
+
+// MinRequiredScore computes a minimum required score such that
+//
+//	float32(util.MathSumUpperBound(minRequiredScore + maxRemainingScore, numScorers)) <= minCompetitiveScore.
+//
+// The computed value may not be the greatest value satisfying the condition;
+// documents near the boundary may still be evaluated and filtered later.
+//
+// Mirrors ScorerUtil.minRequiredScore(double, float, int) (Lucene 10.4.0).
+func MinRequiredScore(maxRemainingScore float64, minCompetitiveScore float32, numScorers int) float64 {
+	minRequiredScore := float64(minCompetitiveScore) - maxRemainingScore
+	// Use the float32 ulp (not float64 ulp) to converge faster, matching Java.
+	subtraction := float64(math.Float32frombits(math.Float32bits(minCompetitiveScore)+1) - minCompetitiveScore)
+	if subtraction <= 0 {
+		// Fallback for edge cases (e.g. minCompetitiveScore == 0).
+		subtraction = math.SmallestNonzeroFloat64
+	}
+	for minRequiredScore > 0 &&
+		float32(util.MathSumUpperBound(minRequiredScore+maxRemainingScore, numScorers)) >= minCompetitiveScore {
+		minRequiredScore -= subtraction
+	}
+	return minRequiredScore
 }
