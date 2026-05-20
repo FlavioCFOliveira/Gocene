@@ -23,6 +23,11 @@ import (
 // plus a constant 24 bytes accounting for the typical Query object footprint.
 const BytesPerDelQuery = 5*8 + 2*16 + 2*4 + 24
 
+// MaxInt is the largest docID upper bound. It mirrors Lucene's
+// BufferedUpdates.MAX_INT (Integer.valueOf(Integer.MAX_VALUE)) and is used
+// by DeleteSlice.Apply when no per-document docID limit applies.
+const MaxInt = int(^uint(0) >> 1)
+
 // BufferedUpdates holds buffered deletes and updates for a single segment.
 //
 // This is the Go port of Lucene's org.apache.lucene.index.BufferedUpdates.
@@ -83,6 +88,29 @@ func (bu *BufferedUpdates) AddTerm(term *Term, docIDUpto int) {
 		return
 	}
 	bu.deleteTerms.Put(term, docIDUpto)
+}
+
+// NumDeleteTerms returns the count of unique buffered term deletes.
+//
+// It mirrors the read of BufferedUpdates.deleteTerms.size() performed by
+// DocumentsWriterDeleteQueue.numGlobalTermDeletes and getBufferedUpdatesTermsSize.
+func (bu *BufferedUpdates) NumDeleteTerms() int {
+	return bu.deleteTerms.Size()
+}
+
+// AddNumericUpdate records a numeric doc-values update against the given
+// docID upper bound. Gocene's BufferedUpdates does not yet buffer the full
+// per-field update payload (deferred with the doc-values update writer); the
+// port tracks the field-update count so Any reports the change, matching the
+// observable contract used by DocumentsWriterDeleteQueue.
+func (bu *BufferedUpdates) AddNumericUpdate(update *NumericDocValuesUpdate, docIDUpto int) {
+	bu.numFieldUpdates++
+}
+
+// AddBinaryUpdate records a binary doc-values update against the given docID
+// upper bound. See AddNumericUpdate for the buffering caveat.
+func (bu *BufferedUpdates) AddBinaryUpdate(update *BinaryDocValuesUpdate, docIDUpto int) {
+	bu.numFieldUpdates++
 }
 
 // ClearDeleteTerms clears all term deletes and reclaims their RAM accounting.
