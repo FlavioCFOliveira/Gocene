@@ -55,11 +55,7 @@ type DocIdSet struct{}
 // NewDocIdSet builds a DocIdSet.
 func NewDocIdSet() *DocIdSet { return &DocIdSet{} }
 
-// DocIdStream mirrors org.apache.lucene.search.DocIdStream.
-type DocIdStream struct{}
-
-// NewDocIdStream builds a DocIdStream.
-func NewDocIdStream() *DocIdStream { return &DocIdStream{} }
+// DocIdStream has been promoted to a proper interface in doc_id_stream.go.
 
 // DocValuesRangeIterator mirrors
 // org.apache.lucene.search.DocValuesRangeIterator.
