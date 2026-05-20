@@ -7,7 +7,7 @@ package knn
 import (
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TestHnswConstructorThreshold mirrors the Java guard:
@@ -173,8 +173,8 @@ func TestSeededNextVectorsBlock(t *testing.T) {
 // Java's Objects.equals on DocIdSetIterator) plus value equality on
 // the count and original strategy.
 func TestSeededEquals(t *testing.T) {
-	it1 := search.NewEmptyDocIdSetIterator()
-	it2 := search.NewEmptyDocIdSetIterator()
+	it1 := util.EmptyDocIdSetIterator()
+	it2 := util.EmptyDocIdSetIterator()
 	a := NewSeeded(it1, 0, nil)
 	b := NewSeeded(it1, 0, nil)
 	c := NewSeeded(it2, 0, nil) // different iterator instance

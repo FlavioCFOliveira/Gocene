@@ -26,12 +26,6 @@ type AbstractKnnCollector struct{}
 // NewAbstractKnnCollector builds an AbstractKnnCollector.
 func NewAbstractKnnCollector() *AbstractKnnCollector { return &AbstractKnnCollector{} }
 
-// AcceptDocs mirrors org.apache.lucene.search.AcceptDocs.
-type AcceptDocs struct{}
-
-// NewAcceptDocs builds an AcceptDocs.
-func NewAcceptDocs() *AcceptDocs { return &AcceptDocs{} }
-
 // BoostAttribute mirrors org.apache.lucene.search.BoostAttribute. This
 // is the search-side fuzzy-boost attribute, distinct from the
 // analysis-side analysis.BoostAttribute used for token streams.
