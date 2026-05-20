@@ -39,6 +39,18 @@ const (
 	MissingValueUseDefault
 )
 
+// stringSentinel is the opaque type used for the STRING_FIRST / STRING_LAST
+// sentinels. Identity comparison (pointer equality) is the only valid test.
+type stringSentinel struct{ name string }
+
+// STRING_FIRST is the missing-value sentinel that sorts missing values first
+// (before any present value). Mirrors SortField.STRING_FIRST.
+var STRING_FIRST = &stringSentinel{"STRING_FIRST"}
+
+// STRING_LAST is the missing-value sentinel that sorts missing values last
+// (after any present value). Mirrors SortField.STRING_LAST.
+var STRING_LAST = &stringSentinel{"STRING_LAST"}
+
 // SortField defines how to sort documents by a specific field.
 // This is the Go port of Lucene's org.apache.lucene.search.SortField.
 type SortField struct {
@@ -79,9 +91,19 @@ func NewSortFieldReverse(field string, fieldType SortFieldType) *SortField {
 	}
 }
 
+// GetField returns the field name this SortField sorts on.
+func (sf *SortField) GetField() string { return sf.Field }
+
 // GetReverse returns whether this sort is reversed.
 func (sf *SortField) GetReverse() bool {
 	return sf.Reverse
+}
+
+// SetMissingValue sets the value used when a document has no value for this
+// field during sorting. The sentinel values STRING_FIRST and STRING_LAST are
+// supported for string-typed fields.
+func (sf *SortField) SetMissingValue(v interface{}) {
+	sf.MissingValue = v
 }
 
 // Sort defines the sort order for search results.
