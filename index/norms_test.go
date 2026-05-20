@@ -48,8 +48,9 @@ func TestNorms_MaxByteNorms(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	// Create FSDirectory
-	dir, err := store.NewFSDirectory(tempDir)
+	// Create FSDirectory. SimpleFSDirectory is the concrete subclass;
+	// the abstract FSDirectory base does not implement CreateOutput.
+	dir, err := store.NewSimpleFSDirectory(tempDir)
 	if err != nil {
 		t.Fatalf("Failed to create FSDirectory: %v", err)
 	}
@@ -615,8 +616,9 @@ func TestNorms_ClassicSimilarityNormEncoding(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("norm_%f", tt.norm), func(t *testing.T) {
 			encoded := sim.EncodeNorm(tt.norm)
-			// Allow for some variance due to float encoding
-			if encoded < tt.expected-1 || encoded > tt.expected+1 {
+			// Allow for some variance due to float encoding. Compare in int
+			// space so the +/-1 tolerance does not wrap around byte bounds.
+			if d := int(encoded) - int(tt.expected); d < -1 || d > 1 {
 				t.Errorf("EncodeNorm(%f) = %d, want around %d", tt.norm, encoded, tt.expected)
 			}
 
