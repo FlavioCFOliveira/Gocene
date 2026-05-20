@@ -380,6 +380,22 @@ func (fi *FieldInfo) HasStoredPayloads() bool {
 	return fi.storePayloads
 }
 
+// SetStoreTermVectors marks this field as having stored term vectors.
+// Lucene's TermVectorsConsumerPerField calls the package-private
+// FieldInfo.setStoreTermVectors() from its finishDocument() hook once it
+// has flushed the document's vectors, so the persisted FieldInfo can
+// advertise hasVectors in the index.
+//
+// Like Lucene's package-private setStoreTermVectors, this method bypasses
+// the frozen contract; it is the term-vectors-side analogue of
+// SetStorePayloads. Concurrent calls are serialised on the attribute mutex,
+// matching SetStorePayloads.
+func (fi *FieldInfo) SetStoreTermVectors() {
+	fi.mu.Lock()
+	fi.storeTermVectors = true
+	fi.mu.Unlock()
+}
+
 // Clone creates a copy of this FieldInfo with a new number.
 func (fi *FieldInfo) Clone(newNumber int) *FieldInfo {
 	fi.mu.RLock()
