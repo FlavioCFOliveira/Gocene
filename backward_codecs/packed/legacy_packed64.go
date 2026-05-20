@@ -117,21 +117,34 @@ func (p *LegacyPacked64) String() string {
 		p.bitsPerValue, p.valueCount, len(p.blocks))
 }
 
-// GetReaderNoHeader reads a packed.Reader from in using the legacy PACKED
-// format (no header). This is the only format actually used by
-// LegacyFieldsIndexReader (PACKED_SINGLE_BLOCK never appears in the Lucene 50
-// fields index).
+// GetReaderNoHeader reads a packed.Reader using Format.PACKED (no header).
+// This is the format used by LegacyFieldsIndexReader.
 //
 // Port of LegacyPackedInts.getReaderNoHeader(DataInput, Format.PACKED, int, int, int).
 func GetReaderNoHeader(in store.DataInput, version, valueCount, bitsPerValue int) (packed.Reader, error) {
+	return GetReaderNoHeaderFormat(in, packed.FormatPacked, version, valueCount, bitsPerValue)
+}
+
+// GetReaderNoHeaderFormat reads a packed.Reader from in using the given legacy
+// format (no header). Supports both FormatPacked and FormatPackedSingleBlock.
+//
+// Port of LegacyPackedInts.getReaderNoHeader(DataInput, Format, int, int, int).
+func GetReaderNoHeaderFormat(in store.DataInput, format packed.Format, version, valueCount, bitsPerValue int) (packed.Reader, error) {
 	if err := packed.CheckVersion(version); err != nil {
 		return nil, err
 	}
-	if bitsPerValue == 0 {
-		// Zero-width reader: all Get() calls return 0.
-		return &zeroReader{size: valueCount}, nil
+	switch format {
+	case packed.FormatPackedSingleBlock:
+		return CreateLegacyPacked64SingleBlock(in, valueCount, bitsPerValue)
+	case packed.FormatPacked:
+		if bitsPerValue == 0 {
+			// Zero-width reader: all Get() calls return 0.
+			return &zeroReader{size: valueCount}, nil
+		}
+		return newLegacyPacked64(version, in, valueCount, bitsPerValue)
+	default:
+		return nil, fmt.Errorf("legacyPackedInts: unknown format %d", format)
 	}
-	return newLegacyPacked64(version, in, valueCount, bitsPerValue)
 }
 
 // zeroReader is a Reader where every value is 0. Used when bitsPerValue == 0.
