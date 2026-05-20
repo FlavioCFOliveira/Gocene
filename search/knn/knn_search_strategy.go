@@ -27,7 +27,7 @@ package knn
 import (
 	"unsafe"
 
-	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/hnsw"
 )
 
@@ -143,7 +143,7 @@ func (h *Hnsw) HashCode() uint64 {
 // explicit set of entry-point doc IDs before falling back to the
 // underlying strategy. Mirrors KnnSearchStrategy.Seeded.
 type Seeded struct {
-	entryPoints         search.DocIdSetIterator
+	entryPoints         util.DocIdSetIterator
 	numberOfEntryPoints int
 	originalStrategy    KnnSearchStrategy
 }
@@ -155,7 +155,7 @@ type Seeded struct {
 //
 // Mirrors KnnSearchStrategy.Seeded(DocIdSetIterator, int,
 // KnnSearchStrategy).
-func NewSeeded(entryPoints search.DocIdSetIterator, numberOfEntryPoints int, originalStrategy KnnSearchStrategy) *Seeded {
+func NewSeeded(entryPoints util.DocIdSetIterator, numberOfEntryPoints int, originalStrategy KnnSearchStrategy) *Seeded {
 	if numberOfEntryPoints < 0 {
 		panic("knn: numberOfEntryPoints must be >= 0")
 	}
@@ -163,7 +163,7 @@ func NewSeeded(entryPoints search.DocIdSetIterator, numberOfEntryPoints int, ori
 		panic("knn: entryPoints must not be nil")
 	}
 	if entryPoints == nil {
-		entryPoints = search.NewEmptyDocIdSetIterator()
+		entryPoints = util.EmptyDocIdSetIterator()
 	}
 	return &Seeded{
 		entryPoints:         entryPoints,
@@ -173,7 +173,7 @@ func NewSeeded(entryPoints search.DocIdSetIterator, numberOfEntryPoints int, ori
 }
 
 // EntryPoints returns the iterator of valid entry-point doc IDs.
-func (s *Seeded) EntryPoints() search.DocIdSetIterator { return s.entryPoints }
+func (s *Seeded) EntryPoints() util.DocIdSetIterator { return s.entryPoints }
 
 // NumberOfEntryPoints returns the configured count.
 func (s *Seeded) NumberOfEntryPoints() int { return s.numberOfEntryPoints }
