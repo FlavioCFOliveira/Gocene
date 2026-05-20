@@ -19,11 +19,4 @@ func NewLucene94HnswVectorsFormatWithVersion(version string) *Lucene94HnswVector
 	return &Lucene94HnswVectorsFormat{Name: "Lucene94HnswVectorsFormat", Version: version}
 }
 
-// Lucene94HnswVectorsReader mirrors org.apache.lucene.backward_codecs.lucene94.Lucene94HnswVectorsReader.
-type Lucene94HnswVectorsReader struct{ Name, Version string }
-
-// NewLucene94HnswVectorsReader builds a Lucene94HnswVectorsReader with the supplied version.
-func NewLucene94HnswVectorsReader(version string) *Lucene94HnswVectorsReader {
-	return &Lucene94HnswVectorsReader{Name: "Lucene94HnswVectorsReader", Version: version}
-}
 
