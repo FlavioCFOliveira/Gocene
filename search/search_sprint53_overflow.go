@@ -29,13 +29,6 @@ type FilterCollector struct{}
 // NewFilterCollector builds a FilterCollector.
 func NewFilterCollector() *FilterCollector { return &FilterCollector{} }
 
-// FilterDocIdSetIterator mirrors
-// org.apache.lucene.search.FilterDocIdSetIterator.
-type FilterDocIdSetIterator struct{}
-
-// NewFilterDocIdSetIterator builds a FilterDocIdSetIterator.
-func NewFilterDocIdSetIterator() *FilterDocIdSetIterator { return &FilterDocIdSetIterator{} }
-
 // FilteredDocIdSetIterator mirrors
 // org.apache.lucene.search.FilteredDocIdSetIterator.
 type FilteredDocIdSetIterator struct{}

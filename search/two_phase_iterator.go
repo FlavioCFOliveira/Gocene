@@ -20,9 +20,19 @@ type TwoPhaseIterator struct {
 
 	// matchesFunc returns true if the current document is an actual match
 	matchesFunc func() (bool, error)
+
+	// matchCost is an estimate of the cost of the Matches() call. A
+	// value of 0 means "not set" and defaults to 8 (matching Java's
+	// MATCH_COST constant for the common case).
+	matchCost float32
 }
 
-// NewTwoPhaseIterator creates a new TwoPhaseIterator.
+// defaultMatchCost is the default cost estimate for Matches(), matching
+// Java's TwoPhaseIterator default.
+const defaultMatchCost = float32(8)
+
+// NewTwoPhaseIterator creates a new TwoPhaseIterator with the default
+// matchCost.
 //
 // Parameters:
 //   - approximation: A DocIdSetIterator that provides candidate documents
@@ -34,8 +44,24 @@ func NewTwoPhaseIterator(approximation DocIdSetIterator, matchesFunc func() (boo
 	return &TwoPhaseIterator{
 		approximation: approximation,
 		matchesFunc:   matchesFunc,
+		matchCost:     defaultMatchCost,
 	}
 }
+
+// NewTwoPhaseIteratorWithMatchCost creates a new TwoPhaseIterator with
+// an explicit matchCost. Use this when you have a better cost estimate
+// than the default.
+func NewTwoPhaseIteratorWithMatchCost(approximation DocIdSetIterator, matchesFunc func() (bool, error), matchCost float32) *TwoPhaseIterator {
+	return &TwoPhaseIterator{
+		approximation: approximation,
+		matchesFunc:   matchesFunc,
+		matchCost:     matchCost,
+	}
+}
+
+// MatchCost returns an estimate of the per-document cost of calling
+// Matches(). Lower is cheaper. Mirrors TwoPhaseIterator.matchCost().
+func (tpi *TwoPhaseIterator) MatchCost() float32 { return tpi.matchCost }
 
 // Approximation returns the approximation iterator.
 // This iterator produces candidate documents that may or may not match.
