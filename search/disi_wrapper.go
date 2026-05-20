@@ -55,6 +55,9 @@ type DisiWrapper struct {
 	// scaledMaxScore is the max score of this clause scaled as a long, used
 	// by WANDScorer for block-max pruning.  Zero when not in TOP_SCORES mode.
 	scaledMaxScore int64
+	// maxWindowScore is the maximum score this clause can contribute in the
+	// current scoring window.  Used by MaxScoreBulkScorer for partitioning.
+	maxWindowScore float32
 }
 
 // Doc returns the current document ID cached in this wrapper.
@@ -138,6 +141,38 @@ func (pq *DisiPriorityQueue) Pop() *DisiWrapper {
 		pq.downHeap(1)
 	}
 	return top
+}
+
+// Top2 returns the second-smallest entry (by docID), or nil when size < 2.
+//
+// Mirrors DisiPriorityQueueN.top2().
+func (pq *DisiPriorityQueue) Top2() *DisiWrapper {
+	switch pq.size {
+	case 0, 1:
+		return nil
+	case 2:
+		return pq.heap[2]
+	default:
+		// In the 1-indexed heap heap[2] and heap[3] are the left and right children.
+		if pq.heap[2] == nil {
+			return pq.heap[3]
+		}
+		if pq.heap[3] == nil {
+			return pq.heap[2]
+		}
+		if pq.heap[2].doc <= pq.heap[3].doc {
+			return pq.heap[2]
+		}
+		return pq.heap[3]
+	}
+}
+
+// Clear removes all entries from the queue.
+func (pq *DisiPriorityQueue) Clear() {
+	for i := 1; i <= pq.size; i++ {
+		pq.heap[i] = nil
+	}
+	pq.size = 0
 }
 
 // UpdateTop re-heapifies after the top entry's doc field was modified.
