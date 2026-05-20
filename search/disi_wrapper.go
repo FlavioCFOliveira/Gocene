@@ -67,6 +67,11 @@ func (w *DisiWrapper) Doc() int { return w.doc }
 // Callers must call DisiPriorityQueue.UpdateTop after modifying the top.
 func (w *DisiWrapper) SetDoc(doc int) { w.doc = doc }
 
+// Next returns the next DisiWrapper in a topList chain, or nil.
+// The field is set by TopList / topListAt; callers should treat the
+// chain as read-only after retrieval.
+func (w *DisiWrapper) Next() *DisiWrapper { return w.next }
+
 // NewDisiWrapper constructs a DisiWrapper for scorer.
 // If scorer exposes a TwoPhaseIterator via the scorerTwoPhaseProvider
 // interface, the wrapper captures it and sets matchCost accordingly.
