@@ -81,6 +81,8 @@ func (w *fakeStoredFieldsWriter) WriteField(field IndexableField) error {
 	return nil
 }
 
+func (w *fakeStoredFieldsWriter) Finish(numDocs int) error { return nil }
+
 func (w *fakeStoredFieldsWriter) Close() error {
 	if w.closed {
 		return nil
@@ -424,9 +426,10 @@ type recordingWriter struct {
 	returnErr error
 }
 
-func (w *recordingWriter) StartDocument() error  { return nil }
-func (w *recordingWriter) FinishDocument() error { return nil }
-func (w *recordingWriter) Close() error          { return nil }
+func (w *recordingWriter) StartDocument() error     { return nil }
+func (w *recordingWriter) FinishDocument() error    { return nil }
+func (w *recordingWriter) Finish(numDocs int) error { return nil }
+func (w *recordingWriter) Close() error             { return nil }
 func (w *recordingWriter) WriteField(f IndexableField) error {
 	w.received = append(w.received, f)
 	return w.returnErr

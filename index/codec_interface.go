@@ -93,6 +93,11 @@ type StoredFieldsWriter interface {
 	// WriteField writes a field.
 	WriteField(field IndexableField) error
 
+	// Finish finalizes the segment for the given total document count.
+	// It mirrors org.apache.lucene.codecs.StoredFieldsWriter.finish and is
+	// called once, before Close, by StoredFieldsConsumer.Flush.
+	Finish(numDocs int) error
+
 	// Close releases resources.
 	Close() error
 }
