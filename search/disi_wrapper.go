@@ -171,6 +171,25 @@ func disiRightNode(leftNode int) int { return leftNode + 1 }
 // Mirrors DisiPriorityQueueN.parentNode(int).
 func disiParentNode(node int) int { return ((node + 1) >> 1) - 1 }
 
+// AddAll bulk-inserts len entries from wrappers[offset:offset+len] using
+// O(n) Floyd build-heap.  Fails if the insertion would exceed the allocated
+// capacity.
+//
+// Mirrors DisiPriorityQueueN.addAll(DisiWrapper[], int, int) (Lucene 10.4.0).
+func (pq *DisiPriorityQueue) AddAll(wrappers []*DisiWrapper, offset, length int) {
+	if pq.size+length > len(pq.heap)-1 {
+		panic("DisiPriorityQueue.AddAll: insufficient capacity")
+	}
+	for i := 0; i < length; i++ {
+		pq.size++
+		pq.heap[pq.size] = wrappers[offset+i]
+	}
+	// Floyd build-heap from the last non-leaf downward.
+	for i := pq.size / 2; i >= 1; i-- {
+		pq.downHeap(i)
+	}
+}
+
 // HeapAll returns a range-over-func iterator over all entries in the heap
 // in heap order (not sorted by doc).  Suitable for read-only traversal.
 func (pq *DisiPriorityQueue) HeapAll() func(yield func(*DisiWrapper) bool) {
