@@ -52,6 +52,12 @@ type Lucene50SkipReader struct {
 	lastPayPointer      int64
 	lastPosBufferUpto   int
 	lastPayloadByteUpto int
+
+	// readImpactsHook is called from readSkipData to consume (or buffer) the
+	// impact bytes for a given level. Subtype implementations (e.g.
+	// Lucene50ScoreSkipReader) replace this hook to capture impact data instead
+	// of discarding it. Default implementation skips the bytes.
+	readImpactsHook func(level int, skipStream store.IndexInput) error
 }
 
 // NewLucene50SkipReader constructs a Lucene50SkipReader.
@@ -93,6 +99,10 @@ func NewLucene50SkipReader(
 	)
 	r.base.SetOnSetLastSkipData(r.setLastSkipData)
 	r.base.SetOnSeekChild(r.seekChild)
+
+	// Default hook discards impact bytes. Lucene50ScoreSkipReader overrides
+	// this to buffer them.
+	r.readImpactsHook = r.readImpacts
 
 	return r
 }
@@ -264,7 +274,7 @@ func (r *Lucene50SkipReader) readSkipData(level int, skipStream store.IndexInput
 		}
 	}
 
-	if err := r.readImpacts(level, skipStream); err != nil {
+	if err := r.readImpactsHook(level, skipStream); err != nil {
 		return 0, err
 	}
 	return int(delta), nil

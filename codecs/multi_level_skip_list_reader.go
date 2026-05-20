@@ -262,6 +262,14 @@ func (r *MultiLevelSkipListReader) NumberOfSkipLevels() int {
 	return r.numberOfSkipLevels
 }
 
+// GetSkipDoc returns the doc id of the current skip entry at the given level.
+// Exposed so that concrete skip readers (e.g. Lucene50ScoreSkipReader) can
+// implement the Impacts.GetDocIDUpTo contract without embedding unexported
+// state.
+func (r *MultiLevelSkipListReader) GetSkipDoc(level int) int {
+	return r.skipDoc[level]
+}
+
 // Close releases the cloned per-level streams. The master stream supplied at
 // construction is the caller's responsibility.
 func (r *MultiLevelSkipListReader) Close() error {
