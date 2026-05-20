@@ -5,7 +5,11 @@
 package search
 
 import (
+	"math/rand"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TestLuceneBooleanSimilarity_Score verifies that the score equals the
@@ -43,6 +47,35 @@ func TestLuceneBooleanSimilarity_Explain(t *testing.T) {
 	}
 	if got := exp.GetValue(); got != 3.0 {
 		t.Fatalf("explain value: got %v, want 3.0", got)
+	}
+}
+
+// TestLuceneBooleanSimilarity_SameNormsAsBM25 mirrors TestBooleanSimilarity.testSameNormsAsBM25:
+// BooleanSimilarity must produce the same computeNorm output as BM25Similarity for identical
+// FieldInvertState inputs, since both use the Similarity base-class encoding.
+func TestLuceneBooleanSimilarity_SameNormsAsBM25(t *testing.T) {
+	boolSim := NewLuceneBooleanSimilarity()
+	bm25Sim := NewLuceneBM25Similarity()
+	rng := rand.New(rand.NewSource(42))
+	for iter := 0; iter < 100; iter++ {
+		length := rng.Intn(100) + 1
+		position := rng.Intn(length)
+		numOverlaps := rng.Intn(length)
+		state := index.NewFieldInvertStateFull(
+			util.LuceneVersionMajor,
+			"foo",
+			index.IndexOptionsDocsAndFreqs,
+			position, length, numOverlaps,
+			100, // offset
+			1,   // maxTermFrequency
+			1,   // uniqueTermCount
+		)
+		boolNorm := boolSim.ComputeNormFromInvertState(state)
+		bm25Norm := bm25Sim.ComputeNormFromInvertState(state)
+		if boolNorm != bm25Norm {
+			t.Fatalf("iter %d: BooleanSimilarity norm %d != BM25Similarity norm %d (state len=%d overlaps=%d)",
+				iter, boolNorm, bm25Norm, length, numOverlaps)
+		}
 	}
 }
 
