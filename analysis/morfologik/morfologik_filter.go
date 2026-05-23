@@ -223,19 +223,14 @@ func (f *MorfologikFilter) IncrementToken() (bool, error) {
 	return true, nil
 }
 
-// Reset clears the lemma accumulator and delegates to the superclass.
+// Reset clears the lemma accumulator state. Existing Gocene filters do not
+// propagate Reset to the upstream tokenizer (the caller controls the full
+// pipeline reset), so this method only resets MorfologikFilter's own fields.
 func (f *MorfologikFilter) Reset() error {
 	f.lemmaListIndex = 0
 	f.lemmaList = nil
 	f.tagsList = f.tagsList[:0]
-	if in := f.GetInput(); in != nil {
-		// BaseTokenFilter.Reset() is not defined — call reset on input directly
-		// if it exposes the method.
-		type resetter interface{ Reset() error }
-		if r, ok := in.(resetter); ok {
-			return r.Reset()
-		}
-	}
+	f.current = nil
 	return nil
 }
 
