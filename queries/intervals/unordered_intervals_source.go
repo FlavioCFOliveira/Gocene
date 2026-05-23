@@ -59,13 +59,13 @@ func deduplicateUnordered(sources []IntervalsSource) []IntervalsSource {
 	for _, src := range order {
 		k := src.String()
 		cnt := counts[k]
-		dedup := NewRepeatingIntervalsSource(srcs[k], cnt)
-		if cnt > 1 {
-			if r, ok := dedup.(*RepeatingIntervalsSource); ok {
-				r.SetName("UNORDERED")
-			}
+		result = append(result, NewRepeatingIntervalsSource(srcs[k], cnt))
+	}
+	// Only set "UNORDERED" name when there is exactly one deduplicated group.
+	if len(result) == 1 {
+		if r, ok := result[0].(*RepeatingIntervalsSource); ok {
+			r.SetName("UNORDERED")
 		}
-		result = append(result, dedup)
 	}
 	return result
 }
