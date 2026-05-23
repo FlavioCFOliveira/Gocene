@@ -23,6 +23,31 @@ func NewLongRange(label string, min int64, minInclusive bool, max int64, maxIncl
 	}
 }
 
+// InclusiveMin returns the normalized inclusive minimum, matching the Java
+// LongRange.min field (i.e. adjusted for exclusive lower bounds).
+// Returns math.MinInt64 if the range is empty.
+func (r *LongRange) InclusiveMin() int64 {
+	if r.MinInclusive {
+		return r.Min
+	}
+	if r.Min == ^int64(0) { // MaxInt64
+		return r.Min // degenerate — range matches nothing
+	}
+	return r.Min + 1
+}
+
+// InclusiveMax returns the normalized inclusive maximum, matching the Java
+// LongRange.max field (i.e. adjusted for exclusive upper bounds).
+func (r *LongRange) InclusiveMax() int64 {
+	if r.MaxInclusive {
+		return r.Max
+	}
+	if r.Max == -int64(^uint64(0)>>1)-1 { // MinInt64
+		return r.Max // degenerate
+	}
+	return r.Max - 1
+}
+
 // Accept reports whether v lies inside the range.
 func (r *LongRange) Accept(v int64) bool {
 	if r.MinInclusive {
