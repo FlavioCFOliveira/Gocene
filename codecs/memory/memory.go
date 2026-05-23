@@ -5,8 +5,8 @@ package memory
 // DirectPostingsFormat is the codec that holds postings in flat in-memory
 // arrays. Mirrors org.apache.lucene.codecs.memory.DirectPostingsFormat.
 type DirectPostingsFormat struct {
-	MinSkipCount     int
-	LowFreqCutoff    int
+	MinSkipCount  int
+	LowFreqCutoff int
 }
 
 // NewDirectPostingsFormat builds the format.
