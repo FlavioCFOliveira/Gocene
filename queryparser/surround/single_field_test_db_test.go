@@ -26,5 +26,5 @@ func newSingleFieldTestDb(docs []string, fieldName string) *singleFieldTestDb {
 	return &singleFieldTestDb{docs: docs, fieldName: fieldName}
 }
 
-func (db *singleFieldTestDb) getDocs() []string      { return db.docs }
-func (db *singleFieldTestDb) getFieldname() string   { return db.fieldName }
+func (db *singleFieldTestDb) getDocs() []string    { return db.docs }
+func (db *singleFieldTestDb) getFieldname() string { return db.fieldName }
