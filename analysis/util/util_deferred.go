@@ -32,8 +32,3 @@ type UnicodeProps struct{}
 // NewUnicodeProps builds a UnicodeProps.
 func NewUnicodeProps() *UnicodeProps { return &UnicodeProps{} }
 
-// CharTokenizer mirrors org.apache.lucene.analysis.util.CharTokenizer.
-type CharTokenizer struct{}
-
-// NewCharTokenizer builds a CharTokenizer.
-func NewCharTokenizer() *CharTokenizer { return &CharTokenizer{} }
