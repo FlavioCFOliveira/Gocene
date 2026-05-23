@@ -5,14 +5,6 @@ package lucene80
 // metadata so the codec registry can resolve segments written by the
 // matching Lucene version.
 
-// Lucene80NormsFormat mirrors org.apache.lucene.backward_codecs.lucene80.Lucene80NormsFormat.
-type Lucene80NormsFormat struct{ Name, Version string }
-
-// NewLucene80NormsFormat builds a Lucene80NormsFormat with the supplied version.
-func NewLucene80NormsFormat(version string) *Lucene80NormsFormat {
-	return &Lucene80NormsFormat{Name: "Lucene80NormsFormat", Version: version}
-}
-
 // Lucene80Codec mirrors org.apache.lucene.backward_codecs.lucene80.Lucene80Codec.
 type Lucene80Codec struct{ Name, Version string }
 
