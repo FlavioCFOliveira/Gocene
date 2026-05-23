@@ -66,4 +66,7 @@ func (c *LruTaxonomyWriterCache) Clear() {
 // IsFull reports whether the cache holds capacity entries.
 func (c *LruTaxonomyWriterCache) IsFull() bool { return c.order.Len() >= c.capacity }
 
+// Close releases all resources held by the cache.
+func (c *LruTaxonomyWriterCache) Close() { c.Clear() }
+
 var _ TaxonomyWriterCache = (*LruTaxonomyWriterCache)(nil)

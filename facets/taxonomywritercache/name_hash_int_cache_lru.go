@@ -73,6 +73,9 @@ func (c *NameHashIntCacheLRU) Clear() {
 // IsFull reports whether the cache holds capacity entries.
 func (c *NameHashIntCacheLRU) IsFull() bool { return c.order.Len() >= c.capacity }
 
+// Close releases all resources held by the cache.
+func (c *NameHashIntCacheLRU) Close() { c.Clear() }
+
 func hashLabel(label string) uint64 {
 	h := fnv.New64a()
 	h.Write([]byte(label))
