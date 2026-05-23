@@ -4,11 +4,10 @@
 
 package hhmm
 
-import "github.com/FlavioCFOliveira/Gocene/analysis/smartcn"
 
 // SegTokenFilter normalises SegTokens: converts full-width Latin to
 // half-width, lowercases Latin, and converts all punctuation to
-// smartcn.CommonDelimiter.
+// CommonDelimiter.
 //
 // Go port of org.apache.lucene.analysis.cn.smart.hhmm.SegTokenFilter.
 type SegTokenFilter struct{}
@@ -21,7 +20,7 @@ func NewSegTokenFilter() *SegTokenFilter {
 // Filter normalises the input token in place and returns it.
 func (f *SegTokenFilter) Filter(token *SegToken) *SegToken {
 	switch token.WordType {
-	case smartcn.WordTypeFullwidthNumber, smartcn.WordTypeFullwidthString:
+	case WordTypeFullwidthNumber, WordTypeFullwidthString:
 		// Convert full-width → half-width, then lowercase Latin.
 		for i, ch := range token.CharArray {
 			if ch >= 0xFF10 {
@@ -32,16 +31,16 @@ func (f *SegTokenFilter) Filter(token *SegToken) *SegToken {
 				token.CharArray[i] += 0x0020
 			}
 		}
-	case smartcn.WordTypeString:
+	case WordTypeString:
 		// Lowercase Latin.
 		for i, ch := range token.CharArray {
 			if ch >= 0x0041 && ch <= 0x005A {
 				token.CharArray[i] += 0x0020
 			}
 		}
-	case smartcn.WordTypeDelimiter:
+	case WordTypeDelimiter:
 		// All punctuation → CommonDelimiter.
-		token.CharArray = smartcn.CommonDelimiter
+		token.CharArray = CommonDelimiter
 	}
 	return token
 }

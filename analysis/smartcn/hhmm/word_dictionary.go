@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis/smartcn"
 )
 
 //go:embed coredict.mem
@@ -139,7 +138,7 @@ func (wd *WordDictionary) findInTable(knownHashIndex int16, charArray []rune) in
 	start, end := 0, len(items)-1
 	for start <= end {
 		mid := (start + end) / 2
-		cmp := smartcn.CompareArray(items[mid], 0, charArray, 1)
+		cmp := CompareArray(items[mid], 0, charArray, 1)
 		if cmp == 0 {
 			return mid
 		} else if cmp < 0 {
@@ -175,10 +174,10 @@ func (wd *WordDictionary) GetPrefixMatchFrom(charArray []rune, knownStart int) i
 	start, end := knownStart, len(items)-1
 	for start <= end {
 		mid := (start + end) / 2
-		cmp := smartcn.CompareArrayByPrefix(charArray, 1, items[mid], 0)
+		cmp := CompareArrayByPrefix(charArray, 1, items[mid], 0)
 		if cmp == 0 {
 			// Find the first item matching the prefix.
-			for mid >= 0 && smartcn.CompareArrayByPrefix(charArray, 1, items[mid], 0) == 0 {
+			for mid >= 0 && CompareArrayByPrefix(charArray, 1, items[mid], 0) == 0 {
 				mid--
 			}
 			mid++
@@ -217,5 +216,5 @@ func (wd *WordDictionary) IsEqual(charArray []rune, itemIndex int) bool {
 		return false
 	}
 	rowIdx := wd.wordIndexTable[hashIndex]
-	return smartcn.CompareArray(charArray, 1, wd.wordItemCharArrayTable[rowIdx][itemIndex], 0) == 0
+	return CompareArray(charArray, 1, wd.wordItemCharArrayTable[rowIdx][itemIndex], 0) == 0
 }
