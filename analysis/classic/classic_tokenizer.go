@@ -38,21 +38,19 @@ func NewClassicTokenizer() *ClassicTokenizer {
 		BaseTokenizer:  analysis.NewBaseTokenizer(),
 		maxTokenLength: defaultMaxTokenLength,
 	}
-	src := t.GetAttributeSource()
-	if src != nil {
-		if a := src.GetAttribute(analysis.CharTermAttributeType); a != nil {
-			t.termAttr = a.(analysis.CharTermAttribute)
-		}
-		if a := src.GetAttribute(analysis.OffsetAttributeType); a != nil {
-			t.offsetAttr = a.(analysis.OffsetAttribute)
-		}
-		if a := src.GetAttribute(analysis.TypeAttributeType); a != nil {
-			t.typeAttr = a.(analysis.TypeAttribute)
-		}
-		if a := src.GetAttribute(analysis.PositionIncrementAttributeType); a != nil {
-			t.posIncAttr = a.(analysis.PositionIncrementAttribute)
-		}
-	}
+	// Register attribute implementations, mirroring WhitespaceTokenizer.
+	termImpl := analysis.NewCharTermAttribute()
+	offsetImpl := analysis.NewOffsetAttribute()
+	posIncImpl := analysis.NewPositionIncrementAttribute()
+	typeImpl := analysis.NewTypeAttribute()
+	t.AddAttribute(termImpl)
+	t.AddAttribute(offsetImpl)
+	t.AddAttribute(posIncImpl)
+	t.AddAttribute(typeImpl)
+	t.termAttr = termImpl
+	t.offsetAttr = offsetImpl
+	t.posIncAttr = posIncImpl
+	t.typeAttr = typeImpl
 	return t
 }
 
@@ -79,15 +77,21 @@ func (t *ClassicTokenizer) SetReader(r io.Reader) error {
 }
 
 // Reset reinitialises the scanner over the stored reader.
+//
+// ClassicTokenizerImpl eagerly reads all input on construction (io.ReadAll);
+// Reset therefore rewinds the scanner's token index rather than creating a
+// new one, matching the semantics of the Java JFlex-generated impl.
 func (t *ClassicTokenizer) Reset() error {
 	if err := t.BaseTokenizer.Reset(); err != nil {
 		return err
 	}
 	r := t.GetReader()
-	if r != nil {
+	if t.scanner != nil {
+		// Re-scan from the stored reader only if we have a fresh one
+		// (scanner already consumed the reader; reset to beginning of tokens).
+		t.scanner.ResetIndex()
+	} else if r != nil {
 		t.scanner = NewClassicTokenizerImpl(r)
-	} else {
-		t.scanner = nil
 	}
 	t.skippedPositions = 0
 	return nil
