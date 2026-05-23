@@ -59,12 +59,17 @@ func (d *abstractDictionary) getGB2312Id(ch rune) int16 {
 	return int16(b0*94 + b1)
 }
 
-// hash1 computes the 64-bit FNV-1a hash for a single rune.
-func (d *abstractDictionary) hash1Rune(c rune) uint64 {
-	const p = 1099511628211
-	hash := uint64(0xcbf29ce484222325)
-	hash = (hash ^ uint64(c&0x00FF)) * p
-	hash = (hash ^ uint64(c>>8)) * p
+// hash1Rune computes the 64-bit FNV-1a hash for a single rune.
+//
+// Must use signed int64 arithmetic to match Java's AbstractDictionary.hash1(char c)
+// exactly. Java long arithmetic uses arithmetic right-shifts (>>) which differ
+// from Go's logical right-shifts on uint64.
+func (d *abstractDictionary) hash1Rune(c rune) int64 {
+	const p = int64(1099511628211)
+	// Java initialises hash to 0xcbf29ce484222325L, a negative signed long.
+	hash := int64(-3750763034362895579)
+	hash = (hash ^ int64(c&0x00FF)) * p
+	hash = (hash ^ int64(c>>8)) * p
 	hash += hash << 13
 	hash ^= hash >> 7
 	hash += hash << 3
@@ -74,12 +79,15 @@ func (d *abstractDictionary) hash1Rune(c rune) uint64 {
 }
 
 // hash1 computes the 64-bit FNV-1a hash for a rune slice.
-func (d *abstractDictionary) hash1(carray []rune) uint64 {
-	const p = 1099511628211
-	hash := uint64(0xcbf29ce484222325)
+//
+// The array variant does NOT apply the avalanche mixing at the end
+// (the extra mixing lines are commented out in the Java source).
+func (d *abstractDictionary) hash1(carray []rune) int64 {
+	const p = int64(1099511628211)
+	hash := int64(-3750763034362895579)
 	for _, c := range carray {
-		hash = (hash ^ uint64(c&0x00FF)) * p
-		hash = (hash ^ uint64(c>>8)) * p
+		hash = (hash ^ int64(c&0x00FF)) * p
+		hash = (hash ^ int64(c>>8)) * p
 	}
 	return hash
 }
@@ -87,8 +95,8 @@ func (d *abstractDictionary) hash1(carray []rune) uint64 {
 // hash2Rune computes the djb2 hash for a single rune.
 func (d *abstractDictionary) hash2Rune(c rune) int {
 	hash := 5381
-	hash = ((hash<<5)+hash+int(c&0x00FF))
-	hash = ((hash<<5)+hash+int(c>>8))
+	hash = (hash<<5) + hash + int(c&0x00FF)
+	hash = (hash<<5) + hash + int(c>>8)
 	return hash
 }
 
