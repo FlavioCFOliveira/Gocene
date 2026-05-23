@@ -17,6 +17,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis/morfologik"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 //go:embed stopwords.txt
@@ -32,7 +33,7 @@ func init() {
 	ncm.AddMappingString("’", "’") // RIGHT SINGLE QUOTATION MARK
 	ncm.AddMappingString("‘", "’") // LEFT SINGLE QUOTATION MARK
 	ncm.AddMappingString("ʼ", "’") // MODIFIER LETTER APOSTROPHE
-	ncm.AddMappingString("`", "’")      // GRAVE ACCENT (backtick)
+	ncm.AddMappingString("`", "’") // GRAVE ACCENT (backtick)
 	ncm.AddMappingString("´", "’") // ACUTE ACCENT (´)
 	// Ignored characters: COMBINING ACUTE ACCENT and SOFT HYPHEN.
 	ncm.AddMappingString("́", "")
@@ -183,8 +184,18 @@ func (a *UkrainianMorfologikAnalyzer) TokenStream(fieldName string, reader io.Re
 	})
 	stream = analysis.NewStopFilter(stream, stopWords)
 
-	// Optional SetKeywordMarkerFilter
+	// Optional SetKeywordMarkerFilter.
+	// KeywordAttribute must be registered in the shared AttributeSource before
+	// SetKeywordMarkerFilter is constructed; that filter uses GetAttribute
+	// (not AddAttributeImpl) at construction time, so the impl must already be
+	// present. We call AddAttribute on the stream's source directly.
 	if a.stemExclusionSet.Size() > 0 {
+		type attrSourceGetter interface {
+			GetAttributeSource() *util.AttributeSource
+		}
+		if asg, ok := stream.(attrSourceGetter); ok {
+			asg.GetAttributeSource().AddAttributeImpl(analysis.NewKeywordAttributeImpl())
+		}
 		stream = analysis.NewSetKeywordMarkerFilter(stream, a.stemExclusionSet)
 	}
 
