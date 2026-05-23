@@ -10,6 +10,11 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 )
 
+// errDocValuesReaderNotImplemented is returned by FieldsProducer until task
+// 3205 (SimpleTextDocValuesReader) lands.
+var errDocValuesReaderNotImplemented = errors.New(
+	"SimpleTextDocValuesReader: not yet implemented (task 3205)")
+
 // docValuesExtension is the file extension used for SimpleText doc-values files.
 const docValuesExtension = "dat"
 
@@ -51,28 +56,10 @@ func (f *SimpleTextDocValuesFormat) FieldsProducer(state *codecs.SegmentReadStat
 // compile-time assertion.
 var _ codecs.DocValuesFormat = (*SimpleTextDocValuesFormat)(nil)
 
-// ---------------------------------------------------------------------------
-// Placeholder constructors — implemented in tasks 3204 and 3205.
-// These return descriptive errors rather than panicking so that integration
-// code can handle missing functionality gracefully until the tasks land.
-// ---------------------------------------------------------------------------
-
-// ErrDocValuesWriterNotImplemented is returned until task 3204 lands.
-var ErrDocValuesWriterNotImplemented = errors.New(
-	"SimpleTextDocValuesWriter: not yet implemented (task 3204)")
-
-// ErrDocValuesReaderNotImplemented is returned until task 3205 lands.
-var ErrDocValuesReaderNotImplemented = errors.New(
-	"SimpleTextDocValuesReader: not yet implemented (task 3205)")
-
-// NewSimpleTextDocValuesWriter is the constructor called by FieldsConsumer.
-// Implemented in simple_text_doc_values_writer.go (task 3204).
-func NewSimpleTextDocValuesWriter(_ *codecs.SegmentWriteState, _ string) (codecs.DocValuesConsumer, error) {
-	return nil, ErrDocValuesWriterNotImplemented
-}
-
 // NewSimpleTextDocValuesReader is the constructor called by FieldsProducer.
 // Implemented in simple_text_doc_values_reader.go (task 3205).
+//
+// Placeholder until task 3205 lands.
 func NewSimpleTextDocValuesReader(_ *codecs.SegmentReadState, _ string) (codecs.DocValuesProducer, error) {
-	return nil, ErrDocValuesReaderNotImplemented
+	return nil, errDocValuesReaderNotImplemented
 }
