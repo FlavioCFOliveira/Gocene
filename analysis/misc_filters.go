@@ -296,6 +296,31 @@ func (s *SetKeywordMarkerFilter) isKeyword() bool {
 // Ensure SetKeywordMarkerFilter implements TokenFilter.
 var _ TokenFilter = (*SetKeywordMarkerFilter)(nil)
 
+// SetKeywordMarkerFilterFactory creates SetKeywordMarkerFilter instances
+// bound to a fixed CharArraySet. This is a concrete factory usable by
+// analyzer pipelines that conditionally add keyword-marker protection.
+type SetKeywordMarkerFilterFactory struct {
+	keywordSet *CharArraySet
+}
+
+// NewSetKeywordMarkerFilterFactoryWithSet returns a factory that wraps
+// every TokenStream with a SetKeywordMarkerFilter backed by keywordSet.
+// keywordSet must not be nil.
+func NewSetKeywordMarkerFilterFactoryWithSet(keywordSet *CharArraySet) *SetKeywordMarkerFilterFactory {
+	if keywordSet == nil {
+		panic("SetKeywordMarkerFilterFactory: keywordSet must not be nil")
+	}
+	return &SetKeywordMarkerFilterFactory{keywordSet: keywordSet}
+}
+
+// Create returns a SetKeywordMarkerFilter wrapping input.
+func (f *SetKeywordMarkerFilterFactory) Create(input TokenStream) TokenFilter {
+	return NewSetKeywordMarkerFilter(input, f.keywordSet)
+}
+
+// Ensure SetKeywordMarkerFilterFactory implements TokenFilterFactory.
+var _ TokenFilterFactory = (*SetKeywordMarkerFilterFactory)(nil)
+
 // KeywordMarkerFilterFactory is currently a marker factory that
 // expects subclasses to provide the matching logic; the Lucene
 // reference is also abstract.
