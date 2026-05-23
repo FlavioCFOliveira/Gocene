@@ -27,7 +27,7 @@ func NewIndicNormalizationFilter(input analysis.TokenStream) *IndicNormalization
 
 // IncrementToken processes the next token and normalises its term.
 func (f *IndicNormalizationFilter) IncrementToken() (bool, error) {
-	ok, err := f.BaseTokenFilter.IncrementToken()
+	ok, err := f.GetInput().IncrementToken()
 	if err != nil || !ok {
 		return ok, err
 	}
