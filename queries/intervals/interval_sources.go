@@ -767,11 +767,17 @@ func (s *RepeatingIntervalsSource) HashCode() int {
 	return s.in.HashCode()*31 + s.childCount
 }
 func (s *RepeatingIntervalsSource) String() string {
-	n := s.name
-	if n == "" {
-		n = "REPEAT"
+	str := s.in.String()
+	var buf strings.Builder
+	buf.WriteString(str)
+	for i := 1; i < s.childCount; i++ {
+		buf.WriteByte(',')
+		buf.WriteString(str)
 	}
-	return fmt.Sprintf("%s(%s,%d)", n, s.in.String(), s.childCount)
+	if s.name != "" {
+		return s.name + "(" + buf.String() + ")"
+	}
+	return buf.String()
 }
 
 // duplicateIntervalIterator is an iterator returning the same sub-iterator childCount times.
@@ -824,16 +830,14 @@ func NewDisjunctionIntervalsSource(subSources []IntervalsSource, pullUpDisjuncti
 }
 
 func simplifyDisjunctions(sources []IntervalsSource) []IntervalsSource {
-	seen := make(map[string]IntervalsSource)
+	seen := make(map[string]bool)
+	var out []IntervalsSource
 	for _, s := range sources {
 		key := s.String()
-		if _, exists := seen[key]; !exists {
-			seen[key] = s
+		if !seen[key] {
+			seen[key] = true
+			out = append(out, s)
 		}
-	}
-	out := make([]IntervalsSource, 0, len(seen))
-	for _, v := range seen {
-		out = append(out, v)
 	}
 	return out
 }
@@ -897,15 +901,23 @@ func (s *DisjunctionIntervalsSource) MinExtent() int {
 	return min
 }
 func (s *DisjunctionIntervalsSource) PullUpDisjunctions() []IntervalsSource {
-	return s.subSources
+	if s.pullUpDisjunctions {
+		return s.subSources
+	}
+	return []IntervalsSource{s}
 }
 func (s *DisjunctionIntervalsSource) Equals(other IntervalsSource) bool {
 	o, ok := other.(*DisjunctionIntervalsSource)
 	if !ok || len(s.subSources) != len(o.subSources) {
 		return false
 	}
-	for i, src := range s.subSources {
-		if !src.Equals(o.subSources[i]) {
+	// Java uses a HashSet; equality is order-insensitive.
+	set := make(map[string]bool, len(o.subSources))
+	for _, src := range o.subSources {
+		set[src.String()] = true
+	}
+	for _, src := range s.subSources {
+		if !set[src.String()] {
 			return false
 		}
 	}

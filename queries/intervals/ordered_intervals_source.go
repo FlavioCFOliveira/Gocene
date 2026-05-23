@@ -47,24 +47,18 @@ func deduplicateOrdered(sources []IntervalsSource) []IntervalsSource {
 		if len(current) == 0 || current[0].Equals(src) {
 			current = append(current, src)
 		} else {
-			dedup := NewRepeatingIntervalsSource(current[0], len(current))
-			if len(current) > 1 {
-				if r, ok := dedup.(*RepeatingIntervalsSource); ok {
-					r.SetName("ORDERED")
-				}
-			}
-			deduplicated = append(deduplicated, dedup)
+			deduplicated = append(deduplicated, NewRepeatingIntervalsSource(current[0], len(current)))
 			current = []IntervalsSource{src}
 		}
 	}
 	if len(current) > 0 {
-		dedup := NewRepeatingIntervalsSource(current[0], len(current))
-		if len(current) > 1 {
-			if r, ok := dedup.(*RepeatingIntervalsSource); ok {
-				r.SetName("ORDERED")
-			}
+		deduplicated = append(deduplicated, NewRepeatingIntervalsSource(current[0], len(current)))
+	}
+	// Only set "ORDERED" name when there is exactly one deduplicated group (all sources equal).
+	if len(deduplicated) == 1 {
+		if r, ok := deduplicated[0].(*RepeatingIntervalsSource); ok {
+			r.SetName("ORDERED")
 		}
-		deduplicated = append(deduplicated, dedup)
 	}
 	return deduplicated
 }
