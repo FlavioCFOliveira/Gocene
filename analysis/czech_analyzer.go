@@ -98,9 +98,14 @@ func (a *CzechAnalyzer) SetStopWords(stopWords *CharArraySet) {
 var _ Analyzer = (*CzechAnalyzer)(nil)
 var _ AnalyzerInterface = (*CzechAnalyzer)(nil)
 
-// CzechStemFilter implements light stemming for Czech.
+// CzechStemFilter implements light stemming for Czech via the full CzechStemmer
+// algorithm.
+//
+// Go port of org.apache.lucene.analysis.cz.CzechStemFilter (Apache Lucene
+// 10.4.0).
 type CzechStemFilter struct {
 	*BaseTokenFilter
+	stemmer czechStemmer
 }
 
 // NewCzechStemFilter creates a new CzechStemFilter.
@@ -110,7 +115,7 @@ func NewCzechStemFilter(input TokenStream) *CzechStemFilter {
 	}
 }
 
-// IncrementToken processes the next token and applies light stemming.
+// IncrementToken processes the next token and applies Czech stemming.
 func (f *CzechStemFilter) IncrementToken() (bool, error) {
 	hasToken, err := f.input.IncrementToken()
 	if err != nil {
@@ -120,55 +125,14 @@ func (f *CzechStemFilter) IncrementToken() (bool, error) {
 	if hasToken {
 		if attr := f.GetAttributeSource().GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
-				term := termAttr.String()
-				stemmed := czechLightStem(term)
-				if stemmed != term {
-					termAttr.SetEmpty()
-					termAttr.AppendString(stemmed)
-				}
+				runes := []rune(termAttr.String())
+				newLen := f.stemmer.stem(runes, len(runes))
+				termAttr.SetValue(string(runes[:newLen]))
 			}
 		}
 	}
 
 	return hasToken, nil
-}
-
-// czechLightStem applies light Czech stemming.
-func czechLightStem(term string) string {
-	if len(term) < 4 {
-		return term
-	}
-
-	runes := []rune(term)
-	length := len(runes)
-
-	// Remove common Czech suffixes
-	switch {
-	// -ovat, -ovávat (verb suffixes)
-	case length > 5 && string(runes[length-5:]) == "ovat":
-		return string(runes[:length-3])
-	case length > 7 && string(runes[length-7:]) == "ovávat":
-		return string(runes[:length-5])
-	// -ost, -osti (noun suffixes)
-	case length > 4 && string(runes[length-4:]) == "osti":
-		return string(runes[:length-2])
-	case length > 3 && string(runes[length-3:]) == "ost":
-		return string(runes[:length-1])
-	// -né (adjective suffix)
-	case length > 3 && string(runes[length-3:]) == "né":
-		return string(runes[:length-2])
-	// -ých (plural adjective)
-	case length > 3 && string(runes[length-3:]) == "ých":
-		return string(runes[:length-2])
-	// -ým (instrumental adjective)
-	case length > 3 && string(runes[length-3:]) == "ým":
-		return string(runes[:length-2])
-	// -s (plural) - only for longer words
-	case length > 5 && runes[length-1] == 's':
-		return string(runes[:length-1])
-	}
-
-	return term
 }
 
 // CzechStemFilterFactory creates CzechStemFilter instances.
