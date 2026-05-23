@@ -12,11 +12,6 @@ type CharArrayIterator struct{}
 // NewCharArrayIterator builds a CharArrayIterator.
 func NewCharArrayIterator() *CharArrayIterator { return &CharArrayIterator{} }
 
-// FilesystemResourceLoader mirrors org.apache.lucene.analysis.util.FilesystemResourceLoader.
-type FilesystemResourceLoader struct{}
-
-// NewFilesystemResourceLoader builds a FilesystemResourceLoader.
-func NewFilesystemResourceLoader() *FilesystemResourceLoader { return &FilesystemResourceLoader{} }
 
 
 
