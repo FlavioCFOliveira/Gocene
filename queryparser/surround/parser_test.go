@@ -63,19 +63,23 @@ func TestTokenManagerStructural(t *testing.T) {
 	}
 }
 
-func TestTokenManagerTruncterm(t *testing.T) {
+// TestTokenManagerSuffixterm verifies that a pure prefix term (ending in * only)
+// is classified as Suffixterm, which the parser routes to SrndPrefixQuery.
+func TestTokenManagerSuffixterm(t *testing.T) {
 	m := NewQueryParserTokenManager("hel*")
 	tok, _ := m.NextToken()
-	if tok.Kind != Truncterm {
-		t.Errorf("kind = %d, want Truncterm", tok.Kind)
+	if tok.Kind != Suffixterm {
+		t.Errorf("kind = %d, want Suffixterm (21)", tok.Kind)
 	}
 }
 
-func TestTokenManagerWildcard(t *testing.T) {
+// TestTokenManagerTruncterm verifies that a term containing ? (or mixed wildcards)
+// is classified as Truncterm, which the parser routes to SrndTruncQuery.
+func TestTokenManagerTruncterm(t *testing.T) {
 	m := NewQueryParserTokenManager("h?llo")
 	tok, _ := m.NextToken()
-	if tok.Kind != Suffixterm {
-		t.Errorf("kind = %d, want Suffixterm", tok.Kind)
+	if tok.Kind != Truncterm {
+		t.Errorf("kind = %d, want Truncterm (22)", tok.Kind)
 	}
 }
 
@@ -235,7 +239,9 @@ func TestParserQuoted(t *testing.T) {
 	}
 }
 
-func TestParserTruncterm(t *testing.T) {
+// TestParserSuffixterm verifies that a valid prefix term (hel* — prefix length ≥ 3)
+// is parsed as SrndPrefixQuery. Mirrors Java's SUFFIXTERM production.
+func TestParserSuffixterm(t *testing.T) {
 	p := NewQueryParser("body")
 	q, err := p.Parse("hel*")
 	if err != nil {
@@ -246,7 +252,9 @@ func TestParserTruncterm(t *testing.T) {
 	}
 }
 
-func TestParserWildcard(t *testing.T) {
+// TestParserTruncterm verifies that a term containing ? is parsed as SrndTruncQuery.
+// Mirrors Java's TRUNCTERM production.
+func TestParserTruncterm(t *testing.T) {
 	p := NewQueryParser("body")
 	q, err := p.Parse("h?llo")
 	if err != nil {

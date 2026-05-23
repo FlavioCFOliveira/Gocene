@@ -12,10 +12,10 @@ package flexible
 // Mirrors the JavaCC-generated class
 // org.apache.lucene.queryparser.flexible.standard.parser.StandardSyntaxParserTokenManager.
 type StandardSyntaxParserTokenManager struct {
-	input     []rune
-	pos       int
-	lexState  int
-	curToken  *SSPToken
+	input        []rune
+	pos          int
+	lexState     int
+	curToken     *SSPToken
 	errorVerbose bool
 }
 

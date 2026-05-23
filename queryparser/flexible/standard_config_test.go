@@ -55,9 +55,9 @@ func TestNumberDateFormat_DefaultLayout(t *testing.T) {
 
 func TestPointsConfig(t *testing.T) {
 	tests := []struct {
-		pt           PointsType
-		dims         int
-		bytesPerDim  int
+		pt          PointsType
+		dims        int
+		bytesPerDim int
 	}{
 		{PointsTypeInt, 1, 4},
 		{PointsTypeLong, 2, 8},
