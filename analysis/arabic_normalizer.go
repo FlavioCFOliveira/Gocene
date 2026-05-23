@@ -57,6 +57,19 @@ func (n *ArabicNormalizer) normalizeRune(r rune) rune {
 	case 0x0640: // ARABIC TATWEEL
 		return 0 // Remove
 
+	// Remove Arabic diacritics / harakat (U+064B–U+0652) and superscript alef (U+0670).
+	// Lucene ArabicNormalizer strips all of these (not just trailing tanween).
+	case 0x064B, // ARABIC FATHATAN
+		0x064C, // ARABIC DAMMATAN
+		0x064D, // ARABIC KASRATAN
+		0x064E, // ARABIC FATHA
+		0x064F, // ARABIC DAMMA
+		0x0650, // ARABIC KASRA
+		0x0651, // ARABIC SHADDA
+		0x0652, // ARABIC SUKUN
+		0x0670: // ARABIC LETTER SUPERSCRIPT ALEF
+		return 0 // Remove
+
 	// Normalize Alef forms to bare Alef (U+0627)
 	case 0x0622: // ARABIC LETTER ALEF WITH MADDA ABOVE
 		return 0x0627 // ARABIC LETTER ALEF
@@ -68,8 +81,6 @@ func (n *ArabicNormalizer) normalizeRune(r rune) rune {
 	// Normalize Yeh forms to bare Yeh (U+064A)
 	case 0x0649: // ARABIC LETTER ALEF MAKSURA
 		return 0x064A // ARABIC LETTER YEH
-
-	// Keep Heh forms as is (modern Arabic normalization doesn't change these)
 
 	default:
 		return r
