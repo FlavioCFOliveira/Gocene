@@ -39,7 +39,7 @@ func (s *Stemmer) Stem(word string) []string {
 // StemRunes finds the stem(s) of the provided rune slice.
 func (s *Stemmer) StemRunes(word []rune, length int) []string {
 	var list []string
-	s.Analyze(word, length, func(stem []rune, morphDataID, _, _, _, _, _ int) bool {
+	s.Analyze(word, length, func(stem []rune, _, morphDataID, _, _, _, _ int) bool {
 		list = append(list, s.newStem(stem, morphDataID))
 		return true
 	})

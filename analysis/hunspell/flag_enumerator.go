@@ -6,7 +6,6 @@ package hunspell
 
 import (
 	"sort"
-	"strings"
 )
 
 // flagUnset is the zero value used when no flag is set.
@@ -15,15 +14,18 @@ const flagUnset = rune(0)
 
 // FlagEnumerator deduplicates sorted flag sequences and assigns each unique
 // sequence a stable integer id.  The id can later be used with
-// FlagLookup.HasFlag to test membership in O(log n) time.
+// FlagLookup.HasFlag to test membership in O(1) time.
 //
 // This is the Go port of
 // org.apache.lucene.analysis.hunspell.FlagEnumerator from Apache Lucene 10.4.0.
 //
-// Deviation: Java uses char[] backed by a StringBuilder; Go uses []rune and
-// strings.Builder.  The on-disk format and the id semantics are identical.
+// Implementation note: Java uses char[] backed by a StringBuilder; ids are
+// char (16-bit) positions.  Go uses []rune to preserve the same semantics —
+// ids are rune positions, not byte positions.  Using a strings.Builder and
+// converting back via []rune(s) would give wrong ids whenever a flag rune
+// encodes to more than one UTF-8 byte (e.g. DictionaryHiddenFlag = 65511).
 type FlagEnumerator struct {
-	builder strings.Builder
+	data    []rune
 	indices map[string]int
 }
 
@@ -41,8 +43,9 @@ func (fe *FlagEnumerator) Add(flags []rune) int {
 	if len(flags) > 0 {
 		sort.Slice(flags, func(i, j int) bool { return flags[i] < flags[j] })
 	}
+	// Use the rune-encoded form as map key for deduplication.
 	key := string(flags)
-	if len(key) > int(^uint16(0)) {
+	if len(flags) > int(^uint16(0)) {
 		panic("hunspell: too many flags")
 	}
 
@@ -50,18 +53,21 @@ func (fe *FlagEnumerator) Add(flags []rune) int {
 		return id
 	}
 
-	id := fe.builder.Len()
+	// id is the rune position, not the byte position.
+	id := len(fe.data)
 	fe.indices[key] = id
-	fe.builder.WriteRune(rune(len(key))) // length prefix
-	fe.builder.WriteString(key)
+	// Write the count of flags as a length-prefix rune, then the flags themselves.
+	fe.data = append(fe.data, rune(len(flags)))
+	fe.data = append(fe.data, flags...)
 	return id
 }
 
 // Finish freezes the enumerator and returns a FlagLookup backed by the
 // accumulated data.
 func (fe *FlagEnumerator) Finish() *FlagLookup {
-	data := []rune(fe.builder.String())
-	return &FlagLookup{data: data}
+	cp := make([]rune, len(fe.data))
+	copy(cp, fe.data)
+	return &FlagLookup{data: cp}
 }
 
 // HasFlagInSortedArray reports whether flag is present in the sorted sub-array
@@ -82,7 +88,7 @@ func HasFlagInSortedArray(flag rune, array []rune, start, length int) bool {
 	return false
 }
 
-// FlagLookup provides O(log n) flag membership tests against the frozen flag
+// FlagLookup provides flag membership tests against the frozen flag
 // data produced by FlagEnumerator.Finish.
 //
 // This is the Go port of FlagEnumerator.Lookup in Apache Lucene 10.4.0.

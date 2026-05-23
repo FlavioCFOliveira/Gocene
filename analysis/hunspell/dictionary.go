@@ -487,8 +487,10 @@ type prologueBuf struct {
 
 func probeEncoding(r io.Reader) (*prologueBuf, error) {
 	// Read up to maxPrologueScanWindow bytes.
+	// io.ReadFull fills the entire buffer or returns io.ErrUnexpectedEOF when the
+	// reader is shorter than the buffer — both outcomes are acceptable here.
 	prologue := make([]byte, maxPrologueScanWindow)
-	n, err := io.ReadAtLeast(r, prologue, 0)
+	n, err := io.ReadFull(r, prologue)
 	if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
 		return nil, err
 	}
