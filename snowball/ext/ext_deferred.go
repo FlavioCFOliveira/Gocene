@@ -139,10 +139,20 @@ type SwedishStemmer struct{}
 func NewSwedishStemmer() *SwedishStemmer { return &SwedishStemmer{} }
 
 // TamilStemmer mirrors org.tartarus.snowball.ext.TamilStemmer.
-type TamilStemmer struct{}
+// This is a structural stub; Stem is a no-op until the full port lands.
+type TamilStemmer struct{ current string }
 
 // NewTamilStemmer builds a TamilStemmer.
 func NewTamilStemmer() *TamilStemmer { return &TamilStemmer{} }
+
+// SetCurrent stores the word to be stemmed.
+func (s *TamilStemmer) SetCurrent(word string) { s.current = word }
+
+// Stem is a no-op placeholder; returns false (word unchanged).
+func (s *TamilStemmer) Stem() bool { return false }
+
+// GetCurrent returns the current (unstemmed) word.
+func (s *TamilStemmer) GetCurrent() string { return s.current }
 
 // TurkishStemmer mirrors org.tartarus.snowball.ext.TurkishStemmer.
 type TurkishStemmer struct{}
