@@ -18,11 +18,6 @@ type FilesystemResourceLoader struct{}
 // NewFilesystemResourceLoader builds a FilesystemResourceLoader.
 func NewFilesystemResourceLoader() *FilesystemResourceLoader { return &FilesystemResourceLoader{} }
 
-// OpenStringBuilder mirrors org.apache.lucene.analysis.util.OpenStringBuilder.
-type OpenStringBuilder struct{}
-
-// NewOpenStringBuilder builds a OpenStringBuilder.
-func NewOpenStringBuilder() *OpenStringBuilder { return &OpenStringBuilder{} }
 
 
 
