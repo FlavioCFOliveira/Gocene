@@ -89,9 +89,12 @@ func (a *FrenchAnalyzer) SetStopWords(stopWords *CharArraySet) {
 var _ Analyzer = (*FrenchAnalyzer)(nil)
 var _ AnalyzerInterface = (*FrenchAnalyzer)(nil)
 
-// FrenchLightStemFilter implements light stemming for French.
+// FrenchLightStemFilter implements light stemming for French via the UniNE algorithm.
+//
+// Go port of org.apache.lucene.analysis.fr.FrenchLightStemFilter (Lucene 10.4.0).
 type FrenchLightStemFilter struct {
 	*BaseTokenFilter
+	stemmer frenchLightStemmer
 }
 
 // NewFrenchLightStemFilter creates a new FrenchLightStemFilter.
@@ -101,7 +104,7 @@ func NewFrenchLightStemFilter(input TokenStream) *FrenchLightStemFilter {
 	}
 }
 
-// IncrementToken processes the next token and applies light stemming.
+// IncrementToken processes the next token and applies light French stemming.
 func (f *FrenchLightStemFilter) IncrementToken() (bool, error) {
 	hasToken, err := f.input.IncrementToken()
 	if err != nil {
@@ -111,65 +114,14 @@ func (f *FrenchLightStemFilter) IncrementToken() (bool, error) {
 	if hasToken {
 		if attr := f.GetAttributeSource().GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
-				term := termAttr.String()
-				stemmed := frenchLightStem(term)
-				if stemmed != term {
-					termAttr.SetEmpty()
-					termAttr.AppendString(stemmed)
-				}
+				runes := []rune(termAttr.String())
+				newLen := f.stemmer.stem(runes, len(runes))
+				termAttr.SetValue(string(runes[:newLen]))
 			}
 		}
 	}
 
 	return hasToken, nil
-}
-
-// frenchLightStem applies light French stemming.
-func frenchLightStem(term string) string {
-	if len(term) < 3 {
-		return term
-	}
-
-	// Convert to runes for proper Unicode handling
-	runes := []rune(term)
-	length := len(runes)
-
-	// Remove common French suffixes
-	switch {
-	// -euse, -eux, -eur
-	case length > 4 && string(runes[length-4:]) == "euse":
-		return string(runes[:length-2])
-	case length > 3 && string(runes[length-3:]) == "eux":
-		return string(runes[:length-2])
-	case length > 3 && string(runes[length-3:]) == "eur":
-		return string(runes[:length-2])
-	// -ement, -ement
-	case length > 5 && string(runes[length-5:]) == "ement":
-		return string(runes[:length-4])
-	// -ment
-	case length > 4 && string(runes[length-4:]) == "ment":
-		return string(runes[:length-3])
-	// -tion, -sion
-	case length > 4 && (string(runes[length-4:]) == "tion" || string(runes[length-4:]) == "sion"):
-		return string(runes[:length-3])
-	// -ité
-	case length > 3 && string(runes[length-3:]) == "ité":
-		return string(runes[:length-2])
-	// -age
-	case length > 3 && string(runes[length-3:]) == "age":
-		return string(runes[:length-2])
-	// -er, -ir
-	case length > 2 && (runes[length-1] == 'r' && (runes[length-2] == 'e' || runes[length-2] == 'i')):
-		return string(runes[:length-2])
-	// -s (plural)
-	case length > 2 && runes[length-1] == 's':
-		return string(runes[:length-1])
-	// -x (plural for words ending in -au, -eau)
-	case length > 2 && runes[length-1] == 'x':
-		return string(runes[:length-1])
-	}
-
-	return term
 }
 
 // FrenchLightStemFilterFactory creates FrenchLightStemFilter instances.
