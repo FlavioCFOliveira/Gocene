@@ -4,7 +4,12 @@
 
 package join
 
-import "github.com/FlavioCFOliveira/Gocene/search"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/FlavioCFOliveira/Gocene/search"
+)
 
 // DiversifyingChildrenFloatKnnVectorQuery is the float32-vector variant.
 // Mirrors org.apache.lucene.search.join.DiversifyingChildrenFloatKnnVectorQuery.
@@ -27,4 +32,23 @@ func NewDiversifyingChildrenFloatKnnVectorQuery(field string, target []float32, 
 		ChildFilter:   childFilter,
 		ParentsFilter: parents,
 	}
+}
+
+// String returns a human-readable representation.
+// Mirrors DiversifyingChildrenFloatKnnVectorQuery.toString.
+func (q *DiversifyingChildrenFloatKnnVectorQuery) String() string {
+	var sb strings.Builder
+	sb.WriteString("DiversifyingChildrenFloatKnnVectorQuery:")
+	sb.WriteString(q.Field)
+	if len(q.Target) > 0 {
+		sb.WriteString(fmt.Sprintf("[%g,...][%d]", q.Target[0], q.K))
+	} else {
+		sb.WriteString(fmt.Sprintf("[][%d]", q.K))
+	}
+	if q.ChildFilter != nil {
+		sb.WriteString("[")
+		sb.WriteString(fmt.Sprintf("%v", q.ChildFilter))
+		sb.WriteString("]")
+	}
+	return sb.String()
 }
