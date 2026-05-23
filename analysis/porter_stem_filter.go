@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"unicode"
+	"unicode/utf8"
 )
 
 // PorterStemFilter applies the Porter Stemming Algorithm to tokens.
@@ -75,7 +76,7 @@ func NewPorterStemmer() *PorterStemmer {
 
 // Stem applies the Porter stemming algorithm to the given word.
 func (p *PorterStemmer) Stem(word string) string {
-	if len(word) <= 2 {
+	if utf8.RuneCountInString(word) <= 2 {
 		return word
 	}
 
