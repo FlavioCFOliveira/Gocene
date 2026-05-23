@@ -24,11 +24,6 @@ type OpenStringBuilder struct{}
 // NewOpenStringBuilder builds a OpenStringBuilder.
 func NewOpenStringBuilder() *OpenStringBuilder { return &OpenStringBuilder{} }
 
-// RollingCharBuffer mirrors org.apache.lucene.analysis.util.RollingCharBuffer.
-type RollingCharBuffer struct{}
-
-// NewRollingCharBuffer builds a RollingCharBuffer.
-func NewRollingCharBuffer() *RollingCharBuffer { return &RollingCharBuffer{} }
 
 
 // UnicodeProps mirrors org.apache.lucene.analysis.util.UnicodeProps.
