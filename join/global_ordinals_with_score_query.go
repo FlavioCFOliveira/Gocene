@@ -1,0 +1,176 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
+package join
+
+import (
+	"fmt"
+	"math"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
+)
+
+// GlobalOrdinalsWithScoreQuery matches "to" documents whose join-field
+// ordinals intersect the collected ordinals, propagating the per-ordinal
+// scores from a GlobalOrdinalsWithScoreCollector.
+//
+// Mirrors org.apache.lucene.search.join.GlobalOrdinalsWithScoreQuery.
+type GlobalOrdinalsWithScoreQuery struct {
+	collector            *GlobalOrdinalsWithScoreCollector
+	scoreMode            ScoreMode
+	joinField            string
+	globalOrds           *index.OrdinalMap
+	toQuery              search.Query
+	fromQuery            search.Query
+	min                  int
+	max                  int
+	indexReaderContextID interface{}
+}
+
+// NewGlobalOrdinalsWithScoreQuery creates a GlobalOrdinalsWithScoreQuery.
+func NewGlobalOrdinalsWithScoreQuery(
+	collector *GlobalOrdinalsWithScoreCollector,
+	scoreMode ScoreMode,
+	joinField string,
+	globalOrds *index.OrdinalMap,
+	toQuery search.Query,
+	fromQuery search.Query,
+	min, max int,
+	indexReaderContextID interface{},
+) *GlobalOrdinalsWithScoreQuery {
+	return &GlobalOrdinalsWithScoreQuery{
+		collector:            collector,
+		scoreMode:            scoreMode,
+		joinField:            joinField,
+		globalOrds:           globalOrds,
+		toQuery:              toQuery,
+		fromQuery:            fromQuery,
+		min:                  min,
+		max:                  max,
+		indexReaderContextID: indexReaderContextID,
+	}
+}
+
+// GetJoinField returns the join field name.
+func (q *GlobalOrdinalsWithScoreQuery) GetJoinField() string { return q.joinField }
+
+// GetScoreMode returns the join ScoreMode.
+func (q *GlobalOrdinalsWithScoreQuery) GetScoreMode() ScoreMode { return q.scoreMode }
+
+// String implements search.Query.
+func (q *GlobalOrdinalsWithScoreQuery) String() string {
+	return fmt.Sprintf(
+		"GlobalOrdinalsWithScoreQuery{joinField=%s,min=%d,max=%d,fromQuery=%v}",
+		q.joinField, q.min, q.max, q.fromQuery,
+	)
+}
+
+// Rewrite implements search.Query.
+func (q *GlobalOrdinalsWithScoreQuery) Rewrite(_ search.IndexReader) (search.Query, error) {
+	return q, nil
+}
+
+// Clone implements search.Query.
+func (q *GlobalOrdinalsWithScoreQuery) Clone() search.Query {
+	cp := *q
+	return &cp
+}
+
+// Equals implements search.Query.
+func (q *GlobalOrdinalsWithScoreQuery) Equals(other search.Query) bool {
+	o, ok := other.(*GlobalOrdinalsWithScoreQuery)
+	if !ok {
+		return false
+	}
+	if q.min != o.min || q.max != o.max || q.scoreMode != o.scoreMode {
+		return false
+	}
+	if q.joinField != o.joinField {
+		return false
+	}
+	if q.indexReaderContextID != o.indexReaderContextID {
+		return false
+	}
+	return true
+}
+
+// HashCode implements search.Query.
+func (q *GlobalOrdinalsWithScoreQuery) HashCode() int {
+	h := 31
+	for _, c := range q.joinField {
+		h = 31*h + int(c)
+	}
+	h = 31*h + int(q.scoreMode) + q.min + q.max
+	return h
+}
+
+// CreateWeight implements search.Query.
+func (q *GlobalOrdinalsWithScoreQuery) CreateWeight(_ *search.IndexSearcher, _ bool, boost float32) (search.Weight, error) {
+	return &globalOrdinalsWithScoreWeight{
+		BaseWeight: search.NewBaseWeight(q),
+		query:      q,
+		boost:      boost,
+	}, nil
+}
+
+// globalOrdinalsWithScoreWeight is the Weight for GlobalOrdinalsWithScoreQuery.
+type globalOrdinalsWithScoreWeight struct {
+	*search.BaseWeight
+	query *GlobalOrdinalsWithScoreQuery
+	boost float32
+}
+
+func (w *globalOrdinalsWithScoreWeight) Scorer(_ *index.LeafReaderContext) (search.Scorer, error) {
+	return newGlobalOrdinalsWithScoreStubScorer(w.boost), nil
+}
+
+func (w *globalOrdinalsWithScoreWeight) ScorerSupplier(_ *index.LeafReaderContext) (search.ScorerSupplier, error) {
+	return nil, nil
+}
+
+func (w *globalOrdinalsWithScoreWeight) BulkScorer(_ *index.LeafReaderContext) (search.BulkScorer, error) {
+	return nil, nil
+}
+
+func (w *globalOrdinalsWithScoreWeight) IsCacheable(_ *index.LeafReaderContext) bool {
+	// Disabled: holds per-ordinal scores from a top-level collector.
+	return false
+}
+
+func (w *globalOrdinalsWithScoreWeight) Explain(_ *index.LeafReaderContext, _ int) (search.Explanation, error) {
+	return search.NewExplanation(false, 0, "GlobalOrdinalsWithScoreWeight stub"), nil
+}
+
+func (w *globalOrdinalsWithScoreWeight) Count(_ *index.LeafReaderContext) (int, error) { return -1, nil }
+
+func (w *globalOrdinalsWithScoreWeight) Matches(_ *index.LeafReaderContext, _ int) (search.Matches, error) {
+	return nil, nil
+}
+
+// globalOrdinalsWithScoreStubScorer is a no-match placeholder scorer.
+type globalOrdinalsWithScoreStubScorer struct {
+	*search.BaseDocIdSetIterator
+	boost float32
+}
+
+func newGlobalOrdinalsWithScoreStubScorer(boost float32) *globalOrdinalsWithScoreStubScorer {
+	return &globalOrdinalsWithScoreStubScorer{
+		BaseDocIdSetIterator: &search.BaseDocIdSetIterator{},
+		boost:                boost,
+	}
+}
+
+func (s *globalOrdinalsWithScoreStubScorer) Score() float32         { return 0 }
+func (s *globalOrdinalsWithScoreStubScorer) GetMaxScore(_ int) float32 { return float32(math.Inf(1)) }
+func (s *globalOrdinalsWithScoreStubScorer) DocID() int                { return search.NO_MORE_DOCS }
+func (s *globalOrdinalsWithScoreStubScorer) NextDoc() (int, error)     { return search.NO_MORE_DOCS, nil }
+func (s *globalOrdinalsWithScoreStubScorer) Advance(_ int) (int, error) {
+	return search.NO_MORE_DOCS, nil
+}
+func (s *globalOrdinalsWithScoreStubScorer) Cost() int64       { return 0 }
+func (s *globalOrdinalsWithScoreStubScorer) DocIDRunEnd() int  { return search.NO_MORE_DOCS }
+
+var _ search.Query  = (*GlobalOrdinalsWithScoreQuery)(nil)
+var _ search.Scorer = (*globalOrdinalsWithScoreStubScorer)(nil)
