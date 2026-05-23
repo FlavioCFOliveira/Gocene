@@ -1,0 +1,35 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
+package ko
+
+import (
+	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis"
+)
+
+// KoreanNumberFilterFactory creates KoreanNumberFilter instances.
+//
+// This is the Go port of
+// org.apache.lucene.analysis.ko.KoreanNumberFilterFactory from Apache Lucene
+// 10.4.0.
+//
+// Deviation: Gocene does not have a TokenFilterFactory SPI; this factory is a
+// plain struct with a Create method.
+type KoreanNumberFilterFactory struct{}
+
+// NewKoreanNumberFilterFactory creates a KoreanNumberFilterFactory. args must
+// be empty; any unrecognised key causes an error.
+func NewKoreanNumberFilterFactory(args map[string]string) (*KoreanNumberFilterFactory, error) {
+	if len(args) != 0 {
+		return nil, fmt.Errorf("KoreanNumberFilterFactory: unknown parameters: %v", args)
+	}
+	return &KoreanNumberFilterFactory{}, nil
+}
+
+// Create wraps input in a KoreanNumberFilter.
+func (f *KoreanNumberFilterFactory) Create(input analysis.TokenStream) analysis.TokenStream {
+	return NewKoreanNumberFilter(input)
+}
