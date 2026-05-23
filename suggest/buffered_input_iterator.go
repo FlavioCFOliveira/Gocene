@@ -61,4 +61,10 @@ func (b *BufferedInputIterator) Reset() { b.idx = -1 }
 // Count returns the number of buffered entries.
 func (b *BufferedInputIterator) Count() int { return len(b.terms) }
 
+// At returns the term, weight, payload, and contexts at ordinal position i.
+// The caller must ensure i is within [0, Count()).
+func (b *BufferedInputIterator) At(i int) (term []byte, weight int64, payload []byte, contexts [][]byte) {
+	return b.terms[i], b.weights[i], b.payloads[i], b.contexts[i]
+}
+
 var _ InputIterator = (*BufferedInputIterator)(nil)
