@@ -1,21 +1,10 @@
-// Package core hosts the deferred Sprint 28 ports for
-// org.apache.lucene.analysis.core.
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
+// Package core provides ports of org.apache.lucene.analysis.core types.
+//
+// Sprint 28 stubs were replaced by full implementations in Sprint 64:
+//   - UnicodeWhitespaceTokenizer → unicode_whitespace_tokenizer.go
+//   - UnicodeWhitespaceAnalyzer  → unicode_whitespace_analyzer.go
 package core
-
-// The Sprint 28 analysis-common deferral surfaces these types as typed
-// stubs so dependent packages keep compiling; concrete behaviour ports
-// land progressively.
-
-// UnicodeWhitespaceAnalyzer mirrors org.apache.lucene.analysis.core.UnicodeWhitespaceAnalyzer.
-type UnicodeWhitespaceAnalyzer struct{}
-
-// NewUnicodeWhitespaceAnalyzer builds a UnicodeWhitespaceAnalyzer.
-func NewUnicodeWhitespaceAnalyzer() *UnicodeWhitespaceAnalyzer { return &UnicodeWhitespaceAnalyzer{} }
-
-// UnicodeWhitespaceTokenizer mirrors org.apache.lucene.analysis.core.UnicodeWhitespaceTokenizer.
-type UnicodeWhitespaceTokenizer struct{}
-
-// NewUnicodeWhitespaceTokenizer builds a UnicodeWhitespaceTokenizer.
-func NewUnicodeWhitespaceTokenizer() *UnicodeWhitespaceTokenizer {
-	return &UnicodeWhitespaceTokenizer{}
-}

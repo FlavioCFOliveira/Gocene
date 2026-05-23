@@ -1,45 +1,13 @@
-// Package pattern hosts the deferred Sprint 28 ports for
-// org.apache.lucene.analysis.pattern.
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
+// Package pattern provides ports of org.apache.lucene.analysis.pattern types.
+//
+// Sprint 28 stubs were replaced by full implementations in Sprint 64:
+//   - PatternCaptureGroupTokenFilter    → pattern_capture_group_token_filter.go
+//   - PatternCaptureGroupFilterFactory  → pattern_capture_group_filter_factory.go
+//   - PatternTypingFilter               → pattern_typing_filter.go
+//   - PatternTypingFilterFactory        → pattern_typing_filter.go
+//   - SimplePatternSplitTokenizerFactory → simple_pattern_split_tokenizer_factory.go
 package pattern
-
-// The Sprint 28 analysis-common deferral surfaces these types as typed
-// stubs so dependent packages keep compiling; concrete behaviour ports
-// land progressively.
-
-// PatternCaptureGroupFilterFactory mirrors org.apache.lucene.analysis.pattern.PatternCaptureGroupFilterFactory.
-type PatternCaptureGroupFilterFactory struct{}
-
-// NewPatternCaptureGroupFilterFactory builds a PatternCaptureGroupFilterFactory.
-func NewPatternCaptureGroupFilterFactory() *PatternCaptureGroupFilterFactory {
-	return &PatternCaptureGroupFilterFactory{}
-}
-
-// PatternCaptureGroupTokenFilter mirrors org.apache.lucene.analysis.pattern.PatternCaptureGroupTokenFilter.
-type PatternCaptureGroupTokenFilter struct{}
-
-// NewPatternCaptureGroupTokenFilter builds a PatternCaptureGroupTokenFilter.
-func NewPatternCaptureGroupTokenFilter() *PatternCaptureGroupTokenFilter {
-	return &PatternCaptureGroupTokenFilter{}
-}
-
-// PatternTypingFilter mirrors org.apache.lucene.analysis.pattern.PatternTypingFilter.
-type PatternTypingFilter struct{}
-
-// NewPatternTypingFilter builds a PatternTypingFilter.
-func NewPatternTypingFilter() *PatternTypingFilter { return &PatternTypingFilter{} }
-
-// SimplePatternSplitTokenizerFactory mirrors org.apache.lucene.analysis.pattern.SimplePatternSplitTokenizerFactory.
-type SimplePatternSplitTokenizerFactory struct{}
-
-// NewSimplePatternSplitTokenizerFactory builds a SimplePatternSplitTokenizerFactory.
-func NewSimplePatternSplitTokenizerFactory() *SimplePatternSplitTokenizerFactory {
-	return &SimplePatternSplitTokenizerFactory{}
-}
-
-// PatternTypingFilterFactory mirrors org.apache.lucene.analysis.pattern.PatternTypingFilterFactory.
-type PatternTypingFilterFactory struct{}
-
-// NewPatternTypingFilterFactory builds a PatternTypingFilterFactory.
-func NewPatternTypingFilterFactory() *PatternTypingFilterFactory {
-	return &PatternTypingFilterFactory{}
-}
