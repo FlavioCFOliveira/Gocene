@@ -976,18 +976,18 @@ func rotateToTree(nodeID, offset, count int, index []byte, leafBlockStartValues 
 }
 
 // bytesRefString mirrors Java's BytesRef.toString() which emits each byte as
-// its decimal value 0–255.
+// its lower-case hexadecimal value without zero-padding.
 func bytesRefString(b []byte) string {
 	if len(b) == 0 {
 		return "[]"
 	}
-	buf := make([]byte, 0, 2+len(b)*4)
+	buf := make([]byte, 0, 2+len(b)*3)
 	buf = append(buf, '[')
 	for i, v := range b {
 		if i > 0 {
 			buf = append(buf, ' ')
 		}
-		buf = strconv.AppendUint(buf, uint64(v), 10)
+		buf = strconv.AppendUint(buf, uint64(v), 16)
 	}
 	buf = append(buf, ']')
 	return string(buf)
