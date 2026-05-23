@@ -107,6 +107,13 @@ func (s *ClassicTokenizerImpl) Reset(r io.Reader) {
 	s.scan()
 }
 
+// ResetIndex rewinds the token cursor to the beginning without re-reading
+// the input. Use this when the scanner has already eagerly consumed its
+// reader and a Reset is needed (e.g., for repeated tokenisation).
+func (s *ClassicTokenizerImpl) ResetIndex() {
+	s.idx = 0
+}
+
 // GetNextToken returns the next scanned token or nil if exhausted.
 func (s *ClassicTokenizerImpl) GetNextToken() *classicToken {
 	if s.idx >= len(s.tokens) {
