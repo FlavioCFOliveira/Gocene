@@ -3,6 +3,8 @@
 // variables.
 package expressions
 
+import "github.com/FlavioCFOliveira/Gocene/search"
+
 // Expression represents a parsed JavaScript expression that can be evaluated
 // against a set of Bindings. Mirrors org.apache.lucene.expressions.Expression.
 //
@@ -82,4 +84,35 @@ func (e *Expression) GetVariables() []string {
 	out := make([]string, len(e.Variables))
 	copy(out, e.Variables)
 	return out
+}
+
+// GetDoubleValuesSource returns a DoubleValuesSource that evaluates this
+// expression using the given bindings. Mirrors
+// org.apache.lucene.expressions.Expression.getDoubleValuesSource.
+func (e *Expression) GetDoubleValuesSource(bindings DoubleValuesBindings) (DoubleValuesSource, error) {
+	return NewExpressionValueSource(bindings, e)
+}
+
+// GetSortField returns a search.SortField that ranks documents by this
+// expression. When reverse is true, higher expression values rank first.
+// Mirrors org.apache.lucene.expressions.Expression.getSortField.
+func (e *Expression) GetSortField(bindings DoubleValuesBindings, reverse bool) (*search.SortField, error) {
+	if _, err := NewExpressionValueSource(bindings, e); err != nil {
+		return nil, err
+	}
+	if reverse {
+		return search.NewSortFieldReverse(e.SourceText, search.SortFieldTypeScore), nil
+	}
+	return search.NewSortField(e.SourceText, search.SortFieldTypeScore), nil
+}
+
+// GetRescorer returns a search.Rescorer that re-scores first-pass hits using
+// this expression. Mirrors
+// org.apache.lucene.expressions.Expression.getRescorer.
+func (e *Expression) GetRescorer(bindings DoubleValuesBindings) (search.Rescorer, error) {
+	sf, err := e.GetSortField(bindings, true)
+	if err != nil {
+		return nil, err
+	}
+	return NewExpressionRescorer(sf, e, bindings), nil
 }
