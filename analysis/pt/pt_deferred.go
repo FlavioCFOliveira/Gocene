@@ -22,12 +22,6 @@ func NewPortugueseStemFilterFactory() *PortugueseStemFilterFactory {
 	return &PortugueseStemFilterFactory{}
 }
 
-// RSLPStemmerBase mirrors org.apache.lucene.analysis.pt.RSLPStemmerBase.
-type RSLPStemmerBase struct{}
-
-// NewRSLPStemmerBase builds a RSLPStemmerBase.
-func NewRSLPStemmerBase() *RSLPStemmerBase { return &RSLPStemmerBase{} }
-
 // PortugueseMinimalStemFilter mirrors org.apache.lucene.analysis.pt.PortugueseMinimalStemFilter.
 type PortugueseMinimalStemFilter struct{}
 
