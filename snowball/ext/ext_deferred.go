@@ -38,12 +38,6 @@ type ItalianStemmer struct{}
 // NewItalianStemmer builds a ItalianStemmer.
 func NewItalianStemmer() *ItalianStemmer { return &ItalianStemmer{} }
 
-// LithuanianStemmer mirrors org.tartarus.snowball.ext.LithuanianStemmer.
-type LithuanianStemmer struct{}
-
-// NewLithuanianStemmer builds a LithuanianStemmer.
-func NewLithuanianStemmer() *LithuanianStemmer { return &LithuanianStemmer{} }
-
 // NepaliStemmer mirrors org.tartarus.snowball.ext.NepaliStemmer.
 type NepaliStemmer struct{}
 
