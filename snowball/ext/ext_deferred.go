@@ -6,12 +6,6 @@ package ext
 // stubs so dependent packages keep compiling; concrete behaviour ports
 // land progressively.
 
-// CatalanStemmer mirrors org.tartarus.snowball.ext.CatalanStemmer.
-type CatalanStemmer struct{}
-
-// NewCatalanStemmer builds a CatalanStemmer.
-func NewCatalanStemmer() *CatalanStemmer { return &CatalanStemmer{} }
-
 
 // GermanStemmer mirrors org.tartarus.snowball.ext.GermanStemmer.
 type GermanStemmer struct{}
