@@ -24,17 +24,6 @@ type CatalanStemmer struct{}
 // NewCatalanStemmer builds a CatalanStemmer.
 func NewCatalanStemmer() *CatalanStemmer { return &CatalanStemmer{} }
 
-// DanishStemmer mirrors org.tartarus.snowball.ext.DanishStemmer.
-type DanishStemmer struct{}
-
-// NewDanishStemmer builds a DanishStemmer.
-func NewDanishStemmer() *DanishStemmer { return &DanishStemmer{} }
-
-// EnglishStemmer mirrors org.tartarus.snowball.ext.EnglishStemmer.
-type EnglishStemmer struct{}
-
-// NewEnglishStemmer builds a EnglishStemmer.
-func NewEnglishStemmer() *EnglishStemmer { return &EnglishStemmer{} }
 
 // EstonianStemmer mirrors org.tartarus.snowball.ext.EstonianStemmer.
 type EstonianStemmer struct{}
@@ -72,11 +61,6 @@ type IndonesianStemmer struct{}
 // NewIndonesianStemmer builds a IndonesianStemmer.
 func NewIndonesianStemmer() *IndonesianStemmer { return &IndonesianStemmer{} }
 
-// IrishStemmer mirrors org.tartarus.snowball.ext.IrishStemmer.
-type IrishStemmer struct{}
-
-// NewIrishStemmer builds a IrishStemmer.
-func NewIrishStemmer() *IrishStemmer { return &IrishStemmer{} }
 
 // ItalianStemmer mirrors org.tartarus.snowball.ext.ItalianStemmer.
 type ItalianStemmer struct{}
@@ -96,12 +80,6 @@ type NepaliStemmer struct{}
 // NewNepaliStemmer builds a NepaliStemmer.
 func NewNepaliStemmer() *NepaliStemmer { return &NepaliStemmer{} }
 
-// NorwegianStemmer mirrors org.tartarus.snowball.ext.NorwegianStemmer.
-type NorwegianStemmer struct{}
-
-// NewNorwegianStemmer builds a NorwegianStemmer.
-func NewNorwegianStemmer() *NorwegianStemmer { return &NorwegianStemmer{} }
-
 
 // RomanianStemmer mirrors org.tartarus.snowball.ext.RomanianStemmer.
 type RomanianStemmer struct{}
@@ -109,11 +87,6 @@ type RomanianStemmer struct{}
 // NewRomanianStemmer builds a RomanianStemmer.
 func NewRomanianStemmer() *RomanianStemmer { return &RomanianStemmer{} }
 
-// RussianStemmer mirrors org.tartarus.snowball.ext.RussianStemmer.
-type RussianStemmer struct{}
-
-// NewRussianStemmer builds a RussianStemmer.
-func NewRussianStemmer() *RussianStemmer { return &RussianStemmer{} }
 
 // SerbianStemmer mirrors org.tartarus.snowball.ext.SerbianStemmer.
 type SerbianStemmer struct{}
@@ -121,17 +94,6 @@ type SerbianStemmer struct{}
 // NewSerbianStemmer builds a SerbianStemmer.
 func NewSerbianStemmer() *SerbianStemmer { return &SerbianStemmer{} }
 
-// SpanishStemmer mirrors org.tartarus.snowball.ext.SpanishStemmer.
-type SpanishStemmer struct{}
-
-// NewSpanishStemmer builds a SpanishStemmer.
-func NewSpanishStemmer() *SpanishStemmer { return &SpanishStemmer{} }
-
-// SwedishStemmer mirrors org.tartarus.snowball.ext.SwedishStemmer.
-type SwedishStemmer struct{}
-
-// NewSwedishStemmer builds a SwedishStemmer.
-func NewSwedishStemmer() *SwedishStemmer { return &SwedishStemmer{} }
 
 // TamilStemmer mirrors org.tartarus.snowball.ext.TamilStemmer.
 // This is a structural stub; Stem is a no-op until the full port lands.
