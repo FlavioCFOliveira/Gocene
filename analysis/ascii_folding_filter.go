@@ -310,39 +310,153 @@ func (f *ASCIIFoldingFilter) foldLatin1(r rune) []rune {
 	}
 }
 
-// foldLatinExtendedA folds Latin Extended-A characters.
+// foldLatinExtendedA folds Latin Extended-A characters (U+0100–U+017F).
+// Entries follow the Lucene 10.4.0 ASCIIFoldingFilter mapping table.
 func (f *ASCIIFoldingFilter) foldLatinExtendedA(r rune) []rune {
-	// This is a simplified implementation
-	// Full implementation would cover all characters in U+0100 to U+017F
-
 	switch r {
-	// Polish characters
-	case 0x0141: // Ł -> L
-		return []rune{'L'}
-	case 0x0142: // ł -> l
-		return []rune{'l'}
-	case 0x0143: // Ń -> N
-		return []rune{'N'}
-	case 0x0144: // ń -> n
-		return []rune{'n'}
-	case 0x015A: // Ś -> S
-		return []rune{'S'}
-	case 0x015B: // ś -> s
-		return []rune{'s'}
-	case 0x0179: // Ź -> Z
-		return []rune{'Z'}
-	case 0x017A: // ź -> z
-		return []rune{'z'}
-	case 0x017B: // Ż -> Z
-		return []rune{'Z'}
-	case 0x017C: // ż -> z
-		return []rune{'z'}
+	// A variants
+	case 0x0100, 0x0102, 0x0104: // Ā Ă Ą -> A
+		return []rune{'A'}
+	case 0x0101, 0x0103, 0x0105: // ā ă ą -> a
+		return []rune{'a'}
 
-	// Other common characters
+	// C variants
+	case 0x0106, 0x0108, 0x010A, 0x010C: // Ć Ĉ Ċ Č -> C
+		return []rune{'C'}
+	case 0x0107, 0x0109, 0x010B, 0x010D: // ć ĉ ċ č -> c
+		return []rune{'c'}
+
+	// D variants
+	case 0x010E: // Ď -> D
+		return []rune{'D'}
+	case 0x010F: // ď -> d
+		return []rune{'d'}
+	case 0x0110: // Đ -> D
+		return []rune{'D'}
+	case 0x0111: // đ -> d
+		return []rune{'d'}
+
+	// E variants
+	case 0x0112, 0x0114, 0x0116, 0x0118, 0x011A: // Ē Ĕ Ė Ę Ě -> E
+		return []rune{'E'}
+	case 0x0113, 0x0115, 0x0117, 0x0119, 0x011B: // ē ĕ ė ę ě -> e
+		return []rune{'e'}
+
+	// G variants
+	case 0x011C, 0x011E, 0x0120, 0x0122: // Ĝ Ğ Ġ Ģ -> G
+		return []rune{'G'}
+	case 0x011D, 0x011F, 0x0121, 0x0123: // ĝ ğ ġ ģ -> g
+		return []rune{'g'}
+
+	// H variants
+	case 0x0124: // Ĥ -> H
+		return []rune{'H'}
+	case 0x0125: // ĥ -> h
+		return []rune{'h'}
+	case 0x0126: // Ħ -> H
+		return []rune{'H'}
+	case 0x0127: // ħ -> h
+		return []rune{'h'}
+
+	// I variants
+	case 0x0128, 0x012A, 0x012C, 0x012E, 0x0130: // Ĩ Ī Ĭ Į İ -> I
+		return []rune{'I'}
+	case 0x0129, 0x012B, 0x012D, 0x012F, 0x0131: // ĩ ī ĭ į ı -> i
+		return []rune{'i'}
+
+	// IJ ligature
+	case 0x0132: // Ĳ -> IJ
+		return []rune{'I', 'J'}
+	case 0x0133: // ĳ -> ij
+		return []rune{'i', 'j'}
+
+	// J variants
+	case 0x0134: // Ĵ -> J
+		return []rune{'J'}
+	case 0x0135: // ĵ -> j
+		return []rune{'j'}
+
+	// K variants
+	case 0x0136: // Ķ -> K
+		return []rune{'K'}
+	case 0x0137: // ķ -> k
+		return []rune{'k'}
+	case 0x0138: // ĸ -> k
+		return []rune{'k'}
+
+	// L variants
+	case 0x0139, 0x013B, 0x013D, 0x013F, 0x0141: // Ĺ Ļ Ľ Ŀ Ł -> L
+		return []rune{'L'}
+	case 0x013A, 0x013C, 0x013E, 0x0140, 0x0142: // ĺ ļ ľ ŀ ł -> l
+		return []rune{'l'}
+
+	// N variants
+	case 0x0143, 0x0145, 0x0147: // Ń Ņ Ň -> N
+		return []rune{'N'}
+	case 0x0144, 0x0146, 0x0148, 0x0149: // ń ņ ň ŉ -> n
+		return []rune{'n'}
+	case 0x014A: // Ŋ -> N
+		return []rune{'N'}
+	case 0x014B: // ŋ -> n
+		return []rune{'n'}
+
+	// O variants
+	case 0x014C, 0x014E, 0x0150: // Ō Ŏ Ő -> O
+		return []rune{'O'}
+	case 0x014D, 0x014F, 0x0151: // ō ŏ ő -> o
+		return []rune{'o'}
+
+	// OE ligature
 	case 0x0152: // Œ -> OE
 		return []rune{'O', 'E'}
 	case 0x0153: // œ -> oe
 		return []rune{'o', 'e'}
+
+	// R variants
+	case 0x0154, 0x0156, 0x0158: // Ŕ Ŗ Ř -> R
+		return []rune{'R'}
+	case 0x0155, 0x0157, 0x0159: // ŕ ŗ ř -> r
+		return []rune{'r'}
+
+	// S variants
+	case 0x015A, 0x015C, 0x015E, 0x0160: // Ś Ŝ Ş Š -> S
+		return []rune{'S'}
+	case 0x015B, 0x015D, 0x015F, 0x0161: // ś ŝ ş š -> s
+		return []rune{'s'}
+	case 0x017F: // ſ -> s
+		return []rune{'s'}
+
+	// T variants
+	case 0x0162, 0x0164, 0x0166: // Ţ Ť Ŧ -> T
+		return []rune{'T'}
+	case 0x0163, 0x0165, 0x0167: // ţ ť ŧ -> t
+		return []rune{'t'}
+
+	// U variants
+	case 0x0168, 0x016A, 0x016C, 0x016E, 0x0170, 0x0172: // Ũ Ū Ŭ Ů Ű Ų -> U
+		return []rune{'U'}
+	case 0x0169, 0x016B, 0x016D, 0x016F, 0x0171, 0x0173: // ũ ū ŭ ů ű ų -> u
+		return []rune{'u'}
+
+	// W variants
+	case 0x0174: // Ŵ -> W
+		return []rune{'W'}
+	case 0x0175: // ŵ -> w
+		return []rune{'w'}
+
+	// Y variants
+	case 0x0176: // Ŷ -> Y
+		return []rune{'Y'}
+	case 0x0177: // ŷ -> y
+		return []rune{'y'}
+	case 0x0178: // Ÿ -> Y (also in Latin-1 range)
+		return []rune{'Y'}
+
+	// Z variants
+	case 0x0179, 0x017B, 0x017D: // Ź Ż Ž -> Z
+		return []rune{'Z'}
+	case 0x017A, 0x017C, 0x017E: // ź ż ž -> z
+		return []rune{'z'}
 
 	default:
 		return []rune{r}
