@@ -6,11 +6,6 @@ package util
 // stubs so dependent packages keep compiling; concrete behaviour ports
 // land progressively.
 
-// CharArrayIterator mirrors org.apache.lucene.analysis.util.CharArrayIterator.
-type CharArrayIterator struct{}
-
-// NewCharArrayIterator builds a CharArrayIterator.
-func NewCharArrayIterator() *CharArrayIterator { return &CharArrayIterator{} }
 
 
 
