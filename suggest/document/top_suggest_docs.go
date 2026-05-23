@@ -1,6 +1,9 @@
 package document
 
-import "sort"
+import (
+	"sort"
+	"strings"
+)
 
 // TopSuggestDocs is the result container returned by
 // TopSuggestDocsCollector. Mirrors
@@ -46,4 +49,30 @@ func (c *TopSuggestDocsCollector) Get() *TopSuggestDocs {
 	out := &TopSuggestDocs{Hits: make([]SuggestHit, len(c.hits))}
 	copy(out.Hits, c.hits)
 	return out
+}
+
+// SuggestScoreDoc is a scored document with an associated completion key and
+// optional context. Mirrors
+// org.apache.lucene.search.suggest.document.TopSuggestDocs.SuggestScoreDoc.
+type SuggestScoreDoc struct {
+	// Doc is the document id.
+	Doc int
+	// Score is the weight/score of this completion.
+	Score float32
+	// Key is the matched completion string.
+	Key string
+	// Context is an optional context label associated with the completion.
+	Context string
+}
+
+// compareCharSequence compares two strings lexicographically, mirroring
+// Lookup.CHARSEQUENCE_COMPARATOR used by SuggestScoreDoc.compareTo.
+func compareCharSequence(a, b string) int {
+	return strings.Compare(a, b)
+}
+
+// CompareTo implements the natural ordering of SuggestScoreDoc: tie-break on
+// Key (lexicographic). Mirrors SuggestScoreDoc.compareTo(SuggestScoreDoc).
+func (s *SuggestScoreDoc) CompareTo(o *SuggestScoreDoc) int {
+	return compareCharSequence(s.Key, o.Key)
 }
