@@ -18,6 +18,9 @@ func NewNoOpOffsetStrategy(field string) *NoOpOffsetStrategy {
 	return &NoOpOffsetStrategy{BaseFieldOffsetStrategy: NewBaseFieldOffsetStrategy(field)}
 }
 
+// GetOffsetSource returns OffsetSourceNone.
+func (s *NoOpOffsetStrategy) GetOffsetSource() OffsetSource { return OffsetSourceNone }
+
 // GetOffsetsEnum returns an empty SliceOffsetsEnum.
 func (s *NoOpOffsetStrategy) GetOffsetsEnum(_ any) (OffsetsEnum, error) {
 	return NewSliceOffsetsEnum(nil), nil
@@ -33,6 +36,9 @@ type AnalysisOffsetStrategy struct{ BaseFieldOffsetStrategy }
 func NewAnalysisOffsetStrategy(field string) *AnalysisOffsetStrategy {
 	return &AnalysisOffsetStrategy{BaseFieldOffsetStrategy: NewBaseFieldOffsetStrategy(field)}
 }
+
+// GetOffsetSource returns OffsetSourceAnalysis.
+func (s *AnalysisOffsetStrategy) GetOffsetSource() OffsetSource { return OffsetSourceAnalysis }
 
 // GetOffsetsEnum requires an analyzer + the field value; the doc-context
 // helper must carry both. The Go port defers concrete extraction to the
@@ -52,6 +58,9 @@ func NewPostingsOffsetStrategy(field string) *PostingsOffsetStrategy {
 	return &PostingsOffsetStrategy{BaseFieldOffsetStrategy: NewBaseFieldOffsetStrategy(field)}
 }
 
+// GetOffsetSource returns OffsetSourcePostings.
+func (s *PostingsOffsetStrategy) GetOffsetSource() OffsetSource { return OffsetSourcePostings }
+
 // GetOffsetsEnum requires PostingsEnum-with-offsets support; deferred.
 func (s *PostingsOffsetStrategy) GetOffsetsEnum(_ any) (OffsetsEnum, error) {
 	return nil, errNotImplemented
@@ -67,6 +76,11 @@ type PostingsWithTermVectorsOffsetStrategy struct{ BaseFieldOffsetStrategy }
 // NewPostingsWithTermVectorsOffsetStrategy builds the strategy.
 func NewPostingsWithTermVectorsOffsetStrategy(field string) *PostingsWithTermVectorsOffsetStrategy {
 	return &PostingsWithTermVectorsOffsetStrategy{BaseFieldOffsetStrategy: NewBaseFieldOffsetStrategy(field)}
+}
+
+// GetOffsetSource returns OffsetSourcePostingsWithTermVectors.
+func (s *PostingsWithTermVectorsOffsetStrategy) GetOffsetSource() OffsetSource {
+	return OffsetSourcePostingsWithTermVectors
 }
 
 // GetOffsetsEnum is deferred to the term-vector + postings infrastructure.
@@ -85,6 +99,9 @@ func NewTermVectorOffsetStrategy(field string) *TermVectorOffsetStrategy {
 	return &TermVectorOffsetStrategy{BaseFieldOffsetStrategy: NewBaseFieldOffsetStrategy(field)}
 }
 
+// GetOffsetSource returns OffsetSourceTermVectors.
+func (s *TermVectorOffsetStrategy) GetOffsetSource() OffsetSource { return OffsetSourceTermVectors }
+
 // GetOffsetsEnum is deferred to the term-vector infrastructure.
 func (s *TermVectorOffsetStrategy) GetOffsetsEnum(_ any) (OffsetsEnum, error) {
 	return nil, errNotImplemented
@@ -101,6 +118,10 @@ type TokenStreamOffsetStrategy struct{ BaseFieldOffsetStrategy }
 func NewTokenStreamOffsetStrategy(field string) *TokenStreamOffsetStrategy {
 	return &TokenStreamOffsetStrategy{BaseFieldOffsetStrategy: NewBaseFieldOffsetStrategy(field)}
 }
+
+// GetOffsetSource returns OffsetSourceAnalysis (token-stream offsets are
+// derived from analysis).
+func (s *TokenStreamOffsetStrategy) GetOffsetSource() OffsetSource { return OffsetSourceAnalysis }
 
 // GetOffsetsEnum is deferred to the token-stream pipeline (which the
 // caller supplies inside docContext).
@@ -119,6 +140,10 @@ type MemoryIndexOffsetStrategy struct{ BaseFieldOffsetStrategy }
 func NewMemoryIndexOffsetStrategy(field string) *MemoryIndexOffsetStrategy {
 	return &MemoryIndexOffsetStrategy{BaseFieldOffsetStrategy: NewBaseFieldOffsetStrategy(field)}
 }
+
+// GetOffsetSource returns OffsetSourceAnalysis (memory index re-analyses the
+// field value).
+func (s *MemoryIndexOffsetStrategy) GetOffsetSource() OffsetSource { return OffsetSourceAnalysis }
 
 // GetOffsetsEnum is deferred to the memory module.
 func (s *MemoryIndexOffsetStrategy) GetOffsetsEnum(_ any) (OffsetsEnum, error) {
@@ -148,6 +173,10 @@ func (s *MultiFieldsOffsetStrategy) Field() string {
 	}
 	return s.fields[0]
 }
+
+// GetOffsetSource returns OffsetSourceNone because the strategy's offset
+// source is per-delegate and not uniformly characterised.
+func (s *MultiFieldsOffsetStrategy) GetOffsetSource() OffsetSource { return OffsetSourceNone }
 
 // GetOffsetsEnum concatenates the per-field SliceOffsetsEnums into a single
 // virtual enum.
