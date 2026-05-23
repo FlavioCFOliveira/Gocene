@@ -1,50 +1,131 @@
-// Package intervals hosts the Sprint 29 overflow ports for
+// Package intervals provides the Go port of org.apache.lucene.queries.intervals.
+//
+// This package mirrors the Apache Lucene 10.4.0 interval query framework.
+// The types defined here correspond to the Java classes in
 // org.apache.lucene.queries.intervals.
 package intervals
 
-// The Sprint 29 queries-module overflow surfaces these types as typed
-// stubs so dependent packages keep compiling; concrete behaviour ports
-// land progressively.
+import (
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
+)
 
-// FilteredIntervalsSource mirrors org.apache.lucene.queries.intervals.FilteredIntervalsSource.
-type FilteredIntervalsSource struct{}
+// NoMoreIntervals is the sentinel value returned by IntervalIterator.NextInterval
+// when there are no more matching intervals on the current document.
+const NoMoreIntervals = int(^uint(0) >> 1) // math.MaxInt == Integer.MAX_VALUE
 
-// NewFilteredIntervalsSource builds a FilteredIntervalsSource.
-func NewFilteredIntervalsSource() *FilteredIntervalsSource { return &FilteredIntervalsSource{} }
+// IntervalIterator is a DocIdSetIterator that also allows iteration over matching
+// intervals in a document.
+//
+// Mirrors org.apache.lucene.queries.intervals.IntervalIterator (abstract class).
+type IntervalIterator interface {
+	search.DocIdSetIterator
 
-// IntervalFilter mirrors org.apache.lucene.queries.intervals.IntervalFilter.
-type IntervalFilter struct{}
+	// Start returns the start of the current interval, or -1 before NextInterval
+	// is called, or NoMoreIntervals when exhausted.
+	Start() int
 
-// NewIntervalFilter builds a IntervalFilter.
-func NewIntervalFilter() *IntervalFilter { return &IntervalFilter{} }
+	// End returns the end of the current interval, or -1 before NextInterval
+	// is called, or NoMoreIntervals when exhausted.
+	End() int
 
-// IntervalIterator mirrors org.apache.lucene.queries.intervals.IntervalIterator.
-type IntervalIterator struct{}
+	// Gaps returns the number of gaps within the current interval.
+	Gaps() int
 
-// NewIntervalIterator builds a IntervalIterator.
-func NewIntervalIterator() *IntervalIterator { return &IntervalIterator{} }
+	// Width returns the width of the current interval (end - start + 1).
+	Width() int
 
-// IntervalMatchesIterator mirrors org.apache.lucene.queries.intervals.IntervalMatchesIterator.
-type IntervalMatchesIterator struct{}
+	// NextInterval advances to the next interval.
+	// Returns NoMoreIntervals when there are no more intervals.
+	NextInterval() (int, error)
 
-// NewIntervalMatchesIterator builds a IntervalMatchesIterator.
-func NewIntervalMatchesIterator() *IntervalMatchesIterator { return &IntervalMatchesIterator{} }
+	// MatchCost returns an estimate of the per-document cost of calling NextInterval.
+	MatchCost() float32
+}
 
-// IntervalQuery mirrors org.apache.lucene.queries.intervals.IntervalQuery.
-type IntervalQuery struct{}
+// IntervalMatchesIterator extends search.MatchesIterator to expose gaps and width.
+//
+// Mirrors org.apache.lucene.queries.intervals.IntervalMatchesIterator.
+type IntervalMatchesIterator interface {
+	search.MatchesIterator
 
-// NewIntervalQuery builds a IntervalQuery.
-func NewIntervalQuery() *IntervalQuery { return &IntervalQuery{} }
+	// Gaps returns the number of top-level gaps inside the current match.
+	Gaps() int
 
-// Intervals mirrors org.apache.lucene.queries.intervals.Intervals.
-type Intervals struct{}
+	// Width returns the width of the current match.
+	Width() int
+}
 
-// NewIntervals builds a Intervals.
-func NewIntervals() *Intervals { return &Intervals{} }
+// IntervalsSource is the abstract source of intervals for a given field and segment.
+//
+// Mirrors org.apache.lucene.queries.intervals.IntervalsSource (abstract class).
+type IntervalsSource interface {
+	// Intervals creates an IntervalIterator for the given field and leaf context.
+	// Returns nil if no intervals for this field exist in this segment.
+	Intervals(field string, ctx *index.LeafReaderContext) (IntervalIterator, error)
 
-// IntervalsSource mirrors org.apache.lucene.queries.intervals.IntervalsSource.
-type IntervalsSource struct{}
+	// Matches returns an IntervalMatchesIterator for the given field, context and doc.
+	// Returns nil if no intervals exist in the given document and field.
+	Matches(field string, ctx *index.LeafReaderContext, doc int) (IntervalMatchesIterator, error)
 
-// NewIntervalsSource builds a IntervalsSource.
-func NewIntervalsSource() *IntervalsSource { return &IntervalsSource{} }
+	// Visit visits the tree of sources.
+	Visit(field string, visitor search.QueryVisitor)
 
+	// MinExtent returns the minimum possible width of an interval returned by this source.
+	MinExtent() int
+
+	// PullUpDisjunctions returns the set of disjunctions that make up this IntervalsSource.
+	PullUpDisjunctions() []IntervalsSource
+
+	// Equals reports whether this source equals another.
+	Equals(other IntervalsSource) bool
+
+	// HashCode returns a hash code.
+	HashCode() int
+
+	// String returns a string representation.
+	String() string
+}
+
+// IntervalFilter is an abstract IntervalIterator that filters intervals from
+// another IntervalIterator.
+//
+// Mirrors org.apache.lucene.queries.intervals.IntervalFilter.
+type IntervalFilter struct {
+	In     IntervalIterator
+	accept func() bool
+}
+
+// NewIntervalFilter creates a new IntervalFilter.
+func NewIntervalFilter(in IntervalIterator, accept func() bool) *IntervalFilter {
+	return &IntervalFilter{In: in, accept: accept}
+}
+
+func (f *IntervalFilter) DocID() int             { return f.In.DocID() }
+func (f *IntervalFilter) DocIDRunEnd() int        { return f.DocID() + 1 }
+func (f *IntervalFilter) Start() int             { return f.In.Start() }
+func (f *IntervalFilter) End() int               { return f.In.End() }
+func (f *IntervalFilter) Gaps() int              { return f.In.Gaps() }
+func (f *IntervalFilter) Width() int             { return f.In.Width() }
+func (f *IntervalFilter) MatchCost() float32     { return f.In.MatchCost() }
+func (f *IntervalFilter) Cost() int64            { return f.In.Cost() }
+
+func (f *IntervalFilter) NextDoc() (int, error) {
+	return f.In.NextDoc()
+}
+
+func (f *IntervalFilter) Advance(target int) (int, error) {
+	return f.In.Advance(target)
+}
+
+func (f *IntervalFilter) NextInterval() (int, error) {
+	for {
+		next, err := f.In.NextInterval()
+		if err != nil {
+			return 0, err
+		}
+		if next == NoMoreIntervals || f.accept() {
+			return next, nil
+		}
+	}
+}
