@@ -3,7 +3,13 @@
 // terms across multiple fields.
 package sharedterms
 
-import "github.com/FlavioCFOliveira/Gocene/codecs/uniformsplit"
+import (
+	"errors"
+
+	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/codecs/uniformsplit"
+	"github.com/FlavioCFOliveira/Gocene/index"
+)
 
 // FieldMetadataTermState is the per-(field, term) state record for the
 // shared-terms variant. Mirrors
@@ -60,14 +66,33 @@ func NewSTIntersectBlockReader(reader *STBlockReader) *STIntersectBlockReader {
 	return &STIntersectBlockReader{STBlockReader: reader}
 }
 
-// STMergingBlockReader merges multiple shared-terms readers into one.
+// STMergingBlockReader bridges field-name lookups to the underlying
+// PostingsReaderBase during merge.  It extends the stub with the fields
+// needed by SegmentPostings.GetPostings.
 type STMergingBlockReader struct {
-	Readers []*STBlockReader
+	Readers        []*STBlockReader
+	FieldInfos     *index.FieldInfos
+	PostingsReader codecs.PostingsReaderBase
 }
 
 // NewSTMergingBlockReader builds the merging reader.
 func NewSTMergingBlockReader(readers []*STBlockReader) *STMergingBlockReader {
 	return &STMergingBlockReader{Readers: append([]*STBlockReader(nil), readers...)}
+}
+
+// Postings returns a PostingsEnum for the named field and term state.
+func (r *STMergingBlockReader) Postings(fieldName string, state *codecs.BlockTermState, reuse index.PostingsEnum, flags int) (index.PostingsEnum, error) {
+	if r.FieldInfos == nil {
+		return nil, errors.New("STMergingBlockReader.Postings: FieldInfos is nil")
+	}
+	fi := r.FieldInfos.GetByName(fieldName)
+	if fi == nil {
+		return nil, errors.New("STMergingBlockReader.Postings: fieldInfo not found for " + fieldName)
+	}
+	if r.PostingsReader == nil {
+		return nil, errors.New("STMergingBlockReader.Postings: PostingsReader is nil")
+	}
+	return r.PostingsReader.Postings(fi, state, reuse, flags)
 }
 
 // STUniformSplitPostingsFormat is the shared-terms codec wrapper.
