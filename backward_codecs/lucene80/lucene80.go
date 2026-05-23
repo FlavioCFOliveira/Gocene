@@ -13,14 +13,6 @@ func NewLucene80NormsFormat(version string) *Lucene80NormsFormat {
 	return &Lucene80NormsFormat{Name: "Lucene80NormsFormat", Version: version}
 }
 
-// Lucene80DocValuesFormat mirrors org.apache.lucene.backward_codecs.lucene80.Lucene80DocValuesFormat.
-type Lucene80DocValuesFormat struct{ Name, Version string }
-
-// NewLucene80DocValuesFormat builds a Lucene80DocValuesFormat with the supplied version.
-func NewLucene80DocValuesFormat(version string) *Lucene80DocValuesFormat {
-	return &Lucene80DocValuesFormat{Name: "Lucene80DocValuesFormat", Version: version}
-}
-
 // Lucene80Codec mirrors org.apache.lucene.backward_codecs.lucene80.Lucene80Codec.
 type Lucene80Codec struct{ Name, Version string }
 
