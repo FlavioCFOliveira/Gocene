@@ -509,7 +509,9 @@ func (wb *wordStorageBuilder) add(entry string, flags []rune, morphDataID int) e
 			}
 
 			wb.commonPrefixLen = commonPrefixLen(wb.currentEntry, entry)
-			in := store.NewByteArrayDataInput(wb.wordData)
+			// Read back from the data writer's own buffer, not the pre-allocated
+			// wb.wordData slice — the writer maintains its own internal array.
+			in := store.NewByteArrayDataInput(wb.dataWriter.GetBytes())
 			prevRunes := []rune(wb.currentEntry)
 			for i := len(prevRunes) - 1; i >= wb.commonPrefixLen; i-- {
 				if err := in.SetPosition(pos); err != nil {
