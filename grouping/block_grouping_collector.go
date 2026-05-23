@@ -63,36 +63,39 @@ func NewBlockGroupingCollector(groupSelector GroupSelector, parentFilter *join.F
 	}
 }
 
-// Collect collects a document.
+// Collect collects a document. Documents within a block must be fed in
+// Lucene's canonical order: child₁, child₂, …, parent (the parent is the
+// last document in each block and is identified by parentFilter).
 func (bgc *BlockGroupingCollector) Collect(doc int, score float32) error {
-	// Check if this is a parent document
-	isParent := bgc.isParent(doc)
-
-	if isParent {
-		// Finish the current block if there is one
-		if bgc.currentBlock != nil {
-			bgc.finishCurrentBlock()
-		}
-
-		// Start a new block
-		groupValue := bgc.groupSelector.Select(doc)
-		bgc.currentBlock = &BlockGroup{
-			ParentDoc:   doc,
-			ParentScore: score,
-			GroupValue:  groupValue,
-			ChildDocs:   make([]int, 0),
-			ChildScores: make([]float32, 0),
-		}
-	} else if bgc.currentBlock != nil {
-		// Add to current block as a child
-		bgc.currentBlock.ChildDocs = append(bgc.currentBlock.ChildDocs, doc)
-		bgc.currentBlock.ChildScores = append(bgc.currentBlock.ChildScores, score)
-	}
-
-	// Update stats
+	// Update global stats first.
 	bgc.totalHits++
 	if score > bgc.maxScore {
 		bgc.maxScore = score
+	}
+
+	if bgc.isParent(doc) {
+		// Seal the in-progress block: assign the group value from the parent
+		// and store it.
+		if bgc.currentBlock == nil {
+			bgc.currentBlock = &BlockGroup{
+				ChildDocs:   make([]int, 0),
+				ChildScores: make([]float32, 0),
+			}
+		}
+		bgc.currentBlock.ParentDoc = doc
+		bgc.currentBlock.ParentScore = score
+		bgc.currentBlock.GroupValue = bgc.groupSelector.Select(doc)
+		bgc.finishCurrentBlock()
+	} else {
+		// Child document — buffer it in the current (open) block.
+		if bgc.currentBlock == nil {
+			bgc.currentBlock = &BlockGroup{
+				ChildDocs:   make([]int, 0),
+				ChildScores: make([]float32, 0),
+			}
+		}
+		bgc.currentBlock.ChildDocs = append(bgc.currentBlock.ChildDocs, doc)
+		bgc.currentBlock.ChildScores = append(bgc.currentBlock.ChildScores, score)
 	}
 
 	return nil
@@ -108,9 +111,7 @@ func (bgc *BlockGroupingCollector) isParent(doc int) bool {
 	if bgc.parentFilter == nil {
 		return false
 	}
-	// In a real implementation, this would check the parentFilter
-	// For now, we use a simple heuristic
-	return false
+	return bgc.parentFilter.Get(doc)
 }
 
 // finishCurrentBlock finishes processing the current block.
