@@ -42,6 +42,11 @@ func (cf *CharFilter) CorrectOffset(currentOff int) int {
 	return currentOff + cf.cumulativeDelta
 }
 
+// GetInput returns the underlying io.Reader.
+func (cf *CharFilter) GetInput() io.Reader {
+	return cf.input
+}
+
 // AddOffsetDelta adds to the cumulative offset delta.
 // This should be called when characters are added or removed.
 func (cf *CharFilter) AddOffsetDelta(delta int) {
