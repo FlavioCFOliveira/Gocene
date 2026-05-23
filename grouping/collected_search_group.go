@@ -9,7 +9,7 @@ package grouping
 // recently seen document in the segment and the order in which the group
 // joined the priority queue. Mirrors
 // org.apache.lucene.search.grouping.CollectedSearchGroup.
-type CollectedSearchGroup[T any] struct {
+type CollectedSearchGroup[T comparable] struct {
 	*SearchGroup[T]
 
 	// TopDoc is the docID of the most recent hit observed for this group.
@@ -20,7 +20,7 @@ type CollectedSearchGroup[T any] struct {
 }
 
 // NewCollectedSearchGroup builds the collector-side view of a SearchGroup.
-func NewCollectedSearchGroup[T any](value T, sortValues []any, topDoc, comparatorSlot int) *CollectedSearchGroup[T] {
+func NewCollectedSearchGroup[T comparable](value T, sortValues []any, topDoc, comparatorSlot int) *CollectedSearchGroup[T] {
 	return &CollectedSearchGroup[T]{
 		SearchGroup:    NewSearchGroup(value, sortValues),
 		TopDoc:         topDoc,
