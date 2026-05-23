@@ -6,9 +6,4 @@ package tokenattributes
 // stubs so dependent packages keep compiling; concrete behaviour ports
 // land progressively.
 
-// CollatedTermAttributeImpl mirrors org.apache.lucene.collation.tokenattributes.CollatedTermAttributeImpl.
-type CollatedTermAttributeImpl struct{}
-
-// NewCollatedTermAttributeImpl builds a CollatedTermAttributeImpl.
-func NewCollatedTermAttributeImpl() *CollatedTermAttributeImpl { return &CollatedTermAttributeImpl{} }
 
