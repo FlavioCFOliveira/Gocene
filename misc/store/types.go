@@ -1,7 +1,12 @@
 // Package store implements org.apache.lucene.misc.store.
 package store
 
-import "io"
+import (
+	"errors"
+	"io"
+	"os"
+)
+
 
 // ByteTrackingIndexOutput is the IndexOutput wrapper that records the total
 // bytes written. Mirrors
@@ -85,6 +90,74 @@ type HardlinkCopyDirectoryWrapper struct {
 // NewHardlinkCopyDirectoryWrapper builds the wrapper.
 func NewHardlinkCopyDirectoryWrapper(delegate Directory) *HardlinkCopyDirectoryWrapper {
 	return &HardlinkCopyDirectoryWrapper{Delegate: delegate}
+}
+
+// FSHardlinkCopyDirectoryWrapper wraps an OS directory path and overrides
+// CopyFrom to use a filesystem hardlink instead of a byte-by-byte copy when
+// the source is also an FSHardlinkCopyDirectoryWrapper on the same filesystem.
+// Falls back to io.Copy when hardlinks are unavailable. Mirrors the core
+// behaviour of org.apache.lucene.misc.store.HardlinkCopyDirectoryWrapper
+// for FS-backed directories.
+type FSHardlinkCopyDirectoryWrapper struct {
+	// Dir is the absolute OS path of the directory managed by this wrapper.
+	Dir string
+}
+
+// NewFSHardlinkCopyDirectoryWrapper creates a wrapper rooted at dir.
+func NewFSHardlinkCopyDirectoryWrapper(dir string) *FSHardlinkCopyDirectoryWrapper {
+	return &FSHardlinkCopyDirectoryWrapper{Dir: dir}
+}
+
+// CopyFrom copies srcFile from src into this directory as destFile.
+// When src is also an *FSHardlinkCopyDirectoryWrapper on the same mount,
+// it attempts os.Link first and falls back to a full byte copy on failure.
+func (w *FSHardlinkCopyDirectoryWrapper) CopyFrom(src *FSHardlinkCopyDirectoryWrapper, srcFile, destFile string) error {
+	srcPath := src.Dir + string(os.PathSeparator) + srcFile
+	dstPath := w.Dir + string(os.PathSeparator) + destFile
+
+	// Attempt hardlink first.
+	if err := os.Link(srcPath, dstPath); err == nil {
+		return nil
+	}
+	// Fallback: byte copy.
+	return copyFile(srcPath, dstPath)
+}
+
+// copyFile performs a byte-level file copy from src to dst.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		cerr := out.Close()
+		if err == nil {
+			err = cerr
+		}
+	}()
+
+	buf := make([]byte, 32*1024)
+	for {
+		n, rerr := in.Read(buf)
+		if n > 0 {
+			if _, werr := out.Write(buf[:n]); werr != nil {
+				return werr
+			}
+		}
+		if errors.Is(rerr, io.EOF) {
+			break
+		}
+		if rerr != nil {
+			return rerr
+		}
+	}
+	return nil
 }
 
 // RAFDirectory is the Directory backed by RandomAccessFile-style I/O.
