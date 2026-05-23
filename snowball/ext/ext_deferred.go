@@ -51,13 +51,6 @@ type NepaliStemmer struct{}
 func NewNepaliStemmer() *NepaliStemmer { return &NepaliStemmer{} }
 
 
-// SerbianStemmer mirrors org.tartarus.snowball.ext.SerbianStemmer.
-type SerbianStemmer struct{}
-
-// NewSerbianStemmer builds a SerbianStemmer.
-func NewSerbianStemmer() *SerbianStemmer { return &SerbianStemmer{} }
-
-
 // TamilStemmer mirrors org.tartarus.snowball.ext.TamilStemmer.
 // This is a structural stub; Stem is a no-op until the full port lands.
 type TamilStemmer struct{ current string }
