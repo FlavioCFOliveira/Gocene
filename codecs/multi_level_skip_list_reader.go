@@ -77,12 +77,30 @@ type MultiLevelSkipListReader struct {
 	// to the position indicated by the last accepted skip entry. This mirrors the
 	// Java MultiLevelSkipListReader.seekChild override hook.
 	onSeekChild func(level int)
+
+	// readLevelLength, when non-nil, overrides the default VLong-based level-
+	// length reader used in loadSkipLevels. Set via SetReadLevelLength.
+	readLevelLength ReadLevelLengthFunc
+
+	// readChildPointer, when non-nil, overrides the default VLong-based child-
+	// pointer reader used in loadSkipLevels. Set via SetReadChildPointer.
+	readChildPointer ReadChildPointerFunc
 }
 
 // ReadSkipDataFunc is the codec hook invoked once per level for each
 // downward step. The implementation reads its per-level skip payload from
 // skipStream and returns the document delta gained by this skip.
 type ReadSkipDataFunc func(level int, skipStream store.IndexInput) (int, error)
+
+// ReadLevelLengthFunc is the codec hook that reads one level-length record
+// from the skip stream. The default implementation reads a VLong. Override
+// to support text-format codecs (e.g. SimpleText).
+type ReadLevelLengthFunc func(skipStream store.IndexInput) (int64, error)
+
+// ReadChildPointerFunc is the codec hook that reads one child-pointer record
+// from the skip stream. The default implementation reads a VLong. Override
+// to support text-format codecs (e.g. SimpleText).
+type ReadChildPointerFunc func(skipStream store.IndexInput) (int64, error)
 
 // SetOnSetLastSkipData registers an optional callback invoked immediately
 // before the reader advances past the current skip entry at the given level.
@@ -96,6 +114,18 @@ func (r *MultiLevelSkipListReader) SetOnSetLastSkipData(fn func(level int)) {
 // entry. This mirrors the Java MultiLevelSkipListReader.seekChild override.
 func (r *MultiLevelSkipListReader) SetOnSeekChild(fn func(level int)) {
 	r.onSeekChild = fn
+}
+
+// SetReadLevelLength overrides the default VLong reader for level-length
+// records. Must be set before SkipTo is first called.
+func (r *MultiLevelSkipListReader) SetReadLevelLength(fn ReadLevelLengthFunc) {
+	r.readLevelLength = fn
+}
+
+// SetReadChildPointer overrides the default VLong reader for child-pointer
+// records. Must be set before SkipTo is first called.
+func (r *MultiLevelSkipListReader) SetReadChildPointer(fn ReadChildPointerFunc) {
+	r.readChildPointer = fn
 }
 
 // NewMultiLevelSkipListReader constructs a reader that will walk a skip list
@@ -152,10 +182,16 @@ func (r *MultiLevelSkipListReader) loadSkipLevels() error {
 	// Walk top-down. For each level above 0, read the length of the level
 	// below and reserve a clone positioned at the next level's start.
 	for level := r.numberOfSkipLevels - 1; level > 0; level-- {
-		// Read length VLong of the child level.
-		childLen, err := store.ReadVLong(r.skipStream[0])
+		// Read length of the child level — use hook if provided, else VLong.
+		var childLen int64
+		var err error
+		if r.readLevelLength != nil {
+			childLen, err = r.readLevelLength(r.skipStream[0])
+		} else {
+			childLen, err = store.ReadVLong(r.skipStream[0])
+		}
 		if err != nil {
-			return fmt.Errorf("MultiLevelSkipListReader: readVLong(level=%d): %w", level, err)
+			return fmt.Errorf("MultiLevelSkipListReader: readLevelLength(level=%d): %w", level, err)
 		}
 		// Current position is the start of this level's payload.
 		levelStart, err := positionOf(r.skipStream[0])
@@ -227,6 +263,15 @@ func (r *MultiLevelSkipListReader) SkipTo(target int) (int, error) {
 				break
 			}
 			r.skipDoc[level] += delta
+			// For non-leaf levels, read the child pointer if a hook is provided
+			// (mirrors Java's loadNextSkip: childPointer[level] = readChildPointer(...) + skipPointer[level-1]).
+			if level != 0 && r.readChildPointer != nil {
+				childPtr, cpErr := r.readChildPointer(r.skipStream[level])
+				if cpErr != nil {
+					return numSkipped, fmt.Errorf("MultiLevelSkipListReader: readChildPointer(level=%d): %w", level, cpErr)
+				}
+				r.childPointer[level] = childPtr + r.skipPointer[level-1]
+			}
 			if level == 0 {
 				numSkipped += r.skipInterval
 			}
@@ -268,6 +313,37 @@ func (r *MultiLevelSkipListReader) NumberOfSkipLevels() int {
 // state.
 func (r *MultiLevelSkipListReader) GetSkipDoc(level int) int {
 	return r.skipDoc[level]
+}
+
+// SetChildPointer sets the child pointer for the given level. This is an
+// escape hatch for codecs (e.g. SimpleText) whose readSkipData implementation
+// parses the child pointer inline, rather than using the default hook.
+func (r *MultiLevelSkipListReader) SetChildPointer(level int, ptr int64) {
+	if level >= 0 && level < len(r.childPointer) {
+		r.childPointer[level] = ptr
+	}
+}
+
+// GetChildPointer returns the child pointer for the given level.
+// Exposed for the onSetLastSkipData callback.
+func (r *MultiLevelSkipListReader) GetChildPointer(level int) int64 {
+	if level >= 0 && level < len(r.childPointer) {
+		return r.childPointer[level]
+	}
+	return 0
+}
+
+// GetSkipPointer returns the skip pointer (start of skip data) for the given level.
+func (r *MultiLevelSkipListReader) GetSkipPointer(level int) int64 {
+	if level >= 0 && level < len(r.skipPointer) {
+		return r.skipPointer[level]
+	}
+	return 0
+}
+
+// MaxNumberOfSkipLevels returns the configured maximum number of skip levels.
+func (r *MultiLevelSkipListReader) MaxNumberOfSkipLevels() int {
+	return r.maxNumberOfSkipLevels
 }
 
 // Close releases the cloned per-level streams. The master stream supplied at
