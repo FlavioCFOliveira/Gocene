@@ -7,7 +7,6 @@ package hhmm
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis/smartcn"
 )
 
 // HHMMSegmenter finds the optimal segmentation of a Chinese sentence using a
@@ -50,17 +49,17 @@ func (h *HHMMSegmenter) createSegGraph(sentence string) *SegGraph {
 	for i < length {
 		hasFullWidth := false
 		switch charTypeArray[i] {
-		case smartcn.CharTypeSpaceLike:
+		case CharTypeSpaceLike:
 			i++
 
-		case smartcn.CharTypeSurrogate:
+		case CharTypeSurrogate:
 			// Surrogate-pair: treat as a single Chinese word token.
 			charArray := []rune{runes[i]}
-			token := NewSegToken(charArray, i, i+1, smartcn.WordTypeChineseWord, 0)
+			token := NewSegToken(charArray, i, i+1, WordTypeChineseWord, 0)
 			segGraph.AddToken(token)
 			i++
 
-		case smartcn.CharTypeHanzi:
+		case CharTypeHanzi:
 			j := i + 1
 			wordBuf := make([]rune, 0, 8)
 			wordBuf = append(wordBuf, runes[i])
@@ -68,7 +67,7 @@ func (h *HHMMSegmenter) createSegGraph(sentence string) *SegGraph {
 			// Single character always added.
 			charArray := []rune{runes[i]}
 			frequency := h.wordDict.GetFrequency(charArray)
-			token := NewSegToken(charArray, i, j, smartcn.WordTypeChineseWord, frequency)
+			token := NewSegToken(charArray, i, j, WordTypeChineseWord, frequency)
 			segGraph.AddToken(token)
 
 			foundIndex := h.wordDict.GetPrefixMatch(charArray)
@@ -77,16 +76,16 @@ func (h *HHMMSegmenter) createSegGraph(sentence string) *SegGraph {
 					frequency = h.wordDict.GetFrequency(wordBuf)
 					cp := make([]rune, len(wordBuf))
 					copy(cp, wordBuf)
-					token = NewSegToken(cp, i, j, smartcn.WordTypeChineseWord, frequency)
+					token = NewSegToken(cp, i, j, WordTypeChineseWord, frequency)
 					segGraph.AddToken(token)
 				}
 
 				// Skip spaces.
-				for j < length && charTypeArray[j] == smartcn.CharTypeSpaceLike {
+				for j < length && charTypeArray[j] == CharTypeSpaceLike {
 					j++
 				}
 
-				if j < length && charTypeArray[j] == smartcn.CharTypeHanzi {
+				if j < length && charTypeArray[j] == CharTypeHanzi {
 					wordBuf = append(wordBuf, runes[j])
 					cp := make([]rune, len(wordBuf))
 					copy(cp, wordBuf)
@@ -98,75 +97,75 @@ func (h *HHMMSegmenter) createSegGraph(sentence string) *SegGraph {
 			}
 			i++
 
-		case smartcn.CharTypeFullwidthLetter:
+		case CharTypeFullwidthLetter:
 			hasFullWidth = true
 			fallthrough
-		case smartcn.CharTypeLetter:
+		case CharTypeLetter:
 			j := i + 1
-			for j < length && (charTypeArray[j] == smartcn.CharTypeLetter || charTypeArray[j] == smartcn.CharTypeFullwidthLetter) {
-				if charTypeArray[j] == smartcn.CharTypeFullwidthLetter {
+			for j < length && (charTypeArray[j] == CharTypeLetter || charTypeArray[j] == CharTypeFullwidthLetter) {
+				if charTypeArray[j] == CharTypeFullwidthLetter {
 					hasFullWidth = true
 				}
 				j++
 			}
-			charArray := smartcn.StringCharArray
+			charArray := StringCharArray
 			frequency := h.wordDict.GetFrequency(charArray)
-			wordType := smartcn.WordTypeString
+			wordType := WordTypeString
 			if hasFullWidth {
-				wordType = smartcn.WordTypeFullwidthString
+				wordType = WordTypeFullwidthString
 			}
 			token := NewSegToken(charArray, i, j, wordType, frequency)
 			segGraph.AddToken(token)
 			i = j
 
-		case smartcn.CharTypeFullwidthDigit:
+		case CharTypeFullwidthDigit:
 			hasFullWidth = true
 			fallthrough
-		case smartcn.CharTypeDigit:
+		case CharTypeDigit:
 			j := i + 1
-			for j < length && (charTypeArray[j] == smartcn.CharTypeDigit || charTypeArray[j] == smartcn.CharTypeFullwidthDigit) {
-				if charTypeArray[j] == smartcn.CharTypeFullwidthDigit {
+			for j < length && (charTypeArray[j] == CharTypeDigit || charTypeArray[j] == CharTypeFullwidthDigit) {
+				if charTypeArray[j] == CharTypeFullwidthDigit {
 					hasFullWidth = true
 				}
 				j++
 			}
-			charArray := smartcn.NumberCharArray
+			charArray := NumberCharArray
 			frequency := h.wordDict.GetFrequency(charArray)
-			wordType := smartcn.WordTypeNumber
+			wordType := WordTypeNumber
 			if hasFullWidth {
-				wordType = smartcn.WordTypeFullwidthNumber
+				wordType = WordTypeFullwidthNumber
 			}
 			token := NewSegToken(charArray, i, j, wordType, frequency)
 			segGraph.AddToken(token)
 			i = j
 
-		case smartcn.CharTypeDelimiter:
+		case CharTypeDelimiter:
 			j := i + 1
 			charArray := []rune{runes[i]}
-			token := NewSegToken(charArray, i, j, smartcn.WordTypeDelimiter, smartcn.MaxFrequence)
+			token := NewSegToken(charArray, i, j, WordTypeDelimiter, MaxFrequence)
 			segGraph.AddToken(token)
 			i = j
 
 		default:
 			j := i + 1
-			charArray := smartcn.StringCharArray
+			charArray := StringCharArray
 			frequency := h.wordDict.GetFrequency(charArray)
-			token := NewSegToken(charArray, i, j, smartcn.WordTypeString, frequency)
+			token := NewSegToken(charArray, i, j, WordTypeString, frequency)
 			segGraph.AddToken(token)
 			i = j
 		}
 	}
 
 	// Sentence-begin sentinel.
-	charArray := smartcn.StartCharArray
+	charArray := StartCharArray
 	frequency := h.wordDict.GetFrequency(charArray)
-	token := NewSegToken(charArray, -1, 0, smartcn.WordTypeSentenceBegin, frequency)
+	token := NewSegToken(charArray, -1, 0, WordTypeSentenceBegin, frequency)
 	segGraph.AddToken(token)
 
 	// Sentence-end sentinel.
-	charArray = smartcn.EndCharArray
+	charArray = EndCharArray
 	frequency = h.wordDict.GetFrequency(charArray)
-	token = NewSegToken(charArray, length, length+1, smartcn.WordTypeSentenceEnd, frequency)
+	token = NewSegToken(charArray, length, length+1, WordTypeSentenceEnd, frequency)
 	segGraph.AddToken(token)
 
 	return segGraph
@@ -176,7 +175,7 @@ func (h *HHMMSegmenter) createSegGraph(sentence string) *SegGraph {
 func getCharTypes(runes []rune) []int {
 	types := make([]int, len(runes))
 	for i, r := range runes {
-		types[i] = smartcn.GetCharType(r)
+		types[i] = GetCharType(r)
 	}
 	return types
 }

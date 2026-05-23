@@ -7,7 +7,6 @@ package hhmm
 import (
 	"math"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis/smartcn"
 )
 
 // BiSegGraph is a graph of possible token pairs (bigrams) at each "to"
@@ -41,7 +40,7 @@ func NewBiSegGraph(segGraph *SegGraph) (*BiSegGraph, error) {
 // generateBiSegGraph populates the token-pair table using bigram weights.
 func (g *BiSegGraph) generateBiSegGraph(segGraph *SegGraph, bd *BigramDictionary) {
 	const smooth = 0.1
-	tinyDouble := 1.0 / float64(smartcn.MaxFrequence)
+	tinyDouble := 1.0 / float64(MaxFrequence)
 
 	maxStart := segGraph.GetMaxStart()
 
@@ -77,7 +76,7 @@ func (g *BiSegGraph) generateBiSegGraph(segGraph *SegGraph, bd *BigramDictionary
 
 					// Smoothed negative-log-probability weight.
 					weight := -math.Log(
-						smooth*(1.0+oneWordFreq)/float64(smartcn.MaxFrequence) +
+						smooth*(1.0+oneWordFreq)/float64(MaxFrequence) +
 							(1.0-smooth)*((1.0-tinyDouble)*wordPairFreq/(1.0+oneWordFreq)+tinyDouble),
 					)
 

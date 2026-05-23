@@ -7,7 +7,6 @@ package hhmm
 import (
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis/smartcn"
 )
 
 // TestHHMMSegmenterProcess verifies that the segmenter can process a simple
@@ -31,14 +30,14 @@ func TestHHMMSegmenterProcess(t *testing.T) {
 	}
 
 	// First token should be SENTENCE_BEGIN.
-	if tokens[0].WordType != smartcn.WordTypeSentenceBegin {
-		t.Errorf("tokens[0].WordType = %d, want WordTypeSentenceBegin (%d)", tokens[0].WordType, smartcn.WordTypeSentenceBegin)
+	if tokens[0].WordType != WordTypeSentenceBegin {
+		t.Errorf("tokens[0].WordType = %d, want WordTypeSentenceBegin (%d)", tokens[0].WordType, WordTypeSentenceBegin)
 	}
 
 	// Last token should be SENTENCE_END.
 	last := tokens[len(tokens)-1]
-	if last.WordType != smartcn.WordTypeSentenceEnd {
-		t.Errorf("tokens[last].WordType = %d, want WordTypeSentenceEnd (%d)", last.WordType, smartcn.WordTypeSentenceEnd)
+	if last.WordType != WordTypeSentenceEnd {
+		t.Errorf("tokens[last].WordType = %d, want WordTypeSentenceEnd (%d)", last.WordType, WordTypeSentenceEnd)
 	}
 
 	// Log all tokens for inspection.
