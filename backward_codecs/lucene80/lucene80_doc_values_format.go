@@ -5,8 +5,6 @@
 package lucene80
 
 import (
-	"fmt"
-
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
@@ -60,11 +58,16 @@ func (f *Lucene80DocValuesFormat) Mode() Lucene80DVMode { return f.mode }
 
 // FieldsConsumer returns a consumer for writing doc values.
 //
-// DEFERRED: returns an error until Lucene80DocValuesConsumer is ported
-// (task 3172). The write path is needed for doc-values updates on older
-// segments — see Lucene80DocValuesFormat Javadoc.
-func (f *Lucene80DocValuesFormat) FieldsConsumer(_ *codecs.SegmentWriteState) (codecs.DocValuesConsumer, error) {
-	return nil, fmt.Errorf("lucene80 doc values: FieldsConsumer not yet implemented (task 3172)")
+// Port of Lucene80DocValuesFormat.fieldsConsumer (Lucene 10.4.0).
+func (f *Lucene80DocValuesFormat) FieldsConsumer(state *codecs.SegmentWriteState) (codecs.DocValuesConsumer, error) {
+	return NewLucene80DocValuesConsumer(
+		state,
+		lucene80DVDataCodec,
+		lucene80DVDataExt,
+		lucene80DVMetaCodec,
+		lucene80DVMetaExt,
+		f.mode,
+	)
 }
 
 // FieldsProducer returns a producer for reading doc values.
