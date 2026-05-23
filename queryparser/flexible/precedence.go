@@ -114,3 +114,32 @@ func (p *PrecedenceQueryParser) SetDefaultField(field string) {
 
 // GetConfig returns the underlying configuration handler.
 func (p *PrecedenceQueryParser) GetConfig() *StandardQueryConfigHandler { return p.config }
+
+// PrecedenceQueryNodeProcessorPipeline extends the standard pipeline by
+// replacing BooleanQuery2ModifierNodeProcessor with
+// BooleanModifiersQueryNodeProcessor, enabling AND-before-OR precedence
+// semantics.
+//
+// Mirrors
+// org.apache.lucene.queryparser.flexible.precedence.processors.PrecedenceQueryNodeProcessorPipeline.
+type PrecedenceQueryNodeProcessorPipeline struct {
+	*QueryNodeProcessorPipeline
+}
+
+// NewPrecedenceQueryNodeProcessorPipeline constructs the pipeline for the
+// given configuration. It builds a pipeline equivalent to
+// StandardQueryNodeProcessorPipelineFull but substitutes
+// BooleanModifiersQueryNodeProcessor for the standard
+// BooleanQuery2ModifierNodeProcessor, implementing precedence rules.
+func NewPrecedenceQueryNodeProcessorPipeline(config *StandardQueryConfigHandler) *PrecedenceQueryNodeProcessorPipeline {
+	processors := []QueryNodeProcessor{
+		NewBooleanModifiersQueryNodeProcessor(),
+		NewPrecedenceQueryNodeProcessor(),
+		NewPhraseSlopQueryNodeProcessor(),
+		NewBoostQueryNodeProcessor(),
+		NewNoChildOptimizationProcessor(),
+	}
+	return &PrecedenceQueryNodeProcessorPipeline{
+		QueryNodeProcessorPipeline: NewQueryNodeProcessorPipeline(processors),
+	}
+}
