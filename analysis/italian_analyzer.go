@@ -94,21 +94,87 @@ func (a *ItalianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 var _ Analyzer = (*ItalianAnalyzer)(nil)
 var _ AnalyzerInterface = (*ItalianAnalyzer)(nil)
 
+// ItalianLightStemmer implements a light stemming algorithm for Italian.
+//
+// This is the Go port of
+// org.apache.lucene.analysis.it.ItalianLightStemmer from
+// Apache Lucene 10.4.0.
+//
+// Algorithm: "Report on CLEF-2001 Experiments", Jacques Savoy.
+type ItalianLightStemmer struct{}
+
+// NewItalianLightStemmer creates an ItalianLightStemmer.
+func NewItalianLightStemmer() *ItalianLightStemmer { return &ItalianLightStemmer{} }
+
+// Stem applies light Italian stemming to s[0:length] and returns the new length.
+func (st *ItalianLightStemmer) Stem(s []rune, length int) int {
+	if length < 6 {
+		return length
+	}
+	// Normalise accented vowels.
+	for i := 0; i < length; i++ {
+		switch s[i] {
+		case 'à', 'á', 'â', 'ä':
+			s[i] = 'a'
+		case 'ò', 'ó', 'ô', 'ö':
+			s[i] = 'o'
+		case 'è', 'é', 'ê', 'ë':
+			s[i] = 'e'
+		case 'ù', 'ú', 'û', 'ü':
+			s[i] = 'u'
+		case 'ì', 'í', 'î', 'ï':
+			s[i] = 'i'
+		}
+	}
+	switch s[length-1] {
+	case 'e':
+		if s[length-2] == 'i' || s[length-2] == 'h' {
+			return length - 2
+		}
+		return length - 1
+	case 'i':
+		if s[length-2] == 'h' || s[length-2] == 'i' {
+			return length - 2
+		}
+		return length - 1
+	case 'a':
+		if s[length-2] == 'i' {
+			return length - 2
+		}
+		return length - 1
+	case 'o':
+		if s[length-2] == 'i' {
+			return length - 2
+		}
+		return length - 1
+	}
+	return length
+}
+
+// StemString is a convenience wrapper for string inputs.
+func (st *ItalianLightStemmer) StemString(term string) string {
+	runes := []rune(term)
+	l := st.Stem(runes, len(runes))
+	return string(runes[:l])
+}
+
 // ItalianLightStemFilter implements light stemming for Italian.
 type ItalianLightStemFilter struct {
 	*BaseTokenFilter
+	stemmer *ItalianLightStemmer
 }
 
 // NewItalianLightStemFilter creates a new ItalianLightStemFilter.
 func NewItalianLightStemFilter(input TokenStream) *ItalianLightStemFilter {
 	return &ItalianLightStemFilter{
 		BaseTokenFilter: NewBaseTokenFilter(input),
+		stemmer:         NewItalianLightStemmer(),
 	}
 }
 
 // IncrementToken processes the next token and applies light stemming.
 func (f *ItalianLightStemFilter) IncrementToken() (bool, error) {
-	hasToken, err := f.input.IncrementToken()
+	hasToken, err := f.GetInput().IncrementToken()
 	if err != nil {
 		return false, err
 	}
@@ -117,7 +183,7 @@ func (f *ItalianLightStemFilter) IncrementToken() (bool, error) {
 		if attr := f.GetAttributeSource().GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
 				term := termAttr.String()
-				stemmed := italianLightStem(term)
+				stemmed := f.stemmer.StemString(term)
 				if stemmed != term {
 					termAttr.SetEmpty()
 					termAttr.AppendString(stemmed)
@@ -129,42 +195,9 @@ func (f *ItalianLightStemFilter) IncrementToken() (bool, error) {
 	return hasToken, nil
 }
 
-// italianLightStem applies light Italian stemming.
+// italianLightStem is kept for backward compatibility.
 func italianLightStem(term string) string {
-	if len(term) < 4 {
-		return term
-	}
-
-	// Convert to runes for proper Unicode handling
-	runes := []rune(term)
-	length := len(runes)
-
-	// Remove common Italian suffixes
-	switch {
-	// -zione, -zioni
-	case length > 5 && string(runes[length-5:]) == "zione":
-		return string(runes[:length-4])
-	case length > 5 && string(runes[length-5:]) == "zioni":
-		return string(runes[:length-4])
-	// -mento, -menti
-	case length > 5 && string(runes[length-5:]) == "mento":
-		return string(runes[:length-4])
-	case length > 5 && string(runes[length-5:]) == "menti":
-		return string(runes[:length-4])
-	// -tà (abstract nouns)
-	case length > 2 && runes[length-1] == 'à':
-		return string(runes[:length-1])
-	// -are, -ere, -ire (infinitive endings)
-	case length > 3 && runes[length-1] == 'e' && (runes[length-2] == 'r' && (runes[length-3] == 'a' || runes[length-3] == 'e' || runes[length-3] == 'i')):
-		return string(runes[:length-3])
-	// -o, -a, -i, -e (gender/plural)
-	case length > 1 && (runes[length-1] == 'o' || runes[length-1] == 'a'):
-		return string(runes[:length-1])
-	case length > 1 && (runes[length-1] == 'i' || runes[length-1] == 'e'):
-		return string(runes[:length-1])
-	}
-
-	return term
+	return NewItalianLightStemmer().StemString(term)
 }
 
 // ItalianLightStemFilterFactory creates ItalianLightStemFilter instances.
