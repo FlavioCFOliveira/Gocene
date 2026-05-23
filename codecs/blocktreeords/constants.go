@@ -8,3 +8,7 @@ package blocktreeords
 // bits of the root-block output long.  Mirrors
 // OrdsBlockTreeTermsWriter.OUTPUT_FLAGS_NUM_BITS = 2.
 const outputFlagsNumBits = 2
+
+// outputFlagIsFloor is the flag bit indicating this block is the root of a
+// floor sequence.  Mirrors OrdsBlockTreeTermsWriter.OUTPUT_FLAG_IS_FLOOR = 0x1.
+const outputFlagIsFloor = int64(0x1)
