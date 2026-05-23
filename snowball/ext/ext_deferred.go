@@ -63,13 +63,6 @@ type NepaliStemmer struct{}
 func NewNepaliStemmer() *NepaliStemmer { return &NepaliStemmer{} }
 
 
-// RomanianStemmer mirrors org.tartarus.snowball.ext.RomanianStemmer.
-type RomanianStemmer struct{}
-
-// NewRomanianStemmer builds a RomanianStemmer.
-func NewRomanianStemmer() *RomanianStemmer { return &RomanianStemmer{} }
-
-
 // SerbianStemmer mirrors org.tartarus.snowball.ext.SerbianStemmer.
 type SerbianStemmer struct{}
 
