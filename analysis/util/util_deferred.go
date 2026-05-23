@@ -30,11 +30,6 @@ type RollingCharBuffer struct{}
 // NewRollingCharBuffer builds a RollingCharBuffer.
 func NewRollingCharBuffer() *RollingCharBuffer { return &RollingCharBuffer{} }
 
-// SegmentingTokenizerBase mirrors org.apache.lucene.analysis.util.SegmentingTokenizerBase.
-type SegmentingTokenizerBase struct{}
-
-// NewSegmentingTokenizerBase builds a SegmentingTokenizerBase.
-func NewSegmentingTokenizerBase() *SegmentingTokenizerBase { return &SegmentingTokenizerBase{} }
 
 // UnicodeProps mirrors org.apache.lucene.analysis.util.UnicodeProps.
 type UnicodeProps struct{}
