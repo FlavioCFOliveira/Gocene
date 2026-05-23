@@ -6,12 +6,6 @@ package ext
 // stubs so dependent packages keep compiling; concrete behaviour ports
 // land progressively.
 
-// ArmenianStemmer mirrors org.tartarus.snowball.ext.ArmenianStemmer.
-type ArmenianStemmer struct{}
-
-// NewArmenianStemmer builds a ArmenianStemmer.
-func NewArmenianStemmer() *ArmenianStemmer { return &ArmenianStemmer{} }
-
 // CatalanStemmer mirrors org.tartarus.snowball.ext.CatalanStemmer.
 type CatalanStemmer struct{}
 
