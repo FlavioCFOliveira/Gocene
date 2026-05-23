@@ -31,11 +31,6 @@ type EstonianStemmer struct{}
 // NewEstonianStemmer builds a EstonianStemmer.
 func NewEstonianStemmer() *EstonianStemmer { return &EstonianStemmer{} }
 
-// FinnishStemmer mirrors org.tartarus.snowball.ext.FinnishStemmer.
-type FinnishStemmer struct{}
-
-// NewFinnishStemmer builds a FinnishStemmer.
-func NewFinnishStemmer() *FinnishStemmer { return &FinnishStemmer{} }
 
 // FrenchStemmer mirrors org.tartarus.snowball.ext.FrenchStemmer.
 type FrenchStemmer struct{}
