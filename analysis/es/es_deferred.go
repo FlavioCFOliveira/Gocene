@@ -1,21 +1,12 @@
-// Package es hosts the deferred Sprint 28 ports for
-// org.apache.lucene.analysis.es.
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
+// Package es provides ports of org.apache.lucene.analysis.es types.
+//
+// Sprint 28 stubs were replaced by full implementations in Sprint 64:
+//   - SpanishLightStemmer        → spanish_light_stemmer.go
+//   - SpanishPluralStemmer       → spanish_plural_stemmer.go
+//   - SpanishPluralStemFilter    → spanish_plural_stem_filter.go
+//   - SpanishPluralStemFilterFactory → spanish_plural_stem_filter.go
 package es
-
-// The Sprint 28 analysis-common deferral surfaces these types as typed
-// stubs so dependent packages keep compiling; concrete behaviour ports
-// land progressively.
-
-// SpanishPluralStemFilterFactory mirrors org.apache.lucene.analysis.es.SpanishPluralStemFilterFactory.
-type SpanishPluralStemFilterFactory struct{}
-
-// NewSpanishPluralStemFilterFactory builds a SpanishPluralStemFilterFactory.
-func NewSpanishPluralStemFilterFactory() *SpanishPluralStemFilterFactory {
-	return &SpanishPluralStemFilterFactory{}
-}
-
-// SpanishPluralStemFilter mirrors org.apache.lucene.analysis.es.SpanishPluralStemFilter.
-type SpanishPluralStemFilter struct{}
-
-// NewSpanishPluralStemFilter builds a SpanishPluralStemFilter.
-func NewSpanishPluralStemFilter() *SpanishPluralStemFilter { return &SpanishPluralStemFilter{} }
