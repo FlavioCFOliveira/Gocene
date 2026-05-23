@@ -67,9 +67,4 @@ type TurkishStemmer struct{}
 // NewTurkishStemmer builds a TurkishStemmer.
 func NewTurkishStemmer() *TurkishStemmer { return &TurkishStemmer{} }
 
-// YiddishStemmer mirrors org.tartarus.snowball.ext.YiddishStemmer.
-type YiddishStemmer struct{}
-
-// NewYiddishStemmer builds a YiddishStemmer.
-func NewYiddishStemmer() *YiddishStemmer { return &YiddishStemmer{} }
 
