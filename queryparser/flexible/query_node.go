@@ -274,3 +274,13 @@ func (n *QueryNodeImpl) GetTagKeys() []string {
 	}
 	return keys
 }
+
+// SyntaxParser is implemented by every parser that can produce a QueryNode
+// tree from a raw query string and a default field name.
+//
+// Mirrors org.apache.lucene.queryparser.flexible.core.parser.SyntaxParser.
+type SyntaxParser interface {
+	// Parse parses the query string using the supplied default field and
+	// returns the root of the resulting QueryNode tree.
+	Parse(query, field string) (QueryNode, error)
+}
