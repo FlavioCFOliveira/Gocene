@@ -21,9 +21,4 @@ func NewFilesystemResourceLoader() *FilesystemResourceLoader { return &Filesyste
 
 
 
-// UnicodeProps mirrors org.apache.lucene.analysis.util.UnicodeProps.
-type UnicodeProps struct{}
-
-// NewUnicodeProps builds a UnicodeProps.
-func NewUnicodeProps() *UnicodeProps { return &UnicodeProps{} }
 
