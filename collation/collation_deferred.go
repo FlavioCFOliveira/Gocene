@@ -12,15 +12,4 @@ type CollationDocValuesField struct{}
 // NewCollationDocValuesField builds a CollationDocValuesField.
 func NewCollationDocValuesField() *CollationDocValuesField { return &CollationDocValuesField{} }
 
-// CollationKeyAnalyzer mirrors org.apache.lucene.collation.CollationKeyAnalyzer.
-type CollationKeyAnalyzer struct{}
-
-// NewCollationKeyAnalyzer builds a CollationKeyAnalyzer.
-func NewCollationKeyAnalyzer() *CollationKeyAnalyzer { return &CollationKeyAnalyzer{} }
-
-// CollationAttributeFactory mirrors org.apache.lucene.collation.CollationAttributeFactory.
-type CollationAttributeFactory struct{}
-
-// NewCollationAttributeFactory builds a CollationAttributeFactory.
-func NewCollationAttributeFactory() *CollationAttributeFactory { return &CollationAttributeFactory{} }
 
