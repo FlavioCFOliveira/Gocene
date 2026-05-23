@@ -134,7 +134,6 @@ func runeSliceToUTF8(chars []rune, start, length int) []byte {
 		case r < 0x10000:
 			buf = append(buf, byte(0xE0|(r>>12)), byte(0x80|((r>>6)&0x3F)), byte(0x80|(r&0x3F)))
 		default:
-			r -= 0x10000
 			buf = append(buf,
 				byte(0xF0|(r>>18)),
 				byte(0x80|((r>>12)&0x3F)),
