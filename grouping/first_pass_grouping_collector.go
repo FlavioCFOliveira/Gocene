@@ -12,10 +12,10 @@ package grouping
 // can group by string, int64, *DoubleRange, etc. The compare callback decides
 // whether candidate sort values rank higher than the current weakest group.
 type FirstPassGroupingCollector[T comparable] struct {
-	topN     int
-	compare  func(a, b []any) int
-	groups   map[T]*CollectedSearchGroup[T]
-	order    []*CollectedSearchGroup[T]
+	topN    int
+	compare func(a, b []any) int
+	groups  map[T]*CollectedSearchGroup[T]
+	order   []*CollectedSearchGroup[T]
 }
 
 // NewFirstPassGroupingCollector builds the collector with a top-N budget and
