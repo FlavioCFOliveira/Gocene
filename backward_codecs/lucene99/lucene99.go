@@ -29,14 +29,6 @@ func NewLucene99ScalarQuantizedVectorsFormat(version string) *Lucene99ScalarQuan
 	return &Lucene99ScalarQuantizedVectorsFormat{Name: "Lucene99ScalarQuantizedVectorsFormat", Version: version}
 }
 
-// Lucene99SkipReader mirrors org.apache.lucene.backward_codecs.lucene99.Lucene99SkipReader.
-type Lucene99SkipReader struct{ Name, Version string }
-
-// NewLucene99SkipReader builds a Lucene99SkipReader with the supplied version.
-func NewLucene99SkipReader(version string) *Lucene99SkipReader {
-	return &Lucene99SkipReader{Name: "Lucene99SkipReader", Version: version}
-}
-
 // Lucene99SkipWriter mirrors org.apache.lucene.backward_codecs.lucene99.Lucene99SkipWriter.
 type Lucene99SkipWriter struct{ Name, Version string }
 
