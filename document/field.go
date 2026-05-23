@@ -141,6 +141,13 @@ func (f *Field) BinaryValue() []byte {
 	return f.value.Binary()
 }
 
+// SetBinaryValue replaces the field value with the supplied binary slice.
+// This mirrors Java's Field.setBytesValue and is used by types such as
+// CollationDocValuesField that reuse a single Field instance per document.
+func (f *Field) SetBinaryValue(v []byte) {
+	f.value = binaryValue(v)
+}
+
 // NumericValue returns the numeric value of the field.
 func (f *Field) NumericValue() interface{} {
 	if f.value == nil {
