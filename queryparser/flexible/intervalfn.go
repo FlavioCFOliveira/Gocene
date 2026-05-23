@@ -33,7 +33,7 @@ type baseIntervalNode struct {
 func newBaseIntervalNode(name string, children []QueryNode) *baseIntervalNode {
 	return &baseIntervalNode{
 		QueryNodeImpl: NewQueryNodeImpl(children),
-		name:         name,
+		name:          name,
 	}
 }
 
@@ -70,8 +70,12 @@ func (n *OrderedIntervalNode) ToQueryString(e bool) string { return n.formatChil
 // CloneTree deep-copies this node.
 func (n *OrderedIntervalNode) CloneTree() QueryNode {
 	cloned := &OrderedIntervalNode{newBaseIntervalNode("ORDERED", nil)}
-	for _, k := range n.GetTagKeys() { cloned.SetTag(k, n.GetTag(k)) }
-	for _, c := range n.GetChildren() { cloned.AddChild(c.CloneTree()) }
+	for _, k := range n.GetTagKeys() {
+		cloned.SetTag(k, n.GetTag(k))
+	}
+	for _, c := range n.GetChildren() {
+		cloned.AddChild(c.CloneTree())
+	}
 	return cloned
 }
 
@@ -95,8 +99,12 @@ func (n *UnorderedIntervalNode) ToQueryString(e bool) string { return n.formatCh
 // CloneTree deep-copies this node.
 func (n *UnorderedIntervalNode) CloneTree() QueryNode {
 	cloned := &UnorderedIntervalNode{newBaseIntervalNode("UNORDERED", nil)}
-	for _, k := range n.GetTagKeys() { cloned.SetTag(k, n.GetTag(k)) }
-	for _, c := range n.GetChildren() { cloned.AddChild(c.CloneTree()) }
+	for _, k := range n.GetTagKeys() {
+		cloned.SetTag(k, n.GetTag(k))
+	}
+	for _, c := range n.GetChildren() {
+		cloned.AddChild(c.CloneTree())
+	}
 	return cloned
 }
 
@@ -120,8 +128,12 @@ func (n *UnorderedNoOverlapsIntervalNode) ToQueryString(e bool) string { return 
 // CloneTree deep-copies this node.
 func (n *UnorderedNoOverlapsIntervalNode) CloneTree() QueryNode {
 	cloned := &UnorderedNoOverlapsIntervalNode{newBaseIntervalNode("UNORDERED_NO_OVERLAPS", nil)}
-	for _, k := range n.GetTagKeys() { cloned.SetTag(k, n.GetTag(k)) }
-	for _, c := range n.GetChildren() { cloned.AddChild(c.CloneTree()) }
+	for _, k := range n.GetTagKeys() {
+		cloned.SetTag(k, n.GetTag(k))
+	}
+	for _, c := range n.GetChildren() {
+		cloned.AddChild(c.CloneTree())
+	}
 	return cloned
 }
 
@@ -143,8 +155,12 @@ func (n *OrIntervalNode) ToQueryString(e bool) string { return n.formatChildren(
 // CloneTree deep-copies this node.
 func (n *OrIntervalNode) CloneTree() QueryNode {
 	cloned := &OrIntervalNode{newBaseIntervalNode("OR", nil)}
-	for _, k := range n.GetTagKeys() { cloned.SetTag(k, n.GetTag(k)) }
-	for _, c := range n.GetChildren() { cloned.AddChild(c.CloneTree()) }
+	for _, k := range n.GetTagKeys() {
+		cloned.SetTag(k, n.GetTag(k))
+	}
+	for _, c := range n.GetChildren() {
+		cloned.AddChild(c.CloneTree())
+	}
 	return cloned
 }
 
@@ -168,8 +184,12 @@ func (n *PhraseIntervalNode) ToQueryString(e bool) string { return n.formatChild
 // CloneTree deep-copies this node.
 func (n *PhraseIntervalNode) CloneTree() QueryNode {
 	cloned := &PhraseIntervalNode{newBaseIntervalNode("PHRASE", nil)}
-	for _, k := range n.GetTagKeys() { cloned.SetTag(k, n.GetTag(k)) }
-	for _, c := range n.GetChildren() { cloned.AddChild(c.CloneTree()) }
+	for _, k := range n.GetTagKeys() {
+		cloned.SetTag(k, n.GetTag(k))
+	}
+	for _, c := range n.GetChildren() {
+		cloned.AddChild(c.CloneTree())
+	}
 	return cloned
 }
 
@@ -217,8 +237,12 @@ func (n *MaxGapsIntervalNode) GetMaxGaps() int { return n.param }
 // CloneTree deep-copies this node.
 func (n *MaxGapsIntervalNode) CloneTree() QueryNode {
 	cloned := &MaxGapsIntervalNode{newAnalyticIntervalNode("MAX_GAPS", n.param, nil)}
-	for _, k := range n.GetTagKeys() { cloned.SetTag(k, n.GetTag(k)) }
-	for _, c := range n.GetChildren() { cloned.AddChild(c.CloneTree()) }
+	for _, k := range n.GetTagKeys() {
+		cloned.SetTag(k, n.GetTag(k))
+	}
+	for _, c := range n.GetChildren() {
+		cloned.AddChild(c.CloneTree())
+	}
 	return cloned
 }
 
@@ -242,8 +266,12 @@ func (n *MaxWidthIntervalNode) GetMaxWidth() int { return n.param }
 // CloneTree deep-copies this node.
 func (n *MaxWidthIntervalNode) CloneTree() QueryNode {
 	cloned := &MaxWidthIntervalNode{newAnalyticIntervalNode("MAX_WIDTH", n.param, nil)}
-	for _, k := range n.GetTagKeys() { cloned.SetTag(k, n.GetTag(k)) }
-	for _, c := range n.GetChildren() { cloned.AddChild(c.CloneTree()) }
+	for _, k := range n.GetTagKeys() {
+		cloned.SetTag(k, n.GetTag(k))
+	}
+	for _, c := range n.GetChildren() {
+		cloned.AddChild(c.CloneTree())
+	}
 	return cloned
 }
 
@@ -267,8 +295,12 @@ func (n *AtLeastIntervalNode) GetMinShouldMatch() int { return n.param }
 // CloneTree deep-copies this node.
 func (n *AtLeastIntervalNode) CloneTree() QueryNode {
 	cloned := &AtLeastIntervalNode{newAnalyticIntervalNode("AT_LEAST", n.param, nil)}
-	for _, k := range n.GetTagKeys() { cloned.SetTag(k, n.GetTag(k)) }
-	for _, c := range n.GetChildren() { cloned.AddChild(c.CloneTree()) }
+	for _, k := range n.GetTagKeys() {
+		cloned.SetTag(k, n.GetTag(k))
+	}
+	for _, c := range n.GetChildren() {
+		cloned.AddChild(c.CloneTree())
+	}
 	return cloned
 }
 
@@ -309,10 +341,16 @@ func (n *BeforeIntervalNode) ToQueryString(e bool) string { return n.formatChild
 func (n *BeforeIntervalNode) CloneTree() QueryNode {
 	var l, r QueryNode
 	children := n.GetChildren()
-	if len(children) > 0 { l = children[0].CloneTree() }
-	if len(children) > 1 { r = children[1].CloneTree() }
+	if len(children) > 0 {
+		l = children[0].CloneTree()
+	}
+	if len(children) > 1 {
+		r = children[1].CloneTree()
+	}
 	cloned := &BeforeIntervalNode{newBinaryIntervalNode("BEFORE", l, r)}
-	for _, k := range n.GetTagKeys() { cloned.SetTag(k, n.GetTag(k)) }
+	for _, k := range n.GetTagKeys() {
+		cloned.SetTag(k, n.GetTag(k))
+	}
 	return cloned
 }
 
@@ -335,10 +373,16 @@ func (n *AfterIntervalNode) ToQueryString(e bool) string { return n.formatChildr
 func (n *AfterIntervalNode) CloneTree() QueryNode {
 	var l, r QueryNode
 	children := n.GetChildren()
-	if len(children) > 0 { l = children[0].CloneTree() }
-	if len(children) > 1 { r = children[1].CloneTree() }
+	if len(children) > 0 {
+		l = children[0].CloneTree()
+	}
+	if len(children) > 1 {
+		r = children[1].CloneTree()
+	}
 	cloned := &AfterIntervalNode{newBinaryIntervalNode("AFTER", l, r)}
-	for _, k := range n.GetTagKeys() { cloned.SetTag(k, n.GetTag(k)) }
+	for _, k := range n.GetTagKeys() {
+		cloned.SetTag(k, n.GetTag(k))
+	}
 	return cloned
 }
 
@@ -361,10 +405,16 @@ func (n *ContainedByIntervalNode) ToQueryString(e bool) string { return n.format
 func (n *ContainedByIntervalNode) CloneTree() QueryNode {
 	var l, r QueryNode
 	children := n.GetChildren()
-	if len(children) > 0 { l = children[0].CloneTree() }
-	if len(children) > 1 { r = children[1].CloneTree() }
+	if len(children) > 0 {
+		l = children[0].CloneTree()
+	}
+	if len(children) > 1 {
+		r = children[1].CloneTree()
+	}
 	cloned := &ContainedByIntervalNode{newBinaryIntervalNode("CONTAINED_BY", l, r)}
-	for _, k := range n.GetTagKeys() { cloned.SetTag(k, n.GetTag(k)) }
+	for _, k := range n.GetTagKeys() {
+		cloned.SetTag(k, n.GetTag(k))
+	}
 	return cloned
 }
 
@@ -387,10 +437,16 @@ func (n *ContainingIntervalNode) ToQueryString(e bool) string { return n.formatC
 func (n *ContainingIntervalNode) CloneTree() QueryNode {
 	var l, r QueryNode
 	children := n.GetChildren()
-	if len(children) > 0 { l = children[0].CloneTree() }
-	if len(children) > 1 { r = children[1].CloneTree() }
+	if len(children) > 0 {
+		l = children[0].CloneTree()
+	}
+	if len(children) > 1 {
+		r = children[1].CloneTree()
+	}
 	cloned := &ContainingIntervalNode{newBinaryIntervalNode("CONTAINING", l, r)}
-	for _, k := range n.GetTagKeys() { cloned.SetTag(k, n.GetTag(k)) }
+	for _, k := range n.GetTagKeys() {
+		cloned.SetTag(k, n.GetTag(k))
+	}
 	return cloned
 }
 
@@ -413,10 +469,16 @@ func (n *NotContainedByIntervalNode) ToQueryString(e bool) string { return n.for
 func (n *NotContainedByIntervalNode) CloneTree() QueryNode {
 	var l, r QueryNode
 	children := n.GetChildren()
-	if len(children) > 0 { l = children[0].CloneTree() }
-	if len(children) > 1 { r = children[1].CloneTree() }
+	if len(children) > 0 {
+		l = children[0].CloneTree()
+	}
+	if len(children) > 1 {
+		r = children[1].CloneTree()
+	}
 	cloned := &NotContainedByIntervalNode{newBinaryIntervalNode("NOT_CONTAINED_BY", l, r)}
-	for _, k := range n.GetTagKeys() { cloned.SetTag(k, n.GetTag(k)) }
+	for _, k := range n.GetTagKeys() {
+		cloned.SetTag(k, n.GetTag(k))
+	}
 	return cloned
 }
 
@@ -439,10 +501,16 @@ func (n *NotContainingIntervalNode) ToQueryString(e bool) string { return n.form
 func (n *NotContainingIntervalNode) CloneTree() QueryNode {
 	var l, r QueryNode
 	children := n.GetChildren()
-	if len(children) > 0 { l = children[0].CloneTree() }
-	if len(children) > 1 { r = children[1].CloneTree() }
+	if len(children) > 0 {
+		l = children[0].CloneTree()
+	}
+	if len(children) > 1 {
+		r = children[1].CloneTree()
+	}
 	cloned := &NotContainingIntervalNode{newBinaryIntervalNode("NOT_CONTAINING", l, r)}
-	for _, k := range n.GetTagKeys() { cloned.SetTag(k, n.GetTag(k)) }
+	for _, k := range n.GetTagKeys() {
+		cloned.SetTag(k, n.GetTag(k))
+	}
 	return cloned
 }
 
@@ -465,10 +533,16 @@ func (n *NonOverlappingIntervalNode) ToQueryString(e bool) string { return n.for
 func (n *NonOverlappingIntervalNode) CloneTree() QueryNode {
 	var l, r QueryNode
 	children := n.GetChildren()
-	if len(children) > 0 { l = children[0].CloneTree() }
-	if len(children) > 1 { r = children[1].CloneTree() }
+	if len(children) > 0 {
+		l = children[0].CloneTree()
+	}
+	if len(children) > 1 {
+		r = children[1].CloneTree()
+	}
 	cloned := &NonOverlappingIntervalNode{newBinaryIntervalNode("NON_OVERLAPPING", l, r)}
-	for _, k := range n.GetTagKeys() { cloned.SetTag(k, n.GetTag(k)) }
+	for _, k := range n.GetTagKeys() {
+		cloned.SetTag(k, n.GetTag(k))
+	}
 	return cloned
 }
 
@@ -491,10 +565,16 @@ func (n *OverlappingIntervalNode) ToQueryString(e bool) string { return n.format
 func (n *OverlappingIntervalNode) CloneTree() QueryNode {
 	var l, r QueryNode
 	children := n.GetChildren()
-	if len(children) > 0 { l = children[0].CloneTree() }
-	if len(children) > 1 { r = children[1].CloneTree() }
+	if len(children) > 0 {
+		l = children[0].CloneTree()
+	}
+	if len(children) > 1 {
+		r = children[1].CloneTree()
+	}
 	cloned := &OverlappingIntervalNode{newBinaryIntervalNode("OVERLAPPING", l, r)}
-	for _, k := range n.GetTagKeys() { cloned.SetTag(k, n.GetTag(k)) }
+	for _, k := range n.GetTagKeys() {
+		cloned.SetTag(k, n.GetTag(k))
+	}
 	return cloned
 }
 
@@ -511,8 +591,12 @@ type WithinIntervalNode struct {
 // NewWithinIntervalNode creates a new WithinIntervalNode.
 func NewWithinIntervalNode(within int, source, reference QueryNode) *WithinIntervalNode {
 	children := make([]QueryNode, 0, 2)
-	if source != nil { children = append(children, source) }
-	if reference != nil { children = append(children, reference) }
+	if source != nil {
+		children = append(children, source)
+	}
+	if reference != nil {
+		children = append(children, reference)
+	}
 	return &WithinIntervalNode{
 		analyticIntervalNode: newAnalyticIntervalNode("WITHIN", within, children),
 	}
@@ -522,12 +606,18 @@ func NewWithinIntervalNode(within int, source, reference QueryNode) *WithinInter
 func (n *WithinIntervalNode) CloneTree() QueryNode {
 	var l, r QueryNode
 	children := n.GetChildren()
-	if len(children) > 0 { l = children[0].CloneTree() }
-	if len(children) > 1 { r = children[1].CloneTree() }
+	if len(children) > 0 {
+		l = children[0].CloneTree()
+	}
+	if len(children) > 1 {
+		r = children[1].CloneTree()
+	}
 	cloned := &WithinIntervalNode{
 		analyticIntervalNode: newAnalyticIntervalNode("WITHIN", n.param, []QueryNode{l, r}),
 	}
-	for _, k := range n.GetTagKeys() { cloned.SetTag(k, n.GetTag(k)) }
+	for _, k := range n.GetTagKeys() {
+		cloned.SetTag(k, n.GetTag(k))
+	}
 	return cloned
 }
 
@@ -543,8 +633,12 @@ type NotWithinIntervalNode struct{ *analyticIntervalNode }
 // NewNotWithinIntervalNode creates a new NotWithinIntervalNode.
 func NewNotWithinIntervalNode(notWithin int, source, reference QueryNode) *NotWithinIntervalNode {
 	children := make([]QueryNode, 0, 2)
-	if source != nil { children = append(children, source) }
-	if reference != nil { children = append(children, reference) }
+	if source != nil {
+		children = append(children, source)
+	}
+	if reference != nil {
+		children = append(children, reference)
+	}
 	return &NotWithinIntervalNode{newAnalyticIntervalNode("NOT_WITHIN", notWithin, children)}
 }
 
@@ -552,10 +646,16 @@ func NewNotWithinIntervalNode(notWithin int, source, reference QueryNode) *NotWi
 func (n *NotWithinIntervalNode) CloneTree() QueryNode {
 	var l, r QueryNode
 	children := n.GetChildren()
-	if len(children) > 0 { l = children[0].CloneTree() }
-	if len(children) > 1 { r = children[1].CloneTree() }
+	if len(children) > 0 {
+		l = children[0].CloneTree()
+	}
+	if len(children) > 1 {
+		r = children[1].CloneTree()
+	}
 	cloned := &NotWithinIntervalNode{newAnalyticIntervalNode("NOT_WITHIN", n.param, []QueryNode{l, r})}
-	for _, k := range n.GetTagKeys() { cloned.SetTag(k, n.GetTag(k)) }
+	for _, k := range n.GetTagKeys() {
+		cloned.SetTag(k, n.GetTag(k))
+	}
 	return cloned
 }
 
@@ -580,10 +680,16 @@ func (n *ExtendIntervalNode) ToQueryString(e bool) string { return n.formatChild
 func (n *ExtendIntervalNode) CloneTree() QueryNode {
 	var l, r QueryNode
 	children := n.GetChildren()
-	if len(children) > 0 { l = children[0].CloneTree() }
-	if len(children) > 1 { r = children[1].CloneTree() }
+	if len(children) > 0 {
+		l = children[0].CloneTree()
+	}
+	if len(children) > 1 {
+		r = children[1].CloneTree()
+	}
 	cloned := &ExtendIntervalNode{newBinaryIntervalNode("EXTEND", l, r)}
-	for _, k := range n.GetTagKeys() { cloned.SetTag(k, n.GetTag(k)) }
+	for _, k := range n.GetTagKeys() {
+		cloned.SetTag(k, n.GetTag(k))
+	}
 	return cloned
 }
 
@@ -614,7 +720,9 @@ func (n *AnalyzedTermIntervalNode) ToQueryString(_ bool) string { return n.term 
 // CloneTree deep-copies this node.
 func (n *AnalyzedTermIntervalNode) CloneTree() QueryNode {
 	cloned := &AnalyzedTermIntervalNode{QueryNodeImpl: NewQueryNodeImpl(nil), term: n.term}
-	for _, k := range n.GetTagKeys() { cloned.SetTag(k, n.GetTag(k)) }
+	for _, k := range n.GetTagKeys() {
+		cloned.SetTag(k, n.GetTag(k))
+	}
 	return cloned
 }
 
@@ -627,9 +735,9 @@ func (n *AnalyzedTermIntervalNode) String() string {
 // This is the Go equivalent of Lucene's intervalfn.FuzzyTerm.
 type FuzzyTermIntervalNode struct {
 	*QueryNodeImpl
-	term        string
-	maxEdits    int
-	prefixLen   int
+	term           string
+	maxEdits       int
+	prefixLen      int
 	transpositions bool
 }
 
@@ -664,7 +772,9 @@ func (n *FuzzyTermIntervalNode) CloneTree() QueryNode {
 		prefixLen:      n.prefixLen,
 		transpositions: n.transpositions,
 	}
-	for _, k := range n.GetTagKeys() { cloned.SetTag(k, n.GetTag(k)) }
+	for _, k := range n.GetTagKeys() {
+		cloned.SetTag(k, n.GetTag(k))
+	}
 	return cloned
 }
 
@@ -694,7 +804,9 @@ func (n *WildcardIntervalNode) ToQueryString(_ bool) string { return n.pattern }
 // CloneTree deep-copies this node.
 func (n *WildcardIntervalNode) CloneTree() QueryNode {
 	cloned := &WildcardIntervalNode{QueryNodeImpl: NewQueryNodeImpl(nil), pattern: n.pattern}
-	for _, k := range n.GetTagKeys() { cloned.SetTag(k, n.GetTag(k)) }
+	for _, k := range n.GetTagKeys() {
+		cloned.SetTag(k, n.GetTag(k))
+	}
 	return cloned
 }
 

@@ -56,9 +56,26 @@ func (m *QueryParserTokenManager) NextToken() (*Token, error) {
 	if isTermStartChar(c) {
 		return m.readTermOrKeyword(startLine, startCol, start)
 	}
+	// Bare wildcard characters (* or ?) that are not preceded by term chars
+	// cannot match SUFFIXTERM or TRUNCTERM (those require at least one term char
+	// before the wildcard). Emit a Truncterm token so that parsePrimary's
+	// isTruncAcceptable check rejects them with a proper error.
+	if c == '*' || c == '?' {
+		return m.readBareWildcard(startLine, startCol, start)
+	}
 	// Skip unknown char, treat as TERM of length 1.
 	m.advance()
 	return m.tokenFrom(Term, string(c), startLine, startCol), nil
+}
+
+// readBareWildcard handles one or more consecutive '*'/'?' characters that are
+// NOT preceded by any term characters.  The resulting token is always Truncterm
+// with zero non-wildcard chars, so isTruncAcceptable will reject it.
+func (m *QueryParserTokenManager) readBareWildcard(startLine, startCol, start int) (*Token, error) {
+	for m.pos < len(m.input) && (m.input[m.pos] == '*' || m.input[m.pos] == '?') {
+		m.advance()
+	}
+	return m.tokenFrom(Truncterm, string(m.input[start:m.pos]), startLine, startCol), nil
 }
 
 func (m *QueryParserTokenManager) readQuoted(startLine, startCol int) (*Token, error) {
@@ -135,10 +152,12 @@ func (m *QueryParserTokenManager) readTermOrKeyword(startLine, startCol, start i
 		}
 		return m.tokenFrom(Term, text, startLine, startCol), nil
 	}
+	// Suffixterm: ends with * only, no wildcards in body → prefix query.
+	// Truncterm: has at least one * or ? anywhere → wildcard/truncation query.
 	if strings.HasSuffix(text, "*") && !strings.ContainsAny(text[:len(text)-1], "*?") {
-		return m.tokenFrom(Truncterm, text, startLine, startCol), nil
+		return m.tokenFrom(Suffixterm, text, startLine, startCol), nil
 	}
-	return m.tokenFrom(Suffixterm, text, startLine, startCol), nil
+	return m.tokenFrom(Truncterm, text, startLine, startCol), nil
 }
 
 func (m *QueryParserTokenManager) tokenFrom(kind int, image string, startLine, startCol int) *Token {

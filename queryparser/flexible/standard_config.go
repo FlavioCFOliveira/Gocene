@@ -217,13 +217,13 @@ var _ CommonQueryParserConfiguration = (*StandardQueryConfigHandlerFull)(nil)
 // StandardSyntaxParserToken is a token type for the standard syntax parser.
 // This is the Go equivalent of Lucene's standard.parser.Token.
 type StandardSyntaxParserToken struct {
-	Kind     int
+	Kind      int
 	BeginLine int
 	BeginCol  int
 	EndLine   int
 	EndCol    int
-	Image    string
-	Next     *StandardSyntaxParserToken
+	Image     string
+	Next      *StandardSyntaxParserToken
 }
 
 // NewStandardSyntaxParserToken creates a new token.
@@ -267,25 +267,25 @@ func NewStandardSyntaxParserParseException(message string, cause error) *Standar
 // StandardSyntaxParserConstants defines token-kind constants for the standard syntax parser.
 // This is the Go equivalent of Lucene's StandardSyntaxParserConstants.
 const (
-	SSPKindEOF       = 0
-	SSPKindAND       = 1
-	SSPKindOR        = 2
-	SSPKindNOT       = 3
-	SSPKindPlus      = 4
-	SSPKindMinus     = 5
-	SSPKindLParen    = 6
-	SSPKindRParen    = 7
-	SSPKindColon     = 8
-	SSPKindStar      = 9
-	SSPKindCaret     = 10
-	SSPKindTilde     = 11
-	SSPKindQuoted    = 12
-	SSPKindTerm      = 13
-	SSPKindFuzzySlop = 14
+	SSPKindEOF        = 0
+	SSPKindAND        = 1
+	SSPKindOR         = 2
+	SSPKindNOT        = 3
+	SSPKindPlus       = 4
+	SSPKindMinus      = 5
+	SSPKindLParen     = 6
+	SSPKindRParen     = 7
+	SSPKindColon      = 8
+	SSPKindStar       = 9
+	SSPKindCaret      = 10
+	SSPKindTilde      = 11
+	SSPKindQuoted     = 12
+	SSPKindTerm       = 13
+	SSPKindFuzzySlop  = 14
 	SSPKindPrefixTerm = 15
-	SSPKindWildTerm  = 16
-	SSPKindRegExp    = 17
-	SSPKindNumber    = 18
+	SSPKindWildTerm   = 16
+	SSPKindRegExp     = 17
+	SSPKindNumber     = 18
 )
 
 // SSPTokenImage provides string representations of standard syntax parser token kinds.

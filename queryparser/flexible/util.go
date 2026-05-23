@@ -36,7 +36,7 @@ func (StringUtils) ToLowerCase(r rune) rune { return unicode.ToLower(r) }
 // originally preceded by a backslash escape in the query source.
 // This is the Go equivalent of Lucene's UnescapedCharSequence.
 type UnescapedCharSequence struct {
-	chars   []rune
+	chars      []rune
 	wasEscaped []bool
 }
 
