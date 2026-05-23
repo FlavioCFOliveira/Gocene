@@ -1,10 +1,69 @@
-// Package spans hosts the Sprint 29 overflow ports for
+// Package spans provides the Go port of org.apache.lucene.queries.spans.
+//
+// This package mirrors the Apache Lucene 10.4.0 spans query framework.
+// The types defined here correspond to the Java classes in
 // org.apache.lucene.queries.spans.
 package spans
 
-// The Sprint 29 queries-module overflow surfaces these types as typed
-// stubs so dependent packages keep compiling; concrete behaviour ports
-// land progressively.
+import (
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
+)
+
+// NoMorePositions is the sentinel value returned by NextStartPosition when
+// there are no more positions in the current document.
+const NoMorePositions = int(^uint(0) >> 1) // math.MaxInt32 == Integer.MAX_VALUE in Java
+
+// Spans is the interface for span iterators.
+// It iterates through combinations of start/end positions per-doc.
+// Each start/end position represents a range of term positions within the current document.
+// These are enumerated in order, by increasing document number, within that by increasing
+// start position and finally by increasing end position.
+//
+// Mirrors org.apache.lucene.queries.spans.Spans (abstract class).
+type Spans interface {
+	search.DocIdSetIterator
+
+	// NextStartPosition returns the next start position for the current doc.
+	// After the last start/end position at the current doc this returns NoMorePositions.
+	NextStartPosition() (int, error)
+
+	// StartPosition returns the start position in the current doc, or -1 when
+	// NextStartPosition was not yet called on the current doc.
+	StartPosition() int
+
+	// EndPosition returns the end position for the current start position, or -1 when
+	// NextStartPosition was not yet called on the current doc.
+	EndPosition() int
+
+	// Width returns the width of the match (used for sloppy freq).
+	Width() int
+
+	// Collect collects postings data from the leaves of the current Spans.
+	Collect(collector SpanCollector) error
+
+	// PositionsCost returns an estimation of the cost of using positions of this Spans
+	// for any single document. Only valid when AsTwoPhaseIterator returns nil.
+	PositionsCost() float32
+
+	// AsTwoPhaseIterator returns an optional TwoPhaseIterator view of this Spans,
+	// or nil if two-phase iteration is not supported.
+	AsTwoPhaseIterator() *search.TwoPhaseIterator
+}
+
+// SpanCollector is the interface defining collection of postings information
+// from the leaves of a Spans.
+//
+// Mirrors org.apache.lucene.queries.spans.SpanCollector.
+type SpanCollector interface {
+	// CollectLeaf collects information from postings.
+	CollectLeaf(postings index.PostingsEnum, position int, term index.Term) error
+
+	// Reset indicates that the driving Spans has moved to a new position.
+	Reset()
+}
+
+// Stubs retained for backward-compat while full ports land progressively.
 
 // FieldMaskingSpanQuery mirrors org.apache.lucene.queries.spans.FieldMaskingSpanQuery.
 type FieldMaskingSpanQuery struct{}
@@ -30,24 +89,6 @@ type NearSpansUnordered struct{}
 // NewNearSpansUnordered builds a NearSpansUnordered.
 func NewNearSpansUnordered() *NearSpansUnordered { return &NearSpansUnordered{} }
 
-// SpanCollector mirrors org.apache.lucene.queries.spans.SpanCollector.
-type SpanCollector struct{}
-
-// NewSpanCollector builds a SpanCollector.
-func NewSpanCollector() *SpanCollector { return &SpanCollector{} }
-
-// SpanContainingQuery mirrors org.apache.lucene.queries.spans.SpanContainingQuery.
-type SpanContainingQuery struct{}
-
-// NewSpanContainingQuery builds a SpanContainingQuery.
-func NewSpanContainingQuery() *SpanContainingQuery { return &SpanContainingQuery{} }
-
-// SpanDisiWrapper mirrors org.apache.lucene.queries.spans.SpanDisiWrapper.
-type SpanDisiWrapper struct{}
-
-// NewSpanDisiWrapper builds a SpanDisiWrapper.
-func NewSpanDisiWrapper() *SpanDisiWrapper { return &SpanDisiWrapper{} }
-
 // SpanMultiTermQueryWrapper mirrors org.apache.lucene.queries.spans.SpanMultiTermQueryWrapper.
 type SpanMultiTermQueryWrapper struct{}
 
@@ -72,12 +113,6 @@ type SpanOrQuery struct{}
 // NewSpanOrQuery builds a SpanOrQuery.
 func NewSpanOrQuery() *SpanOrQuery { return &SpanOrQuery{} }
 
-// SpanQuery mirrors org.apache.lucene.queries.spans.SpanQuery.
-type SpanQuery struct{}
-
-// NewSpanQuery builds a SpanQuery.
-func NewSpanQuery() *SpanQuery { return &SpanQuery{} }
-
 // SpanScorer mirrors org.apache.lucene.queries.spans.SpanScorer.
 type SpanScorer struct{}
 
@@ -90,23 +125,11 @@ type SpanTermQuery struct{}
 // NewSpanTermQuery builds a SpanTermQuery.
 func NewSpanTermQuery() *SpanTermQuery { return &SpanTermQuery{} }
 
-// SpanWeight mirrors org.apache.lucene.queries.spans.SpanWeight.
-type SpanWeight struct{}
-
-// NewSpanWeight builds a SpanWeight.
-func NewSpanWeight() *SpanWeight { return &SpanWeight{} }
-
 // SpanWithinQuery mirrors org.apache.lucene.queries.spans.SpanWithinQuery.
 type SpanWithinQuery struct{}
 
 // NewSpanWithinQuery builds a SpanWithinQuery.
 func NewSpanWithinQuery() *SpanWithinQuery { return &SpanWithinQuery{} }
-
-// Spans mirrors org.apache.lucene.queries.spans.Spans.
-type Spans struct{}
-
-// NewSpans builds a Spans.
-func NewSpans() *Spans { return &Spans{} }
 
 // TermSpans mirrors org.apache.lucene.queries.spans.TermSpans.
 type TermSpans struct{}
@@ -131,4 +154,3 @@ type SpanPositionRangeQuery struct{}
 
 // NewSpanPositionRangeQuery builds a SpanPositionRangeQuery.
 func NewSpanPositionRangeQuery() *SpanPositionRangeQuery { return &SpanPositionRangeQuery{} }
-
