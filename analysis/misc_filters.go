@@ -243,6 +243,13 @@ func NewKeywordMarkerFilter(input TokenStream, isKeyword func() bool) *KeywordMa
 		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
+		// Ensure the KeywordAttribute is present in the shared AttributeSource.
+		// Mirrors Java's addAttribute(KeywordAttribute.class): if it is already
+		// registered the existing impl is returned; otherwise a new one is
+		// added. This is required because no upstream Tokenizer adds it by
+		// default.
+		kw := NewKeywordAttribute()
+		f.BaseTokenFilter.AddAttribute(kw)
 		if a := src.GetAttribute(KeywordAttributeType); a != nil {
 			f.keywordAttr = a.(KeywordAttribute)
 		}
