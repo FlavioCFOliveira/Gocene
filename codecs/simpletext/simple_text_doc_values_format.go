@@ -5,15 +5,8 @@
 package simpletext
 
 import (
-	"errors"
-
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 )
-
-// errDocValuesReaderNotImplemented is returned by FieldsProducer until task
-// 3205 (SimpleTextDocValuesReader) lands.
-var errDocValuesReaderNotImplemented = errors.New(
-	"SimpleTextDocValuesReader: not yet implemented (task 3205)")
 
 // docValuesExtension is the file extension used for SimpleText doc-values files.
 const docValuesExtension = "dat"
@@ -55,11 +48,3 @@ func (f *SimpleTextDocValuesFormat) FieldsProducer(state *codecs.SegmentReadStat
 
 // compile-time assertion.
 var _ codecs.DocValuesFormat = (*SimpleTextDocValuesFormat)(nil)
-
-// NewSimpleTextDocValuesReader is the constructor called by FieldsProducer.
-// Implemented in simple_text_doc_values_reader.go (task 3205).
-//
-// Placeholder until task 3205 lands.
-func NewSimpleTextDocValuesReader(_ *codecs.SegmentReadState, _ string) (codecs.DocValuesProducer, error) {
-	return nil, errDocValuesReaderNotImplemented
-}
