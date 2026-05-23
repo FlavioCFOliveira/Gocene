@@ -61,35 +61,6 @@ func (a *outputAccumulator) popN(n int) {
 // outputCount returns the number of accumulated outputs.
 func (a *outputAccumulator) outputCount() int { return a.num }
 
-// intersectTermsEnumFrame is a single level in the IntersectTermsEnum frame
-// stack. It tracks the per-level automaton state and the FST output count
-// contributed by this frame.
-//
-// Full block-loading (load, next, etc.) is deferred until FieldReader is
-// fully ported.
-//
-// Port of
-// org.apache.lucene.backward_codecs.lucene90.blocktree.IntersectTermsEnumFrame.
-type intersectTermsEnumFrame struct {
-	// ord is the depth of this frame in the stack (0 = root).
-	ord int
-
-	// state is the automaton state upon entering this frame.
-	state int
-
-	// lastState tracks the automaton state before the last suffix byte.
-	lastState int
-
-	// outputNum is the number of FST arc outputs pushed to the accumulator
-	// from this frame's arc chain. Used to pop the correct number on exit.
-	outputNum int
-}
-
-// newIntersectTermsEnumFrame allocates a frame at the given ordinal.
-func newIntersectTermsEnumFrame(ord int) *intersectTermsEnumFrame {
-	return &intersectTermsEnumFrame{ord: ord}
-}
-
 // IntersectTermsEnum implements efficient intersection of the lucene90
 // block-tree terms dictionary with a compiled automaton.
 //
@@ -166,7 +137,7 @@ func newIntersectTermsEnum(
 	// Initialise frame stack with 5 pre-allocated frames.
 	e.stack = make([]*intersectTermsEnumFrame, 5)
 	for i := range e.stack {
-		e.stack[i] = newIntersectTermsEnumFrame(i)
+		e.stack[i] = newIntersectTermsEnumFrame(e, i)
 	}
 
 	// Record start term for assertion / seek purposes.
@@ -191,7 +162,7 @@ func (e *IntersectTermsEnum) getFrame(ord int) *intersectTermsEnumFrame {
 		grown := make([]*intersectTermsEnumFrame, util.Oversize(ord+1, 1))
 		copy(grown, e.stack)
 		for i := len(e.stack); i < len(grown); i++ {
-			grown[i] = newIntersectTermsEnumFrame(i)
+			grown[i] = newIntersectTermsEnumFrame(e, i)
 		}
 		e.stack = grown
 	}
