@@ -85,19 +85,36 @@ func (a *NorwegianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 var _ Analyzer = (*NorwegianAnalyzer)(nil)
 var _ AnalyzerInterface = (*NorwegianAnalyzer)(nil)
 
-// NorwegianLightStemFilter implements light stemming for Norwegian.
+// NorwegianLightStemFilter implements light stemming for Norwegian
+// (Bokmål and/or Nynorsk) via the full NorwegianLightStemmer algorithm.
+//
+// Go port of org.apache.lucene.analysis.no.NorwegianLightStemFilter (Apache
+// Lucene 10.4.0).
+//
+// The default variant is Bokmål, matching the Java default constructor of
+// NorwegianAnalyzer (which uses BOKMAAL).
 type NorwegianLightStemFilter struct {
 	*BaseTokenFilter
+	stemmer norwegianLightStemmer
 }
 
-// NewNorwegianLightStemFilter creates a new NorwegianLightStemFilter.
+// NewNorwegianLightStemFilter creates a new NorwegianLightStemFilter for
+// Bokmål (the default Norwegian variant).
 func NewNorwegianLightStemFilter(input TokenStream) *NorwegianLightStemFilter {
+	return NewNorwegianLightStemFilterWithVariant(input, NorwegianBokmaal)
+}
+
+// NewNorwegianLightStemFilterWithVariant creates a NorwegianLightStemFilter
+// for the specified Norwegian variant(s).
+func NewNorwegianLightStemFilterWithVariant(input TokenStream, flags NorwegianVariant) *NorwegianLightStemFilter {
 	return &NorwegianLightStemFilter{
 		BaseTokenFilter: NewBaseTokenFilter(input),
+		stemmer:         newNorwegianLightStemmer(flags),
 	}
 }
 
-// IncrementToken processes the next token and applies light stemming.
+// IncrementToken processes the next token and applies Norwegian light
+// stemming.
 func (f *NorwegianLightStemFilter) IncrementToken() (bool, error) {
 	hasToken, err := f.input.IncrementToken()
 	if err != nil {
@@ -107,55 +124,14 @@ func (f *NorwegianLightStemFilter) IncrementToken() (bool, error) {
 	if hasToken {
 		if attr := f.GetAttributeSource().GetAttribute(CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(CharTermAttribute); ok {
-				term := termAttr.String()
-				stemmed := norwegianLightStem(term)
-				if stemmed != term {
-					termAttr.SetEmpty()
-					termAttr.AppendString(stemmed)
-				}
+				runes := []rune(termAttr.String())
+				newLen := f.stemmer.stem(runes, len(runes))
+				termAttr.SetValue(string(runes[:newLen]))
 			}
 		}
 	}
 
 	return hasToken, nil
-}
-
-// norwegianLightStem applies light Norwegian stemming.
-func norwegianLightStem(term string) string {
-	if len(term) < 4 {
-		return term
-	}
-
-	// Convert to runes for proper Unicode handling
-	runes := []rune(term)
-	length := len(runes)
-
-	// Remove common Norwegian suffixes
-	switch {
-	// -het, -heten (abstract nouns)
-	case length > 4 && string(runes[length-4:]) == "heten":
-		return string(runes[:length-3])
-	case length > 3 && string(runes[length-3:]) == "het":
-		return string(runes[:length-2])
-	// -else, -elsen
-	case length > 4 && string(runes[length-4:]) == "else":
-		return string(runes[:length-3])
-	case length > 5 && string(runes[length-5:]) == "elsen":
-		return string(runes[:length-4])
-	// -ene (definite plural)
-	case length > 3 && string(runes[length-3:]) == "ene":
-		return string(runes[:length-2])
-	// -er, -en, -et
-	case length > 2 && (runes[length-1] == 'r' || runes[length-1] == 'n' || runes[length-1] == 't'):
-		if runes[length-2] == 'e' {
-			return string(runes[:length-2])
-		}
-	// -e
-	case length > 1 && runes[length-1] == 'e':
-		return string(runes[:length-1])
-	}
-
-	return term
 }
 
 // NorwegianLightStemFilterFactory creates NorwegianLightStemFilter instances.
