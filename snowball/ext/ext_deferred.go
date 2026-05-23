@@ -21,10 +21,5 @@ func NewIndonesianStemmer() *IndonesianStemmer { return &IndonesianStemmer{} }
 
 
 
-// NepaliStemmer mirrors org.tartarus.snowball.ext.NepaliStemmer.
-type NepaliStemmer struct{}
-
-// NewNepaliStemmer builds a NepaliStemmer.
-func NewNepaliStemmer() *NepaliStemmer { return &NepaliStemmer{} }
 
 
