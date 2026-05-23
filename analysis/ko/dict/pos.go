@@ -49,54 +49,54 @@ type POSTag int
 // Korean POS tags ordered by their Lucene ordinal so that ResolveTagByByte
 // works correctly.
 const (
-	POSTagEP  POSTag = iota // 0  Pre-final ending
-	POSTagEF                // 1  Sentence-closing ending
-	POSTagEC                // 2  Connective ending
-	POSTagETN               // 3  Nominal transformative ending
-	POSTagETM               // 4  Adnominal form transformative ending
-	POSTagIC                // 5  Interjection
-	POSTagJKS               // 6  Subject case marker
-	POSTagJKC               // 7  Complement case marker
-	POSTagJKG               // 8  Adnominal case marker
-	POSTagJKO               // 9  Object case marker
-	POSTagJKB               // 10 Adverbial case marker
-	POSTagJKV               // 11 Vocative case marker
-	POSTagJKQ               // 12 Quotative case marker
-	POSTagJX                // 13 Auxiliary postpositional particle
-	POSTagJC                // 14 Conjunctive postpositional particle
-	POSTagMAG               // 15 General Adverb
-	POSTagMAJ               // 16 Conjunctive adverb
-	POSTagMM                // 17 Modifier
-	POSTagNNG               // 18 General Noun
-	POSTagNNP               // 19 Proper Noun
-	POSTagNNB               // 20 Dependent noun (following nouns)
-	POSTagNNBC              // 21 Dependent noun
-	POSTagNP                // 22 Pronoun
-	POSTagNR                // 23 Numeral
-	POSTagSF                // 24 Terminal punctuation
-	POSTagSH                // 25 Chinese character
-	POSTagSL                // 26 Foreign language
-	POSTagSN                // 27 Number
-	POSTagSP                // 28 Space
-	POSTagSSC               // 29 Closing brackets
-	POSTagSSO               // 30 Opening brackets
-	POSTagSC                // 31 Separator
-	POSTagSY                // 32 Other symbol
-	POSTagSE                // 33 Ellipsis
-	POSTagVA                // 34 Adjective
-	POSTagVCN               // 35 Negative designator
-	POSTagVCP               // 36 Positive designator
-	POSTagVV                // 37 Verb
-	POSTagVX                // 38 Auxiliary Verb or Adjective
-	POSTagXPN               // 39 Prefix
-	POSTagXR                // 40 Root
-	POSTagXSA               // 41 Adjective Suffix
-	POSTagXSN               // 42 Noun Suffix
-	POSTagXSV               // 43 Verb Suffix
-	POSTagUNKNOWN           // 44 Unknown
-	POSTagUNA               // 45 Unknown
-	POSTagNA                // 46 Unknown
-	POSTagVSV               // 47 Unknown
+	POSTagEP      POSTag = iota // 0  Pre-final ending
+	POSTagEF                    // 1  Sentence-closing ending
+	POSTagEC                    // 2  Connective ending
+	POSTagETN                   // 3  Nominal transformative ending
+	POSTagETM                   // 4  Adnominal form transformative ending
+	POSTagIC                    // 5  Interjection
+	POSTagJKS                   // 6  Subject case marker
+	POSTagJKC                   // 7  Complement case marker
+	POSTagJKG                   // 8  Adnominal case marker
+	POSTagJKO                   // 9  Object case marker
+	POSTagJKB                   // 10 Adverbial case marker
+	POSTagJKV                   // 11 Vocative case marker
+	POSTagJKQ                   // 12 Quotative case marker
+	POSTagJX                    // 13 Auxiliary postpositional particle
+	POSTagJC                    // 14 Conjunctive postpositional particle
+	POSTagMAG                   // 15 General Adverb
+	POSTagMAJ                   // 16 Conjunctive adverb
+	POSTagMM                    // 17 Modifier
+	POSTagNNG                   // 18 General Noun
+	POSTagNNP                   // 19 Proper Noun
+	POSTagNNB                   // 20 Dependent noun (following nouns)
+	POSTagNNBC                  // 21 Dependent noun
+	POSTagNP                    // 22 Pronoun
+	POSTagNR                    // 23 Numeral
+	POSTagSF                    // 24 Terminal punctuation
+	POSTagSH                    // 25 Chinese character
+	POSTagSL                    // 26 Foreign language
+	POSTagSN                    // 27 Number
+	POSTagSP                    // 28 Space
+	POSTagSSC                   // 29 Closing brackets
+	POSTagSSO                   // 30 Opening brackets
+	POSTagSC                    // 31 Separator
+	POSTagSY                    // 32 Other symbol
+	POSTagSE                    // 33 Ellipsis
+	POSTagVA                    // 34 Adjective
+	POSTagVCN                   // 35 Negative designator
+	POSTagVCP                   // 36 Positive designator
+	POSTagVV                    // 37 Verb
+	POSTagVX                    // 38 Auxiliary Verb or Adjective
+	POSTagXPN                   // 39 Prefix
+	POSTagXR                    // 40 Root
+	POSTagXSA                   // 41 Adjective Suffix
+	POSTagXSN                   // 42 Noun Suffix
+	POSTagXSV                   // 43 Verb Suffix
+	POSTagUNKNOWN               // 44 Unknown
+	POSTagUNA                   // 45 Unknown
+	POSTagNA                    // 46 Unknown
+	POSTagVSV                   // 47 Unknown
 )
 
 // posTagNames maps ordinal to name, matching Java enum declaration order.

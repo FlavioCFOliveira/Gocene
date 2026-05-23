@@ -19,12 +19,12 @@ const (
 
 // positionNode represents a single back-trace node in the Viterbi lattice.
 type positionNode struct {
-	cost      int
-	backPos   int
+	cost        int
+	backPos     int
 	backWordPos int
-	backType  morph.TokenType
-	backID    int
-	backIndex int
+	backType    morph.TokenType
+	backID      int
+	backIndex   int
 }
 
 // latticePosition holds all nodes for a given input position.

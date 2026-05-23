@@ -38,14 +38,14 @@ func newToken(
 	tokenType morph.TokenType,
 ) *Token {
 	return &Token{
-		surfaceForm: surfaceForm,
-		offset:      offset,
-		length:      length,
-		startOffset: startOffset,
-		endOffset:   endOffset,
-		tokenType:   tokenType,
+		surfaceForm:  surfaceForm,
+		offset:       offset,
+		length:       length,
+		startOffset:  startOffset,
+		endOffset:    endOffset,
+		tokenType:    tokenType,
 		posIncrement: 1,
-		posLen:      1,
+		posLen:       1,
 	}
 }
 
