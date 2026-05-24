@@ -83,13 +83,9 @@ func asLeafReader(r index.IndexReaderInterface) *index.LeafReader {
 
 func (s *IndexSearcher) searchLeaf(reader index.IndexReaderInterface, docBase int, weight Weight, collector Collector) error {
 	// Create a LeafReaderContext for the reader.
-	// SegmentReader embeds *LeafReader; handle both concrete types.
-	lr := asLeafReader(reader)
-	if lr == nil {
-		// Fallback: create an empty LeafReader so we don't panic.
-		lr = index.NewLeafReader(nil)
-	}
-	ctx := index.NewLeafReaderContext(lr, nil, 0, docBase)
+	// Pass reader directly (may be *SegmentReader which overrides Terms()); do
+	// NOT unwrap to the embedded *LeafReader, which would lose the override.
+	ctx := index.NewLeafReaderContext(reader, nil, 0, docBase)
 
 	leafCollector, err := collector.GetLeafCollector(reader)
 	if err != nil {

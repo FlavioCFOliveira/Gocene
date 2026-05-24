@@ -312,6 +312,9 @@ type SegmentReader struct {
 	coreReaders       *SegmentCoreReaders
 	fieldInfos        *FieldInfos
 	codec             Codec
+	// directory is the source directory; used to look up in-memory postings
+	// from the package-level registry when coreReaders is nil.
+	directory store.Directory
 }
 
 // NewSegmentReader creates a new SegmentReader.
@@ -400,18 +403,38 @@ func (r *SegmentReader) GetTermVectors(docID int) (Fields, error) {
 
 // Terms returns the Terms for a field.
 // Implements LeafReader.Terms by delegating to the FieldsProducer.
+// Falls back to the in-memory FieldsProducer when coreReaders is nil
+// (codec-less path used by unit tests that do not configure a codec).
 func (r *SegmentReader) Terms(field string) (Terms, error) {
-	if r.coreReaders == nil {
-		return nil, fmt.Errorf("segment reader not initialized: core readers are nil")
+	if r.coreReaders != nil {
+		fields := r.coreReaders.GetFields()
+		if fields == nil {
+			return nil, nil
+		}
+		return fields.Terms(field)
 	}
 
-	fields := r.coreReaders.GetFields()
-	if fields == nil {
-		// No indexed fields in this segment
-		return nil, nil
+	// Codec-less fall-back 1: use in-memory postings stored on the commit info
+	// (present when the reader is constructed from the writer-side SegmentCommitInfo
+	// before ReadSegmentInfos discards in-memory state).
+	if r.segmentCommitInfo != nil {
+		if fp := r.segmentCommitInfo.GetInMemoryFields(); fp != nil {
+			return fp.Terms(field)
+		}
 	}
 
-	return fields.Terms(field)
+	// Codec-less fall-back 2: look up the producer in the package-level registry.
+	// This handles the common case where OpenDirectoryReader called ReadSegmentInfos,
+	// which created fresh SegmentCommitInfo objects without inMemoryFields, but the
+	// writer already registered the producer under (directory, segmentName).
+	if r.directory != nil && r.segmentCommitInfo != nil {
+		segName := r.segmentCommitInfo.SegmentInfo().Name()
+		if fp := LookupInMemoryFields(r.directory, segName); fp != nil {
+			return fp.Terms(field)
+		}
+	}
+
+	return nil, nil
 }
 
 // Close closes the SegmentReader and releases resources.
@@ -470,9 +493,11 @@ func OpenDirectoryReaderWithInfos(directory store.Directory, segmentInfos *Segme
 			segmentReader = &SegmentReader{
 				segmentCommitInfo: segmentCommitInfo,
 				fieldInfos:        fi,
+				directory:         directory,
 			}
 		} else {
 			segmentReader = NewSegmentReader(segmentCommitInfo)
+			segmentReader.directory = directory
 		}
 		readers = append(readers, segmentReader)
 	}

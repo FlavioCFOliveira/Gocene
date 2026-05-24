@@ -198,8 +198,8 @@ func (s *PhraseScorer) NextDoc() (int, error) {
 	if err != nil {
 		return NO_MORE_DOCS, err
 	}
-	s.doc = doc
-	return doc, nil
+	s.doc = postingsDocToSearchDoc(doc)
+	return s.doc, nil
 }
 
 // Advance advances to the target document.
@@ -208,8 +208,8 @@ func (s *PhraseScorer) Advance(target int) (int, error) {
 	if err != nil {
 		return NO_MORE_DOCS, err
 	}
-	s.doc = doc
-	return doc, nil
+	s.doc = postingsDocToSearchDoc(doc)
+	return s.doc, nil
 }
 
 // Cost returns the estimated cost.

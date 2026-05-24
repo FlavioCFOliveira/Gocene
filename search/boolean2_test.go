@@ -221,9 +221,11 @@ func TestBoolean2Scoring(t *testing.T) {
 			t.Fatalf("Search failed: %v", err)
 		}
 
-		// Expected: docs 2 and 3 (have w3, no w5), doc 3 has xx as bonus
-		if topDocs.TotalHits.Value != 2 {
-			t.Errorf("Expected 2 hits, got %d", topDocs.TotalHits.Value)
+		// Expected: docs 1, 2, 3 (all have w3, none has w5); doc 0 excluded by
+		// MUST_NOT w5. Docs 2 and 3 also have xx (SHOULD bonus). Mirrors
+		// Lucene's TestBoolean2.testQueries08 expDocNrs = {2, 3, 1}.
+		if topDocs.TotalHits.Value != 3 {
+			t.Errorf("Expected 3 hits, got %d", topDocs.TotalHits.Value)
 		}
 	})
 
