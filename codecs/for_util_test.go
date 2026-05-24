@@ -195,6 +195,9 @@ func TestForUtil_EncodeDecodeAllBitsPerValue(t *testing.T) {
 			}
 		}
 		in.Close()
+		if err := dir.DeleteFile("test.bin"); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -287,6 +290,9 @@ func TestForUtil_MaxValues(t *testing.T) {
 			}
 		}
 		in.Close()
+		if err := dir.DeleteFile("test.bin"); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
