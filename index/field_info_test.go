@@ -93,20 +93,29 @@ func TestFieldInfo_HasNorms(t *testing.T) {
 }
 
 func TestFieldInfo_HasPayloads(t *testing.T) {
-	// Positions indexed
+	// HasPayloads mirrors Java FieldInfo.hasPayloads(): returns the explicit
+	// storePayloads flag, not a heuristic derived from IndexOptions.
+	// A field with positions but no observed payloads returns false.
 	fi1 := NewFieldInfo("field1", 0, FieldInfoOptions{
 		IndexOptions: IndexOptionsDocsAndFreqsAndPositions,
 	})
-	if !fi1.HasPayloads() {
-		t.Error("Expected HasPayloads=true when positions are indexed")
+	if fi1.HasPayloads() {
+		t.Error("Expected HasPayloads=false before SetStorePayloads is called")
 	}
 
-	// No positions
+	// After calling SetStorePayloads, HasPayloads must return true.
+	fi1.SetStorePayloads()
+	if !fi1.HasPayloads() {
+		t.Error("Expected HasPayloads=true after SetStorePayloads")
+	}
+
+	// No positions — SetStorePayloads is a no-op; HasPayloads stays false.
 	fi2 := NewFieldInfo("field2", 0, FieldInfoOptions{
 		IndexOptions: IndexOptionsDocsAndFreqs,
 	})
+	fi2.SetStorePayloads() // no-op: IndexOptions < POSITIONS
 	if fi2.HasPayloads() {
-		t.Error("Expected HasPayloads=false when no positions")
+		t.Error("Expected HasPayloads=false when no positions (SetStorePayloads is a no-op)")
 	}
 }
 

@@ -290,9 +290,17 @@ func (fi *FieldInfo) HasNorms() bool {
 		fi.indexOptions.HasFreqs()
 }
 
-// HasPayloads returns true if payloads are indexed.
+// HasPayloads returns true if payloads are stored for this field.
+//
+// Mirrors Java FieldInfo.hasPayloads(): returns the explicit storePayloads
+// flag, which is set either at index time (via SetStorePayloads when the
+// postings writer observes a non-empty payload) or restored from the wire
+// format on read. A field that is indexed with positions but has never had
+// a real payload returns false.
 func (fi *FieldInfo) HasPayloads() bool {
-	return fi.indexOptions.HasPositions()
+	fi.mu.RLock()
+	defer fi.mu.RUnlock()
+	return fi.storePayloads
 }
 
 // HasTermVectors returns true if term vectors are stored.
