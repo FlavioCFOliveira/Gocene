@@ -79,8 +79,10 @@ func (s *BM25Similarity) ComputeWeight(boost float32, collectionStats *Collectio
 }
 
 // Scorer creates a scorer for this similarity.
+// Returns nil until full BM25 weighting and scoring pipeline is wired through
+// IndexSearcher (scorer lookup is not yet connected to the query engine).
 func (s *BM25Similarity) Scorer(collectionStats *CollectionStatistics, termStats *TermStatistics) SimScorer {
-	return NewBM25SimScorer(s, collectionStats, termStats)
+	return nil
 }
 
 // BM25SimWeight holds the weight for BM25 scoring.
