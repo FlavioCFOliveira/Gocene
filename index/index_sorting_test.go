@@ -622,6 +622,8 @@ func TestIndexSorting_BadAddIndexes(t *testing.T) {
 
 // TestIndexSorting_AddIndexes ports testAddIndexes (write path only): copy a
 // sorted index into another writer carrying the same sort.
+// The source writer must be closed before AddIndexes so that its write.lock
+// is released; otherwise AddIndexes fails with LockObtainFailedException.
 func TestIndexSorting_AddIndexes(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
@@ -635,7 +637,10 @@ func TestIndexSorting_AddIndexes(t *testing.T) {
 		doc.Add(field)
 		writer.AddDocument(doc)
 	}
-	writer.Commit()
+	// Close writer so the write.lock on dir is released before AddIndexes.
+	if err := writer.Close(); err != nil {
+		t.Fatalf("writer.Close: %v", err)
+	}
 
 	dir2 := store.NewByteBuffersDirectory()
 	defer dir2.Close()
@@ -649,7 +654,6 @@ func TestIndexSorting_AddIndexes(t *testing.T) {
 	}
 
 	writer2.Close()
-	writer.Close()
 }
 
 // TestIndexSorting_AddIndexesWithDeletions ports testAddIndexesWithDeletions.

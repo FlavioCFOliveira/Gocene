@@ -47,6 +47,14 @@ type SegmentInfos struct {
 	// userData holds optional user-supplied commit data
 	userData map[string]string
 
+	// inMemoryParentField records the parentField from IndexWriterConfig at the
+	// time of the last Commit.  Not serialised; used by AddIndexes validation.
+	inMemoryParentField string
+
+	// inMemoryIndexSort records the indexSort from IndexWriterConfig at the time
+	// of the last Commit.  Not serialised; used by AddIndexes validation.
+	inMemoryIndexSort *Sort
+
 	// mu protects mutable fields
 	mu sync.RWMutex
 }
@@ -327,6 +335,34 @@ func (si *SegmentInfos) GetUserDataValue(key string) string {
 	return si.userData[key]
 }
 
+// GetInMemoryParentField returns the parentField recorded at commit time.
+func (si *SegmentInfos) GetInMemoryParentField() string {
+	si.mu.RLock()
+	defer si.mu.RUnlock()
+	return si.inMemoryParentField
+}
+
+// SetInMemoryParentField records the parentField for in-memory validation.
+func (si *SegmentInfos) SetInMemoryParentField(f string) {
+	si.mu.Lock()
+	defer si.mu.Unlock()
+	si.inMemoryParentField = f
+}
+
+// GetInMemoryIndexSort returns the indexSort recorded at commit time.
+func (si *SegmentInfos) GetInMemoryIndexSort() *Sort {
+	si.mu.RLock()
+	defer si.mu.RUnlock()
+	return si.inMemoryIndexSort
+}
+
+// SetInMemoryIndexSort records the indexSort for in-memory validation.
+func (si *SegmentInfos) SetInMemoryIndexSort(s *Sort) {
+	si.mu.Lock()
+	defer si.mu.Unlock()
+	si.inMemoryIndexSort = s
+}
+
 // Clone creates a deep copy of this SegmentInfos.
 // The segments list is copied but the SegmentCommitInfo references are shared.
 func (si *SegmentInfos) Clone() *SegmentInfos {
@@ -493,6 +529,38 @@ func WriteSegmentInfos(si *SegmentInfos, directory store.Directory) error {
 	if err := store.WriteInt64(out, si.counter); err != nil {
 		return err
 	}
+
+	// Write parentField (empty string if none).
+	if err := store.WriteString(out, si.inMemoryParentField); err != nil {
+		return err
+	}
+
+	// Write indexSort: numFields int32, then per field: name string, sortType int32, descending int32.
+	if si.inMemoryIndexSort == nil || len(si.inMemoryIndexSort.fields) == 0 {
+		if err := store.WriteInt32(out, 0); err != nil {
+			return err
+		}
+	} else {
+		if err := store.WriteInt32(out, int32(len(si.inMemoryIndexSort.fields))); err != nil {
+			return err
+		}
+		for _, sf := range si.inMemoryIndexSort.fields {
+			if err := store.WriteString(out, sf.field); err != nil {
+				return err
+			}
+			if err := store.WriteInt32(out, int32(sf.sortType)); err != nil {
+				return err
+			}
+			desc := int32(0)
+			if sf.descending {
+				desc = 1
+			}
+			if err := store.WriteInt32(out, desc); err != nil {
+				return err
+			}
+		}
+	}
+
 	if err := store.WriteInt32(out, int32(len(si.segments))); err != nil {
 		return err
 	}
@@ -635,6 +703,55 @@ func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
 		return nil, err
 	}
 
+	// Read parentField.
+	parentField, err := store.ReadString(in)
+	if err != nil {
+		// Older format without parentField — tolerate gracefully.
+		si := NewSegmentInfos()
+		si.generation = gen
+		si.lastGeneration = gen
+		si.version = version
+		si.indexCreatedVersionMajor = createdMajor
+		si.luceneVersion = luceneVersion
+		si.counter = counter
+		return si, nil
+	}
+
+	// Read indexSort.
+	numSortFields, err := store.ReadInt32(in)
+	if err != nil {
+		si := NewSegmentInfos()
+		si.generation = gen
+		si.lastGeneration = gen
+		si.version = version
+		si.indexCreatedVersionMajor = createdMajor
+		si.luceneVersion = luceneVersion
+		si.counter = counter
+		si.inMemoryParentField = parentField
+		return si, nil
+	}
+	var indexSort *Sort
+	if numSortFields > 0 {
+		fields := make([]SortField, 0, numSortFields)
+		for j := int32(0); j < numSortFields; j++ {
+			fname, err := store.ReadString(in)
+			if err != nil {
+				return nil, fmt.Errorf("reading sort field name: %w", err)
+			}
+			stRaw, err := store.ReadInt32(in)
+			if err != nil {
+				return nil, fmt.Errorf("reading sort type: %w", err)
+			}
+			descRaw, err := store.ReadInt32(in)
+			if err != nil {
+				return nil, fmt.Errorf("reading sort descending: %w", err)
+			}
+			sf := SortField{field: fname, sortType: SortType(stRaw), descending: descRaw != 0}
+			fields = append(fields, sf)
+		}
+		indexSort = &Sort{fields: fields}
+	}
+
 	numSegments, err := store.ReadInt32(in)
 	if err != nil {
 		return nil, err
@@ -647,6 +764,8 @@ func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
 	si.indexCreatedVersionMajor = createdMajor
 	si.luceneVersion = luceneVersion
 	si.counter = counter
+	si.inMemoryParentField = parentField
+	si.inMemoryIndexSort = indexSort
 
 	// Read segments
 	for i := 0; i < int(numSegments); i++ {

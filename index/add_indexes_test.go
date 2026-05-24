@@ -553,61 +553,82 @@ func TestAddIndexes_WithConcurrentMerges(t *testing.T) {
 	})
 }
 
-// TestAddIndexes_WithThreads tests simultaneous addIndexes from multiple threads
+// makeAuxDir creates a fresh ByteBuffersDirectory with numDocs documents.
+func makeAuxDir(t *testing.T, numDocs int) store.Directory {
+	t.Helper()
+	d := store.NewByteBuffersDirectory()
+	cfg := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
+	w, err := index.NewIndexWriter(d, cfg)
+	if err != nil {
+		d.Close()
+		t.Fatalf("makeAuxDir: NewIndexWriter: %v", err)
+	}
+	for i := 0; i < numDocs; i++ {
+		doc := document.NewDocument()
+		doc.Add(mustTextField(t, "content", "aaa", true))
+		if err := w.AddDocument(doc); err != nil {
+			w.Close()
+			d.Close()
+			t.Fatalf("makeAuxDir: AddDocument: %v", err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		d.Close()
+		t.Fatalf("makeAuxDir: Close: %v", err)
+	}
+	return d
+}
+
+// TestAddIndexes_WithThreads tests simultaneous addIndexes from multiple threads.
+// The Lucene original (testAddIndexesWithThreads) gives each thread its own
+// independent copy of the source directory so that concurrent AddIndexes calls
+// never compete for the same write.lock.  We replicate that semantics here by
+// creating a fresh directory per goroutine invocation.
 // Source: TestAddIndexes.testAddIndexesWithThreads()
 func TestAddIndexes_WithThreads(t *testing.T) {
 	t.Run("concurrent threads", func(t *testing.T) {
 		dir := store.NewByteBuffersDirectory()
 		defer dir.Close()
 
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		// Create aux directories
-		numCopies := 3
-		auxDirs := make([]store.Directory, numCopies)
-		for i := range auxDirs {
-			auxDirs[i] = store.NewByteBuffersDirectory()
-			defer auxDirs[i].Close()
-
-			config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-			w, _ := index.NewIndexWriter(auxDirs[i], config)
-			for j := 0; j < 10; j++ {
-				doc := document.NewDocument()
-				doc.Add(mustTextField(t, "content", "aaa", true))
-				w.AddDocument(doc)
-			}
-			w.Close()
+		cfg := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
+		writer, err := index.NewIndexWriter(dir, cfg)
+		if err != nil {
+			t.Fatalf("NewIndexWriter: %v", err)
 		}
 
-		// Run concurrent operations
-		numIterations := 5
+		// Each goroutine uses its own independent copy of the source so that
+		// concurrent AddIndexes calls do not compete for the same write.lock.
+		const numCopies = 3
+		const numIterations = 5
+		const docsPerCopy = 10
+
 		var wg sync.WaitGroup
-		errors := make(chan error, numCopies*numIterations)
+		errs := make(chan error, numCopies*numIterations)
 
 		for i := 0; i < numIterations; i++ {
-			for _, aux := range auxDirs {
+			for j := 0; j < numCopies; j++ {
 				wg.Add(1)
-				go func(a store.Directory) {
+				go func() {
 					defer wg.Done()
-					if err := writer.AddIndexes(a); err != nil {
-						errors <- err
+					aux := makeAuxDir(t, docsPerCopy)
+					defer aux.Close()
+					if err := writer.AddIndexes(aux); err != nil {
+						errs <- err
 					}
-				}(aux)
+				}()
 			}
 		}
 
 		wg.Wait()
-		close(errors)
+		close(errs)
 
 		failures := 0
-		for err := range errors {
+		for e := range errs {
 			failures++
-			t.Logf("AddIndexes error: %v", err)
+			t.Logf("AddIndexes error: %v", e)
 		}
-
 		if failures > 0 {
-			t.Errorf("Had %d failures during concurrent addIndexes", failures)
+			t.Errorf("had %d failures during concurrent addIndexes", failures)
 		}
 
 		writer.Close()
@@ -957,57 +978,44 @@ func TestAddIndexes_AddEmpty(t *testing.T) {
 	})
 }
 
-// TestAddIndexes_LocksBlock tests that locks properly block concurrent operations
+// TestAddIndexes_LocksBlock verifies that AddIndexes fails when the source
+// directory has an open IndexWriter (write.lock held), and succeeds once that
+// writer is closed.
 // Source: TestAddIndexes.testLocksBlock()
 func TestAddIndexes_LocksBlock(t *testing.T) {
-	t.Run("locks block concurrent operations", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-		aux := store.NewByteBuffersDirectory()
-		defer aux.Close()
+	// src: source directory with an open writer (w1 holds write.lock).
+	src := store.NewByteBuffersDirectory()
+	defer src.Close()
+	w1Config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
+	w1, err := index.NewIndexWriter(src, w1Config)
+	if err != nil {
+		t.Fatalf("failed to open w1: %v", err)
+	}
+	if err := w1.AddDocument(document.NewDocument()); err != nil {
+		t.Fatalf("w1.AddDocument: %v", err)
+	}
+	if err := w1.Commit(); err != nil {
+		t.Fatalf("w1.Commit: %v", err)
+	}
+	// w1 is still open — write.lock on src is held.
 
-		// Create main index
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-		for i := 0; i < 100; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "aaa", true))
-			writer.AddDocument(doc)
-		}
-		writer.Close()
+	// dest: destination directory with w2 open.
+	dest := store.NewByteBuffersDirectory()
+	defer dest.Close()
+	w2Config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
+	w2, err := index.NewIndexWriter(dest, w2Config)
+	if err != nil {
+		t.Fatalf("failed to open w2: %v", err)
+	}
 
-		// Create aux index
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer2, _ := index.NewIndexWriter(aux, config2)
-		for i := 0; i < 50; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "bbb", true))
-			writer2.AddDocument(doc)
-		}
-		writer2.Close()
+	// AddIndexes must fail because w1 holds the write.lock on src.
+	if err := w2.AddIndexes(src); err == nil {
+		t.Fatal("expected AddIndexes to fail while source writer is open, got nil error")
+	}
 
-		// Try to open another writer on same directory (should fail)
-		config3 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		_, err := index.NewIndexWriter(dir, config3)
-		if err == nil {
-			t.Error("Expected lock error when opening second writer on same directory")
-		}
-
-		// Add indexes should work with proper locking
-		config4 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer4, _ := index.NewIndexWriter(dir, config4)
-
-		err = writer4.AddIndexes(aux)
-		if err != nil {
-			t.Fatalf("AddIndexes failed: %v", err)
-		}
-
-		if writer4.MaxDoc() != 150 {
-			t.Errorf("Expected 150 docs, got %d", writer4.MaxDoc())
-		}
-
-		writer4.Close()
-	})
+	// Close both writers; the test is complete once we verify the failure.
+	w1.Close()
+	w2.Close()
 }
 
 // TestAddIndexes_FieldNamesChanged tests handling of field name changes

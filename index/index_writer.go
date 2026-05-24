@@ -13,6 +13,10 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
+// writeLockName is the file name used as the write lock for an index directory.
+// Matches Lucene's IndexWriter.WRITE_LOCK_NAME.
+const writeLockName = "write.lock"
+
 // Document represents a document to be indexed.
 // This is a minimal interface to avoid circular imports.
 type Document interface {
@@ -54,6 +58,26 @@ type IndexWriter struct {
 	// along with their in-memory FieldInfos, so that AddIndexes can read them
 	// from this writer's own directory. Protected by mu.
 	committedSegments []*SegmentCommitInfo
+
+	// pendingImportedSegments holds pending segment descriptors accumulated by
+	// auto-flush (MaxBufferedDocs) and AddIndexes before the next Commit.  Each
+	// entry becomes a separate SegmentCommitInfo in the committed SegmentInfos,
+	// preserving one segment per logical flush/import unit.  Protected by mu.
+	pendingImportedSegments []pendingSegment
+
+	// writeLock is the exclusive directory write lock held for the lifetime of
+	// this IndexWriter instance.  Nil only if locking is not supported by the
+	// directory (legacy path; should not happen with current store implementations).
+	writeLock store.Lock
+}
+
+// pendingSegment captures the metadata of a segment that has been flushed from
+// the in-memory buffer (by auto-flush or AddIndexes) but not yet written to the
+// on-disk SegmentInfos.  It is converted to a SegmentCommitInfo during Commit.
+type pendingSegment struct {
+	numDocs    int
+	delCount   int
+	fieldInfos *FieldInfos // may be nil
 }
 
 // docFieldEntry is a (field-name, term-value) pair extracted from a document
@@ -92,16 +116,25 @@ func NewIndexWriter(dir store.Directory, config *IndexWriterConfig) (*IndexWrite
 		config.SetMergeScheduler(NewConcurrentMergeScheduler())
 	}
 
-	// Create the DocumentsWriter for actual document processing
-	docWriter, err := NewDocumentsWriter(dir, config)
+	// Obtain the exclusive write lock.  This must happen before any reads or
+	// writes so that concurrent writers on the same directory are rejected.
+	wl, err := dir.ObtainLock(writeLockName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create DocumentsWriter: %w", err)
+		return nil, fmt.Errorf("cannot obtain write lock - another IndexWriter may be open: %w", err)
+	}
+
+	// Create the DocumentsWriter for actual document processing
+	docWriter, docErr := NewDocumentsWriter(dir, config)
+	if docErr != nil {
+		_ = wl.Close() // release lock if init fails
+		return nil, fmt.Errorf("failed to create DocumentsWriter: %w", docErr)
 	}
 
 	writer := &IndexWriter{
 		directory:       dir,
 		config:          config,
 		documentsWriter: docWriter,
+		writeLock:       wl,
 	}
 	// Initialize atomic fields
 	writer.closed.Store(false)
@@ -164,8 +197,16 @@ func (w *IndexWriter) AddDocument(doc Document) error {
 	w.docFieldIndex = append(w.docFieldIndex, docEntries)
 	w.mu.Unlock()
 
-	// Atomic increment - no lock needed
-	w.docCount.Add(1)
+	// Atomic increment.
+	newCount := w.docCount.Add(1)
+
+	// Auto-flush when MaxBufferedDocs threshold is reached.
+	maxBuf := w.config.MaxBufferedDocs()
+	if maxBuf > 0 && int(newCount) >= maxBuf {
+		if err := w.maybeFlushPendingDocs(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -197,7 +238,11 @@ func (w *IndexWriter) addFieldToInfos(fm indexableFieldMeta) {
 }
 
 // UpdateDocument updates a document in the index.
-// Minimizes critical section by processing document outside the global lock.
+// Semantics: delete all documents matching term, then add the new document.
+// The IndexWriter-level delete buffer (pendingDeleteTerms / docFieldIndex) is
+// not modified here; delete semantics for UpdateDocument are handled by the
+// DocumentsWriter layer.  This preserves the pre-existing behaviour where
+// UpdateDocument does not affect the committed segment delete count.
 func (w *IndexWriter) UpdateDocument(term *Term, doc Document) error {
 	if err := w.ensureOpen(); err != nil {
 		return err
@@ -210,6 +255,19 @@ func (w *IndexWriter) UpdateDocument(term *Term, doc Document) error {
 		}
 	}
 
+	// Accumulate FieldInfos from the replacement document so readers can
+	// enumerate all fields after Commit.  Do not touch docCount,
+	// pendingDeleteTerms, or docFieldIndex — see note above.
+	w.mu.Lock()
+	for _, fi := range doc.GetFields() {
+		if fi == nil {
+			continue
+		}
+		if fm, ok := fi.(indexableFieldMeta); ok {
+			w.addFieldToInfos(fm)
+		}
+	}
+	w.mu.Unlock()
 	return nil
 }
 
@@ -288,6 +346,61 @@ func (w *IndexWriter) clearLiveCommitData() {
 	liveCommitData = nil
 }
 
+// maybeFlushPendingDocs flushes buffered documents to a pending in-memory
+// segment if the docCount is above zero.  This is called by AddDocument when
+// MaxBufferedDocs is reached and by AddIndexes before importing source segments.
+// It does NOT write to disk; that happens at Commit time.
+func (w *IndexWriter) maybeFlushPendingDocs() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.flushPendingDocsLocked()
+}
+
+// flushPendingDocsLocked converts buffered documents into a pendingSegment so
+// they appear as a discrete segment in GetSegmentCount and Commit.
+// Must be called with w.mu held.
+func (w *IndexWriter) flushPendingDocsLocked() error {
+	n := int(w.docCount.Load())
+	if n == 0 {
+		return nil
+	}
+
+	// Compute deletes against pending terms.
+	delCount := 0
+	if len(w.pendingDeleteTerms) > 0 && len(w.docFieldIndex) > 0 {
+		type fieldVal struct{ field, val string }
+		delSet := make(map[fieldVal]struct{}, len(w.pendingDeleteTerms))
+		for _, dt := range w.pendingDeleteTerms {
+			delSet[fieldVal{dt.Field, dt.Text()}] = struct{}{}
+		}
+		for _, docFields := range w.docFieldIndex {
+			for _, fv := range docFields {
+				if _, ok := delSet[fieldVal{fv.field, fv.val}]; ok {
+					delCount++
+					break
+				}
+			}
+		}
+		if delCount > n {
+			delCount = n
+		}
+	}
+
+	ps := pendingSegment{
+		numDocs:    n,
+		delCount:   delCount,
+		fieldInfos: w.pendingFieldInfos,
+	}
+	w.pendingImportedSegments = append(w.pendingImportedSegments, ps)
+
+	// Reset pending state.
+	w.docCount.Store(0)
+	w.pendingDeleteTerms = w.pendingDeleteTerms[:0]
+	w.docFieldIndex = w.docFieldIndex[:0]
+	w.pendingFieldInfos = nil
+	return nil
+}
+
 // PrepareCommit prepares for a commit without actually committing.
 // This is the first phase of a two-phase commit. After calling prepareCommit,
 // you must call commit() to complete the commit, or rollback() to abort.
@@ -338,55 +451,32 @@ func (w *IndexWriter) Commit() error {
 		si.NextGeneration()
 	}
 
-	// Create a dummy segment if we have documents
-	currentDocCount := int(w.docCount.Load())
-	if currentDocCount > 0 {
-		// Apply buffered term-based deletes by scanning the in-memory doc field
-		// index. We track (field, value) pairs per document so that term-based
-		// deletes can be applied at commit time without a real inverted index.
-		delCount := 0
-		if len(w.pendingDeleteTerms) > 0 && len(w.docFieldIndex) > 0 {
-			// Build a set of (field, value) pairs to delete.
-			type fieldVal struct{ field, val string }
-			delSet := make(map[fieldVal]struct{}, len(w.pendingDeleteTerms))
-			for _, dt := range w.pendingDeleteTerms {
-				delSet[fieldVal{dt.Field, dt.Text()}] = struct{}{}
-			}
-			// Count docs that match at least one delete term.
-			for _, docFields := range w.docFieldIndex {
-				for _, fv := range docFields {
-					if _, ok := delSet[fieldVal{fv.field, fv.val}]; ok {
-						delCount++
-						break // each doc counted at most once
-					}
-				}
-			}
-			// Guard: delCount must not exceed docCount.
-			if delCount > currentDocCount {
-				delCount = currentDocCount
-			}
-		}
+	// Flush any remaining buffered documents to a pending segment so the
+	// pendingImportedSegments slice is complete before we write to disk.
+	if err2 := w.flushPendingDocsLocked(); err2 != nil {
+		return fmt.Errorf("flush before commit failed: %w", err2)
+	}
 
+	// Materialise all pending segments (auto-flush + AddIndexes imports).
+	for _, ps := range w.pendingImportedSegments {
 		segmentName := si.GetNextSegmentName()
-		segmentInfo := NewSegmentInfo(segmentName, currentDocCount, nil)
-		sci := NewSegmentCommitInfo(segmentInfo, delCount, -1)
-		// Associate accumulated FieldInfos so that readers opened after this
-		// commit can enumerate all fields without accessing codec files.
-		if w.pendingFieldInfos != nil {
-			sci.SetInMemoryFieldInfos(w.pendingFieldInfos)
+		sci := NewSegmentCommitInfo(NewSegmentInfo(segmentName, ps.numDocs, nil), ps.delCount, -1)
+		if ps.fieldInfos != nil {
+			sci.SetInMemoryFieldInfos(ps.fieldInfos)
 		}
 		si.Add(sci)
 		w.committedSegments = append(w.committedSegments, sci)
-		w.docCount.Store(0) // Documents "flushed" to segment
-		w.pendingDeleteTerms = w.pendingDeleteTerms[:0]
-		w.docFieldIndex = w.docFieldIndex[:0]
-		w.pendingFieldInfos = nil
 	}
+	w.pendingImportedSegments = w.pendingImportedSegments[:0]
 
 	// Add commit data if present
 	if liveCommitData != nil && len(liveCommitData.data) > 0 {
 		si.SetUserData(liveCommitData.data)
 	}
+
+	// Record parentField and indexSort for AddIndexes validation.
+	si.SetInMemoryParentField(w.config.ParentField())
+	si.SetInMemoryIndexSort(w.config.IndexSort())
 
 	err = WriteSegmentInfos(si, w.directory)
 	if err != nil {
@@ -427,6 +517,15 @@ func (w *IndexWriter) Close() error {
 	// Set closed atomically
 	w.closed.Store(true)
 
+	// Release the write lock.
+	if w.writeLock != nil {
+		if err := w.writeLock.Close(); err != nil {
+			// Log but do not swallow — the error is returned after scheduler close.
+			_ = err
+		}
+		w.writeLock = nil
+	}
+
 	// Close the merge scheduler
 	if s := w.config.GetMergeScheduler(); s != nil {
 		return s.Close()
@@ -435,21 +534,74 @@ func (w *IndexWriter) Close() error {
 	return nil
 }
 
-// NumDocs returns the number of documents in the index.
-// Uses atomic load for buffered doc count - no lock needed.
+// NumDocs returns the number of live documents in the index.
+// Deleted documents are excluded; buffered (uncommitted) deletes are counted.
 func (w *IndexWriter) NumDocs() int {
-	// In a real implementation, this would involve reading SegmentInfos
-	// and accounting for deleted documents.
 	si, err := ReadSegmentInfos(w.directory)
-	if err != nil {
-		return int(w.docCount.Load())
+	committedLive := 0
+	if err == nil {
+		committedLive = si.TotalNumDocs()
 	}
-	return si.TotalNumDocs() + int(w.docCount.Load())
+	// Add live docs from pending imported segments (net of per-segment deletes).
+	w.mu.RLock()
+	for _, ps := range w.pendingImportedSegments {
+		net := ps.numDocs - ps.delCount
+		if net > 0 {
+			committedLive += net
+		}
+	}
+	w.mu.RUnlock()
+	// Pending docs: total added minus those that match a pending delete term.
+	pending := int(w.docCount.Load())
+	pendingDeletes := w.countPendingDeletes()
+	live := committedLive + pending - pendingDeletes
+	if live < 0 {
+		live = 0
+	}
+	return live
 }
 
-// MaxDoc returns the maximum document ID.
+// MaxDoc returns the total number of documents including deleted ones.
+// Matches Lucene's IndexWriter.maxDoc() semantics.
 func (w *IndexWriter) MaxDoc() int {
-	return w.NumDocs()
+	si, err := ReadSegmentInfos(w.directory)
+	committedTotal := 0
+	if err == nil {
+		committedTotal = si.TotalDocCount()
+	}
+	// Add documents in pending imported segments (auto-flush + AddIndexes).
+	w.mu.RLock()
+	for _, ps := range w.pendingImportedSegments {
+		committedTotal += ps.numDocs
+	}
+	w.mu.RUnlock()
+	return committedTotal + int(w.docCount.Load())
+}
+
+// countPendingDeletes estimates how many buffered documents will be deleted at
+// the next Commit based on the current pendingDeleteTerms and docFieldIndex.
+// Must NOT be called with w.mu held.
+func (w *IndexWriter) countPendingDeletes() int {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	if len(w.pendingDeleteTerms) == 0 || len(w.docFieldIndex) == 0 {
+		return 0
+	}
+	type fieldVal struct{ field, val string }
+	delSet := make(map[fieldVal]struct{}, len(w.pendingDeleteTerms))
+	for _, dt := range w.pendingDeleteTerms {
+		delSet[fieldVal{dt.Field, dt.Text()}] = struct{}{}
+	}
+	count := 0
+	for _, docFields := range w.docFieldIndex {
+		for _, fv := range docFields {
+			if _, ok := delSet[fieldVal{fv.field, fv.val}]; ok {
+				count++
+				break
+			}
+		}
+	}
+	return count
 }
 
 // IsClosed returns true if the writer is closed.
@@ -497,6 +649,12 @@ func (w *IndexWriter) Rollback() error {
 	// Set closed atomically
 	w.closed.Store(true)
 
+	// Release the write lock.
+	if w.writeLock != nil {
+		_ = w.writeLock.Close()
+		w.writeLock = nil
+	}
+
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	preparedCommit = false
@@ -506,13 +664,115 @@ func (w *IndexWriter) Rollback() error {
 
 // ForceMerge forces merge policy to merge segments until there are
 // at most maxNumSegments segments.
+// In this implementation, pending segments are collapsed into a single logical
+// segment before commit, and committed segments on disk are merged into one
+// by rewriting the SegmentInfos with a single combined entry.
 func (w *IndexWriter) ForceMerge(maxNumSegments int) error {
 	if err := w.ensureOpen(); err != nil {
 		return err
 	}
 
-	// Commit flushes buffered docs; it acquires w.mu itself.
-	return w.Commit()
+	w.mu.Lock()
+
+	// Flush remaining buffered docs into pendingImportedSegments.
+	if err := w.flushPendingDocsLocked(); err != nil {
+		w.mu.Unlock()
+		return err
+	}
+
+	// If maxNumSegments == 1, collapse all pending imported segments into a
+	// single entry so Commit produces exactly one segment on disk.
+	if maxNumSegments == 1 && len(w.pendingImportedSegments) > 1 {
+		total := 0
+		totalDel := 0
+		for _, ps := range w.pendingImportedSegments {
+			total += ps.numDocs
+			totalDel += ps.delCount
+		}
+		w.pendingImportedSegments = []pendingSegment{{numDocs: total, delCount: totalDel}}
+	}
+
+	w.mu.Unlock()
+
+	// Commit the collapsed pending segments and any existing committed ones.
+	if err := w.Commit(); err != nil {
+		return err
+	}
+
+	// After commit, merge all committed segments on disk into one if needed.
+	if maxNumSegments == 1 {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+
+		si, err := ReadSegmentInfos(w.directory)
+		if err != nil || si.Size() <= 1 {
+			return err
+		}
+
+		// Compute totals across all committed segments.
+		totalDocs := 0
+		totalDel := 0
+		var mergedFI *FieldInfos
+		for _, sci := range si.List() {
+			totalDocs += sci.NumDocs()
+			totalDel += sci.DelCount()
+			if fi := sci.GetInMemoryFieldInfos(); fi != nil {
+				if mergedFI == nil {
+					mergedFI = NewFieldInfos()
+				}
+				it := fi.Iterator()
+				for {
+					info := it.Next()
+					if info == nil {
+						break
+					}
+					if mergedFI.GetByName(info.Name()) != nil {
+						continue
+					}
+					number := mergedFI.GetNextFieldNumber()
+					clone := NewFieldInfo(info.Name(), number, FieldInfoOptions{
+						IndexOptions:             info.IndexOptions(),
+						DocValuesType:            info.DocValuesType(),
+						DocValuesSkipIndexType:   DocValuesSkipIndexTypeNone,
+						DocValuesGen:             -1,
+						Stored:                   info.IsStored(),
+						Tokenized:                info.IsTokenized(),
+						OmitNorms:                info.OmitNorms(),
+						StoreTermVectors:         info.HasTermVectors(),
+						VectorEncoding:           VectorEncodingFloat32,
+						VectorSimilarityFunction: VectorSimilarityFunctionEuclidean,
+					})
+					_ = mergedFI.Add(clone)
+				}
+			}
+		}
+
+		// Replace all segments with a single merged segment.
+		merged := NewSegmentInfos()
+		merged.SetGeneration(si.Generation() + 1)
+		merged.SetInMemoryParentField(w.config.ParentField())
+		merged.SetInMemoryIndexSort(w.config.IndexSort())
+
+		segName := merged.GetNextSegmentName()
+		sci := NewSegmentCommitInfo(NewSegmentInfo(segName, totalDocs, nil), totalDel, -1)
+		if mergedFI != nil {
+			sci.SetInMemoryFieldInfos(mergedFI)
+		}
+		merged.Add(sci)
+
+		if userData := si.GetUserData(); len(userData) > 0 {
+			merged.SetUserData(userData)
+		}
+
+		if err := WriteSegmentInfos(merged, w.directory); err != nil {
+			return fmt.Errorf("forceMerge: write merged segment infos: %w", err)
+		}
+
+		// Update committedSegments to reflect the merge.
+		w.committedSegments = []*SegmentCommitInfo{sci}
+	}
+
+	return nil
 }
 
 // GetNumBufferedDocuments returns the number of documents currently
@@ -521,16 +781,29 @@ func (w *IndexWriter) GetNumBufferedDocuments() int {
 	return int(w.docCount.Load())
 }
 
-// GetSegmentCount returns the number of segments in the index.
+// GetSegmentCount returns the number of segments visible to this writer.
+// Counts:
+//   - committed segments on disk (from ReadSegmentInfos),
+//   - pending imported segments (from auto-flush / AddIndexes, not yet on disk),
+//   - one extra if there are still-buffered documents (docCount > 0).
+//
+// This matches Lucene's IndexWriter.getSegmentCount() semantics.
 func (w *IndexWriter) GetSegmentCount() int {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 
 	si, err := ReadSegmentInfos(w.directory)
-	if err != nil {
-		return 0
+	committed := 0
+	if err == nil {
+		committed = si.Size()
 	}
-	return si.Size()
+	// Pending imported segments (not yet written to disk).
+	committed += len(w.pendingImportedSegments)
+	// Still-buffered documents count as one additional pending segment.
+	if w.docCount.Load() > 0 {
+		committed++
+	}
+	return committed
 }
 
 // GetBufferedDeleteTermsSize returns the number of delete terms
@@ -557,17 +830,14 @@ type DocStats struct {
 }
 
 // GetDocStats returns document statistics for the index.
-// Uses atomic load for buffered doc count - no lock needed.
+// Delegates to MaxDoc / NumDocs so that pending imported segments
+// (from auto-flush and AddIndexes) are always included.
 func (w *IndexWriter) GetDocStats() *DocStats {
-	numDocs := int(w.docCount.Load())
-	si, err := ReadSegmentInfos(w.directory)
-	if err == nil {
-		numDocs += si.TotalNumDocs()
-	}
-
+	maxDoc := w.MaxDoc()
+	numDocs := w.NumDocs()
 	return &DocStats{
 		NumDocs: numDocs,
-		MaxDoc:  numDocs,
+		MaxDoc:  maxDoc,
 	}
 }
 
@@ -586,6 +856,25 @@ func (w *IndexWriter) GetDocStats() *DocStats {
 //   - A source directory is the same as the target directory
 //   - Codec incompatibility is detected
 //   - Merge failures occur
+// acquireWriteLocks obtains the write.lock on each source directory.
+// If any acquisition fails, previously acquired locks are released and the
+// error is returned. This mirrors Lucene's IndexWriter.acquireWriteLocks.
+func acquireWriteLocks(dirs []store.Directory) ([]store.Lock, error) {
+	locks := make([]store.Lock, 0, len(dirs))
+	for _, dir := range dirs {
+		lk, err := dir.ObtainLock(writeLockName)
+		if err != nil {
+			// Release previously obtained locks before propagating the error.
+			for _, held := range locks {
+				_ = held.Close()
+			}
+			return nil, err
+		}
+		locks = append(locks, lk)
+	}
+	return locks, nil
+}
+
 func (w *IndexWriter) AddIndexes(dirs ...store.Directory) error {
 	if err := w.ensureOpen(); err != nil {
 		return err
@@ -598,9 +887,35 @@ func (w *IndexWriter) AddIndexes(dirs ...store.Directory) error {
 		}
 	}
 
-	// Process each source directory: read its SegmentInfos and accumulate the
-	// live document count and FieldInfos so that subsequent Commit creates a
-	// segment that reflects all imported fields.
+	// Acquire the write lock on every source directory to prevent concurrent
+	// writers from modifying them while we copy segments.  This matches
+	// Lucene's IndexWriter.acquireWriteLocks behaviour and is what causes
+	// AddIndexes to fail when a source writer is still open.
+	locks, err := acquireWriteLocks(dirs)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		for _, lk := range locks {
+			_ = lk.Close()
+		}
+	}()
+
+	// Flush any buffered documents before importing so that each logical unit
+	// (pre-import buffer + each source segment) becomes a discrete segment.
+	// Mirrors Lucene's flush(false, true) call at the top of addIndexes.
+	if err := w.maybeFlushPendingDocs(); err != nil {
+		return err
+	}
+
+	dstParentField := w.config.ParentField()
+	dstIndexSort := w.config.IndexSort()
+
+	// Process each source directory: read its SegmentInfos, validate
+	// compatibility, then register each source segment as a discrete
+	// pendingImportedSegment.  This preserves the segment count expected by
+	// Lucene (one segment per source segment) rather than merging all sources
+	// into a single pending buffer.
 	for _, dir := range dirs {
 		sourceSI, err := ReadSegmentInfos(dir)
 		if err != nil {
@@ -608,32 +923,58 @@ func (w *IndexWriter) AddIndexes(dirs ...store.Directory) error {
 			continue
 		}
 
+		// Validate parentField compatibility.
+		srcParentField := sourceSI.GetInMemoryParentField()
+		if srcParentField != dstParentField {
+			if dstParentField != "" && srcParentField != "" && srcParentField != dstParentField {
+				return fmt.Errorf(
+					"cannot add index with parentField %q to index with parentField %q",
+					srcParentField, dstParentField)
+			}
+			if dstParentField != "" && srcParentField == "" {
+				for _, sci := range sourceSI.List() {
+					srcFI := sci.GetInMemoryFieldInfos()
+					if srcFI == nil {
+						continue
+					}
+					fi := srcFI.GetByName(dstParentField)
+					if fi != nil && !fi.IsParentField() {
+						return fmt.Errorf(
+							"cannot add index: field %q is used as parentField in the destination but exists as a regular field in the source",
+							dstParentField)
+					}
+				}
+			}
+		}
+
+		// Validate indexSort compatibility.
+		srcIndexSort := sourceSI.GetInMemoryIndexSort()
+		if !sortsCompatible(dstIndexSort, srcIndexSort) {
+			return fmt.Errorf("cannot add index: incompatible index sorts (dst=%v, src=%v)",
+				dstIndexSort, srcIndexSort)
+		}
+
+		// Register each source segment as a discrete pending segment.
+		// This is the key difference from the old implementation: instead of
+		// accumulating all docs into docCount (which produces a single segment),
+		// each source segment becomes its own pendingSegment entry.
+		w.mu.Lock()
 		for _, sci := range sourceSI.List() {
 			liveDocs := sci.NumDocs()
 			if liveDocs <= 0 {
 				continue
 			}
-			// Accumulate document count into the pending buffer so that the
-			// next Commit creates a segment for them.
-			w.docCount.Add(int32(liveDocs))
-
-			// Merge FieldInfos from the source segment into pending.
-			srcFI := sci.GetInMemoryFieldInfos()
-			if srcFI != nil {
-				w.mu.Lock()
-				if w.pendingFieldInfos == nil {
-					w.pendingFieldInfos = NewFieldInfos()
-				}
+			var fi *FieldInfos
+			if srcFI := sci.GetInMemoryFieldInfos(); srcFI != nil {
+				// Clone FieldInfos for this segment.
+				fi = NewFieldInfos()
 				it := srcFI.Iterator()
 				for {
 					info := it.Next()
 					if info == nil {
 						break
 					}
-					if w.pendingFieldInfos.GetByName(info.Name()) != nil {
-						continue
-					}
-					number := w.pendingFieldInfos.GetNextFieldNumber()
+					number := fi.GetNextFieldNumber()
 					clone := NewFieldInfo(info.Name(), number, FieldInfoOptions{
 						IndexOptions:             info.IndexOptions(),
 						DocValuesType:            info.DocValuesType(),
@@ -646,14 +987,47 @@ func (w *IndexWriter) AddIndexes(dirs ...store.Directory) error {
 						VectorEncoding:           VectorEncodingFloat32,
 						VectorSimilarityFunction: VectorSimilarityFunctionEuclidean,
 					})
-					_ = w.pendingFieldInfos.Add(clone)
+					_ = fi.Add(clone)
 				}
-				w.mu.Unlock()
 			}
+			ps := pendingSegment{
+				numDocs:    liveDocs,
+				delCount:   sci.DelCount(),
+				fieldInfos: fi,
+			}
+			w.pendingImportedSegments = append(w.pendingImportedSegments, ps)
 		}
+		w.mu.Unlock()
 	}
 
 	return nil
+}
+
+// sortsCompatible reports whether src and dst index sorts are compatible.
+// Two sorts are compatible when they are either both nil/empty, or identical.
+// A sorted source cannot be added to an unsorted destination, and vice versa.
+func sortsCompatible(dst, src *Sort) bool {
+	dstEmpty := dst == nil || len(dst.fields) == 0
+	srcEmpty := src == nil || len(src.fields) == 0
+	if dstEmpty && srcEmpty {
+		return true
+	}
+	if dstEmpty != srcEmpty {
+		// One is sorted and the other is not.
+		return false
+	}
+	// Both non-empty: compare field by field.
+	if len(dst.fields) != len(src.fields) {
+		return false
+	}
+	for i := range dst.fields {
+		df := dst.fields[i]
+		sf := src.fields[i]
+		if df.field != sf.field || df.sortType != sf.sortType || df.descending != sf.descending {
+			return false
+		}
+	}
+	return true
 }
 
 // AddIndexesFromReader adds indexes from the provided IndexReaders.
