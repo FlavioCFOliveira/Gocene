@@ -32,35 +32,35 @@ func NewLimitTokenOffsetFilter(input TokenStream, maxStartOffset int) *LimitToke
 }
 
 // IncrementToken advances to the next token, filtering by start offset.
+// Tokens with startOffset >= maxStartOffset are excluded; the stream ends on
+// the first such token (matching Lucene's LimitTokenOffsetFilter behaviour).
 func (f *LimitTokenOffsetFilter) IncrementToken() (bool, error) {
 	if f.exceeded {
 		return false, nil
 	}
 
-	for {
-		hasToken, err := f.input.IncrementToken()
-		if err != nil {
-			return false, err
-		}
-		if !hasToken {
-			return false, nil
-		}
+	hasToken, err := f.input.IncrementToken()
+	if err != nil {
+		return false, err
+	}
+	if !hasToken {
+		return false, nil
+	}
 
-		// Check if this token's start offset exceeds the limit
-		attrSrc := f.GetAttributeSource()
-		if attrSrc != nil {
-			if attr := attrSrc.GetAttribute(OffsetAttributeType); attr != nil {
-				if offsetAttr, ok := attr.(OffsetAttribute); ok {
-					if offsetAttr.StartOffset() > f.maxStartOffset {
-						f.exceeded = true
-						return false, nil
-					}
+	// Accept only tokens whose start offset is strictly less than the limit.
+	attrSrc := f.GetAttributeSource()
+	if attrSrc != nil {
+		if attr := attrSrc.GetAttribute(OffsetAttributeType); attr != nil {
+			if offsetAttr, ok := attr.(OffsetAttribute); ok {
+				if offsetAttr.StartOffset() >= f.maxStartOffset {
+					f.exceeded = true
+					return false, nil
 				}
 			}
 		}
-
-		return true, nil
 	}
+
+	return true, nil
 }
 
 // GetMaxStartOffset returns the maximum start offset allowed.
