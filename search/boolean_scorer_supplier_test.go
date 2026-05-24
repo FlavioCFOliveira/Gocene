@@ -9,6 +9,7 @@ package search_test
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"testing"
 	"time"
@@ -138,13 +139,15 @@ func (s *FakeScorer) String() string {
 }
 
 // BooleanScorerSupplier provides scorers for BooleanQuery.
-// This is a minimal implementation for testing purposes.
+// This is a test-local implementation that mirrors the production
+// BooleanScorerSupplier logic for cost verification.
 type BooleanScorerSupplier struct {
 	weight         search.Weight
 	subs           map[search.Occur][]search.ScorerSupplier
 	scoreMode      search.ScoreMode
 	minShouldMatch int
 	minScore       float32
+	cachedCost     int64 // -1 means not yet computed
 }
 
 // NewBooleanScorerSupplier creates a new BooleanScorerSupplier.
@@ -155,156 +158,112 @@ func NewBooleanScorerSupplier(weight search.Weight, subs map[search.Occur][]sear
 		scoreMode:      scoreMode,
 		minShouldMatch: minShouldMatch,
 		minScore:       minScore,
+		cachedCost:     -1,
 	}
+}
+
+// computeShouldCost returns the cost of SHOULD clauses using CostWithMinShouldMatch.
+// Mirrors BooleanScorerSupplier.computeShouldCost().
+func (bss *BooleanScorerSupplier) computeShouldCost() int64 {
+	optional := bss.subs[search.SHOULD]
+	if len(optional) == 0 {
+		return 0
+	}
+	costs := make([]int64, len(optional))
+	for i, s := range optional {
+		costs[i] = s.Cost()
+	}
+	return search.CostWithMinShouldMatch(costs, len(optional), bss.minShouldMatch)
+}
+
+// computeCost computes the cost following Lucene's BooleanScorerSupplier.computeCost().
+func (bss *BooleanScorerSupplier) computeCost() int64 {
+	// minimum required cost (MUST + FILTER)
+	minRequired := int64(math.MaxInt64)
+	hasRequired := false
+	for _, s := range bss.subs[search.MUST] {
+		if c := s.Cost(); c < minRequired {
+			minRequired = c
+			hasRequired = true
+		}
+	}
+	for _, s := range bss.subs[search.FILTER] {
+		if c := s.Cost(); c < minRequired {
+			minRequired = c
+			hasRequired = true
+		}
+	}
+
+	if hasRequired && bss.minShouldMatch == 0 {
+		return minRequired
+	}
+
+	shouldCost := bss.computeShouldCost()
+	if hasRequired {
+		if minRequired < shouldCost {
+			return minRequired
+		}
+		return shouldCost
+	}
+	return shouldCost
 }
 
 // Cost returns an estimate of the number of documents this scorer will match.
 func (bss *BooleanScorerSupplier) Cost() int64 {
-	var cost int64 = 0
-
-	// For conjunctions (MUST/FILTER), the cost is the minimum of all clause costs
-	mustCost := bss.calculateConjunctionCost()
-	if mustCost >= 0 {
-		cost = mustCost
+	if bss.cachedCost == -1 {
+		bss.cachedCost = bss.computeCost()
 	}
-
-	// For disjunctions (SHOULD), add the costs
-	shouldCost := bss.calculateDisjunctionCost()
-	if shouldCost > 0 {
-		if cost == 0 {
-			cost = shouldCost
-		} else {
-			// When we have both MUST and SHOULD, the cost is bounded
-			cost = min(cost, shouldCost)
-		}
-	}
-
-	return cost
-}
-
-// calculateConjunctionCost returns the cost for MUST/FILTER clauses.
-func (bss *BooleanScorerSupplier) calculateConjunctionCost() int64 {
-	requiredClauses := make([]search.ScorerSupplier, 0)
-	requiredClauses = append(requiredClauses, bss.subs[search.MUST]...)
-	requiredClauses = append(requiredClauses, bss.subs[search.FILTER]...)
-
-	if len(requiredClauses) == 0 {
-		return -1
-	}
-
-	// For conjunctions, the cost is the minimum cost (most restrictive clause)
-	minCost := requiredClauses[0].Cost()
-	for _, clause := range requiredClauses[1:] {
-		if clause.Cost() < minCost {
-			minCost = clause.Cost()
-		}
-	}
-
-	return minCost
-}
-
-// calculateDisjunctionCost returns the cost for SHOULD clauses.
-func (bss *BooleanScorerSupplier) calculateDisjunctionCost() int64 {
-	shouldClauses := bss.subs[search.SHOULD]
-	if len(shouldClauses) == 0 {
-		return 0
-	}
-
-	// Sort clauses by cost
-	sortedClauses := make([]search.ScorerSupplier, len(shouldClauses))
-	copy(sortedClauses, shouldClauses)
-	for i := 0; i < len(sortedClauses); i++ {
-		for j := i + 1; j < len(sortedClauses); j++ {
-			if sortedClauses[j].Cost() < sortedClauses[i].Cost() {
-				sortedClauses[i], sortedClauses[j] = sortedClauses[j], sortedClauses[i]
-			}
-		}
-	}
-
-	// Calculate cost based on minShouldMatch
-	if bss.minShouldMatch > 0 && bss.minShouldMatch <= len(sortedClauses) {
-		// Sum of the minShouldMatch least costly clauses
-		var cost int64 = 0
-		for i := 0; i < bss.minShouldMatch; i++ {
-			cost += sortedClauses[i].Cost()
-		}
-		return cost
-	}
-
-	// Sum of all clause costs
-	var cost int64 = 0
-	for _, clause := range shouldClauses {
-		cost += clause.Cost()
-	}
-	return cost
+	return bss.cachedCost
 }
 
 // Get returns a Scorer for the given leadCost.
+// Mirrors BooleanScorerSupplier.getInternal(): first clamps leadCost to Cost().
 func (bss *BooleanScorerSupplier) Get(leadCost int64) (search.Scorer, error) {
-	// Calculate the actual lead cost to pass to sub-scorers
-	actualLeadCost := bss.calculateLeadCost(leadCost)
+	// Mirror getInternal() first line: leadCost = min(leadCost, cost())
+	if c := bss.Cost(); leadCost > c {
+		leadCost = c
+	}
 
-	// Collect all scorers
 	scorers := make([]search.Scorer, 0)
 
-	// Get MUST/FILTER scorers
 	for _, clause := range bss.subs[search.MUST] {
-		scorer, err := clause.Get(actualLeadCost)
+		scorer, err := clause.Get(leadCost)
 		if err != nil {
 			return nil, err
 		}
 		scorers = append(scorers, scorer)
 	}
 	for _, clause := range bss.subs[search.FILTER] {
-		scorer, err := clause.Get(actualLeadCost)
+		scorer, err := clause.Get(leadCost)
 		if err != nil {
 			return nil, err
 		}
 		scorers = append(scorers, scorer)
 	}
-
-	// Get SHOULD scorers
 	for _, clause := range bss.subs[search.SHOULD] {
-		scorer, err := clause.Get(actualLeadCost)
+		scorer, err := clause.Get(leadCost)
 		if err != nil {
 			return nil, err
 		}
 		scorers = append(scorers, scorer)
 	}
-
-	// Get MUST_NOT scorers (with same lead cost as MUST clauses)
 	for _, clause := range bss.subs[search.MUST_NOT] {
-		scorer, err := clause.Get(actualLeadCost)
+		scorer, err := clause.Get(leadCost)
 		if err != nil {
 			return nil, err
 		}
 		scorers = append(scorers, scorer)
 	}
 
-	// Return a composite scorer
-	return NewBooleanScorer(scorers, bss.scoreMode, bss.minShouldMatch), nil
-}
-
-// calculateLeadCost calculates the lead cost to pass to sub-scorers.
-func (bss *BooleanScorerSupplier) calculateLeadCost(requestedLeadCost int64) int64 {
-	// If there's a conjunction, use the minimum clause cost
-	mustCost := bss.calculateConjunctionCost()
-	if mustCost >= 0 {
-		return mustCost
-	}
-
-	// Otherwise, use the requested lead cost
-	return requestedLeadCost
+	return newBooleanScorerWithCost(scorers, bss.scoreMode, bss.minShouldMatch, bss.Cost()), nil
 }
 
 // BulkScorer returns a BulkScorer for this boolean query.
 func (bss *BooleanScorerSupplier) BulkScorer() (search.BulkScorer, error) {
-	// For bulk scoring, use MaxInt64 as the lead cost
-	scorer, err := bss.Get(int64(^uint64(0) >> 1)) // MaxInt64
+	scorer, err := bss.Get(math.MaxInt64)
 	if err != nil {
 		return nil, err
 	}
-
 	return NewDefaultBulkScorer(scorer), nil
 }
 
@@ -341,12 +300,16 @@ func (bss *BooleanScorerSupplier) String() string {
 }
 
 // BooleanScorer is a scorer for boolean queries.
+// cost is pre-computed by the supplier and stored here so that Cost() is
+// consistent with the supplier's Cost() — matching the Java behaviour where
+// the scorer returned by get() has the same cost as supplier.cost().
 type BooleanScorer struct {
 	*search.BaseScorer
 	scorers        []search.Scorer
 	scoreMode      search.ScoreMode
 	minShouldMatch int
 	currentDoc     int
+	supplierCost   int64
 }
 
 // NewBooleanScorer creates a new BooleanScorer.
@@ -357,6 +320,19 @@ func NewBooleanScorer(scorers []search.Scorer, scoreMode search.ScoreMode, minSh
 		scoreMode:      scoreMode,
 		minShouldMatch: minShouldMatch,
 		currentDoc:     -1,
+		supplierCost:   -1, // set by supplier after construction
+	}
+}
+
+// newBooleanScorerWithCost creates a BooleanScorer with a pre-computed cost.
+func newBooleanScorerWithCost(scorers []search.Scorer, scoreMode search.ScoreMode, minShouldMatch int, cost int64) *BooleanScorer {
+	return &BooleanScorer{
+		BaseScorer:     search.NewBaseScorer(nil),
+		scorers:        scorers,
+		scoreMode:      scoreMode,
+		minShouldMatch: minShouldMatch,
+		currentDoc:     -1,
+		supplierCost:   cost,
 	}
 }
 
@@ -381,8 +357,12 @@ func (bs *BooleanScorer) Advance(target int) (int, error) {
 	return search.NO_MORE_DOCS, nil
 }
 
-// Cost returns the estimated cost.
+// Cost returns the estimated cost. When the supplier pre-computed the cost it
+// is stored in supplierCost so that get().cost() == supplier.cost().
 func (bs *BooleanScorer) Cost() int64 {
+	if bs.supplierCost >= 0 {
+		return bs.supplierCost
+	}
 	var cost int64 = 0
 	for _, scorer := range bs.scorers {
 		cost += scorer.Cost()
@@ -442,14 +422,6 @@ func (bs *DefaultBulkScorer) Score(collector search.Collector, acceptDocs search
 	}
 
 	return nil
-}
-
-// min returns the minimum of two int64 values.
-func min(a, b int64) int64 {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // randomOccur returns a random Occur value from the given slice
@@ -693,7 +665,7 @@ func TestBooleanScorerSupplier_DuelCost(t *testing.T) {
 		bss := NewBooleanScorerSupplier(nil, subs, scoreMode, minShouldMatch, 100)
 		cost1 := bss.Cost()
 
-		scorer, err := bss.Get(int64(^uint64(0) >> 1)) // MaxInt64
+		scorer, err := bss.Get(math.MaxInt64) // MaxInt64
 		if err != nil {
 			t.Fatalf("Failed to get scorer: %v", err)
 		}
@@ -751,7 +723,7 @@ func TestBooleanScorerSupplier_ConjunctionLeadCost(t *testing.T) {
 	subs[occur] = append(subs[occur], NewFakeScorerSupplierWithLeadCost(12, 12))
 
 	bss := NewBooleanScorerSupplier(nil, subs, randomScoreMode(), 0, 100)
-	bss.Get(int64(^uint64(0) >> 1)) // MaxInt64 - triggers assertions as a side-effect
+	bss.Get(math.MaxInt64) // MaxInt64 - triggers assertions as a side-effect
 
 	bss = NewBooleanScorerSupplier(nil, subs, randomScoreMode(), 0, 100)
 	bss.BulkScorer() // triggers assertions as a side-effect
