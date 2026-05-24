@@ -146,28 +146,10 @@ func (q *FuzzyQuery) HashCode() int {
 	return hash
 }
 
-// Rewrite rewrites the query by expanding fuzzy terms.
-// This method finds all terms within the specified edit distance and
-// creates a BooleanQuery with SHOULD clauses for each matching term.
+// Rewrite returns the query as-is; full multi-term expansion is deferred until
+// a TermsEnum-capable IndexReader is available in the query engine.
 func (q *FuzzyQuery) Rewrite(reader IndexReader) (Query, error) {
-	if q.term == nil || q.term.Field == "" || q.term.Text() == "" {
-		return NewMatchNoDocsQuery(), nil
-	}
-
-	if q.maxEdits < 0 || q.maxEdits > 2 {
-		return NewMatchNoDocsQuery(), nil
-	}
-
-	// Get the term text
-	termText := q.term.Text()
-	if len(termText) <= q.prefixLength {
-		return NewMatchNoDocsQuery(), nil
-	}
-
-	// This implementation returns the query as-is
-	// Full implementation would scan the term dictionary and find fuzzy matches
-	// For now, we return a simple TermQuery as the rewritten form
-	return NewTermQuery(q.term), nil
+	return q, nil
 }
 
 // CreateWeight creates a Weight for this query.
@@ -175,15 +157,13 @@ func (q *FuzzyQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boo
 	return NewTermWeight(q, q.term, searcher, needsScores), nil
 }
 
-// String returns a string representation of the query.
+// String returns the Lucene-canonical representation "field:text~maxEdits".
+// For a nil term the output is "<nil>~maxEdits".
 func (q *FuzzyQuery) String(field string) string {
 	if q.term == nil {
-		return "<nil>~"
+		return fmt.Sprintf("<nil>~%d", q.maxEdits)
 	}
-	if field != "" && field == q.term.Field {
-		return q.term.Text() + fmt.Sprintf("~%d", q.maxEdits)
-	}
-	return q.term.String() + fmt.Sprintf("~%d", q.maxEdits)
+	return fmt.Sprintf("%s:%s~%d", q.term.Field, q.term.Text(), q.maxEdits)
 }
 
 // NewFuzzyQueryWithStrings creates a new FuzzyQuery using strings.
