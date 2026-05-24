@@ -120,10 +120,11 @@ func TestBooleanRewrites_OneClauseRewriteOptimization(t *testing.T) {
 }
 
 // TestBooleanRewrites_SingleFilterClause tests that single FILTER clauses rewrite correctly.
+// Per Lucene 10.4.0: a single FILTER clause rewrites to BoostQuery(ConstantScoreQuery(inner), 0)
+// so that needsScores=false is propagated to the inner query scorer.
 func TestBooleanRewrites_SingleFilterClause(t *testing.T) {
 	reader := NewMockIndexReader(0, 0, 1)
 
-	// Single FILTER clause rewrites to ConstantScoreQuery with score 0
 	bq := NewBooleanQuery()
 	bq.Add(NewTermQuery(index.NewTerm("field", "a")), FILTER)
 
@@ -132,13 +133,17 @@ func TestBooleanRewrites_SingleFilterClause(t *testing.T) {
 		t.Fatalf("Rewrite failed: %v", err)
 	}
 
-	csq, ok := rewritten.(*ConstantScoreQuery)
+	bqr, ok := rewritten.(*BoostQuery)
 	if !ok {
-		t.Fatalf("Expected ConstantScoreQuery, got %T", rewritten)
+		t.Fatalf("Expected BoostQuery, got %T", rewritten)
 	}
 
-	if csq.Score() != 0.0 {
-		t.Errorf("Expected score 0.0, got %f", csq.Score())
+	if bqr.Boost() != 0.0 {
+		t.Errorf("Expected boost 0.0, got %f", bqr.Boost())
+	}
+
+	if _, ok := bqr.Query().(*ConstantScoreQuery); !ok {
+		t.Errorf("Expected inner ConstantScoreQuery, got %T", bqr.Query())
 	}
 }
 

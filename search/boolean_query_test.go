@@ -83,14 +83,14 @@ func TestBooleanQuery_OccurString(t *testing.T) {
 }
 
 func TestBooleanQuery_Rewrite(t *testing.T) {
-	// Empty query rewrites to MatchAllDocsQuery
+	// Empty query rewrites to MatchNoDocsQuery (Lucene 10.4.0 behaviour).
 	bqEmpty := NewBooleanQuery()
 	rewritten, _ := bqEmpty.Rewrite(nil)
-	if _, ok := rewritten.(*MatchAllDocsQuery); !ok {
-		t.Errorf("Empty BooleanQuery should rewrite to MatchAllDocsQuery, got %T", rewritten)
+	if _, ok := rewritten.(*MatchNoDocsQuery); !ok {
+		t.Errorf("Empty BooleanQuery should rewrite to MatchNoDocsQuery, got %T", rewritten)
 	}
 
-	// Single MUST clause rewrites to subquery
+	// Single MUST clause rewrites to subquery.
 	tq := NewTermQuery(index.NewTerm("f", "v"))
 	bqSingle := NewBooleanQuery()
 	bqSingle.Add(tq, MUST)
@@ -103,19 +103,23 @@ func TestBooleanQuery_Rewrite(t *testing.T) {
 		t.Error("Rewritten query should equal original subquery")
 	}
 
-	// Single FILTER clause rewrites to ConstantScoreQuery
+	// Single FILTER clause rewrites to BoostQuery(ConstantScoreQuery(inner), 0)
+	// per Lucene 10.4.0: boost=0 propagates needsScores=false to the inner scorer.
 	bqFilter := NewBooleanQuery()
 	bqFilter.Add(tq, FILTER)
 	rewritten, _ = bqFilter.Rewrite(nil)
-	csq, ok := rewritten.(*ConstantScoreQuery)
+	bqr, ok := rewritten.(*BoostQuery)
 	if !ok {
-		t.Fatalf("Single FILTER clause BooleanQuery should rewrite to ConstantScoreQuery, got %T", rewritten)
+		t.Fatalf("Single FILTER clause BooleanQuery should rewrite to BoostQuery, got %T", rewritten)
 	}
-	if csq.Score() != 0.0 {
-		t.Errorf("FILTER ConstantScoreQuery should have 0 score, got %f", csq.Score())
+	if bqr.Boost() != 0.0 {
+		t.Errorf("FILTER BoostQuery should have boost 0, got %f", bqr.Boost())
+	}
+	if _, ok := bqr.Query().(*ConstantScoreQuery); !ok {
+		t.Errorf("Inner query should be ConstantScoreQuery, got %T", bqr.Query())
 	}
 
-	// Nested BooleanQuery rewrite
+	// Nested BooleanQuery rewrite.
 	bqNested := NewBooleanQuery()
 	bqInner := NewBooleanQuery()
 	bqInner.Add(tq, MUST)
@@ -136,14 +140,20 @@ func TestBooleanQuery_MinShouldMatchRewrite(t *testing.T) {
 	bq.Add(tq2, SHOULD)
 	bq.SetMinimumNumberShouldMatch(2)
 
-	// For now, Rewrite doesn't simplify this, but we should verify it stays a BooleanQuery
+	// When SHOULD count equals minShouldMatch, Lucene converts SHOULDs to MUSTs
+	// and resets minShouldMatch to 0 (step 14 of BooleanQuery.rewriteStep).
 	rewritten, _ := bq.Rewrite(nil)
 	bqRewritten, ok := rewritten.(*BooleanQuery)
 	if !ok {
 		t.Fatalf("Expected BooleanQuery, got %T", rewritten)
 	}
-	if bqRewritten.MinimumNumberShouldMatch() != 2 {
-		t.Errorf("Expected minShouldMatch 2, got %d", bqRewritten.MinimumNumberShouldMatch())
+	if bqRewritten.MinimumNumberShouldMatch() != 0 {
+		t.Errorf("Expected minShouldMatch 0 after SHOULD→MUST conversion, got %d", bqRewritten.MinimumNumberShouldMatch())
+	}
+	for _, c := range bqRewritten.Clauses() {
+		if c.Occur != MUST {
+			t.Errorf("Expected all clauses to be MUST after conversion, got %v", c.Occur)
+		}
 	}
 }
 
