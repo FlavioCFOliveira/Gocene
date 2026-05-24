@@ -58,11 +58,13 @@ func (q *PrefixQuery) Rewrite(reader IndexReader) (Query, error) {
 	return q, nil
 }
 
+// String returns the Lucene-canonical string representation: "field:prefix*".
+// For a nil prefix term the output is "<nil>:*".
 func (q *PrefixQuery) String() string {
 	if q.prefix == nil {
-		return "PrefixQuery<nil>"
+		return "<nil>:*"
 	}
-	return "PrefixQuery(field=" + q.prefix.Field + ", prefix=" + q.prefix.Text() + ")"
+	return q.prefix.Field + ":" + q.prefix.Text() + "*"
 }
 
 // CreateWeight creates a Weight for this query.
