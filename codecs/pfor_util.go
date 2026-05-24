@@ -9,7 +9,7 @@ package codecs
 
 import (
 	"errors"
-	"math"
+	"math/bits"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
@@ -69,12 +69,18 @@ func (p *PForUtil) Encode(ints []int32, out store.IndexOutput) error {
 	maxUnpatchedValue := (1 << patchedBitsRequired) - 1
 	exceptions := make([]byte, numExceptions*2)
 
+	// Make a mutable working copy; mask exceptions in-place (matching Java).
+	intsCopy := make([]int32, ForUtilBlockSize)
+	copy(intsCopy, ints)
+
 	if numExceptions > 0 {
 		exceptionCount := 0
 		for i := 0; i < ForUtilBlockSize; i++ {
-			if ints[i] > int32(maxUnpatchedValue) {
+			if intsCopy[i] > int32(maxUnpatchedValue) {
 				exceptions[exceptionCount*2] = byte(i)
-				exceptions[exceptionCount*2+1] = byte(ints[i] >> patchedBitsRequired)
+				// Upper bits after masking, stored as unsigned byte.
+				exceptions[exceptionCount*2+1] = byte(int32(uint32(intsCopy[i]) >> uint(patchedBitsRequired)))
+				intsCopy[i] &= int32(maxUnpatchedValue)
 				exceptionCount++
 			}
 		}
@@ -83,21 +89,10 @@ func (p *PForUtil) Encode(ints []int32, out store.IndexOutput) error {
 		}
 	}
 
-	// Make a copy of ints since we modify it
-	intsCopy := make([]int32, ForUtilBlockSize)
-	copy(intsCopy, ints)
-
-	// Patch values to fit in patchedBitsRequired
-	for i := 0; i < ForUtilBlockSize; i++ {
-		if intsCopy[i] > int32(maxUnpatchedValue) {
-			intsCopy[i] = int32(maxUnpatchedValue)
-		}
-	}
-
 	if p.allEqual(intsCopy) && maxBitsRequired <= 8 {
-		// All values are equal and small
+		// All values are equal and small.
 		for i := 0; i < numExceptions; i++ {
-			exceptions[2*i+1] = byte(int(exceptions[2*i+1]) << patchedBitsRequired)
+			exceptions[2*i+1] = byte(int(uint8(exceptions[2*i+1])) << patchedBitsRequired)
 		}
 		if err := out.WriteByte(byte(numExceptions << 5)); err != nil {
 			return err
@@ -218,20 +213,17 @@ func (p *PForUtil) allEqual(l []int32) bool {
 	return true
 }
 
-// bitsRequired returns the number of bits required to represent v
+// bitsRequired returns the minimum number of bits required to represent v,
+// matching PackedInts.unsignedBitsRequired: returns at least 1, even for v=0.
 func bitsRequired(v int64) int {
 	if v < 0 {
 		return 64
 	}
-	if v == 0 {
-		return 0
+	// bits.Len64 returns the position of the highest set bit + 1, or 0 for v=0.
+	// max(1, ...) matches Java's Math.max(1, 64 - Long.numberOfLeadingZeros(v)).
+	n := bits.Len64(uint64(v))
+	if n == 0 {
+		return 1
 	}
-	return int(math.Floor(math.Log2(float64(v)))) + 1
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
+	return n
 }
