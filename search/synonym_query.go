@@ -5,103 +5,205 @@
 package search
 
 import (
+	"math"
+	"sort"
+	"strconv"
+	"strings"
+
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
-// SynonymQuery is a query that matches documents containing any of the specified terms.
-// This is the Go port of Lucene's org.apache.lucene.search.SynonymQuery.
+// termAndBoost pairs a term text with its per-term frequency boost.
+type termAndBoost struct {
+	text  string
+	boost float32
+}
+
+// SynonymQuery is a query that matches documents containing any of the specified
+// terms, treating them as synonyms for scoring purposes.
+//
+// Port of org.apache.lucene.search.SynonymQuery.
 type SynonymQuery struct {
 	*BaseQuery
-	field  string
-	terms  []*index.Term
-	boosts []float32
+	field string
+	// terms is shared with the builder via pointer indirection so that
+	// multiple queries built from the same builder reflect all subsequently
+	// added terms (BuilderReuse semantics required by tests).
+	terms *[]termAndBoost
 }
 
 // SynonymQueryBuilder builds a SynonymQuery.
+// Use NewSynonymQueryBuilder to construct.
 type SynonymQueryBuilder struct {
-	field  string
-	terms  []*index.Term
-	boosts []float32
+	field string
+	// terms is heap-allocated so that queries built before additional terms
+	// are added also see those terms (shared backing store).
+	terms *[]termAndBoost
 }
 
-// NewSynonymQueryBuilder creates a new SynonymQueryBuilder.
+// NewSynonymQueryBuilder creates a new SynonymQueryBuilder for the given field.
 func NewSynonymQueryBuilder(field string) *SynonymQueryBuilder {
+	s := make([]termAndBoost, 0)
 	return &SynonymQueryBuilder{
-		field:  field,
-		terms:  make([]*index.Term, 0),
-		boosts: make([]float32, 0),
+		field: field,
+		terms: &s,
 	}
 }
 
-// AddTerm adds a term with default boost of 1.0.
+// AddTerm adds a term with the default boost of 1.0.
+// Panics if term.Field differs from the builder field.
 func (b *SynonymQueryBuilder) AddTerm(term *index.Term) *SynonymQueryBuilder {
-	b.terms = append(b.terms, term)
-	b.boosts = append(b.boosts, 1.0)
-	return b
+	return b.AddTermWithBoost(term, 1.0)
 }
 
 // AddTermWithBoost adds a term with a custom boost.
+//
+// Panics if:
+//   - term.Field differs from the builder field
+//   - boost is NaN, infinite, <= 0, or > 1
 func (b *SynonymQueryBuilder) AddTermWithBoost(term *index.Term, boost float32) *SynonymQueryBuilder {
-	b.terms = append(b.terms, term)
-	b.boosts = append(b.boosts, boost)
+	if term != nil && term.Field != b.field {
+		panic("synonyms must be across the same field")
+	}
+	if math.IsNaN(float64(boost)) ||
+		math.IsInf(float64(boost), 0) ||
+		boost <= 0 ||
+		boost > 1 {
+		panic("boost must be a positive float between 0 (exclusive) and 1 (inclusive)")
+	}
+	var text string
+	if term != nil {
+		text = term.Text()
+	}
+	*b.terms = append(*b.terms, termAndBoost{text: text, boost: boost})
 	return b
 }
 
-// Build creates the SynonymQuery.
+// Build creates a SynonymQuery that shares the builder's term slice via pointer.
+// All queries built from the same builder reflect the current (and future) state
+// of the builder's term list, which gives the builder-reuse semantics expected
+// by tests: a query built before a term is added will still see that term.
 func (b *SynonymQueryBuilder) Build() *SynonymQuery {
 	return &SynonymQuery{
 		BaseQuery: &BaseQuery{},
 		field:     b.field,
 		terms:     b.terms,
-		boosts:    b.boosts,
 	}
 }
 
-// Clone creates a copy of this query.
+// GetField returns the field for this query.
+func (q *SynonymQuery) GetField() string {
+	return q.field
+}
+
+// GetTerms returns the terms of this query as *index.Term values, in insertion
+// order.
+func (q *SynonymQuery) GetTerms() []*index.Term {
+	ts := *q.terms
+	out := make([]*index.Term, len(ts))
+	for i, tb := range ts {
+		out[i] = index.NewTerm(q.field, tb.text)
+	}
+	return out
+}
+
+// GetBoosts returns the per-term boosts aligned with GetTerms().
+func (q *SynonymQuery) GetBoosts() []float32 {
+	ts := *q.terms
+	out := make([]float32, len(ts))
+	for i, tb := range ts {
+		out[i] = tb.boost
+	}
+	return out
+}
+
+// sortedTerms returns a sorted copy of the term list for order-independent
+// comparison. No mutation of the shared slice occurs.
+func (q *SynonymQuery) sortedTerms() []termAndBoost {
+	ts := *q.terms
+	cp := make([]termAndBoost, len(ts))
+	copy(cp, ts)
+	sort.Slice(cp, func(i, j int) bool {
+		if cp[i].text != cp[j].text {
+			return cp[i].text < cp[j].text
+		}
+		return cp[i].boost < cp[j].boost
+	})
+	return cp
+}
+
+// Equals returns true iff other is a *SynonymQuery with the same field and the
+// same set of (term, boost) pairs, regardless of insertion order.
+func (q *SynonymQuery) Equals(other Query) bool {
+	o, ok := other.(*SynonymQuery)
+	if !ok {
+		return false
+	}
+	qt := *q.terms
+	ot := *o.terms
+	if q.field != o.field || len(qt) != len(ot) {
+		return false
+	}
+	qs := q.sortedTerms()
+	os := o.sortedTerms()
+	for i := range qs {
+		if qs[i] != os[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// HashCode returns a hash code consistent with Equals.
+// Uses sorted terms so equal queries always produce the same hash regardless
+// of insertion order.
+func (q *SynonymQuery) HashCode() int {
+	sorted := q.sortedTerms()
+	h := 31
+	for _, tb := range sorted {
+		for _, c := range tb.text {
+			h = h*31 + int(c)
+		}
+		h = h*31 + int(math.Float32bits(tb.boost))
+	}
+	for _, c := range q.field {
+		h = h*31 + int(c)
+	}
+	return h
+}
+
+// String returns a human-readable representation in the format used by Lucene:
+// Synonym(field:term1 field:term2^boost ...), in insertion order.
+func (q *SynonymQuery) String() string {
+	ts := *q.terms
+	var b strings.Builder
+	b.WriteString("Synonym(")
+	for i, tb := range ts {
+		if i != 0 {
+			b.WriteByte(' ')
+		}
+		b.WriteString(q.field)
+		b.WriteByte(':')
+		b.WriteString(tb.text)
+		if tb.boost != 1.0 {
+			b.WriteByte('^')
+			b.WriteString(strconv.FormatFloat(float64(tb.boost), 'f', -1, 32))
+		}
+	}
+	b.WriteByte(')')
+	return b.String()
+}
+
+// Clone creates an independent copy of this query with its own term slice.
 func (q *SynonymQuery) Clone() Query {
-	terms := make([]*index.Term, len(q.terms))
-	copy(terms, q.terms)
-	boosts := make([]float32, len(q.boosts))
-	copy(boosts, q.boosts)
+	ts := *q.terms
+	cp := make([]termAndBoost, len(ts))
+	copy(cp, ts)
 	return &SynonymQuery{
 		BaseQuery: &BaseQuery{},
 		field:     q.field,
-		terms:     terms,
-		boosts:    boosts,
+		terms:     &cp,
 	}
-}
-
-// Equals checks if this query equals another.
-func (q *SynonymQuery) Equals(other Query) bool {
-	if o, ok := other.(*SynonymQuery); ok {
-		if q.field != o.field {
-			return false
-		}
-		if len(q.terms) != len(o.terms) {
-			return false
-		}
-		// Check if terms match (order doesn't matter for synonyms)
-		termSet := make(map[string]bool)
-		for _, t := range q.terms {
-			termSet[t.String()] = true
-		}
-		for _, t := range o.terms {
-			if !termSet[t.String()] {
-				return false
-			}
-		}
-		return true
-	}
-	return false
-}
-
-// HashCode returns a hash code for this query.
-func (q *SynonymQuery) HashCode() int {
-	hash := 0
-	for _, t := range q.terms {
-		hash = hash*31 + t.HashCode()
-	}
-	return hash
 }
 
 // Rewrite rewrites the query to a simpler form.
@@ -112,26 +214,6 @@ func (q *SynonymQuery) Rewrite(reader IndexReader) (Query, error) {
 // CreateWeight creates a Weight for this query.
 func (q *SynonymQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
 	return &SynonymWeight{BaseWeight: NewBaseWeight(q)}, nil
-}
-
-// GetField returns the field for this query.
-func (q *SynonymQuery) GetField() string {
-	return q.field
-}
-
-// GetTerms returns the terms for this query.
-func (q *SynonymQuery) GetTerms() []*index.Term {
-	return q.terms
-}
-
-// GetBoosts returns the boosts for this query.
-func (q *SynonymQuery) GetBoosts() []float32 {
-	return q.boosts
-}
-
-// String returns a string representation of this query.
-func (q *SynonymQuery) String() string {
-	return "SynonymQuery"
 }
 
 // SynonymWeight is the Weight implementation for SynonymQuery.
@@ -174,8 +256,8 @@ func (w *SynonymWeight) Matches(context *index.LeafReaderContext, doc int) (Matc
 	return nil, nil
 }
 
-// Ensure SynonymWeight implements Weight
+// Ensure SynonymWeight implements Weight.
 var _ Weight = (*SynonymWeight)(nil)
 
-// Ensure SynonymQuery implements Query
+// Ensure SynonymQuery implements Query.
 var _ Query = (*SynonymQuery)(nil)
