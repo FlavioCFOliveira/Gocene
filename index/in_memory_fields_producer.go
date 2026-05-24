@@ -33,9 +33,10 @@ type inMemField struct {
 
 // inMemTerm holds the posting list for a single (field, term) pair.
 type inMemTerm struct {
-	text   string
-	docIDs []int // sorted ascending
-	freqs  []int // parallel to docIDs
+	text      string
+	docIDs    []int   // sorted ascending
+	freqs     []int   // parallel to docIDs
+	positions [][]int // positions[i] is the sorted positions for docIDs[i]; may be nil
 }
 
 // MergeInMemoryPostings builds an InMemoryFieldsProducer by merging
@@ -75,6 +76,15 @@ func MergeInMemoryPostings(dwptPool []*DocumentsWriterPerThread) *InMemoryFields
 					}
 					imt.docIDs = append(imt.docIDs, globalDocID)
 					imt.freqs = append(imt.freqs, freq)
+
+					// Copy positions when present.
+					if i < len(posting.positions) && len(posting.positions[i]) > 0 {
+						posCopy := make([]int, len(posting.positions[i]))
+						copy(posCopy, posting.positions[i])
+						imt.positions = append(imt.positions, posCopy)
+					} else {
+						imt.positions = append(imt.positions, nil)
+					}
 				}
 			}
 			fp.mu.RUnlock()
@@ -159,10 +169,18 @@ func (t *inMemTerms) GetSumTotalTermFreq() (int64, error) {
 	return sum, nil
 }
 
-func (t *inMemTerms) HasFreqs() bool     { return true }
-func (t *inMemTerms) HasOffsets() bool   { return false }
-func (t *inMemTerms) HasPositions() bool { return false }
-func (t *inMemTerms) HasPayloads() bool  { return false }
+func (t *inMemTerms) HasFreqs() bool   { return true }
+func (t *inMemTerms) HasOffsets() bool { return false }
+func (t *inMemTerms) HasPositions() bool {
+	// Returns true if any term in the field has positions stored.
+	for _, imt := range t.field.terms {
+		if imt.positions != nil {
+			return true
+		}
+	}
+	return false
+}
+func (t *inMemTerms) HasPayloads() bool { return false }
 
 func (t *inMemTerms) GetMin() (*Term, error) {
 	terms := t.sortedTermTexts()
@@ -309,23 +327,27 @@ func (e *inMemTermsEnum) PostingsWithLiveDocs(_ util.Bits, flags int) (PostingsE
 // ─── inMemPostingsEnum ───────────────────────────────────────────────────────
 
 // inMemPostingsEnum iterates over the document list of a single term.
+// When positions were indexed, NextPosition() returns them in order.
 type inMemPostingsEnum struct {
 	PostingsEnumBase
-	term  *inMemTerm
-	idx   int // current position in docIDs (-1 = before start)
-	docID int
+	term   *inMemTerm
+	idx    int // current position in docIDs (-1 = before start)
+	docID  int
+	posIdx int // index into current doc's positions slice
 }
 
 func newInMemPostingsEnum(t *inMemTerm) *inMemPostingsEnum {
 	return &inMemPostingsEnum{
-		term:  t,
-		idx:   -1,
-		docID: -1,
+		term:   t,
+		idx:    -1,
+		docID:  -1,
+		posIdx: 0,
 	}
 }
 
 func (e *inMemPostingsEnum) NextDoc() (int, error) {
 	e.idx++
+	e.posIdx = 0 // reset position cursor for new doc
 	if e.idx >= len(e.term.docIDs) {
 		e.docID = NO_MORE_DOCS
 		return NO_MORE_DOCS, nil
@@ -352,7 +374,22 @@ func (e *inMemPostingsEnum) Freq() (int, error) {
 	return e.term.freqs[e.idx], nil
 }
 
-func (e *inMemPostingsEnum) NextPosition() (int, error)  { return NO_MORE_POSITIONS, nil }
+// NextPosition returns the next position for the current document.
+// Returns NO_MORE_POSITIONS when all positions have been consumed or when
+// positions were not indexed for this term.
+func (e *inMemPostingsEnum) NextPosition() (int, error) {
+	if e.idx < 0 || e.idx >= len(e.term.positions) {
+		return NO_MORE_POSITIONS, nil
+	}
+	positions := e.term.positions[e.idx]
+	if positions == nil || e.posIdx >= len(positions) {
+		return NO_MORE_POSITIONS, nil
+	}
+	pos := positions[e.posIdx]
+	e.posIdx++
+	return pos, nil
+}
+
 func (e *inMemPostingsEnum) StartOffset() (int, error)   { return -1, nil }
 func (e *inMemPostingsEnum) EndOffset() (int, error)     { return -1, nil }
 func (e *inMemPostingsEnum) GetPayload() ([]byte, error) { return nil, nil }

@@ -222,6 +222,9 @@ type dwptField struct {
 	storeTermVectors         bool
 	storeTermVectorPositions bool
 	storeTermVectorOffsets   bool
+	// customTermFreq, when > 0, overrides the default initial TF of 1.
+	// Used by fields such as FeatureField that encode a value as TF.
+	customTermFreq int
 }
 
 // indexableFieldPromoter is satisfied by document.Field via its
@@ -231,6 +234,12 @@ type dwptField struct {
 // proper IndexableField without importing the document package.
 type indexableFieldPromoter interface {
 	AsIndexableField() IndexableField
+}
+
+// termFrequencyProvider is satisfied by fields (e.g. FeatureField) that need
+// a custom initial term frequency instead of the default of 1.
+type termFrequencyProvider interface {
+	TermFrequency() int
 }
 
 // asDwptField builds a flat dwptField record from fieldInterface using
@@ -273,6 +282,9 @@ func asDwptField(fieldInterface interface{}) (*dwptField, bool) {
 		f.storeTermVectors = ft.StoreTermVectors()
 		f.storeTermVectorPositions = ft.StoreTermVectorPositions()
 		f.storeTermVectorOffsets = ft.StoreTermVectorOffsets()
+	}
+	if tfp, ok := fieldInterface.(termFrequencyProvider); ok {
+		f.customTermFreq = tfp.TermFrequency()
 	}
 	return f, true
 }
@@ -325,7 +337,7 @@ func (dwpt *DocumentsWriterPerThread) ProcessDocument(doc Document) error {
 		// Process based on field type
 		if field.isIndexed {
 			// Index the field in the inverted index
-			if err := dwpt.indexFieldWithValue(docID, fieldName, field.stringValue, field.isTokenized, fieldInfo, analyzer); err != nil {
+			if err := dwpt.indexFieldWithValue(docID, fieldName, field.stringValue, field.isTokenized, field.customTermFreq, fieldInfo, analyzer); err != nil {
 				return err
 			}
 		}
@@ -390,14 +402,14 @@ func (dwpt *DocumentsWriterPerThread) getOrAddFieldInfo(fieldName string, opts F
 }
 
 // indexFieldWithValue indexes a field value in the inverted index.
-// This method accepts the field name, string value and tokenized flag directly
-// so that it can be called from ProcessDocument regardless of whether the
-// concrete field type satisfies index.IndexableField or document.IndexableField.
+// customTermFreq, when > 0, overrides the default initial TF of 1 for the
+// indexed term (used by FeatureField which encodes a value as term frequency).
 func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 	docID int,
 	fieldName string,
 	value string,
 	tokenized bool,
+	customTermFreq int,
 	fieldInfo *FieldInfo,
 	analyzer analysis.Analyzer,
 ) error {
@@ -453,15 +465,22 @@ func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 	// Add each token to the inverted index
 	position := 0
 	for _, token := range tokens {
-		dwpt.addTerm(docID, fieldName, token, position, fieldPostings, fieldInfo)
+		dwpt.addTermWithFreq(docID, fieldName, token, position, customTermFreq, fieldPostings, fieldInfo)
 		position++
 	}
 
 	return nil
 }
 
-// addTerm adds a term to the inverted index.
+// addTerm adds a term to the inverted index with the default initial TF of 1.
 func (dwpt *DocumentsWriterPerThread) addTerm(docID int, fieldName, term string, position int, fieldPostings *FieldPostings, fieldInfo *FieldInfo) {
+	dwpt.addTermWithFreq(docID, fieldName, term, position, 0, fieldPostings, fieldInfo)
+}
+
+// addTermWithFreq adds a term to the inverted index.
+// initialFreq, when > 0, is used as the initial term frequency for a new
+// document entry; otherwise 1 is used (the standard Lucene default).
+func (dwpt *DocumentsWriterPerThread) addTermWithFreq(docID int, fieldName, term string, position int, initialFreq int, fieldPostings *FieldPostings, fieldInfo *FieldInfo) {
 	fieldPostings.mu.Lock()
 	defer fieldPostings.mu.Unlock()
 
@@ -478,6 +497,10 @@ func (dwpt *DocumentsWriterPerThread) addTerm(docID int, fieldName, term string,
 		dwpt.invertedIndex.numTerms++
 	}
 
+	if initialFreq <= 0 {
+		initialFreq = 1
+	}
+
 	// Find or add document in posting list
 	if len(posting.docIDs) > 0 && posting.docIDs[len(posting.docIDs)-1] == docID {
 		// Same document, increment frequency
@@ -489,7 +512,7 @@ func (dwpt *DocumentsWriterPerThread) addTerm(docID int, fieldName, term string,
 	} else {
 		// New document
 		posting.docIDs = append(posting.docIDs, docID)
-		posting.freqs = append(posting.freqs, 1)
+		posting.freqs = append(posting.freqs, initialFreq)
 		if fieldInfo.IndexOptions().HasPositions() {
 			posting.positions = append(posting.positions, []int{position})
 		}

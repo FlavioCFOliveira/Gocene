@@ -11,31 +11,65 @@ import (
 )
 
 // PhraseQuery matches documents containing a particular sequence of terms.
+//
+// positions[i] is the query position of terms[i] relative to the phrase
+// start. For a plain consecutive phrase "A B C" the positions are [0,1,2].
+// Gaps (position increments > 1) are used to represent missing words in the
+// query ("drug _ _ drug" → positions [0,3]).
 type PhraseQuery struct {
 	*BaseQuery
-	field string
-	terms []*index.Term
-	slop  int
+	field     string
+	terms     []*index.Term
+	positions []int // query-position of each term; nil means 0,1,2,…
+	slop      int
 }
 
-// NewPhraseQuery creates a new PhraseQuery.
+// NewPhraseQuery creates a new PhraseQuery with consecutive positions 0,1,2,…
 func NewPhraseQuery(field string, terms ...*index.Term) *PhraseQuery {
 	return &PhraseQuery{
 		BaseQuery: &BaseQuery{},
 		field:     field,
 		terms:     terms,
+		positions: nil,
 		slop:      0,
 	}
 }
 
-// NewPhraseQueryWithSlop creates a new PhraseQuery with a custom slop.
+// NewPhraseQueryWithSlop creates a new PhraseQuery with a custom slop and
+// consecutive positions.
 func NewPhraseQueryWithSlop(slop int, field string, terms ...*index.Term) *PhraseQuery {
 	return &PhraseQuery{
 		BaseQuery: &BaseQuery{},
 		field:     field,
 		terms:     terms,
+		positions: nil,
 		slop:      slop,
 	}
+}
+
+// newPhraseQueryWithPositions is the package-private constructor that carries
+// explicit per-term query positions (used by PhraseQueryBuilder).
+func newPhraseQueryWithPositions(slop int, field string, terms []*index.Term, positions []int) *PhraseQuery {
+	return &PhraseQuery{
+		BaseQuery: &BaseQuery{},
+		field:     field,
+		terms:     terms,
+		positions: positions,
+		slop:      slop,
+	}
+}
+
+// Positions returns the per-term query positions.
+// If no explicit positions were set the returned slice is [0, 1, 2, …].
+func (q *PhraseQuery) Positions() []int {
+	if q.positions != nil {
+		return q.positions
+	}
+	pos := make([]int, len(q.terms))
+	for i := range pos {
+		pos[i] = i
+	}
+	return pos
 }
 
 // Field returns the field name.
@@ -69,10 +103,16 @@ func (q *PhraseQuery) Clone() Query {
 	for i, term := range q.terms {
 		clonedTerms[i] = term.Clone()
 	}
+	var clonedPositions []int
+	if q.positions != nil {
+		clonedPositions = make([]int, len(q.positions))
+		copy(clonedPositions, q.positions)
+	}
 	return &PhraseQuery{
 		BaseQuery: &BaseQuery{},
 		field:     q.field,
 		terms:     clonedTerms,
+		positions: clonedPositions,
 		slop:      q.slop,
 	}
 }
@@ -192,6 +232,23 @@ func (b *PhraseQueryBuilder) AddTermAtPosition(term *index.Term, position int) *
 }
 
 // Build creates a PhraseQuery from this builder.
+// Explicit positions are preserved; if all positions equal [0,1,2,…] (i.e. no
+// holes) the positions slice is set to nil so callers get the cheap path.
 func (b *PhraseQueryBuilder) Build() *PhraseQuery {
-	return NewPhraseQueryWithSlop(b.slop, b.field, b.terms...)
+	// Check whether the positions are the trivial consecutive sequence.
+	consecutive := true
+	for i, p := range b.positions {
+		if p != i {
+			consecutive = false
+			break
+		}
+	}
+	if consecutive {
+		return NewPhraseQueryWithSlop(b.slop, b.field, b.terms...)
+	}
+	posCopy := make([]int, len(b.positions))
+	copy(posCopy, b.positions)
+	termsCopy := make([]*index.Term, len(b.terms))
+	copy(termsCopy, b.terms)
+	return newPhraseQueryWithPositions(b.slop, b.field, termsCopy, posCopy)
 }

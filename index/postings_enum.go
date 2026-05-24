@@ -50,6 +50,14 @@ const (
 
 	// NO_MORE_POSITIONS is returned by PostingsEnum when there are no more positions.
 	NO_MORE_POSITIONS = -1
+
+	// PostingsFlagFreqs requests term frequencies in postings.
+	// Mirrors org.apache.lucene.index.PostingsEnum.FREQS (value 8).
+	PostingsFlagFreqs = 1 << 3
+
+	// PostingsFlagPositions requests term positions in postings.
+	// Implies PostingsFlagFreqs. Mirrors PostingsEnum.POSITIONS (value 24).
+	PostingsFlagPositions = PostingsFlagFreqs | 1<<4
 )
 
 // PostingsEnumBase provides a base implementation of the PostingsEnum interface.

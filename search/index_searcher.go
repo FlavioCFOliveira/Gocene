@@ -21,7 +21,7 @@ func NewIndexSearcher(reader index.IndexReaderInterface) *IndexSearcher {
 
 // Search executes a query and returns TopDocs.
 func (s *IndexSearcher) Search(query Query, n int) (*TopDocs, error) {
-	if n <= 0 {
+	if n < 0 {
 		return &TopDocs{
 			TotalHits: NewTotalHits(0, EQUAL_TO),
 			ScoreDocs: make([]*ScoreDoc, 0),

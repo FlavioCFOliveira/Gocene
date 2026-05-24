@@ -173,9 +173,14 @@ func (pq *ScoreDocPriorityQueue) Len() int {
 	return len(pq.items)
 }
 
-// Less compares two items.
+// Less compares two items. When scores are equal, higher doc ID is considered
+// "less" (lower priority) so lower doc IDs sort to the front of results,
+// matching Lucene's tie-breaking behaviour in TopScoreDocCollector.
 func (pq *ScoreDocPriorityQueue) Less(i, j int) bool {
-	return pq.items[i].Score < pq.items[j].Score
+	if pq.items[i].Score != pq.items[j].Score {
+		return pq.items[i].Score < pq.items[j].Score
+	}
+	return pq.items[i].Doc > pq.items[j].Doc
 }
 
 // Swap swaps two items.

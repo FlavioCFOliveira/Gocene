@@ -73,6 +73,14 @@ func (f *FeatureField) GetFeatureName() string { return f.featureName }
 // GetFeatureValue returns the configured feature value.
 func (f *FeatureField) GetFeatureValue() float32 { return f.featureValue }
 
+// TermFrequency returns the encoded feature value as a term frequency,
+// satisfying the index.termFrequencyProvider duck-type interface so that
+// the indexing pipeline stores this value in the postings TF slot instead
+// of the default of 1.
+func (f *FeatureField) TermFrequency() int {
+	return int(EncodeFeatureValueAsTermFreq(f.featureValue))
+}
+
 // SetFeatureValue updates the feature value. Returns an error if value
 // is non-positive, non-finite, or sub-normal.
 func (f *FeatureField) SetFeatureValue(value float32) error {
