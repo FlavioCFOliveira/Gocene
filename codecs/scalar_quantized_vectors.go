@@ -78,8 +78,11 @@ func (se ScalarEncoding) GetDocPackedLength(discreteDims int) int {
 	switch se {
 	case ScalarEncodingPackedNibble:
 		return (discreteDims + 1) / 2
-	case ScalarEncodingSingleBitQueryNibble, ScalarEncodingDibitQueryNibble:
+	case ScalarEncodingSingleBitQueryNibble:
 		return (discreteDims + 7) / 8
+	case ScalarEncodingDibitQueryNibble:
+		// 2 bits per dimension → 4 dimensions per byte.
+		return (discreteDims + 3) / 4
 	default:
 		return discreteDims
 	}

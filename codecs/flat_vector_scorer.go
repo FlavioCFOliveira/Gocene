@@ -335,14 +335,23 @@ func EuclideanSimilarity(v1, v2 []float32) float32 {
 	return 1.0 / (1.0 + sum)
 }
 
-// DotProductSimilarity calculates normalized dot product similarity
+// DotProductSimilarity calculates normalized dot product similarity.
+// Mirrors Lucene's VectorSimilarityFunction.DOT_PRODUCT: normalizeToUnitInterval(dotProduct(v1,v2))
+// which is max((1+dot)/2, 0), clamped to [0,1]. Vectors are assumed unit-length at index time;
+// this clamp ensures the score stays in range for non-unit inputs as well.
 func DotProductSimilarity(v1, v2 []float32) float32 {
 	var dot float32
 	for i := range v1 {
 		dot += v1[i] * v2[i]
 	}
-	// Normalize to unit interval: (dot + 1) / 2
-	return (dot + 1.0) / 2.0
+	score := (dot + 1.0) / 2.0
+	if score < 0 {
+		return 0
+	}
+	if score > 1 {
+		return 1
+	}
+	return score
 }
 
 // CosineSimilarity calculates normalized cosine similarity
