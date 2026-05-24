@@ -72,6 +72,25 @@ func (w *DisiWrapper) SetDoc(doc int) { w.doc = doc }
 // chain as read-only after retrieval.
 func (w *DisiWrapper) Next() *DisiWrapper { return w.next }
 
+// Advance advances the wrapper's underlying iterator to the first document at
+// or beyond target, updates the cached Doc, and returns the new doc ID.
+// This is equivalent to the Java field access top.iterator.advance(target)
+// followed by top.doc = result.
+func (w *DisiWrapper) Advance(target int) (int, error) {
+	doc, err := w.iterator.Advance(target)
+	if err != nil {
+		return doc, err
+	}
+	w.doc = doc
+	return doc, nil
+}
+
+// Scorer returns the underlying Scorer this wrapper was built from.
+func (w *DisiWrapper) Scorer() Scorer { return w.scorer }
+
+// Scorable returns the Scorable (same as Scorer in Gocene) for scoring.
+func (w *DisiWrapper) Scorable() Scorer { return w.scorable }
+
 // NewDisiWrapper constructs a DisiWrapper for scorer.
 // If scorer exposes a TwoPhaseIterator via the scorerTwoPhaseProvider
 // interface, the wrapper captures it and sets matchCost accordingly.
