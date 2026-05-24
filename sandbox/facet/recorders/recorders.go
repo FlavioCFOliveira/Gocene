@@ -28,8 +28,8 @@ var _ FacetRecorder = (*CountFacetRecorder)(nil)
 
 // LongAggregationsFacetRecorder accumulates an int64 aggregate per ordinal.
 type LongAggregationsFacetRecorder struct {
-	Sums      map[int]int64
-	ValueFn   func(docID int) (int64, bool)
+	Sums       map[int]int64
+	ValueFn    func(docID int) (int64, bool)
 	currentDoc int
 }
 

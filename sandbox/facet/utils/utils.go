@@ -74,7 +74,9 @@ type CommonFacetBuilder struct {
 }
 
 // NewCommonFacetBuilder builds the helper.
-func NewCommonFacetBuilder() *CommonFacetBuilder { return &CommonFacetBuilder{Counts: make(map[string]int64)} }
+func NewCommonFacetBuilder() *CommonFacetBuilder {
+	return &CommonFacetBuilder{Counts: make(map[string]int64)}
+}
 
 // Increment adds 1 to the count for label.
 func (b *CommonFacetBuilder) Increment(label string) { b.Counts[label]++ }
