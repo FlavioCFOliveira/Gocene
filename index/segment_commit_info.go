@@ -59,6 +59,11 @@ type SegmentCommitInfo struct {
 	// directory boundaries.
 	inMemoryFieldInfos *FieldInfos
 
+	// deletedOrdinals records which document ordinals (0-based within this
+	// segment) were deleted.  Used by SegmentReader to build the live-docs
+	// bitset without codec infrastructure.  Persisted in the segments file.
+	deletedOrdinals []int
+
 	// mu protects mutable fields
 	mu sync.RWMutex
 }
@@ -196,10 +201,12 @@ func (sci *SegmentCommitInfo) SetDelGen(gen int64) {
 }
 
 // HasDeletions returns true if this segment has deletions.
+// Returns true when delGen >= 0 (on-disk deletion file exists) or when
+// deletedOrdinals are recorded in memory (Gocene in-memory deletion tracking).
 func (sci *SegmentCommitInfo) HasDeletions() bool {
 	sci.mu.RLock()
 	defer sci.mu.RUnlock()
-	return sci.delGen >= 0
+	return sci.delGen >= 0 || len(sci.deletedOrdinals) > 0
 }
 
 // FieldInfosGen returns the field infos file generation.
@@ -314,6 +321,32 @@ func (sci *SegmentCommitInfo) SetInMemoryFieldInfos(fi *FieldInfos) {
 	sci.inMemoryFieldInfos = fi
 }
 
+// GetDeletedOrdinals returns the sorted slice of deleted document ordinals
+// (0-based within this segment).  Used by SegmentReader to build the live-docs
+// bitset without codec infrastructure.
+func (sci *SegmentCommitInfo) GetDeletedOrdinals() []int {
+	sci.mu.RLock()
+	defer sci.mu.RUnlock()
+	if len(sci.deletedOrdinals) == 0 {
+		return nil
+	}
+	cp := make([]int, len(sci.deletedOrdinals))
+	copy(cp, sci.deletedOrdinals)
+	return cp
+}
+
+// SetDeletedOrdinals sets the deleted document ordinals for this segment.
+func (sci *SegmentCommitInfo) SetDeletedOrdinals(ordinals []int) {
+	sci.mu.Lock()
+	defer sci.mu.Unlock()
+	if len(ordinals) == 0 {
+		sci.deletedOrdinals = nil
+		return
+	}
+	sci.deletedOrdinals = make([]int, len(ordinals))
+	copy(sci.deletedOrdinals, ordinals)
+}
+
 // String returns a string representation of SegmentCommitInfo.
 func (sci *SegmentCommitInfo) String() string {
 	sci.mu.RLock()
@@ -338,6 +371,11 @@ func (sci *SegmentCommitInfo) Clone() *SegmentCommitInfo {
 		fieldInfosFiles:       make(map[string]struct{}, len(sci.fieldInfosFiles)),
 		docValuesUpdatesFiles: make(map[int]map[string]struct{}, len(sci.docValuesUpdatesFiles)),
 		id:                    append([]byte(nil), sci.id...),
+	}
+
+	if len(sci.deletedOrdinals) > 0 {
+		clone.deletedOrdinals = make([]int, len(sci.deletedOrdinals))
+		copy(clone.deletedOrdinals, sci.deletedOrdinals)
 	}
 
 	for k, v := range sci.attributes {

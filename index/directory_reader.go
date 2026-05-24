@@ -315,10 +315,14 @@ type SegmentReader struct {
 }
 
 // NewSegmentReader creates a new SegmentReader.
+// If the SegmentCommitInfo carries in-memory FieldInfos (written by Commit),
+// they are used so that CheckIndex and other readers can enumerate fields
+// without codec infrastructure.
 func NewSegmentReader(segmentCommitInfo *SegmentCommitInfo) *SegmentReader {
 	return &SegmentReader{
 		LeafReader:        NewLeafReader(segmentCommitInfo.SegmentInfo()),
 		segmentCommitInfo: segmentCommitInfo,
+		fieldInfos:        segmentCommitInfo.GetInMemoryFieldInfos(),
 	}
 }
 
@@ -962,15 +966,41 @@ func (r *SegmentReader) TermVectors() (TermVectors, error) {
 }
 
 // GetLiveDocs returns the live docs Bits for this segment.
+// GetLiveDocs returns a Bits representing the live (non-deleted) documents in
+// this segment.  Returns nil when no documents are deleted.
+// When the segment has in-memory deleted ordinals (tracked by Gocene's delete
+// path), a dense boolean slice is built and returned as a liveDocs implementation.
 func (r *SegmentReader) GetLiveDocs() util.Bits {
-	// Check for deletions in the segment commit info
-	if r.segmentCommitInfo != nil && r.segmentCommitInfo.HasDeletions() {
-		// Return the live docs bitset
-		// This would be populated when the segment is loaded
-		return r.LeafReader.GetLiveDocs()
+	if r.segmentCommitInfo == nil {
+		return nil
 	}
-	return nil
+	ords := r.segmentCommitInfo.GetDeletedOrdinals()
+	if len(ords) == 0 {
+		// No in-memory deletion info; fall back to LeafReader's liveDocs (may be nil).
+		if r.segmentCommitInfo.HasDeletions() {
+			return r.LeafReader.GetLiveDocs()
+		}
+		return nil
+	}
+	// Build a dense boolean bitset from the deleted ordinals.
+	maxDoc := r.MaxDoc()
+	live := make([]bool, maxDoc)
+	for i := range live {
+		live[i] = true
+	}
+	for _, ord := range ords {
+		if ord >= 0 && ord < maxDoc {
+			live[ord] = false
+		}
+	}
+	return boolBits(live)
 }
+
+// boolBits is a util.Bits backed by a []bool slice.
+type boolBits []bool
+
+func (b boolBits) Get(index int) bool { return b[index] }
+func (b boolBits) Length() int        { return len(b) }
 
 // Ensure SegmentReader implements IndexReaderInterface
 var _ IndexReaderInterface = (*SegmentReader)(nil)

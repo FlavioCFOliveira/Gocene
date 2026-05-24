@@ -75,9 +75,10 @@ type IndexWriter struct {
 // the in-memory buffer (by auto-flush or AddIndexes) but not yet written to the
 // on-disk SegmentInfos.  It is converted to a SegmentCommitInfo during Commit.
 type pendingSegment struct {
-	numDocs    int
-	delCount   int
-	fieldInfos *FieldInfos // may be nil
+	numDocs         int
+	delCount        int
+	fieldInfos      *FieldInfos // may be nil
+	deletedOrdinals []int       // sorted doc ordinals deleted within this segment (0-based)
 }
 
 // docFieldEntry is a (field-name, term-value) pair extracted from a document
@@ -108,6 +109,7 @@ type indexableFieldMeta interface {
 	IndexOptions() IndexOptions
 	DocValuesType() DocValuesType
 	HasTermVectors() bool
+	OmitNorms() bool
 }
 
 // NewIndexWriter creates a new IndexWriter.
@@ -228,6 +230,7 @@ func (w *IndexWriter) addFieldToInfos(fm indexableFieldMeta) {
 		DocValuesGen:             -1,
 		Stored:                   fm.IsStored(),
 		Tokenized:                fm.IsTokenized(),
+		OmitNorms:                fm.OmitNorms(),
 		StoreTermVectors:         fm.HasTermVectors(),
 		VectorEncoding:           VectorEncodingFloat32,
 		VectorSimilarityFunction: VectorSimilarityFunctionEuclidean,
@@ -365,31 +368,34 @@ func (w *IndexWriter) flushPendingDocsLocked() error {
 		return nil
 	}
 
-	// Compute deletes against pending terms.
-	delCount := 0
+	// Compute deletes against pending terms, recording exact ordinals.
+	var deletedOrdinals []int
 	if len(w.pendingDeleteTerms) > 0 && len(w.docFieldIndex) > 0 {
 		type fieldVal struct{ field, val string }
 		delSet := make(map[fieldVal]struct{}, len(w.pendingDeleteTerms))
 		for _, dt := range w.pendingDeleteTerms {
 			delSet[fieldVal{dt.Field, dt.Text()}] = struct{}{}
 		}
-		for _, docFields := range w.docFieldIndex {
+		for docIdx, docFields := range w.docFieldIndex {
 			for _, fv := range docFields {
 				if _, ok := delSet[fieldVal{fv.field, fv.val}]; ok {
-					delCount++
+					deletedOrdinals = append(deletedOrdinals, docIdx)
 					break
 				}
 			}
 		}
-		if delCount > n {
-			delCount = n
-		}
+	}
+	delCount := len(deletedOrdinals)
+	if delCount > n {
+		delCount = n
+		deletedOrdinals = deletedOrdinals[:n]
 	}
 
 	ps := pendingSegment{
-		numDocs:    n,
-		delCount:   delCount,
-		fieldInfos: w.pendingFieldInfos,
+		numDocs:         n,
+		delCount:        delCount,
+		fieldInfos:      w.pendingFieldInfos,
+		deletedOrdinals: deletedOrdinals,
 	}
 	w.pendingImportedSegments = append(w.pendingImportedSegments, ps)
 
@@ -464,6 +470,16 @@ func (w *IndexWriter) Commit() error {
 		if ps.fieldInfos != nil {
 			sci.SetInMemoryFieldInfos(ps.fieldInfos)
 		}
+		if len(ps.deletedOrdinals) > 0 {
+			sci.SetDeletedOrdinals(ps.deletedOrdinals)
+		}
+		// Write a segment-info stub file (segmentName.si) so that
+		// CheckIndex and external tools can detect per-segment corruption
+		// by verifying file presence.  The file contains a single magic byte.
+		if err3 := writeSegmentInfoStub(w.directory, segmentName); err3 != nil {
+			return fmt.Errorf("writing .si stub: %w", err3)
+		}
+		sci.SegmentInfo().SetFiles([]string{segmentName + ".si"})
 		si.Add(sci)
 		w.committedSegments = append(w.committedSegments, sci)
 	}
@@ -685,11 +701,52 @@ func (w *IndexWriter) ForceMerge(maxNumSegments int) error {
 	if maxNumSegments == 1 && len(w.pendingImportedSegments) > 1 {
 		total := 0
 		totalDel := 0
+		var allOrds []int
+		var mergedFIPending *FieldInfos
 		for _, ps := range w.pendingImportedSegments {
+			// Remap deleted ordinals relative to the merged segment's doc space.
+			for _, ord := range ps.deletedOrdinals {
+				allOrds = append(allOrds, total+ord)
+			}
 			total += ps.numDocs
 			totalDel += ps.delCount
+			// Merge FieldInfos.
+			if ps.fieldInfos != nil {
+				if mergedFIPending == nil {
+					mergedFIPending = NewFieldInfos()
+				}
+				it := ps.fieldInfos.Iterator()
+				for {
+					info := it.Next()
+					if info == nil {
+						break
+					}
+					if mergedFIPending.GetByName(info.Name()) != nil {
+						continue
+					}
+					num := mergedFIPending.GetNextFieldNumber()
+					clone := NewFieldInfo(info.Name(), num, FieldInfoOptions{
+						IndexOptions:             info.IndexOptions(),
+						DocValuesType:            info.DocValuesType(),
+						DocValuesSkipIndexType:   DocValuesSkipIndexTypeNone,
+						DocValuesGen:             -1,
+						Stored:                   info.IsStored(),
+						Tokenized:                info.IsTokenized(),
+						OmitNorms:                info.OmitNorms(),
+						StoreTermVectors:         info.HasTermVectors(),
+						VectorEncoding:           VectorEncodingFloat32,
+						VectorSimilarityFunction: VectorSimilarityFunctionEuclidean,
+					})
+					_ = mergedFIPending.Add(clone)
+				}
+			}
 		}
-		w.pendingImportedSegments = []pendingSegment{{numDocs: total, delCount: totalDel}}
+		w.pendingImportedSegments = []pendingSegment{{
+			numDocs:         total,
+			delCount:        totalDel,
+			fieldInfos:      mergedFIPending,
+			deletedOrdinals: allOrds,
+		}}
 	}
 
 	w.mu.Unlock()
@@ -748,8 +805,11 @@ func (w *IndexWriter) ForceMerge(maxNumSegments int) error {
 		}
 
 		// Replace all segments with a single merged segment.
+		// Carry the counter forward from the existing SegmentInfos so that the
+		// merged segment name does not collide with any previously written .si stub.
 		merged := NewSegmentInfos()
 		merged.SetGeneration(si.Generation() + 1)
+		merged.SetCounter(si.Counter())
 		merged.SetInMemoryParentField(w.config.ParentField())
 		merged.SetInMemoryIndexSort(w.config.IndexSort())
 
@@ -758,6 +818,11 @@ func (w *IndexWriter) ForceMerge(maxNumSegments int) error {
 		if mergedFI != nil {
 			sci.SetInMemoryFieldInfos(mergedFI)
 		}
+		// Write the .si stub for the merged segment.
+		if err := writeSegmentInfoStub(w.directory, segName); err != nil {
+			return fmt.Errorf("forceMerge: write .si stub: %w", err)
+		}
+		sci.SegmentInfo().SetFiles([]string{segName + ".si"})
 		merged.Add(sci)
 
 		if userData := si.GetUserData(); len(userData) > 0 {
@@ -856,7 +921,26 @@ func (w *IndexWriter) GetDocStats() *DocStats {
 //   - A source directory is the same as the target directory
 //   - Codec incompatibility is detected
 //   - Merge failures occur
+//
 // acquireWriteLocks obtains the write.lock on each source directory.
+// writeSegmentInfoStub writes a minimal marker file named segmentName+".si"
+// into dir.  The file carries a single magic byte so that external tools and
+// CheckIndex can detect per-segment corruption by verifying file presence.
+// Gocene does not use real codec-level .si files; this stub is the equivalent.
+func writeSegmentInfoStub(dir store.Directory, segmentName string) error {
+	name := segmentName + ".si"
+	out, err := dir.CreateOutput(name, store.IOContextWrite)
+	if err != nil {
+		return fmt.Errorf("create %s: %w", name, err)
+	}
+	// Write a single marker byte.
+	if err := out.WriteByte(0x53); err != nil { // 'S' for SegmentInfo
+		_ = out.Close()
+		return fmt.Errorf("write %s: %w", name, err)
+	}
+	return out.Close()
+}
+
 // If any acquisition fails, previously acquired locks are released and the
 // error is returned. This mirrors Lucene's IndexWriter.acquireWriteLocks.
 func acquireWriteLocks(dirs []store.Directory) ([]store.Lock, error) {

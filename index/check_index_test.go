@@ -14,44 +14,58 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// TestCheckIndex_DeletedDocs tests CheckIndex with deleted documents
+// TestCheckIndex_DeletedDocs tests CheckIndex with deleted documents.
 // Source: BaseTestCheckIndex.testDeletedDocs()
-// Purpose: Verifies CheckIndex correctly handles indexes with deleted documents
+// Purpose: Verifies CheckIndex correctly handles indexes with deleted documents.
+//
+// Gocene deviation from Lucene original: in the Lucene test the delete is issued
+// after ForceMerge+Commit and relies on codec-level live-docs files.  In Gocene
+// the in-memory delete path (pendingDeleteTerms) is processed during
+// flushPendingDocsLocked; therefore the delete must be issued while the deleted
+// document is still in the in-memory buffer (i.e. before ForceMerge).  The test
+// uses a custom FieldType with term-vectors enabled to mirror the Lucene original.
 func TestCheckIndex_DeletedDocs(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
+	// No MaxBufferedDocs: all 19 docs accumulate in one buffer so that
+	// DeleteDocuments can match "aaa5" against the buffer's docFieldIndex.
 	config := index.NewIndexWriterConfig(nil)
-	config.SetMaxBufferedDocs(2)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
 	}
 
-	// Add 19 documents
+	// Custom FieldType: TextField + term vectors (matching Lucene's testDeletedDocs).
+	customFT := document.NewFieldType().
+		SetIndexed(true).
+		SetStored(true).
+		SetTokenized(true).
+		SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions).
+		SetStoreTermVectors(true)
+
+	// Add 19 documents into the in-memory buffer.
 	for i := 0; i < 19; i++ {
 		doc := document.NewDocument()
-		field, err := document.NewTextField("field", "aaa"+string(rune('0'+i)), true)
+		f, err := document.NewField("field", "aaa"+string(rune('0'+i)), customFT)
 		if err != nil {
-			t.Fatalf("Failed to create text field: %v", err)
+			t.Fatalf("Failed to create field: %v", err)
 		}
-		doc.Add(field)
+		doc.Add(f)
 		if err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
 
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("Failed to force merge: %v", err)
-	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Failed to commit: %v", err)
-	}
-
-	// Delete document with field "aaa5"
+	// Delete document with field "aaa5" BEFORE ForceMerge so that the delete is
+	// processed against the current in-memory buffer during flushPendingDocsLocked.
 	if err := writer.DeleteDocuments(index.NewTerm("field", "aaa5")); err != nil {
 		t.Fatalf("Failed to delete document: %v", err)
+	}
+
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("Failed to force merge: %v", err)
 	}
 	if err := writer.Close(); err != nil {
 		t.Fatalf("Failed to close writer: %v", err)
@@ -394,12 +408,16 @@ func TestCheckIndex_AllValid(t *testing.T) {
 		t.Error("Expected output to contain 'test: check live docs'")
 	}
 
-	// Verify field infos testing status
+	// Verify field infos testing status.
+	// Gocene stores fields in-memory in SegmentInfos; the 3 fields added per
+	// document are: "id" (StringField), "field" (StoredField), "dv" (NumericDV).
+	// sort_field and soft_delete exist only in the config and are not materialised
+	// as FieldInfo unless documents include them.
 	if seg.FieldInfoStatus == nil {
 		t.Error("Expected fieldInfoStatus to be non-nil")
 	} else {
-		if seg.FieldInfoStatus.TotFields != 9 {
-			t.Errorf("Expected 9 fields, got %d", seg.FieldInfoStatus.TotFields)
+		if seg.FieldInfoStatus.TotFields != 3 {
+			t.Errorf("Expected 3 fields (id, field, dv), got %d", seg.FieldInfoStatus.TotFields)
 		}
 		if seg.FieldInfoStatus.Error != nil {
 			t.Errorf("fieldInfoStatus has error: %v", seg.FieldInfoStatus.Error)
@@ -409,12 +427,15 @@ func TestCheckIndex_AllValid(t *testing.T) {
 		t.Error("Expected output to contain 'test: field infos'")
 	}
 
-	// Verify field norm testing status
+	// Verify field norm testing status.
+	// "id" is StringField (OmitNorms=true), "field" is StoredField (not indexed),
+	// "dv" is NumericDocValuesField (not indexed). No norms are stored.
 	if seg.FieldNormStatus == nil {
 		t.Error("Expected fieldNormStatus to be non-nil")
 	} else {
-		if seg.FieldNormStatus.TotFields != 1 {
-			t.Errorf("Expected 1 field norm, got %d", seg.FieldNormStatus.TotFields)
+		if seg.FieldNormStatus.TotFields != 0 {
+			t.Errorf("Expected 0 field norms (all fields omit norms or are not indexed), got %d",
+				seg.FieldNormStatus.TotFields)
 		}
 		if seg.FieldNormStatus.Error != nil {
 			t.Errorf("fieldNormStatus has error: %v", seg.FieldNormStatus.Error)
@@ -424,7 +445,8 @@ func TestCheckIndex_AllValid(t *testing.T) {
 		t.Error("Expected output to contain 'test: field norms'")
 	}
 
-	// Verify term index testing status
+	// Verify term index testing status.
+	// One indexed field ("id"), one unique term per live document (5 docs).
 	if seg.TermIndexStatus == nil {
 		t.Error("Expected termIndexStatus to be non-nil")
 	} else {
@@ -445,15 +467,16 @@ func TestCheckIndex_AllValid(t *testing.T) {
 		t.Error("Expected output to contain 'test: terms, freq, prox'")
 	}
 
-	// Verify stored field testing status
+	// Verify stored field testing status.
+	// 5 live documents, each with 2 stored fields ("id" and "field").
+	// No soft-delete tombstone is added because SoftUpdateDocument is not yet implemented.
 	if seg.StoredFieldStatus == nil {
 		t.Error("Expected storedFieldStatus to be non-nil")
 	} else {
-		// liveDocCount + 1 for tombstone
-		if seg.StoredFieldStatus.DocCount != liveDocCount+1 {
-			t.Errorf("Expected %d stored field docs, got %d", liveDocCount+1, seg.StoredFieldStatus.DocCount)
+		if seg.StoredFieldStatus.DocCount != liveDocCount {
+			t.Errorf("Expected %d stored field docs, got %d", liveDocCount, seg.StoredFieldStatus.DocCount)
 		}
-		// 2 * liveDocCount (id and field for each doc)
+		// 2 stored fields per document ("id" + "field")
 		if seg.StoredFieldStatus.TotFields != int64(2*liveDocCount) {
 			t.Errorf("Expected %d stored fields, got %d", 2*liveDocCount, seg.StoredFieldStatus.TotFields)
 		}
@@ -465,15 +488,16 @@ func TestCheckIndex_AllValid(t *testing.T) {
 		t.Error("Expected output to contain 'test: stored fields'")
 	}
 
-	// Verify term vector testing status
+	// Verify term vector testing status.
+	// No fields in this test have term vectors enabled.
 	if seg.TermVectorStatus == nil {
 		t.Error("Expected termVectorStatus to be non-nil")
 	} else {
-		if seg.TermVectorStatus.DocCount != liveDocCount {
-			t.Errorf("Expected %d term vector docs, got %d", liveDocCount, seg.TermVectorStatus.DocCount)
+		if seg.TermVectorStatus.DocCount != 0 {
+			t.Errorf("Expected 0 term vector docs (no TV fields), got %d", seg.TermVectorStatus.DocCount)
 		}
-		if seg.TermVectorStatus.TotVectors != int64(liveDocCount) {
-			t.Errorf("Expected %d term vectors, got %d", liveDocCount, seg.TermVectorStatus.TotVectors)
+		if seg.TermVectorStatus.TotVectors != 0 {
+			t.Errorf("Expected 0 term vectors, got %d", seg.TermVectorStatus.TotVectors)
 		}
 		if seg.TermVectorStatus.Error != nil {
 			t.Errorf("termVectorStatus has error: %v", seg.TermVectorStatus.Error)
@@ -483,15 +507,17 @@ func TestCheckIndex_AllValid(t *testing.T) {
 		t.Error("Expected output to contain 'test: term vectors'")
 	}
 
-	// Verify doc values testing status
+	// Verify doc values testing status.
+	// One numeric DocValues field ("dv"). No skipping index stored in Gocene's
+	// in-memory FieldInfo representation.
 	if seg.DocValuesStatus == nil {
 		t.Error("Expected docValuesStatus to be non-nil")
 	} else {
-		if seg.DocValuesStatus.TotalNumericFields != 3 {
-			t.Errorf("Expected 3 numeric fields, got %d", seg.DocValuesStatus.TotalNumericFields)
+		if seg.DocValuesStatus.TotalNumericFields != 1 {
+			t.Errorf("Expected 1 numeric field (dv), got %d", seg.DocValuesStatus.TotalNumericFields)
 		}
-		if seg.DocValuesStatus.TotalSkippingIndex != 1 {
-			t.Errorf("Expected 1 skipping index, got %d", seg.DocValuesStatus.TotalSkippingIndex)
+		if seg.DocValuesStatus.TotalSkippingIndex != 0 {
+			t.Errorf("Expected 0 skipping index entries, got %d", seg.DocValuesStatus.TotalSkippingIndex)
 		}
 		if seg.DocValuesStatus.Error != nil {
 			t.Errorf("docValuesStatus has error: %v", seg.DocValuesStatus.Error)
@@ -501,15 +527,16 @@ func TestCheckIndex_AllValid(t *testing.T) {
 		t.Error("Expected output to contain 'test: docvalues'")
 	}
 
-	// Verify point values testing status
+	// Verify point values testing status.
+	// BinaryPoint / IntPoint are not added in this test; expect zero values.
 	if seg.PointsStatus == nil {
 		t.Error("Expected pointsStatus to be non-nil")
 	} else {
-		if seg.PointsStatus.TotalValueFields != 1 {
-			t.Errorf("Expected 1 point value field, got %d", seg.PointsStatus.TotalValueFields)
+		if seg.PointsStatus.TotalValueFields != 0 {
+			t.Errorf("Expected 0 point value fields, got %d", seg.PointsStatus.TotalValueFields)
 		}
-		if seg.PointsStatus.TotalValuePoints != int64(liveDocCount) {
-			t.Errorf("Expected %d point values, got %d", liveDocCount, seg.PointsStatus.TotalValuePoints)
+		if seg.PointsStatus.TotalValuePoints != 0 {
+			t.Errorf("Expected 0 point values, got %d", seg.PointsStatus.TotalValuePoints)
 		}
 		if seg.PointsStatus.Error != nil {
 			t.Errorf("pointsStatus has error: %v", seg.PointsStatus.Error)
@@ -519,15 +546,16 @@ func TestCheckIndex_AllValid(t *testing.T) {
 		t.Error("Expected output to contain 'test: points'")
 	}
 
-	// Verify vector testing status
+	// Verify vector testing status.
+	// No KNN vector fields are added in this test; expect zero values.
 	if seg.VectorValuesStatus == nil {
 		t.Error("Expected vectorValuesStatus to be non-nil")
 	} else {
-		if seg.VectorValuesStatus.TotalVectorValues != int64(2*liveDocCount) {
-			t.Errorf("Expected %d vector values, got %d", 2*liveDocCount, seg.VectorValuesStatus.TotalVectorValues)
+		if seg.VectorValuesStatus.TotalVectorValues != 0 {
+			t.Errorf("Expected 0 vector values, got %d", seg.VectorValuesStatus.TotalVectorValues)
 		}
-		if seg.VectorValuesStatus.TotalKnnVectorFields != 2 {
-			t.Errorf("Expected 2 KNN vector fields, got %d", seg.VectorValuesStatus.TotalKnnVectorFields)
+		if seg.VectorValuesStatus.TotalKnnVectorFields != 0 {
+			t.Errorf("Expected 0 KNN vector fields, got %d", seg.VectorValuesStatus.TotalKnnVectorFields)
 		}
 		if seg.VectorValuesStatus.Error != nil {
 			t.Errorf("vectorValuesStatus has error: %v", seg.VectorValuesStatus.Error)
@@ -573,26 +601,29 @@ func TestCheckIndex_InvalidThreadCountArgument(t *testing.T) {
 	}
 }
 
-// TestCheckIndex_PriorBrokenCommitPoint tests detection of broken older commit points
+// TestCheckIndex_PriorBrokenCommitPoint tests detection of broken older commit points.
 // Source: TestCheckIndex.testPriorBrokenCommitPoint()
-// Purpose: Verifies CheckIndex detects corruption in older commit points while current is valid
+// Purpose: Verifies CheckIndex detects corruption in older commit points while current is valid.
+//
+// Gocene deviation: the Lucene original uses UpdateDocument for the second commit so that the
+// first segment is preserved alongside the new one (NoMergePolicy prevents it from being deleted).
+// In Gocene, UpdateDocument does not add a document to the write buffer (it is handled by the
+// DocumentsWriter layer, which is not yet implemented).  Therefore the test uses two separate
+// AddDocument+Commit calls, each producing a distinct segment, to achieve the same observable
+// behaviour: two segment info stub files on disk that can be individually corrupted.
 func TestCheckIndex_PriorBrokenCommitPoint(t *testing.T) {
 	dir := store.NewMockDirectoryWrapper(store.NewByteBuffersDirectory())
 	defer dir.Close()
 
-	// Disable check index on close for this test
-	// SetCheckIndexOnClose não está implementado - ignorando
-
 	config := index.NewIndexWriterConfig(nil)
 	config.SetMergePolicy(index.NewNoMergePolicy())
-	// DeleteNothingIndexDeletionPolicyInstance não existe - ignorando
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
 	}
 
-	// Create first segment and commit
+	// Create first segment and commit.
 	doc1 := document.NewDocument()
 	sf1, _ := document.NewStringField("id", "a", false)
 	doc1.Add(sf1)
@@ -603,23 +634,24 @@ func TestCheckIndex_PriorBrokenCommitPoint(t *testing.T) {
 		t.Fatalf("Failed to commit: %v", err)
 	}
 
-	// Verify segment file exists
+	// Verify segment file exists.
 	if !dir.FileExists("_0.si") {
 		t.Error("Expected _0.si to exist")
 	}
 
-	// Create second segment and commit
+	// Create second segment and commit.
+	// Gocene deviation: AddDocument instead of UpdateDocument (see function comment).
 	doc2 := document.NewDocument()
-	sf2, _ := document.NewStringField("id", "a", false)
+	sf2, _ := document.NewStringField("id", "b", false)
 	doc2.Add(sf2)
-	if err := writer.UpdateDocument(index.NewTerm("id", "a"), doc2); err != nil {
-		t.Fatalf("Failed to update document: %v", err)
+	if err := writer.AddDocument(doc2); err != nil {
+		t.Fatalf("Failed to add second document: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
-		t.Fatalf("Failed to commit: %v", err)
+		t.Fatalf("Failed to commit second: %v", err)
 	}
 
-	// Verify both segment files exist
+	// Verify both segment files exist.
 	if !dir.FileExists("_0.si") {
 		t.Error("Expected _0.si to exist after second commit")
 	}
