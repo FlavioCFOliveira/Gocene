@@ -150,104 +150,12 @@ func (TokenStreamToTermAutomatonQuery) Build(field string) *TermAutomatonQuery {
 	return NewTermAutomatonQuery(field)
 }
 
-// QueryProfilerTimingType enumerates the timer buckets the profiler tracks.
-type QueryProfilerTimingType int
-
-const (
-	// TimingBuild covers query build time.
-	TimingBuild QueryProfilerTimingType = iota
-	// TimingScore covers scoring time.
-	TimingScore
-	// TimingMatch covers matching time.
-	TimingMatch
-)
-
-// QueryLeafProfilerBreakdown records timing per timer type on a leaf.
-type QueryLeafProfilerBreakdown struct {
-	Timings map[QueryProfilerTimingType]int64
-}
-
-// NewQueryLeafProfilerBreakdown builds the breakdown.
-func NewQueryLeafProfilerBreakdown() *QueryLeafProfilerBreakdown {
-	return &QueryLeafProfilerBreakdown{Timings: make(map[QueryProfilerTimingType]int64)}
-}
-
-// Add records nanoseconds for kind.
-func (b *QueryLeafProfilerBreakdown) Add(kind QueryProfilerTimingType, nanos int64) {
-	b.Timings[kind] += nanos
-}
-
-// QueryProfilerResult aggregates per-leaf timings for one query.
-type QueryProfilerResult struct {
-	QueryName string
-	Leaves    []*QueryLeafProfilerBreakdown
-}
-
-// NewQueryProfilerResult builds the result.
-func NewQueryProfilerResult(name string) *QueryProfilerResult {
-	return &QueryProfilerResult{QueryName: name}
-}
-
-// AggregatedQueryLeafProfilerResult merges multiple leaf breakdowns into one
-// summary entry.
-type AggregatedQueryLeafProfilerResult struct {
-	Totals map[QueryProfilerTimingType]int64
-}
-
-// NewAggregatedQueryLeafProfilerResult builds the helper.
-func NewAggregatedQueryLeafProfilerResult() *AggregatedQueryLeafProfilerResult {
-	return &AggregatedQueryLeafProfilerResult{Totals: make(map[QueryProfilerTimingType]int64)}
-}
-
-// Add merges a leaf breakdown.
-func (a *AggregatedQueryLeafProfilerResult) Add(b *QueryLeafProfilerBreakdown) {
-	for kind, nanos := range b.Timings {
-		a.Totals[kind] += nanos
-	}
-}
-
-// ProfilerCollector is the collector used while profiling.
-type ProfilerCollector struct {
-	Result *QueryProfilerResult
-}
-
-// NewProfilerCollector builds the collector for the named query.
-func NewProfilerCollector(name string) *ProfilerCollector {
-	return &ProfilerCollector{Result: NewQueryProfilerResult(name)}
-}
-
-// ProfilerCollectorManager builds ProfilerCollectors per leaf.
-type ProfilerCollectorManager struct {
-	QueryName string
-}
-
-// NewProfilerCollectorManager builds the manager.
-func NewProfilerCollectorManager(name string) *ProfilerCollectorManager {
-	return &ProfilerCollectorManager{QueryName: name}
-}
-
-// NewCollector returns a fresh ProfilerCollector.
-func (m *ProfilerCollectorManager) NewCollector() *ProfilerCollector {
-	return NewProfilerCollector(m.QueryName)
-}
-
-// ProfilerCollectorResult bundles the per-leaf breakdowns into a final result.
-type ProfilerCollectorResult struct {
-	Result *QueryProfilerResult
-}
-
-// NewProfilerCollectorResult builds the helper.
-func NewProfilerCollectorResult(r *QueryProfilerResult) *ProfilerCollectorResult {
-	return &ProfilerCollectorResult{Result: r}
-}
-
 // QueryProfilerIndexSearcher wraps a search.IndexSearcher with profiling hooks.
 type QueryProfilerIndexSearcher struct {
 	Searcher *search.IndexSearcher
-	Result   *QueryProfilerResult
 }
 
 // NewQueryProfilerIndexSearcher builds the wrapper.
 func NewQueryProfilerIndexSearcher(s *search.IndexSearcher) *QueryProfilerIndexSearcher {
-	return &QueryProfilerIndexSearcher{Searcher: s, Result: NewQueryProfilerResult("query")}
+	return &QueryProfilerIndexSearcher{Searcher: s}
 }
