@@ -513,6 +513,55 @@ func WriteSegmentInfos(si *SegmentInfos, directory store.Directory) error {
 		if err := out.WriteBytes(id); err != nil {
 			return err
 		}
+		// Write in-memory FieldInfos so readers can enumerate fields without
+		// codec infrastructure.  Format: numFields int32, then per field:
+		//   name string, number int32, indexOptions int32, docValuesType int32,
+		//   flags int32 (bit 0=stored, 1=tokenized, 2=storeTermVectors, 3=omitNorms)
+		fi := sci.GetInMemoryFieldInfos()
+		if fi == nil {
+			if err := store.WriteInt32(out, 0); err != nil {
+				return err
+			}
+		} else {
+			if err := store.WriteInt32(out, int32(fi.Size())); err != nil {
+				return err
+			}
+			iter := fi.Iterator()
+			for {
+				info := iter.Next()
+				if info == nil {
+					break
+				}
+				if err := store.WriteString(out, info.Name()); err != nil {
+					return err
+				}
+				if err := store.WriteInt32(out, int32(info.Number())); err != nil {
+					return err
+				}
+				if err := store.WriteInt32(out, int32(info.IndexOptions())); err != nil {
+					return err
+				}
+				if err := store.WriteInt32(out, int32(info.DocValuesType())); err != nil {
+					return err
+				}
+				flags := int32(0)
+				if info.IsStored() {
+					flags |= 1
+				}
+				if info.IsTokenized() {
+					flags |= 2
+				}
+				if info.HasTermVectors() {
+					flags |= 4
+				}
+				if info.OmitNorms() {
+					flags |= 8
+				}
+				if err := store.WriteInt32(out, flags); err != nil {
+					return err
+				}
+			}
+		}
 	}
 
 	return nil
@@ -622,6 +671,54 @@ func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
 		segmentInfo := NewSegmentInfo(name, int(docCount), directory)
 		segmentInfo.SetID(id)
 		sci := NewSegmentCommitInfo(segmentInfo, int(delCount), -1)
+
+		// Read in-memory FieldInfos (written by current Gocene writer).
+		numFields, err := store.ReadInt32(in)
+		if err != nil {
+			// Older format without FieldInfos extension — tolerate gracefully.
+			si.Add(sci)
+			continue
+		}
+		if numFields > 0 {
+			fis := NewFieldInfos()
+			for f := int32(0); f < numFields; f++ {
+				fname, err := store.ReadString(in)
+				if err != nil {
+					return nil, fmt.Errorf("reading field name: %w", err)
+				}
+				fnum, err := store.ReadInt32(in)
+				if err != nil {
+					return nil, fmt.Errorf("reading field number: %w", err)
+				}
+				ioRaw, err := store.ReadInt32(in)
+				if err != nil {
+					return nil, fmt.Errorf("reading index options: %w", err)
+				}
+				dvRaw, err := store.ReadInt32(in)
+				if err != nil {
+					return nil, fmt.Errorf("reading doc values type: %w", err)
+				}
+				flags, err := store.ReadInt32(in)
+				if err != nil {
+					return nil, fmt.Errorf("reading flags: %w", err)
+				}
+				opts := FieldInfoOptions{
+					IndexOptions:             IndexOptions(ioRaw),
+					DocValuesType:            DocValuesType(dvRaw),
+					DocValuesSkipIndexType:   DocValuesSkipIndexTypeNone,
+					DocValuesGen:             -1,
+					Stored:                   flags&1 != 0,
+					Tokenized:                flags&2 != 0,
+					StoreTermVectors:         flags&4 != 0,
+					OmitNorms:                flags&8 != 0,
+					VectorEncoding:           VectorEncodingFloat32,
+					VectorSimilarityFunction: VectorSimilarityFunctionEuclidean,
+				}
+				fi := NewFieldInfo(fname, int(fnum), opts)
+				_ = fis.Add(fi)
+			}
+			sci.SetInMemoryFieldInfos(fis)
+		}
 		si.Add(sci)
 	}
 

@@ -459,7 +459,17 @@ func OpenDirectoryReaderWithInfos(directory store.Directory, segmentInfos *Segme
 	readers := make([]*SegmentReader, 0, segmentInfos.Size())
 	for i := 0; i < segmentInfos.Size(); i++ {
 		segmentCommitInfo := segmentInfos.Get(i)
-		segmentReader := NewSegmentReader(segmentCommitInfo)
+		// Restore in-memory FieldInfos persisted by the writer, if available.
+		fi := segmentCommitInfo.GetInMemoryFieldInfos()
+		var segmentReader *SegmentReader
+		if fi != nil {
+			segmentReader = &SegmentReader{
+				segmentCommitInfo: segmentCommitInfo,
+				fieldInfos:        fi,
+			}
+		} else {
+			segmentReader = NewSegmentReader(segmentCommitInfo)
+		}
 		readers = append(readers, segmentReader)
 	}
 

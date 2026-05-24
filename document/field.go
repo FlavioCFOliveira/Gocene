@@ -176,5 +176,20 @@ func (f *Field) IndexOptions() index.IndexOptions {
 	return f.ft.IndexOptions
 }
 
+// DocValuesType returns the doc values type for this field.
+func (f *Field) DocValuesType() index.DocValuesType {
+	return f.ft.DocValuesType
+}
+
+// HasTermVectors returns true if term vectors are stored for this field.
+func (f *Field) HasTermVectors() bool {
+	return f.ft.StoreTermVectors
+}
+
+// OmitNorms returns true if norms are omitted for this field.
+func (f *Field) OmitNorms() bool {
+	return f.ft.OmitNorms
+}
+
 // Ensure Field implements IndexableField
 var _ IndexableField = (*Field)(nil)

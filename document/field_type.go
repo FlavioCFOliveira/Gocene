@@ -207,6 +207,13 @@ func (ft *FieldType) checkFrozen() {
 func (ft *FieldType) SetIndexed(indexed bool) *FieldType {
 	ft.checkFrozen()
 	ft.Indexed = indexed
+	// Mirror Lucene's implicit contract: enabling the indexed flag implies at
+	// least DOCS_AND_FREQS_AND_POSITIONS when no IndexOptions have been set
+	// yet.  Callers that want a different level must call SetIndexOptions()
+	// explicitly after SetIndexed(true).
+	if indexed && ft.IndexOptions == index.IndexOptionsNone {
+		ft.IndexOptions = index.IndexOptionsDocsAndFreqsAndPositions
+	}
 	return ft
 }
 
