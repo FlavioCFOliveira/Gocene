@@ -432,7 +432,6 @@ func (s *TamilStemmer) rFixEndings() bool {
 			s.Cursor = v2
 			break lab0
 		}
-		break lab0
 	}
 	s.Cursor = v1
 	return true
