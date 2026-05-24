@@ -7,62 +7,87 @@ package search
 import (
 	"fmt"
 	"regexp"
+	"sort"
+	"strconv"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
+// numericRangePattern matches Lucene's <lo-hi> numeric range syntax.
+var numericRangePattern = regexp.MustCompile(`^<(\d+)-(\d+)>$`)
+
 // RegexpQuery is a query that matches documents containing terms
-// that match a regular expression pattern.
+// that match a regular expression pattern, using full-term (anchored)
+// semantics — the pattern must match the entire term, not a substring.
 //
 // This is the Go port of Lucene's org.apache.lucene.search.RegexpQuery.
+//
+// Lucene's RegexpQuery uses its own automaton engine; this port compiles the
+// pattern to a Go regexp anchored with ^(?:...)$ so that the whole term must
+// match. The special Lucene numeric-range syntax <lo-hi> (e.g. <420000-600000>)
+// is handled as a separate code path that compares the parsed integer value of
+// each term rather than trying to encode the range as a regexp.
 type RegexpQuery struct {
 	*BaseQuery
-	field   string
-	pattern string
-	re      *regexp.Regexp
+	field          string
+	pattern        string
+	re             *regexp.Regexp
+	isNumericRange bool
+	numericLo      int64
+	numericHi      int64
 }
 
-// NewRegexpQuery creates a new RegexpQuery.
+// compileRegexp compiles pattern as a full-match regexp (anchored at both ends).
+// An empty pattern compiles to ^(?:)$ which matches only the empty string.
+func compileRegexp(pattern string) (*regexp.Regexp, error) {
+	return regexp.Compile("^(?:" + pattern + ")$")
+}
+
+// NewRegexpQuery creates a new RegexpQuery with full-match semantics.
 //
 // Parameters:
 //   - field: The field to search
-//   - pattern: The regular expression pattern
+//   - pattern: The regular expression pattern; the Lucene <lo-hi> numeric
+//     range syntax is recognised and handled via integer comparison.
 //
 // Returns an error if the pattern is invalid.
 func NewRegexpQuery(field, pattern string) (*RegexpQuery, error) {
-	re, err := regexp.Compile(pattern)
-	if err != nil {
-		return nil, fmt.Errorf("invalid regexp pattern: %w", err)
-	}
-
-	return &RegexpQuery{
+	q := &RegexpQuery{
 		BaseQuery: &BaseQuery{},
 		field:     field,
 		pattern:   pattern,
-		re:        re,
-	}, nil
+	}
+	if m := numericRangePattern.FindStringSubmatch(pattern); m != nil {
+		lo, errLo := strconv.ParseInt(m[1], 10, 64)
+		hi, errHi := strconv.ParseInt(m[2], 10, 64)
+		if errLo != nil || errHi != nil {
+			return nil, fmt.Errorf("invalid numeric range pattern %q", pattern)
+		}
+		q.isNumericRange = true
+		q.numericLo = lo
+		q.numericHi = hi
+	} else {
+		re, err := compileRegexp(pattern)
+		if err != nil {
+			return nil, fmt.Errorf("invalid regexp pattern: %w", err)
+		}
+		q.re = re
+	}
+	return q, nil
 }
 
 // NewRegexpQueryWithFlags creates a new RegexpQuery with flags.
+// The flags argument is accepted for API compatibility but currently unused;
+// Go's regexp package exposes flags via inline syntax (e.g. (?i)).
 //
 // Parameters:
 //   - field: The field to search
 //   - pattern: The regular expression pattern
-//   - flags: The regexp flags (e.g., regexp.CaseInsensitive)
+//   - flags: Accepted for API parity; unused in this implementation.
 //
 // Returns an error if the pattern is invalid.
-func NewRegexpQueryWithFlags(field, pattern string, flags int) (*RegexpQuery, error) {
-	re, err := regexp.Compile(pattern)
-	if err != nil {
-		return nil, fmt.Errorf("invalid regexp pattern: %w", err)
-	}
-
-	return &RegexpQuery{
-		BaseQuery: &BaseQuery{},
-		field:     field,
-		pattern:   pattern,
-		re:        re,
-	}, nil
+func NewRegexpQueryWithFlags(field, pattern string, _ int) (*RegexpQuery, error) {
+	return NewRegexpQuery(field, pattern)
 }
 
 // Field returns the field name.
@@ -75,8 +100,17 @@ func (q *RegexpQuery) Pattern() string {
 	return q.pattern
 }
 
-// Matches returns true if the given text matches the pattern.
+// Matches returns true if the given text matches the pattern with full-term
+// semantics. For numeric-range patterns the text is parsed as an integer and
+// compared against [lo, hi].
 func (q *RegexpQuery) Matches(text string) bool {
+	if q.isNumericRange {
+		v, err := strconv.ParseInt(text, 10, 64)
+		if err != nil {
+			return false
+		}
+		return v >= q.numericLo && v <= q.numericHi
+	}
 	if q.re == nil {
 		return false
 	}
@@ -85,14 +119,18 @@ func (q *RegexpQuery) Matches(text string) bool {
 
 // Clone creates a copy of this query.
 func (q *RegexpQuery) Clone() Query {
-	// Re-compile the regexp
-	re, _ := regexp.Compile(q.pattern)
-	return &RegexpQuery{
-		BaseQuery: &BaseQuery{},
-		field:     q.field,
-		pattern:   q.pattern,
-		re:        re,
+	clone := &RegexpQuery{
+		BaseQuery:      &BaseQuery{},
+		field:          q.field,
+		pattern:        q.pattern,
+		isNumericRange: q.isNumericRange,
+		numericLo:      q.numericLo,
+		numericHi:      q.numericHi,
 	}
+	if q.re != nil {
+		clone.re, _ = compileRegexp(q.pattern)
+	}
+	return clone
 }
 
 // Equals checks if this query equals another.
@@ -116,11 +154,9 @@ func (q *RegexpQuery) HashCode() int {
 }
 
 // Rewrite rewrites the query to a simpler form.
-// For simple patterns, this may rewrite to a TermQuery or BooleanQuery.
+// For now, returns itself; a full implementation would rewrite simple patterns
+// to TermQuery or PrefixQuery.
 func (q *RegexpQuery) Rewrite(reader IndexReader) (Query, error) {
-	// For now, return itself
-	// A full implementation would analyze the pattern and potentially
-	// rewrite to more efficient queries (e.g., prefix queries for ^prefix)
 	return q, nil
 }
 
@@ -177,8 +213,8 @@ func (w *RegexpWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) 
 		return nil, err
 	}
 
-	// Collect matching terms
-	var matchingDocs []int
+	// Collect matching document IDs, deduplicating across terms.
+	seen := make(map[int]struct{})
 	for {
 		term, err := termsEnum.Next()
 		if err != nil {
@@ -188,37 +224,45 @@ func (w *RegexpWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) 
 			break
 		}
 
-		// Check if the term text matches the pattern
-		if w.query.Matches(term.Text()) {
-			// Get postings for this term
-			postingsEnum, err := termsEnum.Postings(0)
+		// Check if the term text matches the pattern (full-match semantics).
+		if !w.query.Matches(term.Text()) {
+			continue
+		}
+
+		// Get postings for this term
+		postingsEnum, err := termsEnum.Postings(0)
+		if err != nil {
+			return nil, err
+		}
+		if postingsEnum == nil {
+			continue
+		}
+
+		// Collect documents; -1 == index.NO_MORE_DOCS
+		for {
+			doc, err := postingsEnum.NextDoc()
 			if err != nil {
 				return nil, err
 			}
-			if postingsEnum == nil {
-				continue
+			if doc == -1 { // index.NO_MORE_DOCS
+				break
 			}
-
-			// Collect documents
-			for {
-				doc, err := postingsEnum.NextDoc()
-				if err != nil {
-					return nil, err
-				}
-				if doc == -1 { // NO_MORE_DOCS
-					break
-				}
-				matchingDocs = append(matchingDocs, doc)
-			}
+			seen[doc] = struct{}{}
 		}
 	}
 
-	// Create a scorer for the matching documents
-	if len(matchingDocs) > 0 {
-		return NewRegexpScorer(w, matchingDocs), nil
+	if len(seen) == 0 {
+		return nil, nil
 	}
 
-	return nil, nil
+	// Produce a sorted, deduplicated slice of matching doc IDs.
+	matchingDocs := make([]int, 0, len(seen))
+	for d := range seen {
+		matchingDocs = append(matchingDocs, d)
+	}
+	sort.Ints(matchingDocs)
+
+	return NewRegexpScorer(w, matchingDocs), nil
 }
 
 // ScorerSupplier creates a scorer supplier for this weight.

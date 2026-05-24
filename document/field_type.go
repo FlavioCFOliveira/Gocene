@@ -204,16 +204,14 @@ func (ft *FieldType) checkFrozen() {
 }
 
 // SetIndexed sets whether the field is indexed.
+// Callers that enable indexing must also call SetIndexOptions to select the
+// desired posting detail level; Validate will reject an indexed field that
+// has IndexOptions == None.  The auto-set that previously imposed
+// DOCS_AND_FREQS_AND_POSITIONS was removed because it silently masked the
+// invalid-configuration error that the test suite expects.
 func (ft *FieldType) SetIndexed(indexed bool) *FieldType {
 	ft.checkFrozen()
 	ft.Indexed = indexed
-	// Mirror Lucene's implicit contract: enabling the indexed flag implies at
-	// least DOCS_AND_FREQS_AND_POSITIONS when no IndexOptions have been set
-	// yet.  Callers that want a different level must call SetIndexOptions()
-	// explicitly after SetIndexed(true).
-	if indexed && ft.IndexOptions == index.IndexOptionsNone {
-		ft.IndexOptions = index.IndexOptionsDocsAndFreqsAndPositions
-	}
 	return ft
 }
 
@@ -565,14 +563,16 @@ func (e *FieldTypeValidationError) Error() string {
 // index.FieldTypeInterface (StoreTermVectors/…).
 type fieldTypeAsIndexInterface struct{ ft *FieldType }
 
-func (w fieldTypeAsIndexInterface) IsIndexed() bool                  { return w.ft.Indexed }
-func (w fieldTypeAsIndexInterface) IsStored() bool                   { return w.ft.Stored }
-func (w fieldTypeAsIndexInterface) IsTokenized() bool                { return w.ft.Tokenized }
-func (w fieldTypeAsIndexInterface) GetIndexOptions() index.IndexOptions  { return w.ft.IndexOptions }
+func (w fieldTypeAsIndexInterface) IsIndexed() bool                       { return w.ft.Indexed }
+func (w fieldTypeAsIndexInterface) IsStored() bool                        { return w.ft.Stored }
+func (w fieldTypeAsIndexInterface) IsTokenized() bool                     { return w.ft.Tokenized }
+func (w fieldTypeAsIndexInterface) GetIndexOptions() index.IndexOptions   { return w.ft.IndexOptions }
 func (w fieldTypeAsIndexInterface) GetDocValuesType() index.DocValuesType { return w.ft.DocValuesType }
-func (w fieldTypeAsIndexInterface) StoreTermVectors() bool           { return w.ft.StoreTermVectors }
-func (w fieldTypeAsIndexInterface) StoreTermVectorPositions() bool   { return w.ft.StoreTermVectorPositions }
-func (w fieldTypeAsIndexInterface) StoreTermVectorOffsets() bool     { return w.ft.StoreTermVectorOffsets }
+func (w fieldTypeAsIndexInterface) StoreTermVectors() bool                { return w.ft.StoreTermVectors }
+func (w fieldTypeAsIndexInterface) StoreTermVectorPositions() bool {
+	return w.ft.StoreTermVectorPositions
+}
+func (w fieldTypeAsIndexInterface) StoreTermVectorOffsets() bool { return w.ft.StoreTermVectorOffsets }
 
 // AsIndexFieldTypeInterface returns this FieldType wrapped as an
 // index.FieldTypeInterface so that document.Field can satisfy
@@ -584,11 +584,13 @@ func (ft *FieldType) AsIndexFieldTypeInterface() index.FieldTypeInterface {
 // fieldAsIndexableField wraps *Field so that it satisfies index.IndexableField.
 type fieldAsIndexableField struct{ f *Field }
 
-func (w fieldAsIndexableField) Name() string                           { return w.f.name }
-func (w fieldAsIndexableField) StringValue() string                    { return w.f.StringValue() }
-func (w fieldAsIndexableField) BinaryValue() []byte                    { return w.f.BinaryValue() }
-func (w fieldAsIndexableField) NumericValue() interface{}              { return w.f.NumericValue() }
-func (w fieldAsIndexableField) FieldType() index.FieldTypeInterface    { return w.f.ft.AsIndexFieldTypeInterface() }
+func (w fieldAsIndexableField) Name() string              { return w.f.name }
+func (w fieldAsIndexableField) StringValue() string       { return w.f.StringValue() }
+func (w fieldAsIndexableField) BinaryValue() []byte       { return w.f.BinaryValue() }
+func (w fieldAsIndexableField) NumericValue() interface{} { return w.f.NumericValue() }
+func (w fieldAsIndexableField) FieldType() index.FieldTypeInterface {
+	return w.f.ft.AsIndexFieldTypeInterface()
+}
 
 // AsIndexableField returns this Field wrapped as an index.IndexableField.
 // This allows document.Field to participate in index.ProcessDocument without
@@ -599,4 +601,4 @@ func (f *Field) AsIndexableField() index.IndexableField {
 
 // compile-time checks
 var _ index.FieldTypeInterface = fieldTypeAsIndexInterface{}
-var _ index.IndexableField     = fieldAsIndexableField{}
+var _ index.IndexableField = fieldAsIndexableField{}

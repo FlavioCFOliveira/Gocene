@@ -270,10 +270,13 @@ func TestSearchResultValidation_RangeQuery(t *testing.T) {
 	}
 	defer writer.Close()
 
-	// Create documents with string IDs
+	// Create documents with zero-padded string IDs so that lexicographic ordering
+	// matches numeric ordering (e.g. "00" < "01" < ... < "09" < "10" < ... < "99").
+	// TermRangeQuery uses lexicographic (byte) comparison, so the IDs must be
+	// formatted consistently for range boundaries to align with expected doc counts.
 	for i := 0; i < 100; i++ {
 		doc := document.NewDocument()
-		idField, _ := document.NewStringField("id", fmt.Sprintf("%d", i), true)
+		idField, _ := document.NewStringField("id", fmt.Sprintf("%02d", i), true)
 		doc.Add(idField)
 
 		content := fmt.Sprintf("content %d", i)
@@ -309,16 +312,16 @@ func TestSearchResultValidation_RangeQuery(t *testing.T) {
 		t.Errorf("expected 11 hits for range [10,20], got %d", topDocs.TotalHits.Value)
 	}
 
-	// Test range query: value between "0" and "9" (exclusive of "10")
-	query2 := search.NewTermRangeQueryWithStrings("id", "0", "10", true, false)
+	// Test range query: value between "00" and "09" (exclusive of "10")
+	query2 := search.NewTermRangeQueryWithStrings("id", "00", "10", true, false)
 	topDocs2, err := searcher.Search(query2, 50)
 	if err != nil {
 		t.Fatalf("failed to search: %v", err)
 	}
 
-	// Should find 10 documents (0, 1, ..., 9)
+	// Should find 10 documents (00, 01, ..., 09)
 	if topDocs2.TotalHits.Value != 10 {
-		t.Errorf("expected 10 hits for range [0,10), got %d", topDocs2.TotalHits.Value)
+		t.Errorf("expected 10 hits for range [00,10), got %d", topDocs2.TotalHits.Value)
 	}
 }
 

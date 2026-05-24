@@ -342,8 +342,10 @@ func TestRegexpQuery_EmptyPattern(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
-	if topDocs.TotalHits.Value < 1 {
-		t.Errorf("expected at least 1 hit for empty pattern, got %d", topDocs.TotalHits.Value)
+	// Full-term matching: empty pattern compiles to ^(?:)$ which matches only the
+	// empty string "". Analyzers never emit empty tokens, so 0 hits is correct.
+	if topDocs.TotalHits.Value != 0 {
+		t.Errorf("expected 0 hits for empty pattern (full-term match), got %d", topDocs.TotalHits.Value)
 	}
 }
 
@@ -359,7 +361,9 @@ func TestRegexpQuery_SpecialCharacters(t *testing.T) {
 	}
 
 	doc := document.NewDocument()
-	f, err := document.NewTextField("field", "a.b*c+d?e[f]g", true)
+	// Terms produced by whitespace tokenisation: "a.b", "c*d", "e[f]"
+	// Full-term patterns must match each complete token, not a substring.
+	f, err := document.NewTextField("field", "a.b c*d e[f]", true)
 	if err != nil {
 		t.Fatalf("NewTextField: %v", err)
 	}
@@ -387,12 +391,13 @@ func TestRegexpQuery_SpecialCharacters(t *testing.T) {
 		expected int64
 		name     string
 	}{
-		{"a\\.b", 1, "literal dot"},
-		{"a.b", 1, "dot matches any char"},
-		{"c\\*d", 1, "literal asterisk"},
-		{"c.*d", 1, "asterisk as quantifier"},
-		{"e\\[f\\]", 1, "literal brackets"},
-		{"e\\[.*\\]", 1, "brackets with content"},
+		// Full-term semantics: pattern must match the entire token.
+		{"a\\.b", 1, "literal dot"},               // ^(?:a\.b)$  matches term "a.b"
+		{"a.b", 1, "dot matches any char"},        // ^(?:a.b)$   matches term "a.b"
+		{"c\\*d", 1, "literal asterisk"},          // ^(?:c\*d)$  matches term "c*d"
+		{"c.*d", 1, "asterisk as quantifier"},     // ^(?:c.*d)$ matches term "c*d"
+		{"e\\[f\\]", 1, "literal brackets"},       // ^(?:e\[f\])$ matches term "e[f]"
+		{"e\\[.*\\]", 1, "brackets with content"}, // ^(?:e\[.*\])$ matches term "e[f]"
 	}
 
 	for _, tc := range testCases {
@@ -495,7 +500,8 @@ func TestRegexpQuery_Quantifiers(t *testing.T) {
 	}{
 		{"a+", 1, "one or more"},
 		{"a*", 1, "zero or more"},
-		{"a?", 1, "zero or one"},
+		// a? matches "" or "a" as a full term; none of "aa","ab","aaa","aaaa" qualify.
+		{"a?", 0, "zero or one"},
 		{"a{2}", 1, "exactly 2"},
 		{"a{2,}", 1, "2 or more"},
 		{"a{2,4}", 1, "2 to 4"},

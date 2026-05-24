@@ -4,6 +4,15 @@
 
 package search
 
+import (
+	"sort"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+)
+
+// sortInts sorts a slice of ints in ascending order.
+func sortInts(s []int) { sort.Ints(s) }
+
 // TermRangeQuery matches documents containing terms within a range.
 type TermRangeQuery struct {
 	*BaseQuery
@@ -147,8 +156,161 @@ func (q *TermRangeQuery) String() string {
 
 // CreateWeight creates a Weight for this query.
 func (q *TermRangeQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	return NewConstantScoreQuery(q).CreateWeight(searcher, needsScores, boost)
+	return newTermRangeWeight(q, boost), nil
 }
+
+// ─── TermRangeWeight ────────────────────────────────────────────────────────
+
+// termRangeWeight is the Weight for TermRangeQuery. It iterates the field's
+// terms, accepts those that fall inside [lowerTerm, upperTerm], collects all
+// matching document IDs (deduplicating across terms), and hands them to a
+// RegexpScorer (which already handles sorted int-slice iteration).
+type termRangeWeight struct {
+	*BaseWeight
+	query *TermRangeQuery
+	score float32
+}
+
+func newTermRangeWeight(q *TermRangeQuery, boost float32) *termRangeWeight {
+	return &termRangeWeight{
+		BaseWeight: NewBaseWeight(q),
+		query:      q,
+		score:      boost,
+	}
+}
+
+func (w *termRangeWeight) Scorer(ctx *index.LeafReaderContext) (Scorer, error) {
+	leaf := ctx.LeafReader()
+	if leaf == nil {
+		return nil, nil
+	}
+	terms, err := leaf.Terms(w.query.field)
+	if err != nil {
+		return nil, err
+	}
+	if terms == nil {
+		return nil, nil
+	}
+	termsEnum, err := terms.GetIterator()
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[int]struct{})
+	for {
+		term, err := termsEnum.Next()
+		if err != nil {
+			return nil, err
+		}
+		if term == nil {
+			break
+		}
+		tb := []byte(term.Text())
+		if !w.inRange(tb) {
+			continue
+		}
+		postings, err := termsEnum.Postings(0)
+		if err != nil {
+			return nil, err
+		}
+		if postings == nil {
+			continue
+		}
+		for {
+			doc, err := postings.NextDoc()
+			if err != nil {
+				return nil, err
+			}
+			if doc == -1 { // index.NO_MORE_DOCS
+				break
+			}
+			seen[doc] = struct{}{}
+		}
+	}
+	if len(seen) == 0 {
+		return nil, nil
+	}
+	docs := make([]int, 0, len(seen))
+	for d := range seen {
+		docs = append(docs, d)
+	}
+	sortInts(docs)
+	return NewRegexpScorer(w, docs), nil
+}
+
+// inRange reports whether term is within the query's [lower, upper] bounds
+// using lexicographic (byte) comparison, honouring the inclusive/exclusive flags.
+func (w *termRangeWeight) inRange(term []byte) bool {
+	q := w.query
+	if q.lowerTerm != nil {
+		cmp := bytesCompare(term, q.lowerTerm)
+		if cmp < 0 || (cmp == 0 && !q.includeLower) {
+			return false
+		}
+	}
+	if q.upperTerm != nil {
+		cmp := bytesCompare(term, q.upperTerm)
+		if cmp > 0 || (cmp == 0 && !q.includeUpper) {
+			return false
+		}
+	}
+	return true
+}
+
+func (w *termRangeWeight) ScorerSupplier(ctx *index.LeafReaderContext) (ScorerSupplier, error) {
+	scorer, err := w.Scorer(ctx)
+	if err != nil || scorer == nil {
+		return nil, err
+	}
+	return NewScorerSupplierAdapter(scorer), nil
+}
+
+func (w *termRangeWeight) BulkScorer(ctx *index.LeafReaderContext) (BulkScorer, error) {
+	scorer, err := w.Scorer(ctx)
+	if err != nil || scorer == nil {
+		return nil, err
+	}
+	return NewDefaultBulkScorer(scorer), nil
+}
+
+func (w *termRangeWeight) Explain(ctx *index.LeafReaderContext, doc int) (Explanation, error) {
+	return NewExplanation(false, 0, "TermRangeWeight explanation"), nil
+}
+
+func (w *termRangeWeight) IsCacheable(_ *index.LeafReaderContext) bool { return true }
+
+func (w *termRangeWeight) Count(_ *index.LeafReaderContext) (int, error) { return -1, nil }
+
+func (w *termRangeWeight) Matches(_ *index.LeafReaderContext, _ int) (Matches, error) {
+	return nil, nil
+}
+
+// bytesCompare returns negative/zero/positive for a<b/a==b/a>b.
+func bytesCompare(a, b []byte) int {
+	la, lb := len(a), len(b)
+	n := la
+	if lb < n {
+		n = lb
+	}
+	for i := 0; i < n; i++ {
+		if a[i] < b[i] {
+			return -1
+		}
+		if a[i] > b[i] {
+			return 1
+		}
+	}
+	if la < lb {
+		return -1
+	}
+	if la > lb {
+		return 1
+	}
+	return 0
+}
+
+// Compile-time check.
+var _ Weight = (*termRangeWeight)(nil)
 
 // NewTermRangeQueryWithStrings creates a new TermRangeQuery using strings.
 func NewTermRangeQueryWithStrings(field string, lowerTerm, upperTerm string, includeLower, includeUpper bool) *TermRangeQuery {
