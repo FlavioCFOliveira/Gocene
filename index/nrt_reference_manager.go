@@ -148,30 +148,36 @@ func (rm *NRTReferenceManager) MaybeRefresh() (bool, error) {
 // Returns immediately if the current generation is already >= target.
 // This method is useful for waiting for specific updates to become visible.
 func (rm *NRTReferenceManager) WaitForGeneration(targetGeneration int64, timeoutMs int) (bool, error) {
+	// When there is no embedded ReferenceManager the current generation is 0;
+	// report whether the target has already been met without attempting a refresh.
+	if rm.ReferenceManager == nil {
+		return rm.GetGeneration() >= targetGeneration, nil
+	}
+
 	startGeneration := rm.GetGeneration()
 
 	if startGeneration >= targetGeneration {
 		return true, nil
 	}
 
-	// Try to refresh to catch up
+	// Try to refresh to catch up.
 	refreshed, err := rm.RefreshIfNeeded()
 	if err != nil {
 		return false, err
 	}
 
-	// Check if we've reached the target
+	// Check if we've reached the target.
 	if rm.GetGeneration() >= targetGeneration {
 		return true, nil
 	}
 
 	// If we refreshed but still haven't reached the target,
-	// the generation might not be available yet
+	// the generation might not be available yet.
 	if refreshed {
 		return rm.GetGeneration() >= targetGeneration, nil
 	}
 
-	// No changes, haven't reached target
+	// No changes, haven't reached target.
 	return false, nil
 }
 
