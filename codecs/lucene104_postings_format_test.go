@@ -283,67 +283,60 @@ func TestLucene104PostingsFormat_BasePostingsFormatTestCase(t *testing.T) {
 	}
 }
 
-// Placeholder functions for VInt15/VLong15 encoding/decoding.
-// These should be implemented in the store package or codecs package.
-// The VInt15 encoding uses 15 bits per byte with a continuation bit.
-
+// writeVInt15 encodes v using the Lucene104 VInt15 encoding.
+//
+// Ported from Lucene104PostingsWriter.writeVInt15 / writeVLong15:
+//   - if v fits in 15 bits (v & ~0x7FFF == 0): write one little-endian short
+//     with the high bit clear.
+//   - otherwise: write one short with the high bit set (0x8000 | low 15 bits),
+//     followed by a standard VLong encoding of v >> 15.
+//
+// Source: Lucene104PostingsWriter.java, lines 374-388.
 func writeVInt15(out *store.ByteArrayDataOutput, value int32) error {
-	// VInt15 encoding: 15 bits of data per byte, high bit is continuation
-	// This is more efficient than VInt for small values
-	for (value & ^int32(0x7FFF)) != 0 {
-		if err := out.WriteByte(byte((value & 0x7FFF) >> 7)); err != nil {
-			return err
-		}
-		value <<= 8
-	}
-	return out.WriteByte(byte(value & 0x7F))
+	return writeVLong15(out, int64(value))
 }
 
+// readVInt15 decodes a value written by writeVInt15.
+//
+// Ported from Lucene104PostingsReader.readVInt15.
 func readVInt15(in *store.ByteArrayDataInput) (int32, error) {
-	// VInt15 decoding
-	b, err := in.ReadByte()
-	if err != nil {
-		return 0, err
-	}
-	var result int32 = int32(b & 0x7F)
-	shift := 7
-	for (b&0x80) != 0 && shift < 28 {
-		b, err = in.ReadByte()
-		if err != nil {
-			return 0, err
-		}
-		result |= int32(b&0x7F) << shift
-		shift += 7
-	}
-	return result, nil
+	v, err := readVLong15(in)
+	return int32(v), err
 }
 
+// writeVLong15 encodes v using the Lucene104 VLong15 encoding.
+//
+// Source: Lucene104PostingsWriter.writeVLong15.
 func writeVLong15(out *store.ByteArrayDataOutput, value int64) error {
-	// VLong15 encoding: similar to VInt15 but for 64-bit values
-	for (value & ^int64(0x7FFF)) != 0 {
-		if err := out.WriteByte(byte((value & 0x7FFF) >> 7)); err != nil {
-			return err
-		}
-		value <<= 8
+	if value&^int64(0x7FFF) == 0 {
+		// Fits in 15 bits: write as a plain short (high bit clear = no continuation).
+		return out.WriteShort(int16(value))
 	}
-	return out.WriteByte(byte(value & 0x7F))
+	// Does not fit: set high bit as continuation flag, store low 15 bits.
+	if err := out.WriteShort(int16(0x8000 | (value & 0x7FFF))); err != nil {
+		return err
+	}
+	// Encode the remaining bits with standard VLong.
+	return store.WriteVLong(out, value>>15)
 }
 
+// readVLong15 decodes a value written by writeVLong15.
+//
+// Source: Lucene104PostingsReader.readVLong15.
 func readVLong15(in *store.ByteArrayDataInput) (int64, error) {
-	// VLong15 decoding
-	b, err := in.ReadByte()
+	s, err := in.ReadShort()
 	if err != nil {
 		return 0, err
 	}
-	var result int64 = int64(b & 0x7F)
-	shift := 7
-	for (b&0x80) != 0 && shift < 63 {
-		b, err = in.ReadByte()
-		if err != nil {
-			return 0, err
-		}
-		result |= int64(b&0x7F) << shift
-		shift += 7
+	if s >= 0 {
+		// High bit clear: value fits entirely in the low 15 bits of the short.
+		return int64(s), nil
 	}
-	return result, nil
+	// High bit set: low 15 bits of the short are the low 15 bits of the value;
+	// a standard VLong holds the remaining high bits.
+	rest, err := store.ReadVLong(in)
+	if err != nil {
+		return 0, err
+	}
+	return int64(s&0x7FFF) | (rest << 15), nil
 }
