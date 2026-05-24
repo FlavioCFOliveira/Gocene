@@ -3,7 +3,7 @@
 // that can be found in the LICENSE file.
 
 // Source: lucene/core/src/java/org/apache/lucene/codecs/lucene104/ForUtil.java
-// Purpose: Frame of Reference encoding/decoding for 256 integers
+// Purpose: Frame of Reference encoding/decoding for 256 integers.
 
 package codecs
 
@@ -14,234 +14,193 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// ForUtilBlockSize is the number of integers per block (256)
+// ForUtilBlockSize is the number of integers per block (256).
 const ForUtilBlockSize = 256
 
-// ForUtilBlockSizeLog2 is log2 of the block size (8)
+// ForUtilBlockSizeLog2 is log2 of the block size (8).
 const ForUtilBlockSizeLog2 = 8
 
 // ForUtil provides Frame of Reference encoding/decoding.
-// It encodes multiple integers using bit packing for SIMD-like speedups.
+// Encodes multiple integers using bit packing for SIMD-like speedups.
 // Buffers are pre-allocated to avoid heap allocations during encode/decode.
 type ForUtil struct {
-	// tmp is a reusable buffer for encoding/decoding operations
-	// Sized for the largest tmp usage (120 ints for decode15)
-	tmp []int32
-
-	// encodeBuf is a reusable buffer for encoding (256 ints)
-	encodeBuf []int32
-
-	// byteBuf is a reusable 4-byte buffer for reading/writing
-	byteBuf []byte
-
-	// decodeSlowBuf is a reusable buffer for decodeSlow (max 256 ints)
-	decodeSlowBuf []int32
+	// ints32 is the primary decode output buffer (256 int32 collapsed values).
+	ints32 []int32
+	// scratch is a secondary buffer used by recombination loops in decode*.
+	scratch []int32
 }
 
-// NewForUtil creates a new ForUtil instance with pre-allocated buffers
-// to eliminate heap allocations during encode/decode operations.
+// NewForUtil creates a new ForUtil instance with pre-allocated buffers.
 func NewForUtil() *ForUtil {
 	return &ForUtil{
-		tmp:           make([]int32, 256), // Largest tmp usage
-		encodeBuf:     make([]int32, 256), // For block encoding
-		byteBuf:       make([]byte, 4),    // Reusable byte buffer
-		decodeSlowBuf: make([]int32, 256), // For decodeSlow
+		ints32:  make([]int32, ForUtilBlockSize),
+		scratch: make([]int32, ForUtilBlockSize),
 	}
 }
 
 // ForUtilNumBytes returns the number of bytes required to encode 256 integers
-// of the given bits per value
+// of the given bits per value.
 func ForUtilNumBytes(bitsPerValue int) int {
 	return bitsPerValue << (ForUtilBlockSizeLog2 - 3)
 }
 
-// Encode encodes 256 integers from ints into out using the specified bits per value
-func (f *ForUtil) Encode(ints []int32, bitsPerValue int, out store.IndexOutput) error {
-	if len(ints) < ForUtilBlockSize {
-		return errors.New("ints array must have at least 256 elements")
-	}
+// ---------- mask helpers (matching Java static methods) ----------
 
-	// Use pre-allocated buffer instead of allocating new one
-	data := f.encodeBuf
-	copy(data, ints)
-
-	var nextPrimitive int
-	if bitsPerValue <= 8 {
-		nextPrimitive = 8
-		f.collapse8(data)
-	} else if bitsPerValue <= 16 {
-		nextPrimitive = 16
-		f.collapse16(data)
-	} else {
-		nextPrimitive = 32
-	}
-
-	return f.encodeInternal(data, bitsPerValue, nextPrimitive, out)
+// expandMask16 expands a 16-bit mask pattern to fill both halves of a 32-bit int.
+func expandMask16(m int32) int32 {
+	return m | (m << 16)
 }
 
-// Decode decodes 256 integers from in into ints using the specified bits per value
-func (f *ForUtil) Decode(bitsPerValue int, in store.IndexInput, ints []int64) error {
-	if len(ints) < ForUtilBlockSize {
-		return errors.New("ints array must have at least 256 elements")
-	}
-
-	switch bitsPerValue {
-	case 1:
-		if err := f.decode1(in, ints); err != nil {
-			return err
-		}
-		f.expand8(ints)
-	case 2:
-		if err := f.decode2(in, ints); err != nil {
-			return err
-		}
-		f.expand8(ints)
-	case 3:
-		if err := f.decode3(in, ints); err != nil {
-			return err
-		}
-		f.expand8(ints)
-	case 4:
-		if err := f.decode4(in, ints); err != nil {
-			return err
-		}
-		f.expand8(ints)
-	case 5:
-		if err := f.decode5(in, ints); err != nil {
-			return err
-		}
-		f.expand8(ints)
-	case 6:
-		if err := f.decode6(in, ints); err != nil {
-			return err
-		}
-		f.expand8(ints)
-	case 7:
-		if err := f.decode7(in, ints); err != nil {
-			return err
-		}
-		f.expand8(ints)
-	case 8:
-		if err := f.decode8(in, ints); err != nil {
-			return err
-		}
-		f.expand8(ints)
-	case 9:
-		if err := f.decode9(in, ints); err != nil {
-			return err
-		}
-		f.expand16(ints)
-	case 10:
-		if err := f.decode10(in, ints); err != nil {
-			return err
-		}
-		f.expand16(ints)
-	case 11:
-		if err := f.decode11(in, ints); err != nil {
-			return err
-		}
-		f.expand16(ints)
-	case 12:
-		if err := f.decode12(in, ints); err != nil {
-			return err
-		}
-		f.expand16(ints)
-	case 13:
-		if err := f.decode13(in, ints); err != nil {
-			return err
-		}
-		f.expand16(ints)
-	case 14:
-		if err := f.decode14(in, ints); err != nil {
-			return err
-		}
-		f.expand16(ints)
-	case 15:
-		if err := f.decode15(in, ints); err != nil {
-			return err
-		}
-		f.expand16(ints)
-	case 16:
-		if err := f.decode16(in, ints); err != nil {
-			return err
-		}
-		f.expand16(ints)
-	default:
-		if err := f.decodeSlow(bitsPerValue, in, ints); err != nil {
-			return err
-		}
-	}
-
-	return nil
+// expandMask8 expands an 8-bit mask pattern to fill all four bytes of a 32-bit int.
+func expandMask8(m int32) int32 {
+	return expandMask16(m | (m << 8))
 }
 
-// collapse8 collapses 4 bytes into 1 int (256 ints -> 64 ints)
-func (f *ForUtil) collapse8(arr []int32) {
+// mask32 returns a mask of the lowest bitsPerValue bits (single 32-bit word).
+func mask32(bitsPerValue int) int32 {
+	if bitsPerValue <= 0 {
+		return 0
+	}
+	if bitsPerValue >= 32 {
+		return -1
+	}
+	return int32((1 << bitsPerValue) - 1)
+}
+
+// mask16 returns an expanded 16-bit mask (both shorts populated).
+func mask16(bitsPerValue int) int32 {
+	if bitsPerValue <= 0 {
+		return 0
+	}
+	if bitsPerValue >= 16 {
+		return -1
+	}
+	return expandMask16(int32((1 << bitsPerValue) - 1))
+}
+
+// mask8 returns an expanded 8-bit mask (all four bytes populated).
+func mask8(bitsPerValue int) int32 {
+	if bitsPerValue <= 0 {
+		return 0
+	}
+	if bitsPerValue >= 8 {
+		return -1
+	}
+	return expandMask8(int32((1 << bitsPerValue) - 1))
+}
+
+// Pre-computed mask tables (indices 0..N-1).
+var masks8 [8]int32
+var masks16 [16]int32
+var masks32 [32]int32
+
+func init() {
+	for i := 0; i < 8; i++ {
+		masks8[i] = mask8(i)
+	}
+	for i := 0; i < 16; i++ {
+		masks16[i] = mask16(i)
+	}
+	for i := 0; i < 32; i++ {
+		masks32[i] = mask32(i)
+	}
+}
+
+// ---------- collapse / expand ----------
+
+// collapse8 packs four 8-bit values per slot: (256 int32) → (64 int32).
+// Each group of four consecutive ints at offsets [i, 64+i, 128+i, 192+i] is
+// merged into arr[i] via byte shifting.
+func collapse8(arr []int32) {
 	for i := 0; i < 64; i++ {
 		arr[i] = (arr[i] << 24) | (arr[64+i] << 16) | (arr[128+i] << 8) | arr[192+i]
 	}
 }
 
-// expand8 expands 1 int into 4 bytes (64 ints -> 256 ints)
-func (f *ForUtil) expand8(ints []int64) {
-	// Process in reverse to avoid overwriting
-	for i := 63; i >= 0; i-- {
-		v := ints[i]
-		ints[192+i] = v & 0xFF
-		ints[128+i] = (v >> 8) & 0xFF
-		ints[64+i] = (v >> 16) & 0xFF
-		ints[i] = (v >> 24) & 0xFF
+// expand8 unpacks four 8-bit values from each slot: (64 int32) → (256 int32).
+func expand8(arr []int32) {
+	for i := 0; i < 64; i++ {
+		v := arr[i]
+		arr[i] = (v >> 24) & 0xFF
+		arr[64+i] = (v >> 16) & 0xFF
+		arr[128+i] = (v >> 8) & 0xFF
+		arr[192+i] = v & 0xFF
 	}
 }
 
-// collapse16 collapses 2 shorts into 1 int (256 ints -> 128 ints)
-func (f *ForUtil) collapse16(arr []int32) {
+// collapse16 packs two 16-bit values per slot: (256 int32) → (128 int32).
+func collapse16(arr []int32) {
 	for i := 0; i < 128; i++ {
 		arr[i] = (arr[i] << 16) | (arr[128+i] & 0xFFFF)
 	}
 }
 
-// expand16 expands 1 int into 2 shorts (128 ints -> 256 ints)
-func (f *ForUtil) expand16(ints []int64) {
-	// Process in reverse to avoid overwriting
-	for i := 127; i >= 0; i-- {
-		v := ints[i]
-		ints[128+i] = v & 0xFFFF
-		ints[i] = (v >> 16) & 0xFFFF
+// expand16 unpacks two 16-bit values from each slot: (128 int32) → (256 int32).
+func expand16(arr []int32) {
+	for i := 0; i < 128; i++ {
+		v := arr[i]
+		arr[i] = (v >> 16) & 0xFFFF
+		arr[128+i] = v & 0xFFFF
 	}
 }
 
-// encodeInternal performs the actual bit packing encoding
-func (f *ForUtil) encodeInternal(ints []int32, bitsPerValue, primitiveSize int, out store.IndexOutput) error {
+// ---------- Encode ----------
+
+// Encode encodes 256 integers from ints into out using the specified bits per value.
+// The caller must supply a slice of at least ForUtilBlockSize elements.
+func (f *ForUtil) Encode(ints []int32, bitsPerValue int, out store.IndexOutput) error {
+	if len(ints) < ForUtilBlockSize {
+		return errors.New("ints array must have at least 256 elements")
+	}
+
+	// Work on a copy in ints32 to avoid mutating the caller's slice.
+	copy(f.ints32, ints[:ForUtilBlockSize])
+
+	var nextPrimitive int
+	if bitsPerValue <= 8 {
+		nextPrimitive = 8
+		collapse8(f.ints32)
+	} else if bitsPerValue <= 16 {
+		nextPrimitive = 16
+		collapse16(f.ints32)
+	} else {
+		nextPrimitive = 32
+	}
+
+	return encodeInternalForUtil(f.ints32, bitsPerValue, nextPrimitive, out)
+}
+
+// encodeInternalForUtil performs the actual bit-packing and writes packed ints to out.
+// Matches ForUtil.encode(int[], int, int, DataOutput, int[]) in Java.
+func encodeInternalForUtil(ints []int32, bitsPerValue, primitiveSize int, out store.IndexOutput) error {
 	numInts := ForUtilBlockSize * primitiveSize / 32
 	numIntsPerShift := bitsPerValue * 8
 
-	// Clear tmp array
-	for i := range f.tmp {
-		f.tmp[i] = 0
-	}
+	// Scratch buffer sized to numIntsPerShift (≤ bpv*8 ≤ 31*8 = 248 ≤ 256).
+	var scratch [ForUtilBlockSize]int32
 
 	idx := 0
 	shift := primitiveSize - bitsPerValue
 	for i := 0; i < numIntsPerShift; i++ {
-		f.tmp[i] = ints[idx] << shift
+		scratch[i] = ints[idx] << uint(shift)
 		idx++
 	}
 	for shift = shift - bitsPerValue; shift >= 0; shift -= bitsPerValue {
 		for i := 0; i < numIntsPerShift; i++ {
-			f.tmp[i] |= ints[idx] << shift
+			scratch[i] |= ints[idx] << uint(shift)
 			idx++
 		}
 	}
 
 	remainingBitsPerInt := shift + bitsPerValue
 	var maskRemainingBitsPerInt int32
-	if primitiveSize == 8 {
-		maskRemainingBitsPerInt = mask8(remainingBitsPerInt)
-	} else if primitiveSize == 16 {
-		maskRemainingBitsPerInt = mask16(remainingBitsPerInt)
-	} else {
-		maskRemainingBitsPerInt = mask32(remainingBitsPerInt)
+	switch primitiveSize {
+	case 8:
+		maskRemainingBitsPerInt = masks8[remainingBitsPerInt]
+	case 16:
+		maskRemainingBitsPerInt = masks16[remainingBitsPerInt]
+	default:
+		maskRemainingBitsPerInt = masks32[remainingBitsPerInt]
 	}
 
 	tmpIdx := 0
@@ -249,538 +208,525 @@ func (f *ForUtil) encodeInternal(ints []int32, bitsPerValue, primitiveSize int, 
 	for idx < numInts {
 		if remainingBitsPerValue >= remainingBitsPerInt {
 			remainingBitsPerValue -= remainingBitsPerInt
-			f.tmp[tmpIdx] |= (ints[idx] >> uint(remainingBitsPerValue)) & maskRemainingBitsPerInt
+			scratch[tmpIdx] |= (ints[idx] >> uint(remainingBitsPerValue)) & maskRemainingBitsPerInt
+			tmpIdx++
 			if remainingBitsPerValue == 0 {
 				idx++
 				remainingBitsPerValue = bitsPerValue
 			}
 		} else {
 			var mask1, mask2 int32
-			if primitiveSize == 8 {
-				mask1 = mask8(remainingBitsPerValue)
-				mask2 = mask8(remainingBitsPerInt - remainingBitsPerValue)
-			} else if primitiveSize == 16 {
-				mask1 = mask16(remainingBitsPerValue)
-				mask2 = mask16(remainingBitsPerInt - remainingBitsPerValue)
-			} else {
-				mask1 = mask32(remainingBitsPerValue)
-				mask2 = mask32(remainingBitsPerInt - remainingBitsPerValue)
+			switch primitiveSize {
+			case 8:
+				mask1 = masks8[remainingBitsPerValue]
+				mask2 = masks8[remainingBitsPerInt-remainingBitsPerValue]
+			case 16:
+				mask1 = masks16[remainingBitsPerValue]
+				mask2 = masks16[remainingBitsPerInt-remainingBitsPerValue]
+			default:
+				mask1 = masks32[remainingBitsPerValue]
+				mask2 = masks32[remainingBitsPerInt-remainingBitsPerValue]
 			}
-			f.tmp[tmpIdx] |= (ints[idx] & mask1) << uint(remainingBitsPerInt-remainingBitsPerValue)
+			scratch[tmpIdx] |= (ints[idx] & mask1) << uint(remainingBitsPerInt-remainingBitsPerValue)
 			idx++
 			remainingBitsPerValue = bitsPerValue - remainingBitsPerInt + remainingBitsPerValue
-			f.tmp[tmpIdx] |= (ints[idx] >> uint(remainingBitsPerValue)) & mask2
+			scratch[tmpIdx] |= (ints[idx] >> uint(remainingBitsPerValue)) & mask2
 			tmpIdx++
 		}
 	}
 
-	// Write the packed data using pre-allocated buffer
+	// Write numIntsPerShift big-endian 32-bit words.
+	var buf [4]byte
 	for i := 0; i < numIntsPerShift; i++ {
-		binary.BigEndian.PutUint32(f.byteBuf, uint32(f.tmp[i]))
-		if err := out.WriteBytes(f.byteBuf); err != nil {
+		binary.BigEndian.PutUint32(buf[:], uint32(scratch[i]))
+		if err := out.WriteBytes(buf[:]); err != nil {
 			return err
 		}
 	}
-
 	return nil
 }
 
-// decodeSlow handles bits per value > 16
-func (f *ForUtil) decodeSlow(bitsPerValue int, in store.IndexInput, ints []int64) error {
-	numInts := bitsPerValue << 3
-	mask := mask32(bitsPerValue)
+// ---------- splitInts (core decode primitive) ----------
 
-	// Read packed integers using pre-allocated buffers
-	tmp := f.decodeSlowBuf[:numInts]
-	for i := 0; i < numInts; i++ {
-		if err := in.ReadBytes(f.byteBuf); err != nil {
+// splitInts reads count ints from in, then for each shift level j in [0, maxIter]
+// writes (c[cIdx+i] >>> (bShift - j*dec)) & bMask into b[count*j + i].
+// Finally applies cMask to c[cIdx..cIdx+count-1].
+//
+// This is a direct port of PostingDecodingUtil.splitInts.
+func splitInts(
+	in store.IndexInput,
+	count int,
+	b []int32, bShift, dec int, bMask int32,
+	c []int32, cIdx int, cMask int32,
+) error {
+	// Read count ints (big-endian 4-byte words) into c[cIdx..].
+	var buf [4]byte
+	for i := 0; i < count; i++ {
+		if err := in.ReadBytes(buf[:]); err != nil {
 			return err
 		}
-		tmp[i] = int32(binary.BigEndian.Uint32(f.byteBuf))
+		c[cIdx+i] = int32(binary.BigEndian.Uint32(buf[:]))
 	}
 
-	// Unpack first numInts values
-	for i := 0; i < numInts; i++ {
-		ints[i] = int64(tmp[i]>>uint(32-bitsPerValue)) & int64(mask)
+	maxIter := (bShift - 1) / dec
+	for j := 0; j <= maxIter; j++ {
+		shift := bShift - j*dec
+		bOffset := count * j
+		for i := 0; i < count; i++ {
+			b[bOffset+i] = int32(uint32(c[cIdx+i])>>uint(shift)) & bMask
+		}
 	}
 
-	// Handle remaining values
+	for i := 0; i < count; i++ {
+		c[cIdx+i] &= cMask
+	}
+	return nil
+}
+
+// ---------- Decode ----------
+
+// Decode decodes 256 integers from in into ints using the specified bits per value.
+// ints must have at least ForUtilBlockSize elements.
+// Decoded values are placed as int64 (non-negative).
+func (f *ForUtil) Decode(bitsPerValue int, in store.IndexInput, ints []int64) error {
+	if len(ints) < ForUtilBlockSize {
+		return errors.New("ints array must have at least 256 elements")
+	}
+
+	// ints32 is the primary output buffer (collapsed form);
+	// scratch is the secondary scratch used by recombination loops.
+	buf := f.ints32 // len 256
+	sc := f.scratch // len 256
+
+	// Each decode* call fills buf (and optionally sc) with decoded int32 values,
+	// then an expand* call expands buf into all 256 slots.
+	// Finally we promote to int64.
+
+	var err error
+	switch bitsPerValue {
+	case 1:
+		err = decode1(in, buf)
+		if err == nil {
+			expand8(buf)
+		}
+	case 2:
+		err = decode2(in, buf)
+		if err == nil {
+			expand8(buf)
+		}
+	case 3:
+		err = decode3(in, buf, sc)
+		if err == nil {
+			expand8(buf)
+		}
+	case 4:
+		err = decode4(in, buf)
+		if err == nil {
+			expand8(buf)
+		}
+	case 5:
+		err = decode5(in, buf, sc)
+		if err == nil {
+			expand8(buf)
+		}
+	case 6:
+		err = decode6(in, buf, sc)
+		if err == nil {
+			expand8(buf)
+		}
+	case 7:
+		err = decode7(in, buf, sc)
+		if err == nil {
+			expand8(buf)
+		}
+	case 8:
+		err = decode8(in, buf)
+		if err == nil {
+			expand8(buf)
+		}
+	case 9:
+		err = decode9(in, buf, sc)
+		if err == nil {
+			expand16(buf)
+		}
+	case 10:
+		err = decode10(in, buf, sc)
+		if err == nil {
+			expand16(buf)
+		}
+	case 11:
+		err = decode11(in, buf, sc)
+		if err == nil {
+			expand16(buf)
+		}
+	case 12:
+		err = decode12(in, buf, sc)
+		if err == nil {
+			expand16(buf)
+		}
+	case 13:
+		err = decode13(in, buf, sc)
+		if err == nil {
+			expand16(buf)
+		}
+	case 14:
+		err = decode14(in, buf, sc)
+		if err == nil {
+			expand16(buf)
+		}
+	case 15:
+		err = decode15(in, buf, sc)
+		if err == nil {
+			expand16(buf)
+		}
+	case 16:
+		err = decode16(in, buf)
+		if err == nil {
+			expand16(buf)
+		}
+	default:
+		err = decodeSlow(bitsPerValue, in, buf)
+	}
+	if err != nil {
+		return err
+	}
+
+	for i := 0; i < ForUtilBlockSize; i++ {
+		ints[i] = int64(uint32(buf[i])) // zero-extend to int64
+	}
+	return nil
+}
+
+// ---------- decodeSlow (bitsPerValue 17-31) ----------
+
+// decodeSlow handles bits-per-value values that exceed 16.
+// Matches ForUtil.decodeSlow in Java.
+func decodeSlow(bitsPerValue int, in store.IndexInput, ints []int32) error {
+	numInts := bitsPerValue << 3 // bitsPerValue * 8
+	mask := masks32[bitsPerValue]
+
+	// scratch holds the raw ints read from the stream.
+	var scratch [256]int32
+
+	// splitInts with dec=32 → maxIter=(bShift-1)/32=(31-bpv)/32=0 for bpv≥1.
+	// So only j=0: b[i] = (c[i] >>> (32-bpv)) & mask; c remains unchanged (cMask=-1).
+	if err := splitInts(in, numInts, ints, 32-bitsPerValue, 32, mask, scratch[:], 0, -1); err != nil {
+		return err
+	}
+
 	remainingBitsPerInt := 32 - bitsPerValue
-	maskRemaining := mask32(remainingBitsPerInt)
+	mask32Remaining := masks32[remainingBitsPerInt]
 
 	tmpIdx := 0
 	remainingBits := remainingBitsPerInt
 	for intsIdx := numInts; intsIdx < ForUtilBlockSize; intsIdx++ {
 		b := bitsPerValue - remainingBits
-		l := int64(tmp[tmpIdx]&mask32(remainingBits)) << uint(b)
+		l := (scratch[tmpIdx] & masks32[remainingBits]) << uint(b)
 		tmpIdx++
 		for b >= remainingBitsPerInt {
 			b -= remainingBitsPerInt
-			l |= int64(tmp[tmpIdx]&maskRemaining) << uint(b)
+			l |= (scratch[tmpIdx] & mask32Remaining) << uint(b)
 			tmpIdx++
 		}
 		if b > 0 {
-			l |= int64((tmp[tmpIdx] >> uint(remainingBitsPerInt-b)) & mask32(b))
+			l |= int32(uint32(scratch[tmpIdx])>>uint(remainingBitsPerInt-b)) & masks32[b]
 			remainingBits = remainingBitsPerInt - b
 		} else {
 			remainingBits = remainingBitsPerInt
 		}
 		ints[intsIdx] = l
 	}
-
 	return nil
 }
 
-// decode1-16 handle specific bits per value cases
-func (f *ForUtil) decode1(in store.IndexInput, ints []int64) error {
-	var buf [4]byte
-	for i := 0; i < 8; i++ {
-		if err := in.ReadBytes(buf[:]); err != nil {
-			return err
-		}
-		v := binary.BigEndian.Uint32(buf[:])
-		ints[i] = int64(v >> 7)
-	}
-	return nil
+// ---------- decode1-16 ----------
+//
+// Each function uses splitInts to fill the "upper" slots of ints (the b array)
+// from the compressed int32 data, and stores the remainder bits in a separate
+// scratch buffer (c), which is then recombined via explicit OR operations.
+//
+// The implementation faithfully mirrors ForUtil.java, replacing Java's
+// PostingDecodingUtil.splitInts with the splitInts function above.
+//
+// Naming convention:
+//   - The first argument is the IndexInput.
+//   - The second argument is the primary output buffer (ints, length 256).
+//   - Where a separate scratch (tmp) buffer is needed it is the third argument.
+//   - All buffers must have length >= 256.
+
+func decode1(in store.IndexInput, ints []int32) error {
+	// splitInts(8, ints, 7, 1, MASK8_1, ints, 56, MASK8_1)
+	// Reads 8 ints into ints[56..63]; extracts 7 shifts of 1 bit into ints[0..55].
+	return splitInts(in, 8, ints, 7, 1, masks8[1], ints, 56, masks8[1])
 }
 
-func (f *ForUtil) decode2(in store.IndexInput, ints []int64) error {
-	var buf [4]byte
-	for i := 0; i < 16; i++ {
-		if err := in.ReadBytes(buf[:]); err != nil {
-			return err
-		}
-		v := binary.BigEndian.Uint32(buf[:])
-		ints[i] = int64(v >> 6)
-	}
-	return nil
+func decode2(in store.IndexInput, ints []int32) error {
+	// splitInts(16, ints, 6, 2, MASK8_2, ints, 48, MASK8_2)
+	return splitInts(in, 16, ints, 6, 2, masks8[2], ints, 48, masks8[2])
 }
 
-func (f *ForUtil) decode3(in store.IndexInput, ints []int64) error {
-	// Read 24 ints (72 bytes)
-	for i := 0; i < 24; i++ {
-		if err := in.ReadBytes(f.byteBuf); err != nil {
-			return err
-		}
-		f.tmp[i] = int32(binary.BigEndian.Uint32(f.byteBuf))
+func decode3(in store.IndexInput, ints []int32, tmp []int32) error {
+	// splitInts(24, ints, 5, 3, MASK8_3, tmp, 0, MASK8_2)
+	if err := splitInts(in, 24, ints, 5, 3, masks8[3], tmp, 0, masks8[2]); err != nil {
+		return err
 	}
-
-	// Process 8 iterations
-	for iter := 0; iter < 8; iter++ {
-		tmpIdx := iter * 3
-		intsIdx := iter * 2
-		l0 := (f.tmp[tmpIdx] >> 5) & 0x7
-		l0 |= ((f.tmp[tmpIdx+1] >> 1) & 0x1)
-		ints[48+intsIdx] = int64(l0)
-		l1 := (f.tmp[tmpIdx+1] & 0x1) << 2
-		l1 |= (f.tmp[tmpIdx+2] >> 0) & 0x3
-		ints[48+intsIdx+1] = int64(l1)
-	}
-
-	// First 48 values
-	for i := 0; i < 48; i++ {
-		ints[i] = int64((f.tmp[i] >> 5) & 0x7)
-	}
-
-	return nil
-}
-
-func (f *ForUtil) decode4(in store.IndexInput, ints []int64) error {
-	var buf [4]byte
-	for i := 0; i < 32; i++ {
-		if err := in.ReadBytes(buf[:]); err != nil {
-			return err
-		}
-		v := binary.BigEndian.Uint32(buf[:])
-		ints[i] = int64(v >> 4)
+	for iter, tmpIdx, intsIdx := 0, 0, 48; iter < 8; iter, tmpIdx, intsIdx = iter+1, tmpIdx+3, intsIdx+2 {
+		l0 := tmp[tmpIdx+0] << 1
+		l0 |= int32(uint32(tmp[tmpIdx+1])>>1) & masks8[1]
+		ints[intsIdx+0] = l0
+		l1 := (tmp[tmpIdx+1] & masks8[1]) << 2
+		l1 |= tmp[tmpIdx+2]
+		ints[intsIdx+1] = l1
 	}
 	return nil
 }
 
-func (f *ForUtil) decode5(in store.IndexInput, ints []int64) error {
-	for i := 0; i < 40; i++ {
-		if err := in.ReadBytes(f.byteBuf); err != nil {
-			return err
-		}
-		f.tmp[i] = int32(binary.BigEndian.Uint32(f.byteBuf))
-	}
+func decode4(in store.IndexInput, ints []int32) error {
+	// splitInts(32, ints, 4, 4, MASK8_4, ints, 32, MASK8_4)
+	return splitInts(in, 32, ints, 4, 4, masks8[4], ints, 32, masks8[4])
+}
 
-	for iter := 0; iter < 8; iter++ {
-		tmpIdx := iter * 5
-		intsIdx := iter * 3
-		l0 := (f.tmp[tmpIdx] >> 3) & 0x1F
-		l0 |= ((f.tmp[tmpIdx+1] >> 1) & 0x3)
-		ints[40+intsIdx] = int64(l0)
-		l1 := (f.tmp[tmpIdx+1] & 0x1) << 4
-		l1 |= (f.tmp[tmpIdx+2] >> 0) & 0xF
-		l1 |= ((f.tmp[tmpIdx+3] >> 2) & 0x1)
-		ints[40+intsIdx+1] = int64(l1)
-		l2 := (f.tmp[tmpIdx+3] & 0x3) << 3
-		l2 |= (f.tmp[tmpIdx+4] >> 0) & 0x7
-		ints[40+intsIdx+2] = int64(l2)
+func decode5(in store.IndexInput, ints []int32, tmp []int32) error {
+	// splitInts(40, ints, 3, 5, MASK8_5, tmp, 0, MASK8_3)
+	if err := splitInts(in, 40, ints, 3, 5, masks8[5], tmp, 0, masks8[3]); err != nil {
+		return err
 	}
-
-	for i := 0; i < 40; i++ {
-		ints[i] = int64((f.tmp[i] >> 3) & 0x1F)
+	for iter, tmpIdx, intsIdx := 0, 0, 40; iter < 8; iter, tmpIdx, intsIdx = iter+1, tmpIdx+5, intsIdx+3 {
+		l0 := tmp[tmpIdx+0] << 2
+		l0 |= int32(uint32(tmp[tmpIdx+1])>>1) & masks8[2]
+		ints[intsIdx+0] = l0
+		l1 := (tmp[tmpIdx+1] & masks8[1]) << 4
+		l1 |= tmp[tmpIdx+2] << 1
+		l1 |= int32(uint32(tmp[tmpIdx+3])>>2) & masks8[1]
+		ints[intsIdx+1] = l1
+		l2 := (tmp[tmpIdx+3] & masks8[2]) << 3
+		l2 |= tmp[tmpIdx+4]
+		ints[intsIdx+2] = l2
 	}
-
 	return nil
 }
 
-func (f *ForUtil) decode6(in store.IndexInput, ints []int64) error {
-	for i := 0; i < 48; i++ {
-		if err := in.ReadBytes(f.byteBuf); err != nil {
-			return err
-		}
-		f.tmp[i] = int32(binary.BigEndian.Uint32(f.byteBuf))
+func decode6(in store.IndexInput, ints []int32, tmp []int32) error {
+	// splitInts(48, ints, 2, 6, MASK8_6, tmp, 0, MASK8_2)
+	if err := splitInts(in, 48, ints, 2, 6, masks8[6], tmp, 0, masks8[2]); err != nil {
+		return err
 	}
-
-	for iter := 0; iter < 16; iter++ {
-		tmpIdx := iter * 3
-		intsIdx := iter
-		l0 := (f.tmp[tmpIdx] >> 2) & 0x3F
-		l0 |= ((f.tmp[tmpIdx+1] >> 2) & 0x3) << 4
-		l0 |= ((f.tmp[tmpIdx+2] >> 2) & 0x3) << 2
-		ints[48+intsIdx] = int64(l0)
+	for iter, tmpIdx, intsIdx := 0, 0, 48; iter < 16; iter, tmpIdx, intsIdx = iter+1, tmpIdx+3, intsIdx+1 {
+		l0 := tmp[tmpIdx+0] << 4
+		l0 |= tmp[tmpIdx+1] << 2
+		l0 |= tmp[tmpIdx+2]
+		ints[intsIdx+0] = l0
 	}
-
-	for i := 0; i < 48; i++ {
-		ints[i] = int64((f.tmp[i] >> 2) & 0x3F)
-	}
-
 	return nil
 }
 
-func (f *ForUtil) decode7(in store.IndexInput, ints []int64) error {
-	for i := 0; i < 56; i++ {
-		if err := in.ReadBytes(f.byteBuf); err != nil {
-			return err
-		}
-		f.tmp[i] = int32(binary.BigEndian.Uint32(f.byteBuf))
+func decode7(in store.IndexInput, ints []int32, tmp []int32) error {
+	// splitInts(56, ints, 1, 7, MASK8_7, tmp, 0, MASK8_1)
+	if err := splitInts(in, 56, ints, 1, 7, masks8[7], tmp, 0, masks8[1]); err != nil {
+		return err
 	}
-
-	for iter := 0; iter < 8; iter++ {
-		tmpIdx := iter * 7
-		intsIdx := iter
-		l0 := (f.tmp[tmpIdx] >> 1) & 0x7F
-		l0 |= ((f.tmp[tmpIdx+1] >> 1) & 0x1) << 6
-		l0 |= ((f.tmp[tmpIdx+2] >> 1) & 0x1) << 5
-		l0 |= ((f.tmp[tmpIdx+3] >> 1) & 0x1) << 4
-		l0 |= ((f.tmp[tmpIdx+4] >> 1) & 0x1) << 3
-		l0 |= ((f.tmp[tmpIdx+5] >> 1) & 0x1) << 2
-		l0 |= ((f.tmp[tmpIdx+6] >> 1) & 0x1) << 1
-		ints[56+intsIdx] = int64(l0)
+	for iter, tmpIdx, intsIdx := 0, 0, 56; iter < 8; iter, tmpIdx, intsIdx = iter+1, tmpIdx+7, intsIdx+1 {
+		l0 := tmp[tmpIdx+0] << 6
+		l0 |= tmp[tmpIdx+1] << 5
+		l0 |= tmp[tmpIdx+2] << 4
+		l0 |= tmp[tmpIdx+3] << 3
+		l0 |= tmp[tmpIdx+4] << 2
+		l0 |= tmp[tmpIdx+5] << 1
+		l0 |= tmp[tmpIdx+6]
+		ints[intsIdx+0] = l0
 	}
-
-	for i := 0; i < 56; i++ {
-		ints[i] = int64((f.tmp[i] >> 1) & 0x7F)
-	}
-
 	return nil
 }
 
-func (f *ForUtil) decode8(in store.IndexInput, ints []int64) error {
-	// Use stack-allocated buffer to avoid any heap escape issues
+func decode8(in store.IndexInput, ints []int32) error {
+	// splitInts(64, ints, 0, 8, MASK8_8(=−1), ints, 0, MASK8_8)
+	// Equivalent to: pdu.in.readInts(ints, 0, 64) — just read 64 ints.
 	var buf [4]byte
 	for i := 0; i < 64; i++ {
 		if err := in.ReadBytes(buf[:]); err != nil {
 			return err
 		}
-		ints[i] = int64(binary.BigEndian.Uint32(buf[:]))
+		ints[i] = int32(binary.BigEndian.Uint32(buf[:]))
 	}
 	return nil
 }
 
-func (f *ForUtil) decode9(in store.IndexInput, ints []int64) error {
-	for i := 0; i < 72; i++ {
-		if err := in.ReadBytes(f.byteBuf); err != nil {
-			return err
-		}
-		f.tmp[i] = int32(binary.BigEndian.Uint32(f.byteBuf))
+func decode9(in store.IndexInput, ints []int32, tmp []int32) error {
+	// splitInts(72, ints, 7, 9, MASK16_9, tmp, 0, MASK16_7)
+	if err := splitInts(in, 72, ints, 7, 9, masks16[9], tmp, 0, masks16[7]); err != nil {
+		return err
 	}
-
-	for iter := 0; iter < 8; iter++ {
-		tmpIdx := iter * 9
-		intsIdx := iter * 7
-		l0 := (f.tmp[tmpIdx] >> 7) & 0x1FF
-		l0 |= ((f.tmp[tmpIdx+1] >> 5) & 0x3) << 2
-		ints[72+intsIdx] = int64(l0)
-		l1 := (f.tmp[tmpIdx+1] & 0x1F) << 4
-		l1 |= ((f.tmp[tmpIdx+2] >> 3) & 0xF)
-		ints[72+intsIdx+1] = int64(l1)
-		l2 := (f.tmp[tmpIdx+2] & 0x7) << 6
-		l2 |= ((f.tmp[tmpIdx+3] >> 1) & 0x3F)
-		ints[72+intsIdx+2] = int64(l2)
-		l3 := ((f.tmp[tmpIdx+3] & 0x1) << 8)
-		l3 |= (f.tmp[tmpIdx+4] >> 0) & 0xFF
-		l3 |= ((f.tmp[tmpIdx+5] >> 6) & 0x1)
-		ints[72+intsIdx+3] = int64(l3)
-		l4 := (f.tmp[tmpIdx+5] & 0x3F) << 3
-		l4 |= ((f.tmp[tmpIdx+6] >> 4) & 0x7)
-		ints[72+intsIdx+4] = int64(l4)
-		l5 := (f.tmp[tmpIdx+6] & 0xF) << 5
-		l5 |= ((f.tmp[tmpIdx+7] >> 2) & 0x1F)
-		ints[72+intsIdx+5] = int64(l5)
-		l6 := (f.tmp[tmpIdx+7] & 0x3) << 7
-		l6 |= (f.tmp[tmpIdx+8] >> 0) & 0x7F
-		ints[72+intsIdx+6] = int64(l6)
+	for iter, tmpIdx, intsIdx := 0, 0, 72; iter < 8; iter, tmpIdx, intsIdx = iter+1, tmpIdx+9, intsIdx+7 {
+		l0 := tmp[tmpIdx+0] << 2
+		l0 |= int32(uint32(tmp[tmpIdx+1])>>5) & masks16[2]
+		ints[intsIdx+0] = l0
+		l1 := (tmp[tmpIdx+1] & masks16[5]) << 4
+		l1 |= int32(uint32(tmp[tmpIdx+2])>>3) & masks16[4]
+		ints[intsIdx+1] = l1
+		l2 := (tmp[tmpIdx+2] & masks16[3]) << 6
+		l2 |= int32(uint32(tmp[tmpIdx+3])>>1) & masks16[6]
+		ints[intsIdx+2] = l2
+		l3 := (tmp[tmpIdx+3] & masks16[1]) << 8
+		l3 |= tmp[tmpIdx+4] << 1
+		l3 |= int32(uint32(tmp[tmpIdx+5])>>6) & masks16[1]
+		ints[intsIdx+3] = l3
+		l4 := (tmp[tmpIdx+5] & masks16[6]) << 3
+		l4 |= int32(uint32(tmp[tmpIdx+6])>>4) & masks16[3]
+		ints[intsIdx+4] = l4
+		l5 := (tmp[tmpIdx+6] & masks16[4]) << 5
+		l5 |= int32(uint32(tmp[tmpIdx+7])>>2) & masks16[5]
+		ints[intsIdx+5] = l5
+		l6 := (tmp[tmpIdx+7] & masks16[2]) << 7
+		l6 |= tmp[tmpIdx+8]
+		ints[intsIdx+6] = l6
 	}
-
-	for i := 0; i < 72; i++ {
-		ints[i] = int64((f.tmp[i] >> 7) & 0x1FF)
-	}
-
 	return nil
 }
 
-func (f *ForUtil) decode10(in store.IndexInput, ints []int64) error {
-	for i := 0; i < 80; i++ {
-		if err := in.ReadBytes(f.byteBuf); err != nil {
-			return err
-		}
-		f.tmp[i] = int32(binary.BigEndian.Uint32(f.byteBuf))
+func decode10(in store.IndexInput, ints []int32, tmp []int32) error {
+	// splitInts(80, ints, 6, 10, MASK16_10, tmp, 0, MASK16_6)
+	if err := splitInts(in, 80, ints, 6, 10, masks16[10], tmp, 0, masks16[6]); err != nil {
+		return err
 	}
-
-	for iter := 0; iter < 16; iter++ {
-		tmpIdx := iter * 5
-		intsIdx := iter * 3
-		l0 := (f.tmp[tmpIdx] >> 6) & 0x3FF
-		l0 |= ((f.tmp[tmpIdx+1] >> 2) & 0xF) << 4
-		ints[80+intsIdx] = int64(l0)
-		l1 := (f.tmp[tmpIdx+1] & 0x3) << 8
-		l1 |= (f.tmp[tmpIdx+2] >> 0) & 0xFF
-		l1 |= ((f.tmp[tmpIdx+3] >> 4) & 0x3)
-		ints[80+intsIdx+1] = int64(l1)
-		l2 := (f.tmp[tmpIdx+3] & 0xF) << 6
-		l2 |= (f.tmp[tmpIdx+4] >> 0) & 0x3F
-		ints[80+intsIdx+2] = int64(l2)
+	for iter, tmpIdx, intsIdx := 0, 0, 80; iter < 16; iter, tmpIdx, intsIdx = iter+1, tmpIdx+5, intsIdx+3 {
+		l0 := tmp[tmpIdx+0] << 4
+		l0 |= int32(uint32(tmp[tmpIdx+1])>>2) & masks16[4]
+		ints[intsIdx+0] = l0
+		l1 := (tmp[tmpIdx+1] & masks16[2]) << 8
+		l1 |= tmp[tmpIdx+2] << 2
+		l1 |= int32(uint32(tmp[tmpIdx+3])>>4) & masks16[2]
+		ints[intsIdx+1] = l1
+		l2 := (tmp[tmpIdx+3] & masks16[4]) << 6
+		l2 |= tmp[tmpIdx+4]
+		ints[intsIdx+2] = l2
 	}
-
-	for i := 0; i < 80; i++ {
-		ints[i] = int64((f.tmp[i] >> 6) & 0x3FF)
-	}
-
 	return nil
 }
 
-func (f *ForUtil) decode11(in store.IndexInput, ints []int64) error {
-	for i := 0; i < 88; i++ {
-		if err := in.ReadBytes(f.byteBuf); err != nil {
-			return err
-		}
-		f.tmp[i] = int32(binary.BigEndian.Uint32(f.byteBuf))
+func decode11(in store.IndexInput, ints []int32, tmp []int32) error {
+	// splitInts(88, ints, 5, 11, MASK16_11, tmp, 0, MASK16_5)
+	if err := splitInts(in, 88, ints, 5, 11, masks16[11], tmp, 0, masks16[5]); err != nil {
+		return err
 	}
-
-	for iter := 0; iter < 8; iter++ {
-		tmpIdx := iter * 11
-		intsIdx := iter * 5
-		l0 := (f.tmp[tmpIdx] >> 5) & 0x7FF
-		l0 |= (f.tmp[tmpIdx+1] & 0x1F) << 6
-		l0 |= ((f.tmp[tmpIdx+2] >> 4) & 0x1)
-		ints[88+intsIdx] = int64(l0)
-		l1 := (f.tmp[tmpIdx+2] & 0xF) << 7
-		l1 |= (f.tmp[tmpIdx+3] & 0x7F) << 2
-		l1 |= ((f.tmp[tmpIdx+4] >> 3) & 0x3)
-		ints[88+intsIdx+1] = int64(l1)
-		l2 := (f.tmp[tmpIdx+4] & 0x7) << 8
-		l2 |= (f.tmp[tmpIdx+5] & 0xFF) << 3
-		l2 |= ((f.tmp[tmpIdx+6] >> 2) & 0x7)
-		ints[88+intsIdx+2] = int64(l2)
-		l3 := (f.tmp[tmpIdx+6] & 0x3) << 9
-		l3 |= (f.tmp[tmpIdx+7] & 0xFF) << 4
-		l3 |= ((f.tmp[tmpIdx+8] >> 1) & 0xF)
-		ints[88+intsIdx+3] = int64(l3)
-		l4 := (f.tmp[tmpIdx+8] & 0x1) << 10
-		l4 |= (f.tmp[tmpIdx+9] & 0xFF) << 5
-		l4 |= (f.tmp[tmpIdx+10] & 0x1F)
-		ints[88+intsIdx+4] = int64(l4)
+	for iter, tmpIdx, intsIdx := 0, 0, 88; iter < 8; iter, tmpIdx, intsIdx = iter+1, tmpIdx+11, intsIdx+5 {
+		l0 := tmp[tmpIdx+0] << 6
+		l0 |= tmp[tmpIdx+1] << 1
+		l0 |= int32(uint32(tmp[tmpIdx+2])>>4) & masks16[1]
+		ints[intsIdx+0] = l0
+		l1 := (tmp[tmpIdx+2] & masks16[4]) << 7
+		l1 |= tmp[tmpIdx+3] << 2
+		l1 |= int32(uint32(tmp[tmpIdx+4])>>3) & masks16[2]
+		ints[intsIdx+1] = l1
+		l2 := (tmp[tmpIdx+4] & masks16[3]) << 8
+		l2 |= tmp[tmpIdx+5] << 3
+		l2 |= int32(uint32(tmp[tmpIdx+6])>>2) & masks16[3]
+		ints[intsIdx+2] = l2
+		l3 := (tmp[tmpIdx+6] & masks16[2]) << 9
+		l3 |= tmp[tmpIdx+7] << 4
+		l3 |= int32(uint32(tmp[tmpIdx+8])>>1) & masks16[4]
+		ints[intsIdx+3] = l3
+		l4 := (tmp[tmpIdx+8] & masks16[1]) << 10
+		l4 |= tmp[tmpIdx+9] << 5
+		l4 |= tmp[tmpIdx+10]
+		ints[intsIdx+4] = l4
 	}
-
-	for i := 0; i < 88; i++ {
-		ints[i] = int64((f.tmp[i] >> 5) & 0x7FF)
-	}
-
 	return nil
 }
 
-func (f *ForUtil) decode12(in store.IndexInput, ints []int64) error {
-	for i := 0; i < 96; i++ {
-		if err := in.ReadBytes(f.byteBuf); err != nil {
-			return err
-		}
-		f.tmp[i] = int32(binary.BigEndian.Uint32(f.byteBuf))
+func decode12(in store.IndexInput, ints []int32, tmp []int32) error {
+	// splitInts(96, ints, 4, 12, MASK16_12, tmp, 0, MASK16_4)
+	if err := splitInts(in, 96, ints, 4, 12, masks16[12], tmp, 0, masks16[4]); err != nil {
+		return err
 	}
-
-	for iter := 0; iter < 32; iter++ {
-		tmpIdx := iter * 3
-		intsIdx := iter
-		l0 := (f.tmp[tmpIdx] >> 4) & 0xFFF
-		l0 |= (f.tmp[tmpIdx+1] & 0xF) << 8
-		l0 |= (f.tmp[tmpIdx+2] & 0xF) << 4
-		ints[96+intsIdx] = int64(l0)
+	for iter, tmpIdx, intsIdx := 0, 0, 96; iter < 32; iter, tmpIdx, intsIdx = iter+1, tmpIdx+3, intsIdx+1 {
+		l0 := tmp[tmpIdx+0] << 8
+		l0 |= tmp[tmpIdx+1] << 4
+		l0 |= tmp[tmpIdx+2]
+		ints[intsIdx+0] = l0
 	}
-
-	for i := 0; i < 96; i++ {
-		ints[i] = int64((f.tmp[i] >> 4) & 0xFFF)
-	}
-
 	return nil
 }
 
-func (f *ForUtil) decode13(in store.IndexInput, ints []int64) error {
-	for i := 0; i < 104; i++ {
-		if err := in.ReadBytes(f.byteBuf); err != nil {
-			return err
-		}
-		f.tmp[i] = int32(binary.BigEndian.Uint32(f.byteBuf))
+func decode13(in store.IndexInput, ints []int32, tmp []int32) error {
+	// splitInts(104, ints, 3, 13, MASK16_13, tmp, 0, MASK16_3)
+	if err := splitInts(in, 104, ints, 3, 13, masks16[13], tmp, 0, masks16[3]); err != nil {
+		return err
 	}
-
-	for iter := 0; iter < 8; iter++ {
-		tmpIdx := iter * 13
-		intsIdx := iter * 3
-		l0 := (f.tmp[tmpIdx] >> 3) & 0x1FFF
-		l0 |= (f.tmp[tmpIdx+1] & 0x7) << 10
-		l0 |= (f.tmp[tmpIdx+2] & 0x7) << 7
-		l0 |= (f.tmp[tmpIdx+3] & 0x7) << 4
-		l0 |= ((f.tmp[tmpIdx+4] >> 2) & 0x1)
-		ints[104+intsIdx] = int64(l0)
-		l1 := (f.tmp[tmpIdx+4] & 0x3) << 11
-		l1 |= (f.tmp[tmpIdx+5] & 0xFF) << 8
-		l1 |= (f.tmp[tmpIdx+6] & 0xFF) << 5
-		l1 |= (f.tmp[tmpIdx+7] & 0xFF) << 2
-		l1 |= ((f.tmp[tmpIdx+8] >> 1) & 0x3)
-		ints[104+intsIdx+1] = int64(l1)
-		l2 := (f.tmp[tmpIdx+8] & 0x1) << 12
-		l2 |= (f.tmp[tmpIdx+9] & 0xFF) << 9
-		l2 |= (f.tmp[tmpIdx+10] & 0xFF) << 6
-		l2 |= (f.tmp[tmpIdx+11] & 0xFF) << 3
-		l2 |= (f.tmp[tmpIdx+12] & 0x7)
-		ints[104+intsIdx+2] = int64(l2)
+	for iter, tmpIdx, intsIdx := 0, 0, 104; iter < 8; iter, tmpIdx, intsIdx = iter+1, tmpIdx+13, intsIdx+3 {
+		l0 := tmp[tmpIdx+0] << 10
+		l0 |= tmp[tmpIdx+1] << 7
+		l0 |= tmp[tmpIdx+2] << 4
+		l0 |= tmp[tmpIdx+3] << 1
+		l0 |= int32(uint32(tmp[tmpIdx+4])>>2) & masks16[1]
+		ints[intsIdx+0] = l0
+		l1 := (tmp[tmpIdx+4] & masks16[2]) << 11
+		l1 |= tmp[tmpIdx+5] << 8
+		l1 |= tmp[tmpIdx+6] << 5
+		l1 |= tmp[tmpIdx+7] << 2
+		l1 |= int32(uint32(tmp[tmpIdx+8])>>1) & masks16[2]
+		ints[intsIdx+1] = l1
+		l2 := (tmp[tmpIdx+8] & masks16[1]) << 12
+		l2 |= tmp[tmpIdx+9] << 9
+		l2 |= tmp[tmpIdx+10] << 6
+		l2 |= tmp[tmpIdx+11] << 3
+		l2 |= tmp[tmpIdx+12]
+		ints[intsIdx+2] = l2
 	}
-
-	for i := 0; i < 104; i++ {
-		ints[i] = int64((f.tmp[i] >> 3) & 0x1FFF)
-	}
-
 	return nil
 }
 
-func (f *ForUtil) decode14(in store.IndexInput, ints []int64) error {
-	for i := 0; i < 112; i++ {
-		if err := in.ReadBytes(f.byteBuf); err != nil {
-			return err
-		}
-		f.tmp[i] = int32(binary.BigEndian.Uint32(f.byteBuf))
+func decode14(in store.IndexInput, ints []int32, tmp []int32) error {
+	// splitInts(112, ints, 2, 14, MASK16_14, tmp, 0, MASK16_2)
+	if err := splitInts(in, 112, ints, 2, 14, masks16[14], tmp, 0, masks16[2]); err != nil {
+		return err
 	}
-
-	for iter := 0; iter < 16; iter++ {
-		tmpIdx := iter * 7
-		intsIdx := iter
-		l0 := (f.tmp[tmpIdx] >> 2) & 0x3FFF
-		l0 |= (f.tmp[tmpIdx+1] & 0x3) << 12
-		l0 |= (f.tmp[tmpIdx+2] & 0x3) << 10
-		l0 |= (f.tmp[tmpIdx+3] & 0x3) << 8
-		l0 |= (f.tmp[tmpIdx+4] & 0x3) << 6
-		l0 |= (f.tmp[tmpIdx+5] & 0x3) << 4
-		l0 |= (f.tmp[tmpIdx+6] & 0x3) << 2
-		ints[112+intsIdx] = int64(l0)
+	for iter, tmpIdx, intsIdx := 0, 0, 112; iter < 16; iter, tmpIdx, intsIdx = iter+1, tmpIdx+7, intsIdx+1 {
+		l0 := tmp[tmpIdx+0] << 12
+		l0 |= tmp[tmpIdx+1] << 10
+		l0 |= tmp[tmpIdx+2] << 8
+		l0 |= tmp[tmpIdx+3] << 6
+		l0 |= tmp[tmpIdx+4] << 4
+		l0 |= tmp[tmpIdx+5] << 2
+		l0 |= tmp[tmpIdx+6]
+		ints[intsIdx+0] = l0
 	}
-
-	for i := 0; i < 112; i++ {
-		ints[i] = int64((f.tmp[i] >> 2) & 0x3FFF)
-	}
-
 	return nil
 }
 
-func (f *ForUtil) decode15(in store.IndexInput, ints []int64) error {
-	for i := 0; i < 120; i++ {
-		if err := in.ReadBytes(f.byteBuf); err != nil {
-			return err
-		}
-		f.tmp[i] = int32(binary.BigEndian.Uint32(f.byteBuf))
+func decode15(in store.IndexInput, ints []int32, tmp []int32) error {
+	// splitInts(120, ints, 1, 15, MASK16_15, tmp, 0, MASK16_1)
+	if err := splitInts(in, 120, ints, 1, 15, masks16[15], tmp, 0, masks16[1]); err != nil {
+		return err
 	}
-
-	for iter := 0; iter < 8; iter++ {
-		tmpIdx := iter * 15
-		intsIdx := iter
-		l0 := (f.tmp[tmpIdx] >> 1) & 0x7FFF
-		l0 |= (f.tmp[tmpIdx+1] & 0x1) << 14
-		l0 |= (f.tmp[tmpIdx+2] & 0x1) << 13
-		l0 |= (f.tmp[tmpIdx+3] & 0x1) << 12
-		l0 |= (f.tmp[tmpIdx+4] & 0x1) << 11
-		l0 |= (f.tmp[tmpIdx+5] & 0x1) << 10
-		l0 |= (f.tmp[tmpIdx+6] & 0x1) << 9
-		l0 |= (f.tmp[tmpIdx+7] & 0x1) << 8
-		l0 |= (f.tmp[tmpIdx+8] & 0x1) << 7
-		l0 |= (f.tmp[tmpIdx+9] & 0x1) << 6
-		l0 |= (f.tmp[tmpIdx+10] & 0x1) << 5
-		l0 |= (f.tmp[tmpIdx+11] & 0x1) << 4
-		l0 |= (f.tmp[tmpIdx+12] & 0x1) << 3
-		l0 |= (f.tmp[tmpIdx+13] & 0x1) << 2
-		l0 |= (f.tmp[tmpIdx+14] & 0x1) << 1
-		ints[120+intsIdx] = int64(l0)
+	for iter, tmpIdx, intsIdx := 0, 0, 120; iter < 8; iter, tmpIdx, intsIdx = iter+1, tmpIdx+15, intsIdx+1 {
+		l0 := tmp[tmpIdx+0] << 14
+		l0 |= tmp[tmpIdx+1] << 13
+		l0 |= tmp[tmpIdx+2] << 12
+		l0 |= tmp[tmpIdx+3] << 11
+		l0 |= tmp[tmpIdx+4] << 10
+		l0 |= tmp[tmpIdx+5] << 9
+		l0 |= tmp[tmpIdx+6] << 8
+		l0 |= tmp[tmpIdx+7] << 7
+		l0 |= tmp[tmpIdx+8] << 6
+		l0 |= tmp[tmpIdx+9] << 5
+		l0 |= tmp[tmpIdx+10] << 4
+		l0 |= tmp[tmpIdx+11] << 3
+		l0 |= tmp[tmpIdx+12] << 2
+		l0 |= tmp[tmpIdx+13] << 1
+		l0 |= tmp[tmpIdx+14]
+		ints[intsIdx+0] = l0
 	}
-
-	for i := 0; i < 120; i++ {
-		ints[i] = int64((f.tmp[i] >> 1) & 0x7FFF)
-	}
-
 	return nil
 }
 
-func (f *ForUtil) decode16(in store.IndexInput, ints []int64) error {
+func decode16(in store.IndexInput, ints []int32) error {
+	// pdu.in.readInts(ints, 0, 128)
 	var buf [4]byte
 	for i := 0; i < 128; i++ {
 		if err := in.ReadBytes(buf[:]); err != nil {
 			return err
 		}
-		ints[i] = int64(binary.BigEndian.Uint32(buf[:]))
+		ints[i] = int32(binary.BigEndian.Uint32(buf[:]))
 	}
 	return nil
-}
-
-// Mask functions
-func mask8(bits int) int32 {
-	if bits <= 0 {
-		return 0
-	}
-	if bits >= 8 {
-		return -1 // 0xFFFFFFFF as signed int32
-	}
-	m := (1 << bits) - 1
-	// Expand to all bytes
-	return int32(m | (m << 8) | (m << 16) | (m << 24))
-}
-
-func mask16(bits int) int32 {
-	if bits <= 0 {
-		return 0
-	}
-	if bits >= 16 {
-		return -1 // 0xFFFFFFFF as signed int32
-	}
-	m := (1 << bits) - 1
-	// Expand to both shorts
-	return int32(m | (m << 16))
-}
-
-func mask32(bits int) int32 {
-	if bits <= 0 {
-		return 0
-	}
-	if bits >= 32 {
-		return -1 // 0xFFFFFFFF as signed int32
-	}
-	return int32((1 << bits) - 1)
-}
-
-// expandMask16 expands a 16-bit mask to 32 bits
-func expandMask16(mask16 int) int {
-	return mask16 | (mask16 << 16)
-}
-
-// expandMask8 expands an 8-bit mask to 32 bits
-func expandMask8(mask8 int) int {
-	return expandMask16(mask8 | (mask8 << 8))
 }
