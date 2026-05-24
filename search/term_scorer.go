@@ -14,6 +14,11 @@ import (
 //
 // TermScorer iterates over the documents matching a term and scores them
 // using the provided Similarity.SimScorer.
+//
+// Sentinel translation: index.PostingsEnum uses index.NO_MORE_DOCS (-1) as
+// its exhaustion sentinel, while search.DocIdSetIterator uses NO_MORE_DOCS
+// (math.MaxInt32). TermScorer bridges the two by mapping -1 → NO_MORE_DOCS
+// on every return from NextDoc and Advance.
 type TermScorer struct {
 	*BaseScorer
 	postingsEnum index.PostingsEnum
@@ -31,6 +36,16 @@ func NewTermScorer(weight Weight, postingsEnum index.PostingsEnum, simScorer Sim
 	}
 }
 
+// postingsDocToSearchDoc translates index.NO_MORE_DOCS (-1) to the search
+// package sentinel (NO_MORE_DOCS = math.MaxInt32). All other values are
+// returned as-is.
+func postingsDocToSearchDoc(doc int) int {
+	if doc == index.NO_MORE_DOCS {
+		return NO_MORE_DOCS
+	}
+	return doc
+}
+
 // NextDoc advances to the next document.
 func (s *TermScorer) NextDoc() (int, error) {
 	if s.postingsEnum == nil {
@@ -41,8 +56,8 @@ func (s *TermScorer) NextDoc() (int, error) {
 	if err != nil {
 		return NO_MORE_DOCS, err
 	}
-	s.doc = nextDoc
-	return nextDoc, nil
+	s.doc = postingsDocToSearchDoc(nextDoc)
+	return s.doc, nil
 }
 
 // DocID returns the current document ID.
@@ -60,8 +75,8 @@ func (s *TermScorer) Advance(target int) (int, error) {
 	if err != nil {
 		return NO_MORE_DOCS, err
 	}
-	s.doc = advancedDoc
-	return advancedDoc, nil
+	s.doc = postingsDocToSearchDoc(advancedDoc)
+	return s.doc, nil
 }
 
 // Score returns the score of the current document.

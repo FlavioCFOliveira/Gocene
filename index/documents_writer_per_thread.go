@@ -198,6 +198,85 @@ func NewTermVectorsBuffer() *TermVectorsBuffer {
 	}
 }
 
+// dwptField is a flat duck-type interface for a field accepted by ProcessDocument.
+// Rather than nesting a FieldType() call (whose return type varies between
+// document.Field and index.IndexableField), all field-type properties are
+// promoted to the top level.  This allows both document.Field (which returns
+// *document.FieldType from FieldType()) and index.IndexableField (which returns
+// index.FieldTypeInterface) to be adapted to a common surface without any
+// circular import.
+//
+// Concrete types do NOT need to implement this interface directly; asDwptField
+// constructs a concrete dwptFieldRecord from the field's accessor methods.
+type dwptField struct {
+	name        string
+	stringValue string
+	binaryValue []byte
+	numericVal  interface{}
+	// field-type properties
+	isIndexed                bool
+	isStored                 bool
+	isTokenized              bool
+	indexOptions             IndexOptions
+	docValuesType            DocValuesType
+	storeTermVectors         bool
+	storeTermVectorPositions bool
+	storeTermVectorOffsets   bool
+}
+
+// indexableFieldPromoter is satisfied by document.Field via its
+// AsIndexableField() method.  Using this intermediate interface lets the index
+// package coerce a document.Field — which cannot directly satisfy
+// index.IndexableField due to the FieldType() return-type mismatch — into a
+// proper IndexableField without importing the document package.
+type indexableFieldPromoter interface {
+	AsIndexableField() IndexableField
+}
+
+// asDwptField builds a flat dwptField record from fieldInterface using
+// structural type assertions.  It supports two concrete field layouts:
+//
+//  1. index.IndexableField (codec-facing, FieldType() returns FieldTypeInterface).
+//  2. document.Field — coerced via its AsIndexableField() bridge method.
+//
+// Returns (nil, false) when the field does not expose the minimal surface.
+func asDwptField(fieldInterface interface{}) (*dwptField, bool) {
+	if fieldInterface == nil {
+		return nil, false
+	}
+
+	// Try index.IndexableField first (codec-facing path).
+	idxF, ok := fieldInterface.(IndexableField)
+	if !ok {
+		// Try document.Field via its AsIndexableField() bridge.
+		if promoter, ok2 := fieldInterface.(indexableFieldPromoter); ok2 {
+			idxF = promoter.AsIndexableField()
+		}
+	}
+	if idxF == nil {
+		return nil, false
+	}
+
+	ft := idxF.FieldType()
+	f := &dwptField{
+		name:        idxF.Name(),
+		stringValue: idxF.StringValue(),
+		binaryValue: idxF.BinaryValue(),
+		numericVal:  idxF.NumericValue(),
+	}
+	if ft != nil {
+		f.isIndexed = ft.IsIndexed()
+		f.isStored = ft.IsStored()
+		f.isTokenized = ft.IsTokenized()
+		f.indexOptions = ft.GetIndexOptions()
+		f.docValuesType = ft.GetDocValuesType()
+		f.storeTermVectors = ft.StoreTermVectors()
+		f.storeTermVectorPositions = ft.StoreTermVectorPositions()
+		f.storeTermVectorOffsets = ft.StoreTermVectorOffsets()
+	}
+	return f, true
+}
+
 // ProcessDocument processes a single document.
 // This is the main entry point for indexing a document.
 func (dwpt *DocumentsWriterPerThread) ProcessDocument(doc Document) error {
@@ -219,53 +298,60 @@ func (dwpt *DocumentsWriterPerThread) ProcessDocument(doc Document) error {
 
 	// Process each field
 	for _, fieldInterface := range doc.GetFields() {
-		field, ok := fieldInterface.(IndexableField)
+		field, ok := asDwptField(fieldInterface)
 		if !ok {
 			continue
 		}
 
-		fieldName := field.Name()
-		ft := field.FieldType()
+		fieldName := field.name
 
-		// Build FieldInfoOptions from FieldTypeInterface
+		// Build FieldInfoOptions from the flat dwptField properties.
+		indexOpts := field.indexOptions
+		if indexOpts == 0 {
+			indexOpts = IndexOptionsDocsAndFreqsAndPositions
+		}
 		opts := FieldInfoOptions{
-			IndexOptions:             getIndexOptions(ft),
-			StoreTermVectors:         ft.StoreTermVectors(),
-			StoreTermVectorPositions: ft.StoreTermVectorPositions(),
-			StoreTermVectorOffsets:   ft.StoreTermVectorOffsets(),
+			IndexOptions:             indexOpts,
+			StoreTermVectors:         field.storeTermVectors,
+			StoreTermVectorPositions: field.storeTermVectorPositions,
+			StoreTermVectorOffsets:   field.storeTermVectorOffsets,
 			OmitNorms:                false,
-			DocValuesType:            ft.GetDocValuesType(),
+			DocValuesType:            field.docValuesType,
 		}
 
 		// Get or create FieldInfo
 		fieldInfo := dwpt.getOrAddFieldInfo(fieldName, opts)
 
 		// Process based on field type
-		if ft.IsIndexed() {
+		if field.isIndexed {
 			// Index the field in the inverted index
-			if err := dwpt.indexField(docID, field, fieldInfo, analyzer); err != nil {
+			if err := dwpt.indexFieldWithValue(docID, fieldName, field.stringValue, field.isTokenized, fieldInfo, analyzer); err != nil {
 				return err
 			}
 		}
 
-		if ft.IsStored() {
+		if field.isStored {
 			// Add to stored fields
 			storedDoc.fields = append(storedDoc.fields, &StoredField{
 				name:         fieldName,
-				stringValue:  field.StringValue(),
-				binaryValue:  field.BinaryValue(),
-				numericValue: field.NumericValue(),
+				stringValue:  field.stringValue,
+				binaryValue:  field.binaryValue,
+				numericValue: field.numericVal,
 			})
 		}
 
-		if ft.GetDocValuesType() != DocValuesTypeNone {
-			// Add to doc values
-			dwpt.addDocValue(fieldName, docID, field, ft.GetDocValuesType())
+		if field.docValuesType != DocValuesTypeNone {
+			// Add to doc values — requires index.IndexableField; adapt if possible.
+			if idxField, ok2 := fieldInterface.(IndexableField); ok2 {
+				dwpt.addDocValue(fieldName, docID, idxField, field.docValuesType)
+			}
 		}
 
-		if ft.StoreTermVectors() {
-			// Build term vectors (will be populated during indexing)
-			dwpt.buildTermVector(docID, fieldName, field)
+		if field.storeTermVectors {
+			// Build term vectors — requires index.IndexableField; adapt if possible.
+			if idxField, ok2 := fieldInterface.(IndexableField); ok2 {
+				dwpt.buildTermVector(docID, fieldName, idxField)
+			}
 		}
 	}
 
@@ -281,7 +367,8 @@ func (dwpt *DocumentsWriterPerThread) ProcessDocument(doc Document) error {
 	return nil
 }
 
-// getIndexOptions extracts IndexOptions from FieldTypeInterface
+// getIndexOptions extracts IndexOptions from FieldTypeInterface.
+// Kept for callers outside ProcessDocument that still use FieldTypeInterface.
 func getIndexOptions(ft FieldTypeInterface) IndexOptions {
 	if ft == nil {
 		return IndexOptionsDocsAndFreqsAndPositions
@@ -302,10 +389,18 @@ func (dwpt *DocumentsWriterPerThread) getOrAddFieldInfo(fieldName string, opts F
 	return fi
 }
 
-// indexField indexes a field in the inverted index.
-func (dwpt *DocumentsWriterPerThread) indexField(docID int, field IndexableField, fieldInfo *FieldInfo, analyzer analysis.Analyzer) error {
-	fieldName := field.Name()
-
+// indexFieldWithValue indexes a field value in the inverted index.
+// This method accepts the field name, string value and tokenized flag directly
+// so that it can be called from ProcessDocument regardless of whether the
+// concrete field type satisfies index.IndexableField or document.IndexableField.
+func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
+	docID int,
+	fieldName string,
+	value string,
+	tokenized bool,
+	fieldInfo *FieldInfo,
+	analyzer analysis.Analyzer,
+) error {
 	// Get or create field postings
 	dwpt.invertedIndex.mu.Lock()
 	fieldPostings, exists := dwpt.invertedIndex.fields[fieldName]
@@ -320,10 +415,10 @@ func (dwpt *DocumentsWriterPerThread) indexField(docID int, field IndexableField
 
 	// Tokenize the field value
 	var tokens []string
-	if field.FieldType() != nil && field.FieldType().IsTokenized() {
+	if tokenized {
 		// Use analyzer to tokenize
 		if analyzer != nil {
-			tokenStream, err := analyzer.TokenStream(fieldName, strings.NewReader(field.StringValue()))
+			tokenStream, err := analyzer.TokenStream(fieldName, strings.NewReader(value))
 			if err != nil {
 				return err
 			}
@@ -352,7 +447,7 @@ func (dwpt *DocumentsWriterPerThread) indexField(docID int, field IndexableField
 		}
 	} else {
 		// Use the value directly as a single term
-		tokens = []string{field.StringValue()}
+		tokens = []string{value}
 	}
 
 	// Add each token to the inverted index

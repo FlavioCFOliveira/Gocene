@@ -59,6 +59,11 @@ type SegmentCommitInfo struct {
 	// directory boundaries.
 	inMemoryFieldInfos *FieldInfos
 
+	// inMemoryFields holds in-memory postings built from DocumentsWriter
+	// DWPTs when no codec was wired.  Used by SegmentReader.Terms() to
+	// serve search queries without a full codec round-trip.
+	inMemoryFields FieldsProducer
+
 	// deletedOrdinals records which document ordinals (0-based within this
 	// segment) were deleted.  Used by SegmentReader to build the live-docs
 	// bitset without codec infrastructure.  Persisted in the segments file.
@@ -319,6 +324,21 @@ func (sci *SegmentCommitInfo) SetInMemoryFieldInfos(fi *FieldInfos) {
 	sci.mu.Lock()
 	defer sci.mu.Unlock()
 	sci.inMemoryFieldInfos = fi
+}
+
+// GetInMemoryFields returns the in-memory FieldsProducer for this segment.
+// Non-nil only when IndexWriter committed without a codec (test-only path).
+func (sci *SegmentCommitInfo) GetInMemoryFields() FieldsProducer {
+	sci.mu.RLock()
+	defer sci.mu.RUnlock()
+	return sci.inMemoryFields
+}
+
+// SetInMemoryFields sets the in-memory FieldsProducer for this segment.
+func (sci *SegmentCommitInfo) SetInMemoryFields(fp FieldsProducer) {
+	sci.mu.Lock()
+	defer sci.mu.Unlock()
+	sci.inMemoryFields = fp
 }
 
 // GetDeletedOrdinals returns the sorted slice of deleted document ordinals

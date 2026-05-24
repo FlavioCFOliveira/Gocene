@@ -557,3 +557,46 @@ type FieldTypeValidationError struct {
 func (e *FieldTypeValidationError) Error() string {
 	return "FieldType validation error: " + e.msg
 }
+
+// fieldTypeAsIndexInterface wraps *FieldType so that it satisfies
+// index.FieldTypeInterface.  The wrapper bridges the naming mismatch between
+// document.FieldType's Get-prefixed term-vector methods
+// (GetStoreTermVectors/…) and the un-prefixed names required by
+// index.FieldTypeInterface (StoreTermVectors/…).
+type fieldTypeAsIndexInterface struct{ ft *FieldType }
+
+func (w fieldTypeAsIndexInterface) IsIndexed() bool                  { return w.ft.Indexed }
+func (w fieldTypeAsIndexInterface) IsStored() bool                   { return w.ft.Stored }
+func (w fieldTypeAsIndexInterface) IsTokenized() bool                { return w.ft.Tokenized }
+func (w fieldTypeAsIndexInterface) GetIndexOptions() index.IndexOptions  { return w.ft.IndexOptions }
+func (w fieldTypeAsIndexInterface) GetDocValuesType() index.DocValuesType { return w.ft.DocValuesType }
+func (w fieldTypeAsIndexInterface) StoreTermVectors() bool           { return w.ft.StoreTermVectors }
+func (w fieldTypeAsIndexInterface) StoreTermVectorPositions() bool   { return w.ft.StoreTermVectorPositions }
+func (w fieldTypeAsIndexInterface) StoreTermVectorOffsets() bool     { return w.ft.StoreTermVectorOffsets }
+
+// AsIndexFieldTypeInterface returns this FieldType wrapped as an
+// index.FieldTypeInterface so that document.Field can satisfy
+// index.IndexableField without renaming any struct fields.
+func (ft *FieldType) AsIndexFieldTypeInterface() index.FieldTypeInterface {
+	return fieldTypeAsIndexInterface{ft: ft}
+}
+
+// fieldAsIndexableField wraps *Field so that it satisfies index.IndexableField.
+type fieldAsIndexableField struct{ f *Field }
+
+func (w fieldAsIndexableField) Name() string                           { return w.f.name }
+func (w fieldAsIndexableField) StringValue() string                    { return w.f.StringValue() }
+func (w fieldAsIndexableField) BinaryValue() []byte                    { return w.f.BinaryValue() }
+func (w fieldAsIndexableField) NumericValue() interface{}              { return w.f.NumericValue() }
+func (w fieldAsIndexableField) FieldType() index.FieldTypeInterface    { return w.f.ft.AsIndexFieldTypeInterface() }
+
+// AsIndexableField returns this Field wrapped as an index.IndexableField.
+// This allows document.Field to participate in index.ProcessDocument without
+// requiring a direct import of the document package from the index package.
+func (f *Field) AsIndexableField() index.IndexableField {
+	return fieldAsIndexableField{f: f}
+}
+
+// compile-time checks
+var _ index.FieldTypeInterface = fieldTypeAsIndexInterface{}
+var _ index.IndexableField     = fieldAsIndexableField{}

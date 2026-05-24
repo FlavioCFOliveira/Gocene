@@ -78,8 +78,9 @@ type IndexWriter struct {
 type pendingSegment struct {
 	numDocs         int
 	delCount        int
-	fieldInfos      *FieldInfos // may be nil
-	deletedOrdinals []int       // sorted doc ordinals deleted within this segment (0-based)
+	fieldInfos      *FieldInfos   // may be nil
+	deletedOrdinals []int         // sorted doc ordinals deleted within this segment (0-based)
+	inMemoryFields  FieldsProducer // in-memory postings (codec-less path); may be nil
 }
 
 // docFieldEntry is a (field-name, term-value) pair extracted from a document
@@ -408,11 +409,22 @@ func (w *IndexWriter) flushPendingDocsLocked() error {
 		deletedOrdinals = deletedOrdinals[:n]
 	}
 
+	// Snapshot in-memory postings from DocumentsWriter DWPTs (codec-less path).
+	// Each DWPT handled exactly one document; pool[i] → global docID i.
+	var inMemFields FieldsProducer
+	if w.documentsWriter != nil {
+		pool := w.documentsWriter.TakePerThreadPool()
+		if len(pool) > 0 {
+			inMemFields = MergeInMemoryPostings(pool)
+		}
+	}
+
 	ps := pendingSegment{
 		numDocs:         n,
 		delCount:        delCount,
 		fieldInfos:      w.pendingFieldInfos,
 		deletedOrdinals: deletedOrdinals,
+		inMemoryFields:  inMemFields,
 	}
 	w.pendingImportedSegments = append(w.pendingImportedSegments, ps)
 
@@ -486,6 +498,13 @@ func (w *IndexWriter) Commit() error {
 		sci := NewSegmentCommitInfo(NewSegmentInfo(segmentName, ps.numDocs, nil), ps.delCount, -1)
 		if ps.fieldInfos != nil {
 			sci.SetInMemoryFieldInfos(ps.fieldInfos)
+		}
+		if ps.inMemoryFields != nil {
+			sci.SetInMemoryFields(ps.inMemoryFields)
+			// Also register in the package-level registry so that
+			// SegmentReader.Terms() can find the producer after
+			// ReadSegmentInfos creates fresh SegmentCommitInfo objects.
+			RegisterInMemoryFields(w.directory, segmentName, ps.inMemoryFields)
 		}
 		if len(ps.deletedOrdinals) > 0 {
 			sci.SetDeletedOrdinals(ps.deletedOrdinals)

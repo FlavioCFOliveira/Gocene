@@ -200,6 +200,19 @@ func (dw *DocumentsWriter) getPerThreadWriter() *DocumentsWriterPerThread {
 	return dwpt
 }
 
+// TakePerThreadPool returns the current DWPT pool and resets it.
+// Called by IndexWriter.flushPendingDocsLocked() to snapshot postings before
+// clearing the pending state.
+func (dw *DocumentsWriter) TakePerThreadPool() []*DocumentsWriterPerThread {
+	dw.threadLock.Lock()
+	defer dw.threadLock.Unlock()
+	pool := dw.perThreadPool
+	dw.perThreadPool = make([]*DocumentsWriterPerThread, 0)
+	dw.numDocsInRAM = 0
+	dw.bytesUsed = 0
+	return pool
+}
+
 // ramUsed returns the estimated RAM usage in bytes.
 func (dw *DocumentsWriter) ramUsed() int64 {
 	dw.mu.RLock()

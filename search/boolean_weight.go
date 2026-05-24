@@ -47,31 +47,48 @@ func NewBooleanWeight(query *BooleanQuery, searcher *IndexSearcher, needsScores 
 
 // Scorer creates a scorer for this weight.
 func (w *BooleanWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) {
-	// Collect scorers for each clause
-	var allScorers []Scorer
+	var mustScorers []Scorer
+	var filterScorers []Scorer
+	var shouldScorers []Scorer
+	var mustNotScorers []Scorer
 
-	for _, weight := range w.weights {
+	for i, weight := range w.weights {
 		if weight == nil {
 			continue
 		}
-
+		clause := w.query.clauses[i]
 		scorer, err := weight.Scorer(context)
 		if err != nil {
 			return nil, err
 		}
-
-		if scorer != nil {
-			allScorers = append(allScorers, scorer)
+		if scorer == nil {
+			// A nil scorer for MUST or FILTER means no documents can match.
+			if clause.Occur == MUST || clause.Occur == FILTER {
+				return nil, nil
+			}
+			continue
+		}
+		switch clause.Occur {
+		case MUST:
+			mustScorers = append(mustScorers, scorer)
+		case FILTER:
+			filterScorers = append(filterScorers, scorer)
+		case SHOULD:
+			shouldScorers = append(shouldScorers, scorer)
+		case MUST_NOT:
+			mustNotScorers = append(mustNotScorers, scorer)
 		}
 	}
 
-	// Create a BooleanScorer with all collected scorers
 	scoreMode := COMPLETE_NO_SCORES
 	if w.needsScores {
 		scoreMode = COMPLETE
 	}
 
-	return NewBooleanScorer(allScorers, scoreMode, w.query.minShouldMatch), nil
+	return NewBooleanScorerWithClauses(
+		mustScorers, filterScorers, shouldScorers, mustNotScorers,
+		scoreMode, w.query.minShouldMatch,
+	), nil
 }
 
 // ScorerSupplier creates a scorer supplier for this weight.
