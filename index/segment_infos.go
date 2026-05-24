@@ -576,6 +576,9 @@ func WriteSegmentInfos(si *SegmentInfos, directory store.Directory) error {
 		if err := store.WriteInt32(out, int32(sci.delCount)); err != nil {
 			return err
 		}
+		if err := store.WriteInt32(out, int32(sci.softDelCount)); err != nil {
+			return err
+		}
 		// Write ID
 		id := sci.segmentInfo.GetID()
 		if err := out.WriteBytes(id); err != nil {
@@ -793,6 +796,10 @@ func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
 		if err != nil {
 			return nil, err
 		}
+		softDelCount, err := store.ReadInt32(in)
+		if err != nil {
+			return nil, err
+		}
 		// Read ID
 		id, err := in.ReadBytesN(16)
 		if err != nil {
@@ -806,6 +813,9 @@ func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
 		// This allows CheckIndex to detect corruption when the file is missing.
 		segmentInfo.SetFiles([]string{name + ".si"})
 		sci := NewSegmentCommitInfo(segmentInfo, int(delCount), -1)
+		if softDelCount > 0 {
+			sci.SetSoftDelCount(int(softDelCount))
+		}
 
 		// Read in-memory FieldInfos (written by current Gocene writer).
 		numFields, err := store.ReadInt32(in)

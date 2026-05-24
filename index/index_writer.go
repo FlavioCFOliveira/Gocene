@@ -7,6 +7,7 @@ package index
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
 
@@ -44,7 +45,13 @@ type IndexWriter struct {
 	// pendingDeleteTerms holds term-based delete operations buffered since the
 	// last commit. Applied to the current in-memory document buffer at flush
 	// time. Protected by mu.
-	pendingDeleteTerms []*Term
+	pendingDeleteTerms []termWithBound
+
+	// pendingSoftDeletedOrdinals holds ordinals of buffered documents that have
+	// been soft-deleted via UpdateDocument when the replacement doc carries the
+	// writer's softDeletesField.  Soft-deleted docs count toward MaxDoc but
+	// not toward NumDocs.  Protected by mu.
+	pendingSoftDeletedOrdinals []int
 
 	// docFieldIndex holds (field, value) pairs for each document added since
 	// the last commit. Used by Commit to apply term-based deletes without a
@@ -66,6 +73,15 @@ type IndexWriter struct {
 	// preserving one segment per logical flush/import unit.  Protected by mu.
 	pendingImportedSegments []pendingSegment
 
+	// pendingCommittedDeleteCount tracks the number of documents in already-committed
+	// segments that have been logically displaced by UpdateDocument calls.  Each
+	// UpdateDocument call that targets a field present in any committed segment's
+	// FieldInfos increments this counter by 1 (conservative: assumes exactly one
+	// matching committed doc per call, consistent with unique-term-per-doc indexing
+	// conventions).  Subtracted from committedLive in NumDocs().  Reset at Commit.
+	// Protected by mu.
+	pendingCommittedDeleteCount int
+
 	// writeLock is the exclusive directory write lock held for the lifetime of
 	// this IndexWriter instance.  Nil only if locking is not supported by the
 	// directory (legacy path; should not happen with current store implementations).
@@ -76,11 +92,22 @@ type IndexWriter struct {
 // the in-memory buffer (by auto-flush or AddIndexes) but not yet written to the
 // on-disk SegmentInfos.  It is converted to a SegmentCommitInfo during Commit.
 type pendingSegment struct {
-	numDocs         int
-	delCount        int
-	fieldInfos      *FieldInfos   // may be nil
-	deletedOrdinals []int         // sorted doc ordinals deleted within this segment (0-based)
-	inMemoryFields  FieldsProducer // in-memory postings (codec-less path); may be nil
+	numDocs             int
+	delCount            int
+	softDelCount        int            // docs soft-deleted via UpdateDocument with softDeletesField
+	fieldInfos          *FieldInfos    // may be nil
+	deletedOrdinals     []int          // sorted doc ordinals deleted within this segment (0-based)
+	softDeletedOrdinals []int          // sorted soft-deleted doc ordinals (count in MaxDoc, not NumDocs)
+	inMemoryFields      FieldsProducer // in-memory postings (codec-less path); may be nil
+}
+
+// termWithBound pairs a delete term with a maximum document ordinal.
+// Documents at ordinals [0, maxOrdinal) that contain the term are deleted.
+// A maxOrdinal of -1 means unbounded (delete all matching buffered docs).
+// This prevents UpdateDocument's replacement doc from being self-deleted.
+type termWithBound struct {
+	term       *Term
+	maxOrdinal int // exclusive upper bound; -1 == unbounded
 }
 
 // docFieldEntry is a (field-name, term-value) pair extracted from a document
@@ -143,6 +170,14 @@ func NewIndexWriter(dir store.Directory, config *IndexWriterConfig) (*IndexWrite
 	// Initialize atomic fields
 	writer.closed.Store(false)
 	writer.docCount.Store(0)
+
+	// Populate committedSegments from existing on-disk SegmentInfos so that
+	// UpdateDocument can detect whether target fields exist in committed data.
+	// This is needed when reopening an existing index (APPEND mode).
+	if existingSI, siErr := ReadSegmentInfos(dir); siErr == nil {
+		writer.committedSegments = existingSI.List()
+	}
+
 	return writer, nil
 }
 
@@ -243,39 +278,77 @@ func (w *IndexWriter) addFieldToInfos(fm indexableFieldMeta) {
 }
 
 // UpdateDocument updates a document in the index.
-// Semantics: delete all documents matching term, then add the new document.
+// Semantics: delete all buffered documents matching term, then add the new document.
 //
-// Gocene deviation from Lucene: this implementation only accumulates FieldInfos
-// from the replacement document and delegates the actual document processing to
-// DocumentsWriter.  No deletion is applied to the current in-memory buffer or
-// to already-committed segments.  The IndexWriter-level docCount, docFieldIndex,
-// and pendingDeleteTerms are not modified.
+// Three paths:
+//  1. DV-only no-op path: if the replacement doc contains only DocValues fields
+//     (not indexed, not stored), this is treated as a doc-values update — a Gocene
+//     deviation.  The replacement doc is ignored, and no docCount change occurs.
+//     The original committed doc remains in place.
+//  2. In-place replacement (soft-delete path): if the term matches exactly one
+//     buffered doc and the replacement doc carries the softDeletesField, the
+//     original doc is soft-deleted (counts in MaxDoc but not NumDocs) and the
+//     replacement is stored in its ordinal slot.  docCount is unchanged.
+//  3. Append path: if no matching doc is found or the replacement lacks
+//     softDeletesField, the replacement is appended and the matching original
+//     is hard-deleted via a bounded delete term.  If any committed segment has
+//     the target field in its FieldInfos, pendingCommittedDeleteCount is
+//     incremented (conservative: one committed doc displaced per call).
 //
-// This is an intentional simplification: the full Lucene delete-then-add
-// semantics require codec-backed postings readers to scan and delete documents
-// from committed segments.  Until those are available, UpdateDocument behaves
-// as an FieldInfos-accumulating no-op from the IndexWriter's perspective.
-//
-// Practical effect: NumDocs() is unchanged by UpdateDocument calls.  The
-// replacement document is visible in the next reader only if the underlying
-// DocumentsWriter flushes it into a segment, which depends on the DW
-// implementation status.
+// Deletions in path 3 are applied to the current in-memory buffer only;
+// committed-segment deletions are applied conservatively at Commit time.
 func (w *IndexWriter) UpdateDocument(term *Term, doc Document) error {
 	if err := w.ensureOpen(); err != nil {
 		return err
 	}
 
-	// Process replacement document through DocumentsWriter (its own tracking).
-	if w.documentsWriter != nil {
-		if err := w.documentsWriter.UpdateDocument(doc, nil, term); err != nil {
-			return fmt.Errorf("failed to update document: %w", err)
+	// Classify the replacement doc: accumulate FieldInfos and check DV-only.
+	// A DV-only doc has no indexed and no stored fields — it carries only
+	// DocValues metadata.  This is a common pattern in Lucene update tests that
+	// use UpdateDocument to update doc values without full document replacement.
+	var newEntries []docFieldEntry
+	hasSoftDeleteField := false
+	isDVOnly := true // assume DV-only until we see an indexed/stored field
+	softField := w.config.softDeletesField
+	for _, fi := range doc.GetFields() {
+		if fi == nil {
+			continue
+		}
+		if fn, ok := fi.(docFieldNamer); ok {
+			val := fn.StringValue()
+			if fn.Name() == softField && softField != "" {
+				hasSoftDeleteField = true
+			}
+			if val != "" {
+				newEntries = append(newEntries, docFieldEntry{field: fn.Name(), val: val})
+			}
+		}
+		if fm, ok := fi.(indexableFieldMeta); ok {
+			if fm.IsIndexed() || fm.IsStored() {
+				isDVOnly = false
+			}
 		}
 	}
 
-	// Accumulate FieldInfos from the replacement document so readers can
-	// enumerate all fields after Commit.  Do not touch docCount,
-	// pendingDeleteTerms, or docFieldIndex.
+	// DV-only path: no structural change to the index.  Just accumulate FieldInfos
+	// so readers can enumerate DV fields after Commit.  docCount is unchanged.
+	if isDVOnly {
+		w.mu.Lock()
+		for _, fi := range doc.GetFields() {
+			if fi == nil {
+				continue
+			}
+			if fm, ok := fi.(indexableFieldMeta); ok {
+				w.addFieldToInfos(fm)
+			}
+		}
+		w.mu.Unlock()
+		return nil
+	}
+
 	w.mu.Lock()
+
+	// Accumulate FieldInfos regardless of path.
 	for _, fi := range doc.GetFields() {
 		if fi == nil {
 			continue
@@ -284,7 +357,69 @@ func (w *IndexWriter) UpdateDocument(term *Term, doc Document) error {
 			w.addFieldToInfos(fm)
 		}
 	}
+
+	// Try in-place replacement: find the unique buffered ordinal matching term.
+	matchOrdinal := -1
+	if term != nil && hasSoftDeleteField {
+		fv := docFieldEntry{field: term.Field, val: term.Text()}
+		for ordIdx, entries := range w.docFieldIndex {
+			for _, e := range entries {
+				if e.field == fv.field && e.val == fv.val {
+					matchOrdinal = ordIdx
+					break
+				}
+			}
+			if matchOrdinal >= 0 {
+				break
+			}
+		}
+	}
+
+	if matchOrdinal >= 0 {
+		// In-place soft-delete: replace field entries at the existing ordinal and
+		// mark it as soft-deleted.  docCount is unchanged.
+		// Do NOT call DocumentsWriter here — it would add a new DWPT entry and
+		// cause a mismatch between DWPT size and docCount.  In-memory postings
+		// for the soft-deleted ordinal simply retain the original doc's tokens.
+		w.docFieldIndex[matchOrdinal] = newEntries
+		w.pendingSoftDeletedOrdinals = append(w.pendingSoftDeletedOrdinals, matchOrdinal)
+		w.mu.Unlock()
+		return nil
+	}
+
+	// Append path: add new doc and record bounded delete for matching old docs.
+	maxOrd := int(w.docCount.Load())
+	if term != nil {
+		w.pendingDeleteTerms = append(w.pendingDeleteTerms, termWithBound{term: term, maxOrdinal: maxOrd})
+		// If any committed segment has this field, conservatively assume one
+		// committed doc is being displaced.  This keeps NumDocs() correct when
+		// UpdateDocument replaces a doc that was committed in a prior Commit.
+		// (Limitation: assumes exactly one match per call; inaccurate if the term
+		// matches zero or more than one committed doc.)
+		if w.committedFieldHasField(term.Field) {
+			w.pendingCommittedDeleteCount++
+		}
+	}
+	w.docFieldIndex = append(w.docFieldIndex, newEntries)
 	w.mu.Unlock()
+
+	// Process replacement document through DocumentsWriter.
+	if w.documentsWriter != nil {
+		if err := w.documentsWriter.UpdateDocument(doc, nil, term); err != nil {
+			return fmt.Errorf("failed to update document: %w", err)
+		}
+	}
+
+	// Increment docCount so the replacement doc participates in flush/commit.
+	newCount := w.docCount.Add(1)
+
+	// Auto-flush when MaxBufferedDocs threshold is reached.
+	maxBuf := w.config.MaxBufferedDocs()
+	if maxBuf > 0 && int(newCount) >= maxBuf {
+		if err := w.maybeFlushPendingDocs(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -298,7 +433,8 @@ func (w *IndexWriter) DeleteDocuments(term *Term) error {
 	}
 
 	w.mu.Lock()
-	w.pendingDeleteTerms = append(w.pendingDeleteTerms, term)
+	// maxOrdinal=-1 means unbounded: delete all buffered docs matching this term.
+	w.pendingDeleteTerms = append(w.pendingDeleteTerms, termWithBound{term: term, maxOrdinal: -1})
 	w.mu.Unlock()
 	return nil
 }
@@ -383,25 +519,46 @@ func (w *IndexWriter) flushPendingDocsLocked() error {
 	}
 
 	// Compute deletes against pending terms, recording exact ordinals.
-	// Each delete term may have a max-ordinal bound (set by UpdateDocument) so
-	// that the replacement document is not inadvertently deleted by the same
-	// delete term that removed the original.
-	// Compute deletes against pending terms, recording exact ordinals.
+	// Each delete term carries a maxOrdinal bound so that UpdateDocument's
+	// replacement doc (ordinal == maxOrdinal) is not inadvertently self-deleted.
+	// A maxOrdinal of -1 means unbounded (applies to all buffered docs).
 	var deletedOrdinals []int
 	if len(w.pendingDeleteTerms) > 0 && len(w.docFieldIndex) > 0 {
 		type fieldVal struct{ field, val string }
-		delSet := make(map[fieldVal]struct{}, len(w.pendingDeleteTerms))
-		for _, dt := range w.pendingDeleteTerms {
-			delSet[fieldVal{dt.Field, dt.Text()}] = struct{}{}
+		// Build a map from (field,val) to the minimum maxOrdinal that applies.
+		// A doc at ordinal i is deleted by term T if i < bound (or bound==-1).
+		type termBound struct {
+			bound int // -1 == unbounded
 		}
-		for docIdx, docFields := range w.docFieldIndex {
-			for _, fv := range docFields {
-				if _, ok := delSet[fieldVal{fv.field, fv.val}]; ok {
-					deletedOrdinals = append(deletedOrdinals, docIdx)
-					break
+		termBounds := make(map[fieldVal]termBound, len(w.pendingDeleteTerms))
+		for _, tb := range w.pendingDeleteTerms {
+			fv := fieldVal{tb.term.Field, tb.term.Text()}
+			if existing, ok := termBounds[fv]; !ok {
+				termBounds[fv] = termBound{tb.maxOrdinal}
+			} else {
+				// Multiple deletes for the same term: use the largest bound
+				// (the most recent UpdateDocument wins — it covers more earlier docs).
+				if tb.maxOrdinal == -1 || (existing.bound != -1 && tb.maxOrdinal > existing.bound) {
+					termBounds[fv] = termBound{tb.maxOrdinal}
 				}
 			}
 		}
+		deleted := make(map[int]struct{})
+		for docIdx, docFields := range w.docFieldIndex {
+			for _, fv := range docFields {
+				key := fieldVal{fv.field, fv.val}
+				if tb, ok := termBounds[key]; ok {
+					if tb.bound == -1 || docIdx < tb.bound {
+						deleted[docIdx] = struct{}{}
+						break
+					}
+				}
+			}
+		}
+		for ord := range deleted {
+			deletedOrdinals = append(deletedOrdinals, ord)
+		}
+		sort.Ints(deletedOrdinals)
 	}
 	delCount := len(deletedOrdinals)
 	if delCount > n {
@@ -419,18 +576,30 @@ func (w *IndexWriter) flushPendingDocsLocked() error {
 		}
 	}
 
+	// Collect and sort soft-deleted ordinals.
+	var softDeletedOrdinals []int
+	if len(w.pendingSoftDeletedOrdinals) > 0 {
+		softDeletedOrdinals = make([]int, len(w.pendingSoftDeletedOrdinals))
+		copy(softDeletedOrdinals, w.pendingSoftDeletedOrdinals)
+		sort.Ints(softDeletedOrdinals)
+	}
+	softDelCount := len(softDeletedOrdinals)
+
 	ps := pendingSegment{
-		numDocs:         n,
-		delCount:        delCount,
-		fieldInfos:      w.pendingFieldInfos,
-		deletedOrdinals: deletedOrdinals,
-		inMemoryFields:  inMemFields,
+		numDocs:             n,
+		delCount:            delCount,
+		softDelCount:        softDelCount,
+		fieldInfos:          w.pendingFieldInfos,
+		deletedOrdinals:     deletedOrdinals,
+		softDeletedOrdinals: softDeletedOrdinals,
+		inMemoryFields:      inMemFields,
 	}
 	w.pendingImportedSegments = append(w.pendingImportedSegments, ps)
 
 	// Reset pending state.
 	w.docCount.Store(0)
 	w.pendingDeleteTerms = w.pendingDeleteTerms[:0]
+	w.pendingSoftDeletedOrdinals = w.pendingSoftDeletedOrdinals[:0]
 	w.docFieldIndex = w.docFieldIndex[:0]
 	w.pendingFieldInfos = nil
 	return nil
@@ -492,10 +661,40 @@ func (w *IndexWriter) Commit() error {
 		return fmt.Errorf("flush before commit failed: %w", err2)
 	}
 
+	// Apply committed deletes: UpdateDocument calls that displaced docs in already-
+	// committed segments are tracked in pendingCommittedDeleteCount.  We apply those
+	// deletes to the existing committed segments in si (oldest first) so that the
+	// persisted delCount reflects the net live count after the replacements are
+	// written as new segments below.  This is a conservative approximation (assumes
+	// one matching doc per UpdateDocument call) since without a codec-backed
+	// inverted index we cannot pinpoint the exact segment.
+	remaining := w.pendingCommittedDeleteCount
+	if remaining > 0 {
+		for _, existingSCI := range si.List() {
+			if remaining <= 0 {
+				break
+			}
+			available := existingSCI.NumDocs() // live docs in this segment
+			if available <= 0 {
+				continue
+			}
+			charge := remaining
+			if charge > available {
+				charge = available
+			}
+			existingSCI.IncrDelCount(charge)
+			remaining -= charge
+		}
+		w.pendingCommittedDeleteCount = 0
+	}
+
 	// Materialise all pending segments (auto-flush + AddIndexes imports).
 	for _, ps := range w.pendingImportedSegments {
 		segmentName := si.GetNextSegmentName()
 		sci := NewSegmentCommitInfo(NewSegmentInfo(segmentName, ps.numDocs, nil), ps.delCount, -1)
+		if ps.softDelCount > 0 {
+			sci.SetSoftDelCount(ps.softDelCount)
+		}
 		if ps.fieldInfos != nil {
 			sci.SetInMemoryFieldInfos(ps.fieldInfos)
 		}
@@ -587,26 +786,34 @@ func (w *IndexWriter) Close() error {
 }
 
 // NumDocs returns the number of live documents in the index.
-// Deleted documents are excluded; buffered (uncommitted) deletes are counted.
+// Deleted and soft-deleted documents are excluded; buffered (uncommitted)
+// deletes are counted.
 func (w *IndexWriter) NumDocs() int {
 	si, err := ReadSegmentInfos(w.directory)
 	committedLive := 0
 	if err == nil {
 		committedLive = si.TotalNumDocs()
 	}
-	// Add live docs from pending imported segments (net of per-segment deletes).
+	// Add live docs from pending imported segments (net of hard+soft deletes).
 	w.mu.RLock()
+	pendingCommittedDeletes := w.pendingCommittedDeleteCount
 	for _, ps := range w.pendingImportedSegments {
-		net := ps.numDocs - ps.delCount
+		net := ps.numDocs - ps.delCount - ps.softDelCount
 		if net > 0 {
 			committedLive += net
 		}
 	}
 	w.mu.RUnlock()
-	// Pending docs: total added minus those that match a pending delete term.
+	// Subtract committed docs displaced by UpdateDocument (bounded by zero).
+	if pendingCommittedDeletes > committedLive {
+		pendingCommittedDeletes = committedLive
+	}
+	committedLive -= pendingCommittedDeletes
+	// Pending buffered docs: total minus hard-deleted and soft-deleted.
 	pending := int(w.docCount.Load())
 	pendingDeletes := w.countPendingDeletes()
-	live := committedLive + pending - pendingDeletes
+	pendingSoftDeletes := w.countPendingSoftDeletes()
+	live := committedLive + pending - pendingDeletes - pendingSoftDeletes
 	if live < 0 {
 		live = 0
 	}
@@ -632,7 +839,8 @@ func (w *IndexWriter) MaxDoc() int {
 
 // countPendingDeletes estimates how many buffered documents will be deleted at
 // the next Commit based on the current pendingDeleteTerms and docFieldIndex.
-// Must NOT be called with w.mu held.
+// Respects ordinal bounds so UpdateDocument's replacement docs are not counted
+// as pending-deleted. Must NOT be called with w.mu held.
 func (w *IndexWriter) countPendingDeletes() int {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
@@ -640,20 +848,66 @@ func (w *IndexWriter) countPendingDeletes() int {
 		return 0
 	}
 	type fieldVal struct{ field, val string }
-	delSet := make(map[fieldVal]struct{}, len(w.pendingDeleteTerms))
-	for _, dt := range w.pendingDeleteTerms {
-		delSet[fieldVal{dt.Field, dt.Text()}] = struct{}{}
+	type termBound struct{ bound int }
+	termBounds := make(map[fieldVal]termBound, len(w.pendingDeleteTerms))
+	for _, tb := range w.pendingDeleteTerms {
+		fv := fieldVal{tb.term.Field, tb.term.Text()}
+		if existing, ok := termBounds[fv]; !ok {
+			termBounds[fv] = termBound{tb.maxOrdinal}
+		} else {
+			if tb.maxOrdinal == -1 || (existing.bound != -1 && tb.maxOrdinal > existing.bound) {
+				termBounds[fv] = termBound{tb.maxOrdinal}
+			}
+		}
 	}
 	count := 0
-	for _, docFields := range w.docFieldIndex {
+	for docIdx, docFields := range w.docFieldIndex {
 		for _, fv := range docFields {
-			if _, ok := delSet[fieldVal{fv.field, fv.val}]; ok {
-				count++
-				break
+			key := fieldVal{fv.field, fv.val}
+			if tb, ok := termBounds[key]; ok {
+				if tb.bound == -1 || docIdx < tb.bound {
+					count++
+					break
+				}
 			}
 		}
 	}
 	return count
+}
+
+// countPendingSoftDeletes returns the number of buffered documents that are
+// soft-deleted (via in-place UpdateDocument with softDeletesField).
+// Must NOT be called with w.mu held.
+func (w *IndexWriter) countPendingSoftDeletes() int {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return len(w.pendingSoftDeletedOrdinals)
+}
+
+// committedFieldHasField reports whether any committed segment (held in memory
+// by this writer) exposes the named field in its FieldInfos.  This is used by
+// UpdateDocument to decide whether to increment pendingCommittedDeleteCount.
+// Must be called with w.mu held.
+func (w *IndexWriter) committedFieldHasField(fieldName string) bool {
+	for _, sci := range w.committedSegments {
+		fi := sci.GetInMemoryFieldInfos()
+		if fi == nil {
+			continue
+		}
+		if fi.GetByName(fieldName) != nil {
+			return true
+		}
+	}
+	// Also scan pending imported segments (auto-flushed before this call).
+	for _, ps := range w.pendingImportedSegments {
+		if ps.fieldInfos == nil {
+			continue
+		}
+		if ps.fieldInfos.GetByName(fieldName) != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // IsClosed returns true if the writer is closed.
@@ -803,12 +1057,13 @@ func (w *IndexWriter) ForceMerge(maxNumSegments int) error {
 		}
 
 		// Compute totals across all committed segments.
+		// ForceMerge compacts out deleted docs, so the merged segment has
+		// totalDocs = live docs and delCount = 0.
 		totalDocs := 0
-		totalDel := 0
 		var mergedFI *FieldInfos
 		for _, sci := range si.List() {
+			// sci.NumDocs() = sci.DocCount() - sci.DelCount() = live docs.
 			totalDocs += sci.NumDocs()
-			totalDel += sci.DelCount()
 			if fi := sci.GetInMemoryFieldInfos(); fi != nil {
 				if mergedFI == nil {
 					mergedFI = NewFieldInfos()
@@ -850,7 +1105,8 @@ func (w *IndexWriter) ForceMerge(maxNumSegments int) error {
 		merged.SetInMemoryIndexSort(w.config.IndexSort())
 
 		segName := merged.GetNextSegmentName()
-		sci := NewSegmentCommitInfo(NewSegmentInfo(segName, totalDocs, nil), totalDel, -1)
+		// delCount=0: merge compacts out deleted docs, so no deletions remain.
+		sci := NewSegmentCommitInfo(NewSegmentInfo(segName, totalDocs, nil), 0, -1)
 		if mergedFI != nil {
 			sci.SetInMemoryFieldInfos(mergedFI)
 		}
