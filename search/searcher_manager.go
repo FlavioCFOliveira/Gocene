@@ -30,13 +30,12 @@ type SearcherManager struct {
 }
 
 // NewSearcherManager creates a new SearcherManager with the given initial searcher.
-// The factory is used to create new searchers when the index changes.
+// factory is the SearcherFactory used to create new searchers when the index changes;
+// it may be nil when the caller does not need automatic searcher creation (e.g. NRT
+// scenarios where searchers are acquired/released manually).
 func NewSearcherManager(initial *IndexSearcher, factory SearcherFactory, afterClose func(*IndexSearcher)) (*SearcherManager, error) {
 	if initial == nil {
 		return nil, fmt.Errorf("initial searcher cannot be nil")
-	}
-	if factory == nil {
-		return nil, fmt.Errorf("factory cannot be nil")
 	}
 
 	sm := &SearcherManager{

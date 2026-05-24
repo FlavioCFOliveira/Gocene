@@ -257,10 +257,13 @@ func (nrt *NRTSearcher) Close() error {
 
 	nrt.isOpen.Store(false)
 
-	// Stop auto-refresh if running
+	// Stop auto-refresh if running.
 	if nrt.autoRefresh {
+		nrt.autoRefresh = false
 		close(nrt.stopChan)
+		nrt.mu.Unlock()
 		nrt.wg.Wait()
+		nrt.mu.Lock()
 	}
 
 	// Release searcher
