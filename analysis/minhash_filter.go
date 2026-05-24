@@ -133,18 +133,21 @@ func (f *MinHashFilter) computeHash(token string, hashIdx, bucketIdx int) uint64
 	return hash
 }
 
-// hashToString converts a hash value to a string.
+// hashToString converts a hash value to a base-62 string.
+// Character order: 0-9 A-Z a-z (digits, uppercase letters, lowercase letters).
 func hashToString(hash uint64) string {
-	// Convert to base62 for shorter strings
-	const chars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	const (
+		chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+		base  = 62
+	)
 	if hash == 0 {
 		return "0"
 	}
 
 	result := make([]byte, 0, 11) // max 11 chars for uint64 in base62
 	for hash > 0 {
-		result = append(result, chars[hash%62])
-		hash /= 62
+		result = append(result, chars[hash%base])
+		hash /= base
 	}
 
 	// Reverse the result
