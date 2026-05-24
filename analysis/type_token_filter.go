@@ -27,21 +27,31 @@ type TypeTokenFilter struct {
 // If useWhitelist is true, only tokens with types in the types set are kept.
 // If useWhitelist is false, tokens with types in the types set are removed.
 func NewTypeTokenFilter(input TokenStream, types map[string]bool, useWhitelist bool) *TypeTokenFilter {
-	filter := &TypeTokenFilter{
+	return &TypeTokenFilter{
 		BaseTokenFilter: NewBaseTokenFilter(input),
 		types:           types,
 		useWhitelist:    useWhitelist,
 	}
+}
 
-	// Get the TypeAttribute from the shared AttributeSource
-	attrSrc := filter.GetAttributeSource()
-	if attrSrc != nil {
-		if attr := attrSrc.GetAttribute(TypeAttributeType); attr != nil {
-			filter.typeAttr = attr.(TypeAttribute)
-		}
+// typeAttribute returns the TypeAttribute, resolving it lazily after the first
+// IncrementToken call on the underlying stream has populated the shared source.
+func (f *TypeTokenFilter) typeAttribute() TypeAttribute {
+	if f.typeAttr != nil {
+		return f.typeAttr
 	}
-
-	return filter
+	attrSrc := f.GetAttributeSource()
+	if attrSrc == nil {
+		return nil
+	}
+	attr := attrSrc.GetAttribute(TypeAttributeType)
+	if attr == nil {
+		return nil
+	}
+	if ta, ok := attr.(TypeAttribute); ok {
+		f.typeAttr = ta
+	}
+	return f.typeAttr
 }
 
 // IncrementToken advances to the next token, filtering by type.
@@ -55,28 +65,26 @@ func (f *TypeTokenFilter) IncrementToken() (bool, error) {
 			return false, nil
 		}
 
-		// Check token type
-		if f.typeAttr != nil {
-			tokenType := f.typeAttr.GetType()
-			inSet := f.types[tokenType]
-
-			if f.useWhitelist {
-				// Keep only if in the set
-				if inSet {
-					return true, nil
-				}
-			} else {
-				// Keep only if NOT in the set
-				if !inSet {
-					return true, nil
-				}
-			}
-			// Token type doesn't match criteria, skip it
-			continue
+		// Resolve TypeAttribute lazily (populated after the first token is produced).
+		// When the upstream tokenizer does not register a TypeAttribute, fall back to
+		// the Lucene default type ("word"), which is what all standard tokenizers emit.
+		ta := f.typeAttribute()
+		tokenType := DefaultTokenType // "word"
+		if ta != nil {
+			tokenType = ta.GetType()
 		}
 
-		// If no type attribute, pass through
-		return true, nil
+		inSet := f.types[tokenType]
+		if f.useWhitelist {
+			if inSet {
+				return true, nil
+			}
+		} else {
+			if !inSet {
+				return true, nil
+			}
+		}
+		// Token does not match the filter criterion; skip it.
 	}
 }
 
