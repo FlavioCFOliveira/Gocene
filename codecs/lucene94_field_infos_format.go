@@ -42,6 +42,13 @@ const (
 	lucene94FISoftDeletes     = byte(0x8)
 	lucene94FIParentField     = byte(0x10)
 	lucene94FIDocValuesSkip   = byte(0x20)
+
+	// Gocene-private attribute keys used to persist term-vector sub-flags
+	// that Lucene stores in FieldType but not in FieldInfo/.fnm.
+	// The keys are namespaced to avoid collisions with any Java codec attribute.
+	attrKeyTVPositions = "gocene.tv.positions"
+	attrKeyTVOffsets   = "gocene.tv.offsets"
+	attrKeyTVPayloads  = "gocene.tv.payloads"
 )
 
 // NewLucene94FieldInfosFormat returns a fresh Lucene94FieldInfosFormat.
@@ -118,7 +125,7 @@ func (f *Lucene94FieldInfosFormat) readFrom(in *store.ChecksumIndexInput, segmen
 
 		storeTermVector := bits&lucene94FIStoreTermVector != 0
 		omitNorms := bits&lucene94FIOmitNorms != 0
-		_ = bits & lucene94FIStorePayloads // payload flag is persisted but Gocene FieldInfo derives HasPayloads() from index options
+		storePayloads := bits&lucene94FIStorePayloads != 0
 		isSoftDeletesField := bits&lucene94FISoftDeletes != 0
 		isParentField := format >= lucene94FIFormatParent && bits&lucene94FIParentField != 0
 
@@ -201,6 +208,12 @@ func (f *Lucene94FieldInfosFormat) readFrom(in *store.ChecksumIndexInput, segmen
 			return nil, err
 		}
 
+		// Restore Gocene-private term-vector sub-flags from the attribute map
+		// before the attribute map is consumed by the builder.
+		storeTermVectorPositions := attributes[attrKeyTVPositions] == "1"
+		storeTermVectorOffsets := attributes[attrKeyTVOffsets] == "1"
+		storeTermVectorPayloads := attributes[attrKeyTVPayloads] == "1"
+
 		fib := index.NewFieldInfoBuilder(name, int(fieldNumber)).
 			SetIndexOptions(indexOptions).
 			SetDocValuesType(docValuesType).
@@ -208,6 +221,9 @@ func (f *Lucene94FieldInfosFormat) readFrom(in *store.ChecksumIndexInput, segmen
 			SetDocValuesGen(dvGen).
 			SetOmitNorms(omitNorms).
 			SetStoreTermVectors(storeTermVector).
+			SetStoreTermVectorPositions(storeTermVectorPositions).
+			SetStoreTermVectorOffsets(storeTermVectorOffsets).
+			SetStoreTermVectorPayloads(storeTermVectorPayloads).
 			SetPointDimensions(int(pointDataDimensionCount), int(pointIndexDimensionCount), int(pointNumBytes)).
 			SetVectorAttributes(int(vectorDimension), vectorEncoding, vectorDistFunc).
 			SetSoftDeletesField(isSoftDeletesField).
@@ -216,7 +232,13 @@ func (f *Lucene94FieldInfosFormat) readFrom(in *store.ChecksumIndexInput, segmen
 		for k, v := range attributes {
 			fib.SetAttribute(k, v)
 		}
-		builder.Add(fib.Build())
+		fi := fib.Build()
+		// Apply the payload flag decoded from the wire. SetStorePayloads is the
+		// post-construction escape hatch that mirrors Java FieldInfo.setStorePayloads.
+		if storePayloads {
+			fi.SetStorePayloads()
+		}
+		builder.Add(fi)
 	}
 
 	if _, err := CheckFooter(in); err != nil {
@@ -268,6 +290,20 @@ func (f *Lucene94FieldInfosFormat) writeTo(out *store.ChecksumIndexOutput, segme
 			return err
 		}
 
+		// Persist Gocene-private term-vector sub-flags as codec attributes so
+		// they survive the write/read round-trip without touching the Java wire
+		// format. Attributes are part of the wire layout so no format-version
+		// bump is required.
+		if fi.StoreTermVectorPositions() {
+			fi.PutCodecAttribute(attrKeyTVPositions, "1")
+		}
+		if fi.StoreTermVectorOffsets() {
+			fi.PutCodecAttribute(attrKeyTVOffsets, "1")
+		}
+		if fi.StoreTermVectorPayloads() {
+			fi.PutCodecAttribute(attrKeyTVPayloads, "1")
+		}
+
 		var bits byte
 		if fi.StoreTermVectors() {
 			bits |= lucene94FIStoreTermVector
@@ -275,7 +311,9 @@ func (f *Lucene94FieldInfosFormat) writeTo(out *store.ChecksumIndexOutput, segme
 		if fi.OmitNorms() {
 			bits |= lucene94FIOmitNorms
 		}
-		if fi.HasPayloads() {
+		// HasStoredPayloads reflects the real payload flag (set by SetStorePayloads
+		// during indexing or restored from the wire), matching Java FieldInfo.hasPayloads().
+		if fi.HasStoredPayloads() {
 			bits |= lucene94FIStorePayloads
 		}
 		if fi.IsSoftDeletesField() {

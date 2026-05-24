@@ -425,7 +425,9 @@ func TestLucene90FieldInfosFormat_NoDocValuesSkipIndex(t *testing.T) {
 	builder.Add(fi)
 	infos := builder.Build()
 
-	format := codecs.NewLucene94FieldInfosFormat()
+	// Use Lucene90FieldInfosFormat which does not support DocValuesSkipIndex
+	// (wire format version 0 has no skip-index byte).
+	format := codecs.NewLucene90FieldInfosFormat()
 	context := store.IOContextRead
 
 	// Write
@@ -446,7 +448,7 @@ func TestLucene90FieldInfosFormat_NoDocValuesSkipIndex(t *testing.T) {
 	}
 
 	// Lucene90 format should always return NONE for skip index type
-	// because it doesn't support doc values skip index
+	// because it doesn't support doc values skip index (format version 0).
 	if fieldInfo.DocValuesSkipIndexType() != index.DocValuesSkipIndexTypeNone {
 		t.Errorf("Lucene90 format should always have DocValuesSkipIndexTypeNone, got %v",
 			fieldInfo.DocValuesSkipIndexType())
@@ -1244,25 +1246,64 @@ func (fd *failingDirectory) CreateOutput(name string, context store.IOContext) (
 	if fd.shouldFail && fd.failOn == "CreateOutput" {
 		return nil, fmt.Errorf("simulated create output failure")
 	}
-	return fd.Directory.CreateOutput(name, context)
+	out, err := fd.Directory.CreateOutput(name, context)
+	if err != nil {
+		return nil, err
+	}
+	if fd.shouldFail && fd.failOn == "Close" {
+		// Wrap the output so that Close() fails, simulating a flush/close error.
+		return &errOnCloseIndexOutput{IndexOutput: out}, nil
+	}
+	return out, nil
 }
 
 func (fd *failingDirectory) OpenInput(name string, context store.IOContext) (store.IndexInput, error) {
 	if fd.shouldFail && fd.failOn == "OpenInput" {
 		return nil, fmt.Errorf("simulated open input failure")
 	}
-	return fd.Directory.OpenInput(name, context)
+	in, err := fd.Directory.OpenInput(name, context)
+	if err != nil {
+		return nil, err
+	}
+	if fd.shouldFail && fd.failOn == "Close" {
+		// Wrap the input so that Close() fails, simulating a close-time read error.
+		return &errOnCloseIndexInput{IndexInput: in}, nil
+	}
+	return in, nil
 }
 
 func (fd *failingDirectory) Close() error {
-	if fd.shouldFail && fd.failOn == "Close" {
-		return fmt.Errorf("simulated close failure")
-	}
 	return fd.Directory.Close()
 }
 
 // Ensure failingDirectory implements the Directory interface
 var _ store.Directory = (*failingDirectory)(nil)
+
+// errOnCloseIndexOutput wraps an IndexOutput and returns an error on Close.
+type errOnCloseIndexOutput struct {
+	store.IndexOutput
+}
+
+func (f *errOnCloseIndexOutput) Close() error {
+	_ = f.IndexOutput.Close()
+	return fmt.Errorf("simulated output close failure")
+}
+
+// Ensure errOnCloseIndexOutput implements IndexOutput.
+var _ store.IndexOutput = (*errOnCloseIndexOutput)(nil)
+
+// errOnCloseIndexInput wraps an IndexInput and returns an error on Close.
+type errOnCloseIndexInput struct {
+	store.IndexInput
+}
+
+func (f *errOnCloseIndexInput) Close() error {
+	_ = f.IndexInput.Close()
+	return fmt.Errorf("simulated input close failure")
+}
+
+// Ensure errOnCloseIndexInput implements IndexInput.
+var _ store.IndexInput = (*errOnCloseIndexInput)(nil)
 
 // Additional tests for edge cases
 
