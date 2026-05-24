@@ -15,6 +15,9 @@ type LimitTokenCountFilter struct {
 	// maxTokenCount is the maximum number of tokens to allow
 	maxTokenCount int
 
+	// tokenCount is the number of tokens emitted so far
+	tokenCount int
+
 	// consumed is true when the maximum token count has been reached
 	consumed bool
 }
@@ -35,17 +38,24 @@ func (f *LimitTokenCountFilter) IncrementToken() (bool, error) {
 	if f.consumed {
 		return false, nil
 	}
+	// Check limit before pulling the next token so that maxTokenCount=0
+	// returns false immediately without consuming any input.
+	if f.tokenCount >= f.maxTokenCount {
+		f.consumed = true
+		return false, nil
+	}
 
 	hasToken, err := f.input.IncrementToken()
 	if err != nil {
 		return false, err
 	}
 	if !hasToken {
+		f.consumed = true
 		return false, nil
 	}
 
-	f.maxTokenCount--
-	if f.maxTokenCount <= 0 {
+	f.tokenCount++
+	if f.tokenCount >= f.maxTokenCount {
 		f.consumed = true
 	}
 
