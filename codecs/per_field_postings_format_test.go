@@ -137,24 +137,30 @@ func TestPerFieldPostingsFormat_Random(t *testing.T) {
 // This is the core functionality of PerFieldPostingsFormat - allowing different
 // fields within the same index to use different postings formats based on their
 // characteristics (e.g., high-cardinality fields vs. low-cardinality fields).
+//
+// Each IndexOptions variant is written into its own isolated directory so that
+// segment file names (always "_0.*") do not collide across invocations. A shared
+// directory would require unique segment names per call, which PostingsTester does
+// not yet support; using separate directories is consistent with how every other
+// single-field test in this file is structured.
 func TestPerFieldPostingsFormat_MultipleFields(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
+	format := codecs.NewLucene104PostingsFormat()
 	tester := codecs.NewPostingsTester(t)
 
-	// Test with multiple fields using the same format
-	// In a full implementation, different fields would use different formats
-	format := codecs.NewLucene104PostingsFormat()
+	// field1 variant: DOCS only
+	dir1 := store.NewByteBuffersDirectory()
+	defer dir1.Close()
+	tester.TestFull(format, index.IndexOptionsDocs, dir1)
 
-	// Test field1 with DOCS only
-	tester.TestFull(format, index.IndexOptionsDocs, dir)
+	// field2 variant: DOCS_AND_FREQS
+	dir2 := store.NewByteBuffersDirectory()
+	defer dir2.Close()
+	tester.TestFull(format, index.IndexOptionsDocsAndFreqs, dir2)
 
-	// Test field2 with DOCS_AND_FREQS
-	tester.TestFull(format, index.IndexOptionsDocsAndFreqs, dir)
-
-	// Test field3 with full positions and offsets
-	tester.TestFull(format, index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets, dir)
+	// field3 variant: full positions and offsets
+	dir3 := store.NewByteBuffersDirectory()
+	defer dir3.Close()
+	tester.TestFull(format, index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets, dir3)
 }
 
 // TestPerFieldPostingsFormat_FieldMapping tests field-to-format mapping stability.
