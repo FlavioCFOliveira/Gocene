@@ -32,34 +32,3 @@ func (c *DoubleRangeFacetCutter) Ordinals(docID int) []int {
 	}
 	return out
 }
-
-// LongRangeFacetCutter is the int64 counterpart.
-type LongRangeFacetCutter struct {
-	Ranges  [][2]int64
-	ValueFn func(docID int) (int64, bool)
-}
-
-// NewLongRangeFacetCutter builds the cutter.
-func NewLongRangeFacetCutter(ranges [][2]int64, fn func(docID int) (int64, bool)) *LongRangeFacetCutter {
-	clone := make([][2]int64, len(ranges))
-	copy(clone, ranges)
-	return &LongRangeFacetCutter{Ranges: clone, ValueFn: fn}
-}
-
-// Ordinals returns the range indices the doc's value falls in.
-func (c *LongRangeFacetCutter) Ordinals(docID int) []int {
-	if c.ValueFn == nil {
-		return nil
-	}
-	v, ok := c.ValueFn(docID)
-	if !ok {
-		return nil
-	}
-	var out []int
-	for i, r := range c.Ranges {
-		if v >= r[0] && v < r[1] {
-			out = append(out, i)
-		}
-	}
-	return out
-}
