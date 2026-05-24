@@ -14,7 +14,11 @@ type DisjunctionMaxQuery struct {
 }
 
 // NewDisjunctionMaxQuery creates a new DisjunctionMaxQuery.
+// A nil disjuncts slice is normalised to an empty (non-nil) slice.
 func NewDisjunctionMaxQuery(disjuncts []Query) *DisjunctionMaxQuery {
+	if disjuncts == nil {
+		disjuncts = []Query{}
+	}
 	return &DisjunctionMaxQuery{
 		BaseQuery:            &BaseQuery{},
 		disjuncts:            disjuncts,
