@@ -53,6 +53,12 @@ type SegmentCommitInfo struct {
 	// -1 if no ID is assigned
 	id []byte
 
+	// inMemoryFieldInfos holds the FieldInfos for this segment in memory.
+	// This is not persisted to disk; it is populated by IndexWriter during
+	// commit and copied by AddIndexes to preserve field metadata across
+	// directory boundaries.
+	inMemoryFieldInfos *FieldInfos
+
 	// mu protects mutable fields
 	mu sync.RWMutex
 }
@@ -291,6 +297,21 @@ func (sci *SegmentCommitInfo) MaxDoc() int {
 // GetGeneration returns the segment generation (delegates to SegmentInfo).
 func (sci *SegmentCommitInfo) GetGeneration() int64 {
 	return sci.segmentInfo.GetGeneration()
+}
+
+// GetInMemoryFieldInfos returns the in-memory FieldInfos for this segment.
+// May be nil if no documents have been added.
+func (sci *SegmentCommitInfo) GetInMemoryFieldInfos() *FieldInfos {
+	sci.mu.RLock()
+	defer sci.mu.RUnlock()
+	return sci.inMemoryFieldInfos
+}
+
+// SetInMemoryFieldInfos sets the in-memory FieldInfos for this segment.
+func (sci *SegmentCommitInfo) SetInMemoryFieldInfos(fi *FieldInfos) {
+	sci.mu.Lock()
+	defer sci.mu.Unlock()
+	sci.inMemoryFieldInfos = fi
 }
 
 // String returns a string representation of SegmentCommitInfo.

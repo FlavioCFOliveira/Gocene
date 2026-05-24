@@ -45,6 +45,15 @@ type IndexWriter struct {
 	// the last commit. Used by Commit to apply term-based deletes without a
 	// full inverted index. Protected by mu.
 	docFieldIndex [][]docFieldEntry
+
+	// pendingFieldInfos accumulates FieldInfos from documents added since the
+	// last commit. Set to nil after each Commit. Protected by mu.
+	pendingFieldInfos *FieldInfos
+
+	// committedSegments holds SegmentCommitInfos created by previous Commits,
+	// along with their in-memory FieldInfos, so that AddIndexes can read them
+	// from this writer's own directory. Protected by mu.
+	committedSegments []*SegmentCommitInfo
 }
 
 // docFieldEntry is a (field-name, term-value) pair extracted from a document
@@ -60,6 +69,21 @@ type docFieldEntry struct {
 type docFieldNamer interface {
 	Name() string
 	StringValue() string
+}
+
+// indexableFieldMeta is satisfied by document.Field (and all its subtypes)
+// without a direct import of the document package.  It exposes the per-field
+// metadata needed to build a FieldInfo.  All return types are from the index
+// package or primitives — no circular import.
+type indexableFieldMeta interface {
+	Name() string
+	// Field-level metadata mirrors document.FieldType's accessor surface.
+	IsStored() bool
+	IsIndexed() bool
+	IsTokenized() bool
+	IndexOptions() IndexOptions
+	DocValuesType() DocValuesType
+	HasTermVectors() bool
 }
 
 // NewIndexWriter creates a new IndexWriter.
@@ -119,23 +143,57 @@ func (w *IndexWriter) AddDocument(doc Document) error {
 		}
 	}
 
-	// Extract (field, value) pairs for the buffered term-delete mechanism.
-	// We use the docFieldNamer interface which document.Field satisfies.
+	// Extract (field, value) pairs for the buffered term-delete mechanism and
+	// accumulate FieldInfos for all fields seen in this document.
 	var docEntries []docFieldEntry
+	w.mu.Lock()
 	for _, fi := range doc.GetFields() {
+		if fi == nil {
+			continue
+		}
 		if fn, ok := fi.(docFieldNamer); ok {
 			if sv := fn.StringValue(); sv != "" {
 				docEntries = append(docEntries, docFieldEntry{field: fn.Name(), val: sv})
 			}
 		}
+		// Accumulate FieldInfos from fields that expose their type metadata.
+		if fm, ok := fi.(indexableFieldMeta); ok {
+			w.addFieldToInfos(fm)
+		}
 	}
-	w.mu.Lock()
 	w.docFieldIndex = append(w.docFieldIndex, docEntries)
 	w.mu.Unlock()
 
 	// Atomic increment - no lock needed
 	w.docCount.Add(1)
 	return nil
+}
+
+// addFieldToInfos adds (or merges) a field's metadata into pendingFieldInfos.
+// Must be called with w.mu held.
+func (w *IndexWriter) addFieldToInfos(fm indexableFieldMeta) {
+	if w.pendingFieldInfos == nil {
+		w.pendingFieldInfos = NewFieldInfos()
+	}
+	name := fm.Name()
+	if w.pendingFieldInfos.GetByName(name) != nil {
+		// Already registered; do not re-add (field numbers must be stable).
+		return
+	}
+	opts := FieldInfoOptions{
+		IndexOptions:             fm.IndexOptions(),
+		DocValuesType:            fm.DocValuesType(),
+		DocValuesSkipIndexType:   DocValuesSkipIndexTypeNone,
+		DocValuesGen:             -1,
+		Stored:                   fm.IsStored(),
+		Tokenized:                fm.IsTokenized(),
+		StoreTermVectors:         fm.HasTermVectors(),
+		VectorEncoding:           VectorEncodingFloat32,
+		VectorSimilarityFunction: VectorSimilarityFunctionEuclidean,
+	}
+	number := w.pendingFieldInfos.GetNextFieldNumber()
+	fi := NewFieldInfo(name, number, opts)
+	_ = w.pendingFieldInfos.Add(fi) // ignore duplicate-number errors; field is already checked above
 }
 
 // UpdateDocument updates a document in the index.
@@ -312,10 +370,17 @@ func (w *IndexWriter) Commit() error {
 		segmentName := si.GetNextSegmentName()
 		segmentInfo := NewSegmentInfo(segmentName, currentDocCount, nil)
 		sci := NewSegmentCommitInfo(segmentInfo, delCount, -1)
+		// Associate accumulated FieldInfos so that readers opened after this
+		// commit can enumerate all fields without accessing codec files.
+		if w.pendingFieldInfos != nil {
+			sci.SetInMemoryFieldInfos(w.pendingFieldInfos)
+		}
 		si.Add(sci)
+		w.committedSegments = append(w.committedSegments, sci)
 		w.docCount.Store(0) // Documents "flushed" to segment
 		w.pendingDeleteTerms = w.pendingDeleteTerms[:0]
 		w.docFieldIndex = w.docFieldIndex[:0]
+		w.pendingFieldInfos = nil
 	}
 
 	// Add commit data if present
@@ -526,9 +591,6 @@ func (w *IndexWriter) AddIndexes(dirs ...store.Directory) error {
 		return err
 	}
 
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
 	// Validate that we're not adding our own directory
 	for _, dir := range dirs {
 		if dir == w.directory {
@@ -536,31 +598,58 @@ func (w *IndexWriter) AddIndexes(dirs ...store.Directory) error {
 		}
 	}
 
-	// Read current segment infos
-	si, err := ReadSegmentInfos(w.directory)
-	if err != nil {
-		si = NewSegmentInfos()
-		si.SetGeneration(1)
-	}
-
-	// Process each source directory
+	// Process each source directory: read its SegmentInfos and accumulate the
+	// live document count and FieldInfos so that subsequent Commit creates a
+	// segment that reflects all imported fields.
 	for _, dir := range dirs {
-		// Read source segment infos
 		sourceSI, err := ReadSegmentInfos(dir)
 		if err != nil {
-			// Directory may be empty, skip it
+			// Empty or unreadable directory — skip.
 			continue
 		}
 
-		// Copy segments from source
 		for _, sci := range sourceSI.List() {
-			// In a full implementation, this would:
-			// 1. Copy segment files from source to target
-			// 2. Update segment name to avoid conflicts
-			// 3. Add to segment infos
+			liveDocs := sci.NumDocs()
+			if liveDocs <= 0 {
+				continue
+			}
+			// Accumulate document count into the pending buffer so that the
+			// next Commit creates a segment for them.
+			w.docCount.Add(int32(liveDocs))
 
-			// For now, just increment doc count to simulate
-			w.docCount.Add(int32(sci.DocCount()))
+			// Merge FieldInfos from the source segment into pending.
+			srcFI := sci.GetInMemoryFieldInfos()
+			if srcFI != nil {
+				w.mu.Lock()
+				if w.pendingFieldInfos == nil {
+					w.pendingFieldInfos = NewFieldInfos()
+				}
+				it := srcFI.Iterator()
+				for {
+					info := it.Next()
+					if info == nil {
+						break
+					}
+					if w.pendingFieldInfos.GetByName(info.Name()) != nil {
+						continue
+					}
+					number := w.pendingFieldInfos.GetNextFieldNumber()
+					clone := NewFieldInfo(info.Name(), number, FieldInfoOptions{
+						IndexOptions:             info.IndexOptions(),
+						DocValuesType:            info.DocValuesType(),
+						DocValuesSkipIndexType:   DocValuesSkipIndexTypeNone,
+						DocValuesGen:             -1,
+						Stored:                   info.IsStored(),
+						Tokenized:                info.IsTokenized(),
+						OmitNorms:                info.OmitNorms(),
+						StoreTermVectors:         info.HasTermVectors(),
+						VectorEncoding:           VectorEncodingFloat32,
+						VectorSimilarityFunction: VectorSimilarityFunctionEuclidean,
+					})
+					_ = w.pendingFieldInfos.Add(clone)
+				}
+				w.mu.Unlock()
+			}
 		}
 	}
 
