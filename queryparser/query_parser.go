@@ -95,12 +95,12 @@ func (p *QueryParser) matchLookAhead(expected TokenType) bool {
 	return p.lookAhead.Type == expected
 }
 
-// parseExpression parses an expression (handles OR).
-// All consecutive OR operands are collected into a single flat BooleanQuery
-// (rather than nesting left-associatively), matching Lucene's query parser
-// behavior of producing a single BQ with N SHOULD clauses for "a OR b OR c".
+// parseExpression parses a full expression handling OR, AND, and implicit
+// sequences.
+//
+// Precedence (lowest to highest): OR < implicit-sequence/AND < NOT < primary.
 func (p *QueryParser) parseExpression() (search.Query, error) {
-	first, err := p.parseAndExpression()
+	first, err := p.parseAndOrSequence()
 	if err != nil {
 		return nil, err
 	}
@@ -109,10 +109,11 @@ func (p *QueryParser) parseExpression() (search.Query, error) {
 		return first, nil
 	}
 
+	// Collect all OR operands into a single flat BooleanQuery (SHOULD).
 	operands := []search.Query{first}
 	for p.match(TokenTypeOR) {
 		p.nextToken()
-		next, err := p.parseAndExpression()
+		next, err := p.parseAndOrSequence()
 		if err != nil {
 			return nil, err
 		}
@@ -121,88 +122,98 @@ func (p *QueryParser) parseExpression() (search.Query, error) {
 	return search.NewBooleanQueryOrWithQueries(operands...), nil
 }
 
-// parseAndExpression parses an AND expression.
-// All consecutive AND operands are collected into a single flat BooleanQuery
-// with N MUST clauses (rather than nesting), matching Lucene's behavior.
-func (p *QueryParser) parseAndExpression() (search.Query, error) {
-	first, err := p.parseNotExpression()
+// parseAndOrSequence handles explicit AND and implicit sequences (space-separated
+// terms). When AND is explicit, all operands become MUST. When the sequence is
+// implicit (no AND keyword), each term's Occur is determined by its +/- prefix
+// or NOT keyword, matching Lucene's classic query parser behaviour.
+func (p *QueryParser) parseAndOrSequence() (search.Query, error) {
+	// If the next operator is an explicit AND, use MUST for all operands.
+	first, firstOccur, err := p.parseClauseWithOccur()
 	if err != nil {
 		return nil, err
 	}
 
-	if !p.match(TokenTypeAND) && !p.isImplicitAnd() {
-		return first, nil
-	}
-
-	operands := []search.Query{first}
-	for p.match(TokenTypeAND) || p.isImplicitAnd() {
-		if p.match(TokenTypeAND) {
-			p.nextToken()
+	if !p.match(TokenTypeAND) && !p.isImplicitSequenceContinuation() {
+		// Single clause — unwrap Occur if it is a plain SHOULD (no modifier).
+		if firstOccur == search.SHOULD {
+			return first, nil
 		}
-		next, err := p.parseNotExpression()
-		if err != nil {
-			return nil, err
-		}
-		operands = append(operands, next)
-	}
-	return search.NewBooleanQueryAndWithQueries(operands...), nil
-}
-
-// isImplicitAnd checks if we should treat this as an implicit AND.
-func (p *QueryParser) isImplicitAnd() bool {
-	// Don't treat as implicit AND if current token is an operator
-	if p.currentToken.Type == TokenTypeAND ||
-		p.currentToken.Type == TokenTypeOR ||
-		p.currentToken.Type == TokenTypeNOT {
-		return false
-	}
-	// Check if current token starts a new term/field/group
-	// This is for cases like "hello world" (implicit AND between terms)
-	return p.currentToken.Type == TokenTypeTerm ||
-		p.currentToken.Type == TokenTypeField ||
-		p.currentToken.Type == TokenTypeLParen ||
-		p.currentToken.Type == TokenTypePlus ||
-		p.currentToken.Type == TokenTypeMinus
-}
-
-// parseNotExpression parses a NOT expression.
-func (p *QueryParser) parseNotExpression() (search.Query, error) {
-	if p.match(TokenTypeNOT) {
-		p.nextToken()
-		query, err := p.parseNotExpression()
-		if err != nil {
-			return nil, err
-		}
-		return search.NewBooleanQueryNotWithQuery(query), nil
-	}
-	return p.parseModifierExpression()
-}
-
-// parseModifierExpression parses expressions with + or - modifiers.
-func (p *QueryParser) parseModifierExpression() (search.Query, error) {
-	modifier := search.SHOULD // default
-
-	if p.match(TokenTypePlus) {
-		modifier = search.MUST
-		p.nextToken()
-	} else if p.match(TokenTypeMinus) {
-		modifier = search.MUST_NOT
-		p.nextToken()
-	}
-
-	query, err := p.parsePrimaryExpression()
-	if err != nil {
-		return nil, err
-	}
-
-	// Apply modifier if specified
-	if modifier != search.SHOULD {
 		bq := search.NewBooleanQuery()
-		bq.Add(query, modifier)
+		bq.Add(first, firstOccur)
 		return bq, nil
 	}
 
-	return query, nil
+	// Multiple clauses.
+	type clauseEntry struct {
+		q     search.Query
+		occur search.Occur
+	}
+	clauses := []clauseEntry{{first, firstOccur}}
+	explicitAnd := false
+
+	for p.match(TokenTypeAND) || p.isImplicitSequenceContinuation() {
+		if p.match(TokenTypeAND) {
+			explicitAnd = true
+			p.nextToken()
+		}
+		q, occur, err2 := p.parseClauseWithOccur()
+		if err2 != nil {
+			return nil, err2
+		}
+		clauses = append(clauses, clauseEntry{q, occur})
+	}
+
+	bq := search.NewBooleanQuery()
+	for _, c := range clauses {
+		if explicitAnd {
+			// Explicit AND: all clauses become MUST regardless of prefix.
+			bq.Add(c.q, search.MUST)
+		} else {
+			bq.Add(c.q, c.occur)
+		}
+	}
+	return bq, nil
+}
+
+// parseClauseWithOccur parses one clause and returns the query together with
+// the Occur derived from its prefix (+, -, NOT) or SHOULD if there is none.
+func (p *QueryParser) parseClauseWithOccur() (search.Query, search.Occur, error) {
+	occur := search.SHOULD
+
+	switch p.currentToken.Type {
+	case TokenTypePlus:
+		occur = search.MUST
+		p.nextToken()
+	case TokenTypeMinus:
+		occur = search.MUST_NOT
+		p.nextToken()
+	case TokenTypeNOT:
+		occur = search.MUST_NOT
+		p.nextToken()
+	}
+
+	q, err := p.parsePrimaryExpression()
+	if err != nil {
+		return nil, occur, err
+	}
+	return q, occur, nil
+}
+
+// isImplicitSequenceContinuation returns true when the current token begins
+// another term/clause that is implicitly adjacent to the previous one (i.e.
+// separated only by whitespace, no OR keyword).
+func (p *QueryParser) isImplicitSequenceContinuation() bool {
+	switch p.currentToken.Type {
+	case TokenTypeAND, TokenTypeOR, TokenTypeEOF,
+		TokenTypeRParen, TokenTypeRBracket, TokenTypeRBrace:
+		return false
+	case TokenTypeTerm, TokenTypeWildcard, TokenTypeField,
+		TokenTypeLParen, TokenTypeQuote,
+		TokenTypeLBracket, TokenTypeLBrace,
+		TokenTypePlus, TokenTypeMinus, TokenTypeNOT:
+		return true
+	}
+	return false
 }
 
 // parsePrimaryExpression parses primary expressions (terms, fields, groups, etc.).
