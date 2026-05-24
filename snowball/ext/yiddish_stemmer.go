@@ -836,7 +836,6 @@ func (s *YiddishStemmer) rStandardSuffix() bool {
 			}
 			continue outerLoop11
 		}
-		break lab11
 	}
 	s.Cursor = s.Limit - v9
 	return true
