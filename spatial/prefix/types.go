@@ -52,7 +52,8 @@ func CellToBytesRefIterator(iter prefixtree.CellIterator) func() ([]byte, bool) 
 		if !iter.HasNext() {
 			return nil, false
 		}
-		return iter.Next().TokenBytes(), true
+		ref := iter.Next().GetTokenBytesWithLeaf(nil)
+		return ref.Bytes[ref.Offset : ref.Offset+ref.Length], true
 	}
 }
 
@@ -131,7 +132,7 @@ func (c *HeatmapFacetCounter) Increment(col, row int) {
 // AbstractPrefixTreeQuery is the shared base of the SPT-based queries.
 // Mirrors org.apache.lucene.spatial.prefix.AbstractPrefixTreeQuery.
 type AbstractPrefixTreeQuery struct {
-	Field  string
+	Field    string
 	Strategy any
 }
 
