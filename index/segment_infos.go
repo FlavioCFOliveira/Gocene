@@ -630,6 +630,18 @@ func WriteSegmentInfos(si *SegmentInfos, directory store.Directory) error {
 				}
 			}
 		}
+		// Write deleted ordinals so SegmentReader can build a live-docs bitset
+		// without requiring a .liv / .del file.
+		// Format: numDeleted int32, then each ordinal as int32.
+		delOrds := sci.GetDeletedOrdinals()
+		if err := store.WriteInt32(out, int32(len(delOrds))); err != nil {
+			return err
+		}
+		for _, ord := range delOrds {
+			if err := store.WriteInt32(out, int32(ord)); err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil
@@ -789,6 +801,10 @@ func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
 
 		segmentInfo := NewSegmentInfo(name, int(docCount), directory)
 		segmentInfo.SetID(id)
+		// Reconstruct the segment's expected files list.  In Gocene the only
+		// per-segment file is the stub <name>.si written by IndexWriter.Commit.
+		// This allows CheckIndex to detect corruption when the file is missing.
+		segmentInfo.SetFiles([]string{name + ".si"})
 		sci := NewSegmentCommitInfo(segmentInfo, int(delCount), -1)
 
 		// Read in-memory FieldInfos (written by current Gocene writer).
@@ -837,6 +853,25 @@ func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
 				_ = fis.Add(fi)
 			}
 			sci.SetInMemoryFieldInfos(fis)
+		}
+		// Read deleted ordinals (written by current Gocene writer).
+		// Format: numDeleted int32, then each ordinal as int32.
+		numDel, err := store.ReadInt32(in)
+		if err != nil {
+			// Older format without deleted-ordinals extension — tolerate gracefully.
+			si.Add(sci)
+			continue
+		}
+		if numDel > 0 {
+			ords := make([]int, numDel)
+			for j := int32(0); j < numDel; j++ {
+				ord, err := store.ReadInt32(in)
+				if err != nil {
+					return nil, fmt.Errorf("reading deleted ordinal: %w", err)
+				}
+				ords[j] = int(ord)
+			}
+			sci.SetDeletedOrdinals(ords)
 		}
 		si.Add(sci)
 	}
