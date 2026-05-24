@@ -593,6 +593,33 @@ func (r *DirectoryReader) DocCount() int {
 	return r.NumDocs()
 }
 
+// GetFieldInfos returns the merged FieldInfos across all segments.
+//
+// Mirrors the contract of FieldInfos.getMergedFieldInfos in Lucene: it unions
+// every FieldInfo from every segment, returning a non-nil *FieldInfos even for
+// an empty index. Callers that need per-segment granularity should iterate
+// Leaves() and call GetFieldInfos() on each LeafReader.
+func (r *DirectoryReader) GetFieldInfos() *FieldInfos {
+	merged := NewFieldInfos()
+	for _, sr := range r.readers {
+		fi := sr.GetFieldInfos()
+		if fi == nil {
+			continue
+		}
+		it := fi.Iterator()
+		for {
+			info := it.Next()
+			if info == nil {
+				break
+			}
+			// Ignore errors: a duplicate field number from a different segment is
+			// legal when merging (same field may appear in multiple segments).
+			_ = merged.Add(info)
+		}
+	}
+	return merged
+}
+
 // Close closes the DirectoryReader and all segment readers.
 func (r *DirectoryReader) Close() error {
 	var lastErr error
