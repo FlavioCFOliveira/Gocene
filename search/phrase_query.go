@@ -104,7 +104,11 @@ func (q *PhraseQuery) HashCode() int {
 }
 
 // Rewrite rewrites the query to a simpler form.
+// Mirrors PhraseQuery.rewrite() from Lucene 10.4.0.
 func (q *PhraseQuery) Rewrite(reader IndexReader) (Query, error) {
+	if len(q.terms) == 0 {
+		return NewMatchNoDocsQueryWithReason("empty PhraseQuery"), nil
+	}
 	if len(q.terms) == 1 {
 		return NewTermQuery(q.terms[0]), nil
 	}

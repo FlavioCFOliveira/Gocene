@@ -68,3 +68,39 @@ func (q *BoostQuery) HashCode() int {
 	}
 	return hash*31 + int(q.boost*1000)
 }
+
+// Rewrite rewrites the query to a simpler form.
+// Mirrors BoostQuery.rewrite(IndexSearcher) from Lucene 10.4.0.
+func (q *BoostQuery) Rewrite(reader IndexReader) (Query, error) {
+	rewritten, err := fullyRewrite(q.query, reader)
+	if err != nil {
+		return nil, err
+	}
+
+	if q.boost == 1.0 {
+		return rewritten, nil
+	}
+
+	// Merge nested BoostQuery.
+	if inner, ok := rewritten.(*BoostQuery); ok {
+		return NewBoostQuery(inner.query, q.boost*inner.boost), nil
+	}
+
+	// Bubble up MatchNoDocsQuery.
+	if isMatchNoDocsQuery(rewritten) {
+		return rewritten, nil
+	}
+
+	// Boost==0 and inner is not already a CSQ: wrap in CSQ to suppress scoring.
+	if q.boost == 0.0 {
+		if _, ok := rewritten.(*ConstantScoreQuery); !ok {
+			return NewBoostQuery(NewConstantScoreQuery(rewritten), 0), nil
+		}
+	}
+
+	if rewritten != q.query {
+		return NewBoostQuery(rewritten, q.boost), nil
+	}
+
+	return q, nil
+}

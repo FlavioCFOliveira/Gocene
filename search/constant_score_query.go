@@ -86,17 +86,63 @@ func (q *ConstantScoreQuery) HashCode() int {
 	return hash*31 + int(q.score*1000)
 }
 
-// Rewrite rewrites the query to a simpler form.
+// Rewrite rewrites the query to a simpler form until convergence.
+// Mirrors ConstantScoreQuery.rewrite(IndexSearcher) from Lucene 10.4.0. The outer
+// convergence loop mirrors IndexSearcher.rewrite(), which is not modelled separately
+// in Gocene; instead each Rewrite() that may produce intermediate results runs the
+// loop internally.
 func (q *ConstantScoreQuery) Rewrite(reader IndexReader) (Query, error) {
 	if q.query == nil {
 		return q, nil
 	}
-	rewritten, err := q.query.Rewrite(reader)
+
+	// Fully rewrite the inner query (mirrors IndexSearcher.rewrite on inner).
+	inner, err := fullyRewrite(q.query, reader)
 	if err != nil {
 		return nil, err
 	}
-	if rewritten != q.query {
-		return NewConstantScoreQueryWithScore(rewritten, q.score), nil
+
+	// Extra simplifications legal because scores are not needed on the wrapped query.
+	rewritten := inner
+	if bq, ok := rewritten.(*BoostQuery); ok {
+		rewritten = bq.Query()
+	} else if csq, ok := rewritten.(*ConstantScoreQuery); ok {
+		rewritten = csq.Query()
+	} else if bq2, ok := rewritten.(*BooleanQuery); ok {
+		rewritten = bq2.rewriteNoScoring()
 	}
+
+	// Bubble up MatchNoDocsQuery.
+	if isMatchNoDocsQuery(rewritten) {
+		return rewritten, nil
+	}
+
+	if rewritten != q.query {
+		// The inner changed; recurse to converge any further simplifications.
+		return NewConstantScoreQuery(rewritten).Rewrite(reader)
+	}
+
 	return q, nil
+}
+
+// fullyRewrite rewrites a query to a fixed point, mirroring IndexSearcher.rewrite().
+// It is used by wrapper queries (CSQ, BoostQuery) that need to converge their inner
+// query before applying their own simplification rules.
+func fullyRewrite(query Query, reader IndexReader) (Query, error) {
+	for {
+		var next Query
+		var err error
+		if bq, ok := query.(*BooleanQuery); ok {
+			next, err = bq.rewriteStep(reader)
+		} else {
+			next, err = query.Rewrite(reader)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if next == query {
+			return query, nil
+		}
+		query = next
+	}
 }
