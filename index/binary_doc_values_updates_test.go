@@ -1714,14 +1714,17 @@ func TestBinaryDocValuesUpdates_SortedIndex(t *testing.T) {
 	valueRange := 100 // Reduced from random 1-1000
 	sortValueRange := 100
 
+	// Use a fixed seed for determinism across runs and test orderings.
+	rng := rand.New(rand.NewSource(42))
+
 	deletedCount := 0
 	docs := make([]*oneSortDoc, 0)
 
 	numIters := 50 // Reduced from atLeast(100)
 	for iter := 0; iter < numIters; iter++ {
-		value := toBytes(int64(rand.Intn(valueRange)))
+		value := toBytes(int64(rng.Intn(valueRange)))
 
-		if len(docs) == 0 || rand.Intn(3) == 1 {
+		if len(docs) == 0 || rng.Intn(3) == 1 {
 			// Add new doc
 			id := len(docs)
 			fields := []interface{}{}
@@ -1732,7 +1735,7 @@ func TestBinaryDocValuesUpdates_SortedIndex(t *testing.T) {
 			bdvField, _ := document.NewBinaryDocValuesField("number", value)
 			fields = append(fields, bdvField)
 
-			sortValue := rand.Intn(sortValueRange)
+			sortValue := rng.Intn(sortValueRange)
 			sortField, _ := document.NewNumericDocValuesField("sort", int64(sortValue))
 			fields = append(fields, sortField)
 
@@ -1746,8 +1749,18 @@ func TestBinaryDocValuesUpdates_SortedIndex(t *testing.T) {
 				deleted:   false,
 			})
 		} else {
-			// Update existing doc
-			idToUpdate := rand.Intn(len(docs))
+			// Update existing doc — only update non-deleted docs to avoid
+			// ghost documents (UpdateDocument always adds even when term matches nothing).
+			candidates := make([]int, 0, len(docs))
+			for i, d := range docs {
+				if !d.deleted {
+					candidates = append(candidates, i)
+				}
+			}
+			if len(candidates) == 0 {
+				continue
+			}
+			idToUpdate := candidates[rng.Intn(len(candidates))]
 			term := index.NewTerm("id", fmt.Sprintf("%d", idToUpdate))
 
 			updateFields := []interface{}{}
@@ -1760,8 +1773,8 @@ func TestBinaryDocValuesUpdates_SortedIndex(t *testing.T) {
 		}
 
 		// Randomly delete
-		if rand.Intn(100) == 0 && len(docs) > 0 {
-			idToDelete := rand.Intn(len(docs))
+		if rng.Intn(100) == 0 && len(docs) > 0 {
+			idToDelete := rng.Intn(len(docs))
 			term := index.NewTerm("id", fmt.Sprintf("%d", idToDelete))
 			writer.DeleteDocuments(term)
 			if !docs[idToDelete].deleted {
@@ -1771,7 +1784,7 @@ func TestBinaryDocValuesUpdates_SortedIndex(t *testing.T) {
 		}
 
 		// Randomly commit
-		if rand.Intn(50) == 0 {
+		if rng.Intn(50) == 0 {
 			if err := writer.Commit(); err != nil {
 				t.Fatalf("Commit failed: %v", err)
 			}
