@@ -505,6 +505,9 @@ func WriteSegmentInfos(si *SegmentInfos, directory store.Directory) error {
 		if err := store.WriteInt32(out, int32(sci.segmentInfo.docCount)); err != nil {
 			return err
 		}
+		if err := store.WriteInt32(out, int32(sci.delCount)); err != nil {
+			return err
+		}
 		// Write ID
 		id := sci.segmentInfo.GetID()
 		if err := out.WriteBytes(id); err != nil {
@@ -606,6 +609,10 @@ func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
 		if err != nil {
 			return nil, err
 		}
+		delCount, err := store.ReadInt32(in)
+		if err != nil {
+			return nil, err
+		}
 		// Read ID
 		id, err := in.ReadBytesN(16)
 		if err != nil {
@@ -614,7 +621,7 @@ func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
 
 		segmentInfo := NewSegmentInfo(name, int(docCount), directory)
 		segmentInfo.SetID(id)
-		sci := NewSegmentCommitInfo(segmentInfo, 0, -1)
+		sci := NewSegmentCommitInfo(segmentInfo, int(delCount), -1)
 		si.Add(sci)
 	}
 

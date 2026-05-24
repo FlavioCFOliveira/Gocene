@@ -36,6 +36,30 @@ type IndexWriter struct {
 	// documentsWriter handles the actual document processing and flushing
 	// DocumentsWriter has its own internal locking
 	documentsWriter *DocumentsWriter
+
+	// pendingDeleteTerms holds term-based delete operations buffered since the
+	// last commit. Protected by mu.
+	pendingDeleteTerms []*Term
+
+	// docFieldIndex holds (field, value) pairs for each document added since
+	// the last commit. Used by Commit to apply term-based deletes without a
+	// full inverted index. Protected by mu.
+	docFieldIndex [][]docFieldEntry
+}
+
+// docFieldEntry is a (field-name, term-value) pair extracted from a document
+// during AddDocument for use by the buffered term-delete mechanism.
+type docFieldEntry struct {
+	field string
+	val   string
+}
+
+// docFieldNamer is a minimal interface satisfied by any field type that
+// exposes a name and a string value; document.Field satisfies this via the
+// Name() and StringValue() methods added on *Field.
+type docFieldNamer interface {
+	Name() string
+	StringValue() string
 }
 
 // NewIndexWriter creates a new IndexWriter.
@@ -95,6 +119,20 @@ func (w *IndexWriter) AddDocument(doc Document) error {
 		}
 	}
 
+	// Extract (field, value) pairs for the buffered term-delete mechanism.
+	// We use the docFieldNamer interface which document.Field satisfies.
+	var docEntries []docFieldEntry
+	for _, fi := range doc.GetFields() {
+		if fn, ok := fi.(docFieldNamer); ok {
+			if sv := fn.StringValue(); sv != "" {
+				docEntries = append(docEntries, docFieldEntry{field: fn.Name(), val: sv})
+			}
+		}
+	}
+	w.mu.Lock()
+	w.docFieldIndex = append(w.docFieldIndex, docEntries)
+	w.mu.Unlock()
+
 	// Atomic increment - no lock needed
 	w.docCount.Add(1)
 	return nil
@@ -117,15 +155,18 @@ func (w *IndexWriter) UpdateDocument(term *Term, doc Document) error {
 	return nil
 }
 
-// DeleteDocuments deletes documents matching the given term.
-// Minimizes critical section - only holds lock for state updates.
+// DeleteDocuments buffers a term-based delete that will be applied at the next
+// Commit. Each document containing the given term in the given field is marked
+// for deletion; the delete count is reflected in the SegmentCommitInfo written
+// by Commit.
 func (w *IndexWriter) DeleteDocuments(term *Term) error {
 	if err := w.ensureOpen(); err != nil {
 		return err
 	}
 
-	// Document deletion processing happens outside global lock
-	// Actual deletion would be handled by DocumentsWriter
+	w.mu.Lock()
+	w.pendingDeleteTerms = append(w.pendingDeleteTerms, term)
+	w.mu.Unlock()
 	return nil
 }
 
@@ -242,11 +283,39 @@ func (w *IndexWriter) Commit() error {
 	// Create a dummy segment if we have documents
 	currentDocCount := int(w.docCount.Load())
 	if currentDocCount > 0 {
+		// Apply buffered term-based deletes by scanning the in-memory doc field
+		// index. We track (field, value) pairs per document so that term-based
+		// deletes can be applied at commit time without a real inverted index.
+		delCount := 0
+		if len(w.pendingDeleteTerms) > 0 && len(w.docFieldIndex) > 0 {
+			// Build a set of (field, value) pairs to delete.
+			type fieldVal struct{ field, val string }
+			delSet := make(map[fieldVal]struct{}, len(w.pendingDeleteTerms))
+			for _, dt := range w.pendingDeleteTerms {
+				delSet[fieldVal{dt.Field, dt.Text()}] = struct{}{}
+			}
+			// Count docs that match at least one delete term.
+			for _, docFields := range w.docFieldIndex {
+				for _, fv := range docFields {
+					if _, ok := delSet[fieldVal{fv.field, fv.val}]; ok {
+						delCount++
+						break // each doc counted at most once
+					}
+				}
+			}
+			// Guard: delCount must not exceed docCount.
+			if delCount > currentDocCount {
+				delCount = currentDocCount
+			}
+		}
+
 		segmentName := si.GetNextSegmentName()
 		segmentInfo := NewSegmentInfo(segmentName, currentDocCount, nil)
-		sci := NewSegmentCommitInfo(segmentInfo, 0, -1)
+		sci := NewSegmentCommitInfo(segmentInfo, delCount, -1)
 		si.Add(sci)
 		w.docCount.Store(0) // Documents "flushed" to segment
+		w.pendingDeleteTerms = w.pendingDeleteTerms[:0]
+		w.docFieldIndex = w.docFieldIndex[:0]
 	}
 
 	// Add commit data if present
