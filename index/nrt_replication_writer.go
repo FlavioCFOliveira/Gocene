@@ -55,10 +55,12 @@ func NewNRTReplicationWriter(writer *IndexWriter) (*NRTReplicationWriter, error)
 	}
 
 	rw := &NRTReplicationWriter{
-		writer:          writer,
-		sessions:        make(map[string]*ReplicationSession),
-		lastCommitTime:  time.Now(),
-		currentRevision: &IndexRevision{},
+		writer:         writer,
+		sessions:       make(map[string]*ReplicationSession),
+		lastCommitTime: time.Now(),
+		currentRevision: &IndexRevision{
+			Files: []string{},
+		},
 	}
 
 	rw.isOpen.Store(true)

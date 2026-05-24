@@ -119,21 +119,16 @@ func (d *NRTFileDeleter) Unprotect(filename string) error {
 
 	d.protectedCount--
 
-	// Check if file was pending deletion
+	// File is now fully unprotected; drain all pending deletions.
 	if pendingCount, ok := d.pendingDeletions[filename]; ok && pendingCount > 0 {
-		// File was pending, delete it now
+		// Delete the underlying file once (idempotent physical delete).
 		if err := d.doDelete(filename); err != nil {
 			return err
 		}
 
-		pendingCount--
-		if pendingCount == 0 {
-			delete(d.pendingDeletions, filename)
-		} else {
-			d.pendingDeletions[filename] = pendingCount
-		}
-
-		d.deleteCount++
+		// Count every queued deletion as executed.
+		d.deleteCount += int64(pendingCount)
+		delete(d.pendingDeletions, filename)
 	}
 
 	return nil
