@@ -855,16 +855,18 @@ func TestSegmentMerger_TermVectorFieldsCount(t *testing.T) {
 
 	// Field with term vectors
 	customType1 := document.NewFieldType()
-	customType1.SetIndexed(true).SetStored(true).SetTokenized(true)
-	customType1.SetStoreTermVectors(true)
+	customType1.SetIndexed(true).SetStored(true).SetTokenized(true).
+		SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions).
+		SetStoreTermVectors(true)
 	customType1.Freeze()
 	f1, _ := document.NewField("tv_field1", "term1 term2", customType1)
 	doc.Add(f1)
 
 	// Another field with term vectors
 	customType2 := document.NewFieldType()
-	customType2.SetIndexed(true).SetStored(true).SetTokenized(true)
-	customType2.SetStoreTermVectors(true)
+	customType2.SetIndexed(true).SetStored(true).SetTokenized(true).
+		SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions).
+		SetStoreTermVectors(true)
 	customType2.Freeze()
 	f2, _ := document.NewField("tv_field2", "term3 term4", customType2)
 	doc.Add(f2)
