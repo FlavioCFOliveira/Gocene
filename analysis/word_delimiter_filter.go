@@ -132,84 +132,83 @@ func NewWordDelimiterFilterWithTable(input TokenStream, charTypeTable []byte, sp
 
 // IncrementToken advances to the next token, splitting at word boundaries.
 func (f *WordDelimiterFilter) IncrementToken() (bool, error) {
-	// If we have saved tokens to emit, emit the next one
-	if f.savedTokenIndex < len(f.savedTokens) {
-		token := f.savedTokens[f.savedTokenIndex]
-		f.savedTokenIndex++
-		f.emitToken(token)
-		return true, nil
-	}
-
-	// Clear saved tokens
-	f.savedTokens = f.savedTokens[:0]
-	f.savedTokenIndex = 0
-
-	// Get the next token from input
-	hasToken, err := f.input.IncrementToken()
-	if err != nil {
-		return false, err
-	}
-	if !hasToken {
-		return false, nil
-	}
-
-	// Get the current token text
-	if f.termAttr == nil {
-		// No term attribute, just pass through
-		return true, nil
-	}
-
-	tokenText := f.termAttr.String()
-	if tokenText == "" {
-		return true, nil
-	}
-
-	// Get the current offsets
-	var startOffset, endOffset int
-	if f.offsetAttr != nil {
-		startOffset = f.offsetAttr.StartOffset()
-		endOffset = f.offsetAttr.EndOffset()
-	}
-
-	// Get the current position increment
-	var posInc int = 1
-	if f.posIncAttr != nil {
-		posInc = f.posIncAttr.GetPositionIncrement()
-	}
-
-	// Convert token text to runes for the iterator
-	runes := []rune(tokenText)
-	if len(runes) == 0 {
-		return true, nil
-	}
-
-	// Set up the iterator
-	f.iterator.SetText(runes, len(runes))
-
-	// Collect all subwords
-	subwords := make([]savedToken, 0, 4)
-	for f.iterator.Next() != DONE {
-		start := f.iterator.Current()
-		end := f.iterator.End()
-		if start < end && end <= len(runes) {
-			subword := string(runes[start:end])
-			// Calculate offsets based on rune positions
-			// We need to convert rune positions to byte positions for the original text
-			subwordStartOffset := startOffset + f.runeIndexToByteIndex(tokenText, start)
-			subwordEndOffset := startOffset + f.runeIndexToByteIndex(tokenText, end)
-			subwords = append(subwords, savedToken{
-				text:        subword,
-				startOffset: subwordStartOffset,
-				endOffset:   subwordEndOffset,
-				posInc:      0, // Will be set later
-			})
+	for {
+		// If we have saved tokens to emit, emit the next one.
+		if f.savedTokenIndex < len(f.savedTokens) {
+			token := f.savedTokens[f.savedTokenIndex]
+			f.savedTokenIndex++
+			f.emitToken(token)
+			return true, nil
 		}
-	}
 
-	// If no subwords were found, or the token wasn't split, emit the original
-	if len(subwords) == 0 {
-		return true, nil
-	}
+		// Clear saved tokens.
+		f.savedTokens = f.savedTokens[:0]
+		f.savedTokenIndex = 0
+
+		// Get the next token from input.
+		hasToken, err := f.input.IncrementToken()
+		if err != nil {
+			return false, err
+		}
+		if !hasToken {
+			return false, nil
+		}
+
+		// No term attribute — pass the token through.
+		if f.termAttr == nil {
+			return true, nil
+		}
+
+		tokenText := f.termAttr.String()
+		if tokenText == "" {
+			return true, nil
+		}
+
+		// Get the current offsets.
+		var startOffset, endOffset int
+		if f.offsetAttr != nil {
+			startOffset = f.offsetAttr.StartOffset()
+			endOffset = f.offsetAttr.EndOffset()
+		}
+
+		// Get the current position increment.
+		posInc := 1
+		if f.posIncAttr != nil {
+			posInc = f.posIncAttr.GetPositionIncrement()
+		}
+
+		// Convert token text to runes for the iterator.
+		runes := []rune(tokenText)
+		if len(runes) == 0 {
+			return true, nil
+		}
+
+		// Set up the iterator.
+		f.iterator.SetText(runes, len(runes))
+
+		// Collect all subwords.
+		subwords := make([]savedToken, 0, 4)
+		for f.iterator.Next() != DONE {
+			start := f.iterator.Current()
+			end := f.iterator.End()
+			if start < end && end <= len(runes) {
+				subword := string(runes[start:end])
+				subwordStartOffset := startOffset + f.runeIndexToByteIndex(tokenText, start)
+				subwordEndOffset := startOffset + f.runeIndexToByteIndex(tokenText, end)
+				subwords = append(subwords, savedToken{
+					text:        subword,
+					startOffset: subwordStartOffset,
+					endOffset:   subwordEndOffset,
+					posInc:      0, // Will be set below.
+				})
+			}
+		}
+
+		// If no subwords were found the input token consisted entirely of
+		// delimiter characters. Discard it and pull the next input token.
+		if len(subwords) == 0 {
+			continue
+		}
 
 	// Check if the token was actually split
 	wasSplit := len(subwords) > 1 || subwords[0].text != tokenText
@@ -244,18 +243,17 @@ func (f *WordDelimiterFilter) IncrementToken() (bool, error) {
 		}
 	}
 
-	// Add the subwords to saved tokens
+	// Add the subwords to saved tokens.
 	f.savedTokens = append(f.savedTokens, subwords...)
 
-	// Emit the first saved token
+	// Emit the first saved token.
 	if len(f.savedTokens) > 0 {
 		token := f.savedTokens[0]
 		f.savedTokenIndex = 1
 		f.emitToken(token)
 		return true, nil
 	}
-
-	return true, nil
+	} // end for
 }
 
 // emitToken sets the attributes for the given saved token.
