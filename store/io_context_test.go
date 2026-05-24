@@ -181,8 +181,12 @@ func TestLock(t *testing.T) {
 					t.Fatal("expected non-nil factory")
 				}
 
-				// Create a mock directory for obtaining lock
-				dir := NewBaseDirectory(nil)
+				dir, err := NewSimpleFSDirectory(t.TempDir())
+				if err != nil {
+					t.Fatalf("create dir: %v", err)
+				}
+				defer dir.Close()
+
 				lock, err := factory.ObtainLock(dir, "test.lock")
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
@@ -209,7 +213,12 @@ func TestLock(t *testing.T) {
 			name: "native fs lock ensure valid",
 			fn: func(t *testing.T) {
 				factory := NewNativeFSLockFactory()
-				dir := NewBaseDirectory(nil)
+				dir, err := NewSimpleFSDirectory(t.TempDir())
+				if err != nil {
+					t.Fatalf("create dir: %v", err)
+				}
+				defer dir.Close()
+
 				lock, err := factory.ObtainLock(dir, "test.lock")
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
@@ -219,7 +228,7 @@ func TestLock(t *testing.T) {
 					t.Errorf("unexpected error: %v", err)
 				}
 
-				lock.Close()
+				_ = lock.Close()
 
 				if err := lock.EnsureValid(); err == nil {
 					t.Error("expected error after closing lock")

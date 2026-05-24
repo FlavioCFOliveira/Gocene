@@ -26,10 +26,14 @@ func TestNativeFSLockFactory(t *testing.T) {
 		{
 			name: "obtain lock",
 			fn: func(t *testing.T) {
+				dir, err := NewSimpleFSDirectory(t.TempDir())
+				if err != nil {
+					t.Fatalf("create dir: %v", err)
+				}
+				defer dir.Close()
+
 				factory := NewNativeFSLockFactory()
-				// Note: In a real implementation, this would need a real directory
-				// For testing, we pass nil since the mock doesn't use it
-				lock, err := factory.ObtainLock(nil, "test.lock")
+				lock, err := factory.ObtainLock(dir, "test.lock")
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
 				}
@@ -39,6 +43,7 @@ func TestNativeFSLockFactory(t *testing.T) {
 				if !lock.IsLocked() {
 					t.Error("expected lock to be locked")
 				}
+				_ = lock.Close()
 			},
 		},
 	}
@@ -49,6 +54,20 @@ func TestNativeFSLockFactory(t *testing.T) {
 }
 
 func TestNativeFSLock(t *testing.T) {
+	newLock := func(t *testing.T) Lock {
+		t.Helper()
+		dir, err := NewSimpleFSDirectory(t.TempDir())
+		if err != nil {
+			t.Fatalf("create dir: %v", err)
+		}
+		t.Cleanup(func() { dir.Close() })
+		lock, err := NewNativeFSLockFactory().ObtainLock(dir, "test.lock")
+		if err != nil {
+			t.Fatalf("obtain lock: %v", err)
+		}
+		return lock
+	}
+
 	tests := []struct {
 		name string
 		fn   func(t *testing.T)
@@ -56,11 +75,8 @@ func TestNativeFSLock(t *testing.T) {
 		{
 			name: "new lock is locked",
 			fn: func(t *testing.T) {
-				lock := &NativeFSLock{
-					BaseLock: NewBaseLock(),
-					name:     "test.lock",
-				}
-
+				lock := newLock(t)
+				defer lock.Close()
 				if !lock.IsLocked() {
 					t.Error("expected new lock to be locked")
 				}
@@ -69,10 +85,7 @@ func TestNativeFSLock(t *testing.T) {
 		{
 			name: "close releases lock",
 			fn: func(t *testing.T) {
-				lock := &NativeFSLock{
-					BaseLock: NewBaseLock(),
-					name:     "test.lock",
-				}
+				lock := newLock(t)
 
 				if err := lock.Close(); err != nil {
 					t.Fatalf("unexpected error: %v", err)
@@ -86,12 +99,9 @@ func TestNativeFSLock(t *testing.T) {
 		{
 			name: "close on released lock returns nil",
 			fn: func(t *testing.T) {
-				lock := &NativeFSLock{
-					BaseLock: NewBaseLock(),
-					name:     "test.lock",
-				}
+				lock := newLock(t)
 
-				lock.Close()
+				_ = lock.Close()
 				err := lock.Close()
 
 				if err != nil {
@@ -102,10 +112,8 @@ func TestNativeFSLock(t *testing.T) {
 		{
 			name: "ensure valid when locked",
 			fn: func(t *testing.T) {
-				lock := &NativeFSLock{
-					BaseLock: NewBaseLock(),
-					name:     "test.lock",
-				}
+				lock := newLock(t)
+				defer lock.Close()
 
 				if err := lock.EnsureValid(); err != nil {
 					t.Errorf("expected no error when locked, got %v", err)
@@ -115,12 +123,9 @@ func TestNativeFSLock(t *testing.T) {
 		{
 			name: "ensure valid when released",
 			fn: func(t *testing.T) {
-				lock := &NativeFSLock{
-					BaseLock: NewBaseLock(),
-					name:     "test.lock",
-				}
+				lock := newLock(t)
 
-				lock.Close()
+				_ = lock.Close()
 
 				if err := lock.EnsureValid(); err == nil {
 					t.Error("expected error when released")
@@ -426,15 +431,16 @@ func TestLockFactoryStress(t *testing.T) {
 // TestLockFactoryWithDirectory tests lock factory integration with directories.
 // Ported from: org.apache.lucene.store.TestLockFactory.testDirectoryLocking()
 func TestLockFactoryWithDirectory(t *testing.T) {
-	t.Run("native fs lock with byte buffers directory", func(t *testing.T) {
-		dir := NewByteBuffersDirectory()
+	t.Run("native fs lock with simple fs directory", func(t *testing.T) {
+		dir, err := NewSimpleFSDirectory(t.TempDir())
+		if err != nil {
+			t.Fatalf("create dir: %v", err)
+		}
 		defer dir.Close()
 
-		// Set NativeFSLockFactory
-		dir.SetLockFactory(NewNativeFSLockFactory())
-
-		// Obtain lock through directory
-		lock, err := dir.ObtainLock("test.lock")
+		// Obtain lock through factory directly (NativeFSLockFactory requires FSDirectory)
+		factory := NewNativeFSLockFactory()
+		lock, err := factory.ObtainLock(dir, "test.lock")
 		if err != nil {
 			t.Fatalf("Failed to obtain lock: %v", err)
 		}
@@ -479,10 +485,15 @@ func TestLockFactoryWithDirectory(t *testing.T) {
 // Ported from: org.apache.lucene.store.TestLockFactory
 func TestLockValidity(t *testing.T) {
 	t.Run("native fs lock ensure valid", func(t *testing.T) {
-		lock := &NativeFSLock{
-			BaseLock: NewBaseLock(),
-			name:     "validity.lock",
-			path:     "", // In-memory lock for testing
+		dir, err := NewSimpleFSDirectory(t.TempDir())
+		if err != nil {
+			t.Fatalf("create dir: %v", err)
+		}
+		defer dir.Close()
+
+		lock, err := NewNativeFSLockFactory().ObtainLock(dir, "validity.lock")
+		if err != nil {
+			t.Fatalf("obtain lock: %v", err)
 		}
 
 		// Should be valid when locked
@@ -491,7 +502,7 @@ func TestLockValidity(t *testing.T) {
 		}
 
 		// Release lock
-		lock.Close()
+		_ = lock.Close()
 
 		// Should be invalid after release
 		if err := lock.EnsureValid(); err == nil {
