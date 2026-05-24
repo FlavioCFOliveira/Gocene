@@ -23,7 +23,11 @@ func TestNewVerifyingLockFactory(t *testing.T) {
 }
 
 func TestVerifyingLockFactory_ObtainAndRelease(t *testing.T) {
-	dir := NewByteBuffersDirectory()
+	dir, err := NewSimpleFSDirectory(t.TempDir())
+	if err != nil {
+		t.Fatalf("create dir: %v", err)
+	}
+	defer dir.Close()
 	delegate := NewNativeFSLockFactory()
 	factory := NewVerifyingLockFactory(delegate)
 
@@ -60,12 +64,16 @@ func TestVerifyingLockFactory_ObtainAndRelease(t *testing.T) {
 }
 
 func TestVerifyingLockFactory_DoubleObtain(t *testing.T) {
-	dir := NewByteBuffersDirectory()
+	dir, err := NewSimpleFSDirectory(t.TempDir())
+	if err != nil {
+		t.Fatalf("create dir: %v", err)
+	}
+	defer dir.Close()
 	delegate := NewNativeFSLockFactory()
 	factory := NewVerifyingLockFactory(delegate)
 
 	// Obtain a lock
-	_, err := factory.ObtainLock(dir, "test.lock")
+	_, err = factory.ObtainLock(dir, "test.lock")
 	if err != nil {
 		t.Fatalf("failed to obtain lock: %v", err)
 	}
@@ -78,7 +86,11 @@ func TestVerifyingLockFactory_DoubleObtain(t *testing.T) {
 }
 
 func TestVerifyingLockFactory_DoubleRelease(t *testing.T) {
-	dir := NewByteBuffersDirectory()
+	dir, err := NewSimpleFSDirectory(t.TempDir())
+	if err != nil {
+		t.Fatalf("create dir: %v", err)
+	}
+	defer dir.Close()
 	delegate := NewNativeFSLockFactory()
 	factory := NewVerifyingLockFactory(delegate)
 
