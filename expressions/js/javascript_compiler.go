@@ -113,12 +113,46 @@ func (f *funcCall) eval(values map[string]float64) (float64, error) {
 		return Log10(resolved[0]), nil
 	case "log2":
 		return Log2(resolved[0]), nil
+	case "ln":
+		return Ln(resolved[0]), nil
+	case "logn":
+		return Logn(resolved[0], resolved[1]), nil
 	case "exp":
 		return Exp(resolved[0]), nil
 	case "sin":
 		return Sin(resolved[0]), nil
 	case "cos":
 		return Cos(resolved[0]), nil
+	case "tan":
+		return Tan(resolved[0]), nil
+	case "asin":
+		return Asin(resolved[0]), nil
+	case "acos":
+		return Acos(resolved[0]), nil
+	case "atan":
+		return Atan(resolved[0]), nil
+	case "atan2":
+		return Atan2(resolved[0], resolved[1]), nil
+	case "sinh":
+		return Sinh(resolved[0]), nil
+	case "cosh":
+		return Cosh(resolved[0]), nil
+	case "tanh":
+		return Tanh(resolved[0]), nil
+	case "asinh":
+		return Asinh(resolved[0]), nil
+	case "acosh":
+		return Acosh(resolved[0]), nil
+	case "atanh":
+		return Atanh(resolved[0]), nil
+	case "ceil":
+		return Ceil(resolved[0]), nil
+	case "floor":
+		return Floor(resolved[0]), nil
+	case "round":
+		return Round(resolved[0]), nil
+	case "haversin":
+		return Haversin(resolved[0], resolved[1], resolved[2], resolved[3]), nil
 	case "pow":
 		return Pow(resolved[0], resolved[1]), nil
 	case "max":
