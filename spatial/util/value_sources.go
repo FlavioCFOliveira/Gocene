@@ -10,8 +10,8 @@ type DoubleValuesSource interface {
 // CachingDoubleValueSource memoises the values returned by an inner source.
 // Mirrors org.apache.lucene.spatial.util.CachingDoubleValueSource.
 type CachingDoubleValueSource struct {
-	Inner  DoubleValuesSource
-	cache  map[int]float64
+	Inner DoubleValuesSource
+	cache map[int]float64
 }
 
 // NewCachingDoubleValueSource builds the cache.
