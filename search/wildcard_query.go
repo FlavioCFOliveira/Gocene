@@ -83,11 +83,13 @@ func (q *WildcardQuery) Rewrite(reader IndexReader) (Query, error) {
 	return q, nil
 }
 
+// String returns the Lucene-canonical representation "field:pattern".
+// For a nil term the output is "<nil>".
 func (q *WildcardQuery) String() string {
 	if q.term == nil {
-		return "WildcardQuery<nil>"
+		return "<nil>"
 	}
-	return "WildcardQuery(field=" + q.term.Field + ", pattern=" + q.term.Text() + ")"
+	return q.term.Field + ":" + q.term.Text()
 }
 
 // CreateWeight creates a Weight for this query.
