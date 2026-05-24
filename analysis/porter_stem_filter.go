@@ -129,9 +129,12 @@ func (p *PorterStemmer) step1b() {
 			p.k++
 			p.b[p.k-1] = 'e'
 		} else if p.isDoubleConsonant(p.k - 1) {
+			ch := p.b[p.k-1] // save the removed char before decrementing
 			p.k--
-			if p.endsWith("l") || p.endsWith("s") || p.endsWith("z") {
-				p.k++
+			if ch != 'l' && ch != 's' && ch != 'z' {
+				// keep the shorter stem (double consonant collapsed)
+			} else {
+				p.k++ // restore: l/s/z double consonants are kept
 			}
 		} else if p.measure() == 1 && p.isCVC(p.k-1) {
 			p.k++
@@ -239,79 +242,67 @@ func (p *PorterStemmer) step3() {
 	}
 }
 
-// step4 handles more suffixes.
+// step4 corresponds to Lucene's step5. It identifies the LONGEST matching suffix
+// and then checks m()>1 ONCE — matching Lucene's break-then-check pattern.
+// Unlike the previous else-if chain, a suffix match locks in j; a shorter suffix
+// can never override it even if m() for the longer one is ≤1.
 func (p *PorterStemmer) step4() {
-	if p.k > 1 {
-		switch p.b[p.k-2] {
-		case 'a':
-			if p.endsWith("al") && p.measure() > 1 {
-				p.k -= 2
+	if p.k <= 1 {
+		return
+	}
+
+	matched := false
+	switch p.b[p.k-2] {
+	case 'a':
+		matched = p.endsWith("al")
+	case 'c':
+		matched = p.endsWith("ance") || p.endsWith("ence")
+	case 'e':
+		matched = p.endsWith("er")
+	case 'i':
+		matched = p.endsWith("ic")
+	case 'l':
+		matched = p.endsWith("able") || p.endsWith("ible")
+	case 'n':
+		// Longest-first to match Lucene's suffix priority order.
+		matched = p.endsWith("ant") || p.endsWith("ement") ||
+			p.endsWith("ment") || p.endsWith("ent")
+	case 'o':
+		// "ion" requires the char before it to be 's' or 't' (Lucene Bug-2 fix).
+		if p.endsWith("ion") {
+			if p.j > 0 && (p.b[p.j-1] == 's' || p.b[p.j-1] == 't') {
+				matched = true
 			}
-		case 'c':
-			if p.endsWith("ance") && p.measure() > 1 {
-				p.k -= 4
-			} else if p.endsWith("ence") && p.measure() > 1 {
-				p.k -= 4
-			}
-		case 'e':
-			if p.endsWith("er") && p.measure() > 1 {
-				p.k -= 2
-			}
-		case 'i':
-			if p.endsWith("ic") && p.measure() > 1 {
-				p.k -= 2
-			}
-		case 'l':
-			if p.endsWith("able") && p.measure() > 1 {
-				p.k -= 4
-			} else if p.endsWith("ible") && p.measure() > 1 {
-				p.k -= 4
-			}
-		case 'n':
-			if p.endsWith("ant") && p.measure() > 1 {
-				p.k -= 3
-			} else if p.endsWith("ement") && p.measure() > 1 {
-				p.k -= 5
-			} else if p.endsWith("ment") && p.measure() > 1 {
-				p.k -= 4
-			} else if p.endsWith("ent") && p.measure() > 1 {
-				p.k -= 3
-			}
-		case 'o':
-			if (p.endsWith("ion") && p.k > 4) && p.measure() > 1 {
-				p.k -= 3
-			} else if p.endsWith("ou") && p.measure() > 1 {
-				p.k -= 2
-			}
-		case 's':
-			if p.endsWith("ism") && p.measure() > 1 {
-				p.k -= 3
-			}
-		case 't':
-			if p.endsWith("ate") && p.measure() > 1 {
-				p.k -= 3
-			} else if p.endsWith("iti") && p.measure() > 1 {
-				p.k -= 3
-			}
-		case 'u':
-			if p.endsWith("ous") && p.measure() > 1 {
-				p.k -= 3
-			}
-		case 'v':
-			if p.endsWith("ive") && p.measure() > 1 {
-				p.k -= 3
-			}
-		case 'z':
-			if p.endsWith("ize") && p.measure() > 1 {
-				p.k -= 3
-			}
+		} else {
+			matched = p.endsWith("ou")
 		}
+	case 's':
+		matched = p.endsWith("ism")
+	case 't':
+		matched = p.endsWith("ate") || p.endsWith("iti")
+	case 'u':
+		matched = p.endsWith("ous")
+	case 'v':
+		matched = p.endsWith("ive")
+	case 'z':
+		matched = p.endsWith("ize")
+	}
+
+	// Remove the suffix only when the stem has m > 1 (Lucene: if (m() > 1) k = j).
+	if matched && p.measure() > 1 {
+		p.k = p.j
 	}
 }
 
-// step5a handles final e.
+// step5a and step5b correspond to Lucene's step6, which begins by setting
+// j = k (measuring the full current word) before any suffix check.
+// This is critical for the correct VC-sequence count in both sub-steps.
+
+// step5a removes a final 'e' when the stem has m>1, or m==1 and is not CVC.
 func (p *PorterStemmer) step5a() {
-	if p.endsWith("e") {
+	// Set j to the full word length so measure() covers the entire word.
+	p.j = p.k
+	if p.b[p.k-1] == 'e' {
 		a := p.measure()
 		if a > 1 || (a == 1 && !p.isCVC(p.k-2)) {
 			p.k--
@@ -319,9 +310,10 @@ func (p *PorterStemmer) step5a() {
 	}
 }
 
-// step5b handles double consonants.
+// step5b collapses a final double-l when m>1.
 func (p *PorterStemmer) step5b() {
-	if p.isDoubleConsonant(p.k-1) && p.measure() > 1 {
+	// j is still p.k (set by step5a above); no change needed.
+	if p.b[p.k-1] == 'l' && p.isDoubleConsonant(p.k-1) && p.measure() > 1 {
 		p.k--
 	}
 }
@@ -352,32 +344,51 @@ func (p *PorterStemmer) replaceSuffix(oldSuffix, newSuffix string) {
 	}
 }
 
+// measure counts VC sequences in the stem b[0..j-1], where j is the start
+// index of the suffix set by the most recent endsWith call. This mirrors Lucene's
+// m() which uses j as an inclusive 0-indexed end (Lucene j == Gocene j-1).
 func (p *PorterStemmer) measure() int {
 	n := 0
 	i := 0
 
-	// Skip initial consonants
-	for i < p.k && !p.isVowel(i) {
-		i++
-	}
-
-	// Count VC sequences
-	for i < p.k {
-		// Skip vowels
-		for i < p.k && p.isVowel(i) {
-			i++
+	// Skip initial consonants; stop when a vowel is found.
+	for {
+		if i >= p.j {
+			return n
 		}
-		if i >= p.k {
+		if p.isVowel(i) {
 			break
 		}
-		// Skip consonants
-		for i < p.k && !p.isVowel(i) {
+		i++
+	}
+	i++ // advance past the first vowel
+
+	for {
+		// Skip vowels until a consonant is found.
+		for {
+			if i >= p.j {
+				return n
+			}
+			if !p.isVowel(i) {
+				break
+			}
 			i++
 		}
+		i++ // advance past the consonant
 		n++
-	}
 
-	return n
+		// Skip consonants until a vowel is found.
+		for {
+			if i >= p.j {
+				return n
+			}
+			if p.isVowel(i) {
+				break
+			}
+			i++
+		}
+		i++ // advance past the vowel
+	}
 }
 
 func (p *PorterStemmer) isVowel(i int) bool {

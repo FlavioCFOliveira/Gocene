@@ -19,10 +19,10 @@ func TestPorterStemFilter_Basic(t *testing.T) {
 	}{
 		{"running", "run"},
 		{"flies", "fli"},
-		{"dies", "die"},
+		{"dies", "di"},
 		{"mules", "mule"},
 		{"denied", "deni"},
-		{"died", "die"},
+		{"died", "di"},
 		{"agreed", "agre"},
 		{"owned", "own"},
 		{"humbled", "humbl"},
