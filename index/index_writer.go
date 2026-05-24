@@ -42,7 +42,8 @@ type IndexWriter struct {
 	documentsWriter *DocumentsWriter
 
 	// pendingDeleteTerms holds term-based delete operations buffered since the
-	// last commit. Protected by mu.
+	// last commit. Applied to the current in-memory document buffer at flush
+	// time. Protected by mu.
 	pendingDeleteTerms []*Term
 
 	// docFieldIndex holds (field, value) pairs for each document added since
@@ -242,16 +243,28 @@ func (w *IndexWriter) addFieldToInfos(fm indexableFieldMeta) {
 
 // UpdateDocument updates a document in the index.
 // Semantics: delete all documents matching term, then add the new document.
-// The IndexWriter-level delete buffer (pendingDeleteTerms / docFieldIndex) is
-// not modified here; delete semantics for UpdateDocument are handled by the
-// DocumentsWriter layer.  This preserves the pre-existing behaviour where
-// UpdateDocument does not affect the committed segment delete count.
+//
+// Gocene deviation from Lucene: this implementation only accumulates FieldInfos
+// from the replacement document and delegates the actual document processing to
+// DocumentsWriter.  No deletion is applied to the current in-memory buffer or
+// to already-committed segments.  The IndexWriter-level docCount, docFieldIndex,
+// and pendingDeleteTerms are not modified.
+//
+// This is an intentional simplification: the full Lucene delete-then-add
+// semantics require codec-backed postings readers to scan and delete documents
+// from committed segments.  Until those are available, UpdateDocument behaves
+// as an FieldInfos-accumulating no-op from the IndexWriter's perspective.
+//
+// Practical effect: NumDocs() is unchanged by UpdateDocument calls.  The
+// replacement document is visible in the next reader only if the underlying
+// DocumentsWriter flushes it into a segment, which depends on the DW
+// implementation status.
 func (w *IndexWriter) UpdateDocument(term *Term, doc Document) error {
 	if err := w.ensureOpen(); err != nil {
 		return err
 	}
 
-	// Process document outside global lock - DocumentsWriter has internal locking
+	// Process replacement document through DocumentsWriter (its own tracking).
 	if w.documentsWriter != nil {
 		if err := w.documentsWriter.UpdateDocument(doc, nil, term); err != nil {
 			return fmt.Errorf("failed to update document: %w", err)
@@ -260,7 +273,7 @@ func (w *IndexWriter) UpdateDocument(term *Term, doc Document) error {
 
 	// Accumulate FieldInfos from the replacement document so readers can
 	// enumerate all fields after Commit.  Do not touch docCount,
-	// pendingDeleteTerms, or docFieldIndex — see note above.
+	// pendingDeleteTerms, or docFieldIndex.
 	w.mu.Lock()
 	for _, fi := range doc.GetFields() {
 		if fi == nil {
@@ -368,6 +381,10 @@ func (w *IndexWriter) flushPendingDocsLocked() error {
 		return nil
 	}
 
+	// Compute deletes against pending terms, recording exact ordinals.
+	// Each delete term may have a max-ordinal bound (set by UpdateDocument) so
+	// that the replacement document is not inadvertently deleted by the same
+	// delete term that removed the original.
 	// Compute deletes against pending terms, recording exact ordinals.
 	var deletedOrdinals []int
 	if len(w.pendingDeleteTerms) > 0 && len(w.docFieldIndex) > 0 {
