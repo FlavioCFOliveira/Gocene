@@ -27,7 +27,11 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  */
 class ScenarioDeterminismTest {
 
-    private static final List<Long> SEEDS = List.of(0L, 0xC0FFEEL);
+    // Two canary seeds. 0xC0FFEE was the Sprint 114 T3 baseline; 0xDECAF is
+    // the Sprint 114 T7 (rmp 4615) addition, ensuring every new scenario is
+    // byte-deterministic at a second, distinct seed. Existing baseline-tsv
+    // rows still anchor on 0xC0FFEE.
+    private static final List<Long> SEEDS = List.of(0xC0FFEEL, 0xDECAFL);
 
     static Stream<Arguments> scenariosWithSeeds() {
         return Scenarios.all().values().stream()

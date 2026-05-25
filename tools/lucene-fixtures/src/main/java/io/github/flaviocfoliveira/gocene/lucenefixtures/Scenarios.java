@@ -1,14 +1,17 @@
 package io.github.flaviocfoliveira.gocene.lucenefixtures;
 
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.CompoundFormatScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.CompressingStoredFieldsScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.DocValuesFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.FieldInfosFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.FstBlobScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.KnnVectorsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.LiveDocsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.NormsFormatScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PerFieldDispatchScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PointsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PostingsFormatScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.ScalarQuantizedKnnScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SegmentInfoFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SmokeScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.StorePrimitivesScenario;
@@ -45,6 +48,10 @@ public final class Scenarios {
         register(new SegmentInfoFormatScenario());
         register(new LiveDocsFormatScenario());
         register(new FstBlobScenario());
+        // Sprint 114 T7 (rmp 4615): three new codec-specific scenarios.
+        register(new PerFieldDispatchScenario());
+        register(new CompressingStoredFieldsScenario());
+        register(new ScalarQuantizedKnnScenario());
     }
 
     private Scenarios() {}
