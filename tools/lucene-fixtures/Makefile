@@ -20,7 +20,11 @@ SEED ?= 0
 TARGET ?= /tmp/gocene-fixture
 SOURCE ?= $(TARGET)
 
-.PHONY: harness-build harness-test harness-gen harness-verify harness-clean
+# corpus-baseline target uses the canary seed 0xC0FFEE (decimal 12648430).
+CORPUS_SEED ?= 12648430
+CORPUS_DIR ?= /tmp/gocene-corpus-baseline
+
+.PHONY: harness-build harness-test harness-gen harness-verify harness-clean corpus-baseline corpus-manifest
 
 harness-build:
 	mvn -B -q -f $(POM) verify
@@ -36,3 +40,20 @@ harness-verify: harness-build
 
 harness-clean:
 	mvn -B -q -f $(POM) clean
+
+# Produce every registered scenario under $(CORPUS_DIR) at the canary seed.
+# Sprint 114 T3 acceptance criterion #4: must succeed end-to-end; outputs are
+# gitignored (CORPUS_DIR defaults to /tmp/, outside the repo).
+corpus-baseline: harness-build
+	@rm -rf $(CORPUS_DIR)
+	@mkdir -p $(CORPUS_DIR)
+	@for s in $$(java -jar $(JAR) list); do \
+		echo "[corpus] $$s seed=$(CORPUS_SEED)"; \
+		java -jar $(JAR) gen $$s $(CORPUS_SEED) $(CORPUS_DIR)/$$s || exit $$?; \
+	done
+	@echo "[corpus] baseline produced at $(CORPUS_DIR)"
+
+# Regenerate the canonical manifest (committed to the repo) from the harness.
+corpus-manifest: harness-build
+	java -jar $(JAR) manifest > $(THIS_DIR)manifests/baseline.tsv
+	@echo "[corpus] wrote $(THIS_DIR)manifests/baseline.tsv"

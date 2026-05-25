@@ -56,3 +56,8 @@ jobs:
         env:
           LUCENE_FIXTURES_JAR: ${{ github.workspace }}/tools/lucene-fixtures/target/lucene-fixtures.jar
         run: go test -tags compat ./internal/compat/... -timeout 300s
+
+      - name: Corpus baseline (Sprint 114 T3)
+        env:
+          CORPUS_DIR: ${{ runner.temp }}/gocene-corpus-baseline
+        run: make -f tools/lucene-fixtures/Makefile corpus-baseline
