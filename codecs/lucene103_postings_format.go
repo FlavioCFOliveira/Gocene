@@ -181,7 +181,7 @@ func (r *Lucene103PostingsReader) NewTermState() *BlockTermState {
 
 // DecodeTerm satisfies PostingsReaderBase. The stub leaves termState
 // untouched, matching the no-op EncodeTerm on the writer side.
-func (r *Lucene103PostingsReader) DecodeTerm(in store.IndexInput, fieldInfo *index.FieldInfo, termState *BlockTermState, absolute bool) error {
+func (r *Lucene103PostingsReader) DecodeTerm(in store.DataInput, fieldInfo *index.FieldInfo, termState *BlockTermState, absolute bool) error {
 	return nil
 }
 
@@ -195,7 +195,7 @@ func (r *Lucene103PostingsReader) Postings(fieldInfo *index.FieldInfo, termState
 // Impacts satisfies PostingsReaderBase. The stub returns a clear error
 // because there is no impact data to enumerate until the deep port
 // lands.
-func (r *Lucene103PostingsReader) Impacts(fieldInfo *index.FieldInfo, termState *BlockTermState, flags int) (any, error) {
+func (r *Lucene103PostingsReader) Impacts(fieldInfo *index.FieldInfo, termState *BlockTermState, flags int) (index.ImpactsEnum, error) {
 	return nil, errors.New("Lucene103PostingsReader.Impacts: behaviour-level port pending")
 }
 

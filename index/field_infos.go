@@ -188,6 +188,22 @@ func (fi *FieldInfos) HasOffsets() bool {
 	return false
 }
 
+// HasPayloads returns true if any field has payloads stored.
+//
+// Mirrors org.apache.lucene.index.FieldInfos#hasPayloads from Apache Lucene
+// 10.4.0.
+func (fi *FieldInfos) HasPayloads() bool {
+	fi.mu.RLock()
+	defer fi.mu.RUnlock()
+
+	for _, fieldInfo := range fi.byName {
+		if fieldInfo.HasPayloads() {
+			return true
+		}
+	}
+	return false
+}
+
 // HasDocValues returns true if any field has doc values.
 func (fi *FieldInfos) HasDocValues() bool {
 	fi.mu.RLock()

@@ -501,21 +501,51 @@ func (w *Lucene99HnswVectorsWriter) writeEmptyFieldMeta(fieldInfo *index.FieldIn
 	return w.writeMeta(fieldInfo, 0, 0, 0, nil, nil)
 }
 
-// finish freezes the per-field graph builder. After finish, the
-// FieldWriter exposes the completed graph through completedGraph.
+// finish builds the HNSW graph from the accumulated vectors and freezes
+// the field writer. After finish, completedGraph is populated (or nil if
+// no vectors were added / the segment is below the tiny-segment threshold).
 func (fw *lucene99HnswFieldWriter) finish() error {
 	if fw.finished {
 		return nil
 	}
 	fw.finished = true
-	if fw.graphBuilder != nil {
-		g, err := fw.graphBuilder.GetCompletedGraph()
-		if err != nil {
-			return fmt.Errorf("hnsw99: field %q: GetCompletedGraph: %w",
-				fw.fieldInfo.Name(), err)
-		}
-		fw.completedGraph = g
+
+	numVecs := fw.NumDocs()
+	if numVecs == 0 {
+		// No vectors: write empty-field meta; completedGraph stays nil.
+		return nil
 	}
+
+	// Build a scorer supplier from the in-memory vectors.
+	var scorerSupplier hnsw.RandomVectorScorerSupplier
+	var buildErr error
+	switch fw.encoding {
+	case index.VectorEncodingFloat32:
+		mv := newMemFloat32VectorValues(fw.floats)
+		scorerSupplier, buildErr = newMemFloat32ScorerSupplier(mv, fw.fieldInfo.VectorSimilarityFunction())
+	case index.VectorEncodingByte:
+		mv := newMemByteVectorValues(fw.bytes)
+		scorerSupplier, buildErr = newMemByteScorerSupplier(mv, fw.fieldInfo.VectorSimilarityFunction())
+	default:
+		return fmt.Errorf("hnsw99: field %q: unsupported vector encoding %v",
+			fw.fieldInfo.Name(), fw.encoding)
+	}
+	if buildErr != nil {
+		return fmt.Errorf("hnsw99: field %q: scorer supplier: %w", fw.fieldInfo.Name(), buildErr)
+	}
+
+	// Create the graph builder and build the graph from all vectors.
+	builder, err := hnsw.NewHnswGraphBuilderWithGraphSize(
+		scorerSupplier, fw.maxConn, fw.beamWidth, hnsw.RandSeed, numVecs,
+	)
+	if err != nil {
+		return fmt.Errorf("hnsw99: field %q: NewHnswGraphBuilder: %w", fw.fieldInfo.Name(), err)
+	}
+	g, err := builder.Build(numVecs)
+	if err != nil {
+		return fmt.Errorf("hnsw99: field %q: Build: %w", fw.fieldInfo.Name(), err)
+	}
+	fw.completedGraph = g
 	return nil
 }
 

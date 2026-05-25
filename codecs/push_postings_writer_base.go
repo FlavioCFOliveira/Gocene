@@ -53,44 +53,54 @@ type PushPostingsWriterBase interface {
 //     for each one. When indexHasPositions is true it also iterates positions
 //     and forwards each one through AddPosition, including offsets and
 //     payload data when present.
-//   - Returns the number of documents pushed (matches Lucene's int return).
+//   - Returns the number of documents pushed and the total term frequency
+//     accumulated across all docs. totalTermFreq is -1 when indexHasFreqs is
+//     false (DOCS-only field), matching Java's writeTerm return contract.
+//     The caller must set state.TotalTermFreq = totalTermFreq and
+//     state.DocFreq = docCount before calling FinishTerm.
 //
-// indexHasPositions/indexHasOffsets/indexHasPayloads must agree with the
-// field's IndexOptions; the helper does not consult fieldInfo to avoid a
-// coupling that breaks in shadow tests.
+// indexHasFreqs/indexHasPositions/indexHasOffsets/indexHasPayloads must agree
+// with the field's IndexOptions; the helper does not consult fieldInfo to
+// avoid a coupling that breaks in shadow tests.
 func WriteTerm(
 	writer PushPostingsWriterBase,
 	postingsEnum index.PostingsEnum,
-	indexHasPositions, indexHasOffsets, indexHasPayloads bool,
-) (int, error) {
+	indexHasFreqs, indexHasPositions, indexHasOffsets, indexHasPayloads bool,
+) (docCount int, totalTermFreq int64, err error) {
 	if postingsEnum == nil {
-		return 0, fmt.Errorf("WriteTerm: nil postingsEnum")
+		return 0, 0, fmt.Errorf("WriteTerm: nil postingsEnum")
 	}
 
-	docCount := 0
+	var ttf int64
 	for {
-		docID, err := postingsEnum.NextDoc()
-		if err != nil {
-			return docCount, fmt.Errorf("WriteTerm: NextDoc: %w", err)
+		docID, nerr := postingsEnum.NextDoc()
+		if nerr != nil {
+			return docCount, 0, fmt.Errorf("WriteTerm: NextDoc: %w", nerr)
 		}
 		if docID == index.NO_MORE_DOCS {
 			break
 		}
 
-		freq, err := postingsEnum.Freq()
-		if err != nil {
-			return docCount, fmt.Errorf("WriteTerm: Freq(doc=%d): %w", docID, err)
+		var freq int
+		if indexHasFreqs {
+			freq, nerr = postingsEnum.Freq()
+			if nerr != nil {
+				return docCount, 0, fmt.Errorf("WriteTerm: Freq(doc=%d): %w", docID, nerr)
+			}
+			ttf += int64(freq)
+		} else {
+			freq = -1
 		}
 
-		if err := writer.StartDoc(docID, freq); err != nil {
-			return docCount, fmt.Errorf("WriteTerm: StartDoc(doc=%d, freq=%d): %w", docID, freq, err)
+		if nerr = writer.StartDoc(docID, freq); nerr != nil {
+			return docCount, 0, fmt.Errorf("WriteTerm: StartDoc(doc=%d, freq=%d): %w", docID, freq, nerr)
 		}
 
 		if indexHasPositions {
 			for i := 0; i < freq; i++ {
-				pos, err := postingsEnum.NextPosition()
-				if err != nil {
-					return docCount, fmt.Errorf("WriteTerm: NextPosition(doc=%d): %w", docID, err)
+				pos, perr := postingsEnum.NextPosition()
+				if perr != nil {
+					return docCount, 0, fmt.Errorf("WriteTerm: NextPosition(doc=%d): %w", docID, perr)
 				}
 				// NO_MORE_POSITIONS is a defensive break: well-formed
 				// posting lists yield exactly freq positions per doc.
@@ -100,34 +110,38 @@ func WriteTerm(
 
 				var startOffset, endOffset int = -1, -1
 				if indexHasOffsets {
-					startOffset, err = postingsEnum.StartOffset()
-					if err != nil {
-						return docCount, fmt.Errorf("WriteTerm: StartOffset(doc=%d, pos=%d): %w", docID, pos, err)
+					startOffset, perr = postingsEnum.StartOffset()
+					if perr != nil {
+						return docCount, 0, fmt.Errorf("WriteTerm: StartOffset(doc=%d, pos=%d): %w", docID, pos, perr)
 					}
-					endOffset, err = postingsEnum.EndOffset()
-					if err != nil {
-						return docCount, fmt.Errorf("WriteTerm: EndOffset(doc=%d, pos=%d): %w", docID, pos, err)
+					endOffset, perr = postingsEnum.EndOffset()
+					if perr != nil {
+						return docCount, 0, fmt.Errorf("WriteTerm: EndOffset(doc=%d, pos=%d): %w", docID, pos, perr)
 					}
 				}
 
 				var payload []byte
 				if indexHasPayloads {
-					payload, err = postingsEnum.GetPayload()
-					if err != nil {
-						return docCount, fmt.Errorf("WriteTerm: GetPayload(doc=%d, pos=%d): %w", docID, pos, err)
+					payload, perr = postingsEnum.GetPayload()
+					if perr != nil {
+						return docCount, 0, fmt.Errorf("WriteTerm: GetPayload(doc=%d, pos=%d): %w", docID, pos, perr)
 					}
 				}
 
-				if err := writer.AddPosition(pos, payload, startOffset, endOffset); err != nil {
-					return docCount, fmt.Errorf("WriteTerm: AddPosition(doc=%d, pos=%d): %w", docID, pos, err)
+				if perr = writer.AddPosition(pos, payload, startOffset, endOffset); perr != nil {
+					return docCount, 0, fmt.Errorf("WriteTerm: AddPosition(doc=%d, pos=%d): %w", docID, pos, perr)
 				}
 			}
 		}
 
-		if err := writer.FinishDoc(); err != nil {
-			return docCount, fmt.Errorf("WriteTerm: FinishDoc(doc=%d): %w", docID, err)
+		if nerr = writer.FinishDoc(); nerr != nil {
+			return docCount, 0, fmt.Errorf("WriteTerm: FinishDoc(doc=%d): %w", docID, nerr)
 		}
 		docCount++
 	}
-	return docCount, nil
+
+	if indexHasFreqs {
+		return docCount, ttf, nil
+	}
+	return docCount, -1, nil
 }

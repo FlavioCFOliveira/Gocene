@@ -258,7 +258,7 @@ func (r *Lucene912PostingsReader) NewTermState() *codecs.BlockTermState {
 // Port of Lucene912PostingsReader.decodeTerm(DataInput, FieldInfo,
 // BlockTermState, boolean).
 func (r *Lucene912PostingsReader) DecodeTerm(
-	in store.IndexInput,
+	in store.DataInput,
 	fieldInfo *index.FieldInfo,
 	termState *codecs.BlockTermState,
 	absolute bool,

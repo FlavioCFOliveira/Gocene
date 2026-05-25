@@ -539,10 +539,11 @@ func (d *SimpleFSDirectory) CreateOutput(name string, ctx IOContext) (IndexOutpu
 // SimpleFSIndexInput is an IndexInput implementation for SimpleFSDirectory.
 type SimpleFSIndexInput struct {
 	*BaseIndexInput
-	file      *os.File
-	path      string
-	name      string
-	directory *SimpleFSDirectory
+	file        *os.File
+	path        string
+	name        string
+	directory   *SimpleFSDirectory
+	sliceOffset int64 // file-absolute start of this slice; 0 for the root input
 }
 
 // ReadByte reads a single byte.
@@ -626,7 +627,8 @@ func (in *SimpleFSIndexInput) SetPosition(pos int64) error {
 	if pos < 0 || pos > in.Length() {
 		return fmt.Errorf("invalid position: %d", pos)
 	}
-	_, err := in.file.Seek(pos, io.SeekStart)
+	// Seek to the slice-relative position; sliceOffset adjusts for sub-slices.
+	_, err := in.file.Seek(in.sliceOffset+pos, io.SeekStart)
 	if err != nil {
 		return err
 	}
@@ -647,6 +649,22 @@ func (in *SimpleFSIndexInput) Clone() IndexInput {
 			path:           in.path,
 			name:           in.name,
 			directory:      in.directory,
+			sliceOffset:    in.sliceOffset,
+		}
+	}
+
+	// Seek clone to the start of the slice (position 0); callers use
+	// SetPosition to reposition after cloning, matching Lucene's
+	// IndexInput.clone() contract.
+	if _, seekErr := file.Seek(in.sliceOffset, io.SeekStart); seekErr != nil {
+		file.Close()
+		return &SimpleFSIndexInput{
+			BaseIndexInput: NewBaseIndexInput(in.GetDescription(), in.Length()),
+			file:           nil,
+			path:           in.path,
+			name:           in.name,
+			directory:      in.directory,
+			sliceOffset:    in.sliceOffset,
 		}
 	}
 
@@ -658,6 +676,7 @@ func (in *SimpleFSIndexInput) Clone() IndexInput {
 		path:           in.path,
 		name:           in.name,
 		directory:      in.directory,
+		sliceOffset:    in.sliceOffset,
 	}
 }
 
@@ -687,6 +706,7 @@ func (in *SimpleFSIndexInput) Slice(desc string, offset int64, length int64) (In
 		path:           in.path,
 		name:           in.name,
 		directory:      in.directory,
+		sliceOffset:    offset,
 	}, nil
 }
 

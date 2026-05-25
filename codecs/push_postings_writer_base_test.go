@@ -123,18 +123,23 @@ func TestWriteTerm_DocsOnly(t *testing.T) {
 		posMat: [][]int{{}, {}, {}, {}},
 	}
 	w := &fakePushWriter{}
-	n, err := WriteTerm(w, pe, false, false, false)
+	// indexHasFreqs=false: StartDoc receives freq=-1; totalTermFreq must be -1.
+	n, ttf, err := WriteTerm(w, pe, false, false, false, false)
 	if err != nil {
 		t.Fatalf("WriteTerm: %v", err)
 	}
 	if n != 3 {
 		t.Errorf("docCount = %d, want 3", n)
 	}
+	if ttf != -1 {
+		t.Errorf("totalTermFreq = %d, want -1 for DOCS-only", ttf)
+	}
 	if got, want := w.docs, []int{0, 3, 7}; !equalInts(got, want) {
 		t.Errorf("docs = %v, want %v", got, want)
 	}
-	if got, want := w.freqs, []int{2, 1, 5}; !equalInts(got, want) {
-		t.Errorf("freqs = %v, want %v", got, want)
+	// With freqs=false, StartDoc is called with freq=-1 for every doc.
+	if got, want := w.freqs, []int{-1, -1, -1}; !equalInts(got, want) {
+		t.Errorf("freqs = %v, want %v (freq=-1 when freqs disabled)", got, want)
 	}
 	if w.finishes != 3 {
 		t.Errorf("finishes = %d, want 3", w.finishes)
@@ -154,12 +159,16 @@ func TestWriteTerm_WithPositions(t *testing.T) {
 		payMat: [][]byte{nil, nil},
 	}
 	w := &fakePushWriter{}
-	n, err := WriteTerm(w, pe, true, false, false)
+	// Positions require freqs; indexHasFreqs=true, indexHasPositions=true.
+	n, ttf, err := WriteTerm(w, pe, true, true, false, false)
 	if err != nil {
 		t.Fatalf("WriteTerm: %v", err)
 	}
 	if n != 1 {
 		t.Errorf("docCount = %d, want 1", n)
+	}
+	if ttf != 3 {
+		t.Errorf("totalTermFreq = %d, want 3", ttf)
 	}
 	if got, want := w.positions, []int{1, 4, 9}; !equalInts(got, want) {
 		t.Errorf("positions = %v, want %v", got, want)
@@ -168,7 +177,7 @@ func TestWriteTerm_WithPositions(t *testing.T) {
 
 func TestWriteTerm_NilEnum(t *testing.T) {
 	t.Parallel()
-	_, err := WriteTerm(&fakePushWriter{}, nil, false, false, false)
+	_, _, err := WriteTerm(&fakePushWriter{}, nil, false, false, false, false)
 	if err == nil || !errorContains(err, "nil postingsEnum") {
 		t.Errorf("expected nil-enum error, got %v", err)
 	}

@@ -288,7 +288,7 @@ func (n *noopPostingsReader) NewTermState() *codecs.BlockTermState {
 	return codecs.NewBlockTermState()
 }
 func (n *noopPostingsReader) DecodeTerm(
-	_ store.IndexInput,
+	_ store.DataInput,
 	_ *index.FieldInfo,
 	_ *codecs.BlockTermState,
 	_ bool,
@@ -307,7 +307,7 @@ func (n *noopPostingsReader) Impacts(
 	_ *index.FieldInfo,
 	_ *codecs.BlockTermState,
 	_ int,
-) (any, error) {
+) (index.ImpactsEnum, error) {
 	return nil, errors.New("noop")
 }
 func (n *noopPostingsReader) CheckIntegrity() error { return nil }

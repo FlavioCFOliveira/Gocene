@@ -82,10 +82,6 @@ documented in the individual sprint summaries.
 
 ## Known limitations
 
-- **Merge infrastructure incomplete.** `AddIndexes` variants that require
-  segment tail merging (`NoTailSegments`, `MergeAfterCopy`,
-  `WithPendingDeletes`) are stubbed. Tracked in backlog.
-
 - **SegmentTermsEnum / IntersectTermsEnum deferred.** Full block-tree
   iterator wiring is tracked in backlog tasks 2691 and 2692.
 
@@ -101,8 +97,8 @@ documented in the individual sprint summaries.
 - **Race detector unavailable on this host.** The TSAN VMA layout is
   incompatible with the Linux/ARM64 RPi kernel; tests run without `-race`.
 
-- **API stability.** This is an alpha release. All exported symbols are
-  subject to change without notice until `v1.0.0`.
+- **API stability.** Pre-release. The v1.0 API review is in progress;
+  exported symbols may still change before the stable tag is cut.
 
 ---
 

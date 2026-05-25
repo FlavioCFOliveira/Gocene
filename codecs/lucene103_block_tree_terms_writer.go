@@ -618,11 +618,12 @@ func (t *termsWriterState) pushSinglePostings(termText *index.Term, termsEnum in
 	if !ok {
 		return nil, fmt.Errorf("Lucene103BlockTreeTermsWriter: postingsWriter %T does not implement PushPostingsWriterBase", t.parent.postingsWriter)
 	}
+	hasFreqs := t.fieldInfo.IndexOptions() >= index.IndexOptionsDocsAndFreqs
 	hasPositions := t.fieldInfo.IndexOptions() >= index.IndexOptionsDocsAndFreqsAndPositions
 	hasOffsets := t.fieldInfo.IndexOptions() >= index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets
 	hasPayloads := t.fieldInfo.HasPayloads()
 
-	docCount, err := WriteTerm(pusher, postingsEnum, hasPositions, hasOffsets, hasPayloads)
+	docCount, totalTermFreq, err := WriteTerm(pusher, postingsEnum, hasFreqs, hasPositions, hasOffsets, hasPayloads)
 	if err != nil {
 		return nil, err
 	}
@@ -630,9 +631,10 @@ func (t *termsWriterState) pushSinglePostings(termText *index.Term, termsEnum in
 		return nil, nil
 	}
 
+	// Mirrors Java's writeTerm: set both docFreq and totalTermFreq on the
+	// state before calling finishTerm, so finishTerm sees a consistent state.
 	state.DocFreq = docCount
-	// totalTermFreq is filled by the postings writer's FinishTerm; the
-	// caller already populated docFreq from the postings stream.
+	state.TotalTermFreq = totalTermFreq
 	if err := t.parent.postingsWriter.FinishTerm(state); err != nil {
 		return nil, err
 	}
