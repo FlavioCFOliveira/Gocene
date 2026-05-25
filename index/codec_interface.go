@@ -27,6 +27,9 @@ type Codec interface {
 	// SegmentInfosFormat returns the segment infos format.
 	SegmentInfosFormat() SegmentInfosFormat
 
+	// SegmentInfoFormat returns the per-segment .si file format.
+	SegmentInfoFormat() SegmentInfoFormat
+
 	// TermVectorsFormat returns the term vectors format.
 	TermVectorsFormat() TermVectorsFormat
 }
@@ -145,6 +148,16 @@ type SegmentInfosFormat interface {
 
 	// Write writes segment infos to a directory.
 	Write(dir store.Directory, segmentInfos *SegmentInfos, context store.IOContext) error
+}
+
+// SegmentInfoFormat handles encoding/decoding of a single segment's .si file.
+// This maps to Lucene's org.apache.lucene.codecs.SegmentInfoFormat.
+type SegmentInfoFormat interface {
+	// Write writes a single segment's metadata to a .si file in dir.
+	Write(dir store.Directory, info *SegmentInfo, context store.IOContext) error
+
+	// Read reads a single segment's metadata from a .si file in dir.
+	Read(dir store.Directory, segmentName string, segmentID []byte, context store.IOContext) (*SegmentInfo, error)
 }
 
 // TermVectorsFormat is an interface for encoding/decoding term vectors.

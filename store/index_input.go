@@ -691,6 +691,17 @@ func ReadInt32(in DataInput) (int32, error) {
 	return int32(v), nil
 }
 
+// ReadInt32LE reads a 32-bit signed integer in little-endian format.
+// Use this for codec data fields written via DataOutput.writeInt in Java Lucene,
+// which uses LE byte order (LSB first), unlike codec headers/footers which use BE.
+func ReadInt32LE(in DataInput) (int32, error) {
+	b, err := in.ReadBytesN(4)
+	if err != nil {
+		return 0, err
+	}
+	return int32(binary.LittleEndian.Uint32(b)), nil
+}
+
 // ReadInt64 reads a 64-bit signed integer in big-endian format.
 func ReadInt64(in DataInput) (int64, error) {
 	v, err := ReadUint64(in)
@@ -698,6 +709,16 @@ func ReadInt64(in DataInput) (int64, error) {
 		return 0, err
 	}
 	return int64(v), nil
+}
+
+// ReadInt64LE reads a 64-bit signed integer in little-endian format.
+// Use this for codec data fields written via DataOutput.writeLong in Java Lucene.
+func ReadInt64LE(in DataInput) (int64, error) {
+	b, err := in.ReadBytesN(8)
+	if err != nil {
+		return 0, err
+	}
+	return int64(binary.LittleEndian.Uint64(b)), nil
 }
 
 // ReadVInt reads a variable-length integer (up to 5 bytes).

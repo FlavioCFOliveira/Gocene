@@ -6,6 +6,7 @@ package codecs
 
 import (
 	"fmt"
+	"strconv"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -60,8 +61,9 @@ func (f *Lucene104SegmentInfosFormat) Read(dir store.Directory) (*index.SegmentI
 	var segmentsFile string
 	for _, file := range files {
 		if len(file) > 9 && file[:9] == "segments_" {
-			var gen int64
-			if _, err := fmt.Sscanf(file[9:], "%d", &gen); err == nil {
+			// Generation numbers are base-36 encoded, matching Lucene's
+			// Long.toString(gen, Character.MAX_RADIX).
+			if gen, err2 := strconv.ParseInt(file[9:], 36, 64); err2 == nil {
 				if gen > maxGen {
 					maxGen = gen
 					segmentsFile = file
@@ -82,7 +84,7 @@ func (f *Lucene104SegmentInfosFormat) Read(dir store.Directory) (*index.SegmentI
 	defer checksumIn.Close()
 
 	// Check header
-	_, err = CheckIndexHeader(checksumIn, sisCodecName, sisVersion, sisVersion, nil, fmt.Sprintf("%d", maxGen))
+	_, err = CheckIndexHeader(checksumIn, sisCodecName, sisVersion, sisVersion, nil, strconv.FormatInt(maxGen, 36))
 	if err != nil {
 		return nil, err
 	}
@@ -262,7 +264,7 @@ func (f *Lucene104SegmentInfosFormat) Write(dir store.Directory, infos *index.Se
 	id := make([]byte, 16)
 	// In a real implementation, we should probably use a proper random source
 
-	err = WriteIndexHeader(checksumOut, sisCodecName, sisVersion, id, fmt.Sprintf("%d", generation))
+	err = WriteIndexHeader(checksumOut, sisCodecName, sisVersion, id, strconv.FormatInt(generation, 36))
 	if err != nil {
 		return err
 	}
@@ -363,15 +365,16 @@ func (f *Lucene99SegmentInfoFormat) Read(dir store.Directory, segmentName string
 		return nil, err
 	}
 
-	major, err := store.ReadInt32(checksumIn)
+	// Version fields use Java's DataOutput.writeInt (little-endian), not CodecUtil.writeBEInt.
+	major, err := store.ReadInt32LE(checksumIn)
 	if err != nil {
 		return nil, err
 	}
-	minor, err := store.ReadInt32(checksumIn)
+	minor, err := store.ReadInt32LE(checksumIn)
 	if err != nil {
 		return nil, err
 	}
-	bugfix, err := store.ReadInt32(checksumIn)
+	bugfix, err := store.ReadInt32LE(checksumIn)
 	if err != nil {
 		return nil, err
 	}
@@ -382,21 +385,21 @@ func (f *Lucene99SegmentInfoFormat) Read(dir store.Directory, segmentName string
 		return nil, err
 	}
 	if hasMinVersion != 0 {
-		_, err = store.ReadInt32(checksumIn) // minMajor
+		_, err = store.ReadInt32LE(checksumIn) // minMajor
 		if err != nil {
 			return nil, err
 		}
-		_, err = store.ReadInt32(checksumIn) // minMinor
+		_, err = store.ReadInt32LE(checksumIn) // minMinor
 		if err != nil {
 			return nil, err
 		}
-		_, err = store.ReadInt32(checksumIn) // minBugfix
+		_, err = store.ReadInt32LE(checksumIn) // minBugfix
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	docCount, err := store.ReadInt32(checksumIn)
+	docCount, err := store.ReadInt32LE(checksumIn)
 	if err != nil {
 		return nil, err
 	}
@@ -472,14 +475,15 @@ func (f *Lucene99SegmentInfoFormat) Write(dir store.Directory, info *index.Segme
 		return err
 	}
 
+	// Version fields use Java's DataOutput.writeInt (little-endian), not CodecUtil.writeBEInt.
 	major, minor, bugfix := parseVersion(info.Version())
-	store.WriteInt32(checksumOut, major)
-	store.WriteInt32(checksumOut, minor)
-	store.WriteInt32(checksumOut, bugfix)
+	store.WriteInt32LE(checksumOut, major)
+	store.WriteInt32LE(checksumOut, minor)
+	store.WriteInt32LE(checksumOut, bugfix)
 
 	checksumOut.WriteByte(0) // hasMinVersion = false for now
 
-	store.WriteInt32(checksumOut, int32(info.DocCount()))
+	store.WriteInt32LE(checksumOut, int32(info.DocCount()))
 
 	isCompoundFile := byte(255) // -1 in Java signed byte
 	if info.IsCompoundFile() {

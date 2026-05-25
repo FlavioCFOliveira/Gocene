@@ -5,9 +5,11 @@
 package index
 
 import (
+	"crypto/rand"
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -498,174 +500,411 @@ func (si *SegmentInfos) UpdateCounterFromSegments() {
 	si.counter = maxGen + 1
 }
 
-// WriteSegmentInfos writes the SegmentInfos to a directory.
+// goceneExtVersion is the version marker stored in userData to signal that
+// in-memory Gocene extensions are present.
+const goceneExtVersion = "1"
+
+// encodeFieldInfosForUserData serialises a FieldInfos as a compact string
+// suitable for storage in the userData map.  Format per FieldInfo (pipe-separated
+// tokens, newline-separated entries):
+//
+//	"<name>|<num>|<indexOpts>|<dvType>|<flags>"
+//
+// where flags is a bitmask: 1=stored, 2=tokenized, 4=termVectors, 8=omitNorms.
+func encodeFieldInfosForUserData(fi *FieldInfos) string {
+	if fi == nil || fi.Size() == 0 {
+		return ""
+	}
+	var b strings.Builder
+	iter := fi.Iterator()
+	first := true
+	for {
+		info := iter.Next()
+		if info == nil {
+			break
+		}
+		if !first {
+			b.WriteByte('\n')
+		}
+		first = false
+		flags := 0
+		if info.IsStored() {
+			flags |= 1
+		}
+		if info.IsTokenized() {
+			flags |= 2
+		}
+		if info.HasTermVectors() {
+			flags |= 4
+		}
+		if info.OmitNorms() {
+			flags |= 8
+		}
+		fmt.Fprintf(&b, "%s|%d|%d|%d|%d",
+			info.Name(),
+			info.Number(),
+			int(info.IndexOptions()),
+			int(info.DocValuesType()),
+			flags,
+		)
+	}
+	return b.String()
+}
+
+// decodeFieldInfosFromUserData reconstructs a FieldInfos from the compact
+// string format written by encodeFieldInfosForUserData.  Returns nil on empty input.
+func decodeFieldInfosFromUserData(encoded string) (*FieldInfos, error) {
+	if encoded == "" {
+		return nil, nil
+	}
+	fis := NewFieldInfos()
+	for _, line := range strings.Split(encoded, "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "|")
+		if len(parts) != 5 {
+			return nil, fmt.Errorf("malformed FieldInfo entry: %q", line)
+		}
+		fnum, err := strconv.Atoi(parts[1])
+		if err != nil {
+			return nil, fmt.Errorf("invalid field number %q: %w", parts[1], err)
+		}
+		ioRaw, err := strconv.Atoi(parts[2])
+		if err != nil {
+			return nil, fmt.Errorf("invalid indexOptions %q: %w", parts[2], err)
+		}
+		dvRaw, err := strconv.Atoi(parts[3])
+		if err != nil {
+			return nil, fmt.Errorf("invalid dvType %q: %w", parts[3], err)
+		}
+		flags, err := strconv.Atoi(parts[4])
+		if err != nil {
+			return nil, fmt.Errorf("invalid flags %q: %w", parts[4], err)
+		}
+		opts := FieldInfoOptions{
+			IndexOptions:             IndexOptions(ioRaw),
+			DocValuesType:            DocValuesType(dvRaw),
+			DocValuesSkipIndexType:   DocValuesSkipIndexTypeNone,
+			DocValuesGen:             -1,
+			Stored:                   flags&1 != 0,
+			Tokenized:                flags&2 != 0,
+			StoreTermVectors:         flags&4 != 0,
+			OmitNorms:                flags&8 != 0,
+			VectorEncoding:           VectorEncodingFloat32,
+			VectorSimilarityFunction: VectorSimilarityFunctionEuclidean,
+		}
+		fi := NewFieldInfo(parts[0], fnum, opts)
+		_ = fis.Add(fi)
+	}
+	return fis, nil
+}
+
+// encodeDeletedOrdinalsForUserData serialises a slice of deleted ordinals as a
+// comma-separated string.  Returns "" for an empty/nil slice.
+func encodeDeletedOrdinalsForUserData(ords []int) string {
+	if len(ords) == 0 {
+		return ""
+	}
+	parts := make([]string, len(ords))
+	for i, v := range ords {
+		parts[i] = strconv.Itoa(v)
+	}
+	return strings.Join(parts, ",")
+}
+
+// decodeDeletedOrdinalsFromUserData reconstructs the slice written by
+// encodeDeletedOrdinalsForUserData.  Returns nil on empty input.
+func decodeDeletedOrdinalsFromUserData(encoded string) ([]int, error) {
+	if encoded == "" {
+		return nil, nil
+	}
+	parts := strings.Split(encoded, ",")
+	ords := make([]int, 0, len(parts))
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		v, err := strconv.Atoi(p)
+		if err != nil {
+			return nil, fmt.Errorf("invalid ordinal %q: %w", p, err)
+		}
+		ords = append(ords, v)
+	}
+	return ords, nil
+}
+
+// WriteSegmentInfos writes SegmentInfos to a directory using the real Lucene
+// 10.4.0 segments_N format (codec magic 0x3FD76C17, codec name "segments",
+// version 10).
+//
+// In-memory Gocene extensions (FieldInfos, deleted ordinals, parentField,
+// indexSort) that have no Lucene wire counterpart are packed into the userData
+// map under "_gocene_*" keys so that the file remains byte-format compatible
+// with the Lucene 10.4.0 reader.
 func WriteSegmentInfos(si *SegmentInfos, directory store.Directory) error {
 	si.mu.RLock()
 	defer si.mu.RUnlock()
 
-	fileName := si.GetFileName()
-	out, err := directory.CreateOutput(fileName, store.IOContextWrite)
+	fileName := GetSegmentFileName(si.generation)
+	rawOut, err := directory.CreateOutput(fileName, store.IOContextWrite)
 	if err != nil {
 		return err
 	}
+	out := store.NewChecksumIndexOutput(rawOut)
 	defer out.Close()
 
-	// Write header
-	if err := store.WriteInt32(out, 0x3d767); err != nil {
+	// Random 16-byte ID for the index header.
+	id := make([]byte, 16)
+	if _, err := rand.Read(id); err != nil {
+		return fmt.Errorf("generating header ID: %w", err)
+	}
+
+	suffix := strconv.FormatInt(si.generation, 36)
+	if err := writeIndexHeader(out, "segments", 10, id, suffix); err != nil {
 		return err
 	}
-	if err := store.WriteInt64(out, si.generation); err != nil {
+
+	// Lucene version (major.minor.bugfix as VInts).
+	var major, minor, bugfix int32
+	fmt.Sscanf(si.luceneVersion, "%d.%d.%d", &major, &minor, &bugfix)
+	if err := store.WriteVInt(out, major); err != nil {
 		return err
 	}
+	if err := store.WriteVInt(out, minor); err != nil {
+		return err
+	}
+	if err := store.WriteVInt(out, bugfix); err != nil {
+		return err
+	}
+
+	// Index created major version.
+	if err := store.WriteVInt(out, si.indexCreatedVersionMajor); err != nil {
+		return err
+	}
+
+	// Index version counter.
 	if err := store.WriteInt64(out, si.version); err != nil {
 		return err
 	}
-	if err := store.WriteInt32(out, si.indexCreatedVersionMajor); err != nil {
-		return err
-	}
-	if err := store.WriteString(out, si.luceneVersion); err != nil {
-		return err
-	}
-	if err := store.WriteInt64(out, si.counter); err != nil {
+
+	// Segment name counter.
+	if err := store.WriteVLong(out, si.counter); err != nil {
 		return err
 	}
 
-	// Write parentField (empty string if none).
-	if err := store.WriteString(out, si.inMemoryParentField); err != nil {
-		return err
-	}
-
-	// Write indexSort: numFields int32, then per field: name string, sortType int32, descending int32.
-	if si.inMemoryIndexSort == nil || len(si.inMemoryIndexSort.fields) == 0 {
-		if err := store.WriteInt32(out, 0); err != nil {
-			return err
-		}
-	} else {
-		if err := store.WriteInt32(out, int32(len(si.inMemoryIndexSort.fields))); err != nil {
-			return err
-		}
-		for _, sf := range si.inMemoryIndexSort.fields {
-			if err := store.WriteString(out, sf.field); err != nil {
-				return err
-			}
-			if err := store.WriteInt32(out, int32(sf.sortType)); err != nil {
-				return err
-			}
-			desc := int32(0)
-			if sf.descending {
-				desc = 1
-			}
-			if err := store.WriteInt32(out, desc); err != nil {
-				return err
-			}
-		}
-	}
-
+	// Number of segments.
 	if err := store.WriteInt32(out, int32(len(si.segments))); err != nil {
 		return err
 	}
 
-	// Write segments
-	for _, sci := range si.segments {
-		if err := store.WriteString(out, sci.Name()); err != nil {
+	// Min segment version (written only when numSegments > 0).
+	if len(si.segments) > 0 {
+		if err := store.WriteVInt(out, major); err != nil {
 			return err
 		}
-		if err := store.WriteInt32(out, int32(sci.segmentInfo.docCount)); err != nil {
+		if err := store.WriteVInt(out, minor); err != nil {
 			return err
 		}
-		if err := store.WriteInt32(out, int32(sci.delCount)); err != nil {
+		if err := store.WriteVInt(out, bugfix); err != nil {
 			return err
-		}
-		if err := store.WriteInt32(out, int32(sci.softDelCount)); err != nil {
-			return err
-		}
-		// Write ID
-		id := sci.segmentInfo.GetID()
-		if err := out.WriteBytes(id); err != nil {
-			return err
-		}
-		// Write in-memory FieldInfos so readers can enumerate fields without
-		// codec infrastructure.  Format: numFields int32, then per field:
-		//   name string, number int32, indexOptions int32, docValuesType int32,
-		//   flags int32 (bit 0=stored, 1=tokenized, 2=storeTermVectors, 3=omitNorms)
-		fi := sci.GetInMemoryFieldInfos()
-		if fi == nil {
-			if err := store.WriteInt32(out, 0); err != nil {
-				return err
-			}
-		} else {
-			if err := store.WriteInt32(out, int32(fi.Size())); err != nil {
-				return err
-			}
-			iter := fi.Iterator()
-			for {
-				info := iter.Next()
-				if info == nil {
-					break
-				}
-				if err := store.WriteString(out, info.Name()); err != nil {
-					return err
-				}
-				if err := store.WriteInt32(out, int32(info.Number())); err != nil {
-					return err
-				}
-				if err := store.WriteInt32(out, int32(info.IndexOptions())); err != nil {
-					return err
-				}
-				if err := store.WriteInt32(out, int32(info.DocValuesType())); err != nil {
-					return err
-				}
-				flags := int32(0)
-				if info.IsStored() {
-					flags |= 1
-				}
-				if info.IsTokenized() {
-					flags |= 2
-				}
-				if info.HasTermVectors() {
-					flags |= 4
-				}
-				if info.OmitNorms() {
-					flags |= 8
-				}
-				if err := store.WriteInt32(out, flags); err != nil {
-					return err
-				}
-			}
-		}
-		// Write deleted ordinals so SegmentReader can build a live-docs bitset
-		// without requiring a .liv / .del file.
-		// Format: numDeleted int32, then each ordinal as int32.
-		delOrds := sci.GetDeletedOrdinals()
-		if err := store.WriteInt32(out, int32(len(delOrds))); err != nil {
-			return err
-		}
-		for _, ord := range delOrds {
-			if err := store.WriteInt32(out, int32(ord)); err != nil {
-				return err
-			}
 		}
 	}
 
+	// Per-segment data.
+	for _, sci := range si.segments {
+		if err := writeSegmentCommitInfoLucene104(out, sci); err != nil {
+			return err
+		}
+	}
+
+	// Build userData: start with existing user data, then overlay Gocene extensions.
+	userData := make(map[string]string, len(si.userData))
+	for k, v := range si.userData {
+		userData[k] = v
+	}
+
+	// Gocene extension version marker.
+	userData["_gocene_fiv"] = goceneExtVersion
+
+	// Per-segment in-memory extensions.
+	for _, sci := range si.segments {
+		name := sci.Name()
+
+		// docCount: Lucene stores this in the .si file; Gocene keeps it in userData.
+		userData["_gocene_dc_"+name] = strconv.Itoa(sci.segmentInfo.docCount)
+
+		fi := sci.GetInMemoryFieldInfos()
+		if fi != nil && fi.Size() > 0 {
+			userData["_gocene_fi_"+name] = encodeFieldInfosForUserData(fi)
+		}
+
+		delOrds := sci.GetDeletedOrdinals()
+		userData["_gocene_del_"+name] = encodeDeletedOrdinalsForUserData(delOrds)
+	}
+
+	// Parent field.
+	if si.inMemoryParentField != "" {
+		userData["_gocene_parent"] = si.inMemoryParentField
+	}
+
+	// Index sort.
+	if si.inMemoryIndexSort != nil && len(si.inMemoryIndexSort.fields) > 0 {
+		userData["_gocene_sort_n"] = strconv.Itoa(len(si.inMemoryIndexSort.fields))
+		for i, sf := range si.inMemoryIndexSort.fields {
+			desc := "0"
+			if sf.descending {
+				desc = "1"
+			}
+			userData[fmt.Sprintf("_gocene_sort_%d", i)] = fmt.Sprintf("%s|%d|%s", sf.field, int(sf.sortType), desc)
+		}
+	}
+
+	if err := store.WriteMapOfStrings(out, userData); err != nil {
+		return err
+	}
+
+	return writeFooter(out)
+}
+
+// writeSegmentCommitInfoLucene104 writes a single SegmentCommitInfo using the
+// Lucene 10.4.0 per-segment layout inside segments_N.
+func writeSegmentCommitInfoLucene104(out store.IndexOutput, sci *SegmentCommitInfo) error {
+	if err := store.WriteString(out, sci.Name()); err != nil {
+		return err
+	}
+
+	// 16-byte segment ID; write zeros if absent.
+	id := sci.segmentInfo.GetID()
+	if len(id) != 16 {
+		id = make([]byte, 16)
+	}
+	if err := out.WriteBytes(id); err != nil {
+		return err
+	}
+
+	// Codec name (empty string for Gocene-only segments without a real codec).
+	codec := sci.segmentInfo.Codec()
+	if err := store.WriteString(out, codec); err != nil {
+		return err
+	}
+
+	// Deletion generation (-1 if no deletions file).
+	if err := store.WriteInt64(out, sci.DelGen()); err != nil {
+		return err
+	}
+
+	// Deletion count.
+	if err := store.WriteInt32(out, int32(sci.DelCount())); err != nil {
+		return err
+	}
+
+	// FieldInfos generation (-1 if none).
+	if err := store.WriteInt64(out, sci.FieldInfosGen()); err != nil {
+		return err
+	}
+
+	// DocValues generation (-1 if none).
+	if err := store.WriteInt64(out, sci.DocValuesGen()); err != nil {
+		return err
+	}
+
+	// Soft delete count.
+	if err := store.WriteInt32(out, int32(sci.SoftDelCount())); err != nil {
+		return err
+	}
+
+	// SegmentCommitInfo ID: 0 = absent, 1 = present + 16 bytes.
+	sciID := sci.GetID()
+	if len(sciID) == 16 {
+		if err := out.WriteByte(1); err != nil {
+			return err
+		}
+		if err := out.WriteBytes(sciID); err != nil {
+			return err
+		}
+	} else {
+		if err := out.WriteByte(0); err != nil {
+			return err
+		}
+	}
+
+	// FieldInfos files set.
+	if err := store.WriteSetOfStrings(out, sci.FieldInfosFiles()); err != nil {
+		return err
+	}
+
+	// DocValues updates files: Lucene writes the count and keys as BE int32
+	// (CodecUtil.writeBEInt), not VInt.  We mirror that here for wire compatibility.
+	return writeDVUpdateFilesLucene(out, sci.DocValuesUpdatesFiles())
+}
+
+// readDVUpdateFilesLucene reads the docValuesUpdatesFiles map in Lucene wire
+// format: count as BE int32, then per entry: key as BE int32 + value as
+// ReadSetOfStrings.  This differs from store.ReadMapOfIntToSetOfStrings which
+// uses VInt for both count and key.
+func readDVUpdateFilesLucene(in store.IndexInput) (map[int]map[string]struct{}, error) {
+	countRaw, err := store.ReadInt32(in)
+	if err != nil {
+		return nil, err
+	}
+	count := int(countRaw)
+	if count == 0 {
+		return nil, nil
+	}
+	m := make(map[int]map[string]struct{}, count)
+	for i := 0; i < count; i++ {
+		keyRaw, err := store.ReadInt32(in)
+		if err != nil {
+			return nil, err
+		}
+		val, err := store.ReadSetOfStrings(in)
+		if err != nil {
+			return nil, err
+		}
+		m[int(keyRaw)] = val
+	}
+	return m, nil
+}
+
+// writeDVUpdateFilesLucene writes the docValuesUpdatesFiles map in Lucene wire
+// format: count as BE int32, then per entry: key as BE int32 + value as
+// WriteSetOfStrings.  This mirrors CodecUtil.writeBEInt used by Lucene Java.
+func writeDVUpdateFilesLucene(out store.IndexOutput, m map[int]map[string]struct{}) error {
+	if err := store.WriteInt32(out, int32(len(m))); err != nil {
+		return err
+	}
+	for k, v := range m {
+		if err := store.WriteInt32(out, int32(k)); err != nil {
+			return err
+		}
+		if err := store.WriteSetOfStrings(out, v); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-// ReadSegmentInfos reads the SegmentInfos from a directory.
-// This is used when opening an existing index.
+// ReadSegmentInfos reads the SegmentInfos from a directory, locating the most
+// recent segments_N file.
+//
+// Two formats are accepted:
+//   - Lucene 10.4.0 format (codecMagic 0x3FD76C17): written by the current
+//     WriteSegmentInfos and by real Apache Lucene 10.4.0.  In-memory Gocene
+//     extensions are restored from userData if the "_gocene_fiv" key is present.
+//   - Legacy Gocene stub format (magic 0x3d767): written by older versions of
+//     WriteSegmentInfos; retained for backward compatibility only.
 func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
-	// List all files in the directory
 	files, err := directory.ListAll()
 	if err != nil {
 		return nil, fmt.Errorf("listing directory: %w", err)
 	}
 
-	// Find the most recent segments file
 	var maxGen int64 = -1
 	var latestFile string
 	for _, file := range files {
 		if len(file) > 9 && file[:9] == "segments_" {
-			// Parse generation number (base-36, matching Lucene Long.parseLong).
-			if gen, err := strconv.ParseInt(file[9:], 36, 64); err == nil {
+			if gen, err2 := strconv.ParseInt(file[9:], 36, 64); err2 == nil {
 				if gen > maxGen {
 					maxGen = gen
 					latestFile = file
@@ -678,20 +917,312 @@ func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
 		return nil, NewIndexNotFoundException("no segments* file found in directory", nil)
 	}
 
-	in, err := directory.OpenInput(latestFile, store.IOContextRead)
+	rawIn, err := directory.OpenInput(latestFile, store.IOContextRead)
 	if err != nil {
 		return nil, err
 	}
-	defer in.Close()
 
-	// Read header
-	magic, err := store.ReadInt32(in)
+	// Peek at the first 4 bytes to determine the format without consuming them
+	// from a non-seekable stream.  Both formats write an int32 as their first
+	// 4 bytes, so we can inspect rawIn directly via ReadInt32 and then branch.
+	magic, err := store.ReadInt32(rawIn)
+	if err != nil {
+		_ = rawIn.Close()
+		return nil, fmt.Errorf("reading segments magic: %w", err)
+	}
+
+	switch magic {
+	case codecMagic: // 0x3FD76C17 — Lucene 10.4.0 / current Gocene format
+		// readSegmentInfosLucene104 closes rawIn itself (it re-opens the file).
+		return readSegmentInfosLucene104(rawIn, directory, maxGen)
+	case 0x3d767: // legacy Gocene stub format
+		defer rawIn.Close()
+		return readSegmentInfosLegacy(rawIn, directory, maxGen)
+	default:
+		_ = rawIn.Close()
+		return nil, fmt.Errorf("invalid segments file magic: 0x%x", uint32(magic))
+	}
+}
+
+// readSegmentInfosLucene104 reads a segments_N file in Lucene 10.4.0 format.
+// rawIn must be closed by the caller; this function opens its own fresh handle
+// so the ChecksumIndexInput covers all bytes from offset 0 (including the magic
+// word that was already peeked by the dispatch function).
+func readSegmentInfosLucene104(rawIn store.IndexInput, directory store.Directory, maxGen int64) (*SegmentInfos, error) {
+	// Close the partially-consumed handle from the caller; we re-open below.
+	_ = rawIn.Close()
+
+	in2, err := directory.OpenInput(GetSegmentFileName(maxGen), store.IOContextRead)
 	if err != nil {
 		return nil, err
 	}
-	if magic != 0x3d767 {
-		return nil, fmt.Errorf("invalid segments file magic: %x", magic)
+	checksumIn := store.NewChecksumIndexInput(in2)
+	defer checksumIn.Close()
+
+	suffix := strconv.FormatInt(maxGen, 36)
+	if _, err := checkIndexHeader(checksumIn, "segments", 10, 10, nil, suffix); err != nil {
+		return nil, fmt.Errorf("segments_N header: %w", err)
 	}
+
+	// Lucene version.
+	major, err := store.ReadVInt(checksumIn)
+	if err != nil {
+		return nil, err
+	}
+	minor, err := store.ReadVInt(checksumIn)
+	if err != nil {
+		return nil, err
+	}
+	bugfix, err := store.ReadVInt(checksumIn)
+	if err != nil {
+		return nil, err
+	}
+
+	// Index created major.
+	createdMajor, err := store.ReadVInt(checksumIn)
+	if err != nil {
+		return nil, err
+	}
+
+	// Index version.
+	version, err := store.ReadInt64(checksumIn)
+	if err != nil {
+		return nil, err
+	}
+
+	// Segment counter.
+	counter, err := store.ReadVLong(checksumIn)
+	if err != nil {
+		return nil, err
+	}
+
+	// Number of segments.
+	numSegments, err := store.ReadInt32(checksumIn)
+	if err != nil {
+		return nil, err
+	}
+	if numSegments < 0 {
+		return nil, fmt.Errorf("invalid segment count: %d", numSegments)
+	}
+
+	// Skip min-segment version triplet (present only when numSegments > 0).
+	if numSegments > 0 {
+		if _, err := store.ReadVInt(checksumIn); err != nil {
+			return nil, err
+		}
+		if _, err := store.ReadVInt(checksumIn); err != nil {
+			return nil, err
+		}
+		if _, err := store.ReadVInt(checksumIn); err != nil {
+			return nil, err
+		}
+	}
+
+	si := NewSegmentInfos()
+	si.generation = maxGen
+	si.lastGeneration = maxGen
+	si.version = version
+	si.indexCreatedVersionMajor = createdMajor
+	si.luceneVersion = fmt.Sprintf("%d.%d.%d", major, minor, bugfix)
+	si.counter = counter
+
+	for i := int32(0); i < numSegments; i++ {
+		sci, err := readSegmentCommitInfoLucene104(checksumIn, directory)
+		if err != nil {
+			return nil, fmt.Errorf("reading segment %d: %w", i, err)
+		}
+		si.segments = append(si.segments, sci)
+	}
+
+	userData, err := store.ReadMapOfStrings(checksumIn)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := checkFooter(checksumIn); err != nil {
+		return nil, fmt.Errorf("segments_N footer: %w", err)
+	}
+
+	// Restore in-memory Gocene extensions from userData when present.
+	if userData["_gocene_fiv"] == goceneExtVersion {
+		if err := restoreGoceneExtensions(si, userData); err != nil {
+			return nil, err
+		}
+		// Remove Gocene-private keys before exposing userData to callers.
+		cleanedUserData := make(map[string]string)
+		for k, v := range userData {
+			if !strings.HasPrefix(k, "_gocene_") {
+				cleanedUserData[k] = v
+			}
+		}
+		si.userData = cleanedUserData
+	} else {
+		si.userData = userData
+	}
+
+	return si, nil
+}
+
+// readSegmentCommitInfoLucene104 reads a single per-segment entry from a
+// segments_N body in Lucene 10.4.0 format.
+func readSegmentCommitInfoLucene104(in store.IndexInput, directory store.Directory) (*SegmentCommitInfo, error) {
+	name, err := store.ReadString(in)
+	if err != nil {
+		return nil, err
+	}
+
+	id, err := in.ReadBytesN(16)
+	if err != nil {
+		return nil, err
+	}
+
+	codec, err := store.ReadString(in)
+	if err != nil {
+		return nil, err
+	}
+
+	delGen, err := store.ReadInt64(in)
+	if err != nil {
+		return nil, err
+	}
+
+	delCount, err := store.ReadInt32(in)
+	if err != nil {
+		return nil, err
+	}
+
+	fieldInfosGen, err := store.ReadInt64(in)
+	if err != nil {
+		return nil, err
+	}
+
+	docValuesGen, err := store.ReadInt64(in)
+	if err != nil {
+		return nil, err
+	}
+
+	softDelCount, err := store.ReadInt32(in)
+	if err != nil {
+		return nil, err
+	}
+
+	hasSciID, err := in.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+	var sciID []byte
+	if hasSciID == 1 {
+		sciID, err = in.ReadBytesN(16)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	fieldInfosFiles, err := store.ReadSetOfStrings(in)
+	if err != nil {
+		return nil, err
+	}
+
+	// dvUpdateFiles: Lucene writes the count as a BE int32 (CodecUtil.writeBEInt),
+	// not as a VInt.  The individual keys are also BE int32.  We cannot use
+	// store.ReadMapOfIntToSetOfStrings here because that helper uses ReadVInt.
+	docValuesUpdatesFiles, err := readDVUpdateFilesLucene(in)
+	if err != nil {
+		return nil, err
+	}
+
+	segInfo := NewSegmentInfo(name, 0, directory)
+	segInfo.SetID(id)
+	segInfo.SetCodec(codec)
+	// Reconstruct the expected file list so CheckIndex can detect missing files.
+	segInfo.SetFiles([]string{name + ".si"})
+
+	sci := NewSegmentCommitInfo(segInfo, int(delCount), delGen)
+	sci.SetFieldInfosGen(fieldInfosGen)
+	sci.SetDocValuesGen(docValuesGen)
+	sci.SetSoftDelCount(int(softDelCount))
+	sci.SetID(sciID)
+	sci.SetFieldInfosFiles(fieldInfosFiles)
+	sci.SetDocValuesUpdatesFiles(docValuesUpdatesFiles)
+
+	return sci, nil
+}
+
+// restoreGoceneExtensions unpacks in-memory Gocene state from the userData map
+// into si and its segments.  The userData map is read-only here; the caller
+// strips the _gocene_* keys before storing userData on si.
+func restoreGoceneExtensions(si *SegmentInfos, userData map[string]string) error {
+	// Parent field.
+	si.inMemoryParentField = userData["_gocene_parent"]
+
+	// Index sort.
+	if nStr := userData["_gocene_sort_n"]; nStr != "" {
+		n, err := strconv.Atoi(nStr)
+		if err != nil {
+			return fmt.Errorf("invalid _gocene_sort_n: %w", err)
+		}
+		fields := make([]SortField, 0, n)
+		for i := 0; i < n; i++ {
+			v := userData[fmt.Sprintf("_gocene_sort_%d", i)]
+			parts := strings.Split(v, "|")
+			if len(parts) != 3 {
+				return fmt.Errorf("malformed _gocene_sort_%d: %q", i, v)
+			}
+			stRaw, err := strconv.Atoi(parts[1])
+			if err != nil {
+				return fmt.Errorf("invalid sort type in _gocene_sort_%d: %w", i, err)
+			}
+			fields = append(fields, SortField{
+				field:      parts[0],
+				sortType:   SortType(stRaw),
+				descending: parts[2] == "1",
+			})
+		}
+		si.inMemoryIndexSort = &Sort{fields: fields}
+	}
+
+	// Per-segment extensions.
+	for _, sci := range si.segments {
+		name := sci.Name()
+
+		// Restore docCount (stored in .si in real Lucene; kept inline by Gocene).
+		if dcStr := userData["_gocene_dc_"+name]; dcStr != "" {
+			dc, err := strconv.Atoi(dcStr)
+			if err != nil {
+				return fmt.Errorf("invalid _gocene_dc_%s: %w", name, err)
+			}
+			sci.segmentInfo.SetDocCount(dc)
+		}
+
+		if fiEnc := userData["_gocene_fi_"+name]; fiEnc != "" {
+			fis, err := decodeFieldInfosFromUserData(fiEnc)
+			if err != nil {
+				return fmt.Errorf("decoding FieldInfos for segment %s: %w", name, err)
+			}
+			if fis != nil {
+				sci.SetInMemoryFieldInfos(fis)
+			}
+		}
+
+		if delEnc := userData["_gocene_del_"+name]; delEnc != "" {
+			ords, err := decodeDeletedOrdinalsFromUserData(delEnc)
+			if err != nil {
+				return fmt.Errorf("decoding deleted ordinals for segment %s: %w", name, err)
+			}
+			if len(ords) > 0 {
+				sci.SetDeletedOrdinals(ords)
+			}
+		}
+	}
+
+	return nil
+}
+
+// readSegmentInfosLegacy reads a segments_N body in the old Gocene stub format
+// (magic 0x3d767) that was written by earlier versions of WriteSegmentInfos.
+// The magic word has already been consumed from rawIn by the caller.
+func readSegmentInfosLegacy(rawIn store.IndexInput, directory store.Directory, maxGen int64) (*SegmentInfos, error) {
+	in := rawIn // alias for clarity; caller holds the defer Close
 
 	gen, err := store.ReadInt64(in)
 	if err != nil {
@@ -718,10 +1249,9 @@ func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
 		return nil, err
 	}
 
-	// Read parentField.
+	// parentField — absent in the oldest sub-versions; tolerate gracefully.
 	parentField, err := store.ReadString(in)
 	if err != nil {
-		// Older format without parentField — tolerate gracefully.
 		si := NewSegmentInfos()
 		si.generation = gen
 		si.lastGeneration = gen
@@ -732,7 +1262,7 @@ func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
 		return si, nil
 	}
 
-	// Read indexSort.
+	// indexSort.
 	numSortFields, err := store.ReadInt32(in)
 	if err != nil {
 		si := NewSegmentInfos()
@@ -761,8 +1291,7 @@ func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
 			if err != nil {
 				return nil, fmt.Errorf("reading sort descending: %w", err)
 			}
-			sf := SortField{field: fname, sortType: SortType(stRaw), descending: descRaw != 0}
-			fields = append(fields, sf)
+			fields = append(fields, SortField{field: fname, sortType: SortType(stRaw), descending: descRaw != 0})
 		}
 		indexSort = &Sort{fields: fields}
 	}
@@ -782,7 +1311,6 @@ func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
 	si.inMemoryParentField = parentField
 	si.inMemoryIndexSort = indexSort
 
-	// Read segments
 	for i := 0; i < int(numSegments); i++ {
 		name, err := store.ReadString(in)
 		if err != nil {
@@ -800,7 +1328,6 @@ func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
 		if err != nil {
 			return nil, err
 		}
-		// Read ID
 		id, err := in.ReadBytesN(16)
 		if err != nil {
 			return nil, err
@@ -808,19 +1335,14 @@ func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
 
 		segmentInfo := NewSegmentInfo(name, int(docCount), directory)
 		segmentInfo.SetID(id)
-		// Reconstruct the segment's expected files list.  In Gocene the only
-		// per-segment file is the stub <name>.si written by IndexWriter.Commit.
-		// This allows CheckIndex to detect corruption when the file is missing.
 		segmentInfo.SetFiles([]string{name + ".si"})
 		sci := NewSegmentCommitInfo(segmentInfo, int(delCount), -1)
 		if softDelCount > 0 {
 			sci.SetSoftDelCount(int(softDelCount))
 		}
 
-		// Read in-memory FieldInfos (written by current Gocene writer).
 		numFields, err := store.ReadInt32(in)
 		if err != nil {
-			// Older format without FieldInfos extension — tolerate gracefully.
 			si.Add(sci)
 			continue
 		}
@@ -864,11 +1386,8 @@ func ReadSegmentInfos(directory store.Directory) (*SegmentInfos, error) {
 			}
 			sci.SetInMemoryFieldInfos(fis)
 		}
-		// Read deleted ordinals (written by current Gocene writer).
-		// Format: numDeleted int32, then each ordinal as int32.
 		numDel, err := store.ReadInt32(in)
 		if err != nil {
-			// Older format without deleted-ordinals extension — tolerate gracefully.
 			si.Add(sci)
 			continue
 		}

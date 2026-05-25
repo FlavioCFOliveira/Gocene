@@ -708,13 +708,14 @@ func (w *IndexWriter) Commit() error {
 		if len(ps.deletedOrdinals) > 0 {
 			sci.SetDeletedOrdinals(ps.deletedOrdinals)
 		}
-		// Write a segment-info stub file (segmentName.si) so that
-		// CheckIndex and external tools can detect per-segment corruption
-		// by verifying file presence.  The file contains a single magic byte.
-		if err3 := writeSegmentInfoStub(w.directory, segmentName); err3 != nil {
-			return fmt.Errorf("writing .si stub: %w", err3)
-		}
+		// Write the .si file for this segment before registering it so that
+		// external tools and CheckIndex can verify per-segment integrity.
+		// SetFiles must be called before writeSegmentInfo so the file list
+		// written into the .si reflects the committed files set.
 		sci.SegmentInfo().SetFiles([]string{segmentName + ".si"})
+		if err3 := writeSegmentInfo(w.directory, sci.SegmentInfo(), store.IOContextWrite); err3 != nil {
+			return fmt.Errorf("writing .si: %w", err3)
+		}
 		si.Add(sci)
 		w.committedSegments = append(w.committedSegments, sci)
 	}
@@ -1110,11 +1111,11 @@ func (w *IndexWriter) ForceMerge(maxNumSegments int) error {
 		if mergedFI != nil {
 			sci.SetInMemoryFieldInfos(mergedFI)
 		}
-		// Write the .si stub for the merged segment.
-		if err := writeSegmentInfoStub(w.directory, segName); err != nil {
-			return fmt.Errorf("forceMerge: write .si stub: %w", err)
-		}
+		// Register files before writeSegmentInfo so the .si embeds the file list.
 		sci.SegmentInfo().SetFiles([]string{segName + ".si"})
+		if err := writeSegmentInfo(w.directory, sci.SegmentInfo(), store.IOContextWrite); err != nil {
+			return fmt.Errorf("forceMerge: write .si: %w", err)
+		}
 		merged.Add(sci)
 
 		if userData := si.GetUserData(); len(userData) > 0 {
@@ -1215,22 +1216,111 @@ func (w *IndexWriter) GetDocStats() *DocStats {
 //   - Merge failures occur
 //
 // acquireWriteLocks obtains the write.lock on each source directory.
-// writeSegmentInfoStub writes a minimal marker file named segmentName+".si"
-// into dir.  The file carries a single magic byte so that external tools and
-// CheckIndex can detect per-segment corruption by verifying file presence.
-// Gocene does not use real codec-level .si files; this stub is the equivalent.
-func writeSegmentInfoStub(dir store.Directory, segmentName string) error {
-	name := segmentName + ".si"
-	out, err := dir.CreateOutput(name, store.IOContextWrite)
+// writeSegmentInfo writes a Lucene99SegmentInfo .si file for si into dir.
+//
+// The on-disk format is byte-identical to Lucene's
+// org.apache.lucene.codecs.lucene99.Lucene99SegmentInfoFormat.write:
+//
+//	writeIndexHeader("Lucene90SegmentInfo", version=0, id, suffix="")
+//	Int32 major, Int32 minor, Int32 bugfix  (from si.Version())
+//	Byte  hasMinVersion = 0
+//	Int32 docCount
+//	Byte  isCompoundFile (1=true, 255=false)
+//	Byte  hasBlocks = 0
+//	WriteMapOfStrings(diagnostics)
+//	WriteSetOfStrings(files as set)
+//	WriteMapOfStrings(attributes)
+//	VInt  numSortFields = 0
+//	writeFooter()
+func writeSegmentInfo(dir store.Directory, si *SegmentInfo, context store.IOContext) error {
+	name := si.Name() + ".si"
+	raw, err := dir.CreateOutput(name, context)
 	if err != nil {
 		return fmt.Errorf("create %s: %w", name, err)
 	}
-	// Write a single marker byte.
-	if err := out.WriteByte(0x53); err != nil { // 'S' for SegmentInfo
-		_ = out.Close()
-		return fmt.Errorf("write %s: %w", name, err)
+	out := store.NewChecksumIndexOutput(raw)
+
+	var writeErr error
+	defer func() {
+		if writeErr != nil {
+			_ = out.Close()
+		}
+	}()
+
+	if writeErr = writeIndexHeader(out, "Lucene90SegmentInfo", 0, si.GetID(), ""); writeErr != nil {
+		return fmt.Errorf("writeSegmentInfo %s: header: %w", name, writeErr)
 	}
+
+	// Version and docCount use Java's DataOutput.writeInt (little-endian).
+	major, minor, bugfix := parseSegmentVersion(si.Version())
+	if writeErr = store.WriteInt32LE(out, major); writeErr != nil {
+		return fmt.Errorf("writeSegmentInfo %s: major: %w", name, writeErr)
+	}
+	if writeErr = store.WriteInt32LE(out, minor); writeErr != nil {
+		return fmt.Errorf("writeSegmentInfo %s: minor: %w", name, writeErr)
+	}
+	if writeErr = store.WriteInt32LE(out, bugfix); writeErr != nil {
+		return fmt.Errorf("writeSegmentInfo %s: bugfix: %w", name, writeErr)
+	}
+
+	// hasMinVersion = false
+	if writeErr = out.WriteByte(0); writeErr != nil {
+		return fmt.Errorf("writeSegmentInfo %s: hasMinVersion: %w", name, writeErr)
+	}
+
+	if writeErr = store.WriteInt32LE(out, int32(si.DocCount())); writeErr != nil {
+		return fmt.Errorf("writeSegmentInfo %s: docCount: %w", name, writeErr)
+	}
+
+	// isCompoundFile: 1=true, 255 (-1 signed) =false — matches Lucene Java byte cast.
+	isCompoundFile := byte(255)
+	if si.IsCompoundFile() {
+		isCompoundFile = 1
+	}
+	if writeErr = out.WriteByte(isCompoundFile); writeErr != nil {
+		return fmt.Errorf("writeSegmentInfo %s: isCompoundFile: %w", name, writeErr)
+	}
+
+	// hasBlocks = false
+	if writeErr = out.WriteByte(0); writeErr != nil {
+		return fmt.Errorf("writeSegmentInfo %s: hasBlocks: %w", name, writeErr)
+	}
+
+	if writeErr = store.WriteMapOfStrings(out, si.GetDiagnostics()); writeErr != nil {
+		return fmt.Errorf("writeSegmentInfo %s: diagnostics: %w", name, writeErr)
+	}
+
+	files := si.Files()
+	sort.Strings(files)
+	fileSet := make(map[string]struct{}, len(files))
+	for _, f := range files {
+		fileSet[f] = struct{}{}
+	}
+	if writeErr = store.WriteSetOfStrings(out, fileSet); writeErr != nil {
+		return fmt.Errorf("writeSegmentInfo %s: files: %w", name, writeErr)
+	}
+
+	if writeErr = store.WriteMapOfStrings(out, si.GetAttributes()); writeErr != nil {
+		return fmt.Errorf("writeSegmentInfo %s: attributes: %w", name, writeErr)
+	}
+
+	// numSortFields = 0 (index sort not yet implemented in this write path)
+	if writeErr = store.WriteVInt(out, 0); writeErr != nil {
+		return fmt.Errorf("writeSegmentInfo %s: numSortFields: %w", name, writeErr)
+	}
+
+	if writeErr = writeFooter(out); writeErr != nil {
+		return fmt.Errorf("writeSegmentInfo %s: footer: %w", name, writeErr)
+	}
+
 	return out.Close()
+}
+
+// parseSegmentVersion parses a version string such as "10.4.0" into its
+// major, minor, and bugfix components.  Missing components default to zero.
+func parseSegmentVersion(v string) (major, minor, bugfix int32) {
+	fmt.Sscanf(v, "%d.%d.%d", &major, &minor, &bugfix)
+	return
 }
 
 // If any acquisition fails, previously acquired locks are released and the

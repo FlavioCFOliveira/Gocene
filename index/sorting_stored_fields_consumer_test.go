@@ -131,6 +131,7 @@ func (c *fakeCodec) PostingsFormat() PostingsFormat         { return nil }
 func (c *fakeCodec) StoredFieldsFormat() StoredFieldsFormat { return c.stored }
 func (c *fakeCodec) FieldInfosFormat() FieldInfosFormat     { return nil }
 func (c *fakeCodec) SegmentInfosFormat() SegmentInfosFormat { return nil }
+func (c *fakeCodec) SegmentInfoFormat() SegmentInfoFormat   { return nil }
 func (c *fakeCodec) TermVectorsFormat() TermVectorsFormat   { return nil }
 
 // reverseSortMap{n} is reused from sorted_set_doc_values_writer_test.go;

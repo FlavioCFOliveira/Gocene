@@ -310,6 +310,7 @@ func (c *fakeCodecTV) PostingsFormat() PostingsFormat         { return nil }
 func (c *fakeCodecTV) StoredFieldsFormat() StoredFieldsFormat { return nil }
 func (c *fakeCodecTV) FieldInfosFormat() FieldInfosFormat     { return nil }
 func (c *fakeCodecTV) SegmentInfosFormat() SegmentInfosFormat { return nil }
+func (c *fakeCodecTV) SegmentInfoFormat() SegmentInfoFormat   { return nil }
 func (c *fakeCodecTV) TermVectorsFormat() TermVectorsFormat   { return c.tv }
 
 func newTestTVConsumer(t *testing.T, docs int) (*SortingTermVectorsConsumer, *fakeTermVectorsFormat, store.Directory, *SegmentInfo) {

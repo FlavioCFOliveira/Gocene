@@ -473,9 +473,25 @@ func WriteInt32(out DataOutput, v int32) error {
 	return WriteUint32(out, uint32(v))
 }
 
+// WriteInt32LE writes a 32-bit signed integer in little-endian format.
+// Use this for codec data fields to match Java Lucene's DataOutput.writeInt (LE).
+func WriteInt32LE(out DataOutput, v int32) error {
+	b := make([]byte, 4)
+	binary.LittleEndian.PutUint32(b, uint32(v))
+	return out.WriteBytes(b)
+}
+
 // WriteInt64 writes a 64-bit signed integer in big-endian format.
 func WriteInt64(out DataOutput, v int64) error {
 	return WriteUint64(out, uint64(v))
+}
+
+// WriteInt64LE writes a 64-bit signed integer in little-endian format.
+// Use this for codec data fields to match Java Lucene's DataOutput.writeLong (LE).
+func WriteInt64LE(out DataOutput, v int64) error {
+	b := make([]byte, 8)
+	binary.LittleEndian.PutUint64(b, uint64(v))
+	return out.WriteBytes(b)
 }
 
 // WriteVInt writes a variable-length integer (up to 5 bytes).

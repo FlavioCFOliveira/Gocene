@@ -2012,6 +2012,10 @@ func (c *customTestCodec) SegmentInfosFormat() index.SegmentInfosFormat {
 	return nil
 }
 
+func (c *customTestCodec) SegmentInfoFormat() index.SegmentInfoFormat {
+	return nil
+}
+
 func (c *customTestCodec) TermVectorsFormat() index.TermVectorsFormat {
 	return nil
 }
