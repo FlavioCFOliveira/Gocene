@@ -29,5 +29,8 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Tidy
+        run: go mod tidy -diff
+
       - name: Test
         run: go test ./... -timeout 300s
