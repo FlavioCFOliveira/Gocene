@@ -64,6 +64,7 @@ public final class Main {
             case "verify-classifier-labels" -> runVerifyClassifierLabels(args, out, err);
             case "verify-monitor" -> runVerifyMonitor(args, out, err);
             case "verify-replicator" -> runVerifyReplicator(args, out, err);
+            case "verify-expressions-eval" -> runVerifyExpressionsEval(args, out, err);
             case "-h", "--help", "help" -> {
                 usage(out);
                 yield 0;
@@ -453,6 +454,34 @@ public final class Main {
         return 0;
     }
 
+    /**
+     * Re-evaluates the {@code expressions-eval-corpus} catalogue against the
+     * Lucene index in {@code <dir>}, recompiles every JavaScript expression
+     * from source, and asserts the {@code expressions-eval.tsv} row values
+     * match the recomputed values within the scenario's relative tolerance.
+     * Mirrors {@link #runVerifyScoring}. The seed is irrelevant for verify
+     * (the TSV pins the expected values).
+     */
+    private static int runVerifyExpressionsEval(String[] args, PrintStream out, PrintStream err) {
+        if (args.length != 2) {
+            err.println("usage: verify-expressions-eval <dir>");
+            return 1;
+        }
+        java.nio.file.Path source = java.nio.file.Path.of(args[1]);
+        try {
+            CorpusScenario scenario = Scenarios.require("expressions-eval-corpus");
+            scenario.verify(source, 0L);
+        } catch (IllegalArgumentException e) {
+            err.println(e.getMessage());
+            return 2;
+        } catch (IOException e) {
+            err.println("verify-expressions-eval failed: " + e.getMessage());
+            return 4;
+        }
+        out.println("ok verify-expressions-eval dir=" + source.toAbsolutePath());
+        return 0;
+    }
+
     /** Verifies {@code queries-hits.tsv} mirrors {@link #runVerifyScoring}. */
     private static int runVerifyQueriesHits(String[] args, PrintStream out, PrintStream err) {
         if (args.length != 2) {
@@ -506,5 +535,6 @@ public final class Main {
         out.println("  verify-classifier-labels <dir> [seed] re-run the classifiers in <dir> (held-out built from seed) and compare to classifier-labels.tsv");
         out.println("  verify-monitor <blob|segment> <dir> [seed] re-verify the monitor-query-blob OR monitor-index-segment fixture in <dir>");
         out.println("  verify-replicator <copystate> <dir> <seed> re-verify the replicator-nrt-copystate fixture in <dir>");
+        out.println("  verify-expressions-eval <dir>        recompile + re-evaluate the expressions catalogue in <dir> and compare to expressions-eval.tsv");
     }
 }

@@ -7,6 +7,7 @@ import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.CompletionFstS
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.CompoundFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.CompressingStoredFieldsScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.DocValuesFormatScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.ExpressionsEvalCorpusScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.FacetAssociationPayloadScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.FacetSetPackedBytesScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.FacetSortedsetOrdsScenario;
@@ -159,6 +160,13 @@ public final class Scenarios {
         register(new SpatialWktGeojsonScenario());
         register(new Spatial3dSerializableScenario());
         register(new GeoEncodedPointsScenario());
+        // Sprint 114 T21 (rmp 4629): expressions JavaScript-compiled eval
+        // corpus. Appended in stack order — after the spatial-* scenarios
+        // — so the manifest ordering for prior rows is preserved. The
+        // round-trip leg is currently deferred on the Gocene side because
+        // Lucene compiles JavaScript to JVM bytecode (no on-disk artefact
+        // exists) and Gocene's port does not produce JVM bytecode.
+        register(new ExpressionsEvalCorpusScenario());
     }
 
     private Scenarios() {}

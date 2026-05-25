@@ -47,6 +47,7 @@ spatial-bbox-dv	12648430	a2582d96f46c4cec0e221bf72d5bc2e55a7b6480e035036f628f7ce
 spatial-wkt-geojson	12648430	4d0df9e5932e34f2d0b9e39df155a17030f67283455e1c6d63c489fe7c4622ec	2	
 spatial3d-serializable	12648430	83f4724360b50aee6d605fa06b5b4cdf323a269dec26431da9b3d059fc29853f	1	
 geo-encoded-points	12648430	f0a760f27279f1c4d5bcc8295e1cd6d1356bf6ccbe613c63471e30522278a2e1	1	
+expressions-eval-corpus	12648430	944b9f292a204ea110852681d23cf8fa2d55e2d226f63d4649abfddc6c605ead	16	
 hunspell-blob	12648430	(deferred)	0	gap_notes="deferred to per-package task"
 snowball-blob	12648430	(deferred)	0	gap_notes="deferred to per-package task"
 replicator-http-frames	12648430	(deferred)	0	gap_notes="No Java-served HTTP replicator fixtures."; reason="Lucene 10.4.0 removed org.apache.lucene.replicator.http.HttpReplicator and the IndexRevision wire surface; covered by a future backward-compat sprint."
