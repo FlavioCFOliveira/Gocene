@@ -11,6 +11,7 @@ import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PointsFormatSc
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PostingsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SegmentInfoFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SmokeScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.StorePrimitivesScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.StoredFieldsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.TermVectorsFormatScenario;
 
@@ -31,6 +32,7 @@ public final class Scenarios {
 
     static {
         register(new SmokeScenario());
+        register(new StorePrimitivesScenario());
         register(new PostingsFormatScenario());
         register(new DocValuesFormatScenario());
         register(new StoredFieldsFormatScenario());
