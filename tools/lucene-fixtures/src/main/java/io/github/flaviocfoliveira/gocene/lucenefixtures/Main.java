@@ -59,6 +59,7 @@ public final class Main {
             case "verify-queries-hits" -> runVerifyQueriesHits(args, out, err);
             case "verify-highlight-offsets" -> runVerifyHighlightOffsets(args, out, err);
             case "verify-fvh-phrases" -> runVerifyFvhPhrases(args, out, err);
+            case "verify-join-hits" -> runVerifyJoinHits(args, out, err);
             case "-h", "--help", "help" -> {
                 usage(out);
                 yield 0;
@@ -284,6 +285,31 @@ public final class Main {
         return 0;
     }
 
+    /**
+     * Re-runs the parent-block join queries in {@code <dir>} and asserts
+     * the two TSVs (join-to-parent-hits.tsv and join-to-child-hits.tsv)
+     * match within {@code 1e-6}. Mirrors {@link #runVerifyScoring}.
+     */
+    private static int runVerifyJoinHits(String[] args, PrintStream out, PrintStream err) {
+        if (args.length != 2) {
+            err.println("usage: verify-join-hits <dir>");
+            return 1;
+        }
+        java.nio.file.Path source = java.nio.file.Path.of(args[1]);
+        try {
+            CorpusScenario scenario = Scenarios.require("parent-block-corpus");
+            scenario.verify(source, 0L);
+        } catch (IllegalArgumentException e) {
+            err.println(e.getMessage());
+            return 2;
+        } catch (IOException e) {
+            err.println("verify-join-hits failed: " + e.getMessage());
+            return 4;
+        }
+        out.println("ok verify-join-hits dir=" + source.toAbsolutePath());
+        return 0;
+    }
+
     /** Verifies {@code queries-hits.tsv} mirrors {@link #runVerifyScoring}. */
     private static int runVerifyQueriesHits(String[] args, PrintStream out, PrintStream err) {
         if (args.length != 2) {
@@ -332,5 +358,6 @@ public final class Main {
         out.println("  verify-queries-hits <dir>             re-run the queries-module catalogue in <dir> and compare to queries-hits.tsv");
         out.println("  verify-highlight-offsets <dir>        re-run UnifiedHighlighter in <dir> and compare to highlights.tsv");
         out.println("  verify-fvh-phrases <dir>              re-run FastVectorHighlighter in <dir> and compare to fvh-phrases.tsv");
+        out.println("  verify-join-hits <dir>                re-run ToParent/ToChildBlockJoinQuery in <dir> and compare to join-*.tsv");
     }
 }

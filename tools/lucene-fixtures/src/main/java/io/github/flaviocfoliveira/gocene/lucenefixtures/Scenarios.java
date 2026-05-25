@@ -19,6 +19,7 @@ import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.KnnHitOrdering
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.KnnVectorsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.LiveDocsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.NormsFormatScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.ParentBlockCorpusScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PerFieldDispatchScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PointsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PostingsFormatScenario;
@@ -110,6 +111,10 @@ public final class Scenarios {
         // ordering for prior rows is preserved.
         register(new HighlightOffsetCorpusScenario());
         register(new FastVectorHighlightPhrasesScenario());
+        // Sprint 114 T15 (rmp 4623): join-module parent-block corpus. Appended
+        // in stack order — after the highlight-* scenarios — so the manifest
+        // ordering for prior rows is preserved.
+        register(new ParentBlockCorpusScenario());
     }
 
     private Scenarios() {}
