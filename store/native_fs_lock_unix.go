@@ -24,7 +24,7 @@ import (
 // for concurrent access from multiple goroutines / IndexWriter instances.
 var lockHeld sync.Map // map[string]struct{}
 
-// NativeFSLockFactory creates OS-level advisory locks using fcntl(2) F_SETLK.
+// NativeFSLockFactory creates OS-level advisory locks using OFD fcntl(2).
 // Advisory locks are automatically released by the OS when the process exits,
 // which is the primary advantage over SimpleFSLockFactory.
 //
@@ -42,6 +42,13 @@ func NewNativeFSLockFactory() *NativeFSLockFactory {
 // deleted, matching Lucene's contract. Two concurrent calls from the same
 // process for the same path return an error for the second caller (via
 // lockHeld) without reaching the kernel.
+//
+// Race-free design: the lock file is opened exactly once and the same file
+// descriptor is used for both file creation and fcntl acquisition. There is no
+// intermediate close between create and lock, eliminating the TOCTOU race
+// window where a second process could acquire a conflicting lock. The
+// in-process guard (lockHeld) is checked after the fd is opened but before the
+// fcntl call, closing the fd on failure.
 func (f *NativeFSLockFactory) ObtainLock(dir Directory, lockName string) (Lock, error) {
 	dirPath := nativeFSPath(dir)
 	if dirPath == "" {
@@ -54,37 +61,32 @@ func (f *NativeFSLockFactory) ObtainLock(dir Directory, lockName string) (Lock, 
 
 	lockFile := filepath.Join(dirPath, lockName)
 
-	// Create the file so we have a canonical real path; ignore "already exists".
-	f2, createErr := os.OpenFile(lockFile, os.O_CREATE|os.O_WRONLY, 0644)
-	if createErr == nil {
-		_ = f2.Close()
+	// Open the lock file (create if it doesn't exist). The file descriptor is
+	// kept alive for the duration of the lock — the advisory lock is tied to
+	// this fd. Using O_RDWR because some platforms require it for fcntl locks.
+	fh, err := os.OpenFile(lockFile, os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("NativeFSLockFactory: open lock file %q: %w", lockFile, err)
 	}
 
+	// Resolve the canonical path for the in-process registry.
 	realPath, err := filepath.EvalSymlinks(lockFile)
 	if err != nil {
-		if createErr != nil {
-			return nil, fmt.Errorf("NativeFSLockFactory: resolve lock path %q: %w (create also failed: %v)", lockFile, err, createErr)
-		}
+		_ = fh.Close()
 		return nil, fmt.Errorf("NativeFSLockFactory: resolve lock path %q: %w", lockFile, err)
 	}
 
 	// In-process guard: reject if this process already holds the lock.
 	if _, loaded := lockHeld.LoadOrStore(realPath, struct{}{}); loaded {
+		_ = fh.Close()
 		return nil, fmt.Errorf("lock held by this process: %s", realPath)
-	}
-
-	// Open the lock file for writing — the file descriptor is kept alive for
-	// the duration of the lock (the advisory lock is tied to the fd).
-	fh, err := os.OpenFile(realPath, os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		lockHeld.Delete(realPath)
-		return nil, fmt.Errorf("NativeFSLockFactory: open lock file %q: %w", realPath, err)
 	}
 
 	// Attempt a non-blocking exclusive OFD lock (F_OFD_SETLK).
 	// OFD locks are per open-file-description (fd), not per process, making
-	// them immune to the POSIX advisory lock inheritance and fork anomalies.
-	// Returns EACCES or EAGAIN if another fd already holds the lock.
+	// them immune to the POSIX advisory lock inheritance and fork anomalies
+	// that F_SETLK suffers from. Returns EACCES or EAGAIN if another fd
+	// already holds the lock.
 	flk := unix.Flock_t{
 		Type:   unix.F_WRLCK,
 		Whence: int16(unix.SEEK_SET),
@@ -150,8 +152,9 @@ func (l *NativeFSLock) Close() error {
 	}
 	l.closed.Store(true)
 
-	// Release OFD lock then close fd. Closing the fd would also release the
-	// OFD lock automatically, but explicit unlock makes the intent clear.
+	// Release the OFD lock then close the fd. Closing the fd would also
+	// release the OFD lock automatically, but explicit unlock makes the
+	// intent clear and matches Lucene's try-with-resources pattern.
 	flk := unix.Flock_t{
 		Type:   unix.F_UNLCK,
 		Whence: int16(unix.SEEK_SET),
