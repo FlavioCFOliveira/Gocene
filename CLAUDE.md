@@ -8,6 +8,34 @@ Gocene is a Go module that aims to be a port of Apache Lucene to modern idiomati
 
 This is an early-stage project. The module structure, packages, and development workflow are not yet established.
 
+## Binary Compatibility Mandate (TOP-PRIORITY, NON-NEGOTIABLE)
+
+This requirement supersedes every other guideline in this document. If any other rule, convention, or stylistic preference conflicts with it, this requirement wins.
+
+1. **Produce (write) and Consume (read).** Gocene **MUST** produce binary artefacts that Apache Lucene 10.4.0 can read without modification, **AND** Gocene **MUST** read, without loss or reinterpretation, every binary artefact produced by Apache Lucene 10.4.0. Compatibility is bidirectional and exact; "approximately compatible" is not compatible.
+
+2. **Scope — everything Lucene serializes.** The mandate applies to *every* byte sequence Apache Lucene 10.4.0 emits or accepts, including but not limited to:
+   - On-disk index formats: codecs, segment files, postings, doc values, stored fields, term vectors, norms, points/BKD trees, vectors/HNSW, FST dictionaries, compound files, segment infos, `.si`/`.cfs`/`.cfe`, deletes/updates files.
+   - Directory/store-level artefacts: file naming, lock files, checksum framing (`CodecUtil`), header/footer envelopes.
+   - Token-stream persistence: payloads, attribute serialisation where Lucene persists it.
+   - Query- and analysis-side persisted artefacts: synonym/stop-word binary forms, Snowball/Hunspell compiled assets, classification models, suggester FSTs/blob formats.
+   - Replication/wire formats: replicator protocol payloads, any IPC frames Lucene exposes.
+   - Facets sidecar files, grouping/join persisted state, highlight offset stores, spatial/geo encodings.
+   - Any future Lucene-serialised artefact discovered during porting.
+
+3. **Byte-for-byte equality.** Default expectation is **byte-identical output** for the same logical input under the same configured codec/version. Where Lucene legitimately allows non-determinism (e.g., compression dictionaries, ordering driven by hash seeds), the divergence MUST be documented in the affected package, justified against the Lucene 10.4.0 source, and covered by a round-trip test (Gocene-write → Lucene-read → Gocene-read produces the original logical input).
+
+4. **Mandatory tests — isolated AND in combination.** Every feature, no matter how small, MUST ship with compatibility tests proving the mandate. There are two required test classes:
+   - **Isolated**: round-trip and golden-corpus tests at the unit level (this feature alone, with fixtures produced by Lucene 10.4.0).
+   - **Combined**: integration tests exercising the feature alongside the other features it composes with in real Lucene usage (e.g., codec + doc values + facets + queries used together).
+   No feature is "done" until both test classes exist and pass against a Lucene 10.4.0 corpus.
+
+5. **Reference of truth.** The Apache Lucene 10.4.0 source tree (see *Lucene Reference Repository* below) and binaries produced by it are the **sole** reference. Implementation choices that contradict observed Lucene behaviour are bugs in Gocene, not in Lucene.
+
+6. **Workflow consequence.** The standard workflow **Specify → Implement → Test → Document** is interpreted under this mandate:
+   - *Specify* must record the exact Lucene 10.4.0 binary contract being targeted (file format, version constant, codec name, struct layout).
+   - *Test* must include compatibility tests against Lucene-produced fixtures before the task can be closed.
+
 ## General Principles
 
 1. **Decision authority**: You are NOT AUTHORIZED to make decisions on your own. Whenever the instructions are insufficient, unclear, non-specific, non-concrete, or contain contradictions or ambiguities, you MUST ALWAYS ASK the user how to proceed. When asking questions, provide multiple options (a, b, c, ...) and indicate which one you recommend. When several clarifications are required, present each question to the user sequentially (one at a time).
