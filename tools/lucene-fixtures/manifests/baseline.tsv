@@ -19,5 +19,7 @@ scalar-quantized-knn	12648430	14135c8f93df03067541dbd6bebfb7485682651c3029ab2547
 index-deletions-and-dv-updates	12648430	2932570bb3124464d513cdf1e04425458d24625bf26ecd49963601b11305f214	16	
 index-corruption	12648430	7e507831caee4eb1d7cfa23b10262fd4043943d15b2762e2eea25d2da55b96c0	20	
 index-soft-deletes	12648430	bdcd8c4c8026042fa9468eb166f7ee4074a4bb9aaba18d42698defc83aa05974	24	
+search-scoring-corpus	12648430	9225d865506d9efdfa4c81ad61dbf01b9441b174c5b1676466a411c4fa42df8f	14	
+knn-hit-ordering	12648430	4dffec779192d13928d5992866b5fcd6d859712f63099a8e62e1cf8d3d0eedae	15	
 hunspell-blob	12648430	(deferred)	0	gap_notes="deferred to per-package task"
 snowball-blob	12648430	(deferred)	0	gap_notes="deferred to per-package task"

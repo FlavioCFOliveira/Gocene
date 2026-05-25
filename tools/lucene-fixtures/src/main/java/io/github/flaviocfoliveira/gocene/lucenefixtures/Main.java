@@ -54,6 +54,8 @@ public final class Main {
             case "list" -> runList(out);
             case "manifest" -> runManifest(args, out, err);
             case "check" -> runCheck(args, out, err);
+            case "verify-scoring" -> runVerifyScoring(args, out, err);
+            case "verify-knn-hits" -> runVerifyKnnHits(args, out, err);
             case "-h", "--help", "help" -> {
                 usage(out);
                 yield 0;
@@ -186,6 +188,57 @@ public final class Main {
         }
     }
 
+    /**
+     * Runs the {@code search-scoring-corpus} verifier over an externally
+     * supplied directory that MUST contain both the Lucene index segments
+     * and a {@code scoring.tsv} written by the same scenario (or by a
+     * Gocene port). On success a single {@code ok} line is emitted; on
+     * mismatch the scenario raises an IOException and the harness exits
+     * with code 4.
+     */
+    private static int runVerifyScoring(String[] args, PrintStream out, PrintStream err) {
+        if (args.length != 2) {
+            err.println("usage: verify-scoring <dir>");
+            return 1;
+        }
+        java.nio.file.Path source = java.nio.file.Path.of(args[1]);
+        try {
+            CorpusScenario scenario = Scenarios.require("search-scoring-corpus");
+            // Seed is irrelevant for verify (the TSV pins the expected
+            // values); pass 0 so Determinism.seed() runs deterministically.
+            scenario.verify(source, 0L);
+        } catch (IllegalArgumentException e) {
+            err.println(e.getMessage());
+            return 2;
+        } catch (IOException e) {
+            err.println("verify-scoring failed: " + e.getMessage());
+            return 4;
+        }
+        out.println("ok verify-scoring dir=" + source.toAbsolutePath());
+        return 0;
+    }
+
+    /** Verifies {@code knn-hits.tsv} mirrors {@link #runVerifyScoring}. */
+    private static int runVerifyKnnHits(String[] args, PrintStream out, PrintStream err) {
+        if (args.length != 2) {
+            err.println("usage: verify-knn-hits <dir>");
+            return 1;
+        }
+        java.nio.file.Path source = java.nio.file.Path.of(args[1]);
+        try {
+            CorpusScenario scenario = Scenarios.require("knn-hit-ordering");
+            scenario.verify(source, 0L);
+        } catch (IllegalArgumentException e) {
+            err.println(e.getMessage());
+            return 2;
+        } catch (IOException e) {
+            err.println("verify-knn-hits failed: " + e.getMessage());
+            return 4;
+        }
+        out.println("ok verify-knn-hits dir=" + source.toAbsolutePath());
+        return 0;
+    }
+
     private static long parseSeed(String s, PrintStream err) {
         try {
             // Allow 0x-prefixed hex for ergonomic CLI usage.
@@ -208,5 +261,7 @@ public final class Main {
         out.println("  list                                  list registered scenario names (one per line)");
         out.println("  manifest [seed]                       print the baseline TSV manifest (seed defaults to 0xC0FFEE)");
         out.println("  check    <dir>                        run Lucene's CheckIndex on <dir>; exit 0 iff clean");
+        out.println("  verify-scoring  <dir>                 re-run BM25 queries in <dir> and compare to scoring.tsv");
+        out.println("  verify-knn-hits <dir>                 re-run KNN queries in <dir> and compare to knn-hits.tsv");
     }
 }

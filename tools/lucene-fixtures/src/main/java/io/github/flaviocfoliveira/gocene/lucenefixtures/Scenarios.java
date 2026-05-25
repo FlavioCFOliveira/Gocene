@@ -7,6 +7,7 @@ import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.FieldInfosForm
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.FstBlobScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.IndexCorruptionScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.IndexDeletionsAndDvUpdatesScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.KnnHitOrderingScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.KnnVectorsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.LiveDocsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.NormsFormatScenario;
@@ -14,6 +15,7 @@ import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PerFieldDispat
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PointsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PostingsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.ScalarQuantizedKnnScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SearchScoringCorpusScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SegmentInfoFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SmokeScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SoftDeletesScenario;
@@ -62,6 +64,11 @@ public final class Scenarios {
         register(new IndexCorruptionScenario());
         // T8 helper: soft-deletes coverage for the soft-deletes audit row.
         register(new SoftDeletesScenario());
+        // Sprint 114 T9 (rmp 4617): search-side numerical-parity scenarios.
+        // Appended at the end so existing baseline.tsv rows keep their
+        // index-order anchors.
+        register(new SearchScoringCorpusScenario());
+        register(new KnnHitOrderingScenario());
     }
 
     private Scenarios() {}
