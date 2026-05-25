@@ -24,5 +24,9 @@ knn-hit-ordering	12648430	4dffec779192d13928d5992866b5fcd6d859712f63099a8e62e1cf
 synonym-fst	12648430	9a0208630b0aa5a23af7a5a2c1982fe73c71b22cd0238178b01bfa519c767d8e	1	
 token-payload-bytes	12648430	db45bfae00e4ec643fa3876036b15c1f59d43f0e2b1c56e2313ce7c8fd43c7d1	14	
 queries-hit-corpus	12648430	bad997a9eb4900a5bf13b0207b3e77477db5006fe47faa9e65a1bc0598760ad9	17	
+taxonomy-directory	12648430	cda87edcd1d481fd717329f5394f0e769b1320246a114316a75e97e5daa1ebc6	5	
+facet-association-payload	12648430	264ee645321b3fb63872d88460f7ee53892298f349e2b8638f2f3e029b23803f	17	
+facet-sortedset-ords	12648430	bee3178fa8ce0ece77b152ad3a03bc0ce4feecbcb7edf545b091e5539b5d996b	12	
+facet-set-packed-bytes	12648430	3a25ff14bb3bbde2b00a0ed1ce43f5b04d8cb4523b3883430665377825ff3645	12	
 hunspell-blob	12648430	(deferred)	0	gap_notes="deferred to per-package task"
 snowball-blob	12648430	(deferred)	0	gap_notes="deferred to per-package task"

@@ -3,6 +3,9 @@ package io.github.flaviocfoliveira.gocene.lucenefixtures;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.CompoundFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.CompressingStoredFieldsScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.DocValuesFormatScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.FacetAssociationPayloadScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.FacetSetPackedBytesScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.FacetSortedsetOrdsScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.FieldInfosFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.FstBlobScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.IndexCorruptionScenario;
@@ -23,6 +26,7 @@ import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SoftDeletesSce
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.StorePrimitivesScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.StoredFieldsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SynonymFstScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.TaxonomyDirectoryScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.TermVectorsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.TokenPayloadScenario;
 
@@ -81,6 +85,13 @@ public final class Scenarios {
         // after the search-* and analysis-* scenarios so existing baseline.tsv
         // row positions remain stable.
         register(new QueriesHitCorpusScenario());
+        // Sprint 114 T12 (rmp 4620): facets-module scenarios. Appended in
+        // stack order — after the queries-* scenario — so the manifest
+        // ordering for prior rows is preserved.
+        register(new TaxonomyDirectoryScenario());
+        register(new FacetAssociationPayloadScenario());
+        register(new FacetSortedsetOrdsScenario());
+        register(new FacetSetPackedBytesScenario());
     }
 
     private Scenarios() {}
