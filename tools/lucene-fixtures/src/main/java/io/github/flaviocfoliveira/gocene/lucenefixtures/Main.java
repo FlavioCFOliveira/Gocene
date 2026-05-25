@@ -61,6 +61,7 @@ public final class Main {
             case "verify-fvh-phrases" -> runVerifyFvhPhrases(args, out, err);
             case "verify-join-hits" -> runVerifyJoinHits(args, out, err);
             case "verify-grouping-results" -> runVerifyGroupingResults(args, out, err);
+            case "verify-classifier-labels" -> runVerifyClassifierLabels(args, out, err);
             case "-h", "--help", "help" -> {
                 usage(out);
                 yield 0;
@@ -332,6 +333,36 @@ public final class Main {
         return 0;
     }
 
+    /** Verifies {@code classifier-labels.tsv}. The held-out test bodies are
+     *  derived from the seed, so this verifier takes an explicit seed
+     *  (mirrors {@code gen}/{@code verify}). */
+    private static int runVerifyClassifierLabels(String[] args, PrintStream out, PrintStream err) {
+        if (args.length < 2 || args.length > 3) {
+            err.println("usage: verify-classifier-labels <dir> [seed]");
+            return 1;
+        }
+        java.nio.file.Path source = java.nio.file.Path.of(args[1]);
+        long seed = 0L;
+        if (args.length == 3) {
+            seed = parseSeed(args[2], err);
+            if (seed == Long.MIN_VALUE && !"-9223372036854775808".equals(args[2])) {
+                return 1;
+            }
+        }
+        try {
+            CorpusScenario scenario = Scenarios.require("classifier-label-corpus");
+            scenario.verify(source, seed);
+        } catch (IllegalArgumentException e) {
+            err.println(e.getMessage());
+            return 2;
+        } catch (IOException e) {
+            err.println("verify-classifier-labels failed: " + e.getMessage());
+            return 4;
+        }
+        out.println("ok verify-classifier-labels dir=" + source.toAbsolutePath() + " seed=" + seed);
+        return 0;
+    }
+
     /** Verifies {@code queries-hits.tsv} mirrors {@link #runVerifyScoring}. */
     private static int runVerifyQueriesHits(String[] args, PrintStream out, PrintStream err) {
         if (args.length != 2) {
@@ -382,5 +413,6 @@ public final class Main {
         out.println("  verify-fvh-phrases <dir>              re-run FastVectorHighlighter in <dir> and compare to fvh-phrases.tsv");
         out.println("  verify-join-hits <dir>                re-run ToParent/ToChildBlockJoinQuery in <dir> and compare to join-*.tsv");
         out.println("  verify-grouping-results <dir>         re-run the grouping collectors in <dir> and compare to grouping-*.tsv");
+        out.println("  verify-classifier-labels <dir> [seed] re-run the classifiers in <dir> (held-out built from seed) and compare to classifier-labels.tsv");
     }
 }

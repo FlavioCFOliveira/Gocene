@@ -1,6 +1,7 @@
 package io.github.flaviocfoliveira.gocene.lucenefixtures;
 
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.AnalyzingInfixSidecarScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.ClassifierLabelCorpusScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.Completion104PostingsScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.CompletionFstScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.CompoundFormatScenario;
@@ -120,6 +121,10 @@ public final class Scenarios {
         // in stack order — after the join-* scenario — so the manifest
         // ordering for prior rows is preserved.
         register(new GroupingResultCorpusScenario());
+        // Sprint 114 T17 (rmp 4625): classification cross-engine label
+        // corpus. Appended in stack order — after the grouping-* scenario —
+        // so the manifest ordering for prior rows is preserved.
+        register(new ClassifierLabelCorpusScenario());
     }
 
     private Scenarios() {}
