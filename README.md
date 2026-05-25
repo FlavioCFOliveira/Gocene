@@ -108,5 +108,7 @@ documented in the individual sprint summaries.
 
 ## License
 
-Apache License 2.0. See `LICENSE` for the full text.
-Gocene is derived from Apache Lucene, which is also licensed under Apache 2.0.
+Apache License 2.0. See `LICENSE` for the full text and `NOTICE` for
+attribution information. Gocene is derived from Apache Lucene 10.4.0
+(releases/lucene/10.4.0, commit 9983b7c), which is also licensed under
+Apache 2.0.
