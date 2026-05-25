@@ -16,5 +16,8 @@ fst-blob	12648430	3c8a9aacb4bc0f4bd24c4fa3ce4cf7d007fb9d1a7c83e1431bfed2f6734f94
 perfield-postings-doc-values	12648430	e876cda8d2c337ada6ecb168a52af6679cfa250fc473353af3bc45fdf269d9aa	19	
 compressing-stored-fields	12648430	f8463dbf1514aaa2d8a41262b6a16da48318d6ae27267646eeca3e823a3f69e6	5	
 scalar-quantized-knn	12648430	14135c8f93df03067541dbd6bebfb7485682651c3029ab25477b7dcbcdab3627	11	
+index-deletions-and-dv-updates	12648430	2932570bb3124464d513cdf1e04425458d24625bf26ecd49963601b11305f214	16	
+index-corruption	12648430	7e507831caee4eb1d7cfa23b10262fd4043943d15b2762e2eea25d2da55b96c0	20	
+index-soft-deletes	12648430	bdcd8c4c8026042fa9468eb166f7ee4074a4bb9aaba18d42698defc83aa05974	24	
 hunspell-blob	12648430	(deferred)	0	gap_notes="deferred to per-package task"
 snowball-blob	12648430	(deferred)	0	gap_notes="deferred to per-package task"

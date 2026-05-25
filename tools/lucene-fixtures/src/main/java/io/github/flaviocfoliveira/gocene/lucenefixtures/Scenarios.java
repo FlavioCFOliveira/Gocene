@@ -5,6 +5,8 @@ import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.CompressingSto
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.DocValuesFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.FieldInfosFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.FstBlobScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.IndexCorruptionScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.IndexDeletionsAndDvUpdatesScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.KnnVectorsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.LiveDocsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.NormsFormatScenario;
@@ -14,6 +16,7 @@ import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PostingsFormat
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.ScalarQuantizedKnnScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SegmentInfoFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SmokeScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SoftDeletesScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.StorePrimitivesScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.StoredFieldsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.TermVectorsFormatScenario;
@@ -52,6 +55,13 @@ public final class Scenarios {
         register(new PerFieldDispatchScenario());
         register(new CompressingStoredFieldsScenario());
         register(new ScalarQuantizedKnnScenario());
+        // Sprint 114 T8 (rmp 4616): two new index-package scenarios.
+        // Appended at the end of the registration order so existing
+        // baseline.tsv rows keep their position.
+        register(new IndexDeletionsAndDvUpdatesScenario());
+        register(new IndexCorruptionScenario());
+        // T8 helper: soft-deletes coverage for the soft-deletes audit row.
+        register(new SoftDeletesScenario());
     }
 
     private Scenarios() {}

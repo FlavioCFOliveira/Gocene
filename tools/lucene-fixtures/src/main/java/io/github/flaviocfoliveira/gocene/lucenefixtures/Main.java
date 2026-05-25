@@ -12,6 +12,7 @@ import java.nio.file.Path;
  *   java -jar lucene-fixtures.jar verify   &lt;scenario&gt; &lt;seed&gt; &lt;source&gt;
  *   java -jar lucene-fixtures.jar list
  *   java -jar lucene-fixtures.jar manifest [seed]
+ *   java -jar lucene-fixtures.jar check    &lt;dir&gt;
  * </pre>
  *
  * <p>Exit codes:
@@ -52,6 +53,7 @@ public final class Main {
             case "verify" -> runVerify(args, out, err);
             case "list" -> runList(out);
             case "manifest" -> runManifest(args, out, err);
+            case "check" -> runCheck(args, out, err);
             case "-h", "--help", "help" -> {
                 usage(out);
                 yield 0;
@@ -146,6 +148,44 @@ public final class Main {
         return 0;
     }
 
+    /**
+     * Runs Lucene's {@link org.apache.lucene.index.CheckIndex} over a
+     * directory and reports {@code clean} on success.
+     *
+     * <p>Output format on success (stdout, single line):
+     * <pre>ok check dir=&lt;absolute-path&gt; segments=&lt;n&gt; missingSegments=false</pre>
+     *
+     * <p>On failure the CheckIndex textual report is forwarded to stderr
+     * and the exit code is 4 (matching the {@code verify} contract).
+     */
+    private static int runCheck(String[] args, PrintStream out, PrintStream err) {
+        if (args.length != 2) {
+            err.println("usage: check <dir>");
+            return 1;
+        }
+        Path source = Path.of(args[1]);
+        try (org.apache.lucene.store.FSDirectory dir = org.apache.lucene.store.FSDirectory.open(source);
+             java.io.ByteArrayOutputStream captured = new java.io.ByteArrayOutputStream();
+             PrintStream sink = new PrintStream(captured, true, java.nio.charset.StandardCharsets.UTF_8);
+             org.apache.lucene.index.CheckIndex checker = new org.apache.lucene.index.CheckIndex(dir)) {
+            checker.setInfoStream(sink, false);
+            org.apache.lucene.index.CheckIndex.Status status = checker.checkIndex();
+            if (status.clean) {
+                int segs = status.segmentInfos == null ? 0 : status.segmentInfos.size();
+                out.println("ok check dir=" + source.toAbsolutePath()
+                        + " segments=" + segs
+                        + " missingSegments=" + status.missingSegments);
+                return 0;
+            }
+            err.println(captured.toString(java.nio.charset.StandardCharsets.UTF_8));
+            err.println("CheckIndex reported a non-clean index at " + source.toAbsolutePath());
+            return 4;
+        } catch (IOException e) {
+            err.println("check failed: " + e.getMessage());
+            return 3;
+        }
+    }
+
     private static long parseSeed(String s, PrintStream err) {
         try {
             // Allow 0x-prefixed hex for ergonomic CLI usage.
@@ -167,5 +207,6 @@ public final class Main {
         out.println("  verify   <scenario> <seed> <source>   verify <source> against <scenario>");
         out.println("  list                                  list registered scenario names (one per line)");
         out.println("  manifest [seed]                       print the baseline TSV manifest (seed defaults to 0xC0FFEE)");
+        out.println("  check    <dir>                        run Lucene's CheckIndex on <dir>; exit 0 iff clean");
     }
 }
