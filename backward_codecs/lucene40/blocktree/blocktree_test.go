@@ -307,7 +307,7 @@ func (n *noopPostingsReader) Impacts(
 	_ *index.FieldInfo,
 	_ *codecs.BlockTermState,
 	_ int,
-) (any, error) {
+) (index.ImpactsEnum, error) {
 	return nil, errors.New("noop")
 }
 func (n *noopPostingsReader) CheckIntegrity() error { return nil }
