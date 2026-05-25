@@ -20,6 +20,8 @@ import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.IndexDeletions
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.KnnHitOrderingScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.KnnVectorsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.LiveDocsFormatScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.MonitorIndexSegmentScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.MonitorQueryBlobScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.NormsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.ParentBlockCorpusScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PerFieldDispatchScenario;
@@ -125,6 +127,11 @@ public final class Scenarios {
         // corpus. Appended in stack order — after the grouping-* scenario —
         // so the manifest ordering for prior rows is preserved.
         register(new ClassifierLabelCorpusScenario());
+        // Sprint 114 T18 (rmp 4626): monitor-module scenarios. Appended in
+        // stack order — after the classification scenario — so the
+        // manifest ordering for prior rows is preserved.
+        register(new MonitorQueryBlobScenario());
+        register(new MonitorIndexSegmentScenario());
     }
 
     private Scenarios() {}

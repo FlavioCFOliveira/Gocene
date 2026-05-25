@@ -62,6 +62,7 @@ public final class Main {
             case "verify-join-hits" -> runVerifyJoinHits(args, out, err);
             case "verify-grouping-results" -> runVerifyGroupingResults(args, out, err);
             case "verify-classifier-labels" -> runVerifyClassifierLabels(args, out, err);
+            case "verify-monitor" -> runVerifyMonitor(args, out, err);
             case "-h", "--help", "help" -> {
                 usage(out);
                 yield 0;
@@ -363,6 +364,51 @@ public final class Main {
         return 0;
     }
 
+    /** Verifies one of the two monitor-module scenarios. The sub-flag
+     *  ("blob"|"segment") picks the scenario; the seed gate is identical to
+     *  {@link #runVerifyClassifierLabels} because Determinism.idBytes (and
+     *  therefore the segment id stamped in the file headers) is seeded.
+     *
+     *  <p>Usage: {@code verify-monitor <blob|segment> <dir> [seed]}.
+     */
+    private static int runVerifyMonitor(String[] args, PrintStream out, PrintStream err) {
+        if (args.length < 3 || args.length > 4) {
+            err.println("usage: verify-monitor <blob|segment> <dir> [seed]");
+            return 1;
+        }
+        String which = args[1];
+        String scenarioName;
+        switch (which) {
+            case "blob" -> scenarioName = "monitor-query-blob";
+            case "segment" -> scenarioName = "monitor-index-segment";
+            default -> {
+                err.println("invalid monitor sub-flag (expected 'blob' or 'segment'): " + which);
+                return 1;
+            }
+        }
+        java.nio.file.Path source = java.nio.file.Path.of(args[2]);
+        long seed = 0L;
+        if (args.length == 4) {
+            seed = parseSeed(args[3], err);
+            if (seed == Long.MIN_VALUE && !"-9223372036854775808".equals(args[3])) {
+                return 1;
+            }
+        }
+        try {
+            CorpusScenario scenario = Scenarios.require(scenarioName);
+            scenario.verify(source, seed);
+        } catch (IllegalArgumentException e) {
+            err.println(e.getMessage());
+            return 2;
+        } catch (IOException e) {
+            err.println("verify-monitor failed: " + e.getMessage());
+            return 4;
+        }
+        out.println("ok verify-monitor variant=" + which + " dir="
+                + source.toAbsolutePath() + " seed=" + seed);
+        return 0;
+    }
+
     /** Verifies {@code queries-hits.tsv} mirrors {@link #runVerifyScoring}. */
     private static int runVerifyQueriesHits(String[] args, PrintStream out, PrintStream err) {
         if (args.length != 2) {
@@ -414,5 +460,6 @@ public final class Main {
         out.println("  verify-join-hits <dir>                re-run ToParent/ToChildBlockJoinQuery in <dir> and compare to join-*.tsv");
         out.println("  verify-grouping-results <dir>         re-run the grouping collectors in <dir> and compare to grouping-*.tsv");
         out.println("  verify-classifier-labels <dir> [seed] re-run the classifiers in <dir> (held-out built from seed) and compare to classifier-labels.tsv");
+        out.println("  verify-monitor <blob|segment> <dir> [seed] re-verify the monitor-query-blob OR monitor-index-segment fixture in <dir>");
     }
 }
