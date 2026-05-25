@@ -58,6 +58,18 @@ const (
 	// PostingsFlagPositions requests term positions in postings.
 	// Implies PostingsFlagFreqs. Mirrors PostingsEnum.POSITIONS (value 24).
 	PostingsFlagPositions = PostingsFlagFreqs | 1<<4
+
+	// PostingsFlagOffsets requests character offsets in postings.
+	// Implies PostingsFlagPositions. Mirrors PostingsEnum.OFFSETS (value 56).
+	PostingsFlagOffsets = PostingsFlagPositions | 1<<5
+
+	// PostingsFlagPayloads requests payload bytes in postings.
+	// Implies PostingsFlagPositions. Mirrors PostingsEnum.PAYLOADS (value 152).
+	PostingsFlagPayloads = PostingsFlagPositions | 1<<7
+
+	// PostingsFlagAll requests all available postings data.
+	// Mirrors PostingsEnum.ALL (value 208).
+	PostingsFlagAll = PostingsFlagOffsets | PostingsFlagPayloads
 )
 
 // PostingsEnumBase provides a base implementation of the PostingsEnum interface.
