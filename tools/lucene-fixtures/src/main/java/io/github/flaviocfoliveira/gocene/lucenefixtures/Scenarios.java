@@ -1,5 +1,8 @@
 package io.github.flaviocfoliveira.gocene.lucenefixtures;
 
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.AnalyzingInfixSidecarScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.Completion104PostingsScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.CompletionFstScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.CompoundFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.CompressingStoredFieldsScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.DocValuesFormatScenario;
@@ -29,6 +32,7 @@ import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SynonymFstScen
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.TaxonomyDirectoryScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.TermVectorsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.TokenPayloadScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.WfstScenario;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -92,6 +96,13 @@ public final class Scenarios {
         register(new FacetAssociationPayloadScenario());
         register(new FacetSortedsetOrdsScenario());
         register(new FacetSetPackedBytesScenario());
+        // Sprint 114 T13 (rmp 4621): suggest-module scenarios. Appended in
+        // stack order — after the facets-* scenarios — so the manifest
+        // ordering for prior rows is preserved.
+        register(new CompletionFstScenario());
+        register(new WfstScenario());
+        register(new AnalyzingInfixSidecarScenario());
+        register(new Completion104PostingsScenario());
     }
 
     private Scenarios() {}

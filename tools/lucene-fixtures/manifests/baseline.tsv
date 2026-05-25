@@ -28,5 +28,9 @@ taxonomy-directory	12648430	cda87edcd1d481fd717329f5394f0e769b1320246a114316a75e
 facet-association-payload	12648430	264ee645321b3fb63872d88460f7ee53892298f349e2b8638f2f3e029b23803f	17	
 facet-sortedset-ords	12648430	bee3178fa8ce0ece77b152ad3a03bc0ce4feecbcb7edf545b091e5539b5d996b	12	
 facet-set-packed-bytes	12648430	3a25ff14bb3bbde2b00a0ed1ce43f5b04d8cb4523b3883430665377825ff3645	12	
+completion-fst	12648430	8a1cdc5bc68d1452a4935a28aa18abde9ccd4586ec2770e871bee36dca2163a3	1	
+wfst-blob	12648430	aa0101c3aef15bd2d837e5c22c45b8bd6d6cbafc05773289a118c2cb2ec4e0d7	1	
+analyzing-infix-sidecar	12648430	2f4561394c5c844558a852c8a9d1e18a0e44afd07d3b485b5120424a6b65fb36	3	
+completion104-postings	12648430	b1327f56772644030488bbeca9b5625601545b96b2c75151133fbb5f3d4ddab8	23	
 hunspell-blob	12648430	(deferred)	0	gap_notes="deferred to per-package task"
 snowball-blob	12648430	(deferred)	0	gap_notes="deferred to per-package task"
