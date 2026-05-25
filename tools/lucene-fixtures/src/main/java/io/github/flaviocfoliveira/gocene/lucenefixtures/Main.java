@@ -60,6 +60,7 @@ public final class Main {
             case "verify-highlight-offsets" -> runVerifyHighlightOffsets(args, out, err);
             case "verify-fvh-phrases" -> runVerifyFvhPhrases(args, out, err);
             case "verify-join-hits" -> runVerifyJoinHits(args, out, err);
+            case "verify-grouping-results" -> runVerifyGroupingResults(args, out, err);
             case "-h", "--help", "help" -> {
                 usage(out);
                 yield 0;
@@ -310,6 +311,27 @@ public final class Main {
         return 0;
     }
 
+    /** Verifies the two grouping TSVs mirrors {@link #runVerifyScoring}. */
+    private static int runVerifyGroupingResults(String[] args, PrintStream out, PrintStream err) {
+        if (args.length != 2) {
+            err.println("usage: verify-grouping-results <dir>");
+            return 1;
+        }
+        java.nio.file.Path source = java.nio.file.Path.of(args[1]);
+        try {
+            CorpusScenario scenario = Scenarios.require("grouping-result-corpus");
+            scenario.verify(source, 0L);
+        } catch (IllegalArgumentException e) {
+            err.println(e.getMessage());
+            return 2;
+        } catch (IOException e) {
+            err.println("verify-grouping-results failed: " + e.getMessage());
+            return 4;
+        }
+        out.println("ok verify-grouping-results dir=" + source.toAbsolutePath());
+        return 0;
+    }
+
     /** Verifies {@code queries-hits.tsv} mirrors {@link #runVerifyScoring}. */
     private static int runVerifyQueriesHits(String[] args, PrintStream out, PrintStream err) {
         if (args.length != 2) {
@@ -359,5 +381,6 @@ public final class Main {
         out.println("  verify-highlight-offsets <dir>        re-run UnifiedHighlighter in <dir> and compare to highlights.tsv");
         out.println("  verify-fvh-phrases <dir>              re-run FastVectorHighlighter in <dir> and compare to fvh-phrases.tsv");
         out.println("  verify-join-hits <dir>                re-run ToParent/ToChildBlockJoinQuery in <dir> and compare to join-*.tsv");
+        out.println("  verify-grouping-results <dir>         re-run the grouping collectors in <dir> and compare to grouping-*.tsv");
     }
 }

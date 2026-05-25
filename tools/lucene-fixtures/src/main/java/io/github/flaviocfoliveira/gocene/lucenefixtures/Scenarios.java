@@ -12,6 +12,7 @@ import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.FacetSortedset
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.FastVectorHighlightPhrasesScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.FieldInfosFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.FstBlobScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.GroupingResultCorpusScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.HighlightOffsetCorpusScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.IndexCorruptionScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.IndexDeletionsAndDvUpdatesScenario;
@@ -115,6 +116,10 @@ public final class Scenarios {
         // in stack order — after the highlight-* scenarios — so the manifest
         // ordering for prior rows is preserved.
         register(new ParentBlockCorpusScenario());
+        // Sprint 114 T16 (rmp 4624): grouping-module result corpus. Appended
+        // in stack order — after the join-* scenario — so the manifest
+        // ordering for prior rows is preserved.
+        register(new GroupingResultCorpusScenario());
     }
 
     private Scenarios() {}
