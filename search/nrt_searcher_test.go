@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -333,5 +334,90 @@ func TestNRTSearcher_String(t *testing.T) {
 	str := searcher.String()
 	if str == "" {
 		t.Error("expected non-empty string")
+	}
+}
+
+// TestNRTSearcher_StartStopDeadlockRegression exercises StartAutoRefresh /
+// StopAutoRefresh under high iteration counts with parallel siblings to
+// verify that the lock-ordering fix prevents the deadlock between
+// StopAutoRefresh (which formerly held mu.Lock during wg.Wait) and
+// autoRefreshLoop (which calls Refresh acquiring mu.Lock).
+func TestNRTSearcher_StartStopDeadlockRegression(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping deadlock regression in -short mode")
+	}
+
+	const iterations = 100
+	for i := 0; i < iterations; i++ {
+		t.Run(fmt.Sprintf("iter_%d", i), func(t *testing.T) {
+			t.Parallel()
+
+			dir := store.NewByteBuffersDirectory()
+			defer dir.Close()
+
+			sm := createTestSearcherManager(t, dir)
+			defer sm.Close()
+
+			nrt, err := NewNRTSearcher(sm)
+			if err != nil {
+				t.Fatalf("NewNRTSearcher: %v", err)
+			}
+			defer nrt.Close()
+
+			if err := nrt.StartAutoRefresh(10 * time.Millisecond); err != nil {
+				t.Fatalf("StartAutoRefresh: %v", err)
+			}
+
+			// Let at least one refresh happen.
+			time.Sleep(30 * time.Millisecond)
+
+			if err := nrt.StopAutoRefresh(); err != nil {
+				t.Fatalf("StopAutoRefresh: %v", err)
+			}
+
+			if nrt.IsAutoRefreshRunning() {
+				t.Error("auto-refresh should be stopped")
+			}
+		})
+	}
+}
+
+// TestNRTSearcher_CloseAutoRefreshDeadlockRegression verifies that Close
+// with an active auto-refresh goroutine does not deadlock.
+func TestNRTSearcher_CloseAutoRefreshDeadlockRegression(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping deadlock regression in -short mode")
+	}
+
+	const iterations = 100
+	for i := 0; i < iterations; i++ {
+		t.Run(fmt.Sprintf("iter_%d", i), func(t *testing.T) {
+			t.Parallel()
+
+			dir := store.NewByteBuffersDirectory()
+			defer dir.Close()
+
+			sm := createTestSearcherManager(t, dir)
+			defer sm.Close()
+
+			nrt, err := NewNRTSearcher(sm)
+			if err != nil {
+				t.Fatalf("NewNRTSearcher: %v", err)
+			}
+
+			if err := nrt.StartAutoRefresh(10 * time.Millisecond); err != nil {
+				t.Fatalf("StartAutoRefresh: %v", err)
+			}
+
+			time.Sleep(30 * time.Millisecond)
+
+			if err := nrt.Close(); err != nil {
+				t.Fatalf("Close: %v", err)
+			}
+
+			if nrt.IsOpen() {
+				t.Error("searcher should be closed")
+			}
+		})
 	}
 }

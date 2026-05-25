@@ -167,18 +167,25 @@ func (nrt *NRTSearcher) StartAutoRefresh(interval time.Duration) error {
 }
 
 // StopAutoRefresh stops automatic refreshing.
+//
+// Locking contract: close(stopChan) is performed under the write lock to
+// prevent double-close, but wg.Wait() is called OUTSIDE the lock to avoid
+// deadlock with autoRefreshLoop. If wg.Wait() were called while holding the
+// write lock, autoRefreshLoop — which may be inside Refresh() contending for
+// the write lock — would never observe the closed stopChan, causing a
+// circular wait.
 func (nrt *NRTSearcher) StopAutoRefresh() error {
 	nrt.mu.Lock()
-	defer nrt.mu.Unlock()
-
 	if !nrt.autoRefresh {
+		nrt.mu.Unlock()
 		return nil
 	}
 
 	nrt.autoRefresh = false
 	close(nrt.stopChan)
-	nrt.wg.Wait()
+	nrt.mu.Unlock()
 
+	nrt.wg.Wait()
 	return nil
 }
 
