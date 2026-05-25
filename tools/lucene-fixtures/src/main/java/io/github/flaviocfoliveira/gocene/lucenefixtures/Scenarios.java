@@ -21,7 +21,9 @@ import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SmokeScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SoftDeletesScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.StorePrimitivesScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.StoredFieldsFormatScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SynonymFstScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.TermVectorsFormatScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.TokenPayloadScenario;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -69,6 +71,11 @@ public final class Scenarios {
         // index-order anchors.
         register(new SearchScoringCorpusScenario());
         register(new KnnHitOrderingScenario());
+        // Sprint 114 T10 (rmp 4618): analysis-side scenarios. Appended in
+        // stack order — after the search-* scenarios — so the manifest
+        // ordering for prior rows is preserved.
+        register(new SynonymFstScenario());
+        register(new TokenPayloadScenario());
     }
 
     private Scenarios() {}

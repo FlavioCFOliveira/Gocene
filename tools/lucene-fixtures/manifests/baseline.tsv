@@ -21,5 +21,7 @@ index-corruption	12648430	7e507831caee4eb1d7cfa23b10262fd4043943d15b2762e2eea25d
 index-soft-deletes	12648430	bdcd8c4c8026042fa9468eb166f7ee4074a4bb9aaba18d42698defc83aa05974	24	
 search-scoring-corpus	12648430	9225d865506d9efdfa4c81ad61dbf01b9441b174c5b1676466a411c4fa42df8f	14	
 knn-hit-ordering	12648430	4dffec779192d13928d5992866b5fcd6d859712f63099a8e62e1cf8d3d0eedae	15	
+synonym-fst	12648430	9a0208630b0aa5a23af7a5a2c1982fe73c71b22cd0238178b01bfa519c767d8e	1	
+token-payload-bytes	12648430	db45bfae00e4ec643fa3876036b15c1f59d43f0e2b1c56e2313ce7c8fd43c7d1	14	
 hunspell-blob	12648430	(deferred)	0	gap_notes="deferred to per-package task"
 snowball-blob	12648430	(deferred)	0	gap_notes="deferred to per-package task"
