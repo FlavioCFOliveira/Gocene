@@ -23,6 +23,23 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Cache Maven repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('tools/lucene-fixtures/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: Build Lucene fixture harness (Sprint 114 T2)
+        run: mvn -B -q -f tools/lucene-fixtures/pom.xml verify
+
       - name: Build
         run: go build ./...
 
@@ -34,3 +51,8 @@ jobs:
 
       - name: Test
         run: go test ./... -timeout 300s
+
+      - name: Compat tests (Lucene round-trip)
+        env:
+          LUCENE_FIXTURES_JAR: ${{ github.workspace }}/tools/lucene-fixtures/target/lucene-fixtures.jar
+        run: go test -tags compat ./internal/compat/... -timeout 300s
