@@ -57,6 +57,8 @@ public final class Main {
             case "verify-scoring" -> runVerifyScoring(args, out, err);
             case "verify-knn-hits" -> runVerifyKnnHits(args, out, err);
             case "verify-queries-hits" -> runVerifyQueriesHits(args, out, err);
+            case "verify-highlight-offsets" -> runVerifyHighlightOffsets(args, out, err);
+            case "verify-fvh-phrases" -> runVerifyFvhPhrases(args, out, err);
             case "-h", "--help", "help" -> {
                 usage(out);
                 yield 0;
@@ -240,6 +242,48 @@ public final class Main {
         return 0;
     }
 
+    /** Verifies {@code highlights.tsv} mirrors {@link #runVerifyScoring}. */
+    private static int runVerifyHighlightOffsets(String[] args, PrintStream out, PrintStream err) {
+        if (args.length != 2) {
+            err.println("usage: verify-highlight-offsets <dir>");
+            return 1;
+        }
+        java.nio.file.Path source = java.nio.file.Path.of(args[1]);
+        try {
+            CorpusScenario scenario = Scenarios.require("highlight-offset-corpus");
+            scenario.verify(source, 0L);
+        } catch (IllegalArgumentException e) {
+            err.println(e.getMessage());
+            return 2;
+        } catch (IOException e) {
+            err.println("verify-highlight-offsets failed: " + e.getMessage());
+            return 4;
+        }
+        out.println("ok verify-highlight-offsets dir=" + source.toAbsolutePath());
+        return 0;
+    }
+
+    /** Verifies {@code fvh-phrases.tsv} mirrors {@link #runVerifyScoring}. */
+    private static int runVerifyFvhPhrases(String[] args, PrintStream out, PrintStream err) {
+        if (args.length != 2) {
+            err.println("usage: verify-fvh-phrases <dir>");
+            return 1;
+        }
+        java.nio.file.Path source = java.nio.file.Path.of(args[1]);
+        try {
+            CorpusScenario scenario = Scenarios.require("fast-vector-highlight-phrases");
+            scenario.verify(source, 0L);
+        } catch (IllegalArgumentException e) {
+            err.println(e.getMessage());
+            return 2;
+        } catch (IOException e) {
+            err.println("verify-fvh-phrases failed: " + e.getMessage());
+            return 4;
+        }
+        out.println("ok verify-fvh-phrases dir=" + source.toAbsolutePath());
+        return 0;
+    }
+
     /** Verifies {@code queries-hits.tsv} mirrors {@link #runVerifyScoring}. */
     private static int runVerifyQueriesHits(String[] args, PrintStream out, PrintStream err) {
         if (args.length != 2) {
@@ -286,5 +330,7 @@ public final class Main {
         out.println("  verify-scoring  <dir>                 re-run BM25 queries in <dir> and compare to scoring.tsv");
         out.println("  verify-knn-hits <dir>                 re-run KNN queries in <dir> and compare to knn-hits.tsv");
         out.println("  verify-queries-hits <dir>             re-run the queries-module catalogue in <dir> and compare to queries-hits.tsv");
+        out.println("  verify-highlight-offsets <dir>        re-run UnifiedHighlighter in <dir> and compare to highlights.tsv");
+        out.println("  verify-fvh-phrases <dir>              re-run FastVectorHighlighter in <dir> and compare to fvh-phrases.tsv");
     }
 }

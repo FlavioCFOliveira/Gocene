@@ -9,8 +9,10 @@ import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.DocValuesForma
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.FacetAssociationPayloadScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.FacetSetPackedBytesScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.FacetSortedsetOrdsScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.FastVectorHighlightPhrasesScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.FieldInfosFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.FstBlobScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.HighlightOffsetCorpusScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.IndexCorruptionScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.IndexDeletionsAndDvUpdatesScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.KnnHitOrderingScenario;
@@ -103,6 +105,11 @@ public final class Scenarios {
         register(new WfstScenario());
         register(new AnalyzingInfixSidecarScenario());
         register(new Completion104PostingsScenario());
+        // Sprint 114 T14 (rmp 4622): highlight-module scenarios. Appended in
+        // stack order — after the suggest-* scenarios — so the manifest
+        // ordering for prior rows is preserved.
+        register(new HighlightOffsetCorpusScenario());
+        register(new FastVectorHighlightPhrasesScenario());
     }
 
     private Scenarios() {}

@@ -32,5 +32,7 @@ completion-fst	12648430	8a1cdc5bc68d1452a4935a28aa18abde9ccd4586ec2770e871bee36d
 wfst-blob	12648430	aa0101c3aef15bd2d837e5c22c45b8bd6d6cbafc05773289a118c2cb2ec4e0d7	1	
 analyzing-infix-sidecar	12648430	2f4561394c5c844558a852c8a9d1e18a0e44afd07d3b485b5120424a6b65fb36	3	
 completion104-postings	12648430	b1327f56772644030488bbeca9b5625601545b96b2c75151133fbb5f3d4ddab8	23	
+highlight-offset-corpus	12648430	cd88938b2efde1994a0656f4617569bff771c1fc4b31c21bc2681aee91f401a9	15	
+fast-vector-highlight-phrases	12648430	5761e39d0b440f896068d3e3fe5e8e9fb125a391979b8c3d48cdae6f1af6247a	18	
 hunspell-blob	12648430	(deferred)	0	gap_notes="deferred to per-package task"
 snowball-blob	12648430	(deferred)	0	gap_notes="deferred to per-package task"
