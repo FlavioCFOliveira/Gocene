@@ -390,9 +390,18 @@ func (p *PostingsTester) TestFull(format PostingsFormat, options index.IndexOpti
 			p.t.Fatalf("Expected term %s, got %s", expectedTerm.Text(), actualTerm.Text())
 		}
 
-		// Verify postings
+		// Verify postings — request the flags that match the index options so
+		// the reader decodes freqs/positions correctly.
 		expectedPostings := seedTerms.termToDocs[expectedTerm.Text()]
-		pe, err := te.Postings(0) // 0 for default flags
+		var readFlags int
+		if options >= index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets {
+			readFlags = index.PostingsFlagOffsets
+		} else if options >= index.IndexOptionsDocsAndFreqsAndPositions {
+			readFlags = index.PostingsFlagPositions
+		} else if options >= index.IndexOptionsDocsAndFreqs {
+			readFlags = index.PostingsFlagFreqs
+		}
+		pe, err := te.Postings(readFlags)
 		if err != nil {
 			p.t.Fatalf("TermsEnum.Postings failed: %v", err)
 		}

@@ -192,16 +192,18 @@ func newLucene104PostingsWriterWithVersion(state *SegmentWriteState, version int
 		}
 	}()
 
-	metaOut, err := state.Directory.CreateOutput(metaFileName, store.IOContext{Context: store.ContextWrite})
+	rawMetaOut, err := state.Directory.CreateOutput(metaFileName, store.IOContext{Context: store.ContextWrite})
 	if err != nil {
 		return nil, fmt.Errorf("lucene104 postings writer: create %s: %w", metaFileName, err)
 	}
+	metaOut := store.NewChecksumIndexOutput(rawMetaOut)
 	w.metaOut = metaOut
 
-	docOut, err := state.Directory.CreateOutput(docFileName, store.IOContext{Context: store.ContextWrite})
+	rawDocOut, err := state.Directory.CreateOutput(docFileName, store.IOContext{Context: store.ContextWrite})
 	if err != nil {
 		return nil, fmt.Errorf("lucene104 postings writer: create %s: %w", docFileName, err)
 	}
+	docOut := store.NewChecksumIndexOutput(rawDocOut)
 	w.docOut = docOut
 
 	if err := WriteIndexHeader(metaOut, lucene104MetaCodec, int32(version), state.SegmentInfo.GetID(), state.SegmentSuffix); err != nil {
@@ -217,10 +219,11 @@ func newLucene104PostingsWriterWithVersion(state *SegmentWriteState, version int
 	if state.FieldInfos.HasProx() {
 		w.posDeltaBuffer = make([]int32, lucene104BlockSize)
 		posFileName := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene104PosExtension)
-		posOut, err = state.Directory.CreateOutput(posFileName, store.IOContext{Context: store.ContextWrite})
-		if err != nil {
-			return nil, fmt.Errorf("lucene104 postings writer: create %s: %w", posFileName, err)
+		rawPosOut, posErr := state.Directory.CreateOutput(posFileName, store.IOContext{Context: store.ContextWrite})
+		if posErr != nil {
+			return nil, fmt.Errorf("lucene104 postings writer: create %s: %w", posFileName, posErr)
 		}
+		posOut = store.NewChecksumIndexOutput(rawPosOut)
 		if err := WriteIndexHeader(posOut, lucene104PosCodec, int32(version), state.SegmentInfo.GetID(), state.SegmentSuffix); err != nil {
 			return nil, fmt.Errorf("lucene104 postings writer: write pos header: %w", err)
 		}
@@ -237,10 +240,11 @@ func newLucene104PostingsWriterWithVersion(state *SegmentWriteState, version int
 
 		if state.FieldInfos.HasPayloads() || state.FieldInfos.HasOffsets() {
 			payFileName := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene104PayExtension)
-			payOut, err = state.Directory.CreateOutput(payFileName, store.IOContext{Context: store.ContextWrite})
-			if err != nil {
-				return nil, fmt.Errorf("lucene104 postings writer: create %s: %w", payFileName, err)
+			rawPayOut, payErr := state.Directory.CreateOutput(payFileName, store.IOContext{Context: store.ContextWrite})
+			if payErr != nil {
+				return nil, fmt.Errorf("lucene104 postings writer: create %s: %w", payFileName, payErr)
 			}
+			payOut = store.NewChecksumIndexOutput(rawPayOut)
 			if err := WriteIndexHeader(payOut, lucene104PayCodec, int32(version), state.SegmentInfo.GetID(), state.SegmentSuffix); err != nil {
 				return nil, fmt.Errorf("lucene104 postings writer: write pay header: %w", err)
 			}
@@ -688,92 +692,99 @@ func (w *Lucene104PostingsWriter) flushDocBlock(finishTerm bool) error {
 	}
 
 	if w.docBufferUpto < lucene104BlockSize {
-		// Terminal partial block: VInt-encode through PostingsUtil.
-		return writeLucene104VIntBlock(
+		// Terminal partial block: VInt-encode the docs/freqs into level0Output.
+		// Mirrors Java: PostingsUtil.writeVIntBlock(level0Output, ...) then
+		// falls through to the unconditional level0→level1→docOut flush below.
+		if err := writeLucene104VIntBlock(
 			w.level0Output,
 			w.docDeltaBuffer,
 			w.freqBuffer,
 			w.docBufferUpto,
 			w.writeFreqs,
-		)
-	}
+		); err != nil {
+			return err
+		}
+	} else {
+		// Full block: write impacts + optional pos/pay deltas as level-0 skip
+		// data, then encode the doc deltas and freqs.
+		if w.writeFreqs {
+			impacts := w.level0FreqNormAcc.GetCompetitiveFreqNormPairs()
+			if len(impacts) > w.maxNumImpactsAtLevel0 {
+				w.maxNumImpactsAtLevel0 = len(impacts)
+			}
+			if err := writeImpacts(impacts, w.scratchOutput); err != nil {
+				return err
+			}
+			if w.level0Output.Size() != 0 {
+				return fmt.Errorf("lucene104: level0Output must be empty before writing impacts")
+			}
+			impactBytes := int(w.scratchOutput.Size())
+			if impactBytes > w.maxImpactNumBytesAtLevel0 {
+				w.maxImpactNumBytesAtLevel0 = impactBytes
+			}
+			if err := w.level0Output.WriteVLong(w.scratchOutput.Size()); err != nil {
+				return err
+			}
+			if err := w.scratchOutput.CopyTo(w.level0Output); err != nil {
+				return err
+			}
+			w.scratchOutput.Reset()
 
-	// Full block: write impacts + optional pos/pay deltas as level-0 skip
-	// data, then encode the doc deltas and freqs.
-	if w.writeFreqs {
-		impacts := w.level0FreqNormAcc.GetCompetitiveFreqNormPairs()
-		if len(impacts) > w.maxNumImpactsAtLevel0 {
-			w.maxNumImpactsAtLevel0 = len(impacts)
+			if w.writePositions {
+				posFP := w.posOut.GetFilePointer()
+				if err := w.level0Output.WriteVLong(posFP - w.level0LastPosFP); err != nil {
+					return err
+				}
+				if err := w.level0Output.WriteByte(byte(w.posBufferUpto)); err != nil {
+					return err
+				}
+				w.level0LastPosFP = posFP
+
+				if w.writeOffsets || w.writePayloads {
+					payFP := w.payOut.GetFilePointer()
+					if err := w.level0Output.WriteVLong(payFP - w.level0LastPayFP); err != nil {
+						return err
+					}
+					if err := w.level0Output.WriteVInt(int32(w.payloadByteUpto)); err != nil {
+						return err
+					}
+					w.level0LastPayFP = payFP
+				}
+			}
 		}
-		if err := writeImpacts(impacts, w.scratchOutput); err != nil {
+
+		// Encode doc deltas: choose between FOR, bit-set, or dense.
+		numSkipBytes := w.level0Output.Size()
+		if err := w.encodeDocBlock(); err != nil {
 			return err
 		}
-		if w.level0Output.Size() != 0 {
-			return fmt.Errorf("lucene104: level0Output must be empty before writing impacts")
+
+		if w.writeFreqs {
+			if err := w.pforUtil.Encode(w.freqBuffer, bbdoIndexOutput{w.level0Output}); err != nil {
+				return fmt.Errorf("lucene104 postings writer: encode freq block: %w", err)
+			}
 		}
-		impactBytes := int(w.scratchOutput.Size())
-		if impactBytes > w.maxImpactNumBytesAtLevel0 {
-			w.maxImpactNumBytesAtLevel0 = impactBytes
-		}
-		if err := w.level0Output.WriteVLong(w.scratchOutput.Size()); err != nil {
+
+		// Write level-0 skip trailer into level1Output.
+		if err := writeVInt15(w.scratchOutput, int32(w.docID-w.level0LastDocID)); err != nil {
 			return err
 		}
-		if err := w.scratchOutput.CopyTo(w.level0Output); err != nil {
+		if err := writeVLong15(w.scratchOutput, w.level0Output.Size()); err != nil {
+			return err
+		}
+		numSkipBytes += w.scratchOutput.Size()
+		if err := w.level1Output.WriteVLong(numSkipBytes); err != nil {
+			return err
+		}
+		if err := w.scratchOutput.CopyTo(w.level1Output); err != nil {
 			return err
 		}
 		w.scratchOutput.Reset()
-
-		if w.writePositions {
-			posFP := w.posOut.GetFilePointer()
-			if err := w.level0Output.WriteVLong(posFP - w.level0LastPosFP); err != nil {
-				return err
-			}
-			if err := w.level0Output.WriteByte(byte(w.posBufferUpto)); err != nil {
-				return err
-			}
-			w.level0LastPosFP = posFP
-
-			if w.writeOffsets || w.writePayloads {
-				payFP := w.payOut.GetFilePointer()
-				if err := w.level0Output.WriteVLong(payFP - w.level0LastPayFP); err != nil {
-					return err
-				}
-				if err := w.level0Output.WriteVInt(int32(w.payloadByteUpto)); err != nil {
-					return err
-				}
-				w.level0LastPayFP = payFP
-			}
-		}
 	}
 
-	// Encode doc deltas: choose between FOR, bit-set, or dense.
-	numSkipBytes := w.level0Output.Size()
-	if err := w.encodeDocBlock(); err != nil {
-		return err
-	}
-
-	if w.writeFreqs {
-		if err := w.pforUtil.Encode(w.freqBuffer, bbdoIndexOutput{w.level0Output}); err != nil {
-			return fmt.Errorf("lucene104 postings writer: encode freq block: %w", err)
-		}
-	}
-
-	// Write level-0 skip trailer into level1Output.
-	if err := writeVInt15(w.scratchOutput, int32(w.docID-w.level0LastDocID)); err != nil {
-		return err
-	}
-	if err := writeVLong15(w.scratchOutput, w.level0Output.Size()); err != nil {
-		return err
-	}
-	numSkipBytes += w.scratchOutput.Size()
-	if err := w.level1Output.WriteVLong(numSkipBytes); err != nil {
-		return err
-	}
-	if err := w.scratchOutput.CopyTo(w.level1Output); err != nil {
-		return err
-	}
-	w.scratchOutput.Reset()
-
+	// Unconditional: flush level0Output into level1Output.
+	// Mirrors Java: level0Output.copyTo(level1Output) runs for both
+	// partial-block and full-block paths.
 	if err := w.level0Output.CopyTo(w.level1Output); err != nil {
 		return err
 	}

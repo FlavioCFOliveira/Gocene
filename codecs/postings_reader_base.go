@@ -45,7 +45,11 @@ type PostingsReaderBase interface {
 	// termState. absolute indicates whether the term is the first term in a
 	// block (and therefore stored absolutely) or a delta against the previous
 	// term in the same block.
-	DecodeTerm(in store.IndexInput, fieldInfo *index.FieldInfo, termState *BlockTermState, absolute bool) error
+	//
+	// in is typed as DataInput (not IndexInput) because the term-dictionary
+	// reader passes a ByteArrayDataInput backed by an in-memory stats blob —
+	// not the raw .tim file handle. Mirrors Java's DataInput parameter.
+	DecodeTerm(in store.DataInput, fieldInfo *index.FieldInfo, termState *BlockTermState, absolute bool) error
 
 	// Postings returns a PostingsEnum over the term identified by termState.
 	// reuse may be the previous PostingsEnum returned for the same field;

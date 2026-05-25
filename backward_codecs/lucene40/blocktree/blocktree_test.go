@@ -288,7 +288,7 @@ func (n *noopPostingsReader) NewTermState() *codecs.BlockTermState {
 	return codecs.NewBlockTermState()
 }
 func (n *noopPostingsReader) DecodeTerm(
-	_ store.IndexInput,
+	_ store.DataInput,
 	_ *index.FieldInfo,
 	_ *codecs.BlockTermState,
 	_ bool,

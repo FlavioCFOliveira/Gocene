@@ -254,7 +254,7 @@ func (r *Lucene104PostingsReader) NewTermState() *BlockTermState {
 // Mirrors Lucene104PostingsReader.decodeTerm(DataInput, FieldInfo,
 // BlockTermState, boolean).
 func (r *Lucene104PostingsReader) DecodeTerm(
-	in store.IndexInput,
+	in store.DataInput,
 	fieldInfo *index.FieldInfo,
 	termState *BlockTermState,
 	absolute bool,
@@ -765,6 +765,15 @@ func (e *blockPostingsEnum) reset(termState *IntBlockTermState, flags int) (inde
 
 	if e.docFreq < lucene104Level1NumDocs {
 		e.level1LastDocID = index.NO_MORE_DOCS
+		// level1DocEndFP must point to DocStartFP even though level-1 skip
+		// data does not exist for this term. When docFreq < level1NumDocs,
+		// skipLevel1To is entered on the first NextDoc because doc==-1 equals
+		// level1LastDocID==-1 (NO_MORE_DOCS). skipLevel1To seeks to
+		// level1DocEndFP, so we must initialise it here.
+		// Mirrors Java's docIn.seek(termState.docStartFP) in the equivalent
+		// branch (Java avoids skipLevel1To by using Integer.MAX_VALUE ≠ -1;
+		// Gocene uses NO_MORE_DOCS=-1 so the check fires and we compensate).
+		e.level1DocEndFP = termState.DocStartFP
 		if e.docFreq > 1 {
 			if err := e.docIn.SetPosition(termState.DocStartFP); err != nil {
 				return nil, fmt.Errorf("lucene104 postings enum reset: seek docIn: %w", err)

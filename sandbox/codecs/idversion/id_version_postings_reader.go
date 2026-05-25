@@ -55,7 +55,7 @@ func (r *IDVersionPostingsReader) NewTermState() *codecs.BlockTermState {
 // Mirrors IDVersionPostingsReader.decodeTerm(DataInput, FieldInfo,
 // BlockTermState, boolean).
 func (r *IDVersionPostingsReader) DecodeTerm(
-	in store.IndexInput,
+	in store.DataInput,
 	_ *index.FieldInfo,
 	termState *codecs.BlockTermState,
 	absolute bool,

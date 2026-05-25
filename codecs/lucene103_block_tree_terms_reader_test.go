@@ -84,7 +84,7 @@ func (f *fakePostingsReader) Init(termsIn store.IndexInput, _ *SegmentReadState)
 
 func (f *fakePostingsReader) NewTermState() *BlockTermState { return NewBlockTermState() }
 
-func (f *fakePostingsReader) DecodeTerm(_ store.IndexInput, _ *index.FieldInfo, _ *BlockTermState, _ bool) error {
+func (f *fakePostingsReader) DecodeTerm(_ store.DataInput, _ *index.FieldInfo, _ *BlockTermState, _ bool) error {
 	return nil
 }
 

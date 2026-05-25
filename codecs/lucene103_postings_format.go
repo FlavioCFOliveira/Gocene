@@ -181,7 +181,7 @@ func (r *Lucene103PostingsReader) NewTermState() *BlockTermState {
 
 // DecodeTerm satisfies PostingsReaderBase. The stub leaves termState
 // untouched, matching the no-op EncodeTerm on the writer side.
-func (r *Lucene103PostingsReader) DecodeTerm(in store.IndexInput, fieldInfo *index.FieldInfo, termState *BlockTermState, absolute bool) error {
+func (r *Lucene103PostingsReader) DecodeTerm(in store.DataInput, fieldInfo *index.FieldInfo, termState *BlockTermState, absolute bool) error {
 	return nil
 }
 
