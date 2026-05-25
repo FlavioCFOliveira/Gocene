@@ -14,6 +14,7 @@ import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.NormsFormatSce
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PerFieldDispatchScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PointsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PostingsFormatScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.QueriesHitCorpusScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.ScalarQuantizedKnnScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SearchScoringCorpusScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SegmentInfoFormatScenario;
@@ -76,6 +77,10 @@ public final class Scenarios {
         // ordering for prior rows is preserved.
         register(new SynonymFstScenario());
         register(new TokenPayloadScenario());
+        // Sprint 114 T11 (rmp 4619): queries-module hit/score corpus. Appended
+        // after the search-* and analysis-* scenarios so existing baseline.tsv
+        // row positions remain stable.
+        register(new QueriesHitCorpusScenario());
     }
 
     private Scenarios() {}

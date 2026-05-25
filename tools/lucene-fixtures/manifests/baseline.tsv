@@ -23,5 +23,6 @@ search-scoring-corpus	12648430	9225d865506d9efdfa4c81ad61dbf01b9441b174c5b167646
 knn-hit-ordering	12648430	4dffec779192d13928d5992866b5fcd6d859712f63099a8e62e1cf8d3d0eedae	15	
 synonym-fst	12648430	9a0208630b0aa5a23af7a5a2c1982fe73c71b22cd0238178b01bfa519c767d8e	1	
 token-payload-bytes	12648430	db45bfae00e4ec643fa3876036b15c1f59d43f0e2b1c56e2313ce7c8fd43c7d1	14	
+queries-hit-corpus	12648430	bad997a9eb4900a5bf13b0207b3e77477db5006fe47faa9e65a1bc0598760ad9	17	
 hunspell-blob	12648430	(deferred)	0	gap_notes="deferred to per-package task"
 snowball-blob	12648430	(deferred)	0	gap_notes="deferred to per-package task"

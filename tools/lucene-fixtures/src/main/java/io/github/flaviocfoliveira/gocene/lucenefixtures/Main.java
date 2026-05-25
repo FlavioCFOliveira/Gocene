@@ -56,6 +56,7 @@ public final class Main {
             case "check" -> runCheck(args, out, err);
             case "verify-scoring" -> runVerifyScoring(args, out, err);
             case "verify-knn-hits" -> runVerifyKnnHits(args, out, err);
+            case "verify-queries-hits" -> runVerifyQueriesHits(args, out, err);
             case "-h", "--help", "help" -> {
                 usage(out);
                 yield 0;
@@ -239,6 +240,27 @@ public final class Main {
         return 0;
     }
 
+    /** Verifies {@code queries-hits.tsv} mirrors {@link #runVerifyScoring}. */
+    private static int runVerifyQueriesHits(String[] args, PrintStream out, PrintStream err) {
+        if (args.length != 2) {
+            err.println("usage: verify-queries-hits <dir>");
+            return 1;
+        }
+        java.nio.file.Path source = java.nio.file.Path.of(args[1]);
+        try {
+            CorpusScenario scenario = Scenarios.require("queries-hit-corpus");
+            scenario.verify(source, 0L);
+        } catch (IllegalArgumentException e) {
+            err.println(e.getMessage());
+            return 2;
+        } catch (IOException e) {
+            err.println("verify-queries-hits failed: " + e.getMessage());
+            return 4;
+        }
+        out.println("ok verify-queries-hits dir=" + source.toAbsolutePath());
+        return 0;
+    }
+
     private static long parseSeed(String s, PrintStream err) {
         try {
             // Allow 0x-prefixed hex for ergonomic CLI usage.
@@ -263,5 +285,6 @@ public final class Main {
         out.println("  check    <dir>                        run Lucene's CheckIndex on <dir>; exit 0 iff clean");
         out.println("  verify-scoring  <dir>                 re-run BM25 queries in <dir> and compare to scoring.tsv");
         out.println("  verify-knn-hits <dir>                 re-run KNN queries in <dir> and compare to knn-hits.tsv");
+        out.println("  verify-queries-hits <dir>             re-run the queries-module catalogue in <dir> and compare to queries-hits.tsv");
     }
 }
