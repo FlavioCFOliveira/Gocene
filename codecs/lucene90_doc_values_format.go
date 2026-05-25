@@ -26,8 +26,8 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/store"
 )
+
 
 // Lucene 9.0 doc values format constants. Per Lucene 10.4.0 source, the
 // format stores two files per segment:
@@ -171,9 +171,7 @@ func NewLucene90DocValuesFormatWithSkipInterval(skipIndexIntervalSize int) *Luce
 // SkipIndexIntervalSize returns the configured skip-index interval size.
 func (f *Lucene90DocValuesFormat) SkipIndexIntervalSize() int { return f.skipIndexIntervalSize }
 
-// FieldsConsumer returns a consumer for writing doc values. Phase 1
-// returns a consumer that produces valid framing only; per-field
-// encoding is deferred to Sprint 22.
+// FieldsConsumer returns a consumer for writing doc values.
 func (f *Lucene90DocValuesFormat) FieldsConsumer(state *SegmentWriteState) (DocValuesConsumer, error) {
 	return NewLucene90DocValuesConsumer(state), nil
 }
@@ -185,229 +183,260 @@ func (f *Lucene90DocValuesFormat) FieldsProducer(state *SegmentReadState) (DocVa
 }
 
 // -----------------------------------------------------------------------------
-// Lucene90DocValuesConsumer — Phase 1 shell.
+// Lucene90DocValuesConsumer — real implementation wrapper.
 // -----------------------------------------------------------------------------
 
 // Lucene90DocValuesConsumer writes doc values in Lucene 9.0 format.
 //
-// DEFERRED to Sprint 22: per-field compressed-numeric / prefix-binary
-// encoding. Phase 1 stamps a valid CodecUtil-framed .dvd / .dvm pair on
-// Close (so downstream code that opens the files sees well-formed but
-// empty doc values).
+// This wraps the real lucene90DVConsumer and satisfies the DocValuesConsumer
+// interface. The AddSortedField / AddSortedSetField methods require rich
+// SortedDocValues / SortedSetDocValues implementors (with term lookup); the
+// DocValuesConsumer interface iterator types only carry ordinals, so those
+// paths return an error unless the iterator implements the richer interface.
+// Direct callers (tests, merge) should call the underlying real methods.
 type Lucene90DocValuesConsumer struct {
-	state  *SegmentWriteState
-	closed bool
+	real *lucene90DVConsumer
 }
 
 // NewLucene90DocValuesConsumer creates a new Lucene90DocValuesConsumer.
 func NewLucene90DocValuesConsumer(state *SegmentWriteState) *Lucene90DocValuesConsumer {
-	return &Lucene90DocValuesConsumer{state: state}
+	real, err := newLucene90DVConsumer(state, Lucene90DocValuesDefaultSkipIndexIntervalSize)
+	if err != nil {
+		// Fail here: the caller checks the returned consumer, but the
+		// DocValuesFormat.FieldsConsumer contract says to propagate errors.
+		// Since this constructor can't return an error, panic with the cause
+		// so misconfiguration is caught at startup.
+		panic(fmt.Sprintf("lucene90 doc values: consumer init failed: %v", err))
+	}
+	return &Lucene90DocValuesConsumer{real: real}
 }
 
-// AddNumericField writes a numeric doc values field. Deferred — see type comment.
+// Real returns the underlying lucene90DVConsumer for direct use by tests and
+// merge code that have access to richer iterator types.
+func (c *Lucene90DocValuesConsumer) Real() *lucene90DVConsumer { return c.real }
+
+// AddNumericField adapts a NumericDocValuesIterator to a dvSortedNumericValues
+// and writes a numeric DV field.
 func (c *Lucene90DocValuesConsumer) AddNumericField(field *index.FieldInfo, values NumericDocValuesIterator) error {
-	if c.closed {
-		return errors.New("lucene90 doc values: consumer closed")
-	}
-	return errors.New("lucene90 doc values: AddNumericField is deferred to Sprint 22")
+	return c.real.AddNumericField(field, &numericIterAsSortedNumeric{it: values})
 }
 
-// AddBinaryField writes a binary doc values field. Deferred.
+// AddBinaryField adapts a BinaryDocValuesIterator and writes a binary DV field.
 func (c *Lucene90DocValuesConsumer) AddBinaryField(field *index.FieldInfo, values BinaryDocValuesIterator) error {
-	if c.closed {
-		return errors.New("lucene90 doc values: consumer closed")
-	}
-	return errors.New("lucene90 doc values: AddBinaryField is deferred to Sprint 22")
+	return c.real.AddBinaryField(field, &binaryIterAsDvBinary{it: values})
 }
 
-// AddSortedField writes a sorted doc values field. Deferred.
+// AddSortedField writes a sorted DV field. Requires that the indexing chain
+// passes a dvSortedValues (with LookupOrd/GetValueCount). Until the indexing
+// chain is wired, direct callers should use Real().AddSortedField.
 func (c *Lucene90DocValuesConsumer) AddSortedField(field *index.FieldInfo, values SortedDocValuesIterator) error {
-	if c.closed {
-		return errors.New("lucene90 doc values: consumer closed")
-	}
-	return errors.New("lucene90 doc values: AddSortedField is deferred to Sprint 22")
+	// SortedDocValuesIterator only carries Ord(); we need term bytes.
+	// The indexing chain is not yet wired (see indexing_chain.go GAP).
+	return errors.New("lucene90 doc values: AddSortedField via DocValuesConsumer interface not supported; use Real().AddSortedField with a dvSortedValues")
 }
 
-// AddSortedSetField writes a sorted-set doc values field. Deferred.
+// AddSortedSetField writes a sorted-set DV field. Same restriction as
+// AddSortedField: requires a dvSortedSetValues; use Real().AddSortedSetField.
 func (c *Lucene90DocValuesConsumer) AddSortedSetField(field *index.FieldInfo, values SortedSetDocValuesIterator) error {
-	if c.closed {
-		return errors.New("lucene90 doc values: consumer closed")
-	}
-	return errors.New("lucene90 doc values: AddSortedSetField is deferred to Sprint 22")
+	return errors.New("lucene90 doc values: AddSortedSetField via DocValuesConsumer interface not supported; use Real().AddSortedSetField with a dvSortedSetValues")
 }
 
-// AddSortedNumericField writes a sorted-numeric doc values field. Deferred.
+// AddSortedNumericField adapts a SortedNumericDocValuesIterator and writes the field.
 func (c *Lucene90DocValuesConsumer) AddSortedNumericField(field *index.FieldInfo, values SortedNumericDocValuesIterator) error {
-	if c.closed {
-		return errors.New("lucene90 doc values: consumer closed")
-	}
-	return errors.New("lucene90 doc values: AddSortedNumericField is deferred to Sprint 22")
+	return c.real.AddSortedNumericField(field, &snIterAsDvSortedNumeric{it: values})
 }
 
-// Close finalises the .dvd and .dvm files with their CodecUtil
-// IndexHeader and Footer (the .dvm file additionally carries a -1
-// int32 sentinel to mark "no more fields").
+// Close finalises the .dvd and .dvm files.
 func (c *Lucene90DocValuesConsumer) Close() error {
-	if c.closed {
-		return nil
+	return c.real.Close()
+}
+
+// ---------------------------------------------------------------------------
+// DocValuesConsumer iterator adapters
+// ---------------------------------------------------------------------------
+
+// numericIterAsSortedNumeric wraps a NumericDocValuesIterator as
+// dvSortedNumericValues (single-value-per-doc).
+type numericIterAsSortedNumeric struct {
+	it    NumericDocValuesIterator
+	buf   []iterEntry // collected in Reset pass
+	pos   int
+	built bool
+}
+
+type iterEntry struct {
+	doc int
+	val int64
+}
+
+func (a *numericIterAsSortedNumeric) Reset() error {
+	a.pos = 0
+	if !a.built {
+		// Drain the iterator once to collect all values; subsequent Reset()
+		// replays from the buf.
+		for a.it.Next() {
+			a.buf = append(a.buf, iterEntry{doc: a.it.DocID(), val: a.it.Value()})
+		}
+		a.built = true
 	}
-	c.closed = true
-	return finaliseLucene90DocValuesFiles(c.state)
+	return nil
+}
+func (a *numericIterAsSortedNumeric) NextDoc() (int, error) {
+	if a.pos >= len(a.buf) {
+		return dvNoMoreDocs, nil
+	}
+	doc := a.buf[a.pos].doc
+	return doc, nil
+}
+func (a *numericIterAsSortedNumeric) DocValueCount() (int, error) { return 1, nil }
+func (a *numericIterAsSortedNumeric) NextValue() (int64, error) {
+	v := a.buf[a.pos].val
+	a.pos++
+	return v, nil
+}
+
+// binaryIterAsDvBinary wraps BinaryDocValuesIterator as dvBinaryValues.
+type binaryIterAsDvBinary struct {
+	it    BinaryDocValuesIterator
+	buf   []binaryEntry
+	pos   int
+	built bool
+}
+
+type binaryEntry struct {
+	doc int
+	val []byte
+}
+
+func (a *binaryIterAsDvBinary) Reset() error {
+	a.pos = 0
+	if !a.built {
+		for a.it.Next() {
+			cp := make([]byte, len(a.it.Value()))
+			copy(cp, a.it.Value())
+			a.buf = append(a.buf, binaryEntry{doc: a.it.DocID(), val: cp})
+		}
+		a.built = true
+	}
+	return nil
+}
+func (a *binaryIterAsDvBinary) NextDoc() (int, error) {
+	if a.pos >= len(a.buf) {
+		return dvNoMoreDocs, nil
+	}
+	return a.buf[a.pos].doc, nil
+}
+func (a *binaryIterAsDvBinary) BinaryValue() ([]byte, error) {
+	v := a.buf[a.pos].val
+	a.pos++
+	return v, nil
+}
+
+// snIterAsDvSortedNumeric wraps SortedNumericDocValuesIterator as
+// dvSortedNumericValues.
+type snIterAsDvSortedNumeric struct {
+	it    SortedNumericDocValuesIterator
+	buf   []snEntry
+	pos   int
+	built bool
+	// current doc state
+	docIdx int
+	docCnt int
+}
+
+type snEntry struct {
+	doc  int
+	vals []int64
+}
+
+func (a *snIterAsDvSortedNumeric) Reset() error {
+	a.pos = 0
+	a.docIdx = 0
+	a.docCnt = 0
+	if !a.built {
+		for a.it.NextDoc() {
+			cnt := a.it.DocValueCount()
+			vals := make([]int64, cnt)
+			for i := 0; i < cnt; i++ {
+				vals[i] = a.it.NextValue()
+			}
+			a.buf = append(a.buf, snEntry{doc: a.it.DocID(), vals: vals})
+		}
+		a.built = true
+	}
+	return nil
+}
+func (a *snIterAsDvSortedNumeric) NextDoc() (int, error) {
+	if a.pos >= len(a.buf) {
+		return dvNoMoreDocs, nil
+	}
+	e := a.buf[a.pos]
+	a.docCnt = len(e.vals)
+	a.docIdx = 0
+	return e.doc, nil
+}
+func (a *snIterAsDvSortedNumeric) DocValueCount() (int, error) { return a.docCnt, nil }
+func (a *snIterAsDvSortedNumeric) NextValue() (int64, error) {
+	v := a.buf[a.pos].vals[a.docIdx]
+	a.docIdx++
+	if a.docIdx >= a.docCnt {
+		a.pos++
+	}
+	return v, nil
 }
 
 // -----------------------------------------------------------------------------
-// Lucene90DocValuesProducer — Phase 1 shell.
+// Lucene90DocValuesProducer — real implementation.
 // -----------------------------------------------------------------------------
 
 // Lucene90DocValuesProducer reads doc values in Lucene 9.0 format.
 //
-// DEFERRED to Sprint 22: per-field decoding. Phase 1 validates the
-// IndexHeader on .dvd / .dvm when present.
+// This wraps the real lucene90DVProducer and satisfies the DocValuesProducer
+// interface.
+//
+// This is the Go port of
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer (Lucene 10.4.0).
 type Lucene90DocValuesProducer struct {
-	state  *SegmentReadState
-	closed bool
+	real *lucene90DVProducer
 }
 
 // NewLucene90DocValuesProducer creates a new Lucene90DocValuesProducer.
 func NewLucene90DocValuesProducer(state *SegmentReadState) (*Lucene90DocValuesProducer, error) {
-	if err := validateLucene90DocValuesFiles(state); err != nil {
+	real, err := newLucene90DVProducer(state)
+	if err != nil {
 		return nil, err
 	}
-	return &Lucene90DocValuesProducer{state: state}, nil
+	return &Lucene90DocValuesProducer{real: real}, nil
 }
 
-// GetNumeric returns the numeric DV for the field. Phase 1 returns nil.
+// GetNumeric returns the numeric DV for the field.
 func (p *Lucene90DocValuesProducer) GetNumeric(field *index.FieldInfo) (NumericDocValues, error) {
-	if p.closed {
-		return nil, errors.New("lucene90 doc values: producer closed")
-	}
-	return nil, nil
+	return p.real.GetNumeric(field)
 }
 
-// GetBinary returns the binary DV for the field. Phase 1 returns nil.
+// GetBinary returns the binary DV for the field.
 func (p *Lucene90DocValuesProducer) GetBinary(field *index.FieldInfo) (BinaryDocValues, error) {
-	if p.closed {
-		return nil, errors.New("lucene90 doc values: producer closed")
-	}
-	return nil, nil
+	return p.real.GetBinary(field)
 }
 
-// GetSorted returns the sorted DV for the field. Phase 1 returns nil.
+// GetSorted returns the sorted DV for the field.
 func (p *Lucene90DocValuesProducer) GetSorted(field *index.FieldInfo) (SortedDocValues, error) {
-	if p.closed {
-		return nil, errors.New("lucene90 doc values: producer closed")
-	}
-	return nil, nil
+	return p.real.GetSorted(field)
 }
 
-// GetSortedSet returns the sorted-set DV for the field. Phase 1 returns nil.
+// GetSortedSet returns the sorted-set DV for the field.
 func (p *Lucene90DocValuesProducer) GetSortedSet(field *index.FieldInfo) (SortedSetDocValues, error) {
-	if p.closed {
-		return nil, errors.New("lucene90 doc values: producer closed")
-	}
-	return nil, nil
+	return p.real.GetSortedSet(field)
 }
 
-// GetSortedNumeric returns the sorted-numeric DV. Phase 1 returns nil.
+// GetSortedNumeric returns the sorted-numeric DV.
 func (p *Lucene90DocValuesProducer) GetSortedNumeric(field *index.FieldInfo) (SortedNumericDocValues, error) {
-	if p.closed {
-		return nil, errors.New("lucene90 doc values: producer closed")
-	}
-	return nil, nil
+	return p.real.GetSortedNumeric(field)
 }
 
-// CheckIntegrity checks the integrity of the doc values. Phase 1 no-op.
-func (p *Lucene90DocValuesProducer) CheckIntegrity() error { return nil }
+// CheckIntegrity checks the integrity of the doc values files.
+func (p *Lucene90DocValuesProducer) CheckIntegrity() error { return p.real.CheckIntegrity() }
 
 // Close releases resources.
-func (p *Lucene90DocValuesProducer) Close() error {
-	if p.closed {
-		return nil
-	}
-	p.closed = true
-	return nil
-}
+func (p *Lucene90DocValuesProducer) Close() error { return p.real.Close() }
 
-// -----------------------------------------------------------------------------
-// Shared file-framing helpers.
-// -----------------------------------------------------------------------------
-
-// finaliseLucene90DocValuesFiles stamps the CodecUtil IndexHeader and
-// Footer onto each of the two .dvd / .dvm files; the .dvm additionally
-// records the -1 int32 sentinel marking "no more fields".
-func finaliseLucene90DocValuesFiles(state *SegmentWriteState) error {
-	seg := state.SegmentInfo.Name()
-	suffix := state.SegmentSuffix
-	id := state.SegmentInfo.GetID()
-
-	pairs := []struct {
-		ext   string
-		codec string
-		isMeta bool
-	}{
-		{Lucene90DocValuesDataExtension, Lucene90DocValuesDataCodec, false},
-		{Lucene90DocValuesMetaExtension, Lucene90DocValuesMetaCodec, true},
-	}
-	for _, p := range pairs {
-		name := seg + "." + p.ext
-		if suffix != "" {
-			name = seg + "_" + suffix + "." + p.ext
-		}
-		raw, err := state.Directory.CreateOutput(name, store.IOContext{Context: store.ContextWrite})
-		if err != nil {
-			return fmt.Errorf("lucene90 doc values: create %q: %w", name, err)
-		}
-		out := store.NewChecksumIndexOutput(raw)
-		if err := WriteIndexHeader(out, p.codec, Lucene90DocValuesVersionCurrent, id, suffix); err != nil {
-			_ = out.Close()
-			return fmt.Errorf("lucene90 doc values: header %q: %w", name, err)
-		}
-		if p.isMeta {
-			if err := writeInt32LE(out, -1); err != nil {
-				_ = out.Close()
-				return err
-			}
-		}
-		if err := WriteFooter(out); err != nil {
-			_ = out.Close()
-			return fmt.Errorf("lucene90 doc values: footer %q: %w", name, err)
-		}
-		if err := out.Close(); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// validateLucene90DocValuesFiles iterates the two known doc-values
-// files and validates each one's IndexHeader when present.
-func validateLucene90DocValuesFiles(state *SegmentReadState) error {
-	seg := state.SegmentInfo.Name()
-	suffix := state.SegmentSuffix
-	id := state.SegmentInfo.GetID()
-
-	pairs := []struct{ ext, codec string }{
-		{Lucene90DocValuesDataExtension, Lucene90DocValuesDataCodec},
-		{Lucene90DocValuesMetaExtension, Lucene90DocValuesMetaCodec},
-	}
-	for _, p := range pairs {
-		name := seg + "." + p.ext
-		if suffix != "" {
-			name = seg + "_" + suffix + "." + p.ext
-		}
-		if !state.Directory.FileExists(name) {
-			continue
-		}
-		in, err := state.Directory.OpenInput(name, store.IOContext{Context: store.ContextRead})
-		if err != nil {
-			return err
-		}
-		csIn := store.NewChecksumIndexInput(in)
-		if _, err := CheckIndexHeader(csIn, p.codec, Lucene90DocValuesVersionStart, Lucene90DocValuesVersionCurrent, id, suffix); err != nil {
-			_ = in.Close()
-			return fmt.Errorf("lucene90 doc values: header %q: %w", name, err)
-		}
-		_ = in.Close()
-	}
-	return nil
-}

@@ -170,6 +170,17 @@ func NewByteArrayDataOutput(initialCapacity int) *ByteArrayDataOutput {
 	}
 }
 
+// NewByteArrayDataOutputAt wraps an existing byte slice and positions the
+// writer at pos. Writes at or beyond pos overwrite existing content or
+// append. Use this to re-wrap a grown buffer while preserving the current
+// write position (mirrors Java ByteArrayDataOutput(byte[], offset, len)).
+func NewByteArrayDataOutputAt(buf []byte, pos int) *ByteArrayDataOutput {
+	return &ByteArrayDataOutput{
+		bytes: buf,
+		pos:   pos,
+	}
+}
+
 // WriteByte writes a single byte.
 func (out *ByteArrayDataOutput) WriteByte(b byte) error {
 	if out.pos >= len(out.bytes) {

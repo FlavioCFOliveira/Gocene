@@ -503,12 +503,19 @@ func LZ4Decompress(compressed store.DataInput, decompressedLen int, dest []byte,
 			break
 		}
 
-		// match
-		matchDecShort, err := compressed.ReadShort()
+		// match — offset is encoded as little-endian uint16 (Lucene DataInput convention).
+		// Read two bytes explicitly to avoid relying on the DataInput's ReadShort
+		// endianness, which varies across implementations (e.g. SimpleFSIndexInput
+		// uses big-endian while Lucene's DataInput.readShort is little-endian).
+		lo, err := compressed.ReadByte()
 		if err != nil {
 			return dOff, err
 		}
-		matchDec := int(uint16(matchDecShort))
+		hi, err := compressed.ReadByte()
+		if err != nil {
+			return dOff, err
+		}
+		matchDec := int(uint16(lo) | uint16(hi)<<8)
 		if matchDec == 0 {
 			return dOff, ErrInvalidOffset
 		}
