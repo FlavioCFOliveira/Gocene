@@ -28,8 +28,15 @@ import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PerFieldDispat
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PointsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PostingsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.QueriesHitCorpusScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.GeoEncodedPointsScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.ReplicatorNrtCopyStateScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.ScalarQuantizedKnnScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.Spatial3dSerializableScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SpatialBboxDvScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SpatialCompositeScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SpatialPrefixTreeScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SpatialSerializedDvShapeScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SpatialWktGeojsonScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SearchScoringCorpusScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SegmentInfoFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SmokeScenario;
@@ -140,6 +147,18 @@ public final class Scenarios {
         // as DEFERRED_ROWS in Manifest.java because Lucene 10.4.0 removed
         // the HttpReplicator / SessionToken / RevisionFile production surface.
         register(new ReplicatorNrtCopyStateScenario());
+        // Sprint 114 T20 (rmp 4628): spatial / spatial3d / geo scenarios.
+        // Appended in stack order — after the replicator-* scenario — so
+        // the manifest ordering for prior rows is preserved. Stack order
+        // mirrors the rmp 4628 deliverable list: SerializedDV, prefix-tree,
+        // composite, BBox DV, WKT/GeoJSON, spatial3d, geo encoded points.
+        register(new SpatialSerializedDvShapeScenario());
+        register(new SpatialPrefixTreeScenario());
+        register(new SpatialCompositeScenario());
+        register(new SpatialBboxDvScenario());
+        register(new SpatialWktGeojsonScenario());
+        register(new Spatial3dSerializableScenario());
+        register(new GeoEncodedPointsScenario());
     }
 
     private Scenarios() {}
