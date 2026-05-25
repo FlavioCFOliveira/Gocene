@@ -225,10 +225,12 @@ type SeedPostingsEnum struct {
 	postings []SeedPosting
 	pos      int
 	currDoc  int
+	posIdx   int // current position index within current doc
 }
 
 func (p *SeedPostingsEnum) NextDoc() (int, error) {
 	p.pos++
+	p.posIdx = 0
 	if p.pos >= len(p.postings) {
 		p.currDoc = index.NO_MORE_DOCS
 		return index.NO_MORE_DOCS, nil
@@ -261,15 +263,40 @@ func (p *SeedPostingsEnum) Freq() (int, error) {
 }
 
 func (p *SeedPostingsEnum) NextPosition() (int, error) {
-	return index.NO_MORE_POSITIONS, nil
+	if p.pos < 0 || p.pos >= len(p.postings) {
+		return index.NO_MORE_POSITIONS, nil
+	}
+	positions := p.postings[p.pos].positions
+	if p.posIdx >= len(positions) {
+		return index.NO_MORE_POSITIONS, nil
+	}
+	pos := positions[p.posIdx]
+	p.posIdx++
+	return pos, nil
 }
 
 func (p *SeedPostingsEnum) StartOffset() (int, error) {
-	return -1, nil
+	if p.pos < 0 || p.pos >= len(p.postings) {
+		return -1, nil
+	}
+	offsets := p.postings[p.pos].offsets
+	idx := p.posIdx - 1
+	if idx < 0 || idx >= len(offsets) {
+		return -1, nil
+	}
+	return offsets[idx].start, nil
 }
 
 func (p *SeedPostingsEnum) EndOffset() (int, error) {
-	return -1, nil
+	if p.pos < 0 || p.pos >= len(p.postings) {
+		return -1, nil
+	}
+	offsets := p.postings[p.pos].offsets
+	idx := p.posIdx - 1
+	if idx < 0 || idx >= len(offsets) {
+		return -1, nil
+	}
+	return offsets[idx].end, nil
 }
 
 func (p *SeedPostingsEnum) GetPayload() ([]byte, error) {
@@ -321,6 +348,8 @@ func (p *PostingsTester) TestFull(format PostingsFormat, options index.IndexOpti
 	}
 
 	// Create a few deterministic terms
+	hasPositions := options >= index.IndexOptionsDocsAndFreqsAndPositions
+	hasOffsets := options >= index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets
 	for i := 0; i < 10; i++ {
 		termText := fmt.Sprintf("term%d", i)
 		term := index.NewTerm(fieldName, termText)
@@ -331,11 +360,28 @@ func (p *PostingsTester) TestFull(format PostingsFormat, options index.IndexOpti
 		for j := 0; j < 5; j++ {
 			docID := j * 10
 			freq := 1 + (i+j)%3
-			p := SeedPosting{
+			sp := SeedPosting{
 				docID: docID,
 				freq:  freq,
 			}
-			postings = append(postings, p)
+			if hasPositions {
+				// Deterministic positions: increasing within the doc.
+				sp.positions = make([]int, freq)
+				pos := (i*100 + j*10)
+				for k := range sp.positions {
+					pos += 1 + k
+					sp.positions[k] = pos
+				}
+				if hasOffsets {
+					sp.offsets = make([]SeedOffset, freq)
+					charOff := 0
+					for k := range sp.offsets {
+						sp.offsets[k] = SeedOffset{start: charOff, end: charOff + 5}
+						charOff += 6
+					}
+				}
+			}
+			postings = append(postings, sp)
 		}
 		seedTerms.termToDocs[termText] = postings
 	}
@@ -406,13 +452,13 @@ func (p *PostingsTester) TestFull(format PostingsFormat, options index.IndexOpti
 			p.t.Fatalf("TermsEnum.Postings failed: %v", err)
 		}
 
-		for _, expectedPos := range expectedPostings {
+		for _, expectedDoc := range expectedPostings {
 			actualDocID, err := pe.NextDoc()
 			if err != nil {
 				p.t.Fatalf("PostingsEnum.NextDoc failed: %v", err)
 			}
-			if actualDocID != expectedPos.docID {
-				p.t.Fatalf("Expected docID %d, got %d", expectedPos.docID, actualDocID)
+			if actualDocID != expectedDoc.docID {
+				p.t.Fatalf("Expected docID %d, got %d", expectedDoc.docID, actualDocID)
 			}
 
 			if options >= index.IndexOptionsDocsAndFreqs {
@@ -420,8 +466,42 @@ func (p *PostingsTester) TestFull(format PostingsFormat, options index.IndexOpti
 				if err != nil {
 					p.t.Fatalf("PostingsEnum.Freq failed: %v", err)
 				}
-				if actualFreq != expectedPos.freq {
-					p.t.Fatalf("Expected freq %d, got %d", expectedPos.freq, actualFreq)
+				if actualFreq != expectedDoc.freq {
+					p.t.Fatalf("Expected freq %d, got %d", expectedDoc.freq, actualFreq)
+				}
+			}
+
+			if options >= index.IndexOptionsDocsAndFreqsAndPositions {
+				for k, expectedPosition := range expectedDoc.positions {
+					actualPos, err := pe.NextPosition()
+					if err != nil {
+						p.t.Fatalf("PostingsEnum.NextPosition(doc=%d, pos#%d) failed: %v", actualDocID, k, err)
+					}
+					if actualPos == index.NO_MORE_POSITIONS {
+						p.t.Fatalf("NextPosition returned NO_MORE_POSITIONS prematurely at doc=%d pos#%d", actualDocID, k)
+					}
+					if actualPos != expectedPosition {
+						p.t.Fatalf("doc=%d pos#%d: expected position %d, got %d", actualDocID, k, expectedPosition, actualPos)
+					}
+					if options >= index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets {
+						startOff, err := pe.StartOffset()
+						if err != nil {
+							p.t.Fatalf("StartOffset(doc=%d, pos#%d) failed: %v", actualDocID, k, err)
+						}
+						endOff, err := pe.EndOffset()
+						if err != nil {
+							p.t.Fatalf("EndOffset(doc=%d, pos#%d) failed: %v", actualDocID, k, err)
+						}
+						if k < len(expectedDoc.offsets) {
+							expOff := expectedDoc.offsets[k]
+							if startOff != expOff.start {
+								p.t.Fatalf("doc=%d pos#%d: expected startOffset %d, got %d", actualDocID, k, expOff.start, startOff)
+							}
+							if endOff != expOff.end {
+								p.t.Fatalf("doc=%d pos#%d: expected endOffset %d, got %d", actualDocID, k, expOff.end, endOff)
+							}
+						}
+					}
 				}
 			}
 		}

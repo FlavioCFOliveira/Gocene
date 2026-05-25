@@ -5,11 +5,9 @@
 package codecs_test
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
-	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
@@ -103,156 +101,100 @@ func TestLucene104PostingsFormat_VLong15(t *testing.T) {
 	}
 }
 
-// TestLucene104PostingsFormat_FinalBlock tests that final sub-block(s) are not skipped.
-// This test creates documents with terms that would create multiple blocks and
-// verifies that the final block is properly handled.
+// TestLucene104PostingsFormat_FinalBlock tests that the final (partial) block
+// of a term's posting list is not skipped during iteration. It runs TestFull
+// across all four index options, each of which exercises the block-tree floor
+// block path when multiple terms share a common prefix.
 func TestLucene104PostingsFormat_FinalBlock(t *testing.T) {
-	t.Skip("Final block test requires full IndexWriter and block tree implementation")
-
-	// Create a directory for the test
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	// Create index writer config with mock analyzer
-	config := index.NewIndexWriterConfig(nil)
-
-	// Create the index writer
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
+	// TestFull writes 10 terms × 5 docs with shared "term" prefix, producing
+	// a two-level block-tree that exercises the final partial block path.
+	options := []struct {
+		name string
+		opts index.IndexOptions
+	}{
+		{"docs", index.IndexOptionsDocs},
+		{"docs_freqs", index.IndexOptionsDocsAndFreqs},
+		{"docs_freqs_positions", index.IndexOptionsDocsAndFreqsAndPositions},
+		{"docs_freqs_positions_offsets", index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets},
 	}
-
-	// Add 25 documents with terms that create multiple blocks
-	// Terms: a, b, c, ... y (single characters) and za, zb, zc, ... zy
-	for i := 0; i < 25; i++ {
-		doc := document.NewDocument()
-
-		// Add single character term (a-y)
-		term1 := string(rune('a' + i))
-		sf1, err := document.NewStringField("field", term1, false)
-		if err != nil {
-			t.Fatalf("Failed to create StringField: %v", err)
-		}
-		doc.Add(sf1)
-
-		// Add z-prefixed term (za-zy)
-		term2 := "z" + string(rune('a'+i))
-		sf2, err := document.NewStringField("field", term2, false)
-		if err != nil {
-			t.Fatalf("Failed to create StringField: %v", err)
-		}
-		doc.Add(sf2)
-
-		err = writer.AddDocument(doc)
-		if err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-	}
-
-	// Force merge to a single segment
-	err = writer.ForceMerge(1)
-	if err != nil {
-		t.Fatalf("Failed to force merge: %v", err)
-	}
-
-	// Close the writer
-	err = writer.Close()
-	if err != nil {
-		t.Fatalf("Failed to close writer: %v", err)
-	}
-
-	// Open a reader to verify block structure
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
-	}
-	defer reader.Close()
-
-	// Verify we have exactly one leaf (segment)
-	leaves, err := reader.Leaves()
-	if err != nil {
-		t.Fatalf("Failed to get leaves: %v", err)
-	}
-	if len(leaves) != 1 {
-		t.Errorf("Expected 1 leaf, got %d", len(leaves))
-	}
-
-	// Get the terms for the field
-	// Note: This requires block tree implementation to expose stats
-	// For now, we verify the basic structure
-	leaf := leaves[0]
-
-	// Terms method not available on IndexReaderInterface yet
-	// terms, err := leaf.Reader().Terms("field")
-	// if err != nil {
-	// 	t.Fatalf("Failed to get terms: %v", err)
-	// }
-	// if terms == nil {
-	// 	t.Fatal("Terms should not be nil")
-	// }
-
-	// Just verify leaf reader is accessible
-	_ = leaf.Reader()
-	t.Log("Leaf reader accessible, Terms API not yet implemented")
-
-	// TODO: Once Terms API is implemented, verify:
-	// - Can iterate all terms
-	// - Block tree stats: floorBlockCount == 0, nonFloorBlockCount == 2
-}
-
-// TestLucene104PostingsFormat_ImpactSerialization tests the serialization of impact data.
-// Impact data is used for scoring and contains frequency and norm information.
-func TestLucene104PostingsFormat_ImpactSerialization(t *testing.T) {
-	t.Skip("Impact serialization requires CompetitiveImpactAccumulator and FreqAndNormBuffer implementation")
-
-	testCases := [][]Impact{
-		// omit norms and omit freqs
-		{{Freq: 1, Norm: 1}},
-		// omit freqs
-		{{Freq: 1, Norm: 42}},
-		// omit freqs with very large norms
-		{{Freq: 1, Norm: -100}},
-		// omit norms
-		{{Freq: 30, Norm: 1}},
-		// omit norms with large freq
-		{{Freq: 500, Norm: 1}},
-		// freqs and norms, basic
-		{
-			{Freq: 1, Norm: 7},
-			{Freq: 3, Norm: 9},
-			{Freq: 7, Norm: 10},
-			{Freq: 15, Norm: 11},
-			{Freq: 20, Norm: 13},
-			{Freq: 28, Norm: 14},
-		},
-		// freqs and norms, high values
-		{
-			{Freq: 2, Norm: 2},
-			{Freq: 10, Norm: 10},
-			{Freq: 12, Norm: 50},
-			{Freq: 50, Norm: -100},
-			{Freq: 1000, Norm: -80},
-			{Freq: 1005, Norm: -3},
-		},
-	}
-
-	for i, impacts := range testCases {
-		t.Run(fmt.Sprintf("case_%d", i), func(t *testing.T) {
-			testImpactSerialization(t, impacts)
+	for _, tc := range options {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := store.NewByteBuffersDirectory()
+			defer dir.Close()
+			tester := codecs.NewPostingsTester(t)
+			tester.TestFull(codecs.NewLucene104PostingsFormat(), tc.opts, dir)
 		})
 	}
 }
 
-// Impact represents a frequency and norm pair for scoring.
-type Impact struct {
-	Freq int
-	Norm int64
-}
+// TestLucene104PostingsFormat_ImpactSerialization tests the CompetitiveImpactAccumulator:
+// that it collects (freq, norm) pairs, prunes dominated impacts, and returns the
+// competitive set in ascending freq order as required by Lucene104PostingsWriter.
+func TestLucene104PostingsFormat_ImpactSerialization(t *testing.T) {
+	tests := []struct {
+		name     string
+		inputs   []codecs.Impact // added in order
+		expected []codecs.Impact // expected competitive set, ascending freq
+	}{
+		{
+			name:     "single_impact",
+			inputs:   []codecs.Impact{{Freq: 1, Norm: 1}},
+			expected: []codecs.Impact{{Freq: 1, Norm: 1}},
+		},
+		{
+			name: "dominated_pruned",
+			// (5, 10) dominates (2, 10) because freq 5 >= 2 and same norm
+			inputs:   []codecs.Impact{{Freq: 2, Norm: 10}, {Freq: 5, Norm: 10}},
+			expected: []codecs.Impact{{Freq: 5, Norm: 10}},
+		},
+		{
+			// (7,5) dominates all others (highest freq, lowest unsigned norm),
+			// so only {7,5} survives.
+			name:     "single_dominant",
+			inputs:   []codecs.Impact{{Freq: 1, Norm: 20}, {Freq: 3, Norm: 10}, {Freq: 7, Norm: 5}},
+			expected: []codecs.Impact{{Freq: 7, Norm: 5}},
+		},
+		{
+			// Each impact is competitive: lower freq has lower norm (unsigned).
+			// {1,5}: norm 5 < norm 10 of {3,10}? Yes, but freq 1 < freq 3.
+			// Neither dominates the other.
+			name:   "two_competitive",
+			inputs: []codecs.Impact{{Freq: 1, Norm: 5}, {Freq: 3, Norm: 10}},
+			// {3,10}: f=3, uint64(10)=10. {1,5}: f=1, uint64(5)=5.
+			// Does {3,10} dominate {1,5}? f 3>=1 ✓ but uint64(10) <= uint64(5)? No.
+			// Does {1,5} dominate {3,10}? f 1>=3? No.
+			// Both competitive. Ascending freq: [{1,5},{3,10}].
+			expected: []codecs.Impact{{Freq: 1, Norm: 5}, {Freq: 3, Norm: 10}},
+		},
+		{
+			name: "duplicate_norm_keeps_max_freq",
+			inputs: []codecs.Impact{
+				{Freq: 1, Norm: 5},
+				{Freq: 3, Norm: 5},
+				{Freq: 2, Norm: 5},
+			},
+			expected: []codecs.Impact{{Freq: 3, Norm: 5}},
+		},
+	}
 
-// testImpactSerialization tests serialization of a single impact list.
-func testImpactSerialization(t *testing.T, impacts []Impact) {
-	// TODO: These functions don't exist yet - skipping test
-	t.Skip("Impact serialization not fully implemented yet")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			acc := codecs.NewCompetitiveImpactAccumulator()
+			for _, imp := range tc.inputs {
+				acc.Add(imp.Freq, imp.Norm)
+			}
+			got := acc.GetCompetitiveFreqNormPairs()
+			if len(got) != len(tc.expected) {
+				t.Fatalf("len(competitive) = %d, want %d; got %v", len(got), len(tc.expected), got)
+			}
+			for i, g := range got {
+				e := tc.expected[i]
+				if g.Freq != e.Freq || g.Norm != e.Norm {
+					t.Errorf("[%d] got {Freq:%d Norm:%d}, want {Freq:%d Norm:%d}", i, g.Freq, g.Norm, e.Freq, e.Norm)
+				}
+			}
+		})
+	}
 }
 
 // TestLucene104PostingsFormat_BasePostingsFormatTestCase tests compliance with
