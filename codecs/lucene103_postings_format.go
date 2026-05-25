@@ -195,7 +195,7 @@ func (r *Lucene103PostingsReader) Postings(fieldInfo *index.FieldInfo, termState
 // Impacts satisfies PostingsReaderBase. The stub returns a clear error
 // because there is no impact data to enumerate until the deep port
 // lands.
-func (r *Lucene103PostingsReader) Impacts(fieldInfo *index.FieldInfo, termState *BlockTermState, flags int) (any, error) {
+func (r *Lucene103PostingsReader) Impacts(fieldInfo *index.FieldInfo, termState *BlockTermState, flags int) (index.ImpactsEnum, error) {
 	return nil, errors.New("Lucene103PostingsReader.Impacts: behaviour-level port pending")
 }
 

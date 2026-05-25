@@ -92,7 +92,7 @@ func (f *fakePostingsReader) Postings(_ *index.FieldInfo, _ *BlockTermState, _ i
 	return nil, nil
 }
 
-func (f *fakePostingsReader) Impacts(_ *index.FieldInfo, _ *BlockTermState, _ int) (any, error) {
+func (f *fakePostingsReader) Impacts(_ *index.FieldInfo, _ *BlockTermState, _ int) (index.ImpactsEnum, error) {
 	return nil, nil
 }
 

@@ -355,14 +355,15 @@ func (r *Lucene104PostingsReader) Postings(
 	return bpe.reset(its, flags)
 }
 
-// Impacts returns a *blockPostingsEnum that also tracks impact data.
+// Impacts returns a BlockPostingsEnum that implements index.ImpactsEnum,
+// enabling BMW/MaxScore scoring with impact-based block skipping.
 //
 // Mirrors Lucene104PostingsReader.impacts(FieldInfo, BlockTermState, int).
 func (r *Lucene104PostingsReader) Impacts(
 	fieldInfo *index.FieldInfo,
 	termState *BlockTermState,
 	flags int,
-) (any, error) {
+) (index.ImpactsEnum, error) {
 	its := r.stateCache[termState]
 	if its == nil {
 		its = NewIntBlockTermState()
@@ -374,7 +375,11 @@ func (r *Lucene104PostingsReader) Impacts(
 		return nil, err
 	}
 	bpe.needsImpacts = true
-	return bpe.reset(its, flags)
+	pe, err := bpe.reset(its, flags)
+	if err != nil {
+		return nil, err
+	}
+	return pe.(*blockPostingsEnum), nil
 }
 
 // CheckIntegrity validates CRC footers on all owned files.
@@ -595,7 +600,14 @@ type blockPostingsEnum struct {
 	indexHasPayloads          bool
 	indexHasOffsetsOrPayloads bool
 
-	flags                  int
+	flags int
+
+	// ── impacts support ───────────────────────────────────────────────────────
+
+	// impactBuffer is a reusable FreqAndNormBuffer for GetImpacts decoding.
+	impactBuffer *index.FreqAndNormBuffer
+	// scratch is a reusable ByteArrayDataInput for decoding serialized impacts.
+	scratch                *store.ByteArrayDataInput
 	needsFreq              bool
 	needsPos               bool
 	needsOffsets           bool
@@ -670,6 +682,9 @@ func newBlockPostingsEnum(
 	if e.needsFreq {
 		e.level0SerializedImpacts = make([]byte, r.maxImpactNumBytesAtLevel0)
 		e.level1SerializedImpacts = make([]byte, r.maxImpactNumBytesAtLevel1)
+		e.impactBuffer = index.NewFreqAndNormBuffer()
+		e.impactBuffer.GrowNoCopy(r.maxNumImpactsAtLevel0)
+		e.scratch = store.NewByteArrayDataInput(nil)
 	}
 
 	// docBitSet: BLOCK_SIZE * Integer.SIZE bits = 256 * 32 = 8192 bits.
@@ -1695,8 +1710,136 @@ func skipBytesInput(in store.IndexInput, n int64) error {
 	return in.SetPosition(in.GetFilePointer() + n)
 }
 
-// Compile-time check: blockPostingsEnum implements index.PostingsEnum.
-var _ index.PostingsEnum = (*blockPostingsEnum)(nil)
+// ─── ImpactsSource (ImpactsEnum support) ─────────────────────────────────────
+
+// AdvanceShallow advances the skip data to cover target without decoding the
+// full doc block.  A subsequent call to NextDoc or Advance will refill the
+// block from the position established here.
+//
+// Mirrors BlockPostingsEnum.advanceShallow(int).
+func (e *blockPostingsEnum) AdvanceShallow(target int) error {
+	if target > e.level0LastDocID {
+		if err := e.doAdvanceShallow(target); err != nil {
+			return err
+		}
+		e.needsRefilling = true
+	}
+	return nil
+}
+
+// GetImpacts returns the impact summary for docs up to the current
+// level-0/level-1 skip boundaries.  The returned Impacts is valid until
+// the next call to NextDoc, Advance, or AdvanceShallow.
+//
+// Mirrors BlockPostingsEnum.getImpacts().
+func (e *blockPostingsEnum) GetImpacts() (index.Impacts, error) {
+	return &blockImpacts{enum: e}, nil
+}
+
+// blockImpacts implements index.Impacts backed by a blockPostingsEnum.
+// It decodes serialized impact bytes lazily on each GetImpacts call.
+type blockImpacts struct {
+	enum *blockPostingsEnum
+}
+
+// NumLevels returns 1 when indexHasFreq is false or level1 data does not
+// exist; 2 when both level-0 and level-1 impacts are available.
+//
+// Mirrors BlockPostingsEnum.Impacts.numLevels().
+func (b *blockImpacts) NumLevels() int {
+	if !b.enum.indexHasFreq || b.enum.level1LastDocID == index.NO_MORE_DOCS {
+		return 1
+	}
+	return 2
+}
+
+// GetDocIDUpTo returns the inclusive max doc ID covered by impacts at the
+// given level.
+//
+// Mirrors BlockPostingsEnum.Impacts.getDocIdUpTo(int).
+func (b *blockImpacts) GetDocIDUpTo(level int) int {
+	if !b.enum.indexHasFreq {
+		return index.NO_MORE_DOCS
+	}
+	if level == 0 {
+		return b.enum.level0LastDocID
+	}
+	if level == 1 {
+		return b.enum.level1LastDocID
+	}
+	return index.NO_MORE_DOCS
+}
+
+// GetImpacts decodes and returns the competitive (freq, norm) pairs for the
+// given level, reusing the enum's impactBuffer to avoid allocation.
+//
+// Mirrors BlockPostingsEnum.Impacts.getImpacts(int).
+func (b *blockImpacts) GetImpacts(level int) *index.FreqAndNormBuffer {
+	e := b.enum
+	if !e.indexHasFreq {
+		// Freqs not indexed: max freq is 1, norm is 1.
+		e.impactBuffer.Size = 1
+		e.impactBuffer.GrowNoCopy(1)
+		e.impactBuffer.Freqs[0] = 1
+		e.impactBuffer.Norms[0] = 1
+		return e.impactBuffer
+	}
+	if level == 0 && e.level0LastDocID != index.NO_MORE_DOCS {
+		e.scratch.Reset(e.level0SerializedImpacts[:e.level0ImpactLen])
+		readImpactsFromBytes(e.scratch, e.impactBuffer)
+		return e.impactBuffer
+	}
+	if level == 1 {
+		e.scratch.Reset(e.level1SerializedImpacts[:e.level1ImpactLen])
+		readImpactsFromBytes(e.scratch, e.impactBuffer)
+		return e.impactBuffer
+	}
+	// Fallback: unconstrained.
+	e.impactBuffer.GrowNoCopy(1)
+	e.impactBuffer.Size = 1
+	e.impactBuffer.Freqs[0] = 1<<31 - 1 // math.MaxInt32
+	e.impactBuffer.Norms[0] = 1
+	return e.impactBuffer
+}
+
+// readImpactsFromBytes decodes the compact impact format written by
+// writeImpacts into reuse, which is overwritten in place.
+//
+// Wire format per (freq, norm) entry:
+//   - freqDelta = freq - prev.freq - 1 (0-based delta)
+//   - if normDelta == 0: write freqDelta<<1 as VInt
+//   - else: write (freqDelta<<1)|1 as VInt, then normDelta-1 as ZLong
+//
+// Mirrors Lucene104PostingsReader.readImpacts(ByteArrayDataInput, FreqAndNormBuffer).
+func readImpactsFromBytes(in *store.ByteArrayDataInput, reuse *index.FreqAndNormBuffer) {
+	var freq, size int
+	var norm int64
+	reuse.GrowNoCopy(4) // ensure at least minimal capacity
+	for !in.EOF() {
+		raw, _ := store.ReadVInt(in)
+		freqDelta := int(raw >> 1)
+		freq += freqDelta + 1
+		if raw&1 != 0 {
+			// norm delta is encoded as ZLong (zig-zag VLong).
+			zigzag, _ := store.ReadVLong(in)
+			// zig-zag decode: (raw >>> 1) ^ -(raw & 1)
+			normDelta := int64(zigzag>>1) ^ -(int64(zigzag) & 1)
+			norm += normDelta + 1
+		} else {
+			norm++
+		}
+		if size == len(reuse.Freqs) {
+			reuse.GrowNoCopy(size + 1)
+		}
+		reuse.Freqs[size] = freq
+		reuse.Norms[size] = norm
+		size++
+	}
+	reuse.Size = size
+}
+
+// Compile-time check: blockPostingsEnum implements index.ImpactsEnum.
+var _ index.ImpactsEnum = (*blockPostingsEnum)(nil)
 
 // Compile-time check: Lucene104PostingsReader implements PostingsReaderBase.
 var _ PostingsReaderBase = (*Lucene104PostingsReader)(nil)

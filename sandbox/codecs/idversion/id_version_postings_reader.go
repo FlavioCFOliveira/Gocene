@@ -168,7 +168,7 @@ func (r *IDVersionPostingsReader) Impacts(
 	_ *index.FieldInfo,
 	_ *codecs.BlockTermState,
 	_ int,
-) (any, error) {
+) (index.ImpactsEnum, error) {
 	return nil, errors.New("IDVersionPostingsReader.Impacts: should never be called; IDVersionSegmentTermsEnum implements impacts directly")
 }
 

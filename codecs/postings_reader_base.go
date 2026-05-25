@@ -60,13 +60,7 @@ type PostingsReaderBase interface {
 
 	// Impacts returns an ImpactsEnum for impact-aware scoring (BMW/MAXSCORE).
 	// flags is a bitmask of index.PostingsEnum FLAG_* values.
-	//
-	// The return type is opaque (any) because index.ImpactsEnum lives in a
-	// downstream sprint (see L22-index forward dep on Sprint 15). Callers in
-	// later sprints type-assert to the concrete ImpactsEnum interface once it
-	// lands; this avoids a tight coupling at SPI definition time while still
-	// reserving the API slot byte-for-byte with Lucene 10.4.0.
-	Impacts(fieldInfo *index.FieldInfo, termState *BlockTermState, flags int) (any, error)
+	Impacts(fieldInfo *index.FieldInfo, termState *BlockTermState, flags int) (index.ImpactsEnum, error)
 
 	// CheckIntegrity validates the CRC footers of every file this reader
 	// owns. Returns the first CRC mismatch as an error.
