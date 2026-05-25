@@ -32,10 +32,44 @@ public final class Manifest {
     public static final String HEADER =
             "scenario\tcanary_seed\tsha256\tfile_count\tnotes";
 
-    /** Scenarios listed in the manifest but not produced by the harness yet. */
+    /**
+     * Scenarios listed in the manifest but not produced by the harness yet.
+     *
+     * <p>Row tuple convention (positional):
+     * <ol>
+     *   <li>{@code [0]} scenario name (kebab-case)</li>
+     *   <li>{@code [1]} sha256 (always {@code "(deferred)"})</li>
+     *   <li>{@code [2]} file_count (always {@code "0"})</li>
+     *   <li>{@code [3]} reason / legacy-notes (used as fallback)</li>
+     *   <li>{@code [4]} optional FULL notes column verbatim. When present
+     *       it overrides {@code gap_notes="deferred to per-package task"};
+     *       T19 (rmp 4627) uses this to carry the verbatim audit
+     *       {@code gap_notes} per row plus the explicit
+     *       {@code reason} that Lucene 10.4.0 removed
+     *       {@code org.apache.lucene.replicator.http.HttpReplicator} and the
+     *       IndexRevision wire surface.</li>
+     * </ol>
+     */
     public static final List<String[]> DEFERRED_ROWS = List.of(
             new String[]{"hunspell-blob", "(deferred)", "0", "precompiled third-party asset; covered by later sprint"},
-            new String[]{"snowball-blob", "(deferred)", "0", "precompiled third-party asset; covered by later sprint"}
+            new String[]{"snowball-blob", "(deferred)", "0", "precompiled third-party asset; covered by later sprint"},
+            // Sprint 114 T19 (rmp 4627). Both HTTP replicator and IndexRevision
+            // wire formats are removed from Lucene 10.4.0 production sources
+            // (`lucene/replicator/src/java/org/apache/lucene/replicator/`
+            // contains ONLY the `nrt` subpackage in tag releases/lucene/10.4.0).
+            // The deferred rows preserve the audit footprint until a future
+            // backward-compat sprint reintroduces fixtures pulled from older
+            // Lucene branches.
+            new String[]{"replicator-http-frames", "(deferred)", "0",
+                    "Lucene 10.4.0 removed HttpReplicator surface",
+                    "gap_notes=\"No Java-served HTTP replicator fixtures.\"; "
+                            + "reason=\"Lucene 10.4.0 removed org.apache.lucene.replicator.http.HttpReplicator "
+                            + "and the IndexRevision wire surface; covered by a future backward-compat sprint.\""},
+            new String[]{"replicator-session-revision", "(deferred)", "0",
+                    "Lucene 10.4.0 removed SessionToken/RevisionFile surface",
+                    "gap_notes=\"No cross-engine replication transcript validated against Lucene.\"; "
+                            + "reason=\"Lucene 10.4.0 removed org.apache.lucene.replicator.http.HttpReplicator "
+                            + "and the IndexRevision wire surface; covered by a future backward-compat sprint.\""}
     );
 
     private Manifest() {}
@@ -62,8 +96,12 @@ public final class Manifest {
             }
         }
         for (String[] row : DEFERRED_ROWS) {
+            // Column [4], when present, carries the FULL verbatim notes text
+            // (e.g. T19 audit gap_notes + removal reason). Otherwise fall
+            // back to the historical "deferred to per-package task" hint.
+            String notes = row.length >= 5 ? row[4] : "gap_notes=\"deferred to per-package task\"";
             out.println(String.join("\t",
-                    row[0], Long.toString(seed), row[1], row[2], "gap_notes=\"deferred to per-package task\""));
+                    row[0], Long.toString(seed), row[1], row[2], notes));
         }
     }
 

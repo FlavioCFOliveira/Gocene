@@ -28,6 +28,7 @@ import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PerFieldDispat
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PointsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PostingsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.QueriesHitCorpusScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.ReplicatorNrtCopyStateScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.ScalarQuantizedKnnScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SearchScoringCorpusScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SegmentInfoFormatScenario;
@@ -132,6 +133,13 @@ public final class Scenarios {
         // manifest ordering for prior rows is preserved.
         register(new MonitorQueryBlobScenario());
         register(new MonitorIndexSegmentScenario());
+        // Sprint 114 T19 (rmp 4627): replicator NRT CopyState wire frame.
+        // Appended in stack order — after the monitor-* scenarios — so the
+        // manifest ordering for prior rows is preserved. The two remaining
+        // replicator audit rows (HTTP frames, session/revision) are tracked
+        // as DEFERRED_ROWS in Manifest.java because Lucene 10.4.0 removed
+        // the HttpReplicator / SessionToken / RevisionFile production surface.
+        register(new ReplicatorNrtCopyStateScenario());
     }
 
     private Scenarios() {}

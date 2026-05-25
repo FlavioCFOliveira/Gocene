@@ -63,6 +63,7 @@ public final class Main {
             case "verify-grouping-results" -> runVerifyGroupingResults(args, out, err);
             case "verify-classifier-labels" -> runVerifyClassifierLabels(args, out, err);
             case "verify-monitor" -> runVerifyMonitor(args, out, err);
+            case "verify-replicator" -> runVerifyReplicator(args, out, err);
             case "-h", "--help", "help" -> {
                 usage(out);
                 yield 0;
@@ -409,6 +410,49 @@ public final class Main {
         return 0;
     }
 
+    /** Re-verifies a replicator scenario. Sprint 114 T19 only ships one
+     *  sub-flag, {@code copystate}, which targets the
+     *  {@code replicator-nrt-copystate} scenario. Future replicator
+     *  scenarios (HTTP frames, session/revision) are currently
+     *  represented as Manifest.DEFERRED_ROWS — when they land they will
+     *  plug in here with additional sub-flags. The seed is mandatory
+     *  because Determinism.idBytes is seeded.
+     *
+     *  <p>Usage: {@code verify-replicator copystate <dir> <seed>}. */
+    private static int runVerifyReplicator(String[] args, PrintStream out, PrintStream err) {
+        if (args.length != 4) {
+            err.println("usage: verify-replicator <copystate> <dir> <seed>");
+            return 1;
+        }
+        String which = args[1];
+        String scenarioName;
+        switch (which) {
+            case "copystate" -> scenarioName = "replicator-nrt-copystate";
+            default -> {
+                err.println("invalid replicator sub-flag (expected 'copystate'): " + which);
+                return 1;
+            }
+        }
+        java.nio.file.Path source = java.nio.file.Path.of(args[2]);
+        long seed = parseSeed(args[3], err);
+        if (seed == Long.MIN_VALUE && !"-9223372036854775808".equals(args[3])) {
+            return 1;
+        }
+        try {
+            CorpusScenario scenario = Scenarios.require(scenarioName);
+            scenario.verify(source, seed);
+        } catch (IllegalArgumentException e) {
+            err.println(e.getMessage());
+            return 2;
+        } catch (IOException e) {
+            err.println("verify-replicator failed: " + e.getMessage());
+            return 4;
+        }
+        out.println("ok verify-replicator variant=" + which + " dir="
+                + source.toAbsolutePath() + " seed=" + seed);
+        return 0;
+    }
+
     /** Verifies {@code queries-hits.tsv} mirrors {@link #runVerifyScoring}. */
     private static int runVerifyQueriesHits(String[] args, PrintStream out, PrintStream err) {
         if (args.length != 2) {
@@ -461,5 +505,6 @@ public final class Main {
         out.println("  verify-grouping-results <dir>         re-run the grouping collectors in <dir> and compare to grouping-*.tsv");
         out.println("  verify-classifier-labels <dir> [seed] re-run the classifiers in <dir> (held-out built from seed) and compare to classifier-labels.tsv");
         out.println("  verify-monitor <blob|segment> <dir> [seed] re-verify the monitor-query-blob OR monitor-index-segment fixture in <dir>");
+        out.println("  verify-replicator <copystate> <dir> <seed> re-verify the replicator-nrt-copystate fixture in <dir>");
     }
 }

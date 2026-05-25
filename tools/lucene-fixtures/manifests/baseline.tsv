@@ -39,5 +39,8 @@ grouping-result-corpus	12648430	fb07f1b49a0a907bdacfbf6a9c251a9a8c019706cafe9b43
 classifier-label-corpus	12648430	2cd8da235b49a5dc8aa2a77548378f52deed41f6bc4437218c9bfaeb655cd3c3	14	
 monitor-query-blob	12648430	63ec7ac198bed2e27cc65c912618207eee2535f62fd45fea5d6932c356d73017	1	
 monitor-index-segment	12648430	94f52f552f172a2ab1726ad4437df6bb2f783e3f141ec9e3e8f2738e5ba3bb3c	15	
+replicator-nrt-copystate	12648430	01901b68cec6d57c5713b88193e9aa12106ed3f82e0bbaffac616709255c9b76	1	
 hunspell-blob	12648430	(deferred)	0	gap_notes="deferred to per-package task"
 snowball-blob	12648430	(deferred)	0	gap_notes="deferred to per-package task"
+replicator-http-frames	12648430	(deferred)	0	gap_notes="No Java-served HTTP replicator fixtures."; reason="Lucene 10.4.0 removed org.apache.lucene.replicator.http.HttpReplicator and the IndexRevision wire surface; covered by a future backward-compat sprint."
+replicator-session-revision	12648430	(deferred)	0	gap_notes="No cross-engine replication transcript validated against Lucene."; reason="Lucene 10.4.0 removed org.apache.lucene.replicator.http.HttpReplicator and the IndexRevision wire surface; covered by a future backward-compat sprint."
