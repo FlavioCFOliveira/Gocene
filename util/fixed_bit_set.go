@@ -412,5 +412,19 @@ func (bi *BitsIterator) Next() int {
 	return result
 }
 
+// GetBits returns the underlying uint64 word slice.
+//
+// The caller must not write to the returned slice outside of index bounds [0,
+// NumWords()). Used by low-level codec writers that need to serialise
+// individual words (e.g. the Lucene104 doc-block bit-set encoding).
+func (fs *FixedBitSet) GetBits() []uint64 {
+	return fs.bits
+}
+
+// NumWords returns the number of uint64 words backing this bitset.
+func (fs *FixedBitSet) NumWords() int {
+	return len(fs.bits)
+}
+
 // Ensure that FixedBitSet implements Bits
 var _ Bits = (*FixedBitSet)(nil)
