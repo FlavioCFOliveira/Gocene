@@ -2,6 +2,36 @@
 
 All notable changes to Gocene are documented in this file.
 
+## [Unreleased] — v1.0 preparation
+
+### Additions
+
+- **Lucene 10.4.0 postings round-trip** (`codecs/lucene104`): full
+  `Lucene104PostingsFormat` writer + reader with `BlockPostingsEnum`,
+  `ImpactsEnum` for BMW/MaxScore scoring, and a block-tree wire-up via
+  `Lucene103SegmentTermsEnum`. All format-level tests pass without `t.Skip`.
+- **Lucene99HnswVectorsReader**: replaced 116-line stub with complete
+  `.vem`/`.vex` reader. Fixed the pre-existing bug where `finish()` in
+  `lucene99HnswFieldWriter` never initialised the graph builder — HNSW graphs
+  are now built correctly via in-memory scorer suppliers.
+- **AddIndexesFromReader** no longer increments an atomic counter; it now
+  registers `pendingImportedSegments` matching the `AddIndexes` pipeline.
+- **backward_codecs/lucene40/blocktree**: fixed test build failure caused by
+  a stale `(any, error)` return type in `noopPostingsReader.Impacts`; all 26
+  backward-codec packages now build and pass.
+- **Package documentation**: added `codecs/doc.go` with a full godoc
+  describing the SPI-based codec registry and nine format types.
+- **Runnable examples**: `analysis/example_test.go`,
+  `index/example_test.go`, `search/example_test.go` — canonical usage flows
+  enforced by the Go test harness.
+
+### Removed
+
+- Stale README known-limitation bullet "Merge infrastructure incomplete"
+  (the `AddIndexes` variants it described are now working and tested).
+
+---
+
 ## [v0.1.0-alpha] — 2026-05-24
 
 ### Summary
@@ -89,9 +119,6 @@ exclusively by other packages within this module.
 
 ### Known limitations
 
-- **Merge infrastructure incomplete.** `AddIndexes` variants that require
-  segment tail merging (`NoTailSegments`, `MergeAfterCopy`,
-  `WithPendingDeletes`) are stubbed.
 - **SegmentTermsEnum / IntersectTermsEnum deferred.** Full block-tree
   iterator wiring is tracked in backlog tasks 2691 and 2692.
 - **PostingsFormat SPI wiring deferred.** Codec service-provider loading is
