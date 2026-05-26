@@ -4,6 +4,58 @@ All notable changes to Gocene are documented in this file.
 
 ## [Unreleased] — v1.0 preparation
 
+### Sprint 114 — Binary Compatibility Test Suite (closed 2026-05-26)
+
+- **T1 — Coverage audit.** Inventoried 105 binary artefacts across 25
+  packages in [`docs/compat-coverage.tsv`](docs/compat-coverage.tsv) and
+  the companion summary
+  [`docs/compat-coverage.md`](docs/compat-coverage.md); the audit
+  established the gap baseline used by the rest of the sprint.
+- **T2 — Java fixture harness.** Added
+  [`tools/lucene-fixtures/`](tools/lucene-fixtures/) — a JDK 21 + Maven
+  project that links directly against Lucene 10.4.0 and exposes the
+  `gen`, `verify`, `list`, and `manifest` CLIs, plus the initial smoke
+  scenario and the Go-side scaffolding under `internal/compat/harness.go`
+  and `internal/compat/smoke/`.
+- **T3 — Foundational scenarios.** Twelve byte-deterministic scenarios
+  (store primitives, postings, doc values, points, term vectors, stored
+  fields, norms, segment info, field infos, FST blob, compound format,
+  per-field postings/doc-values) plus a Determinism scenario and the
+  manifest-snapshotting machinery. Added the `corpus-baseline` and
+  `corpus-manifest` Makefile targets and the committed
+  [`tools/lucene-fixtures/manifests/baseline.tsv`](tools/lucene-fixtures/manifests/baseline.tsv).
+- **T4 — Per-package task generation.** Generated and dependency-chained
+  21 per-package compat tasks (rmp 4614..4634) captured in
+  `docs/planning/sprint-114-generated-tasks.json`.
+- **Per-package closeouts (21 tasks, `store` .. `backward_codecs`).**
+  Added approximately 40 new fixture scenarios and approximately 75 Go
+  compat test files under `internal/compat/<pkg>/`. Documented carve-outs
+  for read-only-in-Lucene-10.4 formats and for upstream APIs that Lucene
+  10.4.0 has removed (HTTP replicator, `IndexRevision`, several legacy
+  sandbox/codec entry points); each deferral cites the exact upstream
+  removal commit.
+- **T5 — Combined scenarios.** Six end-to-end scenarios composing at
+  least two audited subsystems each — multi-segment index search,
+  reverse-segment search, faceted search, replicator NRT round-trip,
+  suggester FST, and `highlight + queryparser + analysis` — together
+  with the mutation-diagnostic CLI (`verify-diagnostic`) that emits a
+  structured JSON record on the first byte-level divergence. Go-side
+  drivers live in `internal/compat/scenarios/`.
+- **T6 — CI and contributor docs.** Split CI into a fast
+  `build-and-test` job and a `compat` matrix (3 operating systems × 2 Go
+  versions). Added the *Binary compatibility (mandatory)* section to
+  `CONTRIBUTING.md`, the *Compatibility guarantee* paragraph to
+  `README.md`, and a branch-protection note requiring the `compat` job
+  on every pull request.
+- **T7 — Documentation closeout.** This entry, plus the
+  `Project Status` refresh in `CLAUDE.md`, the *Binary-compat test
+  suite* subsection in `README.md`, and the recategorisation note at
+  the bottom of `docs/compat-coverage.md`.
+- **Net result.** Bidirectional Apache Lucene 10.4.0 byte compatibility
+  is now enforced in CI on every pull request, with deferrals tracked
+  explicitly in `docs/compat-coverage.md` and `internal/compat/scenarios/
+  deferred_combined_compat_test.go`.
+
 ### Additions
 
 - **Lucene 10.4.0 postings round-trip** (`codecs/lucene104`): full

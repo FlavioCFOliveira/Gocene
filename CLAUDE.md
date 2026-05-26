@@ -149,6 +149,23 @@ However, always remember: **the focus of any task is to contribute to the develo
 
 ## Project Status
 
-- No source code yet committed
-- No tests, benchmarks, or CI configuration
-- Build and test commands will be defined as the project matures
+- **Port complete (v1.0 candidate):** the full Apache Lucene 10.4.0 surface
+  has been ported across 25 top-level packages (see `README.md` for the
+  package inventory and `CHANGELOG.md` for the v0.1.0-alpha / Unreleased
+  entries).
+- **Binary-compatibility test suite in place:** the Java fixture harness
+  under `tools/lucene-fixtures/` drives Lucene 10.4.0 directly via JDK 21
+  and Maven, produces deterministic fixtures pinned in
+  `tools/lucene-fixtures/manifests/baseline.tsv` (60+ scenarios across
+  every audited package, plus six combined end-to-end scenarios), and is
+  paired with a Go-side test layer under `internal/compat/` (per-package
+  round-trips behind the `compat` build tag, plus integration scenarios
+  gated by `GOCENE_COMPAT_HARNESS=1`).
+- **CI gates every PR:** GitHub Actions runs a fast `build-and-test` job
+  plus a `compat` matrix (three operating systems × two Go versions) that
+  exercises the fixture harness and the Go compat suite.
+- **Sprint 114 (Binary Compatibility Test Suite) closed 2026-05-26:** the
+  105-row coverage audit, 21 per-package compat tasks, six combined
+  scenarios, the mutation-diagnostic CLI, and the CI/contributing-guide
+  hardening listed in `CHANGELOG.md` are all merged. Remaining deferrals
+  are documented in `docs/compat-coverage.md`.
