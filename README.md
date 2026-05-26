@@ -9,9 +9,50 @@ Gocene is an idiomatic Go port of [Apache Lucene 10.4.0](https://github.com/apac
 
 ## Table of contents
 
+- [Compatibility guarantee](#compatibility-guarantee)
+- [Binary-compat test suite](#binary-compat-test-suite)
 - [Package inventory](#package-inventory)
 - [Running tests](#running-tests)
 - [Known limitations](#known-limitations)
+
+---
+
+## Compatibility guarantee
+
+Gocene targets **byte-identical** wire compatibility with Apache Lucene 10.4.0:
+every artefact Gocene writes must be readable by Lucene 10.4.0 unchanged, and
+every artefact Lucene 10.4.0 writes must be readable by Gocene without
+reinterpretation. The full mandate is in [`CLAUDE.md`](CLAUDE.md) (section
+*Binary Compatibility Mandate*); the contributor-facing guide on how to verify
+locally is in [`CONTRIBUTING.md`](CONTRIBUTING.md) (section *Binary
+compatibility (mandatory)*). The compatibility suite has two layers: a Java
+fixture harness under `tools/lucene-fixtures/` that drives Lucene 10.4.0
+directly, and a Go test layer under `internal/compat/` (per-package
+round-trips behind the `compat` build tag, plus end-to-end combined scenarios
+gated by `GOCENE_COMPAT_HARNESS=1`). Every pull request runs both layers as
+the required `compat` CI job.
+
+### Binary-compat test suite
+
+The Java harness (`tools/lucene-fixtures/`) wraps Lucene 10.4.0 directly
+on JDK 21 and exposes `gen`, `verify`, `list`, and `manifest` CLIs that
+produce byte-deterministic fixtures at two canary seeds (`0xC0FFEE` and
+`0xDECAF`). The committed manifest at
+[`tools/lucene-fixtures/manifests/baseline.tsv`](tools/lucene-fixtures/manifests/baseline.tsv)
+pins the SHA-256 of every scenario; the Go-side suite under
+`internal/compat/` re-reads the same fixtures and asserts byte parity.
+To run locally:
+
+```bash
+make -f tools/lucene-fixtures/Makefile corpus-baseline   # generates fixtures
+make -f tools/lucene-fixtures/Makefile corpus-manifest   # rebuilds manifest
+
+GOCENE_COMPAT_HARNESS=1 go test -tags compat ./internal/compat/...
+```
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) (section *Binary compatibility
+(mandatory)*) for the full developer workflow, the deferral policy, and
+the troubleshooting guide.
 
 ---
 

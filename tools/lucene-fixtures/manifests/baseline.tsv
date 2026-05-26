@@ -1,0 +1,75 @@
+scenario	canary_seed	sha256	file_count	notes
+smoke	12648430	74cde243469a4edae9e5b86659f58f2aabb8f21099e0b86abd6c69f1591ac8ed	1	
+store-primitives	12648430	2ae23e2bed585c1b34796c723f8db05ddf011c5052b65d7d03d28403096f4b5a	1	
+postings-format	12648430	3bcb83093c6eafcd5e918393c988ea11eeeeb7a2e22a0c503cbc5708a4b67e6c	13	
+doc-values-format	12648430	17cc5e8e8b0fd40aa31f1a70f74c2cce1f4d104d3295e2b17f7df81ce467405a	7	
+stored-fields-format	12648430	209c5a8ae6ffe790d4c31040a636dbb03b974b8c7aff922d0934e6a2c61f3582	5	
+term-vectors-format	12648430	0d5977870637c33e886f984ce7e93b726a26d44dcd5d6e29b36f7787b0d21d0c	17	
+norms-format	12648430	ac608ae971f426e4d0b050540e615296f916447bb232e55a1a20ad75c4dfe96d	13	
+points-format	12648430	2e95c574217a3e0191d99e8baeb6c97e07e267f7e9296e793a7facc77bc0e9b0	8	
+knn-vectors-format	12648430	45db2a6b160abade33089b25528f6ef6832380bab8ed186615b292c43de0100b	9	
+compound-format	12648430	653b0028aa41317229c2f77fac9030254d88a6517d2e0ccc6a9b8d8e98a74cdc	3	
+field-infos-format	12648430	3e2e350a3885fedb4835101748729283f8c8482900ff1bb2f7bb4d092d4eac94	22	
+segment-info-format	12648430	910bc9e73a9c6d4715bc4c8f6bca059b2a387f46966633eda3807def57549871	10	
+live-docs-format	12648430	6093b80e8c2336e364d725493acf17b5958a8e84ebaff0e8aba5e37b18435000	14	
+fst-blob	12648430	3c8a9aacb4bc0f4bd24c4fa3ce4cf7d007fb9d1a7c83e1431bfed2f6734f9494	1	
+perfield-postings-doc-values	12648430	e876cda8d2c337ada6ecb168a52af6679cfa250fc473353af3bc45fdf269d9aa	19	
+compressing-stored-fields	12648430	f8463dbf1514aaa2d8a41262b6a16da48318d6ae27267646eeca3e823a3f69e6	5	
+scalar-quantized-knn	12648430	14135c8f93df03067541dbd6bebfb7485682651c3029ab25477b7dcbcdab3627	11	
+index-deletions-and-dv-updates	12648430	2932570bb3124464d513cdf1e04425458d24625bf26ecd49963601b11305f214	16	
+index-corruption	12648430	7e507831caee4eb1d7cfa23b10262fd4043943d15b2762e2eea25d2da55b96c0	20	
+index-soft-deletes	12648430	bdcd8c4c8026042fa9468eb166f7ee4074a4bb9aaba18d42698defc83aa05974	24	
+search-scoring-corpus	12648430	9225d865506d9efdfa4c81ad61dbf01b9441b174c5b1676466a411c4fa42df8f	14	
+knn-hit-ordering	12648430	4dffec779192d13928d5992866b5fcd6d859712f63099a8e62e1cf8d3d0eedae	15	
+synonym-fst	12648430	9a0208630b0aa5a23af7a5a2c1982fe73c71b22cd0238178b01bfa519c767d8e	1	
+token-payload-bytes	12648430	db45bfae00e4ec643fa3876036b15c1f59d43f0e2b1c56e2313ce7c8fd43c7d1	14	
+queries-hit-corpus	12648430	bad997a9eb4900a5bf13b0207b3e77477db5006fe47faa9e65a1bc0598760ad9	17	
+taxonomy-directory	12648430	cda87edcd1d481fd717329f5394f0e769b1320246a114316a75e97e5daa1ebc6	5	
+facet-association-payload	12648430	264ee645321b3fb63872d88460f7ee53892298f349e2b8638f2f3e029b23803f	17	
+facet-sortedset-ords	12648430	bee3178fa8ce0ece77b152ad3a03bc0ce4feecbcb7edf545b091e5539b5d996b	12	
+facet-set-packed-bytes	12648430	3a25ff14bb3bbde2b00a0ed1ce43f5b04d8cb4523b3883430665377825ff3645	12	
+completion-fst	12648430	8a1cdc5bc68d1452a4935a28aa18abde9ccd4586ec2770e871bee36dca2163a3	1	
+wfst-blob	12648430	aa0101c3aef15bd2d837e5c22c45b8bd6d6cbafc05773289a118c2cb2ec4e0d7	1	
+analyzing-infix-sidecar	12648430	2f4561394c5c844558a852c8a9d1e18a0e44afd07d3b485b5120424a6b65fb36	3	
+completion104-postings	12648430	b1327f56772644030488bbeca9b5625601545b96b2c75151133fbb5f3d4ddab8	23	
+highlight-offset-corpus	12648430	cd88938b2efde1994a0656f4617569bff771c1fc4b31c21bc2681aee91f401a9	15	
+fast-vector-highlight-phrases	12648430	5761e39d0b440f896068d3e3fe5e8e9fb125a391979b8c3d48cdae6f1af6247a	18	
+parent-block-corpus	12648430	c93cc1ea5ce5a6654a719ad90dea20f12aab81ca504cf55ba9abecfface253d4	12	
+grouping-result-corpus	12648430	fb07f1b49a0a907bdacfbf6a9c251a9a8c019706cafe9b431e8b51ae1efe88f3	17	
+classifier-label-corpus	12648430	2cd8da235b49a5dc8aa2a77548378f52deed41f6bc4437218c9bfaeb655cd3c3	14	
+monitor-query-blob	12648430	63ec7ac198bed2e27cc65c912618207eee2535f62fd45fea5d6932c356d73017	1	
+monitor-index-segment	12648430	94f52f552f172a2ab1726ad4437df6bb2f783e3f141ec9e3e8f2738e5ba3bb3c	15	
+replicator-nrt-copystate	12648430	01901b68cec6d57c5713b88193e9aa12106ed3f82e0bbaffac616709255c9b76	1	
+spatial-serialized-dv-shape	12648430	ca3afc6092180e9498ef545bd972b14b138427c5aaea2523aa3f79c878734c07	12	
+spatial-prefix-tree	12648430	f14e59c2a4fb6ee2347459df43f96140a01efc2b21a92ad330ed6681484590bc	10	
+spatial-composite	12648430	4d674312bae40cd2d0a38e0bf3d2a6f081d5318c3bb462fb07131abfeedbd84a	12	
+spatial-bbox-dv	12648430	a2582d96f46c4cec0e221bf72d5bc2e55a7b6480e035036f628f7ce3cbdeb7b8	12	
+spatial-wkt-geojson	12648430	4d0df9e5932e34f2d0b9e39df155a17030f67283455e1c6d63c489fe7c4622ec	2	
+spatial3d-serializable	12648430	83f4724360b50aee6d605fa06b5b4cdf323a269dec26431da9b3d059fc29853f	1	
+geo-encoded-points	12648430	f0a760f27279f1c4d5bcc8295e1cd6d1356bf6ccbe613c63471e30522278a2e1	1	
+expressions-eval-corpus	12648430	944b9f292a204ea110852681d23cf8fa2d55e2d226f63d4649abfddc6c605ead	16	
+queryparser-trees-and-hits	12648430	f9e0ce786855de5579f38c74abc38b0fead890c70f0cf8cea44d767ddf0bfb3b	15	
+sandbox-idversion-postings	12648430	4079b71c1a6800ace063265a7a7363f3933a208e4b5e8f96e8dbd33c3c73dcde	7	
+misc-index-splitter-input	12648430	2b362a48d6a412a7371361a6fb3c3c9ca9578e9061f4e02c0ea07ff080d5a586	37	
+misc-highfreq-terms-corpus	12648430	cd48e8a691f8fa397695747a5353baadebdac43883e351e067260ad8eac05167	14	
+memory-index-flush	12648430	a8115dfa935ec52c676e4f50875794fe04201d8e8e8c741cab614288339e0356	17	
+bwc-packed64-legacy	12648430	2f59ae9aa3794251a01b31d539f4fe2561f161080469876ec668c172c1323ad1	1	
+bwc-big-endian-store	12648430	fe29e10d7f3bd7b5064ce4f058e3e14e45f8102518e09b4f537952a5b228e987	1	
+combined-multi-segment-index-search	12648430	1347637bdbd8ae6fcd85c83e2d9f5d9673f0642c80963d3e2cc47cb19ed0dd0b	77	
+combined-reverse-index-search	12648430	952ede0437fddac52eca1644c47673a1c54a9cbeaef81cc6486b8bcb9ae1b151	27	
+combined-facets-search	12648430	c481a775292713b0372b860d5b44389944d2f5f14ebb6fb3ef8ece1f4277062a	21	
+combined-replicator-roundtrip	12648430	304f141e55310c1f2dd5b5cffd8fce54ae3a883bc7b700717dbbf60546a532ff	2	
+combined-suggester-fst	12648430	7cd4a63b83fb854dcec54b91246b856c7e760a0b29ae9efce8711e1d12dc1b95	2	
+combined-highlight-queryparser-analysis	12648430	211de9cf41fb5c23fc0e87b1f1ee9b954d9b80c0cbd498edcdfd5d83a40536fc	15	
+hunspell-blob	12648430	(deferred)	0	gap_notes="deferred to per-package task"
+snowball-blob	12648430	(deferred)	0	gap_notes="deferred to per-package task"
+replicator-http-frames	12648430	(deferred)	0	gap_notes="No Java-served HTTP replicator fixtures."; reason="Lucene 10.4.0 removed org.apache.lucene.replicator.http.HttpReplicator and the IndexRevision wire surface; covered by a future backward-compat sprint."
+replicator-session-revision	12648430	(deferred)	0	gap_notes="No cross-engine replication transcript validated against Lucene."; reason="Lucene 10.4.0 removed org.apache.lucene.replicator.http.HttpReplicator and the IndexRevision wire surface; covered by a future backward-compat sprint."
+sandbox-quantization-codec	12648430	(deferred)	0	gap_notes="Quantization sampling codec: Pure port without tests, fixtures, or writer parity"; reason="Lucene 10.4.0 sandbox `codecs/quantization` ships ONLY org.apache.lucene.sandbox.codecs.quantization.KMeans and SampleReader (no KnnVectorsFormat/PostingsFormat/Codec under that subpackage); the scalar-quantized HNSW persisted artefact is the production org.apache.lucene.codecs.lucene104.Lucene104HnswScalarQuantizedVectorsFormat which is already covered by the T7 scenario `scalar-quantized-knn`. Sandbox-specific binary parity is therefore not applicable; covered by a future sprint that either ports a sandbox quantization format (none planned in Lucene 10.4.0) or formally folds this row into scalar-quantized-knn."
+bwc-lucene70-si	12648430	(deferred)	0	gap_notes="No real Lucene 7 fixture committed; rw tests are self-emitted."; reason="org.apache.lucene.backward_codecs.lucene70.Lucene70SegmentInfoFormat#write throws UnsupportedOperationException(\"Old formats can't be used for writing\") in Lucene 10.4.0; producing a Lucene-7-emitted .si requires an older Lucene jar (7.x branch) which is out of binary-compat-mandate scope (10.4.0 reference pin); covered by a future backward-compat sprint."
+bwc-lucene90-hnsw-v0	12648430	(deferred)	0	gap_notes="No Lucene-9 fixture committed."; reason="org.apache.lucene.backward_codecs.lucene90.Lucene90HnswVectorsFormat#fieldsWriter throws UnsupportedOperationException(\"Old codecs may only be used for reading\") in Lucene 10.4.0; producing a Lucene-9.x HNSW v0 segment requires an older Lucene jar; covered by a future backward-compat sprint."
+bwc-lucene99-postings	12648430	(deferred)	0	gap_notes="No Lucene-emitted .doc/.pos fixture for v99."; reason="org.apache.lucene.backward_codecs.lucene99.Lucene99PostingsFormat#fieldsConsumer throws UnsupportedOperationException in Lucene 10.4.0; producing a Lucene-9.9 postings segment requires an older Lucene jar; covered by a future backward-compat sprint."
+bwc-lucene99-scalar-quantized	12648430	(deferred)	0	gap_notes="No Lucene fixture."; reason="org.apache.lucene.backward_codecs.lucene99.Lucene99ScalarQuantizedVectorsFormat#fieldsWriter throws UnsupportedOperationException(\"Old codecs may only be used for reading\") in Lucene 10.4.0; producing a Lucene-9.9 scalar-quantised vectors segment requires an older Lucene jar; covered by a future backward-compat sprint."
+bwc-lucene103-postings	12648430	(deferred)	0	gap_notes="No Lucene-emitted v103 corpus."; reason="org.apache.lucene.backward_codecs.lucene103.Lucene103PostingsFormat#fieldsConsumer throws UnsupportedOperationException(\"This postings format may not be used for writing, use the current postings format\") in Lucene 10.4.0; producing a Lucene-10.3 postings segment requires an older Lucene jar; covered by a future backward-compat sprint."
+bwc-lucene40-blocktree	12648430	(deferred)	0	gap_notes="Only reader port; no rw or fixture test."; reason="org.apache.lucene.backward_codecs.lucene40.blocktree package in Lucene 10.4.0 ships ONLY Lucene40BlockTreeTermsReader/SegmentTermsEnum/IntersectTermsEnum (no writer); producing a Lucene-4.0 BlockTree fixture requires the legacy lucene-codecs.jar (Lucene 4 branch), out of binary-compat-mandate scope; covered by a future backward-compat sprint."
+bwc-multi-version-corpora	12648430	(deferred)	0	gap_notes="Tests are skeletons; no actual multi-version Lucene index ZIPs committed."; reason="Producing the per-major-version index ZIPs that org.apache.lucene.backward_index.TestBasicBackwardsCompatibility consumes requires building EACH old Lucene major (7/8/9/10) and emitting an index per branch; out of binary-compat-mandate scope (10.4.0 reference pin); covered by a future backward-compat sprint that maintains a multi-version fixture corpus."

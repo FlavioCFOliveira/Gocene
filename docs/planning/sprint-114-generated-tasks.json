@@ -1,0 +1,29 @@
+{
+  "sprint": 114,
+  "mother_task": 4610,
+  "generated_at": "2026-05-25",
+  "tasks": [
+    {"order": 1, "package": "store", "task_id": 4614, "title": "T6 — store: binary-compatibility tests against Lucene 10.4.0 fixtures"},
+    {"order": 2, "package": "codecs", "task_id": 4615, "title": "T7 — codecs: binary-compatibility tests against Lucene 10.4.0 fixtures"},
+    {"order": 3, "package": "index", "task_id": 4616, "title": "T8 — index: binary-compatibility tests against Lucene 10.4.0 fixtures"},
+    {"order": 4, "package": "search", "task_id": 4617, "title": "T9 — search: binary-compatibility tests against Lucene 10.4.0 fixtures"},
+    {"order": 5, "package": "analysis", "task_id": 4618, "title": "T10 — analysis: binary-compatibility tests against Lucene 10.4.0 fixtures"},
+    {"order": 6, "package": "queries", "task_id": 4619, "title": "T11 — queries: binary-compatibility tests against Lucene 10.4.0 fixtures"},
+    {"order": 7, "package": "facets", "task_id": 4620, "title": "T12 — facets: binary-compatibility tests against Lucene 10.4.0 fixtures"},
+    {"order": 8, "package": "suggest", "task_id": 4621, "title": "T13 — suggest: binary-compatibility tests against Lucene 10.4.0 fixtures"},
+    {"order": 9, "package": "highlight", "task_id": 4622, "title": "T14 — highlight: binary-compatibility tests against Lucene 10.4.0 fixtures"},
+    {"order": 10, "package": "join", "task_id": 4623, "title": "T15 — join: binary-compatibility tests against Lucene 10.4.0 fixtures"},
+    {"order": 11, "package": "grouping", "task_id": 4624, "title": "T16 — grouping: binary-compatibility tests against Lucene 10.4.0 fixtures"},
+    {"order": 12, "package": "classification", "task_id": 4625, "title": "T17 — classification: binary-compatibility tests against Lucene 10.4.0 fixtures"},
+    {"order": 13, "package": "monitor", "task_id": 4626, "title": "T18 — monitor: binary-compatibility tests against Lucene 10.4.0 fixtures"},
+    {"order": 14, "package": "replicator", "task_id": 4627, "title": "T19 — replicator: binary-compatibility tests against Lucene 10.4.0 fixtures"},
+    {"order": 15, "package": "spatial", "task_id": 4628, "title": "T20 — spatial: binary-compatibility tests against Lucene 10.4.0 fixtures"},
+    {"order": 16, "package": "expressions", "task_id": 4629, "title": "T21 — expressions: binary-compatibility tests against Lucene 10.4.0 fixtures"},
+    {"order": 17, "package": "queryparser", "task_id": 4630, "title": "T22 — queryparser: binary-compatibility tests against Lucene 10.4.0 fixtures"},
+    {"order": 18, "package": "sandbox", "task_id": 4631, "title": "T23 — sandbox: binary-compatibility tests against Lucene 10.4.0 fixtures"},
+    {"order": 19, "package": "misc", "task_id": 4632, "title": "T24 — misc: binary-compatibility tests against Lucene 10.4.0 fixtures"},
+    {"order": 20, "package": "memory", "task_id": 4633, "title": "T25 — memory: binary-compatibility tests against Lucene 10.4.0 fixtures"},
+    {"order": 21, "package": "backward_codecs", "task_id": 4634, "title": "T26 — backward_codecs: binary-compatibility tests against Lucene 10.4.0 fixtures"}
+  ],
+  "dependency_chain": "store -> codecs -> index -> search -> analysis -> queries -> facets -> suggest -> highlight -> join -> grouping -> classification -> monitor -> replicator -> spatial -> expressions -> queryparser -> sandbox -> misc -> memory -> backward_codecs -> T5(4611)"
+}
