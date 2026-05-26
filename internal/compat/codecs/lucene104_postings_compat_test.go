@@ -23,10 +23,131 @@
 package codecs
 
 import (
+	"fmt"
+	"sort"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
+	gcodecs "github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
+
+// openPostingsProducer opens the PerFieldFieldsProducer for the "_0" segment
+// in dir, using Lucene99SegmentInfoFormat + Lucene104FieldInfosFormat to build
+// the SegmentReadState.
+func openPostingsProducer(t *testing.T, d store.Directory) (gcodecs.FieldsProducer, func()) {
+	t.Helper()
+
+	siFormat := gcodecs.NewLucene99SegmentInfoFormat()
+	si, err := siFormat.Read(d, "_0", nil, store.IOContextDefault)
+	if err != nil {
+		t.Fatalf("read .si: %v", err)
+	}
+
+	fiFormat := gcodecs.NewLucene104FieldInfosFormat()
+	fn, err := fiFormat.Read(d, si, "", store.IOContextDefault)
+	if err != nil {
+		t.Fatalf("read .fnm: %v", err)
+	}
+
+	rs := &gcodecs.SegmentReadState{
+		Directory:   d,
+		SegmentInfo: si,
+		FieldInfos:  fn,
+	}
+	producer, err := gcodecs.NewPerFieldFieldsProducer(rs)
+	if err != nil {
+		t.Fatalf("NewPerFieldFieldsProducer: %v", err)
+	}
+	return producer, func() { _ = producer.Close() }
+}
+
+// collectDocs iterates all postings for a term in a field and returns the
+// sorted doc-ID list.
+func collectDocs(t *testing.T, producer gcodecs.FieldsProducer, field, text string) []int {
+	t.Helper()
+
+	terms, err := producer.Terms(field)
+	if err != nil {
+		t.Fatalf("Terms(%q): %v", field, err)
+	}
+	if terms == nil {
+		t.Fatalf("Terms(%q) returned nil", field)
+	}
+
+	te, err := terms.GetIterator()
+	if err != nil {
+		t.Fatalf("GetIterator(%q): %v", field, err)
+	}
+
+	key := index.NewTerm(field, text)
+	found, err := te.SeekExact(key)
+	if err != nil {
+		t.Fatalf("SeekExact(%q, %q): %v", field, text, err)
+	}
+	if !found {
+		t.Fatalf("term %q not found in field %q", text, field)
+	}
+
+	pe, err := te.Postings(index.PostingsFlagFreqs)
+	if err != nil {
+		t.Fatalf("Postings(%q, %q): %v", field, text, err)
+	}
+
+	var docs []int
+	for {
+		doc, err := pe.NextDoc()
+		if err != nil {
+			t.Fatalf("NextDoc(%q, %q): %v", field, text, err)
+		}
+		if doc == index.NO_MORE_DOCS {
+			break
+		}
+		docs = append(docs, doc)
+	}
+	sort.Ints(docs)
+	return docs
+}
+
+// collectPositions returns all positions for term text in field within doc.
+func collectPositions(t *testing.T, producer gcodecs.FieldsProducer, field, text, docLabel string, docID int) []int {
+	t.Helper()
+
+	terms, err := producer.Terms(field)
+	if err != nil {
+		t.Fatalf("Terms(%q): %v", field, err)
+	}
+	te, err := terms.GetIterator()
+	if err != nil {
+		t.Fatalf("GetIterator: %v", err)
+	}
+	key := index.NewTerm(field, text)
+	found, err := te.SeekExact(key)
+	if err != nil || !found {
+		t.Fatalf("SeekExact(%q): found=%v err=%v", text, found, err)
+	}
+	pe, err := te.Postings(index.PostingsFlagPositions)
+	if err != nil {
+		t.Fatalf("Postings: %v", err)
+	}
+	doc, err := pe.Advance(docID)
+	if err != nil || doc != docID {
+		t.Fatalf("Advance(%d): doc=%d err=%v", docID, doc, err)
+	}
+	freq, err := pe.Freq()
+	if err != nil {
+		t.Fatalf("Freq: %v", err)
+	}
+	positions := make([]int, 0, freq)
+	for i := 0; i < freq; i++ {
+		pos, err := pe.NextPosition()
+		if err != nil || pos == index.NO_MORE_POSITIONS {
+			t.Fatalf("%s pos[%d]: pos=%d err=%v", docLabel, i, pos, err)
+		}
+		positions = append(positions, pos)
+	}
+	return positions
+}
 
 // TestLucene104Postings_HeaderEnvelopes runs class (a) of the three-class
 // gate: Lucene writes the corpus, Gocene parses the per-stream IndexHeader
@@ -72,19 +193,19 @@ func TestLucene104Postings_HeaderEnvelopes(t *testing.T) {
 			// .tim/.tip/.tmd: block-tree term dictionary (written by
 			// Lucene103BlockTreeTermsWriter under the surrounding postings
 			// format). Codec name for all three is Lucene103BlockTreeTerms*.
-			expectIndexCodecName(t, dir, tim, codecs.Lucene103BlockTreeTermsCodecName,
+			expectIndexCodecName(t, dir, tim, gcodecs.Lucene103BlockTreeTermsCodecName,
 				0, 32, suffix)
-			expectIndexCodecName(t, dir, tip, codecs.Lucene103BlockTreeTermsIndexCodecName,
+			expectIndexCodecName(t, dir, tip, gcodecs.Lucene103BlockTreeTermsIndexCodecName,
 				0, 32, suffix)
-			expectIndexCodecName(t, dir, tmd, codecs.Lucene103BlockTreeTermsMetaCodecName,
+			expectIndexCodecName(t, dir, tmd, gcodecs.Lucene103BlockTreeTermsMetaCodecName,
 				0, 32, suffix)
 
 			// Every postings file is non-empty (header+footer alone is
 			// 9+codec+4+16 = at least 33 bytes, but actual postings need
 			// dozens more bytes per term).
 			for _, f := range []string{doc, pos, psm, tim, tip, tmd} {
-				mustNonEmpty(t, dir, f, int64(codecs.IndexHeaderLength(
-					codecs.Lucene103BlockTreeTermsCodecName, suffix)))
+				mustNonEmpty(t, dir, f, int64(gcodecs.IndexHeaderLength(
+					gcodecs.Lucene103BlockTreeTermsCodecName, suffix)))
 			}
 		})
 	}
@@ -124,4 +245,101 @@ func TestLucene104Postings_ByteDeterminism_AcrossSeeds(t *testing.T) {
 	if timA != timB {
 		t.Fatalf("expected identical .tim filename across seeds, got %s vs %s", timA, timB)
 	}
+}
+
+// TestLucene104Postings_PayloadValues verifies that Gocene's
+// Lucene104PostingsFormat reader can decode term→doc mappings from the
+// Lucene 10.4.0 postings-format fixture and recover exact values.
+//
+// PostingsFormatScenario.buildDoc (10 docs, seed=0xC0FFEE):
+//
+//	id:   StringField (DOCS_ONLY) — "id-<i>" in doc i
+//	body: TextField  (DOCS+FREQS+POSITIONS) —
+//	      "alpha beta gamma delta <seed^i> epsilon zeta" (StandardAnalyzer)
+//
+// Assertions:
+//  1. "alpha" in field "body" appears in all 10 docs (docs 0..9).
+//  2. "id-0" in field "id" appears in exactly doc 0.
+//  3. "alpha" at position 0 in doc 0 — position round-trip for seed.
+//
+// This is AC#2 payload-level verification for T4641.
+func TestLucene104Postings_PayloadValues(t *testing.T) {
+	const seed int64 = 0xC0FFEE
+
+	rawDir := generate(t, "postings-format", seed)
+	d, err := store.NewSimpleFSDirectory(rawDir)
+	if err != nil {
+		t.Fatalf("open dir: %v", err)
+	}
+	defer d.Close()
+
+	producer, cleanup := openPostingsProducer(t, d)
+	defer cleanup()
+
+	// AC#2-a: "alpha" appears in all 10 docs.
+	t.Run("alpha_all_docs", func(t *testing.T) {
+		docs := collectDocs(t, producer, "body", "alpha")
+		if len(docs) != 10 {
+			t.Fatalf("'alpha' doc count: got %d, want 10; docs=%v", len(docs), docs)
+		}
+		for i, doc := range docs {
+			if doc != i {
+				t.Errorf("docs[%d] = %d, want %d", i, doc, i)
+			}
+		}
+	})
+
+	// AC#2-b: "id-0" appears in exactly doc 0.
+	t.Run("id_field_singleton", func(t *testing.T) {
+		docs := collectDocs(t, producer, "id", "id-0")
+		if len(docs) != 1 {
+			t.Fatalf("'id-0' doc count: got %d, want 1; docs=%v", len(docs), docs)
+		}
+		if docs[0] != 0 {
+			t.Fatalf("'id-0' docID: got %d, want 0", docs[0])
+		}
+	})
+
+	// AC#2-c: "alpha" at position 0 in doc 0 (StandardAnalyzer, first token).
+	t.Run("alpha_position_in_doc0", func(t *testing.T) {
+		positions := collectPositions(t, producer, "body", "alpha", "doc0", 0)
+		if len(positions) == 0 {
+			t.Fatal("no positions for 'alpha' in doc 0")
+		}
+		if positions[0] != 0 {
+			t.Fatalf("'alpha' position[0] in doc 0: got %d, want 0", positions[0])
+		}
+	})
+
+	// AC#2-d: "zeta" at position 6 in doc 0 — last token of the body phrase.
+	// StandardAnalyzer tokenises "alpha beta gamma delta <N> epsilon zeta"
+	// → positions 0,1,2,3,4,5,6.
+	t.Run("zeta_position_in_doc0", func(t *testing.T) {
+		positions := collectPositions(t, producer, "body", "zeta", "doc0", 0)
+		if len(positions) == 0 {
+			t.Fatal("no positions for 'zeta' in doc 0")
+		}
+		if positions[0] != 6 {
+			t.Fatalf("'zeta' position[0] in doc 0: got %d, want 6", positions[0])
+		}
+	})
+
+	// AC#2-e: the per-doc seed term (seed^0 = 12648430 = "12648430") is in doc 0.
+	seedTermText := fmt.Sprintf("%d", seed^0)
+	t.Run("seed_term_in_doc0", func(t *testing.T) {
+		docs := collectDocs(t, producer, "body", seedTermText)
+		if len(docs) == 0 {
+			t.Fatalf("seed term %q not found in 'body'", seedTermText)
+		}
+		found := false
+		for _, d := range docs {
+			if d == 0 {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("seed term %q not in doc 0; got docs=%v", seedTermText, docs)
+		}
+	})
 }
