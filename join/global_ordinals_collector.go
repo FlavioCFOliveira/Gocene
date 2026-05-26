@@ -68,10 +68,13 @@ func (c *GlobalOrdinalsCollector) GetLeafCollector(reader search.IndexReader) (s
 	}
 
 	if c.ordinalMap != nil {
-		// globalOrds slice is nil when OrdinalMap is a stub (see index/ordinal_map.go).
-		// The collector silently skips bits in that case, which is correct until
-		// OrdinalMap.Build is implemented (backlog #2703).
-		_ = globalOrds // populated below when context ord is known
+		// OrdinalMap.Build is now implemented (rmp #4646). However, fully wiring
+		// GetGlobalOrds(segmentIndex) here requires the leaf segment index, which
+		// Gocene's search.IndexReader interface does not yet expose. Full wiring
+		// is tracked in backlog #2703. Until then, globalOrds stays nil and the
+		// collector silently skips ordinal remapping, which is correct for the
+		// single-segment case where ordinalMap is not needed.
+		_ = globalOrds // will be populated once LeafReaderContext.ord is available
 		return &globalOrdinalsOrdMapLeafCollector{
 			sdv:        sdv,
 			globalOrds: globalOrds,

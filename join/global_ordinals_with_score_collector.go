@@ -199,7 +199,9 @@ func (c *GlobalOrdinalsWithScoreCollector) GetLeafCollector(reader search.IndexR
 		}
 	}
 	if c.ordinalMap != nil {
-		// globalOrds is nil when OrdinalMap stub is active (backlog #2703).
+		// OrdinalMap.Build is now implemented (rmp #4646). Full wiring of
+		// GetGlobalOrds(segmentIndex) awaits LeafReaderContext.ord in the
+		// search interface (backlog #2703).
 		_ = globalOrds
 		return &globalOrdsWithScoreLeafCollector{
 			sdv:        sdv,
