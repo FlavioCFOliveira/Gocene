@@ -10,10 +10,11 @@ import (
 )
 
 // TestDeferredGoceneWriteLeg aggregates the Gocene-write deferrals for the
-// six combined scenarios. Each leg is t.Skip-ped with the verbatim audit
-// gap_notes (or a closely paraphrased technical reason) so the gap is
-// visible in `go test -v` output and survives any future test-discovery
-// pruning. The Lucene-side legs are exercised by TestS1..TestS6.
+// combined scenarios that are not yet exercisable from Gocene. Each leg is
+// t.Skip-ped with the verbatim audit gap_notes (or a closely paraphrased
+// technical reason) so the gap is visible in `go test -v` output and
+// survives any future test-discovery pruning. The Lucene-side legs are
+// exercised by TestS1..TestS6.
 //
 // The two recurring root causes are:
 //
@@ -28,9 +29,9 @@ import (
 //     TestSimpleServer.readCopyState wire encoder/decoder. This blocks
 //     the Gocene-write leg for S4.
 //
-//   - The Gocene suggest port has no AnalyzingSuggester implementation;
-//     the FST persistence format is not exercisable from Gocene yet.
-//     This blocks the Gocene-write leg for S5.
+// S5 (combined-suggester-fst) is no longer deferred: AnalyzingSuggester with
+// FST persistence and lookup was implemented (rmp #4660) and the Gocene-write
+// leg is covered by TestS5_GoceneWriteLeg in s5_gocene_write_test.go.
 func TestDeferredGoceneWriteLeg(t *testing.T) {
 	cases := []struct {
 		scenario string
@@ -74,14 +75,6 @@ func TestDeferredGoceneWriteLeg(t *testing.T) {
 				"round-trip IS covered by TestS4_ReplicatorRoundtrip.",
 		},
 		{
-			scenario: scenarioS5,
-			reason: "Gocene suggest port lacks an AnalyzingSuggester " +
-				"implementation (FST persistence + lookup); the Gocene-write " +
-				"leg (Gocene emits a Lucene-readable s5-completion.fst from " +
-				"the seeded entries) is not exercisable until a future " +
-				"suggester sprint.",
-		},
-		{
 			scenario: scenarioS6,
 			reason: "Gocene's classic QueryParser port plus UnifiedHighlighter " +
 				"port plus the SegmentReader core-readers gap combine to " +
@@ -90,8 +83,8 @@ func TestDeferredGoceneWriteLeg(t *testing.T) {
 		},
 	}
 
-	if len(cases) != 6 {
-		t.Fatalf("expected 6 combined scenarios, got %d", len(cases))
+	if len(cases) != 5 {
+		t.Fatalf("expected 5 deferred combined scenarios, got %d", len(cases))
 	}
 
 	for _, c := range cases {
