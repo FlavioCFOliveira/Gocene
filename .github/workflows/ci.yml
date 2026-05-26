@@ -52,8 +52,17 @@ jobs:
       - name: Test
         run: go test ./... -timeout 300s
 
+      - name: Combined-scenario compat tests (Sprint 114 T5)
+        # Run BEFORE the per-package compat suite so end-to-end divergence
+        # fails CI fast and surfaces a single, scenario-level signal.
+        env:
+          GOCENE_COMPAT_HARNESS: '1'
+          LUCENE_FIXTURES_JAR: ${{ github.workspace }}/tools/lucene-fixtures/target/lucene-fixtures.jar
+        run: go test ./internal/compat/scenarios/... -timeout 600s
+
       - name: Compat tests (Lucene round-trip)
         env:
+          GOCENE_COMPAT_HARNESS: '1'
           LUCENE_FIXTURES_JAR: ${{ github.workspace }}/tools/lucene-fixtures/target/lucene-fixtures.jar
         run: go test -tags compat ./internal/compat/... -timeout 300s
 

@@ -4,6 +4,12 @@ import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.AnalyzingInfix
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.BwcBigEndianStoreScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.BwcPacked64LegacyScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.ClassifierLabelCorpusScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.CombinedFacetsSearchScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.CombinedHighlightQueryparserAnalysisScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.CombinedMultiSegmentIndexSearchScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.CombinedReplicatorRoundtripScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.CombinedReverseIndexSearchScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.CombinedSuggesterFstScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.Completion104PostingsScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.CompletionFstScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.CompoundFormatScenario;
@@ -213,6 +219,16 @@ public final class Scenarios {
         // are tracked as DEFERRED_ROWS in Manifest.java.
         register(new BwcPacked64LegacyScenario());
         register(new BwcBigEndianStoreScenario());
+        // Sprint 114 T5 (rmp 4611): six combined end-to-end scenarios.
+        // Appended in stack order at the very end so existing baseline.tsv
+        // rows keep their positions. Each scenario composes >=2 audited
+        // subsystems and emits a deterministic TSV alongside its index.
+        register(new CombinedMultiSegmentIndexSearchScenario());
+        register(new CombinedReverseIndexSearchScenario());
+        register(new CombinedFacetsSearchScenario());
+        register(new CombinedReplicatorRoundtripScenario());
+        register(new CombinedSuggesterFstScenario());
+        register(new CombinedHighlightQueryparserAnalysisScenario());
     }
 
     private Scenarios() {}

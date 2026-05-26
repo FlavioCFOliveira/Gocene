@@ -71,6 +71,7 @@ public final class Main {
             case "verify-memory-flush" -> runVerifyMemoryFlush(args, out, err);
             case "verify-sweetspot" -> runVerifySweetspot(args, out, err);
             case "verify-bwc" -> runVerifyBwc(args, out, err);
+            case "verify-diagnostic" -> runVerifyDiagnostic(args, out, err);
             case "-h", "--help", "help" -> {
                 usage(out);
                 yield 0;
@@ -759,6 +760,172 @@ public final class Main {
         return 0;
     }
 
+    /**
+     * Sprint 114 T5 (rmp 4611) acceptance criterion #4: on forced divergence
+     * (mutated byte in fixture), report the affected file + byte offset +
+     * expected vs actual bytes. This sub-command regenerates the scenario
+     * into a fresh temp dir and walks both trees byte-by-byte; on the first
+     * mismatch it emits a single-line JSON record to stdout and exits 4.
+     *
+     * <p>Usage: {@code verify-diagnostic <scenario> <seed> <source>}.
+     */
+    private static int runVerifyDiagnostic(String[] args, PrintStream out, PrintStream err) {
+        if (args.length != 4) {
+            err.println("usage: verify-diagnostic <scenario> <seed> <source>");
+            return 1;
+        }
+        String scenarioName = args[1];
+        long seed = parseSeed(args[2], err);
+        if (seed == Long.MIN_VALUE && !"-9223372036854775808".equals(args[2])) {
+            return 1;
+        }
+        java.nio.file.Path source = java.nio.file.Path.of(args[3]);
+        CorpusScenario scenario;
+        try {
+            scenario = Scenarios.require(scenarioName);
+        } catch (IllegalArgumentException e) {
+            err.println(e.getMessage());
+            return 2;
+        }
+        java.nio.file.Path tmp;
+        try {
+            tmp = java.nio.file.Files.createTempDirectory("gocene-diagnostic-");
+        } catch (IOException e) {
+            err.println("verify-diagnostic: mkdir failed: " + e.getMessage());
+            return 3;
+        }
+        try {
+            Determinism.seed(seed);
+            scenario.generate(tmp, seed);
+            Diagnostic diff = firstDifference(tmp, source);
+            if (diff == null) {
+                out.println("ok verify-diagnostic scenario=" + scenarioName
+                        + " seed=" + seed + " source=" + source.toAbsolutePath());
+                return 0;
+            }
+            // Single-line JSON with the four fields required by AC #4.
+            // No external JSON library is wired into the harness; manual
+            // serialisation is sufficient because the value set is bounded
+            // (path is ASCII-safe relative, ints fit Java long).
+            out.println("{\"file\":\"" + escapeJson(diff.file)
+                    + "\",\"offset\":" + diff.offset
+                    + ",\"expected\":" + (diff.expected & 0xFF)
+                    + ",\"actual\":" + (diff.actual & 0xFF) + "}");
+            return 4;
+        } catch (IOException e) {
+            err.println("verify-diagnostic failed: " + e.getMessage());
+            return 3;
+        } finally {
+            try {
+                deleteRecursively(tmp);
+            } catch (IOException ignored) {
+                // best-effort cleanup
+            }
+        }
+    }
+
+    /** Single diagnostic record carried back to {@link #runVerifyDiagnostic}. */
+    private record Diagnostic(String file, long offset, byte expected, byte actual) {}
+
+    /**
+     * Walks {@code expectedDir} and {@code actualDir} in lexicographic order
+     * and returns the first byte-level difference, or {@code null} if every
+     * file matches. A missing-or-extra-file is also a difference: the
+     * "expected" or "actual" byte is sentinel {@code -1} (0xFF wrap) and the
+     * offset is the file's length on the side that exists (or 0).
+     */
+    private static Diagnostic firstDifference(java.nio.file.Path expectedDir,
+                                              java.nio.file.Path actualDir) throws IOException {
+        java.util.Set<String> expFiles = walkRelative(expectedDir);
+        java.util.Set<String> actFiles = walkRelative(actualDir);
+        java.util.TreeSet<String> union = new java.util.TreeSet<>();
+        union.addAll(expFiles);
+        union.addAll(actFiles);
+        for (String rel : union) {
+            boolean inExp = expFiles.contains(rel);
+            boolean inAct = actFiles.contains(rel);
+            if (!inExp) {
+                long len = java.nio.file.Files.size(actualDir.resolve(rel));
+                return new Diagnostic(rel, 0L, (byte) 0xFF,
+                        len > 0 ? java.nio.file.Files.readAllBytes(actualDir.resolve(rel))[0]
+                                : (byte) 0);
+            }
+            if (!inAct) {
+                long len = java.nio.file.Files.size(expectedDir.resolve(rel));
+                return new Diagnostic(rel, 0L,
+                        len > 0 ? java.nio.file.Files.readAllBytes(expectedDir.resolve(rel))[0]
+                                : (byte) 0, (byte) 0xFF);
+            }
+            byte[] exp = java.nio.file.Files.readAllBytes(expectedDir.resolve(rel));
+            byte[] act = java.nio.file.Files.readAllBytes(actualDir.resolve(rel));
+            int common = Math.min(exp.length, act.length);
+            for (int i = 0; i < common; i++) {
+                if (exp[i] != act[i]) {
+                    return new Diagnostic(rel, i, exp[i], act[i]);
+                }
+            }
+            if (exp.length != act.length) {
+                // Length mismatch: report the first byte beyond the shorter side.
+                if (exp.length < act.length) {
+                    return new Diagnostic(rel, exp.length, (byte) 0xFF, act[exp.length]);
+                } else {
+                    return new Diagnostic(rel, act.length, exp[act.length], (byte) 0xFF);
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Walks {@code root} and returns the relative paths of every regular file
+     * that participates in byte-determinism. Mirrors
+     * {@link Manifest}'s {@code includeForHash}: the {@code .si} segment
+     * info files stamp a wall-clock timestamp into their diagnostics map
+     * and {@code write.lock} is empty, so both are excluded from the
+     * diagnostic byte-compare for the same reason they are excluded from
+     * the manifest digest.
+     */
+    private static java.util.Set<String> walkRelative(java.nio.file.Path root) throws IOException {
+        java.util.Set<String> out = new java.util.TreeSet<>();
+        try (var stream = java.nio.file.Files.walk(root)) {
+            stream.filter(java.nio.file.Files::isRegularFile)
+                    .filter(p -> {
+                        String name = p.getFileName().toString();
+                        return !name.endsWith(".si") && !name.equals("write.lock");
+                    })
+                    .forEach(p -> out.add(root.relativize(p).toString()));
+        }
+        return out;
+    }
+
+    private static String escapeJson(String s) {
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '\\': sb.append("\\\\"); break;
+                case '"': sb.append("\\\""); break;
+                case '\n': sb.append("\\n"); break;
+                case '\r': sb.append("\\r"); break;
+                case '\t': sb.append("\\t"); break;
+                default: sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    private static void deleteRecursively(java.nio.file.Path root) throws IOException {
+        if (!java.nio.file.Files.exists(root)) return;
+        try (var stream = java.nio.file.Files.walk(root)) {
+            java.util.List<java.nio.file.Path> all = new java.util.ArrayList<>();
+            stream.forEach(all::add);
+            all.sort(java.util.Comparator.reverseOrder());
+            for (java.nio.file.Path p : all) {
+                java.nio.file.Files.deleteIfExists(p);
+            }
+        }
+    }
+
     private static long parseSeed(String s, PrintStream err) {
         try {
             // Allow 0x-prefixed hex for ergonomic CLI usage.
@@ -798,5 +965,6 @@ public final class Main {
         out.println("  verify-memory-flush <dir> <seed>     re-verify the memory-index-flush fixture (single segment from a MemoryIndex flush) in <dir>");
         out.println("  verify-sweetspot <dir>               re-score the search-scoring-corpus index under SweetSpotSimilarity and assert (a) hit-set parity with BM25, (b) at least one score differs > 1e-3");
         out.println("  verify-bwc <bwc-packed64-legacy|bwc-big-endian-store> <dir> <seed>  re-verify a backward_codecs scenario (the other 7 backward_codecs rows are DEFERRED — see Manifest.DEFERRED_ROWS)");
+        out.println("  verify-diagnostic <scenario> <seed> <source>  regenerate the scenario into a temp dir, byte-compare against <source>, emit one-line JSON {file,offset,expected,actual} on the first mismatch (exit 4) or 'ok' on parity");
     }
 }

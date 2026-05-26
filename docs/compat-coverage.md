@@ -65,7 +65,9 @@ gap in each stack layer and the overall counts.
 
 - **Total artefacts inventoried:** 105 rows across 25 packages.
 - **Isolated tests:** 63 `yes`, 28 `partial`, 14 `no`.
-- **Combined / integration tests:** 30 `yes`, 25 `partial`, 50 `no`.
+- **Combined / integration tests:** 30 `yes`, 26 `partial`, 49 `no`
+  (Sprint 114 T5 flipped the UnifiedHighlighter offset retrieval row from
+  `no` → `partial` via the S6 combined-scenario coverage).
 - **Committed fixtures from Lucene 10.4.0:** 7 `yes`, 98 `no` (the seven `yes`
   rows all share the single `testdata/lucene-10.4.0-fixtures` corpus, which
   covers `segments_1`, `_0.si`, `_0.cfs`, `_0.cfe` and the artefacts embedded
@@ -82,3 +84,32 @@ The single largest leverage point is the fixtures corpus: extending
 postings, replicator wire frames, synonym/Hunspell compiled blobs, and a
 multi-version backward-compatibility ZIP would convert a large fraction of the
 `partial` rows above into `yes`.
+
+## Combined-scenario coverage (Sprint 114 T5, rmp 4611)
+
+Six end-to-end combined scenarios compose ≥2 audited subsystems each and
+emit a deterministic TSV transcript that the Go-side suite re-parses and
+pins. All six are byte-deterministic at the two canary seeds
+(`0xC0FFEE`, `0xDECAF`); the Lucene-side verifier round-trip is gated by
+the harness CLI (`verify <scenario> <seed> <source>`); the Gocene-write
+leg is deferred per scenario in
+`internal/compat/scenarios/deferred_combined_compat_test.go`.
+
+| Scenario name | Description | Audit rows touched |
+| --- | --- | --- |
+| `combined-multi-segment-index-search` (S1) | 3-segment Lucene 10.4.0 index (stored fields, NumericDocValues, IntPoint, KnnFloatVectorField, term vectors, norms) + 8-query catalogue (5 TermQuery + 2 PhraseQuery + 1 BooleanQuery), emits `s1-hits.tsv` | search numerical-parity; index multi-segment topology; stored fields / docvalues / points / KNN / term vectors composed end-to-end |
+| `combined-reverse-index-search` (S2) | Single-segment Lucene reference over the same doc set; emits `s2-hits.tsv` byte-identical to `s1-hits.tsv` | search numerical-parity; multi-vs-single-segment scoring invariance |
+| `combined-facets-search` (S3) | TaxonomyDirectory sidecar + faceted query, emits `s3-facet-counts.tsv` (dim, label, count) | facets taxonomy directory; faceted-query end-to-end |
+| `combined-replicator-roundtrip` (S4) | NRT primary→replica wire transcript (`s4-frames.bin` + `s4-files.tsv`) using the canonical `SimplePrimaryNode.writeCopyState` layout | replicator NRT CopyState wire format |
+| `combined-suggester-fst` (S5) | `AnalyzingSuggester` FST + 5 prefix lookups, emits `s5-suggestions.tsv` | suggest module (FST persistence + lookup) |
+| `combined-highlight-queryparser-analysis` (S6) | Classic `QueryParser` → `StandardAnalyzer` → `UnifiedHighlighter` chain over 3 queries, emits `s6-highlights.tsv` with byte-stable snippet escaping | highlight UH offsets; queryparser parity; analysis chain end-to-end |
+
+Manifest digests live in
+[`tools/lucene-fixtures/manifests/baseline.tsv`](../tools/lucene-fixtures/manifests/baseline.tsv);
+the six new rows are appended at the end of the manifest, after the
+`bwc-*` block, so previously-anchored row positions are preserved.
+
+The mutation-diagnostic CLI (`verify-diagnostic <scenario> <seed> <source>`)
+emits a one-line JSON record `{file, offset, expected, actual}` on the
+first byte-level divergence and exits 4; it is exercised by
+`TestMutationDiagnostic` against an S1 fixture mutated at byte offset 100.
