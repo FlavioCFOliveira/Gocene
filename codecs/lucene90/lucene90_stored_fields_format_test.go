@@ -87,8 +87,10 @@ func TestLucene90StoredFieldsFormat_NewWithInvalidModePanics(t *testing.T) {
 }
 
 // TestLucene90StoredFieldsFormat_FieldsWriterStampsModeAttribute checks
-// that FieldsWriter writes the MODE_KEY attribute to the SegmentInfo
-// before delegating to the compressing implementation.
+// that FieldsWriter stamps the MODE_KEY attribute on the SegmentInfo
+// before delegating to the compressing implementation. The attribute is
+// stamped prior to any I/O, so it is set even when the writer is
+// subsequently closed without indexing any documents.
 func TestLucene90StoredFieldsFormat_FieldsWriterStampsModeAttribute(t *testing.T) {
 	t.Parallel()
 	for _, mode := range []Lucene90StoredFieldsMode{
@@ -99,17 +101,22 @@ func TestLucene90StoredFieldsFormat_FieldsWriterStampsModeAttribute(t *testing.T
 		t.Run(mode.String(), func(t *testing.T) {
 			t.Parallel()
 			f := NewLucene90StoredFieldsFormatWithMode(mode)
-			si := index.NewSegmentInfo("_0", 0, nil)
-			// The compressing layer is still a stub, so FieldsWriter
-			// returns an explicit not-implemented error; we only assert
-			// the side effect on the SegmentInfo attribute.
-			_, err := f.FieldsWriter(nil, si, store.IOContext{})
-			if err == nil {
-				t.Fatal("FieldsWriter unexpectedly succeeded; expected stub error")
+			dir, err := store.NewSimpleFSDirectory(t.TempDir())
+			if err != nil {
+				t.Fatalf("create dir: %v", err)
 			}
-			if !strings.Contains(err.Error(), "not implemented") {
-				t.Fatalf("unexpected error: %v", err)
+			defer dir.Close()
+			si := index.NewSegmentInfo("_0", 0, dir)
+			if err := si.SetID(make([]byte, 16)); err != nil {
+				t.Fatalf("set segment ID: %v", err)
 			}
+			w, err := f.FieldsWriter(dir, si, store.IOContext{})
+			if err != nil {
+				t.Fatalf("FieldsWriter failed: %v", err)
+			}
+			// Close immediately without indexing — attribute must already be
+			// set at this point regardless of Close success/failure.
+			_ = w.Close()
 			if got, want := si.GetAttribute(Lucene90StoredFieldsModeKey), mode.String(); got != want {
 				t.Fatalf("MODE_KEY = %q, want %q", got, want)
 			}

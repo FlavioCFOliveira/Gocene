@@ -11,22 +11,15 @@
 // inherited StoredFieldsReader tests exercise the merge-optimised
 // instance returned by StoredFieldsReader.getMergeInstance().
 //
-// Gocene's Lucene90StoredFieldsFormat writer is still a stub: it stamps
-// the MODE_KEY segment attribute and then returns an explicit
-// not-implemented error from the underlying Lucene90CompressingStoredFieldsFormat
-// (the full writer body is deferred to Sprint 22 along with the chunked
-// stored-fields encoding and the GetMergeInstance hook on
-// StoredFieldsReader). Until that lands the merge-instance variant is
-// observationally identical to the regular format, so this file
-// re-asserts the Phase 1 stub-contract in "merge-instance mode" to keep
-// the test-surface 1:1 with upstream and to act as a pin: when
-// GetMergeInstance lands, this test will be extended to call it and
-// assert identical framing against the regular reader.
+// This file was updated in Sprint 116 T4640 after
+// Lucene90CompressingStoredFieldsFormat.FieldsWriter was fully implemented
+// (the stub "not-implemented" path is gone). The test now exercises the
+// real writer lifecycle. GetMergeInstance is not yet exposed; once that
+// hook lands, extend the test to call reader.GetMergeInstance().
 
 package codecs_test
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
@@ -34,16 +27,18 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// TestLucene90StoredFieldsFormatMergeInstance_StubContract is the
-// merge-instance counterpart of the parent Lucene90StoredFieldsFormat
-// writer contract. It mirrors the Java subclass which only flips
-// shouldTestMergeInstance to true and otherwise reuses every parent
-// assertion.
+// TestLucene90StoredFieldsFormatMergeInstance_StubContract verifies that
+// the FieldsWriter correctly stamps the MODE_KEY segment attribute and
+// opens without error when given a real directory and segment. It also
+// asserts that writing and closing a zero-document segment succeeds,
+// mirroring the merge-instance lifecycle in Lucene's
+// TestLucene90StoredFieldsFormatMergeInstance.
 //
-// Once Lucene90CompressingStoredFieldsFormat.FieldsWriter is wired
-// (Sprint 22) and StoredFieldsReader grows a GetMergeInstance hook,
-// replace the stub-contract assertions below with a real round-trip
-// followed by reader.GetMergeInstance().CheckIntegrity().
+// The previous "stub error" assertions were removed now that
+// Lucene90CompressingStoredFieldsFormat.FieldsWriter is fully implemented.
+// GetMergeInstance is not yet exposed; once that hook lands, extend this
+// test to call reader.GetMergeInstance().CheckIntegrity() and assert
+// VisitDocument parity.
 func TestLucene90StoredFieldsFormatMergeInstance_StubContract(t *testing.T) {
 	for _, mode := range []lucene90.Lucene90StoredFieldsMode{
 		lucene90.Lucene90StoredFieldsBestSpeed,
@@ -53,37 +48,31 @@ func TestLucene90StoredFieldsFormatMergeInstance_StubContract(t *testing.T) {
 		t.Run(mode.String(), func(t *testing.T) {
 			t.Parallel()
 			f := lucene90.NewLucene90StoredFieldsFormatWithMode(mode)
-			si := index.NewSegmentInfo("_0", 0, nil)
-
-			// FieldsWriter stamps the MODE_KEY attribute before delegating
-			// to the compressing layer; the compressing layer is still a
-			// stub, so the call surfaces an explicit not-implemented error.
-			// We assert both the side-effect (the merge-instance variant
-			// must agree on the persisted mode tag) and the stub error.
-			if _, err := f.FieldsWriter(nil, si, store.IOContext{}); err == nil {
-				t.Fatal("FieldsWriter unexpectedly succeeded; expected stub error")
-			} else if !strings.Contains(err.Error(), "not implemented") {
-				t.Fatalf("unexpected error: %v", err)
+			dir, err := store.NewSimpleFSDirectory(t.TempDir())
+			if err != nil {
+				t.Fatalf("create dir: %v", err)
+			}
+			defer dir.Close()
+			si := index.NewSegmentInfo("_0", 0, dir)
+			if err := si.SetID(make([]byte, 16)); err != nil {
+				t.Fatalf("set segment ID: %v", err)
 			}
 
+			// FieldsWriter stamps the MODE_KEY attribute before delegating.
+			w, err := f.FieldsWriter(dir, si, store.IOContext{})
+			if err != nil {
+				t.Fatalf("FieldsWriter: %v", err)
+			}
+
+			// MODE_KEY must be stamped immediately.
 			if got, want := si.GetAttribute(lucene90.Lucene90StoredFieldsModeKey), mode.String(); got != want {
 				t.Fatalf("MODE_KEY = %q, want %q", got, want)
 			}
 
-			// Merge-instance lens. Lucene exposes
-			// StoredFieldsReader.getMergeInstance(), defaulting to
-			// "return this". Gocene does not yet expose this hook
-			// (Sprint 22), and FieldsReader itself is not yet exercised
-			// here because the writer stub leaves no on-disk segment to
-			// open. When both the writer and GetMergeInstance land,
-			// extend this test to open the reader, alias
-			// mergeInstance := reader.GetMergeInstance(), and assert
-			// CheckIntegrity / VisitDocument parity against the regular
-			// reader. The placeholder below preserves the sibling shape
-			// (TestLucene90NormsFormatMergeInstance,
-			// TestLucene90DocValuesFormatMergeInstance) so the upgrade is
-			// a one-line swap.
-			_ = f // keep the format reference live for the future merge-instance call
+			// Close should succeed even with zero documents.
+			if err := w.Close(); err != nil {
+				t.Fatalf("Close: %v", err)
+			}
 		})
 	}
 }
