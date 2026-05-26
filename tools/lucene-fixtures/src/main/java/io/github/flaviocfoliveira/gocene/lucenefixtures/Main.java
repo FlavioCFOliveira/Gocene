@@ -70,6 +70,7 @@ public final class Main {
             case "verify-misc" -> runVerifyMisc(args, out, err);
             case "verify-memory-flush" -> runVerifyMemoryFlush(args, out, err);
             case "verify-sweetspot" -> runVerifySweetspot(args, out, err);
+            case "verify-bwc" -> runVerifyBwc(args, out, err);
             case "-h", "--help", "help" -> {
                 usage(out);
                 yield 0;
@@ -710,6 +711,54 @@ public final class Main {
         }
     }
 
+    /**
+     * Sprint 114 T26 (rmp 4634). Dispatches verification for one of the
+     * backward_codecs scenarios by name. The sub-flag selects which
+     * scenario; the seed is mandatory because Determinism.idBytes is seeded.
+     *
+     * <p>Usage: {@code verify-bwc <scenario> <dir> <seed>} where {@code
+     * <scenario>} is one of {@code bwc-packed64-legacy} or
+     * {@code bwc-big-endian-store}. The remaining seven backward_codecs
+     * audit rows are read-only in Lucene 10.4.0 and tracked as
+     * DEFERRED_ROWS in Manifest.java; this sub-command rejects unknown
+     * scenario names with exit 1.
+     */
+    private static int runVerifyBwc(String[] args, PrintStream out, PrintStream err) {
+        if (args.length != 4) {
+            err.println("usage: verify-bwc <bwc-packed64-legacy|bwc-big-endian-store> <dir> <seed>");
+            return 1;
+        }
+        String which = args[1];
+        switch (which) {
+            case "bwc-packed64-legacy", "bwc-big-endian-store" -> {
+                // accepted
+            }
+            default -> {
+                err.println("invalid verify-bwc scenario (the remaining backward_codecs rows are "
+                        + "DEFERRED — see Manifest.DEFERRED_ROWS): " + which);
+                return 1;
+            }
+        }
+        java.nio.file.Path source = java.nio.file.Path.of(args[2]);
+        long seed = parseSeed(args[3], err);
+        if (seed == Long.MIN_VALUE && !"-9223372036854775808".equals(args[3])) {
+            return 1;
+        }
+        try {
+            CorpusScenario scenario = Scenarios.require(which);
+            scenario.verify(source, seed);
+        } catch (IllegalArgumentException e) {
+            err.println(e.getMessage());
+            return 2;
+        } catch (IOException e) {
+            err.println("verify-bwc " + which + " failed: " + e.getMessage());
+            return 4;
+        }
+        out.println("ok verify-bwc variant=" + which + " dir="
+                + source.toAbsolutePath() + " seed=" + seed);
+        return 0;
+    }
+
     private static long parseSeed(String s, PrintStream err) {
         try {
             // Allow 0x-prefixed hex for ergonomic CLI usage.
@@ -748,5 +797,6 @@ public final class Main {
         out.println("  verify-misc <splitter|highfreq> <dir> <seed>  re-verify a misc-module scenario (IndexSplitter/IndexMergeTool input OR HighFreqTerms corpus)");
         out.println("  verify-memory-flush <dir> <seed>     re-verify the memory-index-flush fixture (single segment from a MemoryIndex flush) in <dir>");
         out.println("  verify-sweetspot <dir>               re-score the search-scoring-corpus index under SweetSpotSimilarity and assert (a) hit-set parity with BM25, (b) at least one score differs > 1e-3");
+        out.println("  verify-bwc <bwc-packed64-legacy|bwc-big-endian-store> <dir> <seed>  re-verify a backward_codecs scenario (the other 7 backward_codecs rows are DEFERRED — see Manifest.DEFERRED_ROWS)");
     }
 }

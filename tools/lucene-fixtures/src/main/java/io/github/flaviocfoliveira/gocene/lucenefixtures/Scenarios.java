@@ -1,6 +1,8 @@
 package io.github.flaviocfoliveira.gocene.lucenefixtures;
 
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.AnalyzingInfixSidecarScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.BwcBigEndianStoreScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.BwcPacked64LegacyScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.ClassifierLabelCorpusScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.Completion104PostingsScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.CompletionFstScenario;
@@ -198,6 +200,19 @@ public final class Scenarios {
         // byte-for-byte parity tests vs Lucene MemoryIndex internal layout
         // (where applicable to merges)."
         register(new MemoryIndexFlushScenario());
+        // Sprint 114 T26 (rmp 4634): backward_codecs scenarios. Only two
+        // audit rows have a writable surface in Lucene 10.4.0's
+        // lucene-backward-codecs jar: legacy packed (LegacyDirectWriter)
+        // and the big-endian store wrapper (EndiannessReverserUtil).
+        // The remaining seven audit rows are read-only formats in 10.4 —
+        // every per-version codec (Lucene70SegmentInfoFormat,
+        // Lucene90HnswVectorsFormat, Lucene99PostingsFormat, Lucene99
+        // ScalarQuantizedVectorsFormat, Lucene103PostingsFormat,
+        // Lucene40BlockTreeTermsReader) and the multi-version corpora row
+        // throw UnsupportedOperationException from their write paths and
+        // are tracked as DEFERRED_ROWS in Manifest.java.
+        register(new BwcPacked64LegacyScenario());
+        register(new BwcBigEndianStoreScenario());
     }
 
     private Scenarios() {}

@@ -95,7 +95,71 @@ public final class Manifest {
                             + "which is already covered by the T7 scenario `scalar-quantized-knn`. "
                             + "Sandbox-specific binary parity is therefore not applicable; covered "
                             + "by a future sprint that either ports a sandbox quantization format "
-                            + "(none planned in Lucene 10.4.0) or formally folds this row into scalar-quantized-knn.\""}
+                            + "(none planned in Lucene 10.4.0) or formally folds this row into scalar-quantized-knn.\""},
+            // Sprint 114 T26 (rmp 4634). Seven of the nine backward_codecs
+            // audit rows have NO writable surface in Lucene 10.4.0's
+            // lucene-backward-codecs jar — every per-version codec ships
+            // ONLY readers; the write paths throw
+            // {@code UnsupportedOperationException("Old codecs may only be
+            // used for reading")} (e.g. {@code
+            // org.apache.lucene.backward_codecs.lucene99.Lucene99PostingsFormat
+            // #fieldsConsumer}, {@code Lucene90HnswVectorsFormat
+            // #fieldsWriter}). Producing fixtures for those formats requires
+            // building older Apache Lucene jars (7.x / 9.x / 10.3.x), which
+            // is out of scope for this sprint and the compatibility mandate's
+            // 10.4.0 reference pin. Each row below preserves the audit
+            // footprint until a future backward-compat sprint plugs in the
+            // older Lucene jars (or pulls fixtures from a pre-built corpus).
+            new String[]{"bwc-lucene70-si", "(deferred)", "0",
+                    "Lucene 10.4.0 Lucene70SegmentInfoFormat is read-only",
+                    "gap_notes=\"No real Lucene 7 fixture committed; rw tests are self-emitted.\"; "
+                            + "reason=\"org.apache.lucene.backward_codecs.lucene70.Lucene70SegmentInfoFormat#write "
+                            + "throws UnsupportedOperationException(\\\"Old formats can't be used for writing\\\") "
+                            + "in Lucene 10.4.0; producing a Lucene-7-emitted .si requires an older Lucene jar "
+                            + "(7.x branch) which is out of binary-compat-mandate scope (10.4.0 reference pin); "
+                            + "covered by a future backward-compat sprint.\""},
+            new String[]{"bwc-lucene90-hnsw-v0", "(deferred)", "0",
+                    "Lucene 10.4.0 Lucene90HnswVectorsFormat is read-only",
+                    "gap_notes=\"No Lucene-9 fixture committed.\"; "
+                            + "reason=\"org.apache.lucene.backward_codecs.lucene90.Lucene90HnswVectorsFormat#fieldsWriter "
+                            + "throws UnsupportedOperationException(\\\"Old codecs may only be used for reading\\\") "
+                            + "in Lucene 10.4.0; producing a Lucene-9.x HNSW v0 segment requires an older Lucene jar; "
+                            + "covered by a future backward-compat sprint.\""},
+            new String[]{"bwc-lucene99-postings", "(deferred)", "0",
+                    "Lucene 10.4.0 Lucene99PostingsFormat is read-only",
+                    "gap_notes=\"No Lucene-emitted .doc/.pos fixture for v99.\"; "
+                            + "reason=\"org.apache.lucene.backward_codecs.lucene99.Lucene99PostingsFormat#fieldsConsumer "
+                            + "throws UnsupportedOperationException in Lucene 10.4.0; producing a Lucene-9.9 postings "
+                            + "segment requires an older Lucene jar; covered by a future backward-compat sprint.\""},
+            new String[]{"bwc-lucene99-scalar-quantized", "(deferred)", "0",
+                    "Lucene 10.4.0 Lucene99ScalarQuantizedVectorsFormat is read-only",
+                    "gap_notes=\"No Lucene fixture.\"; "
+                            + "reason=\"org.apache.lucene.backward_codecs.lucene99.Lucene99ScalarQuantizedVectorsFormat"
+                            + "#fieldsWriter throws UnsupportedOperationException(\\\"Old codecs may only be used for reading\\\") "
+                            + "in Lucene 10.4.0; producing a Lucene-9.9 scalar-quantised vectors segment requires an older "
+                            + "Lucene jar; covered by a future backward-compat sprint.\""},
+            new String[]{"bwc-lucene103-postings", "(deferred)", "0",
+                    "Lucene 10.4.0 Lucene103PostingsFormat is read-only",
+                    "gap_notes=\"No Lucene-emitted v103 corpus.\"; "
+                            + "reason=\"org.apache.lucene.backward_codecs.lucene103.Lucene103PostingsFormat#fieldsConsumer "
+                            + "throws UnsupportedOperationException(\\\"This postings format may not be used for writing, "
+                            + "use the current postings format\\\") in Lucene 10.4.0; producing a Lucene-10.3 postings "
+                            + "segment requires an older Lucene jar; covered by a future backward-compat sprint.\""},
+            new String[]{"bwc-lucene40-blocktree", "(deferred)", "0",
+                    "Lucene 10.4.0 lucene40/blocktree ships only Reader/Iterator/Frame",
+                    "gap_notes=\"Only reader port; no rw or fixture test.\"; "
+                            + "reason=\"org.apache.lucene.backward_codecs.lucene40.blocktree package in Lucene 10.4.0 "
+                            + "ships ONLY Lucene40BlockTreeTermsReader/SegmentTermsEnum/IntersectTermsEnum (no writer); "
+                            + "producing a Lucene-4.0 BlockTree fixture requires the legacy lucene-codecs.jar "
+                            + "(Lucene 4 branch), out of binary-compat-mandate scope; covered by a future "
+                            + "backward-compat sprint.\""},
+            new String[]{"bwc-multi-version-corpora", "(deferred)", "0",
+                    "Lucene 10.4.0 cannot produce older multi-version index ZIPs",
+                    "gap_notes=\"Tests are skeletons; no actual multi-version Lucene index ZIPs committed.\"; "
+                            + "reason=\"Producing the per-major-version index ZIPs that org.apache.lucene.backward_index"
+                            + ".TestBasicBackwardsCompatibility consumes requires building EACH old Lucene major (7/8/9/10) "
+                            + "and emitting an index per branch; out of binary-compat-mandate scope (10.4.0 reference pin); "
+                            + "covered by a future backward-compat sprint that maintains a multi-version fixture corpus.\""}
     );
 
     private Manifest() {}
