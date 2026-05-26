@@ -125,9 +125,8 @@ func makeMergeState(docMaps []DocMap, sorted bool) *MergeState {
 
 // makeMulti assembles a MultiPostingsEnum carrying (postings, slice) pairs.
 func makeMulti(pairs ...EnumWithSlice) *MultiPostingsEnum {
-	m := NewMultiPostingsEnum(nil)
-	m.SubsWithSlice = pairs
-	m.NumSubs = len(pairs)
+	m := NewMultiPostingsEnum(nil, len(pairs))
+	m.Reset(pairs, len(pairs))
 	return m
 }
 
