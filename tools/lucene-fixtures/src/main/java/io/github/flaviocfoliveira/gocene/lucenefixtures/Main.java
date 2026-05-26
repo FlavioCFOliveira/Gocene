@@ -65,6 +65,7 @@ public final class Main {
             case "verify-monitor" -> runVerifyMonitor(args, out, err);
             case "verify-replicator" -> runVerifyReplicator(args, out, err);
             case "verify-expressions-eval" -> runVerifyExpressionsEval(args, out, err);
+            case "verify-queryparser" -> runVerifyQueryparser(args, out, err);
             case "-h", "--help", "help" -> {
                 usage(out);
                 yield 0;
@@ -482,6 +483,34 @@ public final class Main {
         return 0;
     }
 
+    /**
+     * Sprint 114 T22 (rmp 4630). Re-verifies the
+     * {@code queryparser-trees-and-hits} scenario in {@code <dir>}: it
+     * re-parses every (parser_id, query_id) in the catalogue, asserts the
+     * recorded {@code qp-trees.tsv} {@code toString()} matches, re-executes
+     * each Query, and asserts the recorded {@code qp-hits.tsv} rows match
+     * within ±1e-6. Single sub-command intentionally handles BOTH TSVs.
+     */
+    private static int runVerifyQueryparser(String[] args, PrintStream out, PrintStream err) {
+        if (args.length != 2) {
+            err.println("usage: verify-queryparser <dir>");
+            return 1;
+        }
+        java.nio.file.Path source = java.nio.file.Path.of(args[1]);
+        try {
+            CorpusScenario scenario = Scenarios.require("queryparser-trees-and-hits");
+            scenario.verify(source, 0L);
+        } catch (IllegalArgumentException e) {
+            err.println(e.getMessage());
+            return 2;
+        } catch (IOException e) {
+            err.println("verify-queryparser failed: " + e.getMessage());
+            return 4;
+        }
+        out.println("ok verify-queryparser dir=" + source.toAbsolutePath());
+        return 0;
+    }
+
     /** Verifies {@code queries-hits.tsv} mirrors {@link #runVerifyScoring}. */
     private static int runVerifyQueriesHits(String[] args, PrintStream out, PrintStream err) {
         if (args.length != 2) {
@@ -536,5 +565,6 @@ public final class Main {
         out.println("  verify-monitor <blob|segment> <dir> [seed] re-verify the monitor-query-blob OR monitor-index-segment fixture in <dir>");
         out.println("  verify-replicator <copystate> <dir> <seed> re-verify the replicator-nrt-copystate fixture in <dir>");
         out.println("  verify-expressions-eval <dir>        recompile + re-evaluate the expressions catalogue in <dir> and compare to expressions-eval.tsv");
+        out.println("  verify-queryparser <dir>             re-parse and re-execute the queryparser catalogue in <dir> and compare to qp-trees.tsv + qp-hits.tsv");
     }
 }

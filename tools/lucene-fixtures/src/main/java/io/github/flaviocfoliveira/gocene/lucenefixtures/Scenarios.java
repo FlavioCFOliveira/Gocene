@@ -29,6 +29,7 @@ import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PerFieldDispat
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PointsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PostingsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.QueriesHitCorpusScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.QueryparserTreesAndHitsScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.GeoEncodedPointsScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.ReplicatorNrtCopyStateScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.ScalarQuantizedKnnScenario;
@@ -167,6 +168,12 @@ public final class Scenarios {
         // Lucene compiles JavaScript to JVM bytecode (no on-disk artefact
         // exists) and Gocene's port does not produce JVM bytecode.
         register(new ExpressionsEvalCorpusScenario());
+        // Sprint 114 T22 (rmp 4630): queryparser trees + hits across the
+        // six lucene-queryparser parsers (classic, complex-phrase, surround,
+        // flexible, simple, ext). Appended in stack order — after the
+        // expressions-* scenario — so the manifest ordering for prior rows
+        // is preserved.
+        register(new QueryparserTreesAndHitsScenario());
     }
 
     private Scenarios() {}
