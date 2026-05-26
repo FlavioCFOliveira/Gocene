@@ -6,6 +6,7 @@ package index
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // Codec is an interface for index encoding/decoding.
@@ -314,6 +315,23 @@ type SegmentWriteState struct {
 
 	// SegmentSuffix is an optional suffix for segment files.
 	SegmentSuffix string
+
+	// SegUpdates holds buffered deletions that must be applied during flush.
+	// May be nil when no pending deletes exist for this segment.
+	// Mirrors Lucene 10.4.0 SegmentWriteState.segUpdates.
+	SegUpdates *BufferedUpdates
+
+	// LiveDocs is the per-document live-docs bitset that applyDeletes populates
+	// when term deletions are applied during flush. It is nil until at least
+	// one document is deleted; callers must allocate it on first use.
+	// Mirrors Lucene 10.4.0 SegmentWriteState.liveDocs.
+	LiveDocs *util.FixedBitSet
+
+	// DelCountOnFlush is incremented for every document cleared from LiveDocs
+	// during the applyDeletes pass. The final value is used to update the
+	// segment's live-doc count.
+	// Mirrors Lucene 10.4.0 SegmentWriteState.delCountOnFlush.
+	DelCountOnFlush int
 }
 
 // SegmentReadState holds the state for reading a segment.

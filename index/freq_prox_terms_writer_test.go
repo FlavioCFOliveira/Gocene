@@ -596,3 +596,325 @@ func TestSortingTerms_PassThroughMetadata(t *testing.T) {
 		t.Fatalf("GetMin = %v, want hello", got)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// applyDeletes tests
+// ---------------------------------------------------------------------------
+
+// buildFreqProxWithTokens indexes termText into docIDs {0..numDocs-1} and
+// returns the per-field writer and a SegmentWriteState with FieldInfos already
+// frozen and a matching SegmentInfo (docCount = numDocs).
+func buildFreqProxWithTokens(t *testing.T, field string, termText string, numDocs int) (*FreqProxTermsWriterPerField, *SegmentWriteState) {
+	t.Helper()
+	fi := newFreqProxFieldInfoWithNumber(field, 0, IndexOptionsDocs)
+	state := NewFieldInvertState(10, field, IndexOptionsDocs)
+	stub := &freqProxStubAttrs{freq: 1}
+	per, err := NewFreqProxTermsWriterPerField(state, freshFreqProxPools(), fi, nil, stub.provider())
+	if err != nil {
+		t.Fatalf("NewFreqProxTermsWriterPerField: %v", err)
+	}
+	termRef := util.NewBytesRef([]byte(termText))
+	for doc := 0; doc < numDocs; doc++ {
+		if err := per.Add(termRef, doc); err != nil {
+			t.Fatalf("Add doc %d: %v", doc, err)
+		}
+	}
+	per.SortTerms()
+
+	fiInfos := NewFieldInfos()
+	if err := fiInfos.Add(fi); err != nil {
+		t.Fatalf("fiInfos.Add: %v", err)
+	}
+	fiInfos.Freeze()
+
+	si := NewSegmentInfo("_0", numDocs, nil)
+	sws := &SegmentWriteState{
+		FieldInfos:  fiInfos,
+		SegmentInfo: si,
+	}
+	return per, sws
+}
+
+func TestApplyDeletes_NoOpWhenSegUpdatesNil(t *testing.T) {
+	per, sws := buildFreqProxWithTokens(t, "body", "hello", 3)
+	fields := Fields(NewFreqProxFields([]*FreqProxTermsWriterPerField{per}))
+	// SegUpdates is nil — applyDeletes must return nil without touching LiveDocs.
+	if err := applyDeletes(sws, fields); err != nil {
+		t.Fatalf("applyDeletes: %v", err)
+	}
+	if sws.LiveDocs != nil {
+		t.Fatalf("LiveDocs must remain nil when SegUpdates is nil")
+	}
+	if sws.DelCountOnFlush != 0 {
+		t.Fatalf("DelCountOnFlush = %d, want 0", sws.DelCountOnFlush)
+	}
+}
+
+func TestApplyDeletes_NoOpWhenDeleteTermsEmpty(t *testing.T) {
+	per, sws := buildFreqProxWithTokens(t, "body", "hello", 3)
+	fields := Fields(NewFreqProxFields([]*FreqProxTermsWriterPerField{per}))
+	sws.SegUpdates = NewBufferedUpdates("_0") // empty — no terms added
+	if err := applyDeletes(sws, fields); err != nil {
+		t.Fatalf("applyDeletes: %v", err)
+	}
+	if sws.LiveDocs != nil {
+		t.Fatalf("LiveDocs must remain nil when no delete terms are buffered")
+	}
+}
+
+func TestApplyDeletes_ClearsDocsBelowDocIDUpto(t *testing.T) {
+	// Index term "hello" in docs 0, 1, 2.
+	per, sws := buildFreqProxWithTokens(t, "body", "hello", 3)
+	fields := Fields(NewFreqProxFields([]*FreqProxTermsWriterPerField{per}))
+
+	sws.SegUpdates = NewBufferedUpdates("_0")
+	// docIDUpto = 2 → delete docs with docID < 2, i.e. docs 0 and 1.
+	sws.SegUpdates.AddTerm(NewTerm("body", "hello"), 2)
+
+	if err := applyDeletes(sws, fields); err != nil {
+		t.Fatalf("applyDeletes: %v", err)
+	}
+
+	if sws.LiveDocs == nil {
+		t.Fatalf("LiveDocs must be allocated when at least one doc is deleted")
+	}
+	if sws.DelCountOnFlush != 2 {
+		t.Fatalf("DelCountOnFlush = %d, want 2", sws.DelCountOnFlush)
+	}
+	// Docs 0 and 1 must be cleared; doc 2 must remain live.
+	if sws.LiveDocs.Get(0) {
+		t.Fatalf("doc 0 must be cleared")
+	}
+	if sws.LiveDocs.Get(1) {
+		t.Fatalf("doc 1 must be cleared")
+	}
+	if !sws.LiveDocs.Get(2) {
+		t.Fatalf("doc 2 must remain live (docID >= docIDUpto)")
+	}
+}
+
+func TestApplyDeletes_AllDocsDeleted(t *testing.T) {
+	per, sws := buildFreqProxWithTokens(t, "content", "foo", 4)
+	fields := Fields(NewFreqProxFields([]*FreqProxTermsWriterPerField{per}))
+
+	sws.SegUpdates = NewBufferedUpdates("_0")
+	// docIDUpto = MaxInt → delete all docs that contain the term.
+	sws.SegUpdates.AddTerm(NewTerm("content", "foo"), MaxInt)
+
+	if err := applyDeletes(sws, fields); err != nil {
+		t.Fatalf("applyDeletes: %v", err)
+	}
+	if sws.DelCountOnFlush != 4 {
+		t.Fatalf("DelCountOnFlush = %d, want 4", sws.DelCountOnFlush)
+	}
+	for doc := 0; doc < 4; doc++ {
+		if sws.LiveDocs.Get(doc) {
+			t.Fatalf("doc %d must be deleted", doc)
+		}
+	}
+}
+
+func TestApplyDeletes_TermNotInIndex_IsNoOp(t *testing.T) {
+	per, sws := buildFreqProxWithTokens(t, "body", "hello", 3)
+	fields := Fields(NewFreqProxFields([]*FreqProxTermsWriterPerField{per}))
+
+	sws.SegUpdates = NewBufferedUpdates("_0")
+	// Delete a term that does not appear in the indexed field.
+	sws.SegUpdates.AddTerm(NewTerm("body", "absent"), MaxInt)
+
+	if err := applyDeletes(sws, fields); err != nil {
+		t.Fatalf("applyDeletes: %v", err)
+	}
+	if sws.LiveDocs != nil {
+		t.Fatalf("LiveDocs must stay nil when the deleted term is not in the index")
+	}
+	if sws.DelCountOnFlush != 0 {
+		t.Fatalf("DelCountOnFlush = %d, want 0", sws.DelCountOnFlush)
+	}
+}
+
+func TestApplyDeletes_IdempotentOnDoubleCall(t *testing.T) {
+	// Calling applyDeletes twice must not double-count deletions. The second
+	// call finds all live bits already cleared, so Get(doc) returns false and
+	// the counter is not incremented again.
+	per, sws := buildFreqProxWithTokens(t, "body", "hello", 2)
+	fields := Fields(NewFreqProxFields([]*FreqProxTermsWriterPerField{per}))
+
+	sws.SegUpdates = NewBufferedUpdates("_0")
+	sws.SegUpdates.AddTerm(NewTerm("body", "hello"), MaxInt)
+
+	if err := applyDeletes(sws, fields); err != nil {
+		t.Fatalf("first applyDeletes: %v", err)
+	}
+	firstCount := sws.DelCountOnFlush
+
+	if err := applyDeletes(sws, fields); err != nil {
+		t.Fatalf("second applyDeletes: %v", err)
+	}
+	if sws.DelCountOnFlush != firstCount {
+		t.Fatalf("second call incremented DelCountOnFlush from %d to %d", firstCount, sws.DelCountOnFlush)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// lookupFreqProxByBase (wrappers registry) tests
+// ---------------------------------------------------------------------------
+
+func TestFreqProxTermsWriter_LookupByBase_FindsRegisteredWrapper(t *testing.T) {
+	pools := freshFreqProxPools()
+	writer, err := NewFreqProxTermsWriter(pools, nil)
+	if err != nil {
+		t.Fatalf("NewFreqProxTermsWriter: %v", err)
+	}
+	fi := newFreqProxFieldInfo("body", IndexOptionsDocs)
+	is := NewFieldInvertState(10, "body", IndexOptionsDocs)
+
+	per, err := writer.AddField(is, fi)
+	if err != nil {
+		t.Fatalf("AddField: %v", err)
+	}
+
+	found, ok := writer.lookupFreqProxByBase(per.TermsHashPerField)
+	if !ok {
+		t.Fatalf("lookupFreqProxByBase: wrapper not found after AddField")
+	}
+	if found != per {
+		t.Fatalf("lookupFreqProxByBase: returned wrong wrapper")
+	}
+}
+
+func TestFreqProxTermsWriter_LookupByBase_ReturnsFalseForUnknownBase(t *testing.T) {
+	pools := freshFreqProxPools()
+	writer, err := NewFreqProxTermsWriter(pools, nil)
+	if err != nil {
+		t.Fatalf("NewFreqProxTermsWriter: %v", err)
+	}
+
+	// Build a bare TermsHashPerField that was never registered via AddField.
+	fi := newFreqProxFieldInfo("other", IndexOptionsDocs)
+	is := NewFieldInvertState(10, "other", IndexOptionsDocs)
+	bare, err := NewTermsHashPerField(
+		1,
+		pools.IntPool, pools.BytePool, pools.TermBytePool, pools.BytesUsed,
+		nil, fi.Name(), fi.IndexOptions(),
+		TermsHashPerFieldHooks{
+			NewTerm:             func(int, int) error { return nil },
+			AddTerm:             func(int, int) error { return nil },
+			NewPostingsArray:    func() {},
+			CreatePostingsArray: func(size int) *ParallelPostingsArray { return NewParallelPostingsArray(size) },
+		},
+	)
+	if err != nil {
+		t.Fatalf("NewTermsHashPerField: %v", err)
+	}
+	_ = is
+
+	_, ok := writer.lookupFreqProxByBase(bare)
+	if ok {
+		t.Fatalf("lookupFreqProxByBase must return false for a base not registered via AddField")
+	}
+}
+
+func TestFreqProxTermsWriter_LookupByBase_MultipleFields(t *testing.T) {
+	pools := freshFreqProxPools()
+	writer, err := NewFreqProxTermsWriter(pools, nil)
+	if err != nil {
+		t.Fatalf("NewFreqProxTermsWriter: %v", err)
+	}
+
+	names := []string{"alpha", "bravo", "charlie"}
+	pers := make([]*FreqProxTermsWriterPerField, len(names))
+	for i, name := range names {
+		fi := newFreqProxFieldInfoWithNumber(name, i, IndexOptionsDocs)
+		is := NewFieldInvertState(10, name, IndexOptionsDocs)
+		p, err := writer.AddField(is, fi)
+		if err != nil {
+			t.Fatalf("AddField(%q): %v", name, err)
+		}
+		pers[i] = p
+	}
+
+	for i, name := range names {
+		found, ok := writer.lookupFreqProxByBase(pers[i].TermsHashPerField)
+		if !ok {
+			t.Fatalf("lookupFreqProxByBase(%q): not found", name)
+		}
+		if found != pers[i] {
+			t.Fatalf("lookupFreqProxByBase(%q): wrong wrapper returned", name)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Flush path: applyDeletes integrated via Flush
+// ---------------------------------------------------------------------------
+
+func TestFreqProxTermsWriter_Flush_AppliesDeletions(t *testing.T) {
+	// Build a writer, add one field, index "hello" in docs 0 and 1, then
+	// flush with a BufferedUpdates that deletes "hello" with docIDUpto = 1
+	// (docs < 1, i.e. only doc 0).
+	pools := freshFreqProxPools()
+	writer, err := NewFreqProxTermsWriter(pools, nil)
+	if err != nil {
+		t.Fatalf("NewFreqProxTermsWriter: %v", err)
+	}
+
+	fi := newFreqProxFieldInfoWithNumber("body", 0, IndexOptionsDocs)
+	is := NewFieldInvertState(10, "body", IndexOptionsDocs)
+	stub := &freqProxStubAttrs{freq: 1}
+	// Manually create per-field with real attr provider then register in writer.
+	per, err := NewFreqProxTermsWriterPerField(is, pools, fi, nil, stub.provider())
+	if err != nil {
+		t.Fatalf("NewFreqProxTermsWriterPerField: %v", err)
+	}
+	if writer.wrappers == nil {
+		writer.wrappers = make(map[*TermsHashPerField]*FreqProxTermsWriterPerField)
+	}
+	writer.wrappers[per.TermsHashPerField] = per
+
+	termRef := util.NewBytesRef([]byte("hello"))
+	for _, doc := range []int{0, 1} {
+		if err := per.Add(termRef, doc); err != nil {
+			t.Fatalf("Add doc %d: %v", doc, err)
+		}
+	}
+
+	fiInfos := NewFieldInfos()
+	if err := fiInfos.Add(fi); err != nil {
+		t.Fatalf("fiInfos.Add: %v", err)
+	}
+	fiInfos.Freeze()
+
+	si := NewSegmentInfo("_0", 2, nil)
+	sws := &SegmentWriteState{
+		FieldInfos:  fiInfos,
+		SegmentInfo: si,
+		SegUpdates:  NewBufferedUpdates("_0"),
+	}
+	// docIDUpto = 1 → delete doc 0 only (doc < 1).
+	sws.SegUpdates.AddTerm(NewTerm("body", "hello"), 1)
+
+	fieldsMap := map[string]*TermsHashPerField{
+		"body": per.TermsHashPerField,
+	}
+	cap := &captureFieldsConsumer{}
+	pf := &stubPostingsFormat{consumer: cap}
+
+	if err := writer.Flush(fieldsMap, sws, nil, pf, nil); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+
+	if sws.LiveDocs == nil {
+		t.Fatalf("LiveDocs must be allocated after deletion")
+	}
+	if sws.DelCountOnFlush != 1 {
+		t.Fatalf("DelCountOnFlush = %d, want 1", sws.DelCountOnFlush)
+	}
+	// Doc 0 deleted; doc 1 still live.
+	if sws.LiveDocs.Get(0) {
+		t.Fatalf("doc 0 must be cleared")
+	}
+	if !sws.LiveDocs.Get(1) {
+		t.Fatalf("doc 1 must remain live")
+	}
+}
