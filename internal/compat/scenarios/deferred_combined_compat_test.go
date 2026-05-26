@@ -16,7 +16,7 @@ import (
 // survives any future test-discovery pruning. The Lucene-side legs are
 // exercised by TestS1..TestS6.
 //
-// The two recurring root causes are:
+// The single recurring root cause is:
 //
 //   - The Gocene SegmentReader core-readers gap (OpenDirectoryReader uses
 //     NewSegmentReader without wiring coreReaders, so Terms/Postings via
@@ -24,10 +24,10 @@ import (
 //     class-(c) replay leg for every scenario that reads a Lucene-emitted
 //     index (S1, S2, S3, S6).
 //
-//   - The Gocene replicator/nrt port ships the in-memory CopyState /
-//     FileMetaData types but no SimplePrimaryNode.writeCopyState /
-//     TestSimpleServer.readCopyState wire encoder/decoder. This blocks
-//     the Gocene-write leg for S4.
+// S4 (combined-replicator-roundtrip) is no longer deferred:
+// WriteCopyStateOrdered / ReadCopyState wire encoder+decoder were implemented
+// (rmp #4661) and the Gocene-write leg is covered by TestS4_GoceneWriteLeg
+// in s4_gocene_write_test.go.
 //
 // S5 (combined-suggester-fst) is no longer deferred: AnalyzingSuggester with
 // FST persistence and lookup was implemented (rmp #4660) and the Gocene-write
@@ -65,16 +65,6 @@ func TestDeferredGoceneWriteLeg(t *testing.T) {
 				"reconstruct parent arrays at read time.",
 		},
 		{
-			scenario: scenarioS4,
-			reason: "Gocene replicator/nrt port ships the in-memory CopyState " +
-				"and FileMetaData types (replicator/nrt/nrt.go) but NO " +
-				"binary wire encoder/decoder equivalent to " +
-				"SimplePrimaryNode.writeCopyState; the Gocene-write leg " +
-				"(produce a Lucene-readable s4-frames.bin from Gocene) " +
-				"is therefore not exercisable. The class-(b) Lucene-side " +
-				"round-trip IS covered by TestS4_ReplicatorRoundtrip.",
-		},
-		{
 			scenario: scenarioS6,
 			reason: "Gocene's classic QueryParser port plus UnifiedHighlighter " +
 				"port plus the SegmentReader core-readers gap combine to " +
@@ -83,8 +73,8 @@ func TestDeferredGoceneWriteLeg(t *testing.T) {
 		},
 	}
 
-	if len(cases) != 5 {
-		t.Fatalf("expected 5 deferred combined scenarios, got %d", len(cases))
+	if len(cases) != 4 {
+		t.Fatalf("expected 4 deferred combined scenarios, got %d", len(cases))
 	}
 
 	for _, c := range cases {

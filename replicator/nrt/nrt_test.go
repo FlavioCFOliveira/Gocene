@@ -14,11 +14,13 @@ package nrt_test
 // #2693. The tests here verify the self-contained types and their contracts.
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/replicator/nrt"
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // ---------------------------------------------------------------------------
@@ -280,5 +282,120 @@ func TestPreCopyMergedSegmentWarmer_WarmStub(t *testing.T) {
 	w := nrt.NewPreCopyMergedSegmentWarmer(p)
 	if err := w.Warm(nil); err != nil {
 		t.Fatalf("Warm stub: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Wire encoder / decoder
+// ---------------------------------------------------------------------------
+
+// TestWire_RoundTrip verifies that WriteCopyStateOrdered + ReadCopyState
+// produce a logically identical CopyState for both canary seeds.
+func TestWire_RoundTrip(t *testing.T) {
+	for _, seed := range [...]int64{0xC0FFEE, 0xDECAF} {
+		seed := seed
+		t.Run("seed", func(t *testing.T) {
+			state := nrt.BuildCopyStateOrdered(seed)
+
+			var buf bytes.Buffer
+			out := store.NewOutputStreamDataOutput(&buf)
+			if err := nrt.WriteCopyStateOrdered(state, out); err != nil {
+				t.Fatalf("WriteCopyStateOrdered: %v", err)
+			}
+			if buf.Len() == 0 {
+				t.Fatal("WriteCopyStateOrdered produced 0 bytes")
+			}
+
+			in := store.NewByteArrayDataInput(buf.Bytes())
+			got, err := nrt.ReadCopyState(in)
+			if err != nil {
+				t.Fatalf("ReadCopyState: %v", err)
+			}
+
+			if got.Gen != state.Gen {
+				t.Errorf("Gen: want %d got %d", state.Gen, got.Gen)
+			}
+			if got.Version != state.Version {
+				t.Errorf("Version: want %d got %d", state.Version, got.Version)
+			}
+			if got.PrimaryGen != state.PrimaryGen {
+				t.Errorf("PrimaryGen: want %d got %d", state.PrimaryGen, got.PrimaryGen)
+			}
+			if !bytes.Equal(got.InfosBytes, state.InfosBytes) {
+				t.Errorf("InfosBytes: want len=%d got len=%d", len(state.InfosBytes), len(got.InfosBytes))
+			}
+			if len(got.Files) != state.Files.Len() {
+				t.Errorf("files count: want %d got %d", state.Files.Len(), len(got.Files))
+			}
+			for _, name := range state.Files.Names() {
+				exp, _ := state.Files.Get(name)
+				act, ok := got.Files[name]
+				if !ok {
+					t.Errorf("file %q missing after round-trip", name)
+					continue
+				}
+				if act.Length != exp.Length {
+					t.Errorf("file %q: Length want %d got %d", name, exp.Length, act.Length)
+				}
+				if act.Checksum != exp.Checksum {
+					t.Errorf("file %q: Checksum want %d got %d", name, exp.Checksum, act.Checksum)
+				}
+				if !bytes.Equal(act.Header, exp.Header) {
+					t.Errorf("file %q: Header mismatch", name)
+				}
+				if !bytes.Equal(act.Footer, exp.Footer) {
+					t.Errorf("file %q: Footer mismatch", name)
+				}
+			}
+			if len(got.CompletedMergeFiles) != state.CompletedMergeFiles.Len() {
+				t.Errorf("completedMergeFiles count: want %d got %d",
+					state.CompletedMergeFiles.Len(), len(got.CompletedMergeFiles))
+			}
+		})
+	}
+}
+
+// TestWire_Determinism verifies that two calls to WriteCopyStateOrdered at
+// the same seed produce identical bytes.
+func TestWire_Determinism(t *testing.T) {
+	seed := int64(0xC0FFEE)
+
+	encode := func() []byte {
+		state := nrt.BuildCopyStateOrdered(seed)
+		var buf bytes.Buffer
+		out := store.NewOutputStreamDataOutput(&buf)
+		if err := nrt.WriteCopyStateOrdered(state, out); err != nil {
+			t.Fatalf("WriteCopyStateOrdered: %v", err)
+		}
+		return buf.Bytes()
+	}
+
+	b1 := encode()
+	b2 := encode()
+	if !bytes.Equal(b1, b2) {
+		t.Fatalf("WriteCopyStateOrdered is not deterministic: len1=%d len2=%d", len(b1), len(b2))
+	}
+}
+
+// TestIDFromSeed verifies that IDFromSeed produces the expected 16-byte big-endian
+// id matching the Java Determinism.idBytes contract.
+func TestIDFromSeed(t *testing.T) {
+	seed := int64(0xC0FFEE)
+	id := nrt.IDFromSeed(seed)
+	if len(id) != 16 {
+		t.Fatalf("IDFromSeed: want 16 bytes, got %d", len(id))
+	}
+	// First 8 bytes == big-endian seed; next 8 == big-endian ^seed.
+	const want0 = uint64(0xC0FFEE)
+	got0 := uint64(id[0])<<56 | uint64(id[1])<<48 | uint64(id[2])<<40 | uint64(id[3])<<32 |
+		uint64(id[4])<<24 | uint64(id[5])<<16 | uint64(id[6])<<8 | uint64(id[7])
+	if got0 != want0 {
+		t.Errorf("IDFromSeed[0:8]: want %016x got %016x", want0, got0)
+	}
+	want1 := ^want0
+	got1 := uint64(id[8])<<56 | uint64(id[9])<<48 | uint64(id[10])<<40 | uint64(id[11])<<32 |
+		uint64(id[12])<<24 | uint64(id[13])<<16 | uint64(id[14])<<8 | uint64(id[15])
+	if got1 != want1 {
+		t.Errorf("IDFromSeed[8:16]: want %016x got %016x", want1, got1)
 	}
 }
