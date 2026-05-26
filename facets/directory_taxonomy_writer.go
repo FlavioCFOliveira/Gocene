@@ -583,6 +583,154 @@ func (w *DirectoryTaxonomyWriter) snapshotState() (map[string]int, []*FacetLabel
 	return p2o, o2p, parents, w.nextOrdinal
 }
 
+// OrdinalMap records the mapping from source ordinals to destination ordinals
+// produced by AddTaxonomy. Mirrors the nested interface in Lucene's
+// DirectoryTaxonomyWriter.
+type OrdinalMap interface {
+	// SetSize declares the size of the source taxonomy. Must be called before
+	// any AddMapping call.
+	SetSize(size int) error
+	// AddMapping records that source ordinal origOrdinal maps to newOrdinal
+	// in the destination taxonomy.
+	AddMapping(origOrdinal, newOrdinal int) error
+	// AddDone signals that all AddMapping calls are complete.
+	AddDone() error
+	// GetMap returns the complete ordinal-to-ordinal array. Index is the source
+	// ordinal; value is the destination ordinal.
+	GetMap() ([]int, error)
+}
+
+// MemoryOrdinalMap is an in-memory OrdinalMap. Mirrors
+// DirectoryTaxonomyWriter.MemoryOrdinalMap.
+type MemoryOrdinalMap struct {
+	m []int
+}
+
+// SetSize allocates the internal array.
+func (o *MemoryOrdinalMap) SetSize(size int) error {
+	o.m = make([]int, size)
+	return nil
+}
+
+// AddMapping records a mapping.
+func (o *MemoryOrdinalMap) AddMapping(origOrdinal, newOrdinal int) error {
+	if origOrdinal < 0 || origOrdinal >= len(o.m) {
+		return fmt.Errorf("origOrdinal %d out of range [0, %d)", origOrdinal, len(o.m))
+	}
+	o.m[origOrdinal] = newOrdinal
+	return nil
+}
+
+// AddDone is a no-op for the in-memory implementation.
+func (o *MemoryOrdinalMap) AddDone() error { return nil }
+
+// GetMap returns the mapping array. May only be called after AddDone.
+func (o *MemoryOrdinalMap) GetMap() ([]int, error) { return o.m, nil }
+
+// AddTaxonomy merges the source taxonomy from srcDir into this writer.
+// For every category in the source that is absent from the destination,
+// it is added; for every category (including ones already present) the
+// mapping from the source ordinal to the destination ordinal is recorded
+// in the provided OrdinalMap.
+//
+// The implementation iterates the source taxonomy's term index (the
+// taxoFieldFull StringField). This path works without DocValues and does
+// not require the SegmentReader core-readers to be wired. The source
+// taxonomy directory must have been committed (no in-flight NRT state is
+// visible via OpenDirectoryReader unless the index writer is NRT-flushed).
+//
+// This is the Go port of DirectoryTaxonomyWriter.addTaxonomy.
+func (w *DirectoryTaxonomyWriter) AddTaxonomy(srcDir store.Directory, ordMap OrdinalMap) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if !w.isOpen {
+		return fmt.Errorf("taxonomy writer is closed")
+	}
+	if srcDir == nil {
+		return fmt.Errorf("srcDir cannot be nil")
+	}
+	if ordMap == nil {
+		return fmt.Errorf("ordMap cannot be nil")
+	}
+
+	r, err := index.OpenDirectoryReader(srcDir)
+	if err != nil {
+		return fmt.Errorf("opening source taxonomy: %w", err)
+	}
+	defer r.Close() //nolint:errcheck
+
+	size := r.NumDocs()
+	if err := ordMap.SetSize(size); err != nil {
+		return err
+	}
+
+	leaves, err := r.Leaves()
+	if err != nil {
+		return err
+	}
+
+	for _, lrc := range leaves {
+		lr := lrc.Reader()
+		type termer interface {
+			Terms(string) (index.Terms, error)
+		}
+		tr, ok := lr.(termer)
+		if !ok {
+			continue
+		}
+		base := lrc.DocBase()
+
+		terms, err := tr.Terms(taxoFieldFull)
+		if err != nil {
+			return fmt.Errorf("reading terms: %w", err)
+		}
+		if terms == nil {
+			continue
+		}
+		te, err := terms.GetIterator()
+		if err != nil {
+			return fmt.Errorf("getting terms iterator: %w", err)
+		}
+
+		for {
+			term, err := te.Next()
+			if err != nil {
+				return fmt.Errorf("iterating terms: %w", err)
+			}
+			if term == nil {
+				break
+			}
+
+			pathStr := string(term.Bytes.Bytes[term.Bytes.Offset : term.Bytes.Offset+term.Bytes.Length])
+			label := facetLabelFromPathString(pathStr)
+
+			// addCategoryLocked will return early if the label already exists.
+			if err := w.addCategoryLocked(label); err != nil {
+				return fmt.Errorf("adding category %q: %w", pathStr, err)
+			}
+			newOrd := w.pathToOrdinal[label.String()]
+
+			// Get the source docID for this term to determine its source ordinal.
+			pe, err := te.Postings(0)
+			if err != nil {
+				return fmt.Errorf("getting postings for %q: %w", pathStr, err)
+			}
+			docID, err := pe.NextDoc()
+			if err != nil {
+				return fmt.Errorf("reading postings doc for %q: %w", pathStr, err)
+			}
+			origOrd := base + docID
+
+			if err := ordMap.AddMapping(origOrd, newOrd); err != nil {
+				return fmt.Errorf("recording ordinal mapping: %w", err)
+			}
+		}
+	}
+
+	return ordMap.AddDone()
+}
+
 // DirectoryTaxonomyWriterFactory creates DirectoryTaxonomyWriter instances.
 type DirectoryTaxonomyWriterFactory struct {
 	directory store.Directory

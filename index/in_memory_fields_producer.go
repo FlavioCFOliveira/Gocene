@@ -13,9 +13,10 @@ import (
 // InMemoryFieldsProducer implements FieldsProducer using merged in-memory
 // postings from a set of DocumentsWriterPerThread instances.
 //
-// Each DWPT in the pool processed exactly one document whose internal docID
-// is 1.  The global docID for pool[i] is i (0-based).  This producer
-// remaps local docID 1 → global docID i for each entry.
+// DWPT internal docIDs are 0-based (lastDocID starts at -1 and is incremented
+// before use, so the first document gets docID=0).  The global docID for a
+// document in pool[i] is docBase(i) + localDoc, where docBase(i) is the total
+// number of documents across all DWPTs at indices 0..i-1.
 //
 // This is used as a lightweight alternative to a full codec round-trip when
 // the caller never set a codec (e.g. in unit tests that create an
@@ -40,22 +41,33 @@ type inMemTerm struct {
 }
 
 // MergeInMemoryPostings builds an InMemoryFieldsProducer by merging
-// postings from all DWPTs in the pool.  dwptPool[i] processed global
-// document i; its local docID inside the DWPT is always 1.
+// postings from all DWPTs in the pool.
+//
+// In practice all documents within a flush unit are accumulated in the same
+// DWPT (pool[0]) whose internal docIDs are 0-based (dwpt.lastDocID starts at
+// -1 and is incremented before use, so the first document gets docID=0).
+// The global docID for pool[i] is docBase + localDoc, where docBase is the
+// cumulative document count of all previous DWPTs.  When the pool contains
+// multiple DWPTs (a future concurrency extension), each pool entry starts its
+// own 0-based sequence and docBase correctly offsets the totals.
 func MergeInMemoryPostings(dwptPool []*DocumentsWriterPerThread) *InMemoryFieldsProducer {
 	p := &InMemoryFieldsProducer{
 		fields: make(map[string]*inMemField),
 	}
 
-	for globalDocID, dwpt := range dwptPool {
+	// Compute the docBase for each DWPT so that local docIDs map to correct
+	// global docIDs when there are multiple DWPTs.
+	docBase := 0
+	for _, dwpt := range dwptPool {
 		dwpt.invertedIndex.mu.RLock()
 		for fieldName, fp := range dwpt.invertedIndex.fields {
 			fp.mu.RLock()
 			for termText, posting := range fp.terms {
-				// Each DWPT has at most one document (local docID=1).
-				// Map local docID 1 → globalDocID.
 				for i, localDoc := range posting.docIDs {
-					_ = localDoc // always 1, ignored
+					// localDoc is 0-based: DWPT.lastDocID starts at -1 and is incremented
+					// before use, so the first document gets docID=0.
+					// The global docID for pool[i] is docBase + localDoc.
+					globalDocID := docBase + localDoc
 					freq := 1
 					if i < len(posting.freqs) {
 						freq = posting.freqs[i]
@@ -89,6 +101,7 @@ func MergeInMemoryPostings(dwptPool []*DocumentsWriterPerThread) *InMemoryFields
 			}
 			fp.mu.RUnlock()
 		}
+		docBase += dwpt.GetNumDocs()
 		dwpt.invertedIndex.mu.RUnlock()
 	}
 
