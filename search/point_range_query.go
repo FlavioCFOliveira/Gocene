@@ -8,6 +8,8 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util/bkd"
 )
 
 // PointRangeQuery is a query that matches documents containing points
@@ -196,28 +198,231 @@ func NewPointRangeWeight(query *PointRangeQuery, searcher *IndexSearcher, needsS
 	}
 }
 
-// Scorer creates a scorer for this weight.
-func (w *PointRangeWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) {
-	leafReader := context.LeafReader()
-	if leafReader == nil {
+// ScorerSupplier creates a lazy ScorerSupplier for BKD-tree intersection.
+//
+// Port of PointRangeQuery.createWeight().scorerSupplier (Lucene 10.4.0).
+// When the leaf reader exposes a codecs-level PointValues (via the
+// pointValuesProvider capability interface), real BKD intersection is
+// performed.  Otherwise the weight falls back to "no matches".
+func (w *PointRangeWeight) ScorerSupplier(context *index.LeafReaderContext) (ScorerSupplier, error) {
+	reader := context.LeafReader()
+	if reader == nil {
 		return nil, nil
 	}
 
-	// For now, return a simple scorer that matches all documents
-	// A full implementation would use the BKD tree for efficient intersection
-	return NewPointRangeScorer(w, leafReader.MaxDoc()), nil
-}
+	pv, ok := getPointRangePointValues(reader, w.query.field)
+	if !ok || pv == nil || pv.GetDocCount() == 0 {
+		return nil, nil
+	}
 
-// ScorerSupplier creates a scorer supplier for this weight.
-func (w *PointRangeWeight) ScorerSupplier(context *index.LeafReaderContext) (ScorerSupplier, error) {
-	scorer, err := w.Scorer(context)
+	q := w.query
+	cmp := bkd.GetUnsignedComparator(q.bytesPerDim)
+
+	fieldMin, err := pv.GetMinPackedValue()
 	if err != nil {
 		return nil, err
 	}
-	if scorer == nil {
+	fieldMax, err := pv.GetMaxPackedValue()
+	if err != nil {
+		return nil, err
+	}
+
+	// Prune: if the query range is entirely outside the field's packed range,
+	// no documents can match.
+	for i := 0; i < q.numDims; i++ {
+		off := i * q.bytesPerDim
+		if cmp(q.lowerValue, off, fieldMax, off) > 0 ||
+			cmp(q.upperValue, off, fieldMin, off) < 0 {
+			return nil, nil
+		}
+	}
+
+	maxDoc := reader.MaxDoc()
+
+	// Fast path: all docs match.
+	if pv.GetDocCount() == maxDoc {
+		allMatch := true
+		for i := 0; i < q.numDims; i++ {
+			off := i * q.bytesPerDim
+			if cmp(q.lowerValue, off, fieldMin, off) > 0 ||
+				cmp(q.upperValue, off, fieldMax, off) < 0 {
+				allMatch = false
+				break
+			}
+		}
+		if allMatch {
+			disi := newRangeDocIdSetIterator(maxDoc)
+			return NewScorerSupplierAdapter(NewConstantScoreScorer(float32(1.0), COMPLETE, disi)), nil
+		}
+	}
+
+	return &pointRangeScorerSupplier{
+		pv:         pv,
+		query:      q,
+		comparator: cmp,
+		maxDoc:     maxDoc,
+		estCost:    -1,
+	}, nil
+}
+
+// Scorer delegates to ScorerSupplier.Get.
+func (w *PointRangeWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) {
+	supplier, err := w.ScorerSupplier(context)
+	if err != nil || supplier == nil {
+		return nil, err
+	}
+	return supplier.Get(0)
+}
+
+// pointRangeScorerSupplier is the lazy supplier for PointRangeWeight.
+type pointRangeScorerSupplier struct {
+	BaseScorerSupplier
+	pv         pointRangePointValues
+	query      *PointRangeQuery
+	comparator bkd.ByteArrayComparator
+	maxDoc     int
+	estCost    int64
+}
+
+func (s *pointRangeScorerSupplier) Get(_ int64) (Scorer, error) {
+	builder := util.NewDocIdSetBuilder(s.maxDoc)
+	v := &pointRangeIntersectVisitor{
+		query:      s.query,
+		comparator: s.comparator,
+		builder:    builder,
+	}
+	if err := s.pv.Intersect(v); err != nil {
+		return nil, err
+	}
+	docSet, err := builder.Build()
+	if err != nil {
+		return nil, err
+	}
+	iter := docSet.Iterator()
+	if iter == nil {
 		return nil, nil
 	}
-	return NewScorerSupplierAdapter(scorer), nil
+	return NewConstantScoreScorer(float32(1.0), COMPLETE, newUtilDocIdSetIteratorAdapter(iter)), nil
+}
+
+func (s *pointRangeScorerSupplier) Cost() int64 {
+	if s.estCost < 0 {
+		s.estCost = s.pv.EstimatePointCount(&pointRangeIntersectVisitor{
+			query:      s.query,
+			comparator: s.comparator,
+		})
+		if s.estCost < 0 {
+			s.estCost = 0
+		}
+	}
+	return s.estCost
+}
+
+// pointRangeIntersectVisitor drives BKD intersection for PointRangeQuery.
+type pointRangeIntersectVisitor struct {
+	query      *PointRangeQuery
+	comparator bkd.ByteArrayComparator
+	builder    *util.DocIdSetBuilder
+	adder      util.BulkAdder
+}
+
+func (v *pointRangeIntersectVisitor) Grow(count int) {
+	if v.builder != nil {
+		v.adder = v.builder.Grow(count)
+	}
+}
+
+func (v *pointRangeIntersectVisitor) Visit(docID int) error {
+	if v.adder != nil {
+		v.adder.Add(docID)
+	}
+	return nil
+}
+
+func (v *pointRangeIntersectVisitor) VisitByPackedValue(docID int, packedValue []byte) error {
+	if v.matchesPoint(packedValue) {
+		if v.adder != nil {
+			v.adder.Add(docID)
+		}
+	}
+	return nil
+}
+
+// matchesPoint returns true when packedValue is within [lowerValue, upperValue]
+// across all dimensions.
+func (v *pointRangeIntersectVisitor) matchesPoint(packed []byte) bool {
+	q := v.query
+	for dim := 0; dim < q.numDims; dim++ {
+		off := dim * q.bytesPerDim
+		if v.comparator(packed, off, q.lowerValue, off) < 0 ||
+			v.comparator(packed, off, q.upperValue, off) > 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// Compare returns the BKD pruning relation for a cell.
+// Returns 0=outside, 1=inside, 2=crosses (matching codecs.Relation order).
+func (v *pointRangeIntersectVisitor) Compare(minPV, maxPV []byte) int {
+	q := v.query
+	inside := true
+	for dim := 0; dim < q.numDims; dim++ {
+		off := dim * q.bytesPerDim
+		// outside: lower > cellMax OR upper < cellMin
+		if v.comparator(q.lowerValue, off, maxPV, off) > 0 ||
+			v.comparator(q.upperValue, off, minPV, off) < 0 {
+			return 0 // CELL_OUTSIDE_QUERY
+		}
+		// partially outside: lower <= cellMin AND upper >= cellMax?
+		if v.comparator(q.lowerValue, off, minPV, off) > 0 ||
+			v.comparator(q.upperValue, off, maxPV, off) < 0 {
+			inside = false
+		}
+	}
+	if inside {
+		return 1 // CELL_INSIDE_QUERY
+	}
+	return 2 // CELL_CROSSES_QUERY
+}
+
+// pointRangePointValues is the narrow interface required by PointRangeWeight.
+// Declared locally to avoid importing codecs (cycle through codecs/lucene90).
+// GetMinPackedValue / GetMaxPackedValue match index.PointValues signatures
+// (error-returning) so a concrete type can implement both without conflicts.
+type pointRangePointValues interface {
+	Intersect(visitor pointRangeIntersectVisitorI) error
+	EstimatePointCount(visitor pointRangeIntersectVisitorI) int64
+	GetMinPackedValue() ([]byte, error)
+	GetMaxPackedValue() ([]byte, error)
+	GetNumDimensions() int
+	GetBytesPerDimension() int
+	GetDocCount() int
+}
+
+// pointRangeIntersectVisitorI is the visitor shape for pointRangePointValues.
+type pointRangeIntersectVisitorI interface {
+	Visit(docID int) error
+	VisitByPackedValue(docID int, packedValue []byte) error
+	Compare(minPackedValue, maxPackedValue []byte) int
+	Grow(count int)
+}
+
+// getPointRangePointValues type-asserts the leaf reader to expose BKD point values.
+func getPointRangePointValues(reader index.LeafReaderInterface, field string) (pointRangePointValues, bool) {
+	type pvProvider interface {
+		GetPointValues(field string) (index.PointValues, error)
+	}
+	pvp, ok := reader.(pvProvider)
+	if !ok {
+		return nil, false
+	}
+	raw, err := pvp.GetPointValues(field)
+	if err != nil || raw == nil {
+		return nil, false
+	}
+	pv, ok := raw.(pointRangePointValues)
+	return pv, ok
 }
 
 // Explain returns an explanation of the score for the given document.
