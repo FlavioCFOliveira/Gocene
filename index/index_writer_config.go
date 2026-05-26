@@ -63,6 +63,13 @@ type IndexWriterConfig struct {
 }
 
 // NewIndexWriterConfig creates a new IndexWriterConfig with default settings.
+//
+// The default Codec is resolved via GetDefaultCodec. Production binaries
+// install the real Lucene 10.4 codec by blank-importing
+// "github.com/FlavioCFOliveira/Gocene/internal/codecbridge". When that
+// import is not present the codec field is left nil and the writer will
+// surface ErrNoCodec on the first flush; callers can also install a codec
+// explicitly via SetCodec.
 func NewIndexWriterConfig(analyzer analysis.Analyzer) *IndexWriterConfig {
 	return &IndexWriterConfig{
 		openMode:               CREATE_OR_APPEND,
@@ -74,6 +81,7 @@ func NewIndexWriterConfig(analyzer analysis.Analyzer) *IndexWriterConfig {
 		mergeScheduler:         nil, // Will be set by IndexWriter
 		indexDeletionPolicy:    nil, // Will be set by IndexWriter
 		useCompoundFile:        DefaultUseCompoundFile,
+		codec:                  GetDefaultCodec(),
 		maxDocs:                0, // 0 means unlimited
 	}
 }
