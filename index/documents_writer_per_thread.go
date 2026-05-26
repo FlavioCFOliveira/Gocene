@@ -739,6 +739,161 @@ func (dwpt *DocumentsWriterPerThread) flushFieldInfos(codec Codec, state *Segmen
 	return fif.Write(state.Directory, state.SegmentInfo, state.FieldInfos, store.IOContextWrite)
 }
 
+// docTermEntry holds one term's contribution to a document's term vector.
+type docTermEntry struct {
+	text      string
+	positions []int
+	startOffs []int
+	endOffs   []int
+}
+
+// flushTermVectors writes the term vectors for all in-RAM documents to the
+// codec's TermVectorsFormat. Inverts the per-field inverted index to produce
+// per-document term vector data.
+//
+// Only invoked when at least one field in fieldInfos has StoreTermVectors=true.
+// If the codec does not provide a TermVectorsFormat, the method is a no-op.
+func (dwpt *DocumentsWriterPerThread) flushTermVectors(codec Codec, state *SegmentWriteState) error {
+	tvFmt := codec.TermVectorsFormat()
+	if tvFmt == nil {
+		return nil
+	}
+
+	// Determine which fields carry term vectors and their per-field options.
+	type tvFieldOpts struct {
+		fieldInfo    *FieldInfo
+		hasPositions bool
+		hasOffsets   bool
+		hasPayloads  bool
+	}
+	var tvFields []tvFieldOpts
+	it := state.FieldInfos.Iterator()
+	for {
+		fi := it.Next()
+		if fi == nil {
+			break
+		}
+		if fi.StoreTermVectors() {
+			tvFields = append(tvFields, tvFieldOpts{
+				fieldInfo:    fi,
+				hasPositions: fi.StoreTermVectorPositions(),
+				hasOffsets:   fi.StoreTermVectorOffsets(),
+				hasPayloads:  fi.StoreTermVectorPayloads(),
+			})
+		}
+	}
+	if len(tvFields) == 0 {
+		return nil // Nothing to write.
+	}
+
+	numDocs := dwpt.numDocsInRAM
+
+	// Build per-doc term vector data by inverting the field postings.
+	// docVectors[docID] = map[fieldName] -> []docTermEntry
+	type docTV map[string][]docTermEntry
+	docVectors := make([]docTV, numDocs)
+	for i := range docVectors {
+		docVectors[i] = make(docTV)
+	}
+
+	dwpt.invertedIndex.mu.RLock()
+	for _, opts := range tvFields {
+		fp, ok := dwpt.invertedIndex.fields[opts.fieldInfo.Name()]
+		if !ok {
+			continue
+		}
+		fp.mu.RLock()
+		for termText, posting := range fp.terms {
+			for di, docID := range posting.docIDs {
+				if docID < 0 || docID >= numDocs {
+					continue
+				}
+				entry := docTermEntry{text: termText}
+				if opts.hasPositions && di < len(posting.positions) {
+					entry.positions = posting.positions[di]
+				}
+				if opts.hasOffsets && di < len(posting.startOffsets) {
+					entry.startOffs = posting.startOffsets[di]
+					entry.endOffs = posting.endOffsets[di]
+				}
+				docVectors[docID][opts.fieldInfo.Name()] = append(
+					docVectors[docID][opts.fieldInfo.Name()], entry)
+			}
+		}
+		fp.mu.RUnlock()
+	}
+	dwpt.invertedIndex.mu.RUnlock()
+
+	// Open the writer and drive the StartDocument / StartField / StartTerm protocol.
+	tvWriter, err := tvFmt.VectorsWriter(state)
+	if err != nil {
+		return fmt.Errorf("term vectors writer: %w", err)
+	}
+	defer tvWriter.Close()
+
+	for docID := 0; docID < numDocs; docID++ {
+		fieldMap := docVectors[docID]
+
+		// Build the list of fields that have at least one term for this doc.
+		var activeFields []tvFieldOpts
+		for _, opts := range tvFields {
+			if len(fieldMap[opts.fieldInfo.Name()]) > 0 {
+				activeFields = append(activeFields, opts)
+			}
+		}
+
+		if err := tvWriter.StartDocument(len(activeFields)); err != nil {
+			return fmt.Errorf("term vectors StartDocument doc=%d: %w", docID, err)
+		}
+
+		for _, opts := range activeFields {
+			entries := fieldMap[opts.fieldInfo.Name()]
+			if err := tvWriter.StartField(opts.fieldInfo, len(entries),
+				opts.hasPositions, opts.hasOffsets, opts.hasPayloads); err != nil {
+				return fmt.Errorf("term vectors StartField doc=%d field=%s: %w",
+					docID, opts.fieldInfo.Name(), err)
+			}
+			for _, entry := range entries {
+				if err := tvWriter.StartTerm([]byte(entry.text)); err != nil {
+					return fmt.Errorf("term vectors StartTerm doc=%d field=%s term=%s: %w",
+						docID, opts.fieldInfo.Name(), entry.text, err)
+				}
+				// Determine occurrence count.
+				occurrences := 1
+				if opts.hasPositions && len(entry.positions) > 0 {
+					occurrences = len(entry.positions)
+				}
+				for i := 0; i < occurrences; i++ {
+					pos := -1
+					so, eo := -1, -1
+					if opts.hasPositions && i < len(entry.positions) {
+						pos = entry.positions[i]
+					}
+					if opts.hasOffsets && i < len(entry.startOffs) {
+						so = entry.startOffs[i]
+						eo = entry.endOffs[i]
+					}
+					if err := tvWriter.AddPosition(pos, so, eo, nil); err != nil {
+						return fmt.Errorf("term vectors AddPosition doc=%d: %w", docID, err)
+					}
+				}
+				if err := tvWriter.FinishTerm(); err != nil {
+					return err
+				}
+			}
+			if err := tvWriter.FinishField(); err != nil {
+				return err
+			}
+		}
+
+		if err := tvWriter.FinishDocument(); err != nil {
+			return fmt.Errorf("term vectors FinishDocument doc=%d: %w", docID, err)
+		}
+	}
+
+	return nil
+}
+
 // getGeneratedFiles returns the list of files generated during flush.
 func (dwpt *DocumentsWriterPerThread) getGeneratedFiles(segmentName string) []string {
 	// Return the list of segment files

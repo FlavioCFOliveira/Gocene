@@ -790,6 +790,9 @@ func (w *IndexWriter) Commit() error {
 				if err3 := dwpt.flushStoredFields(codec, writeState); err3 != nil {
 					return fmt.Errorf("commit: flush stored fields for %s: %w", segmentName, err3)
 				}
+				if err3 := dwpt.flushTermVectors(codec, writeState); err3 != nil {
+					return fmt.Errorf("commit: flush term vectors for %s: %w", segmentName, err3)
+				}
 				if err3 := dwpt.flushPostings(codec, writeState, fi); err3 != nil {
 					return fmt.Errorf("commit: flush postings for %s: %w", segmentName, err3)
 				}
