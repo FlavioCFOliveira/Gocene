@@ -49,7 +49,9 @@ spatial3d-serializable	12648430	83f4724360b50aee6d605fa06b5b4cdf323a269dec26431d
 geo-encoded-points	12648430	f0a760f27279f1c4d5bcc8295e1cd6d1356bf6ccbe613c63471e30522278a2e1	1	
 expressions-eval-corpus	12648430	944b9f292a204ea110852681d23cf8fa2d55e2d226f63d4649abfddc6c605ead	16	
 queryparser-trees-and-hits	12648430	f9e0ce786855de5579f38c74abc38b0fead890c70f0cf8cea44d767ddf0bfb3b	15	
+sandbox-idversion-postings	12648430	4079b71c1a6800ace063265a7a7363f3933a208e4b5e8f96e8dbd33c3c73dcde	7	
 hunspell-blob	12648430	(deferred)	0	gap_notes="deferred to per-package task"
 snowball-blob	12648430	(deferred)	0	gap_notes="deferred to per-package task"
 replicator-http-frames	12648430	(deferred)	0	gap_notes="No Java-served HTTP replicator fixtures."; reason="Lucene 10.4.0 removed org.apache.lucene.replicator.http.HttpReplicator and the IndexRevision wire surface; covered by a future backward-compat sprint."
 replicator-session-revision	12648430	(deferred)	0	gap_notes="No cross-engine replication transcript validated against Lucene."; reason="Lucene 10.4.0 removed org.apache.lucene.replicator.http.HttpReplicator and the IndexRevision wire surface; covered by a future backward-compat sprint."
+sandbox-quantization-codec	12648430	(deferred)	0	gap_notes="Quantization sampling codec: Pure port without tests, fixtures, or writer parity"; reason="Lucene 10.4.0 sandbox `codecs/quantization` ships ONLY org.apache.lucene.sandbox.codecs.quantization.KMeans and SampleReader (no KnnVectorsFormat/PostingsFormat/Codec under that subpackage); the scalar-quantized HNSW persisted artefact is the production org.apache.lucene.codecs.lucene104.Lucene104HnswScalarQuantizedVectorsFormat which is already covered by the T7 scenario `scalar-quantized-knn`. Sandbox-specific binary parity is therefore not applicable; covered by a future sprint that either ports a sandbox quantization format (none planned in Lucene 10.4.0) or formally folds this row into scalar-quantized-knn."

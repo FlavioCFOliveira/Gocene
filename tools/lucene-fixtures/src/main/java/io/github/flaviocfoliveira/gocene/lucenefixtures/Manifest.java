@@ -69,7 +69,33 @@ public final class Manifest {
                     "Lucene 10.4.0 removed SessionToken/RevisionFile surface",
                     "gap_notes=\"No cross-engine replication transcript validated against Lucene.\"; "
                             + "reason=\"Lucene 10.4.0 removed org.apache.lucene.replicator.http.HttpReplicator "
-                            + "and the IndexRevision wire surface; covered by a future backward-compat sprint.\""}
+                            + "and the IndexRevision wire surface; covered by a future backward-compat sprint.\""},
+            // Sprint 114 T23 (rmp 4631). The sandbox `quantization` package in
+            // Apache Lucene 10.4.0 (path
+            // `lucene/sandbox/src/java/org/apache/lucene/sandbox/codecs/quantization/`
+            // at tag `releases/lucene/10.4.0`) ships ONLY `KMeans.java` and
+            // `SampleReader.java` — there is NO `KnnVectorsFormat` /
+            // `PostingsFormat` / `Codec` under that subpackage and therefore
+            // no on-disk artefact distinct from the production
+            // `Lucene104HnswScalarQuantizedVectorsFormat` (which lives in
+            // `lucene-core` under `org.apache.lucene.codecs.lucene104` and is
+            // already covered by the T7 scenario `scalar-quantized-knn`). The
+            // audit row is preserved as a DEFERRED_ROW so the footprint stays
+            // visible until a future sprint either ports a sandbox-specific
+            // quantization format (none planned) or formally collapses the
+            // row into `scalar-quantized-knn`.
+            new String[]{"sandbox-quantization-codec", "(deferred)", "0",
+                    "Lucene 10.4.0 sandbox/codecs/quantization ships only KMeans+SampleReader",
+                    "gap_notes=\"Quantization sampling codec: Pure port without tests, fixtures, or writer parity\"; "
+                            + "reason=\"Lucene 10.4.0 sandbox `codecs/quantization` ships ONLY "
+                            + "org.apache.lucene.sandbox.codecs.quantization.KMeans and SampleReader "
+                            + "(no KnnVectorsFormat/PostingsFormat/Codec under that subpackage); the "
+                            + "scalar-quantized HNSW persisted artefact is the production "
+                            + "org.apache.lucene.codecs.lucene104.Lucene104HnswScalarQuantizedVectorsFormat "
+                            + "which is already covered by the T7 scenario `scalar-quantized-knn`. "
+                            + "Sandbox-specific binary parity is therefore not applicable; covered "
+                            + "by a future sprint that either ports a sandbox quantization format "
+                            + "(none planned in Lucene 10.4.0) or formally folds this row into scalar-quantized-knn.\""}
     );
 
     private Manifest() {}

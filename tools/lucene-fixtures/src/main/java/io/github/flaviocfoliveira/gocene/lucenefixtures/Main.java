@@ -66,6 +66,7 @@ public final class Main {
             case "verify-replicator" -> runVerifyReplicator(args, out, err);
             case "verify-expressions-eval" -> runVerifyExpressionsEval(args, out, err);
             case "verify-queryparser" -> runVerifyQueryparser(args, out, err);
+            case "verify-sandbox" -> runVerifySandbox(args, out, err);
             case "-h", "--help", "help" -> {
                 usage(out);
                 yield 0;
@@ -511,6 +512,77 @@ public final class Main {
         return 0;
     }
 
+    /**
+     * Sprint 114 T23 (rmp 4631). Re-verifies one of the sandbox scenarios.
+     *
+     * <p>Usage: {@code verify-sandbox <idversion|quantization> <dir> <seed>}.
+     *
+     * <p>The {@code idversion} sub-flag targets the
+     * {@code sandbox-idversion-postings} scenario and re-runs every
+     * (id, version) probe via {@link org.apache.lucene.sandbox.codecs.idversion
+     * .IDVersionSegmentTermsEnum#seekExact}.
+     *
+     * <p>The {@code quantization} sub-flag is intentionally a no-op fast-path
+     * that emits a single {@code ok ... status=deferred} line and exits 0.
+     * The sandbox audit row "Quantization sampling codec: Pure port without
+     * tests, fixtures, or writer parity" is tracked as a DEFERRED row in
+     * {@link Manifest#DEFERRED_ROWS} (row name
+     * {@code sandbox-quantization-codec}) because Lucene 10.4.0
+     * {@code sandbox/codecs/quantization} ships only
+     * {@code KMeans} and {@code SampleReader} — there is no
+     * {@code KnnVectorsFormat}, {@code PostingsFormat}, or {@code Codec}
+     * under that subpackage to produce a separate on-disk artefact. The
+     * scalar-quantized HNSW persisted artefact is the production
+     * {@code Lucene104HnswScalarQuantizedVectorsFormat}, already covered by
+     * the T7 scenario {@code scalar-quantized-knn}.
+     */
+    private static int runVerifySandbox(String[] args, PrintStream out, PrintStream err) {
+        if (args.length != 4) {
+            err.println("usage: verify-sandbox <idversion|quantization> <dir> <seed>");
+            return 1;
+        }
+        String which = args[1];
+        java.nio.file.Path source = java.nio.file.Path.of(args[2]);
+        long seed = parseSeed(args[3], err);
+        if (seed == Long.MIN_VALUE && !"-9223372036854775808".equals(args[3])) {
+            return 1;
+        }
+        switch (which) {
+            case "idversion" -> {
+                try {
+                    CorpusScenario scenario = Scenarios.require("sandbox-idversion-postings");
+                    scenario.verify(source, seed);
+                } catch (IllegalArgumentException e) {
+                    err.println(e.getMessage());
+                    return 2;
+                } catch (IOException e) {
+                    err.println("verify-sandbox idversion failed: " + e.getMessage());
+                    return 4;
+                }
+                out.println("ok verify-sandbox variant=idversion dir="
+                        + source.toAbsolutePath() + " seed=" + seed);
+                return 0;
+            }
+            case "quantization" -> {
+                // Manifest.DEFERRED_ROWS carries the audit footprint
+                // (sandbox-quantization-codec). The CLI surfaces a clear
+                // deferral status so callers (Go-side tests, CI runners)
+                // can branch on it without parsing the manifest.
+                out.println("ok verify-sandbox variant=quantization dir="
+                        + source.toAbsolutePath() + " seed=" + seed
+                        + " status=deferred manifest_row=sandbox-quantization-codec "
+                        + "reason=\"Lucene 10.4.0 sandbox/codecs/quantization ships only "
+                        + "KMeans+SampleReader; production quantization artefact is "
+                        + "Lucene104HnswScalarQuantizedVectorsFormat covered by scalar-quantized-knn\"");
+                return 0;
+            }
+            default -> {
+                err.println("invalid sandbox sub-flag (expected 'idversion' or 'quantization'): " + which);
+                return 1;
+            }
+        }
+    }
+
     /** Verifies {@code queries-hits.tsv} mirrors {@link #runVerifyScoring}. */
     private static int runVerifyQueriesHits(String[] args, PrintStream out, PrintStream err) {
         if (args.length != 2) {
@@ -566,5 +638,6 @@ public final class Main {
         out.println("  verify-replicator <copystate> <dir> <seed> re-verify the replicator-nrt-copystate fixture in <dir>");
         out.println("  verify-expressions-eval <dir>        recompile + re-evaluate the expressions catalogue in <dir> and compare to expressions-eval.tsv");
         out.println("  verify-queryparser <dir>             re-parse and re-execute the queryparser catalogue in <dir> and compare to qp-trees.tsv + qp-hits.tsv");
+        out.println("  verify-sandbox <idversion|quantization> <dir> <seed>  re-verify a sandbox scenario (quantization is deferred; see Manifest.DEFERRED_ROWS)");
     }
 }

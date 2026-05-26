@@ -30,6 +30,7 @@ import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PointsFormatSc
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PostingsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.QueriesHitCorpusScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.QueryparserTreesAndHitsScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.SandboxIdversionPostingsScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.GeoEncodedPointsScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.ReplicatorNrtCopyStateScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.ScalarQuantizedKnnScenario;
@@ -174,6 +175,13 @@ public final class Scenarios {
         // expressions-* scenario — so the manifest ordering for prior rows
         // is preserved.
         register(new QueryparserTreesAndHitsScenario());
+        // Sprint 114 T23 (rmp 4631): sandbox-module scenarios. Appended in
+        // stack order — after the queryparser-* scenario — so the manifest
+        // ordering for prior rows is preserved. The sandbox quantization
+        // audit row is tracked as a DEFERRED row in Manifest.java because
+        // Lucene 10.4.0 sandbox/codecs/quantization ships only KMeans and
+        // SampleReader (no on-disk format).
+        register(new SandboxIdversionPostingsScenario());
     }
 
     private Scenarios() {}
