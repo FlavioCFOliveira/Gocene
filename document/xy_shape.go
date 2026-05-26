@@ -17,14 +17,13 @@ import (
 //
 // Static query factories deferred — backlog #2697.
 
-// CreateIndexableFieldsFromXYPolygon tessellates an XY polygon. Returns
-// an error wrapping geo.ErrTessellatorUnsupported when the tessellator
-// stub cannot handle the supplied polygon.
+// CreateIndexableFieldsFromXYPolygon tessellates an XY polygon and
+// returns the per-triangle ShapeFieldTriangle fields ready to be added
+// to a Document.
 //
-// Note: the pre-existing geo.Tessellate accepts the lat/lon Polygon
-// type; XY polygons currently route through the same tessellator with
-// the X/Y values supplied as lat/lon coordinates (Lucene does the same:
-// it reuses the tessellator on raw float coordinates).
+// Lucene reuses the same earcut tessellator for both lat/lon and XY
+// coordinate spaces; this function routes through geo.TessellateXY,
+// which is the raw-coordinate entry point of the full tessellator port.
 func CreateIndexableFieldsFromXYPolygon(fieldName string, xs, ys []float64) ([]*ShapeFieldTriangle, error) {
 	if len(xs) != len(ys) {
 		return nil, fmt.Errorf("xs/ys length mismatch: %d vs %d", len(xs), len(ys))

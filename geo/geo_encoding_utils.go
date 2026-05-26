@@ -141,10 +141,10 @@ const minInt32U = uint32(0x8000_0000)
 // grid is the per-shape sub-box decomposition shared by both
 // DistancePredicate and Component2DPredicate.
 type grid struct {
-	latShift, lonShift     int
-	latBase, lonBase       int
+	latShift, lonShift       int
+	latBase, lonBase         int
 	maxLatDelta, maxLonDelta int
-	relations              []byte // ordinal-per-cell, length = maxLatDelta * maxLonDelta
+	relations                []byte // ordinal-per-cell, length = maxLatDelta * maxLonDelta
 }
 
 // DistancePredicate is a fast point-in-disk test that operates on
@@ -282,8 +282,8 @@ func createSubBoxes(shapeMinLat, shapeMaxLat, shapeMinLon, shapeMaxLon float64,
 	relations := make([]byte, maxLatDelta*maxLonDelta)
 	for i := 0; i < maxLatDelta; i++ {
 		for j := 0; j < maxLonDelta; j++ {
-			boxMinLat := int32(((int64(latBase)+int64(i))<<uint(latShift)) + int64(math.MinInt32))
-			boxMinLon := int32(((int64(lonBase)+int64(j))<<uint(lonShift)) + int64(math.MinInt32))
+			boxMinLat := int32(((int64(latBase) + int64(i)) << uint(latShift)) + int64(math.MinInt32))
+			boxMinLon := int32(((int64(lonBase) + int64(j)) << uint(lonShift)) + int64(math.MinInt32))
 			boxMaxLat := int32(int64(boxMinLat) + int64((1<<uint(latShift))-1))
 			boxMaxLon := int32(int64(boxMinLon) + int64((1<<uint(lonShift))-1))
 

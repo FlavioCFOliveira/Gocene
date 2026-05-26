@@ -59,17 +59,15 @@ const (
 // dimension (caller may run geo.DecodeLatitude/Longitude or XYDecode to
 // recover degrees).
 type DecodedTriangle struct {
-	Kind                                 DecodedTriangleType
-	AX, AY, BX, BY, CX, CY               int32
-	AB, BC, CA                           bool
+	Kind                   DecodedTriangleType
+	AX, AY, BX, BY, CX, CY int32
+	AB, BC, CA             bool
 }
 
 // ShapeFieldTriangle is the underlying Field used to index a single
-// triangle. The pre-existing Gocene tessellator stub does not yet support
-// polygon decomposition; high-level NewLatLonShape / NewXYShape
-// constructors that tessellate polygons therefore return a backlog
-// placeholder and the per-triangle ShapeFieldTriangle constructor (which
-// only requires raw vertex coordinates) ships now.
+// triangle produced by the tessellator.  High-level factories such as
+// CreateIndexableFieldsFromLatLonPolygon tessellate the input polygon
+// and return a slice of ShapeFieldTriangle values, one per triangle.
 type ShapeFieldTriangle struct {
 	*Field
 }

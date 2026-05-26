@@ -92,8 +92,8 @@ type LatLonShapeDocValuesField struct {
 }
 
 // NewLatLonShapeDocValuesField creates a new LatLonShapeDocValuesField
-// from a Polygon. The polygon is tessellated; an error is returned if
-// the pre-existing tessellator stub cannot handle it.
+// from a Polygon. The polygon is tessellated using the full earcut port;
+// an error is returned if the polygon is malformed.
 func NewLatLonShapeDocValuesField(name string, polygon geo.Polygon) (*LatLonShapeDocValuesField, error) {
 	return NewLatLonShapeDocValuesFieldPolygonChecked(name, polygon, false)
 }

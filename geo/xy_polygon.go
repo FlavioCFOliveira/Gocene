@@ -41,10 +41,10 @@ var (
 
 // notClosedXYError reports the open-polygon case for XYPolygon.
 type notClosedXYError struct {
-	axis     string
-	first    float32
-	lastIdx  int
-	lastVal  float32
+	axis    string
+	first   float32
+	lastIdx int
+	lastVal float32
 }
 
 func (e *notClosedXYError) Error() string {

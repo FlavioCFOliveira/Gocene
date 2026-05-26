@@ -6,7 +6,6 @@ package document
 
 import (
 	"bytes"
-	"errors"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/geo"
@@ -15,7 +14,7 @@ import (
 // triangle helper for tests.
 func newTriPolygon(t *testing.T) geo.Polygon {
 	t.Helper()
-	// Simple closed triangle; tessellator stub accepts single-ring no-hole polys.
+	// Simple closed triangle.
 	return geo.MustNewPolygon(
 		[]float64{0, 0, 1, 0},
 		[]float64{0, 1, 0, 0},
@@ -41,9 +40,12 @@ func TestLatLonShape_CreateIndexableFieldsPolygonChecked(t *testing.T) {
 	}
 }
 
-func TestLatLonShape_CreateIndexableFieldsPolygonRejectsHoles(t *testing.T) {
-	// Polygon with holes is rejected by the stub tessellator; verify the
-	// error wraps geo.ErrTessellatorUnsupported.
+func TestLatLonShape_CreateIndexableFieldsPolygonWithHoles(t *testing.T) {
+	// Polygon with a hole — the full tessellator (Sprint 116) handles these
+	// via hole-elimination and earcut decomposition.
+	// Outer ring: 10°×10° box; inner hole: 2°×2° box near the origin.
+	// Expect at least 2 triangles and no error.
+	t.Parallel()
 	poly := geo.MustNewPolygon(
 		[]float64{0, 0, 10, 10, 0},
 		[]float64{0, 10, 10, 0, 0},
@@ -52,12 +54,18 @@ func TestLatLonShape_CreateIndexableFieldsPolygonRejectsHoles(t *testing.T) {
 			[]float64{1, 2, 2, 1, 1},
 		),
 	)
-	_, err := CreateIndexableFieldsFromLatLonPolygonChecked("loc", poly, false)
-	if err == nil {
-		t.Fatalf("expected error for polygon with holes")
+	fields, err := CreateIndexableFieldsFromLatLonPolygonChecked("loc", poly, false)
+	if err != nil {
+		t.Fatalf("unexpected error for polygon with hole: %v", err)
 	}
-	if !errors.Is(err, geo.ErrTessellatorUnsupported) {
-		t.Fatalf("error %v should wrap ErrTessellatorUnsupported", err)
+	if len(fields) < 2 {
+		t.Fatalf("expected at least 2 triangles for polygon with hole, got %d", len(fields))
+	}
+	// Each field must carry the full 28-byte ShapeField payload.
+	for i, f := range fields {
+		if len(f.BinaryValue()) != ShapeFieldBytes {
+			t.Errorf("field[%d] payload length = %d; want %d", i, len(f.BinaryValue()), ShapeFieldBytes)
+		}
 	}
 }
 

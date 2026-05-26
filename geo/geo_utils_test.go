@@ -106,10 +106,10 @@ func TestGeoUtils_Orient(t *testing.T) {
 		ax, ay, bx, by, cx, cy float64
 		want                   int
 	}{
-		{0, 0, 1, 0, 1, 1, 1},   // CCW
-		{0, 0, 1, 1, 1, 0, -1},  // CW
-		{0, 0, 2, 2, 4, 4, 0},   // collinear
-		{0, 0, 10, 0, 5, 0, 0},  // collinear horizontal
+		{0, 0, 1, 0, 1, 1, 1},  // CCW
+		{0, 0, 1, 1, 1, 0, -1}, // CW
+		{0, 0, 2, 2, 4, 4, 0},  // collinear
+		{0, 0, 10, 0, 5, 0, 0}, // collinear horizontal
 	}
 	for _, c := range cases {
 		if got := Orient(c.ax, c.ay, c.bx, c.by, c.cx, c.cy); got != c.want {

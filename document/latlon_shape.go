@@ -19,10 +19,11 @@ import (
 // it with the remaining Lucene-parity factories (checkSelfIntersections
 // variants, doc-value factories from Line / Point / BytesRef / triangle
 // list / indexable Field array, and CreateLatLonShapeDocValues).
+// Sprint 116 completed the geo.Tessellator port (earcut with hole
+// elimination, Morton z-order acceleration, and self-intersection
+// detection), so all polygon topologies are now fully supported.
 //
-// Full tessellation remains limited by the pre-existing geo.Tessellator
-// stub (rejects polygons with holes or self-intersections with
-// ErrTessellatorUnsupported). Static query factories (NewBoxQuery /
+// Static query factories (NewBoxQuery /
 // NewDistanceQuery / NewPolygonQuery / NewLineQuery / NewPointQuery /
 // NewGeometryQuery / NewSlowDocValuesBoxQuery) cannot live in this
 // package because document/ may not import search/ (cycle); they are
@@ -34,8 +35,8 @@ import (
 //
 // Equivalent to Java's LatLonShape#createIndexableFields(String, Polygon).
 //
-// Returns an error wrapping geo.ErrTessellatorUnsupported when the
-// tessellator stub cannot decompose the supplied polygon.
+// Returns an error if the supplied polygon is malformed or
+// self-intersecting (when the checkSelfIntersections variant is used).
 func CreateIndexableFieldsFromLatLonPolygon(fieldName string, polygon geo.Polygon) ([]*ShapeFieldTriangle, error) {
 	return CreateIndexableFieldsFromLatLonPolygonChecked(fieldName, polygon, false)
 }
@@ -47,8 +48,8 @@ func CreateIndexableFieldsFromLatLonPolygon(fieldName string, polygon geo.Polygo
 // Equivalent to Java's LatLonShape#createIndexableFields(String, Polygon, boolean).
 //
 // The checkSelfIntersections argument is forwarded to geo.Tessellate;
-// the current tessellator stub accepts it for API parity but treats it
-// as a no-op (callers must supply non-self-intersecting polygons).
+// when true, the tessellator validates that no two non-adjacent edges
+// intersect before proceeding with earcut decomposition.
 func CreateIndexableFieldsFromLatLonPolygonChecked(fieldName string, polygon geo.Polygon, checkSelfIntersections bool) ([]*ShapeFieldTriangle, error) {
 	triangles, err := geo.Tessellate(polygon, checkSelfIntersections)
 	if err != nil {

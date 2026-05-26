@@ -30,12 +30,12 @@ func (s stubGeometry) toComponent2D() Component2D { return s.component }
 // need a non-nil reference.
 type stubComponent2D struct{}
 
-func (stubComponent2D) MinX() float64                          { return 0 }
-func (stubComponent2D) MaxX() float64                          { return 0 }
-func (stubComponent2D) MinY() float64                          { return 0 }
-func (stubComponent2D) MaxY() float64                          { return 0 }
-func (stubComponent2D) Contains(_ float64, _ float64) bool     { return false }
-func (stubComponent2D) Relate(_, _, _, _ float64) Relation     { return CellOutsideQuery }
+func (stubComponent2D) MinX() float64                      { return 0 }
+func (stubComponent2D) MaxX() float64                      { return 0 }
+func (stubComponent2D) MinY() float64                      { return 0 }
+func (stubComponent2D) MaxY() float64                      { return 0 }
+func (stubComponent2D) Contains(_ float64, _ float64) bool { return false }
+func (stubComponent2D) Relate(_, _, _, _ float64) Relation { return CellOutsideQuery }
 func (stubComponent2D) IntersectsLine(_, _, _, _, _, _, _, _ float64) bool {
 	return false
 }

@@ -68,10 +68,10 @@ var (
 // from the last). The error includes the offending coordinates to
 // match Lucene's verbose IllegalArgumentException message.
 type notClosedError struct {
-	axis     string // "polyLats" or "polyLons"
-	first    float64
-	lastIdx  int
-	lastVal  float64
+	axis    string // "polyLats" or "polyLons"
+	first   float64
+	lastIdx int
+	lastVal float64
 }
 
 func (e *notClosedError) Error() string {

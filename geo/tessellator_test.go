@@ -1,12 +1,11 @@
-// Tests for Tessellator. The Java test peer
+// Tests for the full Tessellator port (ear-clipping with hole elimination,
+// self-intersection detection, and Morton-order acceleration).
+//
+// The Java test peer
 // (lucene/core/src/test/org/apache/lucene/geo/TestTessellator.java)
-// contains a large catalog of regression and randomised cases
-// targeting the full Java implementation (hole elimination,
-// self-intersection detection, Morton-order acceleration). This
-// minimal Go port covers the simple-ring use case only; the tests
-// below verify that behaviour and explicitly check that holes are
-// rejected with ErrTessellatorUnsupported. See tessellator.go for a
-// list of features scoped out of this port.
+// contains a large randomised regression suite; this file covers the
+// deterministic subset: simple rings, hole-bearing polygons, degenerate
+// inputs, and XY raw-slice inputs.
 
 package geo
 
@@ -85,7 +84,15 @@ func TestTessellator_Pentagon(t *testing.T) {
 	}
 }
 
-func TestTessellator_HolesUnsupported(t *testing.T) {
+// TestTessellator_SquareWithHole verifies that a square polygon with a
+// square hole (donut shape) is correctly tessellated.
+//
+// Outer ring: square (0,0)–(0,10)–(10,10)–(10,0).
+// Inner hole: square (3,3)–(3,7)–(7,7)–(7,3).
+//
+// The donut should yield 8 triangles (10x10 - 4x4 = 84 sq units):
+// 6 for the outer frame plus the bridging triangles.
+func TestTessellator_SquareWithHole(t *testing.T) {
 	t.Parallel()
 	hole := MustNewPolygon(
 		[]float64{3, 3, 7, 7, 3},
@@ -96,9 +103,36 @@ func TestTessellator_HolesUnsupported(t *testing.T) {
 		[]float64{0, 10, 10, 0, 0},
 		hole,
 	)
-	_, err := Tessellate(p, false)
+	tris, err := Tessellate(p, false)
+	if err != nil {
+		t.Fatalf("unexpected error tessellating polygon with hole: %v", err)
+	}
+	if len(tris) == 0 {
+		t.Fatal("expected at least 1 triangle for polygon with hole")
+	}
+	// Verify combined area equals the donut area: 10*10 - 4*4 = 84.
+	var totalArea float64
+	for _, tri := range tris {
+		totalArea += triangleArea(tri)
+	}
+	if abs(totalArea-84) > 1e-4 {
+		t.Errorf("combined area = %.4f; want 84 (10x10 - 4x4 donut)", totalArea)
+	}
+}
+
+// TestTessellator_HolesUnsupported verifies that TessellateXY (raw-slice API)
+// rejects holes with ErrTessellatorUnsupported (holes > 0 not supported via
+// raw-slice path; use TessellateXYPolygon instead).
+func TestTessellator_HolesUnsupported(t *testing.T) {
+	t.Parallel()
+	_, err := TessellateXY(
+		[]float64{0, 10, 10, 0, 0},
+		[]float64{0, 0, 10, 10, 0},
+		1, // holes > 0
+		false,
+	)
 	if err == nil {
-		t.Fatal("expected ErrTessellatorUnsupported for hole-bearing polygon")
+		t.Fatal("expected ErrTessellatorUnsupported for raw-slice TessellateXY with holes > 0")
 	}
 	if !errors.Is(err, ErrTessellatorUnsupported) {
 		t.Fatalf("err = %v; want wrap ErrTessellatorUnsupported", err)
