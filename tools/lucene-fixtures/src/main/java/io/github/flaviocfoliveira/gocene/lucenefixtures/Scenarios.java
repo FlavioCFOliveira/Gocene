@@ -21,6 +21,8 @@ import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.IndexDeletions
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.KnnHitOrderingScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.KnnVectorsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.LiveDocsFormatScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.MiscHighfreqTermsCorpusScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.MiscIndexSplitterInputScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.MonitorIndexSegmentScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.MonitorQueryBlobScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.NormsFormatScenario;
@@ -182,6 +184,12 @@ public final class Scenarios {
         // Lucene 10.4.0 sandbox/codecs/quantization ships only KMeans and
         // SampleReader (no on-disk format).
         register(new SandboxIdversionPostingsScenario());
+        // Sprint 114 T24 (rmp 4632): misc-module scenarios appended in
+        // stack order. misc-index-splitter-input feeds both IndexSplitter
+        // and IndexMergeTool tests; misc-highfreq-terms-corpus pins the
+        // HighFreqTerms tool's logical output as a deterministic TSV.
+        register(new MiscIndexSplitterInputScenario());
+        register(new MiscHighfreqTermsCorpusScenario());
     }
 
     private Scenarios() {}

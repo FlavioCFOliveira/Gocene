@@ -67,6 +67,8 @@ public final class Main {
             case "verify-expressions-eval" -> runVerifyExpressionsEval(args, out, err);
             case "verify-queryparser" -> runVerifyQueryparser(args, out, err);
             case "verify-sandbox" -> runVerifySandbox(args, out, err);
+            case "verify-misc" -> runVerifyMisc(args, out, err);
+            case "verify-sweetspot" -> runVerifySweetspot(args, out, err);
             case "-h", "--help", "help" -> {
                 usage(out);
                 yield 0;
@@ -604,6 +606,76 @@ public final class Main {
         return 0;
     }
 
+    /**
+     * Sprint 114 T24 (rmp 4632). Re-verifies one of the misc-module
+     * scenarios. Sub-flag selects between {@code splitter}
+     * (misc-index-splitter-input) and {@code highfreq}
+     * (misc-highfreq-terms-corpus). Seed is mandatory.
+     *
+     * <p>Usage: {@code verify-misc <splitter|highfreq> <dir> <seed>}.
+     */
+    private static int runVerifyMisc(String[] args, PrintStream out, PrintStream err) {
+        if (args.length != 4) {
+            err.println("usage: verify-misc <splitter|highfreq> <dir> <seed>");
+            return 1;
+        }
+        String which = args[1];
+        String scenarioName;
+        switch (which) {
+            case "splitter" -> scenarioName = "misc-index-splitter-input";
+            case "highfreq" -> scenarioName = "misc-highfreq-terms-corpus";
+            default -> {
+                err.println("invalid misc sub-flag (expected 'splitter' or 'highfreq'): " + which);
+                return 1;
+            }
+        }
+        java.nio.file.Path source = java.nio.file.Path.of(args[2]);
+        long seed = parseSeed(args[3], err);
+        if (seed == Long.MIN_VALUE && !"-9223372036854775808".equals(args[3])) {
+            return 1;
+        }
+        try {
+            CorpusScenario scenario = Scenarios.require(scenarioName);
+            scenario.verify(source, seed);
+        } catch (IllegalArgumentException e) {
+            err.println(e.getMessage());
+            return 2;
+        } catch (IOException e) {
+            err.println("verify-misc " + which + " failed: " + e.getMessage());
+            return 4;
+        }
+        out.println("ok verify-misc variant=" + which + " dir="
+                + source.toAbsolutePath() + " seed=" + seed);
+        return 0;
+    }
+
+    /**
+     * Sprint 114 T24 (rmp 4632). SweetSpotSimilarity is a runtime
+     * {@link org.apache.lucene.search.similarities.Similarity} subclass
+     * (no persisted artefact). This sub-command opens the
+     * {@code search-scoring-corpus} index in {@code <dir>}, re-scores it
+     * under BM25 and under SweetSpotSimilarity, and asserts (a) hit-set
+     * parity per query, (b) at least one score differs by more than 1e-3.
+     *
+     * <p>Usage: {@code verify-sweetspot <dir>}.
+     */
+    private static int runVerifySweetspot(String[] args, PrintStream out, PrintStream err) {
+        if (args.length != 2) {
+            err.println("usage: verify-sweetspot <dir>");
+            return 1;
+        }
+        java.nio.file.Path source = java.nio.file.Path.of(args[1]);
+        try {
+            int compared = SweetspotProbe.run(source);
+            out.println("ok verify-sweetspot dir=" + source.toAbsolutePath()
+                    + " queries_compared=" + compared);
+            return 0;
+        } catch (IOException e) {
+            err.println("verify-sweetspot failed: " + e.getMessage());
+            return 4;
+        }
+    }
+
     private static long parseSeed(String s, PrintStream err) {
         try {
             // Allow 0x-prefixed hex for ergonomic CLI usage.
@@ -639,5 +711,7 @@ public final class Main {
         out.println("  verify-expressions-eval <dir>        recompile + re-evaluate the expressions catalogue in <dir> and compare to expressions-eval.tsv");
         out.println("  verify-queryparser <dir>             re-parse and re-execute the queryparser catalogue in <dir> and compare to qp-trees.tsv + qp-hits.tsv");
         out.println("  verify-sandbox <idversion|quantization> <dir> <seed>  re-verify a sandbox scenario (quantization is deferred; see Manifest.DEFERRED_ROWS)");
+        out.println("  verify-misc <splitter|highfreq> <dir> <seed>  re-verify a misc-module scenario (IndexSplitter/IndexMergeTool input OR HighFreqTerms corpus)");
+        out.println("  verify-sweetspot <dir>               re-score the search-scoring-corpus index under SweetSpotSimilarity and assert (a) hit-set parity with BM25, (b) at least one score differs > 1e-3");
     }
 }
