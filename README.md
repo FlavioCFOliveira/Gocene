@@ -9,9 +9,27 @@ Gocene is an idiomatic Go port of [Apache Lucene 10.4.0](https://github.com/apac
 
 ## Table of contents
 
+- [Compatibility guarantee](#compatibility-guarantee)
 - [Package inventory](#package-inventory)
 - [Running tests](#running-tests)
 - [Known limitations](#known-limitations)
+
+---
+
+## Compatibility guarantee
+
+Gocene targets **byte-identical** wire compatibility with Apache Lucene 10.4.0:
+every artefact Gocene writes must be readable by Lucene 10.4.0 unchanged, and
+every artefact Lucene 10.4.0 writes must be readable by Gocene without
+reinterpretation. The full mandate is in [`CLAUDE.md`](CLAUDE.md) (section
+*Binary Compatibility Mandate*); the contributor-facing guide on how to verify
+locally is in [`CONTRIBUTING.md`](CONTRIBUTING.md) (section *Binary
+compatibility (mandatory)*). The compatibility suite has two layers: a Java
+fixture harness under `tools/lucene-fixtures/` that drives Lucene 10.4.0
+directly, and a Go test layer under `internal/compat/` (per-package
+round-trips behind the `compat` build tag, plus end-to-end combined scenarios
+gated by `GOCENE_COMPAT_HARNESS=1`). Every pull request runs both layers as
+the required `compat` CI job.
 
 ---
 

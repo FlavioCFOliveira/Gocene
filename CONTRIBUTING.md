@@ -118,6 +118,86 @@ Do **not** include `Co-Authored-By:` trailers — a pre-commit hook rejects them
 
 ---
 
+## Binary compatibility (mandatory)
+
+Gocene is bound by a **non-negotiable byte-level compatibility mandate** with
+Apache Lucene 10.4.0. Every artefact Gocene writes must be readable by Lucene
+10.4.0 unchanged, and every artefact Lucene 10.4.0 writes must be readable by
+Gocene without reinterpretation. The full statement of the mandate is in
+[`CLAUDE.md`](CLAUDE.md), section *Binary Compatibility Mandate*.
+
+### Running the compat suite locally
+
+The suite requires JDK 21 and Maven 3.6+ in addition to the Go toolchain.
+
+```bash
+export JAVA_HOME=/path/to/jdk-21
+export PATH="$JAVA_HOME/bin:$PATH"
+
+# Build the Java fixture harness (Lucene 10.4.0).
+mvn -B -q -f tools/lucene-fixtures/pom.xml verify
+
+# Generate the baseline corpus into a tmp dir.
+make -f tools/lucene-fixtures/Makefile corpus-baseline
+
+# Run the per-package and combined-scenario compat tests.
+export GOCENE_COMPAT_HARNESS=1
+export LUCENE_FIXTURES_JAR="$PWD/tools/lucene-fixtures/target/lucene-fixtures.jar"
+go test -tags compat ./... -timeout 900s
+```
+
+A short-form invocation that exercises only the end-to-end combined scenarios:
+
+```bash
+GOCENE_COMPAT_HARNESS=1 \
+LUCENE_FIXTURES_JAR="$PWD/tools/lucene-fixtures/target/lucene-fixtures.jar" \
+  go test ./internal/compat/scenarios/... -timeout 600s
+```
+
+### What a divergence looks like
+
+When a Gocene-emitted byte sequence diverges from Lucene 10.4.0, the harness
+exits with code `4` and prints a single-line JSON diagnostic on stdout that
+names the affected file, byte offset, and the expected vs actual byte values.
+Example, captured by mutating one byte of `s1-hits.tsv` at offset 100 in the
+S1 fixture:
+
+```text
+{"file":"s1-hits.tsv","offset":100,"expected":53,"actual":159}
+```
+
+The corresponding Go test (`TestMutationDiagnostic` in
+`internal/compat/scenarios/`) re-parses this JSON and asserts that `file`,
+`offset`, `expected`, and `actual` are all populated and that `expected !=
+actual`. Any contributor change that introduces a divergence will surface
+through the same record in CI.
+
+### CI enforcement
+
+Every pull request triggers two workflows: the fast `build-and-test` job
+(pure Go, Linux only) and the dedicated `compat` job
+(`ubuntu-latest`/`macos-latest`/`windows-latest` × `go 1.25.x`/`stable`).
+The `compat` job builds the Java harness, generates the baseline corpus,
+runs the combined scenarios, runs every `-tags compat` test, and uploads a
+`compat-failure-<run-id>-<os>-<go>.tar.gz` artefact on failure.
+
+**The `compat` job must be green to merge.** Windows is currently marked
+`continue-on-error: true` because the GitHub-hosted Windows runners
+intermittently fail JDK 21/Maven installation; treat Windows results as
+informational until that is stabilised. Linux and macOS must pass on both
+Go versions.
+
+#### Branch-protection setup (maintainer task)
+
+The `compat` job is enforced via branch protection, configured manually:
+
+> **GitHub → Settings → Branches → Branch protection rule for `main` →
+> Require status checks to pass before merging →** select every matrix
+> instance of `Compat (Lucene 10.4.0 byte-parity)` except the Windows
+> entries, plus `Build, Vet, and Test`.
+
+---
+
 ## Validation pipeline
 
 Before closing any task, run the following in the repository root:
