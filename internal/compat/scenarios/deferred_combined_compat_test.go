@@ -55,10 +55,13 @@ func TestDeferredGoceneWriteLeg(t *testing.T) {
 		},
 		{
 			scenario: scenarioS3,
-			reason: "Gocene facets port lacks DirectoryTaxonomyReader/Writer " +
-				"plus FastTaxonomyFacetCounts; combined with the " +
-				"SegmentReader core-readers gap the class-(c) replay " +
-				"would require an entire faceted-search pipeline port.",
+			reason: "DirectoryTaxonomyReader/Writer are now implemented (NRT " +
+				"path fully operational); the remaining blocker is the " +
+				"SegmentReader core-readers gap: BinaryDocValues and " +
+				"NumericDocValues are not yet readable from disk, so the " +
+				"cold-open reader cannot populate ordinal maps from the " +
+				"persisted index and FastTaxonomyFacetCounts cannot " +
+				"reconstruct parent arrays at read time.",
 		},
 		{
 			scenario: scenarioS4,

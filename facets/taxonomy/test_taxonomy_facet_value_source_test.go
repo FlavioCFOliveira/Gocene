@@ -23,9 +23,9 @@ type stubTaxonomyReader struct {
 	size int
 }
 
-func (r *stubTaxonomyReader) GetSize() int                                    { return r.size }
-func (r *stubTaxonomyReader) GetPath(_ int) []string                          { return nil }
-func (r *stubTaxonomyReader) GetOrdinal(_ ...string) int                      { return -1 }
+func (r *stubTaxonomyReader) GetSize() int               { return r.size }
+func (r *stubTaxonomyReader) GetPath(_ int) []string     { return nil }
+func (r *stubTaxonomyReader) GetOrdinal(_ ...string) int { return -1 }
 func (r *stubTaxonomyReader) GetParallelTaxonomyArrays() taxonomy.ParallelTaxonomyArrays {
 	parents := make([]int, r.size)
 	for i := range parents {

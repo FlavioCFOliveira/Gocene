@@ -139,7 +139,7 @@ type OverlappingLongRangeCounter struct {
 	singleEICounts []int
 
 	// Multi-valued path: bitsets per doc to prevent double-counting.
-	multiDocEIHits   []bool
+	multiDocEIHits    []bool
 	multiDocRangeHits []bool
 
 	elementaryIntervalUpto int

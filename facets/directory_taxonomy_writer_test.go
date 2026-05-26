@@ -5,36 +5,21 @@
 package facets
 
 import (
-	"os"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// createTempDirectoryForWriter creates a temporary directory for testing.
-func createTempDirectoryForWriter(t *testing.T) (store.Directory, func()) {
-	tempDir, err := os.MkdirTemp("", "taxonomy_writer_test_")
-	if err != nil {
-		t.Fatalf("Failed to create temp dir: %v", err)
-	}
-
-	dir, err := store.NewFSDirectory(tempDir)
-	if err != nil {
-		os.RemoveAll(tempDir)
-		t.Fatalf("Failed to create FSDirectory: %v", err)
-	}
-
-	cleanup := func() {
-		dir.Close()
-		os.RemoveAll(tempDir)
-	}
-
-	return dir, cleanup
+// newInMemoryDirectoryForWriter creates an in-memory ByteBuffersDirectory for testing.
+// ByteBuffersDirectory is always writable and avoids the CreateOutput subclass issue
+// that FSDirectory (base) has.
+func newInMemoryDirectoryForWriter(t *testing.T) store.Directory {
+	t.Helper()
+	return store.NewByteBuffersDirectory()
 }
 
 func TestNewDirectoryTaxonomyWriter(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	writer, err := NewDirectoryTaxonomyWriter(dir)
 	if err != nil {
@@ -49,6 +34,7 @@ func TestNewDirectoryTaxonomyWriter(t *testing.T) {
 	if !writer.isOpen {
 		t.Error("expected writer to be open")
 	}
+	// Root is always added at construction; nextOrdinal starts at 1.
 	if writer.nextOrdinal != 1 {
 		t.Errorf("expected nextOrdinal 1, got %d", writer.nextOrdinal)
 	}
@@ -65,8 +51,7 @@ func TestNewDirectoryTaxonomyWriterNilDirectory(t *testing.T) {
 }
 
 func TestNewDirectoryTaxonomyWriterWithOptions(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	opts := &DirectoryTaxonomyWriterOptions{
 		OpenMode: CREATE,
@@ -82,8 +67,7 @@ func TestNewDirectoryTaxonomyWriterWithOptions(t *testing.T) {
 }
 
 func TestOpenDirectoryTaxonomyWriter(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	writer, err := OpenDirectoryTaxonomyWriter(dir)
 	if err != nil {
@@ -95,22 +79,23 @@ func TestOpenDirectoryTaxonomyWriter(t *testing.T) {
 }
 
 func TestDirectoryTaxonomyWriterAddCategory(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	writer, _ := NewDirectoryTaxonomyWriter(dir)
 	defer writer.Close()
 
+	// AddCategory("electronics","phones") recursively creates the ancestor
+	// "electronics" at ordinal 1 first, then "electronics/phones" at ordinal 2.
 	label := NewFacetLabel("electronics", "phones")
 	ordinal, err := writer.AddCategory(label)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if ordinal != 1 {
-		t.Errorf("expected ordinal 1, got %d", ordinal)
+	if ordinal != 2 {
+		t.Errorf("expected ordinal 2 (ancestor 'electronics' at 1, leaf at 2), got %d", ordinal)
 	}
 
-	// Adding same category should return same ordinal
+	// Adding same category should return same ordinal.
 	ordinal2, err := writer.AddCategory(label)
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
@@ -121,8 +106,7 @@ func TestDirectoryTaxonomyWriterAddCategory(t *testing.T) {
 }
 
 func TestDirectoryTaxonomyWriterAddCategoryNil(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	writer, _ := NewDirectoryTaxonomyWriter(dir)
 	defer writer.Close()
@@ -134,22 +118,25 @@ func TestDirectoryTaxonomyWriterAddCategoryNil(t *testing.T) {
 }
 
 func TestDirectoryTaxonomyWriterAddCategoryEmpty(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	writer, _ := NewDirectoryTaxonomyWriter(dir)
 	defer writer.Close()
 
+	// An empty label is the root category (ordinal 0). Lucene returns the root
+	// ordinal rather than an error.
 	emptyLabel := NewFacetLabelEmpty()
-	_, err := writer.AddCategory(emptyLabel)
-	if err == nil {
-		t.Error("expected error for empty label")
+	ordinal, err := writer.AddCategory(emptyLabel)
+	if err != nil {
+		t.Errorf("expected no error for empty label (root), got %v", err)
+	}
+	if ordinal != taxoRootOrdinal {
+		t.Errorf("expected root ordinal %d, got %d", taxoRootOrdinal, ordinal)
 	}
 }
 
 func TestDirectoryTaxonomyWriterAddCategoryClosed(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	writer, _ := NewDirectoryTaxonomyWriter(dir)
 	writer.Close()
@@ -162,54 +149,53 @@ func TestDirectoryTaxonomyWriterAddCategoryClosed(t *testing.T) {
 }
 
 func TestDirectoryTaxonomyWriterAddCategoryPath(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	writer, _ := NewDirectoryTaxonomyWriter(dir)
 	defer writer.Close()
 
+	// Same as AddCategory("electronics","phones"): ancestor at 1, leaf at 2.
 	ordinal, err := writer.AddCategoryPath("electronics", "phones")
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
-	if ordinal != 1 {
-		t.Errorf("expected ordinal 1, got %d", ordinal)
+	if ordinal != 2 {
+		t.Errorf("expected ordinal 2 (ancestor at 1, leaf at 2), got %d", ordinal)
 	}
 }
 
 func TestDirectoryTaxonomyWriterGetSize(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	writer, _ := NewDirectoryTaxonomyWriter(dir)
 	defer writer.Close()
 
-	// Initially size should be 0
-	if writer.GetSize() != 0 {
-		t.Errorf("expected size 0, got %d", writer.GetSize())
+	// After construction the root is at ordinal 0; GetSize() == 1.
+	if writer.GetSize() != 1 {
+		t.Errorf("expected initial size 1 (root), got %d", writer.GetSize())
 	}
 
-	// Add a category
-	writer.AddCategory(NewFacetLabel("electronics"))
+	// Add a top-level category.
+	writer.AddCategory(NewFacetLabel("electronics")) //nolint:errcheck
 
-	// Size should be 1 (nextOrdinal - 1 = 2 - 1 = 1)
-	if writer.GetSize() != 1 {
-		t.Errorf("expected size 1, got %d", writer.GetSize())
+	// Root(0) + electronics(1) = 2.
+	if writer.GetSize() != 2 {
+		t.Errorf("expected size 2, got %d", writer.GetSize())
 	}
 }
 
 func TestDirectoryTaxonomyWriterGetNextOrdinal(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	writer, _ := NewDirectoryTaxonomyWriter(dir)
 	defer writer.Close()
 
+	// After construction, root is at 0 and nextOrdinal == 1.
 	if writer.GetNextOrdinal() != 1 {
 		t.Errorf("expected nextOrdinal 1, got %d", writer.GetNextOrdinal())
 	}
 
-	writer.AddCategory(NewFacetLabel("electronics"))
+	writer.AddCategory(NewFacetLabel("electronics")) //nolint:errcheck
 
 	if writer.GetNextOrdinal() != 2 {
 		t.Errorf("expected nextOrdinal 2, got %d", writer.GetNextOrdinal())
@@ -217,8 +203,7 @@ func TestDirectoryTaxonomyWriterGetNextOrdinal(t *testing.T) {
 }
 
 func TestDirectoryTaxonomyWriterGetDirectory(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	writer, _ := NewDirectoryTaxonomyWriter(dir)
 	defer writer.Close()
@@ -230,8 +215,7 @@ func TestDirectoryTaxonomyWriterGetDirectory(t *testing.T) {
 }
 
 func TestDirectoryTaxonomyWriterIsOpen(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	writer, _ := NewDirectoryTaxonomyWriter(dir)
 
@@ -247,31 +231,35 @@ func TestDirectoryTaxonomyWriterIsOpen(t *testing.T) {
 }
 
 func TestDirectoryTaxonomyWriterCommit(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	writer, _ := NewDirectoryTaxonomyWriter(dir)
 	defer writer.Close()
 
-	// Add some categories
-	writer.AddCategory(NewFacetLabel("electronics"))
-	writer.AddCategory(NewFacetLabel("books"))
+	// Add some categories.
+	writer.AddCategory(NewFacetLabel("electronics")) //nolint:errcheck
+	writer.AddCategory(NewFacetLabel("books"))       //nolint:errcheck
 
-	// Commit
+	// Commit.
 	err := writer.Commit()
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
 
-	// Cache should be cleared after commit
-	if writer.GetCacheSize() != 0 {
-		t.Errorf("expected cache size 0 after commit, got %d", writer.GetCacheSize())
+	// After commit, uncommitted-changes flag is cleared.
+	if writer.HasUncommittedChanges() {
+		t.Error("expected no uncommitted changes after commit")
+	}
+
+	// In-memory cache is still intact (Gocene does not evict on commit).
+	// root(0) + electronics(1) + books(2) → GetCacheSize() == 2 (excludes root).
+	if writer.GetCacheSize() != 2 {
+		t.Errorf("expected cache size 2 after commit (cache not evicted), got %d", writer.GetCacheSize())
 	}
 }
 
 func TestDirectoryTaxonomyWriterCommitClosed(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	writer, _ := NewDirectoryTaxonomyWriter(dir)
 	writer.Close()
@@ -283,8 +271,7 @@ func TestDirectoryTaxonomyWriterCommitClosed(t *testing.T) {
 }
 
 func TestDirectoryTaxonomyWriterClose(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	writer, _ := NewDirectoryTaxonomyWriter(dir)
 
@@ -293,7 +280,7 @@ func TestDirectoryTaxonomyWriterClose(t *testing.T) {
 		t.Errorf("expected no error, got %v", err)
 	}
 
-	// Closing again should not error
+	// Closing again should not error.
 	err = writer.Close()
 	if err != nil {
 		t.Errorf("expected no error on second close, got %v", err)
@@ -301,36 +288,33 @@ func TestDirectoryTaxonomyWriterClose(t *testing.T) {
 }
 
 func TestDirectoryTaxonomyWriterRollback(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	writer, _ := NewDirectoryTaxonomyWriter(dir)
-	defer writer.Close()
 
-	// Add some categories
-	writer.AddCategory(NewFacetLabel("electronics"))
-	writer.AddCategory(NewFacetLabel("books"))
+	// Add some categories.
+	writer.AddCategory(NewFacetLabel("electronics")) //nolint:errcheck
+	writer.AddCategory(NewFacetLabel("books"))       //nolint:errcheck
 
-	// Cache should have 2 items
+	// Cache has 2 non-root categories.
 	if writer.GetCacheSize() != 2 {
 		t.Errorf("expected cache size 2, got %d", writer.GetCacheSize())
 	}
 
-	// Rollback
+	// Rollback mirrors Lucene semantics: closes the writer without committing.
 	err := writer.Rollback()
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
 
-	// Cache should be cleared after rollback
-	if writer.GetCacheSize() != 0 {
-		t.Errorf("expected cache size 0 after rollback, got %d", writer.GetCacheSize())
+	// After rollback, the writer is closed.
+	if writer.IsOpen() {
+		t.Error("expected writer to be closed after Rollback (Lucene semantics)")
 	}
 }
 
 func TestDirectoryTaxonomyWriterRollbackClosed(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	writer, _ := NewDirectoryTaxonomyWriter(dir)
 	writer.Close()
@@ -342,46 +326,45 @@ func TestDirectoryTaxonomyWriterRollbackClosed(t *testing.T) {
 }
 
 func TestDirectoryTaxonomyWriterHasUncommittedChanges(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	writer, _ := NewDirectoryTaxonomyWriter(dir)
 	defer writer.Close()
 
-	// Initially no uncommitted changes
+	// Root is added internally at construction but does not count as uncommitted.
 	if writer.HasUncommittedChanges() {
-		t.Error("expected no uncommitted changes initially")
+		t.Error("expected no uncommitted changes initially (root is internal)")
 	}
 
-	// Add a category
-	writer.AddCategory(NewFacetLabel("electronics"))
+	// Add a category.
+	writer.AddCategory(NewFacetLabel("electronics")) //nolint:errcheck
 
-	// Now there should be uncommitted changes
+	// Now there should be uncommitted changes.
 	if !writer.HasUncommittedChanges() {
 		t.Error("expected uncommitted changes after adding category")
 	}
 
-	// Commit
-	writer.Commit()
+	// Commit.
+	writer.Commit() //nolint:errcheck
 
-	// No more uncommitted changes
+	// No more uncommitted changes.
 	if writer.HasUncommittedChanges() {
 		t.Error("expected no uncommitted changes after commit")
 	}
 }
 
 func TestDirectoryTaxonomyWriterGetCacheSize(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	writer, _ := NewDirectoryTaxonomyWriter(dir)
 	defer writer.Close()
 
+	// GetCacheSize excludes the root; initially 0.
 	if writer.GetCacheSize() != 0 {
 		t.Errorf("expected cache size 0, got %d", writer.GetCacheSize())
 	}
 
-	writer.AddCategory(NewFacetLabel("electronics"))
+	writer.AddCategory(NewFacetLabel("electronics")) //nolint:errcheck
 
 	if writer.GetCacheSize() != 1 {
 		t.Errorf("expected cache size 1, got %d", writer.GetCacheSize())
@@ -389,8 +372,7 @@ func TestDirectoryTaxonomyWriterGetCacheSize(t *testing.T) {
 }
 
 func TestNewDirectoryTaxonomyWriterFactory(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	factory := NewDirectoryTaxonomyWriterFactory(dir)
 	if factory == nil {
@@ -402,8 +384,7 @@ func TestNewDirectoryTaxonomyWriterFactory(t *testing.T) {
 }
 
 func TestNewDirectoryTaxonomyWriterFactoryWithOptions(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	opts := &DirectoryTaxonomyWriterOptions{OpenMode: CREATE}
 	factory := NewDirectoryTaxonomyWriterFactoryWithOptions(dir, opts)
@@ -417,8 +398,7 @@ func TestNewDirectoryTaxonomyWriterFactoryWithOptions(t *testing.T) {
 }
 
 func TestDirectoryTaxonomyWriterFactoryOpen(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	factory := NewDirectoryTaxonomyWriterFactory(dir)
 
@@ -429,12 +409,11 @@ func TestDirectoryTaxonomyWriterFactoryOpen(t *testing.T) {
 	if writer == nil {
 		t.Fatal("expected writer to be created")
 	}
-	writer.Close()
+	writer.Close() //nolint:errcheck
 }
 
 func TestNewDirectoryTaxonomyWriterManager(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	factory := NewDirectoryTaxonomyWriterFactory(dir)
 
@@ -452,7 +431,7 @@ func TestNewDirectoryTaxonomyWriterManager(t *testing.T) {
 		t.Error("expected manager to be open")
 	}
 
-	manager.Close()
+	manager.Close() //nolint:errcheck
 }
 
 func TestNewDirectoryTaxonomyWriterManagerNilFactory(t *testing.T) {
@@ -466,12 +445,11 @@ func TestNewDirectoryTaxonomyWriterManagerNilFactory(t *testing.T) {
 }
 
 func TestDirectoryTaxonomyWriterManagerAcquire(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	factory := NewDirectoryTaxonomyWriterFactory(dir)
 	manager, _ := NewDirectoryTaxonomyWriterManager(factory)
-	defer manager.Close()
+	defer manager.Close() //nolint:errcheck
 
 	writer := manager.Acquire()
 	if writer == nil {
@@ -480,12 +458,11 @@ func TestDirectoryTaxonomyWriterManagerAcquire(t *testing.T) {
 }
 
 func TestDirectoryTaxonomyWriterManagerCommit(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	factory := NewDirectoryTaxonomyWriterFactory(dir)
 	manager, _ := NewDirectoryTaxonomyWriterManager(factory)
-	defer manager.Close()
+	defer manager.Close() //nolint:errcheck
 
 	err := manager.Commit()
 	if err != nil {
@@ -494,12 +471,11 @@ func TestDirectoryTaxonomyWriterManagerCommit(t *testing.T) {
 }
 
 func TestDirectoryTaxonomyWriterManagerCommitClosed(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	factory := NewDirectoryTaxonomyWriterFactory(dir)
 	manager, _ := NewDirectoryTaxonomyWriterManager(factory)
-	manager.Close()
+	manager.Close() //nolint:errcheck
 
 	err := manager.Commit()
 	if err == nil {
@@ -508,8 +484,7 @@ func TestDirectoryTaxonomyWriterManagerCommitClosed(t *testing.T) {
 }
 
 func TestDirectoryTaxonomyWriterManagerClose(t *testing.T) {
-	dir, cleanup := createTempDirectoryForWriter(t)
-	defer cleanup()
+	dir := newInMemoryDirectoryForWriter(t)
 
 	factory := NewDirectoryTaxonomyWriterFactory(dir)
 	manager, _ := NewDirectoryTaxonomyWriterManager(factory)
@@ -526,7 +501,7 @@ func TestDirectoryTaxonomyWriterManagerClose(t *testing.T) {
 		t.Error("expected current writer to be nil after close")
 	}
 
-	// Closing again should not error
+	// Closing again should not error.
 	err = manager.Close()
 	if err != nil {
 		t.Errorf("expected no error on second close, got %v", err)

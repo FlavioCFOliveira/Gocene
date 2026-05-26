@@ -18,11 +18,11 @@ const (
 // each configured DoubleRange under the supplied QueryRelation. Mirrors
 // org.apache.lucene.facet.rangeonrange.DoubleRangeOnRangeFacetCounts.
 type DoubleRangeOnRangeFacetCounts struct {
-	dim       string
-	relation  QueryRelation
-	ranges    []*DoubleRange
-	counts    []int
-	total     int
+	dim      string
+	relation QueryRelation
+	ranges   []*DoubleRange
+	counts   []int
+	total    int
 }
 
 // NewDoubleRangeOnRangeFacetCounts builds an aggregator on the supplied

@@ -4,9 +4,9 @@ package taxonomy
 // ordinal using a configurable AssociationAggregationFunction. Mirrors
 // org.apache.lucene.facet.taxonomy.TaxonomyFacetFloatAssociations.
 type TaxonomyFacetFloatAssociations struct {
-	dim       string
+	dim        string
 	aggregator AssociationAggregationFunction
-	values    map[int]float32
+	values     map[int]float32
 }
 
 // NewTaxonomyFacetFloatAssociations builds an aggregator on the supplied
@@ -16,9 +16,9 @@ func NewTaxonomyFacetFloatAssociations(dim string, aggregator AssociationAggrega
 		aggregator = SUM
 	}
 	return &TaxonomyFacetFloatAssociations{
-		dim:       dim,
+		dim:        dim,
 		aggregator: aggregator,
-		values:    make(map[int]float32),
+		values:     make(map[int]float32),
 	}
 }
 

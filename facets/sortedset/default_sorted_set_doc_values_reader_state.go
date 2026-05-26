@@ -11,8 +11,8 @@ import "sort"
 // the (dim -> ordinal range) mapping. Mirrors
 // org.apache.lucene.facet.sortedset.DefaultSortedSetDocValuesReaderState.
 type DefaultSortedSetDocValuesReaderState struct {
-	field    string
-	size     int
+	field     string
+	size      int
 	dimRanges map[string][2]int
 	dims      []string
 	dimTrees  map[string]*DimTree

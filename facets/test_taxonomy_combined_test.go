@@ -9,42 +9,32 @@ package facets_test
 //
 // Tests that verify the full taxonomy writer/reader round-trip with
 // parent-ordinal relationships (testReaderBasic, testReaderParent, etc.)
-// rely on the persisted index; they are deferred with t.Skip until the
-// Gocene DirectoryTaxonomyWriter correctly persists parent structures.
+// rely on the persisted index via DocValues; they are deferred with t.Skip
+// until the SegmentReader core-readers gap is resolved (BinaryDocValues not
+// yet readable from disk — see memory ref 'gocene-segmentreader-corereaders-gap').
 //
-// Tests that only exercise the in-memory cache behaviour of the writer
-// (idempotent addCategory, size tracking) run unconditionally.
+// Tests that only exercise the in-memory state of the writer or the NRT
+// writer→reader path run unconditionally.
 
 import (
-	"os"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/facets"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// newTempTaxoWriter creates a DirectoryTaxonomyWriter backed by a temp dir.
+// newTempTaxoWriter creates a DirectoryTaxonomyWriter backed by an in-memory
+// ByteBuffersDirectory. ByteBuffersDirectory avoids the CreateOutput stub
+// limitation of the base FSDirectory type.
 func newTempTaxoWriter(t *testing.T) (*facets.DirectoryTaxonomyWriter, func()) {
 	t.Helper()
-	tmpDir, err := os.MkdirTemp("", "taxo_combined_")
-	if err != nil {
-		t.Fatalf("TempDir: %v", err)
-	}
-	dir, err := store.NewFSDirectory(tmpDir)
-	if err != nil {
-		os.RemoveAll(tmpDir)
-		t.Fatalf("FSDirectory: %v", err)
-	}
+	dir := store.NewByteBuffersDirectory()
 	tw, err := facets.NewDirectoryTaxonomyWriter(dir)
 	if err != nil {
-		dir.Close()
-		os.RemoveAll(tmpDir)
 		t.Fatalf("TaxonomyWriter: %v", err)
 	}
 	cleanup := func() {
-		tw.Close()  //nolint:errcheck
-		dir.Close() //nolint:errcheck
-		os.RemoveAll(tmpDir)
+		tw.Close() //nolint:errcheck
 	}
 	return tw, cleanup
 }
@@ -56,10 +46,7 @@ func TestTaxonomyCombined_WriterSimpler(t *testing.T) {
 	tw, cleanup := newTempTaxoWriter(t)
 	defer cleanup()
 
-	// Initially the writer has size 0 (no categories added yet via AddCategory).
-	// Java starts at 1 because the root is implicitly present.
-
-	// Add "a": should get ordinal 1.
+	// Add "a": root(0) already exists; "a" gets ordinal 1.
 	ordA, err := tw.AddCategory(facets.NewFacetLabel("a"))
 	if err != nil {
 		t.Fatalf("AddCategory(a): %v", err)
@@ -86,7 +73,7 @@ func TestTaxonomyCombined_WriterSimpler(t *testing.T) {
 		t.Errorf("ord(b) must differ from ord(a)=%d", ordA)
 	}
 
-	// Add "a/c": new ordinal.
+	// Add "a/c": "a" is already present; "a/c" gets a new ordinal.
 	ordAC, err := tw.AddCategory(facets.NewFacetLabel("a", "c"))
 	if err != nil {
 		t.Fatalf("AddCategory(a/c): %v", err)
@@ -127,31 +114,35 @@ func TestTaxonomyCombined_WriterIsOpen(t *testing.T) {
 	}
 }
 
-// TestTaxonomyCombined_GetSize verifies that GetSize tracks categories added.
+// TestTaxonomyCombined_GetSize verifies that GetSize tracks total categories
+// including the root that is always at ordinal 0.
 func TestTaxonomyCombined_GetSize(t *testing.T) {
 	tw, cleanup := newTempTaxoWriter(t)
 	defer cleanup()
 
-	if tw.GetSize() != 0 {
-		t.Errorf("initial size: want 0, got %d", tw.GetSize())
+	// After construction: root at ordinal 0, GetSize() == 1.
+	if tw.GetSize() != 1 {
+		t.Errorf("initial size: want 1 (root), got %d", tw.GetSize())
 	}
 
 	tw.AddCategory(facets.NewFacetLabel("a"))      //nolint:errcheck
 	tw.AddCategory(facets.NewFacetLabel("b"))      //nolint:errcheck
 	tw.AddCategory(facets.NewFacetLabel("a", "c")) //nolint:errcheck
 
-	if tw.GetSize() != 3 {
-		t.Errorf("size after 3 unique adds: want 3, got %d", tw.GetSize())
+	// root(0) + a(1) + b(2) + a/c(3) = 4.
+	if tw.GetSize() != 4 {
+		t.Errorf("size after 3 unique user adds: want 4 (root+a+b+a/c), got %d", tw.GetSize())
 	}
 
 	// Duplicate: size should not grow.
 	tw.AddCategory(facets.NewFacetLabel("a")) //nolint:errcheck
-	if tw.GetSize() != 3 {
-		t.Errorf("size after duplicate add: want 3, got %d", tw.GetSize())
+	if tw.GetSize() != 4 {
+		t.Errorf("size after duplicate add: want 4, got %d", tw.GetSize())
 	}
 }
 
-// TestTaxonomyCombined_AddNilLabel verifies that adding nil/empty label errors.
+// TestTaxonomyCombined_AddNilLabel verifies that adding nil label errors, and
+// that an empty label (root) returns ordinal 0 without error (Lucene semantics).
 func TestTaxonomyCombined_AddNilLabel(t *testing.T) {
 	tw, cleanup := newTempTaxoWriter(t)
 	defer cleanup()
@@ -160,30 +151,90 @@ func TestTaxonomyCombined_AddNilLabel(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for nil label")
 	}
-	_, err = tw.AddCategory(facets.NewFacetLabelEmpty())
-	if err == nil {
-		t.Error("expected error for empty label")
+
+	// Empty label = root; Lucene returns its ordinal (0) rather than an error.
+	ordRoot, err := tw.AddCategory(facets.NewFacetLabelEmpty())
+	if err != nil {
+		t.Errorf("expected no error for empty label (root), got %v", err)
+	}
+	if ordRoot != 0 {
+		t.Errorf("expected root ordinal 0, got %d", ordRoot)
 	}
 }
 
-// -- Integration stubs (require persisted taxonomy + full reader) ------------
+// TestTaxonomyCombined_ReaderBasicNRT verifies the NRT writer→reader path.
+// This test does not require DocValues disk reads (avoids the SegmentReader
+// core-readers gap).
+func TestTaxonomyCombined_ReaderBasicNRT(t *testing.T) {
+	tw, cleanup := newTempTaxoWriter(t)
+	defer cleanup()
+
+	// Populate taxonomy.
+	tw.AddCategory(facets.NewFacetLabel("a"))      //nolint:errcheck
+	tw.AddCategory(facets.NewFacetLabel("a", "b")) //nolint:errcheck
+	tw.AddCategory(facets.NewFacetLabel("c"))      //nolint:errcheck
+
+	// NRT reader from writer's in-memory state.
+	tr, err := facets.NewDirectoryTaxonomyReaderFromWriter(tw)
+	if err != nil {
+		t.Fatalf("NewDirectoryTaxonomyReaderFromWriter: %v", err)
+	}
+	defer tr.Close() //nolint:errcheck
+
+	// root(0) + a(1) + a/b(2) + c(3) = 4.
+	if tr.GetSize() != 4 {
+		t.Errorf("GetSize: want 4, got %d", tr.GetSize())
+	}
+
+	// Ordinal lookups.
+	if ord := tr.GetOrdinal(facets.NewFacetLabel("a")); ord != 1 {
+		t.Errorf("GetOrdinal(a): want 1, got %d", ord)
+	}
+	if ord := tr.GetOrdinal(facets.NewFacetLabel("a", "b")); ord != 2 {
+		t.Errorf("GetOrdinal(a/b): want 2, got %d", ord)
+	}
+	if ord := tr.GetOrdinal(facets.NewFacetLabel("c")); ord != 3 {
+		t.Errorf("GetOrdinal(c): want 3, got %d", ord)
+	}
+
+	// Non-existent category.
+	if ord := tr.GetOrdinal(facets.NewFacetLabel("z")); ord != -1 {
+		t.Errorf("GetOrdinal(z): want -1, got %d", ord)
+	}
+
+	// Parent verification: a/b's parent is a(1); a's parent is root(0); c's parent is root(0).
+	if p := tr.GetParent(2); p != 1 {
+		t.Errorf("GetParent(a/b): want 1 (a), got %d", p)
+	}
+	if p := tr.GetParent(1); p != 0 {
+		t.Errorf("GetParent(a): want 0 (root), got %d", p)
+	}
+	if p := tr.GetParent(3); p != 0 {
+		t.Errorf("GetParent(c): want 0 (root), got %d", p)
+	}
+}
+
+// -- Integration stubs (require persisted taxonomy + DocValues disk reads) ----
+// These are blocked by the SegmentReader core-readers gap: BinaryDocValues are
+// not yet readable from disk in Gocene. See memory ref
+// 'gocene-segmentreader-corereaders-gap'.
 
 func TestTaxonomyCombined_Writer(t *testing.T) {
-	t.Skip("requires persisted taxonomy + fillTaxonomy + ordinal verification against expectedPaths")
+	t.Skip("requires persisted taxonomy + fillTaxonomy + ordinal verification against expectedPaths; blocked by SegmentReader core-readers gap")
 }
 
 func TestTaxonomyCombined_WriterTwice(t *testing.T) {
-	t.Skip("requires persisted taxonomy + re-open writer + idempotent ordinals")
+	t.Skip("requires persisted taxonomy + re-open writer + idempotent ordinals; blocked by SegmentReader core-readers gap")
 }
 
 func TestTaxonomyCombined_ReaderBasic(t *testing.T) {
-	t.Skip("requires persisted taxonomy + DirectoryTaxonomyReader.GetPath/GetOrdinal round-trip")
+	t.Skip("requires cold DirectoryTaxonomyReader.GetPath/GetOrdinal from disk; blocked by SegmentReader core-readers gap")
 }
 
 func TestTaxonomyCombined_ReaderParent(t *testing.T) {
-	t.Skip("requires persisted taxonomy + ParallelTaxonomyArrays.parents()")
+	t.Skip("requires persisted taxonomy + ParallelTaxonomyArrays.parents(); blocked by SegmentReader core-readers gap")
 }
 
 func TestTaxonomyCombined_RootOnly(t *testing.T) {
-	t.Skip("requires DirectoryTaxonomyReader with root at ordinal 0")
+	t.Skip("requires cold DirectoryTaxonomyReader with root at ordinal 0 from disk; blocked by SegmentReader core-readers gap")
 }

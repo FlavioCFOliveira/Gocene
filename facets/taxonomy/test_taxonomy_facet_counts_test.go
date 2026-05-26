@@ -68,9 +68,9 @@ type parallelReader struct {
 	arrays taxonomy.ParallelTaxonomyArrays
 }
 
-func (r *parallelReader) GetSize() int                                    { return r.size }
-func (r *parallelReader) GetPath(_ int) []string                          { return nil }
-func (r *parallelReader) GetOrdinal(_ ...string) int                      { return -1 }
+func (r *parallelReader) GetSize() int               { return r.size }
+func (r *parallelReader) GetPath(_ int) []string     { return nil }
+func (r *parallelReader) GetOrdinal(_ ...string) int { return -1 }
 func (r *parallelReader) GetParallelTaxonomyArrays() taxonomy.ParallelTaxonomyArrays {
 	return r.arrays
 }

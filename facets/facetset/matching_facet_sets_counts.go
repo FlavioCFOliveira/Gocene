@@ -4,10 +4,10 @@ package facetset
 // whose FacetSets satisfy the configured matchers. Mirrors
 // org.apache.lucene.facet.facetset.MatchingFacetSetsCounts.
 type MatchingFacetSetsCounts struct {
-	dim      string
-	matchers []FacetSetMatcher
-	decoder  FacetSetDecoder
-	counts   []int
+	dim       string
+	matchers  []FacetSetMatcher
+	decoder   FacetSetDecoder
+	counts    []int
 	totalHits int
 }
 
