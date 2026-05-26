@@ -148,6 +148,6 @@ func (pq *SpanDisiPriorityQueue) All() []*SpanDisiWrapper {
 }
 
 // heap index helpers (same as Java's static methods)
-func leftNode(node int) int    { return ((node + 1) << 1) - 1 }
-func rightNode(left int) int   { return left + 1 }
-func parentNode(node int) int  { return ((node + 1) >> 1) - 1 }
+func leftNode(node int) int   { return ((node + 1) << 1) - 1 }
+func rightNode(left int) int  { return left + 1 }
+func parentNode(node int) int { return ((node + 1) >> 1) - 1 }

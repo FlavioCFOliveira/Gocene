@@ -49,6 +49,14 @@ type Spans interface {
 	// AsTwoPhaseIterator returns an optional TwoPhaseIterator view of this Spans,
 	// or nil if two-phase iteration is not supported.
 	AsTwoPhaseIterator() *search.TwoPhaseIterator
+
+	// DoStartCurrentDoc is called before the current doc's frequency is calculated.
+	// Default is a no-op.
+	DoStartCurrentDoc() error
+
+	// DoCurrentSpans is called each time the scorer's Spans is advanced during
+	// frequency calculation. Default is a no-op.
+	DoCurrentSpans() error
 }
 
 // SpanCollector is the interface defining collection of postings information
@@ -62,6 +70,16 @@ type SpanCollector interface {
 	// Reset indicates that the driving Spans has moved to a new position.
 	Reset()
 }
+
+// BaseSpans provides default no-op implementations of DoStartCurrentDoc and DoCurrentSpans.
+// Embed this in concrete Spans implementations.
+type BaseSpans struct{}
+
+// DoStartCurrentDoc is a no-op.
+func (*BaseSpans) DoStartCurrentDoc() error { return nil }
+
+// DoCurrentSpans is a no-op.
+func (*BaseSpans) DoCurrentSpans() error { return nil }
 
 // Stubs retained for backward-compat while full ports land progressively.
 
@@ -77,29 +95,11 @@ type FilterSpans struct{}
 // NewFilterSpans builds a FilterSpans.
 func NewFilterSpans() *FilterSpans { return &FilterSpans{} }
 
-// NearSpansOrdered mirrors org.apache.lucene.queries.spans.NearSpansOrdered.
-type NearSpansOrdered struct{}
-
-// NewNearSpansOrdered builds a NearSpansOrdered.
-func NewNearSpansOrdered() *NearSpansOrdered { return &NearSpansOrdered{} }
-
-// NearSpansUnordered mirrors org.apache.lucene.queries.spans.NearSpansUnordered.
-type NearSpansUnordered struct{}
-
-// NewNearSpansUnordered builds a NearSpansUnordered.
-func NewNearSpansUnordered() *NearSpansUnordered { return &NearSpansUnordered{} }
-
 // SpanMultiTermQueryWrapper mirrors org.apache.lucene.queries.spans.SpanMultiTermQueryWrapper.
 type SpanMultiTermQueryWrapper struct{}
 
 // NewSpanMultiTermQueryWrapper builds a SpanMultiTermQueryWrapper.
 func NewSpanMultiTermQueryWrapper() *SpanMultiTermQueryWrapper { return &SpanMultiTermQueryWrapper{} }
-
-// SpanNearQuery mirrors org.apache.lucene.queries.spans.SpanNearQuery.
-type SpanNearQuery struct{}
-
-// NewSpanNearQuery builds a SpanNearQuery.
-func NewSpanNearQuery() *SpanNearQuery { return &SpanNearQuery{} }
 
 // SpanNotQuery mirrors org.apache.lucene.queries.spans.SpanNotQuery.
 type SpanNotQuery struct{}
@@ -113,29 +113,11 @@ type SpanOrQuery struct{}
 // NewSpanOrQuery builds a SpanOrQuery.
 func NewSpanOrQuery() *SpanOrQuery { return &SpanOrQuery{} }
 
-// SpanScorer mirrors org.apache.lucene.queries.spans.SpanScorer.
-type SpanScorer struct{}
-
-// NewSpanScorer builds a SpanScorer.
-func NewSpanScorer() *SpanScorer { return &SpanScorer{} }
-
-// SpanTermQuery mirrors org.apache.lucene.queries.spans.SpanTermQuery.
-type SpanTermQuery struct{}
-
-// NewSpanTermQuery builds a SpanTermQuery.
-func NewSpanTermQuery() *SpanTermQuery { return &SpanTermQuery{} }
-
 // SpanWithinQuery mirrors org.apache.lucene.queries.spans.SpanWithinQuery.
 type SpanWithinQuery struct{}
 
 // NewSpanWithinQuery builds a SpanWithinQuery.
 func NewSpanWithinQuery() *SpanWithinQuery { return &SpanWithinQuery{} }
-
-// TermSpans mirrors org.apache.lucene.queries.spans.TermSpans.
-type TermSpans struct{}
-
-// NewTermSpans builds a TermSpans.
-func NewTermSpans() *TermSpans { return &TermSpans{} }
 
 // SpanFirstQuery mirrors org.apache.lucene.queries.spans.SpanFirstQuery.
 type SpanFirstQuery struct{}

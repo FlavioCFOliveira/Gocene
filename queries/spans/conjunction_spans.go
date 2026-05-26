@@ -22,6 +22,7 @@ import (
 //     search.AddIteratorToConjunctionLists / AddTwoPhaseIteratorToConjunctionLists.
 //   - TwoPhaseCurrentDocMatches is a function field instead of an abstract method.
 type ConjunctionSpans struct {
+	BaseSpans
 	// SubSpans holds the sub-span iterators in query order.
 	SubSpans []Spans
 	// Conjunction is used to advance to the next doc that has all clauses.
