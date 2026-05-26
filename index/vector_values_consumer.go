@@ -129,13 +129,29 @@ func (c *vectorValuesConsumer) setKnnVectorsFormat(f KnnVectorsFormatFactory) {
 
 // initKnnVectorsWriter lazily constructs the codec's KnnVectorsWriter on
 // the first AddField call. Mirrors initKnnVectorsWriter in Lucene.
+//
+// Resolution order:
+//  1. The format injected via setKnnVectorsFormat (explicit override, used by
+//     tests and custom pipelines).
+//  2. codec.KnnVectorsFormat() when a Codec was supplied to newVectorValuesConsumer.
+//     This mirrors the Java path where VectorValuesConsumer.initKnnVectorsWriter
+//     calls codec.knnVectorsFormat() directly.
+//  3. If neither source yields a non-nil factory, returns
+//     ErrVectorValuesConsumerNoKnnFormat, matching the Java IllegalStateException
+//     path when codec.knnVectorsFormat() is null.
 func (c *vectorValuesConsumer) initKnnVectorsWriter(fieldName string) error {
 	if c.writer != nil {
 		return nil
 	}
-	if c.knnFormat == nil {
+	// Resolve the format: explicit setter wins, then fall back to the Codec.
+	resolved := c.knnFormat
+	if resolved == nil && c.codec != nil {
+		resolved = c.codec.KnnVectorsFormat()
+	}
+	if resolved == nil {
 		return fmt.Errorf("%w (field=%q)", ErrVectorValuesConsumerNoKnnFormat, fieldName)
 	}
+	c.knnFormat = resolved // cache for subsequent AddField calls
 	// Mirrors the Java construction of a SegmentWriteState seeded with
 	// infoStream, directory, segmentInfo, null fieldInfos, null suffix
 	// and IOContext.DEFAULT.

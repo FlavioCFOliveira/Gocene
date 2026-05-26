@@ -12,6 +12,7 @@ package codecs
 //   - Lucene104SegmentInfosFormat for segment metadata
 //   - Lucene104TermVectorsFormat for term vectors
 //   - Lucene90DocValuesFormat for doc values (Lucene 10.x uses the same format as 9.x)
+//   - Lucene99HnswVectorsFormat (via PerFieldKnnVectorsFormat) for KNN vectors
 //
 // This is the Go port of Lucene's org.apache.lucene.codecs.lucene104.Lucene104Codec.
 type Lucene104Codec struct {
@@ -23,10 +24,17 @@ type Lucene104Codec struct {
 	termVectorsFormat  TermVectorsFormat
 	docValuesFormat    DocValuesFormat
 	compoundFormat     CompoundFormat
+	knnVectorsFormat   KnnVectorsFormat // PerFieldKnnVectorsFormat wrapping Lucene99HnswVectorsFormat
 }
 
 // NewLucene104Codec creates a new Lucene104Codec.
 func NewLucene104Codec() *Lucene104Codec {
+	defaultKnn, err := NewLucene99HnswVectorsFormat()
+	if err != nil {
+		// Default parameters are always valid; this path is unreachable in
+		// production. If it fires, the binary is misconfigured at compile time.
+		panic("lucene104: NewLucene99HnswVectorsFormat with default params: " + err.Error())
+	}
 	return &Lucene104Codec{
 		BaseCodec:          NewBaseCodec("Lucene104"),
 		postingsFormat:     NewLucene104PostingsFormat(),
@@ -36,6 +44,7 @@ func NewLucene104Codec() *Lucene104Codec {
 		termVectorsFormat:  NewLucene104TermVectorsFormat(),
 		docValuesFormat:    NewLucene90DocValuesFormat(),
 		compoundFormat:     NewLucene90CompoundFormat(),
+		knnVectorsFormat:   NewPerFieldKnnVectorsFormatWithDefault(defaultKnn),
 	}
 }
 
@@ -72,6 +81,13 @@ func (c *Lucene104Codec) DocValuesFormat() DocValuesFormat {
 // CompoundFormat returns the compound format.
 func (c *Lucene104Codec) CompoundFormat() CompoundFormat {
 	return c.compoundFormat
+}
+
+// KnnVectorsFormat returns the PerFieldKnnVectorsFormat used for KNN vector
+// indexing. The default sub-format is Lucene99HnswVectorsFormat, mirroring
+// org.apache.lucene.codecs.lucene104.Lucene104Codec.knnVectorsFormat().
+func (c *Lucene104Codec) KnnVectorsFormat() KnnVectorsFormat {
+	return c.knnVectorsFormat
 }
 
 // NewLucene99Codec creates a codec that is functionally identical to Lucene104Codec.

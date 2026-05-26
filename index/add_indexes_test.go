@@ -2023,3 +2023,7 @@ func (c *customTestCodec) TermVectorsFormat() index.TermVectorsFormat {
 func (c *customTestCodec) CompoundFormat() index.CompoundFormat {
 	return nil
 }
+
+func (c *customTestCodec) KnnVectorsFormat() index.KnnVectorsFormatFactory {
+	return nil
+}
