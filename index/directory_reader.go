@@ -978,22 +978,90 @@ func (dtv *directoryTermVectors) GetField(docID int, field string) (Terms, error
 	return nil, fmt.Errorf("document ID %d out of range", docID)
 }
 
-// ListCommits returns all commits in the given directory.
-// This is the Go equivalent of Lucene's DirectoryReader.listCommits().
+// ListCommits returns all commits present in the given directory, sorted in
+// ascending generation order.  This is the Go equivalent of Lucene's
+// DirectoryReader.listCommits().
 func ListCommits(dir store.Directory) (IndexCommitList, error) {
-	// Read the current segment infos to find all commits
-	si, err := ReadSegmentInfos(dir)
+	// Read the latest commit. Mirrors Lucene's listCommits which calls
+	// SegmentInfos.readLatestCommit and propagates IndexNotFoundException
+	// when the directory has no index.
+	latest, err := ReadSegmentInfos(dir)
 	if err != nil {
 		return nil, err
 	}
 
-	// For now, just return the current commit
-	// In a full implementation, this would scan the directory for all
-	// segments files and create an IndexCommit for each one
-	commit := NewIndexCommit(si)
-	commit.SetDirectory(dir)
+	currentGen := latest.Generation()
 
-	return IndexCommitList{commit}, nil
+	// Start with the latest commit.
+	commits := make(IndexCommitList, 0, 4)
+	latestCommit := NewIndexCommit(latest)
+	latestCommit.SetDirectory(dir)
+	commits = append(commits, latestCommit)
+
+	// Scan the directory for older segments_N files.
+	files, err := dir.ListAll()
+	if err != nil {
+		return nil, fmt.Errorf("listCommits: list directory: %w", err)
+	}
+	for _, name := range files {
+		gen := ParseGeneration(name)
+		if gen <= 0 || gen >= currentGen {
+			continue // not a segments file, or already captured as latest
+		}
+		sis, readErr := readSegmentInfosFile(dir, name)
+		if readErr != nil {
+			// File may have been deleted between listing and reading; skip it.
+			continue
+		}
+		c := NewIndexCommit(sis)
+		c.SetDirectory(dir)
+		commits = append(commits, c)
+	}
+
+	// Sort ascending by generation so callers can walk history oldest-first.
+	sortCommitsByGeneration(commits)
+
+	return commits, nil
+}
+
+// readSegmentInfosFile reads a named segments_N file from dir by generation.
+// This is used by ListCommits to enumerate prior commits.  The generation
+// must be > 0 (valid) for the call to succeed.
+func readSegmentInfosFile(dir store.Directory, name string) (*SegmentInfos, error) {
+	gen := ParseGeneration(name)
+	if gen <= 0 {
+		return nil, fmt.Errorf("not a segments file: %q", name)
+	}
+	// Open a throwaway handle; readSegmentInfosLucene104 closes it and re-opens
+	// the canonical file by generation internally.
+	rawIn, err := dir.OpenInput(name, store.IOContextRead)
+	if err != nil {
+		return nil, err
+	}
+	// Peek at the magic to validate the format before delegating.
+	magic, err := store.ReadInt32(rawIn)
+	if err != nil {
+		_ = rawIn.Close()
+		return nil, fmt.Errorf("readSegmentInfosFile %q: read magic: %w", name, err)
+	}
+	if magic != codecMagic {
+		_ = rawIn.Close()
+		// Legacy / unknown format — skip gracefully.
+		return nil, fmt.Errorf("readSegmentInfosFile %q: unknown magic 0x%x", name, uint32(magic))
+	}
+	// rawIn is handed off to readSegmentInfosLucene104 which closes it and
+	// re-opens the file at offset 0 for checksum verification.
+	return readSegmentInfosLucene104(rawIn, dir, gen)
+}
+
+// sortCommitsByGeneration sorts commits ascending by generation using insertion
+// sort (list is typically very small: 1–10 commits).
+func sortCommitsByGeneration(commits IndexCommitList) {
+	for i := 1; i < len(commits); i++ {
+		for j := i; j > 0 && commits[j].GetGeneration() < commits[j-1].GetGeneration(); j-- {
+			commits[j], commits[j-1] = commits[j-1], commits[j]
+		}
+	}
 }
 
 // Ensure DirectoryReader implements IndexReaderInterface

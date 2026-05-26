@@ -73,11 +73,14 @@ func (iu *IndexUpgrader) Upgrade() error {
 	iu.msg("Upgrading index...")
 	iu.msg("")
 
-	// Create config with upgrade merge policy
+	// Create config with UpgradeIndexMergePolicy so that only segments written
+	// by older Lucene versions are rewritten during the forced merge.
 	config := NewIndexWriterConfig(nil)
-	// TODO: Implement UpgradeIndexMergePolicy
-	// For now, use the default merge policy
-	// config.SetMergePolicy(NewUpgradeIndexMergePolicy(config.GetMergePolicy()))
+	basePolicy := config.GetMergePolicy()
+	if basePolicy == nil {
+		basePolicy = NewTieredMergePolicy()
+	}
+	config.SetMergePolicy(NewUpgradeIndexMergePolicy(basePolicy))
 
 	// Open the index for writing
 	writer, err := NewIndexWriter(iu.dir, config)

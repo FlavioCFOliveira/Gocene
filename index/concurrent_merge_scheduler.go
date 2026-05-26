@@ -95,9 +95,6 @@ type ConcurrentMergeScheduler struct {
 
 	// rateLimiter limits merge I/O
 	rateLimiter *MergeRateLimiter
-
-	// intraMergeExecutor provides parallelism within a single merge
-	// (not implemented yet - placeholder for future enhancement)
 }
 
 // NewConcurrentMergeScheduler creates a new ConcurrentMergeScheduler.
@@ -534,10 +531,73 @@ func (s *ConcurrentMergeScheduler) String() string {
 }
 
 // WrapForMerge wraps a Directory for merge operations with rate limiting.
-// This is a simplified implementation.
+// Each CreateOutput call on the returned directory wraps the underlying output
+// with a RateLimitedIndexOutput driven by the scheduler's current rate.
+// This mirrors org.apache.lucene.index.ConcurrentMergeScheduler.wrapForMerge.
 func (s *ConcurrentMergeScheduler) WrapForMerge(merge *OneMerge, directory store.Directory) store.Directory {
-	// In a full implementation, this would wrap the directory with rate limiting
-	return directory
+	return newRateLimitedMergeDirectory(directory, s.rateLimiter)
+}
+
+// rateLimitedMergeDirectory is a FilterDirectory that wraps every CreateOutput
+// with a RateLimitedIndexOutput using the supplied MergeRateLimiter adapter.
+// Only CreateOutput is overridden; all other Directory methods delegate.
+type rateLimitedMergeDirectory struct {
+	*store.FilterDirectory
+	adapter store.RateLimiter
+}
+
+func newRateLimitedMergeDirectory(dir store.Directory, rl *MergeRateLimiter) *rateLimitedMergeDirectory {
+	return &rateLimitedMergeDirectory{
+		FilterDirectory: store.NewFilterDirectory(dir),
+		adapter:         &mergeRateLimiterAdapter{rl: rl},
+	}
+}
+
+// CreateOutput returns a rate-limited index output for merge writes.
+func (d *rateLimitedMergeDirectory) CreateOutput(name string, ctx store.IOContext) (store.IndexOutput, error) {
+	out, err := d.FilterDirectory.CreateOutput(name, ctx)
+	if err != nil {
+		return nil, err
+	}
+	return store.NewRateLimitedIndexOutput(d.adapter, out), nil
+}
+
+// mergeRateLimiterAdapter bridges the index-package MergeRateLimiter to the
+// store.RateLimiter interface so that RateLimitedIndexOutput can use it.
+// Pause delegates to SimpleRateLimiter logic via the mbPerSec setting.
+type mergeRateLimiterAdapter struct {
+	rl *MergeRateLimiter
+}
+
+func (a *mergeRateLimiterAdapter) GetMBPerSec() float64 {
+	return a.rl.GetMBPerSec()
+}
+
+func (a *mergeRateLimiterAdapter) SetMBPerSec(mbPerSec float64) {
+	a.rl.SetMBPerSec(mbPerSec)
+}
+
+// Pause applies the rate limiter pause logic and returns nanoseconds paused.
+// When the scheduler has no rate limit configured (mbPerSec <= 0), it returns 0
+// immediately. Otherwise it sleeps proportionally to maintain the target rate.
+func (a *mergeRateLimiterAdapter) Pause(bytes int64) int64 {
+	mbPerSec := a.rl.GetMBPerSec()
+	if mbPerSec <= 0 {
+		return 0
+	}
+	// Compute the time we should have taken to write these bytes.
+	secondsToWrite := (float64(bytes) / 1024.0 / 1024.0) / mbPerSec
+	pauseNS := int64(secondsToWrite * 1e9)
+	if pauseNS <= 0 {
+		return 0
+	}
+	time.Sleep(time.Duration(pauseNS))
+	return pauseNS
+}
+
+// GetMinPauseCheckBytes returns the minimum bytes between pause checks.
+func (a *mergeRateLimiterAdapter) GetMinPauseCheckBytes() int64 {
+	return a.rl.minPauseCheckBytes
 }
 
 // max returns the maximum of two integers.

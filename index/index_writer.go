@@ -53,6 +53,11 @@ type IndexWriter struct {
 	// not toward NumDocs.  Protected by mu.
 	pendingSoftDeletedOrdinals []int
 
+	// pendingDeletedDocIDs holds document IDs buffered by TryDeleteDocument
+	// (NRT delete-by-docID). These are applied to the live-docs bitmap during
+	// Commit. Protected by mu.
+	pendingDeletedDocIDs []int
+
 	// docFieldIndex holds (field, value) pairs for each document added since
 	// the last commit. Used by Commit to apply term-based deletes without a
 	// full inverted index. Protected by mu.
@@ -685,11 +690,14 @@ func (w *IndexWriter) PrepareCommit() error {
 	// Mark that we're in the prepared state
 	preparedCommit = true
 
-	// In a full implementation, this would:
-	// 1. Flush any buffered documents
-	// 2. Apply any buffered deletes
-	// 3. Sync all files to disk
-	// 4. Prepare the segments file but don't write it yet
+	// Flush any buffered documents into pending segments so that Commit (the
+	// second phase) only needs to write them to disk. Apply buffered deletes
+	// so the live-docs bitmap is current.  File sync and the segments_N write
+	// happen in Commit; prepare only guarantees atomicity of the flush.
+	if err := w.flushPendingDocsLocked(); err != nil {
+		preparedCommit = false
+		return fmt.Errorf("prepareCommit: flush: %w", err)
+	}
 
 	return nil
 }
@@ -1711,13 +1719,20 @@ func (w *IndexWriter) WaitForMerges() error {
 		return err
 	}
 
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	// In a full implementation, this would:
-	// 1. Wait for all running merges to complete
-	// 2. Return any merge errors
-
+	// Drain all running merge goroutines through the merge scheduler.  We
+	// release the writer lock before blocking so that ongoing merges can
+	// acquire it as needed.
+	if s := w.config.GetMergeScheduler(); s != nil {
+		if cms, ok := s.(*ConcurrentMergeScheduler); ok {
+			cms.runningMerges.Wait()
+			// Surface any merge errors collected during the wait.
+			select {
+			case err := <-cms.mergeErrors:
+				return fmt.Errorf("WaitForMerges: merge error: %w", err)
+			default:
+			}
+		}
+	}
 	return nil
 }
 

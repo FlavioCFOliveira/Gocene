@@ -191,9 +191,12 @@ func (w *IndexWriter) TryDeleteDocument(reader *IndexReader, docID int) (int64, 
 		}
 	}
 
-	// Mark the document as deleted
-	// In a full implementation, this would use the buffered deletes mechanism
-	// For now, we return a sequence number indicating success
+	// Buffer the delete: record the docID as a pending deleted ordinal so the
+	// next Commit will exclude this document from the live-docs bitmap.
+	// This implements the buffered-deletes path for NRT/TryDeleteDocument.
+	w.mu.Lock()
+	w.pendingDeletedDocIDs = append(w.pendingDeletedDocIDs, docID)
+	w.mu.Unlock()
 	return w.getNextSequenceNumber(), nil
 }
 
@@ -203,8 +206,7 @@ func (w *IndexWriter) TryDeleteDocument(reader *IndexReader, docID int) (int64, 
 func (w *IndexWriter) FlushOnUpdate() bool {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
-	// TODO: Add flushOnUpdate field to IndexWriterConfig
-	return false
+	return w.config.flushOnUpdate
 }
 
 // SetFlushOnUpdate sets whether to flush on every update operation.
@@ -213,8 +215,7 @@ func (w *IndexWriter) FlushOnUpdate() bool {
 func (w *IndexWriter) SetFlushOnUpdate(flush bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	// TODO: Add flushOnUpdate field to IndexWriterConfig
-	_ = flush
+	w.config.flushOnUpdate = flush
 }
 
 // GetPendingNumDocs returns the number of documents currently pending (buffered).

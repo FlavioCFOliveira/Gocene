@@ -60,6 +60,7 @@ type IndexWriterConfig struct {
 	codec                  Codec
 	maxDocs                int
 	indexSort              *Sort
+	flushOnUpdate          bool
 }
 
 // NewIndexWriterConfig creates a new IndexWriterConfig with default settings.

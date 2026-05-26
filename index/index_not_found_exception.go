@@ -4,7 +4,10 @@
 
 package index
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // IndexNotFoundException signals that no index was found in the Directory.
 // May indicate that the directory is empty, or that an index corruption has
@@ -47,4 +50,11 @@ func NewIndexNotFoundException(message string, cause error) *IndexNotFoundExcept
 // that uses only the descriptive message.
 func IndexNotFoundExceptionFromMessage(msg string) *IndexNotFoundException {
 	return &IndexNotFoundException{Message: msg}
+}
+
+// IsIndexNotFound reports whether err (or any error in its chain) is an
+// IndexNotFoundException.
+func IsIndexNotFound(err error) bool {
+	var t *IndexNotFoundException
+	return errors.As(err, &t)
 }
