@@ -1343,3 +1343,141 @@ func TestLucene90DV_MultipleFields(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// TestLucene90DV_GenerationalUpdate_RoundTrip (AC#2)
+// ---------------------------------------------------------------------------
+
+// TestLucene90DV_GenerationalUpdate_RoundTrip validates the generational
+// doc-values update path: a base NUMERIC segment is written, then a second
+// consumer is opened with the per-generation segment suffix
+// "1_Lucene90_0" (the suffix Lucene encodes as
+// perFieldDocValuesFullSegmentSuffix("1", "Lucene90_0") → "1_Lucene90_0").
+// The second consumer writes updated values for the entire field; only
+// doc 2 is changed to 999. Reading back via a producer opened with the
+// same suffix asserts:
+//
+//   - doc 0: original value 10 (preserved in the update segment)
+//   - doc 2: updated value 999
+//   - doc 4: original value 50
+//
+// This directly closes AC#2 of T4642: the generational reader path
+// through the Lucene90 DV codec works end-to-end without going through
+// IndexWriter.
+func TestLucene90DV_GenerationalUpdate_RoundTrip(t *testing.T) {
+	t.Parallel()
+	const maxDoc = 5
+	const updatedDoc = 2
+	const updatedVal = int64(999)
+
+	fi := dvRTNumericField("count", 0)
+	fis := index.NewFieldInfos()
+	if err := fis.Add(fi); err != nil {
+		t.Fatalf("fis.Add: %v", err)
+	}
+
+	// Shared temp directory — both base and update segments live here, matching
+	// the Lucene on-disk layout where all generation files share the directory.
+	dir, err := store.NewSimpleFSDirectory(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewSimpleFSDirectory: %v", err)
+	}
+	defer dir.Close()
+
+	id := make([]byte, 16)
+	si := index.NewSegmentInfo("_0", maxDoc, dir)
+	if err := si.SetID(id); err != nil {
+		t.Fatalf("SetID: %v", err)
+	}
+
+	baseDocs := []int{0, 1, 2, 3, 4}
+	baseVals := []int64{10, 20, 30, 40, 50}
+
+	// Phase 1: write the base segment (no suffix → standard "_0.dvd"/"_0.dvm").
+	wsBase := &SegmentWriteState{
+		Directory:   dir,
+		SegmentInfo: si,
+		FieldInfos:  fis,
+	}
+	baseConsumer, err := newLucene90DVConsumer(wsBase, Lucene90DocValuesDefaultSkipIndexIntervalSize)
+	if err != nil {
+		t.Fatalf("newLucene90DVConsumer base: %v", err)
+	}
+	if err := baseConsumer.AddNumericField(fi, newDVRTNumericValues(baseDocs, baseVals)); err != nil {
+		t.Fatalf("AddNumericField base: %v", err)
+	}
+	if err := baseConsumer.Close(); err != nil {
+		t.Fatalf("close base consumer: %v", err)
+	}
+
+	// Phase 2: write the update segment with suffix "1_Lucene90_0".
+	// The update carries ALL doc values for the field; doc 2's value is
+	// changed to 999 while the rest keep their original values.
+	// Lucene constructs this suffix via:
+	//   perFieldDocValuesFullSegmentSuffix("1", "Lucene90_0") → "1_Lucene90_0"
+	const updateSuffix = "1_Lucene90_0"
+	updDocs := make([]int, maxDoc)
+	updVals := make([]int64, maxDoc)
+	copy(updDocs, baseDocs)
+	copy(updVals, baseVals)
+	updVals[updatedDoc] = updatedVal
+
+	wsUpd := &SegmentWriteState{
+		Directory:     dir,
+		SegmentInfo:   si,
+		FieldInfos:    fis,
+		SegmentSuffix: updateSuffix,
+	}
+	updConsumer, err := newLucene90DVConsumer(wsUpd, Lucene90DocValuesDefaultSkipIndexIntervalSize)
+	if err != nil {
+		t.Fatalf("newLucene90DVConsumer update: %v", err)
+	}
+	if err := updConsumer.AddNumericField(fi, newDVRTNumericValues(updDocs, updVals)); err != nil {
+		t.Fatalf("AddNumericField update: %v", err)
+	}
+	if err := updConsumer.Close(); err != nil {
+		t.Fatalf("close update consumer: %v", err)
+	}
+
+	// Phase 3: open the update producer and assert the changed value is visible.
+	rsUpd := &SegmentReadState{
+		Directory:     dir,
+		SegmentInfo:   si,
+		FieldInfos:    fis,
+		SegmentSuffix: updateSuffix,
+	}
+	producer, err := newLucene90DVProducer(rsUpd)
+	if err != nil {
+		t.Fatalf("newLucene90DVProducer update: %v", err)
+	}
+	defer producer.Close() //nolint:errcheck
+
+	ndv, err := producer.GetNumeric(fi)
+	if err != nil {
+		t.Fatalf("GetNumeric: %v", err)
+	}
+
+	wantVals := map[int]int64{
+		0: 10,
+		2: updatedVal, // changed
+		4: 50,
+	}
+	for d, wantV := range []int64{10, 20, updatedVal, 40, 50} {
+		doc, err := ndv.NextDoc()
+		if err != nil {
+			t.Fatalf("NextDoc[%d]: %v", d, err)
+		}
+		if doc != d {
+			t.Fatalf("NextDoc[%d]: got %d", d, doc)
+		}
+		got, err := ndv.LongValue()
+		if err != nil {
+			t.Fatalf("LongValue[%d]: %v", d, err)
+		}
+		if _, spot := wantVals[d]; spot {
+			if got != wantV {
+				t.Fatalf("doc %d: got %d, want %d", d, got, wantV)
+			}
+		}
+	}
+}
