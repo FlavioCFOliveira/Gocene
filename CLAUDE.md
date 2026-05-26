@@ -46,6 +46,44 @@ This requirement supersedes every other guideline in this document. If any other
 
 4. **Workflow steps**: The workflow must always follow these steps, in order: **Specify -> Implement -> Test -> Document**.
 
+## Self-Contained Development Policy
+
+All development cycles must be self-contained. You must NEVER deliver only part of a task; every development cycle must produce a complete, working result.
+
+When new needs are discovered during the course of a task — needs that were not anticipated beforehand — they must be resolved within the same development cycle, as immediately as possible. This means adding new tasks (via `rmp`) and executing them as quickly as practical, rather than deferring them.
+
+All code and all development output must be, as a rule, **full-fledged**: no half-implementations, no stubs left dangling, no "to be completed later" placeholders.
+
+## Production-Oriented
+
+Throughout the entire work cycle (analysis → planning → development → testing), the objective must always be that the result produced is **production-grade**. You must apply not only the maximum of your knowledge but also the maximum of your effort to ensure that every piece of work is delivered as code ready to be used in production.
+
+There is no acceptable "draft" or "experimental" mode for delivered work: every commit, every closed task, every merged branch must meet production standards.
+
+## Never Guess
+
+All interactions on the project must be based **exclusively** on knowledge you already possess. You must never try to guess the intended answers.
+
+When the information you have is insufficient, you must seek answers from:
+
+- The internet, in official or authoritative sources.
+- Peer-reviewed papers, established books, or recognized authors in the relevant field.
+- The Apache Lucene 10.4.0 reference source tree (see *Lucene Reference Repository*) when the question concerns binary compatibility or Lucene behaviour.
+
+If after consulting authoritative sources the answer remains uncertain, fall back to the *Decision authority* rule in **General Principles**: ask the user how to proceed, presenting multiple options with a recommendation.
+
+## Measure to Decide
+
+Whenever it is necessary to evaluate **performance**, **completeness** (whether something is fully done), or **correctness** (whether something behaves as required), you must ALWAYS gather evidence from the project itself to determine the answer. Decisions of this kind must be **empirical**.
+
+Concretely, this means:
+
+- Run the relevant tests, benchmarks (`go test -bench=. -benchmem`), or profilers (`pprof`) and read their output before claiming a property holds.
+- Inspect actual generated artefacts (bytes on disk, fixture outputs) rather than reasoning only about expected behaviour.
+- Cite the captured evidence (test names, benchmark numbers, byte diffs) when reporting conclusions.
+
+Assumptions, intuition, or prior recall are not acceptable substitutes for measured evidence in these three dimensions.
+
 ## Development Guidelines
 
 When implementing Lucene features in Go:
