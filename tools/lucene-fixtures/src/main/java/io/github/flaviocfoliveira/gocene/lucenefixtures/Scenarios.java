@@ -22,6 +22,7 @@ import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.KnnHitOrdering
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.KnnVectorsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.LiveDocsFormatScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.MiscHighfreqTermsCorpusScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.MemoryIndexFlushScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.MiscIndexSplitterInputScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.MonitorIndexSegmentScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.MonitorQueryBlobScenario;
@@ -190,6 +191,13 @@ public final class Scenarios {
         // HighFreqTerms tool's logical output as a deterministic TSV.
         register(new MiscIndexSplitterInputScenario());
         register(new MiscHighfreqTermsCorpusScenario());
+        // Sprint 114 T25 (rmp 4633): memory-module scenario. Appended in
+        // stack order — after the misc-* scenarios — so existing baseline.tsv
+        // rows keep their positions. Addresses the memory audit row
+        // gap_notes: "No persisted binary artefact; gap is the absence of
+        // byte-for-byte parity tests vs Lucene MemoryIndex internal layout
+        // (where applicable to merges)."
+        register(new MemoryIndexFlushScenario());
     }
 
     private Scenarios() {}

@@ -68,6 +68,7 @@ public final class Main {
             case "verify-queryparser" -> runVerifyQueryparser(args, out, err);
             case "verify-sandbox" -> runVerifySandbox(args, out, err);
             case "verify-misc" -> runVerifyMisc(args, out, err);
+            case "verify-memory-flush" -> runVerifyMemoryFlush(args, out, err);
             case "verify-sweetspot" -> runVerifySweetspot(args, out, err);
             case "-h", "--help", "help" -> {
                 usage(out);
@@ -650,6 +651,39 @@ public final class Main {
     }
 
     /**
+     * Sprint 114 T25 (rmp 4633). Re-verifies the {@code memory-index-flush}
+     * scenario in {@code <dir>}: reopens the directory and asserts the single
+     * flushed doc plus every token term (with payload bytes) is present.
+     * Seed is mandatory because {@link Determinism#idBytes} is seeded and the
+     * payload bytes are seed-derived.
+     *
+     * <p>Usage: {@code verify-memory-flush <dir> <seed>}.
+     */
+    private static int runVerifyMemoryFlush(String[] args, PrintStream out, PrintStream err) {
+        if (args.length != 3) {
+            err.println("usage: verify-memory-flush <dir> <seed>");
+            return 1;
+        }
+        java.nio.file.Path source = java.nio.file.Path.of(args[1]);
+        long seed = parseSeed(args[2], err);
+        if (seed == Long.MIN_VALUE && !"-9223372036854775808".equals(args[2])) {
+            return 1;
+        }
+        try {
+            CorpusScenario scenario = Scenarios.require("memory-index-flush");
+            scenario.verify(source, seed);
+        } catch (IllegalArgumentException e) {
+            err.println(e.getMessage());
+            return 2;
+        } catch (IOException e) {
+            err.println("verify-memory-flush failed: " + e.getMessage());
+            return 4;
+        }
+        out.println("ok verify-memory-flush dir=" + source.toAbsolutePath() + " seed=" + seed);
+        return 0;
+    }
+
+    /**
      * Sprint 114 T24 (rmp 4632). SweetSpotSimilarity is a runtime
      * {@link org.apache.lucene.search.similarities.Similarity} subclass
      * (no persisted artefact). This sub-command opens the
@@ -712,6 +746,7 @@ public final class Main {
         out.println("  verify-queryparser <dir>             re-parse and re-execute the queryparser catalogue in <dir> and compare to qp-trees.tsv + qp-hits.tsv");
         out.println("  verify-sandbox <idversion|quantization> <dir> <seed>  re-verify a sandbox scenario (quantization is deferred; see Manifest.DEFERRED_ROWS)");
         out.println("  verify-misc <splitter|highfreq> <dir> <seed>  re-verify a misc-module scenario (IndexSplitter/IndexMergeTool input OR HighFreqTerms corpus)");
+        out.println("  verify-memory-flush <dir> <seed>     re-verify the memory-index-flush fixture (single segment from a MemoryIndex flush) in <dir>");
         out.println("  verify-sweetspot <dir>               re-score the search-scoring-corpus index under SweetSpotSimilarity and assert (a) hit-set parity with BM25, (b) at least one score differs > 1e-3");
     }
 }
