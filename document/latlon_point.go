@@ -17,11 +17,18 @@ import (
 //
 // Go port of Lucene 10.4.0's org.apache.lucene.document.LatLonPoint.
 //
-// Static query factories (NewBoxQuery / NewDistanceQuery / NewPolygonQuery
-// / NewGeometryQuery / NewDistanceFeatureQuery / Nearest) are deferred —
-// they depend on search.PointRangeQuery and the as-yet-unported geo
-// distance query family. Backlog #2697 tracks the full geo-query
-// implementation.
+// Static query factories are available in the search package to avoid the
+// document→search import cycle (search imports document for field types):
+//
+//   - search.NewLatLonPointBoxQuery    — bounding box (Sprint 116)
+//   - search.NewLatLonPointDistanceQuery  — disk/radius (Sprint 116)
+//   - search.NewLatLonPointQuery       — polygon / geometry (Sprint 55)
+//   - search.NewLatLonPointDistanceFeatureQuery — score-by-distance (Sprint 116)
+//   - document.Nearest                 — KNN nearest-neighbour (Sprint 116)
+//
+// The NewGeometryQuery multi-shape factory that routes through
+// LatLonPointQuery is tracked as backlog #2697 (requires the
+// ShapeDocValuesQuery port, GOC-4532+).
 type LatLonPoint struct {
 	*Field
 }
