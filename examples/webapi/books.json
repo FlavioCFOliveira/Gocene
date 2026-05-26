@@ -1,0 +1,98 @@
+[
+  {
+    "id": "book-001",
+    "title": "The Pragmatic Programmer",
+    "author": "Andrew Hunt",
+    "year": 1999,
+    "tags": ["software", "craftsmanship", "career"],
+    "summary": "A guide to becoming a better software developer through pragmatic techniques and habits."
+  },
+  {
+    "id": "book-002",
+    "title": "Clean Code",
+    "author": "Robert C. Martin",
+    "year": 2008,
+    "tags": ["software", "craftsmanship", "refactoring"],
+    "summary": "A handbook of agile software craftsmanship focused on writing readable, maintainable code."
+  },
+  {
+    "id": "book-003",
+    "title": "Design Patterns",
+    "author": "Erich Gamma",
+    "year": 1994,
+    "tags": ["software", "architecture", "patterns"],
+    "summary": "The classic catalogue of reusable object-oriented design patterns by the Gang of Four."
+  },
+  {
+    "id": "book-004",
+    "title": "The Go Programming Language",
+    "author": "Alan Donovan",
+    "year": 2015,
+    "tags": ["go", "programming", "reference"],
+    "summary": "The authoritative resource on the Go language, written by members of the Go team."
+  },
+  {
+    "id": "book-005",
+    "title": "Lucene in Action",
+    "author": "Erik Hatcher",
+    "year": 2010,
+    "tags": ["search", "lucene", "java"],
+    "summary": "An in-depth guide to building search applications with Apache Lucene."
+  },
+  {
+    "id": "book-006",
+    "title": "Introduction to Information Retrieval",
+    "author": "Christopher Manning",
+    "year": 2008,
+    "tags": ["search", "information-retrieval", "academic"],
+    "summary": "A textbook covering the foundations of information retrieval, indexing and ranking."
+  },
+  {
+    "id": "book-007",
+    "title": "Designing Data-Intensive Applications",
+    "author": "Martin Kleppmann",
+    "year": 2017,
+    "tags": ["distributed-systems", "databases", "architecture"],
+    "summary": "Big ideas behind reliable, scalable and maintainable systems for storing and processing data."
+  },
+  {
+    "id": "book-008",
+    "title": "Refactoring",
+    "author": "Martin Fowler",
+    "year": 1999,
+    "tags": ["software", "refactoring", "patterns"],
+    "summary": "A catalogue of techniques for improving the design of existing code without changing behaviour."
+  },
+  {
+    "id": "book-009",
+    "title": "The Mythical Man-Month",
+    "author": "Frederick Brooks",
+    "year": 1975,
+    "tags": ["management", "software", "classic"],
+    "summary": "Essays on software engineering and the perils of large projects, including Brooks' law."
+  },
+  {
+    "id": "book-010",
+    "title": "Structure and Interpretation of Computer Programs",
+    "author": "Harold Abelson",
+    "year": 1985,
+    "tags": ["programming", "lisp", "academic"],
+    "summary": "A foundational text on the principles of computation taught using Scheme."
+  },
+  {
+    "id": "book-011",
+    "title": "Compilers: Principles, Techniques, and Tools",
+    "author": "Alfred V. Aho",
+    "year": 2006,
+    "tags": ["compilers", "academic", "languages"],
+    "summary": "The Dragon Book: a comprehensive reference on compiler construction."
+  },
+  {
+    "id": "book-012",
+    "title": "Programming Pearls",
+    "author": "Jon Bentley",
+    "year": 1999,
+    "tags": ["programming", "algorithms", "essays"],
+    "summary": "Short essays on practical programming problems and elegant algorithmic solutions."
+  }
+]
