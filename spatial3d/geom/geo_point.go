@@ -5,6 +5,7 @@
 package geom
 
 import (
+	"fmt"
 	"io"
 	"math"
 )
@@ -41,9 +42,39 @@ func NewGeoPointLatLon(pm *PlanetModel, lat, lon float64) *GeoPoint {
 }
 
 // NewGeoPointFromStream deserialises from a stream.
+//
+// Wire format (Lucene 10.4.0 GeoPoint(InputStream)):
+// 5 doubles in SerializableObject order: lat, lon, x, y, z.
+// Each double is written as a little-endian int64 (writeLong = writeInt(lo) + writeInt(hi)).
+//
+// Port of GeoPoint(InputStream).
 func NewGeoPointFromStream(_ *PlanetModel, r io.Reader) (*GeoPoint, error) {
-	// Deferred to #2693.
-	return nil, nil
+	lat, err := readSerialDouble(r)
+	if err != nil {
+		return nil, fmt.Errorf("geopoint: read lat: %w", err)
+	}
+	lon, err := readSerialDouble(r)
+	if err != nil {
+		return nil, fmt.Errorf("geopoint: read lon: %w", err)
+	}
+	x, err := readSerialDouble(r)
+	if err != nil {
+		return nil, fmt.Errorf("geopoint: read x: %w", err)
+	}
+	y, err := readSerialDouble(r)
+	if err != nil {
+		return nil, fmt.Errorf("geopoint: read y: %w", err)
+	}
+	z, err := readSerialDouble(r)
+	if err != nil {
+		return nil, fmt.Errorf("geopoint: read z: %w", err)
+	}
+	return &GeoPoint{
+		Vector:    Vector{X: x, Y: y, Z: z},
+		latitude:  lat,
+		longitude: lon,
+		magnitude: math.NaN(),
+	}, nil
 }
 
 // GetLatitude returns the latitude in radians, computing it lazily.
@@ -102,8 +133,17 @@ func (p *GeoPoint) IsIdentical(other *GeoPoint) bool {
 }
 
 // Write serialises the point to the stream.
-func (p *GeoPoint) Write(_ io.Writer) error {
-	// Deferred to #2693.
+//
+// Wire format (Lucene 10.4.0 GeoPoint.write(OutputStream)):
+// 5 doubles in order: lat, lon, x, y, z, each as a little-endian int64.
+//
+// Port of GeoPoint.write(OutputStream).
+func (p *GeoPoint) Write(w io.Writer) error {
+	for _, v := range [5]float64{p.GetLatitude(), p.GetLongitude(), p.X, p.Y, p.Z} {
+		if err := writeSerialDouble(w, v); err != nil {
+			return fmt.Errorf("geopoint: write: %w", err)
+		}
+	}
 	return nil
 }
 

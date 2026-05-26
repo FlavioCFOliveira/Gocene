@@ -8,31 +8,52 @@
 // Port of org.apache.lucene.spatial3d.
 //
 // Deviation: Field, SortField, FieldComparator, IntersectVisitor, and
-// DocIdSetBuilder are all part of the index-layer infrastructure that is not
-// yet ported. Concrete implementations of Geo3DPoint, Geo3DDocValuesField,
-// the sort-field and comparator types, PointInGeo3DShapeQuery, and
-// PointInShapeIntersectVisitor are therefore deferred to backlog #2693.
-// This file delivers the public type stubs so callers can compile against
-// the package API.
+// DocIdSetBuilder are part of the index-layer infrastructure.
+// Concrete implementations of the sort-field and comparator types,
+// PointInGeo3DShapeQuery and PointInShapeIntersectVisitor are deferred to
+// backlog #4682 until Lucene90PointsFormat.WriteField is fully operational.
+//
+// This sprint delivers:
+//   - Correct PlanetModel construction (xyScaling = a/meanRadius).
+//   - PlanetModel and GeoPoint binary serialisation (round-trip compatible with
+//     Lucene 10.4.0 SerializableObject wire format).
+//   - EncodeDimension / DecodeDimension using IntToSortableBytes / SortableBytesToInt.
+//   - Geo3DPoint.ToIndexableFields producing a 3-dimension × 4-byte BKD stub.
 package spatial3d
 
 import (
 	"fmt"
 	"math"
 
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/spatial3d/geom"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
+// geo3dPointType is the FieldType for a Geo3DPoint: 3 dimensions × 4 bytes.
+// Mirrors Lucene's static Geo3DPoint.TYPE = new FieldType(); setDimensions(3,4); freeze().
+var geo3dPointType *document.FieldType
+
+func init() {
+	geo3dPointType = document.NewFieldType()
+	geo3dPointType.SetIndexed(true)
+	geo3dPointType.SetDimensions(3, 4)
+	geo3dPointType.Freeze()
+}
+
 // ---------------------------------------------------------------------------
-// Geo3DPoint — stub
+// Geo3DPoint
 //
 // Port of org.apache.lucene.spatial3d.Geo3DPoint.
 // ---------------------------------------------------------------------------
 
 // Geo3DPoint is a point stored as a three-dimensional XYZ coordinate.
 //
-// Full implementation (Field embedding, encoding, query helpers) deferred to
-// backlog #2693.
+// ToIndexableFields produces the wire-compatible BKD encoding (3 dims × 4 bytes)
+// using IntToSortableBytes(PlanetModel.encodeValue(coord)).
+//
+// Query infrastructure (Weight, Scorer, IntersectVisitor) is deferred to
+// backlog #4682 until Lucene90PointsFormat.WriteField is fully operational.
 //
 // Port of org.apache.lucene.spatial3d.Geo3DPoint.
 type Geo3DPoint struct {
@@ -62,6 +83,22 @@ func NewGeo3DPointXYZ(name string, x, y, z float64) *Geo3DPoint {
 // Port of org.apache.lucene.spatial3d.Geo3DPoint(String,PlanetModel,double,double,double).
 func NewGeo3DPointXYZModel(name string, pm *geom.PlanetModel, x, y, z float64) *Geo3DPoint {
 	return &Geo3DPoint{planetModel: pm, X: x, Y: y, Z: z, fieldName: name}
+}
+
+// ToIndexableFields returns a slice containing a single point field encoding
+// the XYZ coordinate as 3 × 4-byte sortable integers.
+//
+// Port of Geo3DPoint.fillFieldsData: encodeDimension(x,0) + encodeDimension(y,4) + encodeDimension(z,8).
+func (p *Geo3DPoint) ToIndexableFields() ([]document.IndexableField, error) {
+	bytes := make([]byte, 3*bytesPerDim)
+	EncodeDimension(p.planetModel, p.X, bytes, 0)
+	EncodeDimension(p.planetModel, p.Y, bytes, bytesPerDim)
+	EncodeDimension(p.planetModel, p.Z, bytes, 2*bytesPerDim)
+	f, err := document.NewField(p.fieldName, bytes, geo3dPointType)
+	if err != nil {
+		return nil, fmt.Errorf("geo3d: ToIndexableFields: %w", err)
+	}
+	return []document.IndexableField{f}, nil
 }
 
 // String returns a human-readable representation.
@@ -104,32 +141,30 @@ func (f *Geo3DDocValuesField) String() string {
 // ---------------------------------------------------------------------------
 // Geo3DUtil — package-level utilities
 //
-// Port of org.apache.lucene.spatial3d.Geo3DUtil (package-private in Java).
+// Port of org.apache.lucene.spatial3d.Geo3DUtil (package-private in Java)
+// and the static helpers on org.apache.lucene.spatial3d.Geo3DPoint.
 // ---------------------------------------------------------------------------
 
 // RadiansPerDegree is the factor to convert degrees to radians.
 const RadiansPerDegree = math.Pi / 180.0
 
-// EncodeDimension encodes a double dimension value to a 4-byte integer.
-// Full encoding algorithm deferred to #2693.
+// bytesPerDim is the number of bytes per BKD dimension (Integer.BYTES in Java).
+const bytesPerDim = 4
+
+// EncodeDimension encodes a coordinate value to sortable bytes in-place.
 //
+// Equivalent to NumericUtils.intToSortableBytes(planetModel.encodeValue(value)).
 // Port of org.apache.lucene.spatial3d.Geo3DPoint.encodeDimension.
-func EncodeDimension(pm *geom.PlanetModel, value float64) int32 {
-	// Deferred to #2693 — stub returns clamped scaled int.
-	if value > pm.MaxValue {
-		value = pm.MaxValue
-	} else if value < -pm.MaxValue {
-		value = -pm.MaxValue
-	}
-	return int32(value / pm.Decode)
+func EncodeDimension(pm *geom.PlanetModel, value float64, bytes []byte, offset int) {
+	util.IntToSortableBytes(pm.EncodeValue(value), bytes, offset)
 }
 
-// DecodeDimension decodes a 4-byte encoded dimension value.
-// Full decoding algorithm deferred to #2693.
+// DecodeDimension decodes a sortable-bytes-encoded coordinate value.
 //
+// Equivalent to planetModel.decodeValue(NumericUtils.sortableBytesToInt(...)).
 // Port of org.apache.lucene.spatial3d.Geo3DPoint.decodeDimension.
-func DecodeDimension(pm *geom.PlanetModel, encoded int32) float64 {
-	return float64(encoded) * pm.Decode
+func DecodeDimension(pm *geom.PlanetModel, value []byte, offset int) float64 {
+	return pm.DecodeValue(util.SortableBytesToInt(value, offset))
 }
 
 // ---------------------------------------------------------------------------
