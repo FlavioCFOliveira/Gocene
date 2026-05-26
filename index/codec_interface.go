@@ -38,6 +38,13 @@ type Codec interface {
 	// into a single .cfs/.cfe pair when useCompoundFile is enabled.
 	// Returns nil when compound-file writing is not supported by this codec.
 	CompoundFormat() CompoundFormat
+
+	// KnnVectorsFormat returns the KnnVectorsFormatFactory used to construct
+	// the per-segment KNN vectors writer during indexing. Codec implementations
+	// that do not support KNN vectors may return nil; callers check for nil
+	// before invoking FieldsWriter. This mirrors Codec.knnVectorsFormat() in
+	// Apache Lucene 10.4.0.
+	KnnVectorsFormat() KnnVectorsFormatFactory
 }
 
 // PostingsFormat is an interface for encoding/decoding term postings.

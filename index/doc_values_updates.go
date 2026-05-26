@@ -360,11 +360,22 @@ func (m *DocValuesUpdateMerger) AddSourceReader(reader *DocValuesUpdateReader) {
 	m.sourceReaders = append(m.sourceReaders, reader)
 }
 
-// MergeUpdates merges updates from multiple source segments.
+// MergeUpdates merges doc values updates from all source segments into a
+// single queue for the merged segment. No doc-ID remapping is required: every
+// DocValuesUpdate is term-based (it carries a Term that identifies the target
+// document, not a resolved docID). The merged segment re-resolves each term
+// against its own postings when the updates are applied, so the logical update
+// is preserved across the segment boundary without any coordinate change.
+//
+// This mirrors the term-based DV-update carry-forward in Lucene's
+// ReadersAndUpdates: unresolved updates survive a merge unchanged; only
+// already-resolved (docID-stamped) updates in FrozenBufferedUpdates require
+// coordinate remapping, and those are not represented by DocValuesUpdate in
+// Gocene's model.
 func (m *DocValuesUpdateMerger) MergeUpdates(segmentInfos *SegmentInfos) (*DocValuesUpdateQueue, error) {
 	mergedQueue := NewDocValuesUpdateQueue()
 
-	// Merge updates from all source segments
+	// Collect updates from all source segments.
 	for _, reader := range m.sourceReaders {
 		for _, segmentCommitInfo := range segmentInfos.segments {
 			segmentInfo := segmentCommitInfo.SegmentInfo()
@@ -372,11 +383,8 @@ func (m *DocValuesUpdateMerger) MergeUpdates(segmentInfos *SegmentInfos) (*DocVa
 			if err != nil {
 				return nil, err
 			}
-
-			// Remap doc IDs and add to merged queue
 			for _, pkg := range queue.GetAllPackages() {
 				for _, update := range pkg.GetAllUpdates() {
-					// TODO: Remap doc ID based on merge state
 					mergedQueue.AddUpdate(update)
 				}
 			}

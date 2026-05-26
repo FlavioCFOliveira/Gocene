@@ -46,6 +46,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // init installs the production Lucene 10.4 codec as the default codec
@@ -144,4 +145,134 @@ func (a *compoundFormatAdapter) GetCompoundReader(dir store.Directory, si *index
 		return nil, err
 	}
 	return cd, nil
+}
+
+// knnVectorsFormatProvider is an optional interface satisfied by codecs (such
+// as Lucene104Codec) that expose a KNN vectors format. The bridge uses a
+// type-assert to this interface so the codecs.Codec interface itself does not
+// need to be widened.
+type knnVectorsFormatProvider interface {
+	KnnVectorsFormat() codecs.KnnVectorsFormat
+}
+
+// KnnVectorsFormat implements index.Codec by delegating to the inner
+// codecs.Codec when it satisfies knnVectorsFormatProvider. Returns nil when
+// the underlying codec does not support KNN vectors, which mirrors
+// codec.knnVectorsFormat() returning null in Lucene.
+func (b *bridgeCodec) KnnVectorsFormat() index.KnnVectorsFormatFactory {
+	kp, ok := b.inner.(knnVectorsFormatProvider)
+	if !ok {
+		return nil
+	}
+	f := kp.KnnVectorsFormat()
+	if f == nil {
+		return nil
+	}
+	return &knnVectorsFormatAdapter{inner: f}
+}
+
+// knnVectorsFormatAdapter adapts a codecs.KnnVectorsFormat to
+// index.KnnVectorsFormatFactory. The adaptation is one-to-one for the
+// FieldsWriter method: both accept *index.SegmentWriteState; the return
+// type is wrapped by knnVectorsConsumerWriterAdapter.
+type knnVectorsFormatAdapter struct {
+	inner codecs.KnnVectorsFormat
+}
+
+// FieldsWriter constructs a KnnVectorsConsumerWriter from the underlying
+// codecs.KnnVectorsFormat. The index.SegmentWriteState is converted to a
+// codecs.SegmentWriteState (same fields, different package types) before
+// dispatch. The returned writer is wrapped by knnVectorsConsumerWriterAdapter.
+func (a *knnVectorsFormatAdapter) FieldsWriter(state *index.SegmentWriteState) (index.KnnVectorsConsumerWriter, error) {
+	cs := &codecs.SegmentWriteState{
+		Directory:     state.Directory,
+		SegmentInfo:   state.SegmentInfo,
+		FieldInfos:    state.FieldInfos,
+		SegmentSuffix: state.SegmentSuffix,
+	}
+	w, err := a.inner.FieldsWriter(cs)
+	if err != nil {
+		return nil, err
+	}
+	return &knnVectorsConsumerWriterAdapter{inner: w}, nil
+}
+
+// knnVectorsConsumerWriterAdapter adapts a codecs.KnnVectorsWriter (which
+// exposes AddField / Flush / Finish / Close and RAM accounting) to
+// index.KnnVectorsConsumerWriter. The two interfaces are structurally
+// similar for the concrete Lucene99HnswVectorsWriter; the principal
+// differences are:
+//
+//   - AddField return type: the codecs writer returns a concrete per-field
+//     writer; the index interface requires (any, error) so the concrete
+//     value is boxed.
+//   - Flush signature: the codecs writer takes Flush(maxDoc int) while the
+//     index interface takes Flush(maxDoc int, sortMap index.SorterDocMap).
+//     The sortMap is forwarded only when the underlying writer exposes a
+//     matching method; otherwise it is silently ignored, matching the
+//     existing deviation noted in lucene99_hnsw_vectors_writer.go.
+//   - RamBytesUsed: forwarded when the concrete writer implements
+//     util.Accountable; zero otherwise.
+type knnVectorsConsumerWriterAdapter struct {
+	inner codecs.KnnVectorsWriter
+}
+
+// knnAddFielder is the optional narrow interface satisfied by concrete
+// KnnVectorsWriter implementations that expose AddField(fi) (any, error).
+type knnAddFielder interface {
+	AddField(fi *index.FieldInfo) (any, error)
+}
+
+// knnFlusherWithSortMap is the optional interface for writers that accept
+// the sortMap argument on Flush.
+type knnFlusherWithSortMap interface {
+	Flush(maxDoc int, sortMap index.SorterDocMap) error
+}
+
+// knnFlusher is the common interface for writers that only take maxDoc.
+type knnFlusher interface {
+	Flush(maxDoc int) error
+}
+
+// AddField delegates to the inner writer. The concrete return value is
+// boxed as any to satisfy the index.KnnVectorsConsumerWriter contract.
+func (a *knnVectorsConsumerWriterAdapter) AddField(fi *index.FieldInfo) (any, error) {
+	if af, ok := a.inner.(knnAddFielder); ok {
+		return af.AddField(fi)
+	}
+	// inner does not expose AddField; return nil which signals the consumer
+	// that no per-field writer is available (non-fatal for indexing chains
+	// that guard on the returned handle being nil).
+	return nil, nil
+}
+
+// Flush delegates to the inner writer, passing sortMap when the writer
+// supports it, otherwise falling back to the maxDoc-only variant.
+func (a *knnVectorsConsumerWriterAdapter) Flush(maxDoc int, sortMap index.SorterDocMap) error {
+	if sm, ok := a.inner.(knnFlusherWithSortMap); ok {
+		return sm.Flush(maxDoc, sortMap)
+	}
+	if f, ok := a.inner.(knnFlusher); ok {
+		return f.Flush(maxDoc)
+	}
+	return nil
+}
+
+// Finish delegates to the inner writer.
+func (a *knnVectorsConsumerWriterAdapter) Finish() error {
+	return a.inner.Finish()
+}
+
+// Close delegates to the inner writer.
+func (a *knnVectorsConsumerWriterAdapter) Close() error {
+	return a.inner.Close()
+}
+
+// RamBytesUsed returns the inner writer's RAM estimate when it implements
+// util.Accountable; zero otherwise.
+func (a *knnVectorsConsumerWriterAdapter) RamBytesUsed() int64 {
+	if acc, ok := a.inner.(util.Accountable); ok {
+		return acc.RamBytesUsed()
+	}
+	return 0
 }

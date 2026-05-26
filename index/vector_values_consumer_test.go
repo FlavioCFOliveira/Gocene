@@ -255,3 +255,103 @@ func TestVectorValuesConsumer_InitWriterPropagatesFormatError(t *testing.T) {
 		t.Fatalf("writer must remain nil when FieldsWriter fails")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Codec-based KNN format resolution (AC 1 of rmp #4648)
+// ---------------------------------------------------------------------------
+
+// fakeCodecWithKnn is a minimal Codec stub whose KnnVectorsFormat() method
+// returns the injected KnnVectorsFormatFactory. All other methods return nil,
+// which is acceptable for unit tests that only exercise the KNN path.
+type fakeCodecWithKnn struct {
+	knn KnnVectorsFormatFactory
+}
+
+func (c *fakeCodecWithKnn) Name() string                                  { return "fake-knn-codec" }
+func (c *fakeCodecWithKnn) PostingsFormat() PostingsFormat                { return nil }
+func (c *fakeCodecWithKnn) StoredFieldsFormat() StoredFieldsFormat        { return nil }
+func (c *fakeCodecWithKnn) FieldInfosFormat() FieldInfosFormat            { return nil }
+func (c *fakeCodecWithKnn) SegmentInfosFormat() SegmentInfosFormat        { return nil }
+func (c *fakeCodecWithKnn) SegmentInfoFormat() SegmentInfoFormat          { return nil }
+func (c *fakeCodecWithKnn) TermVectorsFormat() TermVectorsFormat          { return nil }
+func (c *fakeCodecWithKnn) CompoundFormat() CompoundFormat                { return nil }
+func (c *fakeCodecWithKnn) KnnVectorsFormat() KnnVectorsFormatFactory     { return c.knn }
+
+// TestVectorValuesConsumer_CodecKnnFormatUsedWhenNoExplicitFormat verifies
+// that when no explicit KnnVectorsFormatFactory is injected via
+// setKnnVectorsFormat, initKnnVectorsWriter falls back to
+// codec.KnnVectorsFormat(). This is the production path used by IndexWriter
+// when the default codec is configured.
+func TestVectorValuesConsumer_CodecKnnFormatUsedWhenNoExplicitFormat(t *testing.T) {
+	w := &fakeKnnWriter{bytes: 512}
+	f := &fakeKnnFormat{writer: w}
+	codec := &fakeCodecWithKnn{knn: f}
+
+	dir := store.NewByteBuffersDirectory()
+	info := NewSegmentInfo("seg0", 3, dir)
+	// Construct consumer with a codec but without calling setKnnVectorsFormat.
+	c := newVectorValuesConsumer(codec, dir, info, util.NoOpInfoStream)
+
+	fi := newFloatField(t, "vec", 4)
+	if _, err := c.AddField(fi); err != nil {
+		t.Fatalf("AddField via codec KNN path: %v", err)
+	}
+	if f.calls != 1 {
+		t.Fatalf("FieldsWriter should have been called once, got %d", f.calls)
+	}
+	if len(w.added) != 1 || w.added[0] != fi {
+		t.Fatalf("AddField not forwarded to underlying writer: %+v", w.added)
+	}
+	// Resolved format should be cached: a second AddField must not call FieldsWriter again.
+	fi2 := newFloatField(t, "vec2", 4)
+	if _, err := c.AddField(fi2); err != nil {
+		t.Fatalf("second AddField: %v", err)
+	}
+	if f.calls != 1 {
+		t.Fatalf("FieldsWriter called twice; expected caching: %d calls", f.calls)
+	}
+}
+
+// TestVectorValuesConsumer_CodecKnnNilFallsBackToError verifies that when the
+// codec returns a nil KnnVectorsFormat, AddField still returns
+// ErrVectorValuesConsumerNoKnnFormat (matching the Java IllegalStateException
+// path when codec.knnVectorsFormat() is null).
+func TestVectorValuesConsumer_CodecKnnNilFallsBackToError(t *testing.T) {
+	codec := &fakeCodecWithKnn{knn: nil}
+	dir := store.NewByteBuffersDirectory()
+	info := NewSegmentInfo("seg0", 3, dir)
+	c := newVectorValuesConsumer(codec, dir, info, util.NoOpInfoStream)
+
+	_, err := c.AddField(newFloatField(t, "vec", 4))
+	if !errors.Is(err, ErrVectorValuesConsumerNoKnnFormat) {
+		t.Fatalf("want ErrVectorValuesConsumerNoKnnFormat, got %v", err)
+	}
+}
+
+// TestVectorValuesConsumer_ExplicitFormatOverridesCodec verifies that an
+// explicit setKnnVectorsFormat call takes precedence over codec.KnnVectorsFormat().
+func TestVectorValuesConsumer_ExplicitFormatOverridesCodec(t *testing.T) {
+	// codecKnn would be used by the codec path if not overridden.
+	codecKnnW := &fakeKnnWriter{}
+	codecKnn := &fakeKnnFormat{writer: codecKnnW}
+	codec := &fakeCodecWithKnn{knn: codecKnn}
+
+	// explicit format replaces the codec path.
+	explicitW := &fakeKnnWriter{}
+	explicitFmt := &fakeKnnFormat{writer: explicitW}
+
+	dir := store.NewByteBuffersDirectory()
+	info := NewSegmentInfo("seg0", 3, dir)
+	c := newVectorValuesConsumer(codec, dir, info, util.NoOpInfoStream)
+	c.setKnnVectorsFormat(explicitFmt) // explicit override
+
+	if _, err := c.AddField(newFloatField(t, "vec", 4)); err != nil {
+		t.Fatalf("AddField: %v", err)
+	}
+	if explicitFmt.calls != 1 {
+		t.Fatalf("explicit FieldsWriter not called: got %d calls", explicitFmt.calls)
+	}
+	if codecKnn.calls != 0 {
+		t.Fatalf("codec FieldsWriter should not be called when explicit format is set: got %d calls", codecKnn.calls)
+	}
+}
