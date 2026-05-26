@@ -32,6 +32,11 @@ type Codec interface {
 
 	// TermVectorsFormat returns the term vectors format.
 	TermVectorsFormat() TermVectorsFormat
+
+	// CompoundFormat returns the compound format used to pack per-segment files
+	// into a single .cfs/.cfe pair when useCompoundFile is enabled.
+	// Returns nil when compound-file writing is not supported by this codec.
+	CompoundFormat() CompoundFormat
 }
 
 // PostingsFormat is an interface for encoding/decoding term postings.
@@ -271,6 +276,29 @@ type FieldTypeInterface interface {
 
 	// StoreTermVectorOffsets returns whether term vector offsets are stored.
 	StoreTermVectorOffsets() bool
+}
+
+// CompoundFormat encodes/decodes compound files. It packs many per-segment
+// files into a single .cfs/.cfe pair to reduce file-handle pressure.
+// This is the index-package projection of codecs.CompoundFormat; the two
+// interfaces are structurally identical so that codecs.Lucene90CompoundFormat
+// satisfies both without an explicit adapter.
+type CompoundFormat interface {
+	// Write packs the segment files listed in si.Files() into a compound
+	// (.cfs/.cfe) file pair in dir.
+	Write(dir store.Directory, si *SegmentInfo, ctx store.IOContext) error
+
+	// GetCompoundReader returns a read-only Directory view of the .cfs file.
+	GetCompoundReader(dir store.Directory, si *SegmentInfo) (CompoundDirectory, error)
+}
+
+// CompoundDirectory is a read-only Directory view of a compound file.
+// It extends store.Directory with a checksum-validation hook.
+type CompoundDirectory interface {
+	store.Directory
+
+	// CheckIntegrity validates the checksums of all files in the compound file.
+	CheckIntegrity() error
 }
 
 // SegmentWriteState holds the state for writing a segment.

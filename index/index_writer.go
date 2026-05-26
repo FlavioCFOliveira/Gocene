@@ -807,6 +807,52 @@ func (w *IndexWriter) Commit() error {
 				}
 			}
 		}
+		if codecFlushed && w.config.UseCompoundFile() && codec.CompoundFormat() != nil {
+			// Collect all per-format files written for this segment (every file
+			// with the segment name prefix, excluding the infrastructure files:
+			// .si is written after CFS, .cfs/.cfe are the CFS output targets).
+			// All Gocene codec writers now use CodecUtil.writeIndexHeader /
+			// writeFooter, so every per-format file is embeddable.
+			allFiles, err3 := w.directory.ListAll()
+			if err3 != nil {
+				return fmt.Errorf("commit: list directory for CFS: %w", err3)
+			}
+			prefix := segmentName + "."
+			var segFiles []string
+			for _, f := range allFiles {
+				if len(f) <= len(prefix) || f[:len(prefix)] != prefix {
+					continue
+				}
+				ext := f[len(prefix)-1:]
+				switch ext {
+				case ".si", ".cfs", ".cfe":
+					// .si is written after CFS; .cfs/.cfe are the output targets.
+				default:
+					segFiles = append(segFiles, f)
+				}
+			}
+			if len(segFiles) > 0 {
+				segInfo.SetFiles(segFiles)
+				if err3 := codec.CompoundFormat().Write(w.directory, segInfo, store.IOContextWrite); err3 != nil {
+					return fmt.Errorf("commit: write CFS for %s: %w", segmentName, err3)
+				}
+				// Delete the loose per-format files now packed into CFS.
+				for _, f := range segFiles {
+					if err3 := w.directory.DeleteFile(f); err3 != nil {
+						// Non-fatal: CFS is written; index integrity is preserved.
+						_ = err3
+					}
+				}
+				segInfo.SetFiles([]string{
+					segmentName + ".cfs",
+					segmentName + ".cfe",
+					segmentName + ".si",
+				})
+				segInfo.SetCompoundFile(true)
+			} else {
+				segInfo.SetFiles([]string{segmentName + ".si"})
+			}
+		}
 		if !codecFlushed {
 			// Codec-less or no-DWPT-with-docs path: carry in-memory postings forward.
 			if ps.inMemoryFields != nil {

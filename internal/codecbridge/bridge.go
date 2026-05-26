@@ -45,6 +45,7 @@ package codecbridge
 import (
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // init installs the production Lucene 10.4 codec as the default codec
@@ -114,4 +115,33 @@ func (b *bridgeCodec) SegmentInfoFormat() index.SegmentInfoFormat {
 
 func (b *bridgeCodec) TermVectorsFormat() index.TermVectorsFormat {
 	return &termVectorsFormatAdapter{inner: b.inner.TermVectorsFormat()}
+}
+
+func (b *bridgeCodec) CompoundFormat() index.CompoundFormat {
+	cf := b.inner.CompoundFormat()
+	if cf == nil {
+		return nil
+	}
+	return &compoundFormatAdapter{inner: cf}
+}
+
+// compoundFormatAdapter adapts a codecs.CompoundFormat to index.CompoundFormat.
+// codecs.CompoundDirectory and index.CompoundDirectory are structurally
+// equivalent (both embed store.Directory plus CheckIntegrity() error). Any
+// concrete value satisfying one satisfies the other, so we return the concrete
+// value directly via the index.CompoundDirectory interface.
+type compoundFormatAdapter struct {
+	inner codecs.CompoundFormat
+}
+
+func (a *compoundFormatAdapter) Write(dir store.Directory, si *index.SegmentInfo, ctx store.IOContext) error {
+	return a.inner.Write(dir, si, ctx)
+}
+
+func (a *compoundFormatAdapter) GetCompoundReader(dir store.Directory, si *index.SegmentInfo) (index.CompoundDirectory, error) {
+	cd, err := a.inner.GetCompoundReader(dir, si)
+	if err != nil {
+		return nil, err
+	}
+	return cd, nil
 }

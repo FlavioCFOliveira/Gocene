@@ -35,6 +35,11 @@ type Codec interface {
 
 	// DocValuesFormat returns the doc values format.
 	DocValuesFormat() DocValuesFormat
+
+	// CompoundFormat returns the compound format used to pack per-segment files
+	// into a single .cfs/.cfe pair when useCompoundFile is true on the index.
+	// Returns nil when compound-file writing is not supported by this codec.
+	CompoundFormat() CompoundFormat
 }
 
 // BaseCodec provides common functionality.
@@ -79,6 +84,11 @@ func (c *BaseCodec) TermVectorsFormat() TermVectorsFormat {
 
 // DocValuesFormat returns the doc values format.
 func (c *BaseCodec) DocValuesFormat() DocValuesFormat {
+	return nil
+}
+
+// CompoundFormat returns the compound format. Returns nil by default.
+func (c *BaseCodec) CompoundFormat() CompoundFormat {
 	return nil
 }
 

@@ -547,9 +547,14 @@ type SimpleFSIndexInput struct {
 }
 
 // ReadByte reads a single byte.
+// Returns io.EOF when the slice boundary has been reached, matching Lucene's
+// FSIndexInput.readInternal bounds enforcement.
 func (in *SimpleFSIndexInput) ReadByte() (byte, error) {
 	if !in.directory.IsOpen() {
 		return 0, ErrIllegalState
+	}
+	if in.GetFilePointer() >= in.Length() {
+		return 0, io.EOF
 	}
 
 	b := make([]byte, 1)
@@ -566,9 +571,14 @@ func (in *SimpleFSIndexInput) ReadByte() (byte, error) {
 }
 
 // ReadBytes reads len(b) bytes into b.
+// Returns io.ErrUnexpectedEOF when the request would exceed the slice boundary,
+// matching Lucene's FSIndexInput.readInternal bounds enforcement.
 func (in *SimpleFSIndexInput) ReadBytes(b []byte) error {
 	if !in.directory.IsOpen() {
 		return ErrIllegalState
+	}
+	if int64(len(b)) > in.Length()-in.GetFilePointer() {
+		return io.ErrUnexpectedEOF
 	}
 
 	n, err := io.ReadFull(in.file, b)

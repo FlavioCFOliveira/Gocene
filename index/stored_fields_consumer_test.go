@@ -315,6 +315,7 @@ func (failingCodec) FieldInfosFormat() FieldInfosFormat     { return nil }
 func (failingCodec) SegmentInfosFormat() SegmentInfosFormat { return nil }
 func (failingCodec) SegmentInfoFormat() SegmentInfoFormat   { return nil }
 func (failingCodec) TermVectorsFormat() TermVectorsFormat   { return nil }
+func (failingCodec) CompoundFormat() CompoundFormat         { return nil }
 
 // failingStoredFieldsFormat always fails FieldsWriter.
 type failingStoredFieldsFormat struct{}

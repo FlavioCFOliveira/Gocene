@@ -83,5 +83,10 @@ func (c *FilterCodec) DocValuesFormat() DocValuesFormat {
 	return c.delegate.DocValuesFormat()
 }
 
+// CompoundFormat returns the delegate's compound format.
+func (c *FilterCodec) CompoundFormat() CompoundFormat {
+	return c.delegate.CompoundFormat()
+}
+
 // Ensure FilterCodec satisfies the Codec interface.
 var _ Codec = (*FilterCodec)(nil)

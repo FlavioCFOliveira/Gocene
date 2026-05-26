@@ -13,6 +13,16 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
+// Codec envelope constants for Lucene104StoredFieldsWriter.
+// NOTE (DEVIATION): Lucene 10.4.0 uses "Lucene90StoredFieldsFastData" with
+// the LZ4-compressed block format. Gocene uses a simpler in-memory format
+// under a distinct codec name so that these files can be packed into CFS via
+// copyFileBody (which requires the standard 16-byte CodecUtil footer).
+const (
+	lucene104SFDataCodec   = "Gocene104StoredFieldsData"
+	lucene104SFDataVersion = int32(0)
+)
+
 // StoredFieldsFormat handles encoding/decoding of stored fields.
 // This is the Go port of Lucene's org.apache.lucene.codecs.StoredFieldsFormat.
 //
@@ -176,32 +186,23 @@ func (r *Lucene104StoredFieldsReader) load() error {
 	fileName := r.segmentInfo.Name() + ".fdt"
 
 	if !r.directory.FileExists(fileName) {
-		// No stored fields file - return empty reader
+		// No stored fields file — return empty reader.
 		return nil
 	}
 
-	in, err := r.directory.OpenInput(fileName, store.IOContext{Context: store.ContextRead})
+	rawIn, err := r.directory.OpenInput(fileName, store.IOContext{Context: store.ContextRead})
 	if err != nil {
 		return fmt.Errorf("failed to open stored fields file: %w", err)
 	}
-	defer in.Close()
+	defer rawIn.Close()
 
-	// Read magic number
-	magic, err := store.ReadUint32(in)
-	if err != nil {
-		return fmt.Errorf("failed to read magic number: %w", err)
-	}
-	if magic != 0x46445400 { // "FDT\0"
-		return fmt.Errorf("invalid magic number: expected 0x46445400, got 0x%08x", magic)
-	}
+	in := store.NewChecksumIndexInput(rawIn)
 
-	// Read version
-	version, err := store.ReadVInt(in)
-	if err != nil {
-		return fmt.Errorf("failed to read version: %w", err)
-	}
-	if version != 1 {
-		return fmt.Errorf("unsupported version: %d", version)
+	// Validate standard CodecUtil index header.
+	segID := r.segmentInfo.GetID()
+	if _, err := CheckIndexHeader(in, lucene104SFDataCodec,
+		lucene104SFDataVersion, lucene104SFDataVersion, segID, ""); err != nil {
+		return fmt.Errorf("stored fields header mismatch for %s: %w", fileName, err)
 	}
 
 	// Read number of documents
@@ -449,7 +450,7 @@ func (w *Lucene104StoredFieldsWriter) WriteField(field document.IndexableField) 
 	return nil
 }
 
-// Close releases resources.
+// Close releases resources and flushes all documents to disk.
 func (w *Lucene104StoredFieldsWriter) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -461,20 +462,18 @@ func (w *Lucene104StoredFieldsWriter) Close() error {
 
 	// Create output file
 	fileName := w.segmentInfo.Name() + ".fdt"
-	out, err := w.directory.CreateOutput(fileName, store.IOContext{Context: store.ContextWrite})
+	rawOut, err := w.directory.CreateOutput(fileName, store.IOContext{Context: store.ContextWrite})
 	if err != nil {
 		return fmt.Errorf("failed to create stored fields file: %w", err)
 	}
+	out := store.NewChecksumIndexOutput(rawOut)
 	defer out.Close()
 
-	// Write magic number
-	if err := store.WriteUint32(out, 0x46445400); err != nil {
-		return fmt.Errorf("failed to write magic number: %w", err)
-	}
-
-	// Write version
-	if err := store.WriteVInt(out, 1); err != nil {
-		return fmt.Errorf("failed to write version: %w", err)
+	// Write standard CodecUtil index header so this file can be packed into a
+	// CFS compound file via copyFileBody (which requires a 16-byte footer).
+	segID := w.segmentInfo.GetID()
+	if err := WriteIndexHeader(out, lucene104SFDataCodec, lucene104SFDataVersion, segID, ""); err != nil {
+		return fmt.Errorf("failed to write stored fields header: %w", err)
 	}
 
 	// Write number of documents
@@ -489,6 +488,10 @@ func (w *Lucene104StoredFieldsWriter) Close() error {
 		}
 	}
 
+	// Write standard 16-byte CodecUtil footer.
+	if err := WriteFooter(out); err != nil {
+		return fmt.Errorf("failed to write stored fields footer: %w", err)
+	}
 	return nil
 }
 

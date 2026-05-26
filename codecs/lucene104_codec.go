@@ -22,6 +22,7 @@ type Lucene104Codec struct {
 	segmentInfosFormat SegmentInfosFormat
 	termVectorsFormat  TermVectorsFormat
 	docValuesFormat    DocValuesFormat
+	compoundFormat     CompoundFormat
 }
 
 // NewLucene104Codec creates a new Lucene104Codec.
@@ -34,6 +35,7 @@ func NewLucene104Codec() *Lucene104Codec {
 		segmentInfosFormat: NewLucene104SegmentInfosFormat(),
 		termVectorsFormat:  NewLucene104TermVectorsFormat(),
 		docValuesFormat:    NewLucene90DocValuesFormat(),
+		compoundFormat:     NewLucene90CompoundFormat(),
 	}
 }
 
@@ -65,6 +67,11 @@ func (c *Lucene104Codec) TermVectorsFormat() TermVectorsFormat {
 // DocValuesFormat returns the doc values format.
 func (c *Lucene104Codec) DocValuesFormat() DocValuesFormat {
 	return c.docValuesFormat
+}
+
+// CompoundFormat returns the compound format.
+func (c *Lucene104Codec) CompoundFormat() CompoundFormat {
+	return c.compoundFormat
 }
 
 // NewLucene99Codec creates a codec that is functionally identical to Lucene104Codec.

@@ -2019,3 +2019,7 @@ func (c *customTestCodec) SegmentInfoFormat() index.SegmentInfoFormat {
 func (c *customTestCodec) TermVectorsFormat() index.TermVectorsFormat {
 	return nil
 }
+
+func (c *customTestCodec) CompoundFormat() index.CompoundFormat {
+	return nil
+}
