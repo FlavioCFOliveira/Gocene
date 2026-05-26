@@ -20,15 +20,18 @@ import (
 // Gocene deviations:
 //   - AbstractKnnCollector fields (k, visitedCount, visitLimit, earlyTerminated)
 //     are embedded directly; the stub search.AbstractKnnCollector is not used.
-//   - KnnSearchStrategy parameter is accepted but not yet applied (stub).
+//   - KnnSearchStrategy is stored but not yet applied to HNSW traversal; the
+//     strategy affects graph-level traversal which requires the HNSW reader
+//     wiring deferred to a future sprint.
 //   - IntIntHashMap is replaced with a plain Go map[int]int.
 type DiversifyingNearestChildrenKnnCollector struct {
-	k              int
-	visitLimit     int64
-	visitedCount   int64
+	k               int
+	visitLimit      int64
+	visitedCount    int64
 	earlyTerminated bool
-	parentBitSet   util.BitSet
-	heap           *nodeIdCachingHeap
+	parentBitSet    util.BitSet
+	heap            *nodeIdCachingHeap
+	strategy        search.KnnSearchStrategy // stored; applied when HNSW wiring is complete
 }
 
 // NewDiversifyingNearestChildrenKnnCollector creates a collector.
@@ -49,14 +52,21 @@ func NewDiversifyingNearestChildrenKnnCollector(k, visitLimit int, parentBitSet 
 }
 
 // NewDiversifyingNearestChildrenKnnCollectorWithStrategy creates a collector with
-// an explicit search strategy (strategy is accepted but not yet applied).
+// an explicit search strategy.  The strategy is stored for future use when the
+// HNSW graph traversal is wired; it does not affect collection behaviour today.
 func NewDiversifyingNearestChildrenKnnCollectorWithStrategy(k, visitLimit int, strategy search.KnnSearchStrategy, parentBitSet util.BitSet) (*DiversifyingNearestChildrenKnnCollector, error) {
 	c, err := NewDiversifyingNearestChildrenKnnCollector(k, visitLimit, parentBitSet)
 	if err != nil {
 		return nil, err
 	}
-	_ = strategy
+	c.strategy = strategy
 	return c, nil
+}
+
+// GetStrategy returns the KnnSearchStrategy stored on this collector.
+// Returns nil when no strategy was supplied.
+func (c *DiversifyingNearestChildrenKnnCollector) GetStrategy() search.KnnSearchStrategy {
+	return c.strategy
 }
 
 // Collect adds a candidate child doc with its similarity score.
@@ -138,11 +148,11 @@ func (a parentChildScore) less(b parentChildScore) bool {
 // nodeIdCachingHeap is a 1-indexed min-heap that tracks parent → heap position
 // so that a parent's score can be updated in O(log n) instead of O(n).
 type nodeIdCachingHeap struct {
-	maxSize        int
-	nodes          []parentChildScore
-	size           int
-	parentToIndex  map[int]int // parentID → 1-based heap index
-	closed         bool
+	maxSize       int
+	nodes         []parentChildScore
+	size          int
+	parentToIndex map[int]int // parentID → 1-based heap index
+	closed        bool
 }
 
 func newNodeIdCachingHeap(maxSize int) *nodeIdCachingHeap {
@@ -158,7 +168,7 @@ func newNodeIdCachingHeap(maxSize int) *nodeIdCachingHeap {
 	return h
 }
 
-func (h *nodeIdCachingHeap) topNode() int   { return h.nodes[1].child }
+func (h *nodeIdCachingHeap) topNode() int      { return h.nodes[1].child }
 func (h *nodeIdCachingHeap) topScore() float32 { return h.nodes[1].score }
 
 func (h *nodeIdCachingHeap) pushIn(child, parent int, score float32) {

@@ -34,15 +34,15 @@ type PointInSetIncludingScoreQueryStream interface {
 //
 // Mirrors org.apache.lucene.search.join.PointInSetIncludingScoreQuery.
 type PointInSetIncludingScoreQuery struct {
-	scoreMode                ScoreMode
-	originalQuery            search.Query
+	scoreMode                 ScoreMode
+	originalQuery             search.Query
 	multipleValuesPerDocument bool
-	field                    string
-	bytesPerDim              int
-	sortedPackedPoints       *index.PrefixCodedTerms
-	aggregatedJoinScores     []float32
+	field                     string
+	bytesPerDim               int
+	sortedPackedPoints        *index.PrefixCodedTerms
+	aggregatedJoinScores      []float32
 	// valueFormatter converts raw packed bytes to human-readable string.
-	valueFormatter           func([]byte) string
+	valueFormatter func([]byte) string
 }
 
 // NewPointInSetIncludingScoreQuery creates a PointInSetIncludingScoreQuery.
@@ -68,11 +68,11 @@ func NewPointInSetIncludingScoreQuery(
 		return nil, fmt.Errorf("bytesPerDim must be in [1, 16]; got %d", bytesPerDim)
 	}
 	q := &PointInSetIncludingScoreQuery{
-		scoreMode:                scoreMode,
-		originalQuery:            originalQuery,
+		scoreMode:                 scoreMode,
+		originalQuery:             originalQuery,
 		multipleValuesPerDocument: multipleValuesPerDocument,
-		field:                    field,
-		bytesPerDim:              bytesPerDim,
+		field:                     field,
+		bytesPerDim:               bytesPerDim,
 	}
 	if valueFormatter != nil {
 		q.valueFormatter = valueFormatter
@@ -404,12 +404,12 @@ func (s *pointInSetIncludingScoreScorer) Score() float32 {
 	}
 	return 0
 }
-func (s *pointInSetIncludingScoreScorer) GetMaxScore(_ int) float32 { return float32(math.Inf(1)) }
-func (s *pointInSetIncludingScoreScorer) DocID() int                { return s.disi.DocID() }
-func (s *pointInSetIncludingScoreScorer) NextDoc() (int, error)     { return s.disi.NextDoc() }
+func (s *pointInSetIncludingScoreScorer) GetMaxScore(_ int) float32  { return float32(math.Inf(1)) }
+func (s *pointInSetIncludingScoreScorer) DocID() int                 { return s.disi.DocID() }
+func (s *pointInSetIncludingScoreScorer) NextDoc() (int, error)      { return s.disi.NextDoc() }
 func (s *pointInSetIncludingScoreScorer) Advance(t int) (int, error) { return s.disi.Advance(t) }
-func (s *pointInSetIncludingScoreScorer) Cost() int64               { return s.disi.Cost() }
-func (s *pointInSetIncludingScoreScorer) DocIDRunEnd() int          { return s.disi.DocIDRunEnd() }
+func (s *pointInSetIncludingScoreScorer) Cost() int64                { return s.disi.Cost() }
+func (s *pointInSetIncludingScoreScorer) DocIDRunEnd() int           { return s.disi.DocIDRunEnd() }
 
 // ── stub weight methods ──────────────────────────────────────────────────────
 
@@ -482,6 +482,6 @@ func defaultPointFormatter(value []byte) string {
 }
 
 // interface compliance
-var _ search.Query  = (*PointInSetIncludingScoreQuery)(nil)
+var _ search.Query = (*PointInSetIncludingScoreQuery)(nil)
 var _ search.Scorer = (*pointInSetIncludingScoreScorer)(nil)
 var _ search.Scorer = (*pointInSetStubScorer)(nil)

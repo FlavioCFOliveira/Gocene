@@ -18,10 +18,10 @@ type stubSortedDV struct {
 	ords []int // index == docID
 }
 
-func (s *stubSortedDV) DocID() int                    { return -1 }
-func (s *stubSortedDV) NextDoc() (int, error)         { return search.NO_MORE_DOCS, nil }
+func (s *stubSortedDV) DocID() int                      { return -1 }
+func (s *stubSortedDV) NextDoc() (int, error)           { return search.NO_MORE_DOCS, nil }
 func (s *stubSortedDV) Advance(target int) (int, error) { return search.NO_MORE_DOCS, nil }
-func (s *stubSortedDV) Get(docID int) ([]byte, error) { return nil, nil }
+func (s *stubSortedDV) Get(docID int) ([]byte, error)   { return nil, nil }
 func (s *stubSortedDV) GetOrd(docID int) (int, error) {
 	if docID < len(s.ords) {
 		return s.ords[docID], nil
@@ -29,7 +29,7 @@ func (s *stubSortedDV) GetOrd(docID int) (int, error) {
 	return -1, nil
 }
 func (s *stubSortedDV) LookupOrd(ord int) ([]byte, error) { return []byte{byte(ord)}, nil }
-func (s *stubSortedDV) GetValueCount() int                 { return 10 }
+func (s *stubSortedDV) GetValueCount() int                { return 10 }
 
 // stubNumericDV returns a fixed long per doc.
 type stubNumericDV struct {
@@ -73,7 +73,7 @@ func (l *listDISI) Advance(target int) (int, error) {
 	}
 	return l.docID, nil
 }
-func (l *listDISI) Cost() int64    { return int64(len(l.docs)) }
+func (l *listDISI) Cost() int64      { return int64(len(l.docs)) }
 func (l *listDISI) DocIDRunEnd() int { return l.docID + 1 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────

@@ -50,9 +50,9 @@ func TestToParentJoinKnnResults_NeighborsProduct(t *testing.T) {
 		t.Fatalf("NewDiversifyingNearestChildrenKnnCollector: %v", err)
 	}
 
-	mustCollect(t, nn, 2, 0.5, true)  // child 2, parent 3 → accepted
-	mustCollect(t, nn, 0, 0.2, true)  // child 0, parent 1 → accepted
-	mustCollect(t, nn, 4, 1.0, true)  // child 4, parent 5 → accepted; evicts score 0.2
+	mustCollect(t, nn, 2, 0.5, true) // child 2, parent 3 → accepted
+	mustCollect(t, nn, 0, 0.2, true) // child 0, parent 1 → accepted
+	mustCollect(t, nn, 4, 1.0, true) // child 4, parent 5 → accepted; evicts score 0.2
 
 	want := float32(0.5)
 	if got := nn.MinCompetitiveSimilarity(); got != want {

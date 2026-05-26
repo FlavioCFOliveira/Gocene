@@ -402,11 +402,11 @@ func NewGlobalOrdinalsWithScoreCollectorNoScore(field string, ordinalMap *index.
 
 // interface compliance
 var (
-	_ search.Collector   = (*GlobalOrdinalsWithScoreCollectorMin)(nil)
-	_ search.Collector   = (*GlobalOrdinalsWithScoreCollectorMax)(nil)
-	_ search.Collector   = (*GlobalOrdinalsWithScoreCollectorSum)(nil)
-	_ search.Collector   = (*GlobalOrdinalsWithScoreCollectorAvg)(nil)
-	_ search.Collector   = (*GlobalOrdinalsWithScoreCollectorNoScore)(nil)
+	_ search.Collector     = (*GlobalOrdinalsWithScoreCollectorMin)(nil)
+	_ search.Collector     = (*GlobalOrdinalsWithScoreCollectorMax)(nil)
+	_ search.Collector     = (*GlobalOrdinalsWithScoreCollectorSum)(nil)
+	_ search.Collector     = (*GlobalOrdinalsWithScoreCollectorAvg)(nil)
+	_ search.Collector     = (*GlobalOrdinalsWithScoreCollectorNoScore)(nil)
 	_ search.LeafCollector = (*globalOrdsWithScoreLeafCollector)(nil)
 	_ search.LeafCollector = (*segmentOrdsWithScoreLeafCollector)(nil)
 )

@@ -122,8 +122,29 @@ type globalOrdinalsWithScoreWeight struct {
 	boost float32
 }
 
-func (w *globalOrdinalsWithScoreWeight) Scorer(_ *index.LeafReaderContext) (search.Scorer, error) {
-	return newGlobalOrdinalsWithScoreStubScorer(w.boost), nil
+func (w *globalOrdinalsWithScoreWeight) Scorer(ctx *index.LeafReaderContext) (search.Scorer, error) {
+	values, err := getSortedDocValues(ctx, w.query.joinField)
+	if err != nil {
+		return nil, fmt.Errorf("globalOrdinalsWithScoreQuery: get SortedDocValues: %w", err)
+	}
+	if values == nil {
+		return nil, nil
+	}
+	collector := w.query.collector
+	globalOrds := w.query.globalOrds
+	boost := w.boost
+	var segToGlobal []int64
+	if globalOrds != nil && ctx != nil {
+		segToGlobal = globalOrds.GetGlobalOrds(ctx.Ord())
+	}
+
+	return &globalOrdinalsWithScoreScorer{
+		values:      values,
+		collector:   collector,
+		segToGlobal: segToGlobal,
+		boost:       boost,
+		currentDoc:  -1,
+	}, nil
 }
 
 func (w *globalOrdinalsWithScoreWeight) ScorerSupplier(_ *index.LeafReaderContext) (search.ScorerSupplier, error) {
@@ -143,34 +164,59 @@ func (w *globalOrdinalsWithScoreWeight) Explain(_ *index.LeafReaderContext, _ in
 	return search.NewExplanation(false, 0, "GlobalOrdinalsWithScoreWeight stub"), nil
 }
 
-func (w *globalOrdinalsWithScoreWeight) Count(_ *index.LeafReaderContext) (int, error) { return -1, nil }
+func (w *globalOrdinalsWithScoreWeight) Count(_ *index.LeafReaderContext) (int, error) {
+	return -1, nil
+}
 
 func (w *globalOrdinalsWithScoreWeight) Matches(_ *index.LeafReaderContext, _ int) (search.Matches, error) {
 	return nil, nil
 }
 
-// globalOrdinalsWithScoreStubScorer is a no-match placeholder scorer.
-type globalOrdinalsWithScoreStubScorer struct {
-	*search.BaseDocIdSetIterator
-	boost float32
+// globalOrdinalsWithScoreScorer iterates matching "to" documents and returns
+// the per-ordinal score from the GlobalOrdinalsWithScoreCollector.
+type globalOrdinalsWithScoreScorer struct {
+	values      index.SortedDocValues
+	collector   *GlobalOrdinalsWithScoreCollector
+	segToGlobal []int64
+	boost       float32
+	currentDoc  int
+	curScore    float32
 }
 
-func newGlobalOrdinalsWithScoreStubScorer(boost float32) *globalOrdinalsWithScoreStubScorer {
-	return &globalOrdinalsWithScoreStubScorer{
-		BaseDocIdSetIterator: &search.BaseDocIdSetIterator{},
-		boost:                boost,
+func (s *globalOrdinalsWithScoreScorer) advance(target int) (int, error) {
+	for {
+		doc, err := s.values.Advance(target)
+		if err != nil || doc == search.NO_MORE_DOCS {
+			s.currentDoc = search.NO_MORE_DOCS
+			return search.NO_MORE_DOCS, err
+		}
+		segOrd, err := s.values.GetOrd(doc)
+		if err != nil || segOrd < 0 {
+			target = doc + 1
+			continue
+		}
+		globalOrd := segOrd
+		if s.segToGlobal != nil && segOrd < len(s.segToGlobal) {
+			globalOrd = int(s.segToGlobal[segOrd])
+		}
+		if s.collector.Match(globalOrd) {
+			s.currentDoc = doc
+			s.curScore = s.collector.Score(globalOrd) * s.boost
+			return doc, nil
+		}
+		target = doc + 1
 	}
 }
 
-func (s *globalOrdinalsWithScoreStubScorer) Score() float32         { return 0 }
-func (s *globalOrdinalsWithScoreStubScorer) GetMaxScore(_ int) float32 { return float32(math.Inf(1)) }
-func (s *globalOrdinalsWithScoreStubScorer) DocID() int                { return search.NO_MORE_DOCS }
-func (s *globalOrdinalsWithScoreStubScorer) NextDoc() (int, error)     { return search.NO_MORE_DOCS, nil }
-func (s *globalOrdinalsWithScoreStubScorer) Advance(_ int) (int, error) {
-	return search.NO_MORE_DOCS, nil
+func (s *globalOrdinalsWithScoreScorer) Score() float32            { return s.curScore }
+func (s *globalOrdinalsWithScoreScorer) GetMaxScore(_ int) float32 { return float32(math.Inf(1)) }
+func (s *globalOrdinalsWithScoreScorer) DocID() int                { return s.currentDoc }
+func (s *globalOrdinalsWithScoreScorer) NextDoc() (int, error) {
+	return s.advance(s.currentDoc + 1)
 }
-func (s *globalOrdinalsWithScoreStubScorer) Cost() int64       { return 0 }
-func (s *globalOrdinalsWithScoreStubScorer) DocIDRunEnd() int  { return search.NO_MORE_DOCS }
+func (s *globalOrdinalsWithScoreScorer) Advance(target int) (int, error) { return s.advance(target) }
+func (s *globalOrdinalsWithScoreScorer) Cost() int64                     { return 0 }
+func (s *globalOrdinalsWithScoreScorer) DocIDRunEnd() int                { return s.currentDoc + 1 }
 
-var _ search.Query  = (*GlobalOrdinalsWithScoreQuery)(nil)
-var _ search.Scorer = (*globalOrdinalsWithScoreStubScorer)(nil)
+var _ search.Query = (*GlobalOrdinalsWithScoreQuery)(nil)
+var _ search.Scorer = (*globalOrdinalsWithScoreScorer)(nil)

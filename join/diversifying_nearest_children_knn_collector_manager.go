@@ -36,7 +36,7 @@ func (m *DiversifyingNearestChildrenKnnCollectorManager) GetParentsFilter() BitS
 // top-K (childDoc, score) pairs with the diversification invariant that no
 // parent contributes more than one child.
 type DiversifyingChildKnnCollector struct {
-	k         int
+	k             int
 	parentToChild map[int]int
 	parentScore   map[int]float32
 }

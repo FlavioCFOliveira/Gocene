@@ -23,10 +23,10 @@ type LeafReaderDocValuesFunc[DV any] func(reader *index.LeafReader) (DV, error)
 // segment switch is handled by GetLeafCollector, which builds a new leaf
 // collector wrapping a fresh DV cursor.
 type DocValuesTermsCollector[DV any] struct {
-	dvFunc     LeafReaderDocValuesFunc[DV]
+	dvFunc LeafReaderDocValuesFunc[DV]
 	// collectFn is the per-document collect function injected by the concrete subtype.
-	collectFn  func(dv DV, doc int) error
-	scoreMode  search.ScoreMode
+	collectFn func(dv DV, doc int) error
+	scoreMode search.ScoreMode
 }
 
 // newDocValuesTermsCollector builds the base.

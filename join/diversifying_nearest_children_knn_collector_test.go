@@ -8,23 +8,31 @@ import (
 	"math"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
+
+// stubKnnStrategy is a minimal KnnSearchStrategy for testing.
+type stubKnnStrategy struct{ name string }
+
+func (s *stubKnnStrategy) StrategyName() string { return s.name }
+
+var _ search.KnnSearchStrategy = (*stubKnnStrategy)(nil)
 
 // stubBitSet is a minimal util.BitSet stub that marks every other bit as a parent.
 type stubBitSet struct {
 	size int
 }
 
-func (s *stubBitSet) Get(i int) bool                  { return i%2 == 0 }
-func (s *stubBitSet) Length() int                     { return s.size }
-func (s *stubBitSet) Set(i int)                       {}
-func (s *stubBitSet) Clear(i int)                     {}
-func (s *stubBitSet) ClearAll()                       {}
-func (s *stubBitSet) ClearRange(_, _ int)             {}
-func (s *stubBitSet) GetAndSet(i int) bool            { return i%2 == 0 }
-func (s *stubBitSet) Cardinality() int                { return s.size / 2 }
-func (s *stubBitSet) ApproximateCardinality() int     { return s.size / 2 }
+func (s *stubBitSet) Get(i int) bool              { return i%2 == 0 }
+func (s *stubBitSet) Length() int                 { return s.size }
+func (s *stubBitSet) Set(i int)                   {}
+func (s *stubBitSet) Clear(i int)                 {}
+func (s *stubBitSet) ClearAll()                   {}
+func (s *stubBitSet) ClearRange(_, _ int)         {}
+func (s *stubBitSet) GetAndSet(i int) bool        { return i%2 == 0 }
+func (s *stubBitSet) Cardinality() int            { return s.size / 2 }
+func (s *stubBitSet) ApproximateCardinality() int { return s.size / 2 }
 func (s *stubBitSet) NextSetBitBounded(from int) int {
 	for i := from; i < s.size; i++ {
 		if i%2 == 0 {
@@ -43,7 +51,7 @@ func (s *stubBitSet) PrevSetBit(from int) int {
 	return -1
 }
 func (s *stubBitSet) OrIterator(_ util.DocIdSetIterator) error { return nil }
-func (s *stubBitSet) RamBytesUsed() int64                     { return 0 }
+func (s *stubBitSet) RamBytesUsed() int64                      { return 0 }
 
 var _ util.BitSet = (*stubBitSet)(nil)
 
@@ -94,7 +102,7 @@ func TestDiversifyingNearestChildrenKnnCollector_DiversifyPerParent(t *testing.T
 	bs := newStubBitSet(10)
 	c, _ := NewDiversifyingNearestChildrenKnnCollector(5, 100, bs)
 
-	_, _ = c.Collect(1, 0.5) // child=1, parent=2
+	_, _ = c.Collect(1, 0.5)         // child=1, parent=2
 	accepted, _ := c.Collect(1, 0.8) // same parent=2, higher score
 	if !accepted {
 		t.Error("expected update accepted for higher score on same parent")
@@ -149,5 +157,58 @@ func TestDiversifyingNearestChildrenKnnCollector_String(t *testing.T) {
 	s := c.String()
 	if s == "" {
 		t.Error("String() returned empty string")
+	}
+}
+
+// TestDiversifyingNearestChildrenKnnCollector_StrategyStoredAndRetrieved verifies
+// that NewDiversifyingNearestChildrenKnnCollectorWithStrategy stores the strategy
+// and GetStrategy returns the same instance.
+func TestDiversifyingNearestChildrenKnnCollector_StrategyStoredAndRetrieved(t *testing.T) {
+	bs := newStubBitSet(20)
+	strategy := &stubKnnStrategy{name: "hnsw"}
+
+	c, err := NewDiversifyingNearestChildrenKnnCollectorWithStrategy(5, 100, strategy, bs)
+	if err != nil {
+		t.Fatalf("NewDiversifyingNearestChildrenKnnCollectorWithStrategy: %v", err)
+	}
+	got := c.GetStrategy()
+	if got == nil {
+		t.Fatal("GetStrategy() returned nil, want non-nil")
+	}
+	if got.StrategyName() != "hnsw" {
+		t.Errorf("GetStrategy().StrategyName() = %q, want %q", got.StrategyName(), "hnsw")
+	}
+}
+
+// TestDiversifyingNearestChildrenKnnCollector_NoStrategyNil verifies that a
+// collector created without a strategy returns nil from GetStrategy.
+func TestDiversifyingNearestChildrenKnnCollector_NoStrategyNil(t *testing.T) {
+	bs := newStubBitSet(10)
+	c, _ := NewDiversifyingNearestChildrenKnnCollector(3, 50, bs)
+	if got := c.GetStrategy(); got != nil {
+		t.Errorf("GetStrategy() = %v, want nil", got)
+	}
+}
+
+// TestDiversifyingNearestChildrenKnnCollector_StrategyDoesNotAffectCollection
+// verifies that storing a strategy does not change collection results
+// (the strategy is deferred to HNSW traversal wiring).
+func TestDiversifyingNearestChildrenKnnCollector_StrategyDoesNotAffectCollection(t *testing.T) {
+	bs := newStubBitSet(20)
+	strategy := &stubKnnStrategy{name: "seeded"}
+
+	withStrategy, _ := NewDiversifyingNearestChildrenKnnCollectorWithStrategy(3, 100, strategy, bs)
+	without, _ := NewDiversifyingNearestChildrenKnnCollector(3, 100, bs)
+
+	// Same collect sequence.
+	for _, c := range []*DiversifyingNearestChildrenKnnCollector{withStrategy, without} {
+		_, _ = c.Collect(1, 0.9)
+		_, _ = c.Collect(3, 0.7)
+	}
+
+	d1 := withStrategy.TopDocs()
+	d2 := without.TopDocs()
+	if len(d1) != len(d2) {
+		t.Errorf("TopDocs length mismatch: with=%d without=%d", len(d1), len(d2))
 	}
 }
