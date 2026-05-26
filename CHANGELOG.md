@@ -100,7 +100,7 @@ byte-level wire compatibility with the JVM implementation.
 
 | Go package | Lucene source module | Status |
 |---|---|---|
-| `analysis` | `lucene/analysis` | Partial — core pipeline complete; Snowball/Hunspell/morph deferred |
+| `analysis` | `lucene/analysis` | Ported — core pipeline, Snowball (30 languages), Hunspell, morphology |
 | `analysis/br` | `lucene/analysis` | Ported |
 | `analysis/charfilter` | `lucene/analysis` | Ported |
 | `analysis/cjk` | `lucene/analysis` | Ported |

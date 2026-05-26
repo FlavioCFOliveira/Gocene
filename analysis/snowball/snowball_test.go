@@ -82,27 +82,47 @@ func TestSnowball_English(t *testing.T) {
 	}
 }
 
-// TestSnowball_EmptyTerm verifies that each supported language stemmer
+// TestSnowball_EmptyTerm verifies that every supported language stemmer
 // returns an empty string for empty input.
 //
 // Source: TestSnowball.testEmptyTerm
 // Deviation: Java uses language strings to construct stemmers via reflection;
-// Gocene tests a representative set of concrete stemmers directly.
+// Gocene tests all concrete stemmers directly.
 func TestSnowball_EmptyTerm(t *testing.T) {
 	stemmers := []struct {
 		name    string
 		stemmer SnowballStemmer
 	}{
-		{"English", ext.NewEnglishStemmer()},
-		{"French", ext.NewFrenchStemmer()},
-		{"Spanish", ext.NewSpanishStemmer()},
-		{"Italian", ext.NewItalianStemmer()},
-		{"Portuguese", ext.NewPortugueseStemmer()},
-		{"Finnish", ext.NewFinnishStemmer()},
-		{"Swedish", ext.NewSwedishStemmer()},
-		{"Norwegian", ext.NewNorwegianStemmer()},
+		{"Arabic", ext.NewArabicStemmer()},
+		{"Armenian", ext.NewArmenianStemmer()},
+		{"Basque", ext.NewBasqueStemmer()},
+		{"Catalan", ext.NewCatalanStemmer()},
 		{"Danish", ext.NewDanishStemmer()},
+		{"Dutch", ext.NewDutchStemmer()},
+		{"English", ext.NewEnglishStemmer()},
+		{"Estonian", ext.NewEstonianStemmer()},
+		{"Finnish", ext.NewFinnishStemmer()},
+		{"French", ext.NewFrenchStemmer()},
+		{"German", ext.NewGermanStemmer()},
+		{"Greek", ext.NewGreekStemmer()},
+		{"Hindi", ext.NewHindiStemmer()},
+		{"Hungarian", ext.NewHungarianStemmer()},
+		{"Indonesian", ext.NewIndonesianStemmer()},
+		{"Irish", ext.NewIrishStemmer()},
+		{"Italian", ext.NewItalianStemmer()},
+		{"Lithuanian", ext.NewLithuanianStemmer()},
+		{"Nepali", ext.NewNepaliStemmer()},
+		{"Norwegian", ext.NewNorwegianStemmer()},
+		{"Porter", ext.NewPorterStemmer()},
+		{"Portuguese", ext.NewPortugueseStemmer()},
+		{"Romanian", ext.NewRomanianStemmer()},
 		{"Russian", ext.NewRussianStemmer()},
+		{"Serbian", ext.NewSerbianStemmer()},
+		{"Spanish", ext.NewSpanishStemmer()},
+		{"Swedish", ext.NewSwedishStemmer()},
+		{"Tamil", ext.NewTamilStemmer()},
+		{"Turkish", ext.NewTurkishStemmer()},
+		{"Yiddish", ext.NewYiddishStemmer()},
 	}
 
 	for _, s := range stemmers {
@@ -124,5 +144,129 @@ func TestSnowball_FilterTokens(t *testing.T) {
 	got := stemWord(t, "accents", ext.NewEnglishStemmer())
 	if got != "accent" {
 		t.Errorf("stem(accents) = %q, want %q", got, "accent")
+	}
+}
+
+// TestSnowball_German verifies the German Snowball stemmer against
+// reference outputs from the Snowball 2.2.0 algorithm.
+func TestSnowball_German(t *testing.T) {
+	tests := []struct{ in, want string }{
+		// umlaut normalisation + suffix removal
+		{"frauen", "frau"},
+		{"schöner", "schon"},
+		{"spielen", "spiel"},
+		{"abgehängt", "abgehangt"},
+	}
+	stemmer := ext.NewGermanStemmer()
+	for _, tc := range tests {
+		got := stemWord(t, tc.in, stemmer)
+		if got != tc.want {
+			t.Errorf("German.Stem(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestSnowball_Dutch verifies the Dutch Snowball stemmer against
+// reference outputs from the Snowball 2.2.0 algorithm.
+func TestSnowball_Dutch(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"fietsen", "fiets"},
+		{"werken", "werk"},
+		{"zingen", "zing"},
+	}
+	stemmer := ext.NewDutchStemmer()
+	for _, tc := range tests {
+		got := stemWord(t, tc.in, stemmer)
+		if got != tc.want {
+			t.Errorf("Dutch.Stem(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestSnowball_Indonesian verifies the Indonesian Snowball stemmer against
+// reference outputs from the Snowball 2.2.0 algorithm.
+func TestSnowball_Indonesian(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"berlari", "lari"},
+		{"membantu", "bantu"},
+		{"perjalanan", "jalan"},
+	}
+	stemmer := ext.NewIndonesianStemmer()
+	for _, tc := range tests {
+		got := stemWord(t, tc.in, stemmer)
+		if got != tc.want {
+			t.Errorf("Indonesian.Stem(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestSnowball_Porter verifies the Porter Snowball stemmer against
+// reference outputs from the Snowball 2.2.0 algorithm.
+func TestSnowball_Porter(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"running", "run"},
+		{"caresses", "caress"},
+		{"flies", "fli"},
+	}
+	stemmer := ext.NewPorterStemmer()
+	for _, tc := range tests {
+		got := stemWord(t, tc.in, stemmer)
+		if got != tc.want {
+			t.Errorf("Porter.Stem(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestSnowball_Greek verifies the Greek Snowball stemmer against
+// reference outputs from the Snowball 2.2.0 algorithm.
+func TestSnowball_Greek(t *testing.T) {
+	tests := []struct{ in, want string }{
+		// tolower + suffix removal
+		{"τρέχω", "τρεχ"},
+		{"ελλάδα", "ελλαδ"},
+		{"σπιτια", "σπιτ"},
+	}
+	stemmer := ext.NewGreekStemmer()
+	for _, tc := range tests {
+		got := stemWord(t, tc.in, stemmer)
+		if got != tc.want {
+			t.Errorf("Greek.Stem(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestSnowball_Hindi verifies the Hindi Snowball stemmer against
+// reference outputs from the Snowball 2.2.0 algorithm.
+func TestSnowball_Hindi(t *testing.T) {
+	tests := []struct{ in, want string }{
+		// short words that should be unchanged (< 2 runes past the first)
+		{"कर", "कर"},
+		// suffix removal: ों → stripped
+		{"लड़कों", "लड़क"},
+	}
+	stemmer := ext.NewHindiStemmer()
+	for _, tc := range tests {
+		got := stemWordKeyword(t, tc.in, stemmer)
+		if got != tc.want {
+			t.Errorf("Hindi.Stem(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestSnowball_Arabic verifies the Arabic Snowball stemmer against
+// reference outputs from the Snowball 2.2.0 algorithm.
+func TestSnowball_Arabic(t *testing.T) {
+	tests := []struct{ in, want string }{
+		// short root: should remain unchanged
+		{"كتاب", "كتاب"},
+		// definite article al- prefix removal
+		{"الكتاب", "كتاب"},
+	}
+	stemmer := ext.NewArabicStemmer()
+	for _, tc := range tests {
+		got := stemWordKeyword(t, tc.in, stemmer)
+		if got != tc.want {
+			t.Errorf("Arabic.Stem(%q) = %q, want %q", tc.in, got, tc.want)
+		}
 	}
 }
