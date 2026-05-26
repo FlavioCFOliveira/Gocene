@@ -66,6 +66,14 @@ type FreqProxTermsWriter struct {
 	// FieldInfo and the returned *TermsHashPerField is wired as the
 	// downstream NextPerField on the FreqProx per-field writer.
 	NextTermsHash FreqProxNextHandler
+
+	// wrappers maps the embedded *TermsHashPerField of each per-field writer
+	// back to its *FreqProxTermsWriterPerField wrapper. This registry is
+	// necessary because Flush receives a map[string]*TermsHashPerField (keyed
+	// by field name) but needs the FreqProx wrapper for each entry. In Java
+	// this is resolved by a direct downcast; Go requires an explicit registry.
+	// Populated by AddField.
+	wrappers map[*TermsHashPerField]*FreqProxTermsWriterPerField
 }
 
 // FreqProxNextHandler is the contract satisfied by the next-in-chain
@@ -138,7 +146,16 @@ func (w *FreqProxTermsWriter) AddField(invertState *FieldInvertState, fieldInfo 
 	// surfaces a zero-valued provider so callers that have not yet wired the
 	// token-stream bridge can still construct a writer. Pipelines that index
 	// real tokens must replace the provider via the constructor.
-	return NewFreqProxTermsWriterPerField(invertState, w.pools, fieldInfo, next, FreqProxAttributeProvider{})
+	pf, err := NewFreqProxTermsWriterPerField(invertState, w.pools, fieldInfo, next, FreqProxAttributeProvider{})
+	if err != nil {
+		return nil, err
+	}
+	// Register the wrapper so lookupFreqProxByBase can resolve it during Flush.
+	if w.wrappers == nil {
+		w.wrappers = make(map[*TermsHashPerField]*FreqProxTermsWriterPerField)
+	}
+	w.wrappers[pf.TermsHashPerField] = pf
+	return pf, nil
 }
 
 // Flush is the segment-flush entry point. fieldsToFlush is keyed by field
@@ -186,12 +203,12 @@ func (w *FreqProxTermsWriter) Flush(
 		if base == nil {
 			continue
 		}
-		perField, ok := lookupFreqProxByBase(fieldsToFlush, base)
+		perField, ok := w.lookupFreqProxByBase(base)
 		if !ok {
-			// The map contains only base handlers; lookupFreqProxByBase
-			// surfaced no FreqProx wrapper for this slot. Skip it rather
-			// than crash — pipelines that pre-mix base handlers with
-			// FreqProx wrappers can still flush the FreqProx subset.
+			// No FreqProx wrapper registered for this base handler (e.g. the
+			// field was inserted without going through AddField). Skip it
+			// rather than crash; pipelines that mix bare handlers with FreqProx
+			// wrappers can still flush the FreqProx subset.
 			continue
 		}
 		if perField.GetNumTerms() == 0 {
@@ -218,16 +235,14 @@ func (w *FreqProxTermsWriter) Flush(
 			return allFields[i].CompareTo(allFields[j].TermsHashPerField) < 0
 		})
 
-		// BUFFERED_UPDATES_FLUSH_TODO: Lucene's applyDeletes pass runs here
-		// once the segment-write state carries the buffered updates set. The
-		// pass walks state.segUpdates.deleteTerms in lexicographic order and
-		// clears live-doc bits for every (term, docID) pair where the
-		// posting predates the deletion. Skipped for now because
-		// SegmentWriteState does not yet expose segUpdates / liveDocs /
-		// delCountOnFlush. Tracked in the indexing-pipeline backlog.
-
-		// Step 3: build the Fields view and route through the active codec.
+		// Step 3: build the Fields view.
 		var fields Fields = NewFreqProxFields(allFields)
+
+		// Apply buffered term deletions before routing postings to the codec.
+		// Mirrors FreqProxTermsWriter.applyDeletes in Lucene 10.4.0.
+		if err := applyDeletes(state, fields); err != nil {
+			return fmt.Errorf("FreqProxTermsWriter.Flush: applyDeletes: %w", err)
+		}
 		if sortMap != nil {
 			fields = newSortingFilterFields(fields, state.FieldInfos, sortMap)
 		}
@@ -260,21 +275,77 @@ func (w *FreqProxTermsWriter) Flush(
 	return nil
 }
 
-// lookupFreqProxByBase walks the buffered map looking for the
-// FreqProxTermsWriterPerField wrapper whose embedded *TermsHashPerField
-// matches base. Returns (nil, false) when no wrapper is found, which signals
-// that the slot was inserted as a bare *TermsHashPerField rather than via
-// AddField. The lookup is O(N) in the number of fields; callers that need
-// faster dispatch should switch to a wrapper-keyed map outside the flush hot
-// path. Lucene relies on Java's downcast for the same purpose because the
-// map is typed as Map<String, TermsHashPerField> at the call site.
-func lookupFreqProxByBase(_ map[string]*TermsHashPerField, _ *TermsHashPerField) (*FreqProxTermsWriterPerField, bool) {
-	// The buffered map in Gocene currently only ever stores base handlers
-	// (see indexing-pipeline backlog). Concrete pipelines that already build
-	// FreqProx wrappers should call [FreqProxTermsWriter.FlushFreqProx]
-	// directly with a wrapper-keyed map until the base-handler indirection is
-	// resolved.
-	return nil, false
+// applyDeletes processes pending term deletions in state.SegUpdates against
+// the freshly-built postings in fields. For every (term, docID-upper-bound)
+// pair it clears live-doc bits for all docs whose docID is strictly less than
+// the deletion's upper bound, incrementing state.DelCountOnFlush for each.
+//
+// state.LiveDocs is allocated lazily on first deletion. Callers must propagate
+// the populated LiveDocs bitset to the segment infos writer.
+//
+// Mirrors org.apache.lucene.index.FreqProxTermsWriter.applyDeletes in
+// Apache Lucene 10.4.0.
+func applyDeletes(state *SegmentWriteState, fields Fields) error {
+	if state.SegUpdates == nil || state.SegUpdates.deleteTerms.IsEmpty() {
+		return nil
+	}
+
+	segDeletes := state.SegUpdates.deleteTerms
+	iterator := NewTermDocsIteratorFromFields(fields, true /* sortedTerms */)
+	maxDoc := 0
+	if state.SegmentInfo != nil {
+		maxDoc = state.SegmentInfo.DocCount()
+	}
+
+	for _, entry := range segDeletes.ForEachOrdered() {
+		postings, err := iterator.NextTerm(entry.Field, entry.Bytes)
+		if err != nil {
+			return fmt.Errorf("applyDeletes: NextTerm(%q): %w", entry.Field, err)
+		}
+		if postings == nil {
+			continue
+		}
+		docID := entry.Value // upper bound: delete docs with docID < entry.Value
+		for {
+			doc, err := postings.NextDoc()
+			if err != nil {
+				return fmt.Errorf("applyDeletes: NextDoc: %w", err)
+			}
+			if doc == NO_MORE_DOCS || doc >= docID {
+				break
+			}
+			// Allocate liveDocs on first deletion, mirroring Lucene's lazy init.
+			if state.LiveDocs == nil {
+				var allocErr error
+				state.LiveDocs, allocErr = util.NewFixedBitSet(maxDoc)
+				if allocErr != nil {
+					return fmt.Errorf("applyDeletes: alloc liveDocs: %w", allocErr)
+				}
+				state.LiveDocs.SetAll()
+			}
+			if state.LiveDocs.Get(doc) {
+				state.LiveDocs.Clear(doc)
+				state.DelCountOnFlush++
+			}
+		}
+	}
+	return nil
+}
+
+// lookupFreqProxByBase resolves the FreqProxTermsWriterPerField wrapper for
+// base using the registry populated by AddField. Returns (nil, false) when
+// base was never registered, which signals that the slot was inserted as a
+// bare *TermsHashPerField rather than via AddField.
+//
+// In Lucene 10.4.0 the equivalent operation is a direct Java downcast
+// `(FreqProxTermsWriterPerField) perField`; Gocene requires an explicit
+// registry because Go does not support interface downcasts on embedded structs.
+func (w *FreqProxTermsWriter) lookupFreqProxByBase(base *TermsHashPerField) (*FreqProxTermsWriterPerField, bool) {
+	if w.wrappers == nil {
+		return nil, false
+	}
+	pf, ok := w.wrappers[base]
+	return pf, ok
 }
 
 // FlushFreqProx is a convenience overload for pipelines that already keep a
