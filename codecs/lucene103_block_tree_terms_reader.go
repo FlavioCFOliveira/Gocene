@@ -489,6 +489,14 @@ func (r *Lucene103BlockTreeTermsReader) Close() error {
 	return firstErr
 }
 
+// GetFieldInfos returns the FieldInfos used by this reader for field lookups.
+// Exposed for diagnostic/test introspection; do not mutate the returned value.
+func (r *Lucene103BlockTreeTermsReader) GetFieldInfos() *index.FieldInfos {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.fieldInfos
+}
+
 // String mirrors Lucene103BlockTreeTermsReader.toString().
 func (r *Lucene103BlockTreeTermsReader) String() string {
 	r.mu.RLock()

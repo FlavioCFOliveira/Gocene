@@ -26,8 +26,8 @@ func TestNewSegmentInfo(t *testing.T) {
 	if si.Version() != "10.0.0" {
 		t.Errorf("Expected version '10.0.0', got '%s'", si.Version())
 	}
-	if si.Codec() != "Lucene104" {
-		t.Errorf("Expected codec 'Lucene104', got '%s'", si.Codec())
+	if si.Codec() != "" {
+		t.Errorf("Expected empty default codec, got '%s'", si.Codec())
 	}
 	if si.IsCompoundFile() {
 		t.Error("Expected isCompoundFile=false by default")
@@ -106,8 +106,10 @@ func TestSegmentInfo_CompoundFile(t *testing.T) {
 func TestSegmentInfo_Codec(t *testing.T) {
 	si := NewSegmentInfo("_0", 100, nil)
 
-	if si.Codec() != "Lucene104" {
-		t.Errorf("Expected default codec 'Lucene104', got '%s'", si.Codec())
+	// NewSegmentInfo leaves codec empty; callers must set it explicitly when
+	// codec files are actually written to disk.
+	if si.Codec() != "" {
+		t.Errorf("Expected empty default codec, got '%s'", si.Codec())
 	}
 
 	si.SetCodec("Lucene95")
@@ -256,7 +258,7 @@ func TestSegmentInfo_String(t *testing.T) {
 	if str == "" {
 		t.Error("String should not be empty")
 	}
-	expected := "SegmentInfo(name=_0, docCount=100, version=10.0.0, codec=Lucene104)"
+	expected := "SegmentInfo(name=_0, docCount=100, version=10.0.0, codec=)"
 	if str != expected {
 		t.Errorf("Expected '%s', got '%s'", expected, str)
 	}

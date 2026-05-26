@@ -21,12 +21,32 @@ package codecs
 
 import (
 	"fmt"
+	"math"
 	"math/bits"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
+
+// lucene104Level1NoSkip is the sentinel value stored in level1LastDocID when
+// there is no level-1 skip data for a term (docFreq < lucene104Level1NumDocs).
+//
+// Java Lucene uses Integer.MAX_VALUE as NO_MORE_DOCS. Gocene's global
+// index.NO_MORE_DOCS is -1. The skip machinery uses level1LastDocID both as a
+// "no skip data" marker and as a comparison pivot: the loop condition
+//
+//	if e.doc == e.level1LastDocID → advance level-1 skip data
+//
+// must NOT fire when doc==-1 (the initial position before NextDoc). Java's
+// MAX_VALUE sentinel satisfies this naturally. Using index.NO_MORE_DOCS (-1)
+// would cause a spurious skipLevel1To call at the very first NextDoc, which
+// dereferences a nil docIn for singleton terms (docFreq==1).
+//
+// We therefore use math.MaxInt32 (matching Java's Integer.MAX_VALUE) as the
+// internal sentinel for the skip fields of blockPostingsEnum, and translate
+// it to index.NO_MORE_DOCS only at the ImpactsEnum public boundary.
+const lucene104Level1NoSkip = math.MaxInt32
 
 // Lucene104PostingsReader reads .doc / .pos / .pay / .psm files written by
 // Lucene104PostingsWriter.
@@ -779,15 +799,12 @@ func (e *blockPostingsEnum) reset(termState *IntBlockTermState, flags int) (inde
 	e.level0LastDocID = -1
 
 	if e.docFreq < lucene104Level1NumDocs {
-		e.level1LastDocID = index.NO_MORE_DOCS
-		// level1DocEndFP must point to DocStartFP even though level-1 skip
-		// data does not exist for this term. When docFreq < level1NumDocs,
-		// skipLevel1To is entered on the first NextDoc because doc==-1 equals
-		// level1LastDocID==-1 (NO_MORE_DOCS). skipLevel1To seeks to
-		// level1DocEndFP, so we must initialise it here.
-		// Mirrors Java's docIn.seek(termState.docStartFP) in the equivalent
-		// branch (Java avoids skipLevel1To by using Integer.MAX_VALUE ≠ -1;
-		// Gocene uses NO_MORE_DOCS=-1 so the check fires and we compensate).
+		// lucene104Level1NoSkip (math.MaxInt32) mirrors Java's NO_MORE_DOCS
+		// (Integer.MAX_VALUE). Using this sentinel instead of index.NO_MORE_DOCS
+		// (-1) ensures the level-1 skip check in moveToNextLevel0Block
+		//   if e.doc == e.level1LastDocID
+		// does not fire spuriously on the first NextDoc call (doc == -1).
+		e.level1LastDocID = lucene104Level1NoSkip
 		e.level1DocEndFP = termState.DocStartFP
 		if e.docFreq > 1 {
 			if err := e.docIn.SetPosition(termState.DocStartFP); err != nil {
@@ -996,7 +1013,7 @@ func (e *blockPostingsEnum) skipLevel1To(target int) error {
 		e.level1DocCountUpto += lucene104Level1NumDocs
 
 		if e.docCountLeft < lucene104Level1NumDocs {
-			e.level1LastDocID = index.NO_MORE_DOCS
+			e.level1LastDocID = lucene104Level1NoSkip
 			break
 		}
 
@@ -1747,7 +1764,7 @@ type blockImpacts struct {
 //
 // Mirrors BlockPostingsEnum.Impacts.numLevels().
 func (b *blockImpacts) NumLevels() int {
-	if !b.enum.indexHasFreq || b.enum.level1LastDocID == index.NO_MORE_DOCS {
+	if !b.enum.indexHasFreq || b.enum.level1LastDocID == lucene104Level1NoSkip {
 		return 1
 	}
 	return 2
@@ -1765,7 +1782,11 @@ func (b *blockImpacts) GetDocIDUpTo(level int) int {
 		return b.enum.level0LastDocID
 	}
 	if level == 1 {
-		return b.enum.level1LastDocID
+		v := b.enum.level1LastDocID
+		if v == lucene104Level1NoSkip {
+			return index.NO_MORE_DOCS
+		}
+		return v
 	}
 	return index.NO_MORE_DOCS
 }

@@ -48,9 +48,13 @@ import (
 )
 
 // init installs the production Lucene 10.4 codec as the default codec
-// resolved by index.NewIndexWriterConfig.
+// resolved by index.NewIndexWriterConfig, and also registers it under its
+// canonical name so that OpenDirectoryReader can resolve it by the codec
+// name stored in each segment's SegmentInfo on disk.
 func init() {
-	index.RegisterDefaultCodec(BridgeForLucene104())
+	bridge := BridgeForLucene104()
+	index.RegisterDefaultCodec(bridge)
+	index.RegisterNamedCodec(bridge.Name(), bridge)
 }
 
 // BridgeForLucene104 returns an index.Codec that delegates to the

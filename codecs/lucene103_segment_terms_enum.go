@@ -16,6 +16,7 @@ package codecs
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -548,20 +549,47 @@ func (e *Lucene103SegmentTermsEnum) SeekCeil(term *index.Term) (*index.Term, err
 	return cloned, nil
 }
 
-// SeekExact positions the enumerator on term. The FST trie traversal is
-// deferred; conservatively returns false (term not found) while still
-// publishing the requested key as the cursor so callers can pull docFreq
-// or a Postings stub.
+// SeekExact positions the enumerator on term. This implementation performs a
+// linear scan using Next() since the full FST trie traversal is not yet
+// ported (backlog #2692). The scan is O(N) in the number of terms in the
+// field but is correct for all block layouts produced by the Lucene 10.4
+// block-tree writer.
 //
 // Mirrors SegmentTermsEnum.seekExact(BytesRef) in Java.
 func (e *Lucene103SegmentTermsEnum) SeekExact(term *index.Term) (bool, error) {
 	if term == nil {
 		return false, errors.New("Lucene103SegmentTermsEnum.SeekExact: term must not be nil")
 	}
-	e.eof = false
-	e.startKey = term.BytesValue()
-	e.currentTerm = term.Clone()
-	return false, nil
+	// Create a fresh scanning enum to avoid corrupting the current cursor's
+	// ongoing iteration. We scan until we find the target or overshoot it.
+	scanner := NewLucene103SegmentTermsEnum(e.field, nil)
+	targetText := term.Text()
+	for {
+		found, err := scanner.Next()
+		if err != nil {
+			return false, fmt.Errorf("Lucene103SegmentTermsEnum.SeekExact: scan: %w", err)
+		}
+		if found == nil {
+			// Exhausted — term not in the dictionary.
+			e.eof = true
+			e.currentTerm = nil
+			return false, nil
+		}
+		cmp := strings.Compare(found.Text(), targetText)
+		if cmp == 0 {
+			// Replace this enum's state with the scanner's state so that
+			// subsequent Postings() / DocFreq() calls operate on the
+			// correctly-positioned block.
+			*e = *scanner
+			return true, nil
+		}
+		if cmp > 0 {
+			// Passed the target — term not present.
+			e.eof = true
+			e.currentTerm = nil
+			return false, nil
+		}
+	}
 }
 
 // TermState returns a snapshot of the current term's state. Requires that

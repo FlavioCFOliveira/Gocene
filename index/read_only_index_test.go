@@ -62,14 +62,6 @@ func buildReadOnlyIndex(t *testing.T, dir store.Directory) {
 // port instead opens the directory through a fresh SimpleFSDirectory and only
 // ever drives DirectoryReader / IndexSearcher, none of which mutate the index.
 func TestReadOnlyIndex(t *testing.T) {
-	// Pre-existing infrastructure gap: OpenDirectoryReader materialises each
-	// segment via NewSegmentReader (index/directory_reader.go lines 462/497),
-	// which leaves SegmentReader.coreReaders nil. The codec-side wiring that
-	// loads SegmentCoreReaders from disk is not yet in place, so term-level
-	// lookups (TermQuery, PhraseQuery) match no documents and every search
-	// here returns 0 hits. Unskip once OpenDirectoryReader uses
-	// NewSegmentReaderWithCore.
-	t.Skip("blocked: OpenDirectoryReader builds SegmentReader without core readers (index/directory_reader.go:462/497); fix is NewSegmentReaderWithCore")
 
 	indexPath := t.TempDir()
 
@@ -143,4 +135,135 @@ func TestReadOnlyIndex(t *testing.T) {
 	if phraseHits.TotalHits.Value != 1 {
 		t.Errorf("Expected 1 hit for phrase 'to be', got %d", phraseHits.TotalHits.Value)
 	}
+}
+
+// TestStoredFieldsRoundTrip verifies that a document containing a StringField,
+// a stored TextField, and a multi-valued TextField can be written, committed,
+// and read back byte-equal via IndexSearcher.Doc.
+//
+// This test satisfies acceptance criterion 1 of rmp task 4638.
+func TestStoredFieldsRoundTrip(t *testing.T) {
+	const (
+		stringFieldName = "id"
+		stringFieldVal  = "doc-001"
+		textFieldName   = "title"
+		textFieldVal    = "The quick brown fox"
+		multiFieldName  = "tag"
+	)
+	multiValues := []string{"go", "lucene", "search"}
+
+	indexPath := t.TempDir()
+
+	// Write phase.
+	buildDir, err := store.NewSimpleFSDirectory(indexPath)
+	if err != nil {
+		t.Fatalf("open build dir: %v", err)
+	}
+
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	writer, err := index.NewIndexWriter(buildDir, config)
+	if err != nil {
+		t.Fatalf("new writer: %v", err)
+	}
+
+	doc := document.NewDocument()
+
+	sf, err := document.NewStringField(stringFieldName, stringFieldVal, true)
+	if err != nil {
+		t.Fatalf("new string field: %v", err)
+	}
+	doc.Add(sf)
+
+	tf, err := document.NewTextField(textFieldName, textFieldVal, true)
+	if err != nil {
+		t.Fatalf("new text field: %v", err)
+	}
+	doc.Add(tf)
+
+	for _, v := range multiValues {
+		mf, err := document.NewTextField(multiFieldName, v, true)
+		if err != nil {
+			t.Fatalf("new multi-value field: %v", err)
+		}
+		doc.Add(mf)
+	}
+
+	if err := writer.AddDocument(doc); err != nil {
+		t.Fatalf("add document: %v", err)
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+	if err := buildDir.Close(); err != nil {
+		t.Fatalf("close build dir: %v", err)
+	}
+
+	// Read phase: fresh directory handle, no writer involved.
+	readDir, err := store.NewSimpleFSDirectory(indexPath)
+	if err != nil {
+		t.Fatalf("open read dir: %v", err)
+	}
+	defer readDir.Close()
+
+	reader, err := index.OpenDirectoryReader(readDir)
+	if err != nil {
+		t.Fatalf("open reader: %v", err)
+	}
+	defer reader.Close()
+
+	searcher := search.NewIndexSearcher(reader)
+
+	// Find the document.
+	q := search.NewTermQuery(index.NewTerm(stringFieldName, stringFieldVal))
+	hits, err := searcher.Search(q, 1)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if hits.TotalHits.Value != 1 {
+		t.Fatalf("expected 1 hit, got %d", hits.TotalHits.Value)
+	}
+
+	// Retrieve stored fields and verify byte-equal round-trip.
+	retrieved, err := searcher.Doc(hits.ScoreDocs[0].Doc)
+	if err != nil {
+		t.Fatalf("Doc(%d): %v", hits.ScoreDocs[0].Doc, err)
+	}
+
+	// StringField.
+	idVals := retrieved.GetValues(stringFieldName)
+	if len(idVals) != 1 || idVals[0] != stringFieldVal {
+		t.Errorf("StringField %q: got %v, want [%q]", stringFieldName, idVals, stringFieldVal)
+	}
+
+	// Stored TextField.
+	titleVals := retrieved.GetValues(textFieldName)
+	if len(titleVals) != 1 || titleVals[0] != textFieldVal {
+		t.Errorf("TextField %q: got %v, want [%q]", textFieldName, titleVals, textFieldVal)
+	}
+
+	// Multi-valued TextField: all values must be present in original order.
+	tagVals := retrieved.GetValues(multiFieldName)
+	if len(tagVals) != len(multiValues) {
+		t.Fatalf("multi-value field %q: got %d values, want %d", multiFieldName, len(tagVals), len(multiValues))
+	}
+	for i, want := range multiValues {
+		if tagVals[i] != want {
+			t.Errorf("multi-value field %q[%d]: got %q, want %q", multiFieldName, i, tagVals[i], want)
+		}
+	}
+
+	// Verify no nil-coreReaders path was taken: a second term search must
+	// return a hit (would fail with "not initialized" if coreReaders were nil).
+	q2 := search.NewTermQuery(index.NewTerm(multiFieldName, "lucene"))
+	hits2, err := searcher.Search(q2, 1)
+	if err != nil {
+		t.Fatalf("second search: %v", err)
+	}
+	if hits2.TotalHits.Value != 1 {
+		t.Errorf("multi-value term search: expected 1 hit, got %d", hits2.TotalHits.Value)
+	}
+
 }

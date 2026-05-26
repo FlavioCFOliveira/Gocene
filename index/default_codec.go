@@ -31,11 +31,14 @@ var ErrNoCodec = errors.New("index: no default codec registered; blank-import in
 // performs the registration during its init so production callers obtain
 // the real Lucene 10.4 codec by default.
 type defaultCodecRegistry struct {
-	mu    sync.RWMutex
-	codec Codec
+	mu      sync.RWMutex
+	codec   Codec
+	byName  map[string]Codec
 }
 
-var defaultCodecReg defaultCodecRegistry
+var defaultCodecReg = defaultCodecRegistry{
+	byName: make(map[string]Codec),
+}
 
 // RegisterDefaultCodec installs the process-wide default Codec used by
 // NewIndexWriterConfig. It is safe to call concurrently and may be invoked
@@ -59,4 +62,28 @@ func GetDefaultCodec() Codec {
 	defaultCodecReg.mu.RLock()
 	defer defaultCodecReg.mu.RUnlock()
 	return defaultCodecReg.codec
+}
+
+// RegisterNamedCodec registers a Codec under its name so it can be resolved
+// by LookupCodecByName. This is called from the bridge package init() for
+// every concrete codec it exposes, allowing OpenDirectoryReader to reconstruct
+// the correct codec when re-opening a persisted segment.
+//
+// Repeated registrations for the same name are silently ignored; the first
+// registration wins (matches Lucene's SPI behaviour).
+func RegisterNamedCodec(name string, c Codec) {
+	defaultCodecReg.mu.Lock()
+	if _, ok := defaultCodecReg.byName[name]; !ok {
+		defaultCodecReg.byName[name] = c
+	}
+	defaultCodecReg.mu.Unlock()
+}
+
+// LookupCodecByName returns the Codec registered under name, or nil if no
+// such codec has been registered. OpenDirectoryReader uses this to resolve
+// the codec stored in each SegmentInfo on disk.
+func LookupCodecByName(name string) Codec {
+	defaultCodecReg.mu.RLock()
+	defer defaultCodecReg.mu.RUnlock()
+	return defaultCodecReg.byName[name]
 }

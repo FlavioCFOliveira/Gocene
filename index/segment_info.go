@@ -155,6 +155,8 @@ func NewSortedSetSortField(name string, reverse bool) *SortedSetSortField {
 var SortRELEVANCE = &Sort{fields: nil}
 
 // NewSegmentInfo creates a new SegmentInfo.
+// codec is intentionally left empty; callers that flush real codec files must
+// call SetCodec explicitly after the flush succeeds.
 func NewSegmentInfo(name string, docCount int, dir store.Directory) *SegmentInfo {
 	return &SegmentInfo{
 		name:        name,
@@ -162,7 +164,7 @@ func NewSegmentInfo(name string, docCount int, dir store.Directory) *SegmentInfo
 		directory:   dir,
 		files:       make([]string, 0),
 		version:     "10.0.0", // Default version
-		codec:       "Lucene104",
+		codec:       "",
 		diagnostics: make(map[string]string),
 		attributes:  make(map[string]string),
 		indexSort:   nil,

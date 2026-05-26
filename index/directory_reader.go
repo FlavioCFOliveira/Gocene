@@ -480,26 +480,87 @@ func newCompositeReaderFromSegments(readers []*SegmentReader) (*CompositeReader,
 	return NewCompositeReaderWithSubReaders(subReaders)
 }
 
+// openSegmentReader creates a SegmentReader for one SegmentCommitInfo, loading
+// FieldInfos from disk (if not already in memory) and constructing
+// SegmentCoreReaders from the codec registered under the segment's codec name.
+//
+// If no codec is registered under that name (e.g., no bridge import in the
+// test binary) the reader falls back to the codec-less path so structural
+// tests that do not need stored-field access continue to work.
+func openSegmentReader(directory store.Directory, sci *SegmentCommitInfo) (*SegmentReader, error) {
+	// Resolve the codec for this segment. Prefer the segment's own codec name;
+	// fall back to the registered default when the name is absent (freshly-
+	// created in-memory segments have no on-disk codec name yet).
+	codecName := sci.SegmentInfo().Codec()
+	var codec Codec
+	if codecName != "" {
+		codec = LookupCodecByName(codecName)
+		if codec == nil {
+			// Codec name was stamped but not registered: fall back to default.
+			codec = GetDefaultCodec()
+		}
+	}
+	// When no codec name is stamped on the segment (in-memory or codec-less
+	// write path), do not resolve a default codec. Attempting to open codec
+	// files for a segment that was written without them would produce
+	// "file not found" errors. The caller (IndexSearcher.Doc, term searches)
+	// will receive nil coreReaders and take the in-memory fallback.
+
+	// Resolve FieldInfos: prefer in-memory (written by the writer), then read
+	// from disk via the codec's FieldInfosFormat.
+	fi := sci.GetInMemoryFieldInfos()
+	if fi == nil && codec != nil {
+		fif := codec.FieldInfosFormat()
+		if fif != nil {
+			var err error
+			fi, err = fif.Read(directory, sci.SegmentInfo(), store.IOContextRead)
+			if err != nil {
+				// Non-fatal: segment may not have a .fnm file yet (e.g., empty
+				// in-memory segment). Fall back to an empty FieldInfos.
+				fi = NewFieldInfos()
+			}
+		}
+	}
+	if fi == nil {
+		fi = NewFieldInfos()
+	}
+
+	// Construct SegmentCoreReaders when a codec is available. This wires the
+	// StoredFieldsReader, FieldsProducer (postings), and TermVectorsReader so
+	// that IndexSearcher.Doc and term-based searches work end-to-end.
+	if codec != nil {
+		core, err := NewSegmentCoreReaders(directory, sci.SegmentInfo(), fi, codec, store.IOContextRead)
+		if err != nil {
+			return nil, fmt.Errorf("opening core readers for segment %s: %w", sci.SegmentInfo().Name(), err)
+		}
+		sr := NewSegmentReaderWithCore(sci, core, fi, codec)
+		sr.directory = directory
+		return sr, nil
+	}
+
+	// Codec-less fallback for structural unit tests.
+	sr := &SegmentReader{
+		LeafReader:        NewLeafReader(sci.SegmentInfo()),
+		segmentCommitInfo: sci,
+		fieldInfos:        fi,
+		directory:         directory,
+	}
+	return sr, nil
+}
+
 // OpenDirectoryReaderWithInfos opens a DirectoryReader with existing SegmentInfos.
 func OpenDirectoryReaderWithInfos(directory store.Directory, segmentInfos *SegmentInfos) (*DirectoryReader, error) {
-	// Create a reader for each segment
 	readers := make([]*SegmentReader, 0, segmentInfos.Size())
 	for i := 0; i < segmentInfos.Size(); i++ {
-		segmentCommitInfo := segmentInfos.Get(i)
-		// Restore in-memory FieldInfos persisted by the writer, if available.
-		fi := segmentCommitInfo.GetInMemoryFieldInfos()
-		var segmentReader *SegmentReader
-		if fi != nil {
-			segmentReader = &SegmentReader{
-				segmentCommitInfo: segmentCommitInfo,
-				fieldInfos:        fi,
-				directory:         directory,
+		sr, err := openSegmentReader(directory, segmentInfos.Get(i))
+		if err != nil {
+			// Close all already-opened readers before returning.
+			for _, opened := range readers {
+				opened.Close() //nolint:errcheck // best-effort cleanup in error path
 			}
-		} else {
-			segmentReader = NewSegmentReader(segmentCommitInfo)
-			segmentReader.directory = directory
+			return nil, err
 		}
-		readers = append(readers, segmentReader)
+		readers = append(readers, sr)
 	}
 
 	compReader, err := newCompositeReaderFromSegments(readers)
@@ -507,14 +568,12 @@ func OpenDirectoryReaderWithInfos(directory store.Directory, segmentInfos *Segme
 		return nil, err
 	}
 
-	reader := &DirectoryReader{
+	return &DirectoryReader{
 		CompositeReader: compReader,
 		directory:       directory,
 		segmentInfos:    segmentInfos,
 		readers:         readers,
-	}
-
-	return reader, nil
+	}, nil
 }
 
 // OpenDirectoryReaderFromCommit opens a DirectoryReader from a specific commit.
@@ -523,34 +582,12 @@ func OpenDirectoryReaderFromCommit(directory store.Directory, commit *IndexCommi
 		return nil, fmt.Errorf("commit cannot be nil")
 	}
 
-	// Get the SegmentInfos from the commit
 	segmentInfos := commit.GetSegmentInfos()
 	if segmentInfos == nil {
 		return nil, fmt.Errorf("commit has no segment infos")
 	}
 
-	// Create a reader for each segment in the commit
-	readers := make([]*SegmentReader, 0, segmentInfos.Size())
-	for i := 0; i < segmentInfos.Size(); i++ {
-		segmentCommitInfo := segmentInfos.Get(i)
-		segmentReader := NewSegmentReader(segmentCommitInfo)
-		readers = append(readers, segmentReader)
-	}
-
-	compReader, err := newCompositeReaderFromSegments(readers)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create the DirectoryReader with the commit's segment infos
-	reader := &DirectoryReader{
-		CompositeReader: compReader,
-		directory:       directory,
-		segmentInfos:    segmentInfos,
-		readers:         readers,
-	}
-
-	return reader, nil
+	return OpenDirectoryReaderWithInfos(directory, segmentInfos)
 }
 
 // Reopen reopens the index to see if any changes have been made.

@@ -188,13 +188,23 @@ func (dw *DocumentsWriter) UpdateDocuments(docs []Document, analyzer analysis.An
 }
 
 // getPerThreadWriter returns a per-thread writer.
-// This method should be called with the lock held.
+// Must be called with dw.mu held (via AddDocument/UpdateDocument).
+//
+// All documents within a single flush unit are accumulated in the same DWPT
+// so that the codec-flush path in IndexWriter.Commit writes exactly one
+// segment per pendingSegment entry. A new DWPT is created only when the
+// pool is empty (after TakePerThreadPool resets it between flushes).
+//
+// Safety: concurrent callers serialize at the dw.mu level (AddDocument holds
+// dw.mu for the entire document-processing call), so returning pool[0] to
+// all callers is race-free.
 func (dw *DocumentsWriter) getPerThreadWriter() *DocumentsWriterPerThread {
 	dw.threadLock.Lock()
 	defer dw.threadLock.Unlock()
 
-	// For now, create a new one each time
-	// In production, this would use thread-local storage or a pool
+	if len(dw.perThreadPool) > 0 {
+		return dw.perThreadPool[0]
+	}
 	dwpt := NewDocumentsWriterPerThread(dw)
 	dw.perThreadPool = append(dw.perThreadPool, dwpt)
 	return dwpt

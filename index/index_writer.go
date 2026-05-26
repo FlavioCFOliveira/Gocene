@@ -99,6 +99,12 @@ type pendingSegment struct {
 	deletedOrdinals     []int          // sorted doc ordinals deleted within this segment (0-based)
 	softDeletedOrdinals []int          // sorted soft-deleted doc ordinals (count in MaxDoc, not NumDocs)
 	inMemoryFields      FieldsProducer // in-memory postings (codec-less path); may be nil
+
+	// dwpts carries the raw per-thread writer state when a real codec is
+	// present.  Commit calls dwpt.Flush to materialise stored fields,
+	// postings, and field infos on disk. nil when the writer was opened
+	// without a codec (structural-unit-test path).
+	dwpts []*DocumentsWriterPerThread
 }
 
 // termWithBound pairs a delete term with a maximum document ordinal.
@@ -566,14 +572,66 @@ func (w *IndexWriter) flushPendingDocsLocked() error {
 		deletedOrdinals = deletedOrdinals[:n]
 	}
 
-	// Snapshot in-memory postings from DocumentsWriter DWPTs (codec-less path).
-	// Each DWPT handled exactly one document; pool[i] → global docID i.
+	// Snapshot DocumentsWriter DWPTs. When a codec is configured, the raw
+	// per-thread writers are preserved in pendingSegment.dwpts so that
+	// Commit can materialise stored fields, postings, and field infos on
+	// disk. When no codec is wired (structural-unit-test path) we fall
+	// back to the codec-less in-memory merge used by SegmentReader.Terms.
+	//
+	// dw.mu is held around TakePerThreadPool so that any in-flight
+	// AddDocument call that already retrieved DWPT[0] (before the pool
+	// reset) finishes ProcessDocument before we hand the DWPT to the
+	// codec flush path. This prevents a data race on DWPT internals
+	// (storedFields, posting maps) between Commit and AddDocument.
 	var inMemFields FieldsProducer
+	var pool []*DocumentsWriterPerThread
 	if w.documentsWriter != nil {
-		pool := w.documentsWriter.TakePerThreadPool()
-		if len(pool) > 0 {
+		w.documentsWriter.mu.Lock()
+		pool = w.documentsWriter.TakePerThreadPool()
+		w.documentsWriter.mu.Unlock()
+		if len(pool) > 0 && w.config.Codec() == nil {
+			// Codec-less path: merge postings into a single in-memory producer.
 			inMemFields = MergeInMemoryPostings(pool)
+			pool = nil // pooled writers not needed further
 		}
+	}
+
+	// Recompute n from the actual DWPT doc count to close the window between
+	// ProcessDocument (increments DWPT.numDocsInRAM) and docCount.Add(1)
+	// (atomic, called outside w.mu). Without this, n may lag the real DWPT
+	// count, causing segments to be registered with the wrong numDocs.
+	//
+	// When pool is non-empty but all DWPTs have zero docs, the docs were
+	// already swept by a prior TakePerThreadPool call. Discard the pool.
+	//
+	// When codec is active AND the pool is empty (meaning all docs went through
+	// DWPT for this codec but none remain), any residual docCount comes from a
+	// docCount.Add(1) that ran after a prior Commit already captured and swept
+	// the DWPT. This is a ghost count: the document was already counted in the
+	// prior Commit's segment via pool reconciliation. Drop it to prevent
+	// duplicate-count segments. When codec is nil, count-only segments from
+	// the codec-less path are preserved as-is.
+	if len(pool) > 0 {
+		actual := 0
+		for _, dwpt := range pool {
+			actual += dwpt.GetNumDocs()
+		}
+		if actual > 0 {
+			n = actual
+		} else {
+			// Pool was already swept; residual docCount increment is stale.
+			pool = nil
+			n = 0
+		}
+	} else if w.config.Codec() != nil && inMemFields == nil {
+		// Codec active, pool empty, no in-memory fields: any residual docCount
+		// is a ghost from a prior Commit's DWPT sweep. Suppress it.
+		n = 0
+	}
+	if n == 0 && inMemFields == nil {
+		// Nothing left to flush after DWPT reconciliation.
+		w.docCount.Store(0)
+		return nil
 	}
 
 	// Collect and sort soft-deleted ordinals.
@@ -593,6 +651,7 @@ func (w *IndexWriter) flushPendingDocsLocked() error {
 		deletedOrdinals:     deletedOrdinals,
 		softDeletedOrdinals: softDeletedOrdinals,
 		inMemoryFields:      inMemFields,
+		dwpts:               pool,
 	}
 	w.pendingImportedSegments = append(w.pendingImportedSegments, ps)
 
@@ -689,30 +748,82 @@ func (w *IndexWriter) Commit() error {
 	}
 
 	// Materialise all pending segments (auto-flush + AddIndexes imports).
+	codec := w.config.Codec()
 	for _, ps := range w.pendingImportedSegments {
 		segmentName := si.GetNextSegmentName()
-		sci := NewSegmentCommitInfo(NewSegmentInfo(segmentName, ps.numDocs, nil), ps.delCount, -1)
+		segInfo := NewSegmentInfo(segmentName, ps.numDocs, w.directory)
+		sci := NewSegmentCommitInfo(segInfo, ps.delCount, -1)
 		if ps.softDelCount > 0 {
 			sci.SetSoftDelCount(ps.softDelCount)
 		}
 		if ps.fieldInfos != nil {
 			sci.SetInMemoryFieldInfos(ps.fieldInfos)
 		}
-		if ps.inMemoryFields != nil {
-			sci.SetInMemoryFields(ps.inMemoryFields)
-			// Also register in the package-level registry so that
-			// SegmentReader.Terms() can find the producer after
-			// ReadSegmentInfos creates fresh SegmentCommitInfo objects.
-			RegisterInMemoryFields(w.directory, segmentName, ps.inMemoryFields)
+
+		codecFlushed := false
+		if codec != nil && len(ps.dwpts) > 0 &&
+			codec.StoredFieldsFormat() != nil && codec.PostingsFormat() != nil && codec.FieldInfosFormat() != nil {
+			// Real-codec path: flush each DWPT to on-disk Lucene format files
+			// (stored fields, postings, field infos). The codec name is
+			// recorded on the SegmentInfo so OpenDirectoryReader can resolve
+			// the right codec when reopening. Skip when the codec has stub/nil
+			// format methods (e.g. test codecs) — fall through to the in-memory
+			// path.
+			//
+			// All DWPTs in the pool write to the SAME segment (segInfo/sci).
+			// This is safe because getPerThreadWriter reuses pool[0], so the
+			// pool has at most one DWPT with any documents.
+			for _, dwpt := range ps.dwpts {
+				if dwpt.GetNumDocs() == 0 {
+					continue
+				}
+				fi := dwpt.GetFieldInfos()
+				if fi == nil {
+					fi = NewFieldInfos()
+				}
+				writeState := &SegmentWriteState{
+					Directory:     w.directory,
+					SegmentInfo:   segInfo,
+					FieldInfos:    fi,
+					SegmentSuffix: "",
+				}
+				if err3 := dwpt.flushStoredFields(codec, writeState); err3 != nil {
+					return fmt.Errorf("commit: flush stored fields for %s: %w", segmentName, err3)
+				}
+				if err3 := dwpt.flushPostings(codec, writeState, fi); err3 != nil {
+					return fmt.Errorf("commit: flush postings for %s: %w", segmentName, err3)
+				}
+				if err3 := dwpt.flushFieldInfos(codec, writeState); err3 != nil {
+					return fmt.Errorf("commit: flush field infos for %s: %w", segmentName, err3)
+				}
+				// Accumulate the field infos so stored-field reads can resolve
+				// field names from the on-disk .fnm.
+				sci.SetInMemoryFieldInfos(fi)
+				// Mark codec stamped on segInfo only when actual files were written.
+				if !codecFlushed {
+					segInfo.SetCodec(codec.Name())
+					segInfo.SetFiles([]string{segmentName + ".si"})
+					codecFlushed = true
+				}
+			}
 		}
+		if !codecFlushed {
+			// Codec-less or no-DWPT-with-docs path: carry in-memory postings forward.
+			if ps.inMemoryFields != nil {
+				sci.SetInMemoryFields(ps.inMemoryFields)
+				// Also register in the package-level registry so that
+				// SegmentReader.Terms() can find the producer after
+				// ReadSegmentInfos creates fresh SegmentCommitInfo objects.
+				RegisterInMemoryFields(w.directory, segmentName, ps.inMemoryFields)
+			}
+			segInfo.SetFiles([]string{segmentName + ".si"})
+		}
+
 		if len(ps.deletedOrdinals) > 0 {
 			sci.SetDeletedOrdinals(ps.deletedOrdinals)
 		}
 		// Write the .si file for this segment before registering it so that
 		// external tools and CheckIndex can verify per-segment integrity.
-		// SetFiles must be called before writeSegmentInfo so the file list
-		// written into the .si reflects the committed files set.
-		sci.SegmentInfo().SetFiles([]string{segmentName + ".si"})
 		if err3 := writeSegmentInfo(w.directory, sci.SegmentInfo(), store.IOContextWrite); err3 != nil {
 			return fmt.Errorf("writing .si: %w", err3)
 		}
@@ -1563,15 +1674,22 @@ func (w *IndexWriter) WaitForMerges() error {
 
 // AddDocuments adds a block of documents atomically.
 // This is used for parent-child document relationships.
-// Uses atomic add to update counter - no global lock needed.
+//
+// Gocene deviation: Lucene adds the whole block as a single atomic unit so
+// that inter-document relationships (parent/child) are preserved within a
+// segment. This implementation adds each document individually via AddDocument,
+// which preserves the document count and codec flush path but does not
+// guarantee atomic-block placement. Full block-level atomicity is deferred to
+// a future sprint.
 func (w *IndexWriter) AddDocuments(docs []Document) error {
 	if err := w.ensureOpen(); err != nil {
 		return err
 	}
-
-	// Atomic add to update counter - no lock needed
-	w.docCount.Add(int32(len(docs)))
-
+	for _, doc := range docs {
+		if err := w.AddDocument(doc); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

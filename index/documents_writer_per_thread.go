@@ -217,6 +217,7 @@ type dwptField struct {
 	isIndexed                bool
 	isStored                 bool
 	isTokenized              bool
+	omitNorms                bool
 	indexOptions             IndexOptions
 	docValuesType            DocValuesType
 	storeTermVectors         bool
@@ -225,6 +226,14 @@ type dwptField struct {
 	// customTermFreq, when > 0, overrides the default initial TF of 1.
 	// Used by fields such as FeatureField that encode a value as TF.
 	customTermFreq int
+}
+
+// omitNormsGetter is a narrow interface satisfied by field types that expose
+// OmitNorms (e.g. document.FieldType via its IsOmitNorms() method, and
+// document.Field via OmitNorms()). The FieldTypeInterface used by codec-facing
+// fields does not include OmitNorms, so we use a separate assertion.
+type omitNormsGetter interface {
+	OmitNorms() bool
 }
 
 // indexableFieldPromoter is satisfied by document.Field via its
@@ -283,6 +292,11 @@ func asDwptField(fieldInterface interface{}) (*dwptField, bool) {
 		f.storeTermVectorPositions = ft.StoreTermVectorPositions()
 		f.storeTermVectorOffsets = ft.StoreTermVectorOffsets()
 	}
+	// FieldTypeInterface does not expose OmitNorms, so probe the original
+	// field object directly. document.Field satisfies omitNormsGetter.
+	if ong, ok := fieldInterface.(omitNormsGetter); ok {
+		f.omitNorms = ong.OmitNorms()
+	}
 	if tfp, ok := fieldInterface.(termFrequencyProvider); ok {
 		f.customTermFreq = tfp.TermFrequency()
 	}
@@ -318,16 +332,23 @@ func (dwpt *DocumentsWriterPerThread) ProcessDocument(doc Document) error {
 		fieldName := field.name
 
 		// Build FieldInfoOptions from the flat dwptField properties.
-		indexOpts := field.indexOptions
-		if indexOpts == 0 {
-			indexOpts = IndexOptionsDocsAndFreqsAndPositions
+		// IndexOptions: only set for indexed fields; non-indexed fields use None.
+		// OmitNorms: propagate from the field type (e.g. StringField sets true).
+		// Stored: propagate so FieldInfos.IsStored() reflects the real schema.
+		indexOpts := IndexOptionsNone
+		if field.isIndexed {
+			indexOpts = field.indexOptions
+			if indexOpts == IndexOptionsNone {
+				indexOpts = IndexOptionsDocsAndFreqsAndPositions
+			}
 		}
 		opts := FieldInfoOptions{
 			IndexOptions:             indexOpts,
 			StoreTermVectors:         field.storeTermVectors,
 			StoreTermVectorPositions: field.storeTermVectorPositions,
 			StoreTermVectorOffsets:   field.storeTermVectorOffsets,
-			OmitNorms:                false,
+			OmitNorms:                field.omitNorms,
+			Stored:                   field.isStored,
 			DocValuesType:            field.docValuesType,
 		}
 
@@ -554,6 +575,14 @@ func (dwpt *DocumentsWriterPerThread) GetNumDocs() int {
 	return dwpt.numDocsInRAM
 }
 
+// GetFieldInfos returns the current FieldInfos snapshot for this DWPT.
+// Used by IndexWriter.Commit to pass field metadata to the codec flush methods.
+func (dwpt *DocumentsWriterPerThread) GetFieldInfos() *FieldInfos {
+	dwpt.mu.RLock()
+	defer dwpt.mu.RUnlock()
+	return dwpt.fieldInfosBuilder.Build()
+}
+
 // GetBytesUsed returns the estimated memory usage.
 func (dwpt *DocumentsWriterPerThread) GetBytesUsed() int64 {
 	dwpt.mu.RLock()
@@ -701,11 +730,13 @@ func (dwpt *DocumentsWriterPerThread) flushPostings(codec Codec, state *SegmentW
 	return nil
 }
 
-// flushFieldInfos writes field infos to disk.
+// flushFieldInfos writes field infos to disk via the codec's FieldInfosFormat.
 func (dwpt *DocumentsWriterPerThread) flushFieldInfos(codec Codec, state *SegmentWriteState) error {
-	// FieldInfosFormat write would be called here
-	// For now, we'll handle it as part of segment info
-	return nil
+	fif := codec.FieldInfosFormat()
+	if fif == nil {
+		return nil
+	}
+	return fif.Write(state.Directory, state.SegmentInfo, state.FieldInfos, store.IOContextWrite)
 }
 
 // getGeneratedFiles returns the list of files generated during flush.
@@ -886,8 +917,21 @@ func (e *postingTermsEnum) TotalTermFreq() (int64, error) {
 	return sum, nil
 }
 
+// Postings returns a PostingsEnum for the current term. The current term is
+// the one most recently returned by Next(), i.e. e.terms[e.index-1]. Returns
+// nil when called before the first Next() or after exhaustion.
 func (e *postingTermsEnum) Postings(flags int) (PostingsEnum, error) {
-	return nil, nil
+	if e.index <= 0 || e.index > len(e.terms) {
+		return nil, nil
+	}
+	termText := e.terms[e.index-1]
+	e.postings.mu.RLock()
+	posting, ok := e.postings.terms[termText]
+	e.postings.mu.RUnlock()
+	if !ok || len(posting.docIDs) == 0 {
+		return nil, nil
+	}
+	return &postingDataEnum{posting: posting, docIdx: -1, posIdx: -1}, nil
 }
 
 func (e *postingTermsEnum) SeekExact(term *Term) (bool, error) {
@@ -922,6 +966,77 @@ func (e *postingTermsEnum) Close() error { return nil }
 
 func (e *postingTermsEnum) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (PostingsEnum, error) {
 	return nil, nil
+}
+
+// postingDataEnum iterates over the doc/freq/position data of a single
+// Posting list. It is returned by postingTermsEnum.Postings and drives
+// the block-tree terms writer via WriteTerm.
+type postingDataEnum struct {
+	posting *Posting
+	docIdx  int // index into posting.docIDs; -1 = before start
+	posIdx  int // index into posting.positions[docIdx]; -1 = before start
+}
+
+func (p *postingDataEnum) NextDoc() (int, error) {
+	p.docIdx++
+	if p.docIdx >= len(p.posting.docIDs) {
+		return NO_MORE_DOCS, nil
+	}
+	p.posIdx = -1
+	return p.posting.docIDs[p.docIdx], nil
+}
+
+func (p *postingDataEnum) DocID() int {
+	if p.docIdx < 0 || p.docIdx >= len(p.posting.docIDs) {
+		return NO_MORE_DOCS
+	}
+	return p.posting.docIDs[p.docIdx]
+}
+
+func (p *postingDataEnum) Freq() (int, error) {
+	if p.docIdx < 0 || p.docIdx >= len(p.posting.freqs) {
+		return 0, nil
+	}
+	return p.posting.freqs[p.docIdx], nil
+}
+
+func (p *postingDataEnum) NextPosition() (int, error) {
+	if p.docIdx < 0 || p.docIdx >= len(p.posting.positions) {
+		return NO_MORE_POSITIONS, nil
+	}
+	positions := p.posting.positions[p.docIdx]
+	p.posIdx++
+	if p.posIdx >= len(positions) {
+		return NO_MORE_POSITIONS, nil
+	}
+	return positions[p.posIdx], nil
+}
+
+func (p *postingDataEnum) StartOffset() (int, error) { return -1, nil }
+func (p *postingDataEnum) EndOffset() (int, error)   { return -1, nil }
+func (p *postingDataEnum) GetPayload() ([]byte, error) {
+	return nil, nil
+}
+
+func (p *postingDataEnum) Advance(target int) (int, error) {
+	for {
+		docID, err := p.NextDoc()
+		if err != nil {
+			return NO_MORE_DOCS, err
+		}
+		if docID >= target {
+			return docID, nil
+		}
+	}
+}
+
+func (p *postingDataEnum) Cost() int64 {
+	return int64(len(p.posting.docIDs))
+}
+
+func (p *postingDataEnum) Attributes() interface{} { return nil }
+func (p *postingDataEnum) SlowAdvance(target int) (int, error) {
+	return p.Advance(target)
 }
 
 // generateSegmentID generates a unique segment ID.
