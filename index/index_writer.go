@@ -757,26 +757,30 @@ func (w *IndexWriter) Close() error {
 	}
 	w.mu.RUnlock()
 
+	// Release the write lock unconditionally, even if Commit fails below.
+	// Leaving the lock held on a failed Close would prevent reopening the
+	// index in the same process and leak a stale file lock on disk.
+	defer func() {
+		if w.writeLock != nil {
+			_ = w.writeLock.Close()
+			w.writeLock = nil
+		}
+	}()
+
 	// Try to commit changes before closing
 	if err := w.Commit(); err != nil {
 		// If commit fails, we still want to close the scheduler
 		if s := w.config.GetMergeScheduler(); s != nil {
 			_ = s.Close()
 		}
+		// Mark as closed so callers do not retry Close() in a loop and
+		// hit the same failure path.
+		w.closed.Store(true)
 		return fmt.Errorf("failed to commit during close: %w", err)
 	}
 
 	// Set closed atomically
 	w.closed.Store(true)
-
-	// Release the write lock.
-	if w.writeLock != nil {
-		if err := w.writeLock.Close(); err != nil {
-			// Log but do not swallow — the error is returned after scheduler close.
-			_ = err
-		}
-		w.writeLock = nil
-	}
 
 	// Close the merge scheduler
 	if s := w.config.GetMergeScheduler(); s != nil {
