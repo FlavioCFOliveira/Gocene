@@ -35,9 +35,6 @@ const (
 	// Level1Factor * BlockSize = 32 * 128 = 4096.
 	Level1NumDocs = Level1Factor * BlockSize
 
-	level1Mask = Level1NumDocs - 1
-	blockMask  = BlockSize - 1
-
 	termsCodec = "Lucene90PostingsWriterTerms"
 	metaCodec  = "Lucene912PostingsWriterMeta"
 	docCodec   = "Lucene912PostingsWriterDoc"
@@ -47,6 +44,14 @@ const (
 	versionStart   = 0
 	versionCurrent = versionStart
 )
+
+// Write-path bit-mask constants; unused until PostingsWriter is ported.
+//
+//lint:ignore U1000 write-path constant; used by Lucene912PostingsWriter skip-level logic (PostingsWriter sprint).
+const level1Mask = Level1NumDocs - 1
+
+//lint:ignore U1000 write-path constant; used by Lucene912PostingsWriter block-boundary logic (PostingsWriter sprint).
+const blockMask = BlockSize - 1
 
 // ErrWriteNotSupported is returned by FieldsConsumer when a caller
 // attempts to write a Lucene 9.12 segment; this is a read-only backward

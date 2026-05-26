@@ -5,7 +5,6 @@
 package lucene912
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
@@ -20,11 +19,6 @@ import (
 //
 // Port of org.apache.lucene.backward_codecs.lucene912.Lucene912PostingsReader
 // (Lucene 10.4.0).
-//
-// The full PostingsEnum implementations (BlockDocsEnum, EverythingEnum, and
-// the impact enumerators) depend on ForUtil/ForDeltaUtil/PForUtil, which are
-// ported in a later sprint. Until then, Postings and Impacts return
-// ErrPostingsNotAvailable.
 type Lucene912PostingsReader struct {
 	docIn store.IndexInput
 	posIn store.IndexInput // nil when the segment has no positions
@@ -35,12 +29,6 @@ type Lucene912PostingsReader struct {
 	maxNumImpactsAtLevel1     int
 	maxImpactNumBytesAtLevel1 int
 }
-
-// ErrPostingsNotAvailable is returned by Postings and Impacts until the full
-// ForUtil/ForDeltaUtil/PForUtil port lands in a later sprint.
-var ErrPostingsNotAvailable = errors.New(
-	"lucene912: full PostingsEnum iteration not yet available (ForUtil port deferred)",
-)
 
 // NewLucene912PostingsReader opens and validates the meta, doc, pos, and pay
 // files for the segment described by state.
@@ -328,26 +316,84 @@ func (r *Lucene912PostingsReader) DecodeTerm(
 
 // Postings returns a PostingsEnum for the term identified by termState.
 //
-// The full block-iterating implementation requires ForUtil/ForDeltaUtil/PForUtil
-// (deferred sprint); this method returns ErrPostingsNotAvailable until then.
+// If the field has no positions, or positions were not requested via flags,
+// a blockDocsEnum is returned.  Otherwise an everythingEnum is returned.
+// The reuse parameter is honoured when the existing enum can be reused.
+//
+// Port of Lucene912PostingsReader.postings.
 func (r *Lucene912PostingsReader) Postings(
-	_ *index.FieldInfo,
-	_ *codecs.BlockTermState,
-	_ index.PostingsEnum,
-	_ int,
+	fieldInfo *index.FieldInfo,
+	termState *codecs.BlockTermState,
+	reuse index.PostingsEnum,
+	flags int,
 ) (index.PostingsEnum, error) {
-	return nil, ErrPostingsNotAvailable
+	its := getOrCreateIntBlockTermState(termState)
+
+	opts := fieldInfo.IndexOptions()
+	wantsPositions := (flags & index.PostingsFlagPositions) != 0
+	if opts < index.IndexOptionsDocsAndFreqsAndPositions || !wantsPositions {
+		// blockDocsEnum path
+		var e *blockDocsEnum
+		if bd, ok := reuse.(*blockDocsEnum); ok && bd.canReuse(r.docIn, fieldInfo) {
+			e = bd
+		} else {
+			e = newBlockDocsEnum(r, fieldInfo)
+		}
+		return e.reset(its, flags)
+	}
+	// everythingEnum path
+	var e *everythingEnum
+	if ee, ok := reuse.(*everythingEnum); ok && ee.canReuse(r.docIn, fieldInfo) {
+		e = ee
+	} else {
+		var err error
+		e, err = newEverythingEnum(r, fieldInfo)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return e.reset(its, flags)
 }
 
 // Impacts returns an ImpactsEnum for the term identified by termState.
 //
-// Deferred to the same sprint as Postings; returns ErrPostingsNotAvailable.
+// For short posting lists (< BlockSize docs) a SlowImpactsEnum wrapping a
+// regular PostingsEnum is returned.  For full-block lists the appropriate
+// block-impacts enumerator is chosen based on the field's index options and
+// the requested flags.
+//
+// Port of Lucene912PostingsReader.impacts.
 func (r *Lucene912PostingsReader) Impacts(
-	_ *index.FieldInfo,
-	_ *codecs.BlockTermState,
-	_ int,
-) (any, error) {
-	return nil, ErrPostingsNotAvailable
+	fieldInfo *index.FieldInfo,
+	termState *codecs.BlockTermState,
+	flags int,
+) (index.ImpactsEnum, error) {
+	its := getOrCreateIntBlockTermState(termState)
+	opts := fieldInfo.IndexOptions()
+	indexHasPositions := opts >= index.IndexOptionsDocsAndFreqsAndPositions
+
+	if termState.DocFreq >= BlockSize {
+		wantsPositions := (flags & index.PostingsFlagPositions) != 0
+		if opts >= index.IndexOptionsDocsAndFreqs && (!indexHasPositions || !wantsPositions) {
+			return newBlockImpactsDocsEnum(r, indexHasPositions, its)
+		}
+
+		wantsOffsets := (flags & index.PostingsFlagOffsets) != 0
+		wantsPayloads := (flags & index.PostingsFlagPayloads) != 0
+		indexHasOffsets := opts >= index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets
+		if indexHasPositions &&
+			(!indexHasOffsets || !wantsOffsets) &&
+			(!fieldInfo.HasPayloads() || !wantsPayloads) {
+			return newBlockImpactsPostingsEnum(r, fieldInfo, its)
+		}
+	}
+
+	// Short lists or complex feature combinations: fall back to SlowImpactsEnum.
+	pe, err := r.Postings(fieldInfo, termState, nil, flags)
+	if err != nil {
+		return nil, err
+	}
+	return index.NewSlowImpactsEnum(pe), nil
 }
 
 // CheckIntegrity verifies the CRC footers of all owned files.

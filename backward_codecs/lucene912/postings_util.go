@@ -38,6 +38,7 @@ func ReadVIntBlock(
 		return fmt.Errorf("lucene912 postings: freqBuffer too short: len=%d num=%d", len(freqBuffer), num)
 	}
 
+	//lint:ignore SA1019 intentional: backward-compat codec must use the deprecated GroupVInt variant.
 	if err := util.ReadGroupVIntsInt64(docIn, docBuffer, num); err != nil {
 		return err
 	}
@@ -96,6 +97,7 @@ func WriteVIntBlock(
 	}
 
 	scratch := make([]byte, util.GroupVIntMaxLengthPerGroup)
+	//lint:ignore SA1019 intentional: backward-compat codec must use the deprecated GroupVInt variant.
 	if err := util.WriteGroupVIntsInt64(docOut, scratch, docBuffer, num); err != nil {
 		return err
 	}
