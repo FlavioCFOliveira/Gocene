@@ -61,7 +61,6 @@ const (
 // versionCompressedSuffixes is the unexported alias used by frame constructors.
 const versionCompressedSuffixes = VersionCompressedSuffixes
 
-
 // Lucene40BlockTreeTermsReader is a read-only FieldsProducer for the Lucene
 // 4.0 block-tree terms dictionary.
 //
@@ -450,7 +449,6 @@ func (r *Lucene40BlockTreeTermsReader) String() string {
 	return fmt.Sprintf("Lucene40BlockTreeTermsReader(fields=%d,delegate=%v)",
 		len(r.fieldMap), r.postingsReader)
 }
-
 
 // checksumLike is the minimal surface of EndiannessReverserChecksumIndexInput
 // needed for footer validation.  We cannot pass the concrete type to

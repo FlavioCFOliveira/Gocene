@@ -134,9 +134,15 @@ func TestOutputFlagConstants(t *testing.T) {
 
 // ─── SegmentTermsEnum ─────────────────────────────────────────────────────────
 
-// TestSegmentTermsEnum_NavigationDeferred verifies that navigation methods
-// return ErrBlockTraversalNotAvailable (not a panic or unrelated error).
-func TestSegmentTermsEnum_NavigationDeferred(t *testing.T) {
+// TestSegmentTermsEnum_NoParent verifies that navigation methods behave
+// correctly when the FieldReader has no backing index data.
+//
+// With the full implementation wired:
+//   - Next() / SeekCeil() return (nil, nil) — EOF / not-found.
+//   - SeekExact() returns (false, nil) — not found.
+//   - DocFreq / TotalTermFreq / Postings return a non-nil error because
+//     the current frame's term state is nil (nothing has been decoded).
+func TestSegmentTermsEnum_NoParent(t *testing.T) {
 	fr := &FieldReader{
 		fieldInfo: index.NewFieldInfo("body", 0, index.FieldInfoOptions{
 			IndexOptions: index.IndexOptionsDocsAndFreqs,
@@ -147,23 +153,33 @@ func TestSegmentTermsEnum_NavigationDeferred(t *testing.T) {
 		t.Fatalf("newSegmentTermsEnum: unexpected error: %v", err)
 	}
 
-	if _, err = e.Next(); !errors.Is(err, ErrBlockTraversalNotAvailable) {
-		t.Errorf("Next(): want ErrBlockTraversalNotAvailable, got %v", err)
+	// Next(): no backing file → EOF.
+	term, err := e.Next()
+	if err != nil || term != nil {
+		t.Errorf("Next(): want (nil, nil), got (%v, %v)", term, err)
 	}
-	if _, err = e.SeekCeil(index.NewTerm("body", "foo")); !errors.Is(err, ErrBlockTraversalNotAvailable) {
-		t.Errorf("SeekCeil(): want ErrBlockTraversalNotAvailable, got %v", err)
+
+	// SeekCeil(): no FST index → falls through to Next() → EOF.
+	term, err = e.SeekCeil(index.NewTerm("body", "foo"))
+	if err != nil || term != nil {
+		t.Errorf("SeekCeil(): want (nil, nil), got (%v, %v)", term, err)
 	}
-	if _, err = e.SeekExact(index.NewTerm("body", "foo")); !errors.Is(err, ErrBlockTraversalNotAvailable) {
-		t.Errorf("SeekExact(): want ErrBlockTraversalNotAvailable, got %v", err)
+
+	// SeekExact(): no FST index → not found.
+	found, err := e.SeekExact(index.NewTerm("body", "foo"))
+	if err != nil || found {
+		t.Errorf("SeekExact(): want (false, nil), got (%v, %v)", found, err)
 	}
-	if _, err = e.DocFreq(); !errors.Is(err, ErrBlockTraversalNotAvailable) {
-		t.Errorf("DocFreq(): want ErrBlockTraversalNotAvailable, got %v", err)
+
+	// DocFreq, TotalTermFreq, Postings: term state is nil → error.
+	if _, err = e.DocFreq(); err == nil {
+		t.Error("DocFreq(): want error (term state nil), got nil")
 	}
-	if _, err = e.TotalTermFreq(); !errors.Is(err, ErrBlockTraversalNotAvailable) {
-		t.Errorf("TotalTermFreq(): want ErrBlockTraversalNotAvailable, got %v", err)
+	if _, err = e.TotalTermFreq(); err == nil {
+		t.Error("TotalTermFreq(): want error (term state nil), got nil")
 	}
-	if _, err = e.Postings(0); !errors.Is(err, ErrBlockTraversalNotAvailable) {
-		t.Errorf("Postings(): want ErrBlockTraversalNotAvailable, got %v", err)
+	if _, err = e.Postings(0); err == nil {
+		t.Error("Postings(): want error (term state nil), got nil")
 	}
 }
 
@@ -182,7 +198,8 @@ func TestIntersectTermsEnum_NilAutomatonReturnsError(t *testing.T) {
 }
 
 // TestIntersectTermsEnum_SeekNotSupported verifies that SeekCeil and
-// SeekExact return errors on a manually-wired instance.
+// SeekExact always return errors, and that Next() on an uninitialized
+// (nil currentFrame) instance returns EOF rather than panicking.
 func TestIntersectTermsEnum_SeekNotSupported(t *testing.T) {
 	e := &IntersectTermsEnum{
 		fr: &FieldReader{
@@ -197,8 +214,10 @@ func TestIntersectTermsEnum_SeekNotSupported(t *testing.T) {
 	if _, err := e.SeekExact(nil); err == nil {
 		t.Error("SeekExact: expected error")
 	}
-	if _, err := e.Next(); !errors.Is(err, ErrBlockTraversalNotAvailable) {
-		t.Errorf("Next(): want ErrBlockTraversalNotAvailable, got %v", err)
+	// currentFrame is nil: Next() returns EOF (nil, nil).
+	term, err := e.Next()
+	if err != nil || term != nil {
+		t.Errorf("Next() on nil frame: want (nil, nil), got (%v, %v)", term, err)
 	}
 }
 
