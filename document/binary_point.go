@@ -16,10 +16,17 @@ import "fmt"
 //     (which already existed). The single-value NewBinaryPoint(name, []byte)
 //     was pre-shipped in Gocene and now sets pointDimensionCount/numBytes
 //     correctly from the provided value length.
-//   - Static query factory methods (NewExactQuery, NewRangeQuery,
-//     NewSetQuery) are deferred — they require search.PointInSetQuery and
-//     search.PointRangeQuery, which are not yet in scope for Sprint 21.
-//     A backlog task is created for these.
+//   - Static query factory methods (newExactQuery, newRangeQuery,
+//     newSetQuery in Java) live in package search to avoid the
+//     document/ -> search/ cycle Gocene's package layout would otherwise
+//     close (search/ already imports document/ for FieldType). Callers
+//     write search.NewBinaryPointExactQuery / NewBinaryPointRangeQuery /
+//     NewBinaryPointMultiDimRangeQuery / NewBinaryPointSetQuery instead
+//     of the Java BinaryPoint.* static methods. See
+//     search/binary_point_queries.go for the rationale and the wire-format
+//     contract — the helpers are thin wrappers over the existing
+//     PointRangeQuery and PointInSetQuery types and do not introduce any
+//     new on-disk layout.
 type BinaryPoint struct {
 	*Field
 }
