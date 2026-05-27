@@ -41,13 +41,17 @@ func TestHighlightAudit_DeferredRows(t *testing.T) {
 			reason: "T14 ships the Lucene-side parity test the row asked for: scenario " +
 				"'highlight-offset-corpus' + verifier 'verify-highlight-offsets', " +
 				"exercised by unified_highlighter_compat_test.go::" +
-				"TestUnifiedHighlighter_VerifySubcommand. The Gocene-side replay " +
-				"(open the Lucene-emitted segment with Gocene's IndexSearcher, run " +
-				"Gocene's UH under highlight/uhighlight/ over the same catalogue, " +
-				"compare snippets byte-for-byte) is blocked on the SegmentReader " +
-				"core-readers gap ('gocene-segmentreader-corereaders-gap'): " +
-				"IndexSearcher.search trips on a nil core reader before UH ever " +
-				"sees the postings offset store.",
+				"TestUnifiedHighlighter_VerifySubcommand. Sprint 116 T4685 then " +
+				"landed the Gocene-internal UH port (highlight/uhighlight/, with " +
+				"ANALYSIS and TERM_VECTORS offset sources tested against a " +
+				"hand-curated golden corpus). The remaining live-Lucene byte-" +
+				"parity verification (open a Lucene-emitted segment with Gocene's " +
+				"IndexSearcher, run Gocene's UH over the same catalogue, compare " +
+				"snippets byte-for-byte) is now tracked by rmp task #4687, which " +
+				"depends on T4686 (the byte-parity IndexWriter epic). Replay is " +
+				"blocked there because IndexSearcher.search still trips on the " +
+				"SegmentReader core-readers gap " +
+				"('gocene-segmentreader-corereaders-gap') before UH sees postings.",
 		},
 		{
 			artefact:  "Gocene FastVectorHighlighter phrase-list parity vs Lucene",
