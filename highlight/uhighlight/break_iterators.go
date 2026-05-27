@@ -126,3 +126,100 @@ func (SplittingBreakIterator) Preceding(text string, pos int) int {
 }
 
 var _ BreakIterator = SplittingBreakIterator{}
+
+// WholeBreakIterator treats the entire input as a single segment.
+// Mirrors org.apache.lucene.search.uhighlight.WholeBreakIterator.
+type WholeBreakIterator struct{}
+
+// Following returns the end of the text (or -1 once already at the end).
+func (WholeBreakIterator) Following(text string, pos int) int {
+	if pos >= len(text) {
+		return -1
+	}
+	return len(text)
+}
+
+// Preceding returns 0 (the only valid preceding boundary) or 0 when pos
+// is already at the start.
+func (WholeBreakIterator) Preceding(text string, pos int) int {
+	_ = text
+	if pos <= 0 {
+		return 0
+	}
+	return 0
+}
+
+var _ BreakIterator = WholeBreakIterator{}
+
+// SentenceBreakIterator splits text at sentence boundaries (periods,
+// question marks, exclamation marks) followed by whitespace. This is the
+// Go port of the JDK BreakIterator.getSentenceInstance() default the
+// Lucene UH uses when no explicit BreakIterator is configured.
+//
+// The implementation is intentionally lightweight: it matches the
+// terminator + whitespace pattern in linear time and is suitable for
+// English-style sentences. A full ICU-backed sentence iterator is a
+// separate concern.
+type SentenceBreakIterator struct{}
+
+// Following returns the index immediately after the next sentence
+// terminator + whitespace pair, or len(text) when the tail of the text
+// is reached, or -1 when pos is already at the end.
+func (SentenceBreakIterator) Following(text string, pos int) int {
+	if pos >= len(text) {
+		return -1
+	}
+	for i := pos + 1; i < len(text); i++ {
+		c := text[i]
+		if c != '.' && c != '!' && c != '?' {
+			continue
+		}
+		// Lookahead: consume any run of repeated terminators (e.g. "!!!").
+		j := i + 1
+		for j < len(text) && (text[j] == '.' || text[j] == '!' || text[j] == '?') {
+			j++
+		}
+		if j >= len(text) {
+			return len(text)
+		}
+		if text[j] == ' ' || text[j] == '\t' || text[j] == '\n' || text[j] == '\r' {
+			// Boundary lands AFTER the terminator+whitespace so the
+			// next passage starts at the first non-space char.
+			k := j + 1
+			for k < len(text) && (text[k] == ' ' || text[k] == '\t' || text[k] == '\n' || text[k] == '\r') {
+				k++
+			}
+			return k
+		}
+	}
+	return len(text)
+}
+
+// Preceding returns the start of the sentence containing pos, derived by
+// walking backwards until a terminator + whitespace boundary is found.
+func (SentenceBreakIterator) Preceding(text string, pos int) int {
+	if pos <= 0 {
+		return 0
+	}
+	if pos > len(text) {
+		pos = len(text)
+	}
+	for i := pos - 1; i > 0; i-- {
+		c := text[i-1]
+		if c != '.' && c != '!' && c != '?' {
+			continue
+		}
+		// Next char must be whitespace for a true sentence boundary.
+		if i < len(text) && (text[i] == ' ' || text[i] == '\t' || text[i] == '\n' || text[i] == '\r') {
+			// Skip the whitespace run to land at the start of the next sentence.
+			k := i + 1
+			for k < pos && (text[k] == ' ' || text[k] == '\t' || text[k] == '\n' || text[k] == '\r') {
+				k++
+			}
+			return k
+		}
+	}
+	return 0
+}
+
+var _ BreakIterator = SentenceBreakIterator{}

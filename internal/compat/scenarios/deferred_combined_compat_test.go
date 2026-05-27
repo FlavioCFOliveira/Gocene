@@ -66,10 +66,15 @@ func TestDeferredGoceneWriteLeg(t *testing.T) {
 		},
 		{
 			scenario: scenarioS6,
-			reason: "Gocene's classic QueryParser port plus UnifiedHighlighter " +
-				"port plus the SegmentReader core-readers gap combine to " +
-				"defer the class-(c) replay; the Lucene-side highlight " +
-				"chain IS pinned by TestS6_HighlightQueryparserAnalysis.",
+			reason: "Sprint 116 T4685 landed the Gocene-internal " +
+				"UnifiedHighlighter port (golden-string parity for ANALYSIS " +
+				"and TERM_VECTORS), so the only remaining blockers for the " +
+				"class-(c) replay are Gocene's classic QueryParser port and " +
+				"the SegmentReader core-readers gap. The Lucene-side " +
+				"highlight chain IS pinned by " +
+				"TestS6_HighlightQueryparserAnalysis; the live-Lucene byte-" +
+				"parity follow-up is tracked by rmp task #4687 (depends on " +
+				"T4686).",
 		},
 	}
 

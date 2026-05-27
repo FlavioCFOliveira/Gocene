@@ -28,27 +28,6 @@ func (s *NoOpOffsetStrategy) GetOffsetsEnum(_ any) (OffsetsEnum, error) {
 
 var _ FieldOffsetStrategy = (*NoOpOffsetStrategy)(nil)
 
-// AnalysisOffsetStrategy re-runs the field analyzer to produce offsets.
-// Mirrors org.apache.lucene.search.uhighlight.AnalysisOffsetStrategy.
-type AnalysisOffsetStrategy struct{ BaseFieldOffsetStrategy }
-
-// NewAnalysisOffsetStrategy builds the analysis-based strategy.
-func NewAnalysisOffsetStrategy(field string) *AnalysisOffsetStrategy {
-	return &AnalysisOffsetStrategy{BaseFieldOffsetStrategy: NewBaseFieldOffsetStrategy(field)}
-}
-
-// GetOffsetSource returns OffsetSourceAnalysis.
-func (s *AnalysisOffsetStrategy) GetOffsetSource() OffsetSource { return OffsetSourceAnalysis }
-
-// GetOffsetsEnum requires an analyzer + the field value; the doc-context
-// helper must carry both. The Go port defers concrete extraction to the
-// analyzer infrastructure landed in later sprints.
-func (s *AnalysisOffsetStrategy) GetOffsetsEnum(_ any) (OffsetsEnum, error) {
-	return nil, errNotImplemented
-}
-
-var _ FieldOffsetStrategy = (*AnalysisOffsetStrategy)(nil)
-
 // PostingsOffsetStrategy reads offsets straight from the indexed postings.
 // Mirrors org.apache.lucene.search.uhighlight.PostingsOffsetStrategy.
 type PostingsOffsetStrategy struct{ BaseFieldOffsetStrategy }
@@ -89,25 +68,6 @@ func (s *PostingsWithTermVectorsOffsetStrategy) GetOffsetsEnum(_ any) (OffsetsEn
 }
 
 var _ FieldOffsetStrategy = (*PostingsWithTermVectorsOffsetStrategy)(nil)
-
-// TermVectorOffsetStrategy reads offsets from term vectors only.
-// Mirrors org.apache.lucene.search.uhighlight.TermVectorOffsetStrategy.
-type TermVectorOffsetStrategy struct{ BaseFieldOffsetStrategy }
-
-// NewTermVectorOffsetStrategy builds the strategy.
-func NewTermVectorOffsetStrategy(field string) *TermVectorOffsetStrategy {
-	return &TermVectorOffsetStrategy{BaseFieldOffsetStrategy: NewBaseFieldOffsetStrategy(field)}
-}
-
-// GetOffsetSource returns OffsetSourceTermVectors.
-func (s *TermVectorOffsetStrategy) GetOffsetSource() OffsetSource { return OffsetSourceTermVectors }
-
-// GetOffsetsEnum is deferred to the term-vector infrastructure.
-func (s *TermVectorOffsetStrategy) GetOffsetsEnum(_ any) (OffsetsEnum, error) {
-	return nil, errNotImplemented
-}
-
-var _ FieldOffsetStrategy = (*TermVectorOffsetStrategy)(nil)
 
 // TokenStreamOffsetStrategy walks a pre-computed TokenStream to extract
 // offsets. Mirrors
