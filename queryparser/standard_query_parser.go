@@ -2,6 +2,7 @@ package queryparser
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -319,11 +320,23 @@ func (s *parserState) parsePhrase(field string) (search.Query, error) {
 	phrase := s.text[start:s.pos]
 	s.pos++ // consume closing quote
 
-	// Check for slop
+	// Check for slop: a trailing "~N" overrides the parser-default
+	// phraseSlop. A bare "~" (no digits) leaves the default in place,
+	// matching Lucene's tolerant fallback.
 	slop := s.parser.phraseSlop
 	if s.peek() == '~' {
 		s.pos++
-		// For now, skip slop value parsing
+		digitStart := s.pos
+		for s.pos < len(s.text) && s.text[s.pos] >= '0' && s.text[s.pos] <= '9' {
+			s.pos++
+		}
+		if s.pos > digitStart {
+			parsed, err := strconv.Atoi(s.text[digitStart:s.pos])
+			if err != nil {
+				return nil, fmt.Errorf("invalid phrase slop %q at position %d: %w", s.text[digitStart:s.pos], digitStart, err)
+			}
+			slop = parsed
+		}
 	}
 
 	// Create terms from phrase words
@@ -336,30 +349,111 @@ func (s *parserState) parsePhrase(field string) (search.Query, error) {
 	return search.NewPhraseQueryWithSlop(slop, field, terms...), nil
 }
 
-// parseRange parses a range query.
+// parseRange parses a range query of the form
+//
+//	[ lower TO upper ]   – inclusive on both ends
+//	{ lower TO upper }   – exclusive on both ends
+//
+// Mixed inclusive/exclusive forms ([a TO b} and {a TO b]) are accepted as
+// well, matching the Lucene 10.4.0 StandardQueryParser grammar.
+//
+// The "TO" separator is case-insensitive and must be surrounded by
+// whitespace, just like Lucene's reference parser. Wildcards on the
+// bounds ("*") collapse to an open-ended range.
 func (s *parserState) parseRange(field string) (search.Query, error) {
+	openBracket := s.text[s.pos]
 	s.pos++ // consume '[' or '{'
-
-	start := s.pos
-	for s.pos < len(s.text) && s.text[s.pos] != ' ' && s.text[s.pos] != ']' && s.text[s.pos] != '}' {
-		s.pos++
-	}
-
-	lower := s.text[start:s.pos]
+	includeLower := openBracket == '['
 
 	s.skipWhitespace()
-	if s.pos >= len(s.text) || (s.text[s.pos] != ']' && s.text[s.pos] != '}') {
-		return nil, fmt.Errorf("expected ']' or '}'")
+	lower, err := s.parseRangeBound()
+	if err != nil {
+		return nil, err
 	}
 
+	s.skipWhitespace()
+	if !s.consumeTOSeparator() {
+		return nil, fmt.Errorf("expected TO separator in range query at position %d", s.pos)
+	}
+	s.skipWhitespace()
+
+	upper, err := s.parseRangeBound()
+	if err != nil {
+		return nil, err
+	}
+	s.skipWhitespace()
+
+	if s.pos >= len(s.text) || (s.text[s.pos] != ']' && s.text[s.pos] != '}') {
+		return nil, fmt.Errorf("expected ']' or '}' at position %d", s.pos)
+	}
+	closeBracket := s.text[s.pos]
+	includeUpper := closeBracket == ']'
 	s.pos++ // consume ']' or '}'
 
-	// For now, create a simple term query
-	// In a full implementation, this would create a range query
-	return search.NewTermQuery(index.NewTerm(field, lower)), nil
+	// Lucene treats "*" as an unbounded sentinel on either end. The
+	// TermRangeQuery contract represents "no bound" with a nil byte
+	// slice, so we map "*" to nil bytes before constructing the query.
+	var lowerBytes, upperBytes []byte
+	if lower != "*" {
+		lowerBytes = []byte(lower)
+	}
+	if upper != "*" {
+		upperBytes = []byte(upper)
+	}
+
+	return search.NewTermRangeQuery(field, lowerBytes, upperBytes, includeLower, includeUpper), nil
+}
+
+// parseRangeBound consumes a single range bound (lower or upper). A bound
+// is a run of non-whitespace, non-bracket characters; the surrounding
+// whitespace has already been skipped by the caller.
+func (s *parserState) parseRangeBound() (string, error) {
+	start := s.pos
+	for s.pos < len(s.text) {
+		c := s.text[s.pos]
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' ||
+			c == ']' || c == '}' {
+			break
+		}
+		s.pos++
+	}
+	if start == s.pos {
+		return "", fmt.Errorf("expected range bound at position %d", s.pos)
+	}
+	return s.text[start:s.pos], nil
+}
+
+// consumeTOSeparator advances past a case-insensitive "TO" keyword
+// surrounded by whitespace. Returns false if the cursor is not at a
+// valid separator (callers report the position-tagged error).
+func (s *parserState) consumeTOSeparator() bool {
+	if s.pos+2 > len(s.text) {
+		return false
+	}
+	if (s.text[s.pos] == 'T' || s.text[s.pos] == 't') &&
+		(s.text[s.pos+1] == 'O' || s.text[s.pos+1] == 'o') {
+		// Require a trailing whitespace to avoid matching "TOuch" or
+		// similar identifier-shaped runs.
+		if s.pos+2 == len(s.text) || isRangeWhitespace(s.text[s.pos+2]) {
+			s.pos += 2
+			return true
+		}
+	}
+	return false
+}
+
+// isRangeWhitespace mirrors the small whitespace set parseRangeBound
+// considers terminator (space, tab, CR, LF). Brackets count as a
+// terminator too but cannot legally appear before the upper bound, so
+// they are deliberately excluded here.
+func isRangeWhitespace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r'
 }
 
 // parseTerm parses a single term.
+//
+// The terminator set includes '~' so a trailing fuzzy / phrase-slop
+// marker is left in the stream for the caller to inspect via peek().
 func (s *parserState) parseTerm(field string) (search.Query, error) {
 	start := s.pos
 
@@ -368,7 +462,8 @@ func (s *parserState) parseTerm(field string) (search.Query, error) {
 		c := s.text[s.pos]
 		if c == ' ' || c == '\t' || c == '\n' || c == '\r' ||
 			c == '(' || c == ')' || c == '[' || c == ']' ||
-			c == '{' || c == '}' || c == '"' || c == ':' {
+			c == '{' || c == '}' || c == '"' || c == ':' ||
+			c == '~' {
 			break
 		}
 		s.pos++
@@ -380,19 +475,38 @@ func (s *parserState) parseTerm(field string) (search.Query, error) {
 
 	term := s.text[start:s.pos]
 
-	// Check for fuzzy
+	// Check for fuzzy: "term~" or "term~N" where N is the optional
+	// maximum edit distance (0, 1, or 2). The grammar matches Lucene's
+	// FlexibleQueryParser StandardSyntaxParser: digits immediately after
+	// '~' are interpreted as the max-edits override.
 	if s.peek() == '~' {
 		s.pos++
-		// For now, just create a term query
-		// In a full implementation, this would create a fuzzy query
-		return search.NewTermQuery(index.NewTerm(field, term)), nil
+		maxEdits := -1
+		digitStart := s.pos
+		for s.pos < len(s.text) && s.text[s.pos] >= '0' && s.text[s.pos] <= '9' {
+			s.pos++
+		}
+		if s.pos > digitStart {
+			parsed, err := strconv.Atoi(s.text[digitStart:s.pos])
+			if err != nil {
+				return nil, fmt.Errorf("invalid fuzzy edit distance %q at position %d: %w", s.text[digitStart:s.pos], digitStart, err)
+			}
+			maxEdits = parsed
+		}
+		t := index.NewTerm(field, term)
+		if maxEdits < 0 {
+			return search.NewFuzzyQuery(t), nil
+		}
+		return search.NewFuzzyQueryWithMaxEdits(t, maxEdits), nil
 	}
 
-	// Check for wildcard
+	// Check for wildcard: presence of '*' or '?' anywhere in the term
+	// triggers a WildcardQuery. Lucene additionally short-circuits a
+	// trailing-only '*' into a PrefixQuery; that distinction is a pure
+	// optimisation (WildcardQuery handles both forms correctly) and is
+	// not required here.
 	if strings.Contains(term, "*") || strings.Contains(term, "?") {
-		// For now, just create a term query
-		// In a full implementation, this would create a wildcard query
-		return search.NewTermQuery(index.NewTerm(field, term)), nil
+		return search.NewWildcardQuery(index.NewTerm(field, term)), nil
 	}
 
 	return search.NewTermQuery(index.NewTerm(field, term)), nil
