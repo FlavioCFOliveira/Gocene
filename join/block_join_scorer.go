@@ -124,10 +124,40 @@ func (s *BlockJoinScorer) Score() float32 {
 }
 
 // GetMaxScore returns the maximum score for documents up to the given doc.
+//
+// Block-join scoring blends the parent and child contributions according to
+// the configured ScoreMode:
+//   - None    : parent score only (the child scorer never contributes).
+//   - Max/Min : the larger/smaller of parent and child max scores (Min returns
+//     the smaller, capturing the worst-case bound used by Lucene's
+//     block-max optimisations).
+//   - Avg     : average of parent and child max scores.
+//   - Total   : sum of parent and child max scores (an upper bound on what
+//     Score() can return for any single parent in the run).
 func (s *BlockJoinScorer) GetMaxScore(upTo int) float32 {
-	// For block join, we return the max score from the parent scorer
-	// In a full implementation, this would consider child scores as well
-	return s.parentScorer.GetMaxScore(upTo)
+	parentMax := s.parentScorer.GetMaxScore(upTo)
+	if s.scoreMode == None || s.childScorer == nil {
+		return parentMax
+	}
+	childMax := s.childScorer.GetMaxScore(upTo)
+	switch s.scoreMode {
+	case Max:
+		if childMax > parentMax {
+			return childMax
+		}
+		return parentMax
+	case Min:
+		if childMax < parentMax {
+			return childMax
+		}
+		return parentMax
+	case Avg:
+		return (parentMax + childMax) / 2
+	case Total:
+		return parentMax + childMax
+	default:
+		return parentMax
+	}
 }
 
 // Advance advances to the given document.
@@ -158,10 +188,19 @@ func (s *BlockJoinScorer) Advance(target int) (int, error) {
 }
 
 // Cost returns the estimated cost of this scorer.
+//
+// The block-join scorer drives the parent iterator and pulls matching
+// children for each parent, so the work it performs is bounded by the
+// number of parent matches plus the number of child matches. We therefore
+// return the sum of the two scorer costs (skipping the child contribution
+// when there is no child scorer, which happens with ScoreMode.None on the
+// parent side).
 func (s *BlockJoinScorer) Cost() int64 {
-	// Return the cost of the parent scorer
-	// In a full implementation, this might consider child costs as well
-	return s.parentScorer.Cost()
+	cost := s.parentScorer.Cost()
+	if s.childScorer != nil {
+		cost += s.childScorer.Cost()
+	}
+	return cost
 }
 
 // DocIDRunEnd returns the end of the run of consecutive doc IDs.

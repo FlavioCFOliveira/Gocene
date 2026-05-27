@@ -5,6 +5,7 @@
 package join
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -51,6 +52,11 @@ type BlockJoinComparator struct {
 
 	// numHits is the number of hits
 	numHits int
+
+	// parentsBits is the BitSet of parent documents in the current leaf.
+	// It is populated lazily on SetContext and is used by getParentDoc to
+	// resolve the parent of a child document via NextSetBit.
+	parentsBits *FixedBitSet
 }
 
 // NewBlockJoinComparator creates a new BlockJoinComparator.
@@ -61,6 +67,22 @@ func NewBlockJoinComparator(parentComparator search.FieldComparator, parentsFilt
 		parentDocs:       make([]int, numHits),
 		numHits:          numHits,
 	}
+}
+
+// SetContext resolves the parents BitSet for the given leaf reader context.
+// It must be called before Compare/Copy/CompareBottom when the comparator
+// transitions to a new leaf reader, mirroring Lucene's getLeafComparator hook.
+func (c *BlockJoinComparator) SetContext(ctx *index.LeafReaderContext) error {
+	if c.parentsFilter == nil || ctx == nil {
+		c.parentsBits = nil
+		return nil
+	}
+	bits, err := c.parentsFilter.GetBitSet(ctx)
+	if err != nil {
+		return err
+	}
+	c.parentsBits = bits
+	return nil
 }
 
 // Compare compares doc1 and doc2.
@@ -107,17 +129,23 @@ func (c *BlockJoinComparator) SetScorer(scorer search.Scorer) {
 	c.parentComparator.SetScorer(scorer)
 }
 
-// getParentDoc finds the parent document for a given child document.
-// In a block-joined index, the parent is the last document in the block.
+// getParentDoc finds the parent document for the given child document.
+//
+// In a block-joined index, parents are written *after* their children so the
+// parent of childDoc is the first set bit at or after childDoc in the
+// parentsFilter BitSet. If childDoc is itself a parent it is returned as-is.
+// If no parents BitSet has been resolved (SetContext was not called or the
+// filter is nil), childDoc is returned unchanged so the comparator degrades
+// to plain doc-id comparison rather than producing garbage.
 func (c *BlockJoinComparator) getParentDoc(childDoc int) int {
-	// Search forward from childDoc to find the next parent
-	// This is a simplified implementation
-	// In a full implementation, we would use the parentsFilter BitSetProducer
-	// to find the actual parent document
-
-	// For now, assume the parent is at a fixed offset or use a placeholder
-	// This should be replaced with proper BitSetProducer logic
-	return childDoc + 1 // Placeholder - parent is next document
+	if c.parentsBits == nil {
+		return childDoc
+	}
+	parent := c.parentsBits.NextSetBit(childDoc)
+	if parent < 0 {
+		return childDoc
+	}
+	return parent
 }
 
 // Ensure BlockJoinComparator implements FieldComparator
