@@ -7,6 +7,7 @@ package store
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 )
 
@@ -668,6 +669,36 @@ func TestOpen(t *testing.T) {
 			t.Error("Open() expected error for non-existent directory")
 		}
 	})
+
+	t.Run("selects backend by pointer width", func(t *testing.T) {
+		dir, err := Open(tempDir)
+		if err != nil {
+			t.Fatalf("Open() error = %v", err)
+		}
+		defer dir.Close()
+
+		if Is64Bit() {
+			if _, ok := dir.(*MMapDirectory); !ok {
+				t.Fatalf("Open on 64-bit platform returned %T, want *MMapDirectory", dir)
+			}
+		} else {
+			if _, ok := dir.(*NIOFSDirectory); !ok {
+				t.Fatalf("Open on 32-bit platform returned %T, want *NIOFSDirectory", dir)
+			}
+		}
+	})
+}
+
+// TestIs64Bit cross-checks the Is64Bit probe against the architecture the
+// Go test binary is running on. It is intentionally minimal: if the pointer
+// width disagrees with the strconv check, every cross-platform invariant
+// further down the stack breaks too.
+func TestIs64Bit(t *testing.T) {
+	got := Is64Bit()
+	want := strconv.IntSize == 64
+	if got != want {
+		t.Fatalf("Is64Bit() = %v, want %v (strconv.IntSize=%d)", got, want, strconv.IntSize)
+	}
 }
 
 func TestValidateFileName(t *testing.T) {
