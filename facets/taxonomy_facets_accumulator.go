@@ -9,6 +9,19 @@ import (
 	"sort"
 )
 
+// TaxonomyOrdinalsResolver returns the taxonomy ordinals associated with a
+// document inside a single segment. It abstracts over Lucene's per-codec
+// SortedNumericDocValues / BinaryDocValues lookup so the accumulator can be
+// driven by tests and future SPI wiring without leaking codec details.
+//
+// The resolver MUST return:
+//   - a slice of ordinals (>0) for the matching document, or
+//   - nil/empty if the document has no facet values for this field.
+//
+// docID is the per-segment (leaf) document id. The implementation is expected
+// to be cheap; the accumulator does not memoise the returned slice.
+type TaxonomyOrdinalsResolver func(matchingDocs *MatchingDocs, docID int) ([]int, error)
+
 // TaxonomyFacetsAccumulator accumulates facet counts from a taxonomy.
 // This is the Go port of Lucene's org.apache.lucene.facet.taxonomy.TaxonomyFacetsAccumulator.
 type TaxonomyFacetsAccumulator struct {
@@ -22,6 +35,17 @@ type TaxonomyFacetsAccumulator struct {
 
 	// counts holds the accumulated counts by ordinal
 	counts []int64
+
+	// resolver resolves per-document taxonomy ordinals for a segment.
+	// When nil, accumulateFromSegment is a no-op (foundation gap with the
+	// taxonomy doc-values SPI, tracked in the rmp backlog).
+	resolver TaxonomyOrdinalsResolver
+}
+
+// SetOrdinalsResolver installs an ordinals resolver used by
+// AccumulateFromMatchingDocs. Passing nil restores the no-op behaviour.
+func (tfa *TaxonomyFacetsAccumulator) SetOrdinalsResolver(r TaxonomyOrdinalsResolver) {
+	tfa.resolver = r
 }
 
 // NewTaxonomyFacetsAccumulator creates a new TaxonomyFacetsAccumulator.
@@ -54,13 +78,38 @@ func (tfa *TaxonomyFacetsAccumulator) AccumulateFromMatchingDocs(matchingDocs []
 }
 
 // accumulateFromSegment accumulates counts from a single segment.
+//
+// When an ordinals resolver is configured via SetOrdinalsResolver, this method
+// iterates the segment's documents (filtered by matchingDocs.Bits), asks the
+// resolver for the taxonomy ordinals of each match, and increments the
+// corresponding bucket in tfa.counts. Without a resolver, the call is a no-op
+// (the Lucene-compatible doc-values SPI is not yet wired in Gocene's LeafReader
+// — see the rmp backlog for the segment-reader gap).
 func (tfa *TaxonomyFacetsAccumulator) accumulateFromSegment(matchingDocs *MatchingDocs) error {
-	// In a full implementation, this would:
-	// 1. Get the doc values for the facet field
-	// 2. Iterate over matching documents
-	// 3. For each document, get its ordinals and increment counts
+	if matchingDocs == nil || tfa.resolver == nil {
+		return nil
+	}
+	reader := matchingDocs.GetLeafReader()
+	if reader == nil {
+		return nil
+	}
 
-	// For now, just return nil
+	maxDoc := reader.MaxDoc()
+	bits := matchingDocs.Bits
+	for doc := 0; doc < maxDoc; doc++ {
+		if bits != nil && !bits.Get(doc) {
+			continue
+		}
+		ords, err := tfa.resolver(matchingDocs, doc)
+		if err != nil {
+			return fmt.Errorf("resolving ordinals for doc %d: %w", doc, err)
+		}
+		for _, ord := range ords {
+			if ord > 0 && ord < len(tfa.counts) {
+				tfa.counts[ord]++
+			}
+		}
+	}
 	return nil
 }
 

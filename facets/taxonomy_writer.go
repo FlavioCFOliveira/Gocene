@@ -34,6 +34,42 @@ type TaxonomyWriter struct {
 
 	// isOpen indicates if this writer is open
 	isOpen bool
+
+	// indexCommitter, when non-nil, is invoked by Commit to persist the
+	// taxonomy snapshot to a backing store. The in-memory TaxonomyWriter does
+	// not own an index — DirectoryTaxonomyWriter is the disk-backed variant.
+	indexCommitter TaxonomyIndexCommitter
+}
+
+// TaxonomyIndexCommitter persists the current snapshot of a TaxonomyWriter to
+// a backing index. Implementations are responsible for serialising the
+// ordinals, paths, children, and parent maps to disk (or any other store)
+// using a format compatible with Lucene 10.4.0. The committer is called from
+// TaxonomyWriter.Commit while the writer's lock is held; implementations MUST
+// NOT call back into the writer's mutex-protected methods.
+type TaxonomyIndexCommitter func(snapshot TaxonomyWriterSnapshot) error
+
+// TaxonomyWriterSnapshot is a point-in-time view of a TaxonomyWriter's state
+// exposed to TaxonomyIndexCommitter implementations.
+type TaxonomyWriterSnapshot struct {
+	// Ordinals maps category paths to their assigned ordinals.
+	Ordinals map[string]int
+	// Paths maps ordinals back to their category paths.
+	Paths map[int]string
+	// Children maps parent ordinals to their child ordinals.
+	Children map[int][]int
+	// Parent maps child ordinals to their parent ordinal.
+	Parent map[int]int
+	// NextOrdinal is the next ordinal that would be assigned.
+	NextOrdinal int
+}
+
+// SetIndexCommitter installs a committer used by Commit. Passing nil disables
+// the persistence step (Commit then only syncs to the in-memory reader).
+func (tw *TaxonomyWriter) SetIndexCommitter(c TaxonomyIndexCommitter) {
+	tw.mu.Lock()
+	defer tw.mu.Unlock()
+	tw.indexCommitter = c
 }
 
 // NewTaxonomyWriter creates a new TaxonomyWriter.
@@ -209,6 +245,16 @@ func (tw *TaxonomyWriter) GetSize() int {
 }
 
 // Commit commits the changes to the taxonomy.
+//
+// The commit performs two independent steps under the writer's lock:
+//  1. If an index committer is installed, a snapshot of the current state is
+//     handed to it for persistence (typically via DirectoryTaxonomyWriter on
+//     the disk-backed path). The snapshot maps are deep-copied so the
+//     committer may retain references safely.
+//  2. If an associated TaxonomyReader is present, the snapshot is synced to
+//     it so subsequent reads observe the committed state.
+//
+// Returns any error reported by the index committer.
 func (tw *TaxonomyWriter) Commit() error {
 	tw.mu.Lock()
 	defer tw.mu.Unlock()
@@ -217,13 +263,47 @@ func (tw *TaxonomyWriter) Commit() error {
 		return fmt.Errorf("taxonomy writer is closed")
 	}
 
-	// In a full implementation, this would write to the index
-	// For now, just sync with the reader if one exists
+	if tw.indexCommitter != nil {
+		if err := tw.indexCommitter(tw.snapshotLocked()); err != nil {
+			return fmt.Errorf("committing taxonomy snapshot: %w", err)
+		}
+	}
+
 	if tw.reader != nil {
 		tw.syncToReader()
 	}
 
 	return nil
+}
+
+// snapshotLocked returns a deep copy of the writer's state. The caller MUST
+// hold tw.mu.
+func (tw *TaxonomyWriter) snapshotLocked() TaxonomyWriterSnapshot {
+	ordinals := make(map[string]int, len(tw.ordinals))
+	for k, v := range tw.ordinals {
+		ordinals[k] = v
+	}
+	paths := make(map[int]string, len(tw.paths))
+	for k, v := range tw.paths {
+		paths[k] = v
+	}
+	children := make(map[int][]int, len(tw.children))
+	for k, v := range tw.children {
+		dup := make([]int, len(v))
+		copy(dup, v)
+		children[k] = dup
+	}
+	parent := make(map[int]int, len(tw.parent))
+	for k, v := range tw.parent {
+		parent[k] = v
+	}
+	return TaxonomyWriterSnapshot{
+		Ordinals:    ordinals,
+		Paths:       paths,
+		Children:    children,
+		Parent:      parent,
+		NextOrdinal: tw.nextOrdinal,
+	}
 }
 
 // syncToReader syncs the writer's data to the reader.

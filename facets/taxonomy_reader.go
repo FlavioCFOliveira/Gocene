@@ -1,6 +1,7 @@
 package facets
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -254,10 +255,28 @@ func (tr *TaxonomyReader) Close() error {
 	return nil
 }
 
+// TaxonomyReaderLoader populates a TaxonomyReader from an underlying index.
+// It is the hook that bridges TaxonomyReaderFactory.Open to a concrete
+// index-backed source (typically DirectoryTaxonomyReader, ported in Sprint
+// 116 task #4662). When no loader is installed, Open returns an empty
+// in-memory reader, preserving the original behaviour of this lightweight
+// adapter type.
+type TaxonomyReaderLoader func(reader *index.IndexReader, dst *TaxonomyReader) error
+
+// TaxonomyReaderRefresher checks the underlying index for newer taxonomy
+// commits and updates the supplied reader in place. The refresher MUST be
+// safe to call repeatedly and MUST not mutate the reader unless changes are
+// detected. Returning a non-nil error aborts MaybeRefresh.
+type TaxonomyReaderRefresher func(current *TaxonomyReader) error
+
 // TaxonomyReaderFactory creates TaxonomyReader instances.
 type TaxonomyReaderFactory struct {
 	// reader is the index reader to use
 	reader *index.IndexReader
+
+	// loader, when non-nil, populates the freshly created TaxonomyReader from
+	// the index. Without a loader, Open returns an empty reader.
+	loader TaxonomyReaderLoader
 }
 
 // NewTaxonomyReaderFactory creates a new TaxonomyReaderFactory.
@@ -267,11 +286,26 @@ func NewTaxonomyReaderFactory(reader *index.IndexReader) *TaxonomyReaderFactory 
 	}
 }
 
+// SetLoader installs a loader callback used by Open to populate the returned
+// reader. Passing nil restores the empty-reader behaviour.
+func (trf *TaxonomyReaderFactory) SetLoader(loader TaxonomyReaderLoader) {
+	trf.loader = loader
+}
+
 // Open opens a TaxonomyReader from the index.
+//
+// If a loader is installed, it is invoked to populate the new reader from the
+// underlying index. Without a loader, Open returns an empty in-memory reader;
+// callers that need an index-backed reader should either install a loader
+// here or use DirectoryTaxonomyReader directly.
 func (trf *TaxonomyReaderFactory) Open() (*TaxonomyReader, error) {
-	// For now, return a new empty reader
-	// In a full implementation, this would read from the index
-	return NewTaxonomyReader(), nil
+	r := NewTaxonomyReader()
+	if trf.loader != nil {
+		if err := trf.loader(trf.reader, r); err != nil {
+			return nil, fmt.Errorf("loading taxonomy: %w", err)
+		}
+	}
+	return r, nil
 }
 
 // TaxonomyReaderManager manages TaxonomyReader instances.
@@ -279,7 +313,10 @@ type TaxonomyReaderManager struct {
 	// current is the current TaxonomyReader
 	current *TaxonomyReader
 
-	// mu protects current
+	// refresher, when non-nil, is invoked by MaybeRefresh to update current.
+	refresher TaxonomyReaderRefresher
+
+	// mu protects current and refresher
 	mu sync.RWMutex
 }
 
@@ -290,6 +327,14 @@ func NewTaxonomyReaderManager(reader *TaxonomyReader) *TaxonomyReaderManager {
 	}
 }
 
+// SetRefresher installs a refresher callback used by MaybeRefresh. Passing
+// nil restores the no-op behaviour.
+func (trm *TaxonomyReaderManager) SetRefresher(r TaxonomyReaderRefresher) {
+	trm.mu.Lock()
+	defer trm.mu.Unlock()
+	trm.refresher = r
+}
+
 // Acquire returns the current TaxonomyReader.
 func (trm *TaxonomyReaderManager) Acquire() *TaxonomyReader {
 	trm.mu.RLock()
@@ -297,10 +342,23 @@ func (trm *TaxonomyReaderManager) Acquire() *TaxonomyReader {
 	return trm.current
 }
 
-// MaybeRefresh refreshes the reader if needed.
+// MaybeRefresh refreshes the reader if a refresher is installed.
+//
+// The installed TaxonomyReaderRefresher decides whether the current reader
+// needs to be updated; this manager does not impose its own change-detection
+// policy (see DirectoryTaxonomyReader for the disk-backed variant). Without
+// a refresher, MaybeRefresh is a no-op and returns nil.
 func (trm *TaxonomyReaderManager) MaybeRefresh() error {
-	// For now, no-op
-	// In a full implementation, this would check for updates
+	trm.mu.RLock()
+	current := trm.current
+	refresher := trm.refresher
+	trm.mu.RUnlock()
+	if refresher == nil || current == nil {
+		return nil
+	}
+	if err := refresher(current); err != nil {
+		return fmt.Errorf("refreshing taxonomy reader: %w", err)
+	}
 	return nil
 }
 
