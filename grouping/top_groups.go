@@ -130,9 +130,35 @@ func (tg *TopGroups) Merge(other *TopGroups) error {
 }
 
 // areSortsCompatible checks if two TopGroups have compatible sorts for merging.
+//
+// Compatibility means the group sort and the doc sort each have the same
+// number of sort fields and every position matches on Field, Type and Reverse.
+// Mirrors the equality semantics enforced by Lucene's TopGroups.merge, which
+// requires shards to feed back identical group/doc sort definitions.
 func (tg *TopGroups) areSortsCompatible(other *TopGroups) bool {
-	// In a full implementation, this would compare the actual sort fields
-	// For now, assume they are compatible
+	if other == nil {
+		return false
+	}
+	return sortsEqual(tg.GroupSort, other.GroupSort) && sortsEqual(tg.DocSort, other.DocSort)
+}
+
+// sortsEqual reports whether two Sort definitions are field-by-field equal.
+func sortsEqual(a, b search.Sort) bool {
+	if len(a.Fields) != len(b.Fields) {
+		return false
+	}
+	for i, af := range a.Fields {
+		bf := b.Fields[i]
+		if af == nil || bf == nil {
+			if af != bf {
+				return false
+			}
+			continue
+		}
+		if af.Field != bf.Field || af.Type != bf.Type || af.Reverse != bf.Reverse {
+			return false
+		}
+	}
 	return true
 }
 
