@@ -428,7 +428,15 @@ func (b *FieldUpdatesBuffer) HasSingleValue() bool {
 
 // GetNumericValue returns the buffered numeric value at the given update
 // index, or 0 if the update at idx has no value.
+//
+// Panics when called on a binary buffer. This mirrors the assertion
+// pattern of GetMaxNumeric / GetMinNumeric and surfaces buffer-kind
+// mismatches at the call site instead of dereferencing the nil
+// numericValues slice via the getArrayIndex clamp.
 func (b *FieldUpdatesBuffer) GetNumericValue(idx int) int64 {
+	if !b.isNumeric {
+		panic("FieldUpdatesBuffer: GetNumericValue called on binary buffer")
+	}
 	if b.hasValues != nil && !b.hasValues.Get(idx) {
 		return 0
 	}

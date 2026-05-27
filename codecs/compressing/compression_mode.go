@@ -79,6 +79,18 @@ var HIGH_COMPRESSION CompressionMode = highCompressionMode{}
 // decompressor as [FAST] on the read path.
 var FAST_DECOMPRESSION CompressionMode = fastDecompressionMode{}
 
+// NO_COMPRESSION emits the input bytes verbatim — the Compressor copies the
+// buffersInput payload straight into the DataOutput, and the Decompressor
+// performs the inverse. It is the Go port of the anonymous CompressionMode
+// declared as SortingStoredFieldsConsumer.NO_COMPRESSION in Apache Lucene
+// 10.4.0 (lucene/core), and is used by the temporary pre-sort stored-fields /
+// term-vectors formats that buffer per-document state in document-write
+// order before reordering at flush time.
+//
+// The String form returns "NO_COMPRESSION" to match the Java toString
+// convention for the canonical CompressionMode singletons.
+var NO_COMPRESSION CompressionMode = noCompressionMode{}
+
 // fastMode implements [FAST].
 type fastMode struct{}
 
@@ -104,6 +116,91 @@ type fastDecompressionMode struct{}
 func (fastDecompressionMode) NewCompressor() Compressor     { return newLZ4HighCompressor() }
 func (fastDecompressionMode) NewDecompressor() Decompressor { return lz4Decompressor{} }
 func (fastDecompressionMode) String() string                { return "FAST_DECOMPRESSION" }
+
+// noCompressionMode implements [NO_COMPRESSION]. Compressors copy bytes
+// straight through; decompressors slice the requested window out of the
+// raw byte run. There is no per-instance state, so all operations are
+// safe to share across goroutines.
+type noCompressionMode struct{}
+
+func (noCompressionMode) NewCompressor() Compressor     { return noCompressionCompressor{} }
+func (noCompressionMode) NewDecompressor() Decompressor { return noCompressionDecompressor{} }
+func (noCompressionMode) String() string                { return "NO_COMPRESSION" }
+
+// noCompressionCompressor copies buffersInput verbatim into out. It is the
+// Go port of the anonymous Compressor declared inside
+// SortingStoredFieldsConsumer.NO_COMPRESSION:
+//
+//	public void compress(ByteBuffersDataInput buffersInput, DataOutput out) {
+//	    out.copyBytes(buffersInput, buffersInput.length());
+//	}
+type noCompressionCompressor struct{}
+
+// Compress drains every remaining byte from buffersInput and writes it
+// unmodified to out.
+func (noCompressionCompressor) Compress(buffersInput store.ByteBuffersDataInput, out store.DataOutput) error {
+	data, err := readAllBuffersInput(buffersInput)
+	if err != nil {
+		return err
+	}
+	if len(data) == 0 {
+		return nil
+	}
+	return out.WriteBytes(data)
+}
+
+// Close is a no-op: the compressor holds no resources.
+func (noCompressionCompressor) Close() error { return nil }
+
+// noCompressionDecompressor reads originalLength bytes from in, then slices
+// the requested [offset, offset+length) window into dst. Mirrors the Java
+// reference:
+//
+//	bytes.bytes = ArrayUtil.growNoCopy(bytes.bytes, length);
+//	in.skipBytes(offset);
+//	in.readBytes(bytes.bytes, 0, length);
+//	bytes.offset = 0;
+//	bytes.length = length;
+type noCompressionDecompressor struct{}
+
+// Decompress reads exactly length bytes starting at offset of the
+// originalLength-sized payload from in, populating dst with the requested
+// window. The store.DataInput interface in Gocene does not expose
+// SkipBytes (Lucene declares it on DataInput directly), so we drain
+// pre-window and post-window bytes via ReadBytes into a small scratch
+// buffer.
+func (noCompressionDecompressor) Decompress(in store.DataInput, originalLength, offset, length int, dst *util.BytesRef) error {
+	if dst == nil {
+		return errors.New("compressing: BytesRef destination is nil")
+	}
+	if offset < 0 || length < 0 || offset+length > originalLength {
+		return fmt.Errorf("compressing: invalid window offset=%d length=%d originalLength=%d", offset, length, originalLength)
+	}
+	if cap(dst.Bytes) < length {
+		dst.Bytes = make([]byte, length)
+	} else {
+		dst.Bytes = dst.Bytes[:length]
+	}
+	if err := discardBytes(in, offset); err != nil {
+		return err
+	}
+	if length > 0 {
+		if err := in.ReadBytes(dst.Bytes); err != nil {
+			return err
+		}
+	}
+	if remaining := originalLength - offset - length; remaining > 0 {
+		if err := discardBytes(in, remaining); err != nil {
+			return err
+		}
+	}
+	dst.Offset = 0
+	dst.Length = length
+	return nil
+}
+
+// Clone returns the receiver: the decompressor is stateless.
+func (d noCompressionDecompressor) Clone() Decompressor { return d }
 
 // -----------------------------------------------------------------------------
 // LZ4 compressors
@@ -399,6 +496,29 @@ func readAllBuffersInput(buffersInput store.ByteBuffersDataInput) ([]byte, error
 		return nil, err
 	}
 	return data, nil
+}
+
+// discardBytes drains exactly n bytes from in. Used in place of
+// DataInput.SkipBytes (not exposed by the store.DataInput interface in
+// Gocene). The scratch buffer is sized to keep allocations bounded
+// regardless of n.
+func discardBytes(in store.DataInput, n int) error {
+	if n <= 0 {
+		return nil
+	}
+	const chunk = 4096
+	buf := make([]byte, chunk)
+	for n > 0 {
+		size := n
+		if size > chunk {
+			size = chunk
+		}
+		if err := in.ReadBytes(buf[:size]); err != nil {
+			return err
+		}
+		n -= size
+	}
+	return nil
 }
 
 // writeVInt writes a 32-bit value using Lucene's variable-length integer

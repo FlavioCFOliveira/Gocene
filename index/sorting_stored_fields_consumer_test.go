@@ -126,15 +126,15 @@ type fakeCodec struct {
 	stored *fakeStoredFieldsFormat
 }
 
-func (c *fakeCodec) Name() string                                    { return "fake-codec" }
-func (c *fakeCodec) PostingsFormat() PostingsFormat                  { return nil }
-func (c *fakeCodec) StoredFieldsFormat() StoredFieldsFormat          { return c.stored }
-func (c *fakeCodec) FieldInfosFormat() FieldInfosFormat              { return nil }
-func (c *fakeCodec) SegmentInfosFormat() SegmentInfosFormat          { return nil }
-func (c *fakeCodec) SegmentInfoFormat() SegmentInfoFormat            { return nil }
-func (c *fakeCodec) TermVectorsFormat() TermVectorsFormat            { return nil }
-func (c *fakeCodec) CompoundFormat() CompoundFormat                  { return nil }
-func (c *fakeCodec) KnnVectorsFormat() KnnVectorsFormatFactory       { return nil }
+func (c *fakeCodec) Name() string                              { return "fake-codec" }
+func (c *fakeCodec) PostingsFormat() PostingsFormat            { return nil }
+func (c *fakeCodec) StoredFieldsFormat() StoredFieldsFormat    { return c.stored }
+func (c *fakeCodec) FieldInfosFormat() FieldInfosFormat        { return nil }
+func (c *fakeCodec) SegmentInfosFormat() SegmentInfosFormat    { return nil }
+func (c *fakeCodec) SegmentInfoFormat() SegmentInfoFormat      { return nil }
+func (c *fakeCodec) TermVectorsFormat() TermVectorsFormat      { return nil }
+func (c *fakeCodec) CompoundFormat() CompoundFormat            { return nil }
+func (c *fakeCodec) KnnVectorsFormat() KnnVectorsFormatFactory { return nil }
 
 // reverseSortMap{n} is reused from sorted_set_doc_values_writer_test.go;
 // it implements SorterDocMap as a reverse permutation with pointer receivers.
@@ -152,6 +152,14 @@ func newTestConsumer(t *testing.T, docs int) (*SortingStoredFieldsConsumer, *fak
 }
 
 func TestSortingStoredFieldsConsumer_InitRequiresTempFormat(t *testing.T) {
+	// Temporarily clear the process-wide default registered by the codec
+	// bridge so the consumer behaves as it would in a binary that has not
+	// blank-imported a codec. Restore on exit so other tests in this
+	// package observe the canonical registration.
+	prev := DefaultTempStoredFieldsFormat()
+	RegisterDefaultTempStoredFieldsFormat(nil)
+	t.Cleanup(func() { RegisterDefaultTempStoredFieldsFormat(prev) })
+
 	dir := store.NewByteBuffersDirectory()
 	info := NewSegmentInfo("seg0", 1, dir)
 	c := NewSortingStoredFieldsConsumer(&fakeCodec{stored: newFakeStoredFieldsFormat("temp")}, dir, info)

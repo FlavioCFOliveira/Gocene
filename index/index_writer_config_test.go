@@ -83,6 +83,34 @@ func TestIndexWriterConfig_Defaults(t *testing.T) {
 	// Test use compound file - not directly available in current implementation
 }
 
+// TestIndexWriterConfig_FlushOnUpdate verifies the FlushOnUpdate accessor
+// honours the Lucene 10.4.0
+// LiveIndexWriterConfig.checkPendingFlushOnUpdate default of true and that
+// the setter round-trips both polarities.
+//
+// Source contract: LiveIndexWriterConfig.java line 108
+//
+//	protected volatile boolean checkPendingFlushOnUpdate = true;
+func TestIndexWriterConfig_FlushOnUpdate(t *testing.T) {
+	conf := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+
+	if got, want := conf.FlushOnUpdate(), true; got != want {
+		t.Fatalf("default FlushOnUpdate: got %v, want %v (Lucene LiveIndexWriterConfig.checkPendingFlushOnUpdate = true)", got, want)
+	}
+
+	if ret := conf.SetFlushOnUpdate(false); ret != conf {
+		t.Fatalf("SetFlushOnUpdate(false) returned %p, want receiver %p", ret, conf)
+	}
+	if got, want := conf.FlushOnUpdate(), false; got != want {
+		t.Fatalf("after SetFlushOnUpdate(false): got %v, want %v", got, want)
+	}
+
+	conf.SetFlushOnUpdate(true)
+	if got, want := conf.FlushOnUpdate(), true; got != want {
+		t.Fatalf("after SetFlushOnUpdate(true): got %v, want %v", got, want)
+	}
+}
+
 // TestIndexWriterConfig_SettersChaining tests that setters return IndexWriterConfig for chaining
 // Source: TestIndexWriterConfig.testSettersChaining()
 // Purpose: Ensures fluent API pattern works for configuration

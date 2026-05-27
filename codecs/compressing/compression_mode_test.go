@@ -295,6 +295,14 @@ func TestFastDecompressionMode(t *testing.T) {
 	compressionModeContract(t, FAST_DECOMPRESSION)
 }
 
+// TestNoCompressionMode exercises the round-trip contract for the
+// NO_COMPRESSION variant declared by SortingStoredFieldsConsumer in
+// Apache Lucene 10.4.0. Bytes are emitted verbatim and any window
+// [offset, offset+length) of the original payload can be recovered.
+func TestNoCompressionMode(t *testing.T) {
+	compressionModeContract(t, NO_COMPRESSION)
+}
+
 // TestCompressionModeNames verifies the String() values exactly match the
 // Java toString() returns. These names are observed externally (e.g. in
 // log lines) and are part of the public contract.
@@ -306,6 +314,7 @@ func TestCompressionModeNames(t *testing.T) {
 		{FAST, "FAST"},
 		{HIGH_COMPRESSION, "HIGH_COMPRESSION"},
 		{FAST_DECOMPRESSION, "FAST_DECOMPRESSION"},
+		{NO_COMPRESSION, "NO_COMPRESSION"},
 	}
 	for _, c := range cases {
 		if got := c.mode.String(); got != c.name {
