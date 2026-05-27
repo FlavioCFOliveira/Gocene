@@ -226,11 +226,11 @@ type mockMultiTermsEnum struct {
 func (m *mockMultiTermsEnum) Next() (*Term, error) {
 	m.pos++
 	if m.pos >= len(m.terms) {
-		m.currentTerm = nil
+		m.SetCurrentTerm(nil)
 		return nil, nil
 	}
-	m.currentTerm = m.terms[m.pos]
-	return m.currentTerm, nil
+	m.SetCurrentTerm(m.terms[m.pos])
+	return m.Term(), nil
 }
 
 func (m *mockMultiTermsEnum) SeekCeil(term *Term) (*Term, error) {
@@ -353,11 +353,11 @@ type mockMultiDocPostingsEnum struct {
 func (m *mockMultiDocPostingsEnum) NextDoc() (int, error) {
 	m.pos++
 	if m.pos >= len(m.docs) {
-		m.currentDoc = NO_MORE_DOCS
+		m.CurrentDoc = NO_MORE_DOCS
 		return NO_MORE_DOCS, nil
 	}
-	m.currentDoc = m.docs[m.pos]
-	return m.currentDoc, nil
+	m.CurrentDoc = m.docs[m.pos]
+	return m.CurrentDoc, nil
 }
 
 func (m *mockMultiDocPostingsEnum) Advance(target int) (int, error) {

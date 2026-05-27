@@ -55,7 +55,7 @@ func (m *MappedMultiFields) Size() int {
 func (m *MappedMultiFields) Terms(field string) (Terms, error) {
 	var subs []Terms
 	var slices []ReaderSlice
-	for i, f := range m.multi.fieldsList {
+	for i, f := range m.multi.FieldsList() {
 		if f == nil {
 			continue
 		}

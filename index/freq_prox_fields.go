@@ -109,7 +109,7 @@ func (f *FreqProxFields) Iterator() (FieldIterator, error) {
 	// from subsequent Iterator calls (each iterator owns its cursor).
 	names := make([]string, len(f.fieldOrder))
 	copy(names, f.fieldOrder)
-	return &MemoryFieldIterator{fields: names, index: -1}, nil
+	return NewMemoryFieldIterator(names), nil
 }
 
 // Size always returns -1: Lucene throws UnsupportedOperationException here,
@@ -296,14 +296,14 @@ func (e *FreqProxTermsEnum) readTermAt(ord int) {
 	// the returned Term consume the scratchRef directly without copying.
 	// Callers must Clone when they need to hold the term across Next calls.
 	e.scratchTerm = NewTermFromBytesRef(e.terms.GetFieldName(), &e.scratchRef)
-	e.currentTerm = e.scratchTerm
+	e.SetCurrentTerm(e.scratchTerm)
 }
 
 // Next advances the enumerator one term. Returns nil when exhausted.
 func (e *FreqProxTermsEnum) Next() (*Term, error) {
 	e.ord++
 	if e.ord >= e.numTerms {
-		e.currentTerm = nil
+		e.SetCurrentTerm(nil)
 		return nil, nil
 	}
 	e.readTermAt(e.ord)
@@ -320,7 +320,7 @@ func (e *FreqProxTermsEnum) SeekCeil(seekTerm *Term) (*Term, error) {
 		// nil as "position before the first term", which is what Next on a
 		// fresh enumerator already does.
 		e.ord = -1
-		e.currentTerm = nil
+		e.SetCurrentTerm(nil)
 		e.seekStatus = SeekStatusNotFound
 		return e.Next()
 	}
@@ -348,7 +348,7 @@ func (e *FreqProxTermsEnum) SeekCeil(seekTerm *Term) (*Term, error) {
 	// not found
 	e.ord = lo
 	if e.ord >= e.numTerms {
-		e.currentTerm = nil
+		e.SetCurrentTerm(nil)
 		e.seekStatus = SeekStatusEnd
 		return nil, nil
 	}
@@ -498,7 +498,7 @@ type freqProxDocsEnum struct {
 
 func newFreqProxDocsEnum(terms *FreqProxTermsWriterPerField, postingsArray *FreqProxPostingsArray) *freqProxDocsEnum {
 	return &freqProxDocsEnum{
-		PostingsEnumBase: PostingsEnumBase{currentDoc: -1},
+		PostingsEnumBase: PostingsEnumBase{CurrentDoc: -1},
 		terms:            terms,
 		postingsArray:    postingsArray,
 		reader:           &ByteSliceReader{},
@@ -512,7 +512,7 @@ func (d *freqProxDocsEnum) reset(termID int) error {
 		return fmt.Errorf("freqProxDocsEnum.reset: %w", err)
 	}
 	d.ended = false
-	d.currentDoc = -1
+	d.CurrentDoc = -1
 	d.freq = 0
 	return nil
 }
@@ -540,20 +540,20 @@ func (d *freqProxDocsEnum) GetPayload() ([]byte, error) {
 }
 
 func (d *freqProxDocsEnum) NextDoc() (int, error) {
-	if d.currentDoc == -1 {
-		d.currentDoc = 0
+	if d.CurrentDoc == -1 {
+		d.CurrentDoc = 0
 	}
 	if d.reader.EOF() {
 		if d.ended {
-			d.currentDoc = NO_MORE_DOCS
+			d.CurrentDoc = NO_MORE_DOCS
 			return NO_MORE_DOCS, nil
 		}
 		d.ended = true
-		d.currentDoc = d.postingsArray.LastDocIDs[d.termID]
+		d.CurrentDoc = d.postingsArray.LastDocIDs[d.termID]
 		if d.readTermFreq {
 			d.freq = d.postingsArray.TermFreqs[d.termID]
 		}
-		return d.currentDoc, nil
+		return d.CurrentDoc, nil
 	}
 
 	code, err := d.reader.readVInt()
@@ -561,9 +561,9 @@ func (d *freqProxDocsEnum) NextDoc() (int, error) {
 		return 0, fmt.Errorf("freqProxDocsEnum.NextDoc: %w", err)
 	}
 	if !d.readTermFreq {
-		d.currentDoc += int(uint32(code))
+		d.CurrentDoc += int(uint32(code))
 	} else {
-		d.currentDoc += int(uint32(code) >> 1)
+		d.CurrentDoc += int(uint32(code) >> 1)
 		if (code & 1) != 0 {
 			d.freq = 1
 		} else {
@@ -574,7 +574,7 @@ func (d *freqProxDocsEnum) NextDoc() (int, error) {
 			d.freq = int(f)
 		}
 	}
-	return d.currentDoc, nil
+	return d.CurrentDoc, nil
 }
 
 // Advance is not supported; Lucene throws UnsupportedOperationException.
@@ -615,7 +615,7 @@ type freqProxPostingsEnum struct {
 
 func newFreqProxPostingsEnum(terms *FreqProxTermsWriterPerField, postingsArray *FreqProxPostingsArray) *freqProxPostingsEnum {
 	return &freqProxPostingsEnum{
-		PostingsEnumBase: PostingsEnumBase{currentDoc: -1},
+		PostingsEnumBase: PostingsEnumBase{CurrentDoc: -1},
 		terms:            terms,
 		postingsArray:    postingsArray,
 		reader:           &ByteSliceReader{},
@@ -634,7 +634,7 @@ func (p *freqProxPostingsEnum) reset(termID int) error {
 		return fmt.Errorf("freqProxPostingsEnum.reset pos stream: %w", err)
 	}
 	p.ended = false
-	p.currentDoc = -1
+	p.CurrentDoc = -1
 	p.posLeft = 0
 	p.startOffset = 0
 	p.pos = 0
@@ -646,8 +646,8 @@ func (p *freqProxPostingsEnum) reset(termID int) error {
 func (p *freqProxPostingsEnum) Freq() (int, error) { return p.freq, nil }
 
 func (p *freqProxPostingsEnum) NextDoc() (int, error) {
-	if p.currentDoc == -1 {
-		p.currentDoc = 0
+	if p.CurrentDoc == -1 {
+		p.CurrentDoc = 0
 	}
 	// Drain any positions left over from the previous doc so the position
 	// stream cursor is aligned with the next doc's prox payload prefix.
@@ -659,18 +659,18 @@ func (p *freqProxPostingsEnum) NextDoc() (int, error) {
 
 	if p.reader.EOF() {
 		if p.ended {
-			p.currentDoc = NO_MORE_DOCS
+			p.CurrentDoc = NO_MORE_DOCS
 			return NO_MORE_DOCS, nil
 		}
 		p.ended = true
-		p.currentDoc = p.postingsArray.LastDocIDs[p.termID]
+		p.CurrentDoc = p.postingsArray.LastDocIDs[p.termID]
 		p.freq = p.postingsArray.TermFreqs[p.termID]
 	} else {
 		code, err := p.reader.readVInt()
 		if err != nil {
 			return 0, fmt.Errorf("freqProxPostingsEnum.NextDoc: %w", err)
 		}
-		p.currentDoc += int(uint32(code) >> 1)
+		p.CurrentDoc += int(uint32(code) >> 1)
 		if (code & 1) != 0 {
 			p.freq = 1
 		} else {
@@ -685,7 +685,7 @@ func (p *freqProxPostingsEnum) NextDoc() (int, error) {
 	p.posLeft = p.freq
 	p.pos = 0
 	p.startOffset = 0
-	return p.currentDoc, nil
+	return p.CurrentDoc, nil
 }
 
 // Advance is not supported; Lucene throws UnsupportedOperationException.

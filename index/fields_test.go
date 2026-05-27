@@ -335,10 +335,7 @@ func TestEmptyFieldIterator(t *testing.T) {
 }
 
 func TestMemoryFieldIterator(t *testing.T) {
-	iter := &MemoryFieldIterator{
-		fields: []string{"a", "b", "c"},
-		index:  -1,
-	}
+	iter := NewMemoryFieldIterator([]string{"a", "b", "c"})
 
 	// HasNext before any Next
 	if !iter.HasNext() {

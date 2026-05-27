@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 // BaseFieldsConsumer provides a base implementation of FieldsConsumer.
@@ -18,20 +18,20 @@ type BaseFieldsConsumer struct {
 	mu     sync.Mutex
 	closed bool
 	state  *SegmentWriteState
-	fields map[string]index.Terms
+	fields map[string]schema.Terms
 }
 
 // NewBaseFieldsConsumer creates a new BaseFieldsConsumer.
 func NewBaseFieldsConsumer(state *SegmentWriteState) *BaseFieldsConsumer {
 	return &BaseFieldsConsumer{
 		state:  state,
-		fields: make(map[string]index.Terms),
+		fields: make(map[string]schema.Terms),
 	}
 }
 
 // Write writes a field's postings.
 // This implements the FieldsConsumer interface.
-func (c *BaseFieldsConsumer) Write(field string, terms index.Terms) error {
+func (c *BaseFieldsConsumer) Write(field string, terms schema.Terms) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -71,7 +71,7 @@ func (c *BaseFieldsConsumer) GetState() *SegmentWriteState {
 }
 
 // GetFields returns the fields map (for subclasses).
-func (c *BaseFieldsConsumer) GetFields() map[string]index.Terms {
+func (c *BaseFieldsConsumer) GetFields() map[string]schema.Terms {
 	return c.fields
 }
 
@@ -84,7 +84,7 @@ type FieldsConsumerImpl struct {
 
 // FieldWriter is called to write field data during close.
 type FieldWriter interface {
-	WriteField(field string, terms index.Terms) error
+	WriteField(field string, terms schema.Terms) error
 }
 
 // NewFieldsConsumerImpl creates a new FieldsConsumerImpl.
@@ -132,7 +132,7 @@ func NewNoOpFieldsConsumer(state *SegmentWriteState) *NoOpFieldsConsumer {
 }
 
 // Write does nothing.
-func (c *NoOpFieldsConsumer) Write(field string, terms index.Terms) error {
+func (c *NoOpFieldsConsumer) Write(field string, terms schema.Terms) error {
 	return nil
 }
 
