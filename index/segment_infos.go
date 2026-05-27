@@ -732,7 +732,7 @@ func WriteSegmentInfos(si *SegmentInfos, directory store.Directory) error {
 		name := sci.Name()
 
 		// docCount: Lucene stores this in the .si file; Gocene keeps it in userData.
-		userData["_gocene_dc_"+name] = strconv.Itoa(sci.segmentInfo.docCount)
+		userData["_gocene_dc_"+name] = strconv.Itoa(sci.segmentInfo.DocCount())
 
 		fi := sci.GetInMemoryFieldInfos()
 		if fi != nil && fi.Size() > 0 {
@@ -749,14 +749,14 @@ func WriteSegmentInfos(si *SegmentInfos, directory store.Directory) error {
 	}
 
 	// Index sort.
-	if si.inMemoryIndexSort != nil && len(si.inMemoryIndexSort.fields) > 0 {
-		userData["_gocene_sort_n"] = strconv.Itoa(len(si.inMemoryIndexSort.fields))
-		for i, sf := range si.inMemoryIndexSort.fields {
+	if sortFields := si.inMemoryIndexSort.Fields(); si.inMemoryIndexSort != nil && len(sortFields) > 0 {
+		userData["_gocene_sort_n"] = strconv.Itoa(len(sortFields))
+		for i, sf := range sortFields {
 			desc := "0"
-			if sf.descending {
+			if sf.Descending() {
 				desc = "1"
 			}
-			userData[fmt.Sprintf("_gocene_sort_%d", i)] = fmt.Sprintf("%s|%d|%s", sf.field, int(sf.sortType), desc)
+			userData[fmt.Sprintf("_gocene_sort_%d", i)] = fmt.Sprintf("%s|%d|%s", sf.Field(), int(sf.SortType()), desc)
 		}
 	}
 
@@ -1172,13 +1172,9 @@ func restoreGoceneExtensions(si *SegmentInfos, userData map[string]string) error
 			if err != nil {
 				return fmt.Errorf("invalid sort type in _gocene_sort_%d: %w", i, err)
 			}
-			fields = append(fields, SortField{
-				field:      parts[0],
-				sortType:   SortType(stRaw),
-				descending: parts[2] == "1",
-			})
+			fields = append(fields, NewSortFieldFull(parts[0], SortType(stRaw), parts[2] == "1"))
 		}
-		si.inMemoryIndexSort = &Sort{fields: fields}
+		si.inMemoryIndexSort = NewSortFromFields(fields)
 	}
 
 	// Per-segment extensions.
@@ -1291,9 +1287,9 @@ func readSegmentInfosLegacy(rawIn store.IndexInput, directory store.Directory, m
 			if err != nil {
 				return nil, fmt.Errorf("reading sort descending: %w", err)
 			}
-			fields = append(fields, SortField{field: fname, sortType: SortType(stRaw), descending: descRaw != 0})
+			fields = append(fields, NewSortFieldFull(fname, SortType(stRaw), descRaw != 0))
 		}
-		indexSort = &Sort{fields: fields}
+		indexSort = NewSortFromFields(fields)
 	}
 
 	numSegments, err := store.ReadInt32(in)

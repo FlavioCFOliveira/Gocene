@@ -87,7 +87,7 @@ func TestMultiSorter_AlreadySortedReturnsNil(t *testing.T) {
 	// monotonic and isSorted stays true.
 	hook := providersFromValues([][]int64{{0, 1, 2}, {3, 4}})
 
-	sort := &Sort{fields: []SortField{NewSortField("dummy", SortTypeLong)}}
+	sort := NewSortFromFields([]SortField{NewSortField("dummy", SortTypeLong)})
 	var dm []DocMap
 	withProvidersHook(t, hook, func() {
 		var err error
@@ -111,7 +111,7 @@ func TestMultiSorter_InterleavedProducesDocMaps(t *testing.T) {
 	// 0,1,2,3. lastReaderIndex flips 0->1->0->1 so isSorted=false.
 	hook := providersFromValues([][]int64{{10, 30}, {20, 40}})
 
-	sort := &Sort{fields: []SortField{NewSortField("dummy", SortTypeLong)}}
+	sort := NewSortFromFields([]SortField{NewSortField("dummy", SortTypeLong)})
 	var dm []DocMap
 	withProvidersHook(t, hook, func() {
 		var err error
@@ -149,7 +149,7 @@ func TestMultiSorter_DeletedDocsMapToMinusOne(t *testing.T) {
 	// r1d1(live,->2). lastReaderIndex flips so isSorted=false.
 	hook := providersFromValues([][]int64{{10, 30}, {20, 40}})
 
-	sort := &Sort{fields: []SortField{NewSortField("dummy", SortTypeLong)}}
+	sort := NewSortFromFields([]SortField{NewSortField("dummy", SortTypeLong)})
 	var dm []DocMap
 	withProvidersHook(t, hook, func() {
 		var err error
@@ -188,7 +188,7 @@ func TestMultiSorter_ReverseFieldReordersDescending(t *testing.T) {
 
 	sf := NewSortField("dummy", SortTypeLong)
 	sf.SetReverse(true)
-	sort := &Sort{fields: []SortField{sf}}
+	sort := NewSortFromFields([]SortField{sf})
 	var dm []DocMap
 	withProvidersHook(t, hook, func() {
 		var err error

@@ -864,8 +864,8 @@ func (ci *CheckIndex) checkIndexSort(reader *SegmentReader, segCommitInfo *Segme
 	status := &IndexSortStatus{}
 
 	segInfo := segCommitInfo.SegmentInfo()
-	if segInfo.IndexSort() != nil && len(segInfo.IndexSort().fields) > 0 {
-		ci.msgf("    OK [sort: %v]", segInfo.IndexSort().fields)
+	if segInfo.IndexSort() != nil && len(segInfo.IndexSort().Fields()) > 0 {
+		ci.msgf("    OK [sort: %v]", segInfo.IndexSort().Fields())
 	} else {
 		ci.msg("    OK [no sort]")
 	}

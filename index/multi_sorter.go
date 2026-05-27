@@ -75,26 +75,19 @@ func (s *IndexSorter) GetComparableProviders(readers []*CodecReader) []Comparabl
 	return providers
 }
 
-// GetIndexSorter returns an IndexSorter capable of sorting the documents
-// of a sub-reader by this SortField. The current Gocene implementation
-// returns a degenerate sorter (see GetComparableProviders above). A nil
-// return value mirrors Lucene's "this field cannot be used for index
-// sorting" path that MultiSorter rejects as IllegalArgumentException.
-func (sf *SortField) GetIndexSorter() *IndexSorter {
+// sortFieldIndexSorter returns an IndexSorter capable of sorting the
+// documents of a sub-reader by the given SortField. The current Gocene
+// implementation returns a degenerate sorter (see GetComparableProviders
+// above). A nil return value mirrors Lucene's "this field cannot be
+// used for index sorting" path that MultiSorter rejects as
+// IllegalArgumentException.
+//
+// Defined as a free helper rather than a method on SortField because
+// SortField is now declared in the leaf schema/ package and cannot grow
+// methods that reference index-local types such as *IndexSorter.
+func sortFieldIndexSorter(sf *SortField) *IndexSorter {
+	_ = sf
 	return NewIndexSorter(nil)
-}
-
-// GetReverse reports whether this SortField sorts descending. Mirrors
-// org.apache.lucene.search.SortField.getReverse.
-func (sf *SortField) GetReverse() bool {
-	return sf.descending
-}
-
-// GetFields returns the underlying SortField slice. Mirrors
-// org.apache.lucene.search.Sort.getSort. The slice is returned by value
-// (one element per field) to match the existing in-package Sort layout.
-func (s *Sort) GetFields() []SortField {
-	return s.fields
 }
 
 // GetParentField returns the parent field name registered on these
@@ -128,13 +121,13 @@ func multiSorterSort(sort *Sort, readers []*CodecReader) ([]DocMap, error) {
 		return nil, fmt.Errorf("MultiSorter: sort is nil")
 	}
 
-	fields := sort.GetFields()
+	fields := sort.Fields()
 	comparables := make([][]ComparableProvider, len(fields))
 	reverseMuls := make([]int, len(fields))
 
 	for i := range fields {
 		field := &fields[i]
-		sorter := field.GetIndexSorter()
+		sorter := sortFieldIndexSorter(field)
 		if sorter == nil {
 			return nil, fmt.Errorf("cannot use sort field %v for index sorting", field)
 		}
@@ -174,7 +167,7 @@ func multiSorterSort(sort *Sort, readers []*CodecReader) ([]DocMap, error) {
 				)
 			}
 		}
-		if field.GetReverse() {
+		if field.Descending() {
 			reverseMuls[i] = -1
 		} else {
 			reverseMuls[i] = 1

@@ -217,7 +217,7 @@ func TestMultiPostingsEnum_CanReuse(t *testing.T) {
 func TestSimpleMergedSegmentWarmer_WarmNoPanic(t *testing.T) {
 	warmer := NewSimpleMergedSegmentWarmer(util.NoOpInfoStream)
 	reader := NewLeafReaderWithFieldInfos(
-		&SegmentInfo{name: "test"},
+		NewSegmentInfo("test", 0, nil),
 		NewFieldInfos(),
 	)
 	if err := warmer.Warm(reader); err != nil {
@@ -229,7 +229,7 @@ func TestSimpleMergedSegmentWarmer_WarmNoPanic(t *testing.T) {
 // silently replaced by NoOpInfoStream (no panic on warm).
 func TestSimpleMergedSegmentWarmer_NilInfoStream(t *testing.T) {
 	warmer := NewSimpleMergedSegmentWarmer(nil)
-	reader := NewLeafReaderWithFieldInfos(&SegmentInfo{name: "seg"}, NewFieldInfos())
+	reader := NewLeafReaderWithFieldInfos(NewSegmentInfo("seg", 0, nil), NewFieldInfos())
 	if err := warmer.Warm(reader); err != nil {
 		t.Fatalf("Warm with nil infoStream: %v", err)
 	}
@@ -252,7 +252,7 @@ func TestWrapLeafReader_NilInput(t *testing.T) {
 // return.
 func TestWrapLeafReader_EmptyReader(t *testing.T) {
 	reader := NewLeafReaderWithFieldInfos(
-		&SegmentInfo{name: "slow_test"},
+		NewSegmentInfo("slow_test", 0, nil),
 		NewFieldInfos(),
 	)
 	wrapped, err := WrapLeafReader(reader)

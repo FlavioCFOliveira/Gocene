@@ -84,10 +84,7 @@ func TestIndexSorter_SetSort(t *testing.T) {
 
 func TestIndexSorter_SortSegment(t *testing.T) {
 	// Create a minimal LeafReader
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 5,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 5, nil)
 	reader := NewLeafReader(segmentInfo)
 
 	// Test with nil sort
