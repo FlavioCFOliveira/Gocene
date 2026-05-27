@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unsafe"
 )
 
 // validFileNamePattern matches allowed filename characters
@@ -415,14 +416,44 @@ func (l *FSLock) EnsureValid() error {
 	return nil
 }
 
-// Open opens a directory at the specified path.
-// This attempts to choose the best FSDirectory implementation for the platform.
-// Currently returns an FSDirectory base; subclasses should override.
-func Open(path string) (*FSDirectory, error) {
-	// For now, return the base FSDirectory
-	// In a full implementation, this would choose between MMapDirectory
-	// and NIOFSDirectory based on platform capabilities
-	return NewFSDirectory(path)
+// is64Bit reports whether the running Go program addresses 64-bit pointers.
+// It mirrors org.apache.lucene.util.Constants.JRE_IS_64BIT in Apache Lucene
+// 10.4.0. The expression evaluates to a constant at compile time on every
+// supported GOARCH, so the call site has no runtime overhead.
+const is64Bit = unsafe.Sizeof(uintptr(0)) == 8
+
+// Is64Bit reports whether the running Go program addresses 64-bit pointers.
+// Exposed for callers that want the same architecture probe Open consults.
+func Is64Bit() bool { return is64Bit }
+
+// Open opens a directory at the specified path, choosing the FSDirectory
+// implementation that best matches the running platform. It is the Go port
+// of Apache Lucene 10.4.0's FSDirectory.open(Path) — itself a thin wrapper
+// around FSDirectory.open(Path, LockFactory) — which selects between
+// MMapDirectory and NIOFSDirectory based on Constants.JRE_IS_64BIT:
+//
+//	public static FSDirectory open(Path path, LockFactory lockFactory) {
+//	    if (Constants.JRE_IS_64BIT) {
+//	        return new MMapDirectory(path, lockFactory);
+//	    } else {
+//	        return new NIOFSDirectory(path, lockFactory);
+//	    }
+//	}
+//
+// MMapDirectory is the high-throughput default on 64-bit platforms (Linux,
+// macOS, Windows on amd64/arm64), where the 48-bit virtual address space
+// can absorb arbitrarily large indices. On 32-bit platforms Gocene falls
+// back to NIOFSDirectory, which uses positional pread system calls instead
+// of mmap and therefore does not consume virtual address space per file.
+//
+// The returned value satisfies the Directory interface; callers that need
+// the concrete subtype (e.g. to tune MMapDirectory.preload) may type-assert
+// from there.
+func Open(path string) (Directory, error) {
+	if is64Bit {
+		return NewMMapDirectory(path)
+	}
+	return NewNIOFSDirectory(path)
 }
 
 // SimpleFSDirectory is a simple file-system based directory using standard file I/O.
