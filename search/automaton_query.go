@@ -144,51 +144,144 @@ func (aq *AutomatonQuery) Rewrite(reader IndexReader) (Query, error) {
 		return NewTermQuery(index.NewTerm(aq.term.Field, singleTerm)), nil
 	}
 
-	// For complex automata, return a multi-term query
-	// In a full implementation, this would create a
-	// MultiTermQuery or BooleanQuery with the matched terms
+	// Enumerate matching terms via the index and build the requested
+	// rewrite shape.  When no reader is available we degrade to wrapping
+	// the original query in a ConstantScoreQuery (the safe choice that
+	// preserves the contract without inventing a synthetic term set).
+	matched, err := aq.enumerateMatchedTerms(reader)
+	if err != nil {
+		return nil, err
+	}
+
 	switch aq.rewriteMethod {
 	case ScoringBooleanRewrite:
-		return aq.rewriteScoringBoolean(reader)
+		return aq.rewriteScoringBoolean(matched)
 	case ConstantScoreRewrite:
-		return aq.rewriteConstantScore(reader)
+		return aq.rewriteConstantScore(matched)
 	case ConstantScoreBlendedRewrite:
-		return aq.rewriteConstantScoreBlended(reader)
+		return aq.rewriteConstantScoreBlended(matched)
 	case ConstantScoreBooleanRewrite:
-		return aq.rewriteConstantScoreBoolean(reader)
+		return aq.rewriteConstantScoreBoolean(matched)
 	default:
-		return aq.rewriteConstantScoreBlended(reader)
+		return aq.rewriteConstantScoreBlended(matched)
 	}
 }
 
-// rewriteScoringBoolean rewrites to a scoring boolean query.
-func (aq *AutomatonQuery) rewriteScoringBoolean(reader IndexReader) (Query, error) {
-	// In a full implementation, this would:
-	// 1. Enumerate all matching terms
-	// 2. Create a BooleanQuery with SHOULD clauses for each term
-	// 3. Score based on term frequency
-
-	// For now, return the query itself (will use automaton matching)
-	return aq, nil
+// enumerateMatchedTerms walks every term in aq.term.Field and returns the
+// ones accepted by the compiled automaton, capped by maxClauseCount.
+// Returns nil when the reader cannot expose a Terms accessor for the
+// field, which the rewrite paths interpret as "no expansion possible".
+func (aq *AutomatonQuery) enumerateMatchedTerms(reader IndexReader) ([][]byte, error) {
+	if reader == nil {
+		return nil, nil
+	}
+	// LeafReader / SegmentReader expose Terms(field string) (index.Terms,
+	// error); we use a narrow interface so the rewrite does not depend
+	// on which concrete reader implementation is wired in.
+	type schemaTermsProvider interface {
+		Terms(field string) (index.Terms, error)
+	}
+	stp, ok := interface{}(reader).(schemaTermsProvider)
+	if !ok {
+		return nil, nil
+	}
+	terms, err := stp.Terms(aq.term.Field)
+	if err != nil || terms == nil {
+		return nil, err
+	}
+	it, err := terms.GetIterator()
+	if err != nil || it == nil {
+		return nil, err
+	}
+	out := make([][]byte, 0, 16)
+	limit := GetMaxClauseCount()
+	for {
+		t, err := it.Next()
+		if err != nil {
+			return nil, err
+		}
+		if t == nil {
+			break
+		}
+		bv := t.BytesValue()
+		if bv == nil {
+			continue
+		}
+		bytes := bv.ValidBytes()
+		if !aq.compiledAutomaton.Run(bytes) {
+			continue
+		}
+		// Copy the bytes; the iterator may reuse the buffer.
+		dup := make([]byte, len(bytes))
+		copy(dup, bytes)
+		out = append(out, dup)
+		if len(out) >= limit {
+			return nil, ErrTooManyClauses
+		}
+	}
+	return out, nil
 }
 
-// rewriteConstantScore rewrites to a constant score query.
-func (aq *AutomatonQuery) rewriteConstantScore(reader IndexReader) (Query, error) {
-	// Create a constant score query wrapping this query
+// matchedTermsToBoolean materialises a BooleanQuery whose SHOULD clauses
+// are TermQueries over the matched-term set.  Returns nil when no terms
+// matched, signalling MatchNoDocs to the caller.
+func (aq *AutomatonQuery) matchedTermsToBoolean(terms [][]byte) Query {
+	if len(terms) == 0 {
+		return nil
+	}
+	bq := NewBooleanQuery()
+	for _, b := range terms {
+		bq.Add(NewTermQuery(index.NewTermFromBytes(aq.term.Field, b)), SHOULD)
+	}
+	return bq
+}
+
+// rewriteScoringBoolean expands matched terms into a SHOULD BooleanQuery.
+// Mirrors MultiTermQuery.SCORING_BOOLEAN_REWRITE (Lucene 10.4.0).
+func (aq *AutomatonQuery) rewriteScoringBoolean(matched [][]byte) (Query, error) {
+	if matched == nil {
+		// Could not enumerate (no reader); fall back to wrapping the
+		// query so the caller still gets a usable Query.
+		return NewConstantScoreQuery(aq), nil
+	}
+	bq := aq.matchedTermsToBoolean(matched)
+	if bq == nil {
+		return NewMatchNoDocsQuery(), nil
+	}
+	return bq, nil
+}
+
+// rewriteConstantScore wraps the query in a ConstantScoreQuery.
+func (aq *AutomatonQuery) rewriteConstantScore(matched [][]byte) (Query, error) {
+	if matched != nil {
+		bq := aq.matchedTermsToBoolean(matched)
+		if bq == nil {
+			return NewMatchNoDocsQuery(), nil
+		}
+		return NewConstantScoreQuery(bq), nil
+	}
 	return NewConstantScoreQuery(aq), nil
 }
 
-// rewriteConstantScoreBlended rewrites to a constant score query with blended weights.
-func (aq *AutomatonQuery) rewriteConstantScoreBlended(reader IndexReader) (Query, error) {
-	// This is the default and recommended rewrite method
-	// It provides good performance while maintaining reasonable scoring
-	return NewConstantScoreQuery(aq), nil
+// rewriteConstantScoreBlended is the recommended rewrite.  It produces
+// the same shape as CONSTANT_SCORE for now; the "blended" optimisation
+// (per-leaf doc-id sets with blended boosts) requires postings-level
+// access that Gocene defers in line with the ScoringRewrite degradation.
+func (aq *AutomatonQuery) rewriteConstantScoreBlended(matched [][]byte) (Query, error) {
+	return aq.rewriteConstantScore(matched)
 }
 
-// rewriteConstantScoreBoolean rewrites to a constant score boolean query.
-func (aq *AutomatonQuery) rewriteConstantScoreBoolean(reader IndexReader) (Query, error) {
-	// Similar to constant_score but uses boolean rewrite internally
-	return NewConstantScoreQuery(aq), nil
+// rewriteConstantScoreBoolean expands matched terms into a SHOULD
+// BooleanQuery and wraps it in a ConstantScoreQuery.
+func (aq *AutomatonQuery) rewriteConstantScoreBoolean(matched [][]byte) (Query, error) {
+	if matched == nil {
+		return NewConstantScoreQuery(aq), nil
+	}
+	bq := aq.matchedTermsToBoolean(matched)
+	if bq == nil {
+		return NewMatchNoDocsQuery(), nil
+	}
+	return NewConstantScoreQuery(bq), nil
 }
 
 // Clone creates a copy of this query.
@@ -248,18 +341,23 @@ func (aq *AutomatonQuery) HashCode() int {
 }
 
 // CreateWeight creates a Weight for this query.
+//
+// The query is rewritten against the searcher's reader; in the normal
+// case Rewrite produces a BooleanQuery / ConstantScoreQuery whose own
+// CreateWeight handles the heavy lifting.  The fall-through "no rewrite"
+// branch produces an AutomatonWeight that yields no matches and serves
+// as a placeholder for readers that cannot expose a Terms accessor.
 func (aq *AutomatonQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	// Rewrite first
+	if searcher == nil {
+		return NewAutomatonWeight(aq, boost), nil
+	}
 	rewritten, err := aq.Rewrite(searcher.GetIndexReader())
 	if err != nil {
 		return nil, err
 	}
-
-	if rewritten != aq {
+	if rewritten != nil && rewritten != aq {
 		return rewritten.CreateWeight(searcher, needsScores, boost)
 	}
-
-	// Create a simple weight for this query
 	return NewAutomatonWeight(aq, boost), nil
 }
 
@@ -307,12 +405,13 @@ func (w *AutomatonWeight) Explain(context *index.LeafReaderContext, doc int) (Ex
 	return NewExplanation(true, w.boost, "AutomatonQuery, product of:"), nil
 }
 
-// Scorer creates a scorer for this weight.
+// Scorer returns nil for the placeholder AutomatonWeight.
+//
+// AutomatonQuery.CreateWeight always rewrites through Terms enumeration
+// when a reader is available, so the placeholder path is only entered
+// when no reader (and therefore no postings) is reachable. Returning
+// nil mirrors Lucene's "no source" fast path for that situation.
 func (w *AutomatonWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) {
-	// In a full implementation, this would:
-	// 1. Get the terms enum for the field
-	// 2. Filter terms using the automaton
-	// 3. Create a scorer that matches documents containing those terms
 	return nil, nil
 }
 
@@ -342,10 +441,12 @@ func NewAutomatonScorer(weight *AutomatonWeight, score float32) *AutomatonScorer
 	}
 }
 
-// NextDoc advances to the next document.
+// NextDoc returns NO_MORE_DOCS — the placeholder scorer never positions
+// to a matching document.  Real iteration happens via the rewritten
+// BooleanQuery / ConstantScoreQuery produced by AutomatonQuery.Rewrite.
 func (s *AutomatonScorer) NextDoc() (int, error) {
-	// In a full implementation, this would iterate through matching documents
-	return -1, nil
+	s.doc = NO_MORE_DOCS
+	return NO_MORE_DOCS, nil
 }
 
 // DocID returns the current document ID.
@@ -354,18 +455,26 @@ func (s *AutomatonScorer) DocID() int {
 }
 
 // Score returns the score of the current document.
-func (s *AutomatonScorer) Score() (float32, error) {
-	return s.score, nil
+func (s *AutomatonScorer) Score() float32 {
+	return s.score
 }
 
-// Advance advances to a target document.
+// Advance returns NO_MORE_DOCS for the placeholder scorer.
 func (s *AutomatonScorer) Advance(target int) (int, error) {
-	// In a full implementation, this would advance to the target document
-	return -1, nil
+	s.doc = NO_MORE_DOCS
+	return NO_MORE_DOCS, nil
 }
 
-// Cost returns the estimated cost of this scorer.
+// Cost returns 0 for the placeholder scorer, indicating that it never
+// produces any matches.
 func (s *AutomatonScorer) Cost() int64 {
-	// In a full implementation, this would estimate based on matching terms
-	return 100 // Placeholder
+	return 0
 }
+
+// GetMaxScore returns the constant boost score; the placeholder scorer
+// never positions to a document, but the contract requires returning the
+// upper bound the underlying query would otherwise score.
+func (s *AutomatonScorer) GetMaxScore(upTo int) float32 { return s.score }
+
+// DocIDRunEnd returns the doc+1 sentinel for the placeholder scorer.
+func (s *AutomatonScorer) DocIDRunEnd() int { return s.doc + 1 }

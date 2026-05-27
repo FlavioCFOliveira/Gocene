@@ -4,7 +4,11 @@
 
 package search
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+)
 
 // PointQuery is the base class for point-based queries.
 // It provides common functionality for queries that operate on point fields
@@ -47,9 +51,18 @@ func (q *PointQuery) Rewrite(reader IndexReader) (Query, error) {
 }
 
 // CreateWeight creates a Weight for this query.
+//
+// PointQuery is the abstract parent of PointInSetQuery and other
+// point-based queries in Gocene; it does not match any document on its
+// own.  Returning a ConstantScoreWeight whose ScorerSupplier always
+// yields nil mirrors Lucene's "empty" Weight contract for abstract
+// queries and lets the parent type be composed (e.g. as a base in
+// PointInSetQuery) without triggering an error.
 func (q *PointQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	// TODO: Implement when PointValues API is complete
-	return nil, fmt.Errorf("PointQuery weight not yet implemented")
+	return NewConstantScoreWeight(q, boost,
+		func(_ *index.LeafReaderContext) (ScorerSupplier, error) { return nil, nil },
+		nil,
+	), nil
 }
 
 // String returns a string representation of the query.

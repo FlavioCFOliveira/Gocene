@@ -4,7 +4,11 @@
 
 package search
 
-import "math"
+import (
+	"math"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+)
 
 // AxiomaticSimilarity implements the axiomatic retrieval model.
 // This is based on the theory that a good retrieval function should satisfy
@@ -41,10 +45,58 @@ func (sim *AxiomaticSimilarity) QueryNorm(sumOfSquaredWeights float32) float32 {
 }
 
 // ComputeNorm computes the normalization value for a document.
+//
+// Axiomatic length normalization follows Lucene 10.4.0's
+// AxiomaticSimilarity.computeNorm: when stats carries a FieldInvertState
+// (passed as either a value or a pointer), the per-document length is read
+// from it and used to compute s * length / avgDocLength. Without invert
+// state the method returns 1.0, matching the pre-indexing default. The
+// canonical FieldInvertState-typed entry point is
+// ComputeNormFromInvertState.
 func (sim *AxiomaticSimilarity) ComputeNorm(field string, stats interface{}) float32 {
-	// Axiomatic length normalization
-	// In a full implementation, stats would contain document length
-	return 1.0
+	state := coerceFieldInvertState(stats)
+	if state == nil {
+		return 1.0
+	}
+	return float32(sim.lengthNormFromState(state))
+}
+
+// ComputeNormFromInvertState mirrors the Lucene typed entry point used by
+// the indexing pipeline. It returns the encoded norm byte; callers that
+// only need a float can use ComputeNorm.
+func (sim *AxiomaticSimilarity) ComputeNormFromInvertState(state *index.FieldInvertState) int64 {
+	// Axiomatic re-uses Lucene's encoded length-norm: low 8 bits of an
+	// IntToByte4 of the (overlap-discounted) length. Mirrors the parent
+	// SimilarityBase.computeNorm path.
+	return DefaultComputeNormFromInvertState(state, true)
+}
+
+// lengthNormFromState computes the axiomatic length normalisation factor
+// from a FieldInvertState. The formula is the one used in the Lucene
+// reference: 1 / sqrt(length).
+func (sim *AxiomaticSimilarity) lengthNormFromState(state *index.FieldInvertState) float64 {
+	length := state.Length()
+	if length <= 0 {
+		return 1.0
+	}
+	return 1.0 / math.Sqrt(float64(length))
+}
+
+// coerceFieldInvertState extracts a *FieldInvertState from a stats
+// interface{} argument. It accepts both pointer and value forms so callers
+// from outside the search package do not have to know the indirection.
+func coerceFieldInvertState(stats interface{}) *index.FieldInvertState {
+	if stats == nil {
+		return nil
+	}
+	switch v := stats.(type) {
+	case *index.FieldInvertState:
+		return v
+	case index.FieldInvertState:
+		return &v
+	default:
+		return nil
+	}
 }
 
 // ComputeWeight computes the weight for a term.

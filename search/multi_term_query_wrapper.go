@@ -28,11 +28,29 @@ func (w *MultiTermQueryConstantScoreWrapper) GetField() string {
 	return w.query.GetField()
 }
 
-// Rewrite rewrites this query to a simpler form.
+// Rewrite rewrites this query to a constant-score wrapper around the
+// rewritten inner multi-term query.
+//
+// Mirrors org.apache.lucene.search.MultiTermQueryConstantScoreWrapper.rewrite
+// in Lucene 10.4.0. The inner MultiTermQuery is first rewritten (giving the
+// concrete TermQuery / BooleanQuery / ... structure that matches the
+// indexed terms) and then wrapped in a ConstantScoreQuery so that all
+// matching documents receive an identical score equal to the query boost.
 func (w *MultiTermQueryConstantScoreWrapper) Rewrite(reader IndexReader) (Query, error) {
-	// For now, just return the wrapped query
-	// In a full implementation, this would rewrite to a ConstantScoreQuery
-	return w.query, nil
+	if w.query == nil {
+		return nil, nil
+	}
+	inner, err := w.query.Rewrite(reader)
+	if err != nil {
+		return nil, err
+	}
+	if inner == nil {
+		inner = w.query
+	}
+	if _, ok := inner.(*ConstantScoreQuery); ok {
+		return inner, nil
+	}
+	return NewConstantScoreQuery(inner), nil
 }
 
 // CreateWeight creates a Weight for this query.

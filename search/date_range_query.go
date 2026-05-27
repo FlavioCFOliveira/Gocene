@@ -5,6 +5,7 @@
 package search
 
 import (
+	"encoding/binary"
 	"fmt"
 	"time"
 )
@@ -53,18 +54,53 @@ func (q *DateRangeQuery) Upper() time.Time {
 	return q.upper
 }
 
-// Rewrite rewrites this query to a more primitive form.
+// Rewrite rewrites this query into a PointRangeQuery whose packed values
+// are big-endian sortable representations of the millisecond timestamps
+// (matching how DateField persists indexed Date points in Lucene 10.4.0).
+//
+// When the lower bound is after the upper bound the query collapses to
+// MatchNoDocsQuery, matching the empty-range semantics from Lucene.
 func (q *DateRangeQuery) Rewrite(reader IndexReader) (Query, error) {
 	if q.lower.After(q.upper) {
 		return NewMatchNoDocsQuery(), nil
 	}
-	return q, nil
+	lower, upper := q.packedBounds()
+	return NewPointRangeQuery(q.field, lower, upper)
 }
 
-// CreateWeight creates a Weight for this query.
+// CreateWeight creates a Weight for this query by delegating to the
+// PointRangeQuery produced by Rewrite.  The BKD-tree intersection
+// scorer in PointRangeWeight handles the actual leaf walk.
 func (q *DateRangeQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	// TODO: Implement when PointValues API is complete
-	return nil, fmt.Errorf("DateRangeQuery weight not yet implemented")
+	rewritten, err := q.Rewrite(nil)
+	if err != nil {
+		return nil, err
+	}
+	if rewritten == nil {
+		return nil, fmt.Errorf("date_range_query: nil rewrite")
+	}
+	return rewritten.CreateWeight(searcher, needsScores, boost)
+}
+
+// packedBounds materialises the lower/upper time bounds as big-endian
+// int64 millisecond packs.  Exclusive bounds are adjusted by ±1ms to
+// mirror Lucene's inclusive-range BKD semantics.
+func (q *DateRangeQuery) packedBounds() ([]byte, []byte) {
+	lo := q.lower.UnixMilli()
+	hi := q.upper.UnixMilli()
+	if !q.lowerInclusive {
+		lo++
+	}
+	if !q.upperInclusive {
+		hi--
+	}
+	lower := make([]byte, 8)
+	upper := make([]byte, 8)
+	// Sortable-long encoding: flip the sign bit so big-endian byte order
+	// matches numeric order across positive and negative timestamps.
+	binary.BigEndian.PutUint64(lower, uint64(lo)^(1<<63))
+	binary.BigEndian.PutUint64(upper, uint64(hi)^(1<<63))
+	return lower, upper
 }
 
 // Clone creates a copy of this query.
