@@ -4,60 +4,28 @@
 
 package index
 
-import "fmt"
+import "github.com/FlavioCFOliveira/Gocene/schema"
 
-// VectorEncoding specifies how vector values are encoded.
-type VectorEncoding int
+// This file is the index-side facade for the VectorEncoding /
+// VectorSimilarityFunction enums after the SPI unification (rmp #4669 /
+// Sprint 117 phase 1.2). The canonical declaration site lives in
+// schema/; index/ re-exports the types as Go aliases and re-declares
+// the constants as values of the aliased types.
 
-const (
-	// VectorEncodingByte stores vector values as signed bytes.
-	VectorEncodingByte VectorEncoding = iota
+// VectorEncoding is an alias of schema.VectorEncoding.
+type VectorEncoding = schema.VectorEncoding
 
-	// VectorEncodingFloat32 stores vector values as IEEE 32-bit floating point.
-	VectorEncodingFloat32
-)
-
-// String returns the string representation of the VectorEncoding.
-func (ve VectorEncoding) String() string {
-	switch ve {
-	case VectorEncodingByte:
-		return "BYTE"
-	case VectorEncodingFloat32:
-		return "FLOAT32"
-	default:
-		return fmt.Sprintf("UNKNOWN(%d)", ve)
-	}
-}
-
-// VectorSimilarityFunction specifies the distance function used for similarity calculation.
-type VectorSimilarityFunction int
+// VectorSimilarityFunction is an alias of schema.VectorSimilarityFunction.
+type VectorSimilarityFunction = schema.VectorSimilarityFunction
 
 const (
-	// VectorSimilarityFunctionEuclidean uses squared Euclidean distance.
-	VectorSimilarityFunctionEuclidean VectorSimilarityFunction = iota
-
-	// VectorSimilarityFunctionDotProduct uses dot product similarity.
-	VectorSimilarityFunctionDotProduct
-
-	// VectorSimilarityFunctionCosine uses cosine similarity.
-	VectorSimilarityFunctionCosine
-
-	// VectorSimilarityFunctionMaximumInnerProduct uses maximum inner product similarity.
-	VectorSimilarityFunctionMaximumInnerProduct
+	VectorEncodingByte    = schema.VectorEncodingByte
+	VectorEncodingFloat32 = schema.VectorEncodingFloat32
 )
 
-// String returns the string representation of the VectorSimilarityFunction.
-func (vsf VectorSimilarityFunction) String() string {
-	switch vsf {
-	case VectorSimilarityFunctionEuclidean:
-		return "EUCLIDEAN"
-	case VectorSimilarityFunctionDotProduct:
-		return "DOT_PRODUCT"
-	case VectorSimilarityFunctionCosine:
-		return "COSINE"
-	case VectorSimilarityFunctionMaximumInnerProduct:
-		return "MAXIMUM_INNER_PRODUCT"
-	default:
-		return fmt.Sprintf("UNKNOWN(%d)", vsf)
-	}
-}
+const (
+	VectorSimilarityFunctionEuclidean           = schema.VectorSimilarityFunctionEuclidean
+	VectorSimilarityFunctionDotProduct          = schema.VectorSimilarityFunctionDotProduct
+	VectorSimilarityFunctionCosine              = schema.VectorSimilarityFunctionCosine
+	VectorSimilarityFunctionMaximumInnerProduct = schema.VectorSimilarityFunctionMaximumInnerProduct
+)

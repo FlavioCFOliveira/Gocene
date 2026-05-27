@@ -167,7 +167,7 @@ func TestTermVectorsConsumerPerField_StartRejectsOffsetsWithoutVectors(t *testin
 		SetStoreTermVectors(false).
 		Build()
 	// Force the inconsistent state the builder would normally repair.
-	fi.storeTermVectorOffsets = true
+	fi.OverrideStoreTermVectorOffsets(true)
 
 	w, err := NewTermVectorsConsumerPerField(state, consumer, fi, (&tvStubAttrs{}).provider())
 	if err != nil {
@@ -305,21 +305,21 @@ func TestTermVectorsConsumerPerField_FinishDocumentSetsStoreTermVectors(t *testi
 	// Positions-only would auto-enable vectors via the builder; start from a
 	// plain vectors field and clear the flag so we can observe the flip.
 	fi := tvFieldInfo("body", IndexOptionsDocsAndFreqs, true, false, false, false)
-	fi.storeTermVectors = false
+	fi.OverrideStoreTermVectors(false)
 
 	w, err := NewTermVectorsConsumerPerField(state, consumer, fi, (&tvStubAttrs{}).provider())
 	if err != nil {
 		t.Fatalf("NewTermVectorsConsumerPerField: %v", err)
 	}
 	// Start re-reads storeTermVectors; set it back so the field collects.
-	fi.storeTermVectors = true
+	fi.OverrideStoreTermVectors(true)
 	if !w.Start(nil, true) {
 		t.Fatalf("Start should enable vectors")
 	}
 	if err := w.Add(util.NewBytesRef([]byte("hello")), 0); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
-	fi.storeTermVectors = false
+	fi.OverrideStoreTermVectors(false)
 	if fi.HasTermVectors() {
 		t.Fatalf("precondition: HasTermVectors should be false before FinishDocument")
 	}

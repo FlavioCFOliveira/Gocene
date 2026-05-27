@@ -160,7 +160,7 @@ func TestFieldInfo_PutCodecAttribute(t *testing.T) {
 	fi := NewFieldInfo("field", 0, FieldInfoOptions{})
 
 	// Sanity: FieldInfo is frozen after construction.
-	if !fi.frozen {
+	if !fi.IsFrozen() {
 		t.Fatalf("FieldInfo should be frozen after construction")
 	}
 
