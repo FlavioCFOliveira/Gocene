@@ -412,12 +412,12 @@ func getIndexOptions(ft FieldTypeInterface) IndexOptions {
 // getOrAddFieldInfo gets or creates a FieldInfo for a field.
 func (dwpt *DocumentsWriterPerThread) getOrAddFieldInfo(fieldName string, opts FieldInfoOptions) *FieldInfo {
 	// Check if field already exists
-	if fi := dwpt.fieldInfosBuilder.fieldInfos.GetByName(fieldName); fi != nil {
+	if fi := dwpt.fieldInfosBuilder.FieldInfos().GetByName(fieldName); fi != nil {
 		return fi
 	}
 
 	// Create new FieldInfo
-	fi := NewFieldInfo(fieldName, dwpt.fieldInfosBuilder.fieldInfos.Size(), opts)
+	fi := NewFieldInfo(fieldName, dwpt.fieldInfosBuilder.FieldInfos().Size(), opts)
 	dwpt.fieldInfosBuilder.Add(fi)
 	return fi
 }

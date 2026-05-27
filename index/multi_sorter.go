@@ -90,13 +90,10 @@ func sortFieldIndexSorter(sf *SortField) *IndexSorter {
 	return NewIndexSorter(nil)
 }
 
-// GetParentField returns the parent field name registered on these
-// FieldInfos, or "" if none. Until parent-document blocks are wired into
-// the indexing chain, this returns "" unconditionally. Mirrors
-// org.apache.lucene.index.FieldInfos.getParentField.
-func (fi *FieldInfos) GetParentField() string {
-	return ""
-}
+// GetParentField now lives on schema.FieldInfos (the canonical
+// declaration site after the SPI unification phase 1.2). This file
+// keeps the method documented inline for historical reference; the
+// implementation moved verbatim.
 
 // GetLeafMetaData returns the per-leaf metadata (created-version, sort,
 // has-blocks). Until the leaf-metadata pipeline is wired through the
