@@ -195,6 +195,24 @@ func TestQueryParser_GetSet(t *testing.T) {
 }
 
 // getTypeName returns the type name of a query for testing.
+// TestQueryParser_PhraseSlopApplied covers the previously stubbed
+// proximity path: "phrase"~N must yield a PhraseQuery whose GetSlop()
+// returns N. This is the AC-1 contract for query_parser.go:542.
+func TestQueryParser_PhraseSlopApplied(t *testing.T) {
+	p := NewQueryParserWithDefaultField("content")
+	q, err := p.Parse(`"hello world"~5`)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	pq, ok := q.(*search.PhraseQuery)
+	if !ok {
+		t.Fatalf("Parse = %T, want *search.PhraseQuery", q)
+	}
+	if got, want := pq.GetSlop(), 5; got != want {
+		t.Fatalf("PhraseQuery.GetSlop() = %d, want %d", got, want)
+	}
+}
+
 func getTypeName(q search.Query) string {
 	if q == nil {
 		return "nil"

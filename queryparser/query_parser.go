@@ -536,11 +536,14 @@ func (p *QueryParser) applyProximity(query search.Query) (search.Query, error) {
 		p.nextToken()
 	}
 
-	// Extract terms from phrase query and create new one with slop
+	// Re-emit the phrase query with the parsed slop. Lucene's
+	// QueryParser.handleBoost / addSlopToPhrase pattern preserves the
+	// existing terms and field and produces a new PhraseQuery so the
+	// returned value carries the requested slop. PhraseQuery exposes
+	// SetSlop directly in Gocene, so an in-place mutation is sufficient
+	// and avoids re-walking the term list.
 	if pq, ok := query.(*search.PhraseQuery); ok {
-		// For now, we can't modify the existing phrase query
-		// In a full implementation, we would create a new PhraseQuery with slop
-		_ = slop
+		pq.SetSlop(slop)
 		return pq, nil
 	}
 
@@ -625,11 +628,65 @@ func (p *QueryParser) createRangeQuery(field, lower, upper string, includeLower,
 	return search.NewTermRangeQuery(field, []byte(lower), []byte(upper), includeLower, includeUpper)
 }
 
-// applyFieldToQuery applies a field to a query (for field:(expression) syntax).
+// applyFieldToQuery applies a field to a query (for field:(expression)
+// syntax). It mirrors the recursive descent Lucene's QueryParser performs
+// when a field-qualified group is parsed: every leaf term query is
+// rewritten to target the requested field, and compound queries
+// (BooleanQuery, PhraseQuery, FuzzyQuery, WildcardQuery, TermRangeQuery)
+// have their constituent terms repointed.
+//
+// The original input query is left untouched; the function returns a new
+// query tree so callers that retain the original reference observe no
+// side-effects.
 func (p *QueryParser) applyFieldToQuery(field string, query search.Query) (search.Query, error) {
-	// This is a simplified implementation
-	// In a full implementation, we would recursively apply the field to all sub-queries
-	return query, nil
+	if query == nil {
+		return nil, nil
+	}
+
+	switch q := query.(type) {
+	case *search.TermQuery:
+		return search.NewTermQuery(index.NewTerm(field, q.Term().Text())), nil
+
+	case *search.PhraseQuery:
+		terms := q.Terms()
+		retargeted := make([]*index.Term, len(terms))
+		for i, t := range terms {
+			retargeted[i] = index.NewTerm(field, t.Text())
+		}
+		pq := search.NewPhraseQueryWithSlop(q.GetSlop(), field, retargeted...)
+		return pq, nil
+
+	case *search.BooleanQuery:
+		nq := search.NewBooleanQuery()
+		nq.SetMinimumNumberShouldMatch(q.MinimumNumberShouldMatch())
+		for _, clause := range q.Clauses() {
+			sub, err := p.applyFieldToQuery(field, clause.Query)
+			if err != nil {
+				return nil, err
+			}
+			nq.Add(sub, clause.Occur)
+		}
+		return nq, nil
+
+	case *search.FuzzyQuery:
+		return search.NewFuzzyQuery(index.NewTerm(field, q.Term().Text())), nil
+
+	case *search.WildcardQuery:
+		return search.NewWildcardQuery(index.NewTerm(field, q.Term().Text())), nil
+
+	case *search.TermRangeQuery:
+		return search.NewTermRangeQuery(
+			field,
+			q.LowerTerm(), q.UpperTerm(),
+			q.IncludesLower(), q.IncludesUpper(),
+		), nil
+
+	default:
+		// Unknown query type: there is nothing useful we can do without
+		// risking semantic corruption. Mirror Lucene's behaviour of
+		// returning the original tree untouched.
+		return query, nil
+	}
 }
 
 // GetDefaultField returns the default field for queries.
