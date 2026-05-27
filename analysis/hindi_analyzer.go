@@ -87,30 +87,131 @@ func NewHindiNormalizer() *HindiNormalizer {
 }
 
 // Normalize normalizes Hindi text.
+//
+// This is a faithful port of Lucene 10.4.0's
+// org.apache.lucene.analysis.hi.HindiNormalizer.normalize(char[], int)
+// implementing the algorithm specified in "Word normalization in Indian
+// languages" (Pingali & Varma) plus the additions from "Hindi CLIR in Thirty
+// Days" (Larkey, Connell & AbdulJaleel):
+//
+//   - Multiple representations of the same character are collapsed
+//     (nukta deletion, dead-NA + halant → anusvara, candrabindu → anusvara).
+//   - Zero-width joiner / non-joiner and virama are removed.
+//   - Chandra/short vowels and long vowels are folded to their canonical
+//     short forms.
+//
+// Operates on a mutable rune buffer, preserving Lucene's in-place
+// delete-and-shift semantics so that adjacent-rune lookahead
+// (`s[i] == NA && s[i+1] == VIRAMA`) behaves identically.
 func (n *HindiNormalizer) Normalize(input string) string {
 	if input == "" {
 		return ""
 	}
 
-	runes := []rune(input)
-	result := make([]rune, 0, len(runes))
+	s := []rune(input)
+	length := len(s)
 
-	for _, r := range runes {
-		normalized := n.normalizeRune(r)
-		result = append(result, normalized)
+	for i := 0; i < length; i++ {
+		switch s[i] {
+		// dead n -> bindu (NA + virama collapses to anusvara)
+		case 'न':
+			if i+1 < length && s[i+1] == '्' {
+				s[i] = 'ं'
+				length = hindiDelete(s, i+1, length)
+			}
+		// candrabindu -> bindu
+		case 'ँ':
+			s[i] = 'ं'
+		// nukta deletion
+		case '़':
+			length = hindiDelete(s, i, length)
+			i--
+		case 'ऩ':
+			s[i] = 'न'
+		case 'ऱ':
+			s[i] = 'र'
+		case 'ऴ':
+			s[i] = 'ळ'
+		case 'क़':
+			s[i] = 'क'
+		case 'ख़':
+			s[i] = 'ख'
+		case 'ग़':
+			s[i] = 'ग'
+		case 'ज़':
+			s[i] = 'ज'
+		case 'ड़':
+			s[i] = 'ड'
+		case 'ढ़':
+			s[i] = 'ढ'
+		case 'फ़':
+			s[i] = 'फ'
+		case 'य़':
+			s[i] = 'य'
+		// zwj / zwnj -> delete
+		case '‍', '‌':
+			length = hindiDelete(s, i, length)
+			i--
+		// virama -> delete
+		case '्':
+			length = hindiDelete(s, i, length)
+			i--
+		// chandra / short -> replace
+		case 'ॅ', 'ॆ':
+			s[i] = 'े'
+		case 'ॉ', 'ॊ':
+			s[i] = 'ो'
+		case 'ऍ', 'ऎ':
+			s[i] = 'ए'
+		case 'ऑ', 'ऒ':
+			s[i] = 'ओ'
+		case 'ॲ':
+			s[i] = 'अ'
+		// long -> short ind. vowels
+		case 'आ':
+			s[i] = 'अ'
+		case 'ई':
+			s[i] = 'इ'
+		case 'ऊ':
+			s[i] = 'उ'
+		case 'ॠ':
+			s[i] = 'ऋ'
+		case 'ॡ':
+			s[i] = 'ऌ'
+		case 'ऐ':
+			s[i] = 'ए'
+		case 'औ':
+			s[i] = 'ओ'
+		// long -> short dep. vowels
+		case 'ी':
+			s[i] = 'ि'
+		case 'ू':
+			s[i] = 'ु'
+		case 'ॄ':
+			s[i] = 'ृ'
+		case 'ॣ':
+			s[i] = 'ॢ'
+		case 'ै':
+			s[i] = 'े'
+		case 'ौ':
+			s[i] = 'ो'
+		}
 	}
 
-	return string(result)
+	return string(s[:length])
 }
 
-// normalizeRune normalizes a single Hindi/Devanagari rune.
-func (n *HindiNormalizer) normalizeRune(r rune) rune {
-	// This is a simplified normalization
-	// In a full implementation, this would normalize:
-	// - Multiple representations of the same character
-	// - Remove common decorative marks
-	// - Normalize vowel signs
-	return r
+// hindiDelete mirrors Lucene's StemmerUtil.delete: shifts s[pos+1:length]
+// left by one slot and returns the new effective length. The trailing rune
+// is left in place but logically out of range.
+func hindiDelete(s []rune, pos, length int) int {
+	if pos < 0 || pos >= length {
+		return length
+	}
+	if pos < length-1 {
+		copy(s[pos:length-1], s[pos+1:length])
+	}
+	return length - 1
 }
 
 // HindiNormalizationFilter normalizes Hindi text.

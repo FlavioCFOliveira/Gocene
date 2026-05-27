@@ -90,6 +90,20 @@ type WordDelimiterGraphFilter struct {
 	firstToken         bool
 	inputExhausted     bool
 	newInputToken      bool // true when starting a new input token
+
+	// inputStartOffset and inputEndOffset capture the offsets reported by
+	// the upstream tokenizer for the current input token. They are
+	// snapshotted in processInputToken so that subword emission can rebase
+	// per-rune positions against the original source text.
+	inputStartOffset int
+	inputEndOffset   int
+
+	// utf16Prefix[i] holds the cumulative UTF-16 code-unit count that
+	// precedes rune index i in the current input token text. utf16Prefix
+	// has length textLength+1. Used to compute Lucene-compatible
+	// (UTF-16-indexed) per-subword start/end offsets when surrogate pairs
+	// are present in the input.
+	utf16Prefix []int
 }
 
 // subWord represents a single subword (part) extracted from the input token
@@ -326,6 +340,38 @@ func (f *WordDelimiterGraphFilter) processInputToken() {
 	f.text = []rune(tokenText)
 	f.textLength = len(f.text)
 
+	// Capture upstream offsets BEFORE attributes get cleared during
+	// emission, so we can rebase per-subword offsets against the original
+	// source text. When no upstream OffsetAttribute is wired, both
+	// snapshots are 0 (matches Lucene's tokenStartOffset = 0 default).
+	if f.offsetAttr != nil {
+		f.inputStartOffset = f.offsetAttr.StartOffset()
+		f.inputEndOffset = f.offsetAttr.EndOffset()
+	} else {
+		f.inputStartOffset = 0
+		f.inputEndOffset = 0
+	}
+
+	// Build UTF-16 prefix table for Lucene-parity offset computation.
+	// Lucene measures offsets in char (UTF-16 code units); Go uses rune
+	// indices. For BMP-only text the two coincide; supplementary
+	// (non-BMP) runes contribute 2 UTF-16 units each.
+	if cap(f.utf16Prefix) < f.textLength+1 {
+		f.utf16Prefix = make([]int, f.textLength+1)
+	} else {
+		f.utf16Prefix = f.utf16Prefix[:f.textLength+1]
+	}
+	cum := 0
+	f.utf16Prefix[0] = 0
+	for i, r := range f.text {
+		if r > 0xFFFF {
+			cum += 2
+		} else {
+			cum++
+		}
+		f.utf16Prefix[i+1] = cum
+	}
+
 	// Reset subword buffer
 	f.subWords = f.subWords[:0]
 	f.subWordCount = 0
@@ -427,6 +473,25 @@ func (f *WordDelimiterGraphFilter) prepareNumberCatenation() {
 	}
 }
 
+// utf16AtRune returns the UTF-16 code-unit offset that precedes the rune
+// at index r in the current input token. Clamps to [0, len(utf16Prefix)-1]
+// so callers can pass either a start or end rune index without bounds
+// checks. Falls back to the rune index itself when no prefix table has
+// been built yet (defensive: keeps tests that bypass processInputToken
+// stable).
+func (f *WordDelimiterGraphFilter) utf16AtRune(r int) int {
+	if len(f.utf16Prefix) == 0 {
+		return r
+	}
+	if r < 0 {
+		return 0
+	}
+	if r >= len(f.utf16Prefix) {
+		return f.utf16Prefix[len(f.utf16Prefix)-1]
+	}
+	return f.utf16Prefix[r]
+}
+
 // emitSubWord emits the next subword from the buffer.
 func (f *WordDelimiterGraphFilter) emitSubWord() bool {
 	if f.currentSubWord >= f.subWordCount {
@@ -444,15 +509,22 @@ func (f *WordDelimiterGraphFilter) emitSubWord() bool {
 		f.termAttr.SetValue(string(f.text[sw.start:sw.end]))
 	}
 
-	// Set offsets
+	// Set offsets — port of Lucene's
+	// org.apache.lucene.analysis.miscellaneous.WordDelimiterGraphFilter
+	// offset bookkeeping. Each subword exposes (inputStart + sw.start,
+	// inputStart + sw.end) where positions are converted from rune
+	// indices to UTF-16 code-unit indices via utf16Prefix so they remain
+	// compatible with Lucene's char-based source offsets.
 	if f.offsetAttr != nil {
-		// Calculate byte offsets from rune positions
-		startOffset := f.offsetAttr.StartOffset()
-		endOffset := f.offsetAttr.EndOffset()
-		// For simplicity, use the original token's offsets
-		// In a full implementation, we'd track precise character offsets
-		_ = startOffset
-		_ = endOffset
+		startOff := f.inputStartOffset + f.utf16AtRune(sw.start)
+		endOff := f.inputStartOffset + f.utf16AtRune(sw.end)
+		if endOff > f.inputEndOffset {
+			endOff = f.inputEndOffset
+		}
+		if startOff < f.inputStartOffset {
+			startOff = f.inputStartOffset
+		}
+		f.offsetAttr.SetOffset(startOff, endOff)
 	}
 
 	// Set position increment
@@ -497,6 +569,12 @@ func (f *WordDelimiterGraphFilter) emitOriginalToken() bool {
 		f.termAttr.SetValue(string(f.text))
 	}
 
+	// Restore offsets to the upstream token's span; ClearAttributes wiped
+	// them above.
+	if f.offsetAttr != nil {
+		f.offsetAttr.SetOffset(f.inputStartOffset, f.inputEndOffset)
+	}
+
 	// Set position increment
 	if f.posIncrAttr != nil {
 		f.posIncrAttr.SetPositionIncrement(0)
@@ -525,6 +603,12 @@ func (f *WordDelimiterGraphFilter) emitCatenationToken() bool {
 	// Set term
 	if f.termAttr != nil {
 		f.termAttr.SetValue(f.catenationBuffer.String())
+	}
+
+	// Restore offsets to the upstream token's span — catenated tokens
+	// cover the full input span regardless of internal subword count.
+	if f.offsetAttr != nil {
+		f.offsetAttr.SetOffset(f.inputStartOffset, f.inputEndOffset)
 	}
 
 	// Set position increment
