@@ -7,6 +7,9 @@ package document
 import (
 	"bytes"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 func TestStoredValue_Constructors(t *testing.T) {
@@ -91,4 +94,47 @@ func TestStoredValue_NilBinaryPanics(t *testing.T) {
 		}
 	}()
 	NewStoredValueBinary(nil)
+}
+
+func TestStoredValue_DataInputRoundTrip(t *testing.T) {
+	payload := []byte{0xCA, 0xFE, 0xBA, 0xBE}
+	in := store.NewByteArrayDataInput(payload)
+	dsi := index.NewStoredFieldDataInputFromByteArray(in)
+
+	v := NewStoredValueDataInput(dsi)
+	if v.GetType() != StoredValueTypeDataInput {
+		t.Fatalf("GetType = %v, want DATA_INPUT", v.GetType())
+	}
+	got := v.GetDataInputValue()
+	if got.GetLength() != len(payload) {
+		t.Fatalf("Length = %d, want %d", got.GetLength(), len(payload))
+	}
+	if got.DataInput() != in {
+		t.Fatalf("DataInput identity lost")
+	}
+
+	// Setter on the same kind must accept a fresh value.
+	v.SetDataInputValue(index.NewStoredFieldDataInput(in, 2))
+	if v.GetDataInputValue().GetLength() != 2 {
+		t.Fatalf("after SetDataInputValue length = %d, want 2",
+			v.GetDataInputValue().GetLength())
+	}
+}
+
+func TestStoredValue_NilDataInputPanics(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("expected panic on nil DataInput constructor")
+		}
+	}()
+	NewStoredValueDataInput(nil)
+}
+
+func TestStoredValue_DataInputGetterTypeMismatch(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("expected panic when reading DATA_INPUT off an INTEGER")
+		}
+	}()
+	NewStoredValueInt(1).GetDataInputValue()
 }

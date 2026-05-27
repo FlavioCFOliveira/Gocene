@@ -1126,24 +1126,39 @@ func VIntSize(i int32) int {
 }
 
 // =========================================================================
-// Stub: newGeometryQuery. Mirrors the Java static method
-// ShapeDocValues.newGeometryQuery which currently returns null with
-// a TODO comment pending the ShapeDocValuesQuery port.
+// newGeometryQuery: Lucene 10.4.0's static factory for general geometry
+// queries over shape doc-values. Lucene itself throws
+// IllegalStateException with "geometry queries not yet supported on shape
+// doc values for field [...]" — Gocene mirrors that contract by
+// returning an error rather than panicking, so callers in the search
+// layer can surface the same diagnostic without an interface{} assertion
+// dance. The first return is kept as a typed nil placeholder so the
+// signature is stable when concrete query types eventually land here.
 // =========================================================================
 
-// NewGeometryQuery is a placeholder mirroring the Java stub of the
-// same name: it currently returns nil pending the
-// ShapeDocValuesQuery port. The signature returns interface{} so we
-// avoid an import cycle on search.Query; callers in the search
-// layer will type-assert when the concrete query type lands.
-//
-// TODO(GOC-4532+): return the actual ShapeDocValuesQuery instance
-// once the spatial query family is ported.
-func NewGeometryQuery(field string, relation QueryRelation, geometries ...interface{}) interface{} {
-	_ = field
+// ErrGeometryQueryUnsupported is returned by NewGeometryQuery to mirror
+// Lucene 10.4.0's "geometry queries not yet supported on shape doc
+// values for field [...]" IllegalStateException. Callers may check for
+// this sentinel with errors.Is when they want to distinguish the
+// "feature not implemented upstream" case from genuine input-validation
+// failures.
+var ErrGeometryQueryUnsupported = errors.New("geometry queries not yet supported on shape doc values")
+
+// NewGeometryQuery mirrors Lucene 10.4.0's
+// ShapeDocValuesField.newGeometryQuery(String, QueryRelation, Object...)
+// static factory. Lucene 10.4.0 itself does not implement the general
+// case yet — its body throws IllegalStateException with a "geometry
+// queries not yet supported on shape doc values for field [...]" message
+// — so this Go port returns the same failure as an error and a typed nil
+// placeholder rather than panicking. The signature returns interface{}
+// to avoid the document/ -> search/ cycle Gocene's package layout would
+// otherwise close; the search layer's spatial-query builders should
+// invoke this helper, surface the error, and substitute their own query
+// when they grow native support.
+func NewGeometryQuery(field string, relation QueryRelation, geometries ...interface{}) (interface{}, error) {
 	_ = relation
 	_ = geometries
-	return nil
+	return nil, fmt.Errorf("%w: field=%q", ErrGeometryQueryUnsupported, field)
 }
 
 // =========================================================================

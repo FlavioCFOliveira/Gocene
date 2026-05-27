@@ -230,6 +230,13 @@ func NewByteArrayDataInput(bytes []byte) *ByteArrayDataInput {
 	}
 }
 
+// Position returns the current read offset within the underlying buffer.
+// Useful for codecs that need to surface "bytes already consumed" for
+// downstream sizing — Lucene exposes the equivalent via getPosition().
+func (in *ByteArrayDataInput) Position() int {
+	return in.pos
+}
+
 // ReadByte reads a single byte.
 func (in *ByteArrayDataInput) ReadByte() (byte, error) {
 	if in.pos >= len(in.bytes) {

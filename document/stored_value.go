@@ -4,7 +4,11 @@
 
 package document
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+)
 
 // StoredValueType discriminates the variant carried by a StoredValue.
 // Mirrors Lucene 10.4.0's StoredValue.Type enum.
@@ -26,9 +30,10 @@ const (
 	// StoredValueTypeBinary is a raw byte sequence (BytesRef in Java).
 	StoredValueTypeBinary
 
-	// StoredValueTypeDataInput is a streamed value backed by a
-	// StoredFieldDataInput in Lucene. Deferred in Gocene — backed by a
-	// io.Reader in a later sprint when StoredFieldDataInput is ported.
+	// StoredValueTypeDataInput is a streamed value backed by an
+	// index.StoredFieldDataInput. Used by codecs that hand the stored-field
+	// visitor a (DataInput, length) pair instead of materialising the full
+	// payload up front.
 	StoredValueTypeDataInput
 
 	// StoredValueTypeString is a UTF-8 string.
@@ -59,11 +64,14 @@ func (t StoredValueType) String() string {
 
 // StoredValue holds the value of a stored field. This is the Go port of
 // Lucene 10.4.0's org.apache.lucene.document.StoredValue (a tagged union
-// holding one of: int32, int64, float32, float64, []byte, or string).
+// holding one of: int32, int64, float32, float64, []byte, string, or a
+// StoredFieldDataInput stream).
 //
-// Deviation: the DATA_INPUT variant is deferred until
-// StoredFieldDataInput is ported; constructors and getters for that
-// variant return errors when used.
+// The DATA_INPUT variant carries a pointer to index.StoredFieldDataInput
+// so codec stored-fields writers can drain the bytes lazily. Reusing the
+// pointer (rather than copying the bytes into bin) preserves Lucene's
+// "streaming value" contract: the codec consumes exactly Length bytes
+// from In without ever materialising the full payload.
 type StoredValue struct {
 	kind StoredValueType
 	i32  int32
@@ -72,6 +80,7 @@ type StoredValue struct {
 	f64  float64
 	str  string
 	bin  []byte
+	dsi  *index.StoredFieldDataInput
 }
 
 // NewStoredValueInt creates a StoredValue carrying an int32 value.
@@ -109,6 +118,19 @@ func NewStoredValueBinary(v []byte) *StoredValue {
 // cannot be nil, so this is a no-op guard preserved for parity.
 func NewStoredValueString(v string) *StoredValue {
 	return &StoredValue{kind: StoredValueTypeString, str: v}
+}
+
+// NewStoredValueDataInput creates a StoredValue carrying a streamed
+// payload. Mirrors Lucene 10.4.0's StoredValue(StoredFieldDataInput)
+// constructor — the codec stored-fields writer drains exactly v.Length
+// bytes from v.In when the field is serialised.
+//
+// Panics when v is nil to match Java's NullPointerException.
+func NewStoredValueDataInput(v *index.StoredFieldDataInput) *StoredValue {
+	if v == nil {
+		panic("StoredFieldDataInput value cannot be nil")
+	}
+	return &StoredValue{kind: StoredValueTypeDataInput, dsi: v}
 }
 
 // GetType returns the discriminator describing this StoredValue's payload.
@@ -156,6 +178,13 @@ func (s *StoredValue) GetStringValue() string {
 	return s.str
 }
 
+// GetDataInputValue returns the streamed payload. Panics if the
+// StoredValue does not hold a DATA_INPUT.
+func (s *StoredValue) GetDataInputValue() *index.StoredFieldDataInput {
+	s.expect(StoredValueTypeDataInput)
+	return s.dsi
+}
+
 // SetIntValue replaces the int32 payload. Panics if the StoredValue is not
 // of type INTEGER.
 func (s *StoredValue) SetIntValue(v int32) {
@@ -195,6 +224,16 @@ func (s *StoredValue) SetBinaryValue(v []byte) {
 func (s *StoredValue) SetStringValue(v string) {
 	s.expect(StoredValueTypeString)
 	s.str = v
+}
+
+// SetDataInputValue replaces the streamed payload. Panics if not of
+// type DATA_INPUT or if v is nil.
+func (s *StoredValue) SetDataInputValue(v *index.StoredFieldDataInput) {
+	s.expect(StoredValueTypeDataInput)
+	if v == nil {
+		panic("StoredFieldDataInput value cannot be nil")
+	}
+	s.dsi = v
 }
 
 func (s *StoredValue) expect(want StoredValueType) {

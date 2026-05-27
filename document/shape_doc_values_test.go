@@ -5,6 +5,7 @@
 package document
 
 import (
+	"errors"
 	"math/rand"
 	"testing"
 
@@ -365,12 +366,17 @@ func TestShapeDocValues_Relate(t *testing.T) {
 	}
 }
 
-// TestShapeDocValues_NewGeometryQuery_Stub asserts the placeholder
-// method still returns nil while we wait for GOC-4532+ to wire the
-// concrete ShapeDocValuesQuery.
-func TestShapeDocValues_NewGeometryQuery_Stub(t *testing.T) {
+// TestShapeDocValues_NewGeometryQuery_NotSupported asserts the helper
+// mirrors Lucene 10.4.0's "geometry queries not yet supported on shape
+// doc values" IllegalStateException by returning the typed sentinel
+// ErrGeometryQueryUnsupported and a nil placeholder query.
+func TestShapeDocValues_NewGeometryQuery_NotSupported(t *testing.T) {
 	t.Parallel()
-	if got := NewGeometryQuery("f", QueryRelationIntersects); got != nil {
-		t.Fatalf("NewGeometryQuery stub = %v; want nil", got)
+	q, err := NewGeometryQuery("f", QueryRelationIntersects)
+	if q != nil {
+		t.Fatalf("NewGeometryQuery query = %v; want nil placeholder", q)
+	}
+	if !errors.Is(err, ErrGeometryQueryUnsupported) {
+		t.Fatalf("NewGeometryQuery err = %v; want errors.Is(...ErrGeometryQueryUnsupported)", err)
 	}
 }
