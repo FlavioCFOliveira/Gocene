@@ -620,7 +620,7 @@ type SortingDocsEnum struct {
 // iterating; Reset accepts the docMap and source enumerator.
 func NewSortingDocsEnum() *SortingDocsEnum {
 	return &SortingDocsEnum{
-		PostingsEnumBase: PostingsEnumBase{currentDoc: -1},
+		PostingsEnumBase: PostingsEnumBase{CurrentDoc: -1},
 		sorter:           util.NewLSBRadixSorter(),
 	}
 }
@@ -664,7 +664,7 @@ func (d *SortingDocsEnum) Reset(docMap SorterDocMap, in PostingsEnum) error {
 	numBits := packed.BitsRequired(upper)
 	d.sorter.Sort(numBits, d.docs, d.upTo)
 	d.docIt = -1
-	d.currentDoc = -1
+	d.CurrentDoc = -1
 	return nil
 }
 
@@ -691,11 +691,11 @@ func (d *SortingDocsEnum) Advance(target int) (int, error) {
 func (d *SortingDocsEnum) NextDoc() (int, error) {
 	d.docIt++
 	if d.docIt > d.upTo {
-		d.currentDoc = NO_MORE_DOCS
+		d.CurrentDoc = NO_MORE_DOCS
 		return NO_MORE_DOCS, nil
 	}
-	d.currentDoc = int(d.docs[d.docIt])
-	return d.currentDoc, nil
+	d.CurrentDoc = int(d.docs[d.docIt])
+	return d.CurrentDoc, nil
 }
 
 // DocID returns the current docID, or -1 before the first NextDoc.
@@ -769,7 +769,7 @@ type SortingPostingsEnum struct {
 // [IndexOptions].
 func NewSortingPostingsEnum() *SortingPostingsEnum {
 	return &SortingPostingsEnum{
-		PostingsEnumBase: PostingsEnumBase{currentDoc: -1},
+		PostingsEnumBase: PostingsEnumBase{CurrentDoc: -1},
 	}
 }
 
@@ -924,7 +924,7 @@ func (p *SortingPostingsEnum) GetPayload() ([]byte, error) {
 func (p *SortingPostingsEnum) NextDoc() (int, error) {
 	p.docIt++
 	if p.docIt >= p.upto {
-		p.currentDoc = NO_MORE_DOCS
+		p.CurrentDoc = NO_MORE_DOCS
 		return NO_MORE_DOCS, nil
 	}
 	if err := p.postingInput.seek(p.offsets[p.docIt]); err != nil {
@@ -937,8 +937,8 @@ func (p *SortingPostingsEnum) NextDoc() (int, error) {
 	p.currFreq = int(freq)
 	p.pos = 0
 	p.endOffset = 0
-	p.currentDoc = int(p.docs[p.docIt])
-	return p.currentDoc, nil
+	p.CurrentDoc = int(p.docs[p.docIt])
+	return p.CurrentDoc, nil
 }
 
 // NextPosition advances the position cursor; mirrors Lucene's protocol.

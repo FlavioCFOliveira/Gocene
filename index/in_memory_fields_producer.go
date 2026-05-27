@@ -256,13 +256,13 @@ func (e *inMemTermsEnum) Next() (*Term, error) {
 	e.idx++
 	if e.idx >= len(e.sorted) {
 		e.currentTerm = nil
-		e.TermsEnumBase.currentTerm = nil
+		e.TermsEnumBase.SetCurrentTerm(nil)
 		return nil, nil
 	}
 	text := e.sorted[e.idx]
 	e.currentTerm = e.field.terms[text]
 	t := NewTerm(e.field.fieldName, text)
-	e.TermsEnumBase.currentTerm = t
+	e.TermsEnumBase.SetCurrentTerm(t)
 	return t, nil
 }
 
@@ -273,11 +273,11 @@ func (e *inMemTermsEnum) SeekExact(term *Term) (bool, error) {
 	imt, ok := e.field.terms[term.Text()]
 	if !ok {
 		e.currentTerm = nil
-		e.TermsEnumBase.currentTerm = nil
+		e.TermsEnumBase.SetCurrentTerm(nil)
 		return false, nil
 	}
 	e.currentTerm = imt
-	e.TermsEnumBase.currentTerm = term
+	e.TermsEnumBase.SetCurrentTerm(term)
 	// Update idx to the correct position so Term() remains consistent.
 	pos := sort.SearchStrings(e.sorted, term.Text())
 	if pos < len(e.sorted) && e.sorted[pos] == term.Text() {
@@ -293,19 +293,19 @@ func (e *inMemTermsEnum) SeekCeil(term *Term) (*Term, error) {
 	pos := sort.SearchStrings(e.sorted, term.Text())
 	if pos >= len(e.sorted) {
 		e.currentTerm = nil
-		e.TermsEnumBase.currentTerm = nil
+		e.TermsEnumBase.SetCurrentTerm(nil)
 		return nil, nil
 	}
 	e.idx = pos
 	text := e.sorted[pos]
 	e.currentTerm = e.field.terms[text]
 	t := NewTerm(e.field.fieldName, text)
-	e.TermsEnumBase.currentTerm = t
+	e.TermsEnumBase.SetCurrentTerm(t)
 	return t, nil
 }
 
 func (e *inMemTermsEnum) Term() *Term {
-	return e.TermsEnumBase.currentTerm
+	return e.TermsEnumBase.Term()
 }
 
 func (e *inMemTermsEnum) DocFreq() (int, error) {

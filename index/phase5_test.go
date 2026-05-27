@@ -218,7 +218,7 @@ func (f *fakeTermsEnum) Next() (*Term, error) {
 		return nil, nil
 	}
 	t := NewTerm("f", f.items[f.pos])
-	f.currentTerm = t
+	f.SetCurrentTerm(t)
 	return t, nil
 }
 
@@ -227,7 +227,7 @@ func (f *fakeTermsEnum) SeekCeil(t *Term) (*Term, error) {
 		if it >= t.Text() {
 			f.pos = i
 			term := NewTerm("f", it)
-			f.currentTerm = term
+			f.SetCurrentTerm(term)
 			return term, nil
 		}
 	}
@@ -240,7 +240,7 @@ func (f *fakeTermsEnum) SeekExact(t *Term) (bool, error) {
 		if it == t.Text() {
 			f.pos = i
 			term := NewTerm("f", it)
-			f.currentTerm = term
+			f.SetCurrentTerm(term)
 			return true, nil
 		}
 	}

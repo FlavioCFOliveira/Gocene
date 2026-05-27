@@ -32,7 +32,7 @@ type staticDocsEnum struct {
 
 func newStaticDocsEnum(docs []int) *staticDocsEnum {
 	return &staticDocsEnum{
-		PostingsEnumBase: PostingsEnumBase{currentDoc: -1},
+		PostingsEnumBase: PostingsEnumBase{CurrentDoc: -1},
 		docs:             docs,
 		idx:              -1,
 	}
@@ -41,11 +41,11 @@ func newStaticDocsEnum(docs []int) *staticDocsEnum {
 func (s *staticDocsEnum) NextDoc() (int, error) {
 	s.idx++
 	if s.idx >= len(s.docs) {
-		s.currentDoc = NO_MORE_DOCS
+		s.CurrentDoc = NO_MORE_DOCS
 		return NO_MORE_DOCS, nil
 	}
-	s.currentDoc = s.docs[s.idx]
-	return s.currentDoc, nil
+	s.CurrentDoc = s.docs[s.idx]
+	return s.CurrentDoc, nil
 }
 
 func (s *staticDocsEnum) Advance(target int) (int, error) {
@@ -146,7 +146,7 @@ type staticPos struct {
 
 func newStaticPostingsEnum(docs []staticDoc) *staticPostingsEnum {
 	return &staticPostingsEnum{
-		PostingsEnumBase: PostingsEnumBase{currentDoc: -1},
+		PostingsEnumBase: PostingsEnumBase{CurrentDoc: -1},
 		docs:             docs,
 		idx:              -1,
 	}
@@ -155,12 +155,12 @@ func newStaticPostingsEnum(docs []staticDoc) *staticPostingsEnum {
 func (s *staticPostingsEnum) NextDoc() (int, error) {
 	s.idx++
 	if s.idx >= len(s.docs) {
-		s.currentDoc = NO_MORE_DOCS
+		s.CurrentDoc = NO_MORE_DOCS
 		return NO_MORE_DOCS, nil
 	}
-	s.currentDoc = s.docs[s.idx].docID
+	s.CurrentDoc = s.docs[s.idx].docID
 	s.pidx = -1
-	return s.currentDoc, nil
+	return s.CurrentDoc, nil
 }
 
 func (s *staticPostingsEnum) Advance(target int) (int, error) {

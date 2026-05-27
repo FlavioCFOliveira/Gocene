@@ -88,7 +88,7 @@ func (f *FilteredTermsEnum) Next() (*Term, error) {
 			return nil, err
 		}
 		if seek == nil {
-			f.currentTerm = nil
+			f.SetCurrentTerm(nil)
 			return nil, nil
 		}
 	} else if f.startWithSeek {
@@ -107,7 +107,7 @@ func (f *FilteredTermsEnum) Next() (*Term, error) {
 
 	for {
 		var term *Term
-		if f.currentTerm == nil && f.initialSeek == nil {
+		if f.Term() == nil && f.initialSeek == nil {
 			t, err := f.delegate.Next()
 			if err != nil {
 				return nil, err
@@ -121,7 +121,7 @@ func (f *FilteredTermsEnum) Next() (*Term, error) {
 			term = t
 		}
 		if term == nil {
-			f.currentTerm = nil
+			f.SetCurrentTerm(nil)
 			return nil, nil
 		}
 		status, err := f.acceptor.Accept(term)
@@ -130,7 +130,7 @@ func (f *FilteredTermsEnum) Next() (*Term, error) {
 		}
 		switch status {
 		case AcceptYes, AcceptYesAndSeek:
-			f.currentTerm = term
+			f.SetCurrentTerm(term)
 			if status == AcceptYesAndSeek {
 				if seek, serr := f.acceptor.NextSeekTerm(term); serr != nil {
 					return term, serr
@@ -155,7 +155,7 @@ func (f *FilteredTermsEnum) Next() (*Term, error) {
 			}
 			continue
 		case AcceptEnd:
-			f.currentTerm = nil
+			f.SetCurrentTerm(nil)
 			return nil, nil
 		}
 	}
@@ -168,7 +168,7 @@ func (f *FilteredTermsEnum) SeekCeil(term *Term) (*Term, error) {
 		return nil, err
 	}
 	if got == nil {
-		f.currentTerm = nil
+		f.SetCurrentTerm(nil)
 		return nil, nil
 	}
 	status, err := f.acceptor.Accept(got)
@@ -176,7 +176,7 @@ func (f *FilteredTermsEnum) SeekCeil(term *Term) (*Term, error) {
 		return nil, err
 	}
 	if status == AcceptYes || status == AcceptYesAndSeek {
-		f.currentTerm = got
+		f.SetCurrentTerm(got)
 		return got, nil
 	}
 	// fall through to Next() until something is accepted
@@ -190,7 +190,7 @@ func (f *FilteredTermsEnum) SeekExact(term *Term) (bool, error) {
 		return false, err
 	}
 	if got == nil || !got.Equals(term) {
-		f.currentTerm = nil
+		f.SetCurrentTerm(nil)
 		return false, nil
 	}
 	status, err := f.acceptor.Accept(got)
@@ -198,7 +198,7 @@ func (f *FilteredTermsEnum) SeekExact(term *Term) (bool, error) {
 		return false, err
 	}
 	if status == AcceptYes || status == AcceptYesAndSeek {
-		f.currentTerm = got
+		f.SetCurrentTerm(got)
 		return true, nil
 	}
 	return false, nil
