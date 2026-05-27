@@ -43,12 +43,21 @@ func NewQueryScorerWithField(query search.Query, field string) *QueryScorer {
 }
 
 // extractTerms extracts terms from the query.
+//
+// Walks the query tree once via extractQueryTerms, populating qs.terms with
+// the deduplicated leaf term texts and qs.termWeights with the max effective
+// boost seen for each term. When qs.field is non-empty, only terms from that
+// field are retained. Also updates qs.maxTermWeight.
 func (qs *QueryScorer) extractTerms() {
-	// In a full implementation, this would recursively extract terms
-	// from the query tree and their weights
-	// For now, just initialize
-	qs.terms = make([]string, 0)
-	qs.termWeights = make(map[string]float32)
+	qs.termWeights = make(map[string]float32, 8)
+	qs.terms = extractQueryTerms(qs.query, qs.field, 1.0, nil, qs.termWeights)
+
+	qs.maxTermWeight = 0
+	for _, w := range qs.termWeights {
+		if w > qs.maxTermWeight {
+			qs.maxTermWeight = w
+		}
+	}
 }
 
 // GetFragmentScore returns the score for the given fragment.

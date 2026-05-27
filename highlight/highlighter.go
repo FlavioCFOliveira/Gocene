@@ -498,11 +498,14 @@ func (hf *HighlighterFactory) CreateHighlighter() (Highlighter, error) {
 }
 
 // extractTerms extracts terms from a query.
+//
+// Recursively walks the query tree (BooleanQuery, PhraseQuery, TermQuery,
+// SpanTermQuery, BoostQuery, DisjunctionMaxQuery, ConstantScoreQuery)
+// using the package-shared extractor, restricting to hf.defaultField
+// when non-empty.
 func (hf *HighlighterFactory) extractTerms(query search.Query) []string {
-	// In a full implementation, this would recursively extract terms
-	// from the query tree
-	// For now, return empty slice
-	return []string{}
+	weights := make(map[string]float32, 8)
+	return extractQueryTerms(query, hf.defaultField, 1.0, nil, weights)
 }
 
 // String returns a string representation of this HighlighterFactory.
