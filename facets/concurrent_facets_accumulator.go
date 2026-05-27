@@ -50,6 +50,22 @@ type ConcurrentFacetsAccumulator struct {
 
 	// numWorkers is the number of concurrent workers for accumulation
 	numWorkers int
+
+	// resolver resolves per-document taxonomy ordinals for a segment.
+	// Concurrent access is allowed: the resolver MUST be safe for concurrent
+	// invocation across different segments. When nil, accumulateFromSegment is
+	// a no-op (foundation gap with the doc-values SPI).
+	resolver TaxonomyOrdinalsResolver
+}
+
+// SetOrdinalsResolver installs an ordinals resolver used by
+// AccumulateFromMatchingDocs. The resolver MUST be safe for concurrent use
+// because workers call it in parallel across segments. Passing nil restores
+// the no-op behaviour.
+func (cfa *ConcurrentFacetsAccumulator) SetOrdinalsResolver(r TaxonomyOrdinalsResolver) {
+	cfa.mu.Lock()
+	defer cfa.mu.Unlock()
+	cfa.resolver = r
 }
 
 // NewConcurrentFacetsAccumulator creates a new ConcurrentFacetsAccumulator.
@@ -165,17 +181,45 @@ func (cfa *ConcurrentFacetsAccumulator) AccumulateFromMatchingDocs(matchingDocs 
 
 // accumulateFromSegment accumulates counts from a single segment.
 // This method is called concurrently by multiple workers.
+//
+// When an ordinals resolver is configured, it is invoked per document; the
+// resulting ordinals are translated into label strings via cfa.ordToLabel (or
+// the integer ordinal itself when no label is registered) and their counts are
+// incremented under the accumulator's mutex. Without a resolver, the call is
+// a no-op (foundation gap with the per-codec doc-values SPI).
 func (cfa *ConcurrentFacetsAccumulator) accumulateFromSegment(matchingDocs *MatchingDocs) error {
 	if matchingDocs == nil {
 		return nil
 	}
 
-	// In a full implementation, this would:
-	// 1. Get the doc values for the facet field
-	// 2. Iterate over matching documents
-	// 3. For each document, get its ordinals and increment counts
-	// For now, this is a placeholder that returns nil
+	cfa.mu.RLock()
+	resolver := cfa.resolver
+	cfa.mu.RUnlock()
+	if resolver == nil {
+		return nil
+	}
 
+	reader := matchingDocs.GetLeafReader()
+	if reader == nil {
+		return nil
+	}
+
+	maxDoc := reader.MaxDoc()
+	bits := matchingDocs.Bits
+	for doc := 0; doc < maxDoc; doc++ {
+		if bits != nil && !bits.Get(doc) {
+			continue
+		}
+		ords, err := resolver(matchingDocs, doc)
+		if err != nil {
+			return fmt.Errorf("resolving ordinals for doc %d: %w", doc, err)
+		}
+		for _, ord := range ords {
+			if ord > 0 {
+				cfa.incrementCount(ord, 1)
+			}
+		}
+	}
 	return nil
 }
 

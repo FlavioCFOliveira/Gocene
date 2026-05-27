@@ -171,16 +171,53 @@ func (bfa *BaseFacetsAccumulator) filterByPath(result *FacetResult, path []strin
 }
 
 // matchesPath checks if a label matches the given path.
+//
+// The label is interpreted as a FacetLabel-encoded path (components joined by
+// FacetLabel.Separator, "/"). A path of length N matches the label when:
+//   - N == 0: matches any label (no path constraint).
+//   - N == len(components(label)): every component is equal.
+//   - N < len(components(label)): the first N components are equal (prefix
+//     match — used when the caller wants every descendant of the path).
+//
+// This mirrors org.apache.lucene.facet.FacetLabel.startsWith semantics on the
+// reader side and matches what Lucene's TaxonomyFacets uses to filter children.
 func (bfa *BaseFacetsAccumulator) matchesPath(label string, path []string) bool {
-	// Simple string comparison for now
-	// In a full implementation, this would properly compare path components
 	if len(path) == 0 {
 		return true
 	}
-	if len(path) == 1 {
-		return label == path[0]
+	components := splitFacetLabelPath(label)
+	if len(path) > len(components) {
+		return false
 	}
-	return false
+	for i, want := range path {
+		if components[i] != want {
+			return false
+		}
+	}
+	return true
+}
+
+// splitFacetLabelPath splits a "/"-separated FacetLabel string into components.
+// An empty input yields a nil slice; a leading "/" is treated as a separator
+// (not an empty leading component), matching FacetLabel.String() output.
+func splitFacetLabelPath(label string) []string {
+	if label == "" {
+		return nil
+	}
+	out := make([]string, 0, 4)
+	start := 0
+	for i := 0; i < len(label); i++ {
+		if label[i] == '/' {
+			if i > start {
+				out = append(out, label[start:i])
+			}
+			start = i + 1
+		}
+	}
+	if start < len(label) {
+		out = append(out, label[start:])
+	}
+	return out
 }
 
 // Ensure BaseFacetsAccumulator implements FacetsAccumulator

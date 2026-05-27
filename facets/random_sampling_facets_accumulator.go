@@ -64,6 +64,22 @@ type RandomSamplingFacetsAccumulator struct {
 
 	// seed is the random seed for reproducibility
 	seed int64
+
+	// resolver resolves per-document taxonomy ordinals for a sampled segment.
+	// Concurrent access is not required (sampling is sequential), but the
+	// resolver MUST remain valid for the lifetime of an
+	// AccumulateFromMatchingDocs call. When nil, accumulateFromSampledDoc is
+	// a no-op (foundation gap with the per-codec doc-values SPI).
+	resolver TaxonomyOrdinalsResolver
+}
+
+// SetOrdinalsResolver installs an ordinals resolver used by
+// AccumulateFromMatchingDocs when sampling each segment's documents. Passing
+// nil restores the no-op behaviour.
+func (rsfa *RandomSamplingFacetsAccumulator) SetOrdinalsResolver(r TaxonomyOrdinalsResolver) {
+	rsfa.mu.Lock()
+	defer rsfa.mu.Unlock()
+	rsfa.resolver = r
 }
 
 // NewRandomSamplingFacetsAccumulator creates a new RandomSamplingFacetsAccumulator.
@@ -212,13 +228,47 @@ func (rsfa *RandomSamplingFacetsAccumulator) reservoirSample(matchingDocs []*Mat
 	return reservoir
 }
 
-// accumulateFromSampledDoc accumulates counts from a single sampled document.
+// accumulateFromSampledDoc accumulates counts for every matching document in
+// the given segment using the installed ordinals resolver. The reservoir
+// sampling stage already selected which *segments* contribute; this method
+// iterates the documents within a selected segment and feeds their ordinals
+// into the counts buffer.
+//
+// When no resolver is installed, the call is a no-op (foundation gap with the
+// per-codec doc-values SPI).
 func (rsfa *RandomSamplingFacetsAccumulator) accumulateFromSampledDoc(matchingDocs *MatchingDocs) error {
-	// In a full implementation, this would:
-	// 1. Get the doc values for the facet field
-	// 2. Get ordinals for this document
-	// 3. Increment counts
-	// For now, this is a placeholder
+	if matchingDocs == nil {
+		return nil
+	}
+
+	rsfa.mu.RLock()
+	resolver := rsfa.resolver
+	rsfa.mu.RUnlock()
+	if resolver == nil {
+		return nil
+	}
+
+	reader := matchingDocs.GetLeafReader()
+	if reader == nil {
+		return nil
+	}
+
+	maxDoc := reader.MaxDoc()
+	bits := matchingDocs.Bits
+	for doc := 0; doc < maxDoc; doc++ {
+		if bits != nil && !bits.Get(doc) {
+			continue
+		}
+		ords, err := resolver(matchingDocs, doc)
+		if err != nil {
+			return fmt.Errorf("resolving ordinals for doc %d: %w", doc, err)
+		}
+		for _, ord := range ords {
+			if ord > 0 {
+				rsfa.incrementCount(ord, 1)
+			}
+		}
+	}
 	return nil
 }
 

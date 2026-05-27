@@ -43,6 +43,25 @@ type SortedSetDocValuesAccumulator struct {
 
 	// maxCategories is the maximum number of categories to track
 	maxCategories int
+
+	// docValuesResolver resolves the SortedSetDocValues for a segment.
+	// When nil, accumulateFromSegment is a no-op (foundation gap with the
+	// LeafReader.GetSortedSetDocValues SPI, which today returns nil across
+	// Gocene's directory-reader implementations).
+	docValuesResolver SortedSetDocValuesResolver
+}
+
+// SortedSetDocValuesResolver retrieves SortedSetDocValues for a segment's
+// LeafReader. Implementations bridge the per-codec DocValues format to the
+// facets package without making the accumulator depend on the codec-level
+// SPI directly.
+type SortedSetDocValuesResolver func(reader index.IndexReaderInterface, field string) (SortedSetDocValues, error)
+
+// SetDocValuesResolver installs a resolver used by AccumulateFromMatchingDocs
+// to obtain per-segment SortedSetDocValues. Passing nil restores the no-op
+// behaviour and yields no facet counts.
+func (ssdvfa *SortedSetDocValuesAccumulator) SetDocValuesResolver(r SortedSetDocValuesResolver) {
+	ssdvfa.docValuesResolver = r
 }
 
 // NewSortedSetDocValuesAccumulator creates a new SortedSetDocValuesAccumulator.
@@ -193,10 +212,19 @@ func (ssdvfa *SortedSetDocValuesAccumulator) ensureCapacity(ord int) {
 }
 
 // getSortedSetDocValues returns SortedSetDocValues for the given reader.
+//
+// Resolution proceeds in two steps:
+//  1. If a docValuesResolver is installed, the call is delegated to it. This
+//     is the hook tests and future SPI wiring use to inject real DocValues
+//     without coupling the accumulator to the per-codec DocValues format.
+//  2. Otherwise, returns nil — Gocene's LeafReader.GetSortedSetDocValues
+//     currently returns nil for every directory-reader implementation, so
+//     attempting a direct lookup would only mask the foundation gap.
 func (ssdvfa *SortedSetDocValuesAccumulator) getSortedSetDocValues(reader index.IndexReaderInterface) (SortedSetDocValues, error) {
-	// In a full implementation, this would retrieve SortedSetDocValues from the reader's DocValues
-	// For now, return a placeholder
-	return &sortedSetDocValuesImpl{}, nil
+	if ssdvfa.docValuesResolver != nil {
+		return ssdvfa.docValuesResolver(reader, ssdvfa.field)
+	}
+	return nil, nil
 }
 
 // GetTopChildren returns the top N children for the specified dimension.
