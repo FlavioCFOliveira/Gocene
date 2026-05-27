@@ -56,6 +56,20 @@ type ShapeFieldType struct {
 
 	// spatialStrategy is the strategy used for indexing
 	spatialStrategy SpatialStrategy
+
+	// frozen tracks whether this ShapeFieldType has been frozen (made
+	// immutable). Once frozen, any mutating setter panics, mirroring
+	// Lucene's FieldType.checkIfFrozen contract.
+	frozen bool
+}
+
+// checkIfFrozen panics if this type is frozen. Mirrors Lucene's
+// FieldType.checkIfFrozen so callers cannot silently mutate a type that
+// has already been published to an IndexWriter or a strategy.
+func (ft *ShapeFieldType) checkIfFrozen() {
+	if ft.frozen {
+		panic("this ShapeFieldType is already frozen and cannot be changed")
+	}
 }
 
 // IndexOptions specifies what should be indexed for a field.
@@ -158,6 +172,7 @@ func (ft *ShapeFieldType) GetName() string {
 
 // SetName sets the type name.
 func (ft *ShapeFieldType) SetName(name string) {
+	ft.checkIfFrozen()
 	ft.name = name
 }
 
@@ -168,6 +183,7 @@ func (ft *ShapeFieldType) IsIndexed() bool {
 
 // SetIndexed sets whether the field should be indexed.
 func (ft *ShapeFieldType) SetIndexed(indexed bool) *ShapeFieldType {
+	ft.checkIfFrozen()
 	ft.indexed = indexed
 	return ft
 }
@@ -179,6 +195,7 @@ func (ft *ShapeFieldType) IsStored() bool {
 
 // SetStored sets whether the field should be stored.
 func (ft *ShapeFieldType) SetStored(stored bool) *ShapeFieldType {
+	ft.checkIfFrozen()
 	ft.stored = stored
 	return ft
 }
@@ -190,6 +207,7 @@ func (ft *ShapeFieldType) HasDocValues() bool {
 
 // SetDocValues sets whether the field should have doc values.
 func (ft *ShapeFieldType) SetDocValues(docValues bool) *ShapeFieldType {
+	ft.checkIfFrozen()
 	ft.docValues = docValues
 	return ft
 }
@@ -201,6 +219,7 @@ func (ft *ShapeFieldType) IsTokenized() bool {
 
 // SetTokenized sets whether the field should be tokenized.
 func (ft *ShapeFieldType) SetTokenized(tokenized bool) *ShapeFieldType {
+	ft.checkIfFrozen()
 	ft.tokenized = tokenized
 	return ft
 }
@@ -212,6 +231,7 @@ func (ft *ShapeFieldType) StoreTermVectors() bool {
 
 // SetStoreTermVectors sets whether term vectors should be stored.
 func (ft *ShapeFieldType) SetStoreTermVectors(store bool) *ShapeFieldType {
+	ft.checkIfFrozen()
 	ft.storeTermVectors = store
 	return ft
 }
@@ -223,6 +243,7 @@ func (ft *ShapeFieldType) StoreTermVectorPositions() bool {
 
 // SetStoreTermVectorPositions sets whether term vector positions should be stored.
 func (ft *ShapeFieldType) SetStoreTermVectorPositions(store bool) *ShapeFieldType {
+	ft.checkIfFrozen()
 	ft.storeTermVectorPositions = store
 	return ft
 }
@@ -234,6 +255,7 @@ func (ft *ShapeFieldType) StoreTermVectorOffsets() bool {
 
 // SetStoreTermVectorOffsets sets whether term vector offsets should be stored.
 func (ft *ShapeFieldType) SetStoreTermVectorOffsets(store bool) *ShapeFieldType {
+	ft.checkIfFrozen()
 	ft.storeTermVectorOffsets = store
 	return ft
 }
@@ -245,6 +267,7 @@ func (ft *ShapeFieldType) OmitNorms() bool {
 
 // SetOmitNorms sets whether norms should be omitted.
 func (ft *ShapeFieldType) SetOmitNorms(omit bool) *ShapeFieldType {
+	ft.checkIfFrozen()
 	ft.omitNorms = omit
 	return ft
 }
@@ -256,6 +279,7 @@ func (ft *ShapeFieldType) GetIndexOptions() IndexOptions {
 
 // SetIndexOptions sets the indexing options.
 func (ft *ShapeFieldType) SetIndexOptions(options IndexOptions) *ShapeFieldType {
+	ft.checkIfFrozen()
 	ft.indexOptions = options
 	return ft
 }
@@ -267,6 +291,7 @@ func (ft *ShapeFieldType) GetDocValuesType() DocValuesType {
 
 // SetDocValuesType sets the doc values type.
 func (ft *ShapeFieldType) SetDocValuesType(docValuesType DocValuesType) *ShapeFieldType {
+	ft.checkIfFrozen()
 	ft.docValuesType = docValuesType
 	ft.docValues = docValuesType != DocValuesTypeNone
 	return ft
@@ -279,6 +304,7 @@ func (ft *ShapeFieldType) GetDimensionCount() int {
 
 // SetDimensionCount sets the number of dimensions.
 func (ft *ShapeFieldType) SetDimensionCount(count int) *ShapeFieldType {
+	ft.checkIfFrozen()
 	if count > 0 {
 		ft.dimensionCount = count
 	}
@@ -292,17 +318,22 @@ func (ft *ShapeFieldType) GetSpatialStrategy() SpatialStrategy {
 
 // SetSpatialStrategy sets the spatial strategy.
 func (ft *ShapeFieldType) SetSpatialStrategy(strategy SpatialStrategy) *ShapeFieldType {
+	ft.checkIfFrozen()
 	ft.spatialStrategy = strategy
 	return ft
 }
 
-// Freeze makes this field type immutable.
-// After freezing, any attempts to modify the type will panic.
-// This is not fully implemented - returns self for compatibility.
+// Freeze makes this field type immutable. After freezing, any attempt to
+// invoke a mutating setter panics with the same message Lucene's
+// FieldType emits. Mirrors Lucene's FieldType.freeze() contract.
 func (ft *ShapeFieldType) Freeze() *ShapeFieldType {
-	// In a full implementation, this would make the type immutable
-	// For now, just return self
+	ft.frozen = true
 	return ft
+}
+
+// IsFrozen reports whether this ShapeFieldType has been frozen.
+func (ft *ShapeFieldType) IsFrozen() bool {
+	return ft.frozen
 }
 
 // CheckConsistency checks if the field type configuration is consistent.

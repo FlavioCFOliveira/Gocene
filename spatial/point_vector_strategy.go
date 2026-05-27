@@ -6,6 +6,7 @@ package spatial
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/grouping"
@@ -271,16 +272,45 @@ func (dvv *distanceValueSourceValues) DoubleVal(doc int) (float64, error) {
 
 // readXValue reads the X coordinate from doc values.
 func (dvv *distanceValueSourceValues) readXValue(doc int) float64 {
-	// Placeholder implementation
-	// In a full implementation, this would read from NumericDocValues
-	return 0
+	return dvv.readDoubleDV(doc, dvv.xFieldName)
 }
 
 // readYValue reads the Y coordinate from doc values.
 func (dvv *distanceValueSourceValues) readYValue(doc int) float64 {
-	// Placeholder implementation
-	// In a full implementation, this would read from NumericDocValues
-	return 0
+	return dvv.readDoubleDV(doc, dvv.yFieldName)
+}
+
+// readDoubleDV resolves the per-leaf NumericDocValues iterator for field
+// and decodes its raw long as an IEEE-754 double, mirroring Lucene's
+// DistanceValueSource which reads DoubleDocValuesField-encoded values
+// via Double.longBitsToDouble (PointVectorStrategy indexes X/Y with
+// DoubleDocValuesField). Returns 0 when the doc has no value or when
+// the reader does not expose numeric doc values, matching Lucene's
+// behaviour of treating missing coordinates as 0.
+func (dvv *distanceValueSourceValues) readDoubleDV(doc int, field string) float64 {
+	if dvv.reader == nil {
+		return 0
+	}
+	type docValuesReader interface {
+		GetNumericDocValues(field string) (index.NumericDocValues, error)
+	}
+	r, ok := dvv.reader.(docValuesReader)
+	if !ok {
+		return 0
+	}
+	dv, err := r.GetNumericDocValues(field)
+	if err != nil || dv == nil {
+		return 0
+	}
+	target, err := dv.Advance(doc)
+	if err != nil || target != doc {
+		return 0
+	}
+	raw, err := dv.Get(doc)
+	if err != nil {
+		return 0
+	}
+	return math.Float64frombits(uint64(raw))
 }
 
 // FloatVal returns the float value for the given document.
