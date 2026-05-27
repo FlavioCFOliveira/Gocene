@@ -35,12 +35,11 @@ func NewCodecReader(
 	liveDocs util.Bits,
 	numDocs int,
 ) *CodecReader {
-	// Create a minimal SegmentInfo for the LeafReader
-	// The actual segment info should come from the core readers or be passed in
-	segmentInfo := &SegmentInfo{
-		name:     coreReaders.GetSegmentName(),
-		docCount: 0, // Will be set properly when needed
-	}
+	// Create a minimal SegmentInfo for the LeafReader. The actual
+	// segment info should come from the core readers or be passed in;
+	// this stub is kept for the LeafReader contract, with docCount=0
+	// (it is set properly via SetDocCount later when needed).
+	segmentInfo := NewSegmentInfo(coreReaders.GetSegmentName(), 0, nil)
 	return &CodecReader{
 		LeafReader:  NewLeafReaderWithFieldInfos(segmentInfo, coreReaders.GetFieldInfos()),
 		coreReaders: coreReaders,

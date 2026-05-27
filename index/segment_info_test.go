@@ -193,19 +193,17 @@ func TestSegmentInfo_IndexSort(t *testing.T) {
 	}
 
 	// Set sort
-	sort := &Sort{
-		fields: []SortField{
-			{field: "date", descending: true, sortType: SortTypeLong},
-			{field: "title", descending: false, sortType: SortTypeString},
-		},
-	}
+	sort := NewSortFromFields([]SortField{
+		NewSortFieldFull("date", SortTypeLong, true),
+		NewSortFieldFull("title", SortTypeString, false),
+	})
 	si.SetIndexSort(sort)
 
 	if si.IndexSort() == nil {
 		t.Fatal("IndexSort should not be nil")
 	}
-	if len(si.IndexSort().fields) != 2 {
-		t.Errorf("Expected 2 sort fields, got %d", len(si.IndexSort().fields))
+	if len(si.IndexSort().Fields()) != 2 {
+		t.Errorf("Expected 2 sort fields, got %d", len(si.IndexSort().Fields()))
 	}
 
 	desc := si.GetIndexSortDescription()

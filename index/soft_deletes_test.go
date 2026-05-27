@@ -61,10 +61,7 @@ func TestNewSoftDeletesDirectoryReaderWrapper(t *testing.T) {
 	}
 
 	// Test with empty field
-	segmentInfo := &SegmentInfo{
-		name:     "test",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test", 10, nil)
 	reader := NewLeafReader(segmentInfo)
 	_ = reader
 	// Cannot use LeafReader directly, need DirectoryReader
@@ -80,10 +77,7 @@ func TestSoftDeletesDirectoryReaderWrapper_NilReader(t *testing.T) {
 
 // TestSoftDeletesDirectoryReaderWrapper_EmptyField tests with empty field
 func TestSoftDeletesDirectoryReaderWrapper_EmptyField(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test", 10, nil)
 	reader := NewLeafReader(segmentInfo)
 	_ = reader
 	// Cannot use LeafReader directly

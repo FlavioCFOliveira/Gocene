@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -26,13 +26,13 @@ type LiveDocsFormat interface {
 	NewLiveDocs(numDocs int) (*util.FixedBitSet, error)
 
 	// ReadLiveDocs reads the live docs from the directory.
-	ReadLiveDocs(dir store.Directory, segmentInfo *index.SegmentInfo) (util.Bits, error)
+	ReadLiveDocs(dir store.Directory, segmentInfo *schema.SegmentInfo) (util.Bits, error)
 
 	// WriteLiveDocs writes the live docs to the directory.
-	WriteLiveDocs(bits util.Bits, dir store.Directory, segmentInfo *index.SegmentInfo) error
+	WriteLiveDocs(bits util.Bits, dir store.Directory, segmentInfo *schema.SegmentInfo) error
 
 	// Files returns the files used by this format for the given segment.
-	Files(segmentInfo *index.SegmentInfo) []string
+	Files(segmentInfo *schema.SegmentInfo) []string
 }
 
 // BaseLiveDocsFormat provides common functionality for LiveDocsFormat implementations.
@@ -56,17 +56,17 @@ func (f *BaseLiveDocsFormat) NewLiveDocs(numDocs int) (*util.FixedBitSet, error)
 }
 
 // ReadLiveDocs reads the live docs (must be implemented by subclasses).
-func (f *BaseLiveDocsFormat) ReadLiveDocs(dir store.Directory, segmentInfo *index.SegmentInfo) (util.Bits, error) {
+func (f *BaseLiveDocsFormat) ReadLiveDocs(dir store.Directory, segmentInfo *schema.SegmentInfo) (util.Bits, error) {
 	return nil, fmt.Errorf("ReadLiveDocs not implemented")
 }
 
 // WriteLiveDocs writes the live docs (must be implemented by subclasses).
-func (f *BaseLiveDocsFormat) WriteLiveDocs(bits util.Bits, dir store.Directory, segmentInfo *index.SegmentInfo) error {
+func (f *BaseLiveDocsFormat) WriteLiveDocs(bits util.Bits, dir store.Directory, segmentInfo *schema.SegmentInfo) error {
 	return fmt.Errorf("WriteLiveDocs not implemented")
 }
 
 // Files returns the files used by this format (must be implemented by subclasses).
-func (f *BaseLiveDocsFormat) Files(segmentInfo *index.SegmentInfo) []string {
+func (f *BaseLiveDocsFormat) Files(segmentInfo *schema.SegmentInfo) []string {
 	return nil
 }
 
@@ -121,7 +121,7 @@ func (f *Lucene90LiveDocsFormat) NewLiveDocs(numDocs int) (*util.FixedBitSet, er
 // ReadLiveDocs (backward-compat overload) reads live docs using del-gen 0
 // and no expected-del-count cross-check. Prefer ReadLiveDocsLucene90 for
 // faithful semantics.
-func (f *Lucene90LiveDocsFormat) ReadLiveDocs(dir store.Directory, si *index.SegmentInfo) (util.Bits, error) {
+func (f *Lucene90LiveDocsFormat) ReadLiveDocs(dir store.Directory, si *schema.SegmentInfo) (util.Bits, error) {
 	bits, _, err := f.ReadLiveDocsLucene90(dir, si, 0, -1, si.DocCount())
 	return bits, err
 }
@@ -130,7 +130,7 @@ func (f *Lucene90LiveDocsFormat) ReadLiveDocs(dir store.Directory, si *index.Seg
 // against the given segment info and del-generation. Returns the bitset and
 // the actual delCount measured from it. When expectedDelCount >= 0, returns
 // an error if the on-disk bitset does not match it.
-func (f *Lucene90LiveDocsFormat) ReadLiveDocsLucene90(dir store.Directory, si *index.SegmentInfo, delGen int64, expectedDelCount int, maxDoc int) (util.Bits, int, error) {
+func (f *Lucene90LiveDocsFormat) ReadLiveDocsLucene90(dir store.Directory, si *schema.SegmentInfo, delGen int64, expectedDelCount int, maxDoc int) (util.Bits, int, error) {
 	name := fileNameFromGeneration(si.Name(), Lucene90LiveDocsExtension, delGen)
 	if !dir.FileExists(name) {
 		return nil, 0, nil
@@ -162,7 +162,7 @@ func (f *Lucene90LiveDocsFormat) ReadLiveDocsLucene90(dir store.Directory, si *i
 
 // WriteLiveDocs (backward-compat overload) writes with delGen=0 and no
 // cross-check on the resulting del-count.
-func (f *Lucene90LiveDocsFormat) WriteLiveDocs(bits util.Bits, dir store.Directory, si *index.SegmentInfo) error {
+func (f *Lucene90LiveDocsFormat) WriteLiveDocs(bits util.Bits, dir store.Directory, si *schema.SegmentInfo) error {
 	if bits == nil {
 		return nil
 	}
@@ -177,7 +177,7 @@ func (f *Lucene90LiveDocsFormat) WriteLiveDocs(bits util.Bits, dir store.Directo
 // When expectedTotalDelCount >= 0, the method verifies that the bits
 // represent exactly that many deletions and returns an error otherwise.
 // The Java reference passes info.delCount + newDelCount.
-func (f *Lucene90LiveDocsFormat) WriteLiveDocsLucene90(bits util.Bits, dir store.Directory, si *index.SegmentInfo, delGen int64, expectedTotalDelCount int, ignoreNewDelCount int) error {
+func (f *Lucene90LiveDocsFormat) WriteLiveDocsLucene90(bits util.Bits, dir store.Directory, si *schema.SegmentInfo, delGen int64, expectedTotalDelCount int, ignoreNewDelCount int) error {
 	name := fileNameFromGeneration(si.Name(), Lucene90LiveDocsExtension, delGen)
 	raw, err := dir.CreateOutput(name, store.IOContext{Context: store.ContextWrite})
 	if err != nil {
@@ -210,7 +210,7 @@ func (f *Lucene90LiveDocsFormat) WriteLiveDocsLucene90(bits util.Bits, dir store
 
 // Files returns the files used by this format for the given segment. The
 // backward-compat overload assumes del-gen 0.
-func (f *Lucene90LiveDocsFormat) Files(si *index.SegmentInfo) []string {
+func (f *Lucene90LiveDocsFormat) Files(si *schema.SegmentInfo) []string {
 	return []string{fileNameFromGeneration(si.Name(), Lucene90LiveDocsExtension, 0)}
 }
 
@@ -360,13 +360,13 @@ func strconvBase36(generation int64) string {
 type LiveDocsReader struct {
 	format      LiveDocsFormat
 	directory   store.Directory
-	segmentInfo *index.SegmentInfo
+	segmentInfo *schema.SegmentInfo
 	liveDocs    util.Bits
 	mu          sync.RWMutex
 }
 
 // NewLiveDocsReader creates a new LiveDocsReader.
-func NewLiveDocsReader(format LiveDocsFormat, dir store.Directory, segmentInfo *index.SegmentInfo) (*LiveDocsReader, error) {
+func NewLiveDocsReader(format LiveDocsFormat, dir store.Directory, segmentInfo *schema.SegmentInfo) (*LiveDocsReader, error) {
 	reader := &LiveDocsReader{
 		format:      format,
 		directory:   dir,
@@ -414,13 +414,13 @@ func (r *LiveDocsReader) NumDocs() int {
 type LiveDocsWriter struct {
 	format      LiveDocsFormat
 	directory   store.Directory
-	segmentInfo *index.SegmentInfo
+	segmentInfo *schema.SegmentInfo
 	liveDocs    *util.FixedBitSet
 	mu          sync.Mutex
 }
 
 // NewLiveDocsWriter creates a new LiveDocsWriter.
-func NewLiveDocsWriter(format LiveDocsFormat, dir store.Directory, segmentInfo *index.SegmentInfo) (*LiveDocsWriter, error) {
+func NewLiveDocsWriter(format LiveDocsFormat, dir store.Directory, segmentInfo *schema.SegmentInfo) (*LiveDocsWriter, error) {
 	numDocs := segmentInfo.DocCount()
 	liveDocs, err := format.NewLiveDocs(numDocs)
 	if err != nil {

@@ -11,10 +11,7 @@ import (
 // TestNewFilterLeafReader tests creating a FilterLeafReader
 func TestNewFilterLeafReader(t *testing.T) {
 	// Create a minimal LeafReader for testing
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 
 	// Create FilterLeafReader
@@ -31,10 +28,7 @@ func TestNewFilterLeafReader(t *testing.T) {
 
 // TestFilterLeafReaderDocCount tests DocCount delegation
 func TestFilterLeafReaderDocCount(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 
@@ -45,10 +39,7 @@ func TestFilterLeafReaderDocCount(t *testing.T) {
 
 // TestFilterLeafReaderNumDocs tests NumDocs delegation
 func TestFilterLeafReaderNumDocs(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 
@@ -60,10 +51,7 @@ func TestFilterLeafReaderNumDocs(t *testing.T) {
 
 // TestFilterLeafReaderMaxDoc tests MaxDoc delegation
 func TestFilterLeafReaderMaxDoc(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 
@@ -75,10 +63,7 @@ func TestFilterLeafReaderMaxDoc(t *testing.T) {
 
 // TestFilterLeafReaderHasDeletions tests HasDeletions delegation
 func TestFilterLeafReaderHasDeletions(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 
@@ -90,10 +75,7 @@ func TestFilterLeafReaderHasDeletions(t *testing.T) {
 
 // TestFilterLeafReaderNumDeletedDocs tests NumDeletedDocs delegation
 func TestFilterLeafReaderNumDeletedDocs(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 
@@ -105,10 +87,7 @@ func TestFilterLeafReaderNumDeletedDocs(t *testing.T) {
 
 // TestFilterLeafReaderTerms tests Terms delegation
 func TestFilterLeafReaderTerms(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 
@@ -124,10 +103,7 @@ func TestFilterLeafReaderTerms(t *testing.T) {
 
 // TestFilterLeafReaderPostings tests Postings delegation
 func TestFilterLeafReaderPostings(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 
@@ -143,10 +119,7 @@ func TestFilterLeafReaderPostings(t *testing.T) {
 
 // TestFilterLeafReaderGetNumericDocValues tests GetNumericDocValues delegation
 func TestFilterLeafReaderGetNumericDocValues(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 
@@ -162,10 +135,7 @@ func TestFilterLeafReaderGetNumericDocValues(t *testing.T) {
 
 // TestFilterLeafReaderGetBinaryDocValues tests GetBinaryDocValues delegation
 func TestFilterLeafReaderGetBinaryDocValues(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 
@@ -181,10 +151,7 @@ func TestFilterLeafReaderGetBinaryDocValues(t *testing.T) {
 
 // TestFilterLeafReaderGetSortedDocValues tests GetSortedDocValues delegation
 func TestFilterLeafReaderGetSortedDocValues(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 
@@ -200,10 +167,7 @@ func TestFilterLeafReaderGetSortedDocValues(t *testing.T) {
 
 // TestFilterLeafReaderGetSortedNumericDocValues tests GetSortedNumericDocValues delegation
 func TestFilterLeafReaderGetSortedNumericDocValues(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 
@@ -219,10 +183,7 @@ func TestFilterLeafReaderGetSortedNumericDocValues(t *testing.T) {
 
 // TestFilterLeafReaderGetSortedSetDocValues tests GetSortedSetDocValues delegation
 func TestFilterLeafReaderGetSortedSetDocValues(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 
@@ -238,10 +199,7 @@ func TestFilterLeafReaderGetSortedSetDocValues(t *testing.T) {
 
 // TestFilterLeafReaderGetNormValues tests GetNormValues delegation
 func TestFilterLeafReaderGetNormValues(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 
@@ -257,10 +215,7 @@ func TestFilterLeafReaderGetNormValues(t *testing.T) {
 
 // TestFilterLeafReaderGetPointValues tests GetPointValues delegation
 func TestFilterLeafReaderGetPointValues(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 
@@ -276,10 +231,7 @@ func TestFilterLeafReaderGetPointValues(t *testing.T) {
 
 // TestFilterLeafReaderGetFloatVectorValues tests GetFloatVectorValues delegation
 func TestFilterLeafReaderGetFloatVectorValues(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 
@@ -295,10 +247,7 @@ func TestFilterLeafReaderGetFloatVectorValues(t *testing.T) {
 
 // TestFilterLeafReaderGetByteVectorValues tests GetByteVectorValues delegation
 func TestFilterLeafReaderGetByteVectorValues(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 
@@ -314,10 +263,7 @@ func TestFilterLeafReaderGetByteVectorValues(t *testing.T) {
 
 // TestFilterLeafReaderGetDocValuesSkipper tests GetDocValuesSkipper delegation
 func TestFilterLeafReaderGetDocValuesSkipper(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 
@@ -333,10 +279,7 @@ func TestFilterLeafReaderGetDocValuesSkipper(t *testing.T) {
 
 // TestFilterLeafReaderCheckIntegrity tests CheckIntegrity delegation
 func TestFilterLeafReaderCheckIntegrity(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 
@@ -349,10 +292,7 @@ func TestFilterLeafReaderCheckIntegrity(t *testing.T) {
 
 // TestFilterLeafReaderIncRef tests IncRef delegation
 func TestFilterLeafReaderIncRef(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 
@@ -369,10 +309,7 @@ func TestFilterLeafReaderIncRef(t *testing.T) {
 
 // TestFilterLeafReaderDecRef tests DecRef delegation
 func TestFilterLeafReaderDecRef(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 
@@ -393,10 +330,7 @@ func TestFilterLeafReaderDecRef(t *testing.T) {
 
 // TestFilterLeafReaderTryIncRef tests TryIncRef delegation
 func TestFilterLeafReaderTryIncRef(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 
@@ -412,10 +346,7 @@ func TestFilterLeafReaderTryIncRef(t *testing.T) {
 
 // TestFilterLeafReaderEnsureOpen tests EnsureOpen delegation
 func TestFilterLeafReaderEnsureOpen(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 
@@ -427,10 +358,7 @@ func TestFilterLeafReaderEnsureOpen(t *testing.T) {
 
 // TestFilterLeafReaderGetMetaData tests GetMetaData delegation
 func TestFilterLeafReaderGetMetaData(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 
@@ -446,10 +374,7 @@ func TestFilterLeafReaderGetMetaData(t *testing.T) {
 
 // TestFilterLeafReaderGetSegmentInfo tests GetSegmentInfo delegation
 func TestFilterLeafReaderGetSegmentInfo(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 
@@ -458,17 +383,14 @@ func TestFilterLeafReaderGetSegmentInfo(t *testing.T) {
 		t.Fatal("GetSegmentInfo returned nil")
 	}
 
-	if si.name != "test_segment" {
-		t.Errorf("Expected segment name 'test_segment', got '%s'", si.name)
+	if si.Name() != "test_segment" {
+		t.Errorf("Expected segment name 'test_segment', got '%s'", si.Name())
 	}
 }
 
 // TestFilterLeafReaderLeaves tests Leaves delegation
 func TestFilterLeafReaderLeaves(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 
@@ -484,10 +406,7 @@ func TestFilterLeafReaderLeaves(t *testing.T) {
 
 // TestFilterLeafReaderGetContext tests GetContext delegation
 func TestFilterLeafReaderGetContext(t *testing.T) {
-	segmentInfo := &SegmentInfo{
-		name:     "test_segment",
-		docCount: 10,
-	}
+	segmentInfo := NewSegmentInfo("test_segment", 10, nil)
 	leafReader := NewLeafReader(segmentInfo)
 	filterReader := NewFilterLeafReader(leafReader)
 

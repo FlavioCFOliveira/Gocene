@@ -1645,8 +1645,10 @@ func (w *IndexWriter) AddIndexes(dirs ...store.Directory) error {
 // Two sorts are compatible when they are either both nil/empty, or identical.
 // A sorted source cannot be added to an unsorted destination, and vice versa.
 func sortsCompatible(dst, src *Sort) bool {
-	dstEmpty := dst == nil || len(dst.fields) == 0
-	srcEmpty := src == nil || len(src.fields) == 0
+	dstFields := dst.Fields()
+	srcFields := src.Fields()
+	dstEmpty := dst == nil || len(dstFields) == 0
+	srcEmpty := src == nil || len(srcFields) == 0
 	if dstEmpty && srcEmpty {
 		return true
 	}
@@ -1655,13 +1657,13 @@ func sortsCompatible(dst, src *Sort) bool {
 		return false
 	}
 	// Both non-empty: compare field by field.
-	if len(dst.fields) != len(src.fields) {
+	if len(dstFields) != len(srcFields) {
 		return false
 	}
-	for i := range dst.fields {
-		df := dst.fields[i]
-		sf := src.fields[i]
-		if df.field != sf.field || df.sortType != sf.sortType || df.descending != sf.descending {
+	for i := range dstFields {
+		df := dstFields[i]
+		sf := srcFields[i]
+		if df.Field() != sf.Field() || df.SortType() != sf.SortType() || df.Descending() != sf.Descending() {
 			return false
 		}
 	}
