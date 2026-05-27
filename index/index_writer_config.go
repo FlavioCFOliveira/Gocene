@@ -42,6 +42,13 @@ const (
 
 	// DefaultUseCompoundFile indicates whether compound files are used by default.
 	DefaultUseCompoundFile = true
+
+	// DefaultFlushOnUpdate indicates whether IndexWriter should check the
+	// pending-flush state on every update operation. The default is true,
+	// matching the Lucene 10.4.0
+	// LiveIndexWriterConfig.checkPendingFlushOnUpdate default ("protected
+	// volatile boolean checkPendingFlushOnUpdate = true;").
+	DefaultFlushOnUpdate = true
 )
 
 // IndexWriterConfig holds configuration for IndexWriter.
@@ -84,6 +91,7 @@ func NewIndexWriterConfig(analyzer analysis.Analyzer) *IndexWriterConfig {
 		useCompoundFile:        DefaultUseCompoundFile,
 		codec:                  GetDefaultCodec(),
 		maxDocs:                0, // 0 means unlimited
+		flushOnUpdate:          DefaultFlushOnUpdate,
 	}
 }
 
@@ -163,6 +171,23 @@ func (c *IndexWriterConfig) IndexSort() *Sort { return c.indexSort }
 
 // SetIndexSort sets the index sort.
 func (c *IndexWriterConfig) SetIndexSort(sort *Sort) { c.indexSort = sort }
+
+// FlushOnUpdate reports whether IndexWriter should check the pending-flush
+// state on every update operation. It mirrors Lucene 10.4.0's
+// LiveIndexWriterConfig.isCheckPendingFlushOnUpdate.
+//
+// The default is DefaultFlushOnUpdate (true).
+func (c *IndexWriterConfig) FlushOnUpdate() bool { return c.flushOnUpdate }
+
+// SetFlushOnUpdate sets whether IndexWriter should check the
+// pending-flush state on every update operation. It returns the receiver
+// to support fluent configuration, matching Lucene's
+// LiveIndexWriterConfig.setCheckPendingFlushUpdate(boolean) chaining
+// semantics.
+func (c *IndexWriterConfig) SetFlushOnUpdate(flush bool) *IndexWriterConfig {
+	c.flushOnUpdate = flush
+	return c
+}
 
 // String returns a string representation of the IndexWriterConfig.
 // This includes all configuration settings for debugging purposes.

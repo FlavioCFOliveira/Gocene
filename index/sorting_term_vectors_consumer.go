@@ -28,13 +28,17 @@ import (
 //     the base is replaced by the canonical parent (consumer moves to
 //     embedding rather than composition).
 //
-//   - Lucene90CompressingTermVectorsFormat (compressing module) is not yet
-//     wired through the codec SPI from package index. The temporary format
-//     is exposed as a hook that callers inject via
-//     SetTempTermVectorsFormat. The default behavior, when no temporary
-//     format is supplied, is to return ErrTempTermVectorsFormatUnset on
-//     the first call to InitTermVectorsWriter — making the wiring gap
-//     explicit instead of silent.
+//   - Lucene90CompressingTermVectorsFormat (compressing module) cannot
+//     be imported directly from package index without forming a cycle
+//     (the compressing package already imports index). The wiring is
+//     handled instead by the temp-format registry declared in
+//     sorting_temp_format_registry.go: the compressing package
+//     publishes its canonical no-compression instance at init(), and
+//     NewSortingTermVectorsConsumer reads it via
+//     DefaultTempTermVectorsFormat. SetTempTermVectorsFormat remains
+//     available for test injection. When no codec has registered a
+//     default and no per-instance override is set,
+//     InitTermVectorsWriter returns ErrTempTermVectorsFormatUnset.
 //
 //   - trackingTmpDirectoryWrapper (declared in sorting_stored_fields_consumer.go)
 //     is reused as the Sprint 55 stand-in for
@@ -64,10 +68,12 @@ import (
 
 // ErrTempTermVectorsFormatUnset is returned by
 // SortingTermVectorsConsumer.InitTermVectorsWriter / Flush when no
-// temporary TermVectorsFormat has been supplied via
-// SetTempTermVectorsFormat. This surfaces the Sprint 55 wiring gap
-// explicitly instead of silently no-oping.
-var ErrTempTermVectorsFormatUnset = errors.New("index: SortingTermVectorsConsumer requires a temporary TermVectorsFormat (see SetTempTermVectorsFormat); GOC-3370 / compressing wiring pending")
+// temporary TermVectorsFormat has been registered (via
+// RegisterDefaultTempTermVectorsFormat) and none has been supplied
+// per-instance (via SetTempTermVectorsFormat). Production callers
+// should blank-import the codecs/lucene90/compressing package so its
+// init() registers the canonical Lucene 10.4.0 temp format.
+var ErrTempTermVectorsFormatUnset = errors.New("index: SortingTermVectorsConsumer requires a temporary TermVectorsFormat; blank-import the codecs/lucene90/compressing package or call SetTempTermVectorsFormat")
 
 // termVectorsConsumerBase is the Sprint 55 placeholder for the parent
 // type ported in GOC-3370 (TermVectorsConsumer). It carries the fields
@@ -107,8 +113,10 @@ type SortingTermVectorsConsumer struct {
 
 	// tempFormat is the TermVectorsFormat used for the buffered segment.
 	// In Lucene this is Lucene90CompressingTermVectorsFormat with the
-	// NO_COMPRESSION mode; until GOC-3370 + the compressing wiring land,
-	// callers must inject it via SetTempTermVectorsFormat.
+	// NO_COMPRESSION mode. The constructor initialises this from the
+	// process-wide DefaultTempTermVectorsFormat registry, populated by
+	// the codecs/lucene90/compressing package via init(); tests may
+	// override it via SetTempTermVectorsFormat.
 	tempFormat TermVectorsFormat
 }
 
@@ -120,10 +128,12 @@ type SortingTermVectorsConsumer struct {
 // Sprint 55 signature.
 //
 // The temporary TermVectorsFormat used to buffer the pre-sort segment
-// must be supplied separately via SetTempTermVectorsFormat before the
-// first call to InitTermVectorsWriter; otherwise that call returns
-// ErrTempTermVectorsFormatUnset. See the Sprint 55 deviation note on
-// the type doc.
+// is resolved from DefaultTempTermVectorsFormat at construction time.
+// Production binaries that blank-import the codecs/lucene90/compressing
+// package observe the canonical Lucene 10.4.0 NO_COMPRESSION format
+// automatically; tests that need to override the format can still do
+// so via SetTempTermVectorsFormat. When neither path supplies a
+// format, InitTermVectorsWriter returns ErrTempTermVectorsFormatUnset.
 func NewSortingTermVectorsConsumer(codec Codec, directory store.Directory, info *SegmentInfo) *SortingTermVectorsConsumer {
 	if info == nil {
 		// Mirrors Lucene's reliance on a non-null SegmentInfo: there is
@@ -136,15 +146,18 @@ func NewSortingTermVectorsConsumer(codec Codec, directory store.Directory, info 
 			directory: directory,
 			info:      info,
 		},
+		tempFormat: DefaultTempTermVectorsFormat(),
 	}
 }
 
-// SetTempTermVectorsFormat injects the TermVectorsFormat used for the
-// temporary, pre-sort segment. This exists only to bridge the Sprint 55
-// wiring gap; once Lucene90CompressingTermVectorsFormat is reachable
-// from package index without import cycles (post GOC-3370), the field
-// becomes a package-private constant initialised at package load and
-// this setter is removed.
+// SetTempTermVectorsFormat overrides the TermVectorsFormat used for
+// the temporary, pre-sort segment.
+//
+// The constructor seeds tempFormat from DefaultTempTermVectorsFormat,
+// so production callers do not need to call this setter — they only
+// need to blank-import the codec package that registers the canonical
+// Lucene 10.4.0 temp format. The setter remains exposed for tests
+// that want to substitute a different format.
 func (c *SortingTermVectorsConsumer) SetTempTermVectorsFormat(format TermVectorsFormat) {
 	c.tempFormat = format
 }

@@ -44,6 +44,8 @@ package codecbridge
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/codecs"
+	corecompressing "github.com/FlavioCFOliveira/Gocene/codecs/compressing"
+	l90compressing "github.com/FlavioCFOliveira/Gocene/codecs/lucene90/compressing"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -53,10 +55,46 @@ import (
 // resolved by index.NewIndexWriterConfig, and also registers it under its
 // canonical name so that OpenDirectoryReader can resolve it by the codec
 // name stored in each segment's SegmentInfo on disk.
+//
+// init also publishes the temporary stored-fields and term-vectors
+// formats used by SortingStoredFieldsConsumer and
+// SortingTermVectorsConsumer to buffer per-document state in
+// document-write order before reordering at flush time. The canonical
+// Lucene 10.4.0 wiring is:
+//
+//	new Lucene90CompressingStoredFieldsFormat(
+//	    "TempStoredFields", NO_COMPRESSION, 128 * 1024, 1, 10);
+//	new Lucene90CompressingTermVectorsFormat(
+//	    "TempTermVectors", NO_COMPRESSION, 128 * 1024, 1, 10);
+//
+// We adapt those into the index-side StoredFieldsFormat / TermVectorsFormat
+// interfaces through the same adapters used by the codec bridge.
 func init() {
 	bridge := BridgeForLucene104()
 	index.RegisterDefaultCodec(bridge)
 	index.RegisterNamedCodec(bridge.Name(), bridge)
+
+	const (
+		tempChunkSize       = 128 * 1024
+		tempMaxDocsPerChunk = 1
+		tempBlockShift      = 10
+	)
+	tempStored := l90compressing.NewLucene90CompressingStoredFieldsFormatWithOptions(
+		"TempStoredFields",
+		corecompressing.NO_COMPRESSION,
+		tempChunkSize, tempMaxDocsPerChunk, tempBlockShift,
+	)
+	index.RegisterDefaultTempStoredFieldsFormat(&storedFieldsFormatAdapter{inner: tempStored})
+
+	// Lucene90CompressingTermVectorsFormat in the Gocene port is currently a
+	// stub that does not accept tuning options; once it gains the 5-arg
+	// constructor matching the Java reference this hook switches to the
+	// canonical ("TempTermVectors", NO_COMPRESSION, 128 KB, 1, 10) tuple.
+	// In the meantime, registering nil keeps DefaultTempTermVectorsFormat
+	// equal to the production "no override" state, so
+	// SortingTermVectorsConsumer surfaces ErrTempTermVectorsFormatUnset on
+	// the first use rather than producing a silently-wrong segment.
+	_ = l90compressing.NewLucene90CompressingTermVectorsFormat
 }
 
 // BridgeForLucene104 returns an index.Codec that delegates to the

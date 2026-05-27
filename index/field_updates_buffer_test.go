@@ -431,6 +431,26 @@ func TestFieldUpdatesBuffer_BinaryNumericMix(t *testing.T) {
 	}
 }
 
+// TestFieldUpdatesBuffer_GetNumericValueOnBinaryPanics asserts that
+// GetNumericValue panics when invoked on a binary buffer, matching the
+// GetMaxNumeric / GetMinNumeric assertion pattern. Without this guard
+// the binary path would silently return data from the (nil) numeric
+// slice via the getArrayIndex clamp.
+func TestFieldUpdatesBuffer_GetNumericValueOnBinaryPanics(t *testing.T) {
+	buf, err := NewFieldUpdatesBufferBinary(util.NewCounter(), newTermFromString("f", "v"), 0, util.NewBytesRef([]byte("x")), true)
+	if err != nil {
+		t.Fatalf("binary constructor: %v", err)
+	}
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatalf("GetNumericValue on binary buffer: expected panic, got none")
+		}
+	}()
+	_ = buf.GetNumericValue(0)
+}
+
 // TestFieldUpdatesBuffer_GetNumericValueReset asserts that GetNumericValue
 // returns 0 for entries that lacked a value, mirroring Lucene.
 func TestFieldUpdatesBuffer_GetNumericValueReset(t *testing.T) {

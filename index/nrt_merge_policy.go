@@ -37,8 +37,17 @@ type NRTMergePolicy struct {
 	// fast reopen times.
 	maxMergeMB float64
 
-	// maxMergeMBDuringNRT is the maximum merge size during active NRT operations.
-	// Default is 100 MB. Larger merges are deferred.
+	// maxMergeMBDuringNRT is the maximum merge size during active NRT
+	// operations. Default is 100 MB.
+	//
+	// The threshold is sized to keep reopen latency under roughly the same
+	// budget as flushing a full RAM buffer (DefaultRAMBufferSizeMB * a
+	// small constant): 100 MB is large enough to absorb most tiering
+	// candidates yet small enough that a single merge does not stall NRT
+	// reopen by more than a flush cycle. Merges whose total size exceeds
+	// this cap are intentionally rejected by isMergeSizeAcceptable while
+	// nrtAware is true, leaving them to be picked up later (either when
+	// NRT mode is paused or via the forced-merge path).
 	maxMergeMBDuringNRT float64
 
 	// mergeFactor is the number of segments to merge at once.

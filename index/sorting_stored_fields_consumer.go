@@ -29,12 +29,17 @@ import (
 //     the base is replaced by the canonical parent (consumers move to
 //     embedding rather than composition).
 //
-//   - Lucene90CompressingStoredFieldsFormat (compressing module) is not yet
-//     wired through the codec SPI from package index. The constant TempFormat
-//     is exposed as a hook that callers (DocumentsWriterPerThread) inject
-//     when constructing the consumer. The default behavior, when no
-//     temporary format is supplied, is to return ErrTempFormatUnset on the
-//     first stored field — making the wiring gap explicit instead of silent.
+//   - Lucene90CompressingStoredFieldsFormat (compressing module) cannot be
+//     imported directly from package index without forming a cycle (the
+//     compressing package already imports index). The wiring is handled
+//     instead by the temp-format registry declared in
+//     sorting_temp_format_registry.go: the compressing package publishes
+//     its canonical no-compression instance at init(), and
+//     NewSortingStoredFieldsConsumer reads it via
+//     DefaultTempStoredFieldsFormat. SetTempStoredFieldsFormat remains
+//     available for test injection. When no codec has registered a
+//     default and no per-instance override is set,
+//     InitStoredFieldsWriter returns ErrTempFormatUnset.
 //
 //   - TrackingTmpOutputDirectoryWrapper (store package, separate task) is
 //     stubbed locally as trackingTmpDirectoryWrapper. It records every
@@ -48,9 +53,11 @@ import (
 
 // ErrTempFormatUnset is returned by SortingStoredFieldsConsumer.Flush /
 // InitStoredFieldsWriter when no temporary StoredFieldsFormat has been
-// supplied via SetTempStoredFieldsFormat. This surfaces the Sprint 55
-// wiring gap explicitly instead of silently no-oping.
-var ErrTempFormatUnset = errors.New("index: SortingStoredFieldsConsumer requires a temporary StoredFieldsFormat (see SetTempStoredFieldsFormat); GOC-3394 / compressing wiring pending")
+// registered (via RegisterDefaultTempStoredFieldsFormat) and none has
+// been supplied per-instance (via SetTempStoredFieldsFormat). Production
+// callers should blank-import the codec/lucene90/compressing package so
+// its init() registers the canonical Lucene 10.4.0 temp format.
+var ErrTempFormatUnset = errors.New("index: SortingStoredFieldsConsumer requires a temporary StoredFieldsFormat; blank-import the codecs/lucene90/compressing package or call SetTempStoredFieldsFormat")
 
 // storedFieldsConsumerBase is the Sprint 55 placeholder for the parent
 // type ported in GOC-3394. It carries the fields the parent owns in
@@ -83,8 +90,10 @@ type SortingStoredFieldsConsumer struct {
 
 	// tempFormat is the StoredFieldsFormat used for the buffered segment.
 	// In Lucene this is Lucene90CompressingStoredFieldsFormat with the
-	// NO_COMPRESSION mode; until GOC-3394 + the compressing wiring land,
-	// callers must inject it via SetTempStoredFieldsFormat.
+	// NO_COMPRESSION mode. The constructor initialises this from the
+	// process-wide DefaultTempStoredFieldsFormat registry, populated by
+	// the codecs/lucene90/compressing package via init(); tests may
+	// override it via SetTempStoredFieldsFormat.
 	tempFormat StoredFieldsFormat
 }
 
@@ -93,9 +102,13 @@ type SortingStoredFieldsConsumer struct {
 // SortingStoredFieldsConsumer(Codec, Directory, SegmentInfo).
 //
 // The temporary StoredFieldsFormat used to buffer the pre-sort segment
-// must be supplied separately via SetTempStoredFieldsFormat before the
-// first stored field is written; otherwise InitStoredFieldsWriter returns
-// ErrTempFormatUnset. See the Sprint 55 deviation note on the type doc.
+// is resolved from DefaultTempStoredFieldsFormat at construction time.
+// Production binaries that blank-import the
+// codecs/lucene90/compressing package observe the canonical Lucene
+// 10.4.0 NO_COMPRESSION format automatically; tests that need to
+// override the format can still do so via SetTempStoredFieldsFormat.
+// When neither path supplies a format, InitStoredFieldsWriter returns
+// ErrTempFormatUnset.
 func NewSortingStoredFieldsConsumer(codec Codec, directory store.Directory, info *SegmentInfo) *SortingStoredFieldsConsumer {
 	if info == nil {
 		// Mirrors Lucene's reliance on a non-null SegmentInfo: there is
@@ -108,15 +121,19 @@ func NewSortingStoredFieldsConsumer(codec Codec, directory store.Directory, info
 			directory: directory,
 			info:      info,
 		},
+		tempFormat: DefaultTempStoredFieldsFormat(),
 	}
 }
 
-// SetTempStoredFieldsFormat injects the StoredFieldsFormat used for the
-// temporary, pre-sort segment. This exists only to bridge the Sprint 55
-// wiring gap; once Lucene90CompressingStoredFieldsFormat is reachable
-// from package index without import cycles (post GOC-3394), the field
-// becomes a package-private constant initialised at package load and
-// this setter is removed.
+// SetTempStoredFieldsFormat overrides the StoredFieldsFormat used for
+// the temporary, pre-sort segment.
+//
+// The constructor seeds tempFormat from DefaultTempStoredFieldsFormat,
+// so production callers do not need to call this setter — they only
+// need to blank-import the codec package that registers the canonical
+// Lucene 10.4.0 temp format. The setter remains exposed for tests that
+// want to substitute a different format (e.g. to assert behavior under
+// alternative compression modes).
 func (c *SortingStoredFieldsConsumer) SetTempStoredFieldsFormat(format StoredFieldsFormat) {
 	c.tempFormat = format
 }

@@ -305,15 +305,15 @@ type fakeCodecTV struct {
 	tv *fakeTermVectorsFormat
 }
 
-func (c *fakeCodecTV) Name() string                                  { return "fake-codec-tv" }
-func (c *fakeCodecTV) PostingsFormat() PostingsFormat                { return nil }
-func (c *fakeCodecTV) StoredFieldsFormat() StoredFieldsFormat        { return nil }
-func (c *fakeCodecTV) FieldInfosFormat() FieldInfosFormat            { return nil }
-func (c *fakeCodecTV) SegmentInfosFormat() SegmentInfosFormat        { return nil }
-func (c *fakeCodecTV) SegmentInfoFormat() SegmentInfoFormat          { return nil }
-func (c *fakeCodecTV) TermVectorsFormat() TermVectorsFormat          { return c.tv }
-func (c *fakeCodecTV) CompoundFormat() CompoundFormat                { return nil }
-func (c *fakeCodecTV) KnnVectorsFormat() KnnVectorsFormatFactory     { return nil }
+func (c *fakeCodecTV) Name() string                              { return "fake-codec-tv" }
+func (c *fakeCodecTV) PostingsFormat() PostingsFormat            { return nil }
+func (c *fakeCodecTV) StoredFieldsFormat() StoredFieldsFormat    { return nil }
+func (c *fakeCodecTV) FieldInfosFormat() FieldInfosFormat        { return nil }
+func (c *fakeCodecTV) SegmentInfosFormat() SegmentInfosFormat    { return nil }
+func (c *fakeCodecTV) SegmentInfoFormat() SegmentInfoFormat      { return nil }
+func (c *fakeCodecTV) TermVectorsFormat() TermVectorsFormat      { return c.tv }
+func (c *fakeCodecTV) CompoundFormat() CompoundFormat            { return nil }
+func (c *fakeCodecTV) KnnVectorsFormat() KnnVectorsFormatFactory { return nil }
 
 func newTestTVConsumer(t *testing.T, docs int) (*SortingTermVectorsConsumer, *fakeTermVectorsFormat, store.Directory, *SegmentInfo) {
 	t.Helper()
@@ -371,6 +371,16 @@ func writeDoc(t *testing.T, w TermVectorsWriter, field, term string, positions [
 // Init / configuration
 
 func TestSortingTermVectorsConsumer_InitRequiresTempFormat(t *testing.T) {
+	// Clear any process-wide default the codec bridge may have published
+	// so the consumer behaves as it would in a binary that has not
+	// blank-imported a codec. The Sprint 116 wiring registers nil by
+	// default for term-vectors (the Lucene90CompressingTermVectorsFormat
+	// port is still a stub), but the protection guards against future
+	// codec additions silently flipping this test.
+	prev := DefaultTempTermVectorsFormat()
+	RegisterDefaultTempTermVectorsFormat(nil)
+	t.Cleanup(func() { RegisterDefaultTempTermVectorsFormat(prev) })
+
 	dir := store.NewByteBuffersDirectory()
 	info := NewSegmentInfo("seg0", 1, dir)
 	c := NewSortingTermVectorsConsumer(&fakeCodecTV{tv: newFakeTermVectorsFormat("temp")}, dir, info)
