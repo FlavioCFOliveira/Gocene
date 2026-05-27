@@ -251,69 +251,195 @@ func (m *TermsWithScoreCollectorManager) Reduce(collectors []*TermsWithScoreColl
 	return merged, nil
 }
 
-// CollectFromReader collects terms from a LeafReader for documents matching the given query.
-// This is a helper method used by JoinUtil.
+// CollectFromReader collects terms from a LeafReader for documents matching
+// the given query.
+//
+// It builds an IndexSearcher over the leaf, drives it with a termsCollectorAdapter
+// that bridges the search-side LeafCollector API to TermsWithScoreCollector.Collect,
+// and returns the populated collector. Term bytes are resolved via the
+// supplied JoinValueResolver (or the default stored-fields resolver if nil).
 func CollectFromReader(
 	reader *index.LeafReader,
 	query search.Query,
 	field string,
 	scoreMode ScoreMode,
 ) (*TermsWithScoreCollector, error) {
+	return CollectFromReaderWithResolver(reader, query, field, scoreMode, StoredFieldsJoinValueResolver{})
+}
+
+// CollectFromReaderWithResolver is the resolver-aware variant of CollectFromReader.
+// It exists so callers and tests can inject a JoinValueResolver (e.g. doc-values
+// or a deterministic fixture) without going through the default stored-fields path.
+func CollectFromReaderWithResolver(
+	reader *index.LeafReader,
+	query search.Query,
+	field string,
+	scoreMode ScoreMode,
+	resolver JoinValueResolver,
+) (*TermsWithScoreCollector, error) {
 	collector := NewTermsWithScoreCollector(field, scoreMode)
+	if reader == nil || query == nil || field == "" {
+		return collector, nil
+	}
+	if resolver == nil {
+		resolver = StoredFieldsJoinValueResolver{}
+	}
 
-	// Create a searcher for this reader
 	searcher := search.NewIndexSearcher(reader)
-
-	// Execute the query and collect terms
-	// This is a simplified implementation
-	// In a full implementation, we would:
-	// 1. Create a Weight from the query
-	// 2. Get a Scorer
-	// 3. Iterate through matching documents
-	// 4. Extract the field value from each document
-	// 5. Collect the term and score
-
-	_ = searcher
-	_ = query
-
+	bridge := &termsCollectorAdapter{
+		collector: collector,
+		field:     field,
+		resolver:  resolver,
+		searcher:  searcher,
+		needScore: scoreMode != None,
+	}
+	if err := searcher.SearchWithCollector(query, bridge); err != nil {
+		return nil, fmt.Errorf("join: CollectFromReader search failed: %w", err)
+	}
 	return collector, nil
 }
 
 // CollectTerms executes a query and collects terms from the specified field.
 // This is the main entry point used by JoinUtil.CreateJoinQuery.
+//
+// It runs the query through the supplied IndexSearcher with a bridging
+// collector that extracts the field value from every matching document via
+// StoredFieldsJoinValueResolver and feeds it into a TermsWithScoreCollector.
+// Duplicate terms are collapsed by the underlying collector according to the
+// requested scoreMode.
 func CollectTerms(
 	searcher *search.IndexSearcher,
 	query search.Query,
 	field string,
 	scoreMode ScoreMode,
 ) ([][]byte, error) {
-	// Create collector
+	return CollectTermsWithResolver(searcher, query, field, scoreMode, StoredFieldsJoinValueResolver{})
+}
+
+// CollectTermsWithResolver is the resolver-aware variant of CollectTerms.
+func CollectTermsWithResolver(
+	searcher *search.IndexSearcher,
+	query search.Query,
+	field string,
+	scoreMode ScoreMode,
+	resolver JoinValueResolver,
+) ([][]byte, error) {
+	if searcher == nil || query == nil || field == "" {
+		return nil, nil
+	}
+	if resolver == nil {
+		resolver = StoredFieldsJoinValueResolver{}
+	}
+
 	collector := NewTermsWithScoreCollector(field, scoreMode)
-
-	// Execute search
-	// In a full implementation, this would use the searcher's search method
-	// with the collector to collect terms from matching documents
-
-	_ = searcher
-	_ = query
-
+	bridge := &termsCollectorAdapter{
+		collector: collector,
+		field:     field,
+		resolver:  resolver,
+		searcher:  searcher,
+		needScore: scoreMode != None,
+	}
+	if err := searcher.SearchWithCollector(query, bridge); err != nil {
+		return nil, fmt.Errorf("join: CollectTerms search failed: %w", err)
+	}
 	return collector.GetTerms(), nil
 }
 
 // CollectTermsWithScores executes a query and collects terms with scores.
+//
+// Identical to CollectTerms but returns the full (term, score) tuples so
+// callers can drive score-aware downstream queries (e.g. TermsIncludingScoreQuery).
 func CollectTermsWithScores(
 	searcher *search.IndexSearcher,
 	query search.Query,
 	field string,
 	scoreMode ScoreMode,
 ) ([]TermWithScore, error) {
+	return CollectTermsWithScoresWithResolver(searcher, query, field, scoreMode, StoredFieldsJoinValueResolver{})
+}
+
+// CollectTermsWithScoresWithResolver is the resolver-aware variant of
+// CollectTermsWithScores.
+func CollectTermsWithScoresWithResolver(
+	searcher *search.IndexSearcher,
+	query search.Query,
+	field string,
+	scoreMode ScoreMode,
+	resolver JoinValueResolver,
+) ([]TermWithScore, error) {
+	if searcher == nil || query == nil || field == "" {
+		return nil, nil
+	}
+	if resolver == nil {
+		resolver = StoredFieldsJoinValueResolver{}
+	}
+
 	collector := NewTermsWithScoreCollector(field, scoreMode)
-
-	// Execute search
-	_ = searcher
-	_ = query
-
+	bridge := &termsCollectorAdapter{
+		collector: collector,
+		field:     field,
+		resolver:  resolver,
+		searcher:  searcher,
+		needScore: scoreMode != None,
+	}
+	if err := searcher.SearchWithCollector(query, bridge); err != nil {
+		return nil, fmt.Errorf("join: CollectTermsWithScores search failed: %w", err)
+	}
 	return collector.GetTermsWithScores(), nil
+}
+
+// termsCollectorAdapter bridges the search-side Collector/LeafCollector API
+// to the term-oriented TermsWithScoreCollector. For every matching document
+// it asks the configured JoinValueResolver for the field value and forwards
+// (term, score) to the inner collector.
+type termsCollectorAdapter struct {
+	collector *TermsWithScoreCollector
+	field     string
+	resolver  JoinValueResolver
+	searcher  *search.IndexSearcher
+	needScore bool
+
+	docBase int
+	scorer  search.Scorer
+}
+
+// GetLeafCollector returns the adapter itself; doc-base is unused in the
+// single-leaf path because the resolver receives top-level doc ids via the
+// searcher.
+func (a *termsCollectorAdapter) GetLeafCollector(reader search.IndexReader) (search.LeafCollector, error) {
+	return a, nil
+}
+
+// ScoreMode signals whether scores are required, matching the join score mode.
+func (a *termsCollectorAdapter) ScoreMode() search.ScoreMode {
+	if a.needScore {
+		return search.COMPLETE
+	}
+	return search.COMPLETE_NO_SCORES
+}
+
+// SetScorer captures the current leaf scorer so Collect can read per-doc scores.
+func (a *termsCollectorAdapter) SetScorer(scorer search.Scorer) error {
+	a.scorer = scorer
+	return nil
+}
+
+// Collect resolves the field value of the matching doc and forwards it to
+// the wrapped TermsWithScoreCollector. Documents without a value for the
+// requested field are silently skipped.
+func (a *termsCollectorAdapter) Collect(doc int) error {
+	value, err := a.resolver.ResolveJoinValue(a.searcher, doc+a.docBase, a.field)
+	if err != nil {
+		return err
+	}
+	if value == nil {
+		return nil
+	}
+	var score float32
+	if a.needScore && a.scorer != nil {
+		score = a.scorer.Score()
+	}
+	return a.collector.Collect(value, score)
 }
 
 // Validate interface implementations

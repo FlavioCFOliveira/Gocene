@@ -137,24 +137,63 @@ func NewQueryBitSetProducer(query search.Query) *QueryBitSetProducer {
 }
 
 // GetBitSet returns a BitSet of matching documents for the given context.
+//
+// This is the Go port of Lucene's QueryBitSetProducer.getBitSet. It creates
+// an IndexSearcher over the leaf, rewrites the wrapped query, builds a Weight
+// (with COMPLETE_NO_SCORES since BitSetProducer never needs scores), obtains a
+// Scorer for the context, and iterates the scorer setting one bit per matching
+// document.
 func (p *QueryBitSetProducer) GetBitSet(context *index.LeafReaderContext) (*FixedBitSet, error) {
 	reader := context.LeafReader()
-	numDocs := 0
-	if reader != nil {
-		numDocs = reader.NumDocs()
+	if reader == nil {
+		return NewFixedBitSet(0), nil
 	}
-	bitSet := NewFixedBitSet(numDocs)
-
-	// Create a simple collector that sets bits for matching documents
-	collector := &bitSetCollector{
-		bitSet: bitSet,
+	maxDoc := reader.MaxDoc()
+	bitSet := NewFixedBitSet(maxDoc)
+	if p.query == nil || maxDoc == 0 {
+		return bitSet, nil
 	}
 
-	// Execute the query using the collector
-	// Note: This is a simplified implementation
-	// In a full implementation, we would use a proper IndexSearcher
-	_ = collector
-	_ = search.NewIndexSearcher(reader)
+	// Build a searcher over the leaf reader. The leaf is itself an
+	// IndexReaderInterface, so we can pass it directly.
+	leafReader, ok := reader.(index.IndexReaderInterface)
+	if !ok {
+		return bitSet, nil
+	}
+	searcher := search.NewIndexSearcher(leafReader)
+
+	// Rewrite + create a non-scoring Weight. BitSetProducer only needs the
+	// doc-id stream, so we pass needsScores=false (boost=1.0).
+	rewritten, err := p.query.Rewrite(leafReader)
+	if err != nil {
+		return nil, err
+	}
+	weight, err := rewritten.CreateWeight(searcher, false, 1.0)
+	if err != nil {
+		return nil, err
+	}
+	if weight == nil {
+		return bitSet, nil
+	}
+
+	scorer, err := weight.Scorer(context)
+	if err != nil {
+		return nil, err
+	}
+	if scorer == nil {
+		return bitSet, nil
+	}
+
+	for {
+		doc, err := scorer.NextDoc()
+		if err != nil {
+			return nil, err
+		}
+		if doc == search.NO_MORE_DOCS {
+			break
+		}
+		bitSet.Set(doc)
+	}
 
 	return bitSet, nil
 }

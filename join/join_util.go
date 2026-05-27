@@ -7,13 +7,78 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
+// JoinValueResolver extracts the join value of a single document from a
+// searcher. It is the pluggable extraction point used by JoinUtil to bridge
+// the algorithmic shape (run query, iterate matches, collect values) to the
+// codec-level machinery that actually surfaces the bytes for a field on a
+// given doc id.
+//
+// A resolver returns nil and a nil error when the document has no value for
+// the requested field (the value is silently skipped). Returning an error
+// aborts collection and bubbles up to the caller.
+type JoinValueResolver interface {
+	// ResolveJoinValue returns the bytes of the join value for the given doc
+	// in the given field, or nil if the document has no value.
+	ResolveJoinValue(searcher *search.IndexSearcher, doc int, field string) ([]byte, error)
+}
+
 // JoinUtil provides utility methods for join queries.
 // This is the Go port of Lucene's org.apache.lucene.search.join.JoinUtil.
-type JoinUtil struct{}
+type JoinUtil struct {
+	// resolver extracts the join value for a doc + field. When nil, JoinUtil
+	// falls back to the stored-fields resolver returned by
+	// StoredFieldsJoinValueResolver.
+	resolver JoinValueResolver
+}
 
-// NewJoinUtil creates a new JoinUtil.
+// NewJoinUtil creates a new JoinUtil with the default stored-fields resolver.
 func NewJoinUtil() *JoinUtil {
-	return &JoinUtil{}
+	return &JoinUtil{resolver: StoredFieldsJoinValueResolver{}}
+}
+
+// NewJoinUtilWithResolver creates a new JoinUtil that uses the provided
+// resolver to extract join values from matching documents. Pass a custom
+// resolver to plug in doc-values, payloads, or test fixtures.
+func NewJoinUtilWithResolver(resolver JoinValueResolver) *JoinUtil {
+	if resolver == nil {
+		resolver = StoredFieldsJoinValueResolver{}
+	}
+	return &JoinUtil{resolver: resolver}
+}
+
+// StoredFieldsJoinValueResolver extracts join values from stored fields via
+// IndexSearcher.Doc. It is the default resolver wired by NewJoinUtil.
+type StoredFieldsJoinValueResolver struct{}
+
+// ResolveJoinValue loads the document via the searcher and returns the bytes
+// of the named field's stored value, or nil if the document does not contain
+// the field.
+func (StoredFieldsJoinValueResolver) ResolveJoinValue(searcher *search.IndexSearcher, doc int, field string) ([]byte, error) {
+	if searcher == nil {
+		return nil, nil
+	}
+	d, err := searcher.Doc(doc)
+	if err != nil {
+		return nil, err
+	}
+	if d == nil {
+		return nil, nil
+	}
+	f := d.GetField(field)
+	if f == nil {
+		return nil, nil
+	}
+	// Prefer the binary representation; fall back to the string form.
+	if br := f.BinaryValue(); br != nil {
+		// Copy to detach from any reused buffer.
+		out := make([]byte, len(br))
+		copy(out, br)
+		return out, nil
+	}
+	if sv := f.StringValue(); sv != "" {
+		return []byte(sv), nil
+	}
+	return nil, nil
 }
 
 // CreateJoinQuery creates a query that matches parent documents
@@ -42,39 +107,109 @@ func (ju *JoinUtil) CreateJoinQuery(fromField string, toField string, fromQuery 
 	return NewTermsQuery(fromField, values), nil
 }
 
-// CollectValues collects the values of the specified field from documents
-// matching the given query.
+// CollectValues collects the distinct values of the specified field from
+// documents matching the given query.
+//
+// The query is executed via the supplied IndexSearcher with an unbounded
+// TopDocs window (capped at the reader's maxDoc), and each matching
+// document's field value is extracted via the configured JoinValueResolver.
+// Duplicate values are filtered: each distinct byte sequence is returned
+// once, preserving first-seen order so the result is deterministic for a
+// given matching set.
 func (ju *JoinUtil) CollectValues(query search.Query, field string, searcher *search.IndexSearcher) ([][]byte, error) {
-	// Execute the query and collect values
-	// This is a simplified implementation
-	values := make([][]byte, 0)
+	if query == nil || searcher == nil || field == "" {
+		return nil, nil
+	}
+	resolver := ju.resolver
+	if resolver == nil {
+		resolver = StoredFieldsJoinValueResolver{}
+	}
 
-	// In a full implementation, this would:
-	// 1. Execute the query
-	// 2. Iterate through matching documents
-	// 3. Extract the field value from each document
-	// 4. Return the collected values
+	reader := searcher.GetIndexReader()
+	if reader == nil {
+		return nil, nil
+	}
+	limit := reader.MaxDoc()
+	if limit <= 0 {
+		return nil, nil
+	}
 
-	// For now, return empty slice
-	_ = query
-	_ = field
-	_ = searcher
+	topDocs, err := searcher.Search(query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("join: search failed: %w", err)
+	}
 
+	seen := make(map[string]struct{}, len(topDocs.ScoreDocs))
+	values := make([][]byte, 0, len(topDocs.ScoreDocs))
+	for _, sd := range topDocs.ScoreDocs {
+		v, err := resolver.ResolveJoinValue(searcher, sd.Doc, field)
+		if err != nil {
+			return nil, err
+		}
+		if v == nil {
+			continue
+		}
+		key := string(v)
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		values = append(values, v)
+	}
 	return values, nil
 }
 
 // BuildBitSet builds a bit set of matching documents for the given query.
+//
+// It executes the query against the supplied reader through an IndexSearcher
+// and sets one bit per matching document. The bit set is sized to the
+// reader's MaxDoc so callers can safely intersect it with other producers
+// of the same reader.
 func (ju *JoinUtil) BuildBitSet(query search.Query, reader *index.IndexReader) (*DocIdBitSet, error) {
+	if reader == nil {
+		return NewDocIdBitSet(0), nil
+	}
 	bitSet := NewDocIdBitSet(reader.MaxDoc())
+	if query == nil || reader.MaxDoc() == 0 {
+		return bitSet, nil
+	}
 
-	// In a full implementation, this would:
-	// 1. Create a collector that sets bits for matching documents
-	// 2. Execute the query with that collector
-	// 3. Return the resulting bit set
-
-	_ = query
-
+	searcher := search.NewIndexSearcher(reader)
+	collector := &bitSetDocCollector{bitSet: bitSet}
+	if err := searcher.SearchWithCollector(query, collector); err != nil {
+		return nil, fmt.Errorf("join: BuildBitSet search failed: %w", err)
+	}
 	return bitSet, nil
+}
+
+// bitSetDocCollector is an internal Collector/LeafCollector that sets the
+// bit corresponding to every matching doc id (translated to the top-level
+// id space via the leaf's docBase).
+type bitSetDocCollector struct {
+	bitSet  *DocIdBitSet
+	docBase int
+}
+
+// GetLeafCollector returns a leaf collector bound to the given reader's
+// docBase so doc ids are translated into the composite reader id space.
+func (c *bitSetDocCollector) GetLeafCollector(reader search.IndexReader) (search.LeafCollector, error) {
+	return c, nil
+}
+
+// ScoreMode returns COMPLETE_NO_SCORES: the bit set only needs the doc ids.
+func (c *bitSetDocCollector) ScoreMode() search.ScoreMode {
+	return search.COMPLETE_NO_SCORES
+}
+
+// SetScorer is a no-op: scores are not required to populate a bit set.
+func (c *bitSetDocCollector) SetScorer(scorer search.Scorer) error {
+	return nil
+}
+
+// Collect sets the bit for the given (leaf-local) doc id.
+func (c *bitSetDocCollector) Collect(doc int) error {
+	c.bitSet.Set(doc + c.docBase)
+	return nil
 }
 
 // ScoreMode determines how scores from multiple documents are combined.
