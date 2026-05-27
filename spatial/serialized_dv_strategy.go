@@ -205,35 +205,42 @@ func (s *SerializedDVStrategy) deserializeShape(data []byte) (Shape, error) {
 // candidate documents and checking them precisely. This is slower than
 // prefix tree strategies but more accurate.
 func (s *SerializedDVStrategy) MakeQuery(operation SpatialOperation, shape Shape) (search.Query, error) {
+	if shape == nil {
+		return nil, fmt.Errorf("query shape cannot be nil")
+	}
 	switch operation {
-	case SpatialOperationIntersects:
-		return s.makeIntersectsQuery(shape)
-	case SpatialOperationIsWithin:
-		return s.makeIsWithinQuery(shape)
-	case SpatialOperationContains:
-		return s.makeContainsQuery(shape)
+	case SpatialOperationIntersects, SpatialOperationIsWithin, SpatialOperationContains:
+		return newSerializedDVQuery(s, operation, shape), nil
 	default:
 		return nil, fmt.Errorf("operation %s not supported by SerializedDVStrategy", operation)
 	}
 }
 
-// makeIntersectsQuery creates a query for shapes that intersect with the query shape.
-// Uses the bounding box for initial filtering, then precise checking via docvalues.
-func (s *SerializedDVStrategy) makeIntersectsQuery(shape Shape) (search.Query, error) {
-	// For serialized strategy, we return a placeholder query
-	// In a full implementation, this would use a custom query that deserializes
-	// and checks each document precisely
-	return search.NewMatchAllDocsQuery(), nil
-}
-
-// makeIsWithinQuery creates a query for shapes that are within the query shape.
-func (s *SerializedDVStrategy) makeIsWithinQuery(shape Shape) (search.Query, error) {
-	return search.NewMatchAllDocsQuery(), nil
-}
-
-// makeContainsQuery creates a query for shapes that contain the query shape.
-func (s *SerializedDVStrategy) makeContainsQuery(shape Shape) (search.Query, error) {
-	return search.NewMatchAllDocsQuery(), nil
+// matchShape evaluates the per-document predicate of a SerializedDV
+// query: it deserialises the binary doc-values payload back into a
+// Shape and tests it against the query shape using the requested
+// SpatialOperation. The matcher is exported via newSerializedDVQuery so
+// the algorithmic substance can be exercised directly by unit tests
+// against synthetic byte payloads, decoupling it from the leaf-reader
+// wiring still gated on the BinaryDocValues foundation gap.
+func (s *SerializedDVStrategy) matchShape(operation SpatialOperation, queryShape Shape, dvBytes []byte) (bool, error) {
+	indexed, err := s.deserializeShape(dvBytes)
+	if err != nil {
+		return false, err
+	}
+	if indexed == nil {
+		return false, nil
+	}
+	switch operation {
+	case SpatialOperationIntersects:
+		return indexed.Intersects(queryShape), nil
+	case SpatialOperationIsWithin:
+		return indexed.IsWithin(queryShape), nil
+	case SpatialOperationContains:
+		return indexed.Contains(queryShape), nil
+	default:
+		return false, fmt.Errorf("operation %s not supported", operation)
+	}
 }
 
 // MakeDistanceValueSource creates a ValueSource that returns the distance
@@ -272,12 +279,17 @@ func NewSerializedDVDistanceValueSource(dvFieldName string, center Point, multip
 
 // GetValues returns the values for the given context.
 func (dvs *SerializedDVDistanceValueSource) GetValues(context *index.LeafReaderContext) (grouping.ValueSourceValues, error) {
+	var reader index.LeafReaderInterface
+	if context != nil {
+		reader = context.LeafReader()
+	}
 	return &serializedDVDistanceValueSourceValues{
 		dvFieldName: dvs.dvFieldName,
 		center:      dvs.center,
 		multiplier:  dvs.multiplier,
 		calculator:  dvs.calculator,
 		strategy:    dvs.strategy,
+		reader:      reader,
 		values:      make(map[int]float64),
 	}, nil
 }
@@ -297,25 +309,68 @@ type serializedDVDistanceValueSourceValues struct {
 	multiplier  float64
 	calculator  DistanceCalculator
 	strategy    *SerializedDVStrategy
+	reader      index.LeafReaderInterface
 	values      map[int]float64
 }
 
-// DoubleVal returns the distance value for the given document.
+// DoubleVal returns the distance value for the given document. It reads
+// the binary doc-values payload for the document, deserialises it back
+// into a Shape, and returns the distance from the shape's centre to the
+// configured query centre, scaled by multiplier. Documents without a DV
+// payload, or readers that do not yet expose BinaryDocValues, return 0,
+// matching Lucene's fallback for missing geometry. The decoded distance
+// is cached so subsequent calls do not re-deserialise the payload.
 func (dvv *serializedDVDistanceValueSourceValues) DoubleVal(doc int) (float64, error) {
-	// Check cached value
 	if val, ok := dvv.values[doc]; ok {
 		return val * dvv.multiplier, nil
 	}
 
-	// In a full implementation, this would:
-	// 1. Read the binary docvalues for the document
-	// 2. Deserialize the shape
-	// 3. Calculate distance from shape center to query center
-	// 4. Cache and return the result
+	data := dvv.readDVBytes(doc)
+	if len(data) == 0 {
+		dvv.values[doc] = 0
+		return 0, nil
+	}
 
-	// Placeholder: return 0
-	dvv.values[doc] = 0
-	return 0, nil
+	shape, err := dvv.strategy.deserializeShape(data)
+	if err != nil || shape == nil {
+		dvv.values[doc] = 0
+		return 0, nil
+	}
+	centre := shape.GetCenter()
+	d := dvv.calculator.Distance(centre, dvv.center)
+	dvv.values[doc] = d
+	return d * dvv.multiplier, nil
+}
+
+// readDVBytes resolves the per-leaf BinaryDocValues iterator for the
+// configured field and returns the raw payload bytes for doc, or nil
+// when the doc has no payload or when the reader does not yet expose
+// binary doc values (the same foundation gap that gates the numeric
+// doc-values strategies in this package).
+func (dvv *serializedDVDistanceValueSourceValues) readDVBytes(doc int) []byte {
+	if dvv.reader == nil {
+		return nil
+	}
+	type binaryDVReader interface {
+		GetBinaryDocValues(field string) (index.BinaryDocValues, error)
+	}
+	r, ok := dvv.reader.(binaryDVReader)
+	if !ok {
+		return nil
+	}
+	bdv, err := r.GetBinaryDocValues(dvv.dvFieldName)
+	if err != nil || bdv == nil {
+		return nil
+	}
+	target, err := bdv.Advance(doc)
+	if err != nil || target != doc {
+		return nil
+	}
+	data, err := bdv.Get(doc)
+	if err != nil {
+		return nil
+	}
+	return data
 }
 
 // FloatVal returns the float value for the given document.

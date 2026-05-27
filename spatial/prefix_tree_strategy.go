@@ -6,6 +6,7 @@ package spatial
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
@@ -265,6 +266,10 @@ func NewPrefixTreeDistanceValueSource(fieldName string, center Point, multiplier
 
 // GetValues returns the values for the given context.
 func (dvs *PrefixTreeDistanceValueSource) GetValues(context *index.LeafReaderContext) (grouping.ValueSourceValues, error) {
+	var reader index.LeafReaderInterface
+	if context != nil {
+		reader = context.LeafReader()
+	}
 	return &prefixTreeDistanceValueSourceValues{
 		fieldName:   dvs.fieldName,
 		center:      dvs.center,
@@ -272,7 +277,9 @@ func (dvs *PrefixTreeDistanceValueSource) GetValues(context *index.LeafReaderCon
 		calculator:  dvs.calculator,
 		prefixTree:  dvs.prefixTree,
 		detailLevel: dvs.detailLevel,
+		reader:      reader,
 		values:      make(map[int]float64),
+		tokens:      make(map[int][]string),
 	}, nil
 }
 
@@ -292,24 +299,117 @@ type prefixTreeDistanceValueSourceValues struct {
 	calculator  DistanceCalculator
 	prefixTree  SpatialPrefixTree
 	detailLevel int
+	reader      index.LeafReaderInterface
 	values      map[int]float64
+	tokens      map[int][]string
 }
 
-// DoubleVal returns the distance value for the given document.
+// DoubleVal returns the distance value for the given document. It loads
+// the document's cell tokens, decodes each token through the configured
+// SpatialPrefixTree, and returns the minimum distance between the query
+// centre and the centres of any of those cells, scaled by multiplier.
+// Documents with no indexed cells return 0, matching Lucene's
+// ShapeFieldCacheDistanceValueSource fallback when a doc has no
+// associated shapes.
 func (dvv *prefixTreeDistanceValueSourceValues) DoubleVal(doc int) (float64, error) {
-	// Check cached value
 	if val, ok := dvv.values[doc]; ok {
 		return val * dvv.multiplier, nil
 	}
 
-	// In a full implementation, this would:
-	// 1. Read the cell tokens for the document
-	// 2. Calculate the distance from the query center to each cell
-	// 3. Return the minimum distance
+	tokens, err := dvv.tokensForDoc(doc)
+	if err != nil {
+		return 0, err
+	}
+	if len(tokens) == 0 {
+		dvv.values[doc] = 0
+		return 0, nil
+	}
 
-	// Placeholder: return 0
-	dvv.values[doc] = 0
-	return 0, nil
+	minDist := math.Inf(1)
+	for _, token := range tokens {
+		cell, err := dvv.prefixTree.GetCell(token)
+		if err != nil || cell == nil {
+			continue
+		}
+		bbox := cell.GetBoundingBox()
+		if bbox == nil {
+			continue
+		}
+		cellCentre := Point{
+			X: (bbox.MinX + bbox.MaxX) / 2,
+			Y: (bbox.MinY + bbox.MaxY) / 2,
+		}
+		d := dvv.calculator.Distance(cellCentre, dvv.center)
+		if d < minDist {
+			minDist = d
+		}
+	}
+	if math.IsInf(minDist, 1) {
+		dvv.values[doc] = 0
+		return 0, nil
+	}
+	dvv.values[doc] = minDist
+	return minDist * dvv.multiplier, nil
+}
+
+// tokensForDoc returns the cached cell tokens for doc, lazily loading
+// them via the field's TermsEnum + PostingsEnum the first time the doc
+// is asked for. The token map is term-major: the first call builds the
+// table for every doc in the leaf in a single pass.
+func (dvv *prefixTreeDistanceValueSourceValues) tokensForDoc(doc int) ([]string, error) {
+	if tokens, ok := dvv.tokens[doc]; ok {
+		return tokens, nil
+	}
+	if dvv.reader == nil {
+		dvv.tokens[doc] = nil
+		return nil, nil
+	}
+	terms, err := dvv.reader.Terms(dvv.fieldName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get terms for field %s: %w", dvv.fieldName, err)
+	}
+	if terms == nil {
+		dvv.tokens[doc] = nil
+		return nil, nil
+	}
+
+	te, err := terms.GetIterator()
+	if err != nil {
+		return nil, fmt.Errorf("failed to obtain terms iterator: %w", err)
+	}
+	if te == nil {
+		dvv.tokens[doc] = nil
+		return nil, nil
+	}
+
+	for {
+		term, err := te.Next()
+		if err != nil {
+			return nil, err
+		}
+		if term == nil {
+			break
+		}
+		token := term.Text()
+		pe, err := te.Postings(0)
+		if err != nil {
+			return nil, err
+		}
+		if pe == nil {
+			continue
+		}
+		for {
+			d, err := pe.NextDoc()
+			if err != nil {
+				return nil, err
+			}
+			if d < 0 {
+				break
+			}
+			dvv.tokens[d] = append(dvv.tokens[d], token)
+		}
+	}
+	return dvv.tokens[doc], nil
 }
 
 // FloatVal returns the float value for the given document.

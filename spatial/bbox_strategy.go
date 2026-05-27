@@ -6,6 +6,7 @@ package spatial
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/grouping"
@@ -382,6 +383,10 @@ func NewBBoxDistanceValueSource(minXFieldName, maxXFieldName, minYFieldName, max
 
 // GetValues returns the values for the given context.
 func (dvs *BBoxDistanceValueSource) GetValues(context *index.LeafReaderContext) (grouping.ValueSourceValues, error) {
+	var reader index.LeafReaderInterface
+	if context != nil {
+		reader = context.LeafReader()
+	}
 	return &bboxDistanceValueSourceValues{
 		minXFieldName: dvs.minXFieldName,
 		maxXFieldName: dvs.maxXFieldName,
@@ -390,6 +395,7 @@ func (dvs *BBoxDistanceValueSource) GetValues(context *index.LeafReaderContext) 
 		center:        dvs.center,
 		multiplier:    dvs.multiplier,
 		calculator:    dvs.calculator,
+		reader:        reader,
 		minXValues:    make(map[int]float64),
 		maxXValues:    make(map[int]float64),
 		minYValues:    make(map[int]float64),
@@ -415,6 +421,7 @@ type bboxDistanceValueSourceValues struct {
 	center        Point
 	multiplier    float64
 	calculator    DistanceCalculator
+	reader        index.LeafReaderInterface
 	minXValues    map[int]float64
 	maxXValues    map[int]float64
 	minYValues    map[int]float64
@@ -464,27 +471,55 @@ func (dvv *bboxDistanceValueSourceValues) DoubleVal(doc int) (float64, error) {
 
 // readMinXValue reads the minX coordinate from doc values.
 func (dvv *bboxDistanceValueSourceValues) readMinXValue(doc int) float64 {
-	// Placeholder implementation
-	// In a full implementation, this would read from NumericDocValues
-	return 0
+	return dvv.readDoubleDV(doc, dvv.minXFieldName)
 }
 
 // readMaxXValue reads the maxX coordinate from doc values.
 func (dvv *bboxDistanceValueSourceValues) readMaxXValue(doc int) float64 {
-	// Placeholder implementation
-	return 0
+	return dvv.readDoubleDV(doc, dvv.maxXFieldName)
 }
 
 // readMinYValue reads the minY coordinate from doc values.
 func (dvv *bboxDistanceValueSourceValues) readMinYValue(doc int) float64 {
-	// Placeholder implementation
-	return 0
+	return dvv.readDoubleDV(doc, dvv.minYFieldName)
 }
 
 // readMaxYValue reads the maxY coordinate from doc values.
 func (dvv *bboxDistanceValueSourceValues) readMaxYValue(doc int) float64 {
-	// Placeholder implementation
-	return 0
+	return dvv.readDoubleDV(doc, dvv.maxYFieldName)
+}
+
+// readDoubleDV resolves the per-leaf NumericDocValues iterator for field
+// and decodes its raw long as an IEEE-754 double, mirroring Lucene's
+// BBoxValueSource which reads DoubleDocValuesField-encoded values via
+// Double.longBitsToDouble. Returns 0 when the doc has no value or when
+// the reader does not expose numeric doc values (e.g. some in-memory
+// test readers); the surrounding DoubleVal contract already treats
+// missing coordinates as 0 in Lucene.
+func (dvv *bboxDistanceValueSourceValues) readDoubleDV(doc int, field string) float64 {
+	if dvv.reader == nil {
+		return 0
+	}
+	type docValuesReader interface {
+		GetNumericDocValues(field string) (index.NumericDocValues, error)
+	}
+	r, ok := dvv.reader.(docValuesReader)
+	if !ok {
+		return 0
+	}
+	dv, err := r.GetNumericDocValues(field)
+	if err != nil || dv == nil {
+		return 0
+	}
+	target, err := dv.Advance(doc)
+	if err != nil || target != doc {
+		return 0
+	}
+	raw, err := dv.Get(doc)
+	if err != nil {
+		return 0
+	}
+	return math.Float64frombits(uint64(raw))
 }
 
 // FloatVal returns the float value for the given document.

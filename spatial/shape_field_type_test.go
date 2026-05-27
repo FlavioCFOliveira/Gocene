@@ -285,10 +285,48 @@ func TestShapeFieldType_HashCode(t *testing.T) {
 
 func TestShapeFieldType_Freeze(t *testing.T) {
 	ft := NewShapeFieldType()
-	frozen := ft.Freeze()
+	if ft.IsFrozen() {
+		t.Fatalf("new ShapeFieldType must not be frozen")
+	}
 
+	frozen := ft.Freeze()
 	if frozen != ft {
-		t.Error("Freeze should return self (in current implementation)")
+		t.Error("Freeze should return the receiver")
+	}
+	if !ft.IsFrozen() {
+		t.Fatalf("ShapeFieldType must be frozen after Freeze()")
+	}
+
+	// Idempotent — freezing twice must not panic.
+	ft.Freeze()
+
+	// Every mutating setter must panic once the type is frozen. This
+	// matches Lucene's FieldType.checkIfFrozen contract.
+	mutators := map[string]func(){
+		"SetName":                     func() { ft.SetName("x") },
+		"SetIndexed":                  func() { ft.SetIndexed(false) },
+		"SetStored":                   func() { ft.SetStored(true) },
+		"SetDocValues":                func() { ft.SetDocValues(true) },
+		"SetTokenized":                func() { ft.SetTokenized(false) },
+		"SetStoreTermVectors":         func() { ft.SetStoreTermVectors(true) },
+		"SetStoreTermVectorPositions": func() { ft.SetStoreTermVectorPositions(true) },
+		"SetStoreTermVectorOffsets":   func() { ft.SetStoreTermVectorOffsets(true) },
+		"SetOmitNorms":                func() { ft.SetOmitNorms(false) },
+		"SetIndexOptions":             func() { ft.SetIndexOptions(IndexOptionsDocs) },
+		"SetDocValuesType":            func() { ft.SetDocValuesType(DocValuesTypeBinary) },
+		"SetDimensionCount":           func() { ft.SetDimensionCount(3) },
+		"SetSpatialStrategy":          func() { ft.SetSpatialStrategy(nil) },
+	}
+
+	for name, mutate := range mutators {
+		t.Run(name+"_panicsWhenFrozen", func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatalf("%s must panic when ShapeFieldType is frozen", name)
+				}
+			}()
+			mutate()
+		})
 	}
 }
 

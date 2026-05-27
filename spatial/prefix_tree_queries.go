@@ -168,13 +168,16 @@ func NewIsWithinPrefixTreeQuery(fieldName string, queryShape Shape, prefixTree S
 	}
 }
 
-// Rewrite rewrites this query into a more primitive form.
-// For "within" queries, we need to be more selective - we only want documents
-// whose cells are completely within the query shape's cells.
+// Rewrite rewrites this query into a more primitive form. For
+// "within" semantics the candidate set is restricted to cells whose
+// bounding box is fully contained inside the query shape — those are
+// the only cells whose indexed documents can plausibly be entirely
+// within the query shape. Cells that merely intersect the query shape
+// without being contained are intentionally dropped, mirroring the
+// behaviour of Lucene's WithinPrefixTreeQuery where partial-boundary
+// cells require precise post-filtering and are not included in the
+// fast Boolean-OR rewrite.
 func (q *IsWithinPrefixTreeQuery) Rewrite(reader search.IndexReader) (search.Query, error) {
-	// For now, use the same approach as intersects, but the distinction
-	// is in how the results are post-filtered
-	// In a full implementation, we would calculate cells that are fully contained
 	cells, err := q.prefixTree.GetCellsForShape(q.queryShape, q.detailLevel)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cells for query shape: %w", err)
@@ -184,12 +187,22 @@ func (q *IsWithinPrefixTreeQuery) Rewrite(reader search.IndexReader) (search.Que
 		return search.NewMatchNoDocsQuery(), nil
 	}
 
-	// For IsWithin, we want documents whose indexed cells are completely
-	// contained within the query shape. This requires post-filtering.
-	// For now, we return the same candidate set as Intersects.
+	// Filter the intersecting cells down to those wholly contained
+	// inside the query shape. We probe via the cell's bounding box —
+	// this is the same proxy Lucene uses in WithinPrefixTreeQuery's
+	// fast path (cells whose envelope is inside the query shape are
+	// emitted as terms; boundary cells go through the recursive
+	// "buffered" exploration which is out of scope at this layer).
 	seenTokens := make(map[string]bool)
 	var tokens []string
 	for _, cell := range cells {
+		bbox := cell.GetBoundingBox()
+		if bbox == nil {
+			continue
+		}
+		if !q.queryShape.Contains(bbox) {
+			continue
+		}
 		token := cell.GetToken()
 		if !seenTokens[token] {
 			tokens = append(tokens, token)
@@ -197,7 +210,10 @@ func (q *IsWithinPrefixTreeQuery) Rewrite(reader search.IndexReader) (search.Que
 		}
 	}
 
-	// Create a BooleanQuery with TermQuery clauses (OR)
+	if len(tokens) == 0 {
+		return search.NewMatchNoDocsQuery(), nil
+	}
+
 	bq := search.NewBooleanQuery()
 	for _, token := range tokens {
 		term := index.NewTerm(q.fieldName, token)

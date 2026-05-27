@@ -141,6 +141,12 @@ func (p *SpatialPrefixTreeFieldCacheProvider) GetCacheEntry(reader *index.IndexR
 }
 
 // createCacheEntry creates a new cache entry by reading values from the index.
+//
+// This mirrors Lucene's ShapeFieldCacheProvider.getCache: it iterates the
+// terms enumerator for the configured field, asks each term for its
+// postings, and records the term's token against every document the
+// postings enumerator yields. The resulting FieldCacheEntry maps docID
+// to the list of cell tokens that document was indexed under.
 func (p *SpatialPrefixTreeFieldCacheProvider) createCacheEntry(reader *index.IndexReader) (*FieldCacheEntry, error) {
 	maxDoc := reader.MaxDoc()
 	entry := &FieldCacheEntry{
@@ -163,11 +169,59 @@ func (p *SpatialPrefixTreeFieldCacheProvider) createCacheEntry(reader *index.Ind
 		return entry, nil
 	}
 
-	// Iterate through all terms and their documents
-	// In a full implementation, this would use the PostingsEnum to get doc IDs
-	// For now, we create a placeholder that can be populated on demand
-
+	if err := populateEntryFromTerms(entry, terms); err != nil {
+		return nil, err
+	}
 	return entry, nil
+}
+
+// populateEntryFromTerms walks the Terms enumerator and, for every
+// (term, doc) pair, appends the term token to entry.cellTokens[doc] and
+// marks entry.hasValues[doc]. Extracted from createCacheEntry so the
+// algorithmic core can be exercised by unit tests against a stub Terms
+// implementation, independent of the IndexReader -> codec wiring that
+// the foundation gap (see GOC-2701-class backlog tasks) still blocks
+// end-to-end.
+func populateEntryFromTerms(entry *FieldCacheEntry, terms index.Terms) error {
+	te, err := terms.GetIterator()
+	if err != nil {
+		return fmt.Errorf("failed to obtain terms iterator: %w", err)
+	}
+	if te == nil {
+		return nil
+	}
+
+	for {
+		term, err := te.Next()
+		if err != nil {
+			return fmt.Errorf("failed to advance terms iterator: %w", err)
+		}
+		if term == nil {
+			return nil
+		}
+
+		token := term.Text()
+
+		pe, err := te.Postings(0)
+		if err != nil {
+			return fmt.Errorf("failed to obtain postings for term %q: %w", token, err)
+		}
+		if pe == nil {
+			continue
+		}
+
+		for {
+			docID, err := pe.NextDoc()
+			if err != nil {
+				return fmt.Errorf("failed to advance postings for term %q: %w", token, err)
+			}
+			if docID < 0 || docID >= entry.docCount {
+				break
+			}
+			entry.cellTokens[docID] = append(entry.cellTokens[docID], token)
+			entry.hasValues[docID] = true
+		}
+	}
 }
 
 // GetCellTokens returns the cell tokens for a specific document.
@@ -212,15 +266,24 @@ func (p *SpatialPrefixTreeFieldCacheProvider) GetCellTokens(docID int, reader *i
 }
 
 // loadTokensForDoc loads cell tokens from the index for a specific document.
+//
+// The cache entry is built term-major (one pass over the field's
+// TermsEnum populates every document in this segment), so a per-document
+// lazy load just consults the already-built table. This mirrors
+// Lucene's ShapeFieldCacheProvider, which similarly materialises the
+// cache for the whole reader on first access rather than per doc.
 func (p *SpatialPrefixTreeFieldCacheProvider) loadTokensForDoc(docID int, reader *index.IndexReader) ([]string, error) {
-	// In a full implementation, this would:
-	// 1. Get the term vector or doc values for the field
-	// 2. Parse the stored tokens
-	// 3. Return as a slice of strings
-
-	// For now, return an empty slice as placeholder
-	// The actual implementation would depend on how the spatial data is stored
-	return []string{}, nil
+	entry, err := p.GetCacheEntry(reader)
+	if err != nil {
+		return nil, err
+	}
+	if docID < 0 || docID >= entry.docCount {
+		return nil, fmt.Errorf("docID %d exceeds max document %d", docID, entry.docCount)
+	}
+	if entry.cellTokens[docID] == nil {
+		return []string{}, nil
+	}
+	return entry.cellTokens[docID], nil
 }
 
 // HasValues returns true if the document has cached values.
