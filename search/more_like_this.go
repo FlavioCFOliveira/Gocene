@@ -248,17 +248,127 @@ func (mlt *MoreLikeThis) LikeText(text string) (Query, error) {
 }
 
 // retrieveTerms retrieves term frequencies from the index for a document.
+//
+// Mirrors MoreLikeThis.retrieveTerms in Lucene 10.4.0: when term vectors
+// are stored, walk the vector's TermsEnum to harvest (term, freq) pairs;
+// otherwise return without contribution.  The walk is constrained by
+// MaxNumTokensParsed, MinWordLen and MaxWordLen, and stop-words are
+// skipped.
+//
+// Degradation: when the reader does not expose GetTermVectors (e.g. it
+// is a raw composite reader without a leaf-reader specialisation) the
+// method becomes a no-op, leaving the caller's term-frequency map
+// unchanged.  The query produced by Like in that case still reflects any
+// terms supplied by other code paths.
 func (mlt *MoreLikeThis) retrieveTerms(reader IndexReader, docID int, fieldName string, termFreqs map[string]*termFreq) error {
-	// In a full implementation, this would:
-	// 1. Get term vectors for the document
-	// 2. Extract terms and frequencies
-	// 3. Filter based on constraints
+	type termVectorsProvider interface {
+		GetTermVectors(docID int) (index.Fields, error)
+	}
+	tvp, ok := interface{}(reader).(termVectorsProvider)
+	if !ok {
+		return nil
+	}
+	fields, err := tvp.GetTermVectors(docID)
+	if err != nil || fields == nil {
+		return err
+	}
 
-	// For now, return nil as this is a simplified implementation
+	visit := func(field string, terms index.Terms) error {
+		if terms == nil {
+			return nil
+		}
+		it, err := terms.GetIterator()
+		if err != nil || it == nil {
+			return err
+		}
+		tokenBudget := mlt.MaxNumTokensParsed
+		harvested := 0
+		for {
+			t, err := it.Next()
+			if err != nil {
+				return err
+			}
+			if t == nil {
+				return nil
+			}
+			text := t.Text()
+			if mlt.IsStopWord(text) {
+				continue
+			}
+			if mlt.MinWordLen > 0 && len(text) < mlt.MinWordLen {
+				continue
+			}
+			if mlt.MaxWordLen > 0 && len(text) > mlt.MaxWordLen {
+				continue
+			}
+			freq, err := it.TotalTermFreq()
+			if err != nil {
+				return err
+			}
+			if freq <= 0 {
+				// Fall back to docFreq when term frequencies are not stored.
+				df, err := it.DocFreq()
+				if err != nil {
+					return err
+				}
+				freq = int64(df)
+			}
+			key := field + "\x00" + text
+			if tf, ok := termFreqs[key]; ok {
+				tf.freq += int(freq)
+			} else {
+				termFreqs[key] = &termFreq{term: text, field: field, freq: int(freq)}
+			}
+			harvested++
+			if tokenBudget > 0 && harvested >= tokenBudget {
+				return nil
+			}
+		}
+	}
+
+	if fieldName != "" {
+		terms, err := fields.Terms(fieldName)
+		if err != nil {
+			return err
+		}
+		return visit(fieldName, terms)
+	}
+
+	// Walk every field exposed by the term vector when no field name was
+	// pinned by the caller.
+	iter, err := fields.Iterator()
+	if err != nil {
+		return err
+	}
+	if iter == nil {
+		return nil
+	}
+	for iter.HasNext() {
+		name, err := iter.Next()
+		if err != nil {
+			return err
+		}
+		if name == "" {
+			continue
+		}
+		terms, err := fields.Terms(name)
+		if err != nil {
+			return err
+		}
+		if err := visit(name, terms); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 // selectInterestingTerms selects the most interesting terms based on TF/IDF scoring.
+//
+// docFreq is read from the index via Terms.GetIterator when the reader
+// exposes a Terms(field) accessor; otherwise we fall back to the raw
+// term-vector frequency.  This matches the Lucene behaviour where the
+// stop-list / min-doc-freq filter is applied against the *index* and
+// not against the sampled term vector.
 func (mlt *MoreLikeThis) selectInterestingTerms(reader IndexReader, termFreqs map[string]*termFreq) []*interestingTerm {
 	// Create a min-heap to keep top terms
 	h := &interestingTermHeap{}
@@ -269,15 +379,32 @@ func (mlt *MoreLikeThis) selectInterestingTerms(reader IndexReader, termFreqs ma
 		numDocs = 1
 	}
 
+	type termsProvider interface {
+		Terms(field string) (index.Terms, error)
+	}
+	tp, _ := interface{}(reader).(termsProvider)
+
 	for _, tf := range termFreqs {
 		// Check minimum term frequency
 		if tf.freq < mlt.MinTermFreq {
 			continue
 		}
 
-		// Get document frequency for the term
-		// In a full implementation, this would query the index
-		docFreq := tf.freq // Simplified
+		// Get document frequency for the term from the index when possible;
+		// fall back to the sampled frequency otherwise.
+		docFreq := tf.freq
+		if tp != nil && tf.field != "" {
+			if terms, err := tp.Terms(tf.field); err == nil && terms != nil {
+				if it, err := terms.GetIterator(); err == nil && it != nil {
+					target := index.NewTerm(tf.field, tf.term)
+					if found, err := it.SeekExact(target); err == nil && found {
+						if df, err := it.DocFreq(); err == nil && df > 0 {
+							docFreq = df
+						}
+					}
+				}
+			}
+		}
 
 		// Check document frequency constraints
 		if docFreq < mlt.MinDocFreq {

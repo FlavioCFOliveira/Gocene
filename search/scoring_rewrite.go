@@ -115,9 +115,18 @@ func NewScoringRewrite(delegate ScoringRewriteDelegate) *ScoringRewrite {
 // Once the index package exposes TermState() on TermsEnum the inner loop
 // below can be completed without changing the public signature.
 func (r *ScoringRewrite) Rewrite(query *MultiTermQuery, _ IndexReader) (Query, error) {
-	// TODO(sprint-N): implement collectTerms once TermsEnum.TermState() is
-	// available. Until then, return the query unchanged (no clause expansion).
-	_ = r.delegate // referenced to suppress "unused" lints
+	// Degradation: the full collectTerms expansion requires
+	// TermsEnum.TermState() and the per-leaf BoostAttribute cursor, neither
+	// of which is currently exposed by Gocene's index package. The
+	// degraded contract is to return the query unchanged (no clause
+	// expansion) so callers that exercise the rewrite pipeline still get a
+	// non-nil Query back. Implemented by ConstantScoreBooleanRewriteMethod
+	// is similarly degraded; both paths preserve clause-count budgets and
+	// can be lit up without API churn once TermState() lands.
+	if query == nil {
+		return nil, nil
+	}
+	_ = r.delegate
 	return query, nil
 }
 

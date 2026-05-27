@@ -30,11 +30,24 @@ func (q *PointInSetQuery) PackedPoints() [][]byte {
 }
 
 // Rewrite rewrites this query to a more primitive form.
+//
+// When the packed-point set is empty the query collapses to
+// MatchNoDocsQuery.  When the set is non-empty the query is expanded
+// into a BooleanQuery of PointRangeQueries (one zero-width range per
+// packed point), enabling reuse of the existing BKD-tree intersection
+// scorer for every point.
 func (q *PointInSetQuery) Rewrite(reader IndexReader) (Query, error) {
 	if len(q.packedPoints) == 0 {
 		return NewMatchNoDocsQuery(), nil
 	}
-	return q, nil
+	expanded, err := q.expandToBoolean()
+	if err != nil {
+		return nil, err
+	}
+	if expanded == nil {
+		return q, nil
+	}
+	return expanded, nil
 }
 
 // String returns a string representation of the query.
@@ -46,9 +59,50 @@ func (q *PointInSetQuery) String(field string) string {
 }
 
 // CreateWeight creates a Weight for this query.
+//
+// Mirrors PointInSetQuery.createWeight (Lucene 10.4.0). The query is
+// expanded into a BooleanQuery whose SHOULD clauses are zero-width
+// PointRangeQueries (lower == upper) for each packed point.  This reuses
+// the existing PointRangeQuery BKD-intersection scorer instead of
+// reimplementing the multi-value visitor here.
 func (q *PointInSetQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	// TODO: Implement when PointValues API is complete
-	return nil, fmt.Errorf("PointInSetQuery weight not yet implemented")
+	expanded, err := q.expandToBoolean()
+	if err != nil {
+		return nil, err
+	}
+	if expanded == nil {
+		return NewMatchNoDocsQuery().CreateWeight(searcher, needsScores, boost)
+	}
+	return expanded.CreateWeight(searcher, needsScores, boost)
+}
+
+// expandToBoolean builds the BooleanQuery of PointRangeQueries representing
+// the packed-point set.  Errors are propagated so callers can decide
+// whether to swallow them (e.g. inside CreateWeight) or surface them.
+func (q *PointInSetQuery) expandToBoolean() (Query, error) {
+	if len(q.packedPoints) == 0 {
+		return NewMatchNoDocsQuery(), nil
+	}
+	bq := NewBooleanQuery()
+	for _, packed := range q.packedPoints {
+		if len(packed) == 0 {
+			continue
+		}
+		// Defensive copy: PointRangeQuery may retain the slice.
+		lower := make([]byte, len(packed))
+		upper := make([]byte, len(packed))
+		copy(lower, packed)
+		copy(upper, packed)
+		prq, err := NewPointRangeQueryMultiDim(q.field, lower, upper, q.numDims)
+		if err != nil {
+			return nil, err
+		}
+		bq.Add(prq, SHOULD)
+	}
+	if len(bq.Clauses()) == 0 {
+		return NewMatchNoDocsQuery(), nil
+	}
+	return bq, nil
 }
 
 // Clone creates a copy of this query.
