@@ -36,6 +36,34 @@ jobs:
       - name: Test
         run: go test ./... -timeout 300s
 
+  # Fuzz smoke job. Runs each native Go fuzz target for a short, bounded time
+  # against its seed corpus plus engine-mutated inputs. The contract is "no
+  # crash": a panic, hang, or other failure on untrusted parsing input fails
+  # the build. This is a smoke test, not exhaustive fuzzing — see
+  # CONTRIBUTING.md ("Fuzz testing") for longer local runs.
+  fuzz:
+    name: Fuzz (parsing smoke)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Fuzz query parser
+        run: go test -run='^$' -fuzz='^FuzzQueryParser$' -fuzztime=30s ./queryparser/
+
+      - name: Fuzz StandardTokenizer
+        run: go test -run='^$' -fuzz='^FuzzStandardTokenizer$' -fuzztime=30s ./analysis/
+
+      - name: Fuzz Lucene90 compound entries reader
+        run: go test -run='^$' -fuzz='^FuzzLucene90CompoundEntriesRead$' -fuzztime=30s ./codecs/
+
   # Binary-compatibility gate (Sprint 114). MUST be a required status check
   # for merges to main — see CONTRIBUTING.md ("Binary compatibility (mandatory)").
   compat:

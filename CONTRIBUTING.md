@@ -217,6 +217,54 @@ output, and do not declare the task complete.
 
 ---
 
+## Fuzz testing
+
+Gocene processes untrusted input on two fronts: user-supplied query strings
+and document text on the analysis/query side, and Lucene-authored binary
+artefacts on the codec/store side. Both are fuzzed with Go's native fuzzing
+engine (`FuzzXxx` functions, `f.Fuzz`, `f.Add` seed corpora).
+
+The invariant every fuzz target asserts is **no crash on untrusted input**:
+
+- **Parsers** (query parser, tokenizers) must never panic. A returned error
+  for malformed syntax is correct; a panic is a bug. Tokenizers additionally
+  must **terminate** — the token stream always reaches end-of-input.
+- **Codec readers** must reject malformed, truncated, or adversarial bytes
+  with an error, never a panic or out-of-bounds access. They parse bytes they
+  did not author, so a corrupt file must degrade gracefully.
+
+Current targets:
+
+| Target                              | Package        | Property                          |
+| ----------------------------------- | -------------- | --------------------------------- |
+| `FuzzQueryParser`                   | `queryparser/` | classic parser never panics       |
+| `FuzzStandardTokenizer`             | `analysis/`    | tokenizer never panics, terminates|
+| `FuzzLucene90CompoundEntriesRead`   | `codecs/`      | `.cfe` reader errors, never panics |
+
+Run a single target locally for a bounded time:
+
+```bash
+go test -run='^$' -fuzz='^FuzzQueryParser$' -fuzztime=30s ./queryparser/
+go test -run='^$' -fuzz='^FuzzStandardTokenizer$' -fuzztime=30s ./analysis/
+go test -run='^$' -fuzz='^FuzzLucene90CompoundEntriesRead$' -fuzztime=30s ./codecs/
+```
+
+CI runs all three targets for a short, bounded window on every PR (the
+**"Fuzz (parsing smoke)"** job). This is a smoke test, not exhaustive
+fuzzing; run longer windows (`-fuzztime=5m` or more) locally when changing
+parsing or codec-reader code.
+
+If a fuzz run finds a crasher, the engine writes the failing input under the
+package's `testdata/fuzz/<TargetName>/` directory. **Commit that file**: it
+becomes a permanent regression seed replayed by `go test` on every run. Fix
+the production code so the input is handled (error, not panic) before closing
+the task.
+
+When adding a new parser or codec reader that consumes untrusted input, add a
+matching `FuzzXxx` target and wire it into the CI `fuzz` job.
+
+---
+
 ## Coding conventions
 
 - Go 1.25+ idioms; generics where they add clarity.
