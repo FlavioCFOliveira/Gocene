@@ -111,8 +111,8 @@ func NewSimplePatternSplitTokenizerWithString(patternStr string) (*SimplePattern
 func (t *SimplePatternSplitTokenizer) SetReader(input io.Reader) error {
 	t.BaseTokenizer.SetReader(input)
 
-	// Read all input text
-	data, err := io.ReadAll(input)
+	// Read all input text, bounded by MaxTokenizerInputSize.
+	data, err := readAllLimited(input)
 	if err != nil {
 		return err
 	}

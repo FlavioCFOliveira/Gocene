@@ -112,8 +112,8 @@ func (t *CJKTokenizer) SetReader(reader io.Reader) error {
 		return err
 	}
 
-	// Read all input
-	data, err := io.ReadAll(reader)
+	// Read all input, bounded by MaxTokenizerInputSize.
+	data, err := readAllLimited(reader)
 	if err != nil {
 		return err
 	}

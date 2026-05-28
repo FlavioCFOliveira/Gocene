@@ -24,4 +24,19 @@
 // thin wrapper that resolves through the
 // [canonicalAttributeInterfaces] registry to the typed
 // [util.AttributeSource.GetAttribute] API.
+//
+// # Input size guard
+//
+// Several tokenizers and character filters in this package (and in the
+// language-specific sub-packages) buffer their entire input in memory in
+// a single pass, because the underlying algorithm (UAX#29 segmentation,
+// regex splitting, HTML stripping, Viterbi decoding) needs random access
+// to the whole text. To prevent a single caller-controlled document or
+// query from exhausting memory, every such read is bounded by
+// [MaxTokenizerInputSize]. Input exceeding the limit yields
+// [ErrInputTooLarge] (surfaced directly where the API returns an error,
+// or through the tokenizer's established error path otherwise) rather
+// than being silently truncated. This limit is a top-level input guard
+// and is independent of Lucene's per-token caps such as
+// StandardTokenizer.MAX_TOKEN_LENGTH.
 package analysis

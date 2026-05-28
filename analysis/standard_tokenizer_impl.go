@@ -109,8 +109,10 @@ func (s *standardTokenizerImpl) yyreset(r io.Reader) error {
 	// look-ahead heavy (Lucene's JFlex DFA buffers as well), and the
 	// analyser pipeline normally hands us per-field text, so a
 	// single buffered pass keeps the implementation simple without
-	// changing the observable contract.
-	data, err := io.ReadAll(r)
+	// changing the observable contract. The read is bounded by
+	// MaxTokenizerInputSize so an oversized stream is rejected with
+	// ErrInputTooLarge rather than exhausting memory.
+	data, err := readAllLimited(r)
 	if err != nil {
 		return err
 	}

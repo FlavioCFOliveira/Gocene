@@ -21,7 +21,7 @@ const defaultMaxTokenLength = 255
 type ClassicTokenizer struct {
 	*analysis.BaseTokenizer
 
-	scanner       *ClassicTokenizerImpl
+	scanner        *ClassicTokenizerImpl
 	maxTokenLength int
 
 	termAttr   analysis.CharTermAttribute
@@ -66,14 +66,17 @@ func (t *ClassicTokenizer) SetMaxTokenLength(length int) {
 // GetMaxTokenLength returns the current maximum token length.
 func (t *ClassicTokenizer) GetMaxTokenLength() int { return t.maxTokenLength }
 
-// SetReader sets the input reader and initialises the scanner.
+// SetReader sets the input reader and initialises the scanner. The scanner
+// reads the whole input eagerly (bounded by analysis.MaxTokenizerInputSize);
+// an oversized or unreadable input surfaces as an error here rather than as a
+// silently truncated token stream.
 func (t *ClassicTokenizer) SetReader(r io.Reader) error {
 	if err := t.BaseTokenizer.SetReader(r); err != nil {
 		return err
 	}
 	t.scanner = NewClassicTokenizerImpl(r)
 	t.skippedPositions = 0
-	return nil
+	return t.scanner.Err()
 }
 
 // Reset reinitialises the scanner over the stored reader.
@@ -92,6 +95,9 @@ func (t *ClassicTokenizer) Reset() error {
 		t.scanner.ResetIndex()
 	} else if r != nil {
 		t.scanner = NewClassicTokenizerImpl(r)
+		if err := t.scanner.Err(); err != nil {
+			return err
+		}
 	}
 	t.skippedPositions = 0
 	return nil

@@ -5,7 +5,6 @@
 package analysis
 
 import (
-	"bufio"
 	"io"
 	"regexp"
 )
@@ -134,17 +133,10 @@ func NewPatternTokenizerWithGroup(pattern *regexp.Regexp, group int) *PatternTok
 func (t *PatternTokenizer) SetReader(input io.Reader) error {
 	t.BaseTokenizer.SetReader(input)
 
-	// Read entire input into memory
-	// PatternTokenizer needs the full input to perform regex operations
-	buf := make([]byte, 0, 1024)
-	scanner := bufio.NewScanner(input)
-	scanner.Split(bufio.ScanBytes)
-
-	for scanner.Scan() {
-		buf = append(buf, scanner.Bytes()...)
-	}
-
-	if err := scanner.Err(); err != nil {
+	// Read entire input into memory, bounded by MaxTokenizerInputSize.
+	// PatternTokenizer needs the full input to perform regex operations.
+	buf, err := readAllLimited(input)
+	if err != nil {
 		return err
 	}
 
