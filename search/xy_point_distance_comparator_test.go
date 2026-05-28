@@ -17,9 +17,10 @@ import (
 // mirrors the distanceFakeSortedNumeric helper used by the LatLon test peer
 // but lives separately to avoid coupling the two test files.
 type xyDistanceFakeSortedNumeric struct {
-	docs   []int
-	values [][]int64
-	idx    int
+	docs     []int
+	values   [][]int64
+	idx      int
+	valueIdx int
 }
 
 func newXYDistanceFakeSortedNumeric(docs []int, values [][]int64) *xyDistanceFakeSortedNumeric {
@@ -29,14 +30,17 @@ func newXYDistanceFakeSortedNumeric(docs []int, values [][]int64) *xyDistanceFak
 	return &xyDistanceFakeSortedNumeric{docs: docs, values: values, idx: -1}
 }
 
-func (f *xyDistanceFakeSortedNumeric) Get(docID int) ([]int64, error) {
+func (f *xyDistanceFakeSortedNumeric) Cost() int64 { return int64(len(f.docs)) }
+
+func (f *xyDistanceFakeSortedNumeric) LongValue() (int64, error) {
 	if f.idx < 0 || f.idx >= len(f.docs) {
-		return nil, nil
+		return 0, nil
 	}
-	if f.docs[f.idx] != docID {
-		return nil, nil
+	vs := f.values[f.idx]
+	if len(vs) == 0 {
+		return 0, nil
 	}
-	return f.values[f.idx], nil
+	return vs[0], nil
 }
 
 func (f *xyDistanceFakeSortedNumeric) Advance(target int) (int, error) {
@@ -49,6 +53,7 @@ func (f *xyDistanceFakeSortedNumeric) Advance(target int) (int, error) {
 	if f.idx >= len(f.docs) {
 		return index.NO_MORE_DOCS, nil
 	}
+	f.valueIdx = 0
 	return f.docs[f.idx], nil
 }
 
@@ -57,6 +62,7 @@ func (f *xyDistanceFakeSortedNumeric) NextDoc() (int, error) {
 	if f.idx >= len(f.docs) {
 		return index.NO_MORE_DOCS, nil
 	}
+	f.valueIdx = 0
 	return f.docs[f.idx], nil
 }
 
@@ -83,10 +89,12 @@ func (f *xyDistanceFakeSortedNumeric) NextValue() (int64, error) {
 		return 0, nil
 	}
 	vs := f.values[f.idx]
-	if len(vs) == 0 {
+	if f.valueIdx >= len(vs) {
 		return 0, nil
 	}
-	return vs[0], nil
+	v := vs[f.valueIdx]
+	f.valueIdx++
+	return v, nil
 }
 
 func (f *xyDistanceFakeSortedNumeric) DocValueCount() (int, error) {

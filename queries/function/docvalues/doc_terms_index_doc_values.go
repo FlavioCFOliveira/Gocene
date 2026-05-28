@@ -100,7 +100,10 @@ func (d *DocTermsIndexDocValues) GetOrdForDoc(doc int) (int, error) {
 		cur = next
 	}
 	if doc == cur {
-		return d.TermsIndex.GetOrd(doc)
+		// d.TermsIndex is already positioned on doc via Advance above;
+		// OrdValue is the iterator-shaped equivalent of the legacy
+		// SortedDocValues.GetOrd(doc) accessor.
+		return d.TermsIndex.OrdValue()
 	}
 	return -1, nil
 }

@@ -248,15 +248,10 @@ func (b *bufferedBinaryDocValues) BinaryValue() ([]byte, error) {
 	return b.value, nil
 }
 
-// Get returns the value bytes for docID. docID must equal the current
-// cursor; the Java original exposes binaryValue() with no argument — Gocene
-// collapses that into Get for consistency with the BinaryDocValues interface.
-func (b *bufferedBinaryDocValues) Get(docID int) ([]byte, error) {
-	if docID != b.docID {
-		return nil, fmt.Errorf(
-			"bufferedBinaryDocValues: Get(%d) requires NextDoc cursor; current=%d", docID, b.docID)
-	}
-	return b.value, nil
+// Cost returns the number of value-bearing documents iterated by this
+// writer-side view.
+func (b *bufferedBinaryDocValues) Cost() int64 {
+	return int64(len(b.docsWithField))
 }
 
 // ============================================================================
@@ -293,7 +288,9 @@ func newBinaryDVs(maxDoc int, sortMap SorterDocMap, oldValues BinaryDocValues) (
 			return nil, fmt.Errorf(
 				"newBinaryDVs: sortMap.OldToNew(%d)=%d outside [0..%d)", docID, newDocID, maxDoc)
 		}
-		v, err := oldValues.Get(docID)
+		// docID is the current cursor — BinaryValue is equivalent to Get(docID)
+		// without the cursor identity check.
+		v, err := oldValues.BinaryValue()
 		if err != nil {
 			return nil, err
 		}
@@ -359,12 +356,14 @@ func (s *sortingBinaryDocValues) BinaryValue() ([]byte, error) {
 	return s.dvs.values.GetBytes(s.dvs.offsets[s.docID] - 1), nil
 }
 
-// Get returns the value bytes for docID. docID must equal the current
-// cursor; the Java original exposes binaryValue() with no argument.
-func (s *sortingBinaryDocValues) Get(docID int) ([]byte, error) {
-	if docID != s.docID {
-		return nil, fmt.Errorf(
-			"sortingBinaryDocValues: Get(%d) requires NextDoc cursor; current=%d", docID, s.docID)
+// Cost returns the number of value-bearing documents represented by the
+// sort-aware writer view.
+func (s *sortingBinaryDocValues) Cost() int64 {
+	var n int64
+	for _, off := range s.dvs.offsets {
+		if off > 0 {
+			n++
+		}
 	}
-	return s.dvs.values.GetBytes(s.dvs.offsets[s.docID] - 1), nil
+	return n
 }

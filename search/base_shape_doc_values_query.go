@@ -256,7 +256,10 @@ func (q *BaseShapeDocValuesQuery) newScorerSupplier(
 		if docID < 0 || docID == NO_MORE_DOCS {
 			return false, nil
 		}
-		payload, err := values.Get(docID)
+		// The approximation advanced the iterator to docID via NextDoc /
+		// Advance, so BinaryValue is the iterator-shaped equivalent of the
+		// legacy Get(docID) accessor.
+		payload, err := values.BinaryValue()
 		if err != nil {
 			return false, err
 		}

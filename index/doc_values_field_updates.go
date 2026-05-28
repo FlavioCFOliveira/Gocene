@@ -597,17 +597,6 @@ type updatesAsBinaryDV struct {
 	it DocValuesFieldUpdatesIterator
 }
 
-func (a *updatesAsBinaryDV) Get(docID int) ([]byte, error) {
-	if a.it.DocID() == docID {
-		v := a.it.BinaryValue()
-		if v == nil {
-			return nil, nil
-		}
-		return v.Bytes[v.Offset : v.Offset+v.Length], nil
-	}
-	return nil, fmt.Errorf("doc values field updates: binary doc values wrapper does not support random Get; docID=%d", docID)
-}
-
 func (a *updatesAsBinaryDV) Advance(target int) (int, error) {
 	for {
 		next := a.it.NextDoc()
@@ -650,17 +639,15 @@ func (a *updatesAsBinaryDV) NextDoc() (int, error) {
 
 func (a *updatesAsBinaryDV) DocID() int { return a.it.DocID() }
 
+// Cost is unknown for the in-flight updates iterator; report 0 to
+// match the conservative estimate Lucene returns from the equivalent
+// helper.
+func (a *updatesAsBinaryDV) Cost() int64 { return 0 }
+
 // updatesAsNumericDV adapts the iterator to NumericDocValues, with
 // the same caveats as updatesAsBinaryDV.
 type updatesAsNumericDV struct {
 	it DocValuesFieldUpdatesIterator
-}
-
-func (a *updatesAsNumericDV) Get(docID int) (int64, error) {
-	if a.it.DocID() == docID {
-		return a.it.LongValue(), nil
-	}
-	return 0, fmt.Errorf("doc values field updates: numeric doc values wrapper does not support random Get; docID=%d", docID)
 }
 
 func (a *updatesAsNumericDV) Advance(target int) (int, error) {
@@ -700,3 +687,8 @@ func (a *updatesAsNumericDV) NextDoc() (int, error) {
 }
 
 func (a *updatesAsNumericDV) DocID() int { return a.it.DocID() }
+
+// Cost is unknown for the in-flight updates iterator; report 0 to
+// match the conservative estimate Lucene returns from the equivalent
+// helper.
+func (a *updatesAsNumericDV) Cost() int64 { return 0 }

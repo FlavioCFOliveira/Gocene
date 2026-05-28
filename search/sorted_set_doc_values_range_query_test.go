@@ -442,7 +442,7 @@ func runSortedSetRangeQueryWithDV(
 	var matchFn func() (bool, error)
 	if singleton != nil {
 		matchFn = func() (bool, error) {
-			ord, err := singleton.GetOrd(approx.DocID())
+			ord, err := singleton.OrdValue()
 			if err != nil {
 				return false, err
 			}
@@ -453,11 +453,14 @@ func runSortedSetRangeQueryWithDV(
 		}
 	} else {
 		matchFn = func() (bool, error) {
-			ords, err := dv.Get(approx.DocID())
-			if err != nil {
-				return false, err
-			}
-			for _, ord := range ords {
+			for {
+				ord, err := dv.NextOrd()
+				if err != nil {
+					return false, err
+				}
+				if ord == -1 {
+					break
+				}
 				if ord < minOrd {
 					continue
 				}
@@ -493,6 +496,7 @@ type fakeSortedSet struct {
 	docIDs []int
 	cursor int
 	docID  int
+	ordIdx int
 }
 
 func newFakeSortedSet(docs map[int][]int, terms []string) *fakeSortedSet {
@@ -516,7 +520,7 @@ func newFakeSortedSet(docs map[int][]int, terms []string) *fakeSortedSet {
 	}
 }
 
-func (f *fakeSortedSet) Get(docID int) ([]int, error) { return f.docs[docID], nil }
+func (f *fakeSortedSet) Cost() int64 { return int64(len(f.docIDs)) }
 
 func (f *fakeSortedSet) Advance(target int) (int, error) {
 	for f.cursor < len(f.docIDs) && f.docIDs[f.cursor] < target {
@@ -528,6 +532,7 @@ func (f *fakeSortedSet) Advance(target int) (int, error) {
 	}
 	f.docID = f.docIDs[f.cursor]
 	f.cursor++
+	f.ordIdx = 0
 	return f.docID, nil
 }
 
@@ -538,6 +543,7 @@ func (f *fakeSortedSet) NextDoc() (int, error) {
 	}
 	f.docID = f.docIDs[f.cursor]
 	f.cursor++
+	f.ordIdx = 0
 	return f.docID, nil
 }
 
@@ -556,10 +562,12 @@ func (f *fakeSortedSet) NextOrd() (int, error) {
 		return -1, nil
 	}
 	ords := f.docs[f.docID]
-	if len(ords) == 0 {
+	if f.ordIdx >= len(ords) {
 		return -1, nil
 	}
-	return ords[0], nil
+	o := ords[f.ordIdx]
+	f.ordIdx++
+	return o, nil
 }
 
 func (f *fakeSortedSet) LookupOrd(ord int) ([]byte, error) {
@@ -597,7 +605,8 @@ func newFakeSortedSingle(ords map[int]int, terms []string) *fakeSortedSingle {
 	}
 }
 
-func (f *fakeSortedSingle) Get(docID int) ([]byte, error) {
+// getInternal serves the random-access lookup used by BinaryValue.
+func (f *fakeSortedSingle) getInternal(docID int) ([]byte, error) {
 	ord, ok := f.ords[docID]
 	if !ok {
 		return nil, nil
@@ -606,6 +615,18 @@ func (f *fakeSortedSingle) Get(docID int) ([]byte, error) {
 		return nil, nil
 	}
 	return []byte(f.terms[ord]), nil
+}
+
+func (f *fakeSortedSingle) Cost() int64 { return int64(len(f.docIDs)) }
+
+func (f *fakeSortedSingle) LongValue() (int64, error) {
+	if f.docID < 0 || f.docID == NO_MORE_DOCS {
+		return -1, nil
+	}
+	if ord, ok := f.ords[f.docID]; ok {
+		return int64(ord), nil
+	}
+	return -1, nil
 }
 
 func (f *fakeSortedSingle) Advance(target int) (int, error) {
@@ -645,7 +666,7 @@ func (f *fakeSortedSingle) BinaryValue() ([]byte, error) {
 	if f.docID < 0 || f.docID == NO_MORE_DOCS {
 		return nil, nil
 	}
-	return f.Get(f.docID)
+	return f.getInternal(f.docID)
 }
 
 func (f *fakeSortedSingle) OrdValue() (int, error) {
@@ -656,14 +677,6 @@ func (f *fakeSortedSingle) OrdValue() (int, error) {
 		return ord, nil
 	}
 	return -1, nil
-}
-
-func (f *fakeSortedSingle) GetOrd(docID int) (int, error) {
-	ord, ok := f.ords[docID]
-	if !ok {
-		return -1, nil
-	}
-	return ord, nil
 }
 
 func (f *fakeSortedSingle) LookupOrd(ord int) ([]byte, error) {

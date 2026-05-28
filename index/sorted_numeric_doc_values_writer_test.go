@@ -35,9 +35,11 @@ func drainSortedNumeric(t *testing.T, dv SortedNumericDocValues) map[int][]int64
 		if d == NO_MORE_DOCS {
 			return out
 		}
-		vals, err := dv.Get(d)
+		// dv is positioned on d via NextDoc; drain values via the
+		// iterator-shaped helper.
+		vals, err := CollectSortedNumericValues(dv)
 		if err != nil {
-			t.Fatalf("Get(%d): %v", d, err)
+			t.Fatalf("CollectSortedNumericValues@%d: %v", d, err)
 		}
 		out[d] = vals
 	}

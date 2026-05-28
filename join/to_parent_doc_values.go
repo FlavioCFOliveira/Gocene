@@ -209,7 +209,7 @@ func newSortedDVsAccumulator(
 }
 
 func (a *sortedDVsAccumulator) reset(childDoc int) error {
-	ord, err := a.values.GetOrd(childDoc)
+	ord, err := index.SortedOrdAt(a.values, childDoc)
 	if err != nil {
 		return err
 	}
@@ -218,7 +218,7 @@ func (a *sortedDVsAccumulator) reset(childDoc int) error {
 }
 
 func (a *sortedDVsAccumulator) increment(childDoc int) error {
-	ord, err := a.values.GetOrd(childDoc)
+	ord, err := index.SortedOrdAt(a.values, childDoc)
 	if err != nil {
 		return err
 	}
@@ -272,21 +272,18 @@ func (w *sortedDVsWrapper) BinaryValue() ([]byte, error) {
 // parent. Mirrors SortedDocValues.ordValue().
 func (w *sortedDVsWrapper) OrdValue() (int, error) { return w.acc.ord, nil }
 
-func (w *sortedDVsWrapper) Get(docID int) ([]byte, error) {
-	ord := w.acc.ord
-	if ord < 0 {
-		return nil, nil
-	}
-	return w.acc.values.LookupOrd(ord)
-}
-
-func (w *sortedDVsWrapper) GetOrd(docID int) (int, error) { return w.acc.ord, nil }
+// LongValue surfaces the inherited NumericDocValues accessor — for a
+// sorted wrapper this is the current ord cast to int64.
+func (w *sortedDVsWrapper) LongValue() (int64, error) { return int64(w.acc.ord), nil }
 
 func (w *sortedDVsWrapper) LookupOrd(ord int) ([]byte, error) {
 	return w.acc.values.LookupOrd(ord)
 }
 
 func (w *sortedDVsWrapper) GetValueCount() int { return w.acc.values.GetValueCount() }
+
+// Cost delegates to the underlying children-side iterator.
+func (w *sortedDVsWrapper) Cost() int64 { return w.acc.values.Cost() }
 
 // ── NumericDVAccumulator ─────────────────────────────────────────────────────
 
@@ -311,7 +308,7 @@ func newNumericDVsAccumulator(
 }
 
 func (a *numericDVsAccumulator) reset(childDoc int) error {
-	v, err := a.values.Get(childDoc)
+	v, _, err := index.NumericValueAt(a.values, childDoc)
 	if err != nil {
 		return err
 	}
@@ -320,7 +317,7 @@ func (a *numericDVsAccumulator) reset(childDoc int) error {
 }
 
 func (a *numericDVsAccumulator) increment(childDoc int) error {
-	v, err := a.values.Get(childDoc)
+	v, _, err := index.NumericValueAt(a.values, childDoc)
 	if err != nil {
 		return err
 	}
@@ -365,7 +362,8 @@ func (w *numericDVsWrapper) AdvanceExact(target int) (bool, error) {
 // parent. Mirrors NumericDocValues.longValue().
 func (w *numericDVsWrapper) LongValue() (int64, error) { return w.acc.value, nil }
 
-func (w *numericDVsWrapper) Get(docID int) (int64, error) { return w.acc.value, nil }
+// Cost delegates to the underlying children-side iterator.
+func (w *numericDVsWrapper) Cost() int64 { return w.acc.values.Cost() }
 
 // ── Public factory functions ─────────────────────────────────────────────────
 

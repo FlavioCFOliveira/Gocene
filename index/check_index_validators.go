@@ -301,11 +301,17 @@ func (v *DocValuesValidator) validateNumericDocValues(field string, maxDoc int) 
 		return fmt.Errorf("numeric doc values is nil for field %s", field)
 	}
 
-	// Check we can read values for all docs
+	// Check we can read values for all docs by walking the iterator
+	// monotonically through AdvanceExact.
 	for docID := 0; docID < maxDoc; docID++ {
-		_, err := values.Get(docID)
+		ok, err := values.AdvanceExact(docID)
 		if err != nil {
-			return fmt.Errorf("error reading numeric doc value for doc %d in field %s: %w", docID, field, err)
+			return fmt.Errorf("error advancing numeric doc value to doc %d in field %s: %w", docID, field, err)
+		}
+		if ok {
+			if _, err := values.LongValue(); err != nil {
+				return fmt.Errorf("error reading numeric doc value for doc %d in field %s: %w", docID, field, err)
+			}
 		}
 	}
 
@@ -323,11 +329,17 @@ func (v *DocValuesValidator) validateBinaryDocValues(field string, maxDoc int) e
 		return fmt.Errorf("binary doc values is nil for field %s", field)
 	}
 
-	// Check we can read values for all docs
+	// Check we can read values for all docs by walking the iterator
+	// monotonically through AdvanceExact.
 	for docID := 0; docID < maxDoc; docID++ {
-		_, err := values.Get(docID)
+		ok, err := values.AdvanceExact(docID)
 		if err != nil {
-			return fmt.Errorf("error reading binary doc value for doc %d in field %s: %w", docID, field, err)
+			return fmt.Errorf("error advancing binary doc value to doc %d in field %s: %w", docID, field, err)
+		}
+		if ok {
+			if _, err := values.BinaryValue(); err != nil {
+				return fmt.Errorf("error reading binary doc value for doc %d in field %s: %w", docID, field, err)
+			}
 		}
 	}
 
@@ -351,11 +363,19 @@ func (v *DocValuesValidator) validateSortedDocValues(field string, maxDoc int) e
 		return fmt.Errorf("invalid value count %d for field %s", valueCount, field)
 	}
 
-	// Check we can read values for all docs
+	// Check we can read values for all docs by walking the iterator
+	// monotonically through AdvanceExact.
 	for docID := 0; docID < maxDoc; docID++ {
-		ord, err := values.GetOrd(docID)
+		ok, err := values.AdvanceExact(docID)
 		if err != nil {
-			return fmt.Errorf("error reading sorted ord for doc %d in field %s: %w", docID, field, err)
+			return fmt.Errorf("error advancing sorted doc value to doc %d in field %s: %w", docID, field, err)
+		}
+		ord := -1
+		if ok {
+			ord, err = values.OrdValue()
+			if err != nil {
+				return fmt.Errorf("error reading sorted ord for doc %d in field %s: %w", docID, field, err)
+			}
 		}
 
 		if ord < -1 || ord >= valueCount {
@@ -385,18 +405,30 @@ func (v *DocValuesValidator) validateSortedNumericDocValues(field string, maxDoc
 		return fmt.Errorf("sorted numeric doc values is nil for field %s", field)
 	}
 
-	// Check we can read values for all docs
+	// Check we can read values for all docs by walking the iterator
+	// monotonically through AdvanceExact / NextValue / DocValueCount.
 	for docID := 0; docID < maxDoc; docID++ {
-		nums, err := values.Get(docID)
+		ok, err := values.AdvanceExact(docID)
 		if err != nil {
-			return fmt.Errorf("error reading sorted numeric values for doc %d in field %s: %w", docID, field, err)
+			return fmt.Errorf("error advancing sorted numeric to doc %d in field %s: %w", docID, field, err)
 		}
-
-		// Verify values are sorted
-		for i := 1; i < len(nums); i++ {
-			if nums[i] < nums[i-1] {
-				return fmt.Errorf("values not sorted for doc %d in field %s: %d < %d", docID, field, nums[i], nums[i-1])
+		if !ok {
+			continue
+		}
+		count, err := values.DocValueCount()
+		if err != nil {
+			return fmt.Errorf("error reading docValueCount for doc %d in field %s: %w", docID, field, err)
+		}
+		var prev int64
+		for i := 0; i < count; i++ {
+			v, err := values.NextValue()
+			if err != nil {
+				return fmt.Errorf("error reading sorted numeric values for doc %d in field %s: %w", docID, field, err)
 			}
+			if i > 0 && v < prev {
+				return fmt.Errorf("values not sorted for doc %d in field %s: %d < %d", docID, field, v, prev)
+			}
+			prev = v
 		}
 	}
 
@@ -420,16 +452,25 @@ func (v *DocValuesValidator) validateSortedSetDocValues(field string, maxDoc int
 		return fmt.Errorf("invalid value count %d for field %s", valueCount, field)
 	}
 
-	// Check we can read values for all docs
+	// Check we can read values for all docs by walking the iterator
+	// monotonically through AdvanceExact / NextOrd.
 	for docID := 0; docID < maxDoc; docID++ {
-		ords, err := values.Get(docID)
+		ok, err := values.AdvanceExact(docID)
 		if err != nil {
-			return fmt.Errorf("error reading sorted set ords for doc %d in field %s: %w", docID, field, err)
+			return fmt.Errorf("error advancing sorted set to doc %d in field %s: %w", docID, field, err)
 		}
-
-		// Verify ords are valid and sorted
-		var lastOrd int = -1
-		for _, ord := range ords {
+		if !ok {
+			continue
+		}
+		lastOrd := -1
+		for {
+			ord, err := values.NextOrd()
+			if err != nil {
+				return fmt.Errorf("error reading sorted set ords for doc %d in field %s: %w", docID, field, err)
+			}
+			if ord == -1 {
+				break
+			}
 			if ord < 0 || ord >= valueCount {
 				return fmt.Errorf("invalid ord %d for doc %d in field %s (count=%d)", ord, docID, field, valueCount)
 			}

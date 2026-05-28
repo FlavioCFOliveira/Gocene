@@ -957,7 +957,7 @@ type latLonPointSortedNumericAdapter struct {
 }
 
 func (a *latLonPointSortedNumericAdapter) AdvanceExact(doc int) (bool, error) {
-	values, err := a.sorted.Get(doc)
+	values, err := index.DrainSortedNumeric(a.sorted, doc)
 	if err != nil {
 		return false, err
 	}
@@ -987,7 +987,9 @@ func (a *latLonPointSortedNumericAdapter) NextDoc() (int, error) {
 	}
 	a.doc = doc
 	if doc != NO_MORE_DOCS {
-		values, err := a.sorted.Get(doc)
+		// a.sorted is positioned on doc; CollectSortedNumericValues drains
+		// the per-doc values via DocValueCount + NextValue.
+		values, err := index.CollectSortedNumericValues(a.sorted)
 		if err != nil {
 			return 0, err
 		}
@@ -1008,7 +1010,7 @@ func (a *latLonPointSortedNumericAdapter) Advance(target int) (int, error) {
 	}
 	a.doc = doc
 	if doc != NO_MORE_DOCS {
-		values, err := a.sorted.Get(doc)
+		values, err := index.CollectSortedNumericValues(a.sorted)
 		if err != nil {
 			return 0, err
 		}

@@ -68,9 +68,9 @@ func TestSortedSetDocValuesWriter_SingleValuedPath(t *testing.T) {
 			break
 		}
 		gotDocs = append(gotDocs, d)
-		ords, err := dv.Get(d)
+		ords, err := CollectSortedSetOrds(dv)
 		if err != nil {
-			t.Fatalf("Get(%d): %v", d, err)
+			t.Fatalf("CollectSortedSetOrds@%d: %v", d, err)
 		}
 		if len(ords) != 1 {
 			t.Fatalf("doc %d: expected 1 ord, got %d", d, len(ords))
@@ -140,9 +140,9 @@ func TestSortedSetDocValuesWriter_MultiValuedDedup(t *testing.T) {
 		if d == NO_MORE_DOCS {
 			break
 		}
-		ords, err := dv.Get(d)
+		ords, err := CollectSortedSetOrds(dv)
 		if err != nil {
-			t.Fatalf("Get(%d): %v", d, err)
+			t.Fatalf("CollectSortedSetOrds@%d: %v", d, err)
 		}
 		got := make([]string, len(ords))
 		for i, o := range ords {
@@ -191,7 +191,7 @@ func TestSortedSetDocValuesWriter_FlushSingleton(t *testing.T) {
 		if d != i {
 			t.Fatalf("doc=%d, want %d", d, i)
 		}
-		ords, err := got.Get(d)
+		ords, err := CollectSortedSetOrds(got)
 		if err != nil || len(ords) != 1 {
 			t.Fatalf("Get(%d): ords=%v err=%v", d, ords, err)
 		}
@@ -244,7 +244,7 @@ func TestSortedSetDocValuesWriter_FlushSorted(t *testing.T) {
 			if d == NO_MORE_DOCS {
 				return nil
 			}
-			ords, err := v.Get(d)
+			ords, err := CollectSortedSetOrds(v)
 			if err != nil {
 				return err
 			}

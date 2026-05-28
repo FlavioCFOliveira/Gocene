@@ -431,7 +431,7 @@ func runSortedNumericRangeQueryWithDV(
 	var matchFn func() (bool, error)
 	if singleton != nil {
 		matchFn = func() (bool, error) {
-			v, err := singleton.Get(approx.DocID())
+			v, err := singleton.LongValue()
 			if err != nil {
 				return false, err
 			}
@@ -439,7 +439,7 @@ func runSortedNumericRangeQueryWithDV(
 		}
 	} else {
 		matchFn = func() (bool, error) {
-			vs, err := dv.Get(approx.DocID())
+			vs, err := index.CollectSortedNumericValues(dv)
 			if err != nil {
 				return false, err
 			}

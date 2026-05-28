@@ -219,9 +219,10 @@ func TestLatLonPointSortField_SortWrapper_DoesNotNeedScores(t *testing.T) {
 // The name is intentionally namespaced so it does not collide with the
 // generic fakeSortedNumeric helper already living in lat_lon_doc_values_query_test.go.
 type distanceFakeSortedNumeric struct {
-	docs   []int
-	values [][]int64
-	idx    int
+	docs     []int
+	values   [][]int64
+	idx      int
+	valueIdx int
 }
 
 func newDistanceFakeSortedNumeric(docs []int, values [][]int64) *distanceFakeSortedNumeric {
@@ -231,14 +232,17 @@ func newDistanceFakeSortedNumeric(docs []int, values [][]int64) *distanceFakeSor
 	return &distanceFakeSortedNumeric{docs: docs, values: values, idx: -1}
 }
 
-func (f *distanceFakeSortedNumeric) Get(docID int) ([]int64, error) {
+func (f *distanceFakeSortedNumeric) Cost() int64 { return int64(len(f.docs)) }
+
+func (f *distanceFakeSortedNumeric) LongValue() (int64, error) {
 	if f.idx < 0 || f.idx >= len(f.docs) {
-		return nil, nil
+		return 0, nil
 	}
-	if f.docs[f.idx] != docID {
-		return nil, nil
+	vs := f.values[f.idx]
+	if len(vs) == 0 {
+		return 0, nil
 	}
-	return f.values[f.idx], nil
+	return vs[0], nil
 }
 
 func (f *distanceFakeSortedNumeric) Advance(target int) (int, error) {
@@ -251,6 +255,7 @@ func (f *distanceFakeSortedNumeric) Advance(target int) (int, error) {
 	if f.idx >= len(f.docs) {
 		return index.NO_MORE_DOCS, nil
 	}
+	f.valueIdx = 0
 	return f.docs[f.idx], nil
 }
 
@@ -259,6 +264,7 @@ func (f *distanceFakeSortedNumeric) NextDoc() (int, error) {
 	if f.idx >= len(f.docs) {
 		return index.NO_MORE_DOCS, nil
 	}
+	f.valueIdx = 0
 	return f.docs[f.idx], nil
 }
 
@@ -285,10 +291,12 @@ func (f *distanceFakeSortedNumeric) NextValue() (int64, error) {
 		return 0, nil
 	}
 	vs := f.values[f.idx]
-	if len(vs) == 0 {
+	if f.valueIdx >= len(vs) {
 		return 0, nil
 	}
-	return vs[0], nil
+	v := vs[f.valueIdx]
+	f.valueIdx++
+	return v, nil
 }
 
 func (f *distanceFakeSortedNumeric) DocValueCount() (int, error) {

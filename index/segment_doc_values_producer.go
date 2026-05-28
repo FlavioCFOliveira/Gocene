@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -36,30 +37,21 @@ type SegmentDocValuesProducer struct {
 	dvGens             []int64
 }
 
-// DocValuesProducer is the structural contract for index-package doc-values
-// producers. It mirrors the surface of
-// org.apache.lucene.codecs.DocValuesProducer and is satisfied by
-// [EmptyDocValuesProducer] as well as the per-format producers wired through
-// SegmentCoreReaders.
+// DocValuesProducer is an alias of [spi.DocValuesProducer]. The SPI
+// canonical declaration was lifted by rmp #4708 and the doc-values
+// value-type interfaces (NumericDocValues etc.) were collapsed onto
+// the iterator-shaped surface by rmp #4710 (Sprint 118 phase 2f),
+// which lets the index-side and codecs-side facades both reach the
+// same producer contract through a single declaration site.
 //
-// TODO(T4709): this interface is intentionally NOT a type alias of
-// [spi.DocValuesProducer] (introduced by rmp #4708) because the
-// Get* methods on this side return the random-access "Get(docID)"
-// projection of the value types, whereas the SPI canonical interface
-// returns the iterator-shaped surface used by the codecs side. rmp
-// #4709 will migrate the index-side callers onto the iterator
-// surface and then collapse this declaration to
-// `type DocValuesProducer = spi.DocValuesProducer`.
-type DocValuesProducer interface {
-	GetNumeric(field *FieldInfo) (NumericDocValues, error)
-	GetBinary(field *FieldInfo) (BinaryDocValues, error)
-	GetSorted(field *FieldInfo) (SortedDocValues, error)
-	GetSortedNumeric(field *FieldInfo) (SortedNumericDocValues, error)
-	GetSortedSet(field *FieldInfo) (SortedSetDocValues, error)
-	GetSkipper(field *FieldInfo) (DocValuesSkipper, error)
-	CheckIntegrity() error
-	Close() error
-}
+// [EmptyDocValuesProducer] and the per-format producers wired through
+// SegmentCoreReaders all satisfy this alias.
+type DocValuesProducer = spi.DocValuesProducer
+
+// DocValuesConsumer is an alias of [spi.DocValuesConsumer]. Mirrors
+// the symmetry exposed by codecs/doc_values_format.go so callers that
+// historically reached for index.DocValuesConsumer compile unchanged.
+type DocValuesConsumer = spi.DocValuesConsumer
 
 // SegmentDocValuesAccessor is the minimal surface
 // [NewSegmentDocValuesProducer] requires from the SegmentDocValues cache. It

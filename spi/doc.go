@@ -60,21 +60,6 @@
 //     CheckIndexHeader, WriteFooter, CheckFooter — lifted alongside the
 //     SegmentInfos move so they can be reused by future codec ports.
 //
-// # What is intentionally NOT here
-//
-//   - The index-side random-access projection of the five doc-values
-//     value types (NumericDocValues.Get(docID), BinaryDocValues.Get,
-//     SortedDocValues.GetOrd, SortedNumericDocValues.Get,
-//     SortedSetDocValues.Get) and its companion DocValuesProducer /
-//     DocValuesConsumer surface. rmp #4708 lifted the codecs-faithful
-//     iterator surface (NextDoc/Advance/LongValue/...) onto this
-//     package and aliased it from codecs/, but left the index-side
-//     bodies intact because their return-type shape differs from the
-//     SPI iterator shape and migrating every index-side caller is a
-//     follow-up scope. That migration is tracked as rmp #4709 and the
-//     divergent declarations carry a TODO(T4709) marker at their
-//     source-of-truth sites in index/.
-//
 // # Background
 //
 // This package is part of the SPI unification work tracked under rmp
@@ -84,6 +69,11 @@
 // rmp #4706 completed the SegmentInfos / SegmentInfosFormat lift,
 // rmp #4707 closed the KnnVectorsFormat lift (rewriting the narrow
 // vector_values_consumer path onto the wide writer in the process),
-// and rmp #4708 closed the DocValuesFormat family lift (with the
-// index-side iterator migration deferred to rmp #4709 as noted above).
+// rmp #4708 closed the DocValuesFormat family lift, rmp #4709 added
+// the iterator-shaped methods to the index-side value-type interfaces
+// and implementations, and rmp #4710 completed the structural collapse
+// by turning every index.X doc-values identifier into a Go type alias
+// of its spi/ counterpart and removing the legacy random-access
+// Get(docID) / GetOrd(docID) projection from every production
+// implementation.
 package spi

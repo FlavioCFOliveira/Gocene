@@ -55,24 +55,21 @@ func (s *singletonSortedNumeric) GetNumericDocValues() (NumericDocValues, error)
 	return s.wrapped, nil
 }
 
-// Get returns the wrapped value packed as a one-element slice. The Lucene
-// equivalent is the pair (docValueCount, nextValue) which always yields a
-// single long for this wrapper; until the Gocene iterator surface grows
-// those methods, the slice form keeps the semantics observable without
-// breaking existing consumers.
-func (s *singletonSortedNumeric) Get(docID int) ([]int64, error) {
-	v, err := s.wrapped.Get(docID)
-	if err != nil {
-		return nil, err
-	}
-	return []int64{v}, nil
-}
-
 // Advance delegates to the wrapped iterator; the multi-valued surface is
 // pure adapter, no extra state.
 func (s *singletonSortedNumeric) Advance(target int) (int, error) {
 	return s.wrapped.Advance(target)
 }
+
+// LongValue surfaces the inherited NumericDocValues accessor — for a
+// singleton wrapper this is equivalent to the single packed value
+// reachable via NextValue.
+func (s *singletonSortedNumeric) LongValue() (int64, error) {
+	return s.wrapped.LongValue()
+}
+
+// Cost delegates to the wrapped iterator.
+func (s *singletonSortedNumeric) Cost() int64 { return s.wrapped.Cost() }
 
 // AdvanceExact delegates to the wrapped iterator (single-valued: a doc
 // either has the one value or it doesn't).

@@ -301,7 +301,10 @@ func (s *serializedDVScorer) DocIDRunEnd() int { return s.maxDoc }
 // from decoding bubble up so callers see corrupt-payload failures
 // instead of silent misses.
 func (s *serializedDVScorer) predicate(doc int) (bool, error) {
-	data, err := s.bdv.Get(doc)
+	// s.bdv is positioned on doc by the caller (NextDoc/Advance); BinaryValue
+	// is the iterator-shaped equivalent of the legacy Get(doc) accessor.
+	_ = doc
+	data, err := s.bdv.BinaryValue()
 	if err != nil {
 		return false, err
 	}

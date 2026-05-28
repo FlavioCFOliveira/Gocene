@@ -303,7 +303,7 @@ func boxMatches(
 	minLat, maxLat, minLon, maxLon int32,
 	crossesDateline bool,
 ) (bool, error) {
-	vs, err := values.Get(docID)
+	vs, err := index.DrainSortedNumeric(values, docID)
 	if err != nil {
 		return false, err
 	}

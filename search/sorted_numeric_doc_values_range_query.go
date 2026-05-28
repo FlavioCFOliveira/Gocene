@@ -239,10 +239,12 @@ func (q *sortedNumericDocValuesRangeQuery) CreateWeight(_ *IndexSearcher, needsS
 		var matchFn func() (bool, error)
 		if singleton != nil {
 			// Singleton fast path: each doc has exactly one value.
-			// Mirrors the Java SortedDocValues unwrap branch
-			// (singleton.longValue() inside Matches).
+			// singleton is positioned on approx.DocID() via the
+			// underlying SortedNumeric NextDoc; LongValue is the
+			// iterator-shaped equivalent of the legacy
+			// NumericDocValues.Get(docID) accessor.
 			matchFn = func() (bool, error) {
-				v, err := singleton.Get(approx.DocID())
+				v, err := singleton.LongValue()
 				if err != nil {
 					return false, err
 				}
@@ -255,7 +257,7 @@ func (q *sortedNumericDocValuesRangeQuery) CreateWeight(_ *IndexSearcher, needsS
 			// the first value >= lower is the best candidate (it
 			// matches iff it is also <= upper).
 			matchFn = func() (bool, error) {
-				vs, err := values.Get(approx.DocID())
+				vs, err := index.CollectSortedNumericValues(values)
 				if err != nil {
 					return false, err
 				}

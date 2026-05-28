@@ -23,11 +23,15 @@ import (
 //
 // DocValuesFormat joined the SPI in rmp #4708 alongside the rest of
 // the doc-values family (DocValuesProducer / DocValuesConsumer plus
-// the iterator-shaped value types). The index-side random-access
-// projection of the value types (NumericDocValues.Get(docID) and
-// peers) is NOT covered by this alias surface; rmp #4709 tracks the
-// migration that will eventually collapse those bodies onto the SPI
-// iterator surface as well.
+// the iterator-shaped value types). rmp #4709 added the iterator
+// methods (AdvanceExact / LongValue / BinaryValue / OrdValue /
+// NextOrd) additively to every value-type interface and impl in this
+// package, and rmp #4710 completed the structural collapse: the six
+// value-type interfaces and DocValuesProducer / DocValuesConsumer are
+// now plain type aliases of their spi/ counterparts (see
+// doc_values_interfaces.go and segment_doc_values_producer.go), and
+// the legacy random-access Get(docID) / GetOrd(docID) projection is
+// gone from every index-side production implementation.
 
 // Codec is an alias of [spi.Codec]. After rmp #4708 the SPI surface
 // covers every per-component format accessor including

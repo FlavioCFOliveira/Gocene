@@ -18,12 +18,12 @@ type stubSortedSetDocValues struct {
 	terms [][]byte // sorted, unique
 }
 
-func (s *stubSortedSetDocValues) Get(int) ([]int, error)         { return nil, nil }
 func (s *stubSortedSetDocValues) Advance(int) (int, error)       { return -1, nil }
 func (s *stubSortedSetDocValues) AdvanceExact(int) (bool, error) { return false, nil }
 func (s *stubSortedSetDocValues) NextOrd() (int, error)          { return -1, nil }
 func (s *stubSortedSetDocValues) NextDoc() (int, error)          { return -1, nil }
 func (s *stubSortedSetDocValues) DocID() int                     { return -1 }
+func (s *stubSortedSetDocValues) Cost() int64                    { return int64(len(s.terms)) }
 
 func (s *stubSortedSetDocValues) LookupOrd(ord int) ([]byte, error) {
 	if ord < 0 || ord >= len(s.terms) {

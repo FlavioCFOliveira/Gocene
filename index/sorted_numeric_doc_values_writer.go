@@ -357,13 +357,9 @@ func (b *bufferedNumericDocValues) LongValue() (int64, error) {
 	return b.value, nil
 }
 
-// Get returns the value for docID. docID must equal the current cursor.
-func (b *bufferedNumericDocValues) Get(docID int) (int64, error) {
-	if docID != b.docID {
-		return 0, fmt.Errorf("bufferedNumericDocValues: Get(%d) requires NextDoc cursor; current=%d", docID, b.docID)
-	}
-	return b.value, nil
-}
+// Cost returns the number of value-bearing documents in the buffered
+// stream.
+func (b *bufferedNumericDocValues) Cost() int64 { return int64(len(b.docs)) }
 
 // ============================================================================
 // BufferedSortedNumericDocValues — multi-valued view.
@@ -464,16 +460,9 @@ func (b *bufferedSortedNumericDocValues) LongValue() (int64, error) {
 	return b.currentDoc[0], nil
 }
 
-// Get returns the values for docID. docID must equal the current cursor.
-// A fresh copy is returned so the caller may retain it across NextDoc.
-func (b *bufferedSortedNumericDocValues) Get(docID int) ([]int64, error) {
-	if docID != b.docID {
-		return nil, fmt.Errorf("bufferedSortedNumericDocValues: Get(%d) requires NextDoc cursor; current=%d", docID, b.docID)
-	}
-	out := make([]int64, b.currentCount)
-	copy(out, b.currentDoc[:b.currentCount])
-	return out, nil
-}
+// Cost returns the number of value-bearing documents represented by the
+// buffered stream.
+func (b *bufferedSortedNumericDocValues) Cost() int64 { return int64(len(b.docs)) }
 
 // ============================================================================
 // Sort-aware view: SortingSortedNumericDocValues + sortedNumericLongValues.
@@ -513,18 +502,23 @@ func newSortedNumericLongValues(
 		if newDocID < 0 || newDocID >= maxDoc {
 			return nil, fmt.Errorf("sortedNumericLongValues: sortMap.OldToNew(%d)=%d outside [0..%d)", docID, newDocID, maxDoc)
 		}
-		vals, err := oldValues.Get(docID)
+		// docID is the current cursor — DocValueCount + NextValue is the
+		// iterator-shaped equivalent of Get(docID).
+		numValues, err := oldValues.DocValueCount()
 		if err != nil {
 			return nil, err
 		}
-		numValues := len(vals)
 		// Tape layout per Java: count, v0, v1, ...
 		if err := builder.Add(int64(numValues)); err != nil {
 			return nil, err
 		}
 		d.offsets[newDocID] = offsetIndex
 		offsetIndex++
-		for _, v := range vals {
+		for i := 0; i < numValues; i++ {
+			v, err := oldValues.NextValue()
+			if err != nil {
+				return nil, err
+			}
 			if err := builder.Add(v); err != nil {
 				return nil, err
 			}
@@ -616,18 +610,7 @@ func (s *sortingSortedNumericDocValues) LongValue() (int64, error) {
 	return s.values.values.Get(s.upto), nil
 }
 
-// Get returns the values for docID. docID must equal the current cursor.
-// A fresh copy is returned so the caller may retain it across NextDoc.
-func (s *sortingSortedNumericDocValues) Get(docID int) ([]int64, error) {
-	if docID != s.docID {
-		return nil, fmt.Errorf("sortingSortedNumericDocValues: Get(%d) requires NextDoc cursor; current=%d", docID, s.docID)
-	}
-	out := make([]int64, s.numValues)
-	// Java reads via nextValue() which consumes one offset at a time off the
-	// shared cursor; Gocene materialises into a fresh slice for the
-	// slice-based SortedNumericDocValues.Get contract.
-	for i := 0; i < s.numValues; i++ {
-		out[i] = s.values.values.Get(s.upto + int64(i))
-	}
-	return out, nil
-}
+// Cost delegates to the untouched source iterator, matching the Java
+// SortingSortedNumericDocValues semantics where cost() falls through
+// to the unsorted view.
+func (s *sortingSortedNumericDocValues) Cost() int64 { return s.in.Cost() }

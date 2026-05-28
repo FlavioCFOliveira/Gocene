@@ -65,7 +65,7 @@ func TestNormValuesWriter_AddAndFlush(t *testing.T) {
 			if d == NO_MORE_DOCS {
 				return nil
 			}
-			v, err := dv.Get(d)
+			v, err := dv.LongValue()
 			if err != nil {
 				return err
 			}
@@ -117,7 +117,7 @@ func TestNormValuesWriter_SparseDocs(t *testing.T) {
 			if d == NO_MORE_DOCS {
 				return nil
 			}
-			v, _ := dv.Get(d)
+			v, _ := dv.LongValue()
 			docs = append(docs, d)
 			seen = append(seen, v)
 		}

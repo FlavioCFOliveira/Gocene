@@ -366,7 +366,9 @@ func (dvv *serializedDVDistanceValueSourceValues) readDVBytes(doc int) []byte {
 	if err != nil || target != doc {
 		return nil
 	}
-	data, err := bdv.Get(doc)
+	// bdv is positioned on doc; BinaryValue is the iterator-shaped
+	// equivalent of the legacy Get(doc) accessor.
+	data, err := bdv.BinaryValue()
 	if err != nil {
 		return nil
 	}

@@ -36,9 +36,8 @@ func newFakeSortedDV(ords map[int]int, terms map[int][]byte) *fakeSortedDV {
 	return &fakeSortedDV{ords: ords, terms: terms, docs: docs, pos: -1, docID: -1, currOrd: -1}
 }
 
-func (f *fakeSortedDV) Get(docID int) ([]byte, error) {
-	return f.terms[f.ords[docID]], nil
-}
+func (f *fakeSortedDV) Cost() int64                  { return int64(len(f.docs)) }
+func (f *fakeSortedDV) LongValue() (int64, error)    { return int64(f.currOrd), nil }
 
 func (f *fakeSortedDV) Advance(target int) (int, error) {
 	for f.pos+1 < len(f.docs) {
@@ -64,8 +63,7 @@ func (f *fakeSortedDV) NextDoc() (int, error) {
 	return f.docID, nil
 }
 
-func (f *fakeSortedDV) DocID() int                { return f.docID }
-func (f *fakeSortedDV) GetOrd(_ int) (int, error) { return f.currOrd, nil }
+func (f *fakeSortedDV) DocID() int { return f.docID }
 func (f *fakeSortedDV) AdvanceExact(target int) (bool, error) {
 	got, err := f.Advance(target)
 	if err != nil {
@@ -115,12 +113,23 @@ func TestSingletonSortedSet_DelegatesIterationAndGet(t *testing.T) {
 		if got != w.docID {
 			t.Fatalf("step %d NextDoc = %d, want %d", i, got, w.docID)
 		}
-		ords, err := dv.Get(got)
-		if err != nil {
-			t.Fatalf("step %d Get: %v", i, err)
+		// dv is positioned on got via NextDoc; drain ords via NextOrd
+		// (the iterator-shaped equivalent of the legacy Get(got)
+		// accessor).
+		var ords []int
+		for {
+			o, err := dv.NextOrd()
+			if err != nil {
+				t.Fatalf("step %d NextOrd: %v", i, err)
+			}
+			if o == -1 {
+				break
+			}
+			ords = append(ords, o)
 		}
+		_ = got
 		if !reflect.DeepEqual(ords, w.ords) {
-			t.Fatalf("step %d Get = %v, want %v", i, ords, w.ords)
+			t.Fatalf("step %d ords = %v, want %v", i, ords, w.ords)
 		}
 	}
 
@@ -151,12 +160,20 @@ func TestSingletonSortedSet_AdvanceDelegates(t *testing.T) {
 	if dv.DocID() != 5 {
 		t.Fatalf("DocID after Advance = %d, want 5", dv.DocID())
 	}
-	ords, err := dv.Get(5)
-	if err != nil {
-		t.Fatalf("Get(5): %v", err)
+	// dv is positioned on 5 via Advance; drain ords via NextOrd.
+	var ords []int
+	for {
+		o, err := dv.NextOrd()
+		if err != nil {
+			t.Fatalf("NextOrd: %v", err)
+		}
+		if o == -1 {
+			break
+		}
+		ords = append(ords, o)
 	}
 	if !reflect.DeepEqual(ords, []int{1}) {
-		t.Fatalf("Get(5) = %v, want [1]", ords)
+		t.Fatalf("ords = %v, want [1]", ords)
 	}
 }
 
@@ -170,12 +187,14 @@ func TestSingletonSortedSet_NegativeOrdReturnsNil(t *testing.T) {
 	if _, err := dv.NextDoc(); err != nil {
 		t.Fatalf("NextDoc: %v", err)
 	}
-	got, err := dv.Get(1)
+	// dv positioned on doc 1 with no value (ord == -1); NextOrd must
+	// immediately return -1.
+	got, err := dv.NextOrd()
 	if err != nil {
-		t.Fatalf("Get(1): %v", err)
+		t.Fatalf("NextOrd: %v", err)
 	}
-	if got != nil {
-		t.Fatalf("Get(1) = %v for missing ord, want nil", got)
+	if got != -1 {
+		t.Fatalf("NextOrd = %d for missing ord, want -1", got)
 	}
 }
 
@@ -218,7 +237,7 @@ func TestUnwrapSingletonSortedSet_RoundTrips(t *testing.T) {
 		map[int][]byte{0: []byte("v")},
 	)
 	dv := SingletonSortedSet(in)
-	if got := UnwrapSingletonSortedSet(dv); got != in {
+	if got := UnwrapSingletonSortedSet(dv); got != SortedDocValues(in) {
 		t.Fatalf("UnwrapSingletonSortedSet returned %v, want wrapped iterator", got)
 	}
 	if got := UnwrapSingletonSortedSet(EmptySortedSet()); got != nil {
@@ -238,7 +257,7 @@ func TestSingletonSortedSet_GetSortedDocValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSortedDocValues on pristine: %v", err)
 	}
-	if got != in {
+	if got != SortedDocValues(in) {
 		t.Fatal("GetSortedDocValues did not return the wrapped iterator")
 	}
 

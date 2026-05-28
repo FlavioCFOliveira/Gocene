@@ -192,17 +192,6 @@ func newBufferedNorms(values *packed.PackedLongValues, docs []int) *bufferedNorm
 	}
 }
 
-// Get returns the value at the current cursor. The Java BufferedNorms
-// exposes longValue() rather than Get(int); the Go NumericDocValues
-// interface requires Get(docID), and the buffered cursor only knows the
-// current doc.
-func (b *bufferedNorms) Get(docID int) (int64, error) {
-	if docID != b.docID {
-		return 0, fmt.Errorf("bufferedNorms: Get(%d) requires NextDoc cursor; current=%d", docID, b.docID)
-	}
-	return b.value, nil
-}
-
 // DocID returns the current document, or -1 before the first NextDoc.
 func (b *bufferedNorms) DocID() int { return b.docID }
 
@@ -234,3 +223,7 @@ func (b *bufferedNorms) AdvanceExact(int) (bool, error) {
 func (b *bufferedNorms) LongValue() (int64, error) {
 	return b.value, nil
 }
+
+// Cost returns the number of value-bearing documents in the buffered
+// stream.
+func (b *bufferedNorms) Cost() int64 { return int64(len(b.docs)) }

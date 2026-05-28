@@ -18,6 +18,12 @@ package index
 // Because Gocene DocValues are interfaces (not abstract classes), the Java
 // "extends X" mechanic is reproduced by embedding the wrapper struct in user
 // code and supplying any overridden methods next to the embedded field.
+//
+// rmp #4710 dropped the legacy random-access Get(docID) / GetOrd(docID)
+// delegates from these wrappers as part of collapsing the index-side
+// value-type interfaces onto the spi/ iterator surface; callers that
+// previously reached for Get/GetOrd now drive iteration through
+// AdvanceExact + LongValue/BinaryValue/OrdValue/NextOrd.
 
 // --- BinaryDocValues ---------------------------------------------------------
 
@@ -35,18 +41,15 @@ func NewFilterBinaryDocValues(in BinaryDocValues) *FilterBinaryDocValues {
 	return &FilterBinaryDocValues{In: in}
 }
 
-// Get returns the binary value for docID.
-func (f *FilterBinaryDocValues) Get(docID int) ([]byte, error) { return f.In.Get(docID) }
-
 // Advance moves to target docID.
 func (f *FilterBinaryDocValues) Advance(target int) (int, error) { return f.In.Advance(target) }
 
-// AdvanceExact delegates to the wrapped iterator. T4709-added.
+// AdvanceExact delegates to the wrapped iterator.
 func (f *FilterBinaryDocValues) AdvanceExact(target int) (bool, error) {
 	return f.In.AdvanceExact(target)
 }
 
-// BinaryValue delegates to the wrapped iterator. T4709-added.
+// BinaryValue delegates to the wrapped iterator.
 func (f *FilterBinaryDocValues) BinaryValue() ([]byte, error) { return f.In.BinaryValue() }
 
 // NextDoc advances to the next doc that has a value.
@@ -54,6 +57,9 @@ func (f *FilterBinaryDocValues) NextDoc() (int, error) { return f.In.NextDoc() }
 
 // DocID returns the current doc ID.
 func (f *FilterBinaryDocValues) DocID() int { return f.In.DocID() }
+
+// Cost delegates to the wrapped iterator.
+func (f *FilterBinaryDocValues) Cost() int64 { return f.In.Cost() }
 
 // --- NumericDocValues --------------------------------------------------------
 
@@ -70,18 +76,15 @@ func NewFilterNumericDocValues(in NumericDocValues) *FilterNumericDocValues {
 	return &FilterNumericDocValues{In: in}
 }
 
-// Get returns the numeric value for docID.
-func (f *FilterNumericDocValues) Get(docID int) (int64, error) { return f.In.Get(docID) }
-
 // Advance moves to target docID.
 func (f *FilterNumericDocValues) Advance(target int) (int, error) { return f.In.Advance(target) }
 
-// AdvanceExact delegates to the wrapped iterator. T4709-added.
+// AdvanceExact delegates to the wrapped iterator.
 func (f *FilterNumericDocValues) AdvanceExact(target int) (bool, error) {
 	return f.In.AdvanceExact(target)
 }
 
-// LongValue delegates to the wrapped iterator. T4709-added.
+// LongValue delegates to the wrapped iterator.
 func (f *FilterNumericDocValues) LongValue() (int64, error) { return f.In.LongValue() }
 
 // NextDoc advances to the next doc that has a value.
@@ -89,6 +92,9 @@ func (f *FilterNumericDocValues) NextDoc() (int, error) { return f.In.NextDoc() 
 
 // DocID returns the current doc ID.
 func (f *FilterNumericDocValues) DocID() int { return f.In.DocID() }
+
+// Cost delegates to the wrapped iterator.
+func (f *FilterNumericDocValues) Cost() int64 { return f.In.Cost() }
 
 // --- SortedDocValues ---------------------------------------------------------
 
@@ -105,22 +111,20 @@ func NewFilterSortedDocValues(in SortedDocValues) *FilterSortedDocValues {
 	return &FilterSortedDocValues{In: in}
 }
 
-// Get returns the binary value for docID.
-func (f *FilterSortedDocValues) Get(docID int) ([]byte, error) { return f.In.Get(docID) }
-
 // Advance moves to target docID.
 func (f *FilterSortedDocValues) Advance(target int) (int, error) { return f.In.Advance(target) }
 
-// AdvanceExact delegates to the wrapped iterator. T4709-added.
+// AdvanceExact delegates to the wrapped iterator.
 func (f *FilterSortedDocValues) AdvanceExact(target int) (bool, error) {
 	return f.In.AdvanceExact(target)
 }
 
-// BinaryValue delegates to the wrapped iterator. T4709-added.
-func (f *FilterSortedDocValues) BinaryValue() ([]byte, error) { return f.In.BinaryValue() }
-
-// OrdValue delegates to the wrapped iterator. T4709-added.
+// OrdValue delegates to the wrapped iterator.
 func (f *FilterSortedDocValues) OrdValue() (int, error) { return f.In.OrdValue() }
+
+// LongValue delegates to the wrapped iterator (inherited NumericDocValues
+// surface; for sorted values the long is the ord cast to int64).
+func (f *FilterSortedDocValues) LongValue() (int64, error) { return f.In.LongValue() }
 
 // NextDoc advances to the next doc that has a value.
 func (f *FilterSortedDocValues) NextDoc() (int, error) { return f.In.NextDoc() }
@@ -128,14 +132,14 @@ func (f *FilterSortedDocValues) NextDoc() (int, error) { return f.In.NextDoc() }
 // DocID returns the current doc ID.
 func (f *FilterSortedDocValues) DocID() int { return f.In.DocID() }
 
-// GetOrd returns the ordinal of the current doc.
-func (f *FilterSortedDocValues) GetOrd(docID int) (int, error) { return f.In.GetOrd(docID) }
-
 // LookupOrd returns the value for the given ordinal.
 func (f *FilterSortedDocValues) LookupOrd(ord int) ([]byte, error) { return f.In.LookupOrd(ord) }
 
 // GetValueCount returns the number of unique values.
 func (f *FilterSortedDocValues) GetValueCount() int { return f.In.GetValueCount() }
+
+// Cost delegates to the wrapped iterator.
+func (f *FilterSortedDocValues) Cost() int64 { return f.In.Cost() }
 
 // --- SortedNumericDocValues --------------------------------------------------
 
@@ -152,32 +156,36 @@ func NewFilterSortedNumericDocValues(in SortedNumericDocValues) *FilterSortedNum
 	return &FilterSortedNumericDocValues{In: in}
 }
 
-// Get returns the numeric values for docID.
-func (f *FilterSortedNumericDocValues) Get(docID int) ([]int64, error) { return f.In.Get(docID) }
-
 // Advance moves to target docID.
 func (f *FilterSortedNumericDocValues) Advance(target int) (int, error) {
 	return f.In.Advance(target)
 }
 
-// AdvanceExact delegates to the wrapped iterator. T4709-added.
+// AdvanceExact delegates to the wrapped iterator.
 func (f *FilterSortedNumericDocValues) AdvanceExact(target int) (bool, error) {
 	return f.In.AdvanceExact(target)
 }
 
-// NextValue delegates to the wrapped iterator. T4709-added.
+// NextValue delegates to the wrapped iterator.
 func (f *FilterSortedNumericDocValues) NextValue() (int64, error) { return f.In.NextValue() }
 
-// DocValueCount delegates to the wrapped iterator. T4709-added.
+// DocValueCount delegates to the wrapped iterator.
 func (f *FilterSortedNumericDocValues) DocValueCount() (int, error) {
 	return f.In.DocValueCount()
 }
+
+// LongValue delegates to the wrapped iterator (inherited NumericDocValues
+// surface; returns the first value of the current document).
+func (f *FilterSortedNumericDocValues) LongValue() (int64, error) { return f.In.LongValue() }
 
 // NextDoc advances to the next doc that has values.
 func (f *FilterSortedNumericDocValues) NextDoc() (int, error) { return f.In.NextDoc() }
 
 // DocID returns the current doc ID.
 func (f *FilterSortedNumericDocValues) DocID() int { return f.In.DocID() }
+
+// Cost delegates to the wrapped iterator.
+func (f *FilterSortedNumericDocValues) Cost() int64 { return f.In.Cost() }
 
 // --- SortedSetDocValues ------------------------------------------------------
 
@@ -194,18 +202,15 @@ func NewFilterSortedSetDocValues(in SortedSetDocValues) *FilterSortedSetDocValue
 	return &FilterSortedSetDocValues{In: in}
 }
 
-// Get returns the ordinals for docID.
-func (f *FilterSortedSetDocValues) Get(docID int) ([]int, error) { return f.In.Get(docID) }
-
 // Advance moves to target docID.
 func (f *FilterSortedSetDocValues) Advance(target int) (int, error) { return f.In.Advance(target) }
 
-// AdvanceExact delegates to the wrapped iterator. T4709-added.
+// AdvanceExact delegates to the wrapped iterator.
 func (f *FilterSortedSetDocValues) AdvanceExact(target int) (bool, error) {
 	return f.In.AdvanceExact(target)
 }
 
-// NextOrd delegates to the wrapped iterator. T4709-added.
+// NextOrd delegates to the wrapped iterator.
 func (f *FilterSortedSetDocValues) NextOrd() (int, error) { return f.In.NextOrd() }
 
 // NextDoc advances to the next doc that has values.
@@ -219,3 +224,6 @@ func (f *FilterSortedSetDocValues) LookupOrd(ord int) ([]byte, error) { return f
 
 // GetValueCount returns the number of unique values.
 func (f *FilterSortedSetDocValues) GetValueCount() int { return f.In.GetValueCount() }
+
+// Cost delegates to the wrapped iterator.
+func (f *FilterSortedSetDocValues) Cost() int64 { return f.In.Cost() }

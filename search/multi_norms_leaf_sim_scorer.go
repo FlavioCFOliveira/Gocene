@@ -120,7 +120,15 @@ func (s *multiNormsLeafSimScorer) getSimScorer() LuceneSimScorer { return s.scor
 // fallback to a unit-length document.
 func (s *multiNormsLeafSimScorer) getNormValue(doc int) (int64, error) {
 	if s.norms != nil {
-		return s.norms.Get(doc)
+		// NumericDocValues is iterator-shaped after rmp #4710: position
+		// the iterator on doc via AdvanceExact and read the value via
+		// LongValue. Lucene's MultiNormsLeafSimScorer.getNormValue uses
+		// the same pattern.
+		ok, err := s.norms.AdvanceExact(doc)
+		if err != nil || !ok {
+			return 1, err
+		}
+		return s.norms.LongValue()
 	}
 	return 1, nil
 }
@@ -152,8 +160,18 @@ func (s *multiNormsLeafSimScorer) scoreRange(buffer *DocAndFloatFeatureBuffer) e
 			}
 		} else {
 			// Fallback for any other NumericDocValues implementation.
+			// buffer.Docs is monotonic ascending per the bulk-scoring
+			// contract, so AdvanceExact + LongValue is safe.
 			for i := 0; i < buffer.Size; i++ {
-				v, err := s.norms.Get(buffer.Docs[i])
+				ok, err := s.norms.AdvanceExact(buffer.Docs[i])
+				if err != nil {
+					return err
+				}
+				if !ok {
+					norms[i] = 1
+					continue
+				}
+				v, err := s.norms.LongValue()
 				if err != nil {
 					return err
 				}
@@ -183,25 +201,35 @@ func (s *multiNormsLeafSimScorer) explain(doc int, freqExpl Explanation) (Explan
 // multiFieldNormValues blends norms from multiple fields into a single
 // synthetic NumericDocValues stream.
 //
-// Mirrors the private static inner class MultiFieldNormValues.
+// Mirrors the private static inner class MultiFieldNormValues. Lucene's
+// reference overrides advanceExact / longValue / cost on the inner
+// NumericDocValues; the Gocene port mirrors that exactly. doc is the
+// monotonically advanced target captured at AdvanceExact time and
+// consumed by LongValue.
 type multiFieldNormValues struct {
 	normsArr  []index.NumericDocValues
 	weightArr []float32
 	accBuf    []float32 // scratch for longValues bulk path
+	doc       int
 }
 
-// Get returns the blended norm for doc. It iterates over all norm sources,
-// accumulates weighted Byte4ToInt values, and encodes the rounded sum back
-// through IntToByte4. When no field has a norm for this doc, Get returns
-// (1, nil) to maintain the "unit-length document" invariant.
-//
-// This satisfies index.NumericDocValues.Get(docID int) (int64, error).
-func (m *multiFieldNormValues) Get(docID int) (int64, error) {
+// blendedValue computes the weighted norm blend for docID. The
+// underlying NumericDocValues iterators are positioned via AdvanceExact
+// per Lucene's iterator contract; callers MUST drive docID
+// monotonically (docID >= the previous docID seen by this blender).
+func (m *multiFieldNormValues) blendedValue(docID int) (int64, error) {
 	var normValue float32
 	found := false
 
 	for i, nv := range m.normsArr {
-		raw, err := nv.Get(docID)
+		ok, err := nv.AdvanceExact(docID)
+		if err != nil {
+			return 0, err
+		}
+		if !ok {
+			continue
+		}
+		raw, err := nv.LongValue()
 		if err != nil {
 			return 0, err
 		}
@@ -235,11 +263,20 @@ func (m *multiFieldNormValues) longValues(size int, docs []int, values []int64, 
 	}
 	acc := m.accBuf[:size]
 
-	// Accumulate weighted lengths from each norm source.
+	// Accumulate weighted lengths from each norm source. docs[] is the
+	// per-batch slice the scorer feeds the bulk path with; we drive each
+	// underlying iterator via AdvanceExact + LongValue, the iterator-
+	// shaped equivalent of the legacy random-access Get(docID) accessor.
 	for i, nv := range m.normsArr {
-		// Borrow values[] as scratch for this field's raw norms.
 		for j := 0; j < size; j++ {
-			raw, err := nv.Get(docs[j])
+			ok, err := nv.AdvanceExact(docs[j])
+			if err != nil {
+				return err
+			}
+			if !ok {
+				continue
+			}
+			raw, err := nv.LongValue()
 			if err != nil {
 				return err
 			}
@@ -259,37 +296,45 @@ func (m *multiFieldNormValues) longValues(size int, docs []int, values []int64, 
 	return nil
 }
 
-// Advance, NextDoc, DocID, and Cost are unused on the single-doc path that
-// drives multiNormsLeafSimScorer; only Get and longValues are called.
-
-// Advance is unsupported.
+// Advance is unsupported on the random-access blender; callers drive
+// iteration via AdvanceExact, matching Lucene's MultiFieldNormValues.
 func (m *multiFieldNormValues) Advance(_ int) (int, error) {
-	panic("multiFieldNormValues: Advance not supported")
+	panic("multiFieldNormValues: Advance not supported; use AdvanceExact")
 }
 
-// AdvanceExact is unsupported on this random-access blender; the
-// scorer always calls Get(docID) directly. Shim added by rmp #4709 to
-// satisfy index.NumericDocValues. This site is non-monotonic by design
-// (norm blending across multiple fields) and the follow-up migration
-// to a true iterator surface is tracked separately under parent 4669.
-func (m *multiFieldNormValues) AdvanceExact(_ int) (bool, error) {
-	panic("multiFieldNormValues: AdvanceExact not supported; use Get(docID)")
+// AdvanceExact captures the target document and reports that the
+// blender always has a value (the unit-length fallback collapses to 1
+// when no source field carries a norm for the target). Mirrors
+// MultiFieldNormValues.advanceExact in Lucene 10.4.0, which also
+// always returns true.
+func (m *multiFieldNormValues) AdvanceExact(target int) (bool, error) {
+	m.doc = target
+	return true, nil
 }
 
-// LongValue is unsupported on this random-access blender; callers must
-// use Get(docID). Shim added by rmp #4709 to satisfy
-// index.NumericDocValues.
+// LongValue returns the blended norm bound to the current cursor.
+// Mirrors MultiFieldNormValues.longValue in Lucene 10.4.0.
 func (m *multiFieldNormValues) LongValue() (int64, error) {
-	panic("multiFieldNormValues: LongValue not supported; use Get(docID)")
+	return m.blendedValue(m.doc)
 }
 
-// NextDoc is unsupported.
+// NextDoc is unsupported on the random-access blender.
 func (m *multiFieldNormValues) NextDoc() (int, error) {
 	panic("multiFieldNormValues: NextDoc not supported")
 }
 
-// DocID returns -1 (multiFieldNormValues uses random-access Get only).
-func (m *multiFieldNormValues) DocID() int { return -1 }
+// DocID returns the most recently advanced target, or -1 before
+// AdvanceExact is called.
+func (m *multiFieldNormValues) DocID() int {
+	if m.doc == 0 {
+		return -1
+	}
+	return m.doc
+}
+
+// Cost is unknown on the synthetic blender; report 0 to match the
+// conservative estimate Lucene uses for derived NumericDocValues.
+func (m *multiFieldNormValues) Cost() int64 { return 0 }
 
 // Ensure multiFieldNormValues satisfies index.NumericDocValues.
 var _ index.NumericDocValues = (*multiFieldNormValues)(nil)

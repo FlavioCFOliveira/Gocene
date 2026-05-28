@@ -13,43 +13,62 @@ import (
 
 // ── minimal stubs ─────────────────────────────────────────────────────────────
 
-// stubSortedDV is a minimal SortedDocValues that returns a fixed ordinal per doc.
+// stubSortedDV is a minimal SortedDocValues that returns a fixed ordinal per
+// doc. The iterator surface (AdvanceExact + OrdValue) is positioned by
+// AdvanceExact and consumed by OrdValue, mirroring the SortedDocValues
+// contract used by the doc-values accumulators.
 type stubSortedDV struct {
 	ords []int // index == docID
+	cur  int
 }
 
-func (s *stubSortedDV) DocID() int                            { return -1 }
-func (s *stubSortedDV) NextDoc() (int, error)                 { return search.NO_MORE_DOCS, nil }
-func (s *stubSortedDV) Advance(target int) (int, error)       { return search.NO_MORE_DOCS, nil }
-func (s *stubSortedDV) AdvanceExact(target int) (bool, error) { return false, nil }
-func (s *stubSortedDV) BinaryValue() ([]byte, error)          { return nil, nil }
-func (s *stubSortedDV) OrdValue() (int, error)                { return -1, nil }
-func (s *stubSortedDV) Get(docID int) ([]byte, error)         { return nil, nil }
-func (s *stubSortedDV) GetOrd(docID int) (int, error) {
-	if docID < len(s.ords) {
-		return s.ords[docID], nil
+func (s *stubSortedDV) DocID() int                      { return s.cur }
+func (s *stubSortedDV) NextDoc() (int, error)           { return search.NO_MORE_DOCS, nil }
+func (s *stubSortedDV) Advance(target int) (int, error) { return search.NO_MORE_DOCS, nil }
+func (s *stubSortedDV) AdvanceExact(target int) (bool, error) {
+	if target < 0 || target >= len(s.ords) {
+		return false, nil
 	}
-	return -1, nil
+	s.cur = target
+	return true, nil
 }
+func (s *stubSortedDV) BinaryValue() ([]byte, error) { return nil, nil }
+func (s *stubSortedDV) OrdValue() (int, error) {
+	if s.cur < 0 || s.cur >= len(s.ords) {
+		return -1, nil
+	}
+	return s.ords[s.cur], nil
+}
+func (s *stubSortedDV) LongValue() (int64, error)         { return int64(s.cur), nil }
 func (s *stubSortedDV) LookupOrd(ord int) ([]byte, error) { return []byte{byte(ord)}, nil }
 func (s *stubSortedDV) GetValueCount() int                { return 10 }
+func (s *stubSortedDV) Cost() int64                       { return int64(len(s.ords)) }
 
-// stubNumericDV returns a fixed long per doc.
+// stubNumericDV returns a fixed long per doc. AdvanceExact positions the
+// cursor and LongValue reads the value, matching the iterator-shaped
+// contract used by the doc-values accumulators.
 type stubNumericDV struct {
 	vals []int64
+	cur  int
 }
 
-func (s *stubNumericDV) DocID() int                            { return -1 }
-func (s *stubNumericDV) NextDoc() (int, error)                 { return search.NO_MORE_DOCS, nil }
-func (s *stubNumericDV) Advance(target int) (int, error)       { return search.NO_MORE_DOCS, nil }
-func (s *stubNumericDV) AdvanceExact(target int) (bool, error) { return false, nil }
-func (s *stubNumericDV) LongValue() (int64, error)             { return 0, nil }
-func (s *stubNumericDV) Get(docID int) (int64, error) {
-	if docID < len(s.vals) {
-		return s.vals[docID], nil
+func (s *stubNumericDV) DocID() int                      { return s.cur }
+func (s *stubNumericDV) NextDoc() (int, error)           { return search.NO_MORE_DOCS, nil }
+func (s *stubNumericDV) Advance(target int) (int, error) { return search.NO_MORE_DOCS, nil }
+func (s *stubNumericDV) AdvanceExact(target int) (bool, error) {
+	if target < 0 || target >= len(s.vals) {
+		return false, nil
 	}
-	return 0, nil
+	s.cur = target
+	return true, nil
 }
+func (s *stubNumericDV) LongValue() (int64, error) {
+	if s.cur < 0 || s.cur >= len(s.vals) {
+		return 0, nil
+	}
+	return s.vals[s.cur], nil
+}
+func (s *stubNumericDV) Cost() int64 { return int64(len(s.vals)) }
 
 // listDISI iterates over a fixed list of doc IDs.
 type listDISI struct {
@@ -117,9 +136,9 @@ func TestWrapSortedDocValues_Min(t *testing.T) {
 	if doc != 2 {
 		t.Fatalf("expected parent 2, got %d", doc)
 	}
-	ord, err := wrapped.GetOrd(doc)
+	ord, err := wrapped.OrdValue()
 	if err != nil {
-		t.Fatalf("GetOrd: %v", err)
+		t.Fatalf("OrdValue: %v", err)
 	}
 	if ord != 1 {
 		t.Errorf("MIN ord = %d, want 1 (min of 3,1)", ord)
@@ -132,7 +151,7 @@ func TestWrapSortedDocValues_Min(t *testing.T) {
 	if doc != 4 {
 		t.Fatalf("expected parent 4, got %d", doc)
 	}
-	ord, _ = wrapped.GetOrd(doc)
+	ord, _ = wrapped.OrdValue()
 	if ord != 5 {
 		t.Errorf("single child ord = %d, want 5", ord)
 	}
@@ -154,7 +173,7 @@ func TestWrapSortedDocValues_Max(t *testing.T) {
 	if doc != 2 {
 		t.Fatalf("expected parent 2, got %d", doc)
 	}
-	ord, _ := wrapped.GetOrd(doc)
+	ord, _ := wrapped.OrdValue()
 	if ord != 3 {
 		t.Errorf("MAX ord = %d, want 3 (max of 3,1)", ord)
 	}
@@ -191,9 +210,9 @@ func TestWrapNumericDocValues_Min(t *testing.T) {
 	if doc != 2 {
 		t.Fatalf("expected parent 2, got %d", doc)
 	}
-	val, err := wrapped.Get(doc)
+	val, err := wrapped.LongValue()
 	if err != nil {
-		t.Fatalf("Get: %v", err)
+		t.Fatalf("LongValue: %v", err)
 	}
 	if val != 3 {
 		t.Errorf("MIN val = %d, want 3 (min of 10,3)", val)
@@ -203,7 +222,7 @@ func TestWrapNumericDocValues_Min(t *testing.T) {
 	if doc != 4 {
 		t.Fatalf("expected parent 4, got %d", doc)
 	}
-	val, _ = wrapped.Get(doc)
+	val, _ = wrapped.LongValue()
 	if val != 7 {
 		t.Errorf("single child val = %d, want 7", val)
 	}
@@ -221,7 +240,7 @@ func TestWrapNumericDocValues_Max(t *testing.T) {
 	if doc != 2 {
 		t.Fatalf("expected parent 2, got %d", doc)
 	}
-	val, _ := wrapped.Get(doc)
+	val, _ := wrapped.LongValue()
 	if val != 10 {
 		t.Errorf("MAX val = %d, want 10 (max of 10,3)", val)
 	}

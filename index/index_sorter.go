@@ -181,7 +181,9 @@ func buildIntComparator(reader *LeafReader, sf SortField, numDocs, reverseMul in
 			if docID < 0 || docID >= numDocs {
 				break
 			}
-			v, err := dvs.Get(docID)
+			// docID is the current cursor — LongValue is the iterator-shaped
+			// equivalent of Get(docID).
+			v, err := dvs.LongValue()
 			if err != nil {
 				return nil, err
 			}
@@ -224,7 +226,7 @@ func buildLongComparator(reader *LeafReader, sf SortField, numDocs, reverseMul i
 			if docID < 0 || docID >= numDocs {
 				break
 			}
-			v, err := dvs.Get(docID)
+			v, err := dvs.LongValue()
 			if err != nil {
 				return nil, err
 			}
@@ -270,7 +272,7 @@ func buildFloatComparator(reader *LeafReader, sf SortField, numDocs, reverseMul 
 				break
 			}
 			// Float values are stored as int32 bit patterns (Float.floatToRawIntBits).
-			raw, err := dvs.Get(docID)
+			raw, err := dvs.LongValue()
 			if err != nil {
 				return nil, err
 			}
@@ -314,7 +316,7 @@ func buildDoubleComparator(reader *LeafReader, sf SortField, numDocs, reverseMul
 				break
 			}
 			// Double values are stored as int64 bit patterns (Double.doubleToRawLongBits).
-			raw, err := dvs.Get(docID)
+			raw, err := dvs.LongValue()
 			if err != nil {
 				return nil, err
 			}
@@ -367,7 +369,7 @@ func buildStringOrdComparator(reader *LeafReader, sf SortField, numDocs, reverse
 			if docID < 0 || docID >= numDocs {
 				break
 			}
-			ord, err := dvs.GetOrd(docID)
+			ord, err := dvs.OrdValue()
 			if err != nil {
 				return nil, err
 			}
