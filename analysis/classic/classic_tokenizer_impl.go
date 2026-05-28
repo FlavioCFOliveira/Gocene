@@ -8,6 +8,8 @@ import (
 	"io"
 	"regexp"
 	"strings"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis"
 )
 
 // Token type constants matching ClassicTokenizer.
@@ -61,15 +63,15 @@ type classicScanResult struct {
 // regexp patterns used by ClassicTokenizerImpl.
 // Order matters: more specific patterns must precede general ones.
 var (
-	reEmail    = regexp.MustCompile(`[a-zA-Z0-9][a-zA-Z0-9_.+-]*@[a-zA-Z0-9][a-zA-Z0-9-]*\.[a-zA-Z0-9.]+`)
-	reAcronym  = regexp.MustCompile(`[A-Za-z]\.[A-Za-z](?:\.[A-Za-z])*\.?`)
-	reAcroNum  = regexp.MustCompile(`[A-Za-z0-9]\.[A-Za-z0-9](?:\.[A-Za-z0-9])*`)
-	reHost     = regexp.MustCompile(`[a-zA-Z0-9][a-zA-Z0-9-]*(?:\.[a-zA-Z0-9][a-zA-Z0-9-]*)+`)
-	reCompany  = regexp.MustCompile(`[a-zA-Z0-9]+(?:&[a-zA-Z0-9]+)+`)
+	reEmail      = regexp.MustCompile(`[a-zA-Z0-9][a-zA-Z0-9_.+-]*@[a-zA-Z0-9][a-zA-Z0-9-]*\.[a-zA-Z0-9.]+`)
+	reAcronym    = regexp.MustCompile(`[A-Za-z]\.[A-Za-z](?:\.[A-Za-z])*\.?`)
+	reAcroNum    = regexp.MustCompile(`[A-Za-z0-9]\.[A-Za-z0-9](?:\.[A-Za-z0-9])*`)
+	reHost       = regexp.MustCompile(`[a-zA-Z0-9][a-zA-Z0-9-]*(?:\.[a-zA-Z0-9][a-zA-Z0-9-]*)+`)
+	reCompany    = regexp.MustCompile(`[a-zA-Z0-9]+(?:&[a-zA-Z0-9]+)+`)
 	reApostrophe = regexp.MustCompile(`[a-zA-Z]+'[a-zA-Z]+`)
-	reNum      = regexp.MustCompile(`[0-9]+(?:[.,][0-9]+)*`)
-	reAlpha    = regexp.MustCompile(`[a-zA-Z0-9]+`)
-	reCJ       = regexp.MustCompile(`[\x{3040}-\x{318F}\x{31F0}-\x{31FF}\x{3400}-\x{4DBF}\x{4E00}-\x{9FFF}\x{A000}-\x{A4CF}\x{AC00}-\x{D7AF}]`)
+	reNum        = regexp.MustCompile(`[0-9]+(?:[.,][0-9]+)*`)
+	reAlpha      = regexp.MustCompile(`[a-zA-Z0-9]+`)
+	reCJ         = regexp.MustCompile(`[\x{3040}-\x{318F}\x{31F0}-\x{31FF}\x{3400}-\x{4DBF}\x{4E00}-\x{9FFF}\x{A000}-\x{A4CF}\x{AC00}-\x{D7AF}]`)
 )
 
 // ClassicTokenizerImpl is the scanner component for ClassicTokenizer.
@@ -87,24 +89,55 @@ type ClassicTokenizerImpl struct {
 	pos    int
 	tokens []classicToken
 	idx    int
+	// err records a failure to consume the input (an I/O error, or
+	// analysis.ErrInputTooLarge when the input exceeds
+	// analysis.MaxTokenizerInputSize). The constructor and Reset cannot return
+	// an error, so ClassicTokenizer surfaces it from SetReader/Reset via Err.
+	err error
 }
 
-// NewClassicTokenizerImpl creates an impl from an io.Reader.
+// NewClassicTokenizerImpl creates an impl from an io.Reader. The input is read
+// in full, bounded by analysis.MaxTokenizerInputSize; any read failure is
+// retained and reported through Err.
 func NewClassicTokenizerImpl(r io.Reader) *ClassicTokenizerImpl {
-	data, _ := io.ReadAll(r)
-	impl := &ClassicTokenizerImpl{input: string(data)}
+	data, err := readAllLimited(r)
+	impl := &ClassicTokenizerImpl{input: string(data), err: err}
 	impl.scan()
 	return impl
 }
 
-// Reset resets the scanner over a new reader.
+// Reset resets the scanner over a new reader. As with the constructor the read
+// is bounded; any failure is retained and reported through Err.
 func (s *ClassicTokenizerImpl) Reset(r io.Reader) {
-	data, _ := io.ReadAll(r)
+	data, err := readAllLimited(r)
+	s.err = err
 	s.input = string(data)
 	s.pos = 0
 	s.tokens = s.tokens[:0]
 	s.idx = 0
 	s.scan()
+}
+
+// Err returns any error encountered while reading the input, or nil.
+func (s *ClassicTokenizerImpl) Err() error { return s.err }
+
+// readAllLimited reads r fully but never more than
+// analysis.MaxTokenizerInputSize bytes, returning analysis.ErrInputTooLarge if
+// the stream would exceed that limit. It mirrors the unexported helper of the
+// same name in the analysis package; the classic package keeps a local copy to
+// avoid widening the analysis public surface with an exported reader helper.
+func readAllLimited(r io.Reader) ([]byte, error) {
+	if r == nil {
+		return nil, nil
+	}
+	data, err := io.ReadAll(io.LimitReader(r, analysis.MaxTokenizerInputSize+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > analysis.MaxTokenizerInputSize {
+		return nil, analysis.ErrInputTooLarge
+	}
+	return data, nil
 }
 
 // ResetIndex rewinds the token cursor to the beginning without re-reading

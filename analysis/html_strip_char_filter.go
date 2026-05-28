@@ -22,6 +22,11 @@ type HTMLStripCharFilter struct {
 	position    int
 	htmlRegex   *regexp.Regexp
 	entityRegex *regexp.Regexp
+	// readErr holds an error encountered while consuming the input (an I/O
+	// failure, or ErrInputTooLarge when the input exceeds
+	// MaxTokenizerInputSize). The constructor cannot return an error, so the
+	// error is surfaced through the io.Reader contract on the first Read.
+	readErr error
 }
 
 // htmlTagRegex matches HTML tags
@@ -30,11 +35,15 @@ var htmlTagRegex = regexp.MustCompile(`<[^>]*>`)
 // htmlEntityRegex matches HTML entities
 var htmlEntityRegex = regexp.MustCompile(`&(#?[a-zA-Z0-9]+);`)
 
-// NewHTMLStripCharFilter creates a new HTMLStripCharFilter.
+// NewHTMLStripCharFilter creates a new HTMLStripCharFilter. The input is read
+// in full, bounded by MaxTokenizerInputSize; if it is exceeded (or the input
+// fails to read), the error is deferred and returned from the first call to
+// Read, since the constructor itself cannot return one.
 func NewHTMLStripCharFilter(input io.Reader) *HTMLStripCharFilter {
-	// Read all input
-	data, err := io.ReadAll(input)
-	if err != nil {
+	// Read all input, bounded by MaxTokenizerInputSize.
+	data, readErr := readAllLimited(input)
+	if readErr != nil {
+		// Do not strip/decode a partial buffer; surface the error instead.
 		data = []byte{}
 	}
 
@@ -50,11 +59,18 @@ func NewHTMLStripCharFilter(input io.Reader) *HTMLStripCharFilter {
 		position:    0,
 		htmlRegex:   htmlTagRegex,
 		entityRegex: htmlEntityRegex,
+		readErr:     readErr,
 	}
 }
 
-// Read reads characters into the provided buffer.
+// Read reads characters into the provided buffer. If the input could not be
+// consumed (an I/O error, or ErrInputTooLarge when the input exceeded
+// MaxTokenizerInputSize), that error is returned here rather than silently
+// yielding a truncated or empty stream.
 func (f *HTMLStripCharFilter) Read(p []byte) (n int, err error) {
+	if f.readErr != nil {
+		return 0, f.readErr
+	}
 	if f.position >= len(f.buffer) {
 		return 0, io.EOF
 	}

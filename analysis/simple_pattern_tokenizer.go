@@ -127,21 +127,10 @@ func (t *SimplePatternTokenizer) SetReader(input io.Reader) error {
 	t.matchIndex = 0
 	t.matches = nil
 
-	// Read entire input into buffer
-	buf := make([]byte, 0, 1024)
-	temp := make([]byte, 1024)
-
-	for {
-		n, err := input.Read(temp)
-		if n > 0 {
-			buf = append(buf, temp[:n]...)
-		}
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
+	// Read entire input into buffer, bounded by MaxTokenizerInputSize.
+	buf, err := readAllLimited(input)
+	if err != nil {
+		return err
 	}
 
 	t.inputBuffer = string(buf)

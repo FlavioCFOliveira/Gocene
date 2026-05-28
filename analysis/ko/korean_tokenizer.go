@@ -146,9 +146,15 @@ func (t *KoreanTokenizer) SetReader(r io.Reader) error {
 	if err := t.BaseTokenizer.SetReader(r); err != nil {
 		return err
 	}
-	data, err := io.ReadAll(r)
+	// Bound the read by analysis.MaxTokenizerInputSize so an oversized input
+	// is rejected with analysis.ErrInputTooLarge rather than exhausting memory.
+	// Read one byte past the cap to distinguish "at limit" from "over limit".
+	data, err := io.ReadAll(io.LimitReader(r, analysis.MaxTokenizerInputSize+1))
 	if err != nil {
 		return err
+	}
+	if len(data) > analysis.MaxTokenizerInputSize {
+		return analysis.ErrInputTooLarge
 	}
 	runes := make([]rune, 0, utf8.RuneCount(data))
 	for len(data) > 0 {
