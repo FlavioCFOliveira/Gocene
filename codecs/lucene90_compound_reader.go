@@ -22,6 +22,7 @@
 package codecs
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -62,7 +63,7 @@ type Lucene90CompoundReader struct {
 
 // ErrReadOnlyCompoundDirectory is returned by every mutating Directory
 // method on Lucene90CompoundReader.
-var ErrReadOnlyCompoundDirectory = fmt.Errorf("lucene90 compound: directory is read-only")
+var ErrReadOnlyCompoundDirectory = errors.New("lucene90 compound: directory is read-only")
 
 // NewLucene90CompoundReader opens the compound segment (si.Name + .cfs /
 // .cfe) inside dir and returns a CompoundDirectory view.
