@@ -26,30 +26,15 @@ import (
 	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// CompoundFormat encodes/decodes compound files.
-// This is the Go port of Lucene's org.apache.lucene.codecs.CompoundFormat.
-//
-// Compound files combine multiple index files into a single file to reduce
-// the number of file handles needed when opening an index.
-type CompoundFormat interface {
-	// GetCompoundReader returns a Directory view (read-only) for the compound files in this segment.
-	GetCompoundReader(dir store.Directory, si *index.SegmentInfo) (CompoundDirectory, error)
+// CompoundFormat is an alias of spi.CompoundFormat.
+type CompoundFormat = spi.CompoundFormat
 
-	// Write packs the provided segment's files into a compound format.
-	Write(dir store.Directory, si *index.SegmentInfo, context store.IOContext) error
-}
-
-// CompoundDirectory is a read-only Directory view for compound files.
-// This is the Go port of Lucene's org.apache.lucene.codecs.CompoundDirectory.
-type CompoundDirectory interface {
-	store.Directory
-
-	// CheckIntegrity validates the checksum of all files in the compound directory.
-	CheckIntegrity() error
-}
+// CompoundDirectory is an alias of spi.CompoundDirectory.
+type CompoundDirectory = spi.CompoundDirectory
 
 // BaseCompoundFormat provides common functionality for CompoundFormat implementations.
 type BaseCompoundFormat struct {

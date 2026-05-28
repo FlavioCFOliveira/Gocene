@@ -5,22 +5,11 @@
 package codecs
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-// FieldInfosFormat handles encoding/decoding of field metadata.
-// This is the Go port of Lucene's org.apache.lucene.codecs.FieldInfosFormat.
-type FieldInfosFormat interface {
-	// Name returns the name of this format.
-	Name() string
-
-	// Read reads field infos from the given directory and segment info.
-	Read(dir store.Directory, segmentInfo *index.SegmentInfo, segmentSuffix string, context store.IOContext) (*index.FieldInfos, error)
-
-	// Write writes field infos to the given directory.
-	Write(dir store.Directory, segmentInfo *index.SegmentInfo, segmentSuffix string, infos *index.FieldInfos, context store.IOContext) error
-}
+// FieldInfosFormat is an alias of spi.FieldInfosFormat.
+type FieldInfosFormat = spi.FieldInfosFormat
 
 // Lucene104FieldInfosFormat is the codec wrapper used by the Lucene 10.4
 // codec; the wire format itself is unchanged from Lucene 9.4 so we embed

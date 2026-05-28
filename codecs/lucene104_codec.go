@@ -21,6 +21,7 @@ type Lucene104Codec struct {
 	storedFieldsFormat StoredFieldsFormat
 	fieldInfosFormat   FieldInfosFormat
 	segmentInfosFormat SegmentInfosFormat
+	segmentInfoFormat  SegmentInfoFormat
 	termVectorsFormat  TermVectorsFormat
 	docValuesFormat    DocValuesFormat
 	compoundFormat     CompoundFormat
@@ -41,11 +42,21 @@ func NewLucene104Codec() *Lucene104Codec {
 		storedFieldsFormat: NewLucene104StoredFieldsFormat(),
 		fieldInfosFormat:   NewLucene104FieldInfosFormat(),
 		segmentInfosFormat: NewLucene104SegmentInfosFormat(),
+		segmentInfoFormat:  NewLucene99SegmentInfoFormat(),
 		termVectorsFormat:  NewLucene104TermVectorsFormat(),
 		docValuesFormat:    NewLucene90DocValuesFormat(),
 		compoundFormat:     NewLucene90CompoundFormat(),
 		knnVectorsFormat:   NewPerFieldKnnVectorsFormatWithDefault(defaultKnn),
 	}
+}
+
+// SegmentInfoFormat returns the per-segment .si format. Added as part
+// of the SPI unification (rmp #4693) so Lucene104Codec satisfies the
+// spi.Codec interface that requires the singular SegmentInfoFormat
+// accessor. Returns NewLucene99SegmentInfoFormat(), matching the
+// Lucene 9.9/10.4 .si wire format.
+func (c *Lucene104Codec) SegmentInfoFormat() SegmentInfoFormat {
+	return c.segmentInfoFormat
 }
 
 // PostingsFormat returns the postings format.

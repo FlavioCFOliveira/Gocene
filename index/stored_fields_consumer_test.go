@@ -169,8 +169,14 @@ func TestStoredFieldsConsumer_WriteFieldDispatchesAllVariants(t *testing.T) {
 	if got := rec.received[5].NumericValue(); got != float64(2.5) {
 		t.Errorf("double field: got %v (%T), want float64(2.5)", got, got)
 	}
-	// The adapted field must report itself as stored-only.
-	if !rec.received[0].FieldType().IsStored() || rec.received[0].FieldType().IsIndexed() {
+	// The adapted field must report itself as stored-only. FieldType()
+	// is no longer on the narrow spi.IndexableField surface, so probe
+	// it via the legacy index-side projection.
+	ft, ok := rec.received[0].(interface{ FieldType() FieldTypeInterface })
+	if !ok {
+		t.Fatalf("adapted field does not expose FieldType() FieldTypeInterface")
+	}
+	if !ft.FieldType().IsStored() || ft.FieldType().IsIndexed() {
 		t.Errorf("adapted field must be stored-only")
 	}
 }
@@ -308,15 +314,15 @@ func TestStoredFieldsConsumer_InitPropagatesFormatError(t *testing.T) {
 // so the error path of StoredFieldsConsumer.InitStoredFieldsWriter is covered.
 type failingCodec struct{}
 
-func (failingCodec) Name() string                                { return "failing-codec" }
-func (failingCodec) PostingsFormat() PostingsFormat              { return nil }
-func (failingCodec) StoredFieldsFormat() StoredFieldsFormat      { return failingStoredFieldsFormat{} }
-func (failingCodec) FieldInfosFormat() FieldInfosFormat          { return nil }
-func (failingCodec) SegmentInfosFormat() SegmentInfosFormat      { return nil }
-func (failingCodec) SegmentInfoFormat() SegmentInfoFormat        { return nil }
-func (failingCodec) TermVectorsFormat() TermVectorsFormat        { return nil }
-func (failingCodec) CompoundFormat() CompoundFormat              { return nil }
-func (failingCodec) KnnVectorsFormat() KnnVectorsFormatFactory   { return nil }
+func (failingCodec) Name() string                              { return "failing-codec" }
+func (failingCodec) PostingsFormat() PostingsFormat            { return nil }
+func (failingCodec) StoredFieldsFormat() StoredFieldsFormat    { return failingStoredFieldsFormat{} }
+func (failingCodec) FieldInfosFormat() FieldInfosFormat        { return nil }
+func (failingCodec) SegmentInfosFormat() SegmentInfosFormat    { return nil }
+func (failingCodec) SegmentInfoFormat() SegmentInfoFormat      { return nil }
+func (failingCodec) TermVectorsFormat() TermVectorsFormat      { return nil }
+func (failingCodec) CompoundFormat() CompoundFormat            { return nil }
+func (failingCodec) KnnVectorsFormat() KnnVectorsFormatFactory { return nil }
 
 // failingStoredFieldsFormat always fails FieldsWriter.
 type failingStoredFieldsFormat struct{}

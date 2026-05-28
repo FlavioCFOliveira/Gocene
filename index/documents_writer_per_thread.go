@@ -251,6 +251,15 @@ type termFrequencyProvider interface {
 	TermFrequency() int
 }
 
+// indexFieldTypeProvider is satisfied by fields that expose the codec-facing
+// FieldTypeInterface (the legacy index-side IndexableField surface, retained
+// for fields that need to advertise indexed/stored/term-vector flags to the
+// indexing chain). The unified spi.IndexableField is narrower and does not
+// carry FieldType(); this probe restores access without bloating the SPI.
+type indexFieldTypeProvider interface {
+	FieldType() FieldTypeInterface
+}
+
 // asDwptField builds a flat dwptField record from fieldInterface using
 // structural type assertions.  It supports two concrete field layouts:
 //
@@ -258,29 +267,58 @@ type termFrequencyProvider interface {
 //  2. document.Field — coerced via its AsIndexableField() bridge method.
 //
 // Returns (nil, false) when the field does not expose the minimal surface.
+//
+// After the SPI unification (rmp #4693) the IndexableField interface no
+// longer carries FieldType(); fields that need to advertise codec-facing
+// type properties must do so via a separate FieldType() FieldTypeInterface
+// method. The original incoming value is preferred over the (possibly
+// wrapped) IndexableField projection so that document.Field instances —
+// which satisfy spi.IndexableField directly but only expose
+// FieldTypeInterface through their explicit AsIndexableField() bridge —
+// are routed through the bridge.
 func asDwptField(fieldInterface interface{}) (*dwptField, bool) {
 	if fieldInterface == nil {
 		return nil, false
 	}
 
-	// Try index.IndexableField first (codec-facing path).
-	idxF, ok := fieldInterface.(IndexableField)
-	if !ok {
-		// Try document.Field via its AsIndexableField() bridge.
-		if promoter, ok2 := fieldInterface.(indexableFieldPromoter); ok2 {
-			idxF = promoter.AsIndexableField()
+	// If the value exposes the legacy AsIndexableField() bridge (i.e.
+	// document.Field) always prefer it: that wrapper carries the
+	// FieldType() FieldTypeInterface accessor that the indexing chain
+	// needs to populate dwptField.isStored / .isIndexed / etc. The raw
+	// document.Field type also satisfies spi.IndexableField but does
+	// not expose FieldTypeInterface, which would leave those flags at
+	// their zero value and break the on-disk persistence of stored /
+	// indexed / docvalues fields.
+	var idxF IndexableField
+	if promoter, ok := fieldInterface.(indexableFieldPromoter); ok {
+		idxF = promoter.AsIndexableField()
+	}
+	if idxF == nil {
+		// Fall back to the codec-facing path (concrete IndexableField
+		// implementations that already expose the narrow SPI surface).
+		if v, ok := fieldInterface.(IndexableField); ok {
+			idxF = v
 		}
 	}
 	if idxF == nil {
 		return nil, false
 	}
 
-	ft := idxF.FieldType()
 	f := &dwptField{
 		name:        idxF.Name(),
 		stringValue: idxF.StringValue(),
 		binaryValue: idxF.BinaryValue(),
 		numericVal:  idxF.NumericValue(),
+	}
+	// FieldType() is no longer on the unified spi.IndexableField
+	// surface. Probe the IndexableField value first (it is the
+	// wrapping value when the field came through AsIndexableField),
+	// then the original incoming field.
+	var ft FieldTypeInterface
+	if ftp, ok := any(idxF).(indexFieldTypeProvider); ok {
+		ft = ftp.FieldType()
+	} else if ftp, ok := fieldInterface.(indexFieldTypeProvider); ok {
+		ft = ftp.FieldType()
 	}
 	if ft != nil {
 		f.isIndexed = ft.IsIndexed()
@@ -736,7 +774,7 @@ func (dwpt *DocumentsWriterPerThread) flushFieldInfos(codec Codec, state *Segmen
 	if fif == nil {
 		return nil
 	}
-	return fif.Write(state.Directory, state.SegmentInfo, state.FieldInfos, store.IOContextWrite)
+	return fif.Write(state.Directory, state.SegmentInfo, state.SegmentSuffix, state.FieldInfos, store.IOContextWrite)
 }
 
 // docTermEntry holds one term's contribution to a document's term vector.

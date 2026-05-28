@@ -5,153 +5,115 @@
 package index
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
-	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// Codec is an interface for index encoding/decoding.
-// This is defined in the index package to avoid import cycles.
-// The codecs package provides implementations of this interface.
+// This file is the index-side facade for the codec SPI after the
+// SPI unification (rmp #4669 / Sprint 118 phase 2 / rmp #4693). The
+// canonical declaration site lives in spi/; index/ re-exports the
+// types as Go aliases so callers that historically reached for
+// index.Codec, index.PostingsFormat, index.SegmentWriteState, etc.
+// keep compiling without churn.
+//
+// Aliasing an interface with `type X = spi.X` makes the index-package
+// identifier indistinguishable from its SPI counterpart at the type-
+// system level: implementations in codecs/ satisfy index/ interfaces
+// without any adapter, and the codecbridge adapters collapse to
+// identity wrappers.
+
+// Codec extends spi.Codec with the two component accessors that the
+// SPI does not yet cover on the index-facing surface. The extra
+// methods stay declared here until the matching follow-up tasks land:
+//   - SegmentInfosFormat: TODO(T4706)
+//   - KnnVectorsFormat:   TODO(T4707)
+//
+// Once those tasks complete, this declaration collapses to
+// `type Codec = spi.Codec`. (DocValuesFormat is a codecs-only
+// accessor on Lucene104Codec and is NOT part of the index-side
+// Codec surface; see rmp #4708 for the lift.)
 type Codec interface {
-	// Name returns the name of this codec.
-	Name() string
+	spi.Codec
 
-	// PostingsFormat returns the postings format for encoding/decoding term postings.
-	PostingsFormat() PostingsFormat
-
-	// StoredFieldsFormat returns the stored fields format.
-	StoredFieldsFormat() StoredFieldsFormat
-
-	// FieldInfosFormat returns the field infos format.
-	FieldInfosFormat() FieldInfosFormat
-
-	// SegmentInfosFormat returns the segment infos format.
+	// SegmentInfosFormat returns the format used for the plural
+	// segments_N file. TODO(T4706): move to spi.Codec.
 	SegmentInfosFormat() SegmentInfosFormat
 
-	// SegmentInfoFormat returns the per-segment .si file format.
-	SegmentInfoFormat() SegmentInfoFormat
-
-	// TermVectorsFormat returns the term vectors format.
-	TermVectorsFormat() TermVectorsFormat
-
-	// CompoundFormat returns the compound format used to pack per-segment files
-	// into a single .cfs/.cfe pair when useCompoundFile is enabled.
-	// Returns nil when compound-file writing is not supported by this codec.
-	CompoundFormat() CompoundFormat
-
-	// KnnVectorsFormat returns the KnnVectorsFormatFactory used to construct
-	// the per-segment KNN vectors writer during indexing. Codec implementations
-	// that do not support KNN vectors may return nil; callers check for nil
-	// before invoking FieldsWriter. This mirrors Codec.knnVectorsFormat() in
-	// Apache Lucene 10.4.0.
+	// KnnVectorsFormat returns the factory used to construct the
+	// per-segment KNN vectors writer during indexing. Codec
+	// implementations that do not support KNN vectors may return nil.
+	// TODO(T4707): move to spi.Codec once the KnnVectorsFormat /
+	// KnnVectorsFormatFactory reconciliation lands.
 	KnnVectorsFormat() KnnVectorsFormatFactory
 }
 
-// PostingsFormat is an interface for encoding/decoding term postings.
-type PostingsFormat interface {
-	// Name returns the name of this format.
-	Name() string
+// PostingsFormat is an alias of spi.PostingsFormat.
+type PostingsFormat = spi.PostingsFormat
 
-	// FieldsConsumer returns a consumer for writing postings.
-	FieldsConsumer(state *SegmentWriteState) (FieldsConsumer, error)
+// FieldsConsumer is an alias of spi.FieldsConsumer.
+type FieldsConsumer = spi.FieldsConsumer
 
-	// FieldsProducer returns a producer for reading postings.
-	FieldsProducer(state *SegmentReadState) (FieldsProducer, error)
-}
+// FieldsProducer is an alias of spi.FieldsProducer.
+type FieldsProducer = spi.FieldsProducer
 
-// FieldsConsumer is an interface for writing postings.
-type FieldsConsumer interface {
-	// Write writes a field's postings.
-	Write(field string, terms Terms) error
+// StoredFieldsFormat is an alias of spi.StoredFieldsFormat.
+type StoredFieldsFormat = spi.StoredFieldsFormat
 
-	// Close releases resources.
-	Close() error
-}
+// StoredFieldsReader is an alias of spi.StoredFieldsReader.
+type StoredFieldsReader = spi.StoredFieldsReader
 
-// FieldsProducer is an interface for reading postings.
-type FieldsProducer interface {
-	// Terms returns the terms for a field.
-	Terms(field string) (Terms, error)
+// StoredFieldsWriter is an alias of spi.StoredFieldsWriter.
+type StoredFieldsWriter = spi.StoredFieldsWriter
 
-	// Close releases resources.
-	Close() error
-}
+// StoredFieldVisitor is an alias of spi.StoredFieldVisitor.
+type StoredFieldVisitor = spi.StoredFieldVisitor
 
-// StoredFieldsFormat is an interface for encoding/decoding stored fields.
-type StoredFieldsFormat interface {
-	// Name returns the name of this format.
-	Name() string
+// FieldInfosFormat is an alias of spi.FieldInfosFormat. The Read/Write
+// signatures carry a segmentSuffix string parameter to match the
+// codecs-side Lucene-faithful shape.
+type FieldInfosFormat = spi.FieldInfosFormat
 
-	// FieldsReader returns a reader for stored fields.
-	FieldsReader(dir store.Directory, segmentInfo *SegmentInfo, fieldInfos *FieldInfos, context store.IOContext) (StoredFieldsReader, error)
+// SegmentInfoFormat is an alias of spi.SegmentInfoFormat.
+type SegmentInfoFormat = spi.SegmentInfoFormat
 
-	// FieldsWriter returns a writer for stored fields.
-	FieldsWriter(dir store.Directory, segmentInfo *SegmentInfo, context store.IOContext) (StoredFieldsWriter, error)
-}
+// TermVectorsFormat is an alias of spi.TermVectorsFormat.
+type TermVectorsFormat = spi.TermVectorsFormat
 
-// StoredFieldsReader is an interface for reading stored fields.
-type StoredFieldsReader interface {
-	// VisitDocument visits the stored fields for a document.
-	VisitDocument(docID int, visitor StoredFieldVisitor) error
+// TermVectorsWriter is an alias of spi.TermVectorsWriter.
+type TermVectorsWriter = spi.TermVectorsWriter
 
-	// Close releases resources.
-	Close() error
-}
+// TermVectorsReader is an alias of spi.TermVectorsReader.
+type TermVectorsReader = spi.TermVectorsReader
 
-// StoredFieldsWriter is an interface for writing stored fields.
-type StoredFieldsWriter interface {
-	// StartDocument starts writing a document.
-	StartDocument() error
+// CompoundFormat is an alias of spi.CompoundFormat.
+type CompoundFormat = spi.CompoundFormat
 
-	// FinishDocument finishes writing the current document.
-	FinishDocument() error
+// CompoundDirectory is an alias of spi.CompoundDirectory.
+type CompoundDirectory = spi.CompoundDirectory
 
-	// WriteField writes a field.
-	WriteField(field IndexableField) error
+// IndexableField is an alias of spi.IndexableField — the narrow,
+// codec-facing contract that the stored-fields write path consumes.
+//
+// The document-facing IndexableField (with the wider Lucene 10.4.0 API
+// including FieldType / ReaderValue / TokenStream) lives in package
+// document and is a structural superset of this interface.
+type IndexableField = spi.IndexableField
 
-	// Finish finalizes the segment for the given total document count.
-	// It mirrors org.apache.lucene.codecs.StoredFieldsWriter.finish and is
-	// called once, before Close, by StoredFieldsConsumer.Flush.
-	Finish(numDocs int) error
+// SegmentWriteState is an alias of spi.SegmentWriteState. The
+// SegUpdates field carries the spi.BufferedUpdatesRef marker
+// interface; callers in this package type-assert to *BufferedUpdates
+// when they need the structured data.
+type SegmentWriteState = spi.SegmentWriteState
 
-	// Close releases resources.
-	Close() error
-}
+// SegmentReadState is an alias of spi.SegmentReadState.
+type SegmentReadState = spi.SegmentReadState
 
-// StoredFieldVisitor is called for each stored field when visiting a document.
-type StoredFieldVisitor interface {
-	// StringField is called for a stored string field.
-	StringField(field string, value string)
+// -----------------------------------------------------------------------------
+// Legacy index-only interfaces that the SPI does not yet cover.
+// -----------------------------------------------------------------------------
 
-	// BinaryField is called for a stored binary field.
-	BinaryField(field string, value []byte)
-
-	// IntField is called for a stored int field.
-	IntField(field string, value int)
-
-	// LongField is called for a stored long field.
-	LongField(field string, value int64)
-
-	// FloatField is called for a stored float field.
-	FloatField(field string, value float32)
-
-	// DoubleField is called for a stored double field.
-	DoubleField(field string, value float64)
-}
-
-// FieldInfosFormat is an interface for encoding/decoding field infos.
-type FieldInfosFormat interface {
-	// Name returns the name of this format.
-	Name() string
-
-	// Read reads field infos from a directory.
-	Read(dir store.Directory, segmentInfo *SegmentInfo, context store.IOContext) (*FieldInfos, error)
-
-	// Write writes field infos to a directory.
-	Write(dir store.Directory, segmentInfo *SegmentInfo, fieldInfos *FieldInfos, context store.IOContext) error
-}
-
-// SegmentInfosFormat is an interface for encoding/decoding segment infos.
+// SegmentInfosFormat is the index-side interface for the plural
+// segments_N format. TODO(T4706): collapse into spi.Codec.
 type SegmentInfosFormat interface {
 	// Name returns the name of this format.
 	Name() string
@@ -163,103 +125,11 @@ type SegmentInfosFormat interface {
 	Write(dir store.Directory, segmentInfos *SegmentInfos, context store.IOContext) error
 }
 
-// SegmentInfoFormat handles encoding/decoding of a single segment's .si file.
-// This maps to Lucene's org.apache.lucene.codecs.SegmentInfoFormat.
-type SegmentInfoFormat interface {
-	// Write writes a single segment's metadata to a .si file in dir.
-	Write(dir store.Directory, info *SegmentInfo, context store.IOContext) error
-
-	// Read reads a single segment's metadata from a .si file in dir.
-	Read(dir store.Directory, segmentName string, segmentID []byte, context store.IOContext) (*SegmentInfo, error)
-}
-
-// TermVectorsFormat is an interface for encoding/decoding term vectors.
-type TermVectorsFormat interface {
-	// Name returns the name of this format.
-	Name() string
-
-	// VectorsWriter returns a writer for term vectors.
-	VectorsWriter(state *SegmentWriteState) (TermVectorsWriter, error)
-
-	// VectorsReader returns a reader for term vectors.
-	VectorsReader(dir store.Directory, segmentInfo *SegmentInfo, fieldInfos *FieldInfos, context store.IOContext) (TermVectorsReader, error)
-}
-
-// TermVectorsWriter is an interface for writing term vectors.
-type TermVectorsWriter interface {
-	// StartDocument starts writing term vectors for a document.
-	StartDocument(numFields int) error
-
-	// StartField starts writing a term vector for a field.
-	StartField(fieldInfo *FieldInfo, numTerms int, hasPositions, hasOffsets, hasPayloads bool) error
-
-	// StartTerm starts a new term in the current field.
-	StartTerm(term []byte) error
-
-	// AddPosition adds a position for the current term.
-	AddPosition(position int, startOffset, endOffset int, payload []byte) error
-
-	// FinishTerm finishes the current term.
-	FinishTerm() error
-
-	// FinishField finishes the current field.
-	FinishField() error
-
-	// FinishDocument finishes the current document.
-	FinishDocument() error
-
-	// Close releases resources.
-	Close() error
-}
-
-// TermVectorsReader is an interface for reading term vectors.
-type TermVectorsReader interface {
-	// Get retrieves term vectors for the given document ID.
-	// Returns a Fields object containing the term vectors.
-	Get(docID int) (Fields, error)
-
-	// GetField retrieves the term vector for a specific field in a document.
-	GetField(docID int, field string) (Terms, error)
-
-	// Close releases resources.
-	Close() error
-}
-
-// IndexableField is the index-package contract for fields that can be
-// indexed. It is intentionally a minimal subset of Apache Lucene 10.4.0's
-// org.apache.lucene.index.IndexableField, scoped to what
-// DocumentsWriterPerThread and codec stored-fields writers consume.
-//
-// Divergence from Lucene 10.4.0:
-//   - TokenStream(Analyzer, TokenStream) is omitted (analysis is handled
-//     via getOrCreateTokenStream in the writer chain).
-//   - ReaderValue() io.Reader is omitted.
-//   - StoredValue() and InvertableType() are omitted; their information is
-//     reconstructed from FieldType() in Gocene's writer paths.
-//   - GetCharSequenceValue() is folded into StringValue().
-//
-// The canonical, document-facing IndexableField with the full Lucene surface
-// lives in package document (document.IndexableField). Codec WriteField
-// implementations in package codecs accept document.IndexableField directly.
-type IndexableField interface {
-	// Name returns the name of the field.
-	Name() string
-
-	// FieldType returns the field type properties.
-	FieldType() FieldTypeInterface
-
-	// StringValue returns the string value of the field, or "" if none.
-	StringValue() string
-
-	// BinaryValue returns the binary value of the field, or nil if none.
-	BinaryValue() []byte
-
-	// NumericValue returns the numeric value of the field, or nil if none.
-	NumericValue() interface{}
-}
-
-// FieldTypeInterface is an interface for field type properties.
-// This is defined to avoid import cycles.
+// FieldTypeInterface is the index-package projection of the document
+// FieldType properties that legacy index-side stored-fields paths still
+// consume. It pre-dates the SPI unification and is retained for any
+// remaining callers that reach for FieldType() on an index.IndexableField
+// implementation defined here (rather than via the document package).
 type FieldTypeInterface interface {
 	// IsIndexed returns whether the field is indexed.
 	IsIndexed() bool
@@ -284,74 +154,4 @@ type FieldTypeInterface interface {
 
 	// StoreTermVectorOffsets returns whether term vector offsets are stored.
 	StoreTermVectorOffsets() bool
-}
-
-// CompoundFormat encodes/decodes compound files. It packs many per-segment
-// files into a single .cfs/.cfe pair to reduce file-handle pressure.
-// This is the index-package projection of codecs.CompoundFormat; the two
-// interfaces are structurally identical so that codecs.Lucene90CompoundFormat
-// satisfies both without an explicit adapter.
-type CompoundFormat interface {
-	// Write packs the segment files listed in si.Files() into a compound
-	// (.cfs/.cfe) file pair in dir.
-	Write(dir store.Directory, si *SegmentInfo, ctx store.IOContext) error
-
-	// GetCompoundReader returns a read-only Directory view of the .cfs file.
-	GetCompoundReader(dir store.Directory, si *SegmentInfo) (CompoundDirectory, error)
-}
-
-// CompoundDirectory is a read-only Directory view of a compound file.
-// It extends store.Directory with a checksum-validation hook.
-type CompoundDirectory interface {
-	store.Directory
-
-	// CheckIntegrity validates the checksums of all files in the compound file.
-	CheckIntegrity() error
-}
-
-// SegmentWriteState holds the state for writing a segment.
-type SegmentWriteState struct {
-	// Directory is where the segment files are written.
-	Directory store.Directory
-
-	// SegmentInfo contains metadata about the segment.
-	SegmentInfo *SegmentInfo
-
-	// FieldInfos contains metadata about all fields.
-	FieldInfos *FieldInfos
-
-	// SegmentSuffix is an optional suffix for segment files.
-	SegmentSuffix string
-
-	// SegUpdates holds buffered deletions that must be applied during flush.
-	// May be nil when no pending deletes exist for this segment.
-	// Mirrors Lucene 10.4.0 SegmentWriteState.segUpdates.
-	SegUpdates *BufferedUpdates
-
-	// LiveDocs is the per-document live-docs bitset that applyDeletes populates
-	// when term deletions are applied during flush. It is nil until at least
-	// one document is deleted; callers must allocate it on first use.
-	// Mirrors Lucene 10.4.0 SegmentWriteState.liveDocs.
-	LiveDocs *util.FixedBitSet
-
-	// DelCountOnFlush is incremented for every document cleared from LiveDocs
-	// during the applyDeletes pass. The final value is used to update the
-	// segment's live-doc count.
-	// Mirrors Lucene 10.4.0 SegmentWriteState.delCountOnFlush.
-	DelCountOnFlush int
-}
-
-// SegmentReadState holds the state for reading a segment.
-type SegmentReadState struct {
-	// Directory is where the segment files are read from.
-	Directory store.Directory
-
-	// SegmentInfo contains metadata about the segment.
-	SegmentInfo *SegmentInfo
-
-	// FieldInfos contains metadata about all fields.
-	FieldInfos *FieldInfos
-
-	// SegmentSuffix is an optional suffix for segment files.
-	SegmentSuffix string
 }

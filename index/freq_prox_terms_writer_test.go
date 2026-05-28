@@ -669,7 +669,7 @@ func TestApplyDeletes_ClearsDocsBelowDocIDUpto(t *testing.T) {
 
 	sws.SegUpdates = NewBufferedUpdates("_0")
 	// docIDUpto = 2 → delete docs with docID < 2, i.e. docs 0 and 1.
-	sws.SegUpdates.AddTerm(NewTerm("body", "hello"), 2)
+	sws.SegUpdates.(*BufferedUpdates).AddTerm(NewTerm("body", "hello"), 2)
 
 	if err := applyDeletes(sws, fields); err != nil {
 		t.Fatalf("applyDeletes: %v", err)
@@ -699,7 +699,7 @@ func TestApplyDeletes_AllDocsDeleted(t *testing.T) {
 
 	sws.SegUpdates = NewBufferedUpdates("_0")
 	// docIDUpto = MaxInt → delete all docs that contain the term.
-	sws.SegUpdates.AddTerm(NewTerm("content", "foo"), MaxInt)
+	sws.SegUpdates.(*BufferedUpdates).AddTerm(NewTerm("content", "foo"), MaxInt)
 
 	if err := applyDeletes(sws, fields); err != nil {
 		t.Fatalf("applyDeletes: %v", err)
@@ -720,7 +720,7 @@ func TestApplyDeletes_TermNotInIndex_IsNoOp(t *testing.T) {
 
 	sws.SegUpdates = NewBufferedUpdates("_0")
 	// Delete a term that does not appear in the indexed field.
-	sws.SegUpdates.AddTerm(NewTerm("body", "absent"), MaxInt)
+	sws.SegUpdates.(*BufferedUpdates).AddTerm(NewTerm("body", "absent"), MaxInt)
 
 	if err := applyDeletes(sws, fields); err != nil {
 		t.Fatalf("applyDeletes: %v", err)
@@ -741,7 +741,7 @@ func TestApplyDeletes_IdempotentOnDoubleCall(t *testing.T) {
 	fields := Fields(NewFreqProxFields([]*FreqProxTermsWriterPerField{per}))
 
 	sws.SegUpdates = NewBufferedUpdates("_0")
-	sws.SegUpdates.AddTerm(NewTerm("body", "hello"), MaxInt)
+	sws.SegUpdates.(*BufferedUpdates).AddTerm(NewTerm("body", "hello"), MaxInt)
 
 	if err := applyDeletes(sws, fields); err != nil {
 		t.Fatalf("first applyDeletes: %v", err)
@@ -892,7 +892,7 @@ func TestFreqProxTermsWriter_Flush_AppliesDeletions(t *testing.T) {
 		SegUpdates:  NewBufferedUpdates("_0"),
 	}
 	// docIDUpto = 1 → delete doc 0 only (doc < 1).
-	sws.SegUpdates.AddTerm(NewTerm("body", "hello"), 1)
+	sws.SegUpdates.(*BufferedUpdates).AddTerm(NewTerm("body", "hello"), 1)
 
 	fieldsMap := map[string]*TermsHashPerField{
 		"body": per.TermsHashPerField,

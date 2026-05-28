@@ -7,39 +7,32 @@ package codecs
 import (
 	"fmt"
 	"sync"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-// Codec abstracts index format encoding/decoding.
-// A Codec provides codecs for different components
-// (postings, stored fields, field infos, segment infos, term vectors).
+// Codec extends spi.Codec with the two component accessors that the
+// SPI does not yet cover on the codecs-facing surface. The extra
+// methods stay declared here until the matching follow-up tasks land:
+//   - SegmentInfosFormat: TODO(T4706)
+//   - DocValuesFormat:    TODO(T4708)
 //
-// This is the Go port of Lucene's org.apache.lucene.codecs.Codec.
+// Once those tasks complete, this declaration collapses to
+// `type Codec = spi.Codec`. KnnVectorsFormat is exposed on
+// *Lucene104Codec as a concrete method but is NOT part of the
+// codecs.Codec interface today; see rmp #4707.
 type Codec interface {
-	// Name returns the name of this codec.
-	Name() string
+	spi.Codec
 
-	// PostingsFormat returns the postings format.
-	PostingsFormat() PostingsFormat
-
-	// StoredFieldsFormat returns the stored fields format.
-	StoredFieldsFormat() StoredFieldsFormat
-
-	// FieldInfosFormat returns the field infos format.
-	FieldInfosFormat() FieldInfosFormat
-
-	// SegmentInfosFormat returns the segment infos format.
+	// SegmentInfosFormat returns the format used for the plural
+	// segments_N file. TODO(T4706): move to spi.Codec.
 	SegmentInfosFormat() SegmentInfosFormat
 
-	// TermVectorsFormat returns the term vectors format.
-	TermVectorsFormat() TermVectorsFormat
-
-	// DocValuesFormat returns the doc values format.
+	// DocValuesFormat returns the format used for doc values. Codec
+	// implementations that do not support doc values may return nil.
+	// TODO(T4708): move to spi.Codec once the DocValuesFormat /
+	// DocValuesProducer / DocValuesConsumer family lifts.
 	DocValuesFormat() DocValuesFormat
-
-	// CompoundFormat returns the compound format used to pack per-segment files
-	// into a single .cfs/.cfe pair when useCompoundFile is true on the index.
-	// Returns nil when compound-file writing is not supported by this codec.
-	CompoundFormat() CompoundFormat
 }
 
 // BaseCodec provides common functionality.
@@ -74,6 +67,12 @@ func (c *BaseCodec) FieldInfosFormat() FieldInfosFormat {
 
 // SegmentInfosFormat returns the segment infos format.
 func (c *BaseCodec) SegmentInfosFormat() SegmentInfosFormat {
+	return nil
+}
+
+// SegmentInfoFormat returns the per-segment .si format. Returns nil by
+// default; concrete codecs override.
+func (c *BaseCodec) SegmentInfoFormat() SegmentInfoFormat {
 	return nil
 }
 
