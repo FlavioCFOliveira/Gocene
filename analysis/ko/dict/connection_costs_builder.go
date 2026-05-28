@@ -56,9 +56,18 @@ func (ConnectionCostsBuilder) Build(r io.Reader) (*morph.ConnectionCosts, error)
 		if len(fields) < 3 {
 			continue
 		}
-		f, _ := strconv.Atoi(fields[0])
-		b, _ := strconv.Atoi(fields[1])
-		cost, _ := strconv.Atoi(fields[2])
+		f, err := strconv.Atoi(fields[0])
+		if err != nil {
+			return nil, fmt.Errorf("connectionCostsBuilder: invalid forwardID %q: %w", fields[0], err)
+		}
+		b, err := strconv.Atoi(fields[1])
+		if err != nil {
+			return nil, fmt.Errorf("connectionCostsBuilder: invalid backwardID %q: %w", fields[1], err)
+		}
+		cost, err := strconv.Atoi(fields[2])
+		if err != nil {
+			return nil, fmt.Errorf("connectionCostsBuilder: invalid cost %q: %w", fields[2], err)
+		}
 		w.SetCost(f, b, int16(cost))
 	}
 	if err := scanner.Err(); err != nil {

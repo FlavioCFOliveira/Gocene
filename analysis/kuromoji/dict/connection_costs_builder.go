@@ -40,11 +40,11 @@ func (ConnectionCostsBuilder) Build(r io.Reader) (*morph.ConnectionCosts, error)
 	}
 	fwd, err := strconv.Atoi(dims[0])
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("connectionCostsBuilder: invalid forwardSize %q: %w", dims[0], err)
 	}
 	bwd, err := strconv.Atoi(dims[1])
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("connectionCostsBuilder: invalid backwardSize %q: %w", dims[1], err)
 	}
 	w := morph.NewConnectionCostsWriter(fwd, bwd)
 	for scanner.Scan() {
@@ -52,9 +52,18 @@ func (ConnectionCostsBuilder) Build(r io.Reader) (*morph.ConnectionCosts, error)
 		if len(fields) < 3 {
 			continue
 		}
-		f, _ := strconv.Atoi(fields[0])
-		b, _ := strconv.Atoi(fields[1])
-		cost, _ := strconv.Atoi(fields[2])
+		f, err := strconv.Atoi(fields[0])
+		if err != nil {
+			return nil, fmt.Errorf("connectionCostsBuilder: invalid forwardID %q: %w", fields[0], err)
+		}
+		b, err := strconv.Atoi(fields[1])
+		if err != nil {
+			return nil, fmt.Errorf("connectionCostsBuilder: invalid backwardID %q: %w", fields[1], err)
+		}
+		cost, err := strconv.Atoi(fields[2])
+		if err != nil {
+			return nil, fmt.Errorf("connectionCostsBuilder: invalid cost %q: %w", fields[2], err)
+		}
 		w.SetCost(f, b, int16(cost))
 	}
 	if err := scanner.Err(); err != nil {
