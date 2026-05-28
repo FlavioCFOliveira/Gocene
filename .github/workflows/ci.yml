@@ -36,6 +36,17 @@ jobs:
       - name: Test
         run: go test ./... -timeout 300s
 
+  # Skip-guard: reject undocumented test skips (rmp #4722). A t.Skip is tracked
+  # debt; every skip must carry a non-empty reason (see docs/skipped-tests-audit.md).
+  skip-guard:
+    name: Skip guard (no undocumented t.Skip)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Check for undocumented skips
+        run: bash scripts/check-skips.sh
+
   # Race-detector job. The Go race detector (ThreadSanitizer) requires a 48-bit
   # virtual address space, which GitHub's ubuntu-latest (x86_64) provides but
   # some ARM64 hosts (47-bit VMA) do not — hence this dedicated x86_64 job so
