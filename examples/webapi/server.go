@@ -178,7 +178,11 @@ func (s *Server) searchBooks(w http.ResponseWriter, r *http.Request) {
 
 	result, err := s.store.Search(req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		if errors.Is(err, ErrUnknownField) || errors.Is(err, ErrBadQuery) {
+			writeError(w, http.StatusBadRequest, err.Error())
+		} else {
+			writeError(w, http.StatusInternalServerError, err.Error())
+		}
 		return
 	}
 	writeJSON(w, http.StatusOK, result)

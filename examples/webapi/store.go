@@ -23,6 +23,13 @@ import (
 // requested id is indexed.
 var ErrBookNotFound = errors.New("book not found")
 
+// ErrUnknownField is returned by Search when the field parameter is not a
+// valid indexed field name.
+var ErrUnknownField = errors.New("unknown search field")
+
+// ErrBadQuery is returned by Search when the query string cannot be parsed.
+var ErrBadQuery = errors.New("invalid query syntax")
+
 // BookStore exposes a small CRUD + search surface tailored to the Book domain
 // and backed by a Gocene index for full-text matching.
 //
@@ -234,6 +241,11 @@ type SearchResult struct {
 // shadow path gives the demo a deterministic answer. Pagination is naive:
 // the searcher is asked for the first page*size hits and the requested page
 // is sliced out — fine for a demo corpus.
+//
+// Errors are classified so callers can map them to HTTP status codes:
+//   - ErrUnknownField → 400 (bad field parameter)
+//   - ErrBadQuery → 400 (unparseable query string)
+//   - all other errors → 500 (internal / I/O failures)
 func (s *BookStore) Search(req SearchRequest) (SearchResult, error) {
 	page, size := normalisePaging(req.Page, req.Size)
 
@@ -249,7 +261,7 @@ func (s *BookStore) Search(req SearchRequest) (SearchResult, error) {
 	}
 
 	if !IsValidField(req.Field) && req.Field != "" {
-		return SearchResult{}, fmt.Errorf("unknown field %q", req.Field)
+		return SearchResult{}, fmt.Errorf("%w: %q", ErrUnknownField, req.Field)
 	}
 
 	reader, err := index.OpenDirectoryReader(s.dir)
@@ -262,7 +274,7 @@ func (s *BookStore) Search(req SearchRequest) (SearchResult, error) {
 
 	query, err := s.buildQuery(req)
 	if err != nil {
-		return SearchResult{}, err
+		return SearchResult{}, fmt.Errorf("%w: %w", ErrBadQuery, err)
 	}
 
 	// Ask the searcher for a generous slice. The hit count Gocene returns
