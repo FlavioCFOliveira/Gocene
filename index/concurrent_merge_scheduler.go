@@ -443,23 +443,53 @@ func (s *ConcurrentMergeScheduler) Close() error {
 	// Signal shutdown
 	s.cancel()
 
-	// Wait for all merges to complete with timeout
-	done := make(chan struct{})
-	go func() {
-		s.runningMerges.Wait()
-		close(done)
-	}()
-
-	// Wait with timeout
-	select {
-	case <-done:
-		// All merges completed
-	case <-time.After(60 * time.Second):
-		// Timeout waiting for merges
-		return fmt.Errorf("timeout waiting for merges to complete")
+	// Wait for all running merges to drain, bounded by a timeout.
+	if err := s.awaitMergesOrTimeout(60 * time.Second); err != nil {
+		return err
 	}
 
 	return s.BaseMergeScheduler.Close()
+}
+
+// awaitMergesOrTimeout blocks until all running merges have drained or the
+// timeout elapses, returning an error on timeout.
+//
+// The watcher goroutine must not outlive this call. A goroutine blocked in
+// sync.WaitGroup.Wait cannot be cancelled, so on the timeout path it would leak
+// (surviving until the stuck merges happened to finish, or forever). Instead a
+// context is cancelled when this method returns and the watcher polls the
+// running-merge count, exiting promptly when either the count reaches zero or
+// the context is cancelled. This guarantees no goroutine is leaked on timeout.
+func (s *ConcurrentMergeScheduler) awaitMergesOrTimeout(timeout time.Duration) error {
+	watchCtx, cancelWatch := context.WithCancel(context.Background())
+	defer cancelWatch()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(10 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			if s.GetRunningMergeCount() == 0 {
+				return
+			}
+			select {
+			case <-watchCtx.Done():
+				// The caller is returning (e.g. on timeout); stop watching so this
+				// goroutine exits cleanly instead of leaking.
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+
+	// On timeout the deferred cancelWatch unblocks the watcher before we return.
+	select {
+	case <-done:
+		return nil
+	case <-time.After(timeout):
+		return fmt.Errorf("timeout waiting for merges to complete")
+	}
 }
 
 // CloseWithContext closes the scheduler with a custom context for timeout control.
