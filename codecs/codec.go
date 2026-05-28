@@ -11,22 +11,14 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-// Codec extends spi.Codec with the two component accessors that the
-// SPI does not yet cover on the codecs-facing surface. The extra
-// methods stay declared here until the matching follow-up tasks land:
-//   - SegmentInfosFormat: TODO(T4706)
-//   - DocValuesFormat:    TODO(T4708)
-//
-// Once those tasks complete, this declaration collapses to
-// `type Codec = spi.Codec`. KnnVectorsFormat is exposed on
-// *Lucene104Codec as a concrete method but is NOT part of the
-// codecs.Codec interface today; see rmp #4707.
+// Codec extends spi.Codec with the one remaining component accessor
+// that the SPI does not yet cover on the codecs-facing surface:
+// DocValuesFormat. The matching follow-up task is rmp #4708; once it
+// lands this declaration collapses to `type Codec = spi.Codec`.
+// KnnVectorsFormat is exposed on *Lucene104Codec as a concrete method
+// but is NOT part of the codecs.Codec interface today; see rmp #4707.
 type Codec interface {
 	spi.Codec
-
-	// SegmentInfosFormat returns the format used for the plural
-	// segments_N file. TODO(T4706): move to spi.Codec.
-	SegmentInfosFormat() SegmentInfosFormat
 
 	// DocValuesFormat returns the format used for doc values. Codec
 	// implementations that do not support doc values may return nil.

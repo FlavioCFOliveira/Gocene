@@ -377,7 +377,7 @@ func (m *DocValuesUpdateMerger) MergeUpdates(segmentInfos *SegmentInfos) (*DocVa
 
 	// Collect updates from all source segments.
 	for _, reader := range m.sourceReaders {
-		for _, segmentCommitInfo := range segmentInfos.segments {
+		for _, segmentCommitInfo := range segmentInfos.List() {
 			segmentInfo := segmentCommitInfo.SegmentInfo()
 			queue, err := reader.ReadUpdates(segmentInfo)
 			if err != nil {

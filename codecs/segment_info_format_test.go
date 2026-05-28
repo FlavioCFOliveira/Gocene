@@ -157,13 +157,13 @@ func TestSegmentInfosFormat_ReadWrite(t *testing.T) {
 	format := codecs.NewLucene104SegmentInfosFormat()
 
 	// Write
-	err := format.Write(dir, sis)
+	err := format.Write(dir, sis, store.IOContextWrite)
 	if err != nil {
 		t.Fatalf("Write failed: %v", err)
 	}
 
 	// Read back
-	sis2, err := format.Read(dir)
+	sis2, err := format.Read(dir, store.IOContextRead)
 	if err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}

@@ -390,8 +390,8 @@ func TestSegmentInfos_ReadWrite(t *testing.T) {
 		if read.Name() != orig.Name() {
 			t.Errorf("At index %d: expected name %s, got %s", i, orig.Name(), read.Name())
 		}
-		if read.segmentInfo.DocCount() != orig.segmentInfo.DocCount() {
-			t.Errorf("At index %d: expected docCount %d, got %d", i, orig.segmentInfo.DocCount(), read.segmentInfo.DocCount())
+		if read.SegmentInfo().DocCount() != orig.SegmentInfo().DocCount() {
+			t.Errorf("At index %d: expected docCount %d, got %d", i, orig.SegmentInfo().DocCount(), read.SegmentInfo().DocCount())
 		}
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -1049,9 +1050,9 @@ func readSegmentInfosFile(dir store.Directory, name string) (*SegmentInfos, erro
 		// Legacy / unknown format — skip gracefully.
 		return nil, fmt.Errorf("readSegmentInfosFile %q: unknown magic 0x%x", name, uint32(magic))
 	}
-	// rawIn is handed off to readSegmentInfosLucene104 which closes it and
-	// re-opens the file at offset 0 for checksum verification.
-	return readSegmentInfosLucene104(rawIn, dir, gen)
+	// rawIn is handed off to spi.ReadSegmentInfosFromHandle which closes it
+	// and re-opens the file at offset 0 for checksum verification.
+	return spi.ReadSegmentInfosFromHandle(rawIn, dir, gen)
 }
 
 // sortCommitsByGeneration sorts commits ascending by generation using insertion
