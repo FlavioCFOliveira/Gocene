@@ -4,7 +4,10 @@
 
 package geom
 
-import "math"
+import (
+	"errors"
+	"math"
+)
 
 // Minimum resolution constants matching the Java originals.
 const (
@@ -16,7 +19,20 @@ const (
 	MinimumResolutionSquared = MinimumResolution * MinimumResolution
 	// MinimumResolutionCubed is MinimumResolutionSquared * MinimumResolution.
 	MinimumResolutionCubed = MinimumResolutionSquared * MinimumResolution
+
+	// minimumGramSchmidtEnvelope is the convergence envelope used while
+	// refining a perpendicular vector. It is a bit smaller than the minimum
+	// resolution so the math does not subsequently fail in other places.
+	//
+	// Port of Vector.MINIMUM_GRAM_SCHMIDT_ENVELOPE.
+	minimumGramSchmidtEnvelope = MinimumResolution * 0.5
 )
+
+// ErrDegenerateVector is returned when a perpendicular vector cannot be
+// constructed because the two source vectors are parallel or degenerate.
+//
+// Port of the IllegalArgumentException thrown by the Vector(A,B) constructor.
+var ErrDegenerateVector = errors.New("geom: degenerate/parallel vector constructed")
 
 // Vector is a 3-D vector (or point) in Cartesian space.
 //
@@ -37,6 +53,108 @@ func NewVectorCrossProduct(a, b *Vector) *Vector {
 		Y: a.Z*b.X - a.X*b.Z,
 		Z: a.X*b.Y - a.Y*b.X,
 	}
+}
+
+// NewVectorPerpendicular constructs a normalised vector perpendicular to the
+// two non-zero vectors A=(ax,ay,az) and B=(bx,by,bz). It returns
+// ErrDegenerateVector if the vectors are parallel.
+//
+// The result is refined with the Gram-Schmidt process so that the dot product
+// between the normal and each of the two source vectors falls below the
+// convergence envelope, mirroring Lucene's numerical-precision handling.
+//
+// Port of org.apache.lucene.spatial3d.geom.Vector(double,double,double,double,double,double).
+func NewVectorPerpendicular(ax, ay, az, bx, by, bz float64) (*Vector, error) {
+	// Compute the naive perpendicular.
+	thisX := ay*bz - az*by
+	thisY := az*bx - ax*bz
+	thisZ := ax*by - ay*bx
+
+	magnitude := Magnitude(thisX, thisY, thisZ)
+	if magnitude == 0.0 {
+		return nil, ErrDegenerateVector
+	}
+	inverseMagnitude := 1.0 / magnitude
+
+	normalizeX := thisX * inverseMagnitude
+	normalizeY := thisY * inverseMagnitude
+	normalizeZ := thisZ * inverseMagnitude
+	// For a plane to work, the dot product between the normal vector and the
+	// points needs to be less than the minimum resolution. This is sometimes
+	// not true for points that are very close, so we converge with Gram-Schmidt.
+	for i := 0; ; i++ {
+		currentDotProdA := ax*normalizeX + ay*normalizeY + az*normalizeZ
+		currentDotProdB := bx*normalizeX + by*normalizeY + bz*normalizeZ
+		if math.Abs(currentDotProdA) < minimumGramSchmidtEnvelope &&
+			math.Abs(currentDotProdB) < minimumGramSchmidtEnvelope {
+			break
+		}
+		// Converge on the one that has the largest dot product.
+		var currentVectorX, currentVectorY, currentVectorZ, currentDotProd float64
+		if math.Abs(currentDotProdA) > math.Abs(currentDotProdB) {
+			currentVectorX, currentVectorY, currentVectorZ = ax, ay, az
+			currentDotProd = currentDotProdA
+		} else {
+			currentVectorX, currentVectorY, currentVectorZ = bx, by, bz
+			currentDotProd = currentDotProdB
+		}
+		// Adjust.
+		normalizeX -= currentDotProd * currentVectorX
+		normalizeY -= currentDotProd * currentVectorY
+		normalizeZ -= currentDotProd * currentVectorZ
+		// Normalize.
+		correctedMagnitude := Magnitude(normalizeX, normalizeY, normalizeZ)
+		inverseCorrectedMagnitude := 1.0 / correctedMagnitude
+		normalizeX *= inverseCorrectedMagnitude
+		normalizeY *= inverseCorrectedMagnitude
+		normalizeZ *= inverseCorrectedMagnitude
+		// Safety valve; the method normally converges quickly.
+		if i > 10 {
+			return nil, ErrDegenerateVector
+		}
+	}
+	return &Vector{X: normalizeX, Y: normalizeY, Z: normalizeZ}, nil
+}
+
+// NewVectorPerpendicularFromVectors is the two-vector form of
+// NewVectorPerpendicular.
+//
+// Port of org.apache.lucene.spatial3d.geom.Vector(Vector,Vector).
+func NewVectorPerpendicularFromVectors(a, b *Vector) (*Vector, error) {
+	return NewVectorPerpendicular(a.X, a.Y, a.Z, b.X, b.Y, b.Z)
+}
+
+// CrossProductEvaluateIsZero evaluates the (Gram-Schmidt refined) perpendicular
+// of A and B against point, returning true when the dot product resolves to
+// "zero" (within the minimum resolution) or the vectors are parallel.
+//
+// Port of org.apache.lucene.spatial3d.geom.Vector.crossProductEvaluateIsZero.
+func CrossProductEvaluateIsZero(a, b, point *Vector) bool {
+	perp, err := NewVectorPerpendicularFromVectors(a, b)
+	if err != nil {
+		// Magnitude zero => parallel => treated as coplanar.
+		return true
+	}
+	return math.Abs(perp.X*point.X+perp.Y*point.Y+perp.Z*point.Z) < MinimumResolution
+}
+
+// computeDesiredEllipsoidMagnitude returns the magnitude that projects the unit
+// vector (x,y,z) onto the given planet's ellipsoid surface.
+//
+// Port of org.apache.lucene.spatial3d.geom.Vector.computeDesiredEllipsoidMagnitude.
+func computeDesiredEllipsoidMagnitude(pm *PlanetModel, x, y, z float64) float64 {
+	return 1.0 / math.Sqrt(x*x*pm.InverseXYScalingSquared+
+		y*y*pm.InverseXYScalingSquared+
+		z*z*pm.InverseZScalingSquared)
+}
+
+// computeDesiredEllipsoidMagnitudeZ returns the ellipsoid magnitude for a unit
+// vector specified only by its z value.
+//
+// Port of org.apache.lucene.spatial3d.geom.Vector.computeDesiredEllipsoidMagnitude(PlanetModel,double).
+func computeDesiredEllipsoidMagnitudeZ(pm *PlanetModel, z float64) float64 {
+	return 1.0 / math.Sqrt((1.0-z*z)*pm.InverseXYScalingSquared+
+		z*z*pm.InverseZScalingSquared)
 }
 
 // Magnitude returns sqrt(x²+y²+z²) for the given components.
@@ -84,8 +202,18 @@ func (v *Vector) IsWithin(bounds []Membership, moreBounds ...Membership) bool {
 }
 
 // Translate returns a new vector translated by the given offsets.
+//
+// Matches Lucene's Vector.translate, which subtracts the offsets.
 func (v *Vector) Translate(xOffset, yOffset, zOffset float64) *Vector {
-	return &Vector{X: v.X + xOffset, Y: v.Y + yOffset, Z: v.Z + zOffset}
+	return &Vector{X: v.X - xOffset, Y: v.Y - yOffset, Z: v.Z - zOffset}
+}
+
+// IsParallel reports whether this vector is parallel to other (cross-product
+// magnitude squared below the squared minimum resolution).
+//
+// Port of org.apache.lucene.spatial3d.geom.Vector.isParallel(Vector).
+func (v *Vector) IsParallel(other *Vector) bool {
+	return v.IsParallelXYZ(other.X, other.Y, other.Z)
 }
 
 // RotateXY rotates by angle in the XY plane.

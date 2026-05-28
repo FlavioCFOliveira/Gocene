@@ -41,6 +41,52 @@ func NewGeoPointLatLon(pm *PlanetModel, lat, lon float64) *GeoPoint {
 	}
 }
 
+// NewGeoPointModel creates a point from lat/lon in radians projected onto the
+// planet's ellipsoid surface using the ellipsoid-magnitude formula, exactly as
+// Lucene's GeoPoint(PlanetModel,lat,lon) does. On a sphere this coincides with
+// NewGeoPointLatLon; on an ellipsoid the radial magnitude differs.
+//
+// Port of org.apache.lucene.spatial3d.geom.GeoPoint(PlanetModel,double,double).
+func NewGeoPointModel(pm *PlanetModel, lat, lon float64) *GeoPoint {
+	sinLat, cosLat := math.Sin(lat), math.Cos(lat)
+	sinLon, cosLon := math.Sin(lon), math.Cos(lon)
+	return NewGeoPointTrigLatLon(pm, sinLat, sinLon, cosLat, cosLon, lat, lon)
+}
+
+// NewGeoPointTrigLatLon creates a point from the trig functions of a lat/lon
+// pair, with explicit latitude/longitude recorded.
+//
+// Port of GeoPoint(PlanetModel,sinLat,sinLon,cosLat,cosLon,lat,lon).
+func NewGeoPointTrigLatLon(pm *PlanetModel, sinLat, sinLon, cosLat, cosLon, lat, lon float64) *GeoPoint {
+	ux := cosLat * cosLon
+	uy := cosLat * sinLon
+	uz := sinLat
+	mag := computeDesiredEllipsoidMagnitude(pm, ux, uy, uz)
+	return &GeoPoint{
+		Vector:    Vector{X: ux * mag, Y: uy * mag, Z: uz * mag},
+		latitude:  lat,
+		longitude: lon,
+		magnitude: mag,
+	}
+}
+
+// NewGeoPointTrig creates a point from the trig functions of a lat/lon pair,
+// leaving latitude/longitude to be computed lazily.
+//
+// Port of GeoPoint(PlanetModel,sinLat,sinLon,cosLat,cosLon).
+func NewGeoPointTrig(pm *PlanetModel, sinLat, sinLon, cosLat, cosLon float64) *GeoPoint {
+	ux := cosLat * cosLon
+	uy := cosLat * sinLon
+	uz := sinLat
+	mag := computeDesiredEllipsoidMagnitude(pm, ux, uy, uz)
+	return &GeoPoint{
+		Vector:    Vector{X: ux * mag, Y: uy * mag, Z: uz * mag},
+		latitude:  math.NaN(),
+		longitude: math.NaN(),
+		magnitude: mag,
+	}
+}
+
 // NewGeoPointFromStream deserialises from a stream.
 //
 // Wire format (Lucene 10.4.0 GeoPoint(InputStream)):
