@@ -830,3 +830,84 @@ func TestFSDirectory_PathTraversalProtection(t *testing.T) {
 		t.Error("Path traversal protection failed - outside file was created")
 	}
 }
+
+// TestMMapDirectory_PathTraversalProtection verifies MMapDirectory.OpenInput
+// rejects path traversal sequences.
+func TestMMapDirectory_PathTraversalProtection(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "gocene_mmap_security_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	dir, err := NewMMapDirectory(tempDir)
+	if err != nil {
+		t.Fatalf("NewMMapDirectory() error = %v", err)
+	}
+	defer dir.Close()
+
+	t.Run("mmap open input blocks path traversal", func(t *testing.T) {
+		_, err := dir.OpenInput("../outside_test.txt", IOContext{})
+		if err == nil {
+			t.Error("OpenInput() should reject path traversal")
+		}
+	})
+
+	t.Run("mmap open input blocks absolute path", func(t *testing.T) {
+		_, err := dir.OpenInput("/etc/passwd", IOContext{})
+		if err == nil {
+			t.Error("OpenInput() should reject absolute path")
+		}
+	})
+
+	t.Run("mmap open input blocks null bytes", func(t *testing.T) {
+		_, err := dir.OpenInput("test\x00.txt", IOContext{})
+		if err == nil {
+			t.Error("OpenInput() should reject null bytes")
+		}
+	})
+}
+
+// TestNIOFSDirectory_PathTraversalProtection verifies NIOFSDirectory.OpenInput
+// and CreateOutput reject path traversal sequences.
+func TestNIOFSDirectory_PathTraversalProtection(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "gocene_niofs_security_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	dir, err := NewNIOFSDirectory(tempDir)
+	if err != nil {
+		t.Fatalf("NewNIOFSDirectory() error = %v", err)
+	}
+	defer dir.Close()
+
+	t.Run("niofs open input blocks path traversal", func(t *testing.T) {
+		_, err := dir.OpenInput("../outside_test.txt", IOContext{})
+		if err == nil {
+			t.Error("OpenInput() should reject path traversal")
+		}
+	})
+
+	t.Run("niofs create output blocks path traversal", func(t *testing.T) {
+		_, err := dir.CreateOutput("../outside_test.txt", IOContext{})
+		if err == nil {
+			t.Error("CreateOutput() should reject path traversal")
+		}
+	})
+
+	t.Run("niofs open input blocks absolute path", func(t *testing.T) {
+		_, err := dir.OpenInput("/etc/passwd", IOContext{})
+		if err == nil {
+			t.Error("OpenInput() should reject absolute path")
+		}
+	})
+
+	t.Run("niofs open input blocks null bytes", func(t *testing.T) {
+		_, err := dir.OpenInput("test\x00.txt", IOContext{})
+		if err == nil {
+			t.Error("OpenInput() should reject null bytes")
+		}
+	})
+}

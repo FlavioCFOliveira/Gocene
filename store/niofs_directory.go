@@ -49,6 +49,9 @@ func (d *NIOFSDirectory) OpenInput(name string, ctx IOContext) (IndexInput, erro
 	if err := d.EnsureOpen(); err != nil {
 		return nil, err
 	}
+	if err := validateFileName(name); err != nil {
+		return nil, err
+	}
 
 	path := filepath.Join(d.directory, name)
 	file, err := os.Open(path)
@@ -82,6 +85,9 @@ func (d *NIOFSDirectory) OpenInput(name string, ctx IOContext) (IndexInput, erro
 // This implementation uses buffered I/O for efficient writing.
 func (d *NIOFSDirectory) CreateOutput(name string, ctx IOContext) (IndexOutput, error) {
 	if err := d.EnsureOpen(); err != nil {
+		return nil, err
+	}
+	if err := validateFileName(name); err != nil {
 		return nil, err
 	}
 

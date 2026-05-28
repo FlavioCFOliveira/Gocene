@@ -86,6 +86,9 @@ func (d *MMapDirectory) OpenInput(name string, ctx IOContext) (IndexInput, error
 	if err := d.EnsureOpen(); err != nil {
 		return nil, err
 	}
+	if err := validateFileName(name); err != nil {
+		return nil, err
+	}
 
 	path := filepath.Join(d.GetPath(), name)
 
