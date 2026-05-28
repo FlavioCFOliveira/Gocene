@@ -24,6 +24,12 @@ type TopDocsCollector struct {
 	// numHits is the maximum number of hits to collect
 	numHits int
 
+	// after, when non-nil, restricts collection to documents that sort
+	// strictly after it in the (score desc, docID asc) ordering. It mirrors
+	// the "after" boundary used by Lucene's TopScoreDocCollector for
+	// cursor-based pagination (searchAfter).
+	after *ScoreDoc
+
 	// pq is the priority queue of scored documents
 	pq *ScoreDocPriorityQueue
 
@@ -39,9 +45,21 @@ type TopDocsCollector struct {
 
 // NewTopDocsCollector creates a new TopDocsCollector.
 func NewTopDocsCollector(numHits int) *TopDocsCollector {
+	return NewTopDocsCollectorAfter(numHits, nil)
+}
+
+// NewTopDocsCollectorAfter creates a new TopDocsCollector that only collects
+// documents sorting strictly after the given ScoreDoc in the
+// (score desc, docID asc) ordering. Passing a nil after yields the same
+// behaviour as NewTopDocsCollector, collecting the global top-numHits.
+//
+// This is the Go counterpart of constructing Lucene's TopScoreDocCollector
+// with a non-null "after" argument, used by IndexSearcher.SearchAfter.
+func NewTopDocsCollectorAfter(numHits int, after *ScoreDoc) *TopDocsCollector {
 	c := &TopDocsCollector{
 		SimpleCollector: NewSimpleCollector(COMPLETE),
 		numHits:         numHits,
+		after:           after,
 		pq:              NewScoreDocPriorityQueue(numHits),
 	}
 	c.totalHits.Store(0)
@@ -116,10 +134,31 @@ func (c *TopDocsLeafCollector) SetDocBase(docBase int) {
 func (c *TopDocsLeafCollector) Collect(doc int) error {
 	score := c.scorer.Score()
 
-	// Atomic increment for totalHits (lock-free)
+	// Atomic increment for totalHits (lock-free). Matching Lucene's
+	// TopScoreDocCollector, every matching document is counted, including
+	// those filtered out by the pagination boundary below.
 	c.collector.totalHits.Add(1)
 
-	// Atomic update for maxScore using uint32 comparison (lock-free)
+	// Compute the global document id once.
+	docID := c.docBase + doc
+
+	// Pagination boundary: skip documents that were already returned on a
+	// previous page. A document is "on a previous page" when it sorts at or
+	// before the `after` ScoreDoc in the (score desc, docID asc) ordering,
+	// i.e. score > after.Score, or score == after.Score && docID <= after.Doc.
+	// This mirrors Lucene's TopScoreDocCollector.collect (10.4.0):
+	//   if (after != null && (score > afterScore || (score == afterScore && doc <= afterDoc)))
+	// where afterDoc is leaf-local; comparing global docIDs is equivalent
+	// because both sides share the same docBase offset.
+	if after := c.collector.after; after != nil {
+		if score > after.Score || (score == after.Score && docID <= after.Doc) {
+			return nil
+		}
+	}
+
+	// Atomic update for maxScore using uint32 comparison (lock-free). Only
+	// collected (non-skipped) documents contribute, so MaxScore reflects the
+	// best score on the page actually returned.
 	scoreBits := math.Float32bits(score)
 	for {
 		oldMaxBits := c.collector.maxScore.Load()
@@ -133,7 +172,6 @@ func (c *TopDocsLeafCollector) Collect(doc int) error {
 	}
 
 	// Create a ScoreDoc for this document
-	docID := c.docBase + doc
 	scoreDoc := NewScoreDoc(docID, score, 0)
 
 	// Only lock for priority queue operations

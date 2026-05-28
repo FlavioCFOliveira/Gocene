@@ -5,6 +5,8 @@
 package search
 
 import (
+	"fmt"
+
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
@@ -31,6 +33,47 @@ func (s *IndexSearcher) Search(query Query, n int) (*TopDocs, error) {
 	collector := NewTopDocsCollector(n)
 	err := s.SearchWithCollector(query, collector)
 	if err != nil {
+		return nil, err
+	}
+	return collector.TopDocs(), nil
+}
+
+// SearchAfter finds the top n hits for query, restricted to documents that
+// sort strictly after the given ScoreDoc in the (score desc, docID asc)
+// ordering. Passing the bottom result of a previous page as after enables
+// cursor-based pagination ("deep paging") that returns non-overlapping,
+// globally ordered pages.
+//
+// This is the Go port of org.apache.lucene.search.IndexSearcher#searchAfter
+// (Lucene 10.4.0, IndexSearcher.java lines 582-596). As in Lucene:
+//   - the effective limit is max(1, reader.MaxDoc());
+//   - after.Doc must be < limit, otherwise an error is returned;
+//   - n is capped to min(n, limit);
+//   - n must be > 0 (Lucene's TopScoreDocCollectorManager rejects numHits<=0),
+//     so a non-positive n yields an error rather than empty results.
+func (s *IndexSearcher) SearchAfter(after *ScoreDoc, query Query, n int) (*TopDocs, error) {
+	limit := s.reader.MaxDoc()
+	if limit < 1 {
+		limit = 1
+	}
+
+	if after != nil && after.Doc >= limit {
+		return nil, fmt.Errorf(
+			"after.doc exceeds the number of documents in the reader: after.doc=%d limit=%d",
+			after.Doc, limit)
+	}
+
+	if n <= 0 {
+		return nil, fmt.Errorf("numHits must be > 0, got %d", n)
+	}
+
+	cappedNumHits := n
+	if cappedNumHits > limit {
+		cappedNumHits = limit
+	}
+
+	collector := NewTopDocsCollectorAfter(cappedNumHits, after)
+	if err := s.SearchWithCollector(query, collector); err != nil {
 		return nil, err
 	}
 	return collector.TopDocs(), nil
