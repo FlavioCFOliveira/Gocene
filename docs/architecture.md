@@ -206,24 +206,28 @@ a service-loader, split across three mechanisms:
    codec type; it can only hold an `index.Codec` (alias) value that something
    else installs.
 
-3. **The installer in `internal/codecbridge`** — production callers
-   blank-import `internal/codecbridge`. Its `init()` builds the concrete
-   Lucene 10.4 codec from `codecs/` and calls `index.RegisterDefaultCodec` (and
-   `RegisterNamedCodec` for each codec name) so that `NewIndexWriterConfig`
-   picks up the real codec by default and `OpenDirectoryReader` can resolve the
-   codec named in a persisted segment.
+3. **The default-codec installer in `codecs/register.go`** — production
+   callers blank-import the `codecs/` package. Its `init()` builds the concrete
+   `*codecs.Lucene104Codec` and calls `index.RegisterDefaultCodec` (plus
+   `RegisterNamedCodec` for the codec name) so that `NewIndexWriterConfig` picks
+   up the real codec by default and `OpenDirectoryReader` can resolve the codec
+   named in a persisted segment. A companion init in
+   `codecs/lucene90/compressing/register.go` installs the temporary
+   stored-fields format used by the sorting stored-fields consumer.
 
    ```go
-   import _ "github.com/FlavioCFOliveira/Gocene/internal/codecbridge"
+   import _ "github.com/FlavioCFOliveira/Gocene/codecs"
    ```
 
-After the SPI unification collapsed the per-format adapters to identity
-wrappers, `internal/codecbridge` no longer translates between interface
-families; it is retained as the single init hook that installs the index-side
-default codec (and a temporary stored-fields format used by the sorting
-stored-fields consumer). A config built without the blank import, and without an
-explicit `IndexWriterConfig.SetCodec`, will surface `index.ErrNoCodec` from any
-flush path.
+This installer replaced the former `internal/codecbridge` package. Once the SPI
+unification collapsed every codec-facing interface into `spi/` (so `index.Codec`
+is a type alias of `spi.Codec` and `*codecs.Lucene104Codec` satisfies
+`index.Codec` directly), the bridge's adapter role disappeared and it was
+deleted; `codecs/register.go` carries a compile-time assertion
+(`var _ index.Codec = (*Lucene104Codec)(nil)`) that keeps the codec aligned with
+the SPI surface. A config built without the `codecs/` blank import, and without
+an explicit `IndexWriterConfig.SetCodec`, will surface `index.ErrNoCodec` from
+any flush path.
 
 The codec-resolution policy on the read side is: prefer the codec name stamped
 on the segment (`SegmentInfo.Codec()`), looked up via `LookupCodecByName`; fall
@@ -378,7 +382,7 @@ Go has no equivalent of Java's `ServiceLoader` / `META-INF/services` runtime
 discovery, and Gocene does not attempt to emulate one. Codecs and formats are
 registered by explicit `init()`-time function calls
 (see [Codec registration](#codec-registration)). The trade-off is that a binary
-must blank-import `internal/codecbridge` (or call `SetCodec` explicitly) to
+must blank-import the `codecs/` package (or call `SetCodec` explicitly) to
 obtain the production codec; in exchange, the wiring is fully static, free of
 reflection, and easy to follow.
 
