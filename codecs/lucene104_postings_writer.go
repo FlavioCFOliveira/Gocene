@@ -352,11 +352,16 @@ func (w *Lucene104PostingsWriter) StartDoc(docID, freq int) error {
 	if w.writeFreqs {
 		var norm int64 = 1
 		if w.fieldHasNorms && w.norms != nil {
-			// The Go NumericDocValues interface uses Get(docID) for random
-			// access. If the field has norms, fetch the norm for this doc.
-			n, err := w.norms.Get(docID)
-			if err == nil && n != 0 {
-				norm = n
+			// NumericDocValues is iterator-shaped after rmp #4710: position
+			// the iterator on docID via AdvanceExact and read the value via
+			// LongValue. Callers feed postings in strictly increasing
+			// document order, satisfying AdvanceExact's monotonic-target
+			// contract.
+			ok, err := w.norms.AdvanceExact(docID)
+			if err == nil && ok {
+				if n, err := w.norms.LongValue(); err == nil && n != 0 {
+					norm = n
+				}
 			}
 		}
 		w.level0FreqNormAcc.Add(freq, norm)

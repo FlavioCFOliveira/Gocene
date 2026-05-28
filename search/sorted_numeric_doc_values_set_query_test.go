@@ -416,7 +416,7 @@ func runSortedNumericSetQueryWithDV(
 	var matchFn func() (bool, error)
 	if singleton != nil {
 		matchFn = func() (bool, error) {
-			v, err := singleton.Get(approx.DocID())
+			v, err := singleton.LongValue()
 			if err != nil {
 				return false, err
 			}
@@ -424,7 +424,7 @@ func runSortedNumericSetQueryWithDV(
 		}
 	} else {
 		matchFn = func() (bool, error) {
-			vs, err := dv.Get(approx.DocID())
+			vs, err := index.CollectSortedNumericValues(dv)
 			if err != nil {
 				return false, err
 			}
@@ -484,9 +484,7 @@ func newFakeNumeric(values map[int]int64) *fakeNumeric {
 	}
 }
 
-func (f *fakeNumeric) Get(docID int) (int64, error) {
-	return f.values[docID], nil
-}
+func (f *fakeNumeric) Cost() int64 { return int64(len(f.docIDs)) }
 
 func (f *fakeNumeric) Advance(target int) (int, error) {
 	for f.cursor < len(f.docIDs) && f.docIDs[f.cursor] < target {

@@ -7,27 +7,33 @@ package index
 import "testing"
 
 // recordingNumericDV captures call counts to verify pass-through.
+// Mirrors the iterator surface mandated by rmp #4710 (no legacy
+// Get(docID)).
 type recordingNumericDV struct {
-	getCalls int
-	docID    int
+	advanceCalls int
+	docID        int
 }
 
-func (r *recordingNumericDV) Get(int) (int64, error)            { r.getCalls++; return 99, nil }
-func (r *recordingNumericDV) Advance(t int) (int, error)        { r.docID = t; return t, nil }
-func (r *recordingNumericDV) AdvanceExact(t int) (bool, error)  { r.docID = t; return true, nil }
-func (r *recordingNumericDV) LongValue() (int64, error)         { return 99, nil }
-func (r *recordingNumericDV) NextDoc() (int, error)             { r.docID++; return r.docID, nil }
-func (r *recordingNumericDV) DocID() int                        { return r.docID }
+func (r *recordingNumericDV) Advance(t int) (int, error)       { r.docID = t; return t, nil }
+func (r *recordingNumericDV) AdvanceExact(t int) (bool, error) { r.advanceCalls++; r.docID = t; return true, nil }
+func (r *recordingNumericDV) LongValue() (int64, error)        { return 99, nil }
+func (r *recordingNumericDV) NextDoc() (int, error)            { r.docID++; return r.docID, nil }
+func (r *recordingNumericDV) DocID() int                       { return r.docID }
+func (r *recordingNumericDV) Cost() int64                      { return 0 }
 
 func TestFilterNumericDocValues_PassThrough(t *testing.T) {
 	src := &recordingNumericDV{}
 	f := NewFilterNumericDocValues(src)
-	v, err := f.Get(7)
-	if err != nil || v != 99 {
-		t.Errorf("Get=(%d,%v), want (99,nil)", v, err)
+	ok, err := f.AdvanceExact(7)
+	if err != nil || !ok {
+		t.Errorf("AdvanceExact=(%v,%v), want (true,nil)", ok, err)
 	}
-	if src.getCalls != 1 {
-		t.Errorf("Get not delegated: calls=%d", src.getCalls)
+	v, err := f.LongValue()
+	if err != nil || v != 99 {
+		t.Errorf("LongValue=(%d,%v), want (99,nil)", v, err)
+	}
+	if src.advanceCalls != 1 {
+		t.Errorf("AdvanceExact not delegated: calls=%d", src.advanceCalls)
 	}
 	if d, _ := f.Advance(11); d != 11 || f.DocID() != 11 {
 		t.Errorf("Advance/DocID mismatch")
@@ -43,30 +49,47 @@ func TestFilterNumericDocValues_NilPanics(t *testing.T) {
 	_ = NewFilterNumericDocValues(nil)
 }
 
-// recordingSortedSetDV is a minimal SortedSetDocValues stub.
+// recordingSortedSetDV is a minimal SortedSetDocValues stub on the
+// iterator surface (no legacy Get(docID)).
 type recordingSortedSetDV struct {
-	docID  int
-	values []int
+	docID   int
+	ords    []int
+	ordIdx  int
+	hasDoc  bool
 }
 
-func (s *recordingSortedSetDV) Get(int) ([]int, error)          { return s.values, nil }
-func (s *recordingSortedSetDV) Advance(t int) (int, error)      { s.docID = t; return t, nil }
+func (s *recordingSortedSetDV) Advance(t int) (int, error) { s.docID = t; s.ordIdx = 0; return t, nil }
 func (s *recordingSortedSetDV) AdvanceExact(t int) (bool, error) {
 	s.docID = t
+	s.ordIdx = 0
+	s.hasDoc = true
 	return true, nil
 }
-func (s *recordingSortedSetDV) NextOrd() (int, error)           { return -1, nil }
-func (s *recordingSortedSetDV) NextDoc() (int, error)           { s.docID++; return s.docID, nil }
-func (s *recordingSortedSetDV) DocID() int                      { return s.docID }
-func (s *recordingSortedSetDV) LookupOrd(int) ([]byte, error)   { return []byte("v"), nil }
-func (s *recordingSortedSetDV) GetValueCount() int              { return len(s.values) }
+func (s *recordingSortedSetDV) NextOrd() (int, error) {
+	if s.ordIdx >= len(s.ords) {
+		return -1, nil
+	}
+	o := s.ords[s.ordIdx]
+	s.ordIdx++
+	return o, nil
+}
+func (s *recordingSortedSetDV) NextDoc() (int, error) { s.docID++; s.ordIdx = 0; return s.docID, nil }
+func (s *recordingSortedSetDV) DocID() int            { return s.docID }
+func (s *recordingSortedSetDV) LookupOrd(int) ([]byte, error) {
+	return []byte("v"), nil
+}
+func (s *recordingSortedSetDV) GetValueCount() int { return len(s.ords) }
+func (s *recordingSortedSetDV) Cost() int64        { return int64(len(s.ords)) }
 
 func TestFilterSortedSetDocValues_PassThrough(t *testing.T) {
-	src := &recordingSortedSetDV{values: []int{1, 2, 3}}
+	src := &recordingSortedSetDV{ords: []int{1, 2, 3}}
 	f := NewFilterSortedSetDocValues(src)
-	got, _ := f.Get(0)
+	got, err := DrainSortedSet(f, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(got) != 3 {
-		t.Errorf("Get returned %v", got)
+		t.Errorf("DrainSortedSet returned %v", got)
 	}
 	if v, _ := f.LookupOrd(0); string(v) != "v" {
 		t.Errorf("LookupOrd=%q", v)

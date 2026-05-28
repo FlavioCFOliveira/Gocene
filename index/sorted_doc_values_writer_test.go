@@ -60,9 +60,9 @@ func TestSortedDocValuesWriter_HappyPath(t *testing.T) {
 			break
 		}
 		gotDocs = append(gotDocs, d)
-		ord, err := dv.GetOrd(d)
+		ord, err := dv.OrdValue()
 		if err != nil {
-			t.Fatalf("GetOrd(%d): %v", d, err)
+			t.Fatalf("OrdValue@%d: %v", d, err)
 		}
 		if ord != wantOrd[d] {
 			t.Errorf("doc %d: ord=%d, want %d", d, ord, wantOrd[d])
@@ -158,9 +158,9 @@ func TestSortedDocValuesWriter_FlushUnsorted(t *testing.T) {
 		if d != i {
 			t.Fatalf("doc=%d, want %d", d, i)
 		}
-		ord, err := got.GetOrd(d)
+		ord, err := got.OrdValue()
 		if err != nil {
-			t.Fatalf("GetOrd(%d): %v", d, err)
+			t.Fatalf("OrdValue@%d: %v", d, err)
 		}
 		term, err := got.LookupOrd(ord)
 		if err != nil {
@@ -199,7 +199,11 @@ func TestSortedDocValuesWriter_FlushSorted(t *testing.T) {
 			if d == NO_MORE_DOCS {
 				return nil
 			}
-			term, err := v.Get(d)
+			ord, err := v.OrdValue()
+			if err != nil {
+				return err
+			}
+			term, err := v.LookupOrd(ord)
 			if err != nil {
 				return err
 			}
@@ -258,9 +262,9 @@ func TestSortedDocValuesWriter_SparseDocs(t *testing.T) {
 			break
 		}
 		gotDocs = append(gotDocs, d)
-		ord, err := dv.GetOrd(d)
+		ord, err := dv.OrdValue()
 		if err != nil {
-			t.Fatalf("GetOrd(%d): %v", d, err)
+			t.Fatalf("OrdValue@%d: %v", d, err)
 		}
 		term, err := dv.LookupOrd(ord)
 		if err != nil {

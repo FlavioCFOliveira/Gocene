@@ -357,7 +357,7 @@ func matchesIntersects(
 	if predicate == nil {
 		return false, nil
 	}
-	vs, err := values.Get(docID)
+	vs, err := index.DrainSortedNumeric(values, docID)
 	if err != nil {
 		return false, err
 	}
@@ -382,7 +382,7 @@ func matchesWithin(
 	if predicate == nil {
 		return false, nil
 	}
-	vs, err := values.Get(docID)
+	vs, err := index.DrainSortedNumeric(values, docID)
 	if err != nil {
 		return false, err
 	}
@@ -407,7 +407,7 @@ func matchesDisjoint(
 	if predicate == nil {
 		return true, nil
 	}
-	vs, err := values.Get(docID)
+	vs, err := index.DrainSortedNumeric(values, docID)
 	if err != nil {
 		return false, err
 	}
@@ -431,7 +431,7 @@ func matchesContains(
 	components []geo.Component2D,
 	docID int,
 ) (bool, error) {
-	vs, err := values.Get(docID)
+	vs, err := index.DrainSortedNumeric(values, docID)
 	if err != nil {
 		return false, err
 	}

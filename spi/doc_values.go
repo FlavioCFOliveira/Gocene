@@ -14,11 +14,13 @@ package spi
 // NextDoc/Advance and reports the current value via LongValue,
 // BinaryValue, OrdValue, NextOrd, etc.
 //
-// The index/ package still keeps a divergent random-access "Get(docID)"
-// projection of the same five value types. That divergence is tracked
-// by rmp #4709 and is out of scope for this lift; the index-side bodies
-// carry a TODO(T4709) marker at their declaration site until that task
-// migrates index callers onto this iterator-shaped surface.
+// rmp #4710 (Sprint 118 phase 2f) collapsed the index/ side onto this
+// iterator surface as well: every index.NumericDocValues /
+// BinaryDocValues / SortedDocValues / SortedNumericDocValues /
+// SortedSetDocValues identifier is now a plain Go type alias of its
+// spi/ counterpart, and the legacy random-access Get(docID) /
+// GetOrd(docID) projection is gone from every Gocene production
+// implementation.
 
 // NumericDocValues provides per-document numeric values.
 //

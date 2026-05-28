@@ -246,7 +246,8 @@ func sortDocValues(maxDoc int, sortMap SorterDocMap, oldValues SortedDocValues) 
 		if docID == NO_MORE_DOCS {
 			break
 		}
-		ord, err := oldValues.GetOrd(docID)
+		// docID is the current cursor — OrdValue is equivalent to GetOrd(docID).
+		ord, err := oldValues.OrdValue()
 		if err != nil {
 			return nil, err
 		}
@@ -328,25 +329,19 @@ func (s *sortingSortedDocValues) OrdValue() (int, error) {
 	return s.ords[s.docID], nil
 }
 
-// Get returns the value bytes for docID. docID must equal the current
-// cursor; the Java original implements advanceExact + lookupOrd(ordValue()),
-// which Gocene collapses into a single Get for consistency with the rest of
-// the package.
-func (s *sortingSortedDocValues) Get(docID int) ([]byte, error) {
-	if docID != s.docID {
-		return nil, fmt.Errorf("sortingSortedDocValues: Get(%d) requires NextDoc cursor; current=%d", docID, s.docID)
+// LongValue is unsupported on SortedDocValues — the inherited
+// NumericDocValues surface satisfies the interface but ordinals are
+// surfaced through OrdValue.
+func (s *sortingSortedDocValues) LongValue() (int64, error) {
+	ord, err := s.OrdValue()
+	if err != nil {
+		return 0, err
 	}
-	return s.in.LookupOrd(s.ords[docID])
+	return int64(ord), nil
 }
 
-// GetOrd returns the ord assigned to docID. docID must equal the current
-// cursor.
-func (s *sortingSortedDocValues) GetOrd(docID int) (int, error) {
-	if docID != s.docID {
-		return -1, fmt.Errorf("sortingSortedDocValues: GetOrd(%d) requires NextDoc cursor; current=%d", docID, s.docID)
-	}
-	return s.ords[docID], nil
-}
+// Cost delegates to the underlying buffered view.
+func (s *sortingSortedDocValues) Cost() int64 { return s.in.Cost() }
 
 func (s *sortingSortedDocValues) LookupOrd(ord int) ([]byte, error) { return s.in.LookupOrd(ord) }
 

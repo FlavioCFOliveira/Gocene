@@ -255,7 +255,10 @@ func (c *XYPointDistanceComparator) setValues() error {
 		return nil
 	}
 	c.valuesDocID = docID
-	vals, err := c.currentDocs.Get(docID)
+	// currentDocs is already positioned on docID by the comparator's
+	// SetScorer/Advance path; CollectSortedNumericValues drains the
+	// per-doc values via DocValueCount + NextValue.
+	vals, err := index.CollectSortedNumericValues(c.currentDocs)
 	if err != nil {
 		return fmt.Errorf("xy point sort: get values @doc=%d: %w", docID, err)
 	}

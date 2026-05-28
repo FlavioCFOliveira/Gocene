@@ -252,12 +252,17 @@ func newShapeStubBinaryDocValues(values map[int][]byte) *shapeStubBinaryDocValue
 	return &shapeStubBinaryDocValues{docs: docs, values: values, current: -1}
 }
 
-func (b *shapeStubBinaryDocValues) Get(docID int) ([]byte, error) {
+// getInternal serves the random-access lookup used by BinaryValue;
+// keeps the legacy Get(docID) semantics for the internal callers
+// without exposing the dropped surface method.
+func (b *shapeStubBinaryDocValues) getInternal(docID int) ([]byte, error) {
 	if v, ok := b.values[docID]; ok {
 		return v, nil
 	}
 	return nil, nil
 }
+
+func (b *shapeStubBinaryDocValues) Cost() int64 { return int64(len(b.docs)) }
 
 func (b *shapeStubBinaryDocValues) Advance(target int) (int, error) {
 	for i, d := range b.docs {
@@ -300,7 +305,7 @@ func (b *shapeStubBinaryDocValues) BinaryValue() ([]byte, error) {
 	if b.current < 0 || b.current >= len(b.docs) {
 		return nil, nil
 	}
-	return b.Get(b.docs[b.current])
+	return b.getInternal(b.docs[b.current])
 }
 
 // TestBaseShapeDocValuesQuery_TwoPhaseWalk drives a stub

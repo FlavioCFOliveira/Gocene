@@ -256,7 +256,11 @@ func (q *sortedNumericDocValuesSetQuery) CreateWeight(_ *IndexSearcher, needsSco
 		var matchFn func() (bool, error)
 		if singleton != nil {
 			matchFn = func() (bool, error) {
-				v, err := singleton.Get(approx.DocID())
+				// singleton is positioned on approx.DocID() via the
+				// underlying SortedNumeric NextDoc; LongValue is the
+				// iterator-shaped equivalent of the legacy
+				// NumericDocValues.Get(docID) accessor.
+				v, err := singleton.LongValue()
 				if err != nil {
 					return false, err
 				}
@@ -264,7 +268,10 @@ func (q *sortedNumericDocValuesSetQuery) CreateWeight(_ *IndexSearcher, needsSco
 			}
 		} else {
 			matchFn = func() (bool, error) {
-				vs, err := values.Get(approx.DocID())
+				// values is positioned on approx.DocID() via NextDoc;
+				// CollectSortedNumericValues drains the per-doc values
+				// via DocValueCount + NextValue.
+				vs, err := index.CollectSortedNumericValues(values)
 				if err != nil {
 					return false, err
 				}

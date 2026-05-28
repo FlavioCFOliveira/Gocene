@@ -611,16 +611,8 @@ type stubBinaryDocValues struct {
 	idx  int
 }
 
-// Get returns the packed payload for the currently-positioned doc.
-func (s *stubBinaryDocValues) Get(docID int) ([]byte, error) {
-	if s.idx < 0 || s.idx >= len(s.docs) {
-		return nil, nil
-	}
-	if s.docs[s.idx].docID != docID {
-		return nil, nil
-	}
-	return s.docs[s.idx].packed, nil
-}
+// Cost returns the stub's known document count.
+func (s *stubBinaryDocValues) Cost() int64 { return int64(len(s.docs)) }
 
 // Advance moves the iterator to the first doc at or after target.
 func (s *stubBinaryDocValues) Advance(target int) (int, error) {
@@ -678,12 +670,12 @@ type errorBinaryDocValues struct {
 	done bool
 }
 
-func (e *errorBinaryDocValues) Get(int) ([]byte, error)  { return nil, e.err }
 func (e *errorBinaryDocValues) Advance(int) (int, error) { return e.NextDoc() }
 func (e *errorBinaryDocValues) AdvanceExact(int) (bool, error) {
 	return false, e.err
 }
 func (e *errorBinaryDocValues) BinaryValue() ([]byte, error) { return nil, e.err }
+func (e *errorBinaryDocValues) Cost() int64                  { return 1 }
 func (e *errorBinaryDocValues) NextDoc() (int, error) {
 	if e.done {
 		return NO_MORE_DOCS, nil

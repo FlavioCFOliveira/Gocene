@@ -231,6 +231,9 @@ type fakeSortedNumeric struct {
 	docIDs []int
 	cursor int
 	docID  int
+	// valueIdx tracks the per-doc value cursor consumed by NextValue
+	// after each NextDoc / Advance / AdvanceExact positioning.
+	valueIdx int
 }
 
 func newFakeSortedNumeric(values map[int][]int64) *fakeSortedNumeric {
@@ -247,10 +250,6 @@ func newFakeSortedNumeric(values map[int][]int64) *fakeSortedNumeric {
 	}
 }
 
-func (f *fakeSortedNumeric) Get(docID int) ([]int64, error) {
-	return f.values[docID], nil
-}
-
 func (f *fakeSortedNumeric) Advance(target int) (int, error) {
 	for f.cursor < len(f.docIDs) && f.docIDs[f.cursor] < target {
 		f.cursor++
@@ -261,6 +260,7 @@ func (f *fakeSortedNumeric) Advance(target int) (int, error) {
 	}
 	f.docID = f.docIDs[f.cursor]
 	f.cursor++
+	f.valueIdx = 0
 	return f.docID, nil
 }
 
@@ -271,6 +271,7 @@ func (f *fakeSortedNumeric) NextDoc() (int, error) {
 	}
 	f.docID = f.docIDs[f.cursor]
 	f.cursor++
+	f.valueIdx = 0
 	return f.docID, nil
 }
 
@@ -289,10 +290,12 @@ func (f *fakeSortedNumeric) NextValue() (int64, error) {
 		return 0, nil
 	}
 	vs := f.values[f.docID]
-	if len(vs) == 0 {
+	if f.valueIdx >= len(vs) {
 		return 0, nil
 	}
-	return vs[0], nil
+	v := vs[f.valueIdx]
+	f.valueIdx++
+	return v, nil
 }
 
 func (f *fakeSortedNumeric) DocValueCount() (int, error) {
@@ -301,6 +304,19 @@ func (f *fakeSortedNumeric) DocValueCount() (int, error) {
 	}
 	return len(f.values[f.docID]), nil
 }
+
+func (f *fakeSortedNumeric) LongValue() (int64, error) {
+	if f.docID < 0 || f.docID == NO_MORE_DOCS {
+		return 0, nil
+	}
+	vs := f.values[f.docID]
+	if len(vs) == 0 {
+		return 0, nil
+	}
+	return vs[0], nil
+}
+
+func (f *fakeSortedNumeric) Cost() int64 { return int64(len(f.docIDs)) }
 
 // TestMatchesIntersects covers the intersects() match path: a doc with
 // at least one value inside the shape matches; a doc with no value

@@ -45,9 +45,9 @@ func drainBinary(t *testing.T, dv BinaryDocValues) []struct {
 		if docID == NO_MORE_DOCS {
 			break
 		}
-		v, err := dv.Get(docID)
+		v, err := dv.BinaryValue()
 		if err != nil {
-			t.Fatalf("Get(%d): %v", docID, err)
+			t.Fatalf("BinaryValue@%d: %v", docID, err)
 		}
 		got = append(got, struct {
 			doc int
@@ -163,9 +163,11 @@ func TestBinaryDocValuesWriter_BytesRefOffset(t *testing.T) {
 	}
 }
 
-// TestBinaryDocValuesWriter_GetCursorMismatch verifies the buffered view
-// rejects Get for a docID that is not the current cursor.
-func TestBinaryDocValuesWriter_GetCursorMismatch(t *testing.T) {
+// TestBinaryDocValuesWriter_UnsupportedRandomAccess verifies the buffered
+// writer view rejects Advance / AdvanceExact, matching the Java
+// BufferedBinaryDocValues contract (callers must drive iteration via
+// NextDoc).
+func TestBinaryDocValuesWriter_UnsupportedRandomAccess(t *testing.T) {
 	w, _ := newBinaryTestWriter(t, "f")
 	if err := w.AddValue(0, bref("a")); err != nil {
 		t.Fatalf("AddValue: %v", err)
@@ -174,17 +176,11 @@ func TestBinaryDocValuesWriter_GetCursorMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetDocValues: %v", err)
 	}
-	if _, err := dv.Get(0); err == nil {
-		t.Fatal("expected error: Get before NextDoc, got nil")
-	}
-	if _, err := dv.NextDoc(); err != nil {
-		t.Fatalf("NextDoc: %v", err)
-	}
-	if _, err := dv.Get(99); err == nil {
-		t.Fatal("expected error: Get with stale docID, got nil")
-	}
 	if _, err := dv.Advance(0); err == nil {
 		t.Fatal("expected error: Advance is unsupported, got nil")
+	}
+	if _, err := dv.AdvanceExact(0); err == nil {
+		t.Fatal("expected error: AdvanceExact is unsupported, got nil")
 	}
 }
 

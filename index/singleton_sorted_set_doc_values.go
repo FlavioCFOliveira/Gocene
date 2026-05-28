@@ -59,24 +59,6 @@ func (s *singletonSortedSet) GetSortedDocValues() (SortedDocValues, error) {
 	return s.wrapped, nil
 }
 
-// Get returns the wrapped ordinal packed as a one-element slice. The Lucene
-// equivalent is the pair (docValueCount, nextOrd) which always yields a
-// single ord for this wrapper; until the Gocene iterator surface grows those
-// methods, the slice form keeps the semantics observable without breaking
-// existing consumers. A negative ord (Lucene's "no value" sentinel returned
-// by SortedDocValues#ordValue when the document has no term) collapses to a
-// nil slice, matching the empty-multi-value contract of SortedSetDocValues.
-func (s *singletonSortedSet) Get(docID int) ([]int, error) {
-	ord, err := s.wrapped.GetOrd(docID)
-	if err != nil {
-		return nil, err
-	}
-	if ord < 0 {
-		return nil, nil
-	}
-	return []int{ord}, nil
-}
-
 // Advance delegates to the wrapped iterator; the multi-valued surface is
 // pure adapter, no extra state.
 func (s *singletonSortedSet) Advance(target int) (int, error) {
@@ -130,3 +112,6 @@ func (s *singletonSortedSet) LookupOrd(ord int) ([]byte, error) {
 func (s *singletonSortedSet) GetValueCount() int {
 	return s.wrapped.GetValueCount()
 }
+
+// Cost delegates to the wrapped iterator.
+func (s *singletonSortedSet) Cost() int64 { return s.wrapped.Cost() }

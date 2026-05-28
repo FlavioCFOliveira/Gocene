@@ -310,7 +310,10 @@ func newBinaryRangeFieldRangeScorer(weight *binaryRangeFieldRangeWeight, dv inde
 	}
 	approx := &binaryRangeDocValuesIterator{dv: dv}
 	s.twoPh = NewTwoPhaseIterator(approx, func() (bool, error) {
-		value, err := dv.Get(approx.DocID())
+		// approx positions dv on the target doc via NextDoc/Advance, so
+		// BinaryValue is the iterator-shaped equivalent of the legacy
+		// Get(docID) accessor.
+		value, err := dv.BinaryValue()
 		if err != nil {
 			return false, err
 		}

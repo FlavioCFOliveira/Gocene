@@ -36,12 +36,13 @@ func TestEmptyDocValues_AllIteratorsAtNoMoreDocs(t *testing.T) {
 }
 
 // stubNumericDV is a single-shot NumericDocValues used for Singleton tests.
+// Exposes the iterator-shaped surface mandated by rmp #4710 (no legacy
+// Get(docID)).
 type stubNumericDV struct {
 	docID int
 	val   int64
 }
 
-func (s *stubNumericDV) Get(int) (int64, error) { return s.val, nil }
 func (s *stubNumericDV) Advance(target int) (int, error) {
 	s.docID = target
 	return target, nil
@@ -53,19 +54,28 @@ func (s *stubNumericDV) AdvanceExact(target int) (bool, error) {
 func (s *stubNumericDV) LongValue() (int64, error) { return s.val, nil }
 func (s *stubNumericDV) NextDoc() (int, error)     { s.docID++; return s.docID, nil }
 func (s *stubNumericDV) DocID() int                { return s.docID }
+func (s *stubNumericDV) Cost() int64               { return 1 }
 
 func TestSingleton_NumericToSortedNumeric(t *testing.T) {
 	src := &stubNumericDV{val: 42}
 	wrapped := Singleton(src)
-	got, err := wrapped.Get(0)
+	// Position the iterator on doc 0 and drain its values via the
+	// iterator-shaped helper.
+	got, err := DrainSortedNumeric(wrapped, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 || got[0] != 42 {
-		t.Errorf("Get=%v, want [42]", got)
+		t.Errorf("DrainSortedNumeric=%v, want [42]", got)
 	}
-	if unwrapped := UnwrapSingletonSortedNumeric(wrapped); unwrapped != src {
-		t.Errorf("UnwrapSingletonSortedNumeric returned %v", unwrapped)
+	// UnwrapSingletonSortedNumeric returns the underlying NumericDocValues
+	// (typed as the interface, not the concrete *stubNumericDV).
+	unwrapped := UnwrapSingletonSortedNumeric(wrapped)
+	if unwrapped == nil {
+		t.Errorf("UnwrapSingletonSortedNumeric returned nil")
+	}
+	if _, ok := unwrapped.(*stubNumericDV); !ok {
+		t.Errorf("UnwrapSingletonSortedNumeric returned %T, want *stubNumericDV", unwrapped)
 	}
 	// nil wrap returns empty
 	empty := Singleton(nil)
@@ -81,28 +91,28 @@ type stubSortedDV struct {
 	value []byte
 }
 
-func (s *stubSortedDV) Get(int) ([]byte, error)            { return s.value, nil }
-func (s *stubSortedDV) Advance(t int) (int, error)         { s.docID = t; return t, nil }
-func (s *stubSortedDV) AdvanceExact(t int) (bool, error)   { s.docID = t; return true, nil }
-func (s *stubSortedDV) BinaryValue() ([]byte, error)       { return s.value, nil }
-func (s *stubSortedDV) OrdValue() (int, error)             { return s.ord, nil }
-func (s *stubSortedDV) NextDoc() (int, error)              { s.docID++; return s.docID, nil }
-func (s *stubSortedDV) DocID() int                         { return s.docID }
-func (s *stubSortedDV) GetOrd(int) (int, error)            { return s.ord, nil }
+func (s *stubSortedDV) Advance(t int) (int, error)       { s.docID = t; return t, nil }
+func (s *stubSortedDV) AdvanceExact(t int) (bool, error) { s.docID = t; return true, nil }
+func (s *stubSortedDV) BinaryValue() ([]byte, error)     { return s.value, nil }
+func (s *stubSortedDV) OrdValue() (int, error)           { return s.ord, nil }
+func (s *stubSortedDV) LongValue() (int64, error)        { return int64(s.ord), nil }
+func (s *stubSortedDV) NextDoc() (int, error)            { s.docID++; return s.docID, nil }
+func (s *stubSortedDV) DocID() int                       { return s.docID }
 func (s *stubSortedDV) LookupOrd(int) ([]byte, error) {
 	return s.value, nil
 }
 func (s *stubSortedDV) GetValueCount() int { return 1 }
+func (s *stubSortedDV) Cost() int64        { return 1 }
 
 func TestSingleton_SortedToSortedSet(t *testing.T) {
 	src := &stubSortedDV{ord: 7, value: []byte("foo")}
 	wrapped := SingletonSortedSet(src)
-	got, err := wrapped.Get(0)
+	got, err := DrainSortedSet(wrapped, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 1 || got[0] != 7 {
-		t.Errorf("Get=%v, want [7]", got)
+		t.Errorf("DrainSortedSet=%v, want [7]", got)
 	}
 	val, _ := wrapped.LookupOrd(0)
 	if string(val) != "foo" {
@@ -111,8 +121,12 @@ func TestSingleton_SortedToSortedSet(t *testing.T) {
 	if wrapped.GetValueCount() != 1 {
 		t.Errorf("GetValueCount=%d", wrapped.GetValueCount())
 	}
-	if unwrapped := UnwrapSingletonSortedSet(wrapped); unwrapped != src {
-		t.Errorf("UnwrapSingletonSortedSet returned %v", unwrapped)
+	unwrapped := UnwrapSingletonSortedSet(wrapped)
+	if unwrapped == nil {
+		t.Errorf("UnwrapSingletonSortedSet returned nil")
+	}
+	if _, ok := unwrapped.(*stubSortedDV); !ok {
+		t.Errorf("UnwrapSingletonSortedSet returned %T, want *stubSortedDV", unwrapped)
 	}
 	// no-singleton check
 	if u := UnwrapSingletonSortedSet(EmptySortedSet()); u != nil {
@@ -123,11 +137,11 @@ func TestSingleton_SortedToSortedSet(t *testing.T) {
 func TestSingleton_SortedNegativeOrdReturnsNil(t *testing.T) {
 	src := &stubSortedDV{ord: -1, value: nil}
 	wrapped := SingletonSortedSet(src)
-	got, err := wrapped.Get(0)
+	got, err := DrainSortedSet(wrapped, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != nil {
-		t.Errorf("Get returned %v for missing ord, want nil", got)
+		t.Errorf("DrainSortedSet returned %v for missing ord, want nil", got)
 	}
 }

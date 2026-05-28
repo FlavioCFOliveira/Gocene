@@ -467,9 +467,19 @@ func (it *BytesRefDocValuesIterator) Advance(target int) (int, error) {
 	return docID, nil
 }
 
-// Get returns the binary value for the given document.
+// Get returns the binary value for the given document. The underlying
+// BinaryDocValues iterator is positioned via AdvanceExact; callers MUST
+// advance monotonically (docID >= the previous docID).
 func (it *BytesRefDocValuesIterator) Get(docID int) (*util.BytesRef, error) {
-	bytes, err := it.values.Get(docID)
+	ok, err := it.values.AdvanceExact(docID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		it.current = nil
+		return nil, nil
+	}
+	bytes, err := it.values.BinaryValue()
 	if err != nil {
 		return nil, err
 	}

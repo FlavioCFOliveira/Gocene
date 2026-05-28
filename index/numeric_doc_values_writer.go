@@ -223,7 +223,8 @@ func sortNumericDocValues(
 		if docsWithField != nil {
 			docsWithField.Set(newDocID)
 		}
-		v, err := oldDocValues.Get(docID)
+		// docID is the current cursor — LongValue is equivalent to Get(docID).
+		v, err := oldDocValues.LongValue()
 		if err != nil {
 			return nil, err
 		}
@@ -326,15 +327,6 @@ func (s *sortingNumericDocValues) AdvanceExact(target int) (bool, error) {
 func (s *sortingNumericDocValues) LongValue() (int64, error) {
 	if s.docID < 0 || s.docID >= len(s.dvs.values) {
 		return 0, fmt.Errorf("sortingNumericDocValues: LongValue at invalid position %d", s.docID)
-	}
-	return s.dvs.values[s.docID], nil
-}
-
-// Get returns the value for docID. docID must equal the current cursor.
-func (s *sortingNumericDocValues) Get(docID int) (int64, error) {
-	if docID != s.docID {
-		return 0, fmt.Errorf(
-			"sortingNumericDocValues: Get(%d) requires NextDoc/AdvanceExact cursor; current=%d", docID, s.docID)
 	}
 	return s.dvs.values[s.docID], nil
 }

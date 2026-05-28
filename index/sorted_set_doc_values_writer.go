@@ -427,17 +427,9 @@ func (b *bufferedSortedSetDocValues) NextOrd() (int, error) {
 	return ord, nil
 }
 
-// Get returns the ordinals for the given docID. Implementation requirement
-// from the Gocene SortedSetDocValues interface; the Java original exposes
-// nextOrd/docValueCount instead.
-func (b *bufferedSortedSetDocValues) Get(docID int) ([]int, error) {
-	if docID != b.docID {
-		return nil, fmt.Errorf("bufferedSortedSetDocValues: Get(%d) requires NextDoc cursor; current=%d", docID, b.docID)
-	}
-	out := make([]int, b.ordCount)
-	copy(out, b.currentDoc[:b.ordCount])
-	return out, nil
-}
+// Cost returns the number of value-bearing documents in the buffered
+// stream.
+func (b *bufferedSortedSetDocValues) Cost() int64 { return int64(len(b.docs)) }
 
 func (b *bufferedSortedSetDocValues) LookupOrd(ord int) ([]byte, error) {
 	if ord < 0 || ord >= len(b.ordMap) {
@@ -519,19 +511,15 @@ func (b *bufferedSingleSortedDocValues) OrdValue() (int, error) {
 	return b.currentOrd, nil
 }
 
-func (b *bufferedSingleSortedDocValues) Get(docID int) ([]byte, error) {
-	if docID != b.docID {
-		return nil, fmt.Errorf("bufferedSingleSortedDocValues: Get(%d) requires NextDoc cursor; current=%d", docID, b.docID)
-	}
-	return b.LookupOrd(b.currentOrd)
+// LongValue returns the current ord as an int64 so the inherited
+// NumericDocValues surface stays satisfied.
+func (b *bufferedSingleSortedDocValues) LongValue() (int64, error) {
+	return int64(b.currentOrd), nil
 }
 
-func (b *bufferedSingleSortedDocValues) GetOrd(docID int) (int, error) {
-	if docID != b.docID {
-		return -1, fmt.Errorf("bufferedSingleSortedDocValues: GetOrd(%d) requires NextDoc cursor; current=%d", docID, b.docID)
-	}
-	return b.currentOrd, nil
-}
+// Cost returns the number of value-bearing documents in the buffered
+// stream.
+func (b *bufferedSingleSortedDocValues) Cost() int64 { return int64(len(b.docs)) }
 
 func (b *bufferedSingleSortedDocValues) LookupOrd(ord int) ([]byte, error) {
 	if ord < 0 || ord >= len(b.ordMap) {
@@ -588,15 +576,20 @@ func newDocOrds(
 		}
 		newDocID := sortMap.OldToNew(docID)
 		startOffset := ordOffset
-		ords, err := oldValues.Get(docID)
-		if err != nil {
-			return nil, err
-		}
-		ordOffset += int64(len(ords))
-		for _, o := range ords {
+		// docID is the current cursor — iterate ords via NextOrd until -1,
+		// the iterator-shaped equivalent of Get(docID).
+		for {
+			o, err := oldValues.NextOrd()
+			if err != nil {
+				return nil, err
+			}
+			if o == -1 {
+				break
+			}
 			if err := builder.Add(int64(o)); err != nil {
 				return nil, err
 			}
+			ordOffset++
 		}
 		d.docValueCounts.Set(newDocID, ordOffset-startOffset)
 		if startOffset != ordOffset {
@@ -681,14 +674,9 @@ func (s *sortingSortedSetDocValues) NextOrd() (int, error) {
 	return ord, nil
 }
 
-func (s *sortingSortedSetDocValues) Get(docID int) ([]int, error) {
-	if docID != s.docID {
-		return nil, fmt.Errorf("sortingSortedSetDocValues: Get(%d) requires NextDoc cursor; current=%d", docID, s.docID)
-	}
-	out := make([]int, len(s.pending))
-	copy(out, s.pending)
-	return out, nil
-}
+// Cost delegates to the untouched source iterator, matching the Java
+// SortingSortedSetDocValues semantics.
+func (s *sortingSortedSetDocValues) Cost() int64 { return s.in.Cost() }
 
 func (s *sortingSortedSetDocValues) LookupOrd(ord int) ([]byte, error) {
 	return s.in.LookupOrd(ord)

@@ -515,7 +515,9 @@ func (dvv *bboxDistanceValueSourceValues) readDoubleDV(doc int, field string) fl
 	if err != nil || target != doc {
 		return 0
 	}
-	raw, err := dv.Get(doc)
+	// dv is positioned on doc; LongValue is the iterator-shaped
+	// equivalent of the legacy Get(doc) accessor.
+	raw, err := dv.LongValue()
 	if err != nil {
 		return 0
 	}

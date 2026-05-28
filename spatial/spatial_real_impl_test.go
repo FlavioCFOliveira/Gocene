@@ -42,13 +42,18 @@ func newStubNumericDV(values map[int]int64) *stubNumericDV {
 	return &stubNumericDV{values: values, doc: -1, sorted: docs}
 }
 
-func (s *stubNumericDV) Get(docID int) (int64, error) {
+// getInternal serves the random-access lookup used by LongValue;
+// keeps the legacy Get(docID) semantics for the internal callers
+// without exposing the dropped surface method.
+func (s *stubNumericDV) getInternal(docID int) (int64, error) {
 	v, ok := s.values[docID]
 	if !ok {
 		return 0, nil
 	}
 	return v, nil
 }
+
+func (s *stubNumericDV) Cost() int64 { return int64(len(s.sorted)) }
 
 func (s *stubNumericDV) Advance(target int) (int, error) {
 	for _, d := range s.sorted {
@@ -70,7 +75,7 @@ func (s *stubNumericDV) AdvanceExact(target int) (bool, error) {
 	}
 	return got == target, nil
 }
-func (s *stubNumericDV) LongValue() (int64, error) { return s.Get(s.doc) }
+func (s *stubNumericDV) LongValue() (int64, error) { return s.getInternal(s.doc) }
 
 // stubBinaryDV is a deterministic BinaryDocValues iterator backed by
 // an in-memory doc -> []byte map.
@@ -89,7 +94,8 @@ func newStubBinaryDV(values map[int][]byte) *stubBinaryDV {
 	return &stubBinaryDV{values: values, doc: -1, sorted: docs}
 }
 
-func (s *stubBinaryDV) Get(docID int) ([]byte, error) { return s.values[docID], nil }
+func (s *stubBinaryDV) getInternal(docID int) ([]byte, error) { return s.values[docID], nil }
+func (s *stubBinaryDV) Cost() int64                            { return int64(len(s.sorted)) }
 func (s *stubBinaryDV) Advance(target int) (int, error) {
 	for _, d := range s.sorted {
 		if d >= target {
@@ -109,7 +115,7 @@ func (s *stubBinaryDV) AdvanceExact(target int) (bool, error) {
 	}
 	return got == target, nil
 }
-func (s *stubBinaryDV) BinaryValue() ([]byte, error) { return s.Get(s.doc) }
+func (s *stubBinaryDV) BinaryValue() ([]byte, error) { return s.getInternal(s.doc) }
 
 // ---------------------------------------------------------------------------
 // Minimal LeafReaderInterface stub

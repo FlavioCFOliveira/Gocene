@@ -34,9 +34,9 @@ func drainNumeric(t *testing.T, dv NumericDocValues) map[int]int64 {
 		if d == NO_MORE_DOCS {
 			return out
 		}
-		v, err := dv.Get(d)
+		v, err := dv.LongValue()
 		if err != nil {
-			t.Fatalf("Get(%d): %v", d, err)
+			t.Fatalf("LongValue@%d: %v", d, err)
 		}
 		out[d] = v
 	}

@@ -35,9 +35,7 @@ func newFakeNumericDV(values map[int]int64) *fakeNumericDV {
 	return &fakeNumericDV{values: values, docs: docs, pos: -1, docID: -1}
 }
 
-func (f *fakeNumericDV) Get(docID int) (int64, error) {
-	return f.values[docID], nil
-}
+func (f *fakeNumericDV) Cost() int64 { return int64(len(f.docs)) }
 
 func (f *fakeNumericDV) Advance(target int) (int, error) {
 	for f.pos+1 < len(f.docs) {
@@ -103,12 +101,13 @@ func TestSingletonSortedNumeric_DelegatesIterationAndGet(t *testing.T) {
 		if got != w.docID {
 			t.Fatalf("step %d NextDoc = %d, want %d", i, got, w.docID)
 		}
-		vals, err := dv.Get(got)
+		vals, err := CollectSortedNumericValues(dv)
 		if err != nil {
-			t.Fatalf("step %d Get: %v", i, err)
+			t.Fatalf("step %d CollectSortedNumericValues: %v", i, err)
 		}
+		_ = got
 		if !reflect.DeepEqual(vals, w.val) {
-			t.Fatalf("step %d Get = %v, want %v", i, vals, w.val)
+			t.Fatalf("step %d values = %v, want %v", i, vals, w.val)
 		}
 	}
 
@@ -155,7 +154,9 @@ func TestUnwrapSingletonSortedNumeric(t *testing.T) {
 	in := newFakeNumericDV(map[int]int64{0: 1})
 	dv := Singleton(in)
 
-	if got := UnwrapSingletonSortedNumeric(dv); got != in {
+	// Compare via underlying concrete type since UnwrapSingletonSortedNumeric
+	// returns the interface NumericDocValues, not *fakeNumericDV.
+	if got := UnwrapSingletonSortedNumeric(dv); got != NumericDocValues(in) {
 		t.Fatalf("UnwrapSingletonSortedNumeric returned %v, want wrapped iterator", got)
 	}
 	if got := UnwrapSingletonSortedNumeric(EmptySortedNumeric()); got != nil {
@@ -172,7 +173,7 @@ func TestSingletonSortedNumeric_GetNumericDocValues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetNumericDocValues on pristine: %v", err)
 	}
-	if got != in {
+	if got != NumericDocValues(in) {
 		t.Fatal("GetNumericDocValues did not return the wrapped iterator")
 	}
 
