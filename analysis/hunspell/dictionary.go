@@ -586,9 +586,13 @@ func (d *Dictionary) readAffixFile(raw []byte, encoding string, flags *FlagEnume
 
 		switch fields[0] {
 		case "AF":
-			d.parseAlias(fields)
+			if err := d.parseAlias(fields); err != nil {
+				return err
+			}
 		case "AM":
-			d.parseMorphAlias(line)
+			if err := d.parseMorphAlias(line); err != nil {
+				return err
+			}
 		case "PFX":
 			if err := d.parseAffix(ctx, line, AffixKindPrefix, flags, sc, &sb, lineNo); err != nil {
 				return err
@@ -628,7 +632,10 @@ func (d *Dictionary) readAffixFile(raw []byte, encoding string, flags *FlagEnume
 			}
 		case "ICONV":
 			if len(fields) >= 2 {
-				num, _ := strconv.Atoi(fields[1])
+				num, err := strconv.Atoi(fields[1])
+				if err != nil {
+					return fmt.Errorf("hunspell: invalid ICONV count %q: %w", fields[1], err)
+				}
 				ct, err := d.parseConversions(sc, num, &lineNo)
 				if err != nil {
 					return err
@@ -637,7 +644,10 @@ func (d *Dictionary) readAffixFile(raw []byte, encoding string, flags *FlagEnume
 			}
 		case "OCONV":
 			if len(fields) >= 2 {
-				num, _ := strconv.Atoi(fields[1])
+				num, err := strconv.Atoi(fields[1])
+				if err != nil {
+					return fmt.Errorf("hunspell: invalid OCONV count %q: %w", fields[1], err)
+				}
 				ct, err := d.parseConversions(sc, num, &lineNo)
 				if err != nil {
 					return err
@@ -653,7 +663,10 @@ func (d *Dictionary) readAffixFile(raw []byte, encoding string, flags *FlagEnume
 			}
 		case "BREAK":
 			if len(fields) >= 2 {
-				num, _ := strconv.Atoi(fields[1])
+				num, err := strconv.Atoi(fields[1])
+				if err != nil {
+					return fmt.Errorf("hunspell: invalid BREAK count %q: %w", fields[1], err)
+				}
 				b, err := d.parseBreaks(sc, num, &lineNo)
 				if err != nil {
 					return err
@@ -671,9 +684,8 @@ func (d *Dictionary) readAffixFile(raw []byte, encoding string, flags *FlagEnume
 		case "REP":
 			if len(fields) >= 3 {
 				// REP N or REP pattern replacement
-				if _, err := strconv.Atoi(fields[1]); err == nil && len(fields) == 2 {
+				if num, err := strconv.Atoi(fields[1]); err == nil && len(fields) == 2 {
 					// count line; parse subsequent lines
-					num, _ := strconv.Atoi(fields[1])
 					for i := 0; i < num; i++ {
 						if sc.Scan() {
 							lineNo++
@@ -691,7 +703,10 @@ func (d *Dictionary) readAffixFile(raw []byte, encoding string, flags *FlagEnume
 			}
 		case "MAP":
 			if len(fields) >= 2 {
-				num, _ := strconv.Atoi(fields[1])
+				num, err := strconv.Atoi(fields[1])
+				if err != nil {
+					return fmt.Errorf("hunspell: invalid MAP count %q: %w", fields[1], err)
+				}
 				for i := 0; i < num; i++ {
 					if sc.Scan() {
 						lineNo++
@@ -708,11 +723,19 @@ func (d *Dictionary) readAffixFile(raw []byte, encoding string, flags *FlagEnume
 			d.enableSplitSuggestions = false
 		case "MAXNGRAMSUGS":
 			if len(fields) >= 2 {
-				d.maxNGramSuggestions, _ = strconv.Atoi(fields[1])
+				v, err := strconv.Atoi(fields[1])
+				if err != nil {
+					return fmt.Errorf("hunspell: invalid MAXNGRAMSUGS value %q: %w", fields[1], err)
+				}
+				d.maxNGramSuggestions = v
 			}
 		case "MAXDIFF":
 			if len(fields) >= 2 {
-				d.maxDiff, _ = strconv.Atoi(fields[1])
+				v, err := strconv.Atoi(fields[1])
+				if err != nil {
+					return fmt.Errorf("hunspell: invalid MAXDIFF value %q: %w", fields[1], err)
+				}
+				d.maxDiff = v
 			}
 		case "ONLYMAXDIFF":
 			d.onlyMaxDiff = true
@@ -730,7 +753,10 @@ func (d *Dictionary) readAffixFile(raw []byte, encoding string, flags *FlagEnume
 			}
 		case "COMPOUNDMIN":
 			if len(fields) >= 2 {
-				v, _ := strconv.Atoi(fields[1])
+				v, err := strconv.Atoi(fields[1])
+				if err != nil {
+					return fmt.Errorf("hunspell: invalid COMPOUNDMIN value %q: %w", fields[1], err)
+				}
 				if v < 1 {
 					v = 1
 				}
@@ -738,7 +764,10 @@ func (d *Dictionary) readAffixFile(raw []byte, encoding string, flags *FlagEnume
 			}
 		case "COMPOUNDWORDMAX":
 			if len(fields) >= 2 {
-				v, _ := strconv.Atoi(fields[1])
+				v, err := strconv.Atoi(fields[1])
+				if err != nil {
+					return fmt.Errorf("hunspell: invalid COMPOUNDWORDMAX value %q: %w", fields[1], err)
+				}
 				if v < 1 {
 					v = 1
 				}
@@ -746,7 +775,10 @@ func (d *Dictionary) readAffixFile(raw []byte, encoding string, flags *FlagEnume
 			}
 		case "COMPOUNDRULE":
 			if len(fields) >= 2 {
-				num, _ := strconv.Atoi(fields[1])
+				num, err := strconv.Atoi(fields[1])
+				if err != nil {
+					return fmt.Errorf("hunspell: invalid COMPOUNDRULE count %q: %w", fields[1], err)
+				}
 				rules, err := d.parseCompoundRules(sc, num, &lineNo)
 				if err != nil {
 					return err
@@ -789,7 +821,10 @@ func (d *Dictionary) readAffixFile(raw []byte, encoding string, flags *FlagEnume
 			d.simplifiedTriple = true
 		case "CHECKCOMPOUNDPATTERN":
 			if len(fields) >= 2 {
-				num, _ := strconv.Atoi(fields[1])
+				num, err := strconv.Atoi(fields[1])
+				if err != nil {
+					return fmt.Errorf("hunspell: invalid CHECKCOMPOUNDPATTERN count %q: %w", fields[1], err)
+				}
 				for i := 0; i < num; i++ {
 					if sc.Scan() {
 						lineNo++
@@ -1147,13 +1182,16 @@ func (d *Dictionary) parseMapEntry(line string) []string {
 
 // ─── Alias parsing ───────────────────────────────────────────────────────────
 
-func (d *Dictionary) parseAlias(fields []string) {
+func (d *Dictionary) parseAlias(fields []string) error {
 	if d.aliases == nil {
 		if len(fields) >= 2 {
-			count, _ := strconv.Atoi(fields[1])
+			count, err := strconv.Atoi(fields[1])
+			if err != nil {
+				return fmt.Errorf("hunspell: invalid AF alias count %q: %w", fields[1], err)
+			}
 			d.aliases = make([]string, count)
 		}
-		return
+		return nil
 	}
 	v := ""
 	if len(fields) >= 2 {
@@ -1163,21 +1201,26 @@ func (d *Dictionary) parseAlias(fields []string) {
 		d.aliases[d.aliasCount] = v
 		d.aliasCount++
 	}
+	return nil
 }
 
-func (d *Dictionary) parseMorphAlias(line string) {
+func (d *Dictionary) parseMorphAlias(line string) error {
 	if d.morphAliases == nil {
-		line = strings.TrimPrefix(line, "AM")
-		line = strings.TrimSpace(line)
-		count, _ := strconv.Atoi(line)
+		trimmed := strings.TrimPrefix(line, "AM")
+		trimmed = strings.TrimSpace(trimmed)
+		count, err := strconv.Atoi(trimmed)
+		if err != nil {
+			return fmt.Errorf("hunspell: invalid AM morph alias count %q: %w", trimmed, err)
+		}
 		d.morphAliases = make([]string, count)
-		return
+		return nil
 	}
 	arg := line[2:] // leave the space
 	if d.morphAliasCount < len(d.morphAliases) {
 		d.morphAliases[d.morphAliasCount] = arg
 		d.morphAliasCount++
 	}
+	return nil
 }
 
 func (d *Dictionary) getAliasValue(id int) string {

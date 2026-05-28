@@ -34,7 +34,9 @@ func NewMultiTrie2(forward bool) *MultiTrie2 {
 func (m *MultiTrie2) GetFully(key []rune) string {
 	var result []rune
 	func() {
-		defer func() { recover() }() //nolint:errcheck // mirrors Java: IndexOutOfBoundsException caught
+		// Mirrors Java MultiTrie2.getFully, which catches IndexOutOfBoundsException;
+		// recoverBounds swallows only out-of-range panics and re-panics anything else.
+		defer recoverBounds()
 		lastkey := key
 		p := make([]string, len(m.tries))
 		lastch := ' '
@@ -68,7 +70,9 @@ func (m *MultiTrie2) GetFully(key []rune) string {
 func (m *MultiTrie2) GetLastOnPath(key []rune) string {
 	var result []rune
 	func() {
-		defer func() { recover() }() //nolint:errcheck // mirrors Java: IndexOutOfBoundsException caught
+		// Mirrors Java MultiTrie2.getLastOnPath, which catches IndexOutOfBoundsException;
+		// recoverBounds swallows only out-of-range panics and re-panics anything else.
+		defer recoverBounds()
 		lastkey := key
 		p := make([]string, len(m.tries))
 		lastch := ' '

@@ -45,7 +45,10 @@ func Apply(dest *[]rune, diff string) {
 	if pos < 0 {
 		return
 	}
-	defer func() { recover() }() //nolint:errcheck // mirrors Java: StringIndexOutOfBoundsException ignored
+	// Mirrors Java Diff.apply, which catches StringIndexOutOfBoundsException and
+	// ArrayIndexOutOfBoundsException; recoverBounds swallows only out-of-range
+	// panics and re-panics anything else.
+	defer recoverBounds()
 	for i := 0; i < len(diff)/2; i++ {
 		cmd := diff[2*i]
 		param := diff[2*i+1]
