@@ -110,6 +110,16 @@ func (s *Server) getBook(w http.ResponseWriter, _ *http.Request, id string) {
 }
 
 func (s *Server) updateBook(w http.ResponseWriter, r *http.Request, id string) {
+	// PUT is update-only; reject requests for ids that do not exist.
+	if _, err := s.store.Get(id); err != nil {
+		if errors.Is(err, ErrBookNotFound) {
+			writeError(w, http.StatusNotFound, "book not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
 	var book Book
 	if err := decodeJSON(r, &book); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())

@@ -27,6 +27,11 @@ func GoldenCorpus() ([]Book, error) {
 // SeedIfEmpty populates the store with the golden corpus when (and only when)
 // the underlying index is currently empty. The number of inserted books is
 // returned for logging purposes.
+//
+// All books are added to the shadow map first and then indexed in a single
+// bulk rebuild. This avoids the repeated DeleteAll→AddDocument→Commit cycles
+// that a per-book Put would trigger, which can leave the directory in a state
+// where field-level term queries produce incorrect results.
 func SeedIfEmpty(s *BookStore) (int, error) {
 	empty, err := s.IsEmpty()
 	if err != nil {
@@ -40,10 +45,29 @@ func SeedIfEmpty(s *BookStore) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	if len(books) == 0 {
+		return 0, nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	for i := range books {
-		if err := s.Put(&books[i]); err != nil {
-			return i, fmt.Errorf("seed book %q: %w", books[i].ID, err)
+		if books[i].ID == "" {
+			id, err := generateID()
+			if err != nil {
+				return i, fmt.Errorf("generate id for book %d: %w", i, err)
+			}
+			books[i].ID = id
 		}
+		if _, existed := s.books[books[i].ID]; !existed {
+			s.order = append(s.order, books[i].ID)
+		}
+		s.books[books[i].ID] = books[i]
+	}
+
+	if err := s.rebuildIndexLocked(); err != nil {
+		return 0, fmt.Errorf("bulk seed rebuild: %w", err)
 	}
 	return len(books), nil
 }

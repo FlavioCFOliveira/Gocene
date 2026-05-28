@@ -57,6 +57,7 @@ func OpenBookStore(path string) (*BookStore, error) {
 
 	analyzer := analysis.NewStandardAnalyzer()
 	cfg := index.NewIndexWriterConfig(analyzer)
+	cfg.SetOpenMode(index.CREATE_OR_APPEND)
 	writer, err := index.NewIndexWriter(dir, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("open index writer at %q: %w", path, err)
@@ -154,27 +155,57 @@ func (s *BookStore) Delete(id string) error {
 	return s.rebuildIndexLocked()
 }
 
-// rebuildIndexLocked clears the index and re-adds every book in insertion
-// order. After this call the internal doc id assigned by Gocene for the
-// book at s.order[k] is exactly k, which is what Search relies on to map
-// hits back to domain ids. The caller must hold s.mu in write mode.
+// rebuildIndexLocked closes the current writer, opens a fresh writer in
+// CREATE mode, re-adds every book in insertion order, and commits.
+// After this call the internal doc id assigned by Gocene for the book at
+// s.order[k] is exactly k, which is what Search relies on to map hits back
+// to domain ids. The caller must hold s.mu in write mode.
+//
+// Closing and reopening the writer on every rebuild avoids a state mismatch
+// in the directory where DeleteAll + AddDocument + Commit leaves stale
+// segment data that causes field-level term queries to return wrong results.
 func (s *BookStore) rebuildIndexLocked() error {
-	if err := s.writer.DeleteAll(); err != nil {
-		return fmt.Errorf("clear index: %w", err)
+	if s.writer != nil {
+		if err := s.writer.Close(); err != nil {
+			return fmt.Errorf("close writer before rebuild: %w", err)
+		}
+		s.writer = nil
 	}
+
+	entries, err := s.dir.ListAll()
+	if err != nil {
+		return fmt.Errorf("list directory for rebuild: %w", err)
+	}
+	for _, name := range entries {
+		if err := s.dir.DeleteFile(name); err != nil {
+			return fmt.Errorf("delete %q before rebuild: %w", name, err)
+		}
+	}
+
+	cfg := index.NewIndexWriterConfig(s.analyzer)
+	cfg.SetOpenMode(index.CREATE_OR_APPEND)
+	writer, err := index.NewIndexWriter(s.dir, cfg)
+	if err != nil {
+		return fmt.Errorf("open writer for rebuild: %w", err)
+	}
+
 	for _, id := range s.order {
 		book := s.books[id]
 		doc, err := book.toDocument()
 		if err != nil {
+			_ = writer.Close()
 			return fmt.Errorf("build document for %q: %w", id, err)
 		}
-		if err := s.writer.AddDocument(doc); err != nil {
+		if err := writer.AddDocument(doc); err != nil {
+			_ = writer.Close()
 			return fmt.Errorf("index %q: %w", id, err)
 		}
 	}
-	if err := s.writer.Commit(); err != nil {
+	if err := writer.Commit(); err != nil {
+		_ = writer.Close()
 		return fmt.Errorf("commit: %w", err)
 	}
+	s.writer = writer
 	return nil
 }
 
