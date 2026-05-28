@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -587,12 +588,10 @@ func NewCompressingStoredFieldsWriter(dir store.Directory, segmentInfo *index.Se
 
 	// Write header
 	if err := store.WriteUint32(out, 0x46445400); err != nil { // "FDT\0"
-		out.Close()
-		return nil, fmt.Errorf("failed to write magic number: %w", err)
+		return nil, errors.Join(fmt.Errorf("failed to write magic number: %w", err), out.Close())
 	}
 	if err := store.WriteVInt(out, 1); err != nil { // Version
-		out.Close()
-		return nil, fmt.Errorf("failed to write version: %w", err)
+		return nil, errors.Join(fmt.Errorf("failed to write version: %w", err), out.Close())
 	}
 
 	return writer, nil
@@ -822,8 +821,7 @@ func (w *CompressingStoredFieldsWriter) Close() error {
 
 	// Flush any remaining documents
 	if err := w.flushChunk(); err != nil {
-		w.out.Close()
-		return err
+		return errors.Join(err, w.out.Close())
 	}
 
 	// Close data file

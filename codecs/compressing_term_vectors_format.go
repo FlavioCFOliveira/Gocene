@@ -7,6 +7,7 @@ package codecs
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -145,12 +146,10 @@ func NewCompressingTermVectorsWriter(state *SegmentWriteState, mode CompressionM
 
 	// Write header
 	if err := store.WriteUint32(out, 0x54564400); err != nil { // "TVD\0"
-		out.Close()
-		return nil, fmt.Errorf("failed to write magic number: %w", err)
+		return nil, errors.Join(fmt.Errorf("failed to write magic number: %w", err), out.Close())
 	}
 	if err := store.WriteVInt(out, 1); err != nil { // Version
-		out.Close()
-		return nil, fmt.Errorf("failed to write version: %w", err)
+		return nil, errors.Join(fmt.Errorf("failed to write version: %w", err), out.Close())
 	}
 
 	return writer, nil
@@ -391,8 +390,7 @@ func (w *CompressingTermVectorsWriter) Close() error {
 
 	// Flush any remaining documents
 	if err := w.flushChunk(); err != nil {
-		w.out.Close()
-		return err
+		return errors.Join(err, w.out.Close())
 	}
 
 	// Close data file

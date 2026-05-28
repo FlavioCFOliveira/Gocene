@@ -8,6 +8,7 @@
 package codecs
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -212,23 +213,18 @@ func NewLucene104ScalarQuantizedVectorsWriter(state *SegmentWriteState, encoding
 
 	metaOut, err := state.Directory.CreateOutput(metaFile, store.IOContextWrite)
 	if err != nil {
-		vectorDataOut.Close()
-		return nil, fmt.Errorf("failed to create meta output: %w", err)
+		return nil, errors.Join(fmt.Errorf("failed to create meta output: %w", err), vectorDataOut.Close())
 	}
 
 	// Write headers
 	helper := NewKnnVectorsWriterHelper(vectorDataOut)
 	if err := helper.WriteHeader(); err != nil {
-		vectorDataOut.Close()
-		metaOut.Close()
-		return nil, err
+		return nil, errors.Join(err, vectorDataOut.Close(), metaOut.Close())
 	}
 
 	// Write meta header
 	if err := writeScalarQuantizedMetaHeader(metaOut); err != nil {
-		vectorDataOut.Close()
-		metaOut.Close()
-		return nil, err
+		return nil, errors.Join(err, vectorDataOut.Close(), metaOut.Close())
 	}
 
 	return &Lucene104ScalarQuantizedVectorsWriter{
