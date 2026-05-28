@@ -11,6 +11,23 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
+// addFieldTyped is a test helper that unwraps the wide
+// [KnnFieldVectorsWriter] returned by [Lucene99HnswVectorsWriter.AddField]
+// into the concrete *lucene99HnswFieldWriter the writer test surface
+// exercises through AddValueFloat32 / AddValueByte / NumDocs.
+func addFieldTyped(t *testing.T, w *Lucene99HnswVectorsWriter, fi *index.FieldInfo) (*lucene99HnswFieldWriter, error) {
+	t.Helper()
+	raw, err := w.AddField(fi)
+	if err != nil {
+		return nil, err
+	}
+	fw, ok := raw.(*lucene99HnswFieldWriter)
+	if !ok {
+		t.Fatalf("AddField returned %T, want *lucene99HnswFieldWriter", raw)
+	}
+	return fw, nil
+}
+
 // newWriterTestState builds a SegmentWriteState pointed at a fresh
 // ByteBuffersDirectory. The segment id is filled with a deterministic
 // pattern so the codec headers are exercised end-to-end.
@@ -82,7 +99,7 @@ func TestLucene99HnswVectorsWriter_AddFieldValidation(t *testing.T) {
 		VectorEncoding:           index.VectorEncodingFloat32,
 		VectorSimilarityFunction: index.VectorSimilarityFunctionEuclidean,
 	})
-	fw, err := w.AddField(fi)
+	fw, err := addFieldTyped(t, w, fi)
 	if err != nil {
 		t.Fatalf("AddField: %v", err)
 	}
@@ -133,7 +150,7 @@ func TestLucene99HnswVectorsWriter_EmptyFieldFlush(t *testing.T) {
 	if _, err := w.AddField(fi); err != nil {
 		t.Fatalf("AddField: %v", err)
 	}
-	if err := w.Flush(0); err != nil {
+	if err := w.Flush(0, nil); err != nil {
 		t.Fatalf("Flush: %v", err)
 	}
 	if err := w.Finish(); err != nil {

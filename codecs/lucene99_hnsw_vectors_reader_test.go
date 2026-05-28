@@ -163,7 +163,7 @@ func TestLucene99HnswVectorsReader_SingleFieldRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("writer: %v", err)
 	}
-	fw, err := w.AddField(fi)
+	fw, err := addFieldTyped(t, w, fi)
 	if err != nil {
 		t.Fatalf("AddField: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestLucene99HnswVectorsReader_SingleFieldRoundTrip(t *testing.T) {
 			t.Fatalf("AddValueFloat32 doc %d: %v", i, err)
 		}
 	}
-	if err := w.Flush(numDocs); err != nil {
+	if err := w.Flush(numDocs, nil); err != nil {
 		t.Fatalf("Flush: %v", err)
 	}
 	if err := w.Finish(); err != nil {
@@ -253,7 +253,7 @@ func TestLucene99HnswVectorsReader_MultipleFields(t *testing.T) {
 	}
 
 	for i, fi := range []*index.FieldInfo{fi1, fi2} {
-		fw, err := w.AddField(fi)
+		fw, err := addFieldTyped(t, w, fi)
 		if err != nil {
 			t.Fatalf("AddField %d: %v", i, err)
 		}
@@ -268,7 +268,7 @@ func TestLucene99HnswVectorsReader_MultipleFields(t *testing.T) {
 			}
 		}
 	}
-	if err := w.Flush(numDocs); err != nil {
+	if err := w.Flush(numDocs, nil); err != nil {
 		t.Fatalf("Flush: %v", err)
 	}
 	if err := w.Finish(); err != nil {
@@ -313,7 +313,7 @@ func TestLucene99HnswVectorsReader_NeighbourTraversal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("writer: %v", err)
 	}
-	fw, err := w.AddField(fi)
+	fw, err := addFieldTyped(t, w, fi)
 	if err != nil {
 		t.Fatalf("AddField: %v", err)
 	}
@@ -322,7 +322,7 @@ func TestLucene99HnswVectorsReader_NeighbourTraversal(t *testing.T) {
 			t.Fatalf("AddValueFloat32 doc %d: %v", i, err)
 		}
 	}
-	if err := w.Flush(numDocs); err != nil {
+	if err := w.Flush(numDocs, nil); err != nil {
 		t.Fatalf("Flush: %v", err)
 	}
 	if err := w.Finish(); err != nil {
@@ -440,7 +440,7 @@ func TestLucene99HnswVectorsReader_GraphProperties(t *testing.T) {
 			if err != nil {
 				t.Fatalf("writer: %v", err)
 			}
-			fw, err := w.AddField(fi)
+			fw, err := addFieldTyped(t, w, fi)
 			if err != nil {
 				t.Fatalf("AddField: %v", err)
 			}
@@ -453,7 +453,7 @@ func TestLucene99HnswVectorsReader_GraphProperties(t *testing.T) {
 					t.Fatalf("doc %d: %v", i, err)
 				}
 			}
-			if err := w.Flush(c.numDocs); err != nil {
+			if err := w.Flush(c.numDocs, nil); err != nil {
 				t.Fatalf("Flush: %v", err)
 			}
 			if err := w.Finish(); err != nil {
@@ -516,7 +516,7 @@ func TestLucene99HnswVectorsReader_LevelConsistency(t *testing.T) {
 	if err != nil {
 		t.Fatalf("writer: %v", err)
 	}
-	fw, err := w.AddField(fi)
+	fw, err := addFieldTyped(t, w, fi)
 	if err != nil {
 		t.Fatalf("AddField: %v", err)
 	}
@@ -529,7 +529,7 @@ func TestLucene99HnswVectorsReader_LevelConsistency(t *testing.T) {
 			t.Fatalf("doc %d: %v", i, err)
 		}
 	}
-	if err := w.Flush(numDocs); err != nil {
+	if err := w.Flush(numDocs, nil); err != nil {
 		t.Fatalf("Flush: %v", err)
 	}
 	if err := w.Finish(); err != nil {
@@ -607,7 +607,7 @@ func TestLucene99HnswVectorsReader_ByteVectors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("writer: %v", err)
 	}
-	fw, err := w.AddField(fi)
+	fw, err := addFieldTyped(t, w, fi)
 	if err != nil {
 		t.Fatalf("AddField: %v", err)
 	}
@@ -620,7 +620,7 @@ func TestLucene99HnswVectorsReader_ByteVectors(t *testing.T) {
 			t.Fatalf("AddValueByte doc %d: %v", i, err)
 		}
 	}
-	if err := w.Flush(numDocs); err != nil {
+	if err := w.Flush(numDocs, nil); err != nil {
 		t.Fatalf("Flush: %v", err)
 	}
 	if err := w.Finish(); err != nil {

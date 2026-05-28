@@ -15,8 +15,10 @@ import (
 // that the SPI does not yet cover on the codecs-facing surface:
 // DocValuesFormat. The matching follow-up task is rmp #4708; once it
 // lands this declaration collapses to `type Codec = spi.Codec`.
-// KnnVectorsFormat is exposed on *Lucene104Codec as a concrete method
-// but is NOT part of the codecs.Codec interface today; see rmp #4707.
+//
+// KnnVectorsFormat used to be in the same position and was lifted onto
+// the SPI by rmp #4707, so it is now reached transitively via the
+// embedded spi.Codec.
 type Codec interface {
 	spi.Codec
 
@@ -80,6 +82,13 @@ func (c *BaseCodec) DocValuesFormat() DocValuesFormat {
 
 // CompoundFormat returns the compound format. Returns nil by default.
 func (c *BaseCodec) CompoundFormat() CompoundFormat {
+	return nil
+}
+
+// KnnVectorsFormat returns the KNN vectors format. Returns nil by
+// default; concrete codecs override. Required by spi.Codec since the
+// KnnVectorsFormat lift in rmp #4707.
+func (c *BaseCodec) KnnVectorsFormat() KnnVectorsFormat {
 	return nil
 }
 

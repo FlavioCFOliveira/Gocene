@@ -10,9 +10,9 @@ import (
 
 // This file is the index-side facade for the codec SPI after the
 // SPI unification (rmp #4669 / Sprint 118 phase 2 / rmp #4693 /
-// rmp #4706). The canonical declaration site lives in spi/; index/
-// re-exports the types as Go aliases so callers that historically
-// reached for index.Codec, index.PostingsFormat,
+// rmp #4706 / rmp #4707). The canonical declaration site lives in
+// spi/; index/ re-exports the types as Go aliases so callers that
+// historically reached for index.Codec, index.PostingsFormat,
 // index.SegmentWriteState, etc. keep compiling without churn.
 //
 // Aliasing an interface with `type X = spi.X` makes the index-package
@@ -20,24 +20,27 @@ import (
 // system level: implementations in codecs/ satisfy index/ interfaces
 // without any adapter, and the codecbridge adapters collapse to
 // identity wrappers.
-
-// Codec extends spi.Codec with the one remaining component accessor
-// that the SPI does not yet cover on the index-facing surface:
-// KnnVectorsFormat. The matching follow-up task is rmp #4707; once it
-// lands this declaration collapses to `type Codec = spi.Codec`.
-// (DocValuesFormat is a codecs-only accessor on Lucene104Codec and is
+//
+// DocValuesFormat is a codecs-only accessor on Lucene104Codec and is
 // NOT part of the index-side Codec surface; see rmp #4708 for the
-// lift.)
-type Codec interface {
-	spi.Codec
+// remaining lift.
 
-	// KnnVectorsFormat returns the factory used to construct the
-	// per-segment KNN vectors writer during indexing. Codec
-	// implementations that do not support KNN vectors may return nil.
-	// TODO(T4707): move to spi.Codec once the KnnVectorsFormat /
-	// KnnVectorsFormatFactory reconciliation lands.
-	KnnVectorsFormat() KnnVectorsFormatFactory
-}
+// Codec is an alias of [spi.Codec]. After rmp #4707 the SPI surface
+// covers every method that the index-side Codec contract requires,
+// including KnnVectorsFormat.
+type Codec = spi.Codec
+
+// KnnVectorsFormat is an alias of [spi.KnnVectorsFormat] — the wide
+// canonical KNN vectors format the codec exposes via Codec.KnnVectorsFormat().
+type KnnVectorsFormat = spi.KnnVectorsFormat
+
+// KnnVectorsWriter is an alias of [spi.KnnVectorsWriter].
+type KnnVectorsWriter = spi.KnnVectorsWriter
+
+// KnnFieldVectorsWriter is an alias of [spi.KnnFieldVectorsWriter] —
+// the wide, non-generic per-field write-side contract returned by
+// [KnnVectorsWriter.AddField].
+type KnnFieldVectorsWriter = spi.KnnFieldVectorsWriter
 
 // PostingsFormat is an alias of spi.PostingsFormat.
 type PostingsFormat = spi.PostingsFormat

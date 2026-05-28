@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // BufferingKnnVectorsWriter is a KnnVectorsWriter that buffers every vector
@@ -75,8 +76,8 @@ func NewBufferingKnnVectorsWriter(state *SegmentWriteState, hook BufferingKnnVec
 }
 
 // AddFloatField registers a new FLOAT32-encoded vector field and returns the
-// KnnFieldVectorsWriter consumers should call into.
-func (w *BufferingKnnVectorsWriter) AddFloatField(fi *schema.FieldInfo) (KnnFieldVectorsWriter[float32], error) {
+// TypedKnnFieldVectorsWriter consumers should call into.
+func (w *BufferingKnnVectorsWriter) AddFloatField(fi *schema.FieldInfo) (TypedKnnFieldVectorsWriter[float32], error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.closed {
@@ -99,8 +100,8 @@ func (w *BufferingKnnVectorsWriter) AddFloatField(fi *schema.FieldInfo) (KnnFiel
 }
 
 // AddByteField registers a new BYTE-encoded vector field and returns the
-// KnnFieldVectorsWriter consumers should call into.
-func (w *BufferingKnnVectorsWriter) AddByteField(fi *schema.FieldInfo) (KnnFieldVectorsWriter[byte], error) {
+// TypedKnnFieldVectorsWriter consumers should call into.
+func (w *BufferingKnnVectorsWriter) AddByteField(fi *schema.FieldInfo) (TypedKnnFieldVectorsWriter[byte], error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.closed {
@@ -131,14 +132,37 @@ func (w *BufferingKnnVectorsWriter) WriteField(fieldInfo *schema.FieldInfo, read
 	return fmt.Errorf("BufferingKnnVectorsWriter: WriteField is unsupported on buffering writers; use AddFloatField/AddByteField for the merged segment")
 }
 
+// AddField is unimplemented on BufferingKnnVectorsWriter: codec authors
+// that wrap this helper expose their own AddField via the
+// AddFloatField / AddByteField typed factories, which embed
+// encoding-aware bookkeeping the wide non-generic surface cannot
+// represent. Implementations that need wide-AddField semantics should
+// dispatch from their own AddField to the typed factories.
+func (w *BufferingKnnVectorsWriter) AddField(fieldInfo *schema.FieldInfo) (KnnFieldVectorsWriter, error) {
+	return nil, fmt.Errorf("BufferingKnnVectorsWriter: AddField not supported; use AddFloatField or AddByteField on the concrete buffering writer")
+}
+
+// Flush is a no-op for BufferingKnnVectorsWriter: every per-field write
+// happens in Close via the configured hook. The signature is preserved
+// to satisfy [KnnVectorsWriter]; maxDoc and sortMap are accepted but
+// ignored.
+func (w *BufferingKnnVectorsWriter) Flush(maxDoc int, sortMap spi.SorterDocMap) error {
+	_ = maxDoc
+	_ = sortMap
+	return nil
+}
+
 // Finish is a no-op for BufferingKnnVectorsWriter: actual flushing happens
 // in Close, where the hook dispatches per-field writes.
 func (w *BufferingKnnVectorsWriter) Finish() error {
 	return nil
 }
 
-// RAMBytesUsed returns the sum of per-field RAM usage estimates.
-func (w *BufferingKnnVectorsWriter) RAMBytesUsed() int64 {
+// RamBytesUsed returns the sum of per-field RAM usage estimates.
+// Satisfies the [KnnVectorsWriter] (Accountable) contract. The legacy
+// upper-case [BufferingKnnVectorsWriter.RAMBytesUsed] spelling forwards
+// here for backwards-compatibility with pre-T4707 callers.
+func (w *BufferingKnnVectorsWriter) RamBytesUsed() int64 {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	var total int64
@@ -149,6 +173,15 @@ func (w *BufferingKnnVectorsWriter) RAMBytesUsed() int64 {
 		total += f.RAMBytesUsed()
 	}
 	return total
+}
+
+// RAMBytesUsed returns the sum of per-field RAM usage estimates.
+//
+// Deprecated: use [BufferingKnnVectorsWriter.RamBytesUsed] (the lower-
+// case spelling matches the wide [KnnVectorsWriter] Accountable
+// contract). Retained as a thin alias for the existing test surface.
+func (w *BufferingKnnVectorsWriter) RAMBytesUsed() int64 {
+	return w.RamBytesUsed()
 }
 
 // CheckIntegrity is a no-op for buffering writers since nothing is on disk
@@ -202,7 +235,7 @@ func (w *BufferingKnnVectorsWriter) Close() error {
 }
 
 // BufferedFloatVectorField holds the in-memory state of a single FLOAT32
-// vector field; it satisfies KnnFieldVectorsWriter[float32].
+// vector field; it satisfies TypedKnnFieldVectorsWriter[float32].
 type BufferedFloatVectorField struct {
 	FieldInfo *schema.FieldInfo
 	Dimension int
@@ -237,7 +270,7 @@ func (b *BufferedFloatVectorField) RAMBytesUsed() int64 {
 func (b *BufferedFloatVectorField) Finish() error { return nil }
 
 // BufferedByteVectorField holds the in-memory state of a single BYTE
-// vector field; it satisfies KnnFieldVectorsWriter[byte].
+// vector field; it satisfies TypedKnnFieldVectorsWriter[byte].
 type BufferedByteVectorField struct {
 	FieldInfo *schema.FieldInfo
 	Dimension int

@@ -7,28 +7,27 @@ package codecs
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// KnnVectorsFormat handles encoding/decoding of KNN (K-Nearest Neighbors) vector values.
-// This is the Go port of Lucene's org.apache.lucene.codecs.KnnVectorsFormat.
-//
-// KNN vectors are used for vector search and similarity queries. They are stored
-// in a format optimized for approximate nearest neighbor search using HNSW
-// (Hierarchical Navigable Small World) graphs.
-type KnnVectorsFormat interface {
-	// Name returns the name of this format.
-	Name() string
+// KnnVectorsFormat is an alias of [spi.KnnVectorsFormat]. The canonical
+// wide interface was lifted into the SPI by rmp #4707; this alias keeps
+// the codecs-package identifier source-compatible with every codec port
+// that historically reached for codecs.KnnVectorsFormat.
+type KnnVectorsFormat = spi.KnnVectorsFormat
 
-	// FieldsWriter returns a writer for writing KNN vectors.
-	// The caller should close the returned writer when done.
-	FieldsWriter(state *SegmentWriteState) (KnnVectorsWriter, error)
+// KnnVectorsWriter is an alias of [spi.KnnVectorsWriter]. Lifted by rmp
+// #4707 alongside KnnVectorsFormat.
+type KnnVectorsWriter = spi.KnnVectorsWriter
 
-	// FieldsReader returns a reader for reading KNN vectors.
-	// The caller should close the returned reader when done.
-	FieldsReader(state *SegmentReadState) (KnnVectorsReader, error)
-}
+// KnnVectorsReader is an alias of [spi.KnnVectorsReader]. The narrow
+// Accountable-style read-side surface (CheckIntegrity / Close) is the
+// only contract the wide [spi.KnnVectorsWriter.WriteField] entrypoint
+// requires today; the per-encoding read methods (getFloatVectorValues,
+// getByteVectorValues, search, …) live in this codecs package as
+// concrete-typed helpers on per-format reader implementations.
+type KnnVectorsReader = spi.KnnVectorsReader
 
 // BaseKnnVectorsFormat provides common functionality for KnnVectorsFormat implementations.
 type BaseKnnVectorsFormat struct {
@@ -53,30 +52,6 @@ func (f *BaseKnnVectorsFormat) FieldsWriter(state *SegmentWriteState) (KnnVector
 // FieldsReader returns a fields reader (must be implemented by subclasses).
 func (f *BaseKnnVectorsFormat) FieldsReader(state *SegmentReadState) (KnnVectorsReader, error) {
 	return nil, fmt.Errorf("FieldsReader not implemented")
-}
-
-// KnnVectorsWriter is a writer for KNN vector values.
-// This is the Go port of Lucene's org.apache.lucene.codecs.KnnVectorsWriter.
-type KnnVectorsWriter interface {
-	// WriteField writes a KNN vector field.
-	// The values are provided through the reader.
-	WriteField(fieldInfo *index.FieldInfo, reader KnnVectorsReader) error
-
-	// Finish finalizes the writing process.
-	Finish() error
-
-	// Close releases resources.
-	Close() error
-}
-
-// KnnVectorsReader is a reader for KNN vector values.
-// This is the Go port of Lucene's org.apache.lucene.codecs.KnnVectorsReader.
-type KnnVectorsReader interface {
-	// CheckIntegrity checks the integrity of the vectors.
-	CheckIntegrity() error
-
-	// Close releases resources.
-	Close() error
 }
 
 // FloatVectorValues provides access to float vector values.
@@ -219,3 +194,6 @@ func (r *KnnVectorsReaderHelper) Close() error {
 	r.closed = true
 	return r.in.Close()
 }
+
+// Compile-time check that BaseKnnVectorsFormat satisfies KnnVectorsFormat.
+var _ KnnVectorsFormat = (*BaseKnnVectorsFormat)(nil)

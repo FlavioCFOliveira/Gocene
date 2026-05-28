@@ -549,8 +549,9 @@ func (c *IndexingChain) initializeFieldInfo(pf *indexingPerField) error {
 	// GAP: validateIndexSortDVType requires the IndexSorter cluster; index
 	// sorting is rejected up-front by maybeSortSegment, so it is omitted here.
 	// GAP: validateMaxVectorDimension requires
-	// codec.KnnVectorsFormat().GetMaxDimensions(name); the codec vectors SPI
-	// is not modelled on index.Codec, so the upper-bound check is skipped.
+	// codec.KnnVectorsFormat().GetMaxDimensions(name); the wide
+	// spi.KnnVectorsFormat interface now lifted by rmp #4707 does not yet
+	// declare GetMaxDimensions, so the upper-bound check is still skipped.
 
 	opts := DefaultFieldInfoOptions()
 	opts.IndexOptions = s.indexOptions

@@ -274,8 +274,10 @@ func (sm *SegmentMerger) mergePoints() error { return nil }
 // mergeVectorValues merges the KNN vector values of every segment into the
 // new one.
 //
-// Deferred (backlog #2707): the Codec interface exposes no KnnVectorsFormat
-// yet.
+// Deferred (backlog #2707): even though the Codec interface now exposes
+// KnnVectorsFormat (rmp #4707), the segment-merger pipeline still needs
+// the per-format reader-side merge wiring (MergedVectorValues +
+// per-codec MergeOneField paths) before this step can be activated.
 func (sm *SegmentMerger) mergeVectorValues() error { return nil }
 
 // writeFieldInfos persists the merged FieldInfos for the new segment.

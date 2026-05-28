@@ -22,7 +22,7 @@ import (
 // It is the per-field writer surface that a concrete
 // [FlatVectorsWriter] returns from [FlatVectorsWriter.AddField]; the
 // caller accumulates per-document vectors through the inherited
-// AddValue (declared on [codecs.KnnFieldVectorsWriter]) and the
+// AddValue (declared on [codecs.TypedKnnFieldVectorsWriter]) and the
 // FlatField-specific accessors defined here.
 //
 // The Java reference is a generic abstract class parameterized over
@@ -30,13 +30,13 @@ import (
 // generic surface via the Go type parameter T (float32 | byte).
 // Concrete subclasses live in codec-specific packages (e.g. the
 // Lucene99FlatVectorsWriter port to land in a later sprint) and embed
-// [codecs.KnnFieldVectorsWriter[T]] plus the additional surface
+// [codecs.TypedKnnFieldVectorsWriter[T]] plus the additional surface
 // declared here.
 //
 // Lifecycle (per field, single-threaded):
 //  1. The owning FlatVectorsWriter creates an instance via its AddField
 //     factory.
-//  2. AddValue (inherited from KnnFieldVectorsWriter[T]) is invoked
+//  2. AddValue (inherited from TypedKnnFieldVectorsWriter[T]) is invoked
 //     once per document with the field's vector, in strictly
 //     increasing docID order.
 //  3. Finish is called once at the end of the segment, marking the
@@ -50,7 +50,7 @@ import (
 // matches the Java reference but the underlying bitset is not yet
 // implemented.
 type FlatFieldVectorsWriter[T any] interface {
-	codecs.KnnFieldVectorsWriter[T]
+	codecs.TypedKnnFieldVectorsWriter[T]
 
 	// GetVectors returns the per-document vectors accumulated so far,
 	// in docID order. The returned slice is the writer's own storage:
@@ -63,7 +63,7 @@ type FlatFieldVectorsWriter[T any] interface {
 	// flushing.
 	GetDocsWithFieldSet() *DocsWithFieldSet
 
-	// IsFinished reports whether [codecs.KnnFieldVectorsWriter.Finish]
+	// IsFinished reports whether [codecs.TypedKnnFieldVectorsWriter.Finish]
 	// has been invoked. Once true, AddValue must return an error.
 	IsFinished() bool
 }
@@ -108,7 +108,7 @@ func (b *BaseFlatFieldVectorsWriter[T]) IsFinished() bool {
 }
 
 // MarkFinished flips the finished flag. Concrete subclasses call this
-// from their [codecs.KnnFieldVectorsWriter.Finish] implementation
+// from their [codecs.TypedKnnFieldVectorsWriter.Finish] implementation
 // after performing any per-format finalization (e.g. flushing trailing
 // quantization corrections). The Java reference exposes the same
 // invariant via the protected `finished = true` assignment inside

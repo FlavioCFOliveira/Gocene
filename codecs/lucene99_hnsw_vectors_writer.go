@@ -19,6 +19,7 @@ import (
 	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/hnsw"
@@ -288,15 +289,18 @@ func (w *Lucene99HnswVectorsWriter) writeHeaders() error {
 }
 
 // AddField allocates a new per-field writer bound to fieldInfo and
-// returns it. Callers stream per-document vectors via
-// [Lucene99HnswFieldWriter.AddValue]. Mirrors Java's
+// returns it as the wide [KnnFieldVectorsWriter] (= [spi.KnnFieldVectorsWriter]).
+// Callers stream per-document vectors via [KnnFieldVectorsWriter.AddValue];
+// the codec also exposes the typed convenience methods AddValueFloat32 /
+// AddValueByte on the concrete *lucene99HnswFieldWriter when callers know
+// the encoding at compile time. Mirrors Java's
 // public KnnFieldVectorsWriter<?> addField(FieldInfo).
 //
 // AddField returns an error when the field has already been added or
 // when fieldInfo lacks vector metadata.
 func (w *Lucene99HnswVectorsWriter) AddField(
 	fieldInfo *index.FieldInfo,
-) (*lucene99HnswFieldWriter, error) {
+) (KnnFieldVectorsWriter, error) {
 	if w.closed {
 		return nil, errors.New("hnsw99: writer is closed")
 	}
@@ -403,6 +407,76 @@ func (fw *lucene99HnswFieldWriter) NumDocs() int {
 	return len(fw.floats)
 }
 
+// AddValue dispatches the wide [KnnFieldVectorsWriter] AddValue contract
+// to the typed AddValueFloat32 / AddValueByte path based on the field's
+// declared VectorEncoding. The dispatch error mirrors the Java
+// IllegalArgumentException raised when a value of the wrong element type
+// reaches the per-field writer.
+func (fw *lucene99HnswFieldWriter) AddValue(docID int, vectorValue any) error {
+	switch fw.encoding {
+	case index.VectorEncodingFloat32:
+		v, ok := vectorValue.([]float32)
+		if !ok {
+			return fmt.Errorf(
+				"hnsw99: field %q expects []float32 vector, got %T",
+				fw.fieldInfo.Name(), vectorValue)
+		}
+		return fw.AddValueFloat32(docID, v)
+	case index.VectorEncodingByte:
+		v, ok := vectorValue.([]byte)
+		if !ok {
+			return fmt.Errorf(
+				"hnsw99: field %q expects []byte vector, got %T",
+				fw.fieldInfo.Name(), vectorValue)
+		}
+		return fw.AddValueByte(docID, v)
+	default:
+		return fmt.Errorf(
+			"hnsw99: field %q has unsupported vector encoding %v",
+			fw.fieldInfo.Name(), fw.encoding)
+	}
+}
+
+// RamBytesUsed returns an estimate of the in-memory footprint of every
+// vector buffered for the field. Required by [KnnFieldVectorsWriter].
+//
+// Each per-document slice is counted at its declared element width
+// (4 bytes per float32, 1 byte per byte) plus the docIDs slice (8 bytes
+// per int on 64-bit platforms). Slice headers themselves are ignored to
+// match the byte-counting convention used elsewhere in Gocene.
+func (fw *lucene99HnswFieldWriter) RamBytesUsed() int64 {
+	const docIDBytes = 8
+	switch fw.encoding {
+	case index.VectorEncodingFloat32:
+		const floatBytes = 4
+		return int64(len(fw.docIDs))*docIDBytes + int64(len(fw.floats))*int64(fw.fieldInfo.VectorDimension())*floatBytes
+	case index.VectorEncodingByte:
+		return int64(len(fw.docIDs))*docIDBytes + int64(len(fw.bytes))*int64(fw.fieldInfo.VectorDimension())
+	default:
+		return 0
+	}
+}
+
+// Finish marks the field as immutable. The parent
+// [Lucene99HnswVectorsWriter] also invokes the package-private finish via
+// flushField when serialising the segment; calling Finish from the wide
+// path simply forwards to the same machinery so the field's graph is
+// built (or skipped, per the tiny-segments threshold) before the parent
+// emits its meta record.
+func (fw *lucene99HnswFieldWriter) Finish() error {
+	if fw.finished {
+		return nil
+	}
+	return fw.finish()
+}
+
+// Compile-time guarantees that the writer types satisfy the wide SPI
+// contracts lifted by rmp #4707.
+var (
+	_ KnnVectorsWriter      = (*Lucene99HnswVectorsWriter)(nil)
+	_ KnnFieldVectorsWriter = (*lucene99HnswFieldWriter)(nil)
+)
+
 // WriteField is preserved from the previous stub for the
 // [KnnVectorsWriter] interface contract. The legacy code path supplied
 // a reader-backed source of vectors; the new path uses the per-field
@@ -448,9 +522,12 @@ func (w *Lucene99HnswVectorsWriter) WriteField(
 // public void flush(int maxDoc, Sorter.DocMap sortMap). maxDoc is
 // accepted for signature parity but is not consulted: each field
 // records its own docIDs slice. sortMap support is not yet wired (see
-// deviation 3).
-func (w *Lucene99HnswVectorsWriter) Flush(maxDoc int) error {
+// deviation 3); a non-nil sortMap is currently a no-op rather than an
+// error so the wide [KnnVectorsWriter] contract holds even before the
+// index-sort path lands.
+func (w *Lucene99HnswVectorsWriter) Flush(maxDoc int, sortMap spi.SorterDocMap) error {
 	_ = maxDoc
+	_ = sortMap
 	if w.closed {
 		return errors.New("hnsw99: writer is closed")
 	}
@@ -463,6 +540,17 @@ func (w *Lucene99HnswVectorsWriter) Flush(maxDoc int) error {
 		}
 	}
 	return nil
+}
+
+// RamBytesUsed reports the in-memory footprint of every per-field
+// buffer held by the writer. Required by [KnnVectorsWriter] and
+// consulted by the indexing chain to decide when to flush.
+func (w *Lucene99HnswVectorsWriter) RamBytesUsed() int64 {
+	var total int64
+	for _, fw := range w.fields {
+		total += fw.RamBytesUsed()
+	}
+	return total
 }
 
 // flushField builds the graph for a single field (if it crosses the
