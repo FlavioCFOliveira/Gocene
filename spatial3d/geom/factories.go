@@ -94,16 +94,14 @@ func isSouthPole(lat float64) bool      { return math.Abs(lat+math.Pi*0.5) < Min
 // ---------------------------------------------------------------------------
 
 // MakeGeoCircle creates a GeoCircle from a center lat/lon and cutoff angle.
+// A cutoff angle below the minimum angular resolution yields a degenerate point.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoCircleFactory.makeGeoCircle.
-func MakeGeoCircle(pm *PlanetModel, latitude, longitude, cutoffAngle float64) GeoCircle {
+func MakeGeoCircle(pm *PlanetModel, latitude, longitude, cutoffAngle float64) (GeoCircle, error) {
 	if cutoffAngle < MinimumAngularResolution {
-		return &GeoDegeneratePoint{
-			GeoBaseBBox: makeBBox(pm),
-			point:       NewGeoPointLatLon(pm, latitude, longitude),
-		}
+		return NewGeoDegeneratePoint(pm, NewGeoPointModel(pm, latitude, longitude)), nil
 	}
-	return &GeoStandardCircle{GeoBaseCircle: makeCircle(pm, cutoffAngle)}
+	return NewGeoStandardCircle(pm, latitude, longitude, cutoffAngle)
 }
 
 // MakeGeoExactCircle creates a GeoExactCircle from a center lat/lon, radius (in metres),

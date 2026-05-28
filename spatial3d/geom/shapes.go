@@ -112,14 +112,28 @@ type GeoDegeneratePoint struct {
 	point *GeoPoint
 }
 
+// NewGeoDegeneratePoint constructs a degenerate point shape at the given point.
+//
+// Port of org.apache.lucene.spatial3d.geom.GeoDegeneratePoint(PlanetModel,GeoPoint).
+func NewGeoDegeneratePoint(pm *PlanetModel, point *GeoPoint) *GeoDegeneratePoint {
+	return &GeoDegeneratePoint{GeoBaseBBox: makeBBox(pm), point: point}
+}
+
 // GetPoint returns the underlying point.
 func (p *GeoDegeneratePoint) GetPoint() *GeoPoint { return p.point }
+
+// GetCenter returns the underlying point.
+func (p *GeoDegeneratePoint) GetCenter() *GeoPoint { return p.point }
 
 // GetRadius returns 0 — a point has zero radius.
 func (p *GeoDegeneratePoint) GetRadius() float64 { return 0 }
 
-// IsWithin reports whether (x,y,z) is at this point — deferred to #2693.
-func (p *GeoDegeneratePoint) IsWithin(_, _, _ float64) bool { return false }
+// IsWithin reports whether (x,y,z) is numerically identical to this point.
+//
+// Port of GeoDegeneratePoint.isWithin.
+func (p *GeoDegeneratePoint) IsWithin(x, y, z float64) bool {
+	return p.point.IsNumericallyIdentical(x, y, z)
+}
 
 // GetEdgePoints returns the sole edge point.
 func (p *GeoDegeneratePoint) GetEdgePoints() []*GeoPoint {
@@ -129,17 +143,30 @@ func (p *GeoDegeneratePoint) GetEdgePoints() []*GeoPoint {
 	return []*GeoPoint{p.point}
 }
 
-// GetRelationship returns RelDisjoint — deferred to #2693.
-func (p *GeoDegeneratePoint) GetRelationship(_ GeoShape) int { return RelDisjoint }
+// GetBounds accumulates the single point.
+//
+// Port of GeoDegeneratePoint.getBounds.
+func (p *GeoDegeneratePoint) GetBounds(bounds Bounds) {
+	geoBaseGetBounds(p, p.PlanetModelField, bounds)
+	bounds.AddPoint(p.point)
+}
 
 // ---------------------------------------------------------------------------
 // Circles
 // ---------------------------------------------------------------------------
 
-// GeoStandardCircle is a standard circle on the sphere.
+// GeoStandardCircle is a standard circle on the sphere (an ellipse on a
+// non-spherical world): the set of points cut off by a single sided plane at a
+// fixed cutoff angle from the centre.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoStandardCircle.
-type GeoStandardCircle struct{ GeoBaseCircle }
+type GeoStandardCircle struct {
+	GeoBaseCircle
+	center      *GeoPoint
+	cutoffAngle float64
+	circlePlane *SidedPlane // nil means the whole world
+	edgePoints  []*GeoPoint
+}
 
 // GeoExactCircle is a circle that exactly traces the sphere surface.
 //

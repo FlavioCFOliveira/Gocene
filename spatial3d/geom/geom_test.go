@@ -218,7 +218,10 @@ func TestNormalSquaredRoundTrip(t *testing.T) {
 
 func TestMakeGeoCircleReturnType(t *testing.T) {
 	pm := geom.SPHERE
-	c := geom.MakeGeoCircle(pm, 0, 0, 0.5)
+	c, err := geom.MakeGeoCircle(pm, 0, 0, 0.5)
+	if err != nil {
+		t.Fatalf("MakeGeoCircle: %v", err)
+	}
 	if c == nil {
 		t.Fatal("MakeGeoCircle must not return nil")
 	}
@@ -226,7 +229,10 @@ func TestMakeGeoCircleReturnType(t *testing.T) {
 
 func TestMakeGeoCircleDegenerateReturnsPoint(t *testing.T) {
 	pm := geom.SPHERE
-	c := geom.MakeGeoCircle(pm, 0, 0, 0) // cutoffAngle=0 → degenerate
+	c, err := geom.MakeGeoCircle(pm, 0, 0, 0) // cutoffAngle=0 → degenerate
+	if err != nil {
+		t.Fatalf("MakeGeoCircle degenerate: %v", err)
+	}
 	if c == nil {
 		t.Fatal("degenerate circle must not return nil")
 	}
