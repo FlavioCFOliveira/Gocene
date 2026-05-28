@@ -240,3 +240,29 @@ func TestPhraseWeight_Explain(t *testing.T) {
 	exp, err = weight.Explain(leaf, 2)
 	assertExplainNoMatch(t, exp, err)
 }
+
+// TestRegexpWeight_Explain verifies RegexpWeight.Explain reports a match valued
+// at the constant scorer score for a term matching the pattern and a non-match
+// otherwise.
+func TestRegexpWeight_Explain(t *testing.T) {
+	// Docs: 0:"apple" 1:"apply" 2:"banana"
+	searcher, leaf := explainTestIndex(t, []string{"apple", "apply", "banana"})
+
+	query, err := search.NewRegexpQuery("field", "app.*")
+	if err != nil {
+		t.Fatalf("NewRegexpQuery: %v", err)
+	}
+	weight, err := query.CreateWeight(searcher, false, 1.0)
+	if err != nil {
+		t.Fatalf("CreateWeight: %v", err)
+	}
+
+	// Doc 0 ("apple") matches "app.*".
+	want := scoreOfDoc(t, searcher, query, 0)
+	exp, err := weight.Explain(leaf, 0)
+	assertExplainMatchesScore(t, exp, err, want)
+
+	// Doc 2 ("banana") does not match.
+	exp, err = weight.Explain(leaf, 2)
+	assertExplainNoMatch(t, exp, err)
+}
