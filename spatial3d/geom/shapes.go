@@ -11,10 +11,29 @@ package geom
 // Bounding-box shapes
 // ---------------------------------------------------------------------------
 
-// GeoRectangle is an axis-aligned rectangle on the sphere.
+// GeoRectangle is a bounding box limited on four sides (top/bottom latitude,
+// left/right longitude). Its left-right extent must be at most PI.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoRectangle.
-type GeoRectangle struct{ GeoBaseBBox }
+type GeoRectangle struct {
+	GeoBaseBBox
+	topLat, bottomLat   float64
+	leftLon, rightLon   float64
+	cosMiddleLat        float64
+	ulhc, urhc          *GeoPoint // upper-left, upper-right hand corners
+	lrhc, llhc          *GeoPoint // lower-right, lower-left hand corners
+	topPlane            *SidedPlane
+	bottomPlane         *SidedPlane
+	leftPlane           *SidedPlane
+	rightPlane          *SidedPlane
+	backingPlane        *SidedPlane
+	topPlanePoints      []*GeoPoint
+	bottomPlanePoints   []*GeoPoint
+	leftPlanePoints     []*GeoPoint
+	rightPlanePoints    []*GeoPoint
+	centerPoint         *GeoPoint
+	rectangleEdgePoints []*GeoPoint
+}
 
 // GeoNorthRectangle is a rectangle extending to the north pole.
 //

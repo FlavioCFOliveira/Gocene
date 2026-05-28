@@ -144,3 +144,73 @@ func TestGeoStandardCircleEdgeWithin(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// GeoRectangle.isWithin (within-bbox)
+// ---------------------------------------------------------------------------
+
+// TestGeoRectangleWithin checks membership for a rectangle spanning latitude
+// [-0.1,0.1] and longitude [-0.2,0.2] radians.
+func TestGeoRectangleWithin(t *testing.T) {
+	pm := geom.SPHERE
+	bbox, err := geom.MakeGeoBBox(pm, 0.1, -0.1, -0.2, 0.2)
+	if err != nil {
+		t.Fatalf("MakeGeoBBox: %v", err)
+	}
+
+	inside := []struct{ lat, lon float64 }{
+		{0.0, 0.0},     // centre
+		{0.05, 0.1},    // interior
+		{-0.09, -0.19}, // near a corner, inside
+	}
+	for _, p := range inside {
+		gp := geom.NewGeoPointModel(pm, p.lat, p.lon)
+		if !bbox.IsWithin(gp.X, gp.Y, gp.Z) {
+			t.Errorf("point (lat=%g,lon=%g) should be within bbox", p.lat, p.lon)
+		}
+	}
+
+	outside := []struct{ lat, lon float64 }{
+		{0.2, 0.0},  // above top latitude
+		{-0.2, 0.0}, // below bottom latitude
+		{0.0, 0.3},  // east of right longitude
+		{0.0, -0.3}, // west of left longitude
+		{0.5, 0.5},  // well outside
+	}
+	for _, p := range outside {
+		gp := geom.NewGeoPointModel(pm, p.lat, p.lon)
+		if bbox.IsWithin(gp.X, gp.Y, gp.Z) {
+			t.Errorf("point (lat=%g,lon=%g) should be outside bbox", p.lat, p.lon)
+		}
+	}
+}
+
+// TestGeoRectangleCorners verifies the four corners are on the boundary
+// (within, accounting for the minimum resolution).
+func TestGeoRectangleCorners(t *testing.T) {
+	pm := geom.SPHERE
+	r, err := geom.NewGeoRectangle(pm, 0.3, -0.2, -0.4, 0.5)
+	if err != nil {
+		t.Fatalf("NewGeoRectangle: %v", err)
+	}
+	corners := []struct{ lat, lon float64 }{
+		{0.3, -0.4}, {0.3, 0.5}, {-0.2, 0.5}, {-0.2, -0.4},
+	}
+	for _, c := range corners {
+		gp := geom.NewGeoPointModel(pm, c.lat, c.lon)
+		if !r.IsWithin(gp.X, gp.Y, gp.Z) {
+			t.Errorf("corner (lat=%g,lon=%g) should be within (on boundary)", c.lat, c.lon)
+		}
+	}
+}
+
+// TestGeoRectangleWideExtentUnsupported ensures the not-yet-ported wide-extent
+// path reports an explicit error rather than a silently wrong shape.
+func TestGeoRectangleWideExtentUnsupported(t *testing.T) {
+	pm := geom.SPHERE
+	// Longitude extent of ~2.5 rad (> PI/... still < PI here is 2.5<3.14 so not wide);
+	// use an extent at/above PI to trigger the wide path.
+	if _, err := geom.MakeGeoBBox(pm, 0.1, -0.1, -1.6, 1.6); err == nil {
+		t.Fatal("expected unsupported error for wide-extent bbox")
+	}
+}

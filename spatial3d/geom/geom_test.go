@@ -241,7 +241,10 @@ func TestMakeGeoCircleDegenerateReturnsPoint(t *testing.T) {
 func TestMakeGeoBBoxWorld(t *testing.T) {
 	pm := geom.SPHERE
 	half := math.Pi * 0.5
-	b := geom.MakeGeoBBox(pm, half, -half, -math.Pi, math.Pi)
+	b, err := geom.MakeGeoBBox(pm, half, -half, -math.Pi, math.Pi)
+	if err != nil {
+		t.Fatalf("MakeGeoBBox world: %v", err)
+	}
 	if b == nil {
 		t.Fatal("MakeGeoBBox world must not return nil")
 	}
@@ -331,7 +334,10 @@ func TestGeoWorldIsWithin(t *testing.T) {
 
 func TestGeoWorldGetRelationship(t *testing.T) {
 	pm := geom.SPHERE
-	w := geom.MakeGeoBBox(pm, math.Pi*0.5, -math.Pi*0.5, -math.Pi, math.Pi)
+	w, err := geom.MakeGeoBBox(pm, math.Pi*0.5, -math.Pi*0.5, -math.Pi, math.Pi)
+	if err != nil {
+		t.Fatalf("MakeGeoBBox world: %v", err)
+	}
 	if r := w.GetRelationship(nil); r != geom.RelContains {
 		t.Fatalf("GeoWorld relationship: want RelContains(%d), got %d", geom.RelContains, r)
 	}
