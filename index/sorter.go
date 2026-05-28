@@ -4,21 +4,19 @@
 
 package index
 
+import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+)
+
 // SorterDocMap maps documents from the source order to the sorted order
-// during an index sort. Mirrors
-// org.apache.lucene.index.Sorter.DocMap from Apache Lucene 10.4.0.
-type SorterDocMap interface {
-	// OldToNew returns the new doc ID for the given old doc ID, or -1 if
-	// the source document was discarded.
-	OldToNew(oldDocID int) int
-
-	// NewToOld returns the old doc ID for the given new doc ID, or -1 if
-	// the target slot is empty.
-	NewToOld(newDocID int) int
-
-	// Size returns the number of documents in the sorted view.
-	Size() int
-}
+// during an index sort. Mirrors org.apache.lucene.index.Sorter.DocMap from
+// Apache Lucene 10.4.0.
+//
+// Lifted onto the SPI by rmp #4707 because the wide
+// spi.KnnVectorsWriter.Flush signature takes the same interface; this
+// index-package identifier is preserved as a type alias so existing
+// callers keep compiling without churn.
+type SorterDocMap = spi.SorterDocMap
 
 // SorterPolicy is the strategy that produces a SorterDocMap for a given
 // CodecReader. Mirrors the algorithm-side of Lucene's Sorter class.

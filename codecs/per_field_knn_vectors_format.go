@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // PerFieldKnnVectorsFormat name and FieldInfo attribute keys.
@@ -253,6 +254,52 @@ func (w *PerFieldKnnVectorsWriter) WriteField(fieldInfo *index.FieldInfo, reader
 		return err
 	}
 	return writer.WriteField(fieldInfo, reader)
+}
+
+// AddField routes the field to its per-field delegate and forwards the
+// AddField call so the indexing chain can stream per-document vectors
+// through the wide [KnnFieldVectorsWriter] surface. Mirrors Java's
+// PerFieldKnnVectorsFormat.FieldsWriter.addField(FieldInfo).
+func (w *PerFieldKnnVectorsWriter) AddField(fieldInfo *index.FieldInfo) (KnnFieldVectorsWriter, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return nil, fmt.Errorf("PerFieldKnnVectorsWriter is closed")
+	}
+	writer, err := w.getInstance(fieldInfo)
+	if err != nil {
+		return nil, err
+	}
+	return writer.AddField(fieldInfo)
+}
+
+// Flush dispatches Flush to every delegate KnnVectorsWriter that was
+// opened during indexing. Mirrors the iteration in Java's
+// PerFieldKnnVectorsFormat.FieldsWriter.flush.
+func (w *PerFieldKnnVectorsWriter) Flush(maxDoc int, sortMap spi.SorterDocMap) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return fmt.Errorf("PerFieldKnnVectorsWriter is closed")
+	}
+	for format, was := range w.writersByFormat {
+		if err := was.writer.Flush(maxDoc, sortMap); err != nil {
+			return fmt.Errorf("failed to flush writer for format %q: %w", format.Name(), err)
+		}
+	}
+	return nil
+}
+
+// RamBytesUsed sums the in-memory footprint of every delegate writer.
+// Required by [KnnVectorsWriter].
+func (w *PerFieldKnnVectorsWriter) RamBytesUsed() int64 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	var total int64
+	for _, was := range w.writersByFormat {
+		total += was.writer.RamBytesUsed()
+	}
+	return total
 }
 
 // Finish flushes every delegate KnnVectorsWriter that was opened.

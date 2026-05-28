@@ -8,6 +8,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -16,8 +17,35 @@ import (
 // Test doubles
 // ---------------------------------------------------------------------------
 
-type fakeFieldWriter struct{ name string }
+// fakeFieldWriter is the spi.KnnFieldVectorsWriter test double returned by
+// fakeKnnWriter.AddField. It records every AddValue / Finish invocation so
+// tests can assert the indexing chain wired the writer correctly.
+type fakeFieldWriter struct {
+	name     string
+	added    []addValueCall
+	finished bool
+	bytes    int64
+}
 
+type addValueCall struct {
+	docID int
+	value any
+}
+
+func (w *fakeFieldWriter) AddValue(docID int, value any) error {
+	w.added = append(w.added, addValueCall{docID: docID, value: value})
+	return nil
+}
+func (w *fakeFieldWriter) RamBytesUsed() int64 { return w.bytes }
+func (w *fakeFieldWriter) Finish() error {
+	w.finished = true
+	return nil
+}
+
+// fakeKnnWriter is the spi.KnnVectorsWriter test double. The contract is
+// identical to the production wide writer (AddField / Flush / Finish /
+// Close / RamBytesUsed plus the merge-side WriteField). Tests configure
+// per-method errors to exercise the consumer's try/finally surface.
 type fakeKnnWriter struct {
 	bytes int64
 
@@ -32,12 +60,12 @@ type fakeKnnWriter struct {
 	closeErr  error
 
 	flushMaxDoc  int
-	flushSortMap SorterDocMap
+	flushSortMap spi.SorterDocMap
 }
 
 func (w *fakeKnnWriter) RamBytesUsed() int64 { return w.bytes }
 
-func (w *fakeKnnWriter) AddField(fi *FieldInfo) (any, error) {
+func (w *fakeKnnWriter) AddField(fi *FieldInfo) (spi.KnnFieldVectorsWriter, error) {
 	if w.addErr != nil {
 		return nil, w.addErr
 	}
@@ -45,11 +73,18 @@ func (w *fakeKnnWriter) AddField(fi *FieldInfo) (any, error) {
 	return &fakeFieldWriter{name: fi.Name()}, nil
 }
 
-func (w *fakeKnnWriter) Flush(maxDoc int, sortMap SorterDocMap) error {
+func (w *fakeKnnWriter) Flush(maxDoc int, sortMap spi.SorterDocMap) error {
 	w.flushed = true
 	w.flushMaxDoc = maxDoc
 	w.flushSortMap = sortMap
 	return w.flushErr
+}
+
+// WriteField is required by spi.KnnVectorsWriter for the merge path. The
+// consumer tests never exercise it, so it returns a sentinel error
+// matching the buffering-writer convention.
+func (w *fakeKnnWriter) WriteField(fi *FieldInfo, _ spi.KnnVectorsReader) error {
+	return errors.New("fakeKnnWriter: WriteField not used")
 }
 
 func (w *fakeKnnWriter) Finish() error {
@@ -62,6 +97,9 @@ func (w *fakeKnnWriter) Close() error {
 	return w.closeErr
 }
 
+// fakeKnnFormat is the spi.KnnVectorsFormat test double. It hands out
+// the configured writer once per FieldsWriter call so tests can verify
+// the consumer caches the result.
 type fakeKnnFormat struct {
 	writer *fakeKnnWriter
 	err    error
@@ -69,7 +107,9 @@ type fakeKnnFormat struct {
 	state  *SegmentWriteState
 }
 
-func (f *fakeKnnFormat) FieldsWriter(state *SegmentWriteState) (KnnVectorsConsumerWriter, error) {
+func (f *fakeKnnFormat) Name() string { return "fake-knn-format" }
+
+func (f *fakeKnnFormat) FieldsWriter(state *SegmentWriteState) (spi.KnnVectorsWriter, error) {
 	f.calls++
 	f.state = state
 	if f.err != nil {
@@ -78,11 +118,15 @@ func (f *fakeKnnFormat) FieldsWriter(state *SegmentWriteState) (KnnVectorsConsum
 	return f.writer, nil
 }
 
+func (f *fakeKnnFormat) FieldsReader(_ *SegmentReadState) (spi.KnnVectorsReader, error) {
+	return nil, errors.New("fakeKnnFormat: FieldsReader not used")
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-func newConsumerWithFormat(t *testing.T, f KnnVectorsFormatFactory) (*vectorValuesConsumer, *SegmentInfo) {
+func newConsumerWithFormat(t *testing.T, f spi.KnnVectorsFormat) (*vectorValuesConsumer, *SegmentInfo) {
 	t.Helper()
 	dir := store.NewByteBuffersDirectory()
 	info := NewSegmentInfo("seg0", 7, dir)
@@ -257,28 +301,28 @@ func TestVectorValuesConsumer_InitWriterPropagatesFormatError(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Codec-based KNN format resolution (AC 1 of rmp #4648)
+// Codec-based KNN format resolution
 // ---------------------------------------------------------------------------
 
 // fakeCodecWithKnn is a minimal Codec stub whose KnnVectorsFormat() method
-// returns the injected KnnVectorsFormatFactory. All other methods return nil,
+// returns the injected spi.KnnVectorsFormat. All other methods return nil,
 // which is acceptable for unit tests that only exercise the KNN path.
 type fakeCodecWithKnn struct {
-	knn KnnVectorsFormatFactory
+	knn spi.KnnVectorsFormat
 }
 
-func (c *fakeCodecWithKnn) Name() string                                  { return "fake-knn-codec" }
-func (c *fakeCodecWithKnn) PostingsFormat() PostingsFormat                { return nil }
-func (c *fakeCodecWithKnn) StoredFieldsFormat() StoredFieldsFormat        { return nil }
-func (c *fakeCodecWithKnn) FieldInfosFormat() FieldInfosFormat            { return nil }
-func (c *fakeCodecWithKnn) SegmentInfosFormat() SegmentInfosFormat        { return nil }
-func (c *fakeCodecWithKnn) SegmentInfoFormat() SegmentInfoFormat          { return nil }
-func (c *fakeCodecWithKnn) TermVectorsFormat() TermVectorsFormat          { return nil }
-func (c *fakeCodecWithKnn) CompoundFormat() CompoundFormat                { return nil }
-func (c *fakeCodecWithKnn) KnnVectorsFormat() KnnVectorsFormatFactory     { return c.knn }
+func (c *fakeCodecWithKnn) Name() string                           { return "fake-knn-codec" }
+func (c *fakeCodecWithKnn) PostingsFormat() PostingsFormat         { return nil }
+func (c *fakeCodecWithKnn) StoredFieldsFormat() StoredFieldsFormat { return nil }
+func (c *fakeCodecWithKnn) FieldInfosFormat() FieldInfosFormat     { return nil }
+func (c *fakeCodecWithKnn) SegmentInfosFormat() SegmentInfosFormat { return nil }
+func (c *fakeCodecWithKnn) SegmentInfoFormat() SegmentInfoFormat   { return nil }
+func (c *fakeCodecWithKnn) TermVectorsFormat() TermVectorsFormat   { return nil }
+func (c *fakeCodecWithKnn) CompoundFormat() CompoundFormat         { return nil }
+func (c *fakeCodecWithKnn) KnnVectorsFormat() spi.KnnVectorsFormat { return c.knn }
 
 // TestVectorValuesConsumer_CodecKnnFormatUsedWhenNoExplicitFormat verifies
-// that when no explicit KnnVectorsFormatFactory is injected via
+// that when no explicit KnnVectorsFormat is injected via
 // setKnnVectorsFormat, initKnnVectorsWriter falls back to
 // codec.KnnVectorsFormat(). This is the production path used by IndexWriter
 // when the default codec is configured.

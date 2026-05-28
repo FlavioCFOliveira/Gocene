@@ -13,21 +13,17 @@ package spi
 //
 //   - Name, PostingsFormat, StoredFieldsFormat, FieldInfosFormat,
 //     SegmentInfoFormat (singular .si), SegmentInfosFormat (plural
-//     segments_N), TermVectorsFormat, CompoundFormat.
+//     segments_N), TermVectorsFormat, CompoundFormat, KnnVectorsFormat.
 //
 // # Intentionally NOT yet on this surface
 //
-//   - KnnVectorsFormat: deferred to rmp #4707. The codecs-side
-//     interface and the index-side KnnVectorsFormatFactory abstraction
-//     need reconciliation first.
 //   - DocValuesFormat: deferred to rmp #4708. The codecs-side family
 //     drags in DocValuesProducer/Consumer plus a large web of
 //     value-type and iterator interfaces that live only in index/
 //     today.
 //
-// Each deferred member stays declared on the legacy index.Codec /
-// codecs.Codec surfaces with TODO(T46XX) markers until its companion
-// task lands.
+// DocValuesFormat stays declared on the codecs.Codec surface with a
+// TODO(T4708) marker until its companion task lands.
 type Codec interface {
 	// Name returns the codec name embedded in segment metadata.
 	Name() string
@@ -61,4 +57,11 @@ type Codec interface {
 	// into a .cfs / .cfe compound pair, or nil when the codec does not
 	// support compound files.
 	CompoundFormat() CompoundFormat
+
+	// KnnVectorsFormat returns the format used for K-Nearest Neighbors
+	// vector encoding (.vex / .vem and per-format sidecars). Lifted onto
+	// the SPI by rmp #4707 once the wide KnnVectorsWriter contract moved
+	// into package spi. Codec implementations that do not support KNN
+	// vectors may return nil.
+	KnnVectorsFormat() KnnVectorsFormat
 }

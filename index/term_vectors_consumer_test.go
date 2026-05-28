@@ -104,7 +104,7 @@ func (c *recordingCodec) TermVectorsFormat() TermVectorsFormat {
 	return c.tv
 }
 func (c *recordingCodec) CompoundFormat() CompoundFormat              { return nil }
-func (c *recordingCodec) KnnVectorsFormat() KnnVectorsFormatFactory   { return nil }
+func (c *recordingCodec) KnnVectorsFormat() KnnVectorsFormat          { return nil }
 
 func newTestTermVectorsConsumer(t *testing.T, docs int) (*TermVectorsConsumer, *recordingTVFormat) {
 	t.Helper()
@@ -550,4 +550,4 @@ func (c *accountableCodec) SegmentInfosFormat() SegmentInfosFormat      { return
 func (c *accountableCodec) SegmentInfoFormat() SegmentInfoFormat        { return nil }
 func (c *accountableCodec) TermVectorsFormat() TermVectorsFormat        { return c.tv }
 func (c *accountableCodec) CompoundFormat() CompoundFormat              { return nil }
-func (c *accountableCodec) KnnVectorsFormat() KnnVectorsFormatFactory   { return nil }
+func (c *accountableCodec) KnnVectorsFormat() KnnVectorsFormat          { return nil }

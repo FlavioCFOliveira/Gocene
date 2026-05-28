@@ -11,6 +11,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -309,6 +310,32 @@ func (w *Lucene104ScalarQuantizedVectorsWriter) writeFieldMetadata(fw *quantized
 	}
 
 	return nil
+}
+
+// AddField satisfies the wide [KnnVectorsWriter] surface. The scalar
+// quantized format is a placeholder port: it does not yet accumulate
+// per-document vectors through the AddField path, so this method returns
+// an error to signal that callers should use the WriteField merge path
+// instead. Mirrors the Java reference's not-yet-implemented status.
+func (w *Lucene104ScalarQuantizedVectorsWriter) AddField(fieldInfo *index.FieldInfo) (KnnFieldVectorsWriter, error) {
+	_ = fieldInfo
+	return nil, fmt.Errorf("Lucene104ScalarQuantizedVectorsWriter: AddField not implemented; use WriteField via the merge path")
+}
+
+// Flush is a no-op for the scalar quantized writer: per-field metadata
+// is emitted from Finish. The signature matches the wide
+// [KnnVectorsWriter] contract.
+func (w *Lucene104ScalarQuantizedVectorsWriter) Flush(maxDoc int, sortMap spi.SorterDocMap) error {
+	_ = maxDoc
+	_ = sortMap
+	return nil
+}
+
+// RamBytesUsed is a stub returning zero: the placeholder writer does not
+// hold per-document buffers. Satisfies the wide [KnnVectorsWriter]
+// Accountable contract.
+func (w *Lucene104ScalarQuantizedVectorsWriter) RamBytesUsed() int64 {
+	return 0
 }
 
 // Close releases resources.

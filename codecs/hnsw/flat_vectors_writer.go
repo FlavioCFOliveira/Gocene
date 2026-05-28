@@ -21,17 +21,17 @@ import (
 
 // FlatVectorsWriter is the Go port of
 // org.apache.lucene.codecs.hnsw.FlatVectorsWriter (Lucene 10.4.0). It
-// extends the [codecs.KnnVectorsWriter] surface with two additional
-// hooks that allow callers (typically HNSW codec writers) to
-// participate in the flat-vector flush pipeline:
+// extends the [codecs.KnnVectorsWriter] surface with one additional
+// hook that allows callers (typically HNSW codec writers) to
+// participate in the flat-vector merge pipeline:
 //
-//   - AddField returns a per-field [FlatFieldVectorsWriter] the caller
-//     uses to stream per-document vectors into the segment. The
-//     concrete element-type contract is opaque on this interface
-//     because Go cannot model the Java <?> wildcard generically; the
-//     caller is expected to type-assert to FlatFieldVectorsWriter[float32]
-//     or FlatFieldVectorsWriter[byte] based on the field's
-//     VectorEncoding.
+//   - AddField is inherited from [codecs.KnnVectorsWriter]; it returns
+//     the wide non-generic [codecs.KnnFieldVectorsWriter] (=
+//     [spi.KnnFieldVectorsWriter]). Concrete callers type-assert the
+//     returned value to FlatFieldVectorsWriter[float32] or
+//     FlatFieldVectorsWriter[byte] based on the field's VectorEncoding,
+//     mirroring how the Java reference recovers the parameterised
+//     wildcard `FlatFieldVectorsWriter<?>` at the call site.
 //   - MergeOneFieldToIndex performs the actual merge for a single
 //     field across the segments tracked by mergeState and returns a
 //     [hnsw.CloseableRandomVectorScorerSupplier] that scores against
@@ -50,19 +50,6 @@ type FlatVectorsWriter interface {
 	// GetFlatVectorScorer returns the scorer this writer was
 	// constructed with.
 	GetFlatVectorScorer() FlatVectorsScorer
-
-	// AddField creates a new per-field writer for fieldInfo and returns
-	// it as an `any`-typed handle (concrete callers type-assert to the
-	// correct FlatFieldVectorsWriter[T] based on fieldInfo.VectorEncoding).
-	//
-	// The return type is `any` because Go's type system cannot model
-	// Java's wildcard parameterisation FlatFieldVectorsWriter<?>;
-	// codec authors composing on top of FlatVectorsWriter pick a
-	// concrete element type per field and recover it via a type
-	// assertion at the call site. The Java reference faces the same
-	// type-erasure constraint and uses `FlatFieldVectorsWriter<?>` to
-	// the same effect.
-	AddField(fieldInfo *index.FieldInfo) (any, error)
 
 	// MergeOneFieldToIndex merges the named field across all segments
 	// tracked by mergeState and returns a

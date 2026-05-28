@@ -313,7 +313,7 @@ func (c *fakeCodecTV) SegmentInfosFormat() SegmentInfosFormat    { return nil }
 func (c *fakeCodecTV) SegmentInfoFormat() SegmentInfoFormat      { return nil }
 func (c *fakeCodecTV) TermVectorsFormat() TermVectorsFormat      { return c.tv }
 func (c *fakeCodecTV) CompoundFormat() CompoundFormat            { return nil }
-func (c *fakeCodecTV) KnnVectorsFormat() KnnVectorsFormatFactory { return nil }
+func (c *fakeCodecTV) KnnVectorsFormat() KnnVectorsFormat        { return nil }
 
 func newTestTVConsumer(t *testing.T, docs int) (*SortingTermVectorsConsumer, *fakeTermVectorsFormat, store.Directory, *SegmentInfo) {
 	t.Helper()

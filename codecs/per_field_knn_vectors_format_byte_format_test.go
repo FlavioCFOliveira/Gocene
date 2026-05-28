@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // recordingKnnVectorsFormat is a minimal KnnVectorsFormat that captures
@@ -54,6 +55,11 @@ func (w *recordingKnnVectorsWriter) WriteField(fi *index.FieldInfo, _ KnnVectors
 	w.writtenFields = append(w.writtenFields, fi.Name())
 	return nil
 }
+func (w *recordingKnnVectorsWriter) AddField(_ *index.FieldInfo) (KnnFieldVectorsWriter, error) {
+	return nil, nil
+}
+func (w *recordingKnnVectorsWriter) Flush(_ int, _ spi.SorterDocMap) error { return nil }
+func (w *recordingKnnVectorsWriter) RamBytesUsed() int64                   { return 0 }
 func (w *recordingKnnVectorsWriter) Finish() error {
 	w.finished = true
 	return nil

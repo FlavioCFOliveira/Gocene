@@ -2024,6 +2024,6 @@ func (c *customTestCodec) CompoundFormat() index.CompoundFormat {
 	return nil
 }
 
-func (c *customTestCodec) KnnVectorsFormat() index.KnnVectorsFormatFactory {
+func (c *customTestCodec) KnnVectorsFormat() index.KnnVectorsFormat {
 	return nil
 }
