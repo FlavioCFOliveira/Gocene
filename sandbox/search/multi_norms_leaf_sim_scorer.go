@@ -151,6 +151,20 @@ func (m *sandboxMultiFieldNormValues) Advance(_ int) (int, error) {
 	panic("sandboxMultiFieldNormValues: Advance not supported")
 }
 
+// AdvanceExact is unsupported on this random-access blender; the
+// scorer always calls Get(docID) directly. Shim added by rmp #4709 to
+// satisfy index.NumericDocValues. Non-monotonic by design.
+func (m *sandboxMultiFieldNormValues) AdvanceExact(_ int) (bool, error) {
+	panic("sandboxMultiFieldNormValues: AdvanceExact not supported; use Get(docID)")
+}
+
+// LongValue is unsupported on this random-access blender; callers must
+// use Get(docID). Shim added by rmp #4709 to satisfy
+// index.NumericDocValues.
+func (m *sandboxMultiFieldNormValues) LongValue() (int64, error) {
+	panic("sandboxMultiFieldNormValues: LongValue not supported; use Get(docID)")
+}
+
 // NextDoc is unsupported.
 func (m *sandboxMultiFieldNormValues) NextDoc() (int, error) {
 	panic("sandboxMultiFieldNormValues: NextDoc not supported")

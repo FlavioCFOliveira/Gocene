@@ -543,6 +543,25 @@ func (f *fakeSortedSet) NextDoc() (int, error) {
 
 func (f *fakeSortedSet) DocID() int { return f.docID }
 
+func (f *fakeSortedSet) AdvanceExact(target int) (bool, error) {
+	got, err := f.Advance(target)
+	if err != nil {
+		return false, err
+	}
+	return got == target, nil
+}
+
+func (f *fakeSortedSet) NextOrd() (int, error) {
+	if f.docID < 0 || f.docID == NO_MORE_DOCS {
+		return -1, nil
+	}
+	ords := f.docs[f.docID]
+	if len(ords) == 0 {
+		return -1, nil
+	}
+	return ords[0], nil
+}
+
 func (f *fakeSortedSet) LookupOrd(ord int) ([]byte, error) {
 	if ord < 0 || ord >= len(f.terms) {
 		return nil, nil
@@ -613,6 +632,31 @@ func (f *fakeSortedSingle) NextDoc() (int, error) {
 }
 
 func (f *fakeSortedSingle) DocID() int { return f.docID }
+
+func (f *fakeSortedSingle) AdvanceExact(target int) (bool, error) {
+	got, err := f.Advance(target)
+	if err != nil {
+		return false, err
+	}
+	return got == target, nil
+}
+
+func (f *fakeSortedSingle) BinaryValue() ([]byte, error) {
+	if f.docID < 0 || f.docID == NO_MORE_DOCS {
+		return nil, nil
+	}
+	return f.Get(f.docID)
+}
+
+func (f *fakeSortedSingle) OrdValue() (int, error) {
+	if f.docID < 0 || f.docID == NO_MORE_DOCS {
+		return -1, nil
+	}
+	if ord, ok := f.ords[f.docID]; ok {
+		return ord, nil
+	}
+	return -1, nil
+}
 
 func (f *fakeSortedSingle) GetOrd(docID int) (int, error) {
 	ord, ok := f.ords[docID]

@@ -167,13 +167,21 @@ func (r *DirectoryTaxonomyReader) loadFromDirectory() error {
 			ndv = nil
 		}
 
+		// Migrated to the Lucene-faithful iterator surface (rmp #4709):
+		// AdvanceExact + BinaryValue / LongValue. The loop walks docIDs
+		// monotonically (0..maxDoc-1), which is the precondition Lucene
+		// demands for AdvanceExact.
 		for docID := 0; docID < maxDoc; docID++ {
 			globalOrd := base + docID
 			if globalOrd >= numDocs {
 				break
 			}
 
-			pathBytes, err := bdv.Get(docID)
+			ok, err := bdv.AdvanceExact(docID)
+			if err != nil || !ok {
+				continue
+			}
+			pathBytes, err := bdv.BinaryValue()
 			if err != nil {
 				continue
 			}
@@ -183,9 +191,10 @@ func (r *DirectoryTaxonomyReader) loadFromDirectory() error {
 			o2p[globalOrd] = label
 
 			if ndv != nil {
-				pv, err := ndv.Get(docID)
-				if err == nil {
-					parents[globalOrd] = int(pv)
+				if ok, err := ndv.AdvanceExact(docID); err == nil && ok {
+					if pv, err := ndv.LongValue(); err == nil {
+						parents[globalOrd] = int(pv)
+					}
 				}
 			}
 		}

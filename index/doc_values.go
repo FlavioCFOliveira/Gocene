@@ -82,27 +82,34 @@ func UnwrapSingletonSortedSet(dv SortedSetDocValues) SortedDocValues {
 
 type emptyBinaryDV struct{ docID int }
 
-func (e *emptyBinaryDV) Get(int) ([]byte, error)  { return nil, nil }
-func (e *emptyBinaryDV) Advance(int) (int, error) { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
-func (e *emptyBinaryDV) NextDoc() (int, error)    { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
-func (e *emptyBinaryDV) DocID() int               { return e.docID }
+func (e *emptyBinaryDV) Get(int) ([]byte, error)            { return nil, nil }
+func (e *emptyBinaryDV) Advance(int) (int, error)           { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
+func (e *emptyBinaryDV) AdvanceExact(int) (bool, error)     { e.docID = NO_MORE_DOCS; return false, nil }
+func (e *emptyBinaryDV) BinaryValue() ([]byte, error)       { return nil, nil }
+func (e *emptyBinaryDV) NextDoc() (int, error)              { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
+func (e *emptyBinaryDV) DocID() int                         { return e.docID }
 
 type emptyNumericDV struct{ docID int }
 
-func (e *emptyNumericDV) Get(int) (int64, error)   { return 0, nil }
-func (e *emptyNumericDV) Advance(int) (int, error) { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
-func (e *emptyNumericDV) NextDoc() (int, error)    { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
-func (e *emptyNumericDV) DocID() int               { return e.docID }
+func (e *emptyNumericDV) Get(int) (int64, error)         { return 0, nil }
+func (e *emptyNumericDV) Advance(int) (int, error)       { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
+func (e *emptyNumericDV) AdvanceExact(int) (bool, error) { e.docID = NO_MORE_DOCS; return false, nil }
+func (e *emptyNumericDV) LongValue() (int64, error)      { return 0, nil }
+func (e *emptyNumericDV) NextDoc() (int, error)          { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
+func (e *emptyNumericDV) DocID() int                     { return e.docID }
 
 type emptySortedDV struct{ docID int }
 
-func (e *emptySortedDV) Get(int) ([]byte, error)       { return nil, nil }
-func (e *emptySortedDV) Advance(int) (int, error)      { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
-func (e *emptySortedDV) NextDoc() (int, error)         { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
-func (e *emptySortedDV) DocID() int                    { return e.docID }
-func (e *emptySortedDV) GetOrd(int) (int, error)       { return -1, nil }
-func (e *emptySortedDV) LookupOrd(int) ([]byte, error) { return nil, nil }
-func (e *emptySortedDV) GetValueCount() int            { return 0 }
+func (e *emptySortedDV) Get(int) ([]byte, error)         { return nil, nil }
+func (e *emptySortedDV) Advance(int) (int, error)        { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
+func (e *emptySortedDV) AdvanceExact(int) (bool, error)  { e.docID = NO_MORE_DOCS; return false, nil }
+func (e *emptySortedDV) BinaryValue() ([]byte, error)    { return nil, nil }
+func (e *emptySortedDV) NextDoc() (int, error)           { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
+func (e *emptySortedDV) DocID() int                      { return e.docID }
+func (e *emptySortedDV) GetOrd(int) (int, error)         { return -1, nil }
+func (e *emptySortedDV) OrdValue() (int, error)          { return -1, nil }
+func (e *emptySortedDV) LookupOrd(int) ([]byte, error)   { return nil, nil }
+func (e *emptySortedDV) GetValueCount() int              { return 0 }
 
 type emptySortedNumericDV struct{ docID int }
 
@@ -111,6 +118,12 @@ func (e *emptySortedNumericDV) Advance(int) (int, error) {
 	e.docID = NO_MORE_DOCS
 	return NO_MORE_DOCS, nil
 }
+func (e *emptySortedNumericDV) AdvanceExact(int) (bool, error) {
+	e.docID = NO_MORE_DOCS
+	return false, nil
+}
+func (e *emptySortedNumericDV) NextValue() (int64, error)    { return 0, nil }
+func (e *emptySortedNumericDV) DocValueCount() (int, error)  { return 0, nil }
 func (e *emptySortedNumericDV) NextDoc() (int, error) {
 	e.docID = NO_MORE_DOCS
 	return NO_MORE_DOCS, nil
@@ -124,6 +137,11 @@ func (e *emptySortedSetDV) Advance(int) (int, error) {
 	e.docID = NO_MORE_DOCS
 	return NO_MORE_DOCS, nil
 }
+func (e *emptySortedSetDV) AdvanceExact(int) (bool, error) {
+	e.docID = NO_MORE_DOCS
+	return false, nil
+}
+func (e *emptySortedSetDV) NextOrd() (int, error)         { return -1, nil }
 func (e *emptySortedSetDV) NextDoc() (int, error)         { e.docID = NO_MORE_DOCS; return NO_MORE_DOCS, nil }
 func (e *emptySortedSetDV) DocID() int                    { return e.docID }
 func (e *emptySortedSetDV) LookupOrd(int) ([]byte, error) { return nil, nil }

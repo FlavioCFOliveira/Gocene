@@ -321,6 +321,15 @@ func (s *sortingNumericDocValues) AdvanceExact(target int) (bool, error) {
 	return s.dvs.advanceExact(target), nil
 }
 
+// LongValue returns the value bound to the current cursor position.
+// Mirrors org.apache.lucene.index.NumericDocValues#longValue.
+func (s *sortingNumericDocValues) LongValue() (int64, error) {
+	if s.docID < 0 || s.docID >= len(s.dvs.values) {
+		return 0, fmt.Errorf("sortingNumericDocValues: LongValue at invalid position %d", s.docID)
+	}
+	return s.dvs.values[s.docID], nil
+}
+
 // Get returns the value for docID. docID must equal the current cursor.
 func (s *sortingNumericDocValues) Get(docID int) (int64, error) {
 	if docID != s.docID {

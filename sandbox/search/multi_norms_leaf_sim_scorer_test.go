@@ -40,10 +40,12 @@ type fixedNormValues struct {
 	val int64
 }
 
-func (f *fixedNormValues) Get(_ int) (int64, error)   { return f.val, nil }
-func (f *fixedNormValues) Advance(_ int) (int, error) { panic("unsupported") }
-func (f *fixedNormValues) NextDoc() (int, error)      { panic("unsupported") }
-func (f *fixedNormValues) DocID() int                 { return -1 }
+func (f *fixedNormValues) Get(_ int) (int64, error)         { return f.val, nil }
+func (f *fixedNormValues) Advance(_ int) (int, error)       { panic("unsupported") }
+func (f *fixedNormValues) AdvanceExact(_ int) (bool, error) { return true, nil }
+func (f *fixedNormValues) LongValue() (int64, error)        { return f.val, nil }
+func (f *fixedNormValues) NextDoc() (int, error)            { panic("unsupported") }
+func (f *fixedNormValues) DocID() int                       { return -1 }
 
 var _ index.NumericDocValues = (*fixedNormValues)(nil)
 

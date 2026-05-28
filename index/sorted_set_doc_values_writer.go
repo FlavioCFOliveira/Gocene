@@ -409,6 +409,24 @@ func (b *bufferedSortedSetDocValues) Advance(int) (int, error) {
 	return 0, errors.New("bufferedSortedSetDocValues: Advance is not supported")
 }
 
+// AdvanceExact is unsupported on the buffered writer view; T4709-added
+// shim to satisfy SortedSetDocValues.
+func (b *bufferedSortedSetDocValues) AdvanceExact(int) (bool, error) {
+	return false, errors.New("bufferedSortedSetDocValues: AdvanceExact is not supported; use NextDoc")
+}
+
+// NextOrd returns the next ordinal for the current positioned doc, or
+// -1 when no more remain. Mirrors
+// org.apache.lucene.index.SortedSetDocValues#nextOrd.
+func (b *bufferedSortedSetDocValues) NextOrd() (int, error) {
+	if b.ordUpto >= b.ordCount {
+		return -1, nil
+	}
+	ord := b.currentDoc[b.ordUpto]
+	b.ordUpto++
+	return ord, nil
+}
+
 // Get returns the ordinals for the given docID. Implementation requirement
 // from the Gocene SortedSetDocValues interface; the Java original exposes
 // nextOrd/docValueCount instead.
@@ -483,6 +501,22 @@ func (b *bufferedSingleSortedDocValues) NextDoc() (int, error) {
 
 func (b *bufferedSingleSortedDocValues) Advance(int) (int, error) {
 	return 0, errors.New("bufferedSingleSortedDocValues: Advance is not supported")
+}
+
+// AdvanceExact is unsupported on the buffered writer view; T4709-added
+// shim to satisfy SortedDocValues.
+func (b *bufferedSingleSortedDocValues) AdvanceExact(int) (bool, error) {
+	return false, errors.New("bufferedSingleSortedDocValues: AdvanceExact is not supported; use NextDoc")
+}
+
+// BinaryValue returns the term bytes for the current positioned doc.
+func (b *bufferedSingleSortedDocValues) BinaryValue() ([]byte, error) {
+	return b.LookupOrd(b.currentOrd)
+}
+
+// OrdValue returns the ord bound to the current positioned doc.
+func (b *bufferedSingleSortedDocValues) OrdValue() (int, error) {
+	return b.currentOrd, nil
 }
 
 func (b *bufferedSingleSortedDocValues) Get(docID int) ([]byte, error) {
@@ -581,6 +615,9 @@ type sortingSortedSetDocValues struct {
 	ordUpto int64
 	count   int
 	pending []int
+	// nextOrdIdx cursor for iterator-shaped NextOrd accessor added by
+	// T4709; reset on every NextDoc/Advance.
+	nextOrdIdx int
 }
 
 func newSortingSortedSetDocValues(in SortedSetDocValues, ords *docOrds) *sortingSortedSetDocValues {
@@ -598,6 +635,7 @@ func (s *sortingSortedSetDocValues) NextDoc() (int, error) {
 		}
 		if s.ords.offsets[s.docID] > 0 {
 			s.initCount()
+			s.nextOrdIdx = 0
 			return s.docID, nil
 		}
 	}
@@ -613,7 +651,34 @@ func (s *sortingSortedSetDocValues) Advance(target int) (int, error) {
 		return NO_MORE_DOCS, nil
 	}
 	s.initCount()
+	s.nextOrdIdx = 0
 	return s.docID, nil
+}
+
+// AdvanceExact positions the cursor at target and reports whether it
+// has at least one ord. T4709-added.
+func (s *sortingSortedSetDocValues) AdvanceExact(target int) (bool, error) {
+	if target < 0 || target > len(s.ords.offsets) {
+		return false, fmt.Errorf("sortingSortedSetDocValues: AdvanceExact(%d) out of bounds [0..%d]", target, len(s.ords.offsets))
+	}
+	s.docID = target
+	if s.docID == len(s.ords.offsets) || s.ords.offsets[s.docID] <= 0 {
+		return false, nil
+	}
+	s.initCount()
+	s.nextOrdIdx = 0
+	return true, nil
+}
+
+// NextOrd returns the next ord bound to the current positioned doc, or
+// -1 when no more remain.
+func (s *sortingSortedSetDocValues) NextOrd() (int, error) {
+	if s.nextOrdIdx >= s.count {
+		return -1, nil
+	}
+	ord := s.pending[s.nextOrdIdx]
+	s.nextOrdIdx++
+	return ord, nil
 }
 
 func (s *sortingSortedSetDocValues) Get(docID int) ([]int, error) {

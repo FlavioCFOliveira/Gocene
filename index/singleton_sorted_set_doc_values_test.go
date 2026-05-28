@@ -66,6 +66,20 @@ func (f *fakeSortedDV) NextDoc() (int, error) {
 
 func (f *fakeSortedDV) DocID() int                { return f.docID }
 func (f *fakeSortedDV) GetOrd(_ int) (int, error) { return f.currOrd, nil }
+func (f *fakeSortedDV) AdvanceExact(target int) (bool, error) {
+	got, err := f.Advance(target)
+	if err != nil {
+		return false, err
+	}
+	return got == target, nil
+}
+func (f *fakeSortedDV) BinaryValue() ([]byte, error) {
+	if f.currOrd < 0 {
+		return nil, nil
+	}
+	return f.terms[f.currOrd], nil
+}
+func (f *fakeSortedDV) OrdValue() (int, error) { return f.currOrd, nil }
 func (f *fakeSortedDV) LookupOrd(o int) ([]byte, error) {
 	return f.terms[o], nil
 }

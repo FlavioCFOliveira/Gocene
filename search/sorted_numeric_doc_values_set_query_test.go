@@ -513,6 +513,18 @@ func (f *fakeNumeric) NextDoc() (int, error) {
 
 func (f *fakeNumeric) DocID() int { return f.docID }
 
+func (f *fakeNumeric) AdvanceExact(target int) (bool, error) {
+	got, err := f.Advance(target)
+	if err != nil {
+		return false, err
+	}
+	return got == target, nil
+}
+
+func (f *fakeNumeric) LongValue() (int64, error) {
+	return f.values[f.docID], nil
+}
+
 // sliceEqualInt is a tiny equality helper. Kept local so it stays
 // next to the test that uses it.
 func sliceEqualInt(a, b []int) bool {

@@ -292,10 +292,12 @@ type ordMapStubSSV struct {
 	terms [][]byte
 }
 
-func (s *ordMapStubSSV) Get(int) ([]int, error)   { return nil, nil }
-func (s *ordMapStubSSV) Advance(int) (int, error) { return -1, nil }
-func (s *ordMapStubSSV) NextDoc() (int, error)    { return -1, nil }
-func (s *ordMapStubSSV) DocID() int               { return -1 }
+func (s *ordMapStubSSV) Get(int) ([]int, error)              { return nil, nil }
+func (s *ordMapStubSSV) Advance(int) (int, error)            { return -1, nil }
+func (s *ordMapStubSSV) AdvanceExact(int) (bool, error)      { return false, nil }
+func (s *ordMapStubSSV) NextOrd() (int, error)               { return -1, nil }
+func (s *ordMapStubSSV) NextDoc() (int, error)               { return -1, nil }
+func (s *ordMapStubSSV) DocID() int                          { return -1 }
 func (s *ordMapStubSSV) LookupOrd(ord int) ([]byte, error) {
 	if ord < 0 || ord >= len(s.terms) {
 		return nil, nil

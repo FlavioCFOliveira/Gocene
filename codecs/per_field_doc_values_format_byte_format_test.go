@@ -125,6 +125,7 @@ type numericMarker struct{ n int }
 func (numericMarker) DocID() int                  { return -1 }
 func (numericMarker) NextDoc() (int, error)       { return index.NO_MORE_DOCS, nil }
 func (numericMarker) Advance(int) (int, error)    { return index.NO_MORE_DOCS, nil }
+func (numericMarker) AdvanceExact(int) (bool, error) { return false, nil }
 func (m numericMarker) LongValue() (int64, error) { return int64(m.n), nil }
 func (numericMarker) Cost() int64                 { return 0 }
 

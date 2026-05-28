@@ -98,11 +98,21 @@ type globalOrdinalsOrdMapLeafCollector struct {
 func (lc *globalOrdinalsOrdMapLeafCollector) SetScorer(_ search.Scorer) error { return nil }
 
 // Collect implements search.LeafCollector.
+//
+// Migrated to AdvanceExact + OrdValue (rmp #4709). LeafCollector is
+// driven by the scorer in monotonically increasing doc order.
 func (lc *globalOrdinalsOrdMapLeafCollector) Collect(doc int) error {
 	if lc.sdv == nil {
 		return nil
 	}
-	ord, err := lc.sdv.GetOrd(doc)
+	ok, err := lc.sdv.AdvanceExact(doc)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	ord, err := lc.sdv.OrdValue()
 	if err != nil {
 		return err
 	}
@@ -125,11 +135,20 @@ type globalOrdinalsSegmentLeafCollector struct {
 func (lc *globalOrdinalsSegmentLeafCollector) SetScorer(_ search.Scorer) error { return nil }
 
 // Collect implements search.LeafCollector.
+//
+// Migrated to AdvanceExact + OrdValue (rmp #4709). Monotonic Collect.
 func (lc *globalOrdinalsSegmentLeafCollector) Collect(doc int) error {
 	if lc.sdv == nil {
 		return nil
 	}
-	ord, err := lc.sdv.GetOrd(doc)
+	ok, err := lc.sdv.AdvanceExact(doc)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	ord, err := lc.sdv.OrdValue()
 	if err != nil {
 		return err
 	}

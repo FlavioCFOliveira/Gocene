@@ -37,6 +37,11 @@ package index
 // invariant at runtime, matching Lucene.
 type singletonSortedSet struct {
 	wrapped SortedDocValues
+	// ordExhausted tracks whether NextOrd has already yielded the single
+	// ord for the current document position. Singleton wrappers expose
+	// exactly one ord per positioned doc, so NextOrd returns -1 on the
+	// second call until the next Advance/NextDoc/AdvanceExact.
+	ordExhausted bool
 }
 
 // GetSortedDocValues returns the wrapped SortedDocValues iterator.
@@ -75,11 +80,34 @@ func (s *singletonSortedSet) Get(docID int) ([]int, error) {
 // Advance delegates to the wrapped iterator; the multi-valued surface is
 // pure adapter, no extra state.
 func (s *singletonSortedSet) Advance(target int) (int, error) {
+	s.ordExhausted = false
 	return s.wrapped.Advance(target)
+}
+
+// AdvanceExact delegates to the wrapped iterator and resets the
+// single-ord cursor so the next NextOrd call returns the doc's ord.
+func (s *singletonSortedSet) AdvanceExact(target int) (bool, error) {
+	s.ordExhausted = false
+	return s.wrapped.AdvanceExact(target)
+}
+
+// NextOrd returns the single ord bound to the current document
+// position, then -1 on subsequent calls until the next advance.
+func (s *singletonSortedSet) NextOrd() (int, error) {
+	if s.ordExhausted {
+		return -1, nil
+	}
+	ord, err := s.wrapped.OrdValue()
+	if err != nil {
+		return -1, err
+	}
+	s.ordExhausted = true
+	return ord, nil
 }
 
 // NextDoc delegates to the wrapped iterator.
 func (s *singletonSortedSet) NextDoc() (int, error) {
+	s.ordExhausted = false
 	return s.wrapped.NextDoc()
 }
 

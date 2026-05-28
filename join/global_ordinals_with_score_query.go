@@ -190,7 +190,9 @@ func (s *globalOrdinalsWithScoreScorer) advance(target int) (int, error) {
 			s.currentDoc = search.NO_MORE_DOCS
 			return search.NO_MORE_DOCS, err
 		}
-		segOrd, err := s.values.GetOrd(doc)
+		// Migrated to OrdValue (rmp #4709): Advance positioned us on doc,
+		// so OrdValue reads the ord at the current cursor.
+		segOrd, err := s.values.OrdValue()
 		if err != nil || segOrd < 0 {
 			target = doc + 1
 			continue

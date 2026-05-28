@@ -276,6 +276,32 @@ func (f *fakeSortedNumeric) NextDoc() (int, error) {
 
 func (f *fakeSortedNumeric) DocID() int { return f.docID }
 
+func (f *fakeSortedNumeric) AdvanceExact(target int) (bool, error) {
+	got, err := f.Advance(target)
+	if err != nil {
+		return false, err
+	}
+	return got == target, nil
+}
+
+func (f *fakeSortedNumeric) NextValue() (int64, error) {
+	if f.docID < 0 || f.docID == NO_MORE_DOCS {
+		return 0, nil
+	}
+	vs := f.values[f.docID]
+	if len(vs) == 0 {
+		return 0, nil
+	}
+	return vs[0], nil
+}
+
+func (f *fakeSortedNumeric) DocValueCount() (int, error) {
+	if f.docID < 0 || f.docID == NO_MORE_DOCS {
+		return 0, nil
+	}
+	return len(f.values[f.docID]), nil
+}
+
 // TestMatchesIntersects covers the intersects() match path: a doc with
 // at least one value inside the shape matches; a doc with no value
 // inside does not.

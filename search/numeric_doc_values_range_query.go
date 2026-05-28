@@ -118,6 +118,10 @@ func (q *NumericDocValuesRangeQuery) CreateWeight(_ *IndexSearcher, _ bool, boos
 		// Collect all matching doc ids up front. This is the same eager
 		// strategy used by the sortedNumericDocValuesRangeQuery for the
 		// non-singleton path — a doc-values range scan is O(maxDoc).
+		//
+		// Migrated to the Lucene-faithful iterator surface (rmp #4709):
+		// NextDoc positions the iterator, LongValue reads the value at
+		// the current position. Monotonic — strictly forward.
 		matches := make([]int, 0, 16)
 		for {
 			doc, err := dv.NextDoc()
@@ -127,7 +131,7 @@ func (q *NumericDocValuesRangeQuery) CreateWeight(_ *IndexSearcher, _ bool, boos
 			if doc == NO_MORE_DOCS {
 				break
 			}
-			v, err := dv.Get(doc)
+			v, err := dv.LongValue()
 			if err != nil {
 				return nil, err
 			}

@@ -18,11 +18,14 @@ type stubSortedDocValues struct {
 	terms [][]byte // sorted, unique
 }
 
-func (s *stubSortedDocValues) Get(int) ([]byte, error)  { return nil, nil }
-func (s *stubSortedDocValues) Advance(int) (int, error) { return -1, nil }
-func (s *stubSortedDocValues) NextDoc() (int, error)    { return -1, nil }
-func (s *stubSortedDocValues) DocID() int               { return -1 }
-func (s *stubSortedDocValues) GetOrd(int) (int, error)  { return -1, nil }
+func (s *stubSortedDocValues) Get(int) ([]byte, error)         { return nil, nil }
+func (s *stubSortedDocValues) Advance(int) (int, error)        { return -1, nil }
+func (s *stubSortedDocValues) AdvanceExact(int) (bool, error)  { return false, nil }
+func (s *stubSortedDocValues) BinaryValue() ([]byte, error)    { return nil, nil }
+func (s *stubSortedDocValues) OrdValue() (int, error)          { return -1, nil }
+func (s *stubSortedDocValues) NextDoc() (int, error)           { return -1, nil }
+func (s *stubSortedDocValues) DocID() int                      { return -1 }
+func (s *stubSortedDocValues) GetOrd(int) (int, error)         { return -1, nil }
 
 func (s *stubSortedDocValues) LookupOrd(ord int) ([]byte, error) {
 	if ord < 0 || ord >= len(s.terms) {

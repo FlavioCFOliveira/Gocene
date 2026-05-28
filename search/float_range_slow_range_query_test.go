@@ -655,6 +655,21 @@ func (s *stubBinaryDocValues) DocID() int {
 	return s.docs[s.idx].docID
 }
 
+func (s *stubBinaryDocValues) AdvanceExact(target int) (bool, error) {
+	got, err := s.Advance(target)
+	if err != nil {
+		return false, err
+	}
+	return got == target, nil
+}
+
+func (s *stubBinaryDocValues) BinaryValue() ([]byte, error) {
+	if s.idx < 0 || s.idx >= len(s.docs) {
+		return nil, nil
+	}
+	return s.docs[s.idx].packed, nil
+}
+
 // errorBinaryDocValues yields one doc, then fails on Get. Used to verify
 // the error path through the match function in TwoPhaseIterator.
 type errorBinaryDocValues struct {
@@ -665,6 +680,10 @@ type errorBinaryDocValues struct {
 
 func (e *errorBinaryDocValues) Get(int) ([]byte, error)  { return nil, e.err }
 func (e *errorBinaryDocValues) Advance(int) (int, error) { return e.NextDoc() }
+func (e *errorBinaryDocValues) AdvanceExact(int) (bool, error) {
+	return false, e.err
+}
+func (e *errorBinaryDocValues) BinaryValue() ([]byte, error) { return nil, e.err }
 func (e *errorBinaryDocValues) NextDoc() (int, error) {
 	if e.done {
 		return NO_MORE_DOCS, nil

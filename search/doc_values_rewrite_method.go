@@ -326,6 +326,11 @@ func dvwBuildTermSet(
 
 // dvwBuildTwoPhase constructs a TwoPhaseIterator that matches documents
 // where at least one ordinal is in termSet and ≤ maxOrd.
+//
+// rmp #4709 (additive surface): index.SortedDocValues now exposes
+// OrdValue() and index.SortedSetDocValues now exposes NextOrd(); both
+// return int. Call them directly instead of going through the legacy
+// optional interfaces that returned int64.
 func dvwBuildTwoPhase(
 	values index.SortedSetDocValues,
 	termSet *util.LongBitSet,
@@ -334,48 +339,36 @@ func dvwBuildTwoPhase(
 	// Try singleton path (SortedDocValues underlying).
 	singleton := index.UnwrapSingletonSortedSet(values)
 	if singleton != nil {
-		withOrd, ok := singleton.(SortedDocValuesWithOrd)
-		if ok {
-			approx := castToDISI(singleton)
-			return NewTwoPhaseIteratorWithMatchCost(approx, func() (bool, error) {
-				ord, err := withOrd.OrdValue()
-				if err != nil {
-					return false, err
-				}
-				return ord >= 0 && termSet.Get(ord), nil
-			}, 3), nil
-		}
-	}
-
-	// Multi-valued path.
-	ordIter, hasOrdIter := values.(SortedSetDocValuesOrdIterable)
-	if hasOrdIter {
-		approx := castToDISI(values)
-		max := maxOrd
+		approx := castToDISI(singleton)
 		return NewTwoPhaseIteratorWithMatchCost(approx, func() (bool, error) {
-			count := ordIter.DocValueCount()
-			for i := 0; i < count; i++ {
-				ord, err := ordIter.NextOrd()
-				if err != nil {
-					return false, err
-				}
-				if ord > max {
-					return false, nil // values are sorted — terminate early
-				}
-				if termSet.Get(ord) {
-					return true, nil
-				}
+			ord, err := singleton.OrdValue()
+			if err != nil {
+				return false, err
 			}
-			return false, nil
+			return ord >= 0 && termSet.Get(int64(ord)), nil
 		}, 3), nil
 	}
 
-	// Fallback: no ord iteration — never matches.
-	return NewTwoPhaseIteratorWithMatchCost(
-		castToDISI(values),
-		func() (bool, error) { return false, nil },
-		3,
-	), nil
+	// Multi-valued path: iterate ords through NextOrd until -1.
+	approx := castToDISI(values)
+	max := maxOrd
+	return NewTwoPhaseIteratorWithMatchCost(approx, func() (bool, error) {
+		for {
+			ord, err := values.NextOrd()
+			if err != nil {
+				return false, err
+			}
+			if ord < 0 {
+				return false, nil
+			}
+			if int64(ord) > max {
+				return false, nil // values are sorted — terminate early
+			}
+			if termSet.Get(int64(ord)) {
+				return true, nil
+			}
+		}
+	}, 3), nil
 }
 
 // ─── sortedSetDocValuesTerms ─────────────────────────────────────────────────

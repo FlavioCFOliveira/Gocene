@@ -248,6 +248,30 @@ func (w *sortedDVsWrapper) NextDoc() (int, error) { return w.acc.iter.NextDoc() 
 
 func (w *sortedDVsWrapper) Advance(target int) (int, error) { return w.acc.iter.Advance(target) }
 
+// AdvanceExact mirrors the Lucene iterator surface (rmp #4709
+// additive). It positions the parent-doc cursor at target and reports
+// whether any child of that parent contributed a value.
+func (w *sortedDVsWrapper) AdvanceExact(target int) (bool, error) {
+	got, err := w.acc.iter.Advance(target)
+	if err != nil {
+		return false, err
+	}
+	return got == target, nil
+}
+
+// BinaryValue returns the term bytes bound to the current parent's
+// MIN/MAX child ord. Mirrors SortedDocValues.binaryValue().
+func (w *sortedDVsWrapper) BinaryValue() ([]byte, error) {
+	if w.acc.ord < 0 {
+		return nil, nil
+	}
+	return w.acc.values.LookupOrd(w.acc.ord)
+}
+
+// OrdValue returns the MIN/MAX child ord captured at the current
+// parent. Mirrors SortedDocValues.ordValue().
+func (w *sortedDVsWrapper) OrdValue() (int, error) { return w.acc.ord, nil }
+
 func (w *sortedDVsWrapper) Get(docID int) ([]byte, error) {
 	ord := w.acc.ord
 	if ord < 0 {
@@ -325,6 +349,21 @@ func (w *numericDVsWrapper) DocID() int { return w.acc.iter.DocID() }
 func (w *numericDVsWrapper) NextDoc() (int, error) { return w.acc.iter.NextDoc() }
 
 func (w *numericDVsWrapper) Advance(target int) (int, error) { return w.acc.iter.Advance(target) }
+
+// AdvanceExact (rmp #4709 additive) positions the parent-doc cursor at
+// target and reports whether any child of that parent contributed a
+// value. Monotonic; matches Lucene's NumericDocValues#advanceExact.
+func (w *numericDVsWrapper) AdvanceExact(target int) (bool, error) {
+	got, err := w.acc.iter.Advance(target)
+	if err != nil {
+		return false, err
+	}
+	return got == target, nil
+}
+
+// LongValue returns the MIN/MAX child value captured at the current
+// parent. Mirrors NumericDocValues.longValue().
+func (w *numericDVsWrapper) LongValue() (int64, error) { return w.acc.value, nil }
 
 func (w *numericDVsWrapper) Get(docID int) (int64, error) { return w.acc.value, nil }
 

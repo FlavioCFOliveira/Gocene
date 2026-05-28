@@ -288,6 +288,21 @@ func (b *shapeStubBinaryDocValues) DocID() int {
 	return b.docs[b.current]
 }
 
+func (b *shapeStubBinaryDocValues) AdvanceExact(target int) (bool, error) {
+	got, err := b.Advance(target)
+	if err != nil {
+		return false, err
+	}
+	return got == target, nil
+}
+
+func (b *shapeStubBinaryDocValues) BinaryValue() ([]byte, error) {
+	if b.current < 0 || b.current >= len(b.docs) {
+		return nil, nil
+	}
+	return b.Get(b.docs[b.current])
+}
+
 // TestBaseShapeDocValuesQuery_TwoPhaseWalk drives a stub
 // BinaryDocValues through the two-phase iterator wired by
 // newScorerSupplier and asserts only the docs the match closure

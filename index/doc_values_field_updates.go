@@ -617,6 +617,33 @@ func (a *updatesAsBinaryDV) Advance(target int) (int, error) {
 	}
 }
 
+// AdvanceExact advances the underlying iterator until it lands on
+// target and returns true; otherwise returns false. T4709-added.
+func (a *updatesAsBinaryDV) AdvanceExact(target int) (bool, error) {
+	if a.it.DocID() == target {
+		return true, nil
+	}
+	for {
+		next := a.it.NextDoc()
+		if next == util.NO_MORE_DOCS || next > target {
+			return false, nil
+		}
+		if next == target {
+			return true, nil
+		}
+	}
+}
+
+// BinaryValue returns the bytes bound to the current iterator
+// position. Mirrors org.apache.lucene.index.BinaryDocValues#binaryValue.
+func (a *updatesAsBinaryDV) BinaryValue() ([]byte, error) {
+	v := a.it.BinaryValue()
+	if v == nil {
+		return nil, nil
+	}
+	return v.Bytes[v.Offset : v.Offset+v.Length], nil
+}
+
 func (a *updatesAsBinaryDV) NextDoc() (int, error) {
 	return a.it.NextDoc(), nil
 }
@@ -643,6 +670,29 @@ func (a *updatesAsNumericDV) Advance(target int) (int, error) {
 			return next, nil
 		}
 	}
+}
+
+// AdvanceExact advances the underlying iterator until it lands on
+// target and returns true; otherwise returns false. T4709-added.
+func (a *updatesAsNumericDV) AdvanceExact(target int) (bool, error) {
+	if a.it.DocID() == target {
+		return true, nil
+	}
+	for {
+		next := a.it.NextDoc()
+		if next == util.NO_MORE_DOCS || next > target {
+			return false, nil
+		}
+		if next == target {
+			return true, nil
+		}
+	}
+}
+
+// LongValue returns the value bound to the current iterator position.
+// Mirrors org.apache.lucene.index.NumericDocValues#longValue.
+func (a *updatesAsNumericDV) LongValue() (int64, error) {
+	return a.it.LongValue(), nil
 }
 
 func (a *updatesAsNumericDV) NextDoc() (int, error) {

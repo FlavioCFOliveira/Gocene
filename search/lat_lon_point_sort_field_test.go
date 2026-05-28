@@ -272,6 +272,32 @@ func (f *distanceFakeSortedNumeric) DocID() int {
 	return f.docs[f.idx]
 }
 
+func (f *distanceFakeSortedNumeric) AdvanceExact(target int) (bool, error) {
+	got, err := f.Advance(target)
+	if err != nil {
+		return false, err
+	}
+	return got == target, nil
+}
+
+func (f *distanceFakeSortedNumeric) NextValue() (int64, error) {
+	if f.idx < 0 || f.idx >= len(f.docs) {
+		return 0, nil
+	}
+	vs := f.values[f.idx]
+	if len(vs) == 0 {
+		return 0, nil
+	}
+	return vs[0], nil
+}
+
+func (f *distanceFakeSortedNumeric) DocValueCount() (int, error) {
+	if f.idx < 0 || f.idx >= len(f.docs) {
+		return 0, nil
+	}
+	return len(f.values[f.idx]), nil
+}
+
 func encodeDistancePoint(lat, lon float64) int64 {
 	latBits := int64(geo.EncodeLatitude(lat)) & 0xFFFFFFFF
 	lonBits := int64(geo.EncodeLongitude(lon)) & 0xFFFFFFFF

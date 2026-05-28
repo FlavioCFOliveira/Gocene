@@ -267,6 +267,22 @@ func (m *multiFieldNormValues) Advance(_ int) (int, error) {
 	panic("multiFieldNormValues: Advance not supported")
 }
 
+// AdvanceExact is unsupported on this random-access blender; the
+// scorer always calls Get(docID) directly. Shim added by rmp #4709 to
+// satisfy index.NumericDocValues. This site is non-monotonic by design
+// (norm blending across multiple fields) and the follow-up migration
+// to a true iterator surface is tracked separately under parent 4669.
+func (m *multiFieldNormValues) AdvanceExact(_ int) (bool, error) {
+	panic("multiFieldNormValues: AdvanceExact not supported; use Get(docID)")
+}
+
+// LongValue is unsupported on this random-access blender; callers must
+// use Get(docID). Shim added by rmp #4709 to satisfy
+// index.NumericDocValues.
+func (m *multiFieldNormValues) LongValue() (int64, error) {
+	panic("multiFieldNormValues: LongValue not supported; use Get(docID)")
+}
+
 // NextDoc is unsupported.
 func (m *multiFieldNormValues) NextDoc() (int, error) {
 	panic("multiFieldNormValues: NextDoc not supported")

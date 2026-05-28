@@ -70,6 +70,32 @@ func (f *xyDistanceFakeSortedNumeric) DocID() int {
 	return f.docs[f.idx]
 }
 
+func (f *xyDistanceFakeSortedNumeric) AdvanceExact(target int) (bool, error) {
+	got, err := f.Advance(target)
+	if err != nil {
+		return false, err
+	}
+	return got == target, nil
+}
+
+func (f *xyDistanceFakeSortedNumeric) NextValue() (int64, error) {
+	if f.idx < 0 || f.idx >= len(f.docs) {
+		return 0, nil
+	}
+	vs := f.values[f.idx]
+	if len(vs) == 0 {
+		return 0, nil
+	}
+	return vs[0], nil
+}
+
+func (f *xyDistanceFakeSortedNumeric) DocValueCount() (int, error) {
+	if f.idx < 0 || f.idx >= len(f.docs) {
+		return 0, nil
+	}
+	return len(f.values[f.idx]), nil
+}
+
 // encodeXYPoint packs (x, y) into the same SortedNumeric layout produced by
 // XYDocValuesField — upper 32 bits = encoded x, lower 32 bits = encoded y.
 // Re-implemented locally to keep the search-package test free of a document

@@ -253,5 +253,6 @@ type emptyNormsDocValues struct{}
 func (e *emptyNormsDocValues) DocID() int                      { return -1 }
 func (e *emptyNormsDocValues) NextDoc() (int, error)           { return -1, nil }
 func (e *emptyNormsDocValues) Advance(target int) (int, error) { return -1, nil }
+func (e *emptyNormsDocValues) AdvanceExact(int) (bool, error)  { return false, nil }
 func (e *emptyNormsDocValues) LongValue() (int64, error)       { return 0, nil }
 func (e *emptyNormsDocValues) Cost() int64                     { return 0 }

@@ -61,6 +61,18 @@ func (f *fakeNumericDV) NextDoc() (int, error) {
 	return f.docID, nil
 }
 
+func (f *fakeNumericDV) AdvanceExact(target int) (bool, error) {
+	got, err := f.Advance(target)
+	if err != nil {
+		return false, err
+	}
+	return got == target, nil
+}
+
+func (f *fakeNumericDV) LongValue() (int64, error) {
+	return f.values[f.docID], nil
+}
+
 func (f *fakeNumericDV) DocID() int { return f.docID }
 
 func TestSingletonSortedNumeric_DelegatesIterationAndGet(t *testing.T) {

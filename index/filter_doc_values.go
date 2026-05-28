@@ -41,6 +41,14 @@ func (f *FilterBinaryDocValues) Get(docID int) ([]byte, error) { return f.In.Get
 // Advance moves to target docID.
 func (f *FilterBinaryDocValues) Advance(target int) (int, error) { return f.In.Advance(target) }
 
+// AdvanceExact delegates to the wrapped iterator. T4709-added.
+func (f *FilterBinaryDocValues) AdvanceExact(target int) (bool, error) {
+	return f.In.AdvanceExact(target)
+}
+
+// BinaryValue delegates to the wrapped iterator. T4709-added.
+func (f *FilterBinaryDocValues) BinaryValue() ([]byte, error) { return f.In.BinaryValue() }
+
 // NextDoc advances to the next doc that has a value.
 func (f *FilterBinaryDocValues) NextDoc() (int, error) { return f.In.NextDoc() }
 
@@ -68,6 +76,14 @@ func (f *FilterNumericDocValues) Get(docID int) (int64, error) { return f.In.Get
 // Advance moves to target docID.
 func (f *FilterNumericDocValues) Advance(target int) (int, error) { return f.In.Advance(target) }
 
+// AdvanceExact delegates to the wrapped iterator. T4709-added.
+func (f *FilterNumericDocValues) AdvanceExact(target int) (bool, error) {
+	return f.In.AdvanceExact(target)
+}
+
+// LongValue delegates to the wrapped iterator. T4709-added.
+func (f *FilterNumericDocValues) LongValue() (int64, error) { return f.In.LongValue() }
+
 // NextDoc advances to the next doc that has a value.
 func (f *FilterNumericDocValues) NextDoc() (int, error) { return f.In.NextDoc() }
 
@@ -94,6 +110,17 @@ func (f *FilterSortedDocValues) Get(docID int) ([]byte, error) { return f.In.Get
 
 // Advance moves to target docID.
 func (f *FilterSortedDocValues) Advance(target int) (int, error) { return f.In.Advance(target) }
+
+// AdvanceExact delegates to the wrapped iterator. T4709-added.
+func (f *FilterSortedDocValues) AdvanceExact(target int) (bool, error) {
+	return f.In.AdvanceExact(target)
+}
+
+// BinaryValue delegates to the wrapped iterator. T4709-added.
+func (f *FilterSortedDocValues) BinaryValue() ([]byte, error) { return f.In.BinaryValue() }
+
+// OrdValue delegates to the wrapped iterator. T4709-added.
+func (f *FilterSortedDocValues) OrdValue() (int, error) { return f.In.OrdValue() }
 
 // NextDoc advances to the next doc that has a value.
 func (f *FilterSortedDocValues) NextDoc() (int, error) { return f.In.NextDoc() }
@@ -133,6 +160,19 @@ func (f *FilterSortedNumericDocValues) Advance(target int) (int, error) {
 	return f.In.Advance(target)
 }
 
+// AdvanceExact delegates to the wrapped iterator. T4709-added.
+func (f *FilterSortedNumericDocValues) AdvanceExact(target int) (bool, error) {
+	return f.In.AdvanceExact(target)
+}
+
+// NextValue delegates to the wrapped iterator. T4709-added.
+func (f *FilterSortedNumericDocValues) NextValue() (int64, error) { return f.In.NextValue() }
+
+// DocValueCount delegates to the wrapped iterator. T4709-added.
+func (f *FilterSortedNumericDocValues) DocValueCount() (int, error) {
+	return f.In.DocValueCount()
+}
+
 // NextDoc advances to the next doc that has values.
 func (f *FilterSortedNumericDocValues) NextDoc() (int, error) { return f.In.NextDoc() }
 
@@ -159,6 +199,14 @@ func (f *FilterSortedSetDocValues) Get(docID int) ([]int, error) { return f.In.G
 
 // Advance moves to target docID.
 func (f *FilterSortedSetDocValues) Advance(target int) (int, error) { return f.In.Advance(target) }
+
+// AdvanceExact delegates to the wrapped iterator. T4709-added.
+func (f *FilterSortedSetDocValues) AdvanceExact(target int) (bool, error) {
+	return f.In.AdvanceExact(target)
+}
+
+// NextOrd delegates to the wrapped iterator. T4709-added.
+func (f *FilterSortedSetDocValues) NextOrd() (int, error) { return f.In.NextOrd() }
 
 // NextDoc advances to the next doc that has values.
 func (f *FilterSortedSetDocValues) NextDoc() (int, error) { return f.In.NextDoc() }

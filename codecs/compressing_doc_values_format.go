@@ -435,6 +435,7 @@ type emptyNumericDocValues struct{}
 func (e *emptyNumericDocValues) DocID() int                      { return -1 }
 func (e *emptyNumericDocValues) NextDoc() (int, error)           { return -1, nil }
 func (e *emptyNumericDocValues) Advance(target int) (int, error) { return -1, nil }
+func (e *emptyNumericDocValues) AdvanceExact(int) (bool, error)  { return false, nil }
 func (e *emptyNumericDocValues) LongValue() (int64, error)       { return 0, nil }
 func (e *emptyNumericDocValues) Cost() int64                     { return 0 }
 
@@ -443,6 +444,7 @@ type emptyBinaryDocValues struct{}
 func (e *emptyBinaryDocValues) DocID() int                      { return -1 }
 func (e *emptyBinaryDocValues) NextDoc() (int, error)           { return -1, nil }
 func (e *emptyBinaryDocValues) Advance(target int) (int, error) { return -1, nil }
+func (e *emptyBinaryDocValues) AdvanceExact(int) (bool, error)  { return false, nil }
 func (e *emptyBinaryDocValues) BinaryValue() ([]byte, error)    { return nil, nil }
 func (e *emptyBinaryDocValues) Cost() int64                     { return 0 }
 
@@ -451,6 +453,7 @@ type emptySortedDocValues struct{}
 func (e *emptySortedDocValues) DocID() int                        { return -1 }
 func (e *emptySortedDocValues) NextDoc() (int, error)             { return -1, nil }
 func (e *emptySortedDocValues) Advance(target int) (int, error)   { return -1, nil }
+func (e *emptySortedDocValues) AdvanceExact(int) (bool, error)    { return false, nil }
 func (e *emptySortedDocValues) LongValue() (int64, error)         { return 0, nil }
 func (e *emptySortedDocValues) Cost() int64                       { return 0 }
 func (e *emptySortedDocValues) OrdValue() (int, error)            { return -1, nil }
@@ -462,6 +465,7 @@ type emptySortedSetDocValues struct{}
 func (e *emptySortedSetDocValues) DocID() int                        { return -1 }
 func (e *emptySortedSetDocValues) NextDoc() (int, error)             { return -1, nil }
 func (e *emptySortedSetDocValues) Advance(target int) (int, error)   { return -1, nil }
+func (e *emptySortedSetDocValues) AdvanceExact(int) (bool, error)    { return false, nil }
 func (e *emptySortedSetDocValues) NextOrd() (int, error)             { return -1, nil }
 func (e *emptySortedSetDocValues) LookupOrd(ord int) ([]byte, error) { return nil, nil }
 func (e *emptySortedSetDocValues) GetValueCount() int                { return 0 }
@@ -472,6 +476,7 @@ type emptySortedNumericDocValues struct{}
 func (e *emptySortedNumericDocValues) DocID() int                      { return -1 }
 func (e *emptySortedNumericDocValues) NextDoc() (int, error)           { return -1, nil }
 func (e *emptySortedNumericDocValues) Advance(target int) (int, error) { return -1, nil }
+func (e *emptySortedNumericDocValues) AdvanceExact(int) (bool, error)  { return false, nil }
 func (e *emptySortedNumericDocValues) LongValue() (int64, error)       { return 0, nil }
 func (e *emptySortedNumericDocValues) Cost() int64                     { return 0 }
 func (e *emptySortedNumericDocValues) NextValue() (int64, error)       { return 0, nil }

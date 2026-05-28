@@ -40,6 +40,15 @@ type NumericDocValues interface {
 	// no such document exists.
 	Advance(target int) (int, error)
 
+	// AdvanceExact positions the iterator on the given target document
+	// and returns true if that document has a value. This is the
+	// Lucene-faithful primitive used by callers that need to test a
+	// specific document rather than iterate. Callers MUST advance
+	// monotonically (target >= previous target).
+	//
+	// Mirrors org.apache.lucene.index.NumericDocValues#advanceExact.
+	AdvanceExact(target int) (bool, error)
+
 	// LongValue returns the numeric value for the current document.
 	LongValue() (int64, error)
 
@@ -66,6 +75,13 @@ type BinaryDocValues interface {
 	// whose ID is >= target and returns that ID, or NO_MORE_DOCS when
 	// no such document exists.
 	Advance(target int) (int, error)
+
+	// AdvanceExact positions the iterator on the given target document
+	// and returns true if that document has a value. Callers MUST
+	// advance monotonically (target >= previous target).
+	//
+	// Mirrors org.apache.lucene.index.BinaryDocValues#advanceExact.
+	AdvanceExact(target int) (bool, error)
 
 	// BinaryValue returns the binary value bound to the current
 	// document. The returned slice is only valid until the next call
@@ -121,6 +137,13 @@ type SortedSetDocValues interface {
 	// least one value whose ID is >= target and returns that ID, or
 	// NO_MORE_DOCS when no such document exists.
 	Advance(target int) (int, error)
+
+	// AdvanceExact positions the iterator on the given target document
+	// and returns true if that document has at least one ordinal.
+	// Callers MUST advance monotonically (target >= previous target).
+	//
+	// Mirrors org.apache.lucene.index.SortedSetDocValues#advanceExact.
+	AdvanceExact(target int) (bool, error)
 
 	// NextOrd returns the next ordinal for the current document, or -1
 	// when the document has no more ordinals.

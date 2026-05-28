@@ -307,8 +307,13 @@ func (q *sortedSetDocValuesRangeQuery) CreateWeight(_ *IndexSearcher, needsScore
 			// Singleton fast path: each doc carries at most one
 			// ordinal. Mirrors the Java
 			// SortedDocValues.ordValue() branch.
+			//
+			// Migrated to OrdValue (rmp #4709): approx already
+			// positioned the underlying SortedDocValues via
+			// NextDoc/Advance, so OrdValue reads the ord at the
+			// current cursor.
 			matchFn = func() (bool, error) {
-				ord, err := singleton.GetOrd(approx.DocID())
+				ord, err := singleton.OrdValue()
 				if err != nil {
 					return false, err
 				}
@@ -318,23 +323,25 @@ func (q *sortedSetDocValuesRangeQuery) CreateWeight(_ *IndexSearcher, needsScore
 				return ord >= minOrd && ord <= maxOrd, nil
 			}
 		} else {
+			// Multi-valued path migrated to NextOrd (rmp #4709):
+			// SortedSetDocValues exposes the ords for the current
+			// doc through repeated NextOrd calls until -1. Ords
+			// are returned in sorted order — break on the first
+			// ord >= minOrd.
 			matchFn = func() (bool, error) {
-				ords, err := values.Get(approx.DocID())
-				if err != nil {
-					return false, err
-				}
-				// Ords are sorted (SortedSetDocValues
-				// contract). Mirror the Java loop exactly:
-				// skip ords below minOrd, terminate on the
-				// first one >= minOrd (it is the best
-				// candidate by sort order).
-				for _, ord := range ords {
+				for {
+					ord, err := values.NextOrd()
+					if err != nil {
+						return false, err
+					}
+					if ord < 0 {
+						return false, nil
+					}
 					if ord < minOrd {
 						continue
 					}
 					return ord <= maxOrd, nil
 				}
-				return false, nil
 			}
 		}
 

@@ -28,10 +28,12 @@ func (s *stubSimScorer) Explain104(freq Explanation, norm int64) Explanation {
 // mnlssFixedNorm returns the supplied constant for every doc.
 type mnlssFixedNorm struct{ val int64 }
 
-func (f *mnlssFixedNorm) Get(_ int) (int64, error)   { return f.val, nil }
-func (f *mnlssFixedNorm) Advance(_ int) (int, error) { return 0, nil }
-func (f *mnlssFixedNorm) NextDoc() (int, error)      { return 0, nil }
-func (f *mnlssFixedNorm) DocID() int                 { return -1 }
+func (f *mnlssFixedNorm) Get(_ int) (int64, error)         { return f.val, nil }
+func (f *mnlssFixedNorm) Advance(_ int) (int, error)       { return 0, nil }
+func (f *mnlssFixedNorm) AdvanceExact(_ int) (bool, error) { return true, nil }
+func (f *mnlssFixedNorm) LongValue() (int64, error)        { return f.val, nil }
+func (f *mnlssFixedNorm) NextDoc() (int, error)            { return 0, nil }
+func (f *mnlssFixedNorm) DocID() int                       { return -1 }
 
 // mnlssLeafReader wraps *index.LeafReader so that GetNormValues can be
 // overridden via a norm map, letting tests inject synthetic norm sources

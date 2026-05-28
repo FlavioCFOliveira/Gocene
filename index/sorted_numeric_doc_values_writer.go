@@ -345,6 +345,18 @@ func (b *bufferedNumericDocValues) Advance(int) (int, error) {
 	return 0, errors.New("bufferedNumericDocValues: Advance is not supported; use NextDoc")
 }
 
+// AdvanceExact is unsupported on the buffered writer view; T4709-added
+// shim to satisfy the NumericDocValues interface contract.
+func (b *bufferedNumericDocValues) AdvanceExact(int) (bool, error) {
+	return false, errors.New("bufferedNumericDocValues: AdvanceExact is not supported; use NextDoc")
+}
+
+// LongValue returns the value bound to the current cursor position.
+// Mirrors org.apache.lucene.index.NumericDocValues#longValue.
+func (b *bufferedNumericDocValues) LongValue() (int64, error) {
+	return b.value, nil
+}
+
 // Get returns the value for docID. docID must equal the current cursor.
 func (b *bufferedNumericDocValues) Get(docID int) (int64, error) {
 	if docID != b.docID {
@@ -368,6 +380,9 @@ type bufferedSortedNumericDocValues struct {
 	docID           int
 	currentDoc      []int64
 	currentCount    int
+	// nextValueIdx cursor for the iterator-shaped NextValue accessor
+	// added by T4709; reset on every NextDoc/Advance.
+	nextValueIdx int
 }
 
 func newBufferedSortedNumericDocValues(
@@ -405,6 +420,7 @@ func (b *bufferedSortedNumericDocValues) NextDoc() (int, error) {
 	for i := 0; i < b.currentCount; i++ {
 		b.currentDoc[i] = b.valuesIter.Next()
 	}
+	b.nextValueIdx = 0
 	return b.docID, nil
 }
 
@@ -412,6 +428,40 @@ func (b *bufferedSortedNumericDocValues) NextDoc() (int, error) {
 // UnsupportedOperationException); callers should iterate via NextDoc.
 func (b *bufferedSortedNumericDocValues) Advance(int) (int, error) {
 	return 0, errors.New("bufferedSortedNumericDocValues: Advance is not supported; use NextDoc")
+}
+
+// AdvanceExact is unsupported on the buffered writer view; T4709-added
+// shim to satisfy SortedNumericDocValues.
+func (b *bufferedSortedNumericDocValues) AdvanceExact(int) (bool, error) {
+	return false, errors.New("bufferedSortedNumericDocValues: AdvanceExact is not supported; use NextDoc")
+}
+
+// NextValue returns the next value for the current document. Callers
+// must invoke this at most DocValueCount times per positioned doc.
+func (b *bufferedSortedNumericDocValues) NextValue() (int64, error) {
+	if b.nextValueIdx >= b.currentCount {
+		return 0, fmt.Errorf(
+			"bufferedSortedNumericDocValues: NextValue exceeded DocValueCount=%d", b.currentCount)
+	}
+	v := b.currentDoc[b.nextValueIdx]
+	b.nextValueIdx++
+	return v, nil
+}
+
+// DocValueCount returns the number of values bound to the current
+// positioned document.
+func (b *bufferedSortedNumericDocValues) DocValueCount() (int, error) {
+	return b.currentCount, nil
+}
+
+// LongValue returns the first value bound to the current positioned
+// document. Provided for compatibility with the inherited
+// NumericDocValues surface in SortedNumericDocValues' embedding.
+func (b *bufferedSortedNumericDocValues) LongValue() (int64, error) {
+	if b.currentCount == 0 {
+		return 0, fmt.Errorf("bufferedSortedNumericDocValues: LongValue on empty doc")
+	}
+	return b.currentDoc[0], nil
 }
 
 // Get returns the values for docID. docID must equal the current cursor.
@@ -494,6 +544,9 @@ type sortingSortedNumericDocValues struct {
 	docID     int
 	upto      int64
 	numValues int
+	// nextValueIdx cursor for the iterator-shaped NextValue accessor
+	// added by T4709; reset on every NextDoc.
+	nextValueIdx int
 }
 
 func newSortingSortedNumericDocValues(
@@ -517,6 +570,7 @@ func (s *sortingSortedNumericDocValues) NextDoc() (int, error) {
 		if s.values.offsets[s.docID] > 0 {
 			s.upto = s.values.offsets[s.docID]
 			s.numValues = int(s.values.values.Get(s.upto - 1))
+			s.nextValueIdx = 0
 			return s.docID, nil
 		}
 	}
@@ -527,6 +581,39 @@ func (s *sortingSortedNumericDocValues) NextDoc() (int, error) {
 // equivalent error.
 func (s *sortingSortedNumericDocValues) Advance(int) (int, error) {
 	return 0, errors.New("sortingSortedNumericDocValues: Advance is not supported; use NextDoc")
+}
+
+// AdvanceExact is unsupported; the Java reference throws on the
+// sort-aware writer view. T4709-added shim.
+func (s *sortingSortedNumericDocValues) AdvanceExact(int) (bool, error) {
+	return false, errors.New("sortingSortedNumericDocValues: AdvanceExact is not supported; use NextDoc")
+}
+
+// NextValue returns the next packed value for the current doc position.
+// Mirrors Lucene's tape walk: read the value at upto + nextValueIdx.
+func (s *sortingSortedNumericDocValues) NextValue() (int64, error) {
+	if s.nextValueIdx >= s.numValues {
+		return 0, fmt.Errorf(
+			"sortingSortedNumericDocValues: NextValue exceeded DocValueCount=%d", s.numValues)
+	}
+	v := s.values.values.Get(s.upto + int64(s.nextValueIdx))
+	s.nextValueIdx++
+	return v, nil
+}
+
+// DocValueCount returns the number of values bound to the current
+// positioned document.
+func (s *sortingSortedNumericDocValues) DocValueCount() (int, error) {
+	return s.numValues, nil
+}
+
+// LongValue returns the first value bound to the current positioned
+// document. Provided for the inherited NumericDocValues surface.
+func (s *sortingSortedNumericDocValues) LongValue() (int64, error) {
+	if s.numValues == 0 {
+		return 0, fmt.Errorf("sortingSortedNumericDocValues: LongValue on empty doc")
+	}
+	return s.values.values.Get(s.upto), nil
 }
 
 // Get returns the values for docID. docID must equal the current cursor.

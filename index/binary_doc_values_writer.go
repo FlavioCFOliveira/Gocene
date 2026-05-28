@@ -234,6 +234,20 @@ func (b *bufferedBinaryDocValues) Advance(int) (int, error) {
 	return 0, errors.New("bufferedBinaryDocValues: Advance is not supported; use NextDoc")
 }
 
+// AdvanceExact is unsupported on the buffered writer view; the Java
+// reference also forbids random access on these consumer-side iterators.
+// T4709-added shim to satisfy the BinaryDocValues interface; callers
+// must drive iteration via NextDoc.
+func (b *bufferedBinaryDocValues) AdvanceExact(int) (bool, error) {
+	return false, errors.New("bufferedBinaryDocValues: AdvanceExact is not supported; use NextDoc")
+}
+
+// BinaryValue returns the bytes bound to the current cursor position.
+// Mirrors org.apache.lucene.index.BinaryDocValues#binaryValue.
+func (b *bufferedBinaryDocValues) BinaryValue() ([]byte, error) {
+	return b.value, nil
+}
+
 // Get returns the value bytes for docID. docID must equal the current
 // cursor; the Java original exposes binaryValue() with no argument — Gocene
 // collapses that into Get for consistency with the BinaryDocValues interface.
@@ -327,6 +341,22 @@ func (s *sortingBinaryDocValues) NextDoc() (int, error) {
 // UnsupportedOperationException("use nextDoc instead").
 func (s *sortingBinaryDocValues) Advance(int) (int, error) {
 	return 0, errors.New("sortingBinaryDocValues: Advance is not supported; use NextDoc")
+}
+
+// AdvanceExact is unsupported on the sort-aware writer view, matching
+// the Java reference. T4709-added shim to satisfy BinaryDocValues.
+func (s *sortingBinaryDocValues) AdvanceExact(int) (bool, error) {
+	return false, errors.New("sortingBinaryDocValues: AdvanceExact is not supported; use NextDoc")
+}
+
+// BinaryValue returns the bytes bound to the current cursor position.
+// Mirrors org.apache.lucene.index.BinaryDocValues#binaryValue.
+func (s *sortingBinaryDocValues) BinaryValue() ([]byte, error) {
+	if s.docID < 0 || s.docID == NO_MORE_DOCS || s.docID >= len(s.dvs.offsets) {
+		return nil, fmt.Errorf(
+			"sortingBinaryDocValues: BinaryValue requires a positioned cursor; current=%d", s.docID)
+	}
+	return s.dvs.values.GetBytes(s.dvs.offsets[s.docID] - 1), nil
 }
 
 // Get returns the value bytes for docID. docID must equal the current
