@@ -24,4 +24,7 @@ Thumbs.db
 vendor/
 
 
+# Example binaries
+webapi
+
 lucene-*/.lucene_ref/
