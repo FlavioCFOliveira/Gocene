@@ -91,20 +91,21 @@ type recordingCodec struct {
 	tv *recordingTVFormat
 }
 
-func (c *recordingCodec) Name() string                                { return "recording-codec" }
-func (c *recordingCodec) PostingsFormat() PostingsFormat              { return nil }
-func (c *recordingCodec) StoredFieldsFormat() StoredFieldsFormat      { return nil }
-func (c *recordingCodec) FieldInfosFormat() FieldInfosFormat          { return nil }
-func (c *recordingCodec) SegmentInfosFormat() SegmentInfosFormat      { return nil }
-func (c *recordingCodec) SegmentInfoFormat() SegmentInfoFormat        { return nil }
+func (c *recordingCodec) Name() string                           { return "recording-codec" }
+func (c *recordingCodec) PostingsFormat() PostingsFormat         { return nil }
+func (c *recordingCodec) StoredFieldsFormat() StoredFieldsFormat { return nil }
+func (c *recordingCodec) FieldInfosFormat() FieldInfosFormat     { return nil }
+func (c *recordingCodec) SegmentInfosFormat() SegmentInfosFormat { return nil }
+func (c *recordingCodec) SegmentInfoFormat() SegmentInfoFormat   { return nil }
 func (c *recordingCodec) TermVectorsFormat() TermVectorsFormat {
 	if c.tv == nil {
 		return nil
 	}
 	return c.tv
 }
-func (c *recordingCodec) CompoundFormat() CompoundFormat              { return nil }
-func (c *recordingCodec) KnnVectorsFormat() KnnVectorsFormat          { return nil }
+func (c *recordingCodec) CompoundFormat() CompoundFormat     { return nil }
+func (c *recordingCodec) KnnVectorsFormat() KnnVectorsFormat { return nil }
+func (c *recordingCodec) DocValuesFormat() DocValuesFormat   { return nil }
 
 func newTestTermVectorsConsumer(t *testing.T, docs int) (*TermVectorsConsumer, *recordingTVFormat) {
 	t.Helper()
@@ -542,12 +543,13 @@ type accountableCodec struct {
 	tv *accountableTVFormat
 }
 
-func (c *accountableCodec) Name() string                                { return "acc-codec" }
-func (c *accountableCodec) PostingsFormat() PostingsFormat              { return nil }
-func (c *accountableCodec) StoredFieldsFormat() StoredFieldsFormat      { return nil }
-func (c *accountableCodec) FieldInfosFormat() FieldInfosFormat          { return nil }
-func (c *accountableCodec) SegmentInfosFormat() SegmentInfosFormat      { return nil }
-func (c *accountableCodec) SegmentInfoFormat() SegmentInfoFormat        { return nil }
-func (c *accountableCodec) TermVectorsFormat() TermVectorsFormat        { return c.tv }
-func (c *accountableCodec) CompoundFormat() CompoundFormat              { return nil }
-func (c *accountableCodec) KnnVectorsFormat() KnnVectorsFormat          { return nil }
+func (c *accountableCodec) Name() string                           { return "acc-codec" }
+func (c *accountableCodec) PostingsFormat() PostingsFormat         { return nil }
+func (c *accountableCodec) StoredFieldsFormat() StoredFieldsFormat { return nil }
+func (c *accountableCodec) FieldInfosFormat() FieldInfosFormat     { return nil }
+func (c *accountableCodec) SegmentInfosFormat() SegmentInfosFormat { return nil }
+func (c *accountableCodec) SegmentInfoFormat() SegmentInfoFormat   { return nil }
+func (c *accountableCodec) TermVectorsFormat() TermVectorsFormat   { return c.tv }
+func (c *accountableCodec) CompoundFormat() CompoundFormat         { return nil }
+func (c *accountableCodec) KnnVectorsFormat() KnnVectorsFormat     { return nil }
+func (c *accountableCodec) DocValuesFormat() DocValuesFormat       { return nil }

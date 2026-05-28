@@ -4,6 +4,21 @@
 
 package index
 
+// TODO(T4709): The five doc-values value-type interfaces declared in
+// this file (NumericDocValues, BinaryDocValues, SortedDocValues,
+// SortedSetDocValues, SortedNumericDocValues) plus the DocValuesSkipper
+// helper carry the legacy random-access "Get(docID)" projection.
+//
+// rmp #4708 lifted the canonical iterator-shaped surface
+// (NextDoc/Advance/LongValue/...) onto package spi and aliased it from
+// codecs/, but left these bodies in place because every index-side
+// caller still consumes the random-access shape. rmp #4709 migrates
+// the index callers onto the SPI iterator surface and then collapses
+// these declarations to aliases of spi.NumericDocValues etc.
+//
+// Until that task lands, this file is intentionally divergent from
+// the codecs / spi value-type surface.
+
 // NumericDocValues provides an iterator over numeric doc values.
 // This is the Go port of Lucene's org.apache.lucene.index.NumericDocValues.
 type NumericDocValues interface {

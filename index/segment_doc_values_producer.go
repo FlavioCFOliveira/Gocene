@@ -42,8 +42,14 @@ type SegmentDocValuesProducer struct {
 // [EmptyDocValuesProducer] as well as the per-format producers wired through
 // SegmentCoreReaders.
 //
-// Gocene declares the contract locally so that this file stays self-contained
-// while the canonical interface continues to live in the codecs package.
+// TODO(T4709): this interface is intentionally NOT a type alias of
+// [spi.DocValuesProducer] (introduced by rmp #4708) because the
+// Get* methods on this side return the random-access "Get(docID)"
+// projection of the value types, whereas the SPI canonical interface
+// returns the iterator-shaped surface used by the codecs side. rmp
+// #4709 will migrate the index-side callers onto the iterator
+// surface and then collapse this declaration to
+// `type DocValuesProducer = spi.DocValuesProducer`.
 type DocValuesProducer interface {
 	GetNumeric(field *FieldInfo) (NumericDocValues, error)
 	GetBinary(field *FieldInfo) (BinaryDocValues, error)

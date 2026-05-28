@@ -110,6 +110,16 @@ func (p *MemoryDocValuesProducer) GetSortedNumeric(field *index.FieldInfo) (Sort
 	return nil, nil
 }
 
+// GetSkipper returns the DocValuesSkipper for the given field.
+//
+// The in-memory producer does not maintain a sparse skipper companion,
+// so it always returns (nil, nil). Required by spi.DocValuesProducer
+// since rmp #4708 lifted the doc-values family onto the SPI.
+func (p *MemoryDocValuesProducer) GetSkipper(field *index.FieldInfo) (DocValuesSkipper, error) {
+	_ = field
+	return nil, nil
+}
+
 // CheckIntegrity checks the integrity of the doc values.
 func (p *MemoryDocValuesProducer) CheckIntegrity() error {
 	// In-memory implementation is always valid

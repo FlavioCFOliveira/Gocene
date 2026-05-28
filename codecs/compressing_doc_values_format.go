@@ -392,6 +392,17 @@ func (p *CompressingDocValuesProducer) GetSortedNumeric(field *index.FieldInfo) 
 	return &emptySortedNumericDocValues{}, nil
 }
 
+// GetSkipper returns the DocValuesSkipper for the given field.
+//
+// The compressing doc-values producer does not write a sparse skipper
+// companion, so it always returns (nil, nil). Required by
+// spi.DocValuesProducer since rmp #4708 lifted the doc-values family
+// onto the SPI.
+func (p *CompressingDocValuesProducer) GetSkipper(field *index.FieldInfo) (DocValuesSkipper, error) {
+	_ = field
+	return nil, nil
+}
+
 // CheckIntegrity checks the integrity of the doc values.
 func (p *CompressingDocValuesProducer) CheckIntegrity() error {
 	p.mu.RLock()

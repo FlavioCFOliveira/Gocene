@@ -37,7 +37,12 @@
 //     FieldInfosFormat, SegmentInfoFormat, SegmentInfosFormat,
 //     TermVectorsFormat (+ TermVectorsReader/Writer), CompoundFormat
 //     (+ CompoundDirectory), KnnVectorsFormat (+ KnnVectorsWriter /
-//     KnnVectorsReader / KnnFieldVectorsWriter).
+//     KnnVectorsReader / KnnFieldVectorsWriter),
+//     DocValuesFormat (+ DocValuesProducer / DocValuesConsumer / the
+//     six iterator-shaped value types — NumericDocValues,
+//     BinaryDocValues, SortedDocValues, SortedSetDocValues,
+//     SortedNumericDocValues, DocValuesSkipper — and the five
+//     writer-side iterators consumed by Add*Field).
 //   - SegmentInfos and SegmentCommitInfo (lifted by rmp #4706 so the
 //     segments_N read/write path no longer needs to import index/).
 //   - SegmentReadState and SegmentWriteState.
@@ -57,13 +62,18 @@
 //
 // # What is intentionally NOT here
 //
-//   - DocValuesFormat (and its companion producer/consumer/iterator
-//     types): deferred to rmp #4708 because the codecs-side family pulls
-//     in a large web of value-type and iterator interfaces that live
-//     only in index/ today.
-//
-// The remaining deferral is marked with a TODO(T4708) comment at its
-// source-of-truth declaration in codecs/.
+//   - The index-side random-access projection of the five doc-values
+//     value types (NumericDocValues.Get(docID), BinaryDocValues.Get,
+//     SortedDocValues.GetOrd, SortedNumericDocValues.Get,
+//     SortedSetDocValues.Get) and its companion DocValuesProducer /
+//     DocValuesConsumer surface. rmp #4708 lifted the codecs-faithful
+//     iterator surface (NextDoc/Advance/LongValue/...) onto this
+//     package and aliased it from codecs/, but left the index-side
+//     bodies intact because their return-type shape differs from the
+//     SPI iterator shape and migrating every index-side caller is a
+//     follow-up scope. That migration is tracked as rmp #4709 and the
+//     divergent declarations carry a TODO(T4709) marker at their
+//     source-of-truth sites in index/.
 //
 // # Background
 //
@@ -71,7 +81,9 @@
 // #4669. Sprint 117 phase 1 lifted the structural types
 // (SegmentInfo, FieldInfo*, Term*, vector enums, …) into schema/.
 // Sprint 118 phase 2 (rmp #4693) lifted the codec-facing interfaces,
-// rmp #4706 completed the SegmentInfos / SegmentInfosFormat lift, and
+// rmp #4706 completed the SegmentInfos / SegmentInfosFormat lift,
 // rmp #4707 closed the KnnVectorsFormat lift (rewriting the narrow
-// vector_values_consumer path onto the wide writer in the process).
+// vector_values_consumer path onto the wide writer in the process),
+// and rmp #4708 closed the DocValuesFormat family lift (with the
+// index-side iterator migration deferred to rmp #4709 as noted above).
 package spi

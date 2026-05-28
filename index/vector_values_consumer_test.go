@@ -320,6 +320,7 @@ func (c *fakeCodecWithKnn) SegmentInfoFormat() SegmentInfoFormat   { return nil 
 func (c *fakeCodecWithKnn) TermVectorsFormat() TermVectorsFormat   { return nil }
 func (c *fakeCodecWithKnn) CompoundFormat() CompoundFormat         { return nil }
 func (c *fakeCodecWithKnn) KnnVectorsFormat() spi.KnnVectorsFormat { return c.knn }
+func (c *fakeCodecWithKnn) DocValuesFormat() spi.DocValuesFormat   { return nil }
 
 // TestVectorValuesConsumer_CodecKnnFormatUsedWhenNoExplicitFormat verifies
 // that when no explicit KnnVectorsFormat is injected via

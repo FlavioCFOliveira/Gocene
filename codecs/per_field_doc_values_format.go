@@ -494,6 +494,20 @@ func (p *PerFieldDocValuesProducer) GetSortedNumeric(field *index.FieldInfo) (So
 	return producer.GetSortedNumeric(field)
 }
 
+// GetSkipper dispatches to the delegate producer that owns the field,
+// returning whatever skipper that delegate exposes (typically nil when
+// the delegate format does not write a sparse skipper).
+//
+// Required by spi.DocValuesProducer since rmp #4708 lifted the
+// doc-values family onto the SPI.
+func (p *PerFieldDocValuesProducer) GetSkipper(field *index.FieldInfo) (DocValuesSkipper, error) {
+	producer, err := p.producerFor(field)
+	if err != nil || producer == nil {
+		return nil, err
+	}
+	return producer.GetSkipper(field)
+}
+
 // CheckIntegrity runs an integrity check on every underlying delegate
 // producer.
 func (p *PerFieldDocValuesProducer) CheckIntegrity() error {

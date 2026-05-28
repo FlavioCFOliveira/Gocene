@@ -609,6 +609,19 @@ func (p *lucene90DVProducer) GetSortedNumeric(field *index.FieldInfo) (SortedNum
 	return p.getSortedNumericFromEntry(e)
 }
 
+// GetSkipper returns the DocValuesSkipper companion for the field, or
+// nil when this format did not write a sparse skipper for it. The
+// Gocene Lucene90 doc-values producer port does not yet decode the
+// per-block skipper index, so it always returns (nil, nil); reads that
+// would benefit from skipping fall back to the dense iterator.
+//
+// Required by spi.DocValuesProducer since rmp #4708 lifted the
+// doc-values family onto the SPI with the Lucene-faithful method set.
+func (p *lucene90DVProducer) GetSkipper(field *index.FieldInfo) (DocValuesSkipper, error) {
+	_ = field
+	return nil, nil
+}
+
 func (p *lucene90DVProducer) CheckIntegrity() error { return nil }
 
 func (p *lucene90DVProducer) Close() error {

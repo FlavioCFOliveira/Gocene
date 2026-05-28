@@ -21,14 +21,23 @@ import (
 // without any adapter, and the codecbridge adapters collapse to
 // identity wrappers.
 //
-// DocValuesFormat is a codecs-only accessor on Lucene104Codec and is
-// NOT part of the index-side Codec surface; see rmp #4708 for the
-// remaining lift.
+// DocValuesFormat joined the SPI in rmp #4708 alongside the rest of
+// the doc-values family (DocValuesProducer / DocValuesConsumer plus
+// the iterator-shaped value types). The index-side random-access
+// projection of the value types (NumericDocValues.Get(docID) and
+// peers) is NOT covered by this alias surface; rmp #4709 tracks the
+// migration that will eventually collapse those bodies onto the SPI
+// iterator surface as well.
 
-// Codec is an alias of [spi.Codec]. After rmp #4707 the SPI surface
-// covers every method that the index-side Codec contract requires,
-// including KnnVectorsFormat.
+// Codec is an alias of [spi.Codec]. After rmp #4708 the SPI surface
+// covers every per-component format accessor including
+// DocValuesFormat, so the index-side Codec contract is satisfied
+// without any wrapping.
 type Codec = spi.Codec
+
+// DocValuesFormat is an alias of [spi.DocValuesFormat] — the codec-
+// facing format accessor lifted onto the SPI by rmp #4708.
+type DocValuesFormat = spi.DocValuesFormat
 
 // KnnVectorsFormat is an alias of [spi.KnnVectorsFormat] — the wide
 // canonical KNN vectors format the codec exposes via Codec.KnnVectorsFormat().
