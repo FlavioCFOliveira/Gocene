@@ -437,8 +437,12 @@ func (in *ByteBuffersIndexInput) ReadByteAt(pos int64) (byte, error) {
 	return in.content[pos], nil
 }
 
-// ReadLongAt reads a 64-bit value at the given position in big-endian format.
-// This implements the RandomAccessInput interface.
+// ReadLongAt reads a 64-bit value at the given position in little-endian
+// format, as required by the RandomAccessInput contract (see
+// random_access_input.go) and matching Lucene 10.4.0, whose
+// ByteBuffersDataInput / RandomAccessInput are little-endian. It must agree
+// with the sequential ReadLong above; readers such as the doc-values jump
+// table, the lucene103 trie, and packed DirectReader all assume little-endian.
 func (in *ByteBuffersIndexInput) ReadLongAt(pos int64) (int64, error) {
 	if !in.directory.IsOpen() {
 		return 0, ErrIllegalState
@@ -446,7 +450,7 @@ func (in *ByteBuffersIndexInput) ReadLongAt(pos int64) (int64, error) {
 	if pos < 0 || pos+8 > int64(len(in.content)) {
 		return 0, fmt.Errorf("position %d out of range for 8-byte read [0, %d]", pos, len(in.content))
 	}
-	return int64(binary.BigEndian.Uint64(in.content[pos : pos+8])), nil
+	return int64(binary.LittleEndian.Uint64(in.content[pos : pos+8])), nil
 }
 
 // ByteBuffersIndexOutput is an IndexOutput implementation for ByteBuffersDirectory.
