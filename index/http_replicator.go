@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -103,6 +105,14 @@ func (hr *HTTPReplicator) performReplication(ctx context.Context) error {
 		default:
 		}
 
+		// The file name is supplied by the (untrusted) server. Reject anything
+		// that is not a plain, local base filename so a malicious server cannot
+		// write outside targetPath via "..", an absolute path, or embedded
+		// separators. Lucene segment file names are always single-element.
+		if !isSafeReplicaFileName(file) {
+			return fmt.Errorf("rejecting unsafe replicated file name %q", file)
+		}
+
 		fileURL, err := hr.buildFileURL(serverURL, file)
 		if err != nil {
 			return fmt.Errorf("building file URL: %w", err)
@@ -163,6 +173,24 @@ func (hr *HTTPReplicator) fetchRevision(ctx context.Context, serverURL string) (
 	}, nil
 }
 
+// isSafeReplicaFileName reports whether name is a plain, local base file name
+// safe to join onto the replication target directory. It rejects empty names,
+// absolute paths, names containing path separators, "." / ".." traversal, and
+// Windows-reserved names — so an untrusted server cannot direct a write outside
+// the target directory. Lucene segment file names are always single-element.
+func isSafeReplicaFileName(name string) bool {
+	if name == "" || name == "." || name == ".." {
+		return false
+	}
+	// Reject either OS's path separator: a name that looks local on the producer
+	// (e.g. "..\\x" on Linux, where backslash is an ordinary byte) would be a
+	// traversal vector on a Windows replica, and vice versa.
+	if strings.ContainsAny(name, `/\`) {
+		return false
+	}
+	return name == filepath.Base(name) && filepath.IsLocal(name)
+}
+
 // buildFileURL builds the URL for a specific file.
 func (hr *HTTPReplicator) buildFileURL(serverURL, filename string) (string, error) {
 	base, err := url.Parse(serverURL)
@@ -170,7 +198,9 @@ func (hr *HTTPReplicator) buildFileURL(serverURL, filename string) (string, erro
 		return "", err
 	}
 
-	base.Path = filepath.Join(base.Path, "files", filename)
+	// Use path.Join (URL path semantics with forward slashes), not
+	// filepath.Join, which would emit backslashes on Windows and corrupt the URL.
+	base.Path = path.Join(base.Path, "files", filename)
 	return base.String(), nil
 }
 

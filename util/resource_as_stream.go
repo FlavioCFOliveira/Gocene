@@ -8,6 +8,7 @@ import (
 	"embed"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -44,8 +45,15 @@ func ResourceAsStreamWithEmbed(embedFS *embed.FS, name string) (io.ReadCloser, e
 		return os.Open(name)
 	}
 
-	// Try embedded resources if provided
+	// Try embedded resources if provided. An embed.FS is a rooted virtual tree
+	// with io/fs path semantics (forward slashes, no leading slash, no ".."
+	// elements), so reject traversal/absolute names explicitly before the
+	// lookup. The filesystem branch above keeps its documented contract of
+	// accepting an absolute or relative OS path chosen by the caller.
 	if embedFS != nil {
+		if !fs.ValidPath(name) {
+			return nil, fmt.Errorf("invalid embedded resource path %q: %w", name, fs.ErrInvalid)
+		}
 		if f, err := embedFS.Open(name); err == nil {
 			return f, nil
 		}
@@ -96,10 +104,13 @@ func ResourceExistsWithEmbed(embedFS *embed.FS, name string) bool {
 		return true
 	}
 
-	// Check embedded resources
+	// Check embedded resources (reject traversal/absolute names, mirroring
+	// ResourceAsStreamWithEmbed).
 	if embedFS != nil {
-		if _, err := embedFS.Open(name); err == nil {
-			return true
+		if fs.ValidPath(name) {
+			if _, err := embedFS.Open(name); err == nil {
+				return true
+			}
 		}
 	}
 
