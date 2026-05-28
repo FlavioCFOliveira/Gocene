@@ -7,7 +7,6 @@ package store
 import (
 	"errors"
 	"fmt"
-	"io"
 	"sync"
 )
 
@@ -232,14 +231,4 @@ func (d *BaseDirectory) GetOpenFiles() map[string]int {
 // This is a subset of io.Closer to avoid importing io where not needed.
 type Closeable interface {
 	Close() error
-}
-
-// EnsureClose is a helper to ensure a Closeable is closed, even if panics occur.
-// Use with defer: defer EnsureClose(closer, &err)
-func EnsureClose(c io.Closer, err *error) {
-	if c != nil {
-		if closeErr := c.Close(); closeErr != nil && *err == nil {
-			*err = closeErr
-		}
-	}
 }
