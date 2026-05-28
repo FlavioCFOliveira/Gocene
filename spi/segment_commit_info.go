@@ -408,6 +408,13 @@ func (sci *SegmentCommitInfo) Clone() *SegmentCommitInfo {
 		fieldInfosFiles:       make(map[string]struct{}, len(sci.fieldInfosFiles)),
 		docValuesUpdatesFiles: make(map[int]map[string]struct{}, len(sci.docValuesUpdatesFiles)),
 		id:                    append([]byte(nil), sci.id...),
+		// inMemoryFieldInfos / inMemoryFields are Gocene-specific, set once at
+		// commit and treated as read-only thereafter. Carry the pointers so a
+		// cloned SegmentInfos stays reader-equivalent to the original (the
+		// no-codec/in-RAM reader path can still resolve fields). Sharing
+		// read-only references introduces no race.
+		inMemoryFieldInfos: sci.inMemoryFieldInfos,
+		inMemoryFields:     sci.inMemoryFields,
 	}
 
 	if len(sci.deletedOrdinals) > 0 {

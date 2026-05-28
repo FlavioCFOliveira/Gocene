@@ -387,7 +387,13 @@ func (si *SegmentInfos) Clone() *SegmentInfos {
 		userData:                 make(map[string]string, len(si.userData)),
 	}
 
-	copy(clone.segments, si.segments)
+	// Deep-clone each SegmentCommitInfo so mutations through the clone (e.g.
+	// AdvanceDelGen) do not race or bleed into the original. This mirrors
+	// Lucene's SegmentInfos.clone(), which adds info.clone() per element rather
+	// than sharing the SegmentCommitInfo references.
+	for i, sci := range si.segments {
+		clone.segments[i] = sci.Clone()
+	}
 	for k, v := range si.userData {
 		clone.userData[k] = v
 	}
