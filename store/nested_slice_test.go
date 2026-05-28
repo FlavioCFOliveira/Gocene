@@ -93,3 +93,46 @@ func TestNestedSliceComposesOffset(t *testing.T) {
 		run(t, in)
 	})
 }
+
+// TestMMapSliceCloseDoesNotCorruptParent is the rmp #4747 regression test for the
+// MMap-specific defect: MMap slices share the owner's mmap, so closing one slice
+// must NOT unmap the shared mapping (which would corrupt the parent and every
+// sibling slice — exactly how a compound-file sub-file read broke the whole
+// .cfs). SimpleFS/ByteBuffers don't share an unmappable resource per slice, so
+// this case is MMap-only.
+func TestMMapSliceCloseDoesNotCorruptParent(t *testing.T) {
+	dir, err := NewMMapDirectory(t.TempDir())
+	if err != nil {
+		t.Skipf("MMapDirectory unavailable: %v", err)
+	}
+	defer dir.Close()
+	data := make([]byte, 100)
+	for i := range data {
+		data[i] = byte(i)
+	}
+	out, _ := dir.CreateOutput("d", IOContext{})
+	_ = out.WriteBytes(data)
+	_ = out.Close()
+
+	in, err := dir.OpenInput("d", IOContext{})
+	if err != nil {
+		t.Fatalf("OpenInput: %v", err)
+	}
+	defer in.Close()
+
+	// Two slices of the same owner. Closing s1 must not break s2 or the parent.
+	s1, _ := in.Slice("s1", 10, 30)
+	s2, _ := in.Slice("s2", 50, 30)
+	if err := s1.Close(); err != nil {
+		t.Fatalf("s1.Close: %v", err)
+	}
+	// s2 (sibling) must still read the right bytes (file[50]=50).
+	if b, err := s2.ReadByte(); err != nil || b != 50 {
+		t.Fatalf("after closing sibling slice, s2.ReadByte = %d (err %v), want 50 — shared mmap was unmapped", b, err)
+	}
+	// The parent must still read correctly too (file[5]=5).
+	_ = in.SetPosition(5)
+	if b, err := in.ReadByte(); err != nil || b != 5 {
+		t.Fatalf("after closing a slice, parent.ReadByte = %d (err %v), want 5 — shared mmap was unmapped", b, err)
+	}
+}

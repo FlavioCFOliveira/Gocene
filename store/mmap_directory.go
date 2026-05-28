@@ -254,12 +254,21 @@ func (d *MMapDirectory) Close() error {
 // memory-mapped files.
 type MMapIndexInput struct {
 	*BaseIndexInput
-	path        string
-	name        string
-	directory   *MMapDirectory
-	chunks      []*mmapFile
-	chunkSize   int64
-	sliceOffset int64 // Offset for sliced inputs
+	path      string
+	name      string
+	directory *MMapDirectory
+	chunks    []*mmapFile
+	chunkSize int64
+	// sliceOffset is the file-absolute start of this view.
+	sliceOffset int64
+	// isSlice marks a borrowing view created by Slice: it shares the owner's
+	// mmap chunks and must NOT unmap them on Close — only the owning input (the
+	// one returned by OpenInput, or a Clone) unmaps. Without this, closing a
+	// sub-file slice of a compound (.cfs) file would munmap the shared mapping
+	// and corrupt every other live slice of it (rmp #4747). SimpleFS/NIOFS avoid
+	// this by reopening the file per slice; MMap shares one mapping, so the
+	// owner/borrower distinction is required.
+	isSlice bool
 }
 
 // ReadByte reads a single byte.
@@ -418,8 +427,12 @@ func (in *MMapIndexInput) Clone() IndexInput {
 	if in.sliceOffset == 0 {
 		return full
 	}
-	sliced, err := full.Slice(in.GetDescription(), in.sliceOffset, in.Length())
-	if err != nil {
+	// The clone is independent and is the sole holder of full's freshly-reopened
+	// mmap, so it OWNS that mapping (isSlice=false) and views it at this input's
+	// absolute slice offset. We must not return a borrowing Slice here: borrows
+	// never unmap, which would leak full's mapping (rmp #4747).
+	fm, ok := full.(*MMapIndexInput)
+	if !ok {
 		full.Close()
 		return &MMapIndexInput{
 			BaseIndexInput: NewBaseIndexInput(in.GetDescription(), in.Length()),
@@ -431,7 +444,16 @@ func (in *MMapIndexInput) Clone() IndexInput {
 			sliceOffset:    in.sliceOffset,
 		}
 	}
-	return sliced
+	return &MMapIndexInput{
+		BaseIndexInput: NewBaseIndexInput(in.GetDescription(), in.Length()),
+		path:           fm.path,
+		name:           fm.name,
+		directory:      fm.directory,
+		chunks:         fm.chunks,
+		chunkSize:      fm.chunkSize,
+		sliceOffset:    in.sliceOffset,
+		isSlice:        false,
+	}
 }
 
 // Slice returns a subset of this IndexInput.
@@ -440,8 +462,9 @@ func (in *MMapIndexInput) Slice(desc string, offset int64, length int64) (IndexI
 		return nil, fmt.Errorf("invalid slice parameters: offset=%d, length=%d, fileLength=%d", offset, length, in.Length())
 	}
 
-	// For slices, we create a new MMapIndexInput with the same chunks
-	// but track the slice offset separately
+	// A slice BORROWS the owner's mmap chunks (shared by pointer) and tracks its
+	// own absolute offset. It is marked isSlice so Close does not unmap the
+	// shared mapping — only the owning input does (rmp #4747).
 	return &MMapIndexInput{
 		BaseIndexInput: NewBaseIndexInput(desc, length),
 		path:           in.path,
@@ -450,11 +473,18 @@ func (in *MMapIndexInput) Slice(desc string, offset int64, length int64) (IndexI
 		chunks:         in.chunks,
 		chunkSize:      in.chunkSize,
 		sliceOffset:    in.sliceOffset + offset,
+		isSlice:        true,
 	}, nil
 }
 
-// Close closes this IndexInput.
+// Close closes this IndexInput. A borrowing slice (isSlice) shares the owner's
+// mmap chunks and must NOT unmap them — doing so would corrupt the owner and
+// every sibling slice (rmp #4747); only the owning input unmaps.
 func (in *MMapIndexInput) Close() error {
+	if in.isSlice {
+		in.directory.RemoveOpenFile(in.name)
+		return nil
+	}
 	var firstErr error
 	for _, chunk := range in.chunks {
 		if err := chunk.unmap(); err != nil && firstErr == nil {
