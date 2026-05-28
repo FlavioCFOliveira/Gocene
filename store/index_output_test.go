@@ -5,7 +5,9 @@
 package store
 
 import (
+	"bytes"
 	"fmt"
+	"math"
 	"testing"
 )
 
@@ -360,6 +362,88 @@ func TestIndexOutputWithDigest(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, tt.fn)
 	}
+}
+
+// TestWriteVIntNegativeRegression guards against the arithmetic-right-shift
+// bug (rmp #4745): WriteVInt/WriteVLong used a signed ">>= 7" which
+// sign-extends negative inputs and loops forever. Java DataOutput.writeVInt
+// uses an unsigned ">>>= 7" and emits exactly five bytes for negatives. This
+// test would hang (and the suite would be SIGKILLed) under the old code.
+func TestWriteVIntNegativeRegression(t *testing.T) {
+	// Golden bytes for WriteVInt(-1) per Lucene 10.4.0 (uint32 logical shift):
+	// 0xFFFFFFFF -> ff ff ff ff 0f.
+	want := []byte{0xff, 0xff, 0xff, 0xff, 0x0f}
+
+	t.Run("package WriteVInt(-1) golden bytes", func(t *testing.T) {
+		out := NewByteArrayDataOutput(8)
+		if err := WriteVInt(out, -1); err != nil {
+			t.Fatalf("WriteVInt(-1): %v", err)
+		}
+		if got := out.GetBytes(); !bytes.Equal(got, want) {
+			t.Fatalf("WriteVInt(-1) = %v, want %v", got, want)
+		}
+	})
+
+	t.Run("method WriteVInt(-1) golden bytes", func(t *testing.T) {
+		out := NewByteArrayDataOutput(8)
+		if err := out.WriteVInt(-1); err != nil {
+			t.Fatalf("(*ByteArrayDataOutput).WriteVInt(-1): %v", err)
+		}
+		if got := out.GetBytes(); !bytes.Equal(got, want) {
+			t.Fatalf("method WriteVInt(-1) = %v, want %v", got, want)
+		}
+	})
+
+	// VInt round-trips for the full int32 range, negatives included.
+	vintCases := []int32{0, 1, 127, 128, 300, -1, -128, math.MinInt32, math.MaxInt32}
+	t.Run("VInt round-trip", func(t *testing.T) {
+		for _, v := range vintCases {
+			out := NewByteArrayDataOutput(8)
+			if err := WriteVInt(out, v); err != nil {
+				t.Fatalf("WriteVInt(%d): %v", v, err)
+			}
+			in := NewByteArrayDataInput(out.GetBytes())
+			got, err := in.ReadVInt()
+			if err != nil {
+				t.Fatalf("ReadVInt after WriteVInt(%d): %v", v, err)
+			}
+			if got != v {
+				t.Errorf("VInt round-trip: wrote %d, read %d", v, got)
+			}
+		}
+	})
+
+	// VLong round-trips for the non-negative domain (Lucene rejects negative
+	// vLong). For negatives we only require termination + deterministic output,
+	// not round-trip: WriteVLong(-1) emits nine 0xff bytes then 0x01.
+	vlongCases := []int64{0, 1, 127, 128, 1 << 40, math.MaxInt64}
+	t.Run("VLong round-trip (non-negative)", func(t *testing.T) {
+		for _, v := range vlongCases {
+			out := NewByteArrayDataOutput(16)
+			if err := WriteVLong(out, v); err != nil {
+				t.Fatalf("WriteVLong(%d): %v", v, err)
+			}
+			in := NewByteArrayDataInput(out.GetBytes())
+			got, err := in.ReadVLong()
+			if err != nil {
+				t.Fatalf("ReadVLong after WriteVLong(%d): %v", v, err)
+			}
+			if got != v {
+				t.Errorf("VLong round-trip: wrote %d, read %d", v, got)
+			}
+		}
+	})
+
+	t.Run("WriteVLong(-1) terminates with deterministic bytes", func(t *testing.T) {
+		out := NewByteArrayDataOutput(16)
+		if err := WriteVLong(out, -1); err != nil {
+			t.Fatalf("WriteVLong(-1): %v", err)
+		}
+		wantLong := []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01}
+		if got := out.GetBytes(); !bytes.Equal(got, wantLong) {
+			t.Fatalf("WriteVLong(-1) = %v, want %v", got, wantLong)
+		}
+	})
 }
 
 // mockIndexOutput is a mock implementation for testing

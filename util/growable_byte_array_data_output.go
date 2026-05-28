@@ -151,25 +151,33 @@ func (g *GrowableByteArrayDataOutput) WriteInt64(v int64) error {
 }
 
 // WriteVInt writes a variable-length integer.
+//
+// The shift operates on an unsigned value to mirror Java's ">>>="; a signed
+// shift would sign-extend negative inputs and loop forever.
 func (g *GrowableByteArrayDataOutput) WriteVInt(v int32) error {
-	for (v & ^0x7F) != 0 {
-		if err := g.WriteByte(byte((v & 0x7F) | 0x80)); err != nil {
+	u := uint32(v)
+	for (u & ^uint32(0x7F)) != 0 {
+		if err := g.WriteByte(byte((u & 0x7F) | 0x80)); err != nil {
 			return err
 		}
-		v >>= 7
+		u >>= 7
 	}
-	return g.WriteByte(byte(v))
+	return g.WriteByte(byte(u))
 }
 
 // WriteVLong writes a variable-length long.
+//
+// The shift operates on an unsigned value to mirror Java's ">>>=" and avoid
+// the infinite loop a signed shift causes on negative inputs.
 func (g *GrowableByteArrayDataOutput) WriteVLong(v int64) error {
-	for (v & ^0x7F) != 0 {
-		if err := g.WriteByte(byte((v & 0x7F) | 0x80)); err != nil {
+	u := uint64(v)
+	for (u & ^uint64(0x7F)) != 0 {
+		if err := g.WriteByte(byte((u & 0x7F) | 0x80)); err != nil {
 			return err
 		}
-		v >>= 7
+		u >>= 7
 	}
-	return g.WriteByte(byte(v))
+	return g.WriteByte(byte(u))
 }
 
 // Ensure GrowableByteArrayDataOutput implements fmt.Stringer

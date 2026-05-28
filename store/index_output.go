@@ -239,25 +239,34 @@ func (out *ByteArrayDataOutput) WriteString(s string) error {
 }
 
 // WriteVInt writes a variable-length integer.
+//
+// The shift operates on an unsigned value to mirror Java's ">>>=" (see the
+// package-level WriteVInt for the rationale); a signed shift would loop
+// forever on negative inputs.
 func (out *ByteArrayDataOutput) WriteVInt(i int32) error {
-	for (i & ^int32(0x7F)) != 0 {
-		if err := out.WriteByte(byte((i & 0x7F) | 0x80)); err != nil {
+	u := uint32(i)
+	for (u & ^uint32(0x7F)) != 0 {
+		if err := out.WriteByte(byte((u & 0x7F) | 0x80)); err != nil {
 			return err
 		}
-		i >>= 7
+		u >>= 7
 	}
-	return out.WriteByte(byte(i))
+	return out.WriteByte(byte(u))
 }
 
 // WriteVLong writes a variable-length long.
+//
+// The shift operates on an unsigned value to mirror Java's ">>>=" and avoid
+// the infinite loop a signed shift causes on negative inputs.
 func (out *ByteArrayDataOutput) WriteVLong(i int64) error {
-	for (i & ^int64(0x7F)) != 0 {
-		if err := out.WriteByte(byte((i & 0x7F) | 0x80)); err != nil {
+	u := uint64(i)
+	for (u & ^uint64(0x7F)) != 0 {
+		if err := out.WriteByte(byte((u & 0x7F) | 0x80)); err != nil {
 			return err
 		}
-		i >>= 7
+		u >>= 7
 	}
-	return out.WriteByte(byte(i))
+	return out.WriteByte(byte(u))
 }
 
 // GetBytes returns the written bytes.
@@ -507,25 +516,38 @@ func WriteInt64LE(out DataOutput, v int64) error {
 
 // WriteVInt writes a variable-length integer (up to 5 bytes).
 // This is Lucene's variable-length integer encoding.
+//
+// The shift is performed on an unsigned value to mirror Java's logical
+// right shift (DataOutput.writeVInt uses ">>>="). A signed (arithmetic)
+// shift would sign-extend negative inputs and loop forever; the unsigned
+// shift emits exactly five bytes for negative values, byte-identical to
+// Lucene 10.4.0.
 func WriteVInt(out DataOutput, i int32) error {
-	for (i & ^int32(0x7F)) != 0 {
-		if err := out.WriteByte(byte((i & 0x7F) | 0x80)); err != nil {
+	u := uint32(i)
+	for (u & ^uint32(0x7F)) != 0 {
+		if err := out.WriteByte(byte((u & 0x7F) | 0x80)); err != nil {
 			return err
 		}
-		i >>= 7
+		u >>= 7
 	}
-	return out.WriteByte(byte(i))
+	return out.WriteByte(byte(u))
 }
 
-// WriteVLong writes a variable-length long (up to 9 bytes).
+// WriteVLong writes a variable-length long (up to 10 bytes).
+//
+// Like WriteVInt, the shift operates on an unsigned value to match Java's
+// ">>>=" and avoid the infinite loop a signed shift would cause on negative
+// inputs. Lucene's public writeVLong rejects negatives; callers must encode
+// signed values with zig-zag first.
 func WriteVLong(out DataOutput, i int64) error {
-	for (i & ^int64(0x7F)) != 0 {
-		if err := out.WriteByte(byte((i & 0x7F) | 0x80)); err != nil {
+	u := uint64(i)
+	for (u & ^uint64(0x7F)) != 0 {
+		if err := out.WriteByte(byte((u & 0x7F) | 0x80)); err != nil {
 			return err
 		}
-		i >>= 7
+		u >>= 7
 	}
-	return out.WriteByte(byte(i))
+	return out.WriteByte(byte(u))
 }
 
 // WriteString writes a string as length-prefixed UTF-8.
