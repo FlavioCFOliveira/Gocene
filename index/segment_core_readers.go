@@ -54,6 +54,9 @@ type SegmentCoreReaders struct {
 	// directory is the directory containing the segment
 	directory store.Directory
 
+	// cfsReader is the compound file reader (nil if segment is not compound)
+	cfsReader CompoundDirectory
+
 	// closedListeners are listeners to notify when the core is closed
 	closedListeners []func()
 
@@ -83,9 +86,30 @@ func NewSegmentCoreReaders(
 	}
 	core.refCount.Store(1)
 
-	// Create the segment read state
+	// Determine the directory to use for reading segment files.
+	// If the segment is stored in a compound file, open the compound reader
+	// and use it as the directory for all codec readers.
+	var cfsDir store.Directory
+	if segmentInfo.IsCompoundFile() {
+		compoundFormat := codec.CompoundFormat()
+		if compoundFormat == nil {
+			core.decRef()
+			return nil, fmt.Errorf("segment uses compound file but codec has no CompoundFormat")
+		}
+		cfsReader, err := compoundFormat.GetCompoundReader(directory, segmentInfo)
+		if err != nil {
+			core.decRef()
+			return nil, fmt.Errorf("opening compound reader: %w", err)
+		}
+		core.cfsReader = cfsReader
+		cfsDir = cfsReader
+	} else {
+		cfsDir = directory
+	}
+
+	// Create the segment read state using the compound directory (or raw dir)
 	readState := &SegmentReadState{
-		Directory:     directory,
+		Directory:     cfsDir,
 		SegmentInfo:   segmentInfo,
 		FieldInfos:    fieldInfos,
 		SegmentSuffix: "",
@@ -108,7 +132,7 @@ func NewSegmentCoreReaders(
 	if fieldInfos.HasTermVectors() {
 		termVectorsFormat := codec.TermVectorsFormat()
 		if termVectorsFormat != nil {
-			tvReader, err := termVectorsFormat.VectorsReader(directory, segmentInfo, fieldInfos, context)
+			tvReader, err := termVectorsFormat.VectorsReader(cfsDir, segmentInfo, fieldInfos, context)
 			if err != nil {
 				core.decRef()
 				return nil, fmt.Errorf("creating term vectors reader: %w", err)
@@ -120,7 +144,7 @@ func NewSegmentCoreReaders(
 	// Initialize StoredFieldsReader
 	storedFieldsFormat := codec.StoredFieldsFormat()
 	if storedFieldsFormat != nil {
-		sfReader, err := storedFieldsFormat.FieldsReader(directory, segmentInfo, fieldInfos, context)
+		sfReader, err := storedFieldsFormat.FieldsReader(cfsDir, segmentInfo, fieldInfos, context)
 		if err != nil {
 			core.decRef()
 			return nil, fmt.Errorf("creating stored fields reader: %w", err)
@@ -227,6 +251,13 @@ func (core *SegmentCoreReaders) close() error {
 			if err := closer.Close(); err != nil {
 				lastErr = err
 			}
+		}
+	}
+
+	// Close compound file reader
+	if core.cfsReader != nil {
+		if err := core.cfsReader.Close(); err != nil {
+			lastErr = err
 		}
 	}
 

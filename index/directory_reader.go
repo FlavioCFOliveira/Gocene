@@ -530,7 +530,17 @@ func openSegmentReader(directory store.Directory, sci *SegmentCommitInfo) (*Segm
 	// StoredFieldsReader, FieldsProducer (postings), and TermVectorsReader so
 	// that IndexSearcher.Doc and term-based searches work end-to-end.
 	if codec != nil {
-		core, err := NewSegmentCoreReaders(directory, sci.SegmentInfo(), fi, codec, store.IOContextRead)
+		// Load the full SegmentInfo from the .si file to obtain metadata not
+		// present in the segments_N entry (e.g., isCompoundFile).  Fall back
+		// to the segments_N-constructed SegmentInfo when the .si is absent
+		// (in-memory segments that were never flushed to disk).
+		segInfo := sci.SegmentInfo()
+		if sif := codec.SegmentInfoFormat(); sif != nil {
+			if fullSegInfo, err := sif.Read(directory, segInfo.Name(), segInfo.GetID(), store.IOContextRead); err == nil {
+				segInfo = fullSegInfo
+			}
+		}
+		core, err := NewSegmentCoreReaders(directory, segInfo, fi, codec, store.IOContextRead)
 		if err != nil {
 			return nil, fmt.Errorf("opening core readers for segment %s: %w", sci.SegmentInfo().Name(), err)
 		}
