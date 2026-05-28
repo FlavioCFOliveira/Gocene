@@ -215,6 +215,32 @@ govulncheck ./...
 All steps must pass with no errors. If any step fails, stop, report the raw
 output, and do not declare the task complete.
 
+### Race detector and the ARM64 limitation
+
+Run the race detector on concurrency-sensitive changes:
+
+```bash
+go test -race ./... -timeout 900s
+```
+
+The Go race detector (ThreadSanitizer) requires a **48-bit virtual address
+space**. Some ARM64 hosts — including common Raspberry Pi / aarch64
+development boards — expose only a **47-bit VMA**, on which `-race` aborts at
+startup (`unexpected fault address`, `runtime: address space conflict`). This
+is a platform limitation, not a Gocene bug, and it cannot be worked around in
+the code.
+
+If you develop on such an ARM64 host:
+
+- You will not be able to run `-race` locally. Rely on the CI **"Race detector
+  (x86_64)"** job (GitHub's `ubuntu-latest` runners are x86_64 and support the
+  detector) to catch data races in your pull request.
+- Where feasible, run `-race` once on an x86_64 machine before opening a PR
+  that touches goroutines, channels, or shared mutable state.
+
+No local hardware change is required to contribute; the x86_64 CI job is the
+authoritative race gate.
+
 ---
 
 ## Coding conventions

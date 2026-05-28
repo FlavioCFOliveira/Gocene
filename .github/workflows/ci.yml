@@ -36,6 +36,27 @@ jobs:
       - name: Test
         run: go test ./... -timeout 300s
 
+  # Race-detector job. The Go race detector (ThreadSanitizer) requires a 48-bit
+  # virtual address space, which GitHub's ubuntu-latest (x86_64) provides but
+  # some ARM64 hosts (47-bit VMA) do not — hence this dedicated x86_64 job so
+  # data races are caught in CI even when contributors develop on ARM64.
+  race:
+    name: Race detector (x86_64)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test with -race
+        run: go test -race ./... -timeout 900s
+
   # Binary-compatibility gate (Sprint 114). MUST be a required status check
   # for merges to main — see CONTRIBUTING.md ("Binary compatibility (mandatory)").
   compat:
