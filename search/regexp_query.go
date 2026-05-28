@@ -278,8 +278,26 @@ func (w *RegexpWeight) ScorerSupplier(context *index.LeafReaderContext) (ScorerS
 }
 
 // Explain returns an explanation of the score for the given document.
+//
+// RegexpQuery is rewritten by Lucene to a constant-score multi-term query, so
+// this ports org.apache.lucene.search.ConstantScoreWeight.explain: pull a
+// Scorer and advance to doc; a hit yields a match valued at the constant
+// scorer score with the query string as description, and a miss yields
+// "<query> doesn't match id <doc>". The value is taken from the live Scorer so
+// it equals the scored value.
 func (w *RegexpWeight) Explain(context *index.LeafReaderContext, doc int) (Explanation, error) {
-	return NewExplanation(false, 0, "RegexpWeight explanation not implemented"), nil
+	matched, score, err := scorerMatch(w, context, doc)
+	if err != nil {
+		return nil, err
+	}
+	if matched {
+		desc := w.query.String()
+		if score != 1.0 {
+			desc = fmt.Sprintf("%s^%v", desc, score)
+		}
+		return MatchExplanation(score, desc), nil
+	}
+	return NoMatchExplanation(fmt.Sprintf("%s doesn't match id %d", w.query, doc)), nil
 }
 
 // BulkScorer creates a bulk scorer for efficient bulk scoring.

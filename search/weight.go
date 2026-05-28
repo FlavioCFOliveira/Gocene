@@ -105,3 +105,34 @@ func (w *BaseWeight) Matches(context *index.LeafReaderContext, doc int) (Matches
 
 // Ensure BaseWeight implements Weight
 var _ Weight = (*BaseWeight)(nil)
+
+// scorerMatch positions a freshly created Scorer on the requested leaf-local
+// document and reports whether the scorer actually matches that document.
+//
+// It mirrors the universal shape of Lucene's Weight.explain implementations,
+// which pull a Scorer for the leaf and advance its iterator to doc: a hit
+// occurs precisely when iterator().advance(doc) == doc. Driving the
+// explanation off the same Scorer the search path uses guarantees that the
+// explained value equals the scored value — the property Lucene preserves by
+// computing the explained score from a live Scorer rather than re-deriving it.
+//
+// The returned score is meaningful only when matched is true; callers must
+// treat it as undefined otherwise. A nil scorer (no candidates on this leaf)
+// is reported as a non-match with a zero score and no error.
+func scorerMatch(w Weight, context *index.LeafReaderContext, doc int) (matched bool, score float32, err error) {
+	scorer, err := w.Scorer(context)
+	if err != nil {
+		return false, 0, err
+	}
+	if scorer == nil {
+		return false, 0, nil
+	}
+	advanced, err := scorer.Advance(doc)
+	if err != nil {
+		return false, 0, err
+	}
+	if advanced != doc {
+		return false, 0, nil
+	}
+	return true, scorer.Score(), nil
+}

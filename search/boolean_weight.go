@@ -5,6 +5,8 @@
 package search
 
 import (
+	"fmt"
+
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
@@ -104,8 +106,118 @@ func (w *BooleanWeight) ScorerSupplier(context *index.LeafReaderContext) (Scorer
 }
 
 // Explain returns an explanation of the score for the given document.
+//
+// It ports org.apache.lucene.search.BooleanWeight.explain: each clause's
+// sub-weight is explained for doc and combined according to its occur type —
+// matching scoring clauses (SHOULD/MUST) contribute their explanation, a
+// matching FILTER clause is wrapped as a zero-valued required match, a matching
+// MUST_NOT clause forces a non-match, and a non-matching required clause
+// (MUST/FILTER) also forces a non-match. The minimum-should-match constraint is
+// then enforced. On success the final value is taken from a live Scorer rather
+// than summed from the sub-explanations, exactly as Lucene does, so the
+// explained value matches the scored value despite intermediate float casts.
 func (w *BooleanWeight) Explain(context *index.LeafReaderContext, doc int) (Explanation, error) {
-	return NewExplanation(false, 0, "BooleanWeight explanation not implemented"), nil
+	minShouldMatch := w.query.minShouldMatch
+
+	subs := make([]Explanation, 0, len(w.weights))
+	fail := false
+	matchCount := 0
+	shouldMatchCount := 0
+
+	for i, weight := range w.weights {
+		if weight == nil {
+			continue
+		}
+		clause := w.query.clauses[i]
+		e, err := weight.Explain(context, doc)
+		if err != nil {
+			return nil, err
+		}
+		if e == nil {
+			e = NoMatchExplanation("no match")
+		}
+
+		isScoring := clause.Occur == SHOULD || clause.Occur == MUST
+		isRequired := clause.Occur == MUST || clause.Occur == FILTER
+		isProhibited := clause.Occur == MUST_NOT
+
+		if e.IsMatch() {
+			switch {
+			case isScoring:
+				subs = append(subs, e)
+			case isRequired:
+				wrap := MatchExplanation(0, "match on required clause, product of:")
+				wrap.AddDetail(MatchExplanation(0, FILTER.String()+" clause"))
+				wrap.AddDetail(e)
+				subs = append(subs, wrap)
+			case isProhibited:
+				prohibited := NoMatchExplanation(
+					fmt.Sprintf("match on prohibited clause (%s)", clause.Query))
+				prohibited.AddDetail(e)
+				subs = append(subs, prohibited)
+				fail = true
+			}
+			if !isProhibited {
+				matchCount++
+			}
+			if clause.Occur == SHOULD {
+				shouldMatchCount++
+			}
+		} else if isRequired {
+			noMatch := NoMatchExplanation(
+				fmt.Sprintf("no match on required clause (%s)", clause.Query))
+			noMatch.AddDetail(e)
+			subs = append(subs, noMatch)
+			fail = true
+		}
+	}
+
+	switch {
+	case fail:
+		result := NoMatchExplanation(
+			"Failure to meet condition(s) of required/prohibited clause(s)")
+		for _, s := range subs {
+			result.AddDetail(s)
+		}
+		return result, nil
+	case matchCount == 0:
+		result := NoMatchExplanation("No matching clauses")
+		for _, s := range subs {
+			result.AddDetail(s)
+		}
+		return result, nil
+	case shouldMatchCount < minShouldMatch:
+		result := NoMatchExplanation(
+			fmt.Sprintf("Failure to match minimum number of optional clauses: %d", minShouldMatch))
+		for _, s := range subs {
+			result.AddDetail(s)
+		}
+		return result, nil
+	default:
+		// Pull a Scorer and use it to compute the score so the explained value
+		// matches the scored value (Lucene replicates the same float casts via
+		// the scorer rather than re-summing the sub-explanations).
+		matched, score, err := scorerMatch(w, context, doc)
+		if err != nil {
+			return nil, err
+		}
+		if !matched {
+			// Should not happen: the clause analysis above already established a
+			// match. Fall back to the summed contributions to remain robust.
+			var sum float32
+			for _, s := range subs {
+				if s.IsMatch() {
+					sum += s.GetValue()
+				}
+			}
+			score = sum
+		}
+		result := MatchExplanation(score, "sum of:")
+		for _, s := range subs {
+			result.AddDetail(s)
+		}
+		return result, nil
+	}
 }
 
 // BulkScorer creates a bulk scorer for efficient bulk scoring.

@@ -5,6 +5,8 @@
 package search
 
 import (
+	"fmt"
+
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
@@ -116,8 +118,69 @@ func (w *TermWeight) ScorerSupplier(context *index.LeafReaderContext) (ScorerSup
 }
 
 // Explain returns an explanation of the score for the given document.
+//
+// It ports org.apache.lucene.search.TermQuery.TermWeight.explain: a Scorer is
+// pulled for the leaf and advanced to doc. A match yields
+// "weight(<query> in <doc>) [<similarity>], result of:" whose value equals the
+// live scorer's score, carrying a frequency sub-explanation and (for the
+// ClassicSimilarity scoring path) the IDF factor. A non-match yields
+// "no matching term".
+//
+// Divergence from Lucene 10.4.0: the legacy [SimScorer] surface used by this
+// Weight has no Explain104 method (unlike LuceneSimScorer), so the score value
+// is taken from the live Scorer — preserving Lucene's invariant that the
+// explained value equals the scored value — rather than re-derived through a
+// SimScorer.explain call. Norms are not consulted because the legacy scoring
+// path does not apply them.
 func (w *TermWeight) Explain(context *index.LeafReaderContext, doc int) (Explanation, error) {
-	return NewExplanation(false, 0, "TermWeight explanation not implemented"), nil
+	scorer, err := w.Scorer(context)
+	if err != nil {
+		return nil, err
+	}
+	if scorer != nil {
+		advanced, err := scorer.Advance(doc)
+		if err != nil {
+			return nil, err
+		}
+		if advanced == doc {
+			score := scorer.Score()
+
+			scoreExpl := MatchExplanation(score, "score(freq), product of:")
+			if ts, ok := scorer.(*TermScorer); ok {
+				freq, err := ts.Freq()
+				if err != nil {
+					return nil, err
+				}
+				scoreExpl.AddDetail(MatchExplanation(
+					float32(freq), "freq, occurrences of term within document"))
+			}
+			if css, ok := w.simScorer.(*ClassicSimScorer); ok {
+				scoreExpl.AddDetail(MatchExplanation(
+					float32(css.Idf()), "idf, computed as log(maxDocs/docFreq)"))
+			}
+
+			desc := fmt.Sprintf("weight(%s in %d) [%s], result of:",
+				w.GetQuery(), doc, w.similarityName())
+			result := MatchExplanation(score, desc)
+			result.AddDetail(scoreExpl)
+			return result, nil
+		}
+	}
+	return NoMatchExplanation("no matching term"), nil
+}
+
+// similarityName returns the descriptive name of the similarity backing this
+// weight for use in explanations. It mirrors the
+// similarity.getClass().getSimpleName() fragment Lucene embeds in the
+// explanation description.
+func (w *TermWeight) similarityName() string {
+	if w.similarity == nil {
+		return "Similarity"
+	}
+	if s, ok := w.similarity.(interface{ String() string }); ok {
+		return s.String()
+	}
+	return "Similarity"
 }
 
 // BulkScorer creates a bulk scorer for efficient bulk scoring.
