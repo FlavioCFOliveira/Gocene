@@ -13,6 +13,16 @@ import (
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	// Blank-import the production codec packages so their init() functions
+	// register the default Lucene 10.4 codec (and the temporary stored-fields
+	// format) with package index. Without these registrations
+	// NewIndexWriterConfig leaves the codec nil and Commit silently drops the
+	// in-RAM documents, so nothing would ever reach disk for the reader to
+	// hydrate from. The whole point of this store is that every read goes
+	// through the persisted index, which is only possible once the codec is
+	// linked in.
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
+	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90/compressing"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/queryparser"
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -31,23 +41,26 @@ var ErrUnknownField = errors.New("unknown search field")
 var ErrBadQuery = errors.New("invalid query syntax")
 
 // BookStore exposes a small CRUD + search surface tailored to the Book domain
-// and backed by a Gocene index for full-text matching.
+// and backed exclusively by a Gocene index. The index is the single source of
+// truth: every read (Get, Search, IsEmpty) is resolved against a freshly
+// opened DirectoryReader and every Book is reconstructed from its stored
+// fields via IndexSearcher.Doc — there is no in-memory shadow of Book data.
 //
-// In the current state of Gocene the read path that goes through
-// IndexSearcher.Doc(docID) is not yet operational — see README.md ("Known
-// limitations") and rmp task 4636 for the underlying gap. To keep the demo
-// fully functional this store also maintains an in-memory shadow of every
-// book and remaps internal doc IDs back to domain ids through a dedicated
-// order slice. The index drives discovery (queries, scoring, pagination);
-// the shadow drives round-trip retrieval.
+// Mutations (Put, Delete) are still expressed as an index rebuild rather than
+// IndexWriter.UpdateDocument/DeleteDocuments. The Gocene codec read path does
+// not yet apply buffered term-deletes to already-committed segments (a
+// DeleteDocuments + Commit leaves the document visible to a freshly opened
+// reader), so an in-place update would duplicate the document and a delete
+// would be a no-op. To keep the demo correct, Put and Delete read the current
+// set of live books back from the index, apply the change in memory for the
+// duration of the call only, then re-create the index from scratch in a fresh
+// writer. No Book is retained between calls.
 type BookStore struct {
 	dir      *store.MMapDirectory
 	analyzer *analysis.StandardAnalyzer
 
 	mu     sync.RWMutex
 	writer *index.IndexWriter
-	books  map[string]Book // domain id -> Book; source of truth for reads
-	order  []string        // domain ids in insertion order; position == index doc id after rebuild
 }
 
 // OpenBookStore opens (and if needed creates) an on-disk index at the given
@@ -74,8 +87,6 @@ func OpenBookStore(path string) (*BookStore, error) {
 		dir:      dir,
 		analyzer: analyzer,
 		writer:   writer,
-		books:    make(map[string]Book),
-		order:    nil,
 	}, nil
 }
 
@@ -103,15 +114,25 @@ func (s *BookStore) Close() error {
 	return firstErr
 }
 
-// IsEmpty reports whether the store currently holds zero books.
+// IsEmpty reports whether the store currently holds zero books. The count is
+// taken from the live reader (DirectoryReader.NumDocs), never from any
+// in-memory state.
 func (s *BookStore) IsEmpty() (bool, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return len(s.books) == 0, nil
+
+	reader, err := index.OpenDirectoryReader(s.dir)
+	if err != nil {
+		return false, fmt.Errorf("open reader: %w", err)
+	}
+	defer reader.Close()
+	return reader.NumDocs() == 0, nil
 }
 
-// Put indexes a new book. If book.ID is empty an id is generated and assigned
-// in place. Existing ids are replaced.
+// Put indexes a book. If book.ID is empty an id is generated and assigned in
+// place. An existing id is replaced. The index is the source of truth: the
+// current set of live books is read back from the index, the supplied book is
+// upserted into that set, and the index is rebuilt from the result.
 func (s *BookStore) Put(book *Book) error {
 	if book.ID == "" {
 		id, err := generateID()
@@ -127,51 +148,135 @@ func (s *BookStore) Put(book *Book) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, existed := s.books[book.ID]; !existed {
-		s.order = append(s.order, book.ID)
+	books, err := s.readAllLocked()
+	if err != nil {
+		return err
 	}
-	s.books[book.ID] = *book
 
-	return s.rebuildIndexLocked()
+	replaced := false
+	for i := range books {
+		if books[i].ID == book.ID {
+			books[i] = *book
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		books = append(books, *book)
+	}
+
+	return s.rebuildLocked(books)
 }
 
-// Get returns the book with the given id, or ErrBookNotFound.
+// Get returns the book with the given id, or ErrBookNotFound. The book is
+// reconstructed from its stored fields via IndexSearcher.Doc.
 func (s *BookStore) Get(id string) (Book, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	book, ok := s.books[id]
-	if !ok {
+	reader, err := index.OpenDirectoryReader(s.dir)
+	if err != nil {
+		return Book{}, fmt.Errorf("open reader: %w", err)
+	}
+	defer reader.Close()
+
+	searcher := search.NewIndexSearcher(reader)
+	topDocs, err := searcher.Search(search.NewTermQuery(index.NewTerm(FieldID, id)), 1)
+	if err != nil {
+		return Book{}, fmt.Errorf("lookup by id: %w", err)
+	}
+	if topDocs == nil || len(topDocs.ScoreDocs) == 0 {
 		return Book{}, ErrBookNotFound
 	}
-	return book, nil
+
+	doc, err := searcher.Doc(topDocs.ScoreDocs[0].Doc)
+	if err != nil {
+		return Book{}, fmt.Errorf("load stored fields: %w", err)
+	}
+	return bookFromDocument(doc), nil
 }
 
 // Delete removes the book with the given id. Returns ErrBookNotFound if no
-// such book exists.
+// such book exists. The live set is read back from the index, the target id
+// is dropped, and the index is rebuilt from the survivors.
 func (s *BookStore) Delete(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, ok := s.books[id]; !ok {
+	books, err := s.readAllLocked()
+	if err != nil {
+		return err
+	}
+
+	kept := make([]Book, 0, len(books))
+	found := false
+	for _, b := range books {
+		if b.ID == id {
+			found = true
+			continue
+		}
+		kept = append(kept, b)
+	}
+	if !found {
 		return ErrBookNotFound
 	}
-	delete(s.books, id)
-	s.order = removeString(s.order, id)
 
-	return s.rebuildIndexLocked()
+	return s.rebuildLocked(kept)
 }
 
-// rebuildIndexLocked closes the current writer, opens a fresh writer in
-// CREATE mode, re-adds every book in insertion order, and commits.
-// After this call the internal doc id assigned by Gocene for the book at
-// s.order[k] is exactly k, which is what Search relies on to map hits back
-// to domain ids. The caller must hold s.mu in write mode.
+// readAllLocked reconstructs every live book from the index by running a
+// match-all query and hydrating each hit via IndexSearcher.Doc. Results are
+// deduplicated by domain id and returned in the reader's natural hit order.
+// The caller must hold s.mu.
+func (s *BookStore) readAllLocked() ([]Book, error) {
+	reader, err := index.OpenDirectoryReader(s.dir)
+	if err != nil {
+		return nil, fmt.Errorf("open reader: %w", err)
+	}
+	defer reader.Close()
+
+	num := reader.NumDocs()
+	if num == 0 {
+		return nil, nil
+	}
+
+	searcher := search.NewIndexSearcher(reader)
+	topDocs, err := searcher.Search(search.NewMatchAllDocsQuery(), num)
+	if err != nil {
+		return nil, fmt.Errorf("enumerate documents: %w", err)
+	}
+	if topDocs == nil {
+		return nil, nil
+	}
+
+	seen := make(map[string]struct{}, len(topDocs.ScoreDocs))
+	books := make([]Book, 0, len(topDocs.ScoreDocs))
+	for _, hit := range topDocs.ScoreDocs {
+		doc, err := searcher.Doc(hit.Doc)
+		if err != nil {
+			return nil, fmt.Errorf("load stored fields for doc %d: %w", hit.Doc, err)
+		}
+		book := bookFromDocument(doc)
+		if _, dup := seen[book.ID]; dup {
+			continue
+		}
+		seen[book.ID] = struct{}{}
+		books = append(books, book)
+	}
+	return books, nil
+}
+
+// rebuildLocked closes the current writer, wipes the directory, opens a fresh
+// writer, re-adds every supplied book, and commits. The caller must hold s.mu
+// in write mode.
 //
-// Closing and reopening the writer on every rebuild avoids a state mismatch
-// in the directory where DeleteAll + AddDocument + Commit leaves stale
-// segment data that causes field-level term queries to return wrong results.
-func (s *BookStore) rebuildIndexLocked() error {
+// Rebuilding from scratch (rather than mutating in place via
+// UpdateDocument/DeleteDocuments) is required while the Gocene codec read path
+// does not apply buffered term-deletes to already-committed segments: an
+// in-place update would leave a stale copy visible to a fresh reader and a
+// delete would not take effect. A CREATE rebuild produces a single coherent
+// segment set with no carried-over deletes, which the reader hydrates exactly.
+func (s *BookStore) rebuildLocked(books []Book) error {
 	if s.writer != nil {
 		if err := s.writer.Close(); err != nil {
 			return fmt.Errorf("close writer before rebuild: %w", err)
@@ -196,16 +301,15 @@ func (s *BookStore) rebuildIndexLocked() error {
 		return fmt.Errorf("open writer for rebuild: %w", err)
 	}
 
-	for _, id := range s.order {
-		book := s.books[id]
-		doc, err := book.toDocument()
+	for i := range books {
+		doc, err := books[i].toDocument()
 		if err != nil {
 			_ = writer.Close()
-			return fmt.Errorf("build document for %q: %w", id, err)
+			return fmt.Errorf("build document for %q: %w", books[i].ID, err)
 		}
 		if err := writer.AddDocument(doc); err != nil {
 			_ = writer.Close()
-			return fmt.Errorf("index %q: %w", id, err)
+			return fmt.Errorf("index %q: %w", books[i].ID, err)
 		}
 	}
 	if err := writer.Commit(); err != nil {
@@ -232,15 +336,16 @@ type SearchResult struct {
 	Items []Book `json:"items"`
 }
 
-// Search runs a paginated query. When req.Field is empty the query is parsed
-// against the default full-text fields; when it names a specific field the
-// query is restricted to that field only. Exact-match fields (id, year) are
-// resolved directly against the in-memory shadow rather than the Gocene
-// index — the index's term-level scoping for non-tokenised StringField is
-// still being firmed up upstream (see README "Known limitations"), so the
-// shadow path gives the demo a deterministic answer. Pagination is naive:
-// the searcher is asked for the first page*size hits and the requested page
-// is sliced out — fine for a demo corpus.
+// Search runs a paginated query against the live index. When req.Field is
+// empty the query is parsed against the default full-text fields; when it
+// names a specific field the query is restricted to that field only. The
+// exact-match fields (id, year) are non-tokenised StringFields, so they are
+// resolved with a direct TermQuery rather than through the analyzer-backed
+// query parser (the parser rejects a bare year such as "1999" and would
+// tokenise an id). Every hit is hydrated from its stored fields via
+// IndexSearcher.Doc and deduplicated by domain id. Pagination is naive: the
+// searcher is asked for a generous slice and the requested page is sliced out
+// — fine for a demo corpus.
 //
 // Errors are classified so callers can map them to HTTP status codes:
 //   - ErrUnknownField → 400 (bad field parameter)
@@ -249,26 +354,23 @@ type SearchResult struct {
 func (s *BookStore) Search(req SearchRequest) (SearchResult, error) {
 	page, size := normalisePaging(req.Page, req.Size)
 
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if len(s.books) == 0 {
-		return SearchResult{Page: page, Size: size, Items: []Book{}}, nil
-	}
-
-	if req.Field == FieldID || req.Field == FieldYear {
-		return s.exactMatchSearchLocked(req, page, size)
-	}
-
-	if !IsValidField(req.Field) && req.Field != "" {
+	if req.Field != "" && !IsValidField(req.Field) {
 		return SearchResult{}, fmt.Errorf("%w: %q", ErrUnknownField, req.Field)
 	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	reader, err := index.OpenDirectoryReader(s.dir)
 	if err != nil {
 		return SearchResult{}, fmt.Errorf("open reader: %w", err)
 	}
 	defer reader.Close()
+
+	num := reader.NumDocs()
+	if num == 0 {
+		return SearchResult{Page: page, Size: size, Items: []Book{}}, nil
+	}
 
 	searcher := search.NewIndexSearcher(reader)
 
@@ -277,11 +379,11 @@ func (s *BookStore) Search(req SearchRequest) (SearchResult, error) {
 		return SearchResult{}, fmt.Errorf("%w: %w", ErrBadQuery, err)
 	}
 
-	// Ask the searcher for a generous slice. The hit count Gocene returns
-	// today over-counts multi-valued fields (one hit per (doc, value) pair),
-	// so we deduplicate by domain id and use the deduped length as the true
-	// total.
-	limit := len(s.order) * 16
+	// Ask the searcher for every live document. A TermQuery hit is one per
+	// matching document, but we still deduplicate defensively by domain id so
+	// the page-to-page invariant (no id appears on two pages) holds regardless
+	// of how the scorer enumerates multi-valued fields.
+	limit := num
 	if limit < size {
 		limit = size
 	}
@@ -296,18 +398,15 @@ func (s *BookStore) Search(req SearchRequest) (SearchResult, error) {
 	seen := make(map[string]struct{}, len(topDocs.ScoreDocs))
 	unique := make([]Book, 0, len(topDocs.ScoreDocs))
 	for _, hit := range topDocs.ScoreDocs {
-		if hit.Doc < 0 || hit.Doc >= len(s.order) {
+		doc, err := searcher.Doc(hit.Doc)
+		if err != nil {
+			return SearchResult{}, fmt.Errorf("load stored fields for doc %d: %w", hit.Doc, err)
+		}
+		book := bookFromDocument(doc)
+		if _, dup := seen[book.ID]; dup {
 			continue
 		}
-		id := s.order[hit.Doc]
-		if _, dup := seen[id]; dup {
-			continue
-		}
-		book, ok := s.books[id]
-		if !ok {
-			continue
-		}
-		seen[id] = struct{}{}
+		seen[book.ID] = struct{}{}
 		unique = append(unique, book)
 	}
 
@@ -323,7 +422,18 @@ func (s *BookStore) Search(req SearchRequest) (SearchResult, error) {
 	return SearchResult{Total: total, Page: page, Size: size, Items: unique[start:end]}, nil
 }
 
+// buildQuery turns a SearchRequest into a Gocene Query. The exact-match fields
+// (id, year) bypass the query parser and use a direct TermQuery so a bare
+// value matches the non-tokenised StringField verbatim. An empty query string
+// matches everything.
 func (s *BookStore) buildQuery(req SearchRequest) (search.Query, error) {
+	if req.Field == FieldID || req.Field == FieldYear {
+		if req.Query == "" {
+			return search.NewMatchAllDocsQuery(), nil
+		}
+		return search.NewTermQuery(index.NewTerm(req.Field, req.Query)), nil
+	}
+
 	q := req.Query
 	if q == "" {
 		return search.NewMatchAllDocsQuery(), nil
@@ -346,37 +456,6 @@ func (s *BookStore) buildQuery(req SearchRequest) (search.Query, error) {
 	return query, nil
 }
 
-// exactMatchSearchLocked answers id= and year= queries directly from the
-// shadow map. The caller must hold s.mu.
-func (s *BookStore) exactMatchSearchLocked(req SearchRequest, page, size int) (SearchResult, error) {
-	matches := make([]Book, 0)
-
-	switch req.Field {
-	case FieldID:
-		if book, ok := s.books[req.Query]; ok {
-			matches = append(matches, book)
-		}
-	case FieldYear:
-		for _, id := range s.order {
-			book := s.books[id]
-			if fmt.Sprintf("%d", book.Year) == req.Query {
-				matches = append(matches, book)
-			}
-		}
-	}
-
-	total := len(matches)
-	start := (page - 1) * size
-	if start >= total {
-		return SearchResult{Total: total, Page: page, Size: size, Items: []Book{}}, nil
-	}
-	end := start + size
-	if end > total {
-		end = total
-	}
-	return SearchResult{Total: total, Page: page, Size: size, Items: matches[start:end]}, nil
-}
-
 func normalisePaging(page, size int) (int, int) {
 	if page < 1 {
 		page = 1
@@ -396,13 +475,4 @@ func generateID() (string, error) {
 		return "", err
 	}
 	return "book-" + hex.EncodeToString(buf[:]), nil
-}
-
-func removeString(s []string, target string) []string {
-	for i, v := range s {
-		if v == target {
-			return append(s[:i], s[i+1:]...)
-		}
-	}
-	return s
 }

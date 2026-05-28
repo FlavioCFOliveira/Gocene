@@ -103,44 +103,38 @@ curl -s -X DELETE 'http://localhost:8080/books/book-XXXX' -o /dev/null -w '%{htt
 | `analysis.StandardAnalyzer`                     | Tokenisation pipeline for text fields and the query parsers.       |
 | `index.IndexWriter` + `IndexWriterConfig`       | Indexing pipeline (Add/Delete/Commit).                             |
 | `document.NewTextField` / `NewStringField`      | Per-field indexing layout (text vs exact terms, stored).           |
-| `index.OpenDirectoryReader`                     | Snapshot reader opened fresh on every search request.              |
-| `search.NewIndexSearcher`                       | Search entry point against the snapshot.                           |
-| `search.MatchAllDocsQuery`, `search.TermQuery`  | Default and exact-match queries.                                   |
+| `index.OpenDirectoryReader`                     | Snapshot reader opened fresh on every read (Get, Search, IsEmpty). |
+| `search.NewIndexSearcher` + `IndexSearcher.Doc` | Search entry point and stored-field retrieval that hydrates every `Book` straight from the index. |
+| `search.MatchAllDocsQuery`, `search.TermQuery`  | Listing/default query and exact-match (`id`, `year`) queries.      |
 | `queryparser.QueryParser`, `MultiFieldQueryParser` | Parsing of the user-supplied `q=` parameter.                    |
+| `codecs.Lucene104Codec` (blank-imported)        | Production codec linked in so the writer persists segments to disk and the reader can hydrate stored fields. |
 
-## Known limitations (and why the demo still works)
+## Reads go through the live index
 
-The webapi was originally meant to demonstrate the canonical Gocene
-write/read path end-to-end. During the implementation of sprint 115 we
-hit two pre-existing gaps in the Gocene core that are out of scope for
-this demo and are tracked as a separate roadmap item:
+Every read in this demo is resolved against the Gocene index — there is no
+in-memory shadow of `Book` data. `BookStore.Get` runs a `TermQuery` on the
+`id` field and hydrates the result from its stored fields via
+`IndexSearcher.Doc`; `BookStore.Search` does the same for every hit;
+`BookStore.IsEmpty` reads `DirectoryReader.NumDocs`. The production
+`Lucene104Codec` is blank-imported in `store.go` so the writer actually
+persists segments and the reader can read them back.
 
-1. `IndexWriter` does not yet persist documents to disk. The default
-   `IndexWriterConfig` does not assign a codec, and `DocumentsWriter.SetCodec`
-   is never called from production code. As a result `DocumentsWriter.flush`
-   silently drops the in-RAM documents (see
-   `index/documents_writer.go:230-234`); only `segments_N`, `.si` and
-   `write.lock` ever appear on disk.
-2. `OpenDirectoryReader` builds each `SegmentReader` without initialising
-   `SegmentCoreReaders`. Consequently `IndexSearcher.Doc(docID)` fails
-   with `segment reader not initialized` (this is documented in
-   `index/read_only_index_test.go:64-72`).
+### One remaining core gap: codec term-deletes
 
-Both gaps are tracked by **rmp task 4636** under the `gocene` roadmap.
-
-To keep the demo fully functional today, `BookStore` (see `store.go`)
-maintains an in-memory shadow of every book and remaps each Gocene-internal
-doc id back to its domain id through a dedicated ordered slice. The Gocene
-index still drives full-text search (the in-memory `FieldsProducer` works
-while the writer is alive); the shadow drives round-trip retrieval and
-the exact-match fields (`id`, `year`). Once the upstream gaps are closed
-this shadow layer can be removed and `BookStore.Get` / `BookStore.Search`
-items can be hydrated directly from `IndexSearcher.Doc(docID)`.
-
-The demo therefore behaves correctly from the outside (you can POST, GET,
-PUT, DELETE and search through Gocene queries with paginated, deduplicated
-results), with the caveat that retrieval is currently shadow-backed
-rather than codec-backed.
+`Put` and `Delete` are expressed as an *index rebuild* rather than
+`IndexWriter.UpdateDocument` / `DeleteDocuments`. The Gocene codec read path
+does not yet apply buffered term-deletes to already-committed segments: a
+`DeleteDocuments(term)` followed by `Commit` leaves the document visible to a
+freshly opened reader, and an in-place `UpdateDocument` therefore duplicates
+the document instead of replacing it (verified directly while implementing
+rmp tasks 4665/4671 — a delete+commit left `NumDocs` unchanged and the term
+still matched). Until that gap is closed, a mutation reads the current set of
+live books back *from the index*, applies the change for the duration of the
+call only, and re-creates the index from scratch in a fresh `CREATE` writer.
+No `Book` is retained between calls, so the index remains the single source of
+truth. This rebuild strategy is a property of the demo's `BookStore`, not of
+the data model: the on-disk layout is the standard codec output and round-trips
+through `IndexSearcher.Doc` unchanged.
 
 ## Testing
 
