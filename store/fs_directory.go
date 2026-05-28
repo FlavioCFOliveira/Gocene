@@ -733,8 +733,16 @@ func (in *SimpleFSIndexInput) Slice(desc string, offset int64, length int64) (In
 		return nil, fmt.Errorf("failed to open file for slice: %w", err)
 	}
 
-	// Seek to the offset
-	if _, err := file.Seek(offset, io.SeekStart); err != nil {
+	// sliceOffset is file-absolute. When slicing a slice, compose with the
+	// parent's base (in.sliceOffset) so reads land at the correct absolute
+	// position. Without this, a nested slice — as produced when the compound-file
+	// reader slices a sub-file out of the .cfs and a codec then slices within
+	// that sub-file — reads the wrong bytes, corrupting the block-tree term
+	// dictionary and postings headers (rmp #4747).
+	absOffset := in.sliceOffset + offset
+
+	// Seek to the absolute offset
+	if _, err := file.Seek(absOffset, io.SeekStart); err != nil {
 		file.Close()
 		return nil, fmt.Errorf("failed to seek to offset: %w", err)
 	}
@@ -747,7 +755,7 @@ func (in *SimpleFSIndexInput) Slice(desc string, offset int64, length int64) (In
 		path:           in.path,
 		name:           in.name,
 		directory:      in.directory,
-		sliceOffset:    offset,
+		sliceOffset:    absOffset,
 	}, nil
 }
 
