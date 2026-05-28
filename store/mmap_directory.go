@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 // MMapDirectory is a Directory implementation that uses memory-mapped
@@ -35,6 +36,16 @@ type MMapDirectory struct {
 
 	// preload specifies whether to preload files into the OS page cache
 	preload bool
+
+	// writeMu guards lazy creation of writeDelegate.
+	writeMu sync.Mutex
+
+	// writeDelegate is a single SimpleFSDirectory created lazily on the first
+	// CreateOutput call and reused for every subsequent write. Memory mapping
+	// is read-only in Lucene's MMapDirectory, so writes are delegated to a
+	// plain file-I/O directory. Caching a single delegate avoids leaking a
+	// fresh SimpleFSDirectory (each with its own openFiles map) per call.
+	writeDelegate *SimpleFSDirectory
 }
 
 // NewMMapDirectory creates a new MMapDirectory at the specified path.
@@ -179,15 +190,64 @@ func (d *MMapDirectory) OpenInput(name string, ctx IOContext) (IndexInput, error
 	return input, nil
 }
 
+// writeDelegateLocked returns the cached SimpleFSDirectory used for writes,
+// creating it on first use. Callers must ensure the directory is open before
+// invoking it. The delegate is shared across all CreateOutput calls so that a
+// single openFiles map tracks every output handle.
+func (d *MMapDirectory) writeDelegateLocked() (*SimpleFSDirectory, error) {
+	d.writeMu.Lock()
+	defer d.writeMu.Unlock()
+
+	if d.writeDelegate == nil {
+		simpleDir, err := NewSimpleFSDirectory(d.GetPath())
+		if err != nil {
+			return nil, err
+		}
+		d.writeDelegate = simpleDir
+	}
+	return d.writeDelegate, nil
+}
+
 // CreateOutput returns an IndexOutput for writing a new file.
-// MMapDirectory uses standard file I/O for writing (memory-mapping is read-only).
+// MMapDirectory uses standard file I/O for writing (memory-mapping is read-only),
+// delegating to a single cached SimpleFSDirectory reused across all calls.
 func (d *MMapDirectory) CreateOutput(name string, ctx IOContext) (IndexOutput, error) {
-	// Delegate to SimpleFSDirectory for writing
-	simpleDir, err := NewSimpleFSDirectory(d.GetPath())
+	if err := d.EnsureOpen(); err != nil {
+		return nil, err
+	}
+
+	delegate, err := d.writeDelegateLocked()
 	if err != nil {
 		return nil, err
 	}
-	return simpleDir.CreateOutput(name, ctx)
+	// SimpleFSDirectory.CreateOutput validates the file name (path-traversal
+	// guard from rmp #4719), so it is intentionally not duplicated here.
+	return delegate.CreateOutput(name, ctx)
+}
+
+// Close releases all resources associated with this directory, including the
+// cached write delegate created lazily by CreateOutput.
+func (d *MMapDirectory) Close() error {
+	if !d.IsOpen() {
+		return nil
+	}
+
+	d.writeMu.Lock()
+	delegate := d.writeDelegate
+	d.writeDelegate = nil
+	d.writeMu.Unlock()
+
+	var firstErr error
+	if delegate != nil {
+		if err := delegate.Close(); err != nil {
+			firstErr = err
+		}
+	}
+
+	if err := d.FSDirectory.Close(); err != nil && firstErr == nil {
+		firstErr = err
+	}
+	return firstErr
 }
 
 // MMapIndexInput is an IndexInput implementation that reads from
