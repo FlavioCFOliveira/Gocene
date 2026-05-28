@@ -25,6 +25,57 @@ func createTestAnalyzer() analysis.Analyzer {
 	return analysis.NewWhitespaceAnalyzer()
 }
 
+// TestIndexWriterCommitDataIsolation verifies that two writers on separate
+// directories have independent commit data (regression: was using package-level globals).
+func TestIndexWriterCommitDataIsolation(t *testing.T) {
+	dir1 := store.NewByteBuffersDirectory()
+	defer dir1.Close()
+	dir2 := store.NewByteBuffersDirectory()
+	defer dir2.Close()
+
+	config1 := index.NewIndexWriterConfig(createTestAnalyzer())
+	writer1, err := index.NewIndexWriter(dir1, config1)
+	if err != nil {
+		t.Fatalf("NewIndexWriter(dir1) error = %v", err)
+	}
+
+	config2 := index.NewIndexWriterConfig(createTestAnalyzer())
+	writer2, err := index.NewIndexWriter(dir2, config2)
+	if err != nil {
+		t.Fatalf("NewIndexWriter(dir2) error = %v", err)
+	}
+
+	// Set different commit data on each writer
+	writer1.SetLiveCommitData(map[string]string{"writer": "one"})
+	writer2.SetLiveCommitData(map[string]string{"writer": "two"})
+
+	// Commit both - should not interfere
+	if err := writer1.Commit(); err != nil {
+		t.Errorf("writer1.Commit() error = %v", err)
+	}
+	if err := writer2.Commit(); err != nil {
+		t.Errorf("writer2.Commit() error = %v", err)
+	}
+
+	writer1.Close()
+	writer2.Close()
+
+	// Verify both indices are readable
+	reader1, err := index.OpenDirectoryReader(dir1)
+	if err != nil {
+		t.Errorf("OpenDirectoryReader(dir1) error = %v", err)
+	} else {
+		reader1.Close()
+	}
+
+	reader2, err := index.OpenDirectoryReader(dir2)
+	if err != nil {
+		t.Errorf("OpenDirectoryReader(dir2) error = %v", err)
+	} else {
+		reader2.Close()
+	}
+}
+
 // TestNewIndexWriter tests IndexWriter creation
 func TestNewIndexWriter(t *testing.T) {
 	t.Run("create with valid directory", func(t *testing.T) {

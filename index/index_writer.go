@@ -91,6 +91,11 @@ type IndexWriter struct {
 	// this IndexWriter instance.  Nil only if locking is not supported by the
 	// directory (legacy path; should not happen with current store implementations).
 	writeLock store.Lock
+
+	// liveCommitData holds the current commit data that will be written on next commit
+	liveCommitData *commitData
+	// preparedCommit indicates if prepareCommit has been called
+	preparedCommit bool
 }
 
 // pendingSegment captures the metadata of a segment that has been flushed from
@@ -466,13 +471,6 @@ type commitData struct {
 	data map[string]string
 }
 
-// IndexWriter extension for commit-related fields
-var (
-	// liveCommitData holds the current commit data that will be written on next commit
-	liveCommitData *commitData
-	// preparedCommit indicates if prepareCommit has been called
-	preparedCommit bool
-)
 
 // SetLiveCommitData sets the commit data that will be written with the next commit.
 // This data is stored in the commit point and can be retrieved later.
@@ -480,12 +478,12 @@ var (
 func (w *IndexWriter) SetLiveCommitData(data map[string]string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if liveCommitData == nil {
-		liveCommitData = &commitData{data: make(map[string]string)}
+	if w.liveCommitData == nil {
+		w.liveCommitData = &commitData{data: make(map[string]string)}
 	}
 	// Copy the data to ensure we capture the values at commit time
 	for k, v := range data {
-		liveCommitData.data[k] = v
+		w.liveCommitData.data[k] = v
 	}
 }
 
@@ -493,12 +491,12 @@ func (w *IndexWriter) SetLiveCommitData(data map[string]string) {
 func (w *IndexWriter) getLiveCommitData() map[string]string {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
-	if liveCommitData == nil {
+	if w.liveCommitData == nil {
 		return nil
 	}
 	// Return a copy to prevent external modification
-	result := make(map[string]string, len(liveCommitData.data))
-	for k, v := range liveCommitData.data {
+	result := make(map[string]string, len(w.liveCommitData.data))
+	for k, v := range w.liveCommitData.data {
 		result[k] = v
 	}
 	return result
@@ -507,7 +505,7 @@ func (w *IndexWriter) getLiveCommitData() map[string]string {
 // clearLiveCommitData clears the live commit data.
 // Must be called with w.mu held.
 func (w *IndexWriter) clearLiveCommitData() {
-	liveCommitData = nil
+	w.liveCommitData = nil
 }
 
 // maybeFlushPendingDocs flushes buffered documents to a pending in-memory
@@ -683,19 +681,19 @@ func (w *IndexWriter) PrepareCommit() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if preparedCommit {
+	if w.preparedCommit {
 		return errors.New("prepareCommit already called; call commit or rollback first")
 	}
 
 	// Mark that we're in the prepared state
-	preparedCommit = true
+	w.preparedCommit = true
 
 	// Flush any buffered documents into pending segments so that Commit (the
 	// second phase) only needs to write them to disk. Apply buffered deletes
 	// so the live-docs bitmap is current.  File sync and the segments_N write
 	// happen in Commit; prepare only guarantees atomicity of the flush.
 	if err := w.flushPendingDocsLocked(); err != nil {
-		preparedCommit = false
+		w.preparedCommit = false
 		return fmt.Errorf("prepareCommit: flush: %w", err)
 	}
 
@@ -890,8 +888,8 @@ func (w *IndexWriter) Commit() error {
 	w.pendingImportedSegments = w.pendingImportedSegments[:0]
 
 	// Add commit data if present
-	if liveCommitData != nil && len(liveCommitData.data) > 0 {
-		si.SetUserData(liveCommitData.data)
+	if w.liveCommitData != nil && len(w.liveCommitData.data) > 0 {
+		si.SetUserData(w.liveCommitData.data)
 	}
 
 	// Record parentField and indexSort for AddIndexes validation.
@@ -904,7 +902,7 @@ func (w *IndexWriter) Commit() error {
 	}
 
 	// Clear the prepared commit flag
-	preparedCommit = false
+	w.preparedCommit = false
 
 	return nil
 }
@@ -919,7 +917,7 @@ func (w *IndexWriter) Close() error {
 
 	// Check if prepareCommit was called but commit wasn't
 	w.mu.RLock()
-	if preparedCommit {
+	if w.preparedCommit {
 		w.mu.RUnlock()
 		return errors.New("cannot close IndexWriter when prepareCommit was called but commit wasn't")
 	}
@@ -1136,7 +1134,7 @@ func (w *IndexWriter) Rollback() error {
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	preparedCommit = false
+	w.preparedCommit = false
 	w.clearLiveCommitData()
 	return nil
 }
