@@ -91,6 +91,17 @@ func (s *TermScorer) Score() float32 {
 	return s.simScorer.Score(s.doc, float32(freq))
 }
 
+// Freq returns the term frequency of the current document, mirroring Lucene's
+// org.apache.lucene.search.TermScorer.freq(). It is used by TermWeight.Explain
+// to build the frequency sub-explanation. Returns 0 if the underlying postings
+// enum cannot supply a frequency.
+func (s *TermScorer) Freq() (int, error) {
+	if s.postingsEnum == nil {
+		return 0, nil
+	}
+	return s.postingsEnum.Freq()
+}
+
 // Cost returns the estimated cost of iterating through all documents.
 func (s *TermScorer) Cost() int64 {
 	if s.postingsEnum == nil {
