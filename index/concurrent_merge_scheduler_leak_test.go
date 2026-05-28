@@ -3,6 +3,7 @@
 package index
 
 import (
+	"context"
 	"runtime"
 	"testing"
 	"time"
@@ -69,5 +70,50 @@ func TestConcurrentMergeScheduler_AwaitMergesNoGoroutineLeakOnTimeout(t *testing
 	}
 	if got, ok := settle(baseline); !ok {
 		t.Fatalf("watcher goroutine leaked after success: %d goroutines, want <= %d (baseline)", got, baseline)
+	}
+}
+
+// TestConcurrentMergeScheduler_CloseWithContextNoLeakOnCancel verifies rmp #4748:
+// CloseWithContext must not leak a goroutine when its context is cancelled before
+// merges finish. The old implementation spawned a `go runningMerges.Wait()`
+// watcher that stayed blocked forever on cancel; the polling implementation
+// returns promptly with no lingering goroutine.
+func TestConcurrentMergeScheduler_CloseWithContextNoLeakOnCancel(t *testing.T) {
+	s := NewConcurrentMergeScheduler()
+
+	// Simulate a still-running merge so the drain condition is never met.
+	s.IncrementRunningMerges()
+
+	settle := func(want int) (int, bool) {
+		deadline := time.Now().Add(2 * time.Second)
+		var got int
+		for time.Now().Before(deadline) {
+			got = runtime.NumGoroutine()
+			if got <= want {
+				return got, true
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		return got, false
+	}
+
+	runtime.GC()
+	baseline := runtime.NumGoroutine()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled: CloseWithContext must return immediately
+
+	start := time.Now()
+	err := s.CloseWithContext(ctx)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected context-cancelled error from CloseWithContext, got nil")
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("CloseWithContext took %v, expected a prompt return on a cancelled context", elapsed)
+	}
+	if got, ok := settle(baseline); !ok {
+		t.Fatalf("goroutine leaked after CloseWithContext cancel: %d goroutines, want <= %d (baseline)", got, baseline)
 	}
 }

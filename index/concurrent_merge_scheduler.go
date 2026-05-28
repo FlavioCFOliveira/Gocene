@@ -504,19 +504,18 @@ func (s *ConcurrentMergeScheduler) CloseWithContext(ctx context.Context) error {
 	// Signal shutdown
 	s.cancel()
 
-	// Wait for all merges to complete
-	done := make(chan struct{})
-	go func() {
-		s.runningMerges.Wait()
-		close(done)
-	}()
-
-	// Wait with context
-	select {
-	case <-done:
-		// All merges completed
-	case <-ctx.Done():
-		return fmt.Errorf("context cancelled while waiting for merges: %w", ctx.Err())
+	// Wait for running merges to drain, bounded by the caller's context. Poll on
+	// this goroutine (selecting on ctx.Done) rather than spawning a watcher that
+	// blocks in runningMerges.Wait(): the old approach leaked that goroutine when
+	// the context was cancelled before merges finished (rmp #4748).
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for s.GetRunningMergeCount() != 0 {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("context cancelled while waiting for merges: %w", ctx.Err())
+		case <-ticker.C:
+		}
 	}
 
 	return s.BaseMergeScheduler.Close()
