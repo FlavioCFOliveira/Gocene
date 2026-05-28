@@ -2,6 +2,7 @@ package index
 
 import (
 	"context"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -92,6 +93,71 @@ func TestReplicationServer_StartStop(t *testing.T) {
 
 	if rs.IsRunning() {
 		t.Error("expected server to be stopped")
+	}
+}
+
+// TestReplicationServer_StopWaitsForServeGoroutine verifies that Stop does not
+// leak the background Serve goroutine and that the goroutine is gone
+// synchronously by the time Stop returns. Because Stop calls serveWG.Wait(), the
+// goroutine count must be back at baseline immediately after each Stop, with no
+// settling delay. The default 18 cycles also guard against net growth.
+//
+// Without the WaitGroup the Serve goroutine outlives Stop's return for a brief
+// window (until net/http unwinds after the listener closes), so the immediate
+// post-Stop count would intermittently exceed the baseline across enough cycles.
+func TestReplicationServer_StopWaitsForServeGoroutine(t *testing.T) {
+	const (
+		address = "127.0.0.1"
+		port    = 18099
+		cycles  = 18
+	)
+
+	// settle waits for the goroutine count to drop to at most want, used only to
+	// establish a stable baseline before the measured cycles begin.
+	settle := func(want int) bool {
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if runtime.NumGoroutine() <= want {
+				return true
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		return false
+	}
+
+	// Establish a stable baseline (the test binary already has some goroutines).
+	runtime.GC()
+	if !settle(runtime.NumGoroutine()) {
+		t.Fatalf("baseline did not stabilise")
+	}
+	baseline := runtime.NumGoroutine()
+
+	for i := 0; i < cycles; i++ {
+		rs, err := NewReplicationServer(address, port, "/tmp/index")
+		if err != nil {
+			t.Fatalf("cycle %d: NewReplicationServer: %v", i, err)
+		}
+
+		if err := rs.Start(); err != nil {
+			t.Fatalf("cycle %d: Start: %v", i, err)
+		}
+		if !rs.IsRunning() {
+			t.Fatalf("cycle %d: expected server running after Start", i)
+		}
+
+		if err := rs.Stop(context.Background()); err != nil {
+			t.Fatalf("cycle %d: Stop: %v", i, err)
+		}
+		if rs.IsRunning() {
+			t.Fatalf("cycle %d: expected server stopped after Stop", i)
+		}
+
+		// serveWG.Wait inside Stop guarantees the Serve goroutine has already
+		// exited: the count must be at baseline now, without any settle window.
+		if got := runtime.NumGoroutine(); got > baseline {
+			t.Fatalf("cycle %d: Serve goroutine still alive immediately after Stop: "+
+				"got %d goroutines, want <= %d (baseline)", i, got, baseline)
+		}
 	}
 }
 

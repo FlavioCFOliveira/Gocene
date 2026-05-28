@@ -187,8 +187,13 @@ func (m *NRTManager) Refresh(ctx context.Context) (*NRTDirectoryReader, error) {
 	m.waitingReaders = append(m.waitingReaders, waitChan)
 	m.mu.Unlock()
 
-	// Try refresh
-	m.MaybeRefresh(ctx)
+	// Try refresh. If it fails before we reach the select below, the waitChan
+	// would otherwise linger in waitingReaders until Close, leaking the channel
+	// and the slot. Remove it on the error path before returning.
+	if _, err := m.MaybeRefresh(ctx); err != nil {
+		m.removeWaitingReader(waitChan)
+		return nil, err
+	}
 
 	// Wait for new reader with timeout
 	select {

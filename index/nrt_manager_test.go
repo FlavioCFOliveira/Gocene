@@ -2,6 +2,7 @@ package index
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -323,5 +324,113 @@ func TestNRTManager_Refresh(t *testing.T) {
 	_, err = manager.Refresh(ctx)
 	if err != nil {
 		t.Fatalf("refresh failed: %v", err)
+	}
+}
+
+// TestNRTManager_Refresh_NoWaitChanLeakOnMaybeRefreshError verifies that when
+// MaybeRefresh fails after Refresh has registered its waitChan, the waitChan is
+// removed from waitingReaders instead of lingering until Close.
+//
+// The MaybeRefresh error branch sits between Refresh registering its waitChan and
+// the select that consumes it, and is only reachable while the manager is
+// concurrently transitioning to closed. This is a white-box test: it drives the
+// reader stale so Refresh registers a waitChan, then flips the manager closed
+// under m.mu. MaybeRefresh re-acquires m.mu and re-checks isOpen, so it observes
+// the closed state and returns "manager is closed" before the select.
+//
+// Two invariants are asserted: (1) on every Refresh return — error, success, or
+// the short fallback timeout — waitingReaders must be empty (no channel lingers);
+// (2) across the run, the MaybeRefresh error path must be exercised at least once,
+// otherwise the test would silently fail to cover the fix.
+func TestNRTManager_Refresh_NoWaitChanLeakOnMaybeRefreshError(t *testing.T) {
+	const attempts = 2000
+
+	sawClosedError := false
+
+	for i := 0; i < attempts && !sawClosedError; i++ {
+		writer := &IndexWriter{}
+		// One buffered document makes the freshly-created NRT reader non-current,
+		// so Refresh proceeds past the fast path and registers a waitChan.
+		writer.docCount.Store(1)
+
+		manager, err := NewNRTManager(writer)
+		if err != nil {
+			t.Fatalf("failed to create NRTManager: %v", err)
+		}
+		// Keep the select's fallback timeout short so an iteration that misses the
+		// injection window returns in milliseconds instead of the default 60s.
+		manager.SetMaxRefreshSec(2 * time.Millisecond)
+
+		// Materialise the current (stale) reader up front so Refresh's GetReader
+		// returns it while the manager is still open.
+		if _, err := manager.GetReader(); err != nil {
+			manager.Close()
+			t.Fatalf("failed to get reader: %v", err)
+		}
+
+		refreshErr := make(chan error, 1)
+		go func() {
+			_, err := manager.Refresh(context.Background())
+			refreshErr <- err
+		}()
+
+		// Injector: wait until Refresh has registered its waitChan, then flip the
+		// manager closed under m.mu. We only flip AFTER registration so that any
+		// resulting "manager is closed" error originates from MaybeRefresh (after
+		// the waitChan is in waitingReaders), never from Refresh's earlier
+		// GetReader call — otherwise no waitChan would have been registered and the
+		// fix would go untested. registered reports whether the waitChan was seen.
+		registeredCh := make(chan bool, 1)
+		go func() {
+			deadline := time.Now().Add(50 * time.Millisecond)
+			for time.Now().Before(deadline) {
+				// Tight spin (no yield) to catch the brief window in which the
+				// waitChan is registered but MaybeRefresh has not yet drained it.
+				manager.mu.RLock()
+				n := len(manager.waitingReaders)
+				manager.mu.RUnlock()
+				if n > 0 {
+					manager.mu.Lock()
+					manager.isOpen.Store(false)
+					manager.mu.Unlock()
+					registeredCh <- true
+					return
+				}
+			}
+			registeredCh <- false
+		}()
+
+		var got error
+		select {
+		case got = <-refreshErr:
+		case <-time.After(2 * time.Second):
+			manager.Close()
+			t.Fatal("Refresh did not return in time")
+		}
+		registered := <-registeredCh
+
+		// Invariant 1: no waitChan may linger, on any return path.
+		manager.mu.Lock()
+		leaked := len(manager.waitingReaders)
+		manager.mu.Unlock()
+		if leaked != 0 {
+			manager.Close()
+			t.Fatalf("attempt %d: waitingReaders leaked %d channels after Refresh returned (err=%v)",
+				i, leaked, got)
+		}
+
+		// Detect the specific MaybeRefresh error path: a waitChan was registered and
+		// Refresh returned "manager is closed". This proves the fix's branch ran.
+		if registered && got != nil && strings.Contains(got.Error(), "manager is closed") {
+			sawClosedError = true
+		}
+
+		manager.Close()
+	}
+
+	// Invariant 2: the MaybeRefresh error branch must have been exercised.
+	if !sawClosedError {
+		t.Fatal("MaybeRefresh \"manager is closed\" error path was never exercised; " +
+			"the leak fix went unverified")
 	}
 }
