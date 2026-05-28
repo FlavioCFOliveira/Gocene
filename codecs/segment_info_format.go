@@ -397,7 +397,11 @@ func (f *Lucene99SegmentInfoFormat) Read(dir store.Directory, segmentName string
 	if err != nil {
 		return nil, err
 	}
-	isCompoundFile := isCompoundFileByte != 0
+	// Lucene encodes this byte as SegmentInfo.YES (1) for compound and
+	// SegmentInfo.NO (-1, i.e. 255 unsigned) for non-compound; the read is
+	// `readByte() == SegmentInfo.YES` (Lucene90SegmentInfoFormat). A `!= 0`
+	// test would misread every non-compound segment (255) as compound.
+	isCompoundFile := isCompoundFileByte == 1
 
 	_, err = checksumIn.ReadByte() // hasBlocks
 	if err != nil {
