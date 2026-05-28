@@ -20,6 +20,11 @@ Thumbs.db
 *.test
 *.out
 
+# Profiling and coverage output
+*.prof
+coverage.*
+*.cover
+
 # Dependency directories
 vendor/
 
