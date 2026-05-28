@@ -30,6 +30,10 @@ type ReplicationServer struct {
 	// listener is the network listener
 	listener net.Listener
 
+	// serveWG tracks the background Serve goroutine started by Start so that
+	// Stop can wait for it to exit, avoiding a goroutine leak.
+	serveWG sync.WaitGroup
+
 	// isRunning indicates if the server is running
 	isRunning atomic.Bool
 
@@ -101,8 +105,10 @@ func (rs *ReplicationServer) Start() error {
 
 	rs.isRunning.Store(true)
 
-	// Start serving in a goroutine
+	// Start serving in a goroutine, tracked by serveWG so Stop can wait for it.
+	rs.serveWG.Add(1)
 	go func() {
+		defer rs.serveWG.Done()
 		if err := rs.httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
 			// Log error
 		}
@@ -111,12 +117,14 @@ func (rs *ReplicationServer) Start() error {
 	return nil
 }
 
-// Stop stops the replication server.
+// Stop stops the replication server. It shuts the HTTP server down and waits
+// for the background Serve goroutine started by Start to exit before returning,
+// so no goroutine is left running once Stop completes.
 func (rs *ReplicationServer) Stop(ctx context.Context) error {
 	rs.mu.Lock()
-	defer rs.mu.Unlock()
 
 	if !rs.isRunning.Load() {
+		rs.mu.Unlock()
 		return nil
 	}
 
@@ -125,12 +133,25 @@ func (rs *ReplicationServer) Stop(ctx context.Context) error {
 	// Close all sessions
 	rs.sessions = make(map[string]*ReplicationSession)
 
-	// Shutdown HTTP server
-	if rs.httpServer != nil {
-		if err := rs.httpServer.Shutdown(ctx); err != nil {
+	// Snapshot the server, then release the lock before Shutdown and Wait. The
+	// request handlers acquire rs.mu; holding it across Shutdown (which waits for
+	// in-flight requests) would deadlock, and holding it across serveWG.Wait()
+	// would needlessly widen that window.
+	server := rs.httpServer
+	rs.mu.Unlock()
+
+	if server != nil {
+		if err := server.Shutdown(ctx); err != nil {
+			// Even if Shutdown reports an error (e.g. ctx deadline), the Serve
+			// goroutine still returns once the listener is closed, so wait for it
+			// before surfacing the error.
+			rs.serveWG.Wait()
 			return fmt.Errorf("shutting down server: %w", err)
 		}
 	}
+
+	// Guarantee the Serve goroutine has fully exited.
+	rs.serveWG.Wait()
 
 	return nil
 }
