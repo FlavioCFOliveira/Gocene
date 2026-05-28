@@ -34,21 +34,25 @@
 //
 //   - Codec, PostingsFormat (+ FieldsConsumer/FieldsProducer),
 //     StoredFieldsFormat (+ StoredFieldsReader/Writer/FieldVisitor),
-//     FieldInfosFormat, SegmentInfoFormat, TermVectorsFormat
-//     (+ TermVectorsReader/Writer), CompoundFormat (+ CompoundDirectory).
+//     FieldInfosFormat, SegmentInfoFormat, SegmentInfosFormat,
+//     TermVectorsFormat (+ TermVectorsReader/Writer), CompoundFormat
+//     (+ CompoundDirectory).
+//   - SegmentInfos and SegmentCommitInfo (lifted by rmp #4706 so the
+//     segments_N read/write path no longer needs to import index/).
 //   - SegmentReadState and SegmentWriteState.
 //   - IndexableField: a narrow, codec-facing subset of the document-
 //     side IndexableField that the stored-fields write path consumes.
 //   - BufferedUpdatesRef: a marker interface used by SegmentWriteState
 //     to hold pending term deletions without dragging index/'s
 //     BufferedUpdates type into the SPI surface.
+//   - IndexNotFoundException: raised by ReadSegmentInfos when no
+//     segments_N file is found in the directory.
+//   - Codec envelope helpers: CodecMagic, FooterMagic, WriteIndexHeader,
+//     CheckIndexHeader, WriteFooter, CheckFooter — lifted alongside the
+//     SegmentInfos move so they can be reused by future codec ports.
 //
 // # What is intentionally NOT here
 //
-//   - SegmentInfosFormat: deferred to rmp #4706 because its codecs-side
-//     signature (no IOContext on Read/Write) diverges from the index-side
-//     signature, and unifying it requires changing several call sites
-//     beyond the SPI surface.
 //   - KnnVectorsFormat: deferred to rmp #4707 because the codecs-side
 //     interface name collides with KnnVectorsFormatFactory and the index
 //     side exposes a Factory abstraction that needs reconciliation.
@@ -65,6 +69,6 @@
 // This package is part of the SPI unification work tracked under rmp
 // #4669. Sprint 117 phase 1 lifted the structural types
 // (SegmentInfo, FieldInfo*, Term*, vector enums, …) into schema/.
-// Sprint 118 phase 2 (rmp #4693) — this package — completes the
-// interface lift.
+// Sprint 118 phase 2 (rmp #4693) lifted the codec-facing interfaces,
+// and rmp #4706 completed the SegmentInfos / SegmentInfosFormat lift.
 package spi

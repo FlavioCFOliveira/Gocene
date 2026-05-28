@@ -12,15 +12,11 @@ package spi
 // # Currently unified members
 //
 //   - Name, PostingsFormat, StoredFieldsFormat, FieldInfosFormat,
-//     SegmentInfoFormat (singular), TermVectorsFormat, CompoundFormat.
+//     SegmentInfoFormat (singular .si), SegmentInfosFormat (plural
+//     segments_N), TermVectorsFormat, CompoundFormat.
 //
 // # Intentionally NOT yet on this surface
 //
-//   - SegmentInfosFormat (plural / segments_N): deferred to rmp #4706.
-//     The codecs-side signature elides IOContext on Read/Write while the
-//     index-side signature carries it; unifying requires changing every
-//     IndexWriter / DirectoryReader call site and is out of scope for
-//     rmp #4693.
 //   - KnnVectorsFormat: deferred to rmp #4707. The codecs-side
 //     interface and the index-side KnnVectorsFormatFactory abstraction
 //     need reconciliation first.
@@ -49,9 +45,13 @@ type Codec interface {
 	FieldInfosFormat() FieldInfosFormat
 
 	// SegmentInfoFormat returns the format used for the per-segment
-	// metadata file (.si). The plural SegmentInfosFormat (segments_N)
-	// is not yet part of this surface — see the deferral note above.
+	// metadata file (.si).
 	SegmentInfoFormat() SegmentInfoFormat
+
+	// SegmentInfosFormat returns the format used for the plural
+	// segments_N file. Lifted onto the SPI by rmp #4706 once
+	// *SegmentInfos and *SegmentCommitInfo moved into package spi.
+	SegmentInfosFormat() SegmentInfosFormat
 
 	// TermVectorsFormat returns the format used for per-document term
 	// vectors.

@@ -6,15 +6,14 @@ package index
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/spi"
-	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // This file is the index-side facade for the codec SPI after the
-// SPI unification (rmp #4669 / Sprint 118 phase 2 / rmp #4693). The
-// canonical declaration site lives in spi/; index/ re-exports the
-// types as Go aliases so callers that historically reached for
-// index.Codec, index.PostingsFormat, index.SegmentWriteState, etc.
-// keep compiling without churn.
+// SPI unification (rmp #4669 / Sprint 118 phase 2 / rmp #4693 /
+// rmp #4706). The canonical declaration site lives in spi/; index/
+// re-exports the types as Go aliases so callers that historically
+// reached for index.Codec, index.PostingsFormat,
+// index.SegmentWriteState, etc. keep compiling without churn.
 //
 // Aliasing an interface with `type X = spi.X` makes the index-package
 // identifier indistinguishable from its SPI counterpart at the type-
@@ -22,22 +21,15 @@ import (
 // without any adapter, and the codecbridge adapters collapse to
 // identity wrappers.
 
-// Codec extends spi.Codec with the two component accessors that the
-// SPI does not yet cover on the index-facing surface. The extra
-// methods stay declared here until the matching follow-up tasks land:
-//   - SegmentInfosFormat: TODO(T4706)
-//   - KnnVectorsFormat:   TODO(T4707)
-//
-// Once those tasks complete, this declaration collapses to
-// `type Codec = spi.Codec`. (DocValuesFormat is a codecs-only
-// accessor on Lucene104Codec and is NOT part of the index-side
-// Codec surface; see rmp #4708 for the lift.)
+// Codec extends spi.Codec with the one remaining component accessor
+// that the SPI does not yet cover on the index-facing surface:
+// KnnVectorsFormat. The matching follow-up task is rmp #4707; once it
+// lands this declaration collapses to `type Codec = spi.Codec`.
+// (DocValuesFormat is a codecs-only accessor on Lucene104Codec and is
+// NOT part of the index-side Codec surface; see rmp #4708 for the
+// lift.)
 type Codec interface {
 	spi.Codec
-
-	// SegmentInfosFormat returns the format used for the plural
-	// segments_N file. TODO(T4706): move to spi.Codec.
-	SegmentInfosFormat() SegmentInfosFormat
 
 	// KnnVectorsFormat returns the factory used to construct the
 	// per-segment KNN vectors writer during indexing. Codec
@@ -76,6 +68,10 @@ type FieldInfosFormat = spi.FieldInfosFormat
 // SegmentInfoFormat is an alias of spi.SegmentInfoFormat.
 type SegmentInfoFormat = spi.SegmentInfoFormat
 
+// SegmentInfosFormat is an alias of spi.SegmentInfosFormat. The plural
+// segments_N format was lifted onto the SPI by rmp #4706.
+type SegmentInfosFormat = spi.SegmentInfosFormat
+
 // TermVectorsFormat is an alias of spi.TermVectorsFormat.
 type TermVectorsFormat = spi.TermVectorsFormat
 
@@ -111,19 +107,6 @@ type SegmentReadState = spi.SegmentReadState
 // -----------------------------------------------------------------------------
 // Legacy index-only interfaces that the SPI does not yet cover.
 // -----------------------------------------------------------------------------
-
-// SegmentInfosFormat is the index-side interface for the plural
-// segments_N format. TODO(T4706): collapse into spi.Codec.
-type SegmentInfosFormat interface {
-	// Name returns the name of this format.
-	Name() string
-
-	// Read reads segment infos from a directory.
-	Read(dir store.Directory, context store.IOContext) (*SegmentInfos, error)
-
-	// Write writes segment infos to a directory.
-	Write(dir store.Directory, segmentInfos *SegmentInfos, context store.IOContext) error
-}
 
 // FieldTypeInterface is the index-package projection of the document
 // FieldType properties that legacy index-side stored-fields paths still

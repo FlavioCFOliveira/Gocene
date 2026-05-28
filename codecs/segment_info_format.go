@@ -9,22 +9,17 @@ import (
 	"strconv"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// SegmentInfosFormat handles encoding/decoding of segment metadata (segments_N).
-// This is the Go port of Lucene's org.apache.lucene.index.SegmentInfos.
-type SegmentInfosFormat interface {
-	// Name returns the name of this format.
-	Name() string
-
-	// Read reads segment infos from the given directory.
-	Read(dir store.Directory) (*index.SegmentInfos, error)
-
-	// Write writes segment infos to the given directory.
-	Write(dir store.Directory, infos *index.SegmentInfos) error
-}
+// SegmentInfosFormat is an alias of spi.SegmentInfosFormat.
+//
+// Lifted onto the SPI by rmp #4706. Both Read and Write now carry an
+// IOContext to mirror the rest of the codec SPI; codecs implementations
+// forward it to the underlying Directory I/O calls.
+type SegmentInfosFormat = spi.SegmentInfosFormat
 
 // SegmentInfoFormat is an alias of spi.SegmentInfoFormat.
 type SegmentInfoFormat = spi.SegmentInfoFormat
@@ -45,7 +40,7 @@ func (f *Lucene104SegmentInfosFormat) Name() string {
 	return "Lucene104SegmentInfosFormat"
 }
 
-func (f *Lucene104SegmentInfosFormat) Read(dir store.Directory) (*index.SegmentInfos, error) {
+func (f *Lucene104SegmentInfosFormat) Read(dir store.Directory, ctx store.IOContext) (*spi.SegmentInfos, error) {
 	files, err := dir.ListAll()
 	if err != nil {
 		return nil, err
@@ -70,7 +65,7 @@ func (f *Lucene104SegmentInfosFormat) Read(dir store.Directory) (*index.SegmentI
 		return nil, fmt.Errorf("no segments file found in directory")
 	}
 
-	in, err := dir.OpenInput(segmentsFile, store.IOContextRead)
+	in, err := dir.OpenInput(segmentsFile, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +127,7 @@ func (f *Lucene104SegmentInfosFormat) Read(dir store.Directory) (*index.SegmentI
 		_, _ = store.ReadVInt(checksumIn) // bugfix
 	}
 
-	sis := index.NewSegmentInfos()
+	sis := spi.NewSegmentInfos()
 	sis.SetLuceneVersion(fmt.Sprintf("%d.%d.%d", major, minor, bugfix))
 	sis.SetIndexCreatedVersionMajor(createdMajor)
 	sis.SetVersion(version)
@@ -162,7 +157,7 @@ func (f *Lucene104SegmentInfosFormat) Read(dir store.Directory) (*index.SegmentI
 	return sis, nil
 }
 
-func (f *Lucene104SegmentInfosFormat) readSegmentCommitInfo(in store.IndexInput, dir store.Directory) (*index.SegmentCommitInfo, error) {
+func (f *Lucene104SegmentInfosFormat) readSegmentCommitInfo(in store.IndexInput, dir store.Directory) (*spi.SegmentCommitInfo, error) {
 	name, err := store.ReadString(in)
 	if err != nil {
 		return nil, err
@@ -228,11 +223,11 @@ func (f *Lucene104SegmentInfosFormat) readSegmentCommitInfo(in store.IndexInput,
 	// For now, we don't have SegmentInfo fully populated from .si file here
 	// In Lucene, it's loaded lazily or passed in.
 	// We'll create a placeholder SegmentInfo.
-	si := index.NewSegmentInfo(name, 0, dir)
+	si := schema.NewSegmentInfo(name, 0, dir)
 	si.SetID(id)
 	si.SetCodec(codecName)
 
-	sci := index.NewSegmentCommitInfo(si, int(delCount), delGen)
+	sci := spi.NewSegmentCommitInfo(si, int(delCount), delGen)
 	sci.SetFieldInfosGen(fieldInfosGen)
 	sci.SetDocValuesGen(docValuesGen)
 	sci.SetSoftDelCount(int(softDelCount))
@@ -243,11 +238,11 @@ func (f *Lucene104SegmentInfosFormat) readSegmentCommitInfo(in store.IndexInput,
 	return sci, nil
 }
 
-func (f *Lucene104SegmentInfosFormat) Write(dir store.Directory, infos *index.SegmentInfos) error {
+func (f *Lucene104SegmentInfosFormat) Write(dir store.Directory, infos *spi.SegmentInfos, ctx store.IOContext) error {
 	generation := infos.NextGeneration()
-	fileName := index.GetSegmentFileName(generation)
+	fileName := spi.GetSegmentFileName(generation)
 
-	out, err := dir.CreateOutput(fileName, store.IOContextWrite)
+	out, err := dir.CreateOutput(fileName, ctx)
 	if err != nil {
 		return err
 	}
@@ -309,7 +304,7 @@ func (f *Lucene104SegmentInfosFormat) Write(dir store.Directory, infos *index.Se
 	return nil
 }
 
-func (f *Lucene104SegmentInfosFormat) writeSegmentCommitInfo(out store.IndexOutput, sci *index.SegmentCommitInfo) error {
+func (f *Lucene104SegmentInfosFormat) writeSegmentCommitInfo(out store.IndexOutput, sci *spi.SegmentCommitInfo) error {
 	store.WriteString(out, sci.Name())
 	out.WriteBytes(sci.SegmentInfo().GetID())
 	store.WriteString(out, sci.SegmentInfo().Codec())

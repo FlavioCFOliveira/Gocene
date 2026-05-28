@@ -7,25 +7,25 @@
 //
 // # Why this package exists (post SPI unification)
 //
-// Sprint 118 (rmp #4693) lifted every codec-facing SPI — Codec,
+// Sprint 118 (rmp #4693, #4706) lifted every codec-facing SPI — Codec,
 // PostingsFormat, StoredFieldsFormat, FieldInfosFormat,
-// SegmentInfoFormat, TermVectorsFormat, CompoundFormat, and the
-// SegmentReadState / SegmentWriteState structs — into a dedicated
-// spi/ package. Both index/ and codecs/ now alias those types
-// directly, so the per-format adapters that used to translate between
-// the two interface families collapse to identity wrappers. This
-// package therefore shrinks to:
+// SegmentInfoFormat, SegmentInfosFormat, TermVectorsFormat,
+// CompoundFormat, and the SegmentReadState / SegmentWriteState structs —
+// into a dedicated spi/ package. Both index/ and codecs/ now alias
+// those types directly, so the per-format adapters that used to
+// translate between the two interface families collapse to identity
+// wrappers. This package therefore shrinks to:
 //
-//   - A bridgeCodec that wires the deferred members (SegmentInfosFormat
-//     via codecs.SegmentInfosFormat, KnnVectorsFormat via the
-//     index-side KnnVectorsFormatFactory abstraction) onto the unified
-//     spi.Codec surface that codecs.Lucene104Codec already satisfies.
+//   - A bridgeCodec that wires the one remaining deferred member
+//     (KnnVectorsFormat via the index-side KnnVectorsFormatFactory
+//     abstraction) onto the unified spi.Codec surface that
+//     codecs.Lucene104Codec already satisfies.
 //   - An init() hook that registers the bridge as the default and
 //     publishes the temporary stored-fields format that
 //     SortingStoredFieldsConsumer uses for in-RAM reordering.
 //
-// The package will be deleted entirely once rmp #4706 (SegmentInfos
-// lift) and rmp #4707 (KnnVectorsFormat lift) close.
+// The package will be deleted entirely once rmp #4707
+// (KnnVectorsFormat lift) closes.
 //
 // # Usage
 //
@@ -80,11 +80,10 @@ func init() {
 // BridgeForLucene104 returns an index.Codec that delegates to the
 // production Lucene104Codec defined in package codecs.
 //
-// After SPI unification (rmp #4693) the inner codecs.Codec already
-// satisfies the bulk of spi.Codec directly. The bridge only needs to
-// add the two index-side-only accessors (SegmentInfosFormat, the
-// plural segments_N, and KnnVectorsFormat via its factory abstraction)
-// that remain on the deferred path to rmp #4706 / #4707.
+// After SPI unification (rmp #4693 / #4706) the inner codecs.Codec
+// already satisfies spi.Codec directly. The bridge only needs to add
+// the one remaining index-side-only accessor (KnnVectorsFormat via its
+// factory abstraction) that stays on the deferred path to rmp #4707.
 func BridgeForLucene104() index.Codec {
 	return NewBridge(codecs.NewLucene104Codec())
 }
@@ -98,9 +97,9 @@ func NewBridge(c codecs.Codec) index.Codec {
 }
 
 // bridgeCodec embeds the unified spi.Codec surface (which codecs.Codec
-// already satisfies thanks to the SPI unification) and adds the two
-// accessors that remain on the index-side-only surface pending rmp
-// #4706 and rmp #4707.
+// already satisfies thanks to the SPI unification) and adds the one
+// accessor that remains on the index-side-only surface pending
+// rmp #4707.
 type bridgeCodec struct {
 	inner codecs.Codec
 }
@@ -117,20 +116,13 @@ func (b *bridgeCodec) FieldInfosFormat() index.FieldInfosFormat { return b.inner
 func (b *bridgeCodec) SegmentInfoFormat() index.SegmentInfoFormat {
 	return b.inner.SegmentInfoFormat()
 }
+func (b *bridgeCodec) SegmentInfosFormat() index.SegmentInfosFormat {
+	return b.inner.SegmentInfosFormat()
+}
 func (b *bridgeCodec) TermVectorsFormat() index.TermVectorsFormat {
 	return b.inner.TermVectorsFormat()
 }
 func (b *bridgeCodec) CompoundFormat() index.CompoundFormat { return b.inner.CompoundFormat() }
-
-// SegmentInfosFormat is the only Codec accessor that still needs an
-// adapter: the codecs side (codecs.SegmentInfosFormat) has a different
-// Read/Write signature (no IOContext) from the index side
-// (index.SegmentInfosFormat, IOContext-carrying). TODO(T4706): once
-// the index/ surface adopts the Lucene-faithful no-IOContext signature
-// this adapter goes away.
-func (b *bridgeCodec) SegmentInfosFormat() index.SegmentInfosFormat {
-	return &segmentInfosFormatAdapter{inner: b.inner.SegmentInfosFormat()}
-}
 
 // knnVectorsFormatProvider is an optional interface satisfied by codecs
 // (such as Lucene104Codec) that expose a KNN vectors format. The
