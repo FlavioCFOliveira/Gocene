@@ -218,7 +218,10 @@ func TestNormalSquaredRoundTrip(t *testing.T) {
 
 func TestMakeGeoCircleReturnType(t *testing.T) {
 	pm := geom.SPHERE
-	c := geom.MakeGeoCircle(pm, 0, 0, 0.5)
+	c, err := geom.MakeGeoCircle(pm, 0, 0, 0.5)
+	if err != nil {
+		t.Fatalf("MakeGeoCircle: %v", err)
+	}
 	if c == nil {
 		t.Fatal("MakeGeoCircle must not return nil")
 	}
@@ -226,7 +229,10 @@ func TestMakeGeoCircleReturnType(t *testing.T) {
 
 func TestMakeGeoCircleDegenerateReturnsPoint(t *testing.T) {
 	pm := geom.SPHERE
-	c := geom.MakeGeoCircle(pm, 0, 0, 0) // cutoffAngle=0 → degenerate
+	c, err := geom.MakeGeoCircle(pm, 0, 0, 0) // cutoffAngle=0 → degenerate
+	if err != nil {
+		t.Fatalf("MakeGeoCircle degenerate: %v", err)
+	}
 	if c == nil {
 		t.Fatal("degenerate circle must not return nil")
 	}
@@ -235,22 +241,42 @@ func TestMakeGeoCircleDegenerateReturnsPoint(t *testing.T) {
 func TestMakeGeoBBoxWorld(t *testing.T) {
 	pm := geom.SPHERE
 	half := math.Pi * 0.5
-	b := geom.MakeGeoBBox(pm, half, -half, -math.Pi, math.Pi)
+	b, err := geom.MakeGeoBBox(pm, half, -half, -math.Pi, math.Pi)
+	if err != nil {
+		t.Fatalf("MakeGeoBBox world: %v", err)
+	}
 	if b == nil {
 		t.Fatal("MakeGeoBBox world must not return nil")
 	}
 }
 
-func TestMakeGeoPolygon(t *testing.T) {
+func TestMakeGeoConvexPolygonFactory(t *testing.T) {
 	pm := geom.SPHERE
 	pts := []*geom.GeoPoint{
-		geom.NewGeoPointLatLon(pm, 0, 0),
-		geom.NewGeoPointLatLon(pm, 0, 0.1),
-		geom.NewGeoPointLatLon(pm, 0.1, 0.1),
+		geom.NewGeoPointModel(pm, 0, 0),
+		geom.NewGeoPointModel(pm, 0, 0.1),
+		geom.NewGeoPointModel(pm, 0.1, 0.1),
 	}
-	p := geom.MakeGeoPolygon(pm, pts)
+	p, err := geom.MakeGeoConvexPolygon(pm, pts)
+	if err != nil {
+		t.Fatalf("MakeGeoConvexPolygon: %v", err)
+	}
 	if p == nil {
-		t.Fatal("MakeGeoPolygon must not return nil")
+		t.Fatal("MakeGeoConvexPolygon must not return nil")
+	}
+}
+
+// TestMakeGeoPolygonGeneralUnsupported documents that the winding-order
+// factory is not yet ported and surfaces an explicit error.
+func TestMakeGeoPolygonGeneralUnsupported(t *testing.T) {
+	pm := geom.SPHERE
+	pts := []*geom.GeoPoint{
+		geom.NewGeoPointModel(pm, 0, 0),
+		geom.NewGeoPointModel(pm, 0, 0.1),
+		geom.NewGeoPointModel(pm, 0.1, 0.1),
+	}
+	if _, err := geom.MakeGeoPolygon(pm, pts); err == nil {
+		t.Fatal("expected unsupported error from general MakeGeoPolygon")
 	}
 }
 
@@ -325,7 +351,10 @@ func TestGeoWorldIsWithin(t *testing.T) {
 
 func TestGeoWorldGetRelationship(t *testing.T) {
 	pm := geom.SPHERE
-	w := geom.MakeGeoBBox(pm, math.Pi*0.5, -math.Pi*0.5, -math.Pi, math.Pi)
+	w, err := geom.MakeGeoBBox(pm, math.Pi*0.5, -math.Pi*0.5, -math.Pi, math.Pi)
+	if err != nil {
+		t.Fatalf("MakeGeoBBox world: %v", err)
+	}
 	if r := w.GetRelationship(nil); r != geom.RelContains {
 		t.Fatalf("GeoWorld relationship: want RelContains(%d), got %d", geom.RelContains, r)
 	}

@@ -4,7 +4,10 @@
 
 package geom
 
-import "math"
+import (
+	"fmt"
+	"math"
+)
 
 // ---------------------------------------------------------------------------
 // Internal construction helpers — avoid repetitive deep struct literals.
@@ -44,10 +47,27 @@ func makePath(pm *PlanetModel, cutoffAngle float64) GeoBasePath {
 // Port of org.apache.lucene.spatial3d.geom.GeoBBoxFactory.
 // ---------------------------------------------------------------------------
 
+// minWideExtent is the longitude span at or above which a rectangle is "wide".
+//
+// Port of GeoWideRectangle.MIN_WIDE_EXTENT.
+const minWideExtent = math.Pi - MinimumAngularResolution
+
+// errBBoxVariantUnsupported marks a GeoBBox sub-shape whose full implementation
+// has not yet been ported (wide rectangles, latitude/longitude zones,
+// degenerate lines). Their isWithin/getBounds engine is deferred so the factory
+// reports a clear error rather than returning a silently non-matching stub.
+var errBBoxVariantUnsupported = fmt.Errorf("geom: this GeoBBox variant is not yet implemented in Gocene")
+
 // MakeGeoBBox creates the appropriate GeoBBox for the given lat/lon bounds.
 //
+// The standard rectangle case (extent < PI, not pole-touching, not a full
+// longitude band) plus the whole-world and degenerate-point cases are fully
+// implemented. The wide-rectangle, latitude-zone, longitude-slice and
+// degenerate-line variants are not yet ported and return
+// errBBoxVariantUnsupported.
+//
 // Port of org.apache.lucene.spatial3d.geom.GeoBBoxFactory.makeGeoBBox.
-func MakeGeoBBox(pm *PlanetModel, topLat, bottomLat, leftLon, rightLon float64) GeoBBox {
+func MakeGeoBBox(pm *PlanetModel, topLat, bottomLat, leftLon, rightLon float64) (GeoBBox, error) {
 	halfPI := math.Pi * 0.5
 	if topLat > halfPI {
 		topLat = halfPI
@@ -61,31 +81,70 @@ func MakeGeoBBox(pm *PlanetModel, topLat, bottomLat, leftLon, rightLon float64) 
 	if rightLon > math.Pi {
 		rightLon = math.Pi
 	}
-	lonFull := longitudesEqual(leftLon, -math.Pi) && longitudesEqual(rightLon, math.Pi) ||
-		longitudesEqual(rightLon, -math.Pi) && longitudesEqual(leftLon, math.Pi)
-	if lonFull {
+	if (longitudesEqual(leftLon, -math.Pi) && longitudesEqual(rightLon, math.Pi)) ||
+		(longitudesEqual(rightLon, -math.Pi) && longitudesEqual(leftLon, math.Pi)) {
 		if isNorthPole(topLat) && isSouthPole(bottomLat) {
-			return &GeoWorld{GeoBaseBBox: makeBBox(pm)}
+			return &GeoWorld{GeoBaseBBox: makeBBox(pm)}, nil
 		}
 		if latitudesEqual(topLat, bottomLat) {
-			return &GeoDegenerateLatitudeZone{GeoBaseBBox: makeBBox(pm)}
+			if isNorthPole(topLat) {
+				return NewGeoDegeneratePoint(pm, NewGeoPointModel(pm, topLat, 0.0)), nil
+			}
+			if isSouthPole(bottomLat) {
+				return NewGeoDegeneratePoint(pm, NewGeoPointModel(pm, bottomLat, 0.0)), nil
+			}
 		}
+		// Latitude-zone variants not yet ported.
+		return nil, errBBoxVariantUnsupported
+	}
+	extent := rightLon - leftLon
+	if extent < 0.0 {
+		extent += math.Pi * 2.0
+	}
+	if isNorthPole(topLat) && isSouthPole(bottomLat) {
+		// Longitude-slice variants not yet ported.
+		return nil, errBBoxVariantUnsupported
+	}
+	if longitudesEqual(leftLon, rightLon) {
+		if latitudesEqual(topLat, bottomLat) {
+			return NewGeoDegeneratePoint(pm, NewGeoPointModel(pm, topLat, leftLon)), nil
+		}
+		// Degenerate vertical line not yet ported.
+		return nil, errBBoxVariantUnsupported
+	}
+	if extent >= minWideExtent {
+		// Wide-rectangle variants not yet ported.
+		return nil, errBBoxVariantUnsupported
+	}
+	if latitudesEqual(topLat, bottomLat) {
 		if isNorthPole(topLat) {
-			return &GeoNorthLatitudeZone{GeoBaseBBox: makeBBox(pm)}
+			return NewGeoDegeneratePoint(pm, NewGeoPointModel(pm, topLat, 0.0)), nil
 		}
 		if isSouthPole(bottomLat) {
-			return &GeoSouthLatitudeZone{GeoBaseBBox: makeBBox(pm)}
+			return NewGeoDegeneratePoint(pm, NewGeoPointModel(pm, bottomLat, 0.0)), nil
 		}
-		return &GeoLatitudeZone{GeoBaseBBox: makeBBox(pm)}
+		// Degenerate horizontal line not yet ported.
+		return nil, errBBoxVariantUnsupported
 	}
-	// Remaining branching deferred to #2693; return a stub GeoRectangle.
-	return &GeoRectangle{GeoBaseBBox: makeBBox(pm)}
+	if isNorthPole(topLat) || isSouthPole(bottomLat) {
+		// North/south rectangle variants not yet ported.
+		return nil, errBBoxVariantUnsupported
+	}
+	return NewGeoRectangle(pm, topLat, bottomLat, leftLon, rightLon)
 }
 
-func longitudesEqual(a, b float64) bool { return math.Abs(a-b) < MinimumResolution }
-func latitudesEqual(a, b float64) bool  { return math.Abs(a-b) < MinimumResolution }
-func isNorthPole(lat float64) bool      { return math.Abs(lat-math.Pi*0.5) < MinimumResolution }
-func isSouthPole(lat float64) bool      { return math.Abs(lat+math.Pi*0.5) < MinimumResolution }
+// longitudesEqual matches GeoBBoxFactory.longitudesEquals.
+func longitudesEqual(a, b float64) bool { return math.Abs(a-b) < MinimumAngularResolution }
+
+// latitudesEqual matches GeoBBoxFactory.latitudesEquals: equal angle or equal
+// sin (to catch latitudes describing the same plane).
+func latitudesEqual(a, b float64) bool {
+	return math.Abs(a-b) < MinimumAngularResolution ||
+		math.Abs(math.Sin(a)-math.Sin(b)) < MinimumResolution
+}
+
+func isNorthPole(lat float64) bool { return latitudesEqual(lat, math.Pi*0.5) }
+func isSouthPole(lat float64) bool { return latitudesEqual(lat, -math.Pi*0.5) }
 
 // ---------------------------------------------------------------------------
 // GeoCircleFactory
@@ -94,16 +153,14 @@ func isSouthPole(lat float64) bool      { return math.Abs(lat+math.Pi*0.5) < Min
 // ---------------------------------------------------------------------------
 
 // MakeGeoCircle creates a GeoCircle from a center lat/lon and cutoff angle.
+// A cutoff angle below the minimum angular resolution yields a degenerate point.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoCircleFactory.makeGeoCircle.
-func MakeGeoCircle(pm *PlanetModel, latitude, longitude, cutoffAngle float64) GeoCircle {
+func MakeGeoCircle(pm *PlanetModel, latitude, longitude, cutoffAngle float64) (GeoCircle, error) {
 	if cutoffAngle < MinimumAngularResolution {
-		return &GeoDegeneratePoint{
-			GeoBaseBBox: makeBBox(pm),
-			point:       NewGeoPointLatLon(pm, latitude, longitude),
-		}
+		return NewGeoDegeneratePoint(pm, NewGeoPointModel(pm, latitude, longitude)), nil
 	}
-	return &GeoStandardCircle{GeoBaseCircle: makeCircle(pm, cutoffAngle)}
+	return NewGeoStandardCircle(pm, latitude, longitude, cutoffAngle)
 }
 
 // MakeGeoExactCircle creates a GeoExactCircle from a center lat/lon, radius (in metres),
@@ -135,26 +192,56 @@ func MakeGeoPath(pm *PlanetModel, cutoffAngle float64, _ []*GeoPoint) GeoPath {
 // Full polygon-building algorithm deferred to #2693.
 // ---------------------------------------------------------------------------
 
-// MakeGeoPolygon creates a GeoPolygon from a list of GeoPoints.
-//
-// Port of org.apache.lucene.spatial3d.geom.GeoPolygonFactory.makeGeoPolygon.
-func MakeGeoPolygon(pm *PlanetModel, _ []*GeoPoint) GeoPolygon {
-	return &GeoConvexPolygon{GeoBasePolygon: makePolygon(pm)}
-}
-
-// MakeGeoConcavePolygon creates a GeoConcavePolygon.
-//
-// Port of org.apache.lucene.spatial3d.geom.GeoPolygonFactory.makeGeoConcavePolygon.
-func MakeGeoConcavePolygon(pm *PlanetModel, _ []*GeoPoint) GeoPolygon {
-	return &GeoConcavePolygon{GeoBasePolygon: makePolygon(pm)}
-}
-
-// MakeGeoConvexPolygon creates a GeoConvexPolygon.
+// MakeGeoConvexPolygon creates a GeoConvexPolygon from an ordered point list,
+// chosen so that any point adjacent to a segment provides an interior
+// measurement. Use this only when the polygon is known to be convex with an
+// extent no larger than PI.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoPolygonFactory.makeGeoConvexPolygon.
-func MakeGeoConvexPolygon(pm *PlanetModel, _ []*GeoPoint) GeoPolygon {
-	return &GeoConvexPolygon{GeoBasePolygon: makePolygon(pm)}
+func MakeGeoConvexPolygon(pm *PlanetModel, pointList []*GeoPoint) (GeoPolygon, error) {
+	return NewGeoConvexPolygon(pm, pointList, nil)
 }
+
+// MakeGeoConvexPolygonWithHoles is the holes-aware form of MakeGeoConvexPolygon.
+//
+// Port of GeoPolygonFactory.makeGeoConvexPolygon(PlanetModel,List,List).
+func MakeGeoConvexPolygonWithHoles(pm *PlanetModel, pointList []*GeoPoint, holes []GeoPolygon) (GeoPolygon, error) {
+	return NewGeoConvexPolygon(pm, pointList, holes)
+}
+
+// MakeGeoConcavePolygon creates a GeoConcavePolygon from an ordered point list,
+// chosen so that any point adjacent to a segment provides an exterior
+// measurement. Use this only when the polygon is known to be concave with an
+// extent larger than PI.
+//
+// Port of org.apache.lucene.spatial3d.geom.GeoPolygonFactory.makeGeoConcavePolygon.
+func MakeGeoConcavePolygon(pm *PlanetModel, pointList []*GeoPoint) (GeoPolygon, error) {
+	return NewGeoConcavePolygon(pm, pointList, nil)
+}
+
+// MakeGeoConcavePolygonWithHoles is the holes-aware form of MakeGeoConcavePolygon.
+//
+// Port of GeoPolygonFactory.makeGeoConcavePolygon(PlanetModel,List,List).
+func MakeGeoConcavePolygonWithHoles(pm *PlanetModel, pointList []*GeoPoint, holes []GeoPolygon) (GeoPolygon, error) {
+	return NewGeoConcavePolygon(pm, pointList, holes)
+}
+
+// MakeGeoPolygon creates a GeoPolygon from a list of GeoPoints, using winding
+// order to decide siding.
+//
+// The general orientation-aware factory (GeoPolygonFactory.makeGeoPolygon),
+// which tiles arbitrary, possibly self-spanning polygons, is not yet ported and
+// returns errPolygonFactoryUnsupported. Callers that know their polygon is
+// convex or concave should use MakeGeoConvexPolygon / MakeGeoConcavePolygon.
+//
+// Port of org.apache.lucene.spatial3d.geom.GeoPolygonFactory.makeGeoPolygon.
+func MakeGeoPolygon(_ *PlanetModel, _ []*GeoPoint) (GeoPolygon, error) {
+	return nil, errPolygonFactoryUnsupported
+}
+
+// errPolygonFactoryUnsupported marks the general winding-order polygon factory
+// as not yet ported.
+var errPolygonFactoryUnsupported = fmt.Errorf("geom: GeoPolygonFactory.makeGeoPolygon (winding-order tiling) is not yet implemented in Gocene; use MakeGeoConvexPolygon or MakeGeoConcavePolygon")
 
 // ---------------------------------------------------------------------------
 // GeoAreaFactory — stub

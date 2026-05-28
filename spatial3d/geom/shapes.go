@@ -11,10 +11,29 @@ package geom
 // Bounding-box shapes
 // ---------------------------------------------------------------------------
 
-// GeoRectangle is an axis-aligned rectangle on the sphere.
+// GeoRectangle is a bounding box limited on four sides (top/bottom latitude,
+// left/right longitude). Its left-right extent must be at most PI.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoRectangle.
-type GeoRectangle struct{ GeoBaseBBox }
+type GeoRectangle struct {
+	GeoBaseBBox
+	topLat, bottomLat   float64
+	leftLon, rightLon   float64
+	cosMiddleLat        float64
+	ulhc, urhc          *GeoPoint // upper-left, upper-right hand corners
+	lrhc, llhc          *GeoPoint // lower-right, lower-left hand corners
+	topPlane            *SidedPlane
+	bottomPlane         *SidedPlane
+	leftPlane           *SidedPlane
+	rightPlane          *SidedPlane
+	backingPlane        *SidedPlane
+	topPlanePoints      []*GeoPoint
+	bottomPlanePoints   []*GeoPoint
+	leftPlanePoints     []*GeoPoint
+	rightPlanePoints    []*GeoPoint
+	centerPoint         *GeoPoint
+	rectangleEdgePoints []*GeoPoint
+}
 
 // GeoNorthRectangle is a rectangle extending to the north pole.
 //
@@ -112,14 +131,28 @@ type GeoDegeneratePoint struct {
 	point *GeoPoint
 }
 
+// NewGeoDegeneratePoint constructs a degenerate point shape at the given point.
+//
+// Port of org.apache.lucene.spatial3d.geom.GeoDegeneratePoint(PlanetModel,GeoPoint).
+func NewGeoDegeneratePoint(pm *PlanetModel, point *GeoPoint) *GeoDegeneratePoint {
+	return &GeoDegeneratePoint{GeoBaseBBox: makeBBox(pm), point: point}
+}
+
 // GetPoint returns the underlying point.
 func (p *GeoDegeneratePoint) GetPoint() *GeoPoint { return p.point }
+
+// GetCenter returns the underlying point.
+func (p *GeoDegeneratePoint) GetCenter() *GeoPoint { return p.point }
 
 // GetRadius returns 0 — a point has zero radius.
 func (p *GeoDegeneratePoint) GetRadius() float64 { return 0 }
 
-// IsWithin reports whether (x,y,z) is at this point — deferred to #2693.
-func (p *GeoDegeneratePoint) IsWithin(_, _, _ float64) bool { return false }
+// IsWithin reports whether (x,y,z) is numerically identical to this point.
+//
+// Port of GeoDegeneratePoint.isWithin.
+func (p *GeoDegeneratePoint) IsWithin(x, y, z float64) bool {
+	return p.point.IsNumericallyIdentical(x, y, z)
+}
 
 // GetEdgePoints returns the sole edge point.
 func (p *GeoDegeneratePoint) GetEdgePoints() []*GeoPoint {
@@ -129,17 +162,30 @@ func (p *GeoDegeneratePoint) GetEdgePoints() []*GeoPoint {
 	return []*GeoPoint{p.point}
 }
 
-// GetRelationship returns RelDisjoint — deferred to #2693.
-func (p *GeoDegeneratePoint) GetRelationship(_ GeoShape) int { return RelDisjoint }
+// GetBounds accumulates the single point.
+//
+// Port of GeoDegeneratePoint.getBounds.
+func (p *GeoDegeneratePoint) GetBounds(bounds Bounds) {
+	geoBaseGetBounds(p, p.PlanetModelField, bounds)
+	bounds.AddPoint(p.point)
+}
 
 // ---------------------------------------------------------------------------
 // Circles
 // ---------------------------------------------------------------------------
 
-// GeoStandardCircle is a standard circle on the sphere.
+// GeoStandardCircle is a standard circle on the sphere (an ellipse on a
+// non-spherical world): the set of points cut off by a single sided plane at a
+// fixed cutoff angle from the centre.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoStandardCircle.
-type GeoStandardCircle struct{ GeoBaseCircle }
+type GeoStandardCircle struct {
+	GeoBaseCircle
+	center      *GeoPoint
+	cutoffAngle float64
+	circlePlane *SidedPlane // nil means the whole world
+	edgePoints  []*GeoPoint
+}
 
 // GeoExactCircle is a circle that exactly traces the sphere surface.
 //
@@ -150,15 +196,43 @@ type GeoExactCircle struct{ GeoBaseCircle }
 // Polygons
 // ---------------------------------------------------------------------------
 
-// GeoConvexPolygon is a convex polygon on the sphere.
+// GeoConvexPolygon is a convex polygon on the sphere. It must be convex with a
+// maximum extent no larger than PI; a point is inside when it is on the inside
+// of every edge plane.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoConvexPolygon.
-type GeoConvexPolygon struct{ GeoBasePolygon }
+type GeoConvexPolygon struct {
+	GeoBasePolygon
+	points          []*GeoPoint
+	isInternalEdges []bool
+	holes           []GeoPolygon
+	edges           []*SidedPlane
+	startBounds     []*SidedPlane
+	endBounds       []*SidedPlane
+	notableEdgePts  [][]*GeoPoint
+	edgePoints      []*GeoPoint
+	prevBrotherMap  map[*SidedPlane]*SidedPlane
+	nextBrotherMap  map[*SidedPlane]*SidedPlane
+}
 
-// GeoConcavePolygon is a concave polygon on the sphere.
+// GeoConcavePolygon is a concave polygon on the sphere (extent larger than PI).
+// A point is inside when it is on the inside of *any* edge plane.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoConcavePolygon.
-type GeoConcavePolygon struct{ GeoBasePolygon }
+type GeoConcavePolygon struct {
+	GeoBasePolygon
+	points          []*GeoPoint
+	isInternalEdges []bool
+	holes           []GeoPolygon
+	edges           []*SidedPlane
+	invertedEdges   []*SidedPlane
+	startBounds     []*SidedPlane
+	endBounds       []*SidedPlane
+	notableEdgePts  [][]*GeoPoint
+	edgePoints      []*GeoPoint
+	prevBrotherMap  map[*SidedPlane]*SidedPlane
+	nextBrotherMap  map[*SidedPlane]*SidedPlane
+}
 
 // GeoCompositePolygon is a composite polygon made of multiple sub-polygons.
 //
