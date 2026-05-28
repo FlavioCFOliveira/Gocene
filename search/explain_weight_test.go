@@ -212,3 +212,31 @@ func TestBooleanWeight_Explain_MustNot(t *testing.T) {
 	exp, err = weight.Explain(leaf, 1)
 	assertExplainMatchesScore(t, exp, err, want)
 }
+
+// TestPhraseWeight_Explain verifies PhraseWeight.Explain produces a match whose
+// value equals the scored value for a document containing the exact phrase, and
+// a non-match for a document where the terms do not form the phrase.
+func TestPhraseWeight_Explain(t *testing.T) {
+	// Docs: 0:"quick brown fox" 1:"brown quick fox" 2:"lazy dog"
+	searcher, leaf := explainTestIndex(t, []string{"quick brown fox", "brown quick fox", "lazy dog"})
+
+	query := search.NewPhraseQuery("field",
+		index.NewTerm("field", "quick"), index.NewTerm("field", "brown"))
+	weight, err := query.CreateWeight(searcher, true, 1.0)
+	if err != nil {
+		t.Fatalf("CreateWeight: %v", err)
+	}
+
+	// Doc 0 contains "quick brown" as an adjacent phrase.
+	want := scoreOfDoc(t, searcher, query, 0)
+	exp, err := weight.Explain(leaf, 0)
+	assertExplainMatchesScore(t, exp, err, want)
+
+	// Doc 1 has both terms but not in phrase order -> non-match.
+	exp, err = weight.Explain(leaf, 1)
+	assertExplainNoMatch(t, exp, err)
+
+	// Doc 2 has neither term -> non-match.
+	exp, err = weight.Explain(leaf, 2)
+	assertExplainNoMatch(t, exp, err)
+}

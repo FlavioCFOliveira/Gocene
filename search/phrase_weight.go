@@ -5,6 +5,7 @@
 package search
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -134,9 +135,65 @@ func (w *PhraseWeight) ScorerSupplier(context *index.LeafReaderContext) (ScorerS
 	return NewScorerSupplierAdapter(scorer), nil
 }
 
+// phraseFreqScorer is implemented by phrase scorers that expose their cached
+// per-document phrase frequency for explanation purposes.
+type phraseFreqScorer interface {
+	PhraseFreq() float32
+}
+
 // Explain returns an explanation of the score for the given document.
+//
+// It ports org.apache.lucene.search.PhraseWeight.explain: pull a Scorer and
+// advance to doc; on a hit return "weight(<query> in <doc>) [<sim>], result
+// of:" whose value equals the live scorer score, carrying a phraseFreq
+// sub-explanation; otherwise "no matching terms".
+//
+// Divergence from Lucene 10.4.0: the legacy [SimScorer] surface used by this
+// Weight has no Explain104, so the value is taken from the live Scorer
+// (preserving value==score) instead of being re-derived through a
+// SimScorer.explain call, and norms are not consulted (the legacy scoring path
+// does not apply them).
 func (w *PhraseWeight) Explain(context *index.LeafReaderContext, doc int) (Explanation, error) {
-	return NewExplanation(false, 0, "PhraseWeight explanation not implemented"), nil
+	scorer, err := w.Scorer(context)
+	if err != nil {
+		return nil, err
+	}
+	if scorer != nil {
+		advanced, err := scorer.Advance(doc)
+		if err != nil {
+			return nil, err
+		}
+		if advanced == doc {
+			score := scorer.Score()
+
+			var freq float32
+			if pfs, ok := scorer.(phraseFreqScorer); ok {
+				freq = pfs.PhraseFreq()
+			}
+			scoreExpl := MatchExplanation(score, "score(phraseFreq), product of:")
+			scoreExpl.AddDetail(MatchExplanation(freq, fmt.Sprintf("phraseFreq=%v", freq)))
+
+			desc := fmt.Sprintf("weight(%s in %d) [%s], result of:",
+				w.GetQuery(), doc, w.similarityName())
+			result := MatchExplanation(score, desc)
+			result.AddDetail(scoreExpl)
+			return result, nil
+		}
+	}
+	return NoMatchExplanation("no matching terms"), nil
+}
+
+// similarityName returns the descriptive name of the similarity backing this
+// weight for use in explanations, mirroring the
+// similarity.getClass().getSimpleName() fragment Lucene embeds.
+func (w *PhraseWeight) similarityName() string {
+	if w.similarity == nil {
+		return "Similarity"
+	}
+	if s, ok := w.similarity.(interface{ String() string }); ok {
+		return s.String()
+	}
+	return "Similarity"
 }
 
 // BulkScorer creates a bulk scorer for efficient bulk scoring.
@@ -350,6 +407,13 @@ func (s *PhraseScorer) Score() float32 {
 // GetMaxScore returns the maximum score for documents up to the given doc.
 func (s *PhraseScorer) GetMaxScore(upTo int) float32 {
 	return 1.0
+}
+
+// PhraseFreq returns the phrase frequency cached for the current document,
+// mirroring the freq fed to the SimScorer in Lucene's PhraseScorer. It is used
+// by PhraseWeight.Explain to build the phraseFreq sub-explanation.
+func (s *PhraseScorer) PhraseFreq() float32 {
+	return float32(s.cachedFreq)
 }
 
 // Ensure PhraseScorer implements Scorer
@@ -590,6 +654,14 @@ func (s *SloppyPhraseScorer) Score() float32 {
 // GetMaxScore returns the maximum score for documents up to the given doc.
 func (s *SloppyPhraseScorer) GetMaxScore(upTo int) float32 {
 	return 1.0
+}
+
+// PhraseFreq returns the slop-weighted phrase frequency cached for the current
+// document, mirroring the freq fed to the SimScorer in Lucene's
+// SloppyPhraseScorer. It is used by PhraseWeight.Explain to build the
+// phraseFreq sub-explanation.
+func (s *SloppyPhraseScorer) PhraseFreq() float32 {
+	return s.cachedFreq
 }
 
 // Ensure SloppyPhraseScorer implements Scorer
