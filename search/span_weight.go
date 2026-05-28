@@ -4,7 +4,11 @@
 
 package search
 
-import "github.com/FlavioCFOliveira/Gocene/index"
+import (
+	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+)
 
 // GC-1003: SpanWeight implementation
 // SpanWeight manages scoring, term state extraction, and Spans access.
@@ -78,9 +82,22 @@ func (sw *SpanWeight) ScorerSupplier(context *index.LeafReaderContext) (ScorerSu
 	return NewScorerSupplierAdapter(scorer), nil
 }
 
-// Explain returns an explanation of the score for the given document.
+// Explain returns an explanation of the score for the given document. Like the
+// other weights it drives the explanation off the same Scorer the search path
+// uses (scorerMatch), so the explained value equals the scored value. Note that
+// span scoring itself is still a placeholder in this port (SpanWeight.Scorer
+// builds an empty Spans), so this currently reports no-match for every document;
+// it will produce real match explanations once span scoring is implemented (see
+// the SpanScorer / Spans-population follow-up task).
 func (sw *SpanWeight) Explain(context *index.LeafReaderContext, doc int) (Explanation, error) {
-	return NewExplanation(false, 0, "SpanWeight explanation not implemented"), nil
+	matched, score, err := scorerMatch(sw, context, doc)
+	if err != nil {
+		return nil, err
+	}
+	if matched {
+		return MatchExplanation(score, fmt.Sprintf("weight(%v in doc %d)", sw.SpanQuery, doc)), nil
+	}
+	return NoMatchExplanation(fmt.Sprintf("no matching spans for %v in doc %d", sw.SpanQuery, doc)), nil
 }
 
 // BulkScorer creates a bulk scorer for efficient bulk scoring.

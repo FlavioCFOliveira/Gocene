@@ -5,6 +5,7 @@
 package search
 
 import (
+	"fmt"
 	"math"
 	"sort"
 	"strconv"
@@ -231,9 +232,21 @@ func (w *SynonymWeight) ScorerSupplier(context *index.LeafReaderContext) (Scorer
 	return nil, nil
 }
 
-// Explain returns an explanation of the score for the given document.
+// Explain returns an explanation of the score for the given document. It drives
+// the explanation off the same Scorer the search path uses (scorerMatch) so the
+// explained value equals the scored value. Note that SynonymWeight.Scorer is
+// still a placeholder in this port (returns nil), so this currently reports
+// no-match for every document; it will produce real match explanations once a
+// SynonymScorer is implemented (see the synonym-scoring follow-up task).
 func (w *SynonymWeight) Explain(context *index.LeafReaderContext, doc int) (Explanation, error) {
-	return NewExplanation(false, 0, "SynonymWeight explanation not implemented"), nil
+	matched, score, err := scorerMatch(w, context, doc)
+	if err != nil {
+		return nil, err
+	}
+	if matched {
+		return MatchExplanation(score, fmt.Sprintf("weight(%v in doc %d)", w.GetQuery(), doc)), nil
+	}
+	return NoMatchExplanation(fmt.Sprintf("no matching terms for %v in doc %d", w.GetQuery(), doc)), nil
 }
 
 // BulkScorer creates a bulk scorer for efficient bulk scoring.

@@ -266,3 +266,39 @@ func TestRegexpWeight_Explain(t *testing.T) {
 	exp, err = weight.Explain(leaf, 2)
 	assertExplainNoMatch(t, exp, err)
 }
+
+// TestSynonymWeight_Explain_NoMatch verifies SynonymWeight.Explain is a faithful
+// Explanation (not the old "not implemented" stub). Synonym scoring is still a
+// placeholder in this port (SynonymWeight.Scorer returns nil), so every doc is a
+// no-match; the test asserts a real no-match Explanation rather than an error.
+func TestSynonymWeight_Explain_NoMatch(t *testing.T) {
+	searcher, leaf := explainTestIndex(t, []string{"apple", "banana"})
+
+	query := search.NewSynonymQueryBuilder("field").
+		AddTerm(index.NewTerm("field", "apple")).
+		Build()
+	weight, err := query.CreateWeight(searcher, false, 1.0)
+	if err != nil {
+		t.Fatalf("CreateWeight: %v", err)
+	}
+
+	exp, err := weight.Explain(leaf, 0)
+	assertExplainNoMatch(t, exp, err)
+}
+
+// TestSpanWeight_Explain_NoMatch verifies SpanWeight.Explain is a faithful
+// Explanation. Span scoring is still a placeholder (SpanWeight.Scorer builds an
+// empty Spans), so every doc is a no-match; the test asserts a real no-match
+// Explanation rather than the old "not implemented" stub.
+func TestSpanWeight_Explain_NoMatch(t *testing.T) {
+	searcher, leaf := explainTestIndex(t, []string{"apple", "banana"})
+
+	query := search.NewSpanTermQuery(index.NewTerm("field", "apple"))
+	weight, err := query.CreateWeight(searcher, false, 1.0)
+	if err != nil {
+		t.Fatalf("CreateWeight: %v", err)
+	}
+
+	exp, err := weight.Explain(leaf, 0)
+	assertExplainNoMatch(t, exp, err)
+}
