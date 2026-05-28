@@ -539,3 +539,79 @@ func TestMMapDirectory_Closed(t *testing.T) {
 		t.Error("OpenInput() expected error on closed directory")
 	}
 }
+
+// TestMMapDirectory_CreateOutputReusesDelegate verifies the resource-leak fix
+// from rmp #4727: every CreateOutput call must reuse a single backing
+// SimpleFSDirectory rather than allocating a fresh one per call. The shared
+// delegate is asserted both by pointer identity and by file-tracking
+// consistency (one openFiles map sees every output handle).
+func TestMMapDirectory_CreateOutputReusesDelegate(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "gocene_mmap_test_*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	dir, err := NewMMapDirectory(tempDir)
+	if err != nil {
+		t.Fatalf("failed to create MMapDirectory: %v", err)
+	}
+
+	if dir.writeDelegate != nil {
+		t.Fatal("writeDelegate should be nil before the first CreateOutput call")
+	}
+
+	ctx := IOContextWrite
+
+	out1, err := dir.CreateOutput("file1", ctx)
+	if err != nil {
+		t.Fatalf("first CreateOutput() error = %v", err)
+	}
+	firstDelegate := dir.writeDelegate
+	if firstDelegate == nil {
+		t.Fatal("writeDelegate should be cached after the first CreateOutput call")
+	}
+
+	out2, err := dir.CreateOutput("file2", ctx)
+	if err != nil {
+		t.Fatalf("second CreateOutput() error = %v", err)
+	}
+
+	// The backing directory must be the very same instance across calls.
+	if dir.writeDelegate != firstDelegate {
+		t.Error("CreateOutput allocated a new SimpleFSDirectory instead of reusing the cached one")
+	}
+
+	// A single openFiles map must track both output handles, proving the file
+	// tracking is consistent across calls.
+	openFiles := firstDelegate.GetOpenFiles()
+	for _, name := range []string{"file1", "file2"} {
+		if _, ok := openFiles[name]; !ok {
+			t.Errorf("cached delegate is not tracking %q; openFiles=%v", name, openFiles)
+		}
+	}
+
+	if err := out1.Close(); err != nil {
+		t.Errorf("out1.Close() error = %v", err)
+	}
+	if err := out2.Close(); err != nil {
+		t.Errorf("out2.Close() error = %v", err)
+	}
+
+	// Closing the MMapDirectory must close and release the cached delegate.
+	if err := dir.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if firstDelegate.IsOpen() {
+		t.Error("cached delegate should be closed after MMapDirectory.Close()")
+	}
+	if dir.writeDelegate != nil {
+		t.Error("writeDelegate should be cleared after Close()")
+	}
+
+	// CreateOutput on a closed directory must fail rather than silently
+	// re-creating a delegate.
+	if _, err := dir.CreateOutput("file3", ctx); err == nil {
+		t.Error("CreateOutput() expected error on closed directory")
+	}
+}
