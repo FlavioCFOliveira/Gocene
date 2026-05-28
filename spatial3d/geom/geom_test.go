@@ -250,16 +250,33 @@ func TestMakeGeoBBoxWorld(t *testing.T) {
 	}
 }
 
-func TestMakeGeoPolygon(t *testing.T) {
+func TestMakeGeoConvexPolygonFactory(t *testing.T) {
 	pm := geom.SPHERE
 	pts := []*geom.GeoPoint{
-		geom.NewGeoPointLatLon(pm, 0, 0),
-		geom.NewGeoPointLatLon(pm, 0, 0.1),
-		geom.NewGeoPointLatLon(pm, 0.1, 0.1),
+		geom.NewGeoPointModel(pm, 0, 0),
+		geom.NewGeoPointModel(pm, 0, 0.1),
+		geom.NewGeoPointModel(pm, 0.1, 0.1),
 	}
-	p := geom.MakeGeoPolygon(pm, pts)
+	p, err := geom.MakeGeoConvexPolygon(pm, pts)
+	if err != nil {
+		t.Fatalf("MakeGeoConvexPolygon: %v", err)
+	}
 	if p == nil {
-		t.Fatal("MakeGeoPolygon must not return nil")
+		t.Fatal("MakeGeoConvexPolygon must not return nil")
+	}
+}
+
+// TestMakeGeoPolygonGeneralUnsupported documents that the winding-order
+// factory is not yet ported and surfaces an explicit error.
+func TestMakeGeoPolygonGeneralUnsupported(t *testing.T) {
+	pm := geom.SPHERE
+	pts := []*geom.GeoPoint{
+		geom.NewGeoPointModel(pm, 0, 0),
+		geom.NewGeoPointModel(pm, 0, 0.1),
+		geom.NewGeoPointModel(pm, 0.1, 0.1),
+	}
+	if _, err := geom.MakeGeoPolygon(pm, pts); err == nil {
+		t.Fatal("expected unsupported error from general MakeGeoPolygon")
 	}
 }
 

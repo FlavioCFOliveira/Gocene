@@ -192,26 +192,56 @@ func MakeGeoPath(pm *PlanetModel, cutoffAngle float64, _ []*GeoPoint) GeoPath {
 // Full polygon-building algorithm deferred to #2693.
 // ---------------------------------------------------------------------------
 
-// MakeGeoPolygon creates a GeoPolygon from a list of GeoPoints.
-//
-// Port of org.apache.lucene.spatial3d.geom.GeoPolygonFactory.makeGeoPolygon.
-func MakeGeoPolygon(pm *PlanetModel, _ []*GeoPoint) GeoPolygon {
-	return &GeoConvexPolygon{GeoBasePolygon: makePolygon(pm)}
-}
-
-// MakeGeoConcavePolygon creates a GeoConcavePolygon.
-//
-// Port of org.apache.lucene.spatial3d.geom.GeoPolygonFactory.makeGeoConcavePolygon.
-func MakeGeoConcavePolygon(pm *PlanetModel, _ []*GeoPoint) GeoPolygon {
-	return &GeoConcavePolygon{GeoBasePolygon: makePolygon(pm)}
-}
-
-// MakeGeoConvexPolygon creates a GeoConvexPolygon.
+// MakeGeoConvexPolygon creates a GeoConvexPolygon from an ordered point list,
+// chosen so that any point adjacent to a segment provides an interior
+// measurement. Use this only when the polygon is known to be convex with an
+// extent no larger than PI.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoPolygonFactory.makeGeoConvexPolygon.
-func MakeGeoConvexPolygon(pm *PlanetModel, _ []*GeoPoint) GeoPolygon {
-	return &GeoConvexPolygon{GeoBasePolygon: makePolygon(pm)}
+func MakeGeoConvexPolygon(pm *PlanetModel, pointList []*GeoPoint) (GeoPolygon, error) {
+	return NewGeoConvexPolygon(pm, pointList, nil)
 }
+
+// MakeGeoConvexPolygonWithHoles is the holes-aware form of MakeGeoConvexPolygon.
+//
+// Port of GeoPolygonFactory.makeGeoConvexPolygon(PlanetModel,List,List).
+func MakeGeoConvexPolygonWithHoles(pm *PlanetModel, pointList []*GeoPoint, holes []GeoPolygon) (GeoPolygon, error) {
+	return NewGeoConvexPolygon(pm, pointList, holes)
+}
+
+// MakeGeoConcavePolygon creates a GeoConcavePolygon from an ordered point list,
+// chosen so that any point adjacent to a segment provides an exterior
+// measurement. Use this only when the polygon is known to be concave with an
+// extent larger than PI.
+//
+// Port of org.apache.lucene.spatial3d.geom.GeoPolygonFactory.makeGeoConcavePolygon.
+func MakeGeoConcavePolygon(pm *PlanetModel, pointList []*GeoPoint) (GeoPolygon, error) {
+	return NewGeoConcavePolygon(pm, pointList, nil)
+}
+
+// MakeGeoConcavePolygonWithHoles is the holes-aware form of MakeGeoConcavePolygon.
+//
+// Port of GeoPolygonFactory.makeGeoConcavePolygon(PlanetModel,List,List).
+func MakeGeoConcavePolygonWithHoles(pm *PlanetModel, pointList []*GeoPoint, holes []GeoPolygon) (GeoPolygon, error) {
+	return NewGeoConcavePolygon(pm, pointList, holes)
+}
+
+// MakeGeoPolygon creates a GeoPolygon from a list of GeoPoints, using winding
+// order to decide siding.
+//
+// The general orientation-aware factory (GeoPolygonFactory.makeGeoPolygon),
+// which tiles arbitrary, possibly self-spanning polygons, is not yet ported and
+// returns errPolygonFactoryUnsupported. Callers that know their polygon is
+// convex or concave should use MakeGeoConvexPolygon / MakeGeoConcavePolygon.
+//
+// Port of org.apache.lucene.spatial3d.geom.GeoPolygonFactory.makeGeoPolygon.
+func MakeGeoPolygon(_ *PlanetModel, _ []*GeoPoint) (GeoPolygon, error) {
+	return nil, errPolygonFactoryUnsupported
+}
+
+// errPolygonFactoryUnsupported marks the general winding-order polygon factory
+// as not yet ported.
+var errPolygonFactoryUnsupported = fmt.Errorf("geom: GeoPolygonFactory.makeGeoPolygon (winding-order tiling) is not yet implemented in Gocene; use MakeGeoConvexPolygon or MakeGeoConcavePolygon")
 
 // ---------------------------------------------------------------------------
 // GeoAreaFactory — stub

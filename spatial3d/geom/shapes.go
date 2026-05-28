@@ -196,15 +196,43 @@ type GeoExactCircle struct{ GeoBaseCircle }
 // Polygons
 // ---------------------------------------------------------------------------
 
-// GeoConvexPolygon is a convex polygon on the sphere.
+// GeoConvexPolygon is a convex polygon on the sphere. It must be convex with a
+// maximum extent no larger than PI; a point is inside when it is on the inside
+// of every edge plane.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoConvexPolygon.
-type GeoConvexPolygon struct{ GeoBasePolygon }
+type GeoConvexPolygon struct {
+	GeoBasePolygon
+	points          []*GeoPoint
+	isInternalEdges []bool
+	holes           []GeoPolygon
+	edges           []*SidedPlane
+	startBounds     []*SidedPlane
+	endBounds       []*SidedPlane
+	notableEdgePts  [][]*GeoPoint
+	edgePoints      []*GeoPoint
+	prevBrotherMap  map[*SidedPlane]*SidedPlane
+	nextBrotherMap  map[*SidedPlane]*SidedPlane
+}
 
-// GeoConcavePolygon is a concave polygon on the sphere.
+// GeoConcavePolygon is a concave polygon on the sphere (extent larger than PI).
+// A point is inside when it is on the inside of *any* edge plane.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoConcavePolygon.
-type GeoConcavePolygon struct{ GeoBasePolygon }
+type GeoConcavePolygon struct {
+	GeoBasePolygon
+	points          []*GeoPoint
+	isInternalEdges []bool
+	holes           []GeoPolygon
+	edges           []*SidedPlane
+	invertedEdges   []*SidedPlane
+	startBounds     []*SidedPlane
+	endBounds       []*SidedPlane
+	notableEdgePts  [][]*GeoPoint
+	edgePoints      []*GeoPoint
+	prevBrotherMap  map[*SidedPlane]*SidedPlane
+	nextBrotherMap  map[*SidedPlane]*SidedPlane
+}
 
 // GeoCompositePolygon is a composite polygon made of multiple sub-polygons.
 //

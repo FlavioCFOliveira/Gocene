@@ -85,6 +85,34 @@ func NewSidedPlaneThreeVectors(insidePoint, a, b *Vector) *SidedPlane {
 	return NewSidedPlaneFromPlane(insidePoint, p)
 }
 
+// NewSidedPlaneOnSide creates a plane through A, B, and the origin. When onSide
+// is true, point p is on the inside; when false, p is on the outside (the sign
+// is negated). Returns nil when A and B are parallel or p is on the plane.
+//
+// Port of SidedPlane(Vector,boolean,Vector,Vector).
+func NewSidedPlaneOnSide(p *Vector, onSide bool, a, b *Vector) *SidedPlane {
+	plane, err := NewPlaneFromTwoVectors(a, b)
+	if err != nil {
+		return nil
+	}
+	s := signum(plane.Evaluate(p))
+	if !onSide {
+		s = -s
+	}
+	if s == 0.0 {
+		return nil
+	}
+	return &SidedPlane{Plane: *plane, signum: s}
+}
+
+// NewSidedPlaneReversed returns a SidedPlane identical to sp but with the
+// inside sign reversed.
+//
+// Port of SidedPlane(SidedPlane).
+func NewSidedPlaneReversed(sp *SidedPlane) *SidedPlane {
+	return &SidedPlane{Plane: sp.Plane, signum: -sp.signum}
+}
+
 // ConstructNormalizedPerpendicularSidedPlane constructs a sided plane through
 // point1 and point2 whose normal lies in the plane of normalVector, oriented so
 // insidePoint is on the inside. Returns nil if it cannot be constructed.

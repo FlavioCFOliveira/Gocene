@@ -214,3 +214,152 @@ func TestGeoRectangleWideExtentUnsupported(t *testing.T) {
 		t.Fatal("expected unsupported error for wide-extent bbox")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// GeoConvexPolygon.isWithin (point-in-polygon)
+// ---------------------------------------------------------------------------
+
+// convexSquare builds a small convex quadrilateral around (0,0) on the sphere.
+// The points are ordered so the polygon body contains the centre.
+func convexSquare(t *testing.T, pm *geom.PlanetModel) geom.GeoPolygon {
+	t.Helper()
+	pts := []*geom.GeoPoint{
+		geom.NewGeoPointModel(pm, -0.1, -0.1),
+		geom.NewGeoPointModel(pm, -0.1, 0.1),
+		geom.NewGeoPointModel(pm, 0.1, 0.1),
+		geom.NewGeoPointModel(pm, 0.1, -0.1),
+	}
+	poly, err := geom.MakeGeoConvexPolygon(pm, pts)
+	if err != nil {
+		// Try the reversed winding if the first orientation is rejected.
+		rev := []*geom.GeoPoint{pts[0], pts[3], pts[2], pts[1]}
+		poly, err = geom.MakeGeoConvexPolygon(pm, rev)
+		if err != nil {
+			t.Fatalf("MakeGeoConvexPolygon (both windings failed): %v", err)
+		}
+	}
+	return poly
+}
+
+// TestGeoConvexPolygonWithin verifies point-in-polygon for a convex square.
+func TestGeoConvexPolygonWithin(t *testing.T) {
+	pm := geom.SPHERE
+	poly := convexSquare(t, pm)
+
+	// The centre and the four vertices must be inside (vertices on boundary).
+	insideLatLon := []struct{ lat, lon float64 }{
+		{0.0, 0.0},
+		{0.05, 0.05},
+		{-0.05, 0.05},
+		{0.09, -0.09},
+	}
+	for _, p := range insideLatLon {
+		gp := geom.NewGeoPointModel(pm, p.lat, p.lon)
+		if !poly.IsWithin(gp.X, gp.Y, gp.Z) {
+			t.Errorf("point (lat=%g,lon=%g) should be within convex polygon", p.lat, p.lon)
+		}
+	}
+
+	outsideLatLon := []struct{ lat, lon float64 }{
+		{0.2, 0.0},  // north of polygon
+		{-0.2, 0.0}, // south
+		{0.0, 0.2},  // east
+		{0.0, -0.2}, // west
+		{0.5, 0.5},  // far away
+	}
+	for _, p := range outsideLatLon {
+		gp := geom.NewGeoPointModel(pm, p.lat, p.lon)
+		if poly.IsWithin(gp.X, gp.Y, gp.Z) {
+			t.Errorf("point (lat=%g,lon=%g) should be outside convex polygon", p.lat, p.lon)
+		}
+	}
+}
+
+// TestGeoConvexPolygonTriangle verifies point-in-polygon for a triangle, with a
+// point inside and a point in the "cut corner" that is outside the triangle but
+// inside its bounding box.
+func TestGeoConvexPolygonTriangle(t *testing.T) {
+	pm := geom.SPHERE
+	pts := []*geom.GeoPoint{
+		geom.NewGeoPointModel(pm, 0.0, 0.0),
+		geom.NewGeoPointModel(pm, 0.0, 0.4),
+		geom.NewGeoPointModel(pm, 0.4, 0.0),
+	}
+	poly, err := geom.MakeGeoConvexPolygon(pm, pts)
+	if err != nil {
+		rev := []*geom.GeoPoint{pts[0], pts[2], pts[1]}
+		poly, err = geom.MakeGeoConvexPolygon(pm, rev)
+		if err != nil {
+			t.Fatalf("MakeGeoConvexPolygon triangle: %v", err)
+		}
+	}
+
+	// Clearly inside the triangle.
+	in := geom.NewGeoPointModel(pm, 0.1, 0.1)
+	if !poly.IsWithin(in.X, in.Y, in.Z) {
+		t.Error("interior point should be within triangle")
+	}
+	// Inside the bounding box but outside the triangle's hypotenuse.
+	cut := geom.NewGeoPointModel(pm, 0.3, 0.3)
+	if poly.IsWithin(cut.X, cut.Y, cut.Z) {
+		t.Error("point beyond the hypotenuse should be outside the triangle")
+	}
+}
+
+// TestGeoConvexPolygonVerticesOnBoundary verifies the polygon vertices register
+// as within (boundary inclusive).
+func TestGeoConvexPolygonVerticesOnBoundary(t *testing.T) {
+	pm := geom.SPHERE
+	verts := [][2]float64{{-0.1, -0.1}, {-0.1, 0.1}, {0.1, 0.1}, {0.1, -0.1}}
+	poly := convexSquare(t, pm)
+	for _, v := range verts {
+		gp := geom.NewGeoPointModel(pm, v[0], v[1])
+		if !poly.IsWithin(gp.X, gp.Y, gp.Z) {
+			t.Errorf("vertex (lat=%g,lon=%g) should be within (on boundary)", v[0], v[1])
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GeoConcavePolygon.isWithin (point-in-polygon, OR-of-edges)
+// ---------------------------------------------------------------------------
+
+// TestGeoConcavePolygonComplement builds a concave polygon from the same four
+// points as a small square. A concave polygon describes the region *outside*
+// the small loop, so the square's centre is excluded while points far away are
+// included. The two windings produce complementary concave shapes; this test
+// asserts the centre-vs-far relationship holds for whichever winding builds.
+func TestGeoConcavePolygonComplement(t *testing.T) {
+	pm := geom.SPHERE
+	pts := []*geom.GeoPoint{
+		geom.NewGeoPointModel(pm, -0.1, -0.1),
+		geom.NewGeoPointModel(pm, -0.1, 0.1),
+		geom.NewGeoPointModel(pm, 0.1, 0.1),
+		geom.NewGeoPointModel(pm, 0.1, -0.1),
+	}
+	poly, err := geom.MakeGeoConcavePolygon(pm, pts)
+	if err != nil {
+		rev := []*geom.GeoPoint{pts[0], pts[3], pts[2], pts[1]}
+		poly, err = geom.MakeGeoConcavePolygon(pm, rev)
+		if err != nil {
+			t.Fatalf("MakeGeoConcavePolygon (both windings failed): %v", err)
+		}
+	}
+
+	center := geom.NewGeoPointModel(pm, 0.0, 0.0)
+	far := geom.NewGeoPointModel(pm, 0.0, math.Pi) // antipodal-ish, far from the loop
+
+	// A concave polygon (extent > PI) includes the far hemisphere but excludes
+	// the small region enclosed by the loop.
+	if poly.IsWithin(center.X, center.Y, center.Z) == poly.IsWithin(far.X, far.Y, far.Z) {
+		t.Errorf("concave polygon should distinguish the enclosed centre from the far point (centre=%v, far=%v)",
+			poly.IsWithin(center.X, center.Y, center.Z), poly.IsWithin(far.X, far.Y, far.Z))
+	}
+	// Specifically: the far point is inside the concave region; the centre is not.
+	if !poly.IsWithin(far.X, far.Y, far.Z) {
+		t.Error("far point should be within the concave polygon")
+	}
+	if poly.IsWithin(center.X, center.Y, center.Z) {
+		t.Error("loop-enclosed centre should be outside the concave polygon")
+	}
+}
