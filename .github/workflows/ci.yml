@@ -34,7 +34,10 @@ jobs:
         run: go mod tidy -diff
 
       - name: Test
-        run: go test ./... -timeout 300s
+        # 600s per-package timeout (Go's default) gives the slow codecs suite
+        # (~160s) ample headroom; the previous 300s was already adequate but
+        # this removes any per-package timeout risk on slower runners (rmp #4740).
+        run: go test ./... -timeout 600s
 
   # Skip-guard: reject undocumented test skips (rmp #4722). A t.Skip is tracked
   # debt; every skip must carry a non-empty reason (see docs/skipped-tests-audit.md).
