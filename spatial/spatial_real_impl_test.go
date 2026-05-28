@@ -63,6 +63,14 @@ func (s *stubNumericDV) Advance(target int) (int, error) {
 
 func (s *stubNumericDV) NextDoc() (int, error) { return s.Advance(s.doc + 1) }
 func (s *stubNumericDV) DocID() int            { return s.doc }
+func (s *stubNumericDV) AdvanceExact(target int) (bool, error) {
+	got, err := s.Advance(target)
+	if err != nil {
+		return false, err
+	}
+	return got == target, nil
+}
+func (s *stubNumericDV) LongValue() (int64, error) { return s.Get(s.doc) }
 
 // stubBinaryDV is a deterministic BinaryDocValues iterator backed by
 // an in-memory doc -> []byte map.
@@ -94,6 +102,14 @@ func (s *stubBinaryDV) Advance(target int) (int, error) {
 }
 func (s *stubBinaryDV) NextDoc() (int, error) { return s.Advance(s.doc + 1) }
 func (s *stubBinaryDV) DocID() int            { return s.doc }
+func (s *stubBinaryDV) AdvanceExact(target int) (bool, error) {
+	got, err := s.Advance(target)
+	if err != nil {
+		return false, err
+	}
+	return got == target, nil
+}
+func (s *stubBinaryDV) BinaryValue() ([]byte, error) { return s.Get(s.doc) }
 
 // ---------------------------------------------------------------------------
 // Minimal LeafReaderInterface stub

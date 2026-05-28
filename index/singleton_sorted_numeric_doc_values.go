@@ -74,6 +74,24 @@ func (s *singletonSortedNumeric) Advance(target int) (int, error) {
 	return s.wrapped.Advance(target)
 }
 
+// AdvanceExact delegates to the wrapped iterator (single-valued: a doc
+// either has the one value or it doesn't).
+func (s *singletonSortedNumeric) AdvanceExact(target int) (bool, error) {
+	return s.wrapped.AdvanceExact(target)
+}
+
+// NextValue returns the single wrapped value. Singleton always has
+// exactly one value per positioned document.
+func (s *singletonSortedNumeric) NextValue() (int64, error) {
+	return s.wrapped.LongValue()
+}
+
+// DocValueCount returns 1 — singleton wrappers always expose exactly
+// one value per positioned document.
+func (s *singletonSortedNumeric) DocValueCount() (int, error) {
+	return 1, nil
+}
+
 // NextDoc delegates to the wrapped iterator.
 func (s *singletonSortedNumeric) NextDoc() (int, error) {
 	return s.wrapped.NextDoc()

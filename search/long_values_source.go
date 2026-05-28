@@ -97,6 +97,8 @@ func (s *LongValuesSource) GetValues(context interface{}) ([]int64, error) {
 	if size > 0 {
 		out = make([]int64, size)
 	}
+	// Migrated to LongValue (rmp #4709). NextDoc positions the iterator,
+	// LongValue reads the value at the current position. Monotonic.
 	for {
 		doc, err := dv.NextDoc()
 		if err != nil {
@@ -105,7 +107,7 @@ func (s *LongValuesSource) GetValues(context interface{}) ([]int64, error) {
 		if doc == NO_MORE_DOCS {
 			break
 		}
-		v, err := dv.Get(doc)
+		v, err := dv.LongValue()
 		if err != nil {
 			return nil, err
 		}

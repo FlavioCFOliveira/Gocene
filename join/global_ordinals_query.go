@@ -205,13 +205,16 @@ type globalOrdinalsScorer struct {
 	currentDoc   int
 }
 
+// matches mirrors the Lucene TwoPhaseIterator.matches callback.
+//
+// Migrated to AdvanceExact + OrdValue (rmp #4709). matches is called
+// in monotonic doc order by the TwoPhase iterator.
 func (s *globalOrdinalsScorer) matches(docID int) (bool, error) {
-	// SortedDocValues.Advance positions on docID or higher.
-	got, err := s.values.Advance(docID)
-	if err != nil || got != docID {
+	ok, err := s.values.AdvanceExact(docID)
+	if err != nil || !ok {
 		return false, err
 	}
-	segOrd, err := s.values.GetOrd(docID)
+	segOrd, err := s.values.OrdValue()
 	if err != nil || segOrd < 0 {
 		return false, err
 	}
@@ -237,7 +240,10 @@ func (s *globalOrdinalsScorer) NextDoc() (int, error) {
 			s.currentDoc = search.NO_MORE_DOCS
 			return search.NO_MORE_DOCS, nil
 		}
-		segOrd, err := s.values.GetOrd(doc)
+		// Migrated to OrdValue (rmp #4709): Advance positions the
+		// iterator at doc, so OrdValue reads the ord at the current
+		// position without seeking again.
+		segOrd, err := s.values.OrdValue()
 		if err != nil || segOrd < 0 {
 			s.currentDoc = doc
 			continue

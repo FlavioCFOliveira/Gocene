@@ -222,3 +222,15 @@ func (b *bufferedNorms) NextDoc() (int, error) {
 func (b *bufferedNorms) Advance(int) (int, error) {
 	return 0, errBufferedNormsAdvance
 }
+
+// AdvanceExact is unsupported, matching the buffered writer view; T4709
+// shim to satisfy NumericDocValues.
+func (b *bufferedNorms) AdvanceExact(int) (bool, error) {
+	return false, errBufferedNormsAdvance
+}
+
+// LongValue returns the value bound to the current cursor position.
+// Mirrors org.apache.lucene.index.NumericDocValues#longValue.
+func (b *bufferedNorms) LongValue() (int64, error) {
+	return b.value, nil
+}

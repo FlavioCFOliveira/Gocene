@@ -236,7 +236,17 @@ func (lc *globalOrdsWithScoreLeafCollector) Collect(doc int) error {
 	if lc.sdv == nil {
 		return nil
 	}
-	ord, err := lc.sdv.GetOrd(doc)
+	// Migrated to AdvanceExact + OrdValue (rmp #4709). Collect runs in
+	// monotonically increasing doc order, which is the precondition for
+	// AdvanceExact.
+	ok, err := lc.sdv.AdvanceExact(doc)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	ord, err := lc.sdv.OrdValue()
 	if err != nil {
 		return err
 	}
@@ -277,7 +287,15 @@ func (lc *segmentOrdsWithScoreLeafCollector) Collect(doc int) error {
 	if lc.sdv == nil {
 		return nil
 	}
-	ord, err := lc.sdv.GetOrd(doc)
+	// Migrated to AdvanceExact + OrdValue (rmp #4709). Monotonic Collect.
+	ok, err := lc.sdv.AdvanceExact(doc)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+	ord, err := lc.sdv.OrdValue()
 	if err != nil {
 		return err
 	}

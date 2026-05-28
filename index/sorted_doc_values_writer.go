@@ -298,6 +298,36 @@ func (s *sortingSortedDocValues) Advance(target int) (int, error) {
 	return 0, errors.New("sortingSortedDocValues: Advance is not supported; use NextDoc")
 }
 
+// AdvanceExact positions the cursor at target and reports whether the
+// target has an ord. Mirrors the Java
+// SortingSortedDocValues#advanceExact, which the IndexSorter callers
+// rely on. T4709-added.
+func (s *sortingSortedDocValues) AdvanceExact(target int) (bool, error) {
+	if target < 0 || target >= len(s.ords) {
+		return false, fmt.Errorf("sortingSortedDocValues: AdvanceExact(%d) out of bounds", target)
+	}
+	s.docID = target
+	return s.ords[target] != -1, nil
+}
+
+// BinaryValue returns the term bytes for the current cursor position.
+// Mirrors the Java reference's advanceExact + lookupOrd(ordValue()).
+func (s *sortingSortedDocValues) BinaryValue() ([]byte, error) {
+	if s.docID < 0 || s.docID >= len(s.ords) || s.ords[s.docID] == -1 {
+		return nil, fmt.Errorf("sortingSortedDocValues: BinaryValue at invalid position %d", s.docID)
+	}
+	return s.in.LookupOrd(s.ords[s.docID])
+}
+
+// OrdValue returns the ord bound to the current cursor position.
+// Mirrors org.apache.lucene.index.SortedDocValues#ordValue.
+func (s *sortingSortedDocValues) OrdValue() (int, error) {
+	if s.docID < 0 || s.docID >= len(s.ords) {
+		return -1, fmt.Errorf("sortingSortedDocValues: OrdValue at invalid position %d", s.docID)
+	}
+	return s.ords[s.docID], nil
+}
+
 // Get returns the value bytes for docID. docID must equal the current
 // cursor; the Java original implements advanceExact + lookupOrd(ordValue()),
 // which Gocene collapses into a single Get for consistency with the rest of

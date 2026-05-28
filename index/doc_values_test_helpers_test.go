@@ -46,8 +46,13 @@ func (s *stubNumericDV) Advance(target int) (int, error) {
 	s.docID = target
 	return target, nil
 }
-func (s *stubNumericDV) NextDoc() (int, error) { s.docID++; return s.docID, nil }
-func (s *stubNumericDV) DocID() int             { return s.docID }
+func (s *stubNumericDV) AdvanceExact(target int) (bool, error) {
+	s.docID = target
+	return true, nil
+}
+func (s *stubNumericDV) LongValue() (int64, error) { return s.val, nil }
+func (s *stubNumericDV) NextDoc() (int, error)     { s.docID++; return s.docID, nil }
+func (s *stubNumericDV) DocID() int                { return s.docID }
 
 func TestSingleton_NumericToSortedNumeric(t *testing.T) {
 	src := &stubNumericDV{val: 42}
@@ -76,11 +81,14 @@ type stubSortedDV struct {
 	value []byte
 }
 
-func (s *stubSortedDV) Get(int) ([]byte, error)    { return s.value, nil }
-func (s *stubSortedDV) Advance(t int) (int, error) { s.docID = t; return t, nil }
-func (s *stubSortedDV) NextDoc() (int, error)      { s.docID++; return s.docID, nil }
-func (s *stubSortedDV) DocID() int                 { return s.docID }
-func (s *stubSortedDV) GetOrd(int) (int, error)    { return s.ord, nil }
+func (s *stubSortedDV) Get(int) ([]byte, error)            { return s.value, nil }
+func (s *stubSortedDV) Advance(t int) (int, error)         { s.docID = t; return t, nil }
+func (s *stubSortedDV) AdvanceExact(t int) (bool, error)   { s.docID = t; return true, nil }
+func (s *stubSortedDV) BinaryValue() ([]byte, error)       { return s.value, nil }
+func (s *stubSortedDV) OrdValue() (int, error)             { return s.ord, nil }
+func (s *stubSortedDV) NextDoc() (int, error)              { s.docID++; return s.docID, nil }
+func (s *stubSortedDV) DocID() int                         { return s.docID }
+func (s *stubSortedDV) GetOrd(int) (int, error)            { return s.ord, nil }
 func (s *stubSortedDV) LookupOrd(int) ([]byte, error) {
 	return s.value, nil
 }

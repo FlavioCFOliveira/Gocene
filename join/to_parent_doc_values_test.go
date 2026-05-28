@@ -18,10 +18,13 @@ type stubSortedDV struct {
 	ords []int // index == docID
 }
 
-func (s *stubSortedDV) DocID() int                      { return -1 }
-func (s *stubSortedDV) NextDoc() (int, error)           { return search.NO_MORE_DOCS, nil }
-func (s *stubSortedDV) Advance(target int) (int, error) { return search.NO_MORE_DOCS, nil }
-func (s *stubSortedDV) Get(docID int) ([]byte, error)   { return nil, nil }
+func (s *stubSortedDV) DocID() int                            { return -1 }
+func (s *stubSortedDV) NextDoc() (int, error)                 { return search.NO_MORE_DOCS, nil }
+func (s *stubSortedDV) Advance(target int) (int, error)       { return search.NO_MORE_DOCS, nil }
+func (s *stubSortedDV) AdvanceExact(target int) (bool, error) { return false, nil }
+func (s *stubSortedDV) BinaryValue() ([]byte, error)          { return nil, nil }
+func (s *stubSortedDV) OrdValue() (int, error)                { return -1, nil }
+func (s *stubSortedDV) Get(docID int) ([]byte, error)         { return nil, nil }
 func (s *stubSortedDV) GetOrd(docID int) (int, error) {
 	if docID < len(s.ords) {
 		return s.ords[docID], nil
@@ -36,9 +39,11 @@ type stubNumericDV struct {
 	vals []int64
 }
 
-func (s *stubNumericDV) DocID() int                      { return -1 }
-func (s *stubNumericDV) NextDoc() (int, error)           { return search.NO_MORE_DOCS, nil }
-func (s *stubNumericDV) Advance(target int) (int, error) { return search.NO_MORE_DOCS, nil }
+func (s *stubNumericDV) DocID() int                            { return -1 }
+func (s *stubNumericDV) NextDoc() (int, error)                 { return search.NO_MORE_DOCS, nil }
+func (s *stubNumericDV) Advance(target int) (int, error)       { return search.NO_MORE_DOCS, nil }
+func (s *stubNumericDV) AdvanceExact(target int) (bool, error) { return false, nil }
+func (s *stubNumericDV) LongValue() (int64, error)             { return 0, nil }
 func (s *stubNumericDV) Get(docID int) (int64, error) {
 	if docID < len(s.vals) {
 		return s.vals[docID], nil

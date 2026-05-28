@@ -27,20 +27,29 @@ func NewTermsCollectorSV(field string) *TermsCollectorSV {
 	dvFunc := func(lr *index.LeafReader) (index.SortedDocValues, error) {
 		return lr.GetSortedDocValues(field)
 	}
+	// Migrated to AdvanceExact + OrdValue (rmp #4709). The collect
+	// callback is invoked in monotonic doc order by the search collector
+	// framework.
 	collectFn := func(dv index.SortedDocValues, doc int) error {
 		if dv == nil {
 			_, _ = hash.Add(util.NewBytesRefEmpty())
 			return nil
 		}
-		ord, err := dv.GetOrd(doc)
+		ok, err := dv.AdvanceExact(doc)
 		if err != nil {
 			return err
 		}
 		var term []byte
-		if ord >= 0 {
-			term, err = dv.LookupOrd(ord)
+		if ok {
+			ord, err := dv.OrdValue()
 			if err != nil {
 				return err
+			}
+			if ord >= 0 {
+				term, err = dv.LookupOrd(ord)
+				if err != nil {
+					return err
+				}
 			}
 		}
 		_, err = hash.Add(util.NewBytesRef(term))
@@ -71,16 +80,28 @@ func NewTermsCollectorMV(field string) *TermsCollectorMV {
 	dvFunc := func(lr *index.LeafReader) (index.SortedSetDocValues, error) {
 		return lr.GetSortedSetDocValues(field)
 	}
+	// Migrated to AdvanceExact + NextOrd (rmp #4709). The collect
+	// callback runs in monotonic doc order; NextOrd yields the current
+	// doc's ords until -1.
 	collectFn := func(dv index.SortedSetDocValues, doc int) error {
 		if dv == nil {
 			return nil
 		}
-		// Gocene SortedSetDocValues.Get returns all ordinals at once.
-		ords, err := dv.Get(doc)
+		ok, err := dv.AdvanceExact(doc)
 		if err != nil {
 			return err
 		}
-		for _, ord := range ords {
+		if !ok {
+			return nil
+		}
+		for {
+			ord, err := dv.NextOrd()
+			if err != nil {
+				return err
+			}
+			if ord < 0 {
+				return nil
+			}
 			term, err := dv.LookupOrd(ord)
 			if err != nil {
 				return err
@@ -89,7 +110,6 @@ func NewTermsCollectorMV(field string) *TermsCollectorMV {
 				return err
 			}
 		}
-		return nil
 	}
 
 	c.DocValuesTermsCollector = newDocValuesTermsCollector(dvFunc, collectFn, search.COMPLETE_NO_SCORES)

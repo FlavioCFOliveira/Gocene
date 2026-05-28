@@ -12,10 +12,12 @@ type recordingNumericDV struct {
 	docID    int
 }
 
-func (r *recordingNumericDV) Get(int) (int64, error)   { r.getCalls++; return 99, nil }
-func (r *recordingNumericDV) Advance(t int) (int, error) { r.docID = t; return t, nil }
-func (r *recordingNumericDV) NextDoc() (int, error)    { r.docID++; return r.docID, nil }
-func (r *recordingNumericDV) DocID() int               { return r.docID }
+func (r *recordingNumericDV) Get(int) (int64, error)            { r.getCalls++; return 99, nil }
+func (r *recordingNumericDV) Advance(t int) (int, error)        { r.docID = t; return t, nil }
+func (r *recordingNumericDV) AdvanceExact(t int) (bool, error)  { r.docID = t; return true, nil }
+func (r *recordingNumericDV) LongValue() (int64, error)         { return 99, nil }
+func (r *recordingNumericDV) NextDoc() (int, error)             { r.docID++; return r.docID, nil }
+func (r *recordingNumericDV) DocID() int                        { return r.docID }
 
 func TestFilterNumericDocValues_PassThrough(t *testing.T) {
 	src := &recordingNumericDV{}
@@ -47,12 +49,17 @@ type recordingSortedSetDV struct {
 	values []int
 }
 
-func (s *recordingSortedSetDV) Get(int) ([]int, error)      { return s.values, nil }
-func (s *recordingSortedSetDV) Advance(t int) (int, error)  { s.docID = t; return t, nil }
-func (s *recordingSortedSetDV) NextDoc() (int, error)       { s.docID++; return s.docID, nil }
-func (s *recordingSortedSetDV) DocID() int                  { return s.docID }
-func (s *recordingSortedSetDV) LookupOrd(int) ([]byte, error) { return []byte("v"), nil }
-func (s *recordingSortedSetDV) GetValueCount() int           { return len(s.values) }
+func (s *recordingSortedSetDV) Get(int) ([]int, error)          { return s.values, nil }
+func (s *recordingSortedSetDV) Advance(t int) (int, error)      { s.docID = t; return t, nil }
+func (s *recordingSortedSetDV) AdvanceExact(t int) (bool, error) {
+	s.docID = t
+	return true, nil
+}
+func (s *recordingSortedSetDV) NextOrd() (int, error)           { return -1, nil }
+func (s *recordingSortedSetDV) NextDoc() (int, error)           { s.docID++; return s.docID, nil }
+func (s *recordingSortedSetDV) DocID() int                      { return s.docID }
+func (s *recordingSortedSetDV) LookupOrd(int) ([]byte, error)   { return []byte("v"), nil }
+func (s *recordingSortedSetDV) GetValueCount() int              { return len(s.values) }
 
 func TestFilterSortedSetDocValues_PassThrough(t *testing.T) {
 	src := &recordingSortedSetDV{values: []int{1, 2, 3}}
