@@ -7,18 +7,25 @@
 //
 // Port of org.apache.lucene.spatial3d.
 //
-// Deviation: Field, SortField, FieldComparator, IntersectVisitor, and
-// DocIdSetBuilder are part of the index-layer infrastructure.
-// Concrete implementations of the sort-field and comparator types,
-// PointInGeo3DShapeQuery and PointInShapeIntersectVisitor are deferred to
-// backlog #4682 until Lucene90PointsFormat.WriteField is fully operational.
+// The geometric engine in the geom sub-package is implemented (rmp #4682):
+// Plane.FindIntersections / Intersects, SidedPlane membership, and the
+// GeoStandardCircle (within-circle), GeoRectangle (within-bbox), and
+// GeoConvexPolygon / GeoConcavePolygon (point-in-polygon) shapes, with
+// behavioural parity against Lucene 10.4.0 verified by unit tests.
 //
-// This sprint delivers:
+// Deviation: the query/sort wiring in this package — PointInGeo3DShapeQuery,
+// PointInShapeIntersectVisitor (Weight/Scorer/DocIdSetBuilder integration),
+// and the Geo3DPoint sort fields and comparators — remains deferred. It
+// depends on Lucene90PointsFormat.WriteField and the BKD intersect path being
+// fully operational, so end-to-end shape-query document-set matching is not
+// yet wired through these stubs.
+//
+// Already delivered (T4650):
 //   - Correct PlanetModel construction (xyScaling = a/meanRadius).
 //   - PlanetModel and GeoPoint binary serialisation (round-trip compatible with
 //     Lucene 10.4.0 SerializableObject wire format).
 //   - EncodeDimension / DecodeDimension using IntToSortableBytes / SortableBytesToInt.
-//   - Geo3DPoint.ToIndexableFields producing a 3-dimension × 4-byte BKD stub.
+//   - Geo3DPoint.ToIndexableFields producing a 3-dimension × 4-byte BKD encoding.
 package spatial3d
 
 import (
