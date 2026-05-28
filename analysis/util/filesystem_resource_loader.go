@@ -6,10 +6,16 @@ package util
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 )
+
+// ErrUnsafeResourceName is returned when a resource name would escape the base
+// directory, for example because it is an absolute path or contains a ".."
+// path element.
+var ErrUnsafeResourceName = errors.New("FilesystemResourceLoader: unsafe resource name")
 
 // ResourceLoader opens named resources and returns them as io.ReadCloser.
 //
@@ -46,7 +52,15 @@ func NewFilesystemResourceLoader(baseDir string, delegate ResourceLoader) (*File
 
 // OpenResource opens name relative to the base directory. If the file does
 // not exist and a delegate was provided, the delegate is tried.
+//
+// The name is rejected if it is not local to the base directory, i.e. if it is
+// an absolute path or contains a ".." path element that would escape baseDir.
+// Such names yield ErrUnsafeResourceName and are never forwarded to the
+// delegate.
 func (l *FilesystemResourceLoader) OpenResource(name string) (io.ReadCloser, error) {
+	if !filepath.IsLocal(name) {
+		return nil, fmt.Errorf("%w: %q", ErrUnsafeResourceName, name)
+	}
 	path := filepath.Join(l.baseDir, name)
 	f, err := os.Open(path)
 	if err == nil {
