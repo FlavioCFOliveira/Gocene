@@ -2027,3 +2027,7 @@ func (c *customTestCodec) CompoundFormat() index.CompoundFormat {
 func (c *customTestCodec) KnnVectorsFormat() index.KnnVectorsFormat {
 	return nil
 }
+
+func (c *customTestCodec) DocValuesFormat() index.DocValuesFormat {
+	return nil
+}

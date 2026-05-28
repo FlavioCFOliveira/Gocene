@@ -7,305 +7,132 @@ package codecs
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// DocValuesFormat handles encoding/decoding of per-document values.
-// This is the Go port of Lucene's org.apache.lucene.codecs.DocValuesFormat.
+// This file aliases the doc-values family onto the canonical SPI
+// declarations that rmp #4708 lifted into package spi/, and keeps the
+// thin BaseDocValuesFormat / DocValuesWriter / DocValuesReader helpers
+// the codecs package historically exposed.
 //
-// DocValues are stored in a columnar format for efficient sorting, faceting,
-// and value retrieval. They are stored separately from the inverted index
-// and are used for operations that need to access field values for all
-// documents in a segment.
-type DocValuesFormat interface {
-	// Name returns the name of this format.
-	Name() string
+// All eleven interfaces (DocValuesFormat, DocValuesConsumer,
+// DocValuesProducer plus the six value-type interfaces and the five
+// writer-side iterators) and their previous concrete bodies in this
+// file were collapsed to Go type aliases of spi.* by rmp #4708
+// (Sprint 118 phase 2d). Existing callers compile unchanged: an
+// implementation that satisfied codecs.DocValuesProducer continues to
+// satisfy it under the alias because the alias makes the codecs name
+// identical to spi.DocValuesProducer at the type-system level.
 
-	// FieldsConsumer returns a consumer for writing doc values.
-	// The caller should close the returned consumer when done.
-	FieldsConsumer(state *SegmentWriteState) (DocValuesConsumer, error)
+// DocValuesFormat is an alias of [spi.DocValuesFormat].
+type DocValuesFormat = spi.DocValuesFormat
 
-	// FieldsProducer returns a producer for reading doc values.
-	// The caller should close the returned producer when done.
-	FieldsProducer(state *SegmentReadState) (DocValuesProducer, error)
-}
+// DocValuesConsumer is an alias of [spi.DocValuesConsumer].
+type DocValuesConsumer = spi.DocValuesConsumer
 
-// BaseDocValuesFormat provides common functionality for DocValuesFormat implementations.
+// DocValuesProducer is an alias of [spi.DocValuesProducer]. The SPI
+// surface carries GetSkipper, matching Apache Lucene 10.4.0; every
+// production implementation in this package and in backward_codecs/
+// satisfies the new method (returning (nil, nil) when the format does
+// not write a sparse skipper companion).
+type DocValuesProducer = spi.DocValuesProducer
+
+// NumericDocValues is an alias of [spi.NumericDocValues] — the
+// iterator-shaped surface exposed by codec doc-values producers.
+type NumericDocValues = spi.NumericDocValues
+
+// BinaryDocValues is an alias of [spi.BinaryDocValues].
+type BinaryDocValues = spi.BinaryDocValues
+
+// SortedDocValues is an alias of [spi.SortedDocValues].
+type SortedDocValues = spi.SortedDocValues
+
+// SortedSetDocValues is an alias of [spi.SortedSetDocValues].
+type SortedSetDocValues = spi.SortedSetDocValues
+
+// SortedNumericDocValues is an alias of [spi.SortedNumericDocValues].
+type SortedNumericDocValues = spi.SortedNumericDocValues
+
+// DocValuesSkipper is an alias of [spi.DocValuesSkipper].
+type DocValuesSkipper = spi.DocValuesSkipper
+
+// NumericDocValuesIterator is an alias of
+// [spi.NumericDocValuesIterator] — the writer-side iterator that the
+// flush path feeds into DocValuesConsumer.AddNumericField.
+type NumericDocValuesIterator = spi.NumericDocValuesIterator
+
+// BinaryDocValuesIterator is an alias of [spi.BinaryDocValuesIterator].
+type BinaryDocValuesIterator = spi.BinaryDocValuesIterator
+
+// SortedDocValuesIterator is an alias of [spi.SortedDocValuesIterator].
+type SortedDocValuesIterator = spi.SortedDocValuesIterator
+
+// SortedSetDocValuesIterator is an alias of
+// [spi.SortedSetDocValuesIterator].
+type SortedSetDocValuesIterator = spi.SortedSetDocValuesIterator
+
+// SortedNumericDocValuesIterator is an alias of
+// [spi.SortedNumericDocValuesIterator].
+type SortedNumericDocValuesIterator = spi.SortedNumericDocValuesIterator
+
+// BaseDocValuesFormat provides the partial DocValuesFormat
+// implementation that codec ports embed to inherit the Name accessor
+// and the "not implemented" placeholders for FieldsConsumer /
+// FieldsProducer. Concrete formats override the latter two.
 type BaseDocValuesFormat struct {
 	name string
 }
 
-// NewBaseDocValuesFormat creates a new BaseDocValuesFormat.
+// NewBaseDocValuesFormat returns a BaseDocValuesFormat that reports the
+// given format name.
 func NewBaseDocValuesFormat(name string) *BaseDocValuesFormat {
 	return &BaseDocValuesFormat{name: name}
 }
 
-// Name returns the format name.
+// Name returns the format name persisted in segment metadata.
 func (f *BaseDocValuesFormat) Name() string {
 	return f.name
 }
 
-// FieldsConsumer returns a fields consumer (must be implemented by subclasses).
+// FieldsConsumer is the default unimplemented FieldsConsumer accessor;
+// concrete formats override it.
 func (f *BaseDocValuesFormat) FieldsConsumer(state *SegmentWriteState) (DocValuesConsumer, error) {
 	return nil, fmt.Errorf("FieldsConsumer not implemented")
 }
 
-// FieldsProducer returns a fields producer (must be implemented by subclasses).
+// FieldsProducer is the default unimplemented FieldsProducer accessor;
+// concrete formats override it.
 func (f *BaseDocValuesFormat) FieldsProducer(state *SegmentReadState) (DocValuesProducer, error) {
 	return nil, fmt.Errorf("FieldsProducer not implemented")
 }
 
-// DocValuesConsumer is a consumer for writing doc values.
-// This is the Go port of Lucene's org.apache.lucene.codecs.DocValuesConsumer.
-type DocValuesConsumer interface {
-	// AddNumericField writes a numeric doc values field.
-	// The values are provided through the iterator.
-	AddNumericField(field *index.FieldInfo, values NumericDocValuesIterator) error
-
-	// AddBinaryField writes a binary doc values field.
-	// The values are provided through the iterator.
-	AddBinaryField(field *index.FieldInfo, values BinaryDocValuesIterator) error
-
-	// AddSortedField writes a sorted doc values field.
-	// The values are provided through the iterator.
-	AddSortedField(field *index.FieldInfo, values SortedDocValuesIterator) error
-
-	// AddSortedSetField writes a sorted set doc values field.
-	// The values are provided through the iterator.
-	AddSortedSetField(field *index.FieldInfo, values SortedSetDocValuesIterator) error
-
-	// AddSortedNumericField writes a sorted numeric doc values field.
-	// The values are provided through the iterator.
-	AddSortedNumericField(field *index.FieldInfo, values SortedNumericDocValuesIterator) error
-
-	// Close releases resources.
-	Close() error
-}
-
-// DocValuesProducer is a producer for reading doc values.
-// This is the Go port of Lucene's org.apache.lucene.codecs.DocValuesProducer.
-type DocValuesProducer interface {
-	// GetNumeric returns a NumericDocValues for the given field.
-	// Returns nil if the field has no numeric doc values.
-	GetNumeric(field *index.FieldInfo) (NumericDocValues, error)
-
-	// GetBinary returns a BinaryDocValues for the given field.
-	// Returns nil if the field has no binary doc values.
-	GetBinary(field *index.FieldInfo) (BinaryDocValues, error)
-
-	// GetSorted returns a SortedDocValues for the given field.
-	// Returns nil if the field has no sorted doc values.
-	GetSorted(field *index.FieldInfo) (SortedDocValues, error)
-
-	// GetSortedSet returns a SortedSetDocValues for the given field.
-	// Returns nil if the field has no sorted set doc values.
-	GetSortedSet(field *index.FieldInfo) (SortedSetDocValues, error)
-
-	// GetSortedNumeric returns a SortedNumericDocValues for the given field.
-	// Returns nil if the field has no sorted numeric doc values.
-	GetSortedNumeric(field *index.FieldInfo) (SortedNumericDocValues, error)
-
-	// CheckIntegrity checks the integrity of the doc values.
-	CheckIntegrity() error
-
-	// Close releases resources.
-	Close() error
-}
-
-// NumericDocValues provides per-document numeric values.
-// This is the Go port of Lucene's org.apache.lucene.index.NumericDocValues.
-type NumericDocValues interface {
-	// DocID returns the current document ID.
-	DocID() int
-
-	// NextDoc advances to the next document that has a value.
-	// Returns NO_MORE_DOCS if there are no more documents.
-	NextDoc() (int, error)
-
-	// Advance advances to the first document >= target that has a value.
-	// Returns NO_MORE_DOCS if there are no more documents.
-	Advance(target int) (int, error)
-
-	// LongValue returns the current document's value.
-	LongValue() (int64, error)
-
-	// Cost returns an estimate of the cost of iterating through all documents.
-	Cost() int64
-}
-
-// BinaryDocValues provides per-document binary values.
-// This is the Go port of Lucene's org.apache.lucene.index.BinaryDocValues.
-type BinaryDocValues interface {
-	// DocID returns the current document ID.
-	DocID() int
-
-	// NextDoc advances to the next document that has a value.
-	// Returns NO_MORE_DOCS if there are no more documents.
-	NextDoc() (int, error)
-
-	// Advance advances to the first document >= target that has a value.
-	// Returns NO_MORE_DOCS if there are no more documents.
-	Advance(target int) (int, error)
-
-	// BinaryValue returns the current document's value.
-	BinaryValue() ([]byte, error)
-
-	// Cost returns an estimate of the cost of iterating through all documents.
-	Cost() int64
-}
-
-// SortedDocValues provides per-document sorted binary values.
-// This is the Go port of Lucene's org.apache.lucene.index.SortedDocValues.
-type SortedDocValues interface {
-	NumericDocValues
-
-	// OrdValue returns the ordinal of the current document's value.
-	OrdValue() (int, error)
-
-	// LookupOrd returns the value for the given ordinal.
-	LookupOrd(ord int) ([]byte, error)
-
-	// GetValueCount returns the number of unique values.
-	GetValueCount() int
-}
-
-// SortedSetDocValues provides per-document sorted set binary values.
-// This is the Go port of Lucene's org.apache.lucene.index.SortedSetDocValues.
-type SortedSetDocValues interface {
-	// DocID returns the current document ID.
-	DocID() int
-
-	// NextDoc advances to the next document that has values.
-	// Returns NO_MORE_DOCS if there are no more documents.
-	NextDoc() (int, error)
-
-	// Advance advances to the first document >= target that has values.
-	// Returns NO_MORE_DOCS if there are no more documents.
-	Advance(target int) (int, error)
-
-	// NextOrd advances to the next ordinal for the current document.
-	// Returns -1 if there are no more ordinals for this document.
-	NextOrd() (int, error)
-
-	// LookupOrd returns the value for the given ordinal.
-	LookupOrd(ord int) ([]byte, error)
-
-	// GetValueCount returns the number of unique values.
-	GetValueCount() int
-
-	// Cost returns an estimate of the cost of iterating through all documents.
-	Cost() int64
-}
-
-// SortedNumericDocValues provides per-document sorted numeric values.
-// This is the Go port of Lucene's org.apache.lucene.index.SortedNumericDocValues.
-type SortedNumericDocValues interface {
-	NumericDocValues
-
-	// NextValue advances to the next value for the current document.
-	// Returns the value or an error.
-	NextValue() (int64, error)
-
-	// DocValueCount returns the number of values for the current document.
-	DocValueCount() (int, error)
-}
-
-// NumericDocValuesIterator is an iterator over numeric doc values for writing.
-type NumericDocValuesIterator interface {
-	// Next advances to the next document.
-	// Returns true if there is a next document.
-	Next() bool
-
-	// DocID returns the current document ID.
-	DocID() int
-
-	// Value returns the current document's value.
-	Value() int64
-}
-
-// BinaryDocValuesIterator is an iterator over binary doc values for writing.
-type BinaryDocValuesIterator interface {
-	// Next advances to the next document.
-	// Returns true if there is a next document.
-	Next() bool
-
-	// DocID returns the current document ID.
-	DocID() int
-
-	// Value returns the current document's value.
-	Value() []byte
-}
-
-// SortedDocValuesIterator is an iterator over sorted doc values for writing.
-type SortedDocValuesIterator interface {
-	// Next advances to the next document.
-	// Returns true if there is a next document.
-	Next() bool
-
-	// DocID returns the current document ID.
-	DocID() int
-
-	// Ord returns the current document's ordinal value.
-	Ord() int
-}
-
-// SortedSetDocValuesIterator is an iterator over sorted set doc values for writing.
-type SortedSetDocValuesIterator interface {
-	// NextDoc advances to the next document.
-	// Returns true if there is a next document.
-	NextDoc() bool
-
-	// DocID returns the current document ID.
-	DocID() int
-
-	// NextOrd advances to the next ordinal for the current document.
-	// Returns -1 if there are no more ordinals for this document.
-	NextOrd() int
-}
-
-// SortedNumericDocValuesIterator is an iterator over sorted numeric doc values for writing.
-type SortedNumericDocValuesIterator interface {
-	// NextDoc advances to the next document.
-	// Returns true if there is a next document.
-	NextDoc() bool
-
-	// DocID returns the current document ID.
-	DocID() int
-
-	// NextValue advances to the next value for the current document.
-	// Returns the value.
-	NextValue() int64
-
-	// DocValueCount returns the number of values for the current document.
-	DocValueCount() int
-}
-
-// DocValuesWriter is a helper for writing doc values.
+// DocValuesWriter is a thin helper that prefixes a doc-values output
+// stream with the historical Gocene magic-number / version envelope.
+// It pre-dates the codec envelope helpers (CodecUtil) and is retained
+// for the few in-tree call sites that still use it.
 type DocValuesWriter struct {
 	out    store.IndexOutput
 	closed bool
 }
 
-// NewDocValuesWriter creates a new DocValuesWriter.
+// NewDocValuesWriter wraps out in a DocValuesWriter.
 func NewDocValuesWriter(out store.IndexOutput) *DocValuesWriter {
 	return &DocValuesWriter{out: out}
 }
 
-// WriteHeader writes the doc values file header.
+// WriteHeader writes the legacy magic-number / version pair.
 func (w *DocValuesWriter) WriteHeader() error {
-	// Write magic number
 	if err := store.WriteUint32(w.out, 0x44564C00); err != nil {
 		return fmt.Errorf("failed to write magic number: %w", err)
 	}
-	// Write version
 	if err := store.WriteUint32(w.out, 1); err != nil {
 		return fmt.Errorf("failed to write version: %w", err)
 	}
 	return nil
 }
 
-// Close closes the writer.
+// Close closes the underlying output, ignoring repeated calls.
 func (w *DocValuesWriter) Close() error {
 	if w.closed {
 		return nil
@@ -314,20 +141,20 @@ func (w *DocValuesWriter) Close() error {
 	return w.out.Close()
 }
 
-// DocValuesReader is a helper for reading doc values.
+// DocValuesReader is the companion to DocValuesWriter on the read side.
 type DocValuesReader struct {
 	in     store.IndexInput
 	closed bool
 }
 
-// NewDocValuesReader creates a new DocValuesReader.
+// NewDocValuesReader wraps in in a DocValuesReader.
 func NewDocValuesReader(in store.IndexInput) *DocValuesReader {
 	return &DocValuesReader{in: in}
 }
 
-// ReadHeader reads and validates the doc values file header.
+// ReadHeader reads and validates the legacy magic-number / version
+// pair written by [DocValuesWriter.WriteHeader].
 func (r *DocValuesReader) ReadHeader() error {
-	// Read magic number
 	magic, err := store.ReadUint32(r.in)
 	if err != nil {
 		return fmt.Errorf("failed to read magic number: %w", err)
@@ -336,7 +163,6 @@ func (r *DocValuesReader) ReadHeader() error {
 		return fmt.Errorf("invalid magic number: expected 0x44564C00, got 0x%08x", magic)
 	}
 
-	// Read version
 	version, err := store.ReadUint32(r.in)
 	if err != nil {
 		return fmt.Errorf("failed to read version: %w", err)
@@ -348,7 +174,7 @@ func (r *DocValuesReader) ReadHeader() error {
 	return nil
 }
 
-// Close closes the reader.
+// Close closes the underlying input, ignoring repeated calls.
 func (r *DocValuesReader) Close() error {
 	if r.closed {
 		return nil

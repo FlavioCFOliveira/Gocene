@@ -28,7 +28,6 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
-
 // Lucene 9.0 doc values format constants. Per Lucene 10.4.0 source, the
 // format stores two files per segment:
 //
@@ -434,9 +433,19 @@ func (p *Lucene90DocValuesProducer) GetSortedNumeric(field *index.FieldInfo) (So
 	return p.real.GetSortedNumeric(field)
 }
 
+// GetSkipper returns the DocValuesSkipper for the field. The Gocene
+// Lucene90 doc-values producer does not yet decode the per-block
+// sparse-skipper sidecar, so it always returns (nil, nil); reads that
+// would benefit from skipping fall back to the dense iterator path.
+//
+// Required by spi.DocValuesProducer since rmp #4708 lifted the
+// doc-values family onto the SPI with the Lucene-faithful method set.
+func (p *Lucene90DocValuesProducer) GetSkipper(field *index.FieldInfo) (DocValuesSkipper, error) {
+	return p.real.GetSkipper(field)
+}
+
 // CheckIntegrity checks the integrity of the doc values files.
 func (p *Lucene90DocValuesProducer) CheckIntegrity() error { return p.real.CheckIntegrity() }
 
 // Close releases resources.
 func (p *Lucene90DocValuesProducer) Close() error { return p.real.Close() }
-

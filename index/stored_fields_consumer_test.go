@@ -314,15 +314,16 @@ func TestStoredFieldsConsumer_InitPropagatesFormatError(t *testing.T) {
 // so the error path of StoredFieldsConsumer.InitStoredFieldsWriter is covered.
 type failingCodec struct{}
 
-func (failingCodec) Name() string                              { return "failing-codec" }
-func (failingCodec) PostingsFormat() PostingsFormat            { return nil }
-func (failingCodec) StoredFieldsFormat() StoredFieldsFormat    { return failingStoredFieldsFormat{} }
-func (failingCodec) FieldInfosFormat() FieldInfosFormat        { return nil }
-func (failingCodec) SegmentInfosFormat() SegmentInfosFormat    { return nil }
-func (failingCodec) SegmentInfoFormat() SegmentInfoFormat      { return nil }
-func (failingCodec) TermVectorsFormat() TermVectorsFormat      { return nil }
-func (failingCodec) CompoundFormat() CompoundFormat            { return nil }
-func (failingCodec) KnnVectorsFormat() KnnVectorsFormat        { return nil }
+func (failingCodec) Name() string                           { return "failing-codec" }
+func (failingCodec) PostingsFormat() PostingsFormat         { return nil }
+func (failingCodec) StoredFieldsFormat() StoredFieldsFormat { return failingStoredFieldsFormat{} }
+func (failingCodec) FieldInfosFormat() FieldInfosFormat     { return nil }
+func (failingCodec) SegmentInfosFormat() SegmentInfosFormat { return nil }
+func (failingCodec) SegmentInfoFormat() SegmentInfoFormat   { return nil }
+func (failingCodec) TermVectorsFormat() TermVectorsFormat   { return nil }
+func (failingCodec) CompoundFormat() CompoundFormat         { return nil }
+func (failingCodec) KnnVectorsFormat() KnnVectorsFormat     { return nil }
+func (failingCodec) DocValuesFormat() DocValuesFormat       { return nil }
 
 // failingStoredFieldsFormat always fails FieldsWriter.
 type failingStoredFieldsFormat struct{}

@@ -112,6 +112,9 @@ func (p *recordingDocValuesProducer) GetSortedSet(*index.FieldInfo) (SortedSetDo
 func (p *recordingDocValuesProducer) GetSortedNumeric(*index.FieldInfo) (SortedNumericDocValues, error) {
 	return nil, nil
 }
+func (p *recordingDocValuesProducer) GetSkipper(*index.FieldInfo) (DocValuesSkipper, error) {
+	return nil, nil
+}
 func (p *recordingDocValuesProducer) CheckIntegrity() error { return nil }
 func (p *recordingDocValuesProducer) Close() error          { p.closed = true; return nil }
 

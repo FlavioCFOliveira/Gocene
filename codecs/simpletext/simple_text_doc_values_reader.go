@@ -809,6 +809,17 @@ func (it *dvSortedSetIter) LookupOrd(ord int) ([]byte, error) {
 // GetValueCount returns the number of unique values.
 func (it *dvSortedSetIter) GetValueCount() int { return int(it.f.numValues) }
 
+// GetSkipper returns the DocValuesSkipper for the given field.
+//
+// SimpleText does not write a sparse skipper companion (the on-disk
+// debug format is line-based and intentionally trivial), so this
+// always returns (nil, nil). Required by spi.DocValuesProducer since
+// rmp #4708 lifted the doc-values family onto the SPI.
+func (r *SimpleTextDocValuesReader) GetSkipper(field *index.FieldInfo) (codecs.DocValuesSkipper, error) {
+	_ = field
+	return nil, nil
+}
+
 // CheckIntegrity validates the checksum of the data file.
 //
 // Port of SimpleTextDocValuesReader.checkIntegrity().

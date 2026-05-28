@@ -848,6 +848,17 @@ func (p *Lucene80DocValuesProducer) GetSortedNumeric(field *index.FieldInfo) (co
 	return nil, nil
 }
 
+// GetSkipper returns the DocValuesSkipper for the given field.
+//
+// Lucene 8.0's doc-values format predates the sparse-skipper sidecar
+// introduced in later versions, so this backward-compat producer
+// always returns (nil, nil). Required by spi.DocValuesProducer since
+// rmp #4708 lifted the doc-values family onto the SPI.
+func (p *Lucene80DocValuesProducer) GetSkipper(field *index.FieldInfo) (codecs.DocValuesSkipper, error) {
+	_ = field
+	return nil, nil
+}
+
 // CheckIntegrity verifies the checksum on the data file.
 //
 // Port of Lucene80DocValuesProducer.checkIntegrity().

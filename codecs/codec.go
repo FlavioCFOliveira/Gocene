@@ -11,23 +11,14 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-// Codec extends spi.Codec with the one remaining component accessor
-// that the SPI does not yet cover on the codecs-facing surface:
-// DocValuesFormat. The matching follow-up task is rmp #4708; once it
-// lands this declaration collapses to `type Codec = spi.Codec`.
-//
-// KnnVectorsFormat used to be in the same position and was lifted onto
-// the SPI by rmp #4707, so it is now reached transitively via the
-// embedded spi.Codec.
-type Codec interface {
-	spi.Codec
-
-	// DocValuesFormat returns the format used for doc values. Codec
-	// implementations that do not support doc values may return nil.
-	// TODO(T4708): move to spi.Codec once the DocValuesFormat /
-	// DocValuesProducer / DocValuesConsumer family lifts.
-	DocValuesFormat() DocValuesFormat
-}
+// Codec is an alias of [spi.Codec]. After rmp #4708 lifted the
+// DocValuesFormat family onto the SPI, every per-component format
+// accessor — PostingsFormat, StoredFieldsFormat, FieldInfosFormat,
+// SegmentInfoFormat, SegmentInfosFormat, TermVectorsFormat,
+// CompoundFormat, KnnVectorsFormat, DocValuesFormat — lives on the
+// canonical SPI surface, and the codecs-package Codec collapsed to
+// this pure alias.
+type Codec = spi.Codec
 
 // BaseCodec provides common functionality.
 type BaseCodec struct {
