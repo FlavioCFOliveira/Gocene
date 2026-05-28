@@ -73,6 +73,11 @@ func (c *FilterCodec) SegmentInfosFormat() SegmentInfosFormat {
 	return c.delegate.SegmentInfosFormat()
 }
 
+// SegmentInfoFormat returns the delegate's singular .si format.
+func (c *FilterCodec) SegmentInfoFormat() SegmentInfoFormat {
+	return c.delegate.SegmentInfoFormat()
+}
+
 // TermVectorsFormat returns the delegate's term vectors format.
 func (c *FilterCodec) TermVectorsFormat() TermVectorsFormat {
 	return c.delegate.TermVectorsFormat()

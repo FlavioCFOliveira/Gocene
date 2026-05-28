@@ -513,7 +513,7 @@ func openSegmentReader(directory store.Directory, sci *SegmentCommitInfo) (*Segm
 		fif := codec.FieldInfosFormat()
 		if fif != nil {
 			var err error
-			fi, err = fif.Read(directory, sci.SegmentInfo(), store.IOContextRead)
+			fi, err = fif.Read(directory, sci.SegmentInfo(), "", store.IOContextRead)
 			if err != nil {
 				// Non-fatal: segment may not have a .fnm file yet (e.g., empty
 				// in-memory segment). Fall back to an empty FieldInfos.

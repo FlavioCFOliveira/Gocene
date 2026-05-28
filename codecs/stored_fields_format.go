@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -23,23 +23,8 @@ const (
 	lucene104SFDataVersion = int32(0)
 )
 
-// StoredFieldsFormat handles encoding/decoding of stored fields.
-// This is the Go port of Lucene's org.apache.lucene.codecs.StoredFieldsFormat.
-//
-// Stored fields are kept in files like _X.fdt (data) and _X.fdx (index)
-// and contain the original field values that can be retrieved at search time.
-type StoredFieldsFormat interface {
-	// Name returns the name of this format.
-	Name() string
-
-	// FieldsReader returns a reader for stored fields.
-	// The caller should close the returned reader when done.
-	FieldsReader(dir store.Directory, segmentInfo *index.SegmentInfo, fieldInfos *index.FieldInfos, context store.IOContext) (StoredFieldsReader, error)
-
-	// FieldsWriter returns a writer for stored fields.
-	// The caller should close the returned writer when done.
-	FieldsWriter(dir store.Directory, segmentInfo *index.SegmentInfo, context store.IOContext) (StoredFieldsWriter, error)
-}
+// StoredFieldsFormat is an alias of spi.StoredFieldsFormat.
+type StoredFieldsFormat = spi.StoredFieldsFormat
 
 // BaseStoredFieldsFormat provides common functionality.
 type BaseStoredFieldsFormat struct {
@@ -88,53 +73,21 @@ func (f *Lucene104StoredFieldsFormat) FieldsWriter(dir store.Directory, segmentI
 	return NewLucene104StoredFieldsWriter(dir, segmentInfo)
 }
 
-// StoredFieldsReader is a reader for stored fields.
-// This is the Go port of Lucene's org.apache.lucene.codecs.StoredFieldsReader.
-type StoredFieldsReader interface {
-	// VisitDocument visits the stored fields for a document.
-	// The visitor is called for each stored field in the document.
-	VisitDocument(docID int, visitor StoredFieldVisitor) error
+// StoredFieldsReader is an alias of spi.StoredFieldsReader.
+type StoredFieldsReader = spi.StoredFieldsReader
 
-	// Close releases resources.
-	Close() error
-}
+// StoredFieldsWriter is an alias of spi.StoredFieldsWriter. The
+// WriteField method consumes the narrow spi.IndexableField surface;
+// every concrete field type implemented by package document satisfies
+// it implicitly.
+type StoredFieldsWriter = spi.StoredFieldsWriter
 
-// StoredFieldsWriter is a writer for stored fields.
-// This is the Go port of Lucene's org.apache.lucene.codecs.StoredFieldsWriter.
-type StoredFieldsWriter interface {
-	// StartDocument starts writing a document.
-	StartDocument() error
+// StoredFieldVisitor is an alias of spi.StoredFieldVisitor.
+type StoredFieldVisitor = spi.StoredFieldVisitor
 
-	// FinishDocument finishes writing the current document.
-	FinishDocument() error
-
-	// WriteField writes a field.
-	WriteField(field document.IndexableField) error
-
-	// Close releases resources.
-	Close() error
-}
-
-// StoredFieldVisitor is called for each stored field when visiting a document.
-type StoredFieldVisitor interface {
-	// StringField is called for a stored string field.
-	StringField(field string, value string)
-
-	// BinaryField is called for a stored binary field.
-	BinaryField(field string, value []byte)
-
-	// IntField is called for a stored int field.
-	IntField(field string, value int)
-
-	// LongField is called for a stored long field.
-	LongField(field string, value int64)
-
-	// FloatField is called for a stored float field.
-	FloatField(field string, value float32)
-
-	// DoubleField is called for a stored double field.
-	DoubleField(field string, value float64)
-}
+// IndexableField is an alias of spi.IndexableField — the narrow,
+// codec-facing surface that StoredFieldsWriter.WriteField receives.
+type IndexableField = spi.IndexableField
 
 // field type constants for serialization
 const (
@@ -402,7 +355,7 @@ func (w *Lucene104StoredFieldsWriter) FinishDocument() error {
 }
 
 // WriteField writes a field.
-func (w *Lucene104StoredFieldsWriter) WriteField(field document.IndexableField) error {
+func (w *Lucene104StoredFieldsWriter) WriteField(field spi.IndexableField) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -447,6 +400,14 @@ func (w *Lucene104StoredFieldsWriter) WriteField(field document.IndexableField) 
 	}
 
 	w.currentDoc.fields = append(w.currentDoc.fields, sf)
+	return nil
+}
+
+// Finish finalises the segment after numDocs documents have been
+// written. Lucene104StoredFieldsWriter performs its on-disk flush
+// inside Close (called immediately afterwards by the indexing chain),
+// so Finish is a no-op here.
+func (w *Lucene104StoredFieldsWriter) Finish(numDocs int) error {
 	return nil
 }
 

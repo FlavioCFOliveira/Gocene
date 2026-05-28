@@ -7,27 +7,15 @@ package codecs
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-// PostingsFormat handles encoding/decoding of postings (term -> document mappings).
-// This is the Go port of Lucene's org.apache.lucene.codecs.PostingsFormat.
+// PostingsFormat is an alias of spi.PostingsFormat.
 //
-// Postings are stored in files like _X.pst and contain the mapping from
-// terms to documents, frequencies, positions, and offsets.
-type PostingsFormat interface {
-	// Name returns the name of this format.
-	Name() string
-
-	// FieldsConsumer returns a consumer for writing postings.
-	// The caller should close the returned consumer when done.
-	FieldsConsumer(state *SegmentWriteState) (FieldsConsumer, error)
-
-	// FieldsProducer returns a producer for reading postings.
-	// The caller should close the returned producer when done.
-	FieldsProducer(state *SegmentReadState) (FieldsProducer, error)
-}
+// The canonical declaration lives in spi/; codecs/ re-exports it via a
+// type alias so that historical callers reaching for
+// codecs.PostingsFormat continue to compile.
+type PostingsFormat = spi.PostingsFormat
 
 // BasePostingsFormat provides common functionality.
 type BasePostingsFormat struct {
@@ -134,52 +122,14 @@ func (f *Lucene104PostingsFormat) FieldsProducer(state *SegmentReadState) (Field
 	return btr, nil
 }
 
-// FieldsConsumer is a consumer for writing postings.
-// This is the Go port of Lucene's org.apache.lucene.codecs.FieldsConsumer.
-type FieldsConsumer interface {
-	// Write writes a field's postings.
-	Write(field string, terms index.Terms) error
+// FieldsConsumer is an alias of spi.FieldsConsumer.
+type FieldsConsumer = spi.FieldsConsumer
 
-	// Close releases resources.
-	Close() error
-}
+// FieldsProducer is an alias of spi.FieldsProducer.
+type FieldsProducer = spi.FieldsProducer
 
-// FieldsProducer is a producer for reading postings.
-// This is the Go port of Lucene's org.apache.lucene.codecs.FieldsProducer.
-type FieldsProducer interface {
-	// Terms returns the terms for a field.
-	Terms(field string) (index.Terms, error)
+// SegmentWriteState is an alias of spi.SegmentWriteState.
+type SegmentWriteState = spi.SegmentWriteState
 
-	// Close releases resources.
-	Close() error
-}
-
-// SegmentWriteState holds the state for writing a segment.
-type SegmentWriteState struct {
-	// Directory is where the segment files are written.
-	Directory store.Directory
-
-	// SegmentInfo contains metadata about the segment.
-	SegmentInfo *index.SegmentInfo
-
-	// FieldInfos contains metadata about all fields.
-	FieldInfos *index.FieldInfos
-
-	// SegmentSuffix is an optional suffix for segment files.
-	SegmentSuffix string
-}
-
-// SegmentReadState holds the state for reading a segment.
-type SegmentReadState struct {
-	// Directory is where the segment files are read from.
-	Directory store.Directory
-
-	// SegmentInfo contains metadata about the segment.
-	SegmentInfo *index.SegmentInfo
-
-	// FieldInfos contains metadata about all fields.
-	FieldInfos *index.FieldInfos
-
-	// SegmentSuffix is an optional suffix for segment files.
-	SegmentSuffix string
-}
+// SegmentReadState is an alias of spi.SegmentReadState.
+type SegmentReadState = spi.SegmentReadState

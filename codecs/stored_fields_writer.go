@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -77,8 +77,14 @@ func (w *BaseStoredFieldsWriter) FinishDocument() error {
 
 // WriteField writes a field.
 // This must be implemented by subclasses.
-func (w *BaseStoredFieldsWriter) WriteField(field document.IndexableField) error {
+func (w *BaseStoredFieldsWriter) WriteField(field spi.IndexableField) error {
 	return fmt.Errorf("WriteField not implemented")
+}
+
+// Finish finalises the segment. The base implementation is a no-op;
+// subclasses that buffer documents until Finish must override.
+func (w *BaseStoredFieldsWriter) Finish(numDocs int) error {
+	return nil
 }
 
 // Close releases resources.
@@ -152,7 +158,7 @@ func (w *StoredFieldsWriterImpl) FinishDocument() error {
 }
 
 // WriteField writes a field.
-func (w *StoredFieldsWriterImpl) WriteField(field document.IndexableField) error {
+func (w *StoredFieldsWriterImpl) WriteField(field spi.IndexableField) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -236,7 +242,7 @@ func (w *NoOpStoredFieldsWriter) FinishDocument() error {
 }
 
 // WriteField does nothing.
-func (w *NoOpStoredFieldsWriter) WriteField(field document.IndexableField) error {
+func (w *NoOpStoredFieldsWriter) WriteField(field spi.IndexableField) error {
 	return nil
 }
 

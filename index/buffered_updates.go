@@ -54,6 +54,13 @@ func (bu *BufferedUpdates) SegmentName() string {
 	return bu.segmentName
 }
 
+// IsBufferedUpdates satisfies the spi.BufferedUpdatesRef marker
+// interface so that *BufferedUpdates can be carried in
+// spi.SegmentWriteState.SegUpdates without forcing spi/ to depend on
+// index/. The method is a no-op sentinel; callers that need the
+// structured data type-assert back to *BufferedUpdates.
+func (bu *BufferedUpdates) IsBufferedUpdates() {}
+
 // RamBytesUsed returns the estimated RAM usage of this BufferedUpdates,
 // including its DeletedTerms.
 func (bu *BufferedUpdates) RamBytesUsed() int64 {

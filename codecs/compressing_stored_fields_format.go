@@ -13,8 +13,8 @@ import (
 	"math"
 	"sync"
 
-	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -631,7 +631,7 @@ func (w *CompressingStoredFieldsWriter) FinishDocument() error {
 }
 
 // WriteField writes a field.
-func (w *CompressingStoredFieldsWriter) WriteField(field document.IndexableField) error {
+func (w *CompressingStoredFieldsWriter) WriteField(field spi.IndexableField) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -804,6 +804,13 @@ func (w *CompressingStoredFieldsWriter) serializeDocument(doc []storedField) []b
 }
 
 // Close releases resources and finalizes the file.
+// Finish finalises the segment after numDocs documents. The on-disk
+// flush is performed in Close (called by the indexing chain
+// immediately afterwards), so Finish is a no-op here.
+func (w *CompressingStoredFieldsWriter) Finish(numDocs int) error {
+	return nil
+}
+
 func (w *CompressingStoredFieldsWriter) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()

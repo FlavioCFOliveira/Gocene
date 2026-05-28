@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -27,63 +28,14 @@ const (
 	lucene104TVIndexVersion = int32(0)
 )
 
-// TermVectorsFormat handles encoding/decoding of term vectors.
-// This is the Go port of Lucene's org.apache.lucene.codecs.TermVectorsFormat.
-//
-// Term vectors are stored in files like _X.tvx (index), _X.tvd (data), _X.tvm (metadata).
-// They contain term frequency and position information for each field in each document.
-type TermVectorsFormat interface {
-	// Name returns the name of this format.
-	Name() string
+// TermVectorsFormat is an alias of spi.TermVectorsFormat.
+type TermVectorsFormat = spi.TermVectorsFormat
 
-	// VectorsWriter returns a writer for term vectors.
-	VectorsWriter(state *SegmentWriteState) (TermVectorsWriter, error)
+// TermVectorsWriter is an alias of spi.TermVectorsWriter.
+type TermVectorsWriter = spi.TermVectorsWriter
 
-	// VectorsReader returns a reader for term vectors.
-	VectorsReader(dir store.Directory, segmentInfo *index.SegmentInfo, fieldInfos *index.FieldInfos, context store.IOContext) (TermVectorsReader, error)
-}
-
-// TermVectorsWriter is an interface for writing term vectors.
-// This is the Go port of Lucene's org.apache.lucene.codecs.TermVectorsWriter.
-type TermVectorsWriter interface {
-	// StartDocument starts writing term vectors for a document.
-	StartDocument(numFields int) error
-
-	// StartField starts writing a term vector for a field.
-	StartField(fieldInfo *index.FieldInfo, numTerms int, hasPositions, hasOffsets, hasPayloads bool) error
-
-	// StartTerm starts a new term in the current field.
-	StartTerm(term []byte) error
-
-	// AddPosition adds a position for the current term.
-	AddPosition(position int, startOffset, endOffset int, payload []byte) error
-
-	// FinishTerm finishes the current term.
-	FinishTerm() error
-
-	// FinishField finishes the current field.
-	FinishField() error
-
-	// FinishDocument finishes the current document.
-	FinishDocument() error
-
-	// Close releases resources.
-	Close() error
-}
-
-// TermVectorsReader is an interface for reading term vectors.
-// This is the Go port of Lucene's org.apache.lucene.codecs.TermVectorsReader.
-type TermVectorsReader interface {
-	// Get retrieves term vectors for the given document ID.
-	// Returns a Fields object containing the term vectors.
-	Get(docID int) (index.Fields, error)
-
-	// GetField retrieves the term vector for a specific field in a document.
-	GetField(docID int, field string) (index.Terms, error)
-
-	// Close releases resources.
-	Close() error
-}
+// TermVectorsReader is an alias of spi.TermVectorsReader.
+type TermVectorsReader = spi.TermVectorsReader
 
 // BaseTermVectorsFormat provides common functionality.
 type BaseTermVectorsFormat struct {

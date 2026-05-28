@@ -286,11 +286,19 @@ func (w *FreqProxTermsWriter) Flush(
 // Mirrors org.apache.lucene.index.FreqProxTermsWriter.applyDeletes in
 // Apache Lucene 10.4.0.
 func applyDeletes(state *SegmentWriteState, fields Fields) error {
-	if state.SegUpdates == nil || state.SegUpdates.deleteTerms.IsEmpty() {
+	// SegUpdates is typed as spi.BufferedUpdatesRef so the SPI surface
+	// does not depend on the index package. Type-assert back to the
+	// concrete *BufferedUpdates value before reaching into the buffered
+	// term map.
+	if state.SegUpdates == nil {
+		return nil
+	}
+	bu, ok := state.SegUpdates.(*BufferedUpdates)
+	if !ok || bu.deleteTerms.IsEmpty() {
 		return nil
 	}
 
-	segDeletes := state.SegUpdates.deleteTerms
+	segDeletes := bu.deleteTerms
 	iterator := NewTermDocsIteratorFromFields(fields, true /* sortedTerms */)
 	maxDoc := 0
 	if state.SegmentInfo != nil {

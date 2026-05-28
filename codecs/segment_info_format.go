@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -25,15 +26,8 @@ type SegmentInfosFormat interface {
 	Write(dir store.Directory, infos *index.SegmentInfos) error
 }
 
-// SegmentInfoFormat handles encoding/decoding of a single segment's metadata (.si file).
-// This is the Go port of Lucene's org.apache.lucene.codecs.SegmentInfoFormat.
-type SegmentInfoFormat interface {
-	// Read reads segment info from the given directory.
-	Read(dir store.Directory, segmentName string, segmentID []byte, context store.IOContext) (*index.SegmentInfo, error)
-
-	// Write writes segment info to the given directory.
-	Write(dir store.Directory, info *index.SegmentInfo, context store.IOContext) error
-}
+// SegmentInfoFormat is an alias of spi.SegmentInfoFormat.
+type SegmentInfoFormat = spi.SegmentInfoFormat
 
 // Lucene104SegmentInfosFormat implements the Lucene 10.4 segment infos format (segments_N).
 type Lucene104SegmentInfosFormat struct{}

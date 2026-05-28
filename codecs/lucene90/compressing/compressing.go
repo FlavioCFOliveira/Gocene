@@ -91,6 +91,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/codecs/compressing"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/packed"
@@ -582,7 +583,7 @@ type storedValueField interface {
 // The wire encoding mirrors Lucene's per-type writeField methods, using a
 // sequential 0-based field ID in place of the FieldInfo.number that Lucene
 // uses (see package divergence note).
-func (w *Lucene90CompressingStoredFieldsWriter) WriteField(field document.IndexableField) error {
+func (w *Lucene90CompressingStoredFieldsWriter) WriteField(field spi.IndexableField) error {
 	w.numStoredFieldsInDoc++
 
 	// Assign a sequential field ID for this document. In Lucene the field
@@ -838,6 +839,15 @@ func readInts(in store.DataInput, count int, values []int64, offset int) error {
 		return nil
 	}
 	return gcodecs.ReadStoredFieldsInts(in, count, values, offset)
+}
+
+// Finish satisfies the spi.StoredFieldsWriter interface. The real
+// flush + footer emission happens inside Close (which the indexing
+// chain calls immediately afterwards using the segment's DocCount as
+// numDocs), so Finish is intentionally a no-op here to avoid
+// double-flushing.
+func (w *Lucene90CompressingStoredFieldsWriter) Finish(numDocs int) error {
+	return nil
 }
 
 // finish is called internally by Close to flush remaining docs and write
