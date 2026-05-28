@@ -153,3 +153,62 @@ func TestTermWeight_Explain(t *testing.T) {
 	exp, err = weight.Explain(leaf, 1)
 	assertExplainNoMatch(t, exp, err)
 }
+
+// TestBooleanWeight_Explain verifies BooleanWeight.Explain combines clause
+// explanations and reports a match whose value equals the scored value, and a
+// non-match for a document satisfying none of the optional clauses.
+func TestBooleanWeight_Explain(t *testing.T) {
+	// Docs: 0:"all dogs" 1:"all" 2:"like" 3:"cat"
+	searcher, leaf := explainTestIndex(t, []string{"all dogs", "all", "like", "cat"})
+
+	bq := search.NewBooleanQuery()
+	bq.Add(search.NewTermQuery(index.NewTerm("field", "all")), search.SHOULD)
+	bq.Add(search.NewTermQuery(index.NewTerm("field", "dogs")), search.SHOULD)
+
+	weight, err := bq.CreateWeight(searcher, true, 1.0)
+	if err != nil {
+		t.Fatalf("CreateWeight: %v", err)
+	}
+
+	// Doc 0 matches both SHOULD clauses.
+	want := scoreOfDoc(t, searcher, bq, 0)
+	exp, err := weight.Explain(leaf, 0)
+	assertExplainMatchesScore(t, exp, err, want)
+	if len(exp.GetDetails()) == 0 {
+		t.Error("expected per-clause sub-explanations for a boolean match")
+	}
+
+	// Doc 1 matches a single SHOULD clause ("all").
+	want = scoreOfDoc(t, searcher, bq, 1)
+	exp, err = weight.Explain(leaf, 1)
+	assertExplainMatchesScore(t, exp, err, want)
+
+	// Doc 3 ("cat") matches no clause.
+	exp, err = weight.Explain(leaf, 3)
+	assertExplainNoMatch(t, exp, err)
+}
+
+// TestBooleanWeight_Explain_MustNot verifies that a MUST_NOT clause matching a
+// document forces a non-match explanation.
+func TestBooleanWeight_Explain_MustNot(t *testing.T) {
+	// Docs: 0:"all dogs" 1:"all cat"
+	searcher, leaf := explainTestIndex(t, []string{"all dogs", "all cat"})
+
+	bq := search.NewBooleanQuery()
+	bq.Add(search.NewTermQuery(index.NewTerm("field", "all")), search.MUST)
+	bq.Add(search.NewTermQuery(index.NewTerm("field", "dogs")), search.MUST_NOT)
+
+	weight, err := bq.CreateWeight(searcher, true, 1.0)
+	if err != nil {
+		t.Fatalf("CreateWeight: %v", err)
+	}
+
+	// Doc 0 contains the prohibited term "dogs" -> non-match.
+	exp, err := weight.Explain(leaf, 0)
+	assertExplainNoMatch(t, exp, err)
+
+	// Doc 1 contains "all" and not "dogs" -> match.
+	want := scoreOfDoc(t, searcher, bq, 1)
+	exp, err = weight.Explain(leaf, 1)
+	assertExplainMatchesScore(t, exp, err, want)
+}
