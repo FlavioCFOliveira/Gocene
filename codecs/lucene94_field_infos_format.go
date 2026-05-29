@@ -159,7 +159,9 @@ func (f *Lucene94FieldInfosFormat) readFrom(in *store.ChecksumIndexInput, segmen
 			}
 		}
 
-		dvGen, err := store.ReadInt64(in)
+		// DocValuesGen is little-endian (DataOutput.writeLong); read it with
+		// the matching LE helper. See the writer.
+		dvGen, err := store.ReadInt64LE(in)
 		if err != nil {
 			return nil, err
 		}
@@ -350,7 +352,9 @@ func (f *Lucene94FieldInfosFormat) writeTo(out *store.ChecksumIndexOutput, segme
 			return err
 		}
 
-		if err := store.WriteInt64(out, fi.DocValuesGen()); err != nil {
+		// DocValuesGen uses Java's DataOutput.writeLong (little-endian), not
+		// CodecUtil.writeBELong. Only the index header/footer framing is BE.
+		if err := store.WriteInt64LE(out, fi.DocValuesGen()); err != nil {
 			return err
 		}
 		if err := store.WriteMapOfStrings(out, fi.GetAttributes()); err != nil {
