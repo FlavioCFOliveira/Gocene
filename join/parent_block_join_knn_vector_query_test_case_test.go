@@ -5,11 +5,11 @@
 // Package join contains tests porting
 // org.apache.lucene.search.join.ParentBlockJoinKnnVectorQueryTestCase.
 //
-// All tests in the Java abstract class require full IndexWriter/DirectoryReader
-// round-trip infrastructure that is not yet wired in Gocene (SegmentReader
-// coreReaders gap). Tests are stubbed with t.Skip until that gap is closed;
-// the ones that only exercise the query descriptor (construction, String) are
-// exercised directly.
+// These tests need a runnable DiversifyingChildrenFloatKnnVectorQuery to execute
+// the diversifying KNN join end-to-end; that query is still a descriptor stub
+// (not a search.Query), so they remain deferred with a re-pointed skip. The
+// ones that only exercise the query descriptor (construction, String) run
+// directly.
 package join
 
 import "testing"

@@ -5,9 +5,9 @@
 // Package join contains tests porting
 // org.apache.lucene.search.join.TestBlockJoinBulkScorer.
 //
-// All test methods require IndexWriter/DirectoryReader round-trip and full
-// scorer infrastructure. They are stubbed with t.Skip until the SegmentReader
-// coreReaders gap is closed. Structural checks are exercised separately.
+// These exercise a dedicated BlockJoinBulkScorer (exhaustive child scoring with
+// min-competitive-score), which Gocene has not yet ported; they remain deferred
+// with a re-pointed skip. The structural ScoreModes check runs directly.
 package join
 
 import "testing"

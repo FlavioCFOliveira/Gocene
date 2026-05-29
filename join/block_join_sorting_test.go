@@ -5,10 +5,10 @@
 // Package join contains tests porting
 // org.apache.lucene.search.join.TestBlockJoinSorting.
 //
-// The sole test method testNestedSorting requires IndexWriter, DirectoryReader,
-// and IndexSearcher with block-join sort fields and comparators. This depends
-// on SegmentReader coreReaders wiring not yet available in Gocene.
-// The test is stubbed with t.Skip; structural descriptors are verified directly.
+// The sole test method testNestedSorting needs block-join sorting
+// (ToParentBlockJoinSortField driving a parent sort over child DocValues) wired
+// end-to-end, which Gocene does not yet have; it remains deferred with a
+// re-pointed skip. The structural sort-field descriptor is verified directly.
 package join
 
 import "testing"

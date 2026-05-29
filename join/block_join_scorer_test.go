@@ -5,9 +5,10 @@
 // Package join contains tests porting
 // org.apache.lucene.search.join.TestBlockJoinScorer.
 //
-// All test methods require IndexWriter/DirectoryReader round-trip with
-// ToParentBlockJoinQuery weight and scorer. Stubbed with t.Skip until the
-// SegmentReader coreReaders gap is closed.
+// testScoreNone/testScoreMax exercise the TOP_SCORES + min-competitive-score
+// early-termination path, which the block-join scorer does not yet implement
+// (the Scorer interface has no SetMinCompetitiveScore); they remain deferred
+// with a re-pointed skip. The structural constructor test runs directly.
 package join
 
 import "testing"
