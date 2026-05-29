@@ -630,32 +630,35 @@ func (in *SimpleFSIndexInput) ReadBytesN(n int) ([]byte, error) {
 	return b, nil
 }
 
-// ReadShort reads a 16-bit value.
+// ReadShort reads a 16-bit little-endian value to match Lucene 10.x
+// DataInput.readShort (low byte first). See rmp #4786.
 func (in *SimpleFSIndexInput) ReadShort() (int16, error) {
 	b, err := in.ReadBytesN(2)
 	if err != nil {
 		return 0, err
 	}
-	return int16(b[0])<<8 | int16(b[1]), nil
+	return int16(uint16(b[0]) | uint16(b[1])<<8), nil
 }
 
-// ReadInt reads a 32-bit value.
+// ReadInt reads a 32-bit little-endian value to match Lucene 10.x
+// DataInput.readInt (low byte first). See rmp #4786.
 func (in *SimpleFSIndexInput) ReadInt() (int32, error) {
 	b, err := in.ReadBytesN(4)
 	if err != nil {
 		return 0, err
 	}
-	return int32(b[0])<<24 | int32(b[1])<<16 | int32(b[2])<<8 | int32(b[3]), nil
+	return int32(uint32(b[0]) | uint32(b[1])<<8 | uint32(b[2])<<16 | uint32(b[3])<<24), nil
 }
 
-// ReadLong reads a 64-bit value.
+// ReadLong reads a 64-bit little-endian value to match Lucene 10.x
+// DataInput.readLong (low byte first). See rmp #4786.
 func (in *SimpleFSIndexInput) ReadLong() (int64, error) {
 	b, err := in.ReadBytesN(8)
 	if err != nil {
 		return 0, err
 	}
-	return int64(b[0])<<56 | int64(b[1])<<48 | int64(b[2])<<40 | int64(b[3])<<32 |
-		int64(b[4])<<24 | int64(b[5])<<16 | int64(b[6])<<8 | int64(b[7]), nil
+	return int64(uint64(b[0]) | uint64(b[1])<<8 | uint64(b[2])<<16 | uint64(b[3])<<24 |
+		uint64(b[4])<<32 | uint64(b[5])<<40 | uint64(b[6])<<48 | uint64(b[7])<<56), nil
 }
 
 // ReadString reads a string.
@@ -813,23 +816,26 @@ func (out *SimpleFSIndexOutput) WriteBytesN(b []byte, n int) error {
 	return out.WriteBytes(b[:n])
 }
 
-// WriteShort writes a 16-bit value.
+// WriteShort writes a 16-bit value as little-endian to match Lucene 10.x
+// DataOutput.writeShort (low byte first). See rmp #4786.
 func (out *SimpleFSIndexOutput) WriteShort(i int16) error {
-	b := []byte{byte(i >> 8), byte(i)}
+	b := []byte{byte(i), byte(i >> 8)}
 	return out.WriteBytes(b)
 }
 
-// WriteInt writes a 32-bit value.
+// WriteInt writes a 32-bit value as little-endian to match Lucene 10.x
+// DataOutput.writeInt (low byte first). See rmp #4786.
 func (out *SimpleFSIndexOutput) WriteInt(i int32) error {
-	b := []byte{byte(i >> 24), byte(i >> 16), byte(i >> 8), byte(i)}
+	b := []byte{byte(i), byte(i >> 8), byte(i >> 16), byte(i >> 24)}
 	return out.WriteBytes(b)
 }
 
-// WriteLong writes a 64-bit value.
+// WriteLong writes a 64-bit value as little-endian to match Lucene 10.x
+// DataOutput.writeLong (low byte first). See rmp #4786.
 func (out *SimpleFSIndexOutput) WriteLong(i int64) error {
 	b := []byte{
-		byte(i >> 56), byte(i >> 48), byte(i >> 40), byte(i >> 32),
-		byte(i >> 24), byte(i >> 16), byte(i >> 8), byte(i),
+		byte(i), byte(i >> 8), byte(i >> 16), byte(i >> 24),
+		byte(i >> 32), byte(i >> 40), byte(i >> 48), byte(i >> 56),
 	}
 	return out.WriteBytes(b)
 }

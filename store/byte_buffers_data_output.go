@@ -171,18 +171,20 @@ func (o *ByteBuffersDataOutput) WriteBytes(b []byte) error {
 	return nil
 }
 
-// WriteShort writes a 16-bit value.
+// WriteShort writes a 16-bit value as little-endian to match Lucene 10.x
+// ByteBuffersDataOutput (LITTLE_ENDIAN ByteBuffer). See rmp #4786.
 func (o *ByteBuffersDataOutput) WriteShort(v int16) error {
 	// Ensure we have space for 2 bytes
 	if o.currentBlock == nil || len(o.currentBlock)+2 > o.blockSize() {
 		o.appendBlock()
 	}
 	// Write directly to avoid allocation
-	o.currentBlock = append(o.currentBlock, byte(v>>8), byte(v))
+	o.currentBlock = append(o.currentBlock, byte(v), byte(v>>8))
 	return nil
 }
 
-// WriteInt writes a 32-bit value.
+// WriteInt writes a 32-bit value as little-endian to match Lucene 10.x
+// ByteBuffersDataOutput (LITTLE_ENDIAN ByteBuffer). See rmp #4786.
 func (o *ByteBuffersDataOutput) WriteInt(v int32) error {
 	// Ensure we have space for 4 bytes
 	if o.currentBlock == nil || len(o.currentBlock)+4 > o.blockSize() {
@@ -190,11 +192,12 @@ func (o *ByteBuffersDataOutput) WriteInt(v int32) error {
 	}
 	// Write directly to avoid allocation
 	o.currentBlock = append(o.currentBlock,
-		byte(v>>24), byte(v>>16), byte(v>>8), byte(v))
+		byte(v), byte(v>>8), byte(v>>16), byte(v>>24))
 	return nil
 }
 
-// WriteLong writes a 64-bit value.
+// WriteLong writes a 64-bit value as little-endian to match Lucene 10.x
+// ByteBuffersDataOutput (LITTLE_ENDIAN ByteBuffer). See rmp #4786.
 func (o *ByteBuffersDataOutput) WriteLong(v int64) error {
 	// Ensure we have space for 8 bytes
 	if o.currentBlock == nil || len(o.currentBlock)+8 > o.blockSize() {
@@ -202,8 +205,8 @@ func (o *ByteBuffersDataOutput) WriteLong(v int64) error {
 	}
 	// Write directly to avoid allocation
 	o.currentBlock = append(o.currentBlock,
-		byte(v>>56), byte(v>>48), byte(v>>40), byte(v>>32),
-		byte(v>>24), byte(v>>16), byte(v>>8), byte(v))
+		byte(v), byte(v>>8), byte(v>>16), byte(v>>24),
+		byte(v>>32), byte(v>>40), byte(v>>48), byte(v>>56))
 	return nil
 }
 

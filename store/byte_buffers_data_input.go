@@ -93,34 +93,33 @@ func (in *byteBuffersDataInputImpl) ReadBytesN(n int) ([]byte, error) {
 	return result, nil
 }
 
-// ReadShort implements DataInput. Lucene stores shorts little-endian on disk
-// but ByteBuffersDataInput is currently used as a transient in-memory carrier
-// whose byte order matches the test fixtures (big-endian); we preserve the
-// big-endian decoding for back-compat with the pre-existing test expectations.
+// ReadShort implements DataInput. Lucene's ByteBuffersDataInput uses a
+// LITTLE_ENDIAN ByteBuffer (DataInput.readShort is also LE), so shorts decode
+// low byte first. See rmp #4786.
 func (in *byteBuffersDataInputImpl) ReadShort() (int16, error) {
 	buf := make([]byte, 2)
 	if err := in.ReadBytes(buf); err != nil {
 		return 0, err
 	}
-	return int16(binary.BigEndian.Uint16(buf)), nil
+	return int16(binary.LittleEndian.Uint16(buf)), nil
 }
 
-// ReadInt implements DataInput (big-endian; see ReadShort comment).
+// ReadInt implements DataInput (little-endian; see ReadShort comment).
 func (in *byteBuffersDataInputImpl) ReadInt() (int32, error) {
 	buf := make([]byte, 4)
 	if err := in.ReadBytes(buf); err != nil {
 		return 0, err
 	}
-	return int32(binary.BigEndian.Uint32(buf)), nil
+	return int32(binary.LittleEndian.Uint32(buf)), nil
 }
 
-// ReadLong implements DataInput (big-endian; see ReadShort comment).
+// ReadLong implements DataInput (little-endian; see ReadShort comment).
 func (in *byteBuffersDataInputImpl) ReadLong() (int64, error) {
 	buf := make([]byte, 8)
 	if err := in.ReadBytes(buf); err != nil {
 		return 0, err
 	}
-	return int64(binary.BigEndian.Uint64(buf)), nil
+	return int64(binary.LittleEndian.Uint64(buf)), nil
 }
 
 // ReadString implements DataInput. The length is VInt-encoded; the payload

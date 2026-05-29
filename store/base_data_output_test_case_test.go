@@ -245,9 +245,9 @@ var genWriteInt = generator{
 		if err := dst.WriteInt(v); err != nil {
 			return nil, err
 		}
-		// See note on WriteShort: ByteArrayDataInput.ReadInt is LE while
-		// ByteBuffersDataOutput.WriteInt emits BE. Consume the 4 raw bytes
-		// directly and reassemble per Lucene's canonical BE layout.
+		// Lucene's DataOutput.writeInt is little-endian (low byte first); the
+		// SUTs now emit LE to match (rmp #4786). Consume the 4 raw bytes
+		// directly and reassemble per Lucene's canonical LE layout.
 		return func(in *ByteArrayDataInput) error {
 			var raw [4]byte
 			for i := range raw {
@@ -257,8 +257,8 @@ var genWriteInt = generator{
 				}
 				raw[i] = b
 			}
-			got := int32(uint32(raw[0])<<24 | uint32(raw[1])<<16 |
-				uint32(raw[2])<<8 | uint32(raw[3]))
+			got := int32(uint32(raw[0]) | uint32(raw[1])<<8 |
+				uint32(raw[2])<<16 | uint32(raw[3])<<24)
 			if got != v {
 				return fmt.Errorf("readInt: got %d (raw %x), want %d", got, raw, v)
 			}
@@ -274,7 +274,8 @@ var genWriteLong = generator{
 		if err := dst.WriteLong(v); err != nil {
 			return nil, err
 		}
-		// Same BE-vs-LE divergence as WriteShort/WriteInt.
+		// Lucene's DataOutput.writeLong is little-endian; the SUTs now emit LE
+		// to match (rmp #4786). Reassemble per Lucene's canonical LE layout.
 		return func(in *ByteArrayDataInput) error {
 			var raw [8]byte
 			for i := range raw {
@@ -286,7 +287,7 @@ var genWriteLong = generator{
 			}
 			var u uint64
 			for i := 0; i < 8; i++ {
-				u = u<<8 | uint64(raw[i])
+				u |= uint64(raw[i]) << (8 * i)
 			}
 			got := int64(u)
 			if got != v {
@@ -304,23 +305,21 @@ var genWriteShort = generator{
 		if err := dst.WriteShort(v); err != nil {
 			return nil, err
 		}
-		// ByteArrayDataInput.ReadShort is little-endian, ByteBuffersDataOutput
-		// emits big-endian. We therefore consume the two bytes directly and
-		// reassemble in the encoding the SUT used (BE), which is the
-		// Lucene-canonical layout. SUTs that emit LE shorts will fail and
-		// must be tested via a dedicated path.
+		// Lucene's DataOutput.writeShort is little-endian (low byte first); the
+		// SUTs now emit LE to match (rmp #4786). Consume the two bytes directly
+		// and reassemble per Lucene's canonical LE layout.
 		return func(in *ByteArrayDataInput) error {
-			hi, err := in.ReadByte()
-			if err != nil {
-				return fmt.Errorf("readShort hi: %w", err)
-			}
 			lo, err := in.ReadByte()
 			if err != nil {
 				return fmt.Errorf("readShort lo: %w", err)
 			}
-			got := int16(uint16(hi)<<8 | uint16(lo))
+			hi, err := in.ReadByte()
+			if err != nil {
+				return fmt.Errorf("readShort hi: %w", err)
+			}
+			got := int16(uint16(lo) | uint16(hi)<<8)
 			if got != v {
-				return fmt.Errorf("readShort: got %d (raw %02x%02x), want %d", got, hi, lo, v)
+				return fmt.Errorf("readShort: got %d (raw %02x%02x), want %d", got, lo, hi, v)
 			}
 			return nil
 		}, nil

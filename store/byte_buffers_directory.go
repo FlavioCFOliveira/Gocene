@@ -505,23 +505,29 @@ func (out *ByteBuffersIndexOutput) WriteBytesN(b []byte, n int) error {
 	return out.WriteBytes(b[:n])
 }
 
-// WriteShort writes a 16-bit value.
+// WriteShort writes a 16-bit value as little-endian to match Lucene 10.x
+// DataOutput.writeShort (low byte first) and ByteBuffersIndexInput.ReadShort
+// (already LE). See rmp #4786.
 func (out *ByteBuffersIndexOutput) WriteShort(i int16) error {
-	b := []byte{byte(i >> 8), byte(i)}
+	b := []byte{byte(i), byte(i >> 8)}
 	return out.WriteBytes(b)
 }
 
-// WriteInt writes a 32-bit value.
+// WriteInt writes a 32-bit value as little-endian to match Lucene 10.x
+// DataOutput.writeInt (low byte first) and ByteBuffersIndexInput.ReadInt
+// (already LE). See rmp #4786.
 func (out *ByteBuffersIndexOutput) WriteInt(i int32) error {
-	b := []byte{byte(i >> 24), byte(i >> 16), byte(i >> 8), byte(i)}
+	b := []byte{byte(i), byte(i >> 8), byte(i >> 16), byte(i >> 24)}
 	return out.WriteBytes(b)
 }
 
-// WriteLong writes a 64-bit value.
+// WriteLong writes a 64-bit value as little-endian to match Lucene 10.x
+// DataOutput.writeLong (low byte first) and ByteBuffersIndexInput.ReadLong
+// (already LE). See rmp #4786.
 func (out *ByteBuffersIndexOutput) WriteLong(i int64) error {
 	b := []byte{
-		byte(i >> 56), byte(i >> 48), byte(i >> 40), byte(i >> 32),
-		byte(i >> 24), byte(i >> 16), byte(i >> 8), byte(i),
+		byte(i), byte(i >> 8), byte(i >> 16), byte(i >> 24),
+		byte(i >> 32), byte(i >> 40), byte(i >> 48), byte(i >> 56),
 	}
 	return out.WriteBytes(b)
 }

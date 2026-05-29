@@ -6,7 +6,6 @@ package store
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"math/rand/v2"
 	"testing"
@@ -130,22 +129,16 @@ func TestMultiByteBuffersDirectory(t *testing.T) {
 		if err != nil || b != 2 {
 			t.Fatalf("ReadByte: got=%d err=%v", b, err)
 		}
-		// Gocene ReadLong is big-endian (mirrors the writer); read three longs
-		// and confirm they survive cross-boundary I/O.
-		// NOTE: Gocene's ReadLong is little-endian on ByteBuffersIndexInput
-		// while WriteLong is big-endian — round-trip via raw bytes instead.
-		raw := make([]byte, 24)
-		if err := in.ReadBytes(raw); err != nil {
-			t.Fatalf("ReadBytes(longs): %v", err)
-		}
-		got := []int64{
-			beInt64(raw[0:8]),
-			beInt64(raw[8:16]),
-			beInt64(raw[16:24]),
-		}
+		// WriteLong and ReadLong are both little-endian (Lucene 10.x parity,
+		// rmp #4786); read three longs back directly and confirm they survive
+		// cross-boundary I/O.
 		for i := range want {
-			if got[i] != want[i] {
-				t.Fatalf("long[%d]: want %d got %d", i, want[i], got[i])
+			got, err := in.ReadLong()
+			if err != nil {
+				t.Fatalf("ReadLong[%d]: %v", i, err)
+			}
+			if got != want[i] {
+				t.Fatalf("long[%d]: want %d got %d", i, want[i], got)
 			}
 		}
 	})
@@ -416,18 +409,3 @@ func deterministicBytes(t *testing.T, n int) []byte {
 	return buf
 }
 
-// beInt64 decodes a big-endian int64 — matches the layout written by
-// ByteBuffersIndexOutput.WriteLong (see store/byte_buffers_directory.go).
-func beInt64(b []byte) int64 {
-	if len(b) != 8 {
-		panic(errors.New("beInt64: need 8 bytes"))
-	}
-	return int64(uint64(b[0])<<56 |
-		uint64(b[1])<<48 |
-		uint64(b[2])<<40 |
-		uint64(b[3])<<32 |
-		uint64(b[4])<<24 |
-		uint64(b[5])<<16 |
-		uint64(b[6])<<8 |
-		uint64(b[7]))
-}
