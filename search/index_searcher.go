@@ -9,6 +9,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // IndexSearcher searches an index.
@@ -163,6 +164,17 @@ func (s *IndexSearcher) searchLeaf(reader index.IndexReaderInterface, ord, docBa
 			return err
 		}
 
+		// Apply liveDocs centrally (Lucene's acceptDocs model): composite,
+		// constant-score and block-join scorers emit doc ids without consulting
+		// liveDocs, so deleted documents must be excluded here, not only inside
+		// TermScorer. Without this a BooleanQuery / ConstantScoreQuery /
+		// ToChildBlockJoinQuery over an index with deletions returns deleted docs
+		// (rmp #4762).
+		var liveDocs util.Bits
+		if lr, ok := reader.(interface{ GetLiveDocs() util.Bits }); ok {
+			liveDocs = lr.GetLiveDocs()
+		}
+
 		for {
 			doc, err := scorer.NextDoc()
 			if err != nil {
@@ -170,6 +182,9 @@ func (s *IndexSearcher) searchLeaf(reader index.IndexReaderInterface, ord, docBa
 			}
 			if doc == NO_MORE_DOCS {
 				break
+			}
+			if liveDocs != nil && !liveDocs.Get(doc) {
+				continue
 			}
 			err = leafCollector.Collect(doc)
 			if err != nil {
