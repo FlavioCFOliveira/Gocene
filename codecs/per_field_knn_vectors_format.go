@@ -11,6 +11,8 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
+	utilhnsw "github.com/FlavioCFOliveira/Gocene/util/hnsw"
 )
 
 // PerFieldKnnVectorsFormat name and FieldInfo attribute keys.
@@ -440,6 +442,93 @@ func (r *PerFieldKnnVectorsReader) GetFieldReader(field string) KnnVectorsReader
 		return nil
 	}
 	return r.readersByField[fi.Number()]
+}
+
+// knnVectorSearchReader is the per-encoding read surface that the index
+// layer drives through the PerField wrapper. The concrete delegate
+// (currently *Lucene99HnswVectorsReader) implements it; the PerField
+// reader forwards to the delegate that owns the requested field.
+//
+// It is declared here (rather than in spi/) because the per-encoding read
+// methods deliberately live in the codecs package — see the
+// [KnnVectorsReader] alias doc.
+type knnVectorSearchReader interface {
+	GetFloatVectorValues(field string) (FloatVectorValues, error)
+	GetByteVectorValues(field string) (ByteVectorValues, error)
+	SearchNearestFloat(field string, target []float32, k int, acceptDocs util.Bits) (*utilhnsw.TopDocs, error)
+	SearchNearestByte(field string, target []byte, k int, acceptDocs util.Bits) (*utilhnsw.TopDocs, error)
+}
+
+// fieldSearchReader resolves the delegate that owns field and narrows it to
+// [knnVectorSearchReader]. It returns (nil, nil) when no delegate claims the
+// field (mirroring Java's null-FieldReader case, which the leaf reader
+// surfaces as an empty result), and an error when the delegate does not
+// implement the per-encoding read surface.
+func (r *PerFieldKnnVectorsReader) fieldSearchReader(field string) (knnVectorSearchReader, error) {
+	reader := r.GetFieldReader(field)
+	if reader == nil {
+		return nil, nil
+	}
+	sr, ok := reader.(knnVectorSearchReader)
+	if !ok {
+		return nil, fmt.Errorf(
+			"per-field knn reader: delegate for field %q (%T) does not support vector reads",
+			field, reader)
+	}
+	return sr, nil
+}
+
+// GetFloatVectorValues returns the float vectors for field by delegating
+// to the per-field reader. Returns (nil, nil) when no delegate owns the
+// field. Mirrors Java's PerFieldKnnVectorsFormat.FieldsReader.getFloatVectorValues.
+func (r *PerFieldKnnVectorsReader) GetFloatVectorValues(field string) (FloatVectorValues, error) {
+	sr, err := r.fieldSearchReader(field)
+	if err != nil || sr == nil {
+		return nil, err
+	}
+	return sr.GetFloatVectorValues(field)
+}
+
+// GetByteVectorValues returns the byte vectors for field by delegating to
+// the per-field reader. Returns (nil, nil) when no delegate owns the field.
+func (r *PerFieldKnnVectorsReader) GetByteVectorValues(field string) (ByteVectorValues, error) {
+	sr, err := r.fieldSearchReader(field)
+	if err != nil || sr == nil {
+		return nil, err
+	}
+	return sr.GetByteVectorValues(field)
+}
+
+// SearchNearestFloat runs nearest-neighbour search for the float32 target
+// against field, delegating to the per-field reader. Returns an empty
+// TopDocs when no delegate owns the field.
+func (r *PerFieldKnnVectorsReader) SearchNearestFloat(
+	field string, target []float32, k int, acceptDocs util.Bits,
+) (*utilhnsw.TopDocs, error) {
+	sr, err := r.fieldSearchReader(field)
+	if err != nil {
+		return nil, err
+	}
+	if sr == nil {
+		return utilhnsw.NewTopDocs(utilhnsw.NewTotalHits(0, utilhnsw.EqualTo), nil), nil
+	}
+	return sr.SearchNearestFloat(field, target, k, acceptDocs)
+}
+
+// SearchNearestByte runs nearest-neighbour search for the byte target
+// against field, delegating to the per-field reader. Returns an empty
+// TopDocs when no delegate owns the field.
+func (r *PerFieldKnnVectorsReader) SearchNearestByte(
+	field string, target []byte, k int, acceptDocs util.Bits,
+) (*utilhnsw.TopDocs, error) {
+	sr, err := r.fieldSearchReader(field)
+	if err != nil {
+		return nil, err
+	}
+	if sr == nil {
+		return utilhnsw.NewTopDocs(utilhnsw.NewTotalHits(0, utilhnsw.EqualTo), nil), nil
+	}
+	return sr.SearchNearestByte(field, target, k, acceptDocs)
 }
 
 // CheckIntegrity runs an integrity check on every underlying delegate
