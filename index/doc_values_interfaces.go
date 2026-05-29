@@ -118,3 +118,36 @@ type PointValues interface {
 	// GetBytesPerDimension returns the number of bytes per dimension.
 	GetBytesPerDimension() int
 }
+
+// PointTreeIntersectVisitor is the canonical visitor surface a point-values
+// consumer drives during a BKD intersection. It mirrors the subset of
+// org.apache.lucene.index.PointValues.IntersectVisitor that the search-side
+// point queries (PointRangeQuery, PointInGeo3DShapeQuery, …) actually invoke.
+//
+// It is exported from the index package so that consumers in search/ and
+// spatial3d/ can alias it (rmp #4769) and an on-disk BKD-backed PointValues —
+// constructed by the codec PointsReader — can satisfy the consumers' narrow
+// PointValues interfaces without each package owning a distinct,
+// structurally-identical-but-incompatible visitor type. Compare returns an
+// int (0=CELL_OUTSIDE_QUERY, 1=CELL_INSIDE_QUERY, 2=CELL_CROSSES_QUERY),
+// matching the codecs.Relation / index.PointValues.Relation enum order, so the
+// search packages do not need to import codecs.
+type PointTreeIntersectVisitor interface {
+	// Visit is called for each docID that matches the query when the
+	// packed value is not needed (CELL_INSIDE_QUERY leaves).
+	Visit(docID int) error
+
+	// VisitByPackedValue is called for each (docID, packedValue) pair that
+	// must be gated against the query (CELL_CROSSES_QUERY leaves). The
+	// packedValue buffer is reused across calls; visitors that retain it
+	// must copy.
+	VisitByPackedValue(docID int, packedValue []byte) error
+
+	// Compare returns the relation between the cell [minPackedValue,
+	// maxPackedValue] and the query: 0=outside, 1=inside, 2=crosses.
+	Compare(minPackedValue, maxPackedValue []byte) int
+
+	// Grow is a hint that the visitor will receive at least count more
+	// matches in the current sub-walk.
+	Grow(count int)
+}

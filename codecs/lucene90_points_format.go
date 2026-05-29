@@ -24,9 +24,6 @@ package codecs
 import (
 	"errors"
 	"fmt"
-
-	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // Lucene 9.0 points format constants. Per Lucene 10.4.0 source, the
@@ -74,9 +71,9 @@ const (
 func Lucene90PointsBKDVersion(version int32) (int32, error) {
 	switch version {
 	case Lucene90PointsVersionStart:
-		return 4, nil // BKDWriter.VERSION_META_FILE
+		return 9, nil // BKDWriter.VERSION_META_FILE
 	case Lucene90PointsVersionBKDVectorizedBPV24:
-		return 6, nil // BKDWriter.VERSION_VECTORIZE_BPV24_AND_INTRODUCE_BPV21
+		return 10, nil // BKDWriter.VERSION_VECTORIZE_BPV24_AND_INTRODUCE_BPV21
 	default:
 		return 0, fmt.Errorf("lucene90 points: invalid version=%d", version)
 	}
@@ -84,13 +81,13 @@ func Lucene90PointsBKDVersion(version int32) (int32, error) {
 
 // Lucene90PointsFormat is the Lucene 9.0 points format.
 //
-// This type currently exposes the format constants and the version-to-BKD
-// mapping verbatim from Lucene 10.4.0. The per-field BKD writer/reader
-// bodies (the heavy machinery that uses util/bkd to encode point values)
-// are not yet wired through; the writer/reader returned by
-// FieldsWriter/FieldsReader produce valid CodecUtil framing on the three
-// files but defer per-field encoding to Sprint 22 alongside the rest of
-// the codec-side state plumbing.
+// FieldsWriter drives util/bkd.BKDWriter to serialise each point field's
+// BKD tree into the shared .kdd / .kdi / .kdm trio, and FieldsReader opens
+// those files and exposes a util/bkd.BKDReader-backed PointValues per
+// field. The on-disk framing (per-file CodecUtil IndexHeader, the meta
+// stream's per-field [fieldNumber][BKD-meta] records, the -1 sentinel, the
+// index/data lengths, and the trailing footers) is byte-faithful to
+// org.apache.lucene.codecs.lucene90.Lucene90PointsWriter (Lucene 10.4.0).
 //
 // This is the Go port of
 // org.apache.lucene.codecs.lucene90.Lucene90PointsFormat (Lucene 10.4.0).
@@ -124,193 +121,82 @@ func NewLucene90PointsFormatWithVersion(version int32) *Lucene90PointsFormat {
 // Version returns the format version this instance produces / accepts.
 func (f *Lucene90PointsFormat) Version() int32 { return f.version }
 
-// FieldsWriter returns a writer for writing points. Phase 1 returns a
-// writer that emits CodecUtil framing on the three files; per-field BKD
-// encoding is deferred (see Lucene90PointsWriter).
+// FieldsWriter returns a writer that drives util/bkd.BKDWriter to serialise
+// each point field into the shared .kdd / .kdi / .kdm trio.
+//
+// The BKD machinery lives in the codecs/lucene90 sub-package because
+// util/bkd imports this (codecs) package for its CodecUtil/Relation
+// primitives, so codecs cannot import util/bkd directly without a cycle.
+// codecs/lucene90 sits above both and installs the real implementation via
+// SetLucene90PointsImpl at init time; FieldsWriter therefore dispatches
+// through the installed hook. A nil hook (the sub-package was not linked)
+// yields an explicit error rather than a silent miswrite.
 func (f *Lucene90PointsFormat) FieldsWriter(state *SegmentWriteState) (PointsWriter, error) {
-	return NewLucene90PointsWriterWithVersion(state, f.version), nil
+	if lucene90PointsWriterHook == nil {
+		return nil, errors.New("lucene90 points: BKD writer impl not linked; blank-import codecs/lucene90")
+	}
+	return lucene90PointsWriterHook(state, f.version)
 }
 
-// FieldsReader returns a reader for reading points. Phase 1 returns a
-// reader that opens and validates the three files' headers; per-field
-// queries return empty results.
+// FieldsReader returns a reader that opens the .kdd / .kdi / .kdm trio and
+// exposes a util/bkd.BKDReader-backed PointValues per field. See FieldsWriter
+// for why the implementation is installed via a hook.
 func (f *Lucene90PointsFormat) FieldsReader(state *SegmentReadState) (PointsReader, error) {
-	return NewLucene90PointsReader(state)
+	if lucene90PointsReaderHook == nil {
+		return nil, errors.New("lucene90 points: BKD reader impl not linked; blank-import codecs/lucene90")
+	}
+	return lucene90PointsReaderHook(state)
+}
+
+// Lucene90PointsWriterHook / Lucene90PointsReaderHook are the function shapes
+// the codecs/lucene90 sub-package installs through SetLucene90PointsImpl.
+type Lucene90PointsWriterHook func(state *SegmentWriteState, version int32) (PointsWriter, error)
+
+// Lucene90PointsReaderHook constructs the BKD-backed points reader for a
+// segment.
+type Lucene90PointsReaderHook func(state *SegmentReadState) (PointsReader, error)
+
+var (
+	lucene90PointsWriterHook Lucene90PointsWriterHook
+	lucene90PointsReaderHook Lucene90PointsReaderHook
+)
+
+// SetLucene90PointsImpl installs the BKD-backed Lucene90 points writer/reader
+// implementations. It is called from the codecs/lucene90 sub-package init so
+// that the import edge runs lucene90 -> codecs (and lucene90 -> util/bkd ->
+// codecs), never codecs -> util/bkd. Passing nil for either hook is rejected.
+func SetLucene90PointsImpl(writer Lucene90PointsWriterHook, reader Lucene90PointsReaderHook) {
+	if writer == nil || reader == nil {
+		panic("codecs: SetLucene90PointsImpl requires non-nil writer and reader hooks")
+	}
+	lucene90PointsWriterHook = writer
+	lucene90PointsReaderHook = reader
 }
 
 // -----------------------------------------------------------------------------
-// Lucene90PointsWriter — Phase 1 shell.
+// Shared file-list helper (used by the codecs/lucene90 BKD implementation).
 // -----------------------------------------------------------------------------
 
-// Lucene90PointsWriter writes points in Lucene 9.0 format.
-//
-// DEFERRED to Sprint 22: per-field BKD encoding. The Phase 1 writer
-// opens the .kdd / .kdi / .kdm trio at construction and stamps the
-// CodecUtil IndexHeader on each; WriteField returns a deferred-error.
-// Close finalises every file with the CodecUtil Footer so the three
-// files are well-formed even when no points were written.
-type Lucene90PointsWriter struct {
-	state   *SegmentWriteState
-	version int32
-	closed  bool
+// Lucene90PointFileEntry pairs a points file name with its CodecUtil codec
+// name. Exported so the codecs/lucene90 BKD writer/reader can compute the
+// canonical .kdd / .kdi / .kdm names without re-deriving the constants.
+type Lucene90PointFileEntry struct {
+	Name  string
+	Codec string
 }
 
-// NewLucene90PointsWriter creates a new Lucene90PointsWriter at the
-// current version.
-func NewLucene90PointsWriter(state *SegmentWriteState) *Lucene90PointsWriter {
-	return NewLucene90PointsWriterWithVersion(state, Lucene90PointsVersionCurrent)
-}
-
-// NewLucene90PointsWriterWithVersion creates a writer pinned to a
-// specific format version.
-func NewLucene90PointsWriterWithVersion(state *SegmentWriteState, version int32) *Lucene90PointsWriter {
-	return &Lucene90PointsWriter{state: state, version: version}
-}
-
-// WriteField writes a point field. Phase 1 deferred — see type comment.
-func (w *Lucene90PointsWriter) WriteField(fieldInfo *index.FieldInfo, reader PointsReader) error {
-	if w.closed {
-		return errors.New("lucene90 points: writer closed")
-	}
-	return errors.New("lucene90 points: WriteField is deferred to Sprint 22 (full BKD encoding)")
-}
-
-// Finish is a no-op in Phase 1.
-func (w *Lucene90PointsWriter) Finish() error {
-	if w.closed {
-		return errors.New("lucene90 points: writer closed")
-	}
-	return nil
-}
-
-// Close stamps an IndexHeader + Footer on each of .kdd, .kdi, .kdm so
-// downstream readers see a well-framed (but empty) points segment.
-func (w *Lucene90PointsWriter) Close() error {
-	if w.closed {
-		return nil
-	}
-	w.closed = true
-	return finaliseLucene90PointFiles(w.state, w.version)
-}
-
-// -----------------------------------------------------------------------------
-// Lucene90PointsReader — Phase 1 shell.
-// -----------------------------------------------------------------------------
-
-// Lucene90PointsReader reads points in Lucene 9.0 format.
-//
-// DEFERRED to Sprint 22: per-field BKD decoding. The Phase 1 reader
-// validates the IndexHeader on every file present (returning an error
-// if any header is corrupt or doesn't match this segment's id); the
-// per-field query API returns nil.
-type Lucene90PointsReader struct {
-	state  *SegmentReadState
-	closed bool
-}
-
-// NewLucene90PointsReader creates a new Lucene90PointsReader.
-func NewLucene90PointsReader(state *SegmentReadState) (*Lucene90PointsReader, error) {
-	if err := validateLucene90PointFiles(state); err != nil {
-		return nil, err
-	}
-	return &Lucene90PointsReader{state: state}, nil
-}
-
-// CheckIntegrity checks the integrity of the points.
-func (r *Lucene90PointsReader) CheckIntegrity() error {
-	if r.closed {
-		return errors.New("lucene90 points: reader closed")
-	}
-	return nil
-}
-
-// Close releases resources.
-func (r *Lucene90PointsReader) Close() error {
-	if r.closed {
-		return nil
-	}
-	r.closed = true
-	return nil
-}
-
-// -----------------------------------------------------------------------------
-// Shared file-framing helpers.
-// -----------------------------------------------------------------------------
-
-// finaliseLucene90PointFiles stamps a CodecUtil IndexHeader + Footer
-// onto each of the three points files (.kdd, .kdi, .kdm) and creates
-// them if they do not already exist.
-func finaliseLucene90PointFiles(state *SegmentWriteState, version int32) error {
-	for _, pair := range lucene90PointFileList(state, true) {
-		raw, err := state.Directory.CreateOutput(pair.name, store.IOContext{Context: store.ContextWrite})
-		if err != nil {
-			return fmt.Errorf("lucene90 points: create %q: %w", pair.name, err)
-		}
-		out := store.NewChecksumIndexOutput(raw)
-		if err := WriteIndexHeader(out, pair.codec, version, state.SegmentInfo.GetID(), state.SegmentSuffix); err != nil {
-			_ = out.Close()
-			return fmt.Errorf("lucene90 points: header %q: %w", pair.name, err)
-		}
-		if err := WriteFooter(out); err != nil {
-			_ = out.Close()
-			return fmt.Errorf("lucene90 points: footer %q: %w", pair.name, err)
-		}
-		if err := out.Close(); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// validateLucene90PointFiles iterates the three known points files and
-// validates each one's IndexHeader when present.
-func validateLucene90PointFiles(state *SegmentReadState) error {
-	for _, pair := range lucene90PointFileList(&SegmentWriteState{
-		Directory:     state.Directory,
-		SegmentInfo:   state.SegmentInfo,
-		FieldInfos:    state.FieldInfos,
-		SegmentSuffix: state.SegmentSuffix,
-	}, false) {
-		if !state.Directory.FileExists(pair.name) {
-			continue
-		}
-		in, err := state.Directory.OpenInput(pair.name, store.IOContext{Context: store.ContextRead})
-		if err != nil {
-			return err
-		}
-		csIn := store.NewChecksumIndexInput(in)
-		// Accept either format version on read; the caller will use the
-		// stamped version to dispatch the proper BKD decoder when Sprint
-		// 22 lands.
-		if _, err := CheckIndexHeader(csIn, pair.codec, Lucene90PointsVersionStart, Lucene90PointsVersionCurrent, state.SegmentInfo.GetID(), state.SegmentSuffix); err != nil {
-			_ = in.Close()
-			return fmt.Errorf("lucene90 points: header %q: %w", pair.name, err)
-		}
-		_ = in.Close()
-	}
-	return nil
-}
-
-type lucene90PointFileEntry struct {
-	name  string
-	codec string
-}
-
-// lucene90PointFileList returns the three (.kdd, .kdi, .kdm) file names
-// and codec names for the given segment. When mustExist is true, every
-// returned file is guaranteed to be createable (segment-suffix variant).
-func lucene90PointFileList(state *SegmentWriteState, _ bool) []lucene90PointFileEntry {
-	seg := state.SegmentInfo.Name()
-	suffix := state.SegmentSuffix
+// Lucene90PointFileList returns the (.kdd, .kdi, .kdm) file names and codec
+// names for the given segment, in that fixed order.
+func Lucene90PointFileList(segmentName, segmentSuffix string) []Lucene90PointFileEntry {
 	build := func(ext string) string {
-		if suffix == "" {
-			return seg + "." + ext
+		if segmentSuffix == "" {
+			return segmentName + "." + ext
 		}
-		return seg + "_" + suffix + "." + ext
+		return segmentName + "_" + segmentSuffix + "." + ext
 	}
-	return []lucene90PointFileEntry{
-		{name: build(Lucene90PointsDataExtension), codec: Lucene90PointsDataCodec},
-		{name: build(Lucene90PointsIndexExtension), codec: Lucene90PointsIndexCodec},
-		{name: build(Lucene90PointsMetaExtension), codec: Lucene90PointsMetaCodec},
+	return []Lucene90PointFileEntry{
+		{Name: build(Lucene90PointsDataExtension), Codec: Lucene90PointsDataCodec},
+		{Name: build(Lucene90PointsIndexExtension), Codec: Lucene90PointsIndexCodec},
+		{Name: build(Lucene90PointsMetaExtension), Codec: Lucene90PointsMetaCodec},
 	}
 }

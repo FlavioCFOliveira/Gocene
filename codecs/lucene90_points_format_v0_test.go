@@ -47,8 +47,8 @@ func TestLucene90PointsFormatV0_FormatVersionPinned(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Lucene90PointsBKDVersion(%d): %v", f.Version(), err)
 	}
-	if bkd != 4 {
-		t.Fatalf("BKD version for V0 = %d, want 4 (VERSION_META_FILE)", bkd)
+	if bkd != 9 {
+		t.Fatalf("BKD version for V0 = %d, want 9 (VERSION_META_FILE)", bkd)
 	}
 }
 

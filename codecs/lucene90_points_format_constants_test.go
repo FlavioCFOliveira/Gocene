@@ -10,12 +10,9 @@
 package codecs_test
 
 import (
-	"crypto/rand"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
-	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // TestLucene90PointsFormat_Constants pins the codec names, extensions
@@ -50,8 +47,8 @@ func TestLucene90PointsFormat_BKDVersionMapping(t *testing.T) {
 		version int32
 		want    int32
 	}{
-		{codecs.Lucene90PointsVersionStart, 4},                // VERSION_META_FILE
-		{codecs.Lucene90PointsVersionBKDVectorizedBPV24, 6},   // VERSION_VECTORIZE_BPV24_AND_INTRODUCE_BPV21
+		{codecs.Lucene90PointsVersionStart, 9},               // VERSION_META_FILE
+		{codecs.Lucene90PointsVersionBKDVectorizedBPV24, 10}, // VERSION_VECTORIZE_BPV24_AND_INTRODUCE_BPV21
 	}
 	for _, c := range cases {
 		got, err := codecs.Lucene90PointsBKDVersion(c.version)
@@ -68,53 +65,11 @@ func TestLucene90PointsFormat_BKDVersionMapping(t *testing.T) {
 	}
 }
 
-// TestLucene90PointsFormat_FramingRoundTrip exercises the
-// writer-Close-then-reader path: Close on a writer with zero fields
-// stamps a CodecUtil-framed file trio, and constructing a reader against
-// the same segment must succeed (header validation only).
-func TestLucene90PointsFormat_FramingRoundTrip(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-	id := make([]byte, 16)
-	if _, err := rand.Read(id); err != nil {
-		t.Fatal(err)
-	}
-	si := index.NewSegmentInfo("_0", 0, dir)
-	if err := si.SetID(id); err != nil {
-		t.Fatal(err)
-	}
-	state := &codecs.SegmentWriteState{
-		Directory:     dir,
-		SegmentInfo:   si,
-		SegmentSuffix: "",
-	}
-
-	format := codecs.NewLucene90PointsFormat()
-	writer, err := format.FieldsWriter(state)
-	if err != nil {
-		t.Fatalf("FieldsWriter: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("writer.Close: %v", err)
-	}
-
-	if !dir.FileExists("_0.kdd") || !dir.FileExists("_0.kdi") || !dir.FileExists("_0.kdm") {
-		t.Fatal("expected _0.kdd / _0.kdi / _0.kdm to exist")
-	}
-
-	readState := &codecs.SegmentReadState{
-		Directory:     dir,
-		SegmentInfo:   si,
-		SegmentSuffix: "",
-	}
-	reader, err := format.FieldsReader(readState)
-	if err != nil {
-		t.Fatalf("FieldsReader: %v", err)
-	}
-	if err := reader.Close(); err != nil {
-		t.Fatalf("reader.Close: %v", err)
-	}
-}
+// The writer-Close-then-reader framing round-trip moved to the
+// codecs/lucene90 sub-package (lucene90_points_roundtrip_test.go) once the
+// BKD writer/reader implementation moved there: the top-level codecs test
+// binary does not link codecs/lucene90, so FieldsWriter/FieldsReader return
+// the "impl not linked" sentinel here by design.
 
 // TestLucene90PointsFormat_InvalidVersion verifies the constructor
 // rejects an unknown format version (matches the Java IAE).
