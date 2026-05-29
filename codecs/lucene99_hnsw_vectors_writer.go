@@ -111,19 +111,16 @@ func distFuncToOrd(f index.VectorSimilarityFunction) (int32, error) {
 // Deviations from the Java reference (each tracked in the rmp task
 // summary, [project-gocene-sprint-55-...]):
 //
-//  1. No `.vec` flat-vector file. The Java writer composes with a
-//     [hnsw.FlatVectorsWriter] that owns the raw per-document vectors;
-//     the corresponding Gocene FlatVectorsWriter implementation
-//     (Lucene99FlatVectorsWriter) has not been ported yet. The current
-//     constructor therefore does not take a FlatVectorsWriter, and
-//     [WriteField] / [Flush] accumulate vectors only through the
-//     in-memory FieldWriter without persisting them separately. A
-//     follow-up sprint will wire the flat writer once it lands.
-//  2. No MergeOneField / mergeOneFieldToIndex. Without a
-//     FlatVectorsWriter the merge path cannot reuse merged vectors
-//     across segments. The codec reader read path still works for the
-//     graph-only data this writer emits, which is sufficient for the
-//     graph builder / searcher tests in util/hnsw.
+//  1. Resolved by rmp #4731: the writer now composes a
+//     [Lucene99FlatVectorsWriter] that owns the raw per-document vectors
+//     (the `.vec` data file and `.vemf` metadata file), mirroring the Java
+//     FlatVectorsWriter delegate. Only the dense and empty cases are
+//     supported; a sparse field surfaces the flat writer's typed error
+//     (rmp #4755). Every [AddValueFloat32] / [AddValueByte] is forwarded to
+//     the flat writer in addition to feeding the in-memory graph build.
+//  2. No MergeOneField / mergeOneFieldToIndex. The merge path requires a
+//     MergeState port and is deferred (rmp #4731 / #4755); [WriteField]
+//     (the reader-driven merge entry point) returns a typed error.
 //  3. No Sorter.DocMap support on Flush. The Java reference reorders
 //     per-doc vectors when an index sort is configured; Gocene's
 //     index-sort sprint has not landed, so the writer accepts the
@@ -158,6 +155,13 @@ type Lucene99HnswVectorsWriter struct {
 
 	meta        store.IndexOutput
 	vectorIndex store.IndexOutput
+
+	// flatWriter persists the raw per-document vectors to the .vec / .vemf
+	// files. Lucene's Lucene99HnswVectorsWriter composes a
+	// Lucene99FlatVectorsWriter for exactly this purpose; rmp #4731 lands
+	// that composition so the graph this writer builds is backed by
+	// readable vectors. Previously this was deviation 1 (no .vec file).
+	flatWriter *Lucene99FlatVectorsWriter
 
 	fields []*lucene99HnswFieldWriter
 
@@ -198,6 +202,11 @@ type lucene99HnswFieldWriter struct {
 	maxConn   int
 	beamWidth int
 	threshold int
+
+	// flatField is the per-field accumulator on the composed flat writer.
+	// Every AddValue is forwarded here so the raw vectors reach the .vec
+	// file in addition to feeding the in-memory graph build.
+	flatField *lucene99FlatFieldWriter
 
 	finished bool
 }
@@ -267,6 +276,16 @@ func NewLucene99HnswVectorsWriter(
 		_ = w.Close()
 		return nil, err
 	}
+
+	// Compose the flat vectors writer that persists the raw per-document
+	// vectors to .vec / .vemf, mirroring the FlatVectorsWriter the Java
+	// Lucene99HnswVectorsWriter delegates to.
+	flat, err := NewLucene99FlatVectorsWriter(state)
+	if err != nil {
+		_ = w.Close()
+		return nil, fmt.Errorf("hnsw99: create flat writer: %w", err)
+	}
+	w.flatWriter = flat
 	return w, nil
 }
 
@@ -321,6 +340,11 @@ func (w *Lucene99HnswVectorsWriter) AddField(
 		}
 	}
 
+	flatField, err := w.flatWriter.AddField(fieldInfo)
+	if err != nil {
+		return nil, fmt.Errorf("hnsw99: AddField: flat writer: %w", err)
+	}
+
 	fw := &lucene99HnswFieldWriter{
 		fieldInfo: fieldInfo,
 		encoding:  fieldInfo.VectorEncoding(),
@@ -328,6 +352,7 @@ func (w *Lucene99HnswVectorsWriter) AddField(
 		maxConn:   w.maxConn,
 		beamWidth: w.beamWidth,
 		threshold: w.tinySegmentsThreshold,
+		flatField: flatField,
 	}
 	w.fields = append(w.fields, fw)
 	return fw, nil
@@ -365,6 +390,15 @@ func (fw *lucene99HnswFieldWriter) AddValueFloat32(docID int, vector []float32) 
 	fw.floats = append(fw.floats, cp)
 	fw.docIDs = append(fw.docIDs, docID)
 	fw.lastID = docID
+
+	// Forward the raw vector to the composed flat writer so it reaches the
+	// .vec file. Mirrors FlatFieldVectorsWriter.addValue in the Java
+	// FieldWriter delegate.
+	if fw.flatField != nil {
+		if err := fw.flatField.addValueFloat32(docID, vector); err != nil {
+			return fmt.Errorf("hnsw99: forward to flat writer: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -395,6 +429,14 @@ func (fw *lucene99HnswFieldWriter) AddValueByte(docID int, vector []byte) error 
 	fw.bytes = append(fw.bytes, cp)
 	fw.docIDs = append(fw.docIDs, docID)
 	fw.lastID = docID
+
+	// Forward the raw vector to the composed flat writer (see
+	// AddValueFloat32).
+	if fw.flatField != nil {
+		if err := fw.flatField.addValueByte(docID, vector); err != nil {
+			return fmt.Errorf("hnsw99: forward to flat writer: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -477,20 +519,19 @@ var (
 	_ KnnFieldVectorsWriter = (*lucene99HnswFieldWriter)(nil)
 )
 
-// WriteField is preserved from the previous stub for the
-// [KnnVectorsWriter] interface contract. The legacy code path supplied
-// a reader-backed source of vectors; the new path uses the per-field
-// AddField + AddValue accumulator. This shim looks up the matching
-// FieldWriter and serialises it; supplying a nil reader (or one whose
-// field is not registered) is treated as the empty-field case.
+// WriteField is the reader-driven (merge) entry point of the
+// [KnnVectorsWriter] contract. With the composed flat writer (rmp #4731)
+// the segment's raw vectors must reach the .vec file through the
+// AddField + AddValue + Flush(maxDoc) path; the flat writer needs maxDoc to
+// make the dense-vs-sparse decision, which WriteField cannot supply.
 //
-// Deviation 5: the legacy reader-driven WriteField is not byte-
-// for-byte equivalent to the Java path that streams vectors from a
-// MergeState; that path is the merge code, not the flush code. Until
-// MergeState lands the shim is a thin wrapper over the in-memory
-// accumulator.
+// The merge path (mergeOneField / mergeOneFieldToIndex in the Java
+// reference) is therefore out of scope for rmp #4731 and surfaces a typed
+// error rather than silently producing an unreadable segment with an empty
+// .vec/.vemf. It is tracked alongside the sparse port (rmp #4755) and the
+// MergeState port.
 func (w *Lucene99HnswVectorsWriter) WriteField(
-	fieldInfo *index.FieldInfo, reader KnnVectorsReader,
+	fieldInfo *index.FieldInfo, _ KnnVectorsReader,
 ) error {
 	if w.closed {
 		return errors.New("hnsw99: writer is closed")
@@ -501,21 +542,11 @@ func (w *Lucene99HnswVectorsWriter) WriteField(
 	if fieldInfo == nil {
 		return errors.New("hnsw99: WriteField: nil FieldInfo")
 	}
-	_ = reader // see deviation 5 above
-	var fw *lucene99HnswFieldWriter
-	for _, candidate := range w.fields {
-		if candidate.fieldInfo.Name() == fieldInfo.Name() {
-			fw = candidate
-			break
-		}
-	}
-	if fw == nil {
-		// No per-field accumulator: emit an empty-field meta record so
-		// the reader can still iterate the segment without tripping the
-		// "missing field" guard.
-		return w.writeEmptyFieldMeta(fieldInfo)
-	}
-	return w.flushField(fw)
+	return fmt.Errorf(
+		"hnsw99: WriteField (reader-driven/merge path) is not supported with the "+
+			"composed flat writer; use AddField + AddValue + Flush(maxDoc). "+
+			"Merge support is deferred (see rmp #4731 / #4755) (field=%q)",
+		fieldInfo.Name())
 }
 
 // Flush serialises every field accumulated so far. Mirrors Java's
@@ -526,13 +557,17 @@ func (w *Lucene99HnswVectorsWriter) WriteField(
 // error so the wide [KnnVectorsWriter] contract holds even before the
 // index-sort path lands.
 func (w *Lucene99HnswVectorsWriter) Flush(maxDoc int, sortMap spi.SorterDocMap) error {
-	_ = maxDoc
-	_ = sortMap
 	if w.closed {
 		return errors.New("hnsw99: writer is closed")
 	}
 	if w.finished {
 		return errors.New("hnsw99: writer already finished")
+	}
+	// Persist the raw vectors to .vec / .vemf first. The flat writer
+	// performs the dense/sparse decision and surfaces the sparse deferral
+	// (rmp #4755) here, before any graph bytes are emitted.
+	if err := w.flatWriter.Flush(maxDoc, sortMap); err != nil {
+		return err
 	}
 	for _, fw := range w.fields {
 		if err := w.flushField(fw); err != nil {
@@ -579,14 +614,6 @@ func (w *Lucene99HnswVectorsWriter) flushField(fw *lucene99HnswFieldWriter) erro
 		graph,
 		levelOffsets,
 	)
-}
-
-// writeEmptyFieldMeta writes the meta record corresponding to a field
-// with no per-segment vectors. Mirrors Lucene's behaviour when
-// FieldWriter.docsWithFieldSet is empty: a zero-count entry with no
-// graph levels.
-func (w *Lucene99HnswVectorsWriter) writeEmptyFieldMeta(fieldInfo *index.FieldInfo) error {
-	return w.writeMeta(fieldInfo, 0, 0, 0, nil, nil)
 }
 
 // finish builds the HNSW graph from the accumulated vectors and freezes
@@ -648,6 +675,14 @@ func (w *Lucene99HnswVectorsWriter) Finish() error {
 	}
 	w.finished = true
 
+	// Finish the composed flat writer (end-of-fields sentinel + footers on
+	// .vec / .vemf) before sealing our own files.
+	if w.flatWriter != nil {
+		if err := w.flatWriter.Finish(); err != nil {
+			return fmt.Errorf("hnsw99: finish flat writer: %w", err)
+		}
+	}
+
 	if w.meta != nil {
 		if err := w.meta.WriteInt(-1); err != nil {
 			return fmt.Errorf("hnsw99: write meta sentinel: %w", err)
@@ -673,6 +708,12 @@ func (w *Lucene99HnswVectorsWriter) Close() error {
 	w.closed = true
 
 	var firstErr error
+	if w.flatWriter != nil {
+		if err := w.flatWriter.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+		w.flatWriter = nil
+	}
 	if w.meta != nil {
 		if err := w.meta.Close(); err != nil && firstErr == nil {
 			firstErr = err

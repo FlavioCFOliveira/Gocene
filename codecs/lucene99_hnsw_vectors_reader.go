@@ -41,15 +41,18 @@ import (
 // org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader (Lucene 10.4.0).
 //
 // Deviations from the Java reference:
-//  1. No FlatVectorsReader / .vec file. The Gocene writer does not write .vec
-//     (see writer deviation 1). GetFloatVectorValues and GetByteVectorValues
-//     return errors; Search is not yet implemented.
+//  1. Resolved by rmp #4731: the reader now composes a
+//     [Lucene99FlatVectorsReader] that reads the raw per-document vectors
+//     from .vec / .vemf. GetFloatVectorValues / GetByteVectorValues and the
+//     search entry points are backed by it for the dense case; the sparse
+//     case surfaces the flat reader's typed error (rmp #4755).
 //  2. QuantizedVectorsReader interface not implemented (no ScalarQuantizer
 //     support in this sprint).
 type Lucene99HnswVectorsReader struct {
 	fieldInfos  *index.FieldInfos
 	fields      map[int]*lucene99HnswFieldEntry // keyed by field number
 	vectorIndex store.IndexInput                // open .vex file
+	flatReader  *Lucene99FlatVectorsReader      // reads .vec / .vemf
 	version     int32
 	closed      bool
 }
@@ -149,6 +152,16 @@ func NewLucene99HnswVectorsReader(state *SegmentReadState) (*Lucene99HnswVectors
 			r.version, versionIdx)
 	}
 	r.vectorIndex = vectorIndex
+
+	// Open the composed flat reader for the raw vectors (.vec / .vemf),
+	// mirroring the FlatVectorsReader the Java Lucene99HnswVectorsReader
+	// delegates to.
+	flat, err := NewLucene99FlatVectorsReader(state)
+	if err != nil {
+		_ = vectorIndex.Close()
+		return nil, fmt.Errorf("hnsw99 reader: open flat reader: %w", err)
+	}
+	r.flatReader = flat
 	return r, nil
 }
 
@@ -295,37 +308,69 @@ func (r *Lucene99HnswVectorsReader) readFieldEntry(meta store.DataInput, info *i
 	}, nil
 }
 
-// CheckIntegrity verifies the checksum of the .vex file.
+// CheckIntegrity verifies the checksums of the .vex and .vec files.
 func (r *Lucene99HnswVectorsReader) CheckIntegrity() error {
 	if r.closed {
 		return errors.New("hnsw99 reader: closed")
+	}
+	if r.flatReader != nil {
+		if err := r.flatReader.CheckIntegrity(); err != nil {
+			return err
+		}
 	}
 	_, err := ChecksumEntireFile(r.vectorIndex)
 	return err
 }
 
-// Close releases the .vex file handle.
+// Close releases the .vex file handle and the composed flat reader.
 func (r *Lucene99HnswVectorsReader) Close() error {
 	if r.closed {
 		return nil
 	}
 	r.closed = true
-	if r.vectorIndex != nil {
-		return r.vectorIndex.Close()
+	var firstErr error
+	if r.flatReader != nil {
+		if err := r.flatReader.Close(); err != nil {
+			firstErr = err
+		}
+		r.flatReader = nil
 	}
-	return nil
+	if r.vectorIndex != nil {
+		if err := r.vectorIndex.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }
 
-// GetFloatVectorValues returns the float vectors for the named field.
-// Not yet implemented (requires Lucene99FlatVectorsReader / .vec file).
-func (r *Lucene99HnswVectorsReader) GetFloatVectorValues(_ string) (FloatVectorValues, error) {
-	return nil, errors.New("hnsw99 reader: GetFloatVectorValues not implemented (no .vec file in this sprint)")
+// GetFloatVectorValues returns the float vectors for the named field,
+// reading them from the composed flat reader (.vec). Dense fields only
+// (rmp #4731); a sparse field surfaces the flat reader's typed error
+// (rmp #4755). Mirrors Lucene99HnswVectorsReader.getFloatVectorValues,
+// which forwards to flatVectorsReader.getFloatVectorValues.
+func (r *Lucene99HnswVectorsReader) GetFloatVectorValues(field string) (FloatVectorValues, error) {
+	if r.flatReader == nil {
+		return nil, errors.New("hnsw99 reader: flat reader not initialised")
+	}
+	values, err := r.flatReader.floatVectorValues(field)
+	if err != nil {
+		return nil, err
+	}
+	return &denseFloatVectorValuesAdapter{values: values, doc: -1}, nil
 }
 
-// GetByteVectorValues returns the byte vectors for the named field.
-// Not yet implemented (requires Lucene99FlatVectorsReader / .vec file).
-func (r *Lucene99HnswVectorsReader) GetByteVectorValues(_ string) (ByteVectorValues, error) {
-	return nil, errors.New("hnsw99 reader: GetByteVectorValues not implemented (no .vec file in this sprint)")
+// GetByteVectorValues returns the byte vectors for the named field,
+// reading them from the composed flat reader (.vec). Dense fields only
+// (rmp #4731). Mirrors Lucene99HnswVectorsReader.getByteVectorValues.
+func (r *Lucene99HnswVectorsReader) GetByteVectorValues(field string) (ByteVectorValues, error) {
+	if r.flatReader == nil {
+		return nil, errors.New("hnsw99 reader: flat reader not initialised")
+	}
+	values, err := r.flatReader.byteVectorValues(field)
+	if err != nil {
+		return nil, err
+	}
+	return &denseByteVectorValuesAdapter{values: values, doc: -1}, nil
 }
 
 // GetGraph returns the off-heap HNSW graph for the named field.
@@ -345,20 +390,114 @@ func (r *Lucene99HnswVectorsReader) GetGraph(field string) (utilhnsw.HnswGraph, 
 	return newOffHeapHnswGraph(entry, r.vectorIndex, r.version)
 }
 
-// SearchFloat performs approximate nearest-neighbour search against float32 query vector.
-// Requires FlatVectorsReader (not yet ported); returns an error if called.
-//
-// knnCollector and acceptDocs are typed as any to avoid an import cycle with
-// codecs/hnsw; concrete types will be restored once the search package
-// integration sprint lands.
+// SearchFloat is the legacy any-typed search entry point retained for the
+// codecs/hnsw.FlatVectorsReader surface. The concrete search path used by
+// the index layer is [SearchNearestFloat]; this overload always returns an
+// error directing callers there (knnCollector / acceptDocs cannot be typed
+// here without importing search, which would create an import cycle).
 func (r *Lucene99HnswVectorsReader) SearchFloat(_ string, _ []float32, _ any, _ util.Bits) error {
-	return errors.New("hnsw99 reader: SearchFloat not implemented (no FlatVectorsReader in this sprint)")
+	return errors.New("hnsw99 reader: use SearchNearestFloat (the typed search entry point)")
 }
 
-// SearchByte performs approximate nearest-neighbour search against byte query vector.
-// Requires FlatVectorsReader (not yet ported); returns an error if called.
+// SearchByte is the byte analogue of [SearchFloat]; see [SearchNearestByte].
 func (r *Lucene99HnswVectorsReader) SearchByte(_ string, _ []byte, _ any, _ util.Bits) error {
-	return errors.New("hnsw99 reader: SearchByte not implemented (no FlatVectorsReader in this sprint)")
+	return errors.New("hnsw99 reader: use SearchNearestByte (the typed search entry point)")
+}
+
+// SearchNearestFloat performs approximate (HNSW) or exhaustive
+// nearest-neighbour search for the float32 target against field, collecting
+// the top k results restricted to acceptDocs (nil accepts all live docs).
+//
+// It mirrors the body of Lucene99HnswVectorsReader.search(String, float[],
+// KnnCollector, AcceptDocs): build a query-vs-node scorer over the flat
+// vectors, wrap the collector in an OrdinalTranslatedKnnCollector, then
+// either run HnswGraphSearcher.search over the .vex graph or, when k is
+// large relative to the graph, score every accepted ordinal exhaustively.
+func (r *Lucene99HnswVectorsReader) SearchNearestFloat(
+	field string, target []float32, k int, acceptDocs util.Bits,
+) (*utilhnsw.TopDocs, error) {
+	scorer, err := r.flatReader.randomVectorScorerFloat(field, target)
+	if err != nil {
+		return nil, err
+	}
+	return r.search(field, scorer, k, acceptDocs)
+}
+
+// SearchNearestByte is the byte analogue of [SearchNearestFloat].
+func (r *Lucene99HnswVectorsReader) SearchNearestByte(
+	field string, target []byte, k int, acceptDocs util.Bits,
+) (*utilhnsw.TopDocs, error) {
+	scorer, err := r.flatReader.randomVectorScorerByte(field, target)
+	if err != nil {
+		return nil, err
+	}
+	return r.search(field, scorer, k, acceptDocs)
+}
+
+// search runs the shared HNSW-or-exhaustive decision for the supplied
+// query-vs-node scorer. Mirrors the private search() helper in the Java
+// reference. visitedLimit is set to MaxInt (no budget) because the caller
+// (the index/search layer) enforces its own visit budget through the
+// collector it owns; this internal entry point collects the global top-k
+// for one segment.
+func (r *Lucene99HnswVectorsReader) search(
+	field string, scorer utilhnsw.RandomVectorScorer, k int, acceptDocs util.Bits,
+) (*utilhnsw.TopDocs, error) {
+	info := r.fieldInfos.GetByName(field)
+	if info == nil {
+		return nil, fmt.Errorf("hnsw99 reader: field %q not found", field)
+	}
+	entry, ok := r.fields[info.Number()]
+	if !ok {
+		return nil, fmt.Errorf("hnsw99 reader: field %q has no HNSW entry", field)
+	}
+
+	numVectors := scorer.MaxOrd()
+	if numVectors == 0 || k == 0 {
+		return utilhnsw.NewTopDocs(utilhnsw.NewTotalHits(0, utilhnsw.EqualTo), nil), nil
+	}
+
+	collector := utilhnsw.NewTopKnnCollector(k, int(^uint(0)>>1), nil)
+	translated := utilhnsw.NewOrdinalTranslatedKnnCollector(
+		collector, utilhnsw.IntToIntFunc(scorer.OrdToDoc),
+	)
+	acceptedOrds := scorer.GetAcceptOrds(acceptDocs)
+
+	graphSize := entry.size
+	if entry.vectorIndexLength == 0 {
+		graphSize = 0
+	}
+
+	doHnsw := k < numVectors
+	if graphSize == 0 {
+		doHnsw = false
+	}
+
+	if doHnsw {
+		graph, err := r.GetGraph(field)
+		if err != nil {
+			return nil, err
+		}
+		if err := utilhnsw.SearchWithCollector(scorer, translated, graph, acceptedOrds); err != nil {
+			return nil, err
+		}
+		return collector.TopDocs(), nil
+	}
+
+	// Exhaustive scan: k >= numVectors (or no graph). Score every accepted
+	// ordinal and collect. Mirrors the non-HNSW branch in Lucene's search().
+	for ord := 0; ord < numVectors; ord++ {
+		if acceptedOrds != nil && !acceptedOrds.Get(ord) {
+			continue
+		}
+		score, err := scorer.Score(ord)
+		if err != nil {
+			return nil, err
+		}
+		translated.Collect(ord, score)
+		translated.IncVisitedCount(1)
+	}
+	return collector.TopDocs(), nil
 }
 
 // ---------------------------------------------------------------------------
@@ -579,3 +718,94 @@ func (r *byteArrayRandomAccess) ReadLongAt(pos int64) (int64, error) {
 	hi, _ := r.ReadIntAt(pos)
 	return int64(hi)<<32 | int64(uint32(lo)), nil
 }
+
+// ---------------------------------------------------------------------------
+// dense vector-values adapters
+//
+// The flat reader's dense values are ordinal-keyed (VectorValue(ord)); the
+// codecs [FloatVectorValues] / [ByteVectorValues] interfaces are doc-keyed
+// iterators (GetVector(docID) + NextDoc/Advance/DocID). For the dense case
+// ord == doc, so these adapters are thin wrappers that walk the ordinal
+// space as the document space. Sparse fields never reach here (the flat
+// reader rejects them — rmp #4755).
+// ---------------------------------------------------------------------------
+
+type denseFloatVectorValuesAdapter struct {
+	values *flatDenseFloatVectorValues
+	doc    int
+}
+
+func (a *denseFloatVectorValuesAdapter) Dimension() int { return a.values.Dimension() }
+func (a *denseFloatVectorValuesAdapter) Size() int      { return a.values.Size() }
+func (a *denseFloatVectorValuesAdapter) DocID() int     { return a.doc }
+
+// GetVector returns the vector for docID (== ordinal in the dense case). A
+// fresh copy is returned because the underlying buffer is reused across
+// calls and callers of the codecs surface may retain the result.
+func (a *denseFloatVectorValuesAdapter) GetVector(docID int) ([]float32, error) {
+	v, err := a.values.VectorValue(docID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]float32, len(v))
+	copy(out, v)
+	return out, nil
+}
+
+func (a *denseFloatVectorValuesAdapter) NextDoc() (int, error) {
+	return a.Advance(a.doc + 1)
+}
+
+func (a *denseFloatVectorValuesAdapter) Advance(target int) (int, error) {
+	if target < 0 {
+		target = 0
+	}
+	if target >= a.values.Size() {
+		a.doc = util.NO_MORE_DOCS
+		return util.NO_MORE_DOCS, nil
+	}
+	a.doc = target
+	return a.doc, nil
+}
+
+type denseByteVectorValuesAdapter struct {
+	values *flatDenseByteVectorValues
+	doc    int
+}
+
+func (a *denseByteVectorValuesAdapter) Dimension() int { return a.values.Dimension() }
+func (a *denseByteVectorValuesAdapter) Size() int      { return a.values.Size() }
+func (a *denseByteVectorValuesAdapter) DocID() int     { return a.doc }
+
+func (a *denseByteVectorValuesAdapter) GetVector(docID int) ([]byte, error) {
+	v, err := a.values.VectorValue(docID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]byte, len(v))
+	copy(out, v)
+	return out, nil
+}
+
+func (a *denseByteVectorValuesAdapter) NextDoc() (int, error) {
+	return a.Advance(a.doc + 1)
+}
+
+func (a *denseByteVectorValuesAdapter) Advance(target int) (int, error) {
+	if target < 0 {
+		target = 0
+	}
+	if target >= a.values.Size() {
+		a.doc = util.NO_MORE_DOCS
+		return util.NO_MORE_DOCS, nil
+	}
+	a.doc = target
+	return a.doc, nil
+}
+
+// Compile-time guards that the adapters satisfy the codecs vector-value
+// interfaces.
+var (
+	_ FloatVectorValues = (*denseFloatVectorValuesAdapter)(nil)
+	_ ByteVectorValues  = (*denseByteVectorValuesAdapter)(nil)
+)
