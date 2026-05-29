@@ -270,3 +270,119 @@ func TestSegmentInfoFormat_CorruptHeader(t *testing.T) {
 		t.Error("Expected error when reading corrupted header, got nil")
 	}
 }
+
+// TestSegmentInfoFormat_MinVersionAndHasBlocks exercises rmp #4784: the .si
+// writer must emit the real hasMinVersion sentinel (writeByte(1) + 3 LE ints
+// when set) and the real hasBlocks byte ((byte)(YES/NO)), and the reader must
+// recover both. It runs against an on-disk SimpleFSDirectory so the bytes
+// flow through the same store primitives Lucene-produced fixtures use.
+func TestSegmentInfoFormat_MinVersionAndHasBlocks(t *testing.T) {
+	dir, err := store.NewSimpleFSDirectory(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewSimpleFSDirectory: %v", err)
+	}
+	defer dir.Close()
+
+	cases := []struct {
+		name       string
+		minVersion string // "" => absent
+		hasBlocks  bool
+		compound   bool
+	}{
+		{"absent-minver_no-blocks", "", false, false},
+		{"present-minver_no-blocks", "10.0.0", false, true},
+		{"present-minver_with-blocks", "9.11.1", true, false},
+		{"absent-minver_with-blocks", "", true, true},
+	}
+
+	format := codecs.NewLucene99SegmentInfoFormat()
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			segmentName := fmt.Sprintf("_%d", i)
+			segmentID := make([]byte, 16)
+			rand.Read(segmentID)
+
+			si := index.NewSegmentInfo(segmentName, 7, dir)
+			si.SetID(segmentID)
+			si.SetVersion("10.4.1")
+			si.SetCompoundFile(tc.compound)
+			si.SetHasBlocks(tc.hasBlocks)
+			if tc.minVersion != "" {
+				si.SetMinVersion(tc.minVersion)
+			}
+
+			if err := format.Write(dir, si, store.IOContextWrite); err != nil {
+				t.Fatalf("Write: %v", err)
+			}
+			si2, err := format.Read(dir, segmentName, segmentID, store.IOContextRead)
+			if err != nil {
+				t.Fatalf("Read: %v", err)
+			}
+
+			gotMin, ok := si2.MinVersion()
+			if tc.minVersion == "" {
+				if ok {
+					t.Errorf("expected no minVersion, got %q", gotMin)
+				}
+			} else {
+				if !ok || gotMin != tc.minVersion {
+					t.Errorf("minVersion: want %q, got %q (ok=%v)", tc.minVersion, gotMin, ok)
+				}
+			}
+			if si2.HasBlocks() != tc.hasBlocks {
+				t.Errorf("hasBlocks: want %v, got %v", tc.hasBlocks, si2.HasBlocks())
+			}
+			if si2.IsCompoundFile() != tc.compound {
+				t.Errorf("isCompoundFile: want %v, got %v", tc.compound, si2.IsCompoundFile())
+			}
+		})
+	}
+}
+
+// TestSegmentInfoFormat_DeterministicMapOrdering exercises rmp #4784: writing
+// the same logical SegmentInfo twice (with multi-entry diagnostics/attributes
+// maps, whose Go iteration order is randomised) must produce byte-identical .si
+// files, proving WriteMapOfStrings now sorts its keys.
+func TestSegmentInfoFormat_DeterministicMapOrdering(t *testing.T) {
+	build := func() []byte {
+		dir := store.NewByteBuffersDirectory()
+		defer dir.Close()
+
+		segmentID := make([]byte, 16) // fixed, all-zero ID for byte stability
+		si := index.NewSegmentInfo("_0", 11, dir)
+		si.SetID(segmentID)
+		si.SetVersion("10.4.1")
+		si.SetDiagnostics(map[string]string{
+			"os": "linux", "java": "21", "source": "flush",
+			"lucene": "10.4.1", "timestamp": "0", "os.arch": "aarch64",
+		})
+		si.SetAttribute("a", "1")
+		si.SetAttribute("b", "2")
+		si.SetAttribute("c", "3")
+		si.SetAttribute("d", "4")
+
+		format := codecs.NewLucene99SegmentInfoFormat()
+		if err := format.Write(dir, si, store.IOContextWrite); err != nil {
+			t.Fatalf("Write: %v", err)
+		}
+		in, err := dir.OpenInput("_0.si", store.IOContextRead)
+		if err != nil {
+			t.Fatalf("OpenInput: %v", err)
+		}
+		defer in.Close()
+		n := in.Length()
+		b := make([]byte, n)
+		if err := in.ReadBytes(b); err != nil {
+			t.Fatalf("ReadBytes: %v", err)
+		}
+		return b
+	}
+
+	first := build()
+	for i := 0; i < 16; i++ {
+		got := build()
+		if !bytes.Equal(first, got) {
+			t.Fatalf("non-deterministic .si bytes on iteration %d:\n first=%x\n  got=%x", i, first, got)
+		}
+	}
+}

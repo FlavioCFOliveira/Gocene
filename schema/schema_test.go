@@ -461,6 +461,45 @@ func TestSegmentInfoIndexSort(t *testing.T) {
 	}
 }
 
+// TestSegmentInfoMinVersionAndHasBlocks covers the rmp #4784 accessors:
+// MinVersion()/SetMinVersion default to absent and round-trip a value (with the
+// empty string clearing it), and HasBlocks()/SetHasBlocks default to false.
+func TestSegmentInfoMinVersionAndHasBlocks(t *testing.T) {
+	t.Parallel()
+	si := NewSegmentInfo("_7", 1, store.NewByteBuffersDirectory())
+
+	if v, ok := si.MinVersion(); ok || v != "" {
+		t.Errorf("default MinVersion = (%q, %v), want (\"\", false)", v, ok)
+	}
+	if si.HasBlocks() {
+		t.Error("default HasBlocks = true, want false")
+	}
+
+	si.SetMinVersion("9.11.1")
+	if v, ok := si.MinVersion(); !ok || v != "9.11.1" {
+		t.Errorf("MinVersion after set = (%q, %v), want (\"9.11.1\", true)", v, ok)
+	}
+	si.SetMinVersion("")
+	if v, ok := si.MinVersion(); ok || v != "" {
+		t.Errorf("MinVersion after clear = (%q, %v), want (\"\", false)", v, ok)
+	}
+
+	si.SetHasBlocks(true)
+	if !si.HasBlocks() {
+		t.Error("HasBlocks after SetHasBlocks(true) = false, want true")
+	}
+
+	// Clone must carry both fields.
+	si.SetMinVersion("10.0.0")
+	clone := si.Clone()
+	if v, ok := clone.MinVersion(); !ok || v != "10.0.0" {
+		t.Errorf("clone MinVersion = (%q, %v), want (\"10.0.0\", true)", v, ok)
+	}
+	if !clone.HasBlocks() {
+		t.Error("clone HasBlocks = false, want true")
+	}
+}
+
 // TestSortField checks the SortField value type's accessors and reverse flag.
 func TestSortField(t *testing.T) {
 	t.Parallel()

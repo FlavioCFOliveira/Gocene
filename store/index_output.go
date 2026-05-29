@@ -570,15 +570,30 @@ func WriteString(out DataOutput, s string) error {
 }
 
 // WriteMapOfStrings writes a map of strings as a VInt size followed by key-value pairs.
+//
+// Lucene's DataOutput.writeMapOfStrings iterates the source Map in its own
+// iteration order (which for a Map.copyOf immutable map is JVM-hash-determined
+// and therefore non-portable). Gocene emits the entries sorted by key so the
+// output is deterministic and reproducible across runs; this is the
+// hash-seed-non-determinism case the binary-compatibility mandate explicitly
+// permits, and the matching ReadMapOfStrings reconstructs the logical map
+// regardless of entry order. WriteSetOfStrings/WriteMapOfIntToSetOfStrings sort
+// for the same reason; this keeps all three map/set writers consistent.
 func WriteMapOfStrings(out DataOutput, m map[string]string) error {
 	if err := WriteVInt(out, int32(len(m))); err != nil {
 		return err
 	}
-	for k, v := range m {
+	// Sort for deterministic output.
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
 		if err := WriteString(out, k); err != nil {
 			return err
 		}
-		if err := WriteString(out, v); err != nil {
+		if err := WriteString(out, m[k]); err != nil {
 			return err
 		}
 	}

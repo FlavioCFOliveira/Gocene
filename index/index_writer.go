@@ -1657,10 +1657,10 @@ func (w *IndexWriter) GetDocStats() *DocStats {
 //
 //	writeIndexHeader("Lucene90SegmentInfo", version=0, id, suffix="")
 //	Int32 major, Int32 minor, Int32 bugfix  (from si.Version())
-//	Byte  hasMinVersion = 0
+//	Byte  hasMinVersion (1 + 3 LE ints when si.MinVersion() is set, else 0)
 //	Int32 docCount
 //	Byte  isCompoundFile (1=true, 255=false)
-//	Byte  hasBlocks = 0
+//	Byte  hasBlocks (1=true, 255=false; matches Lucene's YES/NO byte cast)
 //	WriteMapOfStrings(diagnostics)
 //	WriteSetOfStrings(files as set)
 //	WriteMapOfStrings(attributes)
@@ -1697,9 +1697,26 @@ func writeSegmentInfo(dir store.Directory, si *SegmentInfo, context store.IOCont
 		return fmt.Errorf("writeSegmentInfo %s: bugfix: %w", name, writeErr)
 	}
 
-	// hasMinVersion = false
-	if writeErr = out.WriteByte(0); writeErr != nil {
-		return fmt.Errorf("writeSegmentInfo %s: hasMinVersion: %w", name, writeErr)
+	// hasMinVersion: writeByte(1) + 3 LE ints when set, otherwise writeByte(0),
+	// mirroring Lucene99SegmentInfoFormat.writeSegmentInfo (rmp #4784).
+	if minVer, ok := si.MinVersion(); ok {
+		if writeErr = out.WriteByte(1); writeErr != nil {
+			return fmt.Errorf("writeSegmentInfo %s: hasMinVersion: %w", name, writeErr)
+		}
+		minMajor, minMinor, minBugfix := parseSegmentVersion(minVer)
+		if writeErr = store.WriteInt32LE(out, minMajor); writeErr != nil {
+			return fmt.Errorf("writeSegmentInfo %s: minMajor: %w", name, writeErr)
+		}
+		if writeErr = store.WriteInt32LE(out, minMinor); writeErr != nil {
+			return fmt.Errorf("writeSegmentInfo %s: minMinor: %w", name, writeErr)
+		}
+		if writeErr = store.WriteInt32LE(out, minBugfix); writeErr != nil {
+			return fmt.Errorf("writeSegmentInfo %s: minBugfix: %w", name, writeErr)
+		}
+	} else {
+		if writeErr = out.WriteByte(0); writeErr != nil {
+			return fmt.Errorf("writeSegmentInfo %s: hasMinVersion: %w", name, writeErr)
+		}
 	}
 
 	if writeErr = store.WriteInt32LE(out, int32(si.DocCount())); writeErr != nil {
@@ -1715,8 +1732,13 @@ func writeSegmentInfo(dir store.Directory, si *SegmentInfo, context store.IOCont
 		return fmt.Errorf("writeSegmentInfo %s: isCompoundFile: %w", name, writeErr)
 	}
 
-	// hasBlocks = false
-	if writeErr = out.WriteByte(0); writeErr != nil {
+	// hasBlocks: Lucene writes (byte)(getHasBlocks() ? YES(1) : NO(-1)), so
+	// false serialises to 255, not literal 0 (rmp #4784).
+	hasBlocks := byte(255)
+	if si.HasBlocks() {
+		hasBlocks = 1
+	}
+	if writeErr = out.WriteByte(hasBlocks); writeErr != nil {
 		return fmt.Errorf("writeSegmentInfo %s: hasBlocks: %w", name, writeErr)
 	}
 

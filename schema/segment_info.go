@@ -47,6 +47,18 @@ type SegmentInfo struct {
 	// version is the Lucene version that created this segment
 	version string
 
+	// minVersion is the minimum Lucene version that contributed documents to
+	// this segment (Lucene's SegmentInfo.minVersion, since 7.0). It is nil
+	// when absent: the .si writer then emits the hasMinVersion=0 byte, exactly
+	// as Lucene99SegmentInfoFormat does when SegmentInfo.getMinVersion()==null.
+	// A non-nil pointer holds a "major.minor.bugfix" version string.
+	minVersion *string
+
+	// hasBlocks records whether this segment contains document blocks
+	// (Lucene's SegmentInfo.getHasBlocks(), serialised as the HasBlocks byte
+	// after IsCompoundFile in the .si format). Defaults to false.
+	hasBlocks bool
+
 	// isCompoundFile indicates if this segment is stored in a compound file
 	isCompoundFile bool
 
@@ -307,6 +319,48 @@ func (si *SegmentInfo) SetVersion(version string) {
 	si.version = version
 }
 
+// MinVersion returns the minimum Lucene version that contributed documents to
+// this segment, or the empty string with ok=false when no minVersion is set.
+// This mirrors Lucene's SegmentInfo.getMinVersion() (which returns null when
+// absent); the .si format serialises the hasMinVersion sentinel byte from it.
+func (si *SegmentInfo) MinVersion() (version string, ok bool) {
+	si.mu.RLock()
+	defer si.mu.RUnlock()
+	if si.minVersion == nil {
+		return "", false
+	}
+	return *si.minVersion, true
+}
+
+// SetMinVersion sets the minimum Lucene version ("major.minor.bugfix") that
+// contributed documents to this segment. Passing the empty string clears it
+// back to absent (hasMinVersion=0 on disk).
+func (si *SegmentInfo) SetMinVersion(version string) {
+	si.mu.Lock()
+	defer si.mu.Unlock()
+	if version == "" {
+		si.minVersion = nil
+		return
+	}
+	v := version
+	si.minVersion = &v
+}
+
+// HasBlocks reports whether this segment contains document blocks
+// (Lucene's SegmentInfo.getHasBlocks()).
+func (si *SegmentInfo) HasBlocks() bool {
+	si.mu.RLock()
+	defer si.mu.RUnlock()
+	return si.hasBlocks
+}
+
+// SetHasBlocks sets whether this segment contains document blocks.
+func (si *SegmentInfo) SetHasBlocks(hasBlocks bool) {
+	si.mu.Lock()
+	defer si.mu.Unlock()
+	si.hasBlocks = hasBlocks
+}
+
 // IsCompoundFile returns true if this segment uses a compound file.
 func (si *SegmentInfo) IsCompoundFile() bool {
 	si.mu.RLock()
@@ -451,11 +505,16 @@ func (si *SegmentInfo) Clone() *SegmentInfo {
 		directory:      si.directory,
 		files:          make([]string, len(si.files)),
 		version:        si.version,
+		hasBlocks:      si.hasBlocks,
 		isCompoundFile: si.isCompoundFile,
 		codec:          si.codec,
 		diagnostics:    make(map[string]string, len(si.diagnostics)),
 		attributes:     make(map[string]string, len(si.attributes)),
 		indexSort:      si.indexSort,
+	}
+	if si.minVersion != nil {
+		v := *si.minVersion
+		clone.minVersion = &v
 	}
 
 	copy(clone.files, si.files)

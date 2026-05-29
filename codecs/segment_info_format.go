@@ -373,19 +373,27 @@ func (f *Lucene99SegmentInfoFormat) Read(dir store.Directory, segmentName string
 	if err != nil {
 		return nil, err
 	}
-	if hasMinVersion != 0 {
-		_, err = store.ReadInt32LE(checksumIn) // minMajor
+	var minVersion string
+	switch hasMinVersion {
+	case 0:
+		// no minVersion
+	case 1:
+		minMajor, err := store.ReadInt32LE(checksumIn)
 		if err != nil {
 			return nil, err
 		}
-		_, err = store.ReadInt32LE(checksumIn) // minMinor
+		minMinor, err := store.ReadInt32LE(checksumIn)
 		if err != nil {
 			return nil, err
 		}
-		_, err = store.ReadInt32LE(checksumIn) // minBugfix
+		minBugfix, err := store.ReadInt32LE(checksumIn)
 		if err != nil {
 			return nil, err
 		}
+		minVersion = fmt.Sprintf("%d.%d.%d", minMajor, minMinor, minBugfix)
+	default:
+		// Mirrors Lucene99SegmentInfoFormat: any value other than 0/1 is corrupt.
+		return nil, fmt.Errorf("illegal hasMinVersion byte value: %d", hasMinVersion)
 	}
 
 	docCount, err := store.ReadInt32LE(checksumIn)
@@ -403,10 +411,13 @@ func (f *Lucene99SegmentInfoFormat) Read(dir store.Directory, segmentName string
 	// test would misread every non-compound segment (255) as compound.
 	isCompoundFile := isCompoundFileByte == 1
 
-	_, err = checksumIn.ReadByte() // hasBlocks
+	// hasBlocks: Lucene reads `readByte() == SegmentInfo.YES`, so any non-1
+	// byte (including the 255 "NO" sentinel) means false.
+	hasBlocksByte, err := checksumIn.ReadByte()
 	if err != nil {
 		return nil, err
 	}
+	hasBlocks := hasBlocksByte == 1
 
 	diagnostics, err := store.ReadMapOfStrings(checksumIn)
 	if err != nil {
@@ -440,6 +451,10 @@ func (f *Lucene99SegmentInfoFormat) Read(dir store.Directory, segmentName string
 	si := index.NewSegmentInfo(segmentName, int(docCount), dir)
 	si.SetID(segmentID)
 	si.SetVersion(luceneVersion)
+	if minVersion != "" {
+		si.SetMinVersion(minVersion)
+	}
+	si.SetHasBlocks(hasBlocks)
 	si.SetCompoundFile(isCompoundFile)
 	si.SetDiagnostics(diagnostics)
 	fileList := make([]string, 0, len(files))
@@ -481,11 +496,27 @@ func (f *Lucene99SegmentInfoFormat) Write(dir store.Directory, info *index.Segme
 		return err
 	}
 
-	// hasMinVersion byte. Gocene's SegmentInfo does not yet carry a minVersion
-	// field (see schema.SegmentInfo), so we always emit 0. Lucene emits the
-	// real minVersion when present; tracked as a divergence in rmp #4784.
-	if err := checksumOut.WriteByte(0); err != nil {
-		return err
+	// hasMinVersion sentinel + optional minVersion ints, mirroring
+	// Lucene99SegmentInfoFormat.writeSegmentInfo: writeByte(1) + 3 LE ints when
+	// SegmentInfo.getMinVersion() != null, otherwise writeByte(0). (rmp #4784)
+	if minVer, ok := info.MinVersion(); ok {
+		if err := checksumOut.WriteByte(1); err != nil {
+			return err
+		}
+		minMajor, minMinor, minBugfix := parseVersion(minVer)
+		if err := store.WriteInt32LE(checksumOut, minMajor); err != nil {
+			return err
+		}
+		if err := store.WriteInt32LE(checksumOut, minMinor); err != nil {
+			return err
+		}
+		if err := store.WriteInt32LE(checksumOut, minBugfix); err != nil {
+			return err
+		}
+	} else {
+		if err := checksumOut.WriteByte(0); err != nil {
+			return err
+		}
 	}
 
 	if err := store.WriteInt32LE(checksumOut, int32(info.DocCount())); err != nil {
@@ -503,9 +534,14 @@ func (f *Lucene99SegmentInfoFormat) Write(dir store.Directory, info *index.Segme
 		return err
 	}
 
-	// hasBlocks byte. Gocene's SegmentInfo has no hasBlocks field yet, so we
-	// always emit 0. Tracked alongside minVersion as a divergence in rmp #4784.
-	if err := checksumOut.WriteByte(0); err != nil {
+	// hasBlocks byte. Lucene writes (byte)(getHasBlocks() ? YES(1) : NO(-1)),
+	// so false serialises to 0xFF == 255 (matching the isCompoundFile sentinel),
+	// not literal 0. The reader compares the byte against YES. (rmp #4784)
+	hasBlocks := byte(255)
+	if info.HasBlocks() {
+		hasBlocks = 1
+	}
+	if err := checksumOut.WriteByte(hasBlocks); err != nil {
 		return err
 	}
 

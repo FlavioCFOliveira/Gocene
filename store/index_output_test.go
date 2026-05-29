@@ -446,6 +446,48 @@ func TestWriteVIntNegativeRegression(t *testing.T) {
 	})
 }
 
+// TestWriteMapOfStringsDeterministic exercises rmp #4784: WriteMapOfStrings
+// must emit a multi-entry map in a stable (key-sorted) order so the same
+// logical map serialises byte-identically across runs, matching the behaviour
+// of WriteSetOfStrings/WriteMapOfIntToSetOfStrings.
+func TestWriteMapOfStringsDeterministic(t *testing.T) {
+	m := map[string]string{
+		"os": "linux", "java": "21", "source": "flush",
+		"lucene": "10.4.1", "timestamp": "0", "os.arch": "aarch64",
+		"alpha": "a", "zeta": "z", "mid": "m",
+	}
+
+	encode := func() []byte {
+		out := NewByteArrayDataOutput(256)
+		if err := WriteMapOfStrings(out, m); err != nil {
+			t.Fatalf("WriteMapOfStrings: %v", err)
+		}
+		return out.GetBytes()
+	}
+
+	first := encode()
+	for i := 0; i < 32; i++ {
+		if got := encode(); !bytes.Equal(first, got) {
+			t.Fatalf("non-deterministic WriteMapOfStrings bytes on iteration %d", i)
+		}
+	}
+
+	// Round-trip recovers the logical map regardless of serialisation order.
+	in := NewByteArrayDataInput(first)
+	got, err := ReadMapOfStrings(in)
+	if err != nil {
+		t.Fatalf("ReadMapOfStrings: %v", err)
+	}
+	if len(got) != len(m) {
+		t.Fatalf("round-trip size: want %d, got %d", len(m), len(got))
+	}
+	for k, v := range m {
+		if got[k] != v {
+			t.Errorf("round-trip[%q]: want %q, got %q", k, v, got[k])
+		}
+	}
+}
+
 // mockIndexOutput is a mock implementation for testing
 type mockIndexOutput struct {
 	name string
