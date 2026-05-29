@@ -857,15 +857,19 @@ func WriteSegmentInfos(si *SegmentInfos, directory store.Directory) error {
 		return err
 	}
 
-	// Min segment version (written only when numSegments > 0).
+	// Min segment version (written only when numSegments > 0). Mirrors
+	// SegmentInfos.write: the minimum version across all segments, NOT the
+	// SegmentInfos luceneVersion. For a single-version index these coincide,
+	// but a multi-segment index merged across versions records the lowest.
 	if len(si.segments) > 0 {
-		if err := store.WriteVInt(out, major); err != nil {
+		minMajor, minMinor, minBugfix := minSegmentVersion(si.segments)
+		if err := store.WriteVInt(out, minMajor); err != nil {
 			return err
 		}
-		if err := store.WriteVInt(out, minor); err != nil {
+		if err := store.WriteVInt(out, minMinor); err != nil {
 			return err
 		}
-		if err := store.WriteVInt(out, bugfix); err != nil {
+		if err := store.WriteVInt(out, minBugfix); err != nil {
 			return err
 		}
 	}
@@ -1026,6 +1030,29 @@ func readDVUpdateFilesLucene(in store.IndexInput) (map[int]map[string]struct{}, 
 		m[int(keyRaw)] = val
 	}
 	return m, nil
+}
+
+// minSegmentVersion returns the lowest Lucene version (major, minor, bugfix)
+// across the supplied segments, mirroring the pre-pass in
+// org.apache.lucene.index.SegmentInfos.write. Version ordering follows
+// Lucene's Version.onOrAfter, which compares the encoded triple
+// major<<18 | minor<<8 | bugfix. An empty input yields (0,0,0); callers only
+// invoke this when at least one segment is present.
+func minSegmentVersion(segments SegmentCommitInfoList) (int32, int32, int32) {
+	var haveMin bool
+	var minEncoded int64
+	var minMajor, minMinor, minBugfix int32
+	for _, sci := range segments {
+		var maj, min, bug int32
+		fmt.Sscanf(sci.segmentInfo.Version(), "%d.%d.%d", &maj, &min, &bug)
+		encoded := int64(maj)<<18 | int64(min)<<8 | int64(bug)
+		if !haveMin || encoded < minEncoded {
+			haveMin = true
+			minEncoded = encoded
+			minMajor, minMinor, minBugfix = maj, min, bug
+		}
+	}
+	return minMajor, minMinor, minBugfix
 }
 
 // writeDVUpdateFilesLucene writes the docValuesUpdatesFiles map in Lucene wire
