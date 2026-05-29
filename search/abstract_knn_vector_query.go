@@ -223,6 +223,12 @@ func (q *BaseKnnVectorQuery) Rewrite(reader IndexReader) (Query, error) {
 	if err != nil {
 		return nil, err
 	}
+	if topK == nil {
+		// No leaves produced any results (e.g. an empty index). Mirrors the
+		// Java reference, where TopDocs.merge over an empty leaf set yields an
+		// empty TopDocs that rewrites to MatchNoDocsQuery.
+		return NewMatchNoDocsQuery(), nil
+	}
 
 	// Phase-2 optimistic re-entry when eligible.
 	if len(topK.ScoreDocs) > 0 &&

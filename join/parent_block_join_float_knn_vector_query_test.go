@@ -7,32 +7,71 @@
 package join
 
 import (
+	"math"
 	"strings"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
 // TestParentBlockJoinFloatKnnVectorQuery_VectorEncodingMismatch corresponds to
-// TestParentBlockJoinFloatKnnVectorQuery.testVectorEncodingMismatch.
-//
-// The DiversifyingChildren*KnnVectorQuery types are now runnable (rmp #4757);
-// the remaining blocker is the index build: block-join parents carry no vector,
-// so the vector field is sparse, and the Lucene99 flat vectors writer does not
-// yet support the sparse (IndexedDISI) layout — tracked by rmp #4755.
+// TestParentBlockJoinFloatKnnVectorQuery.testVectorEncodingMismatch: searching
+// a float-encoded vector field with a byte-vector query must fail (Lucene
+// throws IllegalStateException; Gocene surfaces a typed error from the codec
+// reader's encoding check).
 func TestParentBlockJoinFloatKnnVectorQuery_VectorEncodingMismatch(t *testing.T) {
-	t.Skip("blocked by sparse flat-vector write support (block-join parents have no vector): rmp #4755")
+	dir, w := newBlockWriter(t)
+	d := document.NewDocument()
+	vf, err := document.NewKnnFloatVectorField("field", []float32{1, 1}, index.VectorSimilarityFunctionCosine)
+	if err != nil {
+		t.Fatalf("NewKnnFloatVectorField: %v", err)
+	}
+	d.Add(vf)
+	addBlock(t, w, d, pbjMakeParent(t, ""))
+	r, s := commitAndOpen(t, dir, w)
+
+	parentFilter := pbjParentsFilter()
+	if err := Check(r, parentFilter); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	// A byte query over a float-encoded field must error.
+	kvq := NewDiversifyingChildrenByteKnnVectorQuery("field", []byte{1, 2}, 2, nil, parentFilter)
+	if _, err := s.Search(kvq, 3); err == nil {
+		t.Errorf("byte query over float field: want error, got nil")
+	}
 }
 
 // TestParentBlockJoinFloatKnnVectorQuery_ScoreCosine corresponds to
-// TestParentBlockJoinFloatKnnVectorQuery.testScoreCosine.
-//
-// Blocked by sparse flat-vector write support (parents have no vector): the
-// runnable query (rmp #4757) is in place, but the index cannot be built until
-// rmp #4755 lands the IndexedDISI sparse path.
+// TestParentBlockJoinFloatKnnVectorQuery.testScoreCosine: five single-child
+// parent blocks with COSINE-similarity vectors {j, j*j}; the diversifying join
+// keeps one best child per parent, and the scorer-level COSINE-normalized
+// scores match.
 func TestParentBlockJoinFloatKnnVectorQuery_ScoreCosine(t *testing.T) {
-	t.Skip("blocked by sparse flat-vector write support (parents have no vector): rmp #4755")
+	dir, w := newBlockWriter(t)
+	for j := 1; j <= 5; j++ {
+		child := document.NewDocument()
+		vf, err := document.NewKnnFloatVectorField("field", []float32{float32(j), float32(j * j)}, index.VectorSimilarityFunctionCosine)
+		if err != nil {
+			t.Fatalf("NewKnnFloatVectorField: %v", err)
+		}
+		child.Add(vf)
+		child.Add(mustStringField(t, "id", pbjItoa(j), true))
+		addBlock(t, w, child, pbjMakeParent(t, ""))
+	}
+	r, s := commitAndOpen(t, dir, w)
+	parentFilter := pbjParentsFilter()
+	if err := Check(r, parentFilter); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+
+	// Query {2,3}. The two top parents are children "1" ({1,1}) and "2"
+	// ({2,4}), with the COSINE-normalized scores below.
+	q := NewDiversifyingChildrenFloatKnnVectorQuery("field", []float32{2, 3}, 3, nil, parentFilter)
+	score0 := float32((1 + (2*1+3*1)/math.Sqrt((2*2+3*3)*(1*1+1*1))) / 2)
+	score1 := float32((1 + (2*2+3*4)/math.Sqrt((2*2+3*3)*(2*2+4*4))) / 2)
+	pbjAssertScorerResults(t, s, r, q, map[string]float32{"1": score0, "2": score1}, 2)
 }
 
 // TestParentBlockJoinFloatKnnVectorQuery_ToString corresponds to

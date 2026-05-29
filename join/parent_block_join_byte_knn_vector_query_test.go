@@ -10,18 +10,73 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
 // TestParentBlockJoinByteKnnVectorQuery_VectorEncodingMismatch corresponds to
-// TestParentBlockJoinByteKnnVectorQuery.testVectorEncodingMismatch.
-//
-// The DiversifyingChildrenByteKnnVectorQuery is now runnable (rmp #4757); the
-// remaining blocker is the sparse flat-vector write path (block-join parents
-// carry no vector) — tracked by rmp #4755.
+// TestParentBlockJoinByteKnnVectorQuery.testVectorEncodingMismatch and adds the
+// positive byte-vector block-join round-trip: a byte-encoded child vector field
+// (sparse, since parents carry no vector) round-trips through IndexWriter and
+// the diversifying byte query returns the nearest child per parent; a float
+// query over the byte field errors.
 func TestParentBlockJoinByteKnnVectorQuery_VectorEncodingMismatch(t *testing.T) {
-	t.Skip("blocked by sparse flat-vector write support (block-join parents have no vector): rmp #4755")
+	dir, w := newBlockWriter(t)
+	// Two parent blocks, each with two byte-vector children.
+	addBlock(t, w,
+		pbjMakeByteChild(t, "field", []byte{1, 2, 3}, "c0"),
+		pbjMakeByteChild(t, "field", []byte{3, 3, 3}, "c1"),
+		pbjMakeParent(t, ""),
+	)
+	addBlock(t, w,
+		pbjMakeByteChild(t, "field", []byte{0, 0, 1}, "c2"),
+		pbjMakeByteChild(t, "field", []byte{10, 10, 10}, "c3"),
+		pbjMakeParent(t, ""),
+	)
+	r, s := commitAndOpen(t, dir, w)
+	parentFilter := pbjParentsFilter()
+	if err := Check(r, parentFilter); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+
+	// Byte query near {9,9,9}: best child of block 1 is {3,3,3} (c1), best of
+	// block 2 is {10,10,10} (c3, the nearest overall).
+	bq := NewDiversifyingChildrenByteKnnVectorQuery("field", []byte{9, 9, 9}, 3, nil, parentFilter)
+	td, err := s.Search(bq, 5)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(td.ScoreDocs) != 2 {
+		t.Fatalf("got %d hits, want 2 (one per parent)", len(td.ScoreDocs))
+	}
+	topDoc, err := s.Doc(td.ScoreDocs[0].Doc)
+	if err != nil {
+		t.Fatalf("Doc: %v", err)
+	}
+	if got := storedString(topDoc, "id"); got != "c3" {
+		t.Errorf("top child id = %q, want c3", got)
+	}
+
+	// A float query over the byte-encoded field must error.
+	fq := NewDiversifyingChildrenFloatKnnVectorQuery("field", []float32{1, 2, 3}, 2, nil, parentFilter)
+	if _, err := s.Search(fq, 3); err == nil {
+		t.Errorf("float query over byte field: want error, got nil")
+	}
+}
+
+// pbjMakeByteChild builds a child document carrying a byte vector for field and
+// a stored "id".
+func pbjMakeByteChild(t *testing.T, field string, vector []byte, id string) index.Document {
+	t.Helper()
+	d := document.NewDocument()
+	vf, err := document.NewKnnByteVectorField(field, vector, index.VectorSimilarityFunctionEuclidean)
+	if err != nil {
+		t.Fatalf("NewKnnByteVectorField(%q): %v", field, err)
+	}
+	d.Add(vf)
+	d.Add(mustStringField(t, "id", id, true))
+	return d
 }
 
 // TestParentBlockJoinByteKnnVectorQuery_ToString corresponds to

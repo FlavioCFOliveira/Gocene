@@ -154,15 +154,11 @@ func TestBlockJoin_BQShouldJoinedChild(t *testing.T) {
 // KnnVectorQuery, and assert one best child per parent plus the exact EUCLIDEAN
 // score of the top hit.
 //
-// The DiversifyingChildrenFloatKnnVectorQuery is now runnable (rmp #4757) and
-// the diversifying exact scan is validated. The remaining blocker is the index
-// build: block-join parents carry no vector, so the vector field is sparse, and
-// the Lucene99 flat vectors writer does not yet support the sparse (IndexedDISI)
-// layout — tracked by rmp #4755. The full test body below is preserved and runs
-// unchanged once #4755 lands.
+// The DiversifyingChildrenFloatKnnVectorQuery is runnable (rmp #4757) and the
+// Lucene99 flat vectors writer/reader supports the sparse (IndexedDISI +
+// DirectMonotonic ord->doc) layout (rmp #4755), so the block index — whose
+// parents carry no vector, making the field sparse — round-trips end-to-end.
 func TestBlockJoin_SimpleKnn(t *testing.T) {
-	t.Skip("blocked by sparse flat-vector write support (block-join parents have no vector): rmp #4755")
-
 	dir, w := newBlockWriter(t)
 	addBlock(t, w,
 		makeVector(t, "vector", "parent1", []float32{1, 2, 3}),
