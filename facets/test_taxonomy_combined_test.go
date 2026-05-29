@@ -7,20 +7,25 @@ package facets_test
 // TestTaxonomyCombined ports selected tests from
 // org.apache.lucene.facet.taxonomy.TestTaxonomyCombined.
 //
-// Tests that verify the full taxonomy writer/reader round-trip with
-// parent-ordinal relationships (testReaderBasic, testReaderParent, etc.)
-// rely on the persisted index via DocValues; they are deferred with t.Skip
-// until the SegmentReader core-readers gap is resolved (BinaryDocValues not
-// yet readable from disk — see memory ref 'gocene-segmentreader-corereaders-gap').
-//
-// Tests that only exercise the in-memory state of the writer or the NRT
-// writer→reader path run unconditionally.
+// The full writer→disk→cold-reader round-trip (testWriter, testWriter2,
+// testReaderBasic, testReaderParent, testRootOnly) is exercised against a
+// persisted taxonomy: DirectoryTaxonomyWriter writes each category as a
+// term + BinaryDocValues path + NumericDocValues parent ordinal, and
+// DirectoryTaxonomyReader cold-opens the committed index and reads the
+// ordinals/paths/parents back. The on-disk DocValues read path landed in
+// rmp #4771; the persist + cold-open pipeline landed in rmp #4774.
 
 import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/facets"
 	"github.com/FlavioCFOliveira/Gocene/store"
+
+	// Blank-import the codec registry so the taxonomy IndexWriter has a default
+	// codec able to persist the taxonomy segment (term + BinaryDocValues +
+	// NumericDocValues) to disk for cold-open.
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
+	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90/compressing"
 )
 
 // newTempTaxoWriter creates a DirectoryTaxonomyWriter backed by an in-memory
@@ -214,28 +219,275 @@ func TestTaxonomyCombined_ReaderBasicNRT(t *testing.T) {
 	}
 }
 
-// -- Integration stubs (require the DirectoryTaxonomy persistence pipeline) ----
-// The on-disk DocValues read path is wired (rmp #4771), so the original
-// "BinaryDocValues not readable from disk" blocker no longer applies. What
-// remains is the DirectoryTaxonomyWriter persist + DirectoryTaxonomyReader
-// cold-open pipeline, tracked in rmp #4774.
+// -- Integration tests (DirectoryTaxonomy persist + cold-open pipeline) --------
+// The on-disk DocValues read path landed in rmp #4771; the persist +
+// DirectoryTaxonomyReader cold-open pipeline landed in rmp #4774. These tests
+// port the TestTaxonomyCombined fixtures from Lucene and exercise the full
+// writer→disk→cold-reader round-trip.
 
+// taxoCategories mirrors TestTaxonomyCombined.categories: the user-added
+// categories, in addition order.
+var taxoCategories = [][]string{
+	{"Author", "Tom Clancy"},
+	{"Author", "Richard Dawkins"},
+	{"Author", "Richard Adams"},
+	{"Price", "10", "11"},
+	{"Price", "10", "12"},
+	{"Price", "20", "27"},
+	{"Date", "2006", "05"},
+	{"Date", "2005"},
+	{"Date", "2006"},
+	{"Subject", "Nonfiction", "Children", "Animals"},
+	{"Author", "Stephen Jay Gould"},
+	{"Author", "נדבあب"},
+}
+
+// taxoExpectedPaths mirrors TestTaxonomyCombined.expectedPaths: the ordinal of
+// each added category is the last element of the corresponding row.
+var taxoExpectedPaths = [][]int{
+	{1, 2},
+	{1, 3},
+	{1, 4},
+	{5, 6, 7},
+	{5, 6, 8},
+	{5, 9, 10},
+	{11, 12, 13},
+	{11, 14},
+	{11, 12},
+	{15, 16, 17, 18},
+	{1, 19},
+	{1, 20},
+}
+
+// taxoExpectedCategories mirrors TestTaxonomyCombined.expectedCategories: every
+// category the taxonomy index is expected to contain, in increasing ordinal
+// order (parents are added automatically). Index 0 is the root.
+var taxoExpectedCategories = [][]string{
+	{}, // the root category
+	{"Author"},
+	{"Author", "Tom Clancy"},
+	{"Author", "Richard Dawkins"},
+	{"Author", "Richard Adams"},
+	{"Price"},
+	{"Price", "10"},
+	{"Price", "10", "11"},
+	{"Price", "10", "12"},
+	{"Price", "20"},
+	{"Price", "20", "27"},
+	{"Date"},
+	{"Date", "2006"},
+	{"Date", "2006", "05"},
+	{"Date", "2005"},
+	{"Subject"},
+	{"Subject", "Nonfiction"},
+	{"Subject", "Nonfiction", "Children"},
+	{"Subject", "Nonfiction", "Children", "Animals"},
+	{"Author", "Stephen Jay Gould"},
+	{"Author", "נדבあب"},
+}
+
+// fillTaxonomy adds taxoCategories to tw and asserts each AddCategory returns
+// the expected ordinal. Mirrors TestTaxonomyCombined.fillTaxonomy.
+func fillTaxonomy(t *testing.T, tw *facets.DirectoryTaxonomyWriter) {
+	t.Helper()
+	for i, cat := range taxoCategories {
+		ord, err := tw.AddCategory(facets.NewFacetLabel(cat...))
+		if err != nil {
+			t.Fatalf("AddCategory(%v): %v", cat, err)
+		}
+		want := taxoExpectedPaths[i][len(taxoExpectedPaths[i])-1]
+		if ord != want {
+			t.Fatalf("AddCategory(%v): want ordinal %d, got %d", cat, want, ord)
+		}
+	}
+}
+
+// TestTaxonomyCombined_Writer mirrors testWriter: fillTaxonomy returns the
+// expected ordinals and the writer reports the expected total size.
 func TestTaxonomyCombined_Writer(t *testing.T) {
-	t.Skip("requires persisted taxonomy + fillTaxonomy + ordinal verification against expectedPaths (rmp #4774)")
+	dir := store.NewByteBuffersDirectory()
+	tw, err := facets.NewDirectoryTaxonomyWriter(dir)
+	if err != nil {
+		t.Fatalf("NewDirectoryTaxonomyWriter: %v", err)
+	}
+	fillTaxonomy(t, tw)
+	if got := tw.GetSize(); got != len(taxoExpectedCategories) {
+		t.Errorf("GetSize: want %d, got %d", len(taxoExpectedCategories), got)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 }
 
+// TestTaxonomyCombined_WriterTwice mirrors testWriter2 (close + reopen + refill):
+// re-adding the same categories to a writer reopened over the committed index
+// yields the same ordinals (the writer cold-loads its cache from disk) and does
+// not create extraneous categories.
 func TestTaxonomyCombined_WriterTwice(t *testing.T) {
-	t.Skip("requires persisted taxonomy + re-open writer + idempotent ordinals (rmp #4774)")
+	dir := store.NewByteBuffersDirectory()
+
+	tw, err := facets.NewDirectoryTaxonomyWriter(dir)
+	if err != nil {
+		t.Fatalf("NewDirectoryTaxonomyWriter: %v", err)
+	}
+	fillTaxonomy(t, tw)
+	if err := tw.Close(); err != nil {
+		t.Fatalf("Close (first): %v", err)
+	}
+
+	// Reopen over the committed index: the writer must cold-load its ordinal
+	// cache from disk so the second fillTaxonomy reproduces the same ordinals.
+	tw2, err := facets.NewDirectoryTaxonomyWriter(dir)
+	if err != nil {
+		t.Fatalf("NewDirectoryTaxonomyWriter (reopen): %v", err)
+	}
+	fillTaxonomy(t, tw2)
+	if got := tw2.GetSize(); got != len(taxoExpectedCategories) {
+		t.Errorf("GetSize after reopen+refill: want %d, got %d", len(taxoExpectedCategories), got)
+	}
+	if err := tw2.Close(); err != nil {
+		t.Fatalf("Close (second): %v", err)
+	}
 }
 
+// TestTaxonomyCombined_ReaderBasic mirrors testReaderBasic: after writing and
+// closing the taxonomy, a cold DirectoryTaxonomyReader reproduces every
+// ordinal⇔category mapping from disk.
 func TestTaxonomyCombined_ReaderBasic(t *testing.T) {
-	t.Skip("requires cold DirectoryTaxonomyReader.GetPath/GetOrdinal from disk (rmp #4774)")
+	dir := store.NewByteBuffersDirectory()
+	tw, err := facets.NewDirectoryTaxonomyWriter(dir)
+	if err != nil {
+		t.Fatalf("NewDirectoryTaxonomyWriter: %v", err)
+	}
+	fillTaxonomy(t, tw)
+	if err := tw.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	tr, err := facets.NewDirectoryTaxonomyReader(dir)
+	if err != nil {
+		t.Fatalf("NewDirectoryTaxonomyReader: %v", err)
+	}
+	defer tr.Close() //nolint:errcheck
+
+	if got := tr.GetSize(); got != len(taxoExpectedCategories) {
+		t.Fatalf("GetSize: want %d, got %d", len(taxoExpectedCategories), got)
+	}
+
+	// ordinal => category => ordinal round-trips.
+	for i := 0; i < tr.GetSize(); i++ {
+		path := tr.GetPath(i)
+		if path == nil {
+			t.Fatalf("GetPath(%d) = nil", i)
+		}
+		if ord := tr.GetOrdinal(path); ord != i {
+			t.Errorf("GetOrdinal(GetPath(%d)): want %d, got %d", i, i, ord)
+		}
+	}
+
+	// Each non-root ordinal maps to its expected category path.
+	for i := 1; i < len(taxoExpectedCategories); i++ {
+		want := facets.NewFacetLabel(taxoExpectedCategories[i]...)
+		got := tr.GetPath(i)
+		if got == nil || !want.Equals(got) {
+			t.Errorf("GetPath(%d): want %v, got %v", i, taxoExpectedCategories[i], got)
+		}
+	}
+
+	// Each expected category maps to its expected ordinal.
+	for i := 1; i < len(taxoExpectedCategories); i++ {
+		got := tr.GetOrdinal(facets.NewFacetLabel(taxoExpectedCategories[i]...))
+		if got != i {
+			t.Errorf("GetOrdinal(%v): want %d, got %d", taxoExpectedCategories[i], i, got)
+		}
+	}
+
+	// Non-existent categories return the invalid ordinal (-1).
+	if ord := tr.GetOrdinal(facets.NewFacetLabel("non-existant")); ord != -1 {
+		t.Errorf("GetOrdinal(non-existant): want -1, got %d", ord)
+	}
+	if ord := tr.GetOrdinal(facets.NewFacetLabel("Author", "Jules Verne")); ord != -1 {
+		t.Errorf("GetOrdinal(Author/Jules Verne): want -1, got %d", ord)
+	}
 }
 
+// TestTaxonomyCombined_ReaderParent mirrors testReaderParent: every non-root
+// category's persisted parent ordinal matches the parent implied by its path.
 func TestTaxonomyCombined_ReaderParent(t *testing.T) {
-	t.Skip("requires persisted taxonomy + ParallelTaxonomyArrays.parents() (rmp #4774)")
+	dir := store.NewByteBuffersDirectory()
+	tw, err := facets.NewDirectoryTaxonomyWriter(dir)
+	if err != nil {
+		t.Fatalf("NewDirectoryTaxonomyWriter: %v", err)
+	}
+	fillTaxonomy(t, tw)
+	if err := tw.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	tr, err := facets.NewDirectoryTaxonomyReader(dir)
+	if err != nil {
+		t.Fatalf("NewDirectoryTaxonomyReader: %v", err)
+	}
+	defer tr.Close() //nolint:errcheck
+
+	// Root's parent is the invalid ordinal.
+	if p := tr.GetParent(0); p != -1 {
+		t.Errorf("GetParent(root): want -1, got %d", p)
+	}
+
+	// Each non-root ordinal's parent path equals the ordinal's path minus its
+	// last component.
+	for ord := 1; ord < tr.GetSize(); ord++ {
+		me := tr.GetPath(ord)
+		if me == nil {
+			t.Fatalf("GetPath(%d) = nil", ord)
+		}
+		parentOrd := tr.GetParent(ord)
+		parent := tr.GetPath(parentOrd)
+		if parent == nil {
+			t.Fatalf("ordinal %d: parent %d is not a valid category", ord, parentOrd)
+		}
+		wantParent := me.SubPath(0, me.Length()-1)
+		if !wantParent.Equals(parent) {
+			t.Errorf("ordinal %d (%v): parent %d is %v, want %v",
+				ord, me.Components, parentOrd, parent.Components, wantParent.Components)
+		}
+	}
 }
 
+// TestTaxonomyCombined_RootOnly mirrors testRootOnly: an empty taxonomy, once
+// committed and cold-opened, contains exactly the root at ordinal 0 with the
+// invalid parent ordinal.
 func TestTaxonomyCombined_RootOnly(t *testing.T) {
-	t.Skip("requires cold DirectoryTaxonomyReader with root at ordinal 0 from disk (rmp #4774)")
+	dir := store.NewByteBuffersDirectory()
+	tw, err := facets.NewDirectoryTaxonomyWriter(dir)
+	if err != nil {
+		t.Fatalf("NewDirectoryTaxonomyWriter: %v", err)
+	}
+	if got := tw.GetSize(); got != 1 {
+		t.Errorf("writer GetSize (root only): want 1, got %d", got)
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	tr, err := facets.NewDirectoryTaxonomyReader(dir)
+	if err != nil {
+		t.Fatalf("NewDirectoryTaxonomyReader: %v", err)
+	}
+	defer tr.Close() //nolint:errcheck
+
+	if got := tr.GetSize(); got != 1 {
+		t.Errorf("reader GetSize (root only): want 1, got %d", got)
+	}
+	root := tr.GetPath(0)
+	if root == nil || root.Length() != 0 {
+		t.Errorf("GetPath(0): want empty root label, got %v", root)
+	}
+	if p := tr.GetParent(0); p != -1 {
+		t.Errorf("GetParent(root): want -1, got %d", p)
+	}
+	if ord := tr.GetOrdinal(facets.NewFacetLabelEmpty()); ord != 0 {
+		t.Errorf("GetOrdinal(root): want 0, got %d", ord)
+	}
 }

@@ -265,50 +265,30 @@ func (w *DirectoryTaxonomyWriter) loadFromDisk() error {
 	return nil
 }
 
-// facetLabelFromPathString converts a Lucene taxonomy path string back to a FacetLabel.
-// The format is the result of FacetsConfig.pathToString: components joined by '￾'.
-// This mirrors the Java FacetsConfig.stringToPath logic.
+// facetLabelFromPathString converts a Lucene taxonomy path string back to a
+// FacetLabel. The taxonomy index stores the full path via
+// FacetsConfig.pathToString (DelimChar U+001F separator with escaping), so the
+// decode delegates to StringToPath. Mirrors
+// org.apache.lucene.facet.taxonomy.directory.DirectoryTaxonomyWriter's use of
+// FacetsConfig.stringToPath.
 func facetLabelFromPathString(s string) *FacetLabel {
 	if s == "" {
 		return NewFacetLabelEmpty()
 	}
-	// Lucene's pathToString joins components with ￾ (U+FFFE).
-	const sep = "￾"
-	parts := splitPathString(s, sep)
+	parts := StringToPath(s)
 	return NewFacetLabel(parts...)
 }
 
-// splitPathString splits s by sep, handling empty segments properly.
-func splitPathString(s, sep string) []string {
-	if s == "" {
-		return nil
-	}
-	var result []string
-	start := 0
-	sepLen := len(sep)
-	for i := 0; i <= len(s)-sepLen; i++ {
-		if s[i:i+sepLen] == sep {
-			result = append(result, s[start:i])
-			start = i + sepLen
-		}
-	}
-	result = append(result, s[start:])
-	return result
-}
-
-// facetLabelToPathString serialises a FacetLabel to the Lucene taxonomy path string.
-// Mirrors org.apache.lucene.facet.FacetsConfig.pathToString(String[], int).
+// facetLabelToPathString serialises a FacetLabel to the Lucene taxonomy path
+// string used as both the indexed term and the BinaryDocValues value, via
+// FacetsConfig.pathToString (DelimChar U+001F separator with escaping). Mirrors
+// org.apache.lucene.facet.FacetsConfig.pathToString(String[], int) as called by
+// DirectoryTaxonomyWriter.
 func facetLabelToPathString(label *FacetLabel) string {
 	if label == nil || len(label.Components) == 0 {
 		return ""
 	}
-	// Lucene joins components with U+FFFE.
-	const sep = "￾"
-	result := label.Components[0]
-	for _, c := range label.Components[1:] {
-		result += sep + c
-	}
-	return result
+	return pathComponentsToString(label.Components)
 }
 
 // addCategoryLocked adds a category to both the index and the in-memory cache.
