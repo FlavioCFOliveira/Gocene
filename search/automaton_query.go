@@ -88,7 +88,13 @@ func NewAutomatonQueryWithBinary(term *index.Term, automaton *automaton.Automato
 //
 // Returns: A new AutomatonQuery instance
 func NewAutomatonQueryFull(term *index.Term, auto *automaton.Automaton, isBinary bool, rewriteMethod string) *AutomatonQuery {
-	compiled := automaton.Compile(auto)
+	// Honour the isBinary flag (mirrors Lucene's
+	// CompiledAutomaton(automaton, null, true, 0, isBinary)). A binary
+	// automaton already operates over byte labels (0..255), so the UTF-32 →
+	// UTF-8 conversion that Compile() applies to code-point automata must be
+	// skipped — PrefixQuery builds its automaton at the byte level and would
+	// be mis-encoded otherwise.
+	compiled := automaton.CompileFull(auto, false, true, isBinary)
 
 	return &AutomatonQuery{
 		term:              term,

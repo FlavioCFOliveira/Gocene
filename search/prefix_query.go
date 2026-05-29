@@ -6,6 +6,7 @@ package search
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
 // PrefixQuery matches documents containing terms with the given prefix.
@@ -68,8 +69,59 @@ func (q *PrefixQuery) String() string {
 }
 
 // CreateWeight creates a Weight for this query.
+//
+// In Lucene 10.4.0 PrefixQuery extends AutomatonQuery and inherits its
+// createWeight, which enumerates the field's terms sharing the prefix via the
+// compiled automaton and unions their postings at a constant score
+// (MultiTermQuery.CONSTANT_SCORE_BLENDED_REWRITE). Gocene models PrefixQuery
+// as a standalone type, so CreateWeight builds the equivalent AutomatonQuery
+// on demand and delegates to it. The previous implementation wrapped the
+// PrefixQuery in a ConstantScoreQuery around itself, which recursed back into
+// this method (and inherited the nil-Weight BaseQuery.CreateWeight before the
+// CSQ fix), so the query never matched anything.
 func (q *PrefixQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	return NewConstantScoreQuery(q).CreateWeight(searcher, needsScores, boost)
+	return q.toAutomatonQuery().CreateWeight(searcher, needsScores, boost)
+}
+
+// toAutomatonQuery builds the AutomatonQuery that backs this PrefixQuery,
+// mirroring the Java PrefixQuery(Term, CONSTANT_SCORE_BLENDED_REWRITE) /
+// super(prefix, toAutomaton(prefix.bytes()), true, rewriteMethod) chain. The
+// automaton is byte-level (isBinary=true), matching the bytes() of the prefix
+// term directly.
+func (q *PrefixQuery) toAutomatonQuery() *AutomatonQuery {
+	var prefixBytes []byte
+	if q.prefix != nil {
+		prefixBytes = q.prefix.BytesValue().ValidBytes()
+	}
+	auto := prefixAutomaton(prefixBytes)
+	field := ""
+	if q.prefix != nil {
+		field = q.prefix.Field
+	}
+	return NewAutomatonQueryFull(
+		index.NewTerm(field, ""),
+		auto,
+		true, // isBinary: the automaton operates over raw term bytes
+		ConstantScoreBlendedRewrite,
+	)
+}
+
+// prefixAutomaton builds a byte-level automaton accepting every term that
+// starts with prefix. It is the Go port of PrefixQuery.toAutomaton(BytesRef)
+// from Apache Lucene 10.4.0: a linear chain over the prefix bytes followed by
+// an accepting state with a [0,255] self-loop that consumes any suffix.
+func prefixAutomaton(prefix []byte) *automaton.Automaton {
+	a := automaton.NewAutomaton()
+	lastState := a.CreateState()
+	for _, b := range prefix {
+		state := a.CreateState()
+		a.AddTransitionSingle(lastState, state, int(b))
+		lastState = state
+	}
+	a.SetAccept(lastState, true)
+	a.AddTransition(lastState, lastState, 0, 255)
+	a.FinishState()
+	return a
 }
 
 // NewPrefixQueryWithStrings creates a new PrefixQuery using strings.
