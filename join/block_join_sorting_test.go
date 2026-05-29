@@ -15,9 +15,8 @@ import "testing"
 
 // TestBlockJoinSorting_NestedSorting corresponds to
 // TestBlockJoinSorting.testNestedSorting.
-// Skipped: requires DirectoryReader + IndexSearcher with nested sort fields.
 func TestBlockJoinSorting_NestedSorting(t *testing.T) {
-	t.Skip("requires DirectoryReader + IndexSearcher: SegmentReader coreReaders not yet wired")
+	t.Skip("requires block-join sorting (ToParentBlockJoinSortField driving a parent sort over child DocValues) end-to-end: rmp #4758")
 }
 
 // TestBlockJoinSorting_SortFieldDescriptor verifies that

@@ -14,23 +14,20 @@ import "testing"
 
 // TestBlockJoinBulkScorer_ScoreRandomIndices corresponds to
 // TestBlockJoinBulkScorer.testScoreRandomIndices.
-// Skipped: requires full index round-trip and bulk scoring infrastructure.
 func TestBlockJoinBulkScorer_ScoreRandomIndices(t *testing.T) {
-	t.Skip("requires DirectoryReader + IndexSearcher: SegmentReader coreReaders not yet wired")
+	t.Skip("requires a dedicated BlockJoinBulkScorer (exhaustive child scoring) + min-competitive-score + ConstantScoreQuery children: rmp #4766")
 }
 
 // TestBlockJoinBulkScorer_SetMinCompetitiveScoreWithScoreModeMax corresponds to
 // TestBlockJoinBulkScorer.testSetMinCompetitiveScoreWithScoreModeMax.
-// Skipped: requires full index round-trip and BulkScorer.
 func TestBlockJoinBulkScorer_SetMinCompetitiveScoreWithScoreModeMax(t *testing.T) {
-	t.Skip("requires DirectoryReader + IndexSearcher: SegmentReader coreReaders not yet wired")
+	t.Skip("requires a dedicated BlockJoinBulkScorer + min-competitive-score early termination: rmp #4766")
 }
 
 // TestBlockJoinBulkScorer_SetMinCompetitiveScoreWithScoreModeNone corresponds to
 // TestBlockJoinBulkScorer.testSetMinCompetitiveScoreWithScoreModeNone.
-// Skipped: requires full index round-trip and BulkScorer.
 func TestBlockJoinBulkScorer_SetMinCompetitiveScoreWithScoreModeNone(t *testing.T) {
-	t.Skip("requires DirectoryReader + IndexSearcher: SegmentReader coreReaders not yet wired")
+	t.Skip("requires a dedicated BlockJoinBulkScorer + min-competitive-score early termination: rmp #4766")
 }
 
 // TestBlockJoinBulkScorer_ScoreModes verifies that ScoreMode constants can be

@@ -13,17 +13,18 @@ package join
 import "testing"
 
 // TestBlockJoinScorer_ScoreNone corresponds to
-// TestBlockJoinScorer.testScoreNone.
-// Skipped: requires DirectoryReader + scorer via LeafReaderContext.
+// TestBlockJoinScorer.testScoreNone. It exercises the TOP_SCORES early
+// termination path: scorer.setMinCompetitiveScore is used to skip
+// non-competitive parents under ScoreMode.None.
 func TestBlockJoinScorer_ScoreNone(t *testing.T) {
-	t.Skip("requires DirectoryReader + IndexSearcher: SegmentReader coreReaders not yet wired")
+	t.Skip("requires SetMinCompetitiveScore/TOP_SCORES support on the block-join scorer (not on the Scorer interface): rmp #4764")
 }
 
 // TestBlockJoinScorer_ScoreMax corresponds to
-// TestBlockJoinScorer.testScoreMax.
-// Skipped: requires DirectoryReader + scorer via LeafReaderContext.
+// TestBlockJoinScorer.testScoreMax. It needs runnable ConstantScoreQuery/
+// BoostQuery children and the min-competitive-score early-termination path.
 func TestBlockJoinScorer_ScoreMax(t *testing.T) {
-	t.Skip("requires DirectoryReader + IndexSearcher: SegmentReader coreReaders not yet wired")
+	t.Skip("requires runnable ConstantScoreQuery children (rmp #4760) and SetMinCompetitiveScore/TOP_SCORES support (rmp #4764)")
 }
 
 // TestBlockJoinScorer_BlockJoinScorerConstruction verifies that BlockJoinScorer
