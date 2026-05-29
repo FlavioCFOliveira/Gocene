@@ -461,12 +461,18 @@ func testRandomBinaryPoints(t *testing.T, numDocs int) {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
 	}
 
+	// A point field's dimension count and bytes-per-dimension are fixed for
+	// the whole field, so they are chosen once (not per document). Earlier the
+	// shape was randomised per document; that produced an invalid field whose
+	// values had inconsistent widths, which only round-tripped because the
+	// pre-rmp-#4769 build silently dropped point values. With points now
+	// persisted through the BKD writer, every value for the field must share
+	// the same shape.
+	numDims := 1 + rand.Intn(3)
+	bytesPerDim := 2 + rand.Intn(14)
+
 	for i := 0; i < numDocs; i++ {
 		doc := document.NewDocument()
-		// Random number of dimensions (1-3)
-		numDims := 1 + rand.Intn(3)
-		// Random bytes per dimension (2-16)
-		bytesPerDim := 2 + rand.Intn(14)
 
 		points := make([][]byte, numDims)
 		for d := 0; d < numDims; d++ {
@@ -480,7 +486,9 @@ func testRandomBinaryPoints(t *testing.T, numDocs int) {
 		}
 	}
 
-	writer.Close()
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Failed to close writer: %v", err)
+	}
 
 	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
