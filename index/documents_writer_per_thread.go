@@ -140,15 +140,46 @@ type StoredField struct {
 	numericValue interface{}
 }
 
-// DocValuesBuffer holds doc values for a field.
+// DocValuesBuffer holds the buffered doc-values for a single field,
+// accumulated in document order during ProcessDocument and replayed into the
+// codec's DocValuesConsumer at flush time (flushDocValues).
+//
+// docIDs[i] is the document that supplied the i-th value. docIDs is strictly
+// increasing because ProcessDocument assigns monotonically increasing docIDs
+// and a doc-values field is recorded at most once per document.
+//
+// Exactly one value-shaped slice is populated per buffer, selected by dvType:
+//   - NUMERIC:        numericValues[i] is the single value for docIDs[i].
+//   - BINARY, SORTED: binaryValues[i] is the single value for docIDs[i].
+//   - SORTED_NUMERIC: numericValuesMulti[i] are the values for docIDs[i].
+//   - SORTED_SET:     binaryValuesMulti[i] are the values for docIDs[i].
+//
+// The legacy values []interface{} slice is retained for backward
+// compatibility with the FlushTicket snapshot surface; the codec flush path
+// (flushDocValues) consumes the typed slices.
 type DocValuesBuffer struct {
 	mu sync.RWMutex
 
-	// values holds doc values per document
+	// values holds doc values per document (legacy/back-compat surface).
 	values []interface{}
 
 	// dvType is the doc values type
 	dvType DocValuesType
+
+	// docIDs holds the document that supplied each value, in document order.
+	docIDs []int
+
+	// numericValues holds the single NUMERIC value per recorded document.
+	numericValues []int64
+
+	// binaryValues holds the single BINARY / SORTED value per recorded document.
+	binaryValues [][]byte
+
+	// numericValuesMulti holds the SORTED_NUMERIC values per recorded document.
+	numericValuesMulti [][]int64
+
+	// binaryValuesMulti holds the SORTED_SET values per recorded document.
+	binaryValuesMulti [][][]byte
 }
 
 // VectorValuesBuffer holds the buffered KNN vector values for a single
@@ -298,6 +329,19 @@ type dwptField struct {
 	pointIndexDimensionCount int
 	pointNumBytes            int
 	pointPackedValue         []byte
+	// DocValues per-document payload. dvNumericValue / dvBinaryValue carry
+	// the single-valued NUMERIC / BINARY / SORTED value; dvNumericValues /
+	// dvBinaryValues carry the multi-valued SORTED_NUMERIC / SORTED_SET
+	// values. These are populated in asDwptField from the concrete field's
+	// accessors (NumericValue/BinaryValue and the GetValues duck-types) so
+	// flushDocValues can replay them into the codec DocValuesConsumer in
+	// document order. Mirrors Lucene's IndexingChain.indexDocValue dispatch
+	// on FieldInfo.getDocValuesType.
+	dvHasNumericValue bool
+	dvNumericValue    int64
+	dvBinaryValue     []byte
+	dvNumericValues   []int64
+	dvBinaryValues    [][]byte
 }
 
 // omitNormsGetter is a narrow interface satisfied by field types that expose
@@ -384,6 +428,21 @@ type pointFieldTypeProvider interface {
 // point value without importing the document package.
 type pointValueProvider interface {
 	PointValues() []byte
+}
+
+// sortedNumericValuesProvider is satisfied by
+// document.SortedNumericDocValuesField via its GetValues() []int64 accessor.
+// It lets the indexing chain pull the per-document multi-valued numeric
+// doc-values without importing the document package.
+type sortedNumericValuesProvider interface {
+	GetValues() []int64
+}
+
+// sortedSetValuesProvider is satisfied by document.SortedSetDocValuesField via
+// its GetValues() [][]byte accessor, the binary analogue of
+// sortedNumericValuesProvider.
+type sortedSetValuesProvider interface {
+	GetValues() [][]byte
 }
 
 // asDwptField builds a flat dwptField record from fieldInterface using
@@ -521,7 +580,59 @@ func asDwptField(fieldInterface interface{}) (*dwptField, bool) {
 			f.pointPackedValue = f.binaryValue
 		}
 	}
+
+	// DocValues per-document payload. Captured here (not deferred to a
+	// second IndexableField assertion in ProcessDocument) so the multi-valued
+	// SORTED_NUMERIC / SORTED_SET fields — which expose their values only via
+	// the concrete document field's GetValues() accessor, not the narrow
+	// IndexableField surface — are read off the original incoming value.
+	// Mirrors Lucene's IndexingChain.indexDocValue dispatch on
+	// FieldInfo.getDocValuesType.
+	switch f.docValuesType {
+	case DocValuesTypeNumeric:
+		f.dvNumericValue, f.dvHasNumericValue = coerceDocValuesInt64(f.numericVal)
+	case DocValuesTypeBinary, DocValuesTypeSorted:
+		f.dvBinaryValue = f.binaryValue
+	case DocValuesTypeSortedNumeric:
+		if p, ok := fieldInterface.(sortedNumericValuesProvider); ok {
+			f.dvNumericValues = p.GetValues()
+		} else if v, hasV := coerceDocValuesInt64(f.numericVal); hasV {
+			f.dvNumericValues = []int64{v}
+		}
+	case DocValuesTypeSortedSet:
+		if p, ok := fieldInterface.(sortedSetValuesProvider); ok {
+			f.dvBinaryValues = p.GetValues()
+		} else if len(f.binaryValue) > 0 {
+			f.dvBinaryValues = [][]byte{f.binaryValue}
+		}
+	}
 	return f, true
+}
+
+// coerceDocValuesInt64 normalises the numeric value carried by a doc-values
+// field to int64. NumericDocValuesField stores int64 directly; the
+// float/double DV fields pre-encode their value as int64 bits (see
+// document.FloatDocValuesField / DoubleDocValuesField), so the only coercion
+// needed here is for the narrower integer kinds a caller might supply.
+func coerceDocValuesInt64(v interface{}) (int64, bool) {
+	switch n := v.(type) {
+	case int64:
+		return n, true
+	case int:
+		return int64(n), true
+	case int32:
+		return int64(n), true
+	case int16:
+		return int64(n), true
+	case int8:
+		return int64(n), true
+	case uint32:
+		return int64(n), true
+	case uint64:
+		return int64(n), true
+	default:
+		return 0, false
+	}
 }
 
 // ProcessDocument processes a single document.
@@ -619,10 +730,10 @@ func (dwpt *DocumentsWriterPerThread) ProcessDocument(doc Document) error {
 		}
 
 		if field.docValuesType != DocValuesTypeNone {
-			// Add to doc values — requires index.IndexableField; adapt if possible.
-			if idxField, ok2 := fieldInterface.(IndexableField); ok2 {
-				dwpt.addDocValue(fieldName, docID, idxField, field.docValuesType)
-			}
+			// Buffer the per-document doc-values value(s) for this field.
+			// Replayed into the codec DocValuesConsumer (.dvd/.dvm) at flush
+			// time (flushDocValues). Mirrors IndexingChain.indexDocValue.
+			dwpt.addDocValue(docID, fieldName, field)
 		}
 
 		if field.storeTermVectors {
@@ -801,19 +912,66 @@ func (dwpt *DocumentsWriterPerThread) addTermWithFreq(docID int, fieldName, term
 	}
 }
 
-// addDocValue adds a doc value for a field.
-// Must be called with dwpt.mu held (write lock).
-func (dwpt *DocumentsWriterPerThread) addDocValue(fieldName string, docID int, field IndexableField, dvType DocValuesType) {
+// addDocValue buffers one document's doc-values value(s) for fieldName,
+// allocating the per-field DocValuesBuffer on first use. The value-shaped
+// slice populated is selected by the field's DocValuesType. Binary values are
+// copied because the caller's slices may be reused after ProcessDocument
+// returns. Must be called with dwpt.mu held (write lock).
+func (dwpt *DocumentsWriterPerThread) addDocValue(docID int, fieldName string, field *dwptField) {
 	buf, exists := dwpt.docValues[fieldName]
 	if !exists {
 		buf = &DocValuesBuffer{
 			values: make([]interface{}, 0),
-			dvType: dvType,
+			dvType: field.docValuesType,
 		}
 		dwpt.docValues[fieldName] = buf
 	}
 
-	buf.values = append(buf.values, field.NumericValue())
+	switch field.docValuesType {
+	case DocValuesTypeNumeric:
+		if !field.dvHasNumericValue {
+			return
+		}
+		buf.docIDs = append(buf.docIDs, docID)
+		buf.numericValues = append(buf.numericValues, field.dvNumericValue)
+		buf.values = append(buf.values, field.dvNumericValue)
+	case DocValuesTypeBinary, DocValuesTypeSorted:
+		v := cloneBytes(field.dvBinaryValue)
+		buf.docIDs = append(buf.docIDs, docID)
+		buf.binaryValues = append(buf.binaryValues, v)
+		buf.values = append(buf.values, v)
+	case DocValuesTypeSortedNumeric:
+		if len(field.dvNumericValues) == 0 {
+			return
+		}
+		vals := make([]int64, len(field.dvNumericValues))
+		copy(vals, field.dvNumericValues)
+		buf.docIDs = append(buf.docIDs, docID)
+		buf.numericValuesMulti = append(buf.numericValuesMulti, vals)
+		buf.values = append(buf.values, vals)
+	case DocValuesTypeSortedSet:
+		if len(field.dvBinaryValues) == 0 {
+			return
+		}
+		vals := make([][]byte, len(field.dvBinaryValues))
+		for i, b := range field.dvBinaryValues {
+			vals[i] = cloneBytes(b)
+		}
+		buf.docIDs = append(buf.docIDs, docID)
+		buf.binaryValuesMulti = append(buf.binaryValuesMulti, vals)
+		buf.values = append(buf.values, vals)
+	}
+}
+
+// cloneBytes returns a copy of b, or nil when b is empty. Doc-values binary
+// payloads are copied at buffer time because the caller's slice may be reused.
+func cloneBytes(b []byte) []byte {
+	if len(b) == 0 {
+		return nil
+	}
+	out := make([]byte, len(b))
+	copy(out, b)
+	return out
 }
 
 // addVectorValue buffers one document's KNN vector value for fieldName.

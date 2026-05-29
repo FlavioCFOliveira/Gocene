@@ -168,6 +168,22 @@ func NewSegmentCoreReaders(
 		}
 	}
 
+	// Initialize the doc-values producer if any field carries doc values.
+	// Mirrors the SegmentCoreReaders constructor in Lucene, which opens
+	// codec.docValuesFormat().fieldsProducer(state) when
+	// fieldInfos.hasDocValues().
+	if fieldInfos.HasDocValues() {
+		docValuesFormat := codec.DocValuesFormat()
+		if docValuesFormat != nil {
+			dvProducer, err := docValuesFormat.FieldsProducer(readState)
+			if err != nil {
+				core.decRef()
+				return nil, fmt.Errorf("creating doc values producer: %w", err)
+			}
+			core.docValuesProducer = dvProducer
+		}
+	}
+
 	// Initialize the points (BKD) reader if any field indexes point values.
 	// Mirrors the SegmentCoreReaders constructor in Lucene, which opens
 	// codec.pointsFormat().fieldsReader(state) when

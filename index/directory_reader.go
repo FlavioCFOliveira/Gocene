@@ -573,6 +573,119 @@ func (r *SegmentReader) GetPointValues(field string) (PointValues, error) {
 	return d.GetValues(field)
 }
 
+// docValuesProducerDelegate is the read surface exposed by the codec's
+// doc-values producer (stored on SegmentCoreReaders.docValuesProducer as an
+// interface{}). The concrete producer — Lucene90DocValuesProducer from the
+// codecs package — satisfies it structurally via its Get* accessors (the Go
+// counterpart of org.apache.lucene.codecs.DocValuesProducer.getNumeric etc.).
+// The contract names only the index-facing doc-values value types (themselves
+// aliases of the spi types) and *FieldInfo (an alias of schema.FieldInfo), so
+// the index package can name it without importing codecs.
+type docValuesProducerDelegate interface {
+	GetNumeric(field *FieldInfo) (NumericDocValues, error)
+	GetBinary(field *FieldInfo) (BinaryDocValues, error)
+	GetSorted(field *FieldInfo) (SortedDocValues, error)
+	GetSortedNumeric(field *FieldInfo) (SortedNumericDocValues, error)
+	GetSortedSet(field *FieldInfo) (SortedSetDocValues, error)
+}
+
+// docValuesDelegate narrows the core readers' doc-values producer to the
+// Get* surface, or returns nil when the segment has no doc-values producer
+// (e.g. no doc-values fields, or the codec-less test path).
+func (r *SegmentReader) docValuesDelegate() docValuesProducerDelegate {
+	if r.coreReaders == nil {
+		return nil
+	}
+	dv := r.coreReaders.GetDocValuesProducer()
+	if dv == nil {
+		return nil
+	}
+	d, ok := dv.(docValuesProducerDelegate)
+	if !ok {
+		return nil
+	}
+	return d
+}
+
+// dvFieldInfo resolves field to its FieldInfo from the core readers, returning
+// nil when the field is absent or carries no doc values. The codec producer
+// keys on the FieldInfo (in particular its number), not the field name.
+func (r *SegmentReader) dvFieldInfo(field string) *FieldInfo {
+	if r.coreReaders == nil {
+		return nil
+	}
+	fis := r.coreReaders.GetFieldInfos()
+	if fis == nil {
+		return nil
+	}
+	fi := fis.GetByName(field)
+	if fi == nil || !fi.DocValuesType().HasDocValues() {
+		return nil
+	}
+	return fi
+}
+
+// GetNumericDocValues returns the numeric doc values for field, delegating to
+// the codec's doc-values producer. Returns (nil, nil) when the segment has no
+// doc-values producer or the field has no numeric doc values (matching the
+// LeafReader contract). Overrides the embedded LeafReader.GetNumericDocValues,
+// which unconditionally returns (nil, nil). Mirrors
+// org.apache.lucene.index.SegmentReader.getNumericDocValues / CodecReader.
+func (r *SegmentReader) GetNumericDocValues(field string) (NumericDocValues, error) {
+	d := r.docValuesDelegate()
+	fi := r.dvFieldInfo(field)
+	if d == nil || fi == nil || fi.DocValuesType() != DocValuesTypeNumeric {
+		return nil, nil
+	}
+	return d.GetNumeric(fi)
+}
+
+// GetBinaryDocValues returns the binary doc values for field, delegating to
+// the codec's doc-values producer. Overrides LeafReader.GetBinaryDocValues.
+func (r *SegmentReader) GetBinaryDocValues(field string) (BinaryDocValues, error) {
+	d := r.docValuesDelegate()
+	fi := r.dvFieldInfo(field)
+	if d == nil || fi == nil || fi.DocValuesType() != DocValuesTypeBinary {
+		return nil, nil
+	}
+	return d.GetBinary(fi)
+}
+
+// GetSortedDocValues returns the sorted doc values for field, delegating to
+// the codec's doc-values producer. Overrides LeafReader.GetSortedDocValues.
+func (r *SegmentReader) GetSortedDocValues(field string) (SortedDocValues, error) {
+	d := r.docValuesDelegate()
+	fi := r.dvFieldInfo(field)
+	if d == nil || fi == nil || fi.DocValuesType() != DocValuesTypeSorted {
+		return nil, nil
+	}
+	return d.GetSorted(fi)
+}
+
+// GetSortedNumericDocValues returns the sorted-numeric doc values for field,
+// delegating to the codec's doc-values producer. Overrides
+// LeafReader.GetSortedNumericDocValues.
+func (r *SegmentReader) GetSortedNumericDocValues(field string) (SortedNumericDocValues, error) {
+	d := r.docValuesDelegate()
+	fi := r.dvFieldInfo(field)
+	if d == nil || fi == nil || fi.DocValuesType() != DocValuesTypeSortedNumeric {
+		return nil, nil
+	}
+	return d.GetSortedNumeric(fi)
+}
+
+// GetSortedSetDocValues returns the sorted-set doc values for field,
+// delegating to the codec's doc-values producer. Overrides
+// LeafReader.GetSortedSetDocValues.
+func (r *SegmentReader) GetSortedSetDocValues(field string) (SortedSetDocValues, error) {
+	d := r.docValuesDelegate()
+	fi := r.dvFieldInfo(field)
+	if d == nil || fi == nil || fi.DocValuesType() != DocValuesTypeSortedSet {
+		return nil, nil
+	}
+	return d.GetSortedSet(fi)
+}
+
 // knnTopDocsToIndex converts a util/hnsw TopDocs (the codec search result)
 // into the index-package TopDocs struct. The hnsw TopDocs is already
 // score-descending; TotalHits is the visited-count lower bound, but the

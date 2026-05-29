@@ -842,6 +842,16 @@ func (w *IndexWriter) Commit() error {
 				if err3 := dwpt.flushPoints(codec, writeState); err3 != nil {
 					return fmt.Errorf("commit: flush points for %s: %w", segmentName, err3)
 				}
+				// DocValues carry no per-field codec attributes (the
+				// Lucene90DocValuesFormat writes a single .dvd/.dvm with its
+				// own framing, not a PerField wrapper), so the order relative
+				// to flushFieldInfos is immaterial; flushed here next to the
+				// other per-field codec writers for symmetry. The FieldInfo
+				// doc-values type is recorded in ProcessDocument, so
+				// FieldInfos.HasDocValues() reaches disk via flushFieldInfos.
+				if err3 := dwpt.flushDocValues(codec, writeState); err3 != nil {
+					return fmt.Errorf("commit: flush doc values for %s: %w", segmentName, err3)
+				}
 				if err3 := dwpt.flushFieldInfos(codec, writeState); err3 != nil {
 					return fmt.Errorf("commit: flush field infos for %s: %w", segmentName, err3)
 				}
