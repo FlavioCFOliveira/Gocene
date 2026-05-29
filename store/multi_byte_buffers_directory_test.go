@@ -90,12 +90,12 @@ func TestMultiByteBuffersDirectory(t *testing.T) {
 	})
 
 	t.Run("little_endian_longs_cross_boundary", func(t *testing.T) {
-		// Mirrors BaseChunkedDirectoryTestCase#testLittleEndianLongsCrossBoundary,
-		// adapted: Gocene's ByteBuffersIndexOutput emits big-endian longs (see
-		// store/byte_buffers_directory.go: WriteLong). We therefore round-trip
-		// against the matching big-endian ReadLong and only assert that values
-		// survive a cross-boundary write+read. Wire-format byte equivalence
-		// with JVM-produced bytes is tracked separately.
+		// Mirrors BaseChunkedDirectoryTestCase#testLittleEndianLongsCrossBoundary.
+		// Gocene's ByteBuffersIndexOutput.WriteLong and ByteBuffersIndexInput.
+		// ReadLong are both little-endian (Lucene 10.x parity, rmp #4786). We
+		// round-trip longs across a chunk boundary and assert the values
+		// survive. Wire-format byte equivalence with JVM-produced bytes is
+		// exercised by the Java fixture harness in CI.
 		dir := newMultiBufferDirectory(t, 16)
 		defer dir.Close()
 
@@ -408,4 +408,3 @@ func deterministicBytes(t *testing.T, n int) []byte {
 	}
 	return buf
 }
-

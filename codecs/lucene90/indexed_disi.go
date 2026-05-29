@@ -53,8 +53,8 @@ import (
 //
 // Wire-format parity: the byte stream produced by WriteBitSet is identical
 // to the Apache Lucene 10.4.0 reference. All multi-byte numerics are
-// big-endian on the wire (IndexInput.readShort/readInt/readLong are
-// big-endian in Lucene's data-input contract).
+// little-endian on the wire (IndexInput.readShort/readInt/readLong are
+// little-endian in Lucene 10.x's data-input contract; see rmp #4786).
 //
 // Deviations from the Java reference (documented):
 //
@@ -93,14 +93,14 @@ type IndexedDISI struct {
 	index          int
 
 	// SPARSE state
-	exists             bool
+	exists              bool
 	nextExistDocInBlock int
 
 	// DENSE state
-	word           uint64
-	wordIndex      int
-	numberOfOnes   int
-	denseOrigoIdx  int
+	word          uint64
+	wordIndex     int
+	numberOfOnes  int
+	denseOrigoIdx int
 
 	// ALL state
 	gap int
