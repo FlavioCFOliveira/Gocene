@@ -214,27 +214,28 @@ func TestTaxonomyCombined_ReaderBasicNRT(t *testing.T) {
 	}
 }
 
-// -- Integration stubs (require persisted taxonomy + DocValues disk reads) ----
-// These are blocked by the SegmentReader core-readers gap: BinaryDocValues are
-// not yet readable from disk in Gocene. See memory ref
-// 'gocene-segmentreader-corereaders-gap'.
+// -- Integration stubs (require the DirectoryTaxonomy persistence pipeline) ----
+// The on-disk DocValues read path is wired (rmp #4771), so the original
+// "BinaryDocValues not readable from disk" blocker no longer applies. What
+// remains is the DirectoryTaxonomyWriter persist + DirectoryTaxonomyReader
+// cold-open pipeline, tracked in rmp #4774.
 
 func TestTaxonomyCombined_Writer(t *testing.T) {
-	t.Skip("requires persisted taxonomy + fillTaxonomy + ordinal verification against expectedPaths; blocked by SegmentReader core-readers gap")
+	t.Skip("requires persisted taxonomy + fillTaxonomy + ordinal verification against expectedPaths (rmp #4774)")
 }
 
 func TestTaxonomyCombined_WriterTwice(t *testing.T) {
-	t.Skip("requires persisted taxonomy + re-open writer + idempotent ordinals; blocked by SegmentReader core-readers gap")
+	t.Skip("requires persisted taxonomy + re-open writer + idempotent ordinals (rmp #4774)")
 }
 
 func TestTaxonomyCombined_ReaderBasic(t *testing.T) {
-	t.Skip("requires cold DirectoryTaxonomyReader.GetPath/GetOrdinal from disk; blocked by SegmentReader core-readers gap")
+	t.Skip("requires cold DirectoryTaxonomyReader.GetPath/GetOrdinal from disk (rmp #4774)")
 }
 
 func TestTaxonomyCombined_ReaderParent(t *testing.T) {
-	t.Skip("requires persisted taxonomy + ParallelTaxonomyArrays.parents(); blocked by SegmentReader core-readers gap")
+	t.Skip("requires persisted taxonomy + ParallelTaxonomyArrays.parents() (rmp #4774)")
 }
 
 func TestTaxonomyCombined_RootOnly(t *testing.T) {
-	t.Skip("requires cold DirectoryTaxonomyReader with root at ordinal 0 from disk; blocked by SegmentReader core-readers gap")
+	t.Skip("requires cold DirectoryTaxonomyReader with root at ordinal 0 from disk (rmp #4774)")
 }

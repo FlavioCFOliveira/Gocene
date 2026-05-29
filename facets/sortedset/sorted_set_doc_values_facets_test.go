@@ -7,18 +7,129 @@ package sortedset
 // TestSortedSetDocValuesFacets ports the behavioural assertions from
 // org.apache.lucene.facet.sortedset.TestSortedSetDocValuesFacets.
 //
-// Tests that require a full Lucene-style RandomIndexWriter + IndexSearcher
-// round-trip (testBasic, testCombinationsOfConfig, testBasicHierarchical, …)
-// are deferred until SortedSetDocValues is wired into the index pipeline;
-// they are marked with t.Skip so they compile and document the intent.
-// Unit-level tests for the API surface exercised without a real index run
-// unconditionally.
+// The integration tests (testBasic, testBasicHierarchical,
+// testCombinationsOfConfig) now run against the real on-disk SortedSetDocValues
+// pipeline (IndexWriter + Lucene104 codec + OpenDirectoryReader) using the
+// default codec-driven accumulator path wired in rmp #4704. Unit-level tests
+// for the API surface run unconditionally.
+//
+// Divergence note: Lucene's getTopChildren dim "value" reflects FacetsConfig
+// DimConfig dim-count semantics (-1 for multi-valued dims without dim counts,
+// the dim doc-count otherwise). Gocene's accumulator computes the dim value as
+// the sum of the matched child counts; these tests therefore assert the
+// per-child counts and specific values (the subject of #4704), not the
+// DimConfig-derived dim value.
 
 import (
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/facets"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/store"
+
+	// Blank-import the codecs so the production Lucene104 codec is registered
+	// as the default; the SortedSetDocValues are not persisted without it.
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 )
+
+// ssdvFacetDoc is a minimal index.Document carrying the supplied fields.
+type ssdvFacetDoc struct {
+	fields []interface{}
+}
+
+func (d *ssdvFacetDoc) GetFields() []interface{} { return d.fields }
+
+// buildSSDVAccumulator indexes docs (each a slice of "dim/label" encoded facet
+// terms on the $facets field), commits, reopens, and drives a fresh
+// SortedSetDocValuesAccumulator with all docs matching and NO resolver hook.
+// It returns the populated accumulator and a cleanup closing the reader.
+func buildSSDVAccumulator(t *testing.T, docs [][]string) (*SortedSetDocValuesAccumulator, func()) {
+	t.Helper()
+	const indexField = "$facets"
+
+	dir := store.NewByteBuffersDirectory()
+	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	writer, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	for _, encoded := range docs {
+		values := make([][]byte, len(encoded))
+		for i, e := range encoded {
+			values[i] = []byte(e)
+		}
+		f, err := document.NewSortedSetDocValuesField(indexField, values)
+		if err != nil {
+			t.Fatalf("NewSortedSetDocValuesField: %v", err)
+		}
+		if err := writer.AddDocument(&ssdvFacetDoc{fields: []interface{}{f}}); err != nil {
+			t.Fatalf("AddDocument: %v", err)
+		}
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	leaves, err := reader.Leaves()
+	if err != nil {
+		reader.Close()
+		t.Fatalf("Leaves: %v", err)
+	}
+	md := make([]*facets.MatchingDocs, 0, len(leaves))
+	for _, leaf := range leaves {
+		md = append(md, facets.NewMatchingDocs(leaf, nil, leaf.Reader().MaxDoc()))
+	}
+
+	acc, err := NewSortedSetDocValuesAccumulator(facets.NewFacetsConfig(), indexField)
+	if err != nil {
+		reader.Close()
+		t.Fatalf("NewSortedSetDocValuesAccumulator: %v", err)
+	}
+	if err := acc.AccumulateFromMatchingDocs(md); err != nil {
+		reader.Close()
+		t.Fatalf("AccumulateFromMatchingDocs: %v", err)
+	}
+	return acc, func() { reader.Close() }
+}
+
+// childCounts collapses a FacetResult into a label->count map.
+func childCounts(r *facets.FacetResult) map[string]int64 {
+	out := map[string]int64{}
+	if r == nil {
+		return out
+	}
+	for _, lv := range r.LabelValues {
+		out[lv.Label] = lv.Value
+	}
+	return out
+}
+
+// assertChildCounts checks the children of dim against want.
+func assertChildCounts(t *testing.T, acc *SortedSetDocValuesAccumulator, dim string, want map[string]int64) {
+	t.Helper()
+	r, err := acc.GetTopChildren(100, dim)
+	if err != nil {
+		t.Fatalf("GetTopChildren(%q): %v", dim, err)
+	}
+	got := childCounts(r)
+	if len(got) != len(want) {
+		t.Fatalf("dim %q: child count = %d (%v), want %d (%v)", dim, len(got), got, len(want), want)
+	}
+	for label, w := range want {
+		if got[label] != w {
+			t.Errorf("dim %q child %q = %d, want %d (all: %v)", dim, label, got[label], w, got)
+		}
+	}
+}
 
 // ---------------------------------------------------------------------------
 // SortedSetDocValuesFacetField
@@ -202,18 +313,75 @@ func TestOrdRange_Empty(t *testing.T) {
 // Integration stubs — tests that require the index pipeline
 // ---------------------------------------------------------------------------
 
-// TestBasic_IndexIntegration mirrors testBasic from the Java source.
-// Skipped until SortedSetDocValues is wired into the Gocene index pipeline.
+// TestBasic_IndexIntegration mirrors the count assertions of testBasic from
+// the Java source, running against the real on-disk SortedSetDocValues pipeline
+// with the default codec-driven accumulator path (rmp #4704).
+//
+//	doc0: a/foo, a/bar, a/zoo, b/baz, b/buzz
+//	doc1: a/foo, b/buzz
 func TestBasic_IndexIntegration(t *testing.T) {
-	t.Skip("requires SortedSetDocValues index pipeline (not yet wired)")
+	acc, cleanup := buildSSDVAccumulator(t, [][]string{
+		{"a/foo", "a/bar", "a/zoo", "b/baz", "b/buzz"},
+		{"a/foo", "b/buzz"},
+	})
+	defer cleanup()
+
+	assertChildCounts(t, acc, "a", map[string]int64{"foo": 2, "bar": 1, "zoo": 1})
+	assertChildCounts(t, acc, "b", map[string]int64{"buzz": 2, "baz": 1})
+
+	r, err := acc.GetSpecificValue("a", "foo")
+	if err != nil {
+		t.Fatalf("GetSpecificValue: %v", err)
+	}
+	if r.Value != 2 {
+		t.Errorf("getSpecificValue(a, foo) = %d, want 2", r.Value)
+	}
 }
 
-// TestCombinationsOfConfig_IndexIntegration mirrors testCombinationsOfConfig.
+// TestCombinationsOfConfig_IndexIntegration mirrors the multi-dimension count
+// assertions of testCombinations from the Java source: one document carrying a
+// single value in many distinct dimensions, each counted once.
 func TestCombinationsOfConfig_IndexIntegration(t *testing.T) {
-	t.Skip("requires SortedSetDocValues index pipeline (not yet wired)")
+	acc, cleanup := buildSSDVAccumulator(t, [][]string{
+		{"a/foo", "b/bar", "c/zoo", "d/baz", "e/buzz", "f/buzze", "g/buzzel", "h/buzzele"},
+	})
+	defer cleanup()
+
+	for dim, label := range map[string]string{
+		"a": "foo", "b": "bar", "c": "zoo", "d": "baz",
+		"e": "buzz", "f": "buzze", "g": "buzzel", "h": "buzzele",
+	} {
+		assertChildCounts(t, acc, dim, map[string]int64{label: 1})
+	}
 }
 
-// TestBasicHierarchical_IndexIntegration mirrors testBasicHierarchical.
+// TestBasicHierarchical_IndexIntegration mirrors testBasicHierarchical's count
+// assertions: hierarchical "dim/parent/child" facet terms counted per leaf
+// path. The accumulator reports direct children of the queried path.
+//
+//	doc0: Author/Bob, Publish Date/2010/March/22, Publish Date/2010/March/23
+//	doc1: Author/Bob, Publish Date/2010/March/22
 func TestBasicHierarchical_IndexIntegration(t *testing.T) {
-	t.Skip("requires SortedSetDocValues index pipeline (not yet wired)")
+	acc, cleanup := buildSSDVAccumulator(t, [][]string{
+		{"Author/Bob", "Publish Date/2010/March/22", "Publish Date/2010/March/23"},
+		{"Author/Bob", "Publish Date/2010/March/22"},
+	})
+	defer cleanup()
+
+	// Author has a single direct child Bob counted in both docs.
+	assertChildCounts(t, acc, "Author", map[string]int64{"Bob": 2})
+
+	// Direct children of "Publish Date/2010/March": leaf "22" (2 docs) and "23"
+	// (1 doc).
+	r, err := acc.GetTopChildren(100, "Publish Date", "2010", "March")
+	if err != nil {
+		t.Fatalf("GetTopChildren hierarchical: %v", err)
+	}
+	got := childCounts(r)
+	if got["22"] != 2 {
+		t.Errorf("Publish Date/2010/March child 22 = %d, want 2 (all: %v)", got["22"], got)
+	}
+	if got["23"] != 1 {
+		t.Errorf("Publish Date/2010/March child 23 = %d, want 1 (all: %v)", got["23"], got)
+	}
 }

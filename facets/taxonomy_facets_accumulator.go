@@ -36,16 +36,41 @@ type TaxonomyFacetsAccumulator struct {
 	// counts holds the accumulated counts by ordinal
 	counts []int64
 
-	// resolver resolves per-document taxonomy ordinals for a segment.
-	// When nil, accumulateFromSegment is a no-op (foundation gap with the
-	// taxonomy doc-values SPI, tracked in the rmp backlog).
+	// field is the taxonomy index field whose SortedNumericDocValues hold the
+	// per-document ordinal stream. It defaults to the FacetsConfig default
+	// index field name ("$facets") and is read by the default codec-driven
+	// counting path.
+	field string
+
+	// resolver overrides the default codec-driven ordinal lookup. When nil,
+	// accumulateFromSegment reads the segment's SortedNumericDocValues for the
+	// configured field directly from the LeafReader SPI; when set, the hook is
+	// used instead (tests / custom ordinal sources).
 	resolver TaxonomyOrdinalsResolver
 }
 
 // SetOrdinalsResolver installs an ordinals resolver used by
-// AccumulateFromMatchingDocs. Passing nil restores the no-op behaviour.
+// AccumulateFromMatchingDocs, overriding the default codec-driven lookup.
+// Passing nil restores the default path, which reads the configured field's
+// SortedNumericDocValues directly from each matching segment's LeafReader.
 func (tfa *TaxonomyFacetsAccumulator) SetOrdinalsResolver(r TaxonomyOrdinalsResolver) {
 	tfa.resolver = r
+}
+
+// SetIndexFieldName overrides the taxonomy index field whose
+// SortedNumericDocValues carry the per-document ordinal stream read by the
+// default codec-driven counting path. Mirrors selecting a non-default index
+// field via FacetsConfig.SetIndexFieldName in Lucene.
+func (tfa *TaxonomyFacetsAccumulator) SetIndexFieldName(field string) {
+	if field != "" {
+		tfa.field = field
+	}
+}
+
+// GetIndexFieldName returns the taxonomy index field read by the default
+// codec-driven counting path.
+func (tfa *TaxonomyFacetsAccumulator) GetIndexFieldName() string {
+	return tfa.field
 }
 
 // NewTaxonomyFacetsAccumulator creates a new TaxonomyFacetsAccumulator.
@@ -63,6 +88,7 @@ func NewTaxonomyFacetsAccumulator(reader *TaxonomyReader, config *FacetsConfig) 
 		reader:                reader,
 		config:                config,
 		counts:                make([]int64, size+1), // +1 for 1-based ordinals
+		field:                 config.GetDefaultIndexFieldName(),
 	}, nil
 }
 
@@ -80,15 +106,25 @@ func (tfa *TaxonomyFacetsAccumulator) AccumulateFromMatchingDocs(matchingDocs []
 // accumulateFromSegment accumulates counts from a single segment.
 //
 // When an ordinals resolver is configured via SetOrdinalsResolver, this method
-// iterates the segment's documents (filtered by matchingDocs.Bits), asks the
-// resolver for the taxonomy ordinals of each match, and increments the
-// corresponding bucket in tfa.counts. Without a resolver, the call is a no-op
-// (the Lucene-compatible doc-values SPI is not yet wired in Gocene's LeafReader
-// — see the rmp backlog for the segment-reader gap).
+// iterates the segment's documents (filtered by matchingDocs.Bits) and asks the
+// resolver for the taxonomy ordinals of each match. Otherwise it falls back to
+// the default codec-driven path, reading the segment's SortedNumericDocValues
+// for the configured index field directly from the LeafReader SPI (mirroring
+// org.apache.lucene.facet.taxonomy.FastTaxonomyFacetCounts.countOneSegment).
+// Either way the resolved ordinals are folded into tfa.counts.
 func (tfa *TaxonomyFacetsAccumulator) accumulateFromSegment(matchingDocs *MatchingDocs) error {
-	if matchingDocs == nil || tfa.resolver == nil {
+	if matchingDocs == nil {
 		return nil
 	}
+
+	if tfa.resolver == nil {
+		return ForEachTaxonomyOrdinal(matchingDocs, tfa.field, func(_, ord int) {
+			if ord > 0 && ord < len(tfa.counts) {
+				tfa.counts[ord]++
+			}
+		})
+	}
+
 	reader := matchingDocs.GetLeafReader()
 	if reader == nil {
 		return nil

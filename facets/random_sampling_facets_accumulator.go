@@ -65,21 +65,48 @@ type RandomSamplingFacetsAccumulator struct {
 	// seed is the random seed for reproducibility
 	seed int64
 
-	// resolver resolves per-document taxonomy ordinals for a sampled segment.
-	// Concurrent access is not required (sampling is sequential), but the
-	// resolver MUST remain valid for the lifetime of an
-	// AccumulateFromMatchingDocs call. When nil, accumulateFromSampledDoc is
-	// a no-op (foundation gap with the per-codec doc-values SPI).
+	// field is the taxonomy index field whose SortedNumericDocValues hold the
+	// per-document ordinal stream read by the default codec-driven path.
+	// Protected by mu.
+	field string
+
+	// resolver overrides the default codec-driven ordinal lookup for a sampled
+	// segment. Concurrent access is not required (sampling is sequential), but
+	// the resolver MUST remain valid for the lifetime of an
+	// AccumulateFromMatchingDocs call. When nil, accumulateFromSampledDoc reads
+	// the segment's SortedNumericDocValues for the configured field directly
+	// from the LeafReader SPI; when set, the hook is used instead.
 	resolver TaxonomyOrdinalsResolver
 }
 
 // SetOrdinalsResolver installs an ordinals resolver used by
-// AccumulateFromMatchingDocs when sampling each segment's documents. Passing
-// nil restores the no-op behaviour.
+// AccumulateFromMatchingDocs when sampling each segment's documents, overriding
+// the default codec-driven lookup. Passing nil restores the default path, which
+// reads the configured field's SortedNumericDocValues directly from each
+// sampled segment's LeafReader.
 func (rsfa *RandomSamplingFacetsAccumulator) SetOrdinalsResolver(r TaxonomyOrdinalsResolver) {
 	rsfa.mu.Lock()
 	defer rsfa.mu.Unlock()
 	rsfa.resolver = r
+}
+
+// SetIndexFieldName overrides the taxonomy index field whose
+// SortedNumericDocValues carry the per-document ordinal stream read by the
+// default codec-driven counting path.
+func (rsfa *RandomSamplingFacetsAccumulator) SetIndexFieldName(field string) {
+	rsfa.mu.Lock()
+	defer rsfa.mu.Unlock()
+	if field != "" {
+		rsfa.field = field
+	}
+}
+
+// GetIndexFieldName returns the taxonomy index field read by the default
+// codec-driven counting path.
+func (rsfa *RandomSamplingFacetsAccumulator) GetIndexFieldName() string {
+	rsfa.mu.RLock()
+	defer rsfa.mu.RUnlock()
+	return rsfa.field
 }
 
 // NewRandomSamplingFacetsAccumulator creates a new RandomSamplingFacetsAccumulator.
@@ -112,6 +139,7 @@ func NewRandomSamplingFacetsAccumulator(config *FacetsConfig, sampleRate float64
 		random:          rand.New(rand.NewSource(seed)),
 		confidenceLevel: 0.95,
 		seed:            seed,
+		field:           config.GetDefaultIndexFieldName(),
 	}, nil
 }
 
@@ -234,8 +262,9 @@ func (rsfa *RandomSamplingFacetsAccumulator) reservoirSample(matchingDocs []*Mat
 // iterates the documents within a selected segment and feeds their ordinals
 // into the counts buffer.
 //
-// When no resolver is installed, the call is a no-op (foundation gap with the
-// per-codec doc-values SPI).
+// When no resolver is installed, the default codec-driven path reads the
+// segment's SortedNumericDocValues for the configured field directly from the
+// LeafReader SPI (mirroring FastTaxonomyFacetCounts.countOneSegment).
 func (rsfa *RandomSamplingFacetsAccumulator) accumulateFromSampledDoc(matchingDocs *MatchingDocs) error {
 	if matchingDocs == nil {
 		return nil
@@ -243,9 +272,15 @@ func (rsfa *RandomSamplingFacetsAccumulator) accumulateFromSampledDoc(matchingDo
 
 	rsfa.mu.RLock()
 	resolver := rsfa.resolver
+	field := rsfa.field
 	rsfa.mu.RUnlock()
+
 	if resolver == nil {
-		return nil
+		return ForEachTaxonomyOrdinal(matchingDocs, field, func(_, ord int) {
+			if ord > 0 {
+				rsfa.incrementCount(ord, 1)
+			}
+		})
 	}
 
 	reader := matchingDocs.GetLeafReader()

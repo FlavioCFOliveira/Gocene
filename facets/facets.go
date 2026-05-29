@@ -1,6 +1,8 @@
 package facets
 
 import (
+	"fmt"
+
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
@@ -85,6 +87,99 @@ func (md *MatchingDocs) GetDocCount() int {
 func (md *MatchingDocs) GetLeafReader() index.LeafReaderInterface {
 	if md.Context != nil {
 		return md.Context.LeafReader()
+	}
+	return nil
+}
+
+// DocValuesLeafReader is the subset of the per-segment reader surface the
+// facets accumulators need to count facet ordinals directly from the codec's
+// doc-values producer. SegmentReader (the leaf reader returned by
+// OpenDirectoryReader) satisfies it; LeafReaderContext.Reader() returns a value
+// that can be type-asserted to it.
+//
+// The doc-values getters mirror the Lucene 10.4.0 reader contract used by
+// org.apache.lucene.facet.sortedset.SortedSetDocValuesFacetCounts (SortedSet)
+// and org.apache.lucene.facet.taxonomy.FastTaxonomyFacetCounts
+// (SortedNumeric); both return nil when the field carries no values for that
+// type, in which case the segment contributes nothing.
+type DocValuesLeafReader interface {
+	// GetSortedSetDocValues returns the SortedSetDocValues for field, or nil
+	// when the field has no sorted-set doc values in this segment.
+	GetSortedSetDocValues(field string) (index.SortedSetDocValues, error)
+
+	// GetSortedNumericDocValues returns the SortedNumericDocValues for field,
+	// or nil when the field has no sorted-numeric doc values in this segment.
+	GetSortedNumericDocValues(field string) (index.SortedNumericDocValues, error)
+}
+
+// DocValuesReader returns the segment reader behind this MatchingDocs as a
+// DocValuesLeafReader, or nil when the context does not expose the doc-values
+// getters (for example test stubs that only implement the leaf reader surface).
+// This is the entry point the accumulators use for the default, codec-driven
+// counting path when no explicit resolver hook is installed.
+func (md *MatchingDocs) DocValuesReader() DocValuesLeafReader {
+	if md == nil || md.Context == nil {
+		return nil
+	}
+	if dvr, ok := md.Context.Reader().(DocValuesLeafReader); ok {
+		return dvr
+	}
+	return nil
+}
+
+// ForEachTaxonomyOrdinal drives the default, codec-driven taxonomy counting
+// path shared by the ordinal-based accumulators (TaxonomyFacetsAccumulator,
+// ConcurrentFacetsAccumulator, RandomSamplingFacetsAccumulator).
+//
+// It reads the segment's SortedNumericDocValues for field — the encoding
+// Lucene's taxonomy faceting uses to persist the per-document ordinal stream
+// (org.apache.lucene.facet.taxonomy.FastTaxonomyFacetCounts.countOneSegment) —
+// and invokes visit(docID, ord) for every ordinal of every matching document,
+// filtered by md.Bits. The doc IDs are leaf-local.
+//
+// When the context does not expose the doc-values SPI, or the field has no
+// SortedNumericDocValues in this segment, the call is a no-op and returns nil.
+func ForEachTaxonomyOrdinal(md *MatchingDocs, field string, visit func(docID, ord int)) error {
+	if md == nil || md.Context == nil {
+		return nil
+	}
+	dvr := md.DocValuesReader()
+	if dvr == nil {
+		return nil
+	}
+
+	dv, err := dvr.GetSortedNumericDocValues(field)
+	if err != nil {
+		return fmt.Errorf("getting sorted numeric doc values for %q: %w", field, err)
+	}
+	if dv == nil {
+		return nil
+	}
+
+	bits := md.Bits
+	maxDoc := md.Context.Reader().MaxDoc()
+	for {
+		doc, err := dv.NextDoc()
+		if err != nil {
+			return fmt.Errorf("advancing taxonomy ordinals: %w", err)
+		}
+		if doc < 0 || doc >= maxDoc {
+			break
+		}
+		if bits != nil && !bits.Get(doc) {
+			continue
+		}
+		count, err := dv.DocValueCount()
+		if err != nil {
+			return fmt.Errorf("reading ordinal count for doc %d: %w", doc, err)
+		}
+		for i := 0; i < count; i++ {
+			v, err := dv.NextValue()
+			if err != nil {
+				return fmt.Errorf("reading ordinal %d for doc %d: %w", i, doc, err)
+			}
+			visit(doc, int(v))
+		}
 	}
 	return nil
 }

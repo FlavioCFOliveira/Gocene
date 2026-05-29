@@ -44,10 +44,10 @@ type SortedSetDocValuesAccumulator struct {
 	// maxCategories is the maximum number of categories to track
 	maxCategories int
 
-	// docValuesResolver resolves the SortedSetDocValues for a segment.
-	// When nil, accumulateFromSegment is a no-op (foundation gap with the
-	// LeafReader.GetSortedSetDocValues SPI, which today returns nil across
-	// Gocene's directory-reader implementations).
+	// docValuesResolver overrides the default codec-driven SortedSetDocValues
+	// lookup. When nil, accumulateFromSegment reads the segment's
+	// SortedSetDocValues directly from the LeafReader SPI (the default path);
+	// when set, the hook is used instead (tests / custom DocValues sources).
 	docValuesResolver SortedSetDocValuesResolver
 }
 
@@ -58,8 +58,9 @@ type SortedSetDocValuesAccumulator struct {
 type SortedSetDocValuesResolver func(reader index.IndexReaderInterface, field string) (SortedSetDocValues, error)
 
 // SetDocValuesResolver installs a resolver used by AccumulateFromMatchingDocs
-// to obtain per-segment SortedSetDocValues. Passing nil restores the no-op
-// behaviour and yields no facet counts.
+// to obtain per-segment SortedSetDocValues, overriding the default codec-driven
+// lookup. Passing nil restores the default path, which reads the field's
+// SortedSetDocValues directly from each matching segment's LeafReader.
 func (ssdvfa *SortedSetDocValuesAccumulator) SetDocValuesResolver(r SortedSetDocValuesResolver) {
 	ssdvfa.docValuesResolver = r
 }
@@ -135,17 +136,31 @@ func (ssdvfa *SortedSetDocValuesAccumulator) AccumulateFromMatchingDocs(matching
 }
 
 // accumulateFromSegment accumulates counts from a single segment.
+//
+// When a docValuesResolver hook is installed it is used (tests and custom
+// DocValues sources). Otherwise the accumulator falls back to the default,
+// codec-driven path: it reads the segment's SortedSetDocValues for the
+// configured field directly from the LeafReader SPI and counts ordinals,
+// mirroring org.apache.lucene.facet.sortedset.SortedSetDocValuesFacetCounts.
 func (ssdvfa *SortedSetDocValuesAccumulator) accumulateFromSegment(matchingDocs *facets.MatchingDocs) error {
 	if matchingDocs == nil || matchingDocs.Context == nil {
 		return nil
 	}
 
+	if ssdvfa.docValuesResolver != nil {
+		return ssdvfa.accumulateViaResolver(matchingDocs)
+	}
+	return ssdvfa.accumulateViaCodec(matchingDocs)
+}
+
+// accumulateViaResolver counts ordinals using the installed test/custom
+// docValuesResolver hook, preserving the pre-existing behaviour.
+func (ssdvfa *SortedSetDocValuesAccumulator) accumulateViaResolver(matchingDocs *facets.MatchingDocs) error {
 	reader := matchingDocs.Context.Reader()
 	if reader == nil {
 		return nil
 	}
 
-	// Get SortedSetDocValues for this segment
 	docValues, err := ssdvfa.getSortedSetDocValues(reader)
 	if err != nil {
 		return fmt.Errorf("getting sorted set doc values: %w", err)
@@ -154,27 +169,76 @@ func (ssdvfa *SortedSetDocValuesAccumulator) accumulateFromSegment(matchingDocs 
 		return nil
 	}
 
-	// Get the bits for matching documents
 	bits := matchingDocs.Bits
 	numDocs := reader.NumDocs()
-
-	// Iterate over matching documents
 	for doc := 0; doc < numDocs; doc++ {
-		// Check if this document matches
 		if bits != nil && !bits.Get(doc) {
 			continue
 		}
-
-		// Get ordinals for this document
-		ords := docValues.GetOrdinals(doc)
-		for _, ord := range ords {
+		for _, ord := range docValues.GetOrdinals(doc) {
 			if ord > 0 {
 				ssdvfa.ensureCapacity(ord)
 				ssdvfa.counts[ord]++
 			}
 		}
 	}
+	return nil
+}
 
+// accumulateViaCodec is the default path: it reads the segment's
+// SortedSetDocValues straight from the codec via the LeafReader SPI, looks up
+// the encoded "dim/label" term for every ordinal a matching document carries,
+// and folds it into the accumulator's own ordinal space (so GetTopChildren can
+// resolve labels). This mirrors the single-segment branch of
+// SortedSetDocValuesFacetCounts.countOneSegment in Lucene 10.4.0.
+func (ssdvfa *SortedSetDocValuesAccumulator) accumulateViaCodec(matchingDocs *facets.MatchingDocs) error {
+	dvr := matchingDocs.DocValuesReader()
+	if dvr == nil {
+		return nil
+	}
+
+	dv, err := dvr.GetSortedSetDocValues(ssdvfa.field)
+	if err != nil {
+		return fmt.Errorf("getting sorted set doc values for %q: %w", ssdvfa.field, err)
+	}
+	if dv == nil {
+		return nil
+	}
+
+	bits := matchingDocs.Bits
+	maxDoc := matchingDocs.Context.Reader().MaxDoc()
+
+	for {
+		doc, err := dv.NextDoc()
+		if err != nil {
+			return fmt.Errorf("advancing sorted set doc values: %w", err)
+		}
+		if doc < 0 || doc >= maxDoc {
+			break
+		}
+		if bits != nil && !bits.Get(doc) {
+			continue
+		}
+		for {
+			ord, err := dv.NextOrd()
+			if err != nil {
+				return fmt.Errorf("reading ordinal for doc %d: %w", doc, err)
+			}
+			if ord < 0 {
+				break
+			}
+			term, err := dv.LookupOrd(ord)
+			if err != nil {
+				return fmt.Errorf("looking up ordinal %d: %w", ord, err)
+			}
+			label := string(term)
+			internalOrd := ssdvfa.getOrCreateOrdinal(label)
+			if internalOrd > 0 {
+				ssdvfa.ensureCapacity(internalOrd)
+				ssdvfa.counts[internalOrd]++
+			}
+		}
+	}
 	return nil
 }
 
@@ -211,15 +275,11 @@ func (ssdvfa *SortedSetDocValuesAccumulator) ensureCapacity(ord int) {
 	}
 }
 
-// getSortedSetDocValues returns SortedSetDocValues for the given reader.
-//
-// Resolution proceeds in two steps:
-//  1. If a docValuesResolver is installed, the call is delegated to it. This
-//     is the hook tests and future SPI wiring use to inject real DocValues
-//     without coupling the accumulator to the per-codec DocValues format.
-//  2. Otherwise, returns nil — Gocene's LeafReader.GetSortedSetDocValues
-//     currently returns nil for every directory-reader implementation, so
-//     attempting a direct lookup would only mask the foundation gap.
+// getSortedSetDocValues returns the hook-provided SortedSetDocValues for the
+// given reader. It is the accessor for the docValuesResolver override only:
+// when a resolver is installed (tests or a custom DocValues source) the call
+// is delegated to it; otherwise it returns nil and the caller falls back to
+// the default codec-driven path in accumulateViaCodec.
 func (ssdvfa *SortedSetDocValuesAccumulator) getSortedSetDocValues(reader index.IndexReaderInterface) (SortedSetDocValues, error) {
 	if ssdvfa.docValuesResolver != nil {
 		return ssdvfa.docValuesResolver(reader, ssdvfa.field)

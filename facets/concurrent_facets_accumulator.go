@@ -51,21 +51,48 @@ type ConcurrentFacetsAccumulator struct {
 	// numWorkers is the number of concurrent workers for accumulation
 	numWorkers int
 
-	// resolver resolves per-document taxonomy ordinals for a segment.
-	// Concurrent access is allowed: the resolver MUST be safe for concurrent
-	// invocation across different segments. When nil, accumulateFromSegment is
-	// a no-op (foundation gap with the doc-values SPI).
+	// field is the taxonomy index field whose SortedNumericDocValues hold the
+	// per-document ordinal stream read by the default codec-driven path.
+	// Protected by mu.
+	field string
+
+	// resolver overrides the default codec-driven ordinal lookup. Concurrent
+	// access is allowed: the resolver MUST be safe for concurrent invocation
+	// across different segments. When nil, accumulateFromSegment reads the
+	// segment's SortedNumericDocValues for the configured field directly from
+	// the LeafReader SPI; when set, the hook is used instead.
 	resolver TaxonomyOrdinalsResolver
 }
 
 // SetOrdinalsResolver installs an ordinals resolver used by
-// AccumulateFromMatchingDocs. The resolver MUST be safe for concurrent use
-// because workers call it in parallel across segments. Passing nil restores
-// the no-op behaviour.
+// AccumulateFromMatchingDocs, overriding the default codec-driven lookup. The
+// resolver MUST be safe for concurrent use because workers call it in parallel
+// across segments. Passing nil restores the default path, which reads the
+// configured field's SortedNumericDocValues directly from each matching
+// segment's LeafReader.
 func (cfa *ConcurrentFacetsAccumulator) SetOrdinalsResolver(r TaxonomyOrdinalsResolver) {
 	cfa.mu.Lock()
 	defer cfa.mu.Unlock()
 	cfa.resolver = r
+}
+
+// SetIndexFieldName overrides the taxonomy index field whose
+// SortedNumericDocValues carry the per-document ordinal stream read by the
+// default codec-driven counting path.
+func (cfa *ConcurrentFacetsAccumulator) SetIndexFieldName(field string) {
+	cfa.mu.Lock()
+	defer cfa.mu.Unlock()
+	if field != "" {
+		cfa.field = field
+	}
+}
+
+// GetIndexFieldName returns the taxonomy index field read by the default
+// codec-driven counting path.
+func (cfa *ConcurrentFacetsAccumulator) GetIndexFieldName() string {
+	cfa.mu.RLock()
+	defer cfa.mu.RUnlock()
+	return cfa.field
 }
 
 // NewConcurrentFacetsAccumulator creates a new ConcurrentFacetsAccumulator.
@@ -89,6 +116,7 @@ func NewConcurrentFacetsAccumulator(config *FacetsConfig) (*ConcurrentFacetsAccu
 		maxCategories: 10000,
 		hierarchical:  true,
 		numWorkers:    4, // Default to 4 workers
+		field:         config.GetDefaultIndexFieldName(),
 	}, nil
 }
 
@@ -182,11 +210,11 @@ func (cfa *ConcurrentFacetsAccumulator) AccumulateFromMatchingDocs(matchingDocs 
 // accumulateFromSegment accumulates counts from a single segment.
 // This method is called concurrently by multiple workers.
 //
-// When an ordinals resolver is configured, it is invoked per document; the
-// resulting ordinals are translated into label strings via cfa.ordToLabel (or
-// the integer ordinal itself when no label is registered) and their counts are
-// incremented under the accumulator's mutex. Without a resolver, the call is
-// a no-op (foundation gap with the per-codec doc-values SPI).
+// When an ordinals resolver is configured, it is invoked per document and the
+// resulting ordinals are counted. Otherwise the default codec-driven path
+// reads the segment's SortedNumericDocValues for the configured field directly
+// from the LeafReader SPI (mirroring FastTaxonomyFacetCounts.countOneSegment).
+// Either way each ordinal's count is incremented under the accumulator's mutex.
 func (cfa *ConcurrentFacetsAccumulator) accumulateFromSegment(matchingDocs *MatchingDocs) error {
 	if matchingDocs == nil {
 		return nil
@@ -194,9 +222,15 @@ func (cfa *ConcurrentFacetsAccumulator) accumulateFromSegment(matchingDocs *Matc
 
 	cfa.mu.RLock()
 	resolver := cfa.resolver
+	field := cfa.field
 	cfa.mu.RUnlock()
+
 	if resolver == nil {
-		return nil
+		return ForEachTaxonomyOrdinal(matchingDocs, field, func(_, ord int) {
+			if ord > 0 {
+				cfa.incrementCount(ord, 1)
+			}
+		})
 	}
 
 	reader := matchingDocs.GetLeafReader()

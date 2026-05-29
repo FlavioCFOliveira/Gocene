@@ -140,9 +140,11 @@ func TestMultiValuesSource_NeedsScores(t *testing.T) {
 	}
 }
 
-// TestMultiValuesSource_IndexIntegration mirrors the full random index round-trip
-// tests in the Java source. Deferred until SortedNumericDocValues is wired into
-// the Gocene index pipeline.
+// TestMultiValuesSource_IndexIntegration mirrors the full random index
+// round-trip tests in the Java source. The on-disk SortedNumericDocValues read
+// path is wired (rmp #4771, consumed by the facets accumulators in #4704), but
+// the field-based MultiLongValuesSource / MultiDoubleValuesSource.fromField
+// implementations this test needs are not yet ported.
 func TestMultiValuesSource_IndexIntegration(t *testing.T) {
-	t.Skip("requires SortedNumericDocValues index pipeline (not yet wired)")
+	t.Skip("requires field-based MultiLongValuesSource/MultiDoubleValuesSource.fromField (rmp #4773)")
 }
