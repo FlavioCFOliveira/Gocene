@@ -285,8 +285,6 @@ func TestGroupingSearch_NilSearcher(t *testing.T) {
 // project-gocene-segmentreader-corereaders-gap. The test body is preserved
 // verbatim so the gap closure can re-enable it by removing the t.Skip.
 func TestGroupingSearch_EndToEnd_StoredFields(t *testing.T) {
-	t.Skip("blocked on segment-reader core-readers gap (stored-fields read returns 'segment reader not initialized'); see project-gocene-segmentreader-corereaders-gap")
-
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 	analyzer := analysis.NewWhitespaceAnalyzer()
