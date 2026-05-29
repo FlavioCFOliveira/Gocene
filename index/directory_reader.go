@@ -530,6 +530,49 @@ func (r *SegmentReader) SearchNearestVectorsByte(field string, target []byte, k 
 	return knnTopDocsToIndex(td), nil
 }
 
+// pointsReaderDelegate is the wide read surface exposed by the codec's points
+// reader (stored on SegmentCoreReaders.pointsReader as an interface{}). The
+// concrete reader — the BKD-backed reader from the codecs/lucene90 sub-package
+// — satisfies it structurally via its GetValues accessor (the Go counterpart
+// of org.apache.lucene.codecs.PointsReader.getValues). The contract uses only
+// the index-facing [PointValues] type, so the index package can name it
+// without importing codecs.
+type pointsReaderDelegate interface {
+	GetValues(field string) (PointValues, error)
+}
+
+// pointsDelegate narrows the core readers' points reader to the wide
+// getValues surface, or returns nil when the segment has no points reader
+// (e.g. no point fields, or the codec-less test path).
+func (r *SegmentReader) pointsDelegate() pointsReaderDelegate {
+	if r.coreReaders == nil {
+		return nil
+	}
+	pr := r.coreReaders.GetPointsReader()
+	if pr == nil {
+		return nil
+	}
+	d, ok := pr.(pointsReaderDelegate)
+	if !ok {
+		return nil
+	}
+	return d
+}
+
+// GetPointValues returns the BKD point values for field, delegating to the
+// codec's points reader. Returns (nil, nil) when the segment has no points
+// reader or the field has no indexed points (matching the LeafReader
+// contract). This overrides the embedded LeafReader.GetPointValues, which
+// unconditionally returns (nil, nil). Mirrors
+// org.apache.lucene.index.SegmentReader.getPointValues / CodecReader.
+func (r *SegmentReader) GetPointValues(field string) (PointValues, error) {
+	d := r.pointsDelegate()
+	if d == nil {
+		return nil, nil
+	}
+	return d.GetValues(field)
+}
+
 // knnTopDocsToIndex converts a util/hnsw TopDocs (the codec search result)
 // into the index-package TopDocs struct. The hnsw TopDocs is already
 // score-descending; TotalHits is the visited-count lower bound, but the

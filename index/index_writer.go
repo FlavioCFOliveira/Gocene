@@ -835,6 +835,13 @@ func (w *IndexWriter) Commit() error {
 				if err3 := dwpt.flushKnnVectors(codec, writeState); err3 != nil {
 					return fmt.Errorf("commit: flush knn vectors for %s: %w", segmentName, err3)
 				}
+				// Points (BKD) carry no per-field codec attributes (the BKD
+				// writer stamps its own framing), so the order relative to
+				// flushFieldInfos is immaterial; flushed here next to the other
+				// per-field codec writers for symmetry.
+				if err3 := dwpt.flushPoints(codec, writeState); err3 != nil {
+					return fmt.Errorf("commit: flush points for %s: %w", segmentName, err3)
+				}
 				if err3 := dwpt.flushFieldInfos(codec, writeState); err3 != nil {
 					return fmt.Errorf("commit: flush field infos for %s: %w", segmentName, err3)
 				}

@@ -435,16 +435,14 @@ type geo3dPointValues interface {
 	EstimatePointCount(visitor geo3dIntersectVisitor) int64
 }
 
-// geo3dIntersectVisitor is the BKD visitor surface geo3dPointValues drives. The
-// three hooks match the codecs.IntersectVisitor surface (Visit,
-// VisitByPackedValue, Compare) plus Grow, so a future canonical PointValues can
-// satisfy it without changes to this package.
-type geo3dIntersectVisitor interface {
-	Visit(docID int) error
-	VisitByPackedValue(docID int, packedValue []byte) error
-	Compare(minPackedValue, maxPackedValue []byte) int
-	Grow(count int)
-}
+// geo3dIntersectVisitor is the BKD visitor surface geo3dPointValues drives. It
+// is an alias of index.PointTreeIntersectVisitor (rmp #4769) so the on-disk
+// BKD-backed PointValues returned by LeafReader.GetPointValues — whose
+// Intersect method takes index.PointTreeIntersectVisitor — satisfies
+// geo3dPointValues. The three hooks (Visit, VisitByPackedValue, Compare
+// returning an int) plus Grow match the codecs.IntersectVisitor surface so the
+// BKD walk drives this visitor without further adaptation.
+type geo3dIntersectVisitor = index.PointTreeIntersectVisitor
 
 // getGeo3DPointValues type-asserts the leaf reader to expose BKD point values
 // for field, then narrows them to geo3dPointValues. Returns (nil, false) when

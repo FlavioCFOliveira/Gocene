@@ -168,6 +168,22 @@ func NewSegmentCoreReaders(
 		}
 	}
 
+	// Initialize the points (BKD) reader if any field indexes point values.
+	// Mirrors the SegmentCoreReaders constructor in Lucene, which opens
+	// codec.pointsFormat().fieldsReader(state) when
+	// fieldInfos.hasPointValues().
+	if fieldInfos.HasPointValues() {
+		pointsFormat := codec.PointsFormat()
+		if pointsFormat != nil {
+			ptReader, err := pointsFormat.FieldsReader(readState)
+			if err != nil {
+				core.decRef()
+				return nil, fmt.Errorf("creating points reader: %w", err)
+			}
+			core.pointsReader = ptReader
+		}
+	}
+
 	return core, nil
 }
 

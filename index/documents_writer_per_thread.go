@@ -54,6 +54,13 @@ type DocumentsWriterPerThread struct {
 	// IndexingChain accumulates before VectorValuesConsumer.flush.
 	vectorValues map[string]*VectorValuesBuffer
 
+	// pointValues holds the buffered multi-dimensional point (BKD) values
+	// per field, in document order. Populated during ProcessDocument and
+	// replayed into the codec's PointsWriter at flush time (flushPoints).
+	// Mirrors the per-field PointValuesWriter buffer that Lucene's
+	// IndexingChain accumulates before PointsWriter.writeField.
+	pointValues map[string]*PointValuesBuffer
+
 	// lastDocID is the last document ID assigned
 	lastDocID int
 
@@ -162,6 +169,23 @@ type VectorValuesBuffer struct {
 	byteValues  [][]byte
 }
 
+// PointValuesBuffer holds the buffered multi-dimensional point (BKD) values
+// for a single field, accumulated in document order during indexing and
+// replayed into the codec's PointsWriter at flush time.
+//
+// docIDs[i] is the document that supplied packedValues[i]. A document may
+// contribute more than one value for a multi-valued point field, so docIDs is
+// non-decreasing (not strictly increasing). dimensionCount /
+// indexDimensionCount / bytesPerDim mirror the field's point attributes and
+// are used to size the BKD config at flush time.
+type PointValuesBuffer struct {
+	dimensionCount      int
+	indexDimensionCount int
+	bytesPerDim         int
+	docIDs              []int
+	packedValues        [][]byte
+}
+
 // TermVectorsBuffer holds term vectors for documents.
 type TermVectorsBuffer struct {
 	mu sync.RWMutex
@@ -199,6 +223,7 @@ func NewDocumentsWriterPerThread(parent *DocumentsWriter) *DocumentsWriterPerThr
 		docValues:         make(map[string]*DocValuesBuffer),
 		termVectors:       NewTermVectorsBuffer(),
 		vectorValues:      make(map[string]*VectorValuesBuffer),
+		pointValues:       make(map[string]*PointValuesBuffer),
 		lastDocID:         -1,
 	}
 }
@@ -263,6 +288,16 @@ type dwptField struct {
 	vectorSimilarity VectorSimilarityFunction
 	vectorFloatValue []float32
 	vectorByteValue  []byte
+	// Point (BKD) attributes. hasPoint is true when the field carries a
+	// multi-dimensional point value (pointDimensionCount > 0). The packed
+	// per-document value (pointDimensionCount * pointNumBytes bytes) is
+	// stored in pointPackedValue. Mirrors Lucene's
+	// IndexingChain.indexPoint dispatch on FieldInfo point dimensions.
+	hasPoint                 bool
+	pointDimensionCount      int
+	pointIndexDimensionCount int
+	pointNumBytes            int
+	pointPackedValue         []byte
 }
 
 // omitNormsGetter is a narrow interface satisfied by field types that expose
@@ -327,6 +362,28 @@ type floatVectorValueProvider interface {
 // floatVectorValueProvider.
 type byteVectorValueProvider interface {
 	VectorValue() []byte
+}
+
+// pointFieldTypeProvider is satisfied by a field type that advertises
+// multi-dimensional point (BKD) attributes. document.FieldType (via its
+// fieldTypeAsIndexInterface bridge) implements it once a field has been
+// configured with SetDimensions; non-point field types report 0 dimensions.
+//
+// Probing this optional interface — rather than widening FieldTypeInterface —
+// follows the same pattern as vectorFieldTypeProvider. It is the index-side
+// projection of IndexableFieldType.PointDimensionCount/PointIndexDimensionCount
+// /PointNumBytes.
+type pointFieldTypeProvider interface {
+	PointDimensionCount() int
+	PointIndexDimensionCount() int
+	PointNumBytes() int
+}
+
+// pointValueProvider is satisfied by document.Point via its PointValues()
+// []byte accessor. It lets the indexing chain pull the per-document packed
+// point value without importing the document package.
+type pointValueProvider interface {
+	PointValues() []byte
 }
 
 // asDwptField builds a flat dwptField record from fieldInterface using
@@ -436,6 +493,25 @@ func asDwptField(fieldInterface interface{}) (*dwptField, bool) {
 			}
 		}
 	}
+
+	// Point (BKD) attributes. The field type carries the dimension count /
+	// index-dimension count / bytes-per-dimension (via the optional
+	// pointFieldTypeProvider probe); the per-document packed value lives on
+	// the concrete field (document.Point, via pointValueProvider). A field is
+	// treated as a point field only when the declared dimension count is
+	// positive, matching Lucene's FieldInfo.getPointDimensionCount() contract.
+	if ptp, ok := ft.(pointFieldTypeProvider); ok && ptp.PointDimensionCount() > 0 {
+		f.hasPoint = true
+		f.pointDimensionCount = ptp.PointDimensionCount()
+		f.pointIndexDimensionCount = ptp.PointIndexDimensionCount()
+		if f.pointIndexDimensionCount <= 0 {
+			f.pointIndexDimensionCount = f.pointDimensionCount
+		}
+		f.pointNumBytes = ptp.PointNumBytes()
+		if pp, ok := fieldInterface.(pointValueProvider); ok {
+			f.pointPackedValue = pp.PointValues()
+		}
+	}
 	return f, true
 }
 
@@ -499,6 +575,18 @@ func (dwpt *DocumentsWriterPerThread) ProcessDocument(doc Document) error {
 			opts.VectorEncoding = field.vectorEncoding
 			opts.VectorSimilarityFunction = field.vectorSimilarity
 		}
+		// Point (BKD) attributes: record the dimension count / index-dimension
+		// count / bytes-per-dimension on the FieldInfo so it is serialised to
+		// the .fnm and FieldInfos.HasPointValues() reports true on reopen,
+		// lighting up the codec PointsReader. Without a positive dimension
+		// count the codec point write/read paths are never engaged. Mirrors
+		// how Lucene's IndexingChain.processField sets the point attributes on
+		// the per-field FieldInfo via schema.setPointDimensions.
+		if field.hasPoint {
+			opts.PointDimensionCount = field.pointDimensionCount
+			opts.PointIndexDimensionCount = field.pointIndexDimensionCount
+			opts.PointNumBytes = field.pointNumBytes
+		}
 
 		// Get or create FieldInfo
 		fieldInfo := dwpt.getOrAddFieldInfo(fieldName, opts)
@@ -541,6 +629,14 @@ func (dwpt *DocumentsWriterPerThread) ProcessDocument(doc Document) error {
 			// IndexingChain.indexVectorValue, which routes the value through
 			// the per-field KnnFieldVectorsWriter in document order.
 			dwpt.addVectorValue(docID, fieldName, field)
+		}
+
+		if field.hasPoint && len(field.pointPackedValue) > 0 {
+			// Buffer the per-document packed point value for this field.
+			// Replayed into the codec PointsWriter (BKD) at flush time.
+			// Mirrors IndexingChain.indexPoint, which feeds the value into the
+			// field's PointValuesWriter in document order.
+			dwpt.addPointValue(docID, fieldName, field)
 		}
 	}
 
@@ -744,6 +840,26 @@ func (dwpt *DocumentsWriterPerThread) addVectorValue(docID int, fieldName string
 	}
 }
 
+// addPointValue buffers a per-document packed point value for a field,
+// allocating the per-field PointValuesBuffer on first use. The packed value is
+// copied because the caller's slice (document.Point's binary value) may be
+// reused after ProcessDocument returns.
+func (dwpt *DocumentsWriterPerThread) addPointValue(docID int, fieldName string, field *dwptField) {
+	buf, exists := dwpt.pointValues[fieldName]
+	if !exists {
+		buf = &PointValuesBuffer{
+			dimensionCount:      field.pointDimensionCount,
+			indexDimensionCount: field.pointIndexDimensionCount,
+			bytesPerDim:         field.pointNumBytes,
+		}
+		dwpt.pointValues[fieldName] = buf
+	}
+	packed := make([]byte, len(field.pointPackedValue))
+	copy(packed, field.pointPackedValue)
+	buf.docIDs = append(buf.docIDs, docID)
+	buf.packedValues = append(buf.packedValues, packed)
+}
+
 // buildTermVector builds term vector data for a field.
 func (dwpt *DocumentsWriterPerThread) buildTermVector(docID int, fieldName string, field IndexableField) {
 	// Term vectors will be populated from the inverted index during flush
@@ -794,6 +910,7 @@ func (dwpt *DocumentsWriterPerThread) Reset() {
 	dwpt.docValues = make(map[string]*DocValuesBuffer)
 	dwpt.termVectors = NewTermVectorsBuffer()
 	dwpt.vectorValues = make(map[string]*VectorValuesBuffer)
+	dwpt.pointValues = make(map[string]*PointValuesBuffer)
 	dwpt.pendingDeletes = nil
 }
 
@@ -1169,6 +1286,113 @@ func (dwpt *DocumentsWriterPerThread) flushKnnVectors(codec Codec, state *Segmen
 	}
 	return nil
 }
+
+// flushPoints writes the buffered multi-dimensional point (BKD) values for
+// every point field to the codec's PointsWriter, serialising the per-segment
+// .kdd / .kdi / .kdm files.
+//
+// It mirrors the writePoints step of Lucene's IndexingChain.flush: a single
+// PointsWriter is opened for the segment, WriteField is invoked once per point
+// field (pulling the buffered per-document packed values back through an
+// in-memory PointsSource in document order), and Finish stamps the trailing
+// metadata.
+//
+// The FieldInfo objects are taken from state.FieldInfos — the same instances
+// flushFieldInfos serialises to the .fnm — so the FieldInfo point dimensions
+// reach disk and FieldInfos.HasPointValues() reports true on reopen.
+//
+// No-op when the codec has no PointsFormat or no point fields were buffered.
+func (dwpt *DocumentsWriterPerThread) flushPoints(codec Codec, state *SegmentWriteState) error {
+	if codec == nil || codec.PointsFormat() == nil {
+		return nil
+	}
+	if len(dwpt.pointValues) == 0 {
+		return nil
+	}
+
+	// Collect the point fields from the on-disk FieldInfos, preserving
+	// field-number order so the WriteField sequence (and thus the per-field
+	// meta records) is deterministic across runs.
+	type ptField struct {
+		fieldInfo *FieldInfo
+		buf       *PointValuesBuffer
+	}
+	var ptFields []ptField
+	it := state.FieldInfos.Iterator()
+	for {
+		fi := it.Next()
+		if fi == nil {
+			break
+		}
+		if fi.PointDimensionCount() <= 0 {
+			continue
+		}
+		buf, ok := dwpt.pointValues[fi.Name()]
+		if !ok {
+			continue
+		}
+		ptFields = append(ptFields, ptField{fieldInfo: fi, buf: buf})
+	}
+	if len(ptFields) == 0 {
+		return nil
+	}
+
+	writer, err := codec.PointsFormat().FieldsWriter(state)
+	if err != nil {
+		return fmt.Errorf("points FieldsWriter: %w", err)
+	}
+	defer writer.Close()
+
+	for _, pf := range ptFields {
+		src := &dwptPointsSource{field: pf.fieldInfo.Name(), buf: pf.buf}
+		if err := writer.WriteField(pf.fieldInfo, src); err != nil {
+			return fmt.Errorf("points WriteField %q: %w", pf.fieldInfo.Name(), err)
+		}
+	}
+	if err := writer.Finish(); err != nil {
+		return fmt.Errorf("points finish: %w", err)
+	}
+	return nil
+}
+
+// dwptPointsSource adapts a single field's PointValuesBuffer to the in-memory
+// point source the codec PointsWriter pulls values from. It satisfies the
+// narrow codecs.PointsReader surface (CheckIntegrity/Close) that WriteField's
+// reader parameter declares, plus — structurally — the codec's wider
+// PointsSource contract (PointValueCount / VisitPoints). The codec writer
+// type-asserts the reader to that wider surface.
+type dwptPointsSource struct {
+	field string
+	buf   *PointValuesBuffer
+}
+
+// PointValueCount returns the number of buffered point values for field.
+func (s *dwptPointsSource) PointValueCount(field string) int64 {
+	if field != s.field {
+		return 0
+	}
+	return int64(len(s.buf.packedValues))
+}
+
+// VisitPoints replays the buffered (docID, packedValue) pairs in document
+// order, the order the codec writer feeds BKDWriter.Add.
+func (s *dwptPointsSource) VisitPoints(field string, fn func(docID int, packedValue []byte) error) error {
+	if field != s.field {
+		return nil
+	}
+	for i, v := range s.buf.packedValues {
+		if err := fn(s.buf.docIDs[i], v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// CheckIntegrity is a no-op: the in-memory source has no on-disk checksum.
+func (s *dwptPointsSource) CheckIntegrity() error { return nil }
+
+// Close is a no-op: the in-memory source holds no resources.
+func (s *dwptPointsSource) Close() error { return nil }
 
 // getGeneratedFiles returns the list of files generated during flush.
 func (dwpt *DocumentsWriterPerThread) getGeneratedFiles(segmentName string) []string {

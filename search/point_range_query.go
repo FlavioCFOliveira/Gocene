@@ -401,12 +401,13 @@ type pointRangePointValues interface {
 }
 
 // pointRangeIntersectVisitorI is the visitor shape for pointRangePointValues.
-type pointRangeIntersectVisitorI interface {
-	Visit(docID int) error
-	VisitByPackedValue(docID int, packedValue []byte) error
-	Compare(minPackedValue, maxPackedValue []byte) int
-	Grow(count int)
-}
+// It is an alias of index.PointTreeIntersectVisitor (rmp #4769) so the
+// on-disk BKD-backed PointValues returned by LeafReader.GetPointValues — whose
+// Intersect method takes index.PointTreeIntersectVisitor — satisfies
+// pointRangePointValues. Without the alias the method-parameter type identity
+// would differ and the type assertion in getPointRangePointValues would fail
+// for the real codec reader (only in-package stubs would match).
+type pointRangeIntersectVisitorI = index.PointTreeIntersectVisitor
 
 // getPointRangePointValues type-asserts the leaf reader to expose BKD point values.
 func getPointRangePointValues(reader index.LeafReaderInterface, field string) (pointRangePointValues, bool) {

@@ -258,6 +258,20 @@ func (fi *FieldInfos) HasVectorValues() bool {
 	return false
 }
 
+// HasPointValues returns true if any field indexes multi-dimensional point
+// (BKD) values. Mirrors org.apache.lucene.index.FieldInfos.hasPointValues().
+func (fi *FieldInfos) HasPointValues() bool {
+	fi.mu.RLock()
+	defer fi.mu.RUnlock()
+
+	for _, fieldInfo := range fi.byName {
+		if fieldInfo.PointDimensionCount() > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // HasPostings returns true if any field has postings (is indexed).
 func (fi *FieldInfos) HasPostings() bool {
 	fi.mu.RLock()
