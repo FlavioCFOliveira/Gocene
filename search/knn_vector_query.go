@@ -4,44 +4,66 @@
 
 package search
 
-import "fmt"
+// Ported from Apache Lucene 10.4.0:
+//   lucene/core/src/java/org/apache/lucene/search/KnnFloatVectorQuery.java
+//   lucene/core/src/java/org/apache/lucene/search/KnnByteVectorQuery.java
+
+import (
+	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search/knn"
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
+// knnFloatLeafSearcher is the structural per-leaf search surface the float
+// KNN query drives. *index.SegmentReader satisfies it (via the codec KNN
+// reader wiring landed by rmp #4731).
+type knnFloatLeafSearcher interface {
+	SearchNearestVectors(field string, target []float32, k int, acceptDocs util.Bits) (index.TopDocs, error)
+}
+
+// knnByteLeafSearcher is the byte analogue of [knnFloatLeafSearcher].
+type knnByteLeafSearcher interface {
+	SearchNearestVectorsByte(field string, target []byte, k int, acceptDocs util.Bits) (index.TopDocs, error)
+}
 
 // KnnFloatVectorQuery searches for the k documents whose float vector for the
-// given field is most similar to the target vector. An optional pre-filter and
-// search-strategy hook mirror Lucene's KnnFloatVectorQuery.
+// given field is most similar to the target vector. An optional pre-filter
+// and search-strategy hook mirror Lucene's KnnFloatVectorQuery.
 //
-// Mirrors org.apache.lucene.search.KnnFloatVectorQuery. The full HNSW-driven
-// scorer pipeline lives in codecs/hnsw and util/hnsw (Sprint 19/25); this
-// query carries the public surface and dispatches to the codec-side scorer at
-// CreateWeight time.
+// It is the Go port of org.apache.lucene.search.KnnFloatVectorQuery. The
+// shared rewrite algorithm lives in the embedded [BaseKnnVectorQuery]
+// (= AbstractKnnVectorQuery); this type supplies the two abstract methods
+// ApproximateSearch and CreateVectorScorer that drive the codec-level HNSW
+// search for float vectors.
 type KnnFloatVectorQuery struct {
-	BaseQuery
-	field    string
-	target   []float32
-	k        int
-	filter   Query
-	strategy KnnSearchStrategy
+	*BaseKnnVectorQuery
+	target []float32
 }
 
 // NewKnnFloatVectorQuery builds the simplest form (no filter, default strategy).
 func NewKnnFloatVectorQuery(field string, target []float32, k int) *KnnFloatVectorQuery {
-	return &KnnFloatVectorQuery{field: field, target: target, k: k}
+	return NewKnnFloatVectorQueryWithStrategy(field, target, k, nil, nil)
 }
 
 // NewKnnFloatVectorQueryWithFilter is the variant that pre-filters the
 // candidate set with filter.
 func NewKnnFloatVectorQueryWithFilter(field string, target []float32, k int, filter Query) *KnnFloatVectorQuery {
-	return &KnnFloatVectorQuery{field: field, target: target, k: k, filter: filter}
+	return NewKnnFloatVectorQueryWithStrategy(field, target, k, filter, nil)
 }
 
 // NewKnnFloatVectorQueryWithStrategy is the variant accepting a custom
-// KnnSearchStrategy.
-func NewKnnFloatVectorQueryWithStrategy(field string, target []float32, k int, filter Query, strategy KnnSearchStrategy) *KnnFloatVectorQuery {
-	return &KnnFloatVectorQuery{field: field, target: target, k: k, filter: filter, strategy: strategy}
+// [knn.KnnSearchStrategy].
+func NewKnnFloatVectorQueryWithStrategy(field string, target []float32, k int, filter Query, strategy knn.KnnSearchStrategy) *KnnFloatVectorQuery {
+	q := &KnnFloatVectorQuery{target: append([]float32(nil), target...)}
+	base := NewBaseKnnVectorQuery(q, field, k, filter, strategy)
+	q.BaseKnnVectorQuery = &base
+	return q
 }
 
 // GetField returns the vector field name.
-func (q *KnnFloatVectorQuery) GetField() string { return q.field }
+func (q *KnnFloatVectorQuery) GetField() string { return q.BaseKnnVectorQuery.GetField() }
 
 // GetTargetCopy returns a defensive copy of the target vector.
 func (q *KnnFloatVectorQuery) GetTargetCopy() []float32 {
@@ -49,23 +71,74 @@ func (q *KnnFloatVectorQuery) GetTargetCopy() []float32 {
 }
 
 // K returns the requested number of neighbours.
-func (q *KnnFloatVectorQuery) K() int { return q.k }
+func (q *KnnFloatVectorQuery) K() int { return q.GetK() }
 
 // Filter returns the optional pre-filter query (may be nil).
-func (q *KnnFloatVectorQuery) Filter() Query { return q.filter }
+func (q *KnnFloatVectorQuery) Filter() Query { return q.GetFilter() }
 
-// Strategy returns the optional KnnSearchStrategy.
-func (q *KnnFloatVectorQuery) Strategy() KnnSearchStrategy { return q.strategy }
+// Strategy returns the optional KnnSearchStrategy (may be nil).
+func (q *KnnFloatVectorQuery) Strategy() knn.KnnSearchStrategy { return q.GetSearchStrategy() }
+
+// ApproximateSearch runs the codec-level HNSW search on one leaf, returning
+// the per-leaf top results. Mirrors KnnFloatVectorQuery.approximateSearch.
+func (q *KnnFloatVectorQuery) ApproximateSearch(
+	ctx *index.LeafReaderContext,
+	acceptDocs AcceptDocs,
+	visitedLimit int,
+	collectorManager knn.KnnCollectorManager,
+) (*TopDocs, error) {
+	// The collector carries the per-leaf k (optimistic per-segment
+	// rescaling happens inside the manager). Build it to learn that k.
+	collector, err := collectorManager.NewCollector(visitedLimit, q.GetSearchStrategy(), ctx)
+	if err != nil {
+		return nil, err
+	}
+	perLeafK := collector.K()
+	if perLeafK <= 0 {
+		return emptyTopDocs(), nil
+	}
+
+	searcher, ok := ctx.Reader().(knnFloatLeafSearcher)
+	if !ok {
+		// Reader does not support vector search (e.g. a mock); no matches.
+		return emptyTopDocs(), nil
+	}
+
+	bits, err := acceptDocs.Bits()
+	if err != nil {
+		return nil, err
+	}
+
+	td, err := searcher.SearchNearestVectors(q.GetField(), q.target, perLeafK, bits)
+	if err != nil {
+		return nil, err
+	}
+	return indexTopDocsToSearch(td), nil
+}
+
+// CreateVectorScorer builds a VectorScorer for exact brute-force search on
+// the leaf. Mirrors KnnFloatVectorQuery.createVectorScorer.
+//
+// Exact scoring requires a per-doc VectorScorer over the leaf's float
+// vectors. Gocene exposes the vectors but not yet the search.VectorScorer
+// bridge over them, so this returns nil; the BaseKnnVectorQuery treats a nil
+// scorer as "no exact-search support" and relies on the approximate path.
+// Tracked alongside the seeded-search wiring (backlog).
+func (q *KnnFloatVectorQuery) CreateVectorScorer(
+	_ *index.LeafReaderContext, _ *index.FieldInfo,
+) (VectorScorer, error) {
+	return nil, nil
+}
 
 // String returns a debug representation.
 func (q *KnnFloatVectorQuery) String() string {
-	return fmt.Sprintf("KnnFloatVectorQuery(field=%s, k=%d, dim=%d)", q.field, q.k, len(q.target))
+	return fmt.Sprintf("KnnFloatVectorQuery(field=%s, k=%d, dim=%d)", q.GetField(), q.GetK(), len(q.target))
 }
 
 // Equals checks structural equality.
 func (q *KnnFloatVectorQuery) Equals(other Query) bool {
 	o, ok := other.(*KnnFloatVectorQuery)
-	if !ok || q.field != o.field || q.k != o.k || len(q.target) != len(o.target) {
+	if !ok || len(q.target) != len(o.target) {
 		return false
 	}
 	for i := range q.target {
@@ -73,133 +146,160 @@ func (q *KnnFloatVectorQuery) Equals(other Query) bool {
 			return false
 		}
 	}
-	if (q.filter == nil) != (o.filter == nil) {
-		return false
-	}
-	if q.filter != nil && !q.filter.Equals(o.filter) {
-		return false
-	}
-	return true
+	return q.EqualsBase(o.BaseKnnVectorQuery)
 }
 
-// HashCode hashes the field, k, and vector contents.
+// HashCode hashes the field, k, filter, and vector contents.
 func (q *KnnFloatVectorQuery) HashCode() int {
-	h := 17
-	for i := 0; i < len(q.field); i++ {
-		h = 31*h + int(q.field[i])
-	}
-	h = 31*h + q.k
+	h := q.HashCodeBase()
 	for _, v := range q.target {
 		h = 31*h + int(v)
-	}
-	if q.filter != nil {
-		h = 31*h + q.filter.HashCode()
 	}
 	return h
 }
 
 // Clone returns an independent copy.
 func (q *KnnFloatVectorQuery) Clone() Query {
-	cp := *q
-	cp.target = append([]float32(nil), q.target...)
-	if q.filter != nil {
-		cp.filter = q.filter.Clone()
-	}
-	return &cp
+	return NewKnnFloatVectorQueryWithStrategy(
+		q.GetField(), q.target, q.GetK(), cloneFilter(q.GetFilter()), q.GetSearchStrategy(),
+	)
 }
 
 // KnnByteVectorQuery is the byte-vector analogue of KnnFloatVectorQuery.
 //
-// Mirrors org.apache.lucene.search.KnnByteVectorQuery.
+// Go port of org.apache.lucene.search.KnnByteVectorQuery.
 type KnnByteVectorQuery struct {
-	BaseQuery
-	field    string
-	target   []byte
-	k        int
-	filter   Query
-	strategy KnnSearchStrategy
+	*BaseKnnVectorQuery
+	target []byte
 }
 
 // NewKnnByteVectorQuery is the simplest form.
 func NewKnnByteVectorQuery(field string, target []byte, k int) *KnnByteVectorQuery {
-	return &KnnByteVectorQuery{field: field, target: target, k: k}
+	return NewKnnByteVectorQueryWithStrategy(field, target, k, nil, nil)
 }
 
 // NewKnnByteVectorQueryWithFilter is the filter variant.
 func NewKnnByteVectorQueryWithFilter(field string, target []byte, k int, filter Query) *KnnByteVectorQuery {
-	return &KnnByteVectorQuery{field: field, target: target, k: k, filter: filter}
+	return NewKnnByteVectorQueryWithStrategy(field, target, k, filter, nil)
 }
 
 // NewKnnByteVectorQueryWithStrategy is the variant taking a custom strategy.
-func NewKnnByteVectorQueryWithStrategy(field string, target []byte, k int, filter Query, strategy KnnSearchStrategy) *KnnByteVectorQuery {
-	return &KnnByteVectorQuery{field: field, target: target, k: k, filter: filter, strategy: strategy}
+func NewKnnByteVectorQueryWithStrategy(field string, target []byte, k int, filter Query, strategy knn.KnnSearchStrategy) *KnnByteVectorQuery {
+	q := &KnnByteVectorQuery{target: append([]byte(nil), target...)}
+	base := NewBaseKnnVectorQuery(q, field, k, filter, strategy)
+	q.BaseKnnVectorQuery = &base
+	return q
 }
 
 // GetField returns the field name.
-func (q *KnnByteVectorQuery) GetField() string { return q.field }
+func (q *KnnByteVectorQuery) GetField() string { return q.BaseKnnVectorQuery.GetField() }
 
 // GetTargetCopy returns a defensive copy.
 func (q *KnnByteVectorQuery) GetTargetCopy() []byte { return append([]byte(nil), q.target...) }
 
 // K returns the requested number of neighbours.
-func (q *KnnByteVectorQuery) K() int { return q.k }
+func (q *KnnByteVectorQuery) K() int { return q.GetK() }
 
 // Filter returns the pre-filter query (may be nil).
-func (q *KnnByteVectorQuery) Filter() Query { return q.filter }
+func (q *KnnByteVectorQuery) Filter() Query { return q.GetFilter() }
 
 // Strategy returns the configured KnnSearchStrategy.
-func (q *KnnByteVectorQuery) Strategy() KnnSearchStrategy { return q.strategy }
+func (q *KnnByteVectorQuery) Strategy() knn.KnnSearchStrategy { return q.GetSearchStrategy() }
+
+// ApproximateSearch runs the codec-level HNSW search on one leaf for byte
+// vectors. Mirrors KnnByteVectorQuery.approximateSearch.
+func (q *KnnByteVectorQuery) ApproximateSearch(
+	ctx *index.LeafReaderContext,
+	acceptDocs AcceptDocs,
+	visitedLimit int,
+	collectorManager knn.KnnCollectorManager,
+) (*TopDocs, error) {
+	collector, err := collectorManager.NewCollector(visitedLimit, q.GetSearchStrategy(), ctx)
+	if err != nil {
+		return nil, err
+	}
+	perLeafK := collector.K()
+	if perLeafK <= 0 {
+		return emptyTopDocs(), nil
+	}
+
+	searcher, ok := ctx.Reader().(knnByteLeafSearcher)
+	if !ok {
+		return emptyTopDocs(), nil
+	}
+
+	bits, err := acceptDocs.Bits()
+	if err != nil {
+		return nil, err
+	}
+
+	td, err := searcher.SearchNearestVectorsByte(q.GetField(), q.target, perLeafK, bits)
+	if err != nil {
+		return nil, err
+	}
+	return indexTopDocsToSearch(td), nil
+}
+
+// CreateVectorScorer returns nil; exact byte-vector scoring is not yet
+// bridged (see the float counterpart).
+func (q *KnnByteVectorQuery) CreateVectorScorer(
+	_ *index.LeafReaderContext, _ *index.FieldInfo,
+) (VectorScorer, error) {
+	return nil, nil
+}
 
 // String returns a debug representation.
 func (q *KnnByteVectorQuery) String() string {
-	return fmt.Sprintf("KnnByteVectorQuery(field=%s, k=%d, dim=%d)", q.field, q.k, len(q.target))
+	return fmt.Sprintf("KnnByteVectorQuery(field=%s, k=%d, dim=%d)", q.GetField(), q.GetK(), len(q.target))
 }
 
 // Equals checks structural equality.
 func (q *KnnByteVectorQuery) Equals(other Query) bool {
 	o, ok := other.(*KnnByteVectorQuery)
-	if !ok || q.field != o.field || q.k != o.k || !bytesEqual(q.target, o.target) {
+	if !ok || !bytesEqual(q.target, o.target) {
 		return false
 	}
-	if (q.filter == nil) != (o.filter == nil) {
-		return false
-	}
-	if q.filter != nil && !q.filter.Equals(o.filter) {
-		return false
-	}
-	return true
+	return q.EqualsBase(o.BaseKnnVectorQuery)
 }
 
-// HashCode hashes the field, k, and vector contents.
+// HashCode hashes the field, k, filter, and vector contents.
 func (q *KnnByteVectorQuery) HashCode() int {
-	h := 17
-	for i := 0; i < len(q.field); i++ {
-		h = 31*h + int(q.field[i])
-	}
-	h = 31*h + q.k
+	h := q.HashCodeBase()
 	for _, b := range q.target {
 		h = 31*h + int(b)
-	}
-	if q.filter != nil {
-		h = 31*h + q.filter.HashCode()
 	}
 	return h
 }
 
 // Clone returns an independent copy.
 func (q *KnnByteVectorQuery) Clone() Query {
-	cp := *q
-	cp.target = append([]byte(nil), q.target...)
-	if q.filter != nil {
-		cp.filter = q.filter.Clone()
-	}
-	return &cp
+	return NewKnnByteVectorQueryWithStrategy(
+		q.GetField(), q.target, q.GetK(), cloneFilter(q.GetFilter()), q.GetSearchStrategy(),
+	)
 }
 
-// KnnSearchStrategy is the search-strategy hook surfaced by the
-// KnnFloat/Byte vector queries. The concrete strategies live in
-// search/knn (Sprint 25).
-type KnnSearchStrategy interface {
-	// StrategyName returns the canonical strategy name used in toString.
-	StrategyName() string
+// cloneFilter returns a clone of filter, or nil when filter is nil.
+func cloneFilter(filter Query) Query {
+	if filter == nil {
+		return nil
+	}
+	return filter.Clone()
 }
+
+// indexTopDocsToSearch converts the index-package TopDocs returned by a leaf
+// reader's vector search into a search-package *TopDocs. Per-leaf vector
+// results are exact (EQUAL_TO) for the result count reported.
+func indexTopDocsToSearch(td index.TopDocs) *TopDocs {
+	scoreDocs := make([]*ScoreDoc, len(td.ScoreDocs))
+	for i, sd := range td.ScoreDocs {
+		scoreDocs[i] = &ScoreDoc{Doc: sd.Doc, Score: sd.Score}
+	}
+	return NewTopDocs(NewTotalHits(int64(len(scoreDocs)), EQUAL_TO), scoreDocs)
+}
+
+// Compile-time guards that the queries satisfy the KnnVectorQueryImpl
+// contract (and therefore Query).
+var (
+	_ KnnVectorQueryImpl = (*KnnFloatVectorQuery)(nil)
+	_ KnnVectorQueryImpl = (*KnnByteVectorQuery)(nil)
+)

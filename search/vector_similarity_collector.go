@@ -18,6 +18,15 @@ package search
 
 import "math"
 
+// KnnSearchStrategy is the lightweight search-strategy hook used by the
+// VectorSimilarityCollector subsystem. It is distinct from
+// knn.KnnSearchStrategy (the HNSW search-strategy used by the KNN vector
+// queries); this one only needs a name for diagnostics.
+type KnnSearchStrategy interface {
+	// StrategyName returns the canonical strategy name used in toString.
+	StrategyName() string
+}
+
 // vectorSimilarityDefaultStrategy is the search strategy used when none is
 // specified. It mirrors AbstractVectorSimilarityQuery.DEFAULT_STRATEGY
 // (KnnSearchStrategy.Hnsw with filteredSearchThreshold=0).
