@@ -13,6 +13,21 @@ type Scorer interface {
 	GetMaxScore(upTo int) float32
 }
 
+// ScoreErrorReporter is the optional Scorer extension for scorers that can
+// detect an error condition while computing a score. Gocene's Scorer.Score
+// returns only a float32 (no error), unlike Lucene where Scorer.score() throws
+// IOException/IllegalStateException; this interface lets such scorers surface a
+// deferred error that the search loop consults after the score is consumed.
+//
+// It is used to faithfully reproduce the block-join "Child query must not match
+// same docs with parent filter" IllegalStateException that Lucene raises from
+// ToParentBlockJoinQuery.BlockJoinScorer.scoreChildDocs.
+type ScoreErrorReporter interface {
+	// ScoreError returns a non-nil error if the most recent Score call detected
+	// an invariant violation, or nil otherwise.
+	ScoreError() error
+}
+
 // MinCompetitiveScorer is the optional Scorer extension that lets a collector
 // (or a parent scorer) hint at the minimum score a hit must reach to be
 // competitive, enabling non-competitive documents to be skipped. It mirrors

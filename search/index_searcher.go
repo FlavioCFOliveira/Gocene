@@ -283,6 +283,16 @@ func (s *IndexSearcher) searchLeaf(reader index.IndexReaderInterface, ord, docBa
 			if err != nil {
 				return err
 			}
+			// Surface a deferred scoring error (e.g. the block-join
+			// child-matches-parent invariant). Collect consumes the score
+			// internally, so the scorer can only report this after Collect has
+			// run. Mirrors Lucene raising IllegalStateException from
+			// Scorer.score() during collection.
+			if rep, ok := scorer.(ScoreErrorReporter); ok {
+				if scoreErr := rep.ScoreError(); scoreErr != nil {
+					return scoreErr
+				}
+			}
 		}
 	}
 

@@ -71,9 +71,33 @@ func buildValidationIndex(t *testing.T) (*index.DirectoryReader, *search.IndexSe
 }
 
 // TestBlockJoinValidation_NextDocValidationForToParentBjq corresponds to
-// TestBlockJoinValidation.testNextDocValidationForToParentBjq.
+// TestBlockJoinValidation.testNextDocValidationForToParentBjq. The child query
+// is a SHOULD disjunction of a real child term and a parent id term, so it also
+// matches a parent document; scoring that parent must raise the
+// "Child query must not match same docs with parent filter" invariant. As in
+// Lucene, ScoreMode.None is excluded (the None path does not exercise the
+// scoring-time check), so the four aggregating modes are tested.
 func TestBlockJoinValidation_NextDocValidationForToParentBjq(t *testing.T) {
-	t.Skip("the child-matches-parent invariant is raised in Lucene from scoreChildDocs (during scoring); Gocene's Scorer.Score has no error channel: rmp #4765")
+	for _, sm := range []ScoreMode{Avg, Max, Total, Min} {
+		r, s, parentsFilter := buildValidationIndex(t)
+
+		// child="0000" matches every c==0 child; id="0000" matches the parent at
+		// seg 0/p 0 — so the disjunction matches a parent doc, violating the
+		// ToParent invariant.
+		childQuery := search.NewBooleanQuery()
+		childQuery.Add(search.NewTermQuery(index.NewTerm("child", bjvFieldValue(0))), search.SHOULD)
+		childQuery.Add(search.NewTermQuery(index.NewTerm("id", bjvFieldValue(0))), search.SHOULD)
+
+		blockJoinQuery := NewToParentBlockJoinQuery(childQuery, parentsFilter, sm)
+		_, err := s.Search(blockJoinQuery, 1)
+		if err == nil {
+			t.Fatalf("%v: expected child-matches-parent invariant error, got nil", sm)
+		}
+		if !strings.Contains(err.Error(), "Child query must not match same docs with parent filter") {
+			t.Errorf("%v: error = %q, want it to contain the invariant message", sm, err.Error())
+		}
+		_ = r
+	}
 }
 
 // TestBlockJoinValidation_NextDocValidationForToChildBjq corresponds to

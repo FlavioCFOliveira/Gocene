@@ -549,7 +549,19 @@ type ToParentBlockJoinScorer struct {
 	// contributed, used to compute the Avg mode.
 	parentScore float32
 	parentFreq  int
+
+	// scoreErr stores the block-join "child matches parent" invariant violation
+	// detected during Score, so it can be surfaced by the search loop through
+	// the search.ScoreErrorReporter interface (Score itself returns only a
+	// float32). Reset on every Score call.
+	scoreErr error
 }
+
+// childMatchesParentMessage mirrors the IllegalStateException message thrown by
+// ToParentBlockJoinQuery.BlockJoinScorer.scoreChildDocs when the child query
+// also matches a parent document.
+const childMatchesParentMessage = "Child query must not match same docs with parent filter. " +
+	"Combine them as must clauses (+) to find a problem doc. docId="
 
 // NewToParentBlockJoinScorer creates a new ToParentBlockJoinScorer.
 func NewToParentBlockJoinScorer(weight *ToParentBlockJoinWeight, childScorer search.Scorer, parentBits *FixedBitSet, scoreMode ScoreMode, boost float32) *ToParentBlockJoinScorer {
@@ -617,6 +629,7 @@ func (s *ToParentBlockJoinScorer) Advance(target int) (int, error) {
 // itself (the block-join invariant); that mis-use is reported as an error here,
 // matching Lucene's IllegalStateException.
 func (s *ToParentBlockJoinScorer) Score() float32 {
+	s.scoreErr = nil
 	childDoc := s.childScorer.DocID()
 	if childDoc >= s.doc {
 		// Already scored (or no children before this parent).
@@ -678,7 +691,26 @@ func (s *ToParentBlockJoinScorer) Score() float32 {
 		}
 	}
 
+	// Block-join invariant: the child query must not match the parent document
+	// itself. Faithful port of the check at the end of
+	// ToParentBlockJoinQuery.BlockJoinScorer.scoreChildDocs — if the child
+	// approximation landed exactly on the parent doc, the child query also
+	// matched a parent, which is illegal. Score has no error channel, so the
+	// violation is recorded in scoreErr and surfaced by the search loop through
+	// the search.ScoreErrorReporter interface.
+	if childDoc == s.doc {
+		s.scoreErr = fmt.Errorf("%s%d, %T", childMatchesParentMessage, s.doc, s.childScorer)
+	}
+
 	return s.parentScore
+}
+
+// ScoreError returns the block-join "child matches parent" invariant violation
+// detected by the most recent Score call, or nil. It satisfies
+// search.ScoreErrorReporter so the search loop can surface the error that
+// Score (which returns only a float32) cannot.
+func (s *ToParentBlockJoinScorer) ScoreError() error {
+	return s.scoreErr
 }
 
 // SetMinCompetitiveScore forwards the minimum competitive score to the child
@@ -728,5 +760,10 @@ func (s *ToParentBlockJoinScorer) GetChildren() search.Scorer {
 	return s.childScorer
 }
 
-// Ensure ToParentBlockJoinScorer implements Scorer
-var _ search.Scorer = (*ToParentBlockJoinScorer)(nil)
+// Ensure ToParentBlockJoinScorer implements Scorer and the optional
+// MinCompetitiveScorer / ScoreErrorReporter extensions.
+var (
+	_ search.Scorer               = (*ToParentBlockJoinScorer)(nil)
+	_ search.MinCompetitiveScorer = (*ToParentBlockJoinScorer)(nil)
+	_ search.ScoreErrorReporter   = (*ToParentBlockJoinScorer)(nil)
+)
