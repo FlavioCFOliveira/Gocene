@@ -555,6 +555,15 @@ type ToParentBlockJoinScorer struct {
 	// the search.ScoreErrorReporter interface (Score itself returns only a
 	// float32). Reset on every Score call.
 	scoreErr error
+
+	// minCompChanged records that SetMinCompetitiveScore lowered the child's
+	// competitive bound since the child iterator was last positioned. Gocene
+	// flattens Lucene's child TwoPhaseIterator (whose matches() would re-confirm
+	// the current child under the new threshold) into an exact iterator that has
+	// already advanced (and confirmed) past the block during Score. To reproduce
+	// Lucene's lazy re-confirmation, the next Advance re-advances the child to
+	// its current docID so the WANDScorer re-evaluates competitiveness.
+	minCompChanged bool
 }
 
 // childMatchesParentMessage mirrors the IllegalStateException message thrown by
@@ -604,6 +613,26 @@ func (s *ToParentBlockJoinScorer) Advance(target int) (int, error) {
 	}
 
 	childDoc := s.childScorer.DocID()
+
+	// If SetMinCompetitiveScore tightened the child's threshold since the child
+	// was last positioned, re-advance the child to its current doc so the
+	// underlying WANDScorer re-confirms competitiveness under the new bound
+	// (Gocene flattens Lucene's child TwoPhaseIterator re-confirmation; see the
+	// minCompChanged field). A re-advance target below firstChildTarget is
+	// raised to firstChildTarget so we never move the child backwards.
+	if s.minCompChanged && childDoc != search.NO_MORE_DOCS && childDoc >= 0 {
+		s.minCompChanged = false
+		reTarget := childDoc
+		if reTarget < firstChildTarget {
+			reTarget = firstChildTarget
+		}
+		var err error
+		childDoc, err = s.childScorer.Advance(reTarget)
+		if err != nil {
+			return 0, err
+		}
+	}
+
 	if childDoc < firstChildTarget {
 		var err error
 		childDoc, err = s.childScorer.Advance(firstChildTarget)
@@ -725,7 +754,12 @@ func (s *ToParentBlockJoinScorer) ScoreError() error {
 func (s *ToParentBlockJoinScorer) SetMinCompetitiveScore(minScore float32) error {
 	if s.scoreMode == None || s.scoreMode == Max {
 		if mc, ok := s.childScorer.(search.MinCompetitiveScorer); ok {
-			return mc.SetMinCompetitiveScore(minScore)
+			if err := mc.SetMinCompetitiveScore(minScore); err != nil {
+				return err
+			}
+			// Mark the child position stale so the next Advance re-confirms it
+			// under the tightened threshold (see minCompChanged).
+			s.minCompChanged = true
 		}
 	}
 	return nil

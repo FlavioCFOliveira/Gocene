@@ -104,3 +104,13 @@ func (q *BoostQuery) Rewrite(reader IndexReader) (Query, error) {
 
 	return q, nil
 }
+
+// CreateWeight delegates to the inner query's Weight with the boost multiplied
+// into the requested boost, so the inner scorer's scores (and max scores) are
+// scaled by this query's boost factor.
+//
+// Faithful port of BoostQuery.createWeight(IndexSearcher, ScoreMode, float):
+// query.createWeight(searcher, scoreMode, this.boost * boost).
+func (q *BoostQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+	return q.query.CreateWeight(searcher, needsScores, q.boost*boost)
+}

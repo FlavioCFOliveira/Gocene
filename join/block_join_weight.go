@@ -547,16 +547,84 @@ func (w *ToParentBlockJoinWeight) Scorer(context *index.LeafReaderContext) (sear
 }
 
 // ScorerSupplier creates a ScorerSupplier for this weight.
+//
+// Faithful port of ToParentBlockJoinQuery.ToParentBlockJoinWeight.scorerSupplier:
+// the supplier defers child-scorer creation and forwards
+// SetTopLevelScoringClause to the child supplier only when scoreMode is Max, so
+// a TOP_SCORES + Max block join can route its SHOULD-disjunction child to a
+// WANDScorer for block-max SetMinCompetitiveScore early termination.
 func (w *ToParentBlockJoinWeight) ScorerSupplier(context *index.LeafReaderContext) (search.ScorerSupplier, error) {
-	scorer, err := w.Scorer(context)
+	if w.childWeight == nil {
+		return nil, nil
+	}
+
+	childSupplier, err := w.childWeight.ScorerSupplier(context)
 	if err != nil {
 		return nil, err
 	}
-	if scorer == nil {
+	if childSupplier == nil {
 		return nil, nil
 	}
-	return &simpleScorerSupplier{scorer: scorer}, nil
+
+	parentsBits, err := w.parentsFilter.GetBitSet(context)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get parents bitset: %w", err)
+	}
+	if parentsBits == nil {
+		return nil, nil
+	}
+
+	return &toParentBlockJoinScorerSupplier{
+		weight:        w,
+		childSupplier: childSupplier,
+		parentsBits:   parentsBits,
+	}, nil
 }
+
+// toParentBlockJoinScorerSupplier is the ScorerSupplier for
+// ToParentBlockJoinWeight. It mirrors the anonymous ScorerSupplier returned by
+// ToParentBlockJoinQuery.ToParentBlockJoinWeight.scorerSupplier in Lucene
+// 10.4.0.
+type toParentBlockJoinScorerSupplier struct {
+	weight        *ToParentBlockJoinWeight
+	childSupplier search.ScorerSupplier
+	parentsBits   *FixedBitSet
+}
+
+// Get builds the block-join scorer over the child scorer obtained for leadCost.
+// For ScoreMode.None the child is wrapped in a TOP_SCORES ConstantScoreScorer
+// (score 0) so SetMinCompetitiveScore can skip non-competitive parents, exactly
+// as ToParentBlockJoinWeight.scorer does.
+func (s *toParentBlockJoinScorerSupplier) Get(leadCost int64) (search.Scorer, error) {
+	childScorer, err := s.childSupplier.Get(leadCost)
+	if err != nil {
+		return nil, err
+	}
+	if childScorer == nil {
+		return nil, nil
+	}
+	if s.weight.scoreMode == None {
+		childScorer = search.NewConstantScoreScorer(0, search.TOP_SCORES, childScorer)
+	}
+	return NewToParentBlockJoinScorer(s.weight, childScorer, s.parentsBits, s.weight.scoreMode, s.weight.boost), nil
+}
+
+// Cost delegates to the child supplier's cost estimate.
+func (s *toParentBlockJoinScorerSupplier) Cost() int64 {
+	return s.childSupplier.Cost()
+}
+
+// SetTopLevelScoringClause forwards to the child supplier only for ScoreMode.Max,
+// mirroring the setTopLevelScoringClause override in Lucene's
+// ToParentBlockJoinWeight.scorerSupplier (where None/Avg/Min/Total do not
+// forward because they cannot early-terminate on a per-child threshold).
+func (s *toParentBlockJoinScorerSupplier) SetTopLevelScoringClause() {
+	if s.weight.scoreMode == Max {
+		s.childSupplier.SetTopLevelScoringClause()
+	}
+}
+
+var _ search.ScorerSupplier = (*toParentBlockJoinScorerSupplier)(nil)
 
 // Explain returns an explanation of the score for the given document.
 func (w *ToParentBlockJoinWeight) Explain(context *index.LeafReaderContext, doc int) (search.Explanation, error) {

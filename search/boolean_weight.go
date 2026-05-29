@@ -94,7 +94,15 @@ func (w *BooleanWeight) Scorer(context *index.LeafReaderContext) (Scorer, error)
 }
 
 // ScorerSupplier creates a scorer supplier for this weight.
+//
+// The returned supplier defers scorer construction so that
+// SetTopLevelScoringClause can route a top-level, score-needing SHOULD-only
+// disjunction to a WANDScorer (enabling block-max SetMinCompetitiveScore early
+// termination), mirroring BooleanScorerSupplier in Lucene 10.4.0. All other
+// shapes fall back to the eager BooleanScorer built by Scorer.
 func (w *BooleanWeight) ScorerSupplier(context *index.LeafReaderContext) (ScorerSupplier, error) {
+	// A nil scorer (no possible matches) yields a nil supplier, matching
+	// Lucene's BooleanWeight.scorerSupplier returning null.
 	scorer, err := w.Scorer(context)
 	if err != nil {
 		return nil, err
@@ -102,7 +110,76 @@ func (w *BooleanWeight) ScorerSupplier(context *index.LeafReaderContext) (Scorer
 	if scorer == nil {
 		return nil, nil
 	}
-	return NewScorerSupplierAdapter(scorer), nil
+	return &booleanWeightScorerSupplier{weight: w, context: context}, nil
+}
+
+// isPureShouldDisjunction reports whether this query is a SHOULD-only
+// disjunction with minShouldMatch <= 1, the shape Lucene routes to a WANDScorer
+// when scores are needed and the supplier is the top-level scoring clause.
+func (w *BooleanWeight) isPureShouldDisjunction() bool {
+	if !w.needsScores || w.query.minShouldMatch > 1 {
+		return false
+	}
+	hasShould := false
+	for _, clause := range w.query.clauses {
+		switch clause.Occur {
+		case SHOULD:
+			hasShould = true
+		default:
+			return false
+		}
+	}
+	return hasShould
+}
+
+// wandScorer builds a WANDScorer over the SHOULD sub-scorers in TOP_SCORES mode
+// when the query is a pure SHOULD disjunction. It returns (scorer, true, nil)
+// on success, (nil, false, nil) when the shape does not qualify or a required
+// SHOULD scorer is missing, and (nil, false, err) on error.
+//
+// Mirrors the WANDScorer construction in
+// BooleanScorerSupplier.getInternal()/optionalBulkScorer() (Lucene 10.4.0):
+// minShouldMatch is clamped to at least 1 (at least one clause must match) and
+// the disjunction is scored under ScoreMode.TOP_SCORES.
+func (w *BooleanWeight) wandScorer(context *index.LeafReaderContext, leadCost int64) (Scorer, bool, error) {
+	if !w.isPureShouldDisjunction() {
+		return nil, false, nil
+	}
+
+	var shouldScorers []Scorer
+	for i, weight := range w.weights {
+		if weight == nil {
+			continue
+		}
+		if w.query.clauses[i].Occur != SHOULD {
+			continue
+		}
+		scorer, err := weight.Scorer(context)
+		if err != nil {
+			return nil, false, err
+		}
+		if scorer == nil {
+			continue
+		}
+		shouldScorers = append(shouldScorers, scorer)
+	}
+
+	// WANDScorer needs at least minShouldMatch+1 scorers; with a single
+	// matching clause it cannot run, so fall back to the standard scorer.
+	if len(shouldScorers) < 2 {
+		return nil, false, nil
+	}
+
+	minShouldMatch := w.query.minShouldMatch
+	if minShouldMatch < 1 {
+		minShouldMatch = 1
+	}
+
+	ws, err := NewWANDScorer(shouldScorers, minShouldMatch, TOP_SCORES, leadCost)
+	if err != nil {
+		return nil, false, err
+	}
+	return ws, true, nil
 }
 
 // Explain returns an explanation of the score for the given document.

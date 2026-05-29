@@ -579,6 +579,27 @@ func (ws *WANDScorer) Score() float32 {
 	return float32(leadScore)
 }
 
+// SetMinCompetitiveScore tells this disjunction about the new minimum
+// competitive score so it can skip clauses that produce low scores.
+//
+// Faithful port of WANDScorer.setMinCompetitiveScore(float): the score is
+// scaled (rounding down) and stored; the matching loop in the two-phase
+// confirmation then uses it to drop non-competitive lead/tail clauses. Only
+// valid in TOP_SCORES mode.
+func (ws *WANDScorer) SetMinCompetitiveScore(minScore float32) error {
+	if ws.scoreMode != TOP_SCORES {
+		return fmt.Errorf("WANDScorer.SetMinCompetitiveScore: only valid for TOP_SCORES, got %v", ws.scoreMode)
+	}
+	if minScore < 0 {
+		return fmt.Errorf("WANDScorer.SetMinCompetitiveScore: minScore must be >= 0, got %v", minScore)
+	}
+	scaledMinScore := wandScaleMinScore(minScore, ws.scalingFactor)
+	if scaledMinScore > ws.minCompetitiveScore {
+		ws.minCompetitiveScore = scaledMinScore
+	}
+	return nil
+}
+
 // GetMaxScore returns the maximum possible score up to upTo.
 //
 // Mirrors WANDScorer.getMaxScore(int).
@@ -594,3 +615,4 @@ func (ws *WANDScorer) GetMaxScore(upTo int) float32 {
 
 var _ Scorer = (*WANDScorer)(nil)
 var _ scorerTwoPhaseProvider = (*WANDScorer)(nil)
+var _ MinCompetitiveScorer = (*WANDScorer)(nil)
