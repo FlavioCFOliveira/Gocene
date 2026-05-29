@@ -121,7 +121,7 @@ func TestToChildBlockJoinWeightCreation(t *testing.T) {
 	parentsFilter := NewMockBitSetProducer(100)
 
 	q := NewToChildBlockJoinQuery(parentQuery, parentsFilter, Max)
-	w := NewToChildBlockJoinWeight(q, nil, parentsFilter, Max, 1.0)
+	w := NewToChildBlockJoinWeight(q, nil, parentsFilter, Max, true, 1.0)
 
 	if w == nil {
 		t.Fatal("Expected ToChildBlockJoinWeight to be created")
@@ -150,15 +150,15 @@ func TestToChildBlockJoinScorerCreation(t *testing.T) {
 	// Create a mock scorer (we can't easily create a real one without full index)
 	// This tests the struct creation
 	weight := &ToChildBlockJoinWeight{}
-	scorer := NewToChildBlockJoinScorer(weight, nil, parentsBits, Max, 1.0)
+	scorer := NewToChildBlockJoinScorer(weight, nil, parentsBits, true, 1.0)
 
 	if scorer == nil {
 		t.Fatal("Expected ToChildBlockJoinScorer to be created")
 	}
 
-	// Max is a scoring mode, so doScores must be true.
+	// doScores=true must be carried through to the scorer.
 	if !scorer.doScores {
-		t.Error("Expected doScores true for ScoreMode Max")
+		t.Error("Expected doScores true")
 	}
 
 	if scorer.boost != 1.0 {
@@ -200,15 +200,15 @@ func TestToChildBlockJoinScorerScore(t *testing.T) {
 
 	weight := &ToChildBlockJoinWeight{}
 
-	// ScoreMode None disables score propagation (doScores == false).
-	scorerNone := NewToChildBlockJoinScorer(weight, nil, parentsBits, None, 1.0)
+	// doScores=false disables parent score propagation.
+	scorerNone := NewToChildBlockJoinScorer(weight, nil, parentsBits, false, 1.0)
 	if scorerNone.doScores {
-		t.Error("Expected doScores false for ScoreMode None")
+		t.Error("Expected doScores false when not scoring")
 	}
 
-	// Any other score mode propagates the parent score (doScores == true).
-	scorerMax := NewToChildBlockJoinScorer(weight, nil, parentsBits, Max, 1.0)
+	// doScores=true propagates the parent score.
+	scorerMax := NewToChildBlockJoinScorer(weight, nil, parentsBits, true, 1.0)
 	if !scorerMax.doScores {
-		t.Error("Expected doScores true for ScoreMode Max")
+		t.Error("Expected doScores true when scoring")
 	}
 }

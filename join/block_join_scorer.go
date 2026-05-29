@@ -323,16 +323,20 @@ type ToChildBlockJoinScorer struct {
 
 // NewToChildBlockJoinScorer creates a new ToChildBlockJoinScorer.
 //
-// The scoreMode argument is interpreted Lucene-style: only ScoreMode.None
-// disables score propagation; every other mode propagates the parent score
-// (Lucene's ToChildBlockJoinQuery carries no per-child ScoreMode and simply
-// uses scoreMode.needsScores()).
-func NewToChildBlockJoinScorer(weight *ToChildBlockJoinWeight, parentScorer search.Scorer, parentBits *FixedBitSet, scoreMode ScoreMode, boost float32) *ToChildBlockJoinScorer {
+// doScores reports whether the parent score must be computed and propagated to
+// each child. This is a faithful port of Lucene's
+// ToChildBlockJoinScorer(parentScorer, parentBits, doScores): in Lucene
+// doScores == scoreMode.needsScores() where scoreMode is the SEARCH-level mode
+// passed to createWeight, NOT a per-child aggregation mode (ToChildBlockJoinQuery
+// has none). Tying score propagation to the join's None/Avg/Max mode was the
+// LUCENE-6588 bug (rmp #4762): a ToChild search that needs scores must still
+// score its children even though the join's child-aggregation mode is None.
+func NewToChildBlockJoinScorer(weight *ToChildBlockJoinWeight, parentScorer search.Scorer, parentBits *FixedBitSet, doScores bool, boost float32) *ToChildBlockJoinScorer {
 	return &ToChildBlockJoinScorer{
 		weight:       weight,
 		parentScorer: parentScorer,
 		parentBits:   parentBits,
-		doScores:     scoreMode != None,
+		doScores:     doScores,
 		boost:        boost,
 		childDoc:     -1,
 		parentDoc:    0,

@@ -107,10 +107,14 @@ func (q *ToChildBlockJoinQuery) CreateWeight(searcher *search.IndexSearcher, nee
 		return nil, fmt.Errorf("failed to create parent weight: %w", err)
 	}
 
-	// Create and return the BlockJoinWeight
-	// For ToChildBlockJoinQuery, we need a special weight that handles
-	// the child-to-parent relationship using the BitSetProducer
-	return NewToChildBlockJoinWeight(q, parentWeight, q.parentsFilter, q.scoreMode, boost), nil
+	// Create and return the BlockJoinWeight.
+	// For ToChildBlockJoinQuery, we need a special weight that handles the
+	// child-to-parent relationship using the BitSetProducer. doScores is the
+	// search-level needsScores (Lucene's scoreMode.needsScores()), NOT the join's
+	// child-aggregation ScoreMode: a ToChild search that needs scores propagates
+	// the parent score to its children regardless of the join's None/Avg/Max mode
+	// (LUCENE-6588, rmp #4762).
+	return NewToChildBlockJoinWeight(q, parentWeight, q.parentsFilter, q.scoreMode, needsScores, boost), nil
 }
 
 // String returns a string representation of this query.

@@ -267,17 +267,27 @@ type ToChildBlockJoinWeight struct {
 	// scoreMode determines how parent scores are combined
 	scoreMode ScoreMode
 
+	// doScores reports whether the search needs scores. It is the search-level
+	// ScoreMode.needsScores() (threaded through CreateWeight's needsScores), and
+	// drives whether the parent score is propagated to children. Faithful to
+	// Lucene's ToChildBlockJoinWeight.doScores (rmp #4762).
+	doScores bool
+
 	// boost is the query boost
 	boost float32
 }
 
 // NewToChildBlockJoinWeight creates a new ToChildBlockJoinWeight.
-func NewToChildBlockJoinWeight(query *ToChildBlockJoinQuery, parentWeight search.Weight, parentsFilter BitSetProducer, scoreMode ScoreMode, boost float32) *ToChildBlockJoinWeight {
+//
+// doScores is the search-level needsScores flag (ScoreMode.needsScores() in
+// Lucene), not the join's child-aggregation ScoreMode.
+func NewToChildBlockJoinWeight(query *ToChildBlockJoinQuery, parentWeight search.Weight, parentsFilter BitSetProducer, scoreMode ScoreMode, doScores bool, boost float32) *ToChildBlockJoinWeight {
 	return &ToChildBlockJoinWeight{
 		query:         query,
 		parentWeight:  parentWeight,
 		parentsFilter: parentsFilter,
 		scoreMode:     scoreMode,
+		doScores:      doScores,
 		boost:         boost,
 	}
 }
@@ -333,7 +343,7 @@ func (w *ToChildBlockJoinWeight) Scorer(context *index.LeafReaderContext) (searc
 	}
 
 	// Create and return the ToChildBlockJoinScorer
-	return NewToChildBlockJoinScorer(w, parentScorer, parentsBits, w.scoreMode, w.boost), nil
+	return NewToChildBlockJoinScorer(w, parentScorer, parentsBits, w.doScores, w.boost), nil
 }
 
 // ScorerSupplier creates a ScorerSupplier for this weight.

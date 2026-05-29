@@ -412,12 +412,59 @@ func TestBlockJoin_ChildQueryNeverMatches(t *testing.T) {
 
 // TestBlockJoin_AdvanceSingleDeletedParentNoChild corresponds to
 // TestBlockJoin.testAdvanceSingleDeletedParentNoChild. It deletes a childless
-// parent block; under Lucene the parent bitset still includes deleted parents
-// (QueryBitSetProducer ignores acceptDocs), but Gocene's QueryBitSetProducer
-// builds the bitset from a TermScorer that already filters deleted docs, so the
-// deleted parent drops out and the block boundary is mis-attributed.
+// parent block, then runs a ToChild join over a parent query that matches both
+// the deleted and the live "parent=2" parents and asserts exactly one hit (the
+// child of the live parent block).
+//
+// liveDocs model (rmp #4762): the QueryBitSetProducer's parent bitset must
+// include the deleted parent so the child->parent block boundaries stay stable
+// (Lucene's QueryBitSetProducer ignores acceptDocs). Deleted docs are excluded
+// from the *results* centrally in IndexSearcher.searchLeaf, not at the scorer.
+//
+// Deviation from Lucene: where the reference uses RandomIndexWriter with a random
+// merge policy and w.getReader(), this uses the project's deterministic
+// IndexWriter + commit + OpenDirectoryReader (see block_join_test_helpers_test.go).
 func TestBlockJoin_AdvanceSingleDeletedParentNoChild(t *testing.T) {
-	t.Skip("requires QueryBitSetProducer to include deleted parents (Lucene ignores acceptDocs in the parent bitset); Gocene filters liveDocs at the scorer level: rmp #4762")
+	dir, w := newBlockWriter(t)
+
+	// First block: one child + parent (parent=1, isparent=yes).
+	addBlock(t, w,
+		newDoc(t, map[string]string{"child": "1"}),
+		newDoc(t, map[string]string{"parent": "1", "isparent": "yes"}),
+	)
+	// Childless parent block (parent=2, isparent=yes) — this one is deleted.
+	addBlock(t, w, newDoc(t, map[string]string{"parent": "2", "isparent": "yes"}))
+	if err := w.DeleteDocuments(index.NewTerm("parent", "2")); err != nil {
+		t.Fatalf("DeleteDocuments: %v", err)
+	}
+	// Live block re-adding parent=2 with a child (child=2 + parent=2,isparent=yes).
+	addBlock(t, w,
+		newDoc(t, map[string]string{"child": "2"}),
+		newDoc(t, map[string]string{"parent": "2", "isparent": "yes"}),
+	)
+
+	r, s := commitAndOpen(t, dir, w)
+
+	parentsFilter := newQueryBitSetParents("isparent", "yes")
+	// CheckJoinIndex must pass: the parent bitset includes the deleted parent so
+	// every child maps to a parent and no liveness mismatch is reported.
+	if err := Check(r, parentsFilter); err != nil {
+		t.Fatalf("CheckJoinIndex: %v", err)
+	}
+
+	parentQuery := search.NewTermQuery(index.NewTerm("parent", "2"))
+	parentJoinQuery := NewToChildBlockJoinQuery(parentQuery, parentsFilter, None)
+
+	topDocs, err := s.Search(parentJoinQuery, 3)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	// parent=2 matches both the deleted (childless) parent and the live parent.
+	// The deleted parent contributes no child; the live parent contributes its
+	// single child. Exactly one hit.
+	if topDocs.TotalHits.Value != 1 {
+		t.Fatalf("totalHits = %d, want 1", topDocs.TotalHits.Value)
+	}
 }
 
 // TestBlockJoin_IntersectionWithRandomApproximation corresponds to
@@ -474,19 +521,85 @@ func TestBlockJoin_IntersectionWithRandomApproximation(t *testing.T) {
 	}
 }
 
-// TestBlockJoin_ParentScoringBug corresponds to TestBlockJoin.testParentScoringBug.
-// It deletes the first child of every parent and asserts that a ToChild join
-// returns only the surviving children with non-zero scores; this depends on
-// deleted docs being excluded from composite-scorer results.
+// TestBlockJoin_ParentScoringBug corresponds to TestBlockJoin.testParentScoringBug
+// (LUCENE-6588). It deletes the first child of every parent (skill=java) and
+// asserts that a ToChild join over PrefixQuery(country, "United") returns exactly
+// the two surviving children, each with a non-zero score.
+//
+// liveDocs model (rmp #4762): the deleted java children are excluded from the
+// results centrally in IndexSearcher.searchLeaf (the scorer itself iterates all
+// docs). The non-zero score comes from the parent PrefixQuery being propagated to
+// the child: doScores follows the SEARCH-level needsScores, not the join's
+// child-aggregation ScoreMode (which is None here) — the LUCENE-6588 fix.
+//
+// Deviations from Lucene: deterministic IndexWriter + commit + OpenDirectoryReader
+// instead of RandomIndexWriter; and the "year" StringField substitution noted in
+// block_join_test_helpers_test.go (irrelevant here — the parent query is on country).
 func TestBlockJoin_ParentScoringBug(t *testing.T) {
-	t.Skip("requires deleted docs to be excluded from block-join (ToChild) results; Gocene does not apply liveDocs to composite scorers: rmp #4762")
+	dir, w := newBlockWriter(t)
+	addBlock(t, w, makeJob(t, "java", 2007), makeJob(t, "python", 2010), makeResume(t, "Lisa", "United Kingdom"))
+	addBlock(t, w, makeJob(t, "java", 2006), makeJob(t, "ruby", 2005), makeResume(t, "Frank", "United States"))
+	// Delete the first child of every parent.
+	if err := w.DeleteDocuments(index.NewTerm("skill", "java")); err != nil {
+		t.Fatalf("DeleteDocuments: %v", err)
+	}
+	_, s := commitAndOpen(t, dir, w)
+
+	parentsFilter := newQueryBitSetParents("docType", "resume")
+	parentQuery := search.NewPrefixQuery(index.NewTerm("country", "United"))
+	toChildQuery := NewToChildBlockJoinQuery(parentQuery, parentsFilter, None)
+
+	hits, err := s.Search(toChildQuery, 10)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(hits.ScoreDocs) != 2 {
+		t.Fatalf("scoreDocs length = %d, want 2", len(hits.ScoreDocs))
+	}
+	for i, sd := range hits.ScoreDocs {
+		if sd.Score == 0.0 {
+			t.Errorf("Failed to calculate score for hit #%d (doc %d)", i, sd.Doc)
+		}
+	}
 }
 
 // TestBlockJoin_ToChildBlockJoinQueryExplain corresponds to
-// TestBlockJoin.testToChildBlockJoinQueryExplain. Same delete dependency as
-// TestBlockJoin_ParentScoringBug.
+// TestBlockJoin.testToChildBlockJoinQueryExplain. Same corpus and delete as
+// TestBlockJoin_ParentScoringBug; it asserts that the per-hit score equals the
+// value reported by IndexSearcher.Explain for that doc.
 func TestBlockJoin_ToChildBlockJoinQueryExplain(t *testing.T) {
-	t.Skip("requires deleted docs to be excluded from block-join (ToChild) results; Gocene does not apply liveDocs to composite scorers: rmp #4762")
+	dir, w := newBlockWriter(t)
+	addBlock(t, w, makeJob(t, "java", 2007), makeJob(t, "python", 2010), makeResume(t, "Lisa", "United Kingdom"))
+	addBlock(t, w, makeJob(t, "java", 2006), makeJob(t, "ruby", 2005), makeResume(t, "Frank", "United States"))
+	if err := w.DeleteDocuments(index.NewTerm("skill", "java")); err != nil {
+		t.Fatalf("DeleteDocuments: %v", err)
+	}
+	_, s := commitAndOpen(t, dir, w)
+
+	parentsFilter := newQueryBitSetParents("docType", "resume")
+	parentQuery := search.NewPrefixQuery(index.NewTerm("country", "United"))
+	toChildQuery := NewToChildBlockJoinQuery(parentQuery, parentsFilter, None)
+
+	hits, err := s.Search(toChildQuery, 10)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(hits.ScoreDocs) != 2 {
+		t.Fatalf("scoreDocs length = %d, want 2", len(hits.ScoreDocs))
+	}
+	for i, sd := range hits.ScoreDocs {
+		exp, err := s.Explain(toChildQuery, sd.Doc)
+		if err != nil {
+			t.Fatalf("Explain(hit #%d, doc %d): %v", i, sd.Doc, err)
+		}
+		if !exp.IsMatch() {
+			t.Errorf("hit #%d (doc %d): explanation reports no match", i, sd.Doc)
+		}
+		if exp.GetValue() != sd.Score {
+			t.Errorf("hit #%d (doc %d): explain value = %v, want score %v",
+				i, sd.Doc, exp.GetValue(), sd.Score)
+		}
+	}
 }
 
 // TestBlockJoin_ToChildInitialAdvanceParentButNoKids corresponds to
