@@ -34,8 +34,16 @@ func NewTermWeight(query Query, term *index.Term, searcher *IndexSearcher, needs
 		collectionStats := w.getCollectionStats(searcher)
 		// Get term statistics
 		termStats := w.getTermStats(searcher)
-		// Create the similarity scorer
-		w.similarity = NewClassicSimilarity()
+		// Create the similarity scorer using the searcher's Similarity. This
+		// mirrors Lucene's TermWeight, which scores through
+		// searcher.getSimilarity(); a custom Similarity injected via
+		// IndexSearcher.SetSimilarity therefore drives the produced scores
+		// (e.g. a score=freq SimilarityBase). Falls back to ClassicSimilarity
+		// when the searcher carries none.
+		w.similarity = searcher.GetSimilarity()
+		if w.similarity == nil {
+			w.similarity = NewClassicSimilarity()
+		}
 		w.simScorer = w.similarity.Scorer(collectionStats, termStats)
 	}
 

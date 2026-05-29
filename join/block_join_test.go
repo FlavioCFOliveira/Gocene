@@ -702,9 +702,99 @@ func TestBlockJoin_MultiChildQueriesOfDiffParentLevels(t *testing.T) {
 	t.Skip("requires a runnable PrefixQuery for the job-level parents filter (rmp #4760) and the postings Advance fix (rmp #4763)")
 }
 
-// TestBlockJoin_ScoreMode corresponds to TestBlockJoin.testScoreMode.
+// freqSimScorer is a SimScorer that scores every document by its raw term
+// frequency, ignoring IDF and length normalisation. It is the Gocene analogue
+// of the anonymous SimilarityBase in TestBlockJoin.testScoreMode whose
+// score(stats, freq, docLen) returns freq.
+type freqSimScorer struct{}
+
+// Score returns the term frequency unchanged.
+func (freqSimScorer) Score(doc int, freq float32) float32 { return freq }
+
+// freqSimilarity is a Similarity whose scorer returns score=freq. It mirrors
+// the test-only SimilarityBase used by TestBlockJoin.testScoreMode (and is
+// injected into the IndexSearcher via SetSimilarity).
+type freqSimilarity struct {
+	*search.BaseSimilarity
+}
+
+func newFreqSimilarity() *freqSimilarity {
+	return &freqSimilarity{BaseSimilarity: search.NewBaseSimilarity()}
+}
+
+// Scorer returns a SimScorer that scores by raw term frequency.
+func (s *freqSimilarity) Scorer(collectionStats *search.CollectionStatistics, termStats *search.TermStatistics) search.SimScorer {
+	return freqSimScorer{}
+}
+
+// String returns the descriptive name embedded in explanations, matching the
+// anonymous SimilarityBase's toString() == "TestSim".
+func (s *freqSimilarity) String() string { return "TestSim" }
+
+// TestBlockJoin_ScoreMode corresponds to TestBlockJoin.testScoreMode. It builds
+// the parent/child block [child("foo"="bar bar"), child("foo"="bar"), empty,
+// parent("type"="parent")] and, with a score=freq Similarity injected via
+// IndexSearcher.SetSimilarity, asserts the exact per-ScoreMode aggregated parent
+// score: Avg=1.5, Max=2, Min=1, Total=3, None=0.
 func TestBlockJoin_ScoreMode(t *testing.T) {
-	t.Skip("requires a custom Similarity (score=freq) injected via IndexSearcher.setSimilarity to assert exact aggregated scores 1.5/2/1/3; Gocene IndexSearcher has no similarity hook: rmp #4759")
+	dir, w := newBlockWriter(t)
+
+	child0 := document.NewDocument()
+	tf0, err := document.NewTextField("foo", "bar bar", false)
+	if err != nil {
+		t.Fatalf("NewTextField: %v", err)
+	}
+	child0.Add(tf0)
+
+	child1 := document.NewDocument()
+	tf1, err := document.NewTextField("foo", "bar", false)
+	if err != nil {
+		t.Fatalf("NewTextField: %v", err)
+	}
+	child1.Add(tf1)
+
+	empty := document.NewDocument()
+
+	parent := document.NewDocument()
+	parent.Add(mustStringField(t, "type", "parent", false))
+
+	addBlock(t, w, child0, child1, empty, parent)
+	reader, searcher := commitAndOpen(t, dir, w)
+	_ = reader
+
+	// Inject the score=freq Similarity, exactly as the Lucene test calls
+	// searcher.setSimilarity(sim).
+	searcher.SetSimilarity(newFreqSimilarity())
+
+	parents := newQueryBitSetParents("type", "parent")
+
+	cases := []struct {
+		mode ScoreMode
+		want float32
+	}{
+		{Avg, 1.5},
+		{Max, 2},
+		{Min, 1},
+		{None, 0},
+		{Total, 3},
+	}
+	for _, tc := range cases {
+		query := NewToParentBlockJoinQuery(
+			search.NewTermQuery(index.NewTerm("foo", "bar")), parents, tc.mode)
+		topDocs, err := searcher.Search(query, 10)
+		if err != nil {
+			t.Fatalf("Search(%v): %v", tc.mode, err)
+		}
+		if topDocs.TotalHits.Value != 1 {
+			t.Fatalf("%v: TotalHits = %d, want 1", tc.mode, topDocs.TotalHits.Value)
+		}
+		if topDocs.ScoreDocs[0].Doc != 3 {
+			t.Errorf("%v: top doc = %d, want 3", tc.mode, topDocs.ScoreDocs[0].Doc)
+		}
+		if topDocs.ScoreDocs[0].Score != tc.want {
+			t.Errorf("%v: score = %v, want %v", tc.mode, topDocs.ScoreDocs[0].Score, tc.want)
+		}
+	}
 }
 
 // TestBlockJoin_ToParentQueryConstruction verifies that

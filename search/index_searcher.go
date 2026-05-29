@@ -15,11 +15,46 @@ import (
 // IndexSearcher searches an index.
 type IndexSearcher struct {
 	reader index.IndexReaderInterface
+
+	// similarity is the Similarity used to score matching documents. It defaults
+	// to ClassicSimilarity (matching Lucene's IndexSearcher default, which is a
+	// BM25Similarity in upstream but a TF/IDF ClassicSimilarity here) and can be
+	// overridden with SetSimilarity. Weights consult GetSimilarity when building
+	// their SimScorer, so a custom Similarity injected here flows into scoring.
+	similarity Similarity
 }
 
 // NewIndexSearcher creates a new IndexSearcher.
 func NewIndexSearcher(reader index.IndexReaderInterface) *IndexSearcher {
-	return &IndexSearcher{reader: reader}
+	return &IndexSearcher{
+		reader:     reader,
+		similarity: NewClassicSimilarity(),
+	}
+}
+
+// SetSimilarity sets the Similarity used to score matching documents.
+//
+// This is the Go port of org.apache.lucene.search.IndexSearcher#setSimilarity.
+// As in Lucene, the similarity is consulted when the searcher builds Weights
+// (via CreateWeight), so it must be set before the search/scoring call that
+// should observe it. A nil similarity is ignored, leaving the current one in
+// place.
+func (s *IndexSearcher) SetSimilarity(similarity Similarity) {
+	if similarity != nil {
+		s.similarity = similarity
+	}
+}
+
+// GetSimilarity returns the Similarity used to score matching documents.
+//
+// This is the Go port of org.apache.lucene.search.IndexSearcher#getSimilarity.
+// It never returns nil: a freshly constructed IndexSearcher carries a
+// ClassicSimilarity default.
+func (s *IndexSearcher) GetSimilarity() Similarity {
+	if s.similarity == nil {
+		s.similarity = NewClassicSimilarity()
+	}
+	return s.similarity
 }
 
 // Search executes a query and returns TopDocs.
