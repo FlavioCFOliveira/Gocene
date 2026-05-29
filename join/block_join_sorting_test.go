@@ -14,9 +14,15 @@ package join
 import "testing"
 
 // TestBlockJoinSorting_NestedSorting corresponds to
-// TestBlockJoinSorting.testNestedSorting.
+// TestBlockJoinSorting.testNestedSorting. It sorts parent docs by an aggregate
+// of child SortedDocValues via ToParentBlockJoinSortField + searcher.search(q,
+// n, sort). This is blocked on the missing field-sorted-over-DocValues search
+// subsystem: Gocene has no searcher.search(query,n,sort), TopFieldCollector
+// sorts by score (never using FieldComparators or the sort fields' DocValues),
+// and there are no SortedDocValues/Numeric field comparators wired into the
+// search loop.
 func TestBlockJoinSorting_NestedSorting(t *testing.T) {
-	t.Skip("requires block-join sorting (ToParentBlockJoinSortField driving a parent sort over child DocValues) end-to-end: rmp #4758")
+	t.Skip("requires end-to-end field-sorted search over DocValues (rmp #4778) + ToParentBlockJoinSortField/BlockJoinSelector.wrap wiring (rmp #4779)")
 }
 
 // TestBlockJoinSorting_SortFieldDescriptor verifies that

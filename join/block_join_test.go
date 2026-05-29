@@ -325,9 +325,13 @@ func TestBlockJoin_BoostBug(t *testing.T) {
 	}
 }
 
-// TestBlockJoin_Random corresponds to TestBlockJoin.testRandom.
+// TestBlockJoin_Random corresponds to TestBlockJoin.testRandom. It needs
+// block-join field sorting (ToParentBlockJoinSortField over child DocValues)
+// plus the field-sorted-over-DocValues search subsystem, which Gocene does not
+// yet have (no searcher.search(q,n,sort); TopFieldCollector sorts by score and
+// never uses FieldComparators or DocValues).
 func TestBlockJoin_Random(t *testing.T) {
-	t.Skip("requires block-join sort (ToParentBlockJoinSortField) + NumericDocValues/SortedDocValues sorting end-to-end: rmp #4758")
+	t.Skip("requires end-to-end field-sorted search over DocValues (rmp #4778) + ToParentBlockJoinSortField/BlockJoinSelector.wrap wiring (rmp #4779)")
 }
 
 // TestBlockJoin_MultiChildTypes corresponds to TestBlockJoin.testMultiChildTypes.
