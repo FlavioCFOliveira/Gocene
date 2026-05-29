@@ -466,8 +466,14 @@ func (w *IndexWriter) DeleteDocuments(term *Term) error {
 	}
 
 	w.mu.Lock()
-	// maxOrdinal=-1 means unbounded: delete all buffered docs matching this term.
-	w.pendingDeleteTerms = append(w.pendingDeleteTerms, termWithBound{term: term, maxOrdinal: -1})
+	// Bound the buffered-doc delete to the documents already added when this
+	// delete is issued (ordinals [0, len(docFieldIndex))). A document added
+	// AFTER this DeleteDocuments call — e.g. the manual update idiom
+	// DeleteDocuments(term) followed by AddDocument(sameTerm) — must NOT be
+	// self-deleted, mirroring Lucene's delete-before-add sequencing where a
+	// buffered delete only applies to docs indexed before it. (-1/unbounded
+	// here would nuke the replacement doc, leaving NumDocs == 0.)
+	w.pendingDeleteTerms = append(w.pendingDeleteTerms, termWithBound{term: term, maxOrdinal: len(w.docFieldIndex)})
 	// Also resolve this term against already-committed segments at the next
 	// Commit so deletions take effect across commits (rmp #4753).
 	if term != nil {
