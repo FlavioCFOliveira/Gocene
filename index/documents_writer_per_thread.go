@@ -709,7 +709,10 @@ func (dwpt *DocumentsWriterPerThread) ProcessDocument(doc Document) error {
 		}
 
 		// Get or create FieldInfo
-		fieldInfo := dwpt.getOrAddFieldInfo(fieldName, opts)
+		fieldInfo, err := dwpt.getOrAddFieldInfo(fieldName, opts)
+		if err != nil {
+			return err
+		}
 
 		// Process based on field type
 		if field.isIndexed {
@@ -782,16 +785,33 @@ func getIndexOptions(ft FieldTypeInterface) IndexOptions {
 }
 
 // getOrAddFieldInfo gets or creates a FieldInfo for a field.
-func (dwpt *DocumentsWriterPerThread) getOrAddFieldInfo(fieldName string, opts FieldInfoOptions) *FieldInfo {
+//
+// When the field already exists (it was seen for an earlier IndexableField in
+// the same or a previous document), the new options are accumulated into the
+// existing FieldInfo via VerifyAndUpdate rather than discarded. This is what
+// lets a single field name carry BOTH an indexed contribution and a DocValues
+// contribution (and point / vector dims): the first occurrence creates the
+// FieldInfo with its own group set and the others NONE / zero, and each later
+// occurrence fills the remaining group instead of being dropped. Mirrors
+// org.apache.lucene.index.IndexingChain.FieldSchema accumulation feeding
+// FieldInfos.Builder.add (rmp #4780).
+func (dwpt *DocumentsWriterPerThread) getOrAddFieldInfo(fieldName string, opts FieldInfoOptions) (*FieldInfo, error) {
 	// Check if field already exists
 	if fi := dwpt.fieldInfosBuilder.FieldInfos().GetByName(fieldName); fi != nil {
-		return fi
+		// A conflicting non-default schema for the same field name (e.g. the
+		// same name used once as a SortedDocValuesField and once as a
+		// NumericDocValuesField) is a caller error; VerifyAndUpdate reports it,
+		// matching Lucene which raises IllegalArgumentException here.
+		if err := fi.VerifyAndUpdate(opts); err != nil {
+			return nil, err
+		}
+		return fi, nil
 	}
 
 	// Create new FieldInfo
 	fi := NewFieldInfo(fieldName, dwpt.fieldInfosBuilder.FieldInfos().Size(), opts)
 	dwpt.fieldInfosBuilder.Add(fi)
-	return fi
+	return fi, nil
 }
 
 // indexFieldWithValue indexes a field value in the inverted index.

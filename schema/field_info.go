@@ -423,6 +423,108 @@ func (fi *FieldInfo) SetStoreTermVectors() {
 	fi.mu.Unlock()
 }
 
+// VerifyAndUpdate accumulates the schema carried by opts into this FieldInfo,
+// mirroring the per-field accumulation that Apache Lucene 10.4.0 performs in
+// IndexingChain.FieldSchema (setIndexOptions / setDocValues / setPoints /
+// setVectors) before a FieldInfo reaches FieldInfos.Builder.add.
+//
+// The accumulation rule is, per attribute group: if this FieldInfo has not yet
+// recorded the attribute (the group is at its NONE / zero default) the value
+// from opts is adopted; if the attribute is already set, opts is only allowed
+// to repeat the same value (NONE / zero in opts never clears an already-set
+// value, and a conflicting non-default value is reported as an error). This is
+// exactly what lets a single field name carry BOTH an indexed contribution
+// (e.g. StringField) and a DocValues contribution (e.g. SortedDocValuesField):
+// whichever IndexableField is processed first sets its group, and the later
+// one fills the remaining group instead of overwriting the first with its own
+// NONE default (the dual-purpose-field bug, rmp #4780).
+//
+// Like SetStorePayloads / SetStoreTermVectors, this method bypasses the frozen
+// contract because the indexing chain mutates the in-RAM FieldInfo across the
+// fields of a document. Concurrent calls are serialised on the attribute mutex.
+//
+// Boolean store flags (Stored, OmitNorms, term-vector flags) are OR-accumulated:
+// a field observed as stored or with norms in any contribution keeps that flag.
+func (fi *FieldInfo) VerifyAndUpdate(opts FieldInfoOptions) error {
+	fi.mu.Lock()
+	defer fi.mu.Unlock()
+
+	// Index options (and the index-coupled omitNorms / storeTermVector flags,
+	// which Lucene only adopts alongside a NONE->set index-options transition).
+	if opts.IndexOptions != IndexOptionsNone {
+		if fi.indexOptions == IndexOptionsNone {
+			fi.indexOptions = opts.IndexOptions
+			fi.omitNorms = opts.OmitNorms
+			fi.tokenized = opts.Tokenized
+		} else if fi.indexOptions != opts.IndexOptions {
+			return fmt.Errorf("inconsistent index options for field %q: have %s, got %s",
+				fi.name, fi.indexOptions, opts.IndexOptions)
+		}
+	}
+
+	// Doc values type (and its skip-index companion).
+	if opts.DocValuesType != DocValuesTypeNone {
+		if fi.docValuesType == DocValuesTypeNone {
+			fi.docValuesType = opts.DocValuesType
+			fi.docValuesSkipIndexType = opts.DocValuesSkipIndexType
+		} else if fi.docValuesType != opts.DocValuesType {
+			return fmt.Errorf("inconsistent doc values type for field %q: have %s, got %s",
+				fi.name, fi.docValuesType, opts.DocValuesType)
+		}
+	}
+
+	// Point dimensions. Lucene guards on pointIndexDimensionCount == 0.
+	if opts.PointDimensionCount > 0 {
+		if fi.pointIndexDimensionCount == 0 {
+			fi.pointDimensionCount = opts.PointDimensionCount
+			fi.pointIndexDimensionCount = opts.PointIndexDimensionCount
+			if fi.pointIndexDimensionCount == 0 {
+				fi.pointIndexDimensionCount = opts.PointDimensionCount
+			}
+			fi.pointNumBytes = opts.PointNumBytes
+		} else if fi.pointDimensionCount != opts.PointDimensionCount ||
+			fi.pointNumBytes != opts.PointNumBytes {
+			return fmt.Errorf("inconsistent point dimensions for field %q", fi.name)
+		}
+	}
+
+	// Vector dimensions. Lucene guards on vectorDimension == 0.
+	if opts.VectorDimension > 0 {
+		if fi.vectorDimension == 0 {
+			fi.vectorDimension = opts.VectorDimension
+			fi.vectorEncoding = opts.VectorEncoding
+			fi.vectorSimilarityFunction = opts.VectorSimilarityFunction
+		} else if fi.vectorDimension != opts.VectorDimension ||
+			fi.vectorEncoding != opts.VectorEncoding ||
+			fi.vectorSimilarityFunction != opts.VectorSimilarityFunction {
+			return fmt.Errorf("inconsistent vector schema for field %q", fi.name)
+		}
+	}
+
+	// Store-side boolean flags accumulate (OR): a field stored or carrying term
+	// vectors in any contribution keeps that flag set across the others.
+	if opts.Stored {
+		fi.stored = true
+	}
+	if opts.StoreTermVectors {
+		fi.storeTermVectors = true
+	}
+	if opts.StoreTermVectorPositions {
+		fi.storeTermVectorPositions = true
+		fi.storeTermVectors = true
+	}
+	if opts.StoreTermVectorOffsets {
+		fi.storeTermVectorOffsets = true
+		fi.storeTermVectors = true
+	}
+	if opts.StoreTermVectorPayloads {
+		fi.storeTermVectorPayloads = true
+		fi.storeTermVectors = true
+	}
+
+	return nil
+}
+
 // Clone creates a copy of this FieldInfo with a new number.
 func (fi *FieldInfo) Clone(newNumber int) *FieldInfo {
 	fi.mu.RLock()

@@ -486,3 +486,109 @@ func TestSortField(t *testing.T) {
 		t.Errorf("Sort.Fields() len = %d, want 2", len(got))
 	}
 }
+
+// TestFieldInfoVerifyAndUpdate covers the per-field schema accumulation that
+// backs the dual-purpose-field fix (rmp #4780). A FieldInfo created from one
+// contribution must accumulate the complementary group from a later
+// contribution; a NONE / zero value must never clear an already-set group; a
+// conflicting non-default value must be reported as an error.
+func TestFieldInfoVerifyAndUpdate(t *testing.T) {
+	t.Parallel()
+
+	t.Run("indexed then sorted DV accumulates both", func(t *testing.T) {
+		fi := NewFieldInfo("f", 0, indexedOpts(IndexOptionsDocs))
+
+		dvOpts := DefaultFieldInfoOptions()
+		dvOpts.DocValuesType = DocValuesTypeSorted
+		if err := fi.VerifyAndUpdate(dvOpts); err != nil {
+			t.Fatalf("VerifyAndUpdate(sorted DV): %v", err)
+		}
+		if fi.IndexOptions() != IndexOptionsDocs {
+			t.Errorf("IndexOptions = %s, want DOCS (indexed contribution must survive)", fi.IndexOptions())
+		}
+		if fi.DocValuesType() != DocValuesTypeSorted {
+			t.Errorf("DocValuesType = %s, want SORTED (DV contribution must be adopted)", fi.DocValuesType())
+		}
+	})
+
+	t.Run("sorted DV then indexed accumulates both", func(t *testing.T) {
+		dvOpts := DefaultFieldInfoOptions()
+		dvOpts.DocValuesType = DocValuesTypeSorted
+		fi := NewFieldInfo("f", 0, dvOpts)
+
+		if err := fi.VerifyAndUpdate(indexedOpts(IndexOptionsDocs)); err != nil {
+			t.Fatalf("VerifyAndUpdate(indexed): %v", err)
+		}
+		if fi.IndexOptions() != IndexOptionsDocs {
+			t.Errorf("IndexOptions = %s, want DOCS", fi.IndexOptions())
+		}
+		if fi.DocValuesType() != DocValuesTypeSorted {
+			t.Errorf("DocValuesType = %s, want SORTED (DV contribution must survive)", fi.DocValuesType())
+		}
+	})
+
+	t.Run("NONE never clears a set group", func(t *testing.T) {
+		opts := indexedOpts(IndexOptionsDocs)
+		opts.DocValuesType = DocValuesTypeNumeric
+		fi := NewFieldInfo("f", 0, opts)
+
+		// A purely-default (NONE) contribution must not downgrade either group.
+		if err := fi.VerifyAndUpdate(DefaultFieldInfoOptions()); err != nil {
+			t.Fatalf("VerifyAndUpdate(defaults): %v", err)
+		}
+		if fi.IndexOptions() != IndexOptionsDocs {
+			t.Errorf("IndexOptions cleared to %s by a NONE contribution", fi.IndexOptions())
+		}
+		if fi.DocValuesType() != DocValuesTypeNumeric {
+			t.Errorf("DocValuesType cleared to %s by a NONE contribution", fi.DocValuesType())
+		}
+	})
+
+	t.Run("conflicting doc values type is an error", func(t *testing.T) {
+		dvOpts := DefaultFieldInfoOptions()
+		dvOpts.DocValuesType = DocValuesTypeSorted
+		fi := NewFieldInfo("f", 0, dvOpts)
+
+		conflicting := DefaultFieldInfoOptions()
+		conflicting.DocValuesType = DocValuesTypeNumeric
+		if err := fi.VerifyAndUpdate(conflicting); err == nil {
+			t.Error("VerifyAndUpdate with conflicting DV type returned nil, want error")
+		}
+		if fi.DocValuesType() != DocValuesTypeSorted {
+			t.Errorf("DocValuesType mutated to %s on conflict, want SORTED preserved", fi.DocValuesType())
+		}
+	})
+
+	t.Run("conflicting index options is an error", func(t *testing.T) {
+		fi := NewFieldInfo("f", 0, indexedOpts(IndexOptionsDocs))
+		if err := fi.VerifyAndUpdate(indexedOpts(IndexOptionsDocsAndFreqsAndPositions)); err == nil {
+			t.Error("VerifyAndUpdate with conflicting index options returned nil, want error")
+		}
+		if fi.IndexOptions() != IndexOptionsDocs {
+			t.Errorf("IndexOptions mutated to %s on conflict, want DOCS preserved", fi.IndexOptions())
+		}
+	})
+
+	t.Run("point and vector dims accumulate", func(t *testing.T) {
+		// Start from a point field, accumulate a vector contribution.
+		ptOpts := DefaultFieldInfoOptions()
+		ptOpts.PointDimensionCount = 1
+		ptOpts.PointIndexDimensionCount = 1
+		ptOpts.PointNumBytes = 4
+		fi := NewFieldInfo("f", 0, ptOpts)
+
+		vecOpts := DefaultFieldInfoOptions()
+		vecOpts.VectorDimension = 3
+		vecOpts.VectorEncoding = VectorEncodingFloat32
+		vecOpts.VectorSimilarityFunction = VectorSimilarityFunctionEuclidean
+		if err := fi.VerifyAndUpdate(vecOpts); err != nil {
+			t.Fatalf("VerifyAndUpdate(vector): %v", err)
+		}
+		if fi.PointDimensionCount() != 1 || fi.PointNumBytes() != 4 {
+			t.Errorf("point dims lost: count=%d bytes=%d", fi.PointDimensionCount(), fi.PointNumBytes())
+		}
+		if fi.VectorDimension() != 3 {
+			t.Errorf("VectorDimension = %d, want 3", fi.VectorDimension())
+		}
+	})
+}
