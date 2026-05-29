@@ -16,7 +16,6 @@ package codecs
 import (
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -24,581 +23,717 @@ import (
 )
 
 // Reference: lucene/core/src/java/org/apache/lucene/codecs/lucene103/blocktree/
-// SegmentTermsEnum.java (Apache Lucene 10.4.0, 1070 lines).
+// SegmentTermsEnum.java (Apache Lucene 10.4.0).
 //
 // Lucene103SegmentTermsEnum is the Go port of
-// org.apache.lucene.codecs.lucene103.blocktree.SegmentTermsEnum — the
-// strict block-tree TermsEnum returned by Lucene103FieldReader.iterator().
+// org.apache.lucene.codecs.lucene103.blocktree.SegmentTermsEnum — the strict
+// block-tree TermsEnum returned by Lucene103FieldReader.iterator(). It walks
+// the field's trie index ([TrieReader]) to seek and the .tim block file to
+// scan, with full support for the three structures the previous Next()-only
+// stub deferred (backlog #2692, resolved under rmp #4754):
 //
-// Implementation note (Sprint 106 / backlog #2692 partial):
+//   - A frame stack (getFrame / pushFrame) so the enum descends sub-blocks of
+//     a high-cardinality field instead of skipping them.
+//   - seekExact / seekCeil driven by the trie index (prepareSeekExact), with
+//     common-prefix re-use across successive seeks.
+//   - Floor blocks (scanToFloorFrame / loadNextFloorBlock) and scanToTerm for
+//     both leaf and non-leaf blocks.
 //
-// This implements sequential Next() iteration over leaf blocks only.
-// Floor blocks, sub-block recursion, and seekExact/seekCeil with full
-// FST trie traversal remain deferred to backlog #2692.
-//
-// What IS implemented here:
-//   - Sequential Next() reading .tim leaf blocks (covers the common case
-//     where all terms fit in a single block, e.g. < minItemsInBlock=25).
-//   - DocFreq() / TotalTermFreq() from decoded stats.
-//   - Postings() wired through Lucene104PostingsReader.Postings().
-//
-// What is NOT implemented (deferred — backlog #2692):
-//   - SeekExact / SeekCeil trie traversal.
-//   - Sub-block recursion (pushFrame / popFrame).
-//   - Floor block advances.
-//   - LZ4 / LowercaseAscii suffix decompression (currently NO_COMPRESSION only).
+// The per-block decode logic lives in [segmentTermsEnumFrame].
 type Lucene103SegmentTermsEnum struct {
-	field    *Lucene103FieldReader
-	frame    *SegmentTermsEnumFrame
-	startKey *util.BytesRef
-	eof      bool
+	// in is the per-enum clone of the parent reader's .tim IndexInput. Nil
+	// until the first loadBlock (lazy init mirrors Java).
+	in store.IndexInput
 
-	// currentTerm is the cursor position published through Term().
-	currentTerm *index.Term
+	// stack holds the active frames, indexed by frame ord. staticFrame (ord
+	// -1) holds seek-by-TermState / cached-seek state. currentFrame is the
+	// frame the cursor currently sits in.
+	stack        []*segmentTermsEnumFrame
+	staticFrame  *segmentTermsEnumFrame
+	currentFrame *segmentTermsEnumFrame
 
-	// ── sequential iteration state ─────────────────────────────────────────
+	// termExists is true when the cursor sits on a real term (false when it
+	// sits on a sub-block boundary or a not-found position).
+	termExists bool
 
-	// timIn is a per-enum clone of the parent block-tree reader's .tim
-	// file handle. Nil until the first Next() call (lazy init mirrors Java).
-	timIn store.IndexInput
+	fr *Lucene103FieldReader
 
-	// Block-level state (single-frame; sub-block recursion is deferred).
-	blockLoaded     bool  // true once the root block has been read
-	blockPrefixLen  int   // shared prefix length for this block (0 at root)
-	blockEntCount   int   // number of entries in the current block
-	blockNextEnt    int   // next entry index within the block (0-based)
-	blockIsLeaf     bool  // true for a leaf-only block
-	blockIsLast     bool  // true if this block is the last floor block
+	// targetBeforeCurrentLength records the seek-state frame ord that remains
+	// valid for the in-flight seek (see prepareSeekExact).
+	targetBeforeCurrentLength int
 
-	// Suffix data: suffixBytes holds the raw suffix corpus, suffixesReader
-	// is positioned to read the next suffix within it.
-	suffixBytes   []byte
-	suffixesIn    *store.ByteArrayDataInput
+	// validIndexPrefix is the prefix length of the current term that is backed
+	// by valid seek frames; 0 while only next()-ing.
+	validIndexPrefix int
 
-	// Suffix lengths: each vInt-encoded suffix length, replicated allEqual
-	// bytes when all are the same.
-	suffixLengthBytes []byte
-	suffixLengthsIn   *store.ByteArrayDataInput
+	eof bool
 
-	// Stats blob for decoding docFreq / totalTermFreq.
-	statsBytes          []byte
-	statsIn             *store.ByteArrayDataInput
-	statsSingletonRun   int // tracks run-length singletons
+	// term is the growable buffer backing Term().
+	term *util.BytesRefBuilder
 
-	// Meta blob for decoding postings metadata.
-	metaBytes       []byte
-	metaBytesIn     *store.ByteArrayDataInput
+	trieReader *TrieReader
+	// nodes caches the trie nodes visited along the current seek path, indexed
+	// by depth (nodes[0] is the root).
+	nodes []*TrieNode
 
-	// termState is allocated once and reused across decodeMetaData calls.
-	termState         *BlockTermState
-	metaDataUpto      int // number of entries decoded so far from meta/stats
+	// seedStart caches the optional seek term supplied at construction so the
+	// first Next() call can honour the FieldReader.GetIteratorWithSeek
+	// contract (seek-then-iterate). nil for a plain iterator.
+	seedStart *util.BytesRef
 }
 
-// blockLoadParams groups the per-block binary layout decoded in loadBlock.
-type blockLoadParams struct {
-	// suffixLen is the total byte count of the suffix corpus.
-	suffixLen int
-	// allEqual is true when all suffix lengths are identical.
-	allEqual bool
-	// numSuffixLengthBytes is the byte count of the suffix-lengths blob.
-	numSuffixLengthBytes int
-	// comprAlgCode is the CompressionAlgorithm code (0 = NO_COMPRESSION).
-	comprAlgCode int
-}
-
-// NewLucene103SegmentTermsEnum opens a strict-block-tree enumerator over
-// field. startTerm, when non-nil, seeds the cursor for callers that perform
-// a seek before calling Next(); nil means "start before the first term".
+// NewLucene103SegmentTermsEnum opens a strict-block-tree enumerator over field.
+// startTerm is accepted for source compatibility with the previous stub and the
+// FieldReader.GetIteratorWithSeek contract; when non-nil the enum performs a
+// SeekCeil to it on first use. nil means "start before the first term".
 //
 // Mirrors SegmentTermsEnum(FieldReader, TrieReader) in Java.
 func NewLucene103SegmentTermsEnum(field *Lucene103FieldReader, startTerm *util.BytesRef) *Lucene103SegmentTermsEnum {
 	e := &Lucene103SegmentTermsEnum{
-		field:    field,
-		frame:    &SegmentTermsEnumFrame{},
-		startKey: startTerm,
+		fr:        field,
+		term:      util.NewBytesRefBuilder(),
+		nodes:     make([]*TrieNode, 1),
+		seedStart: startTerm,
 	}
-	if startTerm != nil && field != nil {
-		e.currentTerm = index.NewTermFromBytesRef(field.FieldInfo().Name(), startTerm)
-	}
+	// staticFrame is allocated lazily in the first call that needs a frame,
+	// because the postings reader (needed for state allocation) is reachable
+	// only through a non-nil parent.
 	return e
 }
 
 // Field returns the FieldReader the enumerator is bound to.
-func (e *Lucene103SegmentTermsEnum) Field() *Lucene103FieldReader { return e.field }
+func (e *Lucene103SegmentTermsEnum) Field() *Lucene103FieldReader { return e.fr }
 
-// Frame returns the current cursor frame (used by Stats and tests).
-func (e *Lucene103SegmentTermsEnum) Frame() *SegmentTermsEnumFrame { return e.frame }
+// initIndexInput lazily clones the parent reader's .tim IndexInput and
+// allocates the static frame + trie reader. Mirrors SegmentTermsEnum.initIndexInput.
+func (e *Lucene103SegmentTermsEnum) initIndexInput() error {
+	if e.in != nil {
+		return nil
+	}
+	if e.fr == nil || e.fr.parent == nil {
+		return errors.New("Lucene103SegmentTermsEnum: field reader has no parent (terms input unavailable)")
+	}
+	if e.fr.parent.termsIn == nil {
+		return fmt.Errorf("Lucene103SegmentTermsEnum: parent reader %q has nil terms input", e.fr.parent.SegmentName())
+	}
+	e.in = e.fr.parent.termsIn.Clone()
+	return nil
+}
+
+// ensureSetup performs the one-time, cheap setup shared by every entry point:
+// it opens the trie reader, seeds nodes[0] with the trie root and allocates the
+// static frame. It deliberately does NOT clone the .tim input — that is the job
+// of initIndexInput, which loadBlock calls lazily. Keeping e.in nil until the
+// first block load preserves the "in == nil" sentinel Next() uses to detect a
+// fresh enumerator (mirrors the Java constructor, whose body sets up exactly
+// these three things and leaves `in` null).
+func (e *Lucene103SegmentTermsEnum) ensureSetup() error {
+	if e.staticFrame != nil {
+		return nil
+	}
+	if e.fr == nil || e.fr.parent == nil {
+		return errors.New("Lucene103SegmentTermsEnum: field reader has no parent")
+	}
+	tr, err := e.fr.NewTrieReader()
+	if err != nil {
+		return fmt.Errorf("Lucene103SegmentTermsEnum: open trie: %w", err)
+	}
+	e.trieReader = tr
+	sf, err := newSegmentTermsEnumFrame(e, -1)
+	if err != nil {
+		return err
+	}
+	e.staticFrame = sf
+	e.currentFrame = sf
+	e.nodes[0] = tr.Root()
+	e.validIndexPrefix = 0
+	return nil
+}
+
+// growTerm ensures the term builder has at least n bytes of capacity and sets
+// its logical length to n, preserving any existing prefix bytes. The grow/
+// set-length order is the safe order for Gocene's BytesRefBuilder, whose
+// SetLength only reslices when capacity already suffices.
+func (e *Lucene103SegmentTermsEnum) growTerm(n int) {
+	e.term.Grow(n)
+	e.term.SetLength(n)
+}
+
+// ensureTermAddressable grows the term builder so that byte positions [0, n)
+// are all addressable through SetByteAt during a trie walk. Unlike the Java
+// BytesRefBuilder — whose bytes() exposes the full backing array regardless of
+// logical length — Gocene's BytesRefBuilder.Bytes() is resliced to its logical
+// length, so the walk must extend the visible slice before writing prefix bytes
+// one position at a time. The final logical length is fixed later by fillTerm /
+// scanToTerm via growTerm; pre-extending here only widens the addressable
+// window and never shrinks term content (it copies any existing prefix).
+func (e *Lucene103SegmentTermsEnum) ensureTermAddressable(n int) {
+	if n <= e.term.Length() {
+		return
+	}
+	e.term.Grow(n)
+	e.term.SetLength(n)
+}
+
+// getFrame returns the frame at the given ord, growing stack as needed.
+// Mirrors SegmentTermsEnum.getFrame.
+func (e *Lucene103SegmentTermsEnum) getFrame(ord int) (*segmentTermsEnumFrame, error) {
+	if ord >= len(e.stack) {
+		next := make([]*segmentTermsEnumFrame, util.Oversize(1+ord, 8))
+		copy(next, e.stack)
+		for stackOrd := len(e.stack); stackOrd < len(next); stackOrd++ {
+			f, err := newSegmentTermsEnumFrame(e, stackOrd)
+			if err != nil {
+				return nil, err
+			}
+			next[stackOrd] = f
+		}
+		e.stack = next
+	}
+	return e.stack[ord], nil
+}
+
+// getNode returns the cached trie node at the given depth, growing nodes as
+// needed. Mirrors SegmentTermsEnum.getNode.
+func (e *Lucene103SegmentTermsEnum) getNode(ord int) *TrieNode {
+	if ord >= len(e.nodes) {
+		next := make([]*TrieNode, util.Oversize(1+ord, 8))
+		copy(next, e.nodes)
+		for nodeOrd := len(e.nodes); nodeOrd < len(next); nodeOrd++ {
+			next[nodeOrd] = NewTrieNode()
+		}
+		e.nodes = next
+	}
+	if e.nodes[ord] == nil {
+		e.nodes[ord] = NewTrieNode()
+	}
+	return e.nodes[ord]
+}
+
+// pushFrame pushes a frame we seek'd to: it copies hasTerms / isFloor / floor
+// data from node, then delegates to pushFrameFP with node.OutputFP. Mirrors
+// the two-arg SegmentTermsEnum.pushFrame(node, length).
+func (e *Lucene103SegmentTermsEnum) pushFrame(node *TrieNode, length int) (*segmentTermsEnumFrame, error) {
+	f, err := e.getFrame(1 + e.currentFrame.ord)
+	if err != nil {
+		return nil, err
+	}
+	f.hasTerms = node.HasTerms
+	f.hasTermsOrig = f.hasTerms
+	f.isFloor = node.IsFloor()
+	if f.isFloor {
+		fin, err := e.trieReader.FloorData(node)
+		if err != nil {
+			return nil, fmt.Errorf("pushFrame: open floor data: %w", err)
+		}
+		if err := f.setFloorData(fin); err != nil {
+			return nil, err
+		}
+	}
+	return e.pushFrameFP(node, node.OutputFP, length)
+}
+
+// pushFrameFP pushes a next'd or seek'd frame at the given file pointer,
+// re-using the frame slot when it already points at the same block. Mirrors the
+// three-arg SegmentTermsEnum.pushFrame(node, fp, length).
+func (e *Lucene103SegmentTermsEnum) pushFrameFP(node *TrieNode, fp int64, length int) (*segmentTermsEnumFrame, error) {
+	f, err := e.getFrame(1 + e.currentFrame.ord)
+	if err != nil {
+		return nil, err
+	}
+	f.node = node
+	if f.fpOrig == fp && f.nextEnt != -1 {
+		if f.ord > e.targetBeforeCurrentLength {
+			if err := f.rewind(); err != nil {
+				return nil, err
+			}
+		}
+		if length != f.prefixLength {
+			return nil, fmt.Errorf("pushFrameFP: length=%d != prefixLength=%d on reused frame", length, f.prefixLength)
+		}
+	} else {
+		f.nextEnt = -1
+		f.prefixLength = length
+		f.state.TermBlockOrd = 0
+		f.fpOrig = fp
+		f.fp = fp
+		f.lastSubFP = -1
+	}
+	return f, nil
+}
 
 // Term returns the current cursor position, or nil at EOF.
 // Mirrors SegmentTermsEnum.term() in Java.
 func (e *Lucene103SegmentTermsEnum) Term() *index.Term {
-	if e.eof {
+	if e.eof || e.currentFrame == nil {
 		return nil
 	}
-	return e.currentTerm
+	return index.NewTermFromBytesRef(e.fr.fieldInfo.Name(), e.term.Get())
 }
 
-// Next advances to the next term in the block-tree.
+// prepareSeekExact walks the trie index to position the cursor for target.
+// It returns frameReady=true when a candidate block was found that still needs
+// loadBlock + scanToTerm (the caller then performs those), found=true when the
+// target equals the already-positioned current term, and ok=false when the
+// target is provably absent (outside [min,max] or a fast NOT_FOUND on a node
+// with no terms).
 //
-// This implementation handles leaf blocks only (no sub-block recursion).
-// It lazily opens the .tim file on the first call, loads the root block,
-// and iterates entries sequentially.
-//
-// Mirrors SegmentTermsEnum.next() in Java.
-func (e *Lucene103SegmentTermsEnum) Next() (*index.Term, error) {
-	if e.eof {
-		return nil, nil
-	}
-	if e.field == nil || e.field.parent == nil {
-		e.eof = true
-		return nil, nil
+// Mirrors SegmentTermsEnum.prepareSeekExact (with prefetch elided — Gocene's
+// IndexInput has no prefetch hook on this path).
+func (e *Lucene103SegmentTermsEnum) prepareSeekExact(target *util.BytesRef) (frameReady bool, found bool, ok bool, err error) {
+	if err := e.ensureSetup(); err != nil {
+		return false, false, false, err
 	}
 
-	// Lazy init: clone the .tim IndexInput on first call.
-	if e.timIn == nil {
-		e.timIn = e.field.parent.termsIn.Clone()
-	}
-
-	// Load the root block on the first Next() call.
-	if !e.blockLoaded {
-		// The root block FP is the OutputFP stored on the trie root node —
-		// that is the file pointer into the .tim (terms) file, NOT the
-		// field.rootFP which is the trie-node offset inside the .tip file.
-		trieReader, err := e.field.NewTrieReader()
-		if err != nil {
-			return nil, fmt.Errorf("Lucene103SegmentTermsEnum.Next: open trie: %w", err)
+	// Reject targets outside [min, max] when the field is non-empty.
+	if e.fr.NumTerms() > 0 {
+		if e.fr.minTerm != nil && util.BytesRefCompare(target, e.fr.minTerm) < 0 {
+			return false, false, false, nil
 		}
-		root := trieReader.Root()
-		if !root.HasOutput() {
-			// No terms at all in this field.
-			e.eof = true
-			return nil, nil
-		}
-		if err := e.loadBlock(root.OutputFP, 0); err != nil {
-			return nil, fmt.Errorf("Lucene103SegmentTermsEnum.Next: load root block: %w", err)
+		if e.fr.maxTerm != nil && util.BytesRefCompare(target, e.fr.maxTerm) > 0 {
+			return false, false, false, nil
 		}
 	}
 
-	// Exhausted the block?
-	if e.blockNextEnt >= e.blockEntCount {
-		e.eof = true
-		e.currentTerm = nil
-		return nil, nil
-	}
-
-	if e.blockIsLeaf {
-		if err := e.nextLeaf(); err != nil {
-			return nil, fmt.Errorf("Lucene103SegmentTermsEnum.Next: nextLeaf: %w", err)
-		}
-	} else {
-		// Non-leaf: peek the discriminant bit in suffixLengthsReader.
-		// Odd bit = sub-block entry; skip until we find a term entry.
-		found, err := e.nextNonLeafTerm()
-		if err != nil {
-			return nil, fmt.Errorf("Lucene103SegmentTermsEnum.Next: nextNonLeaf: %w", err)
-		}
-		if !found {
-			e.eof = true
-			e.currentTerm = nil
-			return nil, nil
-		}
-	}
-	return e.currentTerm, nil
-}
-
-// loadBlock seeks to fp in the .tim file and loads the block header, suffix
-// corpus, suffix-lengths blob, stats blob, and meta blob into in-memory
-// byte slices. prefixLength is the shared prefix depth (0 at the root).
-//
-// Mirrors SegmentTermsEnumFrame.loadBlock() in Java.
-func (e *Lucene103SegmentTermsEnum) loadBlock(fp int64, prefixLength int) error {
-	if err := e.timIn.SetPosition(fp); err != nil {
-		return fmt.Errorf("loadBlock: seek to fp %d: %w", fp, err)
-	}
-
-	// Block header: vInt(numEntries<<1 | isLastBlock).
-	code, err := store.ReadVInt(e.timIn)
-	if err != nil {
-		return fmt.Errorf("loadBlock: read block header: %w", err)
-	}
-	e.blockEntCount = int(code >> 1)
-	e.blockIsLast = (code & 1) != 0
-	if e.blockEntCount == 0 {
-		return fmt.Errorf("loadBlock: block at fp=%d has entCount=0", fp)
-	}
-
-	// Token: vLong(suffixLen<<3 | isLeaf<<2 | comprAlg).
-	token, err := store.ReadVLong(e.timIn)
-	if err != nil {
-		return fmt.Errorf("loadBlock: read token: %w", err)
-	}
-	numSuffixBytes := int(token >> 3)
-	e.blockIsLeaf = (token & 0x04) != 0
-	comprAlgCode := int(token & 0x03)
-	if comprAlgCode != 0 {
-		// CompressionAlgorithm != NO_COMPRESSION. Decompression of LZ4 and
-		// LowercaseAscii is deferred — return an informative error so callers
-		// know what's missing rather than silently corrupting data.
-		return fmt.Errorf("loadBlock: compression algorithm %d not yet supported (only NO_COMPRESSION=0)", comprAlgCode)
-	}
-
-	// Suffix corpus (raw bytes, uncompressed).
-	if cap(e.suffixBytes) < numSuffixBytes {
-		e.suffixBytes = make([]byte, numSuffixBytes)
-	}
-	e.suffixBytes = e.suffixBytes[:numSuffixBytes]
-	if numSuffixBytes > 0 {
-		if err := e.timIn.ReadBytes(e.suffixBytes); err != nil {
-			return fmt.Errorf("loadBlock: read suffix bytes: %w", err)
-		}
-	}
-	if e.suffixesIn == nil {
-		e.suffixesIn = store.NewByteArrayDataInput(e.suffixBytes)
-	} else {
-		e.suffixesIn.ResetWithSlice(e.suffixBytes, 0, numSuffixBytes)
-	}
-
-	// Suffix-lengths blob.
-	slHeader, err := store.ReadVInt(e.timIn)
-	if err != nil {
-		return fmt.Errorf("loadBlock: read suffix-lengths header: %w", err)
-	}
-	allEqual := (slHeader & 1) != 0
-	numSuffixLengthBytes := int(slHeader >> 1)
-	if cap(e.suffixLengthBytes) < numSuffixLengthBytes {
-		e.suffixLengthBytes = make([]byte, numSuffixLengthBytes)
-	}
-	e.suffixLengthBytes = e.suffixLengthBytes[:numSuffixLengthBytes]
-	if allEqual && numSuffixLengthBytes > 0 {
-		b, err2 := e.timIn.ReadByte()
-		if err2 != nil {
-			return fmt.Errorf("loadBlock: read allEqual suffix length byte: %w", err2)
-		}
-		for i := range e.suffixLengthBytes {
-			e.suffixLengthBytes[i] = b
-		}
-	} else if numSuffixLengthBytes > 0 {
-		if err := e.timIn.ReadBytes(e.suffixLengthBytes); err != nil {
-			return fmt.Errorf("loadBlock: read suffix-length bytes: %w", err)
-		}
-	}
-	if e.suffixLengthsIn == nil {
-		e.suffixLengthsIn = store.NewByteArrayDataInput(e.suffixLengthBytes)
-	} else {
-		e.suffixLengthsIn.ResetWithSlice(e.suffixLengthBytes, 0, numSuffixLengthBytes)
-	}
-
-	// Stats blob.
-	numStatsBytes, err := store.ReadVInt(e.timIn)
-	if err != nil {
-		return fmt.Errorf("loadBlock: read numStatsBytes: %w", err)
-	}
-	if cap(e.statsBytes) < int(numStatsBytes) {
-		e.statsBytes = make([]byte, numStatsBytes)
-	}
-	e.statsBytes = e.statsBytes[:numStatsBytes]
-	if numStatsBytes > 0 {
-		if err := e.timIn.ReadBytes(e.statsBytes); err != nil {
-			return fmt.Errorf("loadBlock: read stats bytes: %w", err)
-		}
-	}
-	if e.statsIn == nil {
-		e.statsIn = store.NewByteArrayDataInput(e.statsBytes)
-	} else {
-		e.statsIn.ResetWithSlice(e.statsBytes, 0, int(numStatsBytes))
-	}
-
-	// Meta blob.
-	numMetaBytes, err := store.ReadVInt(e.timIn)
-	if err != nil {
-		return fmt.Errorf("loadBlock: read numMetaBytes: %w", err)
-	}
-	if cap(e.metaBytes) < int(numMetaBytes) {
-		e.metaBytes = make([]byte, numMetaBytes)
-	}
-	e.metaBytes = e.metaBytes[:numMetaBytes]
-	if numMetaBytes > 0 {
-		if err := e.timIn.ReadBytes(e.metaBytes); err != nil {
-			return fmt.Errorf("loadBlock: read meta bytes: %w", err)
-		}
-	}
-	if e.metaBytesIn == nil {
-		e.metaBytesIn = store.NewByteArrayDataInput(e.metaBytes)
-	} else {
-		e.metaBytesIn.ResetWithSlice(e.metaBytes, 0, int(numMetaBytes))
-	}
-
-	// Allocate a BlockTermState for this field if needed.
-	if e.termState == nil && e.field.parent != nil {
-		e.termState = e.field.parent.postingsReader.NewTermState()
-	}
-
-	e.blockPrefixLen = prefixLength
-	e.blockNextEnt = 0
-	e.metaDataUpto = 0
-	e.statsSingletonRun = 0
-	e.blockLoaded = true
-	return nil
-}
-
-// nextLeaf advances to the next entry in a leaf block. It reads one suffix
-// length from suffixLengthsIn, copies the suffix bytes from suffixesIn, and
-// reconstructs the full term. termExists is always true for leaf entries.
-//
-// Mirrors SegmentTermsEnumFrame.nextLeaf() in Java.
-func (e *Lucene103SegmentTermsEnum) nextLeaf() error {
-	suffixLen, err := store.ReadVInt(e.suffixLengthsIn)
-	if err != nil {
-		return fmt.Errorf("nextLeaf: read suffix length: %w", err)
-	}
-	termLen := e.blockPrefixLen + int(suffixLen)
-	termBuf := make([]byte, termLen)
-	// Copy prefix (none at root level; blockPrefixLen == 0).
-	if e.blockPrefixLen > 0 && e.currentTerm != nil {
-		copy(termBuf[:e.blockPrefixLen], e.currentTerm.BytesValue().Bytes[:e.blockPrefixLen])
-	}
-	// Append suffix.
-	if err := e.suffixesIn.ReadBytes(termBuf[e.blockPrefixLen:]); err != nil {
-		return fmt.Errorf("nextLeaf: read suffix bytes: %w", err)
-	}
-	e.currentTerm = index.NewTermFromBytes(e.field.fieldInfo.Name(), termBuf)
-	e.blockNextEnt++
+	e.ensureTermAddressable(1 + target.Length)
 	e.eof = false
-	return nil
+
+	var node *TrieNode
+	var targetUpto int
+	e.targetBeforeCurrentLength = e.currentFrame.ord
+
+	if e.currentFrame != e.staticFrame {
+		// Re-use the common prefix of the previous seek.
+		node = e.nodes[0]
+		targetUpto = 0
+		lastFrame := e.stack[0]
+		targetLimit := target.Length
+		if e.validIndexPrefix < targetLimit {
+			targetLimit = e.validIndexPrefix
+		}
+		cmp := 0
+		for targetUpto < targetLimit {
+			cmp = int(e.term.ByteAt(targetUpto)&0xff) - int(target.Bytes[target.Offset+targetUpto]&0xff)
+			if cmp != 0 {
+				break
+			}
+			node = e.nodes[1+targetUpto]
+			if node.HasOutput() {
+				lastFrame = e.stack[1+lastFrame.ord]
+			}
+			targetUpto++
+		}
+		if cmp == 0 {
+			cmp = compareBytes(
+				e.term.Bytes(), targetUpto, e.term.Length(),
+				target.Bytes, target.Offset+targetUpto, target.Offset+target.Length,
+			)
+		}
+		if cmp < 0 {
+			e.currentFrame = lastFrame
+		} else if cmp > 0 {
+			e.targetBeforeCurrentLength = lastFrame.ord
+			e.currentFrame = lastFrame
+			if err := e.currentFrame.rewind(); err != nil {
+				return false, false, false, err
+			}
+		} else {
+			// Target equals current term.
+			if e.termExists {
+				return false, true, true, nil
+			}
+		}
+	} else {
+		e.targetBeforeCurrentLength = -1
+		node = e.trieReader.Root()
+		e.nodes[0] = node
+		e.currentFrame = e.staticFrame
+		targetUpto = 0
+		cf, err := e.pushFrame(node, 0)
+		if err != nil {
+			return false, false, false, err
+		}
+		e.currentFrame = cf
+	}
+
+	for targetUpto < target.Length {
+		targetLabel := int(target.Bytes[target.Offset+targetUpto]) & 0xff
+		nextNode, err := e.trieReader.LookupChild(targetLabel, node, e.getNode(1+targetUpto))
+		if err != nil {
+			return false, false, false, err
+		}
+		if nextNode == nil {
+			// Index exhausted.
+			e.validIndexPrefix = e.currentFrame.prefixLength
+			if err := e.currentFrame.scanToFloorFrame(target); err != nil {
+				return false, false, false, err
+			}
+			if !e.currentFrame.hasTerms {
+				e.termExists = false
+				e.growTerm(1 + targetUpto)
+				e.term.SetByteAt(targetUpto, byte(targetLabel))
+				return false, false, false, nil
+			}
+			return true, false, true, nil
+		}
+		node = nextNode
+		e.term.SetByteAt(targetUpto, byte(targetLabel))
+		targetUpto++
+		if node.HasOutput() {
+			cf, err := e.pushFrame(node, targetUpto)
+			if err != nil {
+				return false, false, false, err
+			}
+			e.currentFrame = cf
+		}
+	}
+
+	e.validIndexPrefix = e.currentFrame.prefixLength
+	if err := e.currentFrame.scanToFloorFrame(target); err != nil {
+		return false, false, false, err
+	}
+	if !e.currentFrame.hasTerms {
+		e.termExists = false
+		e.growTerm(targetUpto)
+		return false, false, false, nil
+	}
+	return true, false, true, nil
 }
 
-// nextNonLeafTerm advances through a non-leaf block until a term entry is
-// found (skipping sub-block entries). Returns false when the block is
-// exhausted. The sub-block push logic (recursion into child blocks) is
-// deferred — this implementation only handles the flat case where terms
-// and sub-blocks are interleaved but sub-blocks are always skipped.
-//
-// For sub-blocks the suffixLengthsReader contains an odd vInt followed by
-// a vLong sub-block delta; we skip both to advance past the entry.
-// Mirrors SegmentTermsEnumFrame.nextNonLeaf() in Java (skip-only path).
-func (e *Lucene103SegmentTermsEnum) nextNonLeafTerm() (bool, error) {
-	for e.blockNextEnt < e.blockEntCount {
-		code, err := store.ReadVInt(e.suffixLengthsIn)
-		if err != nil {
-			return false, fmt.Errorf("nextNonLeafTerm: read code: %w", err)
-		}
-		suffixLen := int(code >> 1)
-		isSubBlock := (code & 1) != 0
-
-		termLen := e.blockPrefixLen + suffixLen
-		termBuf := make([]byte, termLen)
-		if e.blockPrefixLen > 0 && e.currentTerm != nil {
-			copy(termBuf[:e.blockPrefixLen], e.currentTerm.BytesValue().Bytes[:e.blockPrefixLen])
-		}
-		if err := e.suffixesIn.ReadBytes(termBuf[e.blockPrefixLen:]); err != nil {
-			return false, fmt.Errorf("nextNonLeafTerm: read suffix: %w", err)
-		}
-		e.blockNextEnt++
-
-		if isSubBlock {
-			// Skip the sub-block file-pointer delta.
-			if _, err := store.ReadVLong(e.suffixLengthsIn); err != nil {
-				return false, fmt.Errorf("nextNonLeafTerm: read subblock fp delta: %w", err)
-			}
-			// Sub-block: skip (deferred recursion) — do not yield this entry.
-			continue
-		}
-		// Term entry: yield it.
-		e.currentTerm = index.NewTermFromBytes(e.field.fieldInfo.Name(), termBuf)
-		e.eof = false
+// SeekExact positions the enumerator on term, returning true if found.
+// Mirrors SegmentTermsEnum.seekExact(BytesRef).
+func (e *Lucene103SegmentTermsEnum) SeekExact(term *index.Term) (bool, error) {
+	if term == nil {
+		return false, errors.New("Lucene103SegmentTermsEnum.SeekExact: term must not be nil")
+	}
+	target := term.BytesValue()
+	frameReady, found, ok, err := e.prepareSeekExact(target)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return false, nil
+	}
+	if found {
 		return true, nil
 	}
-	return false, nil
+	if !frameReady {
+		return false, nil
+	}
+	if err := e.currentFrame.loadBlock(); err != nil {
+		return false, err
+	}
+	status, err := e.currentFrame.scanToTerm(target, true)
+	if err != nil {
+		return false, err
+	}
+	return status == index.SeekStatusFound, nil
 }
 
-// decodeMetaData decodes stats (docFreq / totalTermFreq) and postings
-// metadata for the current term, catching up metaDataUpto to the current
-// block ordinal (blockNextEnt).
-//
-// Mirrors SegmentTermsEnumFrame.decodeMetaData() in Java.
-func (e *Lucene103SegmentTermsEnum) decodeMetaData() error {
-	if e.termState == nil {
-		return errors.New("decodeMetaData: no termState allocated")
+// SeekCeil positions the enumerator at term, or at the next ceiling term if it
+// does not exist. Returns the positioned term or nil at END.
+// Mirrors SegmentTermsEnum.seekCeil(BytesRef).
+func (e *Lucene103SegmentTermsEnum) SeekCeil(term *index.Term) (*index.Term, error) {
+	if term == nil {
+		return nil, errors.New("Lucene103SegmentTermsEnum.SeekCeil: term must not be nil")
 	}
-	if e.statsIn == nil {
-		return errors.New("decodeMetaData: stats blob not loaded")
+	if err := e.ensureSetup(); err != nil {
+		return nil, err
 	}
+	target := term.BytesValue()
+	e.ensureTermAddressable(1 + target.Length)
+	e.eof = false
 
-	// Determine the target block ordinal.  For a leaf block this equals
-	// blockNextEnt; for a non-leaf it tracks only term entries (sub-blocks
-	// do not consume a stats entry). Since we skip sub-blocks in
-	// nextNonLeafTerm, blockNextEnt counts only terms already yielded, so
-	// we use blockNextEnt directly.
-	limit := e.blockNextEnt
-	absolute := e.metaDataUpto == 0
-	hasFreqs := e.field.fieldInfo.IndexOptions() != index.IndexOptionsDocs
+	var node *TrieNode
+	var targetUpto int
+	e.targetBeforeCurrentLength = e.currentFrame.ord
 
-	for e.metaDataUpto < limit {
-		// Decode one stats entry.
-		if e.statsSingletonRun > 0 {
-			e.termState.DocFreq = 1
-			e.termState.TotalTermFreq = 1
-			e.statsSingletonRun--
+	if e.currentFrame != e.staticFrame {
+		node = e.nodes[0]
+		targetUpto = 0
+		lastFrame := e.stack[0]
+		targetLimit := target.Length
+		if e.validIndexPrefix < targetLimit {
+			targetLimit = e.validIndexPrefix
+		}
+		cmp := 0
+		for targetUpto < targetLimit {
+			cmp = int(e.term.ByteAt(targetUpto)&0xff) - int(target.Bytes[target.Offset+targetUpto]&0xff)
+			if cmp != 0 {
+				break
+			}
+			node = e.nodes[1+targetUpto]
+			if node.HasOutput() {
+				lastFrame = e.stack[1+lastFrame.ord]
+			}
+			targetUpto++
+		}
+		if cmp == 0 {
+			cmp = compareBytes(
+				e.term.Bytes(), targetUpto, e.term.Length(),
+				target.Bytes, target.Offset+targetUpto, target.Offset+target.Length,
+			)
+		}
+		if cmp < 0 {
+			e.currentFrame = lastFrame
+		} else if cmp > 0 {
+			e.targetBeforeCurrentLength = 0
+			e.currentFrame = lastFrame
+			if err := e.currentFrame.rewind(); err != nil {
+				return nil, err
+			}
 		} else {
-			tok, err := store.ReadVInt(e.statsIn)
-			if err != nil {
-				return fmt.Errorf("decodeMetaData: read stats token: %w", err)
-			}
-			if (tok & 1) == 1 {
-				// Singleton run: docFreq=1, totalTermFreq=1 for (tok>>1)+1 terms.
-				e.termState.DocFreq = 1
-				e.termState.TotalTermFreq = 1
-				e.statsSingletonRun = int(tok >> 1)
-			} else {
-				e.termState.DocFreq = int(tok >> 1)
-				if hasFreqs {
-					ttfDelta, err2 := store.ReadVLong(e.statsIn)
-					if err2 != nil {
-						return fmt.Errorf("decodeMetaData: read ttf delta: %w", err2)
-					}
-					e.termState.TotalTermFreq = int64(e.termState.DocFreq) + ttfDelta
-				} else {
-					e.termState.TotalTermFreq = int64(e.termState.DocFreq)
-				}
+			if e.termExists {
+				return e.Term(), nil
 			}
 		}
-
-		// Decode one postings meta entry.
-		if e.field.parent != nil {
-			if err := e.field.parent.postingsReader.DecodeTerm(
-				e.metaBytesIn, e.field.fieldInfo, e.termState, absolute,
-			); err != nil {
-				return fmt.Errorf("decodeMetaData: DecodeTerm: %w", err)
-			}
+	} else {
+		e.targetBeforeCurrentLength = -1
+		node = e.trieReader.Root()
+		e.nodes[0] = node
+		e.currentFrame = e.staticFrame
+		targetUpto = 0
+		cf, err := e.pushFrame(node, 0)
+		if err != nil {
+			return nil, err
 		}
-		absolute = false
-		e.metaDataUpto++
+		e.currentFrame = cf
 	}
-	e.termState.TermBlockOrd = e.metaDataUpto
-	return nil
+
+	for targetUpto < target.Length {
+		targetLabel := int(target.Bytes[target.Offset+targetUpto]) & 0xff
+		nextNode, err := e.trieReader.LookupChild(targetLabel, node, e.getNode(1+targetUpto))
+		if err != nil {
+			return nil, err
+		}
+		if nextNode == nil {
+			e.validIndexPrefix = e.currentFrame.prefixLength
+			if err := e.currentFrame.scanToFloorFrame(target); err != nil {
+				return nil, err
+			}
+			if err := e.currentFrame.loadBlock(); err != nil {
+				return nil, err
+			}
+			status, err := e.currentFrame.scanToTerm(target, false)
+			if err != nil {
+				return nil, err
+			}
+			return e.finishSeekCeil(status, target)
+		}
+		e.term.SetByteAt(targetUpto, byte(targetLabel))
+		node = nextNode
+		targetUpto++
+		if node.HasOutput() {
+			cf, err := e.pushFrame(node, targetUpto)
+			if err != nil {
+				return nil, err
+			}
+			e.currentFrame = cf
+		}
+	}
+
+	e.validIndexPrefix = e.currentFrame.prefixLength
+	if err := e.currentFrame.scanToFloorFrame(target); err != nil {
+		return nil, err
+	}
+	if err := e.currentFrame.loadBlock(); err != nil {
+		return nil, err
+	}
+	status, err := e.currentFrame.scanToTerm(target, false)
+	if err != nil {
+		return nil, err
+	}
+	return e.finishSeekCeil(status, target)
 }
 
-// DocFreq returns the document frequency of the current term, decoding the
-// stats blob if necessary.
-//
-// Mirrors SegmentTermsEnum.docFreq() in Java.
+// finishSeekCeil resolves the seekCeil result after scanToTerm: on END it
+// copies the target into the term buffer and advances via Next() to the
+// ceiling. Mirrors the tail of SegmentTermsEnum.seekCeil.
+func (e *Lucene103SegmentTermsEnum) finishSeekCeil(status index.SeekStatus, target *util.BytesRef) (*index.Term, error) {
+	if status == index.SeekStatusEnd {
+		e.term.CopyBytes(target.Bytes, target.Offset, target.Length)
+		e.termExists = false
+		nxt, err := e.Next()
+		if err != nil {
+			return nil, err
+		}
+		return nxt, nil // nil == END, non-nil == NOT_FOUND ceiling
+	}
+	// FOUND or NOT_FOUND: the cursor sits on the matching / ceiling term.
+	return e.Term(), nil
+}
+
+// Next advances to the next term in the block-tree, descending sub-blocks and
+// crossing floor blocks. Mirrors SegmentTermsEnum.next().
+func (e *Lucene103SegmentTermsEnum) Next() (*index.Term, error) {
+	if err := e.ensureSetup(); err != nil {
+		return nil, err
+	}
+
+	// Honour a seek term supplied at construction (GetIteratorWithSeek).
+	if e.seedPending() {
+		if _, err := e.SeekCeil(index.NewTermFromBytesRef(e.fr.fieldInfo.Name(), e.seedStart)); err != nil {
+			return nil, err
+		}
+		e.seedStart = nil
+		if e.eof {
+			return nil, nil
+		}
+		return e.Term(), nil
+	}
+
+	if e.in == nil {
+		// Fresh enum: seek to first term.
+		node := e.trieReader.Root()
+		e.nodes[0] = node
+		cf, err := e.pushFrame(node, 0)
+		if err != nil {
+			return nil, err
+		}
+		e.currentFrame = cf
+		if err := e.currentFrame.loadBlock(); err != nil {
+			return nil, err
+		}
+	}
+
+	e.targetBeforeCurrentLength = e.currentFrame.ord
+
+	if e.currentFrame == e.staticFrame {
+		// A prior seek cached a term but did not load a frame; catch up.
+		ok, err := e.SeekExact(index.NewTermFromBytesRef(e.fr.fieldInfo.Name(), e.term.Get()))
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, errors.New("Lucene103SegmentTermsEnum.Next: re-seek to pending term failed")
+		}
+	}
+
+	// Pop finished blocks.
+	for e.currentFrame.nextEnt == e.currentFrame.entCount {
+		if !e.currentFrame.isLastInFloor {
+			if err := e.currentFrame.loadNextFloorBlock(); err != nil {
+				return nil, err
+			}
+			break
+		}
+		if e.currentFrame.ord == 0 {
+			e.eof = true
+			e.term.Clear()
+			e.validIndexPrefix = 0
+			if err := e.currentFrame.rewind(); err != nil {
+				return nil, err
+			}
+			e.termExists = false
+			return nil, nil
+		}
+		lastFP := e.currentFrame.fpOrig
+		e.currentFrame = e.stack[e.currentFrame.ord-1]
+		if e.currentFrame.nextEnt == -1 || e.currentFrame.lastSubFP != lastFP {
+			if err := e.currentFrame.scanToFloorFrame(e.term.Get()); err != nil {
+				return nil, err
+			}
+			if err := e.currentFrame.loadBlock(); err != nil {
+				return nil, err
+			}
+			if err := e.currentFrame.scanToSubBlock(lastFP); err != nil {
+				return nil, err
+			}
+		}
+		if e.currentFrame.prefixLength < e.validIndexPrefix {
+			e.validIndexPrefix = e.currentFrame.prefixLength
+		}
+	}
+
+	for {
+		isSub, err := e.currentFrame.next()
+		if err != nil {
+			return nil, err
+		}
+		if isSub {
+			cf, err := e.pushFrameFP(nil, e.currentFrame.lastSubFP, e.term.Length())
+			if err != nil {
+				return nil, err
+			}
+			e.currentFrame = cf
+			if err := e.currentFrame.loadBlock(); err != nil {
+				return nil, err
+			}
+		} else {
+			return e.Term(), nil
+		}
+	}
+}
+
+// seedPending reports whether a construction-time seek term still needs to be
+// honoured before the enum starts iterating. A fresh enum has not yet loaded a
+// block (e.in == nil) and still sits on the static frame.
+func (e *Lucene103SegmentTermsEnum) seedPending() bool {
+	return e.seedStart != nil && e.in == nil && e.currentFrame == e.staticFrame
+}
+
+// DocFreq returns the document frequency of the current term.
+// Mirrors SegmentTermsEnum.docFreq().
 func (e *Lucene103SegmentTermsEnum) DocFreq() (int, error) {
-	if e.eof || !e.blockLoaded {
+	if e.eof || e.currentFrame == nil {
 		return 0, nil
 	}
-	if err := e.decodeMetaData(); err != nil {
+	if err := e.currentFrame.decodeMetaData(); err != nil {
 		return 0, err
 	}
-	return e.termState.DocFreq, nil
+	return e.currentFrame.state.DocFreq, nil
 }
 
 // TotalTermFreq returns the total term frequency of the current term.
-//
-// Mirrors SegmentTermsEnum.totalTermFreq() in Java.
+// Mirrors SegmentTermsEnum.totalTermFreq().
 func (e *Lucene103SegmentTermsEnum) TotalTermFreq() (int64, error) {
-	if e.eof || !e.blockLoaded {
+	if e.eof || e.currentFrame == nil {
 		return 0, nil
 	}
-	if err := e.decodeMetaData(); err != nil {
+	if err := e.currentFrame.decodeMetaData(); err != nil {
 		return 0, err
 	}
-	return e.termState.TotalTermFreq, nil
+	return e.currentFrame.state.TotalTermFreq, nil
 }
 
-// Postings decodes the current term's metadata and returns a PostingsEnum
-// via the parent's PostingsReaderBase.
-//
-// Mirrors SegmentTermsEnum.postings(PostingsEnum, int) in Java.
+// Postings decodes the current term's metadata and returns a PostingsEnum.
+// Mirrors SegmentTermsEnum.postings(PostingsEnum, int).
 func (e *Lucene103SegmentTermsEnum) Postings(flags int) (index.PostingsEnum, error) {
-	if e.eof || !e.blockLoaded {
+	if e.eof || e.currentFrame == nil {
 		return &index.EmptyPostingsEnum{}, nil
 	}
-	if err := e.decodeMetaData(); err != nil {
+	if err := e.currentFrame.decodeMetaData(); err != nil {
 		return nil, fmt.Errorf("Lucene103SegmentTermsEnum.Postings: decodeMetaData: %w", err)
 	}
-	if e.field.parent == nil {
-		return &index.EmptyPostingsEnum{}, nil
-	}
-	pe, err := e.field.parent.postingsReader.Postings(
-		e.field.fieldInfo, e.termState, nil, flags,
-	)
+	pe, err := e.fr.parent.postingsReader.Postings(e.fr.fieldInfo, e.currentFrame.state, nil, flags)
 	if err != nil {
 		return nil, fmt.Errorf("Lucene103SegmentTermsEnum.Postings: postingsReader.Postings: %w", err)
 	}
 	return pe, nil
 }
 
-// PostingsWithLiveDocs forwards to Postings ignoring liveDocs (deferred filter).
-func (e *Lucene103SegmentTermsEnum) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (index.PostingsEnum, error) {
+// PostingsWithLiveDocs forwards to Postings; live-docs filtering is applied by
+// callers (search.TermWeight / IndexWriter delete resolution) at a higher
+// layer, matching how Lucene threads liveDocs through the leaf reader.
+func (e *Lucene103SegmentTermsEnum) PostingsWithLiveDocs(_ util.Bits, flags int) (index.PostingsEnum, error) {
 	return e.Postings(flags)
 }
 
-// SeekCeil positions the enumerator at term or, if term does not exist, at
-// the next ceiling term. The FST trie traversal is deferred (backlog #2692);
-// today the requested key is published as the cursor position only.
+// TermState would return a snapshot of the current term's decoded state.
+// Gocene's [BlockTermState] does not implement the index.TermState interface
+// (its CopyFrom signature differs), and no consumer in the codebase performs a
+// seek-by-TermState on the block-tree enum, so this returns (nil, nil) — the
+// same contract the previous implementation honoured. decodeMetaData still runs
+// to keep the cursor's stats current for the immediately following DocFreq /
+// Postings call.
 //
-// Mirrors SegmentTermsEnum.seekCeil(BytesRef) in Java.
-func (e *Lucene103SegmentTermsEnum) SeekCeil(term *index.Term) (*index.Term, error) {
-	if term == nil {
-		return nil, errors.New("Lucene103SegmentTermsEnum.SeekCeil: term must not be nil")
-	}
-	e.eof = false
-	e.startKey = term.BytesValue()
-	cloned := term.Clone()
-	e.currentTerm = cloned
-	return cloned, nil
-}
-
-// SeekExact positions the enumerator on term. This implementation performs a
-// linear scan using Next() since the full FST trie traversal is not yet
-// ported (backlog #2692). The scan is O(N) in the number of terms in the
-// field but is correct for all block layouts produced by the Lucene 10.4
-// block-tree writer.
-//
-// Mirrors SegmentTermsEnum.seekExact(BytesRef) in Java.
-func (e *Lucene103SegmentTermsEnum) SeekExact(term *index.Term) (bool, error) {
-	if term == nil {
-		return false, errors.New("Lucene103SegmentTermsEnum.SeekExact: term must not be nil")
-	}
-	// Create a fresh scanning enum to avoid corrupting the current cursor's
-	// ongoing iteration. We scan until we find the target or overshoot it.
-	scanner := NewLucene103SegmentTermsEnum(e.field, nil)
-	targetText := term.Text()
-	for {
-		found, err := scanner.Next()
-		if err != nil {
-			return false, fmt.Errorf("Lucene103SegmentTermsEnum.SeekExact: scan: %w", err)
-		}
-		if found == nil {
-			// Exhausted — term not in the dictionary.
-			e.eof = true
-			e.currentTerm = nil
-			return false, nil
-		}
-		cmp := strings.Compare(found.Text(), targetText)
-		if cmp == 0 {
-			// Replace this enum's state with the scanner's state so that
-			// subsequent Postings() / DocFreq() calls operate on the
-			// correctly-positioned block.
-			*e = *scanner
-			return true, nil
-		}
-		if cmp > 0 {
-			// Passed the target — term not present.
-			e.eof = true
-			e.currentTerm = nil
-			return false, nil
-		}
-	}
-}
-
-// TermState returns a snapshot of the current term's state. Requires that
-// decodeMetaData has been called (which happens via DocFreq/Postings).
-//
-// Mirrors SegmentTermsEnum.termState() in Java.
+// Mirrors SegmentTermsEnum.termState() at the interface level only.
 func (e *Lucene103SegmentTermsEnum) TermState() (index.TermState, error) {
-	if e.eof {
+	if e.eof || e.currentFrame == nil {
 		return nil, nil
+	}
+	if err := e.currentFrame.decodeMetaData(); err != nil {
+		return nil, err
 	}
 	return nil, nil
 }
@@ -613,6 +748,33 @@ var errSegmentTermsEnumOrdUnsupported = errors.New(
 
 // ErrSegmentTermsEnumOrdUnsupported is the exported sentinel for errors.Is.
 var ErrSegmentTermsEnumOrdUnsupported = errSegmentTermsEnumOrdUnsupported
+
+// compareBytes compares a[aFrom:aTo] with b[bFrom:bTo] using unsigned byte
+// ordering, mirroring java.util.Arrays.compareUnsigned.
+func compareBytes(a []byte, aFrom, aTo int, b []byte, bFrom, bTo int) int {
+	x := a[aFrom:aTo]
+	y := b[bFrom:bTo]
+	n := len(x)
+	if len(y) < n {
+		n = len(y)
+	}
+	for i := 0; i < n; i++ {
+		if x[i] != y[i] {
+			if x[i] < y[i] {
+				return -1
+			}
+			return 1
+		}
+	}
+	switch {
+	case len(x) < len(y):
+		return -1
+	case len(x) > len(y):
+		return 1
+	default:
+		return 0
+	}
+}
 
 // Compile-time interface check.
 var _ index.TermsEnum = (*Lucene103SegmentTermsEnum)(nil)

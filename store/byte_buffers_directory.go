@@ -376,6 +376,14 @@ func (in *ByteBuffersIndexInput) ReadVInt() (int32, error) {
 	return result, nil
 }
 
+// ReadVLong reads a variable-length long, completing the
+// [VariableLengthInput] surface alongside [ByteBuffersIndexInput.ReadVInt].
+// Delegates to the package-level [ReadVLong] so the decoding is identical to
+// every other DataInput in the package.
+func (in *ByteBuffersIndexInput) ReadVLong() (int64, error) {
+	return ReadVLong(in)
+}
+
 // SetPosition changes the current position.
 func (in *ByteBuffersIndexInput) SetPosition(pos int64) error {
 	if pos < 0 || pos > int64(len(in.content)) {
