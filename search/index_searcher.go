@@ -93,6 +93,14 @@ func (s *IndexSearcher) SearchWithCollector(query Query, collector Collector) er
 	if err != nil {
 		return err
 	}
+	// A nil Weight means the query produces no scorer on any leaf (no matches);
+	// guard against it so searchLeaf does not dereference a nil Weight. (Some
+	// rewritten query shapes can yield a nil Weight — root cause tracked in rmp;
+	// a nil Weight here is treated as a no-match, matching the nil-Scorer guard
+	// in searchLeaf.)
+	if weight == nil {
+		return nil
+	}
 
 	// For now, handle DirectoryReader vs single segment
 	if dr, ok := interface{}(s.reader).(*index.DirectoryReader); ok {

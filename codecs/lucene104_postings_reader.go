@@ -48,6 +48,21 @@ import (
 // it to index.NO_MORE_DOCS only at the ImpactsEnum public boundary.
 const lucene104Level1NoSkip = math.MaxInt32
 
+// lucene104NoMoreDocs is the internal "no more docs / last (remainder) block"
+// sentinel for the level0LastDocID skip field. Java Lucene uses
+// DocIdSetIterator.NO_MORE_DOCS (= Integer.MAX_VALUE) so that the advance guard
+//
+//	if target > level0LastDocID { ... refill ... }
+//
+// reads false on the last block and the within-block scan runs instead of
+// re-refilling the already-consumed block. Gocene's public index.NO_MORE_DOCS is
+// -1, which would make that guard ALWAYS true and re-refill the consumed block,
+// exhausting it (rmp #4763: Advance after a prior NextDoc/Advance returned
+// NO_MORE_DOCS for a doc that lived in the same buffer). We therefore mirror
+// Java's MAX_VALUE internally for level0LastDocID and translate it to
+// index.NO_MORE_DOCS at the public Impacts boundary.
+const lucene104NoMoreDocs = math.MaxInt32
+
 // Lucene104PostingsReader reads .doc / .pos / .pay / .psm files written by
 // Lucene104PostingsWriter.
 //
@@ -1164,7 +1179,7 @@ func (e *blockPostingsEnum) skipLevel0To(target int) error {
 		payUpto = e.level0BlockPayUpto
 
 		if e.docCountLeft < lucene104BlockSize {
-			e.level0LastDocID = index.NO_MORE_DOCS
+			e.level0LastDocID = lucene104NoMoreDocs
 			break
 		}
 
@@ -1316,7 +1331,7 @@ func (e *blockPostingsEnum) doMoveToNextLevel0Block() error {
 		return e.refillFullBlock()
 	}
 
-	e.level0LastDocID = index.NO_MORE_DOCS
+	e.level0LastDocID = lucene104NoMoreDocs
 	return e.refillRemainder()
 }
 
@@ -1354,6 +1369,18 @@ func (e *blockPostingsEnum) moveToNextLevel0Block() error {
 // NextDoc advances to the next document.
 // Mirrors BlockPostingsEnum.nextDoc().
 func (e *blockPostingsEnum) NextDoc() (int, error) {
+	// Once exhausted on the final block, stay exhausted (idempotent). After the
+	// last block is loaded level0LastDocID holds the MAX sentinel
+	// (lucene104NoMoreDocs), so this fires only after the padded NO_MORE_DOCS has
+	// been read — never at the initial position, where level0LastDocID == -1.
+	// Java keeps doc and level0LastDocID both at Integer.MAX_VALUE so its
+	// `doc == level0LastDocID` check self-terminates; Gocene's public doc
+	// exhausts at index.NO_MORE_DOCS (-1), so without this guard a re-advance of
+	// an already-spent iterator (e.g. a disjunction sub) reads past docBuffer
+	// (rmp #4763 follow-on).
+	if e.doc == index.NO_MORE_DOCS && e.level0LastDocID == lucene104NoMoreDocs {
+		return index.NO_MORE_DOCS, nil
+	}
 	if e.doc == e.level0LastDocID || e.needsRefilling {
 		if e.needsRefilling {
 			if err := e.refillDocs(); err != nil {
@@ -1779,7 +1806,11 @@ func (b *blockImpacts) GetDocIDUpTo(level int) int {
 		return index.NO_MORE_DOCS
 	}
 	if level == 0 {
-		return b.enum.level0LastDocID
+		v := b.enum.level0LastDocID
+		if v == lucene104NoMoreDocs {
+			return index.NO_MORE_DOCS
+		}
+		return v
 	}
 	if level == 1 {
 		v := b.enum.level1LastDocID
@@ -1805,7 +1836,7 @@ func (b *blockImpacts) GetImpacts(level int) *index.FreqAndNormBuffer {
 		e.impactBuffer.Norms[0] = 1
 		return e.impactBuffer
 	}
-	if level == 0 && e.level0LastDocID != index.NO_MORE_DOCS {
+	if level == 0 && e.level0LastDocID != lucene104NoMoreDocs {
 		e.scratch.Reset(e.level0SerializedImpacts[:e.level0ImpactLen])
 		readImpactsFromBytes(e.scratch, e.impactBuffer)
 		return e.impactBuffer
