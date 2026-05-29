@@ -939,12 +939,10 @@ func (w *IndexWriter) Commit() error {
 // bitset -> .liv, with the delete generation advanced per affected segment.
 //
 // Resolution is exact: a term that occurs in no committed segment deletes
-// nothing.  NOTE: the Lucene104 block-tree reader currently enumerates only the
-// root block (SegmentTermsEnum.SeekExact does a root-block linear scan; backlog
-// #2692), so a term that lives in a non-root block of a high-cardinality field
-// will not be found and its committed deletion will be missed.  Once the
-// block-tree reader gains full multi-block / FST-trie traversal this method
-// resolves every term precisely with no further change.
+// nothing.  The block-tree reader (Lucene103SegmentTermsEnum) performs full
+// multi-block / FST-trie traversal as of rmp #4754, so SeekExact resolves terms
+// that live in sub-blocks of high-cardinality fields (e.g. a unique id field);
+// every committed deletion is therefore applied precisely.
 func (w *IndexWriter) applyDeletesToCommittedSegments(si *SegmentInfos, codec Codec) error {
 	for _, sci := range si.List() {
 		maxDoc := sci.SegmentInfo().DocCount()
