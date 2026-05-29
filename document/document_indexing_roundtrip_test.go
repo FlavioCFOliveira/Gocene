@@ -489,13 +489,19 @@ func TestDocumentIndexingRoundtrip_BinaryDataIntegrity(t *testing.T) {
 	}
 	defer writer.Close()
 
-	// Test various binary patterns
+	// Test various binary patterns. All patterns share the same length: a
+	// point field's bytesPerDim is fixed by its first value, so every value
+	// for the field must be the same width (Lucene rejects a width mismatch
+	// at the FieldInfo level, and the BKD writer rejects it at add time). The
+	// pre-rmp-#4769 build silently dropped point values, which masked the
+	// original mixed-width data; with points now persisted the widths must be
+	// uniform.
 	binaryPatterns := [][]byte{
 		{0x00, 0x01, 0x02, 0x03, 0x04, 0x05},
-		{0xFF, 0xFE, 0xFD, 0xFC, 0xFB},
-		{0x80, 0x81, 0x82, 0x83, 0x84},
-		{0x00, 0x00, 0x00, 0x00},
-		{0xFF, 0xFF, 0xFF, 0xFF},
+		{0xFF, 0xFE, 0xFD, 0xFC, 0xFB, 0xFA},
+		{0x80, 0x81, 0x82, 0x83, 0x84, 0x85},
+		{0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+		{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
 	}
 
 	for i, pattern := range binaryPatterns {

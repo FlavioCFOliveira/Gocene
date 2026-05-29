@@ -13,4 +13,13 @@ package index_test
 //
 // The registration init() now lives in package codecs (see codecs/register.go)
 // instead of the old internal/codecbridge bridge.
-import _ "github.com/FlavioCFOliveira/Gocene/codecs"
+//
+// codecs/lucene90 is blank-imported alongside it so the Lucene90PointsFormat
+// BKD writer/reader implementation is installed (rmp #4769); without it, any
+// test that indexes point fields fails its Commit with "BKD writer impl not
+// linked" because the default codec advertises a PointsFormat whose
+// FieldsWriter/FieldsReader hooks would be nil.
+import (
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
+	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
+)

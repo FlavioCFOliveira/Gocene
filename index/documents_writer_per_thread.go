@@ -863,10 +863,29 @@ func (dwpt *DocumentsWriterPerThread) addPointValue(docID int, fieldName string,
 		}
 		dwpt.pointValues[fieldName] = buf
 	}
-	packed := make([]byte, len(field.pointPackedValue))
-	copy(packed, field.pointPackedValue)
-	buf.docIDs = append(buf.docIDs, docID)
-	buf.packedValues = append(buf.packedValues, packed)
+	// A single point value occupies dimensionCount * bytesPerDim bytes. A
+	// multi-valued point field (e.g. document.NewIntPoints) packs N such
+	// values back-to-back into one binary value; each is a distinct BKD point
+	// for the same document. Split the binary on the per-point stride so the
+	// codec sees one packedValue (and one BKDWriter.Add) per value, matching
+	// Lucene's IndexableField.tokenStream/PointValuesWriter contract.
+	stride := field.pointDimensionCount * field.pointNumBytes
+	src := field.pointPackedValue
+	if stride <= 0 || len(src)%stride != 0 {
+		// Defensive: treat a non-conforming binary as a single opaque value;
+		// the codec's BKDWriter.Add will surface the length mismatch.
+		packed := make([]byte, len(src))
+		copy(packed, src)
+		buf.docIDs = append(buf.docIDs, docID)
+		buf.packedValues = append(buf.packedValues, packed)
+		return
+	}
+	for off := 0; off < len(src); off += stride {
+		packed := make([]byte, stride)
+		copy(packed, src[off:off+stride])
+		buf.docIDs = append(buf.docIDs, docID)
+		buf.packedValues = append(buf.packedValues, packed)
+	}
 }
 
 // buildTermVector builds term vector data for a field.
