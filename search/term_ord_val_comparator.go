@@ -59,6 +59,11 @@ type termOrdValComparator struct {
 	bottomSameReader bool
 
 	termsIndex index.SortedDocValues
+
+	// dvSource, when non-nil, overrides the default field lookup in setReader,
+	// mirroring TermOrdValComparator.getSortedDocValues being overridden by
+	// ToParentBlockJoinSortField to feed a BlockJoinSelector-wrapped iterator.
+	dvSource SortedDocValuesSource
 }
 
 // newTermOrdValComparator constructs the comparator. sortMissingLast selects the
@@ -117,7 +122,13 @@ func (c *termOrdValComparator) value(slot int) any {
 func (c *termOrdValComparator) setReader(reader IndexReader) error {
 	c.currentReaderGen++
 	c.termsIndex = nil
-	if r, ok := reader.(sortedDocValuesReader); ok {
+	if c.dvSource != nil {
+		dv, err := c.dvSource.SortedDocValues(reader, c.field)
+		if err != nil {
+			return err
+		}
+		c.termsIndex = dv
+	} else if r, ok := reader.(sortedDocValuesReader); ok {
 		dv, err := r.GetSortedDocValues(c.field)
 		if err != nil {
 			return err

@@ -69,6 +69,21 @@ type SortField struct {
 
 	// MissingValue is the value to use for missing documents (for numeric types).
 	MissingValue interface{}
+
+	// numericDVSource, when non-nil, overrides the default per-leaf
+	// NumericDocValues resolution used by the INT/LONG/FLOAT/DOUBLE comparators.
+	// It is the Go counterpart of a SortField subclass that overrides
+	// getNumericDocValues (e.g. ToParentBlockJoinSortField). Set via
+	// SetNumericDocValuesSource; nil means the comparator reads the field's
+	// NumericDocValues directly from the leaf.
+	numericDVSource NumericDocValuesSource
+
+	// sortedDVSource, when non-nil, overrides the default per-leaf
+	// SortedDocValues resolution used by the STRING (TermOrdVal) comparator. It is
+	// the Go counterpart of overriding getSortedDocValues. Set via
+	// SetSortedDocValuesSource; nil means the comparator reads the field's
+	// SortedDocValues directly from the leaf.
+	sortedDVSource SortedDocValuesSource
 }
 
 // NewSortField creates a new SortField.
@@ -104,6 +119,48 @@ func (sf *SortField) GetReverse() bool {
 // supported for string-typed fields.
 func (sf *SortField) SetMissingValue(v interface{}) {
 	sf.MissingValue = v
+}
+
+// SetNumericDocValuesSource installs a custom per-leaf NumericDocValues resolver
+// for this SortField, overriding the default (read the field directly from the
+// leaf). The INT/LONG/FLOAT/DOUBLE comparators consult it in setReader. This is
+// the extension point used by ToParentBlockJoinSortField to feed
+// BlockJoinSelector-wrapped child values to a numeric comparator, mirroring the
+// getNumericDocValues override in Lucene's ToParentBlockJoinSortField.
+func (sf *SortField) SetNumericDocValuesSource(src NumericDocValuesSource) {
+	sf.numericDVSource = src
+}
+
+// SetSortedDocValuesSource installs a custom per-leaf SortedDocValues resolver
+// for this SortField, overriding the default. The STRING comparator consults it
+// in setReader. This is the extension point used by ToParentBlockJoinSortField
+// for STRING-typed parent sorts, mirroring the getSortedDocValues override in
+// Lucene's ToParentBlockJoinSortField.
+func (sf *SortField) SetSortedDocValuesSource(src SortedDocValuesSource) {
+	sf.sortedDVSource = src
+}
+
+// NumericDocValuesSource resolves the NumericDocValues a numeric field comparator
+// should read for a given leaf reader and field. A custom source lets callers
+// substitute a derived/wrapped iterator (e.g. block-join MIN/MAX selection over a
+// parent's children) in place of the field's stored values.
+//
+// Mirrors the getNumericDocValues(LeafReaderContext, String) hook that Lucene's
+// numeric LeafComparators expose for subclassing.
+type NumericDocValuesSource interface {
+	// NumericDocValues returns the iterator the comparator reads, or nil when the
+	// leaf has no values (treated as every document missing). The reader is the
+	// leaf reader the comparator was just bound to.
+	NumericDocValues(reader IndexReader, field string) (NumericDocValuesIterator, error)
+}
+
+// SortedDocValuesSource resolves the SortedDocValues the STRING comparator should
+// read for a given leaf reader and field. Mirrors the getSortedDocValues hook in
+// Lucene's TermOrdValComparator.
+type SortedDocValuesSource interface {
+	// SortedDocValues returns the iterator the comparator reads, or nil when the
+	// leaf has no values (treated as every document missing).
+	SortedDocValues(reader IndexReader, field string) (SortedDocValuesIterator, error)
 }
 
 // Sort defines the sort order for search results.

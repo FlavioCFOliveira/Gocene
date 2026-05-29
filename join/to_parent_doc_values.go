@@ -249,14 +249,13 @@ func (w *sortedDVsWrapper) NextDoc() (int, error) { return w.acc.iter.NextDoc() 
 func (w *sortedDVsWrapper) Advance(target int) (int, error) { return w.acc.iter.Advance(target) }
 
 // AdvanceExact mirrors the Lucene iterator surface (rmp #4709
-// additive). It positions the parent-doc cursor at target and reports
-// whether any child of that parent contributed a value.
+// additive). It positions the parent-doc cursor at the target parent and
+// reports whether any child of that parent contributed a value. It delegates to
+// the idempotent toParentDocValues.AdvanceExact so re-testing the same parent
+// (e.g. CompareBottom then Copy on the same doc, as TopFieldCollector does) does
+// not consume the iterator — matching Lucene's NumericDocValues#advanceExact.
 func (w *sortedDVsWrapper) AdvanceExact(target int) (bool, error) {
-	got, err := w.acc.iter.Advance(target)
-	if err != nil {
-		return false, err
-	}
-	return got == target, nil
+	return w.acc.iter.AdvanceExact(target)
 }
 
 // BinaryValue returns the term bytes bound to the current parent's
@@ -347,15 +346,14 @@ func (w *numericDVsWrapper) NextDoc() (int, error) { return w.acc.iter.NextDoc()
 
 func (w *numericDVsWrapper) Advance(target int) (int, error) { return w.acc.iter.Advance(target) }
 
-// AdvanceExact (rmp #4709 additive) positions the parent-doc cursor at
-// target and reports whether any child of that parent contributed a
-// value. Monotonic; matches Lucene's NumericDocValues#advanceExact.
+// AdvanceExact (rmp #4709 additive) positions the parent-doc cursor at the
+// target parent and reports whether any child of that parent contributed a
+// value. It delegates to the idempotent toParentDocValues.AdvanceExact so
+// re-testing the same parent does not consume the iterator (TopFieldCollector
+// calls CompareBottom then Copy on the same doc). Monotonic; matches Lucene's
+// NumericDocValues#advanceExact.
 func (w *numericDVsWrapper) AdvanceExact(target int) (bool, error) {
-	got, err := w.acc.iter.Advance(target)
-	if err != nil {
-		return false, err
-	}
-	return got == target, nil
+	return w.acc.iter.AdvanceExact(target)
 }
 
 // LongValue returns the MIN/MAX child value captured at the current

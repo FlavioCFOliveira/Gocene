@@ -4,7 +4,23 @@
 
 package search
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+)
+
+// NumericDocValuesIterator and SortedDocValuesIterator are the public aliases for
+// the per-document DocValues iterators a custom comparator DV source returns.
+// They alias the index-package iterator surfaces so the join package (and other
+// callers) can implement NumericDocValuesSource / SortedDocValuesSource without
+// re-declaring the contracts.
+type (
+	// NumericDocValuesIterator is the iterator a NumericDocValuesSource returns.
+	NumericDocValuesIterator = index.NumericDocValues
+	// SortedDocValuesIterator is the iterator a SortedDocValuesSource returns.
+	SortedDocValuesIterator = index.SortedDocValues
+)
 
 // Ported from Apache Lucene 10.4.0:
 //
@@ -45,15 +61,25 @@ func newSortFieldComparator(sf *SortField, numHits int) (sortFieldComparator, er
 	sortMissingLast := missingSortsLast(sf)
 	switch sf.Type {
 	case SortFieldTypeInt:
-		return newIntComparator(numHits, sf.Field, missingInt32(sf)), nil
+		c := newIntComparator(numHits, sf.Field, missingInt32(sf))
+		c.dvSource = sf.numericDVSource
+		return c, nil
 	case SortFieldTypeLong:
-		return newLongComparator(numHits, sf.Field, missingInt64(sf)), nil
+		c := newLongComparator(numHits, sf.Field, missingInt64(sf))
+		c.dvSource = sf.numericDVSource
+		return c, nil
 	case SortFieldTypeFloat:
-		return newFloatComparator(numHits, sf.Field, missingFloat32(sf)), nil
+		c := newFloatComparator(numHits, sf.Field, missingFloat32(sf))
+		c.dvSource = sf.numericDVSource
+		return c, nil
 	case SortFieldTypeDouble:
-		return newDoubleComparator(numHits, sf.Field, missingFloat64(sf)), nil
+		c := newDoubleComparator(numHits, sf.Field, missingFloat64(sf))
+		c.dvSource = sf.numericDVSource
+		return c, nil
 	case SortFieldTypeString:
-		return newTermOrdValComparator(numHits, sf.Field, sortMissingLast), nil
+		c := newTermOrdValComparator(numHits, sf.Field, sortMissingLast)
+		c.dvSource = sf.sortedDVSource
+		return c, nil
 	default:
 		return nil, fmt.Errorf("search: SortField type %d is not supported by the DocValues comparator factory (field=%q)", sf.Type, sf.Field)
 	}

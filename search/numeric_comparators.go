@@ -51,7 +51,19 @@ type numericLeafState struct {
 // reader. A nil iterator (no producer / no field) is not an error: every
 // document is then treated as missing, matching Lucene's DocValues.getNumeric
 // returning an empty iterator.
-func bindNumericLeaf(reader IndexReader, field string) (*numericLeafState, error) {
+//
+// When src is non-nil it overrides the default field lookup, mirroring a
+// numeric LeafComparator that overrides getNumericDocValues (e.g.
+// ToParentBlockJoinSortField, which substitutes a BlockJoinSelector-wrapped
+// iterator over the parent's children).
+func bindNumericLeaf(reader IndexReader, field string, src NumericDocValuesSource) (*numericLeafState, error) {
+	if src != nil {
+		dv, err := src.NumericDocValues(reader, field)
+		if err != nil {
+			return nil, err
+		}
+		return &numericLeafState{docValues: dv}, nil
+	}
 	r, ok := reader.(numericDocValuesReader)
 	if !ok {
 		return &numericLeafState{}, nil
@@ -90,11 +102,12 @@ func (s *numericLeafState) getRawValueForDoc(doc int, missing int64) (int64, err
 //
 // Mirrors org.apache.lucene.search.comparators.IntComparator.
 type intComparator struct {
-	values  []int32
-	bottom  int32
-	missing int32
-	field   string
-	leaf    *numericLeafState
+	values   []int32
+	bottom   int32
+	missing  int32
+	field    string
+	leaf     *numericLeafState
+	dvSource NumericDocValuesSource
 }
 
 func newIntComparator(numHits int, field string, missing int32) *intComparator {
@@ -108,7 +121,7 @@ func (c *intComparator) compare(slot1, slot2 int) int {
 func (c *intComparator) value(slot int) any { return c.values[slot] }
 
 func (c *intComparator) setReader(reader IndexReader) error {
-	leaf, err := bindNumericLeaf(reader, c.field)
+	leaf, err := bindNumericLeaf(reader, c.field, c.dvSource)
 	if err != nil {
 		return err
 	}
@@ -152,11 +165,12 @@ func (c *intComparator) SetHitsThresholdReached()                       {}
 //
 // Mirrors org.apache.lucene.search.comparators.LongComparator.
 type longComparator struct {
-	values  []int64
-	bottom  int64
-	missing int64
-	field   string
-	leaf    *numericLeafState
+	values   []int64
+	bottom   int64
+	missing  int64
+	field    string
+	leaf     *numericLeafState
+	dvSource NumericDocValuesSource
 }
 
 func newLongComparator(numHits int, field string, missing int64) *longComparator {
@@ -170,7 +184,7 @@ func (c *longComparator) compare(slot1, slot2 int) int {
 func (c *longComparator) value(slot int) any { return c.values[slot] }
 
 func (c *longComparator) setReader(reader IndexReader) error {
-	leaf, err := bindNumericLeaf(reader, c.field)
+	leaf, err := bindNumericLeaf(reader, c.field, c.dvSource)
 	if err != nil {
 		return err
 	}
@@ -216,11 +230,12 @@ func (c *longComparator) SetHitsThresholdReached()                       {}
 // Mirrors org.apache.lucene.search.comparators.FloatComparator, whose
 // getValueForDoc does Float.intBitsToFloat((int) docValues.longValue()).
 type floatComparator struct {
-	values  []float32
-	bottom  float32
-	missing float32
-	field   string
-	leaf    *numericLeafState
+	values   []float32
+	bottom   float32
+	missing  float32
+	field    string
+	leaf     *numericLeafState
+	dvSource NumericDocValuesSource
 }
 
 func newFloatComparator(numHits int, field string, missing float32) *floatComparator {
@@ -234,7 +249,7 @@ func (c *floatComparator) compare(slot1, slot2 int) int {
 func (c *floatComparator) value(slot int) any { return c.values[slot] }
 
 func (c *floatComparator) setReader(reader IndexReader) error {
-	leaf, err := bindNumericLeaf(reader, c.field)
+	leaf, err := bindNumericLeaf(reader, c.field, c.dvSource)
 	if err != nil {
 		return err
 	}
@@ -293,11 +308,12 @@ func (c *floatComparator) SetHitsThresholdReached()                       {}
 // Mirrors org.apache.lucene.search.comparators.DoubleComparator, whose
 // getValueForDoc does Double.longBitsToDouble(docValues.longValue()).
 type doubleComparator struct {
-	values  []float64
-	bottom  float64
-	missing float64
-	field   string
-	leaf    *numericLeafState
+	values   []float64
+	bottom   float64
+	missing  float64
+	field    string
+	leaf     *numericLeafState
+	dvSource NumericDocValuesSource
 }
 
 func newDoubleComparator(numHits int, field string, missing float64) *doubleComparator {
@@ -311,7 +327,7 @@ func (c *doubleComparator) compare(slot1, slot2 int) int {
 func (c *doubleComparator) value(slot int) any { return c.values[slot] }
 
 func (c *doubleComparator) setReader(reader IndexReader) error {
-	leaf, err := bindNumericLeaf(reader, c.field)
+	leaf, err := bindNumericLeaf(reader, c.field, c.dvSource)
 	if err != nil {
 		return err
 	}
