@@ -26,23 +26,68 @@ type ConstantScoreScorer struct {
 	scoreMode     ScoreMode
 	approximation DocIdSetIterator
 	iterator      DocIdSetIterator
+
+	// wrapper is non-nil only in TOP_SCORES mode. SetMinCompetitiveScore swaps
+	// its delegate for an empty iterator once minScore exceeds the constant
+	// score, mirroring Lucene's DocIdSetIteratorWrapper.
+	wrapper *constantScoreDISIWrapper
 }
+
+// constantScoreDISIWrapper mirrors the private DocIdSetIteratorWrapper in
+// Lucene's ConstantScoreScorer: it forwards iteration to a swappable delegate
+// so that SetMinCompetitiveScore can replace the delegate with an empty
+// iterator and terminate iteration once the constant score is no longer
+// competitive.
+type constantScoreDISIWrapper struct {
+	doc      int
+	delegate DocIdSetIterator
+}
+
+func newConstantScoreDISIWrapper(delegate DocIdSetIterator) *constantScoreDISIWrapper {
+	return &constantScoreDISIWrapper{doc: -1, delegate: delegate}
+}
+
+func (w *constantScoreDISIWrapper) DocID() int { return w.doc }
+
+func (w *constantScoreDISIWrapper) NextDoc() (int, error) {
+	doc, err := w.delegate.NextDoc()
+	w.doc = doc
+	return doc, err
+}
+
+func (w *constantScoreDISIWrapper) Advance(target int) (int, error) {
+	doc, err := w.delegate.Advance(target)
+	w.doc = doc
+	return doc, err
+}
+
+func (w *constantScoreDISIWrapper) Cost() int64 { return w.delegate.Cost() }
+
+func (w *constantScoreDISIWrapper) DocIDRunEnd() int { return w.doc + 1 }
 
 // NewConstantScoreScorer builds a ConstantScoreScorer that yields
 // score for every document emitted by disi. The same iterator is
 // used both as the approximation (used when two-phase iteration is
 // negotiated) and the confirmed iterator.
 //
-// Mirrors the public ConstantScoreScorer(float, ScoreMode,
-// DocIdSetIterator) constructor of Lucene's
-// org.apache.lucene.search.ConstantScoreScorer.
+// In TOP_SCORES mode the iterator is wrapped so that SetMinCompetitiveScore
+// can short-circuit iteration once the (constant) score is no longer
+// competitive, mirroring the TOP_SCORES branch of Lucene's
+// org.apache.lucene.search.ConstantScoreScorer constructor.
 func NewConstantScoreScorer(score float32, scoreMode ScoreMode, disi DocIdSetIterator) *ConstantScoreScorer {
-	return &ConstantScoreScorer{
-		score:         score,
-		scoreMode:     scoreMode,
-		approximation: disi,
-		iterator:      disi,
+	s := &ConstantScoreScorer{
+		score:     score,
+		scoreMode: scoreMode,
 	}
+	if scoreMode == TOP_SCORES {
+		s.wrapper = newConstantScoreDISIWrapper(disi)
+		s.approximation = s.wrapper
+		s.iterator = s.wrapper
+	} else {
+		s.approximation = disi
+		s.iterator = disi
+	}
+	return s
 }
 
 // DocID returns the doc the iterator currently sits on.
@@ -70,6 +115,19 @@ func (s *ConstantScoreScorer) Score() float32 { return s.score }
 // every document carries the same score.
 func (s *ConstantScoreScorer) GetMaxScore(_ int) float32 { return s.score }
 
+// SetMinCompetitiveScore terminates iteration when minScore exceeds the
+// constant score this scorer produces, but only in TOP_SCORES mode (where the
+// iterator was wrapped to allow it). This is the Go port of
+// ConstantScoreScorer.setMinCompetitiveScore: once minScore > score, no further
+// document can be competitive, so the wrapped delegate is replaced with an
+// empty iterator. In any other ScoreMode the call is a no-op.
+func (s *ConstantScoreScorer) SetMinCompetitiveScore(minScore float32) error {
+	if s.scoreMode == TOP_SCORES && minScore > s.score && s.wrapper != nil {
+		s.wrapper.delegate = NewEmptyDocIdSetIterator()
+	}
+	return nil
+}
+
 // GetScoreMode returns the ScoreMode this scorer was constructed
 // with. Exposed so suppliers can inspect the mode they propagated to
 // the scorer; not part of the Lucene API but a thin getter that
@@ -82,5 +140,9 @@ func (s *ConstantScoreScorer) GetScoreMode() ScoreMode { return s.scoreMode }
 // type lands.
 func (s *ConstantScoreScorer) GetApproximation() DocIdSetIterator { return s.approximation }
 
-// Ensure ConstantScoreScorer implements Scorer.
-var _ Scorer = (*ConstantScoreScorer)(nil)
+// Ensure ConstantScoreScorer implements Scorer and the optional
+// MinCompetitiveScorer extension.
+var (
+	_ Scorer               = (*ConstantScoreScorer)(nil)
+	_ MinCompetitiveScorer = (*ConstantScoreScorer)(nil)
+)

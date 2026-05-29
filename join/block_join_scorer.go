@@ -681,6 +681,24 @@ func (s *ToParentBlockJoinScorer) Score() float32 {
 	return s.parentScore
 }
 
+// SetMinCompetitiveScore forwards the minimum competitive score to the child
+// scorer when the score mode permits early termination.
+//
+// Faithful port of ToParentBlockJoinQuery.BlockJoinScorer.setMinCompetitiveScore:
+// only ScoreMode.None and ScoreMode.Max forward the hint to the child scorer
+// (Avg/Min/Total aggregate over all children, so a per-child threshold cannot
+// safely skip). The child scorer honours the hint only if it implements the
+// optional search.MinCompetitiveScorer interface (e.g. a TOP_SCORES
+// ConstantScoreScorer or WANDScorer); otherwise the call is a no-op.
+func (s *ToParentBlockJoinScorer) SetMinCompetitiveScore(minScore float32) error {
+	if s.scoreMode == None || s.scoreMode == Max {
+		if mc, ok := s.childScorer.(search.MinCompetitiveScorer); ok {
+			return mc.SetMinCompetitiveScore(minScore)
+		}
+	}
+	return nil
+}
+
 // Cost returns the estimated cost of this scorer (the child iterator cost).
 func (s *ToParentBlockJoinScorer) Cost() int64 {
 	return s.childScorer.Cost()

@@ -13,6 +13,22 @@ type Scorer interface {
 	GetMaxScore(upTo int) float32
 }
 
+// MinCompetitiveScorer is the optional Scorer extension that lets a collector
+// (or a parent scorer) hint at the minimum score a hit must reach to be
+// competitive, enabling non-competitive documents to be skipped. It mirrors
+// org.apache.lucene.search.Scorer#setMinCompetitiveScore.
+//
+// It is modelled as an optional interface rather than a method on Scorer so
+// that the many existing Scorer implementations keep compiling unchanged: only
+// scorers that participate in TOP_SCORES early termination implement it, and
+// callers type-assert before forwarding the hint.
+type MinCompetitiveScorer interface {
+	// SetMinCompetitiveScore informs the scorer that hits scoring below
+	// minScore are not competitive and may be skipped. Implementations that
+	// cannot skip should leave it a no-op.
+	SetMinCompetitiveScore(minScore float32) error
+}
+
 // BaseScorer provides common functionality for scorers.
 type BaseScorer struct {
 	weight Weight

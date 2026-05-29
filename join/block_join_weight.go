@@ -530,6 +530,18 @@ func (w *ToParentBlockJoinWeight) Scorer(context *index.LeafReaderContext) (sear
 		return nil, nil
 	}
 
+	// ScoreMode.None: Lucene wraps the child query in a ConstantScoreQuery with
+	// boost 0 created in the top-level scoreMode, so the child produces score 0
+	// and — under TOP_SCORES — can early-terminate once the minimum competitive
+	// score exceeds 0. We reproduce that here by wrapping the child scorer's
+	// iterator in a TOP_SCORES ConstantScoreScorer(score=0). This keeps the
+	// None-mode parent score at 0 (the block-join scorer already returns 0 for
+	// None) while enabling SetMinCompetitiveScore to skip non-competitive parents
+	// (Lucene ToParentBlockJoinQuery.createWeight, ScoreMode.None branch).
+	if w.scoreMode == None {
+		childScorer = search.NewConstantScoreScorer(0, search.TOP_SCORES, childScorer)
+	}
+
 	// Create and return the ToParentBlockJoinScorer
 	return NewToParentBlockJoinScorer(w, childScorer, parentsBits, w.scoreMode, w.boost), nil
 }
