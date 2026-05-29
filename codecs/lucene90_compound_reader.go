@@ -160,11 +160,14 @@ func readCompoundEntries(dir store.Directory, entriesName string, expectedSegmen
 		if _, dup := mapping[name]; dup {
 			return nil, 0, fmt.Errorf("lucene90 compound: duplicate cfs entry id=%q", name)
 		}
-		off, err := store.ReadInt64(csIn)
+		// offset/length are written by Lucene90CompoundFormat with
+		// entries.writeLong (little-endian); read them with the matching LE
+		// helper. See the writer in compound_format.go.
+		off, err := store.ReadInt64LE(csIn)
 		if err != nil {
 			return nil, 0, fmt.Errorf("lucene90 compound: read entry offset [%d]: %w", i, err)
 		}
-		length, err := store.ReadInt64(csIn)
+		length, err := store.ReadInt64LE(csIn)
 		if err != nil {
 			return nil, 0, fmt.Errorf("lucene90 compound: read entry length [%d]: %w", i, err)
 		}
