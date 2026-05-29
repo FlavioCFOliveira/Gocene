@@ -11,22 +11,23 @@
 // (rmp #4778) and the ToParentBlockJoinSortField / BlockJoinSelector.wrap
 // plumbing (rmp #4779 / #4758).
 //
-// Deviations from the Lucene reference, both behaviourally exact for this
+// Deviation from the Lucene reference, behaviourally exact for this
 // deterministic corpus:
 //
-//  1. Lucene's child query and child filter use PrefixQuery(field2) to select
+//   - Lucene's child query and child filter use PrefixQuery(field2) to select
 //     every child that has a field2 value. Gocene's PrefixQuery yields a nil
 //     weight (rmp #4760), so it is substituted by an equivalent SHOULD set of
 //     TermQuery(field2, letter) over the corpus alphabet. Every child here has a
 //     field2 value, so the substitution selects exactly the same children. The
 //     fourth variant uses a real TermQuery(filter_1, "T"), matching Lucene
 //     verbatim.
-//  2. Lucene puts the indexed term and the SortedDocValues on the same field
-//     name (field2). Gocene drops the DocValuesType when a field name carries
-//     both an indexed field and a DocValues field in the same document (rmp
-//     #4780), so the per-child sort value is stored in a sibling
-//     SortedDocValuesField named field2dv carrying the same letter. The sort
-//     therefore reads the identical values; only the field name differs.
+//
+// As of rmp #4780 a single field name carries both the indexed term and the
+// SortedDocValues, exactly as Lucene does: the per-child sort value lives on a
+// SortedDocValuesField named field2 (the same name as the indexed StringField),
+// and the sort reads it directly from that field. The earlier sibling-field
+// (field2dv) workaround has been removed now that the dual-purpose-field bug is
+// fixed.
 //
 // The index is built in a single segment (no intermediate commits) so the parent
 // global doc ids are 3, 7, 11, 15, 19, 23, 27 exactly as the Lucene assertions
@@ -42,16 +43,16 @@ import (
 )
 
 // sortChild builds one child document for the sorting corpus: a StringField
-// field2 (for term-based child queries/filters), a SortedDocValuesField field2dv
-// carrying the same letter (the value the parent is sorted by; see deviation #2),
-// and a StringField filter_1.
+// field2 (for term-based child queries/filters), a SortedDocValuesField on the
+// same name field2 carrying the same letter (the value the parent is sorted by;
+// dual-purpose field, rmp #4780), and a StringField filter_1.
 func sortChild(t *testing.T, field2, filter1 string) index.Document {
 	t.Helper()
 	d := document.NewDocument()
 	d.Add(mustStringField(t, "field2", field2, false))
-	dv, err := document.NewSortedDocValuesField("field2dv", []byte(field2))
+	dv, err := document.NewSortedDocValuesField("field2", []byte(field2))
 	if err != nil {
-		t.Fatalf("NewSortedDocValuesField(field2dv=%q): %v", field2, err)
+		t.Fatalf("NewSortedDocValuesField(field2=%q): %v", field2, err)
 	}
 	d.Add(dv)
 	d.Add(mustStringField(t, "filter_1", filter1, false))
@@ -143,7 +144,7 @@ func TestBlockJoinSorting_NestedSorting(t *testing.T) {
 	}
 
 	// Variant 1: sort by field ascending, order first (MIN, ascending).
-	sf1, err := NewToParentBlockJoinSortField("field2dv", search.SortFieldTypeString, false, parentFilter, childFilter)
+	sf1, err := NewToParentBlockJoinSortField("field2", search.SortFieldTypeString, false, parentFilter, childFilter)
 	if err != nil {
 		t.Fatalf("NewToParentBlockJoinSortField v1: %v", err)
 	}
@@ -156,7 +157,7 @@ func TestBlockJoinSorting_NestedSorting(t *testing.T) {
 		[]string{"a", "c", "e", "g", "i"})
 
 	// Variant 2: sort by field ascending, order last (MAX, ascending).
-	sf2, err := NewToParentBlockJoinSortFieldOrder("field2dv", search.SortFieldTypeString, false, true, parentFilter, childFilter)
+	sf2, err := NewToParentBlockJoinSortFieldOrder("field2", search.SortFieldTypeString, false, true, parentFilter, childFilter)
 	if err != nil {
 		t.Fatalf("NewToParentBlockJoinSortFieldOrder v2: %v", err)
 	}
@@ -169,7 +170,7 @@ func TestBlockJoinSorting_NestedSorting(t *testing.T) {
 		[]string{"c", "e", "g", "i", "k"})
 
 	// Variant 3: sort by field descending, order last (MAX, descending).
-	sf3, err := NewToParentBlockJoinSortField("field2dv", search.SortFieldTypeString, true, parentFilter, childFilter)
+	sf3, err := NewToParentBlockJoinSortField("field2", search.SortFieldTypeString, true, parentFilter, childFilter)
 	if err != nil {
 		t.Fatalf("NewToParentBlockJoinSortField v3: %v", err)
 	}
@@ -184,7 +185,7 @@ func TestBlockJoinSorting_NestedSorting(t *testing.T) {
 	// Variant 4: sort by field descending, order last, childFilter filter_1:T.
 	childFilter1T := NewQueryBitSetProducer(search.NewTermQuery(index.NewTerm("filter_1", "T")))
 	query1T := NewToParentBlockJoinQuery(search.NewTermQuery(index.NewTerm("filter_1", "T")), parentFilter, None)
-	sf4, err := NewToParentBlockJoinSortField("field2dv", search.SortFieldTypeString, true, parentFilter, childFilter1T)
+	sf4, err := NewToParentBlockJoinSortField("field2", search.SortFieldTypeString, true, parentFilter, childFilter1T)
 	if err != nil {
 		t.Fatalf("NewToParentBlockJoinSortField v4: %v", err)
 	}
