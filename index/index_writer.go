@@ -39,6 +39,20 @@ type IndexWriter struct {
 	// NOT for document-level operations which should be lock-free
 	mu sync.RWMutex
 
+	// addLock serializes the per-document atomic unit performed by AddDocument
+	// and UpdateDocument: processing the document into the DocumentsWriter
+	// (which increments the DWPT's numDocsInRAM), the matching docCount.Add(1),
+	// and the auto-flush trigger check.  These three steps MUST be one
+	// indivisible unit per document so that docCount and the DWPT document
+	// count never drift.  Without this, a flush — which reconciles its segment
+	// numDocs from the live DWPT count and then resets docCount to zero — can
+	// run after a concurrent document has already been processed into the DWPT
+	// (numDocsInRAM incremented) but before that document's docCount.Add(1) has
+	// executed.  The flush captures the DWPT document, resets docCount, and the
+	// late docCount.Add(1) then becomes a ghost count, inflating MaxDoc by one
+	// per such interleaving (rmp #4772).  addLock closes that window.
+	addLock sync.Mutex
+
 	// documentsWriter handles the actual document processing and flushing
 	// DocumentsWriter has its own internal locking
 	documentsWriter *DocumentsWriter
@@ -237,6 +251,12 @@ func (w *IndexWriter) AddDocument(doc Document) error {
 		return err
 	}
 
+	// Serialize the per-document atomic unit (process → docCount.Add → flush
+	// check) so docCount and the DWPT document count cannot drift across a
+	// concurrent flush (rmp #4772; see the addLock field documentation).
+	w.addLock.Lock()
+	defer w.addLock.Unlock()
+
 	// DocumentsWriter has its own internal locking, so we don't need
 	// to hold the global lock during document processing.
 	if w.documentsWriter != nil {
@@ -331,6 +351,13 @@ func (w *IndexWriter) UpdateDocument(term *Term, doc Document) error {
 	if err := w.ensureOpen(); err != nil {
 		return err
 	}
+
+	// Serialize the per-document atomic unit (process → docCount.Add → flush
+	// check) against concurrent AddDocument/UpdateDocument calls so docCount and
+	// the DWPT document count cannot drift across a flush (rmp #4772; see the
+	// addLock field documentation).
+	w.addLock.Lock()
+	defer w.addLock.Unlock()
 
 	// Classify the replacement doc: accumulate FieldInfos and check DV-only.
 	// A DV-only doc has no indexed and no stored fields — it carries only
