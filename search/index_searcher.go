@@ -74,6 +74,40 @@ func (s *IndexSearcher) Search(query Query, n int) (*TopDocs, error) {
 	return collector.TopDocs(), nil
 }
 
+// SearchWithSort executes query and returns the top n hits ordered by sort
+// rather than by relevance score, as *TopFieldDocs whose ScoreDocs are
+// *FieldDoc carrying the per-hit sort values.
+//
+// This is the Go port of org.apache.lucene.search.IndexSearcher#search(Query,
+// int, Sort). A nil or empty sort, or a sort that is purely by score, behaves
+// like the score-ordered Search; otherwise the matching leaf documents are run
+// through the field comparators (Int/Long/Float/Double over NumericDocValues,
+// TermOrdVal over SortedDocValues) and collected into a comparator-ordered
+// priority queue per the TopFieldCollector lifecycle.
+func (s *IndexSearcher) SearchWithSort(query Query, n int, sort *Sort) (*TopFieldDocs, error) {
+	if sort == nil || len(sort.Fields) == 0 {
+		return nil, fmt.Errorf("SearchWithSort: a Sort with at least one field is required")
+	}
+	if n <= 0 {
+		return nil, fmt.Errorf("SearchWithSort: numHits must be > 0, got %d", n)
+	}
+
+	limit := s.reader.MaxDoc()
+	if limit < 1 {
+		limit = 1
+	}
+	cappedNumHits := n
+	if cappedNumHits > limit {
+		cappedNumHits = limit
+	}
+
+	collector := NewTopFieldCollector(cappedNumHits, sort)
+	if err := s.SearchWithCollector(query, collector); err != nil {
+		return nil, err
+	}
+	return collector.topFieldDocs(), nil
+}
+
 // SearchAfter finds the top n hits for query, restricted to documents that
 // sort strictly after the given ScoreDoc in the (score desc, docID asc)
 // ordering. Passing the bottom result of a previous page as after enables
@@ -244,6 +278,11 @@ func (s *IndexSearcher) searchLeaf(reader index.IndexReaderInterface, ord, docBa
 	// If it's a TopDocsLeafCollector, set the docBase
 	if tdc, ok := leafCollector.(*TopDocsLeafCollector); ok {
 		tdc.SetDocBase(docBase)
+	}
+	// Field-sorted collection rebases doc ids (and DOC-comparator values) by the
+	// segment's docBase too.
+	if tflc, ok := leafCollector.(*TopFieldLeafCollector); ok {
+		tflc.SetDocBase(docBase)
 	}
 
 	scorer, err := weight.Scorer(ctx)
