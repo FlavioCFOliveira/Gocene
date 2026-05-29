@@ -48,3 +48,33 @@ func TestConstantScoreQuery_Rewrite(t *testing.T) {
 		t.Errorf("Expected ConstantScoreQuery, got %T", rewritten)
 	}
 }
+
+// TestConstantScoreQuery_CreateWeightNotNil guards the root-cause bug behind
+// rmp #4760 / #4767: ConstantScoreQuery must override CreateWeight rather than
+// inheriting BaseQuery.CreateWeight (which returns a nil Weight). A nil Weight
+// makes the query silently match nothing.
+func TestConstantScoreQuery_CreateWeightNotNil(t *testing.T) {
+	tq := NewTermQuery(index.NewTerm("field", "value"))
+	csq := NewConstantScoreQuery(tq)
+
+	// needsScores=false returns the inner Weight directly (TermWeight here).
+	wNoScores, err := csq.CreateWeight(nil, false, 1.0)
+	if err != nil {
+		t.Fatalf("CreateWeight(needsScores=false) failed: %v", err)
+	}
+	if wNoScores == nil {
+		t.Fatal("CreateWeight(needsScores=false) returned a nil Weight")
+	}
+
+	// needsScores=true wraps the inner Weight in a ConstantScoreWeight.
+	wScores, err := csq.CreateWeight(nil, true, 1.0)
+	if err != nil {
+		t.Fatalf("CreateWeight(needsScores=true) failed: %v", err)
+	}
+	if wScores == nil {
+		t.Fatal("CreateWeight(needsScores=true) returned a nil Weight")
+	}
+	if _, ok := wScores.(*ConstantScoreWeight); !ok {
+		t.Errorf("Expected a *ConstantScoreWeight when scores are needed, got %T", wScores)
+	}
+}
