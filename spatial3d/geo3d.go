@@ -13,12 +13,25 @@
 // GeoConvexPolygon / GeoConcavePolygon (point-in-polygon) shapes, with
 // behavioural parity against Lucene 10.4.0 verified by unit tests.
 //
-// Deviation: the query/sort wiring in this package — PointInGeo3DShapeQuery,
-// PointInShapeIntersectVisitor (Weight/Scorer/DocIdSetBuilder integration),
-// and the Geo3DPoint sort fields and comparators — remains deferred. It
-// depends on Lucene90PointsFormat.WriteField and the BKD intersect path being
-// fully operational, so end-to-end shape-query document-set matching is not
-// yet wired through these stubs.
+// The shape-query path is wired (rmp #4750): PointInGeo3DShapeQuery is a
+// ConstantScore query whose Weight walks the BKD point tree via
+// PointInShapeIntersectVisitor, decodes each 3-D point with DecodeDimension,
+// and admits a document iff geom.GeoShape.IsWithin reports membership.
+// IsWithin is the authoritative final gate, so the produced document set is
+// exactly correct for any GeoShape (circle, bbox, convex/concave polygon).
+// See geo3d_query.go for the Weight/Scorer/visitor implementation.
+//
+// Deviation (performance-only, correctness-preserving): the visitor's
+// Compare(minPacked, maxPacked) always returns CELL_CROSSES_QUERY, so the BKD
+// walk visits every leaf and gates every point through IsWithin rather than
+// pruning sub-trees with the shape's XYZ bounding box. This is because the
+// bounding-box engine (XYZBounds.AddPlane-family and XYZSolid.GetRelationship)
+// is still stubbed; restoring it as a BKD prefilter is tracked by rmp #4768.
+// Reading on-disk Geo3DPoint values through LeafReader.GetPointValues is
+// tracked by rmp #4769; until that lands, the query is exercised against an
+// in-memory PointValues stub (see geo3d_query_test.go).
+//
+// The Geo3DPoint sort fields and comparators remain deferred (backlog #2693).
 //
 // Already delivered (T4650):
 //   - Correct PlanetModel construction (xyScaling = a/meanRadius).
@@ -59,8 +72,8 @@ func init() {
 // ToIndexableFields produces the wire-compatible BKD encoding (3 dims × 4 bytes)
 // using IntToSortableBytes(PlanetModel.encodeValue(coord)).
 //
-// Query infrastructure (Weight, Scorer, IntersectVisitor) is deferred to
-// backlog #4682 until Lucene90PointsFormat.WriteField is fully operational.
+// The query infrastructure (PointInGeo3DShapeQuery, PointInShapeIntersectVisitor)
+// is implemented in geo3d_query.go (rmp #4750).
 //
 // Port of org.apache.lucene.spatial3d.Geo3DPoint.
 type Geo3DPoint struct {
@@ -174,62 +187,8 @@ func DecodeDimension(pm *geom.PlanetModel, value []byte, offset int) float64 {
 	return pm.DecodeValue(util.SortableBytesToInt(value, offset))
 }
 
-// ---------------------------------------------------------------------------
-// PointInGeo3DShapeQuery — stub
-//
-// Port of org.apache.lucene.spatial3d.PointInGeo3DShapeQuery.
-// ---------------------------------------------------------------------------
-
-// PointInGeo3DShapeQuery is a query that matches documents whose Geo3DPoint
-// falls inside the given GeoShape.
-//
-// Full implementation (Weight, Scorer, IntersectVisitor) deferred to #2693.
-//
-// Port of org.apache.lucene.spatial3d.PointInGeo3DShapeQuery.
-type PointInGeo3DShapeQuery struct {
-	field string
-	shape geom.GeoShape
-}
-
-// NewPointInGeo3DShapeQuery constructs a PointInGeo3DShapeQuery.
-//
-// Port of org.apache.lucene.spatial3d.PointInGeo3DShapeQuery(String,GeoShape).
-func NewPointInGeo3DShapeQuery(field string, shape geom.GeoShape) *PointInGeo3DShapeQuery {
-	return &PointInGeo3DShapeQuery{field: field, shape: shape}
-}
-
-// GetField returns the field name.
-func (q *PointInGeo3DShapeQuery) GetField() string { return q.field }
-
-// GetShape returns the query shape.
-func (q *PointInGeo3DShapeQuery) GetShape() geom.GeoShape { return q.shape }
-
-// String returns a human-readable representation.
-func (q *PointInGeo3DShapeQuery) String() string {
-	return fmt.Sprintf("PointInGeo3DShapeQuery{field=%s}", q.field)
-}
-
-// ---------------------------------------------------------------------------
-// PointInShapeIntersectVisitor — stub
-//
-// Port of org.apache.lucene.spatial3d.PointInShapeIntersectVisitor.
-// ---------------------------------------------------------------------------
-
-// PointInShapeIntersectVisitor visits BKD leaf nodes testing whether each
-// encoded point falls within a GeoShape.
-//
-// Full implementation (DocIdSetBuilder integration) deferred to #2693.
-//
-// Port of org.apache.lucene.spatial3d.PointInShapeIntersectVisitor.
-type PointInShapeIntersectVisitor struct {
-	shape  geom.GeoShape
-	bounds *geom.XYZBounds
-}
-
-// NewPointInShapeIntersectVisitor constructs a PointInShapeIntersectVisitor.
-func NewPointInShapeIntersectVisitor(shape geom.GeoShape, bounds *geom.XYZBounds) *PointInShapeIntersectVisitor {
-	return &PointInShapeIntersectVisitor{shape: shape, bounds: bounds}
-}
+// PointInGeo3DShapeQuery and PointInShapeIntersectVisitor are implemented in
+// geo3d_query.go (rmp #4750).
 
 // ---------------------------------------------------------------------------
 // Geo3DPointSortField / comparators — stubs
