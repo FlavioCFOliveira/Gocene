@@ -149,7 +149,10 @@ func TestBlockJoinValidation_AdvanceValidationForToChildBjq(t *testing.T) {
 		}
 	}
 	if target < 0 {
-		t.Skip("no suitable non-parent target in this layout")
+		// The corpus interleaves 5 children before each parent, so a doc whose
+		// successor is a child always exists; reaching here means the fixture
+		// was changed incorrectly.
+		t.Fatal("no suitable non-parent target in this corpus layout")
 	}
 
 	if _, err := scorer.Advance(target); err == nil {
