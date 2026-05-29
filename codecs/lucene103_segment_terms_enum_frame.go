@@ -14,6 +14,7 @@
 package codecs
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 
@@ -828,31 +829,14 @@ func asCompressionInput(in store.IndexInput) CompressionInput {
 	return compressionInputAdapter{DataInput: in}
 }
 
-// compareSuffixToTarget compares suffixBytes[start:start+len] with the suffix
+// compareSuffixToTarget compares suffixBytes[start:start+length] with the suffix
 // portion of target (target.Bytes[target.Offset+prefixLength : target.Offset+target.Length])
-// using unsigned byte ordering, the same comparison Lucene performs with
-// Arrays.compareUnsigned.
+// using unsigned byte ordering — the same comparison Lucene performs with
+// Arrays.compareUnsigned. bytes.Compare implements exactly that ordering and is
+// SIMD-optimised, so the inner scan stays allocation-free.
 func compareSuffixToTarget(suffixBytes []byte, start, length int, target *util.BytesRef, prefixLength int) int {
-	a := suffixBytes[start : start+length]
-	b := target.Bytes[target.Offset+prefixLength : target.Offset+target.Length]
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
-	for i := 0; i < n; i++ {
-		if a[i] != b[i] {
-			if a[i] < b[i] {
-				return -1
-			}
-			return 1
-		}
-	}
-	switch {
-	case len(a) < len(b):
-		return -1
-	case len(a) > len(b):
-		return 1
-	default:
-		return 0
-	}
+	return bytes.Compare(
+		suffixBytes[start:start+length],
+		target.Bytes[target.Offset+prefixLength:target.Offset+target.Length],
+	)
 }

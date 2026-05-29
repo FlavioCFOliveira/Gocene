@@ -14,6 +14,7 @@
 package codecs
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 
@@ -750,30 +751,10 @@ var errSegmentTermsEnumOrdUnsupported = errors.New(
 var ErrSegmentTermsEnumOrdUnsupported = errSegmentTermsEnumOrdUnsupported
 
 // compareBytes compares a[aFrom:aTo] with b[bFrom:bTo] using unsigned byte
-// ordering, mirroring java.util.Arrays.compareUnsigned.
+// ordering, mirroring java.util.Arrays.compareUnsigned. bytes.Compare yields the
+// identical ordering.
 func compareBytes(a []byte, aFrom, aTo int, b []byte, bFrom, bTo int) int {
-	x := a[aFrom:aTo]
-	y := b[bFrom:bTo]
-	n := len(x)
-	if len(y) < n {
-		n = len(y)
-	}
-	for i := 0; i < n; i++ {
-		if x[i] != y[i] {
-			if x[i] < y[i] {
-				return -1
-			}
-			return 1
-		}
-	}
-	switch {
-	case len(x) < len(y):
-		return -1
-	case len(x) > len(y):
-		return 1
-	default:
-		return 0
-	}
+	return bytes.Compare(a[aFrom:aTo], b[bFrom:bTo])
 }
 
 // Compile-time interface check.
