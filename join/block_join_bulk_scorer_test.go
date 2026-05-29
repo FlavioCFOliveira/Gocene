@@ -13,21 +13,28 @@ package join
 import "testing"
 
 // TestBlockJoinBulkScorer_ScoreRandomIndices corresponds to
-// TestBlockJoinBulkScorer.testScoreRandomIndices.
+// TestBlockJoinBulkScorer.testScoreRandomIndices. It drives
+// BulkScorer.score(LeafCollector, Bits, 0, NO_MORE_DOCS) and compares the
+// per-parent scores against an independently computed expectation. This needs
+// the Lucene-faithful windowed bulk-scoring contract that Gocene has not yet
+// introduced (its BulkScorer is the simplified Score(collector, acceptDocs)
+// surface and DefaultBulkScorer does not collect).
 func TestBlockJoinBulkScorer_ScoreRandomIndices(t *testing.T) {
-	t.Skip("requires a dedicated BlockJoinBulkScorer (exhaustive child scoring) + min-competitive-score + ConstantScoreQuery children: rmp #4766")
+	t.Skip("requires the Lucene-faithful windowed BulkScorer contract + BlockJoinBulkScorer port: rmp #4777")
 }
 
 // TestBlockJoinBulkScorer_SetMinCompetitiveScoreWithScoreModeMax corresponds to
-// TestBlockJoinBulkScorer.testSetMinCompetitiveScoreWithScoreModeMax.
+// TestBlockJoinBulkScorer.testSetMinCompetitiveScoreWithScoreModeMax. Besides the
+// windowed bulk-scoring contract, the Max-mode early termination needs a
+// functional WANDScorer block-max min-competitive-score path.
 func TestBlockJoinBulkScorer_SetMinCompetitiveScoreWithScoreModeMax(t *testing.T) {
-	t.Skip("requires a dedicated BlockJoinBulkScorer + min-competitive-score early termination: rmp #4766")
+	t.Skip("requires the windowed BulkScorer contract (rmp #4777) + WANDScorer block-max min-competitive-score (rmp #4776)")
 }
 
 // TestBlockJoinBulkScorer_SetMinCompetitiveScoreWithScoreModeNone corresponds to
 // TestBlockJoinBulkScorer.testSetMinCompetitiveScoreWithScoreModeNone.
 func TestBlockJoinBulkScorer_SetMinCompetitiveScoreWithScoreModeNone(t *testing.T) {
-	t.Skip("requires a dedicated BlockJoinBulkScorer + min-competitive-score early termination: rmp #4766")
+	t.Skip("requires the Lucene-faithful windowed BulkScorer contract + BlockJoinBulkScorer port: rmp #4777")
 }
 
 // TestBlockJoinBulkScorer_ScoreModes verifies that ScoreMode constants can be
