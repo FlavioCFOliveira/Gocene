@@ -574,6 +574,23 @@ func (w fieldTypeAsIndexInterface) StoreTermVectorPositions() bool {
 }
 func (w fieldTypeAsIndexInterface) StoreTermVectorOffsets() bool { return w.ft.StoreTermVectorOffsets }
 
+// VectorDimension exposes the KNN vector dimension so the index-side
+// indexing chain can detect a vector field via its optional
+// vectorFieldTypeProvider probe (it returns 0 for non-vector field types).
+func (w fieldTypeAsIndexInterface) VectorDimension() int { return w.ft.VectorDimension }
+
+// VectorEncoding exposes the KNN vector encoding (BYTE / FLOAT32) for the
+// indexing chain's per-document value dispatch.
+func (w fieldTypeAsIndexInterface) VectorEncoding() index.VectorEncoding {
+	return w.ft.VectorEncoding
+}
+
+// VectorSimilarityFunction exposes the KNN similarity function recorded on
+// the FieldInfo so the codec can score vector comparisons consistently.
+func (w fieldTypeAsIndexInterface) VectorSimilarityFunction() index.VectorSimilarityFunction {
+	return w.ft.VectorSimilarityFunction
+}
+
 // AsIndexFieldTypeInterface returns this FieldType wrapped as an
 // index.FieldTypeInterface so that document.Field can satisfy
 // index.IndexableField without renaming any struct fields.

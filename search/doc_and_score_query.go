@@ -201,20 +201,34 @@ func NewDocAndScoreScorer(weight *DocAndScoreWeight) *DocAndScoreScorer {
 }
 
 // NextDoc advances to the next document.
+//
+// Returns NO_MORE_DOCS (the search-package sentinel, math.MaxInt32) when the
+// scorer is exhausted, matching the DocIdSetIterator contract that
+// IndexSearcher.searchLeaf and every other search-package scorer rely on. A
+// previous implementation returned -1, which never compared equal to
+// NO_MORE_DOCS and caused IndexSearcher's collection loop to spin forever
+// (surfaced once KnnFloatVectorQuery's rewrite began producing a
+// DocAndScoreQuery over a real index).
 func (s *DocAndScoreScorer) NextDoc() (int, error) {
 	s.current++
 	if s.current >= len(s.docIDs) {
-		return -1, nil
+		s.current = len(s.docIDs)
+		return NO_MORE_DOCS, nil
 	}
 	return s.docIDs[s.current], nil
 }
 
-// DocID returns the current document ID.
+// DocID returns the current document ID. Following the DocIdSetIterator
+// contract it reports -1 before the first NextDoc/Advance call and
+// NO_MORE_DOCS once the scorer is exhausted.
 func (s *DocAndScoreScorer) DocID() int {
-	if s.current >= 0 && s.current < len(s.docIDs) {
+	if s.current < 0 {
+		return -1
+	}
+	if s.current < len(s.docIDs) {
 		return s.docIDs[s.current]
 	}
-	return -1
+	return NO_MORE_DOCS
 }
 
 // Score returns the score of the current document.
@@ -236,7 +250,8 @@ func (s *DocAndScoreScorer) GetMaxScore(upTo int) float32 {
 	return maxScore * s.weight.boost
 }
 
-// Advance advances to a target document.
+// Advance advances to the first document whose ID is >= target, returning
+// NO_MORE_DOCS when no such document exists (DocIdSetIterator contract).
 func (s *DocAndScoreScorer) Advance(target int) (int, error) {
 	// Binary search for the first docID >= target
 	idx := sort.Search(len(s.docIDs), func(i int) bool {
@@ -244,7 +259,7 @@ func (s *DocAndScoreScorer) Advance(target int) (int, error) {
 	})
 	s.current = idx
 	if idx >= len(s.docIDs) {
-		return -1, nil
+		return NO_MORE_DOCS, nil
 	}
 	return s.docIDs[idx], nil
 }

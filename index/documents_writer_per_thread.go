@@ -47,6 +47,13 @@ type DocumentsWriterPerThread struct {
 	// termVectors holds term vectors per document (if enabled)
 	termVectors *TermVectorsBuffer
 
+	// vectorValues holds the buffered KNN vector values per field, in
+	// document order. It is populated during ProcessDocument and replayed
+	// into the codec's KnnVectorsWriter at flush time (flushKnnVectors).
+	// Mirrors the per-field KnnFieldVectorsWriter buffer that Lucene's
+	// IndexingChain accumulates before VectorValuesConsumer.flush.
+	vectorValues map[string]*VectorValuesBuffer
+
 	// lastDocID is the last document ID assigned
 	lastDocID int
 
@@ -137,6 +144,24 @@ type DocValuesBuffer struct {
 	dvType DocValuesType
 }
 
+// VectorValuesBuffer holds the buffered KNN vector values for a single
+// field, accumulated in document order during indexing and replayed into
+// the codec's KnnVectorsWriter at flush time.
+//
+// Exactly one of floatValues / byteValues is populated per buffer,
+// according to encoding. docIDs[i] is the document that supplied
+// floatValues[i] (or byteValues[i]); docIDs is strictly increasing because
+// ProcessDocument assigns monotonically increasing docIDs and a field is
+// recorded at most once per document.
+type VectorValuesBuffer struct {
+	dimension   int
+	encoding    VectorEncoding
+	similarity  VectorSimilarityFunction
+	docIDs      []int
+	floatValues [][]float32
+	byteValues  [][]byte
+}
+
 // TermVectorsBuffer holds term vectors for documents.
 type TermVectorsBuffer struct {
 	mu sync.RWMutex
@@ -173,6 +198,7 @@ func NewDocumentsWriterPerThread(parent *DocumentsWriter) *DocumentsWriterPerThr
 		storedFields:      NewStoredFieldsBuffer(),
 		docValues:         make(map[string]*DocValuesBuffer),
 		termVectors:       NewTermVectorsBuffer(),
+		vectorValues:      make(map[string]*VectorValuesBuffer),
 		lastDocID:         -1,
 	}
 }
@@ -226,6 +252,17 @@ type dwptField struct {
 	// customTermFreq, when > 0, overrides the default initial TF of 1.
 	// Used by fields such as FeatureField that encode a value as TF.
 	customTermFreq int
+	// Vector (KNN) attributes. hasVector is true when the field carries a
+	// KNN vector value (vectorDimension > 0). The per-document value is
+	// stored in exactly one of vectorFloatValue / vectorByteValue
+	// according to vectorEncoding, mirroring Lucene's
+	// IndexingChain.indexVectorValue dispatch on VectorEncoding.
+	hasVector        bool
+	vectorDimension  int
+	vectorEncoding   VectorEncoding
+	vectorSimilarity VectorSimilarityFunction
+	vectorFloatValue []float32
+	vectorByteValue  []byte
 }
 
 // omitNormsGetter is a narrow interface satisfied by field types that expose
@@ -258,6 +295,38 @@ type termFrequencyProvider interface {
 // carry FieldType(); this probe restores access without bloating the SPI.
 type indexFieldTypeProvider interface {
 	FieldType() FieldTypeInterface
+}
+
+// vectorFieldTypeProvider is satisfied by a field type that advertises KNN
+// vector attributes. document.FieldType (via its
+// fieldTypeAsIndexInterface bridge) implements it once a field has been
+// configured with SetVectorAttributes; non-vector field types do not.
+//
+// Probing this optional interface — rather than widening
+// FieldTypeInterface — keeps the existing stored-fields-only
+// FieldTypeInterface implementers (simpleFieldType, the spatial shape
+// types, the stored-fields consumers) unchanged, matching the
+// established optional-probe pattern used for OmitNorms and
+// TermFrequency above. It is the index-side projection of
+// IndexableFieldType.VectorDimension/VectorEncoding/VectorSimilarityFunction.
+type vectorFieldTypeProvider interface {
+	VectorDimension() int
+	VectorEncoding() VectorEncoding
+	VectorSimilarityFunction() VectorSimilarityFunction
+}
+
+// floatVectorValueProvider is satisfied by document.KnnFloatVectorField via
+// its VectorValue() []float32 accessor. It lets the indexing chain pull the
+// per-document float vector without importing the document package.
+type floatVectorValueProvider interface {
+	VectorValue() []float32
+}
+
+// byteVectorValueProvider is satisfied by document.KnnByteVectorField via its
+// VectorValue() []byte accessor, the byte analogue of
+// floatVectorValueProvider.
+type byteVectorValueProvider interface {
+	VectorValue() []byte
 }
 
 // asDwptField builds a flat dwptField record from fieldInterface using
@@ -338,6 +407,35 @@ func asDwptField(fieldInterface interface{}) (*dwptField, bool) {
 	if tfp, ok := fieldInterface.(termFrequencyProvider); ok {
 		f.customTermFreq = tfp.TermFrequency()
 	}
+
+	// Vector (KNN) attributes. The field type carries the dimension /
+	// encoding / similarity (via the optional vectorFieldTypeProvider
+	// probe); the per-document value lives on the concrete field
+	// (KnnFloatVectorField / KnnByteVectorField). A field is treated as a
+	// vector field only when the declared dimension is positive, matching
+	// Lucene's FieldInfo.hasVectorValues() contract.
+	//
+	// The encoding selects which value accessor to consult:
+	// floatVectorValueProvider for FLOAT32, byteVectorValueProvider for
+	// BYTE. Both accessors are named VectorValue() but differ in return
+	// type, so the encoding (not duck-typing alone) disambiguates which
+	// concrete field type produced the value.
+	if vtp, ok := ft.(vectorFieldTypeProvider); ok && vtp.VectorDimension() > 0 {
+		f.hasVector = true
+		f.vectorDimension = vtp.VectorDimension()
+		f.vectorEncoding = vtp.VectorEncoding()
+		f.vectorSimilarity = vtp.VectorSimilarityFunction()
+		switch f.vectorEncoding {
+		case VectorEncodingByte:
+			if bp, ok := fieldInterface.(byteVectorValueProvider); ok {
+				f.vectorByteValue = bp.VectorValue()
+			}
+		default: // VectorEncodingFloat32
+			if fp, ok := fieldInterface.(floatVectorValueProvider); ok {
+				f.vectorFloatValue = fp.VectorValue()
+			}
+		}
+	}
 	return f, true
 }
 
@@ -389,6 +487,18 @@ func (dwpt *DocumentsWriterPerThread) ProcessDocument(doc Document) error {
 			Stored:                   field.isStored,
 			DocValuesType:            field.docValuesType,
 		}
+		// Vector (KNN) attributes: record the dimension / encoding /
+		// similarity on the FieldInfo so it is serialised to the .fnm and
+		// FieldInfos.HasVectorValues() reports true on reopen, lighting up
+		// the codec KnnVectorsReader. Without a positive dimension the
+		// codec write/read paths are never engaged. Mirrors how Lucene's
+		// IndexingChain.processField sets the vector attributes on the
+		// per-field FieldInfo via schema.setVectorDimensions.
+		if field.hasVector {
+			opts.VectorDimension = field.vectorDimension
+			opts.VectorEncoding = field.vectorEncoding
+			opts.VectorSimilarityFunction = field.vectorSimilarity
+		}
 
 		// Get or create FieldInfo
 		fieldInfo := dwpt.getOrAddFieldInfo(fieldName, opts)
@@ -423,6 +533,14 @@ func (dwpt *DocumentsWriterPerThread) ProcessDocument(doc Document) error {
 			if idxField, ok2 := fieldInterface.(IndexableField); ok2 {
 				dwpt.buildTermVector(docID, fieldName, idxField)
 			}
+		}
+
+		if field.hasVector {
+			// Buffer the per-document vector value for this field. Replayed
+			// into the codec KnnVectorsWriter at flush time. Mirrors
+			// IndexingChain.indexVectorValue, which routes the value through
+			// the per-field KnnFieldVectorsWriter in document order.
+			dwpt.addVectorValue(docID, fieldName, field)
 		}
 	}
 
@@ -593,6 +711,39 @@ func (dwpt *DocumentsWriterPerThread) addDocValue(fieldName string, docID int, f
 	buf.values = append(buf.values, field.NumericValue())
 }
 
+// addVectorValue buffers one document's KNN vector value for fieldName.
+// Must be called with dwpt.mu held (write lock). The value type is selected
+// by the field's encoding: floatValue for FLOAT32, byteValue for BYTE. A
+// field that declared a positive dimension but supplied no value (a
+// document without this vector field) is simply not buffered for that doc,
+// matching Lucene's sparse-friendly per-field writer which only records
+// docs that call addValue.
+func (dwpt *DocumentsWriterPerThread) addVectorValue(docID int, fieldName string, field *dwptField) {
+	buf, exists := dwpt.vectorValues[fieldName]
+	if !exists {
+		buf = &VectorValuesBuffer{
+			dimension:  field.vectorDimension,
+			encoding:   field.vectorEncoding,
+			similarity: field.vectorSimilarity,
+		}
+		dwpt.vectorValues[fieldName] = buf
+	}
+	switch field.vectorEncoding {
+	case VectorEncodingByte:
+		if field.vectorByteValue == nil {
+			return
+		}
+		buf.docIDs = append(buf.docIDs, docID)
+		buf.byteValues = append(buf.byteValues, field.vectorByteValue)
+	default: // VectorEncodingFloat32
+		if field.vectorFloatValue == nil {
+			return
+		}
+		buf.docIDs = append(buf.docIDs, docID)
+		buf.floatValues = append(buf.floatValues, field.vectorFloatValue)
+	}
+}
+
 // buildTermVector builds term vector data for a field.
 func (dwpt *DocumentsWriterPerThread) buildTermVector(docID int, fieldName string, field IndexableField) {
 	// Term vectors will be populated from the inverted index during flush
@@ -642,6 +793,7 @@ func (dwpt *DocumentsWriterPerThread) Reset() {
 	dwpt.storedFields = NewStoredFieldsBuffer()
 	dwpt.docValues = make(map[string]*DocValuesBuffer)
 	dwpt.termVectors = NewTermVectorsBuffer()
+	dwpt.vectorValues = make(map[string]*VectorValuesBuffer)
 	dwpt.pendingDeletes = nil
 }
 
@@ -929,6 +1081,92 @@ func (dwpt *DocumentsWriterPerThread) flushTermVectors(codec Codec, state *Segme
 		}
 	}
 
+	return nil
+}
+
+// flushKnnVectors writes the buffered KNN vector values for every vector
+// field to the codec's KnnVectorsWriter and serialises the per-segment
+// HNSW graph plus the flat vectors (.vec / .vex / .vem files).
+//
+// It mirrors the vectorValuesConsumer.flush step of Lucene's
+// IndexingChain.flush: a per-field KnnFieldVectorsWriter is opened for each
+// vector field, the buffered per-document values are replayed in increasing
+// docID order, and the consumer serialises every field in one shot.
+//
+// The FieldInfo objects are taken from state.FieldInfos — the same
+// instances that flushFieldInfos serialises to the .fnm — so that the
+// PerFieldKnnVectorsWriter's PutCodecAttribute calls (format name + suffix)
+// are recorded on the FieldInfo that reaches disk. This is why
+// flushKnnVectors MUST run before flushFieldInfos.
+//
+// No-op when the codec has no KnnVectorsFormat or no vector fields were
+// buffered.
+func (dwpt *DocumentsWriterPerThread) flushKnnVectors(codec Codec, state *SegmentWriteState) error {
+	if codec == nil || codec.KnnVectorsFormat() == nil {
+		return nil
+	}
+	if len(dwpt.vectorValues) == 0 {
+		return nil
+	}
+
+	// Collect the vector fields from the on-disk FieldInfos, preserving
+	// field-number order so the AddField sequence (and thus the per-format
+	// suffix assignment) is deterministic across runs.
+	type vecField struct {
+		fieldInfo *FieldInfo
+		buf       *VectorValuesBuffer
+	}
+	var vecFields []vecField
+	it := state.FieldInfos.Iterator()
+	for {
+		fi := it.Next()
+		if fi == nil {
+			break
+		}
+		if fi.VectorDimension() <= 0 {
+			continue
+		}
+		buf, ok := dwpt.vectorValues[fi.Name()]
+		if !ok {
+			continue
+		}
+		vecFields = append(vecFields, vecField{fieldInfo: fi, buf: buf})
+	}
+	if len(vecFields) == 0 {
+		return nil
+	}
+
+	consumer := newVectorValuesConsumer(codec, state.Directory, state.SegmentInfo, util.NoOpInfoStream)
+
+	for _, vf := range vecFields {
+		handle, err := consumer.AddField(vf.fieldInfo)
+		if err != nil {
+			consumer.Abort()
+			return fmt.Errorf("knn vectors AddField %q: %w", vf.fieldInfo.Name(), err)
+		}
+		switch vf.buf.encoding {
+		case VectorEncodingByte:
+			for i, docID := range vf.buf.docIDs {
+				if err := handle.AddValue(docID, vf.buf.byteValues[i]); err != nil {
+					consumer.Abort()
+					return fmt.Errorf("knn vectors AddValue (byte) field=%q doc=%d: %w",
+						vf.fieldInfo.Name(), docID, err)
+				}
+			}
+		default: // VectorEncodingFloat32
+			for i, docID := range vf.buf.docIDs {
+				if err := handle.AddValue(docID, vf.buf.floatValues[i]); err != nil {
+					consumer.Abort()
+					return fmt.Errorf("knn vectors AddValue (float) field=%q doc=%d: %w",
+						vf.fieldInfo.Name(), docID, err)
+				}
+			}
+		}
+	}
+
+	if err := consumer.Flush(state, nil); err != nil {
+		return fmt.Errorf("knn vectors flush: %w", err)
+	}
 	return nil
 }
 

@@ -827,6 +827,14 @@ func (w *IndexWriter) Commit() error {
 				if err3 := dwpt.flushPostings(codec, writeState, fi); err3 != nil {
 					return fmt.Errorf("commit: flush postings for %s: %w", segmentName, err3)
 				}
+				// KNN vectors must be flushed BEFORE field infos: the
+				// PerFieldKnnVectorsWriter stamps the format-name and suffix
+				// codec attributes onto each vector FieldInfo, and those
+				// attributes must be present when flushFieldInfos serialises
+				// the .fnm so the reader can resolve the delegate format.
+				if err3 := dwpt.flushKnnVectors(codec, writeState); err3 != nil {
+					return fmt.Errorf("commit: flush knn vectors for %s: %w", segmentName, err3)
+				}
 				if err3 := dwpt.flushFieldInfos(codec, writeState); err3 != nil {
 					return fmt.Errorf("commit: flush field infos for %s: %w", segmentName, err3)
 				}

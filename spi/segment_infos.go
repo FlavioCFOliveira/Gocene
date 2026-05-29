@@ -515,13 +515,99 @@ func (si *SegmentInfos) UpdateCounterFromSegments() {
 // in-memory Gocene extensions are present.
 const goceneExtVersion = "1"
 
+// escapeUserDataToken percent-encodes the delimiter characters used by the
+// userData FieldInfos encoding ('\n', '|', '=', ';', '%') so that arbitrary
+// attribute keys/values can be embedded without breaking the framing.
+func escapeUserDataToken(s string) string {
+	repl := strings.NewReplacer(
+		"%", "%25",
+		"\n", "%0A",
+		"|", "%7C",
+		"=", "%3D",
+		";", "%3B",
+	)
+	return repl.Replace(s)
+}
+
+// unescapeUserDataToken reverses escapeUserDataToken.
+func unescapeUserDataToken(s string) string {
+	repl := strings.NewReplacer(
+		"%0A", "\n",
+		"%7C", "|",
+		"%3D", "=",
+		"%3B", ";",
+		"%25", "%",
+	)
+	return repl.Replace(s)
+}
+
+// encodeFieldInfoAttributes serialises a FieldInfo attribute map as a single
+// token of the form "k1=v1;k2=v2" with each key and value escaped via
+// escapeUserDataToken.  An empty/nil map yields the empty string.
+func encodeFieldInfoAttributes(attrs map[string]string) string {
+	if len(attrs) == 0 {
+		return ""
+	}
+	// Deterministic ordering keeps the encoded segments_N stable across runs.
+	keys := make([]string, 0, len(attrs))
+	for k := range attrs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for i, k := range keys {
+		if i > 0 {
+			b.WriteByte(';')
+		}
+		b.WriteString(escapeUserDataToken(k))
+		b.WriteByte('=')
+		b.WriteString(escapeUserDataToken(attrs[k]))
+	}
+	return b.String()
+}
+
+// decodeFieldInfoAttributes reverses encodeFieldInfoAttributes.  Returns nil
+// for the empty string.
+func decodeFieldInfoAttributes(encoded string) map[string]string {
+	if encoded == "" {
+		return nil
+	}
+	out := make(map[string]string)
+	for _, pair := range strings.Split(encoded, ";") {
+		if pair == "" {
+			continue
+		}
+		eq := strings.IndexByte(pair, '=')
+		if eq < 0 {
+			continue
+		}
+		k := unescapeUserDataToken(pair[:eq])
+		v := unescapeUserDataToken(pair[eq+1:])
+		out[k] = v
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // encodeFieldInfosForUserData serialises a FieldInfos as a compact string
 // suitable for storage in the userData map.  Format per FieldInfo (pipe-separated
 // tokens, newline-separated entries):
 //
-//	"<name>|<num>|<indexOpts>|<dvType>|<flags>"
+//	"<name>|<num>|<indexOpts>|<dvType>|<flags>|<vecDim>|<vecEnc>|<vecSim>|<ptDim>|<ptIdxDim>|<ptBytes>|<attrs>"
 //
 // where flags is a bitmask: 1=stored, 2=tokenized, 4=termVectors, 8=omitNorms.
+//
+// Tokens 6-11 (the vector and point triplets) and token 12 (the codec
+// attribute map) were appended after the original 5-token form so that KNN
+// vector and BKD point fields — and the per-field codec attributes that the
+// PerField*Format readers need (e.g. PerFieldKnnVectorsFormat.format /
+// .suffix) — survive a reopen that resolves FieldInfos from this
+// Gocene-private userData encoding rather than from the on-disk .fnm.
+// decodeFieldInfosFromUserData accepts the legacy 5-token and intermediate
+// 11-token entries (treating the missing attributes as zero / empty) for
+// forward compatibility with indices written before this change.
 func encodeFieldInfosForUserData(fi *schema.FieldInfos) string {
 	if fi == nil || fi.Size() == 0 {
 		return ""
@@ -551,12 +637,19 @@ func encodeFieldInfosForUserData(fi *schema.FieldInfos) string {
 		if info.OmitNorms() {
 			flags |= 8
 		}
-		fmt.Fprintf(&b, "%s|%d|%d|%d|%d",
+		fmt.Fprintf(&b, "%s|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%s",
 			info.Name(),
 			info.Number(),
 			int(info.IndexOptions()),
 			int(info.DocValuesType()),
 			flags,
+			info.VectorDimension(),
+			int(info.VectorEncoding()),
+			int(info.VectorSimilarityFunction()),
+			info.PointDimensionCount(),
+			info.PointIndexDimensionCount(),
+			info.PointNumBytes(),
+			encodeFieldInfoAttributes(info.GetAttributes()),
 		)
 	}
 	return b.String()
@@ -574,7 +667,10 @@ func decodeFieldInfosFromUserData(encoded string) (*schema.FieldInfos, error) {
 			continue
 		}
 		parts := strings.Split(line, "|")
-		if len(parts) != 5 {
+		// 5 tokens  = legacy form (pre vector/point);
+		// 11 tokens = vector + point triplets, no attribute map;
+		// 12 tokens = current form (adds the codec attribute map).
+		if len(parts) != 5 && len(parts) != 11 && len(parts) != 12 {
 			return nil, fmt.Errorf("malformed FieldInfo entry: %q", line)
 		}
 		fnum, err := strconv.Atoi(parts[1])
@@ -605,7 +701,59 @@ func decodeFieldInfosFromUserData(encoded string) (*schema.FieldInfos, error) {
 			VectorEncoding:           schema.VectorEncodingFloat32,
 			VectorSimilarityFunction: schema.VectorSimilarityFunctionEuclidean,
 		}
+		// Vector and point triplets are present in the 11- and 12-token forms.
+		// Legacy 5-token entries leave VectorDimension / point dimensions at
+		// zero (no vector / no point field), which matches their original
+		// information content.
+		if len(parts) >= 11 {
+			vecDim, err := strconv.Atoi(parts[5])
+			if err != nil {
+				return nil, fmt.Errorf("invalid vectorDimension %q: %w", parts[5], err)
+			}
+			vecEnc, err := strconv.Atoi(parts[6])
+			if err != nil {
+				return nil, fmt.Errorf("invalid vectorEncoding %q: %w", parts[6], err)
+			}
+			vecSim, err := strconv.Atoi(parts[7])
+			if err != nil {
+				return nil, fmt.Errorf("invalid vectorSimilarityFunction %q: %w", parts[7], err)
+			}
+			ptDim, err := strconv.Atoi(parts[8])
+			if err != nil {
+				return nil, fmt.Errorf("invalid pointDimensionCount %q: %w", parts[8], err)
+			}
+			ptIdxDim, err := strconv.Atoi(parts[9])
+			if err != nil {
+				return nil, fmt.Errorf("invalid pointIndexDimensionCount %q: %w", parts[9], err)
+			}
+			ptBytes, err := strconv.Atoi(parts[10])
+			if err != nil {
+				return nil, fmt.Errorf("invalid pointNumBytes %q: %w", parts[10], err)
+			}
+			opts.VectorDimension = vecDim
+			// Only adopt the encoded vector encoding/similarity for actual
+			// vector fields (dimension > 0); for non-vector fields keep the
+			// Float32/Euclidean defaults set above so the cosmetic getters do
+			// not report a spurious BYTE encoding.
+			if vecDim > 0 {
+				opts.VectorEncoding = schema.VectorEncoding(vecEnc)
+				opts.VectorSimilarityFunction = schema.VectorSimilarityFunction(vecSim)
+			}
+			opts.PointDimensionCount = ptDim
+			opts.PointIndexDimensionCount = ptIdxDim
+			opts.PointNumBytes = ptBytes
+		}
 		fi := schema.NewFieldInfo(parts[0], fnum, opts)
+		// The codec attribute map (token 12) carries the per-field codec
+		// metadata that PerField*Format readers require to resolve their
+		// delegate (e.g. PerFieldKnnVectorsFormat.format / .suffix). Restore
+		// it via PutCodecAttribute, which is the frozen-safe setter codec
+		// metadata uses on both the write and read paths.
+		if len(parts) >= 12 {
+			for k, v := range decodeFieldInfoAttributes(parts[11]) {
+				fi.PutCodecAttribute(k, v)
+			}
+		}
 		_ = fis.Add(fi)
 	}
 	return fis, nil
