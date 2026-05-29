@@ -859,15 +859,22 @@ func (w *IndexWriter) Commit() error {
 			if err3 != nil {
 				return fmt.Errorf("commit: list directory for CFS: %w", err3)
 			}
-			prefix := segmentName + "."
+			// A file belongs to this segment when ParseSegmentName resolves to
+			// the segment name. ParseSegmentName follows IndexFileNames: it
+			// strips at the first '.' or the second '_', so it matches both the
+			// plain "_0.ext" form and the per-field "_0_FormatName_suffix.ext"
+			// form used by PerFieldPostingsFormat / PerFieldKnnVectorsFormat /
+			// etc. A previous "_0." prefix match silently dropped the per-field
+			// vector files (_0_Lucene99HnswVectorsFormat_0.vem, ...) from the
+			// compound file, so the reopened reader could not find them inside
+			// the .cfs.
 			var segFiles []string
 			for _, f := range allFiles {
-				if len(f) <= len(prefix) || f[:len(prefix)] != prefix {
+				if ParseSegmentName(f) != segmentName {
 					continue
 				}
-				ext := f[len(prefix)-1:]
-				switch ext {
-				case ".si", ".cfs", ".cfe":
+				switch GetExtension(f) {
+				case "si", "cfs", "cfe":
 					// .si is written after CFS; .cfs/.cfe are the output targets.
 				default:
 					segFiles = append(segFiles, f)
