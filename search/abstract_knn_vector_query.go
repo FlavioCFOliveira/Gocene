@@ -10,6 +10,7 @@ package search
 import (
 	"context"
 	"math"
+	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search/knn"
@@ -241,7 +242,7 @@ func (q *BaseKnnVectorQuery) Rewrite(reader IndexReader) (Query, error) {
 	if len(topK.ScoreDocs) == 0 {
 		return NewMatchNoDocsQuery(), nil
 	}
-	return newDocAndScoreQueryFromTopDocs(topK), nil
+	return newDocAndScoreQueryFromTopDocs(topK, leaves), nil
 }
 
 // runSearchTasks executes callables, stores results keyed by leaf ordinal,
@@ -675,11 +676,16 @@ func emptyTopDocs() *TopDocs {
 	return NewTopDocs(NewTotalHits(0, EQUAL_TO), nil)
 }
 
-// newDocAndScoreQueryFromTopDocs converts a TopDocs into a
-// DocAndScoreQuery, stripping any shard-index information.
+// newDocAndScoreQueryFromTopDocs converts a TopDocs (carrying GLOBAL doc IDs)
+// into a leaf-scoped DocAndScoreQuery. The per-leaf segmentStarts are computed
+// from the reader's leaf doc-bases so the resulting query's per-leaf scorers
+// each emit only their own slice of the merged top-K (rebased to leaf-local
+// doc IDs). Without the segmentStarts, IndexSearcher's per-segment execution
+// would re-emit every global doc once per leaf and re-apply each leaf's
+// docBase, corrupting multi-segment results.
 //
 // Mirrors DocAndScoreQuery.createDocAndScoreQuery(IndexReader, TopDocs).
-func newDocAndScoreQueryFromTopDocs(topK *TopDocs) *DocAndScoreQuery {
+func newDocAndScoreQueryFromTopDocs(topK *TopDocs, leaves []*index.LeafReaderContext) *DocAndScoreQuery {
 	n := len(topK.ScoreDocs)
 	docIDs := make([]int, n)
 	scores := make([]float32, n)
@@ -687,7 +693,27 @@ func newDocAndScoreQueryFromTopDocs(topK *TopDocs) *DocAndScoreQuery {
 		docIDs[i] = sd.Doc
 		scores[i] = sd.Score
 	}
-	return NewDocAndScoreQuery(docIDs, scores)
+	// docIDs must be ascending for findSegmentStarts; NewDocAndScoreQueryWithSegmentStarts
+	// also sorts, so sort a local copy here to compute segmentStarts against
+	// the same ordering.
+	sortedDocs := make([]int, n)
+	copy(sortedDocs, docIDs)
+	sort.Ints(sortedDocs)
+
+	var segmentStarts []int
+	if len(leaves) > 0 {
+		// Index doc-bases by leaf ordinal so docBases[ord] matches the ord the
+		// per-leaf scorer is later created with (Leaves() is ord-ordered, but
+		// keying by Ord() is robust regardless).
+		docBases := make([]int, len(leaves))
+		for _, lc := range leaves {
+			if o := lc.Ord(); o >= 0 && o < len(docBases) {
+				docBases[o] = lc.DocBase()
+			}
+		}
+		segmentStarts = findSegmentStarts(docBases, sortedDocs)
+	}
+	return NewDocAndScoreQueryWithSegmentStarts(docIDs, scores, segmentStarts)
 }
 
 // leafFieldInfo extracts the FieldInfo for the given field from a leaf's

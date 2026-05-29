@@ -97,15 +97,15 @@ func (s *IndexSearcher) SearchWithCollector(query Query, collector Collector) er
 	// For now, handle DirectoryReader vs single segment
 	if dr, ok := interface{}(s.reader).(*index.DirectoryReader); ok {
 		docBase := 0
-		for _, sr := range dr.GetSegmentReaders() {
-			err = s.searchLeaf(sr, docBase, weight, collector)
+		for ord, sr := range dr.GetSegmentReaders() {
+			err = s.searchLeaf(sr, ord, docBase, weight, collector)
 			if err != nil {
 				return err
 			}
 			docBase += sr.MaxDoc()
 		}
 	} else {
-		return s.searchLeaf(s.reader, 0, weight, collector)
+		return s.searchLeaf(s.reader, 0, 0, weight, collector)
 	}
 
 	return nil
@@ -124,11 +124,15 @@ func asLeafReader(r index.IndexReaderInterface) *index.LeafReader {
 	}
 }
 
-func (s *IndexSearcher) searchLeaf(reader index.IndexReaderInterface, docBase int, weight Weight, collector Collector) error {
+func (s *IndexSearcher) searchLeaf(reader index.IndexReaderInterface, ord, docBase int, weight Weight, collector Collector) error {
 	// Create a LeafReaderContext for the reader.
 	// Pass reader directly (may be *SegmentReader which overrides Terms()); do
 	// NOT unwrap to the embedded *LeafReader, which would lose the override.
-	ctx := index.NewLeafReaderContext(reader, nil, 0, docBase)
+	// The leaf ordinal must reflect the segment's position so that
+	// per-leaf-scoped weights (e.g. DocAndScoreQuery from a KNN rewrite) select
+	// the right slice of their global results; a hardcoded 0 made every leaf
+	// look like the first segment.
+	ctx := index.NewLeafReaderContext(reader, nil, ord, docBase)
 
 	leafCollector, err := collector.GetLeafCollector(reader)
 	if err != nil {
