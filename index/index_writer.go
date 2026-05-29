@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // writeLockName is the file name used as the write lock for an index directory.
@@ -83,9 +84,22 @@ type IndexWriter struct {
 	// UpdateDocument call that targets a field present in any committed segment's
 	// FieldInfos increments this counter by 1 (conservative: assumes exactly one
 	// matching committed doc per call, consistent with unique-term-per-doc indexing
-	// conventions).  Subtracted from committedLive in NumDocs().  Reset at Commit.
-	// Protected by mu.
+	// conventions).  It is a pre-commit ESTIMATE only, used by NumDocs() to
+	// approximate the live count in the window between a delete/update and the
+	// next Commit; at Commit the deletes are resolved exactly against the
+	// committed segments' postings (see applyDeletesToCommittedSegments) and this
+	// estimate is reset to 0.  Protected by mu.
 	pendingCommittedDeleteCount int
+
+	// pendingCommittedDeleteTerms holds the delete terms that must be resolved
+	// against already-committed segments at the next Commit.  Populated by
+	// DeleteDocuments (unbounded term delete) and by UpdateDocument's append path
+	// (delete the old committed doc that the replacement displaces).  Unlike the
+	// buffered-doc delete path (pendingDeleteTerms + docFieldIndex), these terms
+	// are resolved by opening the committed segments' postings, collecting the
+	// exact matching docIDs, marking them in the per-segment live-docs bitset, and
+	// persisting a byte-faithful .liv file.  Protected by mu.
+	pendingCommittedDeleteTerms []*Term
 
 	// writeLock is the exclusive directory write lock held for the lifetime of
 	// this IndexWriter instance.  Nil only if locking is not supported by the
@@ -407,11 +421,14 @@ func (w *IndexWriter) UpdateDocument(term *Term, doc Document) error {
 	maxOrd := int(w.docCount.Load())
 	if term != nil {
 		w.pendingDeleteTerms = append(w.pendingDeleteTerms, termWithBound{term: term, maxOrdinal: maxOrd})
-		// If any committed segment has this field, conservatively assume one
-		// committed doc is being displaced.  This keeps NumDocs() correct when
-		// UpdateDocument replaces a doc that was committed in a prior Commit.
-		// (Limitation: assumes exactly one match per call; inaccurate if the term
-		// matches zero or more than one committed doc.)
+		// Resolve the term against committed segments at the next Commit so the
+		// old committed doc the replacement displaces is actually deleted
+		// (rmp #4753).  The committed docs always precede every buffered ordinal,
+		// so an unbounded committed-segment delete cannot touch the replacement.
+		w.pendingCommittedDeleteTerms = append(w.pendingCommittedDeleteTerms, term)
+		// Pre-commit NumDocs() estimate: if any committed segment has this field,
+		// conservatively assume one committed doc is being displaced.  Reset and
+		// superseded by the exact resolution at Commit.
 		if w.committedFieldHasField(term.Field) {
 			w.pendingCommittedDeleteCount++
 		}
@@ -451,6 +468,11 @@ func (w *IndexWriter) DeleteDocuments(term *Term) error {
 	w.mu.Lock()
 	// maxOrdinal=-1 means unbounded: delete all buffered docs matching this term.
 	w.pendingDeleteTerms = append(w.pendingDeleteTerms, termWithBound{term: term, maxOrdinal: -1})
+	// Also resolve this term against already-committed segments at the next
+	// Commit so deletions take effect across commits (rmp #4753).
+	if term != nil {
+		w.pendingCommittedDeleteTerms = append(w.pendingCommittedDeleteTerms, term)
+	}
 	w.mu.Unlock()
 	return nil
 }
@@ -470,7 +492,6 @@ func (w *IndexWriter) DeleteDocumentsQuery(query interface{}) error {
 type commitData struct {
 	data map[string]string
 }
-
 
 // SetLiveCommitData sets the commit data that will be written with the next commit.
 // This data is stored in the commit point and can be retrieved later.
@@ -726,35 +747,28 @@ func (w *IndexWriter) Commit() error {
 		return fmt.Errorf("flush before commit failed: %w", err2)
 	}
 
-	// Apply committed deletes: UpdateDocument calls that displaced docs in already-
-	// committed segments are tracked in pendingCommittedDeleteCount.  We apply those
-	// deletes to the existing committed segments in si (oldest first) so that the
-	// persisted delCount reflects the net live count after the replacements are
-	// written as new segments below.  This is a conservative approximation (assumes
-	// one matching doc per UpdateDocument call) since without a codec-backed
-	// inverted index we cannot pinpoint the exact segment.
-	remaining := w.pendingCommittedDeleteCount
-	if remaining > 0 {
-		for _, existingSCI := range si.List() {
-			if remaining <= 0 {
-				break
-			}
-			available := existingSCI.NumDocs() // live docs in this segment
-			if available <= 0 {
-				continue
-			}
-			charge := remaining
-			if charge > available {
-				charge = available
-			}
-			existingSCI.IncrDelCount(charge)
-			remaining -= charge
-		}
-		w.pendingCommittedDeleteCount = 0
-	}
-
 	// Materialise all pending segments (auto-flush + AddIndexes imports).
 	codec := w.config.Codec()
+
+	// Apply buffered delete terms to already-committed segments (rmp #4753).
+	// When a codec is wired we resolve each term against the committed
+	// segments' postings, collect the exact matching docIDs, mark them in a
+	// byte-faithful .liv file, and bump the segment's delGen/delCount.  When no
+	// codec is available (codec-less structural tests) we fall back to the
+	// historical conservative count-only approximation so those tests do not
+	// regress.
+	if len(w.pendingCommittedDeleteTerms) > 0 {
+		if codec != nil && codec.PostingsFormat() != nil {
+			if err2 := w.applyDeletesToCommittedSegments(si, codec); err2 != nil {
+				return fmt.Errorf("commit: apply deletes to committed segments: %w", err2)
+			}
+		} else {
+			w.applyApproximateCommittedDeletes(si)
+		}
+	}
+	w.pendingCommittedDeleteTerms = w.pendingCommittedDeleteTerms[:0]
+	w.pendingCommittedDeleteCount = 0
+
 	for _, ps := range w.pendingImportedSegments {
 		segmentName := si.GetNextSegmentName()
 		segInfo := NewSegmentInfo(segmentName, ps.numDocs, w.directory)
@@ -905,6 +919,187 @@ func (w *IndexWriter) Commit() error {
 	w.preparedCommit = false
 
 	return nil
+}
+
+// applyDeletesToCommittedSegments resolves every buffered committed-delete term
+// against the postings of each segment already present in si (the segments
+// committed before this Commit), marks the matching live documents as deleted
+// in a byte-faithful .liv file, and bumps the segment's delGen/delCount and
+// recorded deleted ordinals so the change survives a reader reopen
+// (rmp #4753).  Must be called with w.mu held and only when a codec with a
+// PostingsFormat is wired.
+//
+// This mirrors the net effect of Lucene's BufferedUpdatesStream.applyDeletesAndUpdates
+// followed by ReadersAndUpdates.writeLiveDocs: term -> docIDs -> live-docs
+// bitset -> .liv, with the delete generation advanced per affected segment.
+func (w *IndexWriter) applyDeletesToCommittedSegments(si *SegmentInfos, codec Codec) error {
+	for _, sci := range si.List() {
+		maxDoc := sci.SegmentInfo().DocCount()
+		if maxDoc == 0 {
+			continue
+		}
+
+		// Seed the deleted set with the segment's pre-existing deletions so the
+		// rewritten .liv is cumulative (it must carry both old and new deletes).
+		deleted := make(map[int]struct{})
+		for _, ord := range sci.GetDeletedOrdinals() {
+			if ord >= 0 && ord < maxDoc {
+				deleted[ord] = struct{}{}
+			}
+		}
+		preExisting := len(deleted)
+
+		sr, err := openSegmentReader(w.directory, sci)
+		if err != nil {
+			return fmt.Errorf("open committed segment %s: %w", sci.SegmentInfo().Name(), err)
+		}
+
+		matched, err := w.collectDeletedDocIDs(sr, w.pendingCommittedDeleteTerms, deleted)
+		_ = sr.Close()
+		if err != nil {
+			return err
+		}
+		if !matched {
+			continue
+		}
+
+		newDelCount := len(deleted) - preExisting
+		if newDelCount <= 0 {
+			continue
+		}
+
+		// Build the cumulative live-docs bitset: every doc live, then clear the
+		// deleted ordinals.
+		live, err := util.NewFixedBitSet(maxDoc)
+		if err != nil {
+			return err
+		}
+		for i := 0; i < maxDoc; i++ {
+			live.Set(i)
+		}
+		ords := make([]int, 0, len(deleted))
+		for ord := range deleted {
+			live.Clear(ord)
+			ords = append(ords, ord)
+		}
+		sort.Ints(ords)
+
+		// Advance the deletion generation and write the .liv at that generation.
+		delGen := sci.AdvanceDelGen()
+		segName := sci.SegmentInfo().Name()
+		onDiskDel, err := writeLiveDocs(w.directory, segName, sci.SegmentInfo().GetID(), delGen, live)
+		if err != nil {
+			return fmt.Errorf("write live docs for %s: %w", segName, err)
+		}
+		if onDiskDel != len(deleted) {
+			return fmt.Errorf("live docs for %s: wrote delCount=%d, expected %d", segName, onDiskDel, len(deleted))
+		}
+
+		sci.SetDelCount(len(deleted))
+		sci.SetDeletedOrdinals(ords)
+
+		// Register the .liv in the segment's file list so deleters/CheckIndex see it.
+		livName := liveDocsFileName(segName, delGen)
+		appendSegmentFile(sci.SegmentInfo(), livName)
+	}
+	return nil
+}
+
+// collectDeletedDocIDs seeks each term in the segment reader's postings and
+// records every matching docID into the deleted set (skipping docs already in
+// the set).  Returns true if any new docID was added.  It uses the same
+// GetIterator + SeekExact + Postings(doc-only) path as search.TermWeight.Scorer,
+// so it resolves terms exactly the way a query would match them.
+func (w *IndexWriter) collectDeletedDocIDs(sr *SegmentReader, terms []*Term, deleted map[int]struct{}) (bool, error) {
+	added := false
+	// Group terms by field to avoid re-resolving the Terms object per term.
+	for _, term := range terms {
+		if term == nil {
+			continue
+		}
+		t, err := sr.Terms(term.Field)
+		if err != nil {
+			return added, fmt.Errorf("terms(%s): %w", term.Field, err)
+		}
+		if t == nil {
+			continue
+		}
+		te, err := t.GetIterator()
+		if err != nil {
+			return added, err
+		}
+		if te == nil {
+			continue
+		}
+		found, err := te.SeekExact(term)
+		if err != nil {
+			return added, err
+		}
+		if !found {
+			continue
+		}
+		// flags == 0 requests only the doc-ID stream (no freqs/positions),
+		// which is all we need to enumerate the matching documents.
+		pe, err := te.Postings(0)
+		if err != nil {
+			return added, err
+		}
+		if pe == nil {
+			continue
+		}
+		for {
+			doc, err := pe.NextDoc()
+			if err != nil {
+				return added, err
+			}
+			if doc == NO_MORE_DOCS {
+				break
+			}
+			if _, ok := deleted[doc]; !ok {
+				deleted[doc] = struct{}{}
+				added = true
+			}
+		}
+	}
+	return added, nil
+}
+
+// applyApproximateCommittedDeletes is the codec-less fallback used by structural
+// tests that do not wire a PostingsFormat.  Without an inverted index the exact
+// docIDs cannot be resolved, so it charges one deletion per buffered
+// committed-delete term against the committed segments (oldest first), matching
+// the historical conservative behaviour.  Must be called with w.mu held.
+func (w *IndexWriter) applyApproximateCommittedDeletes(si *SegmentInfos) {
+	remaining := len(w.pendingCommittedDeleteTerms)
+	for _, existingSCI := range si.List() {
+		if remaining <= 0 {
+			break
+		}
+		available := existingSCI.NumDocs()
+		if available <= 0 {
+			continue
+		}
+		charge := remaining
+		if charge > available {
+			charge = available
+		}
+		existingSCI.IncrDelCount(charge)
+		remaining -= charge
+	}
+}
+
+// appendSegmentFile adds fileName to the SegmentInfo's file set if not already
+// present, preserving the existing entries.  SegmentInfo exposes Files/SetFiles
+// rather than an add-one method, so this read-modify-write keeps the .liv listed
+// alongside the .si / .cfs / .cfe entries.
+func appendSegmentFile(si *SegmentInfo, fileName string) {
+	files := si.Files()
+	for _, f := range files {
+		if f == fileName {
+			return
+		}
+	}
+	si.SetFiles(append(files, fileName))
 }
 
 // Close closes the IndexWriter.
