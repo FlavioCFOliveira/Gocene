@@ -463,40 +463,73 @@ func (f *Lucene99SegmentInfoFormat) Write(dir store.Directory, info *index.Segme
 	checksumOut := store.NewChecksumIndexOutput(out)
 	defer checksumOut.Close()
 
-	err = WriteIndexHeader(checksumOut, siFileCodecName, siFileVersion, info.GetID(), "")
-	if err != nil {
+	if err := WriteIndexHeader(checksumOut, siFileCodecName, siFileVersion, info.GetID(), ""); err != nil {
 		return err
 	}
 
-	// Version fields use Java's DataOutput.writeInt (little-endian), not CodecUtil.writeBEInt.
+	// Payload fields mirror Lucene99SegmentInfoFormat.writeSegmentInfo, which
+	// uses DataOutput.writeInt (little-endian). Only the CodecUtil header/footer
+	// framing is big-endian, so payload ints must use the LE helpers.
 	major, minor, bugfix := parseVersion(info.Version())
-	store.WriteInt32LE(checksumOut, major)
-	store.WriteInt32LE(checksumOut, minor)
-	store.WriteInt32LE(checksumOut, bugfix)
+	if err := store.WriteInt32LE(checksumOut, major); err != nil {
+		return err
+	}
+	if err := store.WriteInt32LE(checksumOut, minor); err != nil {
+		return err
+	}
+	if err := store.WriteInt32LE(checksumOut, bugfix); err != nil {
+		return err
+	}
 
-	checksumOut.WriteByte(0) // hasMinVersion = false for now
+	// hasMinVersion byte. Gocene's SegmentInfo does not yet carry a minVersion
+	// field (see schema.SegmentInfo), so we always emit 0. Lucene emits the
+	// real minVersion when present; tracked as a divergence in rmp #4784.
+	if err := checksumOut.WriteByte(0); err != nil {
+		return err
+	}
 
-	store.WriteInt32LE(checksumOut, int32(info.DocCount()))
+	if err := store.WriteInt32LE(checksumOut, int32(info.DocCount())); err != nil {
+		return err
+	}
 
-	isCompoundFile := byte(255) // -1 in Java signed byte
+	// isCompoundFile is written via Java's (byte) cast of SegmentInfo.YES (1)
+	// / SegmentInfo.NO (-1). (byte)(-1) serializes as 0xFF == 255, so the
+	// "not compound" sentinel is byte 255, matching Lucene exactly.
+	isCompoundFile := byte(255)
 	if info.IsCompoundFile() {
 		isCompoundFile = 1
 	}
-	checksumOut.WriteByte(isCompoundFile)
+	if err := checksumOut.WriteByte(isCompoundFile); err != nil {
+		return err
+	}
 
-	checksumOut.WriteByte(0) // hasBlocks = false
+	// hasBlocks byte. Gocene's SegmentInfo has no hasBlocks field yet, so we
+	// always emit 0. Tracked alongside minVersion as a divergence in rmp #4784.
+	if err := checksumOut.WriteByte(0); err != nil {
+		return err
+	}
 
-	store.WriteMapOfStrings(checksumOut, info.GetDiagnostics())
+	if err := store.WriteMapOfStrings(checksumOut, info.GetDiagnostics()); err != nil {
+		return err
+	}
 
-	files := make(map[string]struct{})
+	files := make(map[string]struct{}, len(info.Files()))
 	for _, f := range info.Files() {
 		files[f] = struct{}{}
 	}
-	store.WriteSetOfStrings(checksumOut, files)
+	if err := store.WriteSetOfStrings(checksumOut, files); err != nil {
+		return err
+	}
 
-	store.WriteMapOfStrings(checksumOut, info.GetAttributes())
+	if err := store.WriteMapOfStrings(checksumOut, info.GetAttributes()); err != nil {
+		return err
+	}
 
-	store.WriteVInt(checksumOut, 0) // numSortFields = 0
+	// numSortFields. Index sort is not yet serialised (see Read, which rejects
+	// sorted segments); always emit 0 until sort serialisation lands.
+	if err := store.WriteVInt(checksumOut, 0); err != nil {
+		return err
+	}
 
 	return WriteFooter(checksumOut)
 }
