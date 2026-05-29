@@ -325,13 +325,20 @@ func TestBlockJoin_BoostBug(t *testing.T) {
 	}
 }
 
-// TestBlockJoin_Random corresponds to TestBlockJoin.testRandom. It needs
-// block-join field sorting (ToParentBlockJoinSortField over child DocValues)
-// plus the field-sorted-over-DocValues search subsystem, which Gocene does not
-// yet have (no searcher.search(q,n,sort); TopFieldCollector sorts by score and
-// never uses FieldComparators or DocValues).
+// TestBlockJoin_Random corresponds to TestBlockJoin.testRandom: a randomized
+// differential test comparing a block-joined index against a fully denormalized
+// index across ~200 iterations, with random ScoreMode, RandomApproximationQuery
+// wrapping, parent+child merged sorts, and optional block deletes.
+//
+// Block-join field sorting (ToParentBlockJoinSortField over child DocValues) is
+// now in place (rmp #4779/#4758) and proven by TestBlockJoinSorting_NestedSorting.
+// What remains for testRandom is out of scope for block-join sorting: the
+// doDeletes path deletes blocks via IntPoint.newSetQuery but
+// IndexWriter.DeleteDocumentsQuery is a no-op stub, and the denormalized-vs-
+// normalized comparison harness (random fields/sorts + points-backed
+// delete-by-query round trip) is not yet available. Tracked by rmp #4781.
 func TestBlockJoin_Random(t *testing.T) {
-	t.Skip("requires end-to-end field-sorted search over DocValues (rmp #4778) + ToParentBlockJoinSortField/BlockJoinSelector.wrap wiring (rmp #4779)")
+	t.Skip("requires working delete-by-query (IndexWriter.DeleteDocumentsQuery is a no-op) and the denormalized differential harness; block-join sorting itself is done (rmp #4779). Tracked by rmp #4781")
 }
 
 // TestBlockJoin_MultiChildTypes corresponds to TestBlockJoin.testMultiChildTypes.
