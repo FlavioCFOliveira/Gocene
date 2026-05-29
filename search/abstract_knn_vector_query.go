@@ -62,6 +62,28 @@ type KnnVectorQueryImpl interface {
 	) (VectorScorer, error)
 }
 
+// ExactSearcher is an optional hook a [KnnVectorQueryImpl] may implement to
+// take full control of the per-leaf exact (brute-force) search, replacing the
+// default [BaseKnnVectorQuery.exactSearch] linear scan.
+//
+// This is the Go counterpart of overriding the protected method
+// AbstractKnnVectorQuery.exactSearch in a subclass (as
+// DiversifyingChildren{Float,Byte}KnnVectorQuery do). When the concrete impl
+// passed to [NewBaseKnnVectorQuery] also satisfies ExactSearcher, the base
+// query delegates to ExactSearch instead of running its own scan; otherwise the
+// default behaviour is unchanged.
+type ExactSearcher interface {
+	// ExactSearch performs the exact per-leaf search over acceptIterator and
+	// returns the per-leaf top results (leaf-local doc IDs).
+	//
+	// Mirrors AbstractKnnVectorQuery.exactSearch (protected, overridable).
+	ExactSearch(
+		ctx *index.LeafReaderContext,
+		acceptIterator DocIdSetIterator,
+		timeout index.QueryTimeout,
+	) (*TopDocs, error)
+}
+
 // BaseKnnVectorQuery holds the shared state (field, k, filter, strategy)
 // and the full Rewrite algorithm. Concrete query types embed this struct
 // and satisfy [KnnVectorQueryImpl] by providing ApproximateSearch and
@@ -395,12 +417,20 @@ func (q *BaseKnnVectorQuery) getKnnCollectorManager(k int) knn.KnnCollectorManag
 // scoring each doc via the concrete subtype's VectorScorer, and returns
 // the top-k results.
 //
+// When the concrete impl implements [ExactSearcher], the search is delegated
+// to it (mirroring a subclass that overrides the protected exactSearch in
+// Java); otherwise the default linear scan below runs.
+//
 // Mirrors AbstractKnnVectorQuery.exactSearch (protected, overridable).
 func (q *BaseKnnVectorQuery) exactSearch(
 	ctx *index.LeafReaderContext,
 	acceptIterator DocIdSetIterator,
 	timeout index.QueryTimeout,
 ) (*TopDocs, error) {
+	if es, ok := q.impl.(ExactSearcher); ok {
+		return es.ExactSearch(ctx, acceptIterator, timeout)
+	}
+
 	// Resolve FieldInfo.
 	var fi *index.FieldInfo
 	if fi = leafFieldInfo(ctx, q.field); fi == nil || fi.VectorDimension() == 0 {

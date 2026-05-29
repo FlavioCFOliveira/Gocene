@@ -149,11 +149,72 @@ func TestBlockJoin_BQShouldJoinedChild(t *testing.T) {
 	}
 }
 
-// TestBlockJoin_SimpleKnn corresponds to TestBlockJoin.testSimpleKnn. It needs a
-// runnable DiversifyingChildrenFloatKnnVectorQuery, which is still a descriptor
-// stub (does not implement search.Query).
+// TestBlockJoin_SimpleKnn corresponds to TestBlockJoin.testSimpleKnn: build two
+// parent blocks each with two child vectors, run a DiversifyingChildrenFloat
+// KnnVectorQuery, and assert one best child per parent plus the exact EUCLIDEAN
+// score of the top hit.
+//
+// The DiversifyingChildrenFloatKnnVectorQuery is now runnable (rmp #4757) and
+// the diversifying exact scan is validated. The remaining blocker is the index
+// build: block-join parents carry no vector, so the vector field is sparse, and
+// the Lucene99 flat vectors writer does not yet support the sparse (IndexedDISI)
+// layout — tracked by rmp #4755. The full test body below is preserved and runs
+// unchanged once #4755 lands.
 func TestBlockJoin_SimpleKnn(t *testing.T) {
-	t.Skip("requires a runnable DiversifyingChildrenFloatKnnVectorQuery (currently a descriptor stub, not a search.Query): rmp #4757")
+	t.Skip("blocked by sparse flat-vector write support (block-join parents have no vector): rmp #4755")
+
+	dir, w := newBlockWriter(t)
+	addBlock(t, w,
+		makeVector(t, "vector", "parent1", []float32{1, 2, 3}),
+		makeVector(t, "vector", "parent1", []float32{3, 3, 3}),
+		makeParent(t, "parent1"),
+	)
+	addBlock(t, w,
+		makeVector(t, "vector", "parent2", []float32{0, 0, 1}),
+		makeVector(t, "vector", "parent2", []float32{1, 1, 1}),
+		makeParent(t, "parent2"),
+	)
+	r, s := commitAndOpen(t, dir, w)
+
+	parentsFilter := newQueryBitSetParents("docType", "_parent")
+	if err := Check(r, parentsFilter); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+
+	childKnnJoin := NewDiversifyingChildrenFloatKnnVectorQuery(
+		"vector", []float32{4, 4, 4}, 3, nil, parentsFilter)
+
+	topDocs, err := s.Search(childKnnJoin, 5)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if topDocs.TotalHits.Value != 2 {
+		t.Fatalf("totalHits = %d, want 2", topDocs.TotalHits.Value)
+	}
+	if len(topDocs.ScoreDocs) != 2 {
+		t.Fatalf("scoreDocs = %d, want 2", len(topDocs.ScoreDocs))
+	}
+
+	childDoc, err := s.Doc(topDocs.ScoreDocs[0].Doc)
+	if err != nil {
+		t.Fatalf("Doc[0]: %v", err)
+	}
+	if got := storedString(childDoc, "my_parent_id"); got != "parent1" {
+		t.Errorf("top child my_parent_id = %q, want parent1", got)
+	}
+	want := index.VectorSimilarityFunctionEuclidean.Compare(
+		[]float32{4, 4, 4}, []float32{3, 3, 3})
+	if diff := topDocs.ScoreDocs[0].Score - want; diff > 1e-7 || diff < -1e-7 {
+		t.Errorf("top score = %v, want %v", topDocs.ScoreDocs[0].Score, want)
+	}
+
+	childDoc, err = s.Doc(topDocs.ScoreDocs[1].Doc)
+	if err != nil {
+		t.Fatalf("Doc[1]: %v", err)
+	}
+	if got := storedString(childDoc, "my_parent_id"); got != "parent2" {
+		t.Errorf("second child my_parent_id = %q, want parent2", got)
+	}
 }
 
 // TestBlockJoin_Simple corresponds to TestBlockJoin.testSimple.

@@ -16,16 +16,23 @@ import (
 
 // TestParentBlockJoinFloatKnnVectorQuery_VectorEncodingMismatch corresponds to
 // TestParentBlockJoinFloatKnnVectorQuery.testVectorEncodingMismatch.
-// Skipped: requires DirectoryReader + IndexSearcher with byte-vector field.
+//
+// The DiversifyingChildren*KnnVectorQuery types are now runnable (rmp #4757);
+// the remaining blocker is the index build: block-join parents carry no vector,
+// so the vector field is sparse, and the Lucene99 flat vectors writer does not
+// yet support the sparse (IndexedDISI) layout — tracked by rmp #4755.
 func TestParentBlockJoinFloatKnnVectorQuery_VectorEncodingMismatch(t *testing.T) {
-	t.Skip("requires a runnable DiversifyingChildrenFloatKnnVectorQuery (currently a descriptor stub, not a search.Query): rmp #4757")
+	t.Skip("blocked by sparse flat-vector write support (block-join parents have no vector): rmp #4755")
 }
 
 // TestParentBlockJoinFloatKnnVectorQuery_ScoreCosine corresponds to
 // TestParentBlockJoinFloatKnnVectorQuery.testScoreCosine.
-// Skipped: requires DirectoryReader + IndexSearcher with KNN float vectors.
+//
+// Blocked by sparse flat-vector write support (parents have no vector): the
+// runnable query (rmp #4757) is in place, but the index cannot be built until
+// rmp #4755 lands the IndexedDISI sparse path.
 func TestParentBlockJoinFloatKnnVectorQuery_ScoreCosine(t *testing.T) {
-	t.Skip("requires a runnable DiversifyingChildrenFloatKnnVectorQuery (currently a descriptor stub, not a search.Query): rmp #4757")
+	t.Skip("blocked by sparse flat-vector write support (parents have no vector): rmp #4755")
 }
 
 // TestParentBlockJoinFloatKnnVectorQuery_ToString corresponds to

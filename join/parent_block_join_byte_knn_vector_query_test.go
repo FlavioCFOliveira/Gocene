@@ -16,9 +16,12 @@ import (
 
 // TestParentBlockJoinByteKnnVectorQuery_VectorEncodingMismatch corresponds to
 // TestParentBlockJoinByteKnnVectorQuery.testVectorEncodingMismatch.
-// Skipped: requires DirectoryReader + IndexSearcher with byte-vector field.
+//
+// The DiversifyingChildrenByteKnnVectorQuery is now runnable (rmp #4757); the
+// remaining blocker is the sparse flat-vector write path (block-join parents
+// carry no vector) — tracked by rmp #4755.
 func TestParentBlockJoinByteKnnVectorQuery_VectorEncodingMismatch(t *testing.T) {
-	t.Skip("requires a runnable DiversifyingChildrenByteKnnVectorQuery (currently a descriptor stub, not a search.Query): rmp #4757")
+	t.Skip("blocked by sparse flat-vector write support (block-join parents have no vector): rmp #4755")
 }
 
 // TestParentBlockJoinByteKnnVectorQuery_ToString corresponds to

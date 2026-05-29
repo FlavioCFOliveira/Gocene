@@ -5,11 +5,15 @@
 // Package join contains tests porting
 // org.apache.lucene.search.join.ParentBlockJoinKnnVectorQueryTestCase.
 //
-// These tests need a runnable DiversifyingChildrenFloatKnnVectorQuery to execute
-// the diversifying KNN join end-to-end; that query is still a descriptor stub
-// (not a search.Query), so they remain deferred with a re-pointed skip. The
-// ones that only exercise the query descriptor (construction, String) run
-// directly.
+// The DiversifyingChildren{Float,Byte}KnnVectorQuery types are now runnable
+// search.Query implementations (rmp #4757), and the diversifying exact scan is
+// validated by diversifying_children_knn_scan_test.go. The end-to-end tests
+// below still need to build a parent/child block index in which the parents
+// carry no vector — a sparse vector field — which the Lucene99 flat vectors
+// writer does not yet support (the IndexedDISI sparse path, tracked by
+// rmp #4755). They therefore remain deferred behind a skip re-pointed at that
+// blocker. The tests that only exercise the query descriptor (construction,
+// String, target immutability) run directly.
 package join
 
 import "testing"
@@ -18,63 +22,63 @@ import "testing"
 // ParentBlockJoinKnnVectorQueryTestCase.testEmptyIndex.
 // Skipped: requires DirectoryReader + IndexSearcher round-trip.
 func TestParentBlockJoinKnnQueryTestCase_EmptyIndex(t *testing.T) {
-	t.Skip("requires a runnable DiversifyingChildrenFloatKnnVectorQuery (currently a descriptor stub, not a search.Query): rmp #4757")
+	t.Skip("blocked by sparse flat-vector write support (block-join parents have no vector): rmp #4755")
 }
 
 // TestParentBlockJoinKnnQueryTestCase_IndexWithNoVectorsNorParents corresponds to
 // ParentBlockJoinKnnVectorQueryTestCase.testIndexWithNoVectorsNorParents.
 // Skipped: requires full IndexWriter/DirectoryReader infrastructure.
 func TestParentBlockJoinKnnQueryTestCase_IndexWithNoVectorsNorParents(t *testing.T) {
-	t.Skip("requires a runnable DiversifyingChildrenFloatKnnVectorQuery (currently a descriptor stub, not a search.Query): rmp #4757")
+	t.Skip("blocked by sparse flat-vector write support (block-join parents have no vector): rmp #4755")
 }
 
 // TestParentBlockJoinKnnQueryTestCase_IndexWithNoParents corresponds to
 // ParentBlockJoinKnnVectorQueryTestCase.testIndexWithNoParents.
 // Skipped: requires full IndexWriter/DirectoryReader infrastructure.
 func TestParentBlockJoinKnnQueryTestCase_IndexWithNoParents(t *testing.T) {
-	t.Skip("requires a runnable DiversifyingChildrenFloatKnnVectorQuery (currently a descriptor stub, not a search.Query): rmp #4757")
+	t.Skip("blocked by sparse flat-vector write support (block-join parents have no vector): rmp #4755")
 }
 
 // TestParentBlockJoinKnnQueryTestCase_FilterWithNoVectorMatches corresponds to
 // ParentBlockJoinKnnVectorQueryTestCase.testFilterWithNoVectorMatches.
 // Skipped: requires full index round-trip.
 func TestParentBlockJoinKnnQueryTestCase_FilterWithNoVectorMatches(t *testing.T) {
-	t.Skip("requires a runnable DiversifyingChildrenFloatKnnVectorQuery (currently a descriptor stub, not a search.Query): rmp #4757")
+	t.Skip("blocked by sparse flat-vector write support (block-join parents have no vector): rmp #4755")
 }
 
 // TestParentBlockJoinKnnQueryTestCase_ScoringWithMultipleChildren corresponds to
 // ParentBlockJoinKnnVectorQueryTestCase.testScoringWithMultipleChildren.
 // Skipped: requires full index round-trip and DiversifyingChildrenFloatKnnVectorQuery scoring.
 func TestParentBlockJoinKnnQueryTestCase_ScoringWithMultipleChildren(t *testing.T) {
-	t.Skip("requires a runnable DiversifyingChildrenFloatKnnVectorQuery (currently a descriptor stub, not a search.Query): rmp #4757")
+	t.Skip("blocked by sparse flat-vector write support (block-join parents have no vector): rmp #4755")
 }
 
 // TestParentBlockJoinKnnQueryTestCase_SkewedIndex corresponds to
 // ParentBlockJoinKnnVectorQueryTestCase.testSkewedIndex.
 // Skipped: requires full index round-trip.
 func TestParentBlockJoinKnnQueryTestCase_SkewedIndex(t *testing.T) {
-	t.Skip("requires a runnable DiversifyingChildrenFloatKnnVectorQuery (currently a descriptor stub, not a search.Query): rmp #4757")
+	t.Skip("blocked by sparse flat-vector write support (block-join parents have no vector): rmp #4755")
 }
 
 // TestParentBlockJoinKnnQueryTestCase_Timeout corresponds to
 // ParentBlockJoinKnnVectorQueryTestCase.testTimeout.
 // Skipped: requires QueryTimeout infrastructure and full index round-trip.
 func TestParentBlockJoinKnnQueryTestCase_Timeout(t *testing.T) {
-	t.Skip("requires a runnable DiversifyingChildrenFloatKnnVectorQuery + QueryTimeout: rmp #4757")
+	t.Skip("blocked by sparse flat-vector write support + QueryTimeout: rmp #4755")
 }
 
 // TestParentBlockJoinKnnQueryTestCase_TwoSegments corresponds to
 // ParentBlockJoinKnnVectorQueryTestCase.testTwoSegments.
 // Skipped: requires multi-segment DirectoryReader.
 func TestParentBlockJoinKnnQueryTestCase_TwoSegments(t *testing.T) {
-	t.Skip("requires a runnable DiversifyingChildrenFloatKnnVectorQuery (currently a descriptor stub, not a search.Query): rmp #4757")
+	t.Skip("blocked by sparse flat-vector write support (block-join parents have no vector): rmp #4755")
 }
 
 // TestParentBlockJoinKnnQueryTestCase_Random corresponds to
 // ParentBlockJoinKnnVectorQueryTestCase.testRandom.
 // Skipped: requires random index generation and full search infrastructure.
 func TestParentBlockJoinKnnQueryTestCase_Random(t *testing.T) {
-	t.Skip("requires a runnable DiversifyingChildrenFloatKnnVectorQuery (currently a descriptor stub, not a search.Query): rmp #4757")
+	t.Skip("blocked by sparse flat-vector write support (block-join parents have no vector): rmp #4755")
 }
 
 // TestParentBlockJoinKnnQueryTestCase_DescriptorConstruction verifies that
