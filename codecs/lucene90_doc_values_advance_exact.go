@@ -137,12 +137,19 @@ func (d *sortedNumericDVDense) AdvanceExact(target int) (bool, error) {
 		return false, nil
 	}
 	d.doc = target
-	// nextValueIdx reload happens via the SortedNumeric reset paths
-	// already exercised by NextDoc/Advance.
+	// Recompute the value window for the target document so DocValueCount and
+	// NextValue read the correct slice, mirroring Advance/NextDoc. Every doc in
+	// a dense SortedNumeric carries at least one value.
+	d.start = d.addrs.Get(int64(d.doc))
+	d.end = d.addrs.Get(int64(d.doc) + 1)
+	d.count = int(d.end - d.start)
 	return true, nil
 }
 
 func (s *sortedNumericDVSparse) AdvanceExact(target int) (bool, error) {
+	// Reset the cached value window so DocValueCount/NextValue recompute it for
+	// the target document, mirroring NextDoc/Advance.
+	s.set = false
 	return s.disi.AdvanceExact(target)
 }
 

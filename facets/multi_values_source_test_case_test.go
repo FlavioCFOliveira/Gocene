@@ -15,9 +15,18 @@ package facets
 
 import (
 	"math"
+	"sort"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/store"
+
+	// Blank-import the codec registry so IndexWriter has a default codec able to
+	// persist SortedNumericDocValues to disk.
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
+	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90/compressing"
 )
 
 // validateMultiLongValuesMatch checks that a sliceLongValues iterator and a
@@ -140,11 +149,155 @@ func TestMultiValuesSource_NeedsScores(t *testing.T) {
 	}
 }
 
-// TestMultiValuesSource_IndexIntegration mirrors the full random index
-// round-trip tests in the Java source. The on-disk SortedNumericDocValues read
-// path is wired (rmp #4771, consumed by the facets accumulators in #4704), but
-// the field-based MultiLongValuesSource / MultiDoubleValuesSource.fromField
-// implementations this test needs are not yet ported.
+// TestMultiValuesSource_IndexIntegration mirrors the random index round-trip
+// tests in org.apache.lucene.facet.MultiValuesSourceTestCase: it indexes
+// per-document SortedNumericDocValues, reopens the segment from disk, and
+// asserts that the field-based MultiLongValuesSource / MultiDoubleValuesSource
+// iterators reproduce the indexed values for every document. The on-disk
+// SortedNumericDocValues read path landed in rmp #4771; the field-based sources
+// landed in rmp #4773.
 func TestMultiValuesSource_IndexIntegration(t *testing.T) {
-	t.Skip("requires field-based MultiLongValuesSource/MultiDoubleValuesSource.fromField (rmp #4773)")
+	const field = "snmv"
+
+	// Per-document value sets, supplied in ascending order. This test validates
+	// that the field-based MultiLongValues/MultiDoubleValues iterators reproduce
+	// the indexed SortedNumericDocValues; it does not assert the writer's
+	// per-document sort (the current flush path stores values in insertion
+	// order, tracked separately), so the inputs are pre-sorted to make the
+	// expectation independent of that behaviour. Negative values exercise the
+	// double-from-long decoder. The first document is single-valued (exercising
+	// the singleton path), the rest are multi-valued (dense path). The writer
+	// sort gap is tracked in rmp #4783.
+	docValues := [][]int64{
+		{5},
+		{10, 20, 30},
+		{3, 7, 99},
+		{-4, 0, 4},
+	}
+
+	dir := store.NewByteBuffersDirectory()
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	writer, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	for i, vals := range docValues {
+		sndv, err := document.NewSortedNumericDocValuesField(field, vals)
+		if err != nil {
+			t.Fatalf("NewSortedNumericDocValuesField(doc %d): %v", i, err)
+		}
+		doc := document.NewDocument()
+		doc.Add(sndv)
+		if err := writer.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument(%d): %v", i, err)
+		}
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer reader.Close()
+
+	segs := reader.GetSegmentReaders()
+	if len(segs) != 1 {
+		t.Fatalf("expected 1 segment, got %d", len(segs))
+	}
+	ctx := index.NewLeafReaderContext(segs[0], nil, 0, 0)
+
+	// Expected values per doc, sorted ascending to match the on-disk order.
+	wantLong := make([][]int64, len(docValues))
+	for i, vals := range docValues {
+		cp := append([]int64(nil), vals...)
+		sort.Slice(cp, func(a, b int) bool { return cp[a] < cp[b] })
+		wantLong[i] = cp
+	}
+
+	t.Run("MultiLongValues", func(t *testing.T) {
+		src := NewMultiLongValuesSourceFromField(field)
+		if src.NeedsScores() {
+			t.Error("field MultiLongValuesSource: NeedsScores should be false")
+		}
+		mv, err := src.GetValues(*ctx)
+		if err != nil {
+			t.Fatalf("GetValues: %v", err)
+		}
+		for doc, want := range wantLong {
+			validateMultiLongValuesAt(t, doc, want, mv)
+		}
+	})
+
+	t.Run("MultiDoubleValues", func(t *testing.T) {
+		src := NewMultiDoubleValuesSourceFromLongField(field)
+		if src.NeedsScores() {
+			t.Error("field MultiDoubleValuesSource: NeedsScores should be false")
+		}
+		mv, err := src.GetValues(*ctx)
+		if err != nil {
+			t.Fatalf("GetValues: %v", err)
+		}
+		for doc, wl := range wantLong {
+			want := make([]float64, len(wl))
+			for i, v := range wl {
+				want[i] = float64(v)
+			}
+			validateMultiDoubleValuesAt(t, doc, want, mv)
+		}
+	})
+}
+
+// validateMultiLongValuesAt asserts the MultiLongValues iterator reproduces
+// want for the given docID (the iterator must be advanced monotonically).
+func validateMultiLongValuesAt(t *testing.T, docID int, want []int64, mv MultiLongValues) {
+	t.Helper()
+	ok, err := mv.AdvanceExact(docID)
+	if err != nil {
+		t.Fatalf("doc %d: AdvanceExact: %v", docID, err)
+	}
+	if !ok {
+		t.Fatalf("doc %d: AdvanceExact returned false, want %d values", docID, len(want))
+	}
+	if mv.DocValueCount() != len(want) {
+		t.Fatalf("doc %d: DocValueCount = %d, want %d", docID, mv.DocValueCount(), len(want))
+	}
+	for i, w := range want {
+		v, err := mv.NextValue()
+		if err != nil {
+			t.Fatalf("doc %d: NextValue[%d]: %v", docID, i, err)
+		}
+		if v != w {
+			t.Errorf("doc %d: NextValue[%d] = %d, want %d", docID, i, v, w)
+		}
+	}
+}
+
+// validateMultiDoubleValuesAt asserts the MultiDoubleValues iterator reproduces
+// want for the given docID (the iterator must be advanced monotonically).
+func validateMultiDoubleValuesAt(t *testing.T, docID int, want []float64, mv MultiDoubleValues) {
+	t.Helper()
+	ok, err := mv.AdvanceExact(docID)
+	if err != nil {
+		t.Fatalf("doc %d: AdvanceExact: %v", docID, err)
+	}
+	if !ok {
+		t.Fatalf("doc %d: AdvanceExact returned false, want %d values", docID, len(want))
+	}
+	if mv.DocValueCount() != len(want) {
+		t.Fatalf("doc %d: DocValueCount = %d, want %d", docID, mv.DocValueCount(), len(want))
+	}
+	for i, w := range want {
+		v, err := mv.NextValue()
+		if err != nil {
+			t.Fatalf("doc %d: NextValue[%d]: %v", docID, i, err)
+		}
+		if math.Abs(v-w) > math.Abs(w)/1e5+1e-15 {
+			t.Errorf("doc %d: NextValue[%d] = %v, want %v", docID, i, v, w)
+		}
+	}
 }
