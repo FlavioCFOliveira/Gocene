@@ -18,7 +18,7 @@ import (
 // TestParentBlockJoinByteKnnVectorQuery.testVectorEncodingMismatch.
 // Skipped: requires DirectoryReader + IndexSearcher with byte-vector field.
 func TestParentBlockJoinByteKnnVectorQuery_VectorEncodingMismatch(t *testing.T) {
-	t.Skip("requires DirectoryReader + IndexSearcher: SegmentReader coreReaders not yet wired")
+	t.Skip("requires a runnable DiversifyingChildrenByteKnnVectorQuery (currently a descriptor stub, not a search.Query): rmp #4757")
 }
 
 // TestParentBlockJoinByteKnnVectorQuery_ToString corresponds to

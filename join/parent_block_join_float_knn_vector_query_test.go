@@ -18,14 +18,14 @@ import (
 // TestParentBlockJoinFloatKnnVectorQuery.testVectorEncodingMismatch.
 // Skipped: requires DirectoryReader + IndexSearcher with byte-vector field.
 func TestParentBlockJoinFloatKnnVectorQuery_VectorEncodingMismatch(t *testing.T) {
-	t.Skip("requires DirectoryReader + IndexSearcher: SegmentReader coreReaders not yet wired")
+	t.Skip("requires a runnable DiversifyingChildrenFloatKnnVectorQuery (currently a descriptor stub, not a search.Query): rmp #4757")
 }
 
 // TestParentBlockJoinFloatKnnVectorQuery_ScoreCosine corresponds to
 // TestParentBlockJoinFloatKnnVectorQuery.testScoreCosine.
 // Skipped: requires DirectoryReader + IndexSearcher with KNN float vectors.
 func TestParentBlockJoinFloatKnnVectorQuery_ScoreCosine(t *testing.T) {
-	t.Skip("requires DirectoryReader + IndexSearcher: SegmentReader coreReaders not yet wired")
+	t.Skip("requires a runnable DiversifyingChildrenFloatKnnVectorQuery (currently a descriptor stub, not a search.Query): rmp #4757")
 }
 
 // TestParentBlockJoinFloatKnnVectorQuery_ToString corresponds to

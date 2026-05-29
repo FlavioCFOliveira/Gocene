@@ -18,63 +18,63 @@ import "testing"
 // ParentBlockJoinKnnVectorQueryTestCase.testEmptyIndex.
 // Skipped: requires DirectoryReader + IndexSearcher round-trip.
 func TestParentBlockJoinKnnQueryTestCase_EmptyIndex(t *testing.T) {
-	t.Skip("requires DirectoryReader + IndexSearcher: SegmentReader coreReaders not yet wired")
+	t.Skip("requires a runnable DiversifyingChildrenFloatKnnVectorQuery (currently a descriptor stub, not a search.Query): rmp #4757")
 }
 
 // TestParentBlockJoinKnnQueryTestCase_IndexWithNoVectorsNorParents corresponds to
 // ParentBlockJoinKnnVectorQueryTestCase.testIndexWithNoVectorsNorParents.
 // Skipped: requires full IndexWriter/DirectoryReader infrastructure.
 func TestParentBlockJoinKnnQueryTestCase_IndexWithNoVectorsNorParents(t *testing.T) {
-	t.Skip("requires DirectoryReader + IndexSearcher: SegmentReader coreReaders not yet wired")
+	t.Skip("requires a runnable DiversifyingChildrenFloatKnnVectorQuery (currently a descriptor stub, not a search.Query): rmp #4757")
 }
 
 // TestParentBlockJoinKnnQueryTestCase_IndexWithNoParents corresponds to
 // ParentBlockJoinKnnVectorQueryTestCase.testIndexWithNoParents.
 // Skipped: requires full IndexWriter/DirectoryReader infrastructure.
 func TestParentBlockJoinKnnQueryTestCase_IndexWithNoParents(t *testing.T) {
-	t.Skip("requires DirectoryReader + IndexSearcher: SegmentReader coreReaders not yet wired")
+	t.Skip("requires a runnable DiversifyingChildrenFloatKnnVectorQuery (currently a descriptor stub, not a search.Query): rmp #4757")
 }
 
 // TestParentBlockJoinKnnQueryTestCase_FilterWithNoVectorMatches corresponds to
 // ParentBlockJoinKnnVectorQueryTestCase.testFilterWithNoVectorMatches.
 // Skipped: requires full index round-trip.
 func TestParentBlockJoinKnnQueryTestCase_FilterWithNoVectorMatches(t *testing.T) {
-	t.Skip("requires DirectoryReader + IndexSearcher: SegmentReader coreReaders not yet wired")
+	t.Skip("requires a runnable DiversifyingChildrenFloatKnnVectorQuery (currently a descriptor stub, not a search.Query): rmp #4757")
 }
 
 // TestParentBlockJoinKnnQueryTestCase_ScoringWithMultipleChildren corresponds to
 // ParentBlockJoinKnnVectorQueryTestCase.testScoringWithMultipleChildren.
 // Skipped: requires full index round-trip and DiversifyingChildrenFloatKnnVectorQuery scoring.
 func TestParentBlockJoinKnnQueryTestCase_ScoringWithMultipleChildren(t *testing.T) {
-	t.Skip("requires DirectoryReader + IndexSearcher: SegmentReader coreReaders not yet wired")
+	t.Skip("requires a runnable DiversifyingChildrenFloatKnnVectorQuery (currently a descriptor stub, not a search.Query): rmp #4757")
 }
 
 // TestParentBlockJoinKnnQueryTestCase_SkewedIndex corresponds to
 // ParentBlockJoinKnnVectorQueryTestCase.testSkewedIndex.
 // Skipped: requires full index round-trip.
 func TestParentBlockJoinKnnQueryTestCase_SkewedIndex(t *testing.T) {
-	t.Skip("requires DirectoryReader + IndexSearcher: SegmentReader coreReaders not yet wired")
+	t.Skip("requires a runnable DiversifyingChildrenFloatKnnVectorQuery (currently a descriptor stub, not a search.Query): rmp #4757")
 }
 
 // TestParentBlockJoinKnnQueryTestCase_Timeout corresponds to
 // ParentBlockJoinKnnVectorQueryTestCase.testTimeout.
 // Skipped: requires QueryTimeout infrastructure and full index round-trip.
 func TestParentBlockJoinKnnQueryTestCase_Timeout(t *testing.T) {
-	t.Skip("requires QueryTimeout + DirectoryReader: SegmentReader coreReaders not yet wired")
+	t.Skip("requires a runnable DiversifyingChildrenFloatKnnVectorQuery + QueryTimeout: rmp #4757")
 }
 
 // TestParentBlockJoinKnnQueryTestCase_TwoSegments corresponds to
 // ParentBlockJoinKnnVectorQueryTestCase.testTwoSegments.
 // Skipped: requires multi-segment DirectoryReader.
 func TestParentBlockJoinKnnQueryTestCase_TwoSegments(t *testing.T) {
-	t.Skip("requires DirectoryReader + IndexSearcher: SegmentReader coreReaders not yet wired")
+	t.Skip("requires a runnable DiversifyingChildrenFloatKnnVectorQuery (currently a descriptor stub, not a search.Query): rmp #4757")
 }
 
 // TestParentBlockJoinKnnQueryTestCase_Random corresponds to
 // ParentBlockJoinKnnVectorQueryTestCase.testRandom.
 // Skipped: requires random index generation and full search infrastructure.
 func TestParentBlockJoinKnnQueryTestCase_Random(t *testing.T) {
-	t.Skip("requires DirectoryReader + IndexSearcher: SegmentReader coreReaders not yet wired")
+	t.Skip("requires a runnable DiversifyingChildrenFloatKnnVectorQuery (currently a descriptor stub, not a search.Query): rmp #4757")
 }
 
 // TestParentBlockJoinKnnQueryTestCase_DescriptorConstruction verifies that
