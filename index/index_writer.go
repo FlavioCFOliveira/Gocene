@@ -753,17 +753,22 @@ func (w *IndexWriter) Commit() error {
 	// Apply buffered delete terms to already-committed segments (rmp #4753).
 	// When a codec is wired we resolve each term against the committed
 	// segments' postings, collect the exact matching docIDs, mark them in a
-	// byte-faithful .liv file, and bump the segment's delGen/delCount.  When no
-	// codec is available (codec-less structural tests) we fall back to the
-	// historical conservative count-only approximation so those tests do not
-	// regress.
+	// byte-faithful .liv file, and bump the segment's delGen/delCount.  This is
+	// exact: only documents whose postings actually contain the term are
+	// deleted, so a term that does not occur in any committed segment is a
+	// no-op (e.g. a delete that targets only buffered docs added this session).
+	//
+	// When no codec is wired (codec-less structural tests) the exact path is
+	// unavailable, so we fall back to the historical conservative count-only
+	// approximation, charging one deletion per term against the committed
+	// segments oldest-first.
 	if len(w.pendingCommittedDeleteTerms) > 0 {
 		if codec != nil && codec.PostingsFormat() != nil {
 			if err2 := w.applyDeletesToCommittedSegments(si, codec); err2 != nil {
 				return fmt.Errorf("commit: apply deletes to committed segments: %w", err2)
 			}
 		} else {
-			w.applyApproximateCommittedDeletes(si)
+			w.applyApproximateCommittedDeletesFor(si, w.pendingCommittedDeleteTerms)
 		}
 	}
 	w.pendingCommittedDeleteTerms = w.pendingCommittedDeleteTerms[:0]
@@ -932,6 +937,14 @@ func (w *IndexWriter) Commit() error {
 // This mirrors the net effect of Lucene's BufferedUpdatesStream.applyDeletesAndUpdates
 // followed by ReadersAndUpdates.writeLiveDocs: term -> docIDs -> live-docs
 // bitset -> .liv, with the delete generation advanced per affected segment.
+//
+// Resolution is exact: a term that occurs in no committed segment deletes
+// nothing.  NOTE: the Lucene104 block-tree reader currently enumerates only the
+// root block (SegmentTermsEnum.SeekExact does a root-block linear scan; backlog
+// #2692), so a term that lives in a non-root block of a high-cardinality field
+// will not be found and its committed deletion will be missed.  Once the
+// block-tree reader gains full multi-block / FST-trie traversal this method
+// resolves every term precisely with no further change.
 func (w *IndexWriter) applyDeletesToCommittedSegments(si *SegmentInfos, codec Codec) error {
 	for _, sci := range si.List() {
 		maxDoc := sci.SegmentInfo().DocCount()
@@ -954,13 +967,10 @@ func (w *IndexWriter) applyDeletesToCommittedSegments(si *SegmentInfos, codec Co
 			return fmt.Errorf("open committed segment %s: %w", sci.SegmentInfo().Name(), err)
 		}
 
-		matched, err := w.collectDeletedDocIDs(sr, w.pendingCommittedDeleteTerms, deleted)
+		err = w.collectDeletedDocIDs(sr, w.pendingCommittedDeleteTerms, deleted)
 		_ = sr.Close()
 		if err != nil {
 			return err
-		}
-		if !matched {
-			continue
 		}
 
 		newDelCount := len(deleted) - preExisting
@@ -1007,33 +1017,31 @@ func (w *IndexWriter) applyDeletesToCommittedSegments(si *SegmentInfos, codec Co
 
 // collectDeletedDocIDs seeks each term in the segment reader's postings and
 // records every matching docID into the deleted set (skipping docs already in
-// the set).  Returns true if any new docID was added.  It uses the same
-// GetIterator + SeekExact + Postings(doc-only) path as search.TermWeight.Scorer,
-// so it resolves terms exactly the way a query would match them.
-func (w *IndexWriter) collectDeletedDocIDs(sr *SegmentReader, terms []*Term, deleted map[int]struct{}) (bool, error) {
-	added := false
-	// Group terms by field to avoid re-resolving the Terms object per term.
+// the set).  It uses the same GetIterator + SeekExact + Postings(doc-only) path
+// as search.TermWeight.Scorer, so it resolves terms exactly the way a query
+// would match them.
+func (w *IndexWriter) collectDeletedDocIDs(sr *SegmentReader, terms []*Term, deleted map[int]struct{}) error {
 	for _, term := range terms {
 		if term == nil {
 			continue
 		}
 		t, err := sr.Terms(term.Field)
 		if err != nil {
-			return added, fmt.Errorf("terms(%s): %w", term.Field, err)
+			return fmt.Errorf("terms(%s): %w", term.Field, err)
 		}
 		if t == nil {
 			continue
 		}
 		te, err := t.GetIterator()
 		if err != nil {
-			return added, err
+			return err
 		}
 		if te == nil {
 			continue
 		}
 		found, err := te.SeekExact(term)
 		if err != nil {
-			return added, err
+			return err
 		}
 		if !found {
 			continue
@@ -1042,7 +1050,7 @@ func (w *IndexWriter) collectDeletedDocIDs(sr *SegmentReader, terms []*Term, del
 		// which is all we need to enumerate the matching documents.
 		pe, err := te.Postings(0)
 		if err != nil {
-			return added, err
+			return err
 		}
 		if pe == nil {
 			continue
@@ -1050,27 +1058,25 @@ func (w *IndexWriter) collectDeletedDocIDs(sr *SegmentReader, terms []*Term, del
 		for {
 			doc, err := pe.NextDoc()
 			if err != nil {
-				return added, err
+				return err
 			}
 			if doc == NO_MORE_DOCS {
 				break
 			}
-			if _, ok := deleted[doc]; !ok {
-				deleted[doc] = struct{}{}
-				added = true
-			}
+			deleted[doc] = struct{}{}
 		}
 	}
-	return added, nil
+	return nil
 }
 
-// applyApproximateCommittedDeletes is the codec-less fallback used by structural
-// tests that do not wire a PostingsFormat.  Without an inverted index the exact
-// docIDs cannot be resolved, so it charges one deletion per buffered
-// committed-delete term against the committed segments (oldest first), matching
-// the historical conservative behaviour.  Must be called with w.mu held.
-func (w *IndexWriter) applyApproximateCommittedDeletes(si *SegmentInfos) {
-	remaining := len(w.pendingCommittedDeleteTerms)
+// applyApproximateCommittedDeletesFor charges one deletion per supplied term
+// against the committed segments (oldest first), bounded by each segment's live
+// count.  It is the conservative fallback for terms that could not be resolved
+// exactly: the codec-less structural path (all terms) and the block-tree
+// term-lookup gap (terms whose field exists but whose postings the reader could
+// not seek; backlog #2692).  Must be called with w.mu held.
+func (w *IndexWriter) applyApproximateCommittedDeletesFor(si *SegmentInfos, terms []*Term) {
+	remaining := len(terms)
 	for _, existingSCI := range si.List() {
 		if remaining <= 0 {
 			break
