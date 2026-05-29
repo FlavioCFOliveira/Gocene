@@ -71,4 +71,11 @@ type Codec interface {
 	// package spi. Codec implementations that do not support doc values
 	// may return nil.
 	DocValuesFormat() DocValuesFormat
+
+	// PointsFormat returns the format used for multi-dimensional point
+	// (BKD) values (.kdd / .kdi / .kdm). Lifted onto the SPI by rmp #4769
+	// once the PointsFormat / PointsWriter / PointsReader family moved
+	// into package spi. Codec implementations that do not support point
+	// values may return nil.
+	PointsFormat() PointsFormat
 }

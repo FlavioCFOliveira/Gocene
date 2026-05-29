@@ -7,27 +7,20 @@ package codecs
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// PointsFormat handles encoding/decoding of point values (spatial/numeric indexing).
-// This is the Go port of Lucene's org.apache.lucene.codecs.PointsFormat.
+// PointsFormat is an alias of [spi.PointsFormat]. rmp #4769 lifted the
+// PointsFormat / PointsWriter / PointsReader family onto the canonical SPI
+// surface (mirroring the KnnVectorsFormat lift in rmp #4707) so spi.Codec
+// can expose PointsFormat(); the codecs-package interface collapsed to this
+// pure alias. This is the Go port of org.apache.lucene.codecs.PointsFormat.
 //
-// Points are used for efficient range queries and spatial indexing. They are stored
-// in a BKD (B-Tree K-D Tree) structure for fast intersection and range queries.
-type PointsFormat interface {
-	// Name returns the name of this format.
-	Name() string
-
-	// FieldsWriter returns a writer for writing points.
-	// The caller should close the returned writer when done.
-	FieldsWriter(state *SegmentWriteState) (PointsWriter, error)
-
-	// FieldsReader returns a reader for reading points.
-	// The caller should close the returned reader when done.
-	FieldsReader(state *SegmentReadState) (PointsReader, error)
-}
+// Points are used for efficient range queries and spatial indexing. They are
+// stored in a BKD (B-Tree K-D Tree) structure for fast intersection and range
+// queries.
+type PointsFormat = spi.PointsFormat
 
 // BasePointsFormat provides common functionality for PointsFormat implementations.
 type BasePointsFormat struct {
@@ -54,29 +47,18 @@ func (f *BasePointsFormat) FieldsReader(state *SegmentReadState) (PointsReader, 
 	return nil, fmt.Errorf("FieldsReader not implemented")
 }
 
-// PointsWriter is a writer for point values.
-// This is the Go port of Lucene's org.apache.lucene.codecs.PointsWriter.
-type PointsWriter interface {
-	// WriteField writes a point field.
-	// The values are provided through the reader.
-	WriteField(fieldInfo *index.FieldInfo, reader PointsReader) error
+// PointsWriter is an alias of [spi.PointsWriter]. WriteField's fieldInfo
+// parameter is *index.FieldInfo, which is itself an alias of
+// *schema.FieldInfo (the type spi.PointsWriter declares), so existing
+// implementations that spell the parameter *index.FieldInfo keep matching.
+// This is the Go port of org.apache.lucene.codecs.PointsWriter.
+type PointsWriter = spi.PointsWriter
 
-	// Finish finalizes the writing process.
-	Finish() error
-
-	// Close releases resources.
-	Close() error
-}
-
-// PointsReader is a reader for point values.
-// This is the Go port of Lucene's org.apache.lucene.codecs.PointsReader.
-type PointsReader interface {
-	// CheckIntegrity checks the integrity of the points.
-	CheckIntegrity() error
-
-	// Close releases resources.
-	Close() error
-}
+// PointsReader is an alias of [spi.PointsReader]. The narrow SPI surface
+// carries only CheckIntegrity / Close; the per-field getValues accessor
+// lives on the concrete codecs-side reader. This is the Go port of
+// org.apache.lucene.codecs.PointsReader.
+type PointsReader = spi.PointsReader
 
 // PointValues provides access to point values for a field.
 // This is the Go port of Lucene's org.apache.lucene.index.PointValues.

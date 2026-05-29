@@ -55,6 +55,18 @@ type KnnVectorsWriter = spi.KnnVectorsWriter
 // [KnnVectorsWriter.AddField].
 type KnnFieldVectorsWriter = spi.KnnFieldVectorsWriter
 
+// PointsFormat is an alias of [spi.PointsFormat] — the codec-facing
+// points (BKD) format accessor lifted onto the SPI by rmp #4769.
+type PointsFormat = spi.PointsFormat
+
+// PointsWriter is an alias of [spi.PointsWriter] — the codec-facing
+// points write-side contract.
+type PointsWriter = spi.PointsWriter
+
+// PointsReader is an alias of [spi.PointsReader] — the narrow codec-facing
+// points read-side contract (CheckIntegrity / Close).
+type PointsReader = spi.PointsReader
+
 // PostingsFormat is an alias of spi.PostingsFormat.
 type PostingsFormat = spi.PostingsFormat
 

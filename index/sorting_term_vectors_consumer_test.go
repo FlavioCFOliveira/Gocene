@@ -315,6 +315,7 @@ func (c *fakeCodecTV) TermVectorsFormat() TermVectorsFormat   { return c.tv }
 func (c *fakeCodecTV) CompoundFormat() CompoundFormat         { return nil }
 func (c *fakeCodecTV) KnnVectorsFormat() KnnVectorsFormat     { return nil }
 func (c *fakeCodecTV) DocValuesFormat() DocValuesFormat       { return nil }
+func (c *fakeCodecTV) PointsFormat() PointsFormat             { return nil }
 
 func newTestTVConsumer(t *testing.T, docs int) (*SortingTermVectorsConsumer, *fakeTermVectorsFormat, store.Directory, *SegmentInfo) {
 	t.Helper()

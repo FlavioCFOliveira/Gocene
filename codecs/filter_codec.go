@@ -93,5 +93,14 @@ func (c *FilterCodec) CompoundFormat() CompoundFormat {
 	return c.delegate.CompoundFormat()
 }
 
+// PointsFormat returns the delegate's points format. Mirrors
+// org.apache.lucene.codecs.FilterCodec.pointsFormat() which forwards to the
+// wrapped delegate. Without this explicit forwarder FilterCodec would
+// inherit BaseCodec.PointsFormat() (which returns nil) instead of the
+// delegate's real format.
+func (c *FilterCodec) PointsFormat() PointsFormat {
+	return c.delegate.PointsFormat()
+}
+
 // Ensure FilterCodec satisfies the Codec interface.
 var _ Codec = (*FilterCodec)(nil)

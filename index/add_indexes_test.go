@@ -2028,6 +2028,10 @@ func (c *customTestCodec) KnnVectorsFormat() index.KnnVectorsFormat {
 	return nil
 }
 
+func (c *customTestCodec) PointsFormat() index.PointsFormat {
+	return nil
+}
+
 func (c *customTestCodec) DocValuesFormat() index.DocValuesFormat {
 	return nil
 }

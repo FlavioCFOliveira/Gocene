@@ -83,6 +83,13 @@ func (c *BaseCodec) KnnVectorsFormat() KnnVectorsFormat {
 	return nil
 }
 
+// PointsFormat returns the points (BKD) format. Returns nil by default;
+// concrete codecs override. Required by spi.Codec since the PointsFormat
+// lift in rmp #4769.
+func (c *BaseCodec) PointsFormat() PointsFormat {
+	return nil
+}
+
 // CodecRegistry manages registered codecs.
 // This is a simple registry that allows looking up codecs by name.
 type CodecRegistry struct {
