@@ -269,10 +269,13 @@ type iterEntry struct {
 }
 
 func (a *numericIterAsSortedNumeric) Reset() error {
-	a.pos = 0
+	// pos = -1 so the first NextDoc advances to entry 0. The buffer is built
+	// once (drained from the writer-side iterator) and replayed on every
+	// Reset; this is required because the consumer iterates the values more
+	// than once (skip index, DISI doc set, values) and the DISI pass calls
+	// NextDoc only — never NextValue.
+	a.pos = -1
 	if !a.built {
-		// Drain the iterator once to collect all values; subsequent Reset()
-		// replays from the buf.
 		for a.it.Next() {
 			a.buf = append(a.buf, iterEntry{doc: a.it.DocID(), val: a.it.Value()})
 		}
@@ -281,17 +284,19 @@ func (a *numericIterAsSortedNumeric) Reset() error {
 	return nil
 }
 func (a *numericIterAsSortedNumeric) NextDoc() (int, error) {
+	a.pos++
 	if a.pos >= len(a.buf) {
 		return dvNoMoreDocs, nil
 	}
-	doc := a.buf[a.pos].doc
-	return doc, nil
+	return a.buf[a.pos].doc, nil
 }
 func (a *numericIterAsSortedNumeric) DocValueCount() (int, error) { return 1, nil }
+
+// NextValue returns the current document's value. NextDoc owns cursor
+// advancement, so NextValue is a read at the current position and may be
+// called zero or one time per document.
 func (a *numericIterAsSortedNumeric) NextValue() (int64, error) {
-	v := a.buf[a.pos].val
-	a.pos++
-	return v, nil
+	return a.buf[a.pos].val, nil
 }
 
 // binaryIterAsDvBinary wraps BinaryDocValuesIterator as dvBinaryValues.
@@ -308,7 +313,10 @@ type binaryEntry struct {
 }
 
 func (a *binaryIterAsDvBinary) Reset() error {
-	a.pos = 0
+	// pos = -1 so the first NextDoc advances to entry 0. See
+	// numericIterAsSortedNumeric.Reset for why the DISI pass (NextDoc-only)
+	// requires NextDoc — not BinaryValue — to own cursor advancement.
+	a.pos = -1
 	if !a.built {
 		for a.it.Next() {
 			cp := make([]byte, len(a.it.Value()))
@@ -320,15 +328,17 @@ func (a *binaryIterAsDvBinary) Reset() error {
 	return nil
 }
 func (a *binaryIterAsDvBinary) NextDoc() (int, error) {
+	a.pos++
 	if a.pos >= len(a.buf) {
 		return dvNoMoreDocs, nil
 	}
 	return a.buf[a.pos].doc, nil
 }
+
+// BinaryValue returns the current document's value. NextDoc owns cursor
+// advancement, so BinaryValue is a read at the current position.
 func (a *binaryIterAsDvBinary) BinaryValue() ([]byte, error) {
-	v := a.buf[a.pos].val
-	a.pos++
-	return v, nil
+	return a.buf[a.pos].val, nil
 }
 
 // snIterAsDvSortedNumeric wraps SortedNumericDocValuesIterator as
@@ -349,7 +359,10 @@ type snEntry struct {
 }
 
 func (a *snIterAsDvSortedNumeric) Reset() error {
-	a.pos = 0
+	// pos = -1 so the first NextDoc advances to entry 0. NextDoc owns cursor
+	// advancement (not NextValue) so the DISI pass — which calls NextDoc only,
+	// never NextValue — terminates instead of spinning on a stuck cursor.
+	a.pos = -1
 	a.docIdx = 0
 	a.docCnt = 0
 	if !a.built {
@@ -366,6 +379,7 @@ func (a *snIterAsDvSortedNumeric) Reset() error {
 	return nil
 }
 func (a *snIterAsDvSortedNumeric) NextDoc() (int, error) {
+	a.pos++
 	if a.pos >= len(a.buf) {
 		return dvNoMoreDocs, nil
 	}
@@ -375,12 +389,13 @@ func (a *snIterAsDvSortedNumeric) NextDoc() (int, error) {
 	return e.doc, nil
 }
 func (a *snIterAsDvSortedNumeric) DocValueCount() (int, error) { return a.docCnt, nil }
+
+// NextValue returns the current document's next value. The per-document value
+// cursor (docIdx) is independent of the document cursor (pos), which NextDoc
+// owns; NextValue must be called exactly DocValueCount() times per document.
 func (a *snIterAsDvSortedNumeric) NextValue() (int64, error) {
 	v := a.buf[a.pos].vals[a.docIdx]
 	a.docIdx++
-	if a.docIdx >= a.docCnt {
-		a.pos++
-	}
 	return v, nil
 }
 
