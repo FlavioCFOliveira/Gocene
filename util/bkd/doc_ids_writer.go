@@ -558,7 +558,7 @@ func (w *DocIdsWriter) readBitSetIterator(in store.IndexInput, count int) (*util
 		// no-op; the slice is reused with the correct logical length.
 	}
 	for i := 0; i < int(longLen); i++ {
-		v, err := in.ReadLong()
+		v, err := store.ReadInt64LE(in)
 		if err != nil {
 			return nil, err
 		}
@@ -596,7 +596,7 @@ func readDelta16(in store.IndexInput, count int, docIds []int32) error {
 	}
 	half := count >> 1
 	for i := 0; i < half; i++ {
-		v, err := in.ReadInt()
+		v, err := store.ReadInt32LE(in)
 		if err != nil {
 			return err
 		}
@@ -605,11 +605,11 @@ func readDelta16(in store.IndexInput, count int, docIds []int32) error {
 	decode16(docIds, half, minVal)
 	// Read the remaining doc if count is odd.
 	for i := half << 1; i < count; i++ {
-		s, err := in.ReadShort()
+		s, err := readUint16LE(in)
 		if err != nil {
 			return err
 		}
-		docIds[i] = int32(uint16(s)) + minVal
+		docIds[i] = int32(s) + minVal
 	}
 	return nil
 }
@@ -642,11 +642,19 @@ func floorToMultipleOf16(n int) int {
 }
 
 // readInts21 decodes a BPV_21 block.
+//
+// The block is written by the BPV21 branch of WriteDocIds using
+// little-endian int/long/short writers (writeIntLE / writeLongLE /
+// writeShortLE), matching Lucene's vectorised DataInput.readInts/readLongs
+// layout. The decode therefore MUST read little-endian: IndexInput.ReadInt /
+// ReadLong / ReadShort are big-endian on the SimpleFS and checksum inputs the
+// points codec uses, so reading through them byte-swaps every value and
+// produces garbage docIDs (the cause of rmp #4769's geo3d decode failure).
 func (w *DocIdsWriter) readInts21(in store.IndexInput, count int, docIDs []int32) error {
 	oneThird := floorToMultipleOf16(count / 3)
 	numInts := oneThird << 1
 	for i := 0; i < numInts; i++ {
-		v, err := in.ReadInt()
+		v, err := store.ReadInt32LE(in)
 		if err != nil {
 			return err
 		}
@@ -655,7 +663,7 @@ func (w *DocIdsWriter) readInts21(in store.IndexInput, count int, docIDs []int32
 	decode21(docIDs, w.scratch, oneThird, numInts)
 	i := oneThird * 3
 	for ; i < count-2; i += 3 {
-		l, err := in.ReadLong()
+		l, err := store.ReadInt64LE(in)
 		if err != nil {
 			return err
 		}
@@ -665,7 +673,7 @@ func (w *DocIdsWriter) readInts21(in store.IndexInput, count int, docIDs []int32
 		docIDs[i+2] = int32(ul >> 42)
 	}
 	for ; i < count; i++ {
-		s, err := in.ReadShort()
+		s, err := readUint16LE(in)
 		if err != nil {
 			return err
 		}
@@ -673,9 +681,20 @@ func (w *DocIdsWriter) readInts21(in store.IndexInput, count int, docIDs []int32
 		if err != nil {
 			return err
 		}
-		docIDs[i] = int32(uint16(s)) | int32(b)<<16
+		docIDs[i] = int32(s) | int32(b)<<16
 	}
 	return nil
+}
+
+// readUint16LE reads a little-endian 16-bit value, matching writeShortLE on
+// the write side. IndexInput.ReadShort is big-endian on the SimpleFS /
+// checksum inputs, so it cannot be used here.
+func readUint16LE(in store.IndexInput) (uint16, error) {
+	b, err := in.ReadBytesN(2)
+	if err != nil {
+		return 0, err
+	}
+	return uint16(b[0]) | uint16(b[1])<<8, nil
 }
 
 func (w *DocIdsWriter) readInts21Visitor(in store.IndexInput, count int, visitor DocIDVisitor, buffer []int32) error {
@@ -709,7 +728,7 @@ func (w *DocIdsWriter) readInts24(in store.IndexInput, count int, docIDs []int32
 	quarter := count >> 2
 	numInts := quarter * 3
 	for i := 0; i < numInts; i++ {
-		v, err := in.ReadInt()
+		v, err := store.ReadInt32LE(in)
 		if err != nil {
 			return err
 		}
@@ -718,7 +737,7 @@ func (w *DocIdsWriter) readInts24(in store.IndexInput, count int, docIDs []int32
 	decode24(docIDs, w.scratch, quarter, numInts)
 	// Now read the remaining 0, 1, 2 or 3 values.
 	for i := quarter << 2; i < count; i++ {
-		s, err := in.ReadShort()
+		s, err := readUint16LE(in)
 		if err != nil {
 			return err
 		}
@@ -726,7 +745,7 @@ func (w *DocIdsWriter) readInts24(in store.IndexInput, count int, docIDs []int32
 		if err != nil {
 			return err
 		}
-		docIDs[i] = int32(uint16(s)) | int32(b)<<16
+		docIDs[i] = int32(s) | int32(b)<<16
 	}
 	return nil
 }
@@ -765,15 +784,15 @@ func decode24(docIDs, scratch []int32, quarter, numInts int) {
 func readScalarInts24(in store.IndexInput, count int, docIDs []int32) error {
 	i := 0
 	for ; i < count-7; i += 8 {
-		l1, err := in.ReadLong()
+		l1, err := store.ReadInt64LE(in)
 		if err != nil {
 			return err
 		}
-		l2, err := in.ReadLong()
+		l2, err := store.ReadInt64LE(in)
 		if err != nil {
 			return err
 		}
-		l3, err := in.ReadLong()
+		l3, err := store.ReadInt64LE(in)
 		if err != nil {
 			return err
 		}
@@ -788,7 +807,7 @@ func readScalarInts24(in store.IndexInput, count int, docIDs []int32) error {
 		docIDs[i+7] = int32(ul3) & 0xFFFFFF
 	}
 	for ; i < count; i++ {
-		s, err := in.ReadShort()
+		s, err := readUint16LE(in)
 		if err != nil {
 			return err
 		}
@@ -796,7 +815,7 @@ func readScalarInts24(in store.IndexInput, count int, docIDs []int32) error {
 		if err != nil {
 			return err
 		}
-		docIDs[i] = (int32(uint16(s)) << 8) | int32(b)
+		docIDs[i] = (int32(s) << 8) | int32(b)
 	}
 	return nil
 }
@@ -813,10 +832,11 @@ func (w *DocIdsWriter) readScalarInts24Visitor(in store.IndexInput, count int, v
 	return nil
 }
 
-// readInts32 decodes a BPV_32 block.
+// readInts32 decodes a BPV_32 block. The writer emits each docID via
+// writeIntLE (little-endian), so the decode reads little-endian.
 func readInts32(in store.IndexInput, count int, docIDs []int32) error {
 	for i := 0; i < count; i++ {
-		v, err := in.ReadInt()
+		v, err := store.ReadInt32LE(in)
 		if err != nil {
 			return err
 		}
@@ -827,7 +847,7 @@ func readInts32(in store.IndexInput, count int, docIDs []int32) error {
 
 func (w *DocIdsWriter) readInts32Visitor(in store.IndexInput, count int, visitor DocIDVisitor) error {
 	for i := 0; i < count; i++ {
-		v, err := in.ReadInt()
+		v, err := store.ReadInt32LE(in)
 		if err != nil {
 			return err
 		}

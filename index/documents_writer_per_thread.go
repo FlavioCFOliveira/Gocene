@@ -508,8 +508,17 @@ func asDwptField(fieldInterface interface{}) (*dwptField, bool) {
 			f.pointIndexDimensionCount = f.pointDimensionCount
 		}
 		f.pointNumBytes = ptp.PointNumBytes()
+		// The packed value comes from the concrete document.Point via its
+		// PointValues() accessor; fields that encode the packed bytes as the
+		// field's binary value (e.g. document.Field produced by
+		// Geo3DPoint.ToIndexableFields) expose it through BinaryValue()
+		// instead. Prefer the explicit accessor, fall back to the binary
+		// value.
 		if pp, ok := fieldInterface.(pointValueProvider); ok {
 			f.pointPackedValue = pp.PointValues()
+		}
+		if len(f.pointPackedValue) == 0 {
+			f.pointPackedValue = f.binaryValue
 		}
 	}
 	return f, true

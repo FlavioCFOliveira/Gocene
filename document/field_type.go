@@ -591,6 +591,21 @@ func (w fieldTypeAsIndexInterface) VectorSimilarityFunction() index.VectorSimila
 	return w.ft.VectorSimilarityFunction
 }
 
+// PointDimensionCount exposes the number of point (BKD) dimensions so the
+// indexing chain can detect a point field via its optional
+// pointFieldTypeProvider probe (it returns 0 for non-point field types).
+func (w fieldTypeAsIndexInterface) PointDimensionCount() int { return w.ft.DimensionCount }
+
+// PointIndexDimensionCount exposes the number of indexed point dimensions
+// (defaults to DimensionCount when only SetDimensions(count, numBytes) was
+// configured).
+func (w fieldTypeAsIndexInterface) PointIndexDimensionCount() int {
+	return w.ft.IndexDimensionCount
+}
+
+// PointNumBytes exposes the number of bytes per point dimension.
+func (w fieldTypeAsIndexInterface) PointNumBytes() int { return w.ft.DimensionNumBytes }
+
 // AsIndexFieldTypeInterface returns this FieldType wrapped as an
 // index.FieldTypeInterface so that document.Field can satisfy
 // index.IndexableField without renaming any struct fields.
