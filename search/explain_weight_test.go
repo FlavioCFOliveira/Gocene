@@ -267,38 +267,56 @@ func TestRegexpWeight_Explain(t *testing.T) {
 	assertExplainNoMatch(t, exp, err)
 }
 
-// TestSynonymWeight_Explain_NoMatch verifies SynonymWeight.Explain is a faithful
-// Explanation (not the old "not implemented" stub). Synonym scoring is still a
-// placeholder in this port (SynonymWeight.Scorer returns nil), so every doc is a
-// no-match; the test asserts a real no-match Explanation rather than an error.
-func TestSynonymWeight_Explain_NoMatch(t *testing.T) {
-	searcher, leaf := explainTestIndex(t, []string{"apple", "banana"})
+// TestSynonymWeight_Explain verifies SynonymWeight.Explain produces a match
+// whose value equals the scored value for a document containing any synonym
+// term, and a non-match for a document containing none of them. The matching
+// branch exercises the real SynonymScorer implemented in rmp #4749 (previously
+// SynonymWeight.Scorer was a nil placeholder and every doc was a no-match).
+func TestSynonymWeight_Explain(t *testing.T) {
+	// Docs: 0:"apple" 1:"banana" 2:"cherry"
+	searcher, leaf := explainTestIndex(t, []string{"apple", "banana", "cherry"})
 
+	// "apple" OR "banana" as synonyms.
 	query := search.NewSynonymQueryBuilder("field").
 		AddTerm(index.NewTerm("field", "apple")).
+		AddTerm(index.NewTerm("field", "banana")).
 		Build()
-	weight, err := query.CreateWeight(searcher, false, 1.0)
+	weight, err := query.CreateWeight(searcher, true, 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}
 
+	// Doc 0 ("apple") matches a synonym term -> match valued at the score.
+	want := scoreOfDoc(t, searcher, query, 0)
 	exp, err := weight.Explain(leaf, 0)
+	assertExplainMatchesScore(t, exp, err, want)
+
+	// Doc 2 ("cherry") matches no synonym term -> non-match.
+	exp, err = weight.Explain(leaf, 2)
 	assertExplainNoMatch(t, exp, err)
 }
 
-// TestSpanWeight_Explain_NoMatch verifies SpanWeight.Explain is a faithful
-// Explanation. Span scoring is still a placeholder (SpanWeight.Scorer builds an
-// empty Spans), so every doc is a no-match; the test asserts a real no-match
-// Explanation rather than the old "not implemented" stub.
-func TestSpanWeight_Explain_NoMatch(t *testing.T) {
-	searcher, leaf := explainTestIndex(t, []string{"apple", "banana"})
+// TestSpanWeight_Explain verifies the SpanTermWeight.Explain matching branch
+// (value equals the scored value for a document containing the term) and the
+// non-match branch. The matching branch exercises the real TermSpans/SpanScorer
+// path implemented in rmp #4749 (previously SpanWeight.Scorer built an empty
+// Spans and every doc was a no-match).
+func TestSpanWeight_Explain(t *testing.T) {
+	// Docs: 0:"apple" 1:"banana" 2:"apple apple"
+	searcher, leaf := explainTestIndex(t, []string{"apple", "banana", "apple apple"})
 
 	query := search.NewSpanTermQuery(index.NewTerm("field", "apple"))
-	weight, err := query.CreateWeight(searcher, false, 1.0)
+	weight, err := query.CreateWeight(searcher, true, 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}
 
+	// Doc 0 contains "apple" -> match valued at the score.
+	want := scoreOfDoc(t, searcher, query, 0)
 	exp, err := weight.Explain(leaf, 0)
+	assertExplainMatchesScore(t, exp, err, want)
+
+	// Doc 1 ("banana") does not contain "apple" -> non-match.
+	exp, err = weight.Explain(leaf, 1)
 	assertExplainNoMatch(t, exp, err)
 }

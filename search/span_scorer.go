@@ -141,10 +141,11 @@ func (s *SpanScorer) setFreqCurrentDoc() {
 
 		s.positioned = true
 
-		// Calculate match width (span length)
-		start := s.spans.StartPosition()
-		end := s.spans.EndPosition()
-		s.matchWidth = end - start
+		// Match width is the span's own width(), mirroring Lucene's
+		// SpanScorer.setFreqCurrentDoc which accumulates 1/(1+spans.width()).
+		// For a TermSpans (single term) the width is 0, so each occurrence
+		// contributes 1.0 to the frequency.
+		s.matchWidth = s.spans.Width()
 
 		// Process this span occurrence
 		s.doCurrentSpans()
@@ -153,7 +154,7 @@ func (s *SpanScorer) setFreqCurrentDoc() {
 		s.numMatches++
 
 		// Calculate sloppy frequency contribution
-		// Formula: freq += 1.0 / (1.0 + matchWidth)
+		// Formula: freq += 1.0 / (1.0 + width)
 		// This penalizes wider spans (more slop)
 		sloppyContribution := float32(1.0 / (1.0 + float64(s.matchWidth)))
 		s.freq += sloppyContribution
