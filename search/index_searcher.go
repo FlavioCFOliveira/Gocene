@@ -120,6 +120,64 @@ func (s *IndexSearcher) SearchWithCollector(query Query, collector Collector) er
 	return nil
 }
 
+// Explain returns an Explanation that describes how doc scored against query.
+//
+// This is the Go port of Lucene's IndexSearcher.explain(Query, int): the query
+// is rewritten, a COMPLETE-scoring Weight is built, and the explanation is
+// produced by the protected explain(Weight, int) below. Like Lucene it is
+// intended for development/diagnostics, not for every hit.
+func (s *IndexSearcher) Explain(query Query, doc int) (Explanation, error) {
+	rewritten, err := query.Rewrite(s.reader)
+	if err != nil {
+		return nil, err
+	}
+	weight, err := rewritten.CreateWeight(s, true, 1.0)
+	if err != nil {
+		return nil, err
+	}
+	if weight == nil {
+		return NoMatchExplanation("no matching weight"), nil
+	}
+	return s.explainWeight(weight, doc)
+}
+
+// explainWeight is the low-level explain that maps a top-level doc id to its
+// leaf, refuses deleted documents, and delegates to the Weight on the rebased
+// (leaf-local) doc id.
+//
+// This mirrors Lucene's protected IndexSearcher.explain(Weight, int): it locates
+// the leaf that owns doc, computes deBasedDoc = doc - docBase, returns a no-match
+// when the document is deleted (acceptDocs/liveDocs), and otherwise calls
+// weight.Explain on the leaf context. The liveDocs check matches Lucene's
+// behaviour where the Weight's scorer iterates all docs (deleted included), so
+// the deletion must be filtered here, not inside the scorer (rmp #4762).
+func (s *IndexSearcher) explainWeight(weight Weight, doc int) (Explanation, error) {
+	if dr, ok := interface{}(s.reader).(*index.DirectoryReader); ok {
+		docBase := 0
+		for ord, sr := range dr.GetSegmentReaders() {
+			maxDoc := sr.MaxDoc()
+			if doc >= docBase && doc < docBase+maxDoc {
+				return s.explainLeaf(sr, ord, docBase, weight, doc-docBase, doc)
+			}
+			docBase += maxDoc
+		}
+		return NoMatchExplanation(fmt.Sprintf("Document %d is out of range", doc)), nil
+	}
+	return s.explainLeaf(s.reader, 0, 0, weight, doc, doc)
+}
+
+// explainLeaf builds the leaf context, applies the central liveDocs (acceptDocs)
+// check, and delegates to weight.Explain on the leaf-local doc id.
+func (s *IndexSearcher) explainLeaf(reader index.IndexReaderInterface, ord, docBase int, weight Weight, leafDoc, globalDoc int) (Explanation, error) {
+	if lr, ok := reader.(interface{ GetLiveDocs() util.Bits }); ok {
+		if liveDocs := lr.GetLiveDocs(); liveDocs != nil && !liveDocs.Get(leafDoc) {
+			return NoMatchExplanation(fmt.Sprintf("Document %d is deleted", globalDoc)), nil
+		}
+	}
+	ctx := index.NewLeafReaderContext(reader, nil, ord, docBase)
+	return weight.Explain(ctx, leafDoc)
+}
+
 // asLeafReader extracts a *index.LeafReader from an IndexReaderInterface.
 // SegmentReader embeds *LeafReader, so we must handle that case explicitly.
 func asLeafReader(r index.IndexReaderInterface) *index.LeafReader {

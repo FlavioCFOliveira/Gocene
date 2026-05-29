@@ -8,7 +8,6 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TermWeight is the Weight implementation for TermQuery.
@@ -113,18 +112,15 @@ func (w *TermWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) {
 		return nil, nil
 	}
 
-	// Apply the leaf's live docs so documents deleted via a persisted .liv file
-	// (rmp #4753) do not match. Mirrors Lucene's intersection of the TermScorer
-	// iterator with acceptDocs == LeafReader.getLiveDocs(). The reader carried by
-	// the context is the *SegmentReader (not the embedded *LeafReader), so the
-	// GetLiveDocs override is reachable via Reader().
-	var liveDocs util.Bits
-	if lr, ok := context.Reader().(interface{ GetLiveDocs() util.Bits }); ok {
-		liveDocs = lr.GetLiveDocs()
-	}
-
-	// Create and return the scorer
-	return NewTermScorerWithLiveDocs(w, postingsEnum, w.simScorer, liveDocs), nil
+	// The TermScorer iterates EVERY document the postings enumerate, including
+	// those deleted via a persisted .liv file. This mirrors Lucene 10.4.0, whose
+	// TermScorer's DocIdSetIterator does not consult liveDocs: acceptDocs
+	// (== LeafReader.getLiveDocs()) is applied by the collector layer, centrally
+	// in IndexSearcher.searchLeaf. Filtering here would diverge from Lucene and
+	// would make QueryBitSetProducer drop deleted parents from the block-join
+	// parent bitset (Lucene's QueryBitSetProducer explicitly ignores acceptDocs),
+	// mis-attributing block boundaries to the next live parent (rmp #4762).
+	return NewTermScorer(w, postingsEnum, w.simScorer), nil
 }
 
 // ScorerSupplier creates a scorer supplier for this weight.
