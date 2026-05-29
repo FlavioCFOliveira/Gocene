@@ -304,6 +304,14 @@ func (w *ToChildBlockJoinWeight) GetScoreMode() ScoreMode {
 
 // Scorer creates a scorer for this weight.
 func (w *ToChildBlockJoinWeight) Scorer(context *index.LeafReaderContext) (search.Scorer, error) {
+	// A nil parent weight means the parent query produced no runnable weight,
+	// hence no parent (and therefore no child) matches. Mirrors the "no matches"
+	// short-circuit in Lucene's ToChildBlockJoinWeight.scorerSupplier, which
+	// returns null when the inner scorer supplier is null.
+	if w.parentWeight == nil {
+		return nil, nil
+	}
+
 	// Get the parents BitSet for this context
 	parentsBits, err := w.parentsFilter.GetBitSet(context)
 	if err != nil {
@@ -484,6 +492,14 @@ func (w *ToParentBlockJoinWeight) GetScoreMode() ScoreMode {
 
 // Scorer creates a scorer for this weight.
 func (w *ToParentBlockJoinWeight) Scorer(context *index.LeafReaderContext) (search.Scorer, error) {
+	// A nil child weight means the child query produced no runnable weight,
+	// hence no child (and therefore no parent) matches. Mirrors the "no matches"
+	// short-circuit in Lucene's BlockJoinWeight.scorerSupplier, which returns
+	// null when the child scorer supplier is null.
+	if w.childWeight == nil {
+		return nil, nil
+	}
+
 	// Get the parents BitSet for this context
 	parentsBits, err := w.parentsFilter.GetBitSet(context)
 	if err != nil {
