@@ -266,6 +266,93 @@ func TestDocValues_OnDiskRoundTrip(t *testing.T) {
 	})
 }
 
+// TestDocValues_OnDiskSparse covers a sparse field: not every document carries
+// the numeric / binary doc-values field, so the codec writes the IndexedDISI
+// doc-set companion (numDocsWithField < maxDoc). It guards the NextDoc-cursor
+// fix in the writer-side adapters.
+func TestDocValues_OnDiskSparse(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	writer, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	// 4 docs; only even docIDs carry "ndv" and "bdv".
+	const numDocs = 4
+	for i := 0; i < numDocs; i++ {
+		fields := []interface{}{}
+		if i%2 == 0 {
+			ndv, _ := document.NewNumericDocValuesField("ndv", int64(i*10))
+			bdv, _ := document.NewBinaryDocValuesField("bdv", []byte("b"+itoa(i)))
+			fields = append(fields, ndv, bdv)
+		}
+		// A field present on every doc so maxDoc is well defined even for the
+		// docs missing ndv/bdv.
+		key, _ := document.NewStringField("k", "v", false)
+		fields = append(fields, key)
+		if err := writer.AddDocument(&testDocument{fields: fields}); err != nil {
+			t.Fatalf("AddDocument(%d): %v", i, err)
+		}
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer reader.Close()
+
+	r := reader.GetSegmentReaders()[0]
+
+	ndv, err := r.GetNumericDocValues("ndv")
+	if err != nil || ndv == nil {
+		t.Fatalf("GetNumericDocValues: dv=%v err=%v", ndv, err)
+	}
+	for _, want := range []int{0, 2} {
+		doc, err := ndv.NextDoc()
+		if err != nil {
+			t.Fatalf("NextDoc: %v", err)
+		}
+		if doc != want {
+			t.Fatalf("numeric doc = %d, want %d", doc, want)
+		}
+		v, _ := ndv.LongValue()
+		if v != int64(want*10) {
+			t.Fatalf("doc %d: value = %d, want %d", doc, v, want*10)
+		}
+	}
+	// Exhausted: the codec doc-values producer returns the DocIdSetIterator
+	// NO_MORE_DOCS sentinel (Integer.MAX_VALUE), i.e. a doc >= maxDoc.
+	if doc, _ := ndv.NextDoc(); doc < numDocs {
+		t.Fatalf("numeric trailing doc = %d, want exhausted (>= %d)", doc, numDocs)
+	}
+
+	bdv, err := r.GetBinaryDocValues("bdv")
+	if err != nil || bdv == nil {
+		t.Fatalf("GetBinaryDocValues: dv=%v err=%v", bdv, err)
+	}
+	for _, want := range []int{0, 2} {
+		doc, err := bdv.NextDoc()
+		if err != nil {
+			t.Fatalf("NextDoc: %v", err)
+		}
+		if doc != want {
+			t.Fatalf("binary doc = %d, want %d", doc, want)
+		}
+		b, _ := bdv.BinaryValue()
+		if string(b) != "b"+itoa(want) {
+			t.Fatalf("doc %d: value = %q, want %q", doc, b, "b"+itoa(want))
+		}
+	}
+}
+
 // TestDocValues_OnDiskQueryEndToEnd is the rmp #4771 acceptance test for a
 // DocValues-backed query running end-to-end via IndexSearcher: a
 // NumericDocValuesRangeQuery over the on-disk reader must match exactly the
