@@ -109,11 +109,10 @@ func (ff *FacetField) ToIndexField(config *FacetsConfig) (document.IndexableFiel
 		indexFieldName = config.GetIndexFieldName(ff.dim)
 	}
 
-	// Create the field value (full path for hierarchical facets)
-	fieldValue := ff.value
-	if len(ff.path) > 0 {
-		fieldValue = ff.GetPathString("/")
-	}
+	// Encode the indexed drill-down term, byte-faithful to Lucene's
+	// FacetsConfig.pathToString: dim + full path joined by DelimChar (U+001F)
+	// with DelimChar/escapeChar escaping, so labels containing '/' round-trip.
+	fieldValue := PathToString(ff.dim, ff.GetFullPath())
 
 	// Create a string field for indexing
 	field, err := document.NewStringField(indexFieldName, fieldValue, true)
@@ -137,11 +136,9 @@ func (ff *FacetField) ToDocValuesField(config *FacetsConfig) (document.Indexable
 		indexFieldName = config.GetIndexFieldName(ff.dim)
 	}
 
-	// Create the field value (full path for hierarchical facets)
-	fieldValue := []byte(ff.value)
-	if len(ff.path) > 0 {
-		fieldValue = []byte(ff.GetPathString("/"))
-	}
+	// Encode the indexed facet term, byte-faithful to Lucene's
+	// FacetsConfig.pathToString (DelimChar U+001F separator + escaping).
+	fieldValue := []byte(PathToString(ff.dim, ff.GetFullPath()))
 
 	// Check if multi-valued
 	isMultiValued := false

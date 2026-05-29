@@ -43,32 +43,18 @@ type AbstractSortedSetDocValueFacetCounts struct {
 
 // --- helpers -----------------------------------------------------------------
 
-// pathToString converts a dim + path to the label string used as a SortedSet
-// term. Mirrors FacetsConfig.pathToString.
+// pathToString converts a dim + path to the indexed SortedSet term. It
+// delegates to facets.PathToString so the SSDV term encoding stays
+// byte-identical to FacetsConfig.pathToString (DelimChar U+001F separator with
+// DelimChar/escapeChar escaping).
 func pathToString(dim string, path []string) string {
-	if len(path) == 0 {
-		return dim
-	}
-	s := dim
-	for _, p := range path {
-		s += "\x1f" + p
-	}
-	return s
+	return facets.PathToString(dim, path)
 }
 
-// stringToPath splits a term back into its parts. Mirrors
-// FacetsConfig.stringToPath.
+// stringToPath splits an indexed SSDV term back into its parts, reversing the
+// FacetsConfig.pathToString escaping. It delegates to facets.StringToPath.
 func stringToPath(s string) []string {
-	parts := []string{}
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\x1f' {
-			parts = append(parts, s[start:i])
-			start = i + 1
-		}
-	}
-	parts = append(parts, s[start:])
-	return parts
+	return facets.StringToPath(s)
 }
 
 // childIterationCursor pairs a path ordinal with its child iterator.

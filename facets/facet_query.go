@@ -5,6 +5,9 @@
 package facets
 
 import (
+	"strings"
+	"unicode/utf8"
+
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
@@ -51,13 +54,68 @@ func DrillDownFieldName(config *FacetsConfig, dim string) string {
 }
 
 // PathToString encodes a (dim, path...) tuple into the single string used as
-// the drill-down term value. Mirrors FacetsConfig.pathToString.
+// the indexed drill-down term value. It mirrors, byte-for-byte,
+// org.apache.lucene.facet.FacetsConfig.pathToString(String[], int): components
+// are joined with DelimChar (U+001F), and any DelimChar or escapeChar inside a
+// component is prefixed with escapeChar (U+001E) so that arbitrary labels
+// (including those containing '/') round-trip through StringToPath.
+//
+// Each component must be non-empty; an empty component yields the empty term
+// that Lucene also produces for a zero-length path.
 func PathToString(dim string, path []string) string {
-	parts := make([]byte, 0, len(dim)+1)
-	parts = append(parts, dim...)
-	for _, p := range path {
-		parts = append(parts, '/')
-		parts = append(parts, p...)
+	full := make([]string, 1+len(path))
+	full[0] = dim
+	copy(full[1:], path)
+	return pathComponentsToString(full)
+}
+
+// pathComponentsToString encodes a full path (dim followed by its components)
+// using the Lucene DELIM_CHAR/ESCAPE_CHAR scheme. Empty input yields "".
+func pathComponentsToString(path []string) string {
+	if len(path) == 0 {
+		return ""
 	}
-	return string(parts)
+	var sb strings.Builder
+	for _, s := range path {
+		for _, ch := range s {
+			if ch == DelimChar || ch == escapeChar {
+				sb.WriteRune(escapeChar)
+			}
+			sb.WriteRune(ch)
+		}
+		sb.WriteRune(DelimChar)
+	}
+	// Trim off the trailing DelimChar.
+	encoded := sb.String()
+	return encoded[:len(encoded)-utf8.RuneLen(DelimChar)]
+}
+
+// StringToPath turns an encoded indexed facet term (produced by PathToString or
+// FacetsConfig.pathToString) back into its component strings, reversing the
+// DelimChar/escapeChar escaping. It mirrors
+// org.apache.lucene.facet.FacetsConfig.stringToPath. An empty string yields an
+// empty slice.
+func StringToPath(s string) []string {
+	if len(s) == 0 {
+		return []string{}
+	}
+	parts := make([]string, 0, 4)
+	var buf strings.Builder
+	lastEscape := false
+	for _, ch := range s {
+		switch {
+		case lastEscape:
+			buf.WriteRune(ch)
+			lastEscape = false
+		case ch == escapeChar:
+			lastEscape = true
+		case ch == DelimChar:
+			parts = append(parts, buf.String())
+			buf.Reset()
+		default:
+			buf.WriteRune(ch)
+		}
+	}
+	parts = append(parts, buf.String())
+	return parts
 }

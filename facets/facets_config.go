@@ -9,6 +9,19 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
+// DelimChar is the character used to join the category path components
+// together into a single drill-down term for indexing. It mirrors
+// org.apache.lucene.facet.FacetsConfig.DELIM_CHAR (U+001F, the ASCII unit
+// separator). Applications and tests may reference it for creating their own
+// drill-down terms, or use PathToString.
+const DelimChar = ''
+
+// escapeChar escapes any occurrence of DelimChar or escapeChar inside a path
+// component, so that arbitrary labels (including those containing '/' or
+// U+001F) round-trip. It mirrors the private FacetsConfig.ESCAPE_CHAR
+// (U+001E, the ASCII record separator).
+const escapeChar = ''
+
 // FacetsConfig manages the configuration for faceted fields.
 // It determines how facet fields are indexed and what type of faceting
 // is supported for each field.
