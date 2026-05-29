@@ -624,6 +624,55 @@ func (s *toParentBlockJoinScorerSupplier) SetTopLevelScoringClause() {
 	}
 }
 
+// BulkScorer returns the bulk-scoring path for this supplier.
+//
+// Faithful port of the bulkScorer() override in
+// ToParentBlockJoinWeight.scorerSupplier: ScoreMode.None falls back to the
+// default bulk scorer (which drives the BlockJoinScorer one child per parent),
+// while every other mode returns a BlockJoinBulkScorer over the child
+// supplier's bulk scorer, evaluating all child hits per parent exhaustively.
+func (s *toParentBlockJoinScorerSupplier) BulkScorer() (search.BulkScorer, error) {
+	if s.weight.scoreMode == None {
+		scorer, err := s.Get(int64(1)<<62 - 1)
+		if err != nil {
+			return nil, err
+		}
+		if scorer == nil {
+			return nil, nil
+		}
+		return search.NewDefaultBulkScorer(scorer), nil
+	}
+
+	childBulkScorer, err := supplierBulkScorer(s.childSupplier)
+	if err != nil {
+		return nil, err
+	}
+	if childBulkScorer == nil {
+		return nil, nil
+	}
+	return NewBlockJoinBulkScorer(childBulkScorer, s.parentsBits, s.weight.scoreMode), nil
+}
+
+// supplierBulkScorer returns a BulkScorer from a ScorerSupplier, preferring the
+// supplier's own BulkScorer() when it exposes one (mirroring
+// ScorerSupplier.bulkScorer()), and otherwise wrapping its Scorer in a
+// DefaultBulkScorer (the Lucene ScorerSupplier.bulkScorer() default).
+func supplierBulkScorer(supplier search.ScorerSupplier) (search.BulkScorer, error) {
+	if bsp, ok := supplier.(interface {
+		BulkScorer() (search.BulkScorer, error)
+	}); ok {
+		return bsp.BulkScorer()
+	}
+	scorer, err := supplier.Get(int64(1)<<62 - 1)
+	if err != nil {
+		return nil, err
+	}
+	if scorer == nil {
+		return nil, nil
+	}
+	return search.NewDefaultBulkScorer(scorer), nil
+}
+
 var _ search.ScorerSupplier = (*toParentBlockJoinScorerSupplier)(nil)
 
 // Explain returns an explanation of the score for the given document.
@@ -651,15 +700,19 @@ func (w *ToParentBlockJoinWeight) Explain(context *index.LeafReaderContext, doc 
 }
 
 // BulkScorer creates a bulk scorer for efficient bulk scoring.
+//
+// It delegates to the ScorerSupplier so that ScoreMode != None uses the
+// exhaustive BlockJoinBulkScorer, matching Lucene's
+// ToParentBlockJoinWeight.scorerSupplier().bulkScorer().
 func (w *ToParentBlockJoinWeight) BulkScorer(context *index.LeafReaderContext) (search.BulkScorer, error) {
-	scorer, err := w.Scorer(context)
+	supplier, err := w.ScorerSupplier(context)
 	if err != nil {
 		return nil, err
 	}
-	if scorer == nil {
+	if supplier == nil {
 		return nil, nil
 	}
-	return search.NewDefaultBulkScorer(scorer), nil
+	return supplier.(*toParentBlockJoinScorerSupplier).BulkScorer()
 }
 
 // IsCacheable returns true if this weight can be cached for the given leaf.
