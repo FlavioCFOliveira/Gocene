@@ -134,12 +134,11 @@ var ErrIntoBitSetNotSupported = errors.New("lucene90: IndexedDISI.IntoBitSet is 
 
 // writeShortLE / writeIntLE / writeLongLE emit little-endian multi-byte
 // integers via the DataOutput's WriteByte primitive. The wire format of
-// Lucene 10+ is little-endian for all multi-byte numerics, but the Gocene
-// store implementations are inconsistent: ByteArrayDataOutput is LE,
-// BufferedIndexOutput / ByteBuffersIndexOutput are BE. Wire-format
-// sensitive code (this file, util/compress/lz4.go, util/bkd/doc_ids_writer.go)
-// must write bytes raw to remain correct regardless of the concrete output
-// implementation chosen by the caller.
+// Lucene 10+ is little-endian for all multi-byte numerics. As of rmp #4786
+// the store IndexOutput.WriteShort/WriteInt/WriteLong are also little-endian,
+// so these helpers are now equivalent to the bare methods; they are retained
+// because this is wire-format-sensitive code where explicit byte order is
+// clearer than relying on the (now correct) interface default.
 func writeShortLE(out store.IndexOutput, v int16) error {
 	uv := uint16(v)
 	if err := out.WriteByte(byte(uv)); err != nil {
