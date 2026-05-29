@@ -201,58 +201,65 @@ func NewDenseConjunctionBulkScorerFromScorers(
 	return NewDenseConjunctionBulkScorer(iters, twoPhases, maxDoc, constantScore)
 }
 
-// Score iterates all matching documents and delivers each to the collector.
+// Score scores documents in [min, max) that match every clause, delivering
+// each accepted match to the collector, and returns the first document the
+// lead iterator advanced to on or beyond the effective window end (max capped
+// to maxDoc).
 //
 // Mirrors DenseConjunctionBulkScorer.score(LeafCollector, Bits, int, int),
-// degraded to leap-frog iteration (intoBitSet / applyMask / collectRange not
-// available on Gocene interfaces).
-func (bs *DenseConjunctionBulkScorer) Score(collector Collector, acceptDocs DocIdSetIterator) error {
-	lc, ok := collector.(LeafCollector)
-	if !ok {
-		// Fall back to per-doc DefaultBulkScorer path.
-		return NewDefaultBulkScorer(newDenseConjUnionScorer(bs)).Score(collector, acceptDocs)
+// degraded to leap-frog iteration (intoBitSet / applyMask / collectRange are
+// not available on Gocene interfaces). acceptDocs is a util.Bits filter (nil
+// accepts all).
+func (bs *DenseConjunctionBulkScorer) Score(collector LeafCollector, acceptDocs util.Bits, min, max int) (int, error) {
+	if max > bs.maxDoc {
+		max = bs.maxDoc
 	}
 
 	scorerAdapter := &denseConjScorerAdapter{s: bs.scorable}
-	if err := lc.SetScorer(scorerAdapter); err != nil {
-		return err
+	if err := collector.SetScorer(scorerAdapter); err != nil {
+		return 0, err
 	}
 
 	iterators := bs.iterators
 	if len(iterators) == 0 {
-		return nil
+		return NO_MORE_DOCS, nil
 	}
 
-	// Advance all iterators to their first document.
+	// Position the lead iterator at min.
 	lead := iterators[0]
-	doc, err := lead.approximation.NextDoc()
-	if err != nil {
-		return err
+	doc := lead.approximation.DocID()
+	if doc < min {
+		var err error
+		doc, err = lead.approximation.Advance(min)
+		if err != nil {
+			return 0, err
+		}
 	}
 
-	// Advance remaining iterators to the first doc of the lead.
+	// Align the remaining iterators with the lead.
 	for i := 1; i < len(iterators); i++ {
 		d, advErr := iterators[i].approximation.Advance(doc)
 		if advErr != nil {
-			return advErr
+			return 0, advErr
 		}
 		if d > doc {
 			doc = d
-			// Re-advance lead to d.
 			d2, advErr := lead.approximation.Advance(doc)
 			if advErr != nil {
-				return advErr
+				return 0, advErr
 			}
 			doc = d2
 			i = 0 // restart scan
 		}
 	}
 
+	var err error
 	// Main leap-frog loop.
-	for doc < bs.maxDoc && doc != NO_MORE_DOCS {
-		// Early termination: if minCompetitiveScore was raised above the constant score, stop.
+	for doc < max && doc != NO_MORE_DOCS {
+		// Early termination: if minCompetitiveScore was raised above the constant
+		// score, stop.
 		if bs.scorable.minCompetitiveScore > bs.scorable.score {
-			return nil
+			return NO_MORE_DOCS, nil
 		}
 
 		// Verify all iterators are at the same doc; advance lagging ones.
@@ -262,17 +269,15 @@ func (bs *DenseConjunctionBulkScorer) Score(collector Collector, acceptDocs DocI
 			if d < doc {
 				d, err = w.approximation.Advance(doc)
 				if err != nil {
-					return err
+					return 0, err
 				}
 			}
 			if d > doc {
-				// Lead needs to advance to d.
 				doc = d
 				allMatch = false
-				// Reset: advance lead.
 				doc, err = lead.approximation.Advance(doc)
 				if err != nil {
-					return err
+					return 0, err
 				}
 				break
 			}
@@ -287,7 +292,7 @@ func (bs *DenseConjunctionBulkScorer) Score(collector Collector, acceptDocs DocI
 			if w.twoPhase != nil {
 				ok2, err2 := w.twoPhase.Matches()
 				if err2 != nil {
-					return err2
+					return 0, err2
 				}
 				if !ok2 {
 					confirmed = false
@@ -296,34 +301,20 @@ func (bs *DenseConjunctionBulkScorer) Score(collector Collector, acceptDocs DocI
 			}
 		}
 
-		if confirmed {
-			// Apply acceptDocs filter.
-			accepted := true
-			if acceptDocs != nil {
-				adDoc := acceptDocs.DocID()
-				if adDoc < doc {
-					adDoc, err = acceptDocs.Advance(doc)
-					if err != nil {
-						return err
-					}
-				}
-				accepted = adDoc == doc
-			}
-			if accepted {
-				if err := lc.Collect(doc); err != nil {
-					return err
-				}
+		if confirmed && (acceptDocs == nil || acceptDocs.Get(doc)) {
+			if err := collector.Collect(doc); err != nil {
+				return 0, err
 			}
 		}
 
 		// Advance lead to next doc.
 		doc, err = lead.approximation.NextDoc()
 		if err != nil {
-			return err
+			return 0, err
 		}
 	}
 
-	return nil
+	return doc, nil
 }
 
 // Cost returns the estimated number of matching documents (cost of the
@@ -333,76 +324,3 @@ func (bs *DenseConjunctionBulkScorer) Cost() int64 {
 }
 
 var _ BulkScorer = (*DenseConjunctionBulkScorer)(nil)
-
-// ─── fallback union scorer ───────────────────────────────────────────────────
-
-// denseConjUnionScorer wraps a DenseConjunctionBulkScorer as a Scorer, used
-// only when the collector is not a LeafCollector.
-type denseConjUnionScorer struct {
-	BaseScorer
-	bs  *DenseConjunctionBulkScorer
-	doc int
-}
-
-func newDenseConjUnionScorer(bs *DenseConjunctionBulkScorer) Scorer {
-	return &denseConjUnionScorer{bs: bs, doc: -1}
-}
-
-func (s *denseConjUnionScorer) DocID() int { return s.doc }
-func (s *denseConjUnionScorer) NextDoc() (int, error) {
-	return s.nextConjDoc()
-}
-func (s *denseConjUnionScorer) Advance(target int) (int, error) {
-	if s.doc < target {
-		if _, err := s.bs.iterators[0].approximation.Advance(target); err != nil {
-			return NO_MORE_DOCS, err
-		}
-		return s.nextConjDoc()
-	}
-	return s.doc, nil
-}
-func (s *denseConjUnionScorer) Cost() int64      { return s.bs.Cost() }
-func (s *denseConjUnionScorer) DocIDRunEnd() int { return s.doc + 1 }
-func (s *denseConjUnionScorer) Score() float32   { return s.bs.scorable.score }
-func (s *denseConjUnionScorer) GetMaxScore(_ int) float32 {
-	return s.BaseScorer.GetMaxScore(0)
-}
-
-func (s *denseConjUnionScorer) nextConjDoc() (int, error) {
-	iterators := s.bs.iterators
-	if len(iterators) == 0 {
-		s.doc = NO_MORE_DOCS
-		return NO_MORE_DOCS, nil
-	}
-	lead := iterators[0]
-	doc := lead.docID()
-	for doc != NO_MORE_DOCS {
-		allMatch := true
-		for i := 1; i < len(iterators); i++ {
-			w := iterators[i]
-			d := w.docID()
-			if d < doc {
-				var err error
-				d, err = w.approximation.Advance(doc)
-				if err != nil {
-					return NO_MORE_DOCS, err
-				}
-			}
-			if d > doc {
-				var err error
-				doc, err = lead.approximation.Advance(d)
-				if err != nil {
-					return NO_MORE_DOCS, err
-				}
-				allMatch = false
-				break
-			}
-		}
-		if allMatch {
-			s.doc = doc
-			return doc, nil
-		}
-	}
-	s.doc = NO_MORE_DOCS
-	return NO_MORE_DOCS, nil
-}

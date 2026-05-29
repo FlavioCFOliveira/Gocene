@@ -8,8 +8,6 @@ package search
 //   lucene/core/src/java/org/apache/lucene/search/ReqExclBulkScorer.java
 
 import (
-	"math"
-
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -155,25 +153,3 @@ func (s *reqExclBulkScorer) ScoreWindow(
 // Cost returns the cost of the required scorer (exclusions only reduce matches,
 // never increase them).
 func (s *reqExclBulkScorer) Cost() int64 { return s.req.Cost() }
-
-// reqExclFullScorer wraps a reqExclBulkScorer to satisfy the public
-// BulkScorer interface by driving the entire document space in one window.
-type reqExclFullScorer struct {
-	inner *reqExclBulkScorer
-}
-
-// Score implements BulkScorer by scoring all documents via a single window.
-func (r *reqExclFullScorer) Score(collector Collector, acceptDocs DocIdSetIterator) error {
-	lc, ok := collector.(LeafCollector)
-	if !ok {
-		return nil
-	}
-	_, err := r.inner.ScoreWindow(lc, nil, 0, math.MaxInt32)
-	return err
-}
-
-// newReqExclBulkScorer exposes a public BulkScorer from a req windowedBulkScorer
-// and a plain exclusion DocIdSetIterator.
-func newReqExclBulkScorer(req windowedBulkScorer, excl DocIdSetIterator) BulkScorer {
-	return &reqExclFullScorer{inner: newReqExclBulkScorerFromDISI(req, excl)}
-}

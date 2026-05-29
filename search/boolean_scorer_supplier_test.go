@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 func init() {
@@ -397,7 +398,9 @@ func (bs *BooleanScorer) DocIDRunEnd() int {
 	return bs.currentDoc + 1
 }
 
-// DefaultBulkScorer is a default implementation of BulkScorer.
+// DefaultBulkScorer is a test-local BulkScorer used only to satisfy the
+// BooleanScorerSupplier.BulkScorer() side-effect path in these tests. It mirrors
+// the windowed search.BulkScorer contract introduced by rmp #4777.
 type DefaultBulkScorer struct {
 	scorer search.Scorer
 }
@@ -407,22 +410,37 @@ func NewDefaultBulkScorer(scorer search.Scorer) *DefaultBulkScorer {
 	return &DefaultBulkScorer{scorer: scorer}
 }
 
-// Score scores documents from minDoc to maxDoc.
-func (bs *DefaultBulkScorer) Score(collector search.Collector, acceptDocs search.DocIdSetIterator) error {
-	doc, err := bs.scorer.NextDoc()
-	if err != nil {
-		return err
+// Score scores documents in [min, max), returning the next matching doc on or
+// after max.
+func (bs *DefaultBulkScorer) Score(collector search.LeafCollector, acceptDocs util.Bits, min, max int) (int, error) {
+	if err := collector.SetScorer(bs.scorer); err != nil {
+		return 0, err
 	}
-
-	for doc != search.NO_MORE_DOCS {
-		doc, err = bs.scorer.NextDoc()
+	doc := bs.scorer.DocID()
+	if doc < min {
+		var err error
+		doc, err = bs.scorer.Advance(min)
 		if err != nil {
-			return err
+			return 0, err
 		}
 	}
-
-	return nil
+	for doc < max {
+		if acceptDocs == nil || acceptDocs.Get(doc) {
+			if err := collector.Collect(doc); err != nil {
+				return 0, err
+			}
+		}
+		var err error
+		doc, err = bs.scorer.NextDoc()
+		if err != nil {
+			return 0, err
+		}
+	}
+	return doc, nil
 }
+
+// Cost returns the underlying scorer's cost.
+func (bs *DefaultBulkScorer) Cost() int64 { return bs.scorer.Cost() }
 
 // randomOccur returns a random Occur value from the given slice
 func randomOccur(occurs []search.Occur) search.Occur {

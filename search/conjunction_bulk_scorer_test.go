@@ -31,7 +31,7 @@ func newConjBulkScorer(t *testing.T, scoring []search.Scorer, filtering []search
 func collectConj(t *testing.T, bs *search.ConjunctionBulkScorer) []int {
 	t.Helper()
 	lc := &batchLeafCollector{}
-	if err := bs.Score(lc, nil); err != nil {
+	if err := fullWindowScore(bs, lc, nil); err != nil {
 		t.Fatalf("Score: %v", err)
 	}
 	return lc.docs
@@ -138,10 +138,9 @@ func TestConjunctionBulkScorer_AcceptDocs(t *testing.T) {
 	for i := 4; i < maxDoc; i += 4 {
 		everyFour.Set(i)
 	}
-	acceptDocs := util.NewBitSetIterator(everyFour, int64(everyFour.Cardinality()))
 
 	lc := &batchLeafCollector{}
-	if err := bs.Score(lc, acceptDocs); err != nil {
+	if err := fullWindowScore(bs, lc, everyFour); err != nil {
 		t.Fatalf("Score: %v", err)
 	}
 	want := []int{4, 8, 12, 16}

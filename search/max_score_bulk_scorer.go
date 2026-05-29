@@ -19,6 +19,8 @@ package search
 import (
 	"math"
 	"sort"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // InnerWindowSize is the size of the inner scoring window used by
@@ -122,68 +124,57 @@ func NewMaxScoreBulkScorer(maxDoc int, scorers []Scorer, filter Scorer) *MaxScor
 	return bs
 }
 
-// Score iterates over matching documents and collects each one.
+// Score scores documents in [min, max) matched by the disjunction of scorers,
+// delivering each accepted match to collector with the summed score, and
+// returns the first document the union iterator advanced to on or beyond max
+// (or NO_MORE_DOCS).
 //
-// Mirrors MaxScoreBulkScorer.score(LeafCollector, Bits, int, int),
-// degraded to one-by-one iteration since advanceShallow / nextDocsAndScores
-// are not on Gocene's Scorer interface.
-func (bs *MaxScoreBulkScorer) Score(collector Collector, acceptDocs DocIdSetIterator) error {
-	lc, ok := collector.(LeafCollector)
-	if !ok {
-		return NewDefaultBulkScorer(newMaxScoreUnionScorer(bs.allScorers)).Score(collector, acceptDocs)
-	}
-
+// Mirrors MaxScoreBulkScorer.score(LeafCollector, Bits, int, int), degraded to
+// a plain disjunction walk since advanceShallow / nextDocsAndScores are not on
+// Gocene's Scorer interface. acceptDocs is a util.Bits filter (nil accepts
+// all).
+func (bs *MaxScoreBulkScorer) Score(collector LeafCollector, acceptDocs util.Bits, min, max int) (int, error) {
 	scorerAdapter := &maxScoreScorerAdapter{s: bs.scorable}
-	if err := lc.SetScorer(scorerAdapter); err != nil {
-		return err
+	if err := collector.SetScorer(scorerAdapter); err != nil {
+		return 0, err
 	}
 
-	// Collect all docs from all essential (and initially all) scorers via
-	// a disjunction iterator, apply acceptDocs filtering.
 	if len(bs.allScorers) == 0 {
-		return nil
+		return NO_MORE_DOCS, nil
 	}
 
 	// Use DisjunctionDISIApproximation as the union iterator.
 	disi := NewDisjunctionDISIApproximation(bs.allScorers, bs.cost)
-	doc, err := disi.NextDoc()
-	if err != nil {
-		return err
+	doc := disi.DocID()
+	if doc < min {
+		var err error
+		doc, err = disi.Advance(min)
+		if err != nil {
+			return 0, err
+		}
 	}
 
-	for doc != NO_MORE_DOCS {
-		accepted := acceptDocs == nil
-		if !accepted {
-			adDoc := acceptDocs.DocID()
-			if adDoc < doc {
-				var advErr error
-				adDoc, advErr = acceptDocs.Advance(doc)
-				if advErr != nil {
-					return advErr
-				}
-			}
-			accepted = adDoc == doc
-		}
-
-		if accepted {
+	for doc < max {
+		if acceptDocs == nil || acceptDocs.Get(doc) {
 			// Sum scores from all matching scorers at this doc.
 			var totalScore float64
 			for tl := disi.TopList(); tl != nil; tl = tl.next {
 				totalScore += float64(tl.scorable.Score())
 			}
 			bs.scorable.score = float32(totalScore)
-			if err := lc.Collect(doc); err != nil {
-				return err
+			if err := collector.Collect(doc); err != nil {
+				return 0, err
 			}
 		}
 
+		var err error
 		doc, err = disi.NextDoc()
 		if err != nil {
-			return err
+			return 0, err
 		}
 	}
 
-	return nil
+	return doc, nil
 }
 
 // Cost returns the estimated number of matching documents.
@@ -263,36 +254,5 @@ func max64(a, b int64) int64 {
 	}
 	return b
 }
-
-// newMaxScoreUnionScorer creates a synthetic union Scorer from DisiWrappers.
-// Used only for fallback when the collector is not a LeafCollector.
-type maxScoreUnionScorer struct {
-	BaseScorer
-	disi  *DisjunctionDISIApproximation
-	wraps []*DisiWrapper
-}
-
-func newMaxScoreUnionScorer(wrappers []*DisiWrapper) Scorer {
-	var totalCost int64
-	for _, w := range wrappers {
-		totalCost += w.cost
-	}
-	disi := NewDisjunctionDISIApproximation(wrappers, totalCost)
-	return &maxScoreUnionScorer{disi: disi, wraps: wrappers}
-}
-
-func (s *maxScoreUnionScorer) DocID() int                 { return s.disi.DocID() }
-func (s *maxScoreUnionScorer) NextDoc() (int, error)      { return s.disi.NextDoc() }
-func (s *maxScoreUnionScorer) Advance(t int) (int, error) { return s.disi.Advance(t) }
-func (s *maxScoreUnionScorer) Cost() int64                { return s.disi.Cost() }
-func (s *maxScoreUnionScorer) DocIDRunEnd() int           { return s.disi.DocIDRunEnd() }
-func (s *maxScoreUnionScorer) Score() float32 {
-	var total float64
-	for tl := s.disi.TopList(); tl != nil; tl = tl.next {
-		total += float64(tl.scorable.Score())
-	}
-	return float32(total)
-}
-func (s *maxScoreUnionScorer) GetMaxScore(_ int) float32 { return s.BaseScorer.GetMaxScore(0) }
 
 var _ BulkScorer = (*MaxScoreBulkScorer)(nil)

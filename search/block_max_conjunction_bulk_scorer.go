@@ -19,6 +19,8 @@ package search
 import (
 	"fmt"
 	"sort"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // BlockMaxConjunctionBulkScorer is a BulkScorer for top-level conjunctions
@@ -28,9 +30,6 @@ import (
 // Mirrors org.apache.lucene.search.BlockMaxConjunctionBulkScorer (Lucene 10.4.0).
 //
 // Deviations from Java:
-//   - Gocene BulkScorer.Score has signature (Collector, DocIdSetIterator) with no
-//     min/max range or Bits acceptDocs; the score method iterates the acceptDocs
-//     iterator as the lead if provided, otherwise walks the lead scorer.
 //   - advanceShallow / nextDocsAndScores are not on Gocene's Scorer interface;
 //     the score-first window path (scoreWindowScoreFirst) is degraded to a
 //     simple conjunction walk identical to scoreDocFirstUntilDynamicPruning.
@@ -102,71 +101,42 @@ func NewBlockMaxConjunctionBulkScorer(maxDoc int, scorers []Scorer) (*BlockMaxCo
 	}, nil
 }
 
-// Score implements BulkScorer. It iterates over all matching documents
-// (those satisfying the conjunction) and calls collector.Collect.
+// Score scores documents in [min, max) that satisfy the conjunction,
+// delivering each accepted match to collector, and returns the first document
+// the lead iterator advanced to on or beyond max (or NO_MORE_DOCS).
 //
-// The acceptDocs parameter, when non-nil, is advanced in lockstep to filter
-// accepted documents.
-//
-// Mirrors BlockMaxConjunctionBulkScorer.score(LeafCollector, Bits, int, int).
-func (bs *BlockMaxConjunctionBulkScorer) Score(collector Collector, acceptDocs DocIdSetIterator) error {
-	// BlockMaxConjunctionBulkScorer operates at segment (leaf) level.
-	// Gocene's Collector.GetLeafCollector requires an IndexReader context
-	// which is not available here. We use a minimal shim that satisfies the
-	// Collector interface when a LeafCollector is passed directly.
-	// Since the Java method takes a LeafCollector directly, we do the same
-	// by accepting Collector and obtaining a leaf collector from it.
-	// If the collector itself implements LeafCollector we use it directly;
-	// otherwise we cannot obtain a proper leaf context and fall back.
-	leaf, ok := collector.(LeafCollector)
-	if !ok {
-		return fmt.Errorf("BlockMaxConjunctionBulkScorer.Score: collector does not implement LeafCollector")
-	}
-	return bs.scoreLeaf(leaf, acceptDocs)
-}
-
-// scoreLeaf performs the conjunction walk over all segments, calling leaf
-// for each matching document.
-func (bs *BlockMaxConjunctionBulkScorer) scoreLeaf(collector LeafCollector, acceptDocs DocIdSetIterator) error {
-	// Inject a mutable scorable so the collector can read scores and push
-	// down a minCompetitiveScore threshold (mirrors collector.setScorer(scorable)).
-	// Gocene's LeafCollector.SetScorer takes a Scorer, not a Scorable.
-	// We use an inlineScorerAdapter that wraps blockMaxSimpleScorable.
+// Mirrors BlockMaxConjunctionBulkScorer.score(LeafCollector, Bits, int, int),
+// degraded to a plain conjunction walk because advanceShallow /
+// nextDocsAndScores are not on Gocene's Scorer interface. acceptDocs is a
+// util.Bits filter (nil accepts all).
+func (bs *BlockMaxConjunctionBulkScorer) Score(collector LeafCollector, acceptDocs util.Bits, min, max int) (int, error) {
+	// Inject a mutable scorable so the collector can read scores. Gocene's
+	// LeafCollector.SetScorer takes a Scorer, not a Scorable, so we wrap
+	// blockMaxSimpleScorable in a blockMaxScorerAdapter.
 	adapter := &blockMaxScorerAdapter{s: bs.scorable}
 	if err := collector.SetScorer(adapter); err != nil {
-		return err
+		return 0, err
 	}
 
 	doc := bs.lead.DocID()
-	if doc == -1 {
+	if doc < min {
 		var err error
-		doc, err = bs.lead.NextDoc()
+		doc, err = bs.lead.Advance(min)
 		if err != nil {
-			return err
+			return 0, err
 		}
 	}
 
 outer:
-	for doc < NO_MORE_DOCS {
-		// Filter by acceptDocs if provided (mirrors Bits.get(doc)).
-		if acceptDocs != nil {
-			ad := acceptDocs.DocID()
-			for ad < doc {
-				var err error
-				ad, err = acceptDocs.Advance(doc)
-				if err != nil {
-					return err
-				}
+	for doc < max {
+		// Filter by acceptDocs if provided.
+		if acceptDocs != nil && !acceptDocs.Get(doc) {
+			var err error
+			doc, err = bs.lead.NextDoc()
+			if err != nil {
+				return 0, err
 			}
-			if ad != doc {
-				// doc not accepted; advance lead to next accepted doc.
-				var err error
-				doc, err = bs.lead.Advance(ad)
-				if err != nil {
-					return err
-				}
-				continue outer
-			}
+			continue outer
 		}
 
 		// Advance all other iterators to doc.
@@ -177,7 +147,7 @@ outer:
 				var err error
 				other, err = it.Advance(doc)
 				if err != nil {
-					return err
+					return 0, err
 				}
 			}
 			if other != doc {
@@ -185,7 +155,7 @@ outer:
 				var err error
 				doc, err = bs.lead.Advance(other)
 				if err != nil {
-					return err
+					return 0, err
 				}
 				continue outer
 			}
@@ -198,16 +168,16 @@ outer:
 		}
 		bs.scorable.score = float32(total)
 		if err := collector.Collect(doc); err != nil {
-			return err
+			return 0, err
 		}
 
 		var err error
 		doc, err = bs.lead.NextDoc()
 		if err != nil {
-			return err
+			return 0, err
 		}
 	}
-	return nil
+	return doc, nil
 }
 
 // Cost returns the cost of iterating, which is the cost of the least

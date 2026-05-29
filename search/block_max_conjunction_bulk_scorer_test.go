@@ -107,7 +107,7 @@ func TestBlockMaxConjunctionBulkScorer_ConjunctionMatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := &bmcLeafCollector{}
-	if err := bs.Score(c, nil); err != nil {
+	if err := fullWindowScore(bs, c, nil); err != nil {
 		t.Fatal(err)
 	}
 	wantDocs := []int{3, 5}
@@ -133,7 +133,7 @@ func TestBlockMaxConjunctionBulkScorer_NoIntersection(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := &bmcLeafCollector{}
-	if err := bs.Score(c, nil); err != nil {
+	if err := fullWindowScore(bs, c, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(c.docs) != 0 {
@@ -152,7 +152,7 @@ func TestBlockMaxConjunctionBulkScorer_ThreeClauses(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := &bmcLeafCollector{}
-	if err := bs.Score(c, nil); err != nil {
+	if err := fullWindowScore(bs, c, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(c.docs) != 1 || c.docs[0] != 3 {

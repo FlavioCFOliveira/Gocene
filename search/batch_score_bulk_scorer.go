@@ -16,6 +16,8 @@ package search
 // Ported from Apache Lucene 10.4.0:
 //   lucene/core/src/java/org/apache/lucene/search/BatchScoreBulkScorer.java
 
+import "github.com/FlavioCFOliveira/Gocene/util"
+
 // BatchScoreBulkScorer is a BulkScorer used when ScoreMode.needsScores()
 // is true and the scorer's nextDocsAndScores has optimizations to run
 // faster than one-by-one iteration.
@@ -31,8 +33,6 @@ package search
 //     has a competitiveIterator.
 //   - scorer.setMinCompetitiveScore and SimpleScorable feedback are not
 //     available on Gocene's interfaces; these paths are omitted.
-//   - Gocene's BulkScorer.Score takes (Collector, DocIdSetIterator) with
-//     no min/max range; acceptDocs is the live-docs DISI (may be nil).
 type BatchScoreBulkScorer struct {
 	scorer Scorer
 }
@@ -44,53 +44,16 @@ func NewBatchScoreBulkScorer(scorer Scorer) *BatchScoreBulkScorer {
 	return &BatchScoreBulkScorer{scorer: scorer}
 }
 
-// Score iterates over matching documents, applying acceptDocs filtering, and
-// collects each matching document with its score.
+// Score iterates over matching documents in [min, max), applying acceptDocs
+// filtering, and collects each matching document with its score. It returns
+// the first document the scorer advanced to at or beyond max.
 //
-// Mirrors BatchScoreBulkScorer.score(LeafCollector, Bits, int, int),
-// degraded to one-by-one iteration.
-func (bs *BatchScoreBulkScorer) Score(collector Collector, acceptDocs DocIdSetIterator) error {
-	lc, ok := collector.(LeafCollector)
-	if !ok {
-		// Fall back to DefaultBulkScorer when the collector doesn't implement
-		// LeafCollector directly.
-		return NewDefaultBulkScorer(bs.scorer).Score(collector, acceptDocs)
-	}
-
-	if err := lc.SetScorer(bs.scorer); err != nil {
-		return err
-	}
-
-	doc, err := bs.scorer.NextDoc()
-	if err != nil {
-		return err
-	}
-
-	for doc != NO_MORE_DOCS {
-		accepted := acceptDocs == nil
-		if !accepted {
-			adDoc := acceptDocs.DocID()
-			if adDoc < doc {
-				var advErr error
-				adDoc, advErr = acceptDocs.Advance(doc)
-				if advErr != nil {
-					return advErr
-				}
-			}
-			accepted = adDoc == doc
-		}
-		if accepted {
-			if err := lc.Collect(doc); err != nil {
-				return err
-			}
-		}
-		doc, err = bs.scorer.NextDoc()
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
+// Mirrors BatchScoreBulkScorer.score(LeafCollector, Bits, int, int), degraded
+// to one-by-one iteration (the nextDocsAndScores batch path is not available on
+// Gocene's Scorer interface), which is equivalent to the DefaultBulkScorer
+// fallback Lucene takes when the collector has a competitiveIterator.
+func (bs *BatchScoreBulkScorer) Score(collector LeafCollector, acceptDocs util.Bits, min, max int) (int, error) {
+	return NewDefaultBulkScorer(bs.scorer).Score(collector, acceptDocs, min, max)
 }
 
 // Cost returns the estimated number of documents this scorer will visit.

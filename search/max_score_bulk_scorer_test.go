@@ -31,7 +31,7 @@ func TestMaxScoreBulkScorer_CollectsAllDocs(t *testing.T) {
 	bs := search.NewMaxScoreBulkScorer(100, []search.Scorer{sA, sB}, nil)
 
 	lc := &batchLeafCollector{}
-	if err := bs.Score(lc, nil); err != nil {
+	if err := fullWindowScore(bs, lc, nil); err != nil {
 		t.Fatalf("Score error: %v", err)
 	}
 	wantDocs := []int{0, 1, 3, 4, 5}
@@ -54,7 +54,7 @@ func TestMaxScoreBulkScorer_SumScores(t *testing.T) {
 	bs := search.NewMaxScoreBulkScorer(100, []search.Scorer{sA, sB}, nil)
 
 	lc := &batchLeafCollector{}
-	if err := bs.Score(lc, nil); err != nil {
+	if err := fullWindowScore(bs, lc, nil); err != nil {
 		t.Fatalf("Score error: %v", err)
 	}
 	// docs: 0 (sA+sB=3), 1 (sA=2), 3 (sB=1)
@@ -87,7 +87,7 @@ func TestMaxScoreBulkScorer_EmptyScorer(t *testing.T) {
 	sA := newConstantScorer([]int{}, 1, 1)
 	bs := search.NewMaxScoreBulkScorer(100, []search.Scorer{sA}, nil)
 	lc := &batchLeafCollector{}
-	if err := bs.Score(lc, nil); err != nil {
+	if err := fullWindowScore(bs, lc, nil); err != nil {
 		t.Fatalf("Score error: %v", err)
 	}
 	if len(lc.docs) != 0 {

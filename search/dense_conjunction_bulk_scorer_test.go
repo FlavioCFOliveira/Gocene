@@ -38,7 +38,7 @@ func newDenseConjScorer(t *testing.T, iters []search.DocIdSetIterator, maxDoc in
 func collectDense(t *testing.T, scorer *search.DenseConjunctionBulkScorer, maxDoc int) []int {
 	t.Helper()
 	lc := &batchLeafCollector{}
-	if err := scorer.Score(lc, nil); err != nil {
+	if _, err := scorer.Score(lc, nil, 0, maxDoc); err != nil {
 		t.Fatalf("Score: %v", err)
 	}
 	return lc.docs
@@ -210,7 +210,6 @@ func TestDenseConjunctionBulkScorer_ApplyAcceptDocs(t *testing.T) {
 	allBits.SetRange(0, maxDoc)
 
 	evenBits := bitsFromFunc(maxDoc, func(i int) bool { return i%2 == 0 })
-	acceptDocs := util.NewBitSetIterator(evenBits, int64(evenBits.Cardinality()))
 
 	scorer, err := search.NewDenseConjunctionBulkScorer(
 		[]search.DocIdSetIterator{bitSetDISI(allBits), bitSetDISI(allBits)},
@@ -220,7 +219,7 @@ func TestDenseConjunctionBulkScorer_ApplyAcceptDocs(t *testing.T) {
 		t.Fatal(err)
 	}
 	lc := &batchLeafCollector{}
-	if err := scorer.Score(lc, acceptDocs); err != nil {
+	if _, err := scorer.Score(lc, evenBits, 0, maxDoc); err != nil {
 		t.Fatalf("Score: %v", err)
 	}
 
@@ -279,7 +278,7 @@ func TestDenseConjunctionBulkScorer_TwoPhaseIterators(t *testing.T) {
 		t.Fatal(err)
 	}
 	lc := &batchLeafCollector{}
-	if err := scorer.Score(lc, nil); err != nil {
+	if _, err := scorer.Score(lc, nil, 0, maxDoc); err != nil {
 		t.Fatalf("Score: %v", err)
 	}
 
@@ -328,7 +327,7 @@ func TestDenseConjunctionBulkScorer_StopOnMinCompetitiveScore(t *testing.T) {
 			return nil
 		},
 	}
-	if err := scorer.Score(lc, nil); err != nil {
+	if _, err := scorer.Score(lc, nil, 0, maxDoc); err != nil {
 		t.Fatalf("Score: %v", err)
 	}
 	// All docs must be ≤ stopDoc + WindowSize (can overshoot by at most one window).

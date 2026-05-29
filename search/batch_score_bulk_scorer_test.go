@@ -13,7 +13,27 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
+
+// fullWindowScore drives a BulkScorer over [0, NO_MORE_DOCS), the analogue of
+// score(collector, acceptDocs, 0, NO_MORE_DOCS) in the Lucene tests.
+func fullWindowScore(bs search.BulkScorer, lc search.LeafCollector, acceptDocs util.Bits) error {
+	_, err := bs.Score(lc, acceptDocs, 0, search.NO_MORE_DOCS)
+	return err
+}
+
+// bitsOf returns a util.Bits of the given length with the listed docs set.
+func bitsOf(length int, docs ...int) util.Bits {
+	bs, err := util.NewFixedBitSet(length)
+	if err != nil {
+		panic(err)
+	}
+	for _, d := range docs {
+		bs.Set(d)
+	}
+	return bs
+}
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
@@ -55,7 +75,7 @@ func TestBatchScoreBulkScorer_CollectsAllDocs(t *testing.T) {
 	bs := search.NewBatchScoreBulkScorer(scorer)
 
 	lc := &batchLeafCollector{}
-	if err := bs.Score(lc, nil); err != nil {
+	if err := fullWindowScore(bs, lc, nil); err != nil {
 		t.Fatalf("Score error: %v", err)
 	}
 	wantDocs := []int{0, 2, 4, 6}
@@ -75,7 +95,7 @@ func TestBatchScoreBulkScorer_ScoreInjected(t *testing.T) {
 	scorer := newConstantScorer([]int{3}, 2.5, 2.5)
 	bs := search.NewBatchScoreBulkScorer(scorer)
 	lc := &batchLeafCollector{}
-	if err := bs.Score(lc, nil); err != nil {
+	if err := fullWindowScore(bs, lc, nil); err != nil {
 		t.Fatalf("Score error: %v", err)
 	}
 	if lc.scorer == nil {
@@ -101,7 +121,7 @@ func TestBatchScoreBulkScorer_EmptyScorer(t *testing.T) {
 	scorer := newConstantScorer([]int{}, 1, 1)
 	bs := search.NewBatchScoreBulkScorer(scorer)
 	lc := &batchLeafCollector{}
-	if err := bs.Score(lc, nil); err != nil {
+	if err := fullWindowScore(bs, lc, nil); err != nil {
 		t.Fatalf("Score error: %v", err)
 	}
 	if len(lc.docs) != 0 {
@@ -120,10 +140,10 @@ func TestBatchScoreBulkScorer_ImplementsBulkScorer(t *testing.T) {
 func TestBatchScoreBulkScorer_AcceptDocsFilters(t *testing.T) {
 	scorer := newConstantScorer([]int{0, 1, 2, 3, 4}, 1, 1)
 	bs := search.NewBatchScoreBulkScorer(scorer)
-	// acceptDocs covers only docs 1 and 3.
-	acceptDocs := search.NewRangeDocIdSetIterator(1, 4) // docs 1,2,3
+	// acceptDocs covers only docs 1, 2 and 3.
+	acceptDocs := bitsOf(5, 1, 2, 3)
 	lc := &batchLeafCollector{}
-	if err := bs.Score(lc, acceptDocs); err != nil {
+	if err := fullWindowScore(bs, lc, acceptDocs); err != nil {
 		t.Fatalf("Score error: %v", err)
 	}
 	// Expect docs 1,2,3 (those that appear in both scorer and acceptDocs).

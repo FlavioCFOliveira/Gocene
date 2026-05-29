@@ -20,6 +20,7 @@ import (
 	"errors"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // ErrTimeExceeded is returned by TimeLimitingBulkScorer.Score when the
@@ -44,14 +45,8 @@ const Interval = 100
 // Mirrors org.apache.lucene.search.TimeLimitingBulkScorer (Lucene 10.4.0).
 //
 // Deviations from Java:
-//   - Java's score(LeafCollector, Bits, int min, int max) drives per-interval
-//     sub-ranges that grow exponentially. Gocene's BulkScorer.Score does not
-//     expose min/max range parameters; instead this wrapper checks the timeout
-//     once before delegating to the inner scorer per Score call.
 //   - TimeExceededException (RuntimeException in Java) becomes ErrTimeExceeded
 //     (a sentinel error) to fit Go's error-return convention.
-//   - ExponentialRate/interval-growth logic is preserved as a comment for
-//     future integration when min/max range support is added to BulkScorer.
 type TimeLimitingBulkScorer struct {
 	in           BulkScorer
 	queryTimeout index.QueryTimeout
@@ -71,25 +66,38 @@ func NewTimeLimitingBulkScorer(bulkScorer BulkScorer, queryTimeout index.QueryTi
 	return &TimeLimitingBulkScorer{in: bulkScorer, queryTimeout: queryTimeout}
 }
 
-// Score checks the timeout before delegating to the inner scorer.
-// Returns ErrTimeExceeded if the timeout has been exceeded.
+// Score scores [min, max) in exponentially-growing sub-ranges, consulting the
+// QueryTimeout before each sub-range and returning ErrTimeExceeded if the time
+// limit has been exceeded. It returns the next matching document on or after
+// max otherwise.
 //
-// Mirrors TimeLimitingBulkScorer.score(LeafCollector, Bits, int, int).
-func (s *TimeLimitingBulkScorer) Score(collector Collector, acceptDocs DocIdSetIterator) error {
-	if s.queryTimeout.ShouldExit() {
-		return ErrTimeExceeded
+// Faithful port of TimeLimitingBulkScorer.score(LeafCollector, Bits, int, int).
+func (s *TimeLimitingBulkScorer) Score(collector LeafCollector, acceptDocs util.Bits, min, max int) (int, error) {
+	interval := Interval
+	for min < max {
+		newMax := int(util.MathUnsignedMin(int32(min+interval), int32(max)))
+		// Increase the interval by 50% on each iteration, with an overflow guard.
+		newInterval := interval + (interval >> 1)
+		if interval < newInterval {
+			interval = newInterval
+		}
+		if s.queryTimeout.ShouldExit() {
+			return 0, ErrTimeExceeded
+		}
+		var err error
+		min, err = s.in.Score(collector, acceptDocs, min, newMax)
+		if err != nil {
+			return 0, err
+		}
 	}
-	return s.in.Score(collector, acceptDocs)
+	return min, nil
 }
 
 // Cost delegates to the inner scorer's cost.
 //
 // Mirrors TimeLimitingBulkScorer.cost().
 func (s *TimeLimitingBulkScorer) Cost() int64 {
-	if c, ok := s.in.(interface{ Cost() int64 }); ok {
-		return c.Cost()
-	}
-	return 0
+	return s.in.Cost()
 }
 
 var _ BulkScorer = (*TimeLimitingBulkScorer)(nil)
