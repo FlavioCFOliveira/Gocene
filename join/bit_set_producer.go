@@ -82,6 +82,60 @@ func (bs *FixedBitSet) Size() int {
 	return bs.size
 }
 
+// Length returns the number of bits in this bitset (its capacity).
+//
+// This mirrors org.apache.lucene.util.FixedBitSet.length(), which returns the
+// fixed numBits rather than the index of the highest set bit. The block-join
+// scorers rely on length()-1 being the last document in the segment (the
+// trailing parent, per the block-join indexing invariant).
+func (bs *FixedBitSet) Length() int {
+	return bs.size
+}
+
+// PrevSetBit returns the index of the last set bit at or before the given
+// index. Returns -1 if there is no set bit in [0, index].
+//
+// This mirrors org.apache.lucene.util.FixedBitSet.prevSetBit(int) and is the
+// inverse of NextSetBit. Indices outside [0, size) are clamped: a negative
+// index yields -1; an index >= size scans from the highest valid bit.
+func (bs *FixedBitSet) PrevSetBit(index int) int {
+	if index < 0 {
+		return -1
+	}
+	if index >= bs.size {
+		index = bs.size - 1
+	}
+
+	wordIndex := index / 64
+	// Mask off the bits strictly above index within the current word.
+	subIndex := index % 64
+	word := bs.bits[wordIndex] << (63 - subIndex)
+	if word != 0 {
+		return wordIndex*64 + subIndex - leadingZeros(word)
+	}
+
+	for i := wordIndex - 1; i >= 0; i-- {
+		if bs.bits[i] != 0 {
+			return i*64 + 63 - leadingZeros(bs.bits[i])
+		}
+	}
+	return -1
+}
+
+// leadingZeros returns the number of leading zero bits in a uint64
+// (equivalent to Long.numberOfLeadingZeros).
+func leadingZeros(x uint64) int {
+	if x == 0 {
+		return 64
+	}
+	n := 0
+	for (x & (1 << 63)) == 0 {
+		x <<= 1
+		n++
+	}
+	return n
+}
+
 // NextSetBit returns the index of the next set bit at or after the given index.
 // Returns -1 if no more set bits.
 func (bs *FixedBitSet) NextSetBit(fromIndex int) int {

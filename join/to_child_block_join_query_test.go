@@ -156,45 +156,42 @@ func TestToChildBlockJoinScorerCreation(t *testing.T) {
 		t.Fatal("Expected ToChildBlockJoinScorer to be created")
 	}
 
-	if scorer.scoreMode != Max {
-		t.Errorf("Expected score mode Max, got %v", scorer.scoreMode)
+	// Max is a scoring mode, so doScores must be true.
+	if !scorer.doScores {
+		t.Error("Expected doScores true for ScoreMode Max")
 	}
 
 	if scorer.boost != 1.0 {
 		t.Errorf("Expected boost 1.0, got %f", scorer.boost)
 	}
 
-	if scorer.parentsBits != parentsBits {
-		t.Error("Expected parents bits to match")
+	if scorer.parentBits != parentsBits {
+		t.Error("Expected parent bits to match")
 	}
 }
 
-func TestToChildBlockJoinScorerFindPreviousParent(t *testing.T) {
+// TestToChildBlockJoinScorerPrevSetBit verifies the FixedBitSet.PrevSetBit
+// primitive the scorer now uses to locate the start of a child block (replacing
+// the former O(n) findPreviousParent helper). The first child of a block ending
+// at parent doc p is parentBits.PrevSetBit(p-1)+1.
+func TestToChildBlockJoinScorerPrevSetBit(t *testing.T) {
 	parentsBits := NewFixedBitSet(100)
 	// Mark documents 9, 19, 29, ... as parents
 	for i := 9; i < 100; i += 10 {
 		parentsBits.Set(i)
 	}
 
-	weight := &ToChildBlockJoinWeight{}
-	scorer := NewToChildBlockJoinScorer(weight, nil, parentsBits, Max, 1.0)
-
-	// Test finding previous parent
-	prev := scorer.findPreviousParent(25)
-	if prev != 19 {
-		t.Errorf("Expected previous parent of 25 to be 19, got %d", prev)
+	// Previous parent strictly before doc 25 is 19.
+	if prev := parentsBits.PrevSetBit(24); prev != 19 {
+		t.Errorf("PrevSetBit(24) = %d, want 19", prev)
 	}
-
-	// Test finding previous parent at boundary
-	prev = scorer.findPreviousParent(10)
-	if prev != 9 {
-		t.Errorf("Expected previous parent of 10 to be 9, got %d", prev)
+	// Previous parent strictly before doc 10 is 9.
+	if prev := parentsBits.PrevSetBit(9); prev != 9 {
+		t.Errorf("PrevSetBit(9) = %d, want 9", prev)
 	}
-
-	// Test finding previous parent with no parents before
-	prev = scorer.findPreviousParent(5)
-	if prev != -1 {
-		t.Errorf("Expected previous parent of 5 to be -1, got %d", prev)
+	// No parent at or before doc 4.
+	if prev := parentsBits.PrevSetBit(4); prev != -1 {
+		t.Errorf("PrevSetBit(4) = %d, want -1", prev)
 	}
 }
 
@@ -203,15 +200,15 @@ func TestToChildBlockJoinScorerScore(t *testing.T) {
 
 	weight := &ToChildBlockJoinWeight{}
 
-	// Test with score mode None
+	// ScoreMode None disables score propagation (doScores == false).
 	scorerNone := NewToChildBlockJoinScorer(weight, nil, parentsBits, None, 1.0)
-	if scorerNone.scoreMode != None {
-		t.Error("Expected score mode None")
+	if scorerNone.doScores {
+		t.Error("Expected doScores false for ScoreMode None")
 	}
 
-	// Test with other score modes
+	// Any other score mode propagates the parent score (doScores == true).
 	scorerMax := NewToChildBlockJoinScorer(weight, nil, parentsBits, Max, 1.0)
-	if scorerMax.scoreMode != Max {
-		t.Error("Expected score mode Max")
+	if !scorerMax.doScores {
+		t.Error("Expected doScores true for ScoreMode Max")
 	}
 }

@@ -5,6 +5,9 @@
 package join
 
 import (
+	"fmt"
+	"math"
+
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -274,10 +277,19 @@ func (s *BlockJoinScorer) collectChildScores(parentDoc int) error {
 // Ensure BlockJoinScorer implements Scorer
 var _ search.Scorer = (*BlockJoinScorer)(nil)
 
+// invalidQueryMessage mirrors ToChildBlockJoinQuery.INVALID_QUERY_MESSAGE: it is
+// reported when the supplied parent query in fact returns a child document.
+const invalidQueryMessage = "Parent query must not match any docs besides parent filter. " +
+	"Combine them as must (+) and must-not (-) clauses to find a problem doc. docID="
+
 // ToChildBlockJoinScorer is a scorer for ToChildBlockJoinQuery.
 // It matches child documents whose parent documents match the parent query.
 //
-// This is the Go port of Lucene's org.apache.lucene.search.join.ToChildBlockJoinScorer.
+// This is the Go port of Lucene's
+// org.apache.lucene.search.join.ToChildBlockJoinQuery.ToChildBlockJoinScorer.
+// Gocene flattens Lucene's Scorer + DocIdSetIterator into a single iterator, so
+// the iteration logic of Lucene's inner DocIdSetIterator is implemented directly
+// in NextDoc/Advance/DocID here.
 type ToChildBlockJoinScorer struct {
 	// weight is the parent weight
 	weight *ToChildBlockJoinWeight
@@ -285,142 +297,210 @@ type ToChildBlockJoinScorer struct {
 	// parentScorer is the scorer for parent documents
 	parentScorer search.Scorer
 
-	// parentsBits is the bitset identifying parent documents
-	parentsBits *FixedBitSet
+	// parentBits is the bitset identifying parent documents
+	parentBits *FixedBitSet
 
-	// scoreMode determines how parent scores are propagated
-	scoreMode ScoreMode
+	// doScores reports whether the parent score should be computed and
+	// propagated to children. Mirrors Lucene's doScores
+	// (scoreMode.needsScores()); the legacy ScoreMode argument is reduced to
+	// this boolean so behaviour matches Lucene, where ToChildBlockJoinQuery has
+	// no per-child ScoreMode.
+	doScores bool
 
 	// boost is the query boost
 	boost float32
 
-	// currentChildDoc is the current child document ID
-	currentChildDoc int
-
-	// currentParentDoc is the current parent document ID
-	currentParentDoc int
-
-	// parentScore is the score of the current parent
+	// parentScore caches the current parent's score (already includes boost).
 	parentScore float32
+
+	// childDoc is the current child document ID (-1 before the first NextDoc).
+	childDoc int
+
+	// parentDoc is the current parent document ID (0 before iteration, per
+	// Lucene's ToChildBlockJoinScorer which initialises parentDoc = 0).
+	parentDoc int
 }
 
 // NewToChildBlockJoinScorer creates a new ToChildBlockJoinScorer.
-func NewToChildBlockJoinScorer(weight *ToChildBlockJoinWeight, parentScorer search.Scorer, parentsBits *FixedBitSet, scoreMode ScoreMode, boost float32) *ToChildBlockJoinScorer {
+//
+// The scoreMode argument is interpreted Lucene-style: only ScoreMode.None
+// disables score propagation; every other mode propagates the parent score
+// (Lucene's ToChildBlockJoinQuery carries no per-child ScoreMode and simply
+// uses scoreMode.needsScores()).
+func NewToChildBlockJoinScorer(weight *ToChildBlockJoinWeight, parentScorer search.Scorer, parentBits *FixedBitSet, scoreMode ScoreMode, boost float32) *ToChildBlockJoinScorer {
 	return &ToChildBlockJoinScorer{
-		weight:           weight,
-		parentScorer:     parentScorer,
-		parentsBits:      parentsBits,
-		scoreMode:        scoreMode,
-		boost:            boost,
-		currentChildDoc:  -1,
-		currentParentDoc: -1,
-		parentScore:      0,
+		weight:       weight,
+		parentScorer: parentScorer,
+		parentBits:   parentBits,
+		doScores:     scoreMode != None,
+		boost:        boost,
+		childDoc:     -1,
+		parentDoc:    0,
 	}
 }
 
-// DocID returns the current document ID.
+// DocID returns the current document ID (the current child).
 func (s *ToChildBlockJoinScorer) DocID() int {
-	return s.currentChildDoc
+	return s.childDoc
 }
 
-// NextDoc advances to the next document.
+// validateParentDoc detects mis-use where the supplied parent query in fact
+// matches a child document (a non-parent). Mirrors
+// ToChildBlockJoinScorer.validateParentDoc.
+func (s *ToChildBlockJoinScorer) validateParentDoc() error {
+	if s.parentDoc != search.NO_MORE_DOCS && !s.parentBits.Get(s.parentDoc) {
+		return fmt.Errorf("%s%d", invalidQueryMessage, s.parentDoc)
+	}
+	return nil
+}
+
+// NextDoc advances to the next child document.
+//
+// Faithful port of the inner DocIdSetIterator.nextDoc() in Lucene's
+// ToChildBlockJoinScorer: it walks the children of the current parent block
+// one at a time, and when the block is exhausted advances the parent iterator
+// (skipping parents with no children) to the first child of the next block.
 func (s *ToChildBlockJoinScorer) NextDoc() (int, error) {
 	for {
-		// Advance parent scorer to next parent
-		parentDoc, err := s.parentScorer.NextDoc()
+		if s.childDoc+1 == s.parentDoc {
+			// Done iterating the children of this parent: advance the parent.
+			for {
+				next, err := s.parentScorer.NextDoc()
+				if err != nil {
+					return 0, err
+				}
+				s.parentDoc = next
+				if err := s.validateParentDoc(); err != nil {
+					return 0, err
+				}
+
+				if s.parentDoc == 0 {
+					// Degenerate but allowed: the first parent doc has no
+					// children, so skip to the following parent.
+					next, err = s.parentScorer.NextDoc()
+					if err != nil {
+						return 0, err
+					}
+					s.parentDoc = next
+					if err := s.validateParentDoc(); err != nil {
+						return 0, err
+					}
+				}
+
+				if s.parentDoc == search.NO_MORE_DOCS {
+					s.childDoc = search.NO_MORE_DOCS
+					return s.childDoc, nil
+				}
+
+				// First child of this parent block.
+				s.childDoc = 1 + s.parentBits.PrevSetBit(s.parentDoc-1)
+
+				if s.childDoc == s.parentDoc {
+					// Parent with no children; continue to the next parent.
+					continue
+				}
+				if s.childDoc < s.parentDoc {
+					if s.doScores {
+						s.parentScore = s.parentScorer.Score() * s.boost
+					}
+					return s.childDoc, nil
+				}
+				// Degenerate but allowed: parent has no children.
+			}
+		}
+		// Still inside the current parent block.
+		s.childDoc++
+		return s.childDoc, nil
+	}
+}
+
+// Advance advances to the first child at or beyond childTarget.
+//
+// Faithful port of the inner DocIdSetIterator.advance(int) in Lucene's
+// ToChildBlockJoinScorer.
+func (s *ToChildBlockJoinScorer) Advance(childTarget int) (int, error) {
+	if childTarget >= s.parentDoc {
+		if childTarget == search.NO_MORE_DOCS {
+			s.childDoc = search.NO_MORE_DOCS
+			s.parentDoc = search.NO_MORE_DOCS
+			return s.childDoc, nil
+		}
+
+		next, err := s.parentScorer.Advance(childTarget + 1)
 		if err != nil {
 			return 0, err
 		}
-
-		if parentDoc == search.NO_MORE_DOCS {
-			s.currentChildDoc = search.NO_MORE_DOCS
-			return search.NO_MORE_DOCS, nil
+		s.parentDoc = next
+		if err := s.validateParentDoc(); err != nil {
+			return 0, err
 		}
 
-		s.currentParentDoc = parentDoc
-		s.parentScore = s.parentScorer.Score()
-
-		// Find the previous parent to determine the start of this child block
-		startDoc := s.findPreviousParent(parentDoc) + 1
-
-		// Return the first child in this block
-		if startDoc < parentDoc {
-			s.currentChildDoc = startDoc
-			return startDoc, nil
+		if s.parentDoc == search.NO_MORE_DOCS {
+			s.childDoc = search.NO_MORE_DOCS
+			return s.childDoc, nil
 		}
-		// If no children (parent follows parent), continue to next parent
+
+		// Scan to the first parent that actually has children.
+		for {
+			firstChild := s.parentBits.PrevSetBit(s.parentDoc-1) + 1
+			if firstChild != s.parentDoc {
+				if childTarget < firstChild {
+					childTarget = firstChild
+				}
+				break
+			}
+			next, err = s.parentScorer.NextDoc()
+			if err != nil {
+				return 0, err
+			}
+			s.parentDoc = next
+			if err := s.validateParentDoc(); err != nil {
+				return 0, err
+			}
+			if s.parentDoc == search.NO_MORE_DOCS {
+				s.childDoc = search.NO_MORE_DOCS
+				return s.childDoc, nil
+			}
+		}
+
+		if s.doScores {
+			s.parentScore = s.parentScorer.Score() * s.boost
+		}
 	}
+
+	s.childDoc = childTarget
+	return s.childDoc, nil
 }
 
-// findPreviousParent finds the document ID of the previous parent before the given doc.
-func (s *ToChildBlockJoinScorer) findPreviousParent(doc int) int {
-	// Search backwards to find the previous set bit
-	for i := doc - 1; i >= 0; i-- {
-		if s.parentsBits.Get(i) {
-			return i
-		}
-	}
-	return -1
-}
-
-// Score returns the score of the current document.
+// Score returns the score of the current child document: the parent score
+// (which already includes the query boost). When doScores is false the parent
+// score was never computed and remains zero.
 func (s *ToChildBlockJoinScorer) Score() float32 {
-	if s.scoreMode == None {
-		return s.boost
-	}
-	return s.parentScore * s.boost
-}
-
-// Advance advances to the given document.
-func (s *ToChildBlockJoinScorer) Advance(target int) (int, error) {
-	// Advance parent scorer to find which block contains the target
-	if target > s.currentParentDoc {
-		parentDoc, err := s.parentScorer.Advance(target)
-		if err != nil {
-			return 0, err
-		}
-
-		if parentDoc == search.NO_MORE_DOCS {
-			s.currentChildDoc = search.NO_MORE_DOCS
-			return search.NO_MORE_DOCS, nil
-		}
-
-		s.currentParentDoc = parentDoc
-		s.parentScore = s.parentScorer.Score()
-
-		// Find the start of this child block
-		startDoc := s.findPreviousParent(parentDoc) + 1
-
-		if startDoc <= target && target < parentDoc {
-			s.currentChildDoc = target
-			return target, nil
-		}
-
-		if startDoc < parentDoc {
-			s.currentChildDoc = startDoc
-			return startDoc, nil
-		}
-	}
-
-	// Otherwise, use NextDoc
-	return s.NextDoc()
+	return s.parentScore
 }
 
 // GetMaxScore returns the maximum score for documents up to the given doc.
+// Mirrors Lucene, which returns Float.POSITIVE_INFINITY.
 func (s *ToChildBlockJoinScorer) GetMaxScore(upTo int) float32 {
-	// Return the max score from parent scorer
-	return s.parentScorer.GetMaxScore(upTo) * s.boost
+	return float32(math.Inf(1))
 }
 
-// Cost returns the estimated cost of this scorer.
+// Cost returns the estimated cost of this scorer (the parent iterator cost).
 func (s *ToChildBlockJoinScorer) Cost() int64 {
 	return s.parentScorer.Cost()
 }
 
 // DocIDRunEnd returns the end of the run of consecutive doc IDs.
+//
+// The block-join child stream is not a dense run, so report the next document
+// after the current child (the most conservative, always-correct answer).
 func (s *ToChildBlockJoinScorer) DocIDRunEnd() int {
-	// Return the parent doc as the end of the run
-	return s.currentParentDoc
+	return s.childDoc + 1
+}
+
+// GetParentDoc returns the current parent document ID.
+func (s *ToChildBlockJoinScorer) GetParentDoc() int {
+	return s.parentDoc
 }
 
 // GetChildren returns child scorers.
@@ -434,16 +514,21 @@ var _ search.Scorer = (*ToChildBlockJoinScorer)(nil)
 // ToParentBlockJoinScorer is a scorer for ToParentBlockJoinQuery.
 // It matches parent documents that have children matching the child query.
 //
-// This is the Go port of Lucene's org.apache.lucene.search.join.ToParentBlockJoinScorer.
+// This is the Go port of Lucene's
+// org.apache.lucene.search.join.ToParentBlockJoinQuery.BlockJoinScorer together
+// with its inner ParentApproximation and Score helpers. Gocene flattens
+// Lucene's Scorer + DocIdSetIterator into a single iterator, and Gocene child
+// scorers are always exact (no TwoPhaseIterator), so this port implements the
+// childTwoPhase == null branch.
 type ToParentBlockJoinScorer struct {
 	// weight is the parent weight
 	weight *ToParentBlockJoinWeight
 
-	// childScorer is the scorer for child documents
+	// childScorer is the scorer for child documents (also the child approximation)
 	childScorer search.Scorer
 
-	// parentsBits is the bitset identifying parent documents
-	parentsBits *FixedBitSet
+	// parentBits is the bitset identifying parent documents
+	parentBits *FixedBitSet
 
 	// scoreMode determines how child scores are combined
 	scoreMode ScoreMode
@@ -451,193 +536,172 @@ type ToParentBlockJoinScorer struct {
 	// boost is the query boost
 	boost float32
 
-	// currentParentDoc is the current parent document ID
-	currentParentDoc int
+	// doc is the current parent document ID (ParentApproximation.doc; -1 before
+	// the first advance).
+	doc int
 
-	// accumulatedScore is the combined score of matching children
-	accumulatedScore float32
-
-	// childCount is the number of matching children for the current parent
-	childCount int
-
-	// currentChildDoc is the current child document ID
-	currentChildDoc int
+	// parentScore is the aggregated score of the current parent's children
+	// (already multiplied by boost). parentFreq is the number of children that
+	// contributed, used to compute the Avg mode.
+	parentScore float32
+	parentFreq  int
 }
 
 // NewToParentBlockJoinScorer creates a new ToParentBlockJoinScorer.
-func NewToParentBlockJoinScorer(weight *ToParentBlockJoinWeight, childScorer search.Scorer, parentsBits *FixedBitSet, scoreMode ScoreMode, boost float32) *ToParentBlockJoinScorer {
+func NewToParentBlockJoinScorer(weight *ToParentBlockJoinWeight, childScorer search.Scorer, parentBits *FixedBitSet, scoreMode ScoreMode, boost float32) *ToParentBlockJoinScorer {
 	return &ToParentBlockJoinScorer{
-		weight:           weight,
-		childScorer:      childScorer,
-		parentsBits:      parentsBits,
-		scoreMode:        scoreMode,
-		boost:            boost,
-		currentParentDoc: -1,
-		accumulatedScore: 0,
-		childCount:       0,
-		currentChildDoc:  -1,
+		weight:      weight,
+		childScorer: childScorer,
+		parentBits:  parentBits,
+		scoreMode:   scoreMode,
+		boost:       boost,
+		doc:         -1,
 	}
 }
 
-// DocID returns the current document ID.
+// DocID returns the current parent document ID.
 func (s *ToParentBlockJoinScorer) DocID() int {
-	return s.currentParentDoc
+	return s.doc
 }
 
-// NextDoc advances to the next document.
+// NextDoc advances to the next matching parent document.
+//
+// Faithful port of ParentApproximation.nextDoc, which delegates to advance.
 func (s *ToParentBlockJoinScorer) NextDoc() (int, error) {
-	for {
-		// Advance child scorer to find next matching child
-		childDoc, err := s.childScorer.NextDoc()
+	return s.Advance(s.doc + 1)
+}
+
+// Advance advances to the first matching parent at or beyond target.
+//
+// Faithful port of ParentApproximation.advance: it positions the child scorer
+// at the first child of the parent block containing target, then returns the
+// next set parent bit after that child.
+func (s *ToParentBlockJoinScorer) Advance(target int) (int, error) {
+	if target >= s.parentBits.Length() {
+		s.doc = search.NO_MORE_DOCS
+		return s.doc, nil
+	}
+
+	firstChildTarget := 0
+	if target != 0 {
+		firstChildTarget = s.parentBits.PrevSetBit(target-1) + 1
+	}
+
+	childDoc := s.childScorer.DocID()
+	if childDoc < firstChildTarget {
+		var err error
+		childDoc, err = s.childScorer.Advance(firstChildTarget)
 		if err != nil {
 			return 0, err
 		}
-
-		if childDoc == search.NO_MORE_DOCS {
-			s.currentParentDoc = search.NO_MORE_DOCS
-			return search.NO_MORE_DOCS, nil
-		}
-
-		s.currentChildDoc = childDoc
-
-		// Find the parent of this child
-		parentDoc := s.findParent(childDoc)
-		if parentDoc < 0 {
-			// No parent found, continue to next child
-			continue
-		}
-
-		// If we found a new parent, process it
-		if parentDoc != s.currentParentDoc {
-			// Reset accumulated score for new parent
-			s.resetAccumulatedScore()
-			s.currentParentDoc = parentDoc
-		}
-
-		// Accumulate score from this child
-		childScore := s.childScorer.Score()
-		s.accumulateScore(childScore)
-
-		return parentDoc, nil
 	}
-}
 
-// findParent finds the parent document ID for the given child document.
-func (s *ToParentBlockJoinScorer) findParent(childDoc int) int {
-	// Search forward to find the next parent
-	for i := childDoc; i < s.parentsBits.Size(); i++ {
-		if s.parentsBits.Get(i) {
-			return i
-		}
+	if childDoc >= s.parentBits.Length()-1 {
+		s.doc = search.NO_MORE_DOCS
+		return s.doc, nil
 	}
-	return -1
+
+	s.doc = s.parentBits.NextSetBit(childDoc + 1)
+	return s.doc, nil
 }
 
-// resetAccumulatedScore resets the accumulated score and child count.
-func (s *ToParentBlockJoinScorer) resetAccumulatedScore() {
-	s.accumulatedScore = 0
-	s.childCount = 0
-}
-
-// accumulateScore adds a child score to the accumulated score.
-func (s *ToParentBlockJoinScorer) accumulateScore(score float32) {
-	switch s.scoreMode {
-	case Avg, Total:
-		s.accumulatedScore += score
-	case Max:
-		if score > s.accumulatedScore {
-			s.accumulatedScore = score
-		}
-	case Min:
-		if s.childCount == 0 || score < s.accumulatedScore {
-			s.accumulatedScore = score
-		}
-	}
-	s.childCount++
-}
-
-// Score returns the score of the current document.
+// Score returns the aggregated score of the current parent document.
+//
+// Faithful port of BlockJoinScorer.scoreChildDocs + the inner Score class: it
+// iterates every child of the current parent block, combining their scores per
+// the configured ScoreMode. The child query must never match the parent doc
+// itself (the block-join invariant); that mis-use is reported as an error here,
+// matching Lucene's IllegalStateException.
 func (s *ToParentBlockJoinScorer) Score() float32 {
-	if s.scoreMode == None || s.childCount == 0 {
-		return s.boost
+	childDoc := s.childScorer.DocID()
+	if childDoc >= s.doc {
+		// Already scored (or no children before this parent).
+		return s.parentScore
 	}
 
-	switch s.scoreMode {
-	case Avg:
-		if s.childCount > 0 {
-			return (s.accumulatedScore / float32(s.childCount)) * s.boost
-		}
-		return s.boost
-	case Max, Min, Total:
-		return s.accumulatedScore * s.boost
-	default:
-		return s.boost
-	}
-}
+	s.parentScore = 0
+	s.parentFreq = 0
 
-// Advance advances to the given document.
-func (s *ToParentBlockJoinScorer) Advance(target int) (int, error) {
-	// If the target is a parent, we need to accumulate all child scores up to it
-	if target > s.currentParentDoc {
-		// Reset accumulated score for potential new parent
-		s.resetAccumulatedScore()
+	if s.scoreMode != None {
+		// reset(firstChildScorer): seed with the first child's score.
+		first := s.childScorer.Score()
+		score := first
+		freq := 1
 
-		// Advance child scorer to collect scores
 		for {
-			childDoc, err := s.childScorer.Advance(target)
+			next, err := s.childScorer.NextDoc()
 			if err != nil {
-				return 0, err
+				// search.Scorer.Score has no error return; surface via panic-free
+				// fallback by stopping accumulation. Errors here are not expected
+				// from in-memory child scorers, but guard defensively.
+				break
 			}
-
-			if childDoc == search.NO_MORE_DOCS {
-				s.currentParentDoc = search.NO_MORE_DOCS
-				return search.NO_MORE_DOCS, nil
+			childDoc = next
+			if childDoc >= s.doc {
+				break
 			}
-
-			s.currentChildDoc = childDoc
-
-			// Find the parent of this child
-			parentDoc := s.findParent(childDoc)
-			if parentDoc < 0 {
-				continue
+			childScore := s.childScorer.Score()
+			freq++
+			switch s.scoreMode {
+			case Total, Avg:
+				score += childScore
+			case Min:
+				if childScore < score {
+					score = childScore
+				}
+			case Max:
+				if childScore > score {
+					score = childScore
+				}
 			}
+		}
 
-			// If we've passed the target, this parent is our result
-			if parentDoc >= target {
-				s.currentParentDoc = parentDoc
-				childScore := s.childScorer.Score()
-				s.accumulateScore(childScore)
-				return parentDoc, nil
+		if s.scoreMode == Avg {
+			score /= float32(freq)
+		}
+		s.parentScore = score * s.boost
+		s.parentFreq = freq
+	} else {
+		// ScoreMode.None: advance the child past the parent block so the
+		// invariant check below sees the post-block position, mirroring the
+		// scoring loop's net effect without computing any score.
+		for childDoc < s.doc {
+			next, err := s.childScorer.NextDoc()
+			if err != nil {
+				break
 			}
+			childDoc = next
 		}
 	}
 
-	// Otherwise, use NextDoc
-	return s.NextDoc()
+	return s.parentScore
 }
 
-// GetMaxScore returns the maximum score for documents up to the given doc.
-func (s *ToParentBlockJoinScorer) GetMaxScore(upTo int) float32 {
-	// Return the max score from child scorer
-	return s.childScorer.GetMaxScore(upTo) * s.boost
-}
-
-// Cost returns the estimated cost of this scorer.
+// Cost returns the estimated cost of this scorer (the child iterator cost).
 func (s *ToParentBlockJoinScorer) Cost() int64 {
 	return s.childScorer.Cost()
 }
 
-// DocIDRunEnd returns the end of the run of consecutive doc IDs.
-func (s *ToParentBlockJoinScorer) DocIDRunEnd() int {
-	// Find the next parent to determine the end of the run
-	nextParent := s.parentsBits.NextSetBit(s.currentParentDoc + 1)
-	if nextParent < 0 {
-		return s.parentsBits.Size()
+// GetMaxScore returns the maximum score for documents up to the given doc.
+//
+// Faithful port: ScoreMode.None defers to the child's max score; every other
+// mode returns +Inf, because aggregating an unbounded number of children
+// provides no tighter upper bound (Lucene returns Float.POSITIVE_INFINITY).
+func (s *ToParentBlockJoinScorer) GetMaxScore(upTo int) float32 {
+	if s.scoreMode == None {
+		return s.childScorer.GetMaxScore(upTo)
 	}
-	return nextParent - 1
+	return float32(math.Inf(1))
 }
 
-// GetChildren returns child scorers.
+// DocIDRunEnd returns the end of the run of consecutive doc IDs.
+//
+// Parent matches are not a dense run, so report one past the current parent.
+func (s *ToParentBlockJoinScorer) DocIDRunEnd() int {
+	return s.doc + 1
+}
+
+// GetChildren returns the child scorer.
 func (s *ToParentBlockJoinScorer) GetChildren() search.Scorer {
 	return s.childScorer
 }

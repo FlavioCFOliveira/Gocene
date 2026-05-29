@@ -158,105 +158,75 @@ func TestToParentBlockJoinScorerCreation(t *testing.T) {
 		t.Errorf("Expected boost 1.0, got %f", scorer.boost)
 	}
 
-	if scorer.parentsBits != parentsBits {
-		t.Error("Expected parents bits to match")
+	if scorer.parentBits != parentsBits {
+		t.Error("Expected parent bits to match")
 	}
 }
 
-func TestToParentBlockJoinScorerFindParent(t *testing.T) {
+// TestToParentBlockJoinScorerNextSetBit verifies the FixedBitSet.NextSetBit
+// primitive used by the scorer (faithful to ParentApproximation.advance, which
+// finds the parent immediately after a child via parentBits.nextSetBit(childDoc+1)).
+func TestToParentBlockJoinScorerNextSetBit(t *testing.T) {
 	parentsBits := NewFixedBitSet(100)
 	// Mark documents 9, 19, 29, ... as parents
 	for i := 9; i < 100; i += 10 {
 		parentsBits.Set(i)
 	}
 
-	weight := &ToParentBlockJoinWeight{}
-	scorer := NewToParentBlockJoinScorer(weight, nil, parentsBits, Max, 1.0)
-
-	// Test finding parent
-	parent := scorer.findParent(5)
-	if parent != 9 {
-		t.Errorf("Expected parent of 5 to be 9, got %d", parent)
+	// Parent after child 5 is 9.
+	if p := parentsBits.NextSetBit(6); p != 9 {
+		t.Errorf("NextSetBit(6) = %d, want 9", p)
 	}
-
-	// Test finding parent after parent
-	parent = scorer.findParent(15)
-	if parent != 19 {
-		t.Errorf("Expected parent of 15 to be 19, got %d", parent)
+	// Parent after child 15 is 19.
+	if p := parentsBits.NextSetBit(16); p != 19 {
+		t.Errorf("NextSetBit(16) = %d, want 19", p)
 	}
-
-	// Test finding parent at exact position
-	parent = scorer.findParent(9)
-	if parent != 9 {
-		t.Errorf("Expected parent of 9 to be 9, got %d", parent)
-	}
-
-	// Test finding parent beyond last - should find the last parent
-	parent = scorer.findParent(95)
-	if parent != 99 {
-		t.Errorf("Expected parent of 95 to be 99 (last parent), got %d", parent)
+	// Parent after child 95 is 99.
+	if p := parentsBits.NextSetBit(96); p != 99 {
+		t.Errorf("NextSetBit(96) = %d, want 99", p)
 	}
 }
 
-func TestToParentBlockJoinScorerAccumulateScore(t *testing.T) {
-	parentsBits := NewFixedBitSet(100)
-
-	weight := &ToParentBlockJoinWeight{}
-
-	// Test with Avg score mode
-	scorerAvg := NewToParentBlockJoinScorer(weight, nil, parentsBits, Avg, 1.0)
-	scorerAvg.accumulateScore(10.0)
-	scorerAvg.accumulateScore(20.0)
-	if scorerAvg.accumulatedScore != 30.0 {
-		t.Errorf("Expected accumulated score 30.0 for Avg, got %f", scorerAvg.accumulatedScore)
-	}
-	if scorerAvg.childCount != 2 {
-		t.Errorf("Expected child count 2, got %d", scorerAvg.childCount)
-	}
-
-	// Test with Max score mode
-	scorerMax := NewToParentBlockJoinScorer(weight, nil, parentsBits, Max, 1.0)
-	scorerMax.accumulateScore(10.0)
-	scorerMax.accumulateScore(20.0)
-	if scorerMax.accumulatedScore != 20.0 {
-		t.Errorf("Expected accumulated score 20.0 for Max, got %f", scorerMax.accumulatedScore)
-	}
-
-	// Test with Min score mode
-	scorerMin := NewToParentBlockJoinScorer(weight, nil, parentsBits, Min, 1.0)
-	scorerMin.accumulateScore(20.0)
-	scorerMin.accumulateScore(10.0)
-	if scorerMin.accumulatedScore != 10.0 {
-		t.Errorf("Expected accumulated score 10.0 for Min, got %f", scorerMin.accumulatedScore)
-	}
-}
-
+// TestToParentBlockJoinScorerScore drives the real per-parent score aggregation
+// through a fakeScorer child positioned before a synthetic parent. The block
+// here is children {0,1,2} under parent doc 3; the scorer's Advance positions
+// the child at the first child, and Score() walks the block combining child
+// scores per ScoreMode (faithful to BlockJoinScorer.scoreChildDocs + Score).
 func TestToParentBlockJoinScorerScore(t *testing.T) {
-	parentsBits := NewFixedBitSet(100)
-
+	parentsBits := NewFixedBitSet(8)
+	parentsBits.Set(3) // single parent block: children 0,1,2 -> parent 3
+	parentsBits.Set(7) // trailing parent (block-join invariant: last doc is parent)
 	weight := &ToParentBlockJoinWeight{}
 
-	// Test with score mode None
-	scorerNone := NewToParentBlockJoinScorer(weight, nil, parentsBits, None, 1.0)
-	if scorerNone.scoreMode != None {
-		t.Error("Expected score mode None")
+	// childScores: doc0=2, doc1=4, doc2=6.
+	newScorer := func(mode ScoreMode, boost float32) *ToParentBlockJoinScorer {
+		child := newFakeScorer([]int{0, 1, 2}, []float32{2, 4, 6}, 6)
+		s := NewToParentBlockJoinScorer(weight, child, parentsBits, mode, boost)
+		if _, err := s.NextDoc(); err != nil {
+			t.Fatalf("NextDoc: %v", err)
+		}
+		if s.DocID() != 3 {
+			t.Fatalf("DocID = %d, want parent 3", s.DocID())
+		}
+		return s
 	}
 
-	// Test with Avg score mode
-	scorerAvg := NewToParentBlockJoinScorer(weight, nil, parentsBits, Avg, 1.0)
-	scorerAvg.accumulatedScore = 30.0
-	scorerAvg.childCount = 2
-	score := scorerAvg.Score()
-	if score != 15.0 {
-		t.Errorf("Expected score 15.0 for Avg mode, got %f", score)
+	cases := []struct {
+		mode  ScoreMode
+		boost float32
+		want  float32
+	}{
+		{Total, 1.0, 12.0}, // 2+4+6
+		{Avg, 1.0, 4.0},    // 12/3
+		{Max, 1.0, 6.0},
+		{Min, 1.0, 2.0},
+		{Avg, 2.0, 8.0}, // (12/3) * 2
+		{None, 1.0, 0.0},
 	}
-
-	// Test with boost
-	scorerAvg2 := NewToParentBlockJoinScorer(weight, nil, parentsBits, Avg, 2.0)
-	scorerAvg2.accumulatedScore = 30.0
-	scorerAvg2.childCount = 2
-	score = scorerAvg2.Score()
-	if score != 30.0 {
-		t.Errorf("Expected score 30.0 for Avg mode with boost 2.0, got %f", score)
+	for _, tc := range cases {
+		s := newScorer(tc.mode, tc.boost)
+		if got := s.Score(); got != tc.want {
+			t.Errorf("ScoreMode %v boost %.1f: Score() = %v, want %v", tc.mode, tc.boost, got, tc.want)
+		}
 	}
 }
