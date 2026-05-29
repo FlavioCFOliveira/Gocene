@@ -6,6 +6,7 @@ package index
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -115,6 +116,14 @@ func (dwpt *DocumentsWriterPerThread) flushDocValuesField(
 			pos:    -1,
 		})
 	case DocValuesTypeSortedNumeric:
+		// Apache Lucene 10.4.0 SortedNumericDocValuesWriter sorts each
+		// document's values ascending before flush (the SortedNumericDocValues
+		// contract). Match it so reads return ascending values regardless of the
+		// order they were added to the document (rmp #4783).
+		for i := range buf.numericValuesMulti {
+			vals := buf.numericValuesMulti[i]
+			sort.Slice(vals, func(a, b int) bool { return vals[a] < vals[b] })
+		}
 		return consumer.AddSortedNumericField(fieldInfo, &bufferedSortedNumericDVIter{
 			docIDs: buf.docIDs,
 			values: buf.numericValuesMulti,
