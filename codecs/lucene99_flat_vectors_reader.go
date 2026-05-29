@@ -23,19 +23,18 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	utilhnsw "github.com/FlavioCFOliveira/Gocene/util/hnsw"
+	"github.com/FlavioCFOliveira/Gocene/util/packed"
 )
 
 // Lucene99FlatVectorsReader reads raw vector values written by
 // [Lucene99FlatVectorsWriter]. It is the Go port of
 // org.apache.lucene.codecs.lucene99.Lucene99FlatVectorsReader
-// (Lucene 10.4.0), restricted to the dense and empty cases (rmp #4731).
+// (Lucene 10.4.0), covering the dense, empty and sparse cases.
 //
-// Deviation from the Java reference (rmp #4731):
-//
-//  1. Only dense (docsWithFieldOffset == -1) and empty
-//     (docsWithFieldOffset == -2) fields are supported. A sparse field
-//     surfaces [errFlatSparseUnsupported] when its vectors are loaded; the
-//     sparse IndexedDISI path is tracked by rmp #4755.
+// For the sparse case (rmp #4755) the per-field entry carries the
+// OrdToDocDISIReaderConfiguration state (IndexedDISI doc-id set offset/length
+// + DirectMonotonicReader ord->doc meta) so the reader can reconstruct the
+// sparse vector view.
 type Lucene99FlatVectorsReader struct {
 	fieldInfos *index.FieldInfos
 	fields     map[int]*lucene99FlatFieldEntry // keyed by field number
@@ -44,7 +43,7 @@ type Lucene99FlatVectorsReader struct {
 }
 
 // lucene99FlatFieldEntry mirrors the Java FieldEntry record for the
-// flat format (dense/empty subset).
+// flat format, plus the embedded OrdToDocDISIReaderConfiguration state.
 type lucene99FlatFieldEntry struct {
 	similarityFunction index.VectorSimilarityFunction
 	vectorEncoding     index.VectorEncoding
@@ -56,8 +55,18 @@ type lucene99FlatFieldEntry struct {
 	// docsWithFieldOffset distinguishes the storage cases:
 	//   -2 : empty (no vectors)
 	//   -1 : dense (every doc has a vector; ord == doc)
-	//  >=0 : sparse (unsupported — rmp #4755)
+	//  >=0 : sparse (the .vec offset of the IndexedDISI doc-id set)
 	docsWithFieldOffset int64
+
+	// The following fields are populated only for the sparse case
+	// (docsWithFieldOffset >= 0). They mirror the like-named fields of
+	// org.apache.lucene.codecs.lucene95.OrdToDocDISIReaderConfiguration.
+	docsWithFieldLength int64
+	jumpTableEntryCount int
+	denseRankPower      byte
+	addressesOffset     int64
+	addressesLength     int64
+	ordToDocMeta        *packed.DirectMonotonicMeta
 }
 
 // NewLucene99FlatVectorsReader reads and validates the `.vemf` header and
@@ -202,27 +211,48 @@ func (r *Lucene99FlatVectorsReader) readFieldEntry(meta store.DataInput, info *i
 		return nil, err
 	}
 
-	// OrdToDocDISIReaderConfiguration.fromStoredMeta: read the sentinel
-	// block. docsWithFieldOffset distinguishes empty(-2)/dense(-1)/sparse.
+	// OrdToDocDISIReaderConfiguration.fromStoredMeta. docsWithFieldOffset
+	// distinguishes empty(-2) / dense(-1) / sparse(>=0). Mirrors the Java
+	// fromStoredMeta read order exactly.
 	docsWithFieldOffset, err := meta.ReadLong()
 	if err != nil {
 		return nil, err
 	}
-	if _, err := meta.ReadLong(); err != nil { // docsWithFieldLength
+	docsWithFieldLength, err := meta.ReadLong()
+	if err != nil {
 		return nil, err
 	}
-	if _, err := meta.ReadShort(); err != nil { // jumpTableEntryCount
+	jumpTableEntryCount, err := meta.ReadShort()
+	if err != nil {
 		return nil, err
 	}
-	if _, err := meta.ReadByte(); err != nil { // denseRankPower
+	denseRankPower, err := meta.ReadByte()
+	if err != nil {
 		return nil, err
 	}
+
+	var addressesOffset, addressesLength int64
+	var ordToDocMeta *packed.DirectMonotonicMeta
 	if docsWithFieldOffset > -1 {
-		// Sparse: the meta carries an additional DirectMonotonicWriter
-		// header (addressesOffset, blockShift, meta, addressesLength). We
-		// cannot decode the ordToDoc mapping without IndexedDISI; surface
-		// the deferral cleanly rather than mis-parsing the stream.
-		return nil, fmt.Errorf("%w (field %q)", errFlatSparseUnsupported, info.Name())
+		// Sparse: read the DirectMonotonicWriter header that records the
+		// ord->doc mapping. Mirrors the docsWithFieldOffset > -1 branch of
+		// OrdToDocDISIReaderConfiguration.fromStoredMeta.
+		addressesOffset, err = meta.ReadLong()
+		if err != nil {
+			return nil, err
+		}
+		blockShift, e := store.ReadVInt(meta)
+		if e != nil {
+			return nil, e
+		}
+		ordToDocMeta, err = packed.LoadDirectMonotonicMeta(meta, int64(size), int(blockShift))
+		if err != nil {
+			return nil, fmt.Errorf("load ord-to-doc monotonic meta: %w", err)
+		}
+		addressesLength, err = meta.ReadLong()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Consistency checks mirroring the Java FieldEntry constructor.
@@ -243,6 +273,12 @@ func (r *Lucene99FlatVectorsReader) readFieldEntry(meta store.DataInput, info *i
 		dimension:           int(dimV),
 		size:                int(size),
 		docsWithFieldOffset: docsWithFieldOffset,
+		docsWithFieldLength: docsWithFieldLength,
+		jumpTableEntryCount: int(jumpTableEntryCount),
+		denseRankPower:      byte(denseRankPower),
+		addressesOffset:     addressesOffset,
+		addressesLength:     addressesLength,
+		ordToDocMeta:        ordToDocMeta,
 	}, nil
 }
 
@@ -264,10 +300,28 @@ func (r *Lucene99FlatVectorsReader) getFieldEntry(field string, expected index.V
 	return entry, nil
 }
 
-// floatVectorValues loads the dense off-heap float32 vectors for field.
-// Returns an error for the sparse case (rmp #4755) and an empty view for
-// the empty case.
-func (r *Lucene99FlatVectorsReader) floatVectorValues(field string) (*flatDenseFloatVectorValues, error) {
+// flatFloatVectorValues is the common surface exposed by the dense, empty
+// and sparse off-heap float32 vector views. It mirrors the slice of
+// org.apache.lucene.codecs.lucene99.OffHeapFloatVectorValues consumed by the
+// codecs package: the KnnVectorValues iterator/ord-mapping methods plus the
+// ordinal-keyed VectorValue accessor and the configured similarity function.
+type flatFloatVectorValues interface {
+	utilhnsw.KnnVectorValues
+	VectorValue(ord int) ([]float32, error)
+	similarity() index.VectorSimilarityFunction
+}
+
+// flatByteVectorValues is the byte analogue of [flatFloatVectorValues].
+type flatByteVectorValues interface {
+	utilhnsw.KnnVectorValues
+	VectorValue(ord int) ([]byte, error)
+	similarity() index.VectorSimilarityFunction
+}
+
+// floatVectorValues loads the off-heap float32 vectors for field. It returns
+// a dense, sparse or empty view depending on the field's
+// docsWithFieldOffset.
+func (r *Lucene99FlatVectorsReader) floatVectorValues(field string) (flatFloatVectorValues, error) {
 	entry, err := r.getFieldEntry(field, index.VectorEncodingFloat32)
 	if err != nil {
 		return nil, err
@@ -275,18 +329,19 @@ func (r *Lucene99FlatVectorsReader) floatVectorValues(field string) (*flatDenseF
 	if entry.docsWithFieldOffset == -2 {
 		return newFlatDenseFloatVectorValues(entry.dimension, 0, nil, entry.similarityFunction), nil
 	}
-	if entry.docsWithFieldOffset != -1 {
-		return nil, fmt.Errorf("%w (field %q)", errFlatSparseUnsupported, field)
-	}
 	slice, err := r.vectorData.Slice("vector-data", entry.vectorDataOffset, entry.vectorDataLength)
 	if err != nil {
 		return nil, fmt.Errorf("lucene99 flat: slice float vectors for %q: %w", field, err)
 	}
-	return newFlatDenseFloatVectorValues(entry.dimension, entry.size, slice, entry.similarityFunction), nil
+	if entry.docsWithFieldOffset == -1 {
+		return newFlatDenseFloatVectorValues(entry.dimension, entry.size, slice, entry.similarityFunction), nil
+	}
+	return r.newFlatSparseFloatVectorValues(entry, slice)
 }
 
-// byteVectorValues loads the dense off-heap byte vectors for field.
-func (r *Lucene99FlatVectorsReader) byteVectorValues(field string) (*flatDenseByteVectorValues, error) {
+// byteVectorValues loads the off-heap byte vectors for field. See
+// [floatVectorValues] for the dense/sparse/empty dispatch.
+func (r *Lucene99FlatVectorsReader) byteVectorValues(field string) (flatByteVectorValues, error) {
 	entry, err := r.getFieldEntry(field, index.VectorEncodingByte)
 	if err != nil {
 		return nil, err
@@ -294,14 +349,84 @@ func (r *Lucene99FlatVectorsReader) byteVectorValues(field string) (*flatDenseBy
 	if entry.docsWithFieldOffset == -2 {
 		return newFlatDenseByteVectorValues(entry.dimension, 0, nil, entry.similarityFunction), nil
 	}
-	if entry.docsWithFieldOffset != -1 {
-		return nil, fmt.Errorf("%w (field %q)", errFlatSparseUnsupported, field)
-	}
 	slice, err := r.vectorData.Slice("vector-data", entry.vectorDataOffset, entry.vectorDataLength)
 	if err != nil {
 		return nil, fmt.Errorf("lucene99 flat: slice byte vectors for %q: %w", field, err)
 	}
-	return newFlatDenseByteVectorValues(entry.dimension, entry.size, slice, entry.similarityFunction), nil
+	if entry.docsWithFieldOffset == -1 {
+		return newFlatDenseByteVectorValues(entry.dimension, entry.size, slice, entry.similarityFunction), nil
+	}
+	return r.newFlatSparseByteVectorValues(entry, slice)
+}
+
+// newFlatSparseFloatVectorValues builds the sparse float32 view, opening the
+// IndexedDISI doc-id set and the DirectMonotonicReader ord->doc mapping from
+// the .vec file. Mirrors OffHeapFloatVectorValues.SparseOffHeapVectorValues.
+func (r *Lucene99FlatVectorsReader) newFlatSparseFloatVectorValues(
+	entry *lucene99FlatFieldEntry, slice store.IndexInput,
+) (*flatSparseFloatVectorValues, error) {
+	ordToDoc, disiFactory, err := r.sparseOrdToDoc(entry)
+	if err != nil {
+		return nil, err
+	}
+	return &flatSparseFloatVectorValues{
+		dimension:   entry.dimension,
+		size:        entry.size,
+		byteSize:    entry.dimension * floatBytes,
+		slice:       slice,
+		sim:         entry.similarityFunction,
+		ordToDoc:    ordToDoc,
+		disiFactory: disiFactory,
+		lastOrd:     -1,
+		value:       make([]float32, entry.dimension),
+	}, nil
+}
+
+// newFlatSparseByteVectorValues is the byte analogue of
+// [newFlatSparseFloatVectorValues].
+func (r *Lucene99FlatVectorsReader) newFlatSparseByteVectorValues(
+	entry *lucene99FlatFieldEntry, slice store.IndexInput,
+) (*flatSparseByteVectorValues, error) {
+	ordToDoc, disiFactory, err := r.sparseOrdToDoc(entry)
+	if err != nil {
+		return nil, err
+	}
+	return &flatSparseByteVectorValues{
+		dimension:   entry.dimension,
+		size:        entry.size,
+		byteSize:    entry.dimension,
+		slice:       slice,
+		sim:         entry.similarityFunction,
+		ordToDoc:    ordToDoc,
+		disiFactory: disiFactory,
+		lastOrd:     -1,
+		value:       make([]byte, entry.dimension),
+	}, nil
+}
+
+// sparseOrdToDoc builds the shared sparse state used by both the float and
+// byte sparse views: the DirectMonotonicReader ord->doc mapping and a factory
+// that produces fresh IndexedDISI doc-id iterators over the .vec file. The
+// IndexedDISI reader is the package-local, little-endian dvIndexedDISI (codecs
+// cannot import codecs/lucene90 — import cycle).
+func (r *Lucene99FlatVectorsReader) sparseOrdToDoc(
+	entry *lucene99FlatFieldEntry,
+) (*packed.DirectMonotonicReader, func() (*dvIndexedDISI, error), error) {
+	addrSlice, err := dvSliceRandomAccess(r.vectorData, entry.addressesOffset, entry.addressesLength)
+	if err != nil {
+		return nil, nil, fmt.Errorf("lucene99 flat: slice sparse ord-to-doc addresses: %w", err)
+	}
+	ordToDoc, err := packed.NewDirectMonotonicReader(entry.ordToDocMeta, addrSlice)
+	if err != nil {
+		return nil, nil, fmt.Errorf("lucene99 flat: sparse ord-to-doc reader: %w", err)
+	}
+	disiFactory := func() (*dvIndexedDISI, error) {
+		return newDVIndexedDISI(
+			r.vectorData, entry.docsWithFieldOffset, entry.docsWithFieldLength,
+			entry.jumpTableEntryCount, entry.denseRankPower, int64(entry.size),
+		)
+	}
+	return ordToDoc, disiFactory, nil
 }
 
 // randomVectorScorerFloat returns a [utilhnsw.RandomVectorScorer] that
@@ -392,6 +517,9 @@ func newFlatDenseFloatVectorValues(
 func (v *flatDenseFloatVectorValues) Dimension() int       { return v.dimension }
 func (v *flatDenseFloatVectorValues) Size() int            { return v.size }
 func (v *flatDenseFloatVectorValues) OrdToDoc(ord int) int { return ord }
+func (v *flatDenseFloatVectorValues) similarity() index.VectorSimilarityFunction {
+	return v.sim
+}
 func (v *flatDenseFloatVectorValues) GetAcceptOrds(acceptDocs util.Bits) util.Bits {
 	// Dense: the ordinal space is the doc space, so the accept bits map
 	// through unchanged. Mirrors DenseOffHeapVectorValues.getAcceptOrds.
@@ -455,6 +583,9 @@ func newFlatDenseByteVectorValues(
 func (v *flatDenseByteVectorValues) Dimension() int       { return v.dimension }
 func (v *flatDenseByteVectorValues) Size() int            { return v.size }
 func (v *flatDenseByteVectorValues) OrdToDoc(ord int) int { return ord }
+func (v *flatDenseByteVectorValues) similarity() index.VectorSimilarityFunction {
+	return v.sim
+}
 func (v *flatDenseByteVectorValues) GetAcceptOrds(acceptDocs util.Bits) util.Bits {
 	return acceptDocs
 }
@@ -513,14 +644,14 @@ func (it *flatDenseIterator) Index() int { return it.cur }
 // codecs package (codecs cannot import codecs/hnsw — import cycle).
 // ---------------------------------------------------------------------------
 
-// flatFloatQueryScorer scores a fixed float32 query against the dense
-// float vectors.
+// flatFloatQueryScorer scores a fixed float32 query against the float
+// vectors (dense or sparse).
 type flatFloatQueryScorer struct {
-	values *flatDenseFloatVectorValues
+	values flatFloatVectorValues
 	query  []float32
 }
 
-func newFlatFloatQueryScorer(values *flatDenseFloatVectorValues, query []float32) *flatFloatQueryScorer {
+func newFlatFloatQueryScorer(values flatFloatVectorValues, query []float32) *flatFloatQueryScorer {
 	cp := make([]float32, len(query))
 	copy(cp, query)
 	return &flatFloatQueryScorer{values: values, query: cp}
@@ -531,7 +662,7 @@ func (s *flatFloatQueryScorer) Score(node int) (float32, error) {
 	if err != nil {
 		return 0, err
 	}
-	return memComputeFloatSimilarity(s.values.sim, s.query, v), nil
+	return memComputeFloatSimilarity(s.values.similarity(), s.query, v), nil
 }
 
 func (s *flatFloatQueryScorer) BulkScore(nodes []int, scores []float32, numNodes int) (float32, error) {
@@ -544,14 +675,14 @@ func (s *flatFloatQueryScorer) GetAcceptOrds(acceptDocs util.Bits) util.Bits {
 	return s.values.GetAcceptOrds(acceptDocs)
 }
 
-// flatByteQueryScorer scores a fixed byte query against the dense byte
-// vectors.
+// flatByteQueryScorer scores a fixed byte query against the byte vectors
+// (dense or sparse).
 type flatByteQueryScorer struct {
-	values *flatDenseByteVectorValues
+	values flatByteVectorValues
 	query  []byte
 }
 
-func newFlatByteQueryScorer(values *flatDenseByteVectorValues, query []byte) *flatByteQueryScorer {
+func newFlatByteQueryScorer(values flatByteVectorValues, query []byte) *flatByteQueryScorer {
 	cp := make([]byte, len(query))
 	copy(cp, query)
 	return &flatByteQueryScorer{values: values, query: cp}
@@ -562,7 +693,7 @@ func (s *flatByteQueryScorer) Score(node int) (float32, error) {
 	if err != nil {
 		return 0, err
 	}
-	return memComputeByteSimilarity(s.values.sim, s.query, v), nil
+	return memComputeByteSimilarity(s.values.similarity(), s.query, v), nil
 }
 
 func (s *flatByteQueryScorer) BulkScore(nodes []int, scores []float32, numNodes int) (float32, error) {

@@ -748,36 +748,79 @@ func (r *byteArrayRandomAccess) ReadLongAt(pos int64) (int64, error) {
 }
 
 // ---------------------------------------------------------------------------
-// dense vector-values adapters
+// doc-keyed vector-values adapters
 //
-// The flat reader's dense values are ordinal-keyed (VectorValue(ord)); the
-// codecs [FloatVectorValues] / [ByteVectorValues] interfaces are doc-keyed
-// iterators (GetVector(docID) + NextDoc/Advance/DocID). For the dense case
-// ord == doc, so these adapters are thin wrappers that walk the ordinal
-// space as the document space. Sparse fields never reach here (the flat
-// reader rejects them — rmp #4755).
+// The flat reader's values are ordinal-keyed (VectorValue(ord)); the codecs
+// [FloatVectorValues] / [ByteVectorValues] interfaces and their index-package
+// peers are doc-keyed (Get(docID)/GetVector(docID) + NextDoc/Advance/DocID).
+//
+// For the dense case ord == doc, so the adapter walks the ordinal space as
+// the document space. For the sparse case the adapter drives the value's
+// DocIndexIterator (an IndexedDISI), whose Index() yields the ordinal for the
+// current docID; Get(docID) returns nil for documents that carry no vector,
+// matching the index.FloatVectorValues contract.
+//
+// Both consumers of the doc-keyed Get(docID) accessor (CheckIndex and the
+// KNN graph test) scan docIDs strictly ascending, so Get advances the
+// internal cursor forward to the requested docID; a request for an earlier
+// docID rebuilds the iterator.
 // ---------------------------------------------------------------------------
 
 type denseFloatVectorValuesAdapter struct {
-	values *flatDenseFloatVectorValues
+	values flatFloatVectorValues
 	doc    int
+
+	// iter / iterDoc / iterOrd / iterErr drive the doc-keyed Get(docID)
+	// random-access scan; iter is created lazily on first use.
+	iter    utilhnsw.DocIndexIterator
+	iterDoc int
+	iterOrd int
 }
 
 func (a *denseFloatVectorValuesAdapter) Dimension() int { return a.values.Dimension() }
 func (a *denseFloatVectorValuesAdapter) Size() int      { return a.values.Size() }
 func (a *denseFloatVectorValuesAdapter) DocID() int     { return a.doc }
 
-// GetVector returns the vector for docID (== ordinal in the dense case). A
-// fresh copy is returned because the underlying buffer is reused across
-// calls and callers of the codecs surface may retain the result.
+// GetVector returns the vector for docID, or nil when docID carries no vector
+// (sparse). A fresh copy is returned because the underlying buffer is reused
+// across calls and callers of the codecs surface may retain the result.
 func (a *denseFloatVectorValuesAdapter) GetVector(docID int) ([]float32, error) {
-	v, err := a.values.VectorValue(docID)
+	ord, ok, err := a.ordForDoc(docID)
+	if err != nil || !ok {
+		return nil, err
+	}
+	v, err := a.values.VectorValue(ord)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]float32, len(v))
 	copy(out, v)
 	return out, nil
+}
+
+// ordForDoc resolves the ordinal of docID, returning ok=false when docID has
+// no vector. It advances (or rebuilds) the internal iterator forward to docID.
+func (a *denseFloatVectorValuesAdapter) ordForDoc(docID int) (int, bool, error) {
+	if a.iter == nil || a.iterDoc > docID {
+		a.iter = a.values.Iterator()
+		a.iterDoc, a.iterOrd = -1, -1
+	}
+	for a.iterDoc < docID {
+		d, err := a.iter.NextDoc()
+		if err != nil {
+			return 0, false, err
+		}
+		if d == util.NO_MORE_DOCS {
+			a.iterDoc = util.NO_MORE_DOCS
+			return 0, false, nil
+		}
+		a.iterDoc = d
+		a.iterOrd = a.iter.Index()
+	}
+	if a.iterDoc == docID {
+		return a.iterOrd, true, nil
+	}
+	return 0, false, nil
 }
 
 // Get is the index.FloatVectorValues accessor name; it aliases GetVector so
@@ -804,8 +847,12 @@ func (a *denseFloatVectorValuesAdapter) Advance(target int) (int, error) {
 }
 
 type denseByteVectorValuesAdapter struct {
-	values *flatDenseByteVectorValues
+	values flatByteVectorValues
 	doc    int
+
+	iter    utilhnsw.DocIndexIterator
+	iterDoc int
+	iterOrd int
 }
 
 func (a *denseByteVectorValuesAdapter) Dimension() int { return a.values.Dimension() }
@@ -813,13 +860,40 @@ func (a *denseByteVectorValuesAdapter) Size() int      { return a.values.Size() 
 func (a *denseByteVectorValuesAdapter) DocID() int     { return a.doc }
 
 func (a *denseByteVectorValuesAdapter) GetVector(docID int) ([]byte, error) {
-	v, err := a.values.VectorValue(docID)
+	ord, ok, err := a.ordForDoc(docID)
+	if err != nil || !ok {
+		return nil, err
+	}
+	v, err := a.values.VectorValue(ord)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]byte, len(v))
 	copy(out, v)
 	return out, nil
+}
+
+func (a *denseByteVectorValuesAdapter) ordForDoc(docID int) (int, bool, error) {
+	if a.iter == nil || a.iterDoc > docID {
+		a.iter = a.values.Iterator()
+		a.iterDoc, a.iterOrd = -1, -1
+	}
+	for a.iterDoc < docID {
+		d, err := a.iter.NextDoc()
+		if err != nil {
+			return 0, false, err
+		}
+		if d == util.NO_MORE_DOCS {
+			a.iterDoc = util.NO_MORE_DOCS
+			return 0, false, nil
+		}
+		a.iterDoc = d
+		a.iterOrd = a.iter.Index()
+	}
+	if a.iterDoc == docID {
+		return a.iterOrd, true, nil
+	}
+	return 0, false, nil
 }
 
 // Get aliases GetVector so the adapter satisfies index.ByteVectorValues.

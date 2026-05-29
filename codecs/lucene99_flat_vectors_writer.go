@@ -24,6 +24,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util/packed"
 )
 
 // Lucene99FlatVectorsFormat wire-level constants. Mirror the static
@@ -53,8 +54,9 @@ const (
 	lucene99FlatVersionCurrent int32 = lucene99FlatVersionStart
 
 	// lucene99FlatDirectMonotonicBlockShift mirrors
-	// DIRECT_MONOTONIC_BLOCK_SHIFT (used only by the sparse OrdToDoc
-	// mapping, which is deferred — see [errFlatSparseUnsupported]).
+	// Lucene99FlatVectorsFormat.DIRECT_MONOTONIC_BLOCK_SHIFT — the
+	// block-shift used by the DirectMonotonicWriter that records the
+	// sparse ord->doc mapping.
 	lucene99FlatDirectMonotonicBlockShift = 16
 
 	// floatBytes is the wire width of a FLOAT32 sample.
@@ -65,20 +67,19 @@ const (
 	flatFloatAlignment = 64
 )
 
-// errFlatSparseUnsupported is returned when a flat vector field is sparse
-// (some documents in the segment lack a value for the field). The dense
-// case — every document has a vector — needs no IndexedDISI and is fully
-// supported; the sparse case requires IndexedDISI.writeBitSet, whose port
-// is tracked by rmp #4755.
+// errFlatSparseUnsupported was returned, prior to rmp #4755, when a flat
+// vector field was sparse (some documents in the segment lacked a value for
+// the field). The sparse path is now fully implemented (IndexedDISI doc-id
+// set + DirectMonotonic ord->doc mapping); the sentinel is retained only for
+// the diagnostic emitted when a docIDs slice is internally inconsistent with
+// the recorded count, which can never happen through the public API.
 var errFlatSparseUnsupported = errors.New(
-	"lucene99 flat vectors: sparse vector fields (some docs lack a value) " +
-		"are not supported yet; the dense case (every doc has a vector) is " +
-		"supported. Sparse support requires the IndexedDISI port tracked by rmp #4755")
+	"lucene99 flat vectors: internal sparse-layout inconsistency")
 
 // Lucene99FlatVectorsWriter writes raw vector values to the `.vec` data
 // file and per-field metadata to the `.vemf` file. It is the Go port of
 // org.apache.lucene.codecs.lucene99.Lucene99FlatVectorsWriter
-// (Lucene 10.4.0), restricted to the dense and empty cases (rmp #4731).
+// (Lucene 10.4.0), covering the dense, empty and sparse cases.
 //
 // Wire-format parity (.vec + .vemf, see the Lucene99FlatVectorsFormat
 // Javadoc for the full layout):
@@ -86,22 +87,23 @@ var errFlatSparseUnsupported = errors.New(
 //   - `.vec` carries each field's vectors ordered by document ordinal and
 //     dimension. FLOAT32 samples are written little-endian; BYTE samples
 //     are written verbatim. Each field's block is preceded by an alignment
-//     pad (64 bytes for FLOAT32, 4 for BYTE). Identical byte layout to
-//     Lucene.
+//     pad (64 bytes for FLOAT32, 4 for BYTE). For sparse fields the per-doc
+//     vectors are followed by the IndexedDISI doc-id set and the
+//     DirectMonotonicWriter ord->doc data, appended to `.vec`. Identical
+//     byte layout to Lucene.
 //   - `.vemf` carries one record per field: field number, encoding ordinal,
 //     similarity ordinal, .vec offset/length, dimension, count, then the
-//     OrdToDoc/DocsWithField sentinel block. Terminated by an int32
-//     sentinel -1, then the codec footer. Identical byte layout to Lucene
-//     for the dense and empty cases.
+//     OrdToDoc/DocsWithField block (see [writeFlatOrdToDocStoredMeta]).
+//     Terminated by an int32 sentinel -1, then the codec footer. Identical
+//     byte layout to Lucene.
 //
-// Deviation from the Java reference (rmp #4731):
+// Deviation from the Java reference:
 //
-//  1. Only dense (count == maxDoc) and empty (count == 0) fields are
-//     supported. A sparse field surfaces [errFlatSparseUnsupported] from
-//     [Lucene99FlatVectorsWriter.Flush]; the sparse IndexedDISI path is
-//     tracked by rmp #4755. The merge path (mergeOneField /
-//     mergeOneFieldToIndex) and the index-sort path (writeSortingField)
-//     are likewise out of scope for rmp #4731.
+//  1. The merge path (mergeOneField / mergeOneFieldToIndex) and the
+//     index-sort path (writeSortingField) are out of scope; a non-nil
+//     sortMap returns an error rather than silently ignoring the requested
+//     ordering. The dense, empty and sparse (rmp #4755) flush paths are
+//     fully supported.
 //
 // Concurrency: not safe for concurrent use. Mirrors the Java reference.
 type Lucene99FlatVectorsWriter struct {
@@ -427,47 +429,154 @@ func (w *Lucene99FlatVectorsWriter) writeMeta(
 	if err := w.meta.WriteInt(int32(count)); err != nil {
 		return err
 	}
-	return writeFlatOrdToDocStoredMeta(w.meta, count, maxDoc, fw.docIDs)
+	return writeFlatOrdToDocStoredMeta(
+		lucene99FlatDirectMonotonicBlockShift, w.meta, w.vectorData, count, maxDoc, fw.docIDs)
 }
 
-// writeFlatOrdToDocStoredMeta writes the docsWithField / ordToDoc sentinel
-// block, mirroring
-// org.apache.lucene.codecs.lucene95.OrdToDocDISIReaderConfiguration.writeStoredMeta.
+// writeFlatOrdToDocStoredMeta writes the docsWithField / ordToDoc block,
+// mirroring
+// org.apache.lucene.codecs.lucene95.OrdToDocDISIReaderConfiguration.writeStoredMeta
+// (Lucene 10.4.0) verbatim.
 //
 // For the empty case (count == 0) and the dense case (count == maxDoc) the
-// block is a fixed sentinel (long offset, long length=0, short
+// block on meta is a fixed sentinel (long offset, long length=0, short
 // jumpTableEntryCount=-1, byte denseRankPower=-1) and nothing is written to
 // the data file:
 //
 //	count == 0      -> docsWithFieldOffset = -2 (empty)
 //	count == maxDoc -> docsWithFieldOffset = -1 (dense)
 //
-// The sparse case (0 < count < maxDoc) requires IndexedDISI.writeBitSet and
-// a DirectMonotonicWriter ordToDoc mapping, which are out of scope for rmp
-// #4731 (tracked by rmp #4755); it returns [errFlatSparseUnsupported].
-func writeFlatOrdToDocStoredMeta(meta store.IndexOutput, count, maxDoc int, _ []int) error {
+// For the sparse case (0 < count < maxDoc) the data file receives, in order:
+//
+//	IndexedDISI bit-set of the docIDs that carry a value
+//	  (IndexedDISI.writeBitSet, DEFAULT_DENSE_RANK_POWER)
+//	DirectMonotonicWriter ord->doc data
+//
+// and the meta block records:
+//
+//	long  docsWithFieldOffset (>= 0, the .vec offset of the IndexedDISI)
+//	long  docsWithFieldLength (.vec bytes consumed by the IndexedDISI)
+//	short jumpTableEntryCount (returned by writeBitSet)
+//	byte  denseRankPower (DEFAULT_DENSE_RANK_POWER)
+//	long  addressesOffset (.vec offset of the DirectMonotonic data)
+//	vint  directMonotonicBlockShift
+//	DirectMonotonicWriter meta header
+//	long  addressesLength (.vec bytes consumed by the DirectMonotonic data)
+func writeFlatOrdToDocStoredMeta(
+	directMonotonicBlockShift int,
+	meta, vectorData store.IndexOutput,
+	count, maxDoc int,
+	docIDs []int,
+) error {
 	switch {
 	case count == 0:
 		// Empty: docsWithFieldOffset = -2.
 		if err := meta.WriteLong(-2); err != nil {
 			return err
 		}
+		if err := meta.WriteLong(0); err != nil { // docsWithFieldLength
+			return err
+		}
+		if err := meta.WriteShort(-1); err != nil { // jumpTableEntryCount
+			return err
+		}
+		return meta.WriteByte(0xFF) // denseRankPower == (byte) -1
 	case count == maxDoc:
 		// Dense: docsWithFieldOffset = -1.
 		if err := meta.WriteLong(-1); err != nil {
 			return err
 		}
-	default:
-		// Sparse: requires IndexedDISI.writeBitSet (rmp #4755).
-		return fmt.Errorf("%w (count=%d, maxDoc=%d)", errFlatSparseUnsupported, count, maxDoc)
+		if err := meta.WriteLong(0); err != nil { // docsWithFieldLength
+			return err
+		}
+		if err := meta.WriteShort(-1); err != nil { // jumpTableEntryCount
+			return err
+		}
+		return meta.WriteByte(0xFF) // denseRankPower == (byte) -1
 	}
-	if err := meta.WriteLong(0); err != nil { // docsWithFieldLength
+
+	// Sparse case (0 < count < maxDoc).
+	if len(docIDs) != count {
+		return fmt.Errorf("%w: docIDs=%d but count=%d", errFlatSparseUnsupported, len(docIDs), count)
+	}
+
+	// Write the IndexedDISI doc-id set to the data file. writeDVBitSet is the
+	// package-local, little-endian IndexedDISI writer (see
+	// lucene90_doc_values_bitset.go) — codecs cannot import codecs/lucene90
+	// (import cycle), so the byte-identical writer lives here.
+	offset := vectorData.GetFilePointer()
+	if err := meta.WriteLong(offset); err != nil { // docsWithFieldOffset
 		return err
 	}
-	if err := meta.WriteShort(-1); err != nil { // jumpTableEntryCount
+	jumpTableEntryCount, err := writeDVBitSet(newFlatDocIDIterator(docIDs), vectorData)
+	if err != nil {
+		return fmt.Errorf("lucene99 flat: write sparse IndexedDISI: %w", err)
+	}
+	if err := meta.WriteLong(vectorData.GetFilePointer() - offset); err != nil { // docsWithFieldLength
 		return err
 	}
-	return meta.WriteByte(0xFF) // denseRankPower == (byte) -1
+	if err := meta.WriteShort(jumpTableEntryCount); err != nil {
+		return err
+	}
+	if err := meta.WriteByte(dvDefaultDenseRankPower); err != nil { // DEFAULT_DENSE_RANK_POWER
+		return err
+	}
+
+	// Write the ord->doc mapping with a DirectMonotonicWriter: data to the
+	// .vec file, meta header to the .vemf file. Mirrors the Java reference.
+	start := vectorData.GetFilePointer()
+	if err := meta.WriteLong(start); err != nil { // addressesOffset
+		return err
+	}
+	if err := store.WriteVInt(meta, int32(directMonotonicBlockShift)); err != nil {
+		return err
+	}
+	ordToDocWriter, err := packed.NewDirectMonotonicWriter(
+		dmAdapter{meta}, dmAdapter{vectorData},
+		int64(count), directMonotonicBlockShift,
+	)
+	if err != nil {
+		return fmt.Errorf("lucene99 flat: ordToDoc DirectMonotonicWriter: %w", err)
+	}
+	for _, doc := range docIDs {
+		if err := ordToDocWriter.Add(int64(doc)); err != nil {
+			return fmt.Errorf("lucene99 flat: ordToDoc add %d: %w", doc, err)
+		}
+	}
+	if err := ordToDocWriter.Finish(); err != nil {
+		return fmt.Errorf("lucene99 flat: ordToDoc finish: %w", err)
+	}
+	return meta.WriteLong(vectorData.GetFilePointer() - start) // addressesLength
+}
+
+// flatDocIDIterator is a minimal forward-only DocIdSetIterator over a sorted
+// docIDs slice, used to drive [writeDVBitSet] for the sparse ord->doc set. It
+// satisfies the dvDocIDIterator contract (DocID + NextDoc).
+type flatDocIDIterator struct {
+	docs []int
+	cur  int
+}
+
+func newFlatDocIDIterator(docs []int) *flatDocIDIterator {
+	return &flatDocIDIterator{docs: docs, cur: -1}
+}
+
+func (it *flatDocIDIterator) DocID() int {
+	if it.cur < 0 {
+		return -1
+	}
+	if it.cur >= len(it.docs) {
+		return dvNoMoreDocs
+	}
+	return it.docs[it.cur]
+}
+
+func (it *flatDocIDIterator) NextDoc() (int, error) {
+	it.cur++
+	if it.cur >= len(it.docs) {
+		return dvNoMoreDocs, nil
+	}
+	return it.docs[it.cur], nil
 }
 
 // Finish writes the end-of-fields sentinel (-1) and the codec footer on
