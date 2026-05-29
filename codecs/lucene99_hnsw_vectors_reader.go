@@ -373,6 +373,34 @@ func (r *Lucene99HnswVectorsReader) GetByteVectorValues(field string) (ByteVecto
 	return &denseByteVectorValuesAdapter{values: values, doc: -1}, nil
 }
 
+// FloatVectorValues returns the field's float vectors typed as the
+// index-package [index.FloatVectorValues] surface (Get(docID)). It is the
+// entry point the index layer (LeafReader / SegmentReader) consumes through
+// a structural delegate interface; the returned adapter is the same one
+// [GetFloatVectorValues] yields, which satisfies both surfaces.
+func (r *Lucene99HnswVectorsReader) FloatVectorValues(field string) (index.FloatVectorValues, error) {
+	if r.flatReader == nil {
+		return nil, errors.New("hnsw99 reader: flat reader not initialised")
+	}
+	values, err := r.flatReader.floatVectorValues(field)
+	if err != nil {
+		return nil, err
+	}
+	return &denseFloatVectorValuesAdapter{values: values, doc: -1}, nil
+}
+
+// ByteVectorValues is the byte analogue of [FloatVectorValues].
+func (r *Lucene99HnswVectorsReader) ByteVectorValues(field string) (index.ByteVectorValues, error) {
+	if r.flatReader == nil {
+		return nil, errors.New("hnsw99 reader: flat reader not initialised")
+	}
+	values, err := r.flatReader.byteVectorValues(field)
+	if err != nil {
+		return nil, err
+	}
+	return &denseByteVectorValuesAdapter{values: values, doc: -1}, nil
+}
+
 // GetGraph returns the off-heap HNSW graph for the named field.
 // Implements codecs/hnsw.HnswGraphProvider.
 func (r *Lucene99HnswVectorsReader) GetGraph(field string) (utilhnsw.HnswGraph, error) {
@@ -752,6 +780,13 @@ func (a *denseFloatVectorValuesAdapter) GetVector(docID int) ([]float32, error) 
 	return out, nil
 }
 
+// Get is the index.FloatVectorValues accessor name; it aliases GetVector so
+// the adapter satisfies both the codecs and index FloatVectorValues
+// interfaces (they differ only in this method's name).
+func (a *denseFloatVectorValuesAdapter) Get(docID int) ([]float32, error) {
+	return a.GetVector(docID)
+}
+
 func (a *denseFloatVectorValuesAdapter) NextDoc() (int, error) {
 	return a.Advance(a.doc + 1)
 }
@@ -787,6 +822,11 @@ func (a *denseByteVectorValuesAdapter) GetVector(docID int) ([]byte, error) {
 	return out, nil
 }
 
+// Get aliases GetVector so the adapter satisfies index.ByteVectorValues.
+func (a *denseByteVectorValuesAdapter) Get(docID int) ([]byte, error) {
+	return a.GetVector(docID)
+}
+
 func (a *denseByteVectorValuesAdapter) NextDoc() (int, error) {
 	return a.Advance(a.doc + 1)
 }
@@ -803,9 +843,11 @@ func (a *denseByteVectorValuesAdapter) Advance(target int) (int, error) {
 	return a.doc, nil
 }
 
-// Compile-time guards that the adapters satisfy the codecs vector-value
-// interfaces.
+// Compile-time guards that the adapters satisfy both the codecs and index
+// vector-value interfaces (they differ only in Get vs GetVector).
 var (
-	_ FloatVectorValues = (*denseFloatVectorValuesAdapter)(nil)
-	_ ByteVectorValues  = (*denseByteVectorValuesAdapter)(nil)
+	_ FloatVectorValues       = (*denseFloatVectorValuesAdapter)(nil)
+	_ ByteVectorValues        = (*denseByteVectorValuesAdapter)(nil)
+	_ index.FloatVectorValues = (*denseFloatVectorValuesAdapter)(nil)
+	_ index.ByteVectorValues  = (*denseByteVectorValuesAdapter)(nil)
 )
