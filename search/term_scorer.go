@@ -6,6 +6,7 @@ package search
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TermScorer scores documents using a term's postings.
@@ -24,16 +25,41 @@ type TermScorer struct {
 	postingsEnum index.PostingsEnum
 	doc          int
 	simScorer    SimScorer
+	// liveDocs filters out deleted documents. When nil, every document the
+	// postings enumerate is live. Mirrors the acceptDocs/liveDocs intersection
+	// Lucene applies around a TermScorer; without it, documents deleted via a
+	// persisted .liv file would still match (rmp #4753).
+	liveDocs util.Bits
 }
 
-// NewTermScorer creates a new TermScorer.
+// NewTermScorer creates a new TermScorer with no live-docs filtering.
 func NewTermScorer(weight Weight, postingsEnum index.PostingsEnum, simScorer SimScorer) *TermScorer {
+	return NewTermScorerWithLiveDocs(weight, postingsEnum, simScorer, nil)
+}
+
+// NewTermScorerWithLiveDocs creates a TermScorer that skips documents not set
+// in liveDocs. A nil liveDocs means all documents are live.
+func NewTermScorerWithLiveDocs(weight Weight, postingsEnum index.PostingsEnum, simScorer SimScorer, liveDocs util.Bits) *TermScorer {
 	return &TermScorer{
 		BaseScorer:   NewBaseScorer(weight),
 		postingsEnum: postingsEnum,
 		doc:          -1,
 		simScorer:    simScorer,
+		liveDocs:     liveDocs,
 	}
+}
+
+// isLive reports whether docID is a live (non-deleted) document. A nil liveDocs
+// or an out-of-range docID (past the bitset length) is treated as live, matching
+// Bits.get semantics for the sentinel-free range.
+func (s *TermScorer) isLive(docID int) bool {
+	if s.liveDocs == nil {
+		return true
+	}
+	if docID < 0 || docID >= s.liveDocs.Length() {
+		return true
+	}
+	return s.liveDocs.Get(docID)
 }
 
 // postingsDocToSearchDoc translates index.NO_MORE_DOCS (-1) to the search
@@ -46,18 +72,22 @@ func postingsDocToSearchDoc(doc int) int {
 	return doc
 }
 
-// NextDoc advances to the next document.
+// NextDoc advances to the next live document.
 func (s *TermScorer) NextDoc() (int, error) {
 	if s.postingsEnum == nil {
 		s.doc = NO_MORE_DOCS
 		return NO_MORE_DOCS, nil
 	}
-	nextDoc, err := s.postingsEnum.NextDoc()
-	if err != nil {
-		return NO_MORE_DOCS, err
+	for {
+		nextDoc, err := s.postingsEnum.NextDoc()
+		if err != nil {
+			return NO_MORE_DOCS, err
+		}
+		s.doc = postingsDocToSearchDoc(nextDoc)
+		if s.doc == NO_MORE_DOCS || s.isLive(s.doc) {
+			return s.doc, nil
+		}
 	}
-	s.doc = postingsDocToSearchDoc(nextDoc)
-	return s.doc, nil
 }
 
 // DocID returns the current document ID.
@@ -65,7 +95,7 @@ func (s *TermScorer) DocID() int {
 	return s.doc
 }
 
-// Advance advances to the document at or beyond the target.
+// Advance advances to the first live document at or beyond the target.
 func (s *TermScorer) Advance(target int) (int, error) {
 	if s.postingsEnum == nil {
 		s.doc = NO_MORE_DOCS
@@ -76,7 +106,11 @@ func (s *TermScorer) Advance(target int) (int, error) {
 		return NO_MORE_DOCS, err
 	}
 	s.doc = postingsDocToSearchDoc(advancedDoc)
-	return s.doc, nil
+	if s.doc == NO_MORE_DOCS || s.isLive(s.doc) {
+		return s.doc, nil
+	}
+	// Landed on a deleted doc: walk forward to the next live one.
+	return s.NextDoc()
 }
 
 // Score returns the score of the current document.

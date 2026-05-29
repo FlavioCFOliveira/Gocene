@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TermWeight is the Weight implementation for TermQuery.
@@ -112,8 +113,18 @@ func (w *TermWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) {
 		return nil, nil
 	}
 
+	// Apply the leaf's live docs so documents deleted via a persisted .liv file
+	// (rmp #4753) do not match. Mirrors Lucene's intersection of the TermScorer
+	// iterator with acceptDocs == LeafReader.getLiveDocs(). The reader carried by
+	// the context is the *SegmentReader (not the embedded *LeafReader), so the
+	// GetLiveDocs override is reachable via Reader().
+	var liveDocs util.Bits
+	if lr, ok := context.Reader().(interface{ GetLiveDocs() util.Bits }); ok {
+		liveDocs = lr.GetLiveDocs()
+	}
+
 	// Create and return the scorer
-	return NewTermScorer(w, postingsEnum, w.simScorer), nil
+	return NewTermScorerWithLiveDocs(w, postingsEnum, w.simScorer, liveDocs), nil
 }
 
 // ScorerSupplier creates a scorer supplier for this weight.
