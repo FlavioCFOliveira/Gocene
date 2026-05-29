@@ -312,14 +312,6 @@ func TestSearchAfterScoreDoc_BeyondEndIsEmpty(t *testing.T) {
 // Source: TopScoreDocCollector.collect — the after test is
 // (score > afterScore || (score == afterScore && doc <= afterDoc)).
 func TestSearchAfterScoreDoc_ScoreDimensionBoundary(t *testing.T) {
-	// Blocked by rmp #4751: BM25 TermQuery scores currently do not vary with
-	// term frequency (all matching docs score 1.0, for both compound and
-	// non-compound directories), so this test's premise — distinct scores from
-	// differing term frequencies — cannot hold yet. The SearchAfter score-
-	// dimension boundary predicate it exercises is independently verified by the
-	// other TestSearchAfterScoreDoc_* tests. Re-enable once #4751 lands.
-	t.Skip("requires tf-varying BM25 scores (rmp #4751: TermQuery scores do not vary with term frequency)")
-
 	dir := store.NewByteBuffersDirectory()
 	analyzer := analysis.NewWhitespaceAnalyzer()
 	config := index.NewIndexWriterConfig(analyzer)

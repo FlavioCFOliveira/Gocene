@@ -15,16 +15,18 @@ import (
 // This is the Go port of Lucene's org.apache.lucene.search.TermWeight.
 type TermWeight struct {
 	*BaseWeight
-	term       *index.Term
-	simScorer  SimScorer
-	similarity Similarity
+	term        *index.Term
+	simScorer   SimScorer
+	similarity  Similarity
+	needsScores bool
 }
 
 // NewTermWeight creates a new TermWeight.
 func NewTermWeight(query Query, term *index.Term, searcher *IndexSearcher, needsScores bool) *TermWeight {
 	w := &TermWeight{
-		BaseWeight: NewBaseWeight(query),
-		term:       term,
+		BaseWeight:  NewBaseWeight(query),
+		term:        term,
+		needsScores: needsScores,
 	}
 
 	if needsScores {
@@ -92,8 +94,17 @@ func (w *TermWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) {
 		return nil, nil
 	}
 
-	// Get the postings enum for the term
-	postingsEnum, err := termsEnum.Postings(0)
+	// Get the postings enum for the term. Mirror Lucene 10.4.0
+	// TermQuery.TermWeight.scorerSupplier: request term frequencies when the
+	// query needs scores (PostingsEnum.FREQS), and only the doc stream
+	// otherwise (PostingsEnum.NONE). Without FREQS the codec postings reader
+	// faithfully reports freq=1 for every document, collapsing every BM25
+	// score to a constant (rmp #4751).
+	flags := 0
+	if w.needsScores {
+		flags = index.PostingsFlagFreqs
+	}
+	postingsEnum, err := termsEnum.Postings(flags)
 	if err != nil {
 		return nil, err
 	}
