@@ -243,6 +243,21 @@ func (fi *FieldInfos) HasTermVectors() bool {
 	return false
 }
 
+// HasVectorValues returns true if any field carries KNN vector values
+// (a positive vector dimension). Mirrors Lucene's
+// org.apache.lucene.index.FieldInfos.hasVectorValues().
+func (fi *FieldInfos) HasVectorValues() bool {
+	fi.mu.RLock()
+	defer fi.mu.RUnlock()
+
+	for _, fieldInfo := range fi.byName {
+		if fieldInfo.VectorDimension() > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // HasPostings returns true if any field has postings (is indexed).
 func (fi *FieldInfos) HasPostings() bool {
 	fi.mu.RLock()

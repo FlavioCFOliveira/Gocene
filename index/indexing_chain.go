@@ -6,6 +6,7 @@ package index
 
 import (
 	"fmt"
+	"math"
 	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -729,13 +730,52 @@ func (c *IndexingChain) indexDocValue(docID int, fp *indexingPerField, dvType Do
 }
 
 // indexVectorValue indexes one field's vector value.
+//
+// The document-level KNN field types (KnnFloatVectorField /
+// KnnByteVectorField) store the vector as a binary value: a BYTE field holds
+// the raw bytes, a FLOAT32 field holds the little-endian IEEE-754 encoding
+// (document.encodeFloat32Vector). The codec's per-field KnnVectorsWriter
+// expects the decoded element type — []float32 for FLOAT32, []byte for BYTE
+// — so this method dispatches on the field's VectorEncoding and decodes the
+// binary value accordingly, mirroring the BYTE/FLOAT32 split in Lucene's
+// IndexingChain.PerField.indexVectorValue.
 func (c *IndexingChain) indexVectorValue(docID int, pf *indexingPerField, field IndexingChainField) error {
-	// GAP: Lucene dispatches on VectorEncoding (BYTE -> []byte, FLOAT32 ->
-	// []float32) and unwraps the concrete KnnByteVectorField /
-	// KnnFloatVectorField. Gocene has no concrete KNN field types yet, so the
-	// raw binary value is forwarded; the handle is type-erased (see
-	// KnnFieldVectorsWriterHandle).
-	return pf.knnFieldVectorsWriter.AddValue(docID, field.BinaryValueBytes())
+	raw := field.BinaryValueBytes()
+	switch pf.fieldInfo.VectorEncoding() {
+	case VectorEncodingFloat32:
+		vec, err := decodeFloat32Vector(raw)
+		if err != nil {
+			return fmt.Errorf("index: field %q: decode float vector: %w", pf.fieldName, err)
+		}
+		return pf.knnFieldVectorsWriter.AddValue(docID, vec)
+	case VectorEncodingByte:
+		// BYTE vectors are stored verbatim; forward a defensive copy so the
+		// writer owns immutable storage.
+		cp := make([]byte, len(raw))
+		copy(cp, raw)
+		return pf.knnFieldVectorsWriter.AddValue(docID, cp)
+	default:
+		return fmt.Errorf("index: field %q: unsupported vector encoding %v",
+			pf.fieldName, pf.fieldInfo.VectorEncoding())
+	}
+}
+
+// decodeFloat32Vector decodes a little-endian IEEE-754 float32 vector from
+// its binary encoding (the inverse of document.encodeFloat32Vector). It
+// errors when the byte length is not a multiple of 4.
+func decodeFloat32Vector(b []byte) ([]float32, error) {
+	if len(b)%4 != 0 {
+		return nil, fmt.Errorf("float vector byte length %d is not a multiple of 4", len(b))
+	}
+	out := make([]float32, len(b)/4)
+	for i := range out {
+		bits := uint32(b[i*4]) |
+			uint32(b[i*4+1])<<8 |
+			uint32(b[i*4+2])<<16 |
+			uint32(b[i*4+3])<<24
+		out[i] = math.Float32frombits(bits)
+	}
+	return out, nil
 }
 
 // RamBytesUsed reports the bytes held by the chain and its child consumers.

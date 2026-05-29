@@ -11,6 +11,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	utilhnsw "github.com/FlavioCFOliveira/Gocene/util/hnsw"
 )
 
 // LeafReader is an IndexReader for a single segment.
@@ -436,6 +437,113 @@ func (r *SegmentReader) Terms(field string) (Terms, error) {
 	}
 
 	return nil, nil
+}
+
+// knnVectorsReaderDelegate is the per-encoding read surface exposed by the
+// codec's KNN vectors reader (stored on SegmentCoreReaders.vectorsReader as
+// an interface{}). The concrete reader — *codecs.PerFieldKnnVectorsReader
+// wrapping *codecs.Lucene99HnswVectorsReader — satisfies it structurally.
+//
+// The contract uses only types the index package can name: the index-facing
+// [FloatVectorValues] / [ByteVectorValues] interfaces (the codec adapters
+// implement both their own and these) and [utilhnsw.TopDocs] (shared by
+// index and codecs, which both import util/hnsw without a cycle).
+type knnVectorsReaderDelegate interface {
+	FloatVectorValues(field string) (FloatVectorValues, error)
+	ByteVectorValues(field string) (ByteVectorValues, error)
+	SearchNearestFloat(field string, target []float32, k int, acceptDocs util.Bits) (*utilhnsw.TopDocs, error)
+	SearchNearestByte(field string, target []byte, k int, acceptDocs util.Bits) (*utilhnsw.TopDocs, error)
+}
+
+// vectorsDelegate narrows the core readers' KNN vectors reader to the
+// per-encoding read surface, or returns nil when the segment has no vectors
+// reader (e.g. no vector fields, or the codec-less test path).
+func (r *SegmentReader) vectorsDelegate() knnVectorsReaderDelegate {
+	if r.coreReaders == nil {
+		return nil
+	}
+	vr := r.coreReaders.GetVectorReader()
+	if vr == nil {
+		return nil
+	}
+	d, ok := vr.(knnVectorsReaderDelegate)
+	if !ok {
+		return nil
+	}
+	return d
+}
+
+// GetFloatVectorValues returns the float vectors for field, delegating to
+// the codec's KNN vectors reader. Returns (nil, nil) when the segment has no
+// vectors reader or no delegate owns the field (matching the LeafReader
+// contract). Implements LeafReader.GetFloatVectorValues.
+func (r *SegmentReader) GetFloatVectorValues(field string) (FloatVectorValues, error) {
+	d := r.vectorsDelegate()
+	if d == nil {
+		return nil, nil
+	}
+	return d.FloatVectorValues(field)
+}
+
+// GetByteVectorValues returns the byte vectors for field, delegating to the
+// codec's KNN vectors reader. Implements LeafReader.GetByteVectorValues.
+func (r *SegmentReader) GetByteVectorValues(field string) (ByteVectorValues, error) {
+	d := r.vectorsDelegate()
+	if d == nil {
+		return nil, nil
+	}
+	return d.ByteVectorValues(field)
+}
+
+// SearchNearestVectors searches for the k nearest float vectors to target in
+// field, delegating to the codec's KNN vectors reader and translating the
+// result to the index-package [TopDocs]. Returns an empty TopDocs when the
+// segment has no vectors reader. Implements LeafReader.SearchNearestVectors.
+//
+// acceptDocs is applied as a query-time live-docs filter inside the codec
+// reader, independent of whether the field is stored densely or sparsely.
+func (r *SegmentReader) SearchNearestVectors(field string, target []float32, k int, acceptDocs util.Bits) (TopDocs, error) {
+	d := r.vectorsDelegate()
+	if d == nil {
+		return TopDocs{}, nil
+	}
+	td, err := d.SearchNearestFloat(field, target, k, acceptDocs)
+	if err != nil {
+		return TopDocs{}, err
+	}
+	return knnTopDocsToIndex(td), nil
+}
+
+// SearchNearestVectorsByte is the byte-vector analogue of
+// SearchNearestVectors. It is not part of the LeafReader interface yet (no
+// byte SearchNearestVectors method exists on the base type) but is exposed
+// so byte KNN queries can reach the codec search path.
+func (r *SegmentReader) SearchNearestVectorsByte(field string, target []byte, k int, acceptDocs util.Bits) (TopDocs, error) {
+	d := r.vectorsDelegate()
+	if d == nil {
+		return TopDocs{}, nil
+	}
+	td, err := d.SearchNearestByte(field, target, k, acceptDocs)
+	if err != nil {
+		return TopDocs{}, err
+	}
+	return knnTopDocsToIndex(td), nil
+}
+
+// knnTopDocsToIndex converts a util/hnsw TopDocs (the codec search result)
+// into the index-package TopDocs struct. The hnsw TopDocs is already
+// score-descending; TotalHits is the visited-count lower bound, but the
+// index TopDocs.TotalHits records the number of returned hits, matching how
+// the index layer reports per-leaf vector results.
+func knnTopDocsToIndex(td *utilhnsw.TopDocs) TopDocs {
+	if td == nil {
+		return TopDocs{}
+	}
+	scoreDocs := make([]ScoreDoc, len(td.ScoreDocs))
+	for i, sd := range td.ScoreDocs {
+		scoreDocs[i] = ScoreDoc{Doc: sd.Doc, Score: sd.Score}
+	}
+	return TopDocs{TotalHits: len(scoreDocs), ScoreDocs: scoreDocs}
 }
 
 // Close closes the SegmentReader and releases resources.

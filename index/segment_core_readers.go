@@ -152,6 +152,22 @@ func NewSegmentCoreReaders(
 		core.storedFieldsReader = sfReader
 	}
 
+	// Initialize the KNN vectors reader if any field carries vector values.
+	// Mirrors the SegmentCoreReaders constructor in Lucene, which opens
+	// codec.knnVectorsFormat().fieldsReader(state) when
+	// fieldInfos.hasVectorValues().
+	if fieldInfos.HasVectorValues() {
+		knnFormat := codec.KnnVectorsFormat()
+		if knnFormat != nil {
+			vrReader, err := knnFormat.FieldsReader(readState)
+			if err != nil {
+				core.decRef()
+				return nil, fmt.Errorf("creating knn vectors reader: %w", err)
+			}
+			core.vectorsReader = vrReader
+		}
+	}
+
 	return core, nil
 }
 
