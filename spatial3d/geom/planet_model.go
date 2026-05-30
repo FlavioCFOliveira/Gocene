@@ -293,6 +293,13 @@ func (pm *PlanetModel) PointOnSurfaceXYZ(x, y, z float64) bool {
 	return math.Abs(val-1.0) < MinimumResolution
 }
 
+// PointOutside reports whether (x, y, z) is outside the planet surface,
+// mirroring org.apache.lucene.spatial3d.geom.PlanetModel.pointOutside.
+func (pm *PlanetModel) PointOutside(x, y, z float64) bool {
+	return (x*x+y*y)*pm.InverseXYScaling*pm.InverseXYScaling+
+		z*z*pm.InverseZScaling*pm.InverseZScaling-1.0 > MinimumResolution
+}
+
 // Equals reports whether two PlanetModels have the same axes.
 func (pm *PlanetModel) Equals(other *PlanetModel) bool {
 	if other == nil {

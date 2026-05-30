@@ -511,11 +511,164 @@ func recordBoundsAddPoint(boundsInfo *XYZBounds, bounds []Membership, point *Geo
 	boundsInfo.AddPoint(point)
 }
 
+// RecordBoundsWithPlane accumulates (x,y,z) bounds for the intersection of
+// this plane, a second plane q, and the planet surface, within the supplied
+// Membership bounds.
+//
+// Port of org.apache.lucene.spatial3d.geom.Plane.recordBounds(PlanetModel,
+// XYZBounds, Plane, Membership...) which delegates to findIntersectionBounds.
+// This is the two-plane variant called by XYZBounds.AddIntersection (rmp #4790).
+func (p *Plane) RecordBoundsWithPlane(pm *PlanetModel, boundsInfo *XYZBounds, q *Plane, bounds ...Membership) {
+	p.findIntersectionBounds(pm, boundsInfo, q, bounds)
+}
+
+// findIntersectionBounds computes the (x,y,z) bounds of the line of intersection
+// of this plane and plane q, restricted to the planet surface and the supplied
+// Membership bounds.
+//
+// Port of org.apache.lucene.spatial3d.geom.Plane.findIntersectionBounds
+// (unicode-org/icu–rooted logic + Lucene spatial3d, lines ~1430-1620). Each of
+// the three dominant-axis branches calls recordLineBounds four times (error
+// envelope for D ± MINIMUM_RESOLUTION on each plane) to ensure bounds are
+// conservative.
+func (p *Plane) findIntersectionBounds(pm *PlanetModel, boundsInfo *XYZBounds, q *Plane, bounds []Membership) {
+	// Line direction vector = cross product of the two plane normals.
+	lineVectorX := p.Y*q.Z - p.Z*q.Y
+	lineVectorY := p.Z*q.X - p.X*q.Z
+	lineVectorZ := p.X*q.Y - p.Y*q.X
+	if math.Abs(lineVectorX) < MinimumResolution &&
+		math.Abs(lineVectorY) < MinimumResolution &&
+		math.Abs(lineVectorZ) < MinimumResolution {
+		// Parallel planes — no intersection line.
+		return
+	}
+
+	const minRes = MinimumResolution
+	// Denominators for each axis-dominant case.
+	denomYZ := p.Y*q.Z - p.Z*q.Y
+	denomXZ := p.X*q.Z - p.Z*q.X
+	denomXY := p.X*q.Y - p.Y*q.X
+
+	absYZ := math.Abs(denomYZ)
+	absXZ := math.Abs(denomXZ)
+	absXY := math.Abs(denomXY)
+
+	switch {
+	case absYZ >= absXZ && absYZ >= absXY:
+		// X is the dominant axis: fix x0 = 0.
+		if absYZ < MinimumResolution*MinimumResolution {
+			return
+		}
+		denom := 1.0 / denomYZ
+		for _, dP := range [2]float64{p.D + minRes, p.D - minRes} {
+			for _, dQ := range [2]float64{q.D + minRes, q.D - minRes} {
+				y0 := (-(dP)*q.Z - p.Z*(-dQ)) * denom
+				z0 := (p.Y*(-dQ) + (dP)*q.Y) * denom
+				recordLineBounds(pm, boundsInfo, lineVectorX, lineVectorY, lineVectorZ, 0.0, y0, z0, bounds)
+			}
+		}
+
+	case absXZ >= absYZ && absXZ >= absXY:
+		// Y is the dominant axis: fix y0 = 0.
+		if absXZ < MinimumResolution*MinimumResolution {
+			return
+		}
+		denom := 1.0 / denomXZ
+		for _, dP := range [2]float64{p.D + minRes, p.D - minRes} {
+			for _, dQ := range [2]float64{q.D + minRes, q.D - minRes} {
+				x0 := (-(dP)*q.Z - p.Z*(-dQ)) * denom
+				z0 := (p.X*(-dQ) + (dP)*q.X) * denom
+				recordLineBounds(pm, boundsInfo, lineVectorX, lineVectorY, lineVectorZ, x0, 0.0, z0, bounds)
+			}
+		}
+
+	default:
+		// Z is the dominant axis: fix z0 = 0.
+		if absXY < MinimumResolution*MinimumResolution {
+			return
+		}
+		denom := 1.0 / denomXY
+		for _, dP := range [2]float64{p.D + minRes, p.D - minRes} {
+			for _, dQ := range [2]float64{q.D + minRes, q.D - minRes} {
+				x0 := (-(dP)*q.Y - p.Y*(-dQ)) * denom
+				y0 := (p.X*(-dQ) + (dP)*q.X) * denom
+				recordLineBounds(pm, boundsInfo, lineVectorX, lineVectorY, lineVectorZ, x0, y0, 0.0, bounds)
+			}
+		}
+	}
+}
+
+// recordLineBounds accumulates bounds along the parametric line
+// (lineVectorX*t + x0, lineVectorY*t + y0, lineVectorZ*t + z0) intersected
+// with the ellipsoid, filtered through the Membership bounds. At most two
+// candidate points are produced (from the quadratic formula).
+//
+// Port of org.apache.lucene.spatial3d.geom.Plane.recordLineBounds (private
+// static, lines ~1620-1733).
+func recordLineBounds(pm *PlanetModel, boundsInfo *XYZBounds,
+	lineVectorX, lineVectorY, lineVectorZ, x0, y0, z0 float64,
+	bounds []Membership) {
+
+	// Parametric substitution into the ellipsoid equation yields a quadratic
+	// in t: A t² + B t + C = 0.
+	A := lineVectorX*lineVectorX*pm.InverseXYScalingSquared +
+		lineVectorY*lineVectorY*pm.InverseXYScalingSquared +
+		lineVectorZ*lineVectorZ*pm.InverseZScalingSquared
+	B := 2.0 * (lineVectorX*x0*pm.InverseXYScalingSquared +
+		lineVectorY*y0*pm.InverseXYScalingSquared +
+		lineVectorZ*z0*pm.InverseZScalingSquared)
+	C := x0*x0*pm.InverseXYScalingSquared +
+		y0*y0*pm.InverseXYScalingSquared +
+		z0*z0*pm.InverseZScalingSquared - 1.0
+
+	bSqMinus := B*B - 4.0*A*C
+	switch {
+	case math.Abs(bSqMinus) < MinimumResolution*MinimumResolution:
+		// One solution.
+		inv2A := 1.0 / (2.0 * A)
+		t := -B * inv2A
+		px, py, pz := lineVectorX*t+x0, lineVectorY*t+y0, lineVectorZ*t+z0
+		for _, b := range bounds {
+			if b != nil && !b.IsWithin(px, py, pz) {
+				return
+			}
+		}
+		boundsInfo.AddPoint(&GeoPoint{Vector: Vector{X: px, Y: py, Z: pz}})
+	case bSqMinus > 0.0:
+		// Two solutions.
+		inv2A := 1.0 / (2.0 * A)
+		sqrtTerm := math.Sqrt(bSqMinus)
+		t1 := (-B + sqrtTerm) * inv2A
+		t2 := (-B - sqrtTerm) * inv2A
+		p1x, p1y, p1z := lineVectorX*t1+x0, lineVectorY*t1+y0, lineVectorZ*t1+z0
+		p2x, p2y, p2z := lineVectorX*t2+x0, lineVectorY*t2+y0, lineVectorZ*t2+z0
+		p1valid, p2valid := true, true
+		for _, b := range bounds {
+			if b != nil {
+				if !b.IsWithin(p1x, p1y, p1z) {
+					p1valid = false
+				}
+				if !b.IsWithin(p2x, p2y, p2z) {
+					p2valid = false
+				}
+			}
+		}
+		if p1valid {
+			boundsInfo.AddPoint(&GeoPoint{Vector: Vector{X: p1x, Y: p1y, Z: p1z}})
+		}
+		if p2valid {
+			boundsInfo.AddPoint(&GeoPoint{Vector: Vector{X: p2x, Y: p2y, Z: p2z}})
+		}
+	default:
+		// No real intersection — line is outside the ellipsoid.
+		boundsInfo.NoBound(pm)
+	}
+}
+
 // RecordBounds accumulates (x,y,z) bounds information for this plane intersected
 // with the planet surface, updating boundsInfo with the extrema points found
 // within the supplied Membership bounds. It is the single-plane variant used by
-// XYZBounds.AddPlane; the intersection-plane variant (two planes) is deferred to
-// rmp #4773.
+// XYZBounds.AddPlane.
 //
 // Port of org.apache.lucene.spatial3d.geom.Plane.recordBounds(PlanetModel,
 // XYZBounds, Membership...). The Lagrange-multiplier extrema math and the

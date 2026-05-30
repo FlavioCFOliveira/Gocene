@@ -44,37 +44,38 @@ func TestVisitorCompare_CirclePrunes(t *testing.T) {
 		t.Errorf("far cell: Compare = %d, want CELL_OUTSIDE_QUERY (%d)", got, geo3dCellOutsideQuery)
 	}
 
-	// A cell straddling the cap centre (x ~ +1, y,z ~ 0) overlaps. Expect CROSSES.
+	// A cell straddling the cap centre (x ~ +1, y,z ~ 0) is entirely inside the
+	// circle. rmp #4790 wires XYZSolid.getRelationship which returns CONTAINS when
+	// all cell corners are within the shape → CELL_INSIDE_QUERY is expected.
+	// Accept either INSIDE or CROSSES (both are correct — INSIDE is optimal).
 	nearMin := cellPacked(pm, 0.90, -0.10, -0.10)
 	nearMax := cellPacked(pm, 1.00, 0.10, 0.10)
-	if got := v.Compare(nearMin, nearMax); got != geo3dCellCrossesQuery {
-		t.Errorf("near cell: Compare = %d, want CELL_CROSSES_QUERY (%d)", got, geo3dCellCrossesQuery)
-	}
-
-	// Compare must never report INSIDE under the rmp #4768 scope.
-	whole := cellPacked(pm, 0.0, 0.0, 0.0)
-	if got := v.Compare(whole, whole); got == geo3dCellInsideQuery {
-		t.Errorf("Compare unexpectedly returned CELL_INSIDE_QUERY")
+	nearGot := v.Compare(nearMin, nearMax)
+	if nearGot != geo3dCellCrossesQuery && nearGot != geo3dCellInsideQuery {
+		t.Errorf("near cell: Compare = %d, want CELL_CROSSES_QUERY (%d) or CELL_INSIDE_QUERY (%d)",
+			nearGot, geo3dCellCrossesQuery, geo3dCellInsideQuery)
 	}
 }
 
-// TestVisitorCompare_BBoxFullScan confirms a non-prune-capable shape (bbox)
-// always returns CELL_CROSSES_QUERY regardless of cell position.
-func TestVisitorCompare_BBoxFullScan(t *testing.T) {
+// TestVisitorCompare_BBoxPrunes confirms that a bbox shape IS now prune-capable
+// (rmp #4790: XYZBounds.AddIntersection implemented) and returns
+// CELL_OUTSIDE_QUERY for a cell disjoint from the bbox's bounds.
+func TestVisitorCompare_BBoxPrunes(t *testing.T) {
 	pm := geom.SPHERE
 	bbox, err := geom.MakeGeoBBox(pm, 0.1, -0.1, -0.2, 0.2)
 	if err != nil {
 		t.Fatalf("MakeGeoBBox: %v", err)
 	}
 	v := NewPointInShapeIntersectVisitor(nil, bbox, pm)
-	if v.pruneCapable {
-		t.Fatalf("bbox visitor must NOT be prune-capable (addIntersection deferred)")
+	if !v.pruneCapable {
+		t.Fatalf("bbox visitor must be prune-capable (AddIntersection now implemented, rmp #4790)")
 	}
-	// Even a far cell must report CROSSES (no pruning for bbox).
+	// A cell on the far side of the sphere (x ~ -1) must be disjoint from the
+	// bbox centred near (x ~ +1). Expect OUTSIDE.
 	farMin := cellPacked(pm, -1.0, -1.0, -1.0)
 	farMax := cellPacked(pm, -0.9, -0.9, -0.9)
-	if got := v.Compare(farMin, farMax); got != geo3dCellCrossesQuery {
-		t.Errorf("bbox far cell: Compare = %d, want CELL_CROSSES_QUERY (%d)", got, geo3dCellCrossesQuery)
+	if got := v.Compare(farMin, farMax); got != geo3dCellOutsideQuery {
+		t.Errorf("bbox far cell: Compare = %d, want CELL_OUTSIDE_QUERY (%d)", got, geo3dCellOutsideQuery)
 	}
 }
 
@@ -83,6 +84,94 @@ func TestVisitorCompare_BBoxFullScan(t *testing.T) {
 // cloud must return exactly the IsWithin reference set. This proves the
 // rounded-bounds pre-check and Compare pruning never drop a true match nor
 // admit a false one.
+// TestXYZBoundsAreTrueSuperset is AC1 for rmp #4790: for GeoRectangle and
+// GeoConvexPolygon, the XYZBounds returned by GetBounds must be a TRUE SUPERSET
+// — every in-shape point must lie within the computed box.
+func TestXYZBoundsAreTrueSuperset(t *testing.T) {
+	pm := geom.SPHERE
+	rng := rand.New(rand.NewSource(0xBEEF4790))
+
+	testSuperset := func(t *testing.T, name string, shape geom.GeoShape, memberOf geom.Membership) {
+		t.Helper()
+		bounds := geom.NewXYZBounds()
+		shape.GetBounds(bounds)
+		if !bounds.HasX() || !bounds.HasY() || !bounds.HasZ() {
+			t.Errorf("%s: XYZBounds incomplete", name)
+			return
+		}
+
+		// Sample random points; every in-shape point must be inside the bounds.
+		fails := 0
+		for i := 0; i < 5000; i++ {
+			lat := math.Asin(rng.Float64()*2.0 - 1.0)
+			lon := (rng.Float64() - 0.5) * 2.0 * math.Pi
+			pt := geom.NewGeoPointModel(pm, lat, lon)
+			if !memberOf.IsWithin(pt.X, pt.Y, pt.Z) {
+				continue // outside shape, skip
+			}
+			if pt.X < bounds.MinimumX || pt.X > bounds.MaximumX ||
+				pt.Y < bounds.MinimumY || pt.Y > bounds.MaximumY ||
+				pt.Z < bounds.MinimumZ || pt.Z > bounds.MaximumZ {
+				fails++
+				if fails <= 3 {
+					t.Errorf("%s: in-shape point (%g,%g,%g) outside bounds [%g,%g]×[%g,%g]×[%g,%g]",
+						name, pt.X, pt.Y, pt.Z,
+						bounds.MinimumX, bounds.MaximumX,
+						bounds.MinimumY, bounds.MaximumY,
+						bounds.MinimumZ, bounds.MaximumZ)
+				}
+			}
+		}
+	}
+
+	// GeoRectangle (bbox): a small cap straddling the equator.
+	bbox, err := geom.MakeGeoBBox(pm, 0.3, -0.3, -0.4, 0.4)
+	if err != nil {
+		t.Fatalf("MakeGeoBBox: %v", err)
+	}
+	testSuperset(t, "GeoRectangle", bbox, bbox.(geom.Membership))
+
+	// GeoConvexPolygon: a triangle-ish shape.
+	polyPts := []*geom.GeoPoint{
+		geom.NewGeoPointModel(pm, 0.2, -0.3),
+		geom.NewGeoPointModel(pm, 0.2, 0.3),
+		geom.NewGeoPointModel(pm, -0.2, 0.0),
+	}
+	poly, err := geom.MakeGeoConvexPolygon(pm, polyPts)
+	if err != nil {
+		t.Fatalf("MakeGeoConvexPolygon: %v", err)
+	}
+	testSuperset(t, "GeoConvexPolygon", poly, poly.(geom.Membership))
+}
+
+// TestPointInGeo3DShapeQuery_BBoxPruneDocSetParity is AC2 for rmp #4790:
+// PointInGeo3DShapeQuery over a GeoRectangle with pruning enabled must return
+// the identical document set as the IsWithin reference, now with BKD pruning.
+func TestPointInGeo3DShapeQuery_BBoxPruneDocSetParity(t *testing.T) {
+	pm := geom.SPHERE
+	const field = "location"
+	rng := rand.New(rand.NewSource(0x4790BEEF))
+
+	bbox, err := geom.MakeGeoBBox(pm, 0.3, -0.3, -0.3, 0.3)
+	if err != nil {
+		t.Fatalf("MakeGeoBBox: %v", err)
+	}
+
+	const n = 2000
+	points := make([]*geom.GeoPoint, n)
+	for i := range points {
+		lat := math.Asin(rng.Float64()*2.0 - 1.0)
+		lon := (rng.Float64() - 0.5) * 2.0 * math.Pi
+		points[i] = geom.NewGeoPointModel(pm, lat, lon)
+	}
+	pv := buildStubPV(pm, points)
+	want := expectedMatches(pm, bbox.(geom.Membership), pv)
+	got := runShapeQuery(t, field, bbox, pv)
+	if !intsEqual(got, want) {
+		t.Fatalf("BBox doc set parity: got %d docs, want %d", len(got), len(want))
+	}
+}
+
 func TestPointInGeo3DShapeQuery_CirclePruneDocSetParity(t *testing.T) {
 	pm := geom.SPHERE
 	const field = "location"

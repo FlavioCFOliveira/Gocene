@@ -410,16 +410,15 @@ func NewPointInShapeIntersectVisitor(hits *util.DocIdSetBuilder, shape geom.GeoS
 // XYZBounds that is a proven complete superset of the shape, making it safe to
 // use as a BKD prefilter.
 //
-// This holds exactly for shapes whose getBounds uses only the single-plane
-// Plane.recordBounds variant (ported in rmp #4768) and addPoint, with no
-// Membership-bounded planes and no addIntersection. Today those are
-// GeoStandardCircle and GeoDegeneratePoint. Shapes that need the deferred
-// two-plane intersection variant (GeoRectangle / bbox, GeoConvexPolygon,
-// GeoConcavePolygon) are excluded: their bounds can under-approximate, so they
-// must keep the full-scan behaviour.
+// rmp #4790: now that XYZBounds.AddIntersection is implemented (calls
+// Plane.RecordBoundsWithPlane / findIntersectionBounds), the two-plane
+// intersection variant is correct and GeoRectangle / GeoConvexPolygon /
+// GeoConcavePolygon produce tight bounds.  All four shape types are therefore
+// admitted here.  GeoStandardCircle and GeoDegeneratePoint remain as before.
 func shapeBoundsAreCompleteSuperset(shape geom.GeoShape) bool {
 	switch shape.(type) {
-	case *geom.GeoStandardCircle, *geom.GeoDegeneratePoint:
+	case *geom.GeoStandardCircle, *geom.GeoDegeneratePoint,
+		*geom.GeoRectangle, *geom.GeoConvexPolygon, *geom.GeoConcavePolygon:
 		return true
 	default:
 		return false
@@ -500,17 +499,15 @@ func (v *PointInShapeIntersectVisitor) VisitByPackedValue(docID int, packedValue
 
 // Compare relates a BKD cell to the query shape.
 //
-// For prune-capable shapes (see the type doc), it decodes the cell box to the
-// largest un-quantized range that could round into the packed bounds and
-// returns CELL_OUTSIDE_QUERY when that box is axis-aligned disjoint from the
-// shape's rounded XYZBounds box, otherwise CELL_CROSSES_QUERY. CELL_INSIDE_QUERY
-// is never returned: answering CROSSES instead only costs an IsWithin call per
-// point and never changes the document set. For non-prune-capable shapes it
-// always returns CELL_CROSSES_QUERY (full scan).
+// For prune-capable shapes (see the type doc), it decodes the cell box and
+// consults XYZSolid.GetRelationship (rmp #4790):
+//   - DISJOINT → CELL_OUTSIDE_QUERY
+//   - WITHIN (solid is within shape, i.e. shape contains solid) → CELL_INSIDE_QUERY
+//   - CONTAINS / OVERLAPS → CELL_CROSSES_QUERY
 //
-// Port of PointInShapeIntersectVisitor.compare, scoped to the disjoint/cross
-// cases (rmp #4768); the XYZSolid.getRelationship CONTAINS/WITHIN cases are
-// deferred with the two-plane recordBounds variant.
+// For non-prune-capable shapes, returns CELL_CROSSES_QUERY (full scan).
+//
+// Port of PointInShapeIntersectVisitor.compare (Lucene 10.4.0).
 func (v *PointInShapeIntersectVisitor) Compare(minPackedValue, maxPackedValue []byte) int {
 	if !v.pruneCapable {
 		return geo3dCellCrossesQuery
@@ -526,13 +523,29 @@ func (v *PointInShapeIntersectVisitor) Compare(minPackedValue, maxPackedValue []
 	zMin := decodeValueFloor(v.planetModel, minPackedValue, 2*bytesPerDim)
 	zMax := decodeValueCeil(v.planetModel, maxPackedValue, 2*bytesPerDim)
 
-	// Axis-aligned disjointness of the cell box and the shape's bounds box.
+	// Axis-aligned disjointness fast path.
 	if v.maximumX < xMin || v.minimumX > xMax ||
 		v.maximumY < yMin || v.minimumY > yMax ||
 		v.maximumZ < zMin || v.minimumZ > zMax {
 		return geo3dCellOutsideQuery
 	}
-	return geo3dCellCrossesQuery
+
+	// Build the XYZSolid for the cell and consult GetRelationship.
+	solid := geom.MakeXYZSolid(v.planetModel, xMin, xMax, yMin, yMax, zMin, zMax)
+	rel := solid.GetRelationship(v.shape)
+	switch rel {
+	case geom.RelDisjoint:
+		return geo3dCellOutsideQuery
+	case geom.RelContains:
+		// The shape CONTAINS the solid (all points in the cell are inside the
+		// shape). Lucene's XYZSolid.getRelationship returns CONTAINS when
+		// "isAreaInsideShape == ALL_INSIDE" (all solid edge points inside path),
+		// meaning the solid is WITHIN the shape. Every cell point matches.
+		return geo3dCellInsideQuery
+	default:
+		// RelWithin (solid contains shape) or RelOverlaps: some points may match.
+		return geo3dCellCrossesQuery
+	}
 }
 
 // decodeValueFloor returns the smallest coordinate that quantizes to the int

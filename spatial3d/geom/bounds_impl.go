@@ -359,11 +359,16 @@ func (b *XYZBounds) AddVerticalPlane(pm *PlanetModel, _ float64, plane *Plane, b
 	return b.AddPlane(pm, plane, bounds...)
 }
 
-// AddIntersection is a no-op stub — the two-plane intersection variant of
-// Plane.recordBounds is deferred to rmp #4773. Shapes that depend on it
-// (GeoBBox, GeoPolygon) therefore do not enable BKD pruning; see the geo3d
-// query's prune-capability gate.
-func (b *XYZBounds) AddIntersection(_ *PlanetModel, _, _ *Plane, _ ...Membership) Bounds {
+// AddIntersection accumulates bounds for the intersection of two planes p and q
+// and the planet surface, within the supplied Membership bounds.
+//
+// Port of org.apache.lucene.spatial3d.geom.XYZBounds.addIntersection, which
+// calls Plane.recordBounds(PlanetModel, XYZBounds, Plane, Membership...).
+// Previously a no-op stub; now wired to Plane.RecordBoundsWithPlane (rmp #4790).
+func (b *XYZBounds) AddIntersection(pm *PlanetModel, p, q *Plane, bounds ...Membership) Bounds {
+	if p != nil && q != nil {
+		p.RecordBoundsWithPlane(pm, b, q, bounds...)
+	}
 	return b
 }
 

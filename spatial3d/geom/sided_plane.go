@@ -56,6 +56,13 @@ func NewSidedPlaneVectorD(insidePoint, v *Vector, d float64) *SidedPlane {
 	return NewSidedPlaneFromPlane(insidePoint, NewPlaneFromVectorD(v, d))
 }
 
+// NewSidedPlaneFromPointAndUnit constructs a sided plane from a scalar inside
+// point (px, py, pz), a unit normal vector v, and a D offset.  This mirrors
+// Java's SidedPlane(double insideX, double insideY, double insideZ, Vector n, double D).
+func NewSidedPlaneFromPointAndUnit(px, py, pz float64, v *Vector, d float64) *SidedPlane {
+	return NewSidedPlaneVectorD(&Vector{X: px, Y: py, Z: pz}, v, d)
+}
+
 // NewSidedPlaneHorizontal creates a sided horizontal plane at sin(latitude) on
 // the planet model, with the inside point determining the sign.
 //
