@@ -6,6 +6,7 @@ package spatial3d
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -331,18 +332,42 @@ const (
 //
 // Port of org.apache.lucene.spatial3d.PointInShapeIntersectVisitor.
 //
-// Deviation (rmp #4768): Lucene's Compare extends the quantized cell bounds and
-// consults an XYZSolid built from the shape's XYZBounds to prune sub-trees.
-// Gocene's XYZBounds engine is stubbed, so Compare always returns
-// CELL_CROSSES_QUERY: the BKD walk descends into every leaf and every point is
-// gated by shape.IsWithin. This is a performance-only difference — the matched
-// document set is identical to Lucene's because IsWithin is the same
-// authoritative final gate Lucene applies in Visit.
+// Pruning capability (rmp #4768): Lucene's Compare consults an XYZSolid built
+// from the shape's XYZBounds to relate each BKD cell to the shape, and Visit
+// pre-filters points against the rounded XYZBounds box. Gocene enables this
+// path ONLY for shapes whose XYZBounds is a proven complete superset (see
+// shapeBoundsAreCompleteSuperset) — currently circles and degenerate points,
+// whose getBounds uses only Plane.recordBounds (ported in #4768) and addPoint.
+// For those shapes:
+//   - Compare returns CELL_OUTSIDE_QUERY when the shape's (rounded) XYZBounds
+//     box and the cell box are axis-aligned disjoint, otherwise
+//     CELL_CROSSES_QUERY. CELL_INSIDE_QUERY is intentionally never returned —
+//     answering CROSSES instead only costs an IsWithin call per point and never
+//     changes the document set.
+//   - VisitByPackedValue first rejects points outside the rounded XYZBounds box
+//     (a safe early-out, since the box is a superset of every in-shape point),
+//     then applies shape.IsWithin as the authoritative gate.
+//
+// For all other shapes (bbox/polygon, whose bounds need the still-deferred
+// two-plane Plane.recordBounds intersection variant), pruning is disabled:
+// Compare always returns CELL_CROSSES_QUERY and VisitByPackedValue gates purely
+// on shape.IsWithin. The matched document set is identical either way because
+// IsWithin is the same authoritative final gate.
 type PointInShapeIntersectVisitor struct {
 	hits        *util.DocIdSetBuilder
 	shape       geom.GeoShape
 	planetModel *geom.PlanetModel
 	adder       util.BulkAdder
+
+	// pruneCapable is true when the shape's XYZBounds is a proven complete
+	// superset, enabling the rounded-box pre-check and Compare pruning below.
+	pruneCapable bool
+	// Rounded XYZBounds box (only meaningful when pruneCapable). These mirror
+	// the minimumX..maximumZ fields the Java visitor computes from
+	// DocValueEncoder.roundDownX/roundUpX.
+	minimumX, maximumX float64
+	minimumY, maximumY float64
+	minimumZ, maximumZ float64
 }
 
 // NewPointInShapeIntersectVisitor constructs a visitor that adds matching docs
@@ -350,18 +375,75 @@ type PointInShapeIntersectVisitor struct {
 // model used at index time. hits may be nil for cost-estimation visitors that
 // only need Compare.
 //
-// Port of the PointInShapeIntersectVisitor constructor. The bounds-derived
-// rounded-XYZ fields are omitted because Compare does not use them under the
-// rmp #4768 deviation.
+// Port of the PointInShapeIntersectVisitor constructor. When the shape's
+// XYZBounds is a proven complete superset, the rounded-XYZ box is materialised
+// for the Compare/Visit prune path; otherwise the visitor runs in full-scan
+// mode (Compare always CROSSES).
 func NewPointInShapeIntersectVisitor(hits *util.DocIdSetBuilder, shape geom.GeoShape, planetModel *geom.PlanetModel) *PointInShapeIntersectVisitor {
 	if planetModel == nil {
 		planetModel = planetModelOf(shape)
 	}
-	return &PointInShapeIntersectVisitor{
+	v := &PointInShapeIntersectVisitor{
 		hits:        hits,
 		shape:       shape,
 		planetModel: planetModel,
 	}
+	if shapeBoundsAreCompleteSuperset(shape) {
+		bounds := geom.NewXYZBounds()
+		shape.GetBounds(bounds)
+		// Require a fully-populated box; otherwise fall back to full scan.
+		if bounds.HasX() && bounds.HasY() && bounds.HasZ() {
+			v.pruneCapable = true
+			step := docValueStep(planetModel)
+			v.minimumX = bounds.MinimumX - step
+			v.maximumX = bounds.MaximumX + step
+			v.minimumY = bounds.MinimumY - step
+			v.maximumY = bounds.MaximumY + step
+			v.minimumZ = bounds.MinimumZ - step
+			v.maximumZ = bounds.MaximumZ + step
+		}
+	}
+	return v
+}
+
+// shapeBoundsAreCompleteSuperset reports whether shape.GetBounds produces an
+// XYZBounds that is a proven complete superset of the shape, making it safe to
+// use as a BKD prefilter.
+//
+// This holds exactly for shapes whose getBounds uses only the single-plane
+// Plane.recordBounds variant (ported in rmp #4768) and addPoint, with no
+// Membership-bounded planes and no addIntersection. Today those are
+// GeoStandardCircle and GeoDegeneratePoint. Shapes that need the deferred
+// two-plane intersection variant (GeoRectangle / bbox, GeoConvexPolygon,
+// GeoConcavePolygon) are excluded: their bounds can under-approximate, so they
+// must keep the full-scan behaviour.
+func shapeBoundsAreCompleteSuperset(shape geom.GeoShape) bool {
+	switch shape.(type) {
+	case *geom.GeoStandardCircle, *geom.GeoDegeneratePoint:
+		return true
+	default:
+		return false
+	}
+}
+
+// docValueStep returns the per-axis rounding step used to widen the shape's
+// XYZBounds into the visitor's pre-filter box. It mirrors Lucene's
+// DocValueEncoder.roundDownX/roundUpX, which add/subtract
+// inverseFactor*STEP_FUDGE where inverseFactor = (max-min)/0x1FFFFF and
+// STEP_FUDGE = 10. The three axes share the same span (the planet box is
+// symmetric per axis up to the xy/z scaling), so a single step suffices for the
+// superset widening; using the larger of the two spans keeps the box a superset
+// on every axis.
+func docValueStep(pm *geom.PlanetModel) float64 {
+	const inverseMaxValue = 1.0 / float64(0x1FFFFF)
+	const stepFudge = 10.0
+	xySpan := pm.GetMaximumXValue() - pm.GetMinimumXValue()
+	zSpan := pm.GetMaximumZValue() - pm.GetMinimumZValue()
+	span := xySpan
+	if zSpan > span {
+		span = zSpan
+	}
+	return span * inverseMaxValue * stepFudge
 }
 
 // Grow reserves capacity for count more documents.
@@ -389,10 +471,11 @@ func (v *PointInShapeIntersectVisitor) Visit(docID int) error {
 // VisitByPackedValue decodes the 12-byte (3 × 4) packed value and admits docID
 // iff the shape contains the point.
 //
-// Port of PointInShapeIntersectVisitor.visit(int, byte[]). The bounding-box
-// pre-check (x >= minimumX && ... ) is dropped because the bounds engine is
-// stubbed (rmp #4768); shape.IsWithin alone is the authoritative gate and
-// yields the identical document set.
+// Port of PointInShapeIntersectVisitor.visit(int, byte[]). For prune-capable
+// shapes the rounded-XYZBounds pre-check (x >= minimumX && ...) runs first — a
+// safe early-out because the box is a proven superset of every in-shape point,
+// so it can only reject points the shape would also reject. shape.IsWithin is
+// the authoritative gate and yields the identical document set in both modes.
 func (v *PointInShapeIntersectVisitor) VisitByPackedValue(docID int, packedValue []byte) error {
 	if len(packedValue) != 3*bytesPerDim {
 		return fmt.Errorf("geo3d: PointInShapeIntersectVisitor: packed value length %d, want %d", len(packedValue), 3*bytesPerDim)
@@ -400,6 +483,13 @@ func (v *PointInShapeIntersectVisitor) VisitByPackedValue(docID int, packedValue
 	x := DecodeDimension(v.planetModel, packedValue, 0)
 	y := DecodeDimension(v.planetModel, packedValue, bytesPerDim)
 	z := DecodeDimension(v.planetModel, packedValue, 2*bytesPerDim)
+	if v.pruneCapable {
+		if x < v.minimumX || x > v.maximumX ||
+			y < v.minimumY || y > v.maximumY ||
+			z < v.minimumZ || z > v.maximumZ {
+			return nil
+		}
+	}
 	if membership, ok := v.shape.(geom.Membership); ok && membership.IsWithin(x, y, z) {
 		if v.adder != nil {
 			v.adder.Add(docID)
@@ -408,17 +498,66 @@ func (v *PointInShapeIntersectVisitor) VisitByPackedValue(docID int, packedValue
 	return nil
 }
 
-// Compare always reports CELL_CROSSES_QUERY so the BKD walk visits every leaf
-// and every point is gated by VisitByPackedValue → shape.IsWithin.
+// Compare relates a BKD cell to the query shape.
 //
-// Deviation (rmp #4768): Lucene prunes sub-trees here using the shape's
-// XYZBounds via an XYZSolid relationship test. Gocene's bounds engine is
-// stubbed, so returning CELL_CROSSES_QUERY unconditionally trades pruning for
-// exact correctness — see the type doc.
+// For prune-capable shapes (see the type doc), it decodes the cell box to the
+// largest un-quantized range that could round into the packed bounds and
+// returns CELL_OUTSIDE_QUERY when that box is axis-aligned disjoint from the
+// shape's rounded XYZBounds box, otherwise CELL_CROSSES_QUERY. CELL_INSIDE_QUERY
+// is never returned: answering CROSSES instead only costs an IsWithin call per
+// point and never changes the document set. For non-prune-capable shapes it
+// always returns CELL_CROSSES_QUERY (full scan).
 //
-// Port of PointInShapeIntersectVisitor.compare (degenerate form).
-func (v *PointInShapeIntersectVisitor) Compare(_, _ []byte) int {
+// Port of PointInShapeIntersectVisitor.compare, scoped to the disjoint/cross
+// cases (rmp #4768); the XYZSolid.getRelationship CONTAINS/WITHIN cases are
+// deferred with the two-plane recordBounds variant.
+func (v *PointInShapeIntersectVisitor) Compare(minPackedValue, maxPackedValue []byte) int {
+	if !v.pruneCapable {
+		return geo3dCellCrossesQuery
+	}
+	if len(minPackedValue) != 3*bytesPerDim || len(maxPackedValue) != 3*bytesPerDim {
+		// Malformed cell: never prune.
+		return geo3dCellCrossesQuery
+	}
+	xMin := decodeValueFloor(v.planetModel, minPackedValue, 0)
+	xMax := decodeValueCeil(v.planetModel, maxPackedValue, 0)
+	yMin := decodeValueFloor(v.planetModel, minPackedValue, bytesPerDim)
+	yMax := decodeValueCeil(v.planetModel, maxPackedValue, bytesPerDim)
+	zMin := decodeValueFloor(v.planetModel, minPackedValue, 2*bytesPerDim)
+	zMax := decodeValueCeil(v.planetModel, maxPackedValue, 2*bytesPerDim)
+
+	// Axis-aligned disjointness of the cell box and the shape's bounds box.
+	if v.maximumX < xMin || v.minimumX > xMax ||
+		v.maximumY < yMin || v.minimumY > yMax ||
+		v.maximumZ < zMin || v.minimumZ > zMax {
+		return geo3dCellOutsideQuery
+	}
 	return geo3dCellCrossesQuery
+}
+
+// decodeValueFloor returns the smallest coordinate that quantizes to the int
+// encoded at offset in packed, extending the inclusive cell lower bound to the
+// largest un-quantized value range.
+//
+// Port of org.apache.lucene.spatial3d.Geo3DUtil.decodeValueFloor.
+func decodeValueFloor(pm *geom.PlanetModel, packed []byte, offset int) float64 {
+	x := util.SortableBytesToInt(packed, offset)
+	if x == pm.MinEncodedValue {
+		return -pm.MaxValue
+	}
+	return float64(x) * pm.Decode
+}
+
+// decodeValueCeil returns the largest coordinate that quantizes to the int
+// encoded at offset in packed, extending the inclusive cell upper bound.
+//
+// Port of org.apache.lucene.spatial3d.Geo3DUtil.decodeValueCeil.
+func decodeValueCeil(pm *geom.PlanetModel, packed []byte, offset int) float64 {
+	x := util.SortableBytesToInt(packed, offset)
+	if x == pm.MaxEncodedValue {
+		return pm.MaxValue
+	}
+	return math.Nextafter(float64(x+1)*pm.Decode, math.Inf(-1))
 }
 
 // ---------------------------------------------------------------------------
