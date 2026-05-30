@@ -15,7 +15,7 @@ the UAX#29 segmentation pipeline.
 | ICUTokenizer + CompositeBreakIterator  | ported      |
 | `.brk` binary dictionary loader        | ported      |
 | `.brk` binary dictionary blobs         | bundled (embedded, see below) |
-| RBBI execution engine                  | **not implemented** (see below) |
+| RBBI forward execution engine          | implemented (Myanmar/CJK byte-identical; Thai/Lao/Khmer dict-break → #4791) |
 
 ## ICU4J binary break-iterator dictionaries (`.brk`)
 
@@ -36,10 +36,12 @@ ships (verified by `TestEmbeddedBRKByteIdentity`). They are exposed via
 `segmentation.LoadEmbeddedBRK(name)`; see the NOTICE file for the ICU license.
 The copies in `segmentation/testdata/` remain for parser-validation tests.
 
-Note: the blobs are bundled and parseable, but **executing** their compiled
-rules still requires the RBBI engine (tracked separately), so they are not yet
-consulted at runtime — segmentation currently falls back to the UAX#29
-approximation. See "RBBI execution engine" below.
+Note: the blobs are bundled, parseable, and now **executed** at runtime by the
+RBBI forward state-machine engine (`segmentation.RBBIBreakIterator`): Myanmar
+syllable and CJK per-ideograph segmentation are dictionary/rule driven and
+byte-identical to ICU/Lucene (all `TestMyanmarSyllable` cases pass). The
+Thai/Lao/Khmer dictionary-refinement pass and reverse iteration remain (tracked
+as rmp #4791); those scripts use the UAX#29 rule fallback for now.
 
 ### Loader API
 
@@ -65,20 +67,19 @@ Callers can branch on `errors.Is(err, segmentation.ErrNoDictionary)` to detect
 the "no dictionary supplied" path and fall back to the rules-based
 `goWordBreakIterator` (the default segmentation path today).
 
-### Deviation: RBBI execution
+### RBBI execution engine
 
-Even when a valid blob is parsed successfully, Gocene currently does **not**
-execute the compiled RBBI rules. `BRKDictionary.AsBreakIterator()` returns a
-placeholder that exposes the dictionary metadata but still delegates word
-segmentation to `goWordBreakIterator`. The method
-`BRKDictionary.HasDictionaryExecution()` reports `false` until a native RBBI
-engine ships in Gocene.
+Gocene executes the compiled RBBI rules with a forward state-machine engine.
+`BRKDictionary.AsBreakIterator()` returns a real `RBBIBreakIterator` (a
+CodePointTrie reader plus the state/status table interpreter — ports of ICU4J
+`CodePointTrie` / `RBBIDataWrapper` / `RuleBasedBreakIterator.handleNext`), and
+`BRKDictionary.HasDictionaryExecution()` reports `true`.
 
-The practical consequence: CJK/Thai/Lao/Myanmar/Khmer text is segmented via
-the rules-based UAX#29 approximation backed by Go's `unicode` package range
-tables. CJK ideographs are each emitted as their own token (matching
-Lucene's `IDEOGRAPHIC` type), but dictionary-based word breaking for Thai,
-Lao, Myanmar, and Khmer is not available out of the box.
+The practical consequence: Myanmar syllable segmentation (`MyanmarSyllable.brk`)
+and CJK per-ideograph segmentation (`IDEOGRAPHIC`) are driven by the compiled
+rules and are byte-identical to ICU/Lucene. The remaining work — Thai/Lao/Khmer
+dictionary-refinement word breaking and reverse iteration — is tracked as
+rmp #4791; those scripts use the UAX#29 rule fallback until it lands.
 
 ### Bundling a `.brk` blob
 
@@ -101,17 +102,14 @@ and `.../MyanmarSyllable.brk`.
 
 ### Deferred work
 
-Two pieces of work are tracked separately and gate full parity with Lucene's
-`analysis/icu`:
+The `.brk` blobs are bundled (with ICU BSD-style notices in `NOTICE`) and the
+RBBI forward execution engine (state-table interpreter, CodePointTrie lookup,
+status-tag emission) is implemented and drives segmentation. The remaining
+parity work, tracked as rmp #4791, is:
 
-1. **Procure and bundle the `.brk` blobs** with the appropriate ICU BSD-style
-   licensing notices added to `NOTICE`. This is an external integration step
-   because the blobs are not generated from Gocene sources.
-2. **Port the RBBI execution engine** (state-table interpreter, character
-   trie lookup, status-tag emission) so a loaded `BRKDictionary` actually
-   drives segmentation.
-
-See the project backlog for the tracking task numbers.
+1. **Thai/Lao/Khmer dictionary-refinement pass** — the dictionary lookup that
+   refines rule-machine runs into words for those scripts.
+2. **Reverse iteration** and the combined-CJK word iterator.
 
 ## License
 
