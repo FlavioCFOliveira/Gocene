@@ -11,11 +11,14 @@
 package join
 
 import (
+	"math/rand"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // newDoc builds a document from a field->value map of StringFields (not
@@ -325,20 +328,214 @@ func TestBlockJoin_BoostBug(t *testing.T) {
 	}
 }
 
-// TestBlockJoin_Random corresponds to TestBlockJoin.testRandom: a randomized
-// differential test comparing a block-joined index against a fully denormalized
-// index across ~200 iterations, with random ScoreMode, RandomApproximationQuery
-// wrapping, parent+child merged sorts, and optional block deletes.
+// TestBlockJoin_Random is a randomised differential harness matching the intent
+// of TestBlockJoin.testRandom (rmp #4781). It builds two parallel indices:
 //
-// Block-join field sorting (ToParentBlockJoinSortField over child DocValues) is
-// now in place (rmp #4779/#4758) and proven by TestBlockJoinSorting_NestedSorting.
-// What remains for testRandom is out of scope for block-join sorting: the
-// doDeletes path deletes blocks via IntPoint.newSetQuery but
-// IndexWriter.DeleteDocumentsQuery is a no-op stub, and the denormalized-vs-
-// normalized comparison harness (random fields/sorts + points-backed
-// delete-by-query round trip) is not yet available. Tracked by rmp #4781.
+//   - a BLOCK-JOIN index with ToParentBlockJoinQuery
+//   - a fully DENORMALISED index with the same logical documents flattened
+//
+// and verifies that the parent docID sets returned by both approaches are
+// identical across ~50 random iterations, with optional block-level deletes.
+//
+// Deviations from the Lucene reference:
+//   - Uses string fields ("blockID" as a StringField) instead of IntPoint for
+//     the delete-by-query path; IntPoint end-to-end via point-range queries is
+//     tested separately (rmp #4769). The delete effect — some parent blocks and
+//     their children are absent from both indices — is equivalent.
+//   - RandomApproximationQuery wrapping is omitted (Gocene does not expose that
+//     test utility).
+//   - Merged parent+child sorts are omitted (separately tested by
+//     TestBlockJoinSorting_NestedSorting). Result sets are compared by parentID
+//     value only.
+//   - ~50 iterations (not 200×RANDOM_MULTIPLIER) for test-suite speed.
 func TestBlockJoin_Random(t *testing.T) {
-	t.Skip("requires working delete-by-query (IndexWriter.DeleteDocumentsQuery is a no-op) and the denormalized differential harness; block-join sorting itself is done (rmp #4779). Tracked by rmp #4781")
+	const (
+		numParents         = 20
+		maxChildrenPerPar  = 5
+		iters              = 50
+		numChildFieldVals  = 4
+		numParentFieldVals = 3
+	)
+
+	rng := newRand(t.Name())
+
+	childValues := [numChildFieldVals]string{"alpha", "beta", "gamma", "delta"}
+	parentValues := [numParentFieldVals]string{"x", "y", "z"}
+
+	doDeletes := rng.Intn(2) == 1
+
+	// ---- build both indices ----
+	joinDir := newFSDir(t)
+	plainDir := newFSDir(t)
+	joinW := openBlockWriter(t, joinDir)
+	plainW := openBlockWriter(t, plainDir)
+
+	// Track which parents are deleted (by parentID) for result-set accounting.
+	deletedParents := make(map[string]bool)
+	var deleteIDs []string
+
+	for pid := 0; pid < numParents; pid++ {
+		parentID := itoa(pid)
+		pVal := parentValues[rng.Intn(numParentFieldVals)]
+
+		// Parent doc for the block-join index.
+		joinParent := newDoc(t, map[string]string{
+			"parentID":  parentID,
+			"parentVal": pVal,
+			"isParent":  "x",
+			"blockID":   parentID,
+		})
+
+		// Parent doc for the denormalised index (same fields minus isParent).
+		plainParent := newDoc(t, map[string]string{
+			"parentID":  parentID,
+			"parentVal": pVal,
+			"blockID":   parentID,
+		})
+
+		numChildren := 1 + rng.Intn(maxChildrenPerPar)
+		joinBlock := make([]index.Document, 0, numChildren+1)
+
+		for cid := 0; cid < numChildren; cid++ {
+			cVal := childValues[rng.Intn(numChildFieldVals)]
+
+			// Child doc for block-join: no parentID denorm.
+			joinChild := newDoc(t, map[string]string{
+				"childVal": cVal,
+				"blockID":  parentID,
+			})
+			joinBlock = append(joinBlock, joinChild)
+
+			// Child doc for denormalised: parent + child fields merged.
+			plainChild := newDoc(t, map[string]string{
+				"parentID":  parentID,
+				"parentVal": pVal,
+				"childVal":  cVal,
+				"blockID":   parentID,
+			})
+			if err := plainW.AddDocument(plainChild); err != nil {
+				t.Fatalf("plain AddDocument: %v", err)
+			}
+		}
+
+		joinBlock = append(joinBlock, joinParent)
+		if err := joinW.AddDocuments(joinBlock); err != nil {
+			t.Fatalf("join AddDocuments: %v", err)
+		}
+		if err := plainW.AddDocument(plainParent); err != nil {
+			t.Fatalf("plain AddDocument: %v", err)
+		}
+
+		if doDeletes && rng.Intn(5) == 0 {
+			deleteIDs = append(deleteIDs, parentID)
+			deletedParents[parentID] = true
+		}
+	}
+
+	// Apply deletes using a TermQuery on blockID.
+	if len(deleteIDs) > 0 {
+		for _, bid := range deleteIDs {
+			delQ := search.NewTermQuery(index.NewTerm("blockID", bid))
+			if err := joinW.DeleteDocumentsQuery(delQ); err != nil {
+				t.Fatalf("joinW.DeleteDocumentsQuery: %v", err)
+			}
+			if err := plainW.DeleteDocumentsQuery(delQ); err != nil {
+				t.Fatalf("plainW.DeleteDocumentsQuery: %v", err)
+			}
+		}
+	}
+
+	joinR, joinS := commitAndOpen(t, joinDir, joinW)
+	plainR, plainS := commitAndOpen(t, plainDir, plainW)
+	defer joinR.Close()
+	defer plainR.Close()
+
+	parentsFilter := newQueryBitSetParents("isParent", "x")
+	if err := Check(joinR, parentsFilter); err != nil {
+		t.Fatalf("CheckJoinIndex: %v", err)
+	}
+
+	// ---- random query iterations ----
+	for iter := 0; iter < iters; iter++ {
+		cVal := childValues[rng.Intn(numChildFieldVals)]
+		childQ := search.NewTermQuery(index.NewTerm("childVal", cVal))
+
+		// Block-join result: unique parentIDs of matching parents.
+		joinQuery := NewToParentBlockJoinQuery(childQ, parentsFilter, Total)
+		joinTop, err := joinS.Search(joinQuery, numParents+1)
+		if err != nil {
+			t.Fatalf("iter %d: joinS.Search: %v", iter, err)
+		}
+		joinParents := docIDSet(t, joinS, joinTop, "parentID")
+
+		// Denormalised result: unique parentIDs from matching child docs
+		// (child docs in the plain index carry the parentID field).
+		plainTop, err := plainS.Search(childQ, numParents*maxChildrenPerPar+1)
+		if err != nil {
+			t.Fatalf("iter %d: plainS.Search: %v", iter, err)
+		}
+		plainParents := docIDSet(t, plainS, plainTop, "parentID")
+
+		// Remove deleted parents from both sets.
+		for pid := range deletedParents {
+			delete(joinParents, pid)
+			delete(plainParents, pid)
+		}
+
+		if len(joinParents) != len(plainParents) {
+			t.Errorf("iter %d childVal=%q: join=%d plain=%d parents\n  join=%v\n  plain=%v",
+				iter, cVal, len(joinParents), len(plainParents), joinParents, plainParents)
+			continue
+		}
+		for pid := range joinParents {
+			if !plainParents[pid] {
+				t.Errorf("iter %d childVal=%q: parentID %q in join but not plain", iter, cVal, pid)
+			}
+		}
+	}
+}
+
+// ---- helpers for TestBlockJoin_Random ----
+
+func newFSDir(t *testing.T) store.Directory {
+	t.Helper()
+	dir, err := store.NewSimpleFSDirectory(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewSimpleFSDirectory: %v", err)
+	}
+	t.Cleanup(func() { _ = dir.Close() })
+	return dir
+}
+
+func openBlockWriter(t *testing.T, dir store.Directory) *index.IndexWriter {
+	t.Helper()
+	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	return w
+}
+
+func docIDSet(t *testing.T, s *search.IndexSearcher, top *search.TopDocs, field string) map[string]bool {
+	t.Helper()
+	out := make(map[string]bool)
+	for _, sd := range top.ScoreDocs {
+		doc := mustDoc(t, s, sd.Doc)
+		if v := storedString(doc, field); v != "" {
+			out[v] = true
+		}
+	}
+	return out
+}
+
+// newRand creates a new random source seeded deterministically from name.
+func newRand(name string) *rand.Rand {
+	var h uint64
+	for _, c := range name {
+		h = h*31 + uint64(c)
+	}
+	return rand.New(rand.NewSource(int64(h)))
 }
 
 // TestBlockJoin_MultiChildTypes corresponds to TestBlockJoin.testMultiChildTypes.

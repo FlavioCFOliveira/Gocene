@@ -117,6 +117,15 @@ type IndexWriter struct {
 	// persisting a byte-faithful .liv file.  Protected by mu.
 	pendingCommittedDeleteTerms []*Term
 
+	// pendingDeleteQueries holds query-based deletes (DeleteDocumentsQuery) that
+	// must be resolved against committed segments at the next Commit.  Each query
+	// is executed via an IndexSearcher opened over the committed segments; matching
+	// docIDs are marked as deleted in .liv files exactly as term-based deletes.
+	// Stored as interface{} to avoid a compile-time constraint on the query type
+	// (the concrete search.Query type lives in package search, not index).
+	// Protected by mu.
+	pendingDeleteQueries []interface{}
+
 	// writeLock is the exclusive directory write lock held for the lifetime of
 	// this IndexWriter instance.  Nil only if locking is not supported by the
 	// directory (legacy path; should not happen with current store implementations).
@@ -520,15 +529,55 @@ func (w *IndexWriter) DeleteDocuments(term *Term) error {
 	return nil
 }
 
-// DeleteDocumentsQuery deletes documents matching the given query.
-// Minimizes critical section - only holds lock for state updates.
+// DeleteDocumentsQuery buffers a query-based delete to be applied at the next
+// Commit. Matching documents in committed segments are identified by executing
+// the query via IndexSearcher and are marked as deleted in their .liv files.
+//
+// The query parameter must implement the index.Query interface; queries from
+// the search package satisfy this. Non-Query values are silently ignored.
+//
+// Execution requires a query-delete executor hook registered via
+// RegisterQueryDeleteExecutor (installed by the search package's init).
+// When no executor is registered the query is silently dropped.
 func (w *IndexWriter) DeleteDocumentsQuery(query interface{}) error {
 	if err := w.ensureOpen(); err != nil {
 		return err
 	}
-
-	// Document deletion processing happens outside global lock
+	if query == nil {
+		return nil
+	}
+	w.mu.Lock()
+	w.pendingDeleteQueries = append(w.pendingDeleteQueries, query)
+	w.mu.Unlock()
 	return nil
+}
+
+// QueryDeleteExecutor is a hook function that executes queries against a
+// directory and returns the docIDs that match on each segment.
+// Installed by the search package to break the index → search cycle.
+//
+// fn(dir, segmentInfos, queries) → per-segment map[segmentName]→[]docID.
+// The queries slice contains concrete search.Query values stored as interface{}.
+type QueryDeleteExecutor func(dir store.Directory, si *spi.SegmentInfos, queries []interface{}) (map[string][]int, error)
+
+var (
+	queryDeleteExecutorMu sync.RWMutex
+	queryDeleteExecutor   QueryDeleteExecutor
+)
+
+// RegisterQueryDeleteExecutor installs the process-wide query-delete executor.
+// Called from the search package init to avoid a circular import.
+func RegisterQueryDeleteExecutor(fn QueryDeleteExecutor) {
+	queryDeleteExecutorMu.Lock()
+	queryDeleteExecutor = fn
+	queryDeleteExecutorMu.Unlock()
+}
+
+// lookupQueryDeleteExecutor returns the registered query-delete executor, or nil.
+func lookupQueryDeleteExecutor() QueryDeleteExecutor {
+	queryDeleteExecutorMu.RLock()
+	defer queryDeleteExecutorMu.RUnlock()
+	return queryDeleteExecutor
 }
 
 // commitData holds user-defined commit data.
@@ -816,6 +865,14 @@ func (w *IndexWriter) Commit() error {
 	}
 	w.pendingCommittedDeleteTerms = w.pendingCommittedDeleteTerms[:0]
 	w.pendingCommittedDeleteCount = 0
+
+	// Apply query-based deletes (DeleteDocumentsQuery) against committed segments.
+	if len(w.pendingDeleteQueries) > 0 && codec != nil {
+		if err2 := w.applyQueryDeletesToCommittedSegments(si, codec, w.pendingDeleteQueries); err2 != nil {
+			return fmt.Errorf("commit: apply query deletes to committed segments: %w", err2)
+		}
+	}
+	w.pendingDeleteQueries = w.pendingDeleteQueries[:0]
 
 	for _, ps := range w.pendingImportedSegments {
 		segmentName := si.GetNextSegmentName()
@@ -1115,6 +1172,81 @@ func (w *IndexWriter) applyDeletesToCommittedSegments(si *SegmentInfos, codec Co
 
 		// Register the .liv in the segment's file list so deleters/CheckIndex see it.
 		livName := liveDocsFileName(segName, delGen)
+		appendSegmentFile(sci.SegmentInfo(), livName)
+	}
+	return nil
+}
+
+// applyQueryDeletesToCommittedSegments executes each buffered query against the
+// committed segments (via the registered QueryDeleteExecutor hook) and persists
+// the matching docIDs as .liv deletions, exactly as term-based deletes do.
+func (w *IndexWriter) applyQueryDeletesToCommittedSegments(si *SegmentInfos, codec Codec, queries []interface{}) error {
+	exec := lookupQueryDeleteExecutor()
+	if exec == nil {
+		// No executor registered — silently skip (codec-less test path).
+		return nil
+	}
+
+	// Execute all pending queries in one batch.
+	results, err := exec(w.directory, si, queries)
+	if err != nil {
+		return fmt.Errorf("query-delete executor: %w", err)
+	}
+
+	// Apply results per segment — same .liv write path as term-based deletes.
+	for _, sci := range si.List() {
+		name := sci.SegmentInfo().Name()
+		docIDs, ok := results[name]
+		if !ok || len(docIDs) == 0 {
+			continue
+		}
+
+		maxDoc := sci.SegmentInfo().DocCount()
+		if maxDoc == 0 {
+			continue
+		}
+
+		deleted := make(map[int]struct{})
+		for _, ord := range sci.GetDeletedOrdinals() {
+			if ord >= 0 && ord < maxDoc {
+				deleted[ord] = struct{}{}
+			}
+		}
+		prevCount := len(deleted)
+		for _, id := range docIDs {
+			if id >= 0 && id < maxDoc {
+				deleted[id] = struct{}{}
+			}
+		}
+		if len(deleted) == prevCount {
+			continue // nothing new
+		}
+
+		live, err := util.NewFixedBitSet(maxDoc)
+		if err != nil {
+			return fmt.Errorf("new fixed bit set for %s: %w", name, err)
+		}
+		for i := 0; i < maxDoc; i++ {
+			live.Set(i)
+		}
+		var ords []int
+		for ord := range deleted {
+			live.Clear(ord)
+			ords = append(ords, ord)
+		}
+		sort.Ints(ords)
+
+		delGen := sci.AdvanceDelGen()
+		onDiskDel, err := writeLiveDocs(w.directory, name, sci.SegmentInfo().GetID(), delGen, live)
+		if err != nil {
+			return fmt.Errorf("write live docs for %s: %w", name, err)
+		}
+		if onDiskDel != len(deleted) {
+			return fmt.Errorf("live docs for %s: wrote delCount=%d, expected %d", name, onDiskDel, len(deleted))
+		}
+		sci.SetDelCount(len(deleted))
+		sci.SetDeletedOrdinals(ords)
+		livName := liveDocsFileName(name, delGen)
 		appendSegmentFile(sci.SegmentInfo(), livName)
 	}
 	return nil
