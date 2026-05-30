@@ -2,10 +2,25 @@ package index
 
 import (
 	"context"
+	"net"
 	"runtime"
 	"testing"
 	"time"
 )
+
+// freeTCPPort binds an ephemeral port on address, closes the listener and
+// returns the port the OS assigned. The brief gap between closing here and the
+// server re-binding is the standard, acceptable race for picking a free test
+// port; it avoids the hard-coded ports that made these tests non-hermetic.
+func freeTCPPort(t *testing.T, address string) int {
+	t.Helper()
+	l, err := net.Listen("tcp", address+":0")
+	if err != nil {
+		t.Fatalf("reserving a free port: %v", err)
+	}
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port
+}
 
 func TestNewReplicationServer(t *testing.T) {
 	address := "0.0.0.0"
@@ -66,7 +81,11 @@ func TestNewReplicationServer_EmptyIndexPath(t *testing.T) {
 
 func TestReplicationServer_StartStop(t *testing.T) {
 	address := "127.0.0.1"
-	port := 18080 // Use different port to avoid conflicts
+	// Pick a currently-free port instead of a fixed one so the test is hermetic
+	// and never collides with another listener (e.g. an unrelated daemon already
+	// bound to a well-known port). NewReplicationServer rejects port 0, so we
+	// resolve a concrete free port up front.
+	port := freeTCPPort(t, address)
 	indexPath := "/tmp/index"
 
 	rs, _ := NewReplicationServer(address, port, indexPath)
