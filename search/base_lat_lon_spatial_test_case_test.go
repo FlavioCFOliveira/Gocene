@@ -387,7 +387,7 @@ const baseLatLonSpatialFieldName = "shape"
 //     search/lat_lon_shape_query.go header)
 //   - LuceneTestCase.atLeast / random() (no Gocene equivalents yet)
 func TestBaseLatLonSpatial_SameShapeManyTimes(t *testing.T) {
-	t.Skip("blocked by RandomIndexWriter/GeoTestUtil/LatLonShape query factories/LuceneTestCase helpers; remove this Skip when fixed")
+	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/LatLonShape query factories/LuceneTestCase helpers; remove this Skip when fixed")
 
 	// Reserved factories and constants: the future implementation
 	// reads from this bundle. Touching it here keeps the symbol live
@@ -410,7 +410,7 @@ func TestBaseLatLonSpatial_SameShapeManyTimes(t *testing.T) {
 //   - document.LatLonShape.NewXxxQuery (deferred)
 //   - LuceneTestCase.atLeast / random() (no Gocene equivalents yet)
 func TestBaseLatLonSpatial_LowCardinalityShapeManyTimes(t *testing.T) {
-	t.Skip("blocked by RandomIndexWriter/GeoTestUtil/LatLonShape query factories/LuceneTestCase helpers; remove this Skip when fixed")
+	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/LatLonShape query factories/LuceneTestCase helpers; remove this Skip when fixed")
 
 	_ = newBaseLatLonSpatialFactories()
 	_ = baseLatLonSpatialFieldName
@@ -427,7 +427,7 @@ func TestBaseLatLonSpatial_LowCardinalityShapeManyTimes(t *testing.T) {
 //   - document.LatLonShape.NewXxxQuery (deferred)
 //   - LuceneTestCase.atLeast / random() (no Gocene equivalents yet)
 func TestBaseLatLonSpatial_RandomTiny(t *testing.T) {
-	t.Skip("blocked by RandomIndexWriter/GeoTestUtil/LatLonShape query factories/LuceneTestCase helpers; remove this Skip when fixed")
+	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/LatLonShape query factories/LuceneTestCase helpers; remove this Skip when fixed")
 
 	_ = newBaseLatLonSpatialFactories()
 	_ = baseLatLonSpatialFieldName
@@ -444,7 +444,7 @@ func TestBaseLatLonSpatial_RandomTiny(t *testing.T) {
 //   - document.LatLonShape.NewXxxQuery (deferred)
 //   - LuceneTestCase.atLeast / random() (no Gocene equivalents yet)
 func TestBaseLatLonSpatial_RandomMedium(t *testing.T) {
-	t.Skip("blocked by RandomIndexWriter/GeoTestUtil/LatLonShape query factories/LuceneTestCase helpers; remove this Skip when fixed")
+	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/LatLonShape query factories/LuceneTestCase helpers; remove this Skip when fixed")
 
 	_ = newBaseLatLonSpatialFactories()
 	_ = baseLatLonSpatialFieldName
@@ -464,7 +464,7 @@ func TestBaseLatLonSpatial_RandomMedium(t *testing.T) {
 //   - document.LatLonShape.NewXxxQuery (deferred)
 //   - LuceneTestCase.atLeast / random() / @Nightly (no Gocene equivalents yet)
 func TestBaseLatLonSpatial_RandomBig(t *testing.T) {
-	t.Skip("blocked by RandomIndexWriter/GeoTestUtil/LatLonShape query factories/LuceneTestCase helpers + @Nightly gate; remove this Skip when fixed")
+	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/LatLonShape query factories/LuceneTestCase helpers + @Nightly gate; remove this Skip when fixed")
 
 	_ = newBaseLatLonSpatialFactories()
 	_ = baseLatLonSpatialFieldName

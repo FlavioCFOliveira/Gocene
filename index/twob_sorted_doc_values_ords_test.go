@@ -13,5 +13,5 @@ import "testing"
 // every ordinal and looked-up term. In Lucene this is annotated @Monster and
 // takes roughly six hours with a 5 GB heap, so it is skipped by default.
 func Test2BSortedDocValuesOrds(t *testing.T) {
-	t.Skip("monster test: indexes ~2B docs, takes hours and multiple GB of heap")
+	t.Fatal("monster test: indexes ~2B docs, takes hours and multiple GB of heap")
 }

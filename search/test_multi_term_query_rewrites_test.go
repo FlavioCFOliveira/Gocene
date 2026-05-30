@@ -13,11 +13,11 @@ package search
 import "testing"
 
 func TestMultiTermQueryRewrites_RewritesWithDuplicateTerms(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }
 func TestMultiTermQueryRewrites_Boosts(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }
 func TestMultiTermQueryRewrites_MaxClauseLimitations(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

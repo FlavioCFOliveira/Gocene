@@ -64,7 +64,7 @@ import "testing"
 // on IndexCommit is not exposed; SegmentInfos.getLastCommitGeneration not
 // available.
 func TestDeletionPolicy_ExpirationTime(t *testing.T) {
-	t.Skip("needs functional IndexCommit.Delete(), wall-clock timestamp on " +
+	t.Fatal("needs functional IndexCommit.Delete(), wall-clock timestamp on " +
 		"IndexCommit, and SegmentInfos.getLastCommitGeneration (not yet ported)")
 }
 
@@ -77,7 +77,7 @@ func TestDeletionPolicy_ExpirationTime(t *testing.T) {
 // Degraded to t.Skip: SegmentInfos.getLastCommitGeneration is not exposed
 // and IndexCommit enumeration via IndexWriter.listCommits is missing.
 func TestDeletionPolicy_KeepAll(t *testing.T) {
-	t.Skip("needs SegmentInfos.getLastCommitGeneration and " +
+	t.Fatal("needs SegmentInfos.getLastCommitGeneration and " +
 		"IndexWriter.listCommits (IndexCommit enumeration) not yet ported")
 }
 
@@ -91,7 +91,7 @@ func TestDeletionPolicy_KeepAll(t *testing.T) {
 // Degraded to t.Skip: IndexWriterConfig.SetIndexCommit does not exist;
 // DirectoryReader.open(IndexCommit) is not implemented.
 func TestDeletionPolicy_OpenPriorSnapshot(t *testing.T) {
-	t.Skip("needs IndexWriterConfig.SetIndexCommit and " +
+	t.Fatal("needs IndexWriterConfig.SetIndexCommit and " +
 		"DirectoryReader.open(IndexCommit), neither of which is ported")
 }
 
@@ -104,7 +104,7 @@ func TestDeletionPolicy_OpenPriorSnapshot(t *testing.T) {
 // Degraded to t.Skip: IndexCommit.Delete() is a no-op; SegmentInfos commit
 // generation tracking not exposed.
 func TestDeletionPolicy_KeepNoneOnInit(t *testing.T) {
-	t.Skip("needs functional IndexCommit.Delete() and SegmentInfos commit " +
+	t.Fatal("needs functional IndexCommit.Delete() and SegmentInfos commit " +
 		"generation tracking (not yet ported)")
 }
 
@@ -117,7 +117,7 @@ func TestDeletionPolicy_KeepNoneOnInit(t *testing.T) {
 // Degraded to t.Skip: IndexCommit.Delete() is a no-op; commit-generation
 // enumeration not available.
 func TestDeletionPolicy_KeepLastN(t *testing.T) {
-	t.Skip("needs functional IndexCommit.Delete() and commit-generation " +
+	t.Fatal("needs functional IndexCommit.Delete() and commit-generation " +
 		"enumeration via IndexWriter.listCommits (not yet ported)")
 }
 
@@ -132,7 +132,7 @@ func TestDeletionPolicy_KeepLastN(t *testing.T) {
 // requires LiveIndexWriterConfig.GetIndexDeletionPolicy() to retrieve the
 // policy after each reopen.
 func TestDeletionPolicy_KeepLastNWithCreates(t *testing.T) {
-	t.Skip("needs functional IndexCommit.Delete(), LiveIndexWriterConfig." +
+	t.Fatal("needs functional IndexCommit.Delete(), LiveIndexWriterConfig." +
 		"GetIndexDeletionPolicy(), and commit-generation enumeration (not yet ported)")
 }
 
@@ -146,7 +146,7 @@ func TestDeletionPolicy_KeepLastNWithCreates(t *testing.T) {
 // Degraded to t.Skip: IndexCommit.Delete() is a no-op; SegmentInfos
 // getLastCommitGeneration not exposed.
 func TestDeletionPolicy_KeepLastNCommits(t *testing.T) {
-	t.Skip("needs functional IndexCommit.Delete() and " +
+	t.Fatal("needs functional IndexCommit.Delete() and " +
 		"SegmentInfos.getLastCommitGeneration (not yet ported)")
 }
 
@@ -160,6 +160,6 @@ func TestDeletionPolicy_KeepLastNCommits(t *testing.T) {
 // Degraded to t.Skip: IndexCommit.Delete() is a no-op; exact segments-file
 // count cannot be verified without commit-generation enumeration.
 func TestDeletionPolicy_KeepLastNCommitsZero(t *testing.T) {
-	t.Skip("needs functional IndexCommit.Delete() and commit-generation " +
+	t.Fatal("needs functional IndexCommit.Delete() and commit-generation " +
 		"enumeration; KeepLastN(0) semantics unverifiable without them")
 }

@@ -118,7 +118,7 @@ func TestSizeBoundedForceMerge_ByteSizeLimit(t *testing.T) {
 		t.Fatalf("ReadSegmentInfos() error = %v", err)
 	}
 
-	t.Skip("ForceMerge ignores LogByteSizeMergePolicy size cap; segment-count assertion deferred")
+	t.Fatal("ForceMerge ignores LogByteSizeMergePolicy size cap; segment-count assertion deferred")
 
 	if got := sis.Size(); got != 3 {
 		t.Errorf("expected 3 segments, got %d", got)
@@ -162,7 +162,7 @@ func TestSizeBoundedForceMerge_NumDocsLimit(t *testing.T) {
 		t.Fatalf("ReadSegmentInfos() error = %v", err)
 	}
 
-	t.Skip("ForceMerge ignores LogDocMergePolicy maxMergeDocs; segment-count assertion deferred")
+	t.Fatal("ForceMerge ignores LogDocMergePolicy maxMergeDocs; segment-count assertion deferred")
 
 	if got := sis.Size(); got != 3 {
 		t.Errorf("expected 3 segments, got %d", got)
@@ -173,7 +173,7 @@ func TestSizeBoundedForceMerge_NumDocsLimit(t *testing.T) {
 func TestSizeBoundedForceMerge_LastSegmentTooLarge(t *testing.T) {
 	sis := runSizeBoundedForceMerge(t, []int{3, 3, 3, 5}, 3, 1, false)
 
-	t.Skip("ForceMerge ignores LogDocMergePolicy maxMergeDocs; segment-count assertion deferred")
+	t.Fatal("ForceMerge ignores LogDocMergePolicy maxMergeDocs; segment-count assertion deferred")
 
 	if got := sis.Size(); got != 2 {
 		t.Errorf("expected 2 segments, got %d", got)
@@ -184,7 +184,7 @@ func TestSizeBoundedForceMerge_LastSegmentTooLarge(t *testing.T) {
 func TestSizeBoundedForceMerge_FirstSegmentTooLarge(t *testing.T) {
 	sis := runSizeBoundedForceMerge(t, []int{5, 3, 3, 3}, 3, 1, false)
 
-	t.Skip("ForceMerge ignores LogDocMergePolicy maxMergeDocs; segment-count assertion deferred")
+	t.Fatal("ForceMerge ignores LogDocMergePolicy maxMergeDocs; segment-count assertion deferred")
 
 	if got := sis.Size(); got != 2 {
 		t.Errorf("expected 2 segments, got %d", got)
@@ -195,7 +195,7 @@ func TestSizeBoundedForceMerge_FirstSegmentTooLarge(t *testing.T) {
 func TestSizeBoundedForceMerge_AllSegmentsSmall(t *testing.T) {
 	sis := runSizeBoundedForceMerge(t, []int{3, 3, 3, 3}, 3, 1, false)
 
-	t.Skip("ForceMerge ignores LogDocMergePolicy maxMergeDocs; segment-count assertion deferred")
+	t.Fatal("ForceMerge ignores LogDocMergePolicy maxMergeDocs; segment-count assertion deferred")
 
 	if got := sis.Size(); got != 1 {
 		t.Errorf("expected 1 segment, got %d", got)
@@ -206,7 +206,7 @@ func TestSizeBoundedForceMerge_AllSegmentsSmall(t *testing.T) {
 func TestSizeBoundedForceMerge_AllSegmentsLarge(t *testing.T) {
 	sis := runSizeBoundedForceMerge(t, []int{3, 3, 3}, 2, 1, false)
 
-	t.Skip("ForceMerge ignores LogDocMergePolicy maxMergeDocs; segment-count assertion deferred")
+	t.Fatal("ForceMerge ignores LogDocMergePolicy maxMergeDocs; segment-count assertion deferred")
 
 	if got := sis.Size(); got != 3 {
 		t.Errorf("expected 3 segments, got %d", got)
@@ -217,7 +217,7 @@ func TestSizeBoundedForceMerge_AllSegmentsLarge(t *testing.T) {
 func TestSizeBoundedForceMerge_OneLargeOneSmall(t *testing.T) {
 	sis := runSizeBoundedForceMerge(t, []int{3, 5, 3, 5}, 3, 1, false)
 
-	t.Skip("ForceMerge ignores LogDocMergePolicy maxMergeDocs; segment-count assertion deferred")
+	t.Fatal("ForceMerge ignores LogDocMergePolicy maxMergeDocs; segment-count assertion deferred")
 
 	if got := sis.Size(); got != 4 {
 		t.Errorf("expected 4 segments, got %d", got)
@@ -261,7 +261,7 @@ func TestSizeBoundedForceMerge_MergeFactor(t *testing.T) {
 		t.Fatalf("ReadSegmentInfos() error = %v", err)
 	}
 
-	t.Skip("ForceMerge ignores LogDocMergePolicy maxMergeDocs/mergeFactor; segment-count assertion deferred")
+	t.Fatal("ForceMerge ignores LogDocMergePolicy maxMergeDocs/mergeFactor; segment-count assertion deferred")
 
 	if got := sis.Size(); got != 4 {
 		t.Errorf("expected 4 segments, got %d", got)
@@ -307,7 +307,7 @@ func TestSizeBoundedForceMerge_SingleMergeableSegment(t *testing.T) {
 		t.Fatalf("ReadSegmentInfos() error = %v", err)
 	}
 
-	t.Skip("ForceMerge does not merge mergeable segments yet; segment-count/deletions assertions deferred")
+	t.Fatal("ForceMerge does not merge mergeable segments yet; segment-count/deletions assertions deferred")
 
 	if got := sis.Size(); got != 3 {
 		t.Errorf("expected 3 segments, got %d", got)
@@ -321,7 +321,7 @@ func TestSizeBoundedForceMerge_SingleMergeableSegment(t *testing.T) {
 func TestSizeBoundedForceMerge_SingleNonMergeableSegment(t *testing.T) {
 	sis := runSizeBoundedForceMerge(t, []int{3}, 3, 1, true)
 
-	t.Skip("ForceMerge ignores LogDocMergePolicy maxMergeDocs; segment-count assertion deferred")
+	t.Fatal("ForceMerge ignores LogDocMergePolicy maxMergeDocs; segment-count assertion deferred")
 
 	if got := sis.Size(); got != 1 {
 		t.Errorf("expected 1 segment, got %d", got)
@@ -366,7 +366,7 @@ func TestSizeBoundedForceMerge_SingleMergeableTooLargeSegment(t *testing.T) {
 		t.Fatalf("ReadSegmentInfos() error = %v", err)
 	}
 
-	t.Skip("ForceMerge ignores LogDocMergePolicy maxMergeDocs; segment-count/deletions assertions deferred")
+	t.Fatal("ForceMerge ignores LogDocMergePolicy maxMergeDocs; segment-count/deletions assertions deferred")
 
 	if got := sis.Size(); got != 1 {
 		t.Errorf("expected 1 segment, got %d", got)

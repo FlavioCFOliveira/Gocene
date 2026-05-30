@@ -567,7 +567,7 @@ func TestCompressingStoredFieldsFormat_TLong(t *testing.T) {
 // Ported from: testChunkCleanup()
 // Tests that small segments with incomplete compressed blocks are recompressed during merge
 func TestCompressingStoredFieldsFormat_ChunkCleanup(t *testing.T) {
-	t.Skip("Chunk cleanup test requires full IndexWriter integration - skipping for now")
+	t.Fatal("Chunk cleanup test requires full IndexWriter integration - skipping for now")
 
 	// This test will verify:
 	// 1. Creating small segments with incomplete compressed blocks
@@ -684,7 +684,7 @@ func TestCompressingStoredFieldsFormat_ChunkSizeConfigurations(t *testing.T) {
 // TestCompressingStoredFieldsFormat_ByteLevelCompatibility verifies byte-level compatibility with Lucene
 // This ensures the Go implementation produces identical bytes to the Java implementation
 func TestCompressingStoredFieldsFormat_ByteLevelCompatibility(t *testing.T) {
-	t.Skip("Byte-level compatibility test requires reference data from Lucene Java - skipping for now")
+	t.Fatal("Byte-level compatibility test requires reference data from Lucene Java - skipping for now")
 
 	// This test will verify:
 	// - Same input produces same compressed bytes as Lucene Java

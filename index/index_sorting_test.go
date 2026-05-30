@@ -72,24 +72,24 @@ func newIndexSortingWriter(t *testing.T, dir store.Directory, sort *index.Sort) 
 
 // TestIndexSorting_NumericAlreadySorted ports testNumericAlreadySorted.
 func TestIndexSorting_NumericAlreadySorted(t *testing.T) {
-	t.Skip("GOC-4136: assertNeedsIndexSortMerge requires AssertingNeedsIndexSortCodec; no codec hook to observe whether a merge re-sorts")
+	t.Fatal("GOC-4136: assertNeedsIndexSortMerge requires AssertingNeedsIndexSortCodec; no codec hook to observe whether a merge re-sorts")
 }
 
 // TestIndexSorting_StringAlreadySorted ports testStringAlreadySorted.
 func TestIndexSorting_StringAlreadySorted(t *testing.T) {
-	t.Skip("GOC-4136: assertNeedsIndexSortMerge requires AssertingNeedsIndexSortCodec; no codec hook to observe whether a merge re-sorts")
+	t.Fatal("GOC-4136: assertNeedsIndexSortMerge requires AssertingNeedsIndexSortCodec; no codec hook to observe whether a merge re-sorts")
 }
 
 // TestIndexSorting_MultiValuedNumericAlreadySorted ports
 // testMultiValuedNumericAlreadySorted.
 func TestIndexSorting_MultiValuedNumericAlreadySorted(t *testing.T) {
-	t.Skip("GOC-4136: assertNeedsIndexSortMerge requires AssertingNeedsIndexSortCodec; no codec hook to observe whether a merge re-sorts")
+	t.Fatal("GOC-4136: assertNeedsIndexSortMerge requires AssertingNeedsIndexSortCodec; no codec hook to observe whether a merge re-sorts")
 }
 
 // TestIndexSorting_MultiValuedStringAlreadySorted ports
 // testMultiValuedStringAlreadySorted.
 func TestIndexSorting_MultiValuedStringAlreadySorted(t *testing.T) {
-	t.Skip("GOC-4136: assertNeedsIndexSortMerge requires AssertingNeedsIndexSortCodec; no codec hook to observe whether a merge re-sorts")
+	t.Fatal("GOC-4136: assertNeedsIndexSortMerge requires AssertingNeedsIndexSortCodec; no codec hook to observe whether a merge re-sorts")
 }
 
 // -----------------------------------------------------------------------------
@@ -139,7 +139,7 @@ func TestIndexSorting_BasicString(t *testing.T) {
 // TestIndexSorting_BasicStringOrderVerification ports the order assertions of
 // testBasicString that read SortedDocValues back per document.
 func TestIndexSorting_BasicStringOrderVerification(t *testing.T) {
-	t.Skip("GOC-4136: needs LeafReader.GetSortedDocValues read-back (SegmentReader coreReaders gap) to assert sorted order aaa<mmm<zzz")
+	t.Fatal("GOC-4136: needs LeafReader.GetSortedDocValues read-back (SegmentReader coreReaders gap) to assert sorted order aaa<mmm<zzz")
 }
 
 // TestIndexSorting_BasicLong ports testBasicLong (write path only).
@@ -177,7 +177,7 @@ func TestIndexSorting_BasicLong(t *testing.T) {
 // TestIndexSorting_BasicLongOrderVerification ports the order assertions of
 // testBasicLong that read NumericDocValues back per document.
 func TestIndexSorting_BasicLongOrderVerification(t *testing.T) {
-	t.Skip("GOC-4136: needs LeafReader.GetNumericDocValues read-back (SegmentReader coreReaders gap) to assert sorted order -1<7<18")
+	t.Fatal("GOC-4136: needs LeafReader.GetNumericDocValues read-back (SegmentReader coreReaders gap) to assert sorted order -1<7<18")
 }
 
 // TestIndexSorting_BasicInt ports testBasicInt (write path only).
@@ -215,7 +215,7 @@ func TestIndexSorting_BasicInt(t *testing.T) {
 // TestIndexSorting_BasicIntOrderVerification ports the order assertions of
 // testBasicInt that read NumericDocValues back per document.
 func TestIndexSorting_BasicIntOrderVerification(t *testing.T) {
-	t.Skip("GOC-4136: needs LeafReader.GetNumericDocValues read-back (SegmentReader coreReaders gap) to assert sorted order -1<7<18")
+	t.Fatal("GOC-4136: needs LeafReader.GetNumericDocValues read-back (SegmentReader coreReaders gap) to assert sorted order -1<7<18")
 }
 
 // TestIndexSorting_BasicDouble ports testBasicDouble (write path only).
@@ -253,7 +253,7 @@ func TestIndexSorting_BasicDouble(t *testing.T) {
 // TestIndexSorting_BasicDoubleOrderVerification ports the order assertions of
 // testBasicDouble that read NumericDocValues back per document.
 func TestIndexSorting_BasicDoubleOrderVerification(t *testing.T) {
-	t.Skip("GOC-4136: needs LeafReader.GetNumericDocValues read-back (SegmentReader coreReaders gap) to assert sorted order -1<7<18")
+	t.Fatal("GOC-4136: needs LeafReader.GetNumericDocValues read-back (SegmentReader coreReaders gap) to assert sorted order -1<7<18")
 }
 
 // TestIndexSorting_BasicFloat ports testBasicFloat (write path only).
@@ -291,7 +291,7 @@ func TestIndexSorting_BasicFloat(t *testing.T) {
 // TestIndexSorting_BasicFloatOrderVerification ports the order assertions of
 // testBasicFloat that read NumericDocValues back per document.
 func TestIndexSorting_BasicFloatOrderVerification(t *testing.T) {
-	t.Skip("GOC-4136: needs LeafReader.GetNumericDocValues read-back (SegmentReader coreReaders gap) to assert sorted order -1<7<18")
+	t.Fatal("GOC-4136: needs LeafReader.GetNumericDocValues read-back (SegmentReader coreReaders gap) to assert sorted order -1<7<18")
 }
 
 // -----------------------------------------------------------------------------
@@ -378,17 +378,17 @@ func TestIndexSorting_BasicMultiValuedLong(t *testing.T) {
 
 // TestIndexSorting_BasicMultiValuedInt ports testBasicMultiValuedInt.
 func TestIndexSorting_BasicMultiValuedInt(t *testing.T) {
-	t.Skip("GOC-4136: order assertions need SortedNumericDocValues read-back (SegmentReader coreReaders gap)")
+	t.Fatal("GOC-4136: order assertions need SortedNumericDocValues read-back (SegmentReader coreReaders gap)")
 }
 
 // TestIndexSorting_BasicMultiValuedDouble ports testBasicMultiValuedDouble.
 func TestIndexSorting_BasicMultiValuedDouble(t *testing.T) {
-	t.Skip("GOC-4136: order assertions need SortedNumericDocValues read-back (SegmentReader coreReaders gap)")
+	t.Fatal("GOC-4136: order assertions need SortedNumericDocValues read-back (SegmentReader coreReaders gap)")
 }
 
 // TestIndexSorting_BasicMultiValuedFloat ports testBasicMultiValuedFloat.
 func TestIndexSorting_BasicMultiValuedFloat(t *testing.T) {
-	t.Skip("GOC-4136: order assertions need SortedNumericDocValues read-back (SegmentReader coreReaders gap)")
+	t.Fatal("GOC-4136: order assertions need SortedNumericDocValues read-back (SegmentReader coreReaders gap)")
 }
 
 // -----------------------------------------------------------------------------
@@ -433,19 +433,19 @@ func TestIndexSorting_MissingStringFirst(t *testing.T) {
 
 // TestIndexSorting_MissingStringLast ports testMissingStringLast.
 func TestIndexSorting_MissingStringLast(t *testing.T) {
-	t.Skip("GOC-4136: missing-last placement assertion needs SortedDocValues read-back (SegmentReader coreReaders gap)")
+	t.Fatal("GOC-4136: missing-last placement assertion needs SortedDocValues read-back (SegmentReader coreReaders gap)")
 }
 
 // TestIndexSorting_MissingMultiValuedStringFirst ports
 // testMissingMultiValuedStringFirst.
 func TestIndexSorting_MissingMultiValuedStringFirst(t *testing.T) {
-	t.Skip("GOC-4136: missing-first placement assertion needs SortedSetDocValues read-back (SegmentReader coreReaders gap)")
+	t.Fatal("GOC-4136: missing-first placement assertion needs SortedSetDocValues read-back (SegmentReader coreReaders gap)")
 }
 
 // TestIndexSorting_MissingMultiValuedStringLast ports
 // testMissingMultiValuedStringLast.
 func TestIndexSorting_MissingMultiValuedStringLast(t *testing.T) {
-	t.Skip("GOC-4136: missing-last placement assertion needs SortedSetDocValues read-back (SegmentReader coreReaders gap)")
+	t.Fatal("GOC-4136: missing-last placement assertion needs SortedSetDocValues read-back (SegmentReader coreReaders gap)")
 }
 
 // TestIndexSorting_MissingLongFirst ports testMissingLongFirst
@@ -482,85 +482,85 @@ func TestIndexSorting_MissingLongFirst(t *testing.T) {
 
 // TestIndexSorting_MissingLongLast ports testMissingLongLast.
 func TestIndexSorting_MissingLongLast(t *testing.T) {
-	t.Skip("GOC-4136: missing-last placement assertion needs NumericDocValues read-back (SegmentReader coreReaders gap)")
+	t.Fatal("GOC-4136: missing-last placement assertion needs NumericDocValues read-back (SegmentReader coreReaders gap)")
 }
 
 // TestIndexSorting_MissingMultiValuedLongFirst ports
 // testMissingMultiValuedLongFirst.
 func TestIndexSorting_MissingMultiValuedLongFirst(t *testing.T) {
-	t.Skip("GOC-4136: missing-first placement assertion needs SortedNumericDocValues read-back (SegmentReader coreReaders gap)")
+	t.Fatal("GOC-4136: missing-first placement assertion needs SortedNumericDocValues read-back (SegmentReader coreReaders gap)")
 }
 
 // TestIndexSorting_MissingMultiValuedLongLast ports
 // testMissingMultiValuedLongLast.
 func TestIndexSorting_MissingMultiValuedLongLast(t *testing.T) {
-	t.Skip("GOC-4136: missing-last placement assertion needs SortedNumericDocValues read-back (SegmentReader coreReaders gap)")
+	t.Fatal("GOC-4136: missing-last placement assertion needs SortedNumericDocValues read-back (SegmentReader coreReaders gap)")
 }
 
 // TestIndexSorting_MissingIntFirst ports testMissingIntFirst.
 func TestIndexSorting_MissingIntFirst(t *testing.T) {
-	t.Skip("GOC-4136: missing-first placement assertion needs NumericDocValues read-back (SegmentReader coreReaders gap)")
+	t.Fatal("GOC-4136: missing-first placement assertion needs NumericDocValues read-back (SegmentReader coreReaders gap)")
 }
 
 // TestIndexSorting_MissingIntLast ports testMissingIntLast.
 func TestIndexSorting_MissingIntLast(t *testing.T) {
-	t.Skip("GOC-4136: missing-last placement assertion needs NumericDocValues read-back (SegmentReader coreReaders gap)")
+	t.Fatal("GOC-4136: missing-last placement assertion needs NumericDocValues read-back (SegmentReader coreReaders gap)")
 }
 
 // TestIndexSorting_MissingMultiValuedIntFirst ports
 // testMissingMultiValuedIntFirst.
 func TestIndexSorting_MissingMultiValuedIntFirst(t *testing.T) {
-	t.Skip("GOC-4136: missing-first placement assertion needs SortedNumericDocValues read-back (SegmentReader coreReaders gap)")
+	t.Fatal("GOC-4136: missing-first placement assertion needs SortedNumericDocValues read-back (SegmentReader coreReaders gap)")
 }
 
 // TestIndexSorting_MissingMultiValuedIntLast ports
 // testMissingMultiValuedIntLast.
 func TestIndexSorting_MissingMultiValuedIntLast(t *testing.T) {
-	t.Skip("GOC-4136: missing-last placement assertion needs SortedNumericDocValues read-back (SegmentReader coreReaders gap)")
+	t.Fatal("GOC-4136: missing-last placement assertion needs SortedNumericDocValues read-back (SegmentReader coreReaders gap)")
 }
 
 // TestIndexSorting_MissingDoubleFirst ports testMissingDoubleFirst.
 func TestIndexSorting_MissingDoubleFirst(t *testing.T) {
-	t.Skip("GOC-4136: missing-first placement assertion needs NumericDocValues read-back (SegmentReader coreReaders gap)")
+	t.Fatal("GOC-4136: missing-first placement assertion needs NumericDocValues read-back (SegmentReader coreReaders gap)")
 }
 
 // TestIndexSorting_MissingDoubleLast ports testMissingDoubleLast.
 func TestIndexSorting_MissingDoubleLast(t *testing.T) {
-	t.Skip("GOC-4136: missing-last placement assertion needs NumericDocValues read-back (SegmentReader coreReaders gap)")
+	t.Fatal("GOC-4136: missing-last placement assertion needs NumericDocValues read-back (SegmentReader coreReaders gap)")
 }
 
 // TestIndexSorting_MissingMultiValuedDoubleFirst ports
 // testMissingMultiValuedDoubleFirst.
 func TestIndexSorting_MissingMultiValuedDoubleFirst(t *testing.T) {
-	t.Skip("GOC-4136: missing-first placement assertion needs SortedNumericDocValues read-back (SegmentReader coreReaders gap)")
+	t.Fatal("GOC-4136: missing-first placement assertion needs SortedNumericDocValues read-back (SegmentReader coreReaders gap)")
 }
 
 // TestIndexSorting_MissingMultiValuedDoubleLast ports
 // testMissingMultiValuedDoubleLast.
 func TestIndexSorting_MissingMultiValuedDoubleLast(t *testing.T) {
-	t.Skip("GOC-4136: missing-last placement assertion needs SortedNumericDocValues read-back (SegmentReader coreReaders gap)")
+	t.Fatal("GOC-4136: missing-last placement assertion needs SortedNumericDocValues read-back (SegmentReader coreReaders gap)")
 }
 
 // TestIndexSorting_MissingFloatFirst ports testMissingFloatFirst.
 func TestIndexSorting_MissingFloatFirst(t *testing.T) {
-	t.Skip("GOC-4136: missing-first placement assertion needs NumericDocValues read-back (SegmentReader coreReaders gap)")
+	t.Fatal("GOC-4136: missing-first placement assertion needs NumericDocValues read-back (SegmentReader coreReaders gap)")
 }
 
 // TestIndexSorting_MissingFloatLast ports testMissingFloatLast.
 func TestIndexSorting_MissingFloatLast(t *testing.T) {
-	t.Skip("GOC-4136: missing-last placement assertion needs NumericDocValues read-back (SegmentReader coreReaders gap)")
+	t.Fatal("GOC-4136: missing-last placement assertion needs NumericDocValues read-back (SegmentReader coreReaders gap)")
 }
 
 // TestIndexSorting_MissingMultiValuedFloatFirst ports
 // testMissingMultiValuedFloatFirst.
 func TestIndexSorting_MissingMultiValuedFloatFirst(t *testing.T) {
-	t.Skip("GOC-4136: missing-first placement assertion needs SortedNumericDocValues read-back (SegmentReader coreReaders gap)")
+	t.Fatal("GOC-4136: missing-first placement assertion needs SortedNumericDocValues read-back (SegmentReader coreReaders gap)")
 }
 
 // TestIndexSorting_MissingMultiValuedFloatLast ports
 // testMissingMultiValuedFloatLast.
 func TestIndexSorting_MissingMultiValuedFloatLast(t *testing.T) {
-	t.Skip("GOC-4136: missing-last placement assertion needs SortedNumericDocValues read-back (SegmentReader coreReaders gap)")
+	t.Fatal("GOC-4136: missing-last placement assertion needs SortedNumericDocValues read-back (SegmentReader coreReaders gap)")
 }
 
 // -----------------------------------------------------------------------------
@@ -572,22 +572,22 @@ func TestIndexSorting_MissingMultiValuedFloatLast(t *testing.T) {
 
 // TestIndexSorting_Random1 ports testRandom1.
 func TestIndexSorting_Random1(t *testing.T) {
-	t.Skip("GOC-4136: needs RandomIndexWriter and NumericDocValues read-back to validate randomized post-merge order")
+	t.Fatal("GOC-4136: needs RandomIndexWriter and NumericDocValues read-back to validate randomized post-merge order")
 }
 
 // TestIndexSorting_MultiValuedRandom1 ports testMultiValuedRandom1.
 func TestIndexSorting_MultiValuedRandom1(t *testing.T) {
-	t.Skip("GOC-4136: needs RandomIndexWriter and SortedNumericDocValues read-back to validate randomized post-merge order")
+	t.Fatal("GOC-4136: needs RandomIndexWriter and SortedNumericDocValues read-back to validate randomized post-merge order")
 }
 
 // TestIndexSorting_Random2 ports testRandom2.
 func TestIndexSorting_Random2(t *testing.T) {
-	t.Skip("GOC-4136: needs RandomIndexWriter, PositionsTokenStream and full postings/term-vector read-back")
+	t.Fatal("GOC-4136: needs RandomIndexWriter, PositionsTokenStream and full postings/term-vector read-back")
 }
 
 // TestIndexSorting_Random3 ports testRandom3.
 func TestIndexSorting_Random3(t *testing.T) {
-	t.Skip("GOC-4136: needs RandomIndexWriter and IndexSearcher round-trip to validate randomized sorted search")
+	t.Fatal("GOC-4136: needs RandomIndexWriter and IndexSearcher round-trip to validate randomized sorted search")
 }
 
 // -----------------------------------------------------------------------------
@@ -596,18 +596,18 @@ func TestIndexSorting_Random3(t *testing.T) {
 
 // TestIndexSorting_ConcurrentUpdates ports testConcurrentUpdates.
 func TestIndexSorting_ConcurrentUpdates(t *testing.T) {
-	t.Skip("GOC-4136: needs concurrent updateDocument driver plus IndexSearcher and MultiDocValues read-back")
+	t.Fatal("GOC-4136: needs concurrent updateDocument driver plus IndexSearcher and MultiDocValues read-back")
 }
 
 // TestIndexSorting_ConcurrentDVUpdates ports testConcurrentDVUpdates.
 func TestIndexSorting_ConcurrentDVUpdates(t *testing.T) {
-	t.Skip("GOC-4136: needs concurrent updateDocValues driver plus NumericDocValues read-back")
+	t.Fatal("GOC-4136: needs concurrent updateDocValues driver plus NumericDocValues read-back")
 }
 
 // TestIndexSorting_BadDVUpdate ports testBadDVUpdate: a DocValues field that
 // participates in the index sort must not be updatable via updateDocValues.
 func TestIndexSorting_BadDVUpdate(t *testing.T) {
-	t.Skip("GOC-4136: UpdateDocValues does not yet reject fields participating in the index sort; cannot assert the IllegalArgumentException")
+	t.Fatal("GOC-4136: UpdateDocValues does not yet reject fields participating in the index sort; cannot assert the IllegalArgumentException")
 }
 
 // -----------------------------------------------------------------------------
@@ -617,7 +617,7 @@ func TestIndexSorting_BadDVUpdate(t *testing.T) {
 // TestIndexSorting_BadAddIndexes ports testBadAddIndexes: addIndexes from a
 // source whose index sort differs from the destination must fail.
 func TestIndexSorting_BadAddIndexes(t *testing.T) {
-	t.Skip("GOC-4136: AddIndexes does not yet validate that source and destination index sorts agree; cannot assert the IllegalArgumentException")
+	t.Fatal("GOC-4136: AddIndexes does not yet validate that source and destination index sorts agree; cannot assert the IllegalArgumentException")
 }
 
 // TestIndexSorting_AddIndexes ports testAddIndexes (write path only): copy a
@@ -658,18 +658,18 @@ func TestIndexSorting_AddIndexes(t *testing.T) {
 
 // TestIndexSorting_AddIndexesWithDeletions ports testAddIndexesWithDeletions.
 func TestIndexSorting_AddIndexesWithDeletions(t *testing.T) {
-	t.Skip("GOC-4136: needs RandomIndexWriter, deletions and StoredFields read-back to validate the merged sorted order")
+	t.Fatal("GOC-4136: needs RandomIndexWriter, deletions and StoredFields read-back to validate the merged sorted order")
 }
 
 // TestIndexSorting_AddIndexesWithDirectory ports testAddIndexesWithDirectory.
 func TestIndexSorting_AddIndexesWithDirectory(t *testing.T) {
-	t.Skip("GOC-4136: needs RandomIndexWriter and StoredFields read-back to validate the merged sorted order")
+	t.Fatal("GOC-4136: needs RandomIndexWriter and StoredFields read-back to validate the merged sorted order")
 }
 
 // TestIndexSorting_AddIndexesWithDeletionsAndDirectory ports
 // testAddIndexesWithDeletionsAndDirectory.
 func TestIndexSorting_AddIndexesWithDeletionsAndDirectory(t *testing.T) {
-	t.Skip("GOC-4136: needs RandomIndexWriter, deletions and StoredFields read-back to validate the merged sorted order")
+	t.Fatal("GOC-4136: needs RandomIndexWriter, deletions and StoredFields read-back to validate the merged sorted order")
 }
 
 // -----------------------------------------------------------------------------
@@ -698,13 +698,13 @@ func TestIndexSorting_BadSort(t *testing.T) {
 // TestIndexSorting_IllegalChangeSort ports testIllegalChangeSort: reopening an
 // index with a different index sort than it was created with must fail.
 func TestIndexSorting_IllegalChangeSort(t *testing.T) {
-	t.Skip("GOC-4136: IndexWriter does not yet detect a changed indexSort against an existing commit; cannot assert the IllegalArgumentException")
+	t.Fatal("GOC-4136: IndexWriter does not yet detect a changed indexSort against an existing commit; cannot assert the IllegalArgumentException")
 }
 
 // TestIndexSorting_WrongSortFieldType ports testWrongSortFieldType: the index
 // sort field type must match the DocValues type actually indexed for the field.
 func TestIndexSorting_WrongSortFieldType(t *testing.T) {
-	t.Skip("GOC-4136: IndexWriter does not yet validate the sort field type against the indexed DocValues type; cannot assert the IllegalArgumentException")
+	t.Fatal("GOC-4136: IndexWriter does not yet validate the sort field type against the indexed DocValues type; cannot assert the IllegalArgumentException")
 }
 
 // -----------------------------------------------------------------------------
@@ -744,7 +744,7 @@ func TestIndexSorting_IndexSortWithSparseField(t *testing.T) {
 // TestIndexSorting_IndexSortWithSparseFieldVerification ports the read-back
 // assertions of testIndexSortWithSparseField (dense / sparse / binary / norms).
 func TestIndexSorting_IndexSortWithSparseFieldVerification(t *testing.T) {
-	t.Skip("GOC-4136: needs LeafReader read-back of numeric, binary and norm values (SegmentReader coreReaders gap)")
+	t.Fatal("GOC-4136: needs LeafReader read-back of numeric, binary and norm values (SegmentReader coreReaders gap)")
 }
 
 // TestIndexSorting_IndexSortOnSparseField ports testIndexSortOnSparseField
@@ -777,7 +777,7 @@ func TestIndexSorting_IndexSortOnSparseField(t *testing.T) {
 // TestIndexSorting_IndexSortOnSparseFieldVerification ports the read-back
 // assertions of testIndexSortOnSparseField.
 func TestIndexSorting_IndexSortOnSparseFieldVerification(t *testing.T) {
-	t.Skip("GOC-4136: needs LeafReader.GetNumericDocValues read-back (SegmentReader coreReaders gap)")
+	t.Fatal("GOC-4136: needs LeafReader.GetNumericDocValues read-back (SegmentReader coreReaders gap)")
 }
 
 // -----------------------------------------------------------------------------
@@ -786,7 +786,7 @@ func TestIndexSorting_IndexSortOnSparseFieldVerification(t *testing.T) {
 
 // TestIndexSorting_DeleteByTermOrQuery ports testDeleteByTermOrQuery.
 func TestIndexSorting_DeleteByTermOrQuery(t *testing.T) {
-	t.Skip("GOC-4136: needs RandomIndexWriter and IndexSearcher to validate deletes against a sorted index")
+	t.Fatal("GOC-4136: needs RandomIndexWriter and IndexSearcher to validate deletes against a sorted index")
 }
 
 // TestIndexSorting_DeleteAll exercises DeleteAll on a sorted-index writer.
@@ -851,7 +851,7 @@ func TestIndexSorting_TieBreak(t *testing.T) {
 // TestIndexSorting_TieBreakVerification ports the StoredFields read-back of
 // testTieBreak that asserts the post-merge docID order.
 func TestIndexSorting_TieBreakVerification(t *testing.T) {
-	t.Skip("GOC-4136: needs StoredFields read-back keyed by post-merge docID (SegmentReader coreReaders gap)")
+	t.Fatal("GOC-4136: needs StoredFields read-back keyed by post-merge docID (SegmentReader coreReaders gap)")
 }
 
 // -----------------------------------------------------------------------------
@@ -862,24 +862,24 @@ func TestIndexSorting_TieBreakVerification(t *testing.T) {
 // adding a document block while an index sort is set, without a configured
 // parent field, must fail.
 func TestIndexSorting_ParentFieldNotConfigured(t *testing.T) {
-	t.Skip("GOC-4136: IndexWriter.AddDocuments is a stub and performs no parent-field validation; cannot assert the IllegalArgumentException")
+	t.Fatal("GOC-4136: IndexWriter.AddDocuments is a stub and performs no parent-field validation; cannot assert the IllegalArgumentException")
 }
 
 // TestIndexSorting_BlockContainsParentField ports testBlockContainsParentField:
 // no document in a block may itself carry the reserved parent field.
 func TestIndexSorting_BlockContainsParentField(t *testing.T) {
-	t.Skip("GOC-4136: IndexWriter.AddDocuments is a stub and performs no reserved-field validation; cannot assert the IllegalArgumentException")
+	t.Fatal("GOC-4136: IndexWriter.AddDocuments is a stub and performs no reserved-field validation; cannot assert the IllegalArgumentException")
 }
 
 // TestIndexSorting_IndexSortWithBlocks ports testIndexSortWithBlocks.
 func TestIndexSorting_IndexSortWithBlocks(t *testing.T) {
-	t.Skip("GOC-4136: needs AddDocuments block support, a parent field, AssertingNeedsIndexSortCodec and StoredFields read-back")
+	t.Fatal("GOC-4136: needs AddDocuments block support, a parent field, AssertingNeedsIndexSortCodec and StoredFields read-back")
 }
 
 // TestIndexSorting_MixRandomDocumentsWithBlocks ports
 // testMixRandomDocumentsWithBlocks.
 func TestIndexSorting_MixRandomDocumentsWithBlocks(t *testing.T) {
-	t.Skip("GOC-4136: needs RandomIndexWriter, AddDocuments block support and StoredFields read-back")
+	t.Fatal("GOC-4136: needs RandomIndexWriter, AddDocuments block support and StoredFields read-back")
 }
 
 // -----------------------------------------------------------------------------

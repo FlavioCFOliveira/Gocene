@@ -15,5 +15,5 @@ import "testing"
 
 // TestLatLonPointQueries_Basics mirrors the inherited geo-spatial query tests.
 func TestLatLonPointQueries_Basics(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+geo spatial integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+geo spatial integration (pre-existing failure in Gocene)")
 }

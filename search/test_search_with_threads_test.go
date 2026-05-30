@@ -16,5 +16,5 @@ import "testing"
 // It verifies that concurrent searches across multiple threads produce
 // consistent results matching single-threaded searches.
 func TestSearchWithThreads_Search(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

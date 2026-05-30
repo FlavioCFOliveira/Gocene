@@ -165,15 +165,15 @@ func TestSortedSetSortField_Serialization(t *testing.T) {
 
 // TestSortedSetSortField_ForwardIndex skips the live-index sort test.
 func TestSortedSetSortField_ForwardIndex(t *testing.T) {
-	t.Skip("requires IndexSearcher and RandomIndexWriter — not yet wired in Gocene")
+	t.Fatal("requires IndexSearcher and RandomIndexWriter — not yet wired in Gocene")
 }
 
 // TestSortedSetSortField_MissingFirstIndex skips the live-index missing-first test.
 func TestSortedSetSortField_MissingFirstIndex(t *testing.T) {
-	t.Skip("requires IndexSearcher and RandomIndexWriter — not yet wired in Gocene")
+	t.Fatal("requires IndexSearcher and RandomIndexWriter — not yet wired in Gocene")
 }
 
 // TestSortedSetSortField_MissingLastIndex skips the live-index missing-last test.
 func TestSortedSetSortField_MissingLastIndex(t *testing.T) {
-	t.Skip("requires IndexSearcher and RandomIndexWriter — not yet wired in Gocene")
+	t.Fatal("requires IndexSearcher and RandomIndexWriter — not yet wired in Gocene")
 }

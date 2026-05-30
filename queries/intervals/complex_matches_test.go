@@ -13,5 +13,5 @@ import "testing"
 // IntervalQuery execution against an indexed corpus, and wildcard interval
 // sources that depend on PrefixQuery.toAutomaton which is not yet ported.
 func TestComplexMatches_All(t *testing.T) {
-	t.Skip("requires MatchesTestBase + full interval query execution; deferred to backlog")
+	t.Fatal("requires MatchesTestBase + full interval query execution; deferred to backlog")
 }

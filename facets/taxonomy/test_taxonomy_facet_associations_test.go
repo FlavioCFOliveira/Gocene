@@ -121,17 +121,17 @@ func TestAssociationFacetsConfig(t *testing.T) {
 // -- Integration stubs -------------------------------------------------------
 
 func TestTaxonomyFacetAssociations_IntSum(t *testing.T) {
-	t.Skip("requires IndexWriter + FacetsCollector + TaxonomyFacetIntAssociations pipeline")
+	t.Fatal("requires IndexWriter + FacetsCollector + TaxonomyFacetIntAssociations pipeline")
 }
 
 func TestTaxonomyFacetAssociations_IntMax(t *testing.T) {
-	t.Skip("requires IndexWriter + FacetsCollector + TaxonomyFacetIntAssociations pipeline")
+	t.Fatal("requires IndexWriter + FacetsCollector + TaxonomyFacetIntAssociations pipeline")
 }
 
 func TestTaxonomyFacetAssociations_FloatSum(t *testing.T) {
-	t.Skip("requires IndexWriter + FacetsCollector + TaxonomyFacetFloatAssociations pipeline")
+	t.Fatal("requires IndexWriter + FacetsCollector + TaxonomyFacetFloatAssociations pipeline")
 }
 
 func TestTaxonomyFacetAssociations_FloatMax(t *testing.T) {
-	t.Skip("requires IndexWriter + FacetsCollector + TaxonomyFacetFloatAssociations pipeline")
+	t.Fatal("requires IndexWriter + FacetsCollector + TaxonomyFacetFloatAssociations pipeline")
 }

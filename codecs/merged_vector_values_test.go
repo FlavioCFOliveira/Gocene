@@ -21,7 +21,7 @@ import "testing"
 // in the Java peer: skipping doc 0 via iterator.NextDoc and then loading
 // doc 1 via vectorValue must return the second source vector.
 func TestSkipsInMergedByteVectorValues(t *testing.T) {
-	t.Skip("requires KnnVectorsWriter.MergedByteVectorValues + ByteVectorValuesSub + ByteVectorValues.FromBytes (Sprint 55 gap)")
+	t.Fatal("requires KnnVectorsWriter.MergedByteVectorValues + ByteVectorValuesSub + ByteVectorValues.FromBytes (Sprint 55 gap)")
 }
 
 // TestSkipsInMergedFloat32VectorValues mirrors
@@ -29,5 +29,5 @@ func TestSkipsInMergedByteVectorValues(t *testing.T) {
 // iterator.NextDoc and then loading doc 1 via vectorValue must return the
 // second source vector.
 func TestSkipsInMergedFloat32VectorValues(t *testing.T) {
-	t.Skip("requires KnnVectorsWriter.MergedFloat32VectorValues + FloatVectorValuesSub + FloatVectorValues.FromFloats (Sprint 55 gap)")
+	t.Fatal("requires KnnVectorsWriter.MergedFloat32VectorValues + FloatVectorValuesSub + FloatVectorValues.FromFloats (Sprint 55 gap)")
 }

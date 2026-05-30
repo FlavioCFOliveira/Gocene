@@ -13,23 +13,23 @@ package search
 import "testing"
 
 func TestBooleanQueryVisitSubscorers_Disjunctions(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }
 func TestBooleanQueryVisitSubscorers_NestedDisjunctions(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }
 func TestBooleanQueryVisitSubscorers_Conjunctions(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }
 func TestBooleanQueryVisitSubscorers_DisjunctionMatches(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }
 func TestBooleanQueryVisitSubscorers_MinShouldMatchMatches(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }
 func TestBooleanQueryVisitSubscorers_GetChildrenMinShouldMatchSumScorer(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }
 func TestBooleanQueryVisitSubscorers_GetChildrenBoosterScorer(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

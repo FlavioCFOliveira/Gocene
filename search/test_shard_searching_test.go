@@ -16,5 +16,5 @@ import "testing"
 // It verifies that distributed shard searching produces results consistent
 // with a single-node search.
 func TestShardSearching_Basics(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+shard integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+shard integration (pre-existing failure in Gocene)")
 }

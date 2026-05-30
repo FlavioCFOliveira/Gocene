@@ -118,7 +118,7 @@ func TestSandboxIDVersionPostings_RoundTrip(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Skipf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
+			t.Fatalf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
 				"blocked on the Gocene sandbox/codecs/idversion port — "+
 				"the reader/writer/segment-terms-enum types exist "+
 				"(sandbox/codecs/idversion/*.go) but the package ships "+

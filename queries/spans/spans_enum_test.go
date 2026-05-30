@@ -11,5 +11,5 @@ import "testing"
 
 // TestSpansEnum_All is skipped because it requires full span index integration.
 func TestSpansEnum_All(t *testing.T) {
-	t.Skip("requires full span index integration; deferred to backlog")
+	t.Fatal("requires full span index integration; deferred to backlog")
 }

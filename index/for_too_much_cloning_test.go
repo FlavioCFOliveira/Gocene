@@ -23,5 +23,5 @@ import "testing"
 // The test is therefore registered as a skipped placeholder until the clone-
 // counting MockDirectoryWrapper and RandomIndexWriter land.
 func TestForTooMuchCloning(t *testing.T) {
-	t.Skip("ForTooMuchCloning: clone-counting MockDirectoryWrapper and RandomIndexWriter not yet ported")
+	t.Fatal("ForTooMuchCloning: clone-counting MockDirectoryWrapper and RandomIndexWriter not yet ported")
 }

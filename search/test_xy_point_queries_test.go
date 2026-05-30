@@ -18,5 +18,5 @@ import "testing"
 // TestXYPointQueries is a placeholder for the concrete BaseXYPointTestCase subclass.
 // It exercises distance, bounding-box and polygon queries on XYPoint fields.
 func TestXYPointQueries(t *testing.T) {
-	t.Skip("extends BaseXYPointTestCase (no own tests); requires IndexWriter+IndexSearcher+XY spatial integration (pre-existing failure in Gocene)")
+	t.Fatal("extends BaseXYPointTestCase (no own tests); requires IndexWriter+IndexSearcher+XY spatial integration (pre-existing failure in Gocene)")
 }

@@ -51,7 +51,7 @@ import "testing"
 // Directory.copyFrom, functional DirectoryReader.open (wired codec reader),
 // expectThrowsAnyOf, and CheckIndex are not yet available.
 func TestSwappedIndexFiles(t *testing.T) {
-	t.Skip("needs RandomIndexWriter, LineFileDocs, MockAnalyzer, " +
+	t.Fatal("needs RandomIndexWriter, LineFileDocs, MockAnalyzer, " +
 		"Directory.copyFrom, wired DirectoryReader.open, expectThrowsAnyOf, " +
 		"and CheckIndex (not yet ported)")
 }

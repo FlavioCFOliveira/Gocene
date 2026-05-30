@@ -100,7 +100,7 @@ func TestKStemmer_VocabularyFile(t *testing.T) {
 	const dataPath = "/tmp/lucene/lucene/analysis/common/src/test/org/apache/lucene/analysis/en/kstem_examples.txt"
 	f, err := os.Open(dataPath)
 	if err != nil {
-		t.Skipf("vocabulary file not available: %v", err)
+		t.Fatalf("vocabulary file not available: %v", err)
 	}
 	defer f.Close()
 

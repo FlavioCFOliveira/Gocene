@@ -48,7 +48,7 @@ func TestExtendedMode_ModeExtendedConstant(t *testing.T) {
 // Deviation: skipped — requires binary dictionary I/O to produce tokens.
 // Tracked in backlog task #2691.
 func TestExtendedMode_Surrogates(t *testing.T) {
-	t.Skip("requires binary dictionary I/O (deferred to codec sprint)")
+	t.Fatal("requires binary dictionary I/O (deferred to codec sprint)")
 }
 
 // TestExtendedMode_Surrogates2 stress-tests the tokenizer with random
@@ -56,19 +56,19 @@ func TestExtendedMode_Surrogates(t *testing.T) {
 //
 // Deviation: skipped — requires binary dictionary I/O.
 func TestExtendedMode_Surrogates2(t *testing.T) {
-	t.Skip("requires binary dictionary I/O (deferred to codec sprint)")
+	t.Fatal("requires binary dictionary I/O (deferred to codec sprint)")
 }
 
 // TestExtendedMode_RandomStrings blasts random strings through the analyzer.
 //
 // Deviation: skipped — requires binary dictionary I/O.
 func TestExtendedMode_RandomStrings(t *testing.T) {
-	t.Skip("requires binary dictionary I/O (deferred to codec sprint)")
+	t.Fatal("requires binary dictionary I/O (deferred to codec sprint)")
 }
 
 // TestExtendedMode_RandomHugeStrings blasts random large strings.
 //
 // Deviation: skipped — requires binary dictionary I/O.
 func TestExtendedMode_RandomHugeStrings(t *testing.T) {
-	t.Skip("requires binary dictionary I/O (deferred to codec sprint)")
+	t.Fatal("requires binary dictionary I/O (deferred to codec sprint)")
 }

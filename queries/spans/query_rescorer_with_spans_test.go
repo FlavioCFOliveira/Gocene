@@ -12,5 +12,5 @@ import "testing"
 // TestQueryRescorerWithSpans_All is skipped because it requires full index,
 // rescorer, and span infrastructure not yet complete in Gocene.
 func TestQueryRescorerWithSpans_All(t *testing.T) {
-	t.Skip("requires full index + rescorer + span infrastructure; deferred to backlog")
+	t.Fatal("requires full index + rescorer + span infrastructure; deferred to backlog")
 }

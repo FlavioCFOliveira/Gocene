@@ -32,5 +32,5 @@ import "testing"
 //
 // See also Test2BFSTOffHeap (GOC-4286) for the MMapDirectory + OffHeapFSTStore variant.
 func Test2BFST(t *testing.T) {
-	t.Skip("monster test: ~3 GiB in-memory FSTs, ~4.5 h runtime, ~35 GiB heap; ported as stub for parity (GOC-4288)")
+	t.Fatal("monster test: ~3 GiB in-memory FSTs, ~4.5 h runtime, ~35 GiB heap; ported as stub for parity (GOC-4288)")
 }

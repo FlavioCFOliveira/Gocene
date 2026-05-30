@@ -18,7 +18,7 @@ import "testing"
 //
 // Port of: queryparser/src/test/.../flexible/spans/TestSpanQueryParser.java
 func TestSpanQueryParser(t *testing.T) {
-	t.Skip("deferred: requires functional SpanOrQuery/SpanTermQuery implementations")
+	t.Fatal("deferred: requires functional SpanOrQuery/SpanTermQuery implementations")
 }
 
 // TestSpanQueryParserSimpleSample is a port of
@@ -31,5 +31,5 @@ func TestSpanQueryParser(t *testing.T) {
 //
 // Port of: queryparser/src/test/.../flexible/spans/TestSpanQueryParserSimpleSample.java
 func TestSpanQueryParserSimpleSample(t *testing.T) {
-	t.Skip("deferred: requires functional SpanOrQuery/SpanTermQuery implementations")
+	t.Fatal("deferred: requires functional SpanOrQuery/SpanTermQuery implementations")
 }

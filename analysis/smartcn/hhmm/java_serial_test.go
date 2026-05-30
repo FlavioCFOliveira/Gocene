@@ -17,7 +17,7 @@ const bigramdictMemPath = "/tmp/lucene/lucene/analysis/smartcn/src/resources/org
 func TestJavaSerialCoredict(t *testing.T) {
 	f, err := os.Open(coredictMemPath)
 	if err != nil {
-		t.Skipf("coredict.mem not available: %v", err)
+		t.Fatalf("coredict.mem not available: %v", err)
 	}
 	defer f.Close()
 
@@ -68,7 +68,7 @@ func TestJavaSerialCoredict(t *testing.T) {
 func TestJavaSerialBigramdict(t *testing.T) {
 	f, err := os.Open(bigramdictMemPath)
 	if err != nil {
-		t.Skipf("bigramdict.mem not available: %v", err)
+		t.Fatalf("bigramdict.mem not available: %v", err)
 	}
 	defer f.Close()
 

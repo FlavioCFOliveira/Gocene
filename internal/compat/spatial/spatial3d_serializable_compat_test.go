@@ -100,7 +100,7 @@ func TestSpatial3dSerializable_RoundTrip(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Skipf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
+			t.Fatalf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
 				"blocked on the Gocene spatial3d port — spatial3d/geom/ "+
 				"exposes PlanetModel / GeoPoint / GeoCircle / GeoBBox "+
 				"types but PlanetModel.Write (planet_model.go:105) and "+

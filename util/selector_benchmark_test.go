@@ -47,7 +47,7 @@ const (
 // BaseSortTestCase Strategy enum, mirroring the layout used by the
 // Sprint 55 stub ports.
 func TestSelectorBenchmarkPlaceholder(t *testing.T) {
-	t.Skip("SelectorBenchmark Strategy presets require BaseSortTestCase " +
+	t.Fatal("SelectorBenchmark Strategy presets require BaseSortTestCase " +
 		"(not yet ported); see backlog. RANDOM strategy is covered by " +
 		"BenchmarkSelectorIntro_Random.")
 }

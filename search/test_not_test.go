@@ -16,5 +16,5 @@ import "testing"
 // It indexes a document containing "all" and "one" and verifies that a boolean
 // NOT query on "one" does NOT match the document.
 func TestNot_TestNot(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

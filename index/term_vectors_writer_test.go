@@ -196,7 +196,7 @@ func nextPositionOffsets(t *testing.T, dpEnum index.PostingsEnum) (int, int) {
 // (LUCENE-1442): the same StringField instance is added three times plus one
 // empty Field instance; offsets must not be double-counted.
 func TestTermVectorsWriterDoubleOffsetCounting(t *testing.T) {
-	t.Skip(termVectorsWriterBlocked)
+	t.Fatal(termVectorsWriterBlocked)
 
 	dir, w, cleanup := tvWriterDir(t)
 	defer cleanup()
@@ -346,7 +346,7 @@ func runTwoTermOffsetCase(t *testing.T, text string, want []offsetCheck) {
 // TestTermVectorsWriterDoubleOffsetCounting2 ports testDoubleOffsetCounting2
 // (LUCENE-1442).
 func TestTermVectorsWriterDoubleOffsetCounting2(t *testing.T) {
-	t.Skip(termVectorsWriterBlocked)
+	t.Fatal(termVectorsWriterBlocked)
 	runTwoTermOffsetCase(t, "abcd", []offsetCheck{{0, 4}, {5, 9}})
 }
 
@@ -354,7 +354,7 @@ func TestTermVectorsWriterDoubleOffsetCounting2(t *testing.T) {
 // testEndOffsetPositionCharAnalyzer (LUCENE-1448): trailing whitespace must not
 // shift the recorded end offset.
 func TestTermVectorsWriterEndOffsetPositionCharAnalyzer(t *testing.T) {
-	t.Skip(termVectorsWriterBlocked)
+	t.Fatal(termVectorsWriterBlocked)
 	runTwoTermOffsetCase(t, "abcd   ", []offsetCheck{{0, 4}, {8, 12}})
 }
 
@@ -368,7 +368,7 @@ func TestTermVectorsWriterEndOffsetPositionCharAnalyzer(t *testing.T) {
 // the missing Field-from-TokenStream path is the additional blocker noted in
 // the file header. Expected offsets once unskipped: {0,4} and {8,12}.
 func TestTermVectorsWriterEndOffsetPositionWithCachingTokenFilter(t *testing.T) {
-	t.Skip(termVectorsWriterBlocked)
+	t.Fatal(termVectorsWriterBlocked)
 
 	dir, w, cleanup := tvWriterDir(t)
 	defer cleanup()
@@ -394,7 +394,7 @@ func TestTermVectorsWriterEndOffsetPositionWithCachingTokenFilter(t *testing.T) 
 // testEndOffsetPositionStopFilter (LUCENE-1448): a dropped stopword ("the")
 // still advances the offset of the following term.
 func TestTermVectorsWriterEndOffsetPositionStopFilter(t *testing.T) {
-	t.Skip(termVectorsWriterBlocked)
+	t.Fatal(termVectorsWriterBlocked)
 	// Java analyzer: MockAnalyzer with MockTokenFilter.ENGLISH_STOPSET, so "the"
 	// is removed; "abcd" keeps offsets 0..4 and the second occurrence lands at
 	// 9..13 (the stopword consumes characters 5..8).
@@ -466,7 +466,7 @@ func runTwoFieldOffsetCase(t *testing.T, texts []string, checks []termOffsetChec
 // TestTermVectorsWriterEndOffsetPositionStandard ports
 // testEndOffsetPositionStandard (LUCENE-1448).
 func TestTermVectorsWriterEndOffsetPositionStandard(t *testing.T) {
-	t.Skip(termVectorsWriterBlocked)
+	t.Fatal(termVectorsWriterBlocked)
 	runTwoFieldOffsetCase(t,
 		[]string{"abcd the  ", "crunch man"},
 		[]termOffsetCheck{
@@ -480,7 +480,7 @@ func TestTermVectorsWriterEndOffsetPositionStandard(t *testing.T) {
 // testEndOffsetPositionStandardEmptyField (LUCENE-1448): a leading empty field
 // instance still consumes one position before the next field's terms.
 func TestTermVectorsWriterEndOffsetPositionStandardEmptyField(t *testing.T) {
-	t.Skip(termVectorsWriterBlocked)
+	t.Fatal(termVectorsWriterBlocked)
 	runTwoFieldOffsetCase(t,
 		[]string{"", "crunch man"},
 		[]termOffsetCheck{
@@ -493,7 +493,7 @@ func TestTermVectorsWriterEndOffsetPositionStandardEmptyField(t *testing.T) {
 // testEndOffsetPositionStandardEmptyField2 (LUCENE-1448): an empty field
 // instance between two non-empty ones.
 func TestTermVectorsWriterEndOffsetPositionStandardEmptyField2(t *testing.T) {
-	t.Skip(termVectorsWriterBlocked)
+	t.Fatal(termVectorsWriterBlocked)
 	runTwoFieldOffsetCase(t,
 		[]string{"abcd", "", "crunch"},
 		[]termOffsetCheck{
@@ -511,7 +511,7 @@ func TestTermVectorsWriterEndOffsetPositionStandardEmptyField2(t *testing.T) {
 // MockDirectoryWrapper test-writer, so the addIndexes leg below opens the
 // source directory directly. The body is otherwise faithful to the reference.
 func TestTermVectorsWriterTermVectorCorruption(t *testing.T) {
-	t.Skip(termVectorsWriterBlocked)
+	t.Fatal(termVectorsWriterBlocked)
 
 	dir, err := store.NewSimpleFSDirectory(t.TempDir())
 	if err != nil {
@@ -605,7 +605,7 @@ func TestTermVectorsWriterTermVectorCorruption(t *testing.T) {
 // (LUCENE-1168): only the third document carries term vectors; the first two
 // must report none.
 func TestTermVectorsWriterTermVectorCorruption2(t *testing.T) {
-	t.Skip(termVectorsWriterBlocked)
+	t.Fatal(termVectorsWriterBlocked)
 
 	dir, err := store.NewSimpleFSDirectory(t.TempDir())
 	if err != nil {
@@ -678,7 +678,7 @@ func TestTermVectorsWriterTermVectorCorruption2(t *testing.T) {
 // (LUCENE-1168): ten then six identical term-vector documents, force-merged,
 // must all be readable for both stored fields and term vectors.
 func TestTermVectorsWriterTermVectorCorruption3(t *testing.T) {
-	t.Skip(termVectorsWriterBlocked)
+	t.Fatal(termVectorsWriterBlocked)
 
 	dir, err := store.NewSimpleFSDirectory(t.TempDir())
 	if err != nil {
@@ -757,7 +757,7 @@ func TestTermVectorsWriterTermVectorCorruption3(t *testing.T) {
 // testNoTermVectorAfterTermVector (LUCENE-1008): a field that drops term
 // vectors in a later segment must still force-merge cleanly.
 func TestTermVectorsWriterNoTermVectorAfterTermVector(t *testing.T) {
-	t.Skip(termVectorsWriterBlocked)
+	t.Fatal(termVectorsWriterBlocked)
 
 	_, iw, cleanup := tvWriterDir(t)
 	defer cleanup()
@@ -814,7 +814,7 @@ func TestTermVectorsWriterNoTermVectorAfterTermVector(t *testing.T) {
 // testNoTermVectorAfterTermVectorMerge (LUCENE-1010): force-merge between the
 // term-vector and non-term-vector segments must not corrupt the index.
 func TestTermVectorsWriterNoTermVectorAfterTermVectorMerge(t *testing.T) {
-	t.Skip(termVectorsWriterBlocked)
+	t.Fatal(termVectorsWriterBlocked)
 
 	_, iw, cleanup := tvWriterDir(t)
 	defer cleanup()
@@ -883,7 +883,7 @@ func TestTermVectorsWriterNoTermVectorAfterTermVectorMerge(t *testing.T) {
 // added good documents remain readable. It exercises six (ft1, ft2) pairs via
 // doTestMixup, exactly as the Java original.
 func TestTermVectorsWriterInconsistentTermVectorOptions(t *testing.T) {
-	t.Skip(termVectorsWriterBlocked)
+	t.Fatal(termVectorsWriterBlocked)
 
 	base := func() *document.FieldType {
 		return document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
@@ -1013,7 +1013,7 @@ func doTestMixup(t *testing.T, ft1, ft2 *document.FieldType) {
 // type must be rejected without aborting the segment, so the previously added
 // empty document survives.
 func TestTermVectorsWriterNoAbortOnBadTVSettings(t *testing.T) {
-	t.Skip(termVectorsWriterBlocked)
+	t.Fatal(termVectorsWriterBlocked)
 
 	dir, err := store.NewSimpleFSDirectory(t.TempDir())
 	if err != nil {

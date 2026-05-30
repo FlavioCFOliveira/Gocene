@@ -13,5 +13,5 @@ package search
 import "testing"
 
 func TestPatienceFloatVectorQuery_ToString(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+KNN integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+KNN integration (pre-existing failure in Gocene)")
 }

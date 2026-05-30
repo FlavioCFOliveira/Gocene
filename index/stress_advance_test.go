@@ -37,7 +37,7 @@ import "testing"
 // infrastructure. Centralised so the reason stays consistent across methods.
 func testStressAdvanceSkip(t *testing.T, missing string) {
 	t.Helper()
-	t.Skipf("GOC-4229: TestStressAdvance port blocked - missing %s", missing)
+	t.Fatalf("GOC-4229: TestStressAdvance port blocked - missing %s", missing)
 }
 
 // TestStressAdvance_StressAdvance ports testStressAdvance.

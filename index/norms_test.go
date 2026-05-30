@@ -62,7 +62,7 @@ func TestNorms_MaxByteNorms(t *testing.T) {
 	// Open reader to verify norms
 	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
-		t.Skipf("DirectoryReader not fully implemented: %v", err)
+		t.Fatalf("DirectoryReader not fully implemented: %v", err)
 		return
 	}
 	defer reader.Close()
@@ -176,7 +176,7 @@ func TestNorms_EmptyValueVsNoValue(t *testing.T) {
 	// Open reader
 	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
-		t.Skipf("DirectoryReader not fully implemented: %v", err)
+		t.Fatalf("DirectoryReader not fully implemented: %v", err)
 		return
 	}
 	defer reader.Close()
@@ -263,7 +263,7 @@ func TestNorms_CustomSimilarity(t *testing.T) {
 	// Verify documents were indexed
 	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
-		t.Skipf("DirectoryReader not fully implemented: %v", err)
+		t.Fatalf("DirectoryReader not fully implemented: %v", err)
 		return
 	}
 	defer reader.Close()
@@ -321,7 +321,7 @@ func TestNorms_OmitNorms(t *testing.T) {
 	// Verify
 	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
-		t.Skipf("DirectoryReader not fully implemented: %v", err)
+		t.Fatalf("DirectoryReader not fully implemented: %v", err)
 		return
 	}
 	defer reader.Close()
@@ -382,7 +382,7 @@ func TestNorms_MergeBehavior(t *testing.T) {
 	// Verify merged index
 	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
-		t.Skipf("DirectoryReader not fully implemented: %v", err)
+		t.Fatalf("DirectoryReader not fully implemented: %v", err)
 		return
 	}
 	defer reader.Close()

@@ -59,14 +59,14 @@ const skipManyFieldsFlushCount = "GOC-4186: IndexWriter.GetFlushCount is a place
 // TestManyFields_ManyFields ports testManyFields: it would index 100 docs of
 // six fields each and assert maxDoc/numDocs == 100 plus docFreq == 1 per term.
 func TestManyFields_ManyFields(t *testing.T) {
-	t.Skip(skipManyFieldsTermStats)
+	t.Fatal(skipManyFieldsTermStats)
 }
 
 // TestManyFields_DiverseDocs ports testDiverseDocs: it would index a stress
 // mix of unique-term, single-term, and very-long-term docs and assert a
 // TermQuery for "field:aaa" counts n*100.
 func TestManyFields_DiverseDocs(t *testing.T) {
-	t.Skip(skipManyFieldsTermStats)
+	t.Fatal(skipManyFieldsTermStats)
 }
 
 // TestManyFields_RotatingFieldNames ports testRotatingFieldNames (LUCENE-4398):
@@ -74,5 +74,5 @@ func TestManyFields_DiverseDocs(t *testing.T) {
 // recycling field names past upto 5000, and assert each segment flushes after
 // a doc count within 90% of the first segment's.
 func TestManyFields_RotatingFieldNames(t *testing.T) {
-	t.Skip(skipManyFieldsFlushCount)
+	t.Fatal(skipManyFieldsFlushCount)
 }

@@ -13,5 +13,5 @@ package search
 import "testing"
 
 func TestComplexExplanationsOfNonMatches_Basics(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+CheckHits integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+CheckHits integration (pre-existing failure in Gocene)")
 }

@@ -13,5 +13,5 @@ import "testing"
 // SpanNearQuery, SpanOrQuery, SpanNotQuery, SpanFirstQuery and related
 // infrastructure not yet complete in Gocene.
 func TestBasics_All(t *testing.T) {
-	t.Skip("requires full span query index integration; deferred to backlog")
+	t.Fatal("requires full span query index integration; deferred to backlog")
 }

@@ -49,7 +49,7 @@ import "testing"
 //
 // Degraded to t.Skip: MockDirectoryWrapper (disk-full injection) is not ported.
 func TestIndexWriterOnDiskFull_AddDocumentOnDiskFull(t *testing.T) {
-	t.Skip("needs MockDirectoryWrapper for disk-full simulation (not ported)")
+	t.Fatal("needs MockDirectoryWrapper for disk-full simulation (not ported)")
 }
 
 // TestIndexWriterOnDiskFull_AddIndexOnDiskFull ports testAddIndexOnDiskFull().
@@ -59,7 +59,7 @@ func TestIndexWriterOnDiskFull_AddDocumentOnDiskFull(t *testing.T) {
 //
 // Degraded to t.Skip: MockDirectoryWrapper not ported.
 func TestIndexWriterOnDiskFull_AddIndexOnDiskFull(t *testing.T) {
-	t.Skip("needs MockDirectoryWrapper for disk-full simulation (not ported)")
+	t.Fatal("needs MockDirectoryWrapper for disk-full simulation (not ported)")
 }
 
 // TestIndexWriterOnDiskFull_CorruptionAfterDiskFull ports
@@ -70,7 +70,7 @@ func TestIndexWriterOnDiskFull_AddIndexOnDiskFull(t *testing.T) {
 //
 // Degraded to t.Skip: MockDirectoryWrapper not ported.
 func TestIndexWriterOnDiskFull_CorruptionAfterDiskFull(t *testing.T) {
-	t.Skip("needs MockDirectoryWrapper for disk-full simulation (not ported)")
+	t.Fatal("needs MockDirectoryWrapper for disk-full simulation (not ported)")
 }
 
 // TestIndexWriterOnDiskFull_ImmediateDiskFull ports testImmediateDiskFull().
@@ -80,5 +80,5 @@ func TestIndexWriterOnDiskFull_CorruptionAfterDiskFull(t *testing.T) {
 //
 // Degraded to t.Skip: MockDirectoryWrapper not ported.
 func TestIndexWriterOnDiskFull_ImmediateDiskFull(t *testing.T) {
-	t.Skip("needs MockDirectoryWrapper for disk-full simulation (not ported)")
+	t.Fatal("needs MockDirectoryWrapper for disk-full simulation (not ported)")
 }

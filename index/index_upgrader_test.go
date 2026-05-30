@@ -51,7 +51,7 @@ func TestIndexUpgrader_BasicUpgrade(t *testing.T) {
 	upgrader := index.NewIndexUpgrader(dir)
 	if err := upgrader.Upgrade(); err != nil {
 		t.Logf("upgrader may not be fully implemented: %v", err)
-		t.Skip("upgrader not implemented")
+		t.Fatal("upgrader not implemented")
 	}
 
 	// Verify index is readable
@@ -96,7 +96,7 @@ func TestIndexUpgrader_MultipleSegments(t *testing.T) {
 	upgrader := index.NewIndexUpgrader(dir)
 	if err := upgrader.Upgrade(); err != nil {
 		t.Logf("upgrader may not be fully implemented: %v", err)
-		t.Skip("upgrader not implemented")
+		t.Fatal("upgrader not implemented")
 	}
 
 	reader, err := index.OpenDirectoryReader(dir)

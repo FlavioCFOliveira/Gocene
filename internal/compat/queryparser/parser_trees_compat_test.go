@@ -104,7 +104,7 @@ func TestQueryparserTrees_RoundTrip(t *testing.T) {
 			for _, pid := range expectedParserIDs {
 				pid := pid
 				t.Run(pid, func(t *testing.T) {
-					t.Skipf("deferred: Gocene round-trip for parser_id=%q at seed=%d "+
+					t.Fatalf("deferred: Gocene round-trip for parser_id=%q at seed=%d "+
 						"is blocked on the Gocene queryparser port — audit "+
 						"column 6 records the surface as "+
 						"'partial:queryparser/query_parser_compatibility_test.go' "+

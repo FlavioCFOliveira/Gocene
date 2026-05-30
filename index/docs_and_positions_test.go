@@ -142,7 +142,7 @@ func docsAndPositionsLeaves(t *testing.T, fieldName string, docs []string) (inde
 // TestDocsAndPositionsPositionsSimple ports testPositionsSimple: term "1"
 // occurs four times per document, at positions 0, 10, 20 and 30.
 func TestDocsAndPositionsPositionsSimple(t *testing.T) {
-	t.Skip(docsAndPositionsBlocked)
+	t.Fatal(docsAndPositionsBlocked)
 
 	const fieldName = "field"
 	const text = "1 2 3 4 5 6 7 8 9 10 " +
@@ -197,7 +197,7 @@ func TestDocsAndPositionsPositionsSimple(t *testing.T) {
 // are indexed and every recorded position of a randomly chosen term is checked
 // against the enum.
 func TestDocsAndPositionsRandomPositions(t *testing.T) {
-	t.Skip(docsAndPositionsBlocked)
+	t.Fatal(docsAndPositionsBlocked)
 
 	const fieldName = "field"
 	numDocs := 47 + rand.Intn(47) // atLeast(47)
@@ -292,7 +292,7 @@ func TestDocsAndPositionsRandomPositions(t *testing.T) {
 // TestDocsAndPositionsRandomDocs ports testRandomDocs: it verifies per-document
 // frequency and advance/nextDoc navigation over a randomly populated field.
 func TestDocsAndPositionsRandomDocs(t *testing.T) {
-	t.Skip(docsAndPositionsBlocked)
+	t.Fatal(docsAndPositionsBlocked)
 
 	const fieldName = "field"
 	numDocs := 49 + rand.Intn(49) // atLeast(49)
@@ -381,7 +381,7 @@ func findNextDocsAndPositions(docs []int, pos, max int) int {
 // TestDocsAndPositionsLargeNumberOfPositions ports testLargeNumberOfPositions:
 // term "even" occurs 500 times per document, forcing a positions buffer refill.
 func TestDocsAndPositionsLargeNumberOfPositions(t *testing.T) {
-	t.Skip(docsAndPositionsBlocked)
+	t.Fatal(docsAndPositionsBlocked)
 
 	const fieldName = "field"
 	const howMany = 1000
@@ -435,7 +435,7 @@ func TestDocsAndPositionsLargeNumberOfPositions(t *testing.T) {
 // TestDocsAndPositionsDocsEnumStart ports testDocsEnumStart: a freshly resolved
 // PostingsEnum reports docID()==-1 until nextDoc is called.
 func TestDocsAndPositionsDocsEnumStart(t *testing.T) {
-	t.Skip(docsAndPositionsBlocked)
+	t.Fatal(docsAndPositionsBlocked)
 
 	const fieldName = "foo"
 	air, cleanup := docsAndPositionsLeaves(t, fieldName, []string{"bar"})
@@ -460,7 +460,7 @@ func TestDocsAndPositionsDocsEnumStart(t *testing.T) {
 // TestDocsAndPositionsDocsAndPositionsEnumStart ports
 // testDocsAndPositionsEnumStart: same -1 contract for a positions-enabled enum.
 func TestDocsAndPositionsDocsAndPositionsEnumStart(t *testing.T) {
-	t.Skip(docsAndPositionsBlocked)
+	t.Fatal(docsAndPositionsBlocked)
 
 	const fieldName = "foo"
 	air, cleanup := docsAndPositionsLeaves(t, fieldName, []string{"bar"})

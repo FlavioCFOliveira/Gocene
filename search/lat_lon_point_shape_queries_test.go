@@ -41,7 +41,7 @@ import "testing"
 // the activation gate. Replace with a real roundtrip once the parent
 // harness and supporting plumbing land in Go.
 func TestLatLonPointShapeQueries(t *testing.T) {
-	t.Skip("blocked by BaseLatLonShapeTestCase parent harness, " +
+	t.Fatal("blocked by BaseLatLonShapeTestCase parent harness, " +
 		"LatLonShape.createIndexableFields, PointValidator (Component2D + " +
 		"Encoder bridge), and RandomIndexWriter/GeoTestUtil/CheckHits/" +
 		"QueryUtils plumbing; remove when fixed")

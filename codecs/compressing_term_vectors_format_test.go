@@ -357,7 +357,7 @@ func TestCompressingTermVectorsReader_Get(t *testing.T) {
 // so the 1:1 acceptance criterion is observable; the Writer/Reader
 // surfaces are already exercised by the lifecycle/Get tests above.
 func TestCompressingTermVectorsFormat_NoOrds(t *testing.T) {
-	t.Skip("testNoOrds requires RandomIndexWriter + LeafReader.termVectors + " +
+	t.Fatal("testNoOrds requires RandomIndexWriter + LeafReader.termVectors + " +
 		"TermsEnum.SeekCeil/Ord UnsupportedOperationException semantics on the " +
 		"compressing path - not yet wired")
 }
@@ -390,7 +390,7 @@ func TestCompressingTermVectorsFormat_NoOrds(t *testing.T) {
 // Until these land, this counterpart is a skipped placeholder so the 1:1
 // acceptance criterion is observable.
 func TestCompressingTermVectorsFormat_ChunkCleanup(t *testing.T) {
-	t.Skip("testChunkCleanup requires NoMergePolicy/LogMergePolicy forceMerge, " +
+	t.Fatal("testChunkCleanup requires NoMergePolicy/LogMergePolicy forceMerge, " +
 		"openIfChanged, CompressingCodec configuration helper, and " +
 		"CompressingTermVectorsReader.GetNumDirty{Docs,Chunks} accessors - " +
 		"not yet wired")

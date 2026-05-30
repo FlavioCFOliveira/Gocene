@@ -50,7 +50,7 @@ import "testing"
 // CodecReader-slice overload for AddIndexes, and fully wired
 // ParallelCompositeReader.Leaves().
 func TestParallelReaderEmptyIndex_EmptyIndex(t *testing.T) {
-	t.Skip("needs Directory copy constructor, AddIndexes(CodecReader...) overload, " +
+	t.Fatal("needs Directory copy constructor, AddIndexes(CodecReader...) overload, " +
 		"and wired ParallelCompositeReader.Leaves()")
 }
 
@@ -68,6 +68,6 @@ func TestParallelReaderEmptyIndex_EmptyIndex(t *testing.T) {
 // reader ref-count propagation through SlowCodecReaderWrapper.close() is
 // not yet wired; and the AddIndexes(CodecReader...) overload does not exist.
 func TestParallelReaderEmptyIndex_EmptyIndexWithVectors(t *testing.T) {
-	t.Skip("needs functional DeleteDocuments(Term), AddIndexes(CodecReader...) overload, " +
+	t.Fatal("needs functional DeleteDocuments(Term), AddIndexes(CodecReader...) overload, " +
 		"and ref-count propagation through SlowCodecReaderWrapper.close()")
 }

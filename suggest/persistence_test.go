@@ -31,7 +31,7 @@ var persistenceKeys = []string{
 // expected results.  Persistence (Store/Load) is deferred until the Gocene
 // TSTLookup gains those methods.
 func TestPersistence_TST(t *testing.T) {
-	t.Skip("TSTLookup.Store/Load not yet implemented — deferred to backlog")
+	t.Fatal("TSTLookup.Store/Load not yet implemented — deferred to backlog")
 
 	inputs := make([]*Input, len(persistenceKeys))
 	for i, k := range persistenceKeys {
@@ -55,7 +55,7 @@ func TestPersistence_TST(t *testing.T) {
 // TestPersistence_FST mirrors TestPersistence.testFSTPersistence.
 // Persistence is deferred; the test validates the build+lookup contract.
 func TestPersistence_FST(t *testing.T) {
-	t.Skip("FSTCompletionLookup.Store/Load not yet implemented — deferred to backlog")
+	t.Fatal("FSTCompletionLookup.Store/Load not yet implemented — deferred to backlog")
 
 	inputs := make([]*Input, len(persistenceKeys))
 	for i, k := range persistenceKeys {

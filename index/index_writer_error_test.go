@@ -151,7 +151,7 @@ func TestIndexWriter_ResourceExhaustion(t *testing.T) {
 
 		// TODO: Test behavior when file descriptors exhausted
 		// Should handle gracefully without corrupting index
-		t.Skip("Resource exhaustion tests require directory mock injection")
+		t.Fatal("Resource exhaustion tests require directory mock injection")
 	})
 
 	t.Run("recover from resource exhaustion", func(t *testing.T) {
@@ -245,7 +245,7 @@ func TestIndexWriter_IOException(t *testing.T) {
 
 		// TODO: Test with injected IO exceptions
 		// Writer should handle gracefully
-		t.Skip("IO exception injection requires MockDirectoryWrapper implementation")
+		t.Fatal("IO exception injection requires MockDirectoryWrapper implementation")
 	})
 }
 
@@ -276,7 +276,7 @@ func TestIndexWriter_Rollback(t *testing.T) {
 		// }
 
 		// After rollback, count should return to initial
-		t.Skip("Rollback not yet implemented")
+		t.Fatal("Rollback not yet implemented")
 
 		if writer.NumDocs() != initialCount {
 			t.Errorf("After rollback, NumDocs should be %d", initialCount)

@@ -62,7 +62,7 @@ func TestSpatialComposite_RoundTrip(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Skipf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
+			t.Fatalf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
 				"blocked on the Gocene composite port — "+
 				"spatial/composite/composite_spatial_strategy.go exposes "+
 				"the composite type but the round-trip leg depends on "+

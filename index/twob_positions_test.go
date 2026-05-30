@@ -26,5 +26,5 @@ import "testing"
 //
 // Monster test: skipped by default.
 func TestTwoBPositions(t *testing.T) {
-	t.Skip("GOC-4161: monster test stub; pending end-to-end IndexWriter indexing support")
+	t.Fatal("GOC-4161: monster test stub; pending end-to-end IndexWriter indexing support")
 }

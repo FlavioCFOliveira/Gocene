@@ -15,5 +15,5 @@ import "testing"
 // grammar) and IndexSearcher + NumericDocValuesField infrastructure not yet
 // present in Gocene.
 func TestDemoExpressions(t *testing.T) {
-	t.Skip("requires full ANTLR JavascriptCompiler and IndexSearcher infrastructure (not yet ported)")
+	t.Fatal("requires full ANTLR JavascriptCompiler and IndexSearcher infrastructure (not yet ported)")
 }

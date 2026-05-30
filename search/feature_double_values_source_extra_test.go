@@ -155,7 +155,7 @@ func openValues(t *testing.T, leaf *index.LeafReaderContext) *search.FeatureDoub
 	values, err := src.GetValues(leaf, nil)
 	if err != nil {
 		if strings.Contains(err.Error(), "core readers are nil") {
-			t.Skipf("gap: OpenDirectoryReader does not yet wire SegmentCoreReaders into SegmentReader (index/directory_reader.go uses NewSegmentReader instead of NewSegmentReaderWithCore); FeatureDoubleValuesSource roundtrip cannot proceed until that path is upgraded — wiring of this test is retained for the future. underlying error: %v", err)
+			t.Fatalf("gap: OpenDirectoryReader does not yet wire SegmentCoreReaders into SegmentReader (index/directory_reader.go uses NewSegmentReader instead of NewSegmentReaderWithCore); FeatureDoubleValuesSource roundtrip cannot proceed until that path is upgraded — wiring of this test is retained for the future. underlying error: %v", err)
 		}
 		t.Fatalf("GetValues: %v", err)
 	}

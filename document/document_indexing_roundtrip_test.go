@@ -350,7 +350,7 @@ func TestDocumentIndexingRoundtrip_BatchDocuments(t *testing.T) {
 // TestDocumentIndexingRoundtrip_UpdateDocument validates document update.
 // Skipped: IndexWriter.UpdateDocument does not yet apply deletions correctly.
 func TestDocumentIndexingRoundtrip_UpdateDocument(t *testing.T) {
-	t.Skip("IndexWriter.UpdateDocument not yet fully implemented")
+	t.Fatal("IndexWriter.UpdateDocument not yet fully implemented")
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
@@ -418,7 +418,7 @@ func TestDocumentIndexingRoundtrip_UpdateDocument(t *testing.T) {
 // TestDocumentIndexingRoundtrip_DeleteDocument validates document deletion.
 // Skipped: IndexWriter.DeleteDocuments does not yet apply deletions correctly.
 func TestDocumentIndexingRoundtrip_DeleteDocument(t *testing.T) {
-	t.Skip("IndexWriter.DeleteDocuments not yet fully implemented")
+	t.Fatal("IndexWriter.DeleteDocuments not yet fully implemented")
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 

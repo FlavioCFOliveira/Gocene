@@ -13,17 +13,17 @@ package search
 import "testing"
 
 func TestTopDocsMerge_Sort1(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }
 func TestTopDocsMerge_Sort2(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }
 func TestTopDocsMerge_InconsistentTopDocsFail(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }
 func TestTopDocsMerge_PreAssignedShardIndex(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }
 func TestTopDocsMerge_TotalHitsRelation(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

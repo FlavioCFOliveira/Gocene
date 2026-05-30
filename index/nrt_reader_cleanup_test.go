@@ -52,7 +52,7 @@ import "testing"
 // DirectoryReader.open(IndexWriter), and LogDocMergePolicy are not yet
 // available.
 func TestNRTReaderCleanup_ClosingDoesNotCorrupt(t *testing.T) {
-	t.Skip("needs MockDirectoryWrapper, RandomIndexWriter, NRT " +
+	t.Fatal("needs MockDirectoryWrapper, RandomIndexWriter, NRT " +
 		"DirectoryReader.open(IndexWriter), and LogDocMergePolicy " +
 		"(not yet ported)")
 }

@@ -12,5 +12,5 @@ import "testing"
 // TestKnnVectorSimilarityFunctions_All is skipped because it requires full KNN
 // vector index infrastructure not yet complete in Gocene.
 func TestKnnVectorSimilarityFunctions_All(t *testing.T) {
-	t.Skip("requires full KNN vector index infrastructure; deferred to backlog")
+	t.Fatal("requires full KNN vector index infrastructure; deferred to backlog")
 }

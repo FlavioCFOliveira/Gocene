@@ -212,7 +212,7 @@ func TestTopFieldCollector_TotalHits(t *testing.T) {
 		t.Fatalf("Failed to get leaves: %v", err)
 	}
 	if len(leaves) < 2 {
-		t.Skipf("Test requires multiple segments, got %d", len(leaves))
+		t.Fatalf("Test requires multiple segments, got %d", len(leaves))
 	}
 
 	searcher := search.NewIndexSearcher(reader)
@@ -568,7 +568,7 @@ func TestTopFieldCollector_ConcurrentMinScore(t *testing.T) {
 		t.Fatalf("Failed to get leaves: %v", err)
 	}
 	if len(leaves) < 2 {
-		t.Skipf("Test requires multiple segments, got %d", len(leaves))
+		t.Fatalf("Test requires multiple segments, got %d", len(leaves))
 	}
 
 	searcher := search.NewIndexSearcher(reader)
@@ -756,7 +756,7 @@ func TestTopFieldCollector_TotalHitsWithScore(t *testing.T) {
 		t.Fatalf("Failed to get leaves: %v", err)
 	}
 	if len(leaves) < 2 {
-		t.Skipf("Test requires multiple segments, got %d", len(leaves))
+		t.Fatalf("Test requires multiple segments, got %d", len(leaves))
 	}
 
 	searcher := search.NewIndexSearcher(reader)

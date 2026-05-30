@@ -168,7 +168,7 @@ func newFeatureSort(t *testing.T, field, featureName string) *search.FeatureSort
 // Expected order after sort: docs whose stored "value" reads "30.1", "4.2",
 // "1.3" in that order (numeric descending on the feature value).
 func TestFeatureSort_Feature(t *testing.T) {
-	t.Skip(skipReasonSortSearch)
+	t.Fatal(skipReasonSortSearch)
 
 	reader, _ := buildSortIndex(t, []sortDocSpec{
 		{hasFeature: true, field: "field", featureName: "name", featureValue: 30.1, storedValue: "30.1"},
@@ -190,7 +190,7 @@ func TestFeatureSort_Feature(t *testing.T) {
 // Expected order after sort: "4.2", "1.3", and a third hit whose stored
 // "value" field is absent (the feature-less document treated as 0).
 func TestFeatureSort_FeatureMissing(t *testing.T) {
-	t.Skip(skipReasonSortSearch)
+	t.Fatal(skipReasonSortSearch)
 
 	reader, _ := buildSortIndex(t, []sortDocSpec{
 		{}, // empty document, treated as 0 by the sort
@@ -209,7 +209,7 @@ func TestFeatureSort_FeatureMissing(t *testing.T) {
 // Expected order after sort: "4.2", "1.3", missing — but the first document
 // is committed alone so its segment carries no "field" terms at all.
 func TestFeatureSort_FeatureMissingFieldInSegment(t *testing.T) {
-	t.Skip(skipReasonSortSearch)
+	t.Fatal(skipReasonSortSearch)
 
 	reader, _ := buildSortIndex(t, []sortDocSpec{
 		{commitAfter: true}, // empty doc, committed alone
@@ -229,7 +229,7 @@ func TestFeatureSort_FeatureMissingFieldInSegment(t *testing.T) {
 // committed alone and carries a different feature name ("different_name") so
 // its segment has "field" terms but none matching the sort's "name".
 func TestFeatureSort_FeatureMissingFeatureNameInSegment(t *testing.T) {
-	t.Skip(skipReasonSortSearch)
+	t.Fatal(skipReasonSortSearch)
 
 	reader, _ := buildSortIndex(t, []sortDocSpec{
 		{hasFeature: true, field: "field", featureName: "different_name", featureValue: 0.5, commitAfter: true},
@@ -248,7 +248,7 @@ func TestFeatureSort_FeatureMissingFeatureNameInSegment(t *testing.T) {
 // Expected order after sort: "4.2", "1.3", then five hits with no "value"
 // stored field (five empty documents collapsed to zero by the sort).
 func TestFeatureSort_FeatureMultipleMissing(t *testing.T) {
-	t.Skip(skipReasonSortSearch)
+	t.Fatal(skipReasonSortSearch)
 
 	reader, _ := buildSortIndex(t, []sortDocSpec{
 		{}, {}, {}, {}, {}, // five empty documents
@@ -267,7 +267,7 @@ func TestFeatureSort_FeatureMultipleMissing(t *testing.T) {
 // produces identical ScoreDoc ordering whether the sort uses SortField.Type.FLOAT
 // against the encoded float docvalues or FeatureSortField against the postings.
 func TestFeatureSort_DuelFloat(t *testing.T) {
-	t.Skip(skipReasonDuel)
+	t.Fatal(skipReasonDuel)
 
 	// Once MAX_FREQ + the FLOAT sort path + NumericDocValuesField + searchAfter
 	// are available, the body is:

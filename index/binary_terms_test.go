@@ -30,7 +30,7 @@ func TestBinaryTerms(t *testing.T) {
 	// loads SegmentCoreReaders from disk, term-level lookups match no
 	// documents and every search below returns 0 hits. Unskip once
 	// OpenDirectoryReader uses NewSegmentReaderWithCore.
-	t.Skip("blocked: OpenDirectoryReader builds SegmentReader without core readers (index/directory_reader.go:462/497); fix is NewSegmentReaderWithCore")
+	t.Fatal("blocked: OpenDirectoryReader builds SegmentReader without core readers (index/directory_reader.go:462/497); fix is NewSegmentReaderWithCore")
 
 	dir, err := store.NewSimpleFSDirectory(t.TempDir())
 	if err != nil {

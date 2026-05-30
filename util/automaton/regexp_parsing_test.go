@@ -380,7 +380,7 @@ func TestRegExpParsing_CharClassNonWord(t *testing.T) {
 }
 
 func TestRegExpParsing_JumboCharClass(t *testing.T) {
-	t.Skipf("%s", minimalDFAUnportedSkip)
+	t.Fatalf("%s", minimalDFAUnportedSkip)
 }
 
 func TestRegExpParsing_TruncatedCharClass(t *testing.T) {

@@ -14,5 +14,5 @@ import "testing"
 
 // TestLongRangeFieldQueries_Basics mirrors testBasics.
 func TestLongRangeFieldQueries_Basics(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

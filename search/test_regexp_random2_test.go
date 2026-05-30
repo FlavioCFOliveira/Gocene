@@ -17,5 +17,5 @@ import "testing"
 // It verifies that random regular expressions produce results consistent with
 // term range queries over the same field.
 func TestRegexpRandom2_Regexps(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

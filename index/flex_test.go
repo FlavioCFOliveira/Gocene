@@ -36,7 +36,7 @@ func TestFlex_NonFlex(t *testing.T) {
 	// field's term dictionary across leaves. Term-level enumeration therefore
 	// cannot run. Unskip once the segment read path and a MultiTerms.getTerms
 	// helper are wired.
-	t.Skip("blocked: OpenDirectoryReader builds SegmentReader without core readers and no MultiTerms.getTerms helper exists")
+	t.Fatal("blocked: OpenDirectoryReader builds SegmentReader without core readers and no MultiTerms.getTerms helper exists")
 
 	const docCount = 177
 
@@ -140,7 +140,7 @@ func TestFlex_TermOrd(t *testing.T) {
 	// Pre-existing infrastructure gap: see TestFlex_NonFlex. OpenDirectoryReader
 	// builds SegmentReader without core readers, so term enumeration over a
 	// leaf cannot run.
-	t.Skip("blocked: OpenDirectoryReader builds SegmentReader without core readers")
+	t.Fatal("blocked: OpenDirectoryReader builds SegmentReader without core readers")
 
 	dir, err := store.NewSimpleFSDirectory(t.TempDir())
 	if err != nil {

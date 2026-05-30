@@ -24,19 +24,19 @@ import (
 //
 // Tracking: GOC-4013.
 func TestPerFieldConsistency(t *testing.T) {
-	t.Skip("TestPerFieldConsistency requires IndexWriter/DirectoryReader; deferred (GOC-4013, Sprint 55 option c)")
+	t.Fatal("TestPerFieldConsistency requires IndexWriter/DirectoryReader; deferred (GOC-4013, Sprint 55 option c)")
 }
 
 // TestPerFieldConsistency_DocWithMissingSchemaOptionsThrowsError mirrors
 // Lucene's testDocWithMissingSchemaOptionsThrowsError. See [TestPerFieldConsistency]
 // for the deferral rationale.
 func TestPerFieldConsistency_DocWithMissingSchemaOptionsThrowsError(t *testing.T) {
-	t.Skip("requires IndexWriter/DirectoryReader; deferred (GOC-4013, Sprint 55 option c)")
+	t.Fatal("requires IndexWriter/DirectoryReader; deferred (GOC-4013, Sprint 55 option c)")
 }
 
 // TestPerFieldConsistency_DocWithExtraSchemaOptionsThrowsError mirrors
 // Lucene's testDocWithExtraSchemaOptionsThrowsError. See [TestPerFieldConsistency]
 // for the deferral rationale.
 func TestPerFieldConsistency_DocWithExtraSchemaOptionsThrowsError(t *testing.T) {
-	t.Skip("requires IndexWriter/DirectoryReader; deferred (GOC-4013, Sprint 55 option c)")
+	t.Fatal("requires IndexWriter/DirectoryReader; deferred (GOC-4013, Sprint 55 option c)")
 }

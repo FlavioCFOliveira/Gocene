@@ -16,5 +16,5 @@ import "testing"
 
 // TestBaseDocValuesSkipperTests is a placeholder for the abstract base class.
 func TestBaseDocValuesSkipperTests(t *testing.T) {
-	t.Skip("abstract test base class — concrete subclasses supply a DocValuesSkipper factory; requires IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("abstract test base class — concrete subclasses supply a DocValuesSkipper factory; requires IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

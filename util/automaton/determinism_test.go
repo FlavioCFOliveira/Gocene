@@ -48,7 +48,7 @@ const determinismGapMessage = "AutomatonTestUtil.randomRegexp / randomAutomaton 
 // RegExp.NONE, and runs assertAutomaton on the result (which exercises
 // determinize/complement/union/intersection/minus/optional consistency).
 func TestDeterminism_Regexps(t *testing.T) {
-	t.Skip(determinismGapMessage)
+	t.Fatal(determinismGapMessage)
 }
 
 // TestDeterminism_AgainstSimple mirrors Lucene's TestDeterminism
@@ -59,5 +59,5 @@ func TestDeterminism_Regexps(t *testing.T) {
 // language. Skipped until the AutomatonTestUtil random/simple helpers
 // are ported.
 func TestDeterminism_AgainstSimple(t *testing.T) {
-	t.Skip(determinismGapMessage)
+	t.Fatal(determinismGapMessage)
 }

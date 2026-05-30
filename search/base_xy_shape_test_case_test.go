@@ -308,7 +308,7 @@ const baseXYShapeFieldName = "shape"
 //     GOC-4532+).
 //   - geo.Tessellator port (POLYGON shape-type re-roll loop).
 func TestBaseXYShape_PortStub(t *testing.T) {
-	t.Skip("blocked by RandomIndexWriter/ShapeTestUtil/QueryUtils/XYShape.New*Query/document.NewGeometryQuery/Tessellator; remove this Skip when fixed")
+	t.Fatal("blocked by RandomIndexWriter/ShapeTestUtil/QueryUtils/XYShape.New*Query/document.NewGeometryQuery/Tessellator; remove this Skip when fixed")
 
 	// Reserved factories: the future implementation reads from this
 	// bundle. Touching it here keeps the symbols live for static

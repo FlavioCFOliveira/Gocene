@@ -344,7 +344,7 @@ func TestNRTSearcher_String(t *testing.T) {
 // autoRefreshLoop (which calls Refresh acquiring mu.Lock).
 func TestNRTSearcher_StartStopDeadlockRegression(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping deadlock regression in -short mode")
+		t.Fatal("skipping deadlock regression in -short mode")
 	}
 
 	const iterations = 100
@@ -386,7 +386,7 @@ func TestNRTSearcher_StartStopDeadlockRegression(t *testing.T) {
 // with an active auto-refresh goroutine does not deadlock.
 func TestNRTSearcher_CloseAutoRefreshDeadlockRegression(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping deadlock regression in -short mode")
+		t.Fatal("skipping deadlock regression in -short mode")
 	}
 
 	const iterations = 100

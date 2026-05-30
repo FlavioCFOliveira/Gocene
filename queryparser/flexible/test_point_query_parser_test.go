@@ -19,5 +19,5 @@ import "testing"
 //
 // Port of: queryparser/src/test/.../flexible/standard/TestPointQueryParser.java
 func TestPointQueryParser(t *testing.T) {
-	t.Skip("deferred: requires SetPointsConfigMap and point range query factories (IntPoint/LongPoint/etc.)")
+	t.Fatal("deferred: requires SetPointsConfigMap and point range query factories (IntPoint/LongPoint/etc.)")
 }

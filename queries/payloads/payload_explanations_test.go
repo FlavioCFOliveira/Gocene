@@ -12,5 +12,5 @@ import "testing"
 // TestPayloadExplanations_All is skipped because it requires full payload
 // explanation infrastructure not yet complete in Gocene.
 func TestPayloadExplanations_All(t *testing.T) {
-	t.Skip("requires full payload scoring + explanation infrastructure; deferred to backlog")
+	t.Fatal("requires full payload scoring + explanation infrastructure; deferred to backlog")
 }

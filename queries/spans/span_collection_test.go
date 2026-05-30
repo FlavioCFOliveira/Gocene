@@ -12,5 +12,5 @@ import "testing"
 // TestSpanCollection_All is skipped because it requires full span collection
 // infrastructure (SpanCollector) not yet complete in Gocene.
 func TestSpanCollection_All(t *testing.T) {
-	t.Skip("requires full SpanCollector infrastructure; deferred to backlog")
+	t.Fatal("requires full SpanCollector infrastructure; deferred to backlog")
 }

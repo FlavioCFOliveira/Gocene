@@ -60,7 +60,7 @@ import (
 // field type's IsOmitNorms() value. The IndexingChain path that does carry the
 // check is not exercised through the current AddDocument code path.
 func TestOmitNorms_MixedMergeThrowsError(t *testing.T) {
-	t.Skip("omitNorms conflict detection not propagated through " +
+	t.Fatal("omitNorms conflict detection not propagated through " +
 		"DocumentsWriterPerThread.ProcessDocument; " +
 		"IndexingChain.setIndexOptions conflict check unreachable from AddDocument")
 }
@@ -77,7 +77,7 @@ func TestOmitNorms_MixedMergeThrowsError(t *testing.T) {
 // resulting leaf returns an empty FieldInfos and the assertions cannot be
 // verified. Skip until NewSegmentReader initialises coreReaders from the codec.
 func TestOmitNorms_MixedRAM(t *testing.T) {
-	t.Skip("reader-side FieldInfos not loaded by NewSegmentReader; " +
+	t.Fatal("reader-side FieldInfos not loaded by NewSegmentReader; " +
 		"GetFieldInfos on leaf returns empty FieldInfos until codec wiring is complete")
 }
 

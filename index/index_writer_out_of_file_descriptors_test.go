@@ -39,5 +39,5 @@ import "testing"
 // asserting after each iteration that the index still exists and that its
 // document count never decreases.
 func TestIndexWriterOutOfFileDescriptors(t *testing.T) {
-	t.Skip("GOC-4137: requires MockDirectoryWrapper random-I/O-exception fault injection (setRandomIOExceptionRateOnOpen), LineFileDocs and DirectoryReader NumDocs read-back; none available in Gocene")
+	t.Fatal("GOC-4137: requires MockDirectoryWrapper random-I/O-exception fault injection (setRandomIOExceptionRateOnOpen), LineFileDocs and DirectoryReader NumDocs read-back; none available in Gocene")
 }

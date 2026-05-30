@@ -104,7 +104,7 @@ func TestMiscAudit_DeferredRows(t *testing.T) {
 			if row.covered {
 				tag = "covered_by_java_fixture=partial (read+verify; round-trip deferred)"
 			}
-			t.Skipf("deferred citation: %s (lucene_class=%q gocene_ref=%q "+
+			t.Fatalf("deferred citation: %s (lucene_class=%q gocene_ref=%q "+
 				"manifest_row=%q %s gap_notes=%q): %s",
 				row.artefact, row.luceneCls, row.goceneRef, row.manifestRow,
 				tag, row.gapNotes, row.reason)

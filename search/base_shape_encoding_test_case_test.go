@@ -173,7 +173,7 @@ func orientInt(ay, ax, by, bx, cy, cx int32) int {
 // trivially grep-able.
 func skipNoDecoder(t *testing.T) {
 	t.Helper()
-	t.Skip("blocked: document.DecodeTriangle does not yet recover the (BX, BY, CX, CY) vertices nor apply the canonical orientation rotation; deferred to backlog #2697 (Lucene-byte-compatible tessellator + decoder).")
+	t.Fatal("blocked: document.DecodeTriangle does not yet recover the (BX, BY, CX, CY) vertices nor apply the canonical orientation rotation; deferred to backlog #2697 (Lucene-byte-compatible tessellator + decoder).")
 }
 
 // skipNoPolygonRandomizer is the gap message for the three random
@@ -184,7 +184,7 @@ func skipNoDecoder(t *testing.T) {
 // `createPolygon2D` hooks.
 func skipNoPolygonRandomizer(t *testing.T) {
 	t.Helper()
-	t.Skip("blocked: requires (1) the rotation-aware ShapeField decoder (backlog #2697) and (2) the GeoTestUtil-equivalent polygon randomiser (nextX/nextY/nextPolygon/createPolygon2D hooks).")
+	t.Fatal("blocked: requires (1) the rotation-aware ShapeField decoder (backlog #2697) and (2) the GeoTestUtil-equivalent polygon randomiser (nextX/nextY/nextPolygon/createPolygon2D hooks).")
 }
 
 // ---------------------------------------------------------------------

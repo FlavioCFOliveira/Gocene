@@ -15,5 +15,5 @@ package index_test
 import "testing"
 
 func TestStressNRT(t *testing.T) {
-	t.Skip("TestStressNRT — blocked by rmp #118: the GetReader / OpenIfChangedFromWriter NRT primitives now exist (rmp #1/#2), but this stress test additionally needs the no-commit in-memory NRT path, soft-delete/delete-by-query NRT semantics, and the real ForceMerge write-path (rmp #114) before its concurrent model verification can pass")
+	t.Fatal("TestStressNRT — blocked by rmp #118: the GetReader / OpenIfChangedFromWriter NRT primitives now exist (rmp #1/#2), but this stress test additionally needs the no-commit in-memory NRT path, soft-delete/delete-by-query NRT semantics, and the real ForceMerge write-path (rmp #114) before its concurrent model verification can pass")
 }

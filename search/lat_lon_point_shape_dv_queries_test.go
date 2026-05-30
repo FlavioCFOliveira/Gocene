@@ -28,7 +28,7 @@ import "testing"
 // stub. It must be replaced with a real roundtrip once the parent harness
 // and TestLatLonPointShapeQueries.PointValidator land in Go.
 func TestLatLonPointShapeDVQueries(t *testing.T) {
-	t.Skip("blocked by BaseLatLonShapeDocValueTestCase parent harness, " +
+	t.Fatal("blocked by BaseLatLonShapeDocValueTestCase parent harness, " +
 		"TestLatLonPointShapeQueries.PointValidator, and RandomIndexWriter/" +
 		"GeoTestUtil/CheckHits/QueryUtils plumbing; remove when fixed")
 }

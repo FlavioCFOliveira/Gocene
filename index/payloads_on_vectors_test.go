@@ -64,7 +64,7 @@ func TestPayloadsOnVectors_MixupDocs(t *testing.T) {
 		t.Fatalf("Failed to close writer: %v", err)
 	}
 
-	t.Skip("payload read-back requires CannedTokenStream and per-leaf TermVectors().Get -> Postings(ALL), not yet implemented")
+	t.Fatal("payload read-back requires CannedTokenStream and per-leaf TermVectors().Get -> Postings(ALL), not yet implemented")
 }
 
 // TestPayloadsOnVectors_MixupMultiValued ports
@@ -107,7 +107,7 @@ func TestPayloadsOnVectors_MixupMultiValued(t *testing.T) {
 		t.Fatalf("Failed to close writer: %v", err)
 	}
 
-	t.Skip("payload read-back requires CannedTokenStream and per-leaf TermVectors().Get -> Postings(ALL), not yet implemented")
+	t.Fatal("payload read-back requires CannedTokenStream and per-leaf TermVectors().Get -> Postings(ALL), not yet implemented")
 }
 
 // TestPayloadsOnVectors_PayloadsWithoutPositions ports
@@ -145,5 +145,5 @@ func TestPayloadsOnVectors_PayloadsWithoutPositions(t *testing.T) {
 	}
 	doc.Add(field)
 
-	t.Skip("illegal term-vector payload config is rejected in TermVectorsConsumerPerField.Start, but IndexingChain does not yet wire TermVectorsConsumer into AddDocument")
+	t.Fatal("illegal term-vector payload config is rejected in TermVectorsConsumerPerField.Start, but IndexingChain does not yet wire TermVectorsConsumer into AddDocument")
 }

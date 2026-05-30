@@ -17,5 +17,5 @@ import "testing"
 // TestDemo mirrors testDemo (Lucene 10.4.0).
 // It indexes a document and verifies retrieval via TermQuery and PhraseQuery.
 func TestDemo(t *testing.T) {
-	t.Skip("requires IndexWriter, IndexSearcher, DirectoryReader, FSDirectory, Document, Field, TermQuery, PhraseQuery (not yet ported to Gocene)")
+	t.Fatal("requires IndexWriter, IndexSearcher, DirectoryReader, FSDirectory, Document, Field, TermQuery, PhraseQuery (not yet ported to Gocene)")
 }

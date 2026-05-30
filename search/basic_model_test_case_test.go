@@ -16,5 +16,5 @@ import "testing"
 
 // TestBasicModelTestCase is a placeholder for the abstract base class.
 func TestBasicModelTestCase(t *testing.T) {
-	t.Skip("abstract test base class — concrete subclasses supply a BasicModel impl; requires IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("abstract test base class — concrete subclasses supply a BasicModel impl; requires IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

@@ -100,7 +100,7 @@ func TestUpdateableDocIdSetIterator_Advance(t *testing.T) {
 // Requires DocIdSetIterator.intoBitSet which is not on Gocene's
 // DocIdSetIterator interface. Ported as a degraded stub.
 func TestUpdateableDocIdSetIterator_IntoBitSet(t *testing.T) {
-	t.Skip("intoBitSet is not on Gocene's DocIdSetIterator interface — deferred")
+	t.Fatal("intoBitSet is not on Gocene's DocIdSetIterator interface — deferred")
 }
 
 // TestUpdateableDocIdSetIterator_DocIDRunEnd mirrors

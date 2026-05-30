@@ -85,13 +85,13 @@ const skipIndexWriterExceptions = "GOC-4233: needs RandomIndexWriter + mockIndex
 // arbitrary internal stages; after close, content4:aaa and content4:ddd must
 // have equal docFreq (failed docs fully deleted).
 func TestIndexWriterExceptions_RandomExceptions(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_RandomExceptionsThreads ports
 // testRandomExceptionsThreads: same as above with 4 concurrent IndexerThreads.
 func TestIndexWriterExceptions_RandomExceptionsThreads(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_ExceptionDocumentsWriterInit ports
@@ -99,7 +99,7 @@ func TestIndexWriterExceptions_RandomExceptionsThreads(t *testing.T) {
 // "DocumentsWriterPerThread addDocuments start"; addDocument must throw
 // RuntimeException yet the writer stays usable and closes cleanly.
 func TestIndexWriterExceptions_ExceptionDocumentsWriterInit(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_ExceptionJustBeforeFlush ports
@@ -107,7 +107,7 @@ func TestIndexWriterExceptions_ExceptionDocumentsWriterInit(t *testing.T) {
 // "crash" field after 4 tokens; addDocument throws IOException, then a normal
 // doc can still be added and the writer closed.
 func TestIndexWriterExceptions_ExceptionJustBeforeFlush(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_ExceptionOnMergeInit ports
@@ -115,7 +115,7 @@ func TestIndexWriterExceptions_ExceptionJustBeforeFlush(t *testing.T) {
 // "startMergeInit"; after adding docs and draining the merge scheduler the
 // test point must have fired and the writer closes.
 func TestIndexWriterExceptions_ExceptionOnMergeInit(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_ExceptionFromTokenStream ports
@@ -123,7 +123,7 @@ func TestIndexWriterExceptions_ExceptionOnMergeInit(t *testing.T) {
 // on the 6th token; the broken doc is deleted, two later docs survive,
 // docFreq(content:aa)==3 with 2 live, and docFreq(content:gg)==0.
 func TestIndexWriterExceptions_ExceptionFromTokenStream(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_DocumentsWriterAbort ports
@@ -131,7 +131,7 @@ func TestIndexWriterExceptions_ExceptionFromTokenStream(t *testing.T) {
 // flush; the aborting exception must close the writer and its deleter, and
 // leave no index (DirectoryReader.indexExists==false).
 func TestIndexWriterExceptions_DocumentsWriterAbort(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_DocumentsWriterExceptions ports
@@ -140,7 +140,7 @@ func TestIndexWriterExceptions_DocumentsWriterAbort(t *testing.T) {
 // docs keep stored fields and term vectors, and a later forceMerge(1) yields
 // the expected docFreq/maxDoc with no deletions.
 func TestIndexWriterExceptions_DocumentsWriterExceptions(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_DocumentsWriterExceptionFailOneDoc ports
@@ -148,7 +148,7 @@ func TestIndexWriterExceptions_DocumentsWriterExceptions(t *testing.T) {
 // exactly one doc, keepFullyDeletedSegment is forced true, and the reader
 // sees maxDoc==2, numDocs==1, docFreq(contents:here)==2.
 func TestIndexWriterExceptions_DocumentsWriterExceptionFailOneDoc(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_DocumentsWriterExceptionThreads ports
@@ -156,7 +156,7 @@ func TestIndexWriterExceptions_DocumentsWriterExceptionFailOneDoc(t *testing.T) 
 // each per iteration; deletions equal NUM_THREAD*NUM_ITER and a later
 // forceMerge(1) reconciles docFreq/maxDoc.
 func TestIndexWriterExceptions_DocumentsWriterExceptionThreads(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_ExceptionDuringSync ports testExceptionDuringSync
@@ -164,7 +164,7 @@ func TestIndexWriterExceptions_DocumentsWriterExceptionThreads(t *testing.T) {
 // MockDirectoryWrapper.sync; commits fail but after clearing the failure all
 // 23 docs are present.
 func TestIndexWriterExceptions_ExceptionDuringSync(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_ExceptionsDuringCommit ports
@@ -173,7 +173,7 @@ func TestIndexWriterExceptions_ExceptionDuringSync(t *testing.T) {
 // after field map, finishCommit); close() throws, rollback() recovers, and
 // the directory file count is unchanged (modulo the write lock).
 func TestIndexWriterExceptions_ExceptionsDuringCommit(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_ForceMergeExceptions ports
@@ -181,7 +181,7 @@ func TestIndexWriterExceptions_ExceptionsDuringCommit(t *testing.T) {
 // forceMerge may throw IllegalStateException or an IOException with a root
 // cause, and the writer still closes cleanly.
 func TestIndexWriterExceptions_ForceMergeExceptions(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_OutOfMemoryErrorCausesCloseToFail ports
@@ -189,7 +189,7 @@ func TestIndexWriterExceptions_ForceMergeExceptions(t *testing.T) {
 // throws OutOfMemoryError at "now flush at close"; the first close() throws
 // OOME and a second close() must succeed without IllegalStateException.
 func TestIndexWriterExceptions_OutOfMemoryErrorCausesCloseToFail(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_OutOfMemoryErrorRollback ports
@@ -197,7 +197,7 @@ func TestIndexWriterExceptions_OutOfMemoryErrorCausesCloseToFail(t *testing.T) {
 // after OOME the writer refuses further changes (AlreadyClosedException) and
 // rolls back so no index exists.
 func TestIndexWriterExceptions_OutOfMemoryErrorRollback(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_RollbackExceptionHang ports
@@ -205,7 +205,7 @@ func TestIndexWriterExceptions_OutOfMemoryErrorRollback(t *testing.T) {
 // before checkpoint"; rollback() throws RuntimeException once, then a clean
 // rollback() must not hang.
 func TestIndexWriterExceptions_RollbackExceptionHang(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_SegmentsChecksumError ports
@@ -213,21 +213,21 @@ func TestIndexWriterExceptions_RollbackExceptionHang(t *testing.T) {
 // rewritten to corrupt the checksum; DirectoryReader.open must throw
 // CorruptIndexException.
 func TestIndexWriterExceptions_SegmentsChecksumError(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_SimulatedCorruptIndex1 ports
 // testSimulatedCorruptIndex1: the latest segments file is truncated by one
 // byte; DirectoryReader.open must throw.
 func TestIndexWriterExceptions_SimulatedCorruptIndex1(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_SimulatedCorruptIndex2 ports
 // testSimulatedCorruptIndex2: a random file inside a compound-file segment is
 // deleted; DirectoryReader.open must throw.
 func TestIndexWriterExceptions_SimulatedCorruptIndex2(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_TermVectorExceptions ports
@@ -235,7 +235,7 @@ func TestIndexWriterExceptions_SimulatedCorruptIndex2(t *testing.T) {
 // after-init term-vectors stages; an aborting throw closes the writer,
 // otherwise indexing continues and the final reader has no term-vector fields.
 func TestIndexWriterExceptions_TermVectorExceptions(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_AddDocsNonAbortingException ports
@@ -243,7 +243,7 @@ func TestIndexWriterExceptions_TermVectorExceptions(t *testing.T) {
 // CRASH_FAIL_MESSAGE; the whole block is dropped (non-aborting) and a phrase
 // query confirms only the good docs from before/after remain.
 func TestIndexWriterExceptions_AddDocsNonAbortingException(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_UpdateDocsNonAbortingException ports
@@ -251,7 +251,7 @@ func TestIndexWriterExceptions_AddDocsNonAbortingException(t *testing.T) {
 // throws CRASH_FAIL_MESSAGE; the update block is dropped without deleting the
 // targeted docs, verified by phrase-query counts.
 func TestIndexWriterExceptions_UpdateDocsNonAbortingException(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_NullStoredField ports testNullStoredField:
@@ -259,49 +259,49 @@ func TestIndexWriterExceptions_UpdateDocsNonAbortingException(t *testing.T) {
 // IllegalArgumentException without aborting; getTragicException stays null and
 // the prior good doc survives.
 func TestIndexWriterExceptions_NullStoredField(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_NullStoredFieldReuse ports
 // testNullStoredFieldReuse: reusing a StoredField and setting its String value
 // to null throws IllegalArgumentException without aborting the segment.
 func TestIndexWriterExceptions_NullStoredFieldReuse(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_NullStoredBytesField ports
 // testNullStoredBytesField: a StoredField with a null byte[] throws
 // NullPointerException without aborting the segment.
 func TestIndexWriterExceptions_NullStoredBytesField(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_NullStoredBytesFieldReuse ports
 // testNullStoredBytesFieldReuse: reusing a StoredField and setting its byte[]
 // value to null throws NullPointerException without aborting the segment.
 func TestIndexWriterExceptions_NullStoredBytesFieldReuse(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_NullStoredBytesRefField ports
 // testNullStoredBytesRefField: a StoredField with a null BytesRef throws
 // IllegalArgumentException without aborting the segment.
 func TestIndexWriterExceptions_NullStoredBytesRefField(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_NullStoredBytesRefFieldReuse ports
 // testNullStoredBytesRefFieldReuse: reusing a StoredField and setting its
 // BytesRef value to null throws IllegalArgumentException without aborting.
 func TestIndexWriterExceptions_NullStoredBytesRefFieldReuse(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_NullStoredDataInputField ports
 // testNullStoredDataInputField: a StoredField with a null StoredFieldDataInput
 // throws IllegalArgumentException without aborting the segment.
 func TestIndexWriterExceptions_NullStoredDataInputField(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_CrazyPositionIncrementGap ports
@@ -309,14 +309,14 @@ func TestIndexWriterExceptions_NullStoredDataInputField(t *testing.T) {
 // positionIncrementGap makes a multi-valued text field throw
 // IllegalArgumentException without aborting; the prior good doc survives.
 func TestIndexWriterExceptions_CrazyPositionIncrementGap(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_ExceptionOnCtor ports testExceptionOnCtor:
 // a UOEDirectory throws UnsupportedOperationException while reading
 // segments_N; constructing a new IndexWriter must surface that exception.
 func TestIndexWriterExceptions_ExceptionOnCtor(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_TooManyFileException ports
@@ -324,14 +324,14 @@ func TestIndexWriterExceptions_ExceptionOnCtor(t *testing.T) {
 // FileNotFoundException("Too many open files") on openInput; opening the
 // writer may fail in tolerated ways but the single document is never lost.
 func TestIndexWriterExceptions_TooManyFileException(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_TooManyTokens ports testTooManyTokens
 // (@Nightly): a TokenStream emitting Integer.MAX_VALUE+1 tokens makes
 // addDocument throw IllegalArgumentException containing "too many tokens".
 func TestIndexWriterExceptions_TooManyTokens(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_ExceptionDuringRollback ports
@@ -339,7 +339,7 @@ func TestIndexWriterExceptions_TooManyTokens(t *testing.T) {
 // rollback; rollback() throws, yet the writer ends closed with no leaked
 // locks/files and the index reopens with maxDoc==10.
 func TestIndexWriterExceptions_ExceptionDuringRollback(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_RandomExceptionDuringRollback ports
@@ -347,7 +347,7 @@ func TestIndexWriterExceptions_ExceptionDuringRollback(t *testing.T) {
 // FakeIOException at random points inside rollbackInternal; the writer always
 // ends closed with no leaked locks/files and the index reopens cleanly.
 func TestIndexWriterExceptions_RandomExceptionDuringRollback(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_MergeExceptionIsTragic ports
@@ -355,7 +355,7 @@ func TestIndexWriterExceptions_RandomExceptionDuringRollback(t *testing.T) {
 // merge becomes a tragic exception; after it fires the writer is not open and
 // getTragicException is non-null.
 func TestIndexWriterExceptions_MergeExceptionIsTragic(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_OnlyRollbackOnceOnException ports
@@ -363,7 +363,7 @@ func TestIndexWriterExceptions_MergeExceptionIsTragic(t *testing.T) {
 // "rollback before checkpoint" is seen and AssertionError on any second time;
 // the test confirms rollback runs exactly once with no suppressed exceptions.
 func TestIndexWriterExceptions_OnlyRollbackOnceOnException(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_ExceptionOnSyncMetadata ports
@@ -371,7 +371,7 @@ func TestIndexWriterExceptions_OnlyRollbackOnceOnException(t *testing.T) {
 // finishCommit and optionally "bang" during rollback file deletion; commit and
 // rollback both throw, the writer ends closed, and the index still exists.
 func TestIndexWriterExceptions_ExceptionOnSyncMetadata(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }
 
 // TestIndexWriterExceptions_ExceptionJustBeforeFlushWithPointValues ports
@@ -379,5 +379,5 @@ func TestIndexWriterExceptions_ExceptionOnSyncMetadata(t *testing.T) {
 // that also carries an IntPoint, under a SoftDeletesRetentionMergePolicy; the
 // failed doc is marked deleted and the leaf reports no point values.
 func TestIndexWriterExceptions_ExceptionJustBeforeFlushWithPointValues(t *testing.T) {
-	t.Skip(skipIndexWriterExceptions)
+	t.Fatal(skipIndexWriterExceptions)
 }

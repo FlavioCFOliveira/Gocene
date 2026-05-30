@@ -14,5 +14,5 @@ import "testing"
 
 // TestSortRandom_RandomStringSort mirrors testRandomStringSort.
 func TestSortRandom_RandomStringSort(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

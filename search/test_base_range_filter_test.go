@@ -15,5 +15,5 @@ import "testing"
 // TestBaseRangeFilter_Pad mirrors the Java testPad method.
 // It verifies numeric padding behaviour for range filter string encoding.
 func TestBaseRangeFilter_Pad(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

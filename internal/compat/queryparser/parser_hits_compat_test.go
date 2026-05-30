@@ -128,7 +128,7 @@ func TestQueryparserHits_RoundTrip(t *testing.T) {
 				pid := r.parserID
 				qid := r.queryID
 				t.Run(pairKey, func(t *testing.T) {
-					t.Skipf("deferred: Gocene round-trip for parser=%q query=%q at "+
+					t.Fatalf("deferred: Gocene round-trip for parser=%q query=%q at "+
 						"seed=%d is blocked on (1) the partial Gocene queryparser "+
 						"port (audit column 6: "+
 						"'partial:queryparser/query_parser_compatibility_test.go') "+

@@ -36,5 +36,5 @@ import "testing"
 
 // TestSumDocFreq ports testSumDocFreq.
 func TestSumDocFreq(t *testing.T) {
-	t.Skip("GOC-4173: needs RandomIndexWriter plus MultiTerms.getTerms / postings read-back (SegmentReader coreReaders gap)")
+	t.Fatal("GOC-4173: needs RandomIndexWriter plus MultiTerms.getTerms / postings read-back (SegmentReader coreReaders gap)")
 }

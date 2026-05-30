@@ -143,7 +143,7 @@ func commitAndClose(t *testing.T, w *index.IndexWriter) {
 // TestCustomTermFreq_SingletonTermsOneDoc ports
 // org.apache.lucene.index.TestCustomTermFreq#testSingletonTermsOneDoc.
 func TestCustomTermFreq_SingletonTermsOneDoc(t *testing.T) {
-	t.Skip(customTermFreqBlocked)
+	t.Fatal(customTermFreqBlocked)
 
 	dir, w := newCustomFreqWriter(t)
 	defer dir.Close()
@@ -165,7 +165,7 @@ func TestCustomTermFreq_SingletonTermsOneDoc(t *testing.T) {
 // TestCustomTermFreq_SingletonTermsTwoDocs ports
 // org.apache.lucene.index.TestCustomTermFreq#testSingletonTermsTwoDocs.
 func TestCustomTermFreq_SingletonTermsTwoDocs(t *testing.T) {
-	t.Skip(customTermFreqBlocked)
+	t.Fatal(customTermFreqBlocked)
 
 	dir, w := newCustomFreqWriter(t)
 	defer dir.Close()
@@ -189,7 +189,7 @@ func TestCustomTermFreq_SingletonTermsTwoDocs(t *testing.T) {
 // TestCustomTermFreq_RepeatTermsOneDoc ports
 // org.apache.lucene.index.TestCustomTermFreq#testRepeatTermsOneDoc.
 func TestCustomTermFreq_RepeatTermsOneDoc(t *testing.T) {
-	t.Skip(customTermFreqBlocked)
+	t.Fatal(customTermFreqBlocked)
 
 	dir, w := newCustomFreqWriter(t)
 	defer dir.Close()
@@ -211,7 +211,7 @@ func TestCustomTermFreq_RepeatTermsOneDoc(t *testing.T) {
 // TestCustomTermFreq_RepeatTermsTwoDocs ports
 // org.apache.lucene.index.TestCustomTermFreq#testRepeatTermsTwoDocs.
 func TestCustomTermFreq_RepeatTermsTwoDocs(t *testing.T) {
-	t.Skip(customTermFreqBlocked)
+	t.Fatal(customTermFreqBlocked)
 
 	dir, w := newCustomFreqWriter(t)
 	defer dir.Close()
@@ -235,7 +235,7 @@ func TestCustomTermFreq_RepeatTermsTwoDocs(t *testing.T) {
 // TestCustomTermFreq_TotalTermFreq ports
 // org.apache.lucene.index.TestCustomTermFreq#testTotalTermFreq.
 func TestCustomTermFreq_TotalTermFreq(t *testing.T) {
-	t.Skip(customTermFreqBlocked)
+	t.Fatal(customTermFreqBlocked)
 
 	dir, w := newCustomFreqWriter(t)
 	defer dir.Close()
@@ -260,7 +260,7 @@ func TestCustomTermFreq_TotalTermFreq(t *testing.T) {
 // org.apache.lucene.index.TestCustomTermFreq#testInvalidProx: positions cannot
 // be indexed alongside a custom TermFrequencyAttribute.
 func TestCustomTermFreq_InvalidProx(t *testing.T) {
-	t.Skip(customTermFreqBlocked)
+	t.Fatal(customTermFreqBlocked)
 
 	dir, w := newCustomFreqWriter(t)
 	defer dir.Close()
@@ -284,7 +284,7 @@ func TestCustomTermFreq_InvalidProx(t *testing.T) {
 // org.apache.lucene.index.TestCustomTermFreq#testInvalidDocsOnly: DOCS-only
 // cannot be indexed with a custom TermFrequencyAttribute.
 func TestCustomTermFreq_InvalidDocsOnly(t *testing.T) {
-	t.Skip(customTermFreqBlocked)
+	t.Fatal(customTermFreqBlocked)
 
 	dir, w := newCustomFreqWriter(t)
 	defer dir.Close()
@@ -309,7 +309,7 @@ func TestCustomTermFreq_InvalidDocsOnly(t *testing.T) {
 // org.apache.lucene.index.TestCustomTermFreq#testOverflowInt: the sum of term
 // freqs must fit in an int.
 func TestCustomTermFreq_OverflowInt(t *testing.T) {
-	t.Skip(customTermFreqBlocked)
+	t.Fatal(customTermFreqBlocked)
 
 	dir, w := newCustomFreqWriter(t)
 	defer dir.Close()
@@ -349,7 +349,7 @@ func TestCustomTermFreq_OverflowInt(t *testing.T) {
 // TestCustomTermFreq_InvalidTermVectorPositions ports
 // org.apache.lucene.index.TestCustomTermFreq#testInvalidTermVectorPositions.
 func TestCustomTermFreq_InvalidTermVectorPositions(t *testing.T) {
-	t.Skip(customTermFreqBlocked)
+	t.Fatal(customTermFreqBlocked)
 
 	dir, w := newCustomFreqWriter(t)
 	defer dir.Close()
@@ -374,7 +374,7 @@ func TestCustomTermFreq_InvalidTermVectorPositions(t *testing.T) {
 // TestCustomTermFreq_InvalidTermVectorOffsets ports
 // org.apache.lucene.index.TestCustomTermFreq#testInvalidTermVectorOffsets.
 func TestCustomTermFreq_InvalidTermVectorOffsets(t *testing.T) {
-	t.Skip(customTermFreqBlocked)
+	t.Fatal(customTermFreqBlocked)
 
 	dir, w := newCustomFreqWriter(t)
 	defer dir.Close()
@@ -399,7 +399,7 @@ func TestCustomTermFreq_InvalidTermVectorOffsets(t *testing.T) {
 // TestCustomTermFreq_TermVectors ports
 // org.apache.lucene.index.TestCustomTermFreq#testTermVectors.
 func TestCustomTermFreq_TermVectors(t *testing.T) {
-	t.Skip(customTermFreqBlocked)
+	t.Fatal(customTermFreqBlocked)
 
 	dir, w := newCustomFreqWriter(t)
 	defer dir.Close()
@@ -429,7 +429,7 @@ func TestCustomTermFreq_TermVectors(t *testing.T) {
 // test installs NeverForgetsSimilarity to capture the FieldInvertState and
 // asserts its aggregate counters after a single addDocument.
 func TestCustomTermFreq_FieldInvertState(t *testing.T) {
-	t.Skip(customTermFreqBlocked + "; NeverForgetsSimilarity capture hook depends on IndexWriterConfig.SetSimilarity wiring")
+	t.Fatal(customTermFreqBlocked + "; NeverForgetsSimilarity capture hook depends on IndexWriterConfig.SetSimilarity wiring")
 
 	dir, w := newCustomFreqWriter(t)
 	defer dir.Close()

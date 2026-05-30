@@ -96,7 +96,7 @@ func TestReplicatorAudit_DeferredRows(t *testing.T) {
 	for _, row := range deferred {
 		row := row
 		t.Run(row.artefact, func(t *testing.T) {
-			t.Skipf("deferred: %s (lucene_class=%q gocene_ref=%q manifest_row=%q "+
+			t.Fatalf("deferred: %s (lucene_class=%q gocene_ref=%q manifest_row=%q "+
 				"gap_notes=%q): %s %s",
 				row.artefact, row.luceneCls, row.goceneRef, row.manifestRow,
 				row.gapNotes, removalReason, row.reasonExtra)

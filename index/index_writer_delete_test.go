@@ -155,7 +155,7 @@ func getHitCount(t *testing.T, dir store.Directory, term *index.Term) int64 {
 // never applied to committed segments, so the post-delete "0 hits" assertion
 // cannot pass. Re-enable once the buffered-updates / live-docs pipeline lands.
 func TestIndexWriterDelete_SimpleCase(t *testing.T) {
-	t.Skip("infra gap: IndexWriter.DeleteDocuments is a no-op stub; delete application not ported")
+	t.Fatal("infra gap: IndexWriter.DeleteDocuments is a no-op stub; delete application not ported")
 }
 
 // ---------------------------------------------------------------------------
@@ -171,7 +171,7 @@ func TestIndexWriterDelete_SimpleCase(t *testing.T) {
 // Skipped: IndexWriter.DeleteDocuments is a no-op stub, so the delete against
 // the on-disk segments is never applied and NumDocs stays at 7.
 func TestIndexWriterDelete_NonRAMDelete(t *testing.T) {
-	t.Skip("infra gap: IndexWriter.DeleteDocuments is a no-op stub; delete application not ported")
+	t.Fatal("infra gap: IndexWriter.DeleteDocuments is a no-op stub; delete application not ported")
 }
 
 // ---------------------------------------------------------------------------
@@ -190,7 +190,7 @@ func TestIndexWriterDelete_NonRAMDelete(t *testing.T) {
 // and GetBufferedDeleteTermsSize always returns 0, so neither the surviving
 // "1 doc" assertion nor the buffered-term-count assertion can pass.
 func TestIndexWriterDelete_RAMDeletes(t *testing.T) {
-	t.Skip("infra gap: DeleteDocuments(Query) are no-op stubs; GetBufferedDeleteTermsSize returns 0")
+	t.Fatal("infra gap: DeleteDocuments(Query) are no-op stubs; GetBufferedDeleteTermsSize returns 0")
 }
 
 // ---------------------------------------------------------------------------
@@ -207,7 +207,7 @@ func TestIndexWriterDelete_RAMDeletes(t *testing.T) {
 // Skipped: IndexWriter.DeleteDocuments is a no-op stub; the delete is never
 // applied so NumDocs stays at 15 instead of dropping to 5.
 func TestIndexWriterDelete_BothDeletes(t *testing.T) {
-	t.Skip("infra gap: IndexWriter.DeleteDocuments is a no-op stub; delete application not ported")
+	t.Fatal("infra gap: IndexWriter.DeleteDocuments is a no-op stub; delete application not ported")
 }
 
 // ---------------------------------------------------------------------------
@@ -224,7 +224,7 @@ func TestIndexWriterDelete_BothDeletes(t *testing.T) {
 // Skipped: IndexWriter.DeleteDocuments is a no-op stub, so neither the "5
 // docs" nor the "2 docs" assertion can pass.
 func TestIndexWriterDelete_BatchDeletes(t *testing.T) {
-	t.Skip("infra gap: IndexWriter.DeleteDocuments is a no-op stub; delete application not ported")
+	t.Fatal("infra gap: IndexWriter.DeleteDocuments is a no-op stub; delete application not ported")
 }
 
 // ---------------------------------------------------------------------------
@@ -242,7 +242,7 @@ func TestIndexWriterDelete_BatchDeletes(t *testing.T) {
 // clear committed segments, so the committed 7 docs survive the deleteAll and
 // the final count is 9 instead of 2.
 func TestIndexWriterDelete_DeleteAllSimple(t *testing.T) {
-	t.Skip("infra gap: IndexWriter.DeleteAll does not clear committed segments")
+	t.Fatal("infra gap: IndexWriter.DeleteAll does not clear committed segments")
 }
 
 // ---------------------------------------------------------------------------
@@ -410,7 +410,7 @@ func TestIndexWriterDelete_DeleteAllRollback(t *testing.T) {
 // OpenDirectoryReader only accepts a store.Directory, so there is no way to
 // see the pre-commit deleteAll. Re-enable once an NRT reader API exists.
 func TestIndexWriterDelete_DeleteAllNRT(t *testing.T) {
-	t.Skip("infra gap: no near-real-time reader (DirectoryReader.open(IndexWriter)) in Gocene")
+	t.Fatal("infra gap: no near-real-time reader (DirectoryReader.open(IndexWriter)) in Gocene")
 }
 
 // ---------------------------------------------------------------------------
@@ -423,7 +423,7 @@ func TestIndexWriterDelete_DeleteAllNRT(t *testing.T) {
 // writes tons of files to disk"); it stress-allocates 50M field numbers to
 // provoke OOME. It is not suitable for the standard suite.
 func TestIndexWriterDelete_DeleteAllRepeated(t *testing.T) {
-	t.Skip("@Monster in Lucene: 50M-field OOME stress test, excluded from standard suite")
+	t.Fatal("@Monster in Lucene: 50M-field OOME stress test, excluded from standard suite")
 }
 
 // ---------------------------------------------------------------------------
@@ -436,7 +436,7 @@ func TestIndexWriterDelete_DeleteAllRepeated(t *testing.T) {
 // (setMaxSizeInBytes, setRandomIOExceptionRate) and ConcurrentMergeScheduler
 // exception suppression, none of which are ported. Also @Nightly in Lucene.
 func TestIndexWriterDelete_DeletesOnDiskFull(t *testing.T) {
-	t.Skip("infra gap: no MockDirectoryWrapper disk-full fault injection; @Nightly in Lucene")
+	t.Fatal("infra gap: no MockDirectoryWrapper disk-full fault injection; @Nightly in Lucene")
 }
 
 // TestIndexWriterDelete_UpdatesOnDiskFull ports testUpdatesOnDiskFull.
@@ -444,7 +444,7 @@ func TestIndexWriterDelete_DeletesOnDiskFull(t *testing.T) {
 // Skipped: same disk-full fault-injection dependency as
 // TestIndexWriterDelete_DeletesOnDiskFull. Also @Nightly in Lucene.
 func TestIndexWriterDelete_UpdatesOnDiskFull(t *testing.T) {
-	t.Skip("infra gap: no MockDirectoryWrapper disk-full fault injection; @Nightly in Lucene")
+	t.Fatal("infra gap: no MockDirectoryWrapper disk-full fault injection; @Nightly in Lucene")
 }
 
 // ---------------------------------------------------------------------------
@@ -456,7 +456,7 @@ func TestIndexWriterDelete_UpdatesOnDiskFull(t *testing.T) {
 // Skipped: the Lucene method carries @Ignore, and it additionally needs
 // MockDirectoryWrapper.Failure call-stack-based fault injection.
 func TestIndexWriterDelete_ErrorAfterApplyDeletes(t *testing.T) {
-	t.Skip("@Ignore in Lucene; also needs MockDirectoryWrapper.Failure fault injection")
+	t.Fatal("@Ignore in Lucene; also needs MockDirectoryWrapper.Failure fault injection")
 }
 
 // ---------------------------------------------------------------------------
@@ -469,7 +469,7 @@ func TestIndexWriterDelete_ErrorAfterApplyDeletes(t *testing.T) {
 // IOException mid-add, plus IndexWriter.isDeleterClosed() and
 // TestIndexWriter.assertNoUnreferencedFiles, none of which are ported.
 func TestIndexWriterDelete_ErrorInDocsWriterAdd(t *testing.T) {
-	t.Skip("infra gap: no MockDirectoryWrapper.failOn fault injection / isDeleterClosed")
+	t.Fatal("infra gap: no MockDirectoryWrapper.failOn fault injection / isDeleterClosed")
 }
 
 // ---------------------------------------------------------------------------
@@ -525,7 +525,7 @@ func TestIndexWriterDelete_NullQuery(t *testing.T) {
 // Skipped: IndexWriter.DeleteDocuments is a no-op stub, so NumDocs never
 // decreases and every per-batch assertion fails.
 func TestIndexWriterDelete_DeleteAllSlowly(t *testing.T) {
-	t.Skip("infra gap: IndexWriter.DeleteDocuments is a no-op stub; delete application not ported")
+	t.Fatal("infra gap: IndexWriter.DeleteDocuments is a no-op stub; delete application not ported")
 }
 
 // ---------------------------------------------------------------------------
@@ -539,7 +539,7 @@ func TestIndexWriterDelete_DeleteAllSlowly(t *testing.T) {
 // first. The RAM-buffer-driven flush counting is timing-sensitive and the
 // test is explicitly excluded from the standard suite upstream.
 func TestIndexWriterDelete_IndexingThenDeleting(t *testing.T) {
-	t.Skip("@Nightly in Lucene: RAM-buffer flush-count stress test, excluded from standard suite")
+	t.Fatal("@Nightly in Lucene: RAM-buffer flush-count stress test, excluded from standard suite")
 }
 
 // ---------------------------------------------------------------------------
@@ -554,7 +554,7 @@ func TestIndexWriterDelete_IndexingThenDeleting(t *testing.T) {
 // live-docs filename contract, so the loop's termination condition cannot be
 // reproduced.
 func TestIndexWriterDelete_FlushPushedDeletesByRAM(t *testing.T) {
-	t.Skip("infra gap: no slowFileExists / stable _N_M.liv filename contract to detect RAM-flushed deletes")
+	t.Fatal("infra gap: no slowFileExists / stable _N_M.liv filename contract to detect RAM-flushed deletes")
 }
 
 // ---------------------------------------------------------------------------
@@ -567,7 +567,7 @@ func TestIndexWriterDelete_FlushPushedDeletesByRAM(t *testing.T) {
 // doAfterFlush() and polls slowFileExists for live-docs side files; neither an
 // IndexWriter doAfterFlush hook nor slowFileExists is available in Gocene.
 func TestIndexWriterDelete_ApplyDeletesOnFlush(t *testing.T) {
-	t.Skip("@Nightly in Lucene; also needs IndexWriter.doAfterFlush override and slowFileExists")
+	t.Fatal("@Nightly in Lucene; also needs IndexWriter.doAfterFlush override and slowFileExists")
 }
 
 // ---------------------------------------------------------------------------
@@ -581,7 +581,7 @@ func TestIndexWriterDelete_ApplyDeletesOnFlush(t *testing.T) {
 // structured CheckIndexStatus but does not expose a configurable info-stream
 // whose text can be inspected, so the substring assertions cannot be ported.
 func TestIndexWriterDelete_DeletesCheckIndexOutput(t *testing.T) {
-	t.Skip("infra gap: CheckIndex info-stream text ('has deletions') not exposed for inspection")
+	t.Fatal("infra gap: CheckIndex info-stream text ('has deletions') not exposed for inspection")
 }
 
 // ---------------------------------------------------------------------------
@@ -597,7 +597,7 @@ func TestIndexWriterDelete_DeletesCheckIndexOutput(t *testing.T) {
 // open-from-writer and no isCurrent(); IndexWriter.TryDeleteDocument exists but
 // cannot be driven through this scenario without them.
 func TestIndexWriterDelete_TryDeleteDocument(t *testing.T) {
-	t.Skip("infra gap: no NRT reader open-from-writer / StandardDirectoryReader.isCurrent")
+	t.Fatal("infra gap: no NRT reader open-from-writer / StandardDirectoryReader.isCurrent")
 }
 
 // ---------------------------------------------------------------------------
@@ -610,7 +610,7 @@ func TestIndexWriterDelete_TryDeleteDocument(t *testing.T) {
 // and on StandardDirectoryReader.isCurrent() to assert staleness after a
 // delete. Neither exists in Gocene.
 func TestIndexWriterDelete_NRTIsCurrentAfterDelete(t *testing.T) {
-	t.Skip("infra gap: no NRT reader open-from-writer / StandardDirectoryReader.isCurrent")
+	t.Fatal("infra gap: no NRT reader open-from-writer / StandardDirectoryReader.isCurrent")
 }
 
 // ---------------------------------------------------------------------------
@@ -628,7 +628,7 @@ func TestIndexWriterDelete_NRTIsCurrentAfterDelete(t *testing.T) {
 // the knob the "1 leaf" assertion cannot be reproduced faithfully; re-enable
 // once LogDocMergePolicy exposes setMinMergeDocs.
 func TestIndexWriterDelete_OnlyDeletesTriggersMergeOnClose(t *testing.T) {
-	t.Skip("infra gap: LogDocMergePolicy.setMinMergeDocs not ported in Gocene")
+	t.Fatal("infra gap: LogDocMergePolicy.setMinMergeDocs not ported in Gocene")
 }
 
 // ---------------------------------------------------------------------------
@@ -642,7 +642,7 @@ func TestIndexWriterDelete_OnlyDeletesTriggersMergeOnClose(t *testing.T) {
 // open triggers but does not reflect the merge, the second observes it. This
 // depends on an NRT reader opened from the writer, which Gocene lacks.
 func TestIndexWriterDelete_OnlyDeletesTriggersMergeOnGetReader(t *testing.T) {
-	t.Skip("infra gap: no NRT reader open-from-writer to trigger/observe merge")
+	t.Fatal("infra gap: no NRT reader open-from-writer to trigger/observe merge")
 }
 
 // ---------------------------------------------------------------------------
@@ -656,7 +656,7 @@ func TestIndexWriterDelete_OnlyDeletesTriggersMergeOnGetReader(t *testing.T) {
 // TestIndexWriterDelete_OnlyDeletesTriggersMergeOnClose. Gocene does not port
 // that knob, so the single-leaf assertion cannot be reproduced faithfully.
 func TestIndexWriterDelete_OnlyDeletesTriggersMergeOnFlush(t *testing.T) {
-	t.Skip("infra gap: LogDocMergePolicy.setMinMergeDocs not ported in Gocene")
+	t.Fatal("infra gap: LogDocMergePolicy.setMinMergeDocs not ported in Gocene")
 }
 
 // ---------------------------------------------------------------------------
@@ -672,7 +672,7 @@ func TestIndexWriterDelete_OnlyDeletesTriggersMergeOnFlush(t *testing.T) {
 // TestIndexWriterDelete_DeleteAllSlowly; this method specifically validates
 // the NRT path, which Gocene lacks.
 func TestIndexWriterDelete_OnlyDeletesDeleteAllDocs(t *testing.T) {
-	t.Skip("infra gap: no NRT reader open-from-writer to observe zero leaves")
+	t.Fatal("infra gap: no NRT reader open-from-writer to observe zero leaves")
 }
 
 // ---------------------------------------------------------------------------
@@ -691,5 +691,5 @@ func TestIndexWriterDelete_OnlyDeletesDeleteAllDocs(t *testing.T) {
 // original 10 docs survive and the result is 110 docs across 2 leaves instead
 // of 100 docs in 1 leaf.
 func TestIndexWriterDelete_MergingAfterDeleteAll(t *testing.T) {
-	t.Skip("infra gap: IndexWriter.DeleteAll does not clear committed segments")
+	t.Fatal("infra gap: IndexWriter.DeleteAll does not clear committed segments")
 }

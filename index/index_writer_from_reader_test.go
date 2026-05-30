@@ -157,32 +157,32 @@ func TestIndexWriterFromReader_FromNonNRTReader(t *testing.T) {
 // testWithNoFirstCommit ports TestIndexWriterFromReader#testWithNoFirstCommit:
 // pinning a commit from a reader of an index with no commit must fail.
 func TestIndexWriterFromReader_WithNoFirstCommit(t *testing.T) {
-	t.Skip("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
+	t.Fatal("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
 }
 
 // testAfterCommitThenIndex ports TestIndexWriterFromReader#testAfterCommitThenIndex:
 // an NRT reader becomes stale once the writer commits past its commit point.
 func TestIndexWriterFromReader_AfterCommitThenIndex(t *testing.T) {
-	t.Skip("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
+	t.Fatal("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
 }
 
 // testNRTRollback ports TestIndexWriterFromReader#testNRTRollback:
 // after a commit and a further add, a pre-add NRT reader is stale.
 func TestIndexWriterFromReader_NRTRollback(t *testing.T) {
-	t.Skip("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
+	t.Fatal("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
 }
 
 // testRandom ports TestIndexWriterFromReader#testRandom: a randomized sequence of
 // adds, deletes, NRT reopens, rollbacks, and commits cross-checked against
 // reader/writer doc counts.
 func TestIndexWriterFromReader_Random(t *testing.T) {
-	t.Skip("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
+	t.Fatal("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
 }
 
 // testConsistentFieldNumbers ports TestIndexWriterFromReader#testConsistentFieldNumbers:
 // field numbers stay consistent when a writer resumes from a pinned commit.
 func TestIndexWriterFromReader_ConsistentFieldNumbers(t *testing.T) {
-	t.Skip("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
+	t.Fatal("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
 }
 
 // testInvalidOpenMode ports TestIndexWriterFromReader#testInvalidOpenMode:
@@ -231,24 +231,24 @@ func TestIndexWriterFromReader_InvalidOpenMode(t *testing.T) {
 // testOnClosedReader ports TestIndexWriterFromReader#testOnClosedReader:
 // pinning a commit from an already-closed reader must fail.
 func TestIndexWriterFromReader_OnClosedReader(t *testing.T) {
-	t.Skip("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
+	t.Fatal("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
 }
 
 // testStaleNRTReader ports TestIndexWriterFromReader#testStaleNRTReader:
 // a writer reopened from a stale NRT reader's commit sees the pinned doc count.
 func TestIndexWriterFromReader_StaleNRTReader(t *testing.T) {
-	t.Skip("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
+	t.Fatal("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
 }
 
 // testAfterRollback ports TestIndexWriterFromReader#testAfterRollback:
 // after a rollback, a writer reopened from the NRT reader's commit keeps its docs.
 func TestIndexWriterFromReader_AfterRollback(t *testing.T) {
-	t.Skip("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
+	t.Fatal("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
 }
 
 // testAfterCommitThenIndexKeepCommits ports
 // TestIndexWriterFromReader#testAfterCommitThenIndexKeepCommits: with a
 // keep-all-commits deletion policy, an NRT reader is never stale.
 func TestIndexWriterFromReader_AfterCommitThenIndexKeepCommits(t *testing.T) {
-	t.Skip("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
+	t.Fatal("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
 }

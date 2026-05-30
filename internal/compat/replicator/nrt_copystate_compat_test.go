@@ -129,7 +129,7 @@ func TestReplicatorNrtCopyState_RoundTrip(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Skipf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
+			t.Fatalf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
 				"blocked on the Gocene replicator/nrt port — the in-memory "+
 				"CopyState/FileMetaData types exist (replicator/nrt/nrt.go "+
 				"lines 67-113) but the package ships no SimplePrimaryNode."+

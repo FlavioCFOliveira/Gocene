@@ -123,7 +123,7 @@ func TestLucene90PointsFormat_Basic(t *testing.T) {
 // TestLucene90PointsFormat_MergeStability tests merge stability
 // Source: TestLucene90PointsFormat.testMergeStability()
 func TestLucene90PointsFormat_MergeStability(t *testing.T) {
-	t.Skip("Merge stability test requires full codec implementation")
+	t.Fatal("Merge stability test requires full codec implementation")
 }
 
 // TestLucene90PointsFormat_EstimatePointCount tests point count estimation
@@ -416,19 +416,19 @@ func TestLucene90PointsFormat_AllEqual(t *testing.T) {
 // TestLucene90PointsFormat_OneDimEqual tests one dimension equal across points
 // Source: BasePointsFormatTestCase.testOneDimEqual()
 func TestLucene90PointsFormat_OneDimEqual(t *testing.T) {
-	t.Skip("Multi-dimensional points not yet fully implemented")
+	t.Fatal("Multi-dimensional points not yet fully implemented")
 }
 
 // TestLucene90PointsFormat_OneDimTwoValues tests run-length compression
 // Source: BasePointsFormatTestCase.testOneDimTwoValues()
 func TestLucene90PointsFormat_OneDimTwoValues(t *testing.T) {
-	t.Skip("Run-length compression tests require full codec implementation")
+	t.Fatal("Run-length compression tests require full codec implementation")
 }
 
 // TestLucene90PointsFormat_BigIntNDims tests N-dimensional BigInteger points
 // Source: BasePointsFormatTestCase.testBigIntNDims()
 func TestLucene90PointsFormat_BigIntNDims(t *testing.T) {
-	t.Skip("BigInteger N-dimensional tests require full codec implementation")
+	t.Fatal("BigInteger N-dimensional tests require full codec implementation")
 }
 
 // TestLucene90PointsFormat_RandomBinary tests random binary points
@@ -439,14 +439,14 @@ func TestLucene90PointsFormat_RandomBinaryTiny(t *testing.T) {
 
 func TestLucene90PointsFormat_RandomBinaryMedium(t *testing.T) {
 	if testing.Short() {
-		t.Skip("Skipping medium random test in short mode")
+		t.Fatal("Skipping medium random test in short mode")
 	}
 	testRandomBinaryPoints(t, 100)
 }
 
 func TestLucene90PointsFormat_RandomBinaryBig(t *testing.T) {
 	if testing.Short() {
-		t.Skip("Skipping big random test in short mode")
+		t.Fatal("Skipping big random test in short mode")
 	}
 	testRandomBinaryPoints(t, 1000)
 }
@@ -764,7 +764,7 @@ func TestLucene90PointsFormat_AllPointDocsDeleted(t *testing.T) {
 // TestLucene90PointsFormat_WithExceptions tests exception handling
 // Source: BasePointsFormatTestCase.testWithExceptions()
 func TestLucene90PointsFormat_WithExceptions(t *testing.T) {
-	t.Skip("Exception handling test requires MockDirectoryWrapper implementation")
+	t.Fatal("Exception handling test requires MockDirectoryWrapper implementation")
 }
 
 // Helper functions

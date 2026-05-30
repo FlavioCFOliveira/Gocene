@@ -68,7 +68,7 @@ func TestSandboxQuantizationCodec_ReadFixture(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Skipf("deferred: no Java fixture for sandbox quantization at seed=%d; "+
+			t.Fatalf("deferred: no Java fixture for sandbox quantization at seed=%d; "+
 				"%s Audit gap_notes (verbatim): %q",
 				seed, quantizationDeferralReason, auditGapQuantization)
 		})
@@ -115,7 +115,7 @@ func TestSandboxQuantizationCodec_RoundTrip(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Skipf("deferred: no Gocene round-trip target for sandbox quantization "+
+			t.Fatalf("deferred: no Gocene round-trip target for sandbox quantization "+
 				"at seed=%d; %s Audit gap_notes (verbatim): %q",
 				seed, quantizationDeferralReason, auditGapQuantization)
 		})

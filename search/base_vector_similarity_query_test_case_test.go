@@ -18,5 +18,5 @@ import "testing"
 // Concrete subclasses (e.g. TestFloatVectorSimilarityQuery) implement the abstract
 // methods to supply vector type, field factory and query factory.
 func TestBaseVectorSimilarityQueryTestCase(t *testing.T) {
-	t.Skip("abstract test base class — concrete subclasses provide vector-type specialisations; requires IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("abstract test base class — concrete subclasses provide vector-type specialisations; requires IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

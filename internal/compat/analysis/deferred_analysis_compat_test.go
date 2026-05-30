@@ -85,7 +85,7 @@ func TestAnalysisAudit_DeferredRows(t *testing.T) {
 	for _, row := range deferred {
 		row := row
 		t.Run(row.artefact, func(t *testing.T) {
-			t.Skipf("deferred: %s (lucene_class=%q gap_notes=%q maven=%q): %s",
+			t.Fatalf("deferred: %s (lucene_class=%q gap_notes=%q maven=%q): %s",
 				row.artefact, row.luceneCls, row.gapNotes, row.maven, row.reason)
 		})
 	}

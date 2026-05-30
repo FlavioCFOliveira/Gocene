@@ -13,5 +13,5 @@ import "testing"
 // SimplePayloadFilter, RandomIndexWriter, and full index integration not yet
 // available in Gocene.
 func TestPayloadFilteredInterval_All(t *testing.T) {
-	t.Skip("requires MockTokenizer + RandomIndexWriter + full index integration; deferred to backlog")
+	t.Fatal("requires MockTokenizer + RandomIndexWriter + full index integration; deferred to backlog")
 }

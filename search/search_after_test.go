@@ -27,7 +27,7 @@ import (
 // query types and sort configurations.
 func TestSearchAfter_Queries(t *testing.T) {
 	// Skip until Sort, FieldDoc, and TopFieldCollector are implemented
-	t.Skip("Skipping: requires Sort, FieldDoc, and TopFieldCollector implementation")
+	t.Fatal("Skipping: requires Sort, FieldDoc, and TopFieldCollector implementation")
 
 	// TODO: Implement test once the following are available:
 	// - Sort and SortField types
@@ -56,7 +56,7 @@ func TestSearchAfter_Queries(t *testing.T) {
 //   - Document order sorting (SortField.FIELD_DOC)
 func TestSearchAfter_SortTypes(t *testing.T) {
 	// Skip until Sort types are implemented
-	t.Skip("Skipping: requires Sort and SortField implementation")
+	t.Fatal("Skipping: requires Sort and SortField implementation")
 
 	// TODO: Test the following sort field types:
 	// - SortField.Type.INT (ascending and descending)
@@ -80,7 +80,7 @@ func TestSearchAfter_SortTypes(t *testing.T) {
 // (e.g., sort by "category" then by "date" then by "score").
 func TestSearchAfter_MultiSort(t *testing.T) {
 	// Skip until multi-field Sort is implemented
-	t.Skip("Skipping: requires multi-field Sort implementation")
+	t.Fatal("Skipping: requires multi-field Sort implementation")
 
 	// TODO: Test with 2-7 sort fields in combination
 	// This tests the FieldDoc.fields array comparison
@@ -94,7 +94,7 @@ func TestSearchAfter_MultiSort(t *testing.T) {
 // the combined results exactly match a single query for all results.
 func TestSearchAfter_PageConsistency(t *testing.T) {
 	// Skip until searchAfter is implemented
-	t.Skip("Skipping: requires IndexSearcher.SearchAfter() implementation")
+	t.Fatal("Skipping: requires IndexSearcher.SearchAfter() implementation")
 
 	// TODO: Verify:
 	// 1. Total hits match between paged and non-paged queries
@@ -110,7 +110,7 @@ func TestSearchAfter_PageConsistency(t *testing.T) {
 // including edge cases like page size larger than result set.
 func TestSearchAfter_VariedPageSizes(t *testing.T) {
 	// Skip until searchAfter is implemented
-	t.Skip("Skipping: requires IndexSearcher.SearchAfter() implementation")
+	t.Fatal("Skipping: requires IndexSearcher.SearchAfter() implementation")
 
 	// TODO: Test with page sizes:
 	// - 1 (single document per page)
@@ -127,7 +127,7 @@ func TestSearchAfter_VariedPageSizes(t *testing.T) {
 // respecting the missing value configuration (STRING_FIRST or STRING_LAST).
 func TestSearchAfter_MissingFields(t *testing.T) {
 	// Skip until missing value handling is implemented
-	t.Skip("Skipping: requires missing value handling in SortField")
+	t.Fatal("Skipping: requires missing value handling in SortField")
 
 	// TODO: Test with documents that have missing sort fields
 	// Verify correct positioning based on STRING_FIRST/STRING_LAST
@@ -141,7 +141,7 @@ func TestSearchAfter_MissingFields(t *testing.T) {
 // sorting by non-score fields.
 func TestSearchAfter_ScorePopulation(t *testing.T) {
 	// Skip until score population is implemented
-	t.Skip("Skipping: requires TopFieldCollector.PopulateScores() implementation")
+	t.Fatal("Skipping: requires TopFieldCollector.PopulateScores() implementation")
 
 	// TODO: Verify scores are populated correctly when:
 	// - Sorting by field with doScores=true

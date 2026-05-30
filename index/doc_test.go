@@ -56,7 +56,7 @@ import "testing"
 // ctx) constructor, TrackingDirectoryWrapper, and the full TermsEnum +
 // PostingsEnum read path are not yet available in Gocene.
 func TestDoc_IndexAndMerge(t *testing.T) {
-	t.Skip("needs IndexWriter.newestSegment(), SegmentMerger(CodecReader...) constructor, " +
+	t.Fatal("needs IndexWriter.newestSegment(), SegmentMerger(CodecReader...) constructor, " +
 		"internal SegmentReader(sci,ver,ctx) constructor, TrackingDirectoryWrapper, " +
 		"and wired TermsEnum+PostingsEnum read path")
 }

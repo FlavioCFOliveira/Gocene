@@ -19,5 +19,5 @@ import "testing"
 //
 // Port of: queryparser/src/test/.../flexible/standard/TestQPHelper.java
 func TestQPHelper(t *testing.T) {
-	t.Skip("deferred: requires full StandardQueryParser feature set (date/numeric range, fuzzy, span, full analyzer pipeline)")
+	t.Fatal("deferred: requires full StandardQueryParser feature set (date/numeric range, fuzzy, span, full analyzer pipeline)")
 }

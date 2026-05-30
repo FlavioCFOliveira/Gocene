@@ -30,7 +30,7 @@ func TestAllFilesHaveChecksumFooter(t *testing.T) {
 	// index.WriteSegmentInfos does not yet emit a CRC32 footer, so the
 	// segments file fails ChecksumEntireFile. Unskip once footer writing
 	// lands in the segment-infos writer.
-	t.Skip("blocked: WriteSegmentInfos does not write a CRC32 footer yet")
+	t.Fatal("blocked: WriteSegmentInfos does not write a CRC32 footer yet")
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()

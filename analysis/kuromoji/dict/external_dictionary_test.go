@@ -103,7 +103,7 @@ func TestExternalDictionary_UserDictionaryOpen(t *testing.T) {
 // Deviation: skipped — DictionaryBuilder.Build and binary file I/O are
 // deferred to the codec sprint.
 func TestExternalDictionary_LoadTokenInfoDictionary(t *testing.T) {
-	t.Skip("requires DictionaryBuilder.Build and binary file I/O (deferred to codec sprint)")
+	t.Fatal("requires DictionaryBuilder.Build and binary file I/O (deferred to codec sprint)")
 }
 
 // TestExternalDictionary_LoadUnknownDictionary verifies that
@@ -111,7 +111,7 @@ func TestExternalDictionary_LoadTokenInfoDictionary(t *testing.T) {
 //
 // Deviation: skipped — binary file I/O is deferred to the codec sprint.
 func TestExternalDictionary_LoadUnknownDictionary(t *testing.T) {
-	t.Skip("requires binary file I/O (deferred to codec sprint)")
+	t.Fatal("requires binary file I/O (deferred to codec sprint)")
 }
 
 // TestExternalDictionary_LoadConnectionCostsFromFile verifies that
@@ -119,5 +119,5 @@ func TestExternalDictionary_LoadUnknownDictionary(t *testing.T) {
 //
 // Deviation: skipped — binary file I/O is deferred to the codec sprint.
 func TestExternalDictionary_LoadConnectionCostsFromFile(t *testing.T) {
-	t.Skip("requires binary file I/O (deferred to codec sprint)")
+	t.Fatal("requires binary file I/O (deferred to codec sprint)")
 }

@@ -65,21 +65,21 @@ func TestMultipleIndexFields_TwoCustomsSameField(t *testing.T) {
 // -- Integration stubs -------------------------------------------------------
 
 func TestMultipleIndexFields_Default(t *testing.T) {
-	t.Skip("requires RandomIndexWriter + DirectoryTaxonomyWriter + FacetsCollectorManager + getTaxonomyFacetCounts pipeline")
+	t.Fatal("requires RandomIndexWriter + DirectoryTaxonomyWriter + FacetsCollectorManager + getTaxonomyFacetCounts pipeline")
 }
 
 func TestMultipleIndexFields_Custom(t *testing.T) {
-	t.Skip("requires RandomIndexWriter + DirectoryTaxonomyWriter + MultiFacets routing pipeline")
+	t.Fatal("requires RandomIndexWriter + DirectoryTaxonomyWriter + MultiFacets routing pipeline")
 }
 
 func TestMultipleIndexFields_TwoCustomsSameFieldIntegration(t *testing.T) {
-	t.Skip("requires RandomIndexWriter + DirectoryTaxonomyWriter + MultiFacets pipeline")
+	t.Fatal("requires RandomIndexWriter + DirectoryTaxonomyWriter + MultiFacets pipeline")
 }
 
 func TestMultipleIndexFields_DifferentFieldsAndText(t *testing.T) {
-	t.Skip("requires RandomIndexWriter + DirectoryTaxonomyWriter + MultiFacets pipeline")
+	t.Fatal("requires RandomIndexWriter + DirectoryTaxonomyWriter + MultiFacets pipeline")
 }
 
 func TestMultipleIndexFields_SomeSameSomeDifferent(t *testing.T) {
-	t.Skip("requires RandomIndexWriter + DirectoryTaxonomyWriter + MultiFacets pipeline")
+	t.Fatal("requires RandomIndexWriter + DirectoryTaxonomyWriter + MultiFacets pipeline")
 }

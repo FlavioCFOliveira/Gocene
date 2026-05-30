@@ -68,7 +68,7 @@ func TestMMapVsNIOFS_LuceneFixtureByteEquality(t *testing.T) {
 	}
 
 	if runtime.GOOS == "windows" {
-		t.Skip("skipping MMap comparison on Windows; NIOFS leg already covered")
+		t.Fatal("skipping MMap comparison on Windows; NIOFS leg already covered")
 	}
 	mmapBytes, mmapCRC, err := readEntireFileViaMMap(dir, filepath.Base(target))
 	if err != nil {

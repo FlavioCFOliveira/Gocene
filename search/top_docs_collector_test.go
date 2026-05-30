@@ -93,7 +93,7 @@ func TestTopDocsCollector_InvalidArguments(t *testing.T) {
 	// Test: start == numResults should return empty results
 	// This tests the boundary condition
 	if topDocs.TotalHits.Value < int64(numResults) {
-		t.Skip("Not enough results to test boundary condition")
+		t.Fatal("Not enough results to test boundary condition")
 	}
 
 	// Verify we got expected number of results

@@ -16,5 +16,5 @@ import "testing"
 // It verifies that random wildcard queries produce results consistent with
 // brute-force term enumeration.
 func TestWildcardRandom_Wildcards(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

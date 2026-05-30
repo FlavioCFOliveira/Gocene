@@ -115,7 +115,7 @@ func TestOmitTf_NoPrxFile(t *testing.T) {
 // Degraded to t.Skip: getOnlyLeafReader and DirectoryReader.open require a
 // wired codec reader; NewSegmentReader does not load coreReaders from disk.
 func TestOmitTf_MixedRAM(t *testing.T) {
-	t.Skip("needs getOnlyLeafReader + DirectoryReader.open with wired codec " +
+	t.Fatal("needs getOnlyLeafReader + DirectoryReader.open with wired codec " +
 		"reader to read back FieldInfo.getIndexOptions() (coreReaders nil)")
 }
 
@@ -130,7 +130,7 @@ func TestOmitTf_MixedRAM(t *testing.T) {
 // similarity-aware scoring (SimpleSimilarity); search layer not yet wired
 // for index-level tests.
 func TestOmitTf_Basic(t *testing.T) {
-	t.Skip("needs DirectoryReader.open, IndexSearcher, and SimpleSimilarity " +
+	t.Fatal("needs DirectoryReader.open, IndexSearcher, and SimpleSimilarity " +
 		"scoring (search layer not yet wired for index-level tests)")
 }
 
@@ -143,6 +143,6 @@ func TestOmitTf_Basic(t *testing.T) {
 // Degraded to t.Skip: RandomIndexWriter and iw.getReader() NRT path are not
 // yet available.
 func TestOmitTf_Stats(t *testing.T) {
-	t.Skip("needs RandomIndexWriter and iw.getReader() NRT path " +
+	t.Fatal("needs RandomIndexWriter and iw.getReader() NRT path " +
 		"(DirectoryReader.open(IndexWriter)) not yet implemented")
 }

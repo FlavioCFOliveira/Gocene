@@ -375,7 +375,7 @@ func TestMultiByteBuffersDirectory(t *testing.T) {
 		// chunk size. Requires (a) a Gocene chunked ByteBuffersDirectory
 		// constructor, (b) RandomIndexWriter + MockAnalyzer + MockDirectoryWrapper
 		// ports. None exist yet on this branch.
-		t.Skip("requires chunked ByteBuffersDirectory constructor and " +
+		t.Fatal("requires chunked ByteBuffersDirectory constructor and " +
 			"RandomIndexWriter/MockDirectoryWrapper ports; tracked under Sprint 55")
 	})
 }

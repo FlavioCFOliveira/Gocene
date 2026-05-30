@@ -24,11 +24,11 @@ import "testing"
 // AlwaysRefreshDirectoryTaxonomyReader can refresh after a taxonomy rollback to
 // an older checkpoint, while plain DirectoryTaxonomyReader panics on stale arrays.
 func TestAlwaysRefreshDirectoryTaxonomyReader_AlwaysRefresh(t *testing.T) {
-	t.Skip("requires AlwaysRefreshDirectoryTaxonomyReader + SearcherTaxonomyManager + DirectoryTaxonomyWriter pipeline")
+	t.Fatal("requires AlwaysRefreshDirectoryTaxonomyReader + SearcherTaxonomyManager + DirectoryTaxonomyWriter pipeline")
 }
 
 // TestAlwaysRefreshDirectoryTaxonomyReader_PlainReaderFails verifies that a plain
 // DirectoryTaxonomyReader raises an error when refreshed after backward rollback.
 func TestAlwaysRefreshDirectoryTaxonomyReader_PlainReaderFails(t *testing.T) {
-	t.Skip("requires DirectoryTaxonomyWriter snapshot/rollback + SearcherTaxonomyManager.maybeRefresh pipeline")
+	t.Fatal("requires DirectoryTaxonomyWriter snapshot/rollback + SearcherTaxonomyManager.maybeRefresh pipeline")
 }

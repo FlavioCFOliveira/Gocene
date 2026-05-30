@@ -21,5 +21,5 @@ import "testing"
 // Unskip once NRT reader reopen lands and a ReindexingReader equivalent can be
 // constructed.
 func TestDemoParallelLeafReader(t *testing.T) {
-	t.Skip("blocked: TestDemoParallelLeafReader needs NRT reader reopen (ReaderManager + segment-creation callbacks); Gocene IndexWriter has no NRT reader")
+	t.Fatal("blocked: TestDemoParallelLeafReader needs NRT reader reopen (ReaderManager + segment-creation callbacks); Gocene IndexWriter has no NRT reader")
 }

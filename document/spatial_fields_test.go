@@ -12,13 +12,13 @@ import (
 // These fields provide support for geo-spatial data and specialized numeric features.
 
 func TestLatLonPoint(t *testing.T) {
-	t.Skip("LatLonPoint is not yet implemented in Gocene")
+	t.Fatal("LatLonPoint is not yet implemented in Gocene")
 }
 
 func TestXYPoint(t *testing.T) {
-	t.Skip("XYPoint is not yet implemented in Gocene")
+	t.Fatal("XYPoint is not yet implemented in Gocene")
 }
 
 func TestFeatureField(t *testing.T) {
-	t.Skip("FeatureField is not yet implemented in Gocene")
+	t.Fatal("FeatureField is not yet implemented in Gocene")
 }

@@ -65,20 +65,20 @@ const skipConsistentFieldNumbers = "GOC-4174: needs a real Document/Field pipeli
 // TestConsistentFieldNumbers_SameFieldNumbersAcrossSegments ports
 // testSameFieldNumbersAcrossSegments.
 func TestConsistentFieldNumbers_SameFieldNumbersAcrossSegments(t *testing.T) {
-	t.Skip(skipConsistentFieldNumbers)
+	t.Fatal(skipConsistentFieldNumbers)
 }
 
 // TestConsistentFieldNumbers_AddIndexes ports testAddIndexes.
 func TestConsistentFieldNumbers_AddIndexes(t *testing.T) {
-	t.Skip(skipConsistentFieldNumbers)
+	t.Fatal(skipConsistentFieldNumbers)
 }
 
 // TestConsistentFieldNumbers_FieldNumberGaps ports testFieldNumberGaps.
 func TestConsistentFieldNumbers_FieldNumberGaps(t *testing.T) {
-	t.Skip(skipConsistentFieldNumbers)
+	t.Fatal(skipConsistentFieldNumbers)
 }
 
 // TestConsistentFieldNumbers_ManyFields ports testManyFields.
 func TestConsistentFieldNumbers_ManyFields(t *testing.T) {
-	t.Skip(skipConsistentFieldNumbers)
+	t.Fatal(skipConsistentFieldNumbers)
 }

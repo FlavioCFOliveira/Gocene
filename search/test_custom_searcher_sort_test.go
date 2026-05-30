@@ -13,8 +13,8 @@ package search
 import "testing"
 
 func TestCustomSearcherSort_FieldSortCustomSearcher(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+custom sort integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+custom sort integration (pre-existing failure in Gocene)")
 }
 func TestCustomSearcherSort_FieldSortSingleSearcher(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+custom sort integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+custom sort integration (pre-existing failure in Gocene)")
 }

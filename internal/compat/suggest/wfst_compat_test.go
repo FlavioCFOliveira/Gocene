@@ -66,7 +66,7 @@ func TestWfst_WriteAndVerify(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Skipf("deferred: Gocene WFSTCompletionLookup has no Store/Load yet "+
+			t.Fatalf("deferred: Gocene WFSTCompletionLookup has no Store/Load yet "+
 				"(suggest/fst/wfst_completion_lookup.go); seed=%d; "+
 				"audit gap_notes (verbatim): %q", seed, auditGap)
 		})
@@ -80,7 +80,7 @@ func TestWfst_RoundTrip(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Skipf("deferred: Gocene round-trip for wfst-blob at seed=%d "+
+			t.Fatalf("deferred: Gocene round-trip for wfst-blob at seed=%d "+
 				"requires WFSTCompletionLookup Store/Load; audit gap_notes "+
 				"(verbatim): %q", seed, auditGap)
 		})

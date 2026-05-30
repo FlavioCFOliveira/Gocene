@@ -283,7 +283,7 @@ func TestCaseSensitive(t *testing.T) {
 // Deviation: Gocene skips this test; it loads external .aff/.dic files via a
 // system property (tests.hunspell.repo), which is not available here.
 func TestAllDictionaries(t *testing.T) {
-	t.Skip("requires external Hunspell dictionary repository via system property")
+	t.Fatal("requires external Hunspell dictionary repository via system property")
 }
 
 // ─── TestFlagNum (task 3825) ──────────────────────────────────────────────────
@@ -690,7 +690,7 @@ func TestSpellChecking_Allcaps(t *testing.T) {
 // Deviation: Gocene does not yet implement CHECKSHARPS (ß ↔ SS substitution).
 // The .good file check is skipped until CHECKSHARPS is implemented.
 func TestSpellChecking_CheckSharpS(t *testing.T) {
-	t.Skip("CHECKSHARPS not yet implemented in Gocene hunspell engine")
+	t.Fatal("CHECKSHARPS not yet implemented in Gocene hunspell engine")
 }
 
 // TestSpellChecking_IJ ports TestSpellChecking.testIJ.
@@ -742,7 +742,7 @@ func TestKeepCase(t *testing.T) {
 // Deviation: Requires tests.hunspell.repo system property pointing to an external
 // Hunspell repository; not available in CI.
 func TestHunspellRepositoryTestCases(t *testing.T) {
-	t.Skip("requires external Hunspell repository via system property")
+	t.Fatal("requires external Hunspell repository via system property")
 }
 
 // ─── TestFlagLong (task 3845) ─────────────────────────────────────────────────
@@ -958,7 +958,7 @@ func TestOptionalCondition(t *testing.T) {
 // Source: TestPerformance.java
 // Deviation: Requires a system property pointing to an external spell-check corpus.
 func TestPerformance(t *testing.T) {
-	t.Skip("requires external performance corpus via system property")
+	t.Fatal("requires external performance corpus via system property")
 }
 
 // ─── TestCheckSharpS (task 3855) ──────────────────────────────────────────────

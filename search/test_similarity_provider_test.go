@@ -16,5 +16,5 @@ import "testing"
 // It verifies that a per-field SimilarityProvider is honoured when scoring
 // queries across multiple fields with different similarity models.
 func TestSimilarityProvider_Basics(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

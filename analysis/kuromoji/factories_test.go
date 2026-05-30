@@ -120,5 +120,5 @@ func TestFactories_CompletionFilterFactory(t *testing.T) {
 // Deviation: skipped — requires SPI factory registry + live JapaneseTokenizer
 // backed by binary dictionaries.  Tracked in backlog task #2691.
 func TestFactories_RandomData(t *testing.T) {
-	t.Skip("requires SPI factory registry and binary dictionary I/O (deferred to codec sprint)")
+	t.Fatal("requires SPI factory registry and binary dictionary I/O (deferred to codec sprint)")
 }

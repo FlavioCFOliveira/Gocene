@@ -18,7 +18,7 @@ import "testing"
 // the Gocene simpletext package and BaseFieldInfoFormatTestCase has no Go
 // equivalent.
 func TestSimpleTextFieldInfoFormat(t *testing.T) {
-	t.Skip(
+	t.Fatal(
 		"SimpleTextFieldInfoFormat is not yet ported to Gocene and " +
 			"BaseFieldInfoFormatTestCase has no Go equivalent; " +
 			"test deferred until those components land",

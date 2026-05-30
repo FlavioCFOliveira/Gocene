@@ -14,5 +14,5 @@ import "testing"
 // TestCustomFunctions skips because it requires a custom-function registry
 // (MethodHandle equivalent in Go) not yet implemented in JavascriptCompiler.
 func TestCustomFunctions(t *testing.T) {
-	t.Skip("requires custom function registry in JavascriptCompiler (not yet implemented)")
+	t.Fatal("requires custom function registry in JavascriptCompiler (not yet implemented)")
 }

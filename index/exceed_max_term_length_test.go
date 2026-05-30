@@ -42,7 +42,7 @@ const maxTermLengthGap = "GOC-4155 GAP: IndexWriter.MAX_TERM_LENGTH and immense-
 // "immense term", the max length, the field name, and "bytes can be at most
 // ... in length; got".
 func TestExceedMaxTermLength_TokenStream(t *testing.T) {
-	t.Skip(maxTermLengthGap)
+	t.Fatal(maxTermLengthGap)
 }
 
 // TestExceedMaxTermLength_BinaryValue ports TestExceedMaxTermLength#testBinaryValue.
@@ -50,5 +50,5 @@ func TestExceedMaxTermLength_TokenStream(t *testing.T) {
 // Upstream indexes a non-tokenized binary field whose value exceeds
 // MAX_TERM_LENGTH and asserts the same IllegalArgumentException message.
 func TestExceedMaxTermLength_BinaryValue(t *testing.T) {
-	t.Skip(maxTermLengthGap)
+	t.Fatal(maxTermLengthGap)
 }

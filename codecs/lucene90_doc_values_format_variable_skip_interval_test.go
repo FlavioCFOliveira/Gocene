@@ -137,14 +137,14 @@ func TestLucene90DocValuesFormatVariableSkipInterval_SkipperAllEqualValue(t *tes
 
 	leaf, ok := leaves[0].Reader().(*index.LeafReader)
 	if !ok {
-		t.Skipf("leaf reader %T does not expose GetDocValuesSkipper directly; deferred", leaves[0].Reader())
+		t.Fatalf("leaf reader %T does not expose GetDocValuesSkipper directly; deferred", leaves[0].Reader())
 	}
 	skipper, err := leaf.GetDocValuesSkipper("dv")
 	if err != nil {
 		t.Fatalf("GetDocValuesSkipper: %v", err)
 	}
 	if skipper == nil {
-		t.Skip("DocValuesSkipper plumbing not yet wired; see GOC follow-up for codec reader path")
+		t.Fatal("DocValuesSkipper plumbing not yet wired; see GOC follow-up for codec reader path")
 	}
 	// Reserved for when the skipper machinery lands:
 	//   skipper.Advance(0); assert min/max/docCount; advance past last doc;
@@ -162,7 +162,7 @@ func TestLucene90DocValuesFormatVariableSkipInterval_SkipperFewValuesSorted(t *t
 	//   - LeafReader.getDocValuesSkipper returning a non-nil reader-backed skipper.
 	// None of these are yet ported. The test body is intentionally left as a
 	// stub until the DocValuesFormat reader exposes the skipper side-table.
-	t.Skip("requires index-sort + indexedField helpers + reader-backed DocValuesSkipper (deferred)")
+	t.Fatal("requires index-sort + indexedField helpers + reader-backed DocValuesSkipper (deferred)")
 }
 
 // TestLucene90DocValuesFormatVariableSkipInterval_SkipperAllEqualValueWithGaps
@@ -172,7 +172,7 @@ func TestLucene90DocValuesFormatVariableSkipInterval_SkipperFewValuesSorted(t *t
 func TestLucene90DocValuesFormatVariableSkipInterval_SkipperAllEqualValueWithGaps(t *testing.T) {
 	// Same gating as TestLucene90DocValuesFormatVariableSkipInterval_SkipperFewValuesSorted:
 	// depends on SortedNumericDocValuesField.indexedField + reader skipper plumbing.
-	t.Skip("requires index-sort + indexedField helpers + reader-backed DocValuesSkipper (deferred)")
+	t.Fatal("requires index-sort + indexedField helpers + reader-backed DocValuesSkipper (deferred)")
 }
 
 // TestLucene90DocValuesFormatVariableSkipInterval_SkipperAllEqualValueWithMultiValues
@@ -182,5 +182,5 @@ func TestLucene90DocValuesFormatVariableSkipInterval_SkipperAllEqualValueWithGap
 func TestLucene90DocValuesFormatVariableSkipInterval_SkipperAllEqualValueWithMultiValues(t *testing.T) {
 	// Same gating: requires SortedNumericDocValuesField.indexedField with
 	// genuine multi-value support and reader-backed DocValuesSkipper.
-	t.Skip("requires index-sort + indexedField helpers + reader-backed DocValuesSkipper (deferred)")
+	t.Fatal("requires index-sort + indexedField helpers + reader-backed DocValuesSkipper (deferred)")
 }

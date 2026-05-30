@@ -41,7 +41,7 @@ const skipDefaultCodecParallelizesIO = "GOC-4149: requires SerialIOCountingDirec
 // them, and asserts the directory's serial I/O count grew by fewer than the
 // number of suppliers, proving the term lookups were prefetched in parallel.
 func TestDefaultCodecParallelizesIO_TermsSeekExact(t *testing.T) {
-	t.Skip(skipDefaultCodecParallelizesIO)
+	t.Fatal(skipDefaultCodecParallelizesIO)
 }
 
 // TestDefaultCodecParallelizesIO_StoredFields ports testStoredFields.
@@ -49,5 +49,5 @@ func TestDefaultCodecParallelizesIO_TermsSeekExact(t *testing.T) {
 // retrieves them, and asserts the directory's serial I/O count grew by fewer
 // than twenty, proving the stored-field reads were prefetched in parallel.
 func TestDefaultCodecParallelizesIO_StoredFields(t *testing.T) {
-	t.Skip(skipDefaultCodecParallelizesIO)
+	t.Fatal(skipDefaultCodecParallelizesIO)
 }

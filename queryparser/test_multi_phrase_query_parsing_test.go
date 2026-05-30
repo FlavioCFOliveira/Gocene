@@ -18,5 +18,5 @@ import "testing"
 //
 // Port of: queryparser/src/test/.../classic/TestMultiPhraseQueryParsing.java
 func TestMultiPhraseQueryParsing(t *testing.T) {
-	t.Skip("deferred: requires generic Analyzer support and MultiPhraseQuery production for increment-0 token streams")
+	t.Fatal("deferred: requires generic Analyzer support and MultiPhraseQuery production for increment-0 token streams")
 }

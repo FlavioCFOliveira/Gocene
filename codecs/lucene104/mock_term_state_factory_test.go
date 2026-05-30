@@ -27,7 +27,7 @@ import "testing"
 //	    return lucene104.NewIntBlockTermState()
 //	}
 func TestMockTermStateFactory_Placeholder(t *testing.T) {
-	t.Skip(
+	t.Fatal(
 		"IntBlockTermState is not yet ported to codecs/lucene104; " +
 			"MockTermStateFactory will be implemented when that type lands",
 	)

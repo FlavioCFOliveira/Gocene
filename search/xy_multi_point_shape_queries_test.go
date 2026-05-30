@@ -35,7 +35,7 @@ import "testing"
 // harness, PointValidator, ShapeTestUtil, and XYShape field factory land
 // in Go.
 func TestXYMultiPointShapeQueries(t *testing.T) {
-	t.Skip("blocked by BaseXYShapeTestCase parent harness, " +
+	t.Fatal("blocked by BaseXYShapeTestCase parent harness, " +
 		"TestXYPointShapeQueries.PointValidator, ShapeTestUtil.nextXYPoint, " +
 		"XYShape.createIndexableFields, and RandomIndexWriter/CheckHits/" +
 		"QueryUtils plumbing; remove when fixed")

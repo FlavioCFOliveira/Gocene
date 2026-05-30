@@ -288,7 +288,7 @@ func expectExhausted(t *testing.T, pe index.PostingsEnum, target int) {
 // TestSegmentTermDocs ports the test() method: it merely asserts the directory
 // and its single leaf reader are non-nil after the document is written.
 func TestSegmentTermDocs(t *testing.T) {
-	t.Skip(segmentTermDocsBlocked)
+	t.Fatal(segmentTermDocsBlocked)
 
 	air, cleanup := segmentTermDocsTestDocLeaf(t)
 	defer cleanup()
@@ -301,7 +301,7 @@ func TestSegmentTermDocs(t *testing.T) {
 // TestSegmentTermDocsTermDocs ports testTermDocs: after writing the DocHelper
 // document, the term "field" in textField2 must resolve to doc 0 with freq 3.
 func TestSegmentTermDocsTermDocs(t *testing.T) {
-	t.Skip(segmentTermDocsBlocked)
+	t.Fatal(segmentTermDocsBlocked)
 
 	air, cleanup := segmentTermDocsTestDocLeaf(t)
 	defer cleanup()
@@ -331,7 +331,7 @@ func TestSegmentTermDocsTermDocs(t *testing.T) {
 // TestSegmentTermDocsBadSeek ports testBadSeek: a bad term in an existing
 // field, and any term in a never-indexed field, both yield a nil PostingsEnum.
 func TestSegmentTermDocsBadSeek(t *testing.T) {
-	t.Skip(segmentTermDocsBlocked)
+	t.Fatal(segmentTermDocsBlocked)
 
 	air, cleanup := segmentTermDocsTestDocLeaf(t)
 	defer cleanup()
@@ -351,7 +351,7 @@ func TestSegmentTermDocsBadSeek(t *testing.T) {
 // three terms whose posting lists straddle the skip-list interval — "aaa"
 // (below skipInterval), "bbb" (exactly skipInterval) and "ccc" (well beyond).
 func TestSegmentTermDocsSkipTo(t *testing.T) {
-	t.Skip(segmentTermDocsBlocked)
+	t.Fatal(segmentTermDocsBlocked)
 
 	air, cleanup := segmentTermDocsSkipToLeaf(t)
 	defer cleanup()

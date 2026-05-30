@@ -83,7 +83,7 @@ import (
 // only routes "id" to DirectPostingsFormat, then forceMerges to a
 // single segment and asserts maxDoc == 30.
 func TestPerFieldPostingsFormat2_MergeUnusedPerFieldCodec(t *testing.T) {
-	t.Skip("blocked by AssertingCodec/DirectPostingsFormat/MockAnalyzer/" +
+	t.Fatal("blocked by AssertingCodec/DirectPostingsFormat/MockAnalyzer/" +
 		"PerFieldPostingsFormat<->IndexWriter wiring; remove this Skip when fixed")
 
 	// Reserved symbols: keep types live so the activation patch
@@ -99,7 +99,7 @@ func TestPerFieldPostingsFormat2_MergeUnusedPerFieldCodec(t *testing.T) {
 // instance, asserts term-query counts against three round-trips of
 // commits, then forceMerges and re-asserts.
 func TestPerFieldPostingsFormat2_ChangeCodecAndMerge(t *testing.T) {
-	t.Skip("blocked by AssertingCodec/DirectPostingsFormat/MockAnalyzer/" +
+	t.Fatal("blocked by AssertingCodec/DirectPostingsFormat/MockAnalyzer/" +
 		"PerFieldPostingsFormat<->IndexWriter wiring + DirectoryReader/" +
 		"IndexSearcher/TermQuery round-trip; remove this Skip when fixed")
 
@@ -112,7 +112,7 @@ func TestPerFieldPostingsFormat2_ChangeCodecAndMerge(t *testing.T) {
 // the cumulative maxDoc after each round survives the optional
 // forceMerge(1).
 func TestPerFieldPostingsFormat2_StressPerFieldCodec(t *testing.T) {
-	t.Skip("blocked by MockAnalyzer/RandomCodec/random()/TestUtil.nextInt + " +
+	t.Fatal("blocked by MockAnalyzer/RandomCodec/random()/TestUtil.nextInt + " +
 		"PerFieldPostingsFormat<->IndexWriter wiring; remove this Skip when fixed")
 }
 
@@ -122,7 +122,7 @@ func TestPerFieldPostingsFormat2_StressPerFieldCodec(t *testing.T) {
 // "date" through AssertingCodec, driven by RandomIndexWriter +
 // term-vectors checkindex cross-check on close.
 func TestPerFieldPostingsFormat2_SameCodecDifferentInstance(t *testing.T) {
-	t.Skip("blocked by AssertingCodec/DirectPostingsFormat/RandomIndexWriter/" +
+	t.Fatal("blocked by AssertingCodec/DirectPostingsFormat/RandomIndexWriter/" +
 		"MockAnalyzer + checkindex cross-check; remove this Skip when fixed")
 }
 
@@ -132,7 +132,7 @@ func TestPerFieldPostingsFormat2_SameCodecDifferentInstance(t *testing.T) {
 // "id" and "date" respectively, again driven by
 // RandomIndexWriter + checkindex on close.
 func TestPerFieldPostingsFormat2_SameCodecDifferentParams(t *testing.T) {
-	t.Skip("blocked by AssertingCodec/LuceneVarGapFixedInterval/" +
+	t.Fatal("blocked by AssertingCodec/LuceneVarGapFixedInterval/" +
 		"RandomIndexWriter/MockAnalyzer + checkindex cross-check; " +
 		"remove this Skip when fixed")
 }
@@ -145,7 +145,7 @@ func TestPerFieldPostingsFormat2_SameCodecDifferentParams(t *testing.T) {
 // list observed, including the negative assertion that IntPoint
 // fields do not surface as posted fields.
 func TestPerFieldPostingsFormat2_MergeCalledOnTwoFormats(t *testing.T) {
-	t.Skip("blocked by AssertingCodec/PostingsFormat(String)-named-ctor/" +
+	t.Fatal("blocked by AssertingCodec/PostingsFormat(String)-named-ctor/" +
 		"FieldsConsumer.merge(MergeState, NormsProducer) hook/" +
 		"IntPoint exact wire format + PerFieldPostingsFormat<->IndexWriter " +
 		"wiring; remove this Skip when fixed")

@@ -47,7 +47,7 @@ import "testing"
 // harness, document.LatLonShape Line overloads, and the GeoTestUtil/
 // RandomIndexWriter/QueryUtils/CheckHits helpers land in Go.
 func TestLatLonLineShapeQueries(t *testing.T) {
-	t.Skip("blocked by BaseLatLonShapeTestCase parent harness, " +
+	t.Fatal("blocked by BaseLatLonShapeTestCase parent harness, " +
 		"document.LatLonShape.CreateIndexableFields(Line), Component2D/" +
 		"WithinRelation truth source, and RandomIndexWriter/GeoTestUtil/" +
 		"CheckHits/QueryUtils plumbing; remove when fixed")

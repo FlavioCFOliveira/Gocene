@@ -41,7 +41,7 @@ func TestBagOfPositions(t *testing.T) {
 	// loads SegmentCoreReaders from disk, LeafReader.Terms returns the "core
 	// readers are nil" error and the assertions below cannot run. Unskip once
 	// OpenDirectoryReader uses NewSegmentReaderWithCore.
-	t.Skip("blocked: OpenDirectoryReader builds SegmentReader without core readers (index/directory_reader.go:462/497); fix is NewSegmentReaderWithCore")
+	t.Fatal("blocked: OpenDirectoryReader builds SegmentReader without core readers (index/directory_reader.go:462/497); fix is NewSegmentReaderWithCore")
 
 	const numTerms = 100
 	maxTermsPerDoc := 10 + rand.Intn(11) // TestUtil.nextInt(random(), 10, 20)

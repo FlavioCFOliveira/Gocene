@@ -25,5 +25,5 @@ import "testing"
 //
 // Port of: queryparser/src/test/.../util/QueryParserTestBase.java
 func TestQueryParserTestBase(t *testing.T) {
-	t.Skip("deferred: abstract base class port requires feature-complete classic QueryParser and StandardQueryParser")
+	t.Fatal("deferred: abstract base class port requires feature-complete classic QueryParser and StandardQueryParser")
 }

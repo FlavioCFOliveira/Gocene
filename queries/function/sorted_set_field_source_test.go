@@ -13,5 +13,5 @@ import "testing"
 // function test setup (FunctionTestSetup with indexed sorted-set field data)
 // not yet complete in Gocene.
 func TestSortedSetFieldSource_All(t *testing.T) {
-	t.Skip("requires FunctionTestSetup + indexed sorted-set fields; deferred to backlog")
+	t.Fatal("requires FunctionTestSetup + indexed sorted-set fields; deferred to backlog")
 }

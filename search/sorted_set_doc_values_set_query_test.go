@@ -16,5 +16,5 @@ import "testing"
 // ported, this test is intentionally skipped so the suite stays green while
 // reserving the canonical file name and entry point.
 func TestSortedSetDocValuesSetQuery(t *testing.T) {
-	t.Skip("SortedSetDocValuesSetQuery not yet ported in Gocene; see GOC-3220 follow-up")
+	t.Fatal("SortedSetDocValuesSetQuery not yet ported in Gocene; see GOC-3220 follow-up")
 }

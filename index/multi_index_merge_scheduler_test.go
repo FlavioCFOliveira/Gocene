@@ -53,7 +53,7 @@ func TestMultiIndexMergeScheduler(t *testing.T) {
 
 	t.Run("singleton acquire and release ref counting", func(t *testing.T) {
 		if index.PeekCombinedSingleton() != nil {
-			t.Skip("singleton already allocated by another test; skipping")
+			t.Fatal("singleton already allocated by another test; skipping")
 		}
 
 		d1 := store.NewByteBuffersDirectory()

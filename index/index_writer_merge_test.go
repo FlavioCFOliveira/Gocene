@@ -35,7 +35,7 @@ func TestIndexWriterForceMerge(t *testing.T) {
 
 		// Force merge should complete without error even with empty index
 		// TODO: Implement ForceMerge when available
-		t.Skip("ForceMerge not yet implemented")
+		t.Fatal("ForceMerge not yet implemented")
 
 		err = writer.Close()
 		if err != nil {
@@ -62,7 +62,7 @@ func TestIndexWriterForceMerge(t *testing.T) {
 		// TODO: Implement ForceMerge
 		// maxSegments := 1
 		// writer.ForceMerge(maxSegments)
-		t.Skip("ForceMerge not yet implemented")
+		t.Fatal("ForceMerge not yet implemented")
 
 		writer.Close()
 	})
@@ -88,7 +88,7 @@ func TestIndexWriterForceMerge(t *testing.T) {
 		writer.Commit()
 
 		// Force merge should handle deleted documents
-		t.Skip("ForceMerge not yet implemented")
+		t.Fatal("ForceMerge not yet implemented")
 
 		writer.Close()
 	})
@@ -137,7 +137,7 @@ func TestIndexWriterMergePolicy(t *testing.T) {
 
 		tieredPolicy, ok := setPolicy.(*index.TieredMergePolicy)
 		if !ok {
-			t.Skip("GetMergePolicy returns interface, not *TieredMergePolicy")
+			t.Fatal("GetMergePolicy returns interface, not *TieredMergePolicy")
 		}
 
 		if tieredPolicy.GetMaxMergeAtOnce() != 5 {
@@ -159,7 +159,7 @@ func TestIndexWriterBackgroundMerge(t *testing.T) {
 
 		// Check that merge scheduler is set
 		if config.GetMergeScheduler() == nil {
-			t.Skip("MergeScheduler not yet implemented in config")
+			t.Fatal("MergeScheduler not yet implemented in config")
 		}
 
 		writer, _ := index.NewIndexWriter(dir, config)
@@ -175,7 +175,7 @@ func TestIndexWriterBackgroundMerge(t *testing.T) {
 		config := index.NewIndexWriterConfig(createTestAnalyzer())
 
 		// TODO: Disable background merge when API available
-		t.Skip("Disable background merge not yet implemented")
+		t.Fatal("Disable background merge not yet implemented")
 
 		writer, _ := index.NewIndexWriter(dir, config)
 		defer writer.Close()
@@ -218,7 +218,7 @@ func TestIndexWriterMergeScheduling(t *testing.T) {
 		config := index.NewIndexWriterConfig(createTestAnalyzer())
 
 		// TODO: Set custom merge scheduler when available
-		t.Skip("Merge scheduler configuration not yet fully implemented")
+		t.Fatal("Merge scheduler configuration not yet fully implemented")
 
 		writer, _ := index.NewIndexWriter(dir, config)
 		defer writer.Close()
@@ -249,6 +249,6 @@ func TestIndexWriterCompoundFiles(t *testing.T) {
 		writer.Commit()
 
 		// TODO: Verify compound file creation
-		t.Skip("Compound file verification not yet implemented")
+		t.Fatal("Compound file verification not yet implemented")
 	})
 }

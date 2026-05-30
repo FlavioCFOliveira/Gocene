@@ -38,7 +38,7 @@ import "testing"
 // spawn reader and indexer goroutines, assert the rejection message, and
 // restore the cap via t.Cleanup.
 func TestIndexTooManyDocs(t *testing.T) {
-	t.Skip("blocked: IndexWriter MaxDocs cap (set/getActualMaxDocs/MAX_DOCS) " +
+	t.Fatal("blocked: IndexWriter MaxDocs cap (set/getActualMaxDocs/MAX_DOCS) " +
 		"and enforcement are not implemented, and no DirectoryReader.open(writer, ...) " +
 		"NRT entry point exists; see GOC-4168")
 }

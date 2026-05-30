@@ -29,5 +29,5 @@ import "testing"
 // dedicated monster-test runner; until then, executing it under `go test ./util/fst/...`
 // must not consume the multi-hour, multi-GiB budget the JVM version requires.
 func Test2BFSTOffHeap(t *testing.T) {
-	t.Skip("monster test: ~3 GiB on-disk FSTs, ~4.5 h runtime; ported as stub for parity (GOC-4286)")
+	t.Fatal("monster test: ~3 GiB on-disk FSTs, ~4.5 h runtime; ported as stub for parity (GOC-4286)")
 }

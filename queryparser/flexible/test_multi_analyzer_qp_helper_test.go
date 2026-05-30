@@ -17,5 +17,5 @@ import "testing"
 //
 // Port of: queryparser/src/test/.../flexible/standard/TestMultiAnalyzerQPHelper.java
 func TestMultiAnalyzerQPHelper(t *testing.T) {
-	t.Skip("deferred: requires multi-token position handling (SynonymQuery) in the flexible StandardQueryParser")
+	t.Fatal("deferred: requires multi-token position handling (SynonymQuery) in the flexible StandardQueryParser")
 }

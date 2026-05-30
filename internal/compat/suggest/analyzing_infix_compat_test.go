@@ -76,7 +76,7 @@ func TestAnalyzingInfix_WriteAndVerify(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Skipf("deferred: Gocene AnalyzingInfixSuggester writer cannot emit "+
+			t.Fatalf("deferred: Gocene AnalyzingInfixSuggester writer cannot emit "+
 				"a Lucene-readable sidecar yet (suggest/analyzing_infix_suggester.go); "+
 				"blocked on the SegmentReader core-readers gap "+
 				"(memory-index ref 'gocene-segmentreader-corereaders-gap'); "+
@@ -92,7 +92,7 @@ func TestAnalyzingInfix_RoundTrip(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Skipf("deferred: Gocene round-trip for analyzing-infix-sidecar at "+
+			t.Fatalf("deferred: Gocene round-trip for analyzing-infix-sidecar at "+
 				"seed=%d requires a Gocene writer + reader that mirrors the "+
 				"Lucene segment layout; audit gap_notes (verbatim): %q",
 				seed, auditGap)

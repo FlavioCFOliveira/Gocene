@@ -106,7 +106,7 @@ func TestCommitOnClose(t *testing.T) {
 		// TODO(GOC-4163): a DirectoryReader reopened mid-session does not yet
 		// observe segments committed by a separate IndexWriter on the same
 		// Directory. Re-enable once Reopen/IsCurrent reflect external commits.
-		t.Skip("Reopen does not yet observe externally committed segments")
+		t.Fatal("Reopen does not yet observe externally committed segments")
 
 		dir := store.NewByteBuffersDirectory()
 		defer dir.Close()
@@ -330,7 +330,7 @@ func TestCommitOnCloseForceMerge(t *testing.T) {
 		// TODO(GOC-4163): DirectoryReader.Leaves reports a single leaf for a
 		// multi-segment index, so the multi-vs-single segment assertions
 		// cannot be exercised. Re-enable once per-segment leaves are exposed.
-		t.Skip("DirectoryReader.Leaves does not yet expose per-segment leaves")
+		t.Fatal("DirectoryReader.Leaves does not yet expose per-segment leaves")
 
 		dir := store.NewByteBuffersDirectory()
 		defer dir.Close()
@@ -892,7 +892,7 @@ func TestCommitUserData(t *testing.T) {
 		// TODO(GOC-4163): commit data set via SetLiveCommitData is not yet
 		// persisted into the segments file, so a reopened reader observes
 		// empty user data. Re-enable once commit data is round-tripped.
-		t.Skip("SetLiveCommitData is not yet persisted to the commit point")
+		t.Fatal("SetLiveCommitData is not yet persisted to the commit point")
 
 		dir := store.NewByteBuffersDirectory()
 		defer dir.Close()
@@ -987,7 +987,7 @@ func TestCommitDataIsLive(t *testing.T) {
 		// TODO(GOC-4163): commit data set via SetLiveCommitData is not yet
 		// persisted to the commit point, so its late-binding semantics
 		// cannot be verified. Re-enable once commit data is round-tripped.
-		t.Skip("SetLiveCommitData is not yet persisted to the commit point")
+		t.Fatal("SetLiveCommitData is not yet persisted to the commit point")
 
 		dir := store.NewByteBuffersDirectory()
 		defer dir.Close()
@@ -1082,7 +1082,7 @@ func TestCommitOnCloseDiskUsage(t *testing.T) {
 		// TODO(GOC-4163): requires MockDirectoryWrapper disk-usage tracking
 		// (resetMaxUsedSizeInBytes/getMaxUsedSizeInBytes/setTrackDiskUsage),
 		// which Gocene's store package does not yet provide.
-		t.Skip("MockDirectoryWrapper disk-usage tracking not yet ported")
+		t.Fatal("MockDirectoryWrapper disk-usage tracking not yet ported")
 	})
 }
 
@@ -1095,7 +1095,7 @@ func TestCommitThreadSafety(t *testing.T) {
 		// TODO(GOC-4163): requires RandomIndexWriter and
 		// DirectoryReader.OpenIfChanged, neither of which is available yet;
 		// also depends on Reopen observing externally committed segments.
-		t.Skip("RandomIndexWriter / OpenIfChanged not yet available")
+		t.Fatal("RandomIndexWriter / OpenIfChanged not yet available")
 	})
 }
 
@@ -1108,6 +1108,6 @@ func TestFutureCommit(t *testing.T) {
 		// TODO(GOC-4163): IndexWriterConfig has no SetIndexCommit, so a
 		// writer cannot be pinned to a past IndexCommit. Re-enable once
 		// SetIndexCommit is added to IndexWriterConfig.
-		t.Skip("IndexWriterConfig.SetIndexCommit is not yet implemented")
+		t.Fatal("IndexWriterConfig.SetIndexCommit is not yet implemented")
 	})
 }

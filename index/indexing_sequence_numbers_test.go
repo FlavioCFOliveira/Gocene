@@ -61,7 +61,7 @@ import "testing"
 // Degraded to t.Skip: IndexWriter.AddDocument returns (error), not
 // (int64, error); sequence number return values are not yet implemented.
 func TestIndexingSeqNos_Basic(t *testing.T) {
-	t.Skip("needs AddDocument to return a sequence number (int64); " +
+	t.Fatal("needs AddDocument to return a sequence number (int64); " +
 		"current signature returns only error (not yet ported)")
 }
 
@@ -73,7 +73,7 @@ func TestIndexingSeqNos_Basic(t *testing.T) {
 // Degraded to t.Skip: sequence number return value missing; also requires
 // DirectoryReader.open(IndexWriter) NRT path (not implemented).
 func TestIndexingSeqNos_AfterRefresh(t *testing.T) {
-	t.Skip("needs sequence-number return from AddDocument and " +
+	t.Fatal("needs sequence-number return from AddDocument and " +
 		"DirectoryReader.open(IndexWriter) NRT reader (not yet implemented)")
 }
 
@@ -84,7 +84,7 @@ func TestIndexingSeqNos_AfterRefresh(t *testing.T) {
 //
 // Degraded to t.Skip: AddDocument does not return a sequence number.
 func TestIndexingSeqNos_AfterCommit(t *testing.T) {
-	t.Skip("needs AddDocument to return a sequence number (int64) " +
+	t.Fatal("needs AddDocument to return a sequence number (int64) " +
 		"(not yet ported)")
 }
 
@@ -99,7 +99,7 @@ func TestIndexingSeqNos_AfterCommit(t *testing.T) {
 // updateDocument(Term), NRT DirectoryReader.open(IndexWriter), IndexSearcher,
 // TermQuery, and RandomIndexWriter are all missing.
 func TestIndexingSeqNos_StressUpdateSameID(t *testing.T) {
-	t.Skip("needs sequence-number return, functional updateDocument(Term), " +
+	t.Fatal("needs sequence-number return, functional updateDocument(Term), " +
 		"NRT reader, IndexSearcher+TermQuery, and RandomIndexWriter " +
 		"(none ported)")
 }
@@ -114,7 +114,7 @@ func TestIndexingSeqNos_StressUpdateSameID(t *testing.T) {
 // functional deleteDocuments(Term), and SegmentInfos doc-count enumeration
 // are not yet available.
 func TestIndexingSeqNos_StressConcurrent(t *testing.T) {
-	t.Skip("needs sequence numbers, NoDeletionPolicy.INSTANCE, functional " +
+	t.Fatal("needs sequence numbers, NoDeletionPolicy.INSTANCE, functional " +
 		"deleteDocuments(Term), and SegmentInfos doc-count read path " +
 		"(not yet ported)")
 }
@@ -129,7 +129,7 @@ func TestIndexingSeqNos_StressConcurrent(t *testing.T) {
 // Degraded to t.Skip: updateNumericDocValues, sequence numbers, and all
 // blockers listed in TestIndexingSeqNos_StressConcurrent apply.
 func TestIndexingSeqNos_StressDVUpdates(t *testing.T) {
-	t.Skip("needs updateNumericDocValues, sequence numbers, NoDeletionPolicy, " +
+	t.Fatal("needs updateNumericDocValues, sequence numbers, NoDeletionPolicy, " +
 		"functional deleteDocuments(Term), and SegmentInfos read path " +
 		"(not yet ported)")
 }
@@ -144,7 +144,7 @@ func TestIndexingSeqNos_StressDVUpdates(t *testing.T) {
 //
 // Degraded to t.Skip: same blockers as TestIndexingSeqNos_StressConcurrent.
 func TestIndexingSeqNos_StressAddAndDelete(t *testing.T) {
-	t.Skip("needs sequence numbers, functional deleteDocuments(Term), and " +
+	t.Fatal("needs sequence numbers, functional deleteDocuments(Term), and " +
 		"SegmentInfos doc-count read path (not yet ported)")
 }
 
@@ -157,6 +157,6 @@ func TestIndexingSeqNos_StressAddAndDelete(t *testing.T) {
 // Degraded to t.Skip: deleteAll() does not return a sequence number; sequence
 // number return values are not implemented.
 func TestIndexingSeqNos_DeleteAll(t *testing.T) {
-	t.Skip("needs deleteAll() to return a sequence number and AddDocument to " +
+	t.Fatal("needs deleteAll() to return a sequence number and AddDocument to " +
 		"return a sequence number (not yet implemented)")
 }

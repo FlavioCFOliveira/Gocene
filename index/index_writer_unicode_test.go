@@ -245,14 +245,14 @@ func TestIndexWriterUnicode_AllUnicodeChars(t *testing.T) {
 // TestIndexWriterUnicode_EmbeddedFFFF ports testEmbeddedFFFF. Skipped: requires
 // an IndexWriter + DirectoryReader round-trip and docFreq term lookup.
 func TestIndexWriterUnicode_EmbeddedFFFF(t *testing.T) {
-	t.Skip("GOC-4184: IndexWriter/DirectoryReader indexing round-trip not yet ported")
+	t.Fatal("GOC-4184: IndexWriter/DirectoryReader indexing round-trip not yet ported")
 }
 
 // TestIndexWriterUnicode_InvalidUTF16 ports testInvalidUTF16 (LUCENE-510).
 // Skipped: requires indexing each utf8Data input and reading it back via
 // stored fields and docFreq.
 func TestIndexWriterUnicode_InvalidUTF16(t *testing.T) {
-	t.Skip("GOC-4184: IndexWriter/DirectoryReader indexing round-trip not yet ported")
+	t.Fatal("GOC-4184: IndexWriter/DirectoryReader indexing round-trip not yet ported")
 	_ = utf8Data
 }
 
@@ -260,5 +260,5 @@ func TestIndexWriterUnicode_InvalidUTF16(t *testing.T) {
 // Skipped: requires RandomIndexWriter, multi-segment readers and TermsEnum
 // seeking to verify codepoint sort order.
 func TestIndexWriterUnicode_TermUTF16SortOrder(t *testing.T) {
-	t.Skip("GOC-4184: RandomIndexWriter and TermsEnum sort-order checks not yet ported")
+	t.Fatal("GOC-4184: RandomIndexWriter and TermsEnum sort-order checks not yet ported")
 }

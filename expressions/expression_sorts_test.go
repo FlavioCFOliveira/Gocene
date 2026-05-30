@@ -12,5 +12,5 @@ import "testing"
 // TestExpressionSorts skips because it requires full ANTLR JavascriptCompiler
 // and IndexSearcher infrastructure not yet in Gocene.
 func TestExpressionSorts(t *testing.T) {
-	t.Skip("requires full ANTLR JavascriptCompiler and IndexSearcher infrastructure (not yet ported)")
+	t.Fatal("requires full ANTLR JavascriptCompiler and IndexSearcher infrastructure (not yet ported)")
 }

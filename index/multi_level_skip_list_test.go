@@ -49,7 +49,7 @@ import "testing"
 // above but not yet stubbed, since their shape depends on the final Gocene
 // store and analysis APIs.
 func TestMultiLevelSkipList(t *testing.T) {
-	t.Skip("GOC-4153: faithful port deferred — needs index.IndexWriter, " +
+	t.Fatal("GOC-4153: faithful port deferred — needs index.IndexWriter, " +
 		"DirectoryReader/LeafReader postings with payloads, MockTokenizer/" +
 		"PayloadFilter analysis fixtures, and a byte-counting Directory " +
 		"(MockDirectoryWrapper equivalent). See file-level comment.")

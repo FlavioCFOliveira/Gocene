@@ -66,7 +66,7 @@ func TestSearchMode_TokenizerDiscardCompound(t *testing.T) {
 // Deviation: skipped — requires binary dictionary I/O to produce tokens.
 // Tracked in backlog task #2691.
 func TestSearchMode_Segmentation(t *testing.T) {
-	t.Skip("requires binary dictionary I/O (deferred to codec sprint)")
+	t.Fatal("requires binary dictionary I/O (deferred to codec sprint)")
 }
 
 // TestSearchMode_SegmentationNoOriginal exercises the same fixture with
@@ -74,5 +74,5 @@ func TestSearchMode_Segmentation(t *testing.T) {
 //
 // Deviation: skipped — requires binary dictionary I/O.
 func TestSearchMode_SegmentationNoOriginal(t *testing.T) {
-	t.Skip("requires binary dictionary I/O (deferred to codec sprint)")
+	t.Fatal("requires binary dictionary I/O (deferred to codec sprint)")
 }

@@ -16,49 +16,49 @@ package search_test
 import "testing"
 
 func TestMultiCollector_NullCollectors(t *testing.T) {
-	t.Skip("search.Collector interface mismatch — GetLeafCollector parameter type not aligned")
+	t.Fatal("search.Collector interface mismatch — GetLeafCollector parameter type not aligned")
 }
 
 func TestMultiCollector_SingleCollector(t *testing.T) {
-	t.Skip("search.Collector interface mismatch — GetLeafCollector parameter type not aligned")
+	t.Fatal("search.Collector interface mismatch — GetLeafCollector parameter type not aligned")
 }
 
 func TestMultiCollector_Delegation(t *testing.T) {
-	t.Skip("search.Collector interface mismatch — GetLeafCollector parameter type not aligned")
+	t.Fatal("search.Collector interface mismatch — GetLeafCollector parameter type not aligned")
 }
 
 func TestMultiCollector_MergeScoreModes(t *testing.T) {
-	t.Skip("search.Collector interface mismatch — GetLeafCollector parameter type not aligned")
+	t.Fatal("search.Collector interface mismatch — GetLeafCollector parameter type not aligned")
 }
 
 func TestMultiCollector_CollectionTermination(t *testing.T) {
-	t.Skip("search.Collector interface mismatch — GetLeafCollector parameter type not aligned")
+	t.Fatal("search.Collector interface mismatch — GetLeafCollector parameter type not aligned")
 }
 
 func TestMultiCollector_SetScorerOnTermination(t *testing.T) {
-	t.Skip("search.Collector interface mismatch — GetLeafCollector parameter type not aligned")
+	t.Fatal("search.Collector interface mismatch — GetLeafCollector parameter type not aligned")
 }
 
 func TestMultiCollector_SetScorerAfterTermination(t *testing.T) {
-	t.Skip("search.Collector interface mismatch — GetLeafCollector parameter type not aligned")
+	t.Fatal("search.Collector interface mismatch — GetLeafCollector parameter type not aligned")
 }
 
 func TestMultiCollector_MinCompetitiveScore(t *testing.T) {
-	t.Skip("search.Collector interface mismatch — GetLeafCollector parameter type not aligned")
+	t.Fatal("search.Collector interface mismatch — GetLeafCollector parameter type not aligned")
 }
 
 func TestMultiCollector_DisablesSetMinScore(t *testing.T) {
-	t.Skip("search.Collector interface mismatch — GetLeafCollector parameter type not aligned")
+	t.Fatal("search.Collector interface mismatch — GetLeafCollector parameter type not aligned")
 }
 
 func TestMultiCollector_CollectionTerminatedExceptionHandling(t *testing.T) {
-	t.Skip("search.Collector interface mismatch — GetLeafCollector parameter type not aligned")
+	t.Fatal("search.Collector interface mismatch — GetLeafCollector parameter type not aligned")
 }
 
 func TestMultiCollector_CacheScores(t *testing.T) {
-	t.Skip("search.Collector interface mismatch — GetLeafCollector parameter type not aligned")
+	t.Fatal("search.Collector interface mismatch — GetLeafCollector parameter type not aligned")
 }
 
 func TestMultiCollector_ScorerWrappingForTopScores(t *testing.T) {
-	t.Skip("search.Collector interface mismatch — GetLeafCollector parameter type not aligned")
+	t.Fatal("search.Collector interface mismatch — GetLeafCollector parameter type not aligned")
 }

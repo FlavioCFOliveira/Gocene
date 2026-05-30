@@ -31,7 +31,7 @@ import "testing"
 // interface is in place.
 
 func TestTermBytesComparator_Comparison(t *testing.T) {
-	t.Skip(
+	t.Fatal(
 		"BlockReader.seekInBlock and lineIndexInBlock are not yet ported to " +
 			"the Gocene uniformsplit package; test body deferred until those " +
 			"components land",

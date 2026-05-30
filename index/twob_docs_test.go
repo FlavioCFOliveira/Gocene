@@ -14,5 +14,5 @@ import "testing"
 // In Lucene this is annotated @Monster and takes roughly 30 minutes, so it is
 // skipped by default.
 func Test2BDocs(t *testing.T) {
-	t.Skip("monster test: indexes ~2B docs, takes ~30min and multiple GB of heap")
+	t.Fatal("monster test: indexes ~2B docs, takes ~30min and multiple GB of heap")
 }

@@ -45,7 +45,7 @@ import "testing"
 // write path, wired vector reader (coreReaders), DoubleValuesSource.similarityToQueryVector,
 // DoubleValues.AdvanceExact/DoubleValue, and VectorSimilarityFunction.Compare.
 func TestVectorSimilarityValuesSource_Euclidean(t *testing.T) {
-	t.Skip("needs RandomIndexWriter, KnnVectorField write path, wired vector reader " +
+	t.Fatal("needs RandomIndexWriter, KnnVectorField write path, wired vector reader " +
 		"(coreReaders nil), DoubleValuesSource.similarityToQueryVector, " +
 		"DoubleValues.AdvanceExact/DoubleValue, VectorSimilarityFunction.Compare (not yet ported)")
 }
@@ -54,7 +54,7 @@ func TestVectorSimilarityValuesSource_Euclidean(t *testing.T) {
 //
 // Degraded to t.Skip: same blockers as TestVectorSimilarityValuesSource_Euclidean.
 func TestVectorSimilarityValuesSource_Dot(t *testing.T) {
-	t.Skip("needs RandomIndexWriter, KnnVectorField write path, wired vector reader " +
+	t.Fatal("needs RandomIndexWriter, KnnVectorField write path, wired vector reader " +
 		"(coreReaders nil), DoubleValuesSource.similarityToQueryVector, " +
 		"DoubleValues.AdvanceExact/DoubleValue, VectorSimilarityFunction.Compare (not yet ported)")
 }
@@ -63,7 +63,7 @@ func TestVectorSimilarityValuesSource_Dot(t *testing.T) {
 //
 // Degraded to t.Skip: same blockers as TestVectorSimilarityValuesSource_Euclidean.
 func TestVectorSimilarityValuesSource_Cosine(t *testing.T) {
-	t.Skip("needs RandomIndexWriter, KnnVectorField write path, wired vector reader " +
+	t.Fatal("needs RandomIndexWriter, KnnVectorField write path, wired vector reader " +
 		"(coreReaders nil), DoubleValuesSource.similarityToQueryVector, " +
 		"DoubleValues.AdvanceExact/DoubleValue, VectorSimilarityFunction.Compare (not yet ported)")
 }
@@ -72,7 +72,7 @@ func TestVectorSimilarityValuesSource_Cosine(t *testing.T) {
 //
 // Degraded to t.Skip: same blockers as TestVectorSimilarityValuesSource_Euclidean.
 func TestVectorSimilarityValuesSource_MaxInnerProd(t *testing.T) {
-	t.Skip("needs RandomIndexWriter, KnnVectorField write path, wired vector reader " +
+	t.Fatal("needs RandomIndexWriter, KnnVectorField write path, wired vector reader " +
 		"(coreReaders nil), DoubleValuesSource.similarityToQueryVector, " +
 		"DoubleValues.AdvanceExact/DoubleValue, VectorSimilarityFunction.Compare (not yet ported)")
 }
@@ -82,7 +82,7 @@ func TestVectorSimilarityValuesSource_MaxInnerProd(t *testing.T) {
 // Degraded to t.Skip: same blockers as TestVectorSimilarityValuesSource_Euclidean;
 // additionally requires error-path validation when float and byte field types are mixed.
 func TestVectorSimilarityValuesSource_Failures(t *testing.T) {
-	t.Skip("needs RandomIndexWriter, KnnVectorField write path, wired vector reader " +
+	t.Fatal("needs RandomIndexWriter, KnnVectorField write path, wired vector reader " +
 		"(coreReaders nil), DoubleValuesSource.similarityToQueryVector, " +
 		"DoubleValues.AdvanceExact/DoubleValue, VectorSimilarityFunction.Compare (not yet ported)")
 }

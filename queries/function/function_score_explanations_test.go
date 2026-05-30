@@ -12,5 +12,5 @@ import "testing"
 // TestFunctionScoreExplanations_All is skipped because it requires full
 // function score explanation infrastructure not yet complete in Gocene.
 func TestFunctionScoreExplanations_All(t *testing.T) {
-	t.Skip("requires full function score explanation infrastructure; deferred to backlog")
+	t.Fatal("requires full function score explanation infrastructure; deferred to backlog")
 }

@@ -32,5 +32,5 @@ import "testing"
 // Wiring deferred until the codec registry concurrency contract is
 // finalized (tracked alongside the PostingsFormat wiring backlog).
 func TestCodecLoadingDeadlock(t *testing.T) {
-	t.Skip("stub: pending concurrent registry stress harness")
+	t.Fatal("stub: pending concurrent registry stress harness")
 }

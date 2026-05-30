@@ -484,7 +484,7 @@ func TestQueryParserCompatibility_Escape(t *testing.T) {
 			query, err := parser.Parse(tc.query)
 			if err != nil {
 				// Escape sequences may not be fully supported
-				t.Skipf("escape not fully supported: %v", err)
+				t.Fatalf("escape not fully supported: %v", err)
 				return
 			}
 

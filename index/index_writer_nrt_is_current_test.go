@@ -45,5 +45,5 @@ type readerHolder struct {
 // reopens via DirectoryReader.openIfChanged. None of that NRT machinery exists
 // yet, so the test cannot be exercised.
 func TestIndexWriterNRTIsCurrent_IsCurrentWithThreads(t *testing.T) {
-	t.Skip("needs NRT DirectoryReader.open(writer) and openIfChanged; deleteDocuments/updateDocument are no-op stubs")
+	t.Fatal("needs NRT DirectoryReader.open(writer) and openIfChanged; deleteDocuments/updateDocument are no-op stubs")
 }

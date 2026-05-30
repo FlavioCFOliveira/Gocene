@@ -538,7 +538,7 @@ func TestBitDocIdSet_RamBytesUsed(t *testing.T) {
 	// BitDocIdSet itself. Reference the value so the wiring is fully
 	// exercised when the gap closes.
 	_ = bitSet.Bits().RamBytesUsed()
-	t.Skip("BitDocIdSet.RamBytesUsed not implemented; see util/bit_doc_id_set.go (add next to Cost(), line 91)")
+	t.Fatal("BitDocIdSet.RamBytesUsed not implemented; see util/bit_doc_id_set.go (add next to Cost(), line 91)")
 }
 
 // TestBitDocIdSet_IntoBitSet mirrors BaseDocIdSetTestCase.testIntoBitSet().
@@ -568,7 +568,7 @@ func TestBitDocIdSet_IntoBitSet(t *testing.T) {
 	if it == nil {
 		t.Fatal("Iterator returned nil")
 	}
-	t.Skip("DocIdSetIterator.IntoBitSet not implemented; see codecs/lucene90/indexed_disi.go:62/130/563 and search/doc_id_set_iterator.go")
+	t.Fatal("DocIdSetIterator.IntoBitSet not implemented; see codecs/lucene90/indexed_disi.go:62/130/563 and search/doc_id_set_iterator.go")
 }
 
 // TestBitDocIdSet_IntoBitSetBoundChecks mirrors
@@ -594,5 +594,5 @@ func TestBitDocIdSet_IntoBitSetBoundChecks(t *testing.T) {
 	if _, err := it.Advance(15); err != nil {
 		t.Fatalf("Advance(15): %v", err)
 	}
-	t.Skip("DocIdSetIterator.IntoBitSet not implemented; see codecs/lucene90/indexed_disi.go:62/130/563 and search/doc_id_set_iterator.go")
+	t.Fatal("DocIdSetIterator.IntoBitSet not implemented; see codecs/lucene90/indexed_disi.go:62/130/563 and search/doc_id_set_iterator.go")
 }

@@ -56,7 +56,7 @@ import "testing"
 // the rollback mechanism (reopening the writer at a prior commit via a
 // RollbackDeletionPolicy) cannot be exercised.
 func TestTransactionRollback_RepeatedRollBacks(t *testing.T) {
-	t.Skip("needs IndexWriterConfig.SetIndexCommit to reopen writer at a prior commit point; " +
+	t.Fatal("needs IndexWriterConfig.SetIndexCommit to reopen writer at a prior commit point; " +
 		"multi-commit lifecycle through IndexFileDeleter.onInit not yet fully wired")
 }
 
@@ -71,6 +71,6 @@ func TestTransactionRollback_RepeatedRollBacks(t *testing.T) {
 // IndexCommit.Delete() to actually mark the commit for removal inside
 // IndexFileDeleter, which depends on the full deletion-policy lifecycle.
 func TestTransactionRollback_RollbackDeletionPolicy(t *testing.T) {
-	t.Skip("needs IndexWriterConfig.SetIndexCommit and functional " +
+	t.Fatal("needs IndexWriterConfig.SetIndexCommit and functional " +
 		"IndexCommit.Delete() inside IndexFileDeleter lifecycle")
 }

@@ -25,17 +25,17 @@ import "testing"
 // (using a goroutine pool) produces the same facet results as the sequential
 // variant.
 func TestParallelDrillSideways_BasicSearch(t *testing.T) {
-	t.Skip("requires DrillSideways with goroutine-pool executor + RandomIndexWriter + TaxonomyReader pipeline")
+	t.Fatal("requires DrillSideways with goroutine-pool executor + RandomIndexWriter + TaxonomyReader pipeline")
 }
 
 // TestParallelDrillSideways_ScoreSubdocsAtOnce verifies the scoreSubDocsAtOnce
 // path in parallel mode.
 func TestParallelDrillSideways_ScoreSubdocsAtOnce(t *testing.T) {
-	t.Skip("requires DrillSideways with goroutine-pool executor + scoreSubDocsAtOnce override")
+	t.Fatal("requires DrillSideways with goroutine-pool executor + scoreSubDocsAtOnce override")
 }
 
 // TestParallelDrillSideways_BuildFacetsResult verifies the custom buildFacetsResult
 // override using getTaxonomyFacetCounts in parallel mode.
 func TestParallelDrillSideways_BuildFacetsResult(t *testing.T) {
-	t.Skip("requires DrillSideways.buildFacetsResult override + MultiFacets + TaxonomyReader pipeline")
+	t.Fatal("requires DrillSideways.buildFacetsResult override + MultiFacets + TaxonomyReader pipeline")
 }

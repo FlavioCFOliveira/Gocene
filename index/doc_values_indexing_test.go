@@ -46,7 +46,7 @@ const dvIndexingSkipReason = "GOC-4154: requires RandomIndexWriter, NRT readers,
 // both into a third via addIndexes(CodecReader...), forceMerges to a single
 // segment, and asserts the merged segment exposes the "dv" numeric values.
 func TestDocValuesIndexing_AddIndexes(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_MultiValuedDocValuesField ports
@@ -55,7 +55,7 @@ func TestDocValuesIndexing_AddIndexes(t *testing.T) {
 // DocValues fields are single-valued: adding the same NumericDocValuesField
 // instance twice to one document must fail with IllegalArgumentException.
 func TestDocValuesIndexing_MultiValuedDocValuesField(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_DifferentTypedDocValuesField ports
@@ -64,7 +64,7 @@ func TestDocValuesIndexing_MultiValuedDocValuesField(t *testing.T) {
 // A document may not carry the same field name with two DocValues types
 // (numeric then binary): the second addDocument must fail.
 func TestDocValuesIndexing_DifferentTypedDocValuesField(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_DifferentTypedDocValuesField2 ports
@@ -72,7 +72,7 @@ func TestDocValuesIndexing_DifferentTypedDocValuesField(t *testing.T) {
 //
 // As above, but the conflicting second type is sorted rather than binary.
 func TestDocValuesIndexing_DifferentTypedDocValuesField2(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_LengthPrefixAcrossTwoPages ports
@@ -81,7 +81,7 @@ func TestDocValuesIndexing_DifferentTypedDocValuesField2(t *testing.T) {
 // Writes a SortedDocValuesField whose value spans more than one internal
 // page (~32 KiB), forceMerges, and verifies the bytes round-trip exactly.
 func TestDocValuesIndexing_LengthPrefixAcrossTwoPages(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_DocValuesUnstored ports testDocValuesUnstored.
@@ -90,7 +90,7 @@ func TestDocValuesIndexing_LengthPrefixAcrossTwoPages(t *testing.T) {
 // text field "docId", then verifies the DocValues are readable while "dv" is
 // absent from stored fields.
 func TestDocValuesIndexing_DocValuesUnstored(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_MixedTypesSameDocument ports
@@ -98,7 +98,7 @@ func TestDocValuesIndexing_DocValuesUnstored(t *testing.T) {
 //
 // Same field appearing in one document as two DocValues types must fail.
 func TestDocValuesIndexing_MixedTypesSameDocument(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_MixedTypesDifferentDocuments ports
@@ -107,7 +107,7 @@ func TestDocValuesIndexing_MixedTypesSameDocument(t *testing.T) {
 // Two documents giving the same field different DocValues types: the second
 // addDocument must fail.
 func TestDocValuesIndexing_MixedTypesDifferentDocuments(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_AddSortedTwice ports testAddSortedTwice.
@@ -115,7 +115,7 @@ func TestDocValuesIndexing_MixedTypesDifferentDocuments(t *testing.T) {
 // Adding two SortedDocValuesField values for the same field to one document
 // must fail.
 func TestDocValuesIndexing_AddSortedTwice(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_AddBinaryTwice ports testAddBinaryTwice.
@@ -123,7 +123,7 @@ func TestDocValuesIndexing_AddSortedTwice(t *testing.T) {
 // Adding two BinaryDocValuesField values for the same field to one document
 // must fail.
 func TestDocValuesIndexing_AddBinaryTwice(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_AddNumericTwice ports testAddNumericTwice.
@@ -131,7 +131,7 @@ func TestDocValuesIndexing_AddBinaryTwice(t *testing.T) {
 // Adding two NumericDocValuesField values for the same field to one document
 // must fail.
 func TestDocValuesIndexing_AddNumericTwice(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_TooLargeSortedBytes ports testTooLargeSortedBytes.
@@ -139,7 +139,7 @@ func TestDocValuesIndexing_AddNumericTwice(t *testing.T) {
 // A SortedDocValuesField value exceeding the maximum term length must be
 // rejected with IllegalArgumentException.
 func TestDocValuesIndexing_TooLargeSortedBytes(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_TooLargeTermSortedSetBytes ports
@@ -147,7 +147,7 @@ func TestDocValuesIndexing_TooLargeSortedBytes(t *testing.T) {
 //
 // As above, for a SortedSetDocValuesField term.
 func TestDocValuesIndexing_TooLargeTermSortedSetBytes(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_MixedTypesDifferentSegments ports
@@ -156,7 +156,7 @@ func TestDocValuesIndexing_TooLargeTermSortedSetBytes(t *testing.T) {
 // A field committed with one DocValues type cannot be re-added in a later
 // segment with a different type.
 func TestDocValuesIndexing_MixedTypesDifferentSegments(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_MixedTypesAfterDeleteAll ports
@@ -165,7 +165,7 @@ func TestDocValuesIndexing_MixedTypesDifferentSegments(t *testing.T) {
 // After deleteAll the field-number state resets, so a previously
 // incompatible DocValues type becomes acceptable.
 func TestDocValuesIndexing_MixedTypesAfterDeleteAll(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_MixedTypesAfterReopenCreate ports
@@ -173,7 +173,7 @@ func TestDocValuesIndexing_MixedTypesAfterDeleteAll(t *testing.T) {
 //
 // Reopening the writer in CREATE mode resets field-number state.
 func TestDocValuesIndexing_MixedTypesAfterReopenCreate(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_MixedTypesAfterReopenAppend1 ports
@@ -182,7 +182,7 @@ func TestDocValuesIndexing_MixedTypesAfterReopenCreate(t *testing.T) {
 // Reopening in APPEND mode preserves field-number state, so an incompatible
 // DocValues type is still rejected.
 func TestDocValuesIndexing_MixedTypesAfterReopenAppend1(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_MixedTypesAfterReopenAppend2 ports
@@ -191,7 +191,7 @@ func TestDocValuesIndexing_MixedTypesAfterReopenAppend1(t *testing.T) {
 // A field first indexed without DocValues, then re-added in APPEND mode with
 // a DocValues type, follows a distinct FieldInfos code path and must fail.
 func TestDocValuesIndexing_MixedTypesAfterReopenAppend2(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_MixedTypesAfterReopenAppend3 ports
@@ -199,7 +199,7 @@ func TestDocValuesIndexing_MixedTypesAfterReopenAppend2(t *testing.T) {
 //
 // As Append2, with an extra document so a segment is actually written.
 func TestDocValuesIndexing_MixedTypesAfterReopenAppend3(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_MixedTypesDifferentThreads ports
@@ -208,7 +208,7 @@ func TestDocValuesIndexing_MixedTypesAfterReopenAppend3(t *testing.T) {
 // Three goroutines concurrently add the same field with different DocValues
 // types; at least one must observe the IllegalArgumentException.
 func TestDocValuesIndexing_MixedTypesDifferentThreads(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_MixedTypesViaAddIndexes ports
@@ -217,7 +217,7 @@ func TestDocValuesIndexing_MixedTypesDifferentThreads(t *testing.T) {
 // addIndexes (both directory and reader variants) of an index whose field
 // carries an incompatible DocValues type must fail.
 func TestDocValuesIndexing_MixedTypesViaAddIndexes(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_IllegalTypeChange ports testIllegalTypeChange.
@@ -225,7 +225,7 @@ func TestDocValuesIndexing_MixedTypesViaAddIndexes(t *testing.T) {
 // Within one writer, changing a field's DocValues type between documents
 // must fail.
 func TestDocValuesIndexing_IllegalTypeChange(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_IllegalTypeChangeAcrossSegments ports
@@ -233,7 +233,7 @@ func TestDocValuesIndexing_IllegalTypeChange(t *testing.T) {
 //
 // Changing a field's DocValues type after reopening the writer must fail.
 func TestDocValuesIndexing_IllegalTypeChangeAcrossSegments(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_TypeChangeAfterCloseAndDeleteAll ports
@@ -241,7 +241,7 @@ func TestDocValuesIndexing_IllegalTypeChangeAcrossSegments(t *testing.T) {
 //
 // Close, reopen, deleteAll, then a new DocValues type is acceptable.
 func TestDocValuesIndexing_TypeChangeAfterCloseAndDeleteAll(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_TypeChangeAfterDeleteAll ports
@@ -250,7 +250,7 @@ func TestDocValuesIndexing_TypeChangeAfterCloseAndDeleteAll(t *testing.T) {
 // deleteAll within the same writer resets state, so a new DocValues type is
 // acceptable.
 func TestDocValuesIndexing_TypeChangeAfterDeleteAll(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_TypeChangeAfterCommitAndDeleteAll ports
@@ -258,7 +258,7 @@ func TestDocValuesIndexing_TypeChangeAfterDeleteAll(t *testing.T) {
 //
 // commit then deleteAll resets state, so a new DocValues type is acceptable.
 func TestDocValuesIndexing_TypeChangeAfterCommitAndDeleteAll(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_TypeChangeAfterOpenCreate ports
@@ -267,7 +267,7 @@ func TestDocValuesIndexing_TypeChangeAfterCommitAndDeleteAll(t *testing.T) {
 // Reopening in CREATE mode resets state, so a new DocValues type is
 // acceptable.
 func TestDocValuesIndexing_TypeChangeAfterOpenCreate(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_TypeChangeViaAddIndexes ports
@@ -276,7 +276,7 @@ func TestDocValuesIndexing_TypeChangeAfterOpenCreate(t *testing.T) {
 // addIndexes(Directory) of an index whose field uses a conflicting DocValues
 // type must fail.
 func TestDocValuesIndexing_TypeChangeViaAddIndexes(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_TypeChangeViaAddIndexesIR ports
@@ -285,7 +285,7 @@ func TestDocValuesIndexing_TypeChangeViaAddIndexes(t *testing.T) {
 // addIndexesSlowly(IndexReader) of an index whose field uses a conflicting
 // DocValues type must fail.
 func TestDocValuesIndexing_TypeChangeViaAddIndexesIR(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_TypeChangeViaAddIndexes2 ports
@@ -294,7 +294,7 @@ func TestDocValuesIndexing_TypeChangeViaAddIndexesIR(t *testing.T) {
 // After addIndexes establishes a field's DocValues type, a later document
 // using a different type must fail.
 func TestDocValuesIndexing_TypeChangeViaAddIndexes2(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_TypeChangeViaAddIndexesIR2 ports
@@ -302,7 +302,7 @@ func TestDocValuesIndexing_TypeChangeViaAddIndexes2(t *testing.T) {
 //
 // As above, with addIndexesSlowly(IndexReader).
 func TestDocValuesIndexing_TypeChangeViaAddIndexesIR2(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_SameFieldNameForPostingAndDocValue ports
@@ -312,7 +312,7 @@ func TestDocValuesIndexing_TypeChangeViaAddIndexesIR2(t *testing.T) {
 // type tracked by the global field numbers, so a later conflicting DocValues
 // type for that name must fail.
 func TestDocValuesIndexing_SameFieldNameForPostingAndDocValue(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_ExcIndexingDocBeforeDocValues ports
@@ -321,7 +321,7 @@ func TestDocValuesIndexing_SameFieldNameForPostingAndDocValue(t *testing.T) {
 // A field whose token stream throws while indexing must propagate the
 // exception; a subsequent empty document must still be indexable.
 func TestDocValuesIndexing_ExcIndexingDocBeforeDocValues(t *testing.T) {
-	t.Skip(dvIndexingSkipReason)
+	t.Fatal(dvIndexingSkipReason)
 }
 
 // TestDocValuesIndexing_WriterLifecycle exercises the IndexWriter lifecycle

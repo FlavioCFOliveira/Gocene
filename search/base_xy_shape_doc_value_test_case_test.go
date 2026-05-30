@@ -242,7 +242,7 @@ const baseXYShapeDocValueFieldName = "shape"
 //   - inherited `@Test` bodies on BaseXYShapeTestCase /
 //     BaseSpatialTestCase (also stubbed)
 func TestBaseXYShapeDocValue_StubAlive(t *testing.T) {
-	t.Skip("blocked by XYShape.NewSlowDocValuesBoxQuery/LatLonShape.NewDistanceQuery/ShapeDocValuesField.NewGeometryQuery and inherited BaseXYShapeTestCase bodies; remove this Skip when fixed")
+	t.Fatal("blocked by XYShape.NewSlowDocValuesBoxQuery/LatLonShape.NewDistanceQuery/ShapeDocValuesField.NewGeometryQuery and inherited BaseXYShapeTestCase bodies; remove this Skip when fixed")
 
 	// Reserved factories and constants: the future implementation
 	// reads from these. Touching them here keeps the symbols live

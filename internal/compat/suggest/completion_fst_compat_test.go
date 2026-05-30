@@ -78,7 +78,7 @@ func TestCompletionFst_WriteAndVerify(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Skipf("deferred: Gocene AnalyzingSuggester has no Store/Load yet "+
+			t.Fatalf("deferred: Gocene AnalyzingSuggester has no Store/Load yet "+
 				"(suggest/analyzing/analyzing_suggester.go); seed=%d; "+
 				"audit gap_notes (verbatim): %q", seed, auditGap)
 		})
@@ -93,7 +93,7 @@ func TestCompletionFst_RoundTrip(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Skipf("deferred: Gocene round-trip for completion-fst at seed=%d "+
+			t.Fatalf("deferred: Gocene round-trip for completion-fst at seed=%d "+
 				"requires AnalyzingSuggester Store/Load; audit gap_notes "+
 				"(verbatim): %q", seed, auditGap)
 		})

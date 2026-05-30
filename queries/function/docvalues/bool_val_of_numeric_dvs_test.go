@@ -13,5 +13,5 @@ import "testing"
 // numeric DocValues infrastructure (indexed numeric DV fields + reader)
 // not yet complete in Gocene.
 func TestBoolValOfNumericDVs_All(t *testing.T) {
-	t.Skip("requires indexed numeric DocValues + FunctionValues infrastructure; deferred to backlog")
+	t.Fatal("requires indexed numeric DocValues + FunctionValues infrastructure; deferred to backlog")
 }

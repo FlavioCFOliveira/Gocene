@@ -257,7 +257,7 @@ func testConstant(t *testing.T, mode CompressionMode) {
 func testExtremelyLargeInput(t *testing.T, mode CompressionMode) {
 	t.Helper()
 	if testing.Short() {
-		t.Skip("skipping 16 MiB round-trip in -short mode")
+		t.Fatal("skipping 16 MiB round-trip in -short mode")
 	}
 	const length = 1 << 24
 	decompressed := make([]byte, length)

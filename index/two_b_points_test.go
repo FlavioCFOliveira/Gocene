@@ -31,9 +31,9 @@ import "testing"
 // than Integer.MAX_VALUE points.
 func Test2BPoints1D(t *testing.T) {
 	if testing.Short() {
-		t.Skip("monster test: skipped in -short mode")
+		t.Fatal("monster test: skipped in -short mode")
 	}
-	t.Skip("monster test: indexes >2B points, at least 4h runtime and many GB of temp disk; IndexWriter/point-query infrastructure not yet available")
+	t.Fatal("monster test: indexes >2B points, at least 4h runtime and many GB of temp disk; IndexWriter/point-query infrastructure not yet available")
 }
 
 // Test2BPoints2D ports Test2BPoints.test2D.
@@ -44,7 +44,7 @@ func Test2BPoints1D(t *testing.T) {
 // than Integer.MAX_VALUE points.
 func Test2BPoints2D(t *testing.T) {
 	if testing.Short() {
-		t.Skip("monster test: skipped in -short mode")
+		t.Fatal("monster test: skipped in -short mode")
 	}
-	t.Skip("monster test: indexes >2B points, at least 4h runtime and many GB of temp disk; IndexWriter/point-query infrastructure not yet available")
+	t.Fatal("monster test: indexes >2B points, at least 4h runtime and many GB of temp disk; IndexWriter/point-query infrastructure not yet available")
 }

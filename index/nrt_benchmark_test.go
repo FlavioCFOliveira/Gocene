@@ -13,37 +13,37 @@ package index_test
 import "testing"
 
 func BenchmarkNRTIndexing(b *testing.B) {
-	b.Skip("NRT benchmark import cycle — not yet fixed")
+	b.Fatal("NRT benchmark import cycle — not yet fixed")
 }
 
 func BenchmarkNRTReopen(b *testing.B) {
-	b.Skip("NRT benchmark import cycle — not yet fixed")
+	b.Fatal("NRT benchmark import cycle — not yet fixed")
 }
 
 func BenchmarkNRTReopenWithChanges(b *testing.B) {
-	b.Skip("NRT benchmark import cycle — not yet fixed")
+	b.Fatal("NRT benchmark import cycle — not yet fixed")
 }
 
 func BenchmarkNRTConcurrentIndexing(b *testing.B) {
-	b.Skip("NRT benchmark import cycle — not yet fixed")
+	b.Fatal("NRT benchmark import cycle — not yet fixed")
 }
 
 func BenchmarkNRTReaderCreation(b *testing.B) {
-	b.Skip("NRT benchmark import cycle — not yet fixed")
+	b.Fatal("NRT benchmark import cycle — not yet fixed")
 }
 
 func BenchmarkNRTDocumentThroughput(b *testing.B) {
-	b.Skip("NRT benchmark import cycle — not yet fixed")
+	b.Fatal("NRT benchmark import cycle — not yet fixed")
 }
 
 func BenchmarkNRTReopenLatency(b *testing.B) {
-	b.Skip("NRT benchmark import cycle — not yet fixed")
+	b.Fatal("NRT benchmark import cycle — not yet fixed")
 }
 
 func BenchmarkNRTVsNonNRT(b *testing.B) {
-	b.Skip("NRT benchmark import cycle — not yet fixed")
+	b.Fatal("NRT benchmark import cycle — not yet fixed")
 }
 
 func BenchmarkNRTMemoryUsage(b *testing.B) {
-	b.Skip("NRT benchmark import cycle — not yet fixed")
+	b.Fatal("NRT benchmark import cycle — not yet fixed")
 }

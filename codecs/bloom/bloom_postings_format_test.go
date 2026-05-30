@@ -17,7 +17,7 @@ import "testing"
 // that wraps BloomPostingsFormat) is not yet ported to the Gocene bloom
 // package.
 func TestBloomPostingsFormat(t *testing.T) {
-	t.Skip(
+	t.Fatal(
 		"TestBloomFilteredLucenePostings (test codec wrapper for BloomPostingsFormat) " +
 			"is not yet ported to Gocene; test deferred until that component lands",
 	)

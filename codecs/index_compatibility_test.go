@@ -101,7 +101,7 @@ func TestIndexCompatibility_BasicReadWrite(t *testing.T) {
 func TestIndexCompatibility_CodecCombinations(t *testing.T) {
 	availableCodecs := codecs.AvailableCodecs()
 	if len(availableCodecs) == 0 {
-		t.Skip("no codecs available")
+		t.Fatal("no codecs available")
 	}
 
 	for _, codecName := range availableCodecs {
@@ -714,7 +714,7 @@ func TestIndexCompatibility_FileChecksums(t *testing.T) {
 func TestIndexCompatibility_CrossDirectoryType(t *testing.T) {
 	// Test with ByteBuffersDirectory (already tested above)
 	// Test would require FSDirectory implementation
-	t.Skip("FSDirectory not fully implemented - requires filesystem-based directory")
+	t.Fatal("FSDirectory not fully implemented - requires filesystem-based directory")
 }
 
 // TestIndexCompatibility_LargeDocumentCount tests with large numbers of documents.

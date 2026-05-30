@@ -33,5 +33,5 @@ import "testing"
 // executing it under `go test ./util/bkd/...` must not consume the multi-hour,
 // multi-GiB disk and memory budget the JVM version requires.
 func Test4BBKDPoints(t *testing.T) {
-	t.Skip("monster test: >4B BKD points across 1D/2D, ~4 h runtime, many GiB of temp disk; ported as stub for parity (GOC-4307)")
+	t.Fatal("monster test: >4B BKD points across 1D/2D, ~4 h runtime, many GiB of temp disk; ported as stub for parity (GOC-4307)")
 }

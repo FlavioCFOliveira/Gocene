@@ -130,65 +130,65 @@ func equalStrings(a, b []string) bool {
 
 // test ports TestTermVectorsReader.test().
 func TestTermVectorsReader_FilesCreated(t *testing.T) {
-	t.Skip("Sprint 55 option c: needs IndexWriter term-vectors flush + DirectoryReader.open with SegmentReader.getFieldInfos().hasTermVectors()")
+	t.Fatal("Sprint 55 option c: needs IndexWriter term-vectors flush + DirectoryReader.open with SegmentReader.getFieldInfos().hasTermVectors()")
 }
 
 // testReader ports TestTermVectorsReader.testReader().
 func TestTermVectorsReader_Reader(t *testing.T) {
-	t.Skip("Sprint 55 option c: needs Codec.getDefault().termVectorsFormat().vectorsReader and IndexWriter.newestSegment/readFieldInfos")
+	t.Fatal("Sprint 55 option c: needs Codec.getDefault().termVectorsFormat().vectorsReader and IndexWriter.newestSegment/readFieldInfos")
 }
 
 // testDocsEnum ports TestTermVectorsReader.testDocsEnum().
 func TestTermVectorsReader_DocsEnum(t *testing.T) {
-	t.Skip("Sprint 55 option c: needs term-vectors TermVectorsReader + PostingsEnum (NONE) over a flushed segment")
+	t.Fatal("Sprint 55 option c: needs term-vectors TermVectorsReader + PostingsEnum (NONE) over a flushed segment")
 }
 
 // testPositionReader ports TestTermVectorsReader.testPositionReader().
 func TestTermVectorsReader_PositionReader(t *testing.T) {
-	t.Skip("Sprint 55 option c: needs term-vectors TermVectorsReader + PostingsEnum positions/offsets over a flushed segment")
+	t.Fatal("Sprint 55 option c: needs term-vectors TermVectorsReader + PostingsEnum positions/offsets over a flushed segment")
 }
 
 // testOffsetReader ports TestTermVectorsReader.testOffsetReader().
 func TestTermVectorsReader_OffsetReader(t *testing.T) {
-	t.Skip("Sprint 55 option c: needs term-vectors TermVectorsReader + PostingsEnum offsets over a flushed segment")
+	t.Fatal("Sprint 55 option c: needs term-vectors TermVectorsReader + PostingsEnum offsets over a flushed segment")
 }
 
 // testIllegalPayloadsWithoutPositions ports the same-named reference method.
 func TestTermVectorsReader_IllegalPayloadsWithoutPositions(t *testing.T) {
-	t.Skip("Sprint 55 option c: needs RandomIndexWriter + expectThrows on IndexWriter.AddDocument validation")
+	t.Fatal("Sprint 55 option c: needs RandomIndexWriter + expectThrows on IndexWriter.AddDocument validation")
 }
 
 // testIllegalOffsetsWithoutVectors ports the same-named reference method.
 func TestTermVectorsReader_IllegalOffsetsWithoutVectors(t *testing.T) {
-	t.Skip("Sprint 55 option c: needs RandomIndexWriter + expectThrows on IndexWriter.AddDocument validation")
+	t.Fatal("Sprint 55 option c: needs RandomIndexWriter + expectThrows on IndexWriter.AddDocument validation")
 }
 
 // testIllegalPositionsWithoutVectors ports the same-named reference method.
 func TestTermVectorsReader_IllegalPositionsWithoutVectors(t *testing.T) {
-	t.Skip("Sprint 55 option c: needs RandomIndexWriter + expectThrows on IndexWriter.AddDocument validation")
+	t.Fatal("Sprint 55 option c: needs RandomIndexWriter + expectThrows on IndexWriter.AddDocument validation")
 }
 
 // testIllegalVectorPayloadsWithoutVectors ports the same-named reference method.
 func TestTermVectorsReader_IllegalVectorPayloadsWithoutVectors(t *testing.T) {
-	t.Skip("Sprint 55 option c: needs RandomIndexWriter + expectThrows on IndexWriter.AddDocument validation")
+	t.Fatal("Sprint 55 option c: needs RandomIndexWriter + expectThrows on IndexWriter.AddDocument validation")
 }
 
 // testIllegalVectorsWithoutIndexed ports the same-named reference method.
 func TestTermVectorsReader_IllegalVectorsWithoutIndexed(t *testing.T) {
-	t.Skip("Sprint 55 option c: needs RandomIndexWriter + expectThrows on IndexWriter.AddDocument validation")
+	t.Fatal("Sprint 55 option c: needs RandomIndexWriter + expectThrows on IndexWriter.AddDocument validation")
 }
 
 // testIllegalVectorPositionsWithoutIndexed ports the same-named reference method.
 func TestTermVectorsReader_IllegalVectorPositionsWithoutIndexed(t *testing.T) {
-	t.Skip("Sprint 55 option c: needs RandomIndexWriter + expectThrows on IndexWriter.AddDocument validation")
+	t.Fatal("Sprint 55 option c: needs RandomIndexWriter + expectThrows on IndexWriter.AddDocument validation")
 }
 
 // testIllegalVectorOffsetsWithoutIndexed ports the same-named reference method.
 func TestTermVectorsReader_IllegalVectorOffsetsWithoutIndexed(t *testing.T) {
-	t.Skip("Sprint 55 option c: needs RandomIndexWriter + expectThrows on IndexWriter.AddDocument validation")
+	t.Fatal("Sprint 55 option c: needs RandomIndexWriter + expectThrows on IndexWriter.AddDocument validation")
 }
 
 // testIllegalVectorPayloadsWithoutIndexed ports the same-named reference method.
 func TestTermVectorsReader_IllegalVectorPayloadsWithoutIndexed(t *testing.T) {
-	t.Skip("Sprint 55 option c: needs RandomIndexWriter + expectThrows on IndexWriter.AddDocument validation")
+	t.Fatal("Sprint 55 option c: needs RandomIndexWriter + expectThrows on IndexWriter.AddDocument validation")
 }

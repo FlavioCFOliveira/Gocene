@@ -28,5 +28,5 @@ import (
 // `go test -run TestStressRamUsageEstimator`, and acts as a placeholder for the
 // full port that will land alongside the Go-flavoured stress harness.
 func TestStressRamUsageEstimator(t *testing.T) {
-	t.Skip("stress monster test (large allocations + GC observation); set GOCENE_RUN_MONSTERS=1 and port body when Go stress harness lands")
+	t.Fatal("stress monster test (large allocations + GC observation); set GOCENE_RUN_MONSTERS=1 and port body when Go stress harness lands")
 }

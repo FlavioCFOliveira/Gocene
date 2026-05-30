@@ -17,5 +17,5 @@ import "testing"
 // It verifies that multi-segment and single-segment search results are
 // consistent across BooleanQuery, PhraseQuery and TermQuery searches.
 func TestSearch_Search(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

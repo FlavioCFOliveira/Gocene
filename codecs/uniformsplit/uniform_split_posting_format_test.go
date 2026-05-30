@@ -24,7 +24,7 @@ import "testing"
 // ported to the Gocene uniformsplit package.  The test is therefore skipped
 // until those components land.
 func TestUniformSplitPostingFormat(t *testing.T) {
-	t.Skip(
+	t.Fatal(
 		"UniformSplitTermsWriter and UniformSplitRot13PostingsFormat are not " +
 			"yet ported to Gocene; test deferred until those components land",
 	)

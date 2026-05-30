@@ -36,7 +36,7 @@ import "testing"
 // land in Go. Sibling of GOC-4003 (TestXYLineShapeQueries) and GOC-3997
 // (TestXYMultiPointShapeQueries).
 func TestXYMultiLineShapeQueries(t *testing.T) {
-	t.Skip("blocked by BaseXYShapeTestCase parent harness, " +
+	t.Fatal("blocked by BaseXYShapeTestCase parent harness, " +
 		"TestXYLineShapeQueries.LineValidator, nextLine() XYLine generator, " +
 		"XYShape.createIndexableFields, and RandomIndexWriter/CheckHits/" +
 		"QueryUtils plumbing; remove when fixed")

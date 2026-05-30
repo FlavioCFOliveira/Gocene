@@ -293,7 +293,7 @@ func dumpSingleChild(t *testing.T, c *stressChildRecord) {
 // testNativeFSLockFactory().
 func TestStressLockFactoriesNativeFS(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping multi-process lock stress test in -short mode")
+		t.Fatal("skipping multi-process lock stress test in -short mode")
 	}
 	runStressImpl(t, "native")
 }
@@ -305,10 +305,10 @@ func TestStressLockFactoriesNativeFS(t *testing.T) {
 // enabled on POSIX hosts and skip on Windows to avoid spurious failures.
 func TestStressLockFactoriesSimpleFS(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping multi-process lock stress test in -short mode")
+		t.Fatal("skipping multi-process lock stress test in -short mode")
 	}
 	if runtime.GOOS == "windows" {
-		t.Skip("SimpleFSLockFactory stress test is not exercised on windows")
+		t.Fatal("SimpleFSLockFactory stress test is not exercised on windows")
 	}
 	runStressImpl(t, "simple")
 }

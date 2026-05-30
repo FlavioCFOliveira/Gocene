@@ -12,5 +12,5 @@ import "testing"
 // TestSpanSearchEquivalence_All is skipped because it requires full index
 // and search equivalence framework not yet complete in Gocene.
 func TestSpanSearchEquivalence_All(t *testing.T) {
-	t.Skip("requires full span search equivalence infrastructure; deferred to backlog")
+	t.Fatal("requires full span search equivalence infrastructure; deferred to backlog")
 }

@@ -90,7 +90,7 @@ func TestBKD_BasicInts1D(t *testing.T) {
 // Skipped until: a Gocene equivalent of LuceneTestCase's random() seeding
 // harness is available so the test is reproducible on failure.
 func TestBKD_RandomIntsNDims(t *testing.T) {
-	t.Skip("requires LuceneTestCase random() seeding harness; deferred to Sprint 56+")
+	t.Fatal("requires LuceneTestCase random() seeding harness; deferred to Sprint 56+")
 }
 
 // TestBKD_BigIntNDims mirrors testBigIntNDims: same as the N-dim random
@@ -100,7 +100,7 @@ func TestBKD_RandomIntsNDims(t *testing.T) {
 // wrapped with the Gocene test fixtures and a reproducible random
 // seed harness is in place.
 func TestBKD_BigIntNDims(t *testing.T) {
-	t.Skip("requires reproducible random seeding and BigInt fixture harness; deferred")
+	t.Fatal("requires reproducible random seeding and BigInt fixture harness; deferred")
 }
 
 // TestBKD_WithExceptions mirrors testWithExceptions: drives the writer
@@ -111,7 +111,7 @@ func TestBKD_BigIntNDims(t *testing.T) {
 // CorruptingIndexOutput exists. Neither has a counterpart in
 // store/ at the time of writing.
 func TestBKD_WithExceptions(t *testing.T) {
-	t.Skip("requires MockDirectoryWrapper + CorruptingIndexOutput ports; not in store/ yet")
+	t.Fatal("requires MockDirectoryWrapper + CorruptingIndexOutput ports; not in store/ yet")
 }
 
 // TestBKD_RandomBinaryTiny mirrors testRandomBinaryTiny: doTestRandomBinary(10).
@@ -120,19 +120,19 @@ func TestBKD_WithExceptions(t *testing.T) {
 // turn depends on the MutablePointTree-based reopen path and on
 // LuceneTestCase utilities (atLeast, random(), TestUtil.nextInt).
 func TestBKD_RandomBinaryTiny(t *testing.T) {
-	t.Skip("requires verify() helper + MutablePointTree-based reopen; not yet ported")
+	t.Fatal("requires verify() helper + MutablePointTree-based reopen; not yet ported")
 }
 
 // TestBKD_RandomBinaryMedium mirrors testRandomBinaryMedium:
 // doTestRandomBinary(10000).
 func TestBKD_RandomBinaryMedium(t *testing.T) {
-	t.Skip("requires verify() helper; see TestBKD_RandomBinaryTiny")
+	t.Fatal("requires verify() helper; see TestBKD_RandomBinaryTiny")
 }
 
 // TestBKD_RandomBinaryBig mirrors testRandomBinaryBig (@Nightly):
 // doTestRandomBinary(200000).
 func TestBKD_RandomBinaryBig(t *testing.T) {
-	t.Skip("requires verify() helper and @Nightly gating; deferred")
+	t.Fatal("requires verify() helper and @Nightly gating; deferred")
 }
 
 // TestBKD_TooLittleHeap mirrors testTooLittleHeap: NewBKDWriter must
@@ -163,14 +163,14 @@ func TestBKD_TooLittleHeap(t *testing.T) {
 // Skipped until: verify() helper port lands; this test relies on the
 // shared randomised verification scaffolding.
 func TestBKD_AllEqual(t *testing.T) {
-	t.Skip("requires verify() helper; deferred")
+	t.Fatal("requires verify() helper; deferred")
 }
 
 // TestBKD_IndexDimEqualDataDimDifferent mirrors
 // testIndexDimEqualDataDimDifferent: index dims share a single value;
 // data dims vary.
 func TestBKD_IndexDimEqualDataDimDifferent(t *testing.T) {
-	t.Skip("requires verify() helper; deferred")
+	t.Fatal("requires verify() helper; deferred")
 }
 
 // TestBKD_OneDimEqual mirrors testOneDimEqual: exactly one dim is held
@@ -214,21 +214,21 @@ func TestBKD_OneDimEqual(t *testing.T) {
 // TestBKD_OneDimLowCard mirrors testOneDimLowCard: one dim takes one of
 // two values, forcing many splits on that dim.
 func TestBKD_OneDimLowCard(t *testing.T) {
-	t.Skip("requires verify() helper; deferred")
+	t.Fatal("requires verify() helper; deferred")
 }
 
 // TestBKD_OneDimTwoValues mirrors testOneDimTwoValues: one dim takes one
 // of two values; should trigger run-length compression with run lengths
 // greater than 255.
 func TestBKD_OneDimTwoValues(t *testing.T) {
-	t.Skip("requires verify() helper; deferred")
+	t.Fatal("requires verify() helper; deferred")
 }
 
 // TestBKD_RandomFewDifferentValues mirrors testRandomFewDifferentValues:
 // few cardinalities across many docs, exercising the low-cardinality
 // leaf path.
 func TestBKD_RandomFewDifferentValues(t *testing.T) {
-	t.Skip("requires verify() helper; deferred")
+	t.Fatal("requires verify() helper; deferred")
 }
 
 // TestBKD_MultiValued mirrors testMultiValued (~500 LOC in Java): a single
@@ -238,7 +238,7 @@ func TestBKD_RandomFewDifferentValues(t *testing.T) {
 // Skipped until: the verify() helper accepts (docID -> []packed) and the
 // MutablePointTree-based reopen path is wired.
 func TestBKD_MultiValued(t *testing.T) {
-	t.Skip("requires multi-valued verify() helper + MutablePointTree reopen; deferred")
+	t.Fatal("requires multi-valued verify() helper + MutablePointTree reopen; deferred")
 }
 
 // TestBKD_BitFlippedOnPartition1 mirrors testBitFlippedOnPartition1: a
@@ -248,40 +248,40 @@ func TestBKD_MultiValued(t *testing.T) {
 // Skipped until: a Gocene FilterDirectory + checksum-bypassing
 // IndexInput corruption helper exists.
 func TestBKD_BitFlippedOnPartition1(t *testing.T) {
-	t.Skip("requires FilterDirectory + IndexInput bit-corruption helper; not yet ported")
+	t.Fatal("requires FilterDirectory + IndexInput bit-corruption helper; not yet ported")
 }
 
 // TestBKD_BitFlippedOnPartition2 mirrors testBitFlippedOnPartition2:
 // same as BitFlippedOnPartition1 but at a different file offset.
 func TestBKD_BitFlippedOnPartition2(t *testing.T) {
-	t.Skip("requires bit-corruption helper; see TestBKD_BitFlippedOnPartition1")
+	t.Fatal("requires bit-corruption helper; see TestBKD_BitFlippedOnPartition1")
 }
 
 // TestBKD_TieBreakOrder mirrors testTieBreakOrder: when all points share
 // the same value on the split dim, the writer must break ties by docID
 // so the output is deterministic across runs.
 func TestBKD_TieBreakOrder(t *testing.T) {
-	t.Skip("requires byte-exact comparison against a Java-produced fixture; deferred")
+	t.Fatal("requires byte-exact comparison against a Java-produced fixture; deferred")
 }
 
 // TestBKD_CheckDataDimOptimalOrder mirrors testCheckDataDimOptimalOrder:
 // assertion that the writer reorders data dims to minimise leaf-block
 // size when index dims < data dims.
 func TestBKD_CheckDataDimOptimalOrder(t *testing.T) {
-	t.Skip("requires data-dim reordering inspection hook; not exposed by Gocene BKDWriter yet")
+	t.Fatal("requires data-dim reordering inspection hook; not exposed by Gocene BKDWriter yet")
 }
 
 // TestBKD_2DLongOrdsOffline mirrors test2DLongOrdsOffline: 2D, 8-byte
 // dims, offline (disk-backed) writer path.
 func TestBKD_2DLongOrdsOffline(t *testing.T) {
-	t.Skip("requires verify() helper exercising the offline path; deferred")
+	t.Fatal("requires verify() helper exercising the offline path; deferred")
 }
 
 // TestBKD_WastedLeadingBytes mirrors testWastedLeadingBytes: every doc
 // has the same leading bytes on every dim, exercising the common-prefix
 // compression of the leaf block format.
 func TestBKD_WastedLeadingBytes(t *testing.T) {
-	t.Skip("requires verify() helper; deferred")
+	t.Fatal("requires verify() helper; deferred")
 }
 
 // TestBKD_EstimatePointCount mirrors testEstimatePointCount: the reader's
@@ -293,26 +293,26 @@ func TestBKD_WastedLeadingBytes(t *testing.T) {
 // counterpart drives the same code path but over a randomised input;
 // it remains skipped until the verify()/random harness lands.
 func TestBKD_EstimatePointCount(t *testing.T) {
-	t.Skip("randomised counterpart; see TestBKDReader_EstimatePointCount for the focused port")
+	t.Fatal("randomised counterpart; see TestBKDReader_EstimatePointCount for the focused port")
 }
 
 // TestBKD_TotalPointCountValidation mirrors testTotalPointCountValidation:
 // the writer must reject Add() once the declared totalPointCount is
 // reached.
 func TestBKD_TotalPointCountValidation(t *testing.T) {
-	t.Skip("requires verify() helper and assertion of writer's totalPointCount guard; deferred")
+	t.Fatal("requires verify() helper and assertion of writer's totalPointCount guard; deferred")
 }
 
 // TestBKD_TooManyPoints mirrors testTooManyPoints: Add() must fail once
 // totalPointCount is exceeded (multi-dim variant).
 func TestBKD_TooManyPoints(t *testing.T) {
-	t.Skip("requires verify() helper; deferred")
+	t.Fatal("requires verify() helper; deferred")
 }
 
 // TestBKD_TooManyPoints1D mirrors testTooManyPoints1D: same as
 // TestBKD_TooManyPoints but for the 1D specialised writer path.
 func TestBKD_TooManyPoints1D(t *testing.T) {
-	t.Skip("requires verify() helper; deferred")
+	t.Fatal("requires verify() helper; deferred")
 }
 
 // --- helpers ---------------------------------------------------------

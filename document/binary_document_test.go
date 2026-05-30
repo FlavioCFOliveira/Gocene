@@ -95,14 +95,14 @@ func TestBinaryFieldInIndex(t *testing.T) {
 	storedFields, err := reader.StoredFields()
 	if err != nil {
 		// Real gap — surface it but do not crash subsequent suites.
-		t.Skipf("reader.StoredFields() unavailable: %v "+
+		t.Fatalf("reader.StoredFields() unavailable: %v "+
 			"(blocks GOC-3983 stored-value assertions; document the gap)", err)
 		return
 	}
 
 	visitor := document.NewDocumentStoredFieldVisitor()
 	if err := storedFields.Document(0, visitor); err != nil {
-		t.Skipf("StoredFields.Document(0, visitor) failed: %v "+
+		t.Fatalf("StoredFields.Document(0, visitor) failed: %v "+
 			"(blocks GOC-3983 stored-value assertions; document the gap)", err)
 		return
 	}
@@ -138,7 +138,7 @@ func TestBinaryFieldInIndex(t *testing.T) {
 // the intended fixture so the test can be enabled by deleting the t.Skip
 // once the port lands.
 func TestBinaryFieldFromDataInputInIndex(t *testing.T) {
-	t.Skip("StoredValueTypeDataInput deferred (stored_value.go:30); " +
+	t.Fatal("StoredValueTypeDataInput deferred (stored_value.go:30); " +
 		"blocked until StoredFieldDataInput is ported")
 
 	// Intended shape (kept as a comment-shaped TODO so the future port lands cleanly):

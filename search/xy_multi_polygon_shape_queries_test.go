@@ -40,7 +40,7 @@ import "testing"
 // and Component2D.WithinRelation land in Go. Sibling of GOC-4009
 // (TestXYPolygonShapeQueries) and GOC-4004 (TestXYMultiLineShapeQueries).
 func TestXYMultiPolygonShapeQueries(t *testing.T) {
-	t.Skip("blocked by BaseXYShapeTestCase parent harness, " +
+	t.Fatal("blocked by BaseXYShapeTestCase parent harness, " +
 		"TestXYPolygonShapeQueries.PolygonValidator, nextShape() XYPolygon " +
 		"generator, XYShape.createIndexableFields, Component2D.WithinRelation, " +
 		"and RandomIndexWriter/CheckHits/QueryUtils plumbing; remove when fixed")

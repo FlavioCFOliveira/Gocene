@@ -178,5 +178,5 @@ func TestIndexWriterExceptions2_Basics(t *testing.T) {
 		t.Fatalf("ReadSegmentInfos() error = %v", err)
 	}
 
-	t.Skip("CrankyCodec/CrankyTokenFilter fault injection unavailable; aborting/non-aborting exception assertions deferred")
+	t.Fatal("CrankyCodec/CrankyTokenFilter fault injection unavailable; aborting/non-aborting exception assertions deferred")
 }

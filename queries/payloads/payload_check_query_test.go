@@ -12,5 +12,5 @@ import "testing"
 // TestPayloadCheckQuery_All is skipped because it requires full payload
 // check query infrastructure not yet complete in Gocene.
 func TestPayloadCheckQuery_All(t *testing.T) {
-	t.Skip("requires full PayloadCheckQuery infrastructure; deferred to backlog")
+	t.Fatal("requires full PayloadCheckQuery infrastructure; deferred to backlog")
 }

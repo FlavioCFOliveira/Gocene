@@ -19,53 +19,53 @@ package search_test
 import "testing"
 
 func TestSearcherManager_Basic(t *testing.T) {
-	t.Skip("Requires index.IndexWriter.GetReader — not yet implemented")
+	t.Fatal("Requires index.IndexWriter.GetReader — not yet implemented")
 }
 
 func TestSearcherManager_NRT(t *testing.T) {
-	t.Skip("Requires index.IndexWriter.GetReader — not yet implemented")
+	t.Fatal("Requires index.IndexWriter.GetReader — not yet implemented")
 }
 
 func TestSearcherManager_IntermediateClose(t *testing.T) {
-	t.Skip("Requires index.IndexWriter.GetReader — not yet implemented")
+	t.Fatal("Requires index.IndexWriter.GetReader — not yet implemented")
 }
 
 func TestSearcherManager_CloseTwice(t *testing.T) {
-	t.Skip("Requires index.IndexWriter.GetReader — not yet implemented")
+	t.Fatal("Requires index.IndexWriter.GetReader — not yet implemented")
 }
 
 func TestSearcherManager_EnsureOpen(t *testing.T) {
-	t.Skip("Requires index.IndexWriter.GetReader — not yet implemented")
+	t.Fatal("Requires index.IndexWriter.GetReader — not yet implemented")
 }
 
 func TestSearcherManager_ListenerCalled(t *testing.T) {
-	t.Skip("Requires index.IndexWriter.GetReader — not yet implemented")
+	t.Fatal("Requires index.IndexWriter.GetReader — not yet implemented")
 }
 
 func TestSearcherManager_PreviousReaderPassed(t *testing.T) {
-	t.Skip("Requires index.IndexWriter.GetReader — not yet implemented")
+	t.Fatal("Requires index.IndexWriter.GetReader — not yet implemented")
 }
 
 func TestSearcherManager_MaybeRefreshBlockingLock(t *testing.T) {
-	t.Skip("Requires index.IndexWriter.GetReader — not yet implemented")
+	t.Fatal("Requires index.IndexWriter.GetReader — not yet implemented")
 }
 
 func TestSearcherManager_ConcurrentOperations(t *testing.T) {
-	t.Skip("Requires index.IndexWriter.GetReader — not yet implemented")
+	t.Fatal("Requires index.IndexWriter.GetReader — not yet implemented")
 }
 
 func TestSearcherManager_IsSearcherCurrent(t *testing.T) {
-	t.Skip("Requires index.IndexWriter.GetReader — not yet implemented")
+	t.Fatal("Requires index.IndexWriter.GetReader — not yet implemented")
 }
 
 func TestSearcherManager_ThreadSafety(t *testing.T) {
-	t.Skip("Requires index.IndexWriter.GetReader — not yet implemented")
+	t.Fatal("Requires index.IndexWriter.GetReader — not yet implemented")
 }
 
 func TestSearcherManager_Lifecycle(t *testing.T) {
-	t.Skip("Requires index.IndexWriter.GetReader — not yet implemented")
+	t.Fatal("Requires index.IndexWriter.GetReader — not yet implemented")
 }
 
 func BenchmarkSearcherManager_AcquireRelease(b *testing.B) {
-	b.Skip("Requires index.IndexWriter.GetReader — not yet implemented")
+	b.Fatal("Requires index.IndexWriter.GetReader — not yet implemented")
 }

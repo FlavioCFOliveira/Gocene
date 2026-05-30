@@ -12,5 +12,5 @@ import "testing"
 // TestLongNormValueSource_All is skipped because it requires full norm
 // value source infrastructure not yet complete in Gocene.
 func TestLongNormValueSource_All(t *testing.T) {
-	t.Skip("requires full norm value source + FunctionTestSetup; deferred to backlog")
+	t.Fatal("requires full norm value source + FunctionTestSetup; deferred to backlog")
 }

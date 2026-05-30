@@ -56,7 +56,7 @@ import (
 // MockAnalyzer, searcher construction over a multi-segment reader).
 func setUpTermsEnum2Fixture(t *testing.T) {
 	t.Helper()
-	t.Skip("TestTermsEnum2 fixture needs RandomIndexWriter + KEYWORD MockAnalyzer; see file header")
+	t.Fatal("TestTermsEnum2 fixture needs RandomIndexWriter + KEYWORD MockAnalyzer; see file header")
 }
 
 // TestTermsEnum2_FiniteVersusInfinite ports testFiniteVersusInfinite:
@@ -71,7 +71,7 @@ func setUpTermsEnum2Fixture(t *testing.T) {
 // shared fixture (RandomIndexWriter / searcher).
 func TestTermsEnum2_FiniteVersusInfinite(t *testing.T) {
 	setUpTermsEnum2Fixture(t)
-	t.Skip("blocked: AutomatonTestUtil.randomRegexp and CheckHits.checkEqual not ported")
+	t.Fatal("blocked: AutomatonTestUtil.randomRegexp and CheckHits.checkEqual not ported")
 }
 
 // TestTermsEnum2_Seeking ports testSeeking:
@@ -86,7 +86,7 @@ func TestTermsEnum2_FiniteVersusInfinite(t *testing.T) {
 // (currently returns ErrMultiTermsEnumNotImplemented).
 func TestTermsEnum2_Seeking(t *testing.T) {
 	setUpTermsEnum2Fixture(t)
-	t.Skip("blocked: AutomatonTestUtil.randomRegexp and MultiTerms.Iterator not available")
+	t.Fatal("blocked: AutomatonTestUtil.randomRegexp and MultiTerms.Iterator not available")
 }
 
 // TestTermsEnum2_SeekingAndNexting ports testSeekingAndNexting:
@@ -100,7 +100,7 @@ func TestTermsEnum2_Seeking(t *testing.T) {
 // ErrMultiTermsEnumNotImplemented) and the shared fixture.
 func TestTermsEnum2_SeekingAndNexting(t *testing.T) {
 	setUpTermsEnum2Fixture(t)
-	t.Skip("blocked: MultiTerms.Iterator not available")
+	t.Fatal("blocked: MultiTerms.Iterator not available")
 }
 
 // TestTermsEnum2_Intersect ports testIntersect.
@@ -115,5 +115,5 @@ func TestTermsEnum2_SeekingAndNexting(t *testing.T) {
 // and index.MultiTerms.Intersect / Iterator.
 func TestTermsEnum2_Intersect(t *testing.T) {
 	setUpTermsEnum2Fixture(t)
-	t.Skip("blocked: AutomatonTestUtil.{randomRegexp,sameLanguage} and MultiTerms.Intersect not available")
+	t.Fatal("blocked: AutomatonTestUtil.{randomRegexp,sameLanguage} and MultiTerms.Intersect not available")
 }

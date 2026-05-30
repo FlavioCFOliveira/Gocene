@@ -114,7 +114,7 @@ func TestMonitorQueryBlob_RoundTrip(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Skipf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
+			t.Fatalf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
 				"blocked on the Gocene MonitorQuerySerializer port "+
 				"(monitor/monitor_query_serializer.go line 19: 'no-op "+
 				"placeholder is provided to satisfy the interface'); "+

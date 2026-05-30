@@ -257,54 +257,54 @@ func TestTermInSetQuery_NilTerms(t *testing.T) {
 // Source: TestTermInSetQuery.testAllDocsInFieldTerm()
 // Status: PLACEHOLDER - requires IndexWriter, IndexReader, IndexSearcher
 func TestTermInSetQuery_AllDocsInFieldTerm(t *testing.T) {
-	t.Skip("Requires full index infrastructure implementation")
+	t.Fatal("Requires full index infrastructure implementation")
 }
 
 // TestTermInSetQuery_Duel tests TermInSetQuery against BooleanQuery of TermQueries.
 // Source: TestTermInSetQuery.testDuel()
 // Status: PLACEHOLDER - requires full query execution infrastructure
 func TestTermInSetQuery_Duel(t *testing.T) {
-	t.Skip("Requires full query execution and index infrastructure")
+	t.Fatal("Requires full query execution and index infrastructure")
 }
 
 // TestTermInSetQuery_ReturnsNullScoreSupplier tests null score supplier behavior.
 // Source: TestTermInSetQuery.testReturnsNullScoreSupplier()
 // Status: PLACEHOLDER - requires ScorerSupplier implementation
 func TestTermInSetQuery_ReturnsNullScoreSupplier(t *testing.T) {
-	t.Skip("Requires ScorerSupplier and Weight implementation")
+	t.Fatal("Requires ScorerSupplier and Weight implementation")
 }
 
 // TestTermInSetQuery_SkipperOptimization tests doc values skip optimization.
 // Source: TestTermInSetQuery.testSkipperOptimizationGapAssumption()
 // Status: PLACEHOLDER - requires doc values infrastructure
 func TestTermInSetQuery_SkipperOptimization(t *testing.T) {
-	t.Skip("Requires doc values and skip list implementation")
+	t.Fatal("Requires doc values and skip list implementation")
 }
 
 // TestTermInSetQuery_RamBytesUsed tests memory usage calculation.
 // Source: TestTermInSetQuery.testRamBytesUsed()
 // Status: PLACEHOLDER - requires RamUsageTester
 func TestTermInSetQuery_RamBytesUsed(t *testing.T) {
-	t.Skip("Requires RamUsageTester implementation")
+	t.Fatal("Requires RamUsageTester implementation")
 }
 
 // TestTermInSetQuery_PullOneTermsEnum tests single TermsEnum optimization.
 // Source: TestTermInSetQuery.testPullOneTermsEnum()
 // Status: PLACEHOLDER - requires FilterDirectoryReader and TermsEnum tracking
 func TestTermInSetQuery_PullOneTermsEnum(t *testing.T) {
-	t.Skip("Requires FilterDirectoryReader and TermsEnum tracking")
+	t.Fatal("Requires FilterDirectoryReader and TermsEnum tracking")
 }
 
 // TestTermInSetQuery_IsConsideredCostlyByQueryCache tests query caching policy.
 // Source: TestTermInSetQuery.testIsConsideredCostlyByQueryCache()
 // Status: PLACEHOLDER - requires UsageTrackingQueryCachingPolicy
 func TestTermInSetQuery_IsConsideredCostlyByQueryCache(t *testing.T) {
-	t.Skip("Requires UsageTrackingQueryCachingPolicy implementation")
+	t.Fatal("Requires UsageTrackingQueryCachingPolicy implementation")
 }
 
 // TestTermInSetQuery_Visitor tests query visitor pattern.
 // Source: TestTermInSetQuery.testVisitor()
 // Status: PLACEHOLDER - requires QueryVisitor and ByteRunAutomaton
 func TestTermInSetQuery_Visitor(t *testing.T) {
-	t.Skip("Requires QueryVisitor and ByteRunAutomaton implementation")
+	t.Fatal("Requires QueryVisitor and ByteRunAutomaton implementation")
 }

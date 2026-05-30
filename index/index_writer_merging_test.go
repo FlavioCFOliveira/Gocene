@@ -66,7 +66,7 @@ func TestIndexWriterMerging_Lucene(t *testing.T) {
 	// Add indexes
 	// TODO: Implement AddIndexes when available
 	// writer.AddIndexes(indexA, indexB)
-	t.Skip("AddIndexes not yet implemented")
+	t.Fatal("AddIndexes not yet implemented")
 
 	// Force merge to single segment
 	// TODO: Implement ForceMerge when available
@@ -139,7 +139,7 @@ func verifyIndex(t *testing.T, directory store.Directory, startAt int) bool {
 	//     }
 	// }
 
-	t.Skip("DirectoryReader.Open not yet implemented")
+	t.Fatal("DirectoryReader.Open not yet implemented")
 	return fail
 }
 
@@ -188,7 +188,7 @@ func TestIndexWriterMerging_ForceMergeDeletes(t *testing.T) {
 	// TODO: Implement DeleteDocuments with Term when available
 	// writer.DeleteDocuments(index.NewTerm("id", "0"))
 	// writer.DeleteDocuments(index.NewTerm("id", "7"))
-	t.Skip("DeleteDocuments with Term not yet implemented")
+	t.Fatal("DeleteDocuments with Term not yet implemented")
 
 	writer.Close()
 
@@ -205,7 +205,7 @@ func TestIndexWriterMerging_ForceMergeDeletes(t *testing.T) {
 
 	// TODO: Implement ForceMergeDeletes when available
 	// writer.ForceMergeDeletes()
-	t.Skip("ForceMergeDeletes not yet implemented")
+	t.Fatal("ForceMergeDeletes not yet implemented")
 
 	// assertEquals(t, 8, writer.GetDocStats().NumDocs)
 	writer.Close()
@@ -267,7 +267,7 @@ func TestIndexWriterMerging_ForceMergeDeletes2(t *testing.T) {
 	// reader, _ := index.OpenDirectoryReader(dir)
 	// assertEquals(t, 49, reader.MaxDoc())
 	// assertEquals(t, 49, reader.NumDocs())
-	t.Skip("ForceMergeDeletes not yet implemented")
+	t.Fatal("ForceMergeDeletes not yet implemented")
 }
 
 // TestIndexWriterMerging_ForceMergeDeletes3 tests forceMergeDeletes without
@@ -315,7 +315,7 @@ func TestIndexWriterMerging_ForceMergeDeletes3(t *testing.T) {
 	// reader, _ := index.OpenDirectoryReader(dir)
 	// assertEquals(t, 49, reader.MaxDoc())
 	// assertEquals(t, 49, reader.NumDocs())
-	t.Skip("ForceMergeDeletes with doWait parameter not yet implemented")
+	t.Fatal("ForceMergeDeletes with doWait parameter not yet implemented")
 }
 
 // TestIndexWriterMerging_ForceMergeDeletesWithObserver tests force merge
@@ -373,7 +373,7 @@ func TestIndexWriterMerging_ForceMergeDeletesWithObserver(t *testing.T) {
 
 	// iw.WaitForMerges()
 	iw.Close()
-	t.Skip("ForceMergeDeletes with observer not yet implemented")
+	t.Fatal("ForceMergeDeletes with observer not yet implemented")
 }
 
 // TestIndexWriterMerging_MergeObserverNoMerges tests MergeObserver when
@@ -401,7 +401,7 @@ func TestIndexWriterMerging_MergeObserverNoMerges(t *testing.T) {
 	// assertEquals(t, 0, observer.NumMerges(), "Should have zero merges")
 
 	writer.Close()
-	t.Skip("ForceMergeDeletes with observer not yet implemented")
+	t.Fatal("ForceMergeDeletes with observer not yet implemented")
 }
 
 // TestIndexWriterMerging_MergeObserverAwaitWithTimeout tests MergeObserver
@@ -440,7 +440,7 @@ func TestIndexWriterMerging_MergeObserverAwaitWithTimeout(t *testing.T) {
 
 	// iw.WaitForMerges()
 	iw.Close()
-	t.Skip("ForceMergeDeletes with observer not yet implemented")
+	t.Fatal("ForceMergeDeletes with observer not yet implemented")
 }
 
 // TestIndexWriterMerging_MergeObserverAwaitTimeout tests MergeObserver
@@ -491,7 +491,7 @@ func TestIndexWriterMerging_MergeObserverAwaitTimeout(t *testing.T) {
 
 	// indexer.WaitForMerges()
 	indexer.Close()
-	t.Skip("Custom merge scheduler and ForceMergeDeletes with observer not yet implemented")
+	t.Fatal("Custom merge scheduler and ForceMergeDeletes with observer not yet implemented")
 }
 
 // TestIndexWriterMerging_ForceMergeDeletesBlockingWithObserver tests blocking
@@ -539,7 +539,7 @@ func TestIndexWriterMerging_ForceMergeDeletesBlockingWithObserver(t *testing.T) 
 	// assertEquals(t, 5, iw.GetDocStats().NumDocs)
 
 	iw.Close()
-	t.Skip("ForceMergeDeletes with blocking and observer not yet implemented")
+	t.Fatal("ForceMergeDeletes with blocking and observer not yet implemented")
 }
 
 // TestIndexWriterMerging_BlockingModeWithNoMerges tests blocking mode when
@@ -574,7 +574,7 @@ func TestIndexWriterMerging_BlockingModeWithNoMerges(t *testing.T) {
 	// assertFalse(t, future.IsCompletedExceptionally(), "Future should not be exceptional")
 
 	iw.Close()
-	t.Skip("ForceMergeDeletes with observer and AwaitAsync not yet implemented")
+	t.Fatal("ForceMergeDeletes with observer and AwaitAsync not yet implemented")
 }
 
 // TestIndexWriterMerging_SetMaxMergeDocs tests setting max merge docs (LUCENE-1013).
@@ -607,7 +607,7 @@ func TestIndexWriterMerging_SetMaxMergeDocs(t *testing.T) {
 	}
 
 	iw.Close()
-	t.Skip("LogMergePolicy with SetMaxMergeDocs not yet implemented")
+	t.Fatal("LogMergePolicy with SetMaxMergeDocs not yet implemented")
 }
 
 // TestIndexWriterMerging_NoWaitClose tests close without waiting during
@@ -707,7 +707,7 @@ func TestIndexWriterMerging_NoWaitClose(t *testing.T) {
 
 		writer.Close()
 	}
-	t.Skip("Concurrent merge scheduler and commit on close not fully implemented")
+	t.Fatal("Concurrent merge scheduler and commit on close not fully implemented")
 }
 
 // TestIndexWriterMerging_AddEstimatedBytesToMerge tests estimated bytes tracking.
@@ -744,7 +744,7 @@ func TestIndexWriterMerging_AddEstimatedBytesToMerge(t *testing.T) {
 	// assertTrue(t, merge.EstimatedMergeBytes() > 0, "estimatedMergeBytes should be > 0")
 	// assertTrue(t, merge.TotalMergeBytes() > 0, "totalMergeBytes should be > 0")
 	// assertTrue(t, merge.EstimatedMergeBytes() <= merge.TotalMergeBytes(), "estimated should be <= total")
-	t.Skip("CloneSegmentInfos, OneMerge, and AddEstimatedBytesToMerge not yet implemented")
+	t.Fatal("CloneSegmentInfos, OneMerge, and AddEstimatedBytesToMerge not yet implemented")
 }
 
 // Helper functions

@@ -38,7 +38,7 @@ func TestAllFilesDetectMismatchedChecksum(t *testing.T) {
 	// byte inside a file cannot be reliably detected (without a footer there
 	// is no stored checksum to disagree with). Unskip once footer writing
 	// lands in the segment-infos writer.
-	t.Skip("blocked: mismatched-checksum detection requires CRC32 footers, not yet written by WriteSegmentInfos")
+	t.Fatal("blocked: mismatched-checksum detection requires CRC32 footers, not yet written by WriteSegmentInfos")
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()

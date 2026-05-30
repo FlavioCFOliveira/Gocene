@@ -316,7 +316,7 @@ func (v *latLonMultiPointValidator) testComponentQuery(
 //   - TestLatLonPointShapeQueries.PointValidator Go port (deferred)
 //   - LuceneTestCase.atLeast / random() (no Gocene equivalents yet)
 func TestLatLonMultiPointPoint_SameShapeManyTimes(t *testing.T) {
-	t.Skip("blocked by RandomIndexWriter/GeoTestUtil/LatLonPoint.NewSlowGeometryQuery/PointValidator/LuceneTestCase helpers; remove this Skip when fixed")
+	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/LatLonPoint.NewSlowGeometryQuery/PointValidator/LuceneTestCase helpers; remove this Skip when fixed")
 
 	// Reserved helpers: keep the symbols live for static analysis so
 	// the activation patch surfaces as body fills rather than imports.
@@ -338,7 +338,7 @@ func TestLatLonMultiPointPoint_SameShapeManyTimes(t *testing.T) {
 //   - TestLatLonPointShapeQueries.PointValidator Go port (deferred)
 //   - LuceneTestCase.atLeast / random() (no Gocene equivalents yet)
 func TestLatLonMultiPointPoint_LowCardinalityShapeManyTimes(t *testing.T) {
-	t.Skip("blocked by RandomIndexWriter/GeoTestUtil/LatLonPoint.NewSlowGeometryQuery/PointValidator/LuceneTestCase helpers; remove this Skip when fixed")
+	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/LatLonPoint.NewSlowGeometryQuery/PointValidator/LuceneTestCase helpers; remove this Skip when fixed")
 
 	_ = nextLatLonMultiPointShape
 	_ = createLatLonMultiPointIndexableFields
@@ -356,7 +356,7 @@ func TestLatLonMultiPointPoint_LowCardinalityShapeManyTimes(t *testing.T) {
 //   - TestLatLonPointShapeQueries.PointValidator Go port (deferred)
 //   - LuceneTestCase.atLeast / random() (no Gocene equivalents yet)
 func TestLatLonMultiPointPoint_RandomTiny(t *testing.T) {
-	t.Skip("blocked by RandomIndexWriter/GeoTestUtil/LatLonPoint.NewSlowGeometryQuery/PointValidator/LuceneTestCase helpers; remove this Skip when fixed")
+	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/LatLonPoint.NewSlowGeometryQuery/PointValidator/LuceneTestCase helpers; remove this Skip when fixed")
 
 	_ = nextLatLonMultiPointShape
 	_ = createLatLonMultiPointIndexableFields
@@ -374,7 +374,7 @@ func TestLatLonMultiPointPoint_RandomTiny(t *testing.T) {
 //   - TestLatLonPointShapeQueries.PointValidator Go port (deferred)
 //   - LuceneTestCase.atLeast / random() (no Gocene equivalents yet)
 func TestLatLonMultiPointPoint_RandomMedium(t *testing.T) {
-	t.Skip("blocked by RandomIndexWriter/GeoTestUtil/LatLonPoint.NewSlowGeometryQuery/PointValidator/LuceneTestCase helpers; remove this Skip when fixed")
+	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/LatLonPoint.NewSlowGeometryQuery/PointValidator/LuceneTestCase helpers; remove this Skip when fixed")
 
 	_ = nextLatLonMultiPointShape
 	_ = createLatLonMultiPointIndexableFields
@@ -396,7 +396,7 @@ func TestLatLonMultiPointPoint_RandomMedium(t *testing.T) {
 //   - TestLatLonPointShapeQueries.PointValidator Go port (deferred)
 //   - LuceneTestCase.atLeast / random() / @Nightly (no Gocene equivalents yet)
 func TestLatLonMultiPointPoint_RandomBig(t *testing.T) {
-	t.Skip("blocked by RandomIndexWriter/GeoTestUtil/LatLonPoint.NewSlowGeometryQuery/PointValidator/LuceneTestCase helpers + @Nightly gate; subclass override drives doTestRandom(10000); remove this Skip when fixed")
+	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/LatLonPoint.NewSlowGeometryQuery/PointValidator/LuceneTestCase helpers + @Nightly gate; subclass override drives doTestRandom(10000); remove this Skip when fixed")
 
 	_ = nextLatLonMultiPointShape
 	_ = createLatLonMultiPointIndexableFields

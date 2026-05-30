@@ -97,7 +97,7 @@ func TestTryDeleteDocument(t *testing.T) {
 	writer := newTryDeleteWriter(t, dir)
 	defer writer.Close()
 
-	t.Skip("tryDeleteDocument does not clear live docs and IndexWriter has " +
+	t.Fatal("tryDeleteDocument does not clear live docs and IndexWriter has " +
 		"no HasDeletions/NRT SearcherManager: a delete cannot be observed " +
 		"until the buffered-updates / live-docs pipeline is ported")
 }
@@ -109,7 +109,7 @@ func TestTryDeleteDocumentCloseAndReopen(t *testing.T) {
 	writer := newTryDeleteWriter(t, dir)
 	defer writer.Close()
 
-	t.Skip("requires DirectoryReader.open(writer) (no NRT reader) and a " +
+	t.Fatal("requires DirectoryReader.open(writer) (no NRT reader) and a " +
 		"tryDeleteDocument that clears live docs so the deletion survives " +
 		"close and reopen")
 }
@@ -120,6 +120,6 @@ func TestDeleteDocuments(t *testing.T) {
 	writer := newTryDeleteWriter(t, dir)
 	defer writer.Close()
 
-	t.Skip("IndexWriter.DeleteDocumentsQuery is a no-op stub and IndexWriter " +
+	t.Fatal("IndexWriter.DeleteDocumentsQuery is a no-op stub and IndexWriter " +
 		"exposes no HasDeletions, so the delete cannot reduce the hit count")
 }

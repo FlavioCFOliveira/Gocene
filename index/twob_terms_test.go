@@ -13,5 +13,5 @@ import "testing"
 // verifies term enumeration. In Lucene this is annotated @Monster with a
 // multi-hour TimeoutSuite, so it is skipped by default.
 func Test2BTerms(t *testing.T) {
-	t.Skip("monster test: indexes >2B unique terms, multi-hour runtime")
+	t.Fatal("monster test: indexes >2B unique terms, multi-hour runtime")
 }

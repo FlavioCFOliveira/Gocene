@@ -96,7 +96,7 @@ func TestIndexCommit_MultipleCommits(t *testing.T) {
 	commitList, err := index.ListCommits(dir)
 	if err != nil {
 		t.Logf("list commits may not be fully implemented: %v", err)
-		t.Skip("list commits not implemented")
+		t.Fatal("list commits not implemented")
 	}
 
 	t.Logf("Found %d commits", len(commitList))
@@ -128,11 +128,11 @@ func TestIndexCommit_OpenAtCommit(t *testing.T) {
 	_, err = index.ListCommits(dir)
 	if err != nil {
 		t.Logf("list commits may not be fully implemented: %v", err)
-		t.Skip("list commits not implemented")
+		t.Fatal("list commits not implemented")
 	}
 
 	// OpenDirectoryReaderAtCommitPoint is not yet implemented — skip
-	t.Skip("OpenDirectoryReaderAtCommitPoint not yet implemented")
+	t.Fatal("OpenDirectoryReaderAtCommitPoint not yet implemented")
 }
 
 func TestIndexCommit_DeleteCommits(t *testing.T) {
@@ -166,7 +166,7 @@ func TestIndexCommit_DeleteCommits(t *testing.T) {
 	writer2, err := index.NewIndexWriter(dir, config2)
 	if err != nil {
 		t.Logf("new writer may not be created: %v", err)
-		t.Skip("writer creation failed")
+		t.Fatal("writer creation failed")
 	}
 	defer writer2.Close()
 

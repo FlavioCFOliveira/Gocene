@@ -88,7 +88,7 @@ func TestMiscIndexMergeTool_RoundTrip(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Skipf("deferred: Gocene round-trip for IndexMergeTool over scenario "+
+			t.Fatalf("deferred: Gocene round-trip for IndexMergeTool over scenario "+
 				"%q at seed=%d is blocked on the Gocene misc/index_merge_tool.go "+
 				"port — the package ships the tool implementation but has no "+
 				"end-to-end gate that merges a Lucene-written multi-segment "+

@@ -28,7 +28,7 @@ import "testing"
 // stub. It must be replaced with a real roundtrip once the parent harness
 // and TestXYPointShapeQueries.PointValidator land in Go.
 func TestXYPointShapeDVQueries(t *testing.T) {
-	t.Skip("blocked by BaseXYShapeDocValueTestCase parent harness, " +
+	t.Fatal("blocked by BaseXYShapeDocValueTestCase parent harness, " +
 		"TestXYPointShapeQueries.PointValidator, and RandomIndexWriter/" +
 		"GeoTestUtil/CheckHits/QueryUtils plumbing; remove when fixed")
 }

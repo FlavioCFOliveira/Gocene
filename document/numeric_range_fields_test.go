@@ -12,16 +12,16 @@ import (
 // These fields allow indexing multi-dimensional ranges (e.g. rectangles, date ranges).
 
 func TestIntRange(t *testing.T) {
-	t.Skip("IntRange is not yet implemented in Gocene")
+	t.Fatal("IntRange is not yet implemented in Gocene")
 }
 
 // TestLongRange (placeholder) was retired by GOC-3219; canonical
 // LongRange coverage lives in long_range_test.go.
 
 func TestFloatRange(t *testing.T) {
-	t.Skip("FloatRange is not yet implemented in Gocene")
+	t.Fatal("FloatRange is not yet implemented in Gocene")
 }
 
 func TestDoubleRange(t *testing.T) {
-	t.Skip("DoubleRange is not yet implemented in Gocene")
+	t.Fatal("DoubleRange is not yet implemented in Gocene")
 }

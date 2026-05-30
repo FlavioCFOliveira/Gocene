@@ -12,5 +12,5 @@ import "testing"
 // TestPayloadSpans_All is skipped because it requires full payload + span
 // index integration not yet complete in Gocene.
 func TestPayloadSpans_All(t *testing.T) {
-	t.Skip("requires full payload + span index integration; deferred to backlog")
+	t.Fatal("requires full payload + span index integration; deferred to backlog")
 }

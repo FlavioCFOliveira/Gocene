@@ -49,7 +49,7 @@ import "testing"
 // also needs MockAnalyzer, BaseDirectoryWrapper, IndexWriterConfig RAM/flush
 // settings, wired block-tree postings reader, and DirectoryReader.open.
 func Test2BPostingsBytes(t *testing.T) {
-	t.Skip("@Monster test: requires ~20-30 GB disk and ~10 minutes; " +
+	t.Fatal("@Monster test: requires ~20-30 GB disk and ~10 minutes; " +
 		"also needs MockAnalyzer, BaseDirectoryWrapper, wired block-tree " +
 		"postings reader, and DirectoryReader.open (not yet ported)")
 }

@@ -14,5 +14,5 @@ import "testing"
 
 // TestPatienceByteVectorQuery_ToString mirrors testToString.
 func TestPatienceByteVectorQuery_ToString(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+HNSW integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+HNSW integration (pre-existing failure in Gocene)")
 }

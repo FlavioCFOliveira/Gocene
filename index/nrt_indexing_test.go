@@ -15,53 +15,53 @@ package index_test
 import "testing"
 
 func TestNRTBasicIndexing(t *testing.T) {
-	t.Skip("NRT indexing test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT indexing test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTReopen(t *testing.T) {
-	t.Skip("NRT indexing test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT indexing test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTDocumentVisibility(t *testing.T) {
-	t.Skip("NRT indexing test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT indexing test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTDeleteOperations(t *testing.T) {
-	t.Skip("NRT indexing test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT indexing test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTUpdateOperations(t *testing.T) {
-	t.Skip("NRT indexing test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT indexing test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTLargeDocumentSet(t *testing.T) {
-	t.Skip("NRT indexing test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT indexing test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTMultipleReopens(t *testing.T) {
-	t.Skip("NRT indexing test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT indexing test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTReopenWithDeletes(t *testing.T) {
-	t.Skip("NRT indexing test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT indexing test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTContextCancellation(t *testing.T) {
-	t.Skip("NRT indexing test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT indexing test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTReopenPerformance(t *testing.T) {
-	t.Skip("NRT indexing test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT indexing test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTConcurrentAccess(t *testing.T) {
-	t.Skip("NRT indexing test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT indexing test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTIsCurrent(t *testing.T) {
-	t.Skip("NRT indexing test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT indexing test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTWithDifferentAnalyzers(t *testing.T) {
-	t.Skip("NRT indexing test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT indexing test — import cycle / unimplemented APIs, not yet fixed")
 }

@@ -39,7 +39,7 @@ import (
 // See memory: project-gocene-segmentreader-corereaders-gap.
 func skipNeedsLeafDocValues(t *testing.T) {
 	t.Helper()
-	t.Skip("infra gap: OpenDirectoryReader leaf readers have no core readers; " +
+	t.Fatal("infra gap: OpenDirectoryReader leaf readers have no core readers; " +
 		"cannot read NumericDocValues back to assert update results")
 }
 
@@ -228,7 +228,7 @@ func TestNumericDocValuesUpdates_UpdateNonNumericDocValuesField(t *testing.T) {
 	writer.AddDocument(&testDocument{fields: fields})
 
 	if _, err := writer.UpdateNumericDocValue(index.NewTerm("key", "doc"), "bdv", 17); err == nil {
-		t.Skip("infra gap: writer does not yet reject a numeric update " +
+		t.Fatal("infra gap: writer does not yet reject a numeric update " +
 			"against a non-numeric DocValues field")
 	}
 }

@@ -15,5 +15,5 @@ import "testing"
 // TestXYDocValuesQueries_Basics mirrors the inherited spatial query tests.
 // It verifies distance, bounding-box and polygon queries on XYDocValues fields.
 func TestXYDocValuesQueries_Basics(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+XY spatial integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+XY spatial integration (pre-existing failure in Gocene)")
 }

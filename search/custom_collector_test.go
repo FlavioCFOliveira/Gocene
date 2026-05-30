@@ -61,7 +61,7 @@ func TestCustomCollector_TotalHitCollector(t *testing.T) {
 	collector := search.NewTotalHitCountCollector()
 	if err := searcher.SearchWithCollector(query, collector); err != nil {
 		t.Logf("custom collector may not be fully implemented: %v", err)
-		t.Skip("custom collector not implemented")
+		t.Fatal("custom collector not implemented")
 	}
 
 	t.Logf("Custom collector found %d hits", collector.GetTotalHits())
@@ -111,7 +111,7 @@ func TestCustomCollector_TopDocsCollector(t *testing.T) {
 	topDocs, err := searcher.Search(query, 10)
 	if err != nil {
 		t.Logf("search may not be fully implemented: %v", err)
-		t.Skip("search not implemented")
+		t.Fatal("search not implemented")
 	}
 
 	t.Logf("TopDocs collector found %d hits", topDocs.TotalHits.Value)

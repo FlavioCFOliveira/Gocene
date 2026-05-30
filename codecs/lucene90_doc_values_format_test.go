@@ -113,7 +113,7 @@ func TestLucene90DocValuesFormat_SortedSetVariableLengthBigVsStoredFields(t *tes
 // Purpose: Tests sorted set with many values per document
 func TestLucene90DocValuesFormat_SortedSetVariableLengthManyVsStoredFields(t *testing.T) {
 	if testing.Short() {
-		t.Skip("Skipping nightly test in short mode")
+		t.Fatal("Skipping nightly test in short mode")
 	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -132,7 +132,7 @@ func TestLucene90DocValuesFormat_SortedSetVariableLengthManyVsStoredFields(t *te
 // Purpose: Tests sorted values with variable length (1-32766 bytes)
 func TestLucene90DocValuesFormat_SortedVariableLengthBigVsStoredFields(t *testing.T) {
 	if testing.Short() {
-		t.Skip("Skipping nightly test in short mode")
+		t.Fatal("Skipping nightly test in short mode")
 	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -154,7 +154,7 @@ func TestLucene90DocValuesFormat_SortedVariableLengthBigVsStoredFields(t *testin
 // Purpose: Tests sorted values with many documents
 func TestLucene90DocValuesFormat_SortedVariableLengthManyVsStoredFields(t *testing.T) {
 	if testing.Short() {
-		t.Skip("Skipping nightly test in short mode")
+		t.Fatal("Skipping nightly test in short mode")
 	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -172,7 +172,7 @@ func TestLucene90DocValuesFormat_SortedVariableLengthManyVsStoredFields(t *testi
 // Purpose: Tests TermsEnum iteration with fixed-width terms (10 chars)
 func TestLucene90DocValuesFormat_TermsEnumFixedWidth(t *testing.T) {
 	if testing.Short() {
-		t.Skip("Skipping nightly test in short mode")
+		t.Fatal("Skipping nightly test in short mode")
 	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -193,7 +193,7 @@ func TestLucene90DocValuesFormat_TermsEnumFixedWidth(t *testing.T) {
 // Purpose: Tests TermsEnum iteration with variable-width terms (1-500 chars)
 func TestLucene90DocValuesFormat_TermsEnumVariableWidth(t *testing.T) {
 	if testing.Short() {
-		t.Skip("Skipping nightly test in short mode")
+		t.Fatal("Skipping nightly test in short mode")
 	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -214,7 +214,7 @@ func TestLucene90DocValuesFormat_TermsEnumVariableWidth(t *testing.T) {
 // Purpose: Tests TermsEnum iteration with many random terms
 func TestLucene90DocValuesFormat_TermsEnumRandomMany(t *testing.T) {
 	if testing.Short() {
-		t.Skip("Skipping nightly test in short mode")
+		t.Fatal("Skipping nightly test in short mode")
 	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -236,7 +236,7 @@ func TestLucene90DocValuesFormat_TermsEnumRandomMany(t *testing.T) {
 // Purpose: Tests TermsEnum with terms sharing long prefixes (many 'a's with one 'b')
 func TestLucene90DocValuesFormat_TermsEnumLongSharedPrefixes(t *testing.T) {
 	if testing.Short() {
-		t.Skip("Skipping nightly test in short mode")
+		t.Fatal("Skipping nightly test in short mode")
 	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -280,7 +280,7 @@ func TestLucene90DocValuesFormat_SparseDocValuesVsStoredFields(t *testing.T) {
 // Purpose: Tests sorted set at DIRECT_MONOTONIC_BLOCK_SHIFT boundaries
 func TestLucene90DocValuesFormat_SortedSetAroundBlockSize(t *testing.T) {
 	if testing.Short() {
-		t.Skip("Skipping nightly test in short mode")
+		t.Fatal("Skipping nightly test in short mode")
 	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -376,7 +376,7 @@ func TestLucene90DocValuesFormat_SortedSetAroundBlockSize(t *testing.T) {
 // Purpose: Tests sorted numeric at DIRECT_MONOTONIC_BLOCK_SHIFT boundaries
 func TestLucene90DocValuesFormat_SortedNumericAroundBlockSize(t *testing.T) {
 	if testing.Short() {
-		t.Skip("Skipping nightly test in short mode")
+		t.Fatal("Skipping nightly test in short mode")
 	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -458,7 +458,7 @@ func TestLucene90DocValuesFormat_SortedNumericAroundBlockSize(t *testing.T) {
 // Purpose: Tests sorted numeric with varying bits per value across blocks
 func TestLucene90DocValuesFormat_SortedNumericBlocksOfVariousBitsPerValue(t *testing.T) {
 	if testing.Short() {
-		t.Skip("Skipping nightly test in short mode")
+		t.Fatal("Skipping nightly test in short mode")
 	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -475,7 +475,7 @@ func TestLucene90DocValuesFormat_SortedNumericBlocksOfVariousBitsPerValue(t *tes
 // Purpose: Tests sparse sorted numeric with varying bits per value
 func TestLucene90DocValuesFormat_SparseSortedNumericBlocksOfVariousBitsPerValue(t *testing.T) {
 	if testing.Short() {
-		t.Skip("Skipping nightly test in short mode")
+		t.Fatal("Skipping nightly test in short mode")
 	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -492,7 +492,7 @@ func TestLucene90DocValuesFormat_SparseSortedNumericBlocksOfVariousBitsPerValue(
 // Purpose: Tests numeric with varying bits per value across blocks
 func TestLucene90DocValuesFormat_NumericBlocksOfVariousBitsPerValue(t *testing.T) {
 	if testing.Short() {
-		t.Skip("Skipping nightly test in short mode")
+		t.Fatal("Skipping nightly test in short mode")
 	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -506,7 +506,7 @@ func TestLucene90DocValuesFormat_NumericBlocksOfVariousBitsPerValue(t *testing.T
 // Purpose: Tests sparse numeric with varying bits per value
 func TestLucene90DocValuesFormat_SparseNumericBlocksOfVariousBitsPerValue(t *testing.T) {
 	if testing.Short() {
-		t.Skip("Skipping nightly test in short mode")
+		t.Fatal("Skipping nightly test in short mode")
 	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -521,7 +521,7 @@ func TestLucene90DocValuesFormat_SparseNumericBlocksOfVariousBitsPerValue(t *tes
 // Purpose: Tests LUCENE-8585 jump-tables for IndexedDISI block skipping
 func TestLucene90DocValuesFormat_NumericFieldJumpTables(t *testing.T) {
 	if testing.Short() {
-		t.Skip("Skipping nightly test in short mode")
+		t.Fatal("Skipping nightly test in short mode")
 	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))

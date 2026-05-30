@@ -21,30 +21,30 @@ import "testing"
 // In Java it verifies that IndexSearcher.setMaxClauseCount(0) panics.
 // In Gocene the equivalent is SetMaxClauseCount / GetMaxClauseCount.
 func TestMaxClauseLimit_IllegalArgumentExceptionOnZero(t *testing.T) {
-	t.Skip("Gocene exposes SetMaxClauseCount/GetMaxClauseCount at package level rather than as static IndexSearcher methods; full API mapping deferred")
+	t.Fatal("Gocene exposes SetMaxClauseCount/GetMaxClauseCount at package level rather than as static IndexSearcher methods; full API mapping deferred")
 }
 
 // TestMaxClauseLimit_FlattenInnerDisjunctions mirrors testFlattenInnerDisjunctionsWithMoreThan1024Terms.
 func TestMaxClauseLimit_FlattenInnerDisjunctions(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }
 
 // TestMaxClauseLimit_LargeTermsNestedFirst mirrors testLargeTermsNestedFirst.
 func TestMaxClauseLimit_LargeTermsNestedFirst(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }
 
 // TestMaxClauseLimit_LargeTermsNestedLast mirrors testLargeTermsNestedLast.
 func TestMaxClauseLimit_LargeTermsNestedLast(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }
 
 // TestMaxClauseLimit_LargeDisjunctionMaxQuery mirrors testLargeDisjunctionMaxQuery.
 func TestMaxClauseLimit_LargeDisjunctionMaxQuery(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }
 
 // TestMaxClauseLimit_MultiExactWithRepeats mirrors testMultiExactWithRepeats.
 func TestMaxClauseLimit_MultiExactWithRepeats(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

@@ -204,7 +204,7 @@ func generateWorstCaseArray(length int) *bitArray {
 // entries to trigger the failure mode (matches Lucene's @Nightly annotation).
 func TestTimSorterWorstCase(t *testing.T) {
 	if v, _ := strconv.ParseBool(os.Getenv(timSorterWorstCaseEnv)); !v {
-		t.Skipf("monster test (allocates a ~25 MiB bitmap and sorts 140M+ entries); set %s=1 to run", timSorterWorstCaseEnv)
+		t.Fatalf("monster test (allocates a ~25 MiB bitmap and sorts 140M+ entries); set %s=1 to run", timSorterWorstCaseEnv)
 	}
 
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))

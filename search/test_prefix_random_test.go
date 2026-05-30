@@ -16,5 +16,5 @@ import "testing"
 // It verifies that random prefix queries produce results consistent with the
 // equivalent TermRangeQuery.
 func TestPrefixRandom_Prefixes(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

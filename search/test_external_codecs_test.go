@@ -17,5 +17,5 @@ import "testing"
 // It verifies that a custom per-field PostingsFormat codec can be used
 // with IndexWriter and that term queries still return correct results.
 func TestExternalCodecs_PerFieldCodec(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration and codec SPI (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration and codec SPI (pre-existing failure in Gocene)")
 }

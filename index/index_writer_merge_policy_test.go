@@ -295,7 +295,7 @@ func TestIndexWriterMergePolicy_MergeFactorChange(t *testing.T) {
 // Ported from: TestIndexWriterMergePolicy.testMaxBufferedDocsChange()
 // Purpose: Verifies behavior when maxBufferedDocs is modified
 func TestIndexWriterMergePolicy_MaxBufferedDocsChange(t *testing.T) {
-	t.Skip("MaxBufferedDocs change test requires full IndexWriter implementation")
+	t.Fatal("MaxBufferedDocs change test requires full IndexWriter implementation")
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
@@ -488,7 +488,7 @@ func TestIndexWriterMergePolicy_MergeOnCommit(t *testing.T) {
 // Ported from: TestIndexWriterMergePolicy.testCarryOverNewDeletesOnCommit()
 // Purpose: Verifies that deletes are properly carried over during merge on commit
 func TestIndexWriterMergePolicy_CarryOverNewDeletesOnCommit(t *testing.T) {
-	t.Skip("Requires full merge scheduler implementation with concurrent operations")
+	t.Fatal("Requires full merge scheduler implementation with concurrent operations")
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
@@ -529,7 +529,7 @@ func TestIndexWriterMergePolicy_CarryOverNewDeletesOnCommit(t *testing.T) {
 // Ported from: TestIndexWriterMergePolicy.testAbortMergeOnCommit()
 // Purpose: Verifies proper cleanup when merge is aborted during commit
 func TestIndexWriterMergePolicy_AbortMergeOnCommit(t *testing.T) {
-	t.Skip("Requires full merge scheduler implementation with abort support")
+	t.Fatal("Requires full merge scheduler implementation with abort support")
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
@@ -562,7 +562,7 @@ func TestIndexWriterMergePolicy_AbortMergeOnCommit(t *testing.T) {
 // Ported from: TestIndexWriterMergePolicy.testForceMergeWhileGetReader()
 // Purpose: Verifies force merge works correctly with concurrent reader acquisition
 func TestIndexWriterMergePolicy_ForceMergeWhileGetReader(t *testing.T) {
-	t.Skip("Requires full DirectoryReader implementation")
+	t.Fatal("Requires full DirectoryReader implementation")
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
@@ -593,7 +593,7 @@ func TestIndexWriterMergePolicy_ForceMergeWhileGetReader(t *testing.T) {
 // Ported from: TestIndexWriterMergePolicy.testFailAfterMergeCommitted()
 // Purpose: Verifies error handling when merge fails after being committed
 func TestIndexWriterMergePolicy_FailAfterMergeCommitted(t *testing.T) {
-	t.Skip("Requires full merge execution implementation with failure injection")
+	t.Fatal("Requires full merge execution implementation with failure injection")
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
@@ -624,7 +624,7 @@ func TestIndexWriterMergePolicy_FailAfterMergeCommitted(t *testing.T) {
 // Ported from: TestIndexWriterMergePolicy.testMergeOnGetReader()
 // Purpose: Verifies that merges can be triggered when getting a near-real-time reader
 func TestIndexWriterMergePolicy_MergeOnGetReader(t *testing.T) {
-	t.Skip("Requires full DirectoryReader implementation")
+	t.Fatal("Requires full DirectoryReader implementation")
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
@@ -674,7 +674,7 @@ func TestIndexWriterMergePolicy_MergeOnGetReader(t *testing.T) {
 // Ported from: TestIndexWriterMergePolicy.testSetDiagnostics()
 // Purpose: Verifies that merge policies can set diagnostic information
 func TestIndexWriterMergePolicy_SetDiagnostics(t *testing.T) {
-	t.Skip("Requires full merge execution with diagnostics support")
+	t.Fatal("Requires full merge execution with diagnostics support")
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
@@ -703,7 +703,7 @@ func TestIndexWriterMergePolicy_SetDiagnostics(t *testing.T) {
 // Ported from: TestIndexWriterMergePolicy.testForceMergeDVUpdateFileWithConcurrentFlush()
 // Purpose: Verifies proper file handling during concurrent operations
 func TestIndexWriterMergePolicy_ForceMergeDVUpdateFileWithConcurrentFlush(t *testing.T) {
-	t.Skip("Requires full doc values update and concurrent flush implementation")
+	t.Fatal("Requires full doc values update and concurrent flush implementation")
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
@@ -733,7 +733,7 @@ func TestIndexWriterMergePolicy_ForceMergeDVUpdateFileWithConcurrentFlush(t *tes
 // on getReader with concurrent flush.
 // Ported from: TestIndexWriterMergePolicy.testMergeDVUpdateFileOnGetReaderWithConcurrentFlush()
 func TestIndexWriterMergePolicy_MergeDVUpdateFileOnGetReaderWithConcurrentFlush(t *testing.T) {
-	t.Skip("Requires full NRT reader and concurrent flush implementation")
+	t.Fatal("Requires full NRT reader and concurrent flush implementation")
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
@@ -763,7 +763,7 @@ func TestIndexWriterMergePolicy_MergeDVUpdateFileOnGetReaderWithConcurrentFlush(
 // on commit with concurrent flush.
 // Ported from: TestIndexWriterMergePolicy.testMergeDVUpdateFileOnCommitWithConcurrentFlush()
 func TestIndexWriterMergePolicy_MergeDVUpdateFileOnCommitWithConcurrentFlush(t *testing.T) {
-	t.Skip("Requires full concurrent flush implementation")
+	t.Fatal("Requires full concurrent flush implementation")
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
@@ -797,7 +797,7 @@ func TestIndexWriterMergePolicy_MergeDVUpdateFileOnCommitWithConcurrentFlush(t *
 // with pending hard and soft deletes.
 // Ported from: TestIndexWriterMergePolicy.testForceMergeWithPendingHardAndSoftDeleteFile()
 func TestIndexWriterMergePolicy_ForceMergeWithPendingHardAndSoftDeleteFile(t *testing.T) {
-	t.Skip("Requires full soft deletes and doc values update implementation")
+	t.Fatal("Requires full soft deletes and doc values update implementation")
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()

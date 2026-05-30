@@ -16,5 +16,5 @@ import "testing"
 // It verifies that paginated search (searchAfter) produces results
 // consistent with unpaginated search across various query types and sort orders.
 func TestSearchAfter_Queries(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

@@ -50,7 +50,7 @@ import "testing"
 // Similarity injection, and MultiDocValues.getNormValues via wired codec
 // reader are not yet available.
 func TestMaxTermFrequency(t *testing.T) {
-	t.Skip("needs RandomIndexWriter, MockAnalyzer/MockTokenizer, custom " +
+	t.Fatal("needs RandomIndexWriter, MockAnalyzer/MockTokenizer, custom " +
 		"Similarity injection, and MultiDocValues.getNormValues via " +
 		"wired codec reader (not yet ported)")
 }

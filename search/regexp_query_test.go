@@ -182,7 +182,7 @@ func TestRegexpQuery_CharacterClasses_Invalid(t *testing.T) {
 // Note: Skipped because search.NewRegexpQueryWithFlags takes (field, pattern, flags) but the
 // case-insensitive flags (RegExpCaseInsensitive, RegExpASCIICaseInsensitive) are not yet defined.
 func TestRegexpQuery_CaseInsensitive(t *testing.T) {
-	t.Skip("RegExpCaseInsensitive and RegExpASCIICaseInsensitive flags not yet defined")
+	t.Fatal("RegExpCaseInsensitive and RegExpASCIICaseInsensitive flags not yet defined")
 }
 
 // TestRegexpQuery_NegatedCharacterClass tests negated character classes
@@ -213,7 +213,7 @@ func TestRegexpQuery_NegatedCharacterClass(t *testing.T) {
 // Source: TestRegexpQuery.testCustomProvider()
 // Note: Skipped — NewAutomatonProviderFunc, UnionAutomata and Automaton are not yet defined.
 func TestRegexpQuery_CustomProvider(t *testing.T) {
-	t.Skip("search.NewAutomatonProviderFunc and search.UnionAutomata not yet implemented")
+	t.Fatal("search.NewAutomatonProviderFunc and search.UnionAutomata not yet implemented")
 }
 
 // TestRegexpQuery_Backtracking tests backtracking corner case
@@ -257,7 +257,7 @@ func TestRegexpQuery_Basics(t *testing.T) {
 // Note: Skipped — NewRegexpQueryWithSyntaxFlags, NewRegexpQueryWithProvider, and related
 // constants (RegExpSyntaxAll, etc.) are not yet defined.
 func TestRegexpQuery_ConstructorVariants(t *testing.T) {
-	t.Skip("RegExpSyntaxAll, NewRegexpQueryWithSyntaxFlags, NewRegexpQueryWithProvider not yet defined")
+	t.Fatal("RegExpSyntaxAll, NewRegexpQueryWithSyntaxFlags, NewRegexpQueryWithProvider not yet defined")
 }
 
 // TestRegexpQuery_Rewrite tests query rewriting
@@ -574,5 +574,5 @@ func TestRegexpQuery_Anchors(t *testing.T) {
 // TestRegexpQuery_Intersection tests intersection (&) operator
 // Note: Skipped because RegExpSyntaxIntersection constant is not yet defined.
 func TestRegexpQuery_Intersection(t *testing.T) {
-	t.Skip("RegExpSyntaxIntersection not yet defined")
+	t.Fatal("RegExpSyntaxIntersection not yet defined")
 }

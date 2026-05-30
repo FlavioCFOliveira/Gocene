@@ -24,7 +24,7 @@ import "testing"
 // numeric and binary DV fields, reopening the reader each round (NRT or commit)
 // and verifying every live doc carries the current per-field value.
 func TestMixedDocValuesUpdates_ManyReopensAndFields(t *testing.T) {
-	t.Skip("GOC-4202: pending DirectoryReader.openIfChanged + IndexWriter.update{Numeric,Binary}DocValue")
+	t.Fatal("GOC-4202: pending DirectoryReader.openIfChanged + IndexWriter.update{Numeric,Binary}DocValue")
 }
 
 // TestMixedDocValuesUpdates_StressMultiThreading mirrors testStressMultiThreading:
@@ -32,7 +32,7 @@ func TestMixedDocValuesUpdates_ManyReopensAndFields(t *testing.T) {
 // field f*2), interleaving deletes, commits and NRT reopens, then verify the
 // control field equals binary*2 for every live doc.
 func TestMixedDocValuesUpdates_StressMultiThreading(t *testing.T) {
-	t.Skip("GOC-4202: pending IndexWriter.updateDocValues + concurrent NRT reopen")
+	t.Fatal("GOC-4202: pending IndexWriter.updateDocValues + concurrent NRT reopen")
 }
 
 // TestMixedDocValuesUpdates_UpdateDifferentDocsInDifferentGens mirrors
@@ -40,7 +40,7 @@ func TestMixedDocValuesUpdates_StressMultiThreading(t *testing.T) {
 // generations via updateDocValues / tryUpdateDocValue and verify the binary
 // field and its numeric control stay consistent.
 func TestMixedDocValuesUpdates_UpdateDifferentDocsInDifferentGens(t *testing.T) {
-	t.Skip("GOC-4202: pending IndexWriter.updateDocValues + tryUpdateDocValue across generations")
+	t.Fatal("GOC-4202: pending IndexWriter.updateDocValues + tryUpdateDocValue across generations")
 }
 
 // TestMixedDocValuesUpdates_TonsOfUpdates mirrors testTonsOfUpdates (@Nightly,
@@ -48,54 +48,54 @@ func TestMixedDocValuesUpdates_UpdateDifferentDocsInDifferentGens(t *testing.T) 
 // buffer tuned to flush frequently, verifying RAM is bounded and values stay
 // consistent.
 func TestMixedDocValuesUpdates_TonsOfUpdates(t *testing.T) {
-	t.Skip("GOC-4202: pending IndexWriter.updateDocValues; nightly stress case")
+	t.Fatal("GOC-4202: pending IndexWriter.updateDocValues; nightly stress case")
 }
 
 // TestMixedDocValuesUpdates_TryUpdateDocValues mirrors testTryUpdateDocValues:
 // resolve a doc via TermQuery search, call tryUpdateDocValue with numeric and
 // binary fields, and verify the updated values through the reader.
 func TestMixedDocValuesUpdates_TryUpdateDocValues(t *testing.T) {
-	t.Skip("GOC-4202: pending IndexWriter.tryUpdateDocValue + IndexSearcher TermQuery")
+	t.Fatal("GOC-4202: pending IndexWriter.tryUpdateDocValue + IndexSearcher TermQuery")
 }
 
 // TestMixedDocValuesUpdates_TryUpdateMultiThreaded mirrors testTryUpdateMultiThreaded:
 // per-doc ReentrantLock guards concurrent updateDocValues / tryUpdateDocValue
 // (sometimes resetting the value to null), verifying final per-doc values.
 func TestMixedDocValuesUpdates_TryUpdateMultiThreaded(t *testing.T) {
-	t.Skip("GOC-4202: pending IndexWriter.tryUpdateDocValue + concurrent updates")
+	t.Fatal("GOC-4202: pending IndexWriter.tryUpdateDocValue + concurrent updates")
 }
 
 // TestMixedDocValuesUpdates_ResetValue mirrors testResetValue: update a binary
 // DV field to null and verify the field stops yielding a value while the
 // untouched numeric field is preserved.
 func TestMixedDocValuesUpdates_ResetValue(t *testing.T) {
-	t.Skip("GOC-4202: pending IndexWriter.updateDocValues with null reset")
+	t.Fatal("GOC-4202: pending IndexWriter.updateDocValues with null reset")
 }
 
 // TestMixedDocValuesUpdates_ResetValueMultipleDocs mirrors testResetValueMultipleDocs:
 // reset an is_live numeric field across many docs and verify FieldExistsQuery
 // hit count and per-doc seqID values.
 func TestMixedDocValuesUpdates_ResetValueMultipleDocs(t *testing.T) {
-	t.Skip("GOC-4202: pending IndexWriter.updateDocValues + FieldExistsQuery")
+	t.Fatal("GOC-4202: pending IndexWriter.updateDocValues + FieldExistsQuery")
 }
 
 // TestMixedDocValuesUpdates_UpdateNotExistingFieldDV mirrors
 // testUpdateNotExistingFieldDV: verify the IllegalArgumentException messages
 // raised when updating/adding a field with an inconsistent DV type.
 func TestMixedDocValuesUpdates_UpdateNotExistingFieldDV(t *testing.T) {
-	t.Skip("GOC-4202: pending IndexWriter.updateDocValues inconsistent-type validation")
+	t.Fatal("GOC-4202: pending IndexWriter.updateDocValues inconsistent-type validation")
 }
 
 // TestMixedDocValuesUpdates_UpdateFieldWithNoPreviousDocValuesThrowsError mirrors
 // testUpdateFieldWithNoPreviousDocValuesThrowsError: updating DV on a field that
 // never had DV (type NONE) must raise an IllegalArgumentException.
 func TestMixedDocValuesUpdates_UpdateFieldWithNoPreviousDocValuesThrowsError(t *testing.T) {
-	t.Skip("GOC-4202: pending IndexWriter.updateDocValues NONE-type validation")
+	t.Fatal("GOC-4202: pending IndexWriter.updateDocValues NONE-type validation")
 }
 
 // TestMixedDocValuesUpdates_LongRunValuesReset mirrors testLongRunValuesReset:
 // over 65536 docs, reset the numeric field on all but the first and last and
 // verify FieldExistsQuery counts exactly 2.
 func TestMixedDocValuesUpdates_LongRunValuesReset(t *testing.T) {
-	t.Skip("GOC-4202: pending IndexWriter.updateDocValues + FieldExistsQuery over large index")
+	t.Fatal("GOC-4202: pending IndexWriter.updateDocValues + FieldExistsQuery over large index")
 }

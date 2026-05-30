@@ -14,10 +14,10 @@ import "testing"
 
 // TestSimpleExplanationsWithFillerDocs_MA1 mirrors testMA1.
 func TestSimpleExplanationsWithFillerDocs_MA1(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }
 
 // TestSimpleExplanationsWithFillerDocs_MA2 mirrors testMA2.
 func TestSimpleExplanationsWithFillerDocs_MA2(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

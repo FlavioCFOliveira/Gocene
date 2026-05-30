@@ -18,5 +18,5 @@ import "testing"
 //
 // Port of: queryparser/src/test/.../flexible/standard/TestStandardQP.java
 func TestStandardQP(t *testing.T) {
-	t.Skip("deferred: requires complete StandardQueryParser (range types, FuzzyQuery, full analyzer integration)")
+	t.Fatal("deferred: requires complete StandardQueryParser (range types, FuzzyQuery, full analyzer integration)")
 }

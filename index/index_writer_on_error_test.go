@@ -190,7 +190,7 @@ func doIndexWriterOnErrorTest(t *testing.T, failureKind string) {
 		t.Fatalf("ReadSegmentInfos() error = %v", err)
 	}
 
-	t.Skipf("MockDirectoryWrapper.Failure fault injection unavailable; %s injection and rollback/checkIndex assertions deferred", failureKind)
+	t.Fatalf("MockDirectoryWrapper.Failure fault injection unavailable; %s injection and rollback/checkIndex assertions deferred", failureKind)
 }
 
 // TestIndexWriterOnError_OOM ports testOOM().

@@ -87,5 +87,5 @@ func Test2GBCharBlockArray_OverflowGuard(t *testing.T) {
 // Test2GBCharBlockArray_2GB is the full monster stress test ported from Java.
 // It fills >2 GB of chars and verifies the overflow guard fires at the right point.
 func Test2GBCharBlockArray_2GB(t *testing.T) {
-	t.Skip("@Monster: uses >2 GB of memory and takes several minutes — deferred for explicit stress runs")
+	t.Fatal("@Monster: uses >2 GB of memory and takes several minutes — deferred for explicit stress runs")
 }

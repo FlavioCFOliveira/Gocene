@@ -57,7 +57,7 @@ import "testing"
 // the sibling stub, and the GeoTestUtil/RandomIndexWriter/QueryUtils/
 // CheckHits helpers land in Go.
 func TestLatLonMultiLineShapeQueries(t *testing.T) {
-	t.Skip("blocked by BaseLatLonShapeTestCase parent harness, " +
+	t.Fatal("blocked by BaseLatLonShapeTestCase parent harness, " +
 		"document.LatLonShape.CreateIndexableFields(Line), Component2D/" +
 		"WithinRelation truth source, TestLatLonLineShapeQueries.LineValidator " +
 		"(itself a stub), and RandomIndexWriter/GeoTestUtil/CheckHits/" +

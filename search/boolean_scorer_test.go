@@ -150,14 +150,14 @@ func TestBooleanScorer_Embedded(t *testing.T) {
 // Source: TestBooleanScorer.testOptimizeTopLevelClauseOrNull()
 // Note: This test requires BooleanScorerSupplier and DefaultBulkScorer implementation
 func TestBooleanScorer_OptimizeTopLevelClause(t *testing.T) {
-	t.Skip("Requires BooleanScorerSupplier and DefaultBulkScorer implementation")
+	t.Fatal("Requires BooleanScorerSupplier and DefaultBulkScorer implementation")
 }
 
 // TestBooleanScorer_OptimizeProhibitedClauses tests optimization of prohibited clauses (MUST_NOT)
 // Source: TestBooleanScorer.testOptimizeProhibitedClauses()
 // Note: This test requires ReqExclBulkScorer implementation
 func TestBooleanScorer_OptimizeProhibitedClauses(t *testing.T) {
-	t.Skip("Requires ReqExclBulkScorer implementation")
+	t.Fatal("Requires ReqExclBulkScorer implementation")
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
@@ -216,21 +216,21 @@ func TestBooleanScorer_OptimizeProhibitedClauses(t *testing.T) {
 // Source: TestBooleanScorer.testSparseClauseOptimization()
 // Note: This test requires QueryUtils.check() equivalent for dueling scorers
 func TestBooleanScorer_SparseClauseOptimization(t *testing.T) {
-	t.Skip("Requires QueryUtils.check() equivalent for dueling scorers")
+	t.Fatal("Requires QueryUtils.check() equivalent for dueling scorers")
 }
 
 // TestBooleanScorer_FilterConstantScore tests FILTER clause constant score behavior
 // Source: TestBooleanScorer.testFilterConstantScore()
 // Note: Requires IndexSearcher.Rewrite which is not yet implemented.
 func TestBooleanScorer_FilterConstantScore(t *testing.T) {
-	t.Skip("Requires IndexSearcher.Rewrite — not yet implemented")
+	t.Fatal("Requires IndexSearcher.Rewrite — not yet implemented")
 }
 
 // TestBooleanScorer_CollectNoThresholdWhenOnlyFilter tests collection with only FILTER clauses
 // Source: TestBooleanScorer.testCollectNoThresholdWhenOnlyFilter()
 // Note: This test requires TopScoreDocCollectorManager with totalHitsThreshold support
 func TestBooleanScorer_CollectNoThresholdWhenOnlyFilter(t *testing.T) {
-	t.Skip("Requires TopScoreDocCollectorManager with totalHitsThreshold support")
+	t.Fatal("Requires TopScoreDocCollectorManager with totalHitsThreshold support")
 }
 
 // TestBooleanScorer_CostEstimation tests that BooleanScorer provides accurate cost estimates

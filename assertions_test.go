@@ -22,5 +22,5 @@ import "testing"
 // incrementToken() via an AssertionError. Go has no equivalent: there
 // are no assert statements, no -ea flag, and no method finality concept.
 func TestAssertions_TokenStreams(t *testing.T) {
-	t.Skip("Java-specific: tests JVM assertion (-ea) enforcement and final-method detection in TokenStream constructor — no Go equivalent")
+	t.Fatal("Java-specific: tests JVM assertion (-ea) enforcement and final-method detection in TokenStream constructor — no Go equivalent")
 }

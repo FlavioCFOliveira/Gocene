@@ -25,7 +25,7 @@ import (
 // doc values formats for different fields.
 // Source: TestPerFieldDocValuesFormat.testTwoFieldsTwoFormats()
 func TestPerFieldDocValuesFormat_TwoFieldsTwoFormats(t *testing.T) {
-	t.Skip("PerFieldDocValuesFormat not yet fully implemented - GC-212")
+	t.Fatal("PerFieldDocValuesFormat not yet fully implemented - GC-212")
 
 	// This test verifies that different fields can use different doc values formats.
 	// In the Java test:
@@ -118,7 +118,7 @@ func TestPerFieldDocValuesFormat_TwoFieldsTwoFormats(t *testing.T) {
 // correctly when using multiple doc values formats.
 // Source: TestPerFieldDocValuesFormat.testMergeCalledOnTwoFormats()
 func TestPerFieldDocValuesFormat_MergeCalledOnTwoFormats(t *testing.T) {
-	t.Skip("PerFieldDocValuesFormat merge testing not yet fully implemented - GC-212")
+	t.Fatal("PerFieldDocValuesFormat merge testing not yet fully implemented - GC-212")
 
 	// This test verifies that when segments are merged:
 	// - The merge method is called on each DocValuesFormat
@@ -186,7 +186,7 @@ func TestPerFieldDocValuesFormat_MergeCalledOnTwoFormats(t *testing.T) {
 // with regular indexed fields (that don't have doc values).
 // Source: TestPerFieldDocValuesFormat.testDocValuesMergeWithIndexedFields()
 func TestPerFieldDocValuesFormat_MergeWithIndexedFields(t *testing.T) {
-	t.Skip("PerFieldDocValuesFormat merge with indexed fields not yet fully implemented - GC-212")
+	t.Fatal("PerFieldDocValuesFormat merge with indexed fields not yet fully implemented - GC-212")
 
 	// This test verifies that when merging segments:
 	// - Only fields with doc values are passed to the DocValuesFormat merge
@@ -301,7 +301,7 @@ type DocValuesFormat interface {
 // TestPerFieldDocValuesFormat_Basic is a basic test for PerFieldDocValuesFormat.
 // It tests that the format can be instantiated and basic operations work.
 func TestPerFieldDocValuesFormat_Basic(t *testing.T) {
-	t.Skip("PerFieldDocValuesFormat not yet fully implemented - GC-212")
+	t.Fatal("PerFieldDocValuesFormat not yet fully implemented - GC-212")
 
 	// TODO: Implement basic test once DocValuesFormat is available
 	// This should test:
@@ -312,7 +312,7 @@ func TestPerFieldDocValuesFormat_Basic(t *testing.T) {
 
 // TestPerFieldDocValuesFormat_FieldMapping tests field to format mapping.
 func TestPerFieldDocValuesFormat_FieldMapping(t *testing.T) {
-	t.Skip("PerFieldDocValuesFormat field mapping not yet fully implemented - GC-212")
+	t.Fatal("PerFieldDocValuesFormat field mapping not yet fully implemented - GC-212")
 
 	// TODO: Test that:
 	// - Fields are correctly mapped to their specified formats
@@ -323,7 +323,7 @@ func TestPerFieldDocValuesFormat_FieldMapping(t *testing.T) {
 // TestPerFieldDocValuesFormat_SegmentSuffix tests that segment suffix is respected.
 // This is mentioned as a TODO in the Java source.
 func TestPerFieldDocValuesFormat_SegmentSuffix(t *testing.T) {
-	t.Skip("PerFieldDocValuesFormat segment suffix testing not yet fully implemented - GC-212")
+	t.Fatal("PerFieldDocValuesFormat segment suffix testing not yet fully implemented - GC-212")
 
 	// TODO: Test that segment suffix is respected by all codec APIs
 	// This is important for ensuring that different formats don't conflict
@@ -333,7 +333,7 @@ func TestPerFieldDocValuesFormat_SegmentSuffix(t *testing.T) {
 // TestPerFieldDocValuesFormat_NumericDocValues tests numeric doc values
 // with per-field format.
 func TestPerFieldDocValuesFormat_NumericDocValues(t *testing.T) {
-	t.Skip("PerFieldDocValuesFormat numeric doc values not yet fully implemented - GC-212")
+	t.Fatal("PerFieldDocValuesFormat numeric doc values not yet fully implemented - GC-212")
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
@@ -347,7 +347,7 @@ func TestPerFieldDocValuesFormat_NumericDocValues(t *testing.T) {
 // TestPerFieldDocValuesFormat_BinaryDocValues tests binary doc values
 // with per-field format.
 func TestPerFieldDocValuesFormat_BinaryDocValues(t *testing.T) {
-	t.Skip("PerFieldDocValuesFormat binary doc values not yet fully implemented - GC-212")
+	t.Fatal("PerFieldDocValuesFormat binary doc values not yet fully implemented - GC-212")
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
@@ -361,7 +361,7 @@ func TestPerFieldDocValuesFormat_BinaryDocValues(t *testing.T) {
 // TestPerFieldDocValuesFormat_SortedDocValues tests sorted doc values
 // with per-field format.
 func TestPerFieldDocValuesFormat_SortedDocValues(t *testing.T) {
-	t.Skip("PerFieldDocValuesFormat sorted doc values not yet fully implemented - GC-212")
+	t.Fatal("PerFieldDocValuesFormat sorted doc values not yet fully implemented - GC-212")
 
 	// TODO: Test sorted doc values with per-field format
 	// Sorted doc values are used for faceting and sorting
@@ -370,7 +370,7 @@ func TestPerFieldDocValuesFormat_SortedDocValues(t *testing.T) {
 // TestPerFieldDocValuesFormat_SortedSetDocValues tests sorted set doc values
 // with per-field format.
 func TestPerFieldDocValuesFormat_SortedSetDocValues(t *testing.T) {
-	t.Skip("PerFieldDocValuesFormat sorted set doc values not yet fully implemented - GC-212")
+	t.Fatal("PerFieldDocValuesFormat sorted set doc values not yet fully implemented - GC-212")
 
 	// TODO: Test sorted set doc values with per-field format
 	// Sorted set doc values are used for multi-valued fields
@@ -379,7 +379,7 @@ func TestPerFieldDocValuesFormat_SortedSetDocValues(t *testing.T) {
 // TestPerFieldDocValuesFormat_SortedNumericDocValues tests sorted numeric doc values
 // with per-field format.
 func TestPerFieldDocValuesFormat_SortedNumericDocValues(t *testing.T) {
-	t.Skip("PerFieldDocValuesFormat sorted numeric doc values not yet fully implemented - GC-212")
+	t.Fatal("PerFieldDocValuesFormat sorted numeric doc values not yet fully implemented - GC-212")
 
 	// TODO: Test sorted numeric doc values with per-field format
 	// Sorted numeric doc values are used for multi-valued numeric fields
@@ -388,7 +388,7 @@ func TestPerFieldDocValuesFormat_SortedNumericDocValues(t *testing.T) {
 // TestPerFieldDocValuesFormat_MultiSegment tests per-field doc values
 // across multiple segments.
 func TestPerFieldDocValuesFormat_MultiSegment(t *testing.T) {
-	t.Skip("PerFieldDocValuesFormat multi-segment testing not yet fully implemented - GC-212")
+	t.Fatal("PerFieldDocValuesFormat multi-segment testing not yet fully implemented - GC-212")
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
@@ -402,7 +402,7 @@ func TestPerFieldDocValuesFormat_MultiSegment(t *testing.T) {
 // TestPerFieldDocValuesFormat_ConcurrentAccess tests concurrent access
 // to per-field doc values.
 func TestPerFieldDocValuesFormat_ConcurrentAccess(t *testing.T) {
-	t.Skip("PerFieldDocValuesFormat concurrent access testing not yet fully implemented - GC-212")
+	t.Fatal("PerFieldDocValuesFormat concurrent access testing not yet fully implemented - GC-212")
 
 	// TODO: Test thread safety
 	// - Concurrent reads from multiple threads
@@ -417,7 +417,7 @@ func newBytesRef(s string) *util.BytesRef {
 // TestPerFieldDocValuesFormat_ByteLevelCompatibility verifies byte-level
 // compatibility with Lucene's implementation.
 func TestPerFieldDocValuesFormat_ByteLevelCompatibility(t *testing.T) {
-	t.Skip("PerFieldDocValuesFormat byte-level compatibility testing requires full implementation - GC-212")
+	t.Fatal("PerFieldDocValuesFormat byte-level compatibility testing requires full implementation - GC-212")
 
 	// This test will verify that the Go implementation produces
 	// byte-identical output to the Java implementation for the same input.
@@ -432,7 +432,7 @@ func TestPerFieldDocValuesFormat_ByteLevelCompatibility(t *testing.T) {
 // BenchmarkPerFieldDocValuesFormat_Write benchmarks writing doc values
 // with per-field format.
 func BenchmarkPerFieldDocValuesFormat_Write(b *testing.B) {
-	b.Skip("PerFieldDocValuesFormat benchmarking requires full implementation - GC-212")
+	b.Fatal("PerFieldDocValuesFormat benchmarking requires full implementation - GC-212")
 
 	// TODO: Benchmark write operations
 }
@@ -440,7 +440,7 @@ func BenchmarkPerFieldDocValuesFormat_Write(b *testing.B) {
 // BenchmarkPerFieldDocValuesFormat_Read benchmarks reading doc values
 // with per-field format.
 func BenchmarkPerFieldDocValuesFormat_Read(b *testing.B) {
-	b.Skip("PerFieldDocValuesFormat benchmarking requires full implementation - GC-212")
+	b.Fatal("PerFieldDocValuesFormat benchmarking requires full implementation - GC-212")
 
 	// TODO: Benchmark read operations
 }
@@ -448,7 +448,7 @@ func BenchmarkPerFieldDocValuesFormat_Read(b *testing.B) {
 // BenchmarkPerFieldDocValuesFormat_Merge benchmarks merging doc values
 // with per-field format.
 func BenchmarkPerFieldDocValuesFormat_Merge(b *testing.B) {
-	b.Skip("PerFieldDocValuesFormat benchmarking requires full implementation - GC-212")
+	b.Fatal("PerFieldDocValuesFormat benchmarking requires full implementation - GC-212")
 
 	// TODO: Benchmark merge operations
 }

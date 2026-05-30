@@ -110,7 +110,7 @@ func TestByteVectorSimilarityValuesSource_String(t *testing.T) {
 // TestByteVectorSimilarityValuesSource_GetScorerNilCtx documents that
 // GetScorer panics on a nil context (expected; callers must pass a valid one).
 func TestByteVectorSimilarityValuesSource_GetScorerNilCtx(t *testing.T) {
-	t.Skip("GetScorer(nil) panics on nil LeafReaderContext (expected — callers must pass valid ctx)")
+	t.Fatal("GetScorer(nil) panics on nil LeafReaderContext (expected — callers must pass valid ctx)")
 }
 
 // TestByteVectorSimilarityValuesSource_ImplementsInterface checks that the

@@ -17,5 +17,5 @@ import "testing"
 //
 // Port of: queryparser/src/test/.../flexible/standard/TestStandardQPEnhancements.java
 func TestStandardQPEnhancements(t *testing.T) {
-	t.Skip("deferred: requires MultiTermQuery rewrite method and date-range resolution in StandardQueryParser")
+	t.Fatal("deferred: requires MultiTermQuery rewrite method and date-range resolution in StandardQueryParser")
 }

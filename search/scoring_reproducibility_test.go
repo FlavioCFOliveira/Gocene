@@ -71,7 +71,7 @@ func TestSearchScoringReproducibility_TermQuery(t *testing.T) {
 	topDocs1, err := searcher.Search(query, 10)
 	if err != nil {
 		t.Logf("search may not be fully implemented: %v", err)
-		t.Skip("search not implemented")
+		t.Fatal("search not implemented")
 	}
 
 	topDocs2, err := searcher.Search(query, 10)
@@ -135,7 +135,7 @@ func TestSearchScoringReproducibility_BooleanQuery(t *testing.T) {
 		topDocs, err := searcher.Search(boolQuery, 10)
 		if err != nil {
 			t.Logf("boolean search may not be fully implemented: %v", err)
-			t.Skip("boolean search not implemented")
+			t.Fatal("boolean search not implemented")
 		}
 		t.Logf("Run %d: found %d documents", i+1, topDocs.TotalHits.Value)
 	}
@@ -251,7 +251,7 @@ func TestSearchScoringReproducibility_NewReader(t *testing.T) {
 		if err != nil {
 			reader.Close()
 			t.Logf("search may not be fully implemented: %v", err)
-			t.Skip("search not implemented")
+			t.Fatal("search not implemented")
 		}
 
 		t.Logf("Run %d: found %d documents", i+1, topDocs.TotalHits.Value)

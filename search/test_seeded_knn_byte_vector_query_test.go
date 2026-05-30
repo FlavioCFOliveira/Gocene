@@ -14,10 +14,10 @@ import "testing"
 
 // TestSeededKnnByteVectorQuery_SeedWithTimeout mirrors testSeedWithTimeout.
 func TestSeededKnnByteVectorQuery_SeedWithTimeout(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+HNSW integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+HNSW integration (pre-existing failure in Gocene)")
 }
 
 // TestSeededKnnByteVectorQuery_RandomWithSeed mirrors testRandomWithSeed.
 func TestSeededKnnByteVectorQuery_RandomWithSeed(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+HNSW integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+HNSW integration (pre-existing failure in Gocene)")
 }

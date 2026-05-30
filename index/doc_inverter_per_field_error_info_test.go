@@ -50,7 +50,7 @@ func (e *badNews) Error() string { return e.message }
 // TestInfoStreamGetsFieldName verifies that, when field analysis throws, the
 // offending field name reaches the IndexWriter info stream.
 func TestInfoStreamGetsFieldName(t *testing.T) {
-	t.Skip("GOC-4199: pending IndexWriterConfig.SetInfoStream and DocInverter per-field error reporting")
+	t.Fatal("GOC-4199: pending IndexWriterConfig.SetInfoStream and DocInverter per-field error reporting")
 
 	// Faithful port of testInfoStreamGetsFieldName, kept for when the
 	// production path is available:
@@ -75,7 +75,7 @@ func TestInfoStreamGetsFieldName(t *testing.T) {
 // TestNoExtraNoise verifies that a cleanly analyzed field never appears in the
 // IndexWriter info stream.
 func TestNoExtraNoise(t *testing.T) {
-	t.Skip("GOC-4199: pending IndexWriterConfig.SetInfoStream and DocInverter per-field error reporting")
+	t.Fatal("GOC-4199: pending IndexWriterConfig.SetInfoStream and DocInverter per-field error reporting")
 
 	// Faithful port of testNoExtraNoise, kept for when the production path
 	// is available:

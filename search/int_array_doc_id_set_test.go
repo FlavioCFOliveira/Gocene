@@ -19,5 +19,5 @@ import "testing"
 // TestIntArrayDocIdSet_CompileCheck verifies the port compiles.
 // The Lucene source has no @Test methods; this mirrors that intent.
 func TestIntArrayDocIdSet_CompileCheck(t *testing.T) {
-	t.Skip("IntArrayDocIdSet is a test helper class with no @Test methods; production equivalent is util.IntArrayDocIdSet")
+	t.Fatal("IntArrayDocIdSet is a test helper class with no @Test methods; production equivalent is util.IntArrayDocIdSet")
 }

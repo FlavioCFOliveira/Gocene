@@ -106,5 +106,5 @@ func TestMaxScoreBulkScorer_ImplementsBulkScorer(t *testing.T) {
 // a real index — uses synthetic scorers instead.
 // Degraded: block-max optimisations (advanceShallow) are not active.
 func TestMaxScoreBulkScorer_IntegrationBasics(t *testing.T) {
-	t.Skip("full integration test requires IndexWriter/IndexSearcher — deferred")
+	t.Fatal("full integration test requires IndexWriter/IndexSearcher — deferred")
 }

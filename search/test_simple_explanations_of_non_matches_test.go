@@ -17,5 +17,5 @@ import "testing"
 // TestSimpleExplanationsOfNonMatches is a placeholder for the class that re-runs
 // all TestSimpleExplanations scenarios in "explain non-matches" mode.
 func TestSimpleExplanationsOfNonMatches(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

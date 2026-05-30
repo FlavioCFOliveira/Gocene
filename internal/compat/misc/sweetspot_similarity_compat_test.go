@@ -101,7 +101,7 @@ func TestMiscSweetSpotSimilarity_RoundTrip(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Skipf("deferred: SweetSpotSimilarity round-trip not applicable at "+
+			t.Fatalf("deferred: SweetSpotSimilarity round-trip not applicable at "+
 				"seed=%d: %s Audit gap_notes (verbatim): %q",
 				seed, auditGapSweetSpotReason, auditGapSweetSpot)
 		})

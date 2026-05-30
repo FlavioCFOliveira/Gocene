@@ -46,7 +46,7 @@ import (
 // must throw IllegalArgumentException, and a reader opened on the writer must
 // then report numDocs() == 0 (the document is not visible).
 func TestMaxPosition_TooBigPosition(t *testing.T) {
-	t.Skip("blocked: CannedTokenStream (explicit positionIncrement tokens) unimplemented, " +
+	t.Fatal("blocked: CannedTokenStream (explicit positionIncrement tokens) unimplemented, " +
 		"and DirectoryReader.open(IndexWriter) for the numDocs()==0 visibility check has no Gocene equivalent")
 }
 
@@ -58,6 +58,6 @@ func TestMaxPosition_TooBigPosition(t *testing.T) {
 // reader opened on the writer must report numDocs() == 1, and the PostingsEnum
 // for term "foo" must report freq()==2 with positions 0 and MAX_POSITION.
 func TestMaxPosition_MaxPosition(t *testing.T) {
-	t.Skip("blocked: CannedTokenStream (explicit positionIncrement tokens) unimplemented, " +
+	t.Fatal("blocked: CannedTokenStream (explicit positionIncrement tokens) unimplemented, " +
 		"and the MultiTerms.getTermPostingsEnum read-back path hits 'core readers are nil' on OpenDirectoryReader")
 }

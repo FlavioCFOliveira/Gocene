@@ -47,7 +47,7 @@ import "testing"
 // MockAnalyzer with custom token attributes, and TestUtil postings helpers
 // are not yet available.
 func TestLongPostings_LongPostings(t *testing.T) {
-	t.Skip("needs wired block-tree postings reader, RandomIndexWriter, " +
+	t.Fatal("needs wired block-tree postings reader, RandomIndexWriter, " +
 		"MockAnalyzer with TermToBytesRefAttribute, and TestUtil postings helpers")
 }
 
@@ -58,6 +58,6 @@ func TestLongPostings_LongPostings(t *testing.T) {
 //
 // Degraded to t.Skip: same blockers as TestLongPostings_LongPostings.
 func TestLongPostings_LongPostingsNoPositions(t *testing.T) {
-	t.Skip("needs wired block-tree postings reader, RandomIndexWriter, " +
+	t.Fatal("needs wired block-tree postings reader, RandomIndexWriter, " +
 		"MockAnalyzer with TermToBytesRefAttribute, and TestUtil postings helpers")
 }

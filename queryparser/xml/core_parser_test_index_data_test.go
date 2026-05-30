@@ -20,5 +20,5 @@ import "testing"
 //
 // Port of: queryparser/src/test/.../xml/CoreParserTestIndexData.java
 func TestCoreParserTestIndexData(t *testing.T) {
-	t.Skip("deferred: requires reuters21578.txt fixture and functional IndexWriter/DirectoryReader round-trip")
+	t.Fatal("deferred: requires reuters21578.txt fixture and functional IndexWriter/DirectoryReader round-trip")
 }

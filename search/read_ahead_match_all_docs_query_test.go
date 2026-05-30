@@ -19,5 +19,5 @@ import "testing"
 // TestReadAheadMatchAllDocsQuery is a placeholder for the helper Query class.
 // A full port requires DenseConjunctionBulkScorer (deferred).
 func TestReadAheadMatchAllDocsQuery(t *testing.T) {
-	t.Skip("ReadAheadMatchAllDocsQuery is a helper class (no @Test methods); requires DenseConjunctionBulkScorer not yet ported to Gocene")
+	t.Fatal("ReadAheadMatchAllDocsQuery is a helper class (no @Test methods); requires DenseConjunctionBulkScorer not yet ported to Gocene")
 }

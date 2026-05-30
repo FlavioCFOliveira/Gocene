@@ -31,16 +31,16 @@ func locateHarnessJar(t *testing.T) string {
 		if _, err := os.Stat(v); err == nil {
 			return v
 		}
-		t.Skipf("LUCENE_FIXTURES_JAR=%q is set but the file does not exist; skipping", v)
+		t.Fatalf("LUCENE_FIXTURES_JAR=%q is set but the file does not exist; skipping", v)
 	}
 	repoRoot, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
 	if err != nil {
-		t.Skip("not inside a git repo and LUCENE_FIXTURES_JAR not set; skipping")
+		t.Fatal("not inside a git repo and LUCENE_FIXTURES_JAR not set; skipping")
 	}
 	jar := filepath.Join(string(bytes.TrimSpace(repoRoot)),
 		"tools", "lucene-fixtures", "target", "lucene-fixtures.jar")
 	if _, err := os.Stat(jar); err != nil {
-		t.Skipf("harness jar not built (%s); run 'make -f tools/lucene-fixtures/Makefile harness-build' first", jar)
+		t.Fatalf("harness jar not built (%s); run 'make -f tools/lucene-fixtures/Makefile harness-build' first", jar)
 	}
 	return jar
 }

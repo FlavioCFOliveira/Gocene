@@ -95,5 +95,5 @@ func (d *CrashAfterCreateOutput) CreateOutput(name string, ctx store.IOContext) 
 // CrashAfterCreateOutput / CrashingException helpers above are kept ready so
 // the body can be filled in once those dependencies land.
 func TestCrashCorruptsIndexing(t *testing.T) {
-	t.Skip("GOC-4165: IndexWriter crash-recovery and DirectoryReader/IndexSearcher search path not yet available in Gocene")
+	t.Fatal("GOC-4165: IndexWriter crash-recovery and DirectoryReader/IndexSearcher search path not yet available in Gocene")
 }

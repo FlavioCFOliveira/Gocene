@@ -163,7 +163,7 @@ const baseLatLonPointFieldName = "shape"
 //     placeholder (see document/shape_doc_values.go TODO
 //     GOC-4532+).
 func TestBaseLatLonPoint_BoundingBoxQueriesEquivalence(t *testing.T) {
-	t.Skip("blocked by RandomIndexWriter/GeoTestUtil/LatLonPoint.NewBoxQuery/document.NewGeometryQuery; remove this Skip when fixed")
+	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/LatLonPoint.NewBoxQuery/document.NewGeometryQuery; remove this Skip when fixed")
 
 	// Reserved factories: the future implementation reads from this
 	// bundle. Touching it here keeps the symbol live for static
@@ -190,7 +190,7 @@ func TestBaseLatLonPoint_BoundingBoxQueriesEquivalence(t *testing.T) {
 //     GOC-4532+) so the polygon helper has no real Query to
 //     hand back.
 func TestBaseLatLonPoint_QueryEqualsAndHashcode(t *testing.T) {
-	t.Skip("blocked by QueryUtils/GeoTestUtil/document.NewGeometryQuery; remove this Skip when fixed")
+	t.Fatal("blocked by QueryUtils/GeoTestUtil/document.NewGeometryQuery; remove this Skip when fixed")
 
 	// Reserved factories: as above, kept reachable but unused.
 	_ = newBaseLatLonPointFactories()

@@ -121,7 +121,7 @@ func TestMemoryIndexFlush_RoundTrip(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Skipf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
+			t.Fatalf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
 				"blocked because the Gocene MemoryIndex equivalent "+
 				"(memory/memory_index.go) may not support the "+
 				"addIndexes(CodecReader...) flush path required to "+

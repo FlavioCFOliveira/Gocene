@@ -34,7 +34,7 @@ func TestAllFilesDetectTruncation(t *testing.T) {
 	// of a file cannot be reliably detected (a truncated file with no footer
 	// is indistinguishable from a valid one to the codec layer). Unskip once
 	// footer writing lands in the segment-infos writer.
-	t.Skip("blocked: truncation detection requires CRC32 footers, not yet written by WriteSegmentInfos")
+	t.Fatal("blocked: truncation detection requires CRC32 footers, not yet written by WriteSegmentInfos")
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()

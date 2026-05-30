@@ -16,5 +16,5 @@ import "testing"
 
 // TestDistributionTestCase is a placeholder for the abstract base class.
 func TestDistributionTestCase(t *testing.T) {
-	t.Skip("abstract test base class — concrete subclasses supply a Distribution impl; requires IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("abstract test base class — concrete subclasses supply a Distribution impl; requires IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

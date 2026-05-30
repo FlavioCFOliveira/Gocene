@@ -293,7 +293,7 @@ func TestBlockJoin_Simple(t *testing.T) {
 // already-positioned PostingsEnum returns NO_MORE_DOCS), so the conjunctions
 // drop valid parents. This is a codec/search-core defect, not a block-join one.
 func TestBlockJoin_SimpleFilter(t *testing.T) {
-	t.Skip("blocked by PostingsEnum.Advance-after-positioning returning NO_MORE_DOCS, which breaks every block-join MUST + filter conjunction here: rmp #4763")
+	t.Fatal("blocked by PostingsEnum.Advance-after-positioning returning NO_MORE_DOCS, which breaks every block-join MUST + filter conjunction here: rmp #4763")
 }
 
 // mustDoc fetches a stored document, failing the test on error.
@@ -907,7 +907,7 @@ func TestBlockJoin_MultiChildQueriesOfDiffParentLevels(t *testing.T) {
 	// so QueryBitSetProducer cannot build the job parent bitset; and the two
 	// stacked ToChild joins are composed in a conjunction that also hits the
 	// postings Advance-after-positioning bug. Both are out-of-scope core gaps.
-	t.Skip("requires a runnable PrefixQuery for the job-level parents filter (rmp #4760) and the postings Advance fix (rmp #4763)")
+	t.Fatal("requires a runnable PrefixQuery for the job-level parents filter (rmp #4760) and the postings Advance fix (rmp #4763)")
 }
 
 // freqSimScorer is a SimScorer that scores every document by its raw term

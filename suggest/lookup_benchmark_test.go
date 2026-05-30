@@ -62,7 +62,7 @@ func readTop50KWiki(t testing.TB) []*Input {
 func BenchmarkLookupConstruction_TST(b *testing.B) {
 	inputs := readTop50KWiki(b)
 	if inputs == nil {
-		b.Skip("Top50KWiki.utf8 fixture not present — skipping benchmark")
+		b.Fatal("Top50KWiki.utf8 fixture not present — skipping benchmark")
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -78,7 +78,7 @@ func BenchmarkLookupConstruction_TST(b *testing.B) {
 func BenchmarkLookupConstruction_WFST(b *testing.B) {
 	inputs := readTop50KWiki(b)
 	if inputs == nil {
-		b.Skip("Top50KWiki.utf8 fixture not present — skipping benchmark")
+		b.Fatal("Top50KWiki.utf8 fixture not present — skipping benchmark")
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

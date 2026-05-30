@@ -89,7 +89,7 @@ func TestPayloads_Payload(t *testing.T) {
 // wired codec reader; NewSegmentReader does not load FieldInfos from disk
 // (coreReaders is nil) so fi.fieldInfo("f1") returns nil.
 func TestPayloads_FieldBit(t *testing.T) {
-	t.Skip("needs getOnlyLeafReader, DirectoryReader.open with wired codec " +
+	t.Fatal("needs getOnlyLeafReader, DirectoryReader.open with wired codec " +
 		"reader, and FieldInfos.fieldInfo read-back from disk (coreReaders nil)")
 }
 
@@ -103,7 +103,7 @@ func TestPayloads_FieldBit(t *testing.T) {
 // ported); PostingsEnum with PAYLOADS flag requires the wired block-tree
 // postings reader.
 func TestPayloads_Encoding(t *testing.T) {
-	t.Skip("needs PayloadAnalyzer/MockTokenizer (test module) and " +
+	t.Fatal("needs PayloadAnalyzer/MockTokenizer (test module) and " +
 		"PostingsEnum with PAYLOADS flag via wired block-tree postings reader")
 }
 
@@ -116,7 +116,7 @@ func TestPayloads_Encoding(t *testing.T) {
 // Degraded to t.Skip: custom per-thread PayloadAnalyzer, DirectoryReader.open,
 // and PostingsEnum with PAYLOADS flag via wired block-tree reader not ported.
 func TestPayloads_ThreadSafety(t *testing.T) {
-	t.Skip("needs per-thread PayloadAnalyzer, DirectoryReader.open with wired " +
+	t.Fatal("needs per-thread PayloadAnalyzer, DirectoryReader.open with wired " +
 		"block-tree reader, and PostingsEnum PAYLOADS flag (not yet ported)")
 }
 
@@ -128,7 +128,7 @@ func TestPayloads_ThreadSafety(t *testing.T) {
 // Degraded to t.Skip: CannedTokenStream and PayloadAnalyzer are test-module
 // utilities not ported; wired block-tree postings reader not available.
 func TestPayloads_AcrossFields(t *testing.T) {
-	t.Skip("needs CannedTokenStream + PayloadAnalyzer (test module) and " +
+	t.Fatal("needs CannedTokenStream + PayloadAnalyzer (test module) and " +
 		"wired block-tree postings reader for PostingsEnum read-back")
 }
 
@@ -141,7 +141,7 @@ func TestPayloads_AcrossFields(t *testing.T) {
 // Degraded to t.Skip: CannedTokenStream not ported; wired block-tree
 // postings reader not available.
 func TestPayloads_MixupDocs(t *testing.T) {
-	t.Skip("needs CannedTokenStream (test module) and wired block-tree " +
+	t.Fatal("needs CannedTokenStream (test module) and wired block-tree " +
 		"postings reader for PostingsEnum payload read-back (not yet ported)")
 }
 
@@ -152,6 +152,6 @@ func TestPayloads_MixupDocs(t *testing.T) {
 //
 // Degraded to t.Skip: same blockers as TestPayloads_MixupDocs.
 func TestPayloads_MixupMultiValued(t *testing.T) {
-	t.Skip("needs CannedTokenStream (test module) and wired block-tree " +
+	t.Fatal("needs CannedTokenStream (test module) and wired block-tree " +
 		"postings reader for PostingsEnum payload read-back (not yet ported)")
 }

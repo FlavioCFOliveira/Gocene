@@ -54,6 +54,6 @@ import "testing"
 // block-tree terms reader and codec-loaded coreReaders, which are not yet
 // available.
 func TestParallelTermEnum_FieldUnion(t *testing.T) {
-	t.Skip("needs getOnlyLeafReader helper, wired block-tree terms reader, " +
+	t.Fatal("needs getOnlyLeafReader helper, wired block-tree terms reader, " +
 		"codec-loaded coreReaders for GetFieldInfos, and TermsEnum+PostingsEnum read path")
 }

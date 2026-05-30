@@ -12,5 +12,5 @@ import "testing"
 // TestPayloadSpanPositions_All is skipped because it requires full payload + span
 // position tracking infrastructure not yet complete in Gocene.
 func TestPayloadSpanPositions_All(t *testing.T) {
-	t.Skip("requires full payload + span position infrastructure; deferred to backlog")
+	t.Fatal("requires full payload + span position infrastructure; deferred to backlog")
 }

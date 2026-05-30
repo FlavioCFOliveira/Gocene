@@ -17,5 +17,5 @@ import "testing"
 // recorded as a skip-stub keyed to the missing production type and should be
 // fleshed out once IndexSearcher gains a slicing implementation.
 func TestSegmentToThreadMapping(t *testing.T) {
-	t.Skip("blocked: search.IndexSearcher exposes no Slices/LeafSlice/LeafReaderContextPartition API (search/index_searcher.go); segment-to-slice mapping not yet ported")
+	t.Fatal("blocked: search.IndexSearcher exposes no Slices/LeafSlice/LeafReaderContextPartition API (search/index_searcher.go); segment-to-slice mapping not yet ported")
 }

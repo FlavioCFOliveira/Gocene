@@ -53,7 +53,7 @@ import "testing"
 // updateDocument(Term), NRT DirectoryReader.open(IndexWriter), LineFileDocs,
 // MockAnalyzer, and TieredMergePolicy are not yet available.
 func TestForceMergeForever(t *testing.T) {
-	t.Skip("needs IndexWriter merge-hook (OnMerge callback), functional " +
+	t.Fatal("needs IndexWriter merge-hook (OnMerge callback), functional " +
 		"updateDocument(Term), NRT DirectoryReader.open(IndexWriter), " +
 		"LineFileDocs, MockAnalyzer, and TieredMergePolicy (not yet ported)")
 }

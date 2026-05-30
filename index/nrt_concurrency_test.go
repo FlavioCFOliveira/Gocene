@@ -15,33 +15,33 @@ package index_test
 import "testing"
 
 func TestNRTConcurrentIndexingAndSearching(t *testing.T) {
-	t.Skip("NRT concurrency test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT concurrency test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTMultipleReaders(t *testing.T) {
-	t.Skip("NRT concurrency test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT concurrency test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTRaceConditionReopen(t *testing.T) {
-	t.Skip("NRT concurrency test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT concurrency test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTConcurrentDeletesAndReads(t *testing.T) {
-	t.Skip("NRT concurrency test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT concurrency test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTWriterReaderConsistency(t *testing.T) {
-	t.Skip("NRT concurrency test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT concurrency test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTConcurrentReopenAndCommit(t *testing.T) {
-	t.Skip("NRT concurrency test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT concurrency test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTGoroutineLeak(t *testing.T) {
-	t.Skip("NRT concurrency test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT concurrency test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTAtomicVisibility(t *testing.T) {
-	t.Skip("NRT concurrency test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT concurrency test — import cycle / unimplemented APIs, not yet fixed")
 }

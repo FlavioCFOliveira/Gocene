@@ -1589,5 +1589,5 @@ func TestSynonymQuery_ImplementationNote(t *testing.T) {
 	//
 	// For now, the test file verifies the query structure and basic behavior.
 
-	t.Skip("Implementation note - no actual test")
+	t.Fatal("Implementation note - no actual test")
 }

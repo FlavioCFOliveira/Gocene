@@ -11,9 +11,9 @@ package index_test
 import "testing"
 
 func TestSoftDeletesIntegration_BasicSoftDelete(t *testing.T) {
-	t.Skip("Skipping: SoftUpdateDocument not yet implemented")
+	t.Fatal("Skipping: SoftUpdateDocument not yet implemented")
 }
 
 func TestSoftDeletesIntegration_Purging(t *testing.T) {
-	t.Skip("Skipping: SoftUpdateDocument not yet implemented")
+	t.Fatal("Skipping: SoftUpdateDocument not yet implemented")
 }

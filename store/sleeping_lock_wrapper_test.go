@@ -437,7 +437,7 @@ func TestSleepingLockWrapper_WithSingleInstanceLockFactory(t *testing.T) {
 // Ported from: BaseLockFactoryTestCase.testStressLocks()
 func TestSleepingLockWrapper_Stress(t *testing.T) {
 	if testing.Short() {
-		t.Skip("Skipping stress test in short mode")
+		t.Fatal("Skipping stress test in short mode")
 	}
 
 	dir := store.NewByteBuffersDirectory()

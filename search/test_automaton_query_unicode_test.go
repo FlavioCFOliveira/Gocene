@@ -16,5 +16,5 @@ import "testing"
 // It verifies that automaton query matches respect Unicode sort order in
 // the index term dictionary.
 func TestAutomatonQueryUnicode_SortOrder(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

@@ -62,5 +62,5 @@ func TestIntBlockPool_WriteReadReset(t *testing.T) {
 // before committing an overflowing offset, so the original wrap-around check
 // cannot be reproduced. Skipped as a documented JVM/Go divergence.
 func TestIntBlockPool_TooManyAllocs(t *testing.T) {
-	t.Skip("intOffset overflow is JVM-specific (32-bit int); not portable to Go's 64-bit int")
+	t.Fatal("intOffset overflow is JVM-specific (32-bit int); not portable to Go's 64-bit int")
 }

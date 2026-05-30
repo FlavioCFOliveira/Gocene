@@ -17,5 +17,5 @@ import "testing"
 // It verifies that concurrent reads of stored term vectors return correct,
 // consistent results across multiple goroutines.
 func TestMultiThreadTermVectors_Concurrency(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexReader term-vector integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexReader term-vector integration (pre-existing failure in Gocene)")
 }

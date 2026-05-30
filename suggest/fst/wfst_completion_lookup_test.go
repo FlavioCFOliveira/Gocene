@@ -137,10 +137,10 @@ func TestWFSTCompletion_Empty(t *testing.T) {
 // TestWFSTCompletion_LookupsDuringReBuild mirrors
 // TestWFSTCompletion.testLookupsDuringReBuild.
 func TestWFSTCompletion_LookupsDuringReBuild(t *testing.T) {
-	t.Skip("WFSTCompletionLookup concurrent rebuild not yet implemented")
+	t.Fatal("WFSTCompletionLookup concurrent rebuild not yet implemented")
 }
 
 // TestWFSTCompletion_ExactFirst mirrors TestWFSTCompletion.testExactFirst.
 func TestWFSTCompletion_ExactFirst(t *testing.T) {
-	t.Skip("WFSTCompletionLookup.exactFirst mode not yet implemented in stub")
+	t.Fatal("WFSTCompletionLookup.exactFirst mode not yet implemented in stub")
 }

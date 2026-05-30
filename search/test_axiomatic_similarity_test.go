@@ -19,15 +19,15 @@ import "testing"
 // Java: AxiomaticF2EXP(±Inf, 0.1), AxiomaticF2EXP(-1, 0.1) → IllegalArgumentException.
 // Gocene deviation: NewLuceneAxiomaticF2EXP does not validate s; deferred.
 func TestAxiomaticSimilarity_IllegalS(t *testing.T) {
-	t.Skip("NewLuceneAxiomaticF2EXP does not yet validate the s parameter; porting validation is out of scope (deferred)")
+	t.Fatal("NewLuceneAxiomaticF2EXP does not yet validate the s parameter; porting validation is out of scope (deferred)")
 }
 
 // TestAxiomaticSimilarity_IllegalK mirrors testIllegalK.
 func TestAxiomaticSimilarity_IllegalK(t *testing.T) {
-	t.Skip("NewLuceneAxiomaticF2EXP does not yet validate the k parameter; porting validation is out of scope (deferred)")
+	t.Fatal("NewLuceneAxiomaticF2EXP does not yet validate the k parameter; porting validation is out of scope (deferred)")
 }
 
 // TestAxiomaticSimilarity_IllegalQL mirrors testIllegalQL.
 func TestAxiomaticSimilarity_IllegalQL(t *testing.T) {
-	t.Skip("NewLuceneAxiomaticF3EXP does not yet validate the queryLen parameter; porting validation is out of scope (deferred)")
+	t.Fatal("NewLuceneAxiomaticF3EXP does not yet validate the queryLen parameter; porting validation is out of scope (deferred)")
 }

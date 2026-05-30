@@ -14,20 +14,20 @@ package search
 import "testing"
 
 func TestRangeFieldsDocValuesQuery_DoubleRangeDocValuesIntersectsQuery(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+DocValues integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+DocValues integration (pre-existing failure in Gocene)")
 }
 func TestRangeFieldsDocValuesQuery_IntRangeDocValuesIntersectsQuery(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+DocValues integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+DocValues integration (pre-existing failure in Gocene)")
 }
 func TestRangeFieldsDocValuesQuery_LongRangeDocValuesIntersectQuery(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+DocValues integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+DocValues integration (pre-existing failure in Gocene)")
 }
 func TestRangeFieldsDocValuesQuery_FloatRangeDocValuesIntersectQuery(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+DocValues integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+DocValues integration (pre-existing failure in Gocene)")
 }
 func TestRangeFieldsDocValuesQuery_ToString(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+DocValues integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+DocValues integration (pre-existing failure in Gocene)")
 }
 func TestRangeFieldsDocValuesQuery_NoData(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+DocValues integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+DocValues integration (pre-existing failure in Gocene)")
 }

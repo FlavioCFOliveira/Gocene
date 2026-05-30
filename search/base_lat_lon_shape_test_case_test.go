@@ -182,7 +182,7 @@ const baseLatLonShapeFieldName = "shape"
 //     placeholder (see document/shape_doc_values.go TODO
 //     GOC-4532+).
 func TestBaseLatLonShape_BoundingBoxQueriesEquivalence(t *testing.T) {
-	t.Skip("blocked by RandomIndexWriter/GeoTestUtil/LatLonShape.NewBoxQuery/LatLonShapeQuery/document.NewGeometryQuery; remove this Skip when fixed")
+	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/LatLonShape.NewBoxQuery/LatLonShapeQuery/document.NewGeometryQuery; remove this Skip when fixed")
 
 	// Reserved factories: the future implementation reads from this
 	// bundle. Touching it here keeps the symbol live for static
@@ -209,7 +209,7 @@ func TestBaseLatLonShape_BoundingBoxQueriesEquivalence(t *testing.T) {
 //   - document.LatLonShape.NewBoxQuery is still missing so the
 //     rectQueryFactory cannot be populated.
 func TestBaseLatLonShape_BoxQueryEqualsAndHashcode(t *testing.T) {
-	t.Skip("blocked by QueryUtils/GeoTestUtil/LatLonShape.NewBoxQuery; remove this Skip when fixed")
+	t.Fatal("blocked by QueryUtils/GeoTestUtil/LatLonShape.NewBoxQuery; remove this Skip when fixed")
 
 	// Reserved factories: as above, kept reachable but unused.
 	_ = newBaseLatLonShapeFactories()
@@ -235,7 +235,7 @@ func TestBaseLatLonShape_BoxQueryEqualsAndHashcode(t *testing.T) {
 //   - document.LatLonShape.NewLineQuery is still missing so the
 //     lineQueryFactory cannot be populated.
 func TestBaseLatLonShape_LineQueryEqualsAndHashcode(t *testing.T) {
-	t.Skip("blocked by QueryUtils/GeoTestUtil/POINT_LINE_RELATIONS/LatLonShape.NewLineQuery; remove this Skip when fixed")
+	t.Fatal("blocked by QueryUtils/GeoTestUtil/POINT_LINE_RELATIONS/LatLonShape.NewLineQuery; remove this Skip when fixed")
 
 	// Reserved factories: as above, kept reachable but unused.
 	_ = newBaseLatLonShapeFactories()
@@ -258,7 +258,7 @@ func TestBaseLatLonShape_LineQueryEqualsAndHashcode(t *testing.T) {
 //   - document.LatLonShape.NewPolygonQuery is still missing so the
 //     polygonQueryFactory cannot be populated.
 func TestBaseLatLonShape_PolygonQueryEqualsAndHashcode(t *testing.T) {
-	t.Skip("blocked by QueryUtils/GeoTestUtil/LatLonShape.NewPolygonQuery; remove this Skip when fixed")
+	t.Fatal("blocked by QueryUtils/GeoTestUtil/LatLonShape.NewPolygonQuery; remove this Skip when fixed")
 
 	// Reserved factories: as above, kept reachable but unused.
 	_ = newBaseLatLonShapeFactories()

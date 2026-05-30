@@ -118,5 +118,5 @@ func TestFloatVectorSimilarityValuesSource_String(t *testing.T) {
 // always pass a valid LeafReaderContext. The test documents this
 // contract and skips without failing.
 func TestFloatVectorSimilarityValuesSource_GetScorerNilCtx(t *testing.T) {
-	t.Skip("GetScorer(nil) panics on nil LeafReaderContext (expected — callers must pass valid ctx)")
+	t.Fatal("GetScorer(nil) panics on nil LeafReaderContext (expected — callers must pass valid ctx)")
 }

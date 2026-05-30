@@ -64,13 +64,13 @@ func TestLucene99SegmentInfoFormat(t *testing.T) {
 // Gocene will eventually need to implement these.
 
 func TestLucene99PostingsFormat(t *testing.T) {
-	t.Skip("Lucene99PostingsFormat is not yet implemented in Gocene")
+	t.Fatal("Lucene99PostingsFormat is not yet implemented in Gocene")
 }
 
 func TestLucene99StoredFieldsFormat(t *testing.T) {
-	t.Skip("Lucene99StoredFieldsFormat is not yet implemented in Gocene")
+	t.Fatal("Lucene99StoredFieldsFormat is not yet implemented in Gocene")
 }
 
 func TestLucene99DocValuesFormat(t *testing.T) {
-	t.Skip("Lucene99DocValuesFormat is not yet implemented in Gocene")
+	t.Fatal("Lucene99DocValuesFormat is not yet implemented in Gocene")
 }

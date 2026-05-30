@@ -11,13 +11,13 @@ package suggest_test
 import "testing"
 
 func TestSuggestIntegration_WFSTBasic(t *testing.T) {
-	t.Skip("Skipping: suggest.NewWFSTCompletionLookup not yet implemented")
+	t.Fatal("Skipping: suggest.NewWFSTCompletionLookup not yet implemented")
 }
 
 func TestSuggestIntegration_AnalyzingSuggester(t *testing.T) {
-	t.Skip("Skipping: suggest.NewAnalyzingSuggester not yet implemented")
+	t.Fatal("Skipping: suggest.NewAnalyzingSuggester not yet implemented")
 }
 
 func BenchmarkSuggestIntegration_Build(b *testing.B) {
-	b.Skip("Skipping: suggest.NewWFSTCompletionLookup not yet implemented")
+	b.Fatal("Skipping: suggest.NewWFSTCompletionLookup not yet implemented")
 }

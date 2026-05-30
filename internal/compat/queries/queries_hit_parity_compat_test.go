@@ -181,7 +181,7 @@ func TestQueriesHitCorpus_RoundTrip(t *testing.T) {
 			for _, qid := range expectedQueryIDs {
 				qid := qid
 				t.Run(qid, func(t *testing.T) {
-					t.Skipf("deferred: Gocene round-trip for query %q at seed=%d "+
+					t.Fatalf("deferred: Gocene round-trip for query %q at seed=%d "+
 						"is blocked on the SegmentReader core-readers gap "+
 						"(memory-index ref 'gocene-segmentreader-corereaders-gap'); "+
 						"audit gap_notes (verbatim): %q",

@@ -101,37 +101,37 @@ func TestJavascriptOperations_DivisionOperation(t *testing.T) {
 // TestJavascriptOperations_NegationOperation mirrors testNegationOperation.
 // Requires full ANTLR grammar (unary negation not supported in hand-written parser).
 func TestJavascriptOperations_NegationOperation(t *testing.T) {
-	t.Skip("requires full ANTLR grammar (unary negation not yet implemented)")
+	t.Fatal("requires full ANTLR grammar (unary negation not yet implemented)")
 }
 
 // TestJavascriptOperations_BitwiseOperations mirrors the bitwise test methods.
 // Requires full ANTLR grammar.
 func TestJavascriptOperations_BitwiseOperations(t *testing.T) {
-	t.Skip("requires full ANTLR grammar (bitwise operators not yet implemented)")
+	t.Fatal("requires full ANTLR grammar (bitwise operators not yet implemented)")
 }
 
 // TestJavascriptOperations_ComparisonOperations mirrors the comparison methods.
 // Requires full ANTLR grammar.
 func TestJavascriptOperations_ComparisonOperations(t *testing.T) {
-	t.Skip("requires full ANTLR grammar (comparison operators not yet implemented)")
+	t.Fatal("requires full ANTLR grammar (comparison operators not yet implemented)")
 }
 
 // TestJavascriptOperations_BooleanOperations mirrors the boolean methods.
 // Requires full ANTLR grammar.
 func TestJavascriptOperations_BooleanOperations(t *testing.T) {
-	t.Skip("requires full ANTLR grammar (boolean AND/OR/NOT not yet implemented)")
+	t.Fatal("requires full ANTLR grammar (boolean AND/OR/NOT not yet implemented)")
 }
 
 // TestJavascriptOperations_ConditionalOperation mirrors testConditionalOperation.
 // Requires full ANTLR grammar.
 func TestJavascriptOperations_ConditionalOperation(t *testing.T) {
-	t.Skip("requires full ANTLR grammar (conditional ?: not yet implemented)")
+	t.Fatal("requires full ANTLR grammar (conditional ?: not yet implemented)")
 }
 
 // TestJavascriptOperations_ShiftOperations mirrors the shift test methods.
 // Requires full ANTLR grammar.
 func TestJavascriptOperations_ShiftOperations(t *testing.T) {
-	t.Skip("requires full ANTLR grammar (shift operators not yet implemented)")
+	t.Fatal("requires full ANTLR grammar (shift operators not yet implemented)")
 }
 
 // TestJavascriptOperations_Precedence verifies that the hand-written parser

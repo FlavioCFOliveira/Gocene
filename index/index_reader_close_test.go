@@ -56,7 +56,7 @@ import "testing"
 // Degraded to t.Skip: DirectoryReader.open(Directory), getOnlyLeafReader,
 // FilterLeafReader, and CacheHelper.addClosedListener are not yet ported.
 func TestIndexReaderClose_CloseUnderException(t *testing.T) {
-	t.Skip("needs DirectoryReader.open(Directory) with wired codec reader, " +
+	t.Fatal("needs DirectoryReader.open(Directory) with wired codec reader, " +
 		"getOnlyLeafReader, FilterLeafReader, and CacheHelper.addClosedListener " +
 		"(not yet ported)")
 }
@@ -71,7 +71,7 @@ func TestIndexReaderClose_CloseUnderException(t *testing.T) {
 // Degraded to t.Skip: same blockers as TestIndexReaderClose_CloseUnderException;
 // also requires RandomIndexWriter and FilterLeafReader with custom cache key.
 func TestIndexReaderClose_CoreListenerOnWrapper(t *testing.T) {
-	t.Skip("needs DirectoryReader.open(Directory), RandomIndexWriter, " +
+	t.Fatal("needs DirectoryReader.open(Directory), RandomIndexWriter, " +
 		"FilterLeafReader with custom CacheHelper key, and " +
 		"CacheHelper.addClosedListener (not yet ported)")
 }
@@ -86,6 +86,6 @@ func TestIndexReaderClose_CoreListenerOnWrapper(t *testing.T) {
 // Degraded to t.Skip: DirectoryReader.open(Directory) and
 // CacheHelper.addClosedListener are not yet ported.
 func TestIndexReaderClose_RegisterListenerOnClosed(t *testing.T) {
-	t.Skip("needs DirectoryReader.open(Directory) with wired codec reader and " +
+	t.Fatal("needs DirectoryReader.open(Directory) with wired codec reader and " +
 		"CacheHelper.addClosedListener on closed reader (not yet ported)")
 }

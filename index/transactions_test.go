@@ -34,7 +34,7 @@ import (
 // MockDirectoryWrapper-wrapped directories with random IOException injection,
 // joins them, and asserts none failed.
 func TestTransactions(t *testing.T) {
-	t.Skip("port blocked: store.MockDirectoryWrapper has no pluggable Failure " +
+	t.Fatal("port blocked: store.MockDirectoryWrapper has no pluggable Failure " +
 		"callback (failOn) nor SetAssertNoUnrefencedFilesOnClose; random " +
 		"IOException injection cannot be reproduced")
 }

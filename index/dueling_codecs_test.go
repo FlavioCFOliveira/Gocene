@@ -16,12 +16,12 @@ import "testing"
 // Sprint 55 option c stub: depends on RandomIndexWriter, RandomCodec, LineFileDocs,
 // MockAnalyzer and assertReaderEquals, none of which are ported yet.
 func TestDuelingCodecsEquals(t *testing.T) {
-	t.Skip("pending test infra: RandomIndexWriter, RandomCodec, LineFileDocs, MockAnalyzer, assertReaderEquals")
+	t.Fatal("pending test infra: RandomIndexWriter, RandomCodec, LineFileDocs, MockAnalyzer, assertReaderEquals")
 }
 
 // TestDuelingCodecsCrazyReaderEquals ports TestDuelingCodecs.testCrazyReaderEquals.
 //
 // Sprint 55 option c stub: see TestDuelingCodecsEquals.
 func TestDuelingCodecsCrazyReaderEquals(t *testing.T) {
-	t.Skip("pending test infra: RandomIndexWriter, RandomCodec, LineFileDocs, MockAnalyzer, wrapReader, assertReaderEquals")
+	t.Fatal("pending test infra: RandomIndexWriter, RandomCodec, LineFileDocs, MockAnalyzer, wrapReader, assertReaderEquals")
 }

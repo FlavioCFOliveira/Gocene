@@ -110,7 +110,7 @@ func TestCustomNorms_FloatNorms(t *testing.T) {
 
 	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
-		t.Skipf("DirectoryReader not fully implemented: %v", err)
+		t.Fatalf("DirectoryReader not fully implemented: %v", err)
 		return
 	}
 	defer reader.Close()
@@ -121,7 +121,7 @@ func TestCustomNorms_FloatNorms(t *testing.T) {
 
 	storedFields, err := reader.StoredFields()
 	if err != nil {
-		t.Skipf("StoredFields not available: %v", err)
+		t.Fatalf("StoredFields not available: %v", err)
 		return
 	}
 

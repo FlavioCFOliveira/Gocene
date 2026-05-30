@@ -60,7 +60,7 @@ func TestQueryExpansion_TermRewrite(t *testing.T) {
 	rewritten, err := query.Rewrite(reader)
 	if err != nil {
 		t.Logf("rewrite may not be fully implemented: %v", err)
-		t.Skip("rewrite not implemented")
+		t.Fatal("rewrite not implemented")
 	}
 
 	t.Logf("Query rewritten to: %v", rewritten)
@@ -102,7 +102,7 @@ func TestQueryExpansion_BooleanRewrite(t *testing.T) {
 	rewritten, err := boolQuery.Rewrite(reader)
 	if err != nil {
 		t.Logf("rewrite may not be fully implemented: %v", err)
-		t.Skip("rewrite not implemented")
+		t.Fatal("rewrite not implemented")
 	}
 
 	t.Logf("Boolean query rewritten successfully")
@@ -146,7 +146,7 @@ func TestQueryExpansion_PhraseRewrite(t *testing.T) {
 	rewritten, err := phraseQuery.Rewrite(reader)
 	if err != nil {
 		t.Logf("rewrite may not be fully implemented: %v", err)
-		t.Skip("rewrite not implemented")
+		t.Fatal("rewrite not implemented")
 	}
 
 	t.Logf("Phrase query rewritten successfully")

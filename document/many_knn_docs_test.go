@@ -31,7 +31,7 @@ import "testing"
 // 16-dimensional vector 100_000 times under DOT_PRODUCT similarity and asserts
 // that flush/commit cycles do not corrupt the HNSW graph.
 func TestManyKnnDocs_SameVectorIndexedMultipleTimes(t *testing.T) {
-	t.Skip("monster test: port pending IndexWriter + HNSW writer wiring (Sprint 55 stub)")
+	t.Fatal("monster test: port pending IndexWriter + HNSW writer wiring (Sprint 55 stub)")
 }
 
 // TestManyKnnDocs_LargeSegment mirrors TestManyKnnDocs#testLargeSegment. It
@@ -39,5 +39,5 @@ func TestManyKnnDocs_SameVectorIndexedMultipleTimes(t *testing.T) {
 // using ConfigurableMCodec(128) and asserts that a top-5 KnnFloatVectorQuery
 // returns exactly 5 hits.
 func TestManyKnnDocs_LargeSegment(t *testing.T) {
-	t.Skip("monster test: port pending IndexWriter + HNSW writer wiring (Sprint 55 stub)")
+	t.Fatal("monster test: port pending IndexWriter + HNSW writer wiring (Sprint 55 stub)")
 }

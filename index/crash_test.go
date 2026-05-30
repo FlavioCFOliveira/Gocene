@@ -67,25 +67,25 @@ const skipCrash = "GOC-4183: needs MockDirectoryWrapper.crash()/clearCrash() los
 
 // TestCrash_WhileIndexing ports testCrashWhileIndexing.
 func TestCrash_WhileIndexing(t *testing.T) {
-	t.Skip(skipCrash)
+	t.Fatal(skipCrash)
 }
 
 // TestCrash_WriterAfterCrash ports testWriterAfterCrash.
 func TestCrash_WriterAfterCrash(t *testing.T) {
-	t.Skip(skipCrash)
+	t.Fatal(skipCrash)
 }
 
 // TestCrash_AfterReopen ports testCrashAfterReopen.
 func TestCrash_AfterReopen(t *testing.T) {
-	t.Skip(skipCrash)
+	t.Fatal(skipCrash)
 }
 
 // TestCrash_AfterClose ports testCrashAfterClose.
 func TestCrash_AfterClose(t *testing.T) {
-	t.Skip(skipCrash)
+	t.Fatal(skipCrash)
 }
 
 // TestCrash_AfterCloseNoWait ports testCrashAfterCloseNoWait.
 func TestCrash_AfterCloseNoWait(t *testing.T) {
-	t.Skip(skipCrash)
+	t.Fatal(skipCrash)
 }

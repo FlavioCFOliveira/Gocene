@@ -55,11 +55,11 @@ func maybePanamaProviderForTest() *DefaultVectorizationProvider {
 func assumePanamaProviderAvailable(tb testing.TB) {
 	tb.Helper()
 	if panamaProvider == nil || luceneProvider == nil {
-		tb.Skip("Test only works when JDK's vector incubator module is enabled.")
+		tb.Fatal("Test only works when JDK's vector incubator module is enabled.")
 		return
 	}
 	// In Gocene the two providers share the same concrete type, so the Java
 	// `panama.getClass() != lucene.getClass()` check always fails. Preserve the
 	// upstream message verbatim for parity with JUnit test output.
-	tb.Skip("Test only works when JDK's vector incubator module is enabled.")
+	tb.Fatal("Test only works when JDK's vector incubator module is enabled.")
 }

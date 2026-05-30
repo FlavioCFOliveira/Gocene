@@ -100,7 +100,7 @@ func TestSuggestAudit_DeferredRows(t *testing.T) {
 	for _, row := range deferred {
 		row := row
 		t.Run(row.artefact, func(t *testing.T) {
-			t.Skipf("deferred: %s (lucene_class=%q gocene_class=%q gap_notes=%q): %s",
+			t.Fatalf("deferred: %s (lucene_class=%q gocene_class=%q gap_notes=%q): %s",
 				row.artefact, row.luceneCls, row.gocenePkg, row.gapNotes, row.reason)
 		})
 	}

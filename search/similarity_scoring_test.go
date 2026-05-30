@@ -74,7 +74,7 @@ func TestSimilarityScoring_BM25Basic(t *testing.T) {
 	topDocs, err := searcher.Search(query, 10)
 	if err != nil {
 		t.Logf("search may not be fully implemented: %v", err)
-		t.Skip("search not implemented")
+		t.Fatal("search not implemented")
 	}
 
 	t.Logf("BM25 search found %d documents", topDocs.TotalHits.Value)
@@ -137,7 +137,7 @@ func TestSimilarityScoring_TFIDFBasic(t *testing.T) {
 	topDocs, err := searcher.Search(query, 10)
 	if err != nil {
 		t.Logf("search may not be fully implemented: %v", err)
-		t.Skip("search not implemented")
+		t.Fatal("search not implemented")
 	}
 
 	t.Logf("TF-IDF search found %d documents", topDocs.TotalHits.Value)
@@ -364,7 +364,7 @@ func TestSimilarityScoring_BooleanQueryScoring(t *testing.T) {
 	topDocs, err := searcher.Search(boolQuery, 10)
 	if err != nil {
 		t.Logf("boolean search may not be fully implemented: %v", err)
-		t.Skip("boolean search not implemented")
+		t.Fatal("boolean search not implemented")
 	}
 
 	t.Logf("Boolean query scoring found %d documents", topDocs.TotalHits.Value)
@@ -476,7 +476,7 @@ func TestSimilarityScoring_ScoreConsistency(t *testing.T) {
 	topDocs, err := searcher.Search(query, 10)
 	if err != nil {
 		t.Logf("search may not be fully implemented: %v", err)
-		t.Skip("search not implemented")
+		t.Fatal("search not implemented")
 	}
 
 	t.Logf("Score consistency test found %d documents", topDocs.TotalHits.Value)

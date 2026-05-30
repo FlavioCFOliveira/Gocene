@@ -15,17 +15,17 @@ package search_test
 import "testing"
 
 func TestFilterIntegration_TermFilter(t *testing.T) {
-	t.Skip("IndexSearcher.Search does not support a separate filter argument")
+	t.Fatal("IndexSearcher.Search does not support a separate filter argument")
 }
 
 func TestFilterIntegration_RangeFilter(t *testing.T) {
-	t.Skip("IndexSearcher.Search does not support a separate filter argument")
+	t.Fatal("IndexSearcher.Search does not support a separate filter argument")
 }
 
 func TestFilterIntegration_BooleanFilter(t *testing.T) {
-	t.Skip("IndexSearcher.Search does not support a separate filter argument")
+	t.Fatal("IndexSearcher.Search does not support a separate filter argument")
 }
 
 func BenchmarkFilterIntegration_Application(b *testing.B) {
-	b.Skip("IndexSearcher.Search does not support a separate filter argument")
+	b.Fatal("IndexSearcher.Search does not support a separate filter argument")
 }

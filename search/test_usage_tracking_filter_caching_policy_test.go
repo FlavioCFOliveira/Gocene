@@ -14,17 +14,17 @@ package search
 import "testing"
 
 func TestUsageTrackingFilterCachingPolicy_CostlyFilter(t *testing.T) {
-	t.Skip("requires full UsageTrackingQueryCachingPolicy implementation (IsCostly not yet ported in Gocene)")
+	t.Fatal("requires full UsageTrackingQueryCachingPolicy implementation (IsCostly not yet ported in Gocene)")
 }
 func TestUsageTrackingFilterCachingPolicy_NeverCacheMatchAll(t *testing.T) {
-	t.Skip("requires full UsageTrackingQueryCachingPolicy implementation (never-cache semantics not yet ported in Gocene)")
+	t.Fatal("requires full UsageTrackingQueryCachingPolicy implementation (never-cache semantics not yet ported in Gocene)")
 }
 func TestUsageTrackingFilterCachingPolicy_NeverCacheTermFilter(t *testing.T) {
-	t.Skip("requires full UsageTrackingQueryCachingPolicy implementation (never-cache semantics not yet ported in Gocene)")
+	t.Fatal("requires full UsageTrackingQueryCachingPolicy implementation (never-cache semantics not yet ported in Gocene)")
 }
 func TestUsageTrackingFilterCachingPolicy_NeverCacheDocValuesFieldExistsFilter(t *testing.T) {
-	t.Skip("requires full UsageTrackingQueryCachingPolicy implementation (never-cache semantics not yet ported in Gocene)")
+	t.Fatal("requires full UsageTrackingQueryCachingPolicy implementation (never-cache semantics not yet ported in Gocene)")
 }
 func TestUsageTrackingFilterCachingPolicy_BooleanQueries(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+caching policy integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+caching policy integration (pre-existing failure in Gocene)")
 }

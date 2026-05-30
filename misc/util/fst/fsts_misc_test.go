@@ -21,20 +21,20 @@ import (
 // Requires FSTTester, UpToTwoPositiveIntOutputs, and ListOfOutputs as full
 // util/fst.Outputs[T] implementations — not yet ported.
 func TestFSTsMisc_RandomWords(t *testing.T) {
-	t.Skip("requires FSTTester and full UpToTwoPositiveIntOutputs/ListOfOutputs — not yet ported")
+	t.Fatal("requires FSTTester and full UpToTwoPositiveIntOutputs/ListOfOutputs — not yet ported")
 }
 
 // TestFSTsMisc_ListOfOutputs mirrors testListOfOutputs.
 // Requires ListOfOutputs as a full util/fst.Outputs[any] and a working
 // FSTCompiler/FST pipeline — not yet ported to misc/util/fst.
 func TestFSTsMisc_ListOfOutputs(t *testing.T) {
-	t.Skip("requires ListOfOutputs as a full FST Outputs implementation — not yet ported")
+	t.Fatal("requires ListOfOutputs as a full FST Outputs implementation — not yet ported")
 }
 
 // TestFSTsMisc_ListOfOutputsEmptyString mirrors testListOfOutputsEmptyString.
 // Same dependency on ListOfOutputs + FSTCompiler as TestFSTsMisc_ListOfOutputs.
 func TestFSTsMisc_ListOfOutputsEmptyString(t *testing.T) {
-	t.Skip("requires ListOfOutputs as a full FST Outputs implementation — not yet ported")
+	t.Fatal("requires ListOfOutputs as a full FST Outputs implementation — not yet ported")
 }
 
 // ---------------------------------------------------------------------------

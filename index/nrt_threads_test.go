@@ -52,7 +52,7 @@ import "testing"
 // MockDirectoryWrapper, functional updateDocument/deleteDocuments, and
 // IndexSearcher are all not yet available.
 func TestNRTThreads(t *testing.T) {
-	t.Skip("needs ThreadedIndexingAndSearchingTestCase (test module), " +
+	t.Fatal("needs ThreadedIndexingAndSearchingTestCase (test module), " +
 		"NRT DirectoryReader.open(IndexWriter), DirectoryReader.openIfChanged, " +
 		"MockDirectoryWrapper, functional updateDocument/deleteDocuments, " +
 		"and IndexSearcher (not yet ported)")

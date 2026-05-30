@@ -16,5 +16,5 @@ import "testing"
 // It verifies that PhraseQuery and SpanQuery correctly handle gaps
 // introduced by non-unit position increments.
 func TestPositionIncrement_TestCrazy(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

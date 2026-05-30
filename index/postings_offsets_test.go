@@ -60,21 +60,21 @@ func postingsOffsetsType(stored bool) *document.FieldType {
 // PostingsEnum reports the correct freq, positions and offsets for terms a, b
 // and c.
 func TestPostingsOffsets_Basic(t *testing.T) {
-	t.Skip("blocked: CannedTokenStream (explicit token offsets) unimplemented, and " +
+	t.Fatal("blocked: CannedTokenStream (explicit token offsets) unimplemented, and " +
 		"MultiTerms.getTermPostingsEnum read-back hits 'core readers are nil' on OpenDirectoryReader")
 }
 
 // TestPostingsOffsets_Skipping ports TestPostingsOffsets.testSkipping
 // (doTestNumbers without payloads).
 func TestPostingsOffsets_Skipping(t *testing.T) {
-	t.Skip("blocked: doTestNumbers needs the English number-to-words helper and " +
+	t.Fatal("blocked: doTestNumbers needs the English number-to-words helper and " +
 		"MultiTerms.getTermPostingsEnum read-back ('core readers are nil')")
 }
 
 // TestPostingsOffsets_Payloads ports TestPostingsOffsets.testPayloads
 // (doTestNumbers with payloads).
 func TestPostingsOffsets_Payloads(t *testing.T) {
-	t.Skip("blocked: doTestNumbers needs MockPayloadAnalyzer, the English helper and " +
+	t.Fatal("blocked: doTestNumbers needs MockPayloadAnalyzer, the English helper and " +
 		"MultiTerms.getTermPostingsEnum read-back ('core readers are nil')")
 }
 
@@ -83,7 +83,7 @@ func TestPostingsOffsets_Payloads(t *testing.T) {
 // The upstream test indexes randomised CannedTokenStream documents and then,
 // per leaf, cross-checks freq/position/offset against the recorded tokens.
 func TestPostingsOffsets_Random(t *testing.T) {
-	t.Skip("blocked: CannedTokenStream unimplemented, and per-leaf TermsEnum.Postings " +
+	t.Fatal("blocked: CannedTokenStream unimplemented, and per-leaf TermsEnum.Postings " +
 		"read-back hits 'core readers are nil' on OpenDirectoryReader")
 }
 
@@ -135,7 +135,7 @@ func TestPostingsOffsets_AddFieldTwice(t *testing.T) {
 // Upstream asserts that indexing a token with negative offsets throws
 // IllegalArgumentException.
 func TestPostingsOffsets_NegativeOffsets(t *testing.T) {
-	t.Skip("blocked: checkTokens needs CannedTokenStream to inject the negative-offset " +
+	t.Fatal("blocked: checkTokens needs CannedTokenStream to inject the negative-offset " +
 		"token; offset validation is unreachable end-to-end without it")
 }
 
@@ -144,7 +144,7 @@ func TestPostingsOffsets_NegativeOffsets(t *testing.T) {
 // Upstream asserts that a token whose endOffset precedes its startOffset throws
 // IllegalArgumentException.
 func TestPostingsOffsets_IllegalOffsets(t *testing.T) {
-	t.Skip("blocked: checkTokens needs CannedTokenStream to inject the inverted-offset token")
+	t.Fatal("blocked: checkTokens needs CannedTokenStream to inject the inverted-offset token")
 }
 
 // TestPostingsOffsets_IllegalOffsetsAcrossFieldInstances ports
@@ -153,7 +153,7 @@ func TestPostingsOffsets_IllegalOffsets(t *testing.T) {
 // Upstream asserts that offsets going backwards between two instances of the
 // same field throw IllegalArgumentException.
 func TestPostingsOffsets_IllegalOffsetsAcrossFieldInstances(t *testing.T) {
-	t.Skip("blocked: checkTokens needs CannedTokenStream to inject offsets across two field instances")
+	t.Fatal("blocked: checkTokens needs CannedTokenStream to inject offsets across two field instances")
 }
 
 // TestPostingsOffsets_BackwardsOffsets ports TestPostingsOffsets.testBackwardsOffsets.
@@ -161,7 +161,7 @@ func TestPostingsOffsets_IllegalOffsetsAcrossFieldInstances(t *testing.T) {
 // Upstream asserts that a stacked token whose offsets move backwards relative
 // to the previous position throws IllegalArgumentException.
 func TestPostingsOffsets_BackwardsOffsets(t *testing.T) {
-	t.Skip("blocked: checkTokens needs CannedTokenStream to inject the backwards stacked token")
+	t.Fatal("blocked: checkTokens needs CannedTokenStream to inject the backwards stacked token")
 }
 
 // TestPostingsOffsets_StackedTokens ports TestPostingsOffsets.testStackedTokens.
@@ -169,7 +169,7 @@ func TestPostingsOffsets_BackwardsOffsets(t *testing.T) {
 // Upstream asserts that stacked tokens (posIncr 0) sharing identical offsets
 // index without error.
 func TestPostingsOffsets_StackedTokens(t *testing.T) {
-	t.Skip("blocked: checkTokens needs CannedTokenStream to inject stacked tokens with posIncr 0")
+	t.Fatal("blocked: checkTokens needs CannedTokenStream to inject stacked tokens with posIncr 0")
 }
 
 // TestPostingsOffsets_CrazyOffsetGap ports TestPostingsOffsets.testCrazyOffsetGap.
@@ -178,7 +178,7 @@ func TestPostingsOffsets_StackedTokens(t *testing.T) {
 // that adding a second field instance throws IllegalArgumentException, while a
 // previously added good document remains visible.
 func TestPostingsOffsets_CrazyOffsetGap(t *testing.T) {
-	t.Skip("blocked: requires a custom Analyzer overriding getOffsetGap; Gocene's Analyzer " +
+	t.Fatal("blocked: requires a custom Analyzer overriding getOffsetGap; Gocene's Analyzer " +
 		"exposes no getOffsetGap override hook")
 }
 
@@ -188,6 +188,6 @@ func TestPostingsOffsets_CrazyOffsetGap(t *testing.T) {
 // Upstream indexes a CannedTokenStream of two tokens with offsets near
 // Integer.MAX_VALUE and asserts the document indexes successfully.
 func TestPostingsOffsets_LegalButVeryLargeOffsets(t *testing.T) {
-	t.Skip("blocked: CannedTokenStream unimplemented; cannot inject tokens with explicit " +
+	t.Fatal("blocked: CannedTokenStream unimplemented; cannot inject tokens with explicit " +
 		"near-MAX_INT offsets")
 }

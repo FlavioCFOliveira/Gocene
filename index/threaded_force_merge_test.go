@@ -47,7 +47,7 @@ import "testing"
 // requires English.intToEnglish, MockAnalyzer/MockTokenizer, and a working
 // DirectoryReader.leaves() count after APPEND-mode reopen.
 func TestThreadedForceMerge(t *testing.T) {
-	t.Skip("DeleteDocuments(Term) is a no-op stub; " +
+	t.Fatal("DeleteDocuments(Term) is a no-op stub; " +
 		"English.intToEnglish, MockAnalyzer/MockTokenizer, and " +
 		"functional DirectoryReader.leaves() count are not yet ported")
 }

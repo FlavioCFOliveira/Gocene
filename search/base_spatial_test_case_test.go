@@ -417,7 +417,7 @@ func newBaseSpatialFactories() baseSpatialFactories {
 //   - LuceneTestCase.atLeast / random() / TEST_NIGHTLY (no Gocene equivalents yet)
 //   - the abstract factory bundle has no concrete subclass implementation yet
 func TestBaseSpatial_SameShapeManyTimes(t *testing.T) {
-	t.Skip("blocked by RandomIndexWriter/GeoTestUtil/FixedBitSetCollector/SerialMergeScheduler/LuceneTestCase helpers + concrete subclass factories; remove this Skip when fixed")
+	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/FixedBitSetCollector/SerialMergeScheduler/LuceneTestCase helpers + concrete subclass factories; remove this Skip when fixed")
 
 	// Reserved factories and constants: the future implementation
 	// reads from this bundle. Touching them here keeps the symbols
@@ -443,7 +443,7 @@ func TestBaseSpatial_SameShapeManyTimes(t *testing.T) {
 //   - LuceneTestCase.atLeast / random() / TestUtil.nextInt (no Gocene equivalents yet)
 //   - the abstract factory bundle has no concrete subclass implementation yet
 func TestBaseSpatial_LowCardinalityShapeManyTimes(t *testing.T) {
-	t.Skip("blocked by RandomIndexWriter/GeoTestUtil/FixedBitSetCollector/SerialMergeScheduler/LuceneTestCase helpers + concrete subclass factories; remove this Skip when fixed")
+	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/FixedBitSetCollector/SerialMergeScheduler/LuceneTestCase helpers + concrete subclass factories; remove this Skip when fixed")
 
 	_ = newBaseSpatialFactories()
 	_ = baseSpatialFieldName
@@ -463,7 +463,7 @@ func TestBaseSpatial_LowCardinalityShapeManyTimes(t *testing.T) {
 //   - LuceneTestCase.atLeast / random() / randomIntBetween (no Gocene equivalents yet)
 //   - the abstract factory bundle has no concrete subclass implementation yet
 func TestBaseSpatial_RandomTiny(t *testing.T) {
-	t.Skip("blocked by RandomIndexWriter/GeoTestUtil/FixedBitSetCollector/SerialMergeScheduler/LuceneTestCase helpers + concrete subclass factories; remove this Skip when fixed")
+	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/FixedBitSetCollector/SerialMergeScheduler/LuceneTestCase helpers + concrete subclass factories; remove this Skip when fixed")
 
 	_ = newBaseSpatialFactories()
 	_ = baseSpatialFieldName
@@ -482,7 +482,7 @@ func TestBaseSpatial_RandomTiny(t *testing.T) {
 //   - LuceneTestCase.atLeast / random() / randomIntBetween (no Gocene equivalents yet)
 //   - the abstract factory bundle has no concrete subclass implementation yet
 func TestBaseSpatial_RandomMedium(t *testing.T) {
-	t.Skip("blocked by RandomIndexWriter/GeoTestUtil/FixedBitSetCollector/SerialMergeScheduler/LuceneTestCase helpers + concrete subclass factories; remove this Skip when fixed")
+	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/FixedBitSetCollector/SerialMergeScheduler/LuceneTestCase helpers + concrete subclass factories; remove this Skip when fixed")
 
 	_ = newBaseSpatialFactories()
 	_ = baseSpatialFieldName
@@ -504,7 +504,7 @@ func TestBaseSpatial_RandomMedium(t *testing.T) {
 //   - LuceneTestCase.atLeast / random() / randomIntBetween / @Nightly (no Gocene equivalents yet)
 //   - the abstract factory bundle has no concrete subclass implementation yet
 func TestBaseSpatial_RandomBig(t *testing.T) {
-	t.Skip("blocked by RandomIndexWriter/GeoTestUtil/FixedBitSetCollector/SerialMergeScheduler/LuceneTestCase helpers + concrete subclass factories + @Nightly gate; remove this Skip when fixed")
+	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/FixedBitSetCollector/SerialMergeScheduler/LuceneTestCase helpers + concrete subclass factories + @Nightly gate; remove this Skip when fixed")
 
 	_ = newBaseSpatialFactories()
 	_ = baseSpatialFieldName

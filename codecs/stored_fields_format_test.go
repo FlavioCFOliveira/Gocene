@@ -27,17 +27,17 @@ func TestLucene104StoredFieldsFormat_Basic(t *testing.T) {
 }
 
 func TestLucene104StoredFieldsFormat_Random(t *testing.T) {
-	t.Skip("Randomized stored fields testing not yet fully implemented")
+	t.Fatal("Randomized stored fields testing not yet fully implemented")
 }
 
 func TestLucene104StoredFieldsFormat_BigDocuments(t *testing.T) {
-	t.Skip("Big documents stored fields testing not yet fully implemented")
+	t.Fatal("Big documents stored fields testing not yet fully implemented")
 }
 
 func TestLucene104StoredFieldsFormat_NumericField(t *testing.T) {
-	t.Skip("Numeric stored fields testing not yet fully implemented")
+	t.Fatal("Numeric stored fields testing not yet fully implemented")
 }
 
 func TestLucene104StoredFieldsFormat_ConcurrentReads(t *testing.T) {
-	t.Skip("Concurrent stored fields testing not yet fully implemented")
+	t.Fatal("Concurrent stored fields testing not yet fully implemented")
 }

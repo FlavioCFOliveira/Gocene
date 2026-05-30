@@ -20,7 +20,7 @@ import "testing"
 // STUniformSplitRot13PostingsFormat, nor UniformSplitTermsWriter are yet
 // ported to the Gocene sharedterms package.
 func TestSTUniformSplitPostingFormat(t *testing.T) {
-	t.Skip(
+	t.Fatal(
 		"STUniformSplitPostingsFormat, STUniformSplitRot13PostingsFormat, and " +
 			"UniformSplitTermsWriter are not yet ported to Gocene; test deferred " +
 			"until those components land",

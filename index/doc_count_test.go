@@ -36,5 +36,5 @@ import "testing"
 
 // TestDocCount_Simple ports testSimple.
 func TestDocCount_Simple(t *testing.T) {
-	t.Skip("GOC-4140: needs RandomIndexWriter plus MultiTerms.getTerms / postings read-back (SegmentReader coreReaders gap)")
+	t.Fatal("GOC-4140: needs RandomIndexWriter plus MultiTerms.getTerms / postings read-back (SegmentReader coreReaders gap)")
 }

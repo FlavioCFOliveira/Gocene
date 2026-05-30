@@ -48,6 +48,6 @@ import "testing"
 // (Lucene90StoredFieldsFormat), CompressingCodec, and binary stored-field
 // read-back are not yet wired in Gocene.
 func Test4GBStoredFields_SingleSegmentOver4GB(t *testing.T) {
-	t.Skip("@Monster test: requires >4 GB disk space, MMapDirectory (not ported), " +
+	t.Fatal("@Monster test: requires >4 GB disk space, MMapDirectory (not ported), " +
 		"wired Lucene90StoredFieldsFormat, CompressingCodec, and binary stored-field read-back")
 }

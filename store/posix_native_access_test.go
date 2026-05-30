@@ -59,7 +59,7 @@ func TestPosixNativeAccess_MadviseOnMmapped(t *testing.T) {
 	t.Parallel()
 	p, ok := GetNativeAccess()
 	if !ok {
-		t.Skip("no NativeAccess on this platform")
+		t.Fatal("no NativeAccess on this platform")
 	}
 	const size = 1 << 16 // 64 KiB, comfortably above any page size we target.
 	region, err := unix.Mmap(-1, 0, size,

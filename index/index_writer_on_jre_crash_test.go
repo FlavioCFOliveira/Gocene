@@ -26,5 +26,5 @@ import "testing"
 // out-of-process crash harness unrelated to the Gocene codec/index code
 // under test. It is therefore recorded here as a documented skip.
 func TestIndexWriterOnJRECrash(t *testing.T) {
-	t.Skip("JVM-fork-specific: re-forks the JVM and crashes the child mid-write; no direct Go equivalent")
+	t.Fatal("JVM-fork-specific: re-forks the JVM and crashes the child mid-write; no direct Go equivalent")
 }

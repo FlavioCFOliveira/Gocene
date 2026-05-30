@@ -13,8 +13,8 @@ package search
 import "testing"
 
 func TestSeededKnnFloatVectorQuery_SeedWithTimeout(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+HNSW integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+HNSW integration (pre-existing failure in Gocene)")
 }
 func TestSeededKnnFloatVectorQuery_RandomWithSeed(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+HNSW integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+HNSW integration (pre-existing failure in Gocene)")
 }

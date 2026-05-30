@@ -231,7 +231,7 @@ func TestFieldsReader_Test(t *testing.T) {
 // SegmentReader.StoredFields() is not yet usable; enable this once that gap
 // is closed.
 func TestFieldsReader_DirectoryReaderPath(t *testing.T) {
-	t.Skip("DirectoryReader stored-fields read-back unsupported: OpenDirectoryReader leaves SegmentReader.coreReaders nil")
+	t.Fatal("DirectoryReader stored-fields read-back unsupported: OpenDirectoryReader leaves SegmentReader.coreReaders nil")
 }
 
 // TestFieldsReader_Exceptions ports TestFieldsReader.testExceptions()
@@ -239,5 +239,5 @@ func TestFieldsReader_DirectoryReaderPath(t *testing.T) {
 // stored-fields reads via a FilterDirectory. It depends on the same
 // unsupported leaf path and on forceMerge.
 func TestFieldsReader_Exceptions(t *testing.T) {
-	t.Skip("fault-injecting stored-fields read via DirectoryReader unsupported: see TestFieldsReader_DirectoryReaderPath")
+	t.Fatal("fault-injecting stored-fields read via DirectoryReader unsupported: see TestFieldsReader_DirectoryReaderPath")
 }

@@ -59,7 +59,7 @@ func TestPerFieldPostingsFormat_DocsAndFreqsAndPositions(t *testing.T) {
 
 // TestPerFieldPostingsFormat_DocsAndFreqsAndPositionsAndPayloads tests per-field postings with payloads.
 func TestPerFieldPostingsFormat_DocsAndFreqsAndPositionsAndPayloads(t *testing.T) {
-	t.Skip("Payloads not yet fully supported in PerFieldPostingsFormat tests")
+	t.Fatal("Payloads not yet fully supported in PerFieldPostingsFormat tests")
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
@@ -83,7 +83,7 @@ func TestPerFieldPostingsFormat_DocsAndFreqsAndPositionsAndOffsets(t *testing.T)
 
 // TestPerFieldPostingsFormat_DocsAndFreqsAndPositionsAndOffsetsAndPayloads tests all options.
 func TestPerFieldPostingsFormat_DocsAndFreqsAndPositionsAndOffsetsAndPayloads(t *testing.T) {
-	t.Skip("Payloads not yet fully supported in PerFieldPostingsFormat tests")
+	t.Fatal("Payloads not yet fully supported in PerFieldPostingsFormat tests")
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
@@ -103,7 +103,7 @@ func TestPerFieldPostingsFormat_DocsAndFreqsAndPositionsAndOffsetsAndPayloads(t 
 //
 // For deterministic merge stability testing, use a fixed postings format configuration.
 func TestPerFieldPostingsFormat_MergeStability(t *testing.T) {
-	t.Skip("Merge stability test skipped: Randomized per-field postings formats produce non-deterministic output. " +
+	t.Fatal("Merge stability test skipped: Randomized per-field postings formats produce non-deterministic output. " +
 		"In Lucene Java, this is skipped with assumeTrue(false) when using MockRandomPostingsFormat. " +
 		"Use a fixed postings format for deterministic merge stability testing.")
 }
@@ -117,7 +117,7 @@ func TestPerFieldPostingsFormat_MergeStability(t *testing.T) {
 //
 // For deterministic postings enum reuse testing, use a fixed postings format configuration.
 func TestPerFieldPostingsFormat_PostingsEnumReuse(t *testing.T) {
-	t.Skip("PostingsEnum reuse test skipped: Randomized per-field postings formats produce non-deterministic behavior. " +
+	t.Fatal("PostingsEnum reuse test skipped: Randomized per-field postings formats produce non-deterministic behavior. " +
 		"In Lucene Java, this is skipped with assumeTrue(false) when using MockRandomPostingsFormat. " +
 		"Use a fixed postings format for deterministic postings enum reuse testing.")
 }
@@ -128,7 +128,7 @@ func TestPerFieldPostingsFormat_PostingsEnumReuse(t *testing.T) {
 // random configurations. The randomization helps catch edge cases in field-to-format
 // mapping logic.
 func TestPerFieldPostingsFormat_Random(t *testing.T) {
-	t.Skip("Randomized per-field postings testing not yet fully implemented - " +
+	t.Fatal("Randomized per-field postings testing not yet fully implemented - " +
 		"requires RandomCodec with per-field format assignment")
 }
 
@@ -169,7 +169,7 @@ func TestPerFieldPostingsFormat_MultipleFields(t *testing.T) {
 // postings format across multiple indexing operations. This ensures that
 // field data is consistently encoded and decoded.
 func TestPerFieldPostingsFormat_FieldMapping(t *testing.T) {
-	t.Skip("Field-to-format mapping stability test requires full PerFieldPostingsFormat implementation")
+	t.Fatal("Field-to-format mapping stability test requires full PerFieldPostingsFormat implementation")
 }
 
 // TestPerFieldPostingsFormat_SegmentSuffix tests that segment suffixes are correctly
@@ -178,5 +178,5 @@ func TestPerFieldPostingsFormat_FieldMapping(t *testing.T) {
 // When multiple postings formats are used within the same segment, each format
 // gets a unique segment suffix to avoid file name collisions.
 func TestPerFieldPostingsFormat_SegmentSuffix(t *testing.T) {
-	t.Skip("Segment suffix generation test requires full PerFieldPostingsFormat implementation")
+	t.Fatal("Segment suffix generation test requires full PerFieldPostingsFormat implementation")
 }

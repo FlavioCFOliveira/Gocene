@@ -17,5 +17,5 @@ import "testing"
 //
 // Port of: queryparser/src/test/.../flexible/standard/TestMultiFieldQPHelper.java
 func TestMultiFieldQPHelper(t *testing.T) {
-	t.Skip("deferred: requires MultiFieldQueryParser for the flexible StandardQueryParser")
+	t.Fatal("deferred: requires MultiFieldQueryParser for the flexible StandardQueryParser")
 }

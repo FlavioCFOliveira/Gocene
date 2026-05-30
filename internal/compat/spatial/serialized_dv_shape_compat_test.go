@@ -111,7 +111,7 @@ func TestSpatialSerializedDvShape_RoundTrip(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Skipf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
+			t.Fatalf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
 				"blocked on the Gocene spatial port — Gocene ships "+
 				"JTSGeometrySerializer (spatial/jts_geometry_serializer.go) "+
 				"which writes WKB with a Lucene SRID flag rather than the "+

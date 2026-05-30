@@ -12,5 +12,5 @@ import "testing"
 // TestFunctionQueryExplanations_All is skipped because it requires full
 // function query explanation infrastructure not yet complete in Gocene.
 func TestFunctionQueryExplanations_All(t *testing.T) {
-	t.Skip("requires full function query explanation infrastructure; deferred to backlog")
+	t.Fatal("requires full function query explanation infrastructure; deferred to backlog")
 }

@@ -105,7 +105,7 @@ func TestIndexWriterForceMerge_PartialMerge(t *testing.T) {
 		}
 		optSegCount := sis.Size()
 
-		t.Skip("ForceMerge does not honor maxNumSegments yet; segment-count assertion deferred")
+		t.Fatal("ForceMerge does not honor maxNumSegments yet; segment-count assertion deferred")
 
 		if segCount < 3 {
 			if optSegCount != segCount {
@@ -179,7 +179,7 @@ func TestIndexWriterForceMerge_MaxNumSegments2(t *testing.T) {
 		}
 		optSegCount := sis.Size()
 
-		t.Skip("ForceMerge does not honor maxNumSegments yet; segment-count assertion deferred")
+		t.Fatal("ForceMerge does not honor maxNumSegments yet; segment-count assertion deferred")
 
 		if segCount < 7 {
 			if optSegCount != segCount {
@@ -237,7 +237,7 @@ func TestIndexWriterForceMerge_TempSpaceUsage(t *testing.T) {
 	}
 	writer.Close()
 
-	t.Skip("MockDirectoryWrapper disk-usage tracking unavailable; temp-space assertion deferred")
+	t.Fatal("MockDirectoryWrapper disk-usage tracking unavailable; temp-space assertion deferred")
 }
 
 // TestIndexWriterForceMerge_BackgroundForceMerge ports testBackgroundForceMerge().
@@ -245,7 +245,7 @@ func TestIndexWriterForceMerge_TempSpaceUsage(t *testing.T) {
 // The original calls forceMerge(1, false) to start a merge without waiting. No
 // background ForceMerge overload exists, so the case is fully skipped.
 func TestIndexWriterForceMerge_BackgroundForceMerge(t *testing.T) {
-	t.Skip("background ForceMerge(maxNumSegments, doWait) overload not implemented")
+	t.Fatal("background ForceMerge(maxNumSegments, doWait) overload not implemented")
 }
 
 // TestIndexWriterForceMerge_MergePerField ports testMergePerField().
@@ -254,5 +254,5 @@ func TestIndexWriterForceMerge_BackgroundForceMerge(t *testing.T) {
 // requires PerField postings/doc-values formats with a CyclicBarrier on merge.
 // Neither the upstream fix nor those test hooks exist here, so it is skipped.
 func TestIndexWriterForceMerge_MergePerField(t *testing.T) {
-	t.Skip("upstream @AwaitsFix (apache/lucene#13478); PerField merge-barrier formats unavailable")
+	t.Fatal("upstream @AwaitsFix (apache/lucene#13478); PerField merge-barrier formats unavailable")
 }

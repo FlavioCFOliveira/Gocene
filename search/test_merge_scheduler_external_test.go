@@ -17,12 +17,12 @@ import "testing"
 // It verifies that an exception thrown by a custom MergeScheduler subclass is
 // propagated correctly through the IndexWriter machinery.
 func TestMergeSchedulerExternal_MyMergeException(t *testing.T) {
-	t.Skip("requires complete IndexWriter+MergeScheduler integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+MergeScheduler integration (pre-existing failure in Gocene)")
 }
 
 // TestMergeSchedulerExternal_MergeCallbacks mirrors testCustomMergeScheduler.
 // It verifies that a subclassed ConcurrentMergeScheduler receives the
 // expected merge and thread-creation callbacks.
 func TestMergeSchedulerExternal_MergeCallbacks(t *testing.T) {
-	t.Skip("requires complete IndexWriter+MergeScheduler integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+MergeScheduler integration (pre-existing failure in Gocene)")
 }

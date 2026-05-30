@@ -56,7 +56,7 @@ func TestFacetIntegration_BasicCounting(t *testing.T) {
 	}
 
 	// SetIndexPath is not yet implemented; skip this test.
-	t.Skip("FacetsConfig.SetIndexPath not yet implemented")
+	t.Fatal("FacetsConfig.SetIndexPath not yet implemented")
 
 	for _, d := range docs {
 		doc := document.NewDocument()
@@ -128,7 +128,7 @@ func TestFacetIntegration_DrillDown(t *testing.T) {
 	defer reader.Close()
 
 	// DrillDownQuery does not yet implement search.Query; skip the search part.
-	t.Skip("DrillDownQuery as search.Query not yet implemented")
+	t.Fatal("DrillDownQuery as search.Query not yet implemented")
 
 	_ = search.NewIndexSearcher(reader)
 }

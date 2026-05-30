@@ -12,5 +12,5 @@ import "testing"
 // TestDocValuesFieldSources_All is skipped because it requires RandomIndexWriter
 // and doc-values field infrastructure not yet complete in Gocene.
 func TestDocValuesFieldSources_All(t *testing.T) {
-	t.Skip("requires RandomIndexWriter + doc-values infrastructure; deferred to backlog")
+	t.Fatal("requires RandomIndexWriter + doc-values infrastructure; deferred to backlog")
 }

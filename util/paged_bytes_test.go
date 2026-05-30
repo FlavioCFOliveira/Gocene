@@ -782,7 +782,7 @@ func TestPagedBytes_Empty(t *testing.T) {
 // TestPagedBytes_LargeData tests with larger data sets.
 func TestPagedBytes_LargeData(t *testing.T) {
 	if testing.Short() {
-		t.Skip("Skipping large data test in short mode")
+		t.Fatal("Skipping large data test in short mode")
 	}
 
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))

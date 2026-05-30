@@ -16,5 +16,5 @@ import "testing"
 // It verifies that a custom Similarity implementation is correctly invoked
 // during scoring.
 func TestSimilarity_Similarity(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

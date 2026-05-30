@@ -108,17 +108,17 @@ func itoa(n int) string {
 // -- Integration stubs (require full index + FacetsCollector pipeline) ------
 
 func TestTaxonomyFacetCounts2_DifferentNumResults(t *testing.T) {
-	t.Skip("requires IndexWriter + FacetsCollector + FastTaxonomyFacetCounts pipeline")
+	t.Fatal("requires IndexWriter + FacetsCollector + FastTaxonomyFacetCounts pipeline")
 }
 
 func TestTaxonomyFacetCounts2_AllCounts(t *testing.T) {
-	t.Skip("requires IndexWriter + FacetsCollector + FastTaxonomyFacetCounts pipeline")
+	t.Fatal("requires IndexWriter + FacetsCollector + FastTaxonomyFacetCounts pipeline")
 }
 
 func TestTaxonomyFacetCounts2_BigNumResults(t *testing.T) {
-	t.Skip("requires IndexWriter + FacetsCollector + FastTaxonomyFacetCounts pipeline")
+	t.Fatal("requires IndexWriter + FacetsCollector + FastTaxonomyFacetCounts pipeline")
 }
 
 func TestTaxonomyFacetCounts2_NoParents(t *testing.T) {
-	t.Skip("requires IndexWriter + FacetsCollector + FastTaxonomyFacetCounts pipeline")
+	t.Fatal("requires IndexWriter + FacetsCollector + FastTaxonomyFacetCounts pipeline")
 }

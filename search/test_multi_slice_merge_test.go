@@ -15,11 +15,11 @@ import "testing"
 // TestMultiSliceMerge_MultipleSlicesOfSameIndexSearcher mirrors
 // testMultipleSlicesOfSameIndexSearcher.
 func TestMultiSliceMerge_MultipleSlicesOfSameIndexSearcher(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }
 
 // TestMultiSliceMerge_MultipleSlicesOfMultipleIndexSearchers mirrors
 // testMultipleSlicesOfMultipleIndexSearchers.
 func TestMultiSliceMerge_MultipleSlicesOfMultipleIndexSearchers(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

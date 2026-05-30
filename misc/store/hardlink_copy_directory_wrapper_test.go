@@ -61,7 +61,7 @@ func TestHardLinkCopyDirectoryWrapper_CopyHardLinks(t *testing.T) {
 	}
 
 	if !hardlinksSupported(tempDir) {
-		t.Skip("hardlinks are not supported on this filesystem")
+		t.Fatal("hardlinks are not supported on this filesystem")
 	}
 
 	// Write a file into dir1.
@@ -143,7 +143,7 @@ func TestHardLinkCopyDirectoryWrapper_RenameWithHardLink(t *testing.T) {
 	}
 
 	if !hardlinksSupported(dir) {
-		t.Skip("hardlinks are not supported on this filesystem")
+		t.Fatal("hardlinks are not supported on this filesystem")
 	}
 
 	// Write the target file.

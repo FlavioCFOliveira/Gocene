@@ -140,7 +140,7 @@ func TestConcurrentMergeSchedulerAsync(t *testing.T) {
 		// Try async merge (will fail with nil writer but tests the path)
 		// In a full implementation, this would queue and execute the merge
 		_ = merge
-		t.Skip("Full merge async test requires complete IndexWriter implementation")
+		t.Fatal("Full merge async test requires complete IndexWriter implementation")
 	})
 
 	t.Run("merge async when closed", func(t *testing.T) {
@@ -152,7 +152,7 @@ func TestConcurrentMergeSchedulerAsync(t *testing.T) {
 
 		// Should return error when scheduler is closed
 		_ = merge
-		t.Skip("Full merge async test requires complete IndexWriter implementation")
+		t.Fatal("Full merge async test requires complete IndexWriter implementation")
 	})
 }
 
@@ -329,7 +329,7 @@ func TestMergeSchedulerWithIndexWriter(t *testing.T) {
 		// config := index.NewIndexWriterConfig(createTestAnalyzer())
 		// config.SetMergeScheduler(scheduler)
 		// writer, _ := index.NewIndexWriter(dir, config)
-		t.Skip("Full integration test requires IndexWriter to use MergeScheduler")
+		t.Fatal("Full integration test requires IndexWriter to use MergeScheduler")
 	})
 }
 
@@ -401,5 +401,5 @@ func TestConcurrentMergeScheduler_DynamicLimits(t *testing.T) {
 // TestConcurrentMergeScheduler_MergeStalling tests that stalling logic is triggered.
 func TestConcurrentMergeScheduler_MergeStalling(t *testing.T) {
 	// This would require a way to simulate many merges and check if indexing stalls
-	t.Skip("Merge stalling test requires more complete implementation of CMS and IndexWriter")
+	t.Fatal("Merge stalling test requires more complete implementation of CMS and IndexWriter")
 }

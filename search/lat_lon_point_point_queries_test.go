@@ -255,7 +255,7 @@ func (v *latLonPointValidator) testComponentQuery(
 //   - document.NewGeometryQuery is still a `nil`-returning
 //     placeholder (see document/shape_doc_values.go TODO GOC-4532+).
 func TestLatLonPointPoint_BoundingBoxQueriesEquivalence(t *testing.T) {
-	t.Skip("blocked by RandomIndexWriter/GeoTestUtil/LatLonPoint.NewBoxQuery/document.NewGeometryQuery; remove this Skip when fixed")
+	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/LatLonPoint.NewBoxQuery/document.NewGeometryQuery; remove this Skip when fixed")
 
 	// Reserved helpers: keep the symbols live for static analysis so
 	// the activation patch surfaces as body fills rather than imports.
@@ -274,7 +274,7 @@ func TestLatLonPointPoint_BoundingBoxQueriesEquivalence(t *testing.T) {
 //   - document.NewGeometryQuery is still a `nil`-returning
 //     placeholder (see document/shape_doc_values.go TODO GOC-4532+).
 func TestLatLonPointPoint_QueryEqualsAndHashcode(t *testing.T) {
-	t.Skip("blocked by QueryUtils/GeoTestUtil/document.NewGeometryQuery; remove this Skip when fixed")
+	t.Fatal("blocked by QueryUtils/GeoTestUtil/document.NewGeometryQuery; remove this Skip when fixed")
 
 	_ = createLatLonPointIndexableFields
 	_ = newLatLonPointValidator
@@ -292,7 +292,7 @@ func TestLatLonPointPoint_QueryEqualsAndHashcode(t *testing.T) {
 //     by latLonPointValidator.testComponentQuery)
 //   - LuceneTestCase.atLeast / random() (no Gocene equivalents yet)
 func TestLatLonPointPoint_SameShapeManyTimes(t *testing.T) {
-	t.Skip("blocked by RandomIndexWriter/GeoTestUtil/LatLonPoint.NewSlowGeometryQuery/LatLonShape.CreateIndexableFields/LuceneTestCase helpers; remove this Skip when fixed")
+	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/LatLonPoint.NewSlowGeometryQuery/LatLonShape.CreateIndexableFields/LuceneTestCase helpers; remove this Skip when fixed")
 
 	_ = createLatLonPointIndexableFields
 	_ = newLatLonPointValidator
@@ -311,7 +311,7 @@ func TestLatLonPointPoint_SameShapeManyTimes(t *testing.T) {
 //     by latLonPointValidator.testComponentQuery)
 //   - LuceneTestCase.atLeast / random() (no Gocene equivalents yet)
 func TestLatLonPointPoint_LowCardinalityShapeManyTimes(t *testing.T) {
-	t.Skip("blocked by RandomIndexWriter/GeoTestUtil/LatLonPoint.NewSlowGeometryQuery/LatLonShape.CreateIndexableFields/LuceneTestCase helpers; remove this Skip when fixed")
+	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/LatLonPoint.NewSlowGeometryQuery/LatLonShape.CreateIndexableFields/LuceneTestCase helpers; remove this Skip when fixed")
 
 	_ = createLatLonPointIndexableFields
 	_ = newLatLonPointValidator
@@ -329,7 +329,7 @@ func TestLatLonPointPoint_LowCardinalityShapeManyTimes(t *testing.T) {
 //     by latLonPointValidator.testComponentQuery)
 //   - LuceneTestCase.atLeast / random() (no Gocene equivalents yet)
 func TestLatLonPointPoint_RandomTiny(t *testing.T) {
-	t.Skip("blocked by RandomIndexWriter/GeoTestUtil/LatLonPoint.NewSlowGeometryQuery/LatLonShape.CreateIndexableFields/LuceneTestCase helpers; remove this Skip when fixed")
+	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/LatLonPoint.NewSlowGeometryQuery/LatLonShape.CreateIndexableFields/LuceneTestCase helpers; remove this Skip when fixed")
 
 	_ = createLatLonPointIndexableFields
 	_ = newLatLonPointValidator
@@ -347,7 +347,7 @@ func TestLatLonPointPoint_RandomTiny(t *testing.T) {
 //     by latLonPointValidator.testComponentQuery)
 //   - LuceneTestCase.atLeast / random() (no Gocene equivalents yet)
 func TestLatLonPointPoint_RandomMedium(t *testing.T) {
-	t.Skip("blocked by RandomIndexWriter/GeoTestUtil/LatLonPoint.NewSlowGeometryQuery/LatLonShape.CreateIndexableFields/LuceneTestCase helpers; remove this Skip when fixed")
+	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/LatLonPoint.NewSlowGeometryQuery/LatLonShape.CreateIndexableFields/LuceneTestCase helpers; remove this Skip when fixed")
 
 	_ = createLatLonPointIndexableFields
 	_ = newLatLonPointValidator
@@ -369,7 +369,7 @@ func TestLatLonPointPoint_RandomMedium(t *testing.T) {
 //     by latLonPointValidator.testComponentQuery)
 //   - LuceneTestCase.atLeast / random() / @Nightly (no Gocene equivalents yet)
 func TestLatLonPointPoint_RandomBig(t *testing.T) {
-	t.Skip("blocked by RandomIndexWriter/GeoTestUtil/LatLonPoint.NewSlowGeometryQuery/LatLonShape.CreateIndexableFields/LuceneTestCase helpers + @Nightly gate; subclass override drives doTestRandom(10000); remove this Skip when fixed")
+	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/LatLonPoint.NewSlowGeometryQuery/LatLonShape.CreateIndexableFields/LuceneTestCase helpers + @Nightly gate; subclass override drives doTestRandom(10000); remove this Skip when fixed")
 
 	_ = createLatLonPointIndexableFields
 	_ = newLatLonPointValidator

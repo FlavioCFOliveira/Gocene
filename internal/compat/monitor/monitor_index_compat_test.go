@@ -124,7 +124,7 @@ func TestMonitorIndexSegment_RoundTrip(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Skipf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
+			t.Fatalf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
 				"blocked on the Gocene QueryIndex port (monitor/query_index.go) "+
 				"which depends in turn on the SegmentReader core-readers gap "+
 				"(memory-index ref 'gocene-segmentreader-corereaders-gap'); "+

@@ -28,7 +28,7 @@ import "testing"
 // stub. It must be replaced with a real roundtrip once the parent harness
 // and TestXYLineShapeQueries.LineValidator land in Go.
 func TestXYLineShapeDVQueries(t *testing.T) {
-	t.Skip("blocked by BaseXYShapeDocValueTestCase parent harness, " +
+	t.Fatal("blocked by BaseXYShapeDocValueTestCase parent harness, " +
 		"TestXYLineShapeQueries.LineValidator, and RandomIndexWriter/" +
 		"ShapeTestUtil/CheckHits/QueryUtils plumbing; remove when fixed")
 }

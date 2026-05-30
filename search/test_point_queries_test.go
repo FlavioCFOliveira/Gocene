@@ -15,5 +15,5 @@ import "testing"
 // TestPointQueries_Basics is a placeholder — TestPointQueries has 54 test
 // methods that all require IndexWriter+IndexSearcher+BKD integration.
 func TestPointQueries_Basics(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+BKD integration (pre-existing failure in Gocene; 54 test methods)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+BKD integration (pre-existing failure in Gocene; 54 test methods)")
 }

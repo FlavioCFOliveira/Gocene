@@ -190,7 +190,7 @@ const baseLatLonDocValueFieldName = "shape"
 //   - inherited `@Test` bodies on BaseLatLonSpatialTestCase /
 //     BaseSpatialTestCase (also stubbed)
 func TestBaseLatLonDocValue_StubAlive(t *testing.T) {
-	t.Skip("blocked by LatLonDocValuesField.NewSlowGeometryQuery and inherited BaseLatLonSpatialTestCase bodies; remove this Skip when fixed")
+	t.Fatal("blocked by LatLonDocValuesField.NewSlowGeometryQuery and inherited BaseLatLonSpatialTestCase bodies; remove this Skip when fixed")
 
 	// Reserved factories and constants: the future implementation
 	// reads from these. Touching them here keeps the symbols live

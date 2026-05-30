@@ -86,5 +86,5 @@ func TestScorerUtil_MinRequiredScoreNegativeMinCompetitive(t *testing.T) {
 // TestScorerUtil.testLikelyFixedBits which verifies null input returns null.
 // (index-setup branches are skipped; they require a ported index stack.)
 func TestScorerUtil_LikelyLiveDocs_Skipped(t *testing.T) {
-	t.Skip("likelyLiveDocs / likelyImpactsEnum require index stack not yet ported")
+	t.Fatal("likelyLiveDocs / likelyImpactsEnum require index stack not yet ported")
 }

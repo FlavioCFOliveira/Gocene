@@ -600,7 +600,7 @@ func TestPrefixTreeDistanceValueSource_PicksClosestCell(t *testing.T) {
 		t.Fatalf("GetCellsForShape: %v", err)
 	}
 	if len(cells) == 0 {
-		t.Skipf("quad tree produced no cells; nothing to test")
+		t.Fatalf("quad tree produced no cells; nothing to test")
 	}
 
 	tokens := make(map[string][]int)

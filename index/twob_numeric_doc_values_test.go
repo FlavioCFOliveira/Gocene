@@ -13,5 +13,5 @@ import "testing"
 // segment, and verifies every value. In Lucene this is annotated @Monster and
 // takes roughly two hours with a 5 GB heap, so it is skipped by default.
 func Test2BNumericDocValues(t *testing.T) {
-	t.Skip("monster test: indexes ~2B docs, takes hours and multiple GB of heap")
+	t.Fatal("monster test: indexes ~2B docs, takes hours and multiple GB of heap")
 }

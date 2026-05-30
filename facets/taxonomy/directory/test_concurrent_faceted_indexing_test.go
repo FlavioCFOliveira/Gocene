@@ -22,5 +22,5 @@ import "testing"
 // can index faceted documents (using DirectoryTaxonomyWriter) without races,
 // and that the resulting taxonomy contains all expected categories.
 func TestConcurrentFacetedIndexing_Concurrency(t *testing.T) {
-	t.Skip("requires IndexWriter + DirectoryTaxonomyWriter concurrent indexing + ParallelTaxonomyArrays pipeline")
+	t.Fatal("requires IndexWriter + DirectoryTaxonomyWriter concurrent indexing + ParallelTaxonomyArrays pipeline")
 }

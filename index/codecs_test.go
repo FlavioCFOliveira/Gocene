@@ -49,7 +49,7 @@ import "testing"
 // each term's PostingsEnum returns its single doc then NO_MORE_DOCS (twice, to
 // stress codec reuse/rewind); and seekCeil finds every term.
 func TestCodecs_FixedPostings(t *testing.T) {
-	t.Skip("blocked: default codec's Lucene103PostingsFormat.FieldsConsumer/FieldsProducer are typed stubs returning an error; no postings write/read round-trip exists yet")
+	t.Fatal("blocked: default codec's Lucene103PostingsFormat.FieldsConsumer/FieldsProducer are typed stubs returning an error; no postings write/read round-trip exists yet")
 }
 
 // TestCodecs_RandomPostings ports TestCodecs#testRandomPostings.
@@ -61,7 +61,7 @@ func TestCodecs_FixedPostings(t *testing.T) {
 // seeks to non-existent and empty-string terms, and PostingsEnum nextDoc /
 // advance / freq / nextPosition / getPayload.
 func TestCodecs_RandomPostings(t *testing.T) {
-	t.Skip("blocked: default codec's Lucene103PostingsFormat.FieldsConsumer/FieldsProducer are typed stubs returning an error; no postings write/read round-trip exists yet")
+	t.Fatal("blocked: default codec's Lucene103PostingsFormat.FieldsConsumer/FieldsProducer are typed stubs returning an error; no postings write/read round-trip exists yet")
 }
 
 // TestCodecs_DocsOnlyFreq ports TestCodecs#testDocsOnlyFreq.
@@ -79,5 +79,5 @@ func TestCodecs_RandomPostings(t *testing.T) {
 // LeafReaderInterface currently exposes no Postings(Term) accessor, so it
 // would not compile.
 func TestCodecs_DocsOnlyFreq(t *testing.T) {
-	t.Skip("blocked: OpenDirectoryReader builds SegmentReader without core readers and LeafReaderInterface exposes no Postings(Term) accessor")
+	t.Fatal("blocked: OpenDirectoryReader builds SegmentReader without core readers and LeafReaderInterface exposes no Postings(Term) accessor")
 }

@@ -136,7 +136,7 @@ func writeTVDoc(
 // redundant-prefetch optimisation requires the Lucene90 block-based storage
 // which is not yet ported; the test records the framework is ready.
 func TestLucene90TermVectorsFormat_SkipRedundantPrefetches(t *testing.T) {
-	t.Skip("Prefetch optimisation test requires Lucene90TermVectorsFormat block-based storage (not yet ported)")
+	t.Fatal("Prefetch optimisation test requires Lucene90TermVectorsFormat block-based storage (not yet ported)")
 }
 
 // ============================================================================

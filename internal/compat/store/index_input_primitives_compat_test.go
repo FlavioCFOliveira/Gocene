@@ -39,7 +39,7 @@ func requireHarness(t *testing.T) {
 	t.Helper()
 	if _, err := compat.Locate(); err != nil {
 		if errors.Is(err, compat.ErrHarnessMissing) {
-			t.Skipf("skip: %v", err)
+			t.Fatalf("skip: %v", err)
 		}
 		t.Fatalf("locate harness: %v", err)
 	}

@@ -25,7 +25,7 @@ const skipReason = "BlockTreeOrds write path and OrdsSegmentTermsEnum traversal 
 // the TermsEnum, verify term order and ordinals 0/1/2, then seek by term and
 // by ordinal and verify round-trip.
 func TestOrdsBlockTree_Basic(t *testing.T) {
-	t.Skip(skipReason)
+	t.Fatal(skipReason)
 }
 
 // TestOrdsBlockTree_TwoBlocks is a port of TestOrdsBlockTree.testTwoBlocks.
@@ -34,7 +34,7 @@ func TestOrdsBlockTree_Basic(t *testing.T) {
 // FST blocks, force-merge to one segment, then verify that seekExact by ord
 // and seekExact by term agree on every term in random order.
 func TestOrdsBlockTree_TwoBlocks(t *testing.T) {
-	t.Skip(skipReason)
+	t.Fatal(skipReason)
 }
 
 // TestOrdsBlockTree_ThreeBlocks is a port of TestOrdsBlockTree.testThreeBlocks.
@@ -43,7 +43,7 @@ func TestOrdsBlockTree_TwoBlocks(t *testing.T) {
 // "mo"+single-char), force-merge, then verify ordinal/term agreement for all
 // 108 terms in both forward and random-seek order.
 func TestOrdsBlockTree_ThreeBlocks(t *testing.T) {
-	t.Skip(skipReason)
+	t.Fatal(skipReason)
 }
 
 // TestOrdsBlockTree_FloorBlocks is a port of TestOrdsBlockTree.testFloorBlocks.
@@ -52,7 +52,7 @@ func TestOrdsBlockTree_ThreeBlocks(t *testing.T) {
 // to exercise floor blocks, then verify seekExact by term and by ordinal for
 // specific entries ("a" → ord 97, "b" → ord 98, "z" → ord 122).
 func TestOrdsBlockTree_FloorBlocks(t *testing.T) {
-	t.Skip(skipReason)
+	t.Fatal(skipReason)
 }
 
 // TestOrdsBlockTree_NonRootFloorBlocks is a port of
@@ -62,7 +62,7 @@ func TestOrdsBlockTree_FloorBlocks(t *testing.T) {
 // floor blocks at a non-root node; verify sequential iteration ordinals
 // match, then verify random seeks by ord and by term.
 func TestOrdsBlockTree_NonRootFloorBlocks(t *testing.T) {
-	t.Skip(skipReason)
+	t.Fatal(skipReason)
 }
 
 // TestOrdsBlockTree_SeveralNonRootBlocks is a port of
@@ -72,7 +72,7 @@ func TestOrdsBlockTree_NonRootFloorBlocks(t *testing.T) {
 // verify sequential iteration yields ordinals 0..899, then random seek by
 // ord and by term across all entries.
 func TestOrdsBlockTree_SeveralNonRootBlocks(t *testing.T) {
-	t.Skip(skipReason)
+	t.Fatal(skipReason)
 }
 
 // TestOrdsBlockTree_SeekCeilNotFound is a port of
@@ -83,5 +83,5 @@ func TestOrdsBlockTree_SeveralNonRootBlocks(t *testing.T) {
 // "" and "a" (0x22) and verify the result is SeekStatus.NOT_FOUND with the
 // landed term "a" at ordinal 1.
 func TestOrdsBlockTree_SeekCeilNotFound(t *testing.T) {
-	t.Skip(skipReason)
+	t.Fatal(skipReason)
 }

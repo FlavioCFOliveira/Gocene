@@ -51,7 +51,7 @@ import "testing"
 // compound-file reader, and CodecUtil.checkIndexHeaderID, none of which are
 // available.
 func TestAllFilesHaveCodecHeader(t *testing.T) {
-	t.Skip("blocked: WriteSegmentInfos does not write a CODEC_MAGIC header; " +
+	t.Fatal("blocked: WriteSegmentInfos does not write a CODEC_MAGIC header; " +
 		"RandomIndexWriter, LineFileDocs, compound-file reader, and " +
 		"CodecUtil.checkIndexHeaderID are not yet ported")
 }

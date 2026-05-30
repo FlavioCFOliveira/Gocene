@@ -96,7 +96,7 @@ func TestIndexWriter_TermVectorsRoundTrip(t *testing.T) {
 		// Pre-existing: Lucene104PostingsReader requires _0.psm which the current
 		// flushPostings path does not produce. Skip rather than fail so that the
 		// postings-writer gap is tracked separately.
-		t.Skipf("OpenDirectoryReader: %v (pre-existing postings gap — tracked separately)", err)
+		t.Fatalf("OpenDirectoryReader: %v (pre-existing postings gap — tracked separately)", err)
 	}
 	defer reader.Close()
 
@@ -106,7 +106,7 @@ func TestIndexWriter_TermVectorsRoundTrip(t *testing.T) {
 		t.Fatalf("GetTermVectors(0): %v", err)
 	}
 	if tvFields == nil {
-		t.Skip("GetTermVectors returned nil (SegmentCoreReaders TV gap); check .tvd was written")
+		t.Fatal("GetTermVectors returned nil (SegmentCoreReaders TV gap); check .tvd was written")
 	}
 
 	// Verify both fields are present with the expected terms.

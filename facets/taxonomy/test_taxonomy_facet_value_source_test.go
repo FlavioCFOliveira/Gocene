@@ -95,9 +95,9 @@ func TestFloatTaxonomyFacets_AccumulateFloat(t *testing.T) {
 // -- Integration stubs -------------------------------------------------------
 
 func TestTaxonomyFacetValueSource_Basic(t *testing.T) {
-	t.Skip("requires IndexWriter + FacetsCollector + DocValues + TaxonomyFacets pipeline")
+	t.Fatal("requires IndexWriter + FacetsCollector + DocValues + TaxonomyFacets pipeline")
 }
 
 func TestTaxonomyFacetValueSource_WithScore(t *testing.T) {
-	t.Skip("requires IndexWriter + FacetsCollector + DocValues + TaxonomyFacets pipeline")
+	t.Fatal("requires IndexWriter + FacetsCollector + DocValues + TaxonomyFacets pipeline")
 }

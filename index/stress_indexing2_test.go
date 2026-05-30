@@ -35,7 +35,7 @@ import "testing"
 // infrastructure. Centralised so the reason stays consistent across methods.
 func testStressIndexing2Skip(t *testing.T, missing string) {
 	t.Helper()
-	t.Skipf("GOC-4158: TestStressIndexing2 port blocked - missing %s", missing)
+	t.Fatalf("GOC-4158: TestStressIndexing2 port blocked - missing %s", missing)
 }
 
 // TestStressIndexing2_RandomIWReader ports testRandomIWReader.

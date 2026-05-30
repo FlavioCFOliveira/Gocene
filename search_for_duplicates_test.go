@@ -19,5 +19,5 @@ import "testing"
 // It indexes documents with duplicate content and verifies that the search
 // returns the correct number of hits via BooleanQuery and Sort.
 func TestSearchForDuplicates_Run(t *testing.T) {
-	t.Skip("requires IndexWriter, IndexSearcher, DirectoryReader, BooleanQuery, Document, Field, Sort (not yet ported to Gocene)")
+	t.Fatal("requires IndexWriter, IndexSearcher, DirectoryReader, BooleanQuery, Document, Field, Sort (not yet ported to Gocene)")
 }

@@ -51,12 +51,12 @@ func TestCheckIndexCompatibility_BasicValidation(t *testing.T) {
 	checker, err := index.NewCheckIndex(dir)
 	if err != nil {
 		t.Logf("NewCheckIndex failed: %v", err)
-		t.Skip("checkindex not implemented")
+		t.Fatal("checkindex not implemented")
 	}
 	result, err := checker.CheckIndex()
 	if err != nil {
 		t.Logf("checkindex may not be fully implemented: %v", err)
-		t.Skip("checkindex not implemented")
+		t.Fatal("checkindex not implemented")
 	}
 
 	if !result.Clean || result.NumBadSegments > 0 {
@@ -93,12 +93,12 @@ func TestCheckIndexCompatibility_SegmentValidation(t *testing.T) {
 	checker, err := index.NewCheckIndex(dir)
 	if err != nil {
 		t.Logf("NewCheckIndex failed: %v", err)
-		t.Skip("checkindex not implemented")
+		t.Fatal("checkindex not implemented")
 	}
 	result, err := checker.CheckIndex()
 	if err != nil {
 		t.Logf("checkindex may not be fully implemented: %v", err)
-		t.Skip("checkindex not implemented")
+		t.Fatal("checkindex not implemented")
 	}
 
 	t.Logf("CheckIndex segment validation: %d segments", result.NumSegments)
@@ -140,12 +140,12 @@ func TestCheckIndexCompatibility_FieldInfosValidation(t *testing.T) {
 	checker, err := index.NewCheckIndex(dir)
 	if err != nil {
 		t.Logf("NewCheckIndex failed: %v", err)
-		t.Skip("checkindex not implemented")
+		t.Fatal("checkindex not implemented")
 	}
 	_, err = checker.CheckIndex()
 	if err != nil {
 		t.Logf("checkindex may not be fully implemented: %v", err)
-		t.Skip("checkindex not implemented")
+		t.Fatal("checkindex not implemented")
 	}
 
 	t.Log("CheckIndex FieldInfos validation test passed")
@@ -170,7 +170,7 @@ func BenchmarkCheckIndexCompatibility_Validation(b *testing.B) {
 
 	checker, err := index.NewCheckIndex(dir)
 	if err != nil {
-		b.Skip("NewCheckIndex not implemented")
+		b.Fatal("NewCheckIndex not implemented")
 	}
 
 	b.ResetTimer()

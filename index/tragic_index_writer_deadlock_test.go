@@ -27,19 +27,19 @@ import "testing"
 // testDeadlockExcNRTReaderCommit: random IOExceptions during concurrent commit
 // and NRT reopen must not deadlock the writer.
 func TestTragicIndexWriterDeadlock_ExcNRTReaderCommit(t *testing.T) {
-	t.Skip("Sprint 55 option (c) stub: needs MockDirectoryWrapper.SetRandomIOExceptionRate fault injection")
+	t.Fatal("Sprint 55 option (c) stub: needs MockDirectoryWrapper.SetRandomIOExceptionRate fault injection")
 }
 
 // TestTragicIndexWriterDeadlock_StalledMerges ports testDeadlockStalledMerges
 // (LUCENE-7570): a tragedy during merge while another merge is stalled must
 // not deadlock commit.
 func TestTragicIndexWriterDeadlock_StalledMerges(t *testing.T) {
-	t.Skip("Sprint 55 option (c) stub: needs ConcurrentMergeScheduler doMerge/doStall hooks and mergeSuccess override")
+	t.Fatal("Sprint 55 option (c) stub: needs ConcurrentMergeScheduler doMerge/doStall hooks and mergeSuccess override")
 }
 
 // TestTragicIndexWriterDeadlock_StalledFullFlushMerges ports
 // testDeadlockStalledFullFlushMerges: same as the stalled-merges case with
 // merge-on-full-flush enabled (setMaxFullFlushMergeWaitMillis).
 func TestTragicIndexWriterDeadlock_StalledFullFlushMerges(t *testing.T) {
-	t.Skip("Sprint 55 option (c) stub: needs IndexWriterConfig.SetMaxFullFlushMergeWaitMillis and merge hooks")
+	t.Fatal("Sprint 55 option (c) stub: needs IndexWriterConfig.SetMaxFullFlushMergeWaitMillis and merge hooks")
 }

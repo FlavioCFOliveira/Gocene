@@ -44,7 +44,7 @@ const minimizeGapMessage = "MinimizationOperations.minimize not ported yet; " +
 // against MinimizationOperations.minimize(a), and asserts both accept
 // the same language.
 func TestMinimize_Basic(t *testing.T) {
-	t.Skip(minimizeGapMessage)
+	t.Fatal(minimizeGapMessage)
 }
 
 // TestMinimize_AgainstBrzozowski mirrors Lucene's TestMinimize
@@ -53,7 +53,7 @@ func TestMinimize_Basic(t *testing.T) {
 // .minimizeSimple) and asserts identical languages plus identical
 // #states/#transitions counts.
 func TestMinimize_AgainstBrzozowski(t *testing.T) {
-	t.Skip(minimizeGapMessage)
+	t.Fatal(minimizeGapMessage)
 }
 
 // TestMinimize_Huge mirrors Lucene's TestMinimize#testMinimizeHuge,
@@ -64,7 +64,7 @@ func TestMinimize_AgainstBrzozowski(t *testing.T) {
 // can be promoted once Minimize lands.
 func TestMinimize_Huge(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping huge minimize test in -short mode (Lucene @Nightly equivalent)")
+		t.Fatal("skipping huge minimize test in -short mode (Lucene @Nightly equivalent)")
 	}
-	t.Skip(minimizeGapMessage)
+	t.Fatal(minimizeGapMessage)
 }

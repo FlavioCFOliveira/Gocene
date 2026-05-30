@@ -75,82 +75,82 @@ import "testing"
 // TestIndexWriterWithThreads_ImmediateDiskFullWithThreads ports
 // testImmediateDiskFullWithThreads.
 func TestIndexWriterWithThreads_ImmediateDiskFullWithThreads(t *testing.T) {
-	t.Skip("blocked: MockDirectoryWrapper setMaxSizeInBytes disk-full injection, real Document/Field pipeline and ConcurrentMergeScheduler.setSuppressExceptions not yet available (Sprint 55 option c)")
+	t.Fatal("blocked: MockDirectoryWrapper setMaxSizeInBytes disk-full injection, real Document/Field pipeline and ConcurrentMergeScheduler.setSuppressExceptions not yet available (Sprint 55 option c)")
 }
 
 // TestIndexWriterWithThreads_CloseWithThreads ports testCloseWithThreads.
 func TestIndexWriterWithThreads_CloseWithThreads(t *testing.T) {
-	t.Skip("blocked: real Document/Field pipeline, DirectoryReader doc counting over a writer-produced index and ConcurrentMergeScheduler.setSuppressExceptions not yet available (Sprint 55 option c)")
+	t.Fatal("blocked: real Document/Field pipeline, DirectoryReader doc counting over a writer-produced index and ConcurrentMergeScheduler.setSuppressExceptions not yet available (Sprint 55 option c)")
 }
 
 // TestIndexWriterWithThreads_IOExceptionDuringAbort ports
 // testIOExceptionDuringAbort.
 func TestIndexWriterWithThreads_IOExceptionDuringAbort(t *testing.T) {
-	t.Skip("blocked: MockDirectoryWrapper.Failure call-stack-keyed injection and IndexWriter isDeleterClosed()/AlreadyClosedException-on-abort contract not yet available (Sprint 55 option c)")
+	t.Fatal("blocked: MockDirectoryWrapper.Failure call-stack-keyed injection and IndexWriter isDeleterClosed()/AlreadyClosedException-on-abort contract not yet available (Sprint 55 option c)")
 }
 
 // TestIndexWriterWithThreads_IOExceptionDuringAbortOnlyOnce ports
 // testIOExceptionDuringAbortOnlyOnce.
 func TestIndexWriterWithThreads_IOExceptionDuringAbortOnlyOnce(t *testing.T) {
-	t.Skip("blocked: MockDirectoryWrapper.Failure call-stack-keyed injection and IndexWriter isDeleterClosed()/AlreadyClosedException-on-abort contract not yet available (Sprint 55 option c)")
+	t.Fatal("blocked: MockDirectoryWrapper.Failure call-stack-keyed injection and IndexWriter isDeleterClosed()/AlreadyClosedException-on-abort contract not yet available (Sprint 55 option c)")
 }
 
 // TestIndexWriterWithThreads_IOExceptionDuringAbortWithThreads ports
 // testIOExceptionDuringAbortWithThreads.
 func TestIndexWriterWithThreads_IOExceptionDuringAbortWithThreads(t *testing.T) {
-	t.Skip("blocked: MockDirectoryWrapper.Failure injection, real Document/Field pipeline and ConcurrentMergeScheduler.setSuppressExceptions not yet available (Sprint 55 option c)")
+	t.Fatal("blocked: MockDirectoryWrapper.Failure injection, real Document/Field pipeline and ConcurrentMergeScheduler.setSuppressExceptions not yet available (Sprint 55 option c)")
 }
 
 // TestIndexWriterWithThreads_IOExceptionDuringAbortWithThreadsOnlyOnce ports
 // testIOExceptionDuringAbortWithThreadsOnlyOnce.
 func TestIndexWriterWithThreads_IOExceptionDuringAbortWithThreadsOnlyOnce(t *testing.T) {
-	t.Skip("blocked: MockDirectoryWrapper.Failure injection, real Document/Field pipeline and ConcurrentMergeScheduler.setSuppressExceptions not yet available (Sprint 55 option c)")
+	t.Fatal("blocked: MockDirectoryWrapper.Failure injection, real Document/Field pipeline and ConcurrentMergeScheduler.setSuppressExceptions not yet available (Sprint 55 option c)")
 }
 
 // TestIndexWriterWithThreads_IOExceptionDuringWriteSegment ports
 // testIOExceptionDuringWriteSegment.
 func TestIndexWriterWithThreads_IOExceptionDuringWriteSegment(t *testing.T) {
-	t.Skip("blocked: MockDirectoryWrapper.Failure keyed on IndexingChain#flush and IndexWriter isDeleterClosed()/AlreadyClosedException contract not yet available (Sprint 55 option c)")
+	t.Fatal("blocked: MockDirectoryWrapper.Failure keyed on IndexingChain#flush and IndexWriter isDeleterClosed()/AlreadyClosedException contract not yet available (Sprint 55 option c)")
 }
 
 // TestIndexWriterWithThreads_IOExceptionDuringWriteSegmentOnlyOnce ports
 // testIOExceptionDuringWriteSegmentOnlyOnce.
 func TestIndexWriterWithThreads_IOExceptionDuringWriteSegmentOnlyOnce(t *testing.T) {
-	t.Skip("blocked: MockDirectoryWrapper.Failure keyed on IndexingChain#flush and IndexWriter isDeleterClosed()/AlreadyClosedException contract not yet available (Sprint 55 option c)")
+	t.Fatal("blocked: MockDirectoryWrapper.Failure keyed on IndexingChain#flush and IndexWriter isDeleterClosed()/AlreadyClosedException contract not yet available (Sprint 55 option c)")
 }
 
 // TestIndexWriterWithThreads_IOExceptionDuringWriteSegmentWithThreads ports
 // testIOExceptionDuringWriteSegmentWithThreads.
 func TestIndexWriterWithThreads_IOExceptionDuringWriteSegmentWithThreads(t *testing.T) {
-	t.Skip("blocked: MockDirectoryWrapper.Failure injection, real Document/Field pipeline and ConcurrentMergeScheduler.setSuppressExceptions not yet available (Sprint 55 option c)")
+	t.Fatal("blocked: MockDirectoryWrapper.Failure injection, real Document/Field pipeline and ConcurrentMergeScheduler.setSuppressExceptions not yet available (Sprint 55 option c)")
 }
 
 // TestIndexWriterWithThreads_IOExceptionDuringWriteSegmentWithThreadsOnlyOnce
 // ports testIOExceptionDuringWriteSegmentWithThreadsOnlyOnce.
 func TestIndexWriterWithThreads_IOExceptionDuringWriteSegmentWithThreadsOnlyOnce(t *testing.T) {
-	t.Skip("blocked: MockDirectoryWrapper.Failure injection, real Document/Field pipeline and ConcurrentMergeScheduler.setSuppressExceptions not yet available (Sprint 55 option c)")
+	t.Fatal("blocked: MockDirectoryWrapper.Failure injection, real Document/Field pipeline and ConcurrentMergeScheduler.setSuppressExceptions not yet available (Sprint 55 option c)")
 }
 
 // TestIndexWriterWithThreads_OpenTwoIndexWritersOnDifferentThreads ports
 // testOpenTwoIndexWritersOnDifferentThreads.
 func TestIndexWriterWithThreads_OpenTwoIndexWritersOnDifferentThreads(t *testing.T) {
-	t.Skip("blocked: real Document/Field pipeline, MockAnalyzer and DirectoryReader.numDocs() over a writer-produced index not yet available (Sprint 55 option c)")
+	t.Fatal("blocked: real Document/Field pipeline, MockAnalyzer and DirectoryReader.numDocs() over a writer-produced index not yet available (Sprint 55 option c)")
 }
 
 // TestIndexWriterWithThreads_RollbackAndCommitWithThreads ports
 // testRollbackAndCommitWithThreads.
 func TestIndexWriterWithThreads_RollbackAndCommitWithThreads(t *testing.T) {
-	t.Skip("blocked: real Document/Field pipeline, IndexWriter prepareCommit(), MockAnalyzer and LineFileDocs not yet available (Sprint 55 option c)")
+	t.Fatal("blocked: real Document/Field pipeline, IndexWriter prepareCommit(), MockAnalyzer and LineFileDocs not yet available (Sprint 55 option c)")
 }
 
 // TestIndexWriterWithThreads_UpdateSingleDocWithThreads ports
 // testUpdateSingleDocWithThreads.
 func TestIndexWriterWithThreads_UpdateSingleDocWithThreads(t *testing.T) {
-	t.Skip("blocked: RandomIndexWriter, real Document/Field pipeline and near-real-time DirectoryReader doc counting not yet available (Sprint 55 option c)")
+	t.Fatal("blocked: RandomIndexWriter, real Document/Field pipeline and near-real-time DirectoryReader doc counting not yet available (Sprint 55 option c)")
 }
 
 // TestIndexWriterWithThreads_SoftUpdateSingleDocWithThreads ports
 // testSoftUpdateSingleDocWithThreads.
 func TestIndexWriterWithThreads_SoftUpdateSingleDocWithThreads(t *testing.T) {
-	t.Skip("blocked: RandomIndexWriter soft-deletes, real Document/Field pipeline and near-real-time DirectoryReader doc counting not yet available (Sprint 55 option c)")
+	t.Fatal("blocked: RandomIndexWriter soft-deletes, real Document/Field pipeline and near-real-time DirectoryReader doc counting not yet available (Sprint 55 option c)")
 }

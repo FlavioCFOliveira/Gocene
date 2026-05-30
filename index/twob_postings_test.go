@@ -14,5 +14,5 @@ import "testing"
 // In Lucene this is annotated @Nightly with a 4-hour timeout, so it is
 // skipped by default.
 func Test2BPostings(t *testing.T) {
-	t.Skip("monster test: indexes ~82M docs producing >2B term/doc pairs, multi-hour runtime")
+	t.Fatal("monster test: indexes ~82M docs producing >2B term/doc pairs, multi-hour runtime")
 }

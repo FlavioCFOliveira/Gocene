@@ -16,5 +16,5 @@ import "testing"
 // It verifies that block-max conjunction produces the same results as a naive
 // conjunction across random queries and documents.
 func TestBlockMaxConjunction_Random(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

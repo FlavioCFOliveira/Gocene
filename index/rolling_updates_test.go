@@ -40,7 +40,7 @@ import "testing"
 // to the index package. Re-enable once an NRT reader open-from-writer and
 // LineFileDocs land.
 func TestRollingUpdates_RollingUpdates(t *testing.T) {
-	t.Skip("infra gap: no NRT reader open-from-writer; LineFileDocs not ported")
+	t.Fatal("infra gap: no NRT reader open-from-writer; LineFileDocs not ported")
 }
 
 // ---------------------------------------------------------------------------
@@ -55,5 +55,5 @@ func TestRollingUpdates_RollingUpdates(t *testing.T) {
 // Gocene has no NRT reader opened from the writer, and the test also depends on
 // LineFileDocs. Re-enable once both land.
 func TestRollingUpdates_UpdateSameDoc(t *testing.T) {
-	t.Skip("infra gap: no NRT reader open-from-writer; LineFileDocs not ported")
+	t.Fatal("infra gap: no NRT reader open-from-writer; LineFileDocs not ported")
 }

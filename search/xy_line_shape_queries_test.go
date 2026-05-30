@@ -33,7 +33,7 @@ import "testing"
 // stub. It must be replaced with a real roundtrip once the parent harness
 // and supporting cartesian-shape utilities land in Go.
 func TestXYLineShapeQueries(t *testing.T) {
-	t.Skip("blocked by BaseXYShapeTestCase parent harness, ShapeTestUtil/" +
+	t.Fatal("blocked by BaseXYShapeTestCase parent harness, ShapeTestUtil/" +
 		"RandomNumbers generators, XYLine geometry type, " +
 		"Component2D.WithinRelation, and RandomIndexWriter/CheckHits/QueryUtils " +
 		"plumbing; remove when fixed")

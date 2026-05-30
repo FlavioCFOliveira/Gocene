@@ -46,7 +46,7 @@ import (
 // this test must pass as-is — the body is already the eventual
 // contract, not a draft.
 func TestDefaultCodecPersistsLuceneFiles(t *testing.T) {
-	t.Skip("blocked on rmp #4670 — IndexWriter.Commit does not invoke codec writers; see /tmp/agent_4637_blocker.md")
+	t.Fatal("blocked on rmp #4670 — IndexWriter.Commit does not invoke codec writers; see /tmp/agent_4637_blocker.md")
 
 	dir, err := store.NewSimpleFSDirectory(t.TempDir())
 	if err != nil {

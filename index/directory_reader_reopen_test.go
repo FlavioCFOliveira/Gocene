@@ -60,14 +60,14 @@ func reopenDoc(n, numFields int) *document.Document {
 // instance when nothing changed and a new instance after each modifyIndex step.
 // Reopen always rebuilds, and modifyIndex relies on no-op DeleteDocuments.
 func TestDirectoryReaderReopen_Reopen(t *testing.T) {
-	t.Skip("needs DirectoryReader.openIfChanged identity semantics; modifyIndex relies on no-op DeleteDocuments")
+	t.Fatal("needs DirectoryReader.openIfChanged identity semantics; modifyIndex relies on no-op DeleteDocuments")
 }
 
 // TestDirectoryReaderReopen_CommitReopen ports testCommitReopen().
 // Java commits in iterations and reopens via openIfChanged, reading stored
 // fields from the previous iteration through the live reader.
 func TestDirectoryReaderReopen_CommitReopen(t *testing.T) {
-	t.Skip("needs DirectoryReader.openIfChanged and leaf StoredFields access (core readers nil)")
+	t.Fatal("needs DirectoryReader.openIfChanged and leaf StoredFields access (core readers nil)")
 }
 
 // TestDirectoryReaderReopen_CommitRecreate ports testCommitRecreate().
@@ -129,49 +129,49 @@ func TestDirectoryReaderReopen_CommitRecreate(t *testing.T) {
 // Java spins 20-40 threads that concurrently openIfChanged, search, and compare
 // reader couples while a writer mutates the index.
 func TestDirectoryReaderReopen_ThreadSafety(t *testing.T) {
-	t.Skip("needs DirectoryReader.openIfChanged and leaf search APIs (core readers nil)")
+	t.Fatal("needs DirectoryReader.openIfChanged and leaf search APIs (core readers nil)")
 }
 
 // TestDirectoryReaderReopen_ReopenOnCommit ports testReopenOnCommit().
 // Java reopens onto each listed IndexCommit via openIfChanged(r, commit) and
 // asserts numDocs derived from the per-commit user data.
 func TestDirectoryReaderReopen_ReopenOnCommit(t *testing.T) {
-	t.Skip("needs openIfChanged(reader, commit); deleteDocuments is a no-op stub")
+	t.Fatal("needs openIfChanged(reader, commit); deleteDocuments is a no-op stub")
 }
 
 // TestDirectoryReaderReopen_OpenIfChangedNRTToCommit ports
 // testOpenIfChangedNRTToCommit(). Java opens an NRT reader from the writer and
 // reopens it backwards onto an older commit.
 func TestDirectoryReaderReopen_OpenIfChangedNRTToCommit(t *testing.T) {
-	t.Skip("needs DirectoryReader.open(writer) and openIfChanged(reader, commit)")
+	t.Fatal("needs DirectoryReader.open(writer) and openIfChanged(reader, commit)")
 }
 
 // TestDirectoryReaderReopen_OverDecRefDuringReopen ports
 // testOverDecRefDuringReopen(). Java injects a FakeIOException on readLiveDocs
 // during reopen and asserts the original reader survives the failed reopen.
 func TestDirectoryReaderReopen_OverDecRefDuringReopen(t *testing.T) {
-	t.Skip("needs MockDirectoryWrapper failure injection and openIfChanged")
+	t.Fatal("needs MockDirectoryWrapper failure injection and openIfChanged")
 }
 
 // TestDirectoryReaderReopen_NPEAfterInvalidReindex1 ports
 // testNPEAfterInvalidReindex1(). Java blows away the index under an open
 // reader, reindexes incompatibly, and asserts openIfChanged fails cleanly.
 func TestDirectoryReaderReopen_NPEAfterInvalidReindex1(t *testing.T) {
-	t.Skip("needs DirectoryReader.openIfChanged and updateNumericDocValue")
+	t.Fatal("needs DirectoryReader.openIfChanged and updateNumericDocValue")
 }
 
 // TestDirectoryReaderReopen_NPEAfterInvalidReindex2 ports
 // testNPEAfterInvalidReindex2(): same scenario as variant 1 without the
 // doc-values update.
 func TestDirectoryReaderReopen_NPEAfterInvalidReindex2(t *testing.T) {
-	t.Skip("needs DirectoryReader.openIfChanged on a recreated index")
+	t.Fatal("needs DirectoryReader.openIfChanged on a recreated index")
 }
 
 // TestDirectoryReaderReopen_NRTMdeletes ports testNRTMdeletes().
 // Java reopens a non-NRT reader backwards across snapshotted commits while
 // documents are deleted, verifying numDocs per commit.
 func TestDirectoryReaderReopen_NRTMdeletes(t *testing.T) {
-	t.Skip("needs SnapshotDeletionPolicy, openIfChanged(reader, commit), and applied deletes")
+	t.Fatal("needs SnapshotDeletionPolicy, openIfChanged(reader, commit), and applied deletes")
 }
 
 // TestDirectoryReaderReopen_ListCommits exercises the commit-listing plumbing

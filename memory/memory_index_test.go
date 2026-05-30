@@ -115,7 +115,7 @@ func TestMemoryIndex_Search(t *testing.T) {
 	topDocs, err := searcher.Search(query, 10)
 	if err != nil {
 		t.Logf("search may not be fully implemented: %v", err)
-		t.Skip("search not implemented")
+		t.Fatal("search not implemented")
 	}
 
 	t.Logf("MemoryIndex search found %d documents", topDocs.TotalHits.Value)

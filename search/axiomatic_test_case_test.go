@@ -16,5 +16,5 @@ import "testing"
 
 // TestAxiomaticTestCase is a placeholder for the abstract base class.
 func TestAxiomaticTestCase(t *testing.T) {
-	t.Skip("abstract test base class — concrete subclasses supply an Axiomatic similarity variant; requires IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("abstract test base class — concrete subclasses supply an Axiomatic similarity variant; requires IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

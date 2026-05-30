@@ -13,14 +13,14 @@ package search
 import "testing"
 
 func TestXYPointDistanceSort_DistanceSort(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+XY spatial integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+XY spatial integration (pre-existing failure in Gocene)")
 }
 func TestXYPointDistanceSort_MissingLast(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+XY spatial integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+XY spatial integration (pre-existing failure in Gocene)")
 }
 func TestXYPointDistanceSort_Random(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+XY spatial integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+XY spatial integration (pre-existing failure in Gocene)")
 }
 func TestXYPointDistanceSort_RandomHuge(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+XY spatial integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+XY spatial integration (pre-existing failure in Gocene)")
 }

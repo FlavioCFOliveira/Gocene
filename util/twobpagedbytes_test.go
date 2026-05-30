@@ -24,5 +24,5 @@ import (
 // `go test -run Test2BPagedBytes`, and acts as a placeholder for the full
 // port that will land alongside the matching Directory/IndexInput support.
 func Test2BPagedBytes(t *testing.T) {
-	t.Skip("monster test (requires > 2 GiB heap); set GOCENE_RUN_MONSTERS=1 and port body when PagedBytes.Copy(IndexInput) lands")
+	t.Fatal("monster test (requires > 2 GiB heap); set GOCENE_RUN_MONSTERS=1 and port body when PagedBytes.Copy(IndexInput) lands")
 }

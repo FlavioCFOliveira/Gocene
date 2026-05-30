@@ -30,35 +30,35 @@ import (
 // ─── Java test peer stubs ─────────────────────────────────────────────────
 
 func TestReqOptSumScorer_BasicsMust(t *testing.T) {
-	t.Skip("requires RandomIndexWriter, BooleanQuery, TermQuery — not yet wired in Gocene")
+	t.Fatal("requires RandomIndexWriter, BooleanQuery, TermQuery — not yet wired in Gocene")
 }
 
 func TestReqOptSumScorer_BasicsFilter(t *testing.T) {
-	t.Skip("requires RandomIndexWriter, BooleanQuery, TermQuery — not yet wired in Gocene")
+	t.Fatal("requires RandomIndexWriter, BooleanQuery, TermQuery — not yet wired in Gocene")
 }
 
 func TestReqOptSumScorer_MaxBlock(t *testing.T) {
-	t.Skip("requires IndexWriter, TermQuery, advanceShallow — not yet wired in Gocene")
+	t.Fatal("requires IndexWriter, TermQuery, advanceShallow — not yet wired in Gocene")
 }
 
 func TestReqOptSumScorer_MaxScoreSegment(t *testing.T) {
-	t.Skip("requires IndexWriter, ConstantScoreQuery, TermQuery — not yet wired in Gocene")
+	t.Fatal("requires IndexWriter, ConstantScoreQuery, TermQuery — not yet wired in Gocene")
 }
 
 func TestReqOptSumScorer_MustRandomFrequentOpt(t *testing.T) {
-	t.Skip("requires RandomIndexWriter, CheckHits — not yet wired in Gocene")
+	t.Fatal("requires RandomIndexWriter, CheckHits — not yet wired in Gocene")
 }
 
 func TestReqOptSumScorer_MustRandomRareOpt(t *testing.T) {
-	t.Skip("requires RandomIndexWriter, CheckHits — not yet wired in Gocene")
+	t.Fatal("requires RandomIndexWriter, CheckHits — not yet wired in Gocene")
 }
 
 func TestReqOptSumScorer_FilterRandomFrequentOpt(t *testing.T) {
-	t.Skip("requires RandomIndexWriter, CheckHits — not yet wired in Gocene")
+	t.Fatal("requires RandomIndexWriter, CheckHits — not yet wired in Gocene")
 }
 
 func TestReqOptSumScorer_FilterRandomRareOpt(t *testing.T) {
-	t.Skip("requires RandomIndexWriter, CheckHits — not yet wired in Gocene")
+	t.Fatal("requires RandomIndexWriter, CheckHits — not yet wired in Gocene")
 }
 
 // ─── Unit tests ──────────────────────────────────────────────────────────

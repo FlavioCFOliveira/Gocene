@@ -17,5 +17,5 @@ import "testing"
 
 // TestBaseKnnVectorQueryTestCase is a placeholder for the abstract base class.
 func TestBaseKnnVectorQueryTestCase(t *testing.T) {
-	t.Skip("abstract test base class — 35 test methods require IndexWriter+IndexSearcher+HNSW integration (pre-existing failure in Gocene)")
+	t.Fatal("abstract test base class — 35 test methods require IndexWriter+IndexSearcher+HNSW integration (pre-existing failure in Gocene)")
 }

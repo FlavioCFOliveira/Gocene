@@ -35,7 +35,7 @@ func TestLocate_SkipsCleanlyWhenHarnessMissing(t *testing.T) {
 
 func TestList_ContainsFoundationalScenarios(t *testing.T) {
 	if _, err := Locate(); errors.Is(err, ErrHarnessMissing) {
-		t.Skipf("harness jar missing: %v", err)
+		t.Fatalf("harness jar missing: %v", err)
 	}
 	names, err := List()
 	if err != nil {
@@ -60,7 +60,7 @@ func TestList_ContainsFoundationalScenarios(t *testing.T) {
 
 func TestGenerateAndVerify_Smoke(t *testing.T) {
 	if _, err := Locate(); errors.Is(err, ErrHarnessMissing) {
-		t.Skipf("harness jar missing: %v", err)
+		t.Fatalf("harness jar missing: %v", err)
 	}
 	dir, err := Generate("smoke", 0)
 	if err != nil {

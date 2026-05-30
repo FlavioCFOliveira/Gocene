@@ -149,7 +149,7 @@ func TestSegmentTermEnum(t *testing.T) {
 	// SegmentReader.coreReaders nil, so LeafReader.Terms returns "core readers
 	// are nil". Same blocker documented in bag_of_positions_test.go. Unskip
 	// once OpenDirectoryReader uses NewSegmentReaderWithCore.
-	t.Skip("blocked: OpenDirectoryReader builds SegmentReader without core readers; fix is NewSegmentReaderWithCore")
+	t.Fatal("blocked: OpenDirectoryReader builds SegmentReader without core readers; fix is NewSegmentReaderWithCore")
 
 	dir, err := store.NewSimpleFSDirectory(t.TempDir())
 	if err != nil {
@@ -214,7 +214,7 @@ func TestSegmentTermEnum(t *testing.T) {
 //     SimpleFSDirectory, as in TestSegmentTermEnum.
 func TestSegmentTermEnumPrevTermAtEnd(t *testing.T) {
 	// Same OpenDirectoryReader core-readers gap as TestSegmentTermEnum.
-	t.Skip("blocked: OpenDirectoryReader builds SegmentReader without core readers; fix is NewSegmentReaderWithCore")
+	t.Fatal("blocked: OpenDirectoryReader builds SegmentReader without core readers; fix is NewSegmentReaderWithCore")
 
 	dir, err := store.NewSimpleFSDirectory(t.TempDir())
 	if err != nil {

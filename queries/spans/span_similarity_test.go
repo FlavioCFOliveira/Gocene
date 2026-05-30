@@ -12,5 +12,5 @@ import "testing"
 // TestSpanSimilarity_All is skipped because it requires full span similarity
 // scoring infrastructure not yet complete in Gocene.
 func TestSpanSimilarity_All(t *testing.T) {
-	t.Skip("requires full span similarity scoring; deferred to backlog")
+	t.Fatal("requires full span similarity scoring; deferred to backlog")
 }

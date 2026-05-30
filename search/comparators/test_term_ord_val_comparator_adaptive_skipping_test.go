@@ -13,17 +13,17 @@ package comparators
 import "testing"
 
 func TestTermOrdValComparatorAdaptiveSkipping_ResultsCorrectForInterleavedData(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }
 func TestTermOrdValComparatorAdaptiveSkipping_SkippingEffectiveForClusteredData(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }
 func TestTermOrdValComparatorAdaptiveSkipping_ResultsCorrectForRandomData(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }
 func TestTermOrdValComparatorAdaptiveSkipping_AdaptiveDisablingFiresForInterleavedData(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }
 func TestTermOrdValComparatorAdaptiveSkipping_AdaptiveDisablingDoesNotFireForClusteredData(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

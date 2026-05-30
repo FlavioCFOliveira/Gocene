@@ -12,5 +12,5 @@ import "testing"
 // TestSpanExplanations_All is skipped because it requires full span query and
 // explanation infrastructure that is not yet complete in Gocene.
 func TestSpanExplanations_All(t *testing.T) {
-	t.Skip("requires full span explanation infrastructure; deferred to backlog")
+	t.Fatal("requires full span explanation infrastructure; deferred to backlog")
 }

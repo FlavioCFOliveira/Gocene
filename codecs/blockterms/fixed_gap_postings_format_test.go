@@ -19,7 +19,7 @@ import "testing"
 // FixedGapTermsIndexWriter / BlockTermsWriter) are not yet ported to the
 // Gocene blockterms package.
 func TestFixedGapPostingsFormat(t *testing.T) {
-	t.Skip(
+	t.Fatal(
 		"LuceneFixedGap and the underlying FixedGapTermsIndexWriter / " +
 			"BlockTermsWriter write path are not yet ported to Gocene; " +
 			"test deferred until those components land",

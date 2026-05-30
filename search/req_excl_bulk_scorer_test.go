@@ -223,6 +223,6 @@ func TestReqExclBulkScorer_Random(t *testing.T) {
 // framework module (org.apache.lucene.tests.search.RandomApproximationQuery)
 // and is not yet ported to Gocene.
 func TestReqExclBulkScorer_RandomTwoPhase(t *testing.T) {
-	t.Skip("needs RandomTwoPhaseView from lucene-test-framework " +
+	t.Fatal("needs RandomTwoPhaseView from lucene-test-framework " +
 		"(org.apache.lucene.tests.search.RandomApproximationQuery — not yet ported)")
 }

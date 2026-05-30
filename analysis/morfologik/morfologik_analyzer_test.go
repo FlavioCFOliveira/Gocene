@@ -72,7 +72,7 @@ func drainTokens(t *testing.T, ts analysis.TokenStream) []string {
 	t.Helper()
 	ag, ok := ts.(legacyAttrGetter)
 	if !ok {
-		t.Skip("TokenStream does not expose legacy GetAttribute shim; skipping token content assertions")
+		t.Fatal("TokenStream does not expose legacy GetAttribute shim; skipping token content assertions")
 		return nil
 	}
 	var tokens []string

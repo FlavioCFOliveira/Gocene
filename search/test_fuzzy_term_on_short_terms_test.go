@@ -14,5 +14,5 @@ import "testing"
 
 // TestFuzzyTermOnShortTerms_FuzzyTermOnShortTerms mirrors testFuzzyTermOnShortTerms.
 func TestFuzzyTermOnShortTerms_FuzzyTermOnShortTerms(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

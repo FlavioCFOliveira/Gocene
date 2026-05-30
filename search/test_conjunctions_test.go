@@ -14,10 +14,10 @@ import "testing"
 
 // TestConjunctions_TermConjunctionsWithOmitTF mirrors testTermConjunctionsWithOmitTF.
 func TestConjunctions_TermConjunctionsWithOmitTF(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }
 
 // TestConjunctions_ScorerGetChildren mirrors testScorerGetChildren.
 func TestConjunctions_ScorerGetChildren(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

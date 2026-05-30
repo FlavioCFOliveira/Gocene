@@ -19,7 +19,7 @@ import (
 // TestNewestSegment verifies that a freshly created IndexWriter, before any
 // flush, reports no newest segment.
 func TestNewestSegment(t *testing.T) {
-	t.Skip("Sprint 55 option c: needs IndexWriter.newestSegment (not yet ported)")
+	t.Fatal("Sprint 55 option c: needs IndexWriter.newestSegment (not yet ported)")
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()

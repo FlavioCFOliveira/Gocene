@@ -92,7 +92,7 @@ func TestNewSearcherLifetimeManager_InvalidMaxSearchers(t *testing.T) {
 func TestSearcherLifetimeManager_AcquireRelease(t *testing.T) {
 	// Requires a real IndexSearcher backed by a live DirectoryReader.
 	// Skipped until NRT infrastructure is wired into SearcherLifetimeManager tests.
-	t.Skip("requires real index infrastructure")
+	t.Fatal("requires real index infrastructure")
 }
 
 func TestSearcherLifetimeManager_Acquire_Closed(t *testing.T) {
@@ -218,11 +218,11 @@ func TestSearcherLifetimeManager_String(t *testing.T) {
 func TestSearcherLifetimeManager_Cleanup(t *testing.T) {
 	// Requires a real IndexSearcher to acquire from the manager.
 	// Skipped until NRT infrastructure is wired into SearcherLifetimeManager tests.
-	t.Skip("requires real index infrastructure")
+	t.Fatal("requires real index infrastructure")
 }
 
 func TestSearcherLifetimeManager_ConcurrentOperations(t *testing.T) {
 	// Requires a real IndexSearcher to exercise concurrent Acquire/Release.
 	// Skipped until NRT infrastructure is wired into SearcherLifetimeManager tests.
-	t.Skip("requires real index infrastructure")
+	t.Fatal("requires real index infrastructure")
 }

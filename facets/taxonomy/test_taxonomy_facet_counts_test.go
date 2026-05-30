@@ -78,17 +78,17 @@ func (r *parallelReader) GetParallelTaxonomyArrays() taxonomy.ParallelTaxonomyAr
 // -- Integration stubs -------------------------------------------------------
 
 func TestTaxonomyFacetCounts_Basic(t *testing.T) {
-	t.Skip("requires IndexWriter + FacetsCollector + DirectoryTaxonomyWriter/Reader pipeline")
+	t.Fatal("requires IndexWriter + FacetsCollector + DirectoryTaxonomyWriter/Reader pipeline")
 }
 
 func TestTaxonomyFacetCounts_MultiValuedHierarchy(t *testing.T) {
-	t.Skip("requires IndexWriter + FacetsCollector + DirectoryTaxonomyWriter/Reader pipeline")
+	t.Fatal("requires IndexWriter + FacetsCollector + DirectoryTaxonomyWriter/Reader pipeline")
 }
 
 func TestTaxonomyFacetCounts_Random(t *testing.T) {
-	t.Skip("requires IndexWriter + FacetsCollector + DirectoryTaxonomyWriter/Reader pipeline")
+	t.Fatal("requires IndexWriter + FacetsCollector + DirectoryTaxonomyWriter/Reader pipeline")
 }
 
 func TestTaxonomyFacetCounts_DrillDown(t *testing.T) {
-	t.Skip("requires IndexWriter + FacetsCollector + DirectoryTaxonomyWriter/Reader pipeline")
+	t.Fatal("requires IndexWriter + FacetsCollector + DirectoryTaxonomyWriter/Reader pipeline")
 }

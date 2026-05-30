@@ -19,5 +19,5 @@ import "testing"
 //   - DirectoryReader.open(IndexWriter) NRT factory
 //   - the DocHelper.createDocument test fixture
 func TestPerSegmentDeletes(t *testing.T) {
-	t.Skip("deferred: IndexWriter.MaybeMerge, HasChangesInRam, NRT DirectoryReader-from-writer, and DocHelper.createDocument not yet ported")
+	t.Fatal("deferred: IndexWriter.MaybeMerge, HasChangesInRam, NRT DirectoryReader-from-writer, and DocHelper.createDocument not yet ported")
 }

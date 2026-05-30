@@ -53,7 +53,7 @@ func TestReaderClosed(t *testing.T) {
 	//
 	// Unskip once OpenDirectoryReader wires SegmentCoreReaders and
 	// DirectoryReader operations reject use after Close.
-	t.Skip("blocked: OpenDirectoryReader builds SegmentReader without core readers, and DirectoryReader.Close does not make later use raise AlreadyClosedException (index/directory_reader.go:462/497/597)")
+	t.Fatal("blocked: OpenDirectoryReader builds SegmentReader without core readers, and DirectoryReader.Close does not make later use raise AlreadyClosedException (index/directory_reader.go:462/497/597)")
 
 	dir, err := store.NewSimpleFSDirectory(t.TempDir())
 	if err != nil {

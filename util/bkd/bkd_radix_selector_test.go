@@ -528,7 +528,7 @@ func TestBKDRadixSelector_Offline_MultiDim(t *testing.T) {
 // offline pipelines.
 func TestBKDRadixSelector_Offline_MediumRandom(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping medium random test in -short mode")
+		t.Fatal("skipping medium random test in -short mode")
 	}
 	rng := rand.New(rand.NewSource(6))
 	const iterations = 8

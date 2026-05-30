@@ -80,7 +80,7 @@ func scoreFull(s search.BulkScorer) (int, error) {
 // The Java test requires a full index + searcher; that infrastructure is not
 // yet available in Gocene. Ported as a degraded stub.
 func TestTimeLimitingBulkScorer_TimeLimitingBulkScorer(t *testing.T) {
-	t.Skip("requires full IndexWriter/IndexSearcher/TermQuery — deferred until index round-trip is wired")
+	t.Fatal("requires full IndexWriter/IndexSearcher/TermQuery — deferred until index round-trip is wired")
 }
 
 // TestTimeLimitingBulkScorer_ExponentialRate is a faithful port of

@@ -41,14 +41,14 @@ import (
 // isCurrent() transitions. Needs DirectoryReader.open(writer) and updateDocument
 // / deleteDocuments to be applied.
 func TestIndexWriterReader_AddCloseOpen(t *testing.T) {
-	t.Skip("needs NRT DirectoryReader.open(writer); deleteDocuments/updateDocument are no-op stubs")
+	t.Fatal("needs NRT DirectoryReader.open(writer); deleteDocuments/updateDocument are no-op stubs")
 }
 
 // testUpdateDocument ports testUpdateDocument().
 // Java verifies an updated document replaces the old one and is visible via an
 // NRT reader. UpdateDocument's delete-term half is currently not applied.
 func TestIndexWriterReader_UpdateDocument(t *testing.T) {
-	t.Skip("IndexWriter.UpdateDocument does not apply the delete term; NRT reader unavailable")
+	t.Fatal("IndexWriter.UpdateDocument does not apply the delete term; NRT reader unavailable")
 }
 
 // testIsCurrent ports testIsCurrent().
@@ -227,30 +227,30 @@ func TestIndexWriterReader_AddIndexes2(t *testing.T) {
 // testDeleteFromIndexWriter ports testDeleteFromIndexWriter().
 // Java deletes by term and by query and checks visibility through NRT readers.
 func TestIndexWriterReader_DeleteFromIndexWriter(t *testing.T) {
-	t.Skip("IndexWriter.DeleteDocuments is a no-op stub; deletes are not applied")
+	t.Fatal("IndexWriter.DeleteDocuments is a no-op stub; deletes are not applied")
 }
 
 // testAddIndexesAndDoDeletesThreads ports testAddIndexesAndDoDeletesThreads().
 // Stress test combining concurrent addIndexes and deletes; needs the
 // AddDirectoriesThreads harness, applied deletes and TestUtil.checkIndex.
 func TestIndexWriterReader_AddIndexesAndDoDeletesThreads(t *testing.T) {
-	t.Skip("needs AddDirectoriesThreads harness and applied deletes")
+	t.Fatal("needs AddDirectoriesThreads harness and applied deletes")
 }
 
 // testIndexWriterReopenSegmentFullMerge ports testIndexWriterReopenSegmentFullMerge().
 func TestIndexWriterReader_IndexWriterReopenSegmentFullMerge(t *testing.T) {
-	t.Skip("needs NRT DirectoryReader.open(writer) to observe pre-commit segments")
+	t.Fatal("needs NRT DirectoryReader.open(writer) to observe pre-commit segments")
 }
 
 // testIndexWriterReopenSegment ports testIndexWriterReopenSegment().
 func TestIndexWriterReader_IndexWriterReopenSegment(t *testing.T) {
-	t.Skip("needs NRT DirectoryReader.open(writer) to observe pre-commit segments")
+	t.Fatal("needs NRT DirectoryReader.open(writer) to observe pre-commit segments")
 }
 
 // testMergeWarmer ports testMergeWarmer().
 // Verifies the merged-segment warmer callback fires; warmers are not ported.
 func TestIndexWriterReader_MergeWarmer(t *testing.T) {
-	t.Skip("MergedSegmentWarmer is not implemented")
+	t.Fatal("MergedSegmentWarmer is not implemented")
 }
 
 // testAfterCommit ports testAfterCommit().
@@ -346,7 +346,7 @@ func TestIndexWriterReader_AfterClose(t *testing.T) {
 
 // testDuringAddIndexes ports testDuringAddIndexes() (a @Nightly stress test).
 func TestIndexWriterReader_DuringAddIndexes(t *testing.T) {
-	t.Skip("nightly stress test; needs NRT openIfChanged and MockDirectoryWrapper")
+	t.Fatal("nightly stress test; needs NRT openIfChanged and MockDirectoryWrapper")
 }
 
 // testDuringAddDelete ports testDuringAddDelete().
@@ -354,19 +354,19 @@ func TestIndexWriterReader_DuringAddIndexes(t *testing.T) {
 // applied deletes are unavailable; concurrent appends are covered separately
 // by TestIndexWriterReader_ConcurrentAccess.
 func TestIndexWriterReader_DuringAddDelete(t *testing.T) {
-	t.Skip("needs NRT openIfChanged and applied deletes")
+	t.Fatal("needs NRT openIfChanged and applied deletes")
 }
 
 // testForceMergeDeletes ports testForceMergeDeletes().
 // Java deletes a document then forceMergeDeletes() to physically drop it.
 func TestIndexWriterReader_ForceMergeDeletes(t *testing.T) {
-	t.Skip("DeleteDocuments is a no-op stub and IndexWriter.ForceMergeDeletes is not implemented")
+	t.Fatal("DeleteDocuments is a no-op stub and IndexWriter.ForceMergeDeletes is not implemented")
 }
 
 // testDeletesNumDocs ports testDeletesNumDocs().
 // Java checks numDocs shrinks as documents are deleted.
 func TestIndexWriterReader_DeletesNumDocs(t *testing.T) {
-	t.Skip("IndexWriter.DeleteDocuments is a no-op stub; numDocs cannot reflect deletes")
+	t.Fatal("IndexWriter.DeleteDocuments is a no-op stub; numDocs cannot reflect deletes")
 }
 
 // testEmptyIndex ports testEmptyIndex().
@@ -401,45 +401,45 @@ func TestIndexWriterReader_EmptyIndex(t *testing.T) {
 
 // testSegmentWarmer ports testSegmentWarmer().
 func TestIndexWriterReader_SegmentWarmer(t *testing.T) {
-	t.Skip("MergedSegmentWarmer and reader pooling are not implemented")
+	t.Fatal("MergedSegmentWarmer and reader pooling are not implemented")
 }
 
 // testSimpleMergedSegmentWarmer ports testSimpleMergedSegmentWarmer().
 func TestIndexWriterReader_SimpleMergedSegmentWarmer(t *testing.T) {
-	t.Skip("SimpleMergedSegmentWarmer is not implemented")
+	t.Fatal("SimpleMergedSegmentWarmer is not implemented")
 }
 
 // testReopenAfterNoRealChange ports testReopenAfterNoRealChange().
 // Java relies on openIfChanged returning nil when nothing changed.
 func TestIndexWriterReader_ReopenAfterNoRealChange(t *testing.T) {
-	t.Skip("needs DirectoryReader.openIfChanged and NRT reader pooling")
+	t.Fatal("needs DirectoryReader.openIfChanged and NRT reader pooling")
 }
 
 // testNRTOpenExceptions ports testNRTOpenExceptions().
 // Java injects FakeIOException via MockDirectoryWrapper while opening NRT
 // readers and checks no file handles leak.
 func TestIndexWriterReader_NRTOpenExceptions(t *testing.T) {
-	t.Skip("needs MockDirectoryWrapper failure injection and NRT DirectoryReader.open(writer)")
+	t.Fatal("needs MockDirectoryWrapper failure injection and NRT DirectoryReader.open(writer)")
 }
 
 // testTooManySegments ports testTooManySegments().
 // Java opens an NRT reader after each add and asserts the merge policy keeps
 // the leaf count bounded.
 func TestIndexWriterReader_TooManySegments(t *testing.T) {
-	t.Skip("needs NRT DirectoryReader.open(writer) and reader.leaves()")
+	t.Fatal("needs NRT DirectoryReader.open(writer) and reader.leaves()")
 }
 
 // testReopenNRTReaderOnCommit ports testReopenNRTReaderOnCommit().
 // Java verifies SegmentReader instances are shared when reopening an NRT
 // reader against a commit point.
 func TestIndexWriterReader_ReopenNRTReaderOnCommit(t *testing.T) {
-	t.Skip("needs NRT openIfChanged against a commit and SegmentReader sharing")
+	t.Fatal("needs NRT openIfChanged against a commit and SegmentReader sharing")
 }
 
 // testIndexReaderWriterWithLeafSorter ports testIndexReaderWriterWithLeafSorter().
 // Java configures IndexWriterConfig.setLeafSorter and checks leaf ordering.
 func TestIndexWriterReader_IndexReaderWriterWithLeafSorter(t *testing.T) {
-	t.Skip("IndexWriterConfig.setLeafSorter and leaf ordering are not implemented")
+	t.Fatal("IndexWriterConfig.setLeafSorter and leaf ordering are not implemented")
 }
 
 // --- Additional coverage retained from the pre-existing port ----------------

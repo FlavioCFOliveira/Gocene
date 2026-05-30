@@ -14,5 +14,5 @@ import "testing"
 
 // TestPhrasePrefixQuery_TestPhrasePrefixQuery mirrors testPhrasePrefixQuery.
 func TestPhrasePrefixQuery_TestPhrasePrefixQuery(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

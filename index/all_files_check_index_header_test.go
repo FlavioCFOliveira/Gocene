@@ -38,7 +38,7 @@ func TestAllFilesCheckIndexHeader(t *testing.T) {
 	// readers are loaded lazily and the segments file carries no CRC32
 	// footer), so a corrupted header is not detected at open time. Unskip
 	// once eager header validation lands in the directory reader.
-	t.Skip("blocked: OpenDirectoryReader does not validate codec headers on open yet")
+	t.Fatal("blocked: OpenDirectoryReader does not validate codec headers on open yet")
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()

@@ -28,9 +28,9 @@ import "testing"
 // and asserts that every BinaryDocValues value round-trips.
 func Test2BBinaryDocValuesFixedBinary(t *testing.T) {
 	if testing.Short() {
-		t.Skip("monster test: skipped in -short mode")
+		t.Fatal("monster test: skipped in -short mode")
 	}
-	t.Skip("monster test: indexes ~2B docs, ~6h runtime and multiple GB of heap; IndexWriter/BinaryDocValues iteration infrastructure not yet available")
+	t.Fatal("monster test: indexes ~2B docs, ~6h runtime and multiple GB of heap; IndexWriter/BinaryDocValues iteration infrastructure not yet available")
 }
 
 // Test2BBinaryDocValuesVariableBinary ports Test2BBinaryDocValues.testVariableBinary.
@@ -40,7 +40,7 @@ func Test2BBinaryDocValuesFixedBinary(t *testing.T) {
 // and asserts that every BinaryDocValues value decodes back to the expected VInt.
 func Test2BBinaryDocValuesVariableBinary(t *testing.T) {
 	if testing.Short() {
-		t.Skip("monster test: skipped in -short mode")
+		t.Fatal("monster test: skipped in -short mode")
 	}
-	t.Skip("monster test: indexes ~2B docs, ~6h runtime and multiple GB of heap; IndexWriter/BinaryDocValues iteration infrastructure not yet available")
+	t.Fatal("monster test: indexes ~2B docs, ~6h runtime and multiple GB of heap; IndexWriter/BinaryDocValues iteration infrastructure not yet available")
 }

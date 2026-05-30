@@ -58,7 +58,7 @@ import "testing"
 // the sibling stub, and the GeoTestUtil/RandomIndexWriter/QueryUtils/
 // CheckHits helpers land in Go.
 func TestLatLonMultiPointShapeQueries(t *testing.T) {
-	t.Skip("blocked by BaseLatLonShapeTestCase parent harness, " +
+	t.Fatal("blocked by BaseLatLonShapeTestCase parent harness, " +
 		"document.LatLonShape.CreateIndexableFields(lat,lon), geo.Point " +
 		"with ShapeType.POINT random generator, Component2D/WithinRelation " +
 		"truth source, TestLatLonPointShapeQueries.PointValidator (itself a " +

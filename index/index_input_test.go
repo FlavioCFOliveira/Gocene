@@ -59,7 +59,7 @@ import "testing"
 // helper methods and their exact byte sequences are not yet ported; VByte
 // encoding compatibility with the Java reference is unverified.
 func TestIndexInput_RawRead(t *testing.T) {
-	t.Skip("needs checkReads/checkSeeksAndSkips/checkRandomReads helpers " +
+	t.Fatal("needs checkReads/checkSeeksAndSkips/checkRandomReads helpers " +
 		"with VByte-compatible ByteArrayDataInput (encoding compatibility " +
 		"unverified, not yet ported)")
 }
@@ -72,7 +72,7 @@ func TestIndexInput_RawRead(t *testing.T) {
 //
 // Degraded to t.Skip: same helper dependency as TestIndexInput_RawRead.
 func TestIndexInput_ByteArray(t *testing.T) {
-	t.Skip("needs checkReads/checkRandomReads helpers with VByte-compatible " +
+	t.Fatal("needs checkReads/checkRandomReads helpers with VByte-compatible " +
 		"ByteArrayDataInput (not yet ported)")
 }
 
@@ -88,7 +88,7 @@ func TestIndexInput_ByteArray(t *testing.T) {
 // loop bound; IndexInput is not yet defined as an interface in Gocene that
 // users can implement.
 func TestIndexInput_NoReadOnSkip(t *testing.T) {
-	t.Skip("needs user-supplied IndexInput implementation " +
+	t.Fatal("needs user-supplied IndexInput implementation " +
 		"(InterceptingIndexInput pattern) and TEST_NIGHTLY-aware loop bound " +
 		"(not yet ported)")
 }

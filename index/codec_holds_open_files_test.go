@@ -34,5 +34,5 @@ import (
 // TestCodecHoldsOpenFiles indexes a batch of documents, opens a reader, deletes
 // every file in the directory, and asserts the reader still works.
 func TestCodecHoldsOpenFiles(t *testing.T) {
-	t.Skip("blocked: no IndexWriter.GetReader (NRT reader) and no TestUtil.checkReader equivalent yet")
+	t.Fatal("blocked: no IndexWriter.GetReader (NRT reader) and no TestUtil.checkReader equivalent yet")
 }

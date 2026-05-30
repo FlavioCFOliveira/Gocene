@@ -257,7 +257,7 @@ func TestLZ4_Fixture_LiteralsContinuation255(t *testing.T) {
 		seen[key] = i
 	}
 	if collision {
-		t.Skip("synthetic input happens to contain a duplicate 4-byte sequence; skip fixture")
+		t.Fatal("synthetic input happens to contain a duplicate 4-byte sequence; skip fixture")
 	}
 
 	// Expected: token=0xF0, then encodeLen(270-15=255): 0xFF 0x00, then 270 bytes.

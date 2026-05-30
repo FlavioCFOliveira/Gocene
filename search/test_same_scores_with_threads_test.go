@@ -14,5 +14,5 @@ import "testing"
 
 // TestSameScoresWithThreads_TestSameScoresWithThreads mirrors testSameScoresWithThreads.
 func TestSameScoresWithThreads_TestSameScoresWithThreads(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

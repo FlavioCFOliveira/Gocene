@@ -12,5 +12,5 @@ import "testing"
 // TestFunctionQuerySort_All is skipped because it requires full function query
 // sort infrastructure not yet complete in Gocene.
 func TestFunctionQuerySort_All(t *testing.T) {
-	t.Skip("requires full function query sort infrastructure; deferred to backlog")
+	t.Fatal("requires full function query sort infrastructure; deferred to backlog")
 }

@@ -14,5 +14,5 @@ import "testing"
 
 // TestDateSort_TestDateSort mirrors testDateSort.
 func TestDateSort_TestDateSort(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

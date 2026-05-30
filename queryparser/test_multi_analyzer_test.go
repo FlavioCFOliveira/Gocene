@@ -23,5 +23,5 @@ import "testing"
 //
 // Port of: queryparser/src/test/.../classic/TestMultiAnalyzer.java
 func TestMultiAnalyzer(t *testing.T) {
-	t.Skip("deferred: requires generic Analyzer support and multi-token position handling in the classic QueryParser")
+	t.Fatal("deferred: requires generic Analyzer support and multi-token position handling in the classic QueryParser")
 }

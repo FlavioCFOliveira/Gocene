@@ -16,5 +16,5 @@ import "testing"
 
 // TestLatLonDocValuesQueries is a placeholder for the concrete BaseLatLonDocValueTestCase subclass.
 func TestLatLonDocValuesQueries(t *testing.T) {
-	t.Skip("extends BaseLatLonDocValueTestCase (no own tests); requires IndexWriter+IndexSearcher+geo spatial integration (pre-existing failure in Gocene)")
+	t.Fatal("extends BaseLatLonDocValueTestCase (no own tests); requires IndexWriter+IndexSearcher+geo spatial integration (pre-existing failure in Gocene)")
 }

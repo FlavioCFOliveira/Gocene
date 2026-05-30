@@ -27,7 +27,7 @@ import (
 // required by this test, so the assertions on deleted IDs cannot pass yet. See
 // index_writer_delete_test.go for the same documented infra gap.
 func TestStressDeletes(t *testing.T) {
-	t.Skip("infra gap: DeleteDocuments(Term|Query) are no-op stubs and no NRT reader-from-writer; port retained for when delete application lands")
+	t.Fatal("infra gap: DeleteDocuments(Term|Query) are no-op stubs and no NRT reader-from-writer; port retained for when delete application lands")
 
 	const numIDs = 100
 	locks := make([]sync.Mutex, numIDs)

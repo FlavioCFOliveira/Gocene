@@ -13,5 +13,5 @@ import "testing"
 // equivalent. In Lucene it is annotated @Nightly and @SuppressCodecs("Direct"),
 // so it is skipped by default.
 func TestDuelingCodecsAtNight(t *testing.T) {
-	t.Skip("nightly test: dueling-codecs equality over atLeast(2000) docs per side")
+	t.Fatal("nightly test: dueling-codecs equality over atLeast(2000) docs per side")
 }

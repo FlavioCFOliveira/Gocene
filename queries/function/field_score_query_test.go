@@ -12,5 +12,5 @@ import "testing"
 // TestFieldScoreQuery_All is skipped because it requires full function test
 // setup (FunctionTestSetup with indexed numeric field data) not yet in Gocene.
 func TestFieldScoreQuery_All(t *testing.T) {
-	t.Skip("requires FunctionTestSetup + indexed numeric fields; deferred to backlog")
+	t.Fatal("requires FunctionTestSetup + indexed numeric fields; deferred to backlog")
 }

@@ -12,5 +12,5 @@ import "testing"
 // TestExpressionValidation skips because it requires a validate() method on
 // SimpleBindings and JavascriptCompiler.compile with the full ANTLR grammar.
 func TestExpressionValidation(t *testing.T) {
-	t.Skip("requires SimpleBindings.validate and full ANTLR JavascriptCompiler (not yet ported)")
+	t.Fatal("requires SimpleBindings.validate and full ANTLR JavascriptCompiler (not yet ported)")
 }

@@ -15,33 +15,33 @@ package index_test
 import "testing"
 
 func TestNRTSearchBasic(t *testing.T) {
-	t.Skip("NRT search test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT search test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTSearchAfterReopen(t *testing.T) {
-	t.Skip("NRT search test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT search test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTSearchConsistency(t *testing.T) {
-	t.Skip("NRT search test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT search test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTSearchConcurrentReadWrite(t *testing.T) {
-	t.Skip("NRT search test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT search test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTSearchAfterDelete(t *testing.T) {
-	t.Skip("NRT search test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT search test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTSearchMultipleFields(t *testing.T) {
-	t.Skip("NRT search test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT search test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func BenchmarkNRTSearchLatency(b *testing.B) {
-	b.Skip("NRT search benchmark — import cycle / unimplemented APIs, not yet fixed")
+	b.Fatal("NRT search benchmark — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func BenchmarkNRTSearchThroughput(b *testing.B) {
-	b.Skip("NRT search benchmark — import cycle / unimplemented APIs, not yet fixed")
+	b.Fatal("NRT search benchmark — import cycle / unimplemented APIs, not yet fixed")
 }

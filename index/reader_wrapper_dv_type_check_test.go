@@ -60,7 +60,7 @@ import "testing"
 // Additionally, iw.getReader() (NRT reader from writer) and
 // getOnlyLeafReader(reader) are not yet ported.
 func TestReaderWrapperDVTypeCheck_NoDVFieldOnSegment(t *testing.T) {
-	t.Skip("GetSortedDocValues/GetSortedSetDocValues are stubs returning (nil,nil); " +
+	t.Fatal("GetSortedDocValues/GetSortedSetDocValues are stubs returning (nil,nil); " +
 		"DV-type discrimination, iw.getReader() NRT path, and getOnlyLeafReader helper " +
 		"are not yet available")
 }

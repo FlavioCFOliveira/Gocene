@@ -27,12 +27,12 @@ func TestIndexWriter_TragicEvent(t *testing.T) {
 	// 1. Set a tragic error manually (simulating a fatal I/O error during flush/merge)
 	// tragicErr := errors.New("simulated fatal I/O error")
 
-	t.Skip("Tragic event test requires a way to inject fatal errors into IndexWriter")
+	t.Fatal("Tragic event test requires a way to inject fatal errors into IndexWriter")
 }
 
 // TestIndexWriter_TragicErrorIntegration tests that if Commit fails fatally,
 // the writer becomes closed.
 func TestIndexWriter_TragicErrorIntegration(t *testing.T) {
 	// This will require a MockDirectory that fails during WriteSegmentInfos
-	t.Skip("Requires MockDirectory to simulate fatal WriteSegmentInfos failure")
+	t.Fatal("Requires MockDirectory to simulate fatal WriteSegmentInfos failure")
 }

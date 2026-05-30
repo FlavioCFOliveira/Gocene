@@ -54,7 +54,7 @@ import "testing"
 // Degraded to t.Skip: assertTokenStreamContents (BaseTokenStreamTestCase),
 // CannedTokenStream, and Field.tokenStream reuse semantics are not yet ported.
 func TestFieldReuse_StringField(t *testing.T) {
-	t.Skip("needs assertTokenStreamContents (BaseTokenStreamTestCase), " +
+	t.Fatal("needs assertTokenStreamContents (BaseTokenStreamTestCase), " +
 		"CannedTokenStream, and Field.tokenStream(Analyzer,TokenStream) " +
 		"reuse contract (not yet ported)")
 }
@@ -69,7 +69,7 @@ func TestFieldReuse_StringField(t *testing.T) {
 // takes a Document, not a Collection<IndexableField>; DefaultIndexingChain
 // reuse path is not observable from tests without IndexableField.tokenStream.
 func TestFieldReuse_IndexWriterActuallyReuses(t *testing.T) {
-	t.Skip("needs CannedTokenStream, IndexWriter.addDocument(Collection" +
+	t.Fatal("needs CannedTokenStream, IndexWriter.addDocument(Collection" +
 		"<IndexableField>), and DefaultIndexingChain TokenStream reuse " +
 		"contract (not yet ported)")
 }

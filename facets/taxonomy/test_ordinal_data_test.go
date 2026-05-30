@@ -89,13 +89,13 @@ func TestReindexingEnrichedWriter_Close(t *testing.T) {
 // -- Integration stubs -------------------------------------------------------
 
 func TestOrdinalData_DocValue(t *testing.T) {
-	t.Skip("requires IndexWriter + NumericDocValuesField + DirectoryTaxonomyReader pipeline")
+	t.Fatal("requires IndexWriter + NumericDocValuesField + DirectoryTaxonomyReader pipeline")
 }
 
 func TestOrdinalData_SearchableField(t *testing.T) {
-	t.Skip("requires IndexWriter + DirectoryTaxonomyReader + IndexSearcher pipeline")
+	t.Fatal("requires IndexWriter + DirectoryTaxonomyReader + IndexSearcher pipeline")
 }
 
 func TestOrdinalData_Reindex(t *testing.T) {
-	t.Skip("requires full reindex pipeline with ReindexingEnrichedDirectoryTaxonomyWriter")
+	t.Fatal("requires full reindex pipeline with ReindexingEnrichedDirectoryTaxonomyWriter")
 }

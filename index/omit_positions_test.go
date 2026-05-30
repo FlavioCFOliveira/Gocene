@@ -59,7 +59,7 @@ import (
 // Degraded to t.Skip: the NRT reader (w.getReader()) and MultiTerms postings
 // resolution require a wired postings reader, which is not available yet.
 func TestOmitPositions_Basic(t *testing.T) {
-	t.Skip("needs NRT reader from IndexWriter (w.getReader()) and wired " +
+	t.Fatal("needs NRT reader from IndexWriter (w.getReader()) and wired " +
 		"MultiTerms.getTermPostingsEnum / postings reader")
 }
 
@@ -74,7 +74,7 @@ func TestOmitPositions_Basic(t *testing.T) {
 // codec; GetFieldInfos on the leaf returns an empty FieldInfos.  Also requires
 // getOnlyLeafReader helper (not yet ported).
 func TestOmitPositions_Positions(t *testing.T) {
-	t.Skip("reader-side FieldInfos not loaded by NewSegmentReader; " +
+	t.Fatal("reader-side FieldInfos not loaded by NewSegmentReader; " +
 		"getOnlyLeafReader helper not yet ported")
 }
 

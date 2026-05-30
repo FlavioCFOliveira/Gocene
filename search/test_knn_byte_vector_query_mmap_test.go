@@ -13,5 +13,5 @@ package search
 import "testing"
 
 func TestKnnByteVectorQueryMMap_Basics(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+KNN+MMapDirectory integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+KNN+MMapDirectory integration (pre-existing failure in Gocene)")
 }

@@ -12,53 +12,53 @@ package index_test
 import "testing"
 
 func TestReplicationEndToEnd(t *testing.T) {
-	t.Skip("Replication integration test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("Replication integration test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestReplicationConsistency(t *testing.T) {
-	t.Skip("Replication integration test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("Replication integration test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestReplicationIncremental(t *testing.T) {
-	t.Skip("Replication integration test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("Replication integration test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestReplicationFailureRecovery(t *testing.T) {
-	t.Skip("Replication integration test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("Replication integration test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestReplicationConcurrent(t *testing.T) {
-	t.Skip("Replication integration test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("Replication integration test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestReplicationWithDeletions(t *testing.T) {
-	t.Skip("Replication integration test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("Replication integration test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func BenchmarkReplication(b *testing.B) {
-	b.Skip("Replication integration benchmark — import cycle / unimplemented APIs, not yet fixed")
+	b.Fatal("Replication integration benchmark — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestReplicationSession(t *testing.T) {
-	t.Skip("Replication integration test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("Replication integration test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestReplicationSessionTimeout(t *testing.T) {
-	t.Skip("Replication integration test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("Replication integration test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestReplicationWithLargeFiles(t *testing.T) {
-	t.Skip("Replication integration test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("Replication integration test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestReplicationNetworkFailure(t *testing.T) {
-	t.Skip("Replication integration test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("Replication integration test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestReplicationChecksumVerification(t *testing.T) {
-	t.Skip("Replication integration test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("Replication integration test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestReplicationMetrics(t *testing.T) {
-	t.Skip("Replication integration test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("Replication integration test — import cycle / unimplemented APIs, not yet fixed")
 }

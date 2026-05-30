@@ -91,7 +91,7 @@ func TestDeferredGoceneWriteLeg(t *testing.T) {
 				// deferral surfaces in -v output ONLY when the harness
 				// is wired (otherwise the upstream Skip is a tautology).
 				requireHarness(t)
-				t.Skipf("deferred: Gocene-write leg for %q at seed=%d: %s",
+				t.Fatalf("deferred: Gocene-write leg for %q at seed=%d: %s",
 					c.scenario, seed, c.reason)
 			})
 		}

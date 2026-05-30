@@ -19,7 +19,7 @@ import "testing"
 // underlying VariableGapTermsIndexWriter / BlockTermsWriter are not
 // yet ported to the Gocene blockterms package.
 func TestVarGapFixedIntervalPostingsFormat(t *testing.T) {
-	t.Skip(
+	t.Fatal(
 		"LuceneVarGapDocFreqInterval and the underlying " +
 			"VariableGapTermsIndexWriter / BlockTermsWriter write path are " +
 			"not yet ported to Gocene; test deferred until those components land",

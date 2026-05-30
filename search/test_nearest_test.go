@@ -13,17 +13,17 @@ package search
 import "testing"
 
 func TestNearest_NearestNeighborWithDeletedDocs(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+geo integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+geo integration (pre-existing failure in Gocene)")
 }
 func TestNearest_NearestNeighborWithAllDeletedDocs(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+geo integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+geo integration (pre-existing failure in Gocene)")
 }
 func TestNearest_TieBreakByDocID(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+geo integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+geo integration (pre-existing failure in Gocene)")
 }
 func TestNearest_NearestNeighborWithNoDocs(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+geo integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+geo integration (pre-existing failure in Gocene)")
 }
 func TestNearest_NearestNeighborRandom(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher+geo integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher+geo integration (pre-existing failure in Gocene)")
 }

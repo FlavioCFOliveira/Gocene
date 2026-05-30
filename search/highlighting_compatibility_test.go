@@ -14,9 +14,9 @@ package search_test
 import "testing"
 
 func TestHighlightingCompatibility_BasicHighlighting(t *testing.T) {
-	t.Skip("highlight package not yet implemented")
+	t.Fatal("highlight package not yet implemented")
 }
 
 func TestHighlightingCompatibility_MultipleTerms(t *testing.T) {
-	t.Skip("highlight package not yet implemented")
+	t.Fatal("highlight package not yet implemented")
 }

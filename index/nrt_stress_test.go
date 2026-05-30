@@ -14,29 +14,29 @@ package index_test
 import "testing"
 
 func TestNRTStressIndexing(t *testing.T) {
-	t.Skip("NRT stress test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT stress test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTStressMemory(t *testing.T) {
-	t.Skip("NRT stress test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT stress test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTStressReopenStress(t *testing.T) {
-	t.Skip("NRT stress test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT stress test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTStressLongRunning(t *testing.T) {
-	t.Skip("NRT stress test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT stress test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTStressDeleteHeavy(t *testing.T) {
-	t.Skip("NRT stress test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT stress test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTStressFileHandleLeak(t *testing.T) {
-	t.Skip("NRT stress test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT stress test — import cycle / unimplemented APIs, not yet fixed")
 }
 
 func TestNRTStressRecovery(t *testing.T) {
-	t.Skip("NRT stress test — import cycle / unimplemented APIs, not yet fixed")
+	t.Fatal("NRT stress test — import cycle / unimplemented APIs, not yet fixed")
 }

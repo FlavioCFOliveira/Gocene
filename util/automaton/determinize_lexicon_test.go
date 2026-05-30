@@ -68,5 +68,5 @@ const determinizeLexiconGapMessage = "AutomatonTestUtil.isFinite not ported yet 
 // term is accepted by Operations.Run. The nightly branch additionally
 // asserts UTF-8 byte acceptance through ByteRunAutomaton.
 func TestDeterminizeLexicon_Lexicon(t *testing.T) {
-	t.Skip(determinizeLexiconGapMessage)
+	t.Fatal(determinizeLexiconGapMessage)
 }

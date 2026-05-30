@@ -89,7 +89,7 @@ func TestLucene90StoredFieldsFormatHighCompression_Basic(t *testing.T) {
 // has no Mode parameter, so the scenario cannot be expressed at the same
 // layer; the test is skipped with an explicit reason rather than mocked.
 func TestLucene90StoredFieldsFormatHighCompression_MixedCompressions(t *testing.T) {
-	t.Skip("requires Mode-aware Lucene104Codec; not yet ported (see file-level mapping notes)")
+	t.Fatal("requires Mode-aware Lucene104Codec; not yet ported (see file-level mapping notes)")
 }
 
 // TestLucene90StoredFieldsFormatHighCompression_InvalidOptions ports

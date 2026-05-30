@@ -211,7 +211,7 @@ func TestIndexWriterThreadsToSegments_SegmentCountOnFlushRandom(t *testing.T) {
 // Skipped: requires RandomIndexWriter, MockAnalyzer, TestUtil.reduceOpenFiles
 // and IndexWriterConfig.setCommitOnClose, none of which exist in Gocene yet.
 func TestIndexWriterThreadsToSegments_ManyThreadsClose(t *testing.T) {
-	t.Skip("requires RandomIndexWriter / setCommitOnClose infrastructure (Sprint 55 option c)")
+	t.Fatal("requires RandomIndexWriter / setCommitOnClose infrastructure (Sprint 55 option c)")
 }
 
 // TestIndexWriterThreadsToSegments_DocsStuckInRAMForever ports
@@ -219,7 +219,7 @@ func TestIndexWriterThreadsToSegments_ManyThreadsClose(t *testing.T) {
 // SegmentInfoFormat.read, SegmentReader.docFreq and core readers, which are
 // not yet wired (see SegmentReader core-readers gap).
 func TestIndexWriterThreadsToSegments_DocsStuckInRAMForever(t *testing.T) {
-	t.Skip("nightly; requires SegmentInfoFormat.read + SegmentReader.docFreq (Sprint 55 option c)")
+	t.Fatal("nightly; requires SegmentInfoFormat.read + SegmentReader.docFreq (Sprint 55 option c)")
 }
 
 // cyclicBarrier is a minimal port of java.util.concurrent.CyclicBarrier with a

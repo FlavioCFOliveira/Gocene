@@ -14,5 +14,5 @@ import "testing"
 
 // TestFieldCacheRewriteMethod_TestRegexps mirrors testRegexps.
 func TestFieldCacheRewriteMethod_TestRegexps(t *testing.T) {
-	t.Skip("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
 }

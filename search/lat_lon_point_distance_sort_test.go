@@ -161,7 +161,7 @@ var _ = latLonPointDistanceSortResult{}.less
 // TestLatLonPointDistanceSort_DistanceSort mirrors
 // TestLatLonPointDistanceSort.testDistanceSort (Java lines 47-82).
 func TestLatLonPointDistanceSort_DistanceSort(t *testing.T) {
-	t.Skip("blocked: requires (1) document.LatLonDocValuesField.NewDistanceSort factory, (2) IndexSearcher.Search(query, n, sort) wiring, and (3) FieldDoc surfacing the haversin metres as fields[0].")
+	t.Fatal("blocked: requires (1) document.LatLonDocValuesField.NewDistanceSort factory, (2) IndexSearcher.Search(query, n, sort) wiring, and (3) FieldDoc surfacing the haversin metres as fields[0].")
 	_ = latLonPointDistanceSortAnchorLat
 	_ = latLonPointDistanceSortAnchorLon
 	_ = latLonPointDistanceSortFixedDocs
@@ -171,7 +171,7 @@ func TestLatLonPointDistanceSort_DistanceSort(t *testing.T) {
 // TestLatLonPointDistanceSort_MissingLast mirrors
 // TestLatLonPointDistanceSort.testMissingLast (Java lines 85-119).
 func TestLatLonPointDistanceSort_MissingLast(t *testing.T) {
-	t.Skip("blocked: requires the missing-last branch of NewDistanceSort (Double.POSITIVE_INFINITY sentinel) on top of the same Search(query, n, sort) wiring missing for the fixed-anchor case.")
+	t.Fatal("blocked: requires the missing-last branch of NewDistanceSort (Double.POSITIVE_INFINITY sentinel) on top of the same Search(query, n, sort) wiring missing for the fixed-anchor case.")
 	_ = latLonPointDistanceSortMissingDocs
 	_ = latLonPointDistanceSortMissingExpected
 }
@@ -180,7 +180,7 @@ func TestLatLonPointDistanceSort_MissingLast(t *testing.T) {
 // TestLatLonPointDistanceSort.testRandom (Java lines 122-126), which
 // invokes doRandomTest(10, 100) 100 times.
 func TestLatLonPointDistanceSort_Random(t *testing.T) {
-	t.Skip("blocked: requires RandomIndexWriter + GeoTestUtil random lat/lon generators + SerialMergeScheduler wiring + IndexSearcher.SearchAfter overload; none ported yet.")
+	t.Fatal("blocked: requires RandomIndexWriter + GeoTestUtil random lat/lon generators + SerialMergeScheduler wiring + IndexSearcher.SearchAfter overload; none ported yet.")
 }
 
 // TestLatLonPointDistanceSort_RandomHuge mirrors
@@ -190,5 +190,5 @@ func TestLatLonPointDistanceSort_Random(t *testing.T) {
 // rationale as the non-huge counterpart plus an explicit nightly
 // marker so a future activation can gate it behind a build tag.
 func TestLatLonPointDistanceSort_RandomHuge(t *testing.T) {
-	t.Skip("blocked (nightly): same dependencies as TestLatLonPointDistanceSort_Random; additionally needs the Gocene equivalent of @Nightly so the 2000-doc/iter workload is opt-in.")
+	t.Fatal("blocked (nightly): same dependencies as TestLatLonPointDistanceSort_Random; additionally needs the Gocene equivalent of @Nightly so the 2000-doc/iter workload is opt-in.")
 }

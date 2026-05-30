@@ -14,17 +14,17 @@ package search_test
 import "testing"
 
 func TestCustomSort_BasicSort(t *testing.T) {
-	t.Skip("IndexSearcher.Search does not yet support Sort parameter")
+	t.Fatal("IndexSearcher.Search does not yet support Sort parameter")
 }
 
 func TestCustomSort_DescendingSort(t *testing.T) {
-	t.Skip("IndexSearcher.Search does not yet support Sort parameter")
+	t.Fatal("IndexSearcher.Search does not yet support Sort parameter")
 }
 
 func TestCustomSort_MultiFieldSort(t *testing.T) {
-	t.Skip("IndexSearcher.Search does not yet support Sort parameter")
+	t.Fatal("IndexSearcher.Search does not yet support Sort parameter")
 }
 
 func BenchmarkCustomSort_Performance(b *testing.B) {
-	b.Skip("IndexSearcher.Search does not yet support Sort parameter")
+	b.Fatal("IndexSearcher.Search does not yet support Sort parameter")
 }

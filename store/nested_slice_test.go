@@ -79,7 +79,7 @@ func TestNestedSliceComposesOffset(t *testing.T) {
 	t.Run("MMap", func(t *testing.T) {
 		dir, err := NewMMapDirectory(t.TempDir())
 		if err != nil {
-			t.Skipf("MMapDirectory unavailable: %v", err)
+			t.Fatalf("MMapDirectory unavailable: %v", err)
 		}
 		defer dir.Close()
 		out, _ := dir.CreateOutput("d", IOContext{})
@@ -103,7 +103,7 @@ func TestNestedSliceComposesOffset(t *testing.T) {
 func TestMMapSliceCloseDoesNotCorruptParent(t *testing.T) {
 	dir, err := NewMMapDirectory(t.TempDir())
 	if err != nil {
-		t.Skipf("MMapDirectory unavailable: %v", err)
+		t.Fatalf("MMapDirectory unavailable: %v", err)
 	}
 	defer dir.Close()
 	data := make([]byte, 100)

@@ -30,7 +30,7 @@ import "testing"
 // single document by term, commits, and asserts the reader is now stale. The
 // NRT reader accessor and a functional DeleteDocuments do not exist yet.
 func TestIsCurrent_DeleteByTermIsCurrent(t *testing.T) {
-	t.Skip("needs NRT IndexWriter.GetReader; IndexWriter.DeleteDocuments is a no-op stub")
+	t.Fatal("needs NRT IndexWriter.GetReader; IndexWriter.DeleteDocuments is a no-op stub")
 }
 
 // TestIsCurrent_DeleteAllIsCurrent ports testDeleteAllIsCurrent().
@@ -39,5 +39,5 @@ func TestIsCurrent_DeleteByTermIsCurrent(t *testing.T) {
 // writer.deleteAll(), commits, and asserts the reader is now stale. The NRT
 // reader accessor pulled directly from the writer does not exist yet.
 func TestIsCurrent_DeleteAllIsCurrent(t *testing.T) {
-	t.Skip("needs NRT IndexWriter.GetReader pulled directly from the writer")
+	t.Fatal("needs NRT IndexWriter.GetReader pulled directly from the writer")
 }

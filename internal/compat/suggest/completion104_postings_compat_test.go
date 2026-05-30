@@ -76,7 +76,7 @@ func TestCompletion104Postings_WriteAndVerify(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Skipf("deferred: Gocene Completion104PostingsFormat writer cannot "+
+			t.Fatalf("deferred: Gocene Completion104PostingsFormat writer cannot "+
 				"emit a Lucene-readable .lkp/.cmp pair yet "+
 				"(suggest/document/completion_postings_format.go); "+
 				"seed=%d; audit gap_notes (verbatim): %q", seed, auditGap)
@@ -93,7 +93,7 @@ func TestCompletion104Postings_RoundTrip(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Skipf("deferred: Gocene round-trip for completion104-postings at "+
+			t.Fatalf("deferred: Gocene round-trip for completion104-postings at "+
 				"seed=%d requires both a Gocene reader and writer for the "+
 				"Completion104PostingsFormat wire format; audit gap_notes "+
 				"(verbatim): %q", seed, auditGap)

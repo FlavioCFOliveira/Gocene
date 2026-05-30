@@ -50,7 +50,7 @@ import "testing"
 // functional deleteDocuments(Term), NRT DirectoryReader.open(IndexWriter),
 // and IndexReader.numDocs() are not yet available.
 func TestMixedCodecs(t *testing.T) {
-	t.Skip("needs RandomIndexWriter, MockAnalyzer, Codec.forName(\"SimpleText\"), " +
+	t.Fatal("needs RandomIndexWriter, MockAnalyzer, Codec.forName(\"SimpleText\"), " +
 		"functional deleteDocuments(Term), NRT DirectoryReader.open(IndexWriter), " +
 		"and IndexReader.numDocs() (not yet ported)")
 }

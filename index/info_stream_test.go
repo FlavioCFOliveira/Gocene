@@ -70,7 +70,7 @@ var _ util.InfoStream = (*tpInfoStream)(nil)
 func TestTestPointsOff(t *testing.T) {
 	stream := &tpInfoStream{t: t, rejectTP: true}
 
-	t.Skip("IndexWriterConfig has no SetInfoStream; indexing roundtrip unavailable (Sprint 55 option c)")
+	t.Fatal("IndexWriterConfig has no SetInfoStream; indexing roundtrip unavailable (Sprint 55 option c)")
 	_ = stream
 }
 
@@ -79,7 +79,7 @@ func TestTestPointsOff(t *testing.T) {
 func TestTestPointsOn(t *testing.T) {
 	stream := &tpInfoStream{t: t}
 
-	t.Skip("IndexWriter has no overridable isEnableTestPoints hook; test-point roundtrip unavailable (Sprint 55 option c)")
+	t.Fatal("IndexWriter has no overridable isEnableTestPoints hook; test-point roundtrip unavailable (Sprint 55 option c)")
 
 	if !stream.seenTestUnit.Load() {
 		t.Fatal("expected a test-point message to be observed")

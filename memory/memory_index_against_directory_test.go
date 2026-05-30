@@ -57,35 +57,35 @@ func buildFooField(rng *rand.Rand, maxTerms int) string {
 // consistently across repeated resets and field additions.
 // Java counterpart: testRandomQueries / assertAgainstDirectory.
 func TestMemoryIndexAgainstDirectory_RandomQueries(t *testing.T) {
-	t.Skip("requires full MemoryIndex.createSearcher() + DirectoryReader — not yet ported")
+	t.Fatal("requires full MemoryIndex.createSearcher() + DirectoryReader — not yet ported")
 }
 
 // TestMemoryIndexAgainstDirectory_DocsEnumStart verifies that a PostingsEnum
 // starts with docID == -1 and advances correctly.
 // Java counterpart: testDocsEnumStart.
 func TestMemoryIndexAgainstDirectory_DocsEnumStart(t *testing.T) {
-	t.Skip("requires MemoryIndex.createSearcher() + LeafReader.terms() — not yet ported")
+	t.Fatal("requires MemoryIndex.createSearcher() + LeafReader.terms() — not yet ported")
 }
 
 // TestMemoryIndexAgainstDirectory_DocsAndPositionsEnumStart verifies that a
 // PostingsEnum with positions starts with docID == -1 and yields correct offsets.
 // Java counterpart: testDocsAndPositionsEnumStart.
 func TestMemoryIndexAgainstDirectory_DocsAndPositionsEnumStart(t *testing.T) {
-	t.Skip("requires MemoryIndex.createSearcher() + PostingsEnum.ALL — not yet ported")
+	t.Fatal("requires MemoryIndex.createSearcher() + PostingsEnum.ALL — not yet ported")
 }
 
 // TestMemoryIndexAgainstDirectory_NullPointerException verifies that searching a
 // RegexpQuery wrapped in SpanMultiTermQueryWrapper returns 0 hits (not a panic).
 // Java counterpart: testNullPointerException (LUCENE-3831).
 func TestMemoryIndexAgainstDirectory_NullPointerException(t *testing.T) {
-	t.Skip("requires MemoryIndex.search() + SpanMultiTermQueryWrapper — not yet ported")
+	t.Fatal("requires MemoryIndex.search() + SpanMultiTermQueryWrapper — not yet ported")
 }
 
 // TestMemoryIndexAgainstDirectory_PassesIfWrapped verifies that wrapping a
 // SpanMultiTermQueryWrapper in a SpanOrQuery also returns 0 hits without panic.
 // Java counterpart: testPassesIfWrapped (LUCENE-3831).
 func TestMemoryIndexAgainstDirectory_PassesIfWrapped(t *testing.T) {
-	t.Skip("requires MemoryIndex.search() + SpanOrQuery — not yet ported")
+	t.Fatal("requires MemoryIndex.search() + SpanOrQuery — not yet ported")
 }
 
 // TestMemoryIndexAgainstDirectory_SameFieldAddedMultipleTimes verifies that adding
@@ -93,7 +93,7 @@ func TestMemoryIndexAgainstDirectory_PassesIfWrapped(t *testing.T) {
 // phrase-query matching.
 // Java counterpart: testSameFieldAddedMultipleTimes.
 func TestMemoryIndexAgainstDirectory_SameFieldAddedMultipleTimes(t *testing.T) {
-	t.Skip("requires MemoryIndex.createSearcher() + PhraseQuery — not yet ported")
+	t.Fatal("requires MemoryIndex.createSearcher() + PhraseQuery — not yet ported")
 }
 
 // TestMemoryIndexAgainstDirectory_NonExistentField verifies that querying a field
@@ -122,14 +122,14 @@ func TestMemoryIndexAgainstDirectory_NonExistentField(t *testing.T) {
 // stored in a MemoryIndex match those from a Directory-backed index.
 // Java counterpart: testDocValuesMemoryIndexVsNormalIndex.
 func TestMemoryIndexAgainstDirectory_DocValuesVsNormalIndex(t *testing.T) {
-	t.Skip("requires MemoryIndex.fromDocument() + DocValues APIs — not yet ported")
+	t.Fatal("requires MemoryIndex.fromDocument() + DocValues APIs — not yet ported")
 }
 
 // TestMemoryIndexAgainstDirectory_NormsWithDocValues verifies norm values are
 // consistent between MemoryIndex and a Directory-backed index when DocValues are present.
 // Java counterpart: testNormsWithDocValues.
 func TestMemoryIndexAgainstDirectory_NormsWithDocValues(t *testing.T) {
-	t.Skip("requires MemoryIndex.createSearcher() + getNormValues() — not yet ported")
+	t.Fatal("requires MemoryIndex.createSearcher() + getNormValues() — not yet ported")
 }
 
 // TestMemoryIndexAgainstDirectory_PointValuesVsNormalIndex verifies that IntPoint,
@@ -137,21 +137,21 @@ func TestMemoryIndexAgainstDirectory_NormsWithDocValues(t *testing.T) {
 // MemoryIndex and a Directory-backed index.
 // Java counterpart: testPointValuesMemoryIndexVsNormalIndex.
 func TestMemoryIndexAgainstDirectory_PointValuesVsNormalIndex(t *testing.T) {
-	t.Skip("requires MemoryIndex.fromDocument() + IntPoint/LongPoint queries — not yet ported")
+	t.Fatal("requires MemoryIndex.fromDocument() + IntPoint/LongPoint queries — not yet ported")
 }
 
 // TestMemoryIndexAgainstDirectory_DuellMemIndex verifies that a MemoryIndex
 // matches a Directory-backed index across multiple random documents.
 // Java counterpart: testDuellMemIndex.
 func TestMemoryIndexAgainstDirectory_DuellMemIndex(t *testing.T) {
-	t.Skip("requires MemoryIndex.createSearcher() + DirectoryReader.duellReaders() — not yet ported")
+	t.Fatal("requires MemoryIndex.createSearcher() + DirectoryReader.duellReaders() — not yet ported")
 }
 
 // TestMemoryIndexAgainstDirectory_EmptyString verifies that an empty-string token
 // can be indexed and found via TermQuery.
 // Java counterpart: testEmptyString (LUCENE-4880).
 func TestMemoryIndexAgainstDirectory_EmptyString(t *testing.T) {
-	t.Skip("requires MemoryIndex.createSearcher() + CannedTokenStream — not yet ported")
+	t.Fatal("requires MemoryIndex.createSearcher() + CannedTokenStream — not yet ported")
 }
 
 // TestMemoryIndexAgainstDirectory_DuelCoreDirectoryWithArrayField verifies that
@@ -159,7 +159,7 @@ func TestMemoryIndexAgainstDirectory_EmptyString(t *testing.T) {
 // when the same field is added multiple times.
 // Java counterpart: testDuelMemoryIndexCoreDirectoryWithArrayField.
 func TestMemoryIndexAgainstDirectory_DuelCoreDirectoryWithArrayField(t *testing.T) {
-	t.Skip("requires MemoryIndex.createSearcher() + termVectors() — not yet ported")
+	t.Fatal("requires MemoryIndex.createSearcher() + termVectors() — not yet ported")
 }
 
 // ---------------------------------------------------------------------------

@@ -92,7 +92,7 @@ func TestChildBlockJoin_RoundTrip(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Skipf("deferred: Gocene ToChildBlockJoinQuery round-trip at "+
+			t.Fatalf("deferred: Gocene ToChildBlockJoinQuery round-trip at "+
 				"seed=%d is blocked on the SegmentReader core-readers gap "+
 				"(memory-index ref 'gocene-segmentreader-corereaders-gap'); "+
 				"audit gap_notes (verbatim): %q",

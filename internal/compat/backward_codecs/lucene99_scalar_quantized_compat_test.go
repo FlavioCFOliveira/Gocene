@@ -40,7 +40,7 @@ func TestLucene99ScalarQuantized_Deferred(t *testing.T) {
 			"segment requires an older Lucene jar; covered by a future " +
 			"backward-compat sprint."
 	)
-	t.Skipf("deferred: %s (lucene_class=%q gocene_class=%q gap_notes=%q): %s "+
+	t.Fatalf("deferred: %s (lucene_class=%q gocene_class=%q gap_notes=%q): %s "+
 		"(scenario %q lives in tools/lucene-fixtures/Manifest.DEFERRED_ROWS)",
 		auditRow, luceneCls, gocenePkg, gapNotes, reason, ScenarioBwcLucene99ScalarQuantized)
 }

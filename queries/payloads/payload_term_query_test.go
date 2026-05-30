@@ -12,5 +12,5 @@ import "testing"
 // TestPayloadTermQuery_All is skipped because it requires full payload
 // term query and scoring infrastructure not yet complete in Gocene.
 func TestPayloadTermQuery_All(t *testing.T) {
-	t.Skip("requires full PayloadTermQuery infrastructure; deferred to backlog")
+	t.Fatal("requires full PayloadTermQuery infrastructure; deferred to backlog")
 }
