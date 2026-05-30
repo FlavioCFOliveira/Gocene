@@ -6,6 +6,7 @@ package index
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/spi"
@@ -837,12 +838,24 @@ func openSegmentReader(directory store.Directory, sci *SegmentCommitInfo) (*Segm
 			loadLiveDocsFromDisk(directory, sci)
 			return sr, nil
 		}
-		// A codec name is stamped but the per-format data files are absent. This
-		// happens for AddIndexes-imported metadata-only segments (backlog #2707),
-		// which carry a real .si + .fnm but no postings/stored-fields files yet.
-		// Fall through to the FieldInfos-only reader rather than failing the whole
-		// reopen, preserving the pre-rmp-#4785 behaviour where such a segment had
-		// nil core readers but exposed its FieldInfos.
+		// Wiring the core readers failed. Distinguish a genuine failure from the
+		// benign metadata-only segment case (rmp #4):
+		//
+		//   - If the segment owns per-format data files (a compound .cfs, or any
+		//     non-metadata file), the codec readers MUST open; a failure here means
+		//     a corrupt or truncated segment, so surface an explicit error instead
+		//     of silently returning a data-less reader that would make DocValues
+		//     read-back (and every other accessor) appear empty.
+		//
+		//   - If the segment carries only .si/.fnm it is a metadata-only segment:
+		//     an AddIndexes-imported placeholder (backlog #2707) or a not-yet-
+		//     data-merged ForceMerge result (the real merge that writes the merged
+		//     postings/stored-fields/doc-values is tracked separately). For those we
+		//     fall through to the FieldInfos-only reader, preserving the structural
+		//     reopen until the merge write-path lands.
+		if segmentHasDataFiles(segInfo) {
+			return nil, fmt.Errorf("openSegmentReader: segment %q is codec-backed with data files but its core readers could not be opened: %w", segInfo.Name(), err)
+		}
 	}
 
 	// Codec-less / data-less fallback: expose the .si docCount and the .fnm
@@ -855,6 +868,28 @@ func openSegmentReader(directory store.Directory, sci *SegmentCommitInfo) (*Segm
 	}
 	loadLiveDocsFromDisk(directory, sci)
 	return sr, nil
+}
+
+// segmentHasDataFiles reports whether segInfo owns any per-format document-data
+// file (as opposed to only the .si segment-info and .fnm field-infos metadata).
+// A compound segment always carries data (its .cfs). For a non-compound segment
+// any file whose extension is not .si, .fnm or .cfe is a data file (postings,
+// stored fields, doc values, points, vectors, norms, term vectors). Used by
+// openSegmentReader to decide whether a core-readers wiring failure is a genuine
+// corruption (data present but unreadable) or a benign metadata-only segment.
+func segmentHasDataFiles(segInfo *SegmentInfo) bool {
+	if segInfo.IsCompoundFile() {
+		return true
+	}
+	for _, f := range segInfo.Files() {
+		switch {
+		case strings.HasSuffix(f, ".si"), strings.HasSuffix(f, ".fnm"), strings.HasSuffix(f, ".cfe"):
+			// Metadata only: not document data.
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 // readFieldInfosFromDisk reads the authoritative .fnm FieldInfos for a segment
