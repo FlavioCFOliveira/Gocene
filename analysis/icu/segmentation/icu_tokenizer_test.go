@@ -77,15 +77,14 @@ func TestICUTokenizer_Empty(t *testing.T) {
 // TestICUTokenizer_Armenian verifies Armenian text tokenization.
 // Port of TestICUTokenizer.testArmenian.
 //
-// Deviation: ICU4J produces "4,600" as a single numeric token (comma is
-// treated as a decimal separator within numbers). The Go-native
-// goWordBreakIterator splits on commas, producing "4" and "600" separately.
+// "4,600" is a single numeric token: the compiled Default.brk rules keep the
+// comma internal to the number, matching ICU4J / Lucene's testArmenian.
 func TestICUTokenizer_Armenian(t *testing.T) {
 	tok := newLatinTokenizer()
 	assertTokens(t, tok,
 		"Վիքիպեդիայի 13 միլիոն հոդվածները (4,600` հայերեն վիքիպեդիայում) գրվել են կամավորների կողմից ու համարյա բոլոր հոդվածները կարող է խմբագրել ցանկաց մարդ ով կարող է բացել Վիքիպեդիայի կայքը։",
 		[]string{
-			"Վիքիպեդիայի", "13", "միլիոն", "հոդվածները", "4", "600", "հայերեն",
+			"Վիքիպեդիայի", "13", "միլիոն", "հոդվածները", "4,600", "հայերեն",
 			"վիքիպեդիայում", "գրվել", "են", "կամավորների", "կողմից", "ու",
 			"համարյա", "բոլոր", "հոդվածները", "կարող", "է", "խմբագրել",
 			"ցանկաց", "մարդ", "ով", "կարող", "է", "բացել", "Վիքիպեդիայի", "կայքը",
@@ -147,20 +146,18 @@ func TestICUTokenizer_Korean(t *testing.T) {
 // TestICUTokenizer_Hebrew verifies Hebrew text tokenization.
 // Port of TestICUTokenizer.testHebrew.
 //
-// Deviation: ICU4J keeps internal apostrophes and double-quotes within Hebrew
-// words as part of the token (e.g. "הדו\"ח" and "מודי'ס" are single tokens).
-// The Go-native goWordBreakIterator splits on these punctuation characters,
-// producing separate tokens on either side of the apostrophe/quote.
+// Internal apostrophes and double-quotes stay within Hebrew words (e.g.
+// "הדו\"ח" and "מודי'ס" are single tokens). The compiled Default.brk rules
+// produce exactly ICU4J / Lucene's testHebrew output.
 func TestICUTokenizer_Hebrew(t *testing.T) {
 	tok := newLatinTokenizer()
-	// ICU4J: ["דנקנר", "תקף", "את", "הדו\"ח"] — we produce splits at punctuation.
 	assertTokens(t, tok,
 		"דנקנר תקף את הדו\"ח",
-		[]string{"דנקנר", "תקף", "את", "הדו", "ח"},
+		[]string{"דנקנר", "תקף", "את", "הדו\"ח"},
 	)
 	assertTokens(t, tok,
 		"חברת בת של מודי'ס",
-		[]string{"חברת", "בת", "של", "מודי", "ס"},
+		[]string{"חברת", "בת", "של", "מודי'ס"},
 	)
 }
 

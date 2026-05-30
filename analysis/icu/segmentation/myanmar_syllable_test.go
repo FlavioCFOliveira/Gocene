@@ -4,39 +4,57 @@
 
 package segmentation_test
 
-import "testing"
+import (
+	"testing"
 
-// TestMyanmarSyllable_BasicWord tests that Myanmar text produces at least one
-// token. The specific syllable boundaries expected by the Java test
-// (org.apache.lucene.analysis.icu.segmentation.TestMyanmarSyllable) require
-// ICU4J's compiled MyanmarSyllable.brk rule file, which is not available in
-// this Go port.
-//
-// Deviation: syllable-level segmentation of Myanmar text requires ICU4J's
-// compiled .brk rule files. This port's goWordBreakIterator treats Myanmar
-// script runs as whole tokens without syllable boundaries. The Java tests are
-// documented below for reference but are not ported.
-//
-// Java @Test methods not ported (require MyanmarSyllable.brk):
-//   - testBasics
-//   - testC, testCF, testCCA, testCCAF, testCV, testCVF
-//   - testCVVA, testCVVCA, testCVVCAF, testCM, testCMF
-//   - testCMCA, testCMCAF, testCMV, testCMVF, testCMVVA
-//   - testCMVVCA, testCMVVCAF, testI, testE
-func TestMyanmarSyllable_Tokenizes(t *testing.T) {
-	// Verify that Myanmar text is not dropped entirely.
-	// "သက်ဝင်လှုပ်ရှားစေပြီး" is a Myanmar sentence.
-	// We cannot assert specific syllables without ICU4J .brk data, but we
-	// can assert that at least one non-empty token is produced.
-	tok := newLatinTokenizer()
-	got := tokenize(t, tok, "သက်ဝင်")
-	if len(got) == 0 {
-		t.Skip("goWordBreakIterator produced no tokens for Myanmar text — " +
-			"verify Myanmar is in the isWordRune set")
+	"github.com/FlavioCFOliveira/Gocene/analysis/icu/segmentation"
+)
+
+// newMyanmarSyllableTokenizer creates an ICUTokenizer in Myanmar syllable mode
+// (cjkAsWords=false, myanmarAsWords=false), matching the Java setUp of
+// org.apache.lucene.analysis.icu.segmentation.TestMyanmarSyllable, which uses
+// new DefaultICUTokenizerConfig(false, false).
+func newMyanmarSyllableTokenizer() *segmentation.ICUTokenizer {
+	return segmentation.NewICUTokenizerWith(segmentation.NewDefaultICUTokenizerConfig(false, false))
+}
+
+// TestMyanmarSyllable ports org.apache.lucene.analysis.icu.segmentation.
+// TestMyanmarSyllable. These boundaries are produced by executing the compiled
+// MyanmarSyllable.brk rules (RBBIBreakIterator), and match ICU4J exactly.
+func TestMyanmarSyllable(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want []string
+	}{
+		// dictionary break would be သက်ဝင်|လှုပ်ရှား|စေ|ပြီး; syllable break is:
+		{"basics", "သက်ဝင်လှုပ်ရှားစေပြီး", []string{"သက်", "ဝင်", "လှုပ်", "ရှား", "စေ", "ပြီး"}},
+		{"C", "ကက", []string{"က", "က"}},
+		{"CF", "ကံကံ", []string{"ကံ", "ကံ"}},
+		{"CCA", "ကင်ကင်", []string{"ကင်", "ကင်"}},
+		{"CCAF", "ကင်းကင်း", []string{"ကင်း", "ကင်း"}},
+		{"CV", "ကာကာ", []string{"ကာ", "ကာ"}},
+		{"CVF", "ကားကား", []string{"ကား", "ကား"}},
+		{"CVVA", "ကော်ကော်", []string{"ကော်", "ကော်"}},
+		{"CVVCA", "ကောင်ကောင်", []string{"ကောင်", "ကောင်"}},
+		{"CVVCAF", "ကောင်းကောင်း", []string{"ကောင်း", "ကောင်း"}},
+		{"CM", "ကျကျ", []string{"ကျ", "ကျ"}},
+		{"CMF", "ကျံကျံ", []string{"ကျံ", "ကျံ"}},
+		{"CMCA", "ကျင်ကျင်", []string{"ကျင်", "ကျင်"}},
+		{"CMCAF", "ကျင်းကျင်း", []string{"ကျင်း", "ကျင်း"}},
+		{"CMV", "ကျာကျာ", []string{"ကျာ", "ကျာ"}},
+		{"CMVF", "ကျားကျား", []string{"ကျား", "ကျား"}},
+		{"CMVVA", "ကျော်ကျော်", []string{"ကျော်", "ကျော်"}},
+		{"CMVVCA", "ကြောင်ကြောင်", []string{"ကြောင်", "ကြောင်"}},
+		{"CMVVCAF", "ကြောင်းကြောင်း", []string{"ကြောင်း", "ကြောင်း"}},
+		{"I", "ဪဪ", []string{"ဪ", "ဪ"}},
+		{"E", "ဣဣ", []string{"ဣ", "ဣ"}},
 	}
-	for _, term := range got {
-		if term == "" {
-			t.Error("unexpected empty token")
-		}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tok := newMyanmarSyllableTokenizer()
+			assertTokens(t, tok, tc.in, tc.want)
+		})
 	}
 }
