@@ -30,4 +30,8 @@ func init() {
 	codec := NewLucene104Codec()
 	index.RegisterDefaultCodec(codec)
 	index.RegisterNamedCodec(codec.Name(), codec)
+	// The per-segment .si reader hook used by spi.ReadSegmentInfos to load the
+	// authoritative docCount/metadata (rmp #4785) is registered from package
+	// index (see index.init in index_writer.go), so it is always installed
+	// whenever the index reader/writer is used — no codecs import required.
 }

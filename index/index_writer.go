@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -955,7 +957,25 @@ func (w *IndexWriter) Commit() error {
 				// ReadSegmentInfos creates fresh SegmentCommitInfo objects.
 				RegisterInMemoryFields(w.directory, segmentName, ps.inMemoryFields)
 			}
-			segInfo.SetFiles([]string{segmentName + ".si"})
+			segFiles := []string{segmentName + ".si"}
+			// Persist the FieldInfos to a real .fnm so they survive a reader
+			// reopen without the removed _gocene_fi_ userData key (rmp #4785).
+			// This covers AddIndexes-imported segments (no DWPT flush) that
+			// carry FieldInfos only in memory; the .fnm is the authoritative
+			// on-disk source that openSegmentReader reads back.
+			if ps.fieldInfos != nil && ps.fieldInfos.Size() > 0 && codec != nil {
+				if fif := codec.FieldInfosFormat(); fif != nil {
+					if err3 := fif.Write(w.directory, segInfo, "", ps.fieldInfos, store.IOContextWrite); err3 != nil {
+						return fmt.Errorf("commit: write field infos for %s: %w", segmentName, err3)
+					}
+					segFiles = append(segFiles, segmentName+".fnm")
+					// Stamp the codec name so the reopen path
+					// (openSegmentReader) resolves a codec and reads the .fnm
+					// back as the authoritative FieldInfos source (rmp #4785).
+					segInfo.SetCodec(codec.Name())
+				}
+			}
+			segInfo.SetFiles(segFiles)
 		}
 
 		if len(ps.deletedOrdinals) > 0 {
@@ -1772,6 +1792,146 @@ func writeSegmentInfo(dir store.Directory, si *SegmentInfo, context store.IOCont
 	return out.Close()
 }
 
+// readSegmentInfo reads the Lucene99SegmentInfo .si file for the named segment
+// from dir, returning a fully-populated SegmentInfo. It is the exact inverse of
+// writeSegmentInfo and mirrors
+// org.apache.lucene.codecs.lucene99.Lucene99SegmentInfoFormat.read.
+//
+// This reader lives in package index (rather than only in package codecs) so
+// that the per-segment .si is the authoritative source of docCount and metadata
+// even when no concrete codec is blank-imported (codec-less structural tests).
+// It is registered as the spi.ReadSegmentInfos .si reader hook in init below,
+// replacing the legacy _gocene_dc_ userData round-trip (rmp #4785).
+func readSegmentInfo(dir store.Directory, segmentName string, segmentID []byte, context store.IOContext) (*SegmentInfo, error) {
+	name := segmentName + ".si"
+	raw, err := dir.OpenInput(name, context)
+	if err != nil {
+		return nil, err
+	}
+	in := store.NewChecksumIndexInput(raw)
+	defer in.Close()
+
+	if _, err := checkIndexHeader(in, "Lucene90SegmentInfo", 0, 0, segmentID, ""); err != nil {
+		return nil, fmt.Errorf("readSegmentInfo %s: header: %w", name, err)
+	}
+
+	// Version (Java DataOutput.writeInt -> little-endian).
+	major, err := store.ReadInt32LE(in)
+	if err != nil {
+		return nil, err
+	}
+	minor, err := store.ReadInt32LE(in)
+	if err != nil {
+		return nil, err
+	}
+	bugfix, err := store.ReadInt32LE(in)
+	if err != nil {
+		return nil, err
+	}
+	luceneVersion := fmt.Sprintf("%d.%d.%d", major, minor, bugfix)
+
+	// hasMinVersion sentinel + optional minVersion ints (rmp #4784).
+	hasMinVersion, err := in.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+	var minVersion string
+	switch hasMinVersion {
+	case 0:
+		// absent
+	case 1:
+		minMajor, err := store.ReadInt32LE(in)
+		if err != nil {
+			return nil, err
+		}
+		minMinor, err := store.ReadInt32LE(in)
+		if err != nil {
+			return nil, err
+		}
+		minBugfix, err := store.ReadInt32LE(in)
+		if err != nil {
+			return nil, err
+		}
+		minVersion = fmt.Sprintf("%d.%d.%d", minMajor, minMinor, minBugfix)
+	default:
+		return nil, fmt.Errorf("readSegmentInfo %s: illegal hasMinVersion byte: %d", name, hasMinVersion)
+	}
+
+	docCount, err := store.ReadInt32LE(in)
+	if err != nil {
+		return nil, err
+	}
+
+	isCompoundByte, err := in.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+	isCompoundFile := isCompoundByte == 1
+
+	hasBlocksByte, err := in.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+	hasBlocks := hasBlocksByte == 1
+
+	diagnostics, err := store.ReadMapOfStrings(in)
+	if err != nil {
+		return nil, err
+	}
+
+	files, err := store.ReadSetOfStrings(in)
+	if err != nil {
+		return nil, err
+	}
+
+	attributes, err := store.ReadMapOfStrings(in)
+	if err != nil {
+		return nil, err
+	}
+
+	numSortFields, err := store.ReadVInt(in)
+	if err != nil {
+		return nil, err
+	}
+	if numSortFields > 0 {
+		return nil, fmt.Errorf("readSegmentInfo %s: index sort not yet supported", name)
+	}
+
+	if _, err := checkFooter(in); err != nil {
+		return nil, fmt.Errorf("readSegmentInfo %s: footer: %w", name, err)
+	}
+
+	si := NewSegmentInfo(segmentName, int(docCount), dir)
+	si.SetID(segmentID)
+	si.SetVersion(luceneVersion)
+	if minVersion != "" {
+		si.SetMinVersion(minVersion)
+	}
+	si.SetHasBlocks(hasBlocks)
+	si.SetCompoundFile(isCompoundFile)
+	si.SetDiagnostics(diagnostics)
+	fileList := make([]string, 0, len(files))
+	for f := range files {
+		fileList = append(fileList, f)
+	}
+	si.SetFiles(fileList)
+	for k, v := range attributes {
+		si.SetAttribute(k, v)
+	}
+	return si, nil
+}
+
+// init registers readSegmentInfo as the spi.ReadSegmentInfos .si reader hook so
+// that per-segment docCount and metadata are loaded from the authoritative .si
+// file rather than from segments_N userData (rmp #4785). Living in package
+// index, this hook is always installed whenever the index reader/writer is
+// used, independent of which concrete codec (if any) is blank-imported.
+func init() {
+	spi.RegisterSegmentInfoReader(func(dir store.Directory, segmentName string, segmentID []byte) (*schema.SegmentInfo, error) {
+		return readSegmentInfo(dir, segmentName, segmentID, store.IOContextRead)
+	})
+}
+
 // parseSegmentVersion parses a version string such as "10.4.0" into its
 // major, minor, and bugfix components.  Missing components default to zero.
 func parseSegmentVersion(v string) (major, minor, bugfix int32) {
@@ -1857,6 +2017,11 @@ func (w *IndexWriter) AddIndexes(dirs ...store.Directory) error {
 				for _, sci := range sourceSI.List() {
 					srcFI := sci.GetInMemoryFieldInfos()
 					if srcFI == nil {
+						// FieldInfos are now authoritative on the source .fnm
+						// (rmp #4785 removed the _gocene_fi_ userData fallback).
+						srcFI = readFieldInfosFromDisk(dir, w.config.Codec(), sci.SegmentInfo())
+					}
+					if srcFI == nil {
 						continue
 					}
 					fi := srcFI.GetByName(dstParentField)
@@ -1887,7 +2052,14 @@ func (w *IndexWriter) AddIndexes(dirs ...store.Directory) error {
 				continue
 			}
 			var fi *FieldInfos
-			if srcFI := sci.GetInMemoryFieldInfos(); srcFI != nil {
+			// Prefer in-memory FieldInfos; otherwise read the authoritative .fnm
+			// from the source segment on disk (rmp #4785 removed the _gocene_fi_
+			// userData fallback, so AddIndexes must consult the real .fnm).
+			srcFI := sci.GetInMemoryFieldInfos()
+			if srcFI == nil {
+				srcFI = readFieldInfosFromDisk(dir, w.config.Codec(), sci.SegmentInfo())
+			}
+			if srcFI != nil {
 				// Clone FieldInfos for this segment.
 				fi = NewFieldInfos()
 				it := srcFI.Iterator()

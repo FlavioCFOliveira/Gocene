@@ -5,6 +5,7 @@
 package index_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
@@ -101,88 +102,77 @@ func TestReadSegmentInfos_LuceneFixture(t *testing.T) {
 	}
 }
 
-// TestSegmentInfos_RoundTrip_WithExtensions writes a SegmentInfos with
-// FieldInfos, deleted ordinals, a parentField, and an indexSort, then reads it
-// back and verifies all in-memory extensions are faithfully restored.
-func TestSegmentInfos_RoundTrip_WithExtensions(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
+// TestSegmentInfos_RealOnDiskRoundTrip builds a genuine on-disk index with a
+// real codec and verifies the rmp #4785 contract: per-segment docCount comes
+// from the .si file and FieldInfos come from the .fnm file (inside the .cfs for
+// a compound segment), with NO _gocene_* keys in the segments_N commitUserData.
+// Real commit userData (the "author" key) still round-trips unchanged.
+func TestSegmentInfos_RealOnDiskRoundTrip(t *testing.T) {
+	dir, err := store.NewSimpleFSDirectory(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewSimpleFSDirectory: %v", err)
+	}
 	defer dir.Close()
 
-	sis := index.NewSegmentInfos()
-	sis.SetGeneration(3)
-	sis.SetCounter(5)
-	sis.SetUserDataValue("author", "gocene")
-
-	si := index.NewSegmentInfo("_2", 10, nil)
-	sci := index.NewSegmentCommitInfo(si, 2, -1)
-
-	// Attach a FieldInfos with one field.
-	fis := index.NewFieldInfos()
-	opts := index.FieldInfoOptions{
-		IndexOptions:             index.IndexOptionsDocsAndFreqsAndPositions,
-		DocValuesType:            index.DocValuesTypeNone,
-		DocValuesSkipIndexType:   index.DocValuesSkipIndexTypeNone,
-		DocValuesGen:             -1,
-		Stored:                   true,
-		Tokenized:                true,
-		VectorEncoding:           index.VectorEncodingFloat32,
-		VectorSimilarityFunction: index.VectorSimilarityFunctionEuclidean,
+	cfg := index.NewIndexWriterConfig(createTestAnalyzer())
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
 	}
-	_ = fis.Add(index.NewFieldInfo("body", 0, opts))
-	sci.SetInMemoryFieldInfos(fis)
-
-	// Attach deleted ordinals.
-	sci.SetDeletedOrdinals([]int{1, 3, 7})
-
-	sis.Add(sci)
-
-	if err := index.WriteSegmentInfos(sis, dir); err != nil {
-		t.Fatalf("WriteSegmentInfos: %v", err)
+	for i := 0; i < 4; i++ {
+		doc := document.NewDocument()
+		f, ferr := document.NewTextField("body", "the quick brown fox", true)
+		if ferr != nil {
+			t.Fatalf("NewTextField: %v", ferr)
+		}
+		doc.Add(f)
+		if err := w.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument %d: %v", i, err)
+		}
+	}
+	w.SetLiveCommitData(map[string]string{"author": "gocene"})
+	if err := w.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
 	}
 
-	got, err := index.ReadSegmentInfos(dir)
+	// The segments_N userData must contain NO _gocene_* keys.
+	sis, err := index.ReadSegmentInfos(dir)
 	if err != nil {
 		t.Fatalf("ReadSegmentInfos: %v", err)
 	}
-
-	if got.Generation() != sis.Generation() {
-		t.Errorf("generation: want %d, got %d", sis.Generation(), got.Generation())
+	for k := range sis.GetUserData() {
+		if strings.HasPrefix(k, "_gocene_") {
+			t.Errorf("segments_N userData still carries Gocene extension key %q", k)
+		}
 	}
-	if got.Counter() != sis.Counter() {
-		t.Errorf("counter: want %d, got %d", sis.Counter(), got.Counter())
+	if got := sis.GetUserDataValue("author"); got != "gocene" {
+		t.Errorf("userData[author]: want %q, got %q", "gocene", got)
 	}
-	if got.GetUserDataValue("author") != "gocene" {
-		t.Errorf("userData[author]: want %q, got %q", "gocene", got.GetUserDataValue("author"))
+	if sis.Size() != 1 {
+		t.Fatalf("expected 1 segment, got %d", sis.Size())
 	}
-	if got.Size() != 1 {
-		t.Fatalf("expected 1 segment, got %d", got.Size())
-	}
-
-	gotSCI := got.Get(0)
-	if gotSCI.Name() != "_2" {
-		t.Errorf("segment name: want _2, got %s", gotSCI.Name())
-	}
-	if gotSCI.DelCount() != 2 {
-		t.Errorf("delCount: want 2, got %d", gotSCI.DelCount())
+	// docCount is recovered from the real .si file (not userData).
+	if dc := sis.Get(0).SegmentInfo().DocCount(); dc != 4 {
+		t.Errorf("segment docCount from .si: want 4, got %d", dc)
 	}
 
-	gotFIS := gotSCI.GetInMemoryFieldInfos()
-	if gotFIS == nil {
-		t.Fatal("expected FieldInfos to be restored, got nil")
+	// FieldInfos are recovered from the real .fnm file (inside the .cfs), and
+	// the reopened reader sees the indexed field.
+	r, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
 	}
-	if gotFIS.Size() != 1 {
-		t.Errorf("FieldInfos.Size(): want 1, got %d", gotFIS.Size())
+	if r.NumDocs() != 4 {
+		t.Errorf("NumDocs: want 4, got %d", r.NumDocs())
 	}
-	fi := gotFIS.GetByName("body")
-	if fi == nil {
-		t.Fatal("field 'body' missing after round-trip")
+	fis := r.GetFieldInfos()
+	if fis.Size() != 1 {
+		t.Fatalf("merged FieldInfos.Size(): want 1, got %d", fis.Size())
 	}
-	if !fi.IsStored() {
-		t.Error("field 'body': IsStored should be true")
-	}
-
-	ords := gotSCI.GetDeletedOrdinals()
-	if len(ords) != 3 || ords[0] != 1 || ords[1] != 3 || ords[2] != 7 {
-		t.Errorf("deleted ordinals: want [1 3 7], got %v", ords)
+	if fis.GetByName("body") == nil {
+		t.Error("field 'body' missing after on-disk round-trip")
 	}
 }

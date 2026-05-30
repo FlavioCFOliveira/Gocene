@@ -641,23 +641,23 @@ func TestSegmentMerger_StoredFieldsMerge(t *testing.T) {
 		t.Errorf("Expected 2 documents, got %d", mergedReader.NumDocs())
 	}
 
-	// Verify field infos contain both fields
+	// Verify field infos contain both fields. After rmp #4785 the merged
+	// FieldInfos are recovered from the authoritative on-disk .fnm rather than
+	// from the removed _gocene_fi_ userData extension. The "stored" flag is NOT
+	// a property persisted in Lucene's .fnm (it is a per-document FieldType
+	// attribute, recoverable only from the stored-fields data, which an
+	// AddIndexes metadata-only import does not copy — backlog #2707). The merge
+	// therefore preserves field *existence* and indexed metadata, not the
+	// stored bit; asserting IsStored() here would test a non-faithful extension.
 	fieldInfos := mergedReader.GetFieldInfos()
 	if fieldInfos == nil {
 		t.Error("FieldInfos should not be nil")
 	} else {
-		titleField := fieldInfos.GetByName("title")
-		if titleField == nil {
+		if fieldInfos.GetByName("title") == nil {
 			t.Error("title field should exist in merged index")
-		} else if !titleField.IsStored() {
-			t.Error("title field should be stored")
 		}
-
-		contentField := fieldInfos.GetByName("content")
-		if contentField == nil {
+		if fieldInfos.GetByName("content") == nil {
 			t.Error("content field should exist in merged index")
-		} else if !contentField.IsStored() {
-			t.Error("content field should be stored")
 		}
 	}
 }

@@ -771,20 +771,25 @@ func openSegmentReader(directory store.Directory, sci *SegmentCommitInfo) (*Segm
 	// "file not found" errors. The caller (IndexSearcher.Doc, term searches)
 	// will receive nil coreReaders and take the in-memory fallback.
 
-	// Resolve FieldInfos: prefer in-memory (written by the writer), then read
-	// from disk via the codec's FieldInfosFormat.
-	fi := sci.GetInMemoryFieldInfos()
-	if fi == nil && codec != nil {
-		fif := codec.FieldInfosFormat()
-		if fif != nil {
-			var err error
-			fi, err = fif.Read(directory, sci.SegmentInfo(), "", store.IOContextRead)
-			if err != nil {
-				// Non-fatal: segment may not have a .fnm file yet (e.g., empty
-				// in-memory segment). Fall back to an empty FieldInfos.
-				fi = NewFieldInfos()
+	// Load the full SegmentInfo from the .si file to obtain metadata not present
+	// in the segments_N entry (isCompoundFile, file set, docCount).  Fall back
+	// to the segments_N-constructed SegmentInfo when the .si is absent
+	// (in-memory segments that were never flushed to disk).
+	segInfo := sci.SegmentInfo()
+	if codec != nil {
+		if sif := codec.SegmentInfoFormat(); sif != nil {
+			if fullSegInfo, err := sif.Read(directory, segInfo.Name(), segInfo.GetID(), store.IOContextRead); err == nil {
+				segInfo = fullSegInfo
 			}
 		}
+	}
+
+	// Resolve FieldInfos: prefer in-memory (carried by a freshly-written
+	// in-memory segment), otherwise read the authoritative .fnm from disk via
+	// the codec's FieldInfosFormat (rmp #4785).
+	fi := sci.GetInMemoryFieldInfos()
+	if fi == nil && codec != nil {
+		fi = readFieldInfosFromDisk(directory, codec, segInfo)
 	}
 	if fi == nil {
 		fi = NewFieldInfos()
@@ -794,33 +799,112 @@ func openSegmentReader(directory store.Directory, sci *SegmentCommitInfo) (*Segm
 	// StoredFieldsReader, FieldsProducer (postings), and TermVectorsReader so
 	// that IndexSearcher.Doc and term-based searches work end-to-end.
 	if codec != nil {
-		// Load the full SegmentInfo from the .si file to obtain metadata not
-		// present in the segments_N entry (e.g., isCompoundFile).  Fall back
-		// to the segments_N-constructed SegmentInfo when the .si is absent
-		// (in-memory segments that were never flushed to disk).
-		segInfo := sci.SegmentInfo()
-		if sif := codec.SegmentInfoFormat(); sif != nil {
-			if fullSegInfo, err := sif.Read(directory, segInfo.Name(), segInfo.GetID(), store.IOContextRead); err == nil {
-				segInfo = fullSegInfo
-			}
-		}
 		core, err := NewSegmentCoreReaders(directory, segInfo, fi, codec, store.IOContextRead)
-		if err != nil {
-			return nil, fmt.Errorf("opening core readers for segment %s: %w", sci.SegmentInfo().Name(), err)
+		if err == nil {
+			sr := NewSegmentReaderWithCore(sci, core, fi, codec)
+			sr.directory = directory
+			loadLiveDocsFromDisk(directory, sci)
+			return sr, nil
 		}
-		sr := NewSegmentReaderWithCore(sci, core, fi, codec)
-		sr.directory = directory
-		return sr, nil
+		// A codec name is stamped but the per-format data files are absent. This
+		// happens for AddIndexes-imported metadata-only segments (backlog #2707),
+		// which carry a real .si + .fnm but no postings/stored-fields files yet.
+		// Fall through to the FieldInfos-only reader rather than failing the whole
+		// reopen, preserving the pre-rmp-#4785 behaviour where such a segment had
+		// nil core readers but exposed its FieldInfos.
 	}
 
-	// Codec-less fallback for structural unit tests.
+	// Codec-less / data-less fallback: expose the .si docCount and the .fnm
+	// FieldInfos without core readers.
 	sr := &SegmentReader{
-		LeafReader:        NewLeafReader(sci.SegmentInfo()),
+		LeafReader:        NewLeafReader(segInfo),
 		segmentCommitInfo: sci,
 		fieldInfos:        fi,
 		directory:         directory,
 	}
+	loadLiveDocsFromDisk(directory, sci)
 	return sr, nil
+}
+
+// readFieldInfosFromDisk reads the authoritative .fnm FieldInfos for a segment
+// from disk via the codec's FieldInfosFormat (rmp #4785). For a compound
+// segment the .fnm lives inside the .cfs, so the read is routed through the
+// compound directory; reading it from the top-level directory would find no
+// .fnm and yield an empty FieldInfos, hiding every indexed field from the
+// reopened reader. Returns nil when no codec FieldInfosFormat is available or
+// the read fails (caller substitutes an empty FieldInfos).
+func readFieldInfosFromDisk(directory store.Directory, codec Codec, segInfo *SegmentInfo) *FieldInfos {
+	if codec == nil {
+		return nil
+	}
+	fif := codec.FieldInfosFormat()
+	if fif == nil {
+		return nil
+	}
+	fnmDir := directory
+	var cfsReader store.Directory
+	if segInfo.IsCompoundFile() {
+		if cf := codec.CompoundFormat(); cf != nil {
+			if r, err := cf.GetCompoundReader(directory, segInfo); err == nil {
+				fnmDir = r
+				cfsReader = r
+			}
+		}
+	}
+	if cfsReader != nil {
+		defer func() {
+			if closer, ok := cfsReader.(interface{ Close() error }); ok {
+				_ = closer.Close()
+			}
+		}()
+	}
+	fi, err := fif.Read(fnmDir, segInfo, "", store.IOContextRead)
+	if err != nil {
+		return nil
+	}
+	return fi
+}
+
+// loadLiveDocsFromDisk reads the segment's .liv file (when the segment has a
+// non-default delGen) and records the deleted ordinals on the SegmentCommitInfo
+// so SegmentReader.GetLiveDocs and SegmentCommitInfo.NumDocs reflect the
+// on-disk deletions. This replaces the legacy _gocene_del_ userData round-trip
+// (rmp #4785) by making the byte-faithful Lucene90 .liv file authoritative.
+//
+// Best-effort: a missing or unreadable .liv leaves the existing (possibly
+// empty) deleted-ordinal state untouched, so segments with no deletions and
+// codec-less in-memory segments are unaffected.
+func loadLiveDocsFromDisk(directory store.Directory, sci *SegmentCommitInfo) {
+	if sci == nil {
+		return
+	}
+	// Skip when the segment already carries deleted ordinals (e.g. freshly
+	// written in-memory state that has not yet round-tripped through disk) or
+	// when there is no deletion generation to read.
+	if len(sci.GetDeletedOrdinals()) > 0 {
+		return
+	}
+	if sci.DelGen() < 0 || sci.DelCount() == 0 {
+		return
+	}
+	segInfo := sci.SegmentInfo()
+	maxDoc := segInfo.DocCount()
+	if maxDoc <= 0 {
+		return
+	}
+	bits, err := readLiveDocs(directory, segInfo.Name(), segInfo.GetID(), sci.DelGen(), maxDoc)
+	if err != nil || bits == nil {
+		return
+	}
+	ords := make([]int, 0, sci.DelCount())
+	for doc := 0; doc < maxDoc; doc++ {
+		if !bits.Get(doc) {
+			ords = append(ords, doc)
+		}
+	}
+	if len(ords) > 0 {
+		sci.SetDeletedOrdinals(ords)
+	}
 }
 
 // OpenDirectoryReaderWithInfos opens a DirectoryReader with existing SegmentInfos.

@@ -520,8 +520,16 @@ func (ci *CheckIndex) checkSegmentFiles(segInfo *SegmentInfo) error {
 
 // checkSegmentReader opens a reader and checks all index structures
 func (ci *CheckIndex) checkSegmentReader(segCommitInfo *SegmentCommitInfo, status *SegmentInfoStatus) error {
-	// Create a segment reader for checking
-	reader := NewSegmentReader(segCommitInfo)
+	// Open the segment via the full reader path so that FieldInfos come from the
+	// authoritative on-disk .fnm, postings/stored-fields/term-vectors come from
+	// their codec readers, and live docs come from the .liv file (rmp #4785).
+	// openSegmentReader wires the codec readers and reads the real .si; it falls
+	// back to a FieldInfos-only reader when the codec data files are absent.
+	reader, err := openSegmentReader(ci.dir, segCommitInfo)
+	if err != nil {
+		// Fall back to the metadata-only reader so structural checks still run.
+		reader = NewSegmentReader(segCommitInfo)
+	}
 	if reader == nil {
 		return fmt.Errorf("cannot create segment reader")
 	}
@@ -709,39 +717,56 @@ func (ci *CheckIndex) checkTermIndex(reader *SegmentReader) *TermIndexStatus {
 	return status
 }
 
-// checkStoredFields checks stored fields.
-// Counts live documents and, for each live document, adds the number of
-// stored fields derived from the segment's FieldInfos.
+// storedFieldCounter is a StoredFieldVisitor that counts every stored field
+// callback. CheckIndex uses it to count the real number of stored fields per
+// document from the on-disk stored-fields data (rmp #4785) instead of inferring
+// it from FieldInfo.IsStored(), which is not a property persisted in Lucene's
+// .fnm and is therefore unavailable after a reopen.
+type storedFieldCounter struct{ count int64 }
+
+func (c *storedFieldCounter) StringField(string, string)  { c.count++ }
+func (c *storedFieldCounter) BinaryField(string, []byte)  { c.count++ }
+func (c *storedFieldCounter) IntField(string, int)        { c.count++ }
+func (c *storedFieldCounter) LongField(string, int64)     { c.count++ }
+func (c *storedFieldCounter) FloatField(string, float32)  { c.count++ }
+func (c *storedFieldCounter) DoubleField(string, float64) { c.count++ }
+
+// checkStoredFields checks stored fields. For each live document it visits the
+// on-disk stored-fields data and counts the actual stored fields, which is the
+// binary-faithful source of truth. When no stored-fields reader is available
+// (codec-less / data-less segment) it falls back to a one-field-per-doc
+// estimate so the structural check still completes.
 func (ci *CheckIndex) checkStoredFields(reader *SegmentReader) *StoredFieldStatus {
 	status := &StoredFieldStatus{}
 
 	liveDocs := reader.GetLiveDocs()
 	maxDoc := reader.MaxDoc()
 
-	// Count stored fields from FieldInfos to compute per-document contribution.
-	var storedPerDoc int64
-	fieldInfos := reader.GetFieldInfos()
-	if fieldInfos != nil {
-		iter := fieldInfos.Iterator()
-		for iter.HasNext() {
-			fi := iter.Next()
-			if fi != nil && fi.IsStored() {
-				storedPerDoc++
+	storedFields, err := reader.StoredFields()
+	if err != nil || storedFields == nil {
+		// No stored-fields reader: fall back to a one-field-per-doc estimate.
+		for docID := 0; docID < maxDoc; docID++ {
+			if liveDocs != nil && !liveDocs.Get(docID) {
+				continue
 			}
+			status.DocCount++
+			status.TotFields++
 		}
-	}
-	if storedPerDoc == 0 {
-		storedPerDoc = 1 // fallback: at least 1 field per doc
+		ci.msgf("    OK [%d docs; %d fields]", status.DocCount, status.TotFields)
+		return status
 	}
 
 	for docID := 0; docID < maxDoc; docID++ {
-		// Skip deleted docs
 		if liveDocs != nil && !liveDocs.Get(docID) {
 			continue
 		}
-
+		counter := &storedFieldCounter{}
+		if derr := storedFields.Document(docID, counter); derr != nil {
+			status.Error = derr
+			return status
+		}
 		status.DocCount++
-		status.TotFields += storedPerDoc
+		status.TotFields += counter.count
 	}
 
 	ci.msgf("    OK [%d docs; %d fields]", status.DocCount, status.TotFields)

@@ -353,13 +353,24 @@ func TestSegmentInfos_ReadWrite(t *testing.T) {
 	sis.SetGeneration(5)
 	sis.SetCounter(10)
 
-	si1 := NewSegmentInfo("_0", 100, nil)
+	// docCount is now authoritatively carried by the per-segment .si file (rmp
+	// #4785), not by segments_N userData, so the segments must have a real .si
+	// on disk for the docCount to survive a ReadSegmentInfos round-trip. Each
+	// SegmentInfo therefore points at the directory and is flushed via
+	// writeSegmentInfo before WriteSegmentInfos, mirroring the IndexWriter path.
+	si1 := NewSegmentInfo("_0", 100, dir)
 	sci1 := NewSegmentCommitInfo(si1, 0, -1)
 	sis.Add(sci1)
 
-	si2 := NewSegmentInfo("_1", 50, nil)
+	si2 := NewSegmentInfo("_1", 50, dir)
 	sci2 := NewSegmentCommitInfo(si2, 5, 1)
 	sis.Add(sci2)
+
+	for _, sci := range sis.List() {
+		if err := writeSegmentInfo(dir, sci.SegmentInfo(), store.IOContextWrite); err != nil {
+			t.Fatalf("writeSegmentInfo(%s): %v", sci.Name(), err)
+		}
+	}
 
 	// Write
 	err := WriteSegmentInfos(sis, dir)

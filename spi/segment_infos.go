@@ -515,6 +515,40 @@ func (si *SegmentInfos) UpdateCounterFromSegments() {
 // in-memory Gocene extensions are present.
 const goceneExtVersion = "1"
 
+// segmentInfoReader is an optional, process-wide hook that reads a per-segment
+// .si file and returns the fully-populated SegmentInfo (docCount, version,
+// compound flag, file set, etc.). It mirrors what
+// org.apache.lucene.index.SegmentInfos.parseSegmentInfos does when it calls
+// codec.segmentInfoFormat().read(...) for every segment record.
+//
+// The hook is registered by package codecs at init (it owns the concrete
+// Lucene99SegmentInfoFormat reader) via RegisterSegmentInfoReader, keeping
+// package spi free of a back-edge into package codecs. When no hook is
+// registered (codec-less structural tests), ReadSegmentInfos falls back to the
+// docCount carried in userData (see the _gocene_dc_ legacy compatibility path).
+var (
+	segmentInfoReaderMu sync.RWMutex
+	segmentInfoReader   func(dir store.Directory, segmentName string, segmentID []byte) (*schema.SegmentInfo, error)
+)
+
+// RegisterSegmentInfoReader installs the process-wide .si reader hook used by
+// ReadSegmentInfos to populate each segment's authoritative metadata (docCount
+// in particular) from the on-disk .si file rather than from segments_N
+// userData. Passing nil clears the hook. Registering is idempotent and safe to
+// call from an init function.
+func RegisterSegmentInfoReader(fn func(dir store.Directory, segmentName string, segmentID []byte) (*schema.SegmentInfo, error)) {
+	segmentInfoReaderMu.Lock()
+	segmentInfoReader = fn
+	segmentInfoReaderMu.Unlock()
+}
+
+// lookupSegmentInfoReader returns the registered .si reader hook, or nil.
+func lookupSegmentInfoReader() func(dir store.Directory, segmentName string, segmentID []byte) (*schema.SegmentInfo, error) {
+	segmentInfoReaderMu.RLock()
+	defer segmentInfoReaderMu.RUnlock()
+	return segmentInfoReader
+}
+
 // escapeUserDataToken percent-encodes the delimiter characters used by the
 // userData FieldInfos encoding ('\n', '|', '=', ';', '%') so that arbitrary
 // attribute keys/values can be embedded without breaking the framing.
@@ -887,28 +921,37 @@ func WriteSegmentInfos(si *SegmentInfos, directory store.Directory) error {
 		userData[k] = v
 	}
 
-	// Gocene extension version marker.
-	userData["_gocene_fiv"] = goceneExtVersion
+	// Per-segment docCount and FieldInfos are NO LONGER round-tripped through
+	// segments_N userData (rmp #4785): the real .si file carries the
+	// authoritative docCount (read back via the registered .si reader hook) and
+	// the real .fnm carries the authoritative FieldInfos (read back in
+	// openSegmentReader, from inside the .cfs for a compound segment). The
+	// former _gocene_dc_ and _gocene_fi_ keys are therefore not written.
+	//
+	// The deleted-ordinals (_gocene_del_), parentField (_gocene_parent) and
+	// index-sort (_gocene_sort_*) markers are still written: their authoritative
+	// on-disk homes are not yet wired through the relevant read paths — deleted
+	// ordinals would need a .liv file written by the merge/ForceMerge path
+	// (writeLiveDocs is only called from the committed-delete path today), and
+	// parentField/index-sort would need the .fnm parentField / .si numSortFields
+	// blocks consulted by the AddIndexes validation path. These are tracked as
+	// the remaining #4785 follow-up. The _gocene_fiv marker gates restoration of
+	// these remaining keys on read.
+	hasExt := false
 
-	// Per-segment in-memory extensions.
+	// Deleted ordinals (one key per segment that has deletions).
 	for _, sci := range si.segments {
-		name := sci.Name()
-
-		// docCount: Lucene stores this in the .si file; Gocene keeps it in userData.
-		userData["_gocene_dc_"+name] = strconv.Itoa(sci.segmentInfo.DocCount())
-
-		fi := sci.GetInMemoryFieldInfos()
-		if fi != nil && fi.Size() > 0 {
-			userData["_gocene_fi_"+name] = encodeFieldInfosForUserData(fi)
-		}
-
 		delOrds := sci.GetDeletedOrdinals()
-		userData["_gocene_del_"+name] = encodeDeletedOrdinalsForUserData(delOrds)
+		if len(delOrds) > 0 {
+			userData["_gocene_del_"+sci.Name()] = encodeDeletedOrdinalsForUserData(delOrds)
+			hasExt = true
+		}
 	}
 
 	// Parent field.
 	if si.inMemoryParentField != "" {
 		userData["_gocene_parent"] = si.inMemoryParentField
+		hasExt = true
 	}
 
 	// Index sort.
@@ -922,7 +965,12 @@ func WriteSegmentInfos(si *SegmentInfos, directory store.Directory) error {
 				}
 				userData[fmt.Sprintf("_gocene_sort_%d", i)] = fmt.Sprintf("%s|%d|%s", sf.Field(), int(sf.SortType()), desc)
 			}
+			hasExt = true
 		}
+	}
+
+	if hasExt {
+		userData["_gocene_fiv"] = goceneExtVersion
 	}
 
 	if err := store.WriteMapOfStrings(out, userData); err != nil {
@@ -1338,6 +1386,24 @@ func readSegmentCommitInfoLucene104(in store.IndexInput, directory store.Directo
 	// Reconstruct the expected file list so CheckIndex can detect missing files.
 	segInfo.SetFiles([]string{name + ".si"})
 
+	// Prefer the on-disk .si as the authoritative source of per-segment
+	// metadata (docCount, version, compound flag, file set), mirroring
+	// org.apache.lucene.index.SegmentInfos.parseSegmentInfos which calls
+	// codec.segmentInfoFormat().read for every segment. When a reader hook is
+	// registered (real codec linked) and the .si exists, its values replace the
+	// placeholders above. The legacy _gocene_dc_ userData key remains as a
+	// fallback for codec-less indices that never wrote a real .si.
+	if read := lookupSegmentInfoReader(); read != nil {
+		if full, err := read(directory, name, id); err == nil && full != nil {
+			// The .si file does not carry the codec name (that lives in the
+			// segments_N record we just read) nor the segment id, so carry both
+			// forward from the placeholder onto the authoritative SegmentInfo.
+			full.SetCodec(codec)
+			full.SetID(id)
+			segInfo = full
+		}
+	}
+
 	sci := NewSegmentCommitInfo(segInfo, int(delCount), delGen)
 	sci.SetFieldInfosGen(fieldInfosGen)
 	sci.SetDocValuesGen(docValuesGen)
@@ -1378,29 +1444,38 @@ func restoreGoceneExtensions(si *SegmentInfos, userData map[string]string) error
 		si.inMemoryIndexSort = schema.NewSortFromFields(fields)
 	}
 
-	// Per-segment extensions.
+	// Per-segment docCount and FieldInfos are restored from disk, not from
+	// userData (rmp #4785): docCount from the .si reader hook in
+	// readSegmentCommitInfoLucene104, FieldInfos from the .fnm in
+	// openSegmentReader. The _gocene_dc_/_gocene_fi_ keys are no longer consumed.
+	//
+	// Backward compatibility: when no .si reader hook is registered (legacy
+	// codec-less index opened without the index package wiring) the fallback
+	// below restores docCount and FieldInfos from the legacy keys so such
+	// indices keep opening.
+	hookRegistered := lookupSegmentInfoReader() != nil
 	for _, sci := range si.segments {
 		name := sci.Name()
-
-		// Restore docCount (stored in .si in real Lucene; kept inline by Gocene).
-		if dcStr := userData["_gocene_dc_"+name]; dcStr != "" {
-			dc, err := strconv.Atoi(dcStr)
-			if err != nil {
-				return fmt.Errorf("invalid _gocene_dc_%s: %w", name, err)
+		if !hookRegistered {
+			if dcStr := userData["_gocene_dc_"+name]; dcStr != "" {
+				dc, err := strconv.Atoi(dcStr)
+				if err != nil {
+					return fmt.Errorf("invalid _gocene_dc_%s: %w", name, err)
+				}
+				sci.segmentInfo.SetDocCount(dc)
 			}
-			sci.segmentInfo.SetDocCount(dc)
+			if fiEnc := userData["_gocene_fi_"+name]; fiEnc != "" {
+				fis, err := decodeFieldInfosFromUserData(fiEnc)
+				if err != nil {
+					return fmt.Errorf("decoding FieldInfos for segment %s: %w", name, err)
+				}
+				if fis != nil {
+					sci.SetInMemoryFieldInfos(fis)
+				}
+			}
 		}
-
-		if fiEnc := userData["_gocene_fi_"+name]; fiEnc != "" {
-			fis, err := decodeFieldInfosFromUserData(fiEnc)
-			if err != nil {
-				return fmt.Errorf("decoding FieldInfos for segment %s: %w", name, err)
-			}
-			if fis != nil {
-				sci.SetInMemoryFieldInfos(fis)
-			}
-		}
-
+		// Deleted ordinals are still restored from userData (the .liv-on-merge
+		// path is the remaining #4785 follow-up).
 		if delEnc := userData["_gocene_del_"+name]; delEnc != "" {
 			ords, err := decodeDeletedOrdinalsFromUserData(delEnc)
 			if err != nil {
