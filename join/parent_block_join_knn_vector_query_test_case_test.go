@@ -17,10 +17,13 @@
 // Deviations from the Lucene reference, applied uniformly here:
 //   - These ports use the float DiversifyingChildrenFloatKnnVectorQuery only;
 //     the byte family is covered by parent_block_join_byte_knn_vector_query_test.go.
-//   - Gocene's diversifying query runs the faithful exact diversifying scan on
-//     every leaf (the collector-driven HNSW path is rmp #4770), so the result
-//     sets are byte-exact with Lucene's exact path. The tests assert the exact
-//     result identities and scores rather than approximate-search tolerances.
+//   - Gocene's diversifying query drives the codec reader's HNSW graph
+//     traversal through a DiversifyingNearestChildrenKnnCollector on every
+//     real-segment leaf (the collector-driven approximate path, rmp #4770),
+//     falling back to the faithful exact diversifying scan only when a leaf
+//     reader exposes no collector-driven search surface. On these small
+//     corpora the HNSW path returns the same result identities as the exact
+//     scan, so the tests assert the exact result identities and scores.
 //   - testTimeout is not ported here: it requires IndexSearcher.setTimeout /
 //     IndexSearcher.count, which Gocene's IndexSearcher does not yet expose
 //     (unrelated to the vector layout). It is covered by a dedicated, focused

@@ -22,10 +22,11 @@ import (
 // org.apache.lucene.search.join.DiversifyingChildrenByteKnnVectorQuery, which
 // extends KnnByteVectorQuery.
 //
-// Like its float counterpart, both code paths run the faithful exact
-// diversifying scan over the leaf's ByteVectorValues; the collector-driven HNSW
-// approximate path is deferred to rmp #4770. See
-// [DiversifyingChildrenFloatKnnVectorQuery] for the full divergence note.
+// Like its float counterpart, the approximate path drives the codec reader's
+// HNSW traversal through a DiversifyingNearestChildrenKnnCollector (rmp #4770),
+// falling back to the faithful exact diversifying scan over the leaf's
+// ByteVectorValues when a leaf reader exposes no collector-driven search
+// surface. See [DiversifyingChildrenFloatKnnVectorQuery] for the full note.
 type DiversifyingChildrenByteKnnVectorQuery struct {
 	*search.BaseKnnVectorQuery
 
@@ -52,8 +53,12 @@ func NewDiversifyingChildrenByteKnnVectorQuery(field string, target []byte, k in
 	return q
 }
 
-// ApproximateSearch performs the diversifying scan on one leaf (exact path; see
-// the type doc for the rmp #4770 divergence).
+// ApproximateSearch performs the diversifying KNN search on one leaf. The
+// preferred path is collector-driven HNSW (a DiversifyingNearestChildrenKnnCollector
+// plugged into the codec reader's graph traversal so it diversifies by parent
+// block, rmp #4770); it falls back to the faithful exact diversifying scan when
+// the leaf reader has no collector-driven search surface, yielding identical
+// results.
 //
 // Mirrors DiversifyingChildrenByteKnnVectorQuery.approximateSearch.
 func (q *DiversifyingChildrenByteKnnVectorQuery) ApproximateSearch(
@@ -62,6 +67,14 @@ func (q *DiversifyingChildrenByteKnnVectorQuery) ApproximateSearch(
 	_ int,
 	_ knn.KnnCollectorManager,
 ) (*search.TopDocs, error) {
+	td, ok, err := diversifyingApproxByte(ctx, q.Field, q.Target, q.K, q.ParentsFilter, acceptDocs)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		return td, nil
+	}
+	// Fallback: the leaf reader has no collector-driven HNSW search surface.
 	iter, err := acceptDocs.Iterator()
 	if err != nil {
 		return nil, err

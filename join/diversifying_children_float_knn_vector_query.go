@@ -27,18 +27,17 @@ import (
 // which extends KnnFloatVectorQuery and overrides exactSearch /
 // approximateSearch / getKnnCollectorManager.
 //
-// # Divergence from Lucene (exact-only diversifying search)
+// # Approximate (HNSW) vs exact path
 //
-// Lucene's approximate path passes a DiversifyingNearestChildrenKnnCollector to
-// the codec's reader.searchNearestVectors so the HNSW graph traversal itself is
-// diversified. Gocene's codec reader KNN API
-// (SegmentReader.SearchNearestVectors) does not yet accept an external
-// collector, so the collector-driven HNSW approximate path is unavailable.
-// Both the "approximate" and "exact" code paths here therefore perform the
-// faithful exact (brute-force) diversifying scan over the leaf's
-// FloatVectorValues, which produces byte-exact (identical) results to Lucene's
-// exact path. Wiring the collector into the HNSW traversal is tracked by
-// rmp #4770.
+// The approximate path passes a DiversifyingNearestChildrenKnnCollector to the
+// codec reader's collector-driven search
+// (SegmentReader.SearchNearestVectorsCollector) so the HNSW graph traversal
+// itself diversifies by parent block, mirroring Lucene's
+// reader.searchNearestVectors(field, target, collector, acceptDocs) (rmp
+// #4770). When a leaf reader does not expose that surface (e.g. a mock or
+// codec-less test reader), the query falls back to the faithful exact
+// (brute-force) diversifying scan over the leaf's FloatVectorValues, which
+// produces results identical to Lucene's exact path.
 type DiversifyingChildrenFloatKnnVectorQuery struct {
 	*search.BaseKnnVectorQuery
 
@@ -74,9 +73,13 @@ func NewDiversifyingChildrenFloatKnnVectorQuery(field string, target []float32, 
 	return q
 }
 
-// ApproximateSearch performs the diversifying scan on one leaf. See the type
-// doc for the exact-vs-HNSW divergence (rmp #4770): we run the faithful exact
-// diversifying scan over the leaf's FloatVectorValues here too.
+// ApproximateSearch performs the diversifying KNN search on one leaf. The
+// preferred path is collector-driven: a DiversifyingNearestChildrenKnnCollector
+// is plugged into the codec reader's HNSW traversal so the graph search itself
+// diversifies by parent block (rmp #4770). When the leaf reader does not expose
+// the collector-driven search surface (e.g. a mock or codec-less test reader),
+// it falls back to the faithful exact diversifying scan over the leaf's
+// FloatVectorValues, which yields identical results.
 //
 // Mirrors DiversifyingChildrenFloatKnnVectorQuery.approximateSearch.
 func (q *DiversifyingChildrenFloatKnnVectorQuery) ApproximateSearch(
@@ -85,6 +88,14 @@ func (q *DiversifyingChildrenFloatKnnVectorQuery) ApproximateSearch(
 	_ int,
 	_ knn.KnnCollectorManager,
 ) (*search.TopDocs, error) {
+	td, ok, err := diversifyingApproxFloat(ctx, q.Field, q.Target, q.K, q.ParentsFilter, acceptDocs)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		return td, nil
+	}
+	// Fallback: the leaf reader has no collector-driven HNSW search surface.
 	iter, err := acceptDocs.Iterator()
 	if err != nil {
 		return nil, err

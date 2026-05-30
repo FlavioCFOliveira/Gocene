@@ -459,6 +459,8 @@ type knnVectorSearchReader interface {
 	ByteVectorValues(field string) (index.ByteVectorValues, error)
 	SearchNearestFloat(field string, target []float32, k int, acceptDocs util.Bits) (*utilhnsw.TopDocs, error)
 	SearchNearestByte(field string, target []byte, k int, acceptDocs util.Bits) (*utilhnsw.TopDocs, error)
+	SearchNearestFloatCollector(field string, target []float32, collector utilhnsw.KnnCollector, acceptDocs util.Bits) error
+	SearchNearestByteCollector(field string, target []byte, collector utilhnsw.KnnCollector, acceptDocs util.Bits) error
 }
 
 // fieldSearchReader resolves the delegate that owns field and narrows it to
@@ -551,6 +553,32 @@ func (r *PerFieldKnnVectorsReader) SearchNearestByte(
 		return utilhnsw.NewTopDocs(utilhnsw.NewTotalHits(0, utilhnsw.EqualTo), nil), nil
 	}
 	return sr.SearchNearestByte(field, target, k, acceptDocs)
+}
+
+// SearchNearestFloatCollector runs collector-driven nearest-neighbour search
+// for the float32 target against field, delegating to the per-field reader.
+// It is a no-op (returns nil, leaving collector empty) when no delegate owns
+// the field.
+func (r *PerFieldKnnVectorsReader) SearchNearestFloatCollector(
+	field string, target []float32, collector utilhnsw.KnnCollector, acceptDocs util.Bits,
+) error {
+	sr, err := r.fieldSearchReader(field)
+	if err != nil || sr == nil {
+		return err
+	}
+	return sr.SearchNearestFloatCollector(field, target, collector, acceptDocs)
+}
+
+// SearchNearestByteCollector is the byte analogue of
+// [SearchNearestFloatCollector].
+func (r *PerFieldKnnVectorsReader) SearchNearestByteCollector(
+	field string, target []byte, collector utilhnsw.KnnCollector, acceptDocs util.Bits,
+) error {
+	sr, err := r.fieldSearchReader(field)
+	if err != nil || sr == nil {
+		return err
+	}
+	return sr.SearchNearestByteCollector(field, target, collector, acceptDocs)
 }
 
 // CheckIntegrity runs an integrity check on every underlying delegate

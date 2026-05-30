@@ -453,6 +453,8 @@ type knnVectorsReaderDelegate interface {
 	ByteVectorValues(field string) (ByteVectorValues, error)
 	SearchNearestFloat(field string, target []float32, k int, acceptDocs util.Bits) (*utilhnsw.TopDocs, error)
 	SearchNearestByte(field string, target []byte, k int, acceptDocs util.Bits) (*utilhnsw.TopDocs, error)
+	SearchNearestFloatCollector(field string, target []float32, collector utilhnsw.KnnCollector, acceptDocs util.Bits) error
+	SearchNearestByteCollector(field string, target []byte, collector utilhnsw.KnnCollector, acceptDocs util.Bits) error
 }
 
 // vectorsDelegate narrows the core readers' KNN vectors reader to the
@@ -528,6 +530,35 @@ func (r *SegmentReader) SearchNearestVectorsByte(field string, target []byte, k 
 		return TopDocs{}, err
 	}
 	return knnTopDocsToIndex(td), nil
+}
+
+// SearchNearestVectorsCollector runs collector-driven nearest-neighbour
+// float-vector search for target in field, driving the caller-supplied
+// collector through the codec's HNSW traversal instead of an internally
+// created top-k collector. The collector observes leaf-local document ids
+// and is responsible for any further result shaping (e.g. parent-block
+// diversification).
+//
+// It is a no-op (leaves the collector empty, returns nil) when the segment
+// has no vectors reader. Mirrors LeafReader.searchNearestVectors(field,
+// target, KnnCollector, acceptDocs) in Lucene, which delegates straight to
+// the codec KnnVectorsReader.
+func (r *SegmentReader) SearchNearestVectorsCollector(field string, target []float32, collector utilhnsw.KnnCollector, acceptDocs util.Bits) error {
+	d := r.vectorsDelegate()
+	if d == nil {
+		return nil
+	}
+	return d.SearchNearestFloatCollector(field, target, collector, acceptDocs)
+}
+
+// SearchNearestVectorsByteCollector is the byte-vector analogue of
+// [SegmentReader.SearchNearestVectorsCollector].
+func (r *SegmentReader) SearchNearestVectorsByteCollector(field string, target []byte, collector utilhnsw.KnnCollector, acceptDocs util.Bits) error {
+	d := r.vectorsDelegate()
+	if d == nil {
+		return nil
+	}
+	return d.SearchNearestByteCollector(field, target, collector, acceptDocs)
 }
 
 // pointsReaderDelegate is the wide read surface exposed by the codec's points

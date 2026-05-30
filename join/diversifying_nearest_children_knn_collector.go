@@ -123,6 +123,26 @@ func (c *DiversifyingNearestChildrenKnnCollector) TopDocs() []search.ScoreDoc {
 	return docs
 }
 
+// TopDocsSearch drains the heap into a *search.TopDocs with TotalHits set to
+// the collector's visited count and an EQUAL_TO / GREATER_THAN_OR_EQUAL_TO
+// relation depending on early termination. It is the search-package surface
+// the diversifying KNN queries return from the collector-driven approximate
+// path, mirroring DiversifyingNearestChildrenKnnCollector.topDocs() in Lucene
+// (which builds a search.TopDocs).
+func (c *DiversifyingNearestChildrenKnnCollector) TopDocsSearch() *search.TopDocs {
+	docs := c.TopDocs()
+	scoreDocs := make([]*search.ScoreDoc, len(docs))
+	for i := range docs {
+		d := docs[i]
+		scoreDocs[i] = &d
+	}
+	relation := search.EQUAL_TO
+	if c.earlyTerminated {
+		relation = search.GREATER_THAN_OR_EQUAL_TO
+	}
+	return search.NewTopDocs(search.NewTotalHits(c.visitedCount, relation), scoreDocs)
+}
+
 // String implements fmt.Stringer.
 func (c *DiversifyingNearestChildrenKnnCollector) String() string {
 	return fmt.Sprintf("DiversifyingNearestChildrenKnnCollector[k=%d, size=%d]", c.k, c.heap.size)

@@ -471,21 +471,46 @@ func (r *Lucene99HnswVectorsReader) SearchNearestByte(
 func (r *Lucene99HnswVectorsReader) search(
 	field string, scorer utilhnsw.RandomVectorScorer, k int, acceptDocs util.Bits,
 ) (*utilhnsw.TopDocs, error) {
+	collector := utilhnsw.NewTopKnnCollector(k, int(^uint(0)>>1), nil)
+	if err := r.searchCollector(field, scorer, collector, acceptDocs); err != nil {
+		return nil, err
+	}
+	return collector.TopDocs(), nil
+}
+
+// searchCollector drives an externally supplied KnnCollector with the shared
+// HNSW-or-exhaustive decision. It is the collector-driven core that both the
+// internal top-k search and the public collector entry points
+// ([SearchNearestFloatCollector] / [SearchNearestByteCollector]) reuse.
+//
+// The collector observes leaf-local document ids (the ordinal is translated
+// through scorer.OrdToDoc by the OrdinalTranslatedKnnCollector wrapper). The
+// HNSW-vs-exhaustive branch is decided by collector.K(); the collector is
+// responsible for any further per-result filtering or diversification (e.g.
+// the join package's DiversifyingNearestChildrenKnnCollector groups by parent
+// block).
+//
+// Mirrors Lucene99HnswVectorsReader.search(String, *, KnnCollector,
+// AcceptDocs), which passes the caller-owned collector straight through to
+// HnswGraphSearcher / the exhaustive fallback.
+func (r *Lucene99HnswVectorsReader) searchCollector(
+	field string, scorer utilhnsw.RandomVectorScorer, collector utilhnsw.KnnCollector, acceptDocs util.Bits,
+) error {
 	info := r.fieldInfos.GetByName(field)
 	if info == nil {
-		return nil, fmt.Errorf("hnsw99 reader: field %q not found", field)
+		return fmt.Errorf("hnsw99 reader: field %q not found", field)
 	}
 	entry, ok := r.fields[info.Number()]
 	if !ok {
-		return nil, fmt.Errorf("hnsw99 reader: field %q has no HNSW entry", field)
+		return fmt.Errorf("hnsw99 reader: field %q has no HNSW entry", field)
 	}
 
 	numVectors := scorer.MaxOrd()
+	k := collector.K()
 	if numVectors == 0 || k == 0 {
-		return utilhnsw.NewTopDocs(utilhnsw.NewTotalHits(0, utilhnsw.EqualTo), nil), nil
+		return nil
 	}
 
-	collector := utilhnsw.NewTopKnnCollector(k, int(^uint(0)>>1), nil)
 	translated := utilhnsw.NewOrdinalTranslatedKnnCollector(
 		collector, utilhnsw.IntToIntFunc(scorer.OrdToDoc),
 	)
@@ -504,12 +529,9 @@ func (r *Lucene99HnswVectorsReader) search(
 	if doHnsw {
 		graph, err := r.GetGraph(field)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		if err := utilhnsw.SearchWithCollector(scorer, translated, graph, acceptedOrds); err != nil {
-			return nil, err
-		}
-		return collector.TopDocs(), nil
+		return utilhnsw.SearchWithCollector(scorer, translated, graph, acceptedOrds)
 	}
 
 	// Exhaustive scan: k >= numVectors (or no graph). Score every accepted
@@ -520,12 +542,43 @@ func (r *Lucene99HnswVectorsReader) search(
 		}
 		score, err := scorer.Score(ord)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		translated.Collect(ord, score)
 		translated.IncVisitedCount(1)
 	}
-	return collector.TopDocs(), nil
+	return nil
+}
+
+// SearchNearestFloatCollector runs approximate (HNSW) or exhaustive
+// nearest-neighbour search for the float32 target against field, driving the
+// caller-supplied collector instead of an internally created TopKnnCollector.
+//
+// This is the collector-driven entry point that lets callers (e.g. the join
+// package's DiversifyingChildren KNN queries) plug a custom KnnCollector — the
+// DiversifyingNearestChildrenKnnCollector — into the HNSW traversal so the
+// graph search itself diversifies by parent block. Mirrors the body of
+// Lucene99HnswVectorsReader.search(String, float[], KnnCollector, AcceptDocs).
+func (r *Lucene99HnswVectorsReader) SearchNearestFloatCollector(
+	field string, target []float32, collector utilhnsw.KnnCollector, acceptDocs util.Bits,
+) error {
+	scorer, err := r.flatReader.randomVectorScorerFloat(field, target)
+	if err != nil {
+		return err
+	}
+	return r.searchCollector(field, scorer, collector, acceptDocs)
+}
+
+// SearchNearestByteCollector is the byte analogue of
+// [SearchNearestFloatCollector].
+func (r *Lucene99HnswVectorsReader) SearchNearestByteCollector(
+	field string, target []byte, collector utilhnsw.KnnCollector, acceptDocs util.Bits,
+) error {
+	scorer, err := r.flatReader.randomVectorScorerByte(field, target)
+	if err != nil {
+		return err
+	}
+	return r.searchCollector(field, scorer, collector, acceptDocs)
 }
 
 // ---------------------------------------------------------------------------
