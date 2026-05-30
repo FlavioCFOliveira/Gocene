@@ -10,7 +10,6 @@ import (
 	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
-	bcstore "github.com/FlavioCFOliveira/Gocene/backward_codecs/store"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util/packed"
@@ -117,11 +116,19 @@ func NewLucene94HnswVectorsReader(state *index.SegmentReadState) (*Lucene94HnswV
 func (r *Lucene94HnswVectorsReader) readMetadata(state *index.SegmentReadState) (int32, error) {
 	metaName := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene94MetaExtension)
 
-	meta, err := bcstore.OpenChecksumInput(state.Directory, metaName,
+	// Lucene94HnswVectorsReader reads the .vem metadata via a plain
+	// ChecksumIndexInput (Directory.openChecksumInput in Lucene): payload
+	// fields are little-endian because Lucene 9.0+ DataOutput is LE. The
+	// EndiannessReverser wrappers are reserved for Lucene <= 8.x codecs and
+	// MUST NOT be applied here, otherwise the payload integers decode with the
+	// wrong byte order. CodecUtil header/footer framing remains big-endian and
+	// is read through the raw store.ReadInt32/ReadInt64 helpers.
+	rawMeta, err := state.Directory.OpenInput(metaName,
 		store.IOContext{Context: store.ContextReadOnce})
 	if err != nil {
 		return 0, fmt.Errorf("lucene94 vectors: open meta %q: %w", metaName, err)
 	}
+	meta := store.NewChecksumIndexInput(rawMeta)
 	defer func() { _ = meta.Close() }()
 
 	version, err := codecs.CheckIndexHeader(
@@ -146,9 +153,10 @@ func (r *Lucene94HnswVectorsReader) readMetadata(state *index.SegmentReadState) 
 	return version, nil
 }
 
-// checkLucene94Footer validates the codec footer on an
-// EndiannessReverserChecksumIndexInput.
-func checkLucene94Footer(in *bcstore.EndiannessReverserChecksumIndexInput) error {
+// checkLucene94Footer validates the codec footer. The footer framing (magic,
+// algorithmID, CRC) is big-endian, so it is read with the raw store.ReadInt32/
+// ReadInt64 helpers regardless of the little-endian payload body.
+func checkLucene94Footer(in *store.ChecksumIndexInput) error {
 	remaining := in.Length() - in.GetFilePointer()
 	const footerLen = 16
 	if remaining < footerLen {
@@ -189,7 +197,7 @@ func checkLucene94Footer(in *bcstore.EndiannessReverserChecksumIndexInput) error
 // readFields reads per-field entries from the metadata stream until it sees -1.
 func (r *Lucene94HnswVectorsReader) readFields(in store.DataInput, infos *index.FieldInfos) error {
 	for {
-		fieldNumber, err := store.ReadInt32(in)
+		fieldNumber, err := in.ReadInt()
 		if err != nil {
 			return fmt.Errorf("readFields: %w", err)
 		}
@@ -214,7 +222,7 @@ func (r *Lucene94HnswVectorsReader) readFields(in store.DataInput, infos *index.
 // readLucene94FieldEntry deserialises one field entry from the metadata stream.
 func readLucene94FieldEntry(in store.DataInput, fi *index.FieldInfo) (*lucene94FieldEntry, error) {
 	// vector encoding (added in Lucene 9.4 vs 9.2)
-	encID, err := store.ReadInt32(in)
+	encID, err := in.ReadInt()
 	if err != nil {
 		return nil, fmt.Errorf("readFieldEntry %q encoding: %w", fi.Name(), err)
 	}
@@ -225,7 +233,7 @@ func readLucene94FieldEntry(in store.DataInput, fi *index.FieldInfo) (*lucene94F
 	}
 
 	// similarity function
-	simID, err := store.ReadInt32(in)
+	simID, err := in.ReadInt()
 	if err != nil {
 		return nil, fmt.Errorf("readFieldEntry %q similarity: %w", fi.Name(), err)
 	}
@@ -250,31 +258,31 @@ func readLucene94FieldEntry(in store.DataInput, fi *index.FieldInfo) (*lucene94F
 		return nil, fmt.Errorf("readFieldEntry %q vectorIndexLength: %w", fi.Name(), err)
 	}
 
-	dim, err := store.ReadInt32(in)
+	dim, err := in.ReadInt()
 	if err != nil {
 		return nil, fmt.Errorf("readFieldEntry %q dimension: %w", fi.Name(), err)
 	}
 	e.dimension = int(dim)
 
-	sz, err := store.ReadInt32(in)
+	sz, err := in.ReadInt()
 	if err != nil {
 		return nil, fmt.Errorf("readFieldEntry %q size: %w", fi.Name(), err)
 	}
 	e.size = int(sz)
 
-	docsOff, err := store.ReadInt64(in)
+	docsOff, err := in.ReadLong()
 	if err != nil {
 		return nil, fmt.Errorf("readFieldEntry %q docsWithFieldOffset: %w", fi.Name(), err)
 	}
 	e.docsWithFieldOffset = docsOff
 
-	docsLen, err := store.ReadInt64(in)
+	docsLen, err := in.ReadLong()
 	if err != nil {
 		return nil, fmt.Errorf("readFieldEntry %q docsWithFieldLength: %w", fi.Name(), err)
 	}
 	e.docsWithFieldLength = docsLen
 
-	jt, err := store.ReadInt16(in)
+	jt, err := in.ReadShort()
 	if err != nil {
 		return nil, fmt.Errorf("readFieldEntry %q jumpTableEntryCount: %w", fi.Name(), err)
 	}
@@ -288,7 +296,7 @@ func readLucene94FieldEntry(in store.DataInput, fi *index.FieldInfo) (*lucene94F
 
 	// sparse ordToDoc mapping
 	if e.docsWithFieldOffset != -1 && e.docsWithFieldOffset != -2 {
-		addrOff, err2 := store.ReadInt64(in)
+		addrOff, err2 := in.ReadLong()
 		if err2 != nil {
 			return nil, fmt.Errorf("readFieldEntry %q addressesOffset: %w", fi.Name(), err2)
 		}
@@ -305,7 +313,7 @@ func readLucene94FieldEntry(in store.DataInput, fi *index.FieldInfo) (*lucene94F
 			return nil, fmt.Errorf("readFieldEntry %q DirectMonotonicMeta: %w", fi.Name(), err2)
 		}
 
-		addrLen, err2 := store.ReadInt64(in)
+		addrLen, err2 := in.ReadLong()
 		if err2 != nil {
 			return nil, fmt.Errorf("readFieldEntry %q addressesLength: %w", fi.Name(), err2)
 		}
@@ -313,13 +321,13 @@ func readLucene94FieldEntry(in store.DataInput, fi *index.FieldInfo) (*lucene94F
 	}
 
 	// HNSW graph topology
-	m32, err := store.ReadInt32(in)
+	m32, err := in.ReadInt()
 	if err != nil {
 		return nil, fmt.Errorf("readFieldEntry %q M: %w", fi.Name(), err)
 	}
 	e.maxConn = int(m32)
 
-	nl, err := store.ReadInt32(in)
+	nl, err := in.ReadInt()
 	if err != nil {
 		return nil, fmt.Errorf("readFieldEntry %q numLevels: %w", fi.Name(), err)
 	}
@@ -327,7 +335,7 @@ func readLucene94FieldEntry(in store.DataInput, fi *index.FieldInfo) (*lucene94F
 
 	e.nodesByLevel = make([][]int32, e.numLevels)
 	for level := 0; level < e.numLevels; level++ {
-		cnt, err2 := store.ReadInt32(in)
+		cnt, err2 := in.ReadInt()
 		if err2 != nil {
 			return nil, fmt.Errorf("readFieldEntry %q nodesByLevel[%d] count: %w", fi.Name(), level, err2)
 		}
@@ -336,7 +344,7 @@ func readLucene94FieldEntry(in store.DataInput, fi *index.FieldInfo) (*lucene94F
 		} else {
 			nodes := make([]int32, cnt)
 			for i := int32(0); i < cnt; i++ {
-				n, err3 := store.ReadInt32(in)
+				n, err3 := in.ReadInt()
 				if err3 != nil {
 					return nil, fmt.Errorf("readFieldEntry %q nodesByLevel[%d][%d]: %w", fi.Name(), level, i, err3)
 				}
