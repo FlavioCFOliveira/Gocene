@@ -25,6 +25,11 @@ type rbbiData struct {
 	// forward is the forward state table that handleNext drives.
 	forward *rbbiStateTable
 
+	// reverse is the reverse state table for handlePrevious (fRTable). May
+	// be nil if the .brk does not contain a reverse section, in which case
+	// Previous() falls back to re-running the forward engine from the start.
+	reverse *rbbiStateTable
+
 	// trie maps a code point to its character category (a column index into
 	// each state-table row).
 	trie *codePointTrie
@@ -158,6 +163,18 @@ func parseRBBIData(dict *BRKDictionary) (*rbbiData, error) {
 		return nil, fmt.Errorf("forward state table: %w", err)
 	}
 
+	// Reverse state table (fRTable) — optional; present in all production
+	// .brk files but not required for forward tokenisation.
+	var reverse *rbbiStateTable
+	revBytes, err := section(rbbiHdrRTable, rbbiHdrRTableLen)
+	if err == nil && revBytes != nil {
+		if rev, parseErr := parseStateTable(revBytes, order); parseErr == nil {
+			reverse = rev
+		}
+		// Silently ignore a corrupt/absent reverse table; Previous() will fall
+		// back to the linear forward-scan algorithm.
+	}
+
 	// Character category trie.
 	trieBytes, err := section(rbbiHdrTrie, rbbiHdrTrieLen)
 	if err != nil {
@@ -193,6 +210,7 @@ func parseRBBIData(dict *BRKDictionary) (*rbbiData, error) {
 
 	return &rbbiData{
 		forward:     forward,
+		reverse:     reverse,
 		trie:        trie,
 		statusTable: statusTable,
 		catCount:    catCount,
