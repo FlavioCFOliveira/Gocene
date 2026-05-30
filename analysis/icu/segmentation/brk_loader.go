@@ -70,15 +70,13 @@ func pickByteOrder(isBigEndian bool) binary.ByteOrder {
 // The struct captures the metadata required to detect, identify, and route a
 // dictionary to the correct script consumer (CJK Default.brk vs Myanmar
 // MyanmarSyllable.brk vs future Khmer/Thai/Lao variants). The raw Rules byte
-// slice holds the post-header bytes verbatim so a future RBBI execution engine
-// can interpret them without re-reading the source.
+// slice holds the post-header bytes verbatim so the RBBI execution engine can
+// interpret them without re-reading the source.
 //
-// Deviation: Gocene does not currently execute compiled RBBI rules. A parsed
-// BRKDictionary is therefore a passive container — it proves a blob is
-// well-formed and identifies its target script, but it does not perform
-// dictionary-based segmentation. The placeholder RuleBasedBreakIterator
-// returned by AsBreakIterator falls through to goWordBreakIterator. Wiring a
-// real RBBI engine is tracked as a backlog task; see the package README.
+// AsBreakIterator returns an RBBIBreakIterator that executes the compiled
+// forward state machine (see rbbi_break_iterator.go). The parsed runtime tables
+// (forward state table, character-category trie, status table) are decoded once
+// on first use and cached in the unexported rbbi field.
 type BRKDictionary struct {
 	// FormatVersion is the four-byte UDataInfo.formatVersion field
 	// (typically 6.0.0.0 for ICU 70+ RBBI files).
@@ -108,9 +106,15 @@ type BRKDictionary struct {
 	CatCount uint32
 
 	// Rules is the raw blob, including both the UDataInfo header and the
-	// RBBIDataHeader plus its trailing tables. Stored verbatim so a future
-	// RBBI executor can reinterpret it without re-reading the source.
+	// RBBIDataHeader plus its trailing tables. Stored verbatim so the RBBI
+	// executor can reinterpret it without re-reading the source.
 	Rules []byte
+
+	// rbbi holds the lazily-decoded runtime tables. It is populated on the
+	// first AsBreakIterator/RBBIData call. rbbiErr records a decode failure so
+	// AsBreakIterator can fall back to goWordBreakIterator.
+	rbbi    *rbbiData
+	rbbiErr error
 }
 
 // LoadBRKDictionary reads a compiled ICU RuleBasedBreakIterator blob from r
@@ -219,47 +223,40 @@ func ParseBRKDictionary(data []byte) (*BRKDictionary, error) {
 	return dict, nil
 }
 
+// RBBIData decodes (once) and returns the runtime tables for this dictionary:
+// the forward state table, the character-category trie, and the rule-status
+// table. The result is cached; subsequent calls are cheap.
+//
+// It returns an error wrapping ErrInvalidBRK if the blob's RBBI sections cannot
+// be decoded.
+func (d *BRKDictionary) RBBIData() (*rbbiData, error) {
+	if d.rbbi == nil && d.rbbiErr == nil {
+		d.rbbi, d.rbbiErr = parseRBBIData(d)
+	}
+	return d.rbbi, d.rbbiErr
+}
+
 // AsBreakIterator returns a RuleBasedBreakIterator backed by this dictionary.
 //
-// Deviation: until Gocene ships a native RBBI execution engine, the returned
-// iterator falls through to goWordBreakIterator (the rules-based UAX#29
-// approximation). The dictionary metadata is preserved on the iterator so
-// future revisions can switch execution paths without changing the call site.
+// When the compiled RBBI tables decode successfully, the returned iterator is
+// an RBBIBreakIterator that executes the forward state machine — producing
+// dictionary/rule-driven boundaries (e.g. Myanmar syllables). If the tables
+// cannot be decoded, AsBreakIterator falls back to goWordBreakIterator (the
+// UAX#29 approximation) so the call site always receives a usable iterator.
 //
-// Callers that need to know whether dictionary execution is *actually*
-// happening should inspect HasDictionaryExecution.
+// Callers that need to know whether real rule execution is happening should
+// inspect HasDictionaryExecution.
 func (d *BRKDictionary) AsBreakIterator() RuleBasedBreakIterator {
-	return &dictionaryBackedBreakIterator{
-		goWordBreakIterator: goWordBreakIterator{},
-		dict:                d,
+	if data, err := d.RBBIData(); err == nil {
+		return newRBBIBreakIterator(data)
 	}
+	return newGoWordBreakIterator()
 }
 
 // HasDictionaryExecution reports whether AsBreakIterator returns an iterator
-// that actually executes the dictionary's compiled rules.
-//
-// This is hard-coded to false until an RBBI engine ships; see the package
-// README for the tracking backlog task.
+// that actually executes the dictionary's compiled rules (as opposed to the
+// goWordBreakIterator fallback).
 func (d *BRKDictionary) HasDictionaryExecution() bool {
-	return false
-}
-
-// dictionaryBackedBreakIterator carries dictionary metadata alongside the
-// rules-based goWordBreakIterator. Behaviourally identical to
-// goWordBreakIterator until an RBBI engine lands.
-type dictionaryBackedBreakIterator struct {
-	goWordBreakIterator
-	dict *BRKDictionary
-}
-
-// Clone returns an independent copy preserving the dictionary reference.
-func (d *dictionaryBackedBreakIterator) Clone() RuleBasedBreakIterator {
-	cp := *d
-	return &cp
-}
-
-// Dictionary returns the BRKDictionary this iterator was constructed from.
-// Useful for tests and for code that wants to inspect the loaded metadata.
-func (d *dictionaryBackedBreakIterator) Dictionary() *BRKDictionary {
-	return d.dict
+	_, err := d.RBBIData()
+	return err == nil
 }

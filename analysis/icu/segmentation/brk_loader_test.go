@@ -185,10 +185,9 @@ func TestParseBRKDictionary_TooSmall(t *testing.T) {
 	}
 }
 
-// TestBRKDictionary_AsBreakIterator verifies the placeholder execution path:
-// the iterator must conform to the RuleBasedBreakIterator contract, expose the
-// originating dictionary, and report HasDictionaryExecution == false until a
-// real RBBI engine is wired in.
+// TestBRKDictionary_AsBreakIterator verifies the real RBBI execution path:
+// the iterator must conform to the RuleBasedBreakIterator contract, execute the
+// compiled forward state machine, and report HasDictionaryExecution == true.
 func TestBRKDictionary_AsBreakIterator(t *testing.T) {
 	t.Parallel()
 
@@ -197,17 +196,20 @@ func TestBRKDictionary_AsBreakIterator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseBRKDictionary: %v", err)
 	}
-	if dict.HasDictionaryExecution() {
-		t.Fatal("HasDictionaryExecution: got true, want false (no RBBI engine yet)")
+	if !dict.HasDictionaryExecution() {
+		t.Fatal("HasDictionaryExecution: got false, want true (RBBI engine wired)")
 	}
 
 	bi := dict.AsBreakIterator()
 	if bi == nil {
 		t.Fatal("AsBreakIterator: nil")
 	}
+	if _, ok := bi.(*RBBIBreakIterator); !ok {
+		t.Fatalf("AsBreakIterator: got %T, want *RBBIBreakIterator", bi)
+	}
 
-	// Exercise the iterator with a tiny CJK input; the placeholder must
-	// still advance and report rule-status values without panicking.
+	// Exercise the iterator with a tiny CJK input; each Han codepoint is its
+	// own IDEOGRAPHIC token under the Default.brk rules.
 	text := []rune("中文 abc")
 	bi.SetText(text, 0, len(text))
 	seen := 0
@@ -232,15 +234,6 @@ func TestBRKDictionary_AsBreakIterator(t *testing.T) {
 	}
 	if clone == bi {
 		t.Error("Clone: returned the same instance")
-	}
-
-	// Dictionary handle must be preserved.
-	dbi, ok := bi.(*dictionaryBackedBreakIterator)
-	if !ok {
-		t.Fatalf("AsBreakIterator: unexpected type %T", bi)
-	}
-	if dbi.Dictionary() != dict {
-		t.Error("Dictionary: returned a different dictionary")
 	}
 }
 
