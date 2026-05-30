@@ -793,40 +793,6 @@ func decodeFieldInfosFromUserData(encoded string) (*schema.FieldInfos, error) {
 	return fis, nil
 }
 
-// encodeDeletedOrdinalsForUserData serialises a slice of deleted ordinals as a
-// comma-separated string.  Returns "" for an empty/nil slice.
-func encodeDeletedOrdinalsForUserData(ords []int) string {
-	if len(ords) == 0 {
-		return ""
-	}
-	parts := make([]string, len(ords))
-	for i, v := range ords {
-		parts[i] = strconv.Itoa(v)
-	}
-	return strings.Join(parts, ",")
-}
-
-// decodeDeletedOrdinalsFromUserData reconstructs the slice written by
-// encodeDeletedOrdinalsForUserData.  Returns nil on empty input.
-func decodeDeletedOrdinalsFromUserData(encoded string) ([]int, error) {
-	if encoded == "" {
-		return nil, nil
-	}
-	parts := strings.Split(encoded, ",")
-	ords := make([]int, 0, len(parts))
-	for _, p := range parts {
-		if p == "" {
-			continue
-		}
-		v, err := strconv.Atoi(p)
-		if err != nil {
-			return nil, fmt.Errorf("invalid ordinal %q: %w", p, err)
-		}
-		ords = append(ords, v)
-	}
-	return ords, nil
-}
-
 // WriteSegmentInfos writes SegmentInfos to a directory using the real Lucene
 // 10.4.0 segments_N format (codec magic 0x3FD76C17, codec name "segments",
 // version 10).
@@ -928,25 +894,21 @@ func WriteSegmentInfos(si *SegmentInfos, directory store.Directory) error {
 	// openSegmentReader, from inside the .cfs for a compound segment). The
 	// former _gocene_dc_ and _gocene_fi_ keys are therefore not written.
 	//
-	// The deleted-ordinals (_gocene_del_), parentField (_gocene_parent) and
-	// index-sort (_gocene_sort_*) markers are still written: their authoritative
-	// on-disk homes are not yet wired through the relevant read paths — deleted
-	// ordinals would need a .liv file written by the merge/ForceMerge path
-	// (writeLiveDocs is only called from the committed-delete path today), and
-	// parentField/index-sort would need the .fnm parentField / .si numSortFields
-	// blocks consulted by the AddIndexes validation path. These are tracked as
-	// the remaining #4785 follow-up. The _gocene_fiv marker gates restoration of
+	// Deleted ordinals are NO LONGER round-tripped through segments_N userData
+	// (rmp #4789): the merge/ForceMerge/AddIndexes path now writes a real
+	// Lucene90 .liv file and bumps the segment's delGen/delCount (see
+	// IndexWriter.persistMergedDeletions), and the reopen path
+	// (loadLiveDocsFromDisk) reads the .liv back when delGen >= 0. The former
+	// _gocene_del_ keys are therefore not written.
+	//
+	// The parentField (_gocene_parent) and index-sort (_gocene_sort_*) markers
+	// are still written: their authoritative on-disk homes are not yet wired
+	// through the relevant read paths — parentField would need the .fnm
+	// parentField bit consulted by the AddIndexes validation path, and the
+	// index sort would need the .si numSortFields block. These are tracked as
+	// the remaining #4789 follow-up. The _gocene_fiv marker gates restoration of
 	// these remaining keys on read.
 	hasExt := false
-
-	// Deleted ordinals (one key per segment that has deletions).
-	for _, sci := range si.segments {
-		delOrds := sci.GetDeletedOrdinals()
-		if len(delOrds) > 0 {
-			userData["_gocene_del_"+sci.Name()] = encodeDeletedOrdinalsForUserData(delOrds)
-			hasExt = true
-		}
-	}
 
 	// Parent field.
 	if si.inMemoryParentField != "" {
@@ -1474,17 +1436,10 @@ func restoreGoceneExtensions(si *SegmentInfos, userData map[string]string) error
 				}
 			}
 		}
-		// Deleted ordinals are still restored from userData (the .liv-on-merge
-		// path is the remaining #4785 follow-up).
-		if delEnc := userData["_gocene_del_"+name]; delEnc != "" {
-			ords, err := decodeDeletedOrdinalsFromUserData(delEnc)
-			if err != nil {
-				return fmt.Errorf("decoding deleted ordinals for segment %s: %w", name, err)
-			}
-			if len(ords) > 0 {
-				sci.SetDeletedOrdinals(ords)
-			}
-		}
+		// Deleted ordinals are NO LONGER restored from userData (rmp #4789):
+		// the byte-faithful Lucene90 .liv file is the authoritative on-disk
+		// source, read back by loadLiveDocsFromDisk during the reader reopen.
+		_ = name
 	}
 
 	return nil

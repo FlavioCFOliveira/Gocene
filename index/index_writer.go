@@ -979,7 +979,17 @@ func (w *IndexWriter) Commit() error {
 		}
 
 		if len(ps.deletedOrdinals) > 0 {
-			sci.SetDeletedOrdinals(ps.deletedOrdinals)
+			// Persist the deletions carried through this merge/AddIndexes as a
+			// real Lucene90 .liv file and bump the segment's delGen/delCount so
+			// the reopen path (loadLiveDocsFromDisk, which reads .liv when
+			// delGen >= 0) recovers the exact live set. This replaces the legacy
+			// _gocene_del_ segments_N userData round-trip (rmp #4789): the
+			// byte-faithful .liv is now the authoritative on-disk source of
+			// deletions for merged segments, just as Lucene's IndexWriter merge
+			// path writes live docs via Lucene90LiveDocsFormat.
+			if err3 := w.persistMergedDeletions(sci, ps.deletedOrdinals); err3 != nil {
+				return fmt.Errorf("commit: persist merged deletions for %s: %w", segmentName, err3)
+			}
 		}
 		// Write the .si file for this segment before registering it so that
 		// external tools and CheckIndex can verify per-segment integrity.
@@ -1095,6 +1105,66 @@ func (w *IndexWriter) applyDeletesToCommittedSegments(si *SegmentInfos, codec Co
 		livName := liveDocsFileName(segName, delGen)
 		appendSegmentFile(sci.SegmentInfo(), livName)
 	}
+	return nil
+}
+
+// persistMergedDeletions writes the deletions carried through a merge /
+// ForceMerge / AddIndexes into a byte-faithful Lucene90 .liv file, advances the
+// segment's deletion generation, records the delCount and deleted ordinals, and
+// registers the .liv in the segment's file list (rmp #4789).
+//
+// This replaces the legacy _gocene_del_ segments_N userData round-trip: a
+// merged segment that inherits deletions now carries them in a real on-disk
+// .liv, exactly as Lucene's IndexWriter merge path persists merged live docs via
+// Lucene90LiveDocsFormat. The reopen path (loadLiveDocsFromDisk) reads the .liv
+// back when delGen >= 0, so NumDocs reflects the deletions after a reader
+// reopen without any Gocene-private userData key.
+//
+// deletedOrdinals is the set of 0-based document ordinals that are deleted in
+// this segment's doc space; out-of-range ordinals are ignored defensively.
+func (w *IndexWriter) persistMergedDeletions(sci *SegmentCommitInfo, deletedOrdinals []int) error {
+	segInfo := sci.SegmentInfo()
+	maxDoc := segInfo.DocCount()
+	if maxDoc <= 0 {
+		return nil
+	}
+
+	// Build the live-docs bitset: every doc live, then clear the deleted ords.
+	live, err := util.NewFixedBitSet(maxDoc)
+	if err != nil {
+		return err
+	}
+	for i := 0; i < maxDoc; i++ {
+		live.Set(i)
+	}
+	ords := make([]int, 0, len(deletedOrdinals))
+	for _, ord := range deletedOrdinals {
+		if ord < 0 || ord >= maxDoc || !live.Get(ord) {
+			continue
+		}
+		live.Clear(ord)
+		ords = append(ords, ord)
+	}
+	if len(ords) == 0 {
+		return nil
+	}
+	sort.Ints(ords)
+
+	delGen := sci.AdvanceDelGen()
+	segName := segInfo.Name()
+	onDiskDel, err := writeLiveDocs(w.directory, segName, segInfo.GetID(), delGen, live)
+	if err != nil {
+		return fmt.Errorf("write live docs for %s: %w", segName, err)
+	}
+	if onDiskDel != len(ords) {
+		return fmt.Errorf("live docs for %s: wrote delCount=%d, expected %d", segName, onDiskDel, len(ords))
+	}
+
+	sci.SetDelCount(len(ords))
+	sci.SetDeletedOrdinals(ords)
+
+	// Register the .liv in the segment's file list so deleters/CheckIndex see it.
+	appendSegmentFile(segInfo, liveDocsFileName(segName, delGen))
 	return nil
 }
 
