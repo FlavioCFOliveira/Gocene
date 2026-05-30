@@ -38,6 +38,28 @@ var (
 	MaxLonEncoded = EncodeLongitude(MaxLonIncl)
 )
 
+// javaDoubleToInt32 mirrors the Java narrowing primitive conversion
+// from double to int (JLS 5.1.3): NaN maps to 0, a value at or beyond
+// the int range saturates to math.MinInt32 / math.MaxInt32, and any
+// in-range value is rounded toward zero. Go's plain int32(float64)
+// conversion instead yields an implementation-defined (wrapping)
+// result on overflow, which diverges from Lucene at the +90/+180
+// coordinate bounds where Math.ceil reaches 2^31. The encode helpers
+// below must use this so they stay byte-identical to
+// org.apache.lucene.geo.GeoEncodingUtils.
+func javaDoubleToInt32(v float64) int32 {
+	switch {
+	case math.IsNaN(v):
+		return 0
+	case v >= math.MaxInt32:
+		return math.MaxInt32
+	case v <= math.MinInt32:
+		return math.MinInt32
+	default:
+		return int32(v)
+	}
+}
+
 // EncodeLatitude quantises a latitude into a 32-bit signed integer
 // (rounding toward -90). The input is validated against the
 // inclusive latitude bounds; on out-of-range input the function
@@ -58,7 +80,7 @@ func EncodeLatitude(latitude float64) int32 {
 	if latitude == 90.0 {
 		latitude = math.Nextafter(latitude, math.Inf(-1))
 	}
-	return int32(math.Floor(latitude / latDecode))
+	return javaDoubleToInt32(math.Floor(latitude / latDecode))
 }
 
 // EncodeLatitudeCeil quantises a latitude into a 32-bit signed
@@ -70,7 +92,7 @@ func EncodeLatitudeCeil(latitude float64) int32 {
 	if latitude == 90.0 {
 		latitude = math.Nextafter(latitude, math.Inf(-1))
 	}
-	return int32(math.Ceil(latitude / latDecode))
+	return javaDoubleToInt32(math.Ceil(latitude / latDecode))
 }
 
 // EncodeLongitude quantises a longitude into a 32-bit signed integer
@@ -82,7 +104,7 @@ func EncodeLongitude(longitude float64) int32 {
 	if longitude == 180.0 {
 		longitude = math.Nextafter(longitude, math.Inf(-1))
 	}
-	return int32(math.Floor(longitude / lonDecode))
+	return javaDoubleToInt32(math.Floor(longitude / lonDecode))
 }
 
 // EncodeLongitudeCeil quantises a longitude into a 32-bit signed
@@ -94,7 +116,7 @@ func EncodeLongitudeCeil(longitude float64) int32 {
 	if longitude == 180.0 {
 		longitude = math.Nextafter(longitude, math.Inf(-1))
 	}
-	return int32(math.Ceil(longitude / lonDecode))
+	return javaDoubleToInt32(math.Ceil(longitude / lonDecode))
 }
 
 // DecodeLatitude reverses EncodeLatitude / EncodeLatitudeCeil. The
