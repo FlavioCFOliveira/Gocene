@@ -15,10 +15,10 @@ import (
 // merging to expose the unified postings surface. Mirrors
 // org.apache.lucene.index.MappedMultiFields from Apache Lucene 10.4.0.
 //
-// The multi-terms-enum traversal is gated by backlog #2706 (MultiTermsEnum
-// full port); until that lands, Iterator() on any MappedMultiTerms returns the
-// same ErrMultiTermsEnumNotImplemented error that MultiTerms.Iterator()
-// propagates.
+// The multi-terms-enum traversal is backed by MultiTermsEnum (now implemented):
+// Iterator() on any MappedMultiTerms merges the per-leaf TermsEnum in byte order
+// and routes Postings through MappingMultiPostingsEnum for merge-time docID
+// translation.
 type MappedMultiFields struct {
 	mergeState *MergeState
 	multi      *MultiFields

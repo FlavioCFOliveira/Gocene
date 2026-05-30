@@ -6,6 +6,7 @@ package index
 
 import (
 	"errors"
+	"fmt"
 )
 
 // ReaderSlice records the (start, length, readerIndex) coordinates of a slice
@@ -49,15 +50,33 @@ func (m *MultiTerms) GetSubSlices() []ReaderSlice { return m.subSlices }
 // Lucene returns -1 by contract because the union may contain duplicates.
 func (m *MultiTerms) Size() int64 { return -1 }
 
-// Iterator returns ErrMultiTermsEnumNotImplemented until the full MultiTermsEnum
-// port lands (see backlog #2706).
+// Iterator returns a MultiTermsEnum that merges, by term text in byte order,
+// the TermsEnum of every sub-Terms. Mirrors MultiTerms.iterator (Apache Lucene
+// 10.4.0): each sub-iterator is bound to its ReaderSlice and the merge is
+// primed via Reset.
+//
+// When no sub-Terms has any term the returned TermsEnum is an empty enum whose
+// Next immediately yields nil (mirroring Lucene's TermsEnum.EMPTY).
 func (m *MultiTerms) Iterator() (TermsEnum, error) {
-	return nil, ErrMultiTermsEnumNotImplemented
+	enum := NewMultiTermsEnum(m.subSlices)
+	subEnums := make([]TermsEnum, len(m.subs))
+	for i, sub := range m.subs {
+		te, err := sub.GetIterator()
+		if err != nil {
+			return nil, fmt.Errorf("MultiTerms.Iterator: sub %d: %w", i, err)
+		}
+		subEnums[i] = te
+	}
+	bound, err := enum.Reset(subEnums)
+	if err != nil {
+		return nil, fmt.Errorf("MultiTerms.Iterator: reset: %w", err)
+	}
+	if bound == nil {
+		// No sub had any term: present an empty enum (TermsEnum.EMPTY).
+		return &EmptyTermsEnum{}, nil
+	}
+	return bound, nil
 }
-
-// ErrMultiTermsEnumNotImplemented is returned by MultiTerms.Iterator until
-// MultiTermsEnum is fully ported.
-var ErrMultiTermsEnumNotImplemented = errors.New("MultiTermsEnum not yet implemented (Sprint 22 follow-up #2706)")
 
 // HasFreqs returns true if every sub-Terms reports frequencies.
 func (m *MultiTerms) HasFreqs() bool {

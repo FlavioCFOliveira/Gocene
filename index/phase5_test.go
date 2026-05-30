@@ -109,17 +109,17 @@ func TestFilteredTermsEnum_AcceptOnlyA(t *testing.T) {
 // stubImpactsEnum verifies ImpactsEnum is a satisfiable composite interface.
 type stubImpactsEnum struct{}
 
-func (stubImpactsEnum) DocID() int                         { return -1 }
-func (stubImpactsEnum) Advance(int) (int, error)           { return NO_MORE_DOCS, nil }
-func (stubImpactsEnum) NextDoc() (int, error)              { return NO_MORE_DOCS, nil }
-func (stubImpactsEnum) Cost() int64                        { return 0 }
-func (stubImpactsEnum) Freq() (int, error)                 { return 0, nil }
-func (stubImpactsEnum) NextPosition() (int, error)         { return -1, nil }
-func (stubImpactsEnum) StartOffset() (int, error)          { return -1, nil }
-func (stubImpactsEnum) EndOffset() (int, error)            { return -1, nil }
-func (stubImpactsEnum) GetPayload() ([]byte, error)        { return nil, nil }
-func (stubImpactsEnum) AdvanceShallow(_ int) error         { return nil }
-func (stubImpactsEnum) GetImpacts() (Impacts, error)       { return nil, errors.New("stub") }
+func (stubImpactsEnum) DocID() int                   { return -1 }
+func (stubImpactsEnum) Advance(int) (int, error)     { return NO_MORE_DOCS, nil }
+func (stubImpactsEnum) NextDoc() (int, error)        { return NO_MORE_DOCS, nil }
+func (stubImpactsEnum) Cost() int64                  { return 0 }
+func (stubImpactsEnum) Freq() (int, error)           { return 0, nil }
+func (stubImpactsEnum) NextPosition() (int, error)   { return -1, nil }
+func (stubImpactsEnum) StartOffset() (int, error)    { return -1, nil }
+func (stubImpactsEnum) EndOffset() (int, error)      { return -1, nil }
+func (stubImpactsEnum) GetPayload() ([]byte, error)  { return nil, nil }
+func (stubImpactsEnum) AdvanceShallow(_ int) error   { return nil }
+func (stubImpactsEnum) GetImpacts() (Impacts, error) { return nil, errors.New("stub") }
 
 func TestImpactsEnum_SatisfiableComposite(t *testing.T) {
 	var ie ImpactsEnum = stubImpactsEnum{}
@@ -195,8 +195,14 @@ func TestMultiTerms_ConstructionInvariants(t *testing.T) {
 	if mt.Size() != -1 {
 		t.Errorf("MultiTerms.Size() should be -1 per Lucene contract")
 	}
-	if _, err := mt.Iterator(); !errors.Is(err, ErrMultiTermsEnumNotImplemented) {
-		t.Errorf("Iterator should return ErrMultiTermsEnumNotImplemented, got %v", err)
+	// With no sub-Terms the merged iterator is an empty enum (TermsEnum.EMPTY):
+	// it constructs without error and Next immediately yields nil.
+	it, err := mt.Iterator()
+	if err != nil {
+		t.Fatalf("Iterator over empty MultiTerms: unexpected error %v", err)
+	}
+	if term, err := it.Next(); err != nil || term != nil {
+		t.Errorf("empty MultiTerms iterator: Next got (%v,%v), want (nil,nil)", term, err)
 	}
 }
 
