@@ -202,6 +202,21 @@ func NewIndexWriter(dir store.Directory, config *IndexWriterConfig) (*IndexWrite
 		config.SetMergeScheduler(NewConcurrentMergeScheduler())
 	}
 
+	// Validate IndexWriterConfig.setIndexCommit usage up front, mirroring
+	// Lucene's IndexWriter constructor checks (TestIndexWriterFromReader).
+	if commit := config.IndexCommit(); commit != nil {
+		if config.OpenMode() == CREATE {
+			return nil, errors.New(
+				"cannot use IndexWriterConfig.setIndexCommit() with OpenMode.CREATE")
+		}
+		// The index must already carry a commit for the pinned commit to be
+		// meaningful; an index with no commit on disk is rejected.
+		if _, siErr := ReadSegmentInfos(dir); siErr != nil {
+			return nil, errors.New(
+				"cannot use IndexWriterConfig.setIndexCommit() when index has no commit")
+		}
+	}
+
 	// Obtain the exclusive write lock.  This must happen before any reads or
 	// writes so that concurrent writers on the same directory are rejected.
 	wl, err := dir.ObtainLock(writeLockName)
@@ -811,6 +826,47 @@ func (w *IndexWriter) PrepareCommit() error {
 	}
 
 	return nil
+}
+
+// GetReader returns a near-real-time (NRT) DirectoryReader that reflects
+// every document added to this writer so far, including documents still
+// buffered and not yet durably committed. It is the Go analogue of
+// Lucene's IndexWriter.getReader() (and the engine behind
+// DirectoryReader.open(IndexWriter)).
+//
+// Implementation note: this port realises the NRT contract by flushing
+// the buffered documents through the standard commit write-path and then
+// opening a DirectoryReader over the resulting segments. Every buffered
+// document therefore becomes visible. The one observable difference from
+// Lucene — whose getReader flushes to pooled in-memory segments without
+// advancing the commit generation — is that GetReader here advances the
+// commit point. The no-commit in-memory NRT pooling path (and the
+// rollback/commit-pinning semantics that depend on it) is tracked by
+// roadmap #118.
+func (w *IndexWriter) GetReader() (*DirectoryReader, error) {
+	if err := w.ensureOpen(); err != nil {
+		return nil, fmt.Errorf("cannot open NRT reader: %w", err)
+	}
+	if err := w.Commit(); err != nil {
+		return nil, fmt.Errorf("GetReader: flush/commit failed: %w", err)
+	}
+	return OpenDirectoryReader(w.directory)
+}
+
+// hasUncommittedChanges reports whether the writer holds buffered
+// documents or pending imported segments that a Commit would materialise.
+// It is a conservative check used by OpenIfChangedFromWriter to decide
+// whether a reopen could observe anything new.
+func (w *IndexWriter) hasUncommittedChanges() bool {
+	if w.docCount.Load() > 0 {
+		return true
+	}
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return len(w.pendingImportedSegments) > 0 ||
+		len(w.pendingDeleteTerms) > 0 ||
+		len(w.pendingCommittedDeleteTerms) > 0 ||
+		len(w.pendingDeleteQueries) > 0
 }
 
 // Commit commits all pending changes.

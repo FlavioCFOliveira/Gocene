@@ -68,6 +68,7 @@ type IndexWriterConfig struct {
 	maxDocs                int
 	indexSort              *Sort
 	flushOnUpdate          bool
+	indexCommit            *IndexCommit
 }
 
 // NewIndexWriterConfig creates a new IndexWriterConfig with default settings.
@@ -176,6 +177,22 @@ func (c *IndexWriterConfig) SetIndexSort(sort *Sort) { c.indexSort = sort }
 // LiveIndexWriterConfig.isCheckPendingFlushOnUpdate.
 //
 // The default is DefaultFlushOnUpdate (true).
+// IndexCommit returns the commit point the writer should open against,
+// or nil for the default (latest commit). Mirrors
+// IndexWriterConfig.getIndexCommit.
+func (c *IndexWriterConfig) IndexCommit() *IndexCommit { return c.indexCommit }
+
+// SetIndexCommit pins the commit point the writer opens against, the Go
+// analogue of IndexWriterConfig.setIndexCommit. When set, the writer
+// resumes from the documents present in that commit rather than the
+// latest one. It is incompatible with OpenMode.CREATE and with an index
+// that has no commit; NewIndexWriter rejects those combinations. Returns
+// the config for chaining, matching the Lucene fluent setters.
+func (c *IndexWriterConfig) SetIndexCommit(commit *IndexCommit) *IndexWriterConfig {
+	c.indexCommit = commit
+	return c
+}
+
 func (c *IndexWriterConfig) FlushOnUpdate() bool { return c.flushOnUpdate }
 
 // SetFlushOnUpdate sets whether IndexWriter should check the

@@ -19,16 +19,16 @@ import (
 // a reader, via IndexWriterConfig.setIndexCommit, and several pull a near-real-time
 // reader directly from the writer (DirectoryReader.open(IndexWriter)).
 //
-// Both capabilities are absent in Gocene: IndexWriterConfig exposes no
-// SetIndexCommit (index/index_writer_config.go), and no DirectoryReader.open
-// variant accepts an IndexWriter. The whole suite is therefore non-runnable and
-// each case is skipped, preserving the ported logic for when those APIs land.
+// The GetReader / OpenDirectoryReaderFromWriter / IndexWriterConfig.SetIndexCommit
+// APIs are now present (rmp #1, #2), so the cases that need only NRT-reader open
+// plus latest-commit append (testRightAfterCommit, testFromNonNRTReader) and the
+// OpenMode.CREATE rejection (testInvalidOpenMode) run here. The remaining cases
+// require writer reopen on an older *pinned* commit (rollback) and closed-reader
+// liveness, which are tracked by rmp #118 and stay skipped with that reason.
 
 // testRightAfterCommit ports TestIndexWriterFromReader#testRightAfterCommit:
 // pull an NRT reader immediately after the writer has committed.
 func TestIndexWriterFromReader_RightAfterCommit(t *testing.T) {
-	t.Skip("blocked: IndexWriterConfig has no SetIndexCommit and DirectoryReader.open does not accept an IndexWriter (NRT reader)")
-
 	dir := store.NewByteBuffersDirectory()
 	defer func() { _ = dir.Close() }()
 
@@ -43,10 +43,10 @@ func TestIndexWriterFromReader_RightAfterCommit(t *testing.T) {
 		t.Fatalf("Commit: %v", err)
 	}
 
-	// DirectoryReader.open(w) — NRT reader from the writer. No Gocene equivalent.
-	r, err := index.OpenDirectoryReader(dir)
+	// DirectoryReader.open(w) — near-real-time reader from the writer.
+	r, err := index.OpenDirectoryReaderFromWriter(w)
 	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
+		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
 	}
 	if got := r.MaxDoc(); got != 1 {
 		t.Fatalf("MaxDoc = %d, want 1", got)
@@ -56,7 +56,7 @@ func TestIndexWriterFromReader_RightAfterCommit(t *testing.T) {
 	}
 
 	iwc := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
-	// iwc.SetIndexCommit(r.GetIndexCommit()) — no such method on IndexWriterConfig.
+	iwc.SetIndexCommit(r.GetIndexCommit())
 
 	w2, err := index.NewIndexWriter(dir, iwc)
 	if err != nil {
@@ -94,8 +94,6 @@ func TestIndexWriterFromReader_RightAfterCommit(t *testing.T) {
 // testFromNonNRTReader ports TestIndexWriterFromReader#testFromNonNRTReader:
 // open a new writer from a commit pinned by a non-NRT directory reader.
 func TestIndexWriterFromReader_FromNonNRTReader(t *testing.T) {
-	t.Skip("blocked: IndexWriterConfig has no SetIndexCommit (index/index_writer_config.go)")
-
 	dir := store.NewByteBuffersDirectory()
 	defer func() { _ = dir.Close() }()
 
@@ -118,7 +116,7 @@ func TestIndexWriterFromReader_FromNonNRTReader(t *testing.T) {
 		t.Fatalf("MaxDoc = %d, want 1", got)
 	}
 	iwc := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
-	// iwc.SetIndexCommit(r.GetIndexCommit()) — no such method.
+	iwc.SetIndexCommit(r.GetIndexCommit())
 
 	w2, err := index.NewIndexWriter(dir, iwc)
 	if err != nil {
@@ -159,61 +157,98 @@ func TestIndexWriterFromReader_FromNonNRTReader(t *testing.T) {
 // testWithNoFirstCommit ports TestIndexWriterFromReader#testWithNoFirstCommit:
 // pinning a commit from a reader of an index with no commit must fail.
 func TestIndexWriterFromReader_WithNoFirstCommit(t *testing.T) {
-	t.Skip("blocked: IndexWriterConfig has no SetIndexCommit and DirectoryReader.open does not accept an IndexWriter (NRT reader)")
+	t.Skip("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
 }
 
 // testAfterCommitThenIndex ports TestIndexWriterFromReader#testAfterCommitThenIndex:
 // an NRT reader becomes stale once the writer commits past its commit point.
 func TestIndexWriterFromReader_AfterCommitThenIndex(t *testing.T) {
-	t.Skip("blocked: IndexWriterConfig has no SetIndexCommit and DirectoryReader.open does not accept an IndexWriter (NRT reader)")
+	t.Skip("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
 }
 
 // testNRTRollback ports TestIndexWriterFromReader#testNRTRollback:
 // after a commit and a further add, a pre-add NRT reader is stale.
 func TestIndexWriterFromReader_NRTRollback(t *testing.T) {
-	t.Skip("blocked: IndexWriterConfig has no SetIndexCommit and DirectoryReader.open does not accept an IndexWriter (NRT reader)")
+	t.Skip("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
 }
 
 // testRandom ports TestIndexWriterFromReader#testRandom: a randomized sequence of
 // adds, deletes, NRT reopens, rollbacks, and commits cross-checked against
 // reader/writer doc counts.
 func TestIndexWriterFromReader_Random(t *testing.T) {
-	t.Skip("blocked: IndexWriterConfig has no SetIndexCommit and DirectoryReader.open does not accept an IndexWriter (NRT reader)")
+	t.Skip("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
 }
 
 // testConsistentFieldNumbers ports TestIndexWriterFromReader#testConsistentFieldNumbers:
 // field numbers stay consistent when a writer resumes from a pinned commit.
 func TestIndexWriterFromReader_ConsistentFieldNumbers(t *testing.T) {
-	t.Skip("blocked: IndexWriterConfig has no SetIndexCommit and DirectoryReader.open does not accept an IndexWriter (NRT reader)")
+	t.Skip("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
 }
 
 // testInvalidOpenMode ports TestIndexWriterFromReader#testInvalidOpenMode:
 // setIndexCommit combined with OpenMode.CREATE must be rejected.
 func TestIndexWriterFromReader_InvalidOpenMode(t *testing.T) {
-	t.Skip("blocked: IndexWriterConfig has no SetIndexCommit and DirectoryReader.open does not accept an IndexWriter (NRT reader)")
+	dir := store.NewByteBuffersDirectory()
+	defer func() { _ = dir.Close() }()
+
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewStandardAnalyzer()))
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	if err := w.AddDocument(document.NewDocument()); err != nil {
+		t.Fatalf("AddDocument: %v", err)
+	}
+	if err := w.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	r, err := index.OpenDirectoryReaderFromWriter(w)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
+	}
+	if got := r.MaxDoc(); got != 1 {
+		t.Fatalf("MaxDoc = %d, want 1", got)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	iwc := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
+	iwc.SetOpenMode(index.CREATE)
+	iwc.SetIndexCommit(r.GetIndexCommit())
+
+	_, err = index.NewIndexWriter(dir, iwc)
+	const want = "cannot use IndexWriterConfig.setIndexCommit() with OpenMode.CREATE"
+	if err == nil || err.Error() != want {
+		t.Fatalf("NewIndexWriter error = %v, want %q", err, want)
+	}
+
+	if err := r.Close(); err != nil {
+		t.Fatalf("reader Close: %v", err)
+	}
 }
 
 // testOnClosedReader ports TestIndexWriterFromReader#testOnClosedReader:
 // pinning a commit from an already-closed reader must fail.
 func TestIndexWriterFromReader_OnClosedReader(t *testing.T) {
-	t.Skip("blocked: IndexWriterConfig has no SetIndexCommit and DirectoryReader.open does not accept an IndexWriter (NRT reader)")
+	t.Skip("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
 }
 
 // testStaleNRTReader ports TestIndexWriterFromReader#testStaleNRTReader:
 // a writer reopened from a stale NRT reader's commit sees the pinned doc count.
 func TestIndexWriterFromReader_StaleNRTReader(t *testing.T) {
-	t.Skip("blocked: IndexWriterConfig has no SetIndexCommit and DirectoryReader.open does not accept an IndexWriter (NRT reader)")
+	t.Skip("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
 }
 
 // testAfterRollback ports TestIndexWriterFromReader#testAfterRollback:
 // after a rollback, a writer reopened from the NRT reader's commit keeps its docs.
 func TestIndexWriterFromReader_AfterRollback(t *testing.T) {
-	t.Skip("blocked: IndexWriterConfig has no SetIndexCommit and DirectoryReader.open does not accept an IndexWriter (NRT reader)")
+	t.Skip("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
 }
 
 // testAfterCommitThenIndexKeepCommits ports
 // TestIndexWriterFromReader#testAfterCommitThenIndexKeepCommits: with a
 // keep-all-commits deletion policy, an NRT reader is never stale.
 func TestIndexWriterFromReader_AfterCommitThenIndexKeepCommits(t *testing.T) {
-	t.Skip("blocked: IndexWriterConfig has no SetIndexCommit and DirectoryReader.open does not accept an IndexWriter (NRT reader)")
+	t.Skip("blocked by rmp #118: needs commit-pinning/rollback (writer reopen on an older pinned commit) and closed-reader liveness; the GetReader/OpenDirectoryReaderFromWriter/SetIndexCommit APIs now exist")
 }

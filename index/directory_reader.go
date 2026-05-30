@@ -1015,6 +1015,42 @@ func OpenDirectoryReaderFromCommit(directory store.Directory, commit *IndexCommi
 	return OpenDirectoryReaderWithInfos(directory, segmentInfos)
 }
 
+// OpenDirectoryReaderFromWriter opens a near-real-time DirectoryReader
+// directly from a live IndexWriter — the Go analogue of Lucene's
+// DirectoryReader.open(IndexWriter). The returned reader reflects every
+// document added to the writer so far, including documents still
+// buffered and not yet durably committed.
+//
+// See IndexWriter.GetReader for the NRT contract and the (single) way
+// this port currently differs from Lucene's pooled in-memory NRT path.
+func OpenDirectoryReaderFromWriter(writer *IndexWriter) (*DirectoryReader, error) {
+	if writer == nil {
+		return nil, fmt.Errorf("OpenDirectoryReaderFromWriter: writer must not be nil")
+	}
+	return writer.GetReader()
+}
+
+// OpenIfChangedFromWriter reopens old against the current state of a live
+// IndexWriter — the Go analogue of DirectoryReader.openIfChanged(reader,
+// writer). It returns a fresh NRT reader when the writer holds changes
+// not yet reflected by old, or (nil, nil) when old is already current
+// (matching Lucene's null return). The caller retains ownership of old in
+// both cases.
+func OpenIfChangedFromWriter(old *DirectoryReader, writer *IndexWriter) (*DirectoryReader, error) {
+	if writer == nil {
+		return nil, fmt.Errorf("OpenIfChangedFromWriter: writer must not be nil")
+	}
+	// Fast path: when the writer has no buffered changes and its committed
+	// generation already matches old's, nothing can have changed.
+	if old != nil && !writer.hasUncommittedChanges() {
+		if cur, err := ReadSegmentInfos(writer.directory); err == nil &&
+			old.segmentInfos != nil && cur.Generation() == old.segmentInfos.Generation() {
+			return nil, nil
+		}
+	}
+	return writer.GetReader()
+}
+
 // Reopen reopens the index to see if any changes have been made.
 func (r *DirectoryReader) Reopen() (*DirectoryReader, error) {
 	isCurrent, err := r.IsCurrent()
