@@ -482,9 +482,9 @@ func (p *SlowCompositeFieldsProducer) Size() int { return p.fields.Size() }
 // Deviation: Lucene returns concrete NormsProducer / DocValuesProducer /
 // PointsReader / KnnVectorsReader instances. Gocene's CodecReader.Get*Reader
 // for these four return interface{} (the typed surface lives in package
-// codecs), and the per-field flattening uses MultiDocValues helpers that
-// currently return ErrMultiDocValuesNotImplemented (backlog #2703). The
-// stubs below preserve the wrapper-shape and document the gap.
+// codecs). Per-field doc-values flattening across leaves is available via the
+// MultiDocValues helpers (rmp #6); the producer-level wrappers below remain
+// stubbed pending the typed codecs-side surface (backlog #2703).
 // -----------------------------------------------------------------------------
 
 // GetNormsReader is not yet ported; see file-header deviations and #2703.
