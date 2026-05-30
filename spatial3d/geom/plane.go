@@ -497,6 +497,207 @@ func meetsAllBoundsVector(p *GeoPoint, bounds, moreBounds []Membership) bool {
 		meetsAllBoundsXYZ(p.X, p.Y, p.Z, moreBounds)
 }
 
+// recordBoundsAddPoint mirrors the private static Plane.addPoint helper: it
+// admits point to boundsInfo only when point satisfies every supplied
+// Membership bound.
+//
+// Port of Plane.addPoint(Bounds,Membership[],GeoPoint).
+func recordBoundsAddPoint(boundsInfo *XYZBounds, bounds []Membership, point *GeoPoint) {
+	for _, b := range bounds {
+		if b != nil && !b.IsWithin(point.X, point.Y, point.Z) {
+			return
+		}
+	}
+	boundsInfo.AddPoint(point)
+}
+
+// RecordBounds accumulates (x,y,z) bounds information for this plane intersected
+// with the planet surface, updating boundsInfo with the extrema points found
+// within the supplied Membership bounds. It is the single-plane variant used by
+// XYZBounds.AddPlane; the intersection-plane variant (two planes) is deferred to
+// rmp #4773.
+//
+// Port of org.apache.lucene.spatial3d.geom.Plane.recordBounds(PlanetModel,
+// XYZBounds, Membership...). The Lagrange-multiplier extrema math and the
+// Z-arc vertical-plane intersection follow the reference exactly; the
+// extensive derivation comments are omitted here (see the Lucene source).
+func (p *Plane) RecordBounds(pm *PlanetModel, boundsInfo *XYZBounds, bounds ...Membership) {
+	a := p.X
+	b := p.Y
+	c := p.Z
+
+	// Do Z. Symmetrical: intersect a vertical plane chosen by the x-y
+	// orientation with this plane and the ellipsoid.
+	if !boundsInfo.isSmallestMinZ(pm) || !boundsInfo.isLargestMaxZ(pm) {
+		if math.Abs(a) >= MinimumResolution || math.Abs(b) >= MinimumResolution {
+			normalizedZPlane := ConstructNormalizedZPlaneXY(a, b)
+			points := p.findIntersections(pm, normalizedZPlane, bounds, NoBounds)
+			for _, point := range points {
+				recordBoundsAddPoint(boundsInfo, bounds, point)
+			}
+		} else {
+			// a==b==0: any plane including the Z axis suffices.
+			points := p.findIntersections(pm, NormalYPlane, NoBounds, NoBounds)
+			if len(points) == 0 {
+				points = p.findIntersections(pm, NormalXPlane, NoBounds, NoBounds)
+			}
+			if len(points) == 0 {
+				boundsInfo.AddZValue(NewGeoPoint(0.0, 0.0, -p.Z))
+			} else {
+				boundsInfo.AddZValue(points[0])
+			}
+		}
+	}
+
+	// Common subexpressions.
+	k := 1.0 /
+		((p.X*p.X+p.Y*p.Y)*pm.XYScaling*pm.XYScaling +
+			p.Z*p.Z*pm.ZScaling*pm.ZScaling)
+	abSquared := pm.XYScaling * pm.XYScaling
+	cSquared := pm.ZScaling * pm.ZScaling
+	aSquared := a * a
+	bSquared := b * b
+	cValSquared := c * c
+
+	r := 2.0 * p.D * k
+	rSquared := r * r
+
+	// Do X via Lagrange multipliers.
+	if !boundsInfo.isSmallestMinX(pm) || !boundsInfo.isLargestMaxX(pm) {
+		q := a * abSquared * k
+		qSquared := q * q
+
+		quadA := aSquared*abSquared*rSquared +
+			bSquared*abSquared*rSquared +
+			cValSquared*cSquared*rSquared -
+			4.0
+		quadB := -2.0*a*abSquared*r +
+			2.0*aSquared*abSquared*r*q +
+			2.0*bSquared*abSquared*r*q +
+			2.0*cValSquared*cSquared*r*q
+		quadC := abSquared -
+			2.0*a*abSquared*q +
+			aSquared*abSquared*qSquared +
+			bSquared*abSquared*qSquared +
+			cValSquared*cSquared*qSquared
+
+		if math.Abs(quadA) >= MinimumResolutionSquared {
+			sqrtTerm := quadB*quadB - 4.0*quadA*quadC
+			switch {
+			case math.Abs(sqrtTerm) < MinimumResolutionSquared:
+				m := -quadB / (2.0 * quadA)
+				if math.Abs(m) >= MinimumResolution {
+					l := r*m + q
+					denom0 := 0.5 / m
+					thePoint := NewGeoPoint(
+						(1.0-l*a)*abSquared*denom0,
+						-l*b*abSquared*denom0,
+						-l*c*cSquared*denom0)
+					recordBoundsAddPoint(boundsInfo, bounds, thePoint)
+				} else {
+					boundsInfo.addXValueRaw(-p.D / a)
+				}
+			case sqrtTerm > 0.0:
+				sqrtResult := math.Sqrt(sqrtTerm)
+				commonDenom := 0.5 / quadA
+				m1 := (-quadB + sqrtResult) * commonDenom
+				m2 := (-quadB - sqrtResult) * commonDenom
+				if math.Abs(m1) >= MinimumResolution || math.Abs(m2) >= MinimumResolution {
+					l1 := r*m1 + q
+					l2 := r*m2 + q
+					denom1 := 0.5 / m1
+					denom2 := 0.5 / m2
+					recordBoundsAddPoint(boundsInfo, bounds, NewGeoPoint(
+						(1.0-l1*a)*abSquared*denom1,
+						-l1*b*abSquared*denom1,
+						-l1*c*cSquared*denom1))
+					recordBoundsAddPoint(boundsInfo, bounds, NewGeoPoint(
+						(1.0-l2*a)*abSquared*denom2,
+						-l2*b*abSquared*denom2,
+						-l2*c*cSquared*denom2))
+				} else {
+					boundsInfo.addXValueRaw(-p.D / a)
+				}
+			}
+		} else if math.Abs(quadB) > MinimumResolutionSquared {
+			m := -quadC / quadB
+			l := r*m + q
+			denom0 := 0.5 / m
+			recordBoundsAddPoint(boundsInfo, bounds, NewGeoPoint(
+				(1.0-l*a)*abSquared*denom0,
+				-l*b*abSquared*denom0,
+				-l*c*cSquared*denom0))
+		}
+	}
+
+	// Do Y via Lagrange multipliers.
+	if !boundsInfo.isSmallestMinY(pm) || !boundsInfo.isLargestMaxY(pm) {
+		q := b * abSquared * k
+		qSquared := q * q
+
+		quadA := aSquared*abSquared*rSquared +
+			bSquared*abSquared*rSquared +
+			cValSquared*cSquared*rSquared -
+			4.0
+		quadB := 2.0*aSquared*abSquared*r*q -
+			2.0*b*abSquared*r +
+			2.0*bSquared*abSquared*r*q +
+			2.0*cValSquared*cSquared*r*q
+		quadC := aSquared*abSquared*qSquared +
+			abSquared -
+			2.0*b*abSquared*q +
+			bSquared*abSquared*qSquared +
+			cValSquared*cSquared*qSquared
+
+		if math.Abs(quadA) >= MinimumResolutionSquared {
+			sqrtTerm := quadB*quadB - 4.0*quadA*quadC
+			switch {
+			case math.Abs(sqrtTerm) < MinimumResolutionSquared:
+				m := -quadB / (2.0 * quadA)
+				if math.Abs(m) >= MinimumResolution {
+					l := r*m + q
+					denom0 := 0.5 / m
+					recordBoundsAddPoint(boundsInfo, bounds, NewGeoPoint(
+						-l*a*abSquared*denom0,
+						(1.0-l*b)*abSquared*denom0,
+						-l*c*cSquared*denom0))
+				} else {
+					boundsInfo.addYValueRaw(-p.D / b)
+				}
+			case sqrtTerm > 0.0:
+				sqrtResult := math.Sqrt(sqrtTerm)
+				commonDenom := 0.5 / quadA
+				m1 := (-quadB + sqrtResult) * commonDenom
+				m2 := (-quadB - sqrtResult) * commonDenom
+				if math.Abs(m1) >= MinimumResolution || math.Abs(m2) >= MinimumResolution {
+					l1 := r*m1 + q
+					l2 := r*m2 + q
+					denom1 := 0.5 / m1
+					denom2 := 0.5 / m2
+					recordBoundsAddPoint(boundsInfo, bounds, NewGeoPoint(
+						-l1*a*abSquared*denom1,
+						(1.0-l1*b)*abSquared*denom1,
+						-l1*c*cSquared*denom1))
+					recordBoundsAddPoint(boundsInfo, bounds, NewGeoPoint(
+						-l2*a*abSquared*denom2,
+						(1.0-l2*b)*abSquared*denom2,
+						-l2*c*cSquared*denom2))
+				} else {
+					boundsInfo.addYValueRaw(-p.D / b)
+				}
+			}
+		} else if math.Abs(quadB) > MinimumResolutionSquared {
+			m := -quadC / quadB
+			l := r*m + q
+			denom0 := 0.5 / m
+			recordBoundsAddPoint(boundsInfo, bounds, NewGeoPoint(
+				-l*a*abSquared*denom0,
+				(1.0-l*b)*abSquared*denom0,
+				-l*c*cSquared*denom0))
+		}
+	}
+}
+
 // Equals reports equality.
 func (p *Plane) Equals(other *Plane) bool {
 	if other == nil {

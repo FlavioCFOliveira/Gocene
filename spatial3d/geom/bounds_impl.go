@@ -151,9 +151,21 @@ type GeoBoundsAccumulator = LatLonBounds
 // NewGeoBounds creates a new bounds accumulator.
 func NewGeoBounds() *GeoBoundsAccumulator { return NewLatLonBounds() }
 
+// xyzBoundsFudgeFactor is added to maximums and subtracted from minimums to
+// compensate for potential error deltas, so the accumulated box is guaranteed
+// to equal or exceed the boundary of the shape.
+//
+// Port of XYZBounds.FUDGE_FACTOR = Vector.MINIMUM_RESOLUTION * 1e3.
+const xyzBoundsFudgeFactor = MinimumResolution * 1e3
+
 // XYZBounds accumulates raw XYZ extents.
 //
 // Port of org.apache.lucene.spatial3d.geom.XYZBounds.
+//
+// The Java reference stores each extent as a nullable Double (unset == null).
+// Gocene mirrors that with explicit hasX/hasY/hasZ flags so the "smallest /
+// largest possible value" guards used by Plane.RecordBounds behave identically:
+// an unset extent must report false from the isSmallest/isLargest tests.
 type XYZBounds struct {
 	MinimumX float64
 	MaximumX float64
@@ -161,6 +173,10 @@ type XYZBounds struct {
 	MaximumY float64
 	MinimumZ float64
 	MaximumZ float64
+
+	hasX bool
+	hasY bool
+	hasZ bool
 }
 
 // NewXYZBounds creates an empty XYZBounds.
@@ -172,40 +188,147 @@ func NewXYZBounds() *XYZBounds {
 	}
 }
 
-// AddXValue records the point's X.
+// addXValueRaw records a specific X value, widened by the fudge factor.
+//
+// Port of XYZBounds.addXValue(double).
+func (b *XYZBounds) addXValueRaw(x float64) {
+	small := x - xyzBoundsFudgeFactor
+	if !b.hasX || b.MinimumX > small {
+		b.MinimumX = small
+	}
+	large := x + xyzBoundsFudgeFactor
+	if !b.hasX || b.MaximumX < large {
+		b.MaximumX = large
+	}
+	b.hasX = true
+}
+
+// addYValueRaw records a specific Y value, widened by the fudge factor.
+//
+// Port of XYZBounds.addYValue(double).
+func (b *XYZBounds) addYValueRaw(y float64) {
+	small := y - xyzBoundsFudgeFactor
+	if !b.hasY || b.MinimumY > small {
+		b.MinimumY = small
+	}
+	large := y + xyzBoundsFudgeFactor
+	if !b.hasY || b.MaximumY < large {
+		b.MaximumY = large
+	}
+	b.hasY = true
+}
+
+// addZValueRaw records a specific Z value, widened by the fudge factor.
+//
+// Port of XYZBounds.addZValue(double).
+func (b *XYZBounds) addZValueRaw(z float64) {
+	small := z - xyzBoundsFudgeFactor
+	if !b.hasZ || b.MinimumZ > small {
+		b.MinimumZ = small
+	}
+	large := z + xyzBoundsFudgeFactor
+	if !b.hasZ || b.MaximumZ < large {
+		b.MaximumZ = large
+	}
+	b.hasZ = true
+}
+
+// HasX reports whether any X extent has been recorded.
+func (b *XYZBounds) HasX() bool { return b.hasX }
+
+// HasY reports whether any Y extent has been recorded.
+func (b *XYZBounds) HasY() bool { return b.hasY }
+
+// HasZ reports whether any Z extent has been recorded.
+func (b *XYZBounds) HasZ() bool { return b.hasZ }
+
+// isSmallestMinX reports whether MinimumX has reached the planet's minimum X.
+//
+// Port of XYZBounds.isSmallestMinX.
+func (b *XYZBounds) isSmallestMinX(pm *PlanetModel) bool {
+	if !b.hasX {
+		return false
+	}
+	return b.MinimumX-pm.GetMinimumXValue() < MinimumResolution
+}
+
+// isLargestMaxX reports whether MaximumX has reached the planet's maximum X.
+//
+// Port of XYZBounds.isLargestMaxX.
+func (b *XYZBounds) isLargestMaxX(pm *PlanetModel) bool {
+	if !b.hasX {
+		return false
+	}
+	return pm.GetMaximumXValue()-b.MaximumX < MinimumResolution
+}
+
+// isSmallestMinY reports whether MinimumY has reached the planet's minimum Y.
+//
+// Port of XYZBounds.isSmallestMinY.
+func (b *XYZBounds) isSmallestMinY(pm *PlanetModel) bool {
+	if !b.hasY {
+		return false
+	}
+	return b.MinimumY-pm.GetMinimumYValue() < MinimumResolution
+}
+
+// isLargestMaxY reports whether MaximumY has reached the planet's maximum Y.
+//
+// Port of XYZBounds.isLargestMaxY.
+func (b *XYZBounds) isLargestMaxY(pm *PlanetModel) bool {
+	if !b.hasY {
+		return false
+	}
+	return pm.GetMaximumYValue()-b.MaximumY < MinimumResolution
+}
+
+// isSmallestMinZ reports whether MinimumZ has reached the planet's minimum Z.
+//
+// Port of XYZBounds.isSmallestMinZ.
+func (b *XYZBounds) isSmallestMinZ(pm *PlanetModel) bool {
+	if !b.hasZ {
+		return false
+	}
+	return b.MinimumZ-pm.GetMinimumZValue() < MinimumResolution
+}
+
+// isLargestMaxZ reports whether MaximumZ has reached the planet's maximum Z.
+//
+// Port of XYZBounds.isLargestMaxZ.
+func (b *XYZBounds) isLargestMaxZ(pm *PlanetModel) bool {
+	if !b.hasZ {
+		return false
+	}
+	return pm.GetMaximumZValue()-b.MaximumZ < MinimumResolution
+}
+
+// AddXValue records the point's X, widened by the fudge factor.
+//
+// Port of XYZBounds.addXValue(GeoPoint).
 func (b *XYZBounds) AddXValue(p *GeoPoint) Bounds {
-	if p.X < b.MinimumX {
-		b.MinimumX = p.X
-	}
-	if p.X > b.MaximumX {
-		b.MaximumX = p.X
-	}
+	b.addXValueRaw(p.X)
 	return b
 }
 
-// AddYValue records the point's Y.
+// AddYValue records the point's Y, widened by the fudge factor.
+//
+// Port of XYZBounds.addYValue(GeoPoint).
 func (b *XYZBounds) AddYValue(p *GeoPoint) Bounds {
-	if p.Y < b.MinimumY {
-		b.MinimumY = p.Y
-	}
-	if p.Y > b.MaximumY {
-		b.MaximumY = p.Y
-	}
+	b.addYValueRaw(p.Y)
 	return b
 }
 
-// AddZValue records the point's Z.
+// AddZValue records the point's Z, widened by the fudge factor.
+//
+// Port of XYZBounds.addZValue(GeoPoint).
 func (b *XYZBounds) AddZValue(p *GeoPoint) Bounds {
-	if p.Z < b.MinimumZ {
-		b.MinimumZ = p.Z
-	}
-	if p.Z > b.MaximumZ {
-		b.MaximumZ = p.Z
-	}
+	b.addZValueRaw(p.Z)
 	return b
 }
 
 // AddPoint records all three coordinates.
+//
+// Port of XYZBounds.addPoint.
 func (b *XYZBounds) AddPoint(p *GeoPoint) Bounds {
 	b.AddXValue(p)
 	b.AddYValue(p)
@@ -213,20 +336,33 @@ func (b *XYZBounds) AddPoint(p *GeoPoint) Bounds {
 	return b
 }
 
-// AddPlane is a no-op stub — deferred to #2693.
-func (b *XYZBounds) AddPlane(_ *PlanetModel, _ *Plane, _ ...Membership) Bounds { return b }
-
-// AddHorizontalPlane is a no-op stub.
-func (b *XYZBounds) AddHorizontalPlane(_ *PlanetModel, _ float64, _ *Plane, _ ...Membership) Bounds {
+// AddPlane records the extrema of the plane's intersection with the planet,
+// constrained by the supplied Membership bounds.
+//
+// Port of XYZBounds.addPlane: delegates to Plane.recordBounds.
+func (b *XYZBounds) AddPlane(pm *PlanetModel, plane *Plane, bounds ...Membership) Bounds {
+	plane.RecordBounds(pm, b, bounds...)
 	return b
 }
 
-// AddVerticalPlane is a no-op stub.
-func (b *XYZBounds) AddVerticalPlane(_ *PlanetModel, _ float64, _ *Plane, _ ...Membership) Bounds {
-	return b
+// AddHorizontalPlane records a horizontal plane via AddPlane.
+//
+// Port of XYZBounds.addHorizontalPlane.
+func (b *XYZBounds) AddHorizontalPlane(pm *PlanetModel, _ float64, plane *Plane, bounds ...Membership) Bounds {
+	return b.AddPlane(pm, plane, bounds...)
 }
 
-// AddIntersection is a no-op stub.
+// AddVerticalPlane records a vertical plane via AddPlane.
+//
+// Port of XYZBounds.addVerticalPlane.
+func (b *XYZBounds) AddVerticalPlane(pm *PlanetModel, _ float64, plane *Plane, bounds ...Membership) Bounds {
+	return b.AddPlane(pm, plane, bounds...)
+}
+
+// AddIntersection is a no-op stub — the two-plane intersection variant of
+// Plane.recordBounds is deferred to rmp #4773. Shapes that depend on it
+// (GeoBBox, GeoPolygon) therefore do not enable BKD pruning; see the geo3d
+// query's prune-capability gate.
 func (b *XYZBounds) AddIntersection(_ *PlanetModel, _, _ *Plane, _ ...Membership) Bounds {
 	return b
 }
@@ -243,7 +379,28 @@ func (b *XYZBounds) NoTopLatitudeBound() Bounds { return b }
 // NoBottomLatitudeBound is a no-op.
 func (b *XYZBounds) NoBottomLatitudeBound() Bounds { return b }
 
-// NoBound is a no-op.
-func (b *XYZBounds) NoBound(_ *PlanetModel) Bounds { return b }
+// NoBound widens the bounds to the entire planet box.
+//
+// Port of XYZBounds.noBound.
+func (b *XYZBounds) NoBound(pm *PlanetModel) Bounds {
+	b.MinimumX = pm.GetMinimumXValue()
+	b.MaximumX = pm.GetMaximumXValue()
+	b.MinimumY = pm.GetMinimumYValue()
+	b.MaximumY = pm.GetMaximumYValue()
+	b.MinimumZ = pm.GetMinimumZValue()
+	b.MaximumZ = pm.GetMaximumZValue()
+	b.hasX, b.hasY, b.hasZ = true, true, true
+	return b
+}
+
+// IsWithin reports whether (x,y,z) lies inside the accumulated box. Returns
+// false for any dimension that has not yet been recorded.
+//
+// Port of XYZBounds.isWithin(double,double,double).
+func (b *XYZBounds) IsWithin(x, y, z float64) bool {
+	return b.hasX && x >= b.MinimumX && x <= b.MaximumX &&
+		b.hasY && y >= b.MinimumY && y <= b.MaximumY &&
+		b.hasZ && z >= b.MinimumZ && z <= b.MaximumZ
+}
 
 var _ Bounds = (*XYZBounds)(nil)
