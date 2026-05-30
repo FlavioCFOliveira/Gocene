@@ -901,16 +901,27 @@ func WriteSegmentInfos(si *SegmentInfos, directory store.Directory) error {
 	// (loadLiveDocsFromDisk) reads the .liv back when delGen >= 0. The former
 	// _gocene_del_ keys are therefore not written.
 	//
-	// The parentField (_gocene_parent) and index-sort (_gocene_sort_*) markers
-	// are still written: their authoritative on-disk homes are not yet wired
-	// through the relevant read paths — parentField would need the .fnm
-	// parentField bit consulted by the AddIndexes validation path, and the
-	// index sort would need the .si numSortFields block. These are tracked as
-	// the remaining #4789 follow-up. The _gocene_fiv marker gates restoration of
-	// these remaining keys on read.
+	// The parentField (_gocene_parent) is still written as a FALLBACK for the
+	// config-only block-join parent field (rmp #4789 — deferred sub-case). The
+	// authoritative on-disk home is the per-segment .fnm parent bit
+	// (Lucene94FieldInfosFormat), which the indexing path
+	// (DocumentsWriterPerThread.ProcessDocument) now stamps and which AddIndexes
+	// consults first via IndexWriter.sourceParentFieldFromDisk. But Gocene's
+	// IndexWriter.AddDocuments does not yet auto-materialise the block-join
+	// parent field as a real on-disk field (GOC-4136 block stub), so a
+	// destination that configures a parentField never indexed as a document
+	// field would otherwise be invisible to a cross-process AddIndexes
+	// validation. Until the parent field is auto-materialised, the
+	// _gocene_parent key preserves that configured-but-unindexed name. Once the
+	// block stub is implemented this write can be removed.
+	//
+	// The index-sort (_gocene_sort_*) marker is still written: its authoritative
+	// on-disk home (the .si numSortFields block) is not yet wired through the
+	// read path. This is tracked as the remaining #4789 follow-up. The
+	// _gocene_fiv marker gates restoration of the remaining keys on read.
 	hasExt := false
 
-	// Parent field.
+	// Parent field (fallback; see comment above).
 	if si.inMemoryParentField != "" {
 		userData["_gocene_parent"] = si.inMemoryParentField
 		hasExt = true
@@ -1381,7 +1392,12 @@ func readSegmentCommitInfoLucene104(in store.IndexInput, directory store.Directo
 // into si and its segments.  The userData map is read-only here; the caller
 // strips the _gocene_* keys before storing userData on si.
 func restoreGoceneExtensions(si *SegmentInfos, userData map[string]string) error {
-	// Parent field.
+	// Parent field: restored from userData as a fallback for the config-only
+	// block-join parent field (rmp #4789 — deferred sub-case). The authoritative
+	// source is the per-segment .fnm parent bit, consulted on demand by
+	// AddIndexes (sourceParentFieldFromDisk); _gocene_parent only carries a
+	// parentField that was configured but never indexed as a real document field
+	// (Gocene's AddDocuments block stub, GOC-4136).
 	si.inMemoryParentField = userData["_gocene_parent"]
 
 	// Index sort.

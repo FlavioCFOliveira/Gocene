@@ -2075,8 +2075,17 @@ func (w *IndexWriter) AddIndexes(dirs ...store.Directory) error {
 			continue
 		}
 
-		// Validate parentField compatibility.
-		srcParentField := sourceSI.GetInMemoryParentField()
+		// Validate parentField compatibility. The source parent field name is
+		// read from the per-segment .fnm parent bit (Lucene94FieldInfosFormat,
+		// stamped by the indexing path) as the authoritative source (rmp #4789).
+		// It falls back to the _gocene_parent userData key only when no source
+		// segment carries the parent bit, which happens for a parentField that
+		// was configured but never materialised as a real document field
+		// (Gocene's AddDocuments block stub, GOC-4136).
+		srcParentField := w.sourceParentFieldFromDisk(dir, sourceSI)
+		if srcParentField == "" {
+			srcParentField = sourceSI.GetInMemoryParentField()
+		}
 		if srcParentField != dstParentField {
 			if dstParentField != "" && srcParentField != "" && srcParentField != dstParentField {
 				return fmt.Errorf(
@@ -2148,6 +2157,11 @@ func (w *IndexWriter) AddIndexes(dirs ...store.Directory) error {
 						Tokenized:                info.IsTokenized(),
 						OmitNorms:                info.OmitNorms(),
 						StoreTermVectors:         info.HasTermVectors(),
+						// Preserve the parent bit so it round-trips into the
+						// imported segment's .fnm (rmp #4789); dropping it would
+						// silently demote a block-join parent field to a regular
+						// field on AddIndexes.
+						IsParentField:            info.IsParentField(),
 						VectorEncoding:           VectorEncodingFloat32,
 						VectorSimilarityFunction: VectorSimilarityFunctionEuclidean,
 					})
@@ -2165,6 +2179,37 @@ func (w *IndexWriter) AddIndexes(dirs ...store.Directory) error {
 	}
 
 	return nil
+}
+
+// sourceParentFieldFromDisk derives the block-join parent field name of a
+// source index from the per-segment .fnm parent bit (rmp #4789).
+//
+// It scans every source segment's FieldInfos — preferring the in-memory copy,
+// otherwise reading the authoritative .fnm via the codec FieldInfosFormat — and
+// returns the name of the first field whose IsParentField bit is set. Returns
+// the empty string when no segment flags a parent field, matching the semantics
+// of the removed _gocene_parent userData key for an index without block joins.
+func (w *IndexWriter) sourceParentFieldFromDisk(dir store.Directory, sourceSI *SegmentInfos) string {
+	for _, sci := range sourceSI.List() {
+		srcFI := sci.GetInMemoryFieldInfos()
+		if srcFI == nil {
+			srcFI = readFieldInfosFromDisk(dir, w.config.Codec(), sci.SegmentInfo())
+		}
+		if srcFI == nil {
+			continue
+		}
+		it := srcFI.Iterator()
+		for {
+			info := it.Next()
+			if info == nil {
+				break
+			}
+			if info.IsParentField() {
+				return info.Name()
+			}
+		}
+	}
+	return ""
 }
 
 // sortsCompatible reports whether src and dst index sorts are compatible.

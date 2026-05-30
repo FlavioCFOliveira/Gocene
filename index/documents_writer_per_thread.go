@@ -683,6 +683,16 @@ func (dwpt *DocumentsWriterPerThread) ProcessDocument(doc Document) error {
 			Stored:                   field.isStored,
 			DocValuesType:            field.docValuesType,
 		}
+		// Mark the configured parent field so the parent bit is serialised into
+		// the .fnm (Lucene94FieldInfosFormat parent bit). This makes the .fnm the
+		// authoritative on-disk home for the block-join parent field name,
+		// replacing the segments_N _gocene_parent userData key (rmp #4789).
+		// Mirrors IndexingChain.processField, which sets IsParentField from
+		// FieldInfos.getParentField() during the live indexing path.
+		if dwpt.parent != nil && dwpt.parent.config != nil &&
+			fieldName == dwpt.parent.config.ParentField() && dwpt.parent.config.ParentField() != "" {
+			opts.IsParentField = true
+		}
 		// Vector (KNN) attributes: record the dimension / encoding /
 		// similarity on the FieldInfo so it is serialised to the .fnm and
 		// FieldInfos.HasVectorValues() reports true on reopen, lighting up
