@@ -427,8 +427,7 @@ func TestSimilarityScoring_PhraseQueryScoring(t *testing.T) {
 
 	topDocs, err := searcher.Search(phraseQuery, 10)
 	if err != nil {
-		t.Logf("phrase search may not be fully implemented: %v", err)
-		t.Skip("phrase search not implemented")
+		t.Fatalf("phrase search failed: %v", err)
 	}
 
 	t.Logf("Phrase query scoring found %d documents", topDocs.TotalHits.Value)

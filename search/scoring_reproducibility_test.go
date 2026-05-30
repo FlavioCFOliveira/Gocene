@@ -198,8 +198,7 @@ func TestSearchScoringReproducibility_PhraseQuery(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		topDocs, err := searcher.Search(phraseQuery, 10)
 		if err != nil {
-			t.Logf("phrase search may not be fully implemented: %v", err)
-			t.Skip("phrase search not implemented")
+			t.Fatalf("phrase search failed: %v", err)
 		}
 		t.Logf("Run %d: found %d documents", i+1, topDocs.TotalHits.Value)
 	}
