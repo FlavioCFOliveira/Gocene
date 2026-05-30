@@ -434,13 +434,14 @@ func (f *Lucene99SegmentInfoFormat) Read(dir store.Directory, segmentName string
 		return nil, err
 	}
 
-	// Index Sort
-	numSortFields, err := store.ReadVInt(checksumIn)
+	// Index sort (numSortFields + per-field SortField), decoded in lock-step
+	// with the index-package .si writer via index.ReadSegmentInfoSort (rmp
+	// #4789). Keeping the two .si readers byte-aligned is what lets a segment
+	// written by IndexWriter.writeSegmentInfo be reopened through the codec
+	// SegmentInfoFormat at directory_reader.go.
+	indexSort, err := index.ReadSegmentInfoSort(checksumIn)
 	if err != nil {
-		return nil, err
-	}
-	if numSortFields > 0 {
-		return nil, fmt.Errorf("index sort not yet supported in SegmentInfoFormat")
+		return nil, fmt.Errorf("index sort: %w", err)
 	}
 
 	_, err = CheckFooter(checksumIn)
@@ -464,6 +465,9 @@ func (f *Lucene99SegmentInfoFormat) Read(dir store.Directory, segmentName string
 	si.SetFiles(fileList)
 	for k, v := range attributes {
 		si.SetAttribute(k, v)
+	}
+	if indexSort != nil {
+		si.SetIndexSort(indexSort)
 	}
 
 	return si, nil
@@ -561,10 +565,10 @@ func (f *Lucene99SegmentInfoFormat) Write(dir store.Directory, info *index.Segme
 		return err
 	}
 
-	// numSortFields. Index sort is not yet serialised (see Read, which rejects
-	// sorted segments); always emit 0 until sort serialisation lands.
-	if err := store.WriteVInt(checksumOut, 0); err != nil {
-		return err
+	// Index sort: numSortFields followed by each SortField, byte-faithful to
+	// Lucene90SegmentInfoFormat.write (rmp #4789).
+	if err := index.WriteSegmentInfoSort(checksumOut, info.IndexSort()); err != nil {
+		return fmt.Errorf("write index sort: %w", err)
 	}
 
 	return WriteFooter(checksumOut)

@@ -312,6 +312,13 @@ func (w *IndexWriter) addFieldToInfos(fm indexableFieldMeta) {
 		// Already registered; do not re-add (field numbers must be stable).
 		return
 	}
+	// parentMarkerField carries the parent-field bit (rmp #4789): when the field
+	// is the synthetic parent marker injected by AddDocuments, set IsParentField
+	// so it is serialised to the .fnm and survives a cold reopen.
+	isParentField := false
+	if pm, ok := fm.(interface{ IsParentMarker() bool }); ok {
+		isParentField = pm.IsParentMarker()
+	}
 	opts := FieldInfoOptions{
 		IndexOptions:             fm.IndexOptions(),
 		DocValuesType:            fm.DocValuesType(),
@@ -321,6 +328,7 @@ func (w *IndexWriter) addFieldToInfos(fm indexableFieldMeta) {
 		Tokenized:                fm.IsTokenized(),
 		OmitNorms:                fm.OmitNorms(),
 		StoreTermVectors:         fm.HasTermVectors(),
+		IsParentField:            isParentField,
 		VectorEncoding:           VectorEncodingFloat32,
 		VectorSimilarityFunction: VectorSimilarityFunctionEuclidean,
 	}
@@ -991,6 +999,10 @@ func (w *IndexWriter) Commit() error {
 				return fmt.Errorf("commit: persist merged deletions for %s: %w", segmentName, err3)
 			}
 		}
+		// Stamp the configured index sort onto the segment so writeSegmentInfo
+		// serialises it into the .si numSortFields block (rmp #4789), replacing
+		// the segments_N _gocene_sort_* userData keys.
+		sci.SegmentInfo().SetIndexSort(w.config.IndexSort())
 		// Write the .si file for this segment before registering it so that
 		// external tools and CheckIndex can verify per-segment integrity.
 		if err3 := writeSegmentInfo(w.directory, sci.SegmentInfo(), store.IOContextWrite); err3 != nil {
@@ -1549,6 +1561,7 @@ func (w *IndexWriter) ForceMerge(maxNumSegments int) error {
 						Tokenized:                info.IsTokenized(),
 						OmitNorms:                info.OmitNorms(),
 						StoreTermVectors:         info.HasTermVectors(),
+						IsParentField:            info.IsParentField(),
 						VectorEncoding:           VectorEncodingFloat32,
 						VectorSimilarityFunction: VectorSimilarityFunctionEuclidean,
 					})
@@ -1586,10 +1599,18 @@ func (w *IndexWriter) ForceMerge(maxNumSegments int) error {
 		// totalDocs = live docs and delCount = 0.
 		totalDocs := 0
 		var mergedFI *FieldInfos
+		codec := w.config.Codec()
 		for _, sci := range si.List() {
 			// sci.NumDocs() = sci.DocCount() - sci.DelCount() = live docs.
 			totalDocs += sci.NumDocs()
-			if fi := sci.GetInMemoryFieldInfos(); fi != nil {
+			// Prefer in-memory FieldInfos; fall back to the on-disk .fnm so that
+			// the merged segment picks up the parent-field bit and other metadata
+			// even from segments opened from a cold reopen (rmp #4789).
+			fi := sci.GetInMemoryFieldInfos()
+			if fi == nil {
+				fi = readFieldInfosFromDisk(w.directory, codec, sci.SegmentInfo())
+			}
+			if fi != nil {
 				if mergedFI == nil {
 					mergedFI = NewFieldInfos()
 				}
@@ -1612,6 +1633,7 @@ func (w *IndexWriter) ForceMerge(maxNumSegments int) error {
 						Tokenized:                info.IsTokenized(),
 						OmitNorms:                info.OmitNorms(),
 						StoreTermVectors:         info.HasTermVectors(),
+						IsParentField:            info.IsParentField(),
 						VectorEncoding:           VectorEncodingFloat32,
 						VectorSimilarityFunction: VectorSimilarityFunctionEuclidean,
 					})
@@ -1635,8 +1657,25 @@ func (w *IndexWriter) ForceMerge(maxNumSegments int) error {
 		if mergedFI != nil {
 			sci.SetInMemoryFieldInfos(mergedFI)
 		}
+		// Write the .fnm for the merged segment when FieldInfos are available so
+		// that metadata (parent-field bit, DocValues types, etc.) survives a cold
+		// reopen via the on-disk .fnm rather than solely through the in-memory
+		// SegmentCommitInfo state.  Mirrors the regular Commit path at line ~974.
+		segFiles := []string{segName + ".si"}
+		if mergedFI != nil && mergedFI.Size() > 0 && codec != nil {
+			if fif := codec.FieldInfosFormat(); fif != nil {
+				segInfo := sci.SegmentInfo()
+				if err := fif.Write(w.directory, segInfo, "", mergedFI, store.IOContextWrite); err != nil {
+					return fmt.Errorf("forceMerge: write field infos for %s: %w", segName, err)
+				}
+				segFiles = append(segFiles, segName+".fnm")
+				sci.SegmentInfo().SetCodec(codec.Name())
+			}
+		}
 		// Register files before writeSegmentInfo so the .si embeds the file list.
-		sci.SegmentInfo().SetFiles([]string{segName + ".si"})
+		sci.SegmentInfo().SetFiles(segFiles)
+		// Stamp the configured index sort so the merged .si carries it (rmp #4789).
+		sci.SegmentInfo().SetIndexSort(w.config.IndexSort())
 		if err := writeSegmentInfo(w.directory, sci.SegmentInfo(), store.IOContextWrite); err != nil {
 			return fmt.Errorf("forceMerge: write .si: %w", err)
 		}
@@ -1850,9 +1889,11 @@ func writeSegmentInfo(dir store.Directory, si *SegmentInfo, context store.IOCont
 		return fmt.Errorf("writeSegmentInfo %s: attributes: %w", name, writeErr)
 	}
 
-	// numSortFields = 0 (index sort not yet implemented in this write path)
-	if writeErr = store.WriteVInt(out, 0); writeErr != nil {
-		return fmt.Errorf("writeSegmentInfo %s: numSortFields: %w", name, writeErr)
+	// Index sort: numSortFields followed by each SortField, byte-faithful to
+	// Lucene90SegmentInfoFormat.write (rmp #4789). This replaces the segments_N
+	// _gocene_sort_* userData keys with the authoritative on-disk .si block.
+	if writeErr = WriteSegmentInfoSort(out, si.IndexSort()); writeErr != nil {
+		return fmt.Errorf("writeSegmentInfo %s: index sort: %w", name, writeErr)
 	}
 
 	if writeErr = writeFooter(out); writeErr != nil {
@@ -1860,6 +1901,165 @@ func writeSegmentInfo(dir store.Directory, si *SegmentInfo, context store.IOCont
 	}
 
 	return out.Close()
+}
+
+// segmentSortProviderName is the SortFieldProvider name Lucene writes before a
+// plain SortField in the .si index-sort block (SortField.Provider.NAME).
+const segmentSortProviderName = "SortField"
+
+// sortTypeToLuceneName maps a schema.SortType to the Lucene SortField.Type enum
+// name (Type.toString()) written into the .si index-sort block. Only the five
+// index-sortable plain types are representable here; richer SortField flavours
+// (SortedNumericSortField / SortedSetSortField) are not yet modelled by
+// schema.SortField and are out of scope for rmp #4789.
+func sortTypeToLuceneName(t SortType) (string, error) {
+	switch t {
+	case SortTypeString:
+		return "STRING", nil
+	case SortTypeLong:
+		return "LONG", nil
+	case SortTypeInt:
+		return "INT", nil
+	case SortTypeFloat:
+		return "FLOAT", nil
+	case SortTypeDouble:
+		return "DOUBLE", nil
+	default:
+		return "", fmt.Errorf("unsupported sort type %d for .si serialization", int(t))
+	}
+}
+
+// luceneNameToSortType is the inverse of sortTypeToLuceneName.
+func luceneNameToSortType(name string) (SortType, error) {
+	switch name {
+	case "STRING":
+		return SortTypeString, nil
+	case "LONG":
+		return SortTypeLong, nil
+	case "INT":
+		return SortTypeInt, nil
+	case "FLOAT":
+		return SortTypeFloat, nil
+	case "DOUBLE":
+		return SortTypeDouble, nil
+	default:
+		return 0, fmt.Errorf("unsupported sort type name %q in .si", name)
+	}
+}
+
+// WriteSegmentInfoSort serialises the per-segment index sort into the .si body,
+// byte-faithful to Lucene90SegmentInfoFormat.write: a VInt field count followed
+// by, for each field, the provider name (String) and the SortField payload via
+// SortField.serialize:
+//
+//	writeString(field)
+//	writeString(type.toString())
+//	writeInt(reverse ? 1 : 0)        // little-endian (DataOutput.writeInt)
+//	writeInt(missingValue == null ? 0 : 1)
+//	[missing-value payload]          // omitted: schema.SortField carries none
+//
+// schema.SortField models only the field name, plain type, and reverse flag, so
+// the missing value is always serialised as absent (writeInt 0); this matches
+// the fidelity of the superseded _gocene_sort_* userData keys. Byte-identity
+// against Lucene-produced .si is CI-gated.
+//
+// Exported so the codec-side .si format (codecs.Lucene99SegmentInfoFormat) can
+// emit a byte-identical index-sort block, keeping the two .si writers in
+// lock-step (rmp #4789).
+func WriteSegmentInfoSort(out store.IndexOutput, sort *Sort) error {
+	var fields []SortField
+	if sort != nil {
+		fields = sort.Fields()
+	}
+	if err := store.WriteVInt(out, int32(len(fields))); err != nil {
+		return err
+	}
+	for i := range fields {
+		sf := fields[i]
+		typeName, err := sortTypeToLuceneName(sf.SortType())
+		if err != nil {
+			return err
+		}
+		if err := store.WriteString(out, segmentSortProviderName); err != nil {
+			return err
+		}
+		if err := store.WriteString(out, sf.Field()); err != nil {
+			return err
+		}
+		if err := store.WriteString(out, typeName); err != nil {
+			return err
+		}
+		reverse := int32(0)
+		if sf.Descending() {
+			reverse = 1
+		}
+		if err := store.WriteInt32LE(out, reverse); err != nil {
+			return err
+		}
+		// missingValue == null: schema.SortField does not model a persisted
+		// missing value for the index sort.
+		if err := store.WriteInt32LE(out, 0); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ReadSegmentInfoSort is the inverse of WriteSegmentInfoSort. It returns nil for
+// a zero field count (no index sort). A negative count is a corruption error,
+// mirroring Lucene90SegmentInfoFormat.read.
+//
+// Exported so the codec-side .si reader (codecs.Lucene99SegmentInfoFormat) can
+// decode the same index-sort block, keeping the two .si readers in lock-step
+// (rmp #4789).
+func ReadSegmentInfoSort(in store.IndexInput) (*Sort, error) {
+	numSortFields, err := store.ReadVInt(in)
+	if err != nil {
+		return nil, err
+	}
+	if numSortFields == 0 {
+		return nil, nil
+	}
+	if numSortFields < 0 {
+		return nil, fmt.Errorf("invalid index sort field count: %d", numSortFields)
+	}
+	fields := make([]SortField, 0, numSortFields)
+	for i := int32(0); i < numSortFields; i++ {
+		provider, err := store.ReadString(in)
+		if err != nil {
+			return nil, err
+		}
+		if provider != segmentSortProviderName {
+			return nil, fmt.Errorf("unsupported sort field provider %q in .si (only %q is modelled)", provider, segmentSortProviderName)
+		}
+		field, err := store.ReadString(in)
+		if err != nil {
+			return nil, err
+		}
+		typeName, err := store.ReadString(in)
+		if err != nil {
+			return nil, err
+		}
+		st, err := luceneNameToSortType(typeName)
+		if err != nil {
+			return nil, err
+		}
+		reverse, err := store.ReadInt32LE(in)
+		if err != nil {
+			return nil, err
+		}
+		hasMissing, err := store.ReadInt32LE(in)
+		if err != nil {
+			return nil, err
+		}
+		if hasMissing == 1 {
+			// schema.SortField cannot model a persisted missing value yet; a
+			// Lucene-produced .si carrying one is out of scope for rmp #4789.
+			return nil, fmt.Errorf("index sort field %q carries a missing value, which is not yet supported", field)
+		}
+		fields = append(fields, NewSortFieldFull(field, st, reverse == 1))
+	}
+	return schema.NewSortFromFields(fields), nil
 }
 
 // readSegmentInfo reads the Lucene99SegmentInfo .si file for the named segment
@@ -1959,12 +2159,11 @@ func readSegmentInfo(dir store.Directory, segmentName string, segmentID []byte, 
 		return nil, err
 	}
 
-	numSortFields, err := store.ReadVInt(in)
+	// Index sort (numSortFields + per-field SortField), the inverse of
+	// WriteSegmentInfoSort (rmp #4789).
+	indexSort, err := ReadSegmentInfoSort(in)
 	if err != nil {
-		return nil, err
-	}
-	if numSortFields > 0 {
-		return nil, fmt.Errorf("readSegmentInfo %s: index sort not yet supported", name)
+		return nil, fmt.Errorf("readSegmentInfo %s: index sort: %w", name, err)
 	}
 
 	if _, err := checkFooter(in); err != nil {
@@ -1987,6 +2186,9 @@ func readSegmentInfo(dir store.Directory, segmentName string, segmentID []byte, 
 	si.SetFiles(fileList)
 	for k, v := range attributes {
 		si.SetAttribute(k, v)
+	}
+	if indexSort != nil {
+		si.SetIndexSort(indexSort)
 	}
 	return si, nil
 }
@@ -2149,14 +2351,14 @@ func (w *IndexWriter) AddIndexes(dirs ...store.Directory) error {
 					}
 					number := fi.GetNextFieldNumber()
 					clone := NewFieldInfo(info.Name(), number, FieldInfoOptions{
-						IndexOptions:             info.IndexOptions(),
-						DocValuesType:            info.DocValuesType(),
-						DocValuesSkipIndexType:   DocValuesSkipIndexTypeNone,
-						DocValuesGen:             -1,
-						Stored:                   info.IsStored(),
-						Tokenized:                info.IsTokenized(),
-						OmitNorms:                info.OmitNorms(),
-						StoreTermVectors:         info.HasTermVectors(),
+						IndexOptions:           info.IndexOptions(),
+						DocValuesType:          info.DocValuesType(),
+						DocValuesSkipIndexType: DocValuesSkipIndexTypeNone,
+						DocValuesGen:           -1,
+						Stored:                 info.IsStored(),
+						Tokenized:              info.IsTokenized(),
+						OmitNorms:              info.OmitNorms(),
+						StoreTermVectors:       info.HasTermVectors(),
 						// Preserve the parent bit so it round-trips into the
 						// imported segment's .fnm (rmp #4789); dropping it would
 						// silently demote a block-join parent field to a regular
@@ -2309,21 +2511,74 @@ func (w *IndexWriter) WaitForMerges() error {
 	return nil
 }
 
+// parentFieldDoc wraps a Document and appends a synthetic NumericDocValues
+// parent field to its field list. This mirrors Lucene's
+// DocumentsWriterPerThread.addParentField, which injects a NumericDocValuesField
+// with value -1 for the configured parent field name into the last document of
+// each block so the parent-field FieldInfo is materialised in the .fnm and
+// survives a reopen (rmp #4789).
+type parentFieldDoc struct {
+	inner  Document
+	parent parentMarkerField
+}
+
+func (d *parentFieldDoc) GetFields() []interface{} {
+	inner := d.inner.GetFields()
+	out := make([]interface{}, len(inner)+1)
+	copy(out, inner)
+	out[len(inner)] = &d.parent
+	return out
+}
+
+// parentMarkerField is a minimal NumericDocValues field (value -1) that
+// implements both indexableFieldMeta and spi.IndexableField so that
+// addFieldToInfos registers its FieldInfo with DocValuesType = NUMERIC and
+// DWPT's asDwptField sees it as a valid field. The IsParentField flag is set
+// via a dedicated accessor checked in addFieldToInfos (rmp #4789).
+//
+// This mirrors Lucene's DocumentsWriterPerThread.parentField which is a
+// ReservedField wrapping a NumericDocValuesField(-1).
+type parentMarkerField struct{ name string }
+
+func (f *parentMarkerField) Name() string                 { return f.name }
+func (f *parentMarkerField) StringValue() string          { return "" }
+func (f *parentMarkerField) BinaryValue() []byte          { return nil }
+func (f *parentMarkerField) NumericValue() interface{}    { return int64(-1) }
+func (f *parentMarkerField) IsStored() bool               { return false }
+func (f *parentMarkerField) IsIndexed() bool              { return false }
+func (f *parentMarkerField) IsTokenized() bool            { return false }
+func (f *parentMarkerField) IndexOptions() IndexOptions   { return IndexOptionsNone }
+func (f *parentMarkerField) DocValuesType() DocValuesType { return DocValuesTypeNumeric }
+func (f *parentMarkerField) HasTermVectors() bool         { return false }
+func (f *parentMarkerField) OmitNorms() bool              { return false }
+func (f *parentMarkerField) IsParentMarker() bool         { return true }
+
 // AddDocuments adds a block of documents atomically.
 // This is used for parent-child document relationships.
 //
-// Gocene deviation: Lucene adds the whole block as a single atomic unit so
-// that inter-document relationships (parent/child) are preserved within a
-// segment. This implementation adds each document individually via AddDocument,
-// which preserves the document count and codec flush path but does not
-// guarantee atomic-block placement. Full block-level atomicity is deferred to
-// a future sprint.
+// When a parentField is configured, the last document in the block receives a
+// synthetic NumericDocValuesField(parentFieldName, -1), mirroring Lucene's
+// DocumentsWriterPerThread.addParentField. This ensures the parent field is
+// materialised in the segment's FieldInfos (.fnm) so it survives a reopen and
+// AddIndexes can validate parentField compatibility from the on-disk .fnm
+// (rmp #4789, replacing the removed _gocene_parent userData fallback).
+//
+// Gocene deviation: full block-level atomicity (single DWPT flush for the
+// whole block) is deferred to GOC-4136; documents are added individually.
 func (w *IndexWriter) AddDocuments(docs []Document) error {
 	if err := w.ensureOpen(); err != nil {
 		return err
 	}
-	for _, doc := range docs {
-		if err := w.AddDocument(doc); err != nil {
+	parentFieldName := w.config.ParentField()
+	for i, doc := range docs {
+		d := doc
+		// Inject the synthetic parent marker into the last document of the block,
+		// mirroring Lucene's DocumentsWriterPerThread.updateDocuments which wraps
+		// the last document with addParentField when parentField != null.
+		if parentFieldName != "" && i == len(docs)-1 {
+			d = &parentFieldDoc{inner: doc, parent: parentMarkerField{name: parentFieldName}}
+		}
+		if err := w.AddDocument(d); err != nil {
 			return err
 		}
 	}

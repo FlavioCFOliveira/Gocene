@@ -901,50 +901,20 @@ func WriteSegmentInfos(si *SegmentInfos, directory store.Directory) error {
 	// (loadLiveDocsFromDisk) reads the .liv back when delGen >= 0. The former
 	// _gocene_del_ keys are therefore not written.
 	//
-	// The parentField (_gocene_parent) is still written as a FALLBACK for the
-	// config-only block-join parent field (rmp #4789 — deferred sub-case). The
-	// authoritative on-disk home is the per-segment .fnm parent bit
-	// (Lucene94FieldInfosFormat), which the indexing path
-	// (DocumentsWriterPerThread.ProcessDocument) now stamps and which AddIndexes
-	// consults first via IndexWriter.sourceParentFieldFromDisk. But Gocene's
-	// IndexWriter.AddDocuments does not yet auto-materialise the block-join
-	// parent field as a real on-disk field (GOC-4136 block stub), so a
-	// destination that configures a parentField never indexed as a document
-	// field would otherwise be invisible to a cross-process AddIndexes
-	// validation. Until the parent field is auto-materialised, the
-	// _gocene_parent key preserves that configured-but-unindexed name. Once the
-	// block stub is implemented this write can be removed.
+	// The parentField is NO LONGER round-tripped through segments_N userData
+	// (rmp #4789): the authoritative on-disk home is the per-segment .fnm parent
+	// bit (Lucene94FieldInfosFormat), which AddIndexes consults via
+	// IndexWriter.sourceParentFieldFromDisk. The former _gocene_parent key is
+	// therefore not written.
 	//
-	// The index-sort (_gocene_sort_*) marker is still written: its authoritative
-	// on-disk home (the .si numSortFields block) is not yet wired through the
-	// read path. This is tracked as the remaining #4789 follow-up. The
-	// _gocene_fiv marker gates restoration of the remaining keys on read.
-	hasExt := false
-
-	// Parent field (fallback; see comment above).
-	if si.inMemoryParentField != "" {
-		userData["_gocene_parent"] = si.inMemoryParentField
-		hasExt = true
-	}
-
-	// Index sort.
-	if si.inMemoryIndexSort != nil {
-		if sortFields := si.inMemoryIndexSort.Fields(); len(sortFields) > 0 {
-			userData["_gocene_sort_n"] = strconv.Itoa(len(sortFields))
-			for i, sf := range sortFields {
-				desc := "0"
-				if sf.Descending() {
-					desc = "1"
-				}
-				userData[fmt.Sprintf("_gocene_sort_%d", i)] = fmt.Sprintf("%s|%d|%s", sf.Field(), int(sf.SortType()), desc)
-			}
-			hasExt = true
-		}
-	}
-
-	if hasExt {
-		userData["_gocene_fiv"] = goceneExtVersion
-	}
+	// The index sort is NO LONGER round-tripped through segments_N userData
+	// (rmp #4789): it is serialised into each per-segment .si numSortFields
+	// block (writeSegmentInfoSort, byte-faithful to Lucene90SegmentInfoFormat)
+	// and read back from there by ReadSegmentInfos (which derives the
+	// index-level sort from the first segment's .si).
+	//
+	// No _gocene_* keys are written: segments_N userData is now pure
+	// user-supplied commit data (rmp #4789).
 
 	if err := store.WriteMapOfStrings(out, userData); err != nil {
 		return err
@@ -1254,6 +1224,16 @@ func readSegmentInfosLucene104(rawIn store.IndexInput, directory store.Directory
 			return nil, fmt.Errorf("reading segment %d: %w", i, err)
 		}
 		si.segments = append(si.segments, sci)
+		// Derive the index-level sort from the per-segment .si numSortFields
+		// block (rmp #4789): every segment shares the same index sort, so the
+		// first segment that carries one is authoritative. This replaces the
+		// segments_N _gocene_sort_* userData round-trip for AddIndexes
+		// sort-compat validation.
+		if si.inMemoryIndexSort == nil {
+			if sort := sci.segmentInfo.IndexSort(); sort != nil && len(sort.Fields()) > 0 {
+				si.inMemoryIndexSort = sort
+			}
+		}
 	}
 
 	userData, err := store.ReadMapOfStrings(checksumIn)
@@ -1392,35 +1372,17 @@ func readSegmentCommitInfoLucene104(in store.IndexInput, directory store.Directo
 // into si and its segments.  The userData map is read-only here; the caller
 // strips the _gocene_* keys before storing userData on si.
 func restoreGoceneExtensions(si *SegmentInfos, userData map[string]string) error {
-	// Parent field: restored from userData as a fallback for the config-only
-	// block-join parent field (rmp #4789 — deferred sub-case). The authoritative
-	// source is the per-segment .fnm parent bit, consulted on demand by
-	// AddIndexes (sourceParentFieldFromDisk); _gocene_parent only carries a
-	// parentField that was configured but never indexed as a real document field
-	// (Gocene's AddDocuments block stub, GOC-4136).
-	si.inMemoryParentField = userData["_gocene_parent"]
+	// Parent field: NO LONGER restored from userData (rmp #4789). The
+	// authoritative source is the per-segment .fnm parent bit, consulted on
+	// demand by AddIndexes (sourceParentFieldFromDisk). inMemoryParentField is
+	// set by the writer at commit time from IndexWriterConfig and is not
+	// persisted; after a cold reopen it remains "" (empty string), which is
+	// correct because sourceParentFieldFromDisk will scan the .fnm files.
 
-	// Index sort.
-	if nStr := userData["_gocene_sort_n"]; nStr != "" {
-		n, err := strconv.Atoi(nStr)
-		if err != nil {
-			return fmt.Errorf("invalid _gocene_sort_n: %w", err)
-		}
-		fields := make([]schema.SortField, 0, n)
-		for i := 0; i < n; i++ {
-			v := userData[fmt.Sprintf("_gocene_sort_%d", i)]
-			parts := strings.Split(v, "|")
-			if len(parts) != 3 {
-				return fmt.Errorf("malformed _gocene_sort_%d: %q", i, v)
-			}
-			stRaw, err := strconv.Atoi(parts[1])
-			if err != nil {
-				return fmt.Errorf("invalid sort type in _gocene_sort_%d: %w", i, err)
-			}
-			fields = append(fields, schema.NewSortFieldFull(parts[0], schema.SortType(stRaw), parts[2] == "1"))
-		}
-		si.inMemoryIndexSort = schema.NewSortFromFields(fields)
-	}
+	// Index sort is NO LONGER restored from userData (rmp #4789): it is read
+	// from each per-segment .si numSortFields block and the index-level sort is
+	// derived from the first segment in ReadSegmentInfos, before this function
+	// runs. Overwriting it here would clobber the authoritative .si value.
 
 	// Per-segment docCount and FieldInfos are restored from disk, not from
 	// userData (rmp #4785): docCount from the .si reader hook in
