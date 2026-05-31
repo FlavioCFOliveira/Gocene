@@ -390,11 +390,7 @@ func (sm *SegmentMerger) mergeNorms() error { return nil }
 
 // mergeTerms is implemented in segment_merger_postings.go (rmp #14/#114).
 
-// mergeDocValues merges the doc values of every segment into the new one.
-//
-// Deferred (backlog #2707): the Codec interface exposes no DocValuesFormat
-// yet.
-func (sm *SegmentMerger) mergeDocValues() error { return nil }
+// mergeDocValues is implemented in segment_merger_docvalues.go (rmp #14/#114).
 
 // mergePoints merges the point values of every segment into the new one.
 //
