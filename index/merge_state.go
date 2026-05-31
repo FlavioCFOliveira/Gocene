@@ -42,6 +42,11 @@ type MergeState struct {
 
 	// NeedsIndexSort indicates the merge must honour an index-level sort.
 	NeedsIndexSort bool
+
+	// Readers are the per-sub-reader CodecReaders being merged, in the same
+	// order as FieldInfos/MaxDocs/LiveDocs. The payload merge steps read their
+	// stored fields / postings / doc values from these (rmp #14/#114).
+	Readers []*CodecReader
 }
 
 // DocMap maps old doc IDs to new doc IDs during a merge. Mirrors

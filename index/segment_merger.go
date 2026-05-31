@@ -7,6 +7,7 @@ package index
 import (
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -70,6 +71,7 @@ func NewSegmentMerger(
 		FieldInfos:  make([]*FieldInfos, 0, len(readers)),
 		MaxDocs:     make([]int, 0, len(readers)),
 		LiveDocs:    make([]util.Bits, 0, len(readers)),
+		Readers:     readers,
 	}
 	for _, reader := range readers {
 		mergeState.FieldInfos = append(mergeState.FieldInfos, reader.GetFieldInfos())
@@ -77,9 +79,14 @@ func NewSegmentMerger(
 		mergeState.LiveDocs = append(mergeState.LiveDocs, reader.GetLiveDocs())
 	}
 
+	// Resolve the codec for the merged segment: prefer the target segment's
+	// stamped codec name, falling back to the registered default. The merged
+	// payload steps (stored fields, postings, ...) write through this codec.
+	codec := resolveMergeCodec(segmentInfo)
+
 	sm := &SegmentMerger{
 		directory:  dir,
-		codec:      nil, // resolved from segmentInfo by the codec sprint; see mergeFieldInfos
+		codec:      codec,
 		context:    context,
 		infoStream: infoStream,
 		MergeState: mergeState,
@@ -233,12 +240,140 @@ func (sm *SegmentMerger) hasVectorValues(fieldInfos *FieldInfos) bool {
 // mergeFields merges the stored fields of every segment into the new one and
 // returns the total number of documents merged.
 //
-// Deferred (backlog #2707): StoredFieldsWriter has no merge(MergeState)
-// entry point in Gocene yet. Returns the expected merged doc count so the
-// orchestration in Merge stays consistent.
+// It reads each live document's stored fields from the source readers (in
+// reader then docID order) and re-serialises them through the merged
+// segment's StoredFieldsWriter, mirroring Lucene's
+// StoredFieldsWriter.merge(MergeState) net effect (rmp #14/#114).
 func (sm *SegmentMerger) mergeFields() (int, error) {
-	return sm.MergeState.SegmentInfo.DocCount(), nil
+	if sm.codec == nil || sm.codec.StoredFieldsFormat() == nil {
+		// No stored-fields codec wired: nothing to write. Keep the doc count
+		// consistent for the orchestration.
+		return sm.MergeState.SegmentInfo.DocCount(), nil
+	}
+	writer, err := sm.codec.StoredFieldsFormat().FieldsWriter(sm.directory, sm.MergeState.SegmentInfo, store.IOContextWrite)
+	if err != nil {
+		return 0, fmt.Errorf("index: merge stored fields: open writer: %w", err)
+	}
+	defer writer.Close()
+
+	total := 0
+	for i, reader := range sm.MergeState.Readers {
+		if reader == nil {
+			continue
+		}
+		sfr := reader.GetStoredFieldsReader()
+		if sfr == nil {
+			continue
+		}
+		maxDoc := sm.MergeState.MaxDocs[i]
+		liveDocs := sm.MergeState.LiveDocs[i]
+		for docID := 0; docID < maxDoc; docID++ {
+			if liveDocs != nil && !liveDocs.Get(docID) {
+				continue
+			}
+			if err := writer.StartDocument(); err != nil {
+				return 0, fmt.Errorf("index: merge stored fields: start doc: %w", err)
+			}
+			visitor := &storedFieldsMergeVisitor{writer: writer}
+			if err := sfr.VisitDocument(docID, visitor); err != nil {
+				return 0, fmt.Errorf("index: merge stored fields: visit doc %d of reader %d: %w", docID, i, err)
+			}
+			if visitor.err != nil {
+				return 0, visitor.err
+			}
+			if err := writer.FinishDocument(); err != nil {
+				return 0, fmt.Errorf("index: merge stored fields: finish doc: %w", err)
+			}
+			total++
+		}
+	}
+	if err := writer.Finish(total); err != nil {
+		return 0, fmt.Errorf("index: merge stored fields: finish: %w", err)
+	}
+	return total, nil
 }
+
+// resolveMergeCodec resolves the codec for the merged segment: the segment's
+// stamped codec name if registered, else the process default.
+func resolveMergeCodec(segInfo *SegmentInfo) Codec {
+	if segInfo != nil {
+		if name := segInfo.Codec(); name != "" {
+			if c := LookupCodecByName(name); c != nil {
+				return c
+			}
+		}
+	}
+	return GetDefaultCodec()
+}
+
+// storedFieldsMergeVisitor forwards each stored field decoded from a source
+// segment straight to the merged segment's StoredFieldsWriter. The first
+// WriteField error is captured and surfaced by mergeFields.
+type storedFieldsMergeVisitor struct {
+	writer StoredFieldsWriter
+	err    error
+}
+
+func (v *storedFieldsMergeVisitor) write(f *mergeStoredField) {
+	if v.err != nil {
+		return
+	}
+	if err := v.writer.WriteField(f); err != nil {
+		v.err = fmt.Errorf("index: merge stored fields: write field %q: %w", f.name, err)
+	}
+}
+
+func (v *storedFieldsMergeVisitor) StringField(field string, value string) {
+	v.write(&mergeStoredField{name: field, stringValue: value})
+}
+func (v *storedFieldsMergeVisitor) BinaryField(field string, value []byte) {
+	v.write(&mergeStoredField{name: field, binaryValue: value})
+}
+func (v *storedFieldsMergeVisitor) IntField(field string, value int) {
+	v.write(&mergeStoredField{name: field, numericValue: value})
+}
+func (v *storedFieldsMergeVisitor) LongField(field string, value int64) {
+	v.write(&mergeStoredField{name: field, numericValue: value})
+}
+func (v *storedFieldsMergeVisitor) FloatField(field string, value float32) {
+	v.write(&mergeStoredField{name: field, numericValue: value})
+}
+func (v *storedFieldsMergeVisitor) DoubleField(field string, value float64) {
+	v.write(&mergeStoredField{name: field, numericValue: value})
+}
+
+// mergeStoredField is a minimal spi.IndexableField carrying one decoded stored
+// value for re-serialisation by a StoredFieldsWriter during a merge. Exactly
+// one of stringValue/binaryValue/numericValue is set.
+type mergeStoredField struct {
+	name         string
+	stringValue  string
+	binaryValue  []byte
+	numericValue interface{}
+}
+
+func (f *mergeStoredField) Name() string              { return f.name }
+func (f *mergeStoredField) StringValue() string       { return f.stringValue }
+func (f *mergeStoredField) BinaryValue() []byte       { return f.binaryValue }
+func (f *mergeStoredField) NumericValue() interface{} { return f.numericValue }
+func (f *mergeStoredField) ReaderValue() io.Reader    { return nil }
+func (f *mergeStoredField) FieldType() FieldTypeInterface {
+	return storedOnlyFieldType{}
+}
+
+// storedOnlyFieldType is a FieldTypeInterface that reports a stored-only field.
+// The StoredFieldsWriter only consults the value accessors, so the remaining
+// methods return zero values and are never invoked during a merge.
+type storedOnlyFieldType struct{}
+
+func (storedOnlyFieldType) IsIndexed() bool                 { return false }
+func (storedOnlyFieldType) IsStored() bool                  { return true }
+func (storedOnlyFieldType) IsTokenized() bool               { return false }
+func (storedOnlyFieldType) GetIndexOptions() IndexOptions   { return IndexOptionsNone }
+func (storedOnlyFieldType) GetDocValuesType() DocValuesType { return DocValuesTypeNone }
+func (storedOnlyFieldType) StoreTermVectors() bool          { return false }
+func (storedOnlyFieldType) StoreTermVectorPositions() bool  { return false }
+func (storedOnlyFieldType) StoreTermVectorOffsets() bool    { return false }
 
 // mergeTermVectors merges the term vectors of every segment into the new one.
 //
@@ -280,11 +415,21 @@ func (sm *SegmentMerger) mergePoints() error { return nil }
 // per-codec MergeOneField paths) before this step can be activated.
 func (sm *SegmentMerger) mergeVectorValues() error { return nil }
 
-// writeFieldInfos persists the merged FieldInfos for the new segment.
-//
-// Deferred (backlog #2707): wiring needs the resolved Codec for the merged
-// segment; sm.codec is populated by the codec sprint.
-func (sm *SegmentMerger) writeFieldInfos() error { return nil }
+// writeFieldInfos persists the merged FieldInfos (.fnm) for the new segment via
+// the resolved codec, so the merged segment can be reopened (rmp #14/#114).
+func (sm *SegmentMerger) writeFieldInfos() error {
+	if sm.codec == nil || sm.MergeState.MergeFieldInfos == nil {
+		return nil
+	}
+	fif := sm.codec.FieldInfosFormat()
+	if fif == nil {
+		return nil
+	}
+	if err := fif.Write(sm.directory, sm.MergeState.SegmentInfo, "", sm.MergeState.MergeFieldInfos, store.IOContextWrite); err != nil {
+		return fmt.Errorf("index: merge write field infos: %w", err)
+	}
+	return nil
+}
 
 // mergeWithLogging runs a count-returning merge step, timing it and emitting
 // an "SM" message when the info stream is enabled for that component.
