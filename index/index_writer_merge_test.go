@@ -33,9 +33,10 @@ func TestIndexWriterForceMerge(t *testing.T) {
 			t.Fatalf("NewIndexWriter() error = %v", err)
 		}
 
-		// Force merge should complete without error even with empty index
-		// TODO: Implement ForceMerge when available
-		t.Fatal("ForceMerge not yet implemented")
+		// Force merge completes without error even on an empty index.
+		if err := writer.ForceMerge(1); err != nil {
+			t.Errorf("ForceMerge() error = %v", err)
+		}
 
 		err = writer.Close()
 		if err != nil {
@@ -50,19 +51,27 @@ func TestIndexWriterForceMerge(t *testing.T) {
 		config := index.NewIndexWriterConfig(createTestAnalyzer())
 		writer, _ := index.NewIndexWriter(dir, config)
 
-		// Add multiple documents to create segments
-		for i := 0; i < 100; i++ {
-			doc := &testDocument{fields: []interface{}{}}
-			writer.AddDocument(doc)
+		// Add documents in three commits to create three segments.
+		for b := 0; b < 3; b++ {
+			for i := 0; i < 5; i++ {
+				if err := writer.AddDocument(&testDocument{fields: []interface{}{}}); err != nil {
+					t.Fatalf("AddDocument: %v", err)
+				}
+			}
+			if err := writer.Commit(); err != nil {
+				t.Fatalf("Commit: %v", err)
+			}
+		}
+		if c := writer.GetSegmentCount(); c < 2 {
+			t.Fatalf("expected multiple segments before merge, got %d", c)
 		}
 
-		// Commit to flush segments
-		writer.Commit()
-
-		// TODO: Implement ForceMerge
-		// maxSegments := 1
-		// writer.ForceMerge(maxSegments)
-		t.Fatal("ForceMerge not yet implemented")
+		if err := writer.ForceMerge(1); err != nil {
+			t.Fatalf("ForceMerge() error = %v", err)
+		}
+		if c := writer.GetSegmentCount(); c != 1 {
+			t.Errorf("segment count after ForceMerge = %d, want 1", c)
+		}
 
 		writer.Close()
 	})
@@ -74,21 +83,30 @@ func TestIndexWriterForceMerge(t *testing.T) {
 		config := index.NewIndexWriterConfig(createTestAnalyzer())
 		writer, _ := index.NewIndexWriter(dir, config)
 
-		// Add documents
-		for i := 0; i < 50; i++ {
-			doc := &testDocument{fields: []interface{}{}}
-			writer.AddDocument(doc)
+		// Two segments of empty documents.
+		for b := 0; b < 2; b++ {
+			for i := 0; i < 5; i++ {
+				if err := writer.AddDocument(&testDocument{fields: []interface{}{}}); err != nil {
+					t.Fatalf("AddDocument: %v", err)
+				}
+			}
+			if err := writer.Commit(); err != nil {
+				t.Fatalf("Commit: %v", err)
+			}
 		}
 
-		// Delete some documents
-		term := index.NewTerm("id", "1")
-		writer.DeleteDocuments(term)
-
-		// Commit
-		writer.Commit()
-
-		// Force merge should handle deleted documents
-		t.Fatal("ForceMerge not yet implemented")
+		// A delete-by-term (no-match on field-less docs) followed by ForceMerge
+		// must still merge cleanly to a single segment. Exact delete compaction
+		// is covered by TestForceMerge_CompactsDeletes.
+		if err := writer.DeleteDocuments(index.NewTerm("id", "1")); err != nil {
+			t.Fatalf("DeleteDocuments: %v", err)
+		}
+		if err := writer.ForceMerge(1); err != nil {
+			t.Fatalf("ForceMerge() error = %v", err)
+		}
+		if c := writer.GetSegmentCount(); c != 1 {
+			t.Errorf("segment count after ForceMerge = %d, want 1", c)
+		}
 
 		writer.Close()
 	})

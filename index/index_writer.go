@@ -1710,186 +1710,242 @@ func (w *IndexWriter) ForceMerge(maxNumSegments int) error {
 	if err := w.ensureOpen(); err != nil {
 		return err
 	}
-
-	w.mu.Lock()
-
-	// Flush remaining buffered docs into pendingImportedSegments.
-	if err := w.flushPendingDocsLocked(); err != nil {
-		w.mu.Unlock()
-		return err
+	if maxNumSegments < 1 {
+		maxNumSegments = 1
 	}
 
-	// If maxNumSegments == 1, collapse all pending imported segments into a
-	// single entry so Commit produces exactly one segment on disk.
-	if maxNumSegments == 1 && len(w.pendingImportedSegments) > 1 {
-		total := 0
-		totalDel := 0
-		var allOrds []int
-		var mergedFIPending *FieldInfos
-		for _, ps := range w.pendingImportedSegments {
-			// Remap deleted ordinals relative to the merged segment's doc space.
-			for _, ord := range ps.deletedOrdinals {
-				allOrds = append(allOrds, total+ord)
-			}
-			total += ps.numDocs
-			totalDel += ps.delCount
-			// Merge FieldInfos.
-			if ps.fieldInfos != nil {
-				if mergedFIPending == nil {
-					mergedFIPending = NewFieldInfos()
-				}
-				it := ps.fieldInfos.Iterator()
-				for {
-					info := it.Next()
-					if info == nil {
-						break
-					}
-					if mergedFIPending.GetByName(info.Name()) != nil {
-						continue
-					}
-					num := mergedFIPending.GetNextFieldNumber()
-					clone := NewFieldInfo(info.Name(), num, FieldInfoOptions{
-						IndexOptions:             info.IndexOptions(),
-						DocValuesType:            info.DocValuesType(),
-						DocValuesSkipIndexType:   DocValuesSkipIndexTypeNone,
-						DocValuesGen:             -1,
-						Stored:                   info.IsStored(),
-						Tokenized:                info.IsTokenized(),
-						OmitNorms:                info.OmitNorms(),
-						StoreTermVectors:         info.HasTermVectors(),
-						IsParentField:            info.IsParentField(),
-						VectorEncoding:           VectorEncodingFloat32,
-						VectorSimilarityFunction: VectorSimilarityFunctionEuclidean,
-					})
-					_ = mergedFIPending.Add(clone)
-				}
-			}
-		}
-		w.pendingImportedSegments = []pendingSegment{{
-			numDocs:         total,
-			delCount:        totalDel,
-			fieldInfos:      mergedFIPending,
-			deletedOrdinals: allOrds,
-		}}
-	}
-
-	w.mu.Unlock()
-
-	// Commit the collapsed pending segments and any existing committed ones.
+	// Commit first so every buffered/pending document is materialised into a
+	// real committed segment WITH its data (stored fields, postings, doc
+	// values, points, vectors, term vectors). The merge then operates on those
+	// on-disk segments through SegmentMerger (rmp #14/#114), rather than the
+	// old metadata-only collapse that dropped all segment data.
 	if err := w.Commit(); err != nil {
 		return err
 	}
 
-	// After commit, merge all committed segments on disk into one if needed.
-	if maxNumSegments == 1 {
-		w.mu.Lock()
-		defer w.mu.Unlock()
+	w.mu.Lock()
+	defer w.mu.Unlock()
 
-		si, err := ReadSegmentInfos(w.directory)
-		if err != nil || si.Size() <= 1 {
-			return err
-		}
-
-		// Compute totals across all committed segments.
-		// ForceMerge compacts out deleted docs, so the merged segment has
-		// totalDocs = live docs and delCount = 0.
-		totalDocs := 0
-		var mergedFI *FieldInfos
-		codec := w.config.Codec()
-		for _, sci := range si.List() {
-			// sci.NumDocs() = sci.DocCount() - sci.DelCount() = live docs.
-			totalDocs += sci.NumDocs()
-			// Prefer in-memory FieldInfos; fall back to the on-disk .fnm so that
-			// the merged segment picks up the parent-field bit and other metadata
-			// even from segments opened from a cold reopen (rmp #4789).
-			fi := sci.GetInMemoryFieldInfos()
-			if fi == nil {
-				fi = readFieldInfosFromDisk(w.directory, codec, sci.SegmentInfo())
-			}
-			if fi != nil {
-				if mergedFI == nil {
-					mergedFI = NewFieldInfos()
-				}
-				it := fi.Iterator()
-				for {
-					info := it.Next()
-					if info == nil {
-						break
-					}
-					if mergedFI.GetByName(info.Name()) != nil {
-						continue
-					}
-					number := mergedFI.GetNextFieldNumber()
-					clone := NewFieldInfo(info.Name(), number, FieldInfoOptions{
-						IndexOptions:             info.IndexOptions(),
-						DocValuesType:            info.DocValuesType(),
-						DocValuesSkipIndexType:   DocValuesSkipIndexTypeNone,
-						DocValuesGen:             -1,
-						Stored:                   info.IsStored(),
-						Tokenized:                info.IsTokenized(),
-						OmitNorms:                info.OmitNorms(),
-						StoreTermVectors:         info.HasTermVectors(),
-						IsParentField:            info.IsParentField(),
-						VectorEncoding:           VectorEncodingFloat32,
-						VectorSimilarityFunction: VectorSimilarityFunctionEuclidean,
-					})
-					_ = mergedFI.Add(clone)
-				}
-			}
-		}
-
-		// Replace all segments with a single merged segment.
-		// Carry the counter forward from the existing SegmentInfos so that the
-		// merged segment name does not collide with any previously written .si stub.
-		merged := NewSegmentInfos()
-		merged.SetGeneration(si.Generation() + 1)
-		merged.SetCounter(si.Counter())
-		merged.SetInMemoryParentField(w.config.ParentField())
-		merged.SetInMemoryIndexSort(w.config.IndexSort())
-
-		segName := merged.GetNextSegmentName()
-		// delCount=0: merge compacts out deleted docs, so no deletions remain.
-		sci := NewSegmentCommitInfo(NewSegmentInfo(segName, totalDocs, nil), 0, -1)
-		if mergedFI != nil {
-			sci.SetInMemoryFieldInfos(mergedFI)
-		}
-		// Write the .fnm for the merged segment when FieldInfos are available so
-		// that metadata (parent-field bit, DocValues types, etc.) survives a cold
-		// reopen via the on-disk .fnm rather than solely through the in-memory
-		// SegmentCommitInfo state.  Mirrors the regular Commit path at line ~974.
-		segFiles := []string{segName + ".si"}
-		if mergedFI != nil && mergedFI.Size() > 0 && codec != nil {
-			if fif := codec.FieldInfosFormat(); fif != nil {
-				segInfo := sci.SegmentInfo()
-				if err := fif.Write(w.directory, segInfo, "", mergedFI, store.IOContextWrite); err != nil {
-					return fmt.Errorf("forceMerge: write field infos for %s: %w", segName, err)
-				}
-				segFiles = append(segFiles, segName+".fnm")
-				sci.SegmentInfo().SetCodec(codec.Name())
-			}
-		}
-		// Register files before writeSegmentInfo so the .si embeds the file list.
-		sci.SegmentInfo().SetFiles(segFiles)
-		// Stamp the configured index sort so the merged .si carries it (rmp #4789).
-		sci.SegmentInfo().SetIndexSort(w.config.IndexSort())
-		if err := writeSegmentInfo(w.directory, sci.SegmentInfo(), store.IOContextWrite); err != nil {
-			return fmt.Errorf("forceMerge: write .si: %w", err)
-		}
-		merged.Add(sci)
-
-		if userData := si.GetUserData(); len(userData) > 0 {
-			merged.SetUserData(userData)
-		}
-
-		if err := WriteSegmentInfos(merged, w.directory); err != nil {
-			return fmt.Errorf("forceMerge: write merged segment infos: %w", err)
-		}
-
-		// Update committedSegments to reflect the merge.
-		w.committedSegments = []*SegmentCommitInfo{sci}
+	si, err := ReadSegmentInfos(w.directory)
+	if err != nil {
+		return nil // no committed index yet — nothing to merge
+	}
+	if si.Size() <= maxNumSegments {
+		return nil // already at or below the requested segment count
 	}
 
+	// When a merge policy is configured, let it decide which segments to merge
+	// (honouring its forced-merge size/doc caps — e.g. LogDocMergePolicy's
+	// maxMergeDocs), then execute the returned specification. Without a policy,
+	// merge everything into a single segment.
+	if mp := w.config.GetMergePolicy(); mp != nil {
+		segsToMerge := make(map[*SegmentCommitInfo]bool, si.Size())
+		for _, sci := range si.List() {
+			segsToMerge[sci] = true
+		}
+		spec, err := mp.FindForcedMerges(si, maxNumSegments, segsToMerge, &forceMergeContext{})
+		if err != nil {
+			return fmt.Errorf("forceMerge: find forced merges: %w", err)
+		}
+		if spec == nil || spec.Size() == 0 {
+			// The policy declined to merge (e.g. NoMergePolicy, or it considers
+			// the index already force-merged); respect that decision.
+			return nil
+		}
+		return w.executeForcedMerges(si, spec)
+	}
+
+	// No merge policy configured: merge everything into a single segment
+	// (1 <= maxNumSegments always satisfies the target).
+	return w.forceMergeToOneSegment(si)
+}
+
+// forceMergeContext is a minimal MergeContext for forced merges: nothing is
+// concurrently merging and deletion counts come straight from the
+// SegmentCommitInfos; the info stream is disabled.
+type forceMergeContext struct{}
+
+func (forceMergeContext) NumDeletesToMerge(info *SegmentCommitInfo) int { return info.DelCount() }
+func (forceMergeContext) NumDeletedDocs(info *SegmentCommitInfo) int    { return info.DelCount() }
+func (forceMergeContext) GetInfoStream() InfoStream                     { return nil }
+func (forceMergeContext) GetMergingSegments() map[*SegmentCommitInfo]bool {
+	return map[*SegmentCommitInfo]bool{}
+}
+
+// executeForcedMerges runs each OneMerge in spec — merging its segment group
+// into one new segment — and writes a new SegmentInfos in which every merged
+// group is replaced by its result while untouched segments are kept. Source
+// files of merged-away segments are deleted. Must be called with w.mu held.
+func (w *IndexWriter) executeForcedMerges(si *SegmentInfos, spec *MergeSpecification) error {
+	mergedAway := make(map[*SegmentCommitInfo]bool)
+	for _, om := range spec.Merges {
+		for _, seg := range om.Segments {
+			mergedAway[seg] = true
+		}
+	}
+
+	result := NewSegmentInfos()
+	result.SetGeneration(si.Generation() + 1)
+	result.SetCounter(si.Counter())
+	result.SetInMemoryParentField(w.config.ParentField())
+	result.SetInMemoryIndexSort(w.config.IndexSort())
+	if userData := si.GetUserData(); len(userData) > 0 {
+		result.SetUserData(userData)
+	}
+
+	// Keep the segments no merge touched, in order.
+	for _, sci := range si.List() {
+		if !mergedAway[sci] {
+			result.Add(sci)
+		}
+	}
+
+	// Execute each merge group into a fresh segment.
+	for _, om := range spec.Merges {
+		if len(om.Segments) == 0 {
+			continue
+		}
+		segName := result.GetNextSegmentName()
+		merged, err := w.mergeSegmentGroup(om.Segments, segName)
+		if err != nil {
+			return err
+		}
+		if merged != nil {
+			result.Add(merged)
+		}
+	}
+
+	if err := WriteSegmentInfos(result, w.directory); err != nil {
+		return fmt.Errorf("forceMerge: write merged segment infos: %w", err)
+	}
+	w.committedSegments = result.List()
+
+	for seg := range mergedAway {
+		for _, f := range seg.GetFiles() {
+			_ = w.directory.DeleteFile(f)
+		}
+	}
 	return nil
+}
+
+// forceMergeToOneSegment merges every segment in si into one new segment via
+// SegmentMerger, registers it as the sole committed segment, and deletes the
+// sources. Deleted documents are compacted out. Must be called with w.mu held.
+func (w *IndexWriter) forceMergeToOneSegment(si *SegmentInfos) error {
+	merged := NewSegmentInfos()
+	merged.SetGeneration(si.Generation() + 1)
+	merged.SetCounter(si.Counter())
+	merged.SetInMemoryParentField(w.config.ParentField())
+	merged.SetInMemoryIndexSort(w.config.IndexSort())
+	if userData := si.GetUserData(); len(userData) > 0 {
+		merged.SetUserData(userData)
+	}
+	segName := merged.GetNextSegmentName()
+
+	sci, err := w.mergeSegmentGroup(si.List(), segName)
+	if err != nil {
+		return err
+	}
+	if sci != nil {
+		merged.Add(sci)
+		w.committedSegments = []*SegmentCommitInfo{sci}
+	} else {
+		// Every document was deleted: the merged index has no segments.
+		w.committedSegments = nil
+	}
+	if err := WriteSegmentInfos(merged, w.directory); err != nil {
+		return fmt.Errorf("forceMerge: write merged segment infos: %w", err)
+	}
+	for _, old := range si.List() {
+		for _, f := range old.GetFiles() {
+			_ = w.directory.DeleteFile(f)
+		}
+	}
+	return nil
+}
+
+// mergeSegmentGroup merges a group of segments into one new segment named
+// segName via the real per-format SegmentMerger, writes the segment data and
+// its .si, and returns the resulting SegmentCommitInfo (nil when the group has
+// zero live documents). It does NOT write segments_N or delete the sources —
+// the caller composes the new SegmentInfos. Must be called with w.mu held.
+func (w *IndexWriter) mergeSegmentGroup(segs []*SegmentCommitInfo, segName string) (*SegmentCommitInfo, error) {
+	codec := w.config.Codec()
+	if codec == nil {
+		return nil, errors.New("forceMerge: no codec configured")
+	}
+
+	var srs []*SegmentReader
+	var readers []*CodecReader
+	totalLive := 0
+	for _, sci := range segs {
+		sr, err := openSegmentReader(w.directory, sci)
+		if err != nil {
+			return nil, fmt.Errorf("forceMerge: open segment %q: %w", sci.SegmentInfo().Name(), err)
+		}
+		core := sr.GetCoreReaders()
+		if core == nil {
+			return nil, fmt.Errorf("forceMerge: segment %q has no codec core readers (cannot merge its data)", sci.SegmentInfo().Name())
+		}
+		cr := NewCodecReader(core, sr.GetLiveDocs(), sci.NumDocs())
+		cr.GetSegmentInfo().SetDocCount(sci.SegmentInfo().DocCount())
+		srs = append(srs, sr)
+		readers = append(readers, cr)
+		totalLive += sci.NumDocs()
+	}
+	closeReaders := func() {
+		for _, sr := range srs {
+			_ = sr.Close()
+		}
+	}
+	if totalLive == 0 {
+		closeReaders()
+		return nil, nil
+	}
+
+	mergedSI := NewSegmentInfo(segName, totalLive, w.directory)
+	mergedSI.SetCodec(codec.Name())
+	mergedSI.SetIndexSort(w.config.IndexSort())
+
+	sm, err := NewSegmentMerger(readers, mergedSI, util.NoOpInfoStream, w.directory, store.IOContext{Context: store.ContextMerge})
+	if err != nil {
+		closeReaders()
+		return nil, fmt.Errorf("forceMerge: new segment merger: %w", err)
+	}
+	ms, err := sm.Merge()
+	if err != nil {
+		closeReaders()
+		return nil, fmt.Errorf("forceMerge: merge: %w", err)
+	}
+
+	allFiles, err := w.directory.ListAll()
+	if err != nil {
+		closeReaders()
+		return nil, fmt.Errorf("forceMerge: list directory: %w", err)
+	}
+	segFiles := []string{segName + ".si"}
+	for _, f := range allFiles {
+		if ParseSegmentName(f) != segName {
+			continue
+		}
+		switch GetExtension(f) {
+		case "si", "cfs", "cfe":
+		default:
+			segFiles = append(segFiles, f)
+		}
+	}
+
+	sciMerged := NewSegmentCommitInfo(mergedSI, 0, -1)
+	if ms != nil && ms.MergeFieldInfos != nil {
+		sciMerged.SetInMemoryFieldInfos(ms.MergeFieldInfos)
+	}
+	mergedSI.SetFiles(segFiles)
+	if err := writeSegmentInfo(w.directory, mergedSI, store.IOContextWrite); err != nil {
+		closeReaders()
+		return nil, fmt.Errorf("forceMerge: write .si: %w", err)
+	}
+	closeReaders()
+	return sciMerged, nil
 }
 
 // GetNumBufferedDocuments returns the number of documents currently
