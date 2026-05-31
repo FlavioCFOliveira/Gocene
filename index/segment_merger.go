@@ -375,13 +375,7 @@ func (storedOnlyFieldType) StoreTermVectors() bool          { return false }
 func (storedOnlyFieldType) StoreTermVectorPositions() bool  { return false }
 func (storedOnlyFieldType) StoreTermVectorOffsets() bool    { return false }
 
-// mergeTermVectors merges the term vectors of every segment into the new one.
-//
-// Deferred (backlog #2707): TermVectorsWriter has no merge(MergeState) entry
-// point in Gocene yet.
-func (sm *SegmentMerger) mergeTermVectors() (int, error) {
-	return sm.MergeState.SegmentInfo.DocCount(), nil
-}
+// mergeTermVectors is implemented in segment_merger_termvectors.go (rmp #14/#114).
 
 // mergeNorms merges the norms of every segment into the new one.
 //
