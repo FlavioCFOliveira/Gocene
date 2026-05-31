@@ -5,6 +5,8 @@
 package search
 
 import (
+	"fmt"
+
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -33,27 +35,28 @@ func executeQueryDeletes(dir store.Directory, si *spi.SegmentInfos, queries []in
 	}
 	defer reader.Close()
 
-	// Collect all search.Query values from the interface{} slice.
-	var searchQueries []Query
+	// Every buffered value must be a search.Query; an unrecognised type is a
+	// hard error rather than a silent drop (rmp #13).
+	searchQueries := make([]Query, 0, len(queries))
 	for _, q := range queries {
-		if sq, ok := q.(Query); ok {
-			searchQueries = append(searchQueries, sq)
+		sq, ok := q.(Query)
+		if !ok {
+			return nil, fmt.Errorf("DeleteDocumentsQuery: unsupported query type %T (expected a search.Query)", q)
 		}
-	}
-	if len(searchQueries) == 0 {
-		return nil, nil
+		searchQueries = append(searchQueries, sq)
 	}
 
 	searcher := NewIndexSearcher(reader)
 	maxDoc := reader.MaxDoc()
 
-	// Collect global docIDs matching any query.
+	// Collect global docIDs matching any query. A query that fails to execute
+	// is an error (never a silent no-op); a query that simply matches nothing
+	// returns zero hits and contributes no deletions.
 	matched := make(map[int]struct{})
 	for _, q := range searchQueries {
 		topDocs, err := searcher.Search(q, maxDoc+1)
 		if err != nil {
-			// Skip unexecutable queries (e.g. missing codec, no postings).
-			continue
+			return nil, fmt.Errorf("DeleteDocumentsQuery: executing %v: %w", q, err)
 		}
 		for _, sd := range topDocs.ScoreDocs {
 			matched[sd.Doc] = struct{}{}

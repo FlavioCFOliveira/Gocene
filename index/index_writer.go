@@ -922,8 +922,14 @@ func (w *IndexWriter) Commit() error {
 	w.pendingCommittedDeleteTerms = w.pendingCommittedDeleteTerms[:0]
 	w.pendingCommittedDeleteCount = 0
 
-	// Apply query-based deletes (DeleteDocumentsQuery) against committed segments.
-	if len(w.pendingDeleteQueries) > 0 && codec != nil {
+	// Apply query-based deletes (DeleteDocumentsQuery) against committed
+	// segments. A buffered query delete must never be silently dropped
+	// (rmp #13): resolving a query to its matching docs needs the postings a
+	// codec writes, so a codec is mandatory when any query delete is pending.
+	if len(w.pendingDeleteQueries) > 0 {
+		if codec == nil {
+			return fmt.Errorf("commit: cannot apply %d buffered DeleteDocumentsQuery: no codec is configured to resolve the matching documents", len(w.pendingDeleteQueries))
+		}
 		if err2 := w.applyQueryDeletesToCommittedSegments(si, codec, w.pendingDeleteQueries); err2 != nil {
 			return fmt.Errorf("commit: apply query deletes to committed segments: %w", err2)
 		}
@@ -1239,8 +1245,10 @@ func (w *IndexWriter) applyDeletesToCommittedSegments(si *SegmentInfos, codec Co
 func (w *IndexWriter) applyQueryDeletesToCommittedSegments(si *SegmentInfos, codec Codec, queries []interface{}) error {
 	exec := lookupQueryDeleteExecutor()
 	if exec == nil {
-		// No executor registered — silently skip (codec-less test path).
-		return nil
+		// A query delete is pending but nothing can resolve it. Surface an
+		// explicit error rather than silently dropping the delete (rmp #13):
+		// the default executor is installed by importing the search package.
+		return fmt.Errorf("no QueryDeleteExecutor is registered: import the search package to enable DeleteDocumentsQuery, or install one via index.RegisterQueryDeleteExecutor")
 	}
 
 	// Execute all pending queries in one batch.
