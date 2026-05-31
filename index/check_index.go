@@ -956,7 +956,59 @@ func (ci *CheckIndex) ExorciseIndex(status *CheckIndexStatus) error {
 	ci.msg("WARNING: Exorcising index will PERMANENTLY DELETE data from corrupt segments")
 	ci.msg("")
 
-	return fmt.Errorf("exorcise not yet implemented")
+	// Read the live commit so we can rewrite it without the corrupt segments.
+	segmentInfos, err := ReadSegmentInfos(ci.dir)
+	if err != nil {
+		return fmt.Errorf("exorcise: cannot read segment infos (the commit point itself is unreadable): %w", err)
+	}
+
+	// Identify the corrupt segments by name (those whose per-segment check
+	// recorded an error).
+	corrupt := make(map[string]bool)
+	for _, ss := range status.SegmentInfos {
+		if ss != nil && ss.Error != nil {
+			corrupt[ss.Name] = true
+		}
+	}
+	if len(corrupt) == 0 {
+		return fmt.Errorf("exorcise: index is not clean but no corrupt segments were identified; nothing to remove")
+	}
+
+	// Rewrite the commit keeping only the clean segments, advancing the
+	// generation. Mirrors CheckIndex.exorciseIndex: drop the bad segments and
+	// write a new segments_N.
+	repaired := NewSegmentInfos()
+	repaired.SetGeneration(segmentInfos.Generation() + 1)
+	repaired.SetCounter(segmentInfos.Counter())
+	if ud := segmentInfos.GetUserData(); len(ud) > 0 {
+		repaired.SetUserData(ud)
+	}
+	repaired.SetInMemoryParentField(segmentInfos.GetInMemoryParentField())
+	repaired.SetInMemoryIndexSort(segmentInfos.GetInMemoryIndexSort())
+
+	var removed []*SegmentCommitInfo
+	for _, sci := range segmentInfos.List() {
+		if corrupt[sci.SegmentInfo().Name()] {
+			removed = append(removed, sci)
+			continue
+		}
+		repaired.Add(sci)
+	}
+
+	if err := WriteSegmentInfos(repaired, ci.dir); err != nil {
+		return fmt.Errorf("exorcise: write repaired segment infos: %w", err)
+	}
+
+	// Delete the corrupt segments' files now that the new commit no longer
+	// references them.
+	for _, sci := range removed {
+		for _, f := range sci.GetFiles() {
+			_ = ci.dir.DeleteFile(f)
+		}
+	}
+
+	ci.msg(fmt.Sprintf("Exorcised %d corrupt segment(s); %d clean segment(s) remain", len(removed), repaired.Size()))
+	return nil
 }
 
 // Main function for command-line usage
