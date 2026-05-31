@@ -375,6 +375,24 @@ func (r *SegmentReader) NumDocs() int {
 	return r.segmentCommitInfo.NumDocs()
 }
 
+// NumDeletedDocs returns the number of deleted documents (hard + soft) in this
+// segment, taken from the SegmentCommitInfo so it stays consistent with NumDocs
+// (i.e. equals MaxDoc-NumDocs). Without this override the embedded
+// LeafReader.NumDeletedDocs would return the base IndexReader's 0, which is
+// wrong for a committed segment carrying .liv deletions (rmp #12).
+func (r *SegmentReader) NumDeletedDocs() int {
+	if r.segmentCommitInfo == nil {
+		return 0
+	}
+	return r.segmentCommitInfo.DelCount() + r.segmentCommitInfo.SoftDelCount()
+}
+
+// HasDeletions reports whether this segment carries any deleted documents,
+// consistent with NumDeletedDocs (rmp #12).
+func (r *SegmentReader) HasDeletions() bool {
+	return r.NumDeletedDocs() > 0
+}
+
 // MaxDoc returns the maximum document ID (one past the last doc) for this segment.
 func (r *SegmentReader) MaxDoc() int {
 	if r.segmentCommitInfo == nil {

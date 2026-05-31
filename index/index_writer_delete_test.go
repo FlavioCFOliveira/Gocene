@@ -155,7 +155,73 @@ func getHitCount(t *testing.T, dir store.Directory, term *index.Term) int64 {
 // never applied to committed segments, so the post-delete "0 hits" assertion
 // cannot pass. Re-enable once the buffered-updates / live-docs pipeline lands.
 func TestIndexWriterDelete_SimpleCase(t *testing.T) {
-	t.Fatal("infra gap: IndexWriter.DeleteDocuments is a no-op stub; delete application not ported")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+	modifier, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(newDeleteTestAnalyzer()))
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	keywords := []string{"1", "2"}
+	city := []string{"Amsterdam", "Venice"}
+	for i := range keywords {
+		doc := document.NewDocument()
+		idField, err := document.NewStringField("id", keywords[i], true)
+		if err != nil {
+			t.Fatalf("NewStringField(id): %v", err)
+		}
+		cityField, err := document.NewTextField("city", city[i], true)
+		if err != nil {
+			t.Fatalf("NewTextField(city): %v", err)
+		}
+		doc.Add(idField)
+		doc.Add(cityField)
+		if err := modifier.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument: %v", err)
+		}
+	}
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	term := index.NewTerm("city", "Amsterdam")
+	if hc := getHitCount(t, dir, term); hc != 1 {
+		t.Fatalf("pre-delete hit count = %d, want 1", hc)
+	}
+	if err := modifier.DeleteDocuments(term); err != nil {
+		t.Fatalf("DeleteDocuments: %v", err)
+	}
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Commit (post-delete): %v", err)
+	}
+	if hc := getHitCount(t, dir, term); hc != 0 {
+		t.Fatalf("post-delete hit count = %d, want 0", hc)
+	}
+	if err := modifier.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
+
+// readerNumDocs opens dir, returns its live doc count, and closes the reader.
+func readerNumDocs(t *testing.T, dir store.Directory) int {
+	t.Helper()
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer reader.Close()
+	return reader.NumDocs()
+}
+
+// readerNumDeleted opens dir and returns its number of deleted documents.
+func readerNumDeleted(t *testing.T, dir store.Directory) int {
+	t.Helper()
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer reader.Close()
+	return reader.NumDeletedDocs()
 }
 
 // ---------------------------------------------------------------------------
@@ -171,7 +237,47 @@ func TestIndexWriterDelete_SimpleCase(t *testing.T) {
 // Skipped: IndexWriter.DeleteDocuments is a no-op stub, so the delete against
 // the on-disk segments is never applied and NumDocs stays at 7.
 func TestIndexWriterDelete_NonRAMDelete(t *testing.T) {
-	t.Fatal("infra gap: IndexWriter.DeleteDocuments is a no-op stub; delete application not ported")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
+	cfg.SetMaxBufferedDocs(2)
+	modifier, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	id, value := 0, 100
+	for i := 0; i < 7; i++ {
+		id++
+		addDoc(t, modifier, id, value)
+	}
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if got := modifier.GetSegmentCount(); got <= 0 {
+		t.Fatalf("GetSegmentCount = %d, want > 0", got)
+	}
+
+	if n := readerNumDocs(t, dir); n != 7 {
+		t.Fatalf("numDocs before delete = %d, want 7", n)
+	}
+
+	if err := modifier.DeleteDocuments(index.NewTerm("value", fmt.Sprintf("%d", value))); err != nil {
+		t.Fatalf("DeleteDocuments: %v", err)
+	}
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Commit (post-delete): %v", err)
+	}
+
+	if n := readerNumDocs(t, dir); n != 0 {
+		t.Fatalf("numDocs after delete = %d, want 0", n)
+	}
+	if nd := readerNumDeleted(t, dir); nd != 7 {
+		t.Fatalf("numDeletedDocs after delete = %d, want 7", nd)
+	}
+	if err := modifier.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -207,7 +313,48 @@ func TestIndexWriterDelete_RAMDeletes(t *testing.T) {
 // Skipped: IndexWriter.DeleteDocuments is a no-op stub; the delete is never
 // applied so NumDocs stays at 15 instead of dropping to 5.
 func TestIndexWriterDelete_BothDeletes(t *testing.T) {
-	t.Fatal("infra gap: IndexWriter.DeleteDocuments is a no-op stub; delete application not ported")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
+	cfg.SetMaxBufferedDocs(100)
+	modifier, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	id, value := 0, 100
+	for i := 0; i < 5; i++ {
+		id++
+		addDoc(t, modifier, id, value)
+	}
+	value = 200
+	for i := 0; i < 5; i++ {
+		id++
+		addDoc(t, modifier, id, value)
+	}
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	// Add 5 more value=200 docs (buffered) then delete value=200, which must
+	// reach both the committed and the buffered value=200 documents.
+	for i := 0; i < 5; i++ {
+		id++
+		addDoc(t, modifier, id, value)
+	}
+	if err := modifier.DeleteDocuments(index.NewTerm("value", fmt.Sprintf("%d", value))); err != nil {
+		t.Fatalf("DeleteDocuments: %v", err)
+	}
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Commit (post-delete): %v", err)
+	}
+
+	if n := readerNumDocs(t, dir); n != 5 {
+		t.Fatalf("numDocs after delete = %d, want 5", n)
+	}
+	if err := modifier.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -224,7 +371,64 @@ func TestIndexWriterDelete_BothDeletes(t *testing.T) {
 // Skipped: IndexWriter.DeleteDocuments is a no-op stub, so neither the "5
 // docs" nor the "2 docs" assertion can pass.
 func TestIndexWriterDelete_BatchDeletes(t *testing.T) {
-	t.Fatal("infra gap: IndexWriter.DeleteDocuments is a no-op stub; delete application not ported")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
+	cfg.SetMaxBufferedDocs(2)
+	modifier, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	id, value := 0, 100
+	for i := 0; i < 7; i++ {
+		id++
+		addDoc(t, modifier, id, value)
+	}
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if n := readerNumDocs(t, dir); n != 7 {
+		t.Fatalf("numDocs = %d, want 7", n)
+	}
+
+	// Delete ids 1 and 2 -> 5 remain.
+	id = 0
+	id++
+	if err := modifier.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", id))); err != nil {
+		t.Fatalf("DeleteDocuments(%d): %v", id, err)
+	}
+	id++
+	if err := modifier.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", id))); err != nil {
+		t.Fatalf("DeleteDocuments(%d): %v", id, err)
+	}
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if n := readerNumDocs(t, dir); n != 5 {
+		t.Fatalf("numDocs after 2 deletes = %d, want 5", n)
+	}
+
+	// Batch-delete ids 3, 4, 5 (Lucene's deleteDocuments(Term...) variadic form;
+	// reproduced by looping DeleteDocuments) -> 2 remain.
+	for i := 0; i < 3; i++ {
+		id++
+		if err := modifier.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", id))); err != nil {
+			t.Fatalf("DeleteDocuments(%d): %v", id, err)
+		}
+	}
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if n := readerNumDocs(t, dir); n != 2 {
+		t.Fatalf("numDocs after batch delete = %d, want 2", n)
+	}
+	if nd := readerNumDeleted(t, dir); nd != 5 {
+		t.Fatalf("numDeletedDocs after batch delete = %d, want 5", nd)
+	}
+	if err := modifier.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 }
 
 // ---------------------------------------------------------------------------
