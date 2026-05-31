@@ -7,6 +7,7 @@ package join
 import (
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -14,7 +15,7 @@ import (
 // stubNoScoreCollector is a minimal Collector that returns COMPLETE_NO_SCORES.
 type stubNoScoreCollector struct{}
 
-func (s *stubNoScoreCollector) GetLeafCollector(_ search.IndexReader) (search.LeafCollector, error) {
+func (s *stubNoScoreCollector) GetLeafCollector(_ *index.LeafReaderContext) (search.LeafCollector, error) {
 	return nil, nil
 }
 func (s *stubNoScoreCollector) ScoreMode() search.ScoreMode { return search.COMPLETE_NO_SCORES }
@@ -60,7 +61,7 @@ func TestGenericTermsCollector_WithScores(t *testing.T) {
 func TestGenericTermsCollector_GetLeafCollector(t *testing.T) {
 	terms := util.NewBytesRefHash()
 	c := NewGenericTermsCollectorNoScore(&stubNoScoreCollector{}, terms)
-	lc, err := c.GetLeafCollector(stubIndexReaderForJoin{})
+	lc, err := c.GetLeafCollector(nil)
 	// Inner returns nil, which is acceptable for a stub.
 	if err != nil {
 		t.Fatalf("GetLeafCollector: %v", err)

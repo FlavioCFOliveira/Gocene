@@ -36,7 +36,7 @@ var _ Query = (*justCompileQuery)(nil)
 
 type justCompileCollector struct{}
 
-func (c *justCompileCollector) GetLeafCollector(_ IndexReader) (LeafCollector, error) {
+func (c *justCompileCollector) GetLeafCollector(_ *index.LeafReaderContext) (LeafCollector, error) {
 	panic("compile check only")
 }
 func (c *justCompileCollector) ScoreMode() ScoreMode { panic("compile check only") }
@@ -52,9 +52,9 @@ func (d *justCompileDISI) DocIDRunEnd() int         { panic("compile check only"
 // justCompileScorer embeds justCompileDISI to satisfy the embedded DocIdSetIterator.
 type justCompileScorer struct{ justCompileDISI }
 
-func (s *justCompileScorer) Score() float32                { panic("compile check only") }
-func (s *justCompileScorer) GetMaxScore(_ int) float32     { panic("compile check only") }
-func (s *justCompileScorer) Iterator() DocIdSetIterator    { panic("compile check only") }
+func (s *justCompileScorer) Score() float32                      { panic("compile check only") }
+func (s *justCompileScorer) GetMaxScore(_ int) float32           { panic("compile check only") }
+func (s *justCompileScorer) Iterator() DocIdSetIterator          { panic("compile check only") }
 func (s *justCompileScorer) TwoPhaseIterator() *TwoPhaseIterator { return nil }
 
 type justCompileQuery struct{}

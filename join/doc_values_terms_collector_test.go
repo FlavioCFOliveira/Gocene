@@ -22,7 +22,7 @@ func TestDocValuesTermsCollector_ScoreMode(t *testing.T) {
 // GetLeafCollector returns a non-nil leaf collector even when dvFunc is nil.
 func TestDocValuesTermsCollector_GetLeafCollector_NilDvFunc(t *testing.T) {
 	c := newDocValuesTermsCollector[any](nil, nil, search.COMPLETE_NO_SCORES)
-	lc, err := c.GetLeafCollector(stubIndexReaderForJoin{})
+	lc, err := c.GetLeafCollector(nil)
 	if err != nil {
 		t.Fatalf("GetLeafCollector: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestDocValuesTermsCollector_CollectFn(t *testing.T) {
 		return nil
 	}
 	c := newDocValuesTermsCollector[any](nil, collectFn, search.COMPLETE_NO_SCORES)
-	lc, _ := c.GetLeafCollector(stubIndexReaderForJoin{})
+	lc, _ := c.GetLeafCollector(nil)
 	_ = lc.Collect(3)
 	_ = lc.Collect(7)
 

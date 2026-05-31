@@ -25,7 +25,7 @@ func TestTermsCollectorSV_Construction(t *testing.T) {
 
 func TestTermsCollectorSV_GetLeafCollector_NilLeafReader(t *testing.T) {
 	c := NewTermsCollectorSV("f")
-	lc, err := c.GetLeafCollector(stubIndexReaderForJoin{})
+	lc, err := c.GetLeafCollector(nil)
 	if err != nil {
 		t.Fatalf("GetLeafCollector: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestTermsCollectorMV_Construction(t *testing.T) {
 
 func TestTermsCollectorMV_GetLeafCollector_NilLeafReader(t *testing.T) {
 	c := NewTermsCollectorMV("f")
-	lc, err := c.GetLeafCollector(stubIndexReaderForJoin{})
+	lc, err := c.GetLeafCollector(nil)
 	if err != nil {
 		t.Fatalf("GetLeafCollector: %v", err)
 	}

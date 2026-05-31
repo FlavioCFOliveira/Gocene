@@ -7,6 +7,8 @@ package search
 import (
 	"errors"
 	"time"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 // TimeLimitingCollector terminates collection if it exceeds a time limit.
@@ -37,8 +39,8 @@ func (c *TimeLimitingCollector) Collect(doc int) error {
 	return nil
 }
 
-// GetLeafCollector returns a LeafCollector for the given reader.
-func (c *TimeLimitingCollector) GetLeafCollector(reader IndexReader) (LeafCollector, error) {
+// GetLeafCollector returns a LeafCollector for the given context.
+func (c *TimeLimitingCollector) GetLeafCollector(context *index.LeafReaderContext) (LeafCollector, error) {
 	return c, nil
 }
 

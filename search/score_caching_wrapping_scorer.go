@@ -75,3 +75,66 @@ func (s *ScoreCachingWrappingScorer) Score() float32 {
 func (s *ScoreCachingWrappingScorer) GetMaxScore(upTo int) float32 {
 	return s.inner.GetMaxScore(upTo)
 }
+
+// invalidate drops the cached score so the next Score() recomputes it. This is
+// used by scoreCachingLeafCollector to reset the cache on each collected
+// document, mirroring the scoreIsCached=false reset in Lucene's
+// ScoreCachingWrappingLeafCollector.collect.
+func (s *ScoreCachingWrappingScorer) invalidate() {
+	s.cached = false
+}
+
+// scoreCachingLeafCollector wraps a LeafCollector so that the Scorer it
+// receives is a ScoreCachingWrappingScorer, computing scores lazily and caching
+// them across the (possibly several) child collectors that read them for the
+// same document.
+//
+// This is the Go port of
+// org.apache.lucene.search.ScoreCachingWrappingScorer.ScoreCachingWrappingLeafCollector
+// (obtained via ScoreCachingWrappingScorer.wrap(LeafCollector)).
+type scoreCachingLeafCollector struct {
+	in     LeafCollector
+	scorer *ScoreCachingWrappingScorer
+}
+
+// newScoreCachingLeafCollector wraps in so scores are cached. If in is already
+// a scoreCachingLeafCollector it is returned unchanged, matching Lucene's wrap.
+func newScoreCachingLeafCollector(in LeafCollector) LeafCollector {
+	if w, ok := in.(*scoreCachingLeafCollector); ok {
+		return w
+	}
+	return &scoreCachingLeafCollector{in: in}
+}
+
+// SetScorer wraps the incoming scorer in a ScoreCachingWrappingScorer and
+// forwards that to the inner leaf collector.
+func (c *scoreCachingLeafCollector) SetScorer(scorer Scorer) error {
+	c.scorer = &ScoreCachingWrappingScorer{inner: scorer, lastDoc: -2}
+	return c.in.SetScorer(c.scorer)
+}
+
+// Collect invalidates the per-document cache before delegating, so each new
+// document recomputes its score on first access.
+func (c *scoreCachingLeafCollector) Collect(doc int) error {
+	if c.scorer != nil {
+		c.scorer.invalidate()
+	}
+	return c.in.Collect(doc)
+}
+
+// Finish forwards to the inner leaf collector when it supports finishing,
+// preserving the MultiCollector terminate-and-drain semantics through the
+// caching wrapper.
+func (c *scoreCachingLeafCollector) Finish() error {
+	if f, ok := c.in.(leafCollectorFinisher); ok {
+		return f.Finish()
+	}
+	return nil
+}
+
+// Ensure scoreCachingLeafCollector implements LeafCollector and the optional
+// finisher.
+var (
+	_ LeafCollector         = (*scoreCachingLeafCollector)(nil)
+	_ leafCollectorFinisher = (*scoreCachingLeafCollector)(nil)
+)

@@ -406,7 +406,10 @@ type termsCollectorAdapter struct {
 // GetLeafCollector returns the adapter itself; doc-base is unused in the
 // single-leaf path because the resolver receives top-level doc ids via the
 // searcher.
-func (a *termsCollectorAdapter) GetLeafCollector(reader search.IndexReader) (search.LeafCollector, error) {
+func (a *termsCollectorAdapter) GetLeafCollector(context *index.LeafReaderContext) (search.LeafCollector, error) {
+	if context != nil {
+		a.docBase = context.DocBase()
+	}
 	return a, nil
 }
 

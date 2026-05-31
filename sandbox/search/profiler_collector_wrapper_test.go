@@ -10,6 +10,7 @@ package search
 import (
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -21,7 +22,7 @@ type countingCollector struct {
 
 func (c *countingCollector) ScoreMode() search.ScoreMode { return search.COMPLETE }
 
-func (c *countingCollector) GetLeafCollector(_ search.IndexReader) (search.LeafCollector, error) {
+func (c *countingCollector) GetLeafCollector(_ *index.LeafReaderContext) (search.LeafCollector, error) {
 	return c, nil
 }
 

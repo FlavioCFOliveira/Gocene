@@ -11,6 +11,7 @@ package search_test
 import (
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -71,7 +72,7 @@ func (c *bmcLeafCollector) Collect(doc int) error {
 	c.scores = append(c.scores, c.scorer.Score())
 	return nil
 }
-func (c *bmcLeafCollector) GetLeafCollector(_ search.IndexReader) (search.LeafCollector, error) {
+func (c *bmcLeafCollector) GetLeafCollector(_ *index.LeafReaderContext) (search.LeafCollector, error) {
 	return c, nil
 }
 func (c *bmcLeafCollector) ScoreMode() search.ScoreMode { return search.COMPLETE }

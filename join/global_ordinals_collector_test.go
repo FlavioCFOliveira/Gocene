@@ -54,8 +54,9 @@ func TestGlobalOrdinalsCollector_NilSdvLeafCollect(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// GetLeafCollector on a nil-sdv path (no *index.LeafReader in the stub reader).
-	lc, err := c.GetLeafCollector(stubIndexReaderForJoin{})
+	// GetLeafCollector on a nil-sdv path (a nil context yields no leaf reader,
+	// hence no doc-values).
+	lc, err := c.GetLeafCollector(nil)
 	if err != nil {
 		t.Fatalf("GetLeafCollector: %v", err)
 	}

@@ -12,6 +12,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -53,7 +54,7 @@ func (c *batchLeafCollector) Collect(doc int) error {
 	return nil
 }
 func (c *batchLeafCollector) ScoreMode() search.ScoreMode { return search.COMPLETE }
-func (c *batchLeafCollector) GetLeafCollector(_ search.IndexReader) (search.LeafCollector, error) {
+func (c *batchLeafCollector) GetLeafCollector(_ *index.LeafReaderContext) (search.LeafCollector, error) {
 	return c, nil
 }
 

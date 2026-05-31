@@ -187,11 +187,11 @@ func (c *GlobalOrdinalsWithScoreCollector) ScoreMode() search.ScoreMode {
 }
 
 // GetLeafCollector implements search.Collector.
-func (c *GlobalOrdinalsWithScoreCollector) GetLeafCollector(reader search.IndexReader) (search.LeafCollector, error) {
+func (c *GlobalOrdinalsWithScoreCollector) GetLeafCollector(context *index.LeafReaderContext) (search.LeafCollector, error) {
 	var sdv index.SortedDocValues
 	var globalOrds []int64
 
-	if lr, ok := reader.(*index.LeafReader); ok {
+	if lr := leafReaderFromContext(context); lr != nil {
 		var err error
 		sdv, err = lr.GetSortedDocValues(c.field)
 		if err != nil {

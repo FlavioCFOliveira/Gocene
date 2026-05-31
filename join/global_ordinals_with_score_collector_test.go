@@ -87,7 +87,7 @@ func TestGlobalOrdinalsWithScoreCollector_NilSdvCollect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	lc, err := c.GetLeafCollector(stubIndexReaderForJoin{})
+	lc, err := c.GetLeafCollector(nil)
 	if err != nil {
 		t.Fatalf("GetLeafCollector: %v", err)
 	}

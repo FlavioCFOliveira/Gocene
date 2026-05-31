@@ -4,6 +4,8 @@
 
 package search
 
+import "github.com/FlavioCFOliveira/Gocene/index"
+
 // LeafCollector collects matching documents in a segment.
 //
 // This is the Go port of Lucene's org.apache.lucene.search.LeafCollector.
@@ -24,8 +26,18 @@ type LeafCollector interface {
 // Common collectors include TopDocsCollector (for top-N results) and
 // TotalHitCountCollector (for counting total hits).
 type Collector interface {
-	// GetLeafCollector returns a LeafCollector for the given context.
-	GetLeafCollector(reader IndexReader) (LeafCollector, error)
+	// GetLeafCollector returns a LeafCollector for the given leaf reader
+	// context. The context carries the segment's docBase, ordinal and reader,
+	// so collectors that need to rebase document ids or bind to the segment's
+	// DocValues can do so without the searcher poking at the returned leaf
+	// collector afterwards.
+	//
+	// This mirrors org.apache.lucene.search.Collector#getLeafCollector, which
+	// takes a LeafReaderContext. A collector may return a
+	// CollectionTerminatedException (as an error) to signal that it does not
+	// need the given segment; MultiCollector and the search loop detect this
+	// with IsCollectionTerminated.
+	GetLeafCollector(context *index.LeafReaderContext) (LeafCollector, error)
 
 	// ScoreMode returns the ScoreMode indicating how scores are needed.
 	ScoreMode() ScoreMode
@@ -44,6 +56,14 @@ const (
 	// TOP_DOCS - only top docs are needed (no scores).
 	TOP_DOCS
 )
+
+// needsScores reports whether this score mode requires document scores.
+//
+// This mirrors org.apache.lucene.search.ScoreMode#needsScores: COMPLETE and
+// TOP_SCORES need scores, while COMPLETE_NO_SCORES and TOP_DOCS do not.
+func (m ScoreMode) needsScores() bool {
+	return m == COMPLETE || m == TOP_SCORES
+}
 
 // SimpleCollector provides a base implementation for collectors.
 type SimpleCollector struct {

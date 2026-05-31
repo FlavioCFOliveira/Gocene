@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -338,7 +339,7 @@ func (c *groupingCaptureCollector) ScoreMode() search.ScoreMode { return search.
 // does not push docBase into arbitrary collectors. The conservative behaviour
 // is therefore to assume a single segment (the prevalent case for grouping
 // tests today) and document the limitation.
-func (c *groupingCaptureCollector) GetLeafCollector(reader search.IndexReader) (search.LeafCollector, error) {
+func (c *groupingCaptureCollector) GetLeafCollector(ctx *index.LeafReaderContext) (search.LeafCollector, error) {
 	return &groupingCaptureLeafCollector{parent: c}, nil
 }
 
@@ -390,12 +391,12 @@ func (m *multiCaptureCollector) ScoreMode() search.ScoreMode {
 	return userMode
 }
 
-func (m *multiCaptureCollector) GetLeafCollector(reader search.IndexReader) (search.LeafCollector, error) {
-	captureLeaf, err := m.capture.GetLeafCollector(reader)
+func (m *multiCaptureCollector) GetLeafCollector(ctx *index.LeafReaderContext) (search.LeafCollector, error) {
+	captureLeaf, err := m.capture.GetLeafCollector(ctx)
 	if err != nil {
 		return nil, err
 	}
-	userLeaf, err := m.user.GetLeafCollector(reader)
+	userLeaf, err := m.user.GetLeafCollector(ctx)
 	if err != nil {
 		return nil, err
 	}

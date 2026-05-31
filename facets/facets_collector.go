@@ -67,23 +67,17 @@ func (fc *FacetsCollector) GetScore(doc int) float32 {
 }
 
 // GetLeafCollector returns a LeafCollector for the given context.
-func (fc *FacetsCollector) GetLeafCollector(reader search.IndexReader) (search.LeafCollector, error) {
-	// Get the leaf reader context from the reader
-	var leafReader *index.LeafReader
-	if lr, ok := reader.(*index.LeafReader); ok {
-		leafReader = lr
-	} else {
-		// For non-leaf readers, we can't create a facets collector
-		// This would need to be handled by the caller
+func (fc *FacetsCollector) GetLeafCollector(context *index.LeafReaderContext) (search.LeafCollector, error) {
+	// A facets leaf collector needs the leaf reader context (it reads the
+	// segment's MaxDoc and records it in MatchingDocs); without one there is
+	// nothing to collect, so degrade gracefully as before.
+	if context == nil {
 		return nil, nil
 	}
 
-	// Create a context for this leaf reader
-	ctx := index.NewLeafReaderContext(leafReader, nil, 0, 0)
-
 	return &facetsLeafCollector{
 		parent:  fc,
-		context: ctx,
+		context: context,
 		docs:    make([]int, 0),
 		scores:  make(map[int]float32),
 	}, nil
@@ -230,10 +224,10 @@ func NewMultiCollector(collectors ...search.Collector) *MultiCollector {
 }
 
 // GetLeafCollector returns a LeafCollector that wraps all child collectors.
-func (mc *MultiCollector) GetLeafCollector(reader search.IndexReader) (search.LeafCollector, error) {
+func (mc *MultiCollector) GetLeafCollector(context *index.LeafReaderContext) (search.LeafCollector, error) {
 	leafCollectors := make([]search.LeafCollector, 0, len(mc.collectors))
 	for _, collector := range mc.collectors {
-		lc, err := collector.GetLeafCollector(reader)
+		lc, err := collector.GetLeafCollector(context)
 		if err != nil {
 			return nil, err
 		}

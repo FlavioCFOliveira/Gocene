@@ -50,16 +50,13 @@ func (c *GlobalOrdinalsCollector) ScoreMode() search.ScoreMode {
 
 // GetLeafCollector implements search.Collector.
 //
-// Gocene deviation from Java: Lucene's getLeafCollector receives a
-// LeafReaderContext (with ord and the underlying reader). Gocene's Collector
-// interface passes a search.IndexReader. We attempt a type assertion to
-// *index.LeafReader (the concrete Gocene leaf type) to obtain doc-values;
-// when the assertion is unavailable, collection degrades gracefully.
-func (c *GlobalOrdinalsCollector) GetLeafCollector(reader search.IndexReader) (search.LeafCollector, error) {
+// The leaf reader (unwrapped from the context, handling the *SegmentReader
+// case) provides the SortedDocValues for the join field.
+func (c *GlobalOrdinalsCollector) GetLeafCollector(context *index.LeafReaderContext) (search.LeafCollector, error) {
 	var sdv index.SortedDocValues
 	var globalOrds []int64
 
-	if lr, ok := reader.(*index.LeafReader); ok {
+	if lr := leafReaderFromContext(context); lr != nil {
 		var err error
 		sdv, err = lr.GetSortedDocValues(c.field)
 		if err != nil {

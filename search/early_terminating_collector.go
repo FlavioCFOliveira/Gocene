@@ -4,6 +4,8 @@
 
 package search
 
+import "github.com/FlavioCFOliveira/Gocene/index"
+
 // EarlyTerminatingCollector terminates collection after a specified number of documents.
 // This is the Go port of Lucene's org.apache.lucene.search.EarlyTerminatingCollector.
 type EarlyTerminatingCollector struct {
@@ -35,8 +37,8 @@ func (c *EarlyTerminatingCollector) GetCollected() int {
 	return c.collected
 }
 
-// GetLeafCollector returns a LeafCollector for the given reader.
-func (c *EarlyTerminatingCollector) GetLeafCollector(reader IndexReader) (LeafCollector, error) {
+// GetLeafCollector returns a LeafCollector for the given context.
+func (c *EarlyTerminatingCollector) GetLeafCollector(context *index.LeafReaderContext) (LeafCollector, error) {
 	return c, nil
 }
 

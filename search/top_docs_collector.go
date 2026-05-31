@@ -9,6 +9,8 @@ import (
 	"math"
 	"sync"
 	"sync/atomic"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 // TopDocsCollector collects top-N documents by score.
@@ -68,10 +70,17 @@ func NewTopDocsCollectorAfter(numHits int, after *ScoreDoc) *TopDocsCollector {
 }
 
 // GetLeafCollector returns a LeafCollector for the given context.
-func (c *TopDocsCollector) GetLeafCollector(reader IndexReader) (LeafCollector, error) {
-	// For now, we don't have a way to get the docBase from the reader here
-	// but the searcher will call a method to set it or we'll pass it.
-	return NewTopDocsLeafCollector(c, 0), nil
+//
+// The leaf collector's docBase is taken directly from context.DocBase(), so
+// collected doc ids are rebased to the global id space without the searcher
+// having to poke at the returned leaf collector afterwards (matching Lucene's
+// TopScoreDocCollector, which reads docBase from the LeafReaderContext).
+func (c *TopDocsCollector) GetLeafCollector(context *index.LeafReaderContext) (LeafCollector, error) {
+	docBase := 0
+	if context != nil {
+		docBase = context.DocBase()
+	}
+	return NewTopDocsLeafCollector(c, docBase), nil
 }
 
 // TopDocs returns the collected top documents.

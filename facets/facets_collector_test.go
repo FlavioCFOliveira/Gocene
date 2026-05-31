@@ -113,11 +113,12 @@ func TestFacetsCollectorScoreMode(t *testing.T) {
 func TestFacetsCollectorGetLeafCollector(t *testing.T) {
 	fc := NewFacetsCollector()
 
-	// Create a mock leaf reader
+	// Create a mock leaf reader and its context
 	segmentInfo := index.NewSegmentInfo("test", 10, nil)
 	leafReader := index.NewLeafReader(segmentInfo)
+	ctx := index.NewLeafReaderContext(leafReader, nil, 0, 0)
 
-	lc, err := fc.GetLeafCollector(leafReader)
+	lc, err := fc.GetLeafCollector(ctx)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}

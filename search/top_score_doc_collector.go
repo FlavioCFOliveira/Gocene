@@ -7,6 +7,8 @@ package search
 import (
 	"container/heap"
 	"sync"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 // TopScoreDocCollector collects top-N documents sorted by score.
@@ -60,9 +62,15 @@ func NewTopScoreDocCollectorWithAfter(numHits int, after *ScoreDoc) *TopScoreDoc
 	}
 }
 
-// GetLeafCollector returns a LeafCollector for the given context.
-func (c *TopScoreDocCollector) GetLeafCollector(reader IndexReader) (LeafCollector, error) {
-	return NewTopScoreDocLeafCollector(c, 0), nil
+// GetLeafCollector returns a LeafCollector for the given context. The leaf
+// collector's docBase is taken from context.DocBase() so doc ids are rebased
+// to the global id space, mirroring Lucene's TopScoreDocCollector.
+func (c *TopScoreDocCollector) GetLeafCollector(context *index.LeafReaderContext) (LeafCollector, error) {
+	docBase := 0
+	if context != nil {
+		docBase = context.DocBase()
+	}
+	return NewTopScoreDocLeafCollector(c, docBase), nil
 }
 
 // TopDocs returns the collected top documents.

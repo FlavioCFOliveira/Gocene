@@ -15,6 +15,7 @@ package search_test
 import (
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -366,6 +367,6 @@ func (c *earlyTermLeafCollector) Collect(doc int) error {
 
 func (c *earlyTermLeafCollector) ScoreMode() search.ScoreMode { return search.COMPLETE_NO_SCORES }
 
-func (c *earlyTermLeafCollector) GetLeafCollector(_ search.IndexReader) (search.LeafCollector, error) {
+func (c *earlyTermLeafCollector) GetLeafCollector(_ *index.LeafReaderContext) (search.LeafCollector, error) {
 	return c, nil
 }

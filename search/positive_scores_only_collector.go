@@ -21,8 +21,8 @@ func NewPositiveScoresOnlyCollector(inner Collector) *PositiveScoresOnlyCollecto
 }
 
 // GetLeafCollector returns a LeafCollector that filters by score > 0.
-func (c *PositiveScoresOnlyCollector) GetLeafCollector(reader IndexReader) (LeafCollector, error) {
-	leaf, err := c.inner.GetLeafCollector(reader)
+func (c *PositiveScoresOnlyCollector) GetLeafCollector(context *index.LeafReaderContext) (LeafCollector, error) {
+	leaf, err := c.inner.GetLeafCollector(context)
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +55,6 @@ func (l *positiveScoresOnlyLeafCollector) Collect(doc int) error {
 
 // Compile-time guard
 var (
-	_ Collector                = (*PositiveScoresOnlyCollector)(nil)
-	_ LeafCollector            = (*positiveScoresOnlyLeafCollector)(nil)
-	_ *index.LeafReaderContext = (*index.LeafReaderContext)(nil) // keep import
+	_ Collector     = (*PositiveScoresOnlyCollector)(nil)
+	_ LeafCollector = (*positiveScoresOnlyLeafCollector)(nil)
 )

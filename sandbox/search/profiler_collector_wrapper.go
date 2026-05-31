@@ -8,6 +8,7 @@ package search
 import (
 	"time"
 
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -40,9 +41,9 @@ func (c *ProfilerCollectorWrapper) ScoreMode() search.ScoreMode {
 
 // GetLeafCollector times the creation of the inner leaf collector and returns
 // a profilerLeafCollectorWrapper that times Collect and SetScorer.
-func (c *ProfilerCollectorWrapper) GetLeafCollector(reader search.IndexReader) (search.LeafCollector, error) {
+func (c *ProfilerCollectorWrapper) GetLeafCollector(context *index.LeafReaderContext) (search.LeafCollector, error) {
 	start := time.Now().UnixNano()
-	inner, err := c.in.GetLeafCollector(reader)
+	inner, err := c.in.GetLeafCollector(context)
 	elapsed := time.Now().UnixNano() - start
 	if elapsed < 1 {
 		elapsed = 1

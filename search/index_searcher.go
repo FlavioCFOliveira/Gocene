@@ -270,19 +270,17 @@ func (s *IndexSearcher) searchLeaf(reader index.IndexReaderInterface, ord, docBa
 	// look like the first segment.
 	ctx := index.NewLeafReaderContext(reader, nil, ord, docBase)
 
-	leafCollector, err := collector.GetLeafCollector(reader)
+	// GetLeafCollector receives the leaf context so collectors can rebase doc
+	// ids from context.DocBase() and bind to the segment reader themselves.
+	// A CollectionTerminatedException means the collector does not need this
+	// segment; mirroring Lucene's IndexSearcher.search we swallow it and move
+	// on to the next leaf rather than treating it as a failure.
+	leafCollector, err := collector.GetLeafCollector(ctx)
 	if err != nil {
+		if IsCollectionTerminated(err) {
+			return nil
+		}
 		return err
-	}
-
-	// If it's a TopDocsLeafCollector, set the docBase
-	if tdc, ok := leafCollector.(*TopDocsLeafCollector); ok {
-		tdc.SetDocBase(docBase)
-	}
-	// Field-sorted collection rebases doc ids (and DOC-comparator values) by the
-	// segment's docBase too.
-	if tflc, ok := leafCollector.(*TopFieldLeafCollector); ok {
-		tflc.SetDocBase(docBase)
 	}
 
 	scorer, err := weight.Scorer(ctx)
@@ -320,6 +318,14 @@ func (s *IndexSearcher) searchLeaf(reader index.IndexReaderInterface, ord, docBa
 			}
 			err = leafCollector.Collect(doc)
 			if err != nil {
+				// A CollectionTerminatedException stops collection on this leaf
+				// (e.g. an EarlyTerminatingCollector or a MultiCollector whose
+				// children have all terminated). Mirroring Lucene's bulk-scorer
+				// loop we swallow it and finish the leaf cleanly instead of
+				// propagating it as an error.
+				if IsCollectionTerminated(err) {
+					break
+				}
 				return err
 			}
 			// Surface a deferred scoring error (e.g. the block-join

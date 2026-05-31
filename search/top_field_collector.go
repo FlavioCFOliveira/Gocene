@@ -179,15 +179,25 @@ func NewTopFieldCollector(numHits int, sort *Sort) *TopFieldCollector {
 }
 
 // GetLeafCollector binds every comparator to the new leaf and returns a
-// LeafCollector. The reader carries the segment's DocValues, which the
-// comparators resolve in setReader.
-func (c *TopFieldCollector) GetLeafCollector(reader IndexReader) (LeafCollector, error) {
+// LeafCollector. The context's reader carries the segment's DocValues, which
+// the comparators resolve in setReader, and its docBase rebases collected doc
+// ids (and DOC-comparator values) to the global id space.
+func (c *TopFieldCollector) GetLeafCollector(context *index.LeafReaderContext) (LeafCollector, error) {
+	docBase := 0
+	var reader IndexReader
+	if context != nil {
+		docBase = context.DocBase()
+		// context.Reader() is an index.IndexReaderInterface, which exposes the
+		// DocCount/NumDocs/MaxDoc subset that the minimal search.IndexReader
+		// requires, so it satisfies the comparator setReader contract.
+		reader = context.Reader()
+	}
 	for _, cmp := range c.comparators {
 		if err := cmp.setReader(reader); err != nil {
 			return nil, err
 		}
 	}
-	return NewTopFieldLeafCollector(c, 0), nil
+	return NewTopFieldLeafCollector(c, docBase), nil
 }
 
 // TopDocs returns the collected hits as a TopFieldDocs, ordered best-first, with

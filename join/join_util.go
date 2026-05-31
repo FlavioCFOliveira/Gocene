@@ -190,10 +190,32 @@ type bitSetDocCollector struct {
 	docBase int
 }
 
-// GetLeafCollector returns a leaf collector bound to the given reader's
-// docBase so doc ids are translated into the composite reader id space.
-func (c *bitSetDocCollector) GetLeafCollector(reader search.IndexReader) (search.LeafCollector, error) {
+// GetLeafCollector returns a leaf collector bound to the leaf's docBase so doc
+// ids are translated into the composite reader id space.
+func (c *bitSetDocCollector) GetLeafCollector(context *index.LeafReaderContext) (search.LeafCollector, error) {
+	if context != nil {
+		c.docBase = context.DocBase()
+	}
 	return c, nil
+}
+
+// leafReaderFromContext extracts the concrete *index.LeafReader from a leaf
+// context, transparently unwrapping a *index.SegmentReader (which embeds a
+// *LeafReader). It returns nil when the context or its reader is nil, so
+// callers can degrade gracefully. This is shared by the join collectors that
+// resolve doc-values from the segment.
+func leafReaderFromContext(context *index.LeafReaderContext) *index.LeafReader {
+	if context == nil {
+		return nil
+	}
+	switch v := context.Reader().(type) {
+	case *index.LeafReader:
+		return v
+	case *index.SegmentReader:
+		return v.LeafReader
+	default:
+		return nil
+	}
 }
 
 // ScoreMode returns COMPLETE_NO_SCORES: the bit set only needs the doc ids.

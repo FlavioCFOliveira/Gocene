@@ -7,6 +7,7 @@ package join
 import (
 	"errors"
 
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -37,8 +38,8 @@ type wrappedTermsCollector struct {
 }
 
 // GetLeafCollector implements search.Collector.
-func (w *wrappedTermsCollector) GetLeafCollector(reader search.IndexReader) (search.LeafCollector, error) {
-	return w.inner.GetLeafCollector(reader)
+func (w *wrappedTermsCollector) GetLeafCollector(context *index.LeafReaderContext) (search.LeafCollector, error) {
+	return w.inner.GetLeafCollector(context)
 }
 
 // ScoreMode implements search.Collector.
@@ -62,8 +63,8 @@ type scoringGenericTermsCollector struct {
 }
 
 // GetLeafCollector implements search.Collector.
-func (s *scoringGenericTermsCollector) GetLeafCollector(reader search.IndexReader) (search.LeafCollector, error) {
-	return s.inner.GetLeafCollector(reader)
+func (s *scoringGenericTermsCollector) GetLeafCollector(context *index.LeafReaderContext) (search.LeafCollector, error) {
+	return s.inner.GetLeafCollector(context)
 }
 
 // ScoreMode implements search.Collector.

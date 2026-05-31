@@ -46,9 +46,9 @@ func newDocValuesTermsCollector[DV any](
 func (c *DocValuesTermsCollector[DV]) ScoreMode() search.ScoreMode { return c.scoreMode }
 
 // GetLeafCollector implements search.Collector.
-func (c *DocValuesTermsCollector[DV]) GetLeafCollector(reader search.IndexReader) (search.LeafCollector, error) {
+func (c *DocValuesTermsCollector[DV]) GetLeafCollector(context *index.LeafReaderContext) (search.LeafCollector, error) {
 	var dv DV
-	if lr, ok := reader.(*index.LeafReader); ok && c.dvFunc != nil {
+	if lr := leafReaderFromContext(context); lr != nil && c.dvFunc != nil {
 		var err error
 		dv, err = c.dvFunc(lr)
 		if err != nil {

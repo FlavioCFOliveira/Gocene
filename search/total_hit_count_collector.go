@@ -4,6 +4,8 @@
 
 package search
 
+import "github.com/FlavioCFOliveira/Gocene/index"
+
 // TotalHitCountCollector counts the total number of matching documents.
 // This is the Go port of Lucene's org.apache.lucene.search.TotalHitCountCollector.
 type TotalHitCountCollector struct {
@@ -26,8 +28,8 @@ func (c *TotalHitCountCollector) GetTotalHits() int {
 	return c.totalHits
 }
 
-// GetLeafCollector returns a LeafCollector for the given reader.
-func (c *TotalHitCountCollector) GetLeafCollector(reader IndexReader) (LeafCollector, error) {
+// GetLeafCollector returns a LeafCollector for the given context.
+func (c *TotalHitCountCollector) GetLeafCollector(context *index.LeafReaderContext) (LeafCollector, error) {
 	return c, nil
 }
 

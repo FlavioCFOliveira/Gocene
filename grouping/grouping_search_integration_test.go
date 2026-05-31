@@ -332,7 +332,7 @@ type countingCollector struct {
 
 func (c *countingCollector) ScoreMode() search.ScoreMode { return search.COMPLETE }
 
-func (c *countingCollector) GetLeafCollector(_ search.IndexReader) (search.LeafCollector, error) {
+func (c *countingCollector) GetLeafCollector(_ *index.LeafReaderContext) (search.LeafCollector, error) {
 	return &countingLeafCollector{parent: c}, nil
 }
 
