@@ -392,10 +392,7 @@ func (sm *SegmentMerger) mergeNorms() error { return nil }
 
 // mergeDocValues is implemented in segment_merger_docvalues.go (rmp #14/#114).
 
-// mergePoints merges the point values of every segment into the new one.
-//
-// Deferred (backlog #2707): the Codec interface exposes no PointsFormat yet.
-func (sm *SegmentMerger) mergePoints() error { return nil }
+// mergePoints is implemented in segment_merger_points.go (rmp #14/#114).
 
 // mergeVectorValues merges the KNN vector values of every segment into the
 // new one.
