@@ -12,12 +12,37 @@ import (
 )
 
 // buildDocMaps computes, for every sub-reader, the mapping from its local
-// docID to the merged segment's docID. Deleted documents map to -1; live
-// documents are renumbered densely in (reader, docID) order — the exact order
-// in which mergeFields writes the stored fields, so all per-format merges
-// agree on the new doc numbering. Mirrors the net effect of
-// MergeState.DocMap (Lucene 10.4.0) for the no-index-sort case.
-func (sm *SegmentMerger) buildDocMaps() {
+// docID to the merged segment's docID. Deleted documents map to -1.
+//
+// When the merged segment carries an index sort, the documents are renumbered
+// into the merged sort order via a MultiSorter merge-sort across the (already
+// per-segment-sorted) leaves (rmp #115); otherwise live documents are
+// renumbered densely in (reader, docID) order — the exact order in which
+// mergeFields writes the stored fields, so all per-format merges agree on the
+// new doc numbering. Mirrors the net effect of MergeState.DocMap (Lucene
+// 10.4.0) for both the index-sort and no-index-sort cases.
+func (sm *SegmentMerger) buildDocMaps() error {
+	if sm.MergeState.DocMaps != nil {
+		return nil // already computed
+	}
+
+	if sort := sm.MergeState.SegmentInfo.IndexSort(); sort != nil && len(sort.Fields()) > 0 {
+		maps, err := multiSorterSort(sort, sm.MergeState.Readers)
+		if err != nil {
+			return fmt.Errorf("index: index-sorted merge: %w", err)
+		}
+		if maps != nil {
+			// A reorder is required: the segments are not already globally
+			// sorted relative to one another.
+			sm.MergeState.DocMaps = maps
+			sm.MergeState.NeedsIndexSort = true
+			sm.buildInverseDocMap()
+			return nil
+		}
+		// maps == nil: the leaves are already in global sort order, so the
+		// plain concatenation map below preserves the sort.
+	}
+
 	docMaps := make([]DocMap, len(sm.MergeState.Readers))
 	newDocID := 0
 	for i := range sm.MergeState.Readers {
@@ -35,6 +60,34 @@ func (sm *SegmentMerger) buildDocMaps() {
 		docMaps[i] = sliceDocMap(m)
 	}
 	sm.MergeState.DocMaps = docMaps
+	return nil
+}
+
+// buildInverseDocMap fills sm.inverseDocMap with one (readerIndex, localDocID)
+// entry per merged docID, derived from the per-reader DocMaps. It is used by
+// the per-document merge steps to iterate in merged (sorted) docID order.
+func (sm *SegmentMerger) buildInverseDocMap() {
+	total := 0
+	for i := range sm.MergeState.Readers {
+		maxDoc := sm.MergeState.MaxDocs[i]
+		dm := sm.MergeState.DocMaps[i]
+		for d := 0; d < maxDoc; d++ {
+			if dm.Get(d) >= 0 {
+				total++
+			}
+		}
+	}
+	inv := make([][2]int, total)
+	for i := range sm.MergeState.Readers {
+		maxDoc := sm.MergeState.MaxDocs[i]
+		dm := sm.MergeState.DocMaps[i]
+		for d := 0; d < maxDoc; d++ {
+			if nd := dm.Get(d); nd >= 0 && nd < total {
+				inv[nd] = [2]int{i, d}
+			}
+		}
+	}
+	sm.inverseDocMap = inv
 }
 
 // sliceDocMap is a DocMap backed by a precomputed old→new slice.
@@ -56,7 +109,9 @@ func (sm *SegmentMerger) mergeTerms() error {
 		return nil
 	}
 	if sm.MergeState.DocMaps == nil {
-		sm.buildDocMaps()
+		if err := sm.buildDocMaps(); err != nil {
+			return err
+		}
 	}
 
 	state := &SegmentWriteState{

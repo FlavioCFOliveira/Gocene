@@ -19,7 +19,9 @@ func (sm *SegmentMerger) mergeTermVectors() (int, error) {
 		return sm.MergeState.SegmentInfo.DocCount(), nil
 	}
 	if sm.MergeState.DocMaps == nil {
-		sm.buildDocMaps()
+		if err := sm.buildDocMaps(); err != nil {
+			return 0, err
+		}
 	}
 
 	state := &SegmentWriteState{

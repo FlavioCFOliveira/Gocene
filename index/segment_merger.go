@@ -42,6 +42,13 @@ type SegmentMerger struct {
 
 	// MergeState is the aggregated per-segment state for this merge.
 	MergeState *MergeState
+
+	// inverseDocMap maps each merged docID to its source (readerIndex,
+	// localDocID). It is populated only when the merge honours an index sort
+	// (MergeState.NeedsIndexSort), and lets the per-document merge steps
+	// (stored fields, term vectors) emit documents in the merged sort order
+	// instead of the source (reader, docID) concatenation order.
+	inverseDocMap [][2]int
 }
 
 // NewSegmentMerger creates a SegmentMerger for the given readers.
@@ -127,6 +134,13 @@ func (sm *SegmentMerger) Merge() (*MergeState, error) {
 	}
 
 	if err := sm.mergeFieldInfos(); err != nil {
+		return nil, err
+	}
+
+	// Compute the shared old→new doc mapping once, up front, so every payload
+	// step agrees on the new doc numbering. When the merged segment carries an
+	// index sort this also reorders documents into sorted order (rmp #115).
+	if err := sm.buildDocMaps(); err != nil {
 		return nil, err
 	}
 
@@ -256,35 +270,60 @@ func (sm *SegmentMerger) mergeFields() (int, error) {
 	}
 	defer writer.Close()
 
-	total := 0
-	for i, reader := range sm.MergeState.Readers {
-		if reader == nil {
-			continue
-		}
+	writeDoc := func(i, docID int) error {
+		reader := sm.MergeState.Readers[i]
 		sfr := reader.GetStoredFieldsReader()
-		if sfr == nil {
-			continue
+		if err := writer.StartDocument(); err != nil {
+			return fmt.Errorf("index: merge stored fields: start doc: %w", err)
 		}
-		maxDoc := sm.MergeState.MaxDocs[i]
-		liveDocs := sm.MergeState.LiveDocs[i]
-		for docID := 0; docID < maxDoc; docID++ {
-			if liveDocs != nil && !liveDocs.Get(docID) {
-				continue
-			}
-			if err := writer.StartDocument(); err != nil {
-				return 0, fmt.Errorf("index: merge stored fields: start doc: %w", err)
-			}
+		if sfr != nil {
 			visitor := &storedFieldsMergeVisitor{writer: writer}
 			if err := sfr.VisitDocument(docID, visitor); err != nil {
-				return 0, fmt.Errorf("index: merge stored fields: visit doc %d of reader %d: %w", docID, i, err)
+				return fmt.Errorf("index: merge stored fields: visit doc %d of reader %d: %w", docID, i, err)
 			}
 			if visitor.err != nil {
-				return 0, visitor.err
+				return visitor.err
 			}
-			if err := writer.FinishDocument(); err != nil {
-				return 0, fmt.Errorf("index: merge stored fields: finish doc: %w", err)
+		}
+		if err := writer.FinishDocument(); err != nil {
+			return fmt.Errorf("index: merge stored fields: finish doc: %w", err)
+		}
+		return nil
+	}
+
+	total := 0
+	if sm.MergeState.NeedsIndexSort && sm.inverseDocMap != nil {
+		// Index-sorted merge: emit documents in merged (sorted) docID order so
+		// the stored fields agree with the sorted doc-values / postings.
+		for _, src := range sm.inverseDocMap {
+			i, docID := src[0], src[1]
+			if sm.MergeState.Readers[i] == nil {
+				continue
+			}
+			if err := writeDoc(i, docID); err != nil {
+				return 0, err
 			}
 			total++
+		}
+	} else {
+		for i, reader := range sm.MergeState.Readers {
+			if reader == nil {
+				continue
+			}
+			if reader.GetStoredFieldsReader() == nil {
+				continue
+			}
+			maxDoc := sm.MergeState.MaxDocs[i]
+			liveDocs := sm.MergeState.LiveDocs[i]
+			for docID := 0; docID < maxDoc; docID++ {
+				if liveDocs != nil && !liveDocs.Get(docID) {
+					continue
+				}
+				if err := writeDoc(i, docID); err != nil {
+					return 0, err
+				}
+				total++
+			}
 		}
 	}
 	if err := writer.Finish(total); err != nil {

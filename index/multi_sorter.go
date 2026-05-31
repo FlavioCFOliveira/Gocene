@@ -58,18 +58,35 @@ type ComparableProvider func(docID int) (int64, error)
 // GetComparableProviders falls back to the degenerate identity.
 var testComparableProvidersHook func(s *IndexSorter, readers []*CodecReader) []ComparableProvider
 
-// GetComparableProviders returns one ComparableProvider per reader. The
-// degenerate Gocene implementation maps a docID to itself; replace with a
-// per-type IndexSorter (numeric / sorted / ...) once those subclasses are
-// ported.
+// GetComparableProviders returns one ComparableProvider per reader for the
+// SortField this sorter carries, reading the field's DocValues from each
+// reader and encoding every document's sort value as a monotonic int64
+// comparable (see buildComparableProviders). When the sorter has no field
+// (s.sort empty) it falls back to the degenerate natural-order provider.
+//
+// A test seam (testComparableProvidersHook) lets unit tests inject
+// deterministic providers without standing up real DocValues readers.
 func (s *IndexSorter) GetComparableProviders(readers []*CodecReader) []ComparableProvider {
 	if testComparableProvidersHook != nil {
 		return testComparableProvidersHook(s, readers)
 	}
-	providers := make([]ComparableProvider, len(readers))
-	for i := range readers {
-		providers[i] = func(docID int) (int64, error) {
-			return int64(docID), nil
+	if s.sort == nil || len(s.sort.Fields()) == 0 {
+		providers := make([]ComparableProvider, len(readers))
+		for i := range readers {
+			providers[i] = func(docID int) (int64, error) {
+				return int64(docID), nil
+			}
+		}
+		return providers
+	}
+	providers, err := buildComparableProviders(s.sort.Fields()[0], readers)
+	if err != nil {
+		// GetComparableProviders cannot return an error; surface it lazily
+		// through every provider call so multiSorterSort reports it.
+		providers = make([]ComparableProvider, len(readers))
+		for i := range readers {
+			e := err
+			providers[i] = func(int) (int64, error) { return 0, e }
 		}
 	}
 	return providers
@@ -86,8 +103,10 @@ func (s *IndexSorter) GetComparableProviders(readers []*CodecReader) []Comparabl
 // SortField is now declared in the leaf schema/ package and cannot grow
 // methods that reference index-local types such as *IndexSorter.
 func sortFieldIndexSorter(sf *SortField) *IndexSorter {
-	_ = sf
-	return NewIndexSorter(nil)
+	if sf == nil {
+		return NewIndexSorter(nil)
+	}
+	return NewIndexSorter(NewSortFromFields([]SortField{*sf}))
 }
 
 // GetParentField now lives on schema.FieldInfos (the canonical

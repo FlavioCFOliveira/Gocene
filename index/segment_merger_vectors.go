@@ -21,7 +21,9 @@ func (sm *SegmentMerger) mergeVectorValues() error {
 		return nil
 	}
 	if sm.MergeState.DocMaps == nil {
-		sm.buildDocMaps()
+		if err := sm.buildDocMaps(); err != nil {
+			return err
+		}
 	}
 
 	// Skip the whole leg when no field carries vectors.

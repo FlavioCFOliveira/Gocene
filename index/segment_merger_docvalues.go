@@ -6,6 +6,7 @@ package index
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/spi"
 )
@@ -21,7 +22,9 @@ func (sm *SegmentMerger) mergeDocValues() error {
 		return nil
 	}
 	if sm.MergeState.DocMaps == nil {
-		sm.buildDocMaps()
+		if err := sm.buildDocMaps(); err != nil {
+			return err
+		}
 	}
 
 	state := &SegmentWriteState{
@@ -143,6 +146,9 @@ func (sm *SegmentMerger) mergeNumericDV(consumer DocValuesConsumer, info *FieldI
 			values = append(values, v)
 		}
 	}
+	if sm.MergeState.NeedsIndexSort {
+		sort.Stable(numericByDoc{docIDs: docIDs, values: values})
+	}
 	return consumer.AddNumericField(info, &sliceNumericDVIter{docIDs: docIDs, values: values, pos: -1})
 }
 
@@ -189,6 +195,9 @@ func (sm *SegmentMerger) mergeBinaryDV(consumer DocValuesConsumer, info *FieldIn
 			docIDs = append(docIDs, mapped)
 			values = append(values, dup)
 		}
+	}
+	if sm.MergeState.NeedsIndexSort {
+		sort.Stable(binaryByDoc{docIDs: docIDs, values: values})
 	}
 	return consumer.AddBinaryField(info, &sliceBinaryDVIter{docIDs: docIDs, values: values, pos: -1})
 }
@@ -243,6 +252,9 @@ func (sm *SegmentMerger) mergeSortedNumericDV(consumer DocValuesConsumer, info *
 			docIDs = append(docIDs, mapped)
 			values = append(values, docVals)
 		}
+	}
+	if sm.MergeState.NeedsIndexSort {
+		sort.Stable(sortedNumericByDoc{docIDs: docIDs, values: values})
 	}
 	return consumer.AddSortedNumericField(info, &sliceSortedNumericDVIter{docIDs: docIDs, values: values, pos: -1})
 }
@@ -312,6 +324,12 @@ func (sm *SegmentMerger) mergeSortedDV(consumer DocValuesConsumer, info *FieldIn
 			docMaps[k] = sm.MergeState.DocMaps[oi]
 			maxDocs[k] = sm.MergeState.MaxDocs[oi]
 		}
+		if sm.MergeState.NeedsIndexSort {
+			// The merged docIDs are not produced in (reader, docID) order, so
+			// materialise every live doc's global ordinal and present them in
+			// ascending merged-docID order (the DocValuesConsumer requires it).
+			return newMaterializedSortedDocValues(subs, docMaps, maxDocs, om)
+		}
 		return &mergedSortedDocValues{subs: subs, docMaps: docMaps, maxDocs: maxDocs, om: om, doc: -1, ord: -1}, nil
 	}
 	return delegate.AddSortedFieldFromReader(info, reset)
@@ -372,6 +390,9 @@ func (sm *SegmentMerger) mergeSortedSetDV(consumer DocValuesConsumer, info *Fiel
 		for k, oi := range orig {
 			docMaps[k] = sm.MergeState.DocMaps[oi]
 			maxDocs[k] = sm.MergeState.MaxDocs[oi]
+		}
+		if sm.MergeState.NeedsIndexSort {
+			return newMaterializedSortedSetDocValues(subs, docMaps, maxDocs, om)
 		}
 		return &mergedSortedSetDocValues{subs: subs, docMaps: docMaps, maxDocs: maxDocs, om: om, doc: -1}, nil
 	}
@@ -564,3 +585,244 @@ func (it *sliceSortedNumericDVIter) NextValue() int64 {
 	it.vpos++
 	return v
 }
+
+// --- doc-ID sort helpers (index-sorted merge, rmp #115) --------------------
+//
+// When the merge honours an index sort the per-reader DocMaps renumber
+// documents out of (reader, docID) order, so the collected (docID, value)
+// pairs must be re-sorted into ascending merged-docID order before being fed
+// to the DocValuesConsumer (which requires monotonic docIDs).
+
+type numericByDoc struct {
+	docIDs []int
+	values []int64
+}
+
+func (s numericByDoc) Len() int           { return len(s.docIDs) }
+func (s numericByDoc) Less(i, j int) bool { return s.docIDs[i] < s.docIDs[j] }
+func (s numericByDoc) Swap(i, j int) {
+	s.docIDs[i], s.docIDs[j] = s.docIDs[j], s.docIDs[i]
+	s.values[i], s.values[j] = s.values[j], s.values[i]
+}
+
+type binaryByDoc struct {
+	docIDs []int
+	values [][]byte
+}
+
+func (s binaryByDoc) Len() int           { return len(s.docIDs) }
+func (s binaryByDoc) Less(i, j int) bool { return s.docIDs[i] < s.docIDs[j] }
+func (s binaryByDoc) Swap(i, j int) {
+	s.docIDs[i], s.docIDs[j] = s.docIDs[j], s.docIDs[i]
+	s.values[i], s.values[j] = s.values[j], s.values[i]
+}
+
+type sortedNumericByDoc struct {
+	docIDs []int
+	values [][]int64
+}
+
+func (s sortedNumericByDoc) Len() int           { return len(s.docIDs) }
+func (s sortedNumericByDoc) Less(i, j int) bool { return s.docIDs[i] < s.docIDs[j] }
+func (s sortedNumericByDoc) Swap(i, j int) {
+	s.docIDs[i], s.docIDs[j] = s.docIDs[j], s.docIDs[i]
+	s.values[i], s.values[j] = s.values[j], s.values[i]
+}
+
+// --- materialized SORTED / SORTED_SET views (index-sorted merge) -----------
+
+// newMaterializedSortedDocValues collects every live document's global ordinal
+// across the sub-readers and presents them in ascending merged-docID order.
+// LookupOrd / GetValueCount stay served from the shared OrdinalMap.
+func newMaterializedSortedDocValues(subs []SortedDocValues, docMaps []DocMap, maxDocs []int, om *OrdinalMap) (SortedDocValues, error) {
+	var docIDs []int
+	var ords []int
+	for si, sub := range subs {
+		globals := om.GetGlobalOrds(si)
+		for {
+			d, err := sub.NextDoc()
+			if err != nil {
+				return nil, err
+			}
+			if dvExhaustedDoc(d, maxDocs[si]) {
+				break
+			}
+			mapped := docMaps[si].Get(d)
+			if mapped < 0 {
+				continue
+			}
+			so, err := sub.OrdValue()
+			if err != nil {
+				return nil, err
+			}
+			docIDs = append(docIDs, mapped)
+			ords = append(ords, int(globals[so]))
+		}
+	}
+	sort.Stable(sortedOrdByDoc{docIDs: docIDs, ords: ords})
+	return &materializedSortedDocValues{subs: subs, om: om, docIDs: docIDs, ords: ords, pos: -1, doc: -1}, nil
+}
+
+type sortedOrdByDoc struct {
+	docIDs []int
+	ords   []int
+}
+
+func (s sortedOrdByDoc) Len() int           { return len(s.docIDs) }
+func (s sortedOrdByDoc) Less(i, j int) bool { return s.docIDs[i] < s.docIDs[j] }
+func (s sortedOrdByDoc) Swap(i, j int) {
+	s.docIDs[i], s.docIDs[j] = s.docIDs[j], s.docIDs[i]
+	s.ords[i], s.ords[j] = s.ords[j], s.ords[i]
+}
+
+type materializedSortedDocValues struct {
+	subs   []SortedDocValues
+	om     *OrdinalMap
+	docIDs []int
+	ords   []int
+	pos    int
+	doc    int
+}
+
+func (m *materializedSortedDocValues) NextDoc() (int, error) {
+	m.pos++
+	if m.pos >= len(m.docIDs) {
+		m.doc = NO_MORE_DOCS
+		return NO_MORE_DOCS, nil
+	}
+	m.doc = m.docIDs[m.pos]
+	return m.doc, nil
+}
+func (m *materializedSortedDocValues) OrdValue() (int, error) { return m.ords[m.pos], nil }
+func (m *materializedSortedDocValues) LookupOrd(ord int) ([]byte, error) {
+	segNum := m.om.GetFirstSegmentNumber(int64(ord))
+	segOrd := m.om.GetFirstSegmentOrd(int64(ord))
+	if segNum < 0 || segNum >= len(m.subs) {
+		return nil, fmt.Errorf("index: merge sorted DV: global ord %d out of range", ord)
+	}
+	return m.subs[segNum].LookupOrd(int(segOrd))
+}
+func (m *materializedSortedDocValues) GetValueCount() int { return int(m.om.GetValueCount()) }
+func (m *materializedSortedDocValues) DocID() int         { return m.doc }
+func (m *materializedSortedDocValues) Advance(target int) (int, error) {
+	for {
+		d, err := m.NextDoc()
+		if err != nil || d == NO_MORE_DOCS || d >= target {
+			return d, err
+		}
+	}
+}
+func (m *materializedSortedDocValues) AdvanceExact(target int) (bool, error) {
+	d, err := m.Advance(target)
+	return d == target, err
+}
+func (m *materializedSortedDocValues) LongValue() (int64, error) {
+	return int64(m.ords[m.pos]), nil
+}
+func (m *materializedSortedDocValues) Cost() int64 { return int64(len(m.docIDs)) }
+
+// newMaterializedSortedSetDocValues collects every live document's ascending
+// set of global ordinals and presents them in ascending merged-docID order.
+func newMaterializedSortedSetDocValues(subs []SortedSetDocValues, docMaps []DocMap, maxDocs []int, om *OrdinalMap) (SortedSetDocValues, error) {
+	var docIDs []int
+	var ordSets [][]int
+	for si, sub := range subs {
+		globals := om.GetGlobalOrds(si)
+		for {
+			d, err := sub.NextDoc()
+			if err != nil {
+				return nil, err
+			}
+			if dvExhaustedDoc(d, maxDocs[si]) {
+				break
+			}
+			mapped := docMaps[si].Get(d)
+			if mapped < 0 {
+				continue
+			}
+			var set []int
+			for {
+				so, err := sub.NextOrd()
+				if err != nil {
+					return nil, err
+				}
+				if so < 0 {
+					break
+				}
+				set = append(set, int(globals[so]))
+			}
+			docIDs = append(docIDs, mapped)
+			ordSets = append(ordSets, set)
+		}
+	}
+	sort.Stable(sortedSetByDoc{docIDs: docIDs, ordSets: ordSets})
+	return &materializedSortedSetDocValues{subs: subs, om: om, docIDs: docIDs, ordSets: ordSets, pos: -1, doc: -1, ordPos: 0}, nil
+}
+
+type sortedSetByDoc struct {
+	docIDs  []int
+	ordSets [][]int
+}
+
+func (s sortedSetByDoc) Len() int           { return len(s.docIDs) }
+func (s sortedSetByDoc) Less(i, j int) bool { return s.docIDs[i] < s.docIDs[j] }
+func (s sortedSetByDoc) Swap(i, j int) {
+	s.docIDs[i], s.docIDs[j] = s.docIDs[j], s.docIDs[i]
+	s.ordSets[i], s.ordSets[j] = s.ordSets[j], s.ordSets[i]
+}
+
+type materializedSortedSetDocValues struct {
+	subs    []SortedSetDocValues
+	om      *OrdinalMap
+	docIDs  []int
+	ordSets [][]int
+	pos     int
+	doc     int
+	ordPos  int
+}
+
+func (m *materializedSortedSetDocValues) NextDoc() (int, error) {
+	m.pos++
+	m.ordPos = 0
+	if m.pos >= len(m.docIDs) {
+		m.doc = NO_MORE_DOCS
+		return NO_MORE_DOCS, nil
+	}
+	m.doc = m.docIDs[m.pos]
+	return m.doc, nil
+}
+func (m *materializedSortedSetDocValues) NextOrd() (int, error) {
+	if m.pos < 0 || m.pos >= len(m.ordSets) {
+		return -1, nil
+	}
+	set := m.ordSets[m.pos]
+	if m.ordPos >= len(set) {
+		return -1, nil
+	}
+	o := set[m.ordPos]
+	m.ordPos++
+	return o, nil
+}
+func (m *materializedSortedSetDocValues) LookupOrd(ord int) ([]byte, error) {
+	segNum := m.om.GetFirstSegmentNumber(int64(ord))
+	segOrd := m.om.GetFirstSegmentOrd(int64(ord))
+	if segNum < 0 || segNum >= len(m.subs) {
+		return nil, fmt.Errorf("index: merge sorted-set DV: global ord %d out of range", ord)
+	}
+	return m.subs[segNum].LookupOrd(int(segOrd))
+}
+func (m *materializedSortedSetDocValues) GetValueCount() int { return int(m.om.GetValueCount()) }
+func (m *materializedSortedSetDocValues) DocID() int         { return m.doc }
+func (m *materializedSortedSetDocValues) Advance(target int) (int, error) {
+	for {
+		d, err := m.NextDoc()
+		if err != nil || d == NO_MORE_DOCS || d >= target {
+			return d, err
+		}
+	}
+}
+func (m *materializedSortedSetDocValues) AdvanceExact(target int) (bool, error) {
+	d, err := m.Advance(target)
+	return d == target, err
+}
+func (m *materializedSortedSetDocValues) Cost() int64 { return int64(len(m.docIDs)) }

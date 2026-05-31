@@ -16,7 +16,9 @@ func (sm *SegmentMerger) mergePoints() error {
 		return nil
 	}
 	if sm.MergeState.DocMaps == nil {
-		sm.buildDocMaps()
+		if err := sm.buildDocMaps(); err != nil {
+			return err
+		}
 	}
 
 	state := &SegmentWriteState{
