@@ -1205,19 +1205,46 @@ func (r *DirectoryReader) GetTermVectors(docID int) (Fields, error) {
 
 // Terms returns the Terms for a field, merging across all segments.
 func (r *DirectoryReader) Terms(field string) (Terms, error) {
-	// Collect Terms from all segments that have the field
-	// For simplicity, return the Terms from the first segment that has it
-	// A full implementation would merge Terms from all segments
-	for _, reader := range r.readers {
-		terms, err := reader.Terms(field)
+	return compositeTermsForField(r.readers, field)
+}
+
+// compositeTermsForField returns a Terms view of field merged across every
+// segment that contains it: a single sub is returned directly, two or more are
+// aggregated through a MultiTerms whose ReaderSlices carry each segment's
+// composite docID base so postings read back through the merged doc space.
+// Returns (nil, nil) when no segment has the field.
+//
+// Previously DirectoryReader.Terms returned only the first segment's Terms,
+// which silently hid every term unique to a later segment — breaking multi-term
+// query rewrites (PrefixQuery/WildcardQuery/RangeQuery/...) over a multi-segment
+// index (rmp #18 / #123).
+func compositeTermsForField(readers []*SegmentReader, field string) (Terms, error) {
+	var subs []Terms
+	var slices []ReaderSlice
+	docBase := 0
+	for i, sr := range readers {
+		if sr == nil {
+			continue
+		}
+		maxDoc := sr.MaxDoc()
+		terms, err := sr.Terms(field)
 		if err != nil {
 			return nil, err
 		}
 		if terms != nil {
-			return terms, nil
+			subs = append(subs, terms)
+			slices = append(slices, ReaderSlice{Start: docBase, Length: maxDoc, ReaderIndex: i})
 		}
+		docBase += maxDoc
 	}
-	return nil, nil
+	switch len(subs) {
+	case 0:
+		return nil, nil
+	case 1:
+		return subs[0], nil
+	default:
+		return NewMultiTermsForField(field, subs, slices)
+	}
 }
 
 // GetLiveDocs returns a bitset of live documents.

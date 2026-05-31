@@ -241,17 +241,7 @@ func (r *StandardDirectoryReader) GetTermVectors(docID int) (Fields, error) {
 
 // Terms returns the Terms for a field, merging across all segments.
 func (r *StandardDirectoryReader) Terms(field string) (Terms, error) {
-	// Collect Terms from all segments that have the field
-	for _, reader := range r.readers {
-		terms, err := reader.Terms(field)
-		if err != nil {
-			return nil, err
-		}
-		if terms != nil {
-			return terms, nil
-		}
-	}
-	return nil, nil
+	return compositeTermsForField(r.readers, field)
 }
 
 // closeInternal closes the reader and all segment readers.
