@@ -215,6 +215,25 @@ func (r *RandomIndexWriter) ForceMerge(maxNumSegments int) error {
 	return r.writer.ForceMerge(maxNumSegments)
 }
 
+// GetReader opens a near-real-time DirectoryReader over the in-flight writer,
+// making every document added so far (including uncommitted ones) visible —
+// mirroring org.apache.lucene.tests.index.RandomIndexWriter#getReader. The
+// caller owns the returned reader and must Close it; the RandomIndexWriter
+// stays open.
+//
+// It delegates to index.OpenDirectoryReaderFromWriter (rmp #115), which flushes
+// the writer's buffered documents so the reader reflects the full in-flight
+// state without requiring an explicit Commit.
+func (r *RandomIndexWriter) GetReader() (*index.DirectoryReader, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err := r.checkOpen(); err != nil {
+		return nil, err
+	}
+	r.recordCall("GetReader")
+	return index.OpenDirectoryReaderFromWriter(r.writer)
+}
+
 // Close forwards to [index.IndexWriter.Close]. Subsequent calls
 // after the first return nil.
 func (r *RandomIndexWriter) Close() error {
