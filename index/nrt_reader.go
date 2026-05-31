@@ -86,7 +86,27 @@ func (nrt *NRTReader) Refresh() error {
 		return fmt.Errorf("reader is closed")
 	}
 
-	// Reopen the underlying reader
+	// When backed by a live IndexWriter, reopen against the writer so documents
+	// added since the last refresh become visible WITHOUT an explicit commit
+	// (the NRT contract, rmp #15). OpenIfChangedFromWriter returns nil when
+	// nothing changed, leaving the current reader in place. Without a writer,
+	// fall back to the on-disk Reopen (committed state only).
+	if nrt.writer != nil {
+		changed, err := OpenIfChangedFromWriter(nrt.reader, nrt.writer)
+		if err != nil {
+			return fmt.Errorf("nrt reopen against writer: %w", err)
+		}
+		nrt.lastRefreshTime = time.Now()
+		if changed == nil {
+			return nil // nothing new to see
+		}
+		nrt.reader = changed
+		nrt.version++
+		nrt.refreshCount++
+		return nil
+	}
+
+	// Reopen the underlying reader (on-disk committed state only).
 	newReader, err := nrt.reader.Reopen()
 	if err != nil {
 		return fmt.Errorf("reopening reader: %w", err)
