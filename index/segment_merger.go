@@ -388,12 +388,7 @@ func (sm *SegmentMerger) mergeTermVectors() (int, error) {
 // Deferred (backlog #2707): the Codec interface exposes no NormsFormat yet.
 func (sm *SegmentMerger) mergeNorms() error { return nil }
 
-// mergeTerms merges the term dictionaries and postings of every segment into
-// the new one.
-//
-// Deferred (backlog #2707): FieldsConsumer has no merge(MergeState) entry
-// point in Gocene yet.
-func (sm *SegmentMerger) mergeTerms() error { return nil }
+// mergeTerms is implemented in segment_merger_postings.go (rmp #14/#114).
 
 // mergeDocValues merges the doc values of every segment into the new one.
 //
