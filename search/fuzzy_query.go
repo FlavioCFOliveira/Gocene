@@ -5,9 +5,12 @@
 package search
 
 import (
+	"bytes"
 	"fmt"
+	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
 // FuzzyQuery matches documents containing terms similar to the given term.
@@ -146,10 +149,151 @@ func (q *FuzzyQuery) HashCode() int {
 	return hash
 }
 
-// Rewrite returns the query as-is; full multi-term expansion is deferred until
-// a TermsEnum-capable IndexReader is available in the query engine.
+// Rewrite expands this FuzzyQuery against the terms dictionary into a
+// scoring BooleanQuery of the field terms within maxEdits Damerau-
+// Levenshtein distance of the target (respecting prefixLength and
+// transpositions), each boosted by closeness so nearer terms score
+// higher — the Go analogue of Lucene's MultiTermQuery rewrite driven by
+// FuzzyTermsEnum/LevenshteinAutomata.
+//
+// Behaviour:
+//   - nil term -> MatchNoDocsQuery.
+//   - maxEdits == 0 -> the exact TermQuery.
+//   - a Terms-capable reader is required to enumerate candidates. When the
+//     reader cannot expose Terms (e.g. a nil reader in a unit test), the
+//     query is returned unchanged so expansion is deferred to a later
+//     rewrite that has a real terms dictionary.
+//   - enumerated but nothing matched -> MatchNoDocsQuery.
+//   - matches found -> SHOULD BooleanQuery (terms beyond maxExpansions are
+//     dropped lowest-boost-first).
 func (q *FuzzyQuery) Rewrite(reader IndexReader) (Query, error) {
-	return q, nil
+	if q.term == nil {
+		return NewMatchNoDocsQuery(), nil
+	}
+	if q.maxEdits == 0 {
+		return NewTermQuery(q.term), nil
+	}
+
+	builder, err := NewFuzzyAutomatonBuilder(q.term.Text(), q.maxEdits, q.prefixLength, q.transpositions)
+	if err != nil {
+		return nil, err
+	}
+	levels := builder.BuildAutomatonSet() // levels[i] accepts terms within edit distance i
+
+	matched, enumerated, err := q.enumerateFuzzyTerms(reader, levels)
+	if err != nil {
+		return nil, err
+	}
+	if !enumerated {
+		// No terms dictionary available; defer expansion.
+		return q, nil
+	}
+	if len(matched) == 0 {
+		return NewMatchNoDocsQuery(), nil
+	}
+
+	// Cap to maxExpansions, keeping the closest (highest-boost) terms, then
+	// term-ascending for determinism — mirroring TopTermsRewrite's selection.
+	if q.maxExpansions > 0 && len(matched) > q.maxExpansions {
+		sort.Slice(matched, func(i, j int) bool {
+			if matched[i].boost != matched[j].boost {
+				return matched[i].boost > matched[j].boost
+			}
+			return bytes.Compare(matched[i].bytes, matched[j].bytes) < 0
+		})
+		matched = matched[:q.maxExpansions]
+	}
+
+	bq := NewBooleanQuery()
+	for _, m := range matched {
+		var clause Query = NewTermQuery(index.NewTermFromBytes(q.term.Field, m.bytes))
+		if m.boost != 1.0 {
+			clause = NewBoostQuery(clause, m.boost)
+		}
+		bq.Add(clause, SHOULD)
+	}
+	return bq, nil
+}
+
+// fuzzyTermMatch is a field term accepted by the fuzzy automaton together
+// with the closeness boost derived from its edit distance.
+type fuzzyTermMatch struct {
+	bytes []byte
+	boost float32
+}
+
+// enumerateFuzzyTerms walks every term in the field and returns those
+// accepted by the maximum-edit automaton, with a per-term closeness boost.
+// The second result reports whether enumeration was possible at all (false
+// when the reader exposes no Terms accessor for the field).
+func (q *FuzzyQuery) enumerateFuzzyTerms(reader IndexReader, levels []*automaton.CompiledAutomaton) ([]fuzzyTermMatch, bool, error) {
+	if reader == nil || len(levels) == 0 {
+		return nil, false, nil
+	}
+	// LeafReader / SegmentReader / DirectoryReader expose Terms(field); use a
+	// narrow interface so we do not depend on the concrete reader type.
+	type schemaTermsProvider interface {
+		Terms(field string) (index.Terms, error)
+	}
+	stp, ok := interface{}(reader).(schemaTermsProvider)
+	if !ok {
+		return nil, false, nil
+	}
+	terms, err := stp.Terms(q.term.Field)
+	if err != nil {
+		return nil, false, err
+	}
+	if terms == nil {
+		// Field absent: enumeration was possible, it simply matched nothing.
+		return nil, true, nil
+	}
+	it, err := terms.GetIterator()
+	if err != nil || it == nil {
+		return nil, err == nil, err
+	}
+
+	maxEdit := levels[len(levels)-1]
+	out := make([]fuzzyTermMatch, 0, 16)
+	for {
+		t, err := it.Next()
+		if err != nil {
+			return nil, true, err
+		}
+		if t == nil {
+			break
+		}
+		bv := t.BytesValue()
+		if bv == nil {
+			continue
+		}
+		b := bv.ValidBytes()
+		if !maxEdit.Run(b) {
+			continue
+		}
+		// Minimal edit distance: the first level whose automaton accepts the term.
+		dist := q.maxEdits
+		for i := 0; i < len(levels); i++ {
+			if levels[i].Run(b) {
+				dist = i
+				break
+			}
+		}
+		dup := make([]byte, len(b))
+		copy(dup, b)
+		out = append(out, fuzzyTermMatch{bytes: dup, boost: fuzzyBoost(dist, q.maxEdits)})
+	}
+	return out, true, nil
+}
+
+// fuzzyBoost maps an edit distance to a closeness boost in (0,1]: an exact
+// match (distance 0) scores 1.0 and each further edit lowers the boost
+// linearly, so nearer terms contribute more — the spirit of Lucene's
+// blended fuzzy scoring (the exact blend constant is not reproduced).
+func fuzzyBoost(dist, maxEdits int) float32 {
+	if maxEdits <= 0 {
+		return 1.0
+	}
+	return 1.0 - float32(dist)/float32(maxEdits+1)
 }
 
 // CreateWeight creates a Weight for this query.
