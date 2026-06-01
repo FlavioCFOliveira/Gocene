@@ -44,8 +44,14 @@ func (s *PerFieldSimilarityWrapper) ComputeWeight(boost float32, collectionStats
 	return s.defaultSimilarity.ComputeWeight(boost, collectionStats, termStats)
 }
 
-// Scorer creates a SimScorer for scoring documents.
+// Scorer creates a SimScorer for scoring documents, dispatching to the
+// per-field Similarity when collectionStats carries a recognisable field name.
 func (s *PerFieldSimilarityWrapper) Scorer(collectionStats *CollectionStatistics, termStats *TermStatistics) SimScorer {
+	if collectionStats != nil {
+		if sim, ok := s.fieldSimilarities[collectionStats.Field()]; ok {
+			return sim.Scorer(collectionStats, termStats)
+		}
+	}
 	return s.defaultSimilarity.Scorer(collectionStats, termStats)
 }
 

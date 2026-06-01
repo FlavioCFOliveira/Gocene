@@ -52,17 +52,21 @@ func verifySegmentTermEnumDocFreq(t *testing.T, dir store.Directory) {
 	}
 
 	subs := make([]index.Terms, 0, len(leaves))
-	for _, leaf := range leaves {
+	slices := make([]index.ReaderSlice, 0, len(leaves))
+	docBase := 0
+	for i, leaf := range leaves {
 		terms, err := leaf.LeafReader().Terms("content")
 		if err != nil {
 			t.Fatalf("Failed to get terms: %v", err)
 		}
 		if terms != nil {
 			subs = append(subs, terms)
+			slices = append(slices, index.ReaderSlice{Start: docBase, Length: leaf.LeafReader().MaxDoc(), ReaderIndex: i})
 		}
+		docBase += leaf.LeafReader().MaxDoc()
 	}
 
-	multi, err := index.NewMultiTerms(subs, nil)
+	multi, err := index.NewMultiTerms(subs, slices)
 	if err != nil {
 		t.Fatalf("Failed to build MultiTerms: %v", err)
 	}
@@ -144,13 +148,6 @@ func verifySegmentTermEnumDocFreq(t *testing.T, dir store.Directory) {
 //     helper; Gocene has no such helper, so verifyDocFreq collects the leaf
 //     Terms and assembles a MultiTerms explicitly.
 func TestSegmentTermEnum(t *testing.T) {
-	// Pre-existing infrastructure gap: OpenDirectoryReader materialises each
-	// segment via NewSegmentReader (index/directory_reader.go), which leaves
-	// SegmentReader.coreReaders nil, so LeafReader.Terms returns "core readers
-	// are nil". Same blocker documented in bag_of_positions_test.go. Unskip
-	// once OpenDirectoryReader uses NewSegmentReaderWithCore.
-	t.Fatal("blocked: OpenDirectoryReader builds SegmentReader without core readers; fix is NewSegmentReaderWithCore")
-
 	dir, err := store.NewSimpleFSDirectory(t.TempDir())
 	if err != nil {
 		t.Fatalf("Failed to open directory: %v", err)
@@ -213,9 +210,6 @@ func TestSegmentTermEnum(t *testing.T) {
 //   - MockAnalyzer / random Directory are replaced by WhitespaceAnalyzer and
 //     SimpleFSDirectory, as in TestSegmentTermEnum.
 func TestSegmentTermEnumPrevTermAtEnd(t *testing.T) {
-	// Same OpenDirectoryReader core-readers gap as TestSegmentTermEnum.
-	t.Fatal("blocked: OpenDirectoryReader builds SegmentReader without core readers; fix is NewSegmentReaderWithCore")
-
 	dir, err := store.NewSimpleFSDirectory(t.TempDir())
 	if err != nil {
 		t.Fatalf("Failed to open directory: %v", err)

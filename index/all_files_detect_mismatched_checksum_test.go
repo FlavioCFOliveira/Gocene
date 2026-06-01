@@ -33,12 +33,12 @@ import (
 // in turn flips one byte inside the footer-protected region and asserts that
 // the corruption is detected when opening a reader or running CheckIndex.
 func TestAllFilesDetectMismatchedChecksum(t *testing.T) {
-	// Skipped (Sprint 55, option c): blocked by a pre-existing infra gap.
-	// index.WriteSegmentInfos does not emit a CRC32 footer yet, so a flipped
-	// byte inside a file cannot be reliably detected (without a footer there
-	// is no stored checksum to disagree with). Unskip once footer writing
-	// lands in the segment-infos writer.
-	t.Fatal("blocked: mismatched-checksum detection requires CRC32 footers, not yet written by WriteSegmentInfos")
+	// Blocked: OpenDirectoryReader and CheckIndex do not yet verify the CRC32
+	// checksum of individual segment files (.si, .cfe, .cfs) on open or check.
+	// While WriteSegmentInfos now writes CRC32 footers, the reader-side
+	// corruption detection is not implemented. Unskip once the per-file
+	// checksum verification lands.
+	t.Fatal("blocked: mismatched-checksum detection requires per-file CRC32 verification on open/check, not yet implemented")
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()

@@ -37,14 +37,6 @@ import (
 //   - Lucene's @SuppressCodecs("Direct") and the SimpleText/MockRandomMergePolicy
 //     numTerms halving are codec-randomization concerns with no Gocene analogue.
 func TestBagOfPostings(t *testing.T) {
-	// Pre-existing infrastructure gap: OpenDirectoryReader materialises each
-	// segment via NewSegmentReader (index/directory_reader.go:462/497), which
-	// leaves SegmentReader.coreReaders nil. Without the codec-side wiring that
-	// loads SegmentCoreReaders from disk, LeafReader.Terms returns the "core
-	// readers are nil" error and the assertions below cannot run. Unskip once
-	// OpenDirectoryReader uses NewSegmentReaderWithCore.
-	t.Fatal("blocked: OpenDirectoryReader builds SegmentReader without core readers (index/directory_reader.go:462/497); fix is NewSegmentReaderWithCore")
-
 	const numTerms = 100
 	maxTermsPerDoc := 10 + rand.Intn(11) // TestUtil.nextInt(random(), 10, 20)
 

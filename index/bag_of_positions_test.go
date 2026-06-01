@@ -35,14 +35,6 @@ import (
 //     vectors, or DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS) is dropped; a plain
 //     TextField is used, since none of those options change totalTermFreq.
 func TestBagOfPositions(t *testing.T) {
-	// Pre-existing infrastructure gap: OpenDirectoryReader materialises each
-	// segment via NewSegmentReader (index/directory_reader.go:462/497), which
-	// leaves SegmentReader.coreReaders nil. Without the codec-side wiring that
-	// loads SegmentCoreReaders from disk, LeafReader.Terms returns the "core
-	// readers are nil" error and the assertions below cannot run. Unskip once
-	// OpenDirectoryReader uses NewSegmentReaderWithCore.
-	t.Fatal("blocked: OpenDirectoryReader builds SegmentReader without core readers (index/directory_reader.go:462/497); fix is NewSegmentReaderWithCore")
-
 	const numTerms = 100
 	maxTermsPerDoc := 10 + rand.Intn(11) // TestUtil.nextInt(random(), 10, 20)
 
@@ -71,20 +63,18 @@ func TestBagOfPositions(t *testing.T) {
 	}
 
 	// Drain the postings bag into documents of up to maxTermsPerDoc terms each.
+	// Each document receives between 1 and maxTermsPerDoc tokens (never zero),
+	// mirroring Lucene's approach of always flushing at least one posting per
+	// document so that totalTermFreq is exact.
 	for pos := 0; pos < len(postingsList); {
-		end := pos + rand.Intn(maxTermsPerDoc)
+		n := rand.Intn(maxTermsPerDoc) + 1 // at least 1 token per document
+		end := pos + n
 		if end > len(postingsList) {
 			end = len(postingsList)
 		}
 		text := ""
 		for ; pos < end; pos++ {
 			text += " " + postingsList[pos]
-		}
-		// rand.Intn(maxTermsPerDoc) can be 0; skip empty documents so progress
-		// is always made and the loop terminates.
-		if end == pos && text == "" {
-			pos++
-			continue
 		}
 
 		doc := document.NewDocument()

@@ -24,14 +24,6 @@ import (
 // Lucene drives this through RandomIndexWriter; this port uses the plain
 // IndexWriter, since Gocene exposes no randomized test-writer wrapper.
 func TestBinaryTerms(t *testing.T) {
-	// Pre-existing infrastructure gap: OpenDirectoryReader materialises each
-	// segment via NewSegmentReader (index/directory_reader.go:462/497), which
-	// leaves SegmentReader.coreReaders nil. Without the codec-side wiring that
-	// loads SegmentCoreReaders from disk, term-level lookups match no
-	// documents and every search below returns 0 hits. Unskip once
-	// OpenDirectoryReader uses NewSegmentReaderWithCore.
-	t.Fatal("blocked: OpenDirectoryReader builds SegmentReader without core readers (index/directory_reader.go:462/497); fix is NewSegmentReaderWithCore")
-
 	dir, err := store.NewSimpleFSDirectory(t.TempDir())
 	if err != nil {
 		t.Fatalf("Failed to open directory: %v", err)

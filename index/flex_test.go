@@ -30,14 +30,6 @@ import (
 //   - TermsEnum.SeekCeil returns *Term, not a SeekStatus; END is therefore
 //     expressed as a nil return (see index/terms_enum_index.go).
 func TestFlex_NonFlex(t *testing.T) {
-	// Pre-existing infrastructure gap: OpenDirectoryReader materialises each
-	// segment via NewSegmentReader, leaving SegmentReader.coreReaders nil, and
-	// the index package exposes no MultiTerms.getTerms equivalent to read a
-	// field's term dictionary across leaves. Term-level enumeration therefore
-	// cannot run. Unskip once the segment read path and a MultiTerms.getTerms
-	// helper are wired.
-	t.Fatal("blocked: OpenDirectoryReader builds SegmentReader without core readers and no MultiTerms.getTerms helper exists")
-
 	const docCount = 177
 
 	dir, err := store.NewSimpleFSDirectory(t.TempDir())
@@ -137,11 +129,6 @@ func TestFlex_NonFlex(t *testing.T) {
 //   - Gocene's TermsEnum exposes no ord() operation, which Lucene itself treats
 //     as optional; the ord() assertion is therefore omitted.
 func TestFlex_TermOrd(t *testing.T) {
-	// Pre-existing infrastructure gap: see TestFlex_NonFlex. OpenDirectoryReader
-	// builds SegmentReader without core readers, so term enumeration over a
-	// leaf cannot run.
-	t.Fatal("blocked: OpenDirectoryReader builds SegmentReader without core readers")
-
 	dir, err := store.NewSimpleFSDirectory(t.TempDir())
 	if err != nil {
 		t.Fatalf("Failed to open directory: %v", err)

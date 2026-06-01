@@ -29,12 +29,12 @@ import (
 // TestAllFilesDetectTruncation builds a small index, then truncates each file
 // in turn and asserts that opening a reader and running CheckIndex both fail.
 func TestAllFilesDetectTruncation(t *testing.T) {
-	// Skipped (Sprint 55, option c): blocked by a pre-existing infra gap.
-	// index.WriteSegmentInfos does not emit a CRC32 footer yet, so truncation
-	// of a file cannot be reliably detected (a truncated file with no footer
-	// is indistinguishable from a valid one to the codec layer). Unskip once
-	// footer writing lands in the segment-infos writer.
-	t.Fatal("blocked: truncation detection requires CRC32 footers, not yet written by WriteSegmentInfos")
+	// Blocked: truncation detection requires per-file CRC32 checksum verification
+	// on open/check. While WriteSegmentInfos now writes footers, OpenDirectoryReader
+	// and CheckIndex do not yet verify the CRC32 checksum of individual files, so
+	// truncation is not detected. Unskip once the per-file checksum verification
+	// is implemented in the reader/check path.
+	t.Fatal("blocked: truncation detection requires per-file CRC32 verification on open/check, not yet implemented")
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
