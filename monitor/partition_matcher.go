@@ -5,6 +5,7 @@
 package monitor
 
 import (
+	"runtime"
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -60,18 +61,64 @@ func (p *PartitionMatcher[T]) ReportError(queryID string, err error) {
 	p.BaseCandidateMatcher.ReportError(queryID, err)
 }
 
-// Finish runs all pending queries (single-threaded stub) and returns results.
+// Finish partitions pending queries across goroutines and returns merged results.
+//
+// Port of PartitionMatcher.finish: Java splits the pending list into N equal
+// partitions (where N == number of available CPU threads) and runs each
+// partition in a separate executor task. Gocene spawns one goroutine per
+// runtime.NumCPU() partition, each executing its slice of pending queries
+// through a per-partition delegate. Results are merged after all goroutines
+// complete.
 func (p *PartitionMatcher[T]) Finish(buildTime int64, queryCount int) *MultiMatchingQueries[T] {
 	p.mu.Lock()
 	pending := p.pending
 	p.pending = nil
 	p.mu.Unlock()
 
-	for _, pq := range pending {
-		delegate := p.factory.CreateMatcher(p.Searcher)
-		if err := delegate.MatchQuery(pq.queryID, pq.query, pq.metadata); err != nil {
-			p.ReportError(pq.queryID, err)
-		}
+	if len(pending) == 0 {
+		return p.BaseCandidateMatcher.Finish(buildTime, queryCount)
 	}
+
+	// Determine partition count: cap at the number of pending queries.
+	nPartitions := runtime.NumCPU()
+	if nPartitions > len(pending) {
+		nPartitions = len(pending)
+	}
+
+	type partResult struct {
+		queryID string
+		err     error
+	}
+	results := make(chan partResult, len(pending))
+
+	var wg sync.WaitGroup
+	partSize := (len(pending) + nPartitions - 1) / nPartitions
+	for i := 0; i < len(pending); i += partSize {
+		end := i + partSize
+		if end > len(pending) {
+			end = len(pending)
+		}
+		slice := pending[i:end]
+		wg.Add(1)
+		go func(queries []*pendingQuery[T]) {
+			defer wg.Done()
+			delegate := p.factory.CreateMatcher(p.Searcher)
+			for _, pq := range queries {
+				if err := delegate.MatchQuery(pq.queryID, pq.query, pq.metadata); err != nil {
+					results <- partResult{pq.queryID, err}
+				}
+			}
+		}(slice)
+	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	for r := range results {
+		p.ReportError(r.queryID, r.err)
+	}
+
 	return p.BaseCandidateMatcher.Finish(buildTime, queryCount)
 }

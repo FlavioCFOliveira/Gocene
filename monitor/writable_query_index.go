@@ -7,6 +7,8 @@ package monitor
 import (
 	"sync"
 
+	"time"
+
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -79,14 +81,50 @@ func (w *WritableQueryIndex) Scan(collector QueryCollector) error {
 	return nil
 }
 
-// Search runs the query against the index (no-op stub).
-// Full implementation deferred to backlog #2693.
-func (w *WritableQueryIndex) Search(_ search.Query, _ QueryCollector) (int64, error) {
-	return 0, nil
+// Search runs the given query against the index and calls the collector for
+// each cache entry that matches. The in-memory implementation evaluates the
+// query by type-asserting it:
+//
+//   - *search.MatchAllDocsQuery / nil: every cache entry is a candidate.
+//   - *search.MatchNoDocsQuery: no cache entries are candidates.
+//   - Any other query: every cache entry is returned as a conservative
+//     candidate (the presearcher is responsible for filtering; the query-index
+//     filter layer requires a full Lucene index which is not yet available in
+//     this in-memory port).
+func (w *WritableQueryIndex) Search(q search.Query, collector QueryCollector) (int64, error) {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
+	// MatchNoDocsQuery: nothing to do.
+	if q != nil {
+		if _, ok := q.(*search.MatchNoDocsQuery); ok {
+			return 0, nil
+		}
+	}
+
+	var matched int64
+	for _, entry := range w.cache {
+		dv := &QueryIndexDataValues{QueryID: entry.QueryID, CacheID: entry.CacheID}
+		if err := collector.MatchQuery(entry.CacheID, entry, dv); err != nil {
+			return matched, err
+		}
+		matched++
+	}
+	return matched, nil
 }
 
-// PurgeCache is a no-op stub.
-func (w *WritableQueryIndex) PurgeCache() error { return nil }
+// PurgeCache removes cache entries whose queries are no longer in the index.
+func (w *WritableQueryIndex) PurgeCache() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for id, entry := range w.cache {
+		if _, exists := w.queries[entry.QueryID]; !exists {
+			delete(w.cache, id)
+		}
+	}
+	w.lastPurged = time.Now().UnixNano()
+	return nil
+}
 
 // NumDocs returns the number of stored queries.
 func (w *WritableQueryIndex) NumDocs() (int, error) {
@@ -132,7 +170,7 @@ func (w *WritableQueryIndex) Clear() error {
 	return nil
 }
 
-// GetLastPurged returns the timestamp of the last purge (always 0 for this stub).
+// GetLastPurged returns the timestamp of the last purge (UnixNano), or 0 if never purged.
 func (w *WritableQueryIndex) GetLastPurged() int64 { return w.lastPurged }
 
 // AddListener registers a MonitorUpdateListener.
