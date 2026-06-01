@@ -352,6 +352,25 @@ func newStoredValueField(info *FieldInfo, value StoredValue) (*storedValueField,
 	case StoredValueTypeString:
 		f.str = value.StringValue()
 	default:
+		// Handle DATA_INPUT variant via type assertion: if the value provides
+		// a streamed DataInput (StoredFieldDataInput), materialise the bytes as binary.
+		type dataInputProvider interface {
+			GetDataInputValue() *StoredFieldDataInput
+		}
+		if dip, ok := value.(dataInputProvider); ok {
+			dsi := dip.GetDataInputValue()
+			if dsi == nil || dsi.In == nil {
+				return nil, fmt.Errorf("index: StoredFieldsConsumer.WriteField: StoredFieldDataInput has nil In")
+			}
+			buf := make([]byte, dsi.Length)
+			if err := dsi.In.ReadBytes(buf); err != nil {
+				return nil, fmt.Errorf("index: StoredFieldsConsumer.WriteField: read DataInput bytes: %w", err)
+			}
+			f.bin = buf
+			f.variant = StoredValueTypeBinary
+			return f, nil
+		}
+		return nil, fmt.Errorf("index: StoredFieldsConsumer.WriteField: unknown StoredValue type %s", value.Type())
 		return nil, fmt.Errorf("index: StoredFieldsConsumer.WriteField: unknown StoredValue type %s", value.Type())
 	}
 	return f, nil

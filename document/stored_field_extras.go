@@ -4,7 +4,11 @@
 
 package document
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+)
 
 // This file extends StoredField (defined in stored_field.go) with the
 // Lucene 10.4.0 constructor overloads that were missing.
@@ -98,4 +102,21 @@ func (s *StoredField) StoredValue() *StoredValue {
 		}
 	}
 	return nil
+}
+
+// NewStoredFieldFromDataInput creates a StoredField from a StoredFieldDataInput by
+// materialising all bytes from the stream into a binary stored field.
+// Mirrors Lucene's StoredField(String, StoredValue) with StoredValue(StoredFieldDataInput).
+func NewStoredFieldFromDataInput(name string, dataInput *index.StoredFieldDataInput) (*StoredField, error) {
+	if dataInput == nil {
+		return nil, fmt.Errorf("StoredFieldDataInput cannot be nil")
+	}
+	if dataInput.In == nil {
+		return nil, fmt.Errorf("StoredFieldDataInput.In cannot be nil")
+	}
+	buf := make([]byte, dataInput.Length)
+	if err := dataInput.In.ReadBytes(buf); err != nil {
+		return nil, fmt.Errorf("NewStoredFieldFromDataInput: read bytes: %w", err)
+	}
+	return NewStoredFieldFromBytes(name, buf)
 }

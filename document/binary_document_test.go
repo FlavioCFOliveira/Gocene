@@ -138,15 +138,54 @@ func TestBinaryFieldInIndex(t *testing.T) {
 // the intended fixture so the test can be enabled by deleting the t.Skip
 // once the port lands.
 func TestBinaryFieldFromDataInputInIndex(t *testing.T) {
-	t.Fatal("StoredValueTypeDataInput deferred (stored_value.go:30); " +
-		"blocked until StoredFieldDataInput is ported")
+	byteArray := []byte(binaryDocValStored)
+	badi := store.NewByteArrayDataInput(byteArray)
+	sfdi := index.NewStoredFieldDataInputFromByteArray(badi)
+	binaryFldStored, err := document.NewStoredFieldFromDataInput("binaryStored", sfdi)
+	if err != nil {
+		t.Fatalf("NewStoredFieldFromDataInput: %v", err)
+	}
 
-	// Intended shape (kept as a comment-shaped TODO so the future port lands cleanly):
-	//
-	//   byteArray := []byte(binaryDocValStored)
-	//   dataInput := store.NewByteArrayDataInput(byteArray)
-	//   storedFieldDataInput := document.NewStoredFieldDataInput(dataInput)
-	//   binaryFldStored, _ := document.NewStoredFieldFromDataInput(
-	//       "binaryStored", storedFieldDataInput)
-	//   ... (identical roundtrip + assertions as TestBinaryFieldInIndex)
+	doc := document.NewDocument()
+	doc.Add(binaryFldStored)
+
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	if err := writer.AddDocument(doc); err != nil {
+		t.Fatalf("AddDocument: %v", err)
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer reader.Close()
+
+	storedFields, err := reader.StoredFields()
+	if err != nil {
+		t.Fatalf("StoredFields: %v", err)
+	}
+	visitor := document.NewDocumentStoredFieldVisitor()
+	if err := storedFields.Document(0, visitor); err != nil {
+		t.Fatalf("Document: %v", err)
+	}
+	docFromReader := visitor.GetDocument()
+	bytes := docFromReader.GetBinaryValue("binaryStored")
+	if bytes == nil {
+		t.Fatal("GetBinaryValue returned nil")
+	}
+	if got := string(bytes); got != binaryDocValStored {
+		t.Errorf("got %q want %q", got, binaryDocValStored)
+	}
 }
