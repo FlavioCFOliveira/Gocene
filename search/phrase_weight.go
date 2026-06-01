@@ -324,6 +324,15 @@ func (s *PhraseScorer) doAdvance(candidate int) (int, error) {
 				s.doc = NO_MORE_DOCS
 				return NO_MORE_DOCS, err
 			}
+			if d == index.NO_MORE_DOCS {
+				// A required term is exhausted: the conjunction can never
+				// match again. Without this guard the zigzag below would keep
+				// re-advancing the lead enum to the unchanged maxDoc and spin
+				// forever (NO_MORE_DOCS == -1 is < every candidate, so it never
+				// raised maxDoc).
+				s.doc = NO_MORE_DOCS
+				return NO_MORE_DOCS, nil
+			}
 			if d != candidate {
 				if d > maxDoc {
 					maxDoc = d
@@ -498,6 +507,12 @@ func (s *SloppyPhraseScorer) doAdvance(candidate int) (int, error) {
 			if err != nil {
 				s.doc = NO_MORE_DOCS
 				return NO_MORE_DOCS, err
+			}
+			if d == index.NO_MORE_DOCS {
+				// A required term is exhausted: the conjunction can never match
+				// again (see the matching guard in PhraseScorer.doAdvance).
+				s.doc = NO_MORE_DOCS
+				return NO_MORE_DOCS, nil
 			}
 			if d != candidate {
 				if d > maxDoc {

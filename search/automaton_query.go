@@ -138,11 +138,18 @@ func (aq *AutomatonQuery) Rewrite(reader IndexReader) (Query, error) {
 		return NewMatchNoDocsQuery(), nil
 	}
 
-	// Check if automaton matches all strings
-	if aq.compiledAutomaton.TypeName() == "ALL" {
-		// Rewrite to field exists query
-		return NewFieldExistsQuery(aq.term.Field), nil
-	}
+	// An "ALL" automaton (e.g. a lone "*" wildcard) accepts every term, so we
+	// deliberately do NOT shortcut to FieldExistsQuery here. Apache Lucene
+	// 10.4.0 never rewrites an AutomatonQuery to FieldExistsQuery: its
+	// CompiledAutomaton.getTermsEnum returns the field's full TermsEnum for the
+	// ALL type, and the MultiTermQuery rewrite unions the postings of every term
+	// at a constant score. FieldExistsQuery, by contrast, requires the field to
+	// index norms / doc-values / points / vectors and would (correctly) reject a
+	// postings-only StringField. Falling through to enumerateMatchedTerms below
+	// reproduces Lucene's term-enumeration semantics exactly: every term is
+	// accepted (CompiledAutomaton.Run returns true for the ALL type), so the
+	// resulting ConstantScoreQuery matches every document carrying a term in the
+	// field — which is what "field:*" means.
 
 	// Check if automaton matches a single term
 	if aq.compiledAutomaton.TypeName() == "SINGLE" {

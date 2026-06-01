@@ -253,6 +253,17 @@ func (q *MultiPhraseQuery) Rewrite(reader IndexReader) (Query, error) {
 	return q, nil
 }
 
+// CreateWeight creates a Weight for this query.
+//
+// Single-position MultiPhraseQueries are first rewritten (to a TermQuery or a
+// SHOULD BooleanQuery) by Rewrite; this path handles the genuine multi-position
+// case by delegating to MultiPhraseWeight, which merges each position's term
+// array through a UnionPostingsEnum and reuses PhraseQuery's exact / sloppy
+// phrase scorers.
+func (q *MultiPhraseQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+	return NewMultiPhraseWeight(q, searcher, needsScores)
+}
+
 // String returns a string representation of this query.
 func (q *MultiPhraseQuery) String() string {
 	var buffer strings.Builder
