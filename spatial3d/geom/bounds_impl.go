@@ -19,36 +19,51 @@ type GeoBaseBounds struct {
 // LatLonBounds accumulates geographic bounding values.
 //
 // Port of org.apache.lucene.spatial3d.geom.LatLonBounds.
+//
+// Longitude is tracked as a circular arc with a left and right endpoint
+// (hasLon = false means no longitude has been recorded yet). This matches the
+// Java nullable Double semantics for leftLongitude/rightLongitude exactly.
 type LatLonBounds struct {
 	GeoBaseBounds
-	minLatitude  float64
-	maxLatitude  float64
-	minLongitude float64
-	maxLongitude float64
-	hasLatLon    bool
+	minLatitude   float64
+	maxLatitude   float64
+	leftLongitude float64 // meaningful only when hasLon == true
+	rightLongitude float64 // meaningful only when hasLon == true
+	hasLon        bool
+	hasLat        bool
 }
 
 // NewLatLonBounds creates an empty LatLonBounds.
 func NewLatLonBounds() *LatLonBounds {
 	return &LatLonBounds{
-		minLatitude:  math.MaxFloat64,
-		maxLatitude:  -math.MaxFloat64,
-		minLongitude: math.MaxFloat64,
-		maxLongitude: -math.MaxFloat64,
+		minLatitude: math.MaxFloat64,
+		maxLatitude: -math.MaxFloat64,
 	}
 }
 
-// GetMinLatitude returns the minimum latitude seen so far.
+// GetMinLatitude returns the minimum latitude seen so far, or math.MaxFloat64 if
+// no latitude has been recorded.
 func (b *LatLonBounds) GetMinLatitude() float64 { return b.minLatitude }
 
-// GetMaxLatitude returns the maximum latitude seen so far.
+// GetMaxLatitude returns the maximum latitude seen so far, or -math.MaxFloat64 if
+// no latitude has been recorded.
 func (b *LatLonBounds) GetMaxLatitude() float64 { return b.maxLatitude }
 
-// GetMinLongitude returns the minimum longitude seen so far.
-func (b *LatLonBounds) GetMinLongitude() float64 { return b.minLongitude }
+// GetMinLongitude returns the left (minimum) longitude of the recorded arc. This
+// is the Java leftLongitude; it is only meaningful when CheckNoLongitudeBound()
+// returns false and HasLon() returns true.
+func (b *LatLonBounds) GetMinLongitude() float64 { return b.leftLongitude }
 
-// GetMaxLongitude returns the maximum longitude seen so far.
-func (b *LatLonBounds) GetMaxLongitude() float64 { return b.maxLongitude }
+// GetMaxLongitude returns the right (maximum) longitude of the recorded arc. This
+// is the Java rightLongitude; it is only meaningful when CheckNoLongitudeBound()
+// returns false and HasLon() returns true.
+func (b *LatLonBounds) GetMaxLongitude() float64 { return b.rightLongitude }
+
+// HasLon reports whether at least one longitude has been recorded.
+func (b *LatLonBounds) HasLon() bool { return b.hasLon }
+
+// HasLat reports whether at least one latitude has been recorded.
+func (b *LatLonBounds) HasLat() bool { return b.hasLat }
 
 // CheckNoLongitudeBound reports whether no longitude bound was signalled.
 func (b *LatLonBounds) CheckNoLongitudeBound() bool { return b.noLongitudeBound }
@@ -59,85 +74,204 @@ func (b *LatLonBounds) CheckNoTopLatitudeBound() bool { return b.noTopLatitudeBo
 // CheckNoBottomLatitudeBound reports whether no bottom latitude bound was signalled.
 func (b *LatLonBounds) CheckNoBottomLatitudeBound() bool { return b.noBottomLatitudeBound }
 
-// AddPlane is a no-op stub — deferred to #2693.
-func (b *LatLonBounds) AddPlane(_ *PlanetModel, _ *Plane, _ ...Membership) Bounds { return b }
-
-// AddHorizontalPlane records the latitude bound.
-func (b *LatLonBounds) AddHorizontalPlane(_ *PlanetModel, latitude float64, _ *Plane, _ ...Membership) Bounds {
-	if latitude < b.minLatitude {
-		b.minLatitude = latitude
-	}
-	if latitude > b.maxLatitude {
+// addLatitudeBound updates the latitude envelope with the given value.
+//
+// Port of LatLonBounds.addLatitudeBound.
+func (b *LatLonBounds) addLatitudeBound(latitude float64) {
+	if !b.noTopLatitudeBound && latitude > b.maxLatitude {
 		b.maxLatitude = latitude
 	}
-	b.hasLatLon = true
+	if !b.noBottomLatitudeBound && latitude < b.minLatitude {
+		b.minLatitude = latitude
+	}
+	b.hasLat = true
+}
+
+// addLongitudeBound expands the circular-arc longitude envelope to include longitude.
+//
+// Port of LatLonBounds.addLongitudeBound. The algorithm keeps a left/right pair
+// representing the minimal arc that covers all submitted longitudes. If the arc
+// ever reaches or exceeds π the envelope is promoted to "no bound".
+func (b *LatLonBounds) addLongitudeBound(longitude float64) {
+	if b.noLongitudeBound {
+		return
+	}
+	if !b.hasLon {
+		b.leftLongitude = longitude
+		b.rightLongitude = longitude
+		b.hasLon = true
+	} else {
+		curLeft := b.leftLongitude
+		curRight := b.rightLongitude
+		// Normalise the right endpoint so curRight >= curLeft (circular arithmetic).
+		if curRight < curLeft {
+			curRight += 2.0 * math.Pi
+		}
+		// Shift longitude into [curLeft, curLeft+2π) for comparison.
+		if longitude < curLeft {
+			longitude += 2.0 * math.Pi
+		}
+		if longitude < curLeft || longitude > curRight {
+			// Outside the current arc; choose the smaller of left-extension and
+			// right-extension.
+			var leftExtAmt, rightExtAmt float64
+			if longitude < curLeft {
+				leftExtAmt = curLeft - longitude
+			} else {
+				leftExtAmt = curLeft + 2.0*math.Pi - longitude
+			}
+			if longitude > curRight {
+				rightExtAmt = longitude - curRight
+			} else {
+				rightExtAmt = longitude + 2.0*math.Pi - curRight
+			}
+			if leftExtAmt < rightExtAmt {
+				newLeft := b.leftLongitude - leftExtAmt
+				for newLeft <= -math.Pi {
+					newLeft += 2.0 * math.Pi
+				}
+				b.leftLongitude = newLeft
+			} else {
+				newRight := b.rightLongitude + rightExtAmt
+				for newRight > math.Pi {
+					newRight -= 2.0 * math.Pi
+				}
+				b.rightLongitude = newRight
+			}
+		}
+	}
+	// Check whether the arc has grown to ≥ π.
+	testRight := b.rightLongitude
+	if testRight < b.leftLongitude {
+		testRight += 2.0 * math.Pi
+	}
+	if testRight-b.leftLongitude >= math.Pi {
+		b.noLongitudeBound = true
+		b.hasLon = false
+	}
+}
+
+// AddPlane accumulates lat/lon bounds for this plane intersected with the planet.
+//
+// Port of LatLonBounds.addPlane: delegates to Plane.RecordBoundsForLatLon.
+func (b *LatLonBounds) AddPlane(pm *PlanetModel, plane *Plane, bounds ...Membership) Bounds {
+	plane.RecordBoundsForLatLon(pm, b, bounds...)
 	return b
 }
 
-// AddVerticalPlane records the longitude bound.
+// AddHorizontalPlane records the latitude bound implied by a horizontal plane.
+//
+// Port of LatLonBounds.addHorizontalPlane.
+func (b *LatLonBounds) AddHorizontalPlane(_ *PlanetModel, latitude float64, _ *Plane, _ ...Membership) Bounds {
+	if !b.noTopLatitudeBound || !b.noBottomLatitudeBound {
+		b.addLatitudeBound(latitude)
+	}
+	return b
+}
+
+// AddVerticalPlane records the longitude bound implied by a vertical plane.
+//
+// Port of LatLonBounds.addVerticalPlane.
 func (b *LatLonBounds) AddVerticalPlane(_ *PlanetModel, longitude float64, _ *Plane, _ ...Membership) Bounds {
-	if longitude < b.minLongitude {
-		b.minLongitude = longitude
+	if !b.noLongitudeBound {
+		b.addLongitudeBound(longitude)
 	}
-	if longitude > b.maxLongitude {
-		b.maxLongitude = longitude
-	}
-	b.hasLatLon = true
 	return b
 }
 
-// AddIntersection is a no-op stub — deferred to #2693.
-func (b *LatLonBounds) AddIntersection(_ *PlanetModel, _, _ *Plane, _ ...Membership) Bounds {
+// AddIntersection accumulates lat/lon bounds for the intersection of two planes.
+//
+// Port of LatLonBounds.addIntersection: delegates to
+// Plane.RecordBoundsForLatLonWithPlane.
+func (b *LatLonBounds) AddIntersection(pm *PlanetModel, plane1, plane2 *Plane, bounds ...Membership) Bounds {
+	if plane1 != nil && plane2 != nil {
+		plane1.RecordBoundsForLatLonWithPlane(pm, b, plane2, bounds...)
+	}
 	return b
 }
 
-// AddPoint records a GeoPoint's lat/lon.
+// AddPoint records a GeoPoint's lat/lon into the bounds.
+//
+// Port of LatLonBounds.addPoint.
 func (b *LatLonBounds) AddPoint(p *GeoPoint) Bounds {
-	lat := p.GetLatitude()
-	lon := p.GetLongitude()
-	if lat < b.minLatitude {
-		b.minLatitude = lat
+	if !b.noLongitudeBound {
+		b.addLongitudeBound(p.GetLongitude())
 	}
-	if lat > b.maxLatitude {
-		b.maxLatitude = lat
+	if !b.noTopLatitudeBound || !b.noBottomLatitudeBound {
+		b.addLatitudeBound(p.GetLatitude())
 	}
-	if lon < b.minLongitude {
-		b.minLongitude = lon
-	}
-	if lon > b.maxLongitude {
-		b.maxLongitude = lon
-	}
-	b.hasLatLon = true
 	return b
 }
 
-// AddXValue is a no-op stub.
-func (b *LatLonBounds) AddXValue(_ *GeoPoint) Bounds { return b }
-
-// AddYValue is a no-op stub.
-func (b *LatLonBounds) AddYValue(_ *GeoPoint) Bounds { return b }
-
-// AddZValue is a no-op stub.
-func (b *LatLonBounds) AddZValue(_ *GeoPoint) Bounds { return b }
-
-// IsWide marks as wide.
-func (b *LatLonBounds) IsWide() Bounds { b.wide = true; return b }
-
-// NoLongitudeBound marks as having no longitude bound.
-func (b *LatLonBounds) NoLongitudeBound() Bounds { b.noLongitudeBound = true; return b }
-
-// NoTopLatitudeBound marks as having no top latitude bound.
-func (b *LatLonBounds) NoTopLatitudeBound() Bounds { b.noTopLatitudeBound = true; return b }
-
-// NoBottomLatitudeBound marks as having no bottom latitude bound.
-func (b *LatLonBounds) NoBottomLatitudeBound() Bounds { b.noBottomLatitudeBound = true; return b }
-
-// NoBound marks as having no bound at all.
-func (b *LatLonBounds) NoBound(_ *PlanetModel) Bounds {
-	b.noLongitudeBound = true
-	b.noTopLatitudeBound = true
-	b.noBottomLatitudeBound = true
+// AddXValue records the longitude of the point (X-dominant extremum).
+//
+// Port of LatLonBounds.addXValue: x-value extrema lie on a meridian, so the
+// meaningful bound is the longitude of the point.
+func (b *LatLonBounds) AddXValue(p *GeoPoint) Bounds {
+	if !b.noLongitudeBound {
+		b.addLongitudeBound(p.GetLongitude())
+	}
 	return b
+}
+
+// AddYValue records the longitude of the point (Y-dominant extremum).
+//
+// Port of LatLonBounds.addYValue.
+func (b *LatLonBounds) AddYValue(p *GeoPoint) Bounds {
+	if !b.noLongitudeBound {
+		b.addLongitudeBound(p.GetLongitude())
+	}
+	return b
+}
+
+// AddZValue records the latitude of the point (Z-dominant extremum).
+//
+// Port of LatLonBounds.addZValue: z-value extrema lie on a parallel, so the
+// meaningful bound is the latitude of the point.
+func (b *LatLonBounds) AddZValue(p *GeoPoint) Bounds {
+	if !b.noTopLatitudeBound || !b.noBottomLatitudeBound {
+		b.addLatitudeBound(p.GetLatitude())
+	}
+	return b
+}
+
+// IsWide promotes the longitude envelope to "no bound".
+//
+// Port of LatLonBounds.isWide: delegates to noLongitudeBound().
+func (b *LatLonBounds) IsWide() Bounds { return b.NoLongitudeBound() }
+
+// NoLongitudeBound marks longitude as unbounded.
+//
+// Port of LatLonBounds.noLongitudeBound.
+func (b *LatLonBounds) NoLongitudeBound() Bounds {
+	b.noLongitudeBound = true
+	b.hasLon = false
+	return b
+}
+
+// NoTopLatitudeBound marks the top latitude as unbounded.
+//
+// Port of LatLonBounds.noTopLatitudeBound.
+func (b *LatLonBounds) NoTopLatitudeBound() Bounds {
+	b.noTopLatitudeBound = true
+	b.maxLatitude = -math.MaxFloat64
+	return b
+}
+
+// NoBottomLatitudeBound marks the bottom latitude as unbounded.
+//
+// Port of LatLonBounds.noBottomLatitudeBound.
+func (b *LatLonBounds) NoBottomLatitudeBound() Bounds {
+	b.noBottomLatitudeBound = true
+	b.minLatitude = math.MaxFloat64
+	return b
+}
+
+// NoBound marks all bounds as unbounded.
+//
+// Port of LatLonBounds.noBound.
+func (b *LatLonBounds) NoBound(_ *PlanetModel) Bounds {
+	return b.NoLongitudeBound().NoTopLatitudeBound().NoBottomLatitudeBound()
 }
 
 var _ Bounds = (*LatLonBounds)(nil)

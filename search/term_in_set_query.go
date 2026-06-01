@@ -193,14 +193,13 @@ func (q *TermInSetQuery) String() string {
 
 // CreateWeight creates a Weight for this query.
 //
-// Full weight implementation deferred pending TermsEnum / SetEnum port.
+// CreateWeight mirrors TermInSetQuery.createWeight in Java.
 func (q *TermInSetQuery) CreateWeight(searcher *IndexSearcher, _ bool, boost float32) (Weight, error) {
 	return &termInSetWeight{query: q, boost: boost}, nil
 }
 
 // termInSetWeight is the Weight implementation for TermInSetQuery.
-//
-// Full scorer/bulkScorer are deferred until SetEnum / index integration land.
+// Mirrors the inner TermInSetWeight class from Java.
 type termInSetWeight struct {
 	query *TermInSetQuery
 	boost float32
@@ -213,17 +212,116 @@ func (w *termInSetWeight) GetQuery() Query                             { return 
 func (w *termInSetWeight) GetValueForNormalization() float32           { return w.boost }
 func (w *termInSetWeight) Normalize(_ float32)                         {}
 func (w *termInSetWeight) IsCacheable(_ *index.LeafReaderContext) bool { return true }
-func (w *termInSetWeight) Explain(_ *index.LeafReaderContext, _ int) (Explanation, error) {
-	return nil, nil
+func (w *termInSetWeight) Explain(ctx *index.LeafReaderContext, doc int) (Explanation, error) {
+	scorer, err := w.Scorer(ctx)
+	if err != nil || scorer == nil {
+		return NewExplanation(false, 0, "no match"), nil
+	}
+	target, err := scorer.Advance(doc)
+	if err != nil || target != doc {
+		return NewExplanation(false, 0, "no match"), nil
+	}
+	return NewExplanation(true, w.boost, fmt.Sprintf("TermInSetQuery, boost=%v", w.boost)), nil
 }
-func (w *termInSetWeight) ScorerSupplier(_ *index.LeafReaderContext) (ScorerSupplier, error) {
-	return nil, nil
+
+// ScorerSupplier wraps Scorer in a lazy ScorerSupplier.
+func (w *termInSetWeight) ScorerSupplier(ctx *index.LeafReaderContext) (ScorerSupplier, error) {
+	scorer, err := w.Scorer(ctx)
+	if err != nil || scorer == nil {
+		return nil, err
+	}
+	return &termInSetScorerSupplier{scorer: scorer}, nil
 }
-func (w *termInSetWeight) Scorer(_ *index.LeafReaderContext) (Scorer, error) { return nil, nil }
-func (w *termInSetWeight) BulkScorer(_ *index.LeafReaderContext) (BulkScorer, error) {
-	return nil, nil
+
+// Scorer builds a scoring iterator for documents matching any term in the set.
+// Mirrors TermInSetWeight.scorerSupplier#get in Java: gets the TermsEnum for the
+// field and collects matching documents by seeking to each term in the set.
+func (w *termInSetWeight) Scorer(ctx *index.LeafReaderContext) (Scorer, error) {
+	leafReader := ctx.LeafReader()
+	if leafReader == nil {
+		return nil, nil
+	}
+
+	// The LeafReader must expose Terms(field) to iterate term postings.
+	type termsProvider interface {
+		Terms(field string) (index.Terms, error)
+		MaxDoc() int
+	}
+	tp, ok := leafReader.(termsProvider)
+	if !ok {
+		return nil, nil
+	}
+
+	terms, err := tp.Terms(w.query.field)
+	if err != nil || terms == nil {
+		return nil, err
+	}
+
+	maxDoc := tp.MaxDoc()
+	result, err := util.NewFixedBitSet(maxDoc)
+	if err != nil {
+		return nil, err
+	}
+
+	// For each term in the query, seek in the TermsEnum and collect matching docs.
+	te, err := terms.GetIterator()
+	if err != nil || te == nil {
+		return nil, err
+	}
+
+	for _, termBytes := range w.query.terms {
+		t := index.NewTerm(w.query.field, string(termBytes.ValidBytes()))
+		found, err := te.SeekExact(t)
+		if err != nil {
+			return nil, err
+		}
+		if !found {
+			continue
+		}
+		pe, err := te.Postings(0) // DOCS_ONLY - just need doc IDs
+		if err != nil || pe == nil {
+			continue
+		}
+		for {
+			docID, err := pe.NextDoc()
+			if err != nil {
+				return nil, err
+			}
+			if docID == index.NO_MORE_DOCS {
+				break
+			}
+			result.Set(docID)
+		}
+	}
+
+	cardinality := result.Cardinality()
+	if cardinality == 0 {
+		return nil, nil
+	}
+
+	disi := util.NewBitSetIterator(result, int64(cardinality))
+	return NewConstantScoreScorer(w.boost, COMPLETE_NO_SCORES, disi), nil
 }
+
+// BulkScorer delegates to DefaultBulkScorer via Scorer.
+func (w *termInSetWeight) BulkScorer(ctx *index.LeafReaderContext) (BulkScorer, error) {
+	scorer, err := w.Scorer(ctx)
+	if err != nil || scorer == nil {
+		return nil, err
+	}
+	return NewDefaultBulkScorer(scorer), nil
+}
+
 func (w *termInSetWeight) Count(_ *index.LeafReaderContext) (int, error) { return -1, nil }
 func (w *termInSetWeight) Matches(_ *index.LeafReaderContext, _ int) (Matches, error) {
 	return nil, nil
 }
+
+// termInSetScorerSupplier adapts a Scorer into a ScorerSupplier.
+type termInSetScorerSupplier struct {
+	scorer Scorer
+}
+
+func (s *termInSetScorerSupplier) Get(_ int64) (Scorer, error) { return s.scorer, nil }
+func (s *termInSetScorerSupplier) Cost() int64                 { return s.scorer.Cost() }
+func (s *termInSetScorerSupplier) SetTopLevelScoringClause()   {}
