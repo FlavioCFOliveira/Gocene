@@ -18,6 +18,7 @@
 package analysis_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
@@ -258,7 +259,28 @@ func TestGraphTokenizers_TokenStreamGraphWithHoles(t *testing.T) {
 // TestGraphTokenizers_ToDot mirrors testToDot (Lucene 10.4.0).
 // It depends on TokenStreamToDot which is not yet ported to Gocene.
 func TestGraphTokenizers_ToDot(t *testing.T) {
-	t.Fatal("requires TokenStreamToDot infrastructure (not yet ported to Gocene)")
+	// Port of TestGraphTokenizers.testToDot — verifies that TokenStreamToDot
+	// produces a non-empty DOT graph for a simple input.
+	analyzer := analysis.NewWhitespaceAnalyzer()
+	stream, err := analyzer.TokenStream("f", strings.NewReader("hello world"))
+	if err != nil {
+		t.Fatalf("TokenStream: %v", err)
+	}
+	defer stream.Close()
+
+	var buf strings.Builder
+	dot := analysis.NewTokenStreamToDot("hello world", stream, &buf)
+	if err := dot.ToDot(); err != nil {
+		t.Fatalf("ToDot: %v", err)
+	}
+
+	dotOutput := buf.String()
+	if !strings.Contains(dotOutput, "digraph tokens") {
+		t.Errorf("expected digraph header, got:\n%s", dotOutput)
+	}
+	if dotOutput == "" {
+		t.Error("expected non-empty DOT output")
+	}
 }
 
 // ---- MockGraphTokenFilter tests (infrastructure not yet ported) ------------
