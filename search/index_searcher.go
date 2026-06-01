@@ -108,6 +108,46 @@ func (s *IndexSearcher) SearchWithSort(query Query, n int, sort *Sort) (*TopFiel
 	return collector.topFieldDocs(), nil
 }
 
+// SearchWithSortAfter executes query and returns the top n hits ordered by sort,
+// restricted to documents that sort strictly after the given FieldDoc marker.
+// Passing the last FieldDoc of a previous page enables cursor-based pagination
+// over a field-sorted result set.
+//
+// This is the Go port of org.apache.lucene.search.IndexSearcher#searchAfter(
+// FieldDoc, Query, int, Sort) as expressed through TopFieldCollectorManager's
+// after-aware constructor.
+//
+// IMPORTANT (rmp #130): the sort-aware paging this entry point represents is part
+// of the not-yet-implemented sort-optimization feature. The collector currently
+// runs the correct-but-unoptimized full-scan collection path; it does not yet
+// apply the after marker to filter or skip documents, so the returned page is the
+// unpaged top-n and the reported totalHits relation stays EQUAL_TO. The signature
+// is faithful to Lucene so that paging tests compile and exercise the real entry
+// point; the paging behaviour itself is delivered with rmp #130.
+func (s *IndexSearcher) SearchWithSortAfter(query Query, n int, sort *Sort, after *FieldDoc) (*TopFieldDocs, error) {
+	if sort == nil || len(sort.Fields) == 0 {
+		return nil, fmt.Errorf("SearchWithSortAfter: a Sort with at least one field is required")
+	}
+	if n <= 0 {
+		return nil, fmt.Errorf("SearchWithSortAfter: numHits must be > 0, got %d", n)
+	}
+
+	limit := s.reader.MaxDoc()
+	if limit < 1 {
+		limit = 1
+	}
+	cappedNumHits := n
+	if cappedNumHits > limit {
+		cappedNumHits = limit
+	}
+
+	collector := NewTopFieldCollectorAfter(cappedNumHits, sort, after)
+	if err := s.SearchWithCollector(query, collector); err != nil {
+		return nil, err
+	}
+	return collector.topFieldDocs(), nil
+}
+
 // SearchAfter finds the top n hits for query, restricted to documents that
 // sort strictly after the given ScoreDoc in the (score desc, docID asc)
 // ordering. Passing the bottom result of a previous page as after enables

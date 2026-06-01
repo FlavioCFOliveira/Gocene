@@ -321,14 +321,17 @@ type rangeFieldPointValues interface {
 }
 
 // intersectVisitorRFQ is the visitor shape expected by rangeFieldPointValues.
-// Its method set matches codecs.IntersectVisitor, but the Compare return type
-// is int (not codecs.Relation) to avoid importing codecs.
-type intersectVisitorRFQ interface {
-	Visit(docID int) error
-	VisitByPackedValue(docID int, packedValue []byte) error
-	Compare(minPackedValue, maxPackedValue []byte) int
-	Grow(count int)
-}
+//
+// It is a type ALIAS of index.PointTreeIntersectVisitor (rmp #4769) — NOT a
+// fresh interface declaration. The distinction is load-bearing: the on-disk
+// BKD-backed PointValues returned by LeafReader.GetPointValues has an Intersect
+// method whose parameter type is literally index.PointTreeIntersectVisitor.
+// Go type assertions require exact method-signature identity, so a structurally
+// identical but distinct interface type would make the assertion in
+// getRangeFieldPointValues fail for the real codec reader (only in-package
+// stubs declaring Intersect over the local type would match), silently
+// matching zero documents. The alias keeps the parameter type identical.
+type intersectVisitorRFQ = index.PointTreeIntersectVisitor
 
 // getRangeFieldPointValues type-asserts reader to rangeFieldPointValues for
 // the given field.  Returns (nil, false) if the reader does not expose this

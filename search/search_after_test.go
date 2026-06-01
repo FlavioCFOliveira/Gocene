@@ -43,31 +43,9 @@ func buildSearchAfterIndex(t *testing.T, dir store.Directory, n int) *index.Inde
 	return w
 }
 
-// TestSearchAfter_Queries tests searchAfter with various query types.
-// This is the Go port of TestSearchAfter.testQueries() from Lucene.
-//
-// Source: TestSearchAfter.testQueries()
-// Purpose: Tests cursor-based pagination with MatchAllDocsQuery, TermQuery,
-// and BooleanQuery to ensure searchAfter works correctly across different
-// query types and sort configurations.
-func TestSearchAfter_Queries(t *testing.T) {
-	// Skip until Sort, FieldDoc, and TopFieldCollector are implemented
-	t.Fatal("Skipping: requires Sort, FieldDoc, and TopFieldCollector implementation")
-
-	// TODO: Implement test once the following are available:
-	// - Sort and SortField types
-	// - FieldDoc (ScoreDoc with sort values)
-	// - TopFieldCollector for sorting
-	// - IndexSearcher.SearchAfter() method
-	//
-	// Test structure from Java:
-	// 1. Create index with at least 200 documents
-	// 2. Add various field types: int, long, float, double, string, binary
-	// 3. Test with MatchAllDocsQuery
-	// 4. Test with TermQuery
-	// 5. Test with BooleanQuery (SHOULD clauses)
-	// 6. Verify pagination returns consistent results across pages
-}
+// TestSearchAfter_Queries (the Go port of TestSearchAfter.testQueries, sort==null
+// cases) is implemented in test_search_after_test.go (package search_test). The
+// dead duplicate stub that previously lived here was removed.
 
 // TestSearchAfter_SortTypes tests searchAfter with all supported sort field types.
 //

@@ -84,25 +84,44 @@ type SortField struct {
 	// SetSortedDocValuesSource; nil means the comparator reads the field's
 	// SortedDocValues directly from the leaf.
 	sortedDVSource SortedDocValuesSource
+
+	// optimizeSortWithIndexedData mirrors SortField.optimizeSortWithIndexedData
+	// (Lucene 10.4.0). When true (the default) Lucene is permitted to use the
+	// points / DocValues-skipper index to skip non-competitive hits and to
+	// type-validate the sort against the indexed point type. Gocene records the
+	// flag but does not yet act on it: the sort-optimization feature it gates
+	// (competitive-hit skipping, GREATER_THAN_OR_EQUAL_TO totalHits, and the
+	// point-type validation) is tracked by rmp #130. The accessor exists so the
+	// public SortField API matches Lucene and callers can opt out in advance of
+	// the optimization landing.
+	optimizeSortWithIndexedData bool
+
+	// optimizeSet records whether optimizeSortWithIndexedData was explicitly set,
+	// so the zero value of a struct-literal SortField still defaults to true.
+	optimizeSet bool
 }
 
 // NewSortField creates a new SortField.
 func NewSortField(field string, fieldType SortFieldType) *SortField {
 	return &SortField{
-		Field:   field,
-		Type:    fieldType,
-		Reverse: false,
-		Missing: MissingValueLast,
+		Field:                       field,
+		Type:                        fieldType,
+		Reverse:                     false,
+		Missing:                     MissingValueLast,
+		optimizeSortWithIndexedData: true,
+		optimizeSet:                 true,
 	}
 }
 
 // NewSortFieldReverse creates a new SortField with reverse order.
 func NewSortFieldReverse(field string, fieldType SortFieldType) *SortField {
 	return &SortField{
-		Field:   field,
-		Type:    fieldType,
-		Reverse: true,
-		Missing: MissingValueLast,
+		Field:                       field,
+		Type:                        fieldType,
+		Reverse:                     true,
+		Missing:                     MissingValueLast,
+		optimizeSortWithIndexedData: true,
+		optimizeSet:                 true,
 	}
 }
 
@@ -119,6 +138,29 @@ func (sf *SortField) GetReverse() bool {
 // supported for string-typed fields.
 func (sf *SortField) SetMissingValue(v interface{}) {
 	sf.MissingValue = v
+}
+
+// SetOptimizeSortWithIndexedData controls whether the sort may use the points /
+// DocValues-skipper index to skip non-competitive hits (and to type-validate the
+// sort against the indexed point type). It mirrors
+// SortField.setOptimizeSortWithIndexedData (Lucene 10.4.0).
+//
+// Gocene records the flag but does not yet consult it during search: the
+// optimization it gates is tracked by rmp #130. Passing false today is therefore
+// a no-op on behaviour but keeps the public API faithful to Lucene.
+func (sf *SortField) SetOptimizeSortWithIndexedData(v bool) {
+	sf.optimizeSortWithIndexedData = v
+	sf.optimizeSet = true
+}
+
+// GetOptimizeSortWithIndexedData reports whether the sort is allowed to use the
+// indexed data for the optimization. It defaults to true (matching Lucene),
+// including for struct-literal SortFields that never called the setter.
+func (sf *SortField) GetOptimizeSortWithIndexedData() bool {
+	if !sf.optimizeSet {
+		return true
+	}
+	return sf.optimizeSortWithIndexedData
 }
 
 // SetNumericDocValuesSource installs a custom per-leaf NumericDocValues resolver

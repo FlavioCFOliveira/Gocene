@@ -144,6 +144,13 @@ type TopFieldCollector struct {
 	collected int
 	queueFull bool
 	bottom    *fieldEntry
+
+	// after, when non-nil, is the paging marker supplied to a sort-aware
+	// searchAfter. The sort-optimization feature that consumes it (CompareTop /
+	// setTopValue paging filter plus competitive-hit skipping) is tracked by
+	// rmp #130; until it lands the collector records the marker but still runs the
+	// unpaged full-scan collection path.
+	after *FieldDoc
 }
 
 // NewTopFieldCollector creates a TopFieldCollector for the given sort. numHits
@@ -176,6 +183,22 @@ func NewTopFieldCollector(numHits int, sort *Sort) *TopFieldCollector {
 		reverseMul:      reverseMuls,
 		queue:           newFieldValueHitQueue(comparators, reverseMuls, numHits),
 	}
+}
+
+// NewTopFieldCollectorAfter creates a TopFieldCollector that records a paging
+// "after" marker for a sort-aware searchAfter. It is identical to
+// NewTopFieldCollector except for retaining the marker.
+//
+// rmp #130: the collector does not yet apply the marker — the comparators'
+// CompareTop is still the unimplemented no-op, so no document is filtered or
+// skipped and the page is the unpaged top-n with an EQUAL_TO totalHits relation.
+// The constructor exists so the searchAfter entry point is faithful to Lucene's
+// public API and paging tests can exercise it; correct paging is delivered with
+// the sort-optimization feature.
+func NewTopFieldCollectorAfter(numHits int, sort *Sort, after *FieldDoc) *TopFieldCollector {
+	c := NewTopFieldCollector(numHits, sort)
+	c.after = after
+	return c
 }
 
 // GetLeafCollector binds every comparator to the new leaf and returns a
@@ -267,12 +290,19 @@ func NewTopFieldLeafCollector(collector *TopFieldCollector, docBase int) *TopFie
 	} else {
 		comparator, _ = newMultiLeafFieldComparator(leafComparators, collector.reverseMul)
 	}
-	return &TopFieldLeafCollector{
+	lc := &TopFieldLeafCollector{
 		BaseLeafCollector: NewBaseLeafCollector(),
 		collector:         collector,
 		comparator:        comparator,
-		docBase:           docBase,
 	}
+	// Propagate the segment docBase to the DOC comparator(s) so their cached
+	// sort values are global (docBase-rebased) doc ids, matching the global doc
+	// ids the queue stores. Without this the DOC comparator compares and reports
+	// segment-LOCAL doc ids, which both breaks cross-segment ordering and makes
+	// FieldDoc.Fields disagree with ScoreDoc.Doc. SetDocBase is the single place
+	// that does this propagation.
+	lc.SetDocBase(docBase)
+	return lc
 }
 
 // SetScorer records the scorer and forwards it to the comparators (only a

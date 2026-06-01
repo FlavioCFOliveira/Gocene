@@ -362,21 +362,70 @@ const (
 	xyPointCellCrossesQuery
 )
 
-// newXYPointSourceFromIndexPointValues adapts the current
-// metadata-only index.PointValues to the xyPointSource contract. The
-// adapter is a no-op stub today (production segment readers do not
-// expose visitor-driven Intersect yet); it exists so that once the
-// index layer wires a real surface, this is the single place to swap
-// the implementation. Matches the noop adapter pattern from
-// LongDistanceFeatureQuery / longPointSource.
-func newXYPointSourceFromIndexPointValues(_ index.PointValues) xyPointSource {
+// xyPointTreeIntersect is the rich, visitor-driven read surface a BKD-backed
+// PointValues exposes beyond the metadata-only index.PointValues. The on-disk
+// reader returned by LeafReader.GetPointValues (the codec's *pointValues)
+// satisfies it structurally; the parameter type is the index-package alias so
+// the type assertion succeeds for the real codec reader (the same reason
+// search.RangeFieldQuery aliases index.PointTreeIntersectVisitor).
+type xyPointTreeIntersect interface {
+	Intersect(visitor index.PointTreeIntersectVisitor) error
+	EstimatePointCount(visitor index.PointTreeIntersectVisitor) int64
+}
+
+// newXYPointSourceFromIndexPointValues adapts a BKD-backed index.PointValues to
+// the xyPointSource contract used by the scorer. When the concrete PointValues
+// exposes the visitor-driven Intersect / EstimatePointCount surface (the codec
+// reader does), it drives the real BKD walk; otherwise it falls back to a
+// no-op source (zero matches), matching the Java reference's "field exists but
+// yields no materialised data" behaviour.
+func newXYPointSourceFromIndexPointValues(pv index.PointValues) xyPointSource {
+	if rich, ok := pv.(xyPointTreeIntersect); ok {
+		return &bkdXYPointSource{pv: rich}
+	}
 	return noopXYPointSource{}
 }
 
-// noopXYPointSource is the safe default for the production lookup
-// while the visitor-driven PointValues surface is not yet wired. It
-// matches the Java reference's "field exists but yields zero matches"
-// behaviour for unmaterialised data.
+// bkdXYPointSource drives a BKD-backed PointValues, translating between the
+// XY query's xyPointVisitor and the index.PointTreeIntersectVisitor the BKD
+// reader expects.
+type bkdXYPointSource struct {
+	pv xyPointTreeIntersect
+}
+
+func (s *bkdXYPointSource) Intersect(visitor xyPointVisitor) error {
+	return s.pv.Intersect(&xyPointVisitorBridge{v: visitor})
+}
+
+func (s *bkdXYPointSource) EstimateDocCount(visitor xyPointVisitor) (int64, error) {
+	return s.pv.EstimatePointCount(&xyPointVisitorBridge{v: visitor}), nil
+}
+
+// xyPointVisitorBridge adapts an xyPointVisitor to the
+// index.PointTreeIntersectVisitor surface the BKD reader invokes. The reader
+// only drives Visit / VisitByPackedValue / Compare / Grow (the bulk-iterator
+// methods on xyPointVisitor are not part of the BKD reader's intersect path).
+type xyPointVisitorBridge struct {
+	v xyPointVisitor
+}
+
+func (b *xyPointVisitorBridge) Visit(docID int) error { return b.v.Visit(docID) }
+
+func (b *xyPointVisitorBridge) VisitByPackedValue(docID int, packedValue []byte) error {
+	return b.v.VisitWithPackedValue(docID, packedValue)
+}
+
+func (b *xyPointVisitorBridge) Compare(minPackedValue, maxPackedValue []byte) int {
+	return int(b.v.Compare(minPackedValue, maxPackedValue))
+}
+
+func (b *xyPointVisitorBridge) Grow(count int) { b.v.Grow(count) }
+
+var _ index.PointTreeIntersectVisitor = (*xyPointVisitorBridge)(nil)
+
+// noopXYPointSource is the safe fallback when the PointValues does not expose
+// the visitor-driven Intersect surface (e.g. an in-test metadata-only stub). It
+// matches the Java reference's "field exists but yields zero matches" behaviour.
 type noopXYPointSource struct{}
 
 func (noopXYPointSource) Intersect(_ xyPointVisitor) error { return nil }
