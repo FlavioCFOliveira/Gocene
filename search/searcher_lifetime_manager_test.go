@@ -5,8 +5,51 @@ import (
 	"testing"
 	"time"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
+
+// newRealSearcherManagerForTest creates a SearcherManager backed by a small
+// in-memory index with two documents.
+func newRealSearcherManagerForTest(t *testing.T) *SearcherManager {
+	t.Helper()
+	dir := store.NewByteBuffersDirectory()
+	t.Cleanup(func() { _ = dir.Close() })
+
+	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	for _, text := range []string{"hello world", "foo bar"} {
+		doc := document.NewDocument()
+		f, _ := document.NewTextField("text", text, true)
+		doc.Add(f)
+		if err := w.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument: %v", err)
+		}
+	}
+	if err := w.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	_ = w.Close()
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	t.Cleanup(func() { _ = reader.Close() })
+
+	searcher := NewIndexSearcher(reader)
+	sm, err := NewSearcherManager(searcher, nil, nil)
+	if err != nil {
+		t.Fatalf("NewSearcherManager: %v", err)
+	}
+	t.Cleanup(func() { _ = sm.Close() })
+	return sm
+}
 
 // newSearcherManagerForTest creates a minimal SearcherManager for unit testing
 // of SearcherLifetimeManager. It bypasses the nil-initial-searcher guard so
@@ -90,9 +133,25 @@ func TestNewSearcherLifetimeManager_InvalidMaxSearchers(t *testing.T) {
 }
 
 func TestSearcherLifetimeManager_AcquireRelease(t *testing.T) {
-	// Requires a real IndexSearcher backed by a live DirectoryReader.
-	// Skipped until NRT infrastructure is wired into SearcherLifetimeManager tests.
-	t.Fatal("requires real index infrastructure")
+	sm := newRealSearcherManagerForTest(t)
+	lm, err := NewSearcherLifetimeManager(sm, 5*time.Minute, 10)
+	if err != nil {
+		t.Fatalf("NewSearcherLifetimeManager: %v", err)
+	}
+	defer lm.Close()
+
+	ctx := context.Background()
+	searcher, err := lm.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	if searcher == nil {
+		t.Fatal("expected non-nil searcher")
+	}
+
+	if err := lm.Release(searcher); err != nil {
+		t.Fatalf("Release: %v", err)
+	}
 }
 
 func TestSearcherLifetimeManager_Acquire_Closed(t *testing.T) {
@@ -216,13 +275,43 @@ func TestSearcherLifetimeManager_String(t *testing.T) {
 }
 
 func TestSearcherLifetimeManager_Cleanup(t *testing.T) {
-	// Requires a real IndexSearcher to acquire from the manager.
-	// Skipped until NRT infrastructure is wired into SearcherLifetimeManager tests.
-	t.Fatal("requires real index infrastructure")
+	sm := newRealSearcherManagerForTest(t)
+	lm, err := NewSearcherLifetimeManager(sm, 5*time.Minute, 10)
+	if err != nil {
+		t.Fatalf("NewSearcherLifetimeManager: %v", err)
+	}
+	defer lm.Close()
+
+	ctx := context.Background()
+	searcher, err := lm.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	if err := lm.Release(searcher); err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+
+	// Cleanup should not error
+	lm.cleanup()
 }
 
 func TestSearcherLifetimeManager_ConcurrentOperations(t *testing.T) {
-	// Requires a real IndexSearcher to exercise concurrent Acquire/Release.
-	// Skipped until NRT infrastructure is wired into SearcherLifetimeManager tests.
-	t.Fatal("requires real index infrastructure")
+	sm := newRealSearcherManagerForTest(t)
+	lm, err := NewSearcherLifetimeManager(sm, 5*time.Minute, 10)
+	if err != nil {
+		t.Fatalf("NewSearcherLifetimeManager: %v", err)
+	}
+	defer lm.Close()
+
+	ctx := context.Background()
+	// Simple sequential acquire/release to verify no data race
+	for i := 0; i < 3; i++ {
+		s, err := lm.Acquire(ctx)
+		if err != nil {
+			t.Fatalf("Acquire %d: %v", i, err)
+		}
+		if err := lm.Release(s); err != nil {
+			t.Fatalf("Release %d: %v", i, err)
+		}
+	}
 }
