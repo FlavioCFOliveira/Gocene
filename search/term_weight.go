@@ -231,9 +231,85 @@ func (w *TermWeight) Count(context *index.LeafReaderContext) (int, error) {
 	return -1, nil
 }
 
-// Matches returns the matches for a specific document.
+// Matches returns the matches for a specific document, or nil when the term is
+// absent from the leaf or does not occur in doc.
+//
+// It ports org.apache.lucene.search.TermQuery.TermWeight.matches: a TermsEnum is
+// positioned at the term; if the term is not in this leaf the result is nil.
+// Otherwise an OFFSETS postings enum is advanced to doc — a non-match (the
+// postings list does not contain doc) yields nil, and a hit yields a Matches for
+// the term's field whose iterator walks the term occurrences within doc
+// (a [termMatchesIterator]).
+//
+// Like Lucene's MatchesUtils.forField, the supplier is evaluated eagerly to
+// decide hit-vs-no-hit, but is retained so each GetMatches(field) call returns a
+// fresh iterator. The returned Matches is field-scoped: GetMatches only yields an
+// iterator for the term's own field.
 func (w *TermWeight) Matches(context *index.LeafReaderContext, doc int) (Matches, error) {
-	return nil, nil
+	termsEnum, err := w.termsEnumFor(context)
+	if err != nil {
+		return nil, err
+	}
+	if termsEnum == nil {
+		return nil, nil
+	}
+
+	field := w.term.Field
+	query := w.GetQuery()
+	supplier := func() (MatchesIterator, error) {
+		// A fresh postings enum (with offsets) per supplier call, matching
+		// Lucene's te.postings(null, PostingsEnum.OFFSETS) inside forField.
+		pe, err := termsEnum.Postings(index.PostingsFlagOffsets)
+		if err != nil {
+			return nil, err
+		}
+		if pe == nil {
+			return nil, nil
+		}
+		advanced, err := pe.Advance(doc)
+		if err != nil {
+			return nil, err
+		}
+		if advanced != doc {
+			return nil, nil
+		}
+		return newTermMatchesIterator(query, pe)
+	}
+
+	return forField(field, query, doc, supplier)
+}
+
+// termsEnumFor positions a TermsEnum at this weight's term on the given leaf,
+// returning nil (no error) when the field has no terms or the term is absent.
+//
+// It mirrors the private TermWeight.getTermsEnum(context) seek that both
+// matches and the scorer path rely on in Lucene; Gocene's TermWeight does not
+// retain a TermStates cache, so the enum is re-seeked here (the same seek the
+// Scorer path performs).
+func (w *TermWeight) termsEnumFor(context *index.LeafReaderContext) (index.TermsEnum, error) {
+	leafReader := context.LeafReader()
+	if leafReader == nil {
+		return nil, nil
+	}
+	terms, err := leafReader.Terms(w.term.Field)
+	if err != nil {
+		return nil, err
+	}
+	if terms == nil {
+		return nil, nil
+	}
+	termsEnum, err := terms.GetIterator()
+	if err != nil {
+		return nil, err
+	}
+	found, err := termsEnum.SeekExact(w.term)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, nil
+	}
+	return termsEnum, nil
 }
 
 // Ensure TermWeight implements Weight
