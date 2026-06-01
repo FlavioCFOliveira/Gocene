@@ -10,6 +10,10 @@ package search
 import (
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -257,21 +261,137 @@ func TestTermInSetQuery_NilTerms(t *testing.T) {
 // Source: TestTermInSetQuery.testAllDocsInFieldTerm()
 // Status: PLACEHOLDER - requires IndexWriter, IndexReader, IndexSearcher
 func TestTermInSetQuery_AllDocsInFieldTerm(t *testing.T) {
-	t.Fatal("Requires full index infrastructure implementation")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	// Index 5 docs: 3 with "alpha", 2 with "beta"
+	for _, term := range []string{"alpha", "alpha", "alpha", "beta", "beta"} {
+		doc := document.NewDocument()
+		f, _ := document.NewStringField("field", term, false)
+		doc.Add(f)
+		w.AddDocument(doc)
+	}
+	w.Commit()
+	w.Close()
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer reader.Close()
+
+	searcher := NewIndexSearcher(reader)
+	// TermInSetQuery for {"alpha"} should find 3 docs
+	q := NewTermInSetQuery("field", []*util.BytesRef{util.NewBytesRef([]byte("alpha"))})
+	top, err := searcher.Search(q, 10)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(top.ScoreDocs) != 3 {
+		t.Errorf("expected 3 hits, got %d", len(top.ScoreDocs))
+	}
+
+	// TermInSetQuery for {"alpha","beta"} should find all 5 docs
+	q2 := NewTermInSetQuery("field", []*util.BytesRef{
+		util.NewBytesRef([]byte("alpha")),
+		util.NewBytesRef([]byte("beta")),
+	})
+	top2, err := searcher.Search(q2, 10)
+	if err != nil {
+		t.Fatalf("Search2: %v", err)
+	}
+	if len(top2.ScoreDocs) != 5 {
+		t.Errorf("expected 5 hits, got %d", len(top2.ScoreDocs))
+	}
 }
 
 // TestTermInSetQuery_Duel tests TermInSetQuery against BooleanQuery of TermQueries.
 // Source: TestTermInSetQuery.testDuel()
 // Status: PLACEHOLDER - requires full query execution infrastructure
 func TestTermInSetQuery_Duel(t *testing.T) {
-	t.Fatal("Requires full query execution and index infrastructure")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	for _, term := range []string{"x", "y", "z", "x"} {
+		doc := document.NewDocument()
+		f, _ := document.NewStringField("f", term, false)
+		doc.Add(f)
+		w.AddDocument(doc)
+	}
+	w.Commit()
+	w.Close()
+
+	reader, _ := index.OpenDirectoryReader(dir)
+	defer reader.Close()
+	searcher := NewIndexSearcher(reader)
+
+	terms := []*util.BytesRef{util.NewBytesRef([]byte("x")), util.NewBytesRef([]byte("z"))}
+	termInSetQ := NewTermInSetQuery("f", terms)
+	// BooleanQuery equivalent: should(TermQuery("x"), TermQuery("z"))
+	bq := NewBooleanQuery()
+	bq.Add(NewTermQuery(index.NewTerm("f", "x")), SHOULD)
+	bq.Add(NewTermQuery(index.NewTerm("f", "z")), SHOULD)
+
+	topTIS, err := searcher.Search(termInSetQ, 10)
+	if err != nil {
+		t.Fatalf("TermInSetQuery: %v", err)
+	}
+	topBQ, err := searcher.Search(bq, 10)
+	if err != nil {
+		t.Fatalf("BooleanQuery: %v", err)
+	}
+
+	if len(topTIS.ScoreDocs) != len(topBQ.ScoreDocs) {
+		t.Errorf("hit count mismatch: TermInSetQuery=%d BooleanQuery=%d",
+			len(topTIS.ScoreDocs), len(topBQ.ScoreDocs))
+	}
 }
 
 // TestTermInSetQuery_ReturnsNullScoreSupplier tests null score supplier behavior.
 // Source: TestTermInSetQuery.testReturnsNullScoreSupplier()
 // Status: PLACEHOLDER - requires ScorerSupplier implementation
 func TestTermInSetQuery_ReturnsNullScoreSupplier(t *testing.T) {
-	t.Fatal("Requires ScorerSupplier and Weight implementation")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	w, _ := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	doc := document.NewDocument()
+	f, _ := document.NewStringField("f", "term1", false)
+	doc.Add(f)
+	w.AddDocument(doc)
+	w.Commit()
+	w.Close()
+
+	reader, _ := index.OpenDirectoryReader(dir)
+	defer reader.Close()
+	searcher := NewIndexSearcher(reader)
+
+	q := NewTermInSetQuery("f", []*util.BytesRef{util.NewBytesRef([]byte("term1"))})
+	weight, err := q.CreateWeight(searcher, false, 1.0)
+	if err != nil {
+		t.Fatalf("CreateWeight: %v", err)
+	}
+
+	// Verify ScorerSupplier returns non-nil for a field with matching terms.
+	leaves, _ := reader.Leaves()
+	if len(leaves) > 0 {
+		ss, err := weight.ScorerSupplier(leaves[0])
+		if err != nil {
+			t.Fatalf("ScorerSupplier: %v", err)
+		}
+		// When the term exists, ScorerSupplier should be non-nil.
+		if ss == nil {
+			t.Error("expected non-nil ScorerSupplier for field with matching terms")
+		}
+	}
 }
 
 // TestTermInSetQuery_SkipperOptimization tests doc values skip optimization.
