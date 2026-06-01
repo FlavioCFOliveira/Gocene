@@ -97,27 +97,52 @@ func TestExternalDictionary_UserDictionaryOpen(t *testing.T) {
 }
 
 // TestExternalDictionary_LoadTokenInfoDictionary verifies that
-// TokenInfoDictionary can be loaded from binary files built by
-// DictionaryBuilder.
-//
-// Deviation: skipped — DictionaryBuilder.Build and binary file I/O are
-// deferred to the codec sprint.
+// GetTokenInfoDictionaryInstance loads a non-nil dictionary from the embedded
+// binary resources and that the FST and morphological attributes are populated.
 func TestExternalDictionary_LoadTokenInfoDictionary(t *testing.T) {
-	t.Fatal("requires DictionaryBuilder.Build and binary file I/O (deferred to codec sprint)")
+	d := dict.GetTokenInfoDictionaryInstance()
+	if d == nil {
+		t.Fatal("GetTokenInfoDictionaryInstance() returned nil")
+	}
+	if d.GetRealFST() == nil {
+		t.Fatal("TokenInfoDictionary.GetRealFST() is nil; FST was not loaded")
+	}
+	if d.GetMorphAttributes() == nil {
+		t.Fatal("TokenInfoDictionary.GetMorphAttributes() is nil")
+	}
 }
 
 // TestExternalDictionary_LoadUnknownDictionary verifies that
-// UnknownDictionary can be loaded from binary files.
-//
-// Deviation: skipped — binary file I/O is deferred to the codec sprint.
+// GetUnknownDictionaryInstance loads a non-nil dictionary from the embedded
+// binary resources.
 func TestExternalDictionary_LoadUnknownDictionary(t *testing.T) {
-	t.Fatal("requires binary file I/O (deferred to codec sprint)")
+	d := dict.GetUnknownDictionaryInstance()
+	if d == nil {
+		t.Fatal("GetUnknownDictionaryInstance() returned nil")
+	}
+	if d.GetCharacterDefinition() == nil {
+		t.Fatal("UnknownDictionary.GetCharacterDefinition() is nil")
+	}
 }
 
 // TestExternalDictionary_LoadConnectionCostsFromFile verifies that
-// ConnectionCosts can be loaded from a binary file on disk.
-//
-// Deviation: skipped — binary file I/O is deferred to the codec sprint.
+// GetConnectionCostsInstance loads a non-zero ConnectionCosts from the embedded
+// binary resource and that at least one entry in the cost matrix is non-zero
+// (a matrix of all zeros would indicate the data was not read).
 func TestExternalDictionary_LoadConnectionCostsFromFile(t *testing.T) {
-	t.Fatal("requires binary file I/O (deferred to codec sprint)")
+	cc := dict.GetConnectionCostsInstance()
+	if cc == nil {
+		t.Fatal("GetConnectionCostsInstance() returned nil")
+	}
+	// Probe a broad diagonal to verify at least one non-zero cost.
+	nonZero := false
+	for i := 0; i < 100; i++ {
+		if cc.Get(i, i) != 0 {
+			nonZero = true
+			break
+		}
+	}
+	if !nonZero {
+		t.Error("all sampled ConnectionCosts entries are zero; binary data may not have loaded")
+	}
 }

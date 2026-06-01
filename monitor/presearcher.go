@@ -38,7 +38,7 @@ var NoFiltering Presearcher = &NoFilteringPresearcher{}
 
 // BuildQuery returns MatchAllDocsQuery so that all stored queries are candidates.
 func (p *NoFilteringPresearcher) BuildQuery(_ interface{}, _ func(string, *util.BytesRef) bool) search.Query {
-	return nil // MatchAllDocsQuery placeholder — deferred until search.MatchAllDocsQuery lands
+	return search.NewMatchAllDocsQuery()
 }
 
 // IndexQuery returns an empty document.

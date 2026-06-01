@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -76,14 +77,54 @@ func (h *RegexpQueryHandler) WrapTermStream(field string, in analysis.TokenStrea
 	return NewSuffixingNGramTokenFilter(in, h.ngramSuffix, h.wildcardToken, h.maxTokenSize)
 }
 
-// HandleQuery builds a QueryTree for a regexp query.
-// Returns nil for non-regexp queries (caller falls back to default term extraction).
+// HandleQuery builds a QueryTree for a regexp query by extracting the
+// longest static substring from the regexp pattern text.  Returns nil for
+// non-regexp queries (caller falls back to default term extraction).
+//
+// Deviation: Gocene does not yet have a RegexpQuery type, so detection
+// relies on the query's string representation (field:/pattern/ format)
+// obtained via String(). Once the RegexpQuery type is ported, switch to a
+// type assertion on the concrete RegexpQuery type.
 func (h *RegexpQueryHandler) HandleQuery(q search.Query, weightor TermWeightor) QueryTree {
-	// Gocene does not yet have RegexpQuery; return nil for all queries.
-	// TODO: detect RegexpQuery and extract longest-substring ngram.
-	_ = q
-	_ = weightor
-	return nil
+	qs := queryString(q)
+	if qs == "" {
+		return nil
+	}
+	pattern := parseOutRegexp(qs)
+	if pattern == "" {
+		return nil
+	}
+	longest := selectLongestSubstring(pattern)
+	if longest == "" {
+		return nil
+	}
+	field, term := splitFieldAndTerm(qs, longest)
+	return NewTermQueryTree(field, util.NewBytesRef([]byte(term)), weightor.ApplyAsDouble(index.NewTerm(field, term)))
+}
+
+// queryString attempts to obtain a string representation of the query.
+// It tries Stringer first, then falls back to the query's ToString method
+// if the concrete type implements it.
+func queryString(q search.Query) string {
+	if s, ok := q.(interface{ String() string }); ok {
+		return s.String()
+	}
+	// Many query types implement ToString(field string).
+	if s, ok := q.(interface{ ToString(string) string }); ok {
+		return s.ToString("")
+	}
+	return ""
+}
+
+// splitFieldAndTerm splits the query string representation into a field
+// and term. If the representation includes a field prefix (field:term),
+// the field is extracted; otherwise the field is empty.
+func splitFieldAndTerm(rep, term string) (string, string) {
+	fieldSep := strings.Index(rep, ":")
+	if fieldSep < 0 {
+		return "", term
+	}
+	return rep[:fieldSep], term
 }
 
 // parseOutRegexp extracts the regexp pattern from a toString representation.

@@ -135,6 +135,11 @@ type IndexWriter struct {
 	liveCommitData *commitData
 	// preparedCommit indicates if prepareCommit has been called
 	preparedCommit bool
+
+	// flushCount tracks the number of times flushPendingDocsLocked has
+	// successfully materialised buffered documents into a pendingSegment.
+	// Accessed atomically; incremented under mu.
+	flushCount atomic.Int32
 }
 
 // pendingSegment captures the metadata of a segment that has been flushed from

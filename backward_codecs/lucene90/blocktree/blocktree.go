@@ -114,19 +114,25 @@ func NewLucene90BlockTreeTermsReaderFull(
 	}
 }
 
+// byteReader is a minimal interface that provides byte-by-byte reading.
+// Both store.DataInput and outputAccumulator satisfy it.
+type byteReader interface {
+	ReadByte() (byte, error)
+}
+
 // readVLongOutput reads a VLong output from in using either the MSB-VLong
 // encoding (version >= versionMSBVLongOutput) or the standard VLong.
 // Mirrors FieldReader.readVLongOutput(DataInput).
-func (r *Lucene90BlockTreeTermsReader) readVLongOutput(in store.DataInput) (int64, error) {
+func (r *Lucene90BlockTreeTermsReader) readVLongOutput(in byteReader) (int64, error) {
 	if r.version >= versionMSBVLongOutput {
 		return readMSBVLong(in)
 	}
-	return store.ReadVLong(in)
+	return readVLongFromBytes(in)
 }
 
 // readMSBVLong decodes a variable-length long encoded in MSB order.
 // Port of FieldReader.readMSBVLong(DataInput).
-func readMSBVLong(in store.DataInput) (int64, error) {
+func readMSBVLong(in byteReader) (int64, error) {
 	var l int64
 	for {
 		b, err := in.ReadByte()
@@ -139,6 +145,35 @@ func readMSBVLong(in store.DataInput) (int64, error) {
 		}
 	}
 	return l, nil
+}
+
+// readVLongFromBytes reads a standard VLong (LSB-first) from a byteReader.
+// This is used when the format version is < versionMSBVLongOutput.
+func readVLongFromBytes(in byteReader) (int64, error) {
+	b, err := in.ReadByte()
+	if err != nil {
+		return 0, fmt.Errorf("readVLongFromBytes: %w", err)
+	}
+	result := int64(b & 0x7f)
+	if b&0x80 == 0 {
+		return result, nil
+	}
+	var shift uint = 7
+	for {
+		b, err = in.ReadByte()
+		if err != nil {
+			return 0, fmt.Errorf("readVLongFromBytes: %w", err)
+		}
+		result |= int64(b&0x7f) << shift
+		if b&0x80 == 0 {
+			break
+		}
+		shift += 7
+		if shift >= 64 {
+			return 0, fmt.Errorf("readVLongFromBytes: corrupted VLong")
+		}
+	}
+	return result, nil
 }
 
 // FieldReader is the per-field read entry point for the Lucene 9.0 block-tree

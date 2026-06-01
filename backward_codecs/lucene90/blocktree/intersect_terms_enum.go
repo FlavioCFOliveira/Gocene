@@ -81,9 +81,11 @@ func (a *outputAccumulator) prepareRead() {
 	a.index = 0
 }
 
-// readByte reads the next byte from the accumulated outputs, advancing the
-// cursor across BytesRef boundaries. Port of OutputAccumulator.readByte().
-func (a *outputAccumulator) readByte() (byte, error) {
+// ReadByte reads the next byte from the accumulated outputs, advancing the
+// cursor across BytesRef boundaries. It satisfies the byteReader interface
+// so the accumulator can be passed to readVLongOutput.
+// Port of OutputAccumulator.readByte().
+func (a *outputAccumulator) ReadByte() (byte, error) {
 	cur := a.outputs[a.outputIndex]
 	if a.index >= cur.Length {
 		a.outputIndex++

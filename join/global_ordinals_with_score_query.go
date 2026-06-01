@@ -160,8 +160,34 @@ func (w *globalOrdinalsWithScoreWeight) IsCacheable(_ *index.LeafReaderContext) 
 	return false
 }
 
-func (w *globalOrdinalsWithScoreWeight) Explain(_ *index.LeafReaderContext, _ int) (search.Explanation, error) {
-	return search.NewExplanation(false, 0, "GlobalOrdinalsWithScoreWeight stub"), nil
+func (w *globalOrdinalsWithScoreWeight) Explain(ctx *index.LeafReaderContext, doc int) (search.Explanation, error) {
+	values, err := getSortedDocValues(ctx, w.query.joinField)
+	if err != nil || values == nil {
+		return search.NewExplanation(false, 0, "no SortedDocValues for field "+w.query.joinField), nil
+	}
+	matches, err := values.AdvanceExact(doc)
+	if err != nil {
+		return search.NewExplanation(false, 0, fmt.Sprintf("error checking doc %d: %v", doc, err)), nil
+	}
+	if !matches {
+		return search.NewExplanation(false, 0, fmt.Sprintf("document %d has no value for join field %q", doc, w.query.joinField)), nil
+	}
+	segOrd, err := values.OrdValue()
+	if err != nil || segOrd < 0 {
+		return search.NewExplanation(false, 0, "document has no ordinal for join field"), nil
+	}
+	globalOrd := segOrd
+	if w.query.globalOrds != nil {
+		globalOrd = int(w.query.globalOrds.GetGlobalOrds(ctx.Ord())[segOrd])
+	}
+	if w.query.collector.Match(globalOrd) {
+		score := w.query.collector.Score(globalOrd) * w.boost
+		return search.NewExplanation(true, score,
+			fmt.Sprintf("global ordinal %d matched with score %f (collector score %f * boost %f)",
+				globalOrd, score, w.query.collector.Score(globalOrd), w.boost)), nil
+	}
+	return search.NewExplanation(false, 0,
+		fmt.Sprintf("global ordinal %d not matched by collector", globalOrd)), nil
 }
 
 func (w *globalOrdinalsWithScoreWeight) Count(_ *index.LeafReaderContext) (int, error) {

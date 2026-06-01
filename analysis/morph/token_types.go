@@ -93,6 +93,19 @@ type CharacterDefinition struct {
 // NewCharacterDefinition creates an empty CharacterDefinition.
 func NewCharacterDefinition() *CharacterDefinition { return &CharacterDefinition{} }
 
+// NewCharacterDefinitionRaw constructs a CharacterDefinition directly from
+// pre-parsed binary-resource data. This is used by the embedded-resource
+// loaders in the ko and kuromoji packages after they have read the codec-
+// formatted CharacterDefinition.dat file.
+//
+//   - categoryMap: 0x10000-byte array mapping each BMP code point to its
+//     character-class byte
+//   - invokeMap: per-class invoke flag (len == classCount)
+//   - groupMap: per-class group flag (len == classCount)
+func NewCharacterDefinitionRaw(categoryMap [0x10000]byte, invokeMap, groupMap []bool) *CharacterDefinition {
+	return &CharacterDefinition{categoryMap: categoryMap, invokeMap: invokeMap, groupMap: groupMap}
+}
+
 // CharacterClass returns the character category for c.
 func (cd *CharacterDefinition) CharacterClass(c rune) byte {
 	if c < 0x10000 {
@@ -204,6 +217,19 @@ type BinaryDictionary struct {
 
 // NewBinaryDictionary creates an empty BinaryDictionary.
 func NewBinaryDictionary() *BinaryDictionary { return &BinaryDictionary{} }
+
+// NewBinaryDictionaryRaw constructs a BinaryDictionary directly from
+// pre-parsed binary-dictionary data. This is used by the embedded-resource
+// loaders in the ko and kuromoji packages after they have read the codec-
+// formatted .dat files.
+//
+//   - buffer: packed byte buffer of morpheme data (the $buffer.dat payload
+//     after stripping the codec header and the leading VInt size field)
+//   - targetMap: flat word-ID array from $targetMap.dat
+//   - targetMapOff: offset table into targetMap, length = numSourceIds+1
+func NewBinaryDictionaryRaw(buffer []byte, targetMap, targetMapOff []int) *BinaryDictionary {
+	return &BinaryDictionary{buffer: buffer, targetMap: targetMap, targetMapOff: targetMapOff}
+}
 
 // Buffer returns the raw dictionary byte buffer.
 func (d *BinaryDictionary) Buffer() []byte { return d.buffer }

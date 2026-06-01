@@ -102,7 +102,7 @@ func (c *CachingNaiveBayesClassifier) reInitCache(minTermOccurrenceInCache int, 
 	if err != nil || classesTerms == nil {
 		return err
 	}
-	docsWithClass, err := c.countDocsWithClass(classesTerms)
+	docsWithClass, err := c.SimpleNaiveBayesClassifier.countDocsWithClass(classesTerms)
 	if err != nil {
 		return err
 	}

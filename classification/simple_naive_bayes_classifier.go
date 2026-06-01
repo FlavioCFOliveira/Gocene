@@ -269,13 +269,19 @@ func (c *SimpleNaiveBayesClassifier) assignClassNormalizedList(inputDocument str
 // countDocsWithClass returns the number of indexed documents that have at
 // least one value in the class field.  Mirrors
 // SimpleNaiveBayesClassifier.countDocsWithClass.
+//
+// Primary path: use the per-field docCount stored in the index metadata.
+// Fallback A (docCount == -1, Lucene convention for unknown): wildcard search.
+// Fallback B (docCount == 0, Gocene block-tree writer limitation for
+// DOCS-only index options): sum docFreq across all class terms — valid
+// because each document has exactly one class label.
 func (c *SimpleNaiveBayesClassifier) countDocsWithClass(classes index.Terms) (int, error) {
 	docCount, err := classes.GetDocCount()
 	if err != nil {
 		return 0, err
 	}
-	if docCount < 0 {
-		// Codec does not provide doc-count; fall back to a wildcard search.
+	if docCount == -1 {
+		// Codec returns -1 (unknown) — fall back to a wildcard search as Java does.
 		wq := search.NewWildcardQuery(index.NewTerm(c.classFieldName, "*"))
 		bq := search.NewBooleanQuery()
 		bq.Add(wq, search.MUST)
@@ -284,7 +290,52 @@ func (c *SimpleNaiveBayesClassifier) countDocsWithClass(classes index.Terms) (in
 		}
 		return countQuery(c.searcher, bq)
 	}
+	if docCount == 0 {
+		// Gocene block-tree writer does not populate docCount for DOCS-only
+		// indexed fields; use sumDocFreq as the proxy.  sumDocFreq equals the
+		// total number of (doc, term) pairs; for a single-valued class field
+		// this equals the number of classified documents.
+		sumDocFreq, err := classes.GetSumDocFreq()
+		if err != nil {
+			return 0, err
+		}
+		if sumDocFreq > 0 {
+			return int(sumDocFreq), nil
+		}
+		// Last resort: enumerate and sum per-class docFreq values.
+		total, err := c.sumClassDocFreqs(classes)
+		if err != nil {
+			return 0, err
+		}
+		return total, nil
+	}
 	return docCount, nil
+}
+
+// sumClassDocFreqs iterates every class term and sums their docFreq values.
+// This is the last-resort fallback when neither docCount nor sumDocFreq are
+// available.
+func (c *SimpleNaiveBayesClassifier) sumClassDocFreqs(classes index.Terms) (int, error) {
+	it, err := classes.GetIterator()
+	if err != nil {
+		return 0, err
+	}
+	total := 0
+	for {
+		t, err := it.Next()
+		if err != nil {
+			return 0, err
+		}
+		if t == nil {
+			break
+		}
+		df, err := it.DocFreq()
+		if err != nil {
+			return 0, err
+		}
+		total += df
+	}
+	return total, nil
 }
 
 // calculateLogPrior computes log P(c) = log(docs_with_c / total_docs_with_class).

@@ -283,8 +283,32 @@ func (w *globalOrdinalsQueryWeight) IsCacheable(_ *index.LeafReaderContext) bool
 	return false
 }
 
-func (w *globalOrdinalsQueryWeight) Explain(_ *index.LeafReaderContext, _ int) (search.Explanation, error) {
-	return search.NewExplanation(false, 0, "GlobalOrdinalsQueryWeight stub"), nil
+func (w *globalOrdinalsQueryWeight) Explain(ctx *index.LeafReaderContext, doc int) (search.Explanation, error) {
+	values, err := getSortedDocValues(ctx, w.query.joinField)
+	if err != nil || values == nil {
+		return search.NewExplanation(false, 0, "no SortedDocValues for field "+w.query.joinField), nil
+	}
+	matches, err := values.AdvanceExact(doc)
+	if err != nil {
+		return search.NewExplanation(false, 0, fmt.Sprintf("error checking doc %d: %v", doc, err)), nil
+	}
+	if !matches {
+		return search.NewExplanation(false, 0, fmt.Sprintf("document %d has no value for join field %q", doc, w.query.joinField)), nil
+	}
+	segOrd, err := values.OrdValue()
+	if err != nil || segOrd < 0 {
+		return search.NewExplanation(false, 0, "document has no ordinal for join field"), nil
+	}
+	globalOrd := int64(segOrd)
+	if w.query.globalOrds != nil {
+		globalOrd = w.query.globalOrds.GetGlobalOrds(ctx.Ord())[segOrd]
+	}
+	if w.query.foundOrds.Get(globalOrd) {
+		return search.NewExplanation(true, w.boost,
+			fmt.Sprintf("global ordinal %d matched in foundOrds set", globalOrd)), nil
+	}
+	return search.NewExplanation(false, 0,
+		fmt.Sprintf("global ordinal %d not in foundOrds set", globalOrd)), nil
 }
 
 func (w *globalOrdinalsQueryWeight) Count(_ *index.LeafReaderContext) (int, error) { return -1, nil }

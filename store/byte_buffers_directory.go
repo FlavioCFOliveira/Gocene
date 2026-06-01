@@ -5,7 +5,6 @@
 package store
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"sort"
@@ -137,7 +136,6 @@ func (d *ByteBuffersDirectory) CreateOutput(name string, ctx IOContext) (IndexOu
 		BaseIndexOutput: NewBaseIndexOutput(name),
 		file:            file,
 		directory:       d,
-		buffer:          bytes.NewBuffer(make([]byte, 0, 1024)),
 	}, nil
 }
 
@@ -461,39 +459,45 @@ func (in *ByteBuffersIndexInput) ReadLongAt(pos int64) (int64, error) {
 	return int64(binary.LittleEndian.Uint64(in.content[pos : pos+8])), nil
 }
 
-// ByteBuffersIndexOutput is an IndexOutput implementation for ByteBuffersDirectory.
+// ByteBuffersIndexOutput is an IndexOutput implementation for ByteBuffersDirectory
+// with random-access write support via SetPosition.
 type ByteBuffersIndexOutput struct {
 	*BaseIndexOutput
 	file      *byteBufferFile
 	directory *ByteBuffersDirectory
-	buffer    *bytes.Buffer
+	data      []byte
 }
 
-// WriteByte writes a single byte.
+// WriteByte writes a single byte at the current write position.
 func (out *ByteBuffersIndexOutput) WriteByte(b byte) error {
 	if !out.directory.IsOpen() {
 		return ErrIllegalState
 	}
 
-	if err := out.buffer.WriteByte(b); err != nil {
-		return err
+	pos := out.GetFilePointer()
+	if pos >= int64(len(out.data)) {
+		// Extend with zeros up to and including this byte
+		out.data = append(out.data, make([]byte, pos+1-int64(len(out.data)))...)
 	}
-
+	out.data[pos] = b
 	out.IncrementFilePointer(1)
 	return nil
 }
 
-// WriteBytes writes all bytes from b.
+// WriteBytes writes all bytes from b at the current write position.
 func (out *ByteBuffersIndexOutput) WriteBytes(b []byte) error {
 	if !out.directory.IsOpen() {
 		return ErrIllegalState
 	}
 
-	if _, err := out.buffer.Write(b); err != nil {
-		return err
+	n := int64(len(b))
+	pos := out.GetFilePointer()
+	end := pos + n
+	if end > int64(len(out.data)) {
+		out.data = append(out.data, make([]byte, end-int64(len(out.data)))...)
 	}
-
-	out.IncrementFilePointer(int64(len(b)))
+	copy(out.data[pos:end], b)
+	out.IncrementFilePointer(n)
 	return nil
 }
 
@@ -539,13 +543,20 @@ func (out *ByteBuffersIndexOutput) WriteString(s string) error {
 
 // Length returns the current length of the file being written.
 func (out *ByteBuffersIndexOutput) Length() int64 {
-	return int64(out.buffer.Len())
+	return int64(len(out.data))
 }
 
-// SetPosition sets the current position for writing.
-// Note: This is not fully supported for ByteBuffersIndexOutput and returns an error.
+// SetPosition sets the current write position.
+// Seeking past the end extends the buffer with zero bytes.
 func (out *ByteBuffersIndexOutput) SetPosition(pos int64) error {
-	return fmt.Errorf("SetPosition not supported for ByteBuffersIndexOutput")
+	if pos < 0 {
+		return fmt.Errorf("negative position: %d", pos)
+	}
+	if pos > int64(len(out.data)) {
+		out.data = append(out.data, make([]byte, pos-int64(len(out.data)))...)
+	}
+	out.SetFilePointer(pos)
+	return nil
 }
 
 // Close finalizes the file and stores it in the directory.
@@ -556,7 +567,7 @@ func (out *ByteBuffersIndexOutput) Close() error {
 
 	// Store the final content
 	out.file.mu.Lock()
-	out.file.content = out.buffer.Bytes()
+	out.file.content = out.data
 	out.file.mu.Unlock()
 
 	out.directory.RemoveOpenFile(out.file.name)

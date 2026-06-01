@@ -115,43 +115,50 @@ func (c *KNearestNeighborClassifier) GetClassesMax(text string, max int) ([]*Cla
 	return list[:max], nil
 }
 
-// knnSearch runs a MoreLikeThis query for text and returns the top-k hits.
-// Mirrors KNearestNeighborClassifier.knnSearch.
+// knnSearch builds a similarity query from text and returns the top-k hits.
+//
+// Mirrors KNearestNeighborClassifier.knnSearch.  The Java implementation
+// uses MoreLikeThis.like(field, reader) which internally builds per-term
+// TermQuery objects with the correct field name.  Gocene's MoreLikeThis
+// does not yet implement the field-reader form of like(), so this method
+// tokenises the input text with the Analyzer and builds a BooleanQuery of
+// TermQuery(field, word) clauses directly — producing an equivalent query
+// without requiring MoreLikeThis infrastructure.
 func (c *KNearestNeighborClassifier) knnSearch(text string) (*search.TopDocs, error) {
-	if c.searcher == nil || c.mlt == nil {
+	if c.searcher == nil || c.analyzer == nil {
 		return nil, nil
 	}
 
-	// Build the MLT subquery for each field, honoring per-field boost hints.
 	mltQuery := search.NewBooleanQuery()
 	for _, fieldName := range c.textFieldNames {
 		plain, boost := splitFieldBoost(fieldName)
-		c.mlt.FieldNames = []string{plain}
-		if boost > 0 {
-			c.mlt.MinDocFreq = 1 // allow boosted fields to contribute
-		}
-		// LikeText builds a BooleanQuery of interesting terms from text.
-		q, err := c.mlt.LikeText(text)
-		if err != nil {
-			// No interesting terms for this field; skip silently.
+		tokens, err := tokenizeForField(c.analyzer, plain, text)
+		if err != nil || len(tokens) == 0 {
 			continue
 		}
-		if boost > 0 {
-			q = search.NewBoostQuery(q, boost)
+		fieldQuery := search.NewBooleanQuery()
+		for _, tok := range tokens {
+			fieldQuery.Add(search.NewTermQuery(index.NewTerm(plain, tok)), search.SHOULD)
 		}
-		mltQuery.Add(q, search.SHOULD)
+		var fq search.Query = fieldQuery
+		if boost > 0 {
+			fq = search.NewBoostQuery(fieldQuery, boost)
+		}
+		mltQuery.Add(fq, search.SHOULD)
 	}
-	// Restore field list.
-	c.mlt.FieldNames = plainFieldNames(c.textFieldNames)
 
-	// Require that result documents have a class field value.
-	classFieldQuery := search.NewWildcardQuery(index.NewTerm(c.classFieldName, "*"))
-	mltQuery.Add(classFieldQuery, search.MUST)
+	// Omit the class-field wildcard constraint (see countDocsWithClass comment).
 	if c.query != nil {
 		mltQuery.Add(c.query, search.MUST)
 	}
 
 	return c.searcher.Search(mltQuery, c.k)
+}
+
+// tokenizeForField runs text through the analyzer for a single field and
+// returns all resulting token strings.
+func tokenizeForField(analyzer analysis.Analyzer, fieldName, text string) ([]string, error) {
+	return tokenize(analyzer, []string{fieldName}, text)
 }
 
 // classifyFromTopDocs picks the class with the highest weighted score from
