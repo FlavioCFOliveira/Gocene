@@ -251,7 +251,7 @@ func (r *Lucene103FieldReader) Intersect(compiled *automaton.CompiledAutomaton, 
 	if compiled == nil {
 		return nil, errors.New("Lucene103FieldReader.Intersect: compiled must not be nil")
 	}
-	return NewLucene103IntersectTermsEnum(r, compiled, startTerm), nil
+	return NewLucene103IntersectTermsEnum(r, compiled, startTerm)
 }
 
 // String renders a human-readable label matching the Java implementation.
