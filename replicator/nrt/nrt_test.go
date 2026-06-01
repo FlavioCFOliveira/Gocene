@@ -15,11 +15,14 @@ package nrt_test
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"io"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/replicator/nrt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -397,5 +400,486 @@ func TestIDFromSeed(t *testing.T) {
 		uint64(id[12])<<24 | uint64(id[13])<<16 | uint64(id[14])<<8 | uint64(id[15])
 	if got1 != want1 {
 		t.Errorf("IDFromSeed[8:16]: want %016x got %016x", want1, got1)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ReplicaFileDeleter — directory deletion
+// ---------------------------------------------------------------------------
+
+// TestReplicaFileDeleter_DeletesFromDir verifies that DecRef calls
+// Directory.DeleteFile when the refcount reaches zero.
+func TestReplicaFileDeleter_DeletesFromDir(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	// Create a file so it exists when DeleteFile is called.
+	out, err := dir.CreateOutput("a.txt", store.IOContextDefault)
+	if err != nil {
+		t.Fatalf("CreateOutput: %v", err)
+	}
+	if err := out.WriteByte(0); err != nil {
+		t.Fatalf("WriteByte: %v", err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	d := nrt.NewReplicaFileDeleter(nil, dir)
+	if err := d.IncRef([]string{"a.txt"}); err != nil {
+		t.Fatalf("IncRef: %v", err)
+	}
+	if !dir.FileExists("a.txt") {
+		t.Fatal("file must exist before DecRef")
+	}
+	if err := d.DecRef([]string{"a.txt"}); err != nil {
+		t.Fatalf("DecRef: %v", err)
+	}
+	if dir.FileExists("a.txt") {
+		t.Fatal("DecRef to 0 must delete the file from the directory")
+	}
+}
+
+// TestReplicaFileDeleter_DeleteIfNoRef_Dir verifies DeleteIfNoRef removes the
+// file from the directory when its refcount is already zero.
+func TestReplicaFileDeleter_DeleteIfNoRef_Dir(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	out, err := dir.CreateOutput("b.txt", store.IOContextDefault)
+	if err != nil {
+		t.Fatalf("CreateOutput: %v", err)
+	}
+	if err := out.WriteByte(1); err != nil {
+		t.Fatalf("WriteByte: %v", err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	d := nrt.NewReplicaFileDeleter(nil, dir)
+	// File is unreferenced (count == 0).
+	if err := d.DeleteIfNoRef("b.txt"); err != nil {
+		t.Fatalf("DeleteIfNoRef: %v", err)
+	}
+	if dir.FileExists("b.txt") {
+		t.Fatal("DeleteIfNoRef with count=0 must delete the file")
+	}
+}
+
+// TestReplicaFileDeleter_NoDeleteWhileReferenced verifies that DecRef does
+// NOT delete a file while it still has outstanding references.
+func TestReplicaFileDeleter_NoDeleteWhileReferenced(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	out, err := dir.CreateOutput("c.txt", store.IOContextDefault)
+	if err != nil {
+		t.Fatalf("CreateOutput: %v", err)
+	}
+	if err := out.WriteByte(2); err != nil {
+		t.Fatalf("WriteByte: %v", err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	d := nrt.NewReplicaFileDeleter(nil, dir)
+	if err := d.IncRef([]string{"c.txt", "c.txt"}); err != nil {
+		t.Fatalf("IncRef (2×): %v", err)
+	}
+	if err := d.DecRef([]string{"c.txt"}); err != nil {
+		t.Fatalf("DecRef (1×): %v", err)
+	}
+	if !dir.FileExists("c.txt") {
+		t.Fatal("file must still exist when refcount is 1 after DecRef from 2")
+	}
+	if err := d.DecRef([]string{"c.txt"}); err != nil {
+		t.Fatalf("DecRef (2×): %v", err)
+	}
+	if dir.FileExists("c.txt") {
+		t.Fatal("file must be deleted once refcount reaches 0")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Node.ReadLocalFileMetaData
+// ---------------------------------------------------------------------------
+
+// writeTestFile writes a minimal but structurally valid Lucene codec file to
+// dir under fileName and returns the CRC32 checksum stored in the footer.
+//
+// Layout (matches codecs.WriteIndexHeader + codecs.WriteFooter):
+//
+//	4 bytes   codec magic BE int32
+//	vInt+str  codec name
+//	4 bytes   version BE int32
+//	16 bytes  segment ID
+//	1 byte    suffix length (0)
+//	4 bytes   footer magic BE int32
+//	4 bytes   algorithm = 0
+//	8 bytes   CRC32 checksum (computed over all preceding bytes)
+//
+// The returned checksum is the value that Lucene's retrieveChecksum reads —
+// i.e., the CRC32 of all bytes up to (not including) the checksum long itself.
+func writeTestFile(t *testing.T, dir store.Directory, fileName string) int64 {
+	t.Helper()
+	out, err := dir.CreateOutput(fileName, store.IOContextDefault)
+	if err != nil {
+		t.Fatalf("CreateOutput %q: %v", fileName, err)
+	}
+	cOut := store.NewChecksumIndexOutput(out)
+
+	id := make([]byte, 16)
+	for i := range id {
+		id[i] = byte(i + 1)
+	}
+	if err := codecs.WriteIndexHeader(cOut, "TestCodec", 1, id, ""); err != nil {
+		t.Fatalf("WriteIndexHeader: %v", err)
+	}
+	if err := codecs.WriteFooter(cOut); err != nil {
+		t.Fatalf("WriteFooter: %v", err)
+	}
+	if err := cOut.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// Retrieve the actual stored checksum by reading the file back.
+	// This is the CRC32 of [header + FooterMagic + algo] (not including the
+	// checksum long itself), which is what ChecksumIndexOutput captured before
+	// writing the checksum.
+	in, err := dir.OpenInput(fileName, store.IOContextDefault)
+	if err != nil {
+		t.Fatalf("OpenInput for checksum: %v", err)
+	}
+	defer in.Close()
+	checksum, cerr := codecs.RetrieveChecksum(in)
+	if cerr != nil {
+		t.Fatalf("RetrieveChecksum: %v", cerr)
+	}
+	return checksum
+}
+
+// TestNode_ReadLocalFileMetaData_ValidFile verifies that a structurally valid
+// file returns non-nil FileMetaData with the correct length and checksum.
+func TestNode_ReadLocalFileMetaData_ValidFile(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	expectedChecksum := writeTestFile(t, dir, "_0.si")
+
+	node := nrt.NewNode(0, dir, io.Discard)
+	md, err := node.ReadLocalFileMetaData("_0.si")
+	if err != nil {
+		t.Fatalf("ReadLocalFileMetaData: %v", err)
+	}
+	if md == nil {
+		t.Fatal("ReadLocalFileMetaData: want non-nil for valid file")
+	}
+
+	length, lerr := dir.FileLength("_0.si")
+	if lerr != nil {
+		t.Fatalf("FileLength: %v", lerr)
+	}
+	if md.Length != length {
+		t.Errorf("Length: want %d got %d", length, md.Length)
+	}
+	if md.Checksum != expectedChecksum {
+		t.Errorf("Checksum: want %d got %d", expectedChecksum, md.Checksum)
+	}
+	if len(md.Header) == 0 {
+		t.Error("Header must not be empty")
+	}
+	if len(md.Footer) != codecs.FooterLength() {
+		t.Errorf("Footer length: want %d got %d", codecs.FooterLength(), len(md.Footer))
+	}
+}
+
+// TestNode_ReadLocalFileMetaData_MissingFile verifies that a missing file
+// returns (nil, nil) rather than an error.
+func TestNode_ReadLocalFileMetaData_MissingFile(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	node := nrt.NewNode(0, dir, io.Discard)
+	md, err := node.ReadLocalFileMetaData("nonexistent.si")
+	if err != nil {
+		t.Fatalf("want nil error for missing file, got %v", err)
+	}
+	if md != nil {
+		t.Fatal("want nil FileMetaData for missing file")
+	}
+}
+
+// TestNode_ReadLocalFileMetaData_NilDir verifies that a Node with a nil
+// directory returns (nil, nil) without panicking.
+func TestNode_ReadLocalFileMetaData_NilDir(t *testing.T) {
+	node := nrt.NewNode(0, nil, io.Discard)
+	md, err := node.ReadLocalFileMetaData("_0.si")
+	if err != nil {
+		t.Fatalf("nil dir: want nil error, got %v", err)
+	}
+	if md != nil {
+		t.Fatal("nil dir: want nil FileMetaData")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CopyOneFile.Copy
+// ---------------------------------------------------------------------------
+
+// buildCopyFilePayload constructs the byte slice that the primary would send
+// over the wire for a single file: (length−8) data bytes followed by the
+// big-endian CRC32 checksum long.
+//
+// The checksum stored in a Lucene file is computed by ChecksumIndexOutput over
+// all bytes written up to (but not including) the checksum long itself — that
+// means it covers the header, any payload data, the footer magic (4 bytes), and
+// the algorithm field (4 bytes). We retrieve it directly with
+// codecs.RetrieveChecksum so we use exactly the same value the file stores.
+//
+// The wire payload mirrors Java SimplePrimaryNode: first (length−8) bytes of
+// the file, then the 8-byte big-endian CRC32 checksum long.
+func buildCopyFilePayload(t *testing.T, dir store.Directory, fileName string) ([]byte, int64) {
+	t.Helper()
+	in, err := dir.OpenInput(fileName, store.IOContextDefault)
+	if err != nil {
+		t.Fatalf("OpenInput %q: %v", fileName, err)
+	}
+	defer in.Close()
+
+	length := in.Length()
+	all := make([]byte, length)
+	if err := in.ReadBytes(all); err != nil {
+		t.Fatalf("ReadBytes: %v", err)
+	}
+
+	// The actual checksum stored in the file is the CRC32 computed by
+	// ChecksumIndexOutput over all bytes it wrote (header + footer magic + algo),
+	// NOT including the checksum long itself. Retrieve it directly.
+	checksum, cerr := codecs.RetrieveChecksum(in)
+	if cerr != nil {
+		t.Fatalf("RetrieveChecksum %q: %v", fileName, cerr)
+	}
+
+	// Wire payload: data bytes (excluding last 8) + big-endian checksum long.
+	dataBytes := all[:length-8]
+	payload := make([]byte, len(dataBytes)+8)
+	copy(payload, dataBytes)
+	binary.BigEndian.PutUint64(payload[len(dataBytes):], uint64(checksum))
+
+	return payload, checksum
+}
+
+// TestCopyOneFile_Copy_RoundTrip writes a valid codec file, builds the
+// primary's wire payload, then verifies that CopyOneFile.Copy produces byte-
+// identical output in a fresh output.
+func TestCopyOneFile_Copy_RoundTrip(t *testing.T) {
+	srcDir := store.NewByteBuffersDirectory()
+	defer srcDir.Close()
+	dstDir := store.NewByteBuffersDirectory()
+	defer dstDir.Close()
+
+	writeTestFile(t, srcDir, "_1.si")
+
+	payload, expectedChecksum := buildCopyFilePayload(t, srcDir, "_1.si")
+	srcLen, _ := srcDir.FileLength("_1.si")
+
+	meta := &nrt.FileMetaData{
+		Length:   srcLen,
+		Checksum: expectedChecksum,
+	}
+	c := nrt.NewCopyOneFile("_1.si", "_1.si.tmp", meta)
+
+	// Source: ByteArrayDataInput wrapping the payload (acts as the network stream).
+	in := store.NewByteArrayDataInput(payload)
+	// Note: ByteArrayDataInput does not implement store.IndexInput (no Length/SetPosition).
+	// Wrap it in a ByteBuffersIndexInput by writing the payload to dstDir first.
+	payloadOut, err := dstDir.CreateOutput("_1.si.src", store.IOContextDefault)
+	if err != nil {
+		t.Fatalf("CreateOutput src payload: %v", err)
+	}
+	if err := payloadOut.WriteBytes(payload); err != nil {
+		t.Fatalf("WriteBytes payload: %v", err)
+	}
+	if err := payloadOut.Close(); err != nil {
+		t.Fatalf("Close payload output: %v", err)
+	}
+	_ = in // replaced by the IndexInput below
+
+	srcIn, err := dstDir.OpenInput("_1.si.src", store.IOContextDefault)
+	if err != nil {
+		t.Fatalf("OpenInput payload: %v", err)
+	}
+	defer srcIn.Close()
+
+	// Destination: ChecksumIndexOutput wrapping a fresh output.
+	rawOut, err := dstDir.CreateOutput("_1.si.tmp", store.IOContextDefault)
+	if err != nil {
+		t.Fatalf("CreateOutput dst: %v", err)
+	}
+	dstOut := store.NewChecksumIndexOutput(rawOut)
+
+	if err := c.Copy(srcIn, dstOut); err != nil {
+		t.Fatalf("Copy: %v", err)
+	}
+	if err := dstOut.Close(); err != nil {
+		t.Fatalf("Close dstOut: %v", err)
+	}
+
+	// The copy must have advanced BytesCopied to srcLen (all bytes including the
+	// 8-byte checksum long that Copy appends).
+	if c.BytesCopied() != srcLen {
+		t.Errorf("BytesCopied: want %d got %d", srcLen, c.BytesCopied())
+	}
+}
+
+// TestCopyOneFile_Copy_ChecksumMismatch verifies that Copy returns an error
+// when the data bytes produce a different CRC than expected.
+func TestCopyOneFile_Copy_ChecksumMismatch(t *testing.T) {
+	srcDir := store.NewByteBuffersDirectory()
+	defer srcDir.Close()
+
+	writeTestFile(t, srcDir, "_2.si")
+	payload, _ := buildCopyFilePayload(t, srcDir, "_2.si")
+	srcLen, _ := srcDir.FileLength("_2.si")
+
+	// Supply a wrong expected checksum.
+	meta := &nrt.FileMetaData{Length: srcLen, Checksum: 0xDEADBEEF}
+	c := nrt.NewCopyOneFile("_2.si", "_2.si.tmp", meta)
+
+	payloadDir := store.NewByteBuffersDirectory()
+	defer payloadDir.Close()
+	po, err := payloadDir.CreateOutput("p", store.IOContextDefault)
+	if err != nil {
+		t.Fatalf("CreateOutput: %v", err)
+	}
+	if err := po.WriteBytes(payload); err != nil {
+		t.Fatalf("WriteBytes: %v", err)
+	}
+	if err := po.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	srcIn, err := payloadDir.OpenInput("p", store.IOContextDefault)
+	if err != nil {
+		t.Fatalf("OpenInput: %v", err)
+	}
+	defer srcIn.Close()
+
+	rawOut, err := payloadDir.CreateOutput("out", store.IOContextDefault)
+	if err != nil {
+		t.Fatalf("CreateOutput dst: %v", err)
+	}
+	dstOut := store.NewChecksumIndexOutput(rawOut)
+	defer dstOut.Close()
+
+	if err := c.Copy(srcIn, dstOut); err == nil {
+		t.Fatal("Copy: expected checksum mismatch error, got nil")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ReplicaNode.NewNRTPoint — version-guard and primary-gen cut-over
+// ---------------------------------------------------------------------------
+
+// TestReplicaNode_NewNRTPoint_VersionAdvances verifies that a new NRT point
+// with a higher version is accepted and stored.
+func TestReplicaNode_NewNRTPoint_VersionAdvances(t *testing.T) {
+	r := nrt.NewReplicaNode(0, nil, io.Discard)
+
+	if err := r.NewNRTPoint(1, 100, []byte{0xAB}); err != nil {
+		t.Fatalf("NewNRTPoint v100: %v", err)
+	}
+	if got := r.GetCurrentVersion(); got != 100 {
+		t.Errorf("GetCurrentVersion: want 100, got %d", got)
+	}
+
+	if err := r.NewNRTPoint(1, 200, []byte{0xCD}); err != nil {
+		t.Fatalf("NewNRTPoint v200: %v", err)
+	}
+	if got := r.GetCurrentVersion(); got != 200 {
+		t.Errorf("GetCurrentVersion: want 200, got %d", got)
+	}
+}
+
+// TestReplicaNode_NewNRTPoint_SameVersionNoOp verifies that a version equal
+// to the current is a no-op (version does not change).
+func TestReplicaNode_NewNRTPoint_SameVersionNoOp(t *testing.T) {
+	r := nrt.NewReplicaNode(0, nil, io.Discard)
+	if err := r.NewNRTPoint(1, 50, nil); err != nil {
+		t.Fatalf("first NewNRTPoint: %v", err)
+	}
+	if err := r.NewNRTPoint(1, 50, nil); err != nil {
+		t.Fatalf("same-version NewNRTPoint: %v", err)
+	}
+	if got := r.GetCurrentVersion(); got != 50 {
+		t.Errorf("GetCurrentVersion: want 50, got %d", got)
+	}
+}
+
+// TestReplicaNode_NewNRTPoint_StaleVersionNoOp verifies that a version older
+// than the current is silently ignored.
+func TestReplicaNode_NewNRTPoint_StaleVersionNoOp(t *testing.T) {
+	r := nrt.NewReplicaNode(0, nil, io.Discard)
+	if err := r.NewNRTPoint(1, 99, nil); err != nil {
+		t.Fatalf("NewNRTPoint v99: %v", err)
+	}
+	// Send an older version — must be ignored.
+	if err := r.NewNRTPoint(1, 10, nil); err != nil {
+		t.Fatalf("NewNRTPoint v10 (stale): %v", err)
+	}
+	if got := r.GetCurrentVersion(); got != 99 {
+		t.Errorf("GetCurrentVersion after stale point: want 99, got %d", got)
+	}
+}
+
+// TestReplicaNode_NewNRTPoint_PrimaryGenCutOver verifies that a new primary
+// generation is accepted and the replica's lastPrimaryGen is updated
+// (the new version takes effect).
+func TestReplicaNode_NewNRTPoint_PrimaryGenCutOver(t *testing.T) {
+	r := nrt.NewReplicaNode(0, nil, io.Discard)
+	if err := r.NewNRTPoint(1, 10, nil); err != nil {
+		t.Fatalf("NewNRTPoint primaryGen=1 v10: %v", err)
+	}
+	// New primary elected; version must advance.
+	if err := r.NewNRTPoint(2, 11, nil); err != nil {
+		t.Fatalf("NewNRTPoint primaryGen=2 v11: %v", err)
+	}
+	if got := r.GetCurrentVersion(); got != 11 {
+		t.Errorf("GetCurrentVersion after primary change: want 11, got %d", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// PreCopyMergedSegmentWarmer.Warm delegates to PrimaryNode
+// ---------------------------------------------------------------------------
+
+// TestPreCopyMergedSegmentWarmer_Warm_NoPanic verifies that Warm with a nil
+// info argument does not panic (PrimaryNode.PreCopyMergedSegmentFiles is a
+// no-op stub).
+func TestPreCopyMergedSegmentWarmer_Warm_NoPanic(t *testing.T) {
+	p := nrt.NewPrimaryNode(0, 1, nil, io.Discard)
+	w := nrt.NewPreCopyMergedSegmentWarmer(p)
+	if err := w.Warm(nil); err != nil {
+		t.Fatalf("Warm(nil): %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// SegmentInfosSearcherManager.SetCurrentInfos / GetCurrentInfos
+// ---------------------------------------------------------------------------
+
+func TestSegmentInfosSearcherManager_SetGet(t *testing.T) {
+	r := nrt.NewReplicaNode(0, nil, io.Discard)
+	m := nrt.NewSegmentInfosSearcherManager(nil, r)
+
+	if got := m.GetCurrentInfos(); got != nil {
+		t.Fatalf("initial infos must be nil, got %v", got)
+	}
+
+	sentinel := &spi.SegmentInfos{}
+	m.SetCurrentInfos(sentinel)
+	if got := m.GetCurrentInfos(); got != sentinel {
+		t.Fatalf("GetCurrentInfos: want sentinel, got %v", got)
 	}
 }

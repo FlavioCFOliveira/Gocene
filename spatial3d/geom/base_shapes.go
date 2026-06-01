@@ -62,6 +62,110 @@ type GeoBaseBBox struct {
 // Expand returns nil — deferred to #2693.
 func (s *GeoBaseBBox) Expand(_ float64) GeoBBox { return nil }
 
+// ---------------------------------------------------------------------------
+// Shared GetRelationship logic
+// ---------------------------------------------------------------------------
+
+// geoInsideAll/geoInsideSome/geoInsideNone mirror GeoBaseAreaShape constants.
+const (
+	geoInsideAll  = 0
+	geoInsideSome = 1
+	geoInsideNone = 2
+)
+
+// classifyShapeEdgePointsIn tests how many of geoShape's edge points are
+// inside the area (isWithin). Mirrors GeoBaseAreaShape.isShapeInsideGeoAreaShape.
+func classifyShapeEdgePointsIn(isWithin func(x, y, z float64) bool, geoShape GeoShape) int {
+	foundIn, foundOut := false, false
+	for _, p := range geoShape.GetEdgePoints() {
+		if isWithin(p.X, p.Y, p.Z) {
+			foundIn = true
+		} else {
+			foundOut = true
+		}
+		if foundIn && foundOut {
+			return geoInsideSome
+		}
+	}
+	if !foundIn && !foundOut {
+		return geoInsideNone
+	}
+	if foundIn {
+		return geoInsideAll
+	}
+	return geoInsideNone
+}
+
+// classifyAreaEdgePointsIn tests how many of this area's edge points are
+// inside geoShape (which must implement Membership).
+// Mirrors GeoBaseAreaShape.isGeoAreaShapeInsideShape.
+func classifyAreaEdgePointsIn(edgePoints []*GeoPoint, geoShape GeoShape) int {
+	mem, ok := geoShape.(Membership)
+	if !ok {
+		return geoInsideNone
+	}
+	foundIn, foundOut := false, false
+	for _, p := range edgePoints {
+		if mem.IsWithin(p.X, p.Y, p.Z) {
+			foundIn = true
+		} else {
+			foundOut = true
+		}
+		if foundIn && foundOut {
+			return geoInsideSome
+		}
+	}
+	if !foundIn && !foundOut {
+		return geoInsideNone
+	}
+	if foundIn {
+		return geoInsideAll
+	}
+	return geoInsideNone
+}
+
+// geoAreaGetRelationship implements GeoBaseAreaShape.getRelationship.
+//
+// isWithin is this area's membership test.
+// edgePoints are this area's edge points.
+// intersectsShape is this area's intersects(GeoShape) method.
+//
+// Port of org.apache.lucene.spatial3d.geom.GeoBaseAreaShape.getRelationship.
+func geoAreaGetRelationship(
+	isWithin func(x, y, z float64) bool,
+	edgePoints []*GeoPoint,
+	intersectsShape func(GeoShape) bool,
+	geoShape GeoShape,
+) int {
+	insideArea := classifyShapeEdgePointsIn(isWithin, geoShape)
+	if insideArea == geoInsideSome {
+		return RelOverlaps
+	}
+
+	insideShape := classifyAreaEdgePointsIn(edgePoints, geoShape)
+	if insideShape == geoInsideSome {
+		return RelOverlaps
+	}
+
+	if insideArea == geoInsideAll && insideShape == geoInsideAll {
+		return RelOverlaps
+	}
+
+	if intersectsShape(geoShape) {
+		return RelOverlaps
+	}
+
+	if insideArea == geoInsideAll {
+		return RelWithin
+	}
+
+	if insideShape == geoInsideAll {
+		return RelContains
+	}
+
+	return RelDisjoint
+}
+
 // GeoBaseCircle is the base for circular shapes.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoBaseCircle.

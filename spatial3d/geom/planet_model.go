@@ -320,3 +320,58 @@ func (pm *PlanetModel) String() string {
 	}
 	return "PlanetModel(a=" + fmtFloat(pm.A) + ",b=" + fmtFloat(pm.B) + ")"
 }
+
+// SurfacePointOnBearing computes a new surface point from a starting point,
+// a surface distance (as returned by surfaceDistance), and a bearing direction.
+// Bearing 0 = due east at equator, PI/2 = north, PI = west, 3PI/2 = south.
+//
+// Port of org.apache.lucene.spatial3d.geom.PlanetModel.surfacePointOnBearing.
+func (pm *PlanetModel) SurfacePointOnBearing(from *GeoPoint, dist, bearing float64) *GeoPoint {
+	lat := from.GetLatitude()
+	lon := from.GetLongitude()
+
+	sinAlpha1 := math.Sin(bearing)
+	cosAlpha1 := math.Cos(bearing)
+
+	tanU1 := (1.0 - pm.ScaledFlattening) * math.Tan(lat)
+	cosU1 := 1.0 / math.Sqrt(1.0+tanU1*tanU1)
+	sinU1 := tanU1 * cosU1
+
+	sigma1 := math.Atan2(tanU1, cosAlpha1)
+	sinAlpha := cosU1 * sinAlpha1
+	cosSqAlpha := 1.0 - sinAlpha*sinAlpha
+	uSq := cosSqAlpha * pm.SquareRatio
+	aVal := 1.0 + uSq/16384.0*(4096.0+uSq*(-768.0+uSq*(320.0-175.0*uSq)))
+	bVal := uSq / 1024.0 * (256.0 + uSq*(-128.0+uSq*(74.0-47.0*uSq)))
+
+	sigma := dist / (pm.ZScaling * pm.InverseScale * aVal)
+
+	var cos2SigmaM, sinSigma, cosSigma, deltaSigma, sigmaPrime float64
+	iterations := 0
+	for {
+		cos2SigmaM = math.Cos(2.0*sigma1 + sigma)
+		sinSigma = math.Sin(sigma)
+		cosSigma = math.Cos(sigma)
+		deltaSigma = bVal * sinSigma * (cos2SigmaM +
+			bVal/4.0*(cosSigma*(-1.0+2.0*cos2SigmaM*cos2SigmaM)-
+				bVal/6.0*cos2SigmaM*(-3.0+4.0*sinSigma*sinSigma)*(-3.0+4.0*cos2SigmaM*cos2SigmaM)))
+		sigmaPrime = sigma
+		sigma = dist/(pm.ZScaling*pm.InverseScale*aVal) + deltaSigma
+		iterations++
+		if math.Abs(sigma-sigmaPrime) < MinimumResolution || iterations >= 100 {
+			break
+		}
+	}
+
+	x := sinU1*sinSigma - cosU1*cosSigma*cosAlpha1
+	phi2 := math.Atan2(
+		sinU1*cosSigma+cosU1*sinSigma*cosAlpha1,
+		(1.0-pm.ScaledFlattening)*math.Sqrt(sinAlpha*sinAlpha+x*x),
+	)
+	lambda := math.Atan2(sinSigma*sinAlpha1, cosU1*cosSigma-sinU1*sinSigma*cosAlpha1)
+	cVal := pm.ScaledFlattening / 16.0 * cosSqAlpha * (4.0 + pm.ScaledFlattening*(4.0-3.0*cosSqAlpha))
+	l := lambda - (1.0-cVal)*pm.ScaledFlattening*sinAlpha*(sigma+cVal*sinSigma*(cos2SigmaM+cVal*cosSigma*(-1.0+2.0*cos2SigmaM*cos2SigmaM)))
+	lambda2 := math.Mod(lon+l+3.0*math.Pi, 2.0*math.Pi) - math.Pi
+
+	return NewGeoPointModel(pm, phi2, lambda2)
+}
