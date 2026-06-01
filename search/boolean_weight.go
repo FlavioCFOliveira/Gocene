@@ -16,32 +16,61 @@ type BooleanWeight struct {
 	*BaseWeight
 	query         *BooleanQuery
 	searcher      *IndexSearcher
+	scoreMode     ScoreMode
 	needsScores   bool
 	weights       []Weight
 	scorerEnabled []bool
 }
 
-// NewBooleanWeight creates a new BooleanWeight.
+// NewBooleanWeight creates a new BooleanWeight from a needsScores bool.
+//
+// It is retained for callers that hold only a bool; it maps the bool to the
+// coarsest equivalent ScoreMode (COMPLETE / COMPLETE_NO_SCORES) and delegates to
+// NewBooleanWeightWithScoreMode. The real search path goes through
+// BooleanQuery.CreateWeightScoreMode, which preserves the full ScoreMode.
 func NewBooleanWeight(query *BooleanQuery, searcher *IndexSearcher, needsScores bool) (*BooleanWeight, error) {
+	mode := COMPLETE_NO_SCORES
+	if needsScores {
+		mode = COMPLETE
+	}
+	return NewBooleanWeightWithScoreMode(query, searcher, mode)
+}
+
+// NewBooleanWeightWithScoreMode creates a new BooleanWeight under the given full
+// ScoreMode, mirroring the org.apache.lucene.search.BooleanWeight constructor.
+//
+// Each clause's sub-weight is created with the outer ScoreMode if the clause is
+// scoring (MUST or SHOULD — BooleanClause.isScoring in Lucene) and with
+// COMPLETE_NO_SCORES otherwise (FILTER and MUST_NOT), so prohibited and filter
+// clauses never observe a score-bearing mode. Sub-weights are created through
+// the searcher's createWeight dispatch so composite child queries see the
+// forwarded mode.
+func NewBooleanWeightWithScoreMode(query *BooleanQuery, searcher *IndexSearcher, scoreMode ScoreMode) (*BooleanWeight, error) {
 	w := &BooleanWeight{
 		BaseWeight:    NewBaseWeight(query),
 		query:         query,
 		searcher:      searcher,
-		needsScores:   needsScores,
+		scoreMode:     scoreMode,
+		needsScores:   scoreMode.needsScores(),
 		weights:       make([]Weight, len(query.clauses)),
 		scorerEnabled: make([]bool, len(query.clauses)),
 	}
 
-	// Create weights for each clause
+	// Create weights for each clause. Scoring clauses (MUST / SHOULD) receive
+	// the outer ScoreMode; non-scoring clauses (FILTER / MUST_NOT) receive
+	// COMPLETE_NO_SCORES (Lucene: c.isScoring() ? scoreMode :
+	// ScoreMode.COMPLETE_NO_SCORES).
 	for i, clause := range query.clauses {
-		// For FILTER clauses, we don't need scores
-		clauseNeedsScores := needsScores && clause.Occur != FILTER
-		weight, err := clause.Query.CreateWeight(searcher, clauseNeedsScores, 1.0)
+		clauseScoreMode := COMPLETE_NO_SCORES
+		if clause.isScoring() {
+			clauseScoreMode = scoreMode
+		}
+		weight, err := searcher.CreateWeight(clause.Query, clauseScoreMode, 1.0)
 		if err != nil {
 			return nil, err
 		}
 		w.weights[i] = weight
-		w.scorerEnabled[i] = clauseNeedsScores
+		w.scorerEnabled[i] = clauseScoreMode.needsScores()
 	}
 
 	return w, nil

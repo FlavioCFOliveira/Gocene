@@ -48,6 +48,14 @@ func NewBooleanClause(query Query, occur Occur) *BooleanClause {
 	return &BooleanClause{Query: query, Occur: occur}
 }
 
+// isScoring reports whether this clause contributes to the document score,
+// mirroring org.apache.lucene.search.BooleanClause#isScoring: a clause is
+// scoring exactly when its Occur is MUST or SHOULD. FILTER and MUST_NOT clauses
+// are non-scoring and are created with ScoreMode.COMPLETE_NO_SCORES.
+func (c *BooleanClause) isScoring() bool {
+	return c.Occur == MUST || c.Occur == SHOULD
+}
+
 // BooleanQuery matches documents matching boolean combinations of clauses.
 type BooleanQuery struct {
 	*BaseQuery
@@ -868,8 +876,29 @@ func (q *BooleanQuery) String() string {
 }
 
 // CreateWeight creates a Weight for this query.
+//
+// This bool-based entry point exists for the stable Query.CreateWeight
+// signature; it delegates to the ScoreMode-aware CreateWeightScoreMode with the
+// coarsest mode that still satisfies the caller (COMPLETE when scores are
+// needed, COMPLETE_NO_SCORES otherwise). IndexSearcher always reaches
+// BooleanQuery through CreateWeightScoreMode (via createWeight dispatch), so the
+// full ScoreMode — including TOP_SCORES / TOP_DOCS — is preserved on the real
+// search path and forwarded to scoring clauses.
 func (q *BooleanQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	return NewBooleanWeight(q, searcher, needsScores)
+	mode := COMPLETE_NO_SCORES
+	if needsScores {
+		mode = COMPLETE
+	}
+	return q.CreateWeightScoreMode(searcher, mode, boost)
+}
+
+// CreateWeightScoreMode creates a Weight for this query under the given full
+// ScoreMode, mirroring org.apache.lucene.search.BooleanQuery.createWeight, which
+// constructs a BooleanWeight carrying the ScoreMode. The boost is ignored here,
+// matching Lucene's BooleanWeight, which does not apply the query-level boost
+// (BoostQuery wraps BooleanQuery when a boost is desired).
+func (q *BooleanQuery) CreateWeightScoreMode(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+	return NewBooleanWeightWithScoreMode(q, searcher, scoreMode)
 }
 
 // Ensure BooleanQuery implements Query

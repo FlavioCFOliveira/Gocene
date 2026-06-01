@@ -146,34 +146,64 @@ func (q *ConstantScoreQuery) Rewrite(reader IndexReader) (Query, error) {
 // delegated to the inner Weight, again mirroring the Java anonymous subclass.
 //
 // Deviations from Java:
-//   - Gocene's Query.CreateWeight takes a needsScores bool rather than a
-//     ScoreMode; the inner Weight is built with needsScores=false (the
-//     COMPLETE_NO_SCORES / TOP_DOCS distinction Lucene draws for dynamic
-//     pruning is not modelled here because Gocene has no ScoreMode-aware
-//     inner createWeight overload yet).
 //   - TwoPhaseIterator is not yet wired in Gocene's Scorer surface, so the
 //     inner Scorer is consumed directly as a DocIdSetIterator (Scorer embeds
 //     DocIdSetIterator) instead of preferring twoPhaseIterator() when present.
 //   - The Java ConstantBulkScorer specialisation is not reproduced; the
 //     ConstantScoreWeight's default BulkScorer (DefaultBulkScorer over the
 //     constant-score Scorer) is used instead.
+//
+// This bool-based entry point exists for the stable Query.CreateWeight
+// signature; it delegates to the ScoreMode-aware CreateWeightScoreMode with the
+// coarsest mode that still satisfies the caller (COMPLETE when scores are
+// needed, COMPLETE_NO_SCORES otherwise). IndexSearcher always reaches
+// ConstantScoreQuery through CreateWeightScoreMode (via createWeight dispatch),
+// so the full ScoreMode — including TOP_SCORES / TOP_DOCS — is preserved on the
+// real search path.
 func (q *ConstantScoreQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+	mode := COMPLETE_NO_SCORES
+	if needsScores {
+		mode = COMPLETE
+	}
+	return q.CreateWeightScoreMode(searcher, mode, boost)
+}
+
+// CreateWeightScoreMode builds the Weight for this ConstantScoreQuery under the
+// given full ScoreMode, mirroring
+// org.apache.lucene.search.ConstantScoreQuery.createWeight (Lucene 10.4.0).
+//
+// The wrapped query is always built at boost 1.0 and never observes the outer
+// score mode directly. Instead, following Lucene, an exhaustive outer mode
+// (COMPLETE / COMPLETE_NO_SCORES) forwards COMPLETE_NO_SCORES to the inner
+// query, while a non-exhaustive outer mode (TOP_SCORES / TOP_DOCS) forwards
+// TOP_DOCS — so dynamic-pruning optimisations are not disabled for queries
+// sorted by field or by top scores. The inner Weight is created through the
+// searcher's createWeight dispatch so a composite inner query (e.g. another
+// BooleanQuery or ConstantScoreQuery) sees the forwarded mode.
+func (q *ConstantScoreQuery) CreateWeightScoreMode(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	if q.query == nil {
 		// A ConstantScoreQuery with no inner query matches nothing; a nil
 		// Weight is interpreted as a no-match by IndexSearcher.
 		return nil, nil
 	}
 
-	// The wrapped query never needs scores and is always created at boost 1.0
+	// If the outer mode is exhaustive then pass COMPLETE_NO_SCORES, otherwise
+	// pass TOP_DOCS to preserve dynamic pruning for top-score / top-doc queries.
+	innerScoreMode := TOP_DOCS
+	if scoreMode.isExhaustive() {
+		innerScoreMode = COMPLETE_NO_SCORES
+	}
+
+	// The wrapped query is always created at boost 1.0
 	// (Lucene: searcher.createWeight(query, innerScoreMode, 1f)).
-	inner, err := q.query.CreateWeight(searcher, false, 1.0)
+	inner, err := searcher.CreateWeight(q.query, innerScoreMode, 1.0)
 	if err != nil {
 		return nil, err
 	}
 
 	// When the caller does not need scores, the inner Weight already produces
 	// the correct doc set with no scoring; return it directly.
-	if !needsScores {
+	if !scoreMode.needsScores() {
 		return inner, nil
 	}
 

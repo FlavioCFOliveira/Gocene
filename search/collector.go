@@ -4,7 +4,11 @@
 
 package search
 
-import "github.com/FlavioCFOliveira/Gocene/index"
+import (
+	"strconv"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+)
 
 // LeafCollector collects matching documents in a segment.
 //
@@ -63,6 +67,36 @@ const (
 // TOP_SCORES need scores, while COMPLETE_NO_SCORES and TOP_DOCS do not.
 func (m ScoreMode) needsScores() bool {
 	return m == COMPLETE || m == TOP_SCORES
+}
+
+// String returns the canonical name of the score mode, matching the constant
+// names used by org.apache.lucene.search.ScoreMode so test diagnostics read the
+// same as the Lucene source.
+func (m ScoreMode) String() string {
+	switch m {
+	case COMPLETE:
+		return "COMPLETE"
+	case COMPLETE_NO_SCORES:
+		return "COMPLETE_NO_SCORES"
+	case TOP_SCORES:
+		return "TOP_SCORES"
+	case TOP_DOCS:
+		return "TOP_DOCS"
+	default:
+		return "ScoreMode(" + strconv.Itoa(int(m)) + ")"
+	}
+}
+
+// isExhaustive reports whether this score mode requires processing all matching
+// documents (true) rather than allowing dynamic pruning down to the top hits
+// (false).
+//
+// This mirrors org.apache.lucene.search.ScoreMode#isExhaustive: COMPLETE and
+// COMPLETE_NO_SCORES are exhaustive, while TOP_SCORES and TOP_DOCS are not
+// (they may skip non-competitive hits). It is consulted by ConstantScoreQuery
+// when choosing the ScoreMode to forward to its wrapped query.
+func (m ScoreMode) isExhaustive() bool {
+	return m == COMPLETE || m == COMPLETE_NO_SCORES
 }
 
 // SimpleCollector provides a base implementation for collectors.

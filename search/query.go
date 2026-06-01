@@ -25,6 +25,30 @@ type Query interface {
 	CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error)
 }
 
+// scoreModeWeightCreator is the optional, ScoreMode-aware sibling of
+// Query.CreateWeight.
+//
+// In Apache Lucene 10.4.0 every Query.createWeight receives the full ScoreMode
+// enum (COMPLETE / COMPLETE_NO_SCORES / TOP_SCORES / TOP_DOCS /
+// TOP_DOCS_WITH_SCORES), which lets composite queries forward a precise mode to
+// their children — for example BooleanQuery forwards COMPLETE_NO_SCORES to
+// FILTER / MUST_NOT clauses, and ConstantScoreQuery forwards COMPLETE_NO_SCORES
+// or TOP_DOCS to its wrapped query depending on exhaustiveness.
+//
+// Gocene's stable Query.CreateWeight signature collapses that enum to a
+// needsScores bool, which would prevent a sub-query from observing anything but
+// COMPLETE / COMPLETE_NO_SCORES. Queries that must propagate the exact ScoreMode
+// to their children (BooleanQuery, ConstantScoreQuery) — and test wrappers that
+// assert on the received mode — implement this interface. IndexSearcher's
+// createWeight dispatch prefers it when present and otherwise falls back to the
+// bool-based CreateWeight (collapsing the mode via ScoreMode.needsScores), so
+// the change is fully backward compatible with the dozens of existing
+// CreateWeight implementations.
+type scoreModeWeightCreator interface {
+	// CreateWeightScoreMode builds a Weight for the given full ScoreMode.
+	CreateWeightScoreMode(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error)
+}
+
 // BaseQuery provides common functionality for queries.
 type BaseQuery struct{}
 

@@ -157,9 +157,12 @@ func (s *IndexSearcher) SearchWithCollector(query Query, collector Collector) er
 		return err
 	}
 
-	// Create weight
-	needsScores := collector.ScoreMode() == COMPLETE || collector.ScoreMode() == TOP_SCORES
-	weight, err := rewritten.CreateWeight(s, needsScores, 1.0)
+	// Create weight, threading the collector's full ScoreMode through so that
+	// composite queries (BooleanQuery, ConstantScoreQuery) can forward a precise
+	// mode to their children (e.g. COMPLETE_NO_SCORES to FILTER / MUST_NOT
+	// clauses). Mirrors IndexSearcher.createWeight(query, collector.scoreMode(),
+	// 1) in Lucene 10.4.0.
+	weight, err := s.CreateWeight(rewritten, collector.ScoreMode(), 1.0)
 	if err != nil {
 		return err
 	}
@@ -189,6 +192,36 @@ func (s *IndexSearcher) SearchWithCollector(query Query, collector Collector) er
 	return nil
 }
 
+// CreateWeight builds the Weight for query under the given full ScoreMode,
+// mirroring org.apache.lucene.search.IndexSearcher#createWeight(Query,
+// ScoreMode, float).
+//
+// Dispatch: when query implements the optional ScoreMode-aware
+// scoreModeWeightCreator interface (BooleanQuery, ConstantScoreQuery, and test
+// wrappers), the full ScoreMode is forwarded so composite queries can pass a
+// precise mode to their children. Otherwise the call falls back to the stable
+// bool-based Query.CreateWeight, collapsing the mode via ScoreMode.needsScores —
+// which is exactly the COMPLETE / COMPLETE_NO_SCORES distinction those queries
+// already honour. This keeps every existing CreateWeight implementation working
+// unchanged while letting the few queries that care observe TOP_SCORES /
+// TOP_DOCS.
+//
+// This is the canonical entry point for ScoreMode-aware weight construction:
+// composite queries (BooleanQuery, ConstantScoreQuery) call it to build their
+// child weights, so the forwarded mode flows recursively through the query
+// tree. It is exported to mirror Lucene's public createWeight, which test
+// wrappers such as TestNeedsScores' AssertNeedsScores rely on.
+//
+// Gocene does not yet model Lucene's LRUQueryCache, so the caching shortcut in
+// Lucene's createWeight (which swaps in a cache-aware Weight when scores are not
+// needed) has no counterpart here.
+func (s *IndexSearcher) CreateWeight(query Query, scoreMode ScoreMode, boost float32) (Weight, error) {
+	if c, ok := query.(scoreModeWeightCreator); ok {
+		return c.CreateWeightScoreMode(s, scoreMode, boost)
+	}
+	return query.CreateWeight(s, scoreMode.needsScores(), boost)
+}
+
 // Explain returns an Explanation that describes how doc scored against query.
 //
 // This is the Go port of Lucene's IndexSearcher.explain(Query, int): the query
@@ -200,7 +233,9 @@ func (s *IndexSearcher) Explain(query Query, doc int) (Explanation, error) {
 	if err != nil {
 		return nil, err
 	}
-	weight, err := rewritten.CreateWeight(s, true, 1.0)
+	// Explanation always needs complete scores (Lucene builds the explain Weight
+	// with ScoreMode.COMPLETE).
+	weight, err := s.CreateWeight(rewritten, COMPLETE, 1.0)
 	if err != nil {
 		return nil, err
 	}
