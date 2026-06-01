@@ -36,90 +36,158 @@ type GeoRectangle struct {
 }
 
 // GeoNorthRectangle is a rectangle extending to the north pole.
+// The left-right maximum extent for this shape is PI.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoNorthRectangle.
-type GeoNorthRectangle struct{ GeoBaseBBox }
+type GeoNorthRectangle struct {
+	GeoBaseBBox
+	f geoNorthRectangleFields
+}
 
 // GeoSouthRectangle is a rectangle extending to the south pole.
+// The left-right maximum extent for this shape is PI.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoSouthRectangle.
-type GeoSouthRectangle struct{ GeoBaseBBox }
+type GeoSouthRectangle struct {
+	GeoBaseBBox
+	f geoSouthRectangleFields
+}
 
 // GeoWideRectangle is a rectangle that spans more than π in longitude.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoWideRectangle.
-type GeoWideRectangle struct{ GeoBaseBBox }
+type GeoWideRectangle struct {
+	GeoBaseBBox
+	f geoWideRectangleFields
+}
 
 // GeoWideNorthRectangle is a wide rectangle extending to the north pole.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoWideNorthRectangle.
-type GeoWideNorthRectangle struct{ GeoBaseBBox }
+type GeoWideNorthRectangle struct {
+	GeoBaseBBox
+	f geoWideNorthRectangleFields
+}
 
 // GeoWideSouthRectangle is a wide rectangle extending to the south pole.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoWideSouthRectangle.
-type GeoWideSouthRectangle struct{ GeoBaseBBox }
+type GeoWideSouthRectangle struct {
+	GeoBaseBBox
+	f geoWideSouthRectangleFields
+}
 
 // GeoWorld represents the whole sphere.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoWorld.
-type GeoWorld struct{ GeoBaseBBox }
+type GeoWorld struct {
+	GeoBaseBBox
+	originPoint *GeoPoint
+}
 
 // IsWithin always returns true for the world shape.
 func (w *GeoWorld) IsWithin(_, _, _ float64) bool { return true }
 
-// GetRelationship returns RelContains for the world shape.
-func (w *GeoWorld) GetRelationship(_ GeoShape) int { return RelContains }
+// GetRelationship returns the spatial relationship between the world and path.
+//
+// Per GeoWorld.getRelationship: if path has edge points, the path is WITHIN
+// the world (RelWithin). If path has no edge points (e.g. another world-wide
+// shape), they OVERLAP. A nil path is treated as an empty world-level shape
+// that contains the world area (RelContains), preserving backward compatibility.
+//
+// Port of GeoWorld.getRelationship.
+func (w *GeoWorld) GetRelationship(path GeoShape) int {
+	if path == nil {
+		return RelContains
+	}
+	if len(path.GetEdgePoints()) > 0 {
+		return RelWithin
+	}
+	return RelOverlaps
+}
 
 // GeoLongitudeSlice is a slice bounded by two meridians.
+// The left-right maximum extent for this shape is PI.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoLongitudeSlice.
-type GeoLongitudeSlice struct{ GeoBaseBBox }
+type GeoLongitudeSlice struct {
+	GeoBaseBBox
+	f geoLongitudeSliceFields
+}
 
 // GeoWideLongitudeSlice is a longitude slice spanning more than π.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoWideLongitudeSlice.
-type GeoWideLongitudeSlice struct{ GeoBaseBBox }
+type GeoWideLongitudeSlice struct {
+	GeoBaseBBox
+	f geoWideLongitudeSliceFields
+}
 
 // GeoLatitudeZone is a band between two latitude parallels.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoLatitudeZone.
-type GeoLatitudeZone struct{ GeoBaseBBox }
+type GeoLatitudeZone struct {
+	GeoBaseBBox
+	f geoLatitudeZoneFields
+}
 
 // GeoNorthLatitudeZone is a band north of a latitude.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoNorthLatitudeZone.
-type GeoNorthLatitudeZone struct{ GeoBaseBBox }
+type GeoNorthLatitudeZone struct {
+	GeoBaseBBox
+	f geoNorthLatitudeZoneFields
+}
 
 // GeoSouthLatitudeZone is a band south of a latitude.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoSouthLatitudeZone.
-type GeoSouthLatitudeZone struct{ GeoBaseBBox }
+type GeoSouthLatitudeZone struct {
+	GeoBaseBBox
+	f geoSouthLatitudeZoneFields
+}
 
 // GeoDegenerateHorizontalLine is a degenerate horizontal (latitude) line.
+// The left-right maximum extent for this shape is PI.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoDegenerateHorizontalLine.
-type GeoDegenerateHorizontalLine struct{ GeoBaseBBox }
+type GeoDegenerateHorizontalLine struct {
+	GeoBaseBBox
+	f geoDegenerateHorizontalLineFields
+}
 
-// GeoWideDegenerateHorizontalLine is a wide degenerate horizontal line.
+// GeoWideDegenerateHorizontalLine is a wide degenerate horizontal line
+// (more than π in longitude extent).
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoWideDegenerateHorizontalLine.
-type GeoWideDegenerateHorizontalLine struct{ GeoBaseBBox }
+type GeoWideDegenerateHorizontalLine struct {
+	GeoBaseBBox
+	f geoWideDegenerateHorizontalLineFields
+}
 
-// GeoDegenerateLongitudeSlice is a degenerate longitude slice (a meridian).
+// GeoDegenerateLongitudeSlice is a degenerate longitude slice (a single meridian).
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoDegenerateLongitudeSlice.
-type GeoDegenerateLongitudeSlice struct{ GeoBaseBBox }
+type GeoDegenerateLongitudeSlice struct {
+	GeoBaseBBox
+	f geoDegenerateLongitudeSliceFields
+}
 
-// GeoDegenerateLatitudeZone is a degenerate latitude zone (a point).
+// GeoDegenerateLatitudeZone is a degenerate latitude zone (a full latitude circle).
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoDegenerateLatitudeZone.
-type GeoDegenerateLatitudeZone struct{ GeoBaseBBox }
+type GeoDegenerateLatitudeZone struct {
+	GeoBaseBBox
+	f geoDegenerateLatitudeZoneFields
+}
 
-// GeoDegenerateVerticalLine is a vertical degenerate line.
+// GeoDegenerateVerticalLine is a vertical degenerate line (a longitude segment).
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoDegenerateVerticalLine.
-type GeoDegenerateVerticalLine struct{ GeoBaseBBox }
+type GeoDegenerateVerticalLine struct {
+	GeoBaseBBox
+	f geoDegenerateVerticalLineFields
+}
 
 // GeoDegeneratePoint is a single point that simultaneously satisfies GeoBBox
 // and GeoCircle (a degenerate bounding box / degenerate circle).
@@ -188,9 +256,13 @@ type GeoStandardCircle struct {
 }
 
 // GeoExactCircle is a circle that exactly traces the sphere surface.
+// The circle edge is approximated by Vincenty-formula sector planes.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoExactCircle.
-type GeoExactCircle struct{ GeoBaseCircle }
+type GeoExactCircle struct {
+	GeoBaseCircle
+	f geoExactCircleFields
+}
 
 // ---------------------------------------------------------------------------
 // Polygons

@@ -204,14 +204,24 @@ func TestGeoRectangleCorners(t *testing.T) {
 	}
 }
 
-// TestGeoRectangleWideExtentUnsupported ensures the not-yet-ported wide-extent
-// path reports an explicit error rather than a silently wrong shape.
-func TestGeoRectangleWideExtentUnsupported(t *testing.T) {
+// TestGeoWideRectangleIsWithin verifies that a wide-extent (>PI lon) rectangle
+// correctly reports containment for interior and exterior points.
+func TestGeoWideRectangleIsWithin(t *testing.T) {
 	pm := geom.SPHERE
-	// Longitude extent of ~2.5 rad (> PI/... still < PI here is 2.5<3.14 so not wide);
-	// use an extent at/above PI to trigger the wide path.
-	if _, err := geom.MakeGeoBBox(pm, 0.1, -0.1, -1.6, 1.6); err == nil {
-		t.Fatal("expected unsupported error for wide-extent bbox")
+	// Longitude extent of 3.2 rad (> PI) → GeoWideRectangle.
+	bbox, err := geom.MakeGeoBBox(pm, 0.1, -0.1, -1.6, 1.6)
+	if err != nil {
+		t.Fatalf("MakeGeoBBox wide rectangle: %v", err)
+	}
+	// A point on the equator at lon=0 should be inside (lon=0 is within [-1.6,1.6]).
+	center := geom.NewGeoPointModel(pm, 0.0, 0.0)
+	if !bbox.IsWithin(center.X, center.Y, center.Z) {
+		t.Error("center point should be inside wide rectangle")
+	}
+	// A point at lon=PI (opposite side) should be outside.
+	outside := geom.NewGeoPointModel(pm, 0.0, math.Pi)
+	if bbox.IsWithin(outside.X, outside.Y, outside.Z) {
+		t.Error("antipodal point should be outside wide rectangle")
 	}
 }
 

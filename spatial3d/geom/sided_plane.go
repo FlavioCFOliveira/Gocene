@@ -139,6 +139,34 @@ func ConstructNormalizedPerpendicularSidedPlane(insidePoint, normalVector, point
 	return NewSidedPlaneVectorD(insidePoint, newNormalVector, d)
 }
 
+// ConstructNormalizedThreePointSidedPlane constructs a sided plane through three
+// points, oriented so insidePoint is on the inside. It tries three cross-product
+// orderings and returns the first that succeeds, or nil if none do.
+//
+// Port of SidedPlane.constructNormalizedThreePointSidedPlane.
+func ConstructNormalizedThreePointSidedPlane(insidePoint, p1, p2, p3 *Vector) *SidedPlane {
+	tryThreePoint := func(a, b, c *Vector) *SidedPlane {
+		diff1 := &Vector{X: a.X - b.X, Y: a.Y - b.Y, Z: a.Z - b.Z}
+		diff2 := &Vector{X: b.X - c.X, Y: b.Y - c.Y, Z: b.Z - c.Z}
+		norm, err := NewVectorPerpendicularFromVectors(diff1, diff2)
+		if err != nil {
+			return nil
+		}
+		d := -norm.DotProduct(b)
+		return NewSidedPlaneVectorD(insidePoint, norm, d)
+	}
+	if sp := tryThreePoint(p1, p2, p3); sp != nil {
+		return sp
+	}
+	if sp := tryThreePoint(p1, p3, p2); sp != nil {
+		return sp
+	}
+	if sp := tryThreePoint(p3, p1, p2); sp != nil {
+		return sp
+	}
+	return nil
+}
+
 // ConstructSidedPlaneFromOnePoint finds a plane perpendicular to the given
 // plane that goes through both the origin and intersectionPoint, oriented so
 // insidePoint is on the inside. Returns nil if it cannot be constructed.

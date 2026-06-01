@@ -52,19 +52,8 @@ func makePath(pm *PlanetModel, cutoffAngle float64) GeoBasePath {
 // Port of GeoWideRectangle.MIN_WIDE_EXTENT.
 const minWideExtent = math.Pi - MinimumAngularResolution
 
-// errBBoxVariantUnsupported marks a GeoBBox sub-shape whose full implementation
-// has not yet been ported (wide rectangles, latitude/longitude zones,
-// degenerate lines). Their isWithin/getBounds engine is deferred so the factory
-// reports a clear error rather than returning a silently non-matching stub.
-var errBBoxVariantUnsupported = fmt.Errorf("geom: this GeoBBox variant is not yet implemented in Gocene")
-
 // MakeGeoBBox creates the appropriate GeoBBox for the given lat/lon bounds.
-//
-// The standard rectangle case (extent < PI, not pole-touching, not a full
-// longitude band) plus the whole-world and degenerate-point cases are fully
-// implemented. The wide-rectangle, latitude-zone, longitude-slice and
-// degenerate-line variants are not yet ported and return
-// errBBoxVariantUnsupported.
+// All shape variants are now fully ported.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoBBoxFactory.makeGeoBBox.
 func MakeGeoBBox(pm *PlanetModel, topLat, bottomLat, leftLon, rightLon float64) (GeoBBox, error) {
@@ -81,10 +70,12 @@ func MakeGeoBBox(pm *PlanetModel, topLat, bottomLat, leftLon, rightLon float64) 
 	if rightLon > math.Pi {
 		rightLon = math.Pi
 	}
+
+	// Full-longitude-band cases.
 	if (longitudesEqual(leftLon, -math.Pi) && longitudesEqual(rightLon, math.Pi)) ||
 		(longitudesEqual(rightLon, -math.Pi) && longitudesEqual(leftLon, math.Pi)) {
 		if isNorthPole(topLat) && isSouthPole(bottomLat) {
-			return &GeoWorld{GeoBaseBBox: makeBBox(pm)}, nil
+			return NewGeoWorld(pm), nil
 		}
 		if latitudesEqual(topLat, bottomLat) {
 			if isNorthPole(topLat) {
@@ -93,29 +84,63 @@ func MakeGeoBBox(pm *PlanetModel, topLat, bottomLat, leftLon, rightLon float64) 
 			if isSouthPole(bottomLat) {
 				return NewGeoDegeneratePoint(pm, NewGeoPointModel(pm, bottomLat, 0.0)), nil
 			}
+			// Degenerate latitude circle at topLat.
+			return NewGeoDegenerateLatitudeZone(pm, topLat), nil
 		}
-		// Latitude-zone variants not yet ported.
-		return nil, errBBoxVariantUnsupported
+		if isNorthPole(topLat) {
+			return NewGeoNorthLatitudeZone(pm, bottomLat), nil
+		}
+		if isSouthPole(bottomLat) {
+			return NewGeoSouthLatitudeZone(pm, topLat), nil
+		}
+		return NewGeoLatitudeZone(pm, topLat, bottomLat), nil
 	}
+
 	extent := rightLon - leftLon
 	if extent < 0.0 {
 		extent += math.Pi * 2.0
 	}
+
+	// Longitude-slice cases (no latitude bounding).
 	if isNorthPole(topLat) && isSouthPole(bottomLat) {
-		// Longitude-slice variants not yet ported.
-		return nil, errBBoxVariantUnsupported
+		if extent >= minWideExtent {
+			return NewGeoWideLongitudeSlice(pm, leftLon, rightLon)
+		}
+		if longitudesEqual(leftLon, rightLon) {
+			return NewGeoDegenerateLongitudeSlice(pm, leftLon)
+		}
+		return NewGeoLongitudeSlice(pm, leftLon, rightLon)
 	}
+
+	// Degenerate vertical line (lon band of zero width, non-degenerate latitudes).
 	if longitudesEqual(leftLon, rightLon) {
 		if latitudesEqual(topLat, bottomLat) {
 			return NewGeoDegeneratePoint(pm, NewGeoPointModel(pm, topLat, leftLon)), nil
 		}
-		// Degenerate vertical line not yet ported.
-		return nil, errBBoxVariantUnsupported
+		return NewGeoDegenerateVerticalLine(pm, topLat, bottomLat, leftLon)
 	}
+
+	// Wide rectangle variants (extent >= PI).
 	if extent >= minWideExtent {
-		// Wide-rectangle variants not yet ported.
-		return nil, errBBoxVariantUnsupported
+		if latitudesEqual(topLat, bottomLat) {
+			if isNorthPole(topLat) {
+				return NewGeoDegeneratePoint(pm, NewGeoPointModel(pm, topLat, 0.0)), nil
+			}
+			if isSouthPole(bottomLat) {
+				return NewGeoDegeneratePoint(pm, NewGeoPointModel(pm, bottomLat, 0.0)), nil
+			}
+			return NewGeoWideDegenerateHorizontalLine(pm, topLat, leftLon, rightLon)
+		}
+		if isNorthPole(topLat) {
+			return NewGeoWideNorthRectangle(pm, bottomLat, leftLon, rightLon)
+		}
+		if isSouthPole(bottomLat) {
+			return NewGeoWideSouthRectangle(pm, topLat, leftLon, rightLon)
+		}
+		return NewGeoWideRectangle(pm, topLat, bottomLat, leftLon, rightLon)
 	}
+
+	// Narrow cases (extent < PI).
 	if latitudesEqual(topLat, bottomLat) {
 		if isNorthPole(topLat) {
 			return NewGeoDegeneratePoint(pm, NewGeoPointModel(pm, topLat, 0.0)), nil
@@ -123,12 +148,13 @@ func MakeGeoBBox(pm *PlanetModel, topLat, bottomLat, leftLon, rightLon float64) 
 		if isSouthPole(bottomLat) {
 			return NewGeoDegeneratePoint(pm, NewGeoPointModel(pm, bottomLat, 0.0)), nil
 		}
-		// Degenerate horizontal line not yet ported.
-		return nil, errBBoxVariantUnsupported
+		return NewGeoDegenerateHorizontalLine(pm, topLat, leftLon, rightLon)
 	}
-	if isNorthPole(topLat) || isSouthPole(bottomLat) {
-		// North/south rectangle variants not yet ported.
-		return nil, errBBoxVariantUnsupported
+	if isNorthPole(topLat) {
+		return NewGeoNorthRectangle(pm, bottomLat, leftLon, rightLon)
+	}
+	if isSouthPole(bottomLat) {
+		return NewGeoSouthRectangle(pm, topLat, leftLon, rightLon)
 	}
 	return NewGeoRectangle(pm, topLat, bottomLat, leftLon, rightLon)
 }
@@ -163,12 +189,12 @@ func MakeGeoCircle(pm *PlanetModel, latitude, longitude, cutoffAngle float64) (G
 	return NewGeoStandardCircle(pm, latitude, longitude, cutoffAngle)
 }
 
-// MakeGeoExactCircle creates a GeoExactCircle from a center lat/lon, radius (in metres),
-// and accuracy. Full computation deferred to #2693.
+// MakeGeoExactCircle creates a GeoExactCircle from a center lat/lon, surface
+// radius, and accuracy. Returns an error if the parameters are out of range.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoCircleFactory.makeExactGeoCircle.
-func MakeGeoExactCircle(pm *PlanetModel, _, _, _, _ float64) GeoCircle {
-	return &GeoExactCircle{GeoBaseCircle: makeCircle(pm, 0)}
+func MakeGeoExactCircle(pm *PlanetModel, lat, lon, radius, accuracy float64) (GeoCircle, error) {
+	return NewGeoExactCircle(pm, lat, lon, radius, accuracy)
 }
 
 // ---------------------------------------------------------------------------
