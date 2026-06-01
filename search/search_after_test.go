@@ -10,13 +10,38 @@
 package search_test
 
 import (
+	"fmt"
 	"math/rand"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
+
+// buildSearchAfterIndex creates a small index with n documents for SearchAfter tests.
+func buildSearchAfterIndex(t *testing.T, dir store.Directory, n int) *index.IndexWriter {
+	t.Helper()
+	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	for i := 0; i < n; i++ {
+		doc := document.NewDocument()
+		f, _ := document.NewTextField("text", fmt.Sprintf("doc %d", i), true)
+		doc.Add(f)
+		if err := w.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument: %v", err)
+		}
+	}
+	if err := w.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	return w
+}
 
 // TestSearchAfter_Queries tests searchAfter with various query types.
 // This is the Go port of TestSearchAfter.testQueries() from Lucene.
@@ -93,14 +118,47 @@ func TestSearchAfter_MultiSort(t *testing.T) {
 // Purpose: Ensures that when retrieving results page by page using searchAfter,
 // the combined results exactly match a single query for all results.
 func TestSearchAfter_PageConsistency(t *testing.T) {
-	// Skip until searchAfter is implemented
-	t.Fatal("Skipping: requires IndexSearcher.SearchAfter() implementation")
+	dir := store.NewByteBuffersDirectory()
+	defer func() { _ = dir.Close() }()
 
-	// TODO: Verify:
-	// 1. Total hits match between paged and non-paged queries
-	// 2. Each document in page matches corresponding document in full result set
-	// 3. Scores match (with delta for float comparison)
-	// 4. Sort values match for FieldDoc results
+	w := buildSearchAfterIndex(t, dir, 20)
+	defer func() { _ = w.Close() }()
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer func() { _ = reader.Close() }()
+
+	searcher := search.NewIndexSearcher(reader)
+	q := search.NewMatchAllDocsQuery()
+
+	// Get all results in one query.
+	fullResults, err := searcher.Search(q, 100)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	totalHits := len(fullResults.ScoreDocs)
+
+	// Page through with page size of 5.
+	const pageSize = 5
+	var paged []*search.ScoreDoc
+	var after *search.ScoreDoc
+	for {
+		top, err := searcher.SearchAfter(after, q, pageSize)
+		if err != nil {
+			t.Fatalf("SearchAfter: %v", err)
+		}
+		if len(top.ScoreDocs) == 0 {
+			break
+		}
+		paged = append(paged, top.ScoreDocs...)
+		after = top.ScoreDocs[len(top.ScoreDocs)-1]
+	}
+
+	if len(paged) != totalHits {
+		t.Errorf("paged %d docs, full query returned %d", len(paged), totalHits)
+	}
 }
 
 // TestSearchAfter_VariedPageSizes tests pagination with different page sizes.
@@ -109,14 +167,45 @@ func TestSearchAfter_PageConsistency(t *testing.T) {
 // Purpose: Ensures searchAfter works correctly regardless of page size,
 // including edge cases like page size larger than result set.
 func TestSearchAfter_VariedPageSizes(t *testing.T) {
-	// Skip until searchAfter is implemented
-	t.Fatal("Skipping: requires IndexSearcher.SearchAfter() implementation")
+	dir := store.NewByteBuffersDirectory()
+	defer func() { _ = dir.Close() }()
 
-	// TODO: Test with page sizes:
-	// - 1 (single document per page)
-	// - Small values (2-10)
-	// - Large values (接近 result count)
-	// - Values larger than result count
+	w := buildSearchAfterIndex(t, dir, 10)
+	defer func() { _ = w.Close() }()
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer func() { _ = reader.Close() }()
+
+	searcher := search.NewIndexSearcher(reader)
+	q := search.NewMatchAllDocsQuery()
+
+	totalResults, err := searcher.Search(q, 100)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	total := len(totalResults.ScoreDocs)
+
+	for _, pageSize := range []int{1, 3, 7, 20} {
+		var pagedCount int
+		var after *search.ScoreDoc
+		for {
+			top, err := searcher.SearchAfter(after, q, pageSize)
+			if err != nil {
+				t.Fatalf("SearchAfter(pageSize=%d): %v", pageSize, err)
+			}
+			if len(top.ScoreDocs) == 0 {
+				break
+			}
+			pagedCount += len(top.ScoreDocs)
+			after = top.ScoreDocs[len(top.ScoreDocs)-1]
+		}
+		if pagedCount != total {
+			t.Errorf("pageSize=%d: got %d docs, want %d", pageSize, pagedCount, total)
+		}
+	}
 }
 
 // TestSearchAfter_MissingFields tests pagination when some documents

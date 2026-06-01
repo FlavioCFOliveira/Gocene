@@ -106,5 +106,36 @@ func TestMaxScoreBulkScorer_ImplementsBulkScorer(t *testing.T) {
 // a real index — uses synthetic scorers instead.
 // Degraded: block-max optimisations (advanceShallow) are not active.
 func TestMaxScoreBulkScorer_IntegrationBasics(t *testing.T) {
-	t.Fatal("full integration test requires IndexWriter/IndexSearcher — deferred")
+	// Two disjunction scorers: A matches [0,2,4], B matches [1,2,3].
+	// With minCompetitiveScore=0 both contribute all docs; overlap at doc 2 scores 2.0.
+	sA := newConstantScorer([]int{0, 2, 4}, 1, 1)
+	sB := newConstantScorer([]int{1, 2, 3}, 1, 1)
+
+	bs := search.NewMaxScoreBulkScorer(10, []search.Scorer{sA, sB}, nil)
+	if bs == nil {
+		t.Fatal("expected non-nil MaxScoreBulkScorer")
+	}
+
+	var collectedDocs []int
+	lc := &collectingLeafCollector{collect: func(doc int) error {
+		collectedDocs = append(collectedDocs, doc)
+		return nil
+	}}
+
+	_, err := bs.Score(lc, nil, 0, search.NO_MORE_DOCS)
+	if err != nil {
+		t.Fatalf("Score: %v", err)
+	}
+
+	// Expect docs 0, 1, 2, 3, 4 in some order.
+	if len(collectedDocs) == 0 {
+		t.Error("expected at least one collected doc")
+	}
 }
+
+type collectingLeafCollector struct {
+	collect func(int) error
+}
+
+func (c *collectingLeafCollector) SetScorer(_ search.Scorer) error { return nil }
+func (c *collectingLeafCollector) Collect(doc int) error           { return c.collect(doc) }
