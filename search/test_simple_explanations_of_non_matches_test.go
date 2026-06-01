@@ -5,17 +5,36 @@
 // Ported from Apache Lucene 10.4.0:
 //   lucene/core/src/test/org/apache/lucene/search/TestSimpleExplanationsOfNonMatches.java
 //
-// Deviation: all test methods skipped — TestSimpleExplanationsOfNonMatches extends
-// TestSimpleExplanations and overrides the test setup to verify explanations for
-// non-matching documents. Both require IndexWriter+IndexSearcher integration not
-// yet complete in Gocene.
+// Subclass of TestSimpleExplanations that verifies non-matches: it re-runs
+// every TestSimpleExplanations scenario but, instead of qtest's matching-doc
+// checks, asserts via CheckHits.checkNoMatchExplanations that the explanation
+// of every NON-matching document is a non-match.
+//
+// Java models this by inheriting all of TestSimpleExplanations' test methods
+// and overriding qtest. Go has no method override, so the shared scenario table
+// (simpleExplanationScenarios) is replayed here in nonMatches mode — exercising
+// the exact same query shapes and expected matching-doc sets.
 
-package search
+package search_test
 
 import "testing"
 
-// TestSimpleExplanationsOfNonMatches is a placeholder for the class that re-runs
-// all TestSimpleExplanations scenarios in "explain non-matches" mode.
 func TestSimpleExplanationsOfNonMatches(t *testing.T) {
-	t.Fatal("requires complete IndexWriter+IndexSearcher integration (pre-existing failure in Gocene)")
+	tc := newExplanationTestCase(t)
+	defer tc.cleanup()
+	tc.nonMatches = true
+
+	for _, sc := range simpleExplanationScenarios(tc) {
+		sc := sc
+		t.Run(sc.name, func(t *testing.T) {
+			sub := &explanationTestCase{
+				t:          t,
+				rng:        tc.rng,
+				searcher:   tc.searcher,
+				cleanup:    func() {},
+				nonMatches: true,
+			}
+			sub.qtest(sc.q, sc.exp)
+		})
+	}
 }

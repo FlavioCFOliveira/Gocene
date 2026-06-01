@@ -18,19 +18,37 @@ import (
 // in tests and as a baseline; production scoring should prefer
 // [BM25Similarity] or [ClassicSimilarity].
 type RawTFSimilarity struct {
+	*BaseSimilarity
 	discountOverlaps bool
 }
 
 // NewRawTFSimilarity returns a RawTFSimilarity with discountOverlaps = true
 // (matching the no-arg Java constructor).
 func NewRawTFSimilarity() *RawTFSimilarity {
-	return &RawTFSimilarity{discountOverlaps: true}
+	return &RawTFSimilarity{BaseSimilarity: NewBaseSimilarity(), discountOverlaps: true}
 }
 
 // NewRawTFSimilarityWithDiscount mirrors the expert Java constructor.
 func NewRawTFSimilarityWithDiscount(discountOverlaps bool) *RawTFSimilarity {
-	return &RawTFSimilarity{discountOverlaps: discountOverlaps}
+	return &RawTFSimilarity{BaseSimilarity: NewBaseSimilarity(), discountOverlaps: discountOverlaps}
 }
+
+// Scorer satisfies the legacy [Similarity] interface so RawTFSimilarity can be
+// installed via IndexSearcher.SetSimilarity and flow through the legacy
+// TermWeight scoring path. The returned SimScorer scores a document as its raw
+// term frequency, mirroring the Lucene RawTFSimilarity contract that
+// score == freq. This complements the Lucene-faithful [RawTFSimilarity.Scorer104]
+// surface used by the block-max scoring path.
+func (s *RawTFSimilarity) Scorer(_ *CollectionStatistics, _ *TermStatistics) SimScorer {
+	return rawTFLegacySimScorer{}
+}
+
+// rawTFLegacySimScorer is the legacy SimScorer whose Score returns the raw
+// frequency, ignoring doc and norms.
+type rawTFLegacySimScorer struct{}
+
+// Score returns the raw term frequency.
+func (rawTFLegacySimScorer) Score(_ int, freq float32) float32 { return freq }
 
 // GetDiscountOverlaps satisfies LuceneSimilarity.
 func (s *RawTFSimilarity) GetDiscountOverlaps() bool { return s.discountOverlaps }

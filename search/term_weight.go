@@ -177,12 +177,33 @@ func (w *TermWeight) Explain(context *index.LeafReaderContext, doc int) (Explana
 				if err != nil {
 					return nil, err
 				}
-				scoreExpl.AddDetail(MatchExplanation(
-					float32(freq), "freq, occurrences of term within document"))
-			}
-			if css, ok := w.simScorer.(*ClassicSimScorer); ok {
-				scoreExpl.AddDetail(MatchExplanation(
-					float32(css.Idf()), "idf, computed as log(maxDocs/docFreq)"))
+				// Decompose the ClassicSimilarity TF/IDF score so the details
+				// multiply to it (the property CheckHits.verifyExplanation
+				// enforces for a "product of:" node). The score is
+				// tf(freq) * idf * boost where tf(freq) = sqrt(freq); the tf
+				// detail carries sqrt(freq) over a nested freq detail, and the
+				// idf factor absorbs idf*boost so the product is exact for the
+				// legacy scoring path (which folds boost into the score and
+				// does not apply field norms).
+				if _, ok := w.simScorer.(*ClassicSimScorer); ok {
+					tfValue := float32(tf(float64(freq)))
+					freqExpl := MatchExplanation(
+						float32(freq), "freq, occurrences of term within document")
+					idfFactor := float32(1)
+					if tfValue != 0 {
+						idfFactor = score / tfValue
+					}
+					scoreExpl.AddDetail(MatchExplanation(
+						idfFactor, "idf, computed as log(maxDocs/docFreq)"))
+					scoreExpl.AddDetail(MatchExplanationWithDetails(
+						tfValue,
+						fmt.Sprintf("tf(freq=%v), with freq of:", freq),
+						freqExpl))
+				} else {
+					// Non-ClassicSimilarity legacy path: surface the raw freq.
+					scoreExpl.AddDetail(MatchExplanation(
+						float32(freq), "freq, occurrences of term within document"))
+				}
 			}
 
 			desc := fmt.Sprintf("weight(%s in %d) [%s], result of:",

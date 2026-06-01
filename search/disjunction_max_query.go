@@ -104,3 +104,58 @@ func (q *DisjunctionMaxQuery) HashCode() int {
 	}
 	return hash*31 + int(q.tieBreakerMultiplier*1000)
 }
+
+// Rewrite optimizes this query and its sub-queries. An empty disjunction
+// becomes a MatchNoDocsQuery; a single disjunct unwraps to that disjunct; a
+// tie-breaker of 1.0 collapses to a SHOULD BooleanQuery (the sum of the
+// disjuncts); otherwise each sub-query is rewritten and, if any changed, a new
+// DisjunctionMaxQuery is returned. Mirrors DisjunctionMaxQuery.rewrite.
+func (q *DisjunctionMaxQuery) Rewrite(reader IndexReader) (Query, error) {
+	if len(q.disjuncts) == 0 {
+		return NewMatchNoDocsQueryWithReason("empty DisjunctionMaxQuery"), nil
+	}
+	if len(q.disjuncts) == 1 {
+		return q.disjuncts[0], nil
+	}
+	if q.tieBreakerMultiplier == 1.0 {
+		bq := NewBooleanQuery()
+		for _, sub := range q.disjuncts {
+			bq.Add(sub, SHOULD)
+		}
+		return bq, nil
+	}
+
+	actuallyRewritten := false
+	rewrittenDisjuncts := make([]Query, 0, len(q.disjuncts))
+	for _, sub := range q.disjuncts {
+		rewrittenSub, err := sub.Rewrite(reader)
+		if err != nil {
+			return nil, err
+		}
+		if rewrittenSub != sub {
+			actuallyRewritten = true
+		}
+		rewrittenDisjuncts = append(rewrittenDisjuncts, rewrittenSub)
+	}
+	if actuallyRewritten {
+		return NewDisjunctionMaxQueryWithTieBreaker(rewrittenDisjuncts, q.tieBreakerMultiplier), nil
+	}
+	return q, nil
+}
+
+// CreateWeight builds the Weight for this query. The bool-based entry point maps
+// needsScores to a ScoreMode and delegates to CreateWeightScoreMode, so the
+// full ScoreMode flows to the sub-weights.
+func (q *DisjunctionMaxQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+	mode := COMPLETE
+	if !needsScores {
+		mode = COMPLETE_NO_SCORES
+	}
+	return q.CreateWeightScoreMode(searcher, mode, boost)
+}
+
+// CreateWeightScoreMode builds the DisjunctionMaxWeight, threading the full
+// ScoreMode down to each disjunct's weight. Implements scoreModeWeightCreator.
+func (q *DisjunctionMaxQuery) CreateWeightScoreMode(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+	return NewDisjunctionMaxWeight(searcher, q, scoreMode, boost)
+}

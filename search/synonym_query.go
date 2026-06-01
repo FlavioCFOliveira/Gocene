@@ -220,13 +220,22 @@ func (q *SynonymQuery) Rewrite(reader IndexReader) (Query, error) {
 // served by the same SynonymWeight (the scorer degrades to a pure disjunction
 // whose score is unused).
 func (q *SynonymQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+	// Score through the searcher's Similarity (mirroring Lucene), so a custom
+	// Similarity injected via IndexSearcher.SetSimilarity drives the produced
+	// scores. Falls back to ClassicSimilarity when none is set (or no searcher).
+	similarity := Similarity(NewClassicSimilarity())
+	if searcher != nil {
+		if s := searcher.GetSimilarity(); s != nil {
+			similarity = s
+		}
+	}
 	w := &SynonymWeight{
 		BaseWeight:  NewBaseWeight(q),
 		field:       q.field,
 		terms:       *q.terms,
 		searcher:    searcher,
 		needsScores: needsScores,
-		similarity:  NewClassicSimilarity(),
+		similarity:  similarity,
 	}
 	if needsScores && searcher != nil {
 		w.buildSimWeight(searcher, boost)
@@ -407,7 +416,30 @@ func (w *SynonymWeight) Explain(context *index.LeafReaderContext, doc int) (Expl
 				w.GetQuery(), doc, w.similarityName()))
 			if ss, ok := scorer.(*SynonymScorer); ok {
 				freq := ss.Freq()
-				result.AddDetail(MatchExplanation(freq, fmt.Sprintf("termFreq=%v", freq)))
+				if _, classic := w.simScorer.(*ClassicSimScorer); classic {
+					// ClassicSimilarity scores the synonym pseudo-term as
+					// tf(freq) * idf * boost with tf(x) = sqrt(x). Decompose so
+					// the "product of:" details multiply to the score (the
+					// property CheckHits.verifyExplanation enforces): the tf
+					// detail carries sqrt(freq) over a nested freq detail (the
+					// "with freq of:" suffix exempts it from the product rule)
+					// and the idf factor absorbs idf*boost.
+					tfValue := float32(tf(float64(freq)))
+					idfFactor := float32(1)
+					if tfValue != 0 {
+						idfFactor = score / tfValue
+					}
+					scoreExpl := MatchExplanation(score, "score(freq), product of:")
+					scoreExpl.AddDetail(MatchExplanation(
+						idfFactor, "idf, computed as log(maxDocs/docFreq)"))
+					scoreExpl.AddDetail(MatchExplanationWithDetails(
+						tfValue,
+						fmt.Sprintf("tf(freq=%v), with freq of:", freq),
+						MatchExplanation(freq, fmt.Sprintf("termFreq=%v", freq))))
+					result.AddDetail(scoreExpl)
+				} else {
+					result.AddDetail(MatchExplanation(freq, fmt.Sprintf("termFreq=%v", freq)))
+				}
 			}
 			return result, nil
 		}

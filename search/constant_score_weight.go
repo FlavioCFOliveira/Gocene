@@ -4,7 +4,11 @@
 
 package search
 
-import "github.com/FlavioCFOliveira/Gocene/index"
+import (
+	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+)
 
 // ConstantScoreWeight is a Weight whose every matching document
 // receives the same constant score. It mirrors
@@ -130,11 +134,61 @@ func (w *ConstantScoreWeight) Matches(_ *index.LeafReaderContext, _ int) (Matche
 	return nil, nil
 }
 
-// Explain forwards to the base implementation (which returns nil
-// today). Concrete subclasses that want a richer explanation should
-// wrap this Weight and override Explain themselves.
+// Explain produces a match explanation carrying the constant score when the
+// document is matched by this weight's scorer, or a non-match otherwise. It is
+// a faithful port of ConstantScoreWeight.explain: it builds the leaf scorer,
+// advances it (honouring a two-phase iterator when present) and reports the
+// constant score for matches.
 func (w *ConstantScoreWeight) Explain(ctx *index.LeafReaderContext, doc int) (Explanation, error) {
-	return w.BaseWeight.Explain(ctx, doc)
+	s, err := w.Scorer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	exists := false
+	if s != nil {
+		if twoPhase := AsTwoPhaseIterator(s); twoPhase == nil {
+			advanced, advErr := s.Advance(doc)
+			if advErr != nil {
+				return nil, advErr
+			}
+			exists = advanced == doc
+		} else {
+			advanced, advErr := twoPhase.Approximation().Advance(doc)
+			if advErr != nil {
+				return nil, advErr
+			}
+			if advanced == doc {
+				matched, matchErr := twoPhase.Matches()
+				if matchErr != nil {
+					return nil, matchErr
+				}
+				exists = matched
+			}
+		}
+	}
+
+	desc := queryDescription(w.query)
+	if exists {
+		if w.score != 1 {
+			desc = fmt.Sprintf("%s^%v", desc, w.score)
+		}
+		return MatchExplanation(w.score, desc), nil
+	}
+	return NoMatchExplanation(fmt.Sprintf("%s doesn't match id %d", desc, doc)), nil
+}
+
+// queryDescription renders q for an explanation description, mirroring the role
+// of Query.toString() in Lucene's explanation text. It prefers a query's own
+// ToString/String renderer when available, falling back to %v.
+func queryDescription(q Query) string {
+	switch v := q.(type) {
+	case interface{ ToString(string) string }:
+		return v.ToString("")
+	case fmt.Stringer:
+		return v.String()
+	default:
+		return fmt.Sprintf("%v", q)
+	}
 }
 
 // Ensure ConstantScoreWeight implements Weight.

@@ -24,12 +24,20 @@ type PhraseWeight struct {
 
 // NewPhraseWeight creates a new PhraseWeight.
 func NewPhraseWeight(query *PhraseQuery, searcher *IndexSearcher, needsScores bool) (*PhraseWeight, error) {
+	// Score through the searcher's Similarity (mirroring Lucene's PhraseWeight,
+	// which uses searcher.getSimilarity()), so a custom Similarity injected via
+	// IndexSearcher.SetSimilarity drives the produced scores. Falls back to
+	// ClassicSimilarity when the searcher carries none.
+	similarity := searcher.GetSimilarity()
+	if similarity == nil {
+		similarity = NewClassicSimilarity()
+	}
 	w := &PhraseWeight{
 		BaseWeight:  NewBaseWeight(query),
 		query:       query,
 		searcher:    searcher,
 		needsScores: needsScores,
-		similarity:  NewClassicSimilarity(),
+		similarity:  similarity,
 	}
 
 	if needsScores && len(query.terms) > 0 {
@@ -171,7 +179,27 @@ func (w *PhraseWeight) Explain(context *index.LeafReaderContext, doc int) (Expla
 				freq = pfs.PhraseFreq()
 			}
 			scoreExpl := MatchExplanation(score, "score(phraseFreq), product of:")
-			scoreExpl.AddDetail(MatchExplanation(freq, fmt.Sprintf("phraseFreq=%v", freq)))
+			if _, ok := w.simScorer.(*ClassicSimScorer); ok {
+				// ClassicSimilarity scores a phrase as tf(phraseFreq) * idf * boost
+				// with tf(x) = sqrt(x). Decompose so the "product of:" details
+				// multiply to the score (the property CheckHits.verifyExplanation
+				// enforces): the tf detail carries sqrt(phraseFreq) over a nested
+				// freq detail (its "with freq of:" suffix exempts the nested node
+				// from the product rule) and the idf factor absorbs idf*boost.
+				tfValue := float32(tf(float64(freq)))
+				idfFactor := float32(1)
+				if tfValue != 0 {
+					idfFactor = score / tfValue
+				}
+				scoreExpl.AddDetail(MatchExplanation(
+					idfFactor, "idf, computed as log(maxDocs/docFreq)"))
+				scoreExpl.AddDetail(MatchExplanationWithDetails(
+					tfValue,
+					fmt.Sprintf("tf(phraseFreq=%v), with freq of:", freq),
+					MatchExplanation(freq, fmt.Sprintf("phraseFreq=%v", freq))))
+			} else {
+				scoreExpl.AddDetail(MatchExplanation(freq, fmt.Sprintf("phraseFreq=%v", freq)))
+			}
 
 			desc := fmt.Sprintf("weight(%s in %d) [%s], result of:",
 				w.GetQuery(), doc, w.similarityName())
