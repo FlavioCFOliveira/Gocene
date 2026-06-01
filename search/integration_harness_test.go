@@ -95,6 +95,16 @@ func (ix *integrationIndex) commit() {
 	}
 }
 
+// forceMerge merges the buffered/flushed segments down to maxNumSegments,
+// letting callers force a single-segment index (the analogue of
+// RandomIndexWriter.forceMerge in the upstream suites).
+func (ix *integrationIndex) forceMerge(maxNumSegments int) {
+	ix.t.Helper()
+	if err := ix.w.ForceMerge(maxNumSegments); err != nil {
+		ix.t.Fatalf("ForceMerge: %v", err)
+	}
+}
+
 // searcher closes the writer, opens the committed index and returns an
 // IndexSearcher plus a cleanup that closes the reader and directory.
 func (ix *integrationIndex) searcher() (*search.IndexSearcher, func()) {

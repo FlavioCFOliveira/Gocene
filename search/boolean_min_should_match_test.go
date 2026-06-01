@@ -9,6 +9,8 @@
 package search_test
 
 import (
+	"math"
+	"math/rand"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
@@ -477,4 +479,122 @@ func TestBooleanMinShouldMatch_ClauseCounting(t *testing.T) {
 	if shouldCount != 2 {
 		t.Errorf("Expected 2 SHOULD clauses, got %d", shouldCount)
 	}
+}
+
+// TestBooleanMinShouldMatch_RandomQueries ports testRandomQueries: it builds a
+// random BooleanQuery tree q1 (unconstrained) and an identical q2 to which a
+// random minimumNumberShouldMatch (and possibly a random negation) is applied,
+// then asserts the constrained q2 result is a subset of q1 with matching scores.
+func TestBooleanMinShouldMatch_RandomQueries(t *testing.T) {
+	reader, searcher := setupTestIndex(t)
+	defer reader.Close()
+
+	field := "data"
+	vals := []string{"1", "2", "3", "4", "5", "6", "A", "Z", "B", "Y", "Z", "X", "foo"}
+
+	num := 20
+	for i := 0; i < num; i++ {
+		seed := int64(i*1009 + 17)
+		lev := int(seed % 4)
+		q1 := bmsmRandBoolQuery(rand.New(rand.NewSource(seed)), true, lev, field, vals)
+		q2 := bmsmRandBoolQuery(rand.New(rand.NewSource(seed)), true, lev, field, vals)
+
+		// minNrCB.postCreate, applied only to the top-level q2.
+		cbRng := rand.New(rand.NewSource(seed ^ 0x5DEECE66D))
+		opt := 0
+		for _, c := range q2.Clauses() {
+			if c.Occur == search.SHOULD {
+				opt++
+			}
+		}
+		q2.SetMinimumNumberShouldMatch(cbRng.Intn(opt + 2))
+		if cbRng.Intn(2) == 1 {
+			q2.Add(search.NewTermQuery(index.NewTerm(field, vals[cbRng.Intn(len(vals))])), search.MUST_NOT)
+		}
+
+		top1, err := searcher.Search(q1, 100)
+		if err != nil {
+			t.Fatalf("iter %d Search q1: %v", i, err)
+		}
+		top2, err := searcher.Search(q2, 100)
+		if err != nil {
+			t.Fatalf("iter %d Search q2: %v", i, err)
+		}
+		assertSubsetOfSameScores(t, q2, top1, top2)
+	}
+}
+
+// assertSubsetOfSameScores ports assertSubsetOfSameScores: the constrained query
+// (top2) must be a subset of the unconstrained query (top1), and every shared
+// document must score within ulp(score) * numScoringClauses.
+func assertSubsetOfSameScores(t *testing.T, q *search.BooleanQuery, top1, top2 *search.TopDocs) {
+	t.Helper()
+	if top2.TotalHits.Value > top1.TotalHits.Value {
+		t.Fatalf("Constrained results not a subset: %d > %d", top2.TotalHits.Value, top1.TotalHits.Value)
+	}
+
+	numScoringClauses := 0
+	for _, c := range q.Clauses() {
+		if c.Occur == search.SHOULD || c.Occur == search.MUST {
+			numScoringClauses++
+		}
+	}
+
+	for hit := 0; hit < len(top2.ScoreDocs); hit++ {
+		id := top2.ScoreDocs[hit].Doc
+		score := top2.ScoreDocs[hit].Score
+		found := false
+		for other := 0; other < len(top1.ScoreDocs); other++ {
+			if top1.ScoreDocs[other].Doc == id {
+				found = true
+				otherScore := top1.ScoreDocs[other].Score
+				tolerance := bmsmUlp32(score) * float32(numScoringClauses)
+				if math.Abs(float64(score-otherScore)) > float64(tolerance) {
+					t.Errorf("Doc %d scores don't match: %v vs %v (tol %v)", id, score, otherScore, tolerance)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("Doc %d not found in unconstrained results", id)
+		}
+	}
+}
+
+// bmsmUlp32 returns the unit in the last place of x for float32, mirroring Math.ulp.
+func bmsmUlp32(x float32) float32 {
+	if x == 0 {
+		return math.SmallestNonzeroFloat32
+	}
+	next := math.Nextafter32(x, float32(math.Inf(1)))
+	return float32(math.Abs(float64(next - x)))
+}
+
+// bmsmRandBoolQuery is the local port of TestBoolean2.randBoolQuery used by the
+// random-query test: it builds a reproducible random BooleanQuery tree.
+func bmsmRandBoolQuery(rng *rand.Rand, allowMust bool, level int, field string, vals []string) *search.BooleanQuery {
+	bq := search.NewBooleanQuery()
+	numClauses := rng.Intn(len(vals)) + 1
+	for i := 0; i < numClauses; i++ {
+		var occur search.Occur
+		switch rng.Intn(4) {
+		case 0:
+			if allowMust {
+				occur = search.MUST
+			} else {
+				occur = search.SHOULD
+			}
+		case 1:
+			occur = search.MUST_NOT
+		default:
+			occur = search.SHOULD
+		}
+		var q search.Query
+		if level > 0 && rng.Intn(10) >= 5 {
+			q = bmsmRandBoolQuery(rng, allowMust, level-1, field, vals)
+		} else {
+			q = search.NewTermQuery(index.NewTerm(field, vals[rng.Intn(len(vals))]))
+		}
+		bq.Add(q, occur)
+	}
+	return bq
 }

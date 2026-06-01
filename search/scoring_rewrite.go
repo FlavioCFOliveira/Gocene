@@ -39,8 +39,16 @@ const DefaultMaxClauseCount = 1024
 var maxClauseCount = DefaultMaxClauseCount
 
 // SetMaxClauseCount sets the global maximum clause count for multi-term
-// query rewrites.
-func SetMaxClauseCount(n int) { maxClauseCount = n }
+// query rewrites. It panics if n < 1, mirroring
+// org.apache.lucene.search.IndexSearcher#setMaxClauseCount, which throws an
+// IllegalArgumentException ("maxClauseCount must be >= 1") and leaves the
+// current value unchanged.
+func SetMaxClauseCount(n int) {
+	if n < 1 {
+		panic("maxClauseCount must be >= 1")
+	}
+	maxClauseCount = n
+}
 
 // GetMaxClauseCount returns the current maximum clause count.
 func GetMaxClauseCount() int { return maxClauseCount }

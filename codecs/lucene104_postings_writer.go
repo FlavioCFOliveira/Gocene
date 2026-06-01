@@ -874,6 +874,14 @@ func (w *Lucene104PostingsWriter) writeLevel1SkipData() error {
 		return err
 	}
 
+	// level1End is the expected docOut file pointer once both the skip metadata
+	// and the buffered level-1 block (level1Output) have been written. The
+	// invariant is verified after level1Output is copied, exactly as in
+	// Lucene104PostingsWriter.writeLevel1SkipData (Lucene 10.4.0): the earlier
+	// implementation checked the pointer before copying level1Output, so the
+	// check spuriously failed for the writeFreqs && !writePositions case once a
+	// full level-1 group (8192 docs) was flushed.
+	var level1End int64
 	if w.writeFreqs {
 		impacts := w.level1FreqNormAcc.GetCompetitiveFreqNormPairs()
 		if len(impacts) > w.maxNumImpactsAtLevel1 {
@@ -913,7 +921,7 @@ func (w *Lucene104PostingsWriter) writeLevel1SkipData() error {
 		if err := store.WriteVLong(w.docOut, level1Len); err != nil {
 			return err
 		}
-		level1End := w.docOut.GetFilePointer() + level1Len
+		level1End = w.docOut.GetFilePointer() + level1Len
 
 		// Two shorts: total scratch size including the numImpactBytes short,
 		// and the numImpactBytes itself.
@@ -928,22 +936,23 @@ func (w *Lucene104PostingsWriter) writeLevel1SkipData() error {
 			return err
 		}
 		w.scratchOutput.Reset()
-
-		if w.docOut.GetFilePointer() != level1End {
-			return fmt.Errorf(
-				"lucene104 postings writer: level1 length mismatch: pos=%d want=%d",
-				w.docOut.GetFilePointer(), level1End,
-			)
-		}
 	} else {
 		if err := store.WriteVLong(w.docOut, w.level1Output.Size()); err != nil {
 			return err
 		}
+		level1End = w.docOut.GetFilePointer() + w.level1Output.Size()
 	}
 	if err := w.level1Output.CopyTo(w.docOut); err != nil {
 		return err
 	}
 	w.level1Output.Reset()
+
+	if w.docOut.GetFilePointer() != level1End {
+		return fmt.Errorf(
+			"lucene104 postings writer: level1 length mismatch: pos=%d want=%d",
+			w.docOut.GetFilePointer(), level1End,
+		)
+	}
 	return nil
 }
 
