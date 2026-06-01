@@ -411,14 +411,26 @@ func (s *pointInSetIncludingScoreScorer) Advance(t int) (int, error) { return s.
 func (s *pointInSetIncludingScoreScorer) Cost() int64                { return s.disi.Cost() }
 func (s *pointInSetIncludingScoreScorer) DocIDRunEnd() int           { return s.disi.DocIDRunEnd() }
 
-// ── stub weight methods ──────────────────────────────────────────────────────
+// ── weight methods ──────────────────────────────────────────────────────────
 
-func (w *pointInSetIncludingScoreWeight) ScorerSupplier(_ *index.LeafReaderContext) (search.ScorerSupplier, error) {
-	return nil, nil
+// ScorerSupplier returns a ScorerSupplier that lazily creates the Scorer.
+// Mirrors the default Weight.scorerSupplier in Java which wraps scorer().
+func (w *pointInSetIncludingScoreWeight) ScorerSupplier(ctx *index.LeafReaderContext) (search.ScorerSupplier, error) {
+	scorer, err := w.Scorer(ctx)
+	if err != nil || scorer == nil {
+		return nil, err
+	}
+	return &pointInSetScorerSupplier{scorer: scorer}, nil
 }
 
-func (w *pointInSetIncludingScoreWeight) BulkScorer(_ *index.LeafReaderContext) (search.BulkScorer, error) {
-	return nil, nil
+// BulkScorer delegates to the default BulkScorer implementation that uses
+// the Scorer for iteration. Returns nil if no matches are possible.
+func (w *pointInSetIncludingScoreWeight) BulkScorer(ctx *index.LeafReaderContext) (search.BulkScorer, error) {
+	scorer, err := w.Scorer(ctx)
+	if err != nil || scorer == nil {
+		return nil, err
+	}
+	return search.NewDefaultBulkScorer(scorer), nil
 }
 
 func (w *pointInSetIncludingScoreWeight) IsCacheable(_ *index.LeafReaderContext) bool {
@@ -444,6 +456,18 @@ func (w *pointInSetIncludingScoreWeight) Count(_ *index.LeafReaderContext) (int,
 func (w *pointInSetIncludingScoreWeight) Matches(_ *index.LeafReaderContext, _ int) (search.Matches, error) {
 	return nil, nil
 }
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+
+// pointInSetScorerSupplier adapts a Scorer into a ScorerSupplier.
+// Mirrors the default Weight.scorerSupplier(LeafReaderContext) wrapper in Java.
+type pointInSetScorerSupplier struct {
+	scorer search.Scorer
+}
+
+func (s *pointInSetScorerSupplier) Get(_ int64) (search.Scorer, error) { return s.scorer, nil }
+func (s *pointInSetScorerSupplier) Cost() int64                        { return s.scorer.Cost() }
+func (s *pointInSetScorerSupplier) SetTopLevelScoringClause()          {}
 
 // ── stub scorer ──────────────────────────────────────────────────────────────
 
