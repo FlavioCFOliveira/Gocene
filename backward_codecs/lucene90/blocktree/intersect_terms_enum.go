@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
@@ -24,11 +25,17 @@ var ErrBlockTraversalNotAvailable = errors.New(
 // the concatenated output can be fed to a BlockTreeTermsReader when loading
 // floor blocks. It mirrors the static inner class
 // SegmentTermsEnum.OutputAccumulator in Lucene90BlockTreeTermsReader.java.
+//
+// It also acts as a DataInput so that pushFrame can call readVLongOutput
+// directly on the accumulated byte sequence. The read cursor is managed by
+// prepareRead / readByte.
 type outputAccumulator struct {
-	outputs     []*util.BytesRef
-	num         int
-	outputIndex int
-	index       int
+	outputs []*util.BytesRef
+	num     int
+
+	// Read-cursor fields — set by prepareRead; advanced by readByte.
+	outputIndex int // index into outputs[] of the BytesRef currently being read
+	index       int // byte offset within outputs[outputIndex]
 }
 
 // push appends output to the accumulator (no-op for nil or empty outputs).
@@ -60,6 +67,44 @@ func (a *outputAccumulator) popN(n int) {
 
 // outputCount returns the number of accumulated outputs.
 func (a *outputAccumulator) outputCount() int { return a.num }
+
+// reset clears the accumulator so it can be reused for a new seek.
+// Port of OutputAccumulator.reset().
+func (a *outputAccumulator) reset() {
+	a.num = 0
+}
+
+// prepareRead resets the read cursor to the start of the first output.
+// Must be called before readByte. Port of OutputAccumulator.prepareRead().
+func (a *outputAccumulator) prepareRead() {
+	a.outputIndex = 0
+	a.index = 0
+}
+
+// readByte reads the next byte from the accumulated outputs, advancing the
+// cursor across BytesRef boundaries. Port of OutputAccumulator.readByte().
+func (a *outputAccumulator) readByte() (byte, error) {
+	cur := a.outputs[a.outputIndex]
+	if a.index >= cur.Length {
+		a.outputIndex++
+		if a.outputIndex >= a.num {
+			return 0, errors.New("outputAccumulator: read past end")
+		}
+		cur = a.outputs[a.outputIndex]
+		a.index = 0
+	}
+	b := cur.Bytes[cur.Offset+a.index]
+	a.index++
+	return b, nil
+}
+
+// setFloorData positions floorReader at the floor data within the last pushed
+// output, starting at the current read cursor. Port of
+// OutputAccumulator.setFloorData(ByteArrayDataInput).
+func (a *outputAccumulator) setFloorData(floorReader *store.ByteArrayDataInput) {
+	output := a.outputs[a.outputIndex]
+	floorReader.ResetWithSlice(output.Bytes, output.Offset+a.index, output.Length-a.index)
+}
 
 // IntersectTermsEnum implements efficient intersection of the lucene90
 // block-tree terms dictionary with a compiled automaton.
