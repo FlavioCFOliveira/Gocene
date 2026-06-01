@@ -532,12 +532,26 @@ func probeEncoding(r io.Reader) (*prologueBuf, error) {
 type dictDecoder func([]byte) string
 
 func makeDecoder(encoding string) dictDecoder {
-	switch strings.ToUpper(strings.ReplaceAll(encoding, "-", "")) {
+	norm := strings.ToUpper(strings.ReplaceAll(encoding, "-", ""))
+	switch norm {
 	case "ISO885914":
 		return DecodeISO8859_14
+	case "ISO88591", "ISO8859", "LATIN1", "LATIN-1":
+		// ISO-8859-1: bytes 0x00-0xFF map 1:1 to Unicode codepoints U+0000-U+00FF.
+		return DecodeISO8859_1
 	default:
 		return func(b []byte) string { return string(b) }
 	}
+}
+
+// DecodeISO8859_1 converts ISO-8859-1 (Latin-1) bytes to a UTF-8 string.
+// Each byte value maps directly to the Unicode codepoint with the same value.
+func DecodeISO8859_1(b []byte) string {
+	runes := make([]rune, len(b))
+	for i, c := range b {
+		runes[i] = rune(c)
+	}
+	return string(runes)
 }
 
 // ─── Affix file parsing ──────────────────────────────────────────────────────
@@ -1278,15 +1292,16 @@ func (d *Dictionary) unescapeEntry(entry string) string {
 	for i := 0; i < end; {
 		r, size := rune(entry[i]), 1
 		if r < 128 {
-			// ASCII fast path
+			// ASCII fast path: single byte
 		} else {
 			r, size = decodeRune(entry[i:])
 		}
-		_ = size
-		i++ // byte-advance for simplicity; works for ASCII-heavy content
+		i += size
 		if r == '\\' && i < end {
-			sb.WriteRune(rune(entry[i]))
-			i++
+			// Escaped character — consume the next rune literally.
+			nr, nsize := decodeRune(entry[i:])
+			sb.WriteRune(nr)
+			i += nsize
 		} else if r == '/' && i > 1 {
 			sb.WriteRune(flagSeparator)
 		} else if r != flagSeparator && r != morphSeparator {
@@ -1304,11 +1319,17 @@ func (d *Dictionary) unescapeEntry(entry string) string {
 	return sb.String()
 }
 
-// decodeRune is a thin wrapper so we don't import unicode/utf8 in every path.
+// decodeRune decodes the first rune from s and returns it with its byte size.
+// Uses range iteration which naturally handles multi-byte UTF-8 sequences.
 func decodeRune(s string) (rune, int) {
-	for i, r := range s {
-		_ = i
-		return r, 0
+	if len(s) == 0 {
+		return 0, 0
+	}
+	for _, r := range s {
+		// The first iteration gives us the first rune.
+		// The byte size is len(s) - len(s with first rune removed).
+		size := len(string(r))
+		return r, size
 	}
 	return 0, 0
 }

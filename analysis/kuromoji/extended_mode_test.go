@@ -45,30 +45,31 @@ func TestExtendedMode_ModeExtendedConstant(t *testing.T) {
 // TestExtendedMode_Surrogates verifies that JapaneseTokenizer in EXTENDED
 // mode correctly handles supplementary (surrogate-pair) characters.
 //
-// Deviation: skipped — requires binary dictionary I/O to produce tokens.
-// Tracked in backlog task #2691.
+// Deviation: the binary dictionary is now loaded but the Viterbi segmentation
+// algorithm is not yet implemented. IncrementToken returns an empty stream.
+// Full token-producing tests are deferred until Viterbi lands.
 func TestExtendedMode_Surrogates(t *testing.T) {
-	t.Fatal("requires binary dictionary I/O (deferred to codec sprint)")
+	t.Fatal("Viterbi segmentation algorithm not yet implemented — JapaneseTokenizer.IncrementToken is a stub")
 }
 
 // TestExtendedMode_Surrogates2 stress-tests the tokenizer with random
 // Unicode strings, verifying no surrogate pairs are split.
 //
-// Deviation: skipped — requires binary dictionary I/O.
+// Deviation: same Viterbi prerequisite as TestExtendedMode_Surrogates.
 func TestExtendedMode_Surrogates2(t *testing.T) {
-	t.Fatal("requires binary dictionary I/O (deferred to codec sprint)")
+	t.Fatal("Viterbi segmentation algorithm not yet implemented — JapaneseTokenizer.IncrementToken is a stub")
 }
 
 // TestExtendedMode_RandomStrings blasts random strings through the analyzer.
 //
-// Deviation: skipped — requires binary dictionary I/O.
+// Deviation: same Viterbi prerequisite.
 func TestExtendedMode_RandomStrings(t *testing.T) {
-	t.Fatal("requires binary dictionary I/O (deferred to codec sprint)")
+	t.Fatal("Viterbi segmentation algorithm not yet implemented — JapaneseTokenizer.IncrementToken is a stub")
 }
 
 // TestExtendedMode_RandomHugeStrings blasts random large strings.
 //
-// Deviation: skipped — requires binary dictionary I/O.
+// Deviation: same Viterbi prerequisite.
 func TestExtendedMode_RandomHugeStrings(t *testing.T) {
-	t.Fatal("requires binary dictionary I/O (deferred to codec sprint)")
+	t.Fatal("Viterbi segmentation algorithm not yet implemented — JapaneseTokenizer.IncrementToken is a stub")
 }

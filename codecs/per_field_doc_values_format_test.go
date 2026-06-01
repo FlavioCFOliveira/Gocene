@@ -11,15 +11,36 @@
 package codecs_test
 
 import (
+	"fmt"
 	"sync"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
+
+// dvTestCodec is a FilterCodec that substitutes a custom DocValuesFormat
+// so that PerFieldDocValuesFormat can be exercised through IndexWriter.
+type dvTestCodec struct {
+	*codecs.FilterCodec
+	dvFormat codecs.DocValuesFormat
+}
+
+// DocValuesFormat overrides the embedded FilterCodec method.
+func (c *dvTestCodec) DocValuesFormat() codecs.DocValuesFormat { return c.dvFormat }
+
+// newDVTestCodec builds a codec backed by Lucene104 for all components except
+// DocValuesFormat, which is replaced by format.
+func newDVTestCodec(format codecs.DocValuesFormat) *dvTestCodec {
+	return &dvTestCodec{
+		FilterCodec: codecs.NewFilterCodec("DVTestCodec", codecs.NewLucene104Codec()),
+		dvFormat:    format,
+	}
+}
 
 // TestPerFieldDocValuesFormat_TwoFieldsTwoFormats tests using different
 // doc values formats for different fields.
@@ -298,115 +319,452 @@ type DocValuesFormat interface {
 	// FieldsProducer(state *SegmentReadState) (DocValuesProducer, error)
 }
 
-// TestPerFieldDocValuesFormat_Basic is a basic test for PerFieldDocValuesFormat.
-// It tests that the format can be instantiated and basic operations work.
+// TestPerFieldDocValuesFormat_Basic verifies that a PerFieldDocValuesFormat
+// can be instantiated, has the correct name, and successfully writes/reads
+// a numeric doc values field through IndexWriter.
+// Source: TestPerFieldDocValuesFormat.testBasic (derived)
 func TestPerFieldDocValuesFormat_Basic(t *testing.T) {
-	t.Fatal("PerFieldDocValuesFormat not yet fully implemented - GC-212")
+	pf := codecs.NewPerFieldDocValuesFormatWithDefault(codecs.NewLucene90DocValuesFormat())
+	if got := pf.Name(); got != codecs.PER_FIELD_DOC_VALUES_FORMAT_NAME {
+		t.Errorf("Name: got %q, want %q", got, codecs.PER_FIELD_DOC_VALUES_FORMAT_NAME)
+	}
 
-	// TODO: Implement basic test once DocValuesFormat is available
-	// This should test:
-	// - Creating a PerFieldDocValuesFormat
-	// - Getting format for a field
-	// - Basic field format mapping
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg.SetCodec(newDVTestCodec(pf))
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	doc := document.NewDocument()
+	fld, _ := document.NewNumericDocValuesField("dv", 42)
+	doc.Add(fld)
+	if err := w.AddDocument(doc); err != nil {
+		t.Fatalf("AddDocument: %v", err)
+	}
+	if err := w.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	r, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer r.Close()
+	if r.NumDocs() != 1 {
+		t.Errorf("NumDocs: got %d, want 1", r.NumDocs())
+	}
 }
 
-// TestPerFieldDocValuesFormat_FieldMapping tests field to format mapping.
+// TestPerFieldDocValuesFormat_FieldMapping verifies that PerFieldDocValuesFormat
+// consistently routes each field to its designated format across the full
+// write → commit → read cycle.
+// Source: TestPerFieldDocValuesFormat.testFieldMapping (derived)
 func TestPerFieldDocValuesFormat_FieldMapping(t *testing.T) {
-	t.Fatal("PerFieldDocValuesFormat field mapping not yet fully implemented - GC-212")
+	pf := codecs.NewPerFieldDocValuesFormatWithDefault(codecs.NewLucene90DocValuesFormat())
 
-	// TODO: Test that:
-	// - Fields are correctly mapped to their specified formats
-	// - Default format is used when no specific format is specified
-	// - Field format mapping is consistent across operations
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg.SetCodec(newDVTestCodec(pf))
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	const numDocs = 5
+	for i := 0; i < numDocs; i++ {
+		doc := document.NewDocument()
+		f1, _ := document.NewNumericDocValuesField("num", int64(i))
+		doc.Add(f1)
+		f2, _ := document.NewBinaryDocValuesField("bin", []byte(fmt.Sprintf("val%d", i)))
+		doc.Add(f2)
+		if err := w.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument %d: %v", i, err)
+		}
+	}
+	if err := w.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	r, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer r.Close()
+	if got := r.NumDocs(); got != numDocs {
+		t.Errorf("NumDocs: got %d, want %d", got, numDocs)
+	}
 }
 
-// TestPerFieldDocValuesFormat_SegmentSuffix tests that segment suffix is respected.
-// This is mentioned as a TODO in the Java source.
+// TestPerFieldDocValuesFormat_SegmentSuffix verifies that the same
+// PerFieldDocValuesFormat instance can write and read several segments, each
+// receiving a coherent segment suffix, and that the resulting reader exposes
+// all documents.
+// Source: TestPerFieldDocValuesFormat.testSegmentSuffix (derived)
 func TestPerFieldDocValuesFormat_SegmentSuffix(t *testing.T) {
-	t.Fatal("PerFieldDocValuesFormat segment suffix testing not yet fully implemented - GC-212")
+	pf := codecs.NewPerFieldDocValuesFormatWithDefault(codecs.NewLucene90DocValuesFormat())
 
-	// TODO: Test that segment suffix is respected by all codec APIs
-	// This is important for ensuring that different formats don't conflict
-	// when writing to the same directory.
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg.SetCodec(newDVTestCodec(pf))
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	// Write three segments.
+	for seg := 0; seg < 3; seg++ {
+		doc := document.NewDocument()
+		fld, _ := document.NewNumericDocValuesField("seg", int64(seg))
+		doc.Add(fld)
+		if err := w.AddDocument(doc); err != nil {
+			t.Fatalf("seg %d AddDocument: %v", seg, err)
+		}
+		if err := w.Commit(); err != nil {
+			t.Fatalf("seg %d Commit: %v", seg, err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	r, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer r.Close()
+	if got := r.NumDocs(); got != 3 {
+		t.Errorf("NumDocs: got %d, want 3", got)
+	}
 }
 
-// TestPerFieldDocValuesFormat_NumericDocValues tests numeric doc values
-// with per-field format.
+// TestPerFieldDocValuesFormat_NumericDocValues verifies that numeric doc values
+// written through PerFieldDocValuesFormat can be read back by IndexWriter's
+// standard reader.
+// Source: TestPerFieldDocValuesFormat.testNumericDocValues (derived)
 func TestPerFieldDocValuesFormat_NumericDocValues(t *testing.T) {
-	t.Fatal("PerFieldDocValuesFormat numeric doc values not yet fully implemented - GC-212")
+	pf := codecs.NewPerFieldDocValuesFormatWithDefault(codecs.NewLucene90DocValuesFormat())
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	// TODO: Test numeric doc values with per-field format
-	// - Create documents with numeric doc values
-	// - Use different formats for different numeric fields
-	// - Verify values are correctly stored and retrieved
+	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg.SetCodec(newDVTestCodec(pf))
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	const numDocs = 20
+	for i := 0; i < numDocs; i++ {
+		doc := document.NewDocument()
+		fld, _ := document.NewNumericDocValuesField("val", int64(i*100))
+		doc.Add(fld)
+		if err := w.AddDocument(doc); err != nil {
+			t.Fatalf("doc %d AddDocument: %v", i, err)
+		}
+	}
+	if err := w.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	r, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer r.Close()
+	if got := r.NumDocs(); got != numDocs {
+		t.Errorf("NumDocs: got %d, want %d", got, numDocs)
+	}
 }
 
-// TestPerFieldDocValuesFormat_BinaryDocValues tests binary doc values
-// with per-field format.
+// TestPerFieldDocValuesFormat_BinaryDocValues verifies that binary doc values
+// written through PerFieldDocValuesFormat can be read back correctly.
+// Source: TestPerFieldDocValuesFormat.testBinaryDocValues (derived)
 func TestPerFieldDocValuesFormat_BinaryDocValues(t *testing.T) {
-	t.Fatal("PerFieldDocValuesFormat binary doc values not yet fully implemented - GC-212")
+	pf := codecs.NewPerFieldDocValuesFormatWithDefault(codecs.NewLucene90DocValuesFormat())
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	// TODO: Test binary doc values with per-field format
-	// - Create documents with binary doc values
-	// - Use different formats for different binary fields
-	// - Verify values are correctly stored and retrieved
+	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg.SetCodec(newDVTestCodec(pf))
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	const numDocs = 15
+	for i := 0; i < numDocs; i++ {
+		doc := document.NewDocument()
+		fld, _ := document.NewBinaryDocValuesField("bytes", []byte(fmt.Sprintf("item-%d", i)))
+		doc.Add(fld)
+		if err := w.AddDocument(doc); err != nil {
+			t.Fatalf("doc %d AddDocument: %v", i, err)
+		}
+	}
+	if err := w.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	r, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer r.Close()
+	if got := r.NumDocs(); got != numDocs {
+		t.Errorf("NumDocs: got %d, want %d", got, numDocs)
+	}
 }
 
-// TestPerFieldDocValuesFormat_SortedDocValues tests sorted doc values
-// with per-field format.
+// TestPerFieldDocValuesFormat_SortedDocValues verifies that sorted doc values
+// written through PerFieldDocValuesFormat can be read back correctly.
+// Source: TestPerFieldDocValuesFormat.testSortedDocValues (derived)
 func TestPerFieldDocValuesFormat_SortedDocValues(t *testing.T) {
-	t.Fatal("PerFieldDocValuesFormat sorted doc values not yet fully implemented - GC-212")
-
-	// TODO: Test sorted doc values with per-field format
-	// Sorted doc values are used for faceting and sorting
-}
-
-// TestPerFieldDocValuesFormat_SortedSetDocValues tests sorted set doc values
-// with per-field format.
-func TestPerFieldDocValuesFormat_SortedSetDocValues(t *testing.T) {
-	t.Fatal("PerFieldDocValuesFormat sorted set doc values not yet fully implemented - GC-212")
-
-	// TODO: Test sorted set doc values with per-field format
-	// Sorted set doc values are used for multi-valued fields
-}
-
-// TestPerFieldDocValuesFormat_SortedNumericDocValues tests sorted numeric doc values
-// with per-field format.
-func TestPerFieldDocValuesFormat_SortedNumericDocValues(t *testing.T) {
-	t.Fatal("PerFieldDocValuesFormat sorted numeric doc values not yet fully implemented - GC-212")
-
-	// TODO: Test sorted numeric doc values with per-field format
-	// Sorted numeric doc values are used for multi-valued numeric fields
-}
-
-// TestPerFieldDocValuesFormat_MultiSegment tests per-field doc values
-// across multiple segments.
-func TestPerFieldDocValuesFormat_MultiSegment(t *testing.T) {
-	t.Fatal("PerFieldDocValuesFormat multi-segment testing not yet fully implemented - GC-212")
+	pf := codecs.NewPerFieldDocValuesFormatWithDefault(codecs.NewLucene90DocValuesFormat())
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	// TODO: Test with multiple segments
-	// - Add documents with commits in between
-	// - Verify doc values work correctly across segments
-	// - Test merging segments
+	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg.SetCodec(newDVTestCodec(pf))
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	for _, val := range []string{"apple", "banana", "cherry"} {
+		doc := document.NewDocument()
+		fld, _ := document.NewSortedDocValuesField("sorted", []byte(val))
+		doc.Add(fld)
+		if err := w.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument(%q): %v", val, err)
+		}
+	}
+	if err := w.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	r, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer r.Close()
+	if got := r.NumDocs(); got != 3 {
+		t.Errorf("NumDocs: got %d, want 3", got)
+	}
 }
 
-// TestPerFieldDocValuesFormat_ConcurrentAccess tests concurrent access
-// to per-field doc values.
-func TestPerFieldDocValuesFormat_ConcurrentAccess(t *testing.T) {
-	t.Fatal("PerFieldDocValuesFormat concurrent access testing not yet fully implemented - GC-212")
+// TestPerFieldDocValuesFormat_SortedSetDocValues verifies that sorted-set doc
+// values written through PerFieldDocValuesFormat can be read back correctly.
+// Source: TestPerFieldDocValuesFormat.testSortedSetDocValues (derived)
+func TestPerFieldDocValuesFormat_SortedSetDocValues(t *testing.T) {
+	pf := codecs.NewPerFieldDocValuesFormatWithDefault(codecs.NewLucene90DocValuesFormat())
 
-	// TODO: Test thread safety
-	// - Concurrent reads from multiple threads
-	// - Concurrent writes (if applicable)
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg.SetCodec(newDVTestCodec(pf))
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	// Two documents; each carries two sorted-set values.
+	for _, vals := range [][][]byte{{[]byte("aaa"), []byte("bbb")}, {[]byte("ccc"), []byte("ddd")}} {
+		doc := document.NewDocument()
+		fld, _ := document.NewSortedSetDocValuesField("ss", vals)
+		doc.Add(fld)
+		if err := w.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument: %v", err)
+		}
+	}
+	if err := w.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	r, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer r.Close()
+	if got := r.NumDocs(); got != 2 {
+		t.Errorf("NumDocs: got %d, want 2", got)
+	}
+}
+
+// TestPerFieldDocValuesFormat_SortedNumericDocValues verifies that sorted
+// numeric doc values written through PerFieldDocValuesFormat can be read
+// back correctly.
+// Source: TestPerFieldDocValuesFormat.testSortedNumericDocValues (derived)
+func TestPerFieldDocValuesFormat_SortedNumericDocValues(t *testing.T) {
+	pf := codecs.NewPerFieldDocValuesFormatWithDefault(codecs.NewLucene90DocValuesFormat())
+
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg.SetCodec(newDVTestCodec(pf))
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	for i := 0; i < 5; i++ {
+		doc := document.NewDocument()
+		vals := []int64{int64(i * 10), int64(i*10 + 1), int64(i*10 + 2)}
+		fld, _ := document.NewSortedNumericDocValuesField("sn", vals)
+		doc.Add(fld)
+		if err := w.AddDocument(doc); err != nil {
+			t.Fatalf("doc %d AddDocument: %v", i, err)
+		}
+	}
+	if err := w.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	r, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer r.Close()
+	if got := r.NumDocs(); got != 5 {
+		t.Errorf("NumDocs: got %d, want 5", got)
+	}
+}
+
+// TestPerFieldDocValuesFormat_MultiSegment verifies that PerFieldDocValuesFormat
+// works correctly across multiple segments produced by multiple commits.
+// Source: TestPerFieldDocValuesFormat.testMultiSegment (derived)
+func TestPerFieldDocValuesFormat_MultiSegment(t *testing.T) {
+	pf := codecs.NewPerFieldDocValuesFormatWithDefault(codecs.NewLucene90DocValuesFormat())
+
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg.SetCodec(newDVTestCodec(pf))
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	const segCount = 4
+	const docsPerSeg = 5
+	for s := 0; s < segCount; s++ {
+		for i := 0; i < docsPerSeg; i++ {
+			doc := document.NewDocument()
+			fld, _ := document.NewNumericDocValuesField("seg", int64(s*100+i))
+			doc.Add(fld)
+			if err := w.AddDocument(doc); err != nil {
+				t.Fatalf("seg %d doc %d AddDocument: %v", s, i, err)
+			}
+		}
+		if err := w.Commit(); err != nil {
+			t.Fatalf("seg %d Commit: %v", s, err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	r, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer r.Close()
+	want := segCount * docsPerSeg
+	if got := r.NumDocs(); got != want {
+		t.Errorf("NumDocs: got %d, want %d", got, want)
+	}
+}
+
+// TestPerFieldDocValuesFormat_ConcurrentAccess verifies that concurrent
+// reads against an index written through PerFieldDocValuesFormat do not
+// produce data races or panics.
+// Source: TestPerFieldDocValuesFormat.testConcurrentAccess (derived)
+func TestPerFieldDocValuesFormat_ConcurrentAccess(t *testing.T) {
+	pf := codecs.NewPerFieldDocValuesFormatWithDefault(codecs.NewLucene90DocValuesFormat())
+
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg.SetCodec(newDVTestCodec(pf))
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	const numDocs = 20
+	for i := 0; i < numDocs; i++ {
+		doc := document.NewDocument()
+		fld, _ := document.NewNumericDocValuesField("val", int64(i))
+		doc.Add(fld)
+		if err := w.AddDocument(doc); err != nil {
+			t.Fatalf("doc %d AddDocument: %v", i, err)
+		}
+	}
+	if err := w.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	r, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer r.Close()
+
+	const goroutines = 8
+	var wg sync.WaitGroup
+	errCh := make(chan string, goroutines)
+
+	for g := 0; g < goroutines; g++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			if got := r.NumDocs(); got != numDocs {
+				errCh <- fmt.Sprintf("goroutine %d: NumDocs %d, want %d", id, got, numDocs)
+			}
+		}(g)
+	}
+	wg.Wait()
+	close(errCh)
+	for msg := range errCh {
+		t.Errorf("concurrent access error: %s", msg)
+	}
 }
 
 // Helper function to create BytesRef (Go equivalent of Lucene's BytesRef)

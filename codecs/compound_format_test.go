@@ -1017,9 +1017,14 @@ func (f *TestCompoundFormat) GetShouldUseCompoundFile() bool {
 }
 
 // SetMaxCFSSegmentSizeMB sets the maximum segment size in MB.
+// Passing math.Inf(1) removes the size cap (equivalent to MaxInt64).
 func (f *TestCompoundFormat) SetMaxCFSSegmentSizeMB(mb float64) {
 	if mb < 0 {
 		panic("maxCFSSegmentSizeMB must be >= 0")
+	}
+	if math.IsInf(mb, 1) {
+		f.maxCFSSegmentSize = math.MaxInt64
+		return
 	}
 	f.maxCFSSegmentSize = int64(mb * 1024 * 1024)
 }

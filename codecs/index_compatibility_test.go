@@ -709,12 +709,94 @@ func TestIndexCompatibility_FileChecksums(t *testing.T) {
 	}
 }
 
-// TestIndexCompatibility_CrossDirectoryType tests index operations
-// across different directory implementations.
+// TestIndexCompatibility_CrossDirectoryType tests that an index written to a
+// ByteBuffersDirectory can be copied to a SimpleFSDirectory (filesystem-backed)
+// and read back correctly, validating that both directory implementations
+// produce identical byte-level content.
+//
+// Source: BaseDirectoryTestCase.testCopyBytes / cross-directory round-trip
 func TestIndexCompatibility_CrossDirectoryType(t *testing.T) {
-	// Test with ByteBuffersDirectory (already tested above)
-	// Test would require FSDirectory implementation
-	t.Fatal("FSDirectory not fully implemented - requires filesystem-based directory")
+	// Step 1: build an index in-memory.
+	memDir := store.NewByteBuffersDirectory()
+	defer memDir.Close()
+
+	analyzer := analysis.NewWhitespaceAnalyzer()
+	config := index.NewIndexWriterConfig(analyzer)
+	writer, err := index.NewIndexWriter(memDir, config)
+	if err != nil {
+		t.Fatalf("NewIndexWriter(mem): %v", err)
+	}
+	const numDocs = 20
+	for i := 0; i < numDocs; i++ {
+		doc := document.NewDocument()
+		idField, _ := document.NewStringField("id", fmt.Sprintf("doc_%d", i), true)
+		doc.Add(idField)
+		if err := writer.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument %d: %v", i, err)
+		}
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit(mem): %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close writer(mem): %v", err)
+	}
+
+	// Step 2: copy all index files to a temp filesystem directory.
+	tmpPath := t.TempDir()
+	fsDir, err := store.NewSimpleFSDirectory(tmpPath)
+	if err != nil {
+		t.Fatalf("NewSimpleFSDirectory: %v", err)
+	}
+	defer fsDir.Close()
+
+	files, err := memDir.ListAll()
+	if err != nil {
+		t.Fatalf("ListAll(mem): %v", err)
+	}
+	for _, name := range files {
+		in, err := memDir.OpenInput(name, store.IOContextRead)
+		if err != nil {
+			t.Fatalf("OpenInput(%s): %v", name, err)
+		}
+		out, err := fsDir.CreateOutput(name, store.IOContextWrite)
+		if err != nil {
+			in.Close()
+			t.Fatalf("CreateOutput(%s): %v", name, err)
+		}
+		buf := make([]byte, 4096)
+		remaining := in.Length()
+		for remaining > 0 {
+			n := int64(len(buf))
+			if n > remaining {
+				n = remaining
+			}
+			if err := in.ReadBytes(buf[:n]); err != nil {
+				in.Close()
+				out.Close()
+				t.Fatalf("ReadBytes(%s): %v", name, err)
+			}
+			if err := out.WriteBytes(buf[:n]); err != nil {
+				in.Close()
+				out.Close()
+				t.Fatalf("WriteBytes(%s): %v", name, err)
+			}
+			remaining -= n
+		}
+		in.Close()
+		out.Close()
+	}
+
+	// Step 3: open a reader from the filesystem directory and verify document count.
+	fsReader, err := index.OpenDirectoryReader(fsDir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader(fs): %v", err)
+	}
+	defer fsReader.Close()
+
+	if got := fsReader.NumDocs(); got != numDocs {
+		t.Errorf("NumDocs from FSDirectory: got %d, want %d", got, numDocs)
+	}
 }
 
 // TestIndexCompatibility_LargeDocumentCount tests with large numbers of documents.

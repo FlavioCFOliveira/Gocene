@@ -687,10 +687,8 @@ func TestSpellChecking_Allcaps(t *testing.T) {
 // TestSpellChecking_CheckSharpS ports TestSpellChecking.testCheckSharpS.
 //
 // Source: TestSpellChecking.java
-// Deviation: Gocene does not yet implement CHECKSHARPS (ß ↔ SS substitution).
-// The .good file check is skipped until CHECKSHARPS is implemented.
 func TestSpellChecking_CheckSharpS(t *testing.T) {
-	t.Fatal("CHECKSHARPS not yet implemented in Gocene hunspell engine")
+	doSpellTest(t, "checksharps")
 }
 
 // TestSpellChecking_IJ ports TestSpellChecking.testIJ.

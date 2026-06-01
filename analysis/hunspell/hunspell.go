@@ -85,8 +85,8 @@ func (h *Hunspell) spellClean(word string) bool {
 	wc := h.Stemmer.caseOf(runes, len(runes))
 	if wc == WordCaseUpper || wc == WordCaseTitle {
 		found := false
-		h.Stemmer.varyCase(runes, len(runes), wc, func(variant []rune, varLen int, _ WordCase) bool {
-			if h.checkWord(variant, varLen, WordCaseNeutral) {
+		h.Stemmer.varyCase(runes, len(runes), wc, func(variant []rune, varLen int, originalCase WordCase) bool {
+			if h.checkWord(variant, varLen, originalCase) {
 				found = true
 				return false
 			}

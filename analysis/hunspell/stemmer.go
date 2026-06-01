@@ -194,7 +194,9 @@ func (s *Stemmer) varySharpS(word []rune, length int, processor caseVariationPro
 	for _, v := range variants {
 		if v != src {
 			vr := []rune(v)
-			if !processor(vr, len(vr), WordCaseMixed) {
+			// Pass WordCaseNeutral (≡ Java's null) so that acceptCase bypasses
+			// KEEPCASE for ß/SS variants — matching Lucene's varySharpS behaviour.
+			if !processor(vr, len(vr), WordCaseNeutral) {
 				return false
 			}
 		}

@@ -6,6 +6,7 @@ package codecs
 
 import (
 	"fmt"
+	"math"
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -575,19 +576,18 @@ func binaryWriteDouble(out store.IndexOutput, v float64) error {
 	return out.WriteBytes(b)
 }
 
-// math.Float32bits and Float64bits equivalents
 func float32bits(f float32) uint32 {
-	return uint32(float32(f))
+	return math.Float32bits(f)
 }
 
 func float32frombits(b uint32) float32 {
-	return float32(b)
+	return math.Float32frombits(b)
 }
 
 func float64bits(f float64) uint64 {
-	return uint64(f)
+	return math.Float64bits(f)
 }
 
 func float64frombits(b uint64) float64 {
-	return float64(b)
+	return math.Float64frombits(b)
 }
