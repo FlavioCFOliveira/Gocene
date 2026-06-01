@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Roadmap
+
+**Name:** gocene
+
 ## Project Overview
 
 Gocene is a Go module that aims to be a port of Apache Lucene to modern idiomatic Golang, byte-by-byte compatible with the original Apache Lucene library.
@@ -53,6 +57,10 @@ All development cycles must be self-contained. You must NEVER deliver only part 
 When new needs are discovered during the course of a task — needs that were not anticipated beforehand — they must be resolved within the same development cycle, as immediately as possible. This means adding new tasks (via `rmp`) and executing them as quickly as practical, rather than deferring them.
 
 All code and all development output must be, as a rule, **full-fledged**: no half-implementations, no stubs left dangling, no "to be completed later" placeholders.
+
+Tests must never use `t.Skip()`; a gap in coverage must fail, not be silenced.
+
+Whenever you encounter pre-existing bugs during a task, fix them immediately and then continue with the original task.
 
 ## Production-Oriented
 
@@ -142,6 +150,8 @@ If the work being planned requires multiple phases (or sprints), planning must b
 
 Always use `rmp` as the single source of truth throughout this process.
 
+Use the **Knowledge Graph** (see the dedicated section below) to identify the foundational and highest-gain tasks, to understand the reach of each change across the project's components, and to plan the optimal order in which to execute the tasks.
+
 ### Task Execution
 
 Task execution is the natural continuation (the next step) of planning. You must always use the `rmp` tool to:
@@ -152,6 +162,7 @@ Task execution is the natural continuation (the next step) of planning. You must
 4. Validate that the acceptance criteria are met before closing the task.
 5. Close the task with a short summary of what was done.
 6. After closing the task, and before moving on to the next one, perform a git commit following best practices, explaining what was done.
+7. Update the Knowledge Graph to reflect every change introduced by the commit (new nodes, updated properties, new edges, commit reference and date).
 
 Sprint execution must always be **sequential**. Task execution should preferably be sequential as well; tasks may be executed in parallel only when there is clear justification to do so.
 
@@ -184,6 +195,22 @@ However, always remember: **the focus of any task is to contribute to the develo
 
 - Maintain focus on the specific requirements of each task.
 - Never implement features or changes that exceed the task's stated requirements.
+
+## Knowledge Graph
+
+Use the graph commands of the `rmp` tool (Groadmap) to create, maintain, and query a knowledge graph for the project. This graph **MUST contain everything** that is useful to know about the project, including but not limited to:
+
+- Which features exist, where they are specified, where they are implemented, and which tests cover them.
+- Which components exist, how they relate to one another, and what their dependencies are.
+- Which `rmp` tasks are associated with each component or feature.
+- In which git commit a feature was specified, implemented, and tested.
+- Any other information that aids in understanding scope or impact.
+
+The graph **MUST always be updated** at every git commit. When updating nodes and edges, record the commit hash and date so that the graph remains a timestamped, authoritative audit trail.
+
+The Knowledge Graph is intended to be the **authoritative source of truth about the project**; you must diligently keep it as up-to-date as possible. Consult the Knowledge Graph before reading files: query the graph first to locate what you need, and only fall back to reading source files when the graph does not yet contain the required information.
+
+Create whatever node types and edge types make the most sense for the project and for your activity. Use the graph together with tasks and sprints to coordinate all project work.
 
 ## Project Status
 
