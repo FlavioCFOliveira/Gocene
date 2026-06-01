@@ -10,16 +10,24 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
+// pendingParallelQuery holds a queued query for async execution.
+type pendingParallelQuery[T any] struct {
+	queryID  string
+	query    search.Query
+	metadata map[string]string
+}
+
 // ParallelMatcher runs each query in the monitor on a separate goroutine.
 //
-// Port of org.apache.lucene.monitor.ParallelMatcher.
-//
-// Deviation: Java's ParallelMatcher uses an ExecutorService.  Gocene uses
-// goroutines + errgroup-style coordination.
+// Port of org.apache.lucene.monitor.ParallelMatcher. Each call to MatchQuery
+// submits the query to an internal queue; Finish drains the queue by spawning
+// one goroutine per queued query, waiting for all completions, and merging the
+// results into the base matcher's result set.
 type ParallelMatcher[T any] struct {
 	BaseCandidateMatcher[T]
 	factory MatcherFactory[T]
 	mu      sync.Mutex
+	pending []*pendingParallelQuery[T]
 }
 
 // NewParallelMatcher creates a ParallelMatcher for the given searcher and factory.
@@ -33,14 +41,14 @@ func NewParallelMatcher[T any](
 	}
 }
 
-// MatchQuery runs the query concurrently.
-// In this stub the query is forwarded to a delegate matcher synchronously.
-// Full async dispatch is deferred to backlog #2693.
+// MatchQuery enqueues the query for concurrent execution in Finish.
+//
+// Port of ParallelMatcher.matchQuery: the Java implementation submits an async
+// task to an ExecutorService. Gocene enqueues here and drains in Finish.
 func (p *ParallelMatcher[T]) MatchQuery(queryID string, matchQuery search.Query, metadata map[string]string) error {
-	delegate := p.factory.CreateMatcher(p.Searcher)
-	if err := delegate.MatchQuery(queryID, matchQuery, metadata); err != nil {
-		return err
-	}
+	p.mu.Lock()
+	p.pending = append(p.pending, &pendingParallelQuery[T]{queryID, matchQuery, metadata})
+	p.mu.Unlock()
 	return nil
 }
 
@@ -55,7 +63,43 @@ func (p *ParallelMatcher[T]) ReportError(queryID string, err error) {
 	p.BaseCandidateMatcher.ReportError(queryID, err)
 }
 
-// Finish finalises the run.
+// Finish drains the pending queue by running each query concurrently and
+// returns the merged results. Mirrors ParallelMatcher.finish in Java.
 func (p *ParallelMatcher[T]) Finish(buildTime int64, queryCount int) *MultiMatchingQueries[T] {
+	p.mu.Lock()
+	pending := p.pending
+	p.pending = nil
+	p.mu.Unlock()
+
+	if len(pending) == 0 {
+		return p.BaseCandidateMatcher.Finish(buildTime, queryCount)
+	}
+
+	// Spawn one goroutine per pending query; each creates its own delegate so
+	// there is no shared mutable state between goroutines.
+	type result struct {
+		queryID string
+		err     error
+	}
+	results := make(chan result, len(pending))
+
+	for _, pq := range pending {
+		pq := pq
+		go func() {
+			delegate := p.factory.CreateMatcher(p.Searcher)
+			err := delegate.MatchQuery(pq.queryID, pq.query, pq.metadata)
+			results <- result{pq.queryID, err}
+		}()
+	}
+
+	// Collect all results.
+	for range pending {
+		r := <-results
+		if r.err != nil {
+			p.ReportError(r.queryID, r.err)
+		}
+	}
+	close(results)
+
 	return p.BaseCandidateMatcher.Finish(buildTime, queryCount)
 }
