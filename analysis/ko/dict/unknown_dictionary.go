@@ -54,17 +54,3 @@ func (d *UnknownDictionary) LookupWordIDs(characterClass int, wordIDRef *[]int) 
 	}
 }
 
-// defaultUnknownDictionary is the zero-value singleton.
-var defaultUnknownDictionary = &UnknownDictionary{
-	morphAtts: NewUnknownMorphData(nil, nil),
-	charDef:   GetCharacterDefinitionInstance(),
-}
-
-// GetUnknownDictionaryInstance returns the default UnknownDictionary singleton.
-//
-// Deviation: the Java original loads binary data from the JAR classpath via a
-// lazy singleton. The Go port returns an empty instance; full binary loading is
-// deferred to the nori codec sprint.
-func GetUnknownDictionaryInstance() *UnknownDictionary {
-	return defaultUnknownDictionary
-}

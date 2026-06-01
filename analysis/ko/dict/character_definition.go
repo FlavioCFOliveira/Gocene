@@ -107,14 +107,3 @@ func LookupCharacterClass(name string) byte {
 	}
 }
 
-// defaultCharacterDefinition is the zero-value singleton.
-var defaultCharacterDefinition = NewCharacterDefinitionEmpty()
-
-// GetInstance returns the default CharacterDefinition singleton.
-//
-// Deviation: the Java original loads binary data from the JAR classpath. The
-// Go port returns a zero-value instance; full binary loading is deferred to
-// the nori codec sprint.
-func GetCharacterDefinitionInstance() *CharacterDefinition {
-	return defaultCharacterDefinition
-}

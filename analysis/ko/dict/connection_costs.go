@@ -9,10 +9,6 @@ package dict
 //
 // This is the Go port of org.apache.lucene.analysis.ko.dict.ConnectionCosts
 // from Apache Lucene 10.4.0.
-//
-// Deviation: the Java original loads a pre-built binary resource from the JAR
-// classpath. The Go port provides the struct; loading from embedded resources
-// is deferred to the nori codec sprint.
 type ConnectionCosts struct {
 	matrix      []int16
 	forwardSize int
@@ -34,16 +30,4 @@ func (c *ConnectionCosts) Get(forwardID, backwardID int) int {
 		return 0
 	}
 	return int(c.matrix[idx])
-}
-
-// defaultConnectionCosts is the zero-value singleton.
-var defaultConnectionCosts = &ConnectionCosts{}
-
-// GetConnectionCostsInstance returns the default ConnectionCosts singleton.
-//
-// Deviation: the Java original loads binary data from the JAR classpath. The
-// Go port returns an empty instance; full binary loading is deferred to the
-// nori codec sprint.
-func GetConnectionCostsInstance() *ConnectionCosts {
-	return defaultConnectionCosts
 }

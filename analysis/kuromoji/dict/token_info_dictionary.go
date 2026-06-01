@@ -4,7 +4,10 @@
 
 package dict
 
-import "github.com/FlavioCFOliveira/Gocene/analysis/morph"
+import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/morph"
+	gofst "github.com/FlavioCFOliveira/Gocene/util/fst"
+)
 
 // TokenInfoDictionary is the main system dictionary for kuromoji. It maps
 // token surface forms to word IDs via a TokenInfoFST and stores morphological
@@ -13,21 +16,20 @@ import "github.com/FlavioCFOliveira/Gocene/analysis/morph"
 // This is the Go port of
 // org.apache.lucene.analysis.ja.dict.TokenInfoDictionary from Apache Lucene
 // 10.4.0.
-//
-// Deviation: the Java original loads pre-built binary resources from the JAR
-// classpath, including an FST file. The Go port accepts the constituent data
-// at construction time; resource loading is deferred to the codec sprint.
 type TokenInfoDictionary struct {
 	// base holds the packed binary entry data.
 	base morph.BinaryDictionary
-	// fst maps byte sequences to word ID lists.
+	// fst is the legacy morph placeholder; use realFST for real arc traversal.
 	fst *morph.TokenInfoFST
+	// realFST is the loaded FST[int64] from the embedded binary resource.
+	// It is nil until GetTokenInfoDictionaryInstance() has been called.
+	realFST *gofst.FST[int64]
 	// morphAttrs provides morphological attributes for system words.
 	morphAttrs *TokenInfoMorphData
 }
 
 // NewTokenInfoDictionary creates a TokenInfoDictionary with the given
-// components.
+// components (used by tests and the CSV-based builder path).
 func NewTokenInfoDictionary(
 	base morph.BinaryDictionary,
 	fst *morph.TokenInfoFST,
@@ -40,8 +42,28 @@ func NewTokenInfoDictionary(
 	}
 }
 
-// GetFST returns the TokenInfoFST used for surface-form lookup.
+// newTokenInfoDictionaryFromBinary is the internal constructor used by the
+// embedded-resource loader; it wires up the real FST alongside the morph
+// placeholder.
+func newTokenInfoDictionaryFromBinary(
+	base morph.BinaryDictionary,
+	realFST *gofst.FST[int64],
+	morphAttrs *TokenInfoMorphData,
+) *TokenInfoDictionary {
+	return &TokenInfoDictionary{
+		base:       base,
+		fst:        morph.NewTokenInfoFST(),
+		realFST:    realFST,
+		morphAttrs: morphAttrs,
+	}
+}
+
+// GetFST returns the morph-level TokenInfoFST placeholder.
 func (d *TokenInfoDictionary) GetFST() *morph.TokenInfoFST { return d.fst }
+
+// GetRealFST returns the loaded FST[int64] from the embedded binary resource,
+// or nil if the dictionary was constructed without binary data.
+func (d *TokenInfoDictionary) GetRealFST() *gofst.FST[int64] { return d.realFST }
 
 // GetMorphAttributes returns the TokenInfoMorphData for this dictionary.
 func (d *TokenInfoDictionary) GetMorphAttributes() *TokenInfoMorphData { return d.morphAttrs }

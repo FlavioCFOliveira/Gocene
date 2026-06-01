@@ -48,17 +48,3 @@ func (d *TokenInfoDictionary) LookupWordIDs(ordinal int) []int {
 	return d.targetMap[ordinal]
 }
 
-// defaultTokenInfoDictionary is the zero-value singleton.
-var defaultTokenInfoDictionary = &TokenInfoDictionary{
-	fst:       NewTokenInfoFST(),
-	morphAtts: NewTokenInfoMorphData(nil, nil),
-}
-
-// GetTokenInfoDictionaryInstance returns the default TokenInfoDictionary singleton.
-//
-// Deviation: the Java original loads binary data from the JAR classpath via a
-// lazy singleton. The Go port returns an empty instance; full binary loading is
-// deferred to the nori codec sprint.
-func GetTokenInfoDictionaryInstance() *TokenInfoDictionary {
-	return defaultTokenInfoDictionary
-}

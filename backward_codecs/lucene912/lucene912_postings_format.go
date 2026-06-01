@@ -124,9 +124,9 @@ func (f *Lucene912PostingsFormat) FieldsConsumer(_ *codecs.SegmentWriteState) (c
 
 // FieldsProducer opens the postings files for the given segment.
 //
-// The full Lucene90BlockTreeTermsReader wiring is deferred until the
-// corresponding backward-codecs sprint; this method returns an error until
-// then.
+// The full Lucene90BlockTreeTermsReader port for this backward codec has not
+// been completed yet. This method returns an error indicating the format is
+// not available for reading.
 func (f *Lucene912PostingsFormat) FieldsProducer(_ *codecs.SegmentReadState) (codecs.FieldsProducer, error) {
-	return nil, errors.New("lucene912: FieldsProducer not yet implemented (deferred sprint)")
+	return nil, errors.New("lucene912: FieldsProducer not available (backward postings format not ported)")
 }
