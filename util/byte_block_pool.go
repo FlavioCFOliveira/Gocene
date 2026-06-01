@@ -417,12 +417,21 @@ func (b *BytesRefBuilder) CopyChars(s string) {
 }
 
 // Grow grows the internal buffer to accommodate at least minSize bytes.
+// Existing content up to min(b.length, len(b.bytes)) is preserved.
 func (b *BytesRefBuilder) Grow(minSize int) {
 	if cap(b.bytes) >= minSize {
 		return
 	}
 	newBytes := make([]byte, minSize)
-	copy(newBytes, b.bytes[:b.length])
+	// Guard against b.bytes being nil when b.length was set without a
+	// prior allocation (e.g. SetLength called before any Grow).
+	copyLen := b.length
+	if copyLen > len(b.bytes) {
+		copyLen = len(b.bytes)
+	}
+	if copyLen > 0 {
+		copy(newBytes, b.bytes[:copyLen])
+	}
 	b.bytes = newBytes
 }
 

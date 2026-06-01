@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/fst"
@@ -106,19 +107,23 @@ func NewVersionFieldReader(
 }
 
 // GetMin returns the minimum term for this field.
-func (f *VersionFieldReader) GetMin() (*util.BytesRef, error) {
+//
+// Implements schema.Terms. Returns (*schema.Term, error).
+func (f *VersionFieldReader) GetMin() (*schema.Term, error) {
 	if f.MinTerm == nil {
 		return nil, nil // Caller falls back to scanning.
 	}
-	return f.MinTerm, nil
+	return schema.NewTermFromBytesRef(f.FieldInfo.Name(), f.MinTerm), nil
 }
 
 // GetMax returns the maximum term for this field.
-func (f *VersionFieldReader) GetMax() (*util.BytesRef, error) {
+//
+// Implements schema.Terms. Returns (*schema.Term, error).
+func (f *VersionFieldReader) GetMax() (*schema.Term, error) {
 	if f.MaxTerm == nil {
 		return nil, nil
 	}
-	return f.MaxTerm, nil
+	return schema.NewTermFromBytesRef(f.FieldInfo.Name(), f.MaxTerm), nil
 }
 
 // HasFreqs reports whether this field has term frequencies.
@@ -150,13 +155,65 @@ func (f *VersionFieldReader) Iterator() (*IDVersionSegmentTermsEnum, error) {
 func (f *VersionFieldReader) Size() int64 { return f.NumTerms }
 
 // GetSumTotalTermFreq returns the sum of all term frequencies.
-func (f *VersionFieldReader) GetSumTotalTermFreq() int64 { return f.SumTotalTermFreq }
+//
+// Implements schema.Terms.
+func (f *VersionFieldReader) GetSumTotalTermFreq() (int64, error) {
+	return f.SumTotalTermFreq, nil
+}
 
 // GetSumDocFreq returns the sum of document frequencies.
-func (f *VersionFieldReader) GetSumDocFreq() int64 { return f.SumDocFreq }
+//
+// Implements schema.Terms.
+func (f *VersionFieldReader) GetSumDocFreq() (int64, error) {
+	return f.SumDocFreq, nil
+}
 
 // GetDocCount returns the number of documents with at least one term.
-func (f *VersionFieldReader) GetDocCount() int { return f.DocCount }
+//
+// Implements schema.Terms.
+func (f *VersionFieldReader) GetDocCount() (int, error) { return f.DocCount, nil }
+
+// GetIterator returns a TermsEnum positioned before the first term.
+//
+// Implements schema.Terms.
+func (f *VersionFieldReader) GetIterator() (schema.TermsEnum, error) {
+	return f.Iterator()
+}
+
+// GetIteratorWithSeek returns a TermsEnum positioned at or after seekTerm.
+//
+// Implements schema.Terms.
+func (f *VersionFieldReader) GetIteratorWithSeek(seekTerm *schema.Term) (schema.TermsEnum, error) {
+	te, err := f.Iterator()
+	if err != nil {
+		return nil, err
+	}
+	if seekTerm != nil {
+		if _, serr := te.SeekCeil(seekTerm); serr != nil {
+			return nil, serr
+		}
+	}
+	return te, nil
+}
+
+// GetPostingsReader returns a PostingsEnum for the given term text.
+//
+// Implements schema.Terms.
+func (f *VersionFieldReader) GetPostingsReader(termText string, flags int) (schema.PostingsEnum, error) {
+	te, err := f.Iterator()
+	if err != nil {
+		return nil, err
+	}
+	t := schema.NewTerm(f.FieldInfo.Name(), termText)
+	found, err := te.SeekExact(t)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, nil
+	}
+	return te.Postings(flags)
+}
 
 // String returns a human-readable summary.
 func (f *VersionFieldReader) String() string {
