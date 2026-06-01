@@ -665,6 +665,319 @@ func recordLineBounds(pm *PlanetModel, boundsInfo *XYZBounds,
 	}
 }
 
+// RecordBoundsForLatLonWithPlane accumulates lat/lon bounds for the intersection
+// of this plane, a second plane q, and the planet surface. It is the two-plane
+// variant called by LatLonBounds.AddIntersection.
+//
+// Port of Plane.recordBounds(PlanetModel, LatLonBounds, Plane, Membership...).
+// In Java, findIntersectionBounds(PlanetModel, Bounds, Plane, Membership...) is
+// a single polymorphic method: it calls boundsInfo.addPoint and boundsInfo.noBound,
+// both of which are declared on the Bounds interface. The Go recordLineBounds helper
+// was originally typed to *XYZBounds; this method provides the equivalent for
+// *LatLonBounds by using a Bounds-interface-typed helper.
+func (p *Plane) RecordBoundsForLatLonWithPlane(pm *PlanetModel, boundsInfo *LatLonBounds, q *Plane, bounds ...Membership) {
+	findIntersectionBoundsForLatLon(pm, boundsInfo, p, q, bounds)
+}
+
+// findIntersectionBoundsForLatLon mirrors findIntersectionBounds but works with
+// the Bounds interface so that LatLonBounds.addPoint and .noBound are dispatched
+// correctly.
+//
+// Port of Plane.findIntersectionBounds(PlanetModel, Bounds, Plane, Membership...)
+// — the single implementation that the Java overloads share.
+func findIntersectionBoundsForLatLon(pm *PlanetModel, boundsInfo Bounds, p, q *Plane, bounds []Membership) {
+	lineVectorX := p.Y*q.Z - p.Z*q.Y
+	lineVectorY := p.Z*q.X - p.X*q.Z
+	lineVectorZ := p.X*q.Y - p.Y*q.X
+	if math.Abs(lineVectorX) < MinimumResolution &&
+		math.Abs(lineVectorY) < MinimumResolution &&
+		math.Abs(lineVectorZ) < MinimumResolution {
+		return
+	}
+
+	const minRes = MinimumResolution
+	denomYZ := p.Y*q.Z - p.Z*q.Y
+	denomXZ := p.X*q.Z - p.Z*q.X
+	denomXY := p.X*q.Y - p.Y*q.X
+	absYZ := math.Abs(denomYZ)
+	absXZ := math.Abs(denomXZ)
+	absXY := math.Abs(denomXY)
+
+	switch {
+	case absYZ >= absXZ && absYZ >= absXY:
+		if absYZ < MinimumResolution*MinimumResolution {
+			return
+		}
+		denom := 1.0 / denomYZ
+		for _, dP := range [2]float64{p.D + minRes, p.D - minRes} {
+			for _, dQ := range [2]float64{q.D + minRes, q.D - minRes} {
+				y0 := (-(dP)*q.Z - p.Z*(-dQ)) * denom
+				z0 := (p.Y*(-dQ) + (dP)*q.Y) * denom
+				recordLineBoundsGeneric(pm, boundsInfo, lineVectorX, lineVectorY, lineVectorZ, 0.0, y0, z0, bounds)
+			}
+		}
+	case absXZ >= absYZ && absXZ >= absXY:
+		if absXZ < MinimumResolution*MinimumResolution {
+			return
+		}
+		denom := 1.0 / denomXZ
+		for _, dP := range [2]float64{p.D + minRes, p.D - minRes} {
+			for _, dQ := range [2]float64{q.D + minRes, q.D - minRes} {
+				x0 := (-(dP)*q.Z - p.Z*(-dQ)) * denom
+				z0 := (p.X*(-dQ) + (dP)*q.X) * denom
+				recordLineBoundsGeneric(pm, boundsInfo, lineVectorX, lineVectorY, lineVectorZ, x0, 0.0, z0, bounds)
+			}
+		}
+	default:
+		if absXY < MinimumResolution*MinimumResolution {
+			return
+		}
+		denom := 1.0 / denomXY
+		for _, dP := range [2]float64{p.D + minRes, p.D - minRes} {
+			for _, dQ := range [2]float64{q.D + minRes, q.D - minRes} {
+				x0 := (-(dP)*q.Y - p.Y*(-dQ)) * denom
+				y0 := (p.X*(-dQ) + (dP)*q.X) * denom
+				recordLineBoundsGeneric(pm, boundsInfo, lineVectorX, lineVectorY, lineVectorZ, x0, y0, 0.0, bounds)
+			}
+		}
+	}
+}
+
+// recordLineBoundsGeneric is the Bounds-interface equivalent of recordLineBounds.
+// It produces at most two candidate points from the parametric line / ellipsoid
+// intersection and forwards each in-bounds point to boundsInfo.AddPoint, or calls
+// boundsInfo.NoBound when the line is entirely outside the ellipsoid.
+//
+// Port of the private static Plane.recordLineBounds(PlanetModel, Bounds, ...).
+func recordLineBoundsGeneric(pm *PlanetModel, boundsInfo Bounds,
+	lineVectorX, lineVectorY, lineVectorZ, x0, y0, z0 float64,
+	bounds []Membership) {
+
+	A := lineVectorX*lineVectorX*pm.InverseXYScalingSquared +
+		lineVectorY*lineVectorY*pm.InverseXYScalingSquared +
+		lineVectorZ*lineVectorZ*pm.InverseZScalingSquared
+	B := 2.0 * (lineVectorX*x0*pm.InverseXYScalingSquared +
+		lineVectorY*y0*pm.InverseXYScalingSquared +
+		lineVectorZ*z0*pm.InverseZScalingSquared)
+	C := x0*x0*pm.InverseXYScalingSquared +
+		y0*y0*pm.InverseXYScalingSquared +
+		z0*z0*pm.InverseZScalingSquared - 1.0
+
+	bSqMinus := B*B - 4.0*A*C
+	switch {
+	case math.Abs(bSqMinus) < MinimumResolution*MinimumResolution:
+		inv2A := 1.0 / (2.0 * A)
+		t := -B * inv2A
+		px, py, pz := lineVectorX*t+x0, lineVectorY*t+y0, lineVectorZ*t+z0
+		for _, b := range bounds {
+			if b != nil && !b.IsWithin(px, py, pz) {
+				return
+			}
+		}
+		boundsInfo.AddPoint(NewGeoPoint(px, py, pz))
+	case bSqMinus > 0.0:
+		inv2A := 1.0 / (2.0 * A)
+		sqrtTerm := math.Sqrt(bSqMinus)
+		t1 := (-B + sqrtTerm) * inv2A
+		t2 := (-B - sqrtTerm) * inv2A
+		p1x, p1y, p1z := lineVectorX*t1+x0, lineVectorY*t1+y0, lineVectorZ*t1+z0
+		p2x, p2y, p2z := lineVectorX*t2+x0, lineVectorY*t2+y0, lineVectorZ*t2+z0
+		p1valid, p2valid := true, true
+		for _, b := range bounds {
+			if b != nil {
+				if !b.IsWithin(p1x, p1y, p1z) {
+					p1valid = false
+				}
+				if !b.IsWithin(p2x, p2y, p2z) {
+					p2valid = false
+				}
+			}
+		}
+		if p1valid {
+			boundsInfo.AddPoint(NewGeoPoint(p1x, p1y, p1z))
+		}
+		if p2valid {
+			boundsInfo.AddPoint(NewGeoPoint(p2x, p2y, p2z))
+		}
+	default:
+		boundsInfo.NoBound(pm)
+	}
+}
+
+// RecordBoundsForLatLon accumulates lat/lon bounds information for this plane
+// intersected with the planet surface. It is the single-plane variant called by
+// LatLonBounds.AddPlane.
+//
+// Port of Plane.recordBounds(PlanetModel, LatLonBounds, Membership...).
+// The latitude-extremum search uses a vertical-plane intersection (same technique
+// as RecordBounds for XYZBounds, but the result is fed to addZValue on LatLonBounds
+// so that it maps to addLatitudeBound). The longitude-extremum search uses the
+// elliptic-projection algebra from the Java source.
+func (p *Plane) RecordBoundsForLatLon(pm *PlanetModel, boundsInfo *LatLonBounds, bounds ...Membership) {
+	A := p.X
+	B := p.Y
+	C := p.Z
+	D := p.D
+
+	// Latitude bounds: intersect a vertical plane perpendicular to this one
+	// with the ellipsoid, then record the z-value (latitude) of each point.
+	if !boundsInfo.CheckNoTopLatitudeBound() || !boundsInfo.CheckNoBottomLatitudeBound() {
+		if math.Abs(A) >= MinimumResolution || math.Abs(B) >= MinimumResolution {
+			normalizedZPlane := ConstructNormalizedZPlaneXY(A, B)
+			points := p.findIntersections(pm, normalizedZPlane, bounds, NoBounds)
+			for _, pt := range points {
+				recordBoundsAddPointLatLon(boundsInfo, bounds, pt)
+			}
+		} else {
+			// Horizontal circle: any vertical plane suffices.
+			points := p.findIntersections(pm, NormalYPlane, NoBounds, NoBounds)
+			if len(points) == 0 {
+				points = p.findIntersections(pm, NormalXPlane, NoBounds, NoBounds)
+			}
+			if len(points) == 0 {
+				boundsInfo.AddZValue(NewGeoPoint(0.0, 0.0, -p.Z))
+			} else {
+				boundsInfo.AddZValue(points[0])
+			}
+		}
+	}
+
+	// Longitude bounds.
+	if !boundsInfo.CheckNoLongitudeBound() {
+		if math.Abs(C) < MinimumResolution {
+			// Degenerate: the plane projection onto x-y is a line (Ax+By+D=0, C≈0).
+			if math.Abs(D) >= MinimumResolution {
+				if math.Abs(A) > math.Abs(B) {
+					// Solve for y first:
+					// y^2 * [B^2/a^2 + A^2/b^2] + y [2BD/a^2] + [D^2/a^2 - A^2] = 0
+					// where a = b = inverseXYScaling (sphere x-y).
+					a := B*B*pm.InverseXYScalingSquared + A*A*pm.InverseXYScalingSquared
+					bCoef := 2.0 * B * D * pm.InverseXYScalingSquared
+					c := D*D*pm.InverseXYScalingSquared - A*A
+					sqrtClause := bCoef*bCoef - 4.0*a*c
+					if math.Abs(sqrtClause) < MinimumResolutionSquared {
+						y0 := -bCoef / (2.0 * a)
+						x0 := (-D - B*y0) / A
+						recordBoundsAddPointLatLon(boundsInfo, bounds, NewGeoPoint(x0, y0, 0.0))
+					} else if sqrtClause > 0.0 {
+						sqrtResult := math.Sqrt(sqrtClause)
+						denom := 1.0 / (2.0 * a)
+						hDenom := 1.0 / A
+						y0a := (-bCoef + sqrtResult) * denom
+						y0b := (-bCoef - sqrtResult) * denom
+						x0a := (-D - B*y0a) * hDenom
+						x0b := (-D - B*y0b) * hDenom
+						recordBoundsAddPointLatLon(boundsInfo, bounds, NewGeoPoint(x0a, y0a, 0.0))
+						recordBoundsAddPointLatLon(boundsInfo, bounds, NewGeoPoint(x0b, y0b, 0.0))
+					}
+				} else {
+					// Solve for x first:
+					a := B*B*pm.InverseXYScalingSquared + A*A*pm.InverseXYScalingSquared
+					bCoef := 2.0 * A * D * pm.InverseXYScalingSquared
+					c := D*D*pm.InverseXYScalingSquared - B*B
+					sqrtClause := bCoef*bCoef - 4.0*a*c
+					if math.Abs(sqrtClause) < MinimumResolutionSquared {
+						x0 := -bCoef / (2.0 * a)
+						y0 := (-D - A*x0) / B
+						recordBoundsAddPointLatLon(boundsInfo, bounds, NewGeoPoint(x0, y0, 0.0))
+					} else if sqrtClause > 0.0 {
+						sqrtResult := math.Sqrt(sqrtClause)
+						denom := 1.0 / (2.0 * a)
+						iDenom := 1.0 / B
+						x0a := (-bCoef + sqrtResult) * denom
+						x0b := (-bCoef - sqrtResult) * denom
+						y0a := (-D - A*x0a) * iDenom
+						y0b := (-D - A*x0b) * iDenom
+						recordBoundsAddPointLatLon(boundsInfo, bounds, NewGeoPoint(x0a, y0a, 0.0))
+						recordBoundsAddPointLatLon(boundsInfo, bounds, NewGeoPoint(x0b, y0b, 0.0))
+					}
+				}
+			}
+		} else {
+			// General case: project plane/ellipsoid intersection onto the x-y plane.
+			// The result is a conic: E x² + F y² + G xy + H x + I y + J = 0.
+			E := A*A*pm.InverseZScalingSquared + C*C*pm.InverseXYScalingSquared
+			F := B*B*pm.InverseZScalingSquared + C*C*pm.InverseXYScalingSquared
+			G := 2.0 * A * B * pm.InverseZScalingSquared
+			H := 2.0 * A * D * pm.InverseZScalingSquared
+			I := 2.0 * B * D * pm.InverseZScalingSquared
+			J := D*D*pm.InverseZScalingSquared - C*C
+
+			if math.Abs(J) >= MinimumResolution && J > 0.0 {
+				// Origin is outside the conic; compute extrema.
+				// Tangent-line constraint: Hx + Iy + 2J = 0.
+				if math.Abs(H) > math.Abs(I) {
+					// Eliminate x = (-2J - Iy)/H, plug into derivative equation.
+					// Quadratic in y: a y² + b y + c = 0
+					a := E*I*I - G*H*I + F*H*H
+					bCoef := 4.0*E*I*J - 2.0*G*H*J
+					c := 4.0*E*J*J - J*H*H
+					sqrtClause := bCoef*bCoef - 4.0*a*c
+					if math.Abs(sqrtClause) < MinimumResolutionCubed {
+						y0 := -bCoef / (2.0 * a)
+						x0 := (-2.0*J - I*y0) / H
+						z0 := (-A*x0 - B*y0 - D) / C
+						recordBoundsAddPointLatLon(boundsInfo, bounds, NewGeoPoint(x0, y0, z0))
+					} else if sqrtClause > 0.0 {
+						sqrtResult := math.Sqrt(sqrtClause)
+						denom := 1.0 / (2.0 * a)
+						hDenom := 1.0 / H
+						cDenom := 1.0 / C
+						y0a := (-bCoef + sqrtResult) * denom
+						y0b := (-bCoef - sqrtResult) * denom
+						x0a := (-2.0*J - I*y0a) * hDenom
+						x0b := (-2.0*J - I*y0b) * hDenom
+						z0a := (-A*x0a - B*y0a - D) * cDenom
+						z0b := (-A*x0b - B*y0b - D) * cDenom
+						recordBoundsAddPointLatLon(boundsInfo, bounds, NewGeoPoint(x0a, y0a, z0a))
+						recordBoundsAddPointLatLon(boundsInfo, bounds, NewGeoPoint(x0b, y0b, z0b))
+					}
+				} else {
+					// Eliminate y = (-2J - Hx)/I, plug into derivative equation.
+					// Quadratic in x: a x² + b x + c = 0
+					a := E*I*I - G*H*I + F*H*H
+					bCoef := 4.0*F*H*J - 2.0*G*I*J
+					c := 4.0*F*J*J - J*I*I
+					sqrtClause := bCoef*bCoef - 4.0*a*c
+					if math.Abs(sqrtClause) < MinimumResolutionCubed {
+						x0 := -bCoef / (2.0 * a)
+						y0 := (-2.0*J - H*x0) / I
+						z0 := (-A*x0 - B*y0 - D) / C
+						recordBoundsAddPointLatLon(boundsInfo, bounds, NewGeoPoint(x0, y0, z0))
+					} else if sqrtClause > 0.0 {
+						sqrtResult := math.Sqrt(sqrtClause)
+						denom := 1.0 / (2.0 * a)
+						iDenom := 1.0 / I
+						cDenom := 1.0 / C
+						x0a := (-bCoef + sqrtResult) * denom
+						x0b := (-bCoef - sqrtResult) * denom
+						y0a := (-2.0*J - H*x0a) * iDenom
+						y0b := (-2.0*J - H*x0b) * iDenom
+						z0a := (-A*x0a - B*y0a - D) * cDenom
+						z0b := (-A*x0b - B*y0b - D) * cDenom
+						recordBoundsAddPointLatLon(boundsInfo, bounds, NewGeoPoint(x0a, y0a, z0a))
+						recordBoundsAddPointLatLon(boundsInfo, bounds, NewGeoPoint(x0b, y0b, z0b))
+					}
+				}
+			}
+		}
+	}
+}
+
+// recordBoundsAddPointLatLon adds a point to a LatLonBounds accumulator only when
+// the point satisfies all supplied Membership bounds.
+//
+// Port of the private static Plane.addPoint(Bounds, Membership[], GeoPoint)
+// used in recordBounds(PlanetModel, LatLonBounds, Membership...).
+func recordBoundsAddPointLatLon(boundsInfo *LatLonBounds, bounds []Membership, point *GeoPoint) {
+	for _, b := range bounds {
+		if b != nil && !b.IsWithin(point.X, point.Y, point.Z) {
+			return
+		}
+	}
+	boundsInfo.AddPoint(point)
+}
+
 // RecordBounds accumulates (x,y,z) bounds information for this plane intersected
 // with the planet surface, updating boundsInfo with the extrema points found
 // within the supplied Membership bounds. It is the single-plane variant used by

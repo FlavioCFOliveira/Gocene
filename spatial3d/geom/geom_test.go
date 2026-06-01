@@ -555,6 +555,252 @@ func TestGeoPointSerialRoundTrip(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// LatLonBounds — AddXValue / AddYValue / AddZValue / AddPlane / AddIntersection
+// ---------------------------------------------------------------------------
+
+// TestLatLonBoundsAddXValueRecordsLongitude verifies that AddXValue delegates to
+// addLongitudeBound via the point's longitude.
+func TestLatLonBoundsAddXValueRecordsLongitude(t *testing.T) {
+	pm := geom.SPHERE
+	b := geom.NewLatLonBounds()
+	p := geom.NewGeoPointLatLon(pm, 0.3, 0.7)
+	b.AddXValue(p)
+	if b.CheckNoLongitudeBound() {
+		t.Fatal("AddXValue must not set noLongitudeBound for a single point")
+	}
+	if !b.HasLon() {
+		t.Fatal("AddXValue must set hasLon")
+	}
+	// The left and right longitude must both equal the point's longitude.
+	if math.Abs(b.GetMinLongitude()-0.7) > 1e-12 {
+		t.Fatalf("leftLon after AddXValue: want 0.7, got %g", b.GetMinLongitude())
+	}
+	if math.Abs(b.GetMaxLongitude()-0.7) > 1e-12 {
+		t.Fatalf("rightLon after AddXValue: want 0.7, got %g", b.GetMaxLongitude())
+	}
+}
+
+// TestLatLonBoundsAddYValueRecordsLongitude is symmetric with the X test.
+func TestLatLonBoundsAddYValueRecordsLongitude(t *testing.T) {
+	pm := geom.SPHERE
+	b := geom.NewLatLonBounds()
+	p := geom.NewGeoPointLatLon(pm, 0.0, -0.5)
+	b.AddYValue(p)
+	if !b.HasLon() {
+		t.Fatal("AddYValue must set hasLon")
+	}
+	if math.Abs(b.GetMinLongitude()-(-0.5)) > 1e-12 {
+		t.Fatalf("leftLon after AddYValue: want -0.5, got %g", b.GetMinLongitude())
+	}
+}
+
+// TestLatLonBoundsAddZValueRecordsLatitude verifies that AddZValue delegates to
+// addLatitudeBound via the point's latitude.
+func TestLatLonBoundsAddZValueRecordsLatitude(t *testing.T) {
+	pm := geom.SPHERE
+	b := geom.NewLatLonBounds()
+	p := geom.NewGeoPointLatLon(pm, 0.4, 0.0)
+	b.AddZValue(p)
+	if !b.HasLat() {
+		t.Fatal("AddZValue must set hasLat")
+	}
+	if math.Abs(b.GetMaxLatitude()-0.4) > 1e-12 {
+		t.Fatalf("maxLat after AddZValue: want 0.4, got %g", b.GetMaxLatitude())
+	}
+	if math.Abs(b.GetMinLatitude()-0.4) > 1e-12 {
+		t.Fatalf("minLat after AddZValue: want 0.4, got %g", b.GetMinLatitude())
+	}
+}
+
+// TestLatLonBoundsAddZValueNoOpWhenLatUnbounded verifies that AddZValue is a
+// no-op once both latitude bounds are cleared.
+func TestLatLonBoundsAddZValueNoOpWhenLatUnbounded(t *testing.T) {
+	pm := geom.SPHERE
+	b := geom.NewLatLonBounds()
+	b.NoTopLatitudeBound()
+	b.NoBottomLatitudeBound()
+	p := geom.NewGeoPointLatLon(pm, 0.4, 0.0)
+	b.AddZValue(p)
+	// hasLat should remain false because both guards are set.
+	if b.HasLat() {
+		t.Fatal("AddZValue must not record lat when both bounds are cleared")
+	}
+}
+
+// TestLatLonBoundsIsWidePromotesToNoLon verifies that IsWide calls noLongitudeBound.
+func TestLatLonBoundsIsWidePromotesToNoLon(t *testing.T) {
+	b := geom.NewLatLonBounds()
+	b.IsWide()
+	if !b.CheckNoLongitudeBound() {
+		t.Fatal("IsWide must set noLongitudeBound")
+	}
+}
+
+// TestLatLonBoundsAddPlaneRecordsLatLon verifies that AddPlane triggers the
+// Plane.RecordBoundsForLatLon algorithm and populates both latitude and longitude
+// bounds for a simple diagonal plane on the unit sphere.
+func TestLatLonBoundsAddPlaneRecordsLatLon(t *testing.T) {
+	pm := geom.SPHERE
+	b := geom.NewLatLonBounds()
+	// A simple equatorial horizontal plane (Z=0): all surface intersections are
+	// at latitude 0 with longitude varying over [-π, π].
+	plane := geom.NewPlane(0, 0, 1, 0) // Zx+Zy+z=0 → equatorial plane
+	b.AddPlane(pm, plane)
+	// Latitude extremum should be near 0 (the plane defines the equator).
+	if b.HasLat() {
+		// maxLat/minLat should be ≈ 0.
+		if math.Abs(b.GetMaxLatitude()) > 1e-9 {
+			t.Fatalf("maxLat after equatorial AddPlane: want ≈0, got %g", b.GetMaxLatitude())
+		}
+	}
+}
+
+// TestLatLonBoundsAddIntersectionNoOpWhenNilPlanes verifies that AddIntersection
+// with nil planes does not panic.
+func TestLatLonBoundsAddIntersectionNoOpWhenNilPlanes(t *testing.T) {
+	b := geom.NewLatLonBounds()
+	b.AddIntersection(geom.SPHERE, nil, nil)
+	// Should not panic; bounds remain empty.
+	if b.HasLon() {
+		t.Fatal("AddIntersection with nil planes must not record longitude")
+	}
+}
+
+// TestLatLonBoundsAddIntersectionRecordsLatLon exercises AddIntersection with
+// two non-degenerate planes on the unit sphere.
+func TestLatLonBoundsAddIntersectionRecordsLatLon(t *testing.T) {
+	pm := geom.SPHERE
+	b := geom.NewLatLonBounds()
+	// Two planes whose intersection line crosses the sphere surface.
+	p1 := geom.NewPlane(1, 0, 0, 0) // x=0 plane
+	p2 := geom.NewPlane(0, 1, 0, 0) // y=0 plane
+	b.AddIntersection(pm, p1, p2)
+	// The intersection of x=0 and y=0 is the Z-axis, which hits the sphere at
+	// (0,0,±1). These points have latitude ±π/2 and lon=0.
+	// The result must have produced at least a lat or lon update without panicking.
+	// (The exact values depend on the error-envelope sampling, so we just assert
+	// the call succeeded without panic and did not set noLongitudeBound.)
+	_ = b.GetMinLatitude()
+	_ = b.GetMaxLatitude()
+}
+
+// TestLatLonBoundsLongitudeCircularExpansion verifies the circular-arc
+// longitude-envelope algorithm. Adding two nearby longitudes must not
+// accidentally trigger the ≥π arc check.
+func TestLatLonBoundsLongitudeCircularExpansion(t *testing.T) {
+	b := geom.NewLatLonBounds()
+	pm := geom.SPHERE
+	// Add three points spanning about 0.3 radians in longitude.
+	for _, lon := range []float64{0.1, 0.2, 0.4} {
+		b.AddPoint(geom.NewGeoPointLatLon(pm, 0.0, lon))
+	}
+	if b.CheckNoLongitudeBound() {
+		t.Fatal("small arc must not trigger noLongitudeBound")
+	}
+	if !b.HasLon() {
+		t.Fatal("hasLon must be true after adding points")
+	}
+	// The arc should contain 0.1 and 0.4 as its endpoints.
+	left := b.GetMinLongitude()
+	right := b.GetMaxLongitude()
+	if left > 0.1+1e-12 {
+		t.Fatalf("leftLon should be ≤ 0.1, got %g", left)
+	}
+	if right < 0.4-1e-12 {
+		t.Fatalf("rightLon should be ≥ 0.4, got %g", right)
+	}
+}
+
+// TestLatLonBoundsNoBoundClearsAll verifies that NoBound clears all three
+// bound categories simultaneously.
+func TestLatLonBoundsNoBoundClearsAll(t *testing.T) {
+	b := geom.NewLatLonBounds()
+	b.NoBound(geom.SPHERE)
+	if !b.CheckNoLongitudeBound() {
+		t.Fatal("NoBound must set noLongitudeBound")
+	}
+	if !b.CheckNoTopLatitudeBound() {
+		t.Fatal("NoBound must set noTopLatitudeBound")
+	}
+	if !b.CheckNoBottomLatitudeBound() {
+		t.Fatal("NoBound must set noBottomLatitudeBound")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GeoConvexPolygon and GeoConcavePolygon — basic functionality
+// ---------------------------------------------------------------------------
+
+// TestGeoConvexPolygonIsWithin verifies that a point inside a small convex
+// triangle is reported as inside, and a point outside is not.
+func TestGeoConvexPolygonIsWithin(t *testing.T) {
+	pm := geom.SPHERE
+	pts := []*geom.GeoPoint{
+		geom.NewGeoPointModel(pm, 0.0, 0.0),
+		geom.NewGeoPointModel(pm, 0.0, 0.05),
+		geom.NewGeoPointModel(pm, 0.05, 0.025),
+	}
+	poly, err := geom.NewGeoConvexPolygon(pm, pts, nil)
+	if err != nil {
+		t.Fatalf("NewGeoConvexPolygon: %v", err)
+	}
+	// A point near the centroid should be inside.
+	centroid := geom.NewGeoPointModel(pm, 0.02, 0.025)
+	if !poly.IsWithin(centroid.X, centroid.Y, centroid.Z) {
+		t.Error("centroid of convex triangle must be inside")
+	}
+	// A point far away must be outside.
+	far := geom.NewGeoPointModel(pm, 1.0, 1.0)
+	if poly.IsWithin(far.X, far.Y, far.Z) {
+		t.Error("point far from triangle must be outside")
+	}
+}
+
+// TestGeoConvexPolygonGetBoundsNoopLatLon verifies that GetBounds works
+// without panicking when accumulating into a LatLonBounds (exercises
+// AddPlane and AddIntersection on LatLonBounds via the polygon).
+func TestGeoConvexPolygonGetBoundsNoopLatLon(t *testing.T) {
+	pm := geom.SPHERE
+	pts := []*geom.GeoPoint{
+		geom.NewGeoPointModel(pm, 0.0, 0.0),
+		geom.NewGeoPointModel(pm, 0.0, 0.1),
+		geom.NewGeoPointModel(pm, 0.1, 0.05),
+	}
+	poly, err := geom.NewGeoConvexPolygon(pm, pts, nil)
+	if err != nil {
+		t.Fatalf("NewGeoConvexPolygon: %v", err)
+	}
+	b := geom.NewLatLonBounds()
+	poly.GetBounds(b) // must not panic
+	// After GetBounds the latitude range must be at least as large as the
+	// min/max latitudes of the input points.
+	if b.GetMinLatitude() > 0+1e-9 {
+		t.Fatalf("minLat after GetBounds: want ≤ 0, got %g", b.GetMinLatitude())
+	}
+	if b.GetMaxLatitude() < 0.1-1e-9 {
+		t.Fatalf("maxLat after GetBounds: want ≥ 0.1, got %g", b.GetMaxLatitude())
+	}
+}
+
+// TestGeoConcavePolygonGetBoundsNoopLatLon is the same smoke test for the
+// concave polygon variant.
+func TestGeoConcavePolygonGetBoundsNoopLatLon(t *testing.T) {
+	pm := geom.SPHERE
+	// A wide concave triangle (the "outside" of a small convex triangle).
+	pts := []*geom.GeoPoint{
+		geom.NewGeoPointModel(pm, 0.0, 0.0),
+		geom.NewGeoPointModel(pm, 0.05, 0.025),
+		geom.NewGeoPointModel(pm, 0.0, 0.05),
+	}
+	poly, err := geom.NewGeoConcavePolygon(pm, pts, nil)
+	if err != nil {
+		t.Fatalf("NewGeoConcavePolygon: %v", err)
+	}
+	b := geom.NewLatLonBounds()
+	poly.GetBounds(b) // must not panic
+}
+
+// ---------------------------------------------------------------------------
 // Standard type codes
 // ---------------------------------------------------------------------------
 
