@@ -30,6 +30,9 @@ func newREFixedScorer(score float32, docs ...int) *reqExclFixedScorer {
 
 func (s *reqExclFixedScorer) Score() float32            { return s.score }
 func (s *reqExclFixedScorer) GetMaxScore(_ int) float32 { return s.score }
+func (s *reqExclFixedScorer) AdvanceShallow(int) (int, error) {
+	return search.NO_MORE_DOCS, nil
+}
 func (s *reqExclFixedScorer) DocID() int {
 	if s.idx < 0 {
 		return -1

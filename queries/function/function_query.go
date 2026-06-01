@@ -200,6 +200,13 @@ func (s *functionAllScorer) Cost() int64                     { return s.iter.Cos
 func (s *functionAllScorer) DocIDRunEnd() int                { return s.iter.DocIDRunEnd() }
 func (s *functionAllScorer) GetMaxScore(_ int) float32       { return float32(math.Inf(1)) }
 
+// AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
+// org.apache.lucene.search.Scorer#advanceShallow. This scorer does not expose
+// per-block impact information.
+func (s *functionAllScorer) AdvanceShallow(target int) (int, error) {
+	return search.NO_MORE_DOCS, nil
+}
+
 // Score returns boost * floatVal(docID), with negatives/NaN collapsed to 0.
 func (s *functionAllScorer) Score() float32 {
 	val, err := s.vals.FloatVal(s.iter.DocID())

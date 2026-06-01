@@ -237,6 +237,13 @@ func (s *blockJoinBatchScorable) GetMaxScore(_ int) float32 {
 	return s.collector.currentParentScore.value()
 }
 
+// AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
+// org.apache.lucene.search.Scorer#advanceShallow. This batch scorable does not
+// expose per-block impact information.
+func (s *blockJoinBatchScorable) AdvanceShallow(target int) (int, error) {
+	return search.NO_MORE_DOCS, nil
+}
+
 // SetMinCompetitiveScore forwards the hint to the real child scorer only for
 // ScoreMode.None/Max (mirrors the anonymous Scorable.setMinCompetitiveScore).
 func (s *blockJoinBatchScorable) SetMinCompetitiveScore(minScore float32) error {

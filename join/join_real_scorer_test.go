@@ -81,6 +81,9 @@ func (s *fakeScorer) Score() float32 {
 	return s.scores[s.idx]
 }
 func (s *fakeScorer) GetMaxScore(upTo int) float32 { return s.maxScore }
+func (s *fakeScorer) AdvanceShallow(int) (int, error) {
+	return search.NO_MORE_DOCS, nil
+}
 
 // ---------- BlockJoinScorer.GetMaxScore / Cost --------------------------
 

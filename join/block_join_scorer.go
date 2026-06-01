@@ -163,6 +163,14 @@ func (s *BlockJoinScorer) GetMaxScore(upTo int) float32 {
 	}
 }
 
+// AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
+// org.apache.lucene.search.Scorer#advanceShallow. Lucene's block-join scorers
+// do not override advanceShallow, so the whole remaining postings list is
+// treated as a single block.
+func (s *BlockJoinScorer) AdvanceShallow(target int) (int, error) {
+	return search.NO_MORE_DOCS, nil
+}
+
 // Advance advances to the given document.
 func (s *BlockJoinScorer) Advance(target int) (int, error) {
 	// Advance parent to the target
@@ -489,6 +497,13 @@ func (s *ToChildBlockJoinScorer) GetMaxScore(upTo int) float32 {
 	return float32(math.Inf(1))
 }
 
+// AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
+// org.apache.lucene.search.Scorer#advanceShallow. Lucene's
+// ToChildBlockJoinScorer does not override advanceShallow.
+func (s *ToChildBlockJoinScorer) AdvanceShallow(target int) (int, error) {
+	return search.NO_MORE_DOCS, nil
+}
+
 // Cost returns the estimated cost of this scorer (the parent iterator cost).
 func (s *ToChildBlockJoinScorer) Cost() int64 {
 	return s.parentScorer.Cost()
@@ -780,6 +795,13 @@ func (s *ToParentBlockJoinScorer) GetMaxScore(upTo int) float32 {
 		return s.childScorer.GetMaxScore(upTo)
 	}
 	return float32(math.Inf(1))
+}
+
+// AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
+// org.apache.lucene.search.Scorer#advanceShallow. Lucene's
+// ToParentBlockJoinScorer does not override advanceShallow.
+func (s *ToParentBlockJoinScorer) AdvanceShallow(target int) (int, error) {
+	return search.NO_MORE_DOCS, nil
 }
 
 // DocIDRunEnd returns the end of the run of consecutive doc IDs.

@@ -79,6 +79,13 @@ func (s *dmSimpleScorer) Score() float32 { return s.score }
 // GetMaxScore returns the most recently set score as the upper bound.
 func (s *dmSimpleScorer) GetMaxScore(_ int) float32 { return s.score }
 
+// AdvanceShallow returns NO_MORE_DOCS, the default defined by
+// org.apache.lucene.search.Scorer#advanceShallow. This bulk-scoring helper does
+// not expose per-block impact information.
+func (s *dmSimpleScorer) AdvanceShallow(target int) (int, error) {
+	return NO_MORE_DOCS, nil
+}
+
 // SetMinCompetitiveScore stores the hint for propagation to sub-scorers.
 func (s *dmSimpleScorer) SetMinCompetitiveScore(minScore float32) error {
 	s.minCompetitiveScore = minScore

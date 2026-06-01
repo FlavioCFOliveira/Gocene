@@ -11,6 +11,19 @@ type Scorer interface {
 	Score() float32
 	// GetMaxScore returns the maximum score for documents up to the given doc.
 	GetMaxScore(upTo int) float32
+	// AdvanceShallow advances to the block of documents that contains target
+	// in order to get scoring information about this block. The returned value
+	// is an inclusive upper bound of the doc IDs that share the same scoring
+	// information (the same block-max upper bound) as target; subsequent
+	// GetMaxScore(upTo) calls with upTo in [target, returned] are honoured
+	// without re-advancing.
+	//
+	// This mirrors org.apache.lucene.search.Scorer#advanceShallow(int). The
+	// default implementation (see BaseScorer.AdvanceShallow) returns
+	// NO_MORE_DOCS, matching Lucene's Scorer.advanceShallow default, which
+	// signals that the scorer treats the whole remaining postings list as a
+	// single block (no impact-based skipping).
+	AdvanceShallow(target int) (int, error)
 }
 
 // ScoreErrorReporter is the optional Scorer extension for scorers that can
@@ -67,4 +80,14 @@ func (s *BaseScorer) Score() float32 {
 // GetMaxScore returns the maximum score for documents up to the given doc.
 func (s *BaseScorer) GetMaxScore(upTo int) float32 {
 	return 1.0
+}
+
+// AdvanceShallow returns NO_MORE_DOCS, mirroring the default implementation of
+// org.apache.lucene.search.Scorer#advanceShallow, which returns
+// DocIdSetIterator.NO_MORE_DOCS. A scorer that does not expose per-block impact
+// information treats the entire remaining postings list as one block: callers
+// learn that GetMaxScore is only meaningful for upTo == NO_MORE_DOCS (a global
+// upper bound). Scorers backed by impacts (e.g. TermScorer) override this.
+func (s *BaseScorer) AdvanceShallow(target int) (int, error) {
+	return NO_MORE_DOCS, nil
 }

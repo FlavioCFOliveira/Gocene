@@ -68,6 +68,9 @@ func (s *listScorer) Advance(target int) (int, error) {
 func (s *listScorer) Cost() int64               { return int64(len(s.docs)) }
 func (s *listScorer) Score() float32            { return s.score }
 func (s *listScorer) GetMaxScore(_ int) float32 { return s.score }
+func (s *listScorer) AdvanceShallow(int) (int, error) {
+	return search.NO_MORE_DOCS, nil
+}
 
 var _ search.Scorer = (*listScorer)(nil)
 

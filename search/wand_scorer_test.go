@@ -72,6 +72,8 @@ func (s *constantScorer) Score() float32 { return s.score }
 
 func (s *constantScorer) GetMaxScore(_ int) float32 { return s.maxScore }
 
+func (s *constantScorer) AdvanceShallow(int) (int, error) { return search.NO_MORE_DOCS, nil }
+
 // wandCollectAll iterates the scorer and returns collected (doc, score) pairs.
 func wandCollectAll(t *testing.T, sc search.Scorer) ([]int, []float32) {
 	t.Helper()

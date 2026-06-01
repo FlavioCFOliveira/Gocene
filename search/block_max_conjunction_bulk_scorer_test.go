@@ -31,6 +31,9 @@ func newBMCFixedScorer(score float32, docs ...int) *bmcFixedScorer {
 
 func (s *bmcFixedScorer) Score() float32            { return s.score }
 func (s *bmcFixedScorer) GetMaxScore(_ int) float32 { return s.score }
+func (s *bmcFixedScorer) AdvanceShallow(int) (int, error) {
+	return search.NO_MORE_DOCS, nil
+}
 func (s *bmcFixedScorer) DocID() int {
 	if s.idx < 0 {
 		return -1

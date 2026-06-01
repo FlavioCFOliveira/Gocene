@@ -52,8 +52,11 @@ func (d *justCompileDISI) DocIDRunEnd() int         { panic("compile check only"
 // justCompileScorer embeds justCompileDISI to satisfy the embedded DocIdSetIterator.
 type justCompileScorer struct{ justCompileDISI }
 
-func (s *justCompileScorer) Score() float32                      { panic("compile check only") }
-func (s *justCompileScorer) GetMaxScore(_ int) float32           { panic("compile check only") }
+func (s *justCompileScorer) Score() float32            { panic("compile check only") }
+func (s *justCompileScorer) GetMaxScore(_ int) float32 { panic("compile check only") }
+func (s *justCompileScorer) AdvanceShallow(int) (int, error) {
+	panic("compile check only")
+}
 func (s *justCompileScorer) Iterator() DocIdSetIterator          { panic("compile check only") }
 func (s *justCompileScorer) TwoPhaseIterator() *TwoPhaseIterator { return nil }
 

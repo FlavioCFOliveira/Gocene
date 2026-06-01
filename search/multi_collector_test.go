@@ -50,6 +50,9 @@ type simpleTestScorer struct {
 
 func (s *simpleTestScorer) Score() float32               { return s.score }
 func (s *simpleTestScorer) GetMaxScore(upTo int) float32 { return s.score }
+func (s *simpleTestScorer) AdvanceShallow(int) (int, error) {
+	return NO_MORE_DOCS, nil
+}
 
 // minScoreRecordingScorer records the minimum competitive score forwarded to it,
 // mirroring the anonymous Scorable used by Lucene's testMinCompetitiveScore.
@@ -60,6 +63,9 @@ type minScoreRecordingScorer struct {
 
 func (s *minScoreRecordingScorer) Score() float32               { return 0 }
 func (s *minScoreRecordingScorer) GetMaxScore(upTo int) float32 { return 0 }
+func (s *minScoreRecordingScorer) AdvanceShallow(int) (int, error) {
+	return NO_MORE_DOCS, nil
+}
 func (s *minScoreRecordingScorer) SetMinCompetitiveScore(minScore float32) error {
 	s.minCompetitiveScore = minScore
 	return nil
@@ -77,6 +83,9 @@ type failOnMinScoreScorer struct {
 
 func (s *failOnMinScoreScorer) Score() float32               { return 0 }
 func (s *failOnMinScoreScorer) GetMaxScore(upTo int) float32 { return 0 }
+func (s *failOnMinScoreScorer) AdvanceShallow(int) (int, error) {
+	return NO_MORE_DOCS, nil
+}
 func (s *failOnMinScoreScorer) SetMinCompetitiveScore(minScore float32) error {
 	s.t.Fatalf("setMinCompetitiveScore must not be called, got %v", minScore)
 	return nil

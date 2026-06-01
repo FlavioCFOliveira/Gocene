@@ -404,7 +404,14 @@ func (s *pointInSetIncludingScoreScorer) Score() float32 {
 	}
 	return 0
 }
-func (s *pointInSetIncludingScoreScorer) GetMaxScore(_ int) float32  { return float32(math.Inf(1)) }
+func (s *pointInSetIncludingScoreScorer) GetMaxScore(_ int) float32 { return float32(math.Inf(1)) }
+
+// AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
+// org.apache.lucene.search.Scorer#advanceShallow. This scorer does not expose
+// per-block impact information.
+func (s *pointInSetIncludingScoreScorer) AdvanceShallow(target int) (int, error) {
+	return search.NO_MORE_DOCS, nil
+}
 func (s *pointInSetIncludingScoreScorer) DocID() int                 { return s.disi.DocID() }
 func (s *pointInSetIncludingScoreScorer) NextDoc() (int, error)      { return s.disi.NextDoc() }
 func (s *pointInSetIncludingScoreScorer) Advance(t int) (int, error) { return s.disi.Advance(t) }
@@ -486,7 +493,13 @@ func newPointInSetStubScorer(boost float32) *pointInSetStubScorer {
 func (s *pointInSetStubScorer) Score() float32            { return 0 }
 func (s *pointInSetStubScorer) GetMaxScore(_ int) float32 { return float32(math.Inf(1)) }
 func (s *pointInSetStubScorer) DocID() int                { return search.NO_MORE_DOCS }
-func (s *pointInSetStubScorer) NextDoc() (int, error)     { return search.NO_MORE_DOCS, nil }
+
+// AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
+// org.apache.lucene.search.Scorer#advanceShallow.
+func (s *pointInSetStubScorer) AdvanceShallow(target int) (int, error) {
+	return search.NO_MORE_DOCS, nil
+}
+func (s *pointInSetStubScorer) NextDoc() (int, error) { return search.NO_MORE_DOCS, nil }
 func (s *pointInSetStubScorer) Advance(_ int) (int, error) {
 	return search.NO_MORE_DOCS, nil
 }

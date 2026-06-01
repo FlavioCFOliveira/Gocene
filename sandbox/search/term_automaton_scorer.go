@@ -448,4 +448,11 @@ func (s *TermAutomatonScorer) GetMaxScore(_ int) float32 {
 	return s.scorer.Score(s.docID, float32(1e30))
 }
 
+// AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
+// org.apache.lucene.search.Scorer#advanceShallow. This scorer does not expose
+// per-block impact information.
+func (s *TermAutomatonScorer) AdvanceShallow(target int) (int, error) {
+	return search.NO_MORE_DOCS, nil
+}
+
 var _ search.Scorer = (*TermAutomatonScorer)(nil)

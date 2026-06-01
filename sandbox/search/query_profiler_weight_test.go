@@ -34,8 +34,11 @@ type fakeScorer struct {
 	maxScore float32
 }
 
-func (s *fakeScorer) Score() float32             { return 0 }
-func (s *fakeScorer) GetMaxScore(_ int) float32  { return s.maxScore }
+func (s *fakeScorer) Score() float32            { return 0 }
+func (s *fakeScorer) GetMaxScore(_ int) float32 { return s.maxScore }
+func (s *fakeScorer) AdvanceShallow(int) (int, error) {
+	return search.NO_MORE_DOCS, nil
+}
 func (s *fakeScorer) DocIDRunEnd() int           { return s.BaseDocIdSetIterator.DocIDRunEnd() }
 func (s *fakeScorer) NextDoc() (int, error)      { return search.NO_MORE_DOCS, nil }
 func (s *fakeScorer) Advance(_ int) (int, error) { return search.NO_MORE_DOCS, nil }

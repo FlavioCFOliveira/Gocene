@@ -323,6 +323,13 @@ func (a *rangeScorerAdapter) GetMaxScore(_ int) float32 {
 	return a.scorer.MaxScore(0)
 }
 
+// AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
+// org.apache.lucene.search.Scorer#advanceShallow. This adapter does not expose
+// per-block impact information.
+func (a *rangeScorerAdapter) AdvanceShallow(target int) (int, error) {
+	return search.NO_MORE_DOCS, nil
+}
+
 func (a *rangeScorerAdapter) Score() float32 {
 	score, err := a.scorer.Score(a.doc)
 	if err != nil {

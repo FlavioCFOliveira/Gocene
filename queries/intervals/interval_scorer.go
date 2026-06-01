@@ -65,6 +65,13 @@ func (s *IntervalScorer) Score() float32 {
 // GetMaxScore returns the maximum possible score up to the given document.
 func (s *IntervalScorer) GetMaxScore(upTo int) float32 { return s.boost }
 
+// AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
+// org.apache.lucene.search.Scorer#advanceShallow. Interval scorers do not
+// expose per-block impact information.
+func (s *IntervalScorer) AdvanceShallow(target int) (int, error) {
+	return search.NO_MORE_DOCS, nil
+}
+
 // Freq returns the sloppy frequency for the current document and any error.
 func (s *IntervalScorer) Freq() (float32, error) {
 	err := s.ensureFreq()

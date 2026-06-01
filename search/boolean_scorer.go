@@ -98,6 +98,13 @@ func (z *zeroScoreScorer) DocIDRunEnd() int                { return z.inner.DocI
 func (z *zeroScoreScorer) Score() float32                  { return 0 }
 func (z *zeroScoreScorer) GetMaxScore(_ int) float32       { return 0 }
 
+// AdvanceShallow delegates to the wrapped scorer so that block boundaries stay
+// consistent with the underlying iterator, mirroring how the other methods
+// forward to inner. The reported max score is forced to zero by GetMaxScore.
+func (z *zeroScoreScorer) AdvanceShallow(target int) (int, error) {
+	return z.inner.AdvanceShallow(target)
+}
+
 var _ Scorer = (*zeroScoreScorer)(nil)
 
 // NewBooleanScorerWithClauses assembles a proper boolean scorer tree from

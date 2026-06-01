@@ -134,6 +134,11 @@ func (s *FakeScorer) GetMaxScore(upTo int) float32 {
 	return 1.0
 }
 
+// AdvanceShallow returns search.NO_MORE_DOCS (the Scorer default).
+func (s *FakeScorer) AdvanceShallow(int) (int, error) {
+	return search.NO_MORE_DOCS, nil
+}
+
 // String returns a string representation.
 func (s *FakeScorer) String() string {
 	return fmt.Sprintf("FakeScorer(cost=%d)", s.cost)
@@ -391,6 +396,11 @@ func (bs *BooleanScorer) GetMaxScore(upTo int) float32 {
 		}
 	}
 	return maxScore
+}
+
+// AdvanceShallow returns search.NO_MORE_DOCS (the Scorer default).
+func (bs *BooleanScorer) AdvanceShallow(int) (int, error) {
+	return search.NO_MORE_DOCS, nil
 }
 
 // DocIDRunEnd returns the end of the current run of consecutive doc IDs.

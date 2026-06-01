@@ -46,6 +46,8 @@ func (s *sumScoreDisjunctionScorer) Score() float32 {
 // GetMaxScore returns +Inf (no max for tests).
 func (s *sumScoreDisjunctionScorer) GetMaxScore(_ int) float32 { return maxFloat32 }
 
+func (s *sumScoreDisjunctionScorer) AdvanceShallow(int) (int, error) { return NO_MORE_DOCS, nil }
+
 // collectAllDisj iterates the scorer and returns (docs, scores).
 func collectAllDisj(t *testing.T, sc *sumScoreDisjunctionScorer) ([]int, []float32) {
 	t.Helper()
@@ -102,6 +104,9 @@ func (s *fakeScorer) Advance(target int) (int, error) {
 func (s *fakeScorer) Cost() int64               { return s.cost }
 func (s *fakeScorer) Score() float32            { return s.score }
 func (s *fakeScorer) GetMaxScore(_ int) float32 { return s.score }
+func (s *fakeScorer) AdvanceShallow(target int) (int, error) {
+	return NO_MORE_DOCS, nil
+}
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 

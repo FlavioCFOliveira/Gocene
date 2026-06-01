@@ -570,6 +570,14 @@ func (s *latLonPointDistanceFeatureScorer) Score() float32 {
 // distance is zero, which evaluates to boost * pivot / pivot = boost.
 func (s *latLonPointDistanceFeatureScorer) GetMaxScore(_ int) float32 { return s.boost }
 
+// AdvanceShallow returns NO_MORE_DOCS, the default defined by
+// org.apache.lucene.search.Scorer#advanceShallow. Lucene's distance-feature
+// scorer does not override advanceShallow either, so the whole remaining
+// postings list is treated as a single block.
+func (s *latLonPointDistanceFeatureScorer) AdvanceShallow(target int) (int, error) {
+	return NO_MORE_DOCS, nil
+}
+
 // Cost returns the cost of the current iterator.
 func (s *latLonPointDistanceFeatureScorer) Cost() int64 { return s.it.Cost() }
 

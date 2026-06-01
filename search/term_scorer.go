@@ -32,16 +32,69 @@ type TermScorer struct {
 	postingsEnum index.PostingsEnum
 	doc          int
 	simScorer    SimScorer
+	// maxScoreCache derives per-block maximum scores from the term's impacts.
+	// It is nil only when no SimScorer is available (needsScores == false), in
+	// which case GetMaxScore/AdvanceShallow fall back to the BaseScorer default.
+	maxScoreCache *MaxScoreCache
 }
 
 // NewTermScorer creates a new TermScorer.
+//
+// Following Lucene 10.4.0's TermScorer(PostingsEnum, SimScorer, NumericDocValues)
+// constructor, the postings enum is wrapped in an index.SlowImpactsEnum so that
+// the scorer exposes a legal ImpactsSource even when the search-layer TermsEnum
+// does not surface a codec-backed ImpactsEnum. SlowImpactsEnum reports a single
+// impact (freq=MaxInt32, norm=1) spanning the whole remaining postings list,
+// which makes MaxScoreCache.GetMaxScore return the global upper bound
+// simScorer.Score(MaxInt32) — a correct, conservative block-max bound. When a
+// codec exposes real per-block impacts in the future, passing that ImpactsEnum
+// in place of the SlowImpactsEnum yields tight per-block bounds with no other
+// change to this type.
 func NewTermScorer(weight Weight, postingsEnum index.PostingsEnum, simScorer SimScorer) *TermScorer {
-	return &TermScorer{
+	s := &TermScorer{
 		BaseScorer:   NewBaseScorer(weight),
 		postingsEnum: postingsEnum,
 		doc:          -1,
 		simScorer:    simScorer,
 	}
+	if simScorer != nil && postingsEnum != nil {
+		s.maxScoreCache = newTermMaxScoreCache(postingsEnum, simScorer)
+	}
+	return s
+}
+
+// newTermMaxScoreCache builds a MaxScoreCache over the postings enum's impacts.
+//
+// The postings enum handed to NewTermScorer comes from TermsEnum.Postings (not
+// TermsEnum.Impacts), so it does NOT carry usable per-block impacts: codec enums
+// such as Lucene104's blockPostingsEnum only decode impacts when obtained via
+// the postings reader's Impacts(...) entry point (their needsImpacts flag is
+// false otherwise, and GetImpacts() returns an empty buffer). This is exactly
+// the situation Lucene's TermScorer(PostingsEnum, SimScorer, NumericDocValues)
+// constructor handles by wrapping the enum in a SlowImpactsEnum:
+//
+//	ImpactsEnum impactsEnum = new SlowImpactsEnum(postingsEnum);
+//	maxScoreCache = new MaxScoreCache(impactsEnum, scorer);
+//
+// SlowImpactsEnum reports a single impact (freq=Integer.MAX_VALUE, norm=1)
+// spanning the whole remaining postings list, so GetMaxScore returns the global
+// upper bound simScorer.Score(MAX_VALUE) — a correct, conservative block-max
+// bound that never under-estimates any document score. We therefore always wrap
+// here rather than type-asserting to index.ImpactsEnum, which would pick up the
+// codec enum's empty (zero) impacts and yield an invalid bound of 0. When the
+// scorer is one day built from a TermsEnum.Impacts enum (real per-block skip
+// data), that enum can be passed straight to newIndexImpactsSource for tight
+// bounds with no other change.
+//
+// A construction error (the initial impacts snapshot could not be read) leaves
+// the cache nil and the scorer falls back to the BaseScorer default.
+func newTermMaxScoreCache(postingsEnum index.PostingsEnum, simScorer SimScorer) *MaxScoreCache {
+	impactsEnum := index.NewSlowImpactsEnum(postingsEnum)
+	src, err := newIndexImpactsSource(impactsEnum)
+	if err != nil {
+		return nil
+	}
+	return NewMaxScoreCache(src, newLegacySimImpactScorer(simScorer))
 }
 
 // postingsDocToSearchDoc translates index.NO_MORE_DOCS (-1) to the search
@@ -99,6 +152,36 @@ func (s *TermScorer) Score() float32 {
 		return 0.0
 	}
 	return s.simScorer.Score(s.doc, float32(freq))
+}
+
+// GetMaxScore returns an upper bound on the score of any document from the last
+// shallow-advanced target up to and including upTo, computed from the term's
+// impacts via the MaxScoreCache. It ports
+// org.apache.lucene.search.TermScorer.getMaxScore, which delegates to
+// maxScoreCache.getMaxScore(upTo).
+//
+// When no SimScorer is wired (needsScores == false) there is no cache; the
+// inherited BaseScorer default (1.0) is returned, matching the constant score
+// the scorer produces in that mode.
+func (s *TermScorer) GetMaxScore(upTo int) float32 {
+	if s.maxScoreCache == nil {
+		return s.BaseScorer.GetMaxScore(upTo)
+	}
+	return s.maxScoreCache.GetMaxScore(upTo)
+}
+
+// AdvanceShallow advances the impacts source to the block containing target and
+// returns the inclusive upper doc id that shares target's block-max bound. It
+// ports org.apache.lucene.search.TermScorer.advanceShallow, which delegates to
+// maxScoreCache.advanceShallow(target).
+//
+// When no SimScorer is wired there is no cache; the inherited BaseScorer default
+// (NO_MORE_DOCS) is returned.
+func (s *TermScorer) AdvanceShallow(target int) (int, error) {
+	if s.maxScoreCache == nil {
+		return s.BaseScorer.AdvanceShallow(target)
+	}
+	return s.maxScoreCache.AdvanceShallow(target)
 }
 
 // Freq returns the term frequency of the current document, mirroring Lucene's

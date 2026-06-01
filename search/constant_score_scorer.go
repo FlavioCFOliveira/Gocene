@@ -115,6 +115,14 @@ func (s *ConstantScoreScorer) Score() float32 { return s.score }
 // every document carries the same score.
 func (s *ConstantScoreScorer) GetMaxScore(_ int) float32 { return s.score }
 
+// AdvanceShallow returns NO_MORE_DOCS, the default defined by
+// org.apache.lucene.search.Scorer#advanceShallow. Lucene's ConstantScoreScorer
+// does not override advanceShallow (it only overrides getMaxScore), so the
+// whole remaining postings list is treated as a single block.
+func (s *ConstantScoreScorer) AdvanceShallow(target int) (int, error) {
+	return NO_MORE_DOCS, nil
+}
+
 // SetMinCompetitiveScore terminates iteration when minScore exceeds the
 // constant score this scorer produces, but only in TOP_SCORES mode (where the
 // iterator was wrapped to allow it). This is the Go port of

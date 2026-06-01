@@ -55,6 +55,13 @@ func (s *BaseGlobalOrdinalScorer) Score() float32 { return s.score * s.boost }
 // GetMaxScore implements search.Scorer.
 func (s *BaseGlobalOrdinalScorer) GetMaxScore(_ int) float32 { return float32(math.Inf(1)) }
 
+// AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
+// org.apache.lucene.search.Scorer#advanceShallow. This scorer does not expose
+// per-block impact information.
+func (s *BaseGlobalOrdinalScorer) AdvanceShallow(target int) (int, error) {
+	return search.NO_MORE_DOCS, nil
+}
+
 // DocID implements search.DocIdSetIterator via the approximation.
 func (s *BaseGlobalOrdinalScorer) DocID() int {
 	if s.approximation == nil {

@@ -333,6 +333,13 @@ func fillDocsAndScoresSV(
 func (s *svInOrderScorer) Score() float32            { return s.docScores[s.currentDoc] * s.boost }
 func (s *svInOrderScorer) GetMaxScore(_ int) float32 { return float32(math.Inf(1)) }
 func (s *svInOrderScorer) DocID() int                { return s.currentDoc }
+
+// AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
+// org.apache.lucene.search.Scorer#advanceShallow. This scorer does not expose
+// per-block impact information.
+func (s *svInOrderScorer) AdvanceShallow(target int) (int, error) {
+	return search.NO_MORE_DOCS, nil
+}
 func (s *svInOrderScorer) NextDoc() (int, error) {
 	doc, err := s.matchingDocsIter.NextDoc()
 	s.currentDoc = doc
@@ -432,6 +439,13 @@ func fillDocsAndScoresMV(
 func (s *mvInOrderScorer) Score() float32            { return s.docScores[s.currentDoc] * s.boost }
 func (s *mvInOrderScorer) GetMaxScore(_ int) float32 { return float32(math.Inf(1)) }
 func (s *mvInOrderScorer) DocID() int                { return s.currentDoc }
+
+// AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
+// org.apache.lucene.search.Scorer#advanceShallow. This scorer does not expose
+// per-block impact information.
+func (s *mvInOrderScorer) AdvanceShallow(target int) (int, error) {
+	return search.NO_MORE_DOCS, nil
+}
 func (s *mvInOrderScorer) NextDoc() (int, error) {
 	doc, err := s.matchingDocsIter.NextDoc()
 	s.currentDoc = doc

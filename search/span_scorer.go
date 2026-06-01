@@ -224,6 +224,14 @@ func (s *SpanScorer) GetMaxScore(upTo int) float32 {
 	return s.score * s.freq
 }
 
+// AdvanceShallow returns NO_MORE_DOCS, the default defined by
+// org.apache.lucene.search.Scorer#advanceShallow. Span scorers do not expose
+// per-block impact information, so the whole remaining postings list is treated
+// as a single block.
+func (s *SpanScorer) AdvanceShallow(target int) (int, error) {
+	return NO_MORE_DOCS, nil
+}
+
 // SetSimScorer sets the similarity scorer for this SpanScorer.
 func (s *SpanScorer) SetSimScorer(simScorer SimScorer) {
 	s.simScorer = simScorer

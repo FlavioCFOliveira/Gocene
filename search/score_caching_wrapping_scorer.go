@@ -76,6 +76,12 @@ func (s *ScoreCachingWrappingScorer) GetMaxScore(upTo int) float32 {
 	return s.inner.GetMaxScore(upTo)
 }
 
+// AdvanceShallow forwards to the inner scorer so block boundaries and block-max
+// upper bounds match the wrapped scorer.
+func (s *ScoreCachingWrappingScorer) AdvanceShallow(target int) (int, error) {
+	return s.inner.AdvanceShallow(target)
+}
+
 // invalidate drops the cached score so the next Score() recomputes it. This is
 // used by scoreCachingLeafCollector to reset the cache on each collected
 // document, mirroring the scoreIsCached=false reset in Lucene's

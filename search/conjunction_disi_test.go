@@ -110,6 +110,9 @@ func (s *cdjTwoPhaseScorer) Cost() int64                  { return s.disi.Cost()
 func (s *cdjTwoPhaseScorer) DocIDRunEnd() int             { return s.disi.DocID() + 1 }
 func (s *cdjTwoPhaseScorer) Score() float32               { return 1 }
 func (s *cdjTwoPhaseScorer) GetMaxScore(upTo int) float32 { return 1 }
+func (s *cdjTwoPhaseScorer) AdvanceShallow(int) (int, error) {
+	return search.NO_MORE_DOCS, nil
+}
 func (s *cdjTwoPhaseScorer) NextDoc() (int, error) {
 	return s.disi.NextDoc()
 }
@@ -125,6 +128,9 @@ func (s *cdjPlainScorer) Cost() int64                  { return s.inner.Cost() }
 func (s *cdjPlainScorer) DocIDRunEnd() int             { return s.inner.DocID() + 1 }
 func (s *cdjPlainScorer) Score() float32               { return 1 }
 func (s *cdjPlainScorer) GetMaxScore(upTo int) float32 { return 1 }
+func (s *cdjPlainScorer) AdvanceShallow(int) (int, error) {
+	return search.NO_MORE_DOCS, nil
+}
 func (s *cdjPlainScorer) NextDoc() (int, error) {
 	return s.inner.NextDoc()
 }

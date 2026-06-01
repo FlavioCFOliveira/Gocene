@@ -85,5 +85,13 @@ func (s *DisjunctionSumScorer) GetMaxScore(upTo int) float32 {
 	return float32(util.MathSumUpperBound(maxScore, len(s.scorers)))
 }
 
+// AdvanceShallow returns NO_MORE_DOCS, the default defined by
+// org.apache.lucene.search.Scorer#advanceShallow. This scorer does not expose
+// per-block impact information, so the whole remaining postings list is treated
+// as a single block.
+func (s *DisjunctionSumScorer) AdvanceShallow(target int) (int, error) {
+	return NO_MORE_DOCS, nil
+}
+
 // Compile-time check: DisjunctionSumScorer satisfies Scorer.
 var _ Scorer = (*DisjunctionSumScorer)(nil)

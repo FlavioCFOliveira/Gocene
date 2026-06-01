@@ -71,4 +71,14 @@ func (s *QueryProfilerScorer) GetMaxScore(upTo int) float32 {
 	return s.scorer.GetMaxScore(upTo)
 }
 
+// AdvanceShallow delegates to the wrapped scorer so that the block boundary
+// reported here is consistent with the block-max upper bound returned by
+// GetMaxScore. It is timed under the same compute-max-score timer because
+// shallow advances exist solely to feed block-max score computation.
+func (s *QueryProfilerScorer) AdvanceShallow(target int) (int, error) {
+	s.computeMaxScoreTimer.Start()
+	defer s.computeMaxScoreTimer.Stop()
+	return s.scorer.AdvanceShallow(target)
+}
+
 var _ search.Scorer = (*QueryProfilerScorer)(nil)

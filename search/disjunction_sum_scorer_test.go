@@ -80,6 +80,8 @@ func (s *dssFixedScorer) Score() float32 {
 
 func (s *dssFixedScorer) GetMaxScore(_ int) float32 { return s.maxScore }
 
+func (s *dssFixedScorer) AdvanceShallow(int) (int, error) { return search.NO_MORE_DOCS, nil }
+
 // ─── DisjunctionSumScorer tests ───────────────────────────────────────────
 
 func TestDisjunctionSumScorer_PanicsOnSingleScorer(t *testing.T) {

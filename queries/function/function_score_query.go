@@ -250,6 +250,14 @@ func (s *functionScoreScorer) Cost() int64                { return s.inner.Cost(
 func (s *functionScoreScorer) DocIDRunEnd() int           { return s.inner.DocIDRunEnd() }
 func (s *functionScoreScorer) GetMaxScore(_ int) float32  { return float32(math.Inf(1)) }
 
+// AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
+// org.apache.lucene.search.Scorer#advanceShallow. Lucene's FunctionScoreQuery
+// scorer overrides only getMaxScore (returning Float.MAX_VALUE) and inherits
+// the advanceShallow default, so the whole remaining list is one block.
+func (s *functionScoreScorer) AdvanceShallow(target int) (int, error) {
+	return search.NO_MORE_DOCS, nil
+}
+
 func (s *functionScoreScorer) Score() float32 {
 	ok, err := s.values.AdvanceExact(s.inner.DocID())
 	if err != nil || !ok {

@@ -117,6 +117,9 @@ func (s *rosFixedScorer) DocIDRunEnd() int {
 }
 func (s *rosFixedScorer) Score() float32            { return s.currentScore() }
 func (s *rosFixedScorer) GetMaxScore(_ int) float32 { return s.maxScore }
+func (s *rosFixedScorer) AdvanceShallow(int) (int, error) {
+	return search.NO_MORE_DOCS, nil
+}
 
 func (s *rosFixedScorer) currentScore() float32 {
 	if s.idx < 0 || s.idx >= len(s.scores) {

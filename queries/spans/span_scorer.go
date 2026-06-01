@@ -142,4 +142,11 @@ func (s *SpanScorer) sloppyFreq() (float32, error) {
 // GetMaxScore returns an upper bound for the score (unbounded).
 func (s *SpanScorer) GetMaxScore(_ int) float32 { return 1<<24 - 1 } // Float.MAX_VALUE analogue
 
+// AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
+// org.apache.lucene.search.Scorer#advanceShallow. Span scorers do not expose
+// per-block impact information.
+func (s *SpanScorer) AdvanceShallow(target int) (int, error) {
+	return search.NO_MORE_DOCS, nil
+}
+
 var _ search.Scorer = (*SpanScorer)(nil)

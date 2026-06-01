@@ -239,6 +239,13 @@ func (s *globalOrdinalsWithScoreScorer) advance(target int) (int, error) {
 func (s *globalOrdinalsWithScoreScorer) Score() float32            { return s.curScore }
 func (s *globalOrdinalsWithScoreScorer) GetMaxScore(_ int) float32 { return float32(math.Inf(1)) }
 func (s *globalOrdinalsWithScoreScorer) DocID() int                { return s.currentDoc }
+
+// AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
+// org.apache.lucene.search.Scorer#advanceShallow. This scorer does not expose
+// per-block impact information.
+func (s *globalOrdinalsWithScoreScorer) AdvanceShallow(target int) (int, error) {
+	return search.NO_MORE_DOCS, nil
+}
 func (s *globalOrdinalsWithScoreScorer) NextDoc() (int, error) {
 	return s.advance(s.currentDoc + 1)
 }

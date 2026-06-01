@@ -115,6 +115,13 @@ func (s *coveringScorer) GetMaxScore(_ int) float32 {
 	return float32(math.Inf(1))
 }
 
+// AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
+// org.apache.lucene.search.Scorer#advanceShallow. This scorer does not expose
+// per-block impact information.
+func (s *coveringScorer) AdvanceShallow(target int) (int, error) {
+	return search.NO_MORE_DOCS, nil
+}
+
 // GetChildren returns the matching child scorers as ChildScorables.
 func (s *coveringScorer) GetChildren() ([]search.ChildScorable, error) {
 	if err := s.setTopListAndFreqIfNecessary(); err != nil {
