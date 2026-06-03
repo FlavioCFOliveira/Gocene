@@ -72,6 +72,8 @@ There is no acceptable "draft" or "experimental" mode for delivered work: every 
 
 All interactions on the project must be based **exclusively** on knowledge you already possess. You must never try to guess the intended answers.
 
+Use the **Knowledge Graph** as your primary source of information — both to look up what is already known and to store the relationships you discover as you go.
+
 When the information you have is insufficient, you must seek answers from:
 
 - The internet, in official or authoritative sources.
@@ -128,6 +130,8 @@ go mod init github.com/FlavioCFOliveira/Gocene
 
 For planning and coordinating task execution, you must use the `rmp` tool (a CLI available on the system for roadmap management). This tool is the **single source of truth** for project planning and task execution; no other mechanism may be used for this purpose.
 
+Use the **Knowledge Graph** to better understand the project — its components and how they relate to one another — so that you can more easily identify the scope and the impact of each task across the project.
+
 ### Planning
 
 Carefully observe the scope of work proposed by the user and first determine whether it should be split across multiple development phases in order to properly accommodate the tasks involved. Each phase must contain a solid deliverable.
@@ -150,7 +154,7 @@ If the work being planned requires multiple phases (or sprints), planning must b
 
 Always use `rmp` as the single source of truth throughout this process.
 
-Use the **Knowledge Graph** (see the dedicated section below) to identify the foundational and highest-gain tasks, to understand the reach of each change across the project's components, and to plan the optimal order in which to execute the tasks.
+Use the **Knowledge Graph** (see the dedicated section below) to understand which tasks yield the highest gains and how far the impact of each task extends. Use the Knowledge Graph to determine the foundational and highest-gain tasks so that you can optimise the best path for their execution, and to plan the optimal order in which to execute the tasks across the project's components.
 
 ### Task Execution
 
