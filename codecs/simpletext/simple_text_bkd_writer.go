@@ -168,7 +168,21 @@ func (w *SimpleTextBKDWriter) Add(packedValue []byte, docID int) error {
 		)
 	}
 	if w.pointWriter == nil {
-		w.pointWriter = bkd.NewHeapPointWriter(w.config, 16)
+		// Mirror SimpleTextBKDWriter.add: on the first point allocate the
+		// in-heap writer sized to the caller-supplied totalPointCount upper
+		// bound. HeapPointWriter is fixed-size (it never grows), so the
+		// previous hard-coded 16 truncated every field with more than 16
+		// points. Java additionally spills to an OfflinePointWriter when
+		// totalPointCount exceeds maxPointsSortInHeap; that disk-spill path is
+		// not yet ported here — see the totalPointCount guard below.
+		if w.totalPointCount > int64(w.maxPointsSortInHeap) {
+			return fmt.Errorf(
+				"SimpleTextBKDWriter.Add: totalPointCount=%d exceeds maxPointsSortInHeap=%d; "+
+					"the OfflinePointWriter disk-spill path is not yet ported (token: simpletext-bkd-offline-spill)",
+				w.totalPointCount, w.maxPointsSortInHeap,
+			)
+		}
+		w.pointWriter = bkd.NewHeapPointWriter(w.config, int(w.totalPointCount))
 	}
 	if err := w.pointWriter.Append(packedValue, docID); err != nil {
 		return err
@@ -241,6 +255,19 @@ func (w *SimpleTextBKDWriter) writeFieldNDims(
 
 	splitPackedValues := make([]byte, numLeaves*(w.config.BytesPerDim()+1))
 	leafBlockFPs := make([]int64, numLeaves)
+
+	// Seed the per-dim extremes so the running comparison below converges:
+	// min starts at all-0xff (any value is <=) and max at all-0x00 (any value
+	// is >=). Mirrors Arrays.fill(minPackedValue, 0xff) / fill(maxPackedValue,
+	// 0) in SimpleTextBKDWriter.writeFieldNDims. Without this the zero-filled
+	// minPackedValue would never be replaced (nothing compares < all-zeros
+	// unsigned), corrupting the MIN_VALUE line.
+	for i := range w.minPackedValue {
+		w.minPackedValue[i] = 0xff
+	}
+	for i := range w.maxPackedValue {
+		w.maxPackedValue[i] = 0
+	}
 
 	// compute min/max
 	for i := 0; i < int(w.pointCount); i++ {
@@ -505,7 +532,12 @@ func (w *SimpleTextBKDWriter) buildFromPathSlice(
 		from := int(points.Start)
 		to := int(points.Start + points.Count)
 
-		w.computeCommonPrefixLength(heapSrc, w.scratch1)
+		// computeCommonPrefixLength / the cardinality scan / radix sort all
+		// operate on the shared heap's [from, to) sub-range, because the
+		// BKDRadixSelector heap fast path returns slices over the same writer
+		// (see BKDRadixSelector.Select). Iterating 0..Size() would read points
+		// from sibling leaves and panic past the written count.
+		w.computeCommonPrefixLength(heapSrc, w.scratch1, from, to)
 
 		sortedDim := 0
 		sortedDimCardinality := -1
@@ -523,7 +555,7 @@ func (w *SimpleTextBKDWriter) buildFromPathSlice(
 			prefix := w.commonPfxLens[dim]
 			if prefix < w.config.BytesPerDim() {
 				offset := dim * w.config.BytesPerDim()
-				for i := 0; i < heapSrc.Size(); i++ {
+				for i := from; i < to; i++ {
 					pval := heapSrc.GetPackedValueSlice(i)
 					pvBytes := pval.PackedValue()
 					bucket := int(pvBytes.Bytes[pvBytes.Offset+offset+prefix] & 0xff)
@@ -773,22 +805,29 @@ func (w *SimpleTextBKDWriter) switchToHeap(src bkd.PointWriter) (*bkd.HeapPointW
 	return heap, nil
 }
 
-func (w *SimpleTextBKDWriter) computeCommonPrefixLength(heap *bkd.HeapPointWriter, commonPrefix []byte) {
+// computeCommonPrefixLength scans the heap range [from, to) and emits the
+// per-dim common prefix lengths into w.commonPfxLens; the first point's bytes
+// are copied into commonPrefix. It must be bounded by from/to because the
+// BKDRadixSelector heap fast path returns PathSlices that share the parent
+// HeapPointWriter (each leaf covers a sub-range, not the whole writer); a
+// 0..Size() scan would read points belonging to sibling leaves and overrun the
+// written count. Mirrors BKDWriter.computeCommonPrefixLength (Lucene 10.4.0).
+func (w *SimpleTextBKDWriter) computeCommonPrefixLength(heap *bkd.HeapPointWriter, commonPrefix []byte, from, to int) {
+	bpd := w.config.BytesPerDim()
 	for i := range w.commonPfxLens {
-		w.commonPfxLens[i] = w.config.BytesPerDim()
+		w.commonPfxLens[i] = bpd
 	}
-	first := heap.GetPackedValueSlice(0)
+	first := heap.GetPackedValueSlice(from)
 	fpv := first.PackedValue()
 	for dim := 0; dim < w.config.NumDims(); dim++ {
-		copy(commonPrefix[dim*w.config.BytesPerDim():], fpv.Bytes[fpv.Offset+dim*w.config.BytesPerDim():fpv.Offset+(dim+1)*w.config.BytesPerDim()])
+		copy(commonPrefix[dim*bpd:], fpv.Bytes[fpv.Offset+dim*bpd:fpv.Offset+(dim+1)*bpd])
 	}
-	for i := 1; i < heap.Size(); i++ {
+	for i := from + 1; i < to; i++ {
 		pv := heap.GetPackedValueSlice(i).PackedValue()
 		for dim := 0; dim < w.config.NumDims(); dim++ {
 			if w.commonPfxLens[dim] == 0 {
 				continue
 			}
-			bpd := w.config.BytesPerDim()
 			offset := dim * bpd
 			j := 0
 			for j < w.commonPfxLens[dim] {

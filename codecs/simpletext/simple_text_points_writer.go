@@ -13,6 +13,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util/bkd"
 )
 
 // SimpleText points file extensions.
@@ -82,15 +83,101 @@ func NewSimpleTextPointsWriter(state *codecs.SegmentWriteState) (*SimpleTextPoin
 	}, nil
 }
 
+// pointsSource is the in-memory surface SimpleTextPointsWriter.WriteField
+// pulls buffered point values from. It mirrors the duck-typed contract the
+// indexing chain (index.dwptPointsSource) and segment merger expose, and is
+// structurally identical to codecs/lucene90.PointsSource: the same concrete
+// source value satisfies both interfaces. Defining it locally keeps the
+// simpletext codec free of an import dependency on the lucene90 package.
+//
+// This is the Gocene write-path analogue of Lucene's
+// reader.getValues(field).getPointTree() — the indexing chain replays the
+// buffered (docID, packedValue) pairs through VisitPoints in document order,
+// the order SimpleTextBKDWriter.Add expects.
+type pointsSource interface {
+	// PointValueCount returns the number of buffered point values for field.
+	PointValueCount(field string) int64
+	// VisitPoints invokes fn for every buffered (docID, packedValue) pair.
+	VisitPoints(field string, fn func(docID int, packedValue []byte) error) error
+}
+
 // WriteField writes all point values for fieldInfo using the supplied reader.
 //
-// NOTE: deferred until SimpleTextBKDWriter (task 3195) is ported. This method
-// returns an error rather than panicking so that callers handle the dependency
-// cleanly.
+// It builds a BKD configuration from the field's point dimensions, creates a
+// SimpleTextBKDWriter sized to the field's buffered point count, replays every
+// (docID, packedValue) pair through SimpleTextBKDWriter.Add, and — when at
+// least one point survived (the merge path can drop every point of a field
+// whose documents were all deleted) — finishes the tree and records the index
+// file pointer keyed by field name.
 //
-// Port of SimpleTextPointsWriter.writeField(FieldInfo, PointsReader).
+// Port of org.apache.lucene.codecs.simpletext.SimpleTextPointsWriter.writeField
+// (Lucene 10.4.0). Lucene drives the writer from
+// reader.getValues(fieldInfo.name).getPointTree().visitDocValues(...); Gocene's
+// indexing chain instead hands the writer an in-memory pointsSource (the same
+// established convention used by Lucene90PointsWriter), so this method consumes
+// VisitPoints in place of visitDocValues. The resulting on-disk text is
+// byte-identical: both replay the points in document order through
+// SimpleTextBKDWriter.add, and SimpleTextBKDWriter.finish performs the
+// reordering and serialisation.
 func (w *SimpleTextPointsWriter) WriteField(fieldInfo *index.FieldInfo, reader codecs.PointsReader) error {
-	return errors.New("SimpleTextPointsWriter.WriteField: deferred — requires SimpleTextBKDWriter (task 3195)")
+	if w.closed {
+		return errors.New("SimpleTextPointsWriter.WriteField: writer closed")
+	}
+	if w.dataOut == nil {
+		return errors.New("SimpleTextPointsWriter.WriteField: data file already finalised")
+	}
+
+	src, ok := reader.(pointsSource)
+	if !ok {
+		return fmt.Errorf(
+			"SimpleTextPointsWriter.WriteField: reader %T does not implement pointsSource", reader,
+		)
+	}
+
+	// Mirror Lucene: new BKDConfig(pointDimensionCount, pointIndexDimensionCount,
+	// pointNumBytes, BKDConfig.DEFAULT_MAX_POINTS_IN_LEAF_NODE).
+	config, err := bkd.NewBKDConfig(
+		fieldInfo.PointDimensionCount(),
+		fieldInfo.PointIndexDimensionCount(),
+		fieldInfo.PointNumBytes(),
+		bkd.DefaultMaxPointsInLeafNode,
+	)
+	if err != nil {
+		return fmt.Errorf("SimpleTextPointsWriter.WriteField: field %q config: %w", fieldInfo.Name(), err)
+	}
+
+	// totalPointCount is an upper bound (== values.size() in Lucene). The
+	// indexing chain reports the exact buffered count.
+	totalPointCount := src.PointValueCount(fieldInfo.Name())
+
+	writer, err := NewSimpleTextBKDWriter(
+		w.writeState.SegmentInfo.DocCount(),
+		w.writeState.Directory,
+		w.writeState.SegmentInfo.Name(),
+		config,
+		DefaultMaxMBSortInHeap,
+		totalPointCount,
+	)
+	if err != nil {
+		return fmt.Errorf("SimpleTextPointsWriter.WriteField: field %q new bkd writer: %w", fieldInfo.Name(), err)
+	}
+	defer func() { _ = writer.Close() }()
+
+	if err := src.VisitPoints(fieldInfo.Name(), func(docID int, packedValue []byte) error {
+		return writer.Add(packedValue, docID)
+	}); err != nil {
+		return fmt.Errorf("SimpleTextPointsWriter.WriteField: field %q add: %w", fieldInfo.Name(), err)
+	}
+
+	// We could have 0 points on merge since all docs with points may be deleted.
+	if writer.GetPointCount() > 0 {
+		indexFP, err := writer.Finish(w.dataOut)
+		if err != nil {
+			return fmt.Errorf("SimpleTextPointsWriter.WriteField: field %q finish: %w", fieldInfo.Name(), err)
+		}
+		w.indexFPs[fieldInfo.Name()] = indexFP
+	}
+	return nil
 }
 
 // Finish writes the END sentinel and checksum to the data file.

@@ -60,8 +60,16 @@ var (
 
 // stReadLine reads one newline-terminated, escape-processed line from in
 // into scratch.  Mirrors SimpleTextUtil.readLine.
+//
+// scratch is typically reused across calls. The line is built with Clear +
+// AppendByte rather than Grow + SetByteAt: the latter combination is unsafe on
+// a reused builder because BytesRefBuilder.Grow copies only the *prior* line's
+// length on reallocation, dropping bytes already written into the current
+// (longer) line. AppendByte maintains the running length correctly across
+// reallocations, so every accepted byte survives. Clear() first resets the
+// builder to length 0 (Lucene's readLine starts from upto=0).
 func stReadLine(in store.DataInput, scratch *util.BytesRefBuilder) error {
-	upto := 0
+	scratch.Clear()
 	for {
 		b, err := in.ReadByte()
 		if err != nil {
@@ -72,18 +80,13 @@ func stReadLine(in store.DataInput, scratch *util.BytesRefBuilder) error {
 			if err2 != nil {
 				return err2
 			}
-			scratch.Grow(upto + 1)
-			scratch.SetByteAt(upto, esc)
-			upto++
+			scratch.AppendByte(esc)
 		} else if b == 10 { // NEWLINE
 			break
 		} else {
-			scratch.Grow(upto + 1)
-			scratch.SetByteAt(upto, b)
-			upto++
+			scratch.AppendByte(b)
 		}
 	}
-	scratch.SetLength(upto)
 	return nil
 }
 
