@@ -823,8 +823,12 @@ type denseFloatVectorValuesAdapter struct {
 	values flatFloatVectorValues
 	doc    int
 
-	// iter / iterDoc / iterOrd / iterErr drive the doc-keyed Get(docID)
-	// random-access scan; iter is created lazily on first use.
+	// iter / iterDoc / iterOrd drive a single forward cursor over the
+	// underlying value's DocIndexIterator. For a dense field the iterator
+	// yields ord==doc; for a sparse field it yields the true (set) docIDs and
+	// iter.Index() yields the matching ordinal. The cursor backs both the
+	// iteration surface (NextDoc/Advance/DocID) and the random-access
+	// Get(docID) accessor; iter is created lazily on first use.
 	iter    utilhnsw.DocIndexIterator
 	iterDoc int
 	iterOrd int
@@ -883,19 +887,41 @@ func (a *denseFloatVectorValuesAdapter) Get(docID int) ([]float32, error) {
 	return a.GetVector(docID)
 }
 
+// NextDoc advances the iteration cursor to the next document that carries a
+// vector and returns its true docID (or NO_MORE_DOCS). It drives the
+// underlying value's DocIndexIterator, so it is correct for both the dense
+// (ord==doc) and sparse (DISI-backed) layouts. Mirrors the docID-yielding
+// contract of KnnVectorValues.iterator() in Lucene 10.4.0.
 func (a *denseFloatVectorValuesAdapter) NextDoc() (int, error) {
 	return a.Advance(a.doc + 1)
 }
 
+// Advance positions the iteration cursor on the first document >= target that
+// carries a vector and returns that docID (or NO_MORE_DOCS). It drives the
+// underlying DocIndexIterator so sparse documents are skipped, matching the
+// index.FloatVectorValues contract.
 func (a *denseFloatVectorValuesAdapter) Advance(target int) (int, error) {
 	if target < 0 {
 		target = 0
 	}
-	if target >= a.values.Size() {
-		a.doc = util.NO_MORE_DOCS
-		return util.NO_MORE_DOCS, nil
+	if a.iter == nil || a.iterDoc >= target {
+		a.iter = a.values.Iterator()
+		a.iterDoc, a.iterOrd = -1, -1
 	}
-	a.doc = target
+	for a.iterDoc < target {
+		d, err := a.iter.NextDoc()
+		if err != nil {
+			return 0, err
+		}
+		if d == util.NO_MORE_DOCS {
+			a.iterDoc = util.NO_MORE_DOCS
+			a.doc = util.NO_MORE_DOCS
+			return util.NO_MORE_DOCS, nil
+		}
+		a.iterDoc = d
+		a.iterOrd = a.iter.Index()
+	}
+	a.doc = a.iterDoc
 	return a.doc, nil
 }
 
@@ -903,6 +929,9 @@ type denseByteVectorValuesAdapter struct {
 	values flatByteVectorValues
 	doc    int
 
+	// See denseFloatVectorValuesAdapter: a single forward cursor over the
+	// underlying value's DocIndexIterator backs both the iteration surface
+	// and the random-access Get(docID) accessor.
 	iter    utilhnsw.DocIndexIterator
 	iterDoc int
 	iterOrd int
@@ -954,19 +983,36 @@ func (a *denseByteVectorValuesAdapter) Get(docID int) ([]byte, error) {
 	return a.GetVector(docID)
 }
 
+// NextDoc advances to the next document carrying a vector and returns its true
+// docID (or NO_MORE_DOCS). See denseFloatVectorValuesAdapter.NextDoc.
 func (a *denseByteVectorValuesAdapter) NextDoc() (int, error) {
 	return a.Advance(a.doc + 1)
 }
 
+// Advance positions the cursor on the first document >= target carrying a
+// vector. See denseFloatVectorValuesAdapter.Advance.
 func (a *denseByteVectorValuesAdapter) Advance(target int) (int, error) {
 	if target < 0 {
 		target = 0
 	}
-	if target >= a.values.Size() {
-		a.doc = util.NO_MORE_DOCS
-		return util.NO_MORE_DOCS, nil
+	if a.iter == nil || a.iterDoc >= target {
+		a.iter = a.values.Iterator()
+		a.iterDoc, a.iterOrd = -1, -1
 	}
-	a.doc = target
+	for a.iterDoc < target {
+		d, err := a.iter.NextDoc()
+		if err != nil {
+			return 0, err
+		}
+		if d == util.NO_MORE_DOCS {
+			a.iterDoc = util.NO_MORE_DOCS
+			a.doc = util.NO_MORE_DOCS
+			return util.NO_MORE_DOCS, nil
+		}
+		a.iterDoc = d
+		a.iterOrd = a.iter.Index()
+	}
+	a.doc = a.iterDoc
 	return a.doc, nil
 }
 
