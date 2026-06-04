@@ -226,6 +226,14 @@ func (q *latLonDocValuesQuery) GetGeometries() []geo.LatLonGeometry {
 // query identity and equals semantics.
 func (q *latLonDocValuesQuery) Clone() Query { return q }
 
+// Rewrite returns the query unchanged (it has no rewrite rules in the
+// Java reference). The explicit override is required because the type
+// embeds *BaseQuery: relying on the promoted BaseQuery.Rewrite would
+// return the inner *BaseQuery receiver, erasing this query's
+// CreateWeight override so the rewritten query would silently match
+// zero documents.
+func (q *latLonDocValuesQuery) Rewrite(_ IndexReader) (Query, error) { return q, nil }
+
 // CreateWeight builds a [ConstantScoreWeight] that resolves the
 // per-leaf [index.SortedNumericDocValues] iterator and wraps a
 // [TwoPhaseIterator] whose Matches method performs the actual

@@ -242,6 +242,36 @@ func (c *XYPointDistanceComparator) GetLeafComparator(ctx *index.LeafReaderConte
 	return c, nil
 }
 
+// BindLeaf rebinds the comparator to a new leaf reader, resolving the
+// SortedNumericDocValues stream for the configured field. It is the
+// IndexReader-shaped sibling of GetLeafComparator, used by the
+// FieldComparatorSource adapter that drives the comparator from a
+// generic Sort (which hands comparators a bare search.IndexReader rather
+// than an index.LeafReaderContext). A reader that does not expose the
+// doc-values surface falls back to an empty stream, mirroring Lucene's
+// DocValues.getSortedNumeric null-defence path.
+func (c *XYPointDistanceComparator) BindLeaf(reader IndexReader) error {
+	c.valuesDocID = -1
+	type sortedNumericProvider interface {
+		GetSortedNumericDocValues(field string) (index.SortedNumericDocValues, error)
+	}
+	provider, ok := reader.(sortedNumericProvider)
+	if !ok {
+		c.currentDocs = index.EmptySortedNumeric()
+		return nil
+	}
+	dv, err := provider.GetSortedNumericDocValues(c.field)
+	if err != nil {
+		return fmt.Errorf("xy point sort: read doc values %q: %w", c.field, err)
+	}
+	if dv == nil {
+		c.currentDocs = index.EmptySortedNumeric()
+	} else {
+		c.currentDocs = dv
+	}
+	return nil
+}
+
 // setValues materialises the per-document multi-values into currentValues,
 // re-fetching only when the docID changes. Mirrors the Java setValues hook
 // that drains SortedNumericDocValues.nextValue into a long[] cache.

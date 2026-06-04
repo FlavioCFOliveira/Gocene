@@ -7,6 +7,7 @@ package search
 import (
 	"bytes"
 	"errors"
+	"strconv"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -221,15 +222,26 @@ func (q *sortedSetDocValuesRangeQuery) String(defaultField string) string {
 
 // bytesRefBoundString renders a BytesRef for the range toString: '*'
 // when the bound is nil (matches Java's null branch), otherwise the
-// BytesRef's natural String form (UTF-8 view of the valid bytes — the
-// closest analogue to BytesRef.toString() in Lucene's
-// SortedSetDocValuesRangeQuery, which calls toString() on the BytesRef
-// directly).
+// space-separated hex rendering produced by org.apache.lucene.util.
+// BytesRef.toString() — "[62 61 72]" — which is exactly what Lucene's
+// SortedSetDocValuesRangeQuery.toString invokes on each bound. The
+// per-byte hex uses Integer.toHexString semantics (no zero padding).
 func bytesRefBoundString(b *util.BytesRef) string {
 	if b == nil {
 		return "*"
 	}
-	return b.String()
+	bytes := b.ValidBytes()
+	var sb strings.Builder
+	sb.Grow(2 + 3*len(bytes))
+	sb.WriteByte('[')
+	for i, by := range bytes {
+		if i > 0 {
+			sb.WriteByte(' ')
+		}
+		sb.WriteString(strconv.FormatUint(uint64(by), 16))
+	}
+	sb.WriteByte(']')
+	return sb.String()
 }
 
 // Rewrite mirrors SortedSetDocValuesRangeQuery.rewrite: an open range

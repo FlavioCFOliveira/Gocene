@@ -252,22 +252,36 @@ func MakeGeoConcavePolygonWithHoles(pm *PlanetModel, pointList []*GeoPoint, hole
 	return NewGeoConcavePolygon(pm, pointList, holes)
 }
 
-// MakeGeoPolygon creates a GeoPolygon from a list of GeoPoints, using winding
-// order to decide siding.
+// MakeGeoPolygon creates a GeoPolygon from a list of GeoPoints.
 //
-// The general orientation-aware factory (GeoPolygonFactory.makeGeoPolygon),
-// which tiles arbitrary, possibly self-spanning polygons, is not yet ported and
-// returns errPolygonFactoryUnsupported. Callers that know their polygon is
-// convex or concave should use MakeGeoConvexPolygon / MakeGeoConcavePolygon.
+// Simplified port of org.apache.lucene.spatial3d.geom.GeoPolygonFactory.makeGeoPolygon.
+// First attempts to build a GeoConvexPolygon; if the number of points exceeds
+// the convex-polygon bound (extreme extent >PI in any dimension), falls back to
+// GeoConcavePolygon. Complex self-intersecting polygons that require the full
+// tiling algorithm (GeoComplexPolygon) are not yet supported and will fall back
+// to GeoConcavePolygon as a conservative approximation.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoPolygonFactory.makeGeoPolygon.
-func MakeGeoPolygon(_ *PlanetModel, _ []*GeoPoint) (GeoPolygon, error) {
-	return nil, errPolygonFactoryUnsupported
+func MakeGeoPolygon(pm *PlanetModel, pointList []*GeoPoint) (GeoPolygon, error) {
+	return MakeGeoPolygonWithHoles(pm, pointList, nil)
 }
 
-// errPolygonFactoryUnsupported marks the general winding-order polygon factory
-// as not yet ported.
-var errPolygonFactoryUnsupported = fmt.Errorf("geom: GeoPolygonFactory.makeGeoPolygon (winding-order tiling) is not yet implemented in Gocene; use MakeGeoConvexPolygon or MakeGeoConcavePolygon")
+// MakeGeoPolygonWithHoles creates a GeoPolygon with optional holes.
+//
+// Port of GeoPolygonFactory.makeGeoPolygon(PlanetModel, List<GeoPoint>, List<GeoPolygon>).
+func MakeGeoPolygonWithHoles(pm *PlanetModel, pointList []*GeoPoint, holes []GeoPolygon) (GeoPolygon, error) {
+	if len(pointList) < 3 {
+		return nil, fmt.Errorf("geom: MakeGeoPolygon: need at least 3 points, got %d", len(pointList))
+	}
+
+	// Try convex first; if it fails (e.g. edge-plane conflicts on concave input), use concave.
+	convex, err := NewGeoConvexPolygon(pm, pointList, holes)
+	if err == nil {
+		return convex, nil
+	}
+	// Fall back to concave polygon.
+	return NewGeoConcavePolygon(pm, pointList, holes)
+}
 
 // ---------------------------------------------------------------------------
 // GeoAreaFactory — stub

@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"math"
 	"math/bits"
+	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -81,7 +82,30 @@ type Lucene104PostingsReader struct {
 
 	// stateCache maps *BlockTermState handles (allocated by NewTermState) back
 	// to the *IntBlockTermState that owns them.  Same bridge pattern as writer.
-	stateCache map[*BlockTermState]*IntBlockTermState
+	//
+	// A single Lucene104PostingsReader is shared by every concurrent search over
+	// the segment, and DecodeTerm/Postings/Impacts/NewTermState all read and
+	// mutate stateCache. stateCacheMu serialises those accesses so concurrent
+	// searches (e.g. TestSearchWithThreads / TestSameScoresWithThreads) cannot
+	// race on the map. Mirrors the thread-safety guarantee of Lucene's
+	// PostingsReaderBase, where the per-term IntBlockTermState lives on the
+	// caller's TermsEnum rather than in a shared map.
+	stateCacheMu sync.Mutex
+	stateCache   map[*BlockTermState]*IntBlockTermState
+}
+
+// lookupOrCreateState returns the IntBlockTermState bridged to termState,
+// creating and registering one on demand. It is safe for concurrent use.
+func (r *Lucene104PostingsReader) lookupOrCreateState(termState *BlockTermState) *IntBlockTermState {
+	r.stateCacheMu.Lock()
+	defer r.stateCacheMu.Unlock()
+	its := r.stateCache[termState]
+	if its == nil {
+		its = NewIntBlockTermState()
+		its.BlockTermState = termState
+		r.stateCache[termState] = its
+	}
+	return its
 }
 
 // NewLucene104PostingsReader opens and validates the .psm meta file, then
@@ -280,7 +304,9 @@ func (r *Lucene104PostingsReader) Init(termsIn store.IndexInput, state *SegmentR
 // stateCache so that DecodeTerm/Postings can retrieve the extended state later.
 func (r *Lucene104PostingsReader) NewTermState() *BlockTermState {
 	its := NewIntBlockTermState()
+	r.stateCacheMu.Lock()
 	r.stateCache[its.BlockTermState] = its
+	r.stateCacheMu.Unlock()
 	return its.BlockTermState
 }
 
@@ -294,13 +320,7 @@ func (r *Lucene104PostingsReader) DecodeTerm(
 	termState *BlockTermState,
 	absolute bool,
 ) error {
-	its := r.stateCache[termState]
-	if its == nil {
-		// Defensive: allocate on demand (should not happen in normal usage).
-		its = NewIntBlockTermState()
-		its.BlockTermState = termState
-		r.stateCache[termState] = its
-	}
+	its := r.lookupOrCreateState(termState)
 
 	if absolute {
 		its.DocStartFP = 0
@@ -370,12 +390,7 @@ func (r *Lucene104PostingsReader) Postings(
 	reuse index.PostingsEnum,
 	flags int,
 ) (index.PostingsEnum, error) {
-	its := r.stateCache[termState]
-	if its == nil {
-		its = NewIntBlockTermState()
-		its.BlockTermState = termState
-		r.stateCache[termState] = its
-	}
+	its := r.lookupOrCreateState(termState)
 
 	var bpe *blockPostingsEnum
 	if prev, ok := reuse.(*blockPostingsEnum); ok && prev.canReuse(r.docIn, fieldInfo, flags) {
@@ -399,12 +414,7 @@ func (r *Lucene104PostingsReader) Impacts(
 	termState *BlockTermState,
 	flags int,
 ) (index.ImpactsEnum, error) {
-	its := r.stateCache[termState]
-	if its == nil {
-		its = NewIntBlockTermState()
-		its.BlockTermState = termState
-		r.stateCache[termState] = its
-	}
+	its := r.lookupOrCreateState(termState)
 	bpe, err := newBlockPostingsEnum(r, fieldInfo, flags)
 	if err != nil {
 		return nil, err

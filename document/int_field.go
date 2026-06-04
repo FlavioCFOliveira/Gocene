@@ -70,7 +70,11 @@ func NewIntPoints(name string, values ...int32) *IntPoint {
 		return nil
 	}
 
-	encoded := PackInts(values)
+	// Encode with Lucene's sign-flipped sortable-bytes encoding
+	// (NumericUtils.intToSortableBytes), the on-disk BKD point format Apache
+	// Lucene 10.4.0 produces and consumes. Plain big-endian would mis-order
+	// negative values and break binary compatibility with Lucene's IntPoint.
+	encoded := PackIntsLucene(values...)
 	ft := PointFieldType()
 	ft.DimensionNumBytes = 4
 
@@ -87,7 +91,16 @@ func (ip *IntPoint) IntValue() int32 {
 	return 0
 }
 
-// IntValues returns all int values.
+// IntValues returns all int values, decoding the Lucene sortable-bytes
+// encoding used by NewIntPoints.
 func (ip *IntPoint) IntValues() []int32 {
-	return UnpackInts(ip.PointValues())
+	packed := ip.PointValues()
+	if len(packed)%4 != 0 {
+		return nil
+	}
+	out := make([]int32, len(packed)/4)
+	for i := range out {
+		out[i] = DecodeDimensionIntLucene(packed, i*4)
+	}
+	return out
 }

@@ -848,8 +848,18 @@ func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 	}
 	dwpt.invertedIndex.mu.Unlock()
 
-	// Tokenize the field value
-	var tokens []string
+	// Tokenize the field value, capturing each token's absolute position. The
+	// absolute position honours the token stream's PositionIncrementAttribute,
+	// exactly as Lucene's IndexingChain does (invertState.position starts at -1
+	// and advances by the per-token position increment, so the default increment
+	// of 1 yields the consecutive positions 0,1,2,...). Ignoring the increment
+	// would collapse position gaps (e.g. injected by stop filters or stacked
+	// synonyms) and break PhraseQuery / MultiPhraseQuery matching.
+	type tokenAtPos struct {
+		term     string
+		position int
+	}
+	var tokens []tokenAtPos
 	if tokenized {
 		// Use analyzer to tokenize
 		if analyzer != nil {
@@ -859,6 +869,15 @@ func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 			}
 			if tokenStream != nil {
 				defer tokenStream.Close()
+				// reset() must run before the first incrementToken(), mirroring
+				// Lucene's TokenStream contract; tokenizers (e.g. canned streams)
+				// rely on it to (re)initialise their cursor.
+				if resettable, ok := tokenStream.(interface{ Reset() error }); ok {
+					if err := resettable.Reset(); err != nil {
+						return err
+					}
+				}
+				position := -1
 				for {
 					hasNext, err := tokenStream.IncrementToken()
 					if err != nil {
@@ -867,29 +886,38 @@ func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 					if !hasNext {
 						break
 					}
-					// Get the term attribute from the token stream
-					if attrSrc, ok := tokenStream.(interface {
+					// Read the term and position-increment attributes from the
+					// stream's attribute source.
+					attrSrc, ok := tokenStream.(interface {
 						GetAttributeSource() *util.AttributeSource
-					}); ok {
-						if attr := attrSrc.GetAttributeSource().GetAttribute(analysis.CharTermAttributeType); attr != nil {
-							if termAttr, ok := attr.(analysis.CharTermAttribute); ok {
-								tokens = append(tokens, termAttr.String())
-							}
+					})
+					if !ok {
+						continue
+					}
+					src := attrSrc.GetAttributeSource()
+					posIncr := 1
+					if pia := src.GetAttribute(analysis.PositionIncrementAttributeType); pia != nil {
+						if posAttr, ok := pia.(analysis.PositionIncrementAttribute); ok {
+							posIncr = posAttr.GetPositionIncrement()
+						}
+					}
+					position += posIncr
+					if attr := src.GetAttribute(analysis.CharTermAttributeType); attr != nil {
+						if termAttr, ok := attr.(analysis.CharTermAttribute); ok {
+							tokens = append(tokens, tokenAtPos{term: termAttr.String(), position: position})
 						}
 					}
 				}
 			}
 		}
 	} else {
-		// Use the value directly as a single term
-		tokens = []string{value}
+		// Use the value directly as a single term at position 0.
+		tokens = []tokenAtPos{{term: value, position: 0}}
 	}
 
-	// Add each token to the inverted index
-	position := 0
-	for _, token := range tokens {
-		dwpt.addTermWithFreq(docID, fieldName, token, position, customTermFreq, fieldPostings, fieldInfo)
-		position++
+	// Add each token to the inverted index at its absolute position.
+	for _, tok := range tokens {
+		dwpt.addTermWithFreq(docID, fieldName, tok.term, tok.position, customTermFreq, fieldPostings, fieldInfo)
 	}
 
 	return nil
@@ -976,6 +1004,17 @@ func (dwpt *DocumentsWriterPerThread) addDocValue(docID int, fieldName string, f
 		}
 		vals := make([]int64, len(field.dvNumericValues))
 		copy(vals, field.dvNumericValues)
+		// A document may carry the same SORTED_NUMERIC field more than once
+		// (e.g. two SortedNumericDocValuesField("dv", v) instances), in which
+		// case Lucene's SortedNumericDocValuesWriter accumulates every value
+		// under the single doc. Merge into the existing per-doc entry rather
+		// than appending a duplicate docID (which would violate the codec
+		// iterator's strictly-increasing-docID contract and drop values).
+		if n := len(buf.docIDs); n > 0 && buf.docIDs[n-1] == docID {
+			buf.numericValuesMulti[n-1] = append(buf.numericValuesMulti[n-1], vals...)
+			buf.values[n-1] = buf.numericValuesMulti[n-1]
+			return
+		}
 		buf.docIDs = append(buf.docIDs, docID)
 		buf.numericValuesMulti = append(buf.numericValuesMulti, vals)
 		buf.values = append(buf.values, vals)
@@ -986,6 +1025,15 @@ func (dwpt *DocumentsWriterPerThread) addDocValue(docID int, fieldName string, f
 		vals := make([][]byte, len(field.dvBinaryValues))
 		for i, b := range field.dvBinaryValues {
 			vals[i] = cloneBytes(b)
+		}
+		// As for SORTED_NUMERIC: accumulate repeated SORTED_SET field instances
+		// for the same document into one entry (SortedSetDocValuesWriter
+		// collects the union of values per doc). Duplicate terms are tolerated
+		// here; the sorted-set writer deduplicates by ordinal downstream.
+		if n := len(buf.docIDs); n > 0 && buf.docIDs[n-1] == docID {
+			buf.binaryValuesMulti[n-1] = append(buf.binaryValuesMulti[n-1], vals...)
+			buf.values[n-1] = buf.binaryValuesMulti[n-1]
+			return
 		}
 		buf.docIDs = append(buf.docIDs, docID)
 		buf.binaryValuesMulti = append(buf.binaryValuesMulti, vals)

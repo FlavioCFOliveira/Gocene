@@ -80,10 +80,97 @@ func newSortFieldComparator(sf *SortField, numHits int) (sortFieldComparator, er
 		c := newTermOrdValComparator(numHits, sf.Field, sortMissingLast)
 		c.dvSource = sf.sortedDVSource
 		return c, nil
+	case SortFieldTypeCustom:
+		if sf.comparatorSource == nil {
+			return nil, fmt.Errorf("search: CUSTOM SortField %q has no FieldComparatorSource", sf.Field)
+		}
+		inner := sf.comparatorSource.NewComparator(sf, numHits)
+		if inner == nil {
+			return nil, fmt.Errorf("search: FieldComparatorSource for %q returned a nil comparator", sf.Field)
+		}
+		return newCustomFieldComparator(inner), nil
 	default:
 		return nil, fmt.Errorf("search: SortField type %d is not supported by the DocValues comparator factory (field=%q)", sf.Type, sf.Field)
 	}
 }
+
+// customFieldComparator adapts a public FieldComparator (produced by a
+// FieldComparatorSource, e.g. Lucene's ElevationComparatorSource) to the
+// internal sortFieldComparator the TopFieldCollector drives. It bridges the two
+// shapes: the public comparator owns its per-slot value cache and ordering
+// (Compare/SetBottom/CompareBottom/Copy/SetScorer); this adapter supplies the
+// extra surface the collector needs (setReader leaf binding, CompareTop,
+// CompetitiveIterator, SetHitsThresholdReached, value).
+//
+// Leaf binding: when the wrapped comparator implements the optional
+// leafBindingComparator interface, setReader forwards the leaf reader so the
+// comparator can resolve the segment's DocValues (mirroring Lucene's
+// FieldComparator.getLeafComparator(LeafReaderContext)). A comparator that does
+// not implement it is simply not leaf-bound.
+type customFieldComparator struct {
+	inner FieldComparator
+}
+
+// leafBindingComparator is the optional hook a public FieldComparator implements
+// to receive the per-leaf reader before Copy/CompareBottom are called for that
+// segment. It is the Go analogue of FieldComparator.getLeafComparator binding a
+// LeafReaderContext, expressed without changing the stable public
+// FieldComparator interface.
+type leafBindingComparator interface {
+	SetReader(reader IndexReader) error
+}
+
+// valueComparator is the optional hook a public FieldComparator implements to
+// expose the per-slot sort value for FieldDoc.Fields. A comparator that does not
+// implement it reports nil values (the order is still correct).
+type valueComparator interface {
+	Value(slot int) any
+}
+
+func newCustomFieldComparator(inner FieldComparator) *customFieldComparator {
+	return &customFieldComparator{inner: inner}
+}
+
+func (c *customFieldComparator) compare(slot1, slot2 int) int { return c.inner.Compare(slot1, slot2) }
+
+func (c *customFieldComparator) value(slot int) any {
+	if v, ok := c.inner.(valueComparator); ok {
+		return v.Value(slot)
+	}
+	return nil
+}
+
+func (c *customFieldComparator) setReader(reader IndexReader) error {
+	if lb, ok := c.inner.(leafBindingComparator); ok {
+		return lb.SetReader(reader)
+	}
+	return nil
+}
+
+func (c *customFieldComparator) SetBottom(slot int) error { c.inner.SetBottom(slot); return nil }
+
+func (c *customFieldComparator) CompareBottom(doc int) (int, error) {
+	return c.inner.CompareBottom(doc), nil
+}
+
+func (c *customFieldComparator) CompareTop(int) (int, error) { return 0, nil }
+
+func (c *customFieldComparator) Copy(slot, doc int) error { c.inner.Copy(slot, doc); return nil }
+
+// SetScorer is a no-op for the custom comparator. The public FieldComparator
+// expects a search.Scorer, while the collector hands the internal comparators a
+// Scorable; the only built-in consumer of the scorer is the SCORE sort key,
+// which the collector routes to its own relevanceComparator, not to a custom
+// comparator. DocValues-backed custom comparators (e.g. the elevation
+// comparator) ignore the scorer entirely (their setScorer is empty), so not
+// forwarding it preserves their behaviour.
+func (c *customFieldComparator) SetScorer(Scorable) error { return nil }
+
+func (c *customFieldComparator) CompetitiveIterator() (DocIdSetIterator, error) { return nil, nil }
+
+func (c *customFieldComparator) SetHitsThresholdReached() {}
+
+var _ sortFieldComparator = (*customFieldComparator)(nil)
 
 // missingSortsLast reports whether missing values should sort after present
 // values for the given SortField. The STRING_FIRST/STRING_LAST sentinels and the

@@ -377,21 +377,76 @@ const (
 	latLonDistanceCellCrossesQuery
 )
 
-// newLatLonDistancePointSourceFromIndexPointValues adapts the
-// current metadata-only index.PointValues to the
-// latLonDistancePointSource contract. The adapter is a no-op stub
-// today (production segment readers do not expose visitor-driven
-// Intersect yet); it exists so that once the index layer wires a
-// real surface, this is the single place to swap the implementation.
-// Matches the noop adapter pattern from XYPointInGeometryQuery.
-func newLatLonDistancePointSourceFromIndexPointValues(_ index.PointValues) latLonDistancePointSource {
+// latLonDistancePointTreeIntersect is the rich, visitor-driven read
+// surface a BKD-backed PointValues exposes beyond the metadata-only
+// index.PointValues. The on-disk reader returned by
+// LeafReader.GetPointValues (the codec's *pointValues) satisfies it
+// structurally; the parameter type is the index-package alias so the
+// type assertion succeeds for the real codec reader (the same reason
+// PointRangeQuery and XYPointInGeometryQuery alias
+// index.PointTreeIntersectVisitor).
+type latLonDistancePointTreeIntersect interface {
+	Intersect(visitor index.PointTreeIntersectVisitor) error
+	EstimatePointCount(visitor index.PointTreeIntersectVisitor) int64
+}
+
+// newLatLonDistancePointSourceFromIndexPointValues adapts a BKD-backed
+// index.PointValues to the latLonDistancePointSource contract used by
+// the scorer. When the concrete PointValues exposes the visitor-driven
+// Intersect / EstimatePointCount surface (the codec reader does), it
+// drives the real BKD walk; otherwise it falls back to a no-op source
+// (zero matches), matching the Java reference's "field exists but yields
+// no materialised data" behaviour. Mirrors the equivalent adapter in
+// xy_point_in_geometry_query.go.
+func newLatLonDistancePointSourceFromIndexPointValues(pv index.PointValues) latLonDistancePointSource {
+	if rich, ok := pv.(latLonDistancePointTreeIntersect); ok {
+		return &bkdLatLonDistancePointSource{pv: rich}
+	}
 	return noopLatLonDistancePointSource{}
 }
 
-// noopLatLonDistancePointSource is the safe default for the
-// production lookup while the visitor-driven PointValues surface is
-// not yet wired. It matches the Java reference's "field exists but
-// yields zero matches" behaviour for unmaterialised data.
+// bkdLatLonDistancePointSource drives a BKD-backed PointValues,
+// translating between the distance query's latLonDistancePointVisitor
+// and the index.PointTreeIntersectVisitor the BKD reader expects.
+type bkdLatLonDistancePointSource struct {
+	pv latLonDistancePointTreeIntersect
+}
+
+func (s *bkdLatLonDistancePointSource) Intersect(visitor latLonDistancePointVisitor) error {
+	return s.pv.Intersect(&latLonDistanceVisitorBridge{v: visitor})
+}
+
+func (s *bkdLatLonDistancePointSource) EstimateDocCount(visitor latLonDistancePointVisitor) (int64, error) {
+	return s.pv.EstimatePointCount(&latLonDistanceVisitorBridge{v: visitor}), nil
+}
+
+// latLonDistanceVisitorBridge adapts a latLonDistancePointVisitor to the
+// index.PointTreeIntersectVisitor surface the BKD reader invokes. The
+// reader only drives Visit / VisitByPackedValue / Compare / Grow (the
+// bulk-iterator methods on latLonDistancePointVisitor are not part of
+// the BKD reader's intersect path).
+type latLonDistanceVisitorBridge struct {
+	v latLonDistancePointVisitor
+}
+
+func (b *latLonDistanceVisitorBridge) Visit(docID int) error { return b.v.Visit(docID) }
+
+func (b *latLonDistanceVisitorBridge) VisitByPackedValue(docID int, packedValue []byte) error {
+	return b.v.VisitWithPackedValue(docID, packedValue)
+}
+
+func (b *latLonDistanceVisitorBridge) Compare(minPackedValue, maxPackedValue []byte) int {
+	return int(b.v.Compare(minPackedValue, maxPackedValue))
+}
+
+func (b *latLonDistanceVisitorBridge) Grow(count int) { b.v.Grow(count) }
+
+var _ index.PointTreeIntersectVisitor = (*latLonDistanceVisitorBridge)(nil)
+
+// noopLatLonDistancePointSource is the safe fallback when the
+// PointValues does not expose the visitor-driven Intersect surface (e.g.
+// an in-test metadata-only stub). It matches the Java reference's "field
+// exists but yields zero matches" behaviour for unmaterialised data.
 type noopLatLonDistancePointSource struct{}
 
 func (noopLatLonDistancePointSource) Intersect(_ latLonDistancePointVisitor) error { return nil }

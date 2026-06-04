@@ -64,6 +64,23 @@ func (q *PatienceKnnVectorQuery) Clone() Query {
 	return &PatienceKnnVectorQuery{inner: q.inner.Clone(), patience: q.patience}
 }
 
+// Rewrite delegates to the inner KNN query's rewrite, which runs the full
+// AbstractKnnVectorQuery search across all segments and returns a
+// DocAndScoreQuery (or MatchNoDocsQuery).
+//
+// Mirrors PatienceKnnVectorQuery.rewrite, which wraps the delegate's per-leaf
+// collectors in an HnswQueueSaturationCollector to stop early once the result
+// queue saturates, then delegates to the underlying KNN search. Gocene's
+// patience early-termination collector is not yet wired through the leaf-level
+// codec search, so this falls back to the underlying (non-early-terminated)
+// search — producing the same final top-K, just without the saturation
+// short-circuit. Without this override the embedded BaseQuery.Rewrite would
+// return the bare BaseQuery receiver, erasing the KNN algorithm and silently
+// matching zero documents.
+func (q *PatienceKnnVectorQuery) Rewrite(reader IndexReader) (Query, error) {
+	return q.inner.Rewrite(reader)
+}
+
 // CreateWeight delegates to the inner query.
 func (q *PatienceKnnVectorQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
 	return q.inner.CreateWeight(searcher, needsScores, boost)

@@ -99,7 +99,35 @@ type SortField struct {
 	// optimizeSet records whether optimizeSortWithIndexedData was explicitly set,
 	// so the zero value of a struct-literal SortField still defaults to true.
 	optimizeSet bool
+
+	// comparatorSource holds the custom FieldComparatorSource for a
+	// SortFieldTypeCustom sort. It is the Go counterpart of the
+	// FieldComparatorSource a Lucene SortField carries when constructed with
+	// new SortField(field, FieldComparatorSource, reverse). nil for the built-in
+	// types. Set via NewSortFieldCustom / SetComparatorSource.
+	comparatorSource FieldComparatorSource
 }
+
+// NewSortFieldCustom creates a SortField (SortFieldTypeCustom) that orders
+// documents using the given custom FieldComparatorSource, mirroring Lucene's
+// SortField(String, FieldComparatorSource, boolean) constructor. The source's
+// NewComparator is invoked once per search to build the comparator the
+// TopFieldCollector drives.
+func NewSortFieldCustom(field string, source FieldComparatorSource, reverse bool) *SortField {
+	return &SortField{
+		Field:                       field,
+		Type:                        SortFieldTypeCustom,
+		Reverse:                     reverse,
+		Missing:                     MissingValueLast,
+		optimizeSortWithIndexedData: true,
+		optimizeSet:                 true,
+		comparatorSource:            source,
+	}
+}
+
+// GetComparatorSource returns the custom FieldComparatorSource for a CUSTOM sort
+// field, or nil for the built-in types.
+func (sf *SortField) GetComparatorSource() FieldComparatorSource { return sf.comparatorSource }
 
 // NewSortField creates a new SortField.
 func NewSortField(field string, fieldType SortFieldType) *SortField {

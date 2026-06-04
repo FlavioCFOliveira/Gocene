@@ -187,7 +187,10 @@ func TestSortedSetDocValuesRangeQuery_HashCodeStability(t *testing.T) {
 
 // TestSortedSetDocValuesRangeQuery_String covers toString(String):
 // bracket choice follows inclusivity; '*' renders for nil bounds; the
-// field prefix is elided when the default-field argument matches.
+// field prefix is elided when the default-field argument matches. Each
+// bound is rendered with org.apache.lucene.util.BytesRef.toString()'s
+// space-separated hex form ("[61]" for the byte 0x61 = 'a'), matching
+// Lucene's SortedSetDocValuesRangeQuery.toString exactly.
 func TestSortedSetDocValuesRangeQuery_String(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -198,13 +201,13 @@ func TestSortedSetDocValuesRangeQuery_String(t *testing.T) {
 		defField     string
 		want         string
 	}{
-		{"both-inclusive", br("a"), br("z"), true, true, "f", "other", "f:[a TO z]"},
-		{"both-exclusive", br("a"), br("z"), false, false, "f", "other", "f:{a TO z}"},
-		{"mixed", br("a"), br("z"), true, false, "f", "other", "f:[a TO z}"},
-		{"open-lower", nil, br("z"), false, true, "f", "other", "f:{* TO z]"},
-		{"open-upper", br("a"), nil, true, false, "f", "other", "f:[a TO *}"},
+		{"both-inclusive", br("a"), br("z"), true, true, "f", "other", "f:[[61] TO [7a]]"},
+		{"both-exclusive", br("a"), br("z"), false, false, "f", "other", "f:{[61] TO [7a]}"},
+		{"mixed", br("a"), br("z"), true, false, "f", "other", "f:[[61] TO [7a]}"},
+		{"open-lower", nil, br("z"), false, true, "f", "other", "f:{* TO [7a]]"},
+		{"open-upper", br("a"), nil, true, false, "f", "other", "f:[[61] TO *}"},
 		{"both-open", nil, nil, false, false, "f", "other", "f:{* TO *}"},
-		{"field-elided", br("a"), br("z"), true, true, "f", "f", "[a TO z]"},
+		{"field-elided", br("a"), br("z"), true, true, "f", "f", "[[61] TO [7a]]"},
 	}
 	for _, tc := range cases {
 		tc := tc

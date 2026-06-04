@@ -491,6 +491,22 @@ func (pv *pointValues) GetDocCountWithValue() int64 { return int64(pv.reader.Get
 // (PointValues.size()).
 func (pv *pointValues) GetValueCount() int64 { return pv.reader.Size() }
 
+// GetPointTree returns a fresh BKD PointTree cursor positioned at the
+// root of the field's tree. It exposes the cursor-shaped subset of
+// org.apache.lucene.index.PointValues.PointTree (clone / moveToChild /
+// moveToSibling / packed-value accessors / visitDocValues) that the
+// nearest-neighbour KNN search walks, beyond the metadata-only and
+// Intersect surfaces.
+//
+// The return type is bkd.PointTree; search-side consumers that drive the
+// nearest-neighbour algorithm type-assert the index.PointValues to an
+// interface exposing this method (mirroring the way PointRangeQuery
+// type-asserts the Intersect surface), so they obtain the cursor without
+// the codec leaking its private *bkd.BKDReader.
+func (pv *pointValues) GetPointTree() (bkd.PointTree, error) {
+	return pv.reader.GetPointTree()
+}
+
 var _ index.PointValues = (*pointValues)(nil)
 
 // bkdVisitorBridge adapts an index.PointTreeIntersectVisitor (Compare returns

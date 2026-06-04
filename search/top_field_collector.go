@@ -259,6 +259,76 @@ func (c *TopFieldCollector) topFieldDocs() *TopFieldDocs {
 	)
 }
 
+// CanEarlyTerminate reports whether a search using searchSort can early
+// terminate when the index is sorted by indexSort. It is a faithful port of
+// org.apache.lucene.search.TopFieldCollector.canEarlyTerminate: termination is
+// possible either because the search sorts by document id (canEarlyTerminateOnDocId)
+// or because the search sort is a prefix of the index sort (canEarlyTerminateOnPrefix).
+//
+// indexSort may be nil (the index has no sort), in which case only the
+// sort-by-docId case can early terminate.
+func CanEarlyTerminate(searchSort, indexSort *Sort) bool {
+	return canEarlyTerminateOnDocID(searchSort) || canEarlyTerminateOnPrefix(searchSort, indexSort)
+}
+
+// canEarlyTerminateOnDocID mirrors TopFieldCollector.canEarlyTerminateOnDocId:
+// termination is possible when the first search sort field is the DOC field
+// (SortField.FIELD_DOC), i.e. an ascending sort by document id with no missing
+// value override.
+func canEarlyTerminateOnDocID(searchSort *Sort) bool {
+	if searchSort == nil || len(searchSort.Fields) == 0 {
+		return false
+	}
+	return sortFieldEqualsFieldDoc(searchSort.Fields[0])
+}
+
+// canEarlyTerminateOnPrefix mirrors TopFieldCollector.canEarlyTerminateOnPrefix:
+// when an index sort exists, the search sort fields must be a prefix of (i.e.
+// pairwise equal to a leading slice of) the index sort fields.
+func canEarlyTerminateOnPrefix(searchSort, indexSort *Sort) bool {
+	if indexSort == nil {
+		return false
+	}
+	fields1 := searchSort.Fields
+	fields2 := indexSort.Fields
+	if len(fields1) > len(fields2) {
+		return false
+	}
+	for i := range fields1 {
+		if !sortFieldEquals(fields1[i], fields2[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// sortFieldEqualsFieldDoc reports whether sf is equal to SortField.FIELD_DOC,
+// which Lucene defines as new SortField(null, SortField.Type.DOC) — an ascending
+// DOC sort over the (empty) field name with no missing-value override.
+func sortFieldEqualsFieldDoc(sf *SortField) bool {
+	return sf != nil &&
+		sf.Type == SortFieldTypeDoc &&
+		sf.Field == "" &&
+		!sf.Reverse &&
+		sf.MissingValue == nil
+}
+
+// sortFieldEquals mirrors org.apache.lucene.search.SortField.equals: two sort
+// fields are equal when they share field name, type, reverse flag and
+// missing-value override. SortedNumericSortField additionally compares its
+// numeric type and selector; this helper compares the common fields plus those
+// extras when both operands carry them, which is sufficient for the sort shapes
+// used by the early-termination contract.
+func sortFieldEquals(a, b *SortField) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if a.Field != b.Field || a.Type != b.Type || a.Reverse != b.Reverse {
+		return false
+	}
+	return a.MissingValue == b.MissingValue
+}
+
 // GetTotalHits returns the total number of hits collected.
 func (c *TopFieldCollector) GetTotalHits() int { return c.totalHits }
 

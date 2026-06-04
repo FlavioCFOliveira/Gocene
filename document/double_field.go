@@ -63,7 +63,12 @@ func NewDoublePoints(name string, values ...float64) *DoublePoint {
 		return nil
 	}
 
-	encoded := PackDoubles(values)
+	// Encode with Lucene's two-stage sortable encoding
+	// (NumericUtils.doubleToSortableLong then longToSortableBytes), the on-disk
+	// BKD point format Apache Lucene 10.4.0 produces and consumes. A raw IEEE
+	// big-endian layout would mis-order negative doubles and break binary
+	// compatibility with Lucene's DoublePoint.
+	encoded := PackDoublesLucene(values...)
 	ft := PointFieldType()
 	ft.DimensionNumBytes = 8
 
@@ -80,7 +85,16 @@ func (dp *DoublePoint) DoubleValue() float64 {
 	return 0
 }
 
-// DoubleValues returns all double values.
+// DoubleValues returns all double values, decoding the Lucene sortable
+// encoding used by NewDoublePoints.
 func (dp *DoublePoint) DoubleValues() []float64 {
-	return UnpackDoubles(dp.PointValues())
+	packed := dp.PointValues()
+	if len(packed)%8 != 0 {
+		return nil
+	}
+	out := make([]float64, len(packed)/8)
+	for i := range out {
+		out[i] = DecodeDimensionDoubleLucene(packed, i*8)
+	}
+	return out
 }

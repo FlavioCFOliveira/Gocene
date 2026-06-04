@@ -117,17 +117,34 @@ func (q *KnnFloatVectorQuery) ApproximateSearch(
 }
 
 // CreateVectorScorer builds a VectorScorer for exact brute-force search on
-// the leaf. Mirrors KnnFloatVectorQuery.createVectorScorer.
+// the leaf. Mirrors KnnFloatVectorQuery.createVectorScorer, which resolves the
+// leaf's FloatVectorValues for the field and asks them for a scorer bound to
+// the query target.
 //
-// Exact scoring requires a per-doc VectorScorer over the leaf's float
-// vectors. Gocene exposes the vectors but not yet the search.VectorScorer
-// bridge over them, so this returns nil; the BaseKnnVectorQuery treats a nil
-// scorer as "no exact-search support" and relies on the approximate path.
-// Tracked alongside the seeded-search wiring (backlog).
+// Returns nil when the leaf reader does not expose float vector values or the
+// field is absent from the segment; BaseKnnVectorQuery.exactSearch treats a
+// nil scorer as "no exact-search support" for that leaf.
 func (q *KnnFloatVectorQuery) CreateVectorScorer(
-	_ *index.LeafReaderContext, _ *index.FieldInfo,
+	ctx *index.LeafReaderContext, fi *index.FieldInfo,
 ) (VectorScorer, error) {
-	return nil, nil
+	if fi == nil || fi.VectorDimension() == 0 ||
+		fi.VectorEncoding() != index.VectorEncodingFloat32 {
+		return nil, nil
+	}
+	provider, ok := ctx.Reader().(floatVectorValuesProvider)
+	if !ok {
+		return nil, nil
+	}
+	values, err := provider.GetFloatVectorValues(q.GetField())
+	if err != nil {
+		return nil, err
+	}
+	if values == nil {
+		return nil, nil
+	}
+	return newFloatExactVectorScorer(
+		values, fi.VectorSimilarityFunction(), q.target, ctx.Reader().MaxDoc(),
+	), nil
 }
 
 // String returns a debug representation.
@@ -240,12 +257,30 @@ func (q *KnnByteVectorQuery) ApproximateSearch(
 	return indexTopDocsToSearch(td), nil
 }
 
-// CreateVectorScorer returns nil; exact byte-vector scoring is not yet
-// bridged (see the float counterpart).
+// CreateVectorScorer builds a VectorScorer for exact brute-force search on the
+// leaf's byte vectors. Mirrors KnnByteVectorQuery.createVectorScorer (see the
+// float counterpart for the algorithm).
 func (q *KnnByteVectorQuery) CreateVectorScorer(
-	_ *index.LeafReaderContext, _ *index.FieldInfo,
+	ctx *index.LeafReaderContext, fi *index.FieldInfo,
 ) (VectorScorer, error) {
-	return nil, nil
+	if fi == nil || fi.VectorDimension() == 0 ||
+		fi.VectorEncoding() != index.VectorEncodingByte {
+		return nil, nil
+	}
+	provider, ok := ctx.Reader().(byteVectorValuesProvider)
+	if !ok {
+		return nil, nil
+	}
+	values, err := provider.GetByteVectorValues(q.GetField())
+	if err != nil {
+		return nil, err
+	}
+	if values == nil {
+		return nil, nil
+	}
+	return newByteExactVectorScorer(
+		values, fi.VectorSimilarityFunction(), q.target, ctx.Reader().MaxDoc(),
+	), nil
 }
 
 // String returns a debug representation.

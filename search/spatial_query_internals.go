@@ -248,11 +248,12 @@ type spatialLeafLookup func(ctx *index.LeafReaderContext, field string) (
 	err error,
 )
 
-// noopSpatialLeafLookup is the safe default for the production
-// lookup while the visitor-driven PointValues surface is not yet
-// wired. It returns (nil, nil, 0, nil) for every call, which
-// SpatialQuery.CreateWeight interprets as "no source for this leaf"
-// (the Weight's per-leaf supplier returns nil ScorerSupplier).
+// noopSpatialLeafLookup returns (nil, nil, 0, nil) for every call,
+// which SpatialQuery.CreateWeight interprets as "no source for this
+// leaf" (the Weight's per-leaf supplier returns nil ScorerSupplier).
+// It is retained as an explicit opt-out (via WithSpatialQueryLeafLookup)
+// and as the fallback the production lookup degrades to when a leaf does
+// not expose a BKD-backed PointValues; it is no longer the default.
 //
 // Mirrors noopXYPointSource in xy_point_in_geometry_query.go.
 func noopSpatialLeafLookup(_ *index.LeafReaderContext, _ string) (
@@ -260,6 +261,176 @@ func noopSpatialLeafLookup(_ *index.LeafReaderContext, _ string) (
 ) {
 	return nil, nil, 0, nil
 }
+
+// defaultSpatialLeafLookup resolves the visitor-driven point source from
+// the production LeafReader path: it pulls the field's BKD-backed
+// index.PointValues via LeafReader.GetPointValues and, when that reader
+// exposes the rich visitor-driven Intersect surface (the codec's
+// *pointValues does), adapts it to the spatialPointSource contract the
+// SpatialQuery pipeline walks. Returns (nil, nil, 0, nil) — the
+// null-Scorer fast path — when the field is unknown to the leaf or the
+// reader is metadata-only.
+//
+// This is the production default for SpatialQuery (and therefore for the
+// LatLonPoint / XYPoint polygon & geometry queries built on it). It is
+// the SpatialQuery analogue of defaultLatLonPointDistanceLeafLookup and
+// defaultXYPointInGeometryLeafLookup.
+func defaultSpatialLeafLookup(ctx *index.LeafReaderContext, field string) (
+	spatialPointSource, *index.FieldInfo, int, error,
+) {
+	if ctx == nil {
+		return nil, nil, 0, nil
+	}
+	leaf := ctx.LeafReader()
+	if leaf == nil {
+		return nil, nil, 0, nil
+	}
+	type pointReader interface {
+		GetPointValues(field string) (index.PointValues, error)
+	}
+	type fieldInfosProvider interface {
+		GetFieldInfos() *index.FieldInfos
+	}
+	pr, ok := leaf.(pointReader)
+	if !ok {
+		return nil, nil, 0, nil
+	}
+	raw, err := pr.GetPointValues(field)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	if raw == nil {
+		return nil, nil, 0, nil
+	}
+	var fi *index.FieldInfo
+	if fip, ok := leaf.(fieldInfosProvider); ok {
+		if infos := fip.GetFieldInfos(); infos != nil {
+			fi = infos.GetByName(field)
+		}
+	}
+	if fi == nil {
+		return nil, nil, 0, nil
+	}
+	source := newSpatialPointSourceFromIndexPointValues(raw)
+	if source == nil {
+		return nil, nil, 0, nil
+	}
+	return source, fi, leaf.MaxDoc(), nil
+}
+
+// spatialPointTreeIntersect is the rich, visitor-driven read surface a
+// BKD-backed PointValues exposes beyond the metadata-only
+// index.PointValues. The on-disk reader returned by
+// LeafReader.GetPointValues (the codec's *pointValues) satisfies it
+// structurally; the parameter type is the index-package alias so the
+// type assertion succeeds for the real codec reader.
+type spatialPointTreeIntersect interface {
+	Intersect(visitor index.PointTreeIntersectVisitor) error
+	EstimatePointCount(visitor index.PointTreeIntersectVisitor) int64
+	GetMinPackedValue() ([]byte, error)
+	GetMaxPackedValue() ([]byte, error)
+	GetDocCount() int
+	GetValueCount() int64
+}
+
+// newSpatialPointSourceFromIndexPointValues adapts a BKD-backed
+// index.PointValues to the spatialPointSource contract used by the
+// SpatialQuery pipeline. Returns nil when the concrete PointValues does
+// not expose the rich visitor-driven surface (e.g. an in-test
+// metadata-only stub), so callers fall through to the null-Scorer fast
+// path.
+func newSpatialPointSourceFromIndexPointValues(pv index.PointValues) spatialPointSource {
+	rich, ok := pv.(spatialPointTreeIntersect)
+	if !ok {
+		return nil
+	}
+	return &bkdSpatialPointSource{pv: rich}
+}
+
+// bkdSpatialPointSource drives a BKD-backed PointValues, translating
+// between the SpatialQuery pipeline's spatialIntersectVisitor and the
+// index.PointTreeIntersectVisitor the BKD reader expects.
+type bkdSpatialPointSource struct {
+	pv spatialPointTreeIntersect
+}
+
+func (s *bkdSpatialPointSource) GetMinPackedValue() []byte {
+	v, err := s.pv.GetMinPackedValue()
+	if err != nil {
+		return nil
+	}
+	return v
+}
+
+func (s *bkdSpatialPointSource) GetMaxPackedValue() []byte {
+	v, err := s.pv.GetMaxPackedValue()
+	if err != nil {
+		return nil
+	}
+	return v
+}
+
+func (s *bkdSpatialPointSource) GetDocCount() int { return s.pv.GetDocCount() }
+
+// SizeAsInt returns the total number of indexed values, capped at
+// math.MaxInt, mirroring PointValues.size() folded into int arithmetic.
+func (s *bkdSpatialPointSource) SizeAsInt() int {
+	n := s.pv.GetValueCount()
+	if n > int64(maxIntForSpatialSize) {
+		return maxIntForSpatialSize
+	}
+	if n < 0 {
+		return 0
+	}
+	return int(n)
+}
+
+func (s *bkdSpatialPointSource) Intersect(visitor spatialIntersectVisitor) error {
+	return s.pv.Intersect(&spatialVisitorBridge{v: visitor})
+}
+
+func (s *bkdSpatialPointSource) EstimateDocCount(visitor spatialIntersectVisitor) (int64, error) {
+	return s.pv.EstimatePointCount(&spatialVisitorBridge{v: visitor}), nil
+}
+
+// maxIntForSpatialSize is math.MaxInt expressed without importing math
+// at this site; it caps PointValues.size() into int range.
+const maxIntForSpatialSize = int(^uint(0) >> 1)
+
+// spatialVisitorBridge adapts a spatialIntersectVisitor to the
+// index.PointTreeIntersectVisitor surface the BKD reader invokes. The
+// reader only drives Visit / VisitByPackedValue / Compare / Grow (the
+// bulk-iterator methods on spatialIntersectVisitor are not part of the
+// BKD reader's intersect path).
+//
+// Compare must translate between the two enum orderings: the BKD reader
+// uses the codecs.Relation order (0=outside, 1=inside, 2=crosses) while
+// search.spatialRelation uses (0=inside, 1=outside, 2=crosses), so the
+// conversion is an explicit switch rather than a raw cast.
+type spatialVisitorBridge struct {
+	v spatialIntersectVisitor
+}
+
+func (b *spatialVisitorBridge) Visit(docID int) error { return b.v.Visit(docID) }
+
+func (b *spatialVisitorBridge) VisitByPackedValue(docID int, packedValue []byte) error {
+	return b.v.VisitWithPackedValue(docID, packedValue)
+}
+
+func (b *spatialVisitorBridge) Compare(minPackedValue, maxPackedValue []byte) int {
+	switch b.v.Compare(minPackedValue, maxPackedValue) {
+	case spatialCellOutsideQuery:
+		return 0 // codecs.RelationCellOutsideQuery
+	case spatialCellInsideQuery:
+		return 1 // codecs.RelationCellInsideQuery
+	default:
+		return 2 // codecs.RelationCellCrossesQuery
+	}
+}
+
+func (b *spatialVisitorBridge) Grow(count int) { b.v.Grow(count) }
+
+var _ index.PointTreeIntersectVisitor = (*spatialVisitorBridge)(nil)
 
 // relationScorerSupplier is the ScorerSupplier returned by the
 // fall-through branch of SpatialQuery.getScorerSupplier. It owns

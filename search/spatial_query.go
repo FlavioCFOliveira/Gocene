@@ -158,7 +158,7 @@ func NewSpatialQuery(
 		queryComponent2D:      queryComponent2D,
 		spatialVisitorFactory: spatialVisitorFactory,
 		queryIsCacheableHook:  nil, // defaults to true (Java parity)
-		leafLookup:            noopSpatialLeafLookup,
+		leafLookup:            defaultSpatialLeafLookup,
 	}
 	for _, opt := range opts {
 		opt(q)
@@ -203,6 +203,19 @@ func (q *SpatialQuery) Visit(visitor QueryVisitor) {
 		visitor.VisitLeaf(q)
 	}
 }
+
+// Rewrite returns the query unchanged. SpatialQuery has no rewrite
+// rules in the Java reference (it inherits Query.rewrite, which is a
+// no-op).
+//
+// This explicit override is required because SpatialQuery embeds
+// *BaseQuery: relying on the promoted BaseQuery.Rewrite would return
+// the *inner* *BaseQuery receiver, erasing the outer SpatialQuery (and
+// any type embedding it, e.g. LatLonPointQuery / XYShapeQuery) so the
+// rewritten query would lose its CreateWeight override and silently
+// match zero documents. Returning the *SpatialQuery receiver keeps the
+// concrete query type through the IndexSearcher rewrite step.
+func (q *SpatialQuery) Rewrite(_ IndexReader) (Query, error) { return q, nil }
 
 // QueryIsCacheable forwards to the per-leaf hook (defaulting to
 // "true" when the hook is nil), mirroring Java's protected

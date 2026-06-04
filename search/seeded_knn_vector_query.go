@@ -71,6 +71,22 @@ func (q *SeededKnnVectorQuery) Clone() Query {
 	}
 }
 
+// Rewrite delegates to the inner KNN query's rewrite, which runs the full
+// AbstractKnnVectorQuery search algorithm across all segments and returns a
+// DocAndScoreQuery (or MatchNoDocsQuery).
+//
+// Mirrors SeededKnnVectorQuery.rewrite, which seeds the per-leaf collectors
+// with entry points derived from the seed query before delegating to the
+// underlying KNN search. Gocene does not yet wire the HNSW seed entry-point
+// strategy (KnnSearchStrategy.Seeded) through SegmentReader, so this falls back
+// to the unseeded approximate/exact search — the same result Lucene produces
+// when the seed query matches no documents. Without this override the embedded
+// BaseQuery.Rewrite would return the bare BaseQuery receiver, erasing the KNN
+// algorithm and silently matching zero documents.
+func (q *SeededKnnVectorQuery) Rewrite(reader IndexReader) (Query, error) {
+	return q.inner.Rewrite(reader)
+}
+
 // CreateWeight delegates to the inner KNN query. The seed wiring is applied at
 // scorer-construction time by the strategy carried by KnnSearchStrategy.
 func (q *SeededKnnVectorQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {

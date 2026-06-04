@@ -63,7 +63,12 @@ func NewFloatPoints(name string, values ...float32) *FloatPoint {
 		return nil
 	}
 
-	encoded := PackFloats(values)
+	// Encode with Lucene's two-stage sortable encoding
+	// (NumericUtils.floatToSortableInt then intToSortableBytes), the on-disk
+	// BKD point format Apache Lucene 10.4.0 produces and consumes. A raw IEEE
+	// big-endian layout would mis-order negative floats and break binary
+	// compatibility with Lucene's FloatPoint.
+	encoded := PackFloatsLucene(values...)
 	ft := PointFieldType()
 	ft.DimensionNumBytes = 4
 
@@ -80,7 +85,16 @@ func (fp *FloatPoint) FloatValue() float32 {
 	return 0
 }
 
-// FloatValues returns all float values.
+// FloatValues returns all float values, decoding the Lucene sortable
+// encoding used by NewFloatPoints.
 func (fp *FloatPoint) FloatValues() []float32 {
-	return UnpackFloats(fp.PointValues())
+	packed := fp.PointValues()
+	if len(packed)%4 != 0 {
+		return nil
+	}
+	out := make([]float32, len(packed)/4)
+	for i := range out {
+		out[i] = DecodeDimensionFloatLucene(packed, i*4)
+	}
+	return out
 }

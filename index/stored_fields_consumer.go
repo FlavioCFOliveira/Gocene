@@ -371,7 +371,6 @@ func newStoredValueField(info *FieldInfo, value StoredValue) (*storedValueField,
 			return f, nil
 		}
 		return nil, fmt.Errorf("index: StoredFieldsConsumer.WriteField: unknown StoredValue type %s", value.Type())
-		return nil, fmt.Errorf("index: StoredFieldsConsumer.WriteField: unknown StoredValue type %s", value.Type())
 	}
 	return f, nil
 }

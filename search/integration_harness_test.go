@@ -41,7 +41,14 @@ type integrationIndex struct {
 // MockAnalyzer) and the production codec.
 func newIntegrationIndex(t testing.TB) *integrationIndex {
 	t.Helper()
-	dir := store.NewByteBuffersDirectory()
+	return newIntegrationIndexWithDir(t, store.NewByteBuffersDirectory())
+}
+
+// newIntegrationIndexWithDir is newIntegrationIndex over a caller-supplied
+// directory, letting suites that need a specific store backend (e.g. an
+// MMapDirectory) exercise the same flush/read path.
+func newIntegrationIndexWithDir(t testing.TB, dir store.Directory) *integrationIndex {
+	t.Helper()
 	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)

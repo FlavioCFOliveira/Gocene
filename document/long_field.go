@@ -47,7 +47,11 @@ func NewLongPoints(name string, values ...int64) *LongPoint {
 		return nil
 	}
 
-	encoded := PackLongs(values)
+	// Encode with Lucene's sign-flipped sortable-bytes encoding
+	// (NumericUtils.longToSortableBytes), the on-disk BKD point format Apache
+	// Lucene 10.4.0 produces and consumes. Plain big-endian would mis-order
+	// negative values and break binary compatibility with Lucene's LongPoint.
+	encoded := PackLongsLucene(values...)
 	ft := PointFieldType()
 	ft.DimensionNumBytes = 8
 
@@ -64,7 +68,16 @@ func (lp *LongPoint) LongValue() int64 {
 	return 0
 }
 
-// LongValues returns all long values.
+// LongValues returns all long values, decoding the Lucene sortable-bytes
+// encoding used by NewLongPoints.
 func (lp *LongPoint) LongValues() []int64 {
-	return UnpackLongs(lp.PointValues())
+	packed := lp.PointValues()
+	if len(packed)%8 != 0 {
+		return nil
+	}
+	out := make([]int64, len(packed)/8)
+	for i := range out {
+		out[i] = DecodeDimensionLongLucene(packed, i*8)
+	}
+	return out
 }
