@@ -179,30 +179,6 @@ func TestByteVectorSimilarityFunctions(t *testing.T) {
 	}
 }
 
-// TestQuantizationRoundTrip tests quantization and dequantization
-func TestQuantizationRoundTrip(t *testing.T) {
-	original := []float32{0.5, -0.5, 0.0, 1.0, -1.0}
-
-	encodings := []codecs.ScalarEncoding{
-		codecs.ScalarEncodingUnsignedByte,
-		codecs.ScalarEncodingPackedNibble,
-	}
-
-	for _, enc := range encodings {
-		t.Run(enc.String(), func(t *testing.T) {
-			quantized := codecs.QuantizeVector(original, enc)
-			if len(quantized) == 0 {
-				t.Error("Quantized vector should not be empty")
-			}
-
-			dequantized := codecs.DequantizeVector(quantized, enc, len(original))
-			if len(dequantized) != len(original) {
-				t.Errorf("Expected %d dimensions, got %d", len(original), len(dequantized))
-			}
-		})
-	}
-}
-
 // TestHNSWFormatConfiguration tests HNSW format configuration
 func TestHNSWFormatConfiguration(t *testing.T) {
 	tests := []struct {
@@ -280,11 +256,14 @@ func TestVectorEncodingBits(t *testing.T) {
 		encoding     codecs.ScalarEncoding
 		expectedBits int
 	}{
+		// GetBits returns the document-side bit-width (Java getBits()), not the
+		// query-side bits. For the asymmetric encodings the doc bits are 1
+		// (single-bit) and 2 (dibit); their query bits are 4.
 		{codecs.ScalarEncodingUnsignedByte, 8},
 		{codecs.ScalarEncodingSevenBit, 7},
 		{codecs.ScalarEncodingPackedNibble, 4},
-		{codecs.ScalarEncodingSingleBitQueryNibble, 4},
-		{codecs.ScalarEncodingDibitQueryNibble, 4},
+		{codecs.ScalarEncodingSingleBitQueryNibble, 1},
+		{codecs.ScalarEncodingDibitQueryNibble, 2},
 	}
 
 	for _, tc := range tests {
@@ -300,10 +279,10 @@ func TestVectorEncodingBits(t *testing.T) {
 // TestVectorEncodingPackedLength tests document packed length calculations
 func TestVectorEncodingPackedLength(t *testing.T) {
 	tests := []struct {
-		name         string
-		encoding     codecs.ScalarEncoding
-		discreteDims int
-		expected     int
+		name       string
+		encoding   codecs.ScalarEncoding
+		dimensions int
+		expected   int
 	}{
 		{"UnsignedByte_64", codecs.ScalarEncodingUnsignedByte, 64, 64},
 		{"PackedNibble_64", codecs.ScalarEncodingPackedNibble, 64, 32},
@@ -311,46 +290,19 @@ func TestVectorEncodingPackedLength(t *testing.T) {
 		{"SingleBit_64", codecs.ScalarEncodingSingleBitQueryNibble, 64, 8},
 		{"SingleBit_65", codecs.ScalarEncodingSingleBitQueryNibble, 65, 9},
 		{"Dibit_64", codecs.ScalarEncodingDibitQueryNibble, 64, 16},
-		{"Dibit_65", codecs.ScalarEncodingDibitQueryNibble, 65, 17},
+		// 65 dims: discretized to 72 (8-byte boundary), stored as two single-bit
+		// stripes -> 2 * ceil(72/8) = 2 * 9 = 18. Mirrors Java's
+		// DIBIT_QUERY_NIBBLE.getDocPackedLength(65).
+		{"Dibit_65", codecs.ScalarEncodingDibitQueryNibble, 65, 18},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			length := tc.encoding.GetDocPackedLength(tc.discreteDims)
+			length := tc.encoding.GetDocPackedLength(tc.dimensions)
 			if length != tc.expected {
 				t.Errorf("Expected packed length %d, got %d", tc.expected, length)
 			}
 		})
-	}
-}
-
-// TestCentroidCalculation tests centroid calculation
-func TestCentroidCalculation(t *testing.T) {
-	vectors := [][]float32{
-		{1.0, 2.0, 3.0},
-		{3.0, 4.0, 5.0},
-		{5.0, 6.0, 7.0},
-	}
-
-	expected := []float32{3.0, 4.0, 5.0}
-	centroid := codecs.CalculateCentroid(vectors)
-
-	if len(centroid) != len(expected) {
-		t.Fatalf("Expected centroid length %d, got %d", len(expected), len(centroid))
-	}
-
-	for i := range expected {
-		if centroid[i] != expected[i] {
-			t.Errorf("Expected centroid[%d] = %f, got %f", i, expected[i], centroid[i])
-		}
-	}
-}
-
-// TestEmptyCentroid tests centroid calculation with empty input
-func TestEmptyCentroid(t *testing.T) {
-	centroid := codecs.CalculateCentroid([][]float32{})
-	if centroid != nil {
-		t.Error("Centroid of empty vectors should be nil")
 	}
 }
 
@@ -406,18 +358,5 @@ func BenchmarkSimilarityCalculation(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		codecs.ComputeSimilarity(codecs.VectorSimilarityFunctionCosine, v1, v2)
-	}
-}
-
-// BenchmarkQuantizationVectorSearch benchmarks vector quantization
-func BenchmarkQuantizationVectorSearch(b *testing.B) {
-	vector := make([]float32, 128)
-	for i := range vector {
-		vector[i] = float32(i) * 0.01
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		codecs.QuantizeVector(vector, codecs.ScalarEncodingUnsignedByte)
 	}
 }

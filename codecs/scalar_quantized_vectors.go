@@ -1,39 +1,89 @@
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
-
+//
 // Source: lucene/core/src/java/org/apache/lucene/codecs/lucene104/Lucene104ScalarQuantizedVectorsFormat.java
-// Purpose: Scalar quantization for vector storage - compresses float vectors to byte/quantized representations
+// Purpose: per-vector optimized scalar quantization for vector storage —
+// compresses float vectors to quantized byte representations, byte-for-byte
+// compatible with Apache Lucene 10.4.0.
+//
+// This file defines the ScalarEncoding enum and the
+// Lucene104ScalarQuantizedVectorsFormat. The byte-faithful writer lives in
+// lucene104_scalar_quantized_vectors_writer.go; the read-side dequantizing
+// values live in lucene104_off_heap_scalar_quantized_float_vector_values.go.
+// The full search-integration KnnVectorsReader (getFloatVectorValues / search)
+// is tracked separately (rmp #134); the reader in this file validates the
+// CodecUtil framing and parses field metadata but does not yet expose the
+// value-access surface.
 
 package codecs
 
 import (
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util/packed"
 )
 
 // ScalarEncoding represents the encoding type for scalar quantized vectors.
-// This is the Go equivalent of Lucene's ScalarEncoding enum.
+// This is the Go equivalent of Lucene's
+// Lucene104ScalarQuantizedVectorsFormat.ScalarEncoding enum (Lucene 10.4.0);
+// the iota order matches the Java declaration order so the enum ordinals line
+// up, but on the wire the encoding is identified by its wire number (see
+// [ScalarEncoding.GetWireNumber]), not its ordinal.
 type ScalarEncoding int
 
 const (
-	// ScalarEncodingUnsignedByte uses 8-bit unsigned byte quantization.
+	// ScalarEncodingUnsignedByte quantizes each dimension to 8 bits, treated
+	// as an unsigned value. Wire number 0.
 	ScalarEncodingUnsignedByte ScalarEncoding = iota
-	// ScalarEncodingSevenBit uses 7-bit quantization.
-	ScalarEncodingSevenBit
-	// ScalarEncodingPackedNibble packs two 4-bit values into one byte.
+	// ScalarEncodingPackedNibble quantizes each dimension to 4 bits, packing
+	// two values into each output byte. Wire number 1.
 	ScalarEncodingPackedNibble
-	// ScalarEncodingSingleBitQueryNibble uses single bit quantization for queries.
+	// ScalarEncodingSevenBit quantizes each dimension to 7 bits, treated as a
+	// signed value (backwards compatible with older scalar quantization). Wire
+	// number 2.
+	ScalarEncodingSevenBit
+	// ScalarEncodingSingleBitQueryNibble quantizes each dimension to a single
+	// bit; query vectors are quantized to 4 bits. Wire number 3.
 	ScalarEncodingSingleBitQueryNibble
-	// ScalarEncodingDibitQueryNibble uses 2-bit quantization for queries.
+	// ScalarEncodingDibitQueryNibble quantizes each dimension to 2 bits; query
+	// vectors are quantized to 4 bits. Wire number 4.
 	ScalarEncodingDibitQueryNibble
 )
 
-// String returns the string representation of the ScalarEncoding.
+// scalarEncodingBits maps each encoding to its (bits, bitsPerDim, queryBits,
+// queryBitsPerDim). Mirrors the per-constant constructor arguments of the Java
+// ScalarEncoding enum.
+type scalarEncodingParams struct {
+	wireNumber      int
+	bits            int
+	bitsPerDim      int
+	queryBits       int
+	queryBitsPerDim int
+}
+
+// scalarEncodingTable holds the Java enum constructor parameters in
+// declaration (ordinal) order. Mirrors the Java enum constants:
+//
+//	UNSIGNED_BYTE(0, 8, 8)
+//	PACKED_NIBBLE(1, 4, 4)
+//	SEVEN_BIT(2, 7, 8)
+//	SINGLE_BIT_QUERY_NIBBLE(3, 1, 1, 4, 4)
+//	DIBIT_QUERY_NIBBLE(4, 2, 2, 4, 4)
+var scalarEncodingTable = [...]scalarEncodingParams{
+	ScalarEncodingUnsignedByte:         {wireNumber: 0, bits: 8, bitsPerDim: 8, queryBits: 8, queryBitsPerDim: 8},
+	ScalarEncodingPackedNibble:         {wireNumber: 1, bits: 4, bitsPerDim: 4, queryBits: 4, queryBitsPerDim: 4},
+	ScalarEncodingSevenBit:             {wireNumber: 2, bits: 7, bitsPerDim: 8, queryBits: 7, queryBitsPerDim: 8},
+	ScalarEncodingSingleBitQueryNibble: {wireNumber: 3, bits: 1, bitsPerDim: 1, queryBits: 4, queryBitsPerDim: 4},
+	ScalarEncodingDibitQueryNibble:     {wireNumber: 4, bits: 2, bitsPerDim: 2, queryBits: 4, queryBitsPerDim: 4},
+}
+
+// String returns the string representation of the ScalarEncoding, matching the
+// Java enum constant names.
 func (se ScalarEncoding) String() string {
 	switch se {
 	case ScalarEncodingUnsignedByte:
@@ -47,89 +97,155 @@ func (se ScalarEncoding) String() string {
 	case ScalarEncodingDibitQueryNibble:
 		return "DIBIT_QUERY_NIBBLE"
 	default:
-		return fmt.Sprintf("UNKNOWN(%d)", se)
+		return fmt.Sprintf("UNKNOWN(%d)", int(se))
 	}
 }
 
-// GetBits returns the number of bits used by this encoding.
+// GetBits returns the number of bits used per dimension for the document-side
+// quantization. Mirrors Java's ScalarEncoding.getBits().
 func (se ScalarEncoding) GetBits() int {
-	switch se {
-	case ScalarEncodingUnsignedByte:
-		return 8
-	case ScalarEncodingSevenBit:
-		return 7
-	case ScalarEncodingPackedNibble, ScalarEncodingSingleBitQueryNibble, ScalarEncodingDibitQueryNibble:
-		return 4
-	default:
-		return 8
-	}
+	return scalarEncodingTable[se].bits
 }
 
-// GetDiscreteDimensions returns the number of discrete dimensions for the given encoding.
-func (se ScalarEncoding) GetDiscreteDimensions(dims int) int {
-	switch se {
-	case ScalarEncodingPackedNibble, ScalarEncodingSingleBitQueryNibble, ScalarEncodingDibitQueryNibble:
-		return dims
-	default:
-		return dims
-	}
+// GetWireNumber returns the number used to identify this encoding on the wire,
+// independent of the enum ordinal. Mirrors Java's
+// ScalarEncoding.getWireNumber().
+func (se ScalarEncoding) GetWireNumber() int {
+	return scalarEncodingTable[se].wireNumber
 }
 
-// GetDocPackedLength returns the packed length for a document with the given discrete dimensions.
-func (se ScalarEncoding) GetDocPackedLength(discreteDims int) int {
-	switch se {
-	case ScalarEncodingPackedNibble:
-		return (discreteDims + 1) / 2
-	case ScalarEncodingSingleBitQueryNibble:
-		return (discreteDims + 7) / 8
-	case ScalarEncodingDibitQueryNibble:
-		// 2 bits per dimension → 4 dimensions per byte.
-		return (discreteDims + 3) / 4
-	default:
-		return discreteDims
+// GetDiscreteDimensions returns the number of dimensions rounded up so the
+// per-dimension bits fit into whole bytes. Mirrors Java's
+// ScalarEncoding.getDiscreteDimensions(int), including the DIBIT_QUERY_NIBBLE
+// override that forces dibit packing to byte boundaries assuming single-bit
+// striping.
+func (se ScalarEncoding) GetDiscreteDimensions(dimensions int) int {
+	p := scalarEncodingTable[se]
+	if se == ScalarEncodingDibitQueryNibble {
+		queryDiscretized := (dimensions*4 + 7) / 8 * 8 / 4
+		docDiscretized := (dimensions + 7) / 8 * 8
+		if queryDiscretized > docDiscretized {
+			return queryDiscretized
+		}
+		return docDiscretized
 	}
+	if p.queryBits == p.bits {
+		totalBits := dimensions * p.bitsPerDim
+		return (totalBits + 7) / 8 * 8 / p.bitsPerDim
+	}
+	queryDiscretized := (dimensions*p.queryBitsPerDim + 7) / 8 * 8 / p.queryBitsPerDim
+	docDiscretized := (dimensions*p.bitsPerDim + 7) / 8 * 8 / p.bitsPerDim
+	if queryDiscretized > docDiscretized {
+		return queryDiscretized
+	}
+	return docDiscretized
 }
 
-// ScalarEncodingValues returns all scalar encoding values.
+// GetDocPackedLength returns the number of bytes required to store a packed
+// document vector of the given (raw, not yet discretized) dimensions. Mirrors
+// Java's ScalarEncoding.getDocPackedLength(int), including the
+// DIBIT_QUERY_NIBBLE override that stores two single-bit stripes.
+func (se ScalarEncoding) GetDocPackedLength(dimensions int) int {
+	p := scalarEncodingTable[se]
+	discretized := se.GetDiscreteDimensions(dimensions)
+	if se == ScalarEncodingDibitQueryNibble {
+		// DIBIT is stored as two single-bit stripes.
+		return 2 * ((discretized + 7) / 8)
+	}
+	totalBits := discretized * p.bitsPerDim
+	return (totalBits + 7) / 8
+}
+
+// GetQueryPackedLength returns the number of bytes required to store a packed
+// query vector of the given dimensions. Mirrors Java's
+// ScalarEncoding.getQueryPackedLength(int).
+func (se ScalarEncoding) GetQueryPackedLength(dimensions int) int {
+	p := scalarEncodingTable[se]
+	discretized := se.GetDiscreteDimensions(dimensions)
+	totalBits := discretized * p.queryBitsPerDim
+	return (totalBits + 7) / 8
+}
+
+// IsAsymmetric reports whether the document-side and query-side bit-widths
+// differ. Mirrors Java's ScalarEncoding.isAsymmetric().
+func (se ScalarEncoding) IsAsymmetric() bool {
+	p := scalarEncodingTable[se]
+	return p.bits != p.queryBits
+}
+
+// ScalarEncodingValues returns all scalar encoding values in ordinal order.
 func ScalarEncodingValues() []ScalarEncoding {
 	return []ScalarEncoding{
 		ScalarEncodingUnsignedByte,
-		ScalarEncodingSevenBit,
 		ScalarEncodingPackedNibble,
+		ScalarEncodingSevenBit,
 		ScalarEncodingSingleBitQueryNibble,
 		ScalarEncodingDibitQueryNibble,
 	}
 }
 
-// Lucene104ScalarQuantizedVectorsFormat constants
+// ScalarEncodingFromWireNumber returns the encoding for the given wire number.
+// Mirrors Java's ScalarEncoding.fromWireNumber(int).
+func ScalarEncodingFromWireNumber(wireNumber int) (ScalarEncoding, error) {
+	for i := range scalarEncodingTable {
+		if scalarEncodingTable[i].wireNumber == wireNumber {
+			return ScalarEncoding(i), nil
+		}
+	}
+	return 0, fmt.Errorf("lucene104 sq: no ScalarEncoding for wire number %d", wireNumber)
+}
+
+// Lucene104ScalarQuantizedVectorsFormat version and tuning constants. Mirror
+// the static definitions in the Java
+// Lucene104ScalarQuantizedVectorsFormat (Lucene 10.4.0).
 const (
-	// VERSION_START is the initial version
+	// Lucene104ScalarQuantizedVectorsFormat_VERSION_START is the initial format version.
 	Lucene104ScalarQuantizedVectorsFormat_VERSION_START = 0
-	// VERSION_CURRENT is the current version
+	// Lucene104ScalarQuantizedVectorsFormat_VERSION_CURRENT is the current format version.
 	Lucene104ScalarQuantizedVectorsFormat_VERSION_CURRENT = Lucene104ScalarQuantizedVectorsFormat_VERSION_START
-	// DIRECT_MONOTONIC_BLOCK_SHIFT is the block shift for direct monotonic storage
+	// Lucene104ScalarQuantizedVectorsFormat_DIRECT_MONOTONIC_BLOCK_SHIFT is the
+	// block shift used by the DirectMonotonicWriter that records the sparse
+	// ord->doc mapping.
 	Lucene104ScalarQuantizedVectorsFormat_DIRECT_MONOTONIC_BLOCK_SHIFT = 16
-	// MAX_DIMENSIONS is the maximum number of dimensions supported
+	// Lucene104ScalarQuantizedVectorsFormat_MAX_DIMENSIONS is the maximum
+	// number of dimensions supported.
 	Lucene104ScalarQuantizedVectorsFormat_MAX_DIMENSIONS = 1024
-	// DEFAULT_QUANTIZED_VECTOR_COMPONENT is the default component name
-	Lucene104ScalarQuantizedVectorsFormat_DEFAULT_QUANTIZED_VECTOR_COMPONENT = "QVEC"
+	// Lucene104ScalarQuantizedVectorsFormat_QUANTIZED_VECTOR_COMPONENT is the
+	// info-stream component name. Mirrors QUANTIZED_VECTOR_COMPONENT.
+	Lucene104ScalarQuantizedVectorsFormat_QUANTIZED_VECTOR_COMPONENT = "QVEC"
 )
 
-// File extensions for Lucene104ScalarQuantizedVectorsFormat
+// Internal codec/extension constants. Mirror the package-private static
+// constants of the Java format.
 const (
-	// Lucene104ScalarQuantizedVectorsFormat_VECTOR_DATA_EXTENSION is the vector data file extension
-	Lucene104ScalarQuantizedVectorsFormat_VECTOR_DATA_EXTENSION = "veq"
-	// Lucene104ScalarQuantizedVectorsFormat_VECTOR_META_EXTENSION is the vector metadata file extension
-	Lucene104ScalarQuantizedVectorsFormat_VECTOR_META_EXTENSION = "vemq"
-	// Lucene104ScalarQuantizedVectorsFormat_RAW_VECTOR_EXTENSION is the raw vector file extension
-	Lucene104ScalarQuantizedVectorsFormat_RAW_VECTOR_EXTENSION = "vec"
-	// Lucene104ScalarQuantizedVectorsFormat_VECTOR_META_FILE_EXTENSION is the vector meta file extension
-	Lucene104ScalarQuantizedVectorsFormat_VECTOR_META_FILE_EXTENSION = "vemf"
+	lucene104SQName                 = "Lucene104ScalarQuantizedVectorsFormat"
+	lucene104SQMetaCodecName        = "Lucene104ScalarQuantizedVectorsFormatMeta"
+	lucene104SQDataCodecName        = "Lucene104ScalarQuantizedVectorsFormatData"
+	lucene104SQVersionStart   int32 = Lucene104ScalarQuantizedVectorsFormat_VERSION_START
+	lucene104SQVersionCurrent int32 = Lucene104ScalarQuantizedVectorsFormat_VERSION_CURRENT
 )
 
-// Lucene104ScalarQuantizedVectorsFormat implements scalar quantization for vector storage.
-// This format compresses float vectors to quantized byte representations for efficient storage
-// and fast approximate similarity computation.
+// File extensions for Lucene104ScalarQuantizedVectorsFormat. Mirror the Java
+// META_EXTENSION / VECTOR_DATA_EXTENSION and the raw flat delegate extensions.
+const (
+	// Lucene104ScalarQuantizedVectorsFormat_VECTOR_DATA_EXTENSION is the
+	// quantized vector data file extension (Java VECTOR_DATA_EXTENSION).
+	Lucene104ScalarQuantizedVectorsFormat_VECTOR_DATA_EXTENSION = "veq"
+	// Lucene104ScalarQuantizedVectorsFormat_VECTOR_META_EXTENSION is the
+	// quantized vector metadata file extension (Java META_EXTENSION).
+	Lucene104ScalarQuantizedVectorsFormat_VECTOR_META_EXTENSION = "vemq"
+	// Lucene104ScalarQuantizedVectorsFormat_RAW_VECTOR_EXTENSION is the raw
+	// (delegate) vector data file extension.
+	Lucene104ScalarQuantizedVectorsFormat_RAW_VECTOR_EXTENSION = "vec"
+	// Lucene104ScalarQuantizedVectorsFormat_RAW_VECTOR_META_EXTENSION is the
+	// raw (delegate) vector metadata file extension.
+	Lucene104ScalarQuantizedVectorsFormat_RAW_VECTOR_META_EXTENSION = "vemf"
+)
+
+// Lucene104ScalarQuantizedVectorsFormat implements per-vector optimized scalar
+// quantization for vector storage. It compresses float vectors to quantized
+// byte representations for efficient storage and fast approximate similarity
+// computation, byte-for-byte compatible with Apache Lucene 10.4.0.
 //
 // This is the Go port of Lucene's Lucene104ScalarQuantizedVectorsFormat.
 type Lucene104ScalarQuantizedVectorsFormat struct {
@@ -137,19 +253,21 @@ type Lucene104ScalarQuantizedVectorsFormat struct {
 	encoding ScalarEncoding
 }
 
-// NewLucene104ScalarQuantizedVectorsFormat creates a new Lucene104ScalarQuantizedVectorsFormat
-// with the default encoding (UNSIGNED_BYTE).
+// NewLucene104ScalarQuantizedVectorsFormat creates a new
+// Lucene104ScalarQuantizedVectorsFormat with the default encoding
+// (UNSIGNED_BYTE). Mirrors the Java no-arg constructor.
 func NewLucene104ScalarQuantizedVectorsFormat() *Lucene104ScalarQuantizedVectorsFormat {
 	return &Lucene104ScalarQuantizedVectorsFormat{
-		BaseKnnVectorsFormat: NewBaseKnnVectorsFormat("Lucene104ScalarQuantizedVectorsFormat"),
+		BaseKnnVectorsFormat: NewBaseKnnVectorsFormat(lucene104SQName),
 		encoding:             ScalarEncodingUnsignedByte,
 	}
 }
 
-// NewLucene104ScalarQuantizedVectorsFormatWithEncoding creates a new format with the specified encoding.
+// NewLucene104ScalarQuantizedVectorsFormatWithEncoding creates a new format
+// with the specified encoding. Mirrors the Java single-argument constructor.
 func NewLucene104ScalarQuantizedVectorsFormatWithEncoding(encoding ScalarEncoding) *Lucene104ScalarQuantizedVectorsFormat {
 	return &Lucene104ScalarQuantizedVectorsFormat{
-		BaseKnnVectorsFormat: NewBaseKnnVectorsFormat("Lucene104ScalarQuantizedVectorsFormat"),
+		BaseKnnVectorsFormat: NewBaseKnnVectorsFormat(lucene104SQName),
 		encoding:             encoding,
 	}
 }
@@ -161,619 +279,370 @@ func (f *Lucene104ScalarQuantizedVectorsFormat) Encoding() ScalarEncoding {
 
 // String returns a string representation of this format.
 func (f *Lucene104ScalarQuantizedVectorsFormat) String() string {
-	return fmt.Sprintf("Lucene104ScalarQuantizedVectorsFormat(name=Lucene104ScalarQuantizedVectorsFormat, encoding=%s)",
-		f.encoding.String())
+	return fmt.Sprintf("Lucene104ScalarQuantizedVectorsFormat(name=%s, encoding=%s)",
+		lucene104SQName, f.encoding.String())
 }
 
-// FieldsWriter returns a writer for writing quantized vectors.
+// FieldsWriter returns the byte-faithful writer for quantized vectors.
 func (f *Lucene104ScalarQuantizedVectorsFormat) FieldsWriter(state *SegmentWriteState) (KnnVectorsWriter, error) {
 	return NewLucene104ScalarQuantizedVectorsWriter(state, f.encoding)
 }
 
-// FieldsReader returns a reader for reading quantized vectors.
+// FieldsReader returns a reader that validates the CodecUtil framing and
+// parses the per-field metadata. The full value-access surface
+// (getFloatVectorValues / search) is tracked by rmp #134; the round-trip read
+// path is exercised today via
+// [OffHeapScalarQuantizedFloatVectorValues.Load].
 func (f *Lucene104ScalarQuantizedVectorsFormat) FieldsReader(state *SegmentReadState) (KnnVectorsReader, error) {
 	return NewLucene104ScalarQuantizedVectorsReader(state, f.encoding)
 }
 
-// SupportsFloatVectorFallback returns true as this format supports float vector fallback.
+// MaxDimensions returns the maximum supported vector dimension. Mirrors Java's
+// getMaxDimensions.
+func (f *Lucene104ScalarQuantizedVectorsFormat) MaxDimensions(_ string) int {
+	return Lucene104ScalarQuantizedVectorsFormat_MAX_DIMENSIONS
+}
+
+// SupportsFloatVectorFallback returns true: the format dequantizes on read and
+// surfaces FLOAT32 vectors.
 func (f *Lucene104ScalarQuantizedVectorsFormat) SupportsFloatVectorFallback() bool {
 	return true
 }
 
-// Lucene104ScalarQuantizedVectorsWriter writes scalar quantized vectors.
-type Lucene104ScalarQuantizedVectorsWriter struct {
-	encoding      ScalarEncoding
-	segmentState  *SegmentWriteState
-	vectorDataOut store.IndexOutput
-	metaOut       store.IndexOutput
-	closed        bool
-	fieldWriters  map[string]*quantizedFieldWriter
+// Lucene104ScalarQuantizedFieldEntry holds the parsed .vemq per-field metadata.
+// It mirrors the Java FieldEntry record, exposing the fields a reader needs to
+// reconstruct the on-disk vectors. Exported so the round-trip test and the
+// future search-integration reader (rmp #134) can build an
+// [OffHeapScalarQuantizedFloatVectorValues] view via Load.
+type Lucene104ScalarQuantizedFieldEntry struct {
+	// VectorEncoding is the field's vector encoding (FLOAT32 / BYTE).
+	VectorEncoding index.VectorEncoding
+	// SimilarityFunction is the field's vector similarity function.
+	SimilarityFunction index.VectorSimilarityFunction
+	// Dimension is the raw vector dimension.
+	Dimension int
+	// VectorDataOffset is the .veq offset of the field's quantized vectors.
+	VectorDataOffset int64
+	// VectorDataLength is the .veq byte length of the field's quantized vectors.
+	VectorDataLength int64
+	// Size is the number of vectors stored for the field.
+	Size int
+	// Encoding is the scalar encoding used for the field (present when Size>0).
+	Encoding ScalarEncoding
+	// Centroid is the per-field centroid (present when Size>0).
+	Centroid []float32
+	// CentroidDP is the centroid square magnitude (present when Size>0).
+	CentroidDP float32
+
+	// DocsWithFieldOffset distinguishes empty(-2) / dense(-1) / sparse(>=0).
+	DocsWithFieldOffset int64
+	// The remaining fields carry the sparse OrdToDoc state.
+	DocsWithFieldLength int64
+	JumpTableEntryCount int
+	DenseRankPower      byte
+	AddressesOffset     int64
+	AddressesLength     int64
+	// OrdToDocMeta is the DirectMonotonic meta header for the sparse ord->doc
+	// mapping (nil for dense/empty).
+	OrdToDocMeta *packed.DirectMonotonicMeta
 }
 
-// NewLucene104ScalarQuantizedVectorsWriter creates a new writer.
-func NewLucene104ScalarQuantizedVectorsWriter(state *SegmentWriteState, encoding ScalarEncoding) (*Lucene104ScalarQuantizedVectorsWriter, error) {
-	// Create vector data output
-	vectorDataFile := fmt.Sprintf("%s_%s_%s.%s",
-		state.SegmentInfo.Name(),
-		Lucene104ScalarQuantizedVectorsFormat_DEFAULT_QUANTIZED_VECTOR_COMPONENT,
-		"0",
-		Lucene104ScalarQuantizedVectorsFormat_VECTOR_DATA_EXTENSION)
-
-	vectorDataOut, err := state.Directory.CreateOutput(vectorDataFile, store.IOContextWrite)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create vector data output: %w", err)
-	}
-
-	// Create metadata output
-	metaFile := fmt.Sprintf("%s_%s_%s.%s",
-		state.SegmentInfo.Name(),
-		Lucene104ScalarQuantizedVectorsFormat_DEFAULT_QUANTIZED_VECTOR_COMPONENT,
-		"0",
-		Lucene104ScalarQuantizedVectorsFormat_VECTOR_META_EXTENSION)
-
-	metaOut, err := state.Directory.CreateOutput(metaFile, store.IOContextWrite)
-	if err != nil {
-		return nil, errors.Join(fmt.Errorf("failed to create meta output: %w", err), vectorDataOut.Close())
-	}
-
-	// Write headers
-	helper := NewKnnVectorsWriterHelper(vectorDataOut)
-	if err := helper.WriteHeader(); err != nil {
-		return nil, errors.Join(err, vectorDataOut.Close(), metaOut.Close())
-	}
-
-	// Write meta header
-	if err := writeScalarQuantizedMetaHeader(metaOut); err != nil {
-		return nil, errors.Join(err, vectorDataOut.Close(), metaOut.Close())
-	}
-
-	return &Lucene104ScalarQuantizedVectorsWriter{
-		encoding:      encoding,
-		segmentState:  state,
-		vectorDataOut: vectorDataOut,
-		metaOut:       metaOut,
-		fieldWriters:  make(map[string]*quantizedFieldWriter),
-	}, nil
-}
-
-// writeScalarQuantizedMetaHeader writes the metadata file header.
-func writeScalarQuantizedMetaHeader(out store.IndexOutput) error {
-	// Write magic number for quantized vectors
-	if err := store.WriteUint32(out, 0x51564543); err != nil { // "QVEC"
-		return fmt.Errorf("failed to write magic number: %w", err)
-	}
-	// Write version
-	if err := store.WriteUint32(out, uint32(Lucene104ScalarQuantizedVectorsFormat_VERSION_CURRENT)); err != nil {
-		return fmt.Errorf("failed to write version: %w", err)
-	}
-	return nil
-}
-
-// WriteField writes a quantized vector field.
-func (w *Lucene104ScalarQuantizedVectorsWriter) WriteField(fieldInfo *index.FieldInfo, reader KnnVectorsReader) error {
-	if w.closed {
-		return fmt.Errorf("writer is closed")
-	}
-
-	fieldWriter := &quantizedFieldWriter{
-		fieldInfo: fieldInfo,
-		encoding:  w.encoding,
-		vectors:   make([][]float32, 0),
-	}
-
-	w.fieldWriters[fieldInfo.Name()] = fieldWriter
-	return nil
-}
-
-// Finish finalizes the writing process.
-func (w *Lucene104ScalarQuantizedVectorsWriter) Finish() error {
-	if w.closed {
-		return nil
-	}
-
-	// Write field metadata
-	for _, fw := range w.fieldWriters {
-		if err := w.writeFieldMetadata(fw); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// writeFieldMetadata writes metadata for a field.
-func (w *Lucene104ScalarQuantizedVectorsWriter) writeFieldMetadata(fw *quantizedFieldWriter) error {
-	// Write field number
-	if err := store.WriteUint32(w.metaOut, uint32(fw.fieldInfo.Number())); err != nil {
-		return fmt.Errorf("failed to write field number: %w", err)
-	}
-
-	// Write encoding type
-	if err := store.WriteUint32(w.metaOut, uint32(fw.encoding)); err != nil {
-		return fmt.Errorf("failed to write encoding: %w", err)
-	}
-
-	// Write number of vectors
-	if err := store.WriteUint32(w.metaOut, uint32(len(fw.vectors))); err != nil {
-		return fmt.Errorf("failed to write vector count: %w", err)
-	}
-
-	// Write dimensions
-	if len(fw.vectors) > 0 {
-		if err := store.WriteUint32(w.metaOut, uint32(len(fw.vectors[0]))); err != nil {
-			return fmt.Errorf("failed to write dimensions: %w", err)
-		}
-	}
-
-	return nil
-}
-
-// AddField satisfies the wide [KnnVectorsWriter] surface. The scalar
-// quantized format is a placeholder port: it does not yet accumulate
-// per-document vectors through the AddField path, so this method returns
-// an error to signal that callers should use the WriteField merge path
-// instead. Mirrors the Java reference's not-yet-implemented status.
-func (w *Lucene104ScalarQuantizedVectorsWriter) AddField(fieldInfo *index.FieldInfo) (KnnFieldVectorsWriter, error) {
-	_ = fieldInfo
-	return nil, fmt.Errorf("Lucene104ScalarQuantizedVectorsWriter: AddField not implemented; use WriteField via the merge path")
-}
-
-// Flush is a no-op for the scalar quantized writer: per-field metadata
-// is emitted from Finish. The signature matches the wide
-// [KnnVectorsWriter] contract.
-func (w *Lucene104ScalarQuantizedVectorsWriter) Flush(maxDoc int, sortMap spi.SorterDocMap) error {
-	_ = maxDoc
-	_ = sortMap
-	return nil
-}
-
-// RamBytesUsed is a stub returning zero: the placeholder writer does not
-// hold per-document buffers. Satisfies the wide [KnnVectorsWriter]
-// Accountable contract.
-func (w *Lucene104ScalarQuantizedVectorsWriter) RamBytesUsed() int64 {
-	return 0
-}
-
-// Close releases resources.
-func (w *Lucene104ScalarQuantizedVectorsWriter) Close() error {
-	if w.closed {
-		return nil
-	}
-	w.closed = true
-
-	var firstErr error
-	if err := w.vectorDataOut.Close(); err != nil && firstErr == nil {
-		firstErr = err
-	}
-	if err := w.metaOut.Close(); err != nil && firstErr == nil {
-		firstErr = err
-	}
-
-	return firstErr
-}
-
-// quantizedFieldWriter handles writing for a single field
-type quantizedFieldWriter struct {
-	fieldInfo *index.FieldInfo
-	encoding  ScalarEncoding
-	vectors   [][]float32
-}
-
-// Lucene104ScalarQuantizedVectorsReader reads scalar quantized vectors.
+// Lucene104ScalarQuantizedVectorsReader validates the .veq / .vemq CodecUtil
+// framing and parses the per-field metadata. It is a deliberately partial
+// reader: it proves the writer's framing is sound (CheckIntegrity validates the
+// .veq checksum) and exposes the parsed field entries for the round-trip read
+// path, but the full search-integration surface (getFloatVectorValues, search)
+// is tracked by rmp #134. The value-access methods are intentionally absent
+// rather than stubbed with fabricated data.
 type Lucene104ScalarQuantizedVectorsReader struct {
-	encoding     ScalarEncoding
-	segmentState *SegmentReadState
-	vectorDataIn store.IndexInput
-	metaIn       store.IndexInput
-	closed       bool
-	fields       map[string]*quantizedFieldReader
+	encoding   ScalarEncoding
+	fieldInfos *index.FieldInfos
+	fields     map[int]*Lucene104ScalarQuantizedFieldEntry
+	vectorData store.IndexInput
+	closed     bool
 }
 
-// NewLucene104ScalarQuantizedVectorsReader creates a new reader.
+// NewLucene104ScalarQuantizedVectorsReader opens the .veq data file, validates
+// both files' CodecUtil index headers (and the .veq footer checksum), and
+// parses the .vemq field records.
 func NewLucene104ScalarQuantizedVectorsReader(state *SegmentReadState, encoding ScalarEncoding) (*Lucene104ScalarQuantizedVectorsReader, error) {
-	// Open vector data input
-	vectorDataFile := fmt.Sprintf("%s_%s_%s.%s",
-		state.SegmentInfo.Name(),
-		Lucene104ScalarQuantizedVectorsFormat_DEFAULT_QUANTIZED_VECTOR_COMPONENT,
-		"0",
-		Lucene104ScalarQuantizedVectorsFormat_VECTOR_DATA_EXTENSION)
+	if state == nil || state.SegmentInfo == nil || state.Directory == nil {
+		return nil, errors.New("lucene104 sq: invalid SegmentReadState")
+	}
+	r := &Lucene104ScalarQuantizedVectorsReader{
+		encoding:   encoding,
+		fieldInfos: state.FieldInfos,
+		fields:     make(map[int]*Lucene104ScalarQuantizedFieldEntry),
+	}
 
-	vectorDataIn, err := state.Directory.OpenInput(vectorDataFile, store.IOContextRead)
+	versionMeta, err := r.readMetadata(state)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open vector data input: %w", err)
+		return nil, err
 	}
 
-	// Open metadata input
-	metaFile := fmt.Sprintf("%s_%s_%s.%s",
-		state.SegmentInfo.Name(),
-		Lucene104ScalarQuantizedVectorsFormat_DEFAULT_QUANTIZED_VECTOR_COMPONENT,
-		"0",
-		Lucene104ScalarQuantizedVectorsFormat_VECTOR_META_EXTENSION)
-
-	metaIn, err := state.Directory.OpenInput(metaFile, store.IOContextRead)
+	dataName := index.SegmentFileName(
+		state.SegmentInfo.Name(), state.SegmentSuffix, Lucene104ScalarQuantizedVectorsFormat_VECTOR_DATA_EXTENSION)
+	dataIn, err := state.Directory.OpenInput(dataName, store.IOContextRead)
 	if err != nil {
-		vectorDataIn.Close()
-		return nil, fmt.Errorf("failed to open meta input: %w", err)
+		return nil, fmt.Errorf("lucene104 sq: open data %q: %w", dataName, err)
 	}
-
-	// Read and validate headers
-	helper := NewKnnVectorsReaderHelper(vectorDataIn)
-	if err := helper.ReadHeader(); err != nil {
-		vectorDataIn.Close()
-		metaIn.Close()
-		return nil, err
+	id := state.SegmentInfo.GetID()
+	versionData, err := CheckIndexHeader(
+		dataIn, lucene104SQDataCodecName, lucene104SQVersionStart, lucene104SQVersionCurrent, id, state.SegmentSuffix,
+	)
+	if err != nil {
+		_ = dataIn.Close()
+		return nil, fmt.Errorf("lucene104 sq: data header %q: %w", dataName, err)
 	}
-
-	// Read meta header
-	if err := readScalarQuantizedMetaHeader(metaIn); err != nil {
-		vectorDataIn.Close()
-		metaIn.Close()
-		return nil, err
+	if versionData != versionMeta {
+		_ = dataIn.Close()
+		return nil, fmt.Errorf("lucene104 sq: format versions mismatch: meta=%d, data=%d", versionMeta, versionData)
 	}
-
-	reader := &Lucene104ScalarQuantizedVectorsReader{
-		encoding:     encoding,
-		segmentState: state,
-		vectorDataIn: vectorDataIn,
-		metaIn:       metaIn,
-		fields:       make(map[string]*quantizedFieldReader),
+	if _, err := RetrieveChecksum(dataIn); err != nil {
+		_ = dataIn.Close()
+		return nil, fmt.Errorf("lucene104 sq: retrieve data checksum %q: %w", dataName, err)
 	}
-
-	// Load field metadata
-	if err := reader.loadFieldMetadata(); err != nil {
-		reader.Close()
-		return nil, err
-	}
-
-	return reader, nil
+	r.vectorData = dataIn
+	return r, nil
 }
 
-// readScalarQuantizedMetaHeader reads and validates the metadata file header.
-func readScalarQuantizedMetaHeader(in store.IndexInput) error {
-	// Read magic number
-	magic, err := store.ReadUint32(in)
+// readMetadata reads and validates the .vemq header, parses every field record
+// until the -1 sentinel, and checks the footer. Returns the meta version.
+func (r *Lucene104ScalarQuantizedVectorsReader) readMetadata(state *SegmentReadState) (int32, error) {
+	metaName := index.SegmentFileName(
+		state.SegmentInfo.Name(), state.SegmentSuffix, Lucene104ScalarQuantizedVectorsFormat_VECTOR_META_EXTENSION)
+	metaRaw, err := state.Directory.OpenInput(metaName, store.IOContextRead)
 	if err != nil {
-		return fmt.Errorf("failed to read magic number: %w", err)
+		return 0, fmt.Errorf("lucene104 sq: open meta %q: %w", metaName, err)
 	}
-	if magic != 0x51564543 { // "QVEC"
-		return fmt.Errorf("invalid magic number: expected 0x51564543, got 0x%08x", magic)
-	}
+	meta := store.NewChecksumIndexInput(metaRaw)
 
-	// Read version
-	version, err := store.ReadUint32(in)
-	if err != nil {
-		return fmt.Errorf("failed to read version: %w", err)
-	}
-	if version != uint32(Lucene104ScalarQuantizedVectorsFormat_VERSION_CURRENT) {
-		return fmt.Errorf("unsupported version: %d", version)
-	}
+	var versionMeta int32
+	var readErr error
+	func() {
+		id := state.SegmentInfo.GetID()
+		v, e := CheckIndexHeader(
+			meta, lucene104SQMetaCodecName, lucene104SQVersionStart, lucene104SQVersionCurrent, id, state.SegmentSuffix,
+		)
+		if e != nil {
+			readErr = e
+			return
+		}
+		versionMeta = v
+		readErr = r.readFields(meta)
+	}()
 
+	_, footerErr := CheckFooter(meta)
+	_ = metaRaw.Close()
+	if readErr != nil {
+		return 0, fmt.Errorf("lucene104 sq: read meta %q: %w", metaName, readErr)
+	}
+	if footerErr != nil {
+		return 0, fmt.Errorf("lucene104 sq: meta footer %q: %w", metaName, footerErr)
+	}
+	return versionMeta, nil
+}
+
+// readFields parses every per-field record until the -1 sentinel.
+func (r *Lucene104ScalarQuantizedVectorsReader) readFields(meta store.DataInput) error {
+	for {
+		fieldNum, err := meta.ReadInt()
+		if err != nil {
+			return fmt.Errorf("reading field number: %w", err)
+		}
+		if fieldNum == -1 {
+			break
+		}
+		var info *index.FieldInfo
+		if r.fieldInfos != nil {
+			info = r.fieldInfos.GetByNumber(int(fieldNum))
+			if info == nil {
+				return fmt.Errorf("invalid field number %d", fieldNum)
+			}
+		}
+		entry, err := readScalarQuantizedFieldEntry(meta, info)
+		if err != nil {
+			return fmt.Errorf("field %d: %w", fieldNum, err)
+		}
+		r.fields[int(fieldNum)] = entry
+	}
 	return nil
 }
 
-// loadFieldMetadata loads metadata for all fields.
-func (r *Lucene104ScalarQuantizedVectorsReader) loadFieldMetadata() error {
-	// Read number of fields
-	numFields, err := store.ReadUint32(r.metaIn)
+// readScalarQuantizedFieldEntry parses one .vemq field record. Mirrors the
+// Java FieldEntry.create read order exactly: encoding ordinal, similarity
+// ordinal, vint dimension, vlong offset, vlong length, vint size, then (when
+// size>0) wire number, centroid floats and centroidDP, then the OrdToDoc
+// stored-meta block. The field number is consumed by the caller.
+func readScalarQuantizedFieldEntry(meta store.DataInput, info *index.FieldInfo) (*Lucene104ScalarQuantizedFieldEntry, error) {
+	encOrd, err := meta.ReadInt()
 	if err != nil {
-		return fmt.Errorf("failed to read field count: %w", err)
+		return nil, err
+	}
+	enc := index.VectorEncoding(encOrd)
+
+	simOrd, err := meta.ReadInt()
+	if err != nil {
+		return nil, err
+	}
+	if int(simOrd) < 0 || int(simOrd) >= len(lucene99HnswSimilarityOrdinals) {
+		return nil, fmt.Errorf("invalid similarity ordinal: %d", simOrd)
+	}
+	sim := lucene99HnswSimilarityOrdinals[simOrd]
+
+	dimV, err := store.ReadVInt(meta)
+	if err != nil {
+		return nil, err
+	}
+	vectorDataOffset, err := store.ReadVLong(meta)
+	if err != nil {
+		return nil, err
+	}
+	vectorDataLength, err := store.ReadVLong(meta)
+	if err != nil {
+		return nil, err
+	}
+	size, err := store.ReadVInt(meta)
+	if err != nil {
+		return nil, err
 	}
 
-	for i := uint32(0); i < numFields; i++ {
-		// Read field number
-		fieldNum, err := store.ReadUint32(r.metaIn)
-		if err != nil {
-			return fmt.Errorf("failed to read field number: %w", err)
-		}
-
-		// Read encoding
-		encVal, err := store.ReadUint32(r.metaIn)
-		if err != nil {
-			return fmt.Errorf("failed to read encoding: %w", err)
-		}
-
-		// Read vector count
-		vecCount, err := store.ReadUint32(r.metaIn)
-		if err != nil {
-			return fmt.Errorf("failed to read vector count: %w", err)
-		}
-
-		// Read dimensions
-		dims, err := store.ReadUint32(r.metaIn)
-		if err != nil {
-			return fmt.Errorf("failed to read dimensions: %w", err)
-		}
-
-		fieldReader := &quantizedFieldReader{
-			fieldNumber: int(fieldNum),
-			encoding:    ScalarEncoding(encVal),
-			vectorCount: int(vecCount),
-			dimensions:  int(dims),
-		}
-
-		// Store by field number (will be mapped to name by caller)
-		r.fields[fmt.Sprintf("field_%d", fieldNum)] = fieldReader
+	entry := &Lucene104ScalarQuantizedFieldEntry{
+		VectorEncoding:     enc,
+		SimilarityFunction: sim,
+		Dimension:          int(dimV),
+		VectorDataOffset:   vectorDataOffset,
+		VectorDataLength:   vectorDataLength,
+		Size:               int(size),
+		Encoding:           ScalarEncodingUnsignedByte,
 	}
 
-	return nil
+	if size > 0 {
+		wireNumber, e := store.ReadVInt(meta)
+		if e != nil {
+			return nil, e
+		}
+		scalarEncoding, e := ScalarEncodingFromWireNumber(int(wireNumber))
+		if e != nil {
+			return nil, e
+		}
+		entry.Encoding = scalarEncoding
+		centroid := make([]float32, int(dimV))
+		for i := range centroid {
+			// IndexInput.readInt is little-endian; readFloats reconstructs each
+			// float via intBitsToFloat(readInt()). Mirror that here.
+			bits, e := meta.ReadInt()
+			if e != nil {
+				return nil, e
+			}
+			centroid[i] = math.Float32frombits(uint32(bits))
+		}
+		entry.Centroid = centroid
+		dpBits, e := meta.ReadInt()
+		if e != nil {
+			return nil, e
+		}
+		entry.CentroidDP = math.Float32frombits(uint32(dpBits))
+	}
+
+	// OrdToDocDISIReaderConfiguration.fromStoredMeta.
+	docsWithFieldOffset, err := meta.ReadLong()
+	if err != nil {
+		return nil, err
+	}
+	docsWithFieldLength, err := meta.ReadLong()
+	if err != nil {
+		return nil, err
+	}
+	jumpTableEntryCount, err := meta.ReadShort()
+	if err != nil {
+		return nil, err
+	}
+	denseRankPower, err := meta.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+	entry.DocsWithFieldOffset = docsWithFieldOffset
+	entry.DocsWithFieldLength = docsWithFieldLength
+	entry.JumpTableEntryCount = int(jumpTableEntryCount)
+	entry.DenseRankPower = byte(denseRankPower)
+
+	if docsWithFieldOffset > -1 {
+		// Sparse: read the DirectMonotonicWriter header that records the
+		// ord->doc mapping, mirroring the docsWithFieldOffset > -1 branch of
+		// OrdToDocDISIReaderConfiguration.fromStoredMeta.
+		addressesOffset, e := meta.ReadLong()
+		if e != nil {
+			return nil, e
+		}
+		blockShift, e := store.ReadVInt(meta)
+		if e != nil {
+			return nil, e
+		}
+		ordToDocMeta, e := packed.LoadDirectMonotonicMeta(meta, int64(size), int(blockShift))
+		if e != nil {
+			return nil, fmt.Errorf("load ord-to-doc monotonic meta: %w", e)
+		}
+		addressesLength, e := meta.ReadLong()
+		if e != nil {
+			return nil, e
+		}
+		entry.AddressesOffset = addressesOffset
+		entry.AddressesLength = addressesLength
+		entry.OrdToDocMeta = ordToDocMeta
+	}
+
+	if info != nil {
+		if sim != info.VectorSimilarityFunction() {
+			return nil, fmt.Errorf("inconsistent similarity for field %q: %v != %v",
+				info.Name(), sim, info.VectorSimilarityFunction())
+		}
+		if int(dimV) != info.VectorDimension() {
+			return nil, fmt.Errorf("inconsistent dimension for field %q: %d != %d",
+				info.Name(), dimV, info.VectorDimension())
+		}
+	}
+	return entry, nil
 }
 
-// CheckIntegrity checks the integrity of the vectors.
+// FieldEntry returns the parsed metadata for the named field, or an error if
+// the field is unknown. Exposed for the round-trip read path.
+func (r *Lucene104ScalarQuantizedVectorsReader) FieldEntry(field string) (*Lucene104ScalarQuantizedFieldEntry, error) {
+	if r.fieldInfos == nil {
+		return nil, errors.New("lucene104 sq: reader has no field infos")
+	}
+	info := r.fieldInfos.GetByName(field)
+	if info == nil {
+		return nil, fmt.Errorf("lucene104 sq: field %q not found", field)
+	}
+	entry, ok := r.fields[info.Number()]
+	if !ok {
+		return nil, fmt.Errorf("lucene104 sq: field %q has no vector entry", field)
+	}
+	return entry, nil
+}
+
+// VectorData returns the open .veq input. Exposed for the round-trip read path
+// so callers can slice the quantized vector data for [Load].
+func (r *Lucene104ScalarQuantizedVectorsReader) VectorData() store.IndexInput { return r.vectorData }
+
+// CheckIntegrity verifies the .veq checksum end-to-end.
 func (r *Lucene104ScalarQuantizedVectorsReader) CheckIntegrity() error {
 	if r.closed {
-		return fmt.Errorf("reader is closed")
+		return errors.New("lucene104 sq: reader closed")
 	}
-
-	// Verify we can read all field metadata
-	for name, field := range r.fields {
-		if field.vectorCount < 0 {
-			return fmt.Errorf("invalid vector count for field %s", name)
-		}
-		if field.dimensions <= 0 || field.dimensions > Lucene104ScalarQuantizedVectorsFormat_MAX_DIMENSIONS {
-			return fmt.Errorf("invalid dimensions %d for field %s", field.dimensions, name)
-		}
-	}
-
-	return nil
+	_, err := ChecksumEntireFile(r.vectorData)
+	return err
 }
 
-// Close releases resources.
+// Close releases the .veq file handle. Idempotent.
 func (r *Lucene104ScalarQuantizedVectorsReader) Close() error {
 	if r.closed {
 		return nil
 	}
 	r.closed = true
-
-	var firstErr error
-	if err := r.vectorDataIn.Close(); err != nil && firstErr == nil {
-		firstErr = err
+	if r.vectorData != nil {
+		return r.vectorData.Close()
 	}
-	if err := r.metaIn.Close(); err != nil && firstErr == nil {
-		firstErr = err
-	}
-
-	return firstErr
-}
-
-// quantizedFieldReader handles reading for a single field
-type quantizedFieldReader struct {
-	fieldNumber int
-	encoding    ScalarEncoding
-	vectorCount int
-	dimensions  int
-	dataOffset  int64
-}
-
-// QuantizedVectorValues provides access to quantized vector values.
-type QuantizedVectorValues struct {
-	encoding    ScalarEncoding
-	dimensions  int
-	vectorCount int
-	data        []byte
-	offsets     []int64
-}
-
-// Dimension returns the dimension of the vectors.
-func (v *QuantizedVectorValues) Dimension() int {
-	return v.dimensions
-}
-
-// Size returns the number of vectors.
-func (v *QuantizedVectorValues) Size() int {
-	return v.vectorCount
-}
-
-// GetEncoding returns the vector encoding type.
-func (v *QuantizedVectorValues) GetEncoding() index.VectorEncoding {
-	return index.VectorEncodingByte
-}
-
-// Copy creates a copy of the values.
-func (v *QuantizedVectorValues) Copy() (KnnVectorValues, error) {
-	copiedData := make([]byte, len(v.data))
-	copy(copiedData, v.data)
-
-	copiedOffsets := make([]int64, len(v.offsets))
-	copy(copiedOffsets, v.offsets)
-
-	return &QuantizedVectorValues{
-		encoding:    v.encoding,
-		dimensions:  v.dimensions,
-		vectorCount: v.vectorCount,
-		data:        copiedData,
-		offsets:     copiedOffsets,
-	}, nil
-}
-
-// GetQuantizedVector returns the quantized vector at the given ordinal.
-func (v *QuantizedVectorValues) GetQuantizedVector(ordinal int) ([]byte, error) {
-	if ordinal < 0 || ordinal >= v.vectorCount {
-		return nil, fmt.Errorf("ordinal %d out of range [0, %d)", ordinal, v.vectorCount)
-	}
-
-	packedLength := v.encoding.GetDocPackedLength(v.dimensions)
-	startOffset := v.offsets[ordinal]
-	endOffset := startOffset + int64(packedLength)
-
-	if endOffset > int64(len(v.data)) {
-		return nil, fmt.Errorf("vector data out of bounds")
-	}
-
-	result := make([]byte, packedLength)
-	copy(result, v.data[startOffset:endOffset])
-	return result, nil
-}
-
-// DequantizeVector dequantizes a quantized vector back to float32.
-func DequantizeVector(quantized []byte, encoding ScalarEncoding, dimensions int) []float32 {
-	result := make([]float32, dimensions)
-
-	switch encoding {
-	case ScalarEncodingUnsignedByte:
-		for i := 0; i < dimensions && i < len(quantized); i++ {
-			// Convert 0-255 to -1.0 to 1.0
-			result[i] = (float32(quantized[i]) / 127.5) - 1.0
-		}
-	case ScalarEncodingPackedNibble:
-		for i := 0; i < dimensions; i++ {
-			byteIdx := i / 2
-			if byteIdx >= len(quantized) {
-				break
-			}
-			var nibble byte
-			if i%2 == 0 {
-				nibble = quantized[byteIdx] >> 4
-			} else {
-				nibble = quantized[byteIdx] & 0x0F
-			}
-			// Convert 0-15 to -1.0 to 1.0
-			result[i] = (float32(nibble) / 7.5) - 1.0
-		}
-	case ScalarEncodingSingleBitQueryNibble:
-		for i := 0; i < dimensions; i++ {
-			byteIdx := i / 8
-			if byteIdx >= len(quantized) {
-				break
-			}
-			bitIdx := uint(i % 8)
-			if (quantized[byteIdx] & (1 << bitIdx)) != 0 {
-				result[i] = 1.0
-			} else {
-				result[i] = -1.0
-			}
-		}
-	case ScalarEncodingDibitQueryNibble:
-		for i := 0; i < dimensions; i++ {
-			byteIdx := i / 4
-			if byteIdx >= len(quantized) {
-				break
-			}
-			shift := uint((i % 4) * 2)
-			dibit := (quantized[byteIdx] >> shift) & 0x03
-			// Convert 0-3 to -1.0 to 1.0
-			result[i] = (float32(dibit) / 1.5) - 1.0
-		}
-	}
-
-	return result
-}
-
-// QuantizeVector quantizes a float32 vector to the specified encoding.
-func QuantizeVector(vector []float32, encoding ScalarEncoding) []byte {
-	discreteDims := encoding.GetDiscreteDimensions(len(vector))
-	packedLength := encoding.GetDocPackedLength(discreteDims)
-	result := make([]byte, packedLength)
-
-	switch encoding {
-	case ScalarEncodingUnsignedByte:
-		for i, v := range vector {
-			if i >= discreteDims {
-				break
-			}
-			// Scale -1.0 to 1.0 to 0-255
-			scaled := (v + 1.0) * 127.5
-			if scaled < 0 {
-				scaled = 0
-			}
-			if scaled > 255 {
-				scaled = 255
-			}
-			result[i] = byte(scaled)
-		}
-	case ScalarEncodingPackedNibble:
-		for i := 0; i < len(vector); i += 2 {
-			// Scale -1.0 to 1.0 to 0-15
-			v1 := (vector[i] + 1.0) * 7.5
-			if v1 < 0 {
-				v1 = 0
-			}
-			if v1 > 15 {
-				v1 = 15
-			}
-			result[i/2] = byte(int(v1) << 4)
-			if i+1 < len(vector) {
-				v2 := (vector[i+1] + 1.0) * 7.5
-				if v2 < 0 {
-					v2 = 0
-				}
-				if v2 > 15 {
-					v2 = 15
-				}
-				result[i/2] |= byte(int(v2))
-			}
-		}
-	case ScalarEncodingSingleBitQueryNibble:
-		for i := 0; i < len(vector); i++ {
-			byteIdx := i / 8
-			bitIdx := uint(i % 8)
-			if vector[i] > 0 {
-				result[byteIdx] |= 1 << bitIdx
-			}
-		}
-	case ScalarEncodingDibitQueryNibble:
-		for i := 0; i < len(vector); i++ {
-			byteIdx := i / 4
-			shift := uint((i % 4) * 2)
-			v := (vector[i] + 1.0) * 1.5
-			if v < 0 {
-				v = 0
-			}
-			if v > 3 {
-				v = 3
-			}
-			result[byteIdx] |= byte(int(v) << shift)
-		}
-	}
-
-	return result
-}
-
-// CalculateCentroid calculates the centroid of a set of vectors.
-func CalculateCentroid(vectors [][]float32) []float32 {
-	if len(vectors) == 0 {
-		return nil
-	}
-
-	dims := len(vectors[0])
-	centroid := make([]float32, dims)
-
-	for _, vector := range vectors {
-		for i := range vector {
-			centroid[i] += vector[i]
-		}
-	}
-
-	count := float32(len(vectors))
-	for i := range centroid {
-		centroid[i] /= count
-	}
-
-	return centroid
-}
-
-// CalculateQuantizedSimilarity calculates similarity between quantized vectors.
-func CalculateQuantizedSimilarity(simFunc VectorSimilarityFunction, v1, v2 []byte, encoding ScalarEncoding) float32 {
-	// Dequantize and compute similarity
-	dims := encoding.GetDiscreteDimensions(len(v1) * 2) // Approximate
-	f1 := DequantizeVector(v1, encoding, dims)
-	f2 := DequantizeVector(v2, encoding, dims)
-	return ComputeSimilarity(simFunc, f1, f2)
-}
-
-// CorrectiveTerms holds the corrective terms for quantization.
-type CorrectiveTerms struct {
-	LowerInterval         float32
-	UpperInterval         float32
-	AdditionalCorrection  float32
-	QuantizedComponentSum int64
-}
-
-// ComputeCorrectiveTerms computes corrective terms for quantization.
-func ComputeCorrectiveTerms(quantizedSum int64, lowerInterval, upperInterval, additionalCorrection float32) *CorrectiveTerms {
-	return &CorrectiveTerms{
-		LowerInterval:         lowerInterval,
-		UpperInterval:         upperInterval,
-		AdditionalCorrection:  additionalCorrection,
-		QuantizedComponentSum: quantizedSum,
-	}
+	return nil
 }
