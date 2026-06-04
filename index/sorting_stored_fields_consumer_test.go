@@ -137,6 +137,7 @@ func (c *fakeCodec) CompoundFormat() CompoundFormat         { return nil }
 func (c *fakeCodec) KnnVectorsFormat() KnnVectorsFormat     { return nil }
 func (c *fakeCodec) DocValuesFormat() DocValuesFormat       { return nil }
 func (c *fakeCodec) PointsFormat() PointsFormat             { return nil }
+func (c *fakeCodec) NormsFormat() NormsFormat               { return nil }
 
 // reverseSortMap{n} is reused from sorted_set_doc_values_writer_test.go;
 // it implements SorterDocMap as a reverse permutation with pointer receivers.

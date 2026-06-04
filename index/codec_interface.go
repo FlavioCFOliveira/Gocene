@@ -67,6 +67,23 @@ type PointsWriter = spi.PointsWriter
 // points read-side contract (CheckIntegrity / Close).
 type PointsReader = spi.PointsReader
 
+// NormsFormat is an alias of [spi.NormsFormat] — the codec-facing norms
+// (.nvd / .nvm) format accessor lifted onto the SPI by rmp #120.
+type NormsFormat = spi.NormsFormat
+
+// NormsConsumer is an alias of [spi.NormsConsumer] — the codec-facing
+// norms write-side contract the flush path feeds.
+type NormsConsumer = spi.NormsConsumer
+
+// NormsProducer is an alias of [spi.NormsProducer] — the codec-facing
+// norms read-side contract the segment readers open.
+type NormsProducer = spi.NormsProducer
+
+// NormsIterator is an alias of [spi.NormsIterator] — the single-pass
+// writer-side cursor the flush path replays into
+// NormsConsumer.AddNormsField.
+type NormsIterator = spi.NormsIterator
+
 // PostingsFormat is an alias of spi.PostingsFormat.
 type PostingsFormat = spi.PostingsFormat
 

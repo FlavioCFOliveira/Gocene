@@ -325,6 +325,7 @@ func (failingCodec) CompoundFormat() CompoundFormat         { return nil }
 func (failingCodec) KnnVectorsFormat() KnnVectorsFormat     { return nil }
 func (failingCodec) DocValuesFormat() DocValuesFormat       { return nil }
 func (failingCodec) PointsFormat() PointsFormat             { return nil }
+func (failingCodec) NormsFormat() NormsFormat               { return nil }
 
 // failingStoredFieldsFormat always fails FieldsWriter.
 type failingStoredFieldsFormat struct{}

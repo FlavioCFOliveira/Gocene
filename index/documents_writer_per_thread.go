@@ -44,6 +44,23 @@ type DocumentsWriterPerThread struct {
 	// docValues holds doc values data per field
 	docValues map[string]*DocValuesBuffer
 
+	// norms holds the buffered per-document norm value for every indexed
+	// field with norms enabled (omitNorms=false), in document order.
+	// Populated during ProcessDocument (via accumulateNorm) and replayed
+	// into the codec's NormsConsumer at flush time (flushNorms). Mirrors the
+	// per-field NormValuesWriter buffer that Lucene's IndexingChain
+	// accumulates before writeNorms; the norm value itself is computed
+	// exactly as Similarity.computeNorm(FieldInvertState) from the running
+	// field-inversion counters (see normsAccumulator).
+	norms map[string]*NormsBuffer
+
+	// normsAcc holds the in-progress field-inversion counters for the
+	// document currently being processed, keyed by field name. It is reset
+	// at the start of every document (finalizeNorms flushes the previous
+	// document's counters into norms first). Mirrors the per-field
+	// FieldInvertState that Lucene accumulates during invert().
+	normsAcc map[string]*normsAccumulator
+
 	// termVectors holds term vectors per document (if enabled)
 	termVectors *TermVectorsBuffer
 
@@ -252,6 +269,8 @@ func NewDocumentsWriterPerThread(parent *DocumentsWriter) *DocumentsWriterPerThr
 		invertedIndex:     NewInvertedIndex(),
 		storedFields:      NewStoredFieldsBuffer(),
 		docValues:         make(map[string]*DocValuesBuffer),
+		norms:             make(map[string]*NormsBuffer),
+		normsAcc:          make(map[string]*normsAccumulator),
 		termVectors:       NewTermVectorsBuffer(),
 		vectorValues:      make(map[string]*VectorValuesBuffer),
 		pointValues:       make(map[string]*PointValuesBuffer),
@@ -773,6 +792,16 @@ func (dwpt *DocumentsWriterPerThread) ProcessDocument(doc Document) error {
 		}
 	}
 
+	// Finalise the norms for every field with norms that appeared in this
+	// document: compute Similarity.computeNorm(FieldInvertState) from the
+	// running inversion counters and buffer one value per (field, doc).
+	// Mirrors the per-field IndexingChain.PerField.finish, which calls
+	// norms.addValue(docID, similarity.computeNorm(invertState)). Must run
+	// after the field loop so multi-valued fields have fully accumulated.
+	if err := dwpt.finalizeNorms(docID); err != nil {
+		return err
+	}
+
 	// Add stored document to buffer
 	dwpt.storedFields.mu.Lock()
 	dwpt.storedFields.documents = append(dwpt.storedFields.documents, storedDoc)
@@ -858,6 +887,7 @@ func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 	type tokenAtPos struct {
 		term     string
 		position int
+		posIncr  int
 	}
 	var tokens []tokenAtPos
 	if tokenized {
@@ -904,20 +934,30 @@ func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 					position += posIncr
 					if attr := src.GetAttribute(analysis.CharTermAttributeType); attr != nil {
 						if termAttr, ok := attr.(analysis.CharTermAttribute); ok {
-							tokens = append(tokens, tokenAtPos{term: termAttr.String(), position: position})
+							tokens = append(tokens, tokenAtPos{term: termAttr.String(), position: position, posIncr: posIncr})
 						}
 					}
 				}
 			}
 		}
 	} else {
-		// Use the value directly as a single term at position 0.
-		tokens = []tokenAtPos{{term: value, position: 0}}
+		// Use the value directly as a single term at position 0 (posIncr 1:
+		// a non-tokenized field contributes one non-overlapping token).
+		tokens = []tokenAtPos{{term: value, position: 0, posIncr: 1}}
 	}
 
-	// Add each token to the inverted index at its absolute position.
+	// Add each token to the inverted index at its absolute position, while
+	// accumulating the field-inversion counters that drive the per-document
+	// norm. Each token advances the field length by its term frequency and,
+	// when its position increment is zero (a stacked/overlapping token),
+	// the overlap count — exactly as Lucene's IndexingChain.invert updates
+	// FieldInvertState (length += termFreq; numOverlap++ when posIncr == 0).
+	acc := dwpt.normsAccumulatorFor(fieldName, fieldInfo)
 	for _, tok := range tokens {
 		dwpt.addTermWithFreq(docID, fieldName, tok.term, tok.position, customTermFreq, fieldPostings, fieldInfo)
+		if acc != nil {
+			acc.addToken(tok.term, customTermFreq, tok.posIncr)
+		}
 	}
 
 	return nil

@@ -1013,6 +1013,16 @@ func (w *IndexWriter) Commit() error {
 				if err3 := dwpt.flushDocValues(codec, writeState); err3 != nil {
 					return fmt.Errorf("commit: flush doc values for %s: %w", segmentName, err3)
 				}
+				// Norms carry no per-field codec attributes (the
+				// Lucene90NormsFormat writes a single .nvd/.nvm with its own
+				// framing, not a PerField wrapper), so the order relative to
+				// flushFieldInfos is immaterial; flushed here next to the other
+				// per-field codec writers for symmetry. The FieldInfo
+				// "indexed with norms" bit is recorded in ProcessDocument, so
+				// FieldInfos.HasNorms() reaches disk via flushFieldInfos.
+				if err3 := dwpt.flushNorms(codec, writeState); err3 != nil {
+					return fmt.Errorf("commit: flush norms for %s: %w", segmentName, err3)
+				}
 				if err3 := dwpt.flushFieldInfos(codec, writeState); err3 != nil {
 					return fmt.Errorf("commit: flush field infos for %s: %w", segmentName, err3)
 				}

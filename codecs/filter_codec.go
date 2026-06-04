@@ -102,5 +102,14 @@ func (c *FilterCodec) PointsFormat() PointsFormat {
 	return c.delegate.PointsFormat()
 }
 
+// NormsFormat returns the delegate's norms format. Mirrors
+// org.apache.lucene.codecs.FilterCodec.normsFormat() which forwards to the
+// wrapped delegate. Without this explicit forwarder FilterCodec would
+// inherit BaseCodec.NormsFormat() (which returns nil) instead of the
+// delegate's real format.
+func (c *FilterCodec) NormsFormat() NormsFormat {
+	return c.delegate.NormsFormat()
+}
+
 // Ensure FilterCodec satisfies the Codec interface.
 var _ Codec = (*FilterCodec)(nil)

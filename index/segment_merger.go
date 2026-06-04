@@ -416,10 +416,7 @@ func (storedOnlyFieldType) StoreTermVectorOffsets() bool    { return false }
 
 // mergeTermVectors is implemented in segment_merger_termvectors.go (rmp #14/#114).
 
-// mergeNorms merges the norms of every segment into the new one.
-//
-// Deferred (backlog #2707): the Codec interface exposes no NormsFormat yet.
-func (sm *SegmentMerger) mergeNorms() error { return nil }
+// mergeNorms is implemented in segment_merger_norms.go (rmp #120).
 
 // mergeTerms is implemented in segment_merger_postings.go (rmp #14/#114).
 

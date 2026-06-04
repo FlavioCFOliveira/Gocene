@@ -2035,3 +2035,7 @@ func (c *customTestCodec) PointsFormat() index.PointsFormat {
 func (c *customTestCodec) DocValuesFormat() index.DocValuesFormat {
 	return nil
 }
+
+func (c *customTestCodec) NormsFormat() index.NormsFormat {
+	return nil
+}

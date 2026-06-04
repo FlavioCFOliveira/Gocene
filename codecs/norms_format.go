@@ -9,30 +9,24 @@ import (
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// NormsFormat handles encoding/decoding of field norms.
-// This is the Go port of Lucene's org.apache.lucene.codecs.NormsFormat.
+// NormsFormat is an alias of [spi.NormsFormat] — the canonical norms
+// (.nvd / .nvm) format accessor lifted onto the SPI by rmp #120, exactly
+// as the doc-values family was lifted by rmp #4708. The codecs-package
+// name is now identical to spi.NormsFormat at the type-system level, so
+// every implementation here (Lucene90NormsFormat, CompressingNormsFormat,
+// BaseNormsFormat) continues to satisfy it without any adapter, and the
+// index-side flush/read/merge paths can name it via index.NormsFormat
+// (itself an alias of spi.NormsFormat).
 //
-// Field norms are per-document normalization factors that are used during
-// scoring. They are typically a single byte per document that encode
-// the field's boost value and length normalization.
-//
-// Norms are stored as NumericDocValues internally, so the format is similar
-// to doc values but optimized for single-byte values.
-type NormsFormat interface {
-	// Name returns the name of this format.
-	Name() string
-
-	// NormsConsumer returns a consumer for writing norms.
-	// The caller should close the returned consumer when done.
-	NormsConsumer(state *SegmentWriteState) (NormsConsumer, error)
-
-	// NormsProducer returns a producer for reading norms.
-	// The caller should close the returned producer when done.
-	NormsProducer(state *SegmentReadState) (NormsProducer, error)
-}
+// Field norms are per-document normalization factors used during scoring.
+// They are stored as NumericDocValues internally (one value per
+// value-bearing document), so the format is shaped like doc values but
+// specialised for the single-byte values the default similarity emits.
+type NormsFormat = spi.NormsFormat
 
 // BaseNormsFormat provides common functionality for NormsFormat implementations.
 type BaseNormsFormat struct {
@@ -59,45 +53,20 @@ func (f *BaseNormsFormat) NormsProducer(state *SegmentReadState) (NormsProducer,
 	return nil, fmt.Errorf("NormsProducer not implemented")
 }
 
-// NormsConsumer is a consumer for writing field norms.
-// This is the Go port of Lucene's org.apache.lucene.codecs.NormsConsumer.
-type NormsConsumer interface {
-	// AddNormsField writes a norms field.
-	// The values are provided through the iterator.
-	AddNormsField(field *index.FieldInfo, values NormsIterator) error
+// NormsConsumer is an alias of [spi.NormsConsumer] — the per-segment
+// write side of the norms pipeline. AddNormsField takes *index.FieldInfo,
+// which is itself an alias of *schema.FieldInfo (the type spi.NormsConsumer
+// names), so existing implementations compile unchanged under the alias.
+type NormsConsumer = spi.NormsConsumer
 
-	// Close releases resources.
-	Close() error
-}
+// NormsProducer is an alias of [spi.NormsProducer] — the per-segment read
+// side of the norms pipeline.
+type NormsProducer = spi.NormsProducer
 
-// NormsProducer is a producer for reading field norms.
-// This is the Go port of Lucene's org.apache.lucene.codecs.NormsProducer.
-type NormsProducer interface {
-	// GetNorms returns a NumericDocValues for the given field.
-	// Returns nil if the field has no norms.
-	GetNorms(field *index.FieldInfo) (NumericDocValues, error)
-
-	// CheckIntegrity checks the integrity of the norms.
-	CheckIntegrity() error
-
-	// Close releases resources.
-	Close() error
-}
-
-// NormsIterator is an iterator over norms for writing.
-type NormsIterator interface {
-	// Next advances to the next document.
-	// Returns true if there is a next document.
-	Next() bool
-
-	// DocID returns the current document ID.
-	DocID() int
-
-	// LongValue returns the current document's norm value.
-	// Norms are typically stored as a single byte (0-255) but
-	// are returned as int64 for consistency with NumericDocValues.
-	LongValue() int64
-}
+// NormsIterator is an alias of [spi.NormsIterator] — the single-pass
+// writer-side cursor the norms flush replays into
+// NormsConsumer.AddNormsField.
+type NormsIterator = spi.NormsIterator
 
 // MemoryNormsProducer is an in-memory implementation of NormsProducer.
 type MemoryNormsProducer struct {

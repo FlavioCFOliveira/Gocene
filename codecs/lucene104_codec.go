@@ -27,6 +27,7 @@ type Lucene104Codec struct {
 	compoundFormat     CompoundFormat
 	knnVectorsFormat   KnnVectorsFormat // PerFieldKnnVectorsFormat wrapping Lucene99HnswVectorsFormat
 	pointsFormat       PointsFormat     // Lucene90PointsFormat (BKD)
+	normsFormat        NormsFormat      // Lucene90NormsFormat (.nvd / .nvm)
 }
 
 // NewLucene104Codec creates a new Lucene104Codec.
@@ -49,6 +50,7 @@ func NewLucene104Codec() *Lucene104Codec {
 		compoundFormat:     NewLucene90CompoundFormat(),
 		knnVectorsFormat:   NewPerFieldKnnVectorsFormatWithDefault(defaultKnn),
 		pointsFormat:       NewLucene90PointsFormat(),
+		normsFormat:        NewLucene90NormsFormat(),
 	}
 }
 
@@ -109,6 +111,14 @@ func (c *Lucene104Codec) KnnVectorsFormat() KnnVectorsFormat {
 // returns Lucene90PointsFormat in Lucene 10.4.0.
 func (c *Lucene104Codec) PointsFormat() PointsFormat {
 	return c.pointsFormat
+}
+
+// NormsFormat returns the Lucene90NormsFormat used for per-field,
+// per-document normalization factors, mirroring
+// org.apache.lucene.codecs.lucene104.Lucene104Codec.normsFormat() which
+// returns Lucene90NormsFormat in Lucene 10.4.0.
+func (c *Lucene104Codec) NormsFormat() NormsFormat {
+	return c.normsFormat
 }
 
 // NewLucene99Codec creates a codec that is functionally identical to Lucene104Codec.

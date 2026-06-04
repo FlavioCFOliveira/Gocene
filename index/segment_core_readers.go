@@ -184,6 +184,21 @@ func NewSegmentCoreReaders(
 		}
 	}
 
+	// Initialize the norms producer if any field carries norms. Mirrors the
+	// SegmentCoreReaders constructor in Lucene, which opens
+	// codec.normsFormat().normsProducer(state) when fieldInfos.hasNorms().
+	if fieldInfos.HasNorms() {
+		normsFormat := codec.NormsFormat()
+		if normsFormat != nil {
+			normsProducer, err := normsFormat.NormsProducer(readState)
+			if err != nil {
+				core.decRef()
+				return nil, fmt.Errorf("creating norms producer: %w", err)
+			}
+			core.normsProducer = normsProducer
+		}
+	}
+
 	// Initialize the points (BKD) reader if any field indexes point values.
 	// Mirrors the SegmentCoreReaders constructor in Lucene, which opens
 	// codec.pointsFormat().fieldsReader(state) when

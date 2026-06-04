@@ -90,6 +90,13 @@ func (c *BaseCodec) PointsFormat() PointsFormat {
 	return nil
 }
 
+// NormsFormat returns the norms (.nvd / .nvm) format. Returns nil by
+// default; concrete codecs override. Required by spi.Codec since the
+// NormsFormat lift in rmp #120.
+func (c *BaseCodec) NormsFormat() NormsFormat {
+	return nil
+}
+
 // CodecRegistry manages registered codecs.
 // This is a simple registry that allows looking up codecs by name.
 type CodecRegistry struct {

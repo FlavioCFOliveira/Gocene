@@ -78,4 +78,11 @@ type Codec interface {
 	// into package spi. Codec implementations that do not support point
 	// values may return nil.
 	PointsFormat() PointsFormat
+
+	// NormsFormat returns the format used for per-field, per-document
+	// normalization factors (.nvd / .nvm). Lifted onto the SPI by rmp #120
+	// once the NormsFormat / NormsConsumer / NormsProducer family moved
+	// into package spi. Codec implementations that do not support norms
+	// may return nil.
+	NormsFormat() NormsFormat
 }

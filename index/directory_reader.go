@@ -736,6 +736,69 @@ func (r *SegmentReader) GetSortedSetDocValues(field string) (SortedSetDocValues,
 	return d.GetSortedSet(fi)
 }
 
+// normsProducerDelegate is the read surface exposed by the codec's norms
+// producer (stored on SegmentCoreReaders.normsProducer as an interface{}).
+// The concrete producer — Lucene90NormsProducer from the codecs package —
+// satisfies it structurally via GetNorms (the Go counterpart of
+// org.apache.lucene.codecs.NormsProducer.getNorms). The contract names only
+// the index-facing NumericDocValues (an alias of the spi type) and *FieldInfo
+// (an alias of schema.FieldInfo), so the index package can name it without
+// importing codecs — the same pattern as docValuesProducerDelegate.
+type normsProducerDelegate interface {
+	GetNorms(field *FieldInfo) (NumericDocValues, error)
+}
+
+// normsDelegate narrows the core readers' norms producer to the GetNorms
+// surface, or returns nil when the segment has no norms producer (e.g. no
+// fields with norms, or the codec-less test path).
+func (r *SegmentReader) normsDelegate() normsProducerDelegate {
+	if r.coreReaders == nil {
+		return nil
+	}
+	np := r.coreReaders.GetNormsProducer()
+	if np == nil {
+		return nil
+	}
+	d, ok := np.(normsProducerDelegate)
+	if !ok {
+		return nil
+	}
+	return d
+}
+
+// normsFieldInfo resolves field to its FieldInfo from the core readers,
+// returning nil when the field is absent or omits norms. The codec producer
+// keys on the FieldInfo (in particular its number), not the field name.
+func (r *SegmentReader) normsFieldInfo(field string) *FieldInfo {
+	if r.coreReaders == nil {
+		return nil
+	}
+	fis := r.coreReaders.GetFieldInfos()
+	if fis == nil {
+		return nil
+	}
+	fi := fis.GetByName(field)
+	if fi == nil || !fi.HasNorms() {
+		return nil
+	}
+	return fi
+}
+
+// GetNormValues returns the per-document norms for field, delegating to the
+// codec's norms producer. Returns (nil, nil) when the segment has no norms
+// producer or the field has no norms (matching the LeafReader contract).
+// Overrides the embedded LeafReader.GetNormValues, which unconditionally
+// returns (nil, nil). Mirrors org.apache.lucene.index.SegmentReader
+// .getNormValues / CodecReader.getNormValues.
+func (r *SegmentReader) GetNormValues(field string) (NumericDocValues, error) {
+	d := r.normsDelegate()
+	fi := r.normsFieldInfo(field)
+	if d == nil || fi == nil {
+		return nil, nil
+	}
+	return d.GetNorms(fi)
+}
+
 // knnTopDocsToIndex converts a util/hnsw TopDocs (the codec search result)
 // into the index-package TopDocs struct. The hnsw TopDocs is already
 // score-descending; TotalHits is the visited-count lower bound, but the
