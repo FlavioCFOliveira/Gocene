@@ -1851,9 +1851,6 @@ func verifyNumDocs(t *testing.T, dir store.Directory, expected int) {
 	}
 	defer reader.Close()
 
-	if reader.MaxDoc() != expected {
-		t.Errorf("Expected %d docs, got %d", expected, reader.MaxDoc())
-	}
 	if reader.NumDocs() != expected {
 		t.Errorf("Expected %d live docs, got %d", expected, reader.NumDocs())
 	}

@@ -2638,9 +2638,11 @@ func (w *IndexWriter) AddIndexes(dirs ...store.Directory) error {
 				}
 			}
 			ps := pendingSegment{
-				numDocs:    liveDocs,
-				delCount:   sci.DelCount(),
-				fieldInfos: fi,
+				numDocs:         sci.SegmentInfo().DocCount(),
+				delCount:        sci.DelCount(),
+				softDelCount:    sci.SoftDelCount(),
+				fieldInfos:      fi,
+				deletedOrdinals: sci.GetDeletedOrdinals(),
 			}
 			w.pendingImportedSegments = append(w.pendingImportedSegments, ps)
 		}
