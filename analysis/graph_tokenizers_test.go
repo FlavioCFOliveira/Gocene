@@ -18,11 +18,13 @@
 package analysis_test
 
 import (
+	"math/rand"
 	"strings"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis/testutil"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
@@ -286,15 +288,140 @@ func TestGraphTokenizers_ToDot(t *testing.T) {
 // ---- MockGraphTokenFilter tests (infrastructure not yet ported) ------------
 
 // TestGraphTokenizers_MockGraphTokenFilterBasic mirrors testMockGraphTokenFilterBasic.
-// Requires MockGraphTokenFilter (not yet ported to Gocene).
 func TestGraphTokenizers_MockGraphTokenFilterBasic(t *testing.T) {
-	t.Fatal("requires MockGraphTokenFilter infrastructure (not yet ported to Gocene)")
+	for iter := 0; iter < 10; iter++ {
+		// Build two independent streams with the same seed and input.
+		seed := rand.NewSource(int64(iter))
+		tz1 := analysis.NewWhitespaceTokenizer()
+		tz1.SetReader(strings.NewReader("a b c d e f g h i j k"))
+		mgf1 := analysis.NewMockGraphTokenFilter(rand.New(seed), tz1)
+		if err := mgf1.Reset(); err != nil {
+			t.Fatalf("iter %d: Reset error (mgf1): %v", iter, err)
+		}
+
+		var tokens1 []string
+		for {
+			hasToken, err := mgf1.IncrementToken()
+			if err != nil {
+				t.Fatalf("iter %d: IncrementToken error: %v", iter, err)
+			}
+			if !hasToken {
+				break
+			}
+			if termAtt, ok := mgf1.GetAttributeSource().GetAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute); ok && termAtt != nil {
+				tokens1 = append(tokens1, termAtt.String())
+			}
+		}
+
+		seed2 := rand.NewSource(int64(iter))
+		tz2 := analysis.NewWhitespaceTokenizer()
+		tz2.SetReader(strings.NewReader("a b c d e f g h i j k"))
+		mgf2 := analysis.NewMockGraphTokenFilter(rand.New(seed2), tz2)
+		if err := mgf2.Reset(); err != nil {
+			t.Fatalf("iter %d: Reset error (mgf2): %v", iter, err)
+		}
+		var tokens2 []string
+		for {
+			hasToken, err := mgf2.IncrementToken()
+			if err != nil {
+				t.Fatalf("iter %d: IncrementToken error (second stream): %v", iter, err)
+			}
+			if !hasToken {
+				break
+			}
+			if termAtt, ok := mgf2.GetAttributeSource().GetAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute); ok && termAtt != nil {
+				tokens2 = append(tokens2, termAtt.String())
+			}
+		}
+
+		if len(tokens1) != len(tokens2) {
+			t.Fatalf("iter %d: token count mismatch: %d vs %d", iter, len(tokens1), len(tokens2))
+		}
+		for i := range tokens1 {
+			if tokens1[i] != tokens2[i] {
+				t.Fatalf("iter %d: token mismatch at %d: %q vs %q", iter, i, tokens1[i], tokens2[i])
+			}
+		}
+	}
 }
 
 // TestGraphTokenizers_MockGraphTokenFilterOnGraphInput mirrors testMockGraphTokenFilterOnGraphInput.
-// Requires MockGraphTokenFilter (not yet ported to Gocene).
 func TestGraphTokenizers_MockGraphTokenFilterOnGraphInput(t *testing.T) {
-	t.Fatal("requires MockGraphTokenFilter infrastructure (not yet ported to Gocene)")
+	// Build a graph input: "a" (posLen=2), "b", "c".
+	tokens := []testutil.Token{
+		testutil.NewTokenWithPosIncAndLength("a", 1, 0, 1, 2),
+		testutil.NewTokenWithPosIncAndLength("b", 1, 1, 2, 1),
+		testutil.NewTokenWithPosIncAndLength("c", 0, 1, 2, 1),
+	}
+
+	// Run two independent streams with the same seed and input.
+	cts1 := testutil.NewCannedTokenStream(tokens...)
+	mgf1 := analysis.NewMockGraphTokenFilter(rand.New(rand.NewSource(42)), cts1)
+	if err := mgf1.Reset(); err != nil {
+		t.Fatalf("Reset error (mgf1): %v", err)
+	}
+	var out1 []testutil.Token
+	for {
+		hasToken, err := mgf1.IncrementToken()
+		if err != nil {
+			t.Fatalf("IncrementToken error: %v", err)
+		}
+		if !hasToken {
+			break
+		}
+		out1 = append(out1, tokenFromSource(mgf1.GetAttributeSource()))
+	}
+
+	cts2 := testutil.NewCannedTokenStream(tokens...)
+	mgf2 := analysis.NewMockGraphTokenFilter(rand.New(rand.NewSource(42)), cts2)
+	if err := mgf2.Reset(); err != nil {
+		t.Fatalf("Reset error (mgf2): %v", err)
+	}
+	var out2 []testutil.Token
+	for {
+		hasToken, err := mgf2.IncrementToken()
+		if err != nil {
+			t.Fatalf("IncrementToken error (second stream): %v", err)
+		}
+		if !hasToken {
+			break
+		}
+		out2 = append(out2, tokenFromSource(mgf2.GetAttributeSource()))
+	}
+
+	if len(out1) != len(out2) {
+		t.Fatalf("token count mismatch: %d vs %d", len(out1), len(out2))
+	}
+	for i := range out1 {
+		if !tokenEqual(out1[i], out2[i]) {
+			t.Fatalf("token mismatch at %d: %+v vs %+v", i, out1[i], out2[i])
+		}
+	}
+}
+
+// tokenFromSource extracts a testutil.Token from an AttributeSource.
+func tokenFromSource(src *util.AttributeSource) testutil.Token {
+	var tok testutil.Token
+	if termAtt, ok := src.GetAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute); ok && termAtt != nil {
+		tok.Text = termAtt.String()
+	}
+	if off, ok := src.GetAttribute(analysis.OffsetAttributeType).(analysis.OffsetAttribute); ok && off != nil {
+		tok.StartOffset = off.StartOffset()
+		tok.EndOffset = off.EndOffset()
+	}
+	if pi, ok := src.GetAttribute(analysis.PositionIncrementAttributeType).(analysis.PositionIncrementAttribute); ok && pi != nil {
+		tok.PositionIncrement = pi.GetPositionIncrement()
+	}
+	if pl, ok := src.GetAttribute(analysis.PositionLengthAttributeType).(analysis.PositionLengthAttribute); ok && pl != nil {
+		tok.PositionLength = pl.GetPositionLength()
+	}
+	return tok
+}
+
+// tokenEqual compares two testutil.Tokens for equality.
+func tokenEqual(a, b testutil.Token) bool {
+	return a.Text == b.Text && a.StartOffset == b.StartOffset && a.EndOffset == b.EndOffset &&
+		a.PositionIncrement == b.PositionIncrement && a.PositionLength == b.PositionLength
 }
 
 // TestGraphTokenizers_MockGraphTokenFilterBeforeHoles mirrors testMockGraphTokenFilterBeforeHoles.
