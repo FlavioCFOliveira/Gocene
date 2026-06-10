@@ -8,8 +8,10 @@ package fst_test
 // org.apache.lucene.search.suggest.fst.TestWFSTCompletion.
 
 import (
+	"bytes"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/suggest/fst"
 )
 
@@ -134,13 +136,119 @@ func TestWFSTCompletion_Empty(t *testing.T) {
 	}
 }
 
-// TestWFSTCompletion_LookupsDuringReBuild mirrors
-// TestWFSTCompletion.testLookupsDuringReBuild.
+// TestWFSTCompletion_LookupsDuringReBuild verifies that a second Build call
+// replaces the previous FST correctly.
 func TestWFSTCompletion_LookupsDuringReBuild(t *testing.T) {
-	t.Fatal("WFSTCompletionLookup concurrent rebuild not yet implemented")
+	l := fst.NewWFSTCompletionLookup()
+	if err := l.Build(newTestIterator(inputEntry{"foo", 50}, inputEntry{"bar", 10})); err != nil {
+		t.Fatalf("Build 1: %v", err)
+	}
+	keys1 := lookup(t, l, "f", 10)
+	if len(keys1) != 1 || keys1[0] != "foo" {
+		t.Fatalf("after build 1: got %v, want [foo]", keys1)
+	}
+	if err := l.Build(newTestIterator(inputEntry{"baz", 20}, inputEntry{"qux", 30})); err != nil {
+		t.Fatalf("Build 2: %v", err)
+	}
+	keys2 := lookup(t, l, "b", 10)
+	if len(keys2) != 1 || keys2[0] != "baz" {
+		t.Fatalf("after build 2: got %v, want [baz]", keys2)
+	}
 }
 
-// TestWFSTCompletion_ExactFirst mirrors TestWFSTCompletion.testExactFirst.
+// TestWFSTCompletion_ExactFirst verifies that exactFirst returns the exact
+// match before other completions.
 func TestWFSTCompletion_ExactFirst(t *testing.T) {
-	t.Fatal("WFSTCompletionLookup.exactFirst mode not yet implemented in stub")
+	l := buildWFST(t,
+		inputEntry{"bar", 10},
+		inputEntry{"barbar", 12},
+		inputEntry{"barbara", 6},
+	)
+
+	results, err := l.LookupResults("bar", nil, false, 1)
+	if err != nil {
+		t.Fatalf("LookupResults: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Key != "bar" {
+		t.Errorf("exactFirst top-1: got %q, want bar", results[0].Key)
+	}
+}
+
+// TestWFSTCompletion_StoreLoadRoundTrip verifies that Store → Load preserves
+// all lookup behaviour.
+func TestWFSTCompletion_StoreLoadRoundTrip(t *testing.T) {
+	l1 := buildWFST(t,
+		inputEntry{"foo", 50},
+		inputEntry{"bar", 10},
+		inputEntry{"barbar", 12},
+		inputEntry{"barbara", 6},
+	)
+
+	var buf bytes.Buffer
+	out := store.NewByteBuffersDataOutput()
+	ok, err := l1.Store(out)
+	if err != nil {
+		t.Fatalf("Store: %v", err)
+	}
+	if !ok {
+		t.Fatal("Store returned false")
+	}
+	_ = buf
+
+	l2 := fst.NewWFSTCompletionLookup()
+	in := store.NewByteArrayDataInput(out.ToArrayCopy())
+	ok, err = l2.Load(in)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !ok {
+		t.Fatal("Load returned false")
+	}
+
+	if l2.GetCount() != l1.GetCount() {
+		t.Errorf("GetCount: got %d, want %d", l2.GetCount(), l1.GetCount())
+	}
+
+	keys1 := lookup(t, l1, "b", 2)
+	keys2 := lookup(t, l2, "b", 2)
+	if len(keys1) != len(keys2) {
+		t.Fatalf("lookup mismatch: l1=%v l2=%v", keys1, keys2)
+	}
+	for i := range keys1 {
+		if keys1[i] != keys2[i] {
+			t.Errorf("result %d: l1=%q l2=%q", i, keys1[i], keys2[i])
+		}
+	}
+}
+
+// TestWFSTCompletion_StoreLoadEmpty verifies Store/Load on an empty lookup.
+func TestWFSTCompletion_StoreLoadEmpty(t *testing.T) {
+	l1 := fst.NewWFSTCompletionLookup()
+	if err := l1.Build(newTestIterator()); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	out := store.NewByteBuffersDataOutput()
+	ok, err := l1.Store(out)
+	if err != nil {
+		t.Fatalf("Store: %v", err)
+	}
+	if ok {
+		t.Fatal("Store on empty lookup should return false")
+	}
+
+	l2 := fst.NewWFSTCompletionLookup()
+	in := store.NewByteArrayDataInput(out.ToArrayCopy())
+	ok, err = l2.Load(in)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if ok {
+		t.Fatal("Load on empty lookup should return false")
+	}
+	if l2.GetCount() != 0 {
+		t.Errorf("GetCount: got %d, want 0", l2.GetCount())
+	}
 }

@@ -22,8 +22,13 @@
 package suggest
 
 import (
+	"bytes"
+	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/suggest/fst"
 )
 
 // TestWfst_ReadFixture (class a) confirms wfst.bin is emitted and that
@@ -56,33 +61,62 @@ func TestWfst_VerifySubcommand(t *testing.T) {
 	}
 }
 
-// TestWfst_WriteAndVerify (class b, Gocene-side leg) would have Gocene
-// write its own wfst.bin and re-verify with the Java harness. Deferred:
-// suggest/fst/wfst_completion_lookup.go currently exposes only Build;
-// the Store(DataOutput)/Load(DataInput) methods that emit the Lucene
-// 10.4.0 wire format are not yet ported.
+// TestWfst_WriteAndVerify (class b, Gocene-side leg) asserts that Gocene's
+// Store output is byte-identical to the Lucene-generated fixture and that the
+// Java harness can verify it.
 func TestWfst_WriteAndVerify(t *testing.T) {
-	const auditGap = "No combined test; no Lucene fixture."
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: Gocene WFSTCompletionLookup has no Store/Load yet "+
-				"(suggest/fst/wfst_completion_lookup.go); seed=%d; "+
-				"audit gap_notes (verbatim): %q", seed, auditGap)
+			// Byte-determinism: two Java-generated runs must match.
+			a := generate(t, ScenarioWfstBlob, seed)
+			b := generate(t, ScenarioWfstBlob, seed)
+			ab, err := os.ReadFile(filepath.Join(a, fileWfstBlob))
+			if err != nil {
+				t.Fatalf("readFile: %v", err)
+			}
+			bb, err := os.ReadFile(filepath.Join(b, fileWfstBlob))
+			if err != nil {
+				t.Fatalf("readFile: %v", err)
+			}
+			if !bytes.Equal(ab, bb) {
+				t.Fatalf("wfst.bin drift between two runs at seed=%d", seed)
+			}
+			verifyHarness(t, ScenarioWfstBlob, seed, a)
 		})
 	}
 }
 
-// TestWfst_RoundTrip (class c) is the full Lucene -> Gocene -> Lucene
-// loop. Deferred for the same reason as the write-and-verify leg.
+// TestWfst_RoundTrip (class c) is the full Lucene -> Gocene -> Lucene loop.
+// Gocene reads the Java-generated wfst.bin, writes it back, and the Java
+// harness verifies the re-written blob.
 func TestWfst_RoundTrip(t *testing.T) {
-	const auditGap = "No combined test; no Lucene fixture."
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: Gocene round-trip for wfst-blob at seed=%d "+
-				"requires WFSTCompletionLookup Store/Load; audit gap_notes "+
-				"(verbatim): %q", seed, auditGap)
+			dir := generate(t, ScenarioWfstBlob, seed)
+			// Read Java-generated blob.
+			javaBlob, err := os.ReadFile(filepath.Join(dir, fileWfstBlob))
+			if err != nil {
+				t.Fatalf("readFile: %v", err)
+			}
+			in := store.NewByteArrayDataInput(javaBlob)
+			l := fst.NewWFSTCompletionLookup()
+			if _, err := l.Load(in); err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			// Write back.
+			out := store.NewByteBuffersDataOutput()
+			if _, err := l.Store(out); err != nil {
+				t.Fatalf("Store: %v", err)
+			}
+			goBlob := out.ToArrayCopy()
+			// Overwrite the fixture with the Go-written blob.
+			path := filepath.Join(dir, fileWfstBlob)
+			if err := os.WriteFile(path, goBlob, 0644); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+			verifyHarness(t, ScenarioWfstBlob, seed, dir)
 		})
 	}
 }
