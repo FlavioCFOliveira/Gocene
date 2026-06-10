@@ -5,6 +5,9 @@
 package kuromoji
 
 import (
+	"io"
+	"unicode/utf8"
+
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis/kuromoji/dict"
 	"github.com/FlavioCFOliveira/Gocene/analysis/kuromoji/tokenattributes"
@@ -66,6 +69,11 @@ type JapaneseTokenizer struct {
 	lastTokenPos int
 	pending      []*dict.Token
 	exhausted    bool
+
+	// viterbiCore is the concrete Viterbi decoder used for morphological
+	// analysis. It is injected by NewJapaneseTokenizerWithDefaults or set
+	// directly for tests.
+	viterbiCore *Viterbi
 }
 
 // NewJapaneseTokenizer creates a JapaneseTokenizer with the given options.
@@ -83,33 +91,34 @@ func NewJapaneseTokenizer(
 		userDictionary:     userDictionary,
 		lastTokenPos:       -1,
 	}
-	src := t.BaseTokenizer.GetAttributeSource()
-	if src != nil {
-		if a := src.GetAttribute(analysis.CharTermAttributeType); a != nil {
-			t.termAttr = a.(analysis.CharTermAttribute)
-		}
-		if a := src.GetAttribute(analysis.OffsetAttributeType); a != nil {
-			t.offsetAttr = a.(analysis.OffsetAttribute)
-		}
-		if a := src.GetAttribute(analysis.PositionIncrementAttributeType); a != nil {
-			t.posIncrAttr = a.(analysis.PositionIncrementAttribute)
-		}
-		if a := src.GetAttribute(analysis.PositionLengthAttributeType); a != nil {
-			t.posLenAttr = a.(analysis.PositionLengthAttribute)
-		}
-		if a := src.GetAttribute(tokenattributes.BaseFormAttributeType); a != nil {
-			t.baseFormAttr = a.(tokenattributes.BaseFormAttribute)
-		}
-		if a := src.GetAttribute(tokenattributes.PartOfSpeechAttributeType); a != nil {
-			t.posAttr = a.(tokenattributes.PartOfSpeechAttribute)
-		}
-		if a := src.GetAttribute(tokenattributes.ReadingAttributeType); a != nil {
-			t.readingAttr = a.(tokenattributes.ReadingAttribute)
-		}
-		if a := src.GetAttribute(tokenattributes.InflectionAttributeType); a != nil {
-			t.inflAttr = a.(tokenattributes.InflectionAttribute)
-		}
-	}
+
+	// Create and register standard attributes.
+	t.termAttr = analysis.NewCharTermAttribute()
+	t.offsetAttr = analysis.NewOffsetAttribute()
+	t.posIncrAttr = analysis.NewPositionIncrementAttribute()
+	t.posLenAttr = analysis.NewPositionLengthAttribute()
+
+	t.AddAttribute(t.termAttr)
+	t.AddAttribute(t.offsetAttr)
+	t.AddAttribute(t.posIncrAttr)
+	t.AddAttribute(t.posLenAttr)
+
+	// Create and register Japanese-specific attributes.
+	baseFormImpl := tokenattributes.NewBaseFormAttributeImpl()
+	posImpl := tokenattributes.NewPartOfSpeechAttributeImpl()
+	readingImpl := tokenattributes.NewReadingAttributeImpl()
+	inflImpl := tokenattributes.NewInflectionAttributeImpl()
+
+	t.baseFormAttr = baseFormImpl
+	t.posAttr = posImpl
+	t.readingAttr = readingImpl
+	t.inflAttr = inflImpl
+
+	t.AddAttribute(baseFormImpl)
+	t.AddAttribute(posImpl)
+	t.AddAttribute(readingImpl)
+	t.AddAttribute(inflImpl)
+
 	return t
 }
 
@@ -131,14 +140,25 @@ func (t *JapaneseTokenizer) Reset() error {
 }
 
 // IncrementToken advances to the next token.
-//
-// Deviation: full Viterbi-backed decoding requires binary dictionary resources
-// that are not yet loaded. This implementation returns false (empty stream)
-// until the resources are wired in a future sprint.
 func (t *JapaneseTokenizer) IncrementToken() (bool, error) {
-	if t.exhausted || len(t.pending) == 0 {
+	if t.exhausted {
 		return false, nil
 	}
+
+	// If there are no pending tokens, run Viterbi over the full input.
+	if len(t.pending) == 0 {
+		if t.viterbiCore == nil {
+			return false, nil
+		}
+		if err := t.fillPending(); err != nil {
+			return false, err
+		}
+		if len(t.pending) == 0 {
+			t.exhausted = true
+			return false, nil
+		}
+	}
+
 	tok := t.pending[len(t.pending)-1]
 	t.pending = t.pending[:len(t.pending)-1]
 
@@ -174,6 +194,49 @@ func (t *JapaneseTokenizer) IncrementToken() (bool, error) {
 	return true, nil
 }
 
+// fillPending reads the full input, runs the Viterbi decoder, and populates
+// t.pending with the resulting tokens (in reverse order so they can be popped
+// from the tail).
+func (t *JapaneseTokenizer) fillPending() error {
+	reader := t.GetReader()
+	if reader == nil {
+		return nil
+	}
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return err
+	}
+	if len(data) == 0 {
+		return nil
+	}
+
+	// Decode UTF-8 to runes, preserving offsets.
+	input := make([]rune, 0, len(data))
+	for len(data) > 0 {
+		r, size := utf8.DecodeRune(data)
+		input = append(input, r)
+		data = data[size:]
+	}
+
+	t.viterbiCore.ResetBuffer(input)
+	t.viterbiCore.ResetState()
+	for !t.viterbiCore.IsEnd() {
+		t.viterbiCore.Forward()
+	}
+
+	pending := t.viterbiCore.GetPending()
+	if len(pending) == 0 {
+		return nil
+	}
+
+	// Reverse pending so we can pop from the tail in IncrementToken.
+	for i, j := 0, len(pending)-1; i < j; i, j = i+1, j-1 {
+		pending[i], pending[j] = pending[j], pending[i]
+	}
+	t.pending = pending
+	return nil
+}
+
 // End performs end-of-stream attribute finalization.
 func (t *JapaneseTokenizer) End() error {
 	if t.offsetAttr != nil {
@@ -187,9 +250,45 @@ func (t *JapaneseTokenizer) End() error {
 // are available.
 func (t *JapaneseTokenizer) SetViterbi(v *ViterbiNBest) { t.viterbi = v }
 
+// SetViterbiCore injects a concrete Viterbi decoder into the tokenizer.
+func (t *JapaneseTokenizer) SetViterbiCore(v *Viterbi) { t.viterbiCore = v }
+
 // SetPending injects a pre-computed token list (used for testing and
 // resource-backed construction).
 func (t *JapaneseTokenizer) SetPending(tokens []*dict.Token) { t.pending = tokens }
+
+// NewJapaneseTokenizerWithDefaults creates a JapaneseTokenizer backed by the
+// embedded binary dictionary resources.
+func NewJapaneseTokenizerWithDefaults(
+	userDictionary *dict.UserDictionary,
+	discardPunctuation bool,
+	discardCompoundToken bool,
+	mode Mode,
+) *JapaneseTokenizer {
+	t := NewJapaneseTokenizer(userDictionary, discardPunctuation, discardCompoundToken, mode)
+
+	sysDict := dict.GetTokenInfoDictionaryInstance()
+	unkDict := dict.GetUnknownDictionaryInstance()
+	connCosts := dict.GetConnectionCostsInstance()
+	charDef := dict.GetCharacterDefinitionInstance()
+
+	searchMode := mode == ModeSearch || mode == ModeExtended
+	extendedMode := mode == ModeExtended
+
+	v := NewViterbi(
+		sysDict,
+		unkDict,
+		connCosts,
+		userDictionary,
+		charDef,
+		discardPunctuation,
+		searchMode,
+		extendedMode,
+		!discardCompoundToken,
+	)
+	t.viterbiCore = v
+	return t
+}
 
 // Mode returns the tokenization mode.
 func (t *JapaneseTokenizer) Mode() Mode { return t.mode }

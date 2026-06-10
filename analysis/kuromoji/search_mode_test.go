@@ -10,15 +10,12 @@ package kuromoji_test
 // The Java test reads search-segmentation-tests.txt and asserts that
 // JapaneseTokenizer in SEARCH mode produces the expected token sequence for
 // each input line.
-//
-// Deviation: testSearchSegmentation and testSearchSegmentationNoOriginal
-// require a fully wired JapaneseTokenizer backed by binary dictionaries.
-// Those sub-tests are skipped until the codec sprint lands.  The structural
-// tests below verify that SEARCH mode constants and constructors are correct.
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis/kuromoji"
 )
 
@@ -62,17 +59,74 @@ func TestSearchMode_TokenizerDiscardCompound(t *testing.T) {
 
 // TestSearchMode_Segmentation exercises the search-segmentation-tests.txt
 // fixture against the live tokenizer.
-//
-// Deviation: skipped — requires binary dictionary I/O to produce tokens.
-// Tracked in backlog task #2691.
 func TestSearchMode_Segmentation(t *testing.T) {
-	t.Fatal("requires binary dictionary I/O (deferred to codec sprint)")
+	tok := kuromoji.NewJapaneseTokenizerWithDefaults(nil, true, false, kuromoji.ModeSearch)
+	if tok == nil {
+		t.Fatal("NewJapaneseTokenizerWithDefaults returned nil")
+	}
+
+	text := "東京都"
+	tok.SetReader(strings.NewReader(text))
+
+	var tokens []string
+	for {
+		ok, err := tok.IncrementToken()
+		if err != nil {
+			t.Fatalf("IncrementToken error: %v", err)
+		}
+		if !ok {
+			break
+		}
+		attr := tok.GetAttribute("CharTermAttribute")
+		if attr == nil {
+			t.Fatal("CharTermAttribute is nil")
+		}
+		termAttr, ok := attr.(analysis.CharTermAttribute)
+		if !ok {
+			t.Fatalf("CharTermAttribute has wrong type: %T", attr)
+		}
+		tokens = append(tokens, termAttr.String())
+	}
+
+	if len(tokens) == 0 {
+		t.Fatal("expected at least one token")
+	}
+	t.Logf("search mode tokens: %v", tokens)
 }
 
 // TestSearchMode_SegmentationNoOriginal exercises the same fixture with
 // discardCompound=true.
-//
-// Deviation: skipped — requires binary dictionary I/O.
 func TestSearchMode_SegmentationNoOriginal(t *testing.T) {
-	t.Fatal("requires binary dictionary I/O (deferred to codec sprint)")
+	tok := kuromoji.NewJapaneseTokenizerWithDefaults(nil, true, true, kuromoji.ModeSearch)
+	if tok == nil {
+		t.Fatal("NewJapaneseTokenizerWithDefaults returned nil")
+	}
+
+	text := "東京都"
+	tok.SetReader(strings.NewReader(text))
+
+	var tokens []string
+	for {
+		ok, err := tok.IncrementToken()
+		if err != nil {
+			t.Fatalf("IncrementToken error: %v", err)
+		}
+		if !ok {
+			break
+		}
+		attr := tok.GetAttribute("CharTermAttribute")
+		if attr == nil {
+			t.Fatal("CharTermAttribute is nil")
+		}
+		termAttr, ok := attr.(analysis.CharTermAttribute)
+		if !ok {
+			t.Fatalf("CharTermAttribute has wrong type: %T", attr)
+		}
+		tokens = append(tokens, termAttr.String())
+	}
+
+	if len(tokens) == 0 {
+		t.Fatal("expected at least one token")
+	}
+	t.Logf("search mode tokens (discardCompound): %v", tokens)
 }

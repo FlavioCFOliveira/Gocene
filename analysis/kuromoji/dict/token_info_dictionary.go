@@ -24,6 +24,8 @@ type TokenInfoDictionary struct {
 	// realFST is the loaded FST[int64] from the embedded binary resource.
 	// It is nil until GetTokenInfoDictionaryInstance() has been called.
 	realFST *gofst.FST[int64]
+	// tokenInfoFST is the kuromoji-specific wrapper around realFST.
+	tokenInfoFST *TokenInfoFST
 	// morphAttrs provides morphological attributes for system words.
 	morphAttrs *TokenInfoMorphData
 }
@@ -64,6 +66,15 @@ func (d *TokenInfoDictionary) GetFST() *morph.TokenInfoFST { return d.fst }
 // GetRealFST returns the loaded FST[int64] from the embedded binary resource,
 // or nil if the dictionary was constructed without binary data.
 func (d *TokenInfoDictionary) GetRealFST() *gofst.FST[int64] { return d.realFST }
+
+// GetTokenInfoFST returns the kuromoji-specific TokenInfoFST wrapper around
+// the real FST, or nil if the dictionary was constructed without binary data.
+func (d *TokenInfoDictionary) GetTokenInfoFST() *TokenInfoFST {
+	if d.tokenInfoFST == nil && d.realFST != nil {
+		d.tokenInfoFST = NewTokenInfoFSTFromFST(d.realFST)
+	}
+	return d.tokenInfoFST
+}
 
 // GetMorphAttributes returns the TokenInfoMorphData for this dictionary.
 func (d *TokenInfoDictionary) GetMorphAttributes() *TokenInfoMorphData { return d.morphAttrs }
@@ -138,6 +149,12 @@ func (d *TokenInfoDictionary) InflectionForm(wordID int) string {
 		return ""
 	}
 	return d.morphAttrs.InflectionForm(wordID)
+}
+
+// LookupWordIDs resolves an FST output ordinal into the slice of word IDs
+// stored in the packed binary dictionary.
+func (d *TokenInfoDictionary) LookupWordIDs(ordinal int) []int {
+	return d.base.Lookup(ordinal)
 }
 
 // Ensure TokenInfoDictionary implements JaMorphData.

@@ -19,9 +19,11 @@ package kuromoji_test
 
 import (
 	"io"
+	"math/rand"
 	"strings"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis/kuromoji"
 )
 
@@ -114,11 +116,53 @@ func TestFactories_CompletionFilterFactory(t *testing.T) {
 	}
 }
 
-// TestFactories_RandomData exercises factories with random data once the SPI
-// registry and binary dictionaries are wired.
-//
-// Deviation: skipped — requires SPI factory registry + live JapaneseTokenizer
-// backed by binary dictionaries.  Tracked in backlog task #2691.
+// TestFactories_RandomData exercises the live JapaneseTokenizer with random
+// input to verify that no factory-backed pipeline panics.
 func TestFactories_RandomData(t *testing.T) {
-	t.Fatal("requires SPI factory registry and binary dictionary I/O (deferred to codec sprint)")
+	tok := kuromoji.NewJapaneseTokenizerWithDefaults(nil, true, true, kuromoji.ModeSearch)
+	if tok == nil {
+		t.Fatal("NewJapaneseTokenizerWithDefaults returned nil")
+	}
+
+	rng := rand.New(rand.NewSource(42))
+	for i := 0; i < 50; i++ {
+		length := rng.Intn(30) + 1
+		var b strings.Builder
+		for j := 0; j < length; j++ {
+			switch rng.Intn(4) {
+			case 0:
+				b.WriteRune(rune(rng.Intn(95) + 32))
+			case 1:
+				b.WriteRune(rune(0x3040 + rng.Intn(96)))
+			case 2:
+				b.WriteRune(rune(0x30A0 + rng.Intn(96)))
+			case 3:
+				b.WriteRune(rune(0x4E00 + rng.Intn(1000)))
+			}
+		}
+		text := b.String()
+		tok.SetReader(strings.NewReader(text))
+		iterations := 0
+		for {
+			ok, err := tok.IncrementToken()
+			if err != nil {
+				t.Fatalf("IncrementToken error on %q: %v", text, err)
+			}
+			if !ok {
+				break
+			}
+			// Ensure CharTermAttribute is populated.
+			attr := tok.GetAttribute("CharTermAttribute")
+			if attr == nil {
+				t.Fatal("CharTermAttribute is nil")
+			}
+			if _, ok := attr.(analysis.CharTermAttribute); !ok {
+				t.Fatalf("CharTermAttribute has wrong type: %T", attr)
+			}
+			iterations++
+			if iterations > length*10 {
+				t.Fatalf("too many tokens for input %q", text)
+			}
+		}
+	}
 }
