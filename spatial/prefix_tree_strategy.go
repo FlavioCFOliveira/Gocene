@@ -504,11 +504,19 @@ func normalizeLongitude(lon float64) float64 {
 	// O(1) normalization using math.Mod. The loop-based approach would hang
 	// for large inputs (e.g. lon = 1e15 would iterate ~2.7 trillion times).
 	// Matches Lucene's GeoUtils.normalizeLon() which uses floorMod.
-	lon = math.Mod(lon+180, 360)
-	if lon < 0 {
-		lon += 360
+	r := math.Mod(lon+180, 360)
+	if r < 0 {
+		r += 360
 	}
-	return lon - 180
+	r -= 180
+	// Fix boundary: when lon+180 is exactly divisible by 360 and the original
+	// longitude is positive (e.g. lon=180, lon=540), the result should be +180,
+	// not -180. This matches the canonical [-180, 180] range where both
+	// endpoints are valid.
+	if r == -180 && lon > 0 {
+		r = 180
+	}
+	return r
 }
 
 // normalizeLatitude normalizes a latitude to the range [-90, 90].

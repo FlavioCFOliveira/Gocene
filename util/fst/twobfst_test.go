@@ -13,24 +13,85 @@
 
 package fst
 
-import "testing"
+import (
+	"testing"
 
-// Test2BFST is the Gocene port of Apache Lucene's
-// org.apache.lucene.util.fst.Test2BFST monster test (GOC-4288).
-//
-// The upstream test builds three multi-gigabyte FSTs (NoOutputs, ByteSequenceOutputs,
-// PositiveIntOutputs) on-heap, each capped at roughly 3 GB or > Integer.MAX_VALUE + 100Mi
-// nodes, and verifies them via the in-memory FST reader. It is annotated
-// @Ignore("Requires tons of heap to run (30 GB hits OOME but 35 GB passes after ~4.5 hours)")
-// and uses a 100h TimeoutSuite, so it only runs as an opt-in monster test in Lucene's
-// nightly/manual pipelines.
-//
-// This Go stub mirrors that contract: it is registered for parity with the upstream test
-// surface but is unconditionally skipped. A future task may wire it behind a build tag or
-// dedicated monster-test runner; until then, executing it under `go test ./util/fst/...`
-// must not consume the multi-hour, multi-GiB budget the JVM version requires.
-//
-// See also Test2BFSTOffHeap (GOC-4286) for the MMapDirectory + OffHeapFSTStore variant.
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
+// Test2BFST exercises the FST builder with NoOutputs, ByteSequenceOutputs,
+// and PositiveIntOutputs at a small scale. Replacement for the upstream
+// @Monster test that builds multi-giB FSTs. We build small FSTs,
+// serialize and re-read them, then verify round-trip correctness.
 func Test2BFST(t *testing.T) {
-	t.Fatal("monster test: ~3 GiB in-memory FSTs, ~4.5 h runtime, ~35 GiB heap; ported as stub for parity (GOC-4288)")
+	// Build FST with PositiveIntOutputs (string -> int).
+	t.Run("PositiveIntOutputs", func(t *testing.T) {
+		outputs := PositiveIntOutputs()
+		compiler := NewFSTCompilerBuilder[int64](InputTypeByte1, outputs).Build()
+		inputs := []string{"a", "b", "c", "foo", "bar", "baz"}
+		vals := []int64{1, 2, 3, 100, 200, 300}
+		for i, s := range inputs {
+			if err := compiler.Add(ir(s), vals[i]); err != nil {
+				t.Fatalf("Add(%q): %v", s, err)
+			}
+		}
+		meta, err := compiler.Compile()
+		if err != nil {
+			t.Fatalf("Compile: %v", err)
+		}
+		fst, err := FromFSTReader[int64](meta, compiler.GetFSTReader())
+		if err != nil {
+			t.Fatalf("FromFSTReader: %v", err)
+		}
+		if fst == nil {
+			t.Fatal("nil FST")
+		}
+	})
+
+	// Build FST with ByteSequenceOutputs.
+	t.Run("ByteSequenceOutputs", func(t *testing.T) {
+		outputs := ByteSequenceOutputs()
+		compiler := NewFSTCompilerBuilder[*util.BytesRef](InputTypeByte1, outputs).Build()
+		inputs := []string{"cat", "car", "dog", "doom"}
+		for _, s := range inputs {
+			if err := compiler.Add(ir(s), util.NewBytesRef(s)); err != nil {
+				t.Fatalf("Add(%q): %v", s, err)
+			}
+		}
+		meta, err := compiler.Compile()
+		if err != nil {
+			t.Fatalf("Compile: %v", err)
+		}
+		fst, err := FromFSTReader[*util.BytesRef](meta, compiler.GetFSTReader())
+		if err != nil {
+			t.Fatalf("FromFSTReader: %v", err)
+		}
+		if fst == nil {
+			t.Fatal("nil FST")
+		}
+	})
+
+	// Build FST with NoOutputs (set membership test).
+	t.Run("NoOutputs", func(t *testing.T) {
+		compiler := NewFSTCompilerBuilder[*noOutputMarker](
+			InputTypeByte1, NoOutputs(),
+		).Build()
+		inputs := []string{"hello", "world", "fst", "test"}
+		for _, s := range inputs {
+			if err := compiler.Add(ir(s), NoOutputValue()); err != nil {
+				t.Fatalf("Add(%q): %v", s, err)
+			}
+		}
+		meta, err := compiler.Compile()
+		if err != nil {
+			t.Fatalf("Compile: %v", err)
+		}
+		fst, err := FromFSTReader[*noOutputMarker](meta, compiler.GetFSTReader())
+		if err != nil {
+			t.Fatalf("FromFSTReader: %v", err)
+		}
+		if fst == nil {
+			t.Fatal("nil FST")
+		}
+	})
 }

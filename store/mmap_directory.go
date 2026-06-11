@@ -496,11 +496,13 @@ func (in *MMapIndexInput) Slice(desc string, offset int64, length int64) (IndexI
 	}, nil
 }
 
-// ensureChunksOpen returns an error if the chunks slice is nil, which can happen
-// when Clone() fails to open the file. Without this guard, read methods would
-// panic on nil slice access.
+// ensureChunksOpen returns an error if the chunks slice is nil for a non-empty
+// file, which can happen when Clone() fails to open the file. An empty file
+// legitimately has nil chunks because there is nothing to map — in that case
+// ReadByte returns io.EOF via the pos >= Length() check instead. Without this
+// guard, reads on a failed-clone MMapIndexInput would panic on nil slice access.
 func (in *MMapIndexInput) ensureChunksOpen() error {
-	if in.chunks == nil {
+	if in.chunks == nil && in.Length() > 0 {
 		return fmt.Errorf("MMapIndexInput: chunks are nil (clone of %q failed to open): %w", in.name, ErrIllegalState)
 	}
 	return nil

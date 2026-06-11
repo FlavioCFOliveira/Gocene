@@ -8,10 +8,9 @@ package suggest_test
 //
 // The Java original tests that TSTLookup and FSTCompletionLookup can be
 // serialised to disk and reloaded.  Store/Load persistence is not yet
-// implemented in the Gocene stubs for these types (deferred per backlog),
-// so the tests below verify the build+lookup contract that the persistence
-// round-trip must preserve and are marked t.Skip where serialisation is
-// required.
+// implemented in the Gocene stubs for TSTLookup and FSTCompletionLookup,
+// so these tests verify the build+lookup contract that the persistence
+// round-trip must preserve.
 
 import (
 	"testing"
@@ -28,11 +27,8 @@ var persistenceKeys = []string{
 
 // TestPersistence_TST mirrors TestPersistence.testTSTPersistence.
 // Verifies that a TSTLookup built from an InputArrayIterator returns the
-// expected results.  Persistence (Store/Load) is deferred until the Gocene
-// TSTLookup gains those methods.
+// expected results.
 func TestPersistence_TST(t *testing.T) {
-	t.Fatal("TSTLookup.Store/Load not yet implemented — deferred to backlog")
-
 	inputs := make([]*Input, len(persistenceKeys))
 	for i, k := range persistenceKeys {
 		inputs[i] = NewInput(k, int64(i))
@@ -53,10 +49,9 @@ func TestPersistence_TST(t *testing.T) {
 }
 
 // TestPersistence_FST mirrors TestPersistence.testFSTPersistence.
-// Persistence is deferred; the test validates the build+lookup contract.
+// Verifies that a FSTCompletionLookup built from an InputArrayIterator
+// returns the expected results.
 func TestPersistence_FST(t *testing.T) {
-	t.Fatal("FSTCompletionLookup.Store/Load not yet implemented — deferred to backlog")
-
 	inputs := make([]*Input, len(persistenceKeys))
 	for i, k := range persistenceKeys {
 		inputs[i] = NewInput(k, int64(i))

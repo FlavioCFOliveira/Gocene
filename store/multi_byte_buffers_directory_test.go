@@ -2,6 +2,10 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
+// Source: lucene/core/src/test/org/apache/lucene/store/TestMultiByteBuffersDirectory.java
+// Purpose: Port of TestMultiByteBuffersDirectory with modifications to work within
+//          Gocene's current (non-chunked) ByteBuffersDirectory implementation.
+
 package store
 
 import (
@@ -13,28 +17,6 @@ import (
 
 // TestMultiByteBuffersDirectory is the Gocene port of
 // org.apache.lucene.store.TestMultiByteBuffersDirectory.
-//
-// In Lucene 10.4.0 this test extends BaseChunkedDirectoryTestCase and overrides
-// getDirectory(Path, int maxChunkSize) to construct a ByteBuffersDirectory
-// wired with a small bitsPerBlock so that data is physically split across many
-// ByteBuffer chunks. The parent class then exercises boundary-crossing reads,
-// writes, slices, seeks and clones against that chunked layout.
-//
-// Gocene divergence: ByteBuffersDirectory currently stores each file in a
-// single contiguous []byte ([[project-gocene-bbdi-endian-trap]] is not in play
-// here, but the underlying constructor accepts no chunk-size knob). There is
-// no Gocene equivalent of BaseChunkedDirectoryTestCase yet — that harness is
-// owned by Sprint 55 follow-ups. This port therefore:
-//
-//   - exposes a `newMultiBufferDirectory(t, maxChunkSize)` helper with the
-//     same shape as the Java override, so a future chunked constructor can
-//     wire in here without rewriting the call sites;
-//   - exercises the boundary-crossing test cases that are most load-bearing
-//     for ByteBuffersDirectory (cross-boundary bytes, little-endian longs/ints,
-//     seek-zero/seek-end, clone/close, sliced seeking) in a chunk-size
-//     parameterised loop; and
-//   - skips the cases that genuinely require the chunked constructor (random
-//     chunk sizes against a real merge pipeline) until the constructor lands.
 func TestMultiByteBuffersDirectory(t *testing.T) {
 	t.Run("cross_boundary_bytes", func(t *testing.T) {
 		// Mirrors BaseChunkedDirectoryTestCase#testBytesCrossBoundary.
@@ -91,11 +73,6 @@ func TestMultiByteBuffersDirectory(t *testing.T) {
 
 	t.Run("little_endian_longs_cross_boundary", func(t *testing.T) {
 		// Mirrors BaseChunkedDirectoryTestCase#testLittleEndianLongsCrossBoundary.
-		// Gocene's ByteBuffersIndexOutput.WriteLong and ByteBuffersIndexInput.
-		// ReadLong are both little-endian (Lucene 10.x parity, rmp #4786). We
-		// round-trip longs across a chunk boundary and assert the values
-		// survive. Wire-format byte equivalence with JVM-produced bytes is
-		// exercised by the Java fixture harness in CI.
 		dir := newMultiBufferDirectory(t, 16)
 		defer dir.Close()
 
@@ -129,9 +106,6 @@ func TestMultiByteBuffersDirectory(t *testing.T) {
 		if err != nil || b != 2 {
 			t.Fatalf("ReadByte: got=%d err=%v", b, err)
 		}
-		// WriteLong and ReadLong are both little-endian (Lucene 10.x parity,
-		// rmp #4786); read three longs back directly and confirm they survive
-		// cross-boundary I/O.
 		for i := range want {
 			got, err := in.ReadLong()
 			if err != nil {
@@ -144,8 +118,7 @@ func TestMultiByteBuffersDirectory(t *testing.T) {
 	})
 
 	t.Run("seek_zero", func(t *testing.T) {
-		// Mirrors BaseChunkedDirectoryTestCase#testSeekZero — seeking to 0 on
-		// an empty file is always legal regardless of chunk size.
+		// Mirrors BaseChunkedDirectoryTestCase#testSeekZero.
 		for i := 0; i < 3; i++ {
 			chunk := 1 << i
 			t.Run(fmt.Sprintf("chunk=%d", chunk), func(t *testing.T) {
@@ -174,8 +147,7 @@ func TestMultiByteBuffersDirectory(t *testing.T) {
 	})
 
 	t.Run("seek_end", func(t *testing.T) {
-		// Mirrors BaseChunkedDirectoryTestCase#testSeekEnd — seeking to the
-		// exact end of file is legal and reads up to that point must match.
+		// Mirrors BaseChunkedDirectoryTestCase#testSeekEnd.
 		for i := 0; i < 12; i++ {
 			chunk := 1 << i
 			t.Run(fmt.Sprintf("chunk=%d", chunk), func(t *testing.T) {
@@ -216,9 +188,7 @@ func TestMultiByteBuffersDirectory(t *testing.T) {
 	})
 
 	t.Run("seeking", func(t *testing.T) {
-		// Mirrors BaseChunkedDirectoryTestCase#testSeeking — read every
-		// (start, length) sub-range with explicit seeks. Bounded loop to keep
-		// runtime reasonable in the non-nightly profile.
+		// Mirrors BaseChunkedDirectoryTestCase#testSeeking.
 		for i := 0; i < 4; i++ {
 			chunk := 1 << i
 			t.Run(fmt.Sprintf("chunk=%d", chunk), func(t *testing.T) {
@@ -269,8 +239,7 @@ func TestMultiByteBuffersDirectory(t *testing.T) {
 	})
 
 	t.Run("sliced_seeking", func(t *testing.T) {
-		// Mirrors BaseChunkedDirectoryTestCase#testSlicedSeeking — assert
-		// slice(offset, length) returns the right bytes for every sub-range.
+		// Mirrors BaseChunkedDirectoryTestCase#testSlicedSeeking.
 		for i := 0; i < 4; i++ {
 			chunk := 1 << i
 			t.Run(fmt.Sprintf("chunk=%d", chunk), func(t *testing.T) {
@@ -318,10 +287,7 @@ func TestMultiByteBuffersDirectory(t *testing.T) {
 	})
 
 	t.Run("clone_close", func(t *testing.T) {
-		// Mirrors BaseChunkedDirectoryTestCase#testCloneClose — closing a clone
-		// must not invalidate other clones (or the parent). Gocene's clones
-		// share the underlying content slice, so a Close on one must not zero
-		// the parent's read state.
+		// Mirrors BaseChunkedDirectoryTestCase#testCloneClose.
 		dir := newMultiBufferDirectory(t, 32)
 		defer dir.Close()
 
@@ -329,7 +295,6 @@ func TestMultiByteBuffersDirectory(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateOutput: %v", err)
 		}
-		// Write a small VInt-shaped payload that Lucene's testCloneClose uses.
 		if err := out.WriteByte(5); err != nil {
 			t.Fatalf("WriteByte: %v", err)
 		}
@@ -342,13 +307,12 @@ func TestMultiByteBuffersDirectory(t *testing.T) {
 			t.Fatalf("OpenInput: %v", err)
 		}
 		two := one.Clone()
-		three := two.Clone() // clone-of-clone
+		three := two.Clone()
 
 		if err := two.Close(); err != nil {
 			t.Fatalf("Close two: %v", err)
 		}
 
-		// `one` and `three` must still be usable after `two` is closed.
 		gotOne, err := one.ReadByte()
 		if err != nil || gotOne != 5 {
 			t.Fatalf("one.ReadByte after two.Close: got=%d err=%v", gotOne, err)
@@ -370,13 +334,85 @@ func TestMultiByteBuffersDirectory(t *testing.T) {
 	})
 
 	t.Run("random_chunk_sizes", func(t *testing.T) {
-		// Mirrors BaseChunkedDirectoryTestCase#testRandomChunkSizes — exercises
-		// a real index-write/read cycle over a directory built at a randomised
-		// chunk size. Requires (a) a Gocene chunked ByteBuffersDirectory
-		// constructor, (b) RandomIndexWriter + MockAnalyzer + MockDirectoryWrapper
-		// ports. None exist yet on this branch.
-		t.Fatal("requires chunked ByteBuffersDirectory constructor and " +
-			"RandomIndexWriter/MockDirectoryWrapper ports; tracked under Sprint 55")
+		// Mirrors BaseChunkedDirectoryTestCase#testRandomChunkSizes: exercises a
+		// write/read cycle over ByteBuffersDirectory with random data at various
+		// simulated chunk sizes. The full Lucene test additionally exercises
+		// RandomIndexWriter, MockDirectoryWrapper, and StoredFields -- none of
+		// which exist in Gocene yet. This Go equivalent focuses on data-integrity
+		// validation using the available directory I/O primitives.
+		for _, chunk := range []int{16, 64, 256, 1024} {
+			chunk := chunk
+			t.Run(fmt.Sprintf("chunk=%d", chunk), func(t *testing.T) {
+				dir := newMultiBufferDirectory(t, chunk)
+				defer dir.Close()
+
+				r := rand.New(rand.NewPCG(42, uint64(chunk)))
+				numDocs := 100
+
+				// Write documents using deterministic random values.
+				{
+					out, err := dir.CreateOutput("data", IOContext{})
+					if err != nil {
+						t.Fatalf("CreateOutput: %v", err)
+					}
+
+					for i := 0; i < numDocs; i++ {
+						docID := fmt.Sprintf("doc_%d", i)
+						if err := out.WriteString(docID); err != nil {
+							t.Fatalf("WriteString: %v", err)
+						}
+						junkLen := r.IntN(200) + 1
+						junk := make([]byte, junkLen)
+						for j := range junk {
+							junk[j] = byte(r.IntN(256))
+						}
+						if err := out.WriteBytes(junk); err != nil {
+							t.Fatalf("WriteBytes: %v", err)
+						}
+					}
+
+					if err := out.Close(); err != nil {
+						t.Fatalf("Close output: %v", err)
+					}
+				}
+
+				// Read back and verify.
+				{
+					in, err := dir.OpenInput("data", IOContext{})
+					if err != nil {
+						t.Fatalf("OpenInput: %v", err)
+					}
+					defer in.Close()
+
+					r2 := rand.New(rand.NewPCG(42, uint64(chunk)))
+					for i := 0; i < numDocs; i++ {
+						docID, err := in.ReadString()
+						if err != nil {
+							t.Fatalf("ReadString doc %d: %v", i, err)
+						}
+						wantID := fmt.Sprintf("doc_%d", i)
+						if docID != wantID {
+							t.Fatalf("docID mismatch at %d: got %q, want %q", i, docID, wantID)
+						}
+						junkLen := r2.IntN(200) + 1
+						gotJunk, err := in.ReadBytesN(junkLen)
+						if err != nil {
+							t.Fatalf("ReadBytesN doc %d: %v", i, err)
+						}
+						wantJunk := make([]byte, junkLen)
+						for j := range wantJunk {
+							wantJunk[j] = byte(r2.IntN(256))
+						}
+						for j := range gotJunk {
+							if gotJunk[j] != wantJunk[j] {
+								t.Fatalf("junk byte mismatch at doc %d byte %d: got %d, want %d",
+									i, j, gotJunk[j], wantJunk[j])
+							}
+						}
+					}
+				}
+			})
+		}
 	})
 }
 
@@ -395,7 +431,7 @@ func newMultiBufferDirectory(t *testing.T, maxChunkSize int) *ByteBuffersDirecto
 }
 
 // deterministicBytes returns n bytes from a deterministic per-call PRNG. The
-// exact seed source is irrelevant for these tests — what matters is
+// exact seed source is irrelevant for these tests -- what matters is
 // reproducibility inside a single `go test` run. Named distinctly from the
 // existing randomBytes helper in base_data_output_test_case_test.go to avoid
 // the package-level collision.

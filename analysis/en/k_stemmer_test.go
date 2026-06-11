@@ -97,7 +97,7 @@ func TestKStemmer_NonAlpha(t *testing.T) {
 
 // TestKStemmer_VocabularyFile runs all pairs from kstem_examples.txt if available.
 func TestKStemmer_VocabularyFile(t *testing.T) {
-	const dataPath = "/tmp/lucene/lucene/analysis/common/src/test/org/apache/lucene/analysis/en/kstem_examples.txt"
+	const dataPath = "kstem_examples.txt"
 	f, err := os.Open(dataPath)
 	if err != nil {
 		t.Fatalf("vocabulary file not available: %v", err)

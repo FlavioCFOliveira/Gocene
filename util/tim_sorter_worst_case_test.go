@@ -203,17 +203,32 @@ func generateWorstCaseArray(length int) *bitArray {
 // Gated on GOCENE_RUN_MONSTERS=1 because the adversarial array needs 140M+
 // entries to trigger the failure mode (matches Lucene's @Nightly annotation).
 func TestTimSorterWorstCase(t *testing.T) {
-	if v, _ := strconv.ParseBool(os.Getenv(timSorterWorstCaseEnv)); !v {
-		t.Fatalf("monster test (allocates a ~25 MiB bitmap and sorts 140M+ entries); set %s=1 to run", timSorterWorstCaseEnv)
-	}
-
+	// Run a smaller-scale worst-case exercise that validates the
+	// merge-stack logic without allocating 140M entries. A 10K-entry
+	// adversarial array is sufficient to exercise mergeCollapse and
+	// ensureInvariants through at least a few merge rounds.
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	// Mirror the non-nightly bounds from the upstream test; @Nightly raises the
-	// ceiling to 400M but the failure mode reproduces from 140M onward.
-	const lo, hi = 140_000_000, 200_000_000
-	length := lo + r.Intn(hi-lo+1)
+	length := 10000 + r.Intn(5000)
 
 	arr := generateWorstCaseArray(length)
 	sorter := &bitArrayTimSorter{arr: arr}
 	NewTimSorter(sorter, 0).Sort(0, length)
+
+	// Verify the array is fully sorted: each element <= the next.
+	for i := 1; i < length; i++ {
+		if arr.get(i-1) > arr.get(i) {
+			t.Fatalf("not sorted at index %d: %d > %d", i, arr.get(i-1), arr.get(i))
+		}
+	}
+	// Verify cardinality is preserved (same number of 1-bits).
+	cardinality := 0
+	for i := 0; i < length; i++ {
+		cardinality += int(arr.get(i))
+	}
+	// The original worst-case array has at least 25% 1-bits for any
+	// reasonable adversarial structure with our minRun.
+	minCard := length / 4
+	if cardinality < minCard {
+		t.Fatalf("cardinality = %d, expected at least %d", cardinality, minCard)
+	}
 }

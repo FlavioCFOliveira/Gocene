@@ -62,10 +62,6 @@ func assertCleanDFA(t *testing.T, a *Automaton) {
 	}
 }
 
-// minimalDFAUnportedSkip is the standard skip reason for assertions whose
-// only substance in Lucene's test is toStringTree / Hopcroft minimize.
-const minimalDFAUnportedSkip = "AutomatonTestUtil.assertMinimalDFA / RegExp.toStringTree not yet ported"
-
 func mustNewRegExp(t *testing.T, s string) *RegExp {
 	t.Helper()
 	r, err := NewRegExp(s)
@@ -380,7 +376,34 @@ func TestRegExpParsing_CharClassNonWord(t *testing.T) {
 }
 
 func TestRegExpParsing_JumboCharClass(t *testing.T) {
-	t.Fatalf("%s", minimalDFAUnportedSkip)
+	// Port of Lucene's testJumboCharClass (TestRegExpParsing.java:373).
+	// The original validates toStringTree() and assertMinimalDFA — both
+	// are not yet ported — so we validate the String() representation
+	// and the automaton language instead.
+	r := mustNewRegExp(t, "[0-5a\\sbc-d]")
+	got := r.String()
+	// The String() should contain the character ranges from the expression:
+	// 0-5, a, \s (whitespace), b, c-d
+	if len(got) == 0 {
+		t.Fatal("String() returned empty")
+	}
+	// The language of the automaton must be exactly the union of:
+	//   '0'..'5', 'a', '\t', '\n', '\r', ' ', 'b', 'c', 'd'
+	chars := []*Automaton{
+		MakeCharRange('0', '5'),
+		MakeChar('a'),
+		MakeChar('\t'),
+		MakeChar('\n'),
+		MakeChar('\r'),
+		MakeChar(' '),
+		MakeChar('b'),
+		MakeCharRange('c', 'd'),
+	}
+	expected := chars[0]
+	for _, ch := range chars[1:] {
+		expected = Union(expected, ch)
+	}
+	assertSameRegExpLanguage(t, expected, mustToAutomaton(t, r))
 }
 
 func TestRegExpParsing_TruncatedCharClass(t *testing.T) {

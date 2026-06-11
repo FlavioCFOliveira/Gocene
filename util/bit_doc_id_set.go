@@ -92,6 +92,12 @@ func (b *BitDocIdSet) Cost() int64 {
 	return b.cost
 }
 
+// RamBytesUsed returns the RAM footprint in bytes, delegating to the
+// underlying BitSet's accounting. Mirrors {@code BitDocIdSet#ramBytesUsed()}.
+func (b *BitDocIdSet) RamBytesUsed() int64 {
+	return b.set.RamBytesUsed()
+}
+
 // String returns a textual description of this set mirroring
 // {@code BitDocIdSet#toString()}: "BitDocIdSet(set=<set>,cost=<cost>)".
 func (b *BitDocIdSet) String() string {

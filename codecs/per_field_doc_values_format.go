@@ -310,6 +310,64 @@ func (c *PerFieldDocValuesConsumer) AddSortedSetField(field *index.FieldInfo, va
 	return consumer.AddSortedSetField(field, values)
 }
 
+// sortedFieldFromReader is a local copy of the structural contract that
+// index.sortedDVConsumerDelegate requires. We define it here because the
+// index interface is unexported; Go structural typing means a type assertion
+// in the index package against this concrete type will succeed when these
+// methods are present.
+type sortedFieldFromReader interface {
+	AddSortedFieldFromReader(field *index.FieldInfo, reset func() (index.SortedDocValues, error)) error
+	AddSortedSetFieldFromReader(field *index.FieldInfo, reset func() (index.SortedSetDocValues, error)) error
+}
+
+// AddSortedFieldFromReader writes a SORTED doc-values field through the
+// delegate chosen for field, using the read-side entry point that builds the
+// terms dictionary from a reset-closure-backed SortedDocValues.
+//
+// This satisfies the index.sortedDVConsumerDelegate interface (via structural
+// typing) so the DWPT flush path can route SORTED fields through the
+// PerField wrapper to the underlying Lucene90DocValuesConsumer.
+func (c *PerFieldDocValuesConsumer) AddSortedFieldFromReader(field *index.FieldInfo, reset func() (index.SortedDocValues, error)) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return fmt.Errorf("PerFieldDocValuesConsumer is closed")
+	}
+	consumer, err := c.getInstance(field)
+	if err != nil {
+		return err
+	}
+	delegate, ok := consumer.(sortedFieldFromReader)
+	if !ok {
+		return fmt.Errorf("PerFieldDocValuesConsumer: underlying consumer for field %q does not support SORTED fields from reader", field.Name())
+	}
+	return delegate.AddSortedFieldFromReader(field, reset)
+}
+
+// AddSortedSetFieldFromReader writes a SORTED_SET doc-values field through the
+// delegate chosen for field, using the read-side entry point that builds the
+// terms dictionary from a reset-closure-backed SortedSetDocValues.
+//
+// This satisfies the index.sortedDVConsumerDelegate interface (via structural
+// typing) so the DWPT flush path can route SORTED_SET fields through the
+// PerField wrapper to the underlying Lucene90DocValuesConsumer.
+func (c *PerFieldDocValuesConsumer) AddSortedSetFieldFromReader(field *index.FieldInfo, reset func() (index.SortedSetDocValues, error)) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return fmt.Errorf("PerFieldDocValuesConsumer is closed")
+	}
+	consumer, err := c.getInstance(field)
+	if err != nil {
+		return err
+	}
+	delegate, ok := consumer.(sortedFieldFromReader)
+	if !ok {
+		return fmt.Errorf("PerFieldDocValuesConsumer: underlying consumer for field %q does not support SORTED_SET fields from reader", field.Name())
+	}
+	return delegate.AddSortedSetFieldFromReader(field, reset)
+}
+
 // AddSortedNumericField writes a sorted-numeric doc values field through
 // the delegate chosen for field, recording the format/suffix metadata on
 // field.

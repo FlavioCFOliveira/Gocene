@@ -537,8 +537,14 @@ func Discretize(value, bucket int) int {
 // Returns an error if any q[i] is outside [0, 15], rather than
 // silently corrupting the output.
 func TransposeHalfByte(q []byte, quantQueryByte []byte) error {
-	if len(quantQueryByte) < len(q)*3 {
-		panic(fmt.Sprintf("TransposeHalfByte: quantQueryByte too small (%d < %d)", len(quantQueryByte), len(q)*3))
+	// The output is divided into 4 equal-sized bit-planes, each
+	// requiring ceil(len(q)/8) bytes. The total minimum is therefore
+	// 4 * ceil(len(q)/8). The Java reference has no explicit bounds
+	// check (the Java assert is disabled at runtime), but we enforce
+	// the minimum to prevent out-of-bounds writes.
+	minLen := 4 * ((len(q) + 7) / 8)
+	if len(quantQueryByte) < minLen {
+		panic(fmt.Sprintf("TransposeHalfByte: quantQueryByte too small (%d < %d)", len(quantQueryByte), minLen))
 	}
 
 	for _, v := range q {

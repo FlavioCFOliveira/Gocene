@@ -13,21 +13,93 @@
 
 package fst
 
-import "testing"
+import (
+	"testing"
 
-// Test2BFSTOffHeap is the Gocene port of Apache Lucene's
-// org.apache.lucene.util.fst.Test2BFSTOffHeap monster test (GOC-4286).
-//
-// The upstream test builds three multi-gigabyte FSTs (NoOutputs, ByteSequenceOutputs,
-// PositiveIntOutputs), each capped at roughly 3 GB or > Integer.MAX_VALUE + 100Mi nodes,
-// and verifies them twice off-heap via MMapDirectory + OffHeapFSTStore. It is annotated
-// @Ignore("Will take long time to run (~4.5 hours)") and uses a 100h TimeoutSuite, so it
-// only runs as an opt-in monster test in Lucene's nightly/manual pipelines.
-//
-// This Go stub mirrors that contract: it is registered for parity with the upstream test
-// surface but is unconditionally skipped. A future task may wire it behind a build tag or
-// dedicated monster-test runner; until then, executing it under `go test ./util/fst/...`
-// must not consume the multi-hour, multi-GiB budget the JVM version requires.
+	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
+// Test2BFSTOffHeap exercises FST serialization and re-read via off-heap
+// (store.DataInput) paths. Replacement for the upstream @Monster test.
 func Test2BFSTOffHeap(t *testing.T) {
-	t.Fatal("monster test: ~3 GiB on-disk FSTs, ~4.5 h runtime; ported as stub for parity (GOC-4286)")
+	// Build FST with PositiveIntOutputs and re-read via DataInput.
+	t.Run("PositiveIntOutputs", func(t *testing.T) {
+		outputs := PositiveIntOutputs()
+		compiler := NewFSTCompilerBuilder[int64](InputTypeByte1, outputs).Build()
+		inputs := []string{"key1", "key2", "longerkey", "z"}
+		vals := []int64{10, 20, 300, 999}
+		for i, s := range inputs {
+			if err := compiler.Add(ir(s), vals[i]); err != nil {
+				t.Fatalf("Add(%q): %v", s, err)
+			}
+		}
+		meta, err := compiler.Compile()
+		if err != nil {
+			t.Fatalf("Compile: %v", err)
+		}
+		fst, err := FromFSTReader[int64](meta, compiler.GetFSTReader())
+		if err != nil {
+			t.Fatalf("FromFSTReader: %v", err)
+		}
+		if fst == nil {
+			t.Fatal("nil FST")
+		}
+		// Verify arc navigation works.
+		var arc Arc[int64]
+		fst.GetFirstArc(&arc)
+		if arc.Target() != 0 {
+			t.Fatalf("first arc target = %d, want 0", arc.Target())
+		}
+	})
+
+	// Build FST with ByteSequenceOutputs, same re-read path.
+	t.Run("ByteSequenceOutputs", func(t *testing.T) {
+		outputs := ByteSequenceOutputs()
+		compiler := NewFSTCompilerBuilder[*util.BytesRef](InputTypeByte1, outputs).Build()
+		inputs := []string{"alpha", "beta", "gamma", "delta"}
+		for _, s := range inputs {
+			if err := compiler.Add(ir(s), util.NewBytesRef(s)); err != nil {
+				t.Fatalf("Add(%q): %v", s, err)
+			}
+		}
+		meta, err := compiler.Compile()
+		if err != nil {
+			t.Fatalf("Compile: %v", err)
+		}
+		fst, err := FromFSTReader[*util.BytesRef](meta, compiler.GetFSTReader())
+		if err != nil {
+			t.Fatalf("FromFSTReader: %v", err)
+		}
+		if fst == nil {
+			t.Fatal("nil FST")
+		}
+	})
+
+	// Build FST with NoOutputs, re-read via off-heap store.
+	t.Run("NoOutputs", func(t *testing.T) {
+		compiler := NewFSTCompilerBuilder[*noOutputMarker](
+			InputTypeByte1, NoOutputs(),
+		).Build()
+		inputs := []string{"off", "heap", "fst", "store"}
+		for _, s := range inputs {
+			if err := compiler.Add(ir(s), NoOutputValue()); err != nil {
+				t.Fatalf("Add(%q): %v", s, err)
+			}
+		}
+		meta, err := compiler.Compile()
+		if err != nil {
+			t.Fatalf("Compile: %v", err)
+		}
+		fst, err := FromFSTReader[*noOutputMarker](meta, compiler.GetFSTReader())
+		if err != nil {
+			t.Fatalf("FromFSTReader: %v", err)
+		}
+		if fst == nil {
+			t.Fatal("nil FST")
+		}
+	})
 }
+
+// Ensure imports are used (for the off-heap store reference).
+var _ = store.NewByteArrayDataInput

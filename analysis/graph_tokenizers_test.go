@@ -424,40 +424,333 @@ func tokenEqual(a, b testutil.Token) bool {
 		a.PositionIncrement == b.PositionIncrement && a.PositionLength == b.PositionLength
 }
 
-// TestGraphTokenizers_MockGraphTokenFilterBeforeHoles mirrors testMockGraphTokenFilterBeforeHoles.
-// Requires MockGraphTokenFilter and MockTokenizer (not yet ported to Gocene).
+// ---- RemoveATokensFilter helper -----------------------------------------
+
+// removeATokensFilter is a TokenFilter that removes tokens whose term is "a",
+// accumulating their position increment into the next non-"a" token.
+// This is a port of the RemoveATokens inner class in Java's TestGraphTokenizers.
+type removeATokensFilter struct {
+	*analysis.BaseTokenFilter
+
+	pendingPosInc int
+	termAtt       analysis.CharTermAttribute
+	posIncAtt     analysis.PositionIncrementAttribute
+}
+
+func newRemoveATokensFilter(input analysis.TokenStream) *removeATokensFilter {
+	f := &removeATokensFilter{
+		BaseTokenFilter: analysis.NewBaseTokenFilter(input),
+	}
+	if src := f.GetAttributeSource(); src != nil {
+		if att := src.GetAttribute(analysis.CharTermAttributeType); att != nil {
+			if cta, ok := att.(analysis.CharTermAttribute); ok {
+				f.termAtt = cta
+			}
+		}
+		if att := src.GetAttribute(analysis.PositionIncrementAttributeType); att != nil {
+			if pia, ok := att.(analysis.PositionIncrementAttribute); ok {
+				f.posIncAtt = pia
+			}
+		}
+	}
+	return f
+}
+
+func (f *removeATokensFilter) Reset() error {
+	if resetter, ok := f.GetInput().(interface{ Reset() error }); ok {
+		if err := resetter.Reset(); err != nil {
+			return err
+		}
+	}
+	f.pendingPosInc = 0
+	return nil
+}
+
+func (f *removeATokensFilter) End() error {
+	if err := f.GetInput().End(); err != nil {
+		return err
+	}
+	f.posIncAtt.SetPositionIncrement(f.pendingPosInc + f.posIncAtt.GetPositionIncrement())
+	return nil
+}
+
+func (f *removeATokensFilter) IncrementToken() (bool, error) {
+	for {
+		gotOne, err := f.GetInput().IncrementToken()
+		if err != nil {
+			return false, err
+		}
+		if !gotOne {
+			return false, nil
+		}
+		if f.termAtt.String() == "a" {
+			f.pendingPosInc += f.posIncAtt.GetPositionIncrement()
+		} else {
+			f.posIncAtt.SetPositionIncrement(f.pendingPosInc + f.posIncAtt.GetPositionIncrement())
+			f.pendingPosInc = 0
+			return true, nil
+		}
+	}
+}
+
+// ---- drainTokens --------------------------------------------------------
+
+// drainableTokenStream is the subset of methods needed to drain tokens and
+// verify determinism.
+type drainableTokenStream interface {
+	Reset() error
+	IncrementToken() (bool, error)
+	GetAttributeSource() *util.AttributeSource
+}
+
+// drainTokens calls Reset on the stream, then drains all tokens into a slice.
+func drainTokens(t *testing.T, iter int, stream drainableTokenStream) []testutil.Token {
+	t.Helper()
+	if err := stream.Reset(); err != nil {
+		t.Fatalf("iter %d: Reset error: %v", iter, err)
+	}
+	var out []testutil.Token
+	for {
+		hasToken, err := stream.IncrementToken()
+		if err != nil {
+			t.Fatalf("iter %d: IncrementToken error: %v", iter, err)
+		}
+		if !hasToken {
+			break
+		}
+		out = append(out, tokenFromSource(stream.GetAttributeSource()))
+	}
+	return out
+}
+
+// ---- Test implementations ------------------------------------------------
+
+// TestGraphTokenizers_MockGraphTokenFilterBeforeHoles mirrors
+// testMockGraphTokenFilterBeforeHoles. Chain: CannedTokenStream ->
+// MockGraphTokenFilter -> RemoveATokens. Verifies that no "a" tokens leak
+// through and that the output is deterministic for the same seed.
 func TestGraphTokenizers_MockGraphTokenFilterBeforeHoles(t *testing.T) {
-	t.Fatal("requires MockGraphTokenFilter/MockTokenizer infrastructure (not yet ported to Gocene)")
+	for iter := 0; iter < 10; iter++ {
+		rng := rand.New(rand.NewSource(int64(iter)))
+
+		cts := testutil.NewCannedTokenStream(
+			mkTok("x", 1, 1),
+			mkTok("y", 1, 1),
+			mkTok("a", 1, 1),
+			mkTok("b", 1, 1),
+			mkTok("c", 1, 1),
+			mkTok("a", 1, 1),
+			mkTok("d", 1, 1),
+		)
+		mgf := analysis.NewMockGraphTokenFilter(rng, cts)
+		rem := newRemoveATokensFilter(mgf)
+
+		// First pass: drain and verify no "a" tokens.
+		out1 := drainTokens(t, iter, rem)
+		for _, tok := range out1 {
+			if tok.Text == "a" {
+				t.Fatalf("iter %d: token 'a' found in output after RemoveATokens", iter)
+			}
+		}
+
+		// Second pass: verify determinism (same seed produces same output).
+		out2 := drainTokens(t, iter, rem)
+		if len(out1) != len(out2) {
+			t.Fatalf("iter %d: determinism token count mismatch: %d vs %d",
+				iter, len(out1), len(out2))
+		}
+		for i := range out1 {
+			if !tokenEqual(out1[i], out2[i]) {
+				t.Fatalf("iter %d: determinism token mismatch at %d", iter, i)
+			}
+		}
+	}
 }
 
-// TestGraphTokenizers_MockGraphTokenFilterAfterHoles mirrors testMockGraphTokenFilterAfterHoles.
-// Requires MockGraphTokenFilter and MockTokenizer (not yet ported to Gocene).
+// TestGraphTokenizers_MockGraphTokenFilterAfterHoles mirrors
+// testMockGraphTokenFilterAfterHoles. Chain: CannedTokenStream ->
+// RemoveATokens -> MockGraphTokenFilter. Verifies determinism and that
+// MockGraphTokenFilter runs correctly when holes precede it.
 func TestGraphTokenizers_MockGraphTokenFilterAfterHoles(t *testing.T) {
-	t.Fatal("requires MockGraphTokenFilter/MockTokenizer infrastructure (not yet ported to Gocene)")
+	for iter := 0; iter < 10; iter++ {
+		rng := rand.New(rand.NewSource(int64(iter)))
+
+		cts := testutil.NewCannedTokenStream(
+			mkTok("x", 1, 1),
+			mkTok("y", 1, 1),
+			mkTok("a", 1, 1),
+			mkTok("b", 1, 1),
+			mkTok("c", 1, 1),
+			mkTok("a", 1, 1),
+			mkTok("d", 1, 1),
+		)
+		rem := newRemoveATokensFilter(cts)
+		mgf := analysis.NewMockGraphTokenFilter(rng, rem)
+
+		out1 := drainTokens(t, iter, mgf)
+		out2 := drainTokens(t, iter, mgf)
+
+		if len(out1) != len(out2) {
+			t.Fatalf("iter %d: determinism token count mismatch: %d vs %d",
+				iter, len(out1), len(out2))
+		}
+		for i := range out1 {
+			if !tokenEqual(out1[i], out2[i]) {
+				t.Fatalf("iter %d: determinism token mismatch at %d", iter, i)
+			}
+		}
+	}
 }
 
-// TestGraphTokenizers_MockGraphTokenFilterRandom mirrors testMockGraphTokenFilterRandom.
-// Requires MockGraphTokenFilter and MockTokenizer (not yet ported to Gocene).
+// randomTokens generates a slice of random Tokens for testing.
+func randomTokens(rng *rand.Rand, count int) []testutil.Token {
+	tokens := make([]testutil.Token, count)
+	letters := []string{"x", "y", "z", "b", "c", "d", "e", "f", "g"}
+	for i := range tokens {
+		letter := letters[rng.Intn(len(letters))]
+		posInc := rng.Intn(3) + 1
+		posLen := rng.Intn(3) + 1
+		start := i * 2
+		end := start + 2
+		tokens[i] = testutil.NewTokenWithPosIncAndLength(letter, posInc, start, end, posLen)
+	}
+	return tokens
+}
+
+// TestGraphTokenizers_MockGraphTokenFilterRandom mirrors
+// testMockGraphTokenFilterRandom. Chain: CannedTokenStream ->
+// MockGraphTokenFilter. Uses random CannedTokenStream inputs and verifies
+// deterministic output.
 func TestGraphTokenizers_MockGraphTokenFilterRandom(t *testing.T) {
-	t.Fatal("requires MockGraphTokenFilter/MockTokenizer infrastructure (not yet ported to Gocene)")
+	for iter := 0; iter < 5; iter++ {
+		rng := rand.New(rand.NewSource(int64(iter)))
+
+		cts := testutil.NewCannedTokenStream(randomTokens(rng, 10)...)
+
+		// Re-seed to create the filter with the same source (the
+		// filter snapshots the seed internally for determinism).
+		filterRng := rand.New(rand.NewSource(int64(iter)))
+		mgf := analysis.NewMockGraphTokenFilter(filterRng, cts)
+
+		out1 := drainTokens(t, iter, mgf)
+		if len(out1) == 0 {
+			t.Fatalf("iter %d: expected non-empty output", iter)
+		}
+
+		out2 := drainTokens(t, iter, mgf)
+		if len(out1) != len(out2) {
+			t.Fatalf("iter %d: determinism token count mismatch: %d vs %d",
+				iter, len(out1), len(out2))
+		}
+		for i := range out1 {
+			if !tokenEqual(out1[i], out2[i]) {
+				t.Fatalf("iter %d: determinism token mismatch at %d", iter, i)
+			}
+		}
+	}
 }
 
-// TestGraphTokenizers_DoubleMockGraphTokenFilterRandom mirrors testDoubleMockGraphTokenFilterRandom.
-// Requires MockGraphTokenFilter and MockTokenizer (not yet ported to Gocene).
+// TestGraphTokenizers_DoubleMockGraphTokenFilterRandom mirrors
+// testDoubleMockGraphTokenFilterRandom. Chain: CannedTokenStream ->
+// MockGraphTokenFilter -> MockGraphTokenFilter. Two graph filters in
+// sequence. Verifies determinism.
 func TestGraphTokenizers_DoubleMockGraphTokenFilterRandom(t *testing.T) {
-	t.Fatal("requires MockGraphTokenFilter/MockTokenizer infrastructure (not yet ported to Gocene)")
+	for iter := 0; iter < 5; iter++ {
+		rng := rand.New(rand.NewSource(int64(iter)))
+
+		cts := testutil.NewCannedTokenStream(randomTokens(rng, 10)...)
+
+		filter1Rng := rand.New(rand.NewSource(int64(iter)))
+		mgf1 := analysis.NewMockGraphTokenFilter(filter1Rng, cts)
+
+		filter2Seed := int64(iter) + 1000
+		filter2Rng := rand.New(rand.NewSource(filter2Seed))
+		mgf2 := analysis.NewMockGraphTokenFilter(filter2Rng, mgf1)
+
+		out1 := drainTokens(t, iter, mgf2)
+		if len(out1) == 0 {
+			t.Fatalf("iter %d: expected non-empty output", iter)
+		}
+
+		out2 := drainTokens(t, iter, mgf2)
+		if len(out1) != len(out2) {
+			t.Fatalf("iter %d: determinism token count mismatch: %d vs %d",
+				iter, len(out1), len(out2))
+		}
+		for i := range out1 {
+			if !tokenEqual(out1[i], out2[i]) {
+				t.Fatalf("iter %d: determinism token mismatch at %d", iter, i)
+			}
+		}
+	}
 }
 
-// TestGraphTokenizers_MockGraphTokenFilterBeforeHolesRandom mirrors testMockGraphTokenFilterBeforeHolesRandom.
-// Requires MockGraphTokenFilter, MockHoleInjectingTokenFilter, and MockTokenizer.
+// TestGraphTokenizers_MockGraphTokenFilterBeforeHolesRandom mirrors
+// testMockGraphTokenFilterBeforeHolesRandom. Chain: CannedTokenStream ->
+// MockGraphTokenFilter -> MockHoleInjectingTokenFilter. Verifies
+// determinism.
 func TestGraphTokenizers_MockGraphTokenFilterBeforeHolesRandom(t *testing.T) {
-	t.Fatal("requires MockGraphTokenFilter/MockHoleInjectingTokenFilter/MockTokenizer infrastructure (not yet ported to Gocene)")
+	for iter := 0; iter < 5; iter++ {
+		rng := rand.New(rand.NewSource(int64(iter)))
+
+		cts := testutil.NewCannedTokenStream(randomTokens(rng, 10)...)
+
+		mgfRng := rand.New(rand.NewSource(int64(iter)))
+		mgf := analysis.NewMockGraphTokenFilter(mgfRng, cts)
+
+		holeRng := rand.New(rand.NewSource(int64(iter) + 2000))
+		hole := analysis.NewMockHoleInjectingTokenFilter(holeRng, mgf)
+
+		out1 := drainTokens(t, iter, hole)
+		if len(out1) == 0 {
+			t.Fatalf("iter %d: expected non-empty output", iter)
+		}
+
+		out2 := drainTokens(t, iter, hole)
+		if len(out1) != len(out2) {
+			t.Fatalf("iter %d: determinism token count mismatch: %d vs %d",
+				iter, len(out1), len(out2))
+		}
+		for i := range out1 {
+			if !tokenEqual(out1[i], out2[i]) {
+				t.Fatalf("iter %d: determinism token mismatch at %d", iter, i)
+			}
+		}
+	}
 }
 
-// TestGraphTokenizers_MockGraphTokenFilterAfterHolesRandom mirrors testMockGraphTokenFilterAfterHolesRandom.
-// Requires MockGraphTokenFilter, MockHoleInjectingTokenFilter, and MockTokenizer.
+// TestGraphTokenizers_MockGraphTokenFilterAfterHolesRandom mirrors
+// testMockGraphTokenFilterAfterHolesRandom. Chain: CannedTokenStream ->
+// MockHoleInjectingTokenFilter -> MockGraphTokenFilter. Verifies
+// determinism.
 func TestGraphTokenizers_MockGraphTokenFilterAfterHolesRandom(t *testing.T) {
-	t.Fatal("requires MockGraphTokenFilter/MockHoleInjectingTokenFilter/MockTokenizer infrastructure (not yet ported to Gocene)")
+	for iter := 0; iter < 5; iter++ {
+		rng := rand.New(rand.NewSource(int64(iter)))
+
+		cts := testutil.NewCannedTokenStream(randomTokens(rng, 10)...)
+
+		holeRng := rand.New(rand.NewSource(int64(iter) + 2000))
+		hole := analysis.NewMockHoleInjectingTokenFilter(holeRng, cts)
+
+		mgfRng := rand.New(rand.NewSource(int64(iter)))
+		mgf := analysis.NewMockGraphTokenFilter(mgfRng, hole)
+
+		out1 := drainTokens(t, iter, mgf)
+		if len(out1) == 0 {
+			t.Fatalf("iter %d: expected non-empty output", iter)
+		}
+
+		out2 := drainTokens(t, iter, mgf)
+		if len(out1) != len(out2) {
+			t.Fatalf("iter %d: determinism token count mismatch: %d vs %d",
+				iter, len(out1), len(out2))
+		}
+		for i := range out1 {
+			if !tokenEqual(out1[i], out2[i]) {
+				t.Fatalf("iter %d: determinism token mismatch at %d", iter, i)
+			}
+		}
+	}
 }
 
 // mkTokOffset is used by TestGraphTokenizers_ToDot but retained here so the

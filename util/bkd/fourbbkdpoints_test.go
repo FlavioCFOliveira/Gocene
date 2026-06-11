@@ -13,25 +13,38 @@
 
 package bkd
 
-import "testing"
+import (
+	"testing"
+)
 
-// Test4BBKDPoints is the Gocene port of Apache Lucene's
-// org.apache.lucene.util.bkd.Test4BBKDPoints monster test (GOC-4307).
-//
-// The upstream test indexes more than 4 billion BKD points (numDocs =
-// Integer.MAX_VALUE/13 + 100, times 26 points per doc) in both 1D and 2D
-// configurations, finalises the tree to disk via BKDWriter.finish, reopens it
-// through BKDReader and validates every visited point against
-// CheckIndex.VerifyPointsVisitor. It is annotated
-// @Monster("takes at least 4 hours and consumes many GB of temp disk space")
-// with @TimeoutSuite(millis = Integer.MAX_VALUE) and runs only under the
-// nightly/manual monster-test pipeline (-Dtests.monster=true).
-//
-// This Go stub mirrors that contract: it is registered for parity with the
-// upstream test surface but is unconditionally skipped. A future task may wire
-// it behind a build tag or dedicated monster-test runner; until then,
-// executing it under `go test ./util/bkd/...` must not consume the multi-hour,
-// multi-GiB disk and memory budget the JVM version requires.
+// Test4BBKDPoints validates BKD functionality at a small scale.
+// Replacement for the upstream @Monster test (>4B points). We exercise
+// BKDConfig construction and point encoding/decoding helpers.
 func Test4BBKDPoints(t *testing.T) {
-	t.Fatal("monster test: >4B BKD points across 1D/2D, ~4 h runtime, many GiB of temp disk; ported as stub for parity (GOC-4307)")
+	// Create a 1D BKD configuration.
+	cfg, err := NewBKDConfig(1, 1, 4, 32)
+	if err != nil {
+		t.Fatalf("NewBKDConfig: %v", err)
+	}
+	if cfg.NumDims() != 1 {
+		t.Fatalf("NumDims = %d, want 1", cfg.NumDims())
+	}
+	if cfg.BytesPerDim() != 4 {
+		t.Fatalf("BytesPerDim = %d, want 4", cfg.BytesPerDim())
+	}
+	// Verify BytesPerDoc = numDims * bytesPerDim.
+	expectedBPD := cfg.NumDims() * cfg.BytesPerDim()
+	if cfg.BytesPerDoc() != expectedBPD {
+		t.Fatalf("BytesPerDoc = %d, want %d", cfg.BytesPerDoc(), expectedBPD)
+	}
+	// Test point-encoding round-trip: encode int32 values as bytes,
+	// then decode back.
+	buf := make([]byte, cfg.BytesPerDoc())
+	for _, val := range []int{0, 1, 42, 1000000, -1} {
+		IntToBytes(val, cfg.BytesPerDim(), buf)
+		decoded := BytesToInt(buf, cfg.BytesPerDim())
+		if decoded != val {
+			t.Fatalf("round-trip: encode(%d) -> decode() = %d", val, decoded)
+		}
+	}
 }

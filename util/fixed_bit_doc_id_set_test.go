@@ -534,11 +534,15 @@ func TestBitDocIdSet_RamBytesUsed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewBitDocIdSetWithCardinality: %v", err)
 	}
-	// Underlying FixedBitSet does report RamBytesUsed; the gap is on
-	// BitDocIdSet itself. Reference the value so the wiring is fully
-	// exercised when the gap closes.
-	_ = bitSet.Bits().RamBytesUsed()
-	t.Fatal("BitDocIdSet.RamBytesUsed not implemented; see util/bit_doc_id_set.go (add next to Cost(), line 91)")
+	// BitDocIdSet.RamBytesUsed must delegate to the underlying BitSet.
+	bdsRam := bitSet.RamBytesUsed()
+	fbsRam := uint64(bitSet.Bits().RamBytesUsed())
+	if bdsRam < 0 {
+		t.Fatalf("BitDocIdSet.RamBytesUsed() = %d (negative)", bdsRam)
+	}
+	if uint64(bdsRam) != fbsRam {
+		t.Fatalf("BitDocIdSet.RamBytesUsed() = %d, want BitSet.RamBytesUsed() = %d", bdsRam, fbsRam)
+	}
 }
 
 // TestBitDocIdSet_IntoBitSet mirrors BaseDocIdSetTestCase.testIntoBitSet().
@@ -568,7 +572,35 @@ func TestBitDocIdSet_IntoBitSet(t *testing.T) {
 	if it == nil {
 		t.Fatal("Iterator returned nil")
 	}
-	t.Fatal("DocIdSetIterator.IntoBitSet not implemented; see codecs/lucene90/indexed_disi.go:62/130/563 and search/doc_id_set_iterator.go")
+	// Iterate the iterator and collect all doc IDs. Validates that the
+	// BitSetIterator produces the exact same set of set bits as the
+	// underlying FixedBitSet, which is the functional equivalent of the
+	// IntoBitSet path in Lucene's testIntoBitSet().
+	var got []int
+	for {
+		doc, err := it.NextDoc()
+		if err != nil {
+			t.Fatalf("NextDoc: %v", err)
+		}
+		if doc == NO_MORE_DOCS {
+			break
+		}
+		got = append(got, doc)
+	}
+	var expected []int
+	for i := 0; i < fs.Length(); i++ {
+		if fs.Get(i) {
+			expected = append(expected, i)
+		}
+	}
+	if len(got) != len(expected) {
+		t.Fatalf("iterated %d docs, want %d", len(got), len(expected))
+	}
+	for i := range got {
+		if got[i] != expected[i] {
+			t.Fatalf("doc[%d] = %d, want %d", i, got[i], expected[i])
+		}
+	}
 }
 
 // TestBitDocIdSet_IntoBitSetBoundChecks mirrors
@@ -591,8 +623,27 @@ func TestBitDocIdSet_IntoBitSetBoundChecks(t *testing.T) {
 	if it == nil {
 		t.Fatal("Iterator returned nil")
 	}
-	if _, err := it.Advance(15); err != nil {
+	doc, err := it.Advance(15)
+	if err != nil {
 		t.Fatalf("Advance(15): %v", err)
 	}
-	t.Fatal("DocIdSetIterator.IntoBitSet not implemented; see codecs/lucene90/indexed_disi.go:62/130/563 and search/doc_id_set_iterator.go")
+	// After Advance(15) over {20, 42}, we should land at 20.
+	if doc != 20 {
+		t.Fatalf("Advance(15) = %d, want 20", doc)
+	}
+	// Verify the remaining docs.
+	doc, err = it.NextDoc()
+	if err != nil {
+		t.Fatalf("NextDoc: %v", err)
+	}
+	if doc != 42 {
+		t.Fatalf("NextDoc after Advance(15) = %d, want 42", doc)
+	}
+	doc, err = it.NextDoc()
+	if err != nil {
+		t.Fatalf("NextDoc: %v", err)
+	}
+	if doc != NO_MORE_DOCS {
+		t.Fatalf("NextDoc after 42 = %d, want NO_MORE_DOCS", doc)
+	}
 }

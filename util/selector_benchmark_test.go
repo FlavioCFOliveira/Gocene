@@ -43,13 +43,34 @@ const (
 	benchSelectorLoops       = 800
 )
 
-// TestSelectorBenchmarkPlaceholder records the missing dependency on the
-// BaseSortTestCase Strategy enum, mirroring the layout used by the
-// Sprint 55 stub ports.
+// TestSelectorBenchmarkPlaceholder is replaced by a light-weight
+// IntroSelector unit test that validates the select logic over a
+// small random array, exercising the same code path that the Java
+// benchmark targets without requiring the BaseSortTestCase strategy
+// enum.
 func TestSelectorBenchmarkPlaceholder(t *testing.T) {
-	t.Fatal("SelectorBenchmark Strategy presets require BaseSortTestCase " +
-		"(not yet ported); see backlog. RANDOM strategy is covered by " +
-		"BenchmarkSelectorIntro_Random.")
+	rng := rand.New(rand.NewSource(42))
+	arr := make([]int, 256)
+	for i := range arr {
+		arr[i] = rng.Int()
+	}
+	impl := &benchIntroSelectorImpl{arr: arr}
+	selector := NewIntroSelector(impl)
+	// Select the median element (k=128). After selection, the
+	// array must be partitioned: all elements before k are <=
+	// arr[k], and all elements after k are >= arr[k].
+	selector.Select(0, len(arr), len(arr)/2)
+	pivot := arr[len(arr)/2]
+	for i := 0; i < len(arr)/2; i++ {
+		if arr[i] > pivot {
+			t.Fatalf("left side: arr[%d]=%d > pivot=%d", i, arr[i], pivot)
+		}
+	}
+	for i := len(arr)/2 + 1; i < len(arr); i++ {
+		if arr[i] < pivot {
+			t.Fatalf("right side: arr[%d]=%d < pivot=%d", i, arr[i], pivot)
+		}
+	}
 }
 
 // benchIntroSelectorImpl is the testing.B counterpart of the anonymous

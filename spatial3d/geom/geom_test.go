@@ -266,17 +266,22 @@ func TestMakeGeoConvexPolygonFactory(t *testing.T) {
 	}
 }
 
-// TestMakeGeoPolygonGeneralUnsupported documents that the winding-order
-// factory is not yet ported and surfaces an explicit error.
-func TestMakeGeoPolygonGeneralUnsupported(t *testing.T) {
+// TestMakeGeoConvexPolygonFromThreePoints verifies that MakeGeoPolygon
+// delegates to the convex/concave polygon factory and succeeds for a simple
+// triangular set of points.
+func TestMakeGeoConvexPolygonFromThreePoints(t *testing.T) {
 	pm := geom.SPHERE
 	pts := []*geom.GeoPoint{
 		geom.NewGeoPointModel(pm, 0, 0),
 		geom.NewGeoPointModel(pm, 0, 0.1),
 		geom.NewGeoPointModel(pm, 0.1, 0.1),
 	}
-	if _, err := geom.MakeGeoPolygon(pm, pts); err == nil {
-		t.Fatal("expected unsupported error from general MakeGeoPolygon")
+	poly, err := geom.MakeGeoPolygon(pm, pts)
+	if err != nil {
+		t.Fatalf("MakeGeoPolygon: expected success for 3-point triangle, got error: %v", err)
+	}
+	if poly == nil {
+		t.Fatal("MakeGeoPolygon returned nil")
 	}
 }
 
