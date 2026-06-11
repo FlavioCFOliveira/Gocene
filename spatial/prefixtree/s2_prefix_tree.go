@@ -51,13 +51,44 @@ func S2GetMaxLevels(arity int) int {
 	return 30/arity + 1
 }
 
-// GetLevelForDistance returns the tree level whose cell side is ≤ dist degrees.
-// Returns MaxLevels — deferred to #2693.
-func (t *S2PrefixTree) GetLevelForDistance(_ float64) int { return t.MaxLevels }
+// GetLevelForDistance returns the tree level whose cell diagonal is ≤ dist
+// degrees. Uses the approximate formula for S2 cell size at the given arity:
+// cell_diagonal ≈ 360 / (2^level). The smallest level whose diagonal ≤ dist
+// is returned, clamped to [0, MaxLevels].
+func (t *S2PrefixTree) GetLevelForDistance(dist float64) int {
+	if dist <= 0 {
+		return t.MaxLevels
+	}
+	// Solve: 360 / (2^level) / sqrt(arity) ≈ dist
+	// level = ceil(log2(360 / dist))
+	level := 0
+	cellSize := 360.0
+	arityFactor := 1.0
+	if t.arity > 1 {
+		arityFactor = float64(t.arity)
+	}
+	for cellSize/arityFactor > dist && level < t.MaxLevels {
+		level++
+		cellSize /= 2.0
+	}
+	if level > t.MaxLevels {
+		level = t.MaxLevels
+	}
+	return level
+}
 
-// GetDistanceForLevel returns the hypotenuse distance for level.
-// Returns 0 — deferred to #2693.
-func (t *S2PrefixTree) GetDistanceForLevel(_ int) float64 { return 0 }
+// GetDistanceForLevel returns the approximate cell diagonal in degrees for
+// the given level.
+func (t *S2PrefixTree) GetDistanceForLevel(level int) float64 {
+	if level <= 0 {
+		return 360.0
+	}
+	arityFactor := 1.0
+	if t.arity > 1 {
+		arityFactor = float64(t.arity)
+	}
+	return 360.0 / float64(int(1)<<uint(level)) / arityFactor
+}
 
 // GetWorldCell returns the level-0 cell.
 func (t *S2PrefixTree) GetWorldCell() Cell {

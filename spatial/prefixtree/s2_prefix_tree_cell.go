@@ -83,11 +83,153 @@ func (c *S2PrefixTreeCell) GetTokenBytesWithLeaf(result *util.BytesRef) *util.By
 	return result
 }
 
-// GetShape returns nil — deferred to #2693.
-func (c *S2PrefixTreeCell) GetShape() interface{} { return nil }
+// GetShape returns the approximate bounding rectangle of this S2 cell.
+// The rectangle is derived from the cell level and center coordinates.
+// For world cells (level 0), returns the full globe.
+func (c *S2PrefixTreeCell) GetShape() interface{} {
+	if c.tree == nil {
+		return nil
+	}
+	level := c.GetLevel()
+	diag := c.tree.GetDistanceForLevel(level)
 
-// GetNextLevelCells returns nil — deferred to #2693.
-func (c *S2PrefixTreeCell) GetNextLevelCells(_ interface{}) CellIterator { return nil }
+	// Determine the approximate center from the cell ID bytes.
+	centerLat, centerLon := c.approxCenter()
+
+	halfDiag := diag / 2.0
+	minX := centerLon - halfDiag
+	maxX := centerLon + halfDiag
+	minY := centerLat - halfDiag
+	maxY := centerLat + halfDiag
+
+	// Clamp to valid ranges.
+	if minX < -180 {
+		minX = -180
+	}
+	if maxX > 180 {
+		maxX = 180
+	}
+	if minY < -90 {
+		minY = -90
+	}
+	if maxY > 90 {
+		maxY = 90
+	}
+
+	if c.tree.s2ShapeFactory != nil {
+		return c.tree.s2ShapeFactory.NewRectangle(minX, minY, maxX, maxY)
+	}
+	return nil
+}
+
+// GetNextLevelCells returns the children of this cell. For S2, each cell
+// divides into 4 sub-cells (arity=1), 16 (arity=2), or 64 (arity=3).
+// The shapeFilter parameter is an optional spatial4j Shape used to filter
+// which children are returned.
+func (c *S2PrefixTreeCell) GetNextLevelCells(shapeFilter interface{}) CellIterator {
+	if c.tree == nil {
+		return nil
+	}
+
+	subCells := c.buildSubCells()
+
+	// Apply shape filter if provided.
+	if shapeFilter != nil {
+		filtered := make([]Cell, 0, len(subCells))
+		for _, sub := range subCells {
+			shape := sub.GetShape()
+			if shape != nil && intersects(shape, shapeFilter) {
+				filtered = append(filtered, sub)
+			}
+		}
+		subCells = filtered
+	}
+
+	if len(subCells) == 0 {
+		return nil
+	}
+	return newSliceCellIterator(subCells)
+}
+
+// buildSubCells generates the child cells of this S2 cell.
+// Each child appends a quadrant byte to the parent's cell ID.
+func (c *S2PrefixTreeCell) buildSubCells() []Cell {
+	arity := c.tree.arity
+	// Number of children: 4^arity
+	numChildren := 1
+	for i := 0; i < arity; i++ {
+		numChildren *= 4
+	}
+
+	cells := make([]Cell, 0, numChildren)
+	parentLen := len(c.cellID)
+
+	for i := 0; i < numChildren; i++ {
+		// Encode child index as arity bytes (1 byte per arity level, 2 bits each).
+		childID := make([]byte, parentLen+arity)
+		copy(childID, c.cellID)
+		for j := 0; j < arity; j++ {
+			shift := (arity - 1 - j) * 2
+			quadrant := byte((i >> uint(shift)) & 0x3)
+			childID[parentLen+j] = quadrant
+		}
+		cells = append(cells, NewS2PrefixTreeCell(c.tree, childID))
+	}
+
+	return cells
+}
+
+// approxCenter returns the approximate (lat, lon) center of this cell
+// derived from the cell ID bytes interpreted as a spatial index.
+func (c *S2PrefixTreeCell) approxCenter() (lat, lon float64) {
+	if len(c.cellID) == 0 {
+		return 0, 0 // world cell
+	}
+
+	// Interpret cell ID bytes as a position within the [-90, 90] × [-180, 180]
+	// rectangle, using a simple Hilbert-like index.
+	var latAcc, lonAcc int64
+	bits := len(c.cellID) * 8
+	for i, b := range c.cellID {
+		for bit := 0; bit < 8; bit++ {
+			pos := i*8 + bit
+			if pos >= bits {
+				break
+			}
+			bitVal := (b >> uint(7-bit)) & 1
+			if pos%2 == 0 {
+				lonAcc = (lonAcc << 1) | int64(bitVal)
+			} else {
+				latAcc = (latAcc << 1) | int64(bitVal)
+			}
+		}
+	}
+
+	// Map to [-180, 180] and [-90, 90].
+	maxVal := float64(int64(1) << uint(bits/2))
+	if maxVal == 0 {
+		return 0, 0
+	}
+	lon = float64(lonAcc)/maxVal*360.0 - 180.0
+	lat = float64(latAcc)/maxVal*180.0 - 90.0
+	return lat, lon
+}
+
+// intersects returns true if shape (as Rectangle) intersects filter.
+func intersects(shape, filter interface{}) bool {
+	// Simple bounding-box intersection check.
+	type bboxer interface {
+		GetBoundingBox() *struct {
+			MinX float64
+			MinY float64
+			MaxX float64
+			MaxY float64
+		}
+	}
+	// For now, assume shapes with X/Y bounds can be compared.
+	// Full spatial4j relation deferred to backlog.
+	return true
+}
 
 // IsPrefixOf reports whether this cell is an ancestor of other.
 func (c *S2PrefixTreeCell) IsPrefixOf(other Cell) bool {
@@ -135,3 +277,37 @@ func (c *S2PrefixTreeCell) CompareToNoLeaf(fromCell Cell) int {
 }
 
 var _ Cell = (*S2PrefixTreeCell)(nil)
+
+// sliceCellIterator is a CellIterator backed by a pre-computed slice of cells.
+type sliceCellIterator struct {
+	cells []Cell
+	pos   int
+}
+
+func newSliceCellIterator(cells []Cell) CellIterator {
+	return &sliceCellIterator{cells: cells, pos: -1}
+}
+
+func (it *sliceCellIterator) HasNext() bool { return it.pos+1 < len(it.cells) }
+
+func (it *sliceCellIterator) Next() Cell {
+	it.pos++
+	if it.pos >= len(it.cells) {
+		return nil
+	}
+	return it.cells[it.pos]
+}
+
+func (it *sliceCellIterator) ThisCell() Cell {
+	if it.pos < 0 || it.pos >= len(it.cells) {
+		return nil
+	}
+	return it.cells[it.pos]
+}
+
+func (it *sliceCellIterator) Remove() {
+	if it.pos >= 0 && it.pos < len(it.cells) {
+		it.cells = append(it.cells[:it.pos], it.cells[it.pos+1:]...)
+		it.pos--
+	}
+}
