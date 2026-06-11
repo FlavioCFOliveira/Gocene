@@ -1,108 +1,191 @@
-// Copyright 2026 Gocene. All rights reserved.
-// Use of this source code is governed by the Apache License 2.0
-// that can be found in the LICENSE file.
+// Test file: all_files_detect_mismatched_checksum_test.go
+// Source: lucene/core/src/test/org/apache/lucene/index/TestAllFilesDetectMismatchedChecksum.java
+// Purpose: Verifies that the default codec detects mismatched checksums, either
+//          on opening a reader or via CheckIntegrity.
+//
+// Port note (Sprint 55, option c):
+//   The Lucene original builds an index with RandomIndexWriter, then for each
+//   file copies the directory while flipping a single byte inside the region
+//   that the codec footer protects (offset >= victimLength - footerLength).
+//   Flipping a body byte makes the stored CRC32 disagree with the recomputed
+//   one; flipping a footer byte corrupts the footer itself. Either way the
+//   codec must report a CorruptIndexException at open or CheckIntegrity time.
+//   Detection therefore relies on every file carrying a CRC32 codec footer.
+//   Gocene's index.WriteSegmentInfos does not yet emit a CRC32 footer (see
+//   TestAllFilesHaveChecksumFooter), so a flipped byte cannot be reliably
+//   distinguished from valid data and the mismatched-checksum contract cannot
+//   be exercised. The port keeps the full structure; unskip once footer
+//   writing lands in the segment-infos writer.
 
-// Package index_test verifies that the index detects files with mismatched
-// checksums in the codec footer.
-//
-// Ported from Apache Lucene 10.4.0:
-//
-//	lucene/core/src/test/org/apache/lucene/index/TestAllFilesDetectMismatchedChecksum.java
-//
-// This is a simplified unit test. Instead of building a full index through
-// RandomIndexWriter and verifying that OpenDirectoryReader catches the
-// corruption (which requires reader-side CRC32 verification, not yet
-// implemented), it writes a segments_N file through WriteSegmentInfos,
-// corrupts a single byte in the footer-protected region of that file, and
-// verifies that codecs.ChecksumEntireFile detects the mismatch.
 package index_test
 
 import (
+	"math/rand"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// TestAllFilesDetectMismatchedChecksum writes a segments_N file via
-// WriteSegmentInfos, corrupts one byte inside its footer-protected region,
-// and asserts that codecs.ChecksumEntireFile detects the corruption.
+// TestAllFilesDetectMismatchedChecksum builds a small index, then for each file
+// in turn flips one byte inside the footer-protected region and asserts that
+// the corruption is detected when opening a reader or running CheckIndex.
 func TestAllFilesDetectMismatchedChecksum(t *testing.T) {
+	// Blocked: OpenDirectoryReader and CheckIndex do not yet verify the CRC32
+	// checksum of individual segment files (.si, .cfe, .cfs) on open or check.
+	// While WriteSegmentInfos now writes CRC32 footers, the reader-side
+	// corruption detection is not implemented. Unskip once the per-file
+	// checksum verification lands.
+	t.Fatal("blocked: mismatched-checksum detection requires per-file CRC32 verification on open/check, not yet implemented")
+
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	// Write a minimal SegmentInfos.
-	si := index.NewSegmentInfos()
-	seg := index.NewSegmentInfo("_0", 100, dir)
-	if err := seg.SetID(make([]byte, 16)); err != nil {
-		t.Fatalf("SetID: %v", err)
-	}
-	sci := index.NewSegmentCommitInfo(seg, 0, -1)
-	si.Add(sci)
+	config := index.NewIndexWriterConfig(nil)
+	config.SetMaxBufferedDocs(2)
 
-	if err := index.WriteSegmentInfos(si, dir); err != nil {
-		t.Fatalf("WriteSegmentInfos: %v", err)
-	}
-
-	segFile := index.GetSegmentFileName(si.Generation())
-
-	// Verify the file is valid before corruption.
-	in, err := dir.OpenInput(segFile, store.IOContextRead)
+	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
-		t.Fatalf("OpenInput: %v", err)
+		t.Fatalf("Failed to create IndexWriter: %v", err)
 	}
-	if _, err := codecs.ChecksumEntireFile(in); err != nil {
-		t.Fatalf("unexpected corruption before test: %v", err)
+
+	for i := 0; i < 100; i++ {
+		doc := document.NewDocument()
+		field, err := document.NewTextField("body", "the quick brown fox "+string(rune('0'+i%10)), true)
+		if err != nil {
+			t.Fatalf("Failed to create text field: %v", err)
+		}
+		doc.Add(field)
+		if err := writer.AddDocument(doc); err != nil {
+			t.Fatalf("Failed to add document %d: %v", i, err)
+		}
 	}
-	in.Close()
 
-	// Corrupt one byte in the footer region and write to a new file.
-	corruptDir := store.NewByteBuffersDirectory()
-	defer corruptDir.Close()
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Failed to close writer: %v", err)
+	}
 
-	length, err := dir.FileLength(segFile)
+	checkMismatchedChecksum(t, dir)
+}
+
+// checkMismatchedChecksum corrupts each file of the index in turn and verifies
+// that the corruption is detected.
+func checkMismatchedChecksum(t *testing.T, dir store.Directory) {
+	t.Helper()
+
+	names, err := dir.ListAll()
 	if err != nil {
-		t.Fatalf("FileLength: %v", err)
-	}
-	if length <= int64(codecs.FooterLength()) {
-		t.Fatalf("file too short (%d bytes) to have a footer", length)
+		t.Fatalf("ListAll: %v", err)
 	}
 
-	// Flip a byte in [length-FooterLength, length-1] — the footer region.
-	flipOffset := length - int64(codecs.FooterLength())
+	for _, name := range names {
+		if name == "write.lock" {
+			continue
+		}
+		corruptOneFile(t, dir, name)
+	}
+}
 
-	readIn, err := dir.OpenInput(segFile, store.IOContextReadOnce)
+// corruptOneFile copies the index into a fresh directory, flipping a single
+// byte of the victim file inside the footer-protected region, and asserts that
+// opening a reader and running CheckIndex both fail.
+func corruptOneFile(t *testing.T, dir store.Directory, victim string) {
+	t.Helper()
+
+	dirCopy := store.NewByteBuffersDirectory()
+	defer dirCopy.Close()
+
+	victimLength, err := dir.FileLength(victim)
 	if err != nil {
-		t.Fatalf("OpenInput: %v", err)
+		t.Fatalf("FileLength %q: %v", victim, err)
 	}
-	original, err := readIn.ReadBytesN(int(length))
+	if victimLength <= 0 {
+		t.Fatalf("victim %q has non-positive length %d", victim, victimLength)
+	}
+
+	// Flip a byte somewhere in [victimLength-footerLength, victimLength-1], the
+	// region covered by the CRC32 footer, so the corruption is always detected.
+	footerLen := int64(codecs.FooterLength())
+	lo := victimLength - footerLen
+	if lo < 0 {
+		lo = 0
+	}
+	hi := victimLength - 1
+	flipOffset := lo
+	if hi > lo {
+		flipOffset = lo + rand.Int63n(hi-lo+1)
+	}
+
+	names, err := dir.ListAll()
 	if err != nil {
-		t.Fatalf("ReadBytesN: %v", err)
+		t.Fatalf("ListAll: %v", err)
 	}
-	readIn.Close()
 
-	corrupted := make([]byte, len(original))
-	copy(corrupted, original)
-	corrupted[flipOffset] ^= 0xFF // flip all bits
+	for _, name := range names {
+		if name != victim {
+			length, err := dir.FileLength(name)
+			if err != nil {
+				t.Fatalf("FileLength %q: %v", name, err)
+			}
+			copyFileBytes(t, dir, dirCopy, name, name, length)
+			continue
+		}
+		copyCorruptedFile(t, dir, dirCopy, name, flipOffset)
+	}
 
-	out, err := corruptDir.CreateOutput(segFile, store.IOContextDefault)
+	// There must be an error opening the reader; the type is unspecified.
+	if reader, err := index.OpenDirectoryReader(dirCopy); err == nil {
+		_ = reader.Close()
+		t.Errorf("mismatched checksum of %q not detected on opening a reader", victim)
+	}
+
+	// CheckIndex must also fail.
+	ci, err := index.NewCheckIndex(dirCopy)
 	if err != nil {
-		t.Fatalf("CreateOutput: %v", err)
+		// A failure to even construct CheckIndex is an acceptable detection.
+		return
 	}
-	if err := out.WriteBytesN(corrupted, len(corrupted)); err != nil {
-		t.Fatalf("WriteBytesN: %v", err)
+	if status, err := ci.CheckIndex(); err == nil && status != nil && status.Clean {
+		t.Errorf("mismatched checksum of %q not detected by CheckIndex", victim)
 	}
-	out.Close()
+}
 
-	// Verify ChecksumEntireFile detects the corruption.
-	corruptIn, err := corruptDir.OpenInput(segFile, store.IOContextRead)
+// copyCorruptedFile reads src from dir and writes it to dst in dirCopy with the
+// byte at flipOffset replaced by a different value, producing a file whose
+// stored CRC32 footer no longer matches its contents.
+func copyCorruptedFile(t *testing.T, dir, dirCopy store.Directory, name string, flipOffset int64) {
+	t.Helper()
+
+	in, err := dir.OpenInput(name, store.IOContextReadOnce)
 	if err != nil {
-		t.Fatalf("OpenInput: %v", err)
+		t.Fatalf("OpenInput %q: %v", name, err)
 	}
-	defer corruptIn.Close()
+	defer in.Close()
 
-	if _, err := codecs.ChecksumEntireFile(corruptIn); err == nil {
-		t.Fatal("mismatched checksum was NOT detected by ChecksumEntireFile")
+	length, err := dir.FileLength(name)
+	if err != nil {
+		t.Fatalf("FileLength %q: %v", name, err)
+	}
+
+	buf, err := in.ReadBytesN(int(length))
+	if err != nil {
+		t.Fatalf("ReadBytesN %q: %v", name, err)
+	}
+
+	// Add a non-zero delta in [0x01, 0xFF] so the byte is guaranteed to change.
+	delta := byte(rand.Intn(0xFF) + 0x01)
+	buf[flipOffset] += delta
+
+	out, err := dirCopy.CreateOutput(name, store.IOContextDefault)
+	if err != nil {
+		t.Fatalf("CreateOutput %q: %v", name, err)
+	}
+	if err := out.WriteBytesN(buf, len(buf)); err != nil {
+		t.Fatalf("WriteBytesN %q: %v", name, err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatalf("Close output %q: %v", name, err)
 	}
 }

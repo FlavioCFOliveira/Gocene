@@ -137,6 +137,7 @@ func (ix *integrationIndex) searcher() (*search.IndexSearcher, func()) {
 	}
 
 // assertHitCount runs the query and fails unless it matches want documents.
+}
 func assertHitCount(t testing.TB, s *search.IndexSearcher, q search.Query, want int64) {
 	t.Helper()
 	top, err := s.Search(q, 1000)

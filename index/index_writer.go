@@ -21,14 +21,6 @@ import (
 // Matches Lucene's IndexWriter.WRITE_LOCK_NAME.
 const writeLockName = "write.lock"
 
-// MAX_TERM_LENGTH is the maximum length of a term in bytes.
-// Matches Lucene's IndexWriter.MAX_TERM_LENGTH = ByteBlockPool.BYTE_BLOCK_SIZE - 2.
-// BYTE_BLOCK_SIZE is 1 << 15 = 32768.
-const MAX_TERM_LENGTH = 32766
-
-// MaxTermLength returns the maximum length of a term in bytes.
-func MaxTermLength() int { return MAX_TERM_LENGTH }
-
 // Document represents a document to be indexed.
 // This is a minimal interface to avoid circular imports.
 type Document interface {
@@ -325,6 +317,13 @@ func (w *IndexWriter) AddDocument(doc Document) error {
 		return err
 	}
 
+	// Enforce the configured max docs limit (if set). This check runs before
+	// addLock so it does not serialise MaxDoc() with the document-processing
+	// critical section; concurrent callers may briefly transient the limit.
+	if err := w.checkMaxDocs(); err != nil {
+		return err
+	}
+
 	// Validate sort field types against the DV fields in this document.
 	if sort := w.config.IndexSort(); sort != nil {
 		if err := w.validateSortFieldTypes(doc, sort); err != nil {
@@ -376,6 +375,33 @@ func (w *IndexWriter) AddDocument(doc Document) error {
 		if err := w.maybeFlushPendingDocs(); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// checkMaxDocs returns an error if the writer has reached its configured
+// maximum number of documents (IndexWriterConfig.MaxDocs). The limit is
+// enforced on AddDocument calls. After DeleteAll the limit resets because
+// pendingDeleteAll is set, causing the check to count only buffered docs.
+// Must NOT be called while w.mu is held by the caller (it acquires mu
+// internally via MaxDoc).
+func (w *IndexWriter) checkMaxDocs() error {
+	maxDocs := w.config.MaxDocs()
+	if maxDocs <= 0 {
+		return nil // unlimited
+	}
+	w.mu.RLock()
+	pdAll := w.pendingDeleteAll
+	w.mu.RUnlock()
+	var current int
+	if pdAll {
+		current = int(w.docCount.Load())
+	} else {
+		current = w.MaxDoc()
+	}
+	if current >= maxDocs {
+		return fmt.Errorf("cannot add document: maximum number of documents (%d) would be exceeded",
+			maxDocs)
 	}
 	return nil
 }

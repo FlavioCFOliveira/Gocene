@@ -138,3 +138,4 @@ type collectingLeafCollector struct {
 
 func (c *collectingLeafCollector) SetScorer(_ search.Scorer) error { return nil }
 func (c *collectingLeafCollector) Collect(doc int) error           { return c.collect(doc) }
+}

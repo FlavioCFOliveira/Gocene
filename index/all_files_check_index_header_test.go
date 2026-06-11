@@ -1,101 +1,202 @@
-// Copyright 2026 Gocene. All rights reserved.
-// Use of this source code is governed by the Apache License 2.0
-// that can be found in the LICENSE file.
+// Test file: all_files_check_index_header_test.go
+// Source: lucene/core/src/test/org/apache/lucene/index/TestAllFilesCheckIndexHeader.java
+// Purpose: Verifies that a plain default detects broken index headers early
+//          (i.e. when a reader is opened over the corrupted index).
+//
+// Port note (Sprint 55, option c):
+//   The Lucene original drives the index through RandomIndexWriter + LineFileDocs,
+//   then for every file rebuilds the directory into a fresh ByteBuffersDirectory,
+//   randomizing the first 1..100 bytes of one "victim" file while keeping its
+//   length, and asserts DirectoryReader.open throws CorruptIndexException /
+//   EOFException / IndexFormatTooOldException.
+//
+//   This port keeps the verifiable core: build a real on-disk index with
+//   IndexWriter, then for each file copy every file into a fresh directory,
+//   corrupting the victim's leading header bytes, and assert OpenDirectoryReader
+//   fails. RandomIndexWriter, LineFileDocs, MockDirectoryWrapper and the
+//   IOContext.READONCE copy helpers (Directory.copyFrom, IndexOutput.copyBytes)
+//   are not present in Gocene, so file copies are done explicitly via
+//   ReadBytes/WriteBytes.
 
-// Package index_test verifies that the index detects broken codec headers.
-//
-// Ported from Apache Lucene 10.4.0:
-//
-//	lucene/core/src/test/org/apache/lucene/index/TestAllFilesCheckIndexHeader.java
-//
-// This is a simplified unit test. Instead of building a full index and
-// verifying that OpenDirectoryReader catches corrupted headers on open
-// (which requires reader-side header validation, not yet implemented),
-// it writes a segments_N file through WriteSegmentInfos, corrupts the
-// leading header bytes, and verifies that codecs.CheckIndexHeader detects
-// the corruption.
 package index_test
 
 import (
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// TestAllFilesCheckIndexHeader writes a segments_N file via
-// WriteSegmentInfos, corrupts the leading codec header bytes, and
-// asserts that codecs.CheckIndexHeader detects the corruption.
+// TestAllFilesCheckIndexHeader builds a small index, then for every file
+// rebuilds the index into a fresh directory with that file's leading header
+// bytes corrupted, and asserts that opening a reader fails.
 func TestAllFilesCheckIndexHeader(t *testing.T) {
+	// Skipped (Sprint 55, option c): blocked by the same infra gap as the
+	// sibling all_files_have_checksum_footer_test.go. OpenDirectoryReader
+	// does not yet validate per-file codec headers eagerly on open (core
+	// readers are loaded lazily and the segments file carries no CRC32
+	// footer), so a corrupted header is not detected at open time. Unskip
+	// once eager header validation lands in the directory reader.
+	t.Fatal("blocked: OpenDirectoryReader does not validate codec headers on open yet")
+
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	// Write a minimal SegmentInfos.
-	si := index.NewSegmentInfos()
-	seg := index.NewSegmentInfo("_0", 100, dir)
-	if err := seg.SetID(make([]byte, 16)); err != nil {
-		t.Fatalf("SetID: %v", err)
-	}
-	sci := index.NewSegmentCommitInfo(seg, 0, -1)
-	si.Add(sci)
+	config := index.NewIndexWriterConfig(nil)
+	config.SetMaxBufferedDocs(2)
 
-	if err := index.WriteSegmentInfos(si, dir); err != nil {
-		t.Fatalf("WriteSegmentInfos: %v", err)
-	}
-
-	segFile := index.GetSegmentFileName(si.Generation())
-
-	// Read the file and corrupt the leading header bytes.
-	length, err := dir.FileLength(segFile)
+	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
-		t.Fatalf("FileLength: %v", err)
-	}
-	readIn, err := dir.OpenInput(segFile, store.IOContextReadOnce)
-	if err != nil {
-		t.Fatalf("OpenInput: %v", err)
-	}
-	original, err := readIn.ReadBytesN(int(length))
-	if err != nil {
-		t.Fatalf("ReadBytesN: %v", err)
-	}
-	readIn.Close()
-
-	// Flip every bit in the first 8 bytes (covering CODEC_MAGIC + part of
-	// the codec name length byte), guaranteeing CheckHeader fails.
-	corrupted := make([]byte, len(original))
-	copy(corrupted, original)
-	corruptBytes := 8
-	if len(original) < corruptBytes {
-		corruptBytes = len(original)
-	}
-	for i := 0; i < corruptBytes; i++ {
-		corrupted[i] = ^original[i]
+		t.Fatalf("Failed to create IndexWriter: %v", err)
 	}
 
-	corruptDir := store.NewByteBuffersDirectory()
-	defer corruptDir.Close()
-
-	out, err := corruptDir.CreateOutput(segFile, store.IOContextDefault)
-	if err != nil {
-		t.Fatalf("CreateOutput: %v", err)
+	for i := 0; i < 100; i++ {
+		doc := document.NewDocument()
+		field, err := document.NewTextField("body", "the quick brown fox "+string(rune('0'+i%10)), true)
+		if err != nil {
+			t.Fatalf("Failed to create text field: %v", err)
+		}
+		doc.Add(field)
+		if err := writer.AddDocument(doc); err != nil {
+			t.Fatalf("Failed to add document %d: %v", i, err)
+		}
+		if i%7 == 0 {
+			if err := writer.Commit(); err != nil {
+				t.Fatalf("Failed to commit at doc %d: %v", i, err)
+			}
+		}
 	}
-	if err := out.WriteBytesN(corrupted, len(corrupted)); err != nil {
-		t.Fatalf("WriteBytesN: %v", err)
-	}
-	out.Close()
 
-	// Verify CheckIndexHeader detects the corruption.
-	in, err := corruptDir.OpenInput(segFile, store.IOContextRead)
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Failed to close writer: %v", err)
+	}
+
+	checkIndexHeader(t, dir)
+}
+
+// checkIndexHeader breaks the header of each file in turn and verifies the
+// corruption is detected when a reader is opened.
+func checkIndexHeader(t *testing.T, dir store.Directory) {
+	t.Helper()
+
+	names, err := dir.ListAll()
 	if err != nil {
-		t.Fatalf("OpenInput: %v", err)
+		t.Fatalf("ListAll: %v", err)
+	}
+	for _, name := range names {
+		// Skip the write lock; Gocene exposes no exported constant for it,
+		// so the literal "write.lock" is used (see index/check_index.go).
+		if name == "write.lock" {
+			continue
+		}
+		checkOneFile(t, dir, name)
+	}
+}
+
+// checkOneFile rebuilds the index into a fresh directory with the leading
+// header bytes of victim replaced by deterministic non-matching bytes, then
+// asserts that opening a reader over the corrupted index fails.
+func checkOneFile(t *testing.T, dir store.Directory, victim string) {
+	t.Helper()
+
+	victimLength, err := dir.FileLength(victim)
+	if err != nil {
+		t.Fatalf("FileLength %q: %v", victim, err)
+	}
+	if victimLength <= 0 {
+		t.Fatalf("victim %q has non-positive length %d", victim, victimLength)
+	}
+
+	wrongBytes := int64(100)
+	if victimLength < wrongBytes {
+		wrongBytes = victimLength
+	}
+
+	dirCopy := store.NewByteBuffersDirectory()
+	defer dirCopy.Close()
+
+	names, err := dir.ListAll()
+	if err != nil {
+		t.Fatalf("ListAll: %v", err)
+	}
+	for _, name := range names {
+		if name == victim {
+			copyCorrupted(t, dir, dirCopy, name, wrongBytes, victimLength)
+		} else {
+			copyFile(t, dir, dirCopy, name)
+		}
+	}
+
+	reader, err := index.OpenDirectoryReader(dirCopy)
+	if err == nil {
+		_ = reader.Close()
+		t.Errorf("corruption of file %q was not detected when opening a reader", victim)
+	}
+}
+
+// copyFile copies name from src to dst byte-for-byte.
+func copyFile(t *testing.T, src, dst store.Directory, name string) {
+	t.Helper()
+
+	in, err := src.OpenInput(name, store.IOContextReadOnce)
+	if err != nil {
+		t.Fatalf("OpenInput %q: %v", name, err)
 	}
 	defer in.Close()
 
-	// Use CheckIndexHeader with the expected parameters from WriteSegmentInfos.
-	// The codec name is "segments" and version is 10.
-	if _, err := codecs.CheckIndexHeader(in, "segments", 10, 10, nil, ""); err == nil {
-		t.Fatal("corrupted header was NOT detected by CheckIndexHeader")
+	length, err := src.FileLength(name)
+	if err != nil {
+		t.Fatalf("FileLength %q: %v", name, err)
+	}
 
+	out, err := dst.CreateOutput(name, store.IOContextDefault)
+	if err != nil {
+		t.Fatalf("CreateOutput %q: %v", name, err)
+	}
+	defer out.Close()
+
+	buf := make([]byte, length)
+	if err := in.ReadBytes(buf); err != nil {
+		t.Fatalf("ReadBytes %q: %v", name, err)
+	}
+	if err := out.WriteBytes(buf); err != nil {
+		t.Fatalf("WriteBytes %q: %v", name, err)
+	}
+}
+
+// copyCorrupted copies name from src to dst, replacing the first wrongBytes
+// with deterministic bytes that are guaranteed to differ from the originals
+// while preserving the total file length.
+func copyCorrupted(t *testing.T, src, dst store.Directory, name string, wrongBytes, totalLength int64) {
+	t.Helper()
+
+	in, err := src.OpenInput(name, store.IOContextReadOnce)
+	if err != nil {
+		t.Fatalf("OpenInput %q: %v", name, err)
+	}
+	defer in.Close()
+
+	original := make([]byte, totalLength)
+	if err := in.ReadBytes(original); err != nil {
+		t.Fatalf("ReadBytes %q: %v", name, err)
+	}
+
+	// Flip every bit of the leading header bytes: the result is guaranteed
+	// to differ from the original at every position.
+	corrupted := make([]byte, totalLength)
+	copy(corrupted, original)
+	for i := int64(0); i < wrongBytes; i++ {
+		corrupted[i] = ^original[i]
+	}
+
+	out, err := dst.CreateOutput(name, store.IOContextDefault)
+	if err != nil {
+		t.Fatalf("CreateOutput %q: %v", name, err)
+	}
+	defer out.Close()
+
+	if err := out.WriteBytes(corrupted); err != nil {
+		t.Fatalf("WriteBytes %q: %v", name, err)
 	}
 }

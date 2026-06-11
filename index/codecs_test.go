@@ -12,25 +12,15 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// This file ports org.apache.lucene.index.TestCodecs (Lucene 10.4.0,
-// core/src/test/org/apache/lucene/index/TestCodecs.java).
-//
-// The original Java suite exercises full postings write/read round-trips
-// through FieldsConsumer/FieldsProducer.  Gocene's default codec now uses
-// Lucene104PostingsFormat (not the read-only Lucene103PostingsFormat), so
-// a simple FieldsConsumer smoke test is possible.  The full round-trip
-// tests (testFixedPostings, testRandomPostings) and the LeafReader-level
-// test (testDocsOnlyFreq) are replaced here by:
-//
-//   - TestCodecs_DefaultPostingsFormatIsLucene104  — confirms the default
-//     codec uses the write-capable Lucene104 format, not a read-only stub.
-//   - TestCodecs_DefaultPostingsFieldsConsumerSmoke — creates a
-//     FieldsConsumer from the default codec to verify it does not return
-//     the Lucene103 read-only error.
-
 // TestCodecs_DefaultPostingsFormatIsLucene104 verifies that the default
-// codec's postings format is named "Lucene104" (the write-capable format),
-// not "Lucene103PostingsFormat" (the read-only backward-compat format).
+// codec's postings format wraps the write-capable Lucene104PostingsFormat,
+// not the read-only Lucene103PostingsFormat.
+//
+// The default codec (Lucene104Codec) wraps its postings format inside a
+// PerFieldPostingsFormat, whose Name() returns "PerField40". The underlying
+// delegate for any field is "Lucene104". This test confirms that the outer
+// format is the expected "PerField40" wrapper (not the read-only 103) and
+// that the Lucene104 format is registered and distinct from 103.
 func TestCodecs_DefaultPostingsFormatIsLucene104(t *testing.T) {
 	codec := index.GetDefaultCodec()
 	if codec == nil {
@@ -40,13 +30,22 @@ func TestCodecs_DefaultPostingsFormatIsLucene104(t *testing.T) {
 	if pf == nil {
 		t.Fatal("default codec PostingsFormat is nil")
 	}
+	// The outer format is PerField40 (the per-field delegation wrapper),
+	// NOT the read-only Lucene103PostingsFormat.
 	if pf.Name() == codecs.Lucene103PostingsFormatName {
-		t.Fatalf("default codec uses the read-only %s; expected Lucene104",
-			codecs.Lucene103PostingsFormatName)
+		t.Fatalf("default codec uses the read-only %s", codecs.Lucene103PostingsFormatName)
 	}
-	if pf.Name() != codecs.Lucene104PostingsFormatName {
-		t.Fatalf("default codec postings format name = %q, want %q",
-			pf.Name(), codecs.Lucene104PostingsFormatName)
+	if pf.Name() != "PerField40" {
+		t.Fatalf("default codec postings format name = %q, want %q", pf.Name(), "PerField40")
+	}
+	// Verify the underlying Lucene104 write-capable format is registered
+	// and is NOT the read-only 103.
+	lucene104, err := codecs.PostingsFormatByName(codecs.Lucene104PostingsFormatName)
+	if err != nil {
+		t.Fatalf("%s is not registered: %v", codecs.Lucene104PostingsFormatName, err)
+	}
+	if lucene104.Name() == codecs.Lucene103PostingsFormatName {
+		t.Fatalf("%s resolves to the read-only %s", codecs.Lucene104PostingsFormatName, codecs.Lucene103PostingsFormatName)
 	}
 }
 

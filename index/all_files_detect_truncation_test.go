@@ -1,101 +1,188 @@
-// Copyright 2026 Gocene. All rights reserved.
-// Use of this source code is governed by the Apache License 2.0
-// that can be found in the LICENSE file.
+// Test file: all_files_detect_truncation_test.go
+// Source: lucene/core/src/test/org/apache/lucene/index/TestAllFilesDetectTruncation.java
+// Purpose: Verifies that a plain default index detects file truncation early,
+//          on opening a reader and via CheckIndex.
+//
+// Port note (Sprint 55, option c):
+//   The Lucene original builds an index with RandomIndexWriter, then for each
+//   file copies the directory while truncating one file by 1..100 bytes, and
+//   asserts that DirectoryReader.open and CheckIndex both throw. Truncation is
+//   only reliably detectable because every file carries a CRC32 codec footer
+//   (the original skips a file when CodecUtil.checkFooter still passes after
+//   truncation). Gocene's index.WriteSegmentInfos does not yet emit a CRC32
+//   footer (see TestAllFilesHaveChecksumFooter), so truncated files cannot be
+//   reliably distinguished and the truncation-detection contract cannot be
+//   exercised. The port keeps the full structure; unskip once footer writing
+//   lands in the segment-infos writer.
 
-// Package index_test verifies that the index detects truncated files.
-//
-// Ported from Apache Lucene 10.4.0:
-//
-//	lucene/core/src/test/org/apache/lucene/index/TestAllFilesDetectTruncation.java
-//
-// This is a simplified unit test. Instead of building a full index through
-// RandomIndexWriter and verifying that OpenDirectoryReader catches
-// truncation (which requires reader-side CRC32/footer verification, not
-// yet implemented), it writes a segments_N file through WriteSegmentInfos,
-// truncates it, and verifies that codecs.ChecksumEntireFile detects the
-// truncation.
 package index_test
 
 import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// TestAllFilesDetectTruncation writes a segments_N file via
-// WriteSegmentInfos, truncates it by removing the last few bytes,
-// and asserts that codecs.ChecksumEntireFile detects the truncation.
+// TestAllFilesDetectTruncation builds a small index, then truncates each file
+// in turn and asserts that opening a reader and running CheckIndex both fail.
 func TestAllFilesDetectTruncation(t *testing.T) {
+	// Blocked: truncation detection requires per-file CRC32 checksum verification
+	// on open/check. While WriteSegmentInfos now writes footers, OpenDirectoryReader
+	// and CheckIndex do not yet verify the CRC32 checksum of individual files, so
+	// truncation is not detected. Unskip once the per-file checksum verification
+	// is implemented in the reader/check path.
+	t.Fatal("blocked: truncation detection requires per-file CRC32 verification on open/check, not yet implemented")
+
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	// Write a minimal SegmentInfos.
-	si := index.NewSegmentInfos()
-	seg := index.NewSegmentInfo("_0", 100, dir)
-	if err := seg.SetID(make([]byte, 16)); err != nil {
-		t.Fatalf("SetID: %v", err)
-	}
-	sci := index.NewSegmentCommitInfo(seg, 0, -1)
-	si.Add(sci)
+	config := index.NewIndexWriterConfig(nil)
+	config.SetMaxBufferedDocs(2)
 
-	if err := index.WriteSegmentInfos(si, dir); err != nil {
-		t.Fatalf("WriteSegmentInfos: %v", err)
-	}
-
-	segFile := index.GetSegmentFileName(si.Generation())
-
-	// Verify the file is valid before truncation.
-	in, err := dir.OpenInput(segFile, store.IOContextRead)
+	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
-		t.Fatalf("OpenInput: %v", err)
+		t.Fatalf("Failed to create IndexWriter: %v", err)
 	}
-	if _, err := codecs.ChecksumEntireFile(in); err != nil {
-		t.Fatalf("unexpected corruption before test: %v", err)
-	}
-	in.Close()
 
-	// Truncate the file by removing half the footer bytes.
-	length, err := dir.FileLength(segFile)
+	for i := 0; i < 100; i++ {
+		doc := document.NewDocument()
+		field, err := document.NewTextField("body", "the quick brown fox "+string(rune('0'+i%10)), true)
+		if err != nil {
+			t.Fatalf("Failed to create text field: %v", err)
+		}
+		doc.Add(field)
+		if err := writer.AddDocument(doc); err != nil {
+			t.Fatalf("Failed to add document %d: %v", i, err)
+		}
+	}
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Failed to close writer: %v", err)
+	}
+
+	checkTruncation(t, dir)
+}
+
+// checkTruncation truncates each file of the index in turn and verifies that
+// the corruption is detected.
+func checkTruncation(t *testing.T, dir store.Directory) {
+	t.Helper()
+
+	names, err := dir.ListAll()
 	if err != nil {
-		t.Fatalf("FileLength: %v", err)
-	}
-	truncLen := length - int64(codecs.FooterLength())/2
-	if truncLen < 0 {
-		truncLen = 0
+		t.Fatalf("ListAll: %v", err)
 	}
 
-	truncDir := store.NewByteBuffersDirectory()
-	defer truncDir.Close()
+	for _, name := range names {
+		if name == "write.lock" {
+			continue
+		}
+		truncateOneFile(t, dir, name)
+	}
+}
 
-	readIn, err := dir.OpenInput(segFile, store.IOContextReadOnce)
+// copyFileBytes reads the first n bytes of src from dir and writes them to a
+// new file dst in dirCopy. With n == full length it is a faithful copy; with
+// n < length it produces a truncated copy.
+func copyFileBytes(t *testing.T, dir, dirCopy store.Directory, src, dst string, n int64) {
+	t.Helper()
+
+	in, err := dir.OpenInput(src, store.IOContextReadOnce)
 	if err != nil {
-		t.Fatalf("OpenInput: %v", err)
+		t.Fatalf("OpenInput %q: %v", src, err)
 	}
-	original, err := readIn.ReadBytesN(int(length))
-	if err != nil {
-		t.Fatalf("ReadBytesN: %v", err)
-	}
-	readIn.Close()
+	defer in.Close()
 
-	out, err := truncDir.CreateOutput(segFile, store.IOContextDefault)
+	buf, err := in.ReadBytesN(int(n))
 	if err != nil {
-		t.Fatalf("CreateOutput: %v", err)
+		t.Fatalf("ReadBytesN %q: %v", src, err)
 	}
-	if err := out.WriteBytesN(original[:truncLen], int(truncLen)); err != nil {
-		t.Fatalf("WriteBytesN: %v", err)
-	}
-	out.Close()
 
-	// Verify ChecksumEntireFile detects the truncation.
-	truncIn, err := truncDir.OpenInput(segFile, store.IOContextRead)
+	out, err := dirCopy.CreateOutput(dst, store.IOContextDefault)
 	if err != nil {
-		t.Fatalf("OpenInput: %v", err)
+		t.Fatalf("CreateOutput %q: %v", dst, err)
 	}
-	defer truncIn.Close()
+	if err := out.WriteBytesN(buf, len(buf)); err != nil {
+		t.Fatalf("WriteBytesN %q: %v", dst, err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatalf("Close output %q: %v", dst, err)
+	}
+}
 
-	if _, err := codecs.ChecksumEntireFile(truncIn); err == nil {
-		t.Fatal("truncation was NOT detected by ChecksumEntireFile")
+// truncateOneFile copies the index into a fresh directory, truncating the
+// victim file, and asserts that opening a reader and running CheckIndex both
+// fail. Files whose codec footer still validates after truncation are skipped,
+// matching the Lucene original.
+func truncateOneFile(t *testing.T, dir store.Directory, victim string) {
+	t.Helper()
+
+	dirCopy := store.NewByteBuffersDirectory()
+	defer dirCopy.Close()
+
+	victimLength, err := dir.FileLength(victim)
+	if err != nil {
+		t.Fatalf("FileLength %q: %v", victim, err)
+	}
+	if victimLength <= 0 {
+		t.Fatalf("victim %q has non-positive length %d", victim, victimLength)
+	}
+
+	lostBytes := int64(1)
+	if victimLength > 1 {
+		lostBytes = min(int64(100), victimLength) / 2
+		if lostBytes < 1 {
+			lostBytes = 1
+		}
+	}
+
+	names, err := dir.ListAll()
+	if err != nil {
+		t.Fatalf("ListAll: %v", err)
+	}
+
+	for _, name := range names {
+		if name != victim {
+			length, err := dir.FileLength(name)
+			if err != nil {
+				t.Fatalf("FileLength %q: %v", name, err)
+			}
+			copyFileBytes(t, dir, dirCopy, name, name, length)
+			continue
+		}
+
+		// If the codec footer still validates after truncation, the Lucene
+		// original skips this file: the corruption is undetectable.
+		raw, err := dir.OpenInput(name, store.IOContextReadOnce)
+		if err != nil {
+			t.Fatalf("OpenInput %q: %v", name, err)
+		}
+		csIn := store.NewChecksumIndexInput(raw)
+		_, footerErr := codecs.CheckFooter(csIn)
+		_ = raw.Close()
+		if footerErr == nil {
+			return
+		}
+
+		copyFileBytes(t, dir, dirCopy, name, name, victimLength-lostBytes)
+	}
+
+	// There must be an error opening the reader; the type is unspecified.
+	if reader, err := index.OpenDirectoryReader(dirCopy); err == nil {
+		_ = reader.Close()
+		t.Errorf("truncation of %q not detected on opening a reader", victim)
+	}
+
+	// CheckIndex must also fail.
+	ci, err := index.NewCheckIndex(dirCopy)
+	if err != nil {
+		// A failure to even construct CheckIndex is an acceptable detection.
+		return
+	}
+	if status, err := ci.CheckIndex(); err == nil && status != nil && status.Clean {
+		t.Errorf("truncation of %q not detected by CheckIndex", victim)
 	}
 }

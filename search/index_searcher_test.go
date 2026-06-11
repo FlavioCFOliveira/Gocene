@@ -116,4 +116,4 @@ func TestIndexSearcherMultiSegment(t *testing.T) {
 		if !seen[i] {
 			t.Errorf("Doc ID %d not found in results", i)
 		}
-}
+}}
