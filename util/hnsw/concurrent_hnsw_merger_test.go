@@ -222,8 +222,8 @@ func TestConcurrentHnswMerger_Merge_SingleReader(t *testing.T) {
 // deterministic across runs (worker scheduling controls which ordinals
 // each worker claims).
 func TestConcurrentHnswMerger_Merge_MultipleReaders(t *testing.T) {
-	if runtime.NumCPU() < 2 {
-		t.Fatal("requires GOMAXPROCS >= 2 for meaningful concurrency")
+	if runtime.GOMAXPROCS(0) < 2 {
+		t.Skip("requires GOMAXPROCS >= 2 for meaningful concurrency")
 	}
 	const n = 8
 	const total = 2 * n
@@ -298,8 +298,8 @@ func TestConcurrentHnswMerger_Merge_MultipleReaders(t *testing.T) {
 // verifies structural correctness: every ordinal present at level 0,
 // no self-loops, every neighbour in range.
 func TestConcurrentHnswMerger_Merge_FourWorkers(t *testing.T) {
-	if runtime.NumCPU() < 2 {
-		t.Fatal("requires GOMAXPROCS >= 2 for meaningful concurrency")
+	if runtime.GOMAXPROCS(0) < 2 {
+		t.Skip("requires GOMAXPROCS >= 2 for meaningful concurrency")
 	}
 	const seedN = 32
 	const total = 64

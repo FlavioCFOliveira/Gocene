@@ -90,8 +90,8 @@ func TestHnswConcurrentMergeBuilder_BuildSingleWorker(t *testing.T) {
 // concurrent builder's docs), so the assertions are structural, not
 // identity-based.
 func TestHnswConcurrentMergeBuilder_BuildFourWorkers(t *testing.T) {
-	if runtime.NumCPU() < 2 {
-		t.Fatal("requires GOMAXPROCS >= 2 for meaningful concurrency")
+	if runtime.GOMAXPROCS(0) < 2 {
+		t.Skip("requires GOMAXPROCS >= 2 for meaningful concurrency")
 	}
 	const numNodes = 256
 	coords := linspace(numNodes, 0, 1)
@@ -293,8 +293,8 @@ func TestHnswConcurrentMergeBuilder_SupplierErrorPropagates(t *testing.T) {
 // Rather than assert non-determinism (flaky), the test asserts that
 // both runs produce structurally valid graphs.
 func TestHnswConcurrentMergeBuilder_DeterminismCaveat(t *testing.T) {
-	if runtime.NumCPU() < 2 {
-		t.Fatal("requires GOMAXPROCS >= 2 for meaningful concurrency")
+	if runtime.GOMAXPROCS(0) < 2 {
+		t.Skip("requires GOMAXPROCS >= 2 for meaningful concurrency")
 	}
 	const numNodes = 64
 	coords := linspace(numNodes, 0, 1)
