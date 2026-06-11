@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 )
 
 // ErrFileNotFound is returned when a file does not exist in the directory.
@@ -75,8 +76,10 @@ type BaseDirectory struct {
 	// lockFactory is the factory used to create locks
 	lockFactory LockFactory
 
-	// isOpen tracks whether the directory is still open
-	isOpen bool
+	// isOpen tracks whether the directory is still open.
+	// atomic.Bool ensures reads and writes are safe without a mutex,
+	// preventing data races between IsOpen()/EnsureOpen() and Close().
+	isOpen atomic.Bool
 
 	// openFiles tracks files currently open for reading/writing
 	openFiles map[string]int
@@ -89,17 +92,18 @@ func NewBaseDirectory(lockFactory LockFactory) *BaseDirectory {
 	if lockFactory == nil {
 		lockFactory = NewNativeFSLockFactory()
 	}
-	return &BaseDirectory{
+	d := &BaseDirectory{
 		lockFactory: lockFactory,
-		isOpen:      true,
 		openFiles:   make(map[string]int),
 	}
+	d.isOpen.Store(true)
+	return d
 }
 
 // SetLockFactory sets the LockFactory for this directory.
 // This must be called before any locks are obtained.
 func (d *BaseDirectory) SetLockFactory(lockFactory LockFactory) error {
-	if !d.isOpen {
+	if !d.isOpen.Load() {
 		return ErrIllegalState
 	}
 	if lockFactory == nil {
@@ -116,7 +120,7 @@ func (d *BaseDirectory) GetLockFactory() LockFactory {
 
 // EnsureOpen checks if the directory is open and returns an error if not.
 func (d *BaseDirectory) EnsureOpen() error {
-	if !d.isOpen {
+	if !d.isOpen.Load() {
 		return fmt.Errorf("%w: directory is closed", ErrIllegalState)
 	}
 	return nil
@@ -124,12 +128,12 @@ func (d *BaseDirectory) EnsureOpen() error {
 
 // IsOpen returns true if the directory is currently open.
 func (d *BaseDirectory) IsOpen() bool {
-	return d.isOpen
+	return d.isOpen.Load()
 }
 
 // MarkClosed marks the directory as closed.
 func (d *BaseDirectory) MarkClosed() {
-	d.isOpen = false
+	d.isOpen.Store(false)
 }
 
 // Close releases resources and marks the directory as closed.

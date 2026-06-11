@@ -232,6 +232,11 @@ func (d *MMapDirectory) Close() error {
 		return nil
 	}
 
+	// Mark the directory as closed FIRST so that any concurrent CreateOutput
+	// call fails via EnsureOpen() instead of racing through and creating a
+	// new writeDelegate after we've already closed the old one.
+	d.MarkClosed()
+
 	d.writeMu.Lock()
 	delegate := d.writeDelegate
 	d.writeDelegate = nil
