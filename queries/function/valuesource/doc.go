@@ -9,10 +9,39 @@
 // abstract base [function.ValueSource] and the typed DocValues helpers
 // in [docvalues].
 //
-// Sprint 29 ships the constant + literal foundation
-// (ConstNumberSource, ConstValueSource, DoubleConstValueSource,
-// LiteralValueSource); the remaining 54 value sources (field sources,
-// arithmetic functions, KNN vector sources, etc.) are tracked under
-// Sprint 45 to keep Sprint 29 deliverables consistent with the
-// pre-shipped store/index/search surface.
+// Implemented classes (Tiers 1-4):
+//
+// Tier 1 - Simple field sources:
+//   - FieldCacheSource (abstract base)
+//   - FloatFieldSource
+//   - DoubleFieldSource
+//   - IntFieldSource
+//   - LongFieldSource
+//   - BytesRefFieldSource
+//   - EnumFieldSource
+//
+// Tier 2 - Multi-valued field sources:
+//   - MultiValuedFloatFieldSource
+//   - MultiValuedIntFieldSource
+//   - MultiValuedLongFieldSource
+//   - MultiValuedDoubleFieldSource
+//   - SortedSetFieldSource
+//
+// Tier 3 - Function wrappers:
+//   - SingleFunction, SimpleFloatFunction, DualFloatFunction
+//   - MultiFunction, MultiFloatFunction
+//   - DivFloatFunction, ProductFloatFunction, SumFloatFunction
+//   - MaxFloatFunction, MinFloatFunction, PowFloatFunction
+//   - ReciprocalFloatFunction, ScaleFloatFunction, LinearFloatFunction
+//
+// Tier 4 - Complex functions:
+//   - BoolFunction, SimpleBoolFunction, ComparisonBoolFunction
+//   - IfFunction, RangeMapFloatFunction
+//
+// Constant + literal foundation:
+//   - ConstNumberSource, ConstValueSource, DoubleConstValueSource
+//   - LiteralValueSource
+//
+// Tier 5 (KNN vector classes) are not yet ported; they require the
+// KNN vector index infrastructure.
 package valuesource
