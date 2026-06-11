@@ -111,6 +111,7 @@ func TestNewBinaryPointSetQuery_SortsValuesAndCopies(t *testing.T) {
 	if originals[0][0] != 0x03 || originals[1][0] != 0x01 || originals[2][0] != 0x02 {
 		t.Errorf("caller-owned slices were reordered: got %v", originals)
 	}
+}
 
 func TestNewBinaryPointSetQuery_RejectsRagged(t *testing.T) {
 	if _, err := NewBinaryPointSetQuery("p", []byte{0x00}, []byte{0x00, 0x01}); err == nil {
