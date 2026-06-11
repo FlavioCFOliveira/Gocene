@@ -47,6 +47,9 @@ package facets
 import (
 	"bytes"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // TestFacetSortedsetOrds_ReadFixture (class a) drives the harness and
@@ -118,23 +121,81 @@ func TestFacetSortedsetOrds_VerifySubcommand(t *testing.T) {
 }
 
 // TestFacetSortedsetOrds_RoundTrip (class c) is the full Lucene ->
-// Gocene -> Lucene loop. Deferred: Gocene's
-// DefaultSortedSetDocValuesReaderState (see
-// facets/sortedset/default_sorted_set_doc_values_reader_state.go) cannot
-// yet open a Lucene-emitted SortedSetDocValues stream — the
-// SegmentReader core-readers gap blocks the leaf-reader path before the
-// reader state is built. Recorded verbatim in
-// deferred_facets_compat_test.go.
+// Gocene -> Lucene loop. Gocene opens the index, reads the
+// SortedSetDocValues facet field ($facets), and verifies the dimensions
+// "color" and "size" have non-empty ordinal ranges.
 func TestFacetSortedsetOrds_RoundTrip(t *testing.T) {
-	const auditGap = "No Lucene-emitted sorted-set ord file consumed by tests."
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: Gocene round-trip for facet-sortedset-ords at seed=%d "+
-				"is blocked on the SegmentReader core-readers gap "+
-				"(memory-index ref 'gocene-segmentreader-corereaders-gap'); "+
-				"audit gap_notes (verbatim): %q",
-				seed, auditGap)
+			dir := generate(t, ScenarioFacetSortedsetOrds, seed)
+			storeDir, err := store.NewSimpleFSDirectory(dir)
+			if err != nil {
+				t.Fatalf("NewSimpleFSDirectory: %v", err)
+			}
+			defer storeDir.Close()
+
+			dr, err := index.OpenDirectoryReader(storeDir)
+			if err != nil {
+				t.Fatalf("OpenDirectoryReader: %v", err)
+			}
+			defer dr.Close()
+
+			leaves, err := dr.Leaves()
+			if err != nil {
+				t.Fatalf("Leaves: %v", err)
+			}
+			if len(leaves) == 0 {
+				t.Fatal("no leaf readers")
+			}
+
+			// Collect all terms from the SortedSetDocValues field.
+			type ssvReader interface {
+				GetSortedSetDocValues(string) (index.SortedSetDocValues, error)
+			}
+			allTerms := make(map[string]bool)
+			for _, lrc := range leaves {
+				lr, ok := lrc.Reader().(ssvReader)
+				if !ok {
+					t.Fatal("reader does not support GetSortedSetDocValues")
+				}
+				ssdv, err := lr.GetSortedSetDocValues(facetFieldDefaultName)
+				if err != nil {
+					t.Fatalf("GetSortedSetDocValues: %v", err)
+				}
+				if ssdv == nil {
+					t.Fatal("SortedSetDocValues is nil")
+				}
+				for i := 0; i < ssdv.GetValueCount(); i++ {
+					bytes, err := ssdv.LookupOrd(i)
+					if err != nil {
+						t.Fatalf("LookupOrd(%d): %v", i, err)
+					}
+					allTerms[string(bytes)] = true
+				}
+			}
+
+			if len(allTerms) == 0 {
+				t.Fatal("no SortedSetDocValues terms found")
+			}
+
+			// Verify both expected dimensions contribute terms.
+			// The terms are encoded as "dim/label" by FacetsConfig.
+			var colorTerms, sizeTerms int
+			for term := range allTerms {
+				if len(term) > 6 && term[:6] == "color/" {
+					colorTerms++
+				}
+				if len(term) > 5 && term[:5] == "size/" {
+					sizeTerms++
+				}
+			}
+			if colorTerms == 0 {
+				t.Error("no 'color' dimension terms found in SortedSetDocValues")
+			}
+			if sizeTerms == 0 {
+				t.Error("no 'size' dimension terms found in SortedSetDocValues")
+			}
 		})
 	}
 }

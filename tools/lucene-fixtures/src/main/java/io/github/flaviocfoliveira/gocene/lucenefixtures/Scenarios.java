@@ -1,9 +1,15 @@
 package io.github.flaviocfoliveira.gocene.lucenefixtures;
 
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.AnalyzingInfixSidecarScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.BlockPackedWriterScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.BwcBigEndianStoreScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.BwcPacked64LegacyScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.DirectMonotonicBlockPackedScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.PackedIntsPacked64Scenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.ClassifierLabelCorpusScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.DocumentPointsFormatScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.DocumentShapeDocValuesScenario;
+import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.DocumentRangeDocValuesScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.CombinedFacetsSearchScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.CombinedHighlightQueryparserAnalysisScenario;
 import io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios.CombinedMultiSegmentIndexSearchScenario;
@@ -218,6 +224,12 @@ public final class Scenarios {
         // throw UnsupportedOperationException from their write paths and
         // are tracked as DEFERRED_ROWS in Manifest.java.
         register(new BwcPacked64LegacyScenario());
+        // Sprint 8 T18 (rmp 140): PackedInts byte-compat fixture expansion.
+        // Produce raw byte-level fixtures for core util.packed formats
+        // that Gocene compares against for byte-for-byte compat.
+        register(new PackedIntsPacked64Scenario());
+        register(new BlockPackedWriterScenario());
+        register(new DirectMonotonicBlockPackedScenario());
         register(new BwcBigEndianStoreScenario());
         // Sprint 114 T5 (rmp 4611): six combined end-to-end scenarios.
         // Appended in stack order at the very end so existing baseline.tsv
@@ -229,6 +241,12 @@ public final class Scenarios {
         register(new CombinedReplicatorRoundtripScenario());
         register(new CombinedSuggesterFstScenario());
         register(new CombinedHighlightQueryparserAnalysisScenario());
+        // Sprint 8 T20 (rmp 142): document-package binary-compat test scenarios.
+        // Appended in stack order — after the combined scenarios — so the
+        // manifest ordering for prior rows is preserved.
+        register(new DocumentPointsFormatScenario());
+        register(new DocumentShapeDocValuesScenario());
+        register(new DocumentRangeDocValuesScenario());
     }
 
     private Scenarios() {}

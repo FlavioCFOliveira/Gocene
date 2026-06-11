@@ -45,8 +45,12 @@ package facets
 
 import (
 	"bytes"
+	"os"
 	"path/filepath"
 	"testing"
+
+	gfacets "github.com/FlavioCFOliveira/Gocene/facets"
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // TestTaxonomyDirectory_ReadFixture (class a) drives the harness and
@@ -121,21 +125,77 @@ func TestTaxonomyDirectory_VerifySubcommand(t *testing.T) {
 }
 
 // TestTaxonomyDirectory_RoundTrip (class c) is the full Lucene -> Gocene
-// -> Lucene loop. Deferred: Gocene's DirectoryTaxonomyReader (see
-// facets/directory_taxonomy_writer.go) cannot yet open a Lucene-emitted
-// segment through the leaf-reader Terms API — the SegmentReader core-
-// readers gap blocks the path before the taxonomy reader is reached.
-// Recorded verbatim in deferred_facets_compat_test.go.
+// -> Lucene loop. Gocene opens the taxonomy directory via
+// NewDirectoryTaxonomyReader, walks ordinals, writes back via
+// DirectoryTaxonomyWriter (AddTaxonomy), then the Java harness verifies the
+// Gocene-written taxonomy.
 func TestTaxonomyDirectory_RoundTrip(t *testing.T) {
-	const auditGap = "No fixture from Lucene-emitted taxonomy directory."
+	const expectedSize = 1 + 3 + 12 // root + 3 dim parents + 12 leaves
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: Gocene round-trip for taxonomy-directory at seed=%d "+
-				"is blocked on the SegmentReader core-readers gap "+
-				"(memory-index ref 'gocene-segmentreader-corereaders-gap'); "+
-				"audit gap_notes (verbatim): %q",
-				seed, auditGap)
+			dir := generate(t, ScenarioTaxonomyDirectory, seed)
+			taxoDir := filepath.Join(dir, taxoSubdir)
+
+			// Open the Lucene-emitted taxonomy with Gocene's reader.
+			taxoStore, err := store.NewSimpleFSDirectory(taxoDir)
+			if err != nil {
+				t.Fatalf("NewSimpleFSDirectory(taxo): %v", err)
+			}
+			defer taxoStore.Close()
+			reader, err := gfacets.NewDirectoryTaxonomyReader(taxoStore)
+			if err != nil {
+				t.Fatalf("NewDirectoryTaxonomyReader: %v", err)
+			}
+			defer reader.Close()
+
+			if got := reader.GetSize(); got != expectedSize {
+				t.Fatalf("taxonomy size: got %d, want %d", got, expectedSize)
+			}
+
+			// Verify every ordinal round-trips: GetPath(o).String() -> GetOrdinal -> o.
+			for o := 0; o < reader.GetSize(); o++ {
+				lbl := reader.GetPath(o)
+				if lbl == nil {
+					t.Errorf("GetPath(%d) = nil", o)
+					continue
+				}
+				if got := reader.GetOrdinal(lbl); got != o {
+					t.Errorf("ord=%d round-trip: GetPath(%d)=%s, GetOrdinal=%d", o, o, lbl, got)
+				}
+				if o > 0 {
+					if parent := reader.GetParent(o); parent < 0 {
+						t.Errorf("ord=%d has no parent", o)
+					}
+				}
+			}
+
+			// Write back into a fresh dir under taxo/ subdirectory.
+			writeDir := t.TempDir()
+			writeTaxoPath := filepath.Join(writeDir, taxoSubdir)
+			if err := os.MkdirAll(writeTaxoPath, 0755); err != nil {
+				t.Fatalf("MkdirAll: %v", err)
+			}
+			writeStore, err := store.NewSimpleFSDirectory(writeTaxoPath)
+			if err != nil {
+				t.Fatalf("NewSimpleFSDirectory(write): %v", err)
+			}
+			defer writeStore.Close()
+
+			writer, err := gfacets.NewDirectoryTaxonomyWriter(writeStore)
+			if err != nil {
+				t.Fatalf("NewDirectoryTaxonomyWriter: %v", err)
+			}
+			ordMap := &gfacets.MemoryOrdinalMap{}
+			if err := writer.AddTaxonomy(taxoStore, ordMap); err != nil {
+				t.Fatalf("AddTaxonomy: %v", err)
+			}
+			if err := writer.Close(); err != nil {
+				t.Fatalf("Close: %v", err)
+			}
+
+			// Java verifier checks the Gocene-written sidecar.
+			verifyHarness(t, ScenarioTaxonomyDirectory, seed, writeDir)
 		})
 	}
 }

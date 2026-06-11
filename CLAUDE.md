@@ -94,6 +94,20 @@ Concretely, this means:
 
 Assumptions, intuition, or prior recall are not acceptable substitutes for measured evidence in these three dimensions.
 
+## Regression Prevention
+
+Whenever a bug is identified, the necessary regression tests must be created to ensure that the same bugs do not recur as a consequence of future development.
+
+## Segregation of Responsibilities
+
+Each package, component, and function must follow a strict pattern of segregation of responsibilities in order to maximise code reuse.
+
+## Memory
+
+Use the Knowledge Graph as the memory for the project, the agents, and the skills. Leverage the relational capabilities of the graph database to optimise how you read and write your memories. Use this method to save the token cost of reading files.
+
+**ALWAYS** update the Knowledge Graph whenever project files are changed, so that you maintain the ability to understand the project through the graph.
+
 ## Development Guidelines
 
 When implementing Lucene features in Go:
@@ -156,6 +170,10 @@ Always use `rmp` as the single source of truth throughout this process.
 
 Use the **Knowledge Graph** (see the dedicated section below) to understand which tasks yield the highest gains and how far the impact of each task extends. Use the Knowledge Graph to determine the foundational and highest-gain tasks so that you can optimise the best path for their execution, and to plan the optimal order in which to execute the tasks across the project's components.
 
+Tasks with the highest gain (greatest impact on the project), tasks that unblock other tasks or features, and foundational tasks must always take priority. By default, always work from the highest-gain tasks toward the least essential ones.
+
+When the work for a task is substantially large (too large for a single task to be executed by an AI agent such as Claude Code), the task must be subdivided into smaller parts while respecting the principles already established (e.g., each sub-task must be self-contained).
+
 ### Task Execution
 
 Task execution is the natural continuation (the next step) of planning. You must always use the `rmp` tool to:
@@ -163,10 +181,13 @@ Task execution is the natural continuation (the next step) of planning. You must
 1. Check whether there is any open task not yet completed to follow up on.
 2. Identify the next task.
 3. Understand the objective of the task to be started, based on its description, functional requirements, and technical requirements.
-4. Validate that the acceptance criteria are met before closing the task.
-5. Close the task with a short summary of what was done.
-6. After closing the task, and before moving on to the next one, perform a git commit following best practices, explaining what was done.
-7. Update the Knowledge Graph to reflect every change introduced by the commit (new nodes, updated properties, new edges, commit reference and date).
+4. Determine the most appropriate subagent and delegate the task execution to it.
+5. Validate that the acceptance criteria are met before closing the task.
+6. Close the task with a short summary of what was done.
+7. After closing the task, and before moving on to the next one, perform a git commit following best practices, explaining what was done.
+8. Update the Knowledge Graph to reflect every change introduced by the commit (new nodes, updated properties, new edges, commit reference and date).
+
+Whenever possible, adapt the Model and the Model's effort level to the requirements of each task's individual operations.
 
 Sprint execution must always be **sequential**. Task execution should preferably be sequential as well; tasks may be executed in parallel only when there is clear justification to do so.
 

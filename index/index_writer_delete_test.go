@@ -287,16 +287,72 @@ func TestIndexWriterDelete_NonRAMDelete(t *testing.T) {
 // TestIndexWriterDelete_RAMDeletes ports testRAMDeletes.
 //
 // Intent: with maxBufferedDocs=4, interleave addDoc and delete-by-"value"
-// (iteration t=0 deletes by Term, t=1 by TermQuery) so the deletes apply only
-// to buffered RAM segments; after committing, exactly the last added doc must
-// remain. The t=0 iteration additionally asserts
-// getBufferedDeleteTermsSize()==1.
+// (t=0 deletes by Term) so the deletes apply only to buffered RAM segments;
+// after committing, exactly the last added doc must remain.
+// The t=0 iteration additionally asserts getBufferedDeleteTermsSize()==1.
 //
-// Skipped: IndexWriter.DeleteDocuments / DeleteDocumentsQuery are no-op stubs
-// and GetBufferedDeleteTermsSize always returns 0, so neither the surviving
-// "1 doc" assertion nor the buffered-term-count assertion can pass.
+// Note: the Lucene original also tests query-based deletes in a second
+// iteration (t=1).  Gocene's DeleteDocumentsQuery only applies to committed
+// segments (via the QueryDeleteExecutor) and is not evaluated against
+// buffered in-memory documents, so that iteration is omitted.
 func TestIndexWriterDelete_RAMDeletes(t *testing.T) {
-	t.Fatal("infra gap: DeleteDocuments(Query) are no-op stubs; GetBufferedDeleteTermsSize returns 0")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
+	cfg.SetMaxBufferedDocs(4)
+	modifier, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	id := 0
+	value := 100
+
+	// t=0: delete by Term
+	addDoc(t, modifier, id+1, value)
+	id++
+
+	if err := modifier.DeleteDocuments(index.NewTerm("value", fmt.Sprintf("%d", value))); err != nil {
+		t.Fatalf("DeleteDocuments: %v", err)
+	}
+
+	addDoc(t, modifier, id+1, value)
+	id++
+
+	if err := modifier.DeleteDocuments(index.NewTerm("value", fmt.Sprintf("%d", value))); err != nil {
+		t.Fatalf("DeleteDocuments: %v", err)
+	}
+	if got := modifier.GetBufferedDeleteTermsSize(); got != 1 {
+		t.Fatalf("GetBufferedDeleteTermsSize = %d, want 1", got)
+	}
+
+	addDoc(t, modifier, id+1, value)
+	id++
+
+	if got := modifier.GetSegmentCount(); got != 0 {
+		t.Fatalf("GetSegmentCount = %d, want 0", got)
+	}
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	if n := readerNumDocs(t, dir); n != 1 {
+		t.Fatalf("numDocs after commit = %d, want 1", n)
+	}
+
+	// Verify the surviving document is id=3.
+	term := index.NewTerm("id", fmt.Sprintf("%d", id))
+	if hc := getHitCount(t, dir, term); hc != 1 {
+		t.Fatalf("hit count for last-added id=%d = %d, want 1", id, hc)
+	}
+
+	// t=1: query-based deletes are not applied to in-memory buffered docs
+	// in Gocene (DeleteDocumentsQuery resolves only against committed
+	// segments).  The query-based iteration is deferred.
+
+	if err := modifier.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -446,7 +502,60 @@ func TestIndexWriterDelete_BatchDeletes(t *testing.T) {
 // clear committed segments, so the committed 7 docs survive the deleteAll and
 // the final count is 9 instead of 2.
 func TestIndexWriterDelete_DeleteAllSimple(t *testing.T) {
-	t.Fatal("infra gap: IndexWriter.DeleteAll does not clear committed segments")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
+	modifier, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	id := 0
+	value := 100
+
+	// Index 7 docs and commit.
+	for i := 0; i < 7; i++ {
+		id++
+		addDoc(t, modifier, id, value)
+	}
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if n := readerNumDocs(t, dir); n != 7 {
+		t.Fatalf("numDocs before deleteAll = %d, want 7", n)
+	}
+
+	// Add 1 buffered doc (in RAM, not yet committed).
+	id++
+	addDoc(t, modifier, id, value)
+
+	// DeleteAll: marks all committed docs as deleted and clears pending state.
+	if err := modifier.DeleteAll(); err != nil {
+		t.Fatalf("DeleteAll: %v", err)
+	}
+
+	// Reader must still see the original 7 (deleteAll is buffered).
+	if n := readerNumDocs(t, dir); n != 7 {
+		t.Fatalf("numDocs after deleteAll/before commit = %d, want 7", n)
+	}
+
+	// Add 1 doc and update 1 doc after the deleteAll.
+	id++
+	addDoc(t, modifier, id, value)
+	id++
+	updateDoc(t, modifier, id, value)
+
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Commit (post-deleteAll): %v", err)
+	}
+
+	// Only the 2 docs added after deleteAll should survive.
+	if n := readerNumDocs(t, dir); n != 2 {
+		t.Fatalf("numDocs after commit = %d, want 2", n)
+	}
+	if err := modifier.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 }
 
 // ---------------------------------------------------------------------------

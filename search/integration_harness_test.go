@@ -49,7 +49,15 @@ func newIntegrationIndex(t testing.TB) *integrationIndex {
 // MMapDirectory) exercise the same flush/read path.
 func newIntegrationIndexWithDir(t testing.TB, dir store.Directory) *integrationIndex {
 	t.Helper()
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	// Disable auto-flush so that explicit Commit() calls are the sole
+	// mechanism that flushes segments. The DocumentsWriter auto-flush
+	// writes files using its own segment-name counter, which collides
+	// with the SegmentInfos counter used by the Commit path when the
+	// test exercises multi-segment indices via repeated ix.commit().
+	config.SetMaxBufferedDocs(-1)
+	config.SetRAMBufferSizeMB(-1)
+	w, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}

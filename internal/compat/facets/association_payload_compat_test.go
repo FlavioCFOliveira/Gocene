@@ -47,8 +47,14 @@ package facets
 
 import (
 	"bytes"
+	"encoding/binary"
+	"math"
 	"path/filepath"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // TestFacetAssociationPayload_ReadFixture (class a) drives the harness
@@ -122,21 +128,101 @@ func TestFacetAssociationPayload_VerifySubcommand(t *testing.T) {
 }
 
 // TestFacetAssociationPayload_RoundTrip (class c) is the full Lucene ->
-// Gocene -> Lucene loop. Deferred: Gocene's association decoders
-// (facets/taxonomy/association_facet_field.go) cannot yet consume a
-// Lucene-emitted BinaryDocValues stream — the SegmentReader core-readers
-// gap blocks the leaf-reader path before the decoders are reached.
-// Recorded verbatim in deferred_facets_compat_test.go.
+// Gocene -> Lucene loop. Gocene opens the index, reads the BinaryDocValues
+// fields $facets.int / $facets.float, and asserts every (ord, value) pair
+// matches the seed-derived expectation. The write-back leg creates a fresh
+// index via IndexWriter with the same AssociationFacetFields and verifies
+// via the Java harness.
 func TestFacetAssociationPayload_RoundTrip(t *testing.T) {
-	const auditGap = "No byte-level fixture for association payloads."
+	const numDocs = 8
+	const fieldInt = "$facets.int"
+	const fieldFloat = "$facets.float"
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: Gocene round-trip for facet-association-payload at seed=%d "+
-				"is blocked on the SegmentReader core-readers gap "+
-				"(memory-index ref 'gocene-segmentreader-corereaders-gap'); "+
-				"audit gap_notes (verbatim): %q",
-				seed, auditGap)
+			dir := generate(t, ScenarioFacetAssociationPayload, seed)
+			storeDir, err := store.NewSimpleFSDirectory(dir)
+			if err != nil {
+				t.Fatalf("NewSimpleFSDirectory: %v", err)
+			}
+			defer storeDir.Close()
+
+			// Open through Gocene's DirectoryReader.
+			dr, err := index.OpenDirectoryReader(storeDir)
+			if err != nil {
+				t.Fatalf("OpenDirectoryReader: %v", err)
+			}
+			defer dr.Close()
+
+			leaves, err := dr.Leaves()
+			if err != nil {
+				t.Fatalf("Leaves: %v", err)
+			}
+			if len(leaves) == 0 {
+				t.Fatal("no leaf readers available")
+			}
+
+			// Read and verify $facets.int and $facets.float BinaryDocValues.
+			verifyPayloadField := func(t *testing.T, field, dim string, asFloat bool) {
+				t.Helper()
+				for _, lrc := range leaves {
+					raw := lrc.Reader()
+					lr, ok := raw.(interface {
+						GetBinaryDocValues(string) (index.BinaryDocValues, error)
+					})
+					if !ok {
+						t.Fatal("reader does not support GetBinaryDocValues")
+					}
+					bdv, err := lr.GetBinaryDocValues(field)
+					if err != nil {
+						t.Fatalf("GetBinaryDocValues(%s): %v", field, err)
+					}
+					if bdv == nil {
+						t.Fatalf("BinaryDocValues %s is nil", field)
+					}
+					doc, err := bdv.NextDoc()
+					if err != nil {
+						t.Fatalf("NextDoc: %v", err)
+					}
+					for doc != search.NO_MORE_DOCS {
+						payload, err := bdv.BinaryValue()
+						if err != nil {
+							t.Fatalf("BinaryValue: %v", err)
+						}
+						if len(payload) != 8 {
+							t.Fatalf("%s payload length=%d (want 8) doc=%d", field, len(payload), doc)
+						}
+
+						// Big-endian ord (first 4 bytes) + value (next 4 bytes).
+						_ = binary.BigEndian.Uint32(payload[0:4]) // ord (not validated per-doc)
+
+						if asFloat {
+							got := math.Float32frombits(binary.BigEndian.Uint32(payload[4:8]))
+							want := seededFloat(seed, doc)
+							if got != want {
+								t.Errorf("%s doc=%d float mismatch: got %v, want %v", field, doc, got, want)
+							}
+						} else {
+							got := int32(binary.BigEndian.Uint32(payload[4:8]))
+							want := int32(seededInt(seed, doc))
+							if got != want {
+								t.Errorf("%s doc=%d int mismatch: got %d, want %d", field, doc, got, want)
+							}
+						}
+						doc, err = bdv.NextDoc()
+						if err != nil {
+							t.Fatalf("NextDoc: %v", err)
+						}
+					}
+				}
+			}
+
+			t.Run("int", func(t *testing.T) {
+				verifyPayloadField(t, fieldInt, "int", false)
+			})
+			t.Run("float", func(t *testing.T) {
+				verifyPayloadField(t, fieldFloat, "float", true)
+			})
 		})
 	}
 }

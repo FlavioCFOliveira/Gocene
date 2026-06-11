@@ -61,6 +61,9 @@ combined-facets-search	12648430	c481a775292713b0372b860d5b44389944d2f5f14ebb6fb3
 combined-replicator-roundtrip	12648430	304f141e55310c1f2dd5b5cffd8fce54ae3a883bc7b700717dbbf60546a532ff	2	
 combined-suggester-fst	12648430	7cd4a63b83fb854dcec54b91246b856c7e760a0b29ae9efce8711e1d12dc1b95	2	
 combined-highlight-queryparser-analysis	12648430	211de9cf41fb5c23fc0e87b1f1ee9b954d9b80c0cbd498edcdfd5d83a40536fc	15	
+document-points-format	12648430	(pending)	0	notes="Sprint 8 T20; build harness and run make corpus-manifest to pin"
+document-shape-dv-format	12648430	(pending)	0	notes="Sprint 8 T20; build harness and run make corpus-manifest to pin"
+document-range-dv-format	12648430	(pending)	0	notes="Sprint 8 T20; build harness and run make corpus-manifest to pin"
 hunspell-blob	12648430	(deferred)	0	gap_notes="deferred to per-package task"
 snowball-blob	12648430	(deferred)	0	gap_notes="deferred to per-package task"
 replicator-http-frames	12648430	(deferred)	0	gap_notes="No Java-served HTTP replicator fixtures."; reason="Lucene 10.4.0 removed org.apache.lucene.replicator.http.HttpReplicator and the IndexRevision wire surface; covered by a future backward-compat sprint."

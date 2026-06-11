@@ -40,6 +40,7 @@ package facets
 import (
 	"bytes"
 	"errors"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -56,6 +57,38 @@ var canarySeeds = [...]int64{
 	0xC0FFEE, // Sprint 114 baseline canary (decimal 12648430).
 	0xDECAF,  // Sprint 114 T7+T8+T9+T10+T11+T12 second canary (decimal 912559).
 }
+
+// ---- Seed-derived helper functions (mirror Java scenario logic) ----
+
+// seededMultiplier1 is the signed int64 equivalent of Java's
+// 0x9E3779B97F4A7C15L (Golden Ratio hash constant).
+const seededMultiplier1 int64 = -7046029258636353131
+
+// seededMultiplier2 is the signed int64 equivalent of Java's
+// 0xBF58476D1CE4E5B9L (SplitMix64 mixing constant).
+const seededMultiplier2 int64 = -4658895280553007687
+
+// seededInt returns the deterministic int value for (seed, doc) used by
+// FacetAssociationPayloadScenario.seededInt.
+func seededInt(seed int64, doc int) int {
+	return int((seed * seededMultiplier1) ^ (int64(doc)*31 + 17))
+}
+
+// seededFloat returns the deterministic float in [1.0, 2.0) for (seed, doc)
+// used by FacetAssociationPayloadScenario.seededFloat.
+func seededFloat(seed int64, doc int) float32 {
+	bits := int((seed * seededMultiplier2) ^ (int64(doc)*41 + 23))
+	return math.Float32frombits(uint32((127 << 23) | (bits & 0x7FFFFF)))
+}
+
+// facetFieldDefaultName is the default SortedSetDocValues field name used by
+// FacetsConfig for SortedSetDocValuesFacetField (matches Java
+// FacetsConfig.DEFAULT_INDEX_FIELD_NAME = "$facets").
+const facetFieldDefaultName = "$facets"
+
+// facetSetFieldName is the field name for FacetSets, matching Java
+// FacetSetPackedBytesScenario.FIELD = "fset".
+const facetSetFieldName = "fset"
 
 // Scenario names registered by the Java harness for Sprint 114 T12. Kept
 // as constants so the audit-row -> scenario mapping is explicit and the

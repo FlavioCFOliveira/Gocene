@@ -287,13 +287,93 @@ func TestBlockJoin_Simple(t *testing.T) {
 
 // TestBlockJoin_SimpleFilter corresponds to TestBlockJoin.testSimpleFilter.
 // Every assertion composes a block-join query as a MUST clause alongside a
-// TermQuery FILTER/MUST clause, so the BooleanQuery conjunction drives the
-// block-join scorer with Advance after the lead clause's NextDoc. That hits the
-// postings-reader Advance-after-positioning bug (a second Advance on an
-// already-positioned PostingsEnum returns NO_MORE_DOCS), so the conjunctions
-// drop valid parents. This is a codec/search-core defect, not a block-join one.
+// TermQuery FILTER clause, exercising the BooleanQuery conjunction via Advance.
+//
+// Ported from Apache Lucene 10.4.0 TestBlockJoin.testSimpleFilter. Deviations:
+//   - IntPoint("year", ...) range queries are substituted with TermQuery sets
+//     over zero-padded year strings (see block_join_test_helpers_test.go).
+//   - RandomIndexWriter is replaced with deterministic ordering.
+//   - s.Count(...) is replaced with the count helper (unbounded Search).
 func TestBlockJoin_SimpleFilter(t *testing.T) {
-	t.Fatal("blocked by PostingsEnum.Advance-after-positioning returning NO_MORE_DOCS, which breaks every block-join MUST + filter conjunction here: rmp #4763")
+	dir, w := newBlockWriter(t)
+
+	// Build two parent blocks (Lisa/UK, Frank/US) with job children.
+	addBlock(t, w, makeJob(t, "java", 2007), makeJob(t, "python", 2010), makeResume(t, "Lisa", "United Kingdom"))
+	addBlock(t, w, makeJob(t, "ruby", 2005), makeJob(t, "java", 2006), makeResume(t, "Frank", "United States"))
+
+	// Add a skill-less parent (a parent with no job children).
+	if err := w.AddDocument(makeResume(t, "Skillless", "United Kingdom")); err != nil {
+		t.Fatalf("AddDocument: %v", err)
+	}
+
+	r, s := commitAndOpen(t, dir, w)
+
+	parentsFilter := newQueryBitSetParents("docType", "resume")
+	if err := Check(r, parentsFilter); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+
+	// Child query: (skill=java) AND (year in [2006,2011])
+	childQuery := childSkillAndYear(t, "java", 2006, 2011)
+	childJoinQuery := NewToParentBlockJoinQuery(childQuery, parentsFilter, Avg)
+
+	// Unfiltered: both parents with java skills match.
+	if c := count(t, s, childJoinQuery); c != 2 {
+		t.Fatalf("unfiltered count = %d, want 2", c)
+	}
+
+	// FILTER by docType=resume (all parents): should still match both.
+	bq := search.NewBooleanQuery()
+	bq.Add(childJoinQuery, search.MUST)
+	bq.Add(search.NewTermQuery(index.NewTerm("docType", "resume")), search.FILTER)
+	if c := count(t, s, bq); c != 2 {
+		t.Fatalf("resume-filter count = %d, want 2", c)
+	}
+
+	// FILTER by country=Oz (no match): should match none.
+	bq2 := search.NewBooleanQuery()
+	bq2.Add(childJoinQuery, search.MUST)
+	bq2.Add(search.NewTermQuery(index.NewTerm("country", "Oz")), search.FILTER)
+	if c := count(t, s, bq2); c != 0 {
+		t.Fatalf("Oz count = %d, want 0", c)
+	}
+
+	// FILTER by country=United Kingdom: should match Lisa only.
+	bq3 := search.NewBooleanQuery()
+	bq3.Add(childJoinQuery, search.MUST)
+	bq3.Add(search.NewTermQuery(index.NewTerm("country", "United Kingdom")), search.FILTER)
+	top, err := s.Search(bq3, 10)
+	if err != nil {
+		t.Fatalf("Search UK: %v", err)
+	}
+	if top.TotalHits.Value != 1 {
+		t.Fatalf("UK totalHits = %d, want 1", top.TotalHits.Value)
+	}
+	if len(top.ScoreDocs) > 0 {
+		if got := storedString(mustDoc(t, s, top.ScoreDocs[0].Doc), "name"); got != "Lisa" {
+			t.Errorf("UK top name = %q, want Lisa", got)
+		}
+	}
+
+	// FILTER by country=United States: should match Frank only.
+	bq4 := search.NewBooleanQuery()
+	bq4.Add(childJoinQuery, search.MUST)
+	bq4.Add(search.NewTermQuery(index.NewTerm("country", "United States")), search.FILTER)
+	top2, err := s.Search(bq4, 10)
+	if err != nil {
+		t.Fatalf("Search US: %v", err)
+	}
+	if top2.TotalHits.Value != 1 {
+		t.Fatalf("US totalHits = %d, want 1", top2.TotalHits.Value)
+	}
+	if len(top2.ScoreDocs) > 0 {
+		if got := storedString(mustDoc(t, s, top2.ScoreDocs[0].Doc), "name"); got != "Frank" {
+			t.Errorf("US top name = %q, want Frank", got)
+		}
+	}
+
+	r.Close()
+	dir.Close()
 }
 
 // mustDoc fetches a stored document, failing the test on error.
@@ -900,14 +980,79 @@ func TestBlockJoin_ToChildInitialAdvanceParentButNoKids(t *testing.T) {
 
 // TestBlockJoin_MultiChildQueriesOfDiffParentLevels corresponds to
 // TestBlockJoin.testMultiChildQueriesOfDiffParentLevels.
+//
+// It tests two stacked ToChildBlockJoinQueries composed in a conjunction,
+// exercising the PrefixQuery-based job filter. Uses a small deterministic
+// corpus (2 resumes with 1 job+qualification each).
+//
+// Porting notes:
+//   - The Lucene test uses atLeast(100) resumes + random queries; Gocene uses a
+//     small deterministic corpus sufficient to exercise the same code paths.
+//   - IntPoint year range queries are substituted with TermQuery over StringField
+//     year values (see the package deviation note at the top of this file).
 func TestBlockJoin_MultiChildQueriesOfDiffParentLevels(t *testing.T) {
-	// The job-level parents filter is "anything with a skill", expressed in
-	// Lucene as PrefixQuery(skill, "") wrapped in a QueryBitSetProducer. Gocene's
-	// PrefixQuery yields a nil weight (its ConstantScoreQuery weight is a stub),
-	// so QueryBitSetProducer cannot build the job parent bitset; and the two
-	// stacked ToChild joins are composed in a conjunction that also hits the
-	// postings Advance-after-positioning bug. Both are out-of-scope core gaps.
-	t.Fatal("requires a runnable PrefixQuery for the job-level parents filter (rmp #4760) and the postings Advance fix (rmp #4763)")
+	dir, w := newBlockWriter(t)
+
+	// Build a 2-level parent hierarchy with PrefixQuery("skill", "") as the
+	// job-level parent filter.  In Lucene this is:
+	//   BitSetProducer jobFilter = new QueryBitSetProducer(new PrefixQuery(new Term("skill", "")));
+	//
+	// A resume doc at the end of each block is the grandparent.
+	// Job docs (with "skill" field) are parents of qualification docs.
+	addBlock(t, w,
+		makeQualification(t, "q1", 0),
+		makeJob(t, "skill_x", -10),
+		makeResume(t, "r1", "rv1"),
+	)
+	addBlock(t, w,
+		makeQualification(t, "q2", 10),
+		makeJob(t, "skill_y", -5),
+		makeResume(t, "r2", "rv2"),
+	)
+
+	r, s := commitAndOpen(t, dir, w)
+
+	// PrefixQuery("skill", "") matches ALL terms in the "skill" field, so it
+	// identifies job documents (which have a "skill" field) but not qualification
+	// or resume documents.  This exercises PrefixQuery.CreateWeight through
+	// QueryBitSetProducer.GetBitSet (rmp #4760).
+	jobFilter := NewQueryBitSetProducer(search.NewPrefixQuery(index.NewTerm("skill", "")))
+	resumeFilter := newQueryBitSetParents("docType", "resume")
+
+	// Conjunction of two ToChildBlockJoinQueries:
+	//   1. Resume(rv1) → Jobs: find jobs whose grandparent resume has "country:rv1"
+	//   2. Job(year=-10) → Qualifications: find quals whose parent job has "year:-10"
+	resumeQuery := NewToChildBlockJoinQuery(
+		search.NewTermQuery(index.NewTerm("country", "rv1")),
+		resumeFilter,
+		None,
+	)
+	jobQuery := NewToChildBlockJoinQuery(
+		search.NewTermQuery(index.NewTerm("year", itoa(-10))),
+		jobFilter,
+		None,
+	)
+
+	fullQuery := search.NewBooleanQuery()
+	fullQuery.Add(jobQuery, search.MUST)
+	fullQuery.Add(resumeQuery, search.MUST)
+
+	topDocs, err := s.Search(fullQuery, 10)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if topDocs.TotalHits.Value != 1 {
+		t.Fatalf("totalHits = %d, want 1", topDocs.TotalHits.Value)
+	}
+	if len(topDocs.ScoreDocs) > 0 {
+		q := storedString(mustDoc(t, s, topDocs.ScoreDocs[0].Doc), "qualification")
+		if q == "" {
+			t.Errorf("top hit document %d has no qualification field", topDocs.ScoreDocs[0].Doc)
+		}
+	}
+
+	r.Close()
+	dir.Close()
 }
 
 // freqSimScorer is a SimScorer that scores every document by its raw term

@@ -203,10 +203,6 @@ func TestPointValues_DoublePoint(t *testing.T) {
 }
 
 func TestPointValues_RangeQuery(t *testing.T) {
-	// Range queries and PointValues search require a fully implemented
-	// PointValues format and leaf reader — skip until implemented.
-	t.Fatal("point range query not yet fully implemented")
-
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
@@ -219,16 +215,16 @@ func TestPointValues_RangeQuery(t *testing.T) {
 	}
 	defer writer.Close()
 
-	// Add documents with numeric values
+	// Add documents with numeric point values
 	for i := 0; i < 100; i++ {
 		doc := document.NewDocument()
 
 		idField, _ := document.NewStringField("id", string(rune('0'+i%10)), true)
 		doc.Add(idField)
 
-		// Int field for range query testing
-		intField, _ := document.NewIntField("int_value", i, true)
-		doc.Add(intField)
+		// Int point field (indexed via BKD tree for range queries)
+		intPoint := document.NewIntPoint("int_value", int32(i))
+		doc.Add(intPoint)
 
 		if err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
@@ -248,27 +244,25 @@ func TestPointValues_RangeQuery(t *testing.T) {
 	searcher := search.NewIndexSearcher(reader)
 
 	// Test range query (25-74 should match 50 documents)
-	minValue := make([]byte, 4)
-	maxValue := make([]byte, 4)
+	lower := make([]byte, 4)
+	upper := make([]byte, 4)
+	document.EncodeDimensionIntLucene(25, lower, 0)
+	document.EncodeDimensionIntLucene(74, upper, 0)
 
-	// Simple byte encoding for int
-	minValue[3] = byte(25)
-	maxValue[3] = byte(74)
-
-	// Create point range query using IntPoint
-	rangeQuery, err := search.NewPointRangeQuery("int_value", minValue, maxValue)
+	rangeQuery, err := search.NewPointRangeQuery("int_value", lower, upper)
 	if err != nil {
-		t.Logf("range query construction failed: %v", err)
-		t.Fatal("range query not implemented")
+		t.Fatalf("range query construction failed: %v", err)
 	}
 
 	topDocs, err := searcher.Search(rangeQuery, 100)
 	if err != nil {
-		t.Logf("range query may not be fully implemented: %v", err)
-		t.Fatal("range query not implemented")
+		t.Fatalf("range query search failed: %v", err)
 	}
 
-	t.Logf("Range query found %d documents", topDocs.TotalHits.Value)
+	if topDocs.TotalHits.Value != 50 {
+		t.Errorf("expected 50 documents in range [25,74], got %d", topDocs.TotalHits.Value)
+	}
+	t.Logf("Range query found %d documents (expected 50)", topDocs.TotalHits.Value)
 }
 
 func TestPointValues_ExactQuery(t *testing.T) {

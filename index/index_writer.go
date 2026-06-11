@@ -126,6 +126,12 @@ type IndexWriter struct {
 	// Protected by mu.
 	pendingDeleteQueries []interface{}
 
+	// pendingDeleteAll is set by DeleteAll to request that all segments'
+	// documents be marked as deleted at the next Commit.  When true, Commit
+	// writes .liv files for every committed segment with all docs deleted
+	// and discards all pending state.  Protected by mu.
+	pendingDeleteAll bool
+
 	// writeLock is the exclusive directory write lock held for the lifetime of
 	// this IndexWriter instance.  Nil only if locking is not supported by the
 	// directory (legacy path; should not happen with current store implementations).
@@ -140,6 +146,20 @@ type IndexWriter struct {
 	// successfully materialised buffered documents into a pendingSegment.
 	// Accessed atomically; incremented under mu.
 	flushCount atomic.Int32
+
+	// nrtGen is incremented each time GetReader materialises new content
+	// (flushed segments).  NRT readers compare their snapshot generation
+	// against this counter to cheaply determine whether the index has changed
+	// since they were opened (used by OpenIfChangedFromWriter and
+	// NRTDirectoryReader.IsCurrent).
+	nrtGen atomic.Int64
+
+	// nrtSegmentInfos holds the last NRT snapshot SIS (includes
+	// flushed-but-not-committed segments).  Used as the base for
+	// subsequent GetReader calls so previously NRT-flushed segments
+	// remain visible across multiple GetReader calls within the same
+	// writer session.
+	nrtSegmentInfos *spi.SegmentInfos
 }
 
 // pendingSegment captures the metadata of a segment that has been flushed from
@@ -725,10 +745,18 @@ func (w *IndexWriter) flushPendingDocsLocked() error {
 		w.documentsWriter.mu.Lock()
 		pool = w.documentsWriter.TakePerThreadPool()
 		w.documentsWriter.mu.Unlock()
-		if len(pool) > 0 && w.config.Codec() == nil {
-			// Codec-less path: merge postings into a single in-memory producer.
+		if len(pool) > 0 {
+			// Always merge in-memory postings so GetReader (NRT) can
+			// create in-memory segments without writing codec files.
+			// When a codec is active the DWPTs are preserved for
+			// Commit to write the real files; the in-memory postings
+			// serve as the NRT-reader fallback (SegmentReader.Terms
+			// falls through to in-memory FieldsProducer when
+			// coreReaders is nil).
 			inMemFields = MergeInMemoryPostings(pool)
-			pool = nil // pooled writers not needed further
+			if w.config.Codec() == nil {
+				pool = nil // codec-less: DWPTs not needed beyond merge
+			}
 		}
 	}
 
@@ -852,10 +880,95 @@ func (w *IndexWriter) GetReader() (*DirectoryReader, error) {
 	if err := w.ensureOpen(); err != nil {
 		return nil, fmt.Errorf("cannot open NRT reader: %w", err)
 	}
-	if err := w.Commit(); err != nil {
-		return nil, fmt.Errorf("GetReader: flush/commit failed: %w", err)
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	// Flush buffered documents into pending segments.
+	if err := w.flushPendingDocsLocked(); err != nil {
+		return nil, fmt.Errorf("GetReader: flush failed: %w", err)
 	}
-	return OpenDirectoryReader(w.directory)
+
+	// Determine the base SIS: use the last NRT snapshot (which includes
+	// previously flushed segments) if available, otherwise read committed
+	// SIS from disk.
+	var baseSI *spi.SegmentInfos
+	if w.nrtSegmentInfos != nil {
+		baseSI = w.nrtSegmentInfos
+	} else {
+		var err error
+		baseSI, err = ReadSegmentInfos(w.directory)
+		if err != nil {
+			baseSI = NewSegmentInfos()
+			baseSI.SetGeneration(1)
+		}
+	}
+
+	// When no pending segments exist, open a reader from the base SIS.
+	if len(w.pendingImportedSegments) == 0 {
+		reader, err2 := OpenDirectoryReaderWithInfos(w.directory, baseSI)
+		if err2 != nil {
+			return nil, fmt.Errorf("GetReader: open reader: %w", err2)
+		}
+		reader.nrtGen = w.nrtGen.Load()
+		return reader, nil
+	}
+
+	// Build an in-memory NRT snapshot: clone the committed SIS and add one
+	// new segment per pendingImportedSegment.
+	nrtSI := baseSI.Clone()
+	nrtSI.NextGeneration()
+
+	for _, ps := range w.pendingImportedSegments {
+		segmentName := nrtSI.GetNextSegmentName()
+		segInfo := NewSegmentInfo(segmentName, ps.numDocs, w.directory)
+		sci := NewSegmentCommitInfo(segInfo, ps.delCount, -1)
+		if ps.softDelCount > 0 {
+			sci.SetSoftDelCount(ps.softDelCount)
+		}
+		if ps.fieldInfos != nil {
+			sci.SetInMemoryFieldInfos(ps.fieldInfos)
+		}
+
+		// Wire in-memory postings so the codec-less fallback works.
+		if ps.inMemoryFields != nil {
+			sci.SetInMemoryFields(ps.inMemoryFields)
+			RegisterInMemoryFields(w.directory, segmentName, ps.inMemoryFields)
+		}
+
+		// Stamp default codec name so openSegmentReader resolves it
+		// and falls through to the codec-less path.
+		if codec := w.config.Codec(); codec != nil {
+			segInfo.SetCodec(codec.Name())
+		}
+
+		nrtSI.Add(sci)
+		w.committedSegments = append(w.committedSegments, sci)
+	}
+
+	// Clear pending segments — materialised into NRT snapshot.
+	w.pendingImportedSegments = w.pendingImportedSegments[:0]
+
+	// Save the NRT snapshot so subsequent GetReader calls include
+	// these flushed-but-not-committed segments.
+	w.nrtSegmentInfos = nrtSI
+
+	// Increment NRT generation for change detection.
+	w.nrtGen.Add(1)
+
+	reader, err := OpenDirectoryReaderWithInfos(w.directory, nrtSI)
+	if err != nil {
+		return nil, fmt.Errorf("GetReader: open reader: %w", err)
+	}
+	reader.nrtGen = w.nrtGen.Load()
+	return reader, nil
+}
+
+// GetNRTGeneration returns the current NRT generation counter. Every GetReader
+// call that materialises new content advances this counter. Used by
+// OpenIfChangedFromWriter for cheap change detection.
+func (w *IndexWriter) GetNRTGeneration() int64 {
+	return w.nrtGen.Load()
 }
 
 // hasUncommittedChanges reports whether the writer holds buffered
@@ -871,7 +984,8 @@ func (w *IndexWriter) hasUncommittedChanges() bool {
 	return len(w.pendingImportedSegments) > 0 ||
 		len(w.pendingDeleteTerms) > 0 ||
 		len(w.pendingCommittedDeleteTerms) > 0 ||
-		len(w.pendingDeleteQueries) > 0
+		len(w.pendingDeleteQueries) > 0 ||
+		w.pendingDeleteAll
 }
 
 // Commit commits all pending changes.
@@ -894,14 +1008,64 @@ func (w *IndexWriter) Commit() error {
 		si.NextGeneration()
 	}
 
+	// Materialise all pending segments (auto-flush + AddIndexes imports).
+	codec := w.config.Codec()
+
+	// Handle pendingDeleteAll BEFORE flushing new buffered docs: mark every
+	// doc in every committed segment as deleted by writing a .liv with all
+	// bits cleared.  This must precede flushPendingDocsLocked so that docs
+	// added after DeleteAll() are not themselves deleted.
+	if w.pendingDeleteAll {
+		if codec != nil {
+			for _, sci := range si.List() {
+				maxDoc := sci.SegmentInfo().DocCount()
+				if maxDoc == 0 {
+					continue
+				}
+				// Carry over pre-existing deletions.
+				deleted := make(map[int]struct{})
+				for _, ord := range sci.GetDeletedOrdinals() {
+					if ord >= 0 && ord < maxDoc {
+						deleted[ord] = struct{}{}
+					}
+				}
+				// Mark every doc as deleted.
+				for i := 0; i < maxDoc; i++ {
+					deleted[i] = struct{}{}
+				}
+				if len(deleted) == len(sci.GetDeletedOrdinals()) {
+					continue
+				}
+				live, err3 := util.NewFixedBitSet(maxDoc)
+				if err3 != nil {
+					return fmt.Errorf("commit: deleteAll: new bitset: %w", err3)
+				}
+				ords := make([]int, 0, len(deleted))
+				for ord := range deleted {
+					ords = append(ords, ord)
+				}
+				sort.Ints(ords)
+				delGen := sci.AdvanceDelGen()
+				segName := sci.SegmentInfo().Name()
+				if _, err4 := writeLiveDocs(w.directory, segName, sci.SegmentInfo().GetID(), delGen, live); err4 != nil {
+					return fmt.Errorf("commit: deleteAll: write live docs for %s: %w", segName, err4)
+				}
+				sci.SetDelCount(len(deleted))
+				sci.SetDeletedOrdinals(ords)
+				livName := liveDocsFileName(segName, delGen)
+				appendSegmentFile(sci.SegmentInfo(), livName)
+			}
+		}
+		// Discard any pending imported segments from before the DeleteAll call.
+		w.pendingImportedSegments = w.pendingImportedSegments[:0]
+		w.pendingDeleteAll = false
+	}
+
 	// Flush any remaining buffered documents to a pending segment so the
 	// pendingImportedSegments slice is complete before we write to disk.
 	if err2 := w.flushPendingDocsLocked(); err2 != nil {
 		return fmt.Errorf("flush before commit failed: %w", err2)
 	}
-
-	// Materialise all pending segments (auto-flush + AddIndexes imports).
-	codec := w.config.Codec()
 
 	// Apply buffered delete terms to already-committed segments (rmp #4753).
 	// When a codec is wired we resolve each term against the committed
@@ -1698,6 +1862,9 @@ func (w *IndexWriter) DeleteAll() error {
 	w.pendingFieldInfos = nil
 	w.committedSegments = nil
 
+	// Mark that all committed segments should be deleted at the next Commit.
+	w.pendingDeleteAll = true
+
 	return nil
 }
 
@@ -2014,8 +2181,22 @@ func (w *IndexWriter) GetSegmentCount() int {
 func (w *IndexWriter) GetBufferedDeleteTermsSize() int {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
-	// Placeholder - would track buffered delete terms
-	return 0
+	seen := make(map[string]struct{}, len(w.pendingDeleteTerms)+len(w.pendingCommittedDeleteTerms))
+	for _, tb := range w.pendingDeleteTerms {
+		if tb.term == nil {
+			continue
+		}
+		key := tb.term.Field + ":" + tb.term.Text()
+		seen[key] = struct{}{}
+	}
+	for _, t := range w.pendingCommittedDeleteTerms {
+		if t == nil {
+			continue
+		}
+		key := t.Field + ":" + t.Text()
+		seen[key] = struct{}{}
+	}
+	return len(seen)
 }
 
 // GetFlushCount returns the number of times the index has been flushed.

@@ -45,7 +45,12 @@ package facets
 
 import (
 	"bytes"
+	"encoding/binary"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // TestFacetSetPackedBytes_ReadFixture (class a) drives the harness and
@@ -120,21 +125,109 @@ func TestFacetSetPackedBytes_VerifySubcommand(t *testing.T) {
 }
 
 // TestFacetSetPackedBytes_RoundTrip (class c) is the full Lucene ->
-// Gocene -> Lucene loop. Deferred: Gocene's FacetSetDecoder (see
-// facets/facetset/facet_set_decoder.go) cannot yet consume a Lucene-
-// emitted BinaryDocValues stream — the SegmentReader core-readers gap
-// blocks the leaf-reader path before the decoder is reached. Recorded
-// verbatim in deferred_facets_compat_test.go.
+// Gocene -> Lucene loop. Gocene opens the index, reads the BinaryDocValues
+// field "fset", decodes the FacetSet packed bytes, and asserts the anchor
+// tuple (1, 2, 3) appears in every document's FacetSet list.
 func TestFacetSetPackedBytes_RoundTrip(t *testing.T) {
-	const auditGap = "No Lucene-produced FacetSet bytes used in tests."
+	const numDocs = 6
+	const dims = 3
+	const anchorD0, anchorD1, anchorD2 int64 = 1, 2, 3
+
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: Gocene round-trip for facet-set-packed-bytes at seed=%d "+
-				"is blocked on the SegmentReader core-readers gap "+
-				"(memory-index ref 'gocene-segmentreader-corereaders-gap'); "+
-				"audit gap_notes (verbatim): %q",
-				seed, auditGap)
+			dir := generate(t, ScenarioFacetSetPackedBytes, seed)
+			storeDir, err := store.NewSimpleFSDirectory(dir)
+			if err != nil {
+				t.Fatalf("NewSimpleFSDirectory: %v", err)
+			}
+			defer storeDir.Close()
+
+			dr, err := index.OpenDirectoryReader(storeDir)
+			if err != nil {
+				t.Fatalf("OpenDirectoryReader: %v", err)
+			}
+			defer dr.Close()
+
+			leaves, err := dr.Leaves()
+			if err != nil {
+				t.Fatalf("Leaves: %v", err)
+			}
+			if len(leaves) == 0 {
+				t.Fatal("no leaf readers")
+			}
+
+			anchorSeen := false
+			docCount := 0
+			for _, lrc := range leaves {
+				raw := lrc.Reader()
+				lr, ok := raw.(interface {
+					GetBinaryDocValues(string) (index.BinaryDocValues, error)
+				})
+				if !ok {
+					t.Fatal("reader does not support GetBinaryDocValues")
+				}
+				bdv, err := lr.GetBinaryDocValues(facetSetFieldName)
+				if err != nil {
+					t.Fatalf("GetBinaryDocValues(%s): %v", facetSetFieldName, err)
+				}
+				if bdv == nil {
+					t.Fatal("BinaryDocValues fset is nil")
+				}
+				doc, err := bdv.NextDoc()
+				if err != nil {
+					t.Fatalf("NextDoc: %v", err)
+				}
+				for doc != search.NO_MORE_DOCS {
+					docCount++
+					payload, err := bdv.BinaryValue()
+					if err != nil {
+						t.Fatalf("BinaryValue: %v", err)
+					}
+					if len(payload) < 4 {
+						t.Fatalf("payload too short (%d bytes) doc=%d", len(payload), doc)
+					}
+
+					// Parse vint count, vint dims, then sets.
+					count, n1 := binary.Uvarint(payload)
+					if n1 <= 0 {
+						t.Fatalf("decoding set count: n1=%d", n1)
+					}
+					gotDims, n2 := binary.Uvarint(payload[n1:])
+					if n2 <= 0 {
+						t.Fatalf("decoding dims: n2=%d", n2)
+					}
+					if int(gotDims) != dims {
+						t.Fatalf("dims: got %d, want %d", gotDims, dims)
+					}
+
+					offset := n1 + n2
+					setBytes := dims * 8 // each dim is big-endian int64
+					for s := uint64(0); s < count; s++ {
+						if offset+setBytes > len(payload) {
+							t.Fatalf("payload truncated: offset=%d, need=%d, have=%d", offset, setBytes, len(payload))
+						}
+						v0 := int64(binary.BigEndian.Uint64(payload[offset:]))
+						v1 := int64(binary.BigEndian.Uint64(payload[offset+8:]))
+						v2 := int64(binary.BigEndian.Uint64(payload[offset+16:]))
+						if v0 == anchorD0 && v1 == anchorD1 && v2 == anchorD2 {
+							anchorSeen = true
+						}
+						offset += setBytes
+					}
+					doc, err = bdv.NextDoc()
+					if err != nil {
+						t.Fatalf("NextDoc: %v", err)
+					}
+				}
+			}
+
+			if docCount != numDocs {
+				t.Errorf("document count: got %d, want %d", docCount, numDocs)
+			}
+			if !anchorSeen {
+				t.Error("anchor tuple (1,2,3) not found in any document's FacetSets")
+			}
 		})
 	}
 }

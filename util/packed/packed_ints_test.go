@@ -365,6 +365,82 @@ func TestCopy(t *testing.T) {
 	}
 }
 
+// TestFormatConstantsExactly verifies every Go-side constant matches the
+// Apache Lucene 10.4.0 source exactly. Any mismatch here means Gocene would
+// produce an on-disk layout that Lucene cannot read, or vice versa.
+func TestFormatConstantsExactly(t *testing.T) {
+	t.Parallel()
+
+	// PackedInts overhead/performance constants.
+	if Fastest != 7.0 {
+		t.Errorf("Fastest: got %f, want 7.0 (Lucene FASTEST)", Fastest)
+	}
+	if Fast != 0.5 {
+		t.Errorf("Fast: got %f, want 0.5 (Lucene FAST)", Fast)
+	}
+	if Default != 0.25 {
+		t.Errorf("Default: got %f, want 0.25 (Lucene DEFAULT)", Default)
+	}
+	if Compact != 0.0 {
+		t.Errorf("Compact: got %f, want 0.0 (Lucene COMPACT)", Compact)
+	}
+	if DefaultBufferSize != 1024 {
+		t.Errorf("DefaultBufferSize: got %d, want 1024 (Lucene DEFAULT_BUFFER_SIZE)", DefaultBufferSize)
+	}
+
+	// Codec identity constants.
+	if CodecName != "PackedInts" {
+		t.Errorf("CodecName: got %q, want %q", CodecName, "PackedInts")
+	}
+	if VersionMonotonicWithoutZigzag != 2 {
+		t.Errorf("VersionMonotonicWithoutZigzag: got %d, want 2", VersionMonotonicWithoutZigzag)
+	}
+	if VersionStart != VersionMonotonicWithoutZigzag {
+		t.Errorf("VersionStart != VersionMonotonicWithoutZigzag")
+	}
+	if VersionCurrent != VersionMonotonicWithoutZigzag {
+		t.Errorf("VersionCurrent != VersionMonotonicWithoutZigzag")
+	}
+
+	// Format IDs.
+	if int(FormatPacked) != 0 {
+		t.Errorf("FormatPacked ID: got %d, want 0", FormatPacked)
+	}
+	if int(FormatPackedSingleBlock) != 1 {
+		t.Errorf("FormatPackedSingleBlock ID: got %d, want 1", FormatPackedSingleBlock)
+	}
+
+	// DirectMonotonic writer block-shift bounds.
+	if DirectMonotonicMinBlockShift != 2 {
+		t.Errorf("DirectMonotonicMinBlockShift: got %d, want 2", DirectMonotonicMinBlockShift)
+	}
+	if DirectMonotonicMaxBlockShift != 22 {
+		t.Errorf("DirectMonotonicMaxBlockShift: got %d, want 22", DirectMonotonicMaxBlockShift)
+	}
+
+	// AbstractBlockPackedWriter constants.
+	if BlockPackedMinBlockSize != 64 {
+		t.Errorf("BlockPackedMinBlockSize: got %d, want 64", BlockPackedMinBlockSize)
+	}
+	if BlockPackedMaxBlockSize != 1<<(30-3) {
+		t.Errorf("BlockPackedMaxBlockSize: got %d, want %d", BlockPackedMaxBlockSize, 1<<(30-3))
+	}
+	if bpwMinValueEqualsZero != 1 {
+		t.Errorf("bpwMinValueEqualsZero: got %d, want 1", bpwMinValueEqualsZero)
+	}
+	if bpwBpvShift != 1 {
+		t.Errorf("bpwBpvShift: got %d, want 1", bpwBpvShift)
+	}
+
+	// BulkOperationPacked constants — mask values for each bpv equal 2^bpv-1.
+	for bpv := 1; bpv <= 64; bpv++ {
+		op := newBulkOperationPacked(bpv)
+		if op.bitsPerValue != bpv {
+			t.Errorf("BulkOperationPacked(%d).bitsPerValue = %d", bpv, op.bitsPerValue)
+		}
+	}
+}
+
 func TestPacked64Fill(t *testing.T) {
 	t.Parallel()
 	const n = 200

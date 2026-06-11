@@ -306,6 +306,11 @@ type DirectoryReader struct {
 
 	// readerContext is the context for this reader
 	readerContext IndexReaderContext
+
+	// nrtGen records the IndexWriter NRT generation at the moment this
+	// reader was created from a writer.  Zero means commit-pinned reader.
+	// Used by OpenIfChangedFromWriter for efficient change detection.
+	nrtGen int64
 }
 
 // SegmentReader is a LeafReader for a specific segment.
@@ -1079,6 +1084,7 @@ func OpenDirectoryReaderWithInfos(directory store.Directory, segmentInfos *Segme
 		directory:       directory,
 		segmentInfos:    segmentInfos,
 		readers:         readers,
+		nrtGen:          0, // commit-pinned reader
 	}, nil
 }
 
@@ -1121,8 +1127,16 @@ func OpenIfChangedFromWriter(old *DirectoryReader, writer *IndexWriter) (*Direct
 	if writer == nil {
 		return nil, fmt.Errorf("OpenIfChangedFromWriter: writer must not be nil")
 	}
-	// Fast path: when the writer has no buffered changes and its committed
-	// generation already matches old's, nothing can have changed.
+	if old != nil && old.nrtGen > 0 {
+		// NRT reader path: compare the reader snapshot gen against the
+		// writer current counter.  When both match and no uncommitted
+		// changes exist, nothing happened since this reader was opened.
+		if old.nrtGen == writer.GetNRTGeneration() && !writer.hasUncommittedChanges() {
+			return nil, nil
+		}
+	}
+	// Fall back: if writer has no uncommitted changes and committed gen
+	// matches old, nothing changed.
 	if old != nil && !writer.hasUncommittedChanges() {
 		if cur, err := ReadSegmentInfos(writer.directory); err == nil &&
 			old.segmentInfos != nil && cur.Generation() == old.segmentInfos.Generation() {
