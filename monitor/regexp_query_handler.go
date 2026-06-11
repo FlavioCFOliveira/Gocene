@@ -86,7 +86,7 @@ func (h *RegexpQueryHandler) WrapTermStream(field string, in analysis.TokenStrea
 // obtained via String(). Once the RegexpQuery type is ported, switch to a
 // type assertion on the concrete RegexpQuery type.
 func (h *RegexpQueryHandler) HandleQuery(q search.Query, weightor TermWeightor) QueryTree {
-	qs := queryString(q)
+	qs := regexpQueryString(q)
 	if qs == "" {
 		return nil
 	}
@@ -102,10 +102,10 @@ func (h *RegexpQueryHandler) HandleQuery(q search.Query, weightor TermWeightor) 
 	return NewTermQueryTree(field, util.NewBytesRef([]byte(term)), weightor.ApplyAsDouble(index.NewTerm(field, term)))
 }
 
-// queryString attempts to obtain a string representation of the query.
+// regexpQueryString attempts to obtain a string representation of the query.
 // It tries Stringer first, then falls back to the query's ToString method
 // if the concrete type implements it.
-func queryString(q search.Query) string {
+func regexpQueryString(q search.Query) string {
 	if s, ok := q.(interface{ String() string }); ok {
 		return s.String()
 	}
