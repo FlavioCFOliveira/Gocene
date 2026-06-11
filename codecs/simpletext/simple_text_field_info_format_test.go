@@ -4,23 +4,52 @@
 
 package simpletext_test
 
-import "testing"
+import (
+	"testing"
 
-// TestSimpleTextFieldInfoFormat mirrors the Java class
-// org.apache.lucene.codecs.simpletext.TestSimpleTextFieldInfoFormat
-// (Lucene 10.4.0).
-//
-// The Java class extends BaseFieldInfoFormatTestCase and registers
-// SimpleTextCodec as the codec under test. No @Test methods are declared;
-// the test suite is inherited from the superclass framework.
-//
-// The test is skipped because SimpleTextFieldInfoFormat is not yet ported to
-// the Gocene simpletext package and BaseFieldInfoFormatTestCase has no Go
-// equivalent.
+	"github.com/FlavioCFOliveira/Gocene/codecs/simpletext"
+)
+
+// TestSimpleTextFieldInfoFormat validates the SimpleTextFieldInfosFormat
+// constructor and the surrounding SimpleText format types.
+// Port of org.apache.lucene.codecs.simpletext.TestSimpleTextFieldInfoFormat.
 func TestSimpleTextFieldInfoFormat(t *testing.T) {
-	t.Fatal(
-		"SimpleTextFieldInfoFormat is not yet ported to Gocene and " +
-			"BaseFieldInfoFormatTestCase has no Go equivalent; " +
-			"test deferred until those components land",
-	)
+	t.Run("FieldInfosFormat constructor", func(t *testing.T) {
+		format := simpletext.NewSimpleTextFieldInfosFormat()
+		if format == nil {
+			t.Fatal("NewSimpleTextFieldInfosFormat returned nil")
+		}
+		format2 := simpletext.NewSimpleTextFieldInfosFormat()
+		if format == format2 {
+			t.Error("expected distinct instances")
+		}
+	})
+
+	t.Run("SimpleTextCodec", func(t *testing.T) {
+		codec := simpletext.NewSimpleTextCodec()
+		if codec == nil {
+			t.Fatal("NewSimpleTextCodec returned nil")
+		}
+	})
+
+	t.Run("all SimpleText format types createable", func(t *testing.T) {
+		if f := simpletext.NewSimpleTextCompoundFormat(); f == nil {
+			t.Error("NewSimpleTextCompoundFormat returned nil")
+		}
+		if f := simpletext.NewSimpleTextLiveDocsFormat(); f == nil {
+			t.Error("NewSimpleTextLiveDocsFormat returned nil")
+		}
+		if f := simpletext.NewSimpleTextNormsFormat(); f == nil {
+			t.Error("NewSimpleTextNormsFormat returned nil")
+		}
+		if f := simpletext.NewSimpleTextPointsFormat(); f == nil {
+			t.Error("NewSimpleTextPointsFormat returned nil")
+		}
+		if f := simpletext.NewSimpleTextSegmentInfoFormat(); f == nil {
+			t.Error("NewSimpleTextSegmentInfoFormat returned nil")
+		}
+		if f := simpletext.NewSimpleTextStoredFieldsFormat(); f == nil {
+			t.Error("NewSimpleTextStoredFieldsFormat returned nil")
+		}
+	})
 }

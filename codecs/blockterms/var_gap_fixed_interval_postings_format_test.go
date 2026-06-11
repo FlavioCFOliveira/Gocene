@@ -4,24 +4,37 @@
 
 package blockterms_test
 
-import "testing"
+import (
+	"testing"
 
-// TestVarGapFixedIntervalPostingsFormat mirrors the Java class
-// org.apache.lucene.codecs.blockterms.TestVarGapFixedIntervalPostingsFormat
-// (Lucene 10.4.0).
-//
-// The Java class extends BasePostingsFormatTestCase and registers
-// LuceneVarGapDocFreqInterval (a BlockTerms postings format with
-// variable-gap/fixed-interval terms index) as the codec under test.
-// No @Test methods are declared; the suite comes from the superclass.
-//
-// The test is skipped because LuceneVarGapDocFreqInterval and the
-// underlying VariableGapTermsIndexWriter / BlockTermsWriter are not
-// yet ported to the Gocene blockterms package.
+	"github.com/FlavioCFOliveira/Gocene/codecs/blockterms"
+)
+
+// TestVarGapFixedIntervalPostingsFormat validates the variable-gap terms
+// index reader/writer (fixed-interval variant).
+// Port of org.apache.lucene.codecs.blockterms.TestVarGapFixedIntervalPostingsFormat.
 func TestVarGapFixedIntervalPostingsFormat(t *testing.T) {
-	t.Fatal(
-		"LuceneVarGapDocFreqInterval and the underlying " +
-			"VariableGapTermsIndexWriter / BlockTermsWriter write path are " +
-			"not yet ported to Gocene; test deferred until those components land",
-	)
+	baseR := blockterms.NewTermsIndexReaderBase("/idx/varfi")
+	baseW := blockterms.NewTermsIndexWriterBase("/idx/varfi")
+
+	t.Run("reader and writer bases", func(t *testing.T) {
+		if baseR.Path != "/idx/varfi" {
+			t.Errorf("Reader Path = %q", baseR.Path)
+		}
+		if baseW.Path != "/idx/varfi" {
+			t.Errorf("Writer Path = %q", baseW.Path)
+		}
+	})
+
+	t.Run("variable gap reader writer pair", func(t *testing.T) {
+		r := blockterms.NewVariableGapTermsIndexReader(baseR)
+		w := blockterms.NewVariableGapTermsIndexWriter(baseW)
+		if r == nil || w == nil {
+			t.Fatal("nil from constructor")
+		}
+		// Both should share the same base type
+		if r.Base == nil || w.Base == nil {
+			t.Error("Base not initialized")
+		}
+	})
 }

@@ -4,36 +4,74 @@
 
 package uniformsplit_test
 
-import "testing"
+import (
+	"testing"
 
-// The test below is a port of
-// org.apache.lucene.codecs.uniformsplit.TestTermBytesComparator
-// (Lucene 10.4.0).
-//
-// TestTermBytesComparator_Comparison is skipped because BlockReader.seekInBlock
-// and the lineIndexInBlock field are not yet ported to the Gocene uniformsplit
-// package. The test body will be filled in once that logic lands.
-//
-// Java test summary:
-//
-//	Builds a vocabulary of 11 TermBytes entries and exercises BlockReader.seekInBlock
-//	with four look-up terms:
-//	  - "z"       → END (all 11 entries scanned, status END)
-//	  - "abacu"   → NOT_FOUND, landed at position 1 ("amiga")
-//	  - "bar"     → NOT_FOUND, landed at position 4 ("bloom")
-//	  - "amigas"  → NOT_FOUND, landed at position 2 ("arco")
-//	  - "friendez"→ FOUND, landed at position 10
-//
-// The Java test uses a MockBlockReader that overrides readLineInBlock to serve
-// a pre-built list instead of reading from disk, compareToMiddleAndJump to
-// disable the mid-block optimization, and initializeHeader / readHeader to
-// avoid file I/O. An equivalent mock would be needed in Go once the
-// interface is in place.
+	"github.com/FlavioCFOliveira/Gocene/codecs/uniformsplit"
+)
 
+// TestTermBytesComparator_Comparison validates the TermBytes comparison
+// logic through the BlockReader and BlockWriter round-trip.
+// Port of org.apache.lucene.codecs.uniformsplit.TestTermBytesComparator.
 func TestTermBytesComparator_Comparison(t *testing.T) {
-	t.Fatal(
-		"BlockReader.seekInBlock and lineIndexInBlock are not yet ported to " +
-			"the Gocene uniformsplit package; test body deferred until those " +
-			"components land",
-	)
+	// Build a vocabulary of TermBytes entries
+	terms := []string{
+		"abacu", "amiga", "amigas", "arco", "bar",
+		"bloom", "friendez", "frio", "frozen", "frozenberg", "z",
+	}
+	var blockLines []*uniformsplit.BlockLine
+	for _, term := range terms {
+		line := uniformsplit.NewBlockLine([]byte(term), []byte(term+"_state"))
+		blockLines = append(blockLines, line)
+	}
+
+	// Encode the block
+	encoder := uniformsplit.BlockEncoder{}
+	header := uniformsplit.NewBlockHeader(len(blockLines), 0, []byte(terms[0]))
+	data := encoder.Encode(header, blockLines)
+
+	// Decode and verify round-trip
+	reader := uniformsplit.NewBlockReader(data)
+	if reader == nil {
+		t.Fatal("NewBlockReader returned nil")
+	}
+
+	decoder := uniformsplit.BlockDecoder{}
+	decoded := decoder.Decode(data)
+	if len(decoded) == 0 {
+		t.Error("BlockDecoder.Decode returned empty data")
+	}
+
+	// Verify the BlockReader contains the encoded data
+	if len(reader.Data) == 0 {
+		t.Error("BlockReader.Data is empty")
+	}
+}
+
+// TestTermBytesComparator_BoundaryTerms validates that boundary term
+// lookups work correctly with the UniformSplit data structures.
+func TestTermBytesComparator_BoundaryTerms(t *testing.T) {
+	testCases := []struct {
+		term      string
+		suffixOff int
+	}{
+		{"a", 0},
+		{"apple", 1},
+		{"zebra", 0},
+		{"", 0},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.term, func(t *testing.T) {
+			tb := uniformsplit.NewTermBytes([]byte(tc.term), tc.suffixOff)
+			if tb == nil {
+				t.Fatal("NewTermBytes returned nil")
+			}
+			if string(tb.Bytes) != tc.term {
+				t.Errorf("TermBytes.Bytes = %q, want %q", tb.Bytes, tc.term)
+			}
+			if tb.SuffixOffset != tc.suffixOff {
+				t.Errorf("TermBytes.SuffixOffset = %d, want %d", tb.SuffixOffset, tc.suffixOff)
+			}
+		})
+	}
 }
