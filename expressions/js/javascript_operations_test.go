@@ -3,12 +3,6 @@
 // that can be found in the LICENSE file.
 
 // Port of org.apache.lucene.expressions.js.TestJavascriptOperations.
-// Tests are partitioned into two groups:
-//  1. Operations supported by the current hand-written recursive-descent parser:
-//     addition, subtraction, multiplication, division (active tests).
-//  2. Operations that require the full ANTLR grammar (unary negation, bitwise
-//     ops, comparison ops, conditional ?:, shift ops, boolean AND/OR/NOT):
-//     deferred and documented with t.Skip.
 package js_test
 
 import (
@@ -18,7 +12,6 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/expressions/js"
 )
 
-// compile is a helper that calls JavascriptCompiler.Compile and fatals on error.
 func compile(t *testing.T, src string) func(map[string]float64) (float64, error) {
 	t.Helper()
 	c := js.JavascriptCompiler{}
@@ -46,7 +39,20 @@ func assertEvalLong(t *testing.T, src string, expected int64) {
 	assertEval(t, src, nil, float64(expected))
 }
 
-// TestJavascriptOperations_AddOperation mirrors testAddOperation.
+func assertEvalNonZero(t *testing.T, src string) {
+	t.Helper()
+	eval := compile(t, src)
+	got, err := eval(nil)
+	if err != nil {
+		t.Fatalf("eval(%q): %v", src, err)
+	}
+	if got == 0 {
+		t.Errorf("eval(%q) = 0; want non-zero", src)
+	}
+}
+
+// --- Basic arithmetic (unchanged) ---
+
 func TestJavascriptOperations_AddOperation(t *testing.T) {
 	assertEvalLong(t, "1+1", 2)
 	assertEval(t, "1+0.5+0.5", nil, 2)
@@ -59,7 +65,6 @@ func TestJavascriptOperations_AddOperation(t *testing.T) {
 	assertEvalLong(t, "0+0", 0)
 }
 
-// TestJavascriptOperations_SubtractOperation mirrors testSubtractOperation.
 func TestJavascriptOperations_SubtractOperation(t *testing.T) {
 	assertEvalLong(t, "1-1", 0)
 	assertEvalLong(t, "5-10", -5)
@@ -72,7 +77,6 @@ func TestJavascriptOperations_SubtractOperation(t *testing.T) {
 	assertEvalLong(t, "0-0", 0)
 }
 
-// TestJavascriptOperations_MultiplyOperation mirrors testMultiplyOperation.
 func TestJavascriptOperations_MultiplyOperation(t *testing.T) {
 	assertEvalLong(t, "1*1", 1)
 	assertEvalLong(t, "5*10", 50)
@@ -84,78 +88,121 @@ func TestJavascriptOperations_MultiplyOperation(t *testing.T) {
 	assertEvalLong(t, "0*0", 0)
 }
 
-// TestJavascriptOperations_DivisionOperation mirrors the non-∞ cases of
-// testDivisionOperation. The 1/0 == MaxInt64 case requires Lucene's specific
-// integer-overflow semantics from the ANTLR bytecode compiler; deferred.
 func TestJavascriptOperations_DivisionOperation(t *testing.T) {
-	assertEvalLong(t, "1*1", 1)
 	assertEvalLong(t, "10/5", 2)
 	assertEval(t, "10/0.5", nil, 20)
 	assertEvalLong(t, "10/5/2", 1)
 	assertEvalLong(t, "(27/9)/3", 1)
 	assertEvalLong(t, "27/(9/3)", 9)
-	// 1/0 in Lucene bytecode-compiled expression yields MaxInt64.
-	// Gocene hand-written parser yields 0 (guarded division). Deferred.
+	// 1/0 returns MaxInt64 matching Lucene bytecode compiler semantics.
+	assertEvalLong(t, "1/0", js.MaxInt64)
 }
 
-// TestJavascriptOperations_NegationOperation mirrors testNegationOperation.
-// Requires full ANTLR grammar (unary negation not supported in hand-written parser).
+// --- Unary negation (NOW IMPLEMENTED) ---
+
 func TestJavascriptOperations_NegationOperation(t *testing.T) {
-	t.Fatal("requires full ANTLR grammar (unary negation not yet implemented)")
+	assertEvalLong(t, "-1", -1)
+	assertEvalLong(t, "--1", 1)  // double negation
+	assertEvalLong(t, "-(1+2)", -3)
+	assertEvalLong(t, "1+-2", -1)
+	assertEvalLong(t, "-5+10", 5)
 }
 
-// TestJavascriptOperations_BitwiseOperations mirrors the bitwise test methods.
-// Requires full ANTLR grammar.
+// --- Bitwise operators (NOW IMPLEMENTED) ---
+
 func TestJavascriptOperations_BitwiseOperations(t *testing.T) {
-	t.Fatal("requires full ANTLR grammar (bitwise operators not yet implemented)")
+	assertEvalLong(t, "5&3", 1)   // 101 & 011 = 001
+	assertEvalLong(t, "5|3", 7)   // 101 | 011 = 111
+	assertEvalLong(t, "5^3", 6)   // 101 ^ 011 = 110
+	assertEvalLong(t, "~0", -1)
+	// ~~5: bitwise NOT twice returns the original ToInt32 value.
+	eval := compile(t, "~~5")
+	got, err := eval(nil)
+	if err != nil {
+		t.Fatalf("eval(~~5): %v", err)
+	}
+	if got != 5 {
+		t.Errorf("~~5 = %v; want 5", got)
+	}
 }
 
-// TestJavascriptOperations_ComparisonOperations mirrors the comparison methods.
-// Requires full ANTLR grammar.
+// --- Comparison operators (NOW IMPLEMENTED) ---
+
 func TestJavascriptOperations_ComparisonOperations(t *testing.T) {
-	t.Fatal("requires full ANTLR grammar (comparison operators not yet implemented)")
+	assertEvalLong(t, "5>3", 1)
+	assertEvalLong(t, "3>5", 0)
+	assertEvalLong(t, "3<5", 1)
+	assertEvalLong(t, "5<3", 0)
+	assertEvalLong(t, "5>=5", 1)
+	assertEvalLong(t, "5>=6", 0)
+	assertEvalLong(t, "5<=5", 1)
+	assertEvalLong(t, "5<=4", 0)
+	assertEvalLong(t, "5==5", 1)
+	assertEvalLong(t, "5==6", 0)
+	assertEvalLong(t, "5!=6", 1)
+	assertEvalLong(t, "5!=5", 0)
 }
 
-// TestJavascriptOperations_BooleanOperations mirrors the boolean methods.
-// Requires full ANTLR grammar.
+// --- Boolean operators (NOW IMPLEMENTED) ---
+
 func TestJavascriptOperations_BooleanOperations(t *testing.T) {
-	t.Fatal("requires full ANTLR grammar (boolean AND/OR/NOT not yet implemented)")
+	// && (AND)
+	assertEvalLong(t, "1&&1", 1)
+	assertEvalLong(t, "1&&0", 0)
+	assertEvalLong(t, "0&&1", 0)
+	assertEvalLong(t, "5&&3", 1) // both non-zero → true
+	// || (OR)
+	assertEvalLong(t, "1||0", 1)
+	assertEvalLong(t, "0||1", 1)
+	assertEvalLong(t, "0||0", 0)
+	assertEvalLong(t, "5||0", 1)
+	// ! (NOT)
+	assertEvalLong(t, "!1", 0)
+	assertEvalLong(t, "!0", 1)
+	assertEvalLong(t, "!!5", 1) // double negation
 }
 
-// TestJavascriptOperations_ConditionalOperation mirrors testConditionalOperation.
-// Requires full ANTLR grammar.
+// --- Conditional operator (NOW IMPLEMENTED) ---
+
 func TestJavascriptOperations_ConditionalOperation(t *testing.T) {
-	t.Fatal("requires full ANTLR grammar (conditional ?: not yet implemented)")
+	assertEvalLong(t, "1?10:20", 10)
+	assertEvalLong(t, "0?10:20", 20)
+	assertEvalLong(t, "(5>3)?1:0", 1)
+	assertEvalLong(t, "(3>5)?1:0", 0)
+	assertEvalLong(t, "(5==5)?100:200", 100)
 }
 
-// TestJavascriptOperations_ShiftOperations mirrors the shift test methods.
-// Requires full ANTLR grammar.
+// --- Shift operators (NOW IMPLEMENTED) ---
+
 func TestJavascriptOperations_ShiftOperations(t *testing.T) {
-	t.Fatal("requires full ANTLR grammar (shift operators not yet implemented)")
+	assertEvalLong(t, "1<<1", 2)
+	assertEvalLong(t, "1<<3", 8)
+	assertEvalLong(t, "8>>1", 4)
+	assertEvalLong(t, "16>>2", 4)
+	assertEvalLong(t, "-1>>1", -1) // arithmetic shift preserves sign
 }
 
-// TestJavascriptOperations_Precedence verifies that the hand-written parser
-// respects operator precedence (* before +).
+// --- Precedence ---
+
 func TestJavascriptOperations_Precedence(t *testing.T) {
-	// 2+3*4 = 14 (not 20)
 	assertEvalLong(t, "2+3*4", 14)
-	// 10-2*3 = 4 (not 24)
 	assertEvalLong(t, "10-2*3", 4)
-	// (2+3)*4 = 20
 	assertEvalLong(t, "(2+3)*4", 20)
-	// 1+2+3+4 = 10
 	assertEvalLong(t, "1+2+3+4", 10)
 }
 
-// TestJavascriptOperations_DivByZero verifies that dividing by zero returns 0.
-// (Gocene's hand-written parser guards division by zero; full Lucene returns +Inf/MaxInt.)
+// --- Division by zero ---
+
 func TestJavascriptOperations_DivByZero(t *testing.T) {
-	eval := compile(t, "10/0")
+	// Integer division by zero returns MaxInt64.
+	assertEvalLong(t, "10/0", js.MaxInt64)
+	// Floating-point division by zero returns +Inf.
+	eval := compile(t, "10.5/0")
 	got, err := eval(nil)
 	if err != nil {
 		t.Fatalf("eval: %v", err)
 	}
-	if !math.IsInf(got, 0) && got != 0 {
-		t.Errorf("10/0 = %v; want 0 or ±Inf", got)
+	if !math.IsInf(got, 1) {
+		t.Errorf("10.5/0 = %v; want +Inf", got)
 	}
 }

@@ -70,8 +70,10 @@ func (i *ident) eval(values map[string]float64) (float64, error) {
 }
 func (i *ident) collectVariables() []string { return []string{i.name} }
 
+// binOp covers +, -, *, /, %, <<, >>, >>>, &, |, ^.
 type binOp struct {
 	op       byte
+	op2      byte // second char for 2-char operators (<<, >>, <=, >=, ==, !=, &&, ||)
 	lhs, rhs node
 }
 
@@ -84,18 +86,15 @@ func (b *binOp) eval(values map[string]float64) (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	switch b.op {
-	case '+':
+	switch {
+	case b.op == '+':
 		return l + r, nil
-	case '-':
+	case b.op == '-':
 		return l - r, nil
-	case '*':
+	case b.op == '*':
 		return l * r, nil
-	case '/':
+	case b.op == '/':
 		if r == 0 {
-			// For integer-like operands (no fractional part), return
-			// MaxInt64 matching Lucene's ANTLR bytecode compiler.
-			// For floating-point operands, return ±Inf.
 			if isIntegerOperand(l) && isIntegerOperand(r) {
 				if l == 0 {
 					return 0, nil
@@ -106,16 +105,104 @@ func (b *binOp) eval(values map[string]float64) (float64, error) {
 				return float64(-MaxInt64), nil
 			}
 			if l == 0 {
-				return 0, nil // 0/0 returns 0 per Lucene convention
+				return 0, nil
 			}
 			return math.Inf(int(l)), nil
 		}
 		return l / r, nil
+	case b.op == '%':
+		if r == 0 {
+			return 0, nil
+		}
+		return math.Mod(l, r), nil
+	case b.op == '<' && b.op2 == '<':
+		return ToInt32Float64(float64(ToInt32(l) << uint32(ToUint32(r)))), nil
+	case b.op == '>' && b.op2 == '>':
+		return ToInt32Float64(float64(ToInt32(l) >> uint32(ToUint32(r)))), nil
+	case b.op == '>' && b.op2 == 0:
+		return boolToFloat(l > r), nil
+	case b.op == '<' && b.op2 == 0:
+		return boolToFloat(l < r), nil
+	case b.op == '>' && b.op2 == '=':
+		return boolToFloat(l >= r), nil
+	case b.op == '<' && b.op2 == '=':
+		return boolToFloat(l <= r), nil
+	case b.op == '=' && b.op2 == '=':
+		return boolToFloat(l == r), nil
+	case b.op == '!' && b.op2 == '=':
+		return boolToFloat(l != r), nil
+	case b.op == '&' && b.op2 == '&':
+		return boolToFloat(l != 0 && r != 0), nil
+	case b.op == '|' && b.op2 == '|':
+		return boolToFloat(l != 0 || r != 0), nil
+	case b.op == '&':
+		return ToInt32Float64(float64(ToInt32(l) & ToInt32(r))), nil
+	case b.op == '|':
+		return ToInt32Float64(float64(ToInt32(l) | ToInt32(r))), nil
+	case b.op == '^':
+		return ToInt32Float64(float64(ToInt32(l) ^ ToInt32(r))), nil
 	}
-	return 0, fmt.Errorf("javascript: unsupported operator %q", b.op)
+	return 0, fmt.Errorf("javascript: unsupported operator %q%c", b.op, b.op2)
 }
 func (b *binOp) collectVariables() []string {
 	return mergeUnique(b.lhs.collectVariables(), b.rhs.collectVariables())
+}
+
+// unaryOp covers !, -, +, ~.
+type unaryOp struct {
+	op  byte
+	arg node
+}
+
+func (u *unaryOp) eval(values map[string]float64) (float64, error) {
+	v, err := u.arg.eval(values)
+	if err != nil {
+		return 0, err
+	}
+	switch u.op {
+	case '-':
+		return -v, nil
+	case '!':
+		if v == 0 {
+			return 1, nil
+		}
+		return 0, nil
+	case '~':
+		return ToInt32Float64(float64(^ToInt32(v))), nil
+	case '+':
+		return v, nil
+	}
+	return 0, fmt.Errorf("javascript: unsupported unary operator %q", u.op)
+}
+func (u *unaryOp) collectVariables() []string { return u.arg.collectVariables() }
+
+// condOp covers the ternary conditional (?:).
+type condOp struct {
+	cond, trueBranch, falseBranch node
+}
+
+func (c *condOp) eval(values map[string]float64) (float64, error) {
+	cond, err := c.cond.eval(values)
+	if err != nil {
+		return 0, err
+	}
+	if cond != 0 {
+		return c.trueBranch.eval(values)
+	}
+	return c.falseBranch.eval(values)
+}
+func (c *condOp) collectVariables() []string {
+	return mergeUnique(
+		mergeUnique(c.cond.collectVariables(), c.trueBranch.collectVariables()),
+		c.falseBranch.collectVariables(),
+	)
+}
+
+func boolToFloat(b bool) float64 {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 type funcCall struct {
@@ -197,6 +284,16 @@ func resolveFunctions(n node, reg *FunctionRegistry) error {
 			return err
 		}
 		return resolveFunctions(t.rhs, reg)
+	case *unaryOp:
+		return resolveFunctions(t.arg, reg)
+	case *condOp:
+		if err := resolveFunctions(t.cond, reg); err != nil {
+			return err
+		}
+		if err := resolveFunctions(t.trueBranch, reg); err != nil {
+			return err
+		}
+		return resolveFunctions(t.falseBranch, reg)
 	case *funcCall:
 		if reg != nil {
 			if fn := reg.Lookup(t.name); fn != nil {
@@ -247,55 +344,312 @@ func (p *parser) skipWhitespace() {
 	}
 }
 
+// peek returns the byte at position pos, or 0 if at end.
+func (p *parser) peek() byte {
+	if p.pos >= len(p.src) {
+		return 0
+	}
+	return p.src[p.pos]
+}
+
+// peek2 returns the two-byte prefix at pos, or empty string.
+func (p *parser) peek2() string {
+	if p.pos+1 >= len(p.src) {
+		return ""
+	}
+	return p.src[p.pos : p.pos+2]
+}
+
+// consume advances pos if the current char matches c.
+func (p *parser) consume(c byte) bool {
+	if p.peek() == c {
+		p.pos++
+		return true
+	}
+	return false
+}
+
+// parseExpression is the top-level entry: conditional expression.
 func (p *parser) parseExpression() (node, error) {
-	left, err := p.parseTerm()
+	return p.parseConditional()
+}
+
+// parseConditional handles the ternary ?: operator (right-associative).
+func (p *parser) parseConditional() (node, error) {
+	cond, err := p.parseBooleanOr()
+	if err != nil {
+		return nil, err
+	}
+	p.skipWhitespace()
+	if !p.consume('?') {
+		return cond, nil
+	}
+	trueBranch, err := p.parseExpression()
+	if err != nil {
+		return nil, err
+	}
+	p.skipWhitespace()
+	if !p.consume(':') {
+		return nil, fmt.Errorf("expected ':' in conditional expression at position %d", p.pos)
+	}
+	falseBranch, err := p.parseConditional()
+	if err != nil {
+		return nil, err
+	}
+	return &condOp{cond: cond, trueBranch: trueBranch, falseBranch: falseBranch}, nil
+}
+
+// parseBooleanOr handles || (lowest binary precedence).
+func (p *parser) parseBooleanOr() (node, error) {
+	left, err := p.parseBooleanAnd()
 	if err != nil {
 		return nil, err
 	}
 	for {
 		p.skipWhitespace()
-		if p.pos >= len(p.src) {
+		if p.peek2() != "||" {
 			break
 		}
-		op := p.src[p.pos]
-		if op != '+' && op != '-' {
-			break
-		}
-		p.pos++
-		right, err := p.parseTerm()
+		p.pos += 2
+		right, err := p.parseBooleanAnd()
 		if err != nil {
 			return nil, err
 		}
-		left = &binOp{op: op, lhs: left, rhs: right}
+		left = &binOp{op: '|', op2: '|', lhs: left, rhs: right}
 	}
 	return left, nil
 }
 
-func (p *parser) parseTerm() (node, error) {
-	left, err := p.parseFactor()
+// parseBooleanAnd handles &&.
+func (p *parser) parseBooleanAnd() (node, error) {
+	left, err := p.parseBitwiseOr()
 	if err != nil {
 		return nil, err
 	}
 	for {
 		p.skipWhitespace()
-		if p.pos >= len(p.src) {
+		if p.peek2() != "&&" {
 			break
 		}
-		op := p.src[p.pos]
-		if op != '*' && op != '/' {
-			break
-		}
-		p.pos++
-		right, err := p.parseFactor()
+		p.pos += 2
+		right, err := p.parseBitwiseOr()
 		if err != nil {
 			return nil, err
 		}
-		left = &binOp{op: op, lhs: left, rhs: right}
+		left = &binOp{op: '&', op2: '&', lhs: left, rhs: right}
 	}
 	return left, nil
 }
 
-func (p *parser) parseFactor() (node, error) {
+// parseBitwiseOr handles |.
+func (p *parser) parseBitwiseOr() (node, error) {
+	left, err := p.parseBitwiseXor()
+	if err != nil {
+		return nil, err
+	}
+	for {
+		p.skipWhitespace()
+		if p.peek() != '|' || p.peek2() == "||" {
+			break
+		}
+		p.pos++
+		right, err := p.parseBitwiseXor()
+		if err != nil {
+			return nil, err
+		}
+		left = &binOp{op: '|', lhs: left, rhs: right}
+	}
+	return left, nil
+}
+
+// parseBitwiseXor handles ^.
+func (p *parser) parseBitwiseXor() (node, error) {
+	left, err := p.parseBitwiseAnd()
+	if err != nil {
+		return nil, err
+	}
+	for {
+		p.skipWhitespace()
+		if !p.consume('^') {
+			break
+		}
+		right, err := p.parseBitwiseAnd()
+		if err != nil {
+			return nil, err
+		}
+		left = &binOp{op: '^', lhs: left, rhs: right}
+	}
+	return left, nil
+}
+
+// parseBitwiseAnd handles &.
+func (p *parser) parseBitwiseAnd() (node, error) {
+	left, err := p.parseEquality()
+	if err != nil {
+		return nil, err
+	}
+	for {
+		p.skipWhitespace()
+		if p.peek() != '&' || p.peek2() == "&&" {
+			break
+		}
+		p.pos++
+		right, err := p.parseEquality()
+		if err != nil {
+			return nil, err
+		}
+		left = &binOp{op: '&', lhs: left, rhs: right}
+	}
+	return left, nil
+}
+
+// parseEquality handles == and !=.
+func (p *parser) parseEquality() (node, error) {
+	left, err := p.parseComparison()
+	if err != nil {
+		return nil, err
+	}
+	for {
+		p.skipWhitespace()
+		op2 := p.peek2()
+		if op2 == "==" {
+			p.pos += 2
+			right, err := p.parseComparison()
+			if err != nil {
+				return nil, err
+			}
+			left = &binOp{op: '=', op2: '=', lhs: left, rhs: right}
+		} else if op2 == "!=" {
+			p.pos += 2
+			right, err := p.parseComparison()
+			if err != nil {
+				return nil, err
+			}
+			left = &binOp{op: '!', op2: '=', lhs: left, rhs: right}
+		} else {
+			break
+		}
+	}
+	return left, nil
+}
+
+// parseComparison handles <, >, <=, >=.
+func (p *parser) parseComparison() (node, error) {
+	left, err := p.parseShift()
+	if err != nil {
+		return nil, err
+	}
+	for {
+		p.skipWhitespace()
+		op2 := p.peek2()
+		switch op2 {
+		case "<=", ">=":
+			p.pos += 2
+			right, err := p.parseShift()
+			if err != nil {
+				return nil, err
+			}
+			left = &binOp{op: op2[0], op2: op2[1], lhs: left, rhs: right}
+		default:
+			if p.peek() == '<' || p.peek() == '>' {
+				op := p.peek()
+				p.pos++
+				right, err := p.parseShift()
+				if err != nil {
+					return nil, err
+				}
+				left = &binOp{op: op, lhs: left, rhs: right}
+			} else {
+				return left, nil
+			}
+		}
+	}
+}
+
+// parseShift handles << and >>.
+func (p *parser) parseShift() (node, error) {
+	left, err := p.parseAddition()
+	if err != nil {
+		return nil, err
+	}
+	for {
+		p.skipWhitespace()
+		op2 := p.peek2()
+		if op2 == "<<" || op2 == ">>" {
+			p.pos += 2
+			right, err := p.parseAddition()
+			if err != nil {
+				return nil, err
+			}
+			left = &binOp{op: op2[0], op2: op2[1], lhs: left, rhs: right}
+		} else {
+			break
+		}
+	}
+	return left, nil
+}
+
+// parseAddition handles + and -.
+func (p *parser) parseAddition() (node, error) {
+	left, err := p.parseMultiplication()
+	if err != nil {
+		return nil, err
+	}
+	for {
+		p.skipWhitespace()
+		c := p.peek()
+		if c != '+' && c != '-' {
+			break
+		}
+		p.pos++
+		right, err := p.parseMultiplication()
+		if err != nil {
+			return nil, err
+		}
+		left = &binOp{op: c, lhs: left, rhs: right}
+	}
+	return left, nil
+}
+
+// parseMultiplication handles *, /, %.
+func (p *parser) parseMultiplication() (node, error) {
+	left, err := p.parseUnary()
+	if err != nil {
+		return nil, err
+	}
+	for {
+		p.skipWhitespace()
+		c := p.peek()
+		if c != '*' && c != '/' && c != '%' {
+			break
+		}
+		p.pos++
+		right, err := p.parseUnary()
+		if err != nil {
+			return nil, err
+		}
+		left = &binOp{op: c, lhs: left, rhs: right}
+	}
+	return left, nil
+}
+
+// parseUnary handles prefix -, +, !, ~.
+func (p *parser) parseUnary() (node, error) {
+	p.skipWhitespace()
+	c := p.peek()
+	if c == '-' || c == '+' || c == '!' || c == '~' {
+		p.pos++
+		arg, err := p.parseUnary()
+		if err != nil {
+			return nil, err
+		}
+		return &unaryOp{op: c, arg: arg}, nil
+	}
+	return p.parsePrimary()
+}
+
+// parsePrimary handles numbers, identifiers, function calls, and parenthesised exprs.
+func (p *parser) parsePrimary() (node, error) {
 	p.skipWhitespace()
 	if p.pos >= len(p.src) {
 		return nil, fmt.Errorf("unexpected end of input")
@@ -370,8 +724,7 @@ func (p *parser) parseIdentOrCall() (node, error) {
 func isDigit(b byte) bool  { return b >= '0' && b <= '9' }
 func isLetter(b byte) bool { return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') }
 
-// isIntegerOperand returns true when x has no fractional part — i.e. the
-// value looks like it came from an integer literal or integer truncation.
+// isIntegerOperand returns true when x has no fractional part.
 func isIntegerOperand(x float64) bool {
 	return x == math.Trunc(x)
 }
