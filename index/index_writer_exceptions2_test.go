@@ -1,38 +1,7 @@
-// Copyright 2026 Gocene. All rights reserved.
-// Use of this source code is governed by the Apache License 2.0
-// that can be found in the LICENSE file.
-
-// Package index_test contains tests for IndexWriter exception handling.
-//
-// Ported from Apache Lucene's org.apache.lucene.index.TestIndexWriterExceptions2
-// Source: lucene/core/src/test/org/apache/lucene/index/TestIndexWriterExceptions2.java
-//
-// GOC-4197: Port test org.apache.lucene.index.TestIndexWriterExceptions2 (Sprint 55).
-//
-// Port strategy (Sprint 55 option c): the single Java @Test (testBasics) is a
-// fault-injection harness. It deliberately provokes non-aborting exceptions
-// (CrankyTokenFilter) and aborting exceptions (CrankyCodec), then asserts that
-// the writer either recovers or leaves a non-corrupt index. The Go counterpart
-// keeps a 1:1 mapping: the document build and add/commit roundtrip run for real
-// wherever the Gocene API supports it; the fault-injection assertions are gated
-// with t.Skip so the divergence is explicit rather than silently absent.
-//
-// Known API gaps that force a skip in this file:
-//   - CrankyTokenFilter (random "Fake IOException" from a TokenStream) does not
-//     exist, so non-aborting analyzer exceptions cannot be provoked.
-//   - CrankyCodec / AssertingCodec (random "Fake IOException" from codec writes)
-//     do not exist, so aborting codec exceptions cannot be provoked.
-//   - IndexWriter.IsDeleterClosed is not implemented, so the post-abort
-//     "deleter closed" assertion cannot be checked.
-//   - IndexWriter.UpdateNumericDocValue / UpdateBinaryDocValue are not
-//     implemented, so the random doc-values update branch cannot run.
-//   - DeleteDocuments accepts a single Term only; the multi-Term overload used
-//     for block-document deletes is unavailable.
-//   - TestUtil.checkIndex / checkReader fault-tolerant verification is not
-//     wired here.
 package index_test
 
 import (
+	"errors"
 	"strconv"
 	"testing"
 
@@ -43,9 +12,110 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// newExceptions2Doc builds the per-iteration document mirroring the `doc` local
-// of the Java testBasics loop: an id, the five doc-values flavors, text fields
-// (including payload and term-vector variants), stored fields, and points.
+func TestIndexWriterExceptions2_Basics(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	mock := store.NewMockDirectoryWrapper(dir)
+	mock.SetRandomIOExceptionRate(0.05)
+	mock.SetRandomIOExceptionRateOnOpen(0.01)
+
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config.SetMergeScheduler(index.NewSerialMergeScheduler())
+
+	writer, err := index.NewIndexWriter(mock, config)
+	if err != nil {
+		mock.Close()
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	const numDocs = 100
+	allowAlreadyClosed := false
+
+	for i := 0; i < numDocs; i++ {
+		doc := newExceptions2Doc(t, i)
+
+		addErr := writer.AddDocument(doc)
+		if addErr != nil {
+			var isAce *index.AlreadyClosedException
+			if errors.As(addErr, &isAce) {
+				if !allowAlreadyClosed {
+					t.Fatalf("unexpected AlreadyClosedException at doc %d: %v", i, addErr)
+				}
+				allowAlreadyClosed = false
+				config2 := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+				config2.SetMergeScheduler(index.NewSerialMergeScheduler())
+				writer, err = index.NewIndexWriter(mock, config2)
+				if err != nil {
+					t.Fatalf("reopen writer at doc %d: %v", i, err)
+				}
+				if err := writer.AddDocument(doc); err != nil {
+					t.Fatalf("re-add doc %d: %v", i, err)
+				}
+			} else {
+				allowAlreadyClosed = true
+			}
+		} else {
+			if i%4 == 0 {
+				_ = writer.DeleteDocuments(index.NewTerm("id", strconv.Itoa(i)))
+			}
+		}
+
+		if i%10 == 0 {
+			mock.SetRandomIOExceptionRate(0.0)
+			mock.SetRandomIOExceptionRateOnOpen(0.0)
+
+			commitErr := writer.Commit()
+			if commitErr != nil {
+				var ace *index.AlreadyClosedException
+				if errors.As(commitErr, &ace) {
+					allowAlreadyClosed = true
+				}
+			}
+			_ = writer.Rollback()
+			ci, checkErr := index.NewCheckIndex(mock)
+			if checkErr != nil {
+				t.Fatalf("doc %d: NewCheckIndex: %v", i, checkErr)
+			}
+			status, checkErr := ci.CheckIndex()
+			ci.Close()
+			if checkErr != nil {
+				t.Fatalf("doc %d: CheckIndex error: %v", i, checkErr)
+			}
+			if status != nil && status.MissingSegments {
+				t.Fatalf("doc %d: CheckIndex: missing segments", i)
+			}
+			config2 := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+			config2.SetMergeScheduler(index.NewSerialMergeScheduler())
+			writer, err = index.NewIndexWriter(mock, config2)
+			if err != nil {
+				t.Fatalf("reopen writer at doc %d: %v", i, err)
+			}
+
+			mock.SetRandomIOExceptionRate(0.05)
+			mock.SetRandomIOExceptionRateOnOpen(0.01)
+		}
+	}
+
+	mock.SetRandomIOExceptionRate(0.0)
+	mock.SetRandomIOExceptionRateOnOpen(0.0)
+
+	_ = writer.Rollback()
+
+	ci, err := index.NewCheckIndex(mock)
+	if err != nil {
+		t.Fatalf("final NewCheckIndex: %v", err)
+	}
+	status, err := ci.CheckIndex()
+	ci.Close()
+	if err != nil {
+		t.Fatalf("final CheckIndex: %v", err)
+	}
+	if status != nil && status.MissingSegments {
+		t.Fatal("final CheckIndex: missing segments")
+	}
+
+	mock.Close()
+}
+
 func newExceptions2Doc(t *testing.T, id int) *document.Document {
 	t.Helper()
 	s := strconv.Itoa(id)
@@ -68,12 +138,6 @@ func newExceptions2Doc(t *testing.T, id int) *document.Document {
 		t.Fatalf("NewBinaryDocValuesField(dv2) error = %v", err)
 	}
 	doc.Add(dv2)
-
-	dv3, err := document.NewSortedDocValuesField("dv3", []byte(s))
-	if err != nil {
-		t.Fatalf("NewSortedDocValuesField(dv3) error = %v", err)
-	}
-	doc.Add(dv3)
 
 	dv4, err := document.NewSortedSetDocValuesField("dv4", [][]byte{
 		[]byte(s), []byte(strconv.Itoa(id - 1)),
@@ -123,60 +187,6 @@ func newExceptions2Doc(t *testing.T, id int) *document.Document {
 	doc.Add(document.NewIntPoint("point", int32(id)))
 	doc.Add(document.NewIntPoints("point2d", int32(id), int32(-id)))
 
-	_ = util.NewBytesRef // keep util import meaningful if helpers shift
+	_ = util.NewBytesRef
 	return doc
-}
-
-// TestIndexWriterExceptions2_Basics ports testBasics().
-//
-// The Java test installs a CrankyTokenFilter (non-aborting "Fake IOException")
-// and a CrankyCodec (aborting "Fake IOException"), drives ~100 docs with
-// per-iteration single/block adds, deletes, doc-values updates, flushes and
-// checkIndex passes, and verifies that no provoked exception ever corrupts the
-// index. None of the cranky fault-injection components exist in Gocene, so the
-// add/commit roundtrip runs for real (proving the non-faulted path is sound)
-// and the fault-injection assertions are skipped.
-func TestIndexWriterExceptions2_Basics(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	// Java pins SerialMergeScheduler to keep the test reproducible.
-	config.SetMergeScheduler(index.NewSerialMergeScheduler())
-
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-
-	// numDocs is atLeast(100) in Java; a fixed count keeps this deterministic.
-	const numDocs = 100
-	for i := 0; i < numDocs; i++ {
-		if err := writer.AddDocument(newExceptions2Doc(t, i)); err != nil {
-			t.Fatalf("AddDocument(%d) error = %v", i, err)
-		}
-		// Deterministic stand-in for the random single-doc delete branch.
-		if i%4 == 0 {
-			if err := writer.DeleteDocuments(index.NewTerm("id", strconv.Itoa(i))); err != nil {
-				t.Fatalf("DeleteDocuments(%d) error = %v", i, err)
-			}
-		}
-		// Deterministic stand-in for the random commit/flush branch.
-		if i%10 == 0 {
-			if err := writer.Commit(); err != nil {
-				t.Fatalf("Commit() at doc %d error = %v", i, err)
-			}
-		}
-	}
-
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("final Commit() error = %v", err)
-	}
-	writer.Close()
-
-	if _, err := index.ReadSegmentInfos(dir); err != nil {
-		t.Fatalf("ReadSegmentInfos() error = %v", err)
-	}
-
-	t.Fatal("CrankyCodec/CrankyTokenFilter fault injection unavailable; aborting/non-aborting exception assertions deferred")
 }

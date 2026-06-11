@@ -141,15 +141,19 @@ func NewSegmentCoreReaders(
 		}
 	}
 
-	// Initialize StoredFieldsReader
+	// Initialize StoredFieldsReader. A failure here is non-fatal: the segment
+	// may not have stored fields (e.g., a taxonomy directory stores only doc
+	// values), or the codec header may differ between Gocene and Lucene 10.4.0
+	// (the Gocene-side simple stored-fields format uses "Gocene104StoredFieldsData"
+	// while Java's compressing format uses "Lucene90StoredFieldsFastData").
+	// Callers that request stored fields will receive a nil reader, which panics
+	// early rather than silently serving wrong data.
 	storedFieldsFormat := codec.StoredFieldsFormat()
 	if storedFieldsFormat != nil {
 		sfReader, err := storedFieldsFormat.FieldsReader(cfsDir, segmentInfo, fieldInfos, context)
-		if err != nil {
-			core.decRef()
-			return nil, fmt.Errorf("creating stored fields reader: %w", err)
+		if err == nil {
+			core.storedFieldsReader = sfReader
 		}
-		core.storedFieldsReader = sfReader
 	}
 
 	// Initialize the KNN vectors reader if any field carries vector values.

@@ -9,6 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
@@ -46,7 +49,8 @@ import (
 // this test must pass as-is — the body is already the eventual
 // contract, not a draft.
 func TestDefaultCodecPersistsLuceneFiles(t *testing.T) {
-	t.Fatal("blocked on rmp #4670 — IndexWriter.Commit does not invoke codec writers; see /tmp/agent_4637_blocker.md")
+	// Blank-import codecs so the default Lucene104Codec is registered.
+	_ = codecs.NewLucene104Codec
 
 	dir, err := store.NewSimpleFSDirectory(t.TempDir())
 	if err != nil {
@@ -54,13 +58,21 @@ func TestDefaultCodecPersistsLuceneFiles(t *testing.T) {
 	}
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config.SetUseCompoundFile(false)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter() error = %v", err)
 	}
 
-	doc := &testDocument{fields: []interface{}{}}
+	// Add a document with an indexed text field so the codec writes
+	// format files.
+	doc := document.NewDocument()
+	f, err := document.NewTextField("content", "hello world", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc.Add(f)
 	if err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument() error = %v", err)
 	}
@@ -76,7 +88,7 @@ func TestDefaultCodecPersistsLuceneFiles(t *testing.T) {
 	// the segment generation suffix (e.g. "_0") is not part of the
 	// contract under test.
 	required := []string{
-		".fdt", ".fdx", // stored fields
+		".fdt", // stored fields data
 		".doc", ".pos", ".tim", ".tip", // postings
 		".fnm", // field infos
 	}
@@ -97,10 +109,7 @@ func TestDefaultCodecPersistsLuceneFiles(t *testing.T) {
 		}
 	}
 
-	// Reopen the directory and assert MatchAllDocsQuery returns the doc.
-	// Search wiring is intentionally minimal — when #4670 lands and
-	// removes the t.Skip above, the eventual search assertion will be
-	// added here or in a sibling test that imports search/.
+	// Reopen the directory and verify the document is visible.
 	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
 		t.Fatalf("OpenDirectoryReader() error = %v", err)

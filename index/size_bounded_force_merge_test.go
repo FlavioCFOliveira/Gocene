@@ -8,21 +8,6 @@
 // Source: lucene/core/src/test/org/apache/lucene/index/TestSizeBoundedForceMerge.java
 //
 // GOC-4221: Port test org.apache.lucene.index.TestSizeBoundedForceMerge (Sprint 55).
-//
-// Port strategy (Sprint 55 option c): each Java @Test has a 1:1 Go counterpart.
-// The shared writer/document/commit roundtrip runs for real wherever the Gocene
-// API supports it; assertions that depend on still-missing behavior are gated
-// with t.Skip so the divergence is explicit rather than silently absent.
-//
-// Known API gaps that force a skip in this file:
-//   - IndexWriter.ForceMerge ignores maxNumSegments (it currently only flushes
-//     buffered docs via Commit), so every resulting segment-count assertion is
-//     deferred.
-//   - LogByteSizeMergePolicy/LogDocMergePolicy size constraints
-//     (SetMaxMergeMBForForcedMerge, SetMaxMergeDocs, SetMergeFactor) are not
-//     consulted by ForceMerge, so the size/doc-bound assertions are deferred.
-//   - hasDeletions state after a forced merge is likewise unobservable until
-//     ForceMerge performs real merges.
 package index_test
 
 import (
@@ -33,6 +18,8 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
+
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 )
 
 // newSizeBoundedWriterConfig mirrors the Java newWriterConfig() helper: no auto
@@ -73,8 +60,12 @@ func addSizeBoundedDocs(t *testing.T, writer *index.IndexWriter, numDocs int, wi
 //
 // Builds 15 segments (one oversized) then forceMerge(1) under a
 // LogByteSizeMergePolicy whose forced-merge size cap equals the smallest
-// segment, expecting 3 final segments. The build runs for real; the
-// segment-count assertion is deferred (ForceMerge ignores the size cap).
+// segment, expecting 3 final segments.
+//
+// Deferred: empty documents produce the same byte size regardless of doc
+// count (all ~102 bytes), so the byte-size limit cannot be exercised with
+// the current test fixture. Requires documents carrying enough content to
+// make a 30-doc segment measurably larger than a 1-doc segment.
 func TestSizeBoundedForceMerge_ByteSizeLimit(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
@@ -118,18 +109,16 @@ func TestSizeBoundedForceMerge_ByteSizeLimit(t *testing.T) {
 		t.Fatalf("ReadSegmentInfos() error = %v", err)
 	}
 
-	t.Fatal("ForceMerge ignores LogByteSizeMergePolicy size cap; segment-count assertion deferred")
-
-	if got := sis.Size(); got != 3 {
-		t.Errorf("expected 3 segments, got %d", got)
-	}
+	// Empty documents have identical byte sizes; the byte-size limit is
+	// not exercised. This should be re-enabled when the test fixture uses
+	// documents with enough content to differentiate sizes.
+	t.Fatal("empty documents produce identical byte sizes; test fixture needs content-rich documents")
 }
 
 // TestSizeBoundedForceMerge_NumDocsLimit ports testNumDocsLimit().
 //
 // Builds 7 segments then forceMerge(1) under a LogDocMergePolicy capped at 3
-// docs, expecting 3 final segments. The build runs for real; the segment-count
-// assertion is deferred (ForceMerge ignores maxMergeDocs).
+// docs, expecting 3 final segments.
 func TestSizeBoundedForceMerge_NumDocsLimit(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
@@ -162,8 +151,6 @@ func TestSizeBoundedForceMerge_NumDocsLimit(t *testing.T) {
 		t.Fatalf("ReadSegmentInfos() error = %v", err)
 	}
 
-	t.Fatal("ForceMerge ignores LogDocMergePolicy maxMergeDocs; segment-count assertion deferred")
-
 	if got := sis.Size(); got != 3 {
 		t.Errorf("expected 3 segments, got %d", got)
 	}
@@ -172,8 +159,6 @@ func TestSizeBoundedForceMerge_NumDocsLimit(t *testing.T) {
 // TestSizeBoundedForceMerge_LastSegmentTooLarge ports testLastSegmentTooLarge().
 func TestSizeBoundedForceMerge_LastSegmentTooLarge(t *testing.T) {
 	sis := runSizeBoundedForceMerge(t, []int{3, 3, 3, 5}, 3, 1, false)
-
-	t.Fatal("ForceMerge ignores LogDocMergePolicy maxMergeDocs; segment-count assertion deferred")
 
 	if got := sis.Size(); got != 2 {
 		t.Errorf("expected 2 segments, got %d", got)
@@ -184,8 +169,6 @@ func TestSizeBoundedForceMerge_LastSegmentTooLarge(t *testing.T) {
 func TestSizeBoundedForceMerge_FirstSegmentTooLarge(t *testing.T) {
 	sis := runSizeBoundedForceMerge(t, []int{5, 3, 3, 3}, 3, 1, false)
 
-	t.Fatal("ForceMerge ignores LogDocMergePolicy maxMergeDocs; segment-count assertion deferred")
-
 	if got := sis.Size(); got != 2 {
 		t.Errorf("expected 2 segments, got %d", got)
 	}
@@ -194,8 +177,6 @@ func TestSizeBoundedForceMerge_FirstSegmentTooLarge(t *testing.T) {
 // TestSizeBoundedForceMerge_AllSegmentsSmall ports testAllSegmentsSmall().
 func TestSizeBoundedForceMerge_AllSegmentsSmall(t *testing.T) {
 	sis := runSizeBoundedForceMerge(t, []int{3, 3, 3, 3}, 3, 1, false)
-
-	t.Fatal("ForceMerge ignores LogDocMergePolicy maxMergeDocs; segment-count assertion deferred")
 
 	if got := sis.Size(); got != 1 {
 		t.Errorf("expected 1 segment, got %d", got)
@@ -206,8 +187,6 @@ func TestSizeBoundedForceMerge_AllSegmentsSmall(t *testing.T) {
 func TestSizeBoundedForceMerge_AllSegmentsLarge(t *testing.T) {
 	sis := runSizeBoundedForceMerge(t, []int{3, 3, 3}, 2, 1, false)
 
-	t.Fatal("ForceMerge ignores LogDocMergePolicy maxMergeDocs; segment-count assertion deferred")
-
 	if got := sis.Size(); got != 3 {
 		t.Errorf("expected 3 segments, got %d", got)
 	}
@@ -217,8 +196,6 @@ func TestSizeBoundedForceMerge_AllSegmentsLarge(t *testing.T) {
 func TestSizeBoundedForceMerge_OneLargeOneSmall(t *testing.T) {
 	sis := runSizeBoundedForceMerge(t, []int{3, 5, 3, 5}, 3, 1, false)
 
-	t.Fatal("ForceMerge ignores LogDocMergePolicy maxMergeDocs; segment-count assertion deferred")
-
 	if got := sis.Size(); got != 4 {
 		t.Errorf("expected 4 segments, got %d", got)
 	}
@@ -227,7 +204,7 @@ func TestSizeBoundedForceMerge_OneLargeOneSmall(t *testing.T) {
 // TestSizeBoundedForceMerge_MergeFactor ports testMergeFactor().
 //
 // Same as the size-bounded cases but with mergeFactor=2, expecting 4 final
-// segments. The build runs for real; the assertion is deferred.
+// segments.
 func TestSizeBoundedForceMerge_MergeFactor(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
@@ -260,8 +237,6 @@ func TestSizeBoundedForceMerge_MergeFactor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadSegmentInfos() error = %v", err)
 	}
-
-	t.Fatal("ForceMerge ignores LogDocMergePolicy maxMergeDocs/mergeFactor; segment-count assertion deferred")
 
 	if got := sis.Size(); got != 4 {
 		t.Errorf("expected 4 segments, got %d", got)
@@ -307,8 +282,6 @@ func TestSizeBoundedForceMerge_SingleMergeableSegment(t *testing.T) {
 		t.Fatalf("ReadSegmentInfos() error = %v", err)
 	}
 
-	t.Fatal("ForceMerge does not merge mergeable segments yet; segment-count/deletions assertions deferred")
-
 	if got := sis.Size(); got != 3 {
 		t.Errorf("expected 3 segments, got %d", got)
 	}
@@ -320,8 +293,6 @@ func TestSizeBoundedForceMerge_SingleMergeableSegment(t *testing.T) {
 // TestSizeBoundedForceMerge_SingleNonMergeableSegment ports testSingleNonMergeableSegment().
 func TestSizeBoundedForceMerge_SingleNonMergeableSegment(t *testing.T) {
 	sis := runSizeBoundedForceMerge(t, []int{3}, 3, 1, true)
-
-	t.Fatal("ForceMerge ignores LogDocMergePolicy maxMergeDocs; segment-count assertion deferred")
 
 	if got := sis.Size(); got != 1 {
 		t.Errorf("expected 1 segment, got %d", got)
@@ -365,8 +336,6 @@ func TestSizeBoundedForceMerge_SingleMergeableTooLargeSegment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadSegmentInfos() error = %v", err)
 	}
-
-	t.Fatal("ForceMerge ignores LogDocMergePolicy maxMergeDocs; segment-count/deletions assertions deferred")
 
 	if got := sis.Size(); got != 1 {
 		t.Errorf("expected 1 segment, got %d", got)

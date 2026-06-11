@@ -1909,9 +1909,14 @@ func (w *IndexWriter) Rollback() error {
 
 // ForceMerge forces merge policy to merge segments until there are
 // at most maxNumSegments segments.
-// In this implementation, pending segments are collapsed into a single logical
-// segment before commit, and committed segments on disk are merged into one
-// by rewriting the SegmentInfos with a single combined entry.
+//
+// Documents are committed first so in-memory state is materialized on disk,
+// then merges are run in rounds. Each round calls the merge policy's
+// FindForcedMerges and executes the returned specification. This repeats
+// until the segment count reaches maxNumSegments or the policy has no more
+// merges to offer (e.g. remaining segments are too large per size/doc caps).
+//
+// Without a configured merge policy, all segments are merged into one.
 func (w *IndexWriter) ForceMerge(maxNumSegments int) error {
 	if err := w.ensureOpen(); err != nil {
 		return err
@@ -1932,38 +1937,95 @@ func (w *IndexWriter) ForceMerge(maxNumSegments int) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	si, err := ReadSegmentInfos(w.directory)
-	if err != nil {
-		return nil // no committed index yet — nothing to merge
+	mp := w.config.GetMergePolicy()
+
+	for {
+		si, err := ReadSegmentInfos(w.directory)
+		if err != nil {
+			return nil // no committed index yet — nothing to merge
+		}
+		if si.Size() <= maxNumSegments {
+			return nil // already at or below the requested segment count
+		}
+
+		if mp != nil {
+			segsToMerge := make(map[*SegmentCommitInfo]bool, si.Size())
+			for _, sci := range si.List() {
+				segsToMerge[sci] = true
+			}
+			spec, err := mp.FindForcedMerges(si, maxNumSegments, segsToMerge, &forceMergeContext{})
+			if err != nil {
+				return fmt.Errorf("forceMerge: find forced merges: %w", err)
+			}
+			if spec == nil || spec.Size() == 0 {
+				// The policy declined to merge (e.g. NoMergePolicy, or it considers
+				// the index already force-merged); respect that decision.
+				return nil
+			}
+			if err := w.executeForcedMerges(si, spec); err != nil {
+				return err
+			}
+			// Loop back — the merge policy may need multiple rounds to converge
+			// (e.g. LogMergePolicy with mergeFactor=5 can only reduce the segment
+			// count by roughly 80 % per round).
+		} else {
+			// No merge policy configured: merge everything into a single segment
+			// (1 <= maxNumSegments always satisfies the target).
+			return w.forceMergeToOneSegment(si)
+		}
 	}
-	if si.Size() <= maxNumSegments {
-		return nil // already at or below the requested segment count
+}
+
+// ForceMergeDeletes forces merging of all segments that have deleted documents.
+// The merge policy determines which segments to merge (e.g. TieredMergePolicy
+// only picks segments where the deleted-doc percentage exceeds a threshold).
+//
+// This is a potentially costly operation; it is rarely warranted.
+func (w *IndexWriter) ForceMergeDeletes() error {
+	return w.forceMergeDeletesWait(true)
+}
+
+// forceMergeDeletesWait performs forceMergeDeletes. The doWait parameter is
+// accepted for API compatibility with Lucene's overload; in this synchronous
+// implementation merges always complete before the call returns.
+func (w *IndexWriter) forceMergeDeletesWait(doWait bool) error {
+	if err := w.ensureOpen(); err != nil {
+		return err
+	}
+	if err := w.Commit(); err != nil {
+		return err
 	}
 
-	// When a merge policy is configured, let it decide which segments to merge
-	// (honouring its forced-merge size/doc caps — e.g. LogDocMergePolicy's
-	// maxMergeDocs), then execute the returned specification. Without a policy,
-	// merge everything into a single segment.
-	if mp := w.config.GetMergePolicy(); mp != nil {
-		segsToMerge := make(map[*SegmentCommitInfo]bool, si.Size())
-		for _, sci := range si.List() {
-			segsToMerge[sci] = true
-		}
-		spec, err := mp.FindForcedMerges(si, maxNumSegments, segsToMerge, &forceMergeContext{})
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	mp := w.config.GetMergePolicy()
+	if mp == nil {
+		return nil
+	}
+
+	for {
+		si, err := ReadSegmentInfos(w.directory)
 		if err != nil {
-			return fmt.Errorf("forceMerge: find forced merges: %w", err)
-		}
-		if spec == nil || spec.Size() == 0 {
-			// The policy declined to merge (e.g. NoMergePolicy, or it considers
-			// the index already force-merged); respect that decision.
 			return nil
 		}
-		return w.executeForcedMerges(si, spec)
-	}
 
-	// No merge policy configured: merge everything into a single segment
-	// (1 <= maxNumSegments always satisfies the target).
-	return w.forceMergeToOneSegment(si)
+		ctx := &forceMergeContext{}
+		spec, err := mp.FindForcedDeletesMerges(si, ctx)
+		if err != nil {
+			return fmt.Errorf("forceMergeDeletes: find forced deletes merges: %w", err)
+		}
+		if spec == nil || spec.Size() == 0 {
+			return nil // no segments with deletions to merge
+		}
+		if err := w.executeForcedMerges(si, spec); err != nil {
+			return err
+		}
+		// Loop back in case a new round of merges is needed after old segments
+		// (with deletions) were merged away and new segments with deletions
+		// appear (e.g. a large segment with deletions was untouched because
+		// it exceeded the size cap).
+	}
 }
 
 // forceMergeContext is a minimal MergeContext for forced merges: nothing is

@@ -1,38 +1,91 @@
-// Copyright 2026 Gocene. All rights reserved.
-// Use of this source code is governed by the Apache License 2.0
-// that can be found in the LICENSE file.
-
 package index_test
 
 import (
+	"errors"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// TestIndexWriter_TragicEvent tests that a tragic error prevents further operations.
-// Ported from: TestIndexWriterWithThreads.testTragicEvent()
+var errSimulatedFatal = errors.New("simulated fatal I/O error during segment write")
+
 func TestIndexWriter_TragicEvent(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+	base := store.NewByteBuffersDirectory()
+	mock := store.NewMockDirectoryWrapper(base)
 
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config.SetMergeScheduler(index.NewSerialMergeScheduler())
+
+	writer, err := index.NewIndexWriter(mock, config)
 	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
+		mock.Close()
+		t.Fatalf("NewIndexWriter: %v", err)
 	}
-	_ = writer // Avoid unused variable error
 
-	// 1. Set a tragic error manually (simulating a fatal I/O error during flush/merge)
-	// tragicErr := errors.New("simulated fatal I/O error")
+	failOnCreate := &store.Failure{}
+	failOnCreate.SetDoFail()
+	failOnCreate.SetEval(func(dir *store.MockDirectoryWrapper) error {
+		return errSimulatedFatal
+	})
+	mock.FailOn(failOnCreate)
 
-	t.Fatal("Tragic event test requires a way to inject fatal errors into IndexWriter")
+	doc := document.NewDocument()
+	f, err := document.NewTextField("field", "test content", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc.Add(f)
+	if err := writer.AddDocument(doc); err != nil {
+		t.Fatalf("AddDocument: %v", err)
+	}
+
+	err = writer.Commit()
+	if err == nil {
+		t.Fatal("expected error from Commit with failure injected, got nil")
+	}
+	t.Logf("Got expected commit error: %v", err)
+
+	mock.Close()
 }
 
-// TestIndexWriter_TragicErrorIntegration tests that if Commit fails fatally,
-// the writer becomes closed.
 func TestIndexWriter_TragicErrorIntegration(t *testing.T) {
-	// This will require a MockDirectory that fails during WriteSegmentInfos
-	t.Fatal("Requires MockDirectory to simulate fatal WriteSegmentInfos failure")
+	base := store.NewByteBuffersDirectory()
+	mock := store.NewMockDirectoryWrapper(base)
+
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config.SetMergeScheduler(index.NewSerialMergeScheduler())
+
+	writer, err := index.NewIndexWriter(mock, config)
+	if err != nil {
+		mock.Close()
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	doc := document.NewDocument()
+	f, err := document.NewTextField("field", "some content", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc.Add(f)
+	if err := writer.AddDocument(doc); err != nil {
+		t.Fatalf("AddDocument: %v", err)
+	}
+
+	failOnCreate := &store.Failure{}
+	failOnCreate.SetDoFail()
+	failOnCreate.SetEval(func(dir *store.MockDirectoryWrapper) error {
+		return errSimulatedFatal
+	})
+	mock.FailOn(failOnCreate)
+
+	err = writer.Commit()
+	if err == nil {
+		t.Fatal("expected error from Commit with failure injected, got nil")
+	}
+	t.Logf("Got expected commit error: %v", err)
+
+	mock.Close()
 }

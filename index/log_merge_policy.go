@@ -71,7 +71,7 @@ func NewLogMergePolicy() *LogMergePolicy {
 		BaseMergePolicy:            NewBaseMergePolicy(),
 		minMergeSize:               1677721,            // 1.6 MB
 		maxMergeSize:               2048 * 1024 * 1024, // 2 GB
-		maxMergeSizeForForcedMerge: 0,                  // unlimited
+		maxMergeSizeForForcedMerge: math.MaxInt64,      // unlimited
 		mergeFactor:                10,
 		noCFSRatio:                 0.0,
 		maxMergeDocs:               math.MaxInt32,
@@ -299,7 +299,16 @@ func (p *LogMergePolicy) getLevelSizes(segments []logSegInfo) [][]logSegInfo {
 }
 
 // FindForcedMerges finds forced merges to reduce segment count.
-// This implements GC-636: LogMergePolicy.FindForcedMerges
+//
+// Ported from Lucene's LogMergePolicy.findForcedMerges (Java).
+// Algorithm:
+//  1. Find the rightmost segment that needs merging.
+//  2. If any segment exceeds maxMergeSizeForForcedMerge or maxMergeDocs,
+//     delegate to findForcedMergesSizeLimit (merge eligible groups around
+//     the oversized segments).
+//  3. Otherwise, delegate to findForcedMergesMaxNumSegments: create full
+//     (mergeFactor-sized) merges from the right, then handle leftovers as
+//     a single partial merge sized to reach exactly maxSegmentCount.
 func (p *LogMergePolicy) FindForcedMerges(
 	infos *SegmentInfos,
 	maxSegmentCount int,
@@ -311,91 +320,173 @@ func (p *LogMergePolicy) FindForcedMerges(
 		return nil, nil
 	}
 
-	merging := mergeContext.GetMergingSegments()
-
-	// Collect eligible segments
-	type segInfo struct {
-		info *SegmentCommitInfo
-		size int64
+	// Find the rightmost (newest) segment that needs merging.
+	last := infos.Size()
+	for last > 0 {
+		if _, needsMerge := segmentsToMerge[infos.Get(last-1)]; needsMerge {
+			break
+		}
+		last--
 	}
-	eligible := make([]segInfo, 0)
-
-	for sci := range infos.Iterator() {
-		_, shouldMerge := segmentsToMerge[sci]
-		if !shouldMerge {
-			continue
-		}
-		if merging[sci] {
-			continue
-		}
-
-		size := p.Size(sci, mergeContext)
-		// Skip segments that are too large for forced merge
-		if p.maxMergeSizeForForcedMerge > 0 && size > p.maxMergeSizeForForcedMerge {
-			continue
-		}
-
-		eligible = append(eligible, segInfo{info: sci, size: size})
-	}
-
-	if len(eligible) <= maxSegmentCount {
+	if last == 0 {
 		return nil, nil
 	}
 
-	// Sort by size (smallest first)
-	sort.Slice(eligible, func(i, j int) bool {
-		return eligible[i].size < eligible[j].size
-	})
+	// Early exit if the index is already at or below the target segment count.
+	if infos.Size() <= maxSegmentCount {
+		return nil, nil
+	}
 
-	spec := NewMergeSpecification()
-
-	// Merge from smallest to largest until we reach maxSegmentCount
-	for len(eligible) > maxSegmentCount {
-		// Find mergeFactor segments to merge
-		candidate := make([]*SegmentCommitInfo, 0, p.mergeFactor)
-		var totalSize int64
-		var totalDocs int
-
-		for i := 0; i < len(eligible) && len(candidate) < p.mergeFactor; i++ {
-			size := eligible[i].size
-			docs := eligible[i].info.SegmentInfo().DocCount()
-
-			if (totalSize+size > p.maxMergeSize || totalDocs+docs > p.maxMergeDocs) && len(candidate) >= 2 {
-				break
-			}
-
-			candidate = append(candidate, eligible[i].info)
-			totalSize += size
-			totalDocs += docs
-		}
-
-		if len(candidate) < 2 {
-			// Can't merge any more
+	// Check whether any segment in [0, last) exceeds the size or doc caps.
+	anyTooLarge := false
+	for i := 0; i < last; i++ {
+		sci := infos.Get(i)
+		if p.Size(sci, mergeContext) > p.maxMergeSizeForForcedMerge ||
+			int64(sci.SegmentInfo().DocCount()) > int64(p.maxMergeDocs) {
+			anyTooLarge = true
 			break
 		}
+	}
 
-		merge := NewOneMerge(candidate)
-		spec.Add(merge)
+	if anyTooLarge {
+		return p.findForcedMergesSizeLimit(infos, last, mergeContext)
+	}
+	return p.findForcedMergesMaxNumSegments(infos, maxSegmentCount, last, mergeContext)
+}
 
-		// Remove merged segments from eligible
-		merged := make(map[*SegmentCommitInfo]bool)
-		for _, seg := range candidate {
-			merged[seg] = true
+// findForcedMergesMaxNumSegments returns merges to reach exactly
+// maxSegmentCount when no segment exceeds the size/doc caps.
+// It creates full (mergeFactor-sized) merges from the rightmost segment
+// inward, then handles leftovers with a single partial merge.
+//
+// Ported from Lucene's LogMergePolicy.findForcedMergesMaxNumSegments.
+func (p *LogMergePolicy) findForcedMergesMaxNumSegments(
+	infos *SegmentInfos,
+	maxSegmentCount int,
+	last int,
+	mergeContext MergeContext,
+) (*MergeSpecification, error) {
+
+	spec := NewMergeSpecification()
+	segments := infos.List()
+
+	// First, create all "full" merges (mergeFactor segments each) from the
+	// right. The loop stops when a full merge would overshoot — i.e. when
+	// fewer than mergeFactor segments remain to reach maxSegmentCount.
+	for last-maxSegmentCount+1 >= p.mergeFactor {
+		from := last - p.mergeFactor
+		candidates := make([]*SegmentCommitInfo, p.mergeFactor)
+		for j := 0; j < p.mergeFactor; j++ {
+			candidates[j] = segments[from+j]
 		}
+		spec.Add(NewOneMerge(candidates))
+		last -= p.mergeFactor
+	}
 
-		newEligible := make([]segInfo, 0, len(eligible)-len(candidate)+1)
-		for _, seg := range eligible {
-			if !merged[seg.info] {
-				newEligible = append(newEligible, seg)
+	// Only when there are no full merges pending do we add a partial merge.
+	if spec.Size() == 0 {
+		if maxSegmentCount == 1 {
+			// Merge everything down to one segment.
+			if last > 1 || !p.IsMerged(infos, infos.Get(0), mergeContext) {
+				candidates := make([]*SegmentCommitInfo, last)
+				for j := 0; j < last; j++ {
+					candidates[j] = segments[j]
+				}
+				spec.Add(NewOneMerge(candidates))
 			}
+		} else if last > maxSegmentCount {
+			// We must merge exactly (last - maxSegmentCount + 1) segments
+			// to leave maxSegmentCount. Pick the cheapest contiguous block.
+			finalMergeSize := last - maxSegmentCount + 1
+			bestSize := int64(0)
+			bestStart := 0
+
+			for i := 0; i < last-finalMergeSize+1; i++ {
+				var sumSize int64
+				for j := 0; j < finalMergeSize; j++ {
+					sumSize += p.Size(infos.Get(i+j), mergeContext)
+				}
+				if i == 0 || (sumSize < 2*p.Size(infos.Get(i-1), mergeContext) && sumSize < bestSize) {
+					bestStart = i
+					bestSize = sumSize
+				}
+			}
+
+			candidates := make([]*SegmentCommitInfo, finalMergeSize)
+			for j := 0; j < finalMergeSize; j++ {
+				candidates[j] = segments[bestStart+j]
+			}
+			spec.Add(NewOneMerge(candidates))
 		}
-		eligible = newEligible
 	}
 
 	if spec.Size() == 0 {
 		return nil, nil
 	}
+	return spec, nil
+}
 
+// findForcedMergesSizeLimit returns merges for segments when some segments
+// exceed the maxMergeSizeForForcedMerge or maxMergeDocs caps. It scans from
+// the right, skipping oversized segments and merging eligible groups.
+//
+// Ported from Lucene's LogMergePolicy.findForcedMergesSizeLimit.
+func (p *LogMergePolicy) findForcedMergesSizeLimit(
+	infos *SegmentInfos,
+	last int,
+	mergeContext MergeContext,
+) (*MergeSpecification, error) {
+
+	spec := NewMergeSpecification()
+	segments := infos.List()
+
+	start := last - 1
+	for start >= 0 {
+		sci := infos.Get(start)
+		size := p.Size(sci, mergeContext)
+		tooLarge := size > p.maxMergeSizeForForcedMerge ||
+			int64(sci.SegmentInfo().DocCount()) > int64(p.maxMergeDocs)
+
+		if tooLarge {
+			// Skip this segment and add a merge for the segments to its right
+			// (if more than 1, or if the sole right segment is not already merged).
+			rightCount := last - start - 1
+			if rightCount > 1 || (rightCount == 1 && !p.IsMerged(infos, infos.Get(start+1), mergeContext)) {
+				candidates := make([]*SegmentCommitInfo, rightCount)
+				for j := 0; j < rightCount; j++ {
+					candidates[j] = segments[start+1+j]
+				}
+				spec.Add(NewOneMerge(candidates))
+			}
+			last = start
+		} else if last-start == p.mergeFactor {
+			// mergeFactor eligible segments found, add them as a merge.
+			candidates := make([]*SegmentCommitInfo, p.mergeFactor)
+			for j := 0; j < p.mergeFactor; j++ {
+				candidates[j] = segments[start+j]
+			}
+			spec.Add(NewOneMerge(candidates))
+			last = start
+		}
+		start--
+	}
+
+	// Add any left-over segments, unless there is just 1 already fully merged.
+	leftCount := last
+	if leftCount > 0 {
+		first := 0
+		if leftCount > 1 || !p.IsMerged(infos, infos.Get(first), mergeContext) {
+			candidates := make([]*SegmentCommitInfo, leftCount)
+			for j := 0; j < leftCount; j++ {
+				candidates[j] = segments[j]
+			}
+			spec.Add(NewOneMerge(candidates))
+		}
+	}
+
+	if spec.Size() == 0 {
+		return nil, nil
+	}
 	return spec, nil
 }
 
