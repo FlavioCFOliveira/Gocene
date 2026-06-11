@@ -2,8 +2,10 @@ package queryparser
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -39,8 +41,14 @@ type StandardQueryParser struct {
 	// locale for parsing
 	locale string
 
-	// timeZone for date parsing
+	// timeZone for date parsing (default "UTC")
 	timeZone string
+
+	// dateResolution controls how dates are resolved to terms.
+	// When set, range query bounds that look like dates (ISO 8601 or
+	// yyyyMMdd) are parsed and resolved to the configured granularity.
+	// nil means date resolution is disabled (default).
+	dateResolution *DateResolution
 }
 
 // BooleanOperator represents the default boolean operator.
@@ -118,6 +126,108 @@ func (p *StandardQueryParser) SetPhraseSlop(slop int) {
 // GetPhraseSlop returns the default phrase slop.
 func (p *StandardQueryParser) GetPhraseSlop() int {
 	return p.phraseSlop
+}
+
+// SetTimeZone sets the time zone for date range parsing.
+func (p *StandardQueryParser) SetTimeZone(tz string) error {
+	_, err := time.LoadLocation(tz)
+	if err != nil {
+		return fmt.Errorf("invalid timezone %q: %w", tz, err)
+	}
+	p.timeZone = tz
+	return nil
+}
+
+// SetDateResolution enables date resolution with the given granularity.
+// When set, range query bounds that look like dates are resolved to terms
+// at the configured resolution before building the range query.
+// Pass nil to disable date resolution.
+func (p *StandardQueryParser) SetDateResolution(dr *DateResolution) {
+	p.dateResolution = dr
+}
+
+// DateResolution mirrors Lucene's DateTools.Resolution: the granularity
+// at which a date is rounded when converted to a term.
+type DateResolution int
+
+const (
+	ResolutionYear  DateResolution = iota
+	ResolutionMonth
+	ResolutionDay
+	ResolutionHour
+	ResolutionMinute
+	ResolutionSecond
+	ResolutionMillisecond
+)
+
+// datePatterns lists common date formats in order of specificity.
+var datePatterns = []string{
+	"2006-01-02T15:04:05.000Z07:00", // ISO 8601 with milliseconds
+	"2006-01-02T15:04:05Z07:00",     // ISO 8601
+	"2006-01-02T15:04Z07:00",        // ISO 8601 minute precision
+	"2006-01-02",                     // Date only
+	"20060102",                       // Compact date (yyyyMMdd)
+	"2006-01",                        // Year-month
+	"2006",                           // Year only
+}
+
+// dateTermRE matches ISO 8601 dates and compact yyyyMMdd format.
+var dateTermRE = regexp.MustCompile(`^\d{4}(-\d{2}(-\d{2})?|\d{2}\d{2})$`)
+
+// isDateTerm returns true if s looks like a date value.
+func isDateTerm(s string) bool {
+	return dateTermRE.MatchString(s)
+}
+
+// parseDateRangeTerm parses a date string and returns the term bytes
+// after applying the configured resolution. Returns nil if s is not a
+// recognizable date or resolution is not configured.
+func (p *StandardQueryParser) parseDateRangeTerm(s string) ([]byte, error) {
+	if p.dateResolution == nil || !isDateTerm(s) {
+		return nil, nil
+	}
+	if s == "*" {
+		return nil, nil
+	}
+
+	loc := time.UTC
+	if p.timeZone != "" {
+		if l, err := time.LoadLocation(p.timeZone); err == nil {
+			loc = l
+		}
+	}
+
+	var t time.Time
+	var err error
+	for _, layout := range datePatterns {
+		t, err = time.ParseInLocation(layout, s, loc)
+		if err == nil {
+			break
+		}
+	}
+	if err != nil {
+		return nil, nil // not a recognizable date, fall back to raw string
+	}
+
+	// Apply resolution truncation matching Lucene DateTools.round.
+	switch *p.dateResolution {
+	case ResolutionYear:
+		t = time.Date(t.Year(), 1, 1, 0, 0, 0, 0, t.Location())
+	case ResolutionMonth:
+		t = time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, t.Location())
+	case ResolutionDay:
+		t = time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+	case ResolutionHour:
+		t = time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), 0, 0, 0, t.Location())
+	case ResolutionMinute:
+		t = time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), 0, 0, t.Location())
+	case ResolutionSecond:
+		t = time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), 0, t.Location())
+	case ResolutionMillisecond:
+		// Already at millisecond precision.
+	}
+
+	return []byte(t.Format("20060102150405")), nil
 }
 
 // Parse parses a query string and returns a Query.
@@ -305,6 +415,14 @@ func (s *parserState) parseGroup() (search.Query, error) {
 }
 
 // parsePhrase parses a phrase query.
+//
+// Simple phrase:  "quick brown fox"
+// This generates a PhraseQuery with the words at consecutive positions.
+//
+// Multi-phrase (synonyms):  "quick|fast brown fox"
+// Terms separated by '|' occupy the same position and generate a
+// MultiPhraseQuery instead, matching the behavior of analyzers that
+// emit synonyms at the same position (e.g., SynonymGraphFilter).
 func (s *parserState) parsePhrase(field string) (search.Query, error) {
 	s.pos++ // consume opening quote
 
@@ -320,9 +438,7 @@ func (s *parserState) parsePhrase(field string) (search.Query, error) {
 	phrase := s.text[start:s.pos]
 	s.pos++ // consume closing quote
 
-	// Check for slop: a trailing "~N" overrides the parser-default
-	// phraseSlop. A bare "~" (no digits) leaves the default in place,
-	// matching Lucene's tolerant fallback.
+	// Check for slop
 	slop := s.parser.phraseSlop
 	if s.peek() == '~' {
 		s.pos++
@@ -339,14 +455,43 @@ func (s *parserState) parsePhrase(field string) (search.Query, error) {
 		}
 	}
 
-	// Create terms from phrase words
+	// Split phrase into positional groups. Words separated by spaces
+	// occupy different positions; words separated by '|' are synonyms
+	// that share the same position.
 	words := strings.Fields(phrase)
-	terms := make([]*index.Term, len(words))
-	for i, word := range words {
-		terms[i] = index.NewTerm(field, word)
+
+	// Detect whether any word contains a '|' separator → multi-phrase.
+	hasMulti := false
+	for _, w := range words {
+		if strings.Contains(w, "|") {
+			hasMulti = true
+			break
+		}
 	}
 
-	return search.NewPhraseQueryWithSlop(slop, field, terms...), nil
+	if !hasMulti {
+		// Simple phrase: every word at its own position.
+		terms := make([]*index.Term, len(words))
+		for i, word := range words {
+			terms[i] = index.NewTerm(field, word)
+		}
+		return search.NewPhraseQueryWithSlop(slop, field, terms...), nil
+	}
+
+	// Multi-phrase: build positional groups.
+	builder := search.NewMultiPhraseQueryBuilder()
+	builder.SetSlop(slop)
+	position := 0
+	for _, word := range words {
+		parts := strings.Split(word, "|")
+		terms := make([]*index.Term, len(parts))
+		for j, p := range parts {
+			terms[j] = index.NewTerm(field, p)
+		}
+		builder.AddTermsAtPosition(terms, position)
+		position++
+	}
+	return builder.Build(), nil
 }
 
 // parseRange parses a range query of the form
@@ -395,10 +540,27 @@ func (s *parserState) parseRange(field string) (search.Query, error) {
 	// slice, so we map "*" to nil bytes before constructing the query.
 	var lowerBytes, upperBytes []byte
 	if lower != "*" {
-		lowerBytes = []byte(lower)
+		// Try date resolution first; fall back to raw string.
+		dateBytes, err := s.parser.parseDateRangeTerm(lower)
+		if err != nil {
+			return nil, err
+		}
+		if dateBytes != nil {
+			lowerBytes = dateBytes
+		} else {
+			lowerBytes = []byte(lower)
+		}
 	}
 	if upper != "*" {
-		upperBytes = []byte(upper)
+		dateBytes, err := s.parser.parseDateRangeTerm(upper)
+		if err != nil {
+			return nil, err
+		}
+		if dateBytes != nil {
+			upperBytes = dateBytes
+		} else {
+			upperBytes = []byte(upper)
+		}
 	}
 
 	return search.NewTermRangeQuery(field, lowerBytes, upperBytes, includeLower, includeUpper), nil
