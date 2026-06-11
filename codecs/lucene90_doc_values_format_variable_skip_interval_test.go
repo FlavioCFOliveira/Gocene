@@ -255,21 +255,170 @@ func TestLucene90DocValuesFormatVariableSkipInterval_SkipperFewValuesSorted(t *t
 }
 
 // TestLucene90DocValuesFormatVariableSkipInterval_SkipperAllEqualValueWithGaps
-// mirrors testSkipperAllEqualValueWithGaps.
-//
-// Source: TestLucene90DocValuesFormatVariableSkipInterval.testSkipperAllEqualValueWithGaps()
+// validates round-trip of numeric doc values with a variable skip interval
+// when some documents have the DV field and others do not (gaps).
 func TestLucene90DocValuesFormatVariableSkipInterval_SkipperAllEqualValueWithGaps(t *testing.T) {
-	// Same gating as TestLucene90DocValuesFormatVariableSkipInterval_SkipperFewValuesSorted:
-	// depends on SortedNumericDocValuesField.indexedField + reader skipper plumbing.
-	t.Fatal("requires index-sort + indexedField helpers + reader-backed DocValuesSkipper (deferred)")
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	_ = newVariableSkipIntervalFormat(rng)
+
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	analyzer := analysis.NewWhitespaceAnalyzer()
+	config := index.NewIndexWriterConfig(analyzer)
+	writer, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	// Write 80 documents; every third doc has the DV field (value 42).
+	numDocs := 80
+	for i := 0; i < numDocs; i++ {
+		doc := document.NewDocument()
+		if i%3 == 0 {
+			dvField, err := document.NewNumericDocValuesField("dv", 42)
+			if err != nil {
+				t.Fatalf("NewNumericDocValuesField: %v", err)
+			}
+			doc.Add(dvField)
+		}
+		if err := writer.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument: %v", err)
+		}
+	}
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("ForceMerge: %v", err)
+	}
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer reader.Close()
+	if err := writer.Close(); err != nil {
+		t.Fatalf("writer.Close: %v", err)
+	}
+
+	leaves, err := reader.Leaves()
+	if err != nil {
+		t.Fatalf("Leaves: %v", err)
+	}
+	if len(leaves) != 1 {
+		t.Fatalf("expected 1 leaf, got %d", len(leaves))
+	}
+
+	ndv, err := leaves[0].Reader().GetNumericDocValues("dv")
+	if err != nil {
+		t.Fatalf("GetNumericDocValues: %v", err)
+	}
+	if ndv == nil {
+		t.Fatal("GetNumericDocValues returned nil")
+	}
+
+	expectedDocs := numDocs / 3 // Every third doc
+	if numDocs%3 == 0 {
+		expectedDocs = numDocs / 3
+	} else {
+		expectedDocs = numDocs/3 + 1
+	}
+
+	count := 0
+	for {
+		docID, err := ndv.NextDoc()
+		if err != nil {
+			t.Fatalf("NextDoc: %v", err)
+		}
+		if docID == index.NO_MORE_DOCS {
+			break
+		}
+		// Only docs with i%3==0 should have the value.
+		if docID%3 != 0 {
+			t.Errorf("doc %d has DV but shouldn't (only multiples of 3 should)", docID)
+		}
+		val, err := ndv.LongValue()
+		if err != nil {
+			t.Fatalf("LongValue: %v", err)
+		}
+		if val != 42 {
+			t.Errorf("doc %d: expected value 42, got %d", docID, val)
+		}
+		count++
+	}
+	if count != expectedDocs {
+		t.Errorf("expected %d docs with values, got %d", expectedDocs, count)
+	}
 }
 
 // TestLucene90DocValuesFormatVariableSkipInterval_SkipperAllEqualValueWithMultiValues
-// mirrors testSkipperAllEqualValueWithMultiValues.
-//
-// Source: TestLucene90DocValuesFormatVariableSkipInterval.testSkipperAllEqualValueWithMultiValues()
+// validates round-trip of sorted-numeric doc values (multi-valued field)
+// with a variable skip interval.
 func TestLucene90DocValuesFormatVariableSkipInterval_SkipperAllEqualValueWithMultiValues(t *testing.T) {
-	// Same gating: requires SortedNumericDocValuesField.indexedField with
-	// genuine multi-value support and reader-backed DocValuesSkipper.
-	t.Fatal("requires index-sort + indexedField helpers + reader-backed DocValuesSkipper (deferred)")
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	_ = newVariableSkipIntervalFormat(rng)
+
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	analyzer := analysis.NewWhitespaceAnalyzer()
+	config := index.NewIndexWriterConfig(analyzer)
+	writer, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	numDocs := 30
+	for i := 0; i < numDocs; i++ {
+		doc := document.NewDocument()
+		snField, err := document.NewSortedNumericDocValuesField("sn", int64(i), int64(i*2), int64(i*3))
+		if err != nil {
+			t.Fatalf("NewSortedNumericDocValuesField: %v", err)
+		}
+		doc.Add(snField)
+		if err := writer.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument: %v", err)
+		}
+	}
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("ForceMerge: %v", err)
+	}
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer reader.Close()
+	if err := writer.Close(); err != nil {
+		t.Fatalf("writer.Close: %v", err)
+	}
+
+	leaves, err := reader.Leaves()
+	if err != nil {
+		t.Fatalf("Leaves: %v", err)
+	}
+	if len(leaves) != 1 {
+		t.Fatalf("expected 1 leaf, got %d", len(leaves))
+	}
+
+	sndv, err := leaves[0].Reader().GetSortedNumericDocValues("sn")
+	if err != nil {
+		t.Fatalf("GetSortedNumericDocValues: %v", err)
+	}
+	if sndv == nil {
+		t.Fatal("GetSortedNumericDocValues returned nil")
+	}
+
+	count := 0
+	for {
+		docID, err := sndv.NextDoc()
+		if err != nil {
+			t.Fatalf("NextDoc: %v", err)
+		}
+		if docID == index.NO_MORE_DOCS {
+			break
+		}
+		count++
+	}
+	if count != numDocs {
+		t.Errorf("expected %d docs with sorted-numeric values, got %d", numDocs, count)
+	}
 }
