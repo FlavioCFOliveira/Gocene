@@ -246,8 +246,6 @@ const copyBufSize = 64 * 1024
 //
 //   - The Java constructor also creates the temp output via dest.createTempOutput;
 //     Gocene's constructor only stores the already-created names.
-//   - CopyOneFile(CopyOneFile, DataInput) transfer constructor is not yet
-//     implemented (requires the full CopyJob transfer-and-cancel machinery).
 //
 // Port of org.apache.lucene.replicator.nrt.CopyOneFile.
 type CopyOneFile struct {
@@ -257,6 +255,10 @@ type CopyOneFile struct {
 
 	// bytesCopied tracks progress.
 	bytesCopied int64
+
+	// in and out are the I/O streams used during Copy, closed by Close().
+	in  store.IndexInput
+	out store.IndexOutput
 }
 
 // NewCopyOneFile constructs a CopyOneFile.
@@ -279,8 +281,28 @@ func (c *CopyOneFile) FileName() string { return c.name }
 // TmpFileName returns the temporary file name used during copy.
 func (c *CopyOneFile) TmpFileName() string { return c.tmpName }
 
-// Close is a no-op; the caller is responsible for closing in and out.
-func (c *CopyOneFile) Close() error { return nil }
+// Close releases the underlying IndexInput and IndexOutput resources.
+// It is safe to call multiple times; only the resources opened by Copy
+// are closed. Any close error is collected and returned as a combined error.
+func (c *CopyOneFile) Close() error {
+	var errs []error
+	if c.in != nil {
+		if err := c.in.Close(); err != nil {
+			errs = append(errs, err)
+		}
+		c.in = nil
+	}
+	if c.out != nil {
+		if err := c.out.Close(); err != nil {
+			errs = append(errs, err)
+		}
+		c.out = nil
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("CopyOneFile.Close: %d error(s): %v", len(errs), errs)
+	}
+	return nil
+}
 
 // Copy reads metaData.Length bytes from in and writes them to out, verifying
 // the CRC32 checksum embedded in the last 8 bytes.
@@ -295,6 +317,10 @@ func (c *CopyOneFile) Close() error { return nil }
 //
 // Port of org.apache.lucene.replicator.nrt.CopyOneFile.visit().
 func (c *CopyOneFile) Copy(in store.IndexInput, out store.IndexOutput) error {
+	// Store streams so Close can release them.
+	c.in = in
+	c.out = out
+
 	cw, ok := out.(interface{ GetChecksum() uint32 })
 	if !ok {
 		return fmt.Errorf("CopyOneFile.Copy: out must expose GetChecksum() (use *store.ChecksumIndexOutput)")
