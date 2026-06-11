@@ -69,6 +69,9 @@ func GetConfusionMatrix[T comparable](
 	textFieldName string,
 	timeoutMilliseconds int64,
 ) (*ConfusionMatrix, error) {
+	if reader == nil {
+		return nil, nil
+	}
 	// Set up timeout if requested.
 	var ctx context.Context
 	var cancel context.CancelFunc

@@ -34,7 +34,7 @@ func TestDatasetSplitterSplitReturnsNil(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestGetConfusionMatrixReturnsNil(t *testing.T) {
-	m, err := utils.GetConfusionMatrix(nil, nil, "class", "text", 1000)
+	m, err := utils.GetConfusionMatrix[string](nil, nil, "class", "text", 1000)
 	if err != nil || m != nil {
 		t.Fatalf("expected nil, nil; got %v, %v", m, err)
 	}
