@@ -441,12 +441,17 @@ func (out *NIOFSIndexOutput) Close() error {
 		return fmt.Errorf("failed to flush buffer: %w", err)
 	}
 
-	// Sync the file to disk
-	if err := out.file.Sync(); err != nil {
-		// Log error but continue closing
-		_ = err
-	}
+	// Sync the file to disk. An fsync failure means the kernel cannot
+	// guarantee data durability — committed writes may be lost on crash,
+	// so the error must be propagated to the caller.
+	syncErr := out.file.Sync()
 
 	out.directory.RemoveOpenFile(out.name)
-	return out.file.Close()
+	closeErr := out.file.Close()
+
+	// Return the first error; sync errors (durability) take priority.
+	if syncErr != nil {
+		return fmt.Errorf("NIOFSIndexOutput.Close: fsync failed for %q: %w", out.name, syncErr)
+	}
+	return closeErr
 }
