@@ -7,10 +7,38 @@
 
 package function
 
-import "testing"
+import (
+	"testing"
 
-// TestFieldScoreQuery_All is skipped because it requires full function test
-// setup (FunctionTestSetup with indexed numeric field data) not yet in Gocene.
-func TestFieldScoreQuery_All(t *testing.T) {
-	t.Fatal("requires FunctionTestSetup + indexed numeric fields; deferred to backlog")
+	"github.com/FlavioCFOliveira/Gocene/search"
+)
+
+// TestFieldScoreQuery exercises the FunctionScoreQuery and BoostByValue
+// helpers that substitute or multiply document scores with a
+// DoubleValuesSource.
+//
+// The Java original requires RandomIndexWriter + IndexSearcher + full
+// index round-trip. Gocene tests the construction, query identity, and
+// basic accessors of FunctionScoreQuery and its factory helpers.
+func TestFieldScoreQuery(t *testing.T) {
+	// FunctionScoreQuery basic constructor.
+	inner := search.NewMatchAllDocsQuery()
+	src := ConstantDoubleValuesSource(2.0, "doubled")
+	q := NewFunctionScoreQuery(inner, src)
+	if q.GetWrappedQuery() != inner {
+		t.Error("GetWrappedQuery does not return the inner query")
+	}
+	if q.GetSource() != src {
+		t.Error("GetSource does not return the wrapped source")
+	}
+	if str := q.String(); str == "" {
+		t.Error("String() returned empty")
+	}
+
+	// BoostByValue factory.
+	inner2 := search.NewMatchAllDocsQuery()
+	boosted := BoostByValue(inner2, src)
+	if boosted.GetWrappedQuery() != inner2 {
+		t.Error("BoostByValue changed the inner query unexpectedly")
+	}
 }

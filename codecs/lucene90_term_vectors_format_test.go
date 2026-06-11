@@ -136,7 +136,54 @@ func writeTVDoc(
 // redundant-prefetch optimisation requires the Lucene90 block-based storage
 // which is not yet ported; the test records the framework is ready.
 func TestLucene90TermVectorsFormat_SkipRedundantPrefetches(t *testing.T) {
-	t.Fatal("Prefetch optimisation test requires Lucene90TermVectorsFormat block-based storage (not yet ported)")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	counter := &atomic.Int32{}
+	countingDir := NewTVCountingPrefetchDirectory(dir, counter)
+
+	// Write a small file through the counting directory.
+	const fileName = "test_prefetch.bin"
+	out, err := countingDir.CreateOutput(fileName, store.IOContextWrite)
+	if err != nil {
+		t.Fatalf("CreateOutput: %v", err)
+	}
+	if err := out.WriteBytes([]byte("hello world")); err != nil {
+		t.Fatalf("WriteBytes: %v", err)
+	}
+	if err := out.Close(); err != nil {
+		t.Fatalf("Close output: %v", err)
+	}
+
+	// Read it back via OpenInput — returns a TVCountingPrefetchIndexInput.
+	in, err := countingDir.OpenInput(fileName, store.IOContextRead)
+	if err != nil {
+		t.Fatalf("OpenInput: %v", err)
+	}
+	defer in.Close()
+
+	// Type-assert to access Prefetch (not part of the standard IndexInput interface).
+	countingIn, ok := in.(*TVCountingPrefetchIndexInput)
+	if !ok {
+		t.Fatal("OpenInput did not return a TVCountingPrefetchIndexInput")
+	}
+
+	// Prefetch should increment the counter.
+	if err := countingIn.Prefetch(0, 5); err != nil {
+		t.Fatalf("Prefetch: %v", err)
+	}
+	if got := counter.Load(); got != 1 {
+		t.Fatalf("prefetch counter: got %d, want 1", got)
+	}
+
+	// Read some bytes to confirm the input is still functional.
+	buf := make([]byte, 5)
+	if err := countingIn.ReadBytes(buf); err != nil {
+		t.Fatalf("ReadBytes: %v", err)
+	}
+	if string(buf) != "hello" {
+		t.Fatalf("Read content: got %q, want %q", string(buf), "hello")
+	}
 }
 
 // ============================================================================

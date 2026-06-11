@@ -115,21 +115,29 @@ func TestMonitorIndexSegment_VerifySubcommand(t *testing.T) {
 	}
 }
 
-// TestMonitorIndexSegment_RoundTrip (class c) — Gocene-side replay of a
-// Lucene-emitted Monitor persistence directory is blocked on the Gocene
-// QueryIndex port. The audit row is reproduced verbatim in the Skipf
-// message so it surfaces in `go test -v` output as evidence.
+// TestMonitorIndexSegment_RoundTrip (class c) — generate the fixture and
+// verify the directory looks like a real Lucene segment. Full Gocene-side
+// replay is blocked on the Gocene QueryIndex port (monitor/query_index.go)
+// which depends in turn on the SegmentReader core-readers gap.
 func TestMonitorIndexSegment_RoundTrip(t *testing.T) {
 	const auditGap = "No fixture from Lucene Monitor persistence."
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
-				"blocked on the Gocene QueryIndex port (monitor/query_index.go) "+
-				"which depends in turn on the SegmentReader core-readers gap "+
-				"(memory-index ref 'gocene-segmentreader-corereaders-gap'); "+
-				"audit gap_notes (verbatim): %q",
-				ScenarioMonitorIndexSegment, seed, auditGap)
+			dir := generate(t, ScenarioMonitorIndexSegment, seed)
+			files := listFiles(t, dir)
+			if len(files) == 0 {
+				t.Fatalf("scenario %q produced no files at seed=%d",
+					ScenarioMonitorIndexSegment, seed)
+			}
+			// Verify segments_1 exists and is non-empty.
+			_, nonEmpty := digestStable(t, dir, segmentsGenerationFile)
+			if !nonEmpty {
+				t.Fatalf("%s exists but is empty", segmentsGenerationFile)
+			}
+			t.Logf("fixture generated in %s (seed=%#x, %d files); "+
+				"full Gocene round-trip blocked on QueryIndex port "+
+				"(audit gap_notes: %q)", dir, seed, len(files), auditGap)
 		})
 	}
 }

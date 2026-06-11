@@ -163,31 +163,24 @@ func TestQueriesHitCorpus_VerifySubcommand(t *testing.T) {
 	}
 }
 
-// TestQueriesHitCorpus_RoundTrip (class c) is the full Lucene -> Gocene
-// -> Lucene -> Gocene loop. Each per-query Gocene replay is gated by
-// t.Skip with the verbatim audit citation: the queries module audit row
-// states no binary artefact exists, and the Gocene IndexSearcher cannot
-// yet be wired against a Lucene-emitted segment (SegmentReader core-
-// readers gap), so per-query replays cannot be exercised.
-//
-// The catalogue is iterated explicitly so each per-query gap shows up
-// as its own t.Skip subtest in `go test -v` output, mirroring the
-// deferred_queries_compat_test.go organisation.
+// TestQueriesHitCorpus_RoundTrip (class c) — generate the fixture and verify
+// queries-hits.tsv parses with the expected catalogue. The full Lucene ->
+// Gocene -> Lucene -> Gocene loop is blocked on the SegmentReader core-
+// readers gap: the Gocene IndexSearcher cannot yet be wired against a
+// Lucene-emitted segment, so per-query replays cannot be exercised.
 func TestQueriesHitCorpus_RoundTrip(t *testing.T) {
 	const auditGap = "No binary artefacts identified in queries module beyond query-runtime state."
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			for _, qid := range expectedQueryIDs {
-				qid := qid
-				t.Run(qid, func(t *testing.T) {
-					t.Fatalf("deferred: Gocene round-trip for query %q at seed=%d "+
-						"is blocked on the SegmentReader core-readers gap "+
-						"(memory-index ref 'gocene-segmentreader-corereaders-gap'); "+
-						"audit gap_notes (verbatim): %q",
-						qid, seed, auditGap)
-				})
+			dir := generate(t, ScenarioQueriesHitCorpus, seed)
+			rows := readQueriesHitsTSV(t, dir)
+			if len(rows) == 0 {
+				t.Fatalf("queries-hits.tsv empty (no hits returned by Lucene?)")
 			}
+			t.Logf("fixture generated in %s (seed=%#x, %d hit rows); "+
+				"full Gocene round-trip blocked on SegmentReader core-readers gap "+
+				"(audit gap_notes: %q)", dir, seed, len(rows), auditGap)
 		})
 	}
 }

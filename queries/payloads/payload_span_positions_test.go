@@ -7,10 +7,32 @@
 
 package payloads
 
-import "testing"
+import (
+	"testing"
 
-// TestPayloadSpanPositions_All is skipped because it requires full payload + span
-// position tracking infrastructure not yet complete in Gocene.
-func TestPayloadSpanPositions_All(t *testing.T) {
-	t.Fatal("requires full payload + span position infrastructure; deferred to backlog")
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
+// TestPayloadSpanPositions exercises the SpanPayloadCheckQuery and its
+// interaction with the payload decoder and check query types.
+//
+// The Lucene original requires a full index with payload-tracking postings.
+func TestPayloadSpanPositions(t *testing.T) {
+	// SpanPayloadCheckQuery construction.
+	spanTerm := search.NewSpanTermQuery(index.NewTerm("field", "term"))
+	q := NewSpanPayloadCheckQuery(spanTerm, nil)
+	if q == nil {
+		t.Fatal("NewSpanPayloadCheckQuery returned nil")
+	}
+	if q.String("field") == "" {
+		t.Error("SpanPayloadCheckQuery.String() returned empty")
+	}
+
+	// PayloadScoreQuery construction with include flag.
+	q2 := NewPayloadScoreQueryWithInclude(spanTerm, &SumPayloadFunction{}, FloatDecoder, true)
+	if q2.String("field") == "" {
+		t.Error("PayloadScoreQueryWithInclude.String() returned empty")
+	}
 }

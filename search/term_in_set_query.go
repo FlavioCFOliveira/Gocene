@@ -147,11 +147,13 @@ func (q *TermInSetQuery) HashCode() int {
 	return 31*h + termHash
 }
 
-// Rewrite returns the query unchanged.
-//
-// Mirrors TermInSetQuery.getTermsEnum() — full rewrite deferred pending
-// PrefixCodedTerms and FilteredTermsEnum ports.
+// Rewrite returns MatchNoDocsQuery when the term set is empty, otherwise
+// returns the query unchanged. (The full blended / doc-values rewrite path
+// is deferred pending PrefixCodedTerms and FilteredTermsEnum ports.)
 func (q *TermInSetQuery) Rewrite(_ IndexReader) (Query, error) {
+	if len(q.terms) == 0 {
+		return NewMatchNoDocsQuery(), nil
+	}
 	return q, nil
 }
 

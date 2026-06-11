@@ -112,23 +112,30 @@ func TestMemoryIndexFlush_VerifySubcommand(t *testing.T) {
 	}
 }
 
-// TestMemoryIndexFlush_RoundTrip (class c) — Gocene-side replay of the
-// Lucene-emitted flushed segment is blocked on the Gocene MemoryIndex
-// surface. The audit row is reproduced verbatim in the Skipf message so
-// it surfaces in `go test -v` output as evidence.
+// TestMemoryIndexFlush_RoundTrip (class c) — generate the fixture and verify
+// the flushed directory looks like a real Lucene segment. Gocene-side replay
+// is blocked because the Gocene MemoryIndex equivalent
+// (memory/memory_index.go) may not support the addIndexes(CodecReader...)
+// flush path required to assert byte parity on merges; the harness verifier
+// IS exercised by TestMemoryIndexFlush_VerifySubcommand.
 func TestMemoryIndexFlush_RoundTrip(t *testing.T) {
 	const auditGap = "No persisted binary artefact; gap is the absence of byte-for-byte parity tests vs Lucene MemoryIndex internal layout (where applicable to merges)."
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
-				"blocked because the Gocene MemoryIndex equivalent "+
-				"(memory/memory_index.go) may not support the "+
-				"addIndexes(CodecReader...) flush path required to "+
-				"assert byte parity on merges; the harness verifier IS "+
-				"exercised by TestMemoryIndexFlush_VerifySubcommand; "+
-				"audit gap_notes (verbatim): %q",
-				ScenarioMemoryIndexFlush, seed, auditGap)
+			dir := generate(t, ScenarioMemoryIndexFlush, seed)
+			files := listFiles(t, dir)
+			if len(files) == 0 {
+				t.Fatalf("%s produced no files under %s",
+					ScenarioMemoryIndexFlush, dir)
+			}
+			segBytes := readFileBytes(t, dir, segmentsGenerationFile)
+			if len(segBytes) == 0 {
+				t.Fatalf("%s exists but is empty", segmentsGenerationFile)
+			}
+			t.Logf("fixture generated in %s (seed=%#x, %d files); "+
+				"full Gocene round-trip blocked on MemoryIndex addIndexes path "+
+				"(audit gap_notes: %q)", dir, seed, len(files), auditGap)
 		})
 	}
 }

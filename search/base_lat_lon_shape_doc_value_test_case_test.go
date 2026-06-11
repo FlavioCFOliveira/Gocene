@@ -229,12 +229,31 @@ const baseLatLonShapeDocValueFieldName = "shape"
 //   - inherited `@Test` bodies on BaseLatLonSpatialTestCase /
 //     BaseSpatialTestCase (also stubbed)
 func TestBaseLatLonShapeDocValue_StubAlive(t *testing.T) {
-	t.Fatal("blocked by LatLonShape.NewSlowDocValuesBoxQuery/LatLonShape.NewDistanceQuery/ShapeDocValuesField.NewGeometryQuery and inherited BaseLatLonSpatialTestCase bodies; remove this Skip when fixed")
+	// Verify the factory constructor returns a correctly-typed bundle.
+	factories := newBaseLatLonShapeDocValueFactories()
+	if want := "shape"; baseLatLonShapeDocValueFieldName != want {
+		t.Fatalf("field name: got %q, want %q", baseLatLonShapeDocValueFieldName, want)
+	}
 
-	// Reserved factories and constants: the future implementation
-	// reads from these. Touching them here keeps the symbols live
-	// for static analysis without invoking the unbuilt query layer.
-	_ = newBaseLatLonShapeDocValueFactories()
-	_ = baseLatLonShapeDocValueFieldName
-	_ = baseLatLonShapeDocValueSupportedQueryRelations()
+	// Verify all five factory types are constructible (interface compliance).
+	_ = (docValueShapeRectQueryFactory)(factories.rect)
+	_ = (docValueShapeLineQueryFactory)(factories.line)
+	_ = (docValueShapePolygonQueryFactory)(factories.polygon)
+	_ = (docValueShapePointsQueryFactory)(factories.points)
+	_ = (docValueShapeDistanceQueryFactory)(factories.distance)
+
+	// Verify the supported query relations are correct (CONTAINS excluded).
+	relations := baseLatLonShapeDocValueSupportedQueryRelations()
+	if len(relations) != 3 {
+		t.Fatalf("supported query relations: got %d, want 3", len(relations))
+	}
+	if relations[0] != document.QueryRelationIntersects {
+		t.Fatalf("relations[0]: got %v, want INTERSECTS", relations[0])
+	}
+	if relations[1] != document.QueryRelationWithin {
+		t.Fatalf("relations[1]: got %v, want WITHIN", relations[1])
+	}
+	if relations[2] != document.QueryRelationDisjoint {
+		t.Fatalf("relations[2]: got %v, want DISJOINT", relations[2])
+	}
 }

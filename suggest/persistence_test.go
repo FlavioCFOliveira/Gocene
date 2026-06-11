@@ -7,14 +7,13 @@ package suggest_test
 // TestPersistence mirrors org.apache.lucene.search.suggest.TestPersistence.
 //
 // The Java original tests that TSTLookup and FSTCompletionLookup can be
-// serialised to disk and reloaded.  Store/Load persistence is not yet
-// implemented in the Gocene stubs for TSTLookup and FSTCompletionLookup,
-// so these tests verify the build+lookup contract that the persistence
-// round-trip must preserve.
+// serialised to disk and reloaded.  These tests use in-memory byte arrays
+// for the Store→Load→Lookup round-trip.
 
 import (
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/suggest/fst"
 	"github.com/FlavioCFOliveira/Gocene/suggest/tst"
 )
@@ -25,47 +24,182 @@ var persistenceKeys = []string{
 	"foundation", "fourier", "fourty",
 }
 
-// TestPersistence_TST mirrors TestPersistence.testTSTPersistence.
-// Verifies that a TSTLookup built from an InputArrayIterator returns the
-// expected results.
-func TestPersistence_TST(t *testing.T) {
+// TestPersistence_TSTRoundTrip builds a TSTLookup, stores it to a byte
+// array, loads a fresh lookup from those bytes, and verifies that lookup
+// results match before and after the round-trip.
+func TestPersistence_TSTRoundTrip(t *testing.T) {
 	inputs := make([]*Input, len(persistenceKeys))
 	for i, k := range persistenceKeys {
 		inputs[i] = NewInput(k, int64(i))
 	}
 
-	l := tst.NewTSTLookup()
-	if err := l.Build(NewInputArrayIterator(inputs)); err != nil {
+	// Build original.
+	orig := tst.NewTSTLookup()
+	if err := orig.Build(NewInputArrayIterator(inputs)); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	// Verify at least one result comes back.
-	results, err := l.LookupResults("one", nil, false, 3)
+
+	// Store to byte array.
+	buf := store.NewByteArrayDataOutput(4096)
+	stored, err := orig.Store(buf)
 	if err != nil {
-		t.Fatalf("LookupResults: %v", err)
+		t.Fatalf("Store: %v", err)
 	}
-	if len(results) == 0 {
-		t.Error("expected at least one result for prefix 'one'")
+	if !stored {
+		t.Fatal("Store returned false (no data written)")
+	}
+
+	// Load from byte array.
+	reloaded := tst.NewTSTLookup()
+	data := buf.GetBytes()
+	loaded, err := reloaded.Load(store.NewByteArrayDataInput(data))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !loaded {
+		t.Fatal("Load returned false (no data read)")
+	}
+
+	// Verify counts match.
+	if orig.GetCount() != reloaded.GetCount() {
+		t.Errorf("GetCount: orig=%d, reloaded=%d", orig.GetCount(), reloaded.GetCount())
+	}
+
+	// Verify lookup results match for several prefixes.
+	for _, prefix := range []string{"o", "t", "f", "one", "two", "th", "fo"} {
+		origResults, err := orig.LookupResults(prefix, nil, false, 10)
+		if err != nil {
+			t.Fatalf("orig LookupResults(%q): %v", prefix, err)
+		}
+		reloadedResults, err := reloaded.LookupResults(prefix, nil, false, 10)
+		if err != nil {
+			t.Fatalf("reloaded LookupResults(%q): %v", prefix, err)
+		}
+		if len(origResults) != len(reloadedResults) {
+			t.Errorf("LookupResults(%q): orig len=%d, reloaded len=%d",
+				prefix, len(origResults), len(reloadedResults))
+			continue
+		}
+		for i := range origResults {
+			if origResults[i].Key != reloadedResults[i].Key ||
+				origResults[i].Value != reloadedResults[i].Value {
+				t.Errorf("LookupResults(%q)[%d]: orig=(%q,%d), reloaded=(%q,%d)",
+					prefix, i,
+					origResults[i].Key, origResults[i].Value,
+					reloadedResults[i].Key, reloadedResults[i].Value)
+			}
+		}
 	}
 }
 
-// TestPersistence_FST mirrors TestPersistence.testFSTPersistence.
-// Verifies that a FSTCompletionLookup built from an InputArrayIterator
-// returns the expected results.
-func TestPersistence_FST(t *testing.T) {
+// TestPersistence_TSTEmptyRoundTrip verifies that storing and loading an
+// empty TSTLookup works.
+func TestPersistence_TSTEmptyRoundTrip(t *testing.T) {
+	orig := tst.NewTSTLookup()
+
+	buf := store.NewByteArrayDataOutput(64)
+	stored, err := orig.Store(buf)
+	if err != nil {
+		t.Fatalf("Store: %v", err)
+	}
+	if stored {
+		t.Log("Store returned true for empty lookup (expected false)")
+	}
+
+	reloaded := tst.NewTSTLookup()
+	data := buf.GetBytes()
+	_, err = reloaded.Load(store.NewByteArrayDataInput(data))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if reloaded.GetCount() != 0 {
+		t.Errorf("expected count 0 after load, got %d", reloaded.GetCount())
+	}
+}
+
+// TestPersistence_FSTRoundTrip builds an FSTCompletionLookup, stores it,
+// reloads, and verifies results match.
+func TestPersistence_FSTRoundTrip(t *testing.T) {
 	inputs := make([]*Input, len(persistenceKeys))
 	for i, k := range persistenceKeys {
 		inputs[i] = NewInput(k, int64(i))
 	}
 
-	l := fst.NewFSTCompletionLookup(10, false)
-	if err := l.Build(NewInputArrayIterator(inputs)); err != nil {
+	orig := fst.NewFSTCompletionLookup(10, false)
+	if err := orig.Build(NewInputArrayIterator(inputs)); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	results, err := l.LookupResults("fou", nil, false, 3)
+
+	buf := store.NewByteArrayDataOutput(4096)
+	stored, err := orig.Store(buf)
 	if err != nil {
-		t.Fatalf("LookupResults: %v", err)
+		t.Fatalf("Store: %v", err)
 	}
-	if len(results) == 0 {
-		t.Error("expected at least one result for prefix 'fou'")
+	if !stored {
+		t.Fatal("Store returned false (no data written)")
+	}
+
+	reloaded := fst.NewFSTCompletionLookup(10, false)
+	data := buf.GetBytes()
+	loaded, err := reloaded.Load(store.NewByteArrayDataInput(data))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !loaded {
+		t.Fatal("Load returned false (no data read)")
+	}
+
+	if orig.GetCount() != reloaded.GetCount() {
+		t.Errorf("GetCount: orig=%d, reloaded=%d", orig.GetCount(), reloaded.GetCount())
+	}
+
+	for _, prefix := range []string{"o", "t", "f", "one", "two", "th", "fo"} {
+		origResults, err := orig.LookupResults(prefix, nil, false, 10)
+		if err != nil {
+			t.Fatalf("orig LookupResults(%q): %v", prefix, err)
+		}
+		reloadedResults, err := reloaded.LookupResults(prefix, nil, false, 10)
+		if err != nil {
+			t.Fatalf("reloaded LookupResults(%q): %v", prefix, err)
+		}
+		if len(origResults) != len(reloadedResults) {
+			t.Errorf("LookupResults(%q): orig len=%d, reloaded len=%d",
+				prefix, len(origResults), len(reloadedResults))
+			continue
+		}
+		for i := range origResults {
+			if origResults[i].Key != reloadedResults[i].Key ||
+				origResults[i].Value != reloadedResults[i].Value {
+				t.Errorf("LookupResults(%q)[%d]: orig=(%q,%d), reloaded=(%q,%d)",
+					prefix, i,
+					origResults[i].Key, origResults[i].Value,
+					reloadedResults[i].Key, reloadedResults[i].Value)
+			}
+		}
+	}
+}
+
+// TestPersistence_FSTEmptyRoundTrip verifies that storing and loading an
+// empty FSTCompletionLookup works.
+func TestPersistence_FSTEmptyRoundTrip(t *testing.T) {
+	orig := fst.NewFSTCompletionLookup(10, false)
+
+	buf := store.NewByteArrayDataOutput(64)
+	stored, err := orig.Store(buf)
+	if err != nil {
+		t.Fatalf("Store: %v", err)
+	}
+	if stored {
+		t.Log("Store returned true for empty lookup (expected false)")
+	}
+
+	reloaded := fst.NewFSTCompletionLookup(10, false)
+	data := buf.GetBytes()
+	_, err = reloaded.Load(store.NewByteArrayDataInput(data))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if reloaded.GetCount() != 0 {
+		t.Errorf("expected count 0 after load, got %d", reloaded.GetCount())
 	}
 }

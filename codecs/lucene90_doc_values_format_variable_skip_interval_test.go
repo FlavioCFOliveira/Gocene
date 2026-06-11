@@ -20,33 +20,47 @@
 //     skipIndexIntervalSize < 2; the Go port panics. The validation test
 //     therefore asserts a recovered panic carrying the canonical message
 //     fragment "skipIndexIntervalSize must be > 1".
-//   - Upstream uses RandomIndexWriter, BaseDocValuesFormatTestCase and the
-//     static *DocValuesField.indexedField(...) helpers, which install the
-//     skip-index side-table at write time. None of these helpers are yet
-//     ported in Gocene, and LeafReader.GetDocValuesSkipper currently returns
-//     (nil, nil) for all fields (see filter_directory_reader_test.go line
-//     330). The three skipper-content tests are kept as faithful scaffolding
-//     and gated with t.Skip until the DocValuesFormat reader/skipper wiring
-//     lands, mirroring the TODO pattern in lucene90_doc_values_format_test.go.
+//   - The upstream testSkipperFewValuesSorted uses IndexWriter with
+//     IndexSort; the Go port does not yet expose IndexSort at the
+//     IndexWriter level, so this test writes varied values directly via
+//     the codec consumer API to exercise the skipper with non-uniform
+//     data.
+//   - All skipper-content tests write at the codec level (bypassing
+//     IndexWriter) because the LeafReader.GetDocValuesSkipper path is
+//     not yet wired. The codec-level tests exercise the full consumer-
+//     to-producer round-trip including the per-field skip-index side
+//     table (DocValuesSkipIndexTypeRange).
+//   - The Gocene DocValuesSkipper interface exposes SkipTo/GetDocID
+//     only (the upstream Java version has a richer level-based API with
+//     advance(level), minValue(level), maxValue(level), docCount(level),
+//     minDocID(level), maxDocID(level)). The go-forward port should
+//     extend the interface when the per-block level decode path lands.
+//     Until then, the tests verify that the skipper is non-nil and that
+//     SkipTo/GetDocID follow the documented contract.
 package codecs_test
 
 import (
+	"crypto/rand"
 	"fmt"
-	"math/rand"
+	"math"
+	mathrand "math/rand"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/codecs"
-	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
+// testNoMoreDocs mirrors the codecs-internal dvNoMoreDocs sentinel
+// (math.MaxInt32) used by the DocValuesSkipper implementation returned
+// from Lucene90DocValuesProducer.GetSkipper.
+const testNoMoreDocs = math.MaxInt32
+
 // newVariableSkipIntervalFormat returns a Lucene90DocValuesFormat seeded
 // with a small (4..15) skipIndexIntervalSize, matching upstream getCodec().
-func newVariableSkipIntervalFormat(rng *rand.Rand) *codecs.Lucene90DocValuesFormat {
+func newVariableSkipIntervalFormat(rng *mathrand.Rand) *codecs.Lucene90DocValuesFormat {
 	// Upstream: random().nextInt(4, 16) -> [4, 16).
 	interval := 4 + rng.Intn(12)
 	return codecs.NewLucene90DocValuesFormatWithSkipInterval(interval)
@@ -57,7 +71,7 @@ func newVariableSkipIntervalFormat(rng *rand.Rand) *codecs.Lucene90DocValuesForm
 //
 // Source: TestLucene90DocValuesFormatVariableSkipInterval.testSkipIndexIntervalSize()
 func TestLucene90DocValuesFormatVariableSkipInterval_SkipIndexIntervalSize(t *testing.T) {
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	rng := mathrand.New(mathrand.NewSource(time.Now().UnixNano()))
 	// Upstream: random().nextInt(Integer.MIN_VALUE, 2) -> any int in [MIN_VALUE, 2).
 	// In Go we exercise the full negative span as well as the boundary value 1.
 	candidates := []int{
@@ -87,338 +101,426 @@ func TestLucene90DocValuesFormatVariableSkipInterval_SkipIndexIntervalSize(t *te
 	}
 }
 
-// TestLucene90DocValuesFormatVariableSkipInterval_SkipperAllEqualValue
-// validates round-trip of numeric doc values with a variable skip interval
-// when all documents store the same value.
-func TestLucene90DocValuesFormatVariableSkipInterval_SkipperAllEqualValue(t *testing.T) {
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	_ = newVariableSkipIntervalFormat(rng) // Documents intent.
+// ---------------------------------------------------------------------------
+// Test helpers
+// ---------------------------------------------------------------------------
+
+// dvSkipperTestSegment returns a write/read state pair and a cleanup
+// function for a codec-level doc-values round-trip with the given number
+// of documents and a single numeric field named "dv" at field number 0.
+//
+// The field is configured with DocValuesSkipIndexTypeRange so the consumer
+// writes the skip-index side-table and the producer returns a
+// DocValuesSkipper from GetSkipper.
+func dvSkipperTestSegment(t *testing.T, maxDoc int) (
+	*codecs.SegmentWriteState, *codecs.SegmentReadState, *index.FieldInfo, func()) {
+	t.Helper()
 
 	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+	si := index.NewSegmentInfo("_0", maxDoc, dir)
+	id := make([]byte, 16)
+	if _, err := rand.Read(id); err != nil {
+		t.Fatalf("rand.Read: %v", err)
+	}
+	if err := si.SetID(id); err != nil {
+		t.Fatalf("SetID: %v", err)
+	}
 
-	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
-	writer, err := index.NewIndexWriter(dir, config)
+	fi := index.NewFieldInfo("dv", 0, index.FieldInfoOptions{
+		DocValuesType:          index.DocValuesTypeNumeric,
+		DocValuesSkipIndexType: index.DocValuesSkipIndexTypeRange,
+	})
+	fis := index.NewFieldInfos()
+	if err := fis.Add(fi); err != nil {
+		t.Fatalf("fis.Add: %v", err)
+	}
+
+	ws := &codecs.SegmentWriteState{
+		Directory:   dir,
+		SegmentInfo: si,
+		FieldInfos:  fis,
+	}
+	rs := &codecs.SegmentReadState{
+		Directory:   dir,
+		SegmentInfo: si,
+		FieldInfos:  fis,
+	}
+	cleanup := func() { _ = dir.Close() }
+	return ws, rs, fi, cleanup
+}
+
+// simpleNumericIter implements codecs.NumericDocValuesIterator from
+// parallel doc/value slices.
+type simpleNumericIter struct {
+	docs   []int
+	values []int64
+	pos    int
+}
+
+func (s *simpleNumericIter) Next() bool {
+	s.pos++
+	return s.pos < len(s.docs)
+}
+func (s *simpleNumericIter) DocID() int   { return s.docs[s.pos] }
+func (s *simpleNumericIter) Value() int64 { return s.values[s.pos] }
+
+// simpleSNIter implements codecs.SortedNumericDocValuesIterator for
+// multi-value numeric tests.
+type simpleSNIter struct {
+	entries []snEntry
+	pos     int
+	valPos  int
+}
+
+type snEntry struct {
+	doc    int
+	values []int64
+}
+
+func (s *simpleSNIter) NextDoc() bool {
+	s.pos++
+	s.valPos = 0
+	return s.pos < len(s.entries)
+}
+func (s *simpleSNIter) DocID() int { return s.entries[s.pos].doc }
+func (s *simpleSNIter) NextValue() int64 {
+	v := s.entries[s.pos].values[s.valPos]
+	s.valPos++
+	return v
+}
+func (s *simpleSNIter) DocValueCount() int { return len(s.entries[s.pos].values) }
+
+// ---------------------------------------------------------------------------
+// TestSkipperAllEqualValue
+// ---------------------------------------------------------------------------
+
+// TestLucene90DocValuesFormatVariableSkipInterval_SkipperAllEqualValue
+// mirrors testSkipperAllEqualValue: writes 100 docs with the same constant
+// value (0) via the codec consumer API, then reads back via the producer
+// and verifies that GetSkipper returns a non-nil skipper with the expected
+// SkipTo/GetDocID contract.
+//
+// Source: TestLucene90DocValuesFormatVariableSkipInterval.testSkipperAllEqualValue()
+func TestLucene90DocValuesFormatVariableSkipInterval_SkipperAllEqualValue(t *testing.T) {
+	rng := mathrand.New(mathrand.NewSource(time.Now().UnixNano()))
+	format := newVariableSkipIntervalFormat(rng)
+	maxDoc := 100
+
+	ws, rs, fi, cleanup := dvSkipperTestSegment(t, maxDoc)
+	defer cleanup()
+
+	// Write: 100 docs with constant value 0.
+	consumer, err := format.FieldsConsumer(ws)
 	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+		t.Fatalf("FieldsConsumer: %v", err)
+	}
+	docs := make([]int, maxDoc)
+	vals := make([]int64, maxDoc)
+	for i := range docs {
+		docs[i] = i
+		vals[i] = 0
+	}
+	if err := consumer.AddNumericField(fi, &simpleNumericIter{docs: docs, values: vals}); err != nil {
+		t.Fatalf("AddNumericField: %v", err)
+	}
+	if err := consumer.Close(); err != nil {
+		t.Fatalf("consumer.Close: %v", err)
 	}
 
-	numDocs := 100
-	for i := 0; i < numDocs; i++ {
-		doc := document.NewDocument()
-		dvField, err := document.NewNumericDocValuesField("dv", 0)
-		if err != nil {
-			t.Fatalf("NewNumericDocValuesField: %v", err)
-		}
-		doc.Add(dvField)
-		if err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument: %v", err)
-		}
-	}
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
+	// Read
+	producer, err := format.FieldsProducer(rs)
 	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
+		t.Fatalf("FieldsProducer: %v", err)
 	}
-	defer reader.Close()
-	if err := writer.Close(); err != nil {
-		t.Fatalf("writer.Close: %v", err)
-	}
+	defer producer.Close() //nolint:errcheck
 
-	leaves, err := reader.Leaves()
+	skipper, err := producer.GetSkipper(fi)
 	if err != nil {
-		t.Fatalf("Leaves: %v", err)
+		t.Fatalf("GetSkipper: %v", err)
 	}
-	if len(leaves) != 1 {
-		t.Fatalf("expected 1 leaf, got %d", len(leaves))
+	if skipper == nil {
+		t.Fatal("expected non-nil DocValuesSkipper when DocValuesSkipIndexTypeRange is set")
 	}
 
-	ndv, err := leaves[0].Reader().GetNumericDocValues("dv")
+	// GetDocID before SkipTo: should be -1.
+	if d := skipper.GetDocID(); d != -1 {
+		t.Fatalf("GetDocID before SkipTo: got %d, want -1", d)
+	}
+
+	// SkipTo(0) should return 0.
+	docID, err := skipper.SkipTo(0)
 	if err != nil {
-		t.Fatalf("GetNumericDocValues: %v", err)
+		t.Fatalf("SkipTo(0): %v", err)
 	}
-	if ndv == nil {
-		t.Fatal("GetNumericDocValues returned nil")
+	if docID != 0 {
+		t.Fatalf("SkipTo(0): got %d, want 0", docID)
+	}
+	if d := skipper.GetDocID(); d != 0 {
+		t.Fatalf("GetDocID after SkipTo(0): got %d, want 0", d)
 	}
 
-	count := 0
-	for {
-		docID, err := ndv.NextDoc()
-		if err != nil {
-			t.Fatalf("NextDoc: %v", err)
-		}
-		if docID == index.NO_MORE_DOCS {
-			break
-		}
-		val, err := ndv.LongValue()
-		if err != nil {
-			t.Fatalf("LongValue: %v", err)
-		}
-		if val != 0 {
-			t.Errorf("doc %d: expected value 0, got %d", docID, val)
-		}
-		count++
+	// SkipTo past the last doc should return NO_MORE_DOCS.
+	docID, err = skipper.SkipTo(maxDoc + 1)
+	if err != nil {
+		t.Fatalf("SkipTo(past end): %v", err)
 	}
-	if count != numDocs {
-		t.Errorf("expected %d docs with values, got %d", numDocs, count)
+	if docID != testNoMoreDocs {
+		t.Fatalf("SkipTo(past end): got %d, want %d (NO_MORE_DOCS)", docID, testNoMoreDocs)
+	}
+	if d := skipper.GetDocID(); d != testNoMoreDocs {
+		t.Fatalf("GetDocID after exhaustion: got %d, want %d", d, testNoMoreDocs)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// TestSkipperFewValuesSorted
+// ---------------------------------------------------------------------------
 
 // TestLucene90DocValuesFormatVariableSkipInterval_SkipperFewValuesSorted
-// validates round-trip of numeric doc values with a variable skip interval
-// when values are assigned in sorted order across documents.
+// mirrors testSkipperFewValuesSorted: writes numeric values that change
+// in groups to exercise the skipper with non-uniform data.
+//
+// Upstream uses IndexWriter with IndexSort to produce sorted doc-id order;
+// this test writes values that vary per group (every skipIntervalSize docs
+// the value increases) to create per-block boundary coverage in the skip
+// index without requiring IndexSort.
+//
+// Source: TestLucene90DocValuesFormatVariableSkipInterval.testSkipperFewValuesSorted()
 func TestLucene90DocValuesFormatVariableSkipInterval_SkipperFewValuesSorted(t *testing.T) {
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	_ = newVariableSkipIntervalFormat(rng)
+	rng := mathrand.New(mathrand.NewSource(time.Now().UnixNano()))
+	interval := 4 + rng.Intn(12) // [4, 16)
+	format := codecs.NewLucene90DocValuesFormatWithSkipInterval(interval)
 
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+	// At least 2 skip-index blocks to exercise the accumulator flush.
+	maxDoc := interval * 4
 
-	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
-	writer, err := index.NewIndexWriter(dir, config)
+	ws, rs, fi, cleanup := dvSkipperTestSegment(t, maxDoc)
+	defer cleanup()
+
+	// Write: values that change every interval docs.
+	consumer, err := format.FieldsConsumer(ws)
 	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+		t.Fatalf("FieldsConsumer: %v", err)
+	}
+	docs := make([]int, maxDoc)
+	vals := make([]int64, maxDoc)
+	for i := range docs {
+		docs[i] = i
+		vals[i] = int64(i / interval)
+	}
+	if err := consumer.AddNumericField(fi, &simpleNumericIter{docs: docs, values: vals}); err != nil {
+		t.Fatalf("AddNumericField: %v", err)
+	}
+	if err := consumer.Close(); err != nil {
+		t.Fatalf("consumer.Close: %v", err)
 	}
 
-	numDocs := 50
-	for i := 0; i < numDocs; i++ {
-		doc := document.NewDocument()
-		dvField, err := document.NewNumericDocValuesField("dv", int64(i*2))
-		if err != nil {
-			t.Fatalf("NewNumericDocValuesField: %v", err)
-		}
-		doc.Add(dvField)
-		if err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument: %v", err)
-		}
-	}
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
+	// Read
+	producer, err := format.FieldsProducer(rs)
 	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
+		t.Fatalf("FieldsProducer: %v", err)
 	}
-	defer reader.Close()
-	if err := writer.Close(); err != nil {
-		t.Fatalf("writer.Close: %v", err)
-	}
+	defer producer.Close() //nolint:errcheck
 
-	leaves, err := reader.Leaves()
+	skipper, err := producer.GetSkipper(fi)
 	if err != nil {
-		t.Fatalf("Leaves: %v", err)
+		t.Fatalf("GetSkipper: %v", err)
 	}
-	if len(leaves) != 1 {
-		t.Fatalf("expected 1 leaf, got %d", len(leaves))
+	if skipper == nil {
+		t.Fatal("expected non-nil DocValuesSkipper when DocValuesSkipIndexTypeRange is set")
 	}
 
-	ndv, err := leaves[0].Reader().GetNumericDocValues("dv")
+	// Validate SkipTo.
+	docID, err := skipper.SkipTo(0)
 	if err != nil {
-		t.Fatalf("GetNumericDocValues: %v", err)
+		t.Fatalf("SkipTo(0): %v", err)
 	}
-	if ndv == nil {
-		t.Fatal("GetNumericDocValues returned nil")
+	if docID != 0 {
+		t.Fatalf("SkipTo(0): got %d, want 0", docID)
+	}
+	if d := skipper.GetDocID(); d != 0 {
+		t.Fatalf("GetDocID after SkipTo(0): got %d, want 0", d)
 	}
 
-	seen := make(map[int]int64)
-	for {
-		docID, err := ndv.NextDoc()
-		if err != nil {
-			t.Fatalf("NextDoc: %v", err)
-		}
-		if docID == index.NO_MORE_DOCS {
-			break
-		}
-		val, err := ndv.LongValue()
-		if err != nil {
-			t.Fatalf("LongValue: %v", err)
-		}
-		seen[docID] = val
+	// SkipTo(last doc) should return the last doc ID.
+	docID, err = skipper.SkipTo(maxDoc - 1)
+	if err != nil {
+		t.Fatalf("SkipTo(last): %v", err)
 	}
-	if len(seen) != numDocs {
-		t.Errorf("expected %d docs with values, got %d", numDocs, len(seen))
+	if docID != maxDoc-1 {
+		t.Fatalf("SkipTo(last): got %d, want %d", docID, maxDoc-1)
 	}
-	// Verify values match what we wrote (doc i had value i*2).
-	for i := 0; i < numDocs; i++ {
-		if got, ok := seen[i]; !ok {
-			t.Errorf("doc %d missing from values", i)
-		} else if want := int64(i * 2); got != want {
-			t.Errorf("doc %d: got %d, want %d", i, got, want)
-		}
+
+	// SkipTo past the last doc should return NO_MORE_DOCS.
+	docID, err = skipper.SkipTo(maxDoc)
+	if err != nil {
+		t.Fatalf("SkipTo(past end): %v", err)
+	}
+	if docID != testNoMoreDocs {
+		t.Fatalf("SkipTo(past end): got %d, want %d", docID, testNoMoreDocs)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// TestSkipperAllEqualValueWithGaps
+// ---------------------------------------------------------------------------
 
 // TestLucene90DocValuesFormatVariableSkipInterval_SkipperAllEqualValueWithGaps
-// validates round-trip of numeric doc values with a variable skip interval
-// when some documents have the DV field and others do not (gaps).
+// mirrors testSkipperAllEqualValueWithGaps: writes numeric values where
+// only a subset of docs have a value (gaps), exercising the DISI and
+// skip-index handling of sparse fields.
+//
+// Source: TestLucene90DocValuesFormatVariableSkipInterval.testSkipperAllEqualValueWithGaps()
 func TestLucene90DocValuesFormatVariableSkipInterval_SkipperAllEqualValueWithGaps(t *testing.T) {
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	_ = newVariableSkipIntervalFormat(rng)
+	rng := mathrand.New(mathrand.NewSource(time.Now().UnixNano()))
+	format := newVariableSkipIntervalFormat(rng)
+	maxDoc := 100 // total doc IDs
 
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+	ws, rs, fi, cleanup := dvSkipperTestSegment(t, maxDoc)
+	defer cleanup()
 
-	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
-	writer, err := index.NewIndexWriter(dir, config)
+	// Write: only even-numbered docs have a value; odd docs are gaps.
+	var docs []int
+	var vals []int64
+	for i := 0; i < maxDoc; i += 2 {
+		docs = append(docs, i)
+		vals = append(vals, 0)
+	}
+
+	consumer, err := format.FieldsConsumer(ws)
 	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+		t.Fatalf("FieldsConsumer: %v", err)
+	}
+	if err := consumer.AddNumericField(fi, &simpleNumericIter{docs: docs, values: vals}); err != nil {
+		t.Fatalf("AddNumericField: %v", err)
+	}
+	if err := consumer.Close(); err != nil {
+		t.Fatalf("consumer.Close: %v", err)
 	}
 
-	// Write 80 documents; every third doc has the DV field (value 42).
-	numDocs := 80
-	for i := 0; i < numDocs; i++ {
-		doc := document.NewDocument()
-		if i%3 == 0 {
-			dvField, err := document.NewNumericDocValuesField("dv", 42)
-			if err != nil {
-				t.Fatalf("NewNumericDocValuesField: %v", err)
-			}
-			doc.Add(dvField)
-		}
-		if err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument: %v", err)
-		}
-	}
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
+	// Read
+	producer, err := format.FieldsProducer(rs)
 	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
+		t.Fatalf("FieldsProducer: %v", err)
 	}
-	defer reader.Close()
-	if err := writer.Close(); err != nil {
-		t.Fatalf("writer.Close: %v", err)
-	}
+	defer producer.Close() //nolint:errcheck
 
-	leaves, err := reader.Leaves()
+	skipper, err := producer.GetSkipper(fi)
 	if err != nil {
-		t.Fatalf("Leaves: %v", err)
+		t.Fatalf("GetSkipper: %v", err)
 	}
-	if len(leaves) != 1 {
-		t.Fatalf("expected 1 leaf, got %d", len(leaves))
+	if skipper == nil {
+		t.Fatal("expected non-nil DocValuesSkipper when DocValuesSkipIndexTypeRange is set")
 	}
 
-	ndv, err := leaves[0].Reader().GetNumericDocValues("dv")
+	docID, err := skipper.SkipTo(0)
 	if err != nil {
-		t.Fatalf("GetNumericDocValues: %v", err)
+		t.Fatalf("SkipTo(0): %v", err)
 	}
-	if ndv == nil {
-		t.Fatal("GetNumericDocValues returned nil")
-	}
-
-	expectedDocs := numDocs / 3 // Every third doc
-	if numDocs%3 == 0 {
-		expectedDocs = numDocs / 3
-	} else {
-		expectedDocs = numDocs/3 + 1
+	if docID != 0 {
+		t.Fatalf("SkipTo(0): got %d, want 0", docID)
 	}
 
-	count := 0
-	for {
-		docID, err := ndv.NextDoc()
-		if err != nil {
-			t.Fatalf("NextDoc: %v", err)
-		}
-		if docID == index.NO_MORE_DOCS {
-			break
-		}
-		// Only docs with i%3==0 should have the value.
-		if docID%3 != 0 {
-			t.Errorf("doc %d has DV but shouldn't (only multiples of 3 should)", docID)
-		}
-		val, err := ndv.LongValue()
-		if err != nil {
-			t.Fatalf("LongValue: %v", err)
-		}
-		if val != 42 {
-			t.Errorf("doc %d: expected value 42, got %d", docID, val)
-		}
-		count++
+	docID, err = skipper.SkipTo(maxDoc + 1)
+	if err != nil {
+		t.Fatalf("SkipTo(past end): %v", err)
 	}
-	if count != expectedDocs {
-		t.Errorf("expected %d docs with values, got %d", expectedDocs, count)
+	if docID != testNoMoreDocs {
+		t.Fatalf("SkipTo(past end): got %d, want %d", docID, testNoMoreDocs)
 	}
 }
 
-// TestLucene90DocValuesFormatVariableSkipInterval_SkipperAllEqualValueWithMultiValues
-// validates round-trip of sorted-numeric doc values (multi-valued field)
-// with a variable skip interval.
-func TestLucene90DocValuesFormatVariableSkipInterval_SkipperAllEqualValueWithMultiValues(t *testing.T) {
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	_ = newVariableSkipIntervalFormat(rng)
+// ---------------------------------------------------------------------------
+// TestSkipperAllEqualValueWithMultiValues
+// ---------------------------------------------------------------------------
 
+// TestLucene90DocValuesFormatVariableSkipInterval_SkipperAllEqualValueWithMultiValues
+// mirrors testSkipperAllEqualValueWithMultiValues: writes sorted-numeric
+// values (multiple values per doc) and verifies the skipper round-trips.
+//
+// Source: TestLucene90DocValuesFormatVariableSkipInterval.testSkipperAllEqualValueWithMultiValues()
+func TestLucene90DocValuesFormatVariableSkipInterval_SkipperAllEqualValueWithMultiValues(t *testing.T) {
+	rng := mathrand.New(mathrand.NewSource(time.Now().UnixNano()))
+	format := newVariableSkipIntervalFormat(rng)
+	maxDoc := 50
+
+	// Sorted-numeric field needs DocValuesSkipIndexTypeRange as well.
 	dir := store.NewByteBuffersDirectory()
+	si := index.NewSegmentInfo("_0", maxDoc, dir)
+	id := make([]byte, 16)
+	if _, err := rand.Read(id); err != nil {
+		t.Fatalf("rand.Read: %v", err)
+	}
+	if err := si.SetID(id); err != nil {
+		t.Fatalf("SetID: %v", err)
+	}
+
+	fi := index.NewFieldInfo("dv", 0, index.FieldInfoOptions{
+		DocValuesType:          index.DocValuesTypeSortedNumeric,
+		DocValuesSkipIndexType: index.DocValuesSkipIndexTypeRange,
+	})
+	fis := index.NewFieldInfos()
+	if err := fis.Add(fi); err != nil {
+		t.Fatalf("fis.Add: %v", err)
+	}
+
+	ws := &codecs.SegmentWriteState{
+		Directory:   dir,
+		SegmentInfo: si,
+		FieldInfos:  fis,
+	}
+	rs := &codecs.SegmentReadState{
+		Directory:   dir,
+		SegmentInfo: si,
+		FieldInfos:  fis,
+	}
 	defer dir.Close()
 
-	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
-	writer, err := index.NewIndexWriter(dir, config)
+	// Write: 2 values per doc.
+	var entries []snEntry
+	for i := 0; i < maxDoc; i++ {
+		entries = append(entries, snEntry{doc: i, values: []int64{1, 2}})
+	}
+
+	consumer, err := format.FieldsConsumer(ws)
 	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+		t.Fatalf("FieldsConsumer: %v", err)
+	}
+	if err := consumer.AddSortedNumericField(fi, &simpleSNIter{entries: entries}); err != nil {
+		t.Fatalf("AddSortedNumericField: %v", err)
+	}
+	if err := consumer.Close(); err != nil {
+		t.Fatalf("consumer.Close: %v", err)
 	}
 
-	numDocs := 30
-	for i := 0; i < numDocs; i++ {
-		doc := document.NewDocument()
-		snField, err := document.NewSortedNumericDocValuesField("sn", int64(i), int64(i*2), int64(i*3))
-		if err != nil {
-			t.Fatalf("NewSortedNumericDocValuesField: %v", err)
-		}
-		doc.Add(snField)
-		if err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument: %v", err)
-		}
-	}
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
+	// Read
+	producer, err := format.FieldsProducer(rs)
 	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
+		t.Fatalf("FieldsProducer: %v", err)
 	}
-	defer reader.Close()
-	if err := writer.Close(); err != nil {
-		t.Fatalf("writer.Close: %v", err)
-	}
+	defer producer.Close() //nolint:errcheck
 
-	leaves, err := reader.Leaves()
+	skipper, err := producer.GetSkipper(fi)
 	if err != nil {
-		t.Fatalf("Leaves: %v", err)
+		t.Fatalf("GetSkipper: %v", err)
 	}
-	if len(leaves) != 1 {
-		t.Fatalf("expected 1 leaf, got %d", len(leaves))
+	if skipper == nil {
+		t.Fatal("expected non-nil DocValuesSkipper when DocValuesSkipIndexTypeRange is set")
 	}
 
-	sndv, err := leaves[0].Reader().GetSortedNumericDocValues("sn")
+	docID, err := skipper.SkipTo(0)
 	if err != nil {
-		t.Fatalf("GetSortedNumericDocValues: %v", err)
+		t.Fatalf("SkipTo(0): %v", err)
 	}
-	if sndv == nil {
-		t.Fatal("GetSortedNumericDocValues returned nil")
+	if docID != 0 {
+		t.Fatalf("SkipTo(0): got %d, want 0", docID)
 	}
 
-	count := 0
-	for {
-		docID, err := sndv.NextDoc()
-		if err != nil {
-			t.Fatalf("NextDoc: %v", err)
-		}
-		if docID == index.NO_MORE_DOCS {
-			break
-		}
-		count++
+	docID, err = skipper.SkipTo(maxDoc + 1)
+	if err != nil {
+		t.Fatalf("SkipTo(past end): %v", err)
 	}
-	if count != numDocs {
-		t.Errorf("expected %d docs with sorted-numeric values, got %d", numDocs, count)
+	if docID != testNoMoreDocs {
+		t.Fatalf("SkipTo(past end): got %d, want %d", docID, testNoMoreDocs)
 	}
 }

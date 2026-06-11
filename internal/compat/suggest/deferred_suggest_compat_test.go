@@ -5,17 +5,15 @@
 //go:build compat
 
 // deferred_suggest_compat_test.go is the explicit landing pad for the
-// suggest audit rows whose Gocene-side legs (class b write-and-verify
-// and class c round-trip) Sprint 114 T13 (rmp 4621) acknowledged but
-// did NOT complete. Each entry below cites its audit row verbatim from
-// docs/compat-coverage.tsv with the reason it remains deferred.
+// suggest audit rows whose Gocene-side legs Sprint 114 T13 (rmp 4621)
+// acknowledged but did NOT complete. Each entry below cites its audit row
+// verbatim from docs/compat-coverage.tsv with the reason it remains deferred.
 //
-// Every deferral runs as a t.Skip subtest so the row appears in the
-// `go test -v` output (evidence the row was considered) without failing
-// the build. The Lucene-side fixture + verifier IS exercised by the
-// per-scenario *_compat_test.go files in this package; what defers is
-// the symmetric Gocene-side reader/writer path that does not yet
-// implement the Lucene 10.4.0 wire format.
+// Resolved rows (removed from this file when their round-trip test landed):
+//   - "Gocene AnalyzingSuggester Store/Load round-trip vs Lucene" ->
+//     TestCompletionFst_RoundTrip in completion_fst_compat_test.go.
+//   - "Gocene WFSTCompletionLookup Store/Load round-trip vs Lucene" ->
+//     TestWfst_RoundTrip in wfst_compat_test.go.
 package suggest
 
 import "testing"
@@ -36,34 +34,6 @@ func TestSuggestAudit_DeferredRows(t *testing.T) {
 		gapNotes  string // audit row gap_notes column (verbatim)
 		reason    string // why this is deferred from Sprint 114 T13
 	}{
-		{
-			artefact:  "Gocene AnalyzingSuggester Store/Load round-trip vs Lucene",
-			luceneCls: "org.apache.lucene.search.suggest.fst.FSTCompletionBuilder",
-			gocenePkg: "suggest/fst/fst_completion_builder.go",
-			gapNotes:  "No round-trip against Lucene-compiled completion FST.",
-			reason: "rmp 4621 ships the Lucene-side scenario \"completion-fst\" " +
-				"and its verifier. The Gocene-side replay (write a completion.fst " +
-				"that Lucene's AnalyzingSuggester.load can consume, and read a " +
-				"Lucene-emitted blob with Gocene) is blocked because " +
-				"suggest/analyzing/analyzing_suggester.go exposes only Build/" +
-				"LookupResults/GetCount; the Store(DataOutput)/Load(DataInput) " +
-				"surface from Lucene's AnalyzingSuggester is not yet ported. " +
-				"The harness verifier IS exercised by " +
-				"completion_fst_compat_test.go::TestCompletionFst_VerifySubcommand.",
-		},
-		{
-			artefact:  "Gocene WFSTCompletionLookup Store/Load round-trip vs Lucene",
-			luceneCls: "org.apache.lucene.search.suggest.fst.WFSTCompletionLookup",
-			gocenePkg: "suggest/fst/wfst_completion_lookup.go",
-			gapNotes:  "No combined test; no Lucene fixture.",
-			reason: "rmp 4621 ships the Lucene-side scenario \"wfst-blob\" and " +
-				"its verifier. The Gocene-side replay is blocked because " +
-				"suggest/fst/wfst_completion_lookup.go exposes only Build; the " +
-				"Store(DataOutput)/Load(DataInput) methods that emit the Lucene " +
-				"10.4.0 wire format (writeVLong(count) followed by FST.save) are " +
-				"not yet ported. The harness verifier IS exercised by " +
-				"wfst_compat_test.go::TestWfst_VerifySubcommand.",
-		},
 		{
 			artefact:  "Gocene AnalyzingInfixSuggester sidecar round-trip vs Lucene",
 			luceneCls: "org.apache.lucene.search.suggest.analyzing.AnalyzingInfixSuggester",

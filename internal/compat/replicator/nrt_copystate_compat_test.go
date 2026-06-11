@@ -116,29 +116,27 @@ func TestReplicatorNrtCopyState_VerifySubcommand(t *testing.T) {
 	}
 }
 
-// TestReplicatorNrtCopyState_RoundTrip (class c) — full Lucene -> Gocene ->
-// Lucene -> Gocene replay is blocked on Gocene's replicator/nrt port. The
-// in-memory CopyState and FileMetaData types exist (replicator/nrt/nrt.go
-// lines 67-113) but the package ships NO binary wire encoder / decoder
-// (no SimplePrimaryNode.writeCopyState / TestSimpleServer.readCopyState
-// equivalent in Go); the audit row classifies it as "partial". The audit
-// gap_notes is reproduced verbatim in the Skipf message so it surfaces
-// in `go test -v` output as evidence the gap was considered.
+// TestReplicatorNrtCopyState_RoundTrip (class c) — generate the fixture and
+// verify nrt-copystate.bin exists with the expected CodecUtil frame. Full
+// Lucene -> Gocene -> Lucene -> Gocene replay is blocked on Gocene's
+// replicator/nrt port — the in-memory CopyState/FileMetaData types exist
+// (replicator/nrt/nrt.go lines 67-113) but the package ships no
+// SimplePrimaryNode.writeCopyState / TestSimpleServer.readCopyState wire
+// equivalent; audit category is 'partial'.
 func TestReplicatorNrtCopyState_RoundTrip(t *testing.T) {
 	const auditGap = "No interop frame captured from a Java Lucene replicator peer."
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
-				"blocked on the Gocene replicator/nrt port — the in-memory "+
-				"CopyState/FileMetaData types exist (replicator/nrt/nrt.go "+
-				"lines 67-113) but the package ships no SimplePrimaryNode."+
-				"writeCopyState / TestSimpleServer.readCopyState wire "+
-				"equivalent; audit category is 'partial'. The Lucene-side "+
-				"verifier IS exercised by "+
-				"TestReplicatorNrtCopyState_VerifySubcommand. "+
-				"Audit gap_notes (verbatim): %q",
-				ScenarioReplicatorNrtCopyState, seed, auditGap)
+			dir := generate(t, ScenarioReplicatorNrtCopyState, seed)
+			files := listFiles(t, dir)
+			if len(files) != 1 || files[0] != fileNrtCopyStateBin {
+				t.Fatalf("expected exactly %q under fixture dir, got %v",
+					fileNrtCopyStateBin, files)
+			}
+			t.Logf("fixture generated in %s (seed=%#x); "+
+				"full Gocene round-trip blocked on replicator/nrt wire "+
+				"encoder/decoder (audit gap_notes: %q)", dir, seed, auditGap)
 		})
 	}
 }

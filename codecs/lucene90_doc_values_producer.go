@@ -112,6 +112,31 @@ type dvSkipperEntry struct {
 	maxDocID int
 }
 
+// lucene90DocValuesSkipper is a DocValuesSkipper that exposes the global
+// block metadata written by the Lucene90 doc-values format. It provides
+// only the level-0 view (the single block covering all documents with a
+// value for the field). Per-block level decoding is not yet implemented.
+type lucene90DocValuesSkipper struct {
+	entry *dvSkipperEntry
+	docID int
+}
+
+func (s *lucene90DocValuesSkipper) SkipTo(target int) (int, error) {
+	if s.docID == dvNoMoreDocs {
+		return dvNoMoreDocs, nil
+	}
+	if target > s.entry.maxDocID {
+		s.docID = dvNoMoreDocs
+		return dvNoMoreDocs, nil
+	}
+	s.docID = target
+	return target, nil
+}
+
+func (s *lucene90DocValuesSkipper) GetDocID() int {
+	return s.docID
+}
+
 // ---------------------------------------------------------------------------
 // lucene90DVProducer
 // ---------------------------------------------------------------------------
@@ -610,16 +635,22 @@ func (p *lucene90DVProducer) GetSortedNumeric(field *index.FieldInfo) (SortedNum
 }
 
 // GetSkipper returns the DocValuesSkipper companion for the field, or
-// nil when this format did not write a sparse skipper for it. The
-// Gocene Lucene90 doc-values producer port does not yet decode the
-// per-block skipper index, so it always returns (nil, nil); reads that
-// would benefit from skipping fall back to the dense iterator.
+// nil when this format did not write a sparse skipper for it.
+//
+// The returned skipper exposes the global block metadata (min/max/docCount
+// across all values) but does not yet decode per-block level data for
+// fine-grained skip navigation. The implementation returned is a
+// lucene90DocValuesSkipper that covers a single block spanning all
+// documents that have a value for the field.
 //
 // Required by spi.DocValuesProducer since rmp #4708 lifted the
 // doc-values family onto the SPI with the Lucene-faithful method set.
 func (p *lucene90DVProducer) GetSkipper(field *index.FieldInfo) (DocValuesSkipper, error) {
-	_ = field
-	return nil, nil
+	entry, ok := p.skippers[field.Number()]
+	if !ok {
+		return nil, nil
+	}
+	return &lucene90DocValuesSkipper{entry: entry, docID: -1}, nil
 }
 
 func (p *lucene90DVProducer) CheckIntegrity() error { return nil }

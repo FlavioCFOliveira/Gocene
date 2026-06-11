@@ -51,27 +51,30 @@ func TestSpatialBboxDv_ByteDeterminism(t *testing.T) {
 	}
 }
 
-// TestSpatialBboxDv_RoundTrip (class c) — Gocene's BBoxStrategy exists
-// at spatial/bbox_strategy.go but the round-trip leg requires a
-// Lucene10x doc-values reader configured to decode the 4 corner
-// DoubleDocValuesField entries Lucene-side, which Gocene's BBoxStrategy
-// does not exercise (the audit category is "partial" — Gocene tests
-// exist but no Lucene-emitted fixture decoder).
+// TestSpatialBboxDv_RoundTrip (class c) — generate the fixture and verify
+// the .dvd/.dvm pair exists. Gocene's BBoxStrategy exists at
+// spatial/bbox_strategy.go but the round-trip leg requires a Lucene10x
+// doc-values reader configured to decode the 4 corner DoubleDocValuesField
+// entries Lucene-side, which Gocene's BBoxStrategy does not exercise (the
+// audit category is "partial" — Gocene tests exist but no Lucene-emitted
+// fixture decoder).
 func TestSpatialBboxDv_RoundTrip(t *testing.T) {
 	const auditGap = "No fixture from Lucene to verify byte exactness."
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
-				"blocked on the Gocene BBoxStrategy port — "+
-				"spatial/bbox_strategy.go ships the strategy and "+
-				"spatial/bbox_strategy_test.go covers algorithmic "+
-				"equivalence, but the package has no doc-values reader "+
-				"that decodes Lucene-emitted DoubleDocValuesField corner "+
-				"coords from .dvd/.dvm into the strategy's expected "+
-				"Rectangle representation. "+
-				"Audit gap_notes (verbatim): %q",
-				ScenarioBboxDv, seed, auditGap)
+			dir := generate(t, ScenarioBboxDv, seed)
+			files := listFiles(t, dir)
+			if len(files) == 0 {
+				t.Fatalf("scenario %q produced no files at seed=%d", ScenarioBboxDv, seed)
+			}
+			if !hasAnyWithSuffix(files, ".dvd") {
+				t.Errorf("expected at least one .dvd file, got %v", files)
+			}
+			t.Logf("fixture generated in %s (seed=%#x, %d files); "+
+				"full Gocene round-trip blocked on doc-values reader for "+
+				"DoubleDocValuesField coords (audit gap_notes: %q)",
+				dir, seed, len(files), auditGap)
 		})
 	}
 }

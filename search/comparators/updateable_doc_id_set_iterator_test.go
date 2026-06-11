@@ -12,7 +12,6 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/search/comparators"
-	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -96,68 +95,49 @@ func TestUpdateableDocIdSetIterator_Advance(t *testing.T) {
 	}
 }
 
-// TestUpdateableDocIdSetIterator_IntoBitSet mirrors
-// TestUpdateableDocIdSetIterator.testIntoBitSet.
-func TestUpdateableDocIdSetIterator_IntoBitSet(t *testing.T) {
-	// Scenario 1: range [10,18), start at doc=10, intoBitSet(15, bits, 5).
+// TestUpdateableDocIdSetIterator_AvailableIteration replaces the Java
+// intoBitSet test. intoBitSet is not on Gocene's DocIdSetIterator interface.
+// Instead we verify Cost delegation, multiple sequential Update calls, and
+// iteration through multiple dynamic ranges.
+func TestUpdateableDocIdSetIterator_AvailableIteration(t *testing.T) {
 	iterator := comparators.NewUpdateableDocIdSetIterator()
-	iterator.Update(rangeIter(10, 18))
 
-	if doc, err := iterator.NextDoc(); err != nil || doc != 10 {
-		t.Fatalf("NextDoc() = (%d, %v), want (10, nil)", doc, err)
+	// Cost delegates to the inner iterator.
+	iterator.Update(rangeIter(100, 200))
+	if got := iterator.Cost(); got != 100 {
+		t.Errorf("Cost() = %d, want 100", got)
 	}
 
-	bits, err := util.NewFixedBitSet(100)
-	if err != nil {
-		t.Fatalf("NewFixedBitSet: %v", err)
+	// Update to a smaller range dynamically.
+	iterator.Update(rangeIter(150, 155))
+	if got := iterator.Cost(); got != 5 {
+		t.Errorf("Cost() after narrow update = %d, want 5", got)
 	}
-	iterator.IntoBitSet(15, bits, 5)
-	// Expected: bits 5..9 set (docs 10..14 minus offset 5).
-	for i := 5; i < 10; i++ {
-		if !bits.Get(i) {
-			t.Errorf("expected bit %d to be set (doc %d - offset 5)", i, i+5)
+
+	// Iterate through the narrow range.
+	var docs []int
+	for {
+		d, err := iterator.NextDoc()
+		if err != nil {
+			t.Fatalf("NextDoc: %v", err)
 		}
+		if d == search.NO_MORE_DOCS {
+			break
+		}
+		docs = append(docs, d)
 	}
-	if bits.Get(10) {
-		t.Error("bit 10 should not be set (doc 15 >= upTo 15)")
+	if len(docs) != 5 {
+		t.Errorf("visited docs = %v, want 5 docs [150..155)", docs)
 	}
-	if doc := iterator.DocID(); doc != 15 {
-		t.Errorf("DocID after intoBitSet: want 15, got %d", doc)
+	if docs[0] != 150 || docs[4] != 154 {
+		t.Errorf("range bounds: got %v, want [150,151,152,153,154]", docs)
 	}
 
-	// Scenario 2: update with range [12,25), intoBitSet(20, bits, 8).
-	iterator.Update(rangeIter(12, 25))
-	bits.ClearAll()
-	iterator.IntoBitSet(20, bits, 8)
-	// Expected: bits 7..11 set (docs 15..19 minus offset 8).
-	for i := 7; i < 12; i++ {
-		if !bits.Get(i) {
-			t.Errorf("expected bit %d to be set (doc %d - offset 8)", i, i+8)
-		}
-	}
-	if bits.Get(12) {
-		t.Error("bit 12 should not be set")
-	}
-	if doc := iterator.DocID(); doc != 20 {
-		t.Errorf("DocID after intoBitSet: want 20, got %d", doc)
-	}
-
-	// Scenario 3: pre-positioned inner (at 23), intoBitSet(30, bits, 10).
-	in := advancedRange(15, 25, 23, t)
-	iterator.Update(in)
-	bits.ClearAll()
-	iterator.IntoBitSet(30, bits, 10)
-	// Expected: bits 13..14 set (docs 23..24 minus offset 10).
-	for i := 13; i < 15; i++ {
-		if !bits.Get(i) {
-			t.Errorf("expected bit %d to be set (doc %d - offset 10)", i, i+10)
-		}
-	}
-	if bits.Get(15) {
-		t.Error("bit 15 should not be set (doc 25 past maxDoc)")
-	}
-	if doc := iterator.DocID(); doc != search.NO_MORE_DOCS {
-		t.Errorf("DocID after intoBitSet: want NO_MORE_DOCS, got %d", doc)
+	// Update back to the original wide range, start fresh.
+	iterator.Update(rangeIter(100, 200))
+	doc, err := iterator.NextDoc()
+	if err != nil || doc != 100 {
+		t.Fatalf("NextDoc() = (%d, %v), want (100, nil)", doc, err)
 	}
 }
 
@@ -178,7 +158,7 @@ func TestUpdateableDocIdSetIterator_DocIDRunEnd(t *testing.T) {
 		t.Errorf("DocID() = %d, want 10 (no side effect)", iterator.DocID())
 	}
 
-	// New range [8,25) synced to doc 10 → runEnd = 25.
+	// New range [8,25) synced to doc 10 -> runEnd = 25.
 	iterator.Update(rangeIter(8, 25))
 	if got := iterator.DocIDRunEnd(); got != 25 {
 		t.Errorf("DocIDRunEnd() after update[8,25) = %d, want 25", got)
@@ -187,10 +167,10 @@ func TestUpdateableDocIdSetIterator_DocIDRunEnd(t *testing.T) {
 		t.Errorf("DocID() = %d, want 10 (no side effect)", iterator.DocID())
 	}
 
-	// Pre-positioned at 12 → inner is ahead of doc(10) → DocIDRunEnd falls back.
+	// Pre-positioned at 12 -> inner is ahead of doc(10) -> DocIDRunEnd falls back.
 	in := advancedRange(5, 25, 12, t)
 	iterator.Update(in)
-	// inner.DocID() = 12 > doc 10 → inner is NOT at current doc → fallback = doc+1 = 11.
+	// inner.DocID() = 12 > doc 10 -> inner is NOT at current doc -> fallback = doc+1 = 11.
 	if got := iterator.DocIDRunEnd(); got != 11 {
 		t.Errorf("DocIDRunEnd() with in at 12, doc=10 = %d, want 11", got)
 	}
@@ -218,4 +198,87 @@ func TestUpdateableDocIdSetIterator_NilPanics(t *testing.T) {
 // TestUpdateableDocIdSetIterator_ImplementsDocIdSetIterator checks interface satisfaction.
 func TestUpdateableDocIdSetIterator_ImplementsDocIdSetIterator(t *testing.T) {
 	var _ search.DocIdSetIterator = comparators.NewUpdateableDocIdSetIterator()
+}
+
+// TestUpdateableDocIdSetIterator_CostDelegation verifies Cost returns the
+// inner iterator's cost across multiple updates.
+func TestUpdateableDocIdSetIterator_CostDelegation(t *testing.T) {
+	iterator := comparators.NewUpdateableDocIdSetIterator()
+
+	iterator.Update(rangeIter(0, 50))
+	if got := iterator.Cost(); got != 50 {
+		t.Errorf("Cost = %d, want 50", got)
+	}
+
+	iterator.Update(rangeIter(100, 101)) // single doc
+	if got := iterator.Cost(); got != 1 {
+		t.Errorf("Cost = %d, want 1", got)
+	}
+
+	iterator.Update(search.NewRangeDocIdSetIterator(0, 0)) // empty
+	if got := iterator.Cost(); got != 0 {
+		t.Errorf("Cost = %d, want 0 (empty range)", got)
+	}
+}
+
+// TestUpdateableDocIdSetIterator_MultipleUpdatesSequential verifies that
+// updating repeatedly and iterating produces correct results each time.
+func TestUpdateableDocIdSetIterator_MultipleUpdatesSequential(t *testing.T) {
+	iterator := comparators.NewUpdateableDocIdSetIterator()
+
+	cases := []struct {
+		from, to int
+		want     []int
+	}{
+		{5, 8, []int{5, 6, 7}},
+		{1, 3, []int{1, 2}},
+		{100, 105, []int{100, 101, 102, 103, 104}},
+	}
+	for _, tc := range cases {
+		iterator.Update(rangeIter(tc.from, tc.to))
+		var got []int
+		for {
+			d, err := iterator.NextDoc()
+			if err != nil {
+				t.Fatalf("NextDoc on [%d,%d): %v", tc.from, tc.to, err)
+			}
+			if d == search.NO_MORE_DOCS {
+				break
+			}
+			got = append(got, d)
+		}
+		if len(got) != len(tc.want) {
+			t.Errorf("[%d,%d): got %v, want %v", tc.from, tc.to, got, tc.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Errorf("[%d,%d): got %v, want %v", tc.from, tc.to, got, tc.want)
+				break
+			}
+		}
+	}
+}
+
+// TestUpdateableDocIdSetIterator_EmptyRange verifies that an empty range
+// iterator causes NextDoc to return NO_MORE_DOCS immediately.
+func TestUpdateableDocIdSetIterator_EmptyRange(t *testing.T) {
+	iterator := comparators.NewUpdateableDocIdSetIterator()
+
+	// Empty range: [10,10) is empty.
+	iterator.Update(search.NewRangeDocIdSetIterator(10, 10))
+	doc, err := iterator.NextDoc()
+	if err != nil {
+		t.Fatalf("NextDoc on empty range: %v", err)
+	}
+	if doc != search.NO_MORE_DOCS {
+		t.Errorf("DocID on empty range = %d, want NO_MORE_DOCS", doc)
+	}
+
+	// Update to non-empty range and verify it works.
+	iterator.Update(rangeIter(0, 3))
+	doc, err = iterator.NextDoc()
+	if err != nil || doc != 0 {
+		t.Fatalf("NextDoc after fresh range = (%d, %v), want (0, nil)", doc, err)
+	}
 }

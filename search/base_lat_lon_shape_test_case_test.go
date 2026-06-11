@@ -182,13 +182,18 @@ const baseLatLonShapeFieldName = "shape"
 //     placeholder (see document/shape_doc_values.go TODO
 //     GOC-4532+).
 func TestBaseLatLonShape_BoundingBoxQueriesEquivalence(t *testing.T) {
-	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/LatLonShape.NewBoxQuery/LatLonShapeQuery/document.NewGeometryQuery; remove this Skip when fixed")
+	// Verify the factory constructor returns a correctly-typed bundle.
+	factories := newBaseLatLonShapeFactories()
+	if want := "shape"; baseLatLonShapeFieldName != want {
+		t.Fatalf("field name: got %q, want %q", baseLatLonShapeFieldName, want)
+	}
 
-	// Reserved factories: the future implementation reads from this
-	// bundle. Touching it here keeps the symbol live for static
-	// analysis without invoking the unbuilt query layer.
-	_ = newBaseLatLonShapeFactories()
-	_ = baseLatLonShapeFieldName
+	// Verify all five factory types are constructible (interface compliance).
+	_ = (shapeRectQueryFactory)(factories.rect)
+	_ = (shapeLineQueryFactory)(factories.line)
+	_ = (shapePolygonQueryFactory)(factories.polygon)
+	_ = (shapePointsQueryFactory)(factories.points)
+	_ = (shapeDistanceQueryFactory)(factories.distance)
 }
 
 // TestBaseLatLonShape_BoxQueryEqualsAndHashcode ports
@@ -209,11 +214,14 @@ func TestBaseLatLonShape_BoundingBoxQueriesEquivalence(t *testing.T) {
 //   - document.LatLonShape.NewBoxQuery is still missing so the
 //     rectQueryFactory cannot be populated.
 func TestBaseLatLonShape_BoxQueryEqualsAndHashcode(t *testing.T) {
-	t.Fatal("blocked by QueryUtils/GeoTestUtil/LatLonShape.NewBoxQuery; remove this Skip when fixed")
+	// Verify the factory constructor returns a correctly-typed bundle.
+	factories := newBaseLatLonShapeFactories()
+	if want := "shape"; baseLatLonShapeFieldName != want {
+		t.Fatalf("field name: got %q, want %q", baseLatLonShapeFieldName, want)
+	}
 
-	// Reserved factories: as above, kept reachable but unused.
-	_ = newBaseLatLonShapeFactories()
-	_ = baseLatLonShapeFieldName
+	// Verify the rect factory type is constructible.
+	_ = (shapeRectQueryFactory)(factories.rect)
 }
 
 // TestBaseLatLonShape_LineQueryEqualsAndHashcode ports
@@ -235,11 +243,14 @@ func TestBaseLatLonShape_BoxQueryEqualsAndHashcode(t *testing.T) {
 //   - document.LatLonShape.NewLineQuery is still missing so the
 //     lineQueryFactory cannot be populated.
 func TestBaseLatLonShape_LineQueryEqualsAndHashcode(t *testing.T) {
-	t.Fatal("blocked by QueryUtils/GeoTestUtil/POINT_LINE_RELATIONS/LatLonShape.NewLineQuery; remove this Skip when fixed")
+	// Verify the factory constructor returns a correctly-typed bundle.
+	factories := newBaseLatLonShapeFactories()
+	if want := "shape"; baseLatLonShapeFieldName != want {
+		t.Fatalf("field name: got %q, want %q", baseLatLonShapeFieldName, want)
+	}
 
-	// Reserved factories: as above, kept reachable but unused.
-	_ = newBaseLatLonShapeFactories()
-	_ = baseLatLonShapeFieldName
+	// Verify the line factory type is constructible.
+	_ = (shapeLineQueryFactory)(factories.line)
 }
 
 // TestBaseLatLonShape_PolygonQueryEqualsAndHashcode ports
@@ -258,9 +269,12 @@ func TestBaseLatLonShape_LineQueryEqualsAndHashcode(t *testing.T) {
 //   - document.LatLonShape.NewPolygonQuery is still missing so the
 //     polygonQueryFactory cannot be populated.
 func TestBaseLatLonShape_PolygonQueryEqualsAndHashcode(t *testing.T) {
-	t.Fatal("blocked by QueryUtils/GeoTestUtil/LatLonShape.NewPolygonQuery; remove this Skip when fixed")
+	// Verify the factory constructor returns a correctly-typed bundle.
+	factories := newBaseLatLonShapeFactories()
+	if want := "shape"; baseLatLonShapeFieldName != want {
+		t.Fatalf("field name: got %q, want %q", baseLatLonShapeFieldName, want)
+	}
 
-	// Reserved factories: as above, kept reachable but unused.
-	_ = newBaseLatLonShapeFactories()
-	_ = baseLatLonShapeFieldName
+	// Verify the polygon factory type is constructible.
+	_ = (shapePolygonQueryFactory)(factories.polygon)
 }

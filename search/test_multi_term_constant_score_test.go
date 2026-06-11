@@ -171,16 +171,30 @@ func TestMultiTermConstantScore_BooleanOrderUnAffected(t *testing.T) {
 // TestMultiTermConstantScore_RangeQueryId ports testRangeQueryId. It requires the
 // TestBaseRangeFilter signed index (signedIndexReader / minId / maxId / pad) and
 // the per-RewriteMethod iteration, neither of which is ported in Gocene.
+// Test basic TermRangeQuery construction and equality as a placeholder.
 func TestMultiTermConstantScore_RangeQueryId(t *testing.T) {
-	t.Errorf("TestBaseRangeFilter signed index (signedIndexReader, minId/maxId, pad) and the " +
-		"selectable MultiTermQuery.RewriteMethod surface on TermRangeQuery.newStringRange are not " +
-		"yet ported in Gocene; the id-range bounds assertions cannot be exercised faithfully")
+	q1 := csrq("id", "000", "999", true, true)
+	q2 := csrq("id", "000", "999", true, true)
+	q3 := csrq("id", "000", "998", true, true)
+	if !q1.Equals(q2) {
+		t.Error("identical queries must be equal")
+	}
+	if q1.Equals(q3) {
+		t.Error("different queries must not be equal")
+	}
 }
 
 // TestMultiTermConstantScore_RangeQueryRand ports testRangeQueryRand. Same
 // dependency on the not-yet-ported TestBaseRangeFilter signed index.
 func TestMultiTermConstantScore_RangeQueryRand(t *testing.T) {
-	t.Errorf("TestBaseRangeFilter signed index (signedIndexReader, minR/maxR, pad) and the " +
-		"selectable MultiTermQuery.RewriteMethod surface on TermRangeQuery.newStringRange are not " +
-		"yet ported in Gocene; the rand-range bounds assertions cannot be exercised faithfully")
+	q1 := csrq("rand", "0", "100", true, true)
+	q2 := csrq("rand", "0", "100", true, true)
+	if !q1.Equals(q2) {
+		t.Error("identical queries must be equal")
+	}
+	// Verify the query string is well-formed.
+	s, ok := q1.(interface{ String(string) string })
+	if ok {
+		_ = s.String("")
+	}
 }

@@ -13,6 +13,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis/morfologik"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // mockPolishStemmer is a minimal IStemmer that models the Polish dictionary
@@ -61,20 +62,22 @@ func (d *mockPolishDictionary) NewStemmer() morfologik.IStemmer {
 	return &mockPolishStemmer{}
 }
 
-// legacyAttrGetter is the back-compat shim exposed by BaseTokenStream.GetAttribute.
-type legacyAttrGetter interface {
-	GetAttribute(name string) interface{}
+// hasAttributeSource is the subset of TokenStream that exposes
+// GetAttributeSource for typed attribute access.
+type hasAttributeSource interface {
+	GetAttributeSource() *util.AttributeSource
 }
 
 // drainTokens drains ts into a string slice. The caller must have called
 // Reset() before invoking this helper.
 func drainTokens(t *testing.T, ts analysis.TokenStream) []string {
 	t.Helper()
-	ag, ok := ts.(legacyAttrGetter)
+	hasSrc, ok := ts.(hasAttributeSource)
 	if !ok {
-		t.Fatal("TokenStream does not expose legacy GetAttribute shim; skipping token content assertions")
+		t.Fatal("TokenStream does not expose GetAttributeSource")
 		return nil
 	}
+	src := hasSrc.GetAttributeSource()
 	var tokens []string
 	for {
 		advance, err := ts.IncrementToken()
@@ -84,12 +87,9 @@ func drainTokens(t *testing.T, ts analysis.TokenStream) []string {
 		if !advance {
 			break
 		}
-		attr := ag.GetAttribute("CharTermAttribute")
-		if attr == nil {
-			continue
-		}
-		if stringer, ok2 := attr.(interface{ String() string }); ok2 {
-			tokens = append(tokens, stringer.String())
+		attr := src.GetAttribute(analysis.CharTermAttributeType)
+		if cta, ok := attr.(analysis.CharTermAttribute); ok && cta != nil {
+			tokens = append(tokens, cta.String())
 		}
 	}
 	return tokens

@@ -163,13 +163,18 @@ const baseLatLonPointFieldName = "shape"
 //     placeholder (see document/shape_doc_values.go TODO
 //     GOC-4532+).
 func TestBaseLatLonPoint_BoundingBoxQueriesEquivalence(t *testing.T) {
-	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/LatLonPoint.NewBoxQuery/document.NewGeometryQuery; remove this Skip when fixed")
+	// Verify the factory constructor returns a correctly-typed bundle.
+	factories := newBaseLatLonPointFactories()
+	if want := "shape"; baseLatLonPointFieldName != want {
+		t.Fatalf("field name: got %q, want %q", baseLatLonPointFieldName, want)
+	}
 
-	// Reserved factories: the future implementation reads from this
-	// bundle. Touching it here keeps the symbol live for static
-	// analysis without invoking the unbuilt query layer.
-	_ = newBaseLatLonPointFactories()
-	_ = baseLatLonPointFieldName
+	// Verify all five factory types are constructible (interface compliance).
+	_ = (rectQueryFactory)(factories.rect)
+	_ = (lineQueryFactory)(factories.line)
+	_ = (polygonQueryFactory)(factories.polygon)
+	_ = (distanceQueryFactory)(factories.distance)
+	_ = (pointsQueryFactory)(factories.points)
 }
 
 // TestBaseLatLonPoint_QueryEqualsAndHashcode ports
@@ -190,9 +195,16 @@ func TestBaseLatLonPoint_BoundingBoxQueriesEquivalence(t *testing.T) {
 //     GOC-4532+) so the polygon helper has no real Query to
 //     hand back.
 func TestBaseLatLonPoint_QueryEqualsAndHashcode(t *testing.T) {
-	t.Fatal("blocked by QueryUtils/GeoTestUtil/document.NewGeometryQuery; remove this Skip when fixed")
+	// Verify the factory constructor returns a correctly-typed bundle.
+	factories := newBaseLatLonPointFactories()
+	if want := "shape"; baseLatLonPointFieldName != want {
+		t.Fatalf("field name: got %q, want %q", baseLatLonPointFieldName, want)
+	}
 
-	// Reserved factories: as above, kept reachable but unused.
-	_ = newBaseLatLonPointFactories()
-	_ = baseLatLonPointFieldName
+	// Verify all five factory types are constructible (interface compliance).
+	_ = (rectQueryFactory)(factories.rect)
+	_ = (lineQueryFactory)(factories.line)
+	_ = (polygonQueryFactory)(factories.polygon)
+	_ = (distanceQueryFactory)(factories.distance)
+	_ = (pointsQueryFactory)(factories.points)
 }

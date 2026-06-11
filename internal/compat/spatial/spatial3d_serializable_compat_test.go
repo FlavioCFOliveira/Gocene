@@ -89,27 +89,28 @@ func TestSpatial3dSerializable_VerifySubcommand(t *testing.T) {
 	}
 }
 
-// TestSpatial3dSerializable_RoundTrip (class c) — Gocene's spatial3d
-// port lives under spatial3d/geom/ with PlanetModel / GeoPoint /
-// GeoCircle / GeoBBox types, but PlanetModel.Write and GeoPoint.Write
-// are documented stubs (planet_model.go:105, geo_point.go:105 both
-// take `_ io.Writer` and return nil) so Gocene cannot reconstruct the
-// Java writePlanetObject byte stream.
+// TestSpatial3dSerializable_RoundTrip (class c) — generate the fixture and
+// verify spatial3d-serializable.bin exists. Gocene's spatial3d port lives
+// under spatial3d/geom/ with PlanetModel / GeoPoint / GeoCircle / GeoBBox
+// types, but PlanetModel.Write and GeoPoint.Write are documented stubs
+// (planet_model.go:105, geo_point.go:105 both take `_ io.Writer` and
+// return nil) so Gocene cannot reconstruct the Java writePlanetObject byte
+// stream.
 func TestSpatial3dSerializable_RoundTrip(t *testing.T) {
 	const auditGap = "No cross-engine fixture for spatial3d serialised geometry."
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
-				"blocked on the Gocene spatial3d port — spatial3d/geom/ "+
-				"exposes PlanetModel / GeoPoint / GeoCircle / GeoBBox "+
-				"types but PlanetModel.Write (planet_model.go:105) and "+
-				"GeoPoint.Write (geo_point.go:105) are stubs that "+
-				"ignore the writer and return nil; the package ships no "+
-				"SerializableObject.writePlanetObject / readPlanetObject "+
-				"equivalent. "+
-				"Audit gap_notes (verbatim): %q",
-				Scenario3dSerializable, seed, auditGap)
+			dir := generate(t, Scenario3dSerializable, seed)
+			files := listFiles(t, dir)
+			if len(files) != 1 || files[0] != fileSpatial3dSerializableBin {
+				t.Fatalf("expected exactly %q under fixture dir, got %v",
+					fileSpatial3dSerializableBin, files)
+			}
+			t.Logf("fixture generated in %s (seed=%#x); "+
+				"full Gocene round-trip blocked on spatial3d Write stubs "+
+				"(PlanetModel.Write, GeoPoint.Write; audit gap_notes: %q)",
+				dir, seed, auditGap)
 		})
 	}
 }

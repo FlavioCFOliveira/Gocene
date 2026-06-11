@@ -24,7 +24,10 @@ import (
 // TestJustCompileSearch is a marker test confirming that this file compiles.
 // The var _ ... statements below are the real compile-time checks.
 func TestJustCompileSearch(t *testing.T) {
-	t.Fatal("compilation-check only — no runtime assertions (mirrors JustCompileSearch.java intent)")
+	// The compile-time interface satisfaction checks (var _ Interface = ...)
+	// above are verified by the Go compiler — this test body exists solely to
+	// mirror the file's intent as a compilation-check, matching the Java
+	// JustCompileSearch.java which has no @Test methods.
 }
 
 // compile-time interface satisfaction checks

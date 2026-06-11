@@ -1,6 +1,9 @@
 package fst
 
-import "github.com/FlavioCFOliveira/Gocene/suggest"
+import (
+	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/suggest"
+)
 
 // FSTCompletionLookup is the Lookup-compliant wrapper around FSTCompletion.
 // Mirrors org.apache.lucene.search.suggest.fst.FSTCompletionLookup.
@@ -58,5 +61,59 @@ func (l *FSTCompletionLookup) LookupResults(key string, _ [][]byte, _ bool, num 
 
 // GetCount returns the number of entries ingested at Build time.
 func (l *FSTCompletionLookup) GetCount() int64 { return l.count }
+
+// Store serialises the FSTCompletion entries to output.
+// Mirrors FSTCompletionLookup.store(DataOutput) from Lucene 10.4.0.
+//
+// Wire format:
+//
+//	writeVLong(count)
+//	for each entry:
+//	  writeString(key)
+//	  writeVInt(bucket)
+func (l *FSTCompletionLookup) Store(output store.DataOutput) (bool, error) {
+	if err := store.WriteVLong(output, l.count); err != nil {
+		return false, err
+	}
+	if l.completion == nil || l.count == 0 {
+		return false, nil
+	}
+	for _, entry := range l.completion.terms {
+		if err := output.WriteString(entry.key); err != nil {
+			return false, err
+		}
+		if err := store.WriteVInt(output, int32(entry.bucket)); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
+}
+
+// Load reads a serialised FSTCompletion produced by Store (or Lucene's store()).
+// Returns true on success. Mirrors FSTCompletionLookup.load(DataInput).
+func (l *FSTCompletionLookup) Load(input store.DataInput) (bool, error) {
+	cnt, err := store.ReadVLong(input)
+	if err != nil {
+		return false, err
+	}
+	l.count = cnt
+	l.completion = NewFSTCompletion(l.exactFirst)
+	if cnt == 0 {
+		return false, nil
+	}
+	for i := int64(0); i < cnt; i++ {
+		key, err := input.ReadString()
+		if err != nil {
+			return false, err
+		}
+		bucket, err := store.ReadVInt(input)
+		if err != nil {
+			return false, err
+		}
+		l.completion.AddEntry(key, int(bucket))
+	}
+	l.completion.Finalize()
+	return true, nil
+}
 
 var _ suggest.Lookup = (*FSTCompletionLookup)(nil)

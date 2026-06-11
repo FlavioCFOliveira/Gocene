@@ -310,6 +310,43 @@ func (c *PerFieldDocValuesConsumer) AddSortedSetField(field *index.FieldInfo, va
 	return consumer.AddSortedSetField(field, values)
 }
 
+// AddSortedNumericField writes a sorted-numeric doc values field through
+// the delegate chosen for field, recording the format/suffix metadata on
+// field.
+func (c *PerFieldDocValuesConsumer) AddSortedNumericField(field *index.FieldInfo, values SortedNumericDocValuesIterator) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return fmt.Errorf("PerFieldDocValuesConsumer is closed")
+	}
+	consumer, err := c.getInstance(field)
+	if err != nil {
+		return err
+	}
+	return consumer.AddSortedNumericField(field, values)
+}
+
+// Close closes every delegate DocValuesConsumer that was opened. It
+// returns the last error observed and continues closing the remaining
+// consumers so that no delegate is leaked when one fails.
+func (c *PerFieldDocValuesConsumer) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return nil
+	}
+	c.closed = true
+
+	var lastErr error
+	for format, cas := range c.consumersByFormat {
+		if err := cas.consumer.Close(); err != nil {
+			lastErr = fmt.Errorf("failed to close consumer for format %q: %w", format.Name(), err)
+		}
+	}
+	c.consumersByFormat = nil
+	return lastErr
+}
 // sortedFieldFromReader is a local copy of the structural contract that
 // index.sortedDVConsumerDelegate requires. We define it here because the
 // index interface is unexported; Go structural typing means a type assertion
@@ -368,43 +405,6 @@ func (c *PerFieldDocValuesConsumer) AddSortedSetFieldFromReader(field *index.Fie
 	return delegate.AddSortedSetFieldFromReader(field, reset)
 }
 
-// AddSortedNumericField writes a sorted-numeric doc values field through
-// the delegate chosen for field, recording the format/suffix metadata on
-// field.
-func (c *PerFieldDocValuesConsumer) AddSortedNumericField(field *index.FieldInfo, values SortedNumericDocValuesIterator) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.closed {
-		return fmt.Errorf("PerFieldDocValuesConsumer is closed")
-	}
-	consumer, err := c.getInstance(field)
-	if err != nil {
-		return err
-	}
-	return consumer.AddSortedNumericField(field, values)
-}
-
-// Close closes every delegate DocValuesConsumer that was opened. It
-// returns the last error observed and continues closing the remaining
-// consumers so that no delegate is leaked when one fails.
-func (c *PerFieldDocValuesConsumer) Close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.closed {
-		return nil
-	}
-	c.closed = true
-
-	var lastErr error
-	for format, cas := range c.consumersByFormat {
-		if err := cas.consumer.Close(); err != nil {
-			lastErr = fmt.Errorf("failed to close consumer for format %q: %w", format.Name(), err)
-		}
-	}
-	c.consumersByFormat = nil
-	return lastErr
-}
 
 // PerFieldDocValuesProducer reads doc-values written by
 // PerFieldDocValuesConsumer. It resolves the delegate format per FieldInfo

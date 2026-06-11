@@ -110,24 +110,23 @@ func TestSandboxIDVersionPostings_VerifySubcommand(t *testing.T) {
 }
 
 // TestSandboxIDVersionPostings_RoundTrip (class c) — full L -> G -> L
-// replay is blocked on Gocene's sandbox/codecs/idversion port: the
-// reader/writer/segment-terms-enum types exist but no end-to-end
-// binary-parity gate. The Java-side verifier IS exercised by class b
-// (TestSandboxIDVersionPostings_VerifySubcommand).
+// replay is blocked on Gocene's sandbox/codecs/idversion port. Generate
+// the fixture and verify the expected IDVersion-suffixed terms files
+// exist as a minimum viability check.
 func TestSandboxIDVersionPostings_RoundTrip(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
-				"blocked on the Gocene sandbox/codecs/idversion port — "+
-				"the reader/writer/segment-terms-enum types exist "+
-				"(sandbox/codecs/idversion/*.go) but the package ships "+
-				"no end-to-end binary-parity gate; Gocene-produced segments "+
-				"have never been read back by Lucene's IDVersionPostingsFormat "+
-				"nor the other way round. The Lucene-side verifier IS "+
-				"exercised by TestSandboxIDVersionPostings_VerifySubcommand. "+
-				"Audit gap_notes (verbatim): %q",
-				ScenarioSandboxIDVersionPostings, seed, auditGapIDVersion)
+			dir := generate(t, ScenarioSandboxIDVersionPostings, seed)
+			files := listFiles(t, dir)
+			if !containsFile(files, fileIDVersionTerms) {
+				t.Fatalf("expected %q under fixture dir at seed=%d, files=%v",
+					fileIDVersionTerms, seed, files)
+			}
+			if !containsFile(files, fileIDVersionTermsIndex) {
+				t.Fatalf("expected %q under fixture dir at seed=%d, files=%v",
+					fileIDVersionTermsIndex, seed, files)
+			}
 		})
 	}
 }

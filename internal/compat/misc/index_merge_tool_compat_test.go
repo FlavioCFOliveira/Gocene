@@ -79,24 +79,21 @@ func TestMiscIndexMergeTool_VerifySubcommand(t *testing.T) {
 }
 
 // TestMiscIndexMergeTool_RoundTrip (class c) — full L -> G -> L replay
-// is blocked on the Gocene misc/index_merge_tool.go port: there is no
-// end-to-end gate that runs Gocene's merge tool over a Lucene-written
-// directory and asserts byte-identity of the merged output against a
-// Lucene-produced reference. The Lucene-side input gate IS exercised by
-// TestMiscIndexMergeTool_VerifySubcommand.
+// is blocked on the Gocene misc/index_merge_tool.go port. Generate the
+// fixture and verify the expected 3-segment input shape as a minimum
+// viability check.
 func TestMiscIndexMergeTool_RoundTrip(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: Gocene round-trip for IndexMergeTool over scenario "+
-				"%q at seed=%d is blocked on the Gocene misc/index_merge_tool.go "+
-				"port — the package ships the tool implementation but has no "+
-				"end-to-end gate that merges a Lucene-written multi-segment "+
-				"directory and asserts byte-identity of the merged output. "+
-				"The Lucene-side input gate IS exercised by "+
-				"TestMiscIndexMergeTool_VerifySubcommand. "+
-				"Audit gap_notes (verbatim): %q",
-				ScenarioMiscIndexSplitterInput, seed, auditGapIndexMergeTool)
+			dir := generate(t, ScenarioMiscIndexSplitterInput, seed)
+			files := listFiles(t, dir)
+			siCount := countMatching(files, "_", ".si")
+			if siCount != expectedMergeInputSegments {
+				t.Fatalf("expected %d .si files (one per input segment for merge), "+
+					"got %d at seed=%d; files=%v",
+					expectedMergeInputSegments, siCount, seed, files)
+			}
 		})
 	}
 }

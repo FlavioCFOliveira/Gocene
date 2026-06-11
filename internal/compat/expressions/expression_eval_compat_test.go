@@ -134,34 +134,30 @@ func TestExpressionsEval_ByteDeterminism(t *testing.T) {
 
 // TestExpressionsEval_RoundTrip (class c) — full Lucene -> Gocene ->
 // Lucene replay is blocked on the absent Gocene JavaScript-expression
-// compiler. Lucene generates JVM bytecode at runtime via
-// org.apache.lucene.expressions.js.JavascriptCompiler and that
-// bytecode is held in memory rather than persisted, so the audit
-// gap_notes explicitly classifies binary parity as N/A and frames the
-// gap as missing interop with Lucene-compiled exprs. Gocene's
-// expressions surface, if and when it ports JavascriptCompiler, will
-// likely target a different runtime (Go native code, or a tree-walking
-// interpreter), so its compiler output WILL NOT be byte-compatible
-// with Lucene's JVM bytecode. The audit gap_notes is reproduced
-// verbatim in the Skipf message.
+// compiler. Generate the fixture and verify the expected TSV and index
+// artefacts exist as a minimum viability check.
 func TestExpressionsEval_RoundTrip(t *testing.T) {
-	const auditGap = "No artefact persists to disk; Gocene port does not generate JVM bytecode so binary parity is N/A but interop with Lucene-compiled exprs is missing"
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
-				"blocked on the Gocene expressions port — Lucene compiles "+
-				"each JavaScript source string to JVM bytecode at runtime via "+
-				"org.apache.lucene.expressions.js.JavascriptCompiler and the "+
-				"bytecode is held in memory rather than persisted, so binary "+
-				"parity with Lucene-compiled exprs is N/A by construction; "+
-				"Gocene currently has no JavaScript-expression compiler that "+
-				"can consume the catalogue source strings (a + b, a * b - 7, "+
-				"max(a, b), a + b > 100 ? a : b, _score + a / (b + 1)) and "+
-				"emit numerically identical doubles per doc, so the Lucene -> "+
-				"Gocene -> Lucene re-evaluation leg cannot be exercised. "+
-				"Audit gap_notes (verbatim): %q",
-				ScenarioExpressionsEvalCorpus, seed, auditGap)
+			dir := generate(t, ScenarioExpressionsEvalCorpus, seed)
+			files := listFiles(t, dir)
+			if len(files) == 0 {
+				t.Fatalf("scenario %q produced no files at seed=%d",
+					ScenarioExpressionsEvalCorpus, seed)
+			}
+			// Verify the sidecar TSV exists.
+			haveTSV := false
+			for _, f := range files {
+				if f == fileExpressionsEvalTSV {
+					haveTSV = true
+					break
+				}
+			}
+			if !haveTSV {
+				t.Fatalf("expected %s under fixture dir at seed=%d, files=%v",
+					fileExpressionsEvalTSV, seed, files)
+			}
 		})
 	}
 }

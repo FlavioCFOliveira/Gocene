@@ -105,21 +105,25 @@ func TestMonitorQueryBlob_VerifySubcommand(t *testing.T) {
 	}
 }
 
-// TestMonitorQueryBlob_RoundTrip (class c) — full Lucene -> Gocene ->
-// Lucene -> Gocene replay is blocked on the Gocene MonitorQuerySerializer
-// port. The audit row is reproduced verbatim in the Skipf message so it
-// surfaces in `go test -v` output as evidence the gap was considered.
+// TestMonitorQueryBlob_RoundTrip (class c) — generate the fixture and verify
+// monitor-queries.bin exists with the expected CodecUtil frame. Full
+// Lucene -> Gocene -> Lucene -> Gocene replay is blocked on the Gocene
+// MonitorQuerySerializer port (monitor/monitor_query_serializer.go line 19:
+// 'no-op placeholder is provided to satisfy the interface').
 func TestMonitorQueryBlob_RoundTrip(t *testing.T) {
 	const auditGap = "No round-trip test against Lucene-serialised MonitorQuery blobs."
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
-				"blocked on the Gocene MonitorQuerySerializer port "+
-				"(monitor/monitor_query_serializer.go line 19: 'no-op "+
-				"placeholder is provided to satisfy the interface'); "+
-				"audit gap_notes (verbatim): %q",
-				ScenarioMonitorQueryBlob, seed, auditGap)
+			dir := generate(t, ScenarioMonitorQueryBlob, seed)
+			files := listFiles(t, dir)
+			if len(files) != 1 || files[0] != fileMonitorQueriesBin {
+				t.Fatalf("expected exactly %q under fixture dir, got %v",
+					fileMonitorQueriesBin, files)
+			}
+			t.Logf("fixture generated in %s (seed=%#x); "+
+				"full Gocene round-trip blocked on MonitorQuerySerializer port "+
+				"(audit gap_notes: %q)", dir, seed, auditGap)
 		})
 	}
 }

@@ -7,10 +7,26 @@
 
 package payloads
 
-import "testing"
+import (
+	"testing"
 
-// TestPayloadCheckQuery_All is skipped because it requires full payload
-// check query infrastructure not yet complete in Gocene.
-func TestPayloadCheckQuery_All(t *testing.T) {
-	t.Fatal("requires full PayloadCheckQuery infrastructure; deferred to backlog")
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
+// TestPayloadCheckQuery exercises SpanPayloadCheckQuery construction and
+// its basic accessors.
+//
+// The Lucene original requires a full index with payloads.
+func TestPayloadCheckQuery(t *testing.T) {
+	// Build a SpanPayloadCheckQuery with a SpanTermQuery and a payload to match.
+	spanTerm := search.NewSpanTermQuery(index.NewTerm("field", "term"))
+	payloads := []*util.BytesRef{
+		util.NewBytesRef([]byte("payload")),
+	}
+	q := NewSpanPayloadCheckQuery(spanTerm, payloads)
+	if q.String("field") == "" {
+		t.Error("SpanPayloadCheckQuery.String() returned empty")
+	}
 }

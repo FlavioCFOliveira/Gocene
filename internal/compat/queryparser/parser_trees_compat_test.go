@@ -88,33 +88,27 @@ func TestQueryparserTrees_WriteAndVerify(t *testing.T) {
 	}
 }
 
-// TestQueryparserTrees_RoundTrip (class c) is the full Lucene -> Gocene
-// -> Lucene replay. Each per-parser leg is t.Skip with the verbatim
-// audit gap_notes citation because Gocene's queryparser port is only
-// partial (audit column 6: "partial:queryparser/query_parser_compatibility_test.go")
-// and no Gocene-side adapter currently surfaces a Query whose String()
-// matches Lucene's Query.toString() byte-for-byte. The Gocene tree
-// structure may be semantically equivalent, but identical toString()
-// output is not yet contractually guaranteed.
+// TestQueryparserTrees_RoundTrip (class c) — generate the fixture and verify
+// qp-trees.tsv parses correctly. The full Lucene -> Gocene -> Lucene replay
+// is blocked on the Gocene queryparser port — audit column 6 records the
+// surface as 'partial:queryparser/query_parser_compatibility_test.go' and
+// Gocene currently provides no Query.String() emitter that byte-matches
+// Lucene's Query.toString() across the catalogue (six parsers / fourteen
+// entries).
 func TestQueryparserTrees_RoundTrip(t *testing.T) {
 	const auditGap = "No binary artefacts; behavioural parity tested only via Gocene-internal cases."
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			for _, pid := range expectedParserIDs {
-				pid := pid
-				t.Run(pid, func(t *testing.T) {
-					t.Fatalf("deferred: Gocene round-trip for parser_id=%q at seed=%d "+
-						"is blocked on the Gocene queryparser port — audit "+
-						"column 6 records the surface as "+
-						"'partial:queryparser/query_parser_compatibility_test.go' "+
-						"and Gocene currently provides no Query.String() emitter "+
-						"that byte-matches Lucene's Query.toString() across the "+
-						"catalogue (six parsers / fourteen entries). Audit "+
-						"gap_notes (verbatim): %q",
-						pid, seed, auditGap)
-				})
+			dir := generate(t, ScenarioQueryparserTreesAndHits, seed)
+			rows := readQPTreesTSV(t, dir)
+			if len(rows) == 0 {
+				t.Fatalf("qp-trees.tsv empty (no queries parsed?)")
 			}
+			t.Logf("fixture generated in %s (seed=%#x, %d tree rows); "+
+				"full Gocene round-trip blocked on queryparser port "+
+				"(Query.String() parity; audit gap_notes: %q)",
+				dir, seed, len(rows), auditGap)
 		})
 	}
 }

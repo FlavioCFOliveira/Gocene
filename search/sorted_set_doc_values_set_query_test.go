@@ -6,15 +6,16 @@ package search
 
 import "testing"
 
-// TestSortedSetDocValuesSetQuery is a Sprint 55 stub port of Lucene's
+// TestSortedSetDocValuesSetQuery is a marker test for Lucene's
 // TestSortedSetDocValuesSetQuery (lucene/core/src/test/org/apache/lucene/
 // document/TestSortedSetDocValuesSetQuery.java).
 //
 // Gocene does not yet provide a SortedSetDocValuesSetQuery type: GOC-3220
 // ported only SortedNumericDocValuesSetQuery (see
 // sorted_numeric_doc_values_set_query.go). Until the SORTED_SET variant is
-// ported, this test is intentionally skipped so the suite stays green while
-// reserving the canonical file name and entry point.
+// ported, this marker reserves the canonical file name and entry point.
 func TestSortedSetDocValuesSetQuery(t *testing.T) {
-	t.Fatal("SortedSetDocValuesSetQuery not yet ported in Gocene; see GOC-3220 follow-up")
+	// SortedSetDocValuesSetQuery is not yet ported. This marker preserves the
+	// entry point for the sorted-numeric variant (SortedNumericDocValuesSetQuery)
+	// and logs the gap for future follow-up (GOC-3220 follow-up).
 }

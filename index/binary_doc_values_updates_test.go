@@ -296,7 +296,7 @@ func TestBinaryDocValuesUpdates_Reopen(t *testing.T) {
 // TestBinaryDocValuesUpdates_WithDeletes tests updates combined with deletes.
 // Ported from: testUpdatesAndDeletes
 func TestBinaryDocValuesUpdates_WithDeletes(t *testing.T) {
-	t.Fatal("infra gap: IndexWriter.NumDocs does not subtract applied deletes")
+	  // infra gap is now resolved
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
@@ -345,7 +345,6 @@ func TestBinaryDocValuesUpdates_WithDeletes(t *testing.T) {
 // TestBinaryDocValuesUpdates_UpdatesWithDeletes tests updates and deletes in same commit.
 // Ported from: testUpdatesWithDeletes
 func TestBinaryDocValuesUpdates_UpdatesWithDeletes(t *testing.T) {
-	t.Fatal("infra gap: IndexWriter.NumDocs does not subtract applied deletes")
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
@@ -1527,7 +1526,6 @@ func TestBinaryDocValuesUpdates_UpdatesOrder(t *testing.T) {
 // TestBinaryDocValuesUpdates_UpdateAllDeletedSegment tests updates on fully deleted segments.
 // Ported from: testUpdateAllDeletedSegment
 func TestBinaryDocValuesUpdates_UpdateAllDeletedSegment(t *testing.T) {
-	t.Fatal("infra gap: IndexWriter.NumDocs does not subtract applied deletes")
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()

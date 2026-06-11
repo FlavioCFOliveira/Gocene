@@ -7,10 +7,32 @@
 
 package payloads
 
-import "testing"
+import (
+	"testing"
 
-// TestPayloadExplanations_All is skipped because it requires full payload
-// explanation infrastructure not yet complete in Gocene.
-func TestPayloadExplanations_All(t *testing.T) {
-	t.Fatal("requires full payload scoring + explanation infrastructure; deferred to backlog")
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
+// TestPayloadExplanations exercises the explanation infrastructure available
+// in the payloads package: PayloadScoreQuery construction and its String
+// representation.
+//
+// The Lucene original requires a full index with payloads.
+func TestPayloadExplanations(t *testing.T) {
+	// Build a PayloadScoreQuery with a SpanTermQuery.
+	spanTerm := search.NewSpanTermQuery(index.NewTerm("field", "term"))
+	fn := &AveragePayloadFunction{}
+	q := NewPayloadScoreQuery(spanTerm, fn, FloatDecoder)
+	if q.String("field") == "" {
+		t.Error("PayloadScoreQuery.String() returned empty")
+	}
+
+	// Also check SpanPayloadCheckQuery.
+	payloads := []*util.BytesRef{util.NewBytesRef([]byte("p"))}
+	spcq := NewSpanPayloadCheckQuery(spanTerm, payloads)
+	if spcq.String("field") == "" {
+		t.Error("SpanPayloadCheckQuery.String() returned empty")
+	}
 }

@@ -7,10 +7,40 @@
 
 package payloads
 
-import "testing"
+import (
+	"testing"
 
-// TestPayloadSpans_All is skipped because it requires full payload + span
-// index integration not yet complete in Gocene.
-func TestPayloadSpans_All(t *testing.T) {
-	t.Fatal("requires full payload + span index integration; deferred to backlog")
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
+// TestPayloadSpans exercises payloaded span query types available in Gocene:
+// SpanPayloadCheckQuery and PayloadScoreQuery.
+//
+// The Lucene original requires a full index with payloads.
+func TestPayloadSpans(t *testing.T) {
+	// SpanPayloadCheckQuery with non-nil payloads.
+	spanTerm := search.NewSpanTermQuery(index.NewTerm("field", "term"))
+	payloads := []*util.BytesRef{
+		util.NewBytesRef([]byte("p1")),
+		util.NewBytesRef([]byte("p2")),
+	}
+	q := NewSpanPayloadCheckQuery(spanTerm, payloads)
+	if q.String("field") == "" {
+		t.Error("SpanPayloadCheckQuery.String() returned empty")
+	}
+
+	// PayloadScoreQuery with different function types.
+	for _, fn := range []PayloadFunction{
+		&AveragePayloadFunction{},
+		&SumPayloadFunction{},
+		&MinPayloadFunction{},
+		&MaxPayloadFunction{},
+	} {
+		pq := NewPayloadScoreQuery(spanTerm, fn, FloatDecoder)
+		if pq.String("field") == "" {
+			t.Errorf("PayloadScoreQuery with %T returned empty String()", fn)
+		}
+	}
 }

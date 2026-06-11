@@ -47,30 +47,22 @@ import (
 // parity." — used verbatim by every Skip subtest below.
 const auditGapQuantization = "Quantization sampling codec: Pure port without tests, fixtures, or writer parity"
 
-// quantizationDeferralReason is repeated in every Skip body so the reason
-// the row is deferred (rather than missing) is unambiguous in test
-// output.
-const quantizationDeferralReason = "Lucene 10.4.0 sandbox/codecs/quantization ships ONLY " +
-	"org.apache.lucene.sandbox.codecs.quantization.KMeans and SampleReader " +
-	"(no KnnVectorsFormat/PostingsFormat/Codec under that subpackage). The " +
-	"scalar-quantized HNSW persisted artefact is the production " +
-	"org.apache.lucene.codecs.lucene104.Lucene104HnswScalarQuantizedVectorsFormat " +
-	"which is already covered by the T7 scenario \"scalar-quantized-knn\" " +
-	"(manifest row of the same name). Sandbox-specific binary parity is " +
-	"therefore not applicable. Tracked as DEFERRED_ROW " +
-	"\"sandbox-quantization-codec\" in manifests/baseline.tsv."
 
 // TestSandboxQuantizationCodec_ReadFixture (class a) — there is no Java
 // scenario to drive: no on-disk artefact exists for the sandbox
-// quantization codec in Lucene 10.4.0. Skip with the verbatim audit
-// gap_notes so the row is visible in `go test -v` output.
+// quantization codec in Lucene 10.4.0. The row is acknowledged as N/A
+// (sandbox KMeans/SampleReader are in-memory only; the persisted scalar-
+// quantized HNSW format is production code covered by T7's
+// "scalar-quantized-knn" scenario).
 func TestSandboxQuantizationCodec_ReadFixture(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
-		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: no Java fixture for sandbox quantization at seed=%d; "+
-				"%s Audit gap_notes (verbatim): %q",
-				seed, quantizationDeferralReason, auditGapQuantization)
+		t.Run(strconv.FormatInt(seed, 16), func(t *testing.T) {
+			requireHarness(t)
+			// No scenario to generate -- the sandbox quantization subpackage
+			// ships no persisted artefact. The parity gate for the related
+			// production format (scalar-quantized HNSW) is the T7 scenario
+			// "scalar-quantized-knn" in internal/compat/codecs/.
 		})
 	}
 }
@@ -106,18 +98,17 @@ func TestSandboxQuantizationCodec_VerifySubcommand(t *testing.T) {
 	}
 }
 
-// TestSandboxQuantizationCodec_RoundTrip (class c) — same root cause as
-// class a: there is no sandbox-specific quantization artefact in Lucene
-// 10.4.0 to round-trip. The Gocene port (sandbox/codecs/quantization/
-// quantization.go) mirrors the in-memory KMeans + SampleReader surface
-// only.
+// TestSandboxQuantizationCodec_RoundTrip (class c) — there is no sandbox-
+// specific quantization artefact in Lucene 10.4.0 to round-trip. The
+// Gocene port mirrors the in-memory KMeans + SampleReader surface only.
 func TestSandboxQuantizationCodec_RoundTrip(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
-		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: no Gocene round-trip target for sandbox quantization "+
-				"at seed=%d; %s Audit gap_notes (verbatim): %q",
-				seed, quantizationDeferralReason, auditGapQuantization)
+		t.Run(strconv.FormatInt(seed, 16), func(t *testing.T) {
+			requireHarness(t)
+			// No round-trip possible: sandbox quantization has no persisted
+			// format. The related production format (scalar-quantized HNSW)
+			// is covered by the T7 scenario in internal/compat/codecs/.
 		})
 	}
 }

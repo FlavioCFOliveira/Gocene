@@ -170,9 +170,14 @@ func NewLucene90DocValuesFormatWithSkipInterval(skipIndexIntervalSize int) *Luce
 // SkipIndexIntervalSize returns the configured skip-index interval size.
 func (f *Lucene90DocValuesFormat) SkipIndexIntervalSize() int { return f.skipIndexIntervalSize }
 
-// FieldsConsumer returns a consumer for writing doc values.
+// FieldsConsumer returns a consumer for writing doc values using the
+// format's configured skip-index interval size.
 func (f *Lucene90DocValuesFormat) FieldsConsumer(state *SegmentWriteState) (DocValuesConsumer, error) {
-	return NewLucene90DocValuesConsumer(state), nil
+	real, err := newLucene90DVConsumer(state, f.skipIndexIntervalSize)
+	if err != nil {
+		return nil, err
+	}
+	return &Lucene90DocValuesConsumer{real: real}, nil
 }
 
 // FieldsProducer returns a producer for reading doc values. Phase 1

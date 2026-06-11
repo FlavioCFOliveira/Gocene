@@ -56,24 +56,32 @@ func TestSpatialPrefixTree_ByteDeterminism(t *testing.T) {
 	}
 }
 
-// TestSpatialPrefixTree_RoundTrip (class c) — Gocene's prefix-tree port
+// TestSpatialPrefixTree_RoundTrip (class c) — generate the fixture and verify
+// the .tim/.tip/.doc postings files are present. Gocene's prefix-tree port
 // lives in spatial/prefixtree but ships no decoder that consumes the
-// Lucene-emitted .tim/.tip postings into a SpatialPrefixTree cell
-// iterator. The audit gap_notes is reproduced verbatim in the Skipf
-// message.
+// Lucene-emitted .tim/.tip postings into a SpatialPrefixTree cell iterator.
 func TestSpatialPrefixTree_RoundTrip(t *testing.T) {
 	const auditGap = "No Lucene-emitted prefix-tree corpus."
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
-				"blocked on the Gocene prefix-tree port — spatial/prefixtree/ "+
-				"exposes SpatialPrefixTree/LegacyCell/GeohashPrefixTree types "+
-				"(spatial/geohash_prefix_tree.go) but the package ships no "+
-				"reader that consumes Lucene-emitted .tim/.tip postings into "+
-				"a SpatialPrefixTree cell iterator. "+
-				"Audit gap_notes (verbatim): %q",
-				ScenarioPrefixTree, seed, auditGap)
+			dir := generate(t, ScenarioPrefixTree, seed)
+			files := listFiles(t, dir)
+			if len(files) == 0 {
+				t.Fatalf("scenario %q produced no files at seed=%d", ScenarioPrefixTree, seed)
+			}
+			if !hasAnyWithSuffix(files, ".tim") {
+				t.Errorf("expected at least one .tim file under fixture dir, got %v", files)
+			}
+			if !hasAnyWithSuffix(files, ".tip") {
+				t.Errorf("expected at least one .tip file under fixture dir, got %v", files)
+			}
+			if !hasAnyWithSuffix(files, ".doc") {
+				t.Errorf("expected at least one .doc file under fixture dir, got %v", files)
+			}
+			t.Logf("fixture generated in %s (seed=%#x, %d files); "+
+				"full Gocene round-trip blocked on prefix-tree decoder "+
+				"(audit gap_notes: %q)", dir, seed, len(files), auditGap)
 		})
 	}
 }

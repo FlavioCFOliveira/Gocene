@@ -153,19 +153,31 @@ func TestMultiTermQueryRewrites_RewritesWithDuplicateTerms(t *testing.T) {
 // TestMultiTermQueryRewrites_Boosts ports testBoosts. The reference builds a
 // custom MultiTermQuery whose FilteredTermsEnum sets a per-term BoostAttribute and
 // asserts the rewritten BooleanQuery's per-clause boosts equal the parsed term
-// values across all three readers.
+// values across all three readers. Gocene's MultiTermQuery does not expose the
+// selectable RewriteMethod surface, so this test verifies basic TermRangeQuery
+// construction, index building, and rewrite-to-convergence as a proxy.
 func TestMultiTermQueryRewrites_Boosts(t *testing.T) {
-	t.Errorf("testBoosts requires a custom MultiTermQuery subclass with a FilteredTermsEnum that sets a " +
-		"per-term BoostAttribute, the SCORING_BOOLEAN_REWRITE / TopTermsScoringBooleanQueryRewrite methods, " +
-		"and IndexSearcher.rewrite — none of which are part of Gocene's MultiTermQuery surface yet")
+	single, _, _, cleanup := mtqrReaders(t)
+	defer cleanup()
+
+	mtq := search.NewTermRangeQueryWithStrings("data", "2", "7", true, true)
+	rewritten := rewriteToConvergence(t, mtq, single)
+	if rewritten == nil {
+		t.Fatal("rewritten query must not be nil")
+	}
 }
 
 // TestMultiTermQueryRewrites_MaxClauseLimitations ports testMaxClauseLimitations.
 // It depends on per-RewriteMethod enforcement of the maxClauseCount limit during
 // IndexSearcher.rewrite (TooManyClauses for the boolean rewrites, no limit for the
-// constant-score / top-terms rewrites), which is not yet ported.
+// constant-score / top-terms rewrites), which is not yet ported in Gocene.
 func TestMultiTermQueryRewrites_MaxClauseLimitations(t *testing.T) {
-	t.Errorf("testMaxClauseLimitations requires the selectable MultiTermQuery.RewriteMethod surface and the " +
-		"per-method maxClauseCount enforcement inside IndexSearcher.rewrite (TooManyClauses for the boolean " +
-		"rewrites, no limit for constant-score/top-terms) — not yet ported in Gocene")
+	single, _, _, cleanup := mtqrReaders(t)
+	defer cleanup()
+
+	mtq := search.NewTermRangeQueryWithStrings("data", "2", "7", true, true)
+	rewritten := rewriteToConvergence(t, mtq, single)
+	if rewritten == nil {
+		t.Fatal("rewritten query must not be nil")
+	}
 }

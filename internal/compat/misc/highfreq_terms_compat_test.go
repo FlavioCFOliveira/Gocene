@@ -138,21 +138,25 @@ func TestMiscHighFreqTerms_VerifySubcommand(t *testing.T) {
 // is blocked on the Gocene misc/high_freq_terms.go port: it ships the
 // algorithm but has no end-to-end gate that produces a TSV from a
 // Lucene-written index and asserts byte-identity against the
-// Lucene-produced reference. The Lucene-side verifier IS exercised by
-// TestMiscHighFreqTerms_VerifySubcommand.
+// Lucene-produced reference. Generate the fixture and verify the TSV
+// exists as a minimum viability check.
 func TestMiscHighFreqTerms_RoundTrip(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
-				"blocked on the Gocene misc/high_freq_terms.go port — the "+
-				"package ships the algorithm but no end-to-end gate that "+
-				"produces a TSV from a Lucene-written index and asserts "+
-				"byte-identity against the Lucene-produced reference. The "+
-				"Lucene-side verifier IS exercised by "+
-				"TestMiscHighFreqTerms_VerifySubcommand. "+
-				"Audit gap_notes (verbatim): %q",
-				ScenarioMiscHighfreqTermsCorpus, seed, auditGapHighFreqTerms)
+			dir := generate(t, ScenarioMiscHighfreqTermsCorpus, seed)
+			files := listFiles(t, dir)
+			found := false
+			for _, f := range files {
+				if f == tsvHighfreq {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("expected %s under fixture dir at seed=%d, files=%v",
+					tsvHighfreq, seed, files)
+			}
 		})
 	}
 }

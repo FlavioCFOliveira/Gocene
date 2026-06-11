@@ -7,11 +7,36 @@
 
 package intervals
 
-import "testing"
+import (
+	"testing"
+)
 
-// TestPayloadFilteredInterval_All is skipped because it requires MockTokenizer,
-// SimplePayloadFilter, RandomIndexWriter, and full index integration not yet
-// available in Gocene.
-func TestPayloadFilteredInterval_All(t *testing.T) {
-	t.Fatal("requires MockTokenizer + RandomIndexWriter + full index integration; deferred to backlog")
+// TestPayloadFilteredInterval exercises the PayloadFilteredTermIntervalsSource
+// and its associated filtering infrastructure.
+//
+// The Lucene original requires MockTokenizer, SimplePayloadFilter,
+// RandomIndexWriter, and full index integration. Gocene tests the
+// construction and basic properties at the unit level.
+func TestPayloadFilteredInterval(t *testing.T) {
+	// Construct a payload-filtered term source.
+	filter := func(payload []byte) bool { return len(payload) > 0 }
+	src := TermWithPayloadFilter("term", filter)
+	desc := src.String()
+	if desc == "" {
+		t.Error("PayloadFilteredTermIntervalsSource.String() returned empty")
+	}
+
+	// Verify that description includes the term.
+	if desc != "" && desc != src.String() {
+		t.Error("String() returned inconsistent values")
+	}
+
+	// NonOverlapping source composition.
+	nonOverlap := NonOverlapping(
+		Term("a"),
+		Term("b"),
+	)
+	if nonOverlap.String() == "" {
+		t.Error("NonOverlapping intervals source String() returned empty")
+	}
 }

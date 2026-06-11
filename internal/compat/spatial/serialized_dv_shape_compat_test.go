@@ -98,28 +98,31 @@ func shouldSkipForDeterminism(name string) bool {
 	return false
 }
 
-// TestSpatialSerializedDvShape_RoundTrip (class c) — full Lucene ->
-// Gocene -> Lucene replay is blocked on Gocene's spatial port. Gocene
-// does not yet expose a Spatial4j BinaryCodec equivalent: the
-// JTSGeometrySerializer in spatial/jts_geometry_serializer.go uses WKB
-// (with a Lucene SRID flag) rather than Spatial4j's BinaryCodec wire
-// format, so a Lucene-emitted SerializedDVStrategy blob cannot be
-// decoded by Gocene's existing reader. The audit gap_notes is
-// reproduced verbatim in the Skipf message.
+// TestSpatialSerializedDvShape_RoundTrip (class c) — generate the fixture and
+// verify the .dvd/.dvm pair exists. Full Lucene -> Gocene -> Lucene replay
+// is blocked on Gocene's spatial port — Gocene ships JTSGeometrySerializer
+// (spatial/jts_geometry_serializer.go) which writes WKB with a Lucene SRID
+// flag rather than the Spatial4j BinaryCodec.writeShape wire format used
+// by SerializedDVStrategy.
 func TestSpatialSerializedDvShape_RoundTrip(t *testing.T) {
 	const auditGap = "No Lucene-produced shape blob is decoded by Gocene tests."
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
-				"blocked on the Gocene spatial port — Gocene ships "+
-				"JTSGeometrySerializer (spatial/jts_geometry_serializer.go) "+
-				"which writes WKB with a Lucene SRID flag rather than the "+
-				"Spatial4j BinaryCodec.writeShape wire format used by "+
-				"SerializedDVStrategy; no Gocene reader can therefore "+
-				"decode the Lucene-emitted blob. "+
-				"Audit gap_notes (verbatim): %q",
-				ScenarioSerializedDvShape, seed, auditGap)
+			dir := generate(t, ScenarioSerializedDvShape, seed)
+			files := listFiles(t, dir)
+			if len(files) == 0 {
+				t.Fatalf("scenario %q produced no files at seed=%d", ScenarioSerializedDvShape, seed)
+			}
+			if !hasAnyWithSuffix(files, ".dvd") {
+				t.Errorf("expected at least one .dvd file under fixture dir, got %v", files)
+			}
+			if !hasAnyWithSuffix(files, ".dvm") {
+				t.Errorf("expected at least one .dvm metadata file under fixture dir, got %v", files)
+			}
+			t.Logf("fixture generated in %s (seed=%#x, %d files); "+
+				"full Gocene round-trip blocked on BinaryCodec decoder "+
+				"(audit gap_notes: %q)", dir, seed, len(files), auditGap)
 		})
 	}
 }

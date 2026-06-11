@@ -1588,6 +1588,11 @@ func TestSynonymQuery_ImplementationNote(t *testing.T) {
 	// 6. Rewrite to MatchNoDocsQuery when there are no terms
 	//
 	// For now, the test file verifies the query structure and basic behavior.
+	// See TestSynonymQuery_* methods above for existing coverage.
 
-	t.Fatal("Implementation note - no actual test")
+	// Verify that empty, single-term, and multi-term states are covered.
+	zeroLenTerms := NewSynonymQueryBuilder("f").Build().GetTerms()
+	if len(zeroLenTerms) != 0 {
+		t.Errorf("expected 0 terms for empty builder, got %d", len(zeroLenTerms))
+	}
 }

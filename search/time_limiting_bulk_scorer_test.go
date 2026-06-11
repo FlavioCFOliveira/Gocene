@@ -11,6 +11,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -77,16 +78,130 @@ func scoreFull(s search.BulkScorer) (int, error) {
 
 // TestTimeLimitingBulkScorer_TimeLimitingBulkScorer mirrors
 // TestTimeLimitingBulkScorer.testTimeLimitingBulkScorer.
-// The Java test requires a full index + searcher; that infrastructure is not
-// yet available in Gocene. Ported as a degraded stub.
+// Uses the integration harness to create a real index with documents, builds a
+// MatchAllDocsQuery weight, wraps the resulting BulkScorer in a
+// TimeLimitingBulkScorer, and verifies scoring without timeout.
 func TestTimeLimitingBulkScorer_TimeLimitingBulkScorer(t *testing.T) {
-	t.Fatal("requires full IndexWriter/IndexSearcher/TermQuery — deferred until index round-trip is wired")
+	ix := newIntegrationIndex(t)
+	ix.addText("field", "hello world")
+	ix.addText("field", "foo bar")
+	ix.addText("field", "baz qux")
+	s, cleanup := ix.searcher()
+	defer cleanup()
+
+	reader := s.GetReader()
+	leaves, err := reader.Leaves()
+	if err != nil {
+		t.Fatalf("Leaves: %v", err)
+	}
+	if len(leaves) == 0 {
+		t.Fatal("no leaves in index")
+	}
+
+	// Create a MatchAllDocsQuery weight, get its BulkScorer, wrap with timeout,
+	// and verify it scores all 3 docs without error.
+	q := search.NewMatchAllDocsQuery()
+	weight, err := s.CreateWeight(q, search.COMPLETE, 1.0)
+	if err != nil {
+		t.Fatalf("CreateWeight: %v", err)
+	}
+
+	for _, leaf := range leaves {
+		innerBS, err := weight.BulkScorer(leaf)
+		if err != nil {
+			t.Fatalf("BulkScorer: %v", err)
+		}
+
+		timedBS := search.NewTimeLimitingBulkScorer(innerBS, neverExitTimeout{})
+		remaining, err := timedBS.Score(dummyLeafCollector{}, nil, 0, leaf.Reader().MaxDoc())
+		if err != nil {
+			t.Errorf("Score returned error: %v", err)
+		}
+		if remaining != leaf.Reader().MaxDoc() {
+			t.Errorf("remaining = %d, want %d", remaining, leaf.Reader().MaxDoc())
+		}
+	}
+}
+
+// TestTimeLimitingBulkScorer_TimeLimitingBulkScorerWithTimeout verifies that
+// wrapping a real query's BulkScorer with a timeout that always fires returns
+// ErrTimeExceeded.
+func TestTimeLimitingBulkScorer_TimeLimitingBulkScorerWithTimeout(t *testing.T) {
+	ix := newIntegrationIndex(t)
+	ix.addText("field", "hello world")
+	ix.addText("field", "foo bar")
+	ix.addText("field", "baz qux")
+	s, cleanup := ix.searcher()
+	defer cleanup()
+
+	reader := s.GetReader()
+	leaves, err := reader.Leaves()
+	if err != nil {
+		t.Fatalf("Leaves: %v", err)
+	}
+	if len(leaves) == 0 {
+		t.Fatal("no leaves in index")
+	}
+
+	q := search.NewMatchAllDocsQuery()
+	weight, err := s.CreateWeight(q, search.COMPLETE, 1.0)
+	if err != nil {
+		t.Fatalf("CreateWeight: %v", err)
+	}
+
+	for _, leaf := range leaves {
+		innerBS, err := weight.BulkScorer(leaf)
+		if err != nil {
+			t.Fatalf("BulkScorer: %v", err)
+		}
+
+		timedBS := search.NewTimeLimitingBulkScorer(innerBS, alwaysExitTimeout{})
+		_, err = timedBS.Score(dummyLeafCollector{}, nil, 0, leaf.Reader().MaxDoc())
+		if !errors.Is(err, search.ErrTimeExceeded) {
+			t.Errorf("Score() error = %v, want ErrTimeExceeded", err)
+		}
+	}
+}
+
+// TestTimeLimitingBulkScorer_TimeLimitingBulkScorerWithTermQuery verifies
+// a TermQuery-based BulkScorer can be wrapped with timeout and scores correctly.
+func TestTimeLimitingBulkScorer_TimeLimitingBulkScorerWithTermQuery(t *testing.T) {
+	ix := newIntegrationIndex(t)
+	ix.addText("field", "hello world")
+	ix.addText("field", "foo bar")
+	ix.addText("field", "hello again")
+	s, cleanup := ix.searcher()
+	defer cleanup()
+
+	reader := s.GetReader()
+	leaves, err := reader.Leaves()
+	if err != nil {
+		t.Fatalf("Leaves: %v", err)
+	}
+
+	q := search.NewTermQuery(index.NewTerm("field", "hello"))
+	weight, err := s.CreateWeight(q, search.COMPLETE, 1.0)
+	if err != nil {
+		t.Fatalf("CreateWeight: %v", err)
+	}
+
+	for _, leaf := range leaves {
+		innerBS, err := weight.BulkScorer(leaf)
+		if err != nil {
+			t.Fatalf("BulkScorer: %v", err)
+		}
+
+		timedBS := search.NewTimeLimitingBulkScorer(innerBS, neverExitTimeout{})
+		_, err = timedBS.Score(dummyLeafCollector{}, nil, 0, leaf.Reader().MaxDoc())
+		if err != nil {
+			t.Errorf("Score returned error: %v", err)
+		}
+	}
 }
 
 // TestTimeLimitingBulkScorer_ExponentialRate is a faithful port of
 // TestTimeLimitingBulkScorer.testExponentialRate. It verifies the
-// growing-interval arithmetic of the inner score(min, max) windowing loop now
-// that Gocene's BulkScorer exposes the min/max range contract (rmp #4777).
+// growing-interval arithmetic of the inner score(min, max) windowing loop.
 func TestTimeLimitingBulkScorer_ExponentialRate(t *testing.T) {
 	const maxDocs = search.NO_MORE_DOCS - 1
 

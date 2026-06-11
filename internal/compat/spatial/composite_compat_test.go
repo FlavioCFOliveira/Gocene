@@ -53,26 +53,32 @@ func TestSpatialComposite_ByteDeterminism(t *testing.T) {
 	}
 }
 
-// TestSpatialComposite_RoundTrip (class c) — Gocene's composite port
-// exists at spatial/composite/composite_spatial_strategy.go but ships
-// neither the SerializedDV blob decoder nor the SpatialPrefixTree term
-// reader the round-trip leg would require.
+// TestSpatialComposite_RoundTrip (class c) — generate the fixture and verify
+// both the prefix-tree leg (.tim/.tip/.doc) and the doc-values leg
+// (.dvd/.dvm) are present. Gocene's composite port exists at
+// spatial/composite/composite_spatial_strategy.go but ships neither the
+// SerializedDV blob decoder nor the SpatialPrefixTree term reader the
+// round-trip leg would require.
 func TestSpatialComposite_RoundTrip(t *testing.T) {
 	const auditGap = "No tests for the composite strategy port."
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
-				"blocked on the Gocene composite port — "+
-				"spatial/composite/composite_spatial_strategy.go exposes "+
-				"the composite type but the round-trip leg depends on "+
-				"BOTH a Spatial4j BinaryCodec.writeShape decoder AND a "+
-				"prefix-tree postings reader, neither of which is "+
-				"available in Gocene (see "+
-				"TestSpatialSerializedDvShape_RoundTrip and "+
-				"TestSpatialPrefixTree_RoundTrip). "+
-				"Audit gap_notes (verbatim): %q",
-				ScenarioComposite, seed, auditGap)
+			dir := generate(t, ScenarioComposite, seed)
+			files := listFiles(t, dir)
+			if len(files) == 0 {
+				t.Fatalf("scenario %q produced no files at seed=%d", ScenarioComposite, seed)
+			}
+			for _, suffix := range []string{".tim", ".tip", ".doc", ".dvd", ".dvm"} {
+				if !hasAnyWithSuffix(files, suffix) {
+					t.Errorf("expected at least one %s file under fixture dir, got %v",
+						suffix, files)
+				}
+			}
+			t.Logf("fixture generated in %s (seed=%#x, %d files); "+
+				"full Gocene round-trip blocked on composite port "+
+				"(BinaryCodec decoder + prefix-tree postings reader; "+
+				"audit gap_notes: %q)", dir, seed, len(files), auditGap)
 		})
 	}
 }

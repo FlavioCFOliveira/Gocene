@@ -5,15 +5,10 @@
 // Ported from Apache Lucene 10.4.0:
 //   lucene/core/src/test/org/apache/lucene/analysis/TestGraphTokenizers.java
 //
-// Deviation: eight tests (MockGraphTokenFilter* and DoubleMockGraphTokenFilter*)
-// depend on MockGraphTokenFilter, MockHoleInjectingTokenFilter, MockTokenizer,
-// and AutomatonTestUtil — none of which are ported to Gocene yet. Those tests
-// remain as t.Fatal stubs. TestGraphTokenizers_ToDot depends on TokenStreamToDot,
-// also not yet ported.
-//
-// The fifteen CannedTokenStream-based tests are fully implemented using the
-// available analysis/testutil.CannedTokenStream, analysis.TokenStreamToAutomaton,
-// and util/automaton operations.
+// All tests are fully implemented: CannedTokenStream-based, ToDot, MockGraphTokenFilter,
+// MockHoleInjectingTokenFilter, and random/combinatorial variants. The production
+// infrastructure (MockGraphTokenFilter, MockHoleInjectingTokenFilter, TokenStreamToDot,
+// TokenStreamToAutomaton) has been ported, enabling the full test suite.
 
 package analysis_test
 
@@ -523,6 +518,21 @@ func drainTokens(t *testing.T, iter int, stream drainableTokenStream) []testutil
 	return out
 }
 
+// randomTokens generates a slice of random Tokens for testing.
+func randomTokens(rng *rand.Rand, count int) []testutil.Token {
+	tokens := make([]testutil.Token, count)
+	letters := []string{"x", "y", "z", "b", "c", "d", "e", "f", "g"}
+	for i := range tokens {
+		letter := letters[rng.Intn(len(letters))]
+		posInc := rng.Intn(3) + 1
+		posLen := rng.Intn(3) + 1
+		start := i * 2
+		end := start + 2
+		tokens[i] = testutil.NewTokenWithPosIncAndLength(letter, posInc, start, end, posLen)
+	}
+	return tokens
+}
+
 // ---- Test implementations ------------------------------------------------
 
 // TestGraphTokenizers_MockGraphTokenFilterBeforeHoles mirrors
@@ -602,21 +612,6 @@ func TestGraphTokenizers_MockGraphTokenFilterAfterHoles(t *testing.T) {
 	}
 }
 
-// randomTokens generates a slice of random Tokens for testing.
-func randomTokens(rng *rand.Rand, count int) []testutil.Token {
-	tokens := make([]testutil.Token, count)
-	letters := []string{"x", "y", "z", "b", "c", "d", "e", "f", "g"}
-	for i := range tokens {
-		letter := letters[rng.Intn(len(letters))]
-		posInc := rng.Intn(3) + 1
-		posLen := rng.Intn(3) + 1
-		start := i * 2
-		end := start + 2
-		tokens[i] = testutil.NewTokenWithPosIncAndLength(letter, posInc, start, end, posLen)
-	}
-	return tokens
-}
-
 // TestGraphTokenizers_MockGraphTokenFilterRandom mirrors
 // testMockGraphTokenFilterRandom. Chain: CannedTokenStream ->
 // MockGraphTokenFilter. Uses random CannedTokenStream inputs and verifies
@@ -627,8 +622,6 @@ func TestGraphTokenizers_MockGraphTokenFilterRandom(t *testing.T) {
 
 		cts := testutil.NewCannedTokenStream(randomTokens(rng, 10)...)
 
-		// Re-seed to create the filter with the same source (the
-		// filter snapshots the seed internally for determinism).
 		filterRng := rand.New(rand.NewSource(int64(iter)))
 		mgf := analysis.NewMockGraphTokenFilter(filterRng, cts)
 
@@ -752,7 +745,3 @@ func TestGraphTokenizers_MockGraphTokenFilterAfterHolesRandom(t *testing.T) {
 		}
 	}
 }
-
-// mkTokOffset is used by TestGraphTokenizers_ToDot but retained here so the
-// symbol is not orphaned when the ToDot test is eventually implemented.
-var _ = mkTokOffset

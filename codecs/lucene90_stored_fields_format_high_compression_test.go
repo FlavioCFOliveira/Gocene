@@ -36,13 +36,11 @@ package codecs_test
 //     override by driving StoredFieldsTester.TestFull directly against the
 //     stored-fields format produced by the codec under test.
 //
-//   - Gocene's [codecs.Lucene104Codec] has no Mode parameter and exposes
-//     only a no-arg constructor; the BEST_SPEED / BEST_COMPRESSION split
-//     lives one layer down in [codecs/lucene90.Lucene90StoredFieldsFormat].
-//     The mixed-codec scenario in testMixedCompressions therefore has no
-//     direct Gocene analogue at the Codec level and is skipped with the
-//     reason recorded inline; reopening this test belongs to a future task
-//     that introduces a Mode-aware Lucene104Codec.
+//   - Gocene's [codecs.Lucene104Codec] now supports Mode via
+//     [codecs.NewLucene104CodecWithMode]. BEST_SPEED uses LZ4 fast
+//     compression (16KB chunks); BEST_COMPRESSION uses Deflate (64KB
+//     chunks). The mixed-codec scenario uses two codec instances with
+//     different modes against isolated directories.
 //
 //   - testInvalidOptions exercises two NullPointerExceptions: one for
 //     Lucene104Codec(null) and one for new Lucene90StoredFieldsFormat(null).
@@ -61,16 +59,16 @@ import (
 
 // TestLucene90StoredFieldsFormatHighCompression_Basic drives the
 // stored-fields tester against the codec returned by getCodec() in the
-// Java reference (Lucene104Codec with BEST_COMPRESSION). Gocene's
-// Lucene104Codec exposes a single stored-fields format implementation,
-// so the test simply asserts that the format produced by the codec
-// satisfies the same end-to-end contract as the BEST_SPEED default
-// covered by TestLucene104StoredFieldsFormat_Basic.
+// Java reference (Lucene104Codec with BEST_COMPRESSION). Uses the
+// mode-aware constructor to match the Java test's compression setting.
 func TestLucene90StoredFieldsFormatHighCompression_Basic(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	codec := codecs.NewLucene104Codec()
+	codec := codecs.NewLucene104CodecWithMode(codecs.Lucene104CodecBestCompression)
+	if codec.Mode() != codecs.Lucene104CodecBestCompression {
+		t.Fatalf("Mode: got %d, want %d", codec.Mode(), codecs.Lucene104CodecBestCompression)
+	}
 	format := codec.StoredFieldsFormat()
 	if format == nil {
 		t.Fatal("Lucene104Codec.StoredFieldsFormat() returned nil")
@@ -82,14 +80,37 @@ func TestLucene90StoredFieldsFormatHighCompression_Basic(t *testing.T) {
 
 // TestLucene90StoredFieldsFormatHighCompression_MixedCompressions is the
 // counterpart of testMixedCompressions. Lucene's Java test alternates the
-// per-segment compression preset by passing
-// RandomPicks.randomFrom(random(), Lucene104Codec.Mode.values()) to a new
-// Lucene104Codec per IndexWriter, and then verifies that the resulting
-// index reads back cleanly. Gocene's [codecs.Lucene104Codec] currently
-// has no Mode parameter, so the scenario cannot be expressed at the same
-// layer; the test is skipped with an explicit reason rather than mocked.
+// per-segment compression preset by passing different Mode values to the
+// codec constructor and verifies that the resulting indexes read back
+// cleanly. We create two isolated directories, one per mode, and verify
+// that each format produced by the mode-aware constructor satisfies the
+// end-to-end contract.
 func TestLucene90StoredFieldsFormatHighCompression_MixedCompressions(t *testing.T) {
-	t.Fatal("requires Mode-aware Lucene104Codec; not yet ported (see file-level mapping notes)")
+	for _, tc := range []struct {
+		name string
+		mode codecs.Lucene104CodecMode
+	}{
+		{"BestSpeed", codecs.Lucene104CodecBestSpeed},
+		{"BestCompression", codecs.Lucene104CodecBestCompression},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			dir := store.NewByteBuffersDirectory()
+			defer dir.Close()
+
+			codec := codecs.NewLucene104CodecWithMode(tc.mode)
+			if codec.Mode() != tc.mode {
+				t.Fatalf("Mode: got %d, want %d", codec.Mode(), tc.mode)
+			}
+			format := codec.StoredFieldsFormat()
+			if format == nil {
+				t.Fatal("StoredFieldsFormat() returned nil")
+			}
+
+			tester := codecs.NewStoredFieldsTester(t)
+			tester.TestFull(format, dir)
+		})
+	}
 }
 
 // TestLucene90StoredFieldsFormatHighCompression_InvalidOptions ports

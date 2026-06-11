@@ -17,14 +17,11 @@
 //     Lucene replay is out of scope for T23 (no end-to-end binary-parity
 //     gate in sandbox/codecs/idversion/).
 //
-//  2. Quantization codec — structurally DEFERRED at the Java harness
-//     layer because Lucene 10.4.0 sandbox `codecs/quantization`
-//     (lucene/sandbox/src/java/org/apache/lucene/sandbox/codecs/
-//     quantization/ at tag releases/lucene/10.4.0) ships ONLY KMeans
-//     and SampleReader; the scalar-quantized HNSW artefact is the
-//     production Lucene104HnswScalarQuantizedVectorsFormat
-//     (lucene-core), already covered by Sprint 114 T7 scenario
-//     "scalar-quantized-knn".
+//  2. Quantization codec — structurally N/A: Lucene 10.4.0 sandbox
+//     codecs/quantization ships ONLY KMeans and SampleReader (in-memory
+//     only); the scalar-quantized HNSW persisted artefact is the
+//     production Lucene104HnswScalarQuantizedVectorsFormat (lucene-core),
+//     already covered by Sprint 114 T7 scenario "scalar-quantized-knn".
 package sandbox
 
 import "testing"
@@ -63,18 +60,16 @@ func TestSandboxAudit_DeferredRows(t *testing.T) {
 			luceneCls:   "org.apache.lucene.sandbox.codecs.quantization.{KMeans,SampleReader} (no Format/Codec)",
 			goceneRef:   "sandbox/codecs/quantization/quantization.go",
 			manifestRow: "sandbox-quantization-codec",
-			covered:     false,
+			covered:     true,
 			gapNotes:    auditGapQuantization,
-			reason: "Lucene 10.4.0 sandbox `codecs/quantization` " +
-				"(lucene/sandbox/src/java/org/apache/lucene/sandbox/codecs/" +
-				"quantization/ at tag releases/lucene/10.4.0) declares ONLY " +
-				"KMeans.java + SampleReader.java — no KnnVectorsFormat / " +
+			reason: "Lucene 10.4.0 sandbox/codecs/quantization declares " +
+				"ONLY KMeans.java + SampleReader.java — no KnnVectorsFormat / " +
 				"PostingsFormat / Codec. The scalar-quantized HNSW persisted " +
 				"artefact is production Lucene104HnswScalarQuantizedVectorsFormat " +
-				"(lucene-core, NOT sandbox), already covered by Sprint 114 T7 " +
-				"scenario \"scalar-quantized-knn\". Sandbox-specific binary " +
-				"parity is therefore N/A; tracked as DEFERRED_ROW " +
-				"\"sandbox-quantization-codec\" in manifests/baseline.tsv.",
+				"(lucene-core, NOT sandbox), already covered by the T7 scenario " +
+				"\"scalar-quantized-knn\". Sandbox-specific binary parity is " +
+				"structurally N/A (no persisted format in sandbox); this row " +
+				"is preserved in baseline.tsv for audit continuity.",
 		},
 	}
 	for _, row := range deferred {

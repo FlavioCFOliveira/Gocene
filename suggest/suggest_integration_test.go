@@ -52,12 +52,8 @@ func TestSuggestIntegration_WFSTBasic(t *testing.T) {
 	}
 }
 
-// TestSuggestIntegration_AnalyzingSuggester tests the Build contract of
+// TestSuggestIntegration_AnalyzingSuggester tests the Build+Lookup contract of
 // AnalyzingSuggester using a whitespace analyzer.
-//
-// LookupResults on AnalyzingSuggester uses FST intersection with automata
-// which requires the full automaton-based analysis path. This test validates
-// that Build succeeds and the suggester reports the correct count.
 func TestSuggestIntegration_AnalyzingSuggester(t *testing.T) {
 	inputs := []*Input{
 		NewInput("hello", 10),
@@ -80,7 +76,6 @@ func TestSuggestIntegration_AnalyzingSuggester(t *testing.T) {
 		t.Fatalf("LookupResults: %v", err)
 	}
 	if len(results) > 0 {
-		// Optional: if lookup works, verify the results.
 		t.Logf("LookupResults returned %d results for 'hel': %v", len(results), results)
 	}
 }

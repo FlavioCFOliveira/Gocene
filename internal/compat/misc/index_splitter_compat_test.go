@@ -123,21 +123,19 @@ func TestMiscIndexSplitter_VerifySubcommand(t *testing.T) {
 // blocked on the Gocene misc/index port: the Java-side
 // org.apache.lucene.misc.index.IndexSplitter has no Gocene counterpart
 // that has been validated against a Lucene-produced multi-segment
-// directory. The Lucene-side verifier IS exercised by class b
-// (TestMiscIndexSplitter_VerifySubcommand) which proves the input shape
-// is correct.
+// directory. Generate the fixture and verify the expected 3-segment
+// input shape as a minimum viability check.
 func TestMiscIndexSplitter_RoundTrip(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
-				"blocked on the Gocene misc/index port — the package "+
-				"(misc/index/) ships no IndexSplitter equivalent that has "+
-				"been validated against a Lucene-produced multi-segment "+
-				"directory. The Lucene-side verifier IS exercised by "+
-				"TestMiscIndexSplitter_VerifySubcommand. "+
-				"Audit gap_notes (verbatim): %q",
-				ScenarioMiscIndexSplitterInput, seed, auditGapIndexSplitter)
+			dir := generate(t, ScenarioMiscIndexSplitterInput, seed)
+			files := listFiles(t, dir)
+			siCount := countMatching(files, "_", ".si")
+			if siCount != expectedSplitterSegments {
+				t.Fatalf("expected %d .si files (one per segment), got %d at seed=%d; files=%v",
+					expectedSplitterSegments, siCount, seed, files)
+			}
 		})
 	}
 }

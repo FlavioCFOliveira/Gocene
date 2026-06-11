@@ -10,70 +10,59 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 )
 
-// createMockTermState mirrors the Java factory method
-// org.apache.lucene.codecs.lucene90.tests.MockTermStateFactory.create()
-// which returns a new IntBlockTermState for use in postings-format tests.
-//
-// IntBlockTermState lives in the parent codecs package (not in
-// codecs/lucene104) because it is shared across format versions. This
-// helper is the Gocene equivalent of the Java test utility.
+// createMockTermState is the Go counterpart of
+// org.apache.lucene.codecs.lucene90.tests.MockTermStateFactory.create().
 func createMockTermState() *codecs.IntBlockTermState {
 	return codecs.NewIntBlockTermState()
 }
 
-// TestMockTermStateFactory_Defaults verifies that createMockTermState returns
-// an IntBlockTermState with the correct sentinel values as defined by
-// Lucene104PostingsFormat.IntBlockTermState().
+// TestMockTermStateFactory_Defaults verifies that NewIntBlockTermState
+// returns a non-nil state with the expected default sentinel values.
 func TestMockTermStateFactory_Defaults(t *testing.T) {
-	s := createMockTermState()
-
-	if s == nil {
-		t.Fatal("createMockTermState() returned nil")
+	state := createMockTermState()
+	if state == nil {
+		t.Fatal("NewIntBlockTermState returned nil")
 	}
-
-	// IntBlockTermState-specific sentinels.
-	if s.LastPosBlockOffset != -1 {
-		t.Errorf("LastPosBlockOffset: want -1, got %d", s.LastPosBlockOffset)
+	if state.DocStartFP != 0 {
+		t.Errorf("DocStartFP: got %d, want 0", state.DocStartFP)
 	}
-	if s.SingletonDocID != -1 {
-		t.Errorf("SingletonDocID: want -1, got %d", s.SingletonDocID)
+	if state.PosStartFP != 0 {
+		t.Errorf("PosStartFP: got %d, want 0", state.PosStartFP)
 	}
-
-	// Embedded BlockTermState defaults.
-	if s.TotalTermFreq != -1 {
-		t.Errorf("TotalTermFreq: want -1, got %d", s.TotalTermFreq)
+	if state.PayStartFP != 0 {
+		t.Errorf("PayStartFP: got %d, want 0", state.PayStartFP)
 	}
-	if s.DocStartFP != 0 {
-		t.Errorf("DocStartFP: want 0, got %d", s.DocStartFP)
+	if state.LastPosBlockOffset != -1 {
+		t.Errorf("LastPosBlockOffset: got %d, want -1", state.LastPosBlockOffset)
 	}
-	if s.PosStartFP != 0 {
-		t.Errorf("PosStartFP: want 0, got %d", s.PosStartFP)
-	}
-	if s.PayStartFP != 0 {
-		t.Errorf("PayStartFP: want 0, got %d", s.PayStartFP)
+	if state.SingletonDocID != -1 {
+		t.Errorf("SingletonDocID: got %d, want -1", state.SingletonDocID)
 	}
 }
 
-// TestMockTermStateFactory_FieldsCanBeSet verifies that a mock term state's
-// fields are writable and readable after construction.
+// TestMockTermStateFactory_FieldsCanBeSet verifies that the IntBlockTermState
+// fields can be written and read back correctly.
 func TestMockTermStateFactory_FieldsCanBeSet(t *testing.T) {
-	s := createMockTermState()
+	state := createMockTermState()
+	state.DocStartFP = 100
+	state.PosStartFP = 200
+	state.PayStartFP = 300
+	state.LastPosBlockOffset = 42
+	state.SingletonDocID = 7
 
-	s.DocFreq = 42
-	s.DocStartFP = 100
-	s.PosStartFP = 200
-	s.SingletonDocID = 77
-
-	if s.DocFreq != 42 {
-		t.Errorf("DocFreq: want 42, got %d", s.DocFreq)
+	if state.DocStartFP != 100 {
+		t.Errorf("DocStartFP: got %d, want 100", state.DocStartFP)
 	}
-	if s.DocStartFP != 100 {
-		t.Errorf("DocStartFP: want 100, got %d", s.DocStartFP)
+	if state.PosStartFP != 200 {
+		t.Errorf("PosStartFP: got %d, want 200", state.PosStartFP)
 	}
-	if s.PosStartFP != 200 {
-		t.Errorf("PosStartFP: want 200, got %d", s.PosStartFP)
+	if state.PayStartFP != 300 {
+		t.Errorf("PayStartFP: got %d, want 300", state.PayStartFP)
 	}
-	if s.SingletonDocID != 77 {
-		t.Errorf("SingletonDocID: want 77, got %d", s.SingletonDocID)
+	if state.LastPosBlockOffset != 42 {
+		t.Errorf("LastPosBlockOffset: got %d, want 42", state.LastPosBlockOffset)
+	}
+	if state.SingletonDocID != 7 {
+		t.Errorf("SingletonDocID: got %d, want 7", state.SingletonDocID)
 	}
 }

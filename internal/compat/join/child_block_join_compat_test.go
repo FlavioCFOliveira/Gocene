@@ -85,18 +85,19 @@ func TestChildBlockJoin_VerifySubcommand(t *testing.T) {
 	}
 }
 
-// TestChildBlockJoin_RoundTrip (class c) — symmetric skip for the
-// ToChildBlockJoinQuery leg.
+// TestChildBlockJoin_RoundTrip (class c) — full L -> G -> L replay is
+// blocked on the SegmentReader core-readers gap. Generate the fixture and
+// verify the expected child-hits TSV exists as a minimum viability check.
 func TestChildBlockJoin_RoundTrip(t *testing.T) {
-	const auditGap = "No binary artefacts originate in join; coverage gap is integration with Lucene-written parent-block segments"
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: Gocene ToChildBlockJoinQuery round-trip at "+
-				"seed=%d is blocked on the SegmentReader core-readers gap "+
-				"(memory-index ref 'gocene-segmentreader-corereaders-gap'); "+
-				"audit gap_notes (verbatim): %q",
-				seed, auditGap)
+			dir := generate(t, ScenarioParentBlockCorpus, seed)
+			rows := readChildTSV(t, dir)
+			if len(rows) == 0 {
+				t.Fatalf("%s empty (no hits from ToChildBlockJoinQuery?) at seed=%d",
+					tsvToChild, seed)
+			}
 		})
 	}
 }

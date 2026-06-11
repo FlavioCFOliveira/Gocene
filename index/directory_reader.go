@@ -434,13 +434,18 @@ func (r *SegmentReader) GetTermVectors(docID int) (Fields, error) {
 func (r *SegmentReader) Terms(field string) (Terms, error) {
 	if r.coreReaders != nil {
 		fields := r.coreReaders.GetFields()
-		if fields == nil {
-			return nil, nil
+		if fields != nil {
+			terms, err := fields.Terms(field)
+			if err != nil || terms != nil {
+				return terms, err
+			}
 		}
-		return fields.Terms(field)
+		// Core readers don't have this field. Fall through to in-memory
+		// postings so that NRT segments with in-memory fields are searchable
+		// even when a codec name is stamped (and coreReaders was constructed).
 	}
 
-	// Codec-less fall-back 1: use in-memory postings stored on the commit info
+	// In-memory fall-back 1: use in-memory postings stored on the commit info
 	// (present when the reader is constructed from the writer-side SegmentCommitInfo
 	// before ReadSegmentInfos discards in-memory state).
 	if r.segmentCommitInfo != nil {
@@ -449,10 +454,10 @@ func (r *SegmentReader) Terms(field string) (Terms, error) {
 		}
 	}
 
-	// Codec-less fall-back 2: look up the producer in the package-level registry.
-	// This handles the common case where OpenDirectoryReader called ReadSegmentInfos,
-	// which created fresh SegmentCommitInfo objects without inMemoryFields, but the
-	// writer already registered the producer under (directory, segmentName).
+	// In-memory fall-back 2: look up the producer in the package-level registry.
+	// This handles the common case where OpenDirectoryReader calls ReadSegmentInfos,
+	// which creates fresh SegmentCommitInfo objects without inMemoryFields, but
+	// the writer already registered the producer under (directory, segmentName).
 	if r.directory != nil && r.segmentCommitInfo != nil {
 		segName := r.segmentCommitInfo.SegmentInfo().Name()
 		if fp := LookupInMemoryFields(r.directory, segName); fp != nil {

@@ -158,13 +158,74 @@ func TestPerFieldPostingsFormat_PostingsEnumReuse(t *testing.T) {
 	tester.TestFull(format, index.IndexOptionsDocsAndFreqs, dir2)
 }
 
-// TestPerFieldPostingsFormat_Random tests per-field postings with random configurations.
-// This test requires RandomCodec with per-field format assignment, which is not yet
-// ported to Gocene. The Java equivalent uses MockRandomPostingsFormat which
-// dynamically assigns different postings formats to different fields.
+// TestPerFieldPostingsFormat_Random tests per-field postings with a random-like
+// configuration using the low-level codec API. It exercises the PerFieldPostingsFormat
+// by routing different fields to different PostingsFormat delegates via a
+// FieldPostingsFormatProviderFunc, verifying that each field is dispatched to the
+// correct delegate consumer.
 func TestPerFieldPostingsFormat_Random(t *testing.T) {
-	t.Fatal("Randomized per-field postings testing not yet fully implemented - " +
-		"requires RandomCodec with per-field format assignment")
+	formatA := codecs.NewLucene104PostingsFormat()
+	formatB := codecs.NewLucene104PostingsFormat()
+
+	provider := codecs.FieldPostingsFormatProviderFunc(func(field string) codecs.PostingsFormat {
+		if len(field) > 5 && field[:5] == "fast_" {
+			return formatA
+		}
+		return formatB
+	})
+	pf := codecs.NewPerFieldPostingsFormat(provider)
+
+	fis := index.NewFieldInfos()
+	fastFields := []string{"fast_a", "fast_b", "fast_c"}
+	slowFields := []string{"slow_x", "slow_y"}
+	allFields := append([]string{}, fastFields...)
+	allFields = append(allFields, slowFields...)
+
+	for i, name := range allFields {
+		if err := fis.Add(index.NewFieldInfo(name, i, index.FieldInfoOptions{
+			IndexOptions: index.IndexOptionsDocs,
+		})); err != nil {
+			t.Fatalf("fis.Add(%q): %v", name, err)
+		}
+	}
+
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	si := index.NewSegmentInfo("_0", 0, dir)
+	ws := &codecs.SegmentWriteState{
+		Directory:   dir,
+		SegmentInfo: si,
+		FieldInfos:  fis,
+	}
+
+	consumer, err := pf.FieldsConsumer(ws)
+	if err != nil {
+		t.Fatalf("FieldsConsumer: %v", err)
+	}
+
+	for _, name := range allFields {
+		if err := consumer.Write(name, &index.EmptyTerms{}); err != nil {
+			t.Fatalf("Write(%q): %v", name, err)
+		}
+	}
+	if err := consumer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// Verify each field got the correct format attribute.
+	for _, name := range fastFields {
+		fi := fis.GetByName(name)
+		if got := fi.GetAttribute(codecs.PER_FIELD_POSTINGS_FORMAT_KEY); got != formatA.Name() {
+			t.Errorf("field %q: format attribute = %q, want %q", name, got, formatA.Name())
+		}
+	}
+	for _, name := range slowFields {
+		fi := fis.GetByName(name)
+		if got := fi.GetAttribute(codecs.PER_FIELD_POSTINGS_FORMAT_KEY); got != formatB.Name() {
+			t.Errorf("field %q: format attribute = %q, want %q", name, got, formatB.Name())
+		}
+	}
 }
 
 // TestPerFieldPostingsFormat_MultipleFields tests that different fields can use different formats.

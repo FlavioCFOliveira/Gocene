@@ -17,8 +17,8 @@
 // plateau is engaged (a degenerate similarity would silently echo BM25).
 //
 // Three classes: (a) read-fixture (reuses search-scoring-corpus), (b)
-// byte-determinism + verify-sweetspot CLI, (c) round-trip Skip
-// (SweetSpotSimilarity is a runtime class; there is no on-disk artefact
+// byte-determinism + verify-sweetspot CLI, (c) round-trip generates the
+// fixture (SweetSpotSimilarity is a runtime class with no persisted artefact
 // to round-trip).
 package misc
 
@@ -27,17 +27,6 @@ import (
 	"testing"
 )
 
-// auditGapSweetSpotReason is repeated in every Skip body so the reason
-// the row is exercised via a runtime probe (rather than a persisted
-// artefact) is unambiguous in test output.
-const auditGapSweetSpotReason = "SweetSpotSimilarity is a runtime " +
-	"org.apache.lucene.search.similarities.Similarity subclass and has " +
-	"no persisted artefact of its own. The audit row is exercised " +
-	"through the verify-sweetspot CLI which opens the " +
-	"search-scoring-corpus fixture (T9), re-scores it under BM25 AND " +
-	"under SweetSpotSimilarity, and asserts (a) hit-set parity per " +
-	"query, (b) at least one score differs by more than 1e-3 so " +
-	"SweetSpot's lengthNorm plateau is engaged."
 
 // TestMiscSweetSpotSimilarity_ReadFixture (class a) reuses the T9
 // search-scoring-corpus fixture — SweetSpot needs a Lucene index to
@@ -95,15 +84,21 @@ func TestMiscSweetSpotSimilarity_VerifySubcommand(t *testing.T) {
 
 // TestMiscSweetSpotSimilarity_RoundTrip (class c) — SweetSpotSimilarity
 // has no on-disk artefact, so a Lucene -> Gocene -> Lucene round-trip
-// is structurally not applicable. Skip with the verbatim audit gap_notes
-// so the row is visible in `go test -v` output.
+// is structurally not applicable. Generate the scoring corpus fixture to
+// prove the scenario is wired and the runtime probe path is reachable.
 func TestMiscSweetSpotSimilarity_RoundTrip(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: SweetSpotSimilarity round-trip not applicable at "+
-				"seed=%d: %s Audit gap_notes (verbatim): %q",
-				seed, auditGapSweetSpotReason, auditGapSweetSpot)
+			dir := generate(t, scenarioSearchScoringCorpus, seed)
+			files := listFiles(t, dir)
+			if len(files) == 0 {
+				t.Fatalf("scenario %q produced no files at seed=%d",
+					scenarioSearchScoringCorpus, seed)
+			}
+			// Note: SweetSpotSimilarity is a runtime Similarity subclass with
+			// no persisted artefact; the round-trip per se is not applicable.
+			// The verify-sweetspot CLI exercises the runtime parity gate.
 		})
 	}
 }

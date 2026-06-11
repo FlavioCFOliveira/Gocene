@@ -4,10 +4,23 @@
 
 package codecs
 
+// Lucene104CodecMode selects the compression mode for stored fields produced
+// by Lucene104Codec. Mirrors org.apache.lucene.codecs.lucene104.Lucene104Codec.Mode.
+type Lucene104CodecMode int
+
+const (
+	// Lucene104CodecBestSpeed trades compression ratio for retrieval speed.
+	// Uses LZ4 fast compression.
+	Lucene104CodecBestSpeed Lucene104CodecMode = iota
+	// Lucene104CodecBestCompression trades retrieval speed for compression ratio.
+	// Uses Deflate (zlib) compression.
+	Lucene104CodecBestCompression
+)
+
 // Lucene104Codec is the default codec for Lucene 10.4.
 // This codec uses:
 //   - Lucene104PostingsFormat for postings (term -> document mappings)
-//   - Lucene104StoredFieldsFormat for stored fields
+//   - Lucene104StoredFieldsFormat for stored fields (or CompressingStoredFieldsFormat when Mode is specified)
 //   - Lucene104FieldInfosFormat for field metadata
 //   - Lucene104SegmentInfosFormat for segment metadata
 //   - Lucene104TermVectorsFormat for term vectors
@@ -17,6 +30,7 @@ package codecs
 // This is the Go port of Lucene's org.apache.lucene.codecs.lucene104.Lucene104Codec.
 type Lucene104Codec struct {
 	*BaseCodec
+	mode               Lucene104CodecMode
 	postingsFormat     PostingsFormat
 	storedFieldsFormat StoredFieldsFormat
 	fieldInfosFormat   FieldInfosFormat
@@ -30,18 +44,18 @@ type Lucene104Codec struct {
 	normsFormat        NormsFormat      // Lucene90NormsFormat (.nvd / .nvm)
 }
 
-// NewLucene104Codec creates a new Lucene104Codec.
-func NewLucene104Codec() *Lucene104Codec {
+// newLucene104CodecDefaults constructs a *Lucene104Codec with all format fields
+// populated, ready for the caller to override before returning.
+func newLucene104CodecDefaults(mode Lucene104CodecMode, sf StoredFieldsFormat) *Lucene104Codec {
 	defaultKnn, err := NewLucene99HnswVectorsFormat()
 	if err != nil {
-		// Default parameters are always valid; this path is unreachable in
-		// production. If it fires, the binary is misconfigured at compile time.
 		panic("lucene104: NewLucene99HnswVectorsFormat with default params: " + err.Error())
 	}
 	return &Lucene104Codec{
 		BaseCodec:          NewBaseCodec("Lucene104"),
+		mode:               mode,
 		postingsFormat:     NewPerFieldPostingsFormatWithDefault(NewLucene104PostingsFormat()),
-		storedFieldsFormat: NewLucene104StoredFieldsFormat(),
+		storedFieldsFormat: sf,
 		fieldInfosFormat:   NewLucene104FieldInfosFormat(),
 		segmentInfosFormat: NewLucene104SegmentInfosFormat(),
 		segmentInfoFormat:  NewLucene99SegmentInfoFormat(),
@@ -52,6 +66,30 @@ func NewLucene104Codec() *Lucene104Codec {
 		pointsFormat:       NewLucene90PointsFormat(),
 		normsFormat:        NewLucene90NormsFormat(),
 	}
+}
+
+// NewLucene104Codec creates a new Lucene104Codec with BEST_SPEED default
+// stored-fields compression, using the simplified Lucene104StoredFieldsFormat.
+func NewLucene104Codec() *Lucene104Codec {
+	return newLucene104CodecDefaults(Lucene104CodecBestSpeed, NewLucene104StoredFieldsFormat())
+}
+
+// NewLucene104CodecWithMode creates a new Lucene104Codec configured with the
+// given compression mode for stored fields. BEST_SPEED uses LZ4 fast compression;
+// BEST_COMPRESSION uses Deflate (zlib) compression with larger chunks.
+//
+// Mirrors org.apache.lucene.codecs.lucene104.Lucene104Codec(Mode).
+func NewLucene104CodecWithMode(mode Lucene104CodecMode) *Lucene104Codec {
+	var sf StoredFieldsFormat
+	switch mode {
+	case Lucene104CodecBestSpeed:
+		sf = NewCompressingStoredFieldsFormat(CompressionModeLZ4Fast, 16*1024, 128)
+	case Lucene104CodecBestCompression:
+		sf = NewCompressingStoredFieldsFormat(CompressionModeDeflate, 64*1024, 256)
+	default:
+		sf = NewLucene104StoredFieldsFormat()
+	}
+	return newLucene104CodecDefaults(mode, sf)
 }
 
 // SegmentInfoFormat returns the per-segment .si format. Added as part
@@ -66,6 +104,11 @@ func (c *Lucene104Codec) SegmentInfoFormat() SegmentInfoFormat {
 // PostingsFormat returns the postings format.
 func (c *Lucene104Codec) PostingsFormat() PostingsFormat {
 	return c.postingsFormat
+}
+
+// Mode returns the compression mode configured for this codec.
+func (c *Lucene104Codec) Mode() Lucene104CodecMode {
+	return c.mode
 }
 
 // StoredFieldsFormat returns the stored fields format.

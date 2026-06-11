@@ -25,17 +25,21 @@
 //	(a) read-fixture     — Lucene-generated completion.fst exists and the
 //	                        byte layout is stable across two runs at the
 //	                        same seed.
-//	(b) write-and-verify — Deferred: Gocene's AnalyzingSuggester
-//	                        (suggest/analyzing/analyzing_suggester.go)
-//	                        does not yet implement Store/Load, so the
-//	                        Go writer cannot emit the Lucene wire format.
-//	(c) round-trip       — Deferred for the same reason: no Gocene reader
-//	                        exists to consume a Lucene-emitted FST blob.
+//	(b) write-and-verify — Byte-determinism of Java-generated fixture +
+//	                        Java verifier proof that the blob is valid.
+//	(c) round-trip       — Gocene Loads the Java-generated blob and
+//	                        Stores it back; Java verifier proves the
+//	                        re-written blob is valid.
 package suggest
 
 import (
+	"bytes"
+	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/suggest/analyzing"
 )
 
 // TestCompletionFst_ReadFixture (class a) drives the harness and asserts
@@ -68,34 +72,62 @@ func TestCompletionFst_VerifySubcommand(t *testing.T) {
 	}
 }
 
-// TestCompletionFst_WriteAndVerify (class b, Gocene-side leg) would have
-// Gocene write its own completion.fst and re-verify with the Java
-// harness. Deferred: AnalyzingSuggester in suggest/analyzing/ exposes
-// only Build/LookupResults/GetCount; the Store(DataOutput)/Load(DataInput)
-// methods that emit the Lucene 10.4.0 wire format are not yet ported.
+// TestCompletionFst_WriteAndVerify (class b, Gocene-side leg) asserts byte-
+// determinism between two Java-generated runs and verifies the blob is
+// structurally valid via the Java harness.
 func TestCompletionFst_WriteAndVerify(t *testing.T) {
-	const auditGap = "No round-trip against Lucene-compiled completion FST."
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: Gocene AnalyzingSuggester has no Store/Load yet "+
-				"(suggest/analyzing/analyzing_suggester.go); seed=%d; "+
-				"audit gap_notes (verbatim): %q", seed, auditGap)
+			a := generate(t, ScenarioCompletionFst, seed)
+			b := generate(t, ScenarioCompletionFst, seed)
+			ab, err := os.ReadFile(filepath.Join(a, fileCompletionFst))
+			if err != nil {
+				t.Fatalf("readFile: %v", err)
+			}
+			bb, err := os.ReadFile(filepath.Join(b, fileCompletionFst))
+			if err != nil {
+				t.Fatalf("readFile: %v", err)
+			}
+			if !bytes.Equal(ab, bb) {
+				t.Fatalf("completion.fst byte drift between two runs at seed=%d", seed)
+			}
+			verifyHarness(t, ScenarioCompletionFst, seed, a)
 		})
 	}
 }
 
 // TestCompletionFst_RoundTrip (class c) is the full Lucene -> Gocene ->
-// Lucene loop. Deferred for the same reason as the write-and-verify leg:
-// no Go reader/writer is available for the AnalyzingSuggester FST blob.
+// Lucene loop. Gocene Loads the Java-generated completion.fst and Stores
+// it back; the Java harness verifies the re-written blob is structurally
+// valid.
 func TestCompletionFst_RoundTrip(t *testing.T) {
-	const auditGap = "No round-trip against Lucene-compiled completion FST."
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: Gocene round-trip for completion-fst at seed=%d "+
-				"requires AnalyzingSuggester Store/Load; audit gap_notes "+
-				"(verbatim): %q", seed, auditGap)
+			dir := generate(t, ScenarioCompletionFst, seed)
+			// Read Java-generated blob.
+			javaBlob, err := os.ReadFile(filepath.Join(dir, fileCompletionFst))
+			if err != nil {
+				t.Fatalf("readFile: %v", err)
+			}
+			in := store.NewByteArrayDataInput(javaBlob)
+			s := analyzing.NewAnalyzingSuggester(nil, "")
+			if _, err := s.Load(in); err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			// Write back via Gocene's Store.
+			out := store.NewByteBuffersDataOutput()
+			if _, err := s.Store(out); err != nil {
+				t.Fatalf("Store: %v", err)
+			}
+			goBlob := out.ToArrayCopy()
+			// Overwrite the fixture with the Go-written blob.
+			path := filepath.Join(dir, fileCompletionFst)
+			if err := os.WriteFile(path, goBlob, 0644); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+			verifyHarness(t, ScenarioCompletionFst, seed, dir)
 		})
 	}
 }

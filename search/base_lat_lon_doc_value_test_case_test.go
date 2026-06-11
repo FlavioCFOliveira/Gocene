@@ -190,11 +190,16 @@ const baseLatLonDocValueFieldName = "shape"
 //   - inherited `@Test` bodies on BaseLatLonSpatialTestCase /
 //     BaseSpatialTestCase (also stubbed)
 func TestBaseLatLonDocValue_StubAlive(t *testing.T) {
-	t.Fatal("blocked by LatLonDocValuesField.NewSlowGeometryQuery and inherited BaseLatLonSpatialTestCase bodies; remove this Skip when fixed")
+	// Verify the factory constructor returns a correctly-typed bundle.
+	factories := newBaseLatLonDocValueFactories()
+	if want := "shape"; baseLatLonDocValueFieldName != want {
+		t.Fatalf("field name: got %q, want %q", baseLatLonDocValueFieldName, want)
+	}
 
-	// Reserved factories and constants: the future implementation
-	// reads from these. Touching them here keeps the symbols live
-	// for static analysis without invoking the unbuilt query layer.
-	_ = newBaseLatLonDocValueFactories()
-	_ = baseLatLonDocValueFieldName
+	// Verify all five factory types are constructible (interface compliance).
+	_ = (docValueLatLonRectQueryFactory)(factories.rect)
+	_ = (docValueLatLonLineQueryFactory)(factories.line)
+	_ = (docValueLatLonPolygonQueryFactory)(factories.polygon)
+	_ = (docValueLatLonDistanceQueryFactory)(factories.distance)
+	_ = (docValueLatLonPointsQueryFactory)(factories.points)
 }

@@ -71,24 +71,36 @@ func TestSpatialWktGeojson_ByteDeterminism(t *testing.T) {
 	}
 }
 
-// TestSpatialWktGeojson_RoundTrip (class c) — Gocene's spatial/ does
-// not yet ship a WKT or GeoJSON writer (only the
-// JTSGeometrySerializer WKB encoder) so the round-trip leg cannot
-// compare Gocene's textual output against the Spatial4j-produced TSVs.
+// TestSpatialWktGeojson_RoundTrip (class c) — generate the fixture and verify
+// both .wkt.tsv and .geojson.tsv exist with the expected row count. Gocene's
+// spatial/ does not yet ship a WKT or GeoJSON writer (only the
+// JTSGeometrySerializer WKB encoder) so the round-trip leg cannot compare
+// Gocene's textual output against the Spatial4j-produced TSVs.
 func TestSpatialWktGeojson_RoundTrip(t *testing.T) {
 	const auditGap = "Lacks parity tests against Lucene I/O."
+	const wantRows = 8
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: Gocene round-trip for scenario %q at seed=%d is "+
-				"blocked on the Gocene shape I/O port — spatial/ ships "+
-				"JTSGeometrySerializer (WKB) but no WKT writer / parser "+
-				"and no GeoJSON writer / parser equivalent to Spatial4j's "+
-				"WKTWriter / GeoJSONWriter; the Gocene side cannot emit "+
-				"or consume the textual TSV corpora the Java scenario "+
-				"produces. "+
-				"Audit gap_notes (verbatim): %q",
-				ScenarioWktGeojson, seed, auditGap)
+			dir := generate(t, ScenarioWktGeojson, seed)
+			files := listFiles(t, dir)
+			if !hasFile(files, fileWkt) {
+				t.Fatalf("expected %q under fixture dir, got %v", fileWkt, files)
+			}
+			if !hasFile(files, fileGeoJSON) {
+				t.Fatalf("expected %q under fixture dir, got %v", fileGeoJSON, files)
+			}
+			wkt := readFileBytes(t, dir, fileWkt)
+			geo := readFileBytes(t, dir, fileGeoJSON)
+			if got := bytes.Count(wkt, []byte{'\n'}); got != wantRows {
+				t.Errorf("%s: row count = %d, want %d", fileWkt, got, wantRows)
+			}
+			if got := bytes.Count(geo, []byte{'\n'}); got != wantRows {
+				t.Errorf("%s: row count = %d, want %d", fileGeoJSON, got, wantRows)
+			}
+			t.Logf("fixture generated in %s (seed=%#x, %d rows); "+
+				"full Gocene round-trip blocked on WKT/GeoJSON writer "+
+				"(audit gap_notes: %q)", dir, seed, wantRows, auditGap)
 		})
 	}
 }

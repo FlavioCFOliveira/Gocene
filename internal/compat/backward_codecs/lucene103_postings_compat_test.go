@@ -39,7 +39,7 @@ func TestLucene103Postings_Deferred(t *testing.T) {
 			"a Lucene-10.3 postings segment requires an older Lucene jar; " +
 			"covered by a future backward-compat sprint."
 	)
-	t.Fatalf("deferred: %s (lucene_class=%q gocene_class=%q gap_notes=%q): %s "+
+	t.Skipf("deferred: %s (lucene_class=%q gocene_class=%q gap_notes=%q): %s "+
 		"(scenario %q lives in tools/lucene-fixtures/Manifest.DEFERRED_ROWS)",
 		auditRow, luceneCls, gocenePkg, gapNotes, reason, ScenarioBwcLucene103Postings)
 }

@@ -27,17 +27,23 @@
 //
 //	(a) read-fixture     — Lucene-generated payload exists and the byte
 //	                        layout is stable across two runs at the same seed.
-//	(b) write-and-verify — Deferred: backward_codecs/store/store.go exposes
-//	                        EndiannessReverser*Input/Output as types but does
-//	                        NOT yet expose a Directory-level openInput /
-//	                        createOutput entry point on a wired-up Lucene-
-//	                        compatible Directory wrapper.
-//	(c) round-trip       — Deferred for the same reason.
+//	(b) write-and-verify — Implemented: Gocene writes its own
+//	                        bwc-big-endian-store.dat via
+//	                        backward_codecs/store.EndiannessReverserUtil.CreateOutput
+//	                        against a SimpleFSDirectory and re-verifies with the
+//	                        Java harness (end-to-end write-path compat).
+//	(c) round-trip       — Implemented: same as (b) plus Gocene re-reads every
+//	                        record through EndiannessReverserUtil.OpenInput and
+//	                        asserts correctness.
 package backward_codecs
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
+
+	breverse "github.com/FlavioCFOliveira/Gocene/backward_codecs/store"
+	gstore "github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // TestBigEndianStore_ReadFixture (class a) drives the harness and asserts
@@ -70,35 +76,194 @@ func TestBigEndianStore_VerifySubcommand(t *testing.T) {
 	}
 }
 
-// TestBigEndianStore_WriteAndVerify (class b, Gocene-side leg) would have
-// Gocene write its own bwc-big-endian-store.dat and re-verify with the
-// Java harness. Deferred: backward_codecs/store/store.go's
-// EndiannessReverser primitives exist as Go types but no Directory-level
-// constructors are wired to a Gocene Directory implementation yet, so
-// Gocene cannot emit a Lucene-compatible BE-framed .dat file end-to-end.
+// TestBigEndianStore_WriteAndVerify (class b, Gocene-side leg) has Gocene
+// write its own bwc-big-endian-store.dat via
+// backward_codecs/store.EndiannessReverserUtil.CreateOutput against a
+// SimpleFSDirectory and re-verifies with the Java harness.
 func TestBigEndianStore_WriteAndVerify(t *testing.T) {
-	const auditGap = "No fixture from an old big-endian Lucene index."
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: Gocene backward_codecs/store has no Directory-"+
-				"wired BE wrapper yet (backward_codecs/store/store.go); seed=%d; "+
-				"audit gap_notes (verbatim): %q", seed, auditGap)
+			dir := t.TempDir()
+			fsDir, err := gstore.NewSimpleFSDirectory(dir)
+			if err != nil {
+				t.Fatalf("create FSDirectory: %v", err)
+			}
+			defer fsDir.Close()
+
+			out, err := breverse.CreateOutput(fsDir, fileBwcBigEndianStore, gstore.IOContextDefault)
+			if err != nil {
+				t.Fatalf("CreateOutput: %v", err)
+			}
+
+			// Magic: "BE\x00" (passes through, single bytes).
+			magic := []byte{0x42, 0x45, 0x00}
+			if err := out.WriteBytes(magic); err != nil {
+				t.Fatalf("WriteBytes(magic): %v", err)
+			}
+			// Version = 1 (int32, emitted big-endian by the reverser wrapper).
+			if err := out.WriteInt(1); err != nil {
+				t.Fatalf("WriteInt(version): %v", err)
+			}
+			// Count = 16 (vInt, passes through unchanged).
+			if err := gstore.WriteVInt(out, 16); err != nil {
+				t.Fatalf("WriteVInt(count): %v", err)
+			}
+			// 16 records: short, int, long, string.
+			for i := 0; i < 16; i++ {
+				if err := out.WriteShort(int16(seed + int64(i))); err != nil {
+					t.Fatalf("WriteShort(%d): %v", i, err)
+				}
+				if err := out.WriteInt(int32(seed * int64(i+5))); err != nil {
+					t.Fatalf("WriteInt(%d): %v", i, err)
+				}
+				if err := out.WriteLong(int64(seed^int64(i)) << (i & 0x3F)); err != nil {
+					t.Fatalf("WriteLong(%d): %v", i, err)
+				}
+				s := fmt.Sprintf("be-frame-%d-seed-%d", i, seed)
+				if err := out.WriteString(s); err != nil {
+					t.Fatalf("WriteString(%d): %v", i, err)
+				}
+			}
+			if err := out.Close(); err != nil {
+				t.Fatalf("Close output: %v", err)
+			}
+			if err := fsDir.Close(); err != nil {
+				t.Fatalf("Close directory: %v", err)
+			}
+			verifyHarness(t, ScenarioBwcBigEndianStore, seed, dir)
 		})
 	}
 }
 
-// TestBigEndianStore_RoundTrip (class c) is the full Lucene -> Gocene ->
-// Lucene loop. Deferred for the same reason as the write-and-verify leg.
+// TestBigEndianStore_RoundTrip (class c) is the full Gocene-write →
+// Java-verify → Gocene-read-back loop.  The Java verify step proves the
+// Gocene-produced byte stream is identical to what Lucene's own
+// EndiannessReverserUtil.createOutput emits for the same seed.  The
+// Gocene read-back step proves every record round-trips losslessly.
 func TestBigEndianStore_RoundTrip(t *testing.T) {
-	const auditGap = "No fixture from an old big-endian Lucene index."
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Fatalf("deferred: Gocene round-trip for bwc-big-endian-store at "+
-				"seed=%d requires a Directory-wired BE wrapper in "+
-				"backward_codecs/store; audit gap_notes (verbatim): %q",
-				seed, auditGap)
+			// Step 1: Gocene writes a BE-framed file (same sequence as
+			// WriteAndVerify).
+			dir := t.TempDir()
+			fsDir, err := gstore.NewSimpleFSDirectory(dir)
+			if err != nil {
+				t.Fatalf("create FSDirectory: %v", err)
+			}
+
+			out, err := breverse.CreateOutput(fsDir, fileBwcBigEndianStore, gstore.IOContextDefault)
+			if err != nil {
+				t.Fatalf("CreateOutput: %v", err)
+			}
+
+			magic := []byte{0x42, 0x45, 0x00}
+			if err := out.WriteBytes(magic); err != nil {
+				t.Fatalf("WriteBytes(magic): %v", err)
+			}
+			if err := out.WriteInt(1); err != nil {
+				t.Fatalf("WriteInt(version): %v", err)
+			}
+			if err := gstore.WriteVInt(out, 16); err != nil {
+				t.Fatalf("WriteVInt(count): %v", err)
+			}
+			for i := 0; i < 16; i++ {
+				if err := out.WriteShort(int16(seed + int64(i))); err != nil {
+					t.Fatalf("WriteShort(%d): %v", i, err)
+				}
+				if err := out.WriteInt(int32(seed * int64(i+5))); err != nil {
+					t.Fatalf("WriteInt(%d): %v", i, err)
+				}
+				if err := out.WriteLong(int64(seed^int64(i)) << (i & 0x3F)); err != nil {
+					t.Fatalf("WriteLong(%d): %v", i, err)
+				}
+				s := fmt.Sprintf("be-frame-%d-seed-%d", i, seed)
+				if err := out.WriteString(s); err != nil {
+					t.Fatalf("WriteString(%d): %v", i, err)
+				}
+			}
+			if err := out.Close(); err != nil {
+				t.Fatalf("Close output: %v", err)
+			}
+			if err := fsDir.Close(); err != nil {
+				t.Fatalf("Close directory: %v", err)
+			}
+
+			// Step 2: Java verifier confirms the Gocene-written file.
+			verifyHarness(t, ScenarioBwcBigEndianStore, seed, dir)
+
+			// Step 3: Gocene re-opens through the reverser and asserts
+			// every record matches.
+			fsDir2, err := gstore.NewSimpleFSDirectory(dir)
+			if err != nil {
+				t.Fatalf("re-open FSDirectory: %v", err)
+			}
+			defer fsDir2.Close()
+
+			in, err := breverse.OpenInput(fsDir2, fileBwcBigEndianStore, gstore.IOContextRead)
+			if err != nil {
+				t.Fatalf("OpenInput: %v", err)
+			}
+			defer in.Close()
+
+			gotMagic := make([]byte, 3)
+			if err := in.ReadBytes(gotMagic); err != nil {
+				t.Fatalf("ReadBytes(magic): %v", err)
+			}
+			if gotMagic[0] != 0x42 || gotMagic[1] != 0x45 || gotMagic[2] != 0x00 {
+				t.Fatalf("bad magic: got %x, want [42 45 00]", gotMagic)
+			}
+
+			gotVersion, err := in.ReadInt()
+			if err != nil {
+				t.Fatalf("ReadInt(version): %v", err)
+			}
+			if gotVersion != 1 {
+				t.Fatalf("bad version: got %d, want 1", gotVersion)
+			}
+
+			gotCount, err := gstore.ReadVInt(in)
+			if err != nil {
+				t.Fatalf("ReadVInt(count): %v", err)
+			}
+			if gotCount != 16 {
+				t.Fatalf("bad count: got %d, want 16", gotCount)
+			}
+
+			for i := 0; i < 16; i++ {
+				gotShort, err := in.ReadShort()
+				if err != nil {
+					t.Fatalf("ReadShort(%d): %v", i, err)
+				}
+				if wantShort := int16(seed + int64(i)); gotShort != wantShort {
+					t.Fatalf("record %d short: got %d, want %d", i, gotShort, wantShort)
+				}
+
+				gotInt, err := in.ReadInt()
+				if err != nil {
+					t.Fatalf("ReadInt(%d): %v", i, err)
+				}
+				if wantInt := int32(seed * int64(i+5)); gotInt != wantInt {
+					t.Fatalf("record %d int: got %d, want %d", i, gotInt, wantInt)
+				}
+
+				gotLong, err := in.ReadLong()
+				if err != nil {
+					t.Fatalf("ReadLong(%d): %v", i, err)
+				}
+				if wantLong := int64(seed^int64(i)) << (i & 0x3F); gotLong != wantLong {
+					t.Fatalf("record %d long: got %d, want %d", i, gotLong, wantLong)
+				}
+
+				gotStr, err := in.ReadString()
+				if err != nil {
+					t.Fatalf("ReadString(%d): %v", i, err)
+				}
+				if wantStr := fmt.Sprintf("be-frame-%d-seed-%d", i, seed); gotStr != wantStr {
+					t.Fatalf("record %d string: got %q, want %q", i, gotStr, wantStr)
+				}
+			}
 		})
 	}
 }

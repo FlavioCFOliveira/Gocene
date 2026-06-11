@@ -21,6 +21,14 @@ import (
 // Matches Lucene's IndexWriter.WRITE_LOCK_NAME.
 const writeLockName = "write.lock"
 
+// MAX_TERM_LENGTH is the maximum length of a term in bytes.
+// Matches Lucene's IndexWriter.MAX_TERM_LENGTH = ByteBlockPool.BYTE_BLOCK_SIZE - 2.
+// BYTE_BLOCK_SIZE is 1 << 15 = 32768.
+const MAX_TERM_LENGTH = 32766
+
+// MaxTermLength returns the maximum length of a term in bytes.
+func MaxTermLength() int { return MAX_TERM_LENGTH }
+
 // Document represents a document to be indexed.
 // This is a minimal interface to avoid circular imports.
 type Document interface {

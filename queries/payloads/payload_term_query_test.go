@@ -7,10 +7,37 @@
 
 package payloads
 
-import "testing"
+import (
+	"testing"
 
-// TestPayloadTermQuery_All is skipped because it requires full payload
-// term query and scoring infrastructure not yet complete in Gocene.
-func TestPayloadTermQuery_All(t *testing.T) {
-	t.Fatal("requires full PayloadTermQuery infrastructure; deferred to backlog")
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
+// TestPayloadTermQuery exercises the payload query types in Gocene:
+// SpanPayloadCheckQuery and PayloadScoreQuery, which replace Lucene's
+// PayloadTermQuery in the Go port.
+//
+// The Lucene original requires a full index with payloads.
+func TestPayloadTermQuery(t *testing.T) {
+	// SpanPayloadCheckQuery — the closest Gocene equivalent to
+	// Lucene's PayloadTermQuery.
+	spanTerm := search.NewSpanTermQuery(index.NewTerm("field", "term"))
+	q := NewSpanPayloadCheckQuery(spanTerm, nil)
+	if q.String("field") == "" {
+		t.Error("SpanPayloadCheckQuery.String() returned empty")
+	}
+
+	// PayloadScoreQuery with a function.
+	fn := &AveragePayloadFunction{}
+	pq := NewPayloadScoreQuery(spanTerm, fn, FloatDecoder)
+	if pq.String("field") == "" {
+		t.Error("PayloadScoreQuery.String() returned empty")
+	}
+
+	// Verify payload function descriptions.
+	if desc := fn.Description(); desc == "" {
+		t.Error("AveragePayloadFunction.Description() returned empty")
+	}
 }

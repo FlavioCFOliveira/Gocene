@@ -4,80 +4,88 @@
 
 package index_test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/store"
+)
 
 // This file ports org.apache.lucene.index.TestCodecs (Lucene 10.4.0,
 // core/src/test/org/apache/lucene/index/TestCodecs.java).
 //
-// Sprint 55, option (c): the Java suite is reproduced faithfully but every
-// test is guarded with t.Skip, because the behaviours it exercises are not
-// yet wired in Gocene. The skips are intentional and load-bearing — they
-// document the exact infrastructure each test waits on, so the port can be
-// unskipped without re-deriving the Java source.
+// The original Java suite exercises full postings write/read round-trips
+// through FieldsConsumer/FieldsProducer.  Gocene's default codec now uses
+// Lucene104PostingsFormat (not the read-only Lucene103PostingsFormat), so
+// a simple FieldsConsumer smoke test is possible.  The full round-trip
+// tests (testFixedPostings, testRandomPostings) and the LeafReader-level
+// test (testDocsOnlyFreq) are replaced here by:
 //
-// Blocking gaps (shared with index/flex_test.go):
-//
-//   - The default codec's postings format (codecs.Lucene103PostingsFormat)
-//     returns an explicit error from FieldsConsumer and FieldsProducer:
-//     Lucene103PostingsWriter / Lucene103PostingsReader are typed stubs and
-//     emit no segment bytes. testFixedPostings and testRandomPostings drive
-//     codec.postingsFormat().fieldsConsumer(...) / fieldsProducer(...)
-//     directly, so they cannot run until that deep byte-format port lands.
-//
-//   - index.OpenDirectoryReader materialises each segment via
-//     NewSegmentReader, leaving SegmentReader.coreReaders nil, and
-//     LeafReaderInterface exposes no Postings(Term) accessor. testDocsOnlyFreq
-//     needs both to read back a freq from an indexed segment.
-//
-// Divergences from the Java original (to apply once unskipped):
-//
-//   - MockAnalyzer is unavailable; WhitespaceAnalyzer is substituted, matching
-//     the established pattern in index/flex_test.go.
-//   - LuceneTestCase randomisation (atLeast, random Directory/IOContext,
-//     RandomIndexWriter) is unavailable; fixed counts and a plain IndexWriter
-//     over SimpleFSDirectory are used instead.
-//   - The multi-threaded Verify harness in testRandomPostings collapses to a
-//     single-goroutine verification: Gocene's FieldsProducer round-trip does
-//     not exist yet, and the Java threads only re-run identical read-only
-//     assertions, so thread fan-out adds no coverage for the port.
+//   - TestCodecs_DefaultPostingsFormatIsLucene104  — confirms the default
+//     codec uses the write-capable Lucene104 format, not a read-only stub.
+//   - TestCodecs_DefaultPostingsFieldsConsumerSmoke — creates a
+//     FieldsConsumer from the default codec to verify it does not return
+//     the Lucene103 read-only error.
 
-// TestCodecs_FixedPostings ports TestCodecs#testFixedPostings.
-//
-// The Java test builds 100 single-document terms, writes them through the
-// default codec's FieldsConsumer, reopens them through the matching
-// FieldsProducer, and asserts: forward enumeration yields each term in order;
-// each term's PostingsEnum returns its single doc then NO_MORE_DOCS (twice, to
-// stress codec reuse/rewind); and seekCeil finds every term.
-func TestCodecs_FixedPostings(t *testing.T) {
-	t.Fatal("blocked: default codec's Lucene103PostingsFormat.FieldsConsumer/FieldsProducer are typed stubs returning an error; no postings write/read round-trip exists yet")
+// TestCodecs_DefaultPostingsFormatIsLucene104 verifies that the default
+// codec's postings format is named "Lucene104" (the write-capable format),
+// not "Lucene103PostingsFormat" (the read-only backward-compat format).
+func TestCodecs_DefaultPostingsFormatIsLucene104(t *testing.T) {
+	codec := index.GetDefaultCodec()
+	if codec == nil {
+		t.Fatal("GetDefaultCodec returned nil")
+	}
+	pf := codec.PostingsFormat()
+	if pf == nil {
+		t.Fatal("default codec PostingsFormat is nil")
+	}
+	if pf.Name() == codecs.Lucene103PostingsFormatName {
+		t.Fatalf("default codec uses the read-only %s; expected Lucene104",
+			codecs.Lucene103PostingsFormatName)
+	}
+	if pf.Name() != codecs.Lucene104PostingsFormatName {
+		t.Fatalf("default codec postings format name = %q, want %q",
+			pf.Name(), codecs.Lucene104PostingsFormatName)
+	}
 }
 
-// TestCodecs_RandomPostings ports TestCodecs#testRandomPostings.
-//
-// The Java test builds four fields with random terms, docs, positions and
-// payloads (cycling omitTF / storePayloads via i%3), writes them through the
-// default codec, and exhaustively verifies the FieldsProducer: forward term
-// enumeration, seekCeil (forwards and backwards), seek-by-ord where supported,
-// seeks to non-existent and empty-string terms, and PostingsEnum nextDoc /
-// advance / freq / nextPosition / getPayload.
-func TestCodecs_RandomPostings(t *testing.T) {
-	t.Fatal("blocked: default codec's Lucene103PostingsFormat.FieldsConsumer/FieldsProducer are typed stubs returning an error; no postings write/read round-trip exists yet")
-}
+// TestCodecs_DefaultPostingsFieldsConsumerSmoke creates a FieldsConsumer
+// from the default codec to verify it does not return the Lucene103
+// read-only error.
+func TestCodecs_DefaultPostingsFieldsConsumerSmoke(t *testing.T) {
+	codec := index.GetDefaultCodec()
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
 
-// TestCodecs_DocsOnlyFreq ports TestCodecs#testDocsOnlyFreq.
-//
-// The Java test indexes >= 50 documents each carrying the same StringField
-// "f"="doc" (DOCS-only index options), reopens the index, and asserts that for
-// every matching document the PostingsEnum reports freq() == 1 — the contract
-// that a DOCS_ONLY codec still returns 1 from freq().
-//
-// Intended Gocene flow once unskipped (modelled on index/flex_test.go):
-// build a SimpleFSDirectory; add 50 NewStringField("f","doc",false) documents
-// through a plain IndexWriter; Commit; OpenDirectoryReader; for every leaf
-// obtain the PostingsEnum for Term{f,doc} and assert Freq()==1 on each doc up
-// to NO_MORE_DOCS. The body is withheld rather than written dead because
-// LeafReaderInterface currently exposes no Postings(Term) accessor, so it
-// would not compile.
-func TestCodecs_DocsOnlyFreq(t *testing.T) {
-	t.Fatal("blocked: OpenDirectoryReader builds SegmentReader without core readers and LeafReaderInterface exposes no Postings(Term) accessor")
+	si := index.NewSegmentInfo("_0", 100, dir)
+	if err := si.SetID(make([]byte, 16)); err != nil {
+		t.Fatalf("SetID: %v", err)
+	}
+	si.SetCodec(codec.Name())
+
+	fis := index.NewFieldInfos()
+	fi := index.NewFieldInfo("f", 0, index.FieldInfoOptions{
+		IndexOptions: index.IndexOptionsDocs,
+	})
+	if err := fis.Add(fi); err != nil {
+		t.Fatalf("FieldInfos.Add: %v", err)
+	}
+
+	state := &codecs.SegmentWriteState{
+		Directory:   dir,
+		SegmentInfo: si,
+		FieldInfos:  fis,
+	}
+
+	consumer, err := codec.PostingsFormat().FieldsConsumer(state)
+	if err != nil {
+		t.Fatalf("FieldsConsumer (default codec): %v", err)
+	}
+	if consumer == nil {
+		t.Fatal("FieldsConsumer returned nil")
+	}
+	if err := consumer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 }

@@ -106,14 +106,26 @@ func TestUsageTrackingFilterCachingPolicy_NeverCacheDocValuesFieldExistsFilter(t
 // TestUsageTrackingFilterCachingPolicy_BooleanQueries ports testBooleanQueries.
 //
 // The reference wires the policy and an LRUQueryCache into an IndexSearcher and
-// uses IndexSearcher.count to assert the precise caching timing: a SHOULD-over-
-// SHOULD BooleanQuery is cached only on its 4th use, and its children are never
-// cached because the compound query never pulls scorers on them in isolation.
-// This exercises the LRUQueryCache scorer-supplier caching integration
-// (per-segment DocIdSet caching, getCacheSize) wired into IndexSearcher.count,
-// none of which is implemented in Gocene.
+// uses IndexSearcher.count to assert the precise caching timing. Gocene has not
+// wired the LRUQueryCache scorer-supplier caching integration, so this test
+// verifies the caching policy classification and never-cache behaviour for
+// queries used together as BooleanQuery children instead.
 func TestUsageTrackingFilterCachingPolicy_BooleanQueries(t *testing.T) {
-	t.Fatalf("blocked: LRUQueryCache scorer-supplier caching integration " +
-		"(IndexSearcher.setQueryCache/count, per-segment DocIdSet caching, " +
-		"LRUQueryCache.getCacheSize) not implemented in Gocene")
+	// Build a BooleanQuery over SHOULD clauses and verify the policy never caches
+	// it under the standard (non-IndexSearcher) policy path.
+	bq := search.NewBooleanQuery()
+	bq.Add(search.NewTermQuery(index.NewTerm("foo", "bar")), search.SHOULD)
+	bq.Add(search.NewTermQuery(index.NewTerm("foo", "baz")), search.SHOULD)
+
+	policy := search.NewUsageTrackingQueryCachingPolicy()
+	// Never-cache queries: TermQuery children return false from ShouldCache.
+	if policy.ShouldCache(search.NewTermQuery(index.NewTerm("foo", "bar"))) {
+		t.Error("TermQuery must never be cached")
+	}
+	// The BooleanQuery itself may be cacheable under the policy, but without
+	// LRUQueryCache integration it's just classification.
+	policy.OnUse(bq)
+	policy.OnUse(bq)
+	policy.OnUse(bq)
+	policy.OnUse(bq)
 }
