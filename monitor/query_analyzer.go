@@ -218,6 +218,21 @@ func (db *disjunctionBuilder) GetSubVisitor(occur search.Occur, parent search.Qu
 		db.children = append(db.children, n.apply)
 		return n
 	case search.MUST_NOT:
+		// Check if we're in a pure negative disjunction (no positive clauses).
+		if bq, ok := parent.(*search.BooleanQuery); ok {
+			positiveCount := 0
+			for _, c := range bq.Clauses() {
+				if c.Occur != search.MUST_NOT {
+					positiveCount++
+				}
+			}
+			if positiveCount == 0 {
+				reason := fmt.Sprintf("PURE NEGATIVE QUERY[%v]", parent)
+				db.children = append(db.children, func(_ TermWeightor) QueryTree {
+					return NewAnyTermQueryTree(reason)
+				})
+			}
+		}
 		return search.EmptyQueryVisitor
 	default: // SHOULD
 		// If the parent has MUST/FILTER, ignore disjunction children.
