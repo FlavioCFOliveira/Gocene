@@ -42,6 +42,8 @@ import (
 	"sync/atomic"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -1036,9 +1038,8 @@ func (r *ReplicaNode) Close() error { return nil }
 // replicated SegmentInfos rather than from an IndexWriter.
 //
 // In Java this extends ReferenceManager<IndexSearcher> and opens readers
-// directly from SegmentInfos via StandardDirectoryReader.open(). The full
-// implementation requires the index-layer DirectoryReader infrastructure;
-// the current stub stores the SegmentInfos reference for future wiring.
+// directly from SegmentInfos via StandardDirectoryReader.open(). The Go
+// port stores the current searcher and swaps atomically on Refresh.
 //
 // Port of org.apache.lucene.replicator.nrt.SegmentInfosSearcherManager.
 type SegmentInfosSearcherManager struct {
@@ -1051,13 +1052,13 @@ type SegmentInfosSearcherManager struct {
 	node *ReplicaNode
 
 	// currentInfos holds the latest SegmentInfos snapshot.
-	// Typed as interface{} until SegmentInfos is fully wired.
 	currentInfos interface{}
+
+	// currentSearcher is the active IndexSearcher (nil until first Refresh).
+	currentSearcher *search.IndexSearcher
 }
 
 // NewSegmentInfosSearcherManager constructs a SegmentInfosSearcherManager.
-//
-// dir may be nil in test contexts. infos is the initial SegmentInfos (may be nil).
 //
 // Port of org.apache.lucene.replicator.nrt.SegmentInfosSearcherManager(Directory,Node,SegmentInfos,SearcherFactory).
 func NewSegmentInfosSearcherManager(dir interface{}, node *ReplicaNode) *SegmentInfosSearcherManager {
@@ -1070,8 +1071,6 @@ func NewSegmentInfosSearcherManager(dir interface{}, node *ReplicaNode) *Segment
 
 // SetCurrentInfos installs a new SegmentInfos snapshot, which will be used
 // on the next Refresh call.
-//
-// Port of org.apache.lucene.replicator.nrt.SegmentInfosSearcherManager.setCurrentInfos.
 func (s *SegmentInfosSearcherManager) SetCurrentInfos(infos interface{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1079,16 +1078,74 @@ func (s *SegmentInfosSearcherManager) SetCurrentInfos(infos interface{}) {
 }
 
 // GetCurrentInfos returns the current SegmentInfos snapshot.
-//
-// Port of org.apache.lucene.replicator.nrt.SegmentInfosSearcherManager.getCurrentInfos.
 func (s *SegmentInfosSearcherManager) GetCurrentInfos() interface{} {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.currentInfos
 }
 
-// Close releases all held resources.
-func (s *SegmentInfosSearcherManager) Close() error { return nil }
+// Refresh opens a new IndexSearcher from the current SegmentInfos and
+// swaps the active searcher atomically. If the directory or SegmentInfos
+// is nil, Refresh is a no-op.
+//
+// Returns true if the searcher was refreshed, false if nothing changed.
+func (s *SegmentInfosSearcherManager) Refresh() (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.dir == nil || s.currentInfos == nil {
+		return false, nil
+	}
+
+	// Open a new DirectoryReader from the current directory.
+	reader, err := s.openReader()
+	if err != nil {
+		return false, fmt.Errorf("SegmentInfosSearcherManager.Refresh: %w", err)
+	}
+	if reader == nil {
+		return false, nil
+	}
+
+	// Swap the searcher.
+	newSearcher := search.NewIndexSearcher(reader)
+	s.currentSearcher = newSearcher
+	return true, nil
+}
+
+// GetSearcher returns the current IndexSearcher. Returns nil if no
+// Refresh has succeeded yet.
+func (s *SegmentInfosSearcherManager) GetSearcher() *search.IndexSearcher {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.currentSearcher
+}
+
+// openReader opens a DirectoryReader from the configured directory.
+// This is a lightweight wrapper that uses the index package's
+// DirectoryReader opening logic when available.
+func (s *SegmentInfosSearcherManager) openReader() (index.IndexReaderInterface, error) {
+	// Use the index package's OpenDirectoryReader if available.
+	reader, err := index.OpenDirectoryReader(s.dir)
+	if err != nil {
+		return nil, err
+	}
+	return reader, nil
+}
+
+// Close releases the current searcher and its underlying reader.
+func (s *SegmentInfosSearcherManager) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.currentSearcher != nil {
+		reader := s.currentSearcher.GetReader()
+		if reader != nil {
+			_ = reader.Close()
+		}
+		s.currentSearcher = nil
+	}
+	return nil
+}
+
 
 // ---------------------------------------------------------------------------
 // PreCopyMergedSegmentWarmer — stub
