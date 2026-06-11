@@ -203,6 +203,12 @@ The `compat` job is enforced via branch protection, configured manually:
 Before closing any task, run the following in the repository root:
 
 ```bash
+# Quick validation (via Makefile):
+make test          # standard tests
+make lint          # check for undocumented t.Fatal/t.Skip blockers
+make race-test     # race detector (x86_64 only, see below)
+
+# Or manually:
 gofmt -l .          # must produce no output
 goimports -l .      # must produce no output
 go vet ./...
@@ -220,6 +226,10 @@ output, and do not declare the task complete.
 Run the race detector on concurrency-sensitive changes:
 
 ```bash
+# Via Makefile (recommended):
+make race-test
+
+# Or directly:
 go test -race ./... -timeout 900s
 ```
 
