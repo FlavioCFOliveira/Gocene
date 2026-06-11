@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"sync/atomic"
 )
 
 // ByteBuffersDirectory is an in-memory Directory implementation using byte slices.
@@ -19,8 +20,9 @@ import (
 // All data is stored in memory and is lost when the directory is closed.
 type ByteBuffersDirectory struct {
 	*BaseDirectory
-	files map[string]*byteBufferFile
-	mu    sync.RWMutex
+	files       map[string]*byteBufferFile
+	mu          sync.RWMutex
+	tempCounter atomic.Uint64
 }
 
 // byteBufferFile represents a file stored in memory.
@@ -183,19 +185,11 @@ func (d *ByteBuffersDirectory) CreateTempOutput(prefix string, suffix string, ct
 }
 
 // generateTempFileName generates a unique temporary file name.
+// Uses an atomic counter to avoid lock acquisition, which would deadlock
+// when called from CreateTempOutput (since CreateOutput also acquires d.mu).
 func (d *ByteBuffersDirectory) generateTempFileName(prefix, suffix string) string {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	// Simple unique name generation
-	counter := len(d.files)
-	for {
-		name := fmt.Sprintf("%s_%d%s", prefix, counter, suffix)
-		if _, exists := d.files[name]; !exists {
-			return name
-		}
-		counter++
-	}
+	counter := d.tempCounter.Add(1)
+	return fmt.Sprintf("%s_%d%s", prefix, counter, suffix)
 }
 
 // Sync is a no-op for ByteBuffersDirectory as data is already in memory.
