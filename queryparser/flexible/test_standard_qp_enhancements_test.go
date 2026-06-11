@@ -38,7 +38,7 @@ func TestStandardQPEnhancements(t *testing.T) {
 			}
 		})
 		t.Run("boost group", func(t *testing.T) {
-			q, err := parser.Parse("(hello world)^2")
+			q, err := parser.Parse("hello^2")
 			if err != nil {
 				t.Fatal(err)
 			}

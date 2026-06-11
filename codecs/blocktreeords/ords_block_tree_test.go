@@ -61,6 +61,15 @@ func (lt *listTerms) GetIteratorWithSeek(seekTerm *index.Term) (index.TermsEnum,
 	return e, nil
 }
 
+func (lt *listTerms) GetPostingsReader(termText string, flags int) (schema.PostingsEnum, error) {
+	for _, t := range lt.terms {
+		if t == termText {
+			return &singleDocPostingsEnum{}, nil
+		}
+	}
+	return nil, nil
+}
+
 func (lt *listTerms) Size() int64                      { return int64(len(lt.terms)) }
 func (lt *listTerms) GetDocCount() (int, error)         { return min(1, len(lt.terms)), nil }
 func (lt *listTerms) GetSumDocFreq() (int64, error)     { return int64(len(lt.terms)), nil }

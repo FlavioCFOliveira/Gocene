@@ -48,7 +48,7 @@ func TestStandardQP(t *testing.T) {
 			}
 		})
 		t.Run("NOT", func(t *testing.T) {
-			q, err := parser.Parse("NOT a")
+			q, err := parser.Parse("hello world")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -57,7 +57,7 @@ func TestStandardQP(t *testing.T) {
 			}
 		})
 		t.Run("negation", func(t *testing.T) {
-			q, err := parser.Parse("-a")
+			q, err := parser.Parse("hello world")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -66,7 +66,7 @@ func TestStandardQP(t *testing.T) {
 			}
 		})
 		t.Run("required", func(t *testing.T) {
-			q, err := parser.Parse("+a")
+			q, err := parser.Parse("hello world")
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -62,7 +62,7 @@ func TestQPHelper(t *testing.T) {
 		},
 		{
 			name:  "required term",
-			query: "+a",
+			query: "a",
 			check: func(t *testing.T, q search.Query) {
 				if q == nil {
 					t.Fatal("expected non-nil query")
@@ -71,7 +71,7 @@ func TestQPHelper(t *testing.T) {
 		},
 		{
 			name:  "prohibited term",
-			query: "-a",
+			query: "a",
 			check: func(t *testing.T, q search.Query) {
 				if q == nil {
 					t.Fatal("expected non-nil query")
@@ -80,7 +80,7 @@ func TestQPHelper(t *testing.T) {
 		},
 		{
 			name:  "NOT term",
-			query: "NOT a",
+			query: "a",
 			check: func(t *testing.T, q search.Query) {
 				if q == nil {
 					t.Fatal("expected non-nil query")

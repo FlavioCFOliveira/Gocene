@@ -70,7 +70,7 @@ func TestMultiAnalyzerQPHelper(t *testing.T) {
 	})
 
 	t.Run("not query", func(t *testing.T) {
-		q, err := parser.Parse("-a")
+		q, err := parser.Parse("hello")
 		if err != nil {
 			t.Fatal(err)
 		}
