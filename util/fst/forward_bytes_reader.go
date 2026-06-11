@@ -156,7 +156,17 @@ func (r *ForwardBytesReader) ReadVLong() (int64, error) {
 func (r *ForwardBytesReader) GetPosition() int64 { return int64(r.pos) }
 
 // SetPosition implements BytesReader.
-func (r *ForwardBytesReader) SetPosition(pos int64) { r.pos = int(pos) }
+func (r *ForwardBytesReader) SetPosition(pos int64) {
+	// Clamp negative positions to 0 and positions past the end to len(r.bytes)
+	// to prevent OOB panics when reading from a crafted/corrupted FST.
+	if pos < 0 {
+		r.pos = 0
+	} else if int(pos) > len(r.bytes) {
+		r.pos = len(r.bytes)
+	} else {
+		r.pos = int(pos)
+	}
+}
 
 // SkipBytes implements BytesReader. n must be non-negative for a
 // forward reader; negative skips rewind the position (mirrors the

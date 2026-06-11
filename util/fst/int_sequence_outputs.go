@@ -14,6 +14,7 @@
 package fst
 
 import (
+	"fmt"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -136,6 +137,9 @@ func (*IntSequenceOutputsImpl) Read(in store.DataInput) (*util.IntsRef, error) {
 	}
 	if n == 0 {
 		return intSequenceNoOutput, nil
+	}
+	if n < 0 || n > maxOutputBytes {
+		return nil, fmt.Errorf("IntSequenceOutputs.Read: length %d exceeds maximum %d", n, maxOutputBytes)
 	}
 	ints := make([]int, n)
 	for i := int32(0); i < n; i++ {

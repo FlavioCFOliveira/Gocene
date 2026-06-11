@@ -14,9 +14,15 @@
 package fst
 
 import (
+	"fmt"
+
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
+
+// maxOutputBytes limits the size of a single FST output sequence read from a VInt,
+// preventing OOM from crafted/corrupted FST files.
+const maxOutputBytes = 100_000_000 // 100 MB
 
 // byteSequenceNoOutput is the singleton "no output" BytesRef used by
 // ByteSequenceOutputs. Comparisons are performed by pointer identity,
@@ -138,6 +144,9 @@ func (*ByteSequenceOutputsImpl) Read(in store.DataInput) (*util.BytesRef, error)
 	n, err := vli.ReadVInt()
 	if err != nil {
 		return nil, err
+	}
+	if n < 0 || n > maxOutputBytes {
+		return nil, fmt.Errorf("ByteSequenceOutputs.Read: length %d exceeds maximum %d", n, maxOutputBytes)
 	}
 	if n == 0 {
 		return byteSequenceNoOutput, nil

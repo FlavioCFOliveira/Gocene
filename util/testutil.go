@@ -6,29 +6,37 @@ package util
 
 import (
 	"math/rand"
+	"sync"
 	"time"
 )
 
 var (
 	// testRandom is the random source for testing
 	testRandom = rand.New(rand.NewSource(time.Now().UnixNano()))
+	testRandMu sync.Mutex // protects testRandom from concurrent access
 )
 
-// RandomInt returns a random int
+// RandomInt returns a random int. Safe for concurrent use.
 func RandomInt() int {
+	testRandMu.Lock()
+	defer testRandMu.Unlock()
 	return testRandom.Int()
 }
 
-// RandomIntN returns a random int in the range [0, n)
+// RandomIntN returns a random int in the range [0, n). Safe for concurrent use.
 func RandomIntN(n int) int {
 	if n <= 0 {
 		return 0
 	}
+	testRandMu.Lock()
+	defer testRandMu.Unlock()
 	return testRandom.Intn(n)
 }
 
-// RandomBool returns a random boolean
+// RandomBool returns a random boolean. Safe for concurrent use.
 func RandomBool() bool {
+	testRandMu.Lock()
+	defer testRandMu.Unlock()
 	return testRandom.Intn(2) == 0
 }
 

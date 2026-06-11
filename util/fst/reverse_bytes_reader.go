@@ -46,7 +46,7 @@ func NewReverseBytesReader(bytes []byte) *ReverseBytesReader {
 
 // ReadByte implements DataInput.
 func (r *ReverseBytesReader) ReadByte() (byte, error) {
-	if r.pos < 0 {
+	if r.pos < 0 || r.pos >= int64(len(r.bytes)) {
 		return 0, io.EOF
 	}
 	b := r.bytes[r.pos]
@@ -186,7 +186,16 @@ func (r *ReverseBytesReader) ReadVLong() (int64, error) {
 func (r *ReverseBytesReader) GetPosition() int64 { return r.pos }
 
 // SetPosition implements BytesReader.
-func (r *ReverseBytesReader) SetPosition(pos int64) { r.pos = pos }
+func (r *ReverseBytesReader) SetPosition(pos int64) {
+	// Clamp to valid range to prevent OOB reads from crafted/corrupted FSTs.
+	if pos < 0 {
+		r.pos = -1 // will return EOF on next read
+	} else if pos >= int64(len(r.bytes)) {
+		r.pos = int64(len(r.bytes)) // will return EOF on next read
+	} else {
+		r.pos = pos
+	}
+}
 
 // SkipBytes implements BytesReader. In the reverse direction a
 // positive n moves the underlying byte index backward (i.e.

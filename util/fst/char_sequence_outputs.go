@@ -14,6 +14,7 @@
 package fst
 
 import (
+	"fmt"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -145,6 +146,9 @@ func (*CharSequenceOutputsImpl) Read(in store.DataInput) (*util.CharsRef, error)
 	}
 	if n == 0 {
 		return charSequenceNoOutput, nil
+	}
+	if n < 0 || n > maxOutputBytes {
+		return nil, fmt.Errorf("CharSequenceOutputs.Read: length %d exceeds maximum %d", n, maxOutputBytes)
 	}
 	chars := make([]rune, n)
 	for i := int32(0); i < n; i++ {
