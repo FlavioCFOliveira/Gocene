@@ -1681,8 +1681,23 @@ func (w *IndexWriter) DeleteAll() error {
 		return err
 	}
 
-	// Atomic store to reset counter - no lock needed
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	// Clear all pending document state so that a subsequent Commit
+	// does not include stale entries from before the DeleteAll call.
 	w.docCount.Store(0)
+	w.pendingDeleteTerms = nil
+	w.pendingSoftDeletedOrdinals = nil
+	w.pendingDeletedDocIDs = nil
+	w.pendingDeleteQueries = nil
+	w.pendingCommittedDeleteTerms = nil
+	w.pendingCommittedDeleteCount = 0
+	w.pendingImportedSegments = nil
+	w.docFieldIndex = nil
+	w.pendingFieldInfos = nil
+	w.committedSegments = nil
+
 	return nil
 }
 

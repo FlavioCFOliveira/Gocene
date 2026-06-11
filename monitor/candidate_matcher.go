@@ -95,3 +95,27 @@ func (b *BaseCandidateMatcher[T]) Finish(buildTime int64, queryCount int) *Multi
 func (b *BaseCandidateMatcher[T]) CopyMatches(other *BaseCandidateMatcher[T]) {
 	b.matches = other.matches
 }
+
+// GetMatches returns the internal matches slice (used by wrappers that need to
+// merge delegate results into a parent matcher).
+func (b *BaseCandidateMatcher[T]) GetMatches() []map[string]T {
+	return b.matches
+}
+
+// GetErrors returns the internal errors map.
+func (b *BaseCandidateMatcher[T]) GetErrors() map[string]error {
+	return b.errors
+}
+
+// MergeFrom merges all matches and errors from another BaseCandidateMatcher
+// into this one, using the provided resolver to combine collisions.
+func (b *BaseCandidateMatcher[T]) MergeFrom(other *BaseCandidateMatcher[T], resolve func(T, T) T) {
+	for doc, qm := range other.matches {
+		for _, match := range qm {
+			b.AddMatch(match, doc, resolve)
+		}
+	}
+	for qid, err := range other.errors {
+		b.errors[qid] = err
+	}
+}

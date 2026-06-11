@@ -86,8 +86,9 @@ func (p *PartitionMatcher[T]) Finish(buildTime int64, queryCount int) *MultiMatc
 	}
 
 	type partResult struct {
-		queryID string
-		err     error
+		queryID  string
+		err      error
+		delegate *BaseCandidateMatcher[T]
 	}
 	results := make(chan partResult, len(pending))
 
@@ -105,9 +106,15 @@ func (p *PartitionMatcher[T]) Finish(buildTime int64, queryCount int) *MultiMatc
 			delegate := p.factory.CreateMatcher(p.Searcher)
 			for _, pq := range queries {
 				if err := delegate.MatchQuery(pq.queryID, pq.query, pq.metadata); err != nil {
-					results <- partResult{pq.queryID, err}
+					results <- partResult{pq.queryID, err, nil}
 				}
 			}
+			// Extract delegate's BaseCandidateMatcher to merge results.
+			var base *BaseCandidateMatcher[T]
+			if bm, ok := interface{}(delegate).(*BaseCandidateMatcher[T]); ok {
+				base = bm
+			}
+			results <- partResult{"", nil, base}
 		}(slice)
 	}
 
@@ -117,7 +124,12 @@ func (p *PartitionMatcher[T]) Finish(buildTime int64, queryCount int) *MultiMatc
 	}()
 
 	for r := range results {
-		p.ReportError(r.queryID, r.err)
+		if r.err != nil {
+			p.ReportError(r.queryID, r.err)
+		}
+		if r.delegate != nil {
+			p.BaseCandidateMatcher.MergeFrom(r.delegate, p.Resolve)
+		}
 	}
 
 	return p.BaseCandidateMatcher.Finish(buildTime, queryCount)

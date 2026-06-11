@@ -78,8 +78,9 @@ func (p *ParallelMatcher[T]) Finish(buildTime int64, queryCount int) *MultiMatch
 	// Spawn one goroutine per pending query; each creates its own delegate so
 	// there is no shared mutable state between goroutines.
 	type result struct {
-		queryID string
-		err     error
+		queryID  string
+		err      error
+		delegate *BaseCandidateMatcher[T]
 	}
 	results := make(chan result, len(pending))
 
@@ -88,15 +89,23 @@ func (p *ParallelMatcher[T]) Finish(buildTime int64, queryCount int) *MultiMatch
 		go func() {
 			delegate := p.factory.CreateMatcher(p.Searcher)
 			err := delegate.MatchQuery(pq.queryID, pq.query, pq.metadata)
-			results <- result{pq.queryID, err}
+			// Extract delegate's BaseCandidateMatcher to merge results.
+			var base *BaseCandidateMatcher[T]
+			if bm, ok := interface{}(delegate).(*BaseCandidateMatcher[T]); ok {
+				base = bm
+			}
+			results <- result{pq.queryID, err, base}
 		}()
 	}
 
-	// Collect all results.
+	// Collect and merge all results back into the parent matcher.
 	for range pending {
 		r := <-results
 		if r.err != nil {
 			p.ReportError(r.queryID, r.err)
+		}
+		if r.delegate != nil {
+			p.BaseCandidateMatcher.MergeFrom(r.delegate, p.Resolve)
 		}
 	}
 	close(results)

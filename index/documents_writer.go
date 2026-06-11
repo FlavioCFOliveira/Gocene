@@ -238,9 +238,7 @@ func (dw *DocumentsWriter) flush() error {
 	}
 
 	if dw.codec == nil {
-		// No codec set, cannot flush
-		dw.numDocsInRAM = 0
-		return nil
+		return fmt.Errorf("documents_writer: cannot flush %d buffered documents: no codec configured", dw.numDocsInRAM)
 	}
 
 	// Generate a new segment name
