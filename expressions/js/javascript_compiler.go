@@ -13,13 +13,20 @@ import (
 // JavascriptCompiler compiles a simple subset of JavaScript expression
 // syntax into an expressions.Expression. The supported grammar is
 // "term ((+|-|*|/) term)*" where a term is a number, an identifier, a
-// parenthesised expression, or a function call (sqrt, abs, ...). Mirrors
-// the public surface of
+// parenthesised expression, or a function call (sqrt, abs, ...). Custom
+// functions can be registered via SetFunctions so that expression calls
+// resolve through the registry before falling back to built-in functions.
+//
+// Mirrors the public surface of
 // org.apache.lucene.expressions.js.JavascriptCompiler.
-type JavascriptCompiler struct{}
+type JavascriptCompiler struct {
+	functions *FunctionRegistry
+}
 
-// Compile parses source into an Expression.
-func (JavascriptCompiler) Compile(source string) (*expressions.Expression, error) {
+// Compile parses source into an Expression. Custom functions registered via
+// SetFunctions are resolved at compile time and take precedence over built-in
+// functions of the same name.
+func (c JavascriptCompiler) Compile(source string) (*expressions.Expression, error) {
 	p := &parser{src: source, pos: 0}
 	root, err := p.parseExpression()
 	if err != nil {
@@ -30,6 +37,11 @@ func (JavascriptCompiler) Compile(source string) (*expressions.Expression, error
 		if p.pos < len(p.src) {
 			return nil, fmt.Errorf("javascript compile error: unexpected trailing %q", source[p.pos:])
 		}
+	}
+	// Resolve function names to builtins or custom functions now, so that
+	// eval() never does a string-based dispatch.
+	if err := resolveFunctions(root, c.functions); err != nil {
+		return nil, err
 	}
 	vars := root.collectVariables()
 	expr := expressions.NewExpression(source, vars, func(values map[string]float64) (float64, error) {
@@ -97,8 +109,10 @@ func (b *binOp) collectVariables() []string {
 }
 
 type funcCall struct {
-	name string
-	args []node
+	name      string
+	args      []node
+	builtin   func([]float64) (float64, error)
+	customFn  CustomFunction
 }
 
 func (f *funcCall) eval(values map[string]float64) (float64, error) {
@@ -113,63 +127,15 @@ func (f *funcCall) eval(values map[string]float64) (float64, error) {
 		}
 		resolved[i] = v
 	}
-	switch f.name {
-	case "sqrt":
-		return Sqrt(resolved[0]), nil
-	case "abs":
-		return Abs(resolved[0]), nil
-	case "log10":
-		return Log10(resolved[0]), nil
-	case "log2":
-		return Log2(resolved[0]), nil
-	case "ln":
-		return Ln(resolved[0]), nil
-	case "logn":
-		return Logn(resolved[0], resolved[1]), nil
-	case "exp":
-		return Exp(resolved[0]), nil
-	case "sin":
-		return Sin(resolved[0]), nil
-	case "cos":
-		return Cos(resolved[0]), nil
-	case "tan":
-		return Tan(resolved[0]), nil
-	case "asin":
-		return Asin(resolved[0]), nil
-	case "acos":
-		return Acos(resolved[0]), nil
-	case "atan":
-		return Atan(resolved[0]), nil
-	case "atan2":
-		return Atan2(resolved[0], resolved[1]), nil
-	case "sinh":
-		return Sinh(resolved[0]), nil
-	case "cosh":
-		return Cosh(resolved[0]), nil
-	case "tanh":
-		return Tanh(resolved[0]), nil
-	case "asinh":
-		return Asinh(resolved[0]), nil
-	case "acosh":
-		return Acosh(resolved[0]), nil
-	case "atanh":
-		return Atanh(resolved[0]), nil
-	case "ceil":
-		return Ceil(resolved[0]), nil
-	case "floor":
-		return Floor(resolved[0]), nil
-	case "round":
-		return Round(resolved[0]), nil
-	case "haversin":
-		return Haversin(resolved[0], resolved[1], resolved[2], resolved[3]), nil
-	case "pow":
-		return Pow(resolved[0], resolved[1]), nil
-	case "max":
-		return Max(resolved[0], resolved[1]), nil
-	case "min":
-		return Min(resolved[0], resolved[1]), nil
+
+	// Custom function registered at compile time takes precedence over builtins.
+	if f.customFn != nil {
+		return f.customFn(resolved...)
 	}
-	return 0, fmt.Errorf("javascript: unknown function %q", f.name)
+	if f.builtin != nil {
+		return f.builtin(resolved)
+	}
+	return 0, ErrUnknownFunction(f.name)
 }
 func (f *funcCall) collectVariables() []string {
 	var out []string
@@ -177,6 +143,69 @@ func (f *funcCall) collectVariables() []string {
 		out = mergeUnique(out, a.collectVariables())
 	}
 	return out
+}
+
+// builtinFunctions maps lowercase function names to their implementations.
+var builtinFunctions = map[string]func([]float64) (float64, error){
+	"sqrt":     func(a []float64) (float64, error) { return Sqrt(a[0]), nil },
+	"abs":      func(a []float64) (float64, error) { return Abs(a[0]), nil },
+	"log10":    func(a []float64) (float64, error) { return Log10(a[0]), nil },
+	"log2":     func(a []float64) (float64, error) { return Log2(a[0]), nil },
+	"ln":       func(a []float64) (float64, error) { return Ln(a[0]), nil },
+	"logn":     func(a []float64) (float64, error) { return Logn(a[0], a[1]), nil },
+	"exp":      func(a []float64) (float64, error) { return Exp(a[0]), nil },
+	"sin":      func(a []float64) (float64, error) { return Sin(a[0]), nil },
+	"cos":      func(a []float64) (float64, error) { return Cos(a[0]), nil },
+	"tan":      func(a []float64) (float64, error) { return Tan(a[0]), nil },
+	"asin":     func(a []float64) (float64, error) { return Asin(a[0]), nil },
+	"acos":     func(a []float64) (float64, error) { return Acos(a[0]), nil },
+	"atan":     func(a []float64) (float64, error) { return Atan(a[0]), nil },
+	"atan2":    func(a []float64) (float64, error) { return Atan2(a[0], a[1]), nil },
+	"sinh":     func(a []float64) (float64, error) { return Sinh(a[0]), nil },
+	"cosh":     func(a []float64) (float64, error) { return Cosh(a[0]), nil },
+	"tanh":     func(a []float64) (float64, error) { return Tanh(a[0]), nil },
+	"asinh":    func(a []float64) (float64, error) { return Asinh(a[0]), nil },
+	"acosh":    func(a []float64) (float64, error) { return Acosh(a[0]), nil },
+	"atanh":    func(a []float64) (float64, error) { return Atanh(a[0]), nil },
+	"ceil":     func(a []float64) (float64, error) { return Ceil(a[0]), nil },
+	"floor":    func(a []float64) (float64, error) { return Floor(a[0]), nil },
+	"round":    func(a []float64) (float64, error) { return Round(a[0]), nil },
+	"haversin": func(a []float64) (float64, error) { return Haversin(a[0], a[1], a[2], a[3]), nil },
+	"pow":      func(a []float64) (float64, error) { return Pow(a[0], a[1]), nil },
+	"max":      func(a []float64) (float64, error) { return Max(a[0], a[1]), nil },
+	"min":      func(a []float64) (float64, error) { return Min(a[0], a[1]), nil },
+}
+
+// resolveFunctions walks the AST and resolves function calls to either a
+// custom function (from reg, taking precedence) or a built-in function.
+func resolveFunctions(n node, reg *FunctionRegistry) error {
+	switch t := n.(type) {
+	case *numLit, *ident:
+		return nil
+	case *binOp:
+		if err := resolveFunctions(t.lhs, reg); err != nil {
+			return err
+		}
+		return resolveFunctions(t.rhs, reg)
+	case *funcCall:
+		if reg != nil {
+			if fn := reg.Lookup(t.name); fn != nil {
+				t.customFn = fn
+			}
+		}
+		if t.customFn == nil {
+			t.builtin = builtinFunctions[t.name]
+		}
+		if t.customFn == nil && t.builtin == nil {
+			return ErrUnknownFunction(t.name)
+		}
+		for _, a := range t.args {
+			if err := resolveFunctions(a, reg); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func mergeUnique(a, b []string) []string {
