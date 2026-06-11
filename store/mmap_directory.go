@@ -273,6 +273,9 @@ type MMapIndexInput struct {
 
 // ReadByte reads a single byte.
 func (in *MMapIndexInput) ReadByte() (byte, error) {
+	if err := in.ensureChunksOpen(); err != nil {
+		return 0, err
+	}
 	if !in.directory.IsOpen() {
 		return 0, ErrIllegalState
 	}
@@ -306,6 +309,9 @@ func (in *MMapIndexInput) ReadByte() (byte, error) {
 
 // ReadBytes reads len(b) bytes into b.
 func (in *MMapIndexInput) ReadBytes(b []byte) error {
+	if err := in.ensureChunksOpen(); err != nil {
+		return err
+	}
 	if !in.directory.IsOpen() {
 		return ErrIllegalState
 	}
@@ -480,10 +486,24 @@ func (in *MMapIndexInput) Slice(desc string, offset int64, length int64) (IndexI
 	}, nil
 }
 
+// ensureChunksOpen returns an error if the chunks slice is nil, which can happen
+// when Clone() fails to open the file. Without this guard, read methods would
+// panic on nil slice access.
+func (in *MMapIndexInput) ensureChunksOpen() error {
+	if in.chunks == nil {
+		return fmt.Errorf("MMapIndexInput: chunks are nil (clone of %q failed to open): %w", in.name, ErrIllegalState)
+	}
+	return nil
+}
+
 // Close closes this IndexInput. A borrowing slice (isSlice) shares the owner's
 // mmap chunks and must NOT unmap them — doing so would corrupt the owner and
 // every sibling slice (rmp #4747); only the owning input unmaps.
 func (in *MMapIndexInput) Close() error {
+	if in.chunks == nil {
+		in.directory.RemoveOpenFile(in.name)
+		return nil
+	}
 	if in.isSlice {
 		in.directory.RemoveOpenFile(in.name)
 		return nil

@@ -581,6 +581,9 @@ type SimpleFSIndexInput struct {
 // Returns io.EOF when the slice boundary has been reached, matching Lucene's
 // FSIndexInput.readInternal bounds enforcement.
 func (in *SimpleFSIndexInput) ReadByte() (byte, error) {
+	if err := in.ensureFileOpen(); err != nil {
+		return 0, err
+	}
 	if !in.directory.IsOpen() {
 		return 0, ErrIllegalState
 	}
@@ -605,6 +608,9 @@ func (in *SimpleFSIndexInput) ReadByte() (byte, error) {
 // Returns io.ErrUnexpectedEOF when the request would exceed the slice boundary,
 // matching Lucene's FSIndexInput.readInternal bounds enforcement.
 func (in *SimpleFSIndexInput) ReadBytes(b []byte) error {
+	if err := in.ensureFileOpen(); err != nil {
+		return err
+	}
 	if !in.directory.IsOpen() {
 		return ErrIllegalState
 	}
@@ -760,6 +766,17 @@ func (in *SimpleFSIndexInput) Slice(desc string, offset int64, length int64) (In
 		directory:      in.directory,
 		sliceOffset:    absOffset,
 	}, nil
+}
+
+// ensureFileOpen returns an error if the underlying file handle is nil,
+// which can happen when Clone() fails to open the file (e.g., file descriptor
+// exhaustion). Without this guard, every read method would panic on nil
+// pointer dereference.
+func (in *SimpleFSIndexInput) ensureFileOpen() error {
+	if in.file == nil {
+		return fmt.Errorf("SimpleFSIndexInput: file handle is nil (clone of %q failed to open): %w", in.name, ErrIllegalState)
+	}
+	return nil
 }
 
 // Close closes this IndexInput.

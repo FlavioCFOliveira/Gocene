@@ -128,6 +128,9 @@ type NIOFSIndexInput struct {
 
 // ReadByte reads a single byte from the buffered reader.
 func (in *NIOFSIndexInput) ReadByte() (byte, error) {
+	if err := in.ensureFileOpen(); err != nil {
+		return 0, err
+	}
 	if !in.directory.IsOpen() {
 		return 0, ErrIllegalState
 	}
@@ -146,6 +149,9 @@ func (in *NIOFSIndexInput) ReadByte() (byte, error) {
 
 // ReadBytes reads len(b) bytes into b from the buffered reader.
 func (in *NIOFSIndexInput) ReadBytes(b []byte) error {
+	if err := in.ensureFileOpen(); err != nil {
+		return err
+	}
 	if !in.directory.IsOpen() {
 		return ErrIllegalState
 	}
@@ -297,6 +303,17 @@ func (in *NIOFSIndexInput) Slice(desc string, offset int64, length int64) (Index
 		name:           in.name,
 		directory:      in.directory,
 	}, nil
+}
+
+// ensureFileOpen returns an error if the underlying file handle is nil,
+// which can happen when Clone() fails to open the file (e.g., file descriptor
+// exhaustion). Without this guard, every read method would panic on nil
+// pointer dereference.
+func (in *NIOFSIndexInput) ensureFileOpen() error {
+	if in.file == nil || in.bufReader == nil {
+		return fmt.Errorf("NIOFSIndexInput: file handle is nil (clone of %q failed to open): %w", in.name, ErrIllegalState)
+	}
+	return nil
 }
 
 // Close closes this IndexInput and releases resources.
