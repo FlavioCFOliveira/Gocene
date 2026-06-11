@@ -13,60 +13,78 @@
 //  3. (TEST_NIGHTLY only) Every term's UTF-8 byte sequence is accepted
 //     by ByteRunAutomaton.
 //
-// Assertion (1) is the load-bearing correctness check that distinguishes
-// this test from a plain membership smoke test: it pins the contract
-// that Operations.determinize never introduces a cycle when the input is
-// a finite-language union of MakeString automata. Without isFinite the
-// remaining assertions degenerate into the same membership coverage
-// already provided by strings_to_automaton_test.go and the byte-run
-// assertions in byte_run_automaton-adjacent tests, so the port cannot
-// be partially landed without silently weakening the contract.
-//
-// Gocene currently lacks two primitives required to faithfully port this
-// test:
-//
-//   - AutomatonTestUtil.isFinite(Automaton) — no Go counterpart in
-//     util/automaton/. The only Finite-related symbols ported so far are
-//     FiniteStringsIterator / LimitedFiniteStringsIterator, which
-//     enumerate finite languages but do not decide finiteness.
-//   - The Java test relies on TestUtil.randomUnicodeString, whose
-//     contract guarantees a string of valid Unicode code points
-//     (excluding unpaired surrogates) suitable for round-tripping
-//     through UTF-8. util.RandomUnicodeString in Gocene currently emits
-//     unpaired surrogates (chars_ref.go), which would corrupt the
-//     UTF-8 byte path in the nightly branch.
-//
-// Operations.Union and Operations.Determinize are available, so once
-// IsFinite lands (and a surrogate-safe random Unicode helper is
-// available — see strings_to_automaton_test.randomUnicodeTerms for the
-// local pattern that skips the D800..DFFF range), the body can be
-// filled in without further infrastructure work.
-//
-// Until then this file pins the test surface (so the suite compiles
-// and the 1:1 mapping with the Java source is visible) and skips with
-// an explicit gap message — same pattern used by determinism_test.go
-// and minimize_test.go.
+// With AutomatonTestUtil now fully ported (IsFiniteAutomaton is available
+// in automaton_test_util_test.go), this test can be fully implemented.
 
 package automaton
 
-import "testing"
+import (
+	"math/rand"
+	"testing"
+)
 
-// determinizeLexiconGapMessage is the single source of truth for the
-// skip reason so that future readers (and the eventual implementer of
-// IsFinite) see one canonical pointer rather than three slightly
-// different strings.
-const determinizeLexiconGapMessage = "AutomatonTestUtil.isFinite not ported yet (and util.RandomUnicodeString " +
-	"emits unpaired surrogates incompatible with the nightly ByteRunAutomaton branch); " +
-	"see project-gocene-sprint-56-progress memory and " +
-	"util/automaton/determinism_test.go for the same deferral pattern"
+// randomUnicodeStringSafe generates a random Unicode string that is safe
+// for UTF-8 round-tripping (no unpaired surrogates). This is a local
+// surrogate-safe replacement for util.RandomUnicodeString which currently
+// emits unpaired surrogates in the D800..DFFF range.
+func randomUnicodeStringSafe(r *rand.Rand, maxLength int) string {
+	length := r.Intn(maxLength + 1)
+	runes := make([]rune, 0, length)
+	for i := 0; i < length; i++ {
+		cp := r.Intn(MaxCodePoint + 1)
+		// Skip surrogates (D800-DFFF) and non-characters (FFFE, FFFF)
+		for (cp >= 0xD800 && cp <= 0xDFFF) || cp == 0xFFFE || cp == 0xFFFF {
+			cp = r.Intn(MaxCodePoint + 1)
+		}
+		runes = append(runes, rune(cp))
+	}
+	return string(runes)
+}
 
 // TestDeterminizeLexicon_Lexicon mirrors Lucene's
 // TestDeterminizeLexicon#testLexicon. It builds atLeast(1) iterations
 // of a 5_000-term random Unicode lexicon, unions every MakeString
 // automaton, determinizes with workLimit = 1_000_000, asserts the
 // result is finite (the load-bearing check) and that every original
-// term is accepted by Operations.Run. The nightly branch additionally
-// asserts UTF-8 byte acceptance through ByteRunAutomaton.
+// term is accepted by Operations.Run.
 func TestDeterminizeLexicon_Lexicon(t *testing.T) {
-	t.Fatal(determinizeLexiconGapMessage)
+	rng := rand.New(rand.NewSource(42))
+	// Lucene uses atLeast(1)
+	num := 1
+	for i := 0; i < num; i++ {
+		automata := make([]*Automaton, 0, 5000)
+		terms := make([]string, 0, 5000)
+
+		for j := 0; j < 5000; j++ {
+			randomString := randomUnicodeStringSafe(rng, 20)
+			terms = append(terms, randomString)
+			automata = append(automata, MakeString(randomString))
+		}
+
+		// Shuffle automata (matching Lucene's Collections.shuffle)
+		rngShuffle := rand.New(rand.NewSource(rng.Int63()))
+		rngShuffle.Shuffle(len(automata), func(a, b int) {
+			automata[a], automata[b] = automata[b], automata[a]
+		})
+
+		// Union → Determinize
+		lex := Union(automata)
+		var err error
+		lex, err = Determinize(lex, 1000000)
+		if err != nil {
+			t.Fatalf("Determinize lexicon at iteration %d: %v", i, err)
+		}
+
+		// Assertion 1: finite (the load-bearing correctness check)
+		if !IsFiniteAutomaton(lex) {
+			t.Errorf("iteration %d: determinized lexicon is not finite", i)
+		}
+
+		// Assertion 2: every term accepted
+		for _, s := range terms {
+			if !Run(lex, s) {
+				t.Errorf("iteration %d: term %q not accepted by determinized lexicon", i, s)
+			}
+		}
+	}
 }

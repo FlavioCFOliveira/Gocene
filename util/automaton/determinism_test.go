@@ -3,61 +3,144 @@
 // that can be found in the LICENSE file.
 //
 // Port of org.apache.lucene.util.automaton.TestDeterminism from Apache
-// Lucene 10.4.0 (commit 9983b7c). The Java original is a thin randomized
-// harness over two helpers from AutomatonTestUtil that are not yet
-// ported into Gocene:
+// Lucene 10.4.0 (commit 9983b7c). The Java original exercises:
 //
-//   - AutomatonTestUtil.randomRegexp(Random) — emits a syntactically
-//     valid regexp string drawn from RegExp's full grammar (Sprint 56
-//     gap, same family as the random-NFA helpers referenced by
-//     minimize_test.go and strings_to_automaton_test.go).
-//   - AutomatonTestUtil.randomAutomaton(Random) — builds a random NFA
-//     using internal primitives; ditto.
-//   - AutomatonTestUtil.determinizeSimple(Automaton) — slow reference
-//     determinizer used as the oracle for testAgainstSimple; the only
-//     determinizer ported is Operations.determinize (the production
-//     one being validated), so a self-comparison would be vacuous.
+//   - testRegexps: generates atLeast(500) random regexps via
+//     AutomatonTestUtil.randomRegexp, compiles each to an automaton,
+//     and runs assertAutomaton (which exercises determinize/complement/
+//     union/intersection/minus/optional consistency).
+//   - testAgainstSimple: generates atLeast(200) random automata via
+//     AutomatonTestUtil.randomAutomaton, determinizes each with the
+//     slow reference (determinizeSimple) and with the production
+//     Operations.determinize, then asserts both accept the same language.
 //
-// Every assertion in the file already has a Go counterpart in
-// util/automaton/operations.go (Determinize, RemoveDeadStates,
-// Complement, Union, Intersection, Minus, IsEmpty, Optional,
-// SameLanguage, Run) and util/automaton/automata.go (MakeEmptyString),
-// so once the three test-util primitives above are ported the bodies
-// can be filled in without further infrastructure work.
-//
-// Until then this file pins the test surface (so the suite compiles
-// and the 1:1 mapping with the Java source is visible) and skips each
-// case with an explicit gap message — same pattern used by
-// minimize_test.go and the strings_to_automaton_test.go deferrals.
+// With AutomatonTestUtil now fully ported (automaton_test_util_test.go),
+// all prerequisites are satisfied.
 
 package automaton
 
-import "testing"
+import (
+	"math/rand"
+	"testing"
+)
 
-// determinismGapMessage is the single source of truth for the skip
-// reason so future readers (and the eventual implementer of the
-// AutomatonTestUtil helpers) see one canonical pointer rather than
-// three slightly different strings.
-const determinismGapMessage = "AutomatonTestUtil.randomRegexp / randomAutomaton / determinizeSimple not ported yet; " +
-	"see project-gocene-sprint-56-progress memory and " +
-	"util/automaton/minimize_test.go for the same deferral pattern"
+// assertAutomaton validates a determinized automaton through a set of
+// algebraic identities (from Lucene's TestDeterminism.assertAutomaton):
+//
+//  1. complement(complement(a)) = a
+//  2. a ∪ a = a
+//  3. a ∩ a = a
+//  4. a \ a = ∅
+//  5. optional(a) \ {ε} = a  (when a does not accept ε)
+func assertAutomaton(t *testing.T, a *Automaton) {
+	t.Helper()
+
+	var err error
+	a, err = Determinize(RemoveDeadStates(a), DefaultMaxDeterminizedStates)
+	if err != nil {
+		t.Fatalf("Determinize(a): %v", err)
+	}
+
+	// 1. complement(complement(a)) = a
+	comp, err := Complement(a, DefaultMaxDeterminizedStates)
+	if err != nil {
+		t.Fatalf("Complement(a): %v", err)
+	}
+	equiv, err := Complement(comp, DefaultMaxDeterminizedStates)
+	if err != nil {
+		t.Fatalf("Complement(complement(a)): %v", err)
+	}
+	if !SameLanguageReference(a, equiv) {
+		t.Error("complement(complement(a)) != a")
+	}
+
+	// 2. a ∪ a = a
+	equiv, err = Determinize(
+		RemoveDeadStates(Union([]*Automaton{a, a})),
+		DefaultMaxDeterminizedStates,
+	)
+	if err != nil {
+		t.Fatalf("Determinize(a ∪ a): %v", err)
+	}
+	if !SameLanguageReference(a, equiv) {
+		t.Error("a ∪ a != a")
+	}
+
+	// 3. a ∩ a = a
+	equiv, err = Determinize(
+		RemoveDeadStates(Intersection(a, a)),
+		DefaultMaxDeterminizedStates,
+	)
+	if err != nil {
+		t.Fatalf("Determinize(a ∩ a): %v", err)
+	}
+	if !SameLanguageReference(a, equiv) {
+		t.Error("a ∩ a != a")
+	}
+
+	// 4. a \ a = ∅
+	empty, err := Minus(a, a, DefaultMaxDeterminizedStates)
+	if err != nil {
+		t.Fatalf("Minus(a, a): %v", err)
+	}
+	if !IsEmpty(empty) {
+		t.Error("a \\ a != ∅")
+	}
+
+	// 5. as long as a doesn't accept the empty string, optional(a) \ {ε} = a
+	if !Run(a, "") {
+		optional := Optional(a)
+		equiv, err = Minus(optional, MakeEmptyString(), DefaultMaxDeterminizedStates)
+		if err != nil {
+			t.Fatalf("Minus(optional(a), emptyString): %v", err)
+		}
+		if !SameLanguageReference(a, equiv) {
+			t.Error("optional(a) \\ {ε} != a")
+		}
+	}
+}
 
 // TestDeterminism_Regexps mirrors Lucene's TestDeterminism#testRegexps.
-// It generates atLeast(500) random regexps via
-// AutomatonTestUtil.randomRegexp, compiles each to an automaton with
-// RegExp.NONE, and runs assertAutomaton on the result (which exercises
-// determinize/complement/union/intersection/minus/optional consistency).
+// It generates atLeast(500) random regexps via RandomRegexp, compiles each
+// to an automaton, and runs assertAutomaton on the result.
 func TestDeterminism_Regexps(t *testing.T) {
-	t.Fatal(determinismGapMessage)
+	rng := rand.New(rand.NewSource(42))
+	// Lucene uses atLeast(500)
+	num := 500
+	for i := 0; i < num; i++ {
+		re := RandomRegexp(rng)
+		r, err := NewRegExp(re)
+		if err != nil {
+			t.Fatalf("NewRegExp(%q) at iteration %d: %v", re, i, err)
+		}
+		a, err := r.ToAutomaton()
+		if err != nil {
+			t.Fatalf("ToAutomaton(%q) at iteration %d: %v", re, i, err)
+		}
+		assertAutomaton(t, a)
+	}
 }
 
 // TestDeterminism_AgainstSimple mirrors Lucene's TestDeterminism
 // #testAgainstSimple. It generates atLeast(200) random automata via
-// AutomatonTestUtil.randomAutomaton, determinizes each with the slow
-// reference (AutomatonTestUtil.determinizeSimple) and with the
-// production Operations.determinize, then asserts both accept the same
-// language. Skipped until the AutomatonTestUtil random/simple helpers
-// are ported.
+// RandomAutomaton, determinizes each with the slow reference
+// (DeterminizeSimple) and with the production Operations.determinize,
+// then asserts both accept the same language via SameLanguageReference.
 func TestDeterminism_AgainstSimple(t *testing.T) {
-	t.Fatal(determinismGapMessage)
+	rng := rand.New(rand.NewSource(99))
+	// Lucene uses atLeast(200)
+	num := 200
+	for i := 0; i < num; i++ {
+		a := RandomAutomaton(rng)
+		a = DeterminizeSimple(a)
+		b, err := Determinize(a, DefaultMaxDeterminizedStates)
+		if err != nil {
+			t.Fatalf("Determinize at iteration %d: %v", i, err)
+		}
+		if !SameLanguageReference(a, b) {
+			t.Errorf("iteration %d: DeterminizeSimple and Determinize disagree: "+
+				"simple=%d states, production=%d states",
+				i, a.NumStates(), b.NumStates())
+		}
+	}
 }
