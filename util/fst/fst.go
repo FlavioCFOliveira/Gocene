@@ -697,7 +697,12 @@ func (f *FST[T]) readArc(arc *Arc[T], in BytesReader) (*Arc[T], error) {
 				} else {
 					numArcs = arc.numArcs
 				}
-				in.SetPosition(arc.posArcsStart - int64(arc.bytesPerArc)*int64(numArcs))
+				// Prevent integer overflow from crafted FST nodes where bytesPerArc*numArcs exceeds MaxInt64.
+	pos := arc.posArcsStart - int64(arc.bytesPerArc)*int64(numArcs)
+	if int64(arc.bytesPerArc) > 0 && numArcs > 0 && int64(numArcs) > (1<<62)/int64(arc.bytesPerArc) {
+		return nil, fmt.Errorf("fst: integer overflow in readArc position (bytesPerArc=%d, numArcs=%d)", arc.bytesPerArc, numArcs)
+	}
+	in.SetPosition(pos)
 			}
 		}
 		arc.target = in.GetPosition()

@@ -66,6 +66,20 @@ func (w *TermWeight) getTermStats(searcher *IndexSearcher) *TermStatistics {
 			if err == nil && terms != nil {
 				docFreq, _ = terms.GetDocCount()
 			}
+		} else if dirReader, ok := reader.(*index.DirectoryReader); ok {
+			// Sum docFreq across all leaf readers for multi-segment indexes.
+			leaves, err := dirReader.Leaves()
+			if err == nil {
+				for _, leafCtx := range leaves {
+					if lr, ok := leafCtx.Reader().(*index.LeafReader); ok {
+						terms, err := lr.Terms(w.term.Field)
+						if err == nil && terms != nil {
+							df, _ := terms.GetDocCount()
+							docFreq += df
+						}
+					}
+				}
+			}
 		}
 	}
 	return NewTermStatistics(w.term, docFreq, -1)

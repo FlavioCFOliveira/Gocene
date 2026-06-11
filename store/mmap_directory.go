@@ -264,6 +264,7 @@ type MMapIndexInput struct {
 	directory *MMapDirectory
 	chunks    []*mmapFile
 	chunkSize int64
+	mu        sync.RWMutex // protects chunks during concurrent read+close
 	// sliceOffset is the file-absolute start of this view.
 	sliceOffset int64
 	// isSlice marks a borrowing view created by Slice: it shares the owner's
@@ -278,6 +279,8 @@ type MMapIndexInput struct {
 
 // ReadByte reads a single byte.
 func (in *MMapIndexInput) ReadByte() (byte, error) {
+	in.mu.RLock()
+	defer in.mu.RUnlock()
 	if err := in.ensureChunksOpen(); err != nil {
 		return 0, err
 	}
@@ -314,6 +317,8 @@ func (in *MMapIndexInput) ReadByte() (byte, error) {
 
 // ReadBytes reads len(b) bytes into b.
 func (in *MMapIndexInput) ReadBytes(b []byte) error {
+	in.mu.RLock()
+	defer in.mu.RUnlock()
 	if err := in.ensureChunksOpen(); err != nil {
 		return err
 	}

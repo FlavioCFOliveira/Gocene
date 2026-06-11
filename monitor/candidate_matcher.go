@@ -5,6 +5,7 @@
 package monitor
 
 import (
+	"sync"
 	"time"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -40,6 +41,7 @@ type BaseCandidateMatcher[T any] struct {
 	errors     map[string]error
 	matches    []map[string]T // one per doc
 	searchTime time.Time
+	mu         sync.Mutex // protects concurrent access to matches/errors
 }
 
 // NewBaseCandidateMatcher initialises a BaseCandidateMatcher for the given searcher.
