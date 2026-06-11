@@ -6,6 +6,7 @@ package search
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -13,6 +14,8 @@ import (
 )
 
 // IndexSearcher searches an index.
+// It is safe for concurrent use: all exported methods acquire the appropriate
+// lock before accessing shared fields.
 type IndexSearcher struct {
 	reader index.IndexReaderInterface
 
@@ -22,6 +25,8 @@ type IndexSearcher struct {
 	// overridden with SetSimilarity. Weights consult GetSimilarity when building
 	// their SimScorer, so a custom Similarity injected here flows into scoring.
 	similarity Similarity
+
+	mu sync.RWMutex
 }
 
 // NewIndexSearcher creates a new IndexSearcher.
@@ -41,7 +46,9 @@ func NewIndexSearcher(reader index.IndexReaderInterface) *IndexSearcher {
 // place.
 func (s *IndexSearcher) SetSimilarity(similarity Similarity) {
 	if similarity != nil {
+		s.mu.Lock()
 		s.similarity = similarity
+		s.mu.Unlock()
 	}
 }
 
@@ -51,10 +58,18 @@ func (s *IndexSearcher) SetSimilarity(similarity Similarity) {
 // It never returns nil: a freshly constructed IndexSearcher carries a
 // ClassicSimilarity default.
 func (s *IndexSearcher) GetSimilarity() Similarity {
-	if s.similarity == nil {
-		s.similarity = NewClassicSimilarity()
+	s.mu.RLock()
+	sim := s.similarity
+	s.mu.RUnlock()
+	if sim == nil {
+		s.mu.Lock()
+		if s.similarity == nil {
+			s.similarity = NewClassicSimilarity()
+		}
+		sim = s.similarity
+		s.mu.Unlock()
 	}
-	return s.similarity
+	return sim
 }
 
 // Search executes a query and returns TopDocs.
@@ -488,8 +503,19 @@ func (s *IndexSearcher) GetIndexReader() index.IndexReaderInterface {
 	return s.reader
 }
 
-// Close closes the searcher.
+// Close closes the searcher and releases the underlying reader.
+// After Close, the searcher must not be used.
 func (s *IndexSearcher) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.reader == nil {
+		return nil
+	}
+	reader := s.reader
+	s.reader = nil
+	if closer, ok := interface{}(reader).(interface{ Close() error }); ok {
+		return closer.Close()
+	}
 	return nil
 }
 
