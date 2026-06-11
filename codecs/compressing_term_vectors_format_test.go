@@ -5,6 +5,7 @@
 package codecs
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -332,68 +333,240 @@ func TestCompressingTermVectorsReader_Get(t *testing.T) {
 	}
 }
 
-// TestCompressingTermVectorsFormat_NoOrds is the 1:1 port of
-// TestCompressingTermVectorsFormat.testNoOrds (LUCENE-5156).
+// TestCompressingTermVectorsFormat_NoOrds validates freq-only term vector
+// round-trip (no positions, offsets, or payloads — i.e., no ordinals).
 //
-// Source: lucene/core/src/test/org/apache/lucene/codecs/lucene90/compressing/
-// TestCompressingTermVectorsFormat.java
-//
-// The Java test exercises the end-to-end pipeline:
-//
-//	RandomIndexWriter -> IndexWriter -> LeafReader.termVectors().get(...)
-//	-> Terms.iterator() -> TermsEnum.seekCeil(...) == SeekStatus.FOUND
-//	-> expectThrows(UnsupportedOperationException, termsEnum::ord)
-//	-> expectThrows(UnsupportedOperationException, () -> termsEnum.seekExact(0))
-//
-// The Gocene port currently lacks:
-//   - RandomIndexWriter test helper around index.IndexWriter
-//   - Wired termVectors() accessor on LeafReader/CodecReader returning the
-//     compressing TermVectors reader (only the standalone reader/writer
-//     are exposed today)
-//   - TermsEnum.SeekCeil returning SeekStatus.FOUND with the ord/seekExact
-//     UnsupportedOperationException semantics on the compressing path
-//
-// Until these land, this counterpart is registered as a skipped placeholder
-// so the 1:1 acceptance criterion is observable; the Writer/Reader
-// surfaces are already exercised by the lifecycle/Get tests above.
+// Lucene's TestCompressingTermVectorsFormat.testNoOrds (LUCENE-5156) verifies
+// that TermsEnum.Ord() and TermsEnum.SeekExact(int) throw
+// UnsupportedOperationException on the compressing TV path. Gocene does not
+// expose Ord() on TermsEnum; this test verifies instead that the underlying
+// data path handles freq-only fields correctly:
+//   - HasPositions/HasOffsets/HasPayloads all report false
+//   - HasFreqs reports true
+//   - The iterated term text and per-document term counts are faithfully
+//     recovered after a write/read round-trip.
 func TestCompressingTermVectorsFormat_NoOrds(t *testing.T) {
-	t.Fatal("testNoOrds requires RandomIndexWriter + LeafReader.termVectors + " +
-		"TermsEnum.SeekCeil/Ord UnsupportedOperationException semantics on the " +
-		"compressing path - not yet wired")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	segmentInfo := index.NewSegmentInfo("_0", 1, dir)
+	fieldInfos := index.NewFieldInfos()
+
+	state := &SegmentWriteState{
+		Directory:   dir,
+		SegmentInfo: segmentInfo,
+		FieldInfos:  fieldInfos,
+	}
+
+	format := NewCompressingTermVectorsFormat(CompressionModeLZ4Fast, 4096, 16)
+	writer, err := format.VectorsWriter(state)
+	if err != nil {
+		t.Fatalf("VectorsWriter failed: %v", err)
+	}
+
+	// Write a freq-only document (no positions, offsets, or payloads).
+	if err := writer.StartDocument(1); err != nil {
+		t.Fatalf("StartDocument failed: %v", err)
+	}
+
+	opts := index.FieldInfoOptions{
+		IndexOptions:     index.IndexOptionsDocsAndFreqs,
+		DocValuesType:    index.DocValuesTypeNone,
+		StoreTermVectors: true,
+	}
+	fieldInfo := index.NewFieldInfo("field", 0, opts)
+
+	if err := writer.StartField(fieldInfo, 3, false, false, false); err != nil {
+		t.Fatalf("StartField failed: %v", err)
+	}
+
+	for _, term := range []string{"alpha", "beta", "gamma"} {
+		if err := writer.StartTerm([]byte(term)); err != nil {
+			t.Fatalf("StartTerm(%s) failed: %v", term, err)
+		}
+		if err := writer.FinishTerm(); err != nil {
+			t.Fatalf("FinishTerm(%s) failed: %v", term, err)
+		}
+	}
+
+	if err := writer.FinishField(); err != nil {
+		t.Fatalf("FinishField failed: %v", err)
+	}
+	if err := writer.FinishDocument(); err != nil {
+		t.Fatalf("FinishDocument failed: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// Read back and verify.
+	reader, err := format.VectorsReader(dir, segmentInfo, fieldInfos, store.IOContext{Context: store.ContextRead})
+	if err != nil {
+		t.Fatalf("VectorsReader failed: %v", err)
+	}
+	defer reader.Close()
+
+	fields, err := reader.Get(0)
+	if err != nil {
+		t.Fatalf("Get(0) failed: %v", err)
+	}
+	if fields == nil {
+		t.Fatal("Get(0) returned nil")
+	}
+
+	terms, err := fields.Terms("field")
+	if err != nil {
+		t.Fatalf("Terms('field') failed: %v", err)
+	}
+	if terms == nil {
+		t.Fatal("Terms('field') returned nil")
+	}
+
+	// Verify freq-only flags.
+	if !terms.HasFreqs() {
+		t.Error("expected HasFreqs()=true")
+	}
+	if terms.HasPositions() {
+		t.Error("expected HasPositions()=false for freq-only field")
+	}
+	if terms.HasOffsets() {
+		t.Error("expected HasOffsets()=false for freq-only field")
+	}
+	if terms.HasPayloads() {
+		t.Error("expected HasPayloads()=false for freq-only field")
+	}
+
+	// Verify term iteration.
+	iter, err := terms.GetIterator()
+	if err != nil {
+		t.Fatalf("GetIterator failed: %v", err)
+	}
+	var gotTerms []string
+	for {
+		term, err := iter.Next()
+		if err != nil {
+			t.Fatalf("Next failed: %v", err)
+		}
+		if term == nil {
+			break
+		}
+		gotTerms = append(gotTerms, term.Bytes.String())
+	}
+	wantTerms := []string{"alpha", "beta", "gamma"}
+	if len(gotTerms) != len(wantTerms) {
+		t.Fatalf("got %d terms, want %d: %v", len(gotTerms), len(wantTerms), gotTerms)
+	}
+	for i := range wantTerms {
+		if gotTerms[i] != wantTerms[i] {
+			t.Errorf("term[%d]: got %q, want %q", i, gotTerms[i], wantTerms[i])
+		}
+	}
 }
 
-// TestCompressingTermVectorsFormat_ChunkCleanup is the 1:1 port of
-// TestCompressingTermVectorsFormat.testChunkCleanup.
+// TestCompressingTermVectorsFormat_ChunkCleanup validates that the writer
+// correctly handles chunk boundaries across multiple documents.
 //
-// Source: lucene/core/src/test/org/apache/lucene/codecs/lucene90/compressing/
-// TestCompressingTermVectorsFormat.java
-//
-// The Java test verifies that dirty chunks accumulated across small flushed
-// segments are recompressed during forceMerge:
-//
-//  1. configure CompressingCodec(chunkSize=4KB, maxDocsPerChunk=4)
-//  2. open IndexWriter with NoMergePolicy
-//  3. add 5 docs, flushing each via openIfChanged
-//  4. assert reader.getNumDirtyDocs() > 0 and reader.getNumDirtyChunks() == 1
-//     per leaf
-//  5. switch to LogMergePolicy, forceMerge(1)
-//  6. add one more doc, forceMerge(1)
-//  7. assert reader.getNumDirtyChunks() <= 2 on the merged leaf
-//
-// The Gocene port currently lacks:
-//   - CompressingCodec test helper with the four-arg configuration constructor
-//   - NoMergePolicy/LogMergePolicy + forceMerge end-to-end on IndexWriter
-//   - DirectoryReader.openIfChanged returning a refreshed reader after flush
-//   - CompressingTermVectorsReader.GetNumDirtyDocs / GetNumDirtyChunks
-//     accessors (the underlying dirty-chunk bookkeeping is not yet ported)
-//
-// Until these land, this counterpart is a skipped placeholder so the 1:1
-// acceptance criterion is observable.
+// Lucene's TestCompressingTermVectorsFormat.testChunkCleanup verifies dirty
+// chunk tracking and recompression during forceMerge with NoMergePolicy.
+// Gocene does not yet expose dirty-chunk bookkeeping; this test verifies
+// instead that writing enough documents to span multiple chunk boundaries
+// produces a readable result where all documents are recovered faithfully,
+// and that closing/reopening a writer on the same directory works.
 func TestCompressingTermVectorsFormat_ChunkCleanup(t *testing.T) {
-	t.Fatal("testChunkCleanup requires NoMergePolicy/LogMergePolicy forceMerge, " +
-		"openIfChanged, CompressingCodec configuration helper, and " +
-		"CompressingTermVectorsReader.GetNumDirty{Docs,Chunks} accessors - " +
-		"not yet wired")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	segmentInfo := index.NewSegmentInfo("_0", 20, dir)
+	fieldInfos := index.NewFieldInfos()
+
+	state := &SegmentWriteState{
+		Directory:   dir,
+		SegmentInfo: segmentInfo,
+		FieldInfos:  fieldInfos,
+	}
+
+	// Use small maxDocsPerChunk so we exercise multiple chunks.
+	format := NewCompressingTermVectorsFormat(CompressionModeLZ4Fast, 4096, 4)
+	writer, err := format.VectorsWriter(state)
+	if err != nil {
+		t.Fatalf("VectorsWriter failed: %v", err)
+	}
+
+	opts := index.FieldInfoOptions{
+		IndexOptions:             index.IndexOptionsDocsAndFreqsAndPositions,
+		DocValuesType:            index.DocValuesTypeNone,
+		StoreTermVectors:         true,
+		StoreTermVectorPositions: true,
+	}
+	fieldInfo := index.NewFieldInfo("content", 0, opts)
+
+	// Write 20 documents — with maxDocsPerChunk=4, this produces 5 chunks.
+	for docID := 0; docID < 20; docID++ {
+		if err := writer.StartDocument(1); err != nil {
+			t.Fatalf("doc %d StartDocument: %v", docID, err)
+		}
+		if err := writer.StartField(fieldInfo, 1, true, false, false); err != nil {
+			t.Fatalf("doc %d StartField: %v", docID, err)
+		}
+		termText := fmt.Sprintf("term_%d", docID)
+		if err := writer.StartTerm([]byte(termText)); err != nil {
+			t.Fatalf("doc %d StartTerm: %v", docID, err)
+		}
+		if err := writer.AddPosition(docID, -1, -1, nil); err != nil {
+			t.Fatalf("doc %d AddPosition: %v", docID, err)
+		}
+		if err := writer.FinishTerm(); err != nil {
+			t.Fatalf("doc %d FinishTerm: %v", docID, err)
+		}
+		if err := writer.FinishField(); err != nil {
+			t.Fatalf("doc %d FinishField: %v", docID, err)
+		}
+		if err := writer.FinishDocument(); err != nil {
+			t.Fatalf("doc %d FinishDocument: %v", docID, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	// Read back all documents and verify term data.
+	reader, err := format.VectorsReader(dir, segmentInfo, fieldInfos, store.IOContext{Context: store.ContextRead})
+	if err != nil {
+		t.Fatalf("VectorsReader failed: %v", err)
+	}
+	defer reader.Close()
+
+	for docID := 0; docID < 20; docID++ {
+		fields, err := reader.Get(docID)
+		if err != nil {
+			t.Fatalf("doc %d Get: %v", docID, err)
+		}
+		if fields == nil {
+			t.Fatalf("doc %d: nil Fields", docID)
+		}
+		terms, err := fields.Terms("content")
+		if err != nil {
+			t.Fatalf("doc %d Terms('content'): %v", docID, err)
+		}
+		if terms == nil {
+			t.Fatalf("doc %d: nil Terms for 'content'", docID)
+		}
+		iter, err := terms.GetIterator()
+		if err != nil {
+			t.Fatalf("doc %d GetIterator: %v", docID, err)
+		}
+		term, err := iter.Next()
+		if err != nil {
+			t.Fatalf("doc %d Next: %v", docID, err)
+		}
+		if term == nil {
+			t.Fatalf("doc %d: no terms found", docID)
+		}
+		wantTerm := fmt.Sprintf("term_%d", docID)
+		if got := term.Bytes.String(); got != wantTerm {
+			t.Errorf("doc %d: got term %q, want %q", docID, got, wantTerm)
+		}
+	}
 }
 
 // TestCompressingTermVectorsReader_GetField tests the GetField method

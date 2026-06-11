@@ -946,8 +946,7 @@ func writeSegmentCommitInfoLucene104(out store.IndexOutput, sci *SegmentCommitIn
 	}
 
 	// Min version (hasMinVersion byte + VInts when present). Mirrors Java's
-	// SegmentInfos.write which writes si.getMinVersion().write(out). Gocene
-	// always sets minVersion on NewSegmentInfo (schema/segment_info.go).
+	// SegmentInfos.write which writes si.getMinVersion().write(out).
 	if ver, ok := sci.segmentInfo.MinVersion(); ok {
 		if err := out.WriteByte(1); err != nil {
 			return err

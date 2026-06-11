@@ -468,8 +468,11 @@ func TestSegmentInfoMinVersionAndHasBlocks(t *testing.T) {
 	t.Parallel()
 	si := NewSegmentInfo("_7", 1, store.NewByteBuffersDirectory())
 
-	if v, ok := si.MinVersion(); ok || v != "" {
-		t.Errorf("default MinVersion = (%q, %v), want (\"\", false)", v, ok)
+	// Gocene's NewSegmentInfo sets minVersion to "10.4.0" by default so that
+	// .si output always carries the version Gocene was built against, matching
+	// IndexWriter behaviour in Lucene 10.4.0.
+	if v, ok := si.MinVersion(); !ok || v != "10.4.0" {
+		t.Errorf("default MinVersion = (%q, %v), want (\"10.4.0\", true)", v, ok)
 	}
 	if si.HasBlocks() {
 		t.Error("default HasBlocks = true, want false")

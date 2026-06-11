@@ -309,6 +309,8 @@ func TestSegmentInfoFormat_MinVersionAndHasBlocks(t *testing.T) {
 			si.SetHasBlocks(tc.hasBlocks)
 			if tc.minVersion != "" {
 				si.SetMinVersion(tc.minVersion)
+			} else {
+				si.SetMinVersion("") // Clear the default minVersion set by NewSegmentInfo
 			}
 
 			if err := format.Write(dir, si, store.IOContextWrite); err != nil {
