@@ -367,17 +367,24 @@ func (d *NRTCachingDirectory) unCache(fileName string) error {
 		}
 		defer out.Close()
 
+		// Copy in chunks, handling the final partial chunk correctly.
+		// in.Length() gives the total file size; we track remaining bytes to
+		// avoid the fragile err.Error() string comparison and ensure the
+		// last partial chunk is never dropped.
+		remaining := in.Length()
 		buf := make([]byte, 8192)
-		for {
-			if err := in.ReadBytes(buf); err != nil {
-				if err.Error() == "EOF" || err.Error() == "not enough data available" {
-					break
-				}
+		for remaining > 0 {
+			chunk := int64(len(buf))
+			if chunk > remaining {
+				chunk = remaining
+			}
+			if err := in.ReadBytes(buf[:chunk]); err != nil {
+				return fmt.Errorf("unCache read error at offset %d: %w", in.Length()-remaining, err)
+			}
+			if err := out.WriteBytes(buf[:chunk]); err != nil {
 				return err
 			}
-			if err := out.WriteBytes(buf); err != nil {
-				return err
-			}
+			remaining -= chunk
 		}
 		return nil
 	}(); err != nil {
