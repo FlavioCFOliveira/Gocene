@@ -314,15 +314,14 @@ func MakeGeoPointShape(pm *PlanetModel, lat, lon float64) GeoPointShape {
 }
 
 // ---------------------------------------------------------------------------
-// GeoS2ShapeFactory — stub
+// GeoS2ShapeFactory
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoS2ShapeFactory.
 // ---------------------------------------------------------------------------
 
-// MakeGeoS2Shape creates a GeoS2Shape from an S2-encoded cell ID.
+// MakeGeoS2Shape creates a convex 4-sided polygon from four points in CCW order.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoS2ShapeFactory.makeGeoS2Shape.
-// Deferred to #2693.
-func MakeGeoS2Shape(pm *PlanetModel, _ interface{}) GeoS2Shape {
-	return &GeoS2ShapeImpl{GeoBaseMembershipShape: makeMem(pm)}
+func MakeGeoS2Shape(pm *PlanetModel, point1, point2, point3, point4 *GeoPoint) GeoS2Shape {
+	return NewGeoS2Shape(pm, point1, point2, point3, point4)
 }

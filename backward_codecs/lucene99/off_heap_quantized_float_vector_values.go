@@ -43,7 +43,7 @@ type offHeap99OrdToDocConfig interface {
 // ordToDocReader99 mirrors DirectMonotonicReader — the only method consumed
 // by the sparse variant.
 type ordToDocReader99 interface {
-	Get(ord int64) int64
+	Get(ord int64) (int64, error)
 }
 
 // noMoreDocs99 mirrors DocIdSetIterator.NO_MORE_DOCS.
@@ -314,7 +314,11 @@ func (s *sparseOffHeap99Variant) iterator(_ *OffHeapQuantizedFloatVectorValues) 
 }
 
 func (s *sparseOffHeap99Variant) ordToDoc(_ *OffHeapQuantizedFloatVectorValues, ord int) int {
-	return int(s.ordToDocReader.Get(int64(ord)))
+	doc, err := s.ordToDocReader.Get(int64(ord))
+	if err != nil {
+		return 0
+	}
+	return int(doc)
 }
 
 func (s *sparseOffHeap99Variant) getAcceptOrds(parent *OffHeapQuantizedFloatVectorValues, acceptDocs util.Bits) util.Bits {

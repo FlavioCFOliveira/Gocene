@@ -37,6 +37,15 @@ func NewIndexSearcher(reader index.IndexReaderInterface) *IndexSearcher {
 	}
 }
 
+// GetReader returns the underlying IndexReader of this searcher.
+// This is used by SearcherManager to detect index changes and refresh
+// the searcher.
+func (s *IndexSearcher) GetReader() index.IndexReaderInterface {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.reader
+}
+
 // SetSimilarity sets the Similarity used to score matching documents.
 //
 // This is the Go port of org.apache.lucene.search.IndexSearcher#setSimilarity.

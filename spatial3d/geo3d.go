@@ -187,11 +187,58 @@ func DecodeDimension(pm *geom.PlanetModel, value []byte, offset int) float64 {
 	return pm.DecodeValue(util.SortableBytesToInt(value, offset))
 }
 
-// PointInGeo3DShapeQuery and PointInShapeIntersectVisitor are implemented in
-// geo3d_query.go (rmp #4750).
+// FromDegrees converts degrees to radians.
+//
+// Port of Geo3DUtil.fromDegrees.
+func FromDegrees(degrees float64) float64 {
+	return degrees * RadiansPerDegree
+}
+
+// FromBox creates a GeoBBox from degree-valued lat/lon bounds.
+//
+// Port of Geo3DUtil.fromBox.
+func FromBox(pm *geom.PlanetModel, minLatitude, maxLatitude, minLongitude, maxLongitude float64) (geom.GeoBBox, error) {
+	return geom.MakeGeoBBox(pm,
+		FromDegrees(maxLatitude),
+		FromDegrees(minLatitude),
+		FromDegrees(minLongitude),
+		FromDegrees(maxLongitude))
+}
+
+// FromDistance creates a GeoCircle from lat/lon (in degrees) and a radius in meters.
+//
+// Port of Geo3DUtil.fromDistance.
+func FromDistance(pm *geom.PlanetModel, latitude, longitude, radiusMeters float64) (geom.GeoCircle, error) {
+	radiusRadians := radiusMeters / pm.MeanRadius
+	return geom.MakeGeoCircle(pm, FromDegrees(latitude), FromDegrees(longitude), radiusRadians)
+}
+
+// FromPath creates a GeoPath from arrays of latitudes/longitudes (in degrees) and
+// a path width in meters.
+//
+// Port of Geo3DUtil.fromPath.
+func FromPath(pm *geom.PlanetModel, pathLatitudes, pathLongitudes []float64, pathWidthMeters float64) geom.GeoPath {
+	if len(pathLatitudes) != len(pathLongitudes) {
+		panic("same number of latitudes and longitudes required")
+	}
+	points := make([]*geom.GeoPoint, len(pathLatitudes))
+	for i := range pathLatitudes {
+		lat := pathLatitudes[i]
+		lon := pathLongitudes[i]
+		if lat < -90 || lat > 90 {
+			panic("latitude out of bounds")
+		}
+		if lon < -180 || lon > 180 {
+			panic("longitude out of bounds")
+		}
+		points[i] = geom.NewGeoPointModel(pm, FromDegrees(lat), FromDegrees(lon))
+	}
+	radiusRadians := pathWidthMeters / (pm.MeanRadius * pm.XYScaling)
+	return geom.MakeGeoPath(pm, radiusRadians, points)
+}
 
 // ---------------------------------------------------------------------------
-// Geo3DPointSortField / comparators — stubs
+// Geo3DPointSortField / comparators -- stubs
 //
 // Ports of org.apache.lucene.spatial3d.Geo3DPointSortField,
 // Geo3DPointOutsideSortField, Geo3DPointDistanceComparator,

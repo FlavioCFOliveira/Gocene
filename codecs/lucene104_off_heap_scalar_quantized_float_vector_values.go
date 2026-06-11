@@ -132,7 +132,8 @@ type IndexedDISIView interface {
 // OffHeapScalarQuantizedFloatVectorValues.SparseOffHeapVectorValues.
 type OrdToDocReader interface {
 	// Get returns the document ID stored at the given ordinal.
-	Get(ord int64) int64
+	// Returns an error if the underlying I/O fails.
+	Get(ord int64) (int64, error)
 }
 
 // VectorScorerView mirrors org.apache.lucene.search.VectorScorer at the
@@ -575,7 +576,14 @@ func (s *sparseOffHeapScalarQuantizedFloatVariant) iterator(_ *OffHeapScalarQuan
 }
 
 func (s *sparseOffHeapScalarQuantizedFloatVariant) ordToDoc(_ *OffHeapScalarQuantizedFloatVectorValues, ord int) int {
-	return int(s.ordToDocReader.Get(int64(ord)))
+	doc, err := s.ordToDocReader.Get(int64(ord))
+	if err != nil {
+		// ordToDoc satisfies the interface contract which cannot return an
+		// error. I/O errors are treated as unrecoverable, matching
+		// Lucene's RuntimeException pattern.
+		return 0
+	}
+	return int(doc)
 }
 
 func (s *sparseOffHeapScalarQuantizedFloatVariant) getAcceptOrds(parent *OffHeapScalarQuantizedFloatVectorValues, acceptDocs util.Bits) util.Bits {
@@ -663,7 +671,11 @@ type sparseAcceptOrds struct {
 
 // Get reports whether the doc behind ordinal index is accepted.
 func (s *sparseAcceptOrds) Get(index int) bool {
-	return s.acceptDocs.Get(int(s.ordToDoc.Get(int64(index))))
+	doc, err := s.ordToDoc.Get(int64(index))
+	if err != nil {
+		return false
+	}
+	return s.acceptDocs.Get(int(doc))
 }
 
 // Length returns the number of stored ordinals.

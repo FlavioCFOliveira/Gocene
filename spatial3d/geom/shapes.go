@@ -389,7 +389,90 @@ func (s *GeoPointShapeImpl) GetRelationship(_ GeoShape) int { return RelDisjoint
 // S2 shape
 // ---------------------------------------------------------------------------
 
-// GeoS2ShapeImpl is an S2-backed shape.
+// GeoS2ShapeImpl is an S2-backed shape (a fast convex 4-sided polygon).
+//
+// The four points must be supplied in CCW order and form a convex quadrilateral.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoS2Shape.
-type GeoS2ShapeImpl struct{ GeoBaseMembershipShape }
+type GeoS2ShapeImpl struct {
+	GeoBaseMembershipShape
+	point1, point2, point3, point4            *GeoPoint
+	plane1, plane2, plane3, plane4            *SidedPlane
+	plane1Points, plane2Points, plane3Points, plane4Points []*GeoPoint
+	edgePoints                                []*GeoPoint
+}
+
+// NewGeoS2Shape constructs a GeoS2ShapeImpl from four points in CCW order.
+//
+// Port of GeoS2Shape(PlanetModel,GeoPoint,GeoPoint,GeoPoint,GeoPoint).
+func NewGeoS2Shape(pm *PlanetModel, point1, point2, point3, point4 *GeoPoint) *GeoS2ShapeImpl {
+	s := &GeoS2ShapeImpl{
+		GeoBaseMembershipShape: makeMem(pm),
+		point1: point1,
+		point2: point2,
+		point3: point3,
+		point4: point4,
+	}
+	s.plane1 = NewSidedPlaneThreeVectors(&point4.Vector, &point1.Vector, &point2.Vector)
+	s.plane2 = NewSidedPlaneThreeVectors(&point1.Vector, &point2.Vector, &point3.Vector)
+	s.plane3 = NewSidedPlaneThreeVectors(&point2.Vector, &point3.Vector, &point4.Vector)
+	s.plane4 = NewSidedPlaneThreeVectors(&point3.Vector, &point4.Vector, &point1.Vector)
+
+	s.plane1Points = []*GeoPoint{point1, point2}
+	s.plane2Points = []*GeoPoint{point2, point3}
+	s.plane3Points = []*GeoPoint{point3, point4}
+	s.plane4Points = []*GeoPoint{point4, point1}
+
+	s.edgePoints = []*GeoPoint{point1}
+	return s
+}
+
+// IsWithin reports whether (x,y,z) is inside all four bounding planes.
+func (s *GeoS2ShapeImpl) IsWithin(x, y, z float64) bool {
+	return s.plane1.IsWithin(x, y, z) &&
+		s.plane2.IsWithin(x, y, z) &&
+		s.plane3.IsWithin(x, y, z) &&
+		s.plane4.IsWithin(x, y, z)
+}
+
+// GetEdgePoints returns the edge points of this shape.
+func (s *GeoS2ShapeImpl) GetEdgePoints() []*GeoPoint {
+	return s.edgePoints
+}
+
+// Intersects reports whether the given plane intersects this S2 shape.
+//
+// Port of GeoS2Shape.intersects(Plane,GeoPoint[],Membership...).
+func (s *GeoS2ShapeImpl) Intersects(p *Plane, notablePoints []*GeoPoint, bounds ...Membership) bool {
+	return p.Intersects(s.PlanetModelField, &s.plane1.Plane, notablePoints, s.plane1Points, bounds, s.plane2, s.plane4) ||
+		p.Intersects(s.PlanetModelField, &s.plane2.Plane, notablePoints, s.plane2Points, bounds, s.plane3, s.plane1) ||
+		p.Intersects(s.PlanetModelField, &s.plane3.Plane, notablePoints, s.plane3Points, bounds, s.plane4, s.plane2) ||
+		p.Intersects(s.PlanetModelField, &s.plane4.Plane, notablePoints, s.plane4Points, bounds, s.plane1, s.plane3)
+}
+
+// GetBounds accumulates bounding information.
+//
+// Port of GeoS2Shape.getBounds.
+func (s *GeoS2ShapeImpl) GetBounds(bounds Bounds) {
+	bounds.
+		AddPlane(s.PlanetModelField, &s.plane1.Plane, s.plane2, s.plane4).
+		AddPlane(s.PlanetModelField, &s.plane2.Plane, s.plane3, s.plane1).
+		AddPlane(s.PlanetModelField, &s.plane3.Plane, s.plane4, s.plane2).
+		AddPlane(s.PlanetModelField, &s.plane4.Plane, s.plane1, s.plane3).
+		AddPoint(s.point1).
+		AddPoint(s.point2).
+		AddPoint(s.point3).
+		AddPoint(s.point4)
+}
+
+// GetRelationship computes the spatial relationship with the given shape.
+//
+// Port of GeoS2Shape.getRelationship via GeoBaseAreaShape.getRelationship.
+func (s *GeoS2ShapeImpl) GetRelationship(path GeoShape) int {
+	return geoAreaGetRelationship(
+		func(x, y, z float64) bool { return s.IsWithin(x, y, z) },
+		s.edgePoints,
+		func(_ GeoShape) bool { return false },
+		path,
+	)
+}
