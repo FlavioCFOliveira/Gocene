@@ -118,7 +118,6 @@ func collectPrefixTerms(t *testing.T, s *search.IndexSearcher, field, prefix str
 		if err != nil {
 			t.Fatalf("Next: %v", err)
 		}
-	}
 	return out
 }
 

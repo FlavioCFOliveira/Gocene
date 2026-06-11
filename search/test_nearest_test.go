@@ -299,7 +299,6 @@ func TestNearest_NearestNeighborRandom(t *testing.T) {
 			}
 		}
 	}
-}
 
 // quantizeLat / quantizeLon round a coordinate through the LatLonPoint
 // encoding, matching the Java helpers of the same name.

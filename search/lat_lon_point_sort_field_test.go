@@ -560,7 +560,6 @@ func TestFormatJavaDouble_IntegralAndSpecial(t *testing.T) {
 	if got := formatJavaDouble(math.NaN()); got != "NaN" {
 		t.Errorf("formatJavaDouble(NaN) = %q, want NaN", got)
 	}
-}
 
 // Make sure the comparator is wired so a real LatLonDocValuesField-encoded
 // value round-trips through Copy/Value into the right ballpark of metres,

@@ -54,7 +54,6 @@ func TestRawTFSimilarity_DiscountOverlapsDefault(t *testing.T) {
 	if NewRawTFSimilarityWithDiscount(false).GetDiscountOverlaps() {
 		t.Fatal("expert constructor must honour discountOverlaps=false")
 	}
-}
 
 // TestRawTFSimilarity_Explain verifies that the explanation tree carries
 // the score as its root value and the supplied freq Explanation as detail.

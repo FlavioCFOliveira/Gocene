@@ -565,7 +565,6 @@ func BenchmarkSimilarityScoring_BM25(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		searcher.Search(query, 10)
 	}
-}
 
 func BenchmarkSimilarityScoring_TFIDF(b *testing.B) {
 	dir := store.NewByteBuffersDirectory()

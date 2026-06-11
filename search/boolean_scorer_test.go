@@ -638,7 +638,6 @@ func TestBooleanScorer_MinShouldMatch(t *testing.T) {
 	if topDocs.TotalHits.Value != 4 {
 		t.Errorf("Expected 4 hits with minShouldMatch=2, got %d", topDocs.TotalHits.Value)
 	}
-}
 
 // TestBooleanScorer_ComplexNesting tests complex nested boolean queries
 // Source: Derived from embedded boolean scorer tests

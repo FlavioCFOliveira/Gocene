@@ -117,7 +117,6 @@ func doNestedConjunctions(t *testing.T, s *search.IndexSearcher, rng *rand.Rand,
 			t.Fatalf("nested conjunction iter %d: collected %d, want intersection cardinality %d", i, got, want)
 		}
 	}
-}
 
 // countHits runs the query with a counting collector that, like the upstream
 // CountingHitCollector, sums docBase+doc to defeat any dead-code elimination

@@ -115,7 +115,6 @@ func automatonQueryNrHits(t *testing.T, searcher *IndexSearcher, a *automaton.Au
 			t.Errorf("[%s] got %d hits, want %d", rm.name, topDocs.TotalHits.Value, expected)
 		}
 	}
-}
 
 // TestAutomatonQueryUnicode_SortOrder mirrors testSortOrder.
 //

@@ -165,7 +165,6 @@ func TestTopDocsRRF_InvalidTopN(t *testing.T) {
 	if !strings.Contains(err.Error(), "topN") {
 		t.Fatalf("error message should contain 'topN', got %q", err.Error())
 	}
-}
 
 // TestTopDocsRRF_InvalidK ports TestTopDocsRRF.testInvalidK.
 func TestTopDocsRRF_InvalidK(t *testing.T) {

@@ -130,7 +130,6 @@ func assertScoreCollector(t *testing.T, searcher *search.IndexSearcher, query se
 	if err := searcher.SearchWithCollector(query, collector); err != nil {
 		t.Fatalf("SearchWithCollector: %v", err)
 	}
-}
 
 type scoreAssertingCollector struct {
 	t     *testing.T

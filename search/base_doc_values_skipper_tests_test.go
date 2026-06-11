@@ -139,7 +139,6 @@ func TestBaseDocValuesSkipperTests(t *testing.T) {
 					doc, val, queryMin-1, queryMax+1, mid)
 			}
 		}
-	}
 
 	// The sparse tail [1024, 2048) only yields even doc ids that carry a value.
 	dv = newSkipperDocValues(queryMin, queryMax)

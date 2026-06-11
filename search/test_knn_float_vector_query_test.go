@@ -160,7 +160,6 @@ func containsToken(s, sub string) bool {
 		if s[i:i+len(sub)] == sub {
 			return true
 		}
-	}
 	return false
 }
 

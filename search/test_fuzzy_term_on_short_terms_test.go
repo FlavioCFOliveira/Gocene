@@ -66,7 +66,6 @@ func fuzzyCountHits(t *testing.T, docs []string, q *FuzzyQuery, expected int) {
 	if got := int(top.TotalHits.Value); got != expected {
 		t.Errorf("%s: hits=%d, want %d", q.String(fuzzyShortField), got, expected)
 	}
-}
 
 // TestFuzzyTermOnShortTerms_FuzzyTermOnShortTerms mirrors testFuzzyTermOnShortTerms:
 // the edit-distance bound must allow short terms to match (LUCENE-7439).

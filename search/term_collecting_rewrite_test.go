@@ -143,6 +143,5 @@ func TestCollectTerms_EmptyLeaves(t *testing.T) {
 		if len(c.collected) != 0 {
 			t.Fatalf("unexpected collected terms on nil reader")
 		}
-	}
 	// Either outcome (error or no-op) satisfies the contract.
 }

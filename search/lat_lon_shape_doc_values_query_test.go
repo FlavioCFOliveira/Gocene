@@ -181,7 +181,6 @@ func TestDecodeLatLonShapeBinary_MalformedPayload(t *testing.T) {
 	if err == nil {
 		t.Fatal("malformed payload must surface as an error")
 	}
-}
 
 // TestDecodeLatLonShapeBinary_RoundTripDegenerate encodes a single
 // degenerate (point-shaped) triangle via document.EncodeTriangle,

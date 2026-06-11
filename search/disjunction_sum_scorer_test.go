@@ -193,7 +193,6 @@ func TestDisjunctionSumScorer_InitialDocID(t *testing.T) {
 	if got := scorer.DocID(); got != -1 {
 		t.Errorf("initial DocID() = %d, want -1", got)
 	}
-}
 
 // ─── DisiPriorityQueue tests ──────────────────────────────────────────────
 

@@ -546,6 +546,5 @@ func sliceEqualInt64(a, b []int64) bool {
 		if a[i] != b[i] {
 			return false
 		}
-	}
 	return true
 }

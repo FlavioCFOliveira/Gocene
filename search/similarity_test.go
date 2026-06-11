@@ -42,7 +42,6 @@ func TestSimilarity_Basics(t *testing.T) {
 	if scorer.Score(0, 1.0) != 10.0 {
 		t.Errorf("Expected score 10.0, got %f", scorer.Score(0, 1.0))
 	}
-}
 
 func TestSimilarity_BM25(t *testing.T) {
 	sim := NewBM25Similarity()

@@ -531,7 +531,6 @@ func TestSortedNumericApproximation_Iteration(t *testing.T) {
 	if approx.Cost() != 10 {
 		t.Fatalf("Cost: got %d, want 10", approx.Cost())
 	}
-}
 
 // TestIsDocValuesCacheable_NilContext returns true for a nil
 // LeafReaderContext (the safe default the helper documents).

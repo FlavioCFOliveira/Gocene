@@ -127,7 +127,6 @@ func TestDisjunctionDISIApproximation_BasicOperations(t *testing.T) {
 	if cost <= 0 {
 		t.Errorf("Expected positive cost, got %d", cost)
 	}
-}
 
 // TestDisjunctionDISIApproximation_Empty tests behavior with adjacent ranges.
 func TestDisjunctionDISIApproximation_Empty(t *testing.T) {

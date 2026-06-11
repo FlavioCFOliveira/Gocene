@@ -174,7 +174,6 @@ func TestLatLonDocValuesMultiPointPoint_HashCodeFoldsField(t *testing.T) {
 	if a.HashCode() == b.HashCode() {
 		t.Fatalf("HashCode collision across different fields: %d", a.HashCode())
 	}
-}
 
 // TestLatLonDocValuesMultiPointPoint_CloneNonNil verifies that Clone
 // returns a non-nil query.

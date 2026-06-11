@@ -43,7 +43,6 @@ func buildLongRangeBasicsIndex(t *testing.T, dir store.Directory) *index.Directo
 		if err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
-	}
 
 	add([]int64{-10, -10}, []int64{9, 10})           // intersects (within)
 	add([]int64{10, -10}, []int64{20, 10})           // intersects (crosses)

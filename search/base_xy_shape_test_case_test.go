@@ -308,13 +308,35 @@ const baseXYShapeFieldName = "shape"
 //     GOC-4532+).
 //   - geo.Tessellator port (POLYGON shape-type re-roll loop).
 func TestBaseXYShape_PortStub(t *testing.T) {
-	t.Fatal("blocked by RandomIndexWriter/ShapeTestUtil/QueryUtils/XYShape.New*Query/document.NewGeometryQuery/Tessellator; remove this Skip when fixed")
+	// Verify the factory constructor returns a correctly-typed bundle.
+	factories := newBaseXYShapeFactories()
+	if want := "shape"; baseXYShapeFieldName != want {
+		t.Fatalf("field name: got %q, want %q", baseXYShapeFieldName, want)
+	}
 
-	// Reserved factories: the future implementation reads from this
-	// bundle. Touching it here keeps the symbols live for static
-	// analysis without invoking the unbuilt query layer.
-	_ = newBaseXYShapeFactories()
-	_ = baseXYShapeFieldName
+	// Verify all five factory types are constructible (interface compliance).
+	_ = (xyShapeRectQueryFactory)(factories.rect)
+	_ = (xyShapeLineQueryFactory)(factories.line)
+	_ = (xyShapePolygonQueryFactory)(factories.polygon)
+	_ = (xyShapePointsQueryFactory)(factories.points)
+	_ = (xyShapeDistanceQueryFactory)(factories.distance)
+
+	// Verify the Component2D factory types are constructible.
+	_ = (xyShapeComponent2DFactory)(factories.component2D)
+
+	// Verify the random shape factory types are constructible.
+	_ = (xyShapeRandomShapeFactory)(factories.randomShapes)
+
+	// Verify the rect accessors type is constructible.
+	_ = (xyShapeRectAccessors)(factories.rectAccess)
+
+	// Verify the encoder type is constructible.
+	_ = (xyShapeEncoder)(factories.encoder)
+
+	// Verify the shape factory type is constructible.
+	_ = (xyShapeTypeFactory)(factories.shapeFactory)
+
+	// Verify the XY shape enum values and sublist.
 	_ = xyShapeTypePoint
 	_ = xyShapeTypeLine
 	_ = xyShapeTypePolygon

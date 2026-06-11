@@ -350,5 +350,4 @@ func TestMinShouldMatch2_AdvanceVaryingNumberOfTerms(t *testing.T) {
 				assertAdvanceMsm2(t, ix.scorerFor(t, sub, minNrShouldMatch), expected, amount)
 			}
 		}
-	}
 }

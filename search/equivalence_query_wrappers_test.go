@@ -195,7 +195,6 @@ func (a *randomApproximation) Advance(target int) (int, error) {
 		if _, err := a.disi.Advance(target); err != nil {
 			return search.NO_MORE_DOCS, err
 		}
-	}
 	if a.disi.DocID() == search.NO_MORE_DOCS {
 		a.doc = search.NO_MORE_DOCS
 		return a.doc, nil

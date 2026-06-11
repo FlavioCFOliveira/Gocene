@@ -170,7 +170,6 @@ func newFeatureSort(t *testing.T, field, featureName string) *search.FeatureSort
 func TestFeatureSort_Feature(t *testing.T) {
 	t.Skip("IndexSearcher.Search has no Sort overload yet — TestFeatureSort needs Sort dispatch wired")
 }
-}
 
 // TestFeatureSort_FeatureMissing is the Go port of testFeatureMissing.
 //

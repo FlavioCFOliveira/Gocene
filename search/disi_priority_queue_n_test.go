@@ -226,7 +226,6 @@ func TestDisiPriorityQueueN_AddAll(t *testing.T) {
 			t.Errorf("pop order got[%d]=%d, want %d", i, got[i], want)
 		}
 	}
-}
 
 // TestDisiPriorityQueueN_AddAll_CapacityPanic verifies AddAll panics on overflow.
 func TestDisiPriorityQueueN_AddAll_CapacityPanic(t *testing.T) {

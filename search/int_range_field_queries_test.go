@@ -359,7 +359,6 @@ func TestIntRange_FieldEncoding_Roundtrip(t *testing.T) {
 	if f.GetMin(1) != -10 || f.GetMax(1) != 10 {
 		t.Fatalf("dim 1: min=%d max=%d", f.GetMin(1), f.GetMax(1))
 	}
-}
 
 // TestIntRange_FieldEncoding_BoundaryValues verifies INT_MIN/INT_MAX are stored.
 func TestIntRange_FieldEncoding_BoundaryValues(t *testing.T) {

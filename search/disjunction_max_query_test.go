@@ -600,7 +600,6 @@ func TestDisjunctionMaxQuery_EqualsWithDifferentLengths(t *testing.T) {
 	if q1.Equals(q2) {
 		t.Error("Queries with different number of disjuncts should not be equal")
 	}
-}
 
 // TestDisjunctionMaxQuery_NilHandling tests handling of nil queries in disjuncts
 func TestDisjunctionMaxQuery_NilHandling(t *testing.T) {

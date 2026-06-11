@@ -99,5 +99,4 @@ func TestKnnByteVectorQuery_ToString(t *testing.T) {
 		if !containsToken(s, want) {
 			t.Fatalf("String() %q missing %q", s, want)
 		}
-	}
 }

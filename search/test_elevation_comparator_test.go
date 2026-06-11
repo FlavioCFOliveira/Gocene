@@ -162,7 +162,6 @@ func (s *elevationComparatorSource) NewComparator(field *search.SortField, numHi
 		field:    field.GetField(),
 		values:   make([]int, numHits),
 	}
-}
 
 // elevationComparator mirrors the FieldComparator<Integer> returned by
 // ElevationComparatorSource. It caches per-slot priorities and, via the optional

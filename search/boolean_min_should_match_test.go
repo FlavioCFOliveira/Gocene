@@ -558,7 +558,6 @@ func assertSubsetOfSameScores(t *testing.T, q *search.BooleanQuery, top1, top2 *
 			t.Errorf("Doc %d not found in unconstrained results", id)
 		}
 	}
-}
 
 // bmsmUlp32 returns the unit in the last place of x for float32, mirroring Math.ulp.
 func bmsmUlp32(x float32) float32 {

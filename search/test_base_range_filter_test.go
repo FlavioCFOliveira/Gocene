@@ -61,5 +61,4 @@ func TestBaseRangeFilter_Pad(t *testing.T) {
 		if !(aa < bb) {
 			t.Fatalf("compare less than failed: %d:%s vs %d:%s", a, aa, b, bb)
 		}
-	}
 }

@@ -65,7 +65,6 @@ func TestSpanTermQueryGetField(t *testing.T) {
 	if sq.GetField() != "field" {
 		t.Error("GetField should return the field")
 	}
-}
 
 func TestSpanTermQueryTerm(t *testing.T) {
 	sq := NewSpanTermQuery(index.NewTerm("field", "term"))

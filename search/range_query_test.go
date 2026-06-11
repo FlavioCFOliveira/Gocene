@@ -81,7 +81,6 @@ func TestTermRangeQuery_Rewrite(t *testing.T) {
 	if rewritten != q {
 		t.Error("TermRangeQuery should currently rewrite to itself")
 	}
-}
 
 func TestTermRangeQuery_EqualsComplexity(t *testing.T) {
 	q := NewTermRangeQueryWithStrings("field", "a", "c", true, true)

@@ -329,7 +329,6 @@ func TestCachingSearcherFactory_NewSearcher_NilReader(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for nil reader")
 	}
-}
 
 func TestNewWarmingSearcherFactoryWithExecutor(t *testing.T) {
 	executor := &mockExecutor{}

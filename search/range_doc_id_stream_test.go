@@ -259,7 +259,6 @@ func TestRangeDocIdStream_MixForEachCountUpTo(t *testing.T) {
 	if s.MayHaveRemaining() {
 		t.Error("MayHaveRemaining() = true after full consume, want false")
 	}
-}
 
 // TestRangeDocIdStream_PanicOnMinGeMax verifies constructor precondition.
 func TestRangeDocIdStream_PanicOnMinGeMax(t *testing.T) {

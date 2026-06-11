@@ -93,7 +93,6 @@ func TestScoringRewrite_RewriteDegraded(t *testing.T) {
 	if got != q {
 		t.Errorf("expected original query returned in degraded path")
 	}
-}
 
 // TestScoringRewrite_ConstantScoreBooleanRewriteWraps verifies that the
 // constant-score variant wraps the result in a ConstantScoreQuery.

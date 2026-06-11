@@ -289,7 +289,6 @@ func (s *booleanOrIntScorer) Advance(target int) (int, error) {
 			return d, nil
 		}
 	}
-}
 
 func (s *booleanOrIntScorer) Cost() int64               { return int64(len(s.docs)) }
 func (s *booleanOrIntScorer) DocIDRunEnd() int          { return s.DocID() + 1 }

@@ -182,7 +182,6 @@ func TestVisitVectorSimilarityQuery_RejectedField(t *testing.T) {
 	if len(v.visited) != 0 {
 		t.Errorf("VisitLeaf was called when field was rejected (count=%d)", len(v.visited))
 	}
-}
 
 // ─── CreateVectorSimilarityWeight ────────────────────────────────────────────
 

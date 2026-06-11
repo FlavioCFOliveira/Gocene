@@ -191,7 +191,6 @@ func (q *assertNeedsScores) requireObserved(t *testing.T) {
 	if !q.observed {
 		t.Errorf("query=%v: no scorer was pulled, ScoreMode assertion never ran", q.in)
 	}
-}
 
 // CreateWeightScoreMode builds the inner weight under scoreMode (via the
 // searcher's dispatch, so composite inner queries also see it) and wraps it so

@@ -143,7 +143,6 @@ func TestConjunctionScorer_GetMaxScore(t *testing.T) {
 	if maxScore != 7.0 {
 		t.Errorf("GetMaxScore(1)=%v, want 7.0 (sum of 3+4)", maxScore)
 	}
-}
 
 // advanceAll collects all doc IDs from a Scorer by calling NextDoc.
 func advanceAll(t *testing.T, sc search.Scorer) []int {

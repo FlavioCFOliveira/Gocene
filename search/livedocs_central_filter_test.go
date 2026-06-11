@@ -87,5 +87,4 @@ func TestSearch_LiveDocsExcludedCentrally(t *testing.T) {
 		if sd.Doc == 2 {
 			t.Errorf("deleted doc ordinal 2 was returned by MatchAllDocsQuery")
 		}
-	}
 }

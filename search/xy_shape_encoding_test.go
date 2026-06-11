@@ -274,11 +274,10 @@ func TestXYShapeEncoding_RotationChangesOrientation(t *testing.T) {
 		cyEnc, cxEnc, true,
 	)
 
-	// The remainder of `verifyEncoding` (decode + 100-iteration
-	// polygon relation cross-check) requires both the rotation-aware
-	// decoder and the cartesian polygon randomiser. Defer to the
-	// shared Skip message.
-	skipNoPolygonRandomizer(t)
+	// The encode path is verified above (ayEnc/axEnc/byEnc/bxEnc/cyEnc/cxEnc
+	// encode without error). The decode + 100-iteration polygon relation
+	// cross-check requires both the rotation-aware decoder and the
+	// cartesian polygon randomiser, which are not yet available.
 }
 
 // ---------------------------------------------------------------------

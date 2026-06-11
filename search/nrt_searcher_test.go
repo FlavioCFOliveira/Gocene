@@ -380,7 +380,6 @@ func TestNRTSearcher_StartStopDeadlockRegression(t *testing.T) {
 			}
 		})
 	}
-}
 
 // TestNRTSearcher_CloseAutoRefreshDeadlockRegression verifies that Close
 // with an active auto-refresh goroutine does not deadlock.

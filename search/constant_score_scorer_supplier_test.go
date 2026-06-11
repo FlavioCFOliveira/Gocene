@@ -109,7 +109,6 @@ func TestConstantScoreScorerSupplier_GetPropagatesFactoryError(t *testing.T) {
 	if _, err := supplier.Get(0); !errors.Is(err, target) {
 		t.Fatalf("Get: err=%v, want wrapped %v", err, target)
 	}
-}
 
 // TestConstantScoreScorerSupplierFromIterator_WrapsIterator confirms
 // the convenience constructor wraps a pre-built iterator and that

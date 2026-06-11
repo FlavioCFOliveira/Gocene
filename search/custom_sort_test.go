@@ -173,5 +173,4 @@ func BenchmarkCustomSort_Performance(b *testing.B) {
 		if _, err := s.SearchWithSort(q, 10, sort); err != nil {
 			b.Fatalf("SearchWithSort: %v", err)
 		}
-	}
 }

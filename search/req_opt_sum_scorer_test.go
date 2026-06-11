@@ -346,7 +346,6 @@ func TestReqOptSumScorer_Advance(t *testing.T) {
 	if math.Abs(float64(got-want)) > 1e-6 {
 		t.Errorf("Score() after Advance(5) = %v, want %v", got, want)
 	}
-}
 
 // TestReqOptSumScorer_GetMaxScore verifies the max-score combination.
 func TestReqOptSumScorer_GetMaxScore(t *testing.T) {

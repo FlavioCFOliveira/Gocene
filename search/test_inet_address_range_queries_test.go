@@ -261,7 +261,6 @@ func TestInetAddressRangeQueries_RandomTiny(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		verifyIPRanges(t, gen.Int63(), makeSingleValuedDocs(gen, 10))
 	}
-}
 
 // TestInetAddressRangeQueries_RandomMedium ports testRandomMedium.
 func TestInetAddressRangeQueries_RandomMedium(t *testing.T) {

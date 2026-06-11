@@ -266,7 +266,6 @@ func TestXYPointDistanceSort_RandomHuge(t *testing.T) {
 		}
 		assertDistance(t, "random huge hit", fd, expected[i].dist)
 	}
-}
 
 // assertDistance checks that fd.Fields[0] is a float64 equal to want.
 func assertDistance(t *testing.T, label string, fd *search.FieldDoc, want float64) {

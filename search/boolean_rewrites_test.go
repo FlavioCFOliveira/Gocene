@@ -1122,7 +1122,6 @@ func TestBooleanRewrites_EqualsPrecision(t *testing.T) {
 	if nan1 == nan2 {
 		t.Error("NaN should not equal NaN")
 	}
-}
 
 // Helper function to create a PhraseQuery with terms
 func NewPhraseQueryWithTerms(field string, terms ...*index.Term) *PhraseQuery {

@@ -138,7 +138,6 @@ func assertAdvanceMiss(t *testing.T, values *search.FeatureDoubleValues, doc int
 	if hit {
 		t.Errorf("AdvanceExact(%d) = true, want false", doc)
 	}
-}
 
 // openValues builds the source and resolves the per-leaf reader for "field"/"name".
 //

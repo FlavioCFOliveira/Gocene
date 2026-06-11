@@ -379,7 +379,6 @@ func TestConjunctionDISI_BitSetConjunctionDISIDocIDOnExhaust(t *testing.T) {
 	if conjunction.DocID() != search.NO_MORE_DOCS {
 		t.Errorf("DocID() = %d after exhaustion, want NO_MORE_DOCS", conjunction.DocID())
 	}
-}
 
 // TestIntersectScorers_PanicsOnFewInputs checks the guard for < 2 scorers.
 func TestIntersectScorers_PanicsOnFewInputs(t *testing.T) {

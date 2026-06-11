@@ -512,7 +512,6 @@ func (p *stubRangeFieldPointValues) Intersect(visitor intersectVisitorRFQ) error
 				return err
 			}
 		}
-	}
 	return nil
 }
 

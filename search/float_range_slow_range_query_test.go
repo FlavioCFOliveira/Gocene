@@ -621,7 +621,6 @@ func (s *stubBinaryDocValues) Advance(target int) (int, error) {
 			s.idx = i
 			return s.docs[i].docID, nil
 		}
-	}
 	s.idx = len(s.docs)
 	return NO_MORE_DOCS, nil
 }

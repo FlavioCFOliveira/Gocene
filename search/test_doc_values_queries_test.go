@@ -519,7 +519,6 @@ func assertQString(t *testing.T, q search.Query, defField, want string) {
 	if got := s.String(defField); got != want {
 		t.Errorf("String(%q) = %q, want %q", defField, got, want)
 	}
-}
 
 func indexReaderOf(s *search.IndexSearcher) search.IndexReader {
 	return s.GetIndexReader()

@@ -529,7 +529,6 @@ func TestLatLonPointQuery_QueryIsCacheable_DefaultsTrue(t *testing.T) {
 	if !q.QueryIsCacheable(nil) {
 		t.Fatalf("QueryIsCacheable: default should be true")
 	}
-}
 
 // encodeLatLonCellBounds builds the (minPackedValue, maxPackedValue)
 // pair the Relate hook expects: 8 bytes per buffer, 4-byte sortable

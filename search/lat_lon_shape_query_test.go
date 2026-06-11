@@ -414,7 +414,6 @@ func TestLatLonShapeQuery_GeoRelationToSpatial(t *testing.T) {
 			t.Fatalf("geoRelationToSpatial(%v): got %v, want %v", c.in, got, c.want)
 		}
 	}
-}
 
 // encodeTriangleAVertex builds a 28-byte ShapeField payload whose
 // A-vertex encodes the supplied (lat, lon). The current

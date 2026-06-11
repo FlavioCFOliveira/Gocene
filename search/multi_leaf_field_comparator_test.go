@@ -125,7 +125,6 @@ func TestMultiLeafFieldComparator_SetHitsThresholdReachedOnlyFirst(t *testing.T)
 	if b.threshold {
 		t.Fatal("expected second comparator threshold=false")
 	}
-}
 
 // TestMultiLeafFieldComparator_CompareTopFirstWins verifies CompareTop short-circuit.
 func TestMultiLeafFieldComparator_CompareTopFirstWins(t *testing.T) {

@@ -152,7 +152,6 @@ func assertPhraseHits(t *testing.T, s *search.IndexSearcher, q search.Query, wan
 	if got := len(top.ScoreDocs); got != want {
 		t.Errorf("query %v: hits = %d, want %d", q, got, want)
 	}
-}
 
 // termPos pairs a term with the explicit query position it occupies.
 type termPos struct {

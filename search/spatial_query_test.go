@@ -475,5 +475,4 @@ func TestSpatialRelation_StringHasReadableLabels(t *testing.T) {
 		if got := r.String(); got != want {
 			t.Fatalf("spatialRelation(%d).String(): got %q, want %q", int(r), got, want)
 		}
-	}
 }

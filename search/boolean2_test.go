@@ -595,7 +595,6 @@ func TestBoolean2MinShouldMatch(t *testing.T) {
 	if topDocs.TotalHits.Value != 4 {
 		t.Errorf("Expected 4 hits with minShouldMatch=2, got %d", topDocs.TotalHits.Value)
 	}
-}
 
 // BenchmarkBoolean2Query benchmarks BooleanQuery performance
 func BenchmarkBoolean2Query(b *testing.B) {

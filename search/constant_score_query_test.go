@@ -47,7 +47,6 @@ func TestConstantScoreQuery_Rewrite(t *testing.T) {
 	} else {
 		t.Errorf("Expected ConstantScoreQuery, got %T", rewritten)
 	}
-}
 
 // TestConstantScoreQuery_CreateWeightNotNil guards the root-cause bug behind
 // rmp #4760 / #4767: ConstantScoreQuery must override CreateWeight rather than

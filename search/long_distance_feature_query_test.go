@@ -858,7 +858,6 @@ func TestUnsignedDistance(t *testing.T) {
 			t.Fatalf("unsignedDistance(%d, %d) = %d, want %d", tc.a, tc.b, got, tc.want)
 		}
 	}
-}
 
 // TestSelectClosestValue covers the multi-valued selection helper, the
 // same routine Java's DistanceScorer.selectValue uses to pick the

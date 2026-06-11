@@ -146,7 +146,6 @@ func TestExternalCodecs_PerFieldCodec(t *testing.T) {
 	if err = dir.Close(); err != nil {
 		t.Fatalf("dir.Close: %v", err)
 	}
-}
 
 // assertCount asserts that query matches exactly want documents.
 func assertCount(t *testing.T, s *search.IndexSearcher, query search.Query, want int) {

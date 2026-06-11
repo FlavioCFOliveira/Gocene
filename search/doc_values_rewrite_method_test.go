@@ -52,7 +52,6 @@ func TestDocValuesRewriteMethod_DefaultInstance(t *testing.T) {
 	if !search.NewDocValuesRewriteMethod().Equals(search.DefaultDocValuesRewriteMethod) {
 		t.Errorf("DefaultDocValuesRewriteMethod should be equal to any instance")
 	}
-}
 
 // ─── Optional interfaces exported for interop ─────────────────────────────
 

@@ -206,7 +206,6 @@ func TestEncodedRectangle_WithinTriangle(t *testing.T) {
 	if got := r.WithinTriangle(-100, -100, false, 100, -100, false, 0, 100, false); got != geo.WithinCandidate {
 		t.Fatalf("WithinTriangle rect inside: got %v, want %v", got, geo.WithinCandidate)
 	}
-}
 
 // TestEncodedRectangle_Accessors confirms the accessor methods
 // report the constructor-supplied values without mutation.

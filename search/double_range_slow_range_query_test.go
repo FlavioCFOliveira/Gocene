@@ -597,7 +597,6 @@ func TestDoubleRangeSlowRangeQuery_Scorer_DocValuesError(t *testing.T) {
 	if _, err := scorer.NextDoc(); err == nil || !errors.Is(err, wantErr) {
 		t.Fatalf("expected wantErr to surface from NextDoc, got %v", err)
 	}
-}
 
 // --- double-flavoured test scaffolding -------------------------------------
 

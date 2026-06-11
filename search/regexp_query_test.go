@@ -539,7 +539,6 @@ func TestRegexpQuery_Quantifiers(t *testing.T) {
 			}
 		})
 	}
-}
 
 // TestRegexpQuery_Anchors tests anchor patterns
 func TestRegexpQuery_Anchors(t *testing.T) {

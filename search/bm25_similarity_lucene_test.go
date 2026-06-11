@@ -108,7 +108,6 @@ func TestLuceneBM25Similarity_BulkScorer_Equivalent(t *testing.T) {
 			t.Fatalf("bulk[%d]: got %v, want %v", i, got[i], want)
 		}
 	}
-}
 
 // TestLuceneBM25Similarity_IllegalK1 verifies that the constructor panics
 // on a NaN k1.

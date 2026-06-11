@@ -153,7 +153,6 @@ func TestMaxClauseLimit_LargeDisjunctionMaxQuery(t *testing.T) {
 		t.Errorf("rewrite of a DisjunctionMaxQuery with more than %d clauses must fail with "+
 			"TooManyNestedClauses (IndexSearcher.rewrite clause-count walk is not yet ported)", search.GetMaxClauseCount())
 	}
-}
 
 // TestMaxClauseLimit_MultiExactWithRepeats ports testMultiExactWithRepeats.
 func TestMaxClauseLimit_MultiExactWithRepeats(t *testing.T) {

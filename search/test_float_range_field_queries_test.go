@@ -42,7 +42,6 @@ func buildFloatRangeBasicsIndex(t *testing.T, dir store.Directory) *index.Direct
 		if err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
-	}
 
 	negInf := float32(math.Inf(-1))
 	add([]float32{-10.0, -10.0}, []float32{9.1, 10.1})    // intersects (within)

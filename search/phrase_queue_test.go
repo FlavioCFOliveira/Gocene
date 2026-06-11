@@ -75,7 +75,6 @@ func TestPhraseQueue_UpdateTop(t *testing.T) {
 	if pq.Top().Position != 3 {
 		t.Fatalf("expected top.position=3 after update, got %d", pq.Top().Position)
 	}
-}
 
 // TestPhraseQueue_Empty verifies empty queue behaviour.
 func TestPhraseQueue_Empty(t *testing.T) {

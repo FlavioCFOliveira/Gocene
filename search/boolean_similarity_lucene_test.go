@@ -77,7 +77,6 @@ func TestLuceneBooleanSimilarity_SameNormsAsBM25(t *testing.T) {
 				iter, boolNorm, bm25Norm, length, numOverlaps)
 		}
 	}
-}
 
 // TestLuceneTFIDFSimilarity_PhraseIdfSum verifies that the phrase idfExplain
 // sums per-term idfs.

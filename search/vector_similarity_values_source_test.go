@@ -47,7 +47,6 @@ import "testing"
 func TestVectorSimilarityValuesSource_Euclidean(t *testing.T) {
 	t.Skip("needs RandomIndexWriter, KnnVectorField write path, wired vector reader — not yet ported")
 }
-}
 
 // TestVectorSimilarityValuesSource_Dot ports testDotSimilarityValuesSource().
 //

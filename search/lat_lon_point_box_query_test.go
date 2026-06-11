@@ -107,7 +107,6 @@ func TestNewLatLonPointBoxQuery_NonDateline(t *testing.T) {
 	if _, ok := q.(*PointRangeQuery); !ok {
 		t.Fatalf("expected *PointRangeQuery for normal box, got %T", q)
 	}
-}
 
 // TestNewLatLonPointBoxQuery_MinLon180DatelineCeil verifies the edge
 // case where minLon==180 and maxLon < minLon (dateline wrap). Java

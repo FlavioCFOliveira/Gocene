@@ -158,7 +158,6 @@ func TestConstantScoreWeight_Count_DefaultsMinusOne(t *testing.T) {
 	if got != -1 {
 		t.Fatalf("Count: got %d, want -1", got)
 	}
-}
 
 // TestConstantScoreWeight_Matches_ReturnsNil confirms Matches
 // reports nil for the constant-score variant.

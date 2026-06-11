@@ -253,5 +253,4 @@ func TestMultiNormsLeafSimScorer_LengthTableInit(t *testing.T) {
 		if got := lengthTable[i]; got != want {
 			t.Errorf("lengthTable[%d] = %v, want %v", i, got, want)
 		}
-	}
 }

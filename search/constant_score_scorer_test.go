@@ -100,7 +100,6 @@ func TestConstantScoreScorer_NextDocPropagatesError(t *testing.T) {
 	if _, err := s.Advance(0); !errors.Is(err, target) {
 		t.Fatalf("Advance: got err %v, want wrapped %v", err, target)
 	}
-}
 
 // errIterator is a test helper: every method returns target as the
 // error. Used to confirm error propagation through the scorer.

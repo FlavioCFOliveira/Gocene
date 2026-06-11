@@ -141,7 +141,6 @@ func TestLuceneIndriCollectionModel_NoSmoothing(t *testing.T) {
 	if math.Abs(got-want) > 1e-12 {
 		t.Fatalf("Indri P(w|C): got %v, want %v", got, want)
 	}
-}
 
 // TestLuceneDefaultCollectionModel_WithSmoothing verifies the +1 smoothing.
 func TestLuceneDefaultCollectionModel_WithSmoothing(t *testing.T) {

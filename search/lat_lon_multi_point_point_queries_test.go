@@ -122,7 +122,6 @@ func TestLatLonMultiPointPoint_Visit(t *testing.T) {
 	if !v.leafCalled {
 		t.Fatalf("Visit: VisitLeaf was not called for accepted field")
 	}
-}
 
 // TestLatLonMultiPointPoint_VisitRejectedField verifies Visit
 // suppresses VisitLeaf when the visitor rejects the field.

@@ -256,7 +256,6 @@ func TestMoreLikeThisCreateQueryEmpty(t *testing.T) {
 	if query != nil {
 		t.Error("Expected nil query for empty terms")
 	}
-}
 
 func TestInterestingTermHeap(t *testing.T) {
 	h := &interestingTermHeap{}

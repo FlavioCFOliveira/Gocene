@@ -203,7 +203,7 @@ func (h *Hunspell) checkCompoundsFull(word []rune, originalCase WordCase, prev *
 			if expanded != nil {
 				stem := h.findStem(expanded, 0, breakPos+pat.EndLength(), originalCase, context)
 				if stem != nil {
-					part := &compoundPart{prev: prev, word: expanded, breakPos: breakPos + pat.EndLength(), root: stem}
+					part := &compoundPart{prev: prev, word: expanded, breakPos: breakPos + pat.EndLength(), root: stem, enablingPattern: pat}
 					if h.checkCompoundsAfter(expanded, originalCase, part) {
 						return true
 					}
@@ -431,9 +431,18 @@ func (h *Hunspell) mayCompound(cp *compoundPart, nextRoot *Root, nextPartLen int
 	d := h.Dictionary
 
 	// 1. CHECKCOMPOUNDPATTERN — reject compounds matching forbidden patterns.
-	for _, pat := range d.checkCompoundPatterns {
-		if pat.ProhibitsCompounding(cp.word, cp.breakPos, cp.root, nextRoot) {
+	//    If enablingPattern is set (compound via ExpandReplacement), only the
+	//    enabling pattern is checked; its prohibition means the replacement was
+	//    correctly applied, so the compound is allowed.
+	if cp.enablingPattern != nil {
+		if !cp.enablingPattern.ProhibitsCompounding(cp.word, cp.breakPos, cp.root, nextRoot) {
 			return false
+		}
+	} else {
+		for _, pat := range d.checkCompoundPatterns {
+			if pat.ProhibitsCompounding(cp.word, cp.breakPos, cp.root, nextRoot) {
+				return false
+			}
 		}
 	}
 
@@ -486,11 +495,12 @@ func (h *Hunspell) hasForceUCaseProblem(root *Root, originalCase WordCase, wordC
 // ─── compoundPart ─────────────────────────────────────────────────────────────
 
 type compoundPart struct {
-	prev     *compoundPart
-	word     []rune
-	breakPos int
-	root     *Root
-	index    int
+	prev            *compoundPart
+	word            []rune
+	breakPos        int
+	root            *Root
+	index           int
+	enablingPattern *CheckCompoundPattern
 }
 
 func (cp *compoundPart) mayCompound(nextRoot *Root, nextPartLen int) bool {

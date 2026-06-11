@@ -105,7 +105,6 @@ func TestSimilarityProvider_Basics(t *testing.T) {
 		if e := w.AddDocument(doc); e != nil {
 			t.Fatalf("AddDocument: %v", e)
 		}
-	}
 	addDoc("quick brown fox", "quick brown fox")
 	addDoc("jumps over lazy brown dog", "jumps over lazy brown dog")
 

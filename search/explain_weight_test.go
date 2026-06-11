@@ -118,7 +118,6 @@ func assertExplainNoMatch(t *testing.T, exp search.Explanation, err error) {
 		t.Errorf("expected IsMatch()==false, got true (value=%v, desc=%q)",
 			exp.GetValue(), exp.GetDescription())
 	}
-}
 
 // floatsClose reports whether a and b are within a small absolute tolerance.
 func floatsClose(a, b float32) bool {

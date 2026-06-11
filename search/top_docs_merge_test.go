@@ -509,5 +509,4 @@ func TestTopDocsMerge_ShardIndexPreservation(t *testing.T) {
 		if sd.Doc >= 2 && sd.Doc <= 3 && sd.ShardIndex != 10 {
 			t.Errorf("Expected shardIndex=10 for doc %d, got %d", sd.Doc, sd.ShardIndex)
 		}
-	}
 }

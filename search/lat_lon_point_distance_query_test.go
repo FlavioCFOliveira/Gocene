@@ -560,6 +560,5 @@ func containsInt(xs []int, v int) bool {
 		if x == v {
 			return true
 		}
-	}
 	return false
 }

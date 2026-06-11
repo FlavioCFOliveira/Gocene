@@ -336,5 +336,4 @@ func assertTopFieldDocsConsistent(t *testing.T, iter int, sort *search.Sort, exp
 		if !reflect.DeepEqual(e.Fields, a.Fields) {
 			t.Fatalf("iter %d hit %d wrong sort field values: expected %v actual %v", iter, i, e.Fields, a.Fields)
 		}
-	}
 }

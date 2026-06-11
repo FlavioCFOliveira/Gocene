@@ -127,7 +127,6 @@ func TestDisiPriorityQueue2_Clear(t *testing.T) {
 	if pq.Size() != 0 {
 		t.Fatalf("expected size 0 after Clear, got %d", pq.Size())
 	}
-}
 
 // TestDisiPriorityQueue2_ThirdEntryPanics verifies that adding a 3rd entry panics.
 func TestDisiPriorityQueue2_ThirdEntryPanics(t *testing.T) {

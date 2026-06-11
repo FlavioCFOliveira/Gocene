@@ -376,7 +376,6 @@ func TestXYShapeQuery_SpatialVisitor_DecodeError(t *testing.T) {
 	if got := visitor.Contains()(junk); got != geo.WithinDisjoint {
 		t.Fatalf("Contains: malformed payload should be DISJOINT, got %v", got)
 	}
-}
 
 // encodeXYTriangleAVertex builds a 28-byte ShapeField payload whose
 // A-vertex encodes the supplied (x, y) in the sortable-int wire

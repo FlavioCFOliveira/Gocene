@@ -42,7 +42,6 @@ func TestSloppyPhraseQuery2_RandomIncreasingSloppiness(t *testing.T) {
 		q2 = search.NewMultiPhraseQueryBuilderFromQuery(q2).SetSlop(i + 1).Build()
 		assertSubsetOf(t, searcher, q1, q2)
 	}
-}
 
 // randomMultiPhraseQuery ports TestSloppyPhraseQuery2.randomPhraseQuery: a
 // MultiPhraseQuery of 2-5 positions, each holding 1-3 single-character terms

@@ -62,7 +62,6 @@ func TestBM25Similarity_IDF(t *testing.T) {
 	if math.Abs(idf-expected) > 1e-9 {
 		t.Errorf("Expected IDF %f, got %f", expected, idf)
 	}
-}
 
 func TestBM25Similarity_IllegalParams(t *testing.T) {
 	defer func() {

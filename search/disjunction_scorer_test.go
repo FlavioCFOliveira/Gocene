@@ -217,7 +217,6 @@ func TestDisjunctionScorer_TwoPhaseNil(t *testing.T) {
 	if tpi := ds.TwoPhaseIterator(); tpi != nil {
 		t.Errorf("TwoPhaseIterator() = %v, want nil for plain scorers", tpi)
 	}
-}
 
 // TestDisjunctionScorer_ImplementsScorer is a compile-time interface check.
 func TestDisjunctionScorer_ImplementsScorer(t *testing.T) {

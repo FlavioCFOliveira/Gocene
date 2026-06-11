@@ -507,7 +507,6 @@ func TestSortOptimization_PointValidation(t *testing.T) {
 	if _, err := searcher.SearchWithSort(search.NewMatchAllDocsQuery(), 1, search.NewSort(sfInt)); err != nil {
 		t.Fatalf("INT sort on int-point field: unexpected error: %v", err)
 	}
-}
 
 // ── String sort (construction/API) ──────────────────────────────────────
 // Note: SORTED doc values are not yet supported by the codec (the flush path

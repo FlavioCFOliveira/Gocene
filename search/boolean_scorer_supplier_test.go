@@ -1066,7 +1066,6 @@ func TestBooleanScorerSupplier_SingleShouldScoringClause(t *testing.T) {
 	if clause2.IsTopLevelScoringClause() {
 		t.Error("clause2 should NOT be topLevelScoringClause for MUST_NOT")
 	}
-}
 
 // TestBooleanScorerSupplier_MaxScoreNonTopLevelScoringClause tests max score calculation
 // Source: testMaxScoreNonTopLevelScoringClause()

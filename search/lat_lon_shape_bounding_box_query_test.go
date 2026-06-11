@@ -569,7 +569,6 @@ func TestLatLonShapeBoundingBoxQuery_RelateRangeBBox_WrapsDateline(t *testing.T)
 	if got != pointCellInsideQuery && got != pointCellCrossesQuery {
 		t.Fatalf("wrapping rectangle, western cell: got %v, want INSIDE or CROSSES", got)
 	}
-}
 
 // triangleCell is a holder for the (min, max) byte payloads of a
 // triangle-range cell, used by the byte-comparator tests above.

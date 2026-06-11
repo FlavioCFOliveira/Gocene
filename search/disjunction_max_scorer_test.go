@@ -177,7 +177,6 @@ func TestDisjunctionMaxScorer_ThreeClauses(t *testing.T) {
 	if scores[0] < want-eps || scores[0] > want+eps {
 		t.Errorf("score=%v, want %v", scores[0], want)
 	}
-}
 
 // TestDisjunctionMaxScorer_Cost verifies Cost() is non-zero.
 func TestDisjunctionMaxScorer_Cost(t *testing.T) {

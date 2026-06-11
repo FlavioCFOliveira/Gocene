@@ -1572,7 +1572,6 @@ func TestSynonymQuery_TermBoostInteraction(t *testing.T) {
 			t.Errorf("Boost %d: expected %f, got %f", i, expected, boosts[i])
 		}
 	}
-}
 
 // TestSynonymQuery_ImplementationNote is a placeholder for implementation notes
 func TestSynonymQuery_ImplementationNote(t *testing.T) {

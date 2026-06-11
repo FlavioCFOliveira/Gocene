@@ -151,7 +151,6 @@ func TestMergeSchedulerExternal_MyMergeException(t *testing.T) {
 		if aerr := writer.AddDocument(doc); aerr != nil {
 			t.Fatalf("AddDocument(%d): %v", i, aerr)
 		}
-	}
 	if rerr := writer.Rollback(); rerr != nil {
 		t.Fatalf("Rollback: %v", rerr)
 	}

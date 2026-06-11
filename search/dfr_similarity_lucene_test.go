@@ -213,7 +213,6 @@ func TestLuceneDFRSimilarity_Score_IneL_H2(t *testing.T) {
 	if math.Abs(float64(got-want)) > 1e-5 {
 		t.Fatalf("score: got %v, want %v", got, want)
 	}
-}
 
 // TestLuceneDFRSimilarity_String verifies the canonical "DFR" + codes
 // concatenation.

@@ -343,7 +343,6 @@ func TestXYPointDistanceComparator_SetTopValue_CompareTop(t *testing.T) {
 	if got <= 0 {
 		t.Errorf("CompareTop = %d, want positive (top reference greater than doc distance)", got)
 	}
-}
 
 func TestXYPointDistanceComparator_CompetitiveIterator_NilAndNoOpHooks(t *testing.T) {
 	t.Parallel()

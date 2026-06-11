@@ -221,7 +221,6 @@ func TestSpanTermQuery_Positions(t *testing.T) {
 			t.Fatalf("positions = %v, want %v", positions, want)
 		}
 	}
-}
 
 // TestSpanTermQuery_ScoresByFreq verifies the SpanScorer scores a document with
 // more term occurrences higher, since each zero-width occurrence contributes 1.0

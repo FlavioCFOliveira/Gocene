@@ -398,7 +398,6 @@ func TestSearchAfterScoreDoc_ScoreDimensionBoundary(t *testing.T) {
 			}
 		}
 	}
-}
 
 // TestSearchAfterScoreDoc_InvalidArguments verifies the error contract matching
 // Lucene 10.4.0: n<=0 is rejected (TopScoreDocCollectorManager requires

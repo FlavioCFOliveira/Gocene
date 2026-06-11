@@ -74,7 +74,6 @@ func TestPatienceFloatVectorQuery_ToString(t *testing.T) {
 		if !containsToken(str, want) {
 			t.Fatalf("String() %q missing %q", str, want)
 		}
-	}
 
 	// The wrapped query must still rewrite to a runnable DocAndScoreQuery.
 	rewritten, err := q.Rewrite(s.GetIndexReader())

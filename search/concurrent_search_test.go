@@ -47,7 +47,6 @@ func TestConcurrentSearch_MultipleReaders(t *testing.T) {
 			t.Fatalf("concurrent reader: %v", err)
 		}
 	}
-}
 
 func TestConcurrentSearch_SameReaderMultipleGoroutines(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()

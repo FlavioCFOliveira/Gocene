@@ -300,7 +300,6 @@ func TestSortedSetSortField_MultiSegmentSort(t *testing.T) {
 	if len(top.ScoreDocs) != 3 {
 		t.Errorf("got %d score docs, want 3", len(top.ScoreDocs))
 	}
-}
 
 // TestSortedSetSortField_MissingFirstIntegration verifies that
 // STRING_FIRST returns the correct number of hits. Missing-value ordering is

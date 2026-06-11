@@ -149,7 +149,6 @@ func TestSortRandom_RandomStringSort(t *testing.T) {
 			}
 		}
 	}
-}
 
 func valStr(b []byte) string {
 	if b == nil {

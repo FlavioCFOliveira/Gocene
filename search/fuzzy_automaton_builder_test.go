@@ -113,7 +113,6 @@ func TestFuzzyAutomatonBuilder_PrefixClamping(t *testing.T) {
 	if ca == nil {
 		t.Fatal("BuildMaxEditAutomaton returned nil for full-prefix term")
 	}
-}
 
 // TestFuzzyAutomatonBuilder_StringToUTF32 verifies codepoint extraction.
 func TestFuzzyAutomatonBuilder_StringToUTF32(t *testing.T) {

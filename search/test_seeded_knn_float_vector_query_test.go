@@ -97,7 +97,6 @@ func TestSeededKnnFloatVectorQuery_RandomWithSeed(t *testing.T) {
 		}
 		assertDescendingScores(t, res.ScoreDocs)
 	}
-}
 
 // TestSeededKnnFloatVectorQuery_SeedWithTimeout replaces the upstream
 // testSeedWithTimeout which requires IndexSearcher.setTimeout and

@@ -223,7 +223,6 @@ func (h *seqHarness) assertSameScoresFiltered(q1, q2, filter search.Query) {
 			h.t.Errorf("doc %d scores differ: %v != %v", doc, s1, s2)
 		}
 	}
-}
 
 // seqAssertSameScores ports assertSameScores(q1, q2): same set, same scores, with
 // and without random filters.

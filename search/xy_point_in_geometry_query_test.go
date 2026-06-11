@@ -370,7 +370,6 @@ func (s *xyInMemoryPointSource) Intersect(visitor xyPointVisitor) error {
 		if err := visitor.VisitWithPackedValue(p.docID, packed); err != nil {
 			return err
 		}
-	}
 	return nil
 }
 

@@ -100,7 +100,6 @@ func newExplanationTestCase(t *testing.T) *explanationTestCase {
 			_ = dir.Close()
 		},
 	}
-}
 
 // createExplDoc mirrors BaseExplanationTestCase.createDoc(index).
 func createExplDoc(t *testing.T, idx int) *document.Document {

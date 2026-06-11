@@ -381,7 +381,6 @@ func assertSaneScoring(t *testing.T, s *IndexSearcher, q *PhraseQuery) {
 					t.Errorf("doc=%d scored to infinity", doc+docBase)
 				}
 			}
-		}
 		docBase += sr.MaxDoc()
 	}
 }

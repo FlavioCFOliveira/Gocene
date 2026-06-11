@@ -493,5 +493,4 @@ func TestBooleanQueryVisitSubscorers_GetChildrenBoosterScorer(t *testing.T) {
 		if summary != "TermScorer" {
 			t.Errorf("scorer summary = %q, want %q", summary, "TermScorer")
 		}
-	}
 }

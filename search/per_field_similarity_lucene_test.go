@@ -60,7 +60,6 @@ func TestLucenePerFieldSimilarityWrapper_ComputeNormDispatch(t *testing.T) {
 	if got, want := w.ComputeNormFromInvertState(stateNoDiscount), bm25NoDiscount.ComputeNormFromInvertState(stateNoDiscount); got != want {
 		t.Fatalf("no-discount norm: got %d, want %d", got, want)
 	}
-}
 
 // TestLucenePerFieldSimilarityWrapper_NilGetterPanics defends the contract.
 func TestLucenePerFieldSimilarityWrapper_NilGetterPanics(t *testing.T) {

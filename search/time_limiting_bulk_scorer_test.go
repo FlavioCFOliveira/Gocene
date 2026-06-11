@@ -271,7 +271,6 @@ func TestTimeLimitingBulkScorer_CostDelegated(t *testing.T) {
 	if s.Cost() != 42 {
 		t.Errorf("Cost() = %d, want 42", s.Cost())
 	}
-}
 
 // TestTimeLimitingBulkScorer_NilBulkScorerPanics verifies the constructor
 // rejects a nil inner scorer.

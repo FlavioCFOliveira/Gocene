@@ -110,7 +110,6 @@ func TestFloatVectorSimilarityValuesSource_String(t *testing.T) {
 	if !strings.Contains(str, "FloatVectorSimilarityValuesSource") {
 		t.Errorf("String() %q missing type name", str)
 	}
-}
 
 // TestFloatVectorSimilarityValuesSource_GetScorerNilCtx verifies that
 // GetScorer panics on a nil context (nil pointer dereference on

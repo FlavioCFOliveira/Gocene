@@ -42,7 +42,6 @@ func TestLuceneMultiSimilarity_ComputeNormDelegatesToZeroth(t *testing.T) {
 	if got != want {
 		t.Fatalf("norm should come from sims[0]: got %d, want %d", got, want)
 	}
-}
 
 // TestLuceneMultiSimilarity_EmptyPanics defends the contract.
 func TestLuceneMultiSimilarity_EmptyPanics(t *testing.T) {

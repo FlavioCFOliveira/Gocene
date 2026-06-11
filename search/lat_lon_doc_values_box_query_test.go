@@ -414,7 +414,6 @@ func TestLatLonDocValuesBoxQuery_CreateWeight_NilField(t *testing.T) {
 	if sup != nil {
 		t.Fatalf("ScorerSupplier(nil ctx): expected nil supplier, got %T", sup)
 	}
-}
 
 // nanFloat returns IEEE-754 NaN without importing math just for it
 // at the top of the file; helps keep table-driven cases declarative.

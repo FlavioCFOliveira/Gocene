@@ -343,7 +343,6 @@ func TestReferenceManager_IncRefDecRefClosed(t *testing.T) {
 	if err := rm.DecRef(); err == nil {
 		t.Error("expected error when DecRef on closed manager")
 	}
-}
 
 func TestReferenceManager_SetAfterClose(t *testing.T) {
 	ref := newMockReference("test")

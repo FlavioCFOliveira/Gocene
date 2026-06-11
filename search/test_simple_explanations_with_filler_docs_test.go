@@ -106,7 +106,6 @@ func newFillerExplanationTestCase(t *testing.T) *fillerExplanationTestCase {
 			_ = dir.Close()
 		},
 	}
-}
 
 // qtest remaps the expected doc numbers for the injected filler docs and wraps
 // q so the filler docs are excluded, then runs the matching-doc + explanation

@@ -673,7 +673,6 @@ func TestSearchResultValidation_TopN(t *testing.T) {
 			t.Errorf("expected %d score docs with top %d, got %d", expectedLen, n, len(topDocs.ScoreDocs))
 		}
 	}
-}
 
 // BenchmarkSearchResultValidation_TermQuery benchmarks term query performance.
 func BenchmarkSearchResultValidation_TermQuery(b *testing.B) {

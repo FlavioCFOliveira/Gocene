@@ -135,7 +135,6 @@ func (p *stubPointRangePV) Intersect(visitor pointRangeIntersectVisitorI) error 
 				return err
 			}
 		}
-	}
 	return nil
 }
 

@@ -200,7 +200,6 @@ func assertTrue(t *testing.T, got bool) {
 	if !got {
 		t.Error("expected canEarlyTerminate = true, got false")
 	}
-}
 
 func assertFalse(t *testing.T, got bool) {
 	t.Helper()

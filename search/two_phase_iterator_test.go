@@ -414,7 +414,6 @@ func TestTwoPhaseIterator_AllMatch(t *testing.T) {
 			t.Errorf("Expected doc %d at position %d, got %d", i, i, doc)
 		}
 	}
-}
 
 // TestTwoPhaseIterator_DocIDRunEnd tests DocIDRunEnd behavior.
 func TestTwoPhaseIterator_DocIDRunEnd(t *testing.T) {

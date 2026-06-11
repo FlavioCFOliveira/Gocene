@@ -152,7 +152,6 @@ func TestConjunctionBulkScorer_AcceptDocs(t *testing.T) {
 			t.Errorf("docs[%d]=%d, want %d", i, lc.docs[i], want[i])
 		}
 	}
-}
 
 // TestConjunctionBulkScorer_Cost verifies Cost equals lead1 cost (cheapest).
 func TestConjunctionBulkScorer_Cost(t *testing.T) {

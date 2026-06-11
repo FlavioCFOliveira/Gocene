@@ -62,7 +62,6 @@ func TestLuceneClassicSimilarity_Scorer(t *testing.T) {
 	if math.Abs(float64(got-want)) > 1e-5 {
 		t.Fatalf("Score: got %v, want %v (tf=%v idf=%v norm=%v)", got, want, tf, idf, norm)
 	}
-}
 
 // TestLuceneClassicSimilarity_String verifies the canonical name.
 func TestLuceneClassicSimilarity_String(t *testing.T) {

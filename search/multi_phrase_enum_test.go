@@ -272,7 +272,6 @@ func TestMultiPhraseEnum_Cost(t *testing.T) {
 	if got := union.Cost(); got != p1.Cost()+p2.Cost() {
 		t.Fatalf("expected cost %d, got %d", p1.Cost()+p2.Cost(), got)
 	}
-}
 
 // TestMultiPhraseEnum_PositionsSorted verifies that positions are returned in
 // ascending order even when the subs contribute them in mixed order.

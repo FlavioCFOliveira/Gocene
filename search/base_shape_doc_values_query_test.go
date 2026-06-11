@@ -386,7 +386,6 @@ func TestBaseShapeDocValuesQuery_TwoPhaseWalk(t *testing.T) {
 	if fmt.Sprint(matched) != fmt.Sprint(want) {
 		t.Errorf("matched = %v; want %v", matched, want)
 	}
-}
 
 // fakeLeafReader is a minimal LeafReaderInterface implementation that
 // exposes only the surface CreateWeight consults: GetBinaryDocValues

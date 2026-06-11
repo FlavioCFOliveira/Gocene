@@ -81,7 +81,6 @@ func TestConjunctions_TermConjunctionsWithOmitTF(t *testing.T) {
 	if got := td.ScoreDocs[0].Score; math.Abs(float64(got-3)) > 0.001 {
 		t.Errorf("score = %v, want 3 (+/-0.001)", got)
 	}
-}
 
 // conjChildrenCollector mirrors the TestCollector in testScorerGetChildren: on
 // SetScorer it records whether the scorer exposes exactly two child scorers.

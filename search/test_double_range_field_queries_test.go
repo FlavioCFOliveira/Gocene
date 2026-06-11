@@ -45,7 +45,6 @@ func buildDoubleRangeBasicsIndex(t *testing.T, dir store.Directory) *index.Direc
 		if err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
-	}
 
 	add([]float64{-10.0, -10.0}, []float64{9.1, 10.1})        // intersects (within)
 	add([]float64{10.0, -10.0}, []float64{20.0, 10.0})        // intersects (crosses)

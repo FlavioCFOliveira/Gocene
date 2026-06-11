@@ -839,7 +839,6 @@ func BenchmarkAutomatonQuery_Equals(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = aq1.Equals(aq2)
 	}
-}
 
 // BenchmarkAutomatonQuery_ThreadSafety benchmarks concurrent hashCode access.
 func BenchmarkAutomatonQuery_ThreadSafety(b *testing.B) {

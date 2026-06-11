@@ -169,7 +169,6 @@ func TestReqExclScorer_Advance(t *testing.T) {
 	if doc != 5 {
 		t.Errorf("Advance(4) = %d, want 5", doc)
 	}
-}
 
 func TestReqExclScorer_ImplementsScorer(t *testing.T) {
 	var _ search.Scorer = search.NewReqExclScorer(

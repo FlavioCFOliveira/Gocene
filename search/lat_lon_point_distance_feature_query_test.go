@@ -909,7 +909,6 @@ func TestLatLonPointDistanceFeaturePointVisitor_Compare(t *testing.T) {
 			result:        util.NewDocIdSetBuilder(1),
 			alreadyAt:     -1,
 		}
-	}
 	pack := func(lat, lon float64) []byte {
 		buf := make([]byte, 2*latLonPointBytesPerDim)
 		util.IntToSortableBytes(geo.EncodeLatitude(lat), buf, 0)

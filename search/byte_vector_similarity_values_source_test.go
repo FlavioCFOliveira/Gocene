@@ -105,7 +105,6 @@ func TestByteVectorSimilarityValuesSource_String(t *testing.T) {
 	if !strings.Contains(str, "ByteVectorSimilarityValuesSource") {
 		t.Errorf("String() %q missing type name", str)
 	}
-}
 
 // TestByteVectorSimilarityValuesSource_GetScorerNilCtx documents that
 // GetScorer panics on a nil context (expected; callers must pass a valid one).

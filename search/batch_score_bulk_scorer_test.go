@@ -156,5 +156,4 @@ func TestBatchScoreBulkScorer_AcceptDocsFilters(t *testing.T) {
 		if lc.docs[i] != d {
 			t.Errorf("docs[%d]=%d, want %d", i, lc.docs[i], d)
 		}
-	}
 }

@@ -105,7 +105,6 @@ func TestScorerUtil_EdgeCases(t *testing.T) {
 	if got <= 0 {
 		t.Errorf("MinRequiredScore(1.0, 100.0, 1000) = %v, want > 0", got)
 	}
-}
 
 // TestScorerUtil_CostWithMinShouldMatchEdgeCases covers additional edge
 // cases for CostWithMinShouldMatch.

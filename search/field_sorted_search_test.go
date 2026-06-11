@@ -312,7 +312,6 @@ func TestFieldSortedSearch_StringMissingFirst(t *testing.T) {
 	if got := docOrder(td); !equalInts(got, want) {
 		t.Fatalf("string missing-first order = %v, want %v", got, want)
 	}
-}
 
 // TestFieldSortedSearch_SecondaryAndTieBreak exercises a two-key sort (primary
 // int ascending, secondary term ascending) plus the implicit docID tie-break.

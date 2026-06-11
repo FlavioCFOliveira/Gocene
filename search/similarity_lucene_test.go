@@ -94,7 +94,6 @@ func TestDefaultBulkSimScorer_RoundTrip(t *testing.T) {
 			t.Fatalf("bulk[%d]: got %f, want %f", i, got[i], want)
 		}
 	}
-}
 
 // TestDefaultBulkSimScorer_NilScorerPanics defends against accidental nil
 // scorer wrapping.

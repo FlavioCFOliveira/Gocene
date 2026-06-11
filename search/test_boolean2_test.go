@@ -234,7 +234,6 @@ func TestBoolean2_RandomQueries(t *testing.T) {
 			t.Errorf("iteration %d: non-deterministic results: %d != %d", i, top1.TotalHits.Value, top2.TotalHits.Value)
 		}
 	}
-}
 
 // boolean2RandBoolQuery builds a random BooleanQuery tree, mirroring the static
 // randBoolQuery helper in TestBoolean2.java. The tree is reproducible for the

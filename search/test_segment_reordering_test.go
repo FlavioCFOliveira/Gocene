@@ -208,7 +208,6 @@ func TestSegmentReordering_NumericSegmentSortsWithMissingValues(t *testing.T) {
 				t.Fatalf("Commit at %d: %v", i, err)
 			}
 		}
-	}
 	if err := w.Close(); err != nil {
 		t.Fatalf("writer.Close: %v", err)
 	}

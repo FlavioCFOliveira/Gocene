@@ -108,7 +108,6 @@ func TestLuceneAxiomatic_F2EXP_Score(t *testing.T) {
 	if got < 0 {
 		t.Fatalf("F2EXP unexpectedly negative: %v", got)
 	}
-}
 
 // TestLuceneAxiomatic_Accessors verifies S/K/QueryLen surface.
 func TestLuceneAxiomatic_Accessors(t *testing.T) {

@@ -42,7 +42,6 @@ func TestQueryExpansion_TermRewrite(t *testing.T) {
 		if err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
-	}
 
 	if err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)

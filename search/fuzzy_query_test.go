@@ -79,7 +79,6 @@ func TestFuzzyQuery_Rewrite(t *testing.T) {
 	if rewritten != q {
 		t.Error("FuzzyQuery should currently rewrite to itself")
 	}
-}
 
 func TestFuzzyQuery_EqualsComplexity(t *testing.T) {
 	q := NewFuzzyQueryWithStrings("field", "abc")

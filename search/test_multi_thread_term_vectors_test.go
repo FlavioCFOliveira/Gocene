@@ -278,7 +278,6 @@ func TestMultiThreadTermVectors_Concurrency(t *testing.T) {
 					}
 					mttvVerifyVector(t, vector, docID)
 				}
-			}
 		}()
 	}
 	wg.Wait()

@@ -60,7 +60,6 @@ func TestBlockMaxConjunctionScorer_GetMaxScore(t *testing.T) {
 	if got != 7.0 {
 		t.Fatalf("expected 7.0, got %v", got)
 	}
-}
 
 // TestBlockMaxConjunctionScorer_GetChildren returns all scorers.
 func TestBlockMaxConjunctionScorer_GetChildren(t *testing.T) {

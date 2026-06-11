@@ -115,7 +115,6 @@ func TestLuceneIBSimilarity_String(t *testing.T) {
 	if got, want := sim.String(), "IB LL-D2"; got != want {
 		t.Fatalf("String: got %q, want %q", got, want)
 	}
-}
 
 // TestLuceneIBSimilarity_NilParamsPanic defends the nil check.
 func TestLuceneIBSimilarity_NilParamsPanic(t *testing.T) {

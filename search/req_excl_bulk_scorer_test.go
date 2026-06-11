@@ -215,7 +215,6 @@ func TestReqExclBulkScorer_Random(t *testing.T) {
 	for i := 0; i < iters; i++ {
 		doTestReqExclRandom(t, rng)
 	}
-}
 
 // TestReqExclBulkScorer_RandomTwoPhase ports testRandomTwoPhase().
 //
@@ -224,5 +223,4 @@ func TestReqExclBulkScorer_Random(t *testing.T) {
 // and is not yet ported to Gocene.
 func TestReqExclBulkScorer_RandomTwoPhase(t *testing.T) {
 	t.Skip("needs RandomTwoPhaseView from lucene-test-framework — not yet ported")
-}
 }

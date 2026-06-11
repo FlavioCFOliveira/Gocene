@@ -66,7 +66,6 @@ func TestLatLonDocValuesDistanceSort_OriginExtremes(t *testing.T) {
 			}
 		})
 	}
-}
 
 // TestLatLonDocValuesDistanceSort_MissingLastSemantic confirms the
 // factory honours missing-last by setting MissingValueLast as the

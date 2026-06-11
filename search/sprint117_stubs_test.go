@@ -265,7 +265,6 @@ func TestNumericDocValuesRangeQuery_CreateWeight(t *testing.T) {
 	if w == nil {
 		t.Fatal("CreateWeight returned nil Weight")
 	}
-}
 
 // TestQueryRescorer_DefaultCombine verifies the default combine function
 // adds the second-pass score when secondPassMatches is true and returns

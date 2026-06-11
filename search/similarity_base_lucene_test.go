@@ -153,7 +153,6 @@ func TestLuceneSimilarityBase_Scorer104_Empty(t *testing.T) {
 	if got := sc.Score104(10, 1); got != 0 {
 		t.Fatalf("no-op score: got %v, want 0", got)
 	}
-}
 
 // TestLuceneSimilarityBase_NilScorePanics verifies the safety check at
 // construction time.

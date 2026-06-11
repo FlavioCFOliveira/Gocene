@@ -244,7 +244,6 @@ func TestBitSetDocIdStream_IntoArrayUpTo_EmptyArrayNoop(t *testing.T) {
 	if len(got) != 1 || got[0] != 3 {
 		t.Errorf("got %v, want [3]", got)
 	}
-}
 
 // ─── interface satisfaction ───────────────────────────────────────────────────
 

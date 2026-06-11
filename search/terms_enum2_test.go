@@ -72,7 +72,6 @@ func setUpTermsEnum2Fixture(t *testing.T) {
 func TestTermsEnum2_FiniteVersusInfinite(t *testing.T) {
 	t.Skip("TestTermsEnum2 fixture needs RandomIndexWriter + KEYWORD MockAnalyzer — not yet ported")
 }
-}
 
 // TestTermsEnum2_Seeking ports testSeeking:
 // seeks to every term accepted by some automaton.

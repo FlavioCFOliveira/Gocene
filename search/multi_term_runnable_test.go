@@ -206,7 +206,6 @@ func TestWildcardQuery_Search(t *testing.T) {
 			if sd.Score != 1.0 {
 				t.Errorf("doc %d: expected constant score 1.0, got %f", sd.Doc, sd.Score)
 			}
-		}
 	})
 
 	t.Run("single_char", func(t *testing.T) {

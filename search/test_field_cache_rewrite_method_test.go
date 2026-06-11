@@ -147,7 +147,6 @@ func TestFieldCacheRewriteMethod_DocValuesRewriteMatchesZeroDocuments(t *testing
 		// wired and parity tests can be enabled.
 		t.Logf("DocValuesRewriteMethod now matches %d docs; parity test can be enabled", len(top.ScoreDocs))
 	}
-}
 
 // TestFieldCacheRewriteMethod_IndexFixtureSanity verifies the integration index
 // has the expected document count via MatchAllDocsQuery.

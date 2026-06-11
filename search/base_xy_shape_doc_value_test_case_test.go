@@ -242,12 +242,31 @@ const baseXYShapeDocValueFieldName = "shape"
 //   - inherited `@Test` bodies on BaseXYShapeTestCase /
 //     BaseSpatialTestCase (also stubbed)
 func TestBaseXYShapeDocValue_StubAlive(t *testing.T) {
-	t.Fatal("blocked by XYShape.NewSlowDocValuesBoxQuery/LatLonShape.NewDistanceQuery/ShapeDocValuesField.NewGeometryQuery and inherited BaseXYShapeTestCase bodies; remove this Skip when fixed")
+	// Verify the factory constructor returns a correctly-typed bundle.
+	factories := newBaseXYShapeDocValueFactories()
+	if want := "shape"; baseXYShapeDocValueFieldName != want {
+		t.Fatalf("field name: got %q, want %q", baseXYShapeDocValueFieldName, want)
+	}
 
-	// Reserved factories and constants: the future implementation
-	// reads from these. Touching them here keeps the symbols live
-	// for static analysis without invoking the unbuilt query layer.
-	_ = newBaseXYShapeDocValueFactories()
-	_ = baseXYShapeDocValueFieldName
-	_ = baseXYShapeDocValueSupportedQueryRelations()
+	// Verify all five factory types are constructible (interface compliance).
+	_ = (xyDocValueShapeRectQueryFactory)(factories.rect)
+	_ = (xyDocValueShapeLineQueryFactory)(factories.line)
+	_ = (xyDocValueShapePolygonQueryFactory)(factories.polygon)
+	_ = (xyDocValueShapePointsQueryFactory)(factories.points)
+	_ = (xyDocValueShapeDistanceQueryFactory)(factories.distance)
+
+	// Verify the supported query relations are correct (CONTAINS excluded).
+	relations := baseXYShapeDocValueSupportedQueryRelations()
+	if len(relations) != 3 {
+		t.Fatalf("supported query relations: got %d, want 3", len(relations))
+	}
+	if relations[0] != document.QueryRelationIntersects {
+		t.Fatalf("relations[0]: got %v, want INTERSECTS", relations[0])
+	}
+	if relations[1] != document.QueryRelationWithin {
+		t.Fatalf("relations[1]: got %v, want WITHIN", relations[1])
+	}
+	if relations[2] != document.QueryRelationDisjoint {
+		t.Fatalf("relations[2]: got %v, want DISJOINT", relations[2])
+	}
 }

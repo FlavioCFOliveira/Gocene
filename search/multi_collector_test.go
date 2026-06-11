@@ -821,7 +821,6 @@ func TestMultiCollector_CollectionTerminatedExceptionHandling(t *testing.T) {
 				i, terminateAfters[i], got, e.expectedCount)
 		}
 	}
-}
 
 // TestMultiCollector_CacheScores ports testCacheScoresIfNecessary: scores are
 // only cached (the child sees a *ScoreCachingWrappingScorer) when at least two

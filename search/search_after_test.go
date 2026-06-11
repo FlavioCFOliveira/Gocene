@@ -475,5 +475,4 @@ func TestSearchAfter_ScorePopulation(t *testing.T) {
 		if len(fd.Fields) == 0 {
 			t.Errorf("result %d has no sort values", i)
 		}
-	}
 }

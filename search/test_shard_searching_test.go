@@ -75,7 +75,6 @@ func buildShardSearchingNode(t *testing.T, bodies []string) *shardSearchingNode 
 		if aerr := w.AddDocument(doc); aerr != nil {
 			t.Fatalf("AddDocument(%d): %v", i, aerr)
 		}
-	}
 	if cerr := w.Commit(); cerr != nil {
 		t.Fatalf("Commit: %v", cerr)
 	}
