@@ -102,7 +102,7 @@ func LoadDirectMonotonicMeta(metaIn store.DataInput, numValues int64, blockShift
 // zeroLongValues returns 0 for every Get call.
 type zeroLongValues struct{}
 
-func (zeroLongValues) Get(index int64) int64 { return 0 }
+func (zeroLongValues) Get(index int64) (int64, error) { return 0, nil }
 
 // NewDirectMonotonicReader constructs a reader from the given meta
 // and a RandomAccessInput positioned over the data stream.
@@ -140,12 +140,16 @@ func NewDirectMonotonicReader(meta *DirectMonotonicMeta, data RandomAccessInput)
 	}, nil
 }
 
-// Get returns the value at the given index.
-func (r *DirectMonotonicReader) Get(index int64) int64 {
+// Get returns the value at the given index. Propagates errors from
+// the underlying packed reader.
+func (r *DirectMonotonicReader) Get(index int64) (int64, error) {
 	block := int(uint64(index) >> uint(r.blockShift))
 	blockIndex := index & r.blockMask
-	delta := r.readers[block].Get(blockIndex)
-	return r.mins[block] + int64(r.avgs[block]*float32(blockIndex)) + delta
+	delta, err := r.readers[block].Get(blockIndex)
+	if err != nil {
+		return 0, err
+	}
+	return r.mins[block] + int64(r.avgs[block]*float32(blockIndex)) + delta, nil
 }
 
 // BinarySearch returns the index of key in [fromIndex, toIndex) if it
@@ -164,7 +168,10 @@ func (r *DirectMonotonicReader) BinarySearch(fromIndex, toIndex, key int64) (int
 		} else if lower > key {
 			hi = mid - 1
 		} else {
-			midVal := r.Get(mid)
+			midVal, err := r.Get(mid)
+			if err != nil {
+				return 0, fmt.Errorf("packed: direct monotonic binary search: %w", err)
+			}
 			if midVal < key {
 				lo = mid + 1
 			} else if midVal > key {

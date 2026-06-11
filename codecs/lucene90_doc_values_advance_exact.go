@@ -4,6 +4,8 @@
 
 package codecs
 
+import "fmt"
+
 // This file gathers the AdvanceExact methods required by the iterator
 // surface unified onto spi.NumericDocValues / BinaryDocValues /
 // SortedDocValues / SortedSetDocValues / SortedNumericDocValues by
@@ -109,8 +111,16 @@ func (s *sortedSetDVDense) AdvanceExact(target int) (bool, error) {
 	s.doc = target
 	// Mirror the eager reload Advance/NextDoc do on this dense path so
 	// NextOrd / DocValueCount return the values bound to target.
-	s.curr = s.addrs.Get(int64(s.doc))
-	s.count = int(s.addrs.Get(int64(s.doc)+1) - s.curr)
+	start, err := s.addrs.Get(int64(s.doc))
+	if err != nil {
+		return false, fmt.Errorf("sortedSetDVDense: AdvanceExact: get addr: %w", err)
+	}
+	s.curr = start
+	endAddr, err := s.addrs.Get(int64(s.doc) + 1)
+	if err != nil {
+		return false, fmt.Errorf("sortedSetDVDense: AdvanceExact: get end addr: %w", err)
+	}
+	s.count = int(endAddr - s.curr)
 	return true, nil
 }
 
@@ -140,8 +150,16 @@ func (d *sortedNumericDVDense) AdvanceExact(target int) (bool, error) {
 	// Recompute the value window for the target document so DocValueCount and
 	// NextValue read the correct slice, mirroring Advance/NextDoc. Every doc in
 	// a dense SortedNumeric carries at least one value.
-	d.start = d.addrs.Get(int64(d.doc))
-	d.end = d.addrs.Get(int64(d.doc) + 1)
+	start, err := d.addrs.Get(int64(d.doc))
+	if err != nil {
+		return false, fmt.Errorf("sortedNumericDVDense: AdvanceExact: get addr: %w", err)
+	}
+	d.start = start
+	endVal, err := d.addrs.Get(int64(d.doc) + 1)
+	if err != nil {
+		return false, fmt.Errorf("sortedNumericDVDense: AdvanceExact: get end addr: %w", err)
+	}
+	d.end = endVal
 	d.count = int(d.end - d.start)
 	return true, nil
 }

@@ -664,22 +664,34 @@ func (p *lucene90DVProducer) getNumericValues(e *dvNumericEntry) (dvLongValues, 
 	}
 	if e.table != nil {
 		tbl := e.table
-		return funcLongValues(func(index int64) int64 {
-			return tbl[int(inner.Get(index))]
+		return funcLongValues(func(index int64) (int64, error) {
+			v, err := inner.Get(index)
+			if err != nil {
+				return 0, err
+			}
+			return tbl[int(v)], nil
 		}), nil
 	} else if e.gcd != 1 {
 		mul := e.gcd
 		delta := e.minValue
-		return funcLongValues(func(index int64) int64 {
-			return inner.Get(index)*mul + delta
+		return funcLongValues(func(index int64) (int64, error) {
+			v, err := inner.Get(index)
+			if err != nil {
+				return 0, err
+			}
+			return v*mul + delta, nil
 		}), nil
 	} else if e.minValue != 0 {
 		delta := e.minValue
-		return funcLongValues(func(index int64) int64 {
-			return inner.Get(index) + delta
+		return funcLongValues(func(index int64) (int64, error) {
+			v, err := inner.Get(index)
+			if err != nil {
+				return 0, err
+			}
+			return v + delta, nil
 		}), nil
 	}
-	return funcLongValues(func(index int64) int64 { return inner.Get(index) }), nil
+	return funcLongValues(func(index int64) (int64, error) { return inner.Get(index) }), nil
 }
 
 func (p *lucene90DVProducer) getNumeric(e *dvNumericEntry) (NumericDocValues, error) {
@@ -1027,7 +1039,10 @@ func (td *dvTermsDict) SeekExact(ord int64) error {
 	currentBlockIndex := td.ord >> int64(Lucene90DocValuesTermsDictBlockLZ4Shift)
 	blockIndex := ord >> int64(Lucene90DocValuesTermsDictBlockLZ4Shift)
 	if ord < td.ord || blockIndex != currentBlockIndex {
-		blockAddr := td.blockAddrs.Get(blockIndex)
+		blockAddr, err := td.blockAddrs.Get(blockIndex)
+		if err != nil {
+			return fmt.Errorf("dvTermsDict: get block addr: %w", err)
+		}
 		if err := td.bytes.SetPosition(blockAddr); err != nil {
 			return err
 		}
@@ -1052,8 +1067,15 @@ func (td *dvTermsDict) LookupOrd(ord int) ([]byte, error) {
 }
 
 func (td *dvTermsDict) getTermFromIndex(index int64) ([]byte, error) {
-	start := td.indexAddrs.Get(index)
-	length := int(td.indexAddrs.Get(index+1) - start)
+	start, err := td.indexAddrs.Get(index)
+	if err != nil {
+		return nil, fmt.Errorf("dvTermsDict: index addr: %w", err)
+	}
+	endAddr, err := td.indexAddrs.Get(index + 1)
+	if err != nil {
+		return nil, fmt.Errorf("dvTermsDict: index addr end: %w", err)
+	}
+	length := int(endAddr - start)
 	if cap(td.term) < length {
 		td.term = make([]byte, length)
 	}
@@ -1134,7 +1156,7 @@ type varyingBPVReader struct {
 	vals           packed.LongValues
 }
 
-func (r *varyingBPVReader) Get(index int64) int64 {
+func (r *varyingBPVReader) Get(index int64) (int64, error) {
 	shift := uint(r.entry.blockShift)
 	mask := int64((1 << shift) - 1)
 	block := index >> shift
@@ -1142,10 +1164,8 @@ func (r *varyingBPVReader) Get(index int64) int64 {
 		var bpv byte
 		for {
 			if r.jumpTable != nil && block != r.block+1 {
-				// jump via value jump table: each entry is an absolute data offset (int64 LE)
 				off, err := r.jumpTable.ReadLongAt(block * 8)
 				if err == nil {
-					// off is an absolute data-file offset; convert to slice-relative
 					r.blockEndOffset = off - r.entry.valuesOffset
 					r.block = block - 1
 				}
@@ -1153,13 +1173,13 @@ func (r *varyingBPVReader) Get(index int64) int64 {
 			r.offset = r.blockEndOffset
 			b, err := r.slice.ReadByteAt(r.offset)
 			if err != nil {
-				return 0
+				return 0, fmt.Errorf("lucene90 dv: varyingBPVReader: read byte: %w", err)
 			}
 			bpv = b
 			r.offset++
 			d, err := r.slice.ReadLongAt(r.offset)
 			if err != nil {
-				return 0
+				return 0, fmt.Errorf("lucene90 dv: varyingBPVReader: read delta: %w", err)
 			}
 			r.delta = d
 			r.offset += 8
@@ -1168,7 +1188,7 @@ func (r *varyingBPVReader) Get(index int64) int64 {
 			} else {
 				l, err := r.slice.ReadIntAt(r.offset)
 				if err != nil {
-					return 0
+					return 0, fmt.Errorf("lucene90 dv: varyingBPVReader: read length: %w", err)
 				}
 				r.offset += 4
 				r.blockEndOffset = r.offset + int64(l)
@@ -1178,21 +1198,21 @@ func (r *varyingBPVReader) Get(index int64) int64 {
 				break
 			}
 		}
-		numValues := int64(1 << shift)
-		if remaining := r.entry.numValues - (block << shift); remaining < numValues {
-			numValues = remaining
-		}
 		if bpv == 0 {
 			r.vals = constLongValues(0)
 		} else {
 			inner, err := packed.GetDirectReaderAt(r.slice, int(bpv), r.offset)
 			if err != nil {
-				return 0
+				return 0, fmt.Errorf("lucene90 dv: varyingBPVReader: get direct reader: %w", err)
 			}
 			r.vals = inner
 		}
 	}
-	return r.entry.gcd*r.vals.Get(index&mask) + r.delta
+	val, err := r.vals.Get(index & mask)
+	if err != nil {
+		return 0, err
+	}
+	return r.entry.gcd*val + r.delta, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -1260,7 +1280,7 @@ func (d *denseNumericDV) Advance(target int) (int, error) {
 	d.doc = target
 	return d.doc, nil
 }
-func (d *denseNumericDV) LongValue() (int64, error) { return d.vals.Get(int64(d.doc)), nil }
+func (d *denseNumericDV) LongValue() (int64, error) { return d.vals.Get(int64(d.doc)) }
 func (d *denseNumericDV) Cost() int64               { return int64(d.maxDoc) }
 
 // sparseConstNumericDV: sparse (DISI), bitsPerValue == 0.
@@ -1285,7 +1305,11 @@ func (s *sparseNumericDV) DocID() int                 { return s.disi.DocID() }
 func (s *sparseNumericDV) NextDoc() (int, error)      { return s.disi.NextDoc() }
 func (s *sparseNumericDV) Advance(t int) (int, error) { return s.disi.Advance(t) }
 func (s *sparseNumericDV) LongValue() (int64, error) {
-	return s.vals.Get(int64(s.disi.Index())), nil
+	v, err := s.vals.Get(int64(s.disi.Index()))
+	if err != nil {
+		return 0, err
+	}
+	return v, nil
 }
 func (s *sparseNumericDV) Cost() int64 { return s.disi.Cost() }
 
@@ -1363,8 +1387,15 @@ func (d *denseVarBinaryDV) Advance(target int) (int, error) {
 	return d.doc, nil
 }
 func (d *denseVarBinaryDV) BinaryValue() ([]byte, error) {
-	start := d.addrs.Get(int64(d.doc))
-	length := int(d.addrs.Get(int64(d.doc)+1) - start)
+	start, err := d.addrs.Get(int64(d.doc))
+	if err != nil {
+		return nil, err
+	}
+	endAddr, err := d.addrs.Get(int64(d.doc) + 1)
+	if err != nil {
+		return nil, err
+	}
+	length := int(endAddr - start)
 	if cap(d.buf) < length {
 		d.buf = make([]byte, length)
 	}
@@ -1413,8 +1444,15 @@ func (s *sparseVarBinaryDV) NextDoc() (int, error)      { return s.disi.NextDoc(
 func (s *sparseVarBinaryDV) Advance(t int) (int, error) { return s.disi.Advance(t) }
 func (s *sparseVarBinaryDV) BinaryValue() ([]byte, error) {
 	idx := int64(s.disi.Index())
-	start := s.addrs.Get(idx)
-	length := int(s.addrs.Get(idx+1) - start)
+	start, err := s.addrs.Get(idx)
+	if err != nil {
+		return nil, err
+	}
+	endAddr, err := s.addrs.Get(idx + 1)
+	if err != nil {
+		return nil, err
+	}
+	length := int(endAddr - start)
 	if cap(s.buf) < length {
 		s.buf = make([]byte, length)
 	}
@@ -1467,9 +1505,19 @@ func (s *sortedDVDense) Advance(t int) (int, error) {
 	s.doc = t
 	return s.doc, nil
 }
-func (s *sortedDVDense) OrdValue() (int, error) { return int(s.vals.Get(int64(s.doc))), nil }
+func (s *sortedDVDense) OrdValue() (int, error) {
+	v, err := s.vals.Get(int64(s.doc))
+	if err != nil {
+		return 0, err
+	}
+	return int(v), nil
+}
 func (s *sortedDVDense) LongValue() (int64, error) {
-	return int64(s.vals.Get(int64(s.doc))), nil
+	v, err := s.vals.Get(int64(s.doc))
+	if err != nil {
+		return 0, err
+	}
+	return v, nil
 }
 func (s *sortedDVDense) Cost() int64 { return int64(s.maxDoc) }
 
@@ -1483,10 +1531,18 @@ func (s *sortedDVSparse) DocID() int                 { return s.disi.DocID() }
 func (s *sortedDVSparse) NextDoc() (int, error)      { return s.disi.NextDoc() }
 func (s *sortedDVSparse) Advance(t int) (int, error) { return s.disi.Advance(t) }
 func (s *sortedDVSparse) OrdValue() (int, error) {
-	return int(s.vals.Get(int64(s.disi.Index()))), nil
+	v, err := s.vals.Get(int64(s.disi.Index()))
+	if err != nil {
+		return 0, err
+	}
+	return int(v), nil
 }
 func (s *sortedDVSparse) LongValue() (int64, error) {
-	return int64(s.vals.Get(int64(s.disi.Index()))), nil
+	v, err := s.vals.Get(int64(s.disi.Index()))
+	if err != nil {
+		return 0, err
+	}
+	return v, nil
 }
 func (s *sortedDVSparse) Cost() int64 { return s.disi.Cost() }
 
@@ -1537,8 +1593,16 @@ func (s *sortedSetDVDense) NextDoc() (int, error) {
 		s.doc = dvNoMoreDocs
 		return dvNoMoreDocs, nil
 	}
-	s.curr = s.addrs.Get(int64(s.doc))
-	s.count = int(s.addrs.Get(int64(s.doc)+1) - s.curr)
+	start, err := s.addrs.Get(int64(s.doc))
+	if err != nil {
+		return 0, fmt.Errorf("sortedSetDVDense: NextDoc: get addr: %w", err)
+	}
+	s.curr = start
+	endAddr, err := s.addrs.Get(int64(s.doc) + 1)
+	if err != nil {
+		return 0, fmt.Errorf("sortedSetDVDense: NextDoc: get end addr: %w", err)
+	}
+	s.count = int(endAddr - s.curr)
 	return s.doc, nil
 }
 func (s *sortedSetDVDense) Advance(t int) (int, error) {
@@ -1547,18 +1611,32 @@ func (s *sortedSetDVDense) Advance(t int) (int, error) {
 		return dvNoMoreDocs, nil
 	}
 	s.doc = t
-	s.curr = s.addrs.Get(int64(s.doc))
-	s.count = int(s.addrs.Get(int64(s.doc)+1) - s.curr)
+	start, err := s.addrs.Get(int64(s.doc))
+	if err != nil {
+		return 0, fmt.Errorf("sortedSetDVDense: Advance: get addr: %w", err)
+	}
+	s.curr = start
+	endAddr, err := s.addrs.Get(int64(s.doc) + 1)
+	if err != nil {
+		return 0, fmt.Errorf("sortedSetDVDense: Advance: get end addr: %w", err)
+	}
+	s.count = int(endAddr - s.curr)
 	return s.doc, nil
 }
 func (s *sortedSetDVDense) NextOrd() (int, error) {
-	start := s.addrs.Get(int64(s.doc))
+	start, err := s.addrs.Get(int64(s.doc))
+	if err != nil {
+		return -1, err
+	}
 	if s.curr >= start+int64(s.count) {
 		return -1, nil
 	}
-	v := int(s.vals.Get(s.curr))
+	v, err := s.vals.Get(s.curr)
+	if err != nil {
+		return -1, err
+	}
 	s.curr++
-	return v, nil
+	return int(v), nil
 }
 func (s *sortedSetDVDense) DocValueCount() int { return s.count }
 func (s *sortedSetDVDense) Cost() int64        { return int64(s.maxDoc) }
@@ -1576,26 +1654,51 @@ type sortedSetDVSparse struct {
 func (s *sortedSetDVSparse) DocID() int                 { return s.disi.DocID() }
 func (s *sortedSetDVSparse) NextDoc() (int, error)      { s.set = false; return s.disi.NextDoc() }
 func (s *sortedSetDVSparse) Advance(t int) (int, error) { s.set = false; return s.disi.Advance(t) }
-func (s *sortedSetDVSparse) setIfNeeded() {
+func (s *sortedSetDVSparse) setIfNeeded() error {
 	if !s.set {
 		idx := int64(s.disi.Index())
-		s.curr = s.addrs.Get(idx)
-		s.count = int(s.addrs.Get(idx+1) - s.curr)
+		start, err := s.addrs.Get(idx)
+		if err != nil {
+			return fmt.Errorf("sortedSetDVSparse: setIfNeeded: get addr: %w", err)
+		}
+		s.curr = start
+		endAddr, err := s.addrs.Get(idx + 1)
+		if err != nil {
+			return fmt.Errorf("sortedSetDVSparse: setIfNeeded: get end addr: %w", err)
+		}
+		s.count = int(endAddr - s.curr)
 		s.set = true
 	}
+	return nil
 }
 func (s *sortedSetDVSparse) NextOrd() (int, error) {
-	s.setIfNeeded()
+	if err := s.setIfNeeded(); err != nil {
+		return -1, err
+	}
 	idx := int64(s.disi.Index())
-	end := s.addrs.Get(idx + 1)
+	end, err := s.addrs.Get(idx + 1)
+	if err != nil {
+		return -1, err
+	}
 	if s.curr >= end {
 		return -1, nil
 	}
-	v := int(s.vals.Get(s.curr))
+	v, err := s.vals.Get(s.curr)
+	if err != nil {
+		return -1, err
+	}
 	s.curr++
-	return v, nil
+	return int(v), nil
 }
-func (s *sortedSetDVSparse) DocValueCount() int { s.setIfNeeded(); return s.count }
+func (s *sortedSetDVSparse) DocValueCount() int {
+	if err := s.setIfNeeded(); err != nil {
+		// This path is unreachable in practice; panic retains the
+		// Lucene RuntimeException semantics for I/O errors in
+		// non-error-returning contexts matching the util.Bits pattern.
+		panic(fmt.Sprintf("sortedSetDVSparse: DocValueCount: %v", err))
+	}
+	return s.count
+}
 func (s *sortedSetDVSparse) Cost() int64        { return s.disi.Cost() }
 
 // sortedSetDVGeneral wraps a SortedNumericDocValues for multi-valued case.
@@ -1711,8 +1814,16 @@ func (d *sortedNumericDVDense) NextDoc() (int, error) {
 		d.doc = dvNoMoreDocs
 		return dvNoMoreDocs, nil
 	}
-	d.start = d.addrs.Get(int64(d.doc))
-	d.end = d.addrs.Get(int64(d.doc) + 1)
+	start, err := d.addrs.Get(int64(d.doc))
+	if err != nil {
+		return 0, fmt.Errorf("sortedNumericDVDense: NextDoc: get addr: %w", err)
+	}
+	d.start = start
+	endVal, err := d.addrs.Get(int64(d.doc) + 1)
+	if err != nil {
+		return 0, fmt.Errorf("sortedNumericDVDense: NextDoc: get end addr: %w", err)
+	}
+	d.end = endVal
 	d.count = int(d.end - d.start)
 	return d.doc, nil
 }
@@ -1722,13 +1833,24 @@ func (d *sortedNumericDVDense) Advance(t int) (int, error) {
 		return dvNoMoreDocs, nil
 	}
 	d.doc = t
-	d.start = d.addrs.Get(int64(d.doc))
-	d.end = d.addrs.Get(int64(d.doc) + 1)
+	start, err := d.addrs.Get(int64(d.doc))
+	if err != nil {
+		return 0, fmt.Errorf("sortedNumericDVDense: Advance: get addr: %w", err)
+	}
+	d.start = start
+	endVal, err := d.addrs.Get(int64(d.doc) + 1)
+	if err != nil {
+		return 0, fmt.Errorf("sortedNumericDVDense: Advance: get end addr: %w", err)
+	}
+	d.end = endVal
 	d.count = int(d.end - d.start)
 	return d.doc, nil
 }
 func (d *sortedNumericDVDense) NextValue() (int64, error) {
-	v := d.vals.Get(d.start)
+	v, err := d.vals.Get(d.start)
+	if err != nil {
+		return 0, fmt.Errorf("sortedNumericDVDense: NextValue: %w", err)
+	}
 	d.start++
 	return v, nil
 }
@@ -1748,22 +1870,41 @@ type sortedNumericDVSparse struct {
 func (s *sortedNumericDVSparse) DocID() int                 { return s.disi.DocID() }
 func (s *sortedNumericDVSparse) NextDoc() (int, error)      { s.set = false; return s.disi.NextDoc() }
 func (s *sortedNumericDVSparse) Advance(t int) (int, error) { s.set = false; return s.disi.Advance(t) }
-func (s *sortedNumericDVSparse) setIfNeeded() {
+func (s *sortedNumericDVSparse) setIfNeeded() error {
 	if !s.set {
 		idx := int64(s.disi.Index())
-		s.start = s.addrs.Get(idx)
-		s.count = int(s.addrs.Get(idx+1) - s.start)
+		start, err := s.addrs.Get(idx)
+		if err != nil {
+			return fmt.Errorf("sortedNumericDVSparse: setIfNeeded: get addr: %w", err)
+		}
+		s.start = start
+		endAddr, err := s.addrs.Get(idx + 1)
+		if err != nil {
+			return fmt.Errorf("sortedNumericDVSparse: setIfNeeded: get end addr: %w", err)
+		}
+		s.count = int(endAddr - s.start)
 		s.set = true
 	}
+	return nil
 }
 func (s *sortedNumericDVSparse) NextValue() (int64, error) {
-	s.setIfNeeded()
-	v := s.vals.Get(s.start)
+	if err := s.setIfNeeded(); err != nil {
+		return 0, err
+	}
+	v, err := s.vals.Get(s.start)
+	if err != nil {
+		return 0, err
+	}
 	s.start++
 	return v, nil
 }
 func (s *sortedNumericDVSparse) LongValue() (int64, error)   { return s.NextValue() }
-func (s *sortedNumericDVSparse) DocValueCount() (int, error) { s.setIfNeeded(); return s.count, nil }
+func (s *sortedNumericDVSparse) DocValueCount() (int, error) {
+	if err := s.setIfNeeded(); err != nil {
+		return 0, err
+	}
+	return s.count, nil
+}
 func (s *sortedNumericDVSparse) Cost() int64                 { return s.disi.Cost() }
 
 // ---------------------------------------------------------------------------
@@ -1772,7 +1913,7 @@ func (s *sortedNumericDVSparse) Cost() int64                 { return s.disi.Cos
 
 // dvLongValues is a random-access long value array (subset of packed.LongValues).
 type dvLongValues interface {
-	Get(index int64) int64
+	Get(index int64) (int64, error)
 }
 
 // constLongValues returns a fixed value for any index.
@@ -1780,12 +1921,12 @@ func constLongValues(val int64) dvLongValues { return constLV(val) }
 
 type constLV int64
 
-func (c constLV) Get(_ int64) int64 { return int64(c) }
+func (c constLV) Get(_ int64) (int64, error) { return int64(c), nil }
 
 // funcLongValues wraps a function as dvLongValues.
-type funcLongValues func(index int64) int64
+type funcLongValues func(index int64) (int64, error)
 
-func (f funcLongValues) Get(index int64) int64 { return f(index) }
+func (f funcLongValues) Get(index int64) (int64, error) { return f(index) }
 
 // dvReadBytesAt reads length bytes at the given absolute position from a
 // RandomAccessInput, using ReadByteAt since RandomAccessInput has no ReadBytesAt.

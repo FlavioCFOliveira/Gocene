@@ -22,9 +22,10 @@ package util
 // The Java abstract method is named "long get(long index)"; in Go we
 // preserve the name and the int64 indexing.
 type LongValues interface {
-	// Get returns the value at the given index. The valid range of
-	// indices is implementation-defined.
-	Get(index int64) int64
+	// Get returns the value at the given index and an error if the
+	// underlying I/O fails. The valid range of indices is
+	// implementation-defined.
+	Get(index int64) (int64, error)
 }
 
 // IdentityLongValues is the LongValues instance that returns its index.
@@ -41,17 +42,17 @@ var ZeroLongValues LongValues = zeroLongValues{}
 
 type identityLongValues struct{}
 
-func (identityLongValues) Get(index int64) int64 { return index }
+func (identityLongValues) Get(index int64) (int64, error) { return index, nil }
 
 type zeroLongValues struct{}
 
-func (zeroLongValues) Get(index int64) int64 { return 0 }
+func (zeroLongValues) Get(index int64) (int64, error) { return 0, nil }
 
-// LongValuesFunc adapts a plain func(int64) int64 to the LongValues
+// LongValuesFunc adapts a plain func(int64) (int64, error) to the LongValues
 // interface. This is the most common Go idiom for one-off "lambda"
 // implementations of single-method interfaces and avoids forcing every
 // caller to declare a named type just to expose a Get method.
-type LongValuesFunc func(index int64) int64
+type LongValuesFunc func(index int64) (int64, error)
 
 // Get satisfies the LongValues interface.
-func (f LongValuesFunc) Get(index int64) int64 { return f(index) }
+func (f LongValuesFunc) Get(index int64) (int64, error) { return f(index) }

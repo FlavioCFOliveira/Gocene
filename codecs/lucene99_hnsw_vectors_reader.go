@@ -680,7 +680,10 @@ func (g *offHeapHnswGraph) SeekLevel(level, targetOrd int) error {
 		targetIndex = i
 	}
 
-	offset := g.graphLevelNodeOffsets.Get(int64(targetIndex) + g.graphLevelNodeIndexOffsets[level])
+	offset, err := g.graphLevelNodeOffsets.Get(int64(targetIndex) + g.graphLevelNodeIndexOffsets[level])
+	if err != nil {
+		return fmt.Errorf("hnsw99 offHeap: get node offset: %w", err)
+	}
 	if err := g.dataIn.SetPosition(offset); err != nil {
 		return fmt.Errorf("hnsw99 offHeap: seek to offset %d: %w", offset, err)
 	}

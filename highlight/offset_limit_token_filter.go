@@ -4,40 +4,71 @@
 
 package highlight
 
-import "github.com/FlavioCFOliveira/Gocene/analysis"
+import (
+	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
+// attributeSourceProvider is a non-exported interface satisfied by every
+// TokenStream that embeds [analysis.BaseTokenStream] — it gives the
+// filter access to the typed attribute registry so it can read the
+// [analysis.OffsetAttribute].
+type attributeSourceProvider interface {
+	GetAttributeSource() *util.AttributeSource
+}
 
 // OffsetLimitTokenFilter is a TokenFilter that stops the token stream once
-// the cumulative number of tokens reaches the configured limit. Mirrors
-// org.apache.lucene.search.highlight.OffsetLimitTokenFilter, adapted to the
-// Gocene TokenStream interface which does not surface per-token offset
-// state directly.
+// a token's start offset exceeds the configured limit. It mirrors
+// org.apache.lucene.search.highlight.LimitTokenOffsetFilter from
+// Apache Lucene 10.4.0.
+//
+// Unlike a simple token-count limiter, this filter compares the character
+// start offset of each token (via [analysis.OffsetAttribute]) against
+// maxStartOffset. Tokens whose start offset is strictly greater than
+// maxStartOffset are discarded, and the stream ends.
 type OffsetLimitTokenFilter struct {
-	input     analysis.TokenStream
-	maxOffset int
-	consumed  int
-	exhausted bool
+	input          analysis.TokenStream
+	maxStartOffset int
+	offsetAttr     analysis.OffsetAttribute
+	exhausted      bool
 }
 
-// NewOffsetLimitTokenFilter wraps input with a maximum number of tokens.
-func NewOffsetLimitTokenFilter(input analysis.TokenStream, maxOffset int) *OffsetLimitTokenFilter {
-	return &OffsetLimitTokenFilter{input: input, maxOffset: maxOffset}
+// NewOffsetLimitTokenFilter wraps input so that only tokens whose start
+// offset is ≤ maxStartOffset pass through. If the input stream does not
+// expose an [analysis.OffsetAttribute] the filter falls back to passing
+// all tokens through — matching the defensive Lucene pattern where the
+// attribute is always available on correctly-constructed streams.
+func NewOffsetLimitTokenFilter(input analysis.TokenStream, maxStartOffset int) *OffsetLimitTokenFilter {
+	f := &OffsetLimitTokenFilter{
+		input:          input,
+		maxStartOffset: maxStartOffset,
+	}
+	// Resolve the OffsetAttribute from the wrapped stream's attribute source.
+	if asp, ok := input.(attributeSourceProvider); ok {
+		if a := asp.GetAttributeSource().GetAttribute(analysis.OffsetAttributeType); a != nil {
+			f.offsetAttr, _ = a.(analysis.OffsetAttribute)
+		}
+	}
+	return f
 }
 
-// IncrementToken advances the wrapped stream until the token budget is
-// exhausted.
+// IncrementToken advances the wrapped stream and returns true only when
+// the current token's start offset is within the configured limit.
 func (f *OffsetLimitTokenFilter) IncrementToken() (bool, error) {
 	if f.exhausted {
-		return false, nil
-	}
-	if f.consumed >= f.maxOffset {
-		f.exhausted = true
 		return false, nil
 	}
 	ok, err := f.input.IncrementToken()
 	if err != nil || !ok {
 		return ok, err
 	}
-	f.consumed++
+	// If we have an OffsetAttribute, check the start offset; if the
+	// attribute is unavailable (legacy TokenStream), fall back to passing
+	// all tokens through — this matches the defensive Lucene pattern.
+	if f.offsetAttr != nil && f.offsetAttr.StartOffset() > f.maxStartOffset {
+		f.exhausted = true
+		return false, nil
+	}
 	return true, nil
 }
 

@@ -59,7 +59,11 @@ func TestDirectMonotonicRoundTrip(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			reader, _, _ := writeAndOpenDirectMonotonic(t, tc.values, tc.blockShift)
 			for i, want := range tc.values {
-				if got := reader.Get(int64(i)); got != want {
+				got, err := reader.Get(int64(i))
+			if err != nil {
+				t.Errorf("[%d]: unexpected error: %v", i, err)
+			}
+			if got != want {
 					t.Errorf("[%d]: got %d want %d", i, got, want)
 				}
 			}
@@ -177,7 +181,11 @@ func TestDirectMonotonicSimple(t *testing.T) {
 	const blockShift = 2
 	reader, _, _ := writeAndOpenDirectMonotonic(t, values, blockShift)
 	for i, want := range values {
-		if got := reader.Get(int64(i)); got != want {
+		got, err := reader.Get(int64(i))
+			if err != nil {
+				t.Errorf("[%d]: unexpected error: %v", i, err)
+			}
+			if got != want {
 			t.Errorf("[%d]: got %d want %d", i, got, want)
 		}
 	}
@@ -204,7 +212,11 @@ func TestDirectMonotonicConstantSlope(t *testing.T) {
 
 	reader, dataBytes, _ := writeAndOpenDirectMonotonic(t, values, blockShift)
 	for i, want := range values {
-		if got := reader.Get(int64(i)); got != want {
+		got, err := reader.Get(int64(i))
+			if err != nil {
+				t.Errorf("[%d]: unexpected error: %v", i, err)
+			}
+			if got != want {
 			t.Fatalf("[%d]: got %d want %d (inc=%d, blockShift=%d)", i, got, want, inc, blockShift)
 		}
 	}
@@ -236,7 +248,11 @@ func TestDirectMonotonicZeroValuesSmallBlockShift(t *testing.T) {
 
 	// All Gets must return zero.
 	for i := range values {
-		if got := reader.Get(int64(i)); got != 0 {
+		got, err := reader.Get(int64(i))
+		if err != nil {
+			t.Fatalf("[%d]: unexpected error: %v", i, err)
+		}
+		if got != 0 {
 			t.Fatalf("[%d]: got %d want 0", i, got)
 		}
 	}
@@ -286,7 +302,11 @@ func TestDirectMonotonicRandom(t *testing.T) {
 		}
 		reader, _, _ := writeAndOpenDirectMonotonic(t, values, blockShift)
 		for i, want := range values {
-			if got := reader.Get(int64(i)); got != want {
+			got, err := reader.Get(int64(i))
+			if err != nil {
+				t.Errorf("[%d]: unexpected error: %v", i, err)
+			}
+			if got != want {
 				t.Fatalf("iter=%d blockShift=%d [%d]: got %d want %d", iter, blockShift, i, got, want)
 			}
 		}

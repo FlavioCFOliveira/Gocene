@@ -12,3 +12,8 @@ const outputFlagsNumBits = 2
 // outputFlagIsFloor is the flag bit indicating this block is the root of a
 // floor sequence.  Mirrors OrdsBlockTreeTermsWriter.OUTPUT_FLAG_IS_FLOOR = 0x1.
 const outputFlagIsFloor = int64(0x1)
+
+// outputFlagHasTerms is the flag bit indicating this block (or at least
+// one sub-block under it in the floor chain) contains terms. Mirrors
+// OrdsBlockTreeTermsWriter.OUTPUT_FLAG_HAS_TERMS = 0x2.
+const outputFlagHasTerms = int64(0x2)

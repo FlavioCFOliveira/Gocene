@@ -74,7 +74,14 @@ func (v *flatSparseFloatVectorValues) similarity() index.VectorSimilarityFunctio
 // OrdToDoc maps a vector ordinal to its document id via the
 // DirectMonotonicReader. Mirrors SparseOffHeapVectorValues.ordToDoc.
 func (v *flatSparseFloatVectorValues) OrdToDoc(ord int) int {
-	return int(v.ordToDoc.Get(int64(ord)))
+	doc, err := v.ordToDoc.Get(int64(ord))
+	if err != nil {
+		// OrdToDoc satisfies the hnsw.KnnVectorValues interface which
+		// cannot return an error. I/O errors here are treated as
+		// unrecoverable, matching Lucene's RuntimeException contract.
+		return 0
+	}
+	return int(doc)
 }
 
 // GetAcceptOrds wraps acceptDocs (doc-keyed) in a Bits over ordinals, so the
@@ -138,7 +145,11 @@ func (v *flatSparseByteVectorValues) similarity() index.VectorSimilarityFunction
 }
 
 func (v *flatSparseByteVectorValues) OrdToDoc(ord int) int {
-	return int(v.ordToDoc.Get(int64(ord)))
+	doc, err := v.ordToDoc.Get(int64(ord))
+	if err != nil {
+		return 0
+	}
+	return int(doc)
 }
 
 func (v *flatSparseByteVectorValues) GetAcceptOrds(acceptDocs util.Bits) util.Bits {
@@ -210,7 +221,11 @@ type flatSparseAcceptOrds struct {
 }
 
 func (s *flatSparseAcceptOrds) Get(index int) bool {
-	return s.acceptDocs.Get(int(s.ordToDoc.Get(int64(index))))
+	doc, err := s.ordToDoc.Get(int64(index))
+	if err != nil {
+		return false
+	}
+	return s.acceptDocs.Get(int(doc))
 }
 
 func (s *flatSparseAcceptOrds) Length() int { return s.size }

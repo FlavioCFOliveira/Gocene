@@ -50,7 +50,11 @@ func TestDirectPackedSimple(t *testing.T) {
 	}
 	want := []int64{1, 0, 2, 1, 2}
 	for i, v := range want {
-		if got := r.Get(int64(i)); got != v {
+		got, err := r.Get(int64(i))
+		if err != nil {
+			t.Fatalf("[%d]: unexpected error: %v", i, err)
+		}
+		if got != v {
 			t.Fatalf("[%d]: got %d want %d", i, got, v)
 		}
 	}
@@ -177,7 +181,11 @@ func doTestDirectPackedBpv(t *testing.T, r *rand.Rand, bpv int, offset int64, me
 			t.Fatalf("bpv=%d iter=%d: GetDirectReaderAt: %v", bpv, i, err)
 		}
 		for j, want := range original {
-			if got := reader.Get(int64(j)); got != want {
+			got, err := reader.Get(int64(j))
+			if err != nil {
+				t.Fatalf("bpv=%d iter=%d [%d]: unexpected error: %v", bpv, i, j, err)
+			}
+			if got != want {
 				t.Fatalf("bpv=%d iter=%d [%d]: got %d want %d", bpv, i, j, got, want)
 			}
 		}

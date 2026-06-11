@@ -24,9 +24,11 @@ type RandomAccessInput interface {
 //
 // Implementations must be safe for repeated calls and may perform
 // arbitrary I/O.
+//
+// Get returns the long at the given index and an error if the
+// underlying I/O fails.
 type LongValues interface {
-	// Get returns the long at the given index.
-	Get(index int64) int64
+	Get(index int64) (int64, error)
 }
 
 // GetDirectReader returns a LongValues backed by the bytes of the
@@ -78,13 +80,13 @@ type directReader1 struct {
 	offset int64
 }
 
-func (r *directReader1) Get(index int64) int64 {
+func (r *directReader1) Get(index int64) (int64, error) {
 	shift := uint(index & 7)
 	b, err := r.in.ReadByteAt(r.offset + index>>3)
 	if err != nil {
-		panic(err)
+		return 0, err
 	}
-	return int64((uint64(b) >> shift) & 0x1)
+	return int64((uint64(b) >> shift) & 0x1), nil
 }
 
 type directReader2 struct {
@@ -92,13 +94,13 @@ type directReader2 struct {
 	offset int64
 }
 
-func (r *directReader2) Get(index int64) int64 {
+func (r *directReader2) Get(index int64) (int64, error) {
 	shift := uint((index & 3) << 1)
 	b, err := r.in.ReadByteAt(r.offset + index>>2)
 	if err != nil {
-		panic(err)
+		return 0, err
 	}
-	return int64((uint64(b) >> shift) & 0x3)
+	return int64((uint64(b) >> shift) & 0x3), nil
 }
 
 type directReader4 struct {
@@ -106,13 +108,13 @@ type directReader4 struct {
 	offset int64
 }
 
-func (r *directReader4) Get(index int64) int64 {
+func (r *directReader4) Get(index int64) (int64, error) {
 	shift := uint((index & 1) << 2)
 	b, err := r.in.ReadByteAt(r.offset + index>>1)
 	if err != nil {
-		panic(err)
+		return 0, err
 	}
-	return int64((uint64(b) >> shift) & 0xF)
+	return int64((uint64(b) >> shift) & 0xF), nil
 }
 
 type directReader8 struct {
@@ -120,12 +122,12 @@ type directReader8 struct {
 	offset int64
 }
 
-func (r *directReader8) Get(index int64) int64 {
+func (r *directReader8) Get(index int64) (int64, error) {
 	b, err := r.in.ReadByteAt(r.offset + index)
 	if err != nil {
-		panic(err)
+		return 0, err
 	}
-	return int64(uint64(b) & 0xFF)
+	return int64(uint64(b) & 0xFF), nil
 }
 
 type directReader12 struct {
@@ -133,14 +135,14 @@ type directReader12 struct {
 	offset int64
 }
 
-func (r *directReader12) Get(index int64) int64 {
+func (r *directReader12) Get(index int64) (int64, error) {
 	off := (index * 12) >> 3
 	shift := uint((index & 1) << 2)
 	s, err := r.in.ReadShortAt(r.offset + off)
 	if err != nil {
-		panic(err)
+		return 0, err
 	}
-	return int64((uint64(uint16(s)) >> shift) & 0xFFF)
+	return int64((uint64(uint16(s)) >> shift) & 0xFFF), nil
 }
 
 type directReader16 struct {
@@ -148,12 +150,12 @@ type directReader16 struct {
 	offset int64
 }
 
-func (r *directReader16) Get(index int64) int64 {
+func (r *directReader16) Get(index int64) (int64, error) {
 	s, err := r.in.ReadShortAt(r.offset + index<<1)
 	if err != nil {
-		panic(err)
+		return 0, err
 	}
-	return int64(uint64(uint16(s)) & 0xFFFF)
+	return int64(uint64(uint16(s)) & 0xFFFF), nil
 }
 
 type directReader20 struct {
@@ -161,14 +163,14 @@ type directReader20 struct {
 	offset int64
 }
 
-func (r *directReader20) Get(index int64) int64 {
+func (r *directReader20) Get(index int64) (int64, error) {
 	off := (index * 20) >> 3
 	shift := uint((index & 1) << 2)
 	i, err := r.in.ReadIntAt(r.offset + off)
 	if err != nil {
-		panic(err)
+		return 0, err
 	}
-	return int64((uint64(uint32(i)) >> shift) & 0xFFFFF)
+	return int64((uint64(uint32(i)) >> shift) & 0xFFFFF), nil
 }
 
 type directReader24 struct {
@@ -176,12 +178,12 @@ type directReader24 struct {
 	offset int64
 }
 
-func (r *directReader24) Get(index int64) int64 {
+func (r *directReader24) Get(index int64) (int64, error) {
 	i, err := r.in.ReadIntAt(r.offset + index*3)
 	if err != nil {
-		panic(err)
+		return 0, err
 	}
-	return int64(uint64(uint32(i)) & 0xFFFFFF)
+	return int64(uint64(uint32(i)) & 0xFFFFFF), nil
 }
 
 type directReader28 struct {
@@ -189,14 +191,14 @@ type directReader28 struct {
 	offset int64
 }
 
-func (r *directReader28) Get(index int64) int64 {
+func (r *directReader28) Get(index int64) (int64, error) {
 	off := (index * 28) >> 3
 	shift := uint((index & 1) << 2)
 	i, err := r.in.ReadIntAt(r.offset + off)
 	if err != nil {
-		panic(err)
+		return 0, err
 	}
-	return int64((uint64(uint32(i)) >> shift) & 0xFFFFFFF)
+	return int64((uint64(uint32(i)) >> shift) & 0xFFFFFFF), nil
 }
 
 type directReader32 struct {
@@ -204,12 +206,12 @@ type directReader32 struct {
 	offset int64
 }
 
-func (r *directReader32) Get(index int64) int64 {
+func (r *directReader32) Get(index int64) (int64, error) {
 	i, err := r.in.ReadIntAt(r.offset + index<<2)
 	if err != nil {
-		panic(err)
+		return 0, err
 	}
-	return int64(uint64(uint32(i)) & 0xFFFFFFFF)
+	return int64(uint64(uint32(i)) & 0xFFFFFFFF), nil
 }
 
 type directReader40 struct {
@@ -217,12 +219,12 @@ type directReader40 struct {
 	offset int64
 }
 
-func (r *directReader40) Get(index int64) int64 {
+func (r *directReader40) Get(index int64) (int64, error) {
 	l, err := r.in.ReadLongAt(r.offset + index*5)
 	if err != nil {
-		panic(err)
+		return 0, err
 	}
-	return int64(uint64(l) & 0xFFFFFFFFFF)
+	return int64(uint64(l) & 0xFFFFFFFFFF), nil
 }
 
 type directReader48 struct {
@@ -230,12 +232,12 @@ type directReader48 struct {
 	offset int64
 }
 
-func (r *directReader48) Get(index int64) int64 {
+func (r *directReader48) Get(index int64) (int64, error) {
 	l, err := r.in.ReadLongAt(r.offset + index*6)
 	if err != nil {
-		panic(err)
+		return 0, err
 	}
-	return int64(uint64(l) & 0xFFFFFFFFFFFF)
+	return int64(uint64(l) & 0xFFFFFFFFFFFF), nil
 }
 
 type directReader56 struct {
@@ -243,12 +245,12 @@ type directReader56 struct {
 	offset int64
 }
 
-func (r *directReader56) Get(index int64) int64 {
+func (r *directReader56) Get(index int64) (int64, error) {
 	l, err := r.in.ReadLongAt(r.offset + index*7)
 	if err != nil {
-		panic(err)
+		return 0, err
 	}
-	return int64(uint64(l) & 0xFFFFFFFFFFFFFF)
+	return int64(uint64(l) & 0xFFFFFFFFFFFFFF), nil
 }
 
 type directReader64 struct {
@@ -256,10 +258,10 @@ type directReader64 struct {
 	offset int64
 }
 
-func (r *directReader64) Get(index int64) int64 {
+func (r *directReader64) Get(index int64) (int64, error) {
 	l, err := r.in.ReadLongAt(r.offset + index<<3)
 	if err != nil {
-		panic(err)
+		return 0, err
 	}
-	return l
+	return l, nil
 }

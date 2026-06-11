@@ -1370,7 +1370,7 @@ func (r *luceneFieldsIndexReader) getStartPointer(docID int) (int64, error) {
 	if blockIdx < 0 {
 		blockIdx = -2 - blockIdx
 	}
-	return r.startPointers.Get(blockIdx), nil
+	return r.startPointers.Get(blockIdx)
 }
 
 func (r *luceneFieldsIndexReader) close() error {
