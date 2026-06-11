@@ -323,7 +323,12 @@ type GeoComplexPolygon struct{ GeoBasePolygon }
 // GeoStandardPath is a standard (rectangular cross-section) path.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoStandardPath.
-type GeoStandardPath struct{ GeoBasePath }
+type GeoStandardPath struct {
+	GeoBasePath
+	waypoints []*GeoPoint
+	center    *GeoPoint
+	closed    bool
+}
 
 // GeoDegeneratePath is a degenerate (zero-width) path.
 //

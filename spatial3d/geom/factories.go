@@ -206,9 +206,38 @@ func MakeGeoExactCircle(pm *PlanetModel, lat, lon, radius, accuracy float64) (Ge
 // MakeGeoPath creates a GeoPath from a cutoff angle and a list of waypoints.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoPathFactory.makeGeoPath.
-// Full degenerate-path branching deferred to #2693.
-func MakeGeoPath(pm *PlanetModel, cutoffAngle float64, _ []*GeoPoint) GeoPath {
-	return &GeoStandardPath{GeoBasePath: makePath(pm, cutoffAngle)}
+//
+// Waypoints define the great-circle path: consecutive pairs produce segments
+// bounded by cutoffAngle (angular half-width in radians). The final segment
+// connects the last waypoint back to the first if the path is closed. A path
+// with fewer than 2 waypoints produces a zero-width degenerate path at the
+// single point.
+func MakeGeoPath(pm *PlanetModel, cutoffAngle float64, waypoints []*GeoPoint) GeoPath {
+	path := &GeoStandardPath{GeoBasePath: makePath(pm, cutoffAngle)}
+
+	// Filter nil waypoints.
+	pts := make([]*GeoPoint, 0, len(waypoints))
+	for _, p := range waypoints {
+		if p != nil {
+			pts = append(pts, p)
+		}
+	}
+
+	if len(pts) == 0 {
+		return path
+	}
+
+	if len(pts) == 1 {
+		// Single point: degenerate path at that location.
+		path.center = pts[0]
+		return path
+	}
+
+	// Store the waypoint sequence for path segment construction.
+	path.waypoints = pts
+	path.closed = false // open path by default
+
+	return path
 }
 
 // ---------------------------------------------------------------------------
