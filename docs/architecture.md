@@ -285,6 +285,15 @@ the expensive, shareable part of a segment — can be shared across reopened
 
 ## The write path
 
+> **Implementation status (2026-06-11):** The codec-level write path (stored
+> fields, postings, term vectors, field infos, norms, compound files) is
+> implemented and passes byte-level compatibility tests against
+> Lucene 10.4.0. The high-level `IndexWriter` write path is functional for
+> basic flows (AddDocument, Commit, ForceMerge) but deferred items remain:
+> NRT reader refresh, full delete/update pipeline, live-docs merging,
+> and MockDirectoryWrapper integration for randomised testing. See
+> `docs/skipped-tests-audit.md` and `CLAUDE.md` §Project Status for details.
+
 Indexing documents and persisting them flows as follows:
 
 1. **`index.IndexWriter.AddDocument(doc)`** forwards the document to the

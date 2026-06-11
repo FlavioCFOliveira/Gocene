@@ -1,8 +1,12 @@
 # Security Policy
 
-Gocene is a Go port of Apache Lucene 10.4.0. Because it parses and produces
-untrusted binary artefacts (index files, codec streams, replicator payloads)
-and processes arbitrary text, we take security reports seriously.
+Gocene is a Go port of Apache Lucene 10.4.0, currently **pre-1.0** and under
+active development. Because it parses and produces untrusted binary artefacts
+(index files, codec streams, replicator payloads) and processes arbitrary
+text, we take security reports seriously. Note: as a port in progress, some
+security-relevant features (NRT reader, full delete/update pipeline,
+MockDirectoryWrapper) are still being implemented. See `CLAUDE.md` §Project
+Status and `docs/skipped-tests-audit.md` for current coverage.
 
 ## Supported versions
 

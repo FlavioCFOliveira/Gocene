@@ -1,5 +1,11 @@
 # Gocene Performance Benchmarks — Baseline
 
+> **Scope note:** These benchmarks reflect the **current partial port** state
+> (pre-1.0). Results may change significantly as deferred features (NRT reader,
+> full IndexWriter pipeline, RandomIndexWriter test infrastructure) are
+> implemented. This is not representative of final production performance.
+> Updated: 2026-06-11.
+
 This document records the baseline benchmark results for performance-critical
 components in the Gocene port of Apache Lucene 10.4.0.
 

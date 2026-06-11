@@ -218,23 +218,35 @@ Create whatever node types and edge types make the most sense for the project an
 
 ## Project Status
 
-- **Port complete (v1.0 candidate):** the full Apache Lucene 10.4.0 surface
-  has been ported across 25 top-level packages (see `README.md` for the
-  package inventory and `CHANGELOG.md` for the v0.1.0-alpha / Unreleased
-  entries).
+- **Port in progress (pre-v1.0):** 33 top-level packages ported from Apache
+  Lucene 10.4.0 (see `README.md` for the package inventory). The project is in
+  active development across 8 sprints: S1–S5 (closed), S6 (Stubbed subsystems —
+  closed 2026-06-11), S7 (Test-suite health — closed 2026-06-11), S8
+  (Documentation accuracy — in progress).
+- **Known deferred items:** 660 `t.Fatal` blockers across 33 packages
+  (see `docs/skipped-tests-audit.md`). Major gaps include: NRT reader
+  integration, RandomIndexWriter test infrastructure, spatial/geo query
+  factories, HNSW seeded strategies, facets/taxonomy write path, and
+  codec format completeness (Lucene99, PerField, DocValuesSkipper).
 - **Binary-compatibility test suite in place:** the Java fixture harness
   under `tools/lucene-fixtures/` drives Lucene 10.4.0 directly via JDK 21
   and Maven, produces deterministic fixtures pinned in
   `tools/lucene-fixtures/manifests/baseline.tsv` (60+ scenarios across
-  every audited package, plus six combined end-to-end scenarios), and is
-  paired with a Go-side test layer under `internal/compat/` (per-package
-  round-trips behind the `compat` build tag, plus integration scenarios
-  gated by `GOCENE_COMPAT_HARNESS=1`).
-- **CI gates every PR:** GitHub Actions runs a fast `build-and-test` job
-  plus a `compat` matrix (three operating systems × two Go versions) that
+  every audited package, plus six combined end-to-end scenarios). A Go-side
+  test layer under `internal/compat/` provides per-package round-trips
+  behind the `compat` build tag plus integration scenarios gated by
+  `GOCENE_COMPAT_HARNESS=1`. Note: compat coverage is currently read-path
+  focused (Lucene→Gocene); write-path (Gocene→Lucene) legs are in progress
+  (see `docs/compat-coverage.md`).
+- **CI gates every PR:** GitHub Actions runs a fast `build-and-test` job,
+  a skip-guard lint gate, a race-detector job (x86\_64), fuzz smoke tests,
+  and a `compat` matrix (three operating systems × two Go versions) that
   exercises the fixture harness and the Go compat suite.
-- **Sprint 114 (Binary Compatibility Test Suite) closed 2026-05-26:** the
-  105-row coverage audit, 21 per-package compat tasks, six combined
-  scenarios, the mutation-diagnostic CLI, and the CI/contributing-guide
-  hardening listed in `CHANGELOG.md` are all merged. Remaining deferrals
-  are documented in `docs/compat-coverage.md`.
+- **Sprint 7 (Test-suite health) closed 2026-06-11:** refreshed
+  `docs/skipped-tests-audit.md` (660 blockers across 33 packages), enforced
+  blocker token convention in `scripts/check-skips.sh`, added CI/local
+  reconciliation document, and added `Makefile` with `race-test` target.
+- **Sprint 6 (Stubbed subsystems) closed 2026-06-11:** resolved 21
+  PARTIAL/MISSING tasks across 10 packages — expressions compiler with
+  full JS operators, MemoryIndex search, QueryDecomposer, CollectingMatcher,
+  MonitorQuerySerializer, BBoxValueSource, S2PrefixTree geometry, and more.

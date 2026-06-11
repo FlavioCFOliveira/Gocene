@@ -149,6 +149,34 @@ documented in the individual sprint summaries.
 - **API stability.** Pre-release. The v1.0 API review is in progress;
   exported symbols may still change before the stable tag is cut.
 
+- **Known deferred items.** 660 `t.Fatal` blockers across 33 packages
+  (see `docs/skipped-tests-audit.md` for the full audit). Major gaps include:
+
+  - **NRT reader / IndexWriter integration** (~150+ blockers): the
+    Near-Real-Time reader refresh pipeline and MockDirectoryWrapper
+    test infrastructure are not yet wired.
+
+  - **RandomIndexWriter test infrastructure** (~80+ blockers): many
+    search tests require RandomIndexWriter for randomized testing with
+    configurable merge policies and codecs.
+
+  - **Spatial / geo query factories** (~40+ blockers): GeoTestUtil,
+    spatial query builders, and shape-based filtering require additional
+    geometry infrastructure.
+
+  - **Facets / taxonomy write path** (~17 blockers): full
+    IndexWriter + DirectoryTaxonomyWriter + FacetsCollector pipeline
+    not yet integrated.
+
+  - **Codec format completeness** (~26 blockers): Lucene99 format gaps,
+    PerField codecs, DocValuesSkipper, and term vector positions/offsets.
+
+  - **HNSW / vector search** (~20+ blockers): seeded entry-point
+    strategies and nightly benchmark infrastructure.
+
+  See `docs/ci-reconciliation.md` for the CI/local test alignment status
+  and `CLAUDE.md` §Project Status for the current sprint plan.
+
 ---
 
 ## License

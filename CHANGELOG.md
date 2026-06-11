@@ -6,6 +6,13 @@ All notable changes to Gocene are documented in this file.
 
 ### Sprint 114 — Binary Compatibility Test Suite (closed 2026-05-26)
 
+> **Note on coverage:** The compat test suite delivered by this sprint is
+> **read-path focused** (Lucene 10.4.0 writes → Gocene reads). Write-path
+> legs (Gocene writes → Lucene 10.4.0 reads) are implemented for core codecs
+> but coverage is still expanding. See
+> [`docs/compat-coverage.md`](docs/compat-coverage.md) for the current
+> per-package coverage matrix.
+
 - **T1 — Coverage audit.** Inventoried 105 binary artefacts across 25
   packages in [`docs/compat-coverage.tsv`](docs/compat-coverage.tsv) and
   the companion summary
