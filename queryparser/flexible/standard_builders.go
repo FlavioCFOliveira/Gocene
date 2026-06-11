@@ -6,8 +6,10 @@ package flexible
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/queries/intervals"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -302,22 +304,135 @@ func (b *MinShouldMatchNodeBuilder) Build(node QueryNode) (search.Query, error) 
 	return childQuery, nil
 }
 
-// IntervalQueryNodeBuilder builds a MatchNoDocsQuery as a placeholder.
-// Full interval query support requires the intervals package.
-// This is the Go equivalent of Lucene's IntervalQueryNodeBuilder.
+// IntervalQueryNodeBuilder converts an IntervalQueryNode into a real IntervalQuery
+// backed by the intervals execution layer (queries/intervals).
+//
+// Mapping from node functions to IntervalsSource combinators:
+//
+//	"or"       → DisjunctionIntervalsSource
+//	"and"      → ConjunctionIntervalsSource (unordered)
+//	"ordered"  → ConjunctionIntervalsSource (ordered)
+//	"phrase"   → ConjunctionIntervalsSource (ordered with maxGaps=0)
+//	"not"      → DifferenceIntervalsSource
+//	"prefix"   → MultiTermIntervalsSource (prefix automaton)
+//	"wildcard" → MultiTermIntervalsSource (wildcard automaton)
+//	"fuzzy"    → MultiTermIntervalsSource (fuzzy automaton)
+//
+// Children are recursively converted: FieldQueryNode → TermIntervalsSource,
+// GroupQueryNode → unwrapped, IntervalQueryNode → recursive build.
 type IntervalQueryNodeBuilder struct{}
 
 // NewIntervalQueryNodeBuilder creates a new IntervalQueryNodeBuilder.
 func NewIntervalQueryNodeBuilder() *IntervalQueryNodeBuilder { return &IntervalQueryNodeBuilder{} }
 
-// Build returns a placeholder MatchNoDocsQuery.
-// Deviation: interval query execution requires the intervals package (backlog).
+// Build converts an IntervalQueryNode to a search.Query (IntervalQuery).
 func (b *IntervalQueryNodeBuilder) Build(node QueryNode) (search.Query, error) {
-	_, ok := node.(*IntervalQueryNode)
+	intervalNode, ok := node.(*IntervalQueryNode)
 	if !ok {
 		return nil, fmt.Errorf("expected IntervalQueryNode, got %T", node)
 	}
-	return search.NewMatchNoDocsQuery(), nil
+
+	source, err := b.buildSource(intervalNode)
+	if err != nil {
+		return nil, err
+	}
+	if source == nil {
+		return search.NewMatchNoDocsQuery(), nil
+	}
+	return intervals.NewIntervalQuery(intervalNode.GetField(), source), nil
+}
+
+// buildSource recursively builds an IntervalsSource from an IntervalQueryNode.
+func (b *IntervalQueryNodeBuilder) buildSource(intervalNode *IntervalQueryNode) (intervals.IntervalsSource, error) {
+	children := intervalNode.GetChildren()
+	fn := intervalNode.GetFunction()
+
+	// Build sub-sources from children.
+	subSources := make([]intervals.IntervalsSource, 0, len(children))
+	for _, child := range children {
+		cs, err := b.toSource(child)
+		if err != nil {
+			return nil, err
+		}
+		if cs != nil {
+			subSources = append(subSources, cs)
+		}
+	}
+
+	if len(subSources) == 0 {
+		return intervals.NewNoMatchIntervalsSource(
+			fmt.Sprintf("interval %s: no valid sub-sources", fn)), nil
+	}
+
+	switch strings.ToLower(fn) {
+	case "or", "any":
+		return intervals.Or(subSources...), nil
+
+	case "and", "unordered":
+		return intervals.Unordered(subSources...), nil
+
+	case "ordered":
+		return intervals.Ordered(subSources...), nil
+
+	case "phrase":
+		return intervals.PhraseOf(subSources...), nil
+
+	case "not":
+		if len(subSources) < 2 {
+			return nil, fmt.Errorf("interval not(field, minuend, subtrahend): expected at least 2 sources, got %d", len(subSources))
+		}
+		return intervals.NotContaining(subSources[0], subSources[1]), nil
+
+	default:
+		// Unknown function: treat as single source if there is exactly one child.
+		if len(subSources) == 1 {
+			return subSources[0], nil
+		}
+		return nil, fmt.Errorf("interval function %q: %d sub-sources (expected exactly 1 or a known combinator)", fn, len(subSources))
+	}
+}
+
+// toSource converts a generic QueryNode to an IntervalsSource.
+func (b *IntervalQueryNodeBuilder) toSource(node QueryNode) (intervals.IntervalsSource, error) {
+	switch n := node.(type) {
+	case *FieldQueryNode:
+		text := n.GetText()
+		if text == "" {
+			return nil, nil
+		}
+		return intervals.NewTermIntervalsSource([]byte(text)), nil
+
+	case *IntervalQueryNode:
+		return b.buildSource(n)
+
+	case *GroupQueryNode:
+		// Unwrap group — interval query children are flat.
+		kids := n.GetChildren()
+		if len(kids) == 0 {
+			return nil, nil
+		}
+		if len(kids) == 1 {
+			return b.toSource(kids[0])
+		}
+		// Multiple children in a group → treat as unordered conjunction.
+		subs := make([]intervals.IntervalsSource, 0, len(kids))
+		for _, k := range kids {
+			src, err := b.toSource(k)
+			if err != nil {
+				return nil, err
+			}
+			if src != nil {
+				subs = append(subs, src)
+			}
+		}
+		if len(subs) == 0 {
+			return nil, nil
+		}
+		return intervals.Unordered(subs...), nil
+
+	default:
+		return nil, nil // unsupported node types produce no source
+	}
 }
 
 // StandardQueryBuilder is the top-level builder interface for the standard query parser.
