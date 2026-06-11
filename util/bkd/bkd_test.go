@@ -6,7 +6,6 @@ package bkd
 
 import (
 	"sort"
-	"strings"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
@@ -14,38 +13,15 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// This file is the Go port of org.apache.lucene.util.bkd.TestBKD
-// (Apache Lucene 10.4.0, core/src/test/.../bkd/TestBKD.java, 1750 LOC).
-//
-// Porting strategy (Sprint 56, task GOC-4308):
-//
-//   - Java TestBKD extends LuceneTestCase and relies on a broad surface
-//     that is not yet ported into Gocene: random Directory wrappers
-//     (MockDirectoryWrapper, CorruptingIndexOutput, FilterDirectory with
-//     ExtrasFS), LuceneTestCase utilities (random(), atLeast, VERBOSE,
-//     expectThrows), the codecs MutablePointTree contract, and
-//     index.MergeState.
-//   - The bulk of TestBKD's randomised behaviour is therefore beyond
-//     the scope of this single task. Sprint 55/56 option (c) (port-or-skip
-//     where direct gaps exist) is applied: every Java @Test gets a Go
-//     counterpart in this file, but tests that require ungated
-//     dependencies call t.Skip with the exact missing infrastructure.
-//   - Tests that map directly onto already-ported Gocene infrastructure
-//     (BKDConfig + BKDWriter + BKDReader + util.IntToSortableBytes +
-//     store.ByteBuffersDirectory + the visitor helpers in this package)
-//     are implemented end-to-end and exercise the same behaviour as
-//     the Java original.
-//
-// Behavioural coverage already provided by the surrounding test files
-// in this package is not re-implemented here; this file's value is
-// the explicit 1:1 method map against the Java reference, so that the
-// Sprint 55+ follow-ups can flip each Skip into a real implementation
-// as the missing dependencies land.
+// This file contains the core BKD tests that do not require the
+// randomised verify() infrastructure. The randomised tests that
+// depend on verify() live in bkd_random_test.go; corruption and
+// validation-edge tests live in bkd_corruption_test.go.
+
+// ----- Deterministic tests (no verify() dependency) -----
 
 // TestBKD_BasicInts1D mirrors testBasicInts1D: write 100 sorted 1D ints
 // (docID == value), then range-query [42, 87] and assert the hit set.
-// This is the simplest end-to-end Java test and ports cleanly onto the
-// existing BKDWriter + BKDReader pair.
 func TestBKD_BasicInts1D(t *testing.T) {
 	cfg := mustConfig(t, 1, 1, 4, 2)
 
@@ -82,95 +58,6 @@ func TestBKD_BasicInts1D(t *testing.T) {
 			t.Fatalf("docID=%d: want=%v got=%v", docID, want, got)
 		}
 	}
-}
-
-// TestBKD_RandomIntsNDims mirrors testRandomIntsNDims: randomised N-dim
-// int points with a random sub-range query verified against ground truth.
-//
-// Skipped until: a Gocene equivalent of LuceneTestCase's random() seeding
-// harness is available so the test is reproducible on failure.
-func TestBKD_RandomIntsNDims(t *testing.T) {
-	t.Fatal("requires LuceneTestCase random() seeding harness; deferred to Sprint 56+")
-}
-
-// TestBKD_BigIntNDims mirrors testBigIntNDims: same as the N-dim random
-// test but with java.math.BigInteger packed values (variable byte width).
-//
-// Skipped until: util.BigIntToSortableBytes round-trip helpers are
-// wrapped with the Gocene test fixtures and a reproducible random
-// seed harness is in place.
-func TestBKD_BigIntNDims(t *testing.T) {
-	t.Fatal("requires reproducible random seeding and BigInt fixture harness; deferred")
-}
-
-// TestBKD_WithExceptions mirrors testWithExceptions: drives the writer
-// against a Directory that injects IOExceptions at random points and
-// asserts the writer's failure-recovery contract.
-//
-// Skipped until: a Gocene port of MockDirectoryWrapper +
-// CorruptingIndexOutput exists. Neither has a counterpart in
-// store/ at the time of writing.
-func TestBKD_WithExceptions(t *testing.T) {
-	t.Fatal("requires MockDirectoryWrapper + CorruptingIndexOutput ports; not in store/ yet")
-}
-
-// TestBKD_RandomBinaryTiny mirrors testRandomBinaryTiny: doTestRandomBinary(10).
-//
-// Skipped: doTestRandomBinary() depends on the verify() helper, which in
-// turn depends on the MutablePointTree-based reopen path and on
-// LuceneTestCase utilities (atLeast, random(), TestUtil.nextInt).
-func TestBKD_RandomBinaryTiny(t *testing.T) {
-	t.Fatal("requires verify() helper + MutablePointTree-based reopen; not yet ported")
-}
-
-// TestBKD_RandomBinaryMedium mirrors testRandomBinaryMedium:
-// doTestRandomBinary(10000).
-func TestBKD_RandomBinaryMedium(t *testing.T) {
-	t.Fatal("requires verify() helper; see TestBKD_RandomBinaryTiny")
-}
-
-// TestBKD_RandomBinaryBig mirrors testRandomBinaryBig (@Nightly):
-// doTestRandomBinary(200000).
-func TestBKD_RandomBinaryBig(t *testing.T) {
-	t.Fatal("requires verify() helper and @Nightly gating; deferred")
-}
-
-// TestBKD_TooLittleHeap mirrors testTooLittleHeap: NewBKDWriter must
-// reject a (maxPointsInLeafNode, maxMBSortInHeap) pair where the heap
-// cannot hold even a single full leaf, with the canonical error message.
-func TestBKD_TooLittleHeap(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	t.Cleanup(func() { _ = dir.Close() })
-
-	cfg, err := NewBKDConfig(1, 1, 16, 1_000_000)
-	if err != nil {
-		t.Fatalf("NewBKDConfig: %v", err)
-	}
-
-	_, err = NewBKDWriter(1, dir, "bkd", cfg, 0.001, 0)
-	if err == nil {
-		t.Fatalf("NewBKDWriter: expected error, got nil")
-	}
-	const want = "either increase maxMBSortInHeap or decrease "
-	if !strings.Contains(err.Error(), want) {
-		t.Fatalf("NewBKDWriter error: got %q, want it to contain %q", err.Error(), want)
-	}
-}
-
-// TestBKD_AllEqual mirrors testAllEqual: every doc has the same packed
-// value across every dim; the writer must still produce a valid index.
-//
-// Skipped until: verify() helper port lands; this test relies on the
-// shared randomised verification scaffolding.
-func TestBKD_AllEqual(t *testing.T) {
-	t.Fatal("requires verify() helper; deferred")
-}
-
-// TestBKD_IndexDimEqualDataDimDifferent mirrors
-// testIndexDimEqualDataDimDifferent: index dims share a single value;
-// data dims vary.
-func TestBKD_IndexDimEqualDataDimDifferent(t *testing.T) {
-	t.Fatal("requires verify() helper; deferred")
 }
 
 // TestBKD_OneDimEqual mirrors testOneDimEqual: exactly one dim is held
@@ -211,117 +98,77 @@ func TestBKD_OneDimEqual(t *testing.T) {
 	}
 }
 
-// TestBKD_OneDimLowCard mirrors testOneDimLowCard: one dim takes one of
-// two values, forcing many splits on that dim.
-func TestBKD_OneDimLowCard(t *testing.T) {
-	t.Fatal("requires verify() helper; deferred")
+// TestBKD_TooLittleHeap mirrors testTooLittleHeap: NewBKDWriter must
+// reject a (maxPointsInLeafNode, maxMBSortInHeap) pair where the heap
+// cannot hold even a single full leaf, with the canonical error message.
+func TestBKD_TooLittleHeap(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	t.Cleanup(func() { _ = dir.Close() })
+
+	cfg, err := NewBKDConfig(1, 1, 16, 1_000_000)
+	if err != nil {
+		t.Fatalf("NewBKDConfig: %v", err)
+	}
+
+	_, err = NewBKDWriter(1, dir, "bkd", cfg, 0.001, 0)
+	if err == nil {
+		t.Fatalf("NewBKDWriter: expected error, got nil")
+	}
+	const want = "either increase maxMBSortInHeap or decrease "
+	if !contains(err.Error(), want) {
+		t.Fatalf("NewBKDWriter error: got %q, want it to contain %q", err.Error(), want)
+	}
 }
 
-// TestBKD_OneDimTwoValues mirrors testOneDimTwoValues: one dim takes one
-// of two values; should trigger run-length compression with run lengths
-// greater than 255.
-func TestBKD_OneDimTwoValues(t *testing.T) {
-	t.Fatal("requires verify() helper; deferred")
-}
+// ----- Tests that use error-injecting infrastructure -----
 
-// TestBKD_RandomFewDifferentValues mirrors testRandomFewDifferentValues:
-// few cardinalities across many docs, exercising the low-cardinality
-// leaf path.
-func TestBKD_RandomFewDifferentValues(t *testing.T) {
-	t.Fatal("requires verify() helper; deferred")
-}
-
-// TestBKD_MultiValued mirrors testMultiValued (~500 LOC in Java): a single
-// doc carries multiple packed values; checks the BKD writer/reader path
-// against a multi-valued points scenario.
+// TestBKD_WithExceptions mirrors testWithExceptions: drives the writer
+// against a Directory that injects IOExceptions at random points and
+// asserts the writer's failure-recovery contract.
 //
-// Skipped until: the verify() helper accepts (docID -> []packed) and the
-// MutablePointTree-based reopen path is wired.
-func TestBKD_MultiValued(t *testing.T) {
-	t.Fatal("requires multi-valued verify() helper + MutablePointTree reopen; deferred")
+// Ported using a test-local nthOutputCorruptingDir (bkd_corruption_test.go)
+// that wraps the second temp output with a corruptingIndexOutput.
+func TestBKD_WithExceptions(t *testing.T) {
+	rng := verifyRNG(t)
+	numDocs := 1000 + rng.Intn(9001) // ~1000-10000
+	numBytesPerDim := 2 + rng.Intn(9) // [2, 10]
+	numDataDims := 1 + rng.Intn(MaxDims)
+	numIndexDims := 1 + rng.Intn(numDataDims)
+	if numIndexDims > MaxIndexDims {
+		numIndexDims = MaxIndexDims
+	}
+
+	docValues := make([][][]byte, numDocs)
+	for docID := 0; docID < numDocs; docID++ {
+		values := make([][]byte, numDataDims)
+		for dim := 0; dim < numDataDims; dim++ {
+			buf := make([]byte, numBytesPerDim)
+			rng.Read(buf)
+			values[dim] = buf
+		}
+		docValues[docID] = values
+	}
+
+	baseDir := store.NewByteBuffersDirectory()
+	t.Cleanup(func() { _ = baseDir.Close() })
+
+	dir := &nthOutputCorruptingDir{
+		ByteBuffersDirectory: baseDir,
+		corruptAt:           2,
+		byteToCorrupt:       12,
+	}
+
+	err := captureVerifyError(t, rng, dir, docValues, nil, numDataDims, numIndexDims, numBytesPerDim)
+	if err == nil {
+		t.Fatal("expected error from corruption, got nil")
+	}
+	// Any error is acceptable; the Java test accepts Exception.class.
 }
 
-// TestBKD_BitFlippedOnPartition1 mirrors testBitFlippedOnPartition1: a
-// single random bit in the index file is flipped; the reader must
-// surface a CorruptIndexException.
-//
-// Skipped until: a Gocene FilterDirectory + checksum-bypassing
-// IndexInput corruption helper exists.
-func TestBKD_BitFlippedOnPartition1(t *testing.T) {
-	t.Fatal("requires FilterDirectory + IndexInput bit-corruption helper; not yet ported")
-}
-
-// TestBKD_BitFlippedOnPartition2 mirrors testBitFlippedOnPartition2:
-// same as BitFlippedOnPartition1 but at a different file offset.
-func TestBKD_BitFlippedOnPartition2(t *testing.T) {
-	t.Fatal("requires bit-corruption helper; see TestBKD_BitFlippedOnPartition1")
-}
-
-// TestBKD_TieBreakOrder mirrors testTieBreakOrder: when all points share
-// the same value on the split dim, the writer must break ties by docID
-// so the output is deterministic across runs.
-func TestBKD_TieBreakOrder(t *testing.T) {
-	t.Fatal("requires byte-exact comparison against a Java-produced fixture; deferred")
-}
-
-// TestBKD_CheckDataDimOptimalOrder mirrors testCheckDataDimOptimalOrder:
-// assertion that the writer reorders data dims to minimise leaf-block
-// size when index dims < data dims.
-func TestBKD_CheckDataDimOptimalOrder(t *testing.T) {
-	t.Fatal("requires data-dim reordering inspection hook; not exposed by Gocene BKDWriter yet")
-}
-
-// TestBKD_2DLongOrdsOffline mirrors test2DLongOrdsOffline: 2D, 8-byte
-// dims, offline (disk-backed) writer path.
-func TestBKD_2DLongOrdsOffline(t *testing.T) {
-	t.Fatal("requires verify() helper exercising the offline path; deferred")
-}
-
-// TestBKD_WastedLeadingBytes mirrors testWastedLeadingBytes: every doc
-// has the same leading bytes on every dim, exercising the common-prefix
-// compression of the leaf block format.
-func TestBKD_WastedLeadingBytes(t *testing.T) {
-	t.Fatal("requires verify() helper; deferred")
-}
-
-// TestBKD_EstimatePointCount mirrors testEstimatePointCount: the reader's
-// EstimatePointCount must agree with a manual count for a variety of
-// query shapes.
-//
-// Gocene already has a focused EstimatePointCount test in
-// bkd_reader_test.go (TestBKDReader_EstimatePointCount). This Java
-// counterpart drives the same code path but over a randomised input;
-// it remains skipped until the verify()/random harness lands.
-func TestBKD_EstimatePointCount(t *testing.T) {
-	t.Fatal("randomised counterpart; see TestBKDReader_EstimatePointCount for the focused port")
-}
-
-// TestBKD_TotalPointCountValidation mirrors testTotalPointCountValidation:
-// the writer must reject Add() once the declared totalPointCount is
-// reached.
-func TestBKD_TotalPointCountValidation(t *testing.T) {
-	t.Fatal("requires verify() helper and assertion of writer's totalPointCount guard; deferred")
-}
-
-// TestBKD_TooManyPoints mirrors testTooManyPoints: Add() must fail once
-// totalPointCount is exceeded (multi-dim variant).
-func TestBKD_TooManyPoints(t *testing.T) {
-	t.Fatal("requires verify() helper; deferred")
-}
-
-// TestBKD_TooManyPoints1D mirrors testTooManyPoints1D: same as
-// TestBKD_TooManyPoints but for the 1D specialised writer path.
-func TestBKD_TooManyPoints1D(t *testing.T) {
-	t.Fatal("requires verify() helper; deferred")
-}
-
-// --- helpers ---------------------------------------------------------
+// ----- Helpers -----------------------------------------------------------
 
 // sortableIntRangeVisitor is the Compare-driven range visitor used by
-// TestBKD_BasicInts1D. It mirrors the Java getIntersectVisitor that
-// TestBKD builds locally: CELL_INSIDE when the cell is wholly inside
-// [queryMin, queryMax] across every dim, CELL_OUTSIDE when wholly
-// outside, and CELL_CROSSES otherwise.
+// TestBKD_BasicInts1D.
 type sortableIntRangeVisitor struct {
 	queryMin   []byte
 	queryMax   []byte
@@ -352,14 +199,12 @@ func (v *sortableIntRangeVisitor) VisitByPackedValue(docID int, packedValue []by
 }
 
 func (v *sortableIntRangeVisitor) Compare(minPackedValue, maxPackedValue []byte) codecs.Relation {
-	// CELL_OUTSIDE: max < queryMin OR min > queryMax
 	if compareUnsigned(maxPackedValue, v.queryMin) < 0 {
 		return codecs.RelationCellOutsideQuery
 	}
 	if compareUnsigned(minPackedValue, v.queryMax) > 0 {
 		return codecs.RelationCellOutsideQuery
 	}
-	// CELL_INSIDE: min >= queryMin AND max <= queryMax
 	if compareUnsigned(minPackedValue, v.queryMin) >= 0 &&
 		compareUnsigned(maxPackedValue, v.queryMax) <= 0 {
 		return codecs.RelationCellInsideQuery
@@ -369,9 +214,7 @@ func (v *sortableIntRangeVisitor) Compare(minPackedValue, maxPackedValue []byte)
 
 func (v *sortableIntRangeVisitor) Grow(count int) {}
 
-// compareUnsigned is the unsigned-byte lexicographic comparison used by
-// the sortable-int encoding (Lucene NumericUtils.intToSortableBytes
-// flips the sign bit so unsigned byte order == signed int order).
+// compareUnsigned is the unsigned-byte lexicographic comparison.
 func compareUnsigned(a, b []byte) int {
 	n := len(a)
 	if len(b) < n {
@@ -393,4 +236,18 @@ func compareUnsigned(a, b []byte) int {
 	default:
 		return 0
 	}
+}
+
+// contains reports whether substr is in s.
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && containsStr(s, substr)
+}
+
+func containsStr(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
