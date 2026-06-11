@@ -112,6 +112,7 @@ func TestNewLatLonPointBoxQuery_NonDateline(t *testing.T) {
 // case where minLon==180 and maxLon < minLon (dateline wrap). Java
 // corrects minLon to -180 and continues; this must NOT produce a
 // MatchNoDocsQuery.
+}
 func TestNewLatLonPointBoxQuery_MinLon180DatelineCeil(t *testing.T) {
 	t.Parallel()
 	// minLon=180 and maxLon=-170 means "wrap around from +180", which

@@ -934,4 +934,4 @@ func TestLatLonPointDistanceFeaturePointVisitor_Compare(t *testing.T) {
 	if rel := v.Compare(pack(30, -5), pack(40, 0)); rel != latLonPointDistanceFeatureCellCrossesQuery {
 		t.Fatalf("expected CROSSES for boundary-crossing cell, got %v", rel)
 	}
-}
+}	}

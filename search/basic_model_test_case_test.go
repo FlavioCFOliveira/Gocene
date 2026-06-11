@@ -62,4 +62,4 @@ func TestBasicModelTestCase(t *testing.T) {
 				checkSimilarityScoring(t, name, sim, false)
 			}
 		}
-}
+}	}

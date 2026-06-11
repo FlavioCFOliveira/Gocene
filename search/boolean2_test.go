@@ -597,6 +597,7 @@ func TestBoolean2MinShouldMatch(t *testing.T) {
 	}
 
 // BenchmarkBoolean2Query benchmarks BooleanQuery performance
+}
 func BenchmarkBoolean2Query(b *testing.B) {
 	dir := store.NewByteBuffersDirectory()
 	analyzer := analysis.NewWhitespaceAnalyzer()

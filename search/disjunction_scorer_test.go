@@ -219,6 +219,7 @@ func TestDisjunctionScorer_TwoPhaseNil(t *testing.T) {
 	}
 
 // TestDisjunctionScorer_ImplementsScorer is a compile-time interface check.
+}
 func TestDisjunctionScorer_ImplementsScorer(t *testing.T) {
 	sc1 := newFakeScorer([]int{0}, 1.0)
 	sc2 := newFakeScorer([]int{0}, 1.0)

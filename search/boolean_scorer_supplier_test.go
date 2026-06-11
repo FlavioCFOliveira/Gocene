@@ -1069,6 +1069,7 @@ func TestBooleanScorerSupplier_SingleShouldScoringClause(t *testing.T) {
 
 // TestBooleanScorerSupplier_MaxScoreNonTopLevelScoringClause tests max score calculation
 // Source: testMaxScoreNonTopLevelScoringClause()
+}
 func TestBooleanScorerSupplier_MaxScoreNonTopLevelScoringClause(t *testing.T) {
 	subs := make(map[search.Occur][]search.ScorerSupplier)
 	for _, occur := range []search.Occur{search.MUST, search.SHOULD, search.MUST_NOT, search.FILTER} {

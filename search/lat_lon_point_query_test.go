@@ -534,6 +534,7 @@ func TestLatLonPointQuery_QueryIsCacheable_DefaultsTrue(t *testing.T) {
 // pair the Relate hook expects: 8 bytes per buffer, 4-byte sortable
 // latitude followed by 4-byte sortable longitude. Matches the Java
 // reference's PointValues cell encoding for LatLonPoint.
+}
 func encodeLatLonCellBounds(t *testing.T, minLat, maxLat, minLon, maxLon float64) ([]byte, []byte) {
 	t.Helper()
 	const total = 2 * latLonPointBytesPerDim

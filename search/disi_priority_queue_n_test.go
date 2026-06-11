@@ -228,6 +228,7 @@ func TestDisiPriorityQueueN_AddAll(t *testing.T) {
 	}
 
 // TestDisiPriorityQueueN_AddAll_CapacityPanic verifies AddAll panics on overflow.
+}
 func TestDisiPriorityQueueN_AddAll_CapacityPanic(t *testing.T) {
 	pq := search.NewDisiPriorityQueueN(2)
 	entries := []*search.DisiWrapper{makeDisiWrapperForN(1), makeDisiWrapperForN(2), makeDisiWrapperForN(3)}

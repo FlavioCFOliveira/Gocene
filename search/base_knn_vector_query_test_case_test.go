@@ -654,6 +654,7 @@ func assertDescendingScores(t *testing.T, scoreDocs []*search.ScoreDoc) {
 	}
 
 // min3 returns the minimum of three integers.
+}
 func min3(a, b, c int) int {
 	m := a
 	if b < m {

@@ -68,6 +68,7 @@ func TestPrefixQuery_Rewrite(t *testing.T) {
 		t.Error("PrefixQuery should currently rewrite to itself")
 	}
 
+}
 func TestPrefixQuery_WithNilPrefix(t *testing.T) {
 	q := NewPrefixQuery(nil)
 	if q.GetField() != "" {

@@ -28,6 +28,7 @@ func TestMatchAllDocsQuery(t *testing.T) {
 		t.Error("MatchAllDocsQuery HashCode should be 0")
 	}
 
+}
 func TestFieldExistsQuery(t *testing.T) {
 	q1 := NewFieldExistsQuery("title")
 

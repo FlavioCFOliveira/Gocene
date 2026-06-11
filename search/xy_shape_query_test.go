@@ -384,6 +384,7 @@ func TestXYShapeQuery_SpatialVisitor_DecodeError(t *testing.T) {
 // Tests that exercise the visitor's TRIANGLE branch should choose
 // query rectangles that either cover the origin (positive hit) or
 // exclude both the A-vertex and the origin (negative hit).
+}
 func encodeXYTriangleAVertex(t *testing.T, x, y float32) []byte {
 	t.Helper()
 	ay := geo.XYEncode(y)

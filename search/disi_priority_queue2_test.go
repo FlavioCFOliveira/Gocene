@@ -129,6 +129,7 @@ func TestDisiPriorityQueue2_Clear(t *testing.T) {
 	}
 
 // TestDisiPriorityQueue2_ThirdEntryPanics verifies that adding a 3rd entry panics.
+}
 func TestDisiPriorityQueue2_ThirdEntryPanics(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {

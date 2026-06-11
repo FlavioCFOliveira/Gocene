@@ -62,6 +62,8 @@ func TestBlockMaxConjunctionScorer_GetMaxScore(t *testing.T) {
 	}
 
 // TestBlockMaxConjunctionScorer_GetChildren returns all scorers.
+
+}
 func TestBlockMaxConjunctionScorer_GetChildren(t *testing.T) {
 	a := newFakeScorer([]int{1}, 1.0)
 	b := newFakeScorer([]int{1}, 2.0)

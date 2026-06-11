@@ -107,6 +107,7 @@ type errIterator struct {
 	err error
 }
 
+}
 func (e *errIterator) DocID() int                 { return -1 }
 func (e *errIterator) NextDoc() (int, error)      { return -1, e.err }
 func (e *errIterator) Advance(_ int) (int, error) { return -1, e.err }

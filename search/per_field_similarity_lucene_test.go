@@ -62,6 +62,7 @@ func TestLucenePerFieldSimilarityWrapper_ComputeNormDispatch(t *testing.T) {
 	}
 
 // TestLucenePerFieldSimilarityWrapper_NilGetterPanics defends the contract.
+}
 func TestLucenePerFieldSimilarityWrapper_NilGetterPanics(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {

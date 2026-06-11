@@ -381,6 +381,7 @@ func TestConjunctionDISI_BitSetConjunctionDISIDocIDOnExhaust(t *testing.T) {
 	}
 
 // TestIntersectScorers_PanicsOnFewInputs checks the guard for < 2 scorers.
+}
 func TestIntersectScorers_PanicsOnFewInputs(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {

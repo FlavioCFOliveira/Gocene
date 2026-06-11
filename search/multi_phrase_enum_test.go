@@ -275,6 +275,7 @@ func TestMultiPhraseEnum_Cost(t *testing.T) {
 
 // TestMultiPhraseEnum_PositionsSorted verifies that positions are returned in
 // ascending order even when the subs contribute them in mixed order.
+}
 func TestMultiPhraseEnum_PositionsSorted(t *testing.T) {
 	// p1 posts doc 0 at position 2; p2 posts doc 0 at position 0.
 	// After union, positions should come out sorted: 0, 2.

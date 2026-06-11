@@ -161,6 +161,7 @@ func TestConstantScoreWeight_Count_DefaultsMinusOne(t *testing.T) {
 
 // TestConstantScoreWeight_Matches_ReturnsNil confirms Matches
 // reports nil for the constant-score variant.
+}
 func TestConstantScoreWeight_Matches_ReturnsNil(t *testing.T) {
 	t.Parallel()
 	w := NewConstantScoreWeight(newStubQuery(0), 1.0, nil, nil)

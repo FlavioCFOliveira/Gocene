@@ -560,6 +560,7 @@ func assertSubsetOfSameScores(t *testing.T, q *search.BooleanQuery, top1, top2 *
 	}
 
 // bmsmUlp32 returns the unit in the last place of x for float32, mirroring Math.ulp.
+}
 func bmsmUlp32(x float32) float32 {
 	if x == 0 {
 		return math.SmallestNonzeroFloat32

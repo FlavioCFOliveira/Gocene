@@ -48,6 +48,7 @@ func TestConcurrentSearch_MultipleReaders(t *testing.T) {
 		}
 	}
 
+}
 func TestConcurrentSearch_SameReaderMultipleGoroutines(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()

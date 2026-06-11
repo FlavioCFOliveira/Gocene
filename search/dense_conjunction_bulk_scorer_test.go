@@ -349,6 +349,7 @@ type earlyTermLeafCollector struct {
 	onCollect   func(int) error
 }
 
+}
 func (c *earlyTermLeafCollector) SetScorer(s search.Scorer) error {
 	if c.onSetScorer != nil {
 		c.onSetScorer(s)

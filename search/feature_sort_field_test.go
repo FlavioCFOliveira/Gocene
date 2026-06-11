@@ -355,6 +355,7 @@ func TestCompareFloat32_Semantics(t *testing.T) {
 		})
 	}
 
+}
 func approxEqualFloat32(a, b, tolerance float32) bool {
 	diff := a - b
 	if diff < 0 {

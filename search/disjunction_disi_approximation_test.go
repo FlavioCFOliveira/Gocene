@@ -129,6 +129,7 @@ func TestDisjunctionDISIApproximation_BasicOperations(t *testing.T) {
 	}
 
 // TestDisjunctionDISIApproximation_Empty tests behavior with adjacent ranges.
+}
 func TestDisjunctionDISIApproximation_Empty(t *testing.T) {
 	// Create iterators with adjacent ranges
 	clause1 := NewRangeDocIdSetIterator(0, 5)

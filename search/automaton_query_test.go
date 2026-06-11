@@ -841,6 +841,7 @@ func BenchmarkAutomatonQuery_Equals(b *testing.B) {
 	}
 
 // BenchmarkAutomatonQuery_ThreadSafety benchmarks concurrent hashCode access.
+}
 func BenchmarkAutomatonQuery_ThreadSafety(b *testing.B) {
 	automata := Automata{}
 	aq := NewAutomatonQuery(index.NewTerm("field", "value"), automata.MakeString("test"))

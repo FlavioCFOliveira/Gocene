@@ -423,6 +423,7 @@ func TestLatLonShapeQuery_GeoRelationToSpatial(t *testing.T) {
 // either cover the origin (when verifying a positive hit) or that
 // exclude both the A-vertex and the origin (when verifying a
 // negative hit).
+}
 func encodeTriangleAVertex(t *testing.T, lat, lon float64) []byte {
 	t.Helper()
 	ay := geo.EncodeLatitude(lat)

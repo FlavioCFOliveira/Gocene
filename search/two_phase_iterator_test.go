@@ -416,6 +416,7 @@ func TestTwoPhaseIterator_AllMatch(t *testing.T) {
 	}
 
 // TestTwoPhaseIterator_DocIDRunEnd tests DocIDRunEnd behavior.
+}
 func TestTwoPhaseIterator_DocIDRunEnd(t *testing.T) {
 	// Create an approximation iterator over docs 0-9
 	approx := NewRangeDocIdSetIterator(0, 10)

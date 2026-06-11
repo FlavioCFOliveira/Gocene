@@ -1020,4 +1020,4 @@ func TestMultiPhraseQuery_FieldConsistency(t *testing.T) {
 				t.Errorf("Expected term field 'body', got %q", term.Field)
 			}
 		}
-}
+}	}

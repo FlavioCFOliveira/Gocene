@@ -32,6 +32,7 @@ func TestIndexOrDocValuesQuery_GetRandomAccessQuery(t *testing.T) {
 		t.Error("GetRandomAccessQuery should return the random access query")
 	}
 
+}
 func TestIndexOrDocValuesQuery_String(t *testing.T) {
 	q := NewIndexOrDocValuesQuery(NewTermQuery(nil), NewTermQuery(nil))
 	s := q.String()

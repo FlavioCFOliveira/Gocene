@@ -46,6 +46,7 @@ func TestTermQuery_Basics(t *testing.T) {
 		t.Errorf("Expected 'field:value', got %q", q1.String())
 	}
 
+}
 func TestTermQuery_Rewrite(t *testing.T) {
 	term := index.NewTerm("f", "v")
 	q := NewTermQuery(term)

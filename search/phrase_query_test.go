@@ -64,6 +64,7 @@ func TestPhraseQuery_Basics(t *testing.T) {
 		t.Errorf("Expected field:\"hello world\"~5, got %q", q4.String())
 	}
 
+}
 func TestPhraseQuery_Rewrite(t *testing.T) {
 	// Single term phrase rewrites to TermQuery
 	qSingle := NewPhraseQueryWithStrings("field", "one")

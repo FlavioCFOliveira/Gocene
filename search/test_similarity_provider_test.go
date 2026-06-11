@@ -153,4 +153,4 @@ func TestSimilarityProvider_Basics(t *testing.T) {
 		t.Errorf("expected foo score (%.4f) < bar score (%.4f); per-field similarity not dispatched correctly",
 			fooDocs.ScoreDocs[0].Score, barDocs.ScoreDocs[0].Score)
 	}
-}
+}	}

@@ -373,6 +373,7 @@ func (s *xyInMemoryPointSource) Intersect(visitor xyPointVisitor) error {
 	return nil
 }
 
+}
 func (s *xyInMemoryPointSource) EstimateDocCount(_ xyPointVisitor) (int64, error) {
 	return int64(len(s.points)), nil
 }

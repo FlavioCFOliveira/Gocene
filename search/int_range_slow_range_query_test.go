@@ -545,6 +545,7 @@ type docRangeInt struct {
 // stubBinaryDocValues from the float test file by mapping into docRange
 // with the packed bytes pre-computed (the iterator only consults .packed,
 // the float min/max fields are unused once .packed is set).
+}
 func newStubBinaryDocValuesInt(t *testing.T, docs []docRangeInt) *stubBinaryDocValues {
 	t.Helper()
 	out := make([]docRange, len(docs))

@@ -75,6 +75,7 @@ func TestMultiSegment_NumDocsAcrossSegments(t *testing.T) {
 		t.Fatalf("NumDocs=%d, want 5", reader.NumDocs())
 	}
 
+}
 func TestMultiSegment_SubReaderDocBase(t *testing.T) {
 	writer, dir, cleanup := setupMultiSegmentIndex(t)
 	defer cleanup()

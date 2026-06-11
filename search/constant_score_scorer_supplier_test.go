@@ -113,6 +113,7 @@ func TestConstantScoreScorerSupplier_GetPropagatesFactoryError(t *testing.T) {
 // TestConstantScoreScorerSupplierFromIterator_WrapsIterator confirms
 // the convenience constructor wraps a pre-built iterator and that
 // Cost is propagated from the iterator.
+}
 func TestConstantScoreScorerSupplierFromIterator_WrapsIterator(t *testing.T) {
 	t.Parallel()
 	iter := NewRangeDocIdSetIterator(0, 10)

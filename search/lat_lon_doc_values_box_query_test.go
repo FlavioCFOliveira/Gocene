@@ -417,6 +417,7 @@ func TestLatLonDocValuesBoxQuery_CreateWeight_NilField(t *testing.T) {
 
 // nanFloat returns IEEE-754 NaN without importing math just for it
 // at the top of the file; helps keep table-driven cases declarative.
+}
 func nanFloat() float64 {
 	var zero float64
 	return zero / zero

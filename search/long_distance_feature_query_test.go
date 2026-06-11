@@ -862,6 +862,7 @@ func TestUnsignedDistance(t *testing.T) {
 // TestSelectClosestValue covers the multi-valued selection helper, the
 // same routine Java's DistanceScorer.selectValue uses to pick the
 // closest value to origin.
+}
 func TestSelectClosestValue(t *testing.T) {
 	cases := []struct {
 		name   string

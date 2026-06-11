@@ -97,6 +97,7 @@ func TestDefaultBulkSimScorer_RoundTrip(t *testing.T) {
 
 // TestDefaultBulkSimScorer_NilScorerPanics defends against accidental nil
 // scorer wrapping.
+}
 func TestDefaultBulkSimScorer_NilScorerPanics(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {

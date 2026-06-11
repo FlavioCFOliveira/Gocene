@@ -138,6 +138,7 @@ func (p *stubPointRangePV) Intersect(visitor pointRangeIntersectVisitorI) error 
 	return nil
 }
 
+}
 func (p *stubPointRangePV) EstimatePointCount(_ pointRangeIntersectVisitorI) int64 {
 	return int64(len(p.packed))
 }

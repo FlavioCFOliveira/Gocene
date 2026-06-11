@@ -117,6 +117,7 @@ func TestLuceneIBSimilarity_String(t *testing.T) {
 	}
 
 // TestLuceneIBSimilarity_NilParamsPanic defends the nil check.
+}
 func TestLuceneIBSimilarity_NilParamsPanic(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {

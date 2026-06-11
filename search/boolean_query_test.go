@@ -202,6 +202,7 @@ func TestBooleanQuery_String(t *testing.T) {
 		t.Errorf("Expected '%s', got '%s'", expected2, bq2.String())
 	}
 
+}
 func TestBooleanQuery_EqualityComplexity(t *testing.T) {
 	tq1 := NewTermQuery(index.NewTerm("f", "v1"))
 	tq2 := NewTermQuery(index.NewTerm("f", "v2"))

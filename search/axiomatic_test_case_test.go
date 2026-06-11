@@ -77,4 +77,4 @@ func TestAxiomaticTestCase_F3LOG(t *testing.T) {
 		for _, queryLen := range axiomaticQueryLens {
 			checkSimilarityScoring(t, "F3LOG", search.NewLuceneAxiomaticF3LOG(s, queryLen), false)
 		}
-}
+}	}

@@ -64,6 +64,7 @@ func TestLuceneClassicSimilarity_Scorer(t *testing.T) {
 	}
 
 // TestLuceneClassicSimilarity_String verifies the canonical name.
+}
 func TestLuceneClassicSimilarity_String(t *testing.T) {
 	if got := NewLuceneClassicSimilarity().String(); got != "ClassicSimilarity" {
 		t.Fatalf("String: got %q, want ClassicSimilarity", got)

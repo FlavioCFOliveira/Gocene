@@ -116,6 +116,7 @@ func TestCustomCollector_TopDocsCollector(t *testing.T) {
 	t.Logf("TopDocs collector found %d hits", topDocs.TotalHits.Value)
 }
 
+}
 func BenchmarkCustomCollector_Collection(b *testing.B) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()

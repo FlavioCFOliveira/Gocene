@@ -179,6 +179,7 @@ func TestBlockMaxConjunctionBulkScorer_Cost(t *testing.T) {
 		t.Errorf("Cost() = %d, want 3", bs.Cost())
 	}
 
+}
 func TestBlockMaxConjunctionBulkScorer_ImplementsBulkScorer(t *testing.T) {
 	a := newBMCFixedScorer(1.0, 1)
 	b := newBMCFixedScorer(1.0, 1)

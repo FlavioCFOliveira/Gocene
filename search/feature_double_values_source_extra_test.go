@@ -145,6 +145,7 @@ func assertAdvanceMiss(t *testing.T, values *search.FeatureDoubleValues, doc int
 // header), the test is skipped instead of fatal: the entire roundtrip wiring
 // is otherwise correct and will start passing the moment OpenDirectoryReader
 // switches to NewSegmentReaderWithCore.
+}
 func openValues(t *testing.T, leaf *index.LeafReaderContext) *search.FeatureDoubleValues {
 	t.Helper()
 	src, err := search.NewFeatureDoubleValuesSource("field", "name")

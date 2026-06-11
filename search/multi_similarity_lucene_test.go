@@ -44,6 +44,7 @@ func TestLuceneMultiSimilarity_ComputeNormDelegatesToZeroth(t *testing.T) {
 	}
 
 // TestLuceneMultiSimilarity_EmptyPanics defends the contract.
+}
 func TestLuceneMultiSimilarity_EmptyPanics(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {

@@ -825,6 +825,7 @@ func TestMultiCollector_CollectionTerminatedExceptionHandling(t *testing.T) {
 // TestMultiCollector_CacheScores ports testCacheScoresIfNecessary: scores are
 // only cached (the child sees a *ScoreCachingWrappingScorer) when at least two
 // children need scores.
+}
 func TestMultiCollector_CacheScores(t *testing.T) {
 	ctx, cleanup := oneDocLeafContext(t)
 	defer cleanup()

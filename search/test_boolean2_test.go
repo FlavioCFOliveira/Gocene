@@ -238,6 +238,7 @@ func TestBoolean2_RandomQueries(t *testing.T) {
 // boolean2RandBoolQuery builds a random BooleanQuery tree, mirroring the static
 // randBoolQuery helper in TestBoolean2.java. The tree is reproducible for the
 // same rng seed.
+}
 func boolean2RandBoolQuery(rng *rand.Rand, allowMust bool, level int, field string, vals []string) *BooleanQuery {
 	bq := NewBooleanQuery()
 	numClauses := rng.Intn(len(vals)) + 1

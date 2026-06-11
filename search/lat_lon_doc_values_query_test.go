@@ -534,6 +534,7 @@ func TestSortedNumericApproximation_Iteration(t *testing.T) {
 
 // TestIsDocValuesCacheable_NilContext returns true for a nil
 // LeafReaderContext (the safe default the helper documents).
+}
 func TestIsDocValuesCacheable_NilContext(t *testing.T) {
 	t.Parallel()
 	if !index.IsDocValuesCacheable(nil, "loc") {

@@ -77,6 +77,7 @@ func TestPhraseQueue_UpdateTop(t *testing.T) {
 	}
 
 // TestPhraseQueue_Empty verifies empty queue behaviour.
+}
 func TestPhraseQueue_Empty(t *testing.T) {
 	pq := NewPhraseQueue(4)
 	if pq.Size() != 0 {

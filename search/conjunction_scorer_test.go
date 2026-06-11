@@ -145,6 +145,7 @@ func TestConjunctionScorer_GetMaxScore(t *testing.T) {
 	}
 
 // advanceAll collects all doc IDs from a Scorer by calling NextDoc.
+}
 func advanceAll(t *testing.T, sc search.Scorer) []int {
 	t.Helper()
 	var docs []int

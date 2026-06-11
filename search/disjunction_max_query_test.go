@@ -602,6 +602,7 @@ func TestDisjunctionMaxQuery_EqualsWithDifferentLengths(t *testing.T) {
 	}
 
 // TestDisjunctionMaxQuery_NilHandling tests handling of nil queries in disjuncts
+}
 func TestDisjunctionMaxQuery_NilHandling(t *testing.T) {
 	// Create with one nil disjunct
 	dmq := NewDisjunctionMaxQueryWithTieBreaker([]Query{

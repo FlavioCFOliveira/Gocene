@@ -269,6 +269,7 @@ func TestNumericDocValuesRangeQuery_CreateWeight(t *testing.T) {
 // TestQueryRescorer_DefaultCombine verifies the default combine function
 // adds the second-pass score when secondPassMatches is true and returns
 // the first-pass score unchanged otherwise.
+}
 func TestQueryRescorer_DefaultCombine(t *testing.T) {
 	if got := defaultQueryRescorerCombine(1, true, 2); got != 3 {
 		t.Errorf("combine(1, true, 2) = %v, want 3", got)

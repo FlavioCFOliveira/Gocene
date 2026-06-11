@@ -160,4 +160,4 @@ func TestBaseDocValuesSkipperTests(t *testing.T) {
 	if dv.Cost() != 42 {
 		t.Errorf("Cost() = %d, want 42", dv.Cost())
 	}
-}
+}	}

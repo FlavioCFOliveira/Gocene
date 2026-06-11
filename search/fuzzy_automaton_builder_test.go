@@ -115,6 +115,7 @@ func TestFuzzyAutomatonBuilder_PrefixClamping(t *testing.T) {
 	}
 
 // TestFuzzyAutomatonBuilder_StringToUTF32 verifies codepoint extraction.
+}
 func TestFuzzyAutomatonBuilder_StringToUTF32(t *testing.T) {
 	cps := stringToUTF32("aβ")
 	if len(cps) != 2 {

@@ -383,6 +383,7 @@ func TestNRTSearcher_StartStopDeadlockRegression(t *testing.T) {
 
 // TestNRTSearcher_CloseAutoRefreshDeadlockRegression verifies that Close
 // with an active auto-refresh goroutine does not deadlock.
+}
 func TestNRTSearcher_CloseAutoRefreshDeadlockRegression(t *testing.T) {
 	if testing.Short() {
 		t.Fatal("skipping deadlock regression in -short mode")

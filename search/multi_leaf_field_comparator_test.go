@@ -127,6 +127,7 @@ func TestMultiLeafFieldComparator_SetHitsThresholdReachedOnlyFirst(t *testing.T)
 	}
 
 // TestMultiLeafFieldComparator_CompareTopFirstWins verifies CompareTop short-circuit.
+}
 func TestMultiLeafFieldComparator_CompareTopFirstWins(t *testing.T) {
 	a := &stubLeafComparator{cmpTop: -1}
 	b := &stubLeafComparator{cmpTop: 1}

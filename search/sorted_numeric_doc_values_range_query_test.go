@@ -467,4 +467,4 @@ func runSortedNumericRangeQueryWithDV(
 		matched = append(matched, doc)
 	}
 	return matched
-}
+}	}

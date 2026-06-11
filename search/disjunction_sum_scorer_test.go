@@ -196,6 +196,7 @@ func TestDisjunctionSumScorer_InitialDocID(t *testing.T) {
 
 // ─── DisiPriorityQueue tests ──────────────────────────────────────────────
 
+}
 func TestDisiPriorityQueue_AddTopPop(t *testing.T) {
 	s1 := newDssFixedScorer([]int{10}, []float32{1.0})
 	s2 := newDssFixedScorer([]int{5}, []float32{1.0})

@@ -564,6 +564,7 @@ func TestFormatJavaDouble_IntegralAndSpecial(t *testing.T) {
 // Make sure the comparator is wired so a real LatLonDocValuesField-encoded
 // value round-trips through Copy/Value into the right ballpark of metres,
 // regardless of the encoding helper used at insert time.
+}
 func TestLatLonPointDistanceComparator_MatchesLatLonDocValuesFieldEncoding(t *testing.T) {
 	t.Parallel()
 

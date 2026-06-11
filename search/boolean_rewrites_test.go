@@ -1124,6 +1124,7 @@ func TestBooleanRewrites_EqualsPrecision(t *testing.T) {
 	}
 
 // Helper function to create a PhraseQuery with terms
+}
 func NewPhraseQueryWithTerms(field string, terms ...*index.Term) *PhraseQuery {
 	return NewPhraseQuery(field, terms...)
 }

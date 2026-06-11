@@ -80,6 +80,7 @@ func TestLuceneBooleanSimilarity_SameNormsAsBM25(t *testing.T) {
 
 // TestLuceneTFIDFSimilarity_PhraseIdfSum verifies that the phrase idfExplain
 // sums per-term idfs.
+}
 func TestLuceneTFIDFSimilarity_PhraseIdfSum(t *testing.T) {
 	// We use ClassicSimilarity to exercise the TFIDF base. The phrase
 	// idf is the sum of per-term idfs.

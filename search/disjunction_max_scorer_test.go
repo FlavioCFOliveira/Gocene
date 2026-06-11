@@ -179,6 +179,7 @@ func TestDisjunctionMaxScorer_ThreeClauses(t *testing.T) {
 	}
 
 // TestDisjunctionMaxScorer_Cost verifies Cost() is non-zero.
+}
 func TestDisjunctionMaxScorer_Cost(t *testing.T) {
 	sc := makeDMScorer(t, 0, []struct {
 		docs  []int

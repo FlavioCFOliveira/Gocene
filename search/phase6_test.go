@@ -143,6 +143,7 @@ func TestLuceneIndriCollectionModel_NoSmoothing(t *testing.T) {
 	}
 
 // TestLuceneDefaultCollectionModel_WithSmoothing verifies the +1 smoothing.
+}
 func TestLuceneDefaultCollectionModel_WithSmoothing(t *testing.T) {
 	stats := NewLuceneBasicStats("body", 1.0)
 	stats.SetTotalTermFreq(300)

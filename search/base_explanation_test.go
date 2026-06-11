@@ -102,6 +102,7 @@ func newExplanationTestCase(t *testing.T) *explanationTestCase {
 	}
 
 // createExplDoc mirrors BaseExplanationTestCase.createDoc(index).
+}
 func createExplDoc(t *testing.T, idx int) *document.Document {
 	t.Helper()
 	doc := document.NewDocument()

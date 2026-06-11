@@ -247,6 +247,7 @@ func TestBitSetDocIdStream_IntoArrayUpTo_EmptyArrayNoop(t *testing.T) {
 
 // ─── interface satisfaction ───────────────────────────────────────────────────
 
+}
 func TestBitSetDocIdStream_ImplementsDocIdStream(t *testing.T) {
 	var _ search.DocIdStream = search.NewBitSetDocIdStream(makeBitSet(8), 0)
 }

@@ -111,6 +111,7 @@ func TestLuceneBM25Similarity_BulkScorer_Equivalent(t *testing.T) {
 
 // TestLuceneBM25Similarity_IllegalK1 verifies that the constructor panics
 // on a NaN k1.
+}
 func TestLuceneBM25Similarity_IllegalK1(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {

@@ -154,6 +154,7 @@ func TestConjunctionBulkScorer_AcceptDocs(t *testing.T) {
 	}
 
 // TestConjunctionBulkScorer_Cost verifies Cost equals lead1 cost (cheapest).
+}
 func TestConjunctionBulkScorer_Cost(t *testing.T) {
 	// clause1 has cost 2, clause2 has cost 5
 	sc1 := newConstantScorer([]int{0, 1}, 1, 2)

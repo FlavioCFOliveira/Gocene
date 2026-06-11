@@ -43,4 +43,4 @@ func TestTopKnnResults_CollectAndProvideResults(t *testing.T) {
 		if sd.Score != wantScores[i] {
 			t.Errorf("result[%d]: got score %f, want %f", i, sd.Score, wantScores[i])
 		}
-}
+}	}

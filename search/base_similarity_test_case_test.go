@@ -131,6 +131,7 @@ func checkSimilarityScoring(t *testing.T, name string, sim search.LuceneSimilari
 	}
 
 // isFiniteFloat32 reports whether f is neither NaN nor infinite.
+}
 func isFiniteFloat32(f float32) bool {
 	return !math.IsNaN(float64(f)) && !math.IsInf(float64(f), 0)
 }

@@ -59,6 +59,7 @@ func TestDocValuesRewriteMethod_DefaultInstance(t *testing.T) {
 // optional interfaces exported by this port compile and are usable from
 // outside the search package. We declare typed nil values to verify the
 // type names are accessible.
+}
 func TestDocValuesRewriteMethod_OptionalInterfaceTypes(_ *testing.T) {
 	// These zero-value type assertions confirm the interface types are
 	// exported and structurally non-empty.

@@ -383,4 +383,4 @@ func assertSaneScoring(t *testing.T, s *IndexSearcher, q *PhraseQuery) {
 			}
 		docBase += sr.MaxDoc()
 	}
-}
+}	}

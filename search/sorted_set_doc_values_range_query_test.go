@@ -608,6 +608,7 @@ func newFakeSortedSingle(ords map[int]int, terms []string) *fakeSortedSingle {
 	}
 
 // getInternal serves the random-access lookup used by BinaryValue.
+}
 func (f *fakeSortedSingle) getInternal(docID int) ([]byte, error) {
 	ord, ok := f.ords[docID]
 	if !ok {

@@ -61,6 +61,7 @@ func TestWildcardQuery_Rewrite(t *testing.T) {
 		t.Error("WildcardQuery should currently rewrite to itself")
 	}
 
+}
 func TestWildcardQuery_WithNilTerm(t *testing.T) {
 	q := NewWildcardQuery(nil)
 	if q.GetField() != "" {

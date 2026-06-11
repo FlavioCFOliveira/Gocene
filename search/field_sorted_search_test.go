@@ -315,6 +315,7 @@ func TestFieldSortedSearch_StringMissingFirst(t *testing.T) {
 
 // TestFieldSortedSearch_SecondaryAndTieBreak exercises a two-key sort (primary
 // int ascending, secondary term ascending) plus the implicit docID tie-break.
+}
 func TestFieldSortedSearch_SecondaryAndTieBreak(t *testing.T) {
 	// Primary intf, secondary termf:
 	//   doc0: int=1 term="b"

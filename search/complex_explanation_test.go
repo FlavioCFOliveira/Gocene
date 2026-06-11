@@ -193,6 +193,7 @@ func TestNewExplanationFormatter(t *testing.T) {
 		t.Fatal("Expected ExplanationFormatter to be created")
 	}
 
+}
 func TestExplanationFormatterFormat(t *testing.T) {
 	f := NewExplanationFormatter()
 

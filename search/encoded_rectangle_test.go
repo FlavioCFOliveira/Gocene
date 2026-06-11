@@ -209,6 +209,7 @@ func TestEncodedRectangle_WithinTriangle(t *testing.T) {
 
 // TestEncodedRectangle_Accessors confirms the accessor methods
 // report the constructor-supplied values without mutation.
+}
 func TestEncodedRectangle_Accessors(t *testing.T) {
 	t.Parallel()
 	r := NewEncodedRectangle(1, 2, 3, 4, true)

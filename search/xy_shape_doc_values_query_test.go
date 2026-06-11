@@ -192,6 +192,7 @@ func TestDecodeXYShapeBinary_MalformedPayload(t *testing.T) {
 // the rotation-aware decoder that recovers the original kind is
 // backlog #2697. The test locks the observed behaviour so a later
 // upgrade is forced to revisit this expectation.
+}
 func TestDecodeXYShapeBinary_RoundTripDegenerate(t *testing.T) {
 	t.Parallel()
 	ax := geo.XYEncode(0.5)

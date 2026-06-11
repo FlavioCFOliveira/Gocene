@@ -361,6 +361,7 @@ func TestIntRange_FieldEncoding_Roundtrip(t *testing.T) {
 	}
 
 // TestIntRange_FieldEncoding_BoundaryValues verifies INT_MIN/INT_MAX are stored.
+}
 func TestIntRange_FieldEncoding_BoundaryValues(t *testing.T) {
 	min := []int32{math.MinInt32}
 	max := []int32{math.MaxInt32}

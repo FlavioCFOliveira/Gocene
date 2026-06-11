@@ -33,6 +33,7 @@ func TestBoostQuery_Clone(t *testing.T) {
 		t.Error("Cloned query has nil inner query")
 	}
 
+}
 func TestBoostQuery_Equals(t *testing.T) {
 	term1 := index.NewTerm("field", "value1")
 	term2 := index.NewTerm("field", "value2")

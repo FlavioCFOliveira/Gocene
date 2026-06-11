@@ -210,6 +210,7 @@ func (a *randomApproximation) Advance(target int) (int, error) {
 	return a.doc, nil
 }
 
+}
 func (a *randomApproximation) Cost() int64      { return a.disi.Cost() }
 func (a *randomApproximation) DocIDRunEnd() int { return a.doc + 1 }
 

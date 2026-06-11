@@ -246,6 +246,7 @@ func TestFeatureDoubleValues_AdvanceExact_PastCursorReturnsFalse(t *testing.T) {
 		t.Errorf("AdvanceExact(5) after cursor at 10 = true, want false (no retreat)")
 	}
 
+}
 func approxEqualFloat64(a, b, tolerance float64) bool {
 	diff := a - b
 	if diff < 0 {

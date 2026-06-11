@@ -181,6 +181,7 @@ func TestClassicSimilarity_String(t *testing.T) {
 		t.Errorf("String() = %s, expected ClassicSimilarity", sim.String())
 	}
 
+}
 func TestClassicSimilarity_CompareWithBM25(t *testing.T) {
 	// Compare scoring between ClassicSimilarity and BM25Similarity
 	classic := NewClassicSimilarity()

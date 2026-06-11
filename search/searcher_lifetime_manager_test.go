@@ -313,4 +313,4 @@ func TestSearcherLifetimeManager_ConcurrentOperations(t *testing.T) {
 		if err := lm.Release(s); err != nil {
 			t.Fatalf("Release %d: %v", i, err)
 		}
-}
+}	}

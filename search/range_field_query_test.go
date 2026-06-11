@@ -516,6 +516,7 @@ func (p *stubRangeFieldPointValues) Intersect(visitor intersectVisitorRFQ) error
 }
 
 // EstimatePointCount returns a rough estimate.
+}
 func (p *stubRangeFieldPointValues) EstimatePointCount(_ intersectVisitorRFQ) int64 {
 	return int64(len(p.docIDs))
 }

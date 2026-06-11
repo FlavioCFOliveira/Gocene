@@ -641,6 +641,7 @@ func TestBooleanScorer_MinShouldMatch(t *testing.T) {
 
 // TestBooleanScorer_ComplexNesting tests complex nested boolean queries
 // Source: Derived from embedded boolean scorer tests
+}
 func TestBooleanScorer_ComplexNesting(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()

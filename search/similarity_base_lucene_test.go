@@ -156,6 +156,7 @@ func TestLuceneSimilarityBase_Scorer104_Empty(t *testing.T) {
 
 // TestLuceneSimilarityBase_NilScorePanics verifies the safety check at
 // construction time.
+}
 func TestLuceneSimilarityBase_NilScorePanics(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {

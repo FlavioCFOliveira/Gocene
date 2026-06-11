@@ -57,6 +57,7 @@ func TestRawTFSimilarity_DiscountOverlapsDefault(t *testing.T) {
 
 // TestRawTFSimilarity_Explain verifies that the explanation tree carries
 // the score as its root value and the supplied freq Explanation as detail.
+}
 func TestRawTFSimilarity_Explain(t *testing.T) {
 	sim := NewRawTFSimilarity()
 	sc := sim.Scorer104(2.0, nil)

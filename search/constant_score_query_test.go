@@ -52,6 +52,7 @@ func TestConstantScoreQuery_Rewrite(t *testing.T) {
 // rmp #4760 / #4767: ConstantScoreQuery must override CreateWeight rather than
 // inheriting BaseQuery.CreateWeight (which returns a nil Weight). A nil Weight
 // makes the query silently match nothing.
+}
 func TestConstantScoreQuery_CreateWeightNotNil(t *testing.T) {
 	tq := NewTermQuery(index.NewTerm("field", "value"))
 	csq := NewConstantScoreQuery(tq)

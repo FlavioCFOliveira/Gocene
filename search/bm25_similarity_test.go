@@ -63,6 +63,7 @@ func TestBM25Similarity_IDF(t *testing.T) {
 		t.Errorf("Expected IDF %f, got %f", expected, idf)
 	}
 
+}
 func TestBM25Similarity_IllegalParams(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {

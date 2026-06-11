@@ -127,6 +127,7 @@ func automatonQueryNrHits(t *testing.T, searcher *IndexSearcher, a *automaton.Au
 // observes the correct UTF-8 sort order.
 //
 // Expected matches: doc 0 (𩸅abcdef) and doc 2 (ﮤmnopqr) → 2 hits.
+}
 func TestAutomatonQueryUnicode_SortOrder(t *testing.T) {
 	reader, cleanup := buildUnicodeIndex(t)
 	defer cleanup()

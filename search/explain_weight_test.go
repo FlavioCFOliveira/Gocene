@@ -120,6 +120,7 @@ func assertExplainNoMatch(t *testing.T, exp search.Explanation, err error) {
 	}
 
 // floatsClose reports whether a and b are within a small absolute tolerance.
+}
 func floatsClose(a, b float32) bool {
 	const eps = 1e-4
 	d := a - b

@@ -43,6 +43,7 @@ func TestSimilarity_Basics(t *testing.T) {
 		t.Errorf("Expected score 10.0, got %f", scorer.Score(0, 1.0))
 	}
 
+}
 func TestSimilarity_BM25(t *testing.T) {
 	sim := NewBM25Similarity()
 	// Currently Scorer returns nil in BaseSimilarity, so this is just a placeholder

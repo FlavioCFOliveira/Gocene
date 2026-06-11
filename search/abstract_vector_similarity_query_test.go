@@ -187,6 +187,7 @@ func TestVisitVectorSimilarityQuery_RejectedField(t *testing.T) {
 
 // TestCreateVectorSimilarityWeight_NoFilter verifies that a weight can be
 // constructed without a filter (filterWeight = nil).
+}
 func TestCreateVectorSimilarityWeight_NoFilter(t *testing.T) {
 	q, _ := search.NewBaseVectorSimilarityQuery("vec", 0.5, 0.8, nil)
 	impl := &minimalVSQImpl{BaseVectorSimilarityQuery: q}

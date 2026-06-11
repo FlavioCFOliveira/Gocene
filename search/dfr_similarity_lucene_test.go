@@ -216,6 +216,7 @@ func TestLuceneDFRSimilarity_Score_IneL_H2(t *testing.T) {
 
 // TestLuceneDFRSimilarity_String verifies the canonical "DFR" + codes
 // concatenation.
+}
 func TestLuceneDFRSimilarity_String(t *testing.T) {
 	sim := NewLuceneDFRSimilarity(
 		NewLuceneBasicModelG(),

@@ -69,6 +69,7 @@ func fuzzyCountHits(t *testing.T, docs []string, q *FuzzyQuery, expected int) {
 
 // TestFuzzyTermOnShortTerms_FuzzyTermOnShortTerms mirrors testFuzzyTermOnShortTerms:
 // the edit-distance bound must allow short terms to match (LUCENE-7439).
+}
 func TestFuzzyTermOnShortTerms_FuzzyTermOnShortTerms(t *testing.T) {
 	fz := func(text string, maxEdits int) *FuzzyQuery {
 		return NewFuzzyQueryWithMaxEdits(index.NewTerm(fuzzyShortField, text), maxEdits)

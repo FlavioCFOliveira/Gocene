@@ -260,4 +260,4 @@ func TestFormatJavaFloat_IntegralAndSpecial(t *testing.T) {
 	if got := formatJavaFloat(float32(math.NaN())); got != "NaN" {
 		t.Errorf("formatJavaFloat(NaN) = %q, want NaN", got)
 	}
-}
+}	}
