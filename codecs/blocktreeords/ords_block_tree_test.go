@@ -36,6 +36,31 @@ func (lt *listTerms) GetIterator() (index.TermsEnum, error) {
 	return &listTermsEnum{terms: lt.terms, field: lt.field}, nil
 }
 
+func (lt *listTerms) GetMin() (*index.Term, error) {
+	if len(lt.terms) == 0 {
+		return nil, nil
+	}
+	return index.NewTerm(lt.field, lt.terms[0]), nil
+}
+
+func (lt *listTerms) GetMax() (*index.Term, error) {
+	if len(lt.terms) == 0 {
+		return nil, nil
+	}
+	return index.NewTerm(lt.field, lt.terms[len(lt.terms)-1]), nil
+}
+
+func (lt *listTerms) GetIteratorWithSeek(seekTerm *index.Term) (index.TermsEnum, error) {
+	e := &listTermsEnum{terms: lt.terms, field: lt.field}
+	if seekTerm != nil {
+		_, err := e.SeekCeil(seekTerm)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return e, nil
+}
+
 func (lt *listTerms) Size() int64                      { return int64(len(lt.terms)) }
 func (lt *listTerms) GetDocCount() (int, error)         { return min(1, len(lt.terms)), nil }
 func (lt *listTerms) GetSumDocFreq() (int64, error)     { return int64(len(lt.terms)), nil }

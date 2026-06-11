@@ -200,8 +200,8 @@ func TestQueryParserBaseSetters(t *testing.T) {
 		t.Errorf("SetPhraseSlop failed, got %d", base.GetPhraseSlop())
 	}
 
-	if base.GetFuzzyMinSim() != 0.5 {
-		t.Errorf("fuzzy min sim default = %f", base.GetFuzzyMinSim())
+	if base.GetFuzzyMinSim() != 2.0 {
+		t.Errorf("fuzzy min sim default = %f, want 2.0", base.GetFuzzyMinSim())
 	}
 	base.SetFuzzyMinSim(0.8)
 	if base.GetFuzzyMinSim() != 0.8 {

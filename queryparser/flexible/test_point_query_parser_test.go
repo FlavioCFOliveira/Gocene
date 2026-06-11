@@ -75,7 +75,7 @@ func TestPointRangeQueryNodeBuilder(t *testing.T) {
 
 // TestPointsConfigListener verifies the PointsConfigListener registry.
 func TestPointsConfigListener(t *testing.T) {
-	listener := flexible.NewPointsConfigListener()
+	listener := flexible.NewPointsConfigListener(nil)
 	if listener == nil {
 		t.Fatal("NewPointsConfigListener should not return nil")
 	}

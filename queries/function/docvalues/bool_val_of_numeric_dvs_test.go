@@ -17,12 +17,12 @@ import (
 // numeric doc values to boolean values, matching Lucene's BoolDocValues
 // semantics where a 0 / 0.0 is false and everything else is true.
 func TestBoolValOfNumericDVs(t *testing.T) {
-	// IntDocValues.BoolVal: 0 -> false; verify via a concrete implementation.
-	// We use StrDocValues which has a BoolVal coercion path.
 	fv := &testIntValues{val: 0}
+	fv.SetSelf(fv)
+
 	bv, err := fv.BoolVal(0)
 	if err != nil {
-		t.Fatalf("BoolVal: %v", err)
+		t.Fatalf("BoolVal(0): %v", err)
 	}
 	if bv {
 		t.Error("BoolVal(0) = true, want false")
@@ -38,7 +38,6 @@ func TestBoolValOfNumericDVs(t *testing.T) {
 	}
 }
 
-// testIntValues is a concrete FunctionValues that returns a fixed int32 value.
 type testIntValues struct {
 	function.BaseFunctionValues
 	val int32

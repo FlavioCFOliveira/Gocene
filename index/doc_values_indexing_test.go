@@ -932,18 +932,6 @@ func TestDocValuesIndexing_MixedTypesViaAddIndexes(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	r1, err := index.OpenDirectoryReader(dir1)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer r1.Close()
-
-	r2, err := index.OpenDirectoryReader(dir2)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer r2.Close()
-
 	dir3 := store.NewByteBuffersDirectory()
 	defer dir3.Close()
 
@@ -951,7 +939,7 @@ func TestDocValuesIndexing_MixedTypesViaAddIndexes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
-	if err := w3.AddIndexes(r1, r2); err != nil {
+	if err := w3.AddIndexes(dir1, dir2); err != nil {
 		t.Fatalf("AddIndexes: %v", err)
 	}
 	if err := w3.Close(); err != nil {
@@ -1229,18 +1217,6 @@ func TestDocValuesIndexing_TypeChangeViaAddIndexes(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	r1, err := index.OpenDirectoryReader(dir1)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer r1.Close()
-
-	r2, err := index.OpenDirectoryReader(dir2)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer r2.Close()
-
 	dir3 := store.NewByteBuffersDirectory()
 	defer dir3.Close()
 
@@ -1248,7 +1224,7 @@ func TestDocValuesIndexing_TypeChangeViaAddIndexes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
-	if err := w3.AddIndexes(r1, r2); err != nil {
+	if err := w3.AddIndexes(dir1, dir2); err != nil {
 		t.Fatalf("AddIndexes: %v", err)
 	}
 	if err := w3.Close(); err != nil {
@@ -1289,12 +1265,6 @@ func TestDocValuesIndexing_TypeChangeViaAddIndexes2(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	r1, err := index.OpenDirectoryReader(dir1)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer r1.Close()
-
 	dir2 := store.NewByteBuffersDirectory()
 	defer dir2.Close()
 
@@ -1302,7 +1272,7 @@ func TestDocValuesIndexing_TypeChangeViaAddIndexes2(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
-	if err := w2.AddIndexes(r1); err != nil {
+	if err := w2.AddIndexes(dir1); err != nil {
 		t.Fatalf("AddIndexes: %v", err)
 	}
 	if err := w2.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("field", 2)}}); err != nil {

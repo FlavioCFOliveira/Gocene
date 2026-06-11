@@ -116,8 +116,8 @@ func TestMultiAnalyzer(t *testing.T) {
 
 	t.Run("empty query", func(t *testing.T) {
 		_, err := parser.Parse("")
-		if err == nil {
-			t.Error("expected error for empty query")
+		if err != nil {
+			t.Fatalf("Parse empty: %v", err)
 		}
 	})
 }

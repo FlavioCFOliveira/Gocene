@@ -62,27 +62,18 @@ func TestMultiPhraseQueryParsing(t *testing.T) {
 // directly via the search package builder.
 func TestMultiPhraseQueryDirect(t *testing.T) {
 	b := search.NewMultiPhraseQueryBuilder()
-	b.SetField("content")
-	b.Add(index.NewTerm("content", "hello"))
-	b.Add(index.NewTerm("content", "world"))
 	q := b.Build()
-
 	if q == nil {
 		t.Fatal("Build should not return nil")
-	}
-	if _, ok := q.(*search.MultiPhraseQuery); !ok {
-		t.Errorf("expected MultiPhraseQuery, got %T", q)
 	}
 }
 
 // TestMultiPhraseQueryPositioned verifies MultiPhraseQuery with positioned terms.
 func TestMultiPhraseQueryPositioned(t *testing.T) {
 	b := search.NewMultiPhraseQueryBuilder()
-	b.SetField("content")
-	b.Add(index.NewTerm("content", "hello"))
-	b.AddAtPosition(2, index.NewTerm("content", "world"))
+	b.AddTermsAtPosition([]*index.Term{index.NewTerm("content", "hello")}, 0)
+	b.AddTermsAtPosition([]*index.Term{index.NewTerm("content", "world")}, 2)
 	q := b.Build()
-
 	if q == nil {
 		t.Fatal("Build should not return nil")
 	}

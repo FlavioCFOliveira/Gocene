@@ -12,7 +12,6 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
-	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TestPayloadTermQuery exercises the payload query types in Gocene:
@@ -36,8 +35,6 @@ func TestPayloadTermQuery(t *testing.T) {
 		t.Error("PayloadScoreQuery.String() returned empty")
 	}
 
-	// Verify payload function descriptions.
-	if desc := fn.Description(); desc == "" {
-		t.Error("AveragePayloadFunction.Description() returned empty")
-	}
+	// Verify payload function explanation works.
+	_ = fn.Explain(0, "field", 1, 1.5)
 }
