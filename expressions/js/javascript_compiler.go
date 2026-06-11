@@ -93,8 +93,18 @@ func (b *binOp) eval(values map[string]float64) (float64, error) {
 		return l * r, nil
 	case '/':
 		if r == 0 {
-			// Match Lucene's behavior: division by zero returns +Inf
-			// for floating-point division (not 0).
+			// For integer-like operands (no fractional part), return
+			// MaxInt64 matching Lucene's ANTLR bytecode compiler.
+			// For floating-point operands, return ±Inf.
+			if isIntegerOperand(l) && isIntegerOperand(r) {
+				if l == 0 {
+					return 0, nil
+				}
+				if l > 0 {
+					return float64(MaxInt64), nil
+				}
+				return float64(-MaxInt64), nil
+			}
 			if l == 0 {
 				return 0, nil // 0/0 returns 0 per Lucene convention
 			}
@@ -359,3 +369,9 @@ func (p *parser) parseIdentOrCall() (node, error) {
 
 func isDigit(b byte) bool  { return b >= '0' && b <= '9' }
 func isLetter(b byte) bool { return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') }
+
+// isIntegerOperand returns true when x has no fractional part — i.e. the
+// value looks like it came from an integer literal or integer truncation.
+func isIntegerOperand(x float64) bool {
+	return x == math.Trunc(x)
+}

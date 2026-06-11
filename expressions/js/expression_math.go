@@ -80,3 +80,79 @@ func Haversin(lat1, lon1, lat2, lon2 float64) float64 {
 	}
 	return 2 * earthRadiusKm * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
 }
+
+// --- JavaScript integer-overflow semantics ---
+//
+// Port of org.apache.lucene.expressions.js.ExpressionMath which wraps
+// java.lang.Math with JavaScript's ToInt32/ToUint32 overflow behaviour.
+// In Lucene, the ANTLR bytecode compiler applies ToInt32 after every
+// arithmetic operation so that integer expressions match JavaScript's
+// 32-bit signed integer overflow semantics.
+
+const (
+	// MaxInt32 is 2^31 - 1, the maximum signed 32-bit integer.
+	MaxInt32 = 1<<31 - 1
+	// MinInt32 is -2^31, the minimum signed 32-bit integer.
+	MinInt32 = -1 << 31
+	// MaxUint32 is 2^32 - 1.
+	MaxUint32 = 1<<32 - 1
+	// MaxInt64 is the maximum signed 64-bit integer, used by Lucene to
+	// represent "positive infinity" for integer division by zero.
+	MaxInt64 = 1<<63 - 1
+)
+
+// ToInt32 converts x to a signed 32-bit integer following ECMAScript's
+// ToInt32 abstract operation: the value is truncated toward zero,
+// then the lower 32 bits are interpreted as a signed two's-complement
+// integer.
+//
+// Mirrors org.apache.lucene.expressions.js.ExpressionMath.toInt32.
+func ToInt32(x float64) int32 {
+	return int32(int64(x) & 0xFFFFFFFF)
+}
+
+// ToUint32 converts x to an unsigned 32-bit integer following ECMAScript's
+// ToUint32 abstract operation. The result is in [0, 2^32-1].
+func ToUint32(x float64) uint32 {
+	return uint32(int64(x) & 0xFFFFFFFF)
+}
+
+// ToInt32Float64 converts x through ToInt32 and returns the result as float64,
+// matching the JavaScript convention where integer operations produce
+// floating-point values with 32-bit overflow applied.
+func ToInt32Float64(x float64) float64 {
+	return float64(ToInt32(x))
+}
+
+// ToUint32Float64 converts x through ToUint32 and returns the result as float64.
+func ToUint32Float64(x float64) float64 {
+	return float64(ToUint32(x))
+}
+
+// IntDiv performs integer division following Lucene's ANTLR bytecode
+// compiler semantics: both operands are first converted to int64 (truncated
+// toward zero), division by zero returns MaxInt64, and the result is
+// converted back to float64.
+//
+// Mirrors org.apache.lucene.expressions.js.ExpressionMath.divide.
+func IntDiv(a, b float64) float64 {
+	x := int64(a)
+	y := int64(b)
+	if y == 0 {
+		if x == 0 {
+			return 0 // 0/0 = 0 per Lucene convention
+		}
+		// Return MaxInt64 with sign matching the numerator.
+		if x > 0 {
+			return float64(MaxInt64)
+		}
+		return float64(-MaxInt64)
+	}
+	return float64(x / y)
+}
+
+// IntMod performs integer modulus following JavaScript's % operator with
+// 32-bit truncation.
+func IntMod(a, b float64) float64 {
+	return ToInt32Float64(math.Mod(a, b))
+}
