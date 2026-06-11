@@ -1862,6 +1862,15 @@ func (w *IndexWriter) DeleteAll() error {
 	w.pendingFieldInfos = nil
 	w.committedSegments = nil
 
+	// Discard the DWPT's buffered documents (the DWPT may have docs that
+	// were added before DeleteAll was called).  TakePerThreadPool drains
+	// and resets the DWPT pool.
+	if w.documentsWriter != nil {
+		w.documentsWriter.mu.Lock()
+		_ = w.documentsWriter.TakePerThreadPool()
+		w.documentsWriter.mu.Unlock()
+	}
+
 	// Mark that all committed segments should be deleted at the next Commit.
 	w.pendingDeleteAll = true
 

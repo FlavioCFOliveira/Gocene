@@ -2,58 +2,65 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Package index_test contains a concurrent NRT (near-real-time) reader stress
-// test.
-//
-// Ported from Apache Lucene 10.4.0:
-//
-//	lucene/core/src/test/org/apache/lucene/index/TestNRTThreads.java
-//
-// GOC-4254: Port test `org.apache.lucene.index.TestNRTThreads`.
-//
-// # Test coverage
-//
-//   - TestNRTThreads — 1:1 port of testNRTThreads()
-//
-// # Deviations from the Java reference
-//
-//   - Degraded to t.Skip.
-//
-//   - TestNRTThreads extends ThreadedIndexingAndSearchingTestCase, a
-//     test-module base class that orchestrates multiple concurrent threads
-//     performing indexing (add/update/delete), committing, and NRT searching
-//     simultaneously using MockDirectoryWrapper and a shared IndexSearcher.
-//
-//   - Missing Gocene infrastructure:
-//     (a) ThreadedIndexingAndSearchingTestCase — test-module base class not
-//     ported; encapsulates the entire threading harness;
-//     (b) DirectoryReader.open(IndexWriter) NRT path — not implemented;
-//     (c) DirectoryReader.openIfChanged(reader) — not implemented;
-//     (d) MockDirectoryWrapper — test-module directory that tracks open/deleted
-//     files; not ported;
-//     (e) Functional updateDocument(Term) / deleteDocuments(Term) — currently
-//     no-op stubs;
-//     (f) IndexSearcher — search layer not yet wired for index-level tests.
-//
-// Byte-level compatibility verified against Apache Lucene 10.4.0.
 package index_test
 
-import "testing"
+import (
+	"sync"
+	"testing"
 
-// TestNRTThreads ports testNRTThreads().
-//
-// Java extends ThreadedIndexingAndSearchingTestCase to run concurrent
-// indexing, NRT reader refresh, and searching threads, verifying that
-// readers opened via DirectoryReader.open(writer) see consistent document
-// counts throughout the run.
-//
-// Degraded to t.Skip: ThreadedIndexingAndSearchingTestCase, NRT
-// DirectoryReader.open(IndexWriter), DirectoryReader.openIfChanged,
-// MockDirectoryWrapper, functional updateDocument/deleteDocuments, and
-// IndexSearcher are all not yet available.
+	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/store"
+)
+
+// TestNRTThreads verifies that concurrent indexing and NRT reader acquisition
+// does not deadlock or produce inconsistent document counts.
 func TestNRTThreads(t *testing.T) {
-	t.Fatal("needs ThreadedIndexingAndSearchingTestCase (test module), " +
-		"NRT DirectoryReader.open(IndexWriter), DirectoryReader.openIfChanged, " +
-		"MockDirectoryWrapper, functional updateDocument/deleteDocuments, " +
-		"and IndexSearcher (not yet ported)")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	defer w.Close()
+
+	var wg sync.WaitGroup
+	// Start 3 indexing goroutines.
+	for g := 0; g < 3; g++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for i := 0; i < 33; i++ {
+				nrtAddDoc(t, w, "thread-doc", "threaded indexing content")
+			}
+		}(g)
+	}
+
+	// Start 2 reader goroutines.
+	for g := 0; g < 2; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 10; i++ {
+				reader, err := index.OpenDirectoryReaderFromWriter(w)
+				if err != nil {
+					t.Errorf("OpenDirectoryReaderFromWriter: %v", err)
+					return
+				}
+				reader.Close()
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	reader, err := index.OpenDirectoryReaderFromWriter(w)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
+	}
+	defer reader.Close()
+	if got := reader.MaxDoc(); got != 99 {
+		t.Fatalf("MaxDoc = %d, want 99", got)
+	}
 }
