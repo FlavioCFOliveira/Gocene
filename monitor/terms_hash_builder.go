@@ -6,44 +6,60 @@ package monitor
 
 import "github.com/FlavioCFOliveira/Gocene/util"
 
-// QueryTermFilter is a (field, term) filter backed by an in-memory hash of all
-// terms in a query index reader.
+// QueryTermFilter is a (field, term) filter backed by per-field BytesRefHash
+// tables for efficient O(1) term lookup without string allocation.
 //
 // Port of org.apache.lucene.monitor.QueryIndex.QueryTermFilter (inner class).
-//
-// Deviation: the Gocene port is a package-level type (not an inner class) with
-// a map[string]*util.BytesRefHash; BytesRefHash integration is a stub.
 type QueryTermFilter struct {
-	// terms maps field → set of term bytes as strings (simplified until BytesRefHash lands).
-	terms map[string]map[string]struct{}
+	// terms maps field → BytesRefHash of term bytes. Uses BytesRefHash
+	// instead of map[string]struct{} for compact storage and zero-alloc
+	// lookups matching Lucene's BytesRefHash-backed implementation.
+	terms map[string]*util.BytesRefHash
 }
 
 // NewQueryTermFilter creates an empty QueryTermFilter.
 func NewQueryTermFilter() *QueryTermFilter {
-	return &QueryTermFilter{terms: make(map[string]map[string]struct{})}
+	return &QueryTermFilter{terms: make(map[string]*util.BytesRefHash)}
 }
 
-// Add records a (field, term) pair.
+// Add records a (field, term) pair in the field's BytesRefHash.
 func (f *QueryTermFilter) Add(field string, term *util.BytesRef) {
-	if _, ok := f.terms[field]; !ok {
-		f.terms[field] = make(map[string]struct{})
+	if term == nil {
+		return
 	}
-	if term != nil {
-		f.terms[field][string(term.ValidBytes())] = struct{}{}
+	hash, ok := f.terms[field]
+	if !ok {
+		hash = util.NewBytesRefHash()
+		f.terms[field] = hash
 	}
+	hash.Add(term)
 }
 
 // Test returns true when the (field, term) pair is present in the filter.
+// Uses BytesRefHash.Find for O(1) lookup without string conversion.
 func (f *QueryTermFilter) Test(field string, term *util.BytesRef) bool {
-	fieldTerms, ok := f.terms[field]
-	if !ok {
-		return false
-	}
 	if term == nil {
 		return false
 	}
-	_, found := fieldTerms[string(term.ValidBytes())]
-	return found
+	hash, ok := f.terms[field]
+	if !ok {
+		return false
+	}
+	return hash.Find(term) >= 0
+}
+
+// Size returns the total number of unique terms across all fields.
+func (f *QueryTermFilter) Size() int {
+	total := 0
+	for _, hash := range f.terms {
+		total += hash.Size()
+	}
+	return total
+}
+
+// Fields returns the number of distinct fields in the filter.
+func (f *QueryTermFilter) Fields() int {
+	return len(f.terms)
 }
 
 // TermsHashBuilder builds a QueryTermFilter from a reader.
