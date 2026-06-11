@@ -180,13 +180,16 @@ func TestFacetSortedsetOrds_RoundTrip(t *testing.T) {
 			}
 
 			// Verify both expected dimensions contribute terms.
-			// The terms are encoded as "dim/label" by FacetsConfig.
+			// FacetsConfig encodes terms as "dim\x1Flabel" using the
+			// delimiter character U+001F (pathToString encoding).
+			dimColor := "color\x1f"
+			dimSize := "size\x1f"
 			var colorTerms, sizeTerms int
 			for term := range allTerms {
-				if len(term) > 6 && term[:6] == "color/" {
+				if len(term) > len(dimColor) && term[:len(dimColor)] == dimColor {
 					colorTerms++
 				}
-				if len(term) > 5 && term[:5] == "size/" {
+				if len(term) > len(dimSize) && term[:len(dimSize)] == dimSize {
 					sizeTerms++
 				}
 			}

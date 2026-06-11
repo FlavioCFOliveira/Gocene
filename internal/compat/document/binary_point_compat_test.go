@@ -72,7 +72,7 @@ func (c *allPointsCollector) Grow(int) {}
 // in dir. It reads the .si and .fnm entries and constructs a
 // SegmentReadState, then returns the PointsReader (which must support
 // pointValuesClient).
-func openPointsReader(t *testing.T, dir string) (pointValuesClient, *codecs.FieldInfos, func()) {
+func openPointsReader(t *testing.T, dir string) (pointValuesClient, *gindex.FieldInfos, func()) {
 	t.Helper()
 	d, err := store.NewSimpleFSDirectory(dir)
 	if err != nil {
@@ -305,10 +305,11 @@ func TestBinaryPoint_AllSeeds(t *testing.T) {
 			pvc, fn, cleanup := openPointsReader(t, rawDir)
 			defer cleanup()
 
-			// Verify all point fields from the field infos have non-nil
-			// PointValues and the correct dimension metadata.
-			for _, fi := range fn.List() {
-				if fi.PointDimensionCount() == 0 {
+			// Verify the three point fields from the points-format scenario.
+			for _, name := range []string{"ip", "lp", "fp"} {
+				fi := fn.GetByName(name)
+				if fi == nil {
+					t.Errorf("field %q not found", name)
 					continue
 				}
 				pv, err := pvc.GetValues(fi.Name())

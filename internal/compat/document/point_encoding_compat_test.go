@@ -148,9 +148,9 @@ func TestPointFormatFixture_IntPointDecode(t *testing.T) {
 		seed := seed
 		t.Run("", func(t *testing.T) {
 			dir := generate(t, "points-format", seed)
-			src, err := store.OpenDir(dir)
+			src, err := store.NewSimpleFSDirectory(dir)
 			if err != nil {
-				t.Fatalf("OpenDir: %v", err)
+				t.Fatalf("NewSimpleFSDirectory: %v", err)
 			}
 			defer src.Close()
 

@@ -945,6 +945,32 @@ func writeSegmentCommitInfoLucene104(out store.IndexOutput, sci *SegmentCommitIn
 		return err
 	}
 
+	// Min version (hasMinVersion byte + VInts when present). Mirrors Java's
+	// SegmentInfos.write which writes si.getMinVersion().write(out). Gocene
+	// always sets minVersion on NewSegmentInfo (schema/segment_info.go).
+	if ver, ok := sci.segmentInfo.MinVersion(); ok {
+		if err := out.WriteByte(1); err != nil {
+			return err
+		}
+		var major, minor, bugfix int32
+		if _, err := fmt.Sscanf(ver, "%d.%d.%d", &major, &minor, &bugfix); err != nil {
+			return fmt.Errorf("parsing minVersion %q: %w", ver, err)
+		}
+		if err := store.WriteVInt(out, major); err != nil {
+			return err
+		}
+		if err := store.WriteVInt(out, minor); err != nil {
+			return err
+		}
+		if err := store.WriteVInt(out, bugfix); err != nil {
+			return err
+		}
+	} else {
+		if err := out.WriteByte(0); err != nil {
+			return err
+		}
+	}
+
 	// Deletion generation (-1 if no deletions file).
 	if err := store.WriteInt64(out, sci.DelGen()); err != nil {
 		return err
@@ -1283,6 +1309,28 @@ func readSegmentCommitInfoLucene104(in store.IndexInput, directory store.Directo
 		return nil, err
 	}
 
+	// Min version: hasMinVersion byte then VInt major/minor/bugfix.
+	hasMinVer, err := in.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+	var minVer string
+	if hasMinVer == 1 {
+		major, err := store.ReadVInt(in)
+		if err != nil {
+			return nil, err
+		}
+		minor, err := store.ReadVInt(in)
+		if err != nil {
+			return nil, err
+		}
+		bugfix, err := store.ReadVInt(in)
+		if err != nil {
+			return nil, err
+		}
+		minVer = fmt.Sprintf("%d.%d.%d", major, minor, bugfix)
+	}
+
 	delGen, err := store.ReadInt64(in)
 	if err != nil {
 		return nil, err
@@ -1336,6 +1384,9 @@ func readSegmentCommitInfoLucene104(in store.IndexInput, directory store.Directo
 	segInfo := schema.NewSegmentInfo(name, 0, directory)
 	segInfo.SetID(id)
 	segInfo.SetCodec(codec)
+	if minVer != "" {
+		segInfo.SetMinVersion(minVer)
+	}
 	// Reconstruct the expected file list so CheckIndex can detect missing files.
 	segInfo.SetFiles([]string{name + ".si"})
 

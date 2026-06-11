@@ -62,16 +62,19 @@ var canarySeeds = [...]int64{
 
 // seededMultiplier1 is the signed int64 equivalent of Java's
 // 0x9E3779B97F4A7C15L (Golden Ratio hash constant).
-const seededMultiplier1 int64 = -7046029258636353131
+// Verified: 0x9E3779B97F4A7C15 unsigned = 11400714819323198485,
+// signed = 11400714819323198485 - 2^64 = -7046029254386353131.
+const seededMultiplier1 int64 = -7046029254386353131
 
 // seededMultiplier2 is the signed int64 equivalent of Java's
 // 0xBF58476D1CE4E5B9L (SplitMix64 mixing constant).
 const seededMultiplier2 int64 = -4658895280553007687
 
 // seededInt returns the deterministic int value for (seed, doc) used by
-// FacetAssociationPayloadScenario.seededInt.
-func seededInt(seed int64, doc int) int {
-	return int((seed * seededMultiplier1) ^ (int64(doc)*31 + 17))
+// FacetAssociationPayloadScenario.seededInt. The Java code truncates the
+// 64-bit result to int32 via a narrowing cast; Go mirrors that with int32.
+func seededInt(seed int64, doc int) int32 {
+	return int32((seed * seededMultiplier1) ^ (int64(doc)*31 + 17))
 }
 
 // seededFloat returns the deterministic float in [1.0, 2.0) for (seed, doc)

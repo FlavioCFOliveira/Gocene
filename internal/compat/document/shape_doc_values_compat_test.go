@@ -29,7 +29,7 @@ import (
 
 // openDVProducer opens the PerFieldDocValuesProducer for segment "_0" in
 // the fixture directory.
-func openDVProducer(t *testing.T, rawDir string) (*gcodecs.PerFieldDocValuesProducer, *gcodecs.FieldInfos, func()) {
+func openDVProducer(t *testing.T, rawDir string) (*gcodecs.PerFieldDocValuesProducer, *gindex.FieldInfos, func()) {
 	t.Helper()
 	d, err := store.NewSimpleFSDirectory(rawDir)
 	if err != nil {

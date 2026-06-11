@@ -22,10 +22,6 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	gindex "github.com/FlavioCFOliveira/Gocene/index"
-
-	gcodecs "github.com/FlavioCFOliveira/Gocene/codecs"
-	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
-	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // TestRangeDocValues_DoubleRangePayloadValues verifies that the double

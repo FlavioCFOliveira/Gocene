@@ -40,13 +40,13 @@ func NewLucene104Codec() *Lucene104Codec {
 	}
 	return &Lucene104Codec{
 		BaseCodec:          NewBaseCodec("Lucene104"),
-		postingsFormat:     NewLucene104PostingsFormat(),
+		postingsFormat:     NewPerFieldPostingsFormatWithDefault(NewLucene104PostingsFormat()),
 		storedFieldsFormat: NewLucene104StoredFieldsFormat(),
 		fieldInfosFormat:   NewLucene104FieldInfosFormat(),
 		segmentInfosFormat: NewLucene104SegmentInfosFormat(),
 		segmentInfoFormat:  NewLucene99SegmentInfoFormat(),
 		termVectorsFormat:  NewLucene104TermVectorsFormat(),
-		docValuesFormat:    NewLucene90DocValuesFormat(),
+		docValuesFormat:    NewPerFieldDocValuesFormatWithDefault(NewLucene90DocValuesFormat()),
 		compoundFormat:     NewLucene90CompoundFormat(),
 		knnVectorsFormat:   NewPerFieldKnnVectorsFormatWithDefault(defaultKnn),
 		pointsFormat:       NewLucene90PointsFormat(),

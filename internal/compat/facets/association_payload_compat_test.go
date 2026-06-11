@@ -204,7 +204,7 @@ func TestFacetAssociationPayload_RoundTrip(t *testing.T) {
 							}
 						} else {
 							got := int32(binary.BigEndian.Uint32(payload[4:8]))
-							want := int32(seededInt(seed, doc))
+							want := seededInt(seed, doc)
 							if got != want {
 								t.Errorf("%s doc=%d int mismatch: got %d, want %d", field, doc, got, want)
 							}
