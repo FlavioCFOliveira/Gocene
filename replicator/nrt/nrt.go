@@ -34,6 +34,7 @@
 package nrt
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -161,11 +162,6 @@ type OnceDone func(job *CopyJob) error
 // CopyJob coordinates the copy of a set of segment files from the primary to
 // the replica.
 //
-// The full background-copy machinery (start / runBlocking / finish, transfer-
-// and-cancel, per-file conflict tracking) requires the IndexWriter and network
-// transport layer and remains a stub. The fields and Cancel/GetFailed
-// primitives are fully functional.
-//
 // Port of org.apache.lucene.replicator.nrt.CopyJob.
 type CopyJob struct {
 	mu           sync.Mutex
@@ -181,6 +177,13 @@ type CopyJob struct {
 
 	TotBytes       int64
 	TotBytesCopied int64
+
+	// ctx is the cancellation context for background transfers.
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	// done is closed when the job finishes (success or failure).
+	done chan struct{}
 }
 
 // NewCopyJob constructs a CopyJob.
@@ -213,6 +216,59 @@ func (j *CopyJob) Cancel(reason string, exc error) {
 	}
 	j.cancelReason = reason
 	j.exc = exc
+}
+
+// Start initiates the background file transfer. Each file in Files is
+// copied using CopyOneFile. The job runs asynchronously; call Wait to
+// block until completion.
+//
+// Start is idempotent — calling it on an already-started job is a no-op.
+func (j *CopyJob) Start(copier func(name, tmpName string, meta *FileMetaData) error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.ctx != nil {
+		return // already started
+	}
+	j.ctx, j.cancel = context.WithCancel(context.Background())
+	j.done = make(chan struct{})
+
+	go func() {
+		defer close(j.done)
+		defer func() { _ = j.onceDone(j) }()
+
+		for name, meta := range j.Files {
+			select {
+			case <-j.ctx.Done():
+				j.Cancel(j.ctx.Err().Error(), j.ctx.Err())
+				return
+			default:
+			}
+
+			tmpName := name + ".tmp"
+			if err := copier(name, tmpName, meta); err != nil {
+				j.Cancel("copy failed: "+name, err)
+				return
+			}
+			j.mu.Lock()
+			j.TotBytesCopied += meta.Length
+			j.mu.Unlock()
+		}
+	}()
+}
+
+// Wait blocks until the job completes (finishes or is cancelled).
+// Returns the error if the job failed or was cancelled.
+func (j *CopyJob) Wait() error {
+	j.mu.Lock()
+	done := j.done
+	j.mu.Unlock()
+	if done == nil {
+		return nil // never started
+	}
+	<-done
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.exc
 }
 
 // GetFailed reports whether this job encountered an error or was cancelled.
