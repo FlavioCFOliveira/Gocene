@@ -399,10 +399,7 @@ func TestRegExpParsing_JumboCharClass(t *testing.T) {
 		MakeChar('b'),
 		MakeCharRange('c', 'd'),
 	}
-	expected := chars[0]
-	for _, ch := range chars[1:] {
-		expected = Union(expected, ch)
-	}
+	expected := Union(chars)
 	assertSameRegExpLanguage(t, expected, mustToAutomaton(t, r))
 }
 

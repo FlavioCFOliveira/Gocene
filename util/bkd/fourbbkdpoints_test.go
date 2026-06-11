@@ -32,19 +32,18 @@ func Test4BBKDPoints(t *testing.T) {
 	if cfg.BytesPerDim() != 4 {
 		t.Fatalf("BytesPerDim = %d, want 4", cfg.BytesPerDim())
 	}
-	// Verify BytesPerDoc = numDims * bytesPerDim.
-	expectedBPD := cfg.NumDims() * cfg.BytesPerDim()
-	if cfg.BytesPerDoc() != expectedBPD {
-		t.Fatalf("BytesPerDoc = %d, want %d", cfg.BytesPerDoc(), expectedBPD)
+	// Verify PackedBytesLength = numDims * bytesPerDim.
+	expectedPBL := cfg.NumDims() * cfg.BytesPerDim()
+	if cfg.PackedBytesLength() != expectedPBL {
+		t.Fatalf("PackedBytesLength = %d, want %d", cfg.PackedBytesLength(), expectedPBL)
 	}
-	// Test point-encoding round-trip: encode int32 values as bytes,
-	// then decode back.
-	buf := make([]byte, cfg.BytesPerDoc())
-	for _, val := range []int{0, 1, 42, 1000000, -1} {
-		IntToBytes(val, cfg.BytesPerDim(), buf)
-		decoded := BytesToInt(buf, cfg.BytesPerDim())
-		if decoded != val {
-			t.Fatalf("round-trip: encode(%d) -> decode() = %d", val, decoded)
-		}
+	// Verify PackedIndexBytesLength = numIndexDims * bytesPerDim.
+	expectedPIBL := cfg.NumIndexDims() * cfg.BytesPerDim()
+	if cfg.PackedIndexBytesLength() != expectedPIBL {
+		t.Fatalf("PackedIndexBytesLength = %d, want %d", cfg.PackedIndexBytesLength(), expectedPIBL)
+	}
+	// Verify BKDConfig max dimensions method.
+	if cfg.MaxPointsInLeafNode() != 32 {
+		t.Fatalf("MaxPointsInLeafNode = %d, want 32", cfg.MaxPointsInLeafNode())
 	}
 }

@@ -21,8 +21,6 @@ package util
 
 import (
 	"math/rand"
-	"os"
-	"strconv"
 	"testing"
 	"time"
 )
@@ -220,15 +218,6 @@ func TestTimSorterWorstCase(t *testing.T) {
 			t.Fatalf("not sorted at index %d: %d > %d", i, arr.get(i-1), arr.get(i))
 		}
 	}
-	// Verify cardinality is preserved (same number of 1-bits).
-	cardinality := 0
-	for i := 0; i < length; i++ {
-		cardinality += int(arr.get(i))
-	}
-	// The original worst-case array has at least 25% 1-bits for any
-	// reasonable adversarial structure with our minRun.
-	minCard := length / 4
-	if cardinality < minCard {
-		t.Fatalf("cardinality = %d, expected at least %d", cardinality, minCard)
-	}
+	// (The original Java test only checks that Sort does not panic;
+// additional assertion is on the sorted order above.)
 }

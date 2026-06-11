@@ -18,7 +18,10 @@ package comparators
 // Ported from Apache Lucene 10.4.0:
 //   lucene/core/src/java/org/apache/lucene/search/comparators/UpdateableDocIdSetIterator.java
 
-import "github.com/FlavioCFOliveira/Gocene/search"
+import (
+	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
 
 // UpdateableDocIdSetIterator is a DocIdSetIterator that wraps a mutable inner
 // iterator. Calling Update replaces the inner iterator without repositioning
@@ -32,8 +35,8 @@ import "github.com/FlavioCFOliveira/Gocene/search"
 //   - Java extends AbstractDocIdSetIterator which tracks protected field doc.
 //     Go tracks doc explicitly.
 //   - Java's intoBitSet(upTo, FixedBitSet, offset) is not on Gocene's
-//     DocIdSetIterator interface; that method is omitted. The optional
-//     IntoBitSet method may be added when the interface is extended.
+//     DocIdSetIterator interface. This type exposes it as a public method so
+//     callers can type-assert to *UpdateableDocIdSetIterator when needed.
 //   - Java's docIDRunEnd() override delegates to in.docIDRunEnd() when in is
 //     synced to the current doc; Go replicates this via DocIDRunEnd().
 type UpdateableDocIdSetIterator struct {
@@ -115,6 +118,39 @@ func (it *UpdateableDocIdSetIterator) DocIDRunEnd() int {
 	}
 	// Inner iterator has moved past doc (or doc is NO_MORE_DOCS).
 	return it.doc + 1
+}
+
+// IntoBitSet copies document IDs from the current position up to (but not
+// including) upTo into the provided FixedBitSet, subtracting offset from each
+// docID before setting the bit.
+//
+// Mirrors UpdateableDocIdSetIterator.intoBitSet(int, FixedBitSet, int) from
+// Java: it syncs the inner iterator to this iterator's doc first, then iterates
+// using the inner directly so that a pre-positioned inner is not rewound.
+//
+// This method is NOT part of the DocIdSetIterator interface; callers that
+// need it must type-assert to *UpdateableDocIdSetIterator.
+func (it *UpdateableDocIdSetIterator) IntoBitSet(upTo int, bits *util.FixedBitSet, offset int) {
+	// Sync inner to current doc position, as the Java override does.
+	if it.in.DocID() < it.doc {
+		if _, err := it.in.Advance(it.doc); err != nil {
+			it.doc = search.NO_MORE_DOCS
+			return
+		}
+	}
+	// Iterate from the inner's current position (not from this.doc), matching
+	// the Java behaviour where the inner may be ahead after an Update call.
+	doc := it.in.DocID()
+	for doc < upTo {
+		bits.Set(doc - offset)
+		var err error
+		doc, err = it.in.NextDoc()
+		if err != nil {
+			it.doc = search.NO_MORE_DOCS
+			return
+		}
+	}
+	it.doc = doc
 }
 
 var _ search.DocIdSetIterator = (*UpdateableDocIdSetIterator)(nil)

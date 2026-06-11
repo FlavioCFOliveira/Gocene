@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // ─── spell-checker helpers ────────────────────────────────────────────────────
@@ -274,16 +275,35 @@ func TestCaseSensitive(t *testing.T) {
 	assertStemsTo(t, s, "GOODDRINK", "DRINK", "drink", "drink")
 }
 
-// ─── TestAllDictionaries (task 3824) — SKIP ───────────────────────────────────
-
-// TestAllDictionaries is skipped because it requires external system dictionary
-// paths that are not available in CI.
+// TestAllDictionaries loads all dictionaries from the local testdata directory
+// and verifies they parse without error.
 //
 // Source: TestAllDictionaries.java
-// Deviation: Gocene skips this test; it loads external .aff/.dic files via a
-// system property (tests.hunspell.repo), which is not available here.
+// Deviation: Uses local testdata/ instead of an external Hunspell dictionary
+// repository specified via system property.
 func TestAllDictionaries(t *testing.T) {
-	t.Fatal("requires external Hunspell dictionary repository via system property")
+	affPattern := filepath.Join(testdataDir, "*.aff")
+	affFiles, err := filepath.Glob(affPattern)
+	if err != nil {
+		t.Fatalf("glob %s: %v", affPattern, err)
+	}
+	if len(affFiles) == 0 {
+		t.Fatal("no .aff files found in testdata")
+	}
+
+	for _, aff := range affFiles {
+		base := strings.TrimSuffix(aff, ".aff")
+		dic := base + ".dic"
+		if _, err := os.Stat(dic); os.IsNotExist(err) {
+			continue // skip .aff files without matching .dic
+		}
+		affName := filepath.Base(aff)
+		t.Run(affName, func(t *testing.T) {
+			h := loadHunspell(t, affName, filepath.Base(dic))
+			// Verify it can at least perform spell-check without panicking.
+			_ = h.Spell("test")
+		})
+	}
 }
 
 // ─── TestFlagNum (task 3825) ──────────────────────────────────────────────────
@@ -731,16 +751,45 @@ func TestKeepCase(t *testing.T) {
 	assertStemsTo(t, s, "WAYS", "way", "ways")
 }
 
-// ─── TestHunspellRepositoryTestCases (task 3844) — SKIP ──────────────────────
-
-// TestHunspellRepositoryTestCases is skipped because it requires external
-// Hunspell repository test cases available via a system property.
+// TestHunspellRepositoryTestCases checks spelling expectations for all
+// dictionaries in testdata that have .good and/or .wrong files.
 //
 // Source: TestHunspellRepositoryTestCases.java
-// Deviation: Requires tests.hunspell.repo system property pointing to an external
-// Hunspell repository; not available in CI.
+// Deviation: Uses local testdata/ instead of an external Hunspell repository
+// specified via system property.
 func TestHunspellRepositoryTestCases(t *testing.T) {
-	t.Fatal("requires external Hunspell repository via system property")
+	affPattern := filepath.Join(testdataDir, "*.aff")
+	affFiles, err := filepath.Glob(affPattern)
+	if err != nil {
+		t.Fatalf("glob %s: %v", affPattern, err)
+	}
+	if len(affFiles) == 0 {
+		t.Fatal("no .aff files found in testdata")
+	}
+
+	for _, aff := range affFiles {
+		base := strings.TrimSuffix(aff, ".aff")
+		name := filepath.Base(base)
+
+		dic := base + ".dic"
+		if _, err := os.Stat(dic); os.IsNotExist(err) {
+			continue
+		}
+
+		goodPath := base + ".good"
+		wrongPath := base + ".wrong"
+		_, hasGood := os.Stat(goodPath)
+		_, hasWrong := os.Stat(wrongPath)
+		if os.IsNotExist(hasGood) && os.IsNotExist(hasWrong) {
+			continue
+		}
+
+		t.Run(name, func(t *testing.T) {
+			h := loadHunspell(t, name+".aff", name+".dic")
+			spellCheckGoodFile(t, h, name)
+			spellCheckWrongFile(t, h, name)
+		})
+	}
 }
 
 // ─── TestFlagLong (task 3845) ─────────────────────────────────────────────────
@@ -948,15 +997,59 @@ func TestOptionalCondition(t *testing.T) {
 	assertStemsTo(t, s, "helloed")
 }
 
-// ─── TestPerformance (task 3854) — SKIP ───────────────────────────────────────
-
-// TestPerformance is skipped because it requires an external corpus via a
-// system property not available in CI.
+// TestPerformance measures spell-checking performance using the base dictionary
+// from testdata.
 //
 // Source: TestPerformance.java
-// Deviation: Requires a system property pointing to an external spell-check corpus.
+// Deviation: Uses local testdata/base dictionary with its .good and .wrong files
+// instead of external corpora specified via system property.
 func TestPerformance(t *testing.T) {
-	t.Fatal("requires external performance corpus via system property")
+	h := loadHunspell(t, "base.aff", "base.dic")
+
+	var words []string
+	for _, fname := range []string{"base.good", "base.wrong"} {
+		f, err := os.Open(filepath.Join(testdataDir, fname))
+		if err != nil {
+			t.Fatalf("open %s: %v", fname, err)
+		}
+		sc := bufio.NewScanner(f)
+		for sc.Scan() {
+			w := strings.TrimSpace(sc.Text())
+			if w != "" {
+				words = append(words, w)
+			}
+		}
+		f.Close()
+		if err := sc.Err(); err != nil {
+			t.Fatalf("scan %s: %v", fname, err)
+		}
+	}
+
+	if len(words) == 0 {
+		t.Fatal("no words to spell-check")
+	}
+
+	// Warm up
+	for _, w := range words {
+		h.Spell(w)
+	}
+
+	const iters = 100
+	start := time.Now()
+	for i := 0; i < iters; i++ {
+		for _, w := range words {
+			h.Spell(w)
+		}
+	}
+	elapsed := time.Since(start)
+	elapsedPerWord := float64(elapsed.Nanoseconds()) / float64(iters*len(words))
+	t.Logf("Spell-checked %d words x %d iterations in %v (%.0f ns/word)",
+		len(words), iters, elapsed, elapsedPerWord)
+
+	// Ensure it completes within a reasonable time
+	if elapsed > 10*time.Second {
+		t.Errorf("performance too slow: %v", elapsed)
+	}
 }
 
 // ─── TestCheckSharpS (task 3855) ──────────────────────────────────────────────

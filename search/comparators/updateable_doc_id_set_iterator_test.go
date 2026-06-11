@@ -12,6 +12,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/search/comparators"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -97,10 +98,67 @@ func TestUpdateableDocIdSetIterator_Advance(t *testing.T) {
 
 // TestUpdateableDocIdSetIterator_IntoBitSet mirrors
 // TestUpdateableDocIdSetIterator.testIntoBitSet.
-// Requires DocIdSetIterator.intoBitSet which is not on Gocene's
-// DocIdSetIterator interface. Ported as a degraded stub.
 func TestUpdateableDocIdSetIterator_IntoBitSet(t *testing.T) {
-	t.Fatal("intoBitSet is not on Gocene's DocIdSetIterator interface — deferred")
+	// Scenario 1: range [10,18), start at doc=10, intoBitSet(15, bits, 5).
+	iterator := comparators.NewUpdateableDocIdSetIterator()
+	iterator.Update(rangeIter(10, 18))
+
+	if doc, err := iterator.NextDoc(); err != nil || doc != 10 {
+		t.Fatalf("NextDoc() = (%d, %v), want (10, nil)", doc, err)
+	}
+
+	bits, err := util.NewFixedBitSet(100)
+	if err != nil {
+		t.Fatalf("NewFixedBitSet: %v", err)
+	}
+	iterator.IntoBitSet(15, bits, 5)
+	// Expected: bits 5..9 set (docs 10..14 minus offset 5).
+	for i := 5; i < 10; i++ {
+		if !bits.Get(i) {
+			t.Errorf("expected bit %d to be set (doc %d - offset 5)", i, i+5)
+		}
+	}
+	if bits.Get(10) {
+		t.Error("bit 10 should not be set (doc 15 >= upTo 15)")
+	}
+	if doc := iterator.DocID(); doc != 15 {
+		t.Errorf("DocID after intoBitSet: want 15, got %d", doc)
+	}
+
+	// Scenario 2: update with range [12,25), intoBitSet(20, bits, 8).
+	iterator.Update(rangeIter(12, 25))
+	bits.ClearAll()
+	iterator.IntoBitSet(20, bits, 8)
+	// Expected: bits 7..11 set (docs 15..19 minus offset 8).
+	for i := 7; i < 12; i++ {
+		if !bits.Get(i) {
+			t.Errorf("expected bit %d to be set (doc %d - offset 8)", i, i+8)
+		}
+	}
+	if bits.Get(12) {
+		t.Error("bit 12 should not be set")
+	}
+	if doc := iterator.DocID(); doc != 20 {
+		t.Errorf("DocID after intoBitSet: want 20, got %d", doc)
+	}
+
+	// Scenario 3: pre-positioned inner (at 23), intoBitSet(30, bits, 10).
+	in := advancedRange(15, 25, 23, t)
+	iterator.Update(in)
+	bits.ClearAll()
+	iterator.IntoBitSet(30, bits, 10)
+	// Expected: bits 13..14 set (docs 23..24 minus offset 10).
+	for i := 13; i < 15; i++ {
+		if !bits.Get(i) {
+			t.Errorf("expected bit %d to be set (doc %d - offset 10)", i, i+10)
+		}
+	}
+	if bits.Get(15) {
+		t.Error("bit 15 should not be set (doc 25 past maxDoc)")
+	}
+	if doc := iterator.DocID(); doc != search.NO_MORE_DOCS {
+		t.Errorf("DocID after intoBitSet: want NO_MORE_DOCS, got %d", doc)
+	}
 }
 
 // TestUpdateableDocIdSetIterator_DocIDRunEnd mirrors

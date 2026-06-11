@@ -28,8 +28,9 @@ func Test2BFST(t *testing.T) {
 	t.Run("PositiveIntOutputs", func(t *testing.T) {
 		outputs := PositiveIntOutputs()
 		compiler := NewFSTCompilerBuilder[int64](InputTypeByte1, outputs).Build()
-		inputs := []string{"a", "b", "c", "foo", "bar", "baz"}
-		vals := []int64{1, 2, 3, 100, 200, 300}
+		// Inputs must be sorted in FST byte-by-byte order.
+		inputs := []string{"a", "b", "bar", "baz", "c", "foo"}
+		vals := []int64{1, 2, 200, 300, 3, 100}
 		for i, s := range inputs {
 			if err := compiler.Add(ir(s), vals[i]); err != nil {
 				t.Fatalf("Add(%q): %v", s, err)
@@ -52,9 +53,10 @@ func Test2BFST(t *testing.T) {
 	t.Run("ByteSequenceOutputs", func(t *testing.T) {
 		outputs := ByteSequenceOutputs()
 		compiler := NewFSTCompilerBuilder[*util.BytesRef](InputTypeByte1, outputs).Build()
-		inputs := []string{"cat", "car", "dog", "doom"}
+		// Inputs sorted: car < cat < dog < doom
+		inputs := []string{"car", "cat", "dog", "doom"}
 		for _, s := range inputs {
-			if err := compiler.Add(ir(s), util.NewBytesRef(s)); err != nil {
+			if err := compiler.Add(ir(s), util.NewBytesRef([]byte(s))); err != nil {
 				t.Fatalf("Add(%q): %v", s, err)
 			}
 		}
@@ -76,7 +78,8 @@ func Test2BFST(t *testing.T) {
 		compiler := NewFSTCompilerBuilder[*noOutputMarker](
 			InputTypeByte1, NoOutputs(),
 		).Build()
-		inputs := []string{"hello", "world", "fst", "test"}
+		// Inputs sorted: fst < hello < test < world
+		inputs := []string{"fst", "hello", "test", "world"}
 		for _, s := range inputs {
 			if err := compiler.Add(ir(s), NoOutputValue()); err != nil {
 				t.Fatalf("Add(%q): %v", s, err)
