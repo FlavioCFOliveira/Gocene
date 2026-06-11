@@ -238,21 +238,32 @@ func (s *Spatial4jShapeDecoder) DecodeFromReader(r io.Reader) (Shape, error) {
 	switch shapeType {
 	case spatial4jTypePoint:
 		return s.decodePointBinary(r)
-	case spatial4jTypeRectangle:
-		return s.decodeRectangleBinary(r)
 	case spatial4jTypeCircle:
 		return s.decodeCircleBinary(r)
+	case spatial4jTypeRectangle:
+		return s.decodeRectangleBinary(r)
+	case spatial4jTypeLine:
+		return s.decodeLineBinary(r)
+	case spatial4jTypePolygon:
+		return s.decodePolygonBinary(r)
 	default:
 		return nil, fmt.Errorf("unsupported Spatial4j shape type: %d", shapeType)
 	}
 }
 
-// Spatial4j binary type markers
+// Spatial4j binary type markers.
+// Must match org.locationtech.spatial4j.io.BinaryCodec:
+//   TYPE_POINT = 0, TYPE_CIRCLE = 1, TYPE_RECTANGLE = 2,
+//   TYPE_PATH = 3, TYPE_SHAPE = 4
 const (
-	spatial4jTypePoint     byte = 1
+	spatial4jTypePoint     byte = 0
+	spatial4jTypeCircle    byte = 1
 	spatial4jTypeRectangle byte = 2
-	spatial4jTypeCircle    byte = 3
+	spatial4jTypeLine      byte = 3 // TYPE_PATH
+	spatial4jTypePolygon   byte = 4 // TYPE_SHAPE
 )
+
+
 
 // decodePointBinary decodes a Point from binary format.
 func (s *Spatial4jShapeDecoder) decodePointBinary(r io.Reader) (Shape, error) {
@@ -305,6 +316,55 @@ func (s *Spatial4jShapeDecoder) decodeCircleBinary(r io.Reader) (Shape, error) {
 	maxY := centerY + radius
 
 	return NewRectangle(minX, minY, maxX, maxY), nil
+}
+
+// decodeLineBinary decodes a LineString (Spatial4j TYPE_PATH) from binary format.
+// Returns the bounding rectangle for simplicity; full line decoding requires JTS.
+func (s *Spatial4jShapeDecoder) decodeLineBinary(r io.Reader) (Shape, error) {
+	// Spatial4j TYPE_PATH = 3: stores vertex count + (x,y) pairs.
+	// For compatibility, read the vertex data and return the bounding box.
+	var vertexCount int32
+	if err := binary.Read(r, binary.LittleEndian, &vertexCount); err != nil {
+		return nil, fmt.Errorf("failed to read line vertex count: %w", err)
+	}
+	if vertexCount < 2 {
+		return nil, fmt.Errorf("line must have at least 2 vertices, got %d", vertexCount)
+	}
+	var minX, minY, maxX, maxY float64
+	for i := int32(0); i < vertexCount; i++ {
+		var x, y float64
+		if err := binary.Read(r, binary.LittleEndian, &x); err != nil {
+			return nil, fmt.Errorf("failed to read line vertex[%d].X: %w", i, err)
+		}
+		if err := binary.Read(r, binary.LittleEndian, &y); err != nil {
+			return nil, fmt.Errorf("failed to read line vertex[%d].Y: %w", i, err)
+		}
+		if i == 0 {
+			minX, maxX = x, x
+			minY, maxY = y, y
+		} else {
+			if x < minX {
+				minX = x
+			}
+			if x > maxX {
+				maxX = x
+			}
+			if y < minY {
+				minY = y
+			}
+			if y > maxY {
+				maxY = y
+			}
+		}
+	}
+	return NewRectangle(minX, minY, maxX, maxY), nil
+}
+
+// decodePolygonBinary decodes a Polygon (Spatial4j TYPE_SHAPE) from binary format.
+// For now, reads the bounding rectangle; full polygon decoding requires JTS/WKB.
+func (s *Spatial4jShapeDecoder) decodePolygonBinary(r io.Reader) (Shape, error) {
+	// Spatial4j TYPE_SHAPE = 4: stores shape's bounding box plus subclass data.
+	return s.decodeRectangleBinary(r)
 }
 
 // EncodeToBytes encodes a Shape to Spatial4j binary format.
