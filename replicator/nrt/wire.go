@@ -36,6 +36,7 @@ package nrt
 
 import (
 	"encoding/binary"
+	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
@@ -133,7 +134,14 @@ func WriteFilesMetaData(files map[string]*FileMetaData, out store.DataOutput) er
 	if err := store.WriteVInt(out, int32(len(files))); err != nil {
 		return err
 	}
-	for name, fmd := range files {
+		// Sort file names for deterministic output (Go map iteration is non-deterministic).
+	sortedNames := make([]string, 0, len(files))
+	for name := range files {
+		sortedNames = append(sortedNames, name)
+	}
+	sort.Strings(sortedNames)
+	for _, name := range sortedNames {
+		fmd := files[name]
 		if err := store.WriteString(out, name); err != nil {
 			return err
 		}

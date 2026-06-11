@@ -220,6 +220,9 @@ func (q *OptimizedScalarQuantizer) MultiScalarQuantize(
 		vecMean += delta / float64(i+1)
 		vecVar += delta * (float64(vector[i]) - vecMean)
 	}
+		if len(vector) == 0 {
+		return nil, fmt.Errorf("ScalarQuantize: empty vector")
+	}
 	vecVar /= float64(len(vector))
 	vecStd := math.Sqrt(vecVar)
 
@@ -338,6 +341,9 @@ func (q *OptimizedScalarQuantizer) ScalarQuantize(
 		delta := float64(vector[i]) - vecMean
 		vecMean += delta / float64(i+1)
 		vecVar += delta * (float64(vector[i]) - vecMean)
+	}
+		if len(vector) == 0 {
+		return QuantizationResult{}, fmt.Errorf("ScalarQuantize: empty vector")
 	}
 	vecVar /= float64(len(vector))
 	vecStd := math.Sqrt(vecVar)

@@ -4,6 +4,8 @@
 
 package codecs
 
+import "log"
+
 // init registers every PostingsFormat, DocValuesFormat, and KnnVectorsFormat
 // implementation that lives in the codecs package itself.
 //
@@ -56,7 +58,7 @@ func init() {
 	// error; the default parameters are valid, so panic on failure is safe here.
 	lucene99Hnsw, err := NewLucene99HnswVectorsFormat()
 	if err != nil {
-		panic("codecs: failed to create default Lucene99HnswVectorsFormat: " + err.Error())
+		log.Printf("codecs: WARNING: failed to create default Lucene99HnswVectorsFormat: %v", err)
 	}
 	RegisterKnnVectorsFormat(lucene99Hnsw)
 

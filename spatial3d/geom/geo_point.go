@@ -128,7 +128,12 @@ func (p *GeoPoint) GetLatitude() float64 {
 	if !math.IsInf(p.latitude, 0) && !math.IsNaN(p.latitude) {
 		return p.latitude
 	}
-	p.latitude = math.Asin(p.Z / p.getMagnitude())
+		mag := p.getMagnitude()
+	if mag == 0 {
+		p.latitude = 0 // zero-vector: latitude is undefined, return 0
+	} else {
+		p.latitude = math.Asin(p.Z / mag)
+	}
 	return p.latitude
 }
 
@@ -137,7 +142,12 @@ func (p *GeoPoint) GetLongitude() float64 {
 	if !math.IsInf(p.longitude, 0) && !math.IsNaN(p.longitude) {
 		return p.longitude
 	}
-	p.longitude = math.Atan2(p.Y, p.X)
+	m := p.getMagnitude()
+	if m == 0 {
+		p.longitude = 0 // zero-vector: longitude is undefined, return 0
+	} else {
+		p.longitude = math.Atan2(p.Y, p.X)
+	}
 	return p.longitude
 }
 

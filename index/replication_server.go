@@ -3,6 +3,7 @@ package index
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"sync"
@@ -110,7 +111,7 @@ func (rs *ReplicationServer) Start() error {
 	go func() {
 		defer rs.serveWG.Done()
 		if err := rs.httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
-			// Log error
+			log.Printf("ReplicationServer: Serve error: %v", err)
 		}
 	}()
 

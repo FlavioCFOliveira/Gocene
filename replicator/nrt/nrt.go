@@ -489,6 +489,7 @@ func (d *ReplicaFileDeleter) ForceDeleteFile(fileName string) error {
 //
 // Port of org.apache.lucene.replicator.nrt.Node.
 type Node struct {
+	mu sync.RWMutex // protects lastFileMetaData
 	// ID is the compact ordinal for this node.
 	ID int
 

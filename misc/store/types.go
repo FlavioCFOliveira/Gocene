@@ -124,7 +124,7 @@ func (w *FSHardlinkCopyDirectoryWrapper) CopyFrom(src *FSHardlinkCopyDirectoryWr
 }
 
 // copyFile performs a byte-level file copy from src to dst.
-func copyFile(src, dst string) error {
+func copyFile(src, dst string) (err error) {
 	in, err := os.Open(src)
 	if err != nil {
 		return err
