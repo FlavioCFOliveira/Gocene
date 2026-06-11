@@ -491,7 +491,10 @@ func (f *ShingleMatrixFilter) Reset() error {
 	f.inputExhausted = false
 	f.isFirstToken = true
 
-	return f.BaseTokenFilter.End()
+	if resetter, ok := f.GetInput().(interface{ Reset() error }); ok {
+		return resetter.Reset()
+	}
+	return nil
 }
 
 // Ensure ShingleMatrixFilter implements TokenFilter

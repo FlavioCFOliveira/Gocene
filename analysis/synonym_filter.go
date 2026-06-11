@@ -491,6 +491,25 @@ func (f *SynonymFilter) End() error {
 	return f.input.End()
 }
 
+// Reset resets the filter for reuse across multiple documents.
+// Clears all internal state and delegates to the input stream's Reset().
+func (f *SynonymFilter) Reset() error {
+	f.tokenBuffer = f.tokenBuffer[:0]
+	f.outputBuffer = f.outputBuffer[:0]
+	f.bufferPosition = 0
+	f.bufferedTokenCount = 0
+	f.outputPosition = 0
+	f.lastTokenEnded = false
+	f.captureCount = 0
+	f.liveToken = false
+	f.finished = false
+
+	if resetter, ok := f.GetInput().(interface{ Reset() error }); ok {
+		return resetter.Reset()
+	}
+	return nil
+}
+
 // Close releases resources.
 func (f *SynonymFilter) Close() error {
 	// Clear buffers

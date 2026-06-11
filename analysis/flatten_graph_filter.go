@@ -477,7 +477,9 @@ func (f *FlattenGraphFilter) End() error {
 		f.offsetAttr.SetEndOffset(f.endOffset)
 	}
 
-	return nil
+	// Propagate End() to the input stream so that upstream filters
+	// receive their end-of-stream signal (matching Lucene's FlattenGraphFilter.end()).
+	return f.BaseTokenFilter.End()
 }
 
 // Reset resets the filter for reuse.
@@ -489,7 +491,10 @@ func (f *FlattenGraphFilter) Reset() error {
 	f.endOffset = 0
 	f.maxPos = 0
 
-	return f.input.Close()
+	if resetter, ok := f.GetInput().(interface{ Reset() error }); ok {
+		return resetter.Reset()
+	}
+	return nil
 }
 
 // Ensure FlattenGraphFilter implements TokenFilter

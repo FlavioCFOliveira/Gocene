@@ -154,8 +154,9 @@ func (f *SynonymGraphFilter) initAttributes() {
 
 		attr = attrSource.GetAttribute(OffsetAttributeType)
 		if attr != nil {
-			offsetAttr := attr.(*offsetAttribute)
-			f.offsetAttr = offsetAttr
+			if offsetAttr, ok := attr.(OffsetAttribute); ok {
+				f.offsetAttr = offsetAttr
+			}
 		}
 	}
 }
@@ -495,7 +496,10 @@ func (f *SynonymGraphFilter) Reset() error {
 	f.inputExhausted = false
 	f.lastEndOffset = 0
 
-	return f.BaseTokenFilter.End()
+	if resetter, ok := f.GetInput().(interface{ Reset() error }); ok {
+		return resetter.Reset()
+	}
+	return nil
 }
 
 // GetSynonymMap returns the SynonymMap used by this filter.
