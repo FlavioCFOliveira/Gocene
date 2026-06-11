@@ -118,13 +118,13 @@ func (fc *FacetsConfig) GetDimConfig(dim string) *DimConfig {
 }
 
 // GetIndexFieldName returns the index field name for the given dimension.
-// If no custom name is set, returns the dimension name.
+// If no custom name is set, returns the default index field name ("$facets").
 func (fc *FacetsConfig) GetIndexFieldName(dim string) string {
 	config := fc.dimConfigs[dim]
 	if config != nil && config.IndexFieldName != "" {
 		return config.IndexFieldName
 	}
-	return dim
+	return fc.indexFieldName
 }
 
 // IsMultiValued returns true if the dimension is configured as multi-valued.
@@ -160,7 +160,7 @@ func (fc *FacetsConfig) getOrCreateConfig(dim string) *DimConfig {
 	if !exists {
 		config = &DimConfig{
 			Dim:            dim,
-			IndexFieldName: dim,
+			IndexFieldName: fc.indexFieldName,
 		}
 		fc.dimConfigs[dim] = config
 	}
@@ -168,12 +168,68 @@ func (fc *FacetsConfig) getOrCreateConfig(dim string) *DimConfig {
 }
 
 // Build builds the facet fields for the document using this configuration.
-// This should be called before indexing to set up the proper facet indexing.
+// This is a placeholder that does nothing; use BuildWithTaxonomy for the
+// full pipeline that transforms FacetFields into indexable fields.
 func (fc *FacetsConfig) Build(doc *document.Document) error {
-	// This is a placeholder for the build process
-	// The actual implementation will process FacetField instances in the document
-	// and configure them according to the dimension settings
 	return nil
+}
+
+// BuildWithTaxonomy transforms a document containing FacetField instances into
+// a document ready for indexing, using the supplied DirectoryTaxonomyWriter to
+// assign category ordinals.
+//
+// For each FacetField, this method:
+//  1. Adds the category path to the taxonomy writer (recursively adding parents)
+//  2. Creates a SortedNumericDocValuesField holding the assigned ordinal, so
+//     that FastTaxonomyFacetCounts can read ordinals at search time
+//  3. Creates a StringField for drill-down term queries
+//
+// The returned document includes these new fields. The original FacetField
+// references are not consumed; callers should discard them after calling Build.
+//
+// This mirrors org.apache.lucene.facet.FacetsConfig.build(TaxonomyWriter, Document).
+func (fc *FacetsConfig) BuildWithTaxonomy(
+	taxoWriter *DirectoryTaxonomyWriter,
+	doc *document.Document,
+	facetFields ...*FacetField,
+) (*document.Document, error) {
+	for _, ff := range facetFields {
+		if err := ff.Validate(); err != nil {
+			return nil, err
+		}
+
+		// Build the full FacetLabel: [dim, path...]
+		components := make([]string, 0, 1+len(ff.path)+1)
+		components = append(components, ff.dim)
+		components = append(components, ff.path...)
+		components = append(components, ff.value)
+		label := NewFacetLabel(components...)
+
+		// Add category to taxonomy, getting the ordinal back.
+		ord, err := taxoWriter.AddCategory(label)
+		if err != nil {
+			return nil, err
+		}
+
+		// Determine the index field name for this dimension.
+		fieldName := fc.GetIndexFieldName(ff.dim)
+
+		// Create SortedNumericDocValuesField for counting at search time.
+		snField, err := document.NewSortedNumericDocValuesField(fieldName, []int64{int64(ord)})
+		if err != nil {
+			return nil, err
+		}
+		doc.Add(snField)
+
+		// Create drill-down StringField for term queries.
+		drillTerm := PathToString(ff.dim, ff.GetFullPath())
+		strField, err := document.NewStringField(fieldName, drillTerm, false)
+		if err != nil {
+			return nil, err
+		}
+		doc.Add(strField)
+	}
+	return doc, nil
 }
 
 // GetDims returns all configured dimension names.

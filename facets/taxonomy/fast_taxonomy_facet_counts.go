@@ -6,203 +6,104 @@ package taxonomy
 
 import (
 	"fmt"
-	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/facets"
 )
 
 // FastTaxonomyFacetCounts computes facet counts using the taxonomy index.
-// This is an optimized implementation that uses ordinals for fast counting.
+// It reads per-document ordinals from SortedNumericDocValues indexed by
+// FacetsConfig.BuildWithTaxonomy, counts them, and rolls up the hierarchy.
 //
-// This is the Go port of Lucene's org.apache.lucene.facet.taxonomy.FastTaxonomyFacetCounts.
+// This is the Go port of Lucene's
+// org.apache.lucene.facet.taxonomy.FastTaxonomyFacetCounts.
 type FastTaxonomyFacetCounts struct {
-	// taxoReader provides access to the taxonomy
-	taxoReader *facets.TaxonomyReader
-
-	// config contains the facets configuration
-	config *facets.FacetsConfig
-
-	// counts holds the aggregated counts per ordinal
-	counts []int
-
-	// dimCounts holds counts per dimension
-	dimCounts map[string]int
+	*IntTaxonomyFacets
 }
 
-// NewFastTaxonomyFacetCounts creates a new FastTaxonomyFacetCounts.
-func NewFastTaxonomyFacetCounts(taxoReader *facets.TaxonomyReader, config *facets.FacetsConfig) *FastTaxonomyFacetCounts {
-	return &FastTaxonomyFacetCounts{
-		taxoReader: taxoReader,
-		config:     config,
-		counts:     make([]int, taxoReader.GetSize()),
-		dimCounts:  make(map[string]int),
+// NewFastTaxonomyFacetCounts creates a new FastTaxonomyFacetCounts for the
+// given index field, taxonomy reader, and facets configuration.
+//
+// When indexFieldName is empty, the default field name "$facets" is used.
+func NewFastTaxonomyFacetCounts(
+	indexFieldName string,
+	taxoReader TaxonomyReaderI,
+	config *facets.FacetsConfig,
+) *FastTaxonomyFacetCounts {
+	if indexFieldName == "" {
+		indexFieldName = "$facets"
 	}
+	itf := NewIntTaxonomyFacets(indexFieldName, taxoReader, config, SUM)
+	ftfc := &FastTaxonomyFacetCounts{IntTaxonomyFacets: itf}
+
+	// Override GetAggregationValueFn to use the count buffer rather than the
+	// int32 values buffer. FastTaxonomyFacetCounts counts occurrences via
+	// IncrementCount (which populates the base counts[]), not via the
+	// IntTaxonomyFacets.values[] which is designed for association aggregation.
+	itf.TaxonomyFacets.GetAggregationValueFn = func(ord int) float64 {
+		return float64(itf.TaxonomyFacets.getCount(ord))
+	}
+	return ftfc
 }
 
-// Accumulate accumulates counts from the given matching documents.
+// Accumulate iterates the SortedNumericDocValues of every matching-docs
+// segment and increments the count for each ordinal found, then rolls up
+// the hierarchy. This is the main entry point after collecting search hits
+// via FacetsCollector.
+//
+// Mirrors FastTaxonomyFacetCounts.count(FacetsCollector).
 func (ftfc *FastTaxonomyFacetCounts) Accumulate(matchingDocs []*facets.MatchingDocs) error {
-	for _, docs := range matchingDocs {
-		if err := ftfc.accumulateSegment(docs); err != nil {
+	ftfc.initCounters()
+	for _, md := range matchingDocs {
+		if err := ftfc.accumulateSegment(md); err != nil {
 			return err
 		}
 	}
-	return nil
+	return ftfc.Rollup()
 }
 
-// accumulateSegment accumulates counts from a single segment.
-func (ftfc *FastTaxonomyFacetCounts) accumulateSegment(matchingDocs *facets.MatchingDocs) error {
-	// Get the leaf reader
-	reader := matchingDocs.GetLeafReader()
-	if reader == nil {
-		return nil
-	}
-
-	// Iterate over matching documents
-	for doc := 0; doc < reader.NumDocs(); doc++ {
-		if matchingDocs.Bits != nil && !matchingDocs.Bits.Get(doc) {
-			continue
-		}
-
-		// Get facet ordinals for this document
-		// This would typically come from DocValues
-		ordinals := ftfc.getOrdinalsForDoc(reader, doc)
-
-		// Count each ordinal
-		for _, ord := range ordinals {
-			if ord > 0 && ord < len(ftfc.counts) {
-				ftfc.counts[ord]++
-			}
-		}
-	}
-
-	return nil
-}
-
-// getOrdinalsForDoc retrieves facet ordinals for a document.
-// This is a placeholder - in a real implementation, this would read from DocValues.
-func (ftfc *FastTaxonomyFacetCounts) getOrdinalsForDoc(reader interface{}, docID int) []int {
-	// Placeholder implementation
-	// Real implementation would read from BinaryDocValues or SortedSetDocValues
-	return []int{}
-}
-
-// GetTopChildren returns the top N facet counts for the specified dimension.
-func (ftfc *FastTaxonomyFacetCounts) GetTopChildren(topN int, dim string, path ...string) (*facets.FacetResult, error) {
-	if topN <= 0 {
-		return nil, fmt.Errorf("topN must be positive, got %d", topN)
-	}
-
-	// Build the full path
-	fullPath := dim
-	if len(path) > 0 {
-		for _, p := range path {
-			fullPath += "/" + p
-		}
-	}
-
-	// Get the parent ordinal
-	parentOrd := ftfc.taxoReader.GetOrdinal(fullPath)
-	if parentOrd < 0 {
-		return nil, fmt.Errorf("dimension '%s' not found", dim)
-	}
-
-	// Collect children
-	children := ftfc.taxoReader.GetChildren(parentOrd)
-	if len(children) == 0 {
-		return facets.NewFacetResult(dim), nil
-	}
-
-	// Create label values for children
-	labelValues := make([]*facets.LabelAndValue, 0, len(children))
-	var totalValue int64
-
-	for _, childOrd := range children {
-		count := ftfc.counts[childOrd]
-		if count > 0 {
-			childPath := ftfc.taxoReader.GetPath(childOrd)
-			label := ftfc.getLabelFromPath(childPath)
-			labelValues = append(labelValues, facets.NewLabelAndValue(label, int64(count)))
-			totalValue += int64(count)
-		}
-	}
-
-	// Sort by count descending
-	sort.Slice(labelValues, func(i, j int) bool {
-		return labelValues[i].Value > labelValues[j].Value
+// accumulateSegment counts ordinals from one segment's SortedNumericDocValues.
+func (ftfc *FastTaxonomyFacetCounts) accumulateSegment(md *facets.MatchingDocs) error {
+	field := ftfc.IndexFieldName
+	return facets.ForEachTaxonomyOrdinal(md, field, func(docID, ord int) {
+		ftfc.IncrementCount(ord, 1)
 	})
-
-	// Take top N
-	if len(labelValues) > topN {
-		labelValues = labelValues[:topN]
-	}
-
-	// Build result
-	result := facets.NewFacetResult(dim)
-	result.Path = path
-	result.Value = totalValue
-	result.ChildCount = len(children)
-	for _, lv := range labelValues {
-		result.AddLabelValue(lv)
-	}
-
-	return result, nil
 }
 
-// getLabelFromPath extracts the last component from a path.
-func (ftfc *FastTaxonomyFacetCounts) getLabelFromPath(path string) string {
-	// Find last slash
-	for i := len(path) - 1; i >= 0; i-- {
-		if path[i] == '/' {
-			return path[i+1:]
-		}
-	}
-	return path
+// GetTopChildren returns the top N child counts for dim+path, sorted
+// descending by count. Returns nil when the dimension is unknown or has
+// no matching children.
+func (ftfc *FastTaxonomyFacetCounts) GetTopChildren(topN int, dim string, path ...string) (*facets.FacetResult, error) {
+	return ftfc.TaxonomyFacets.GetTopChildren(topN, dim, path...)
 }
 
-// GetAllDims returns all dimensions available.
-func (ftfc *FastTaxonomyFacetCounts) GetAllDims(dims ...string) ([]*facets.FacetResult, error) {
-	allDims := ftfc.taxoReader.GetDimensions()
-	results := make([]*facets.FacetResult, 0, len(allDims))
-
-	for _, dim := range allDims {
-		result, err := ftfc.GetTopChildren(2147483647, dim)
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, result)
-	}
-
-	return results, nil
+// GetAllChildren returns all children with positive count for dim+path.
+func (ftfc *FastTaxonomyFacetCounts) GetAllChildren(dim string, path ...string) (*facets.FacetResult, error) {
+	return ftfc.TaxonomyFacets.GetAllChildren(dim, path...)
 }
 
-// GetSpecificValue returns the value for a specific label.
+// GetSpecificValue returns the count for the exact path dim+path, or -1
+// when the path does not exist.
 func (ftfc *FastTaxonomyFacetCounts) GetSpecificValue(dim string, path ...string) (*facets.FacetResult, error) {
-	fullPath := dim
-	for _, p := range path {
-		fullPath += "/" + p
-	}
-
-	ord := ftfc.taxoReader.GetOrdinal(fullPath)
+	components := append([]string{dim}, path...)
+	ord := ftfc.TaxoReader.GetOrdinal(components...)
 	if ord < 0 {
-		return nil, fmt.Errorf("path '%s' not found", fullPath)
+		return nil, fmt.Errorf("path '%s' not found", dim)
 	}
-
-	count := ftfc.counts[ord]
-	result := facets.NewFacetResult(dim)
-	result.Path = path
+	if !ftfc.HasValues() {
+		return nil, nil
+	}
+	count := ftfc.getCount(ord)
+	result := facets.NewFacetResultWithPath(dim, path)
 	result.Value = int64(count)
-	result.AddLabelValue(facets.NewLabelAndValue(path[len(path)-1], int64(count)))
-
+	if len(path) > 0 {
+		result.AddLabelValue(facets.NewLabelAndValue(path[len(path)-1], int64(count)))
+	} else {
+		result.AddLabelValue(facets.NewLabelAndValue(dim, int64(count)))
+	}
 	return result, nil
 }
 
-// RollupCounts rolls up counts from children to parents.
-func (ftfc *FastTaxonomyFacetCounts) RollupCounts() {
-	// Process ordinals in reverse order (children before parents)
-	for ord := len(ftfc.counts) - 1; ord > 0; ord-- {
-		parentOrd := ftfc.taxoReader.GetParent(ord)
-		if parentOrd > 0 {
-			ftfc.counts[parentOrd] += ftfc.counts[ord]
-		}
-	}
+// GetAllDims returns one FacetResult per dimension, sorted by count desc.
+func (ftfc *FastTaxonomyFacetCounts) GetAllDims(topN int) ([]*facets.FacetResult, error) {
+	return ftfc.TaxonomyFacets.GetAllDims(topN)
 }

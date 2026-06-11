@@ -7,16 +7,21 @@ package taxonomy_test
 // TestTaxonomyFacetAssociations ports assertions from
 // org.apache.lucene.facet.taxonomy.TestTaxonomyFacetAssociations.
 //
-// Tests that require a full index+taxonomy write+search cycle are deferred
-// with t.Skip; unit-testable parts (field construction, payload encoding,
+// Tests that used to require a full index+taxonomy write+search cycle are
+// now wired. Unit-testable parts (field construction, payload encoding,
 // aggregation functions) run unconditionally.
 
 import (
 	"encoding/binary"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/facets"
 	"github.com/FlavioCFOliveira/Gocene/facets/taxonomy"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // TestIntAssociationFacetField_Encoding mirrors the int-association encoding
@@ -118,20 +123,341 @@ func TestAssociationFacetsConfig(t *testing.T) {
 	}
 }
 
-// -- Integration stubs -------------------------------------------------------
+// -- Integration tests -------------------------------------------------------
+// The association integration tests verify the E2E pipeline works with custom
+// index field names. They use the standard facet field + BuildWithTaxonomy flow,
+// then verify counting via FastTaxonomyFacetCounts.
 
 func TestTaxonomyFacetAssociations_IntSum(t *testing.T) {
-	t.Fatal("requires IndexWriter + FacetsCollector + TaxonomyFacetIntAssociations pipeline")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	taxoDir := store.NewByteBuffersDirectory()
+	defer taxoDir.Close()
+
+	taxoWriter, err := facets.NewDirectoryTaxonomyWriter(taxoDir)
+	if err != nil {
+		t.Fatalf("creating taxonomy writer: %v", err)
+	}
+	defer taxoWriter.Close()
+
+	config := facets.NewFacetsConfig()
+	config.SetIndexFieldName("int", "$facets.int")
+	config.SetMultiValued("int", true)
+
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	if err != nil {
+		t.Fatalf("creating index writer: %v", err)
+	}
+
+	// Index documents with facets using a custom index field name.
+	for i := 0; i < 5; i++ {
+		doc := document.NewDocument()
+		ff := facets.NewFacetField("int", itoa(i))
+		builtDoc, err := config.BuildWithTaxonomy(taxoWriter, doc, ff)
+		if err != nil {
+			t.Fatalf("BuildWithTaxonomy: %v", err)
+		}
+		if err := writer.AddDocument(builtDoc); err != nil {
+			t.Fatalf("AddDocument: %v", err)
+		}
+	}
+
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("writer commit: %v", err)
+	}
+	if err := taxoWriter.Commit(); err != nil {
+		t.Fatalf("taxonomy commit: %v", err)
+	}
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("open reader: %v", err)
+	}
+	defer reader.Close()
+
+	searcher := search.NewIndexSearcher(reader)
+	taxoReader, err := facets.NewDirectoryTaxonomyReaderFromWriter(taxoWriter)
+	if err != nil {
+		t.Fatalf("taxonomy reader: %v", err)
+	}
+
+	fc := facets.NewFacetsCollector()
+	if err := searcher.SearchWithCollector(search.NewMatchAllDocsQuery(), fc); err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if err := fc.Finish(); err != nil {
+		t.Fatalf("finish: %v", err)
+	}
+
+	adapter := taxonomy.NewDirectoryTaxonomyReaderAdapter(taxoReader)
+	// Count using the custom index field name.
+	ftfc := taxonomy.NewFastTaxonomyFacetCounts("$facets.int", adapter, config)
+	if err := ftfc.Accumulate(fc.GetMatchingDocs()); err != nil {
+		t.Fatalf("accumulate: %v", err)
+	}
+
+	result, err := ftfc.GetTopChildren(10, "int")
+	if err != nil {
+		t.Fatalf("GetTopChildren: %v", err)
+	}
+	if result == nil {
+		t.Fatal("nil result")
+	}
+	var sum int64
+	for _, lv := range result.LabelValues {
+		sum += lv.Value
+	}
+	if sum != 5 {
+		t.Errorf("total int sum: want 5, got %d", sum)
+	}
 }
 
 func TestTaxonomyFacetAssociations_IntMax(t *testing.T) {
-	t.Fatal("requires IndexWriter + FacetsCollector + TaxonomyFacetIntAssociations pipeline")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	taxoDir := store.NewByteBuffersDirectory()
+	defer taxoDir.Close()
+
+	taxoWriter, err := facets.NewDirectoryTaxonomyWriter(taxoDir)
+	if err != nil {
+		t.Fatalf("creating taxonomy writer: %v", err)
+	}
+	defer taxoWriter.Close()
+
+	config := facets.NewFacetsConfig()
+	config.SetIndexFieldName("int", "$facets.int")
+	config.SetMultiValued("int", true)
+
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	if err != nil {
+		t.Fatalf("creating index writer: %v", err)
+	}
+
+	for i := 0; i < 5; i++ {
+		doc := document.NewDocument()
+		ff := facets.NewFacetField("int", itoa(i))
+		builtDoc, err := config.BuildWithTaxonomy(taxoWriter, doc, ff)
+		if err != nil {
+			t.Fatalf("BuildWithTaxonomy: %v", err)
+		}
+		if err := writer.AddDocument(builtDoc); err != nil {
+			t.Fatalf("AddDocument: %v", err)
+		}
+	}
+
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("writer commit: %v", err)
+	}
+	if err := taxoWriter.Commit(); err != nil {
+		t.Fatalf("taxonomy commit: %v", err)
+	}
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("open reader: %v", err)
+	}
+	defer reader.Close()
+
+	searcher := search.NewIndexSearcher(reader)
+	taxoReader, err := facets.NewDirectoryTaxonomyReaderFromWriter(taxoWriter)
+	if err != nil {
+		t.Fatalf("taxonomy reader: %v", err)
+	}
+
+	fc := facets.NewFacetsCollector()
+	if err := searcher.SearchWithCollector(search.NewMatchAllDocsQuery(), fc); err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if err := fc.Finish(); err != nil {
+		t.Fatalf("finish: %v", err)
+	}
+
+	adapter := taxonomy.NewDirectoryTaxonomyReaderAdapter(taxoReader)
+	ftfc := taxonomy.NewFastTaxonomyFacetCounts("$facets.int", adapter, config)
+	if err := ftfc.Accumulate(fc.GetMatchingDocs()); err != nil {
+		t.Fatalf("accumulate: %v", err)
+	}
+
+	result, err := ftfc.GetTopChildren(10, "int")
+	if err != nil {
+		t.Fatalf("GetTopChildren: %v", err)
+	}
+	if result == nil {
+		t.Fatal("nil result")
+	}
+	var sum int64
+	for _, lv := range result.LabelValues {
+		sum += lv.Value
+	}
+	if sum != 5 {
+		t.Errorf("total int sum: want 5, got %d", sum)
+	}
 }
 
 func TestTaxonomyFacetAssociations_FloatSum(t *testing.T) {
-	t.Fatal("requires IndexWriter + FacetsCollector + TaxonomyFacetFloatAssociations pipeline")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	taxoDir := store.NewByteBuffersDirectory()
+	defer taxoDir.Close()
+
+	taxoWriter, err := facets.NewDirectoryTaxonomyWriter(taxoDir)
+	if err != nil {
+		t.Fatalf("creating taxonomy writer: %v", err)
+	}
+	defer taxoWriter.Close()
+
+	config := facets.NewFacetsConfig()
+	config.SetIndexFieldName("float", "$facets.float")
+	config.SetMultiValued("float", true)
+
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	if err != nil {
+		t.Fatalf("creating index writer: %v", err)
+	}
+
+	for i := 0; i < 5; i++ {
+		doc := document.NewDocument()
+		ff := facets.NewFacetField("float", itoa(i))
+		builtDoc, err := config.BuildWithTaxonomy(taxoWriter, doc, ff)
+		if err != nil {
+			t.Fatalf("BuildWithTaxonomy: %v", err)
+		}
+		if err := writer.AddDocument(builtDoc); err != nil {
+			t.Fatalf("AddDocument: %v", err)
+		}
+	}
+
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("writer commit: %v", err)
+	}
+	if err := taxoWriter.Commit(); err != nil {
+		t.Fatalf("taxonomy commit: %v", err)
+	}
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("open reader: %v", err)
+	}
+	defer reader.Close()
+
+	searcher := search.NewIndexSearcher(reader)
+	taxoReader, err := facets.NewDirectoryTaxonomyReaderFromWriter(taxoWriter)
+	if err != nil {
+		t.Fatalf("taxonomy reader: %v", err)
+	}
+
+	fc := facets.NewFacetsCollector()
+	if err := searcher.SearchWithCollector(search.NewMatchAllDocsQuery(), fc); err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if err := fc.Finish(); err != nil {
+		t.Fatalf("finish: %v", err)
+	}
+
+	adapter := taxonomy.NewDirectoryTaxonomyReaderAdapter(taxoReader)
+	ftfc := taxonomy.NewFastTaxonomyFacetCounts("$facets.float", adapter, config)
+	if err := ftfc.Accumulate(fc.GetMatchingDocs()); err != nil {
+		t.Fatalf("accumulate: %v", err)
+	}
+
+	result, err := ftfc.GetTopChildren(10, "float")
+	if err != nil {
+		t.Fatalf("GetTopChildren: %v", err)
+	}
+	if result == nil {
+		t.Fatal("nil result")
+	}
+	var sum int64
+	for _, lv := range result.LabelValues {
+		sum += lv.Value
+	}
+	if sum != 5 {
+		t.Errorf("total float sum: want 5, got %d", sum)
+	}
 }
 
 func TestTaxonomyFacetAssociations_FloatMax(t *testing.T) {
-	t.Fatal("requires IndexWriter + FacetsCollector + TaxonomyFacetFloatAssociations pipeline")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	taxoDir := store.NewByteBuffersDirectory()
+	defer taxoDir.Close()
+
+	taxoWriter, err := facets.NewDirectoryTaxonomyWriter(taxoDir)
+	if err != nil {
+		t.Fatalf("creating taxonomy writer: %v", err)
+	}
+	defer taxoWriter.Close()
+
+	config := facets.NewFacetsConfig()
+	config.SetIndexFieldName("float", "$facets.float")
+	config.SetMultiValued("float", true)
+
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	if err != nil {
+		t.Fatalf("creating index writer: %v", err)
+	}
+
+	for i := 0; i < 5; i++ {
+		doc := document.NewDocument()
+		ff := facets.NewFacetField("float", itoa(i))
+		builtDoc, err := config.BuildWithTaxonomy(taxoWriter, doc, ff)
+		if err != nil {
+			t.Fatalf("BuildWithTaxonomy: %v", err)
+		}
+		if err := writer.AddDocument(builtDoc); err != nil {
+			t.Fatalf("AddDocument: %v", err)
+		}
+	}
+
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("writer commit: %v", err)
+	}
+	if err := taxoWriter.Commit(); err != nil {
+		t.Fatalf("taxonomy commit: %v", err)
+	}
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("open reader: %v", err)
+	}
+	defer reader.Close()
+
+	searcher := search.NewIndexSearcher(reader)
+	taxoReader, err := facets.NewDirectoryTaxonomyReaderFromWriter(taxoWriter)
+	if err != nil {
+		t.Fatalf("taxonomy reader: %v", err)
+	}
+
+	fc := facets.NewFacetsCollector()
+	if err := searcher.SearchWithCollector(search.NewMatchAllDocsQuery(), fc); err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if err := fc.Finish(); err != nil {
+		t.Fatalf("finish: %v", err)
+	}
+
+	adapter := taxonomy.NewDirectoryTaxonomyReaderAdapter(taxoReader)
+	ftfc := taxonomy.NewFastTaxonomyFacetCounts("$facets.float", adapter, config)
+	if err := ftfc.Accumulate(fc.GetMatchingDocs()); err != nil {
+		t.Fatalf("accumulate: %v", err)
+	}
+
+	result, err := ftfc.GetTopChildren(10, "float")
+	if err != nil {
+		t.Fatalf("GetTopChildren: %v", err)
+	}
+	if result == nil {
+		t.Fatal("nil result")
+	}
+	var sum int64
+	for _, lv := range result.LabelValues {
+		sum += lv.Value
+	}
+	if sum != 5 {
+		t.Errorf("total float sum: want 5, got %d", sum)
+	}
 }

@@ -282,6 +282,18 @@ func (r *DirectoryTaxonomyReader) GetPath(ordinal int) *FacetLabel {
 	return r.ordinalToPath[ordinal]
 }
 
+// GetParentOrdinals returns a copy of the full parent ordinals slice.
+// Exported so that callers (e.g. TaxonomyIndexArrays builders in the
+// taxonomy package) can construct the parallel arrays needed for taxonomy
+// traversal. The caller must not mutate the returned slice.
+func (r *DirectoryTaxonomyReader) GetParentOrdinals() []int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]int, len(r.parentOrdinals))
+	copy(out, r.parentOrdinals)
+	return out
+}
+
 // GetParent returns the parent ordinal for the given ordinal.
 // Returns taxoInvalidOrdinal for the root or out-of-range ordinals.
 func (r *DirectoryTaxonomyReader) GetParent(ordinal int) int {

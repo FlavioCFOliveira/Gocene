@@ -83,10 +83,10 @@ func TestFacetsConfigSetIndexFieldName(t *testing.T) {
 func TestFacetsConfigGetIndexFieldName(t *testing.T) {
 	fc := NewFacetsConfig()
 
-	// Test default (dimension name)
+	// Test default (DEFAULT_INDEX_FIELD_NAME = "$facets", mirroring Lucene)
 	name := fc.GetIndexFieldName("category")
-	if name != "category" {
-		t.Errorf("Expected default IndexFieldName to be 'category', got '%s'", name)
+	if name != "$facets" {
+		t.Errorf("Expected default IndexFieldName to be '$facets', got '%s'", name)
 	}
 
 	// Test custom name

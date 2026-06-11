@@ -10,6 +10,13 @@ import (
 // FacetsCollector is a collector that gathers matching documents for facet counting.
 // It collects the documents that match a query so that facet counts can be computed.
 //
+// Usage:
+//
+//	fc := facets.NewFacetsCollector()
+//	searcher.SearchWithCollector(query, fc)
+//	fc.Finish() // must be called to finalize MatchingDocs from each segment
+//	matchingDocs := fc.GetMatchingDocs()
+//
 // This is the Go port of Lucene's org.apache.lucene.facet.FacetsCollector.
 type FacetsCollector struct {
 	// matchingDocs holds the matching documents per segment
@@ -26,13 +33,18 @@ type FacetsCollector struct {
 
 	// scores holds scores per document if keepScores is true
 	scores map[int]float32
+
+	// leafCollectors tracks per-segment leaf collectors so that Finish()
+	// can finalize them after the search completes.
+	leafCollectors []*facetsLeafCollector
 }
 
 // NewFacetsCollector creates a new FacetsCollector.
 func NewFacetsCollector() *FacetsCollector {
 	return &FacetsCollector{
-		matchingDocs: make([]*MatchingDocs, 0),
-		scores:       make(map[int]float32),
+		matchingDocs:  make([]*MatchingDocs, 0),
+		scores:        make(map[int]float32),
+		leafCollectors: make([]*facetsLeafCollector, 0),
 	}
 }
 
@@ -75,12 +87,14 @@ func (fc *FacetsCollector) GetLeafCollector(context *index.LeafReaderContext) (s
 		return nil, nil
 	}
 
-	return &facetsLeafCollector{
+	flc := &facetsLeafCollector{
 		parent:  fc,
 		context: context,
 		docs:    make([]int, 0),
 		scores:  make(map[int]float32),
-	}, nil
+	}
+	fc.leafCollectors = append(fc.leafCollectors, flc)
+	return flc, nil
 }
 
 // ScoreMode returns the score mode for this collector.
@@ -92,11 +106,25 @@ func (fc *FacetsCollector) ScoreMode() search.ScoreMode {
 	return search.COMPLETE_NO_SCORES
 }
 
+// Finish finalizes collection for all segments, building MatchingDocs from
+// every leaf collector. Must be called after the search completes and before
+// calling GetMatchingDocs().
+func (fc *FacetsCollector) Finish() error {
+	for _, flc := range fc.leafCollectors {
+		if err := flc.Finish(); err != nil {
+			return err
+		}
+	}
+	fc.leafCollectors = nil
+	return nil
+}
+
 // Reset clears all collected data, allowing the collector to be reused.
 func (fc *FacetsCollector) Reset() {
 	fc.matchingDocs = fc.matchingDocs[:0]
 	fc.totalHits = 0
 	fc.scores = make(map[int]float32)
+	fc.leafCollectors = nil
 }
 
 // facetsLeafCollector is a LeafCollector implementation for FacetsCollector.

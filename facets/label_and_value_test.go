@@ -102,7 +102,7 @@ func TestFacetResultString(t *testing.T) {
 	fr := NewFacetResult("category")
 	fr.Value = 100
 
-	expected := "category=100"
+	expected := "dim=category path=[] value=100 childCount=0\n"
 	if fr.String() != expected {
 		t.Errorf("Expected String() to be '%s', got '%s'", expected, fr.String())
 	}
@@ -112,7 +112,7 @@ func TestFacetResultStringWithPath(t *testing.T) {
 	fr := NewFacetResultWithPath("category", []string{"electronics", "phones"})
 	fr.Value = 50
 
-	expected := "category/[electronics phones]=50"
+	expected := "dim=category path=[electronics phones] value=50 childCount=0\n"
 	if fr.String() != expected {
 		t.Errorf("Expected String() to be '%s', got '%s'", expected, fr.String())
 	}

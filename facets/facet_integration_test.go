@@ -10,6 +10,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/facets"
+	"github.com/FlavioCFOliveira/Gocene/facets/taxonomy"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -55,24 +56,28 @@ func TestFacetIntegration_BasicCounting(t *testing.T) {
 		{"electronics", "red"},
 	}
 
-	// SetIndexPath is not yet implemented; skip this test.
-	t.Fatal("FacetsConfig.SetIndexPath not yet implemented")
-
 	for _, d := range docs {
 		doc := document.NewDocument()
 		contentField, _ := document.NewTextField("content", "product", true)
 		doc.Add(contentField)
 
-		_ = facetConfig
-		_ = d
+		catFF := facets.NewFacetField("category", d.category)
+		colorFF := facets.NewFacetField("color", d.color)
+		builtDoc, err := facetConfig.BuildWithTaxonomy(taxoWriter, doc, catFF, colorFF)
+		if err != nil {
+			t.Fatalf("BuildWithTaxonomy: %v", err)
+		}
 
-		if err := writer.AddDocument(doc); err != nil {
+		if err := writer.AddDocument(builtDoc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
 
 	if err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
+	}
+	if err := taxoWriter.Commit(); err != nil {
+		t.Fatalf("failed to commit taxonomy: %v", err)
 	}
 
 	reader, err := index.OpenDirectoryReader(dir)
@@ -84,11 +89,57 @@ func TestFacetIntegration_BasicCounting(t *testing.T) {
 	if reader.NumDocs() != 5 {
 		t.Errorf("expected 5 docs, got %d", reader.NumDocs())
 	}
+
+	// Verify facet counting works using the E2E pipeline.
+	searcher := search.NewIndexSearcher(reader)
+	taxoReader, err := facets.NewDirectoryTaxonomyReaderFromWriter(taxoWriter)
+	if err != nil {
+		t.Fatalf("failed to create taxonomy reader: %v", err)
+	}
+
+	fc := facets.NewFacetsCollector()
+	if err := searcher.SearchWithCollector(search.NewMatchAllDocsQuery(), fc); err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if err := fc.Finish(); err != nil {
+		t.Fatalf("finish: %v", err)
+	}
+
+	adapter := taxonomy.NewDirectoryTaxonomyReaderAdapter(taxoReader)
+	ftfc := taxonomy.NewFastTaxonomyFacetCounts("$facets", adapter, facetConfig)
+	if err := ftfc.Accumulate(fc.GetMatchingDocs()); err != nil {
+		t.Fatalf("accumulate: %v", err)
+	}
+
+	// Verify category counts.
+	catResult, err := ftfc.GetTopChildren(10, "category")
+	if err != nil {
+		t.Fatalf("GetTopChildren: %v", err)
+	}
+	if catResult == nil {
+		t.Fatal("nil result for category")
+	}
+	catCounts := make(map[string]int64)
+	for _, lv := range catResult.LabelValues {
+		catCounts[lv.Label] = lv.Value
+	}
+	if catCounts["electronics"] != 3 || catCounts["clothing"] != 2 {
+		t.Errorf("category counts: want electronics=3, clothing=2, got %v", catCounts)
+	}
 }
 
 func TestFacetIntegration_DrillDown(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
+
+	taxoDir := store.NewByteBuffersDirectory()
+	defer taxoDir.Close()
+
+	taxoWriter, err := facets.NewDirectoryTaxonomyWriter(taxoDir)
+	if err != nil {
+		t.Fatalf("failed to create taxonomy writer: %v", err)
+	}
+	defer taxoWriter.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
 	config := index.NewIndexWriterConfig(analyzer)
@@ -99,7 +150,9 @@ func TestFacetIntegration_DrillDown(t *testing.T) {
 	}
 	defer writer.Close()
 
-	// Add categorized documents
+	facetConfig := facets.NewFacetsConfig()
+
+	// Add categorized documents with facet fields.
 	for i := 0; i < 10; i++ {
 		doc := document.NewDocument()
 		content := "item"
@@ -112,13 +165,22 @@ func TestFacetIntegration_DrillDown(t *testing.T) {
 		contentField, _ := document.NewTextField("content", content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		catFF := facets.NewFacetField("category", content)
+		builtDoc, err := facetConfig.BuildWithTaxonomy(taxoWriter, doc, catFF)
+		if err != nil {
+			t.Fatalf("BuildWithTaxonomy: %v", err)
+		}
+
+		if err := writer.AddDocument(builtDoc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
 
 	if err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
+	}
+	if err := taxoWriter.Commit(); err != nil {
+		t.Fatalf("failed to commit taxonomy: %v", err)
 	}
 
 	reader, err := index.OpenDirectoryReader(dir)
@@ -127,10 +189,24 @@ func TestFacetIntegration_DrillDown(t *testing.T) {
 	}
 	defer reader.Close()
 
-	// DrillDownQuery does not yet implement search.Query; skip the search part.
-	t.Fatal("DrillDownQuery as search.Query not yet implemented")
+	// Use DrillDownQueryBuilder to drill into "electronics".
+	searcher := search.NewIndexSearcher(reader)
+	builder := facets.NewDrillDownQueryBuilder(facetConfig, search.NewMatchAllDocsQuery())
+	builder.Add("category", "electronics")
+	q, err := builder.Build()
+	if err != nil {
+		t.Fatalf("build drill-down: %v", err)
+	}
 
-	_ = search.NewIndexSearcher(reader)
+	topDocs, err := searcher.Search(q, 10)
+	if err != nil {
+		t.Fatalf("search with drill-down: %v", err)
+	}
+
+	// Should return only electronics docs (5 out of 10).
+	if topDocs.TotalHits.Value != 5 {
+		t.Errorf("expected 5 electronics docs, got %d", topDocs.TotalHits.Value)
+	}
 }
 
 func TestFacetIntegration_FacetCollector(t *testing.T) {

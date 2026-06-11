@@ -82,23 +82,24 @@ func (b *DrillDownQueryBuilder) Build() (search.Query, error) {
 		bq.Add(b.baseQuery, search.MUST)
 	}
 
-	// Add each drill-down as a MUST clause
+	// Add each drill-down as a MUST clause, using PathToString encoding
+	// which matches the drill-down terms indexed by BuildWithTaxonomy.
 	for _, dd := range b.drillDowns {
 		var query search.Query
 
 		if dd.Query != nil {
-			// Use the custom query
 			query = dd.Query
 		} else if dd.Value != "" {
-			// Create a term query for the value
-			label := NewFacetLabel(dd.Dim, dd.Value)
-			term := index.NewTerm(b.config.GetIndexFieldName(dd.Dim), label.String())
+			term := index.NewTerm(
+				b.config.GetIndexFieldName(dd.Dim),
+				PathToString(dd.Dim, []string{dd.Value}),
+			)
 			query = search.NewTermQuery(term)
 		} else if len(dd.Path) > 0 {
-			// Create a term query for the path
-			path := append([]string{dd.Dim}, dd.Path...)
-			label := NewFacetLabel(path...)
-			term := index.NewTerm(b.config.GetIndexFieldName(dd.Dim), label.String())
+			term := index.NewTerm(
+				b.config.GetIndexFieldName(dd.Dim),
+				PathToString(dd.Dim, dd.Path),
+			)
 			query = search.NewTermQuery(term)
 		} else {
 			return nil, fmt.Errorf("drill-down for dimension %s has no value or path", dd.Dim)
@@ -132,7 +133,6 @@ func (b *DrillDownQueryBuilder) Clear() *DrillDownQueryBuilder {
 }
 
 // BuildDrillDownQuery is a convenience function to create a drill-down query.
-// This is a simplified version that creates a query for a single dimension.
 func BuildDrillDownQuery(config *FacetsConfig, baseQuery search.Query, dim string, path ...string) (search.Query, error) {
 	return NewDrillDownQueryBuilder(config, baseQuery).Add(dim, path...).Build()
 }

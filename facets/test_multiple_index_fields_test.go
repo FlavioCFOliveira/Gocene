@@ -41,9 +41,10 @@ func TestMultipleIndexFields_ConfigRouting(t *testing.T) {
 	if cfg.GetDimConfig("Composer").IndexFieldName != "$music" {
 		t.Errorf("Composer index field: want $music, got %q", cfg.GetDimConfig("Composer").IndexFieldName)
 	}
-	// Dimension without explicit field name: GetIndexFieldName returns the dim name itself.
-	if got := cfg.GetIndexFieldName("Unknown"); got != "Unknown" {
-		t.Errorf("Unknown dim: want dimension name as field, got %q", got)
+	// Dimension without explicit field name: GetIndexFieldName returns the
+	// default index field name ("$facets"), mirroring Lucene's default.
+	if got := cfg.GetIndexFieldName("Unknown"); got != "$facets" {
+		t.Errorf("Unknown dim: want %q, got %q", "$facets", got)
 	}
 }
 

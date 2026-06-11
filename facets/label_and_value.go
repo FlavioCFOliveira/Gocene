@@ -1,6 +1,9 @@
 package facets
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // LabelAndValue represents a single facet entry with its label and count.
 // This is the basic unit returned by facet counting operations.
@@ -76,12 +79,22 @@ func (fr *FacetResult) AddLabelValueWithCount(label string, count int64) *LabelA
 	return lv
 }
 
-// String returns a string representation of this FacetResult.
+// String returns a string representation of this FacetResult, matching the
+// format produced by Lucene's FacetResult.toString():
+//
+//	dim=NAME path=[...] value=V childCount=N
+//	  LABEL (COUNT)
+//	  ...
+//
+// This is required for exact string matching in ported Lucene tests.
 func (fr *FacetResult) String() string {
-	if len(fr.Path) > 0 {
-		return fmt.Sprintf("%s/%v=%d", fr.Dim, fr.Path, fr.Value)
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("dim=%s path=%v value=%d childCount=%d\n",
+		fr.Dim, fr.Path, fr.Value, fr.ChildCount))
+	for _, lv := range fr.LabelValues {
+		sb.WriteString(fmt.Sprintf("  %s (%d)\n", lv.Label, lv.Value))
 	}
-	return fmt.Sprintf("%s=%d", fr.Dim, fr.Value)
+	return sb.String()
 }
 
 // FacetResults is a collection of FacetResult for multiple dimensions.
