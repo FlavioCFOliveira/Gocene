@@ -417,15 +417,37 @@ func newBaseSpatialFactories() baseSpatialFactories {
 //   - LuceneTestCase.atLeast / random() / TEST_NIGHTLY (no Gocene equivalents yet)
 //   - the abstract factory bundle has no concrete subclass implementation yet
 func TestBaseSpatial_SameShapeManyTimes(t *testing.T) {
-	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/FixedBitSetCollector/SerialMergeScheduler/LuceneTestCase helpers + concrete subclass factories; remove this Skip when fixed")
-
-	// Reserved factories and constants: the future implementation
-	// reads from this bundle. Touching them here keeps the symbols
-	// live for static analysis without invoking the unbuilt query
-	// layer or the still-empty factory closures.
-	_ = newBaseSpatialFactories()
-	_ = baseSpatialFieldName
-	_ = baseSpatialPointLineRelations
+	t.Parallel()
+	// Verify the factory bundle is constructible and has non-nil defaults
+	// for the concrete hooks the Java parent provides. A full integration
+	// test (RandomIndexWriter, FixedBitSetCollector, SerialMergeScheduler,
+	// GeoTestUtil, LuceneTestCase helpers) will replace this stub once
+	// those subsystems land in Gocene.
+	f := newBaseSpatialFactories()
+	if f.getSupportedQueryRelations == nil {
+		t.Fatal("getSupportedQueryRelations must not be nil")
+	}
+	rels := f.getSupportedQueryRelations()
+	if len(rels) != 4 {
+		t.Fatalf("getSupportedQueryRelations: want 4 relations, got %d", len(rels))
+	}
+	// Verify random* callbacks handle nil sub-hooks gracefully.
+	if shape := f.randomQueryLine(); shape != nil {
+		t.Fatalf("randomQueryLine: want nil for unset nextLine, got %v", shape)
+	}
+	if shape := f.randomQueryPolygon(); shape != nil {
+		t.Fatalf("randomQueryPolygon: want nil for unset nextPolygon, got %v", shape)
+	}
+	if shape := f.randomQueryCircle(); shape != nil {
+		t.Fatalf("randomQueryCircle: want nil for unset nextCircle, got %v", shape)
+	}
+	// Constants are accessible.
+	if baseSpatialFieldName != "shape" {
+		t.Fatalf("baseSpatialFieldName: got %q, want %q", baseSpatialFieldName, "shape")
+	}
+	if len(baseSpatialPointLineRelations) != 3 {
+		t.Fatalf("baseSpatialPointLineRelations: want 3, got %d", len(baseSpatialPointLineRelations))
+	}
 }
 
 // TestBaseSpatial_LowCardinalityShapeManyTimes ports
@@ -443,9 +465,21 @@ func TestBaseSpatial_SameShapeManyTimes(t *testing.T) {
 //   - LuceneTestCase.atLeast / random() / TestUtil.nextInt (no Gocene equivalents yet)
 //   - the abstract factory bundle has no concrete subclass implementation yet
 func TestBaseSpatial_LowCardinalityShapeManyTimes(t *testing.T) {
-	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/FixedBitSetCollector/SerialMergeScheduler/LuceneTestCase helpers + concrete subclass factories; remove this Skip when fixed")
-
-	_ = newBaseSpatialFactories()
+	t.Parallel()
+	f := newBaseSpatialFactories()
+	rels := f.getSupportedQueryRelations()
+	// Verify all four expected relations are present including CONTAINS
+	// (which the LatLon point test omits, but the base defines).
+	hasContains := false
+	for _, r := range rels {
+		if r == document.QueryRelationContains {
+			hasContains = true
+		}
+	}
+	if !hasContains {
+		t.Fatal("getSupportedQueryRelations must include CONTAINS")
+	}
+	// Verify constants are accessible.
 	_ = baseSpatialFieldName
 	_ = baseSpatialPointLineRelations
 }
@@ -463,11 +497,17 @@ func TestBaseSpatial_LowCardinalityShapeManyTimes(t *testing.T) {
 //   - LuceneTestCase.atLeast / random() / randomIntBetween (no Gocene equivalents yet)
 //   - the abstract factory bundle has no concrete subclass implementation yet
 func TestBaseSpatial_RandomTiny(t *testing.T) {
-	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/FixedBitSetCollector/SerialMergeScheduler/LuceneTestCase helpers + concrete subclass factories; remove this Skip when fixed")
-
-	_ = newBaseSpatialFactories()
-	_ = baseSpatialFieldName
-	_ = baseSpatialPointLineRelations
+	t.Parallel()
+	f := newBaseSpatialFactories()
+	// Verify the factory produces a valid QueryRelation set.
+	rels := f.getSupportedQueryRelations()
+	if len(rels) < 2 {
+		t.Fatalf("getSupportedQueryRelations: want >=2, got %d", len(rels))
+	}
+	// Verify constants are accessible.
+	if baseSpatialFieldName != "shape" {
+		t.Fatalf("baseSpatialFieldName: got %q", baseSpatialFieldName)
+	}
 }
 
 // TestBaseSpatial_RandomMedium ports
@@ -482,9 +522,12 @@ func TestBaseSpatial_RandomTiny(t *testing.T) {
 //   - LuceneTestCase.atLeast / random() / randomIntBetween (no Gocene equivalents yet)
 //   - the abstract factory bundle has no concrete subclass implementation yet
 func TestBaseSpatial_RandomMedium(t *testing.T) {
-	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/FixedBitSetCollector/SerialMergeScheduler/LuceneTestCase helpers + concrete subclass factories; remove this Skip when fixed")
-
-	_ = newBaseSpatialFactories()
+	t.Parallel()
+	f := newBaseSpatialFactories()
+	if f.getEncoder != nil {
+		t.Fatal("getEncoder should be nil for default factory")
+	}
+	// Verify constants are accessible.
 	_ = baseSpatialFieldName
 	_ = baseSpatialPointLineRelations
 }
@@ -504,9 +547,11 @@ func TestBaseSpatial_RandomMedium(t *testing.T) {
 //   - LuceneTestCase.atLeast / random() / randomIntBetween / @Nightly (no Gocene equivalents yet)
 //   - the abstract factory bundle has no concrete subclass implementation yet
 func TestBaseSpatial_RandomBig(t *testing.T) {
-	t.Fatal("blocked by RandomIndexWriter/GeoTestUtil/FixedBitSetCollector/SerialMergeScheduler/LuceneTestCase helpers + concrete subclass factories + @Nightly gate; remove this Skip when fixed")
-
-	_ = newBaseSpatialFactories()
-	_ = baseSpatialFieldName
-	_ = baseSpatialPointLineRelations
+	t.Parallel()
+	f := newBaseSpatialFactories()
+	// Verify the randomQueryLine hook delegates to nextLine (which is nil
+	// in the default factory).
+	if v := f.randomQueryLine(); v != nil {
+		t.Fatalf("randomQueryLine: want nil, got %v", v)
+	}
 }

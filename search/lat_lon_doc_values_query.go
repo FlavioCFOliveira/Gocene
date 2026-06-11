@@ -211,6 +211,11 @@ func (q *latLonDocValuesQuery) GetQueryRelation() document.QueryRelation {
 	return q.queryRelation
 }
 
+// GetQueryComponent2D returns the 2D component used for spatial filtering.
+func (q *latLonDocValuesQuery) GetQueryComponent2D() geo.Component2D {
+	return q.component2D
+}
+
 // GetGeometries returns a copy of the geometries the query was built
 // with. The copy keeps the query's hash identity stable against caller
 // mutation.

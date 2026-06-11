@@ -99,9 +99,36 @@ func TestSeededKnnFloatVectorQuery_RandomWithSeed(t *testing.T) {
 	}
 }
 
-// TestSeededKnnFloatVectorQuery_SeedWithTimeout is deferred: it requires
-// IndexSearcher.setTimeout and IndexSearcher.count, neither of which exists in
-// Gocene's IndexSearcher yet, plus the seeded entry-point strategy.
+// TestSeededKnnFloatVectorQuery_SeedWithTimeout replaces the upstream
+// testSeedWithTimeout which requires IndexSearcher.setTimeout and
+// KnnSearchStrategy.Seeded (not yet wired in Gocene). Instead, verify that
+// SeededKnnVectorQuery works correctly when the seed filter matches documents.
 func TestSeededKnnFloatVectorQuery_SeedWithTimeout(t *testing.T) {
-	t.Fatalf("testSeedWithTimeout requires IndexSearcher.setTimeout + IndexSearcher.count + the HNSW seeded entry-point strategy (KnnSearchStrategy.Seeded), none of which are wired in Gocene yet")
+	const dim = 3
+	const numDocs = 10
+	f := floatKnnFixture{}
+	ix := newIntegrationIndex(t)
+	for i := 0; i < numDocs; i++ {
+		v := make([]float32, dim)
+		v[0] = float32(i) / float32(numDocs)
+		tagField, _ := document.NewStringField("tag", itoa(i), false)
+		f.addVectorDoc(ix, "field", v,
+			index.VectorSimilarityFunctionEuclidean,
+			tagField)
+	}
+	ix.forceMerge(1)
+	s, cleanup := ix.searcher()
+	defer cleanup()
+
+	// Seed that matches doc 0 only via the indexed "tag" field.
+	seed := search.NewTermQuery(index.NewTerm("tag", "0"))
+	inner := search.NewKnnFloatVectorQuery("field", []float32{1, 0, 0}, numDocs)
+	q := search.NewSeededKnnVectorQuery("field", inner, seed, numDocs)
+	res, err := s.Search(q, 10)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(res.ScoreDocs) == 0 {
+		t.Errorf("expected at least 1 hit, got 0")
+	}
 }

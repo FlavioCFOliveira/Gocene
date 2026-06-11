@@ -97,7 +97,7 @@ func (it *RangeDocIdSetIterator) NextDoc() (int, error) {
 
 // Advance advances to the target document.
 func (it *RangeDocIdSetIterator) Advance(target int) (int, error) {
-	if target >= it.maxDoc {
+	if target >= it.maxDoc || it.minDoc >= it.maxDoc {
 		it.doc = NO_MORE_DOCS
 		return it.doc, nil
 	}

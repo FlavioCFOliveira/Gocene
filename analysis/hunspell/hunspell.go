@@ -190,7 +190,7 @@ func (h *Hunspell) checkCompoundsFull(word []rune, originalCase WordCase, prev *
 				stem = h.findStem(word, 0, breakPos+1, originalCase, context)
 			}
 			if stem != nil && !d.HasFlag(stem.EntryID, d.forbiddenword) {
-				if prev == nil || prev.mayCompound(stem, breakPos) {
+				if prev == nil || h.mayCompound(prev, stem, breakPos, originalCase) {
 					part := &compoundPart{prev: prev, word: word, breakPos: breakPos, root: stem}
 					if h.checkCompoundsAfter(word, originalCase, part) {
 						return true
@@ -222,7 +222,8 @@ func (h *Hunspell) checkCompoundsAfter(word []rune, originalCase WordCase, prev 
 	if lastRoot != nil &&
 		!d.HasFlag(lastRoot.EntryID, d.forbiddenword) &&
 		!(d.checkCompoundDup && prev.root.Word == lastRoot.Word) &&
-		prev.mayCompound(lastRoot, len(rem)) {
+		!h.hasForceUCaseProblem(lastRoot, originalCase, word) &&
+			h.mayCompound(prev, lastRoot, len(rem), originalCase) {
 		return true
 	}
 	return h.checkCompoundsFull(rem, originalCase, prev)
@@ -421,6 +422,67 @@ func (h *Hunspell) canBeBrokenAt(word, breakStr string, breakPos int) bool {
 	return h.Spell(word[:breakPos]) && h.Spell(word[breakPos+len(breakStr):])
 }
 
+// ─── Compound part checking ──────────────────────────────────────────────────
+
+// mayCompound checks whether the next compound part can be appended after this
+// part. It enforces CHECKCOMPOUNDPATTERN, CHECKCOMPOUNDREP, and the space-separated
+// wordpair rule.
+func (h *Hunspell) mayCompound(cp *compoundPart, nextRoot *Root, nextPartLen int, originalCase WordCase) bool {
+	d := h.Dictionary
+
+	// 1. CHECKCOMPOUNDPATTERN — reject compounds matching forbidden patterns.
+	for _, pat := range d.checkCompoundPatterns {
+		if pat.ProhibitsCompounding(cp.word, cp.breakPos, cp.root, nextRoot) {
+			return false
+		}
+	}
+
+	// 2. CHECKCOMPOUNDREP — reject compounds whose combined form matches a
+	//    REP-based misspelling of an existing dictionary word.
+	if d.checkCompoundRep {
+		combinedLen := cp.breakPos + nextPartLen
+		if combinedLen <= len(cp.word) {
+			combinedWord := string(cp.word[:combinedLen])
+// outer label (unused, retained for clarity)
+			for _, entry := range d.repTable {
+				if entry.IsMiddle() {
+					for _, sug := range entry.Substitute(combinedWord) {
+						sugRunes := []rune(sug)
+						if h.findStem(sugRunes, 0, len(sugRunes), originalCase, WordContextSimpleWord) != nil {
+							return false
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 3. Space test (wordpair rule) — reject if the two parts separated by a
+	//    space form a valid simple dictionary word.
+	spaceWord := make([]rune, cp.breakPos+1+nextPartLen)
+	copy(spaceWord, cp.word[:cp.breakPos])
+	spaceWord[cp.breakPos] = ' '
+	copy(spaceWord[cp.breakPos+1:], cp.word[cp.breakPos:cp.breakPos+nextPartLen])
+	if h.checkSimpleWord(spaceWord, len(spaceWord), WordCaseNeutral, false) == 1 {
+		return false
+	}
+
+	return true
+}
+
+// hasForceUCaseProblem checks whether the given root has the FORCEUCASE flag
+// and the word does not start with an uppercase letter. Returns true if the
+// word should be rejected for failing to capitalize a FORCEUCASE word.
+func (h *Hunspell) hasForceUCaseProblem(root *Root, originalCase WordCase, wordChars []rune) bool {
+	if originalCase == WordCaseTitle || originalCase == WordCaseUpper {
+		return false
+	}
+	if originalCase == WordCaseNeutral && len(wordChars) > 0 && unicode.IsUpper(wordChars[0]) {
+		return false
+	}
+	return h.Dictionary.HasFlag(root.EntryID, h.Dictionary.forceUCase)
+}
+
 // ─── compoundPart ─────────────────────────────────────────────────────────────
 
 type compoundPart struct {
@@ -432,10 +494,8 @@ type compoundPart struct {
 }
 
 func (cp *compoundPart) mayCompound(nextRoot *Root, nextPartLen int) bool {
-	d := cp.root // not dictionary but root of part; we need dictionary
-	_ = d
-	_ = nextRoot
-	_ = nextPartLen
-	// pattern checks deferred; for now check nothing (conservative allow)
+	// mayCompound is now implemented as Hunspell.mayCompound (see above).
+	// This stub is retained for compilation but the Hunspell method is
+	// called from the compound-checking paths.
 	return true
 }

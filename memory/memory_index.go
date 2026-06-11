@@ -13,12 +13,40 @@ import (
 	"sync"
 )
 
+// docValue holds a single doc-value entry stored in MemoryIndex.
+type docValue struct {
+	numeric       *int64   // NumericDocValues
+	binary        []byte   // BinaryDocValues
+	sorted        []byte   // SortedDocValues
+	sortedNumeric []int64  // SortedNumericDocValues
+	sortedSet     [][]byte // SortedSetDocValues
+}
+
+// pointValue holds a single point-value entry stored in MemoryIndex.
+type pointValue struct {
+	packedValue []byte
+	docID       int
+}
+
+// pointFieldMeta holds metadata for a point field stored in MemoryIndex.
+type pointFieldMeta struct {
+	numDims     int
+	bytesPerDim int
+	values      []pointValue
+}
+
 // MemoryIndex is an in-memory index that stores a single document.
 // It is useful for highlighting and other operations that need to
 // analyze a single document without writing to disk.
 type MemoryIndex struct {
 	// fields stores the field data
 	fields map[string]*memoryField
+
+	// docValues stores doc values per field
+	docValues map[string]*docValue
+
+	// pointFields stores point value metadata per field
+	pointFields map[string]*pointFieldMeta
 
 	// maxReusedBytes is the maximum number of bytes that can be reused
 	maxReusedBytes int
@@ -63,6 +91,8 @@ type positionInfo struct {
 func NewMemoryIndex() *MemoryIndex {
 	return &MemoryIndex{
 		fields:         make(map[string]*memoryField),
+		docValues:      make(map[string]*docValue),
+		pointFields:    make(map[string]*pointFieldMeta),
 		maxReusedBytes: 1024 * 1024, // 1MB default
 	}
 }
@@ -71,6 +101,8 @@ func NewMemoryIndex() *MemoryIndex {
 func NewMemoryIndexWithMaxReusedBytes(maxReusedBytes int) *MemoryIndex {
 	return &MemoryIndex{
 		fields:         make(map[string]*memoryField),
+		docValues:      make(map[string]*docValue),
+		pointFields:    make(map[string]*pointFieldMeta),
 		maxReusedBytes: maxReusedBytes,
 	}
 }
@@ -157,6 +189,105 @@ func (mf *memoryField) addTerm(term string, position int, startOffset, endOffset
 		startOffset: startOffset,
 		endOffset:   endOffset,
 	})
+}
+
+// AddNumericDocValues stores a numeric doc value for the given field.
+func (mi *MemoryIndex) AddNumericDocValues(field string, value int64) error {
+	mi.mu.Lock()
+	defer mi.mu.Unlock()
+	if mi.frozen {
+		return fmt.Errorf("index is frozen")
+	}
+	dv := mi.docValues[field]
+	if dv == nil {
+		dv = &docValue{}
+		mi.docValues[field] = dv
+	}
+	dv.numeric = &value
+	return nil
+}
+
+// AddBinaryDocValues stores a binary doc value for the given field.
+func (mi *MemoryIndex) AddBinaryDocValues(field string, value []byte) error {
+	mi.mu.Lock()
+	defer mi.mu.Unlock()
+	if mi.frozen {
+		return fmt.Errorf("index is frozen")
+	}
+	dv := mi.docValues[field]
+	if dv == nil {
+		dv = &docValue{}
+		mi.docValues[field] = dv
+	}
+	dv.binary = value
+	return nil
+}
+
+// AddSortedDocValues stores a sorted doc value for the given field.
+func (mi *MemoryIndex) AddSortedDocValues(field string, value []byte) error {
+	mi.mu.Lock()
+	defer mi.mu.Unlock()
+	if mi.frozen {
+		return fmt.Errorf("index is frozen")
+	}
+	dv := mi.docValues[field]
+	if dv == nil {
+		dv = &docValue{}
+		mi.docValues[field] = dv
+	}
+	dv.sorted = value
+	return nil
+}
+
+// AddSortedNumericDocValues stores sorted numeric doc values for the given field.
+func (mi *MemoryIndex) AddSortedNumericDocValues(field string, values []int64) error {
+	mi.mu.Lock()
+	defer mi.mu.Unlock()
+	if mi.frozen {
+		return fmt.Errorf("index is frozen")
+	}
+	dv := mi.docValues[field]
+	if dv == nil {
+		dv = &docValue{}
+		mi.docValues[field] = dv
+	}
+	dv.sortedNumeric = values
+	return nil
+}
+
+// AddSortedSetDocValues stores sorted set doc values for the given field.
+func (mi *MemoryIndex) AddSortedSetDocValues(field string, values [][]byte) error {
+	mi.mu.Lock()
+	defer mi.mu.Unlock()
+	if mi.frozen {
+		return fmt.Errorf("index is frozen")
+	}
+	dv := mi.docValues[field]
+	if dv == nil {
+		dv = &docValue{}
+		mi.docValues[field] = dv
+	}
+	dv.sortedSet = values
+	return nil
+}
+
+// AddPointField adds a point value for the given field.
+func (mi *MemoryIndex) AddPointField(field string, packedValue []byte, numDims, bytesPerDim int) error {
+	mi.mu.Lock()
+	defer mi.mu.Unlock()
+	if mi.frozen {
+		return fmt.Errorf("index is frozen")
+	}
+	pfm := mi.pointFields[field]
+	if pfm == nil {
+		pfm = &pointFieldMeta{
+			numDims:     numDims,
+			bytesPerDim: bytesPerDim,
+		}
+		mi.pointFields[field] = pfm
+	}
+	pfm.values = append(pfm.values, pointValue{packedValue: packedValue, docID: 0})
+	return nil
 }
 
 // Freeze freezes the index, preventing further modifications.
@@ -263,6 +394,8 @@ func (mi *MemoryIndex) Reset() {
 	defer mi.mu.Unlock()
 
 	mi.fields = make(map[string]*memoryField)
+	mi.docValues = make(map[string]*docValue)
+	mi.pointFields = make(map[string]*pointFieldMeta)
 	mi.frozen = false
 }
 

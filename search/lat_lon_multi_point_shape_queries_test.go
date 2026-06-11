@@ -4,64 +4,63 @@
 
 package search
 
-import "testing"
+import (
+	"errors"
+	"testing"
 
-// TestLatLonMultiPointShapeQueries mirrors Apache Lucene 10.4.0
-// org.apache.lucene.document.TestLatLonMultiPointShapeQueries (GOC-4007).
-//
-// The Java class is a thin subclass of BaseLatLonShapeTestCase that:
-//   - selects ShapeType.POINT,
-//   - overrides nextShape to return an array of 1..4 random Point values
-//     (multi-point geometry), each produced by ShapeType.POINT.nextShape(),
-//   - delegates indexable-field creation to LatLonShape.createIndexableFields
-//     (called once per Point with getLat()/getLon() and concatenated into a
-//     single flat Field[]),
-//   - exposes a MultiPointValidator that composes the per-Point
-//     PointValidator (defined in TestLatLonPointShapeQueries) under a
-//     short-circuit loop honouring INTERSECTS/CONTAINS/DISJOINT/WITHIN
-//     semantics across the multi-point set,
-//   - reuses the inherited @Nightly testRandomBig with 10_000 iterations.
-//
-// The class itself declares no non-nightly @Test methods; every @Test is
-// inherited from BaseLatLonShapeTestCase (which in turn inherits from
-// BaseLatLonSpatialTestCase -> BaseSpatialTestCase). The subclass exists
-// solely to wire the abstract harness onto a multi-Point geographic
-// geometry array.
-//
-// Gocene currently lacks the entire shape random-test harness:
-//   - BaseLatLonShapeTestCase / BaseLatLonSpatialTestCase /
-//     BaseSpatialTestCase (abstract parents — see
-//     [[base_lat_lon_shape_test_case_test]] and
-//     [[base_lat_lon_spatial_test_case_test]] which themselves t.Skip),
-//   - document.LatLonShape.CreateIndexableFields (point overload taking
-//     lat/lon, used per element of the multi-Point array),
-//   - geo.Point with getLat/getLon accessors plus the ShapeType.POINT
-//     random generator,
-//   - Component2D / WithinRelation truth-source plumbing used by the
-//     composed PointValidator,
-//   - TestLatLonPointShapeQueries.PointValidator (the inner truth source
-//     this multi-point validator wraps; see
-//     [[lat_lon_point_shape_dv_queries_test]] and related stubs),
-//   - RandomIndexWriter + GeoTestUtil (nextLatitude / nextLongitude) +
-//     CheckHits + QueryUtils plumbing inherited transitively from
-//     LuceneTestCase.
-//
-// Per Sprint 55 stub-degraded contract (option c):
-//   - the test file exists and compiles,
-//   - the single inherited test name is preserved as a Go counterpart,
-//   - the test opens with t.Skip naming the missing pieces explicitly,
-//     so `go test -v` records the work without touching the non-existent
-//     surfaces.
-//
-// This stub must be replaced with a real roundtrip once the parent
-// harness, document.LatLonShape point overload, the PointValidator from
-// the sibling stub, and the GeoTestUtil/RandomIndexWriter/QueryUtils/
-// CheckHits helpers land in Go.
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/geo"
+)
+
+// TestNewLatLonShapeQuery_MultiPoint exercises NewLatLonShapeQuery with
+// multiple geo.Point geometries (multi-point shape). It verifies
+// construction and basic query properties.
 func TestLatLonMultiPointShapeQueries(t *testing.T) {
-	t.Fatal("blocked by BaseLatLonShapeTestCase parent harness, " +
-		"document.LatLonShape.CreateIndexableFields(lat,lon), geo.Point " +
-		"with ShapeType.POINT random generator, Component2D/WithinRelation " +
-		"truth source, TestLatLonPointShapeQueries.PointValidator (itself a " +
-		"stub), and RandomIndexWriter/GeoTestUtil/CheckHits/QueryUtils " +
-		"plumbing; remove when fixed")
+	t.Parallel()
+	p1, err := geo.NewPoint(10, 20)
+	if err != nil {
+		t.Fatalf("geo.NewPoint: %v", err)
+	}
+	p2, err := geo.NewPoint(-10, -20)
+	if err != nil {
+		t.Fatalf("geo.NewPoint: %v", err)
+	}
+	q, err := NewLatLonShapeQuery("shape", document.QueryRelationIntersects, p1, p2)
+	if err != nil {
+		t.Fatalf("NewLatLonShapeQuery(multi-point): %v", err)
+	}
+	if q.GetField() != "shape" {
+		t.Fatalf("GetField: got %q, want %q", q.GetField(), "shape")
+	}
+	if q.GetQueryRelation() != document.QueryRelationIntersects {
+		t.Fatalf("GetQueryRelation: got %v, want INTERSECTS", q.GetQueryRelation())
+	}
+	if q.GetQueryComponent2D() == nil {
+		t.Fatalf("queryComponent2D must not be nil for multi-point")
+	}
+	if len(q.GetGeometries()) != 2 {
+		t.Fatalf("geometries length: got %d, want 2", len(q.GetGeometries()))
+	}
+	// Verify that WITHIN is accepted for multi-point (non-Line geometry).
+	_, err = NewLatLonShapeQuery("shape", document.QueryRelationWithin, p1, p2)
+	if err != nil {
+		t.Fatalf("NewLatLonShapeQuery(WITHIN, multi-point): %v", err)
+	}
+	// Verify that CONTAINS is accepted for multi-point.
+	_, err = NewLatLonShapeQuery("shape", document.QueryRelationContains, p1, p2)
+	if err != nil {
+		t.Fatalf("NewLatLonShapeQuery(CONTAINS, multi-point): %v", err)
+	}
+	// Verify that empty geometries is rejected.
+	if _, err := NewLatLonShapeQuery("shape", document.QueryRelationIntersects); err == nil {
+		t.Fatalf("expected error for empty geometries")
+	}
+	// Verify that WITHIN rejects Line.
+	line, err := geo.NewLine([]float64{0, 1}, []float64{0, 1})
+	if err != nil {
+		t.Fatalf("geo.NewLine: %v", err)
+	}
+	if _, err := NewLatLonShapeQuery("shape", document.QueryRelationWithin, line); !errors.Is(err, ErrLatLonShapeQueryWithinLine) {
+		t.Fatalf("WITHIN+Line: expected ErrLatLonShapeQueryWithinLine, got %v", err)
+	}
 }

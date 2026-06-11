@@ -63,6 +63,10 @@ func (it *UpdateableDocIdSetIterator) Update(iterator search.DocIdSetIterator) {
 		panic("UpdateableDocIdSetIterator.Update: iterator must not be nil")
 	}
 	it.in = iterator
+	// Reset position if exhausted so the next Advance/NextDoc starts fresh.
+	if it.doc == search.NO_MORE_DOCS {
+		it.doc = -1
+	}
 }
 
 // DocID returns the current document ID.

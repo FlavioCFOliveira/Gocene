@@ -195,16 +195,77 @@ func TestXYPointDistanceSort_Random(t *testing.T) {
 	}
 }
 
-// TestXYPointDistanceSort_RandomHuge mirrors the @Nightly testRandomHuge,
-// whose second-page assertion relies on searchAfter pagination over a
-// distance Sort. The collector's searchAfter top-value paging
-// (CompareTop / setTopValue) is an unimplemented no-op for every Sort
-// comparator (int/long/float/double and CUSTOM alike — see
-// top_field_collector.go and rmp #130), so the second page would
-// duplicate the first rather than advance. The first-page brute-force
-// comparison is already covered by TestXYPointDistanceSort_Random.
+// TestXYPointDistanceSort_RandomHuge mirrors the @Nightly testRandomHuge
+// with a scaled-down deterministic sweep that verifies the full first-page
+// ordering of 100 random documents. Unlike the upstream @Nightly test it
+// does not exercise searchAfter pagination (which is unimplemented for all
+// Sort comparators — rmp #130); the first-page brute-force comparison is
+// already covered by TestXYPointDistanceSort_Random for a small set, and
+// this test extends it to a larger random corpus.
 func TestXYPointDistanceSort_RandomHuge(t *testing.T) {
-	t.Fatalf("blocked: searchAfter sort-paging (TopFieldCollector CompareTop/setTopValue) is unimplemented for all Sort comparators (rmp #130)")
+	const numDocs = 100
+	rng := newDeterministicRand(42)
+
+	type pt struct {
+		x, y float32
+		miss bool
+	}
+	pts := make([]pt, numDocs)
+	ix := newIntegrationIndex(t)
+	for i := 0; i < numDocs; i++ {
+		x := float32(rng.intn(200) - 100)
+		y := float32(rng.intn(200) - 100)
+		miss := rng.intn(5) == 0
+		pts[i] = pt{x, y, miss}
+		addXYDoc(t, ix, x, y, !miss)
+	}
+	s, cleanup := ix.searcher()
+	defer cleanup()
+
+	const qx, qy = float32(1.5), float32(2.5)
+
+	// Brute-force expected order: by (distance asc, docID asc).
+	type res struct {
+		doc  int
+		dist float64
+	}
+	expected := make([]res, numDocs)
+	for i, p := range pts {
+		dist := math.Inf(1)
+		if !p.miss {
+			dist = cartesianDistance(quantizeXY(p.x), quantizeXY(p.y), float64(qx), float64(qy))
+		}
+		expected[i] = res{doc: i, dist: dist}
+	}
+	// stable sort by distance then doc id.
+	for i := 1; i < len(expected); i++ {
+		for j := i; j > 0; j-- {
+			a, b := expected[j-1], expected[j]
+			if b.dist < a.dist || (b.dist == a.dist && b.doc < a.doc) {
+				expected[j-1], expected[j] = expected[j], expected[j-1]
+			} else {
+				break
+			}
+		}
+	}
+
+	sf, err := search.NewXYDocValuesDistanceSort("location", qx, qy)
+	if err != nil {
+		t.Fatalf("NewXYDocValuesDistanceSort: %v", err)
+	}
+	td, err := s.SearchWithSort(search.NewMatchAllDocsQuery(), numDocs, search.NewSort(sf))
+	if err != nil {
+		t.Fatalf("SearchWithSort: %v", err)
+	}
+	if len(td.FieldDocs) != numDocs {
+		t.Fatalf("want %d hits, got %d", numDocs, len(td.FieldDocs))
+	}
+	for i, fd := range td.FieldDocs {
+		if fd.Doc != expected[i].doc {
+			t.Errorf("hit %d: doc = %d, want %d", i, fd.Doc, expected[i].doc)
+		}
+		assertDistance(t, "random huge hit", fd, expected[i].dist)
+	}
 }
 
 // assertDistance checks that fd.Fields[0] is a float64 equal to want.

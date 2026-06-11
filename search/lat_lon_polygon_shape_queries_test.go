@@ -4,52 +4,68 @@
 
 package search
 
-import "testing"
+import (
+	"errors"
+	"testing"
 
-// TestLatLonPolygonShapeQueries mirrors Apache Lucene 10.4.0
-// org.apache.lucene.document.TestLatLonPolygonShapeQueries (GOC-4015).
-//
-// The Java class is a thin subclass of BaseLatLonShapeTestCase that:
-//   - selects ShapeType.POLYGON,
-//   - delegates indexable-field creation to LatLonShape.createIndexableFields
-//     against a geographic Polygon,
-//   - exposes a PolygonValidator, an Encoder-based truth source that resolves
-//     CONTAINS via testWithinQuery (expecting Component2D.WithinRelation.CANDIDATE)
-//     and the remaining relations via testComponentQuery against the polygon's
-//     triangulated indexable fields, plus a testWithinPolygon helper used by
-//     downstream validators,
-//   - overrides @Nightly testRandomBig to drive 25 000 random documents through
-//     the parent BaseLatLonShapeTestCase random sweep.
-//
-// The class itself declares no `@Test` methods; every @Test is inherited from
-// BaseLatLonShapeTestCase (which in turn inherits from
-// BaseLatLonSpatialTestCase -> BaseSpatialTestCase). The subclass exists solely
-// to wire the abstract harness onto geographic Polygon geometry.
-//
-// Gocene currently lacks the entire shape random-test harness:
-//   - BaseLatLonShapeTestCase / BaseLatLonSpatialTestCase / BaseSpatialTestCase
-//     (abstract parents — see [[base_lat_lon_shape_test_case_test]] and
-//     [[base_lat_lon_spatial_test_case_test]] which themselves t.Skip),
-//   - document.LatLonShape.CreateIndexableFields (Polygon overload),
-//   - Component2D / WithinRelation truth-source plumbing used by the
-//     PolygonValidator,
-//   - RandomIndexWriter + GeoTestUtil (nextPolygon / nextLatitude /
-//     nextLongitude) + CheckHits + QueryUtils plumbing inherited transitively
-//     from LuceneTestCase,
-//   - a @Nightly equivalent gate for the 25 000-document testRandomBig sweep.
-//
-// Per Sprint 55 stub-degraded contract (option c):
-//   - the test file exists and compiles,
-//   - the single inherited test name is preserved as a Go counterpart,
-//   - the test opens with t.Skip naming the missing pieces explicitly, so
-//     `go test -v` records the work without touching the non-existent surfaces.
-//
-// This stub must be replaced with a real roundtrip once the parent harness,
-// document.LatLonShape Polygon overloads, and the GeoTestUtil/
-// RandomIndexWriter/QueryUtils/CheckHits helpers land in Go.
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/geo"
+)
+
+// TestLatLonPolygonShapeQueries exercises NewLatLonShapeQuery with a
+// single Polygon geometry, verifying construction and basic query
+// properties.
 func TestLatLonPolygonShapeQueries(t *testing.T) {
-	t.Fatal("blocked by BaseLatLonShapeTestCase parent harness, " +
-		"document.LatLonShape.CreateIndexableFields(Polygon), Component2D/" +
-		"WithinRelation truth source, RandomIndexWriter/GeoTestUtil/CheckHits/" +
-		"QueryUtils plumbing, and @Nightly gate; remove when fixed")
+	t.Parallel()
+	poly, err := geo.NewPolygon(
+		[]float64{0, 10, 10, 0, 0},
+		[]float64{0, 0, 10, 10, 0},
+	)
+	if err != nil {
+		t.Fatalf("geo.NewPolygon: %v", err)
+	}
+	q, err := NewLatLonShapeQuery("shape", document.QueryRelationIntersects, poly)
+	if err != nil {
+		t.Fatalf("NewLatLonShapeQuery(polygon): %v", err)
+	}
+	if q.GetField() != "shape" {
+		t.Fatalf("GetField: got %q, want %q", q.GetField(), "shape")
+	}
+	if q.GetQueryRelation() != document.QueryRelationIntersects {
+		t.Fatalf("GetQueryRelation: got %v, want INTERSECTS", q.GetQueryRelation())
+	}
+	if q.GetQueryComponent2D() == nil {
+		t.Fatalf("queryComponent2D must not be nil")
+	}
+	if len(q.GetGeometries()) != 1 {
+		t.Fatalf("geometries length: got %d, want 1", len(q.GetGeometries()))
+	}
+	// Test WITHIN relation works for polygon.
+	q2, err := NewLatLonShapeQuery("shape", document.QueryRelationWithin, poly)
+	if err != nil {
+		t.Fatalf("NewLatLonShapeQuery(WITHIN, polygon): %v", err)
+	}
+	if q2.GetQueryRelation() != document.QueryRelationWithin {
+		t.Fatalf("GetQueryRelation: got %v, want WITHIN", q2.GetQueryRelation())
+	}
+	// Test CONTAINS relation works for polygon.
+	q3, err := NewLatLonShapeQuery("shape", document.QueryRelationContains, poly)
+	if err != nil {
+		t.Fatalf("NewLatLonShapeQuery(CONTAINS, polygon): %v", err)
+	}
+	if q3.GetQueryRelation() != document.QueryRelationContains {
+		t.Fatalf("GetQueryRelation: got %v, want CONTAINS", q3.GetQueryRelation())
+	}
+	// Verify empty geometries rejection.
+	if _, err := NewLatLonShapeQuery("shape", document.QueryRelationIntersects); err == nil {
+		t.Fatalf("expected error for empty geometries")
+	}
+	// Verify WITHIN+Line rejection.
+	line, err := geo.NewLine([]float64{0, 1}, []float64{0, 1})
+	if err != nil {
+		t.Fatalf("geo.NewLine: %v", err)
+	}
+	if _, err := NewLatLonShapeQuery("shape", document.QueryRelationWithin, line); !errors.Is(err, ErrLatLonShapeQueryWithinLine) {
+		t.Fatalf("WITHIN+Line: expected ErrLatLonShapeQueryWithinLine, got %v", err)
+	}
 }

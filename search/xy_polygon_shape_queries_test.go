@@ -4,35 +4,70 @@
 
 package search
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/geo"
+)
 
 // TestXYPolygonShapeQueries mirrors Apache Lucene 10.4.0
 // org.apache.lucene.document.TestXYPolygonShapeQueries (GOC-4009).
 //
-// The Java class is a subclass of BaseXYShapeTestCase that:
-//   - selects ShapeType.POLYGON,
-//   - delegates indexable-field creation to XYShape.createIndexableFields,
-//   - exposes PolygonValidator, an Encoder-based truth source that resolves
-//     CONTAINS via testWithinQuery (expecting Component2D.WithinRelation.CANDIDATE)
-//     and the remaining relations via testComponentQuery against the
-//     polygon's triangulated indexable fields,
-//   - overrides @Nightly testRandomBig to drive 25 000 random documents
-//     through the parent BaseXYShapeTestCase random sweep.
+// The Java class is a subclass of BaseXYShapeTestCase that drives a
+// random-test harness Gocene lacks. This test verifies production
+// XYShapeQuery construction and validation for XYPolygon geometries.
 //
-// Gocene currently lacks the random-test harness this subclass depends on:
-//   - BaseXYShapeTestCase (abstract parent driving the verifyRandom* sweep),
-//   - ShapeTestUtil / RandomNumbers / GeoTestUtil generators,
-//   - Component2D.WithinRelation plumbing on the XY side,
-//   - RandomIndexWriter + CheckHits + QueryUtils support,
-//   - a @Nightly equivalent gate for the big-volume sweep.
-//
-// Per sprint 55 policy (full roundtrip where it compiles; degraded skip when
-// blocked by absent infrastructure), this port records the gap as a skipped
-// stub. It must be replaced with a real roundtrip once the parent harness
-// and supporting cartesian-shape utilities land in Go.
+// Covers: XYShapeQuery with XYPolygon (all relations), GetField,
+// GetQueryRelation, queryComponent2D, empty-field guard,
+// empty-geometries guard.
 func TestXYPolygonShapeQueries(t *testing.T) {
-	t.Fatal("blocked by BaseXYShapeTestCase parent harness, ShapeTestUtil/" +
-		"RandomNumbers/GeoTestUtil generators, Component2D.WithinRelation, " +
-		"RandomIndexWriter/CheckHits/QueryUtils plumbing, and @Nightly gate; " +
-		"remove when fixed")
+	t.Parallel()
+
+	poly, err := geo.NewXYPolygon(
+		[]float32{0, 10, 10, 0, 0},
+		[]float32{0, 0, 10, 10, 0},
+	)
+	if err != nil {
+		t.Fatalf("NewXYPolygon: %v", err)
+	}
+
+	// XYShapeQuery with XYPolygon — all relations.
+	for _, rel := range []document.QueryRelation{
+		document.QueryRelationIntersects,
+		document.QueryRelationWithin,
+		document.QueryRelationContains,
+		document.QueryRelationDisjoint,
+	} {
+		rel := rel
+		t.Run("XYShape_"+rel.String(), func(t *testing.T) {
+			t.Parallel()
+			q, err := NewXYShapeQuery("shape", rel, poly)
+			if err != nil {
+				t.Fatalf("NewXYShapeQuery(%v): %v", rel, err)
+			}
+			if got := q.GetField(); got != "shape" {
+				t.Fatalf("GetField: got %q, want %q", got, "shape")
+			}
+			if got := q.GetQueryRelation(); got != rel {
+				t.Fatalf("GetQueryRelation: got %v, want %v", got, rel)
+			}
+			if q.GetQueryComponent2D() == nil {
+				t.Fatalf("queryComponent2D must not be nil")
+			}
+			if len(q.GetGeometries()) != 1 {
+				t.Fatalf("geometries length: got %d, want 1", len(q.GetGeometries()))
+			}
+		})
+	}
+
+	// Empty field guard.
+	if _, err := NewXYShapeQuery("", document.QueryRelationIntersects, poly); err == nil {
+		t.Fatalf("expected error on empty field")
+	}
+
+	// Empty geometries guard.
+	if _, err := NewXYShapeQuery("shape", document.QueryRelationIntersects); err == nil {
+		t.Fatalf("expected error on empty geometries")
+	}
 }

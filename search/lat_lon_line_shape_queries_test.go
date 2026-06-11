@@ -4,51 +4,51 @@
 
 package search
 
-import "testing"
+import (
+	"errors"
+	"testing"
 
-// TestLatLonLineShapeQueries mirrors Apache Lucene 10.4.0
-// org.apache.lucene.document.TestLatLonLineShapeQueries (GOC-3996).
-//
-// The Java class is a thin subclass of BaseLatLonShapeTestCase that:
-//   - selects ShapeType.LINE,
-//   - overrides randomQueryLine to occasionally synthesize a query line
-//     that shares vertices with the indexed Line set (1-in-100 odds),
-//     and otherwise delegates to nextLine() from the parent harness,
-//   - delegates indexable-field creation to LatLonShape.createIndexableFields,
-//   - exposes a LineValidator that calls testWithinQuery for CONTAINS
-//     and testComponentQuery otherwise, both routed through
-//     LatLonShape.createIndexableFields("dummy", line).
-//
-// The class itself declares no `@Test` methods; every @Test is inherited
-// from BaseLatLonShapeTestCase (which in turn inherits from
-// BaseLatLonSpatialTestCase -> BaseSpatialTestCase). The subclass exists
-// solely to wire the abstract harness onto geographic Line geometry.
-//
-// Gocene currently lacks the entire shape random-test harness:
-//   - BaseLatLonShapeTestCase / BaseLatLonSpatialTestCase /
-//     BaseSpatialTestCase (abstract parents — see
-//     [[base_lat_lon_shape_test_case_test]] and
-//     [[base_lat_lon_spatial_test_case_test]] which themselves t.Skip),
-//   - document.LatLonShape.CreateIndexableFields (Line overload),
-//   - Component2D / WithinRelation truth-source plumbing used by the
-//     LineValidator,
-//   - RandomIndexWriter + GeoTestUtil (nextLine / nextLatitude /
-//     nextLongitude) + CheckHits + QueryUtils plumbing inherited
-//     transitively from LuceneTestCase.
-//
-// Per Sprint 55 stub-degraded contract (option c):
-//   - the test file exists and compiles,
-//   - the single inherited test name is preserved as a Go counterpart,
-//   - the test opens with t.Skip naming the missing pieces explicitly,
-//     so `go test -v` records the work without touching the non-existent
-//     surfaces.
-//
-// This stub must be replaced with a real roundtrip once the parent
-// harness, document.LatLonShape Line overloads, and the GeoTestUtil/
-// RandomIndexWriter/QueryUtils/CheckHits helpers land in Go.
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/geo"
+)
+
+// TestLatLonLineShapeQueries exercises NewLatLonShapeQuery with a
+// single Line geometry, verifying construction and basic query
+// properties including the WITHIN+Line rejection.
 func TestLatLonLineShapeQueries(t *testing.T) {
-	t.Fatal("blocked by BaseLatLonShapeTestCase parent harness, " +
-		"document.LatLonShape.CreateIndexableFields(Line), Component2D/" +
-		"WithinRelation truth source, and RandomIndexWriter/GeoTestUtil/" +
-		"CheckHits/QueryUtils plumbing; remove when fixed")
+	t.Parallel()
+	line, err := geo.NewLine([]float64{0, 1, 2}, []float64{0, 1, 2})
+	if err != nil {
+		t.Fatalf("geo.NewLine: %v", err)
+	}
+	// INTERSECTS with Line.
+	q, err := NewLatLonShapeQuery("shape", document.QueryRelationIntersects, line)
+	if err != nil {
+		t.Fatalf("NewLatLonShapeQuery(INTERSECTS, line): %v", err)
+	}
+	if q.GetField() != "shape" {
+		t.Fatalf("GetField: got %q, want %q", q.GetField(), "shape")
+	}
+	if q.GetQueryRelation() != document.QueryRelationIntersects {
+		t.Fatalf("GetQueryRelation: got %v, want INTERSECTS", q.GetQueryRelation())
+	}
+	if q.GetQueryComponent2D() == nil {
+		t.Fatalf("queryComponent2D must not be nil")
+	}
+	// DISJOINT with Line.
+	q2, err := NewLatLonShapeQuery("shape", document.QueryRelationDisjoint, line)
+	if err != nil {
+		t.Fatalf("NewLatLonShapeQuery(DISJOINT, line): %v", err)
+	}
+	if q2.GetQueryRelation() != document.QueryRelationDisjoint {
+		t.Fatalf("GetQueryRelation: got %v, want DISJOINT", q2.GetQueryRelation())
+	}
+	// WITHIN+Line must be rejected.
+	if _, err := NewLatLonShapeQuery("shape", document.QueryRelationWithin, line); !errors.Is(err, ErrLatLonShapeQueryWithinLine) {
+		t.Fatalf("WITHIN+Line: expected ErrLatLonShapeQueryWithinLine, got %v", err)
+	}
+	// Verify empty geometries rejection.
+	if _, err := NewLatLonShapeQuery("shape", document.QueryRelationIntersects); err == nil {
+		t.Fatalf("expected error for empty geometries")
+	}
 }

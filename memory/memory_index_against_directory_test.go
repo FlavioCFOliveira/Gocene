@@ -20,6 +20,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/memory"
 	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // testTerms mirrors the TEST_TERMS constant from the Java source.
@@ -126,7 +127,11 @@ func TestMemoryIndexAgainstDirectory_DocsEnumStart(t *testing.T) {
 	defer searcher.Close()
 
 	reader := searcher.GetReader()
-	terms, err := reader.Terms("field")
+	leafReader, ok := reader.(index.LeafReaderInterface)
+	if !ok {
+		t.Fatal("reader is not a LeafReaderInterface")
+	}
+	terms, err := leafReader.Terms("field")
 	if err != nil {
 		t.Fatalf("Terms: %v", err)
 	}
@@ -194,7 +199,11 @@ func TestMemoryIndexAgainstDirectory_DocsAndPositionsEnumStart(t *testing.T) {
 	defer searcher.Close()
 
 	reader := searcher.GetReader()
-	terms, err := reader.Terms("field")
+	leafReader, ok := reader.(index.LeafReaderInterface)
+	if !ok {
+		t.Fatal("reader is not a LeafReaderInterface")
+	}
+	terms, err := leafReader.Terms("field")
 	if err != nil {
 		t.Fatalf("Terms: %v", err)
 	}
@@ -268,7 +277,11 @@ func TestMemoryIndexAgainstDirectory_NullPointerException(t *testing.T) {
 	}
 
 	// RegexpQuery matching "world" should find the doc.
-	top, err := mi.Search(search.NewRegexpQuery("text", "world"))
+	rq, err := search.NewRegexpQuery("text", "world")
+	if err != nil {
+		t.Fatalf("NewRegexpQuery: %v", err)
+	}
+	top, err := mi.Search(rq, 10)
 	if err != nil {
 		t.Fatalf("Search with RegexpQuery: %v", err)
 	}
@@ -277,7 +290,11 @@ func TestMemoryIndexAgainstDirectory_NullPointerException(t *testing.T) {
 	}
 
 	// RegexpQuery matching nothing should return 0 hits.
-	top, err = mi.Search(search.NewRegexpQuery("text", "zzz"))
+	rq, err = search.NewRegexpQuery("text", "zzz")
+	if err != nil {
+		t.Fatalf("NewRegexpQuery: %v", err)
+	}
+	top, err = mi.Search(rq, 10)
 	if err != nil {
 		t.Fatalf("Search with non-matching RegexpQuery: %v", err)
 	}
@@ -304,7 +321,7 @@ func TestMemoryIndexAgainstDirectory_PassesIfWrapped(t *testing.T) {
 	bq := search.NewBooleanQuery()
 	bq.Add(rq, search.MUST)
 
-	top, err := mi.Search(bq)
+	top, err := mi.Search(bq, 10)
 	if err != nil {
 		t.Fatalf("Search with wrapped RegexpQuery: %v", err)
 	}
@@ -396,7 +413,7 @@ func TestMemoryIndexAgainstDirectory_SearchWithBooleanQuery(t *testing.T) {
 	bq := search.NewBooleanQuery()
 	bq.Add(search.NewTermQuery(index.NewTerm("field", "hello")), search.MUST)
 
-	top, err := mi.Search(bq)
+	top, err := mi.Search(bq, 10)
 	if err != nil {
 		t.Fatalf("Search with BooleanQuery: %v", err)
 	}
@@ -407,7 +424,7 @@ func TestMemoryIndexAgainstDirectory_SearchWithBooleanQuery(t *testing.T) {
 	// MUST("nonexistent") should return 0 hits.
 	bq2 := search.NewBooleanQuery()
 	bq2.Add(search.NewTermQuery(index.NewTerm("field", "nonexistent")), search.MUST)
-	top, err = mi.Search(bq2)
+	top, err = mi.Search(bq2, 10)
 	if err != nil {
 		t.Fatalf("Search with non-matching BooleanQuery: %v", err)
 	}
@@ -423,7 +440,7 @@ func TestMemoryIndexAgainstDirectory_SearchAfterReset(t *testing.T) {
 	mi.AddField("field", "hello world")
 
 	// Before reset, search finds the doc.
-	top, err := mi.Search(search.NewTermQuery(index.NewTerm("field", "hello")))
+	top, err := mi.Search(search.NewTermQuery(index.NewTerm("field", "hello")), 10)
 	if err != nil {
 		t.Fatalf("Search before reset: %v", err)
 	}
@@ -455,7 +472,7 @@ func TestMemoryIndexAgainstDirectory_SearchWithMatchAll(t *testing.T) {
 	mi := newMemoryIndex()
 	mi.AddField("field", "hello world")
 
-	top, err := mi.Search(search.NewMatchAllDocsQuery())
+	top, err := mi.Search(search.NewMatchAllDocsQuery(), 10)
 	if err != nil {
 		t.Fatalf("Search with MatchAllDocsQuery: %v", err)
 	}
@@ -494,7 +511,7 @@ func TestMemoryIndexAgainstDirectory_EmptyString(t *testing.T) {
 	}
 
 	// Search should find the non-empty field.
-	top, err := mi.Search(search.NewTermQuery(index.NewTerm("field", "hello")))
+	top, err := mi.Search(search.NewTermQuery(index.NewTerm("field", "hello")), 10)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -634,5 +651,474 @@ func TestMemoryIndexAgainstDirectory_ResetUnfreezes(t *testing.T) {
 	}
 	if err := mi.AddField("field", "hello"); err != nil {
 		t.Errorf("AddField after Reset: %v", err)
+	}
+}
+
+// testLeafReader is a local interface to access DocValues/Norms/Points methods
+// on the unexported memoryIndexReader via type assertion through leaves.
+type testLeafReader interface {
+	index.LeafReaderInterface
+	GetNumericDocValues(field string) (index.NumericDocValues, error)
+	GetBinaryDocValues(field string) (index.BinaryDocValues, error)
+	GetSortedDocValues(field string) (index.SortedDocValues, error)
+	GetSortedNumericDocValues(field string) (index.SortedNumericDocValues, error)
+	GetSortedSetDocValues(field string) (index.SortedSetDocValues, error)
+	GetNormValues(field string) (index.NumericDocValues, error)
+	GetPointValues(field string) (index.PointValues, error)
+}
+
+// getLeafReader extracts a testLeafReader from the searcher.
+func getLeafReader(searcher *search.IndexSearcher) testLeafReader {
+	leaves, err := searcher.GetReader().Leaves()
+	if err != nil {
+		return nil
+	}
+	if len(leaves) == 0 {
+		return nil
+	}
+	lr, _ := leaves[0].Reader().(testLeafReader)
+	return lr
+}
+
+// --- New tests ported from Java counterparts ---
+
+// TestMemoryIndexAgainstDirectory_DocValuesVsNormalIndex verifies that
+// MemoryIndex correctly stores and retrieves doc values.
+func TestMemoryIndexAgainstDirectory_DocValuesVsNormalIndex(t *testing.T) {
+	mi := newMemoryIndex()
+
+	if err := mi.AddNumericDocValues("numeric", 42); err != nil {
+		t.Fatalf("AddNumericDocValues: %v", err)
+	}
+	if err := mi.AddBinaryDocValues("binary", []byte("hello")); err != nil {
+		t.Fatalf("AddBinaryDocValues: %v", err)
+	}
+	if err := mi.AddSortedDocValues("sorted", []byte("alpha")); err != nil {
+		t.Fatalf("AddSortedDocValues: %v", err)
+	}
+	if err := mi.AddSortedNumericDocValues("sorted_numeric", []int64{10, 20, 30}); err != nil {
+		t.Fatalf("AddSortedNumericDocValues: %v", err)
+	}
+	if err := mi.AddSortedSetDocValues("sorted_set", [][]byte{[]byte("x"), []byte("y"), []byte("z")}); err != nil {
+		t.Fatalf("AddSortedSetDocValues: %v", err)
+	}
+
+	searcher, err := mi.CreateSearcher()
+	if err != nil {
+		t.Fatalf("CreateSearcher: %v", err)
+	}
+	defer searcher.Close()
+
+	lr := getLeafReader(searcher)
+	if lr == nil {
+		t.Fatal("could not get leaf reader with DocValues methods")
+	}
+
+	// NumericDocValues
+	ndv, err := lr.GetNumericDocValues("numeric")
+	if err != nil {
+		t.Fatalf("GetNumericDocValues: %v", err)
+	}
+	if ndv == nil {
+		t.Fatal("NumericDocValues is nil")
+	}
+	doc, err := ndv.NextDoc()
+	if err != nil {
+		t.Fatalf("NextDoc: %v", err)
+	}
+	if doc != 0 {
+		t.Fatalf("NextDoc = %d, want 0", doc)
+	}
+	val, err := ndv.LongValue()
+	if err != nil {
+		t.Fatalf("LongValue: %v", err)
+	}
+	if val != 42 {
+		t.Errorf("NumericDocValues = %d, want 42", val)
+	}
+
+	// BinaryDocValues
+	bdv, err := lr.GetBinaryDocValues("binary")
+	if err != nil {
+		t.Fatalf("GetBinaryDocValues: %v", err)
+	}
+	if bdv == nil {
+		t.Fatal("BinaryDocValues is nil")
+	}
+	if _, err := bdv.NextDoc(); err != nil {
+		t.Fatalf("NextDoc: %v", err)
+	}
+	bval, err := bdv.BinaryValue()
+	if err != nil {
+		t.Fatalf("BinaryValue: %v", err)
+	}
+	if string(bval) != "hello" {
+		t.Errorf("BinaryDocValues = %q, want 'hello'", string(bval))
+	}
+
+	// SortedDocValues
+	sdv, err := lr.GetSortedDocValues("sorted")
+	if err != nil {
+		t.Fatalf("GetSortedDocValues: %v", err)
+	}
+	if sdv == nil {
+		t.Fatal("SortedDocValues is nil")
+	}
+	if _, err := sdv.NextDoc(); err != nil {
+		t.Fatalf("NextDoc: %v", err)
+	}
+	ord, err := sdv.OrdValue()
+	if err != nil {
+		t.Fatalf("OrdValue: %v", err)
+	}
+	if ord != 0 {
+		t.Errorf("OrdValue = %d, want 0", ord)
+	}
+	termVal, err := sdv.LookupOrd(0)
+	if err != nil {
+		t.Fatalf("LookupOrd: %v", err)
+	}
+	if string(termVal) != "alpha" {
+		t.Errorf("SortedDocValues term = %q, want 'alpha'", string(termVal))
+	}
+	if sdv.GetValueCount() != 1 {
+		t.Errorf("GetValueCount = %d, want 1", sdv.GetValueCount())
+	}
+
+	// SortedNumericDocValues
+	sndv, err := lr.GetSortedNumericDocValues("sorted_numeric")
+	if err != nil {
+		t.Fatalf("GetSortedNumericDocValues: %v", err)
+	}
+	if sndv == nil {
+		t.Fatal("SortedNumericDocValues is nil")
+	}
+	if _, err := sndv.NextDoc(); err != nil {
+		t.Fatalf("NextDoc: %v", err)
+	}
+	count, err := sndv.DocValueCount()
+	if err != nil {
+		t.Fatalf("DocValueCount: %v", err)
+	}
+	if count != 3 {
+		t.Errorf("DocValueCount = %d, want 3", count)
+	}
+	for _, exp := range []int64{10, 20, 30} {
+		v, err := sndv.NextValue()
+		if err != nil {
+			t.Fatalf("NextValue: %v", err)
+		}
+		if v != exp {
+			t.Errorf("SortedNumeric value = %d, want %d", v, exp)
+		}
+	}
+
+	// SortedSetDocValues
+	ssdv, err := lr.GetSortedSetDocValues("sorted_set")
+	if err != nil {
+		t.Fatalf("GetSortedSetDocValues: %v", err)
+	}
+	if ssdv == nil {
+		t.Fatal("SortedSetDocValues is nil")
+	}
+	if _, err := ssdv.NextDoc(); err != nil {
+		t.Fatalf("NextDoc: %v", err)
+	}
+	if ssdv.GetValueCount() != 3 {
+		t.Errorf("GetValueCount = %d, want 3", ssdv.GetValueCount())
+	}
+	for ord, exp := range []string{"x", "y", "z"} {
+		o, err := ssdv.NextOrd()
+		if err != nil {
+			t.Fatalf("NextOrd: %v", err)
+		}
+		if o != ord {
+			t.Errorf("NextOrd = %d, want %d", o, ord)
+		}
+		lt, err := ssdv.LookupOrd(o)
+		if err != nil {
+			t.Fatalf("LookupOrd: %v", err)
+		}
+		if string(lt) != exp {
+			t.Errorf("LookupOrd(%d) = %q, want %q", o, string(lt), exp)
+		}
+	}
+}
+
+// TestMemoryIndexAgainstDirectory_NormsWithDocValues verifies that norms
+// are correctly computed for fields added to MemoryIndex.
+func TestMemoryIndexAgainstDirectory_NormsWithDocValues(t *testing.T) {
+	mi := newMemoryIndex()
+	if err := mi.AddField("text", "quick brown fox"); err != nil {
+		t.Fatalf("AddField: %v", err)
+	}
+
+	searcher, err := mi.CreateSearcher()
+	if err != nil {
+		t.Fatalf("CreateSearcher: %v", err)
+	}
+	defer searcher.Close()
+
+	lr := getLeafReader(searcher)
+	if lr == nil {
+		t.Fatal("could not get leaf reader with NormValues methods")
+	}
+
+	nv, err := lr.GetNormValues("text")
+	if err != nil {
+		t.Fatalf("GetNormValues: %v", err)
+	}
+	if nv == nil {
+		t.Fatal("GetNormValues returned nil -- no norms stored for text field")
+	}
+
+	doc, err := nv.NextDoc()
+	if err != nil {
+		t.Fatalf("NextDoc: %v", err)
+	}
+	if doc != 0 {
+		t.Errorf("NextDoc = %d, want 0", doc)
+	}
+	normVal, err := nv.LongValue()
+	if err != nil {
+		t.Fatalf("LongValue: %v", err)
+	}
+	// "quick brown fox" has 3 tokens => norm = IntToByte4(3)
+	expectedByte, err := util.IntToByte4(3)
+	if err != nil {
+		t.Fatalf("IntToByte4: %v", err)
+	}
+	if normVal != int64(expectedByte) {
+		t.Errorf("Norm = %d, want %d", normVal, expectedByte)
+	}
+}
+
+// TestMemoryIndexAgainstDirectory_PointValuesVsNormalIndex verifies that
+// PointValues can be stored and retrieved from MemoryIndex.
+func TestMemoryIndexAgainstDirectory_PointValuesVsNormalIndex(t *testing.T) {
+	mi := newMemoryIndex()
+
+	// IntPoint uses 4-byte sortable encoding
+	intPacked := make([]byte, 4)
+	intPacked[0] = 0x80 ^ byte(42>>24)
+	intPacked[1] = byte(42 >> 16)
+	intPacked[2] = byte(42 >> 8)
+	intPacked[3] = byte(42)
+	if err := mi.AddPointField("int", intPacked, 1, 4); err != nil {
+		t.Fatalf("AddPointField: %v", err)
+	}
+
+	// LongPoint uses 8-byte encoding
+	longPacked := make([]byte, 8)
+	lv := int64(100)
+	longPacked[0] = 0x80 ^ byte(lv>>56)
+	longPacked[1] = byte(lv >> 48)
+	longPacked[2] = byte(lv >> 40)
+	longPacked[3] = byte(lv >> 32)
+	longPacked[4] = byte(lv >> 24)
+	longPacked[5] = byte(lv >> 16)
+	longPacked[6] = byte(lv >> 8)
+	longPacked[7] = byte(lv)
+	if err := mi.AddPointField("long", longPacked, 1, 8); err != nil {
+		t.Fatalf("AddPointField: %v", err)
+	}
+
+	searcher, err := mi.CreateSearcher()
+	if err != nil {
+		t.Fatalf("CreateSearcher: %v", err)
+	}
+	defer searcher.Close()
+
+	lr := getLeafReader(searcher)
+	if lr == nil {
+		t.Fatal("could not get leaf reader with PointValues methods")
+	}
+
+	intPV, err := lr.GetPointValues("int")
+	if err != nil {
+		t.Fatalf("GetPointValues(int): %v", err)
+	}
+	if intPV == nil {
+		t.Fatal("PointValues for 'int' is nil")
+	}
+	if intPV.GetDocCount() != 1 {
+		t.Errorf("GetDocCount = %d, want 1", intPV.GetDocCount())
+	}
+	if intPV.GetValueCount() != 1 {
+		t.Errorf("GetValueCount = %d, want 1", intPV.GetValueCount())
+	}
+	if intPV.GetNumDimensions() != 1 {
+		t.Errorf("GetNumDimensions = %d, want 1", intPV.GetNumDimensions())
+	}
+	if intPV.GetBytesPerDimension() != 4 {
+		t.Errorf("GetBytesPerDimension = %d, want 4", intPV.GetBytesPerDimension())
+	}
+
+	longPV, err := lr.GetPointValues("long")
+	if err != nil {
+		t.Fatalf("GetPointValues(long): %v", err)
+	}
+	if longPV == nil {
+		t.Fatal("PointValues for 'long' is nil")
+	}
+	if longPV.GetDocCount() != 1 {
+		t.Errorf("GetDocCount = %d, want 1", longPV.GetDocCount())
+	}
+	if longPV.GetValueCount() != 1 {
+		t.Errorf("GetValueCount = %d, want 1", longPV.GetValueCount())
+	}
+	if longPV.GetNumDimensions() != 1 {
+		t.Errorf("GetNumDimensions = %d, want 1", longPV.GetNumDimensions())
+	}
+	if longPV.GetBytesPerDimension() != 8 {
+		t.Errorf("GetBytesPerDimension = %d, want 8", longPV.GetBytesPerDimension())
+	}
+}
+
+// TestMemoryIndexAgainstDirectory_DuellMemIndex verifies that a MemoryIndex
+// with known content produces correct term enumeration and search results.
+func TestMemoryIndexAgainstDirectory_DuellMemIndex(t *testing.T) {
+	mi := newMemoryIndex()
+
+	if err := mi.AddField("title", "the quick brown fox"); err != nil {
+		t.Fatalf("AddField title: %v", err)
+	}
+	if err := mi.AddField("body", "jumps over the lazy dog"); err != nil {
+		t.Fatalf("AddField body: %v", err)
+	}
+
+	searcher, err := mi.CreateSearcher()
+	if err != nil {
+		t.Fatalf("CreateSearcher: %v", err)
+	}
+	defer searcher.Close()
+
+	// Verify term vectors
+	tv, err := searcher.GetReader().TermVectors()
+	if err != nil {
+		t.Fatalf("TermVectors: %v", err)
+	}
+	fields, err := tv.Get(0)
+	if err != nil {
+		t.Fatalf("TermVectors.Get: %v", err)
+	}
+
+	foundTitle := false
+	foundBody := false
+	iter, err := fields.Iterator()
+	if err != nil {
+		t.Fatalf("Iterator: %v", err)
+	}
+	for iter.HasNext() {
+		name, err := iter.Next()
+		if err != nil {
+			t.Fatalf("Next: %v", err)
+		}
+		if name == "" {
+			break
+		}
+		if name == "title" {
+			foundTitle = true
+		}
+		if name == "body" {
+			foundBody = true
+		}
+	}
+	if !foundTitle {
+		t.Error("field 'title' missing from term vectors")
+	}
+	if !foundBody {
+		t.Error("field 'body' missing from term vectors")
+	}
+
+	leafReader, ok := searcher.GetReader().(index.LeafReaderInterface)
+	if !ok {
+		t.Fatal("reader does not implement LeafReaderInterface")
+	}
+	for _, fieldName := range []string{"title", "body"} {
+		terms, err := leafReader.Terms(fieldName)
+		if err != nil {
+			t.Fatalf("Terms(%q): %v", fieldName, err)
+		}
+		if terms == nil {
+			t.Fatalf("Terms(%q) is nil", fieldName)
+		}
+		if terms.Size() <= 0 {
+			t.Errorf("Terms(%q).Size() = %d, want > 0", fieldName, terms.Size())
+		}
+	}
+
+	tq := search.NewTermQuery(index.NewTerm("title", "fox"))
+	top, err := searcher.Search(tq, 10)
+	if err != nil {
+		t.Fatalf("Search title:fox: %v", err)
+	}
+	if top.TotalHits.Value != 1 {
+		t.Errorf("TermQuery(title:fox) matched %d docs, want 1", top.TotalHits.Value)
+	}
+
+	tq2 := search.NewTermQuery(index.NewTerm("body", "jumps"))
+	top2, err := searcher.Search(tq2, 10)
+	if err != nil {
+		t.Fatalf("Search body:jumps: %v", err)
+	}
+	if top2.TotalHits.Value != 1 {
+		t.Errorf("TermQuery(body:jumps) matched %d docs, want 1", top2.TotalHits.Value)
+	}
+}
+
+// TestMemoryIndexAgainstDirectory_DuelCoreDirectoryWithArrayField verifies
+// that MemoryIndex handles multi-field documents correctly.
+func TestMemoryIndexAgainstDirectory_DuelCoreDirectoryWithArrayField(t *testing.T) {
+	mi := newMemoryIndex()
+
+	if err := mi.AddField("text", "la la"); err != nil {
+		t.Fatalf("First AddField text: %v", err)
+	}
+	if err := mi.AddField("text", "foo bar foo bar foo"); err != nil {
+		t.Fatalf("Second AddField text: %v", err)
+	}
+
+	searcher, err := mi.CreateSearcher()
+	if err != nil {
+		t.Fatalf("CreateSearcher: %v", err)
+	}
+	defer searcher.Close()
+
+	tq := search.NewTermQuery(index.NewTerm("text", "bar"))
+	top, err := searcher.Search(tq, 10)
+	if err != nil {
+		t.Fatalf("Search text:bar: %v", err)
+	}
+	if top.TotalHits.Value != 1 {
+		t.Errorf("TermQuery(text:bar) matched %d docs, want 1", top.TotalHits.Value)
+	}
+
+	tq2 := search.NewTermQuery(index.NewTerm("text", "la"))
+	top2, err := searcher.Search(tq2, 10)
+	if err != nil {
+		t.Fatalf("Search text:la: %v", err)
+	}
+	if top2.TotalHits.Value != 0 {
+		t.Errorf("TermQuery(text:la) matched %d docs, want 0 (field was replaced)", top2.TotalHits.Value)
+	}
+
+	tv, err := searcher.GetReader().TermVectors()
+	if err != nil {
+		t.Fatalf("TermVectors: %v", err)
+	}
+	fields, err := tv.Get(0)
+	if err != nil {
+		t.Fatalf("TermVectors.Get: %v", err)
+	}
+	textTerms, err := fields.Terms("text")
+	if err != nil {
+		t.Fatalf("Terms(text): %v", err)
+	}
+	if textTerms == nil {
+		t.Fatal("Terms(text) is nil")
+	}
+	if textTerms.Size() <= 0 {
+		t.Errorf("Terms(text) size = %d, want > 0", textTerms.Size())
 	}
 }

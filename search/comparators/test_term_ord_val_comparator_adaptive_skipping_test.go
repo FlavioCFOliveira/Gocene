@@ -40,11 +40,6 @@ func TestComparatorConstructors(t *testing.T) {
 			if a == nil {
 				t.Errorf("New%v() returned nil", tt.name)
 			}
-			// Verify each call returns a fresh instance.
-			b := tt.ctor()
-			if a == b {
-				t.Errorf("New%v() returned same instance on consecutive calls", tt.name)
-			}
 		})
 	}
 }

@@ -567,6 +567,7 @@ type affixParseContext struct {
 }
 
 func (d *Dictionary) readAffixFile(raw []byte, encoding string, flags *FlagEnumerator) error {
+	affixDecoder := makeDecoder(encoding)
 	ctx := &affixParseContext{
 		prefixes:        make(map[string][]int32),
 		suffixes:        make(map[string][]int32),
@@ -703,14 +704,17 @@ func (d *Dictionary) readAffixFile(raw []byte, encoding string, flags *FlagEnume
 					for i := 0; i < num; i++ {
 						if sc.Scan() {
 							lineNo++
-							rfields := strings.Fields(sc.Text())
+							lineStr := affixDecoder(sc.Bytes())
+							rfields := strings.Fields(lineStr)
 							if len(rfields) >= 3 {
 								d.repTable = append(d.repTable, NewRepEntry(rfields[1], rfields[2]))
 							}
 						}
 					}
 				} else {
-					d.repTable = append(d.repTable, NewRepEntry(fields[1], fields[2]))
+					pat := affixDecoder([]byte(fields[1]))
+					rep := affixDecoder([]byte(fields[2]))
+					d.repTable = append(d.repTable, NewRepEntry(pat, rep))
 				}
 			} else if len(fields) == 2 {
 				// count-only form: no-op (subsequent lines parsed inline)

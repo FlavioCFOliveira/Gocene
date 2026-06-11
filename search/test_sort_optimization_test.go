@@ -521,8 +521,8 @@ func TestSortOptimization_StringSortOptimizationBasedPostings(t *testing.T) {
 		t.Error("expected STRING SortField to default to non-reverse")
 	}
 	sf.SetMissingValue(search.STRING_LAST)
-	if sf.GetMissingValue() != search.STRING_LAST {
-		t.Errorf("missing value: got %v want STRING_LAST", sf.GetMissingValue())
+	if sf.MissingValue != search.STRING_LAST {
+		t.Errorf("missing value: got %v want STRING_LAST", sf.MissingValue)
 	}
 
 	// Verify Sort can be constructed with a STRING field.
@@ -537,8 +537,8 @@ func TestSortOptimization_StringSortOptimizationWithMissingValuesBasedPostings(t
 	// Verify STRING sort with STRING_FIRST missing value.
 	sf := search.NewSortField("my_field", search.SortFieldTypeString)
 	sf.SetMissingValue(search.STRING_FIRST)
-	if sf.GetMissingValue() != search.STRING_FIRST {
-		t.Errorf("missing value: got %v want STRING_FIRST", sf.GetMissingValue())
+	if sf.MissingValue != search.STRING_FIRST {
+		t.Errorf("missing value: got %v want STRING_FIRST", sf.MissingValue)
 	}
 	sf.Reverse = true
 	_ = search.NewSort(sf)

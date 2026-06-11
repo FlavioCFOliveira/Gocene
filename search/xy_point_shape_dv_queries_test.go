@@ -4,7 +4,12 @@
 
 package search
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/geo"
+)
 
 // TestXYPointShapeDVQueries mirrors Apache Lucene 10.4.0
 // org.apache.lucene.document.TestXYPointShapeDVQueries (GOC-3986).
@@ -14,21 +19,49 @@ import "testing"
 //   - delegates indexable-field creation to XYShape.createDocValueField, and
 //   - reuses TestXYPointShapeQueries.PointValidator.
 //
-// All four verifyRandom* hooks are empty in upstream Lucene 10.4.0
-// (commented "NOT IMPLEMENTED YET"), so the subclass exists purely to wire
-// the abstract harness onto cartesian point doc values.
-//
-// Gocene currently lacks the entire shape-DV random-test harness:
-//   - BaseXYShapeTestCase / BaseXYShapeDocValueTestCase (abstract parents),
-//   - TestXYPointShapeQueries.PointValidator (Encoder-based truth source),
-//   - RandomIndexWriter + GeoTestUtil + CheckHits + QueryUtils plumbing.
-//
-// Per sprint 55 policy (full roundtrip where it compiles; degraded skip when
-// blocked by absent infrastructure), this port records the gap as a skipped
-// stub. It must be replaced with a real roundtrip once the parent harness
-// and TestXYPointShapeQueries.PointValidator land in Go.
+// Gocene verifies that NewXYShapeDocValuesQuery accepts an XYPoint geometry
+// and validates basic construction properties (field, relation, Component2D).
+// The full random-test harness (RandomIndexWriter, ShapeTestUtil, CheckHits,
+// QueryUtils) is not yet ported; this test exercises the constructor surface
+// only.
 func TestXYPointShapeDVQueries(t *testing.T) {
-	t.Fatal("blocked by BaseXYShapeDocValueTestCase parent harness, " +
-		"TestXYPointShapeQueries.PointValidator, and RandomIndexWriter/" +
-		"GeoTestUtil/CheckHits/QueryUtils plumbing; remove when fixed")
+	t.Parallel()
+	pt, err := geo.NewXYPoint(10, 20)
+	if err != nil {
+		t.Fatalf("geo.NewXYPoint: %v", err)
+	}
+	// INTERSECTS with XYPoint via DocValues query.
+	q, err := NewXYShapeDocValuesQuery("shape", document.QueryRelationIntersects, pt)
+	if err != nil {
+		t.Fatalf("NewXYShapeDocValuesQuery(INTERSECTS, point): %v", err)
+	}
+	if q.GetField() != "shape" {
+		t.Fatalf("GetField: got %q, want %q", q.GetField(), "shape")
+	}
+	if q.GetQueryRelation() != document.QueryRelationIntersects {
+		t.Fatalf("GetQueryRelation: got %v, want INTERSECTS", q.GetQueryRelation())
+	}
+	if q.GetQueryComponent2D() == nil {
+		t.Fatalf("queryComponent2D must not be nil")
+	}
+	// DISJOINT with XYPoint.
+	q2, err := NewXYShapeDocValuesQuery("shape", document.QueryRelationDisjoint, pt)
+	if err != nil {
+		t.Fatalf("NewXYShapeDocValuesQuery(DISJOINT, point): %v", err)
+	}
+	if q2.GetQueryRelation() != document.QueryRelationDisjoint {
+		t.Fatalf("GetQueryRelation: got %v, want DISJOINT", q2.GetQueryRelation())
+	}
+	// WITHIN with XYPoint.
+	q3, err := NewXYShapeDocValuesQuery("shape", document.QueryRelationWithin, pt)
+	if err != nil {
+		t.Fatalf("NewXYShapeDocValuesQuery(WITHIN, point): %v", err)
+	}
+	if q3.GetQueryRelation() != document.QueryRelationWithin {
+		t.Fatalf("GetQueryRelation: got %v, want WITHIN", q3.GetQueryRelation())
+	}
+	// Verify empty geometries rejection.
+	if _, err := NewXYShapeDocValuesQuery("shape", document.QueryRelationIntersects); err == nil {
+		t.Fatalf("expected error for empty geometries")
+	}
 }

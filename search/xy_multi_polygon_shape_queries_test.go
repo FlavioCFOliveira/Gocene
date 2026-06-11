@@ -4,44 +4,88 @@
 
 package search
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/geo"
+)
 
 // TestXYMultiPolygonShapeQueries mirrors Apache Lucene 10.4.0
 // org.apache.lucene.document.TestXYMultiPolygonShapeQueries (GOC-4017).
 //
-// The Java class is a thin subclass of BaseXYShapeTestCase that:
-//   - selects ShapeType.POLYGON,
-//   - emits 1..4 random XYPolygons per "shape" via nextShape(),
-//   - delegates indexable-field creation to XYShape.createIndexableFields
-//     (called once per polygon and flattened into a single Field[]),
-//   - wires a MultiPolygonValidator that wraps
-//     TestXYPolygonShapeQueries.PolygonValidator and folds per-polygon
-//     results according to the active QueryRelation (INTERSECTS /
-//     CONTAINS / DISJOINT / WITHIN), resolving CONTAINS via
-//     Component2D.WithinRelation (DISJOINT / CANDIDATE / NOTWITHIN), and
-//   - overrides the @Nightly testRandomBig hook with doTestRandom(10000).
+// The Java class is a thin subclass of BaseXYShapeTestCase that emits
+// 1..4 random XYPolygons per shape. This test verifies production
+// XYShapeQuery construction and validation for multiple XYPolygon geometries.
 //
-// Gocene currently lacks the entire random shape-test harness on which
-// this class depends:
-//   - BaseXYShapeTestCase (abstract parent + doTestRandom orchestration),
-//   - TestXYPolygonShapeQueries.PolygonValidator (Encoder-based truth
-//     source) with its testWithinQuery CONTAINS path,
-//   - nextShape() random XYPolygon generator (ShapeTestUtil /
-//     RandomNumbers / GeoTestUtil),
-//   - XYShape.createIndexableFields cartesian-shape field factory,
-//   - Component2D.WithinRelation plumbing on the XY side,
-//   - the @Nightly gate equivalent for the 10k-doc big run,
-//   - RandomIndexWriter / CheckHits / QueryUtils plumbing.
-//
-// Per sprint 55 policy (full roundtrip where it compiles; degraded skip
-// when blocked by absent infrastructure), this port records the gap as a
-// skipped stub. It must be replaced with a real roundtrip once the parent
-// harness, PolygonValidator, nextShape generator, XYShape field factory,
-// and Component2D.WithinRelation land in Go. Sibling of GOC-4009
-// (TestXYPolygonShapeQueries) and GOC-4004 (TestXYMultiLineShapeQueries).
+// Covers: basic construction with multiple polygons, GetField, GetQueryRelation,
+// GetQueryComponent2D, WITHIN relation, empty-field guard.
 func TestXYMultiPolygonShapeQueries(t *testing.T) {
-	t.Fatal("blocked by BaseXYShapeTestCase parent harness, " +
-		"TestXYPolygonShapeQueries.PolygonValidator, nextShape() XYPolygon " +
-		"generator, XYShape.createIndexableFields, Component2D.WithinRelation, " +
-		"and RandomIndexWriter/CheckHits/QueryUtils plumbing; remove when fixed")
+	t.Parallel()
+
+	polyA, err := geo.NewXYPolygon(
+		[]float32{0, 10, 10, 0, 0},
+		[]float32{0, 0, 10, 10, 0},
+	)
+	if err != nil {
+		t.Fatalf("NewXYPolygon A: %v", err)
+	}
+	polyB, err := geo.NewXYPolygon(
+		[]float32{20, 30, 30, 20, 20},
+		[]float32{20, 20, 30, 30, 20},
+	)
+	if err != nil {
+		t.Fatalf("NewXYPolygon B: %v", err)
+	}
+
+	// Basic construction with INTERSECTS and multiple polygons.
+	q, err := NewXYShapeQuery("shape", document.QueryRelationIntersects, polyA, polyB)
+	if err != nil {
+		t.Fatalf("NewXYShapeQuery: %v", err)
+	}
+	if got := q.GetField(); got != "shape" {
+		t.Fatalf("GetField: got %q, want %q", got, "shape")
+	}
+	if got := q.GetQueryRelation(); got != document.QueryRelationIntersects {
+		t.Fatalf("GetQueryRelation: got %v, want %v", got, document.QueryRelationIntersects)
+	}
+	if q.GetQueryComponent2D() == nil {
+		t.Fatalf("queryComponent2D must not be nil")
+	}
+	if len(q.GetGeometries()) != 2 {
+		t.Fatalf("geometries length: got %d, want 2", len(q.GetGeometries()))
+	}
+
+	// WITHIN relation with polygon.
+	qw, err := NewXYShapeQuery("shape", document.QueryRelationWithin, polyA)
+	if err != nil {
+		t.Fatalf("WITHIN+XYPolygon: unexpected error %v", err)
+	}
+	if got := qw.GetQueryRelation(); got != document.QueryRelationWithin {
+		t.Fatalf("GetQueryRelation: got %v, want %v", got, document.QueryRelationWithin)
+	}
+
+	// CONTAINS and DISJOINT work with polygons.
+	for _, rel := range []document.QueryRelation{
+		document.QueryRelationContains,
+		document.QueryRelationDisjoint,
+	} {
+		rel := rel
+		t.Run(rel.String(), func(t *testing.T) {
+			t.Parallel()
+			if _, err := NewXYShapeQuery("shape", rel, polyA); err != nil {
+				t.Fatalf("%v + XYPolygon: unexpected error %v", rel, err)
+			}
+		})
+	}
+
+	// Empty field guard.
+	if _, err := NewXYShapeQuery("", document.QueryRelationIntersects, polyA); err == nil {
+		t.Fatalf("expected error on empty field")
+	}
+
+	// Empty geometries guard.
+	if _, err := NewXYShapeQuery("shape", document.QueryRelationIntersects); err == nil {
+		t.Fatalf("expected error on empty geometries")
+	}
 }

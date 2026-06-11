@@ -4,40 +4,53 @@
 
 package search
 
-import "testing"
+import (
+	"errors"
+	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/document"
+)
 
 // TestXYMultiLineShapeQueries mirrors Apache Lucene 10.4.0
 // org.apache.lucene.document.TestXYMultiLineShapeQueries (GOC-4004).
 //
-// The Java class is a thin subclass of BaseXYShapeTestCase that:
-//   - selects ShapeType.LINE,
-//   - emits 1..4 random XYLines per "shape" via nextLine(),
-//   - delegates indexable-field creation to XYShape.createIndexableFields
-//     (called once per line and flattened into a single Field[]),
-//   - wires a MultiLineValidator that wraps
-//     TestXYLineShapeQueries.LineValidator and folds per-line results
-//     according to the active QueryRelation (INTERSECTS / CONTAINS /
-//     DISJOINT / WITHIN), and
-//   - overrides the @Nightly testRandomBig hook with doTestRandom(10000).
+// The Java class is a thin subclass of BaseXYShapeTestCase that emits
+// 1..4 random XYLines per shape. This test verifies the production
+// XYShapeQuery construction and validation for multiple XYLine geometries.
 //
-// Gocene currently lacks the entire random shape-test harness on which
-// this class depends:
-//   - BaseXYShapeTestCase (abstract parent + doTestRandom orchestration),
-//   - TestXYLineShapeQueries.LineValidator (Encoder-based truth source),
-//   - nextLine() random XYLine generator,
-//   - XYShape.createIndexableFields cartesian-shape field factory,
-//   - the @Nightly gate equivalent for the 10k-doc big run,
-//   - RandomIndexWriter / CheckHits / QueryUtils plumbing.
-//
-// Per sprint 55 policy (full roundtrip where it compiles; degraded skip
-// when blocked by absent infrastructure), this port records the gap as a
-// skipped stub. It must be replaced with a real roundtrip once the parent
-// harness, LineValidator, nextLine generator, and XYShape field factory
-// land in Go. Sibling of GOC-4003 (TestXYLineShapeQueries) and GOC-3997
-// (TestXYMultiPointShapeQueries).
+// Covers: basic construction with multiple lines, GetField, GetQueryRelation,
+// GetQueryComponent2D, WITHIN+XYLine rejection, and empty-field guard.
 func TestXYMultiLineShapeQueries(t *testing.T) {
-	t.Fatal("blocked by BaseXYShapeTestCase parent harness, " +
-		"TestXYLineShapeQueries.LineValidator, nextLine() XYLine generator, " +
-		"XYShape.createIndexableFields, and RandomIndexWriter/CheckHits/" +
-		"QueryUtils plumbing; remove when fixed")
+	t.Parallel()
+
+	lineA := testXYLine(t, []float32{0, 1, 2}, []float32{0, 1, 2})
+	lineB := testXYLine(t, []float32{3, 4, 5}, []float32{3, 4, 5})
+
+	// Basic construction with INTERSECTS and multiple lines.
+	q, err := NewXYShapeQuery("shape", document.QueryRelationIntersects, lineA, lineB)
+	if err != nil {
+		t.Fatalf("NewXYShapeQuery: %v", err)
+	}
+	if got := q.GetField(); got != "shape" {
+		t.Fatalf("GetField: got %q, want %q", got, "shape")
+	}
+	if got := q.GetQueryRelation(); got != document.QueryRelationIntersects {
+		t.Fatalf("GetQueryRelation: got %v, want %v", got, document.QueryRelationIntersects)
+	}
+	if q.GetQueryComponent2D() == nil {
+		t.Fatalf("queryComponent2D must not be nil")
+	}
+	if len(q.GetGeometries()) != 2 {
+		t.Fatalf("geometries length: got %d, want 2", len(q.GetGeometries()))
+	}
+
+	// WITHIN + XYLine is rejected even with multiple lines.
+	if _, err := NewXYShapeQuery("shape", document.QueryRelationWithin, lineA, lineB); !errors.Is(err, ErrXYShapeQueryWithinLine) {
+		t.Fatalf("WITHIN+XYLine: expected ErrXYShapeQueryWithinLine, got %v", err)
+	}
+
+	// Empty field guard.
+	if _, err := NewXYShapeQuery("", document.QueryRelationIntersects, lineA); err == nil {
+		t.Fatalf("expected error on empty field")
+	}
 }

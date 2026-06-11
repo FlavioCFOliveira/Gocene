@@ -32,11 +32,286 @@ type memoryIndexReader struct {
 // Ensure memoryIndexReader implements index.LeafReaderInterface.
 var _ index.LeafReaderInterface = (*memoryIndexReader)(nil)
 
+// --- In-memory doc values implementations ---
+
+// memNumericDV implements index.NumericDocValues for a single stored value.
+type memNumericDV struct {
+	value     int64
+	docID     int
+	exhausted bool
+}
+
+func (v *memNumericDV) DocID() int { return v.docID }
+
+func (v *memNumericDV) NextDoc() (int, error) {
+	if v.exhausted {
+		return schema.NO_MORE_DOCS, nil
+	}
+	v.docID = 0
+	v.exhausted = true
+	return 0, nil
+}
+
+func (v *memNumericDV) Advance(target int) (int, error) {
+	if target <= 0 && !v.exhausted {
+		v.docID = 0
+		v.exhausted = true
+		return 0, nil
+	}
+	return schema.NO_MORE_DOCS, nil
+}
+
+func (v *memNumericDV) AdvanceExact(target int) (bool, error) {
+	if target == 0 && !v.exhausted {
+		v.docID = 0
+		v.exhausted = true
+		return true, nil
+	}
+	return false, nil
+}
+
+func (v *memNumericDV) LongValue() (int64, error) { return v.value, nil }
+func (v *memNumericDV) Cost() int64               { return 1 }
+
+// memBinaryDV implements index.BinaryDocValues for a single stored value.
+type memBinaryDV struct {
+	value     []byte
+	docID     int
+	exhausted bool
+}
+
+func (v *memBinaryDV) DocID() int { return v.docID }
+
+func (v *memBinaryDV) NextDoc() (int, error) {
+	if v.exhausted {
+		return schema.NO_MORE_DOCS, nil
+	}
+	v.docID = 0
+	v.exhausted = true
+	return 0, nil
+}
+
+func (v *memBinaryDV) Advance(target int) (int, error) {
+	if target <= 0 && !v.exhausted {
+		v.docID = 0
+		v.exhausted = true
+		return 0, nil
+	}
+	return schema.NO_MORE_DOCS, nil
+}
+
+func (v *memBinaryDV) AdvanceExact(target int) (bool, error) {
+	if target == 0 && !v.exhausted {
+		v.docID = 0
+		v.exhausted = true
+		return true, nil
+	}
+	return false, nil
+}
+
+func (v *memBinaryDV) BinaryValue() ([]byte, error) { return v.value, nil }
+func (v *memBinaryDV) Cost() int64                  { return 1 }
+
+// memSortedDV implements index.SortedDocValues for a single stored value.
+type memSortedDV struct {
+	memNumericDV
+	term       []byte
+	valueCount int
+}
+
+func (v *memSortedDV) OrdValue() (int, error) { return 0, nil }
+func (v *memSortedDV) LookupOrd(ord int) ([]byte, error) {
+	if ord == 0 {
+		return v.term, nil
+	}
+	return nil, nil
+}
+func (v *memSortedDV) GetValueCount() int { return v.valueCount }
+
+// memSortedNumericDV implements index.SortedNumericDocValues for stored values.
+type memSortedNumericDV struct {
+	memNumericDV
+	values []int64
+	idx    int
+}
+
+func (v *memSortedNumericDV) NextValue() (int64, error) {
+	if v.idx >= len(v.values) {
+		return 0, nil
+	}
+	val := v.values[v.idx]
+	v.idx++
+	return val, nil
+}
+
+func (v *memSortedNumericDV) DocValueCount() (int, error) {
+	return len(v.values), nil
+}
+
+// memSortedSetDV implements index.SortedSetDocValues for stored values.
+type memSortedSetDV struct {
+	docID        int
+	exhausted    bool
+	ordExhausted bool
+	terms        [][]byte
+	idx          int
+}
+
+func (v *memSortedSetDV) DocID() int { return v.docID }
+
+func (v *memSortedSetDV) NextDoc() (int, error) {
+	if v.exhausted {
+		return schema.NO_MORE_DOCS, nil
+	}
+	v.docID = 0
+	v.exhausted = true
+	v.idx = 0
+	v.ordExhausted = false
+	return 0, nil
+}
+
+func (v *memSortedSetDV) Advance(target int) (int, error) {
+	if target <= 0 && !v.exhausted {
+		v.docID = 0
+		v.exhausted = true
+		v.idx = 0
+		v.ordExhausted = false
+		return 0, nil
+	}
+	return schema.NO_MORE_DOCS, nil
+}
+
+func (v *memSortedSetDV) AdvanceExact(target int) (bool, error) {
+	if target == 0 && !v.exhausted {
+		v.docID = 0
+		v.exhausted = true
+		v.idx = 0
+		v.ordExhausted = false
+		return true, nil
+	}
+	return false, nil
+}
+
+func (v *memSortedSetDV) NextOrd() (int, error) {
+	if v.ordExhausted || v.idx >= len(v.terms) {
+		v.ordExhausted = true
+		return -1, nil
+	}
+	ord := v.idx
+	v.idx++
+	return ord, nil
+}
+
+func (v *memSortedSetDV) LookupOrd(ord int) ([]byte, error) {
+	if ord >= 0 && ord < len(v.terms) {
+		return v.terms[ord], nil
+	}
+	return nil, nil
+}
+
+func (v *memSortedSetDV) GetValueCount() int { return len(v.terms) }
+func (v *memSortedSetDV) Cost() int64        { return 1 }
+
+// --- In-memory point values ---
+
+// memPointValues implements index.PointValues for a single-document in-memory store.
+type memPointValues struct {
+	meta *pointFieldMeta
+}
+
+func (pv *memPointValues) GetDocCount() int {
+	if len(pv.meta.values) > 0 {
+		return 1
+	}
+	return 0
+}
+
+func (pv *memPointValues) GetDocCountWithValue() int64 {
+	if len(pv.meta.values) > 0 {
+		return 1
+	}
+	return 0
+}
+
+func (pv *memPointValues) GetValueCount() int64 {
+	return int64(len(pv.meta.values))
+}
+
+func (pv *memPointValues) GetMinPackedValue() ([]byte, error) {
+	if len(pv.meta.values) == 0 {
+		return nil, nil
+	}
+	min := make([]byte, len(pv.meta.values[0].packedValue))
+	copy(min, pv.meta.values[0].packedValue)
+	for _, pv := range pv.meta.values[1:] {
+		for i, b := range pv.packedValue {
+			if b < min[i] {
+				min[i] = b
+			}
+		}
+	}
+	return min, nil
+}
+
+func (pv *memPointValues) GetMaxPackedValue() ([]byte, error) {
+	if len(pv.meta.values) == 0 {
+		return nil, nil
+	}
+	max := make([]byte, len(pv.meta.values[0].packedValue))
+	copy(max, pv.meta.values[0].packedValue)
+	for _, pv := range pv.meta.values[1:] {
+		for i, b := range pv.packedValue {
+			if b > max[i] {
+				max[i] = b
+			}
+		}
+	}
+	return max, nil
+}
+
+func (pv *memPointValues) GetNumDimensions() int    { return pv.meta.numDims }
+func (pv *memPointValues) GetBytesPerDimension() int { return pv.meta.bytesPerDim }
+
+// --- memoryTermVectors ---
+
+// memoryTermVectors implements index.TermVectors over a MemoryIndex's fields.
+type memoryTermVectors struct {
+	mi *MemoryIndex
+}
+
+func (tv *memoryTermVectors) Prefetch(_ []int) error { return nil }
+
+func (tv *memoryTermVectors) Get(docID int) (index.Fields, error) {
+	if docID != 0 {
+		return nil, fmt.Errorf("document ID %d out of range (single-doc MemoryIndex)", docID)
+	}
+	tv.mi.mu.RLock()
+	defer tv.mi.mu.RUnlock()
+	fields := schema.NewMemoryFields()
+	for name, mf := range tv.mi.fields {
+		fields.AddField(name, newMemoryTerms(name, mf))
+	}
+	return fields, nil
+}
+
+func (tv *memoryTermVectors) GetField(docID int, field string) (schema.Terms, error) {
+	if docID != 0 {
+		return nil, fmt.Errorf("document ID %d out of range (single-doc MemoryIndex)", docID)
+	}
+	tv.mi.mu.RLock()
+	defer tv.mi.mu.RUnlock()
+	mf, ok := tv.mi.fields[field]
+	if !ok || len(mf.terms) == 0 {
+		return nil, nil
+	}
+	return newMemoryTerms(field, mf), nil
+}
+
 // --- index.IndexReaderInterface ---
 
-func (r *memoryIndexReader) DocCount() int    { return 1 }
-func (r *memoryIndexReader) NumDocs() int     { return 1 }
-func (r *memoryIndexReader) MaxDoc() int      { return 1 }
+func (r *memoryIndexReader) DocCount() int     { return 1 }
+func (r *memoryIndexReader) NumDocs() int      { return 1 }
+func (r *memoryIndexReader) MaxDoc() int       { return 1 }
 func (r *memoryIndexReader) HasDeletions() bool { return false }
 func (r *memoryIndexReader) NumDeletedDocs() int { return 0 }
 
@@ -94,7 +369,7 @@ func (r *memoryIndexReader) StoredFields() (index.StoredFields, error) {
 }
 
 func (r *memoryIndexReader) TermVectors() (index.TermVectors, error) {
-	return nil, fmt.Errorf("memoryIndexReader: term vectors not supported")
+	return &memoryTermVectors{mi: r.mi}, nil
 }
 
 // Terms returns the Terms for a given field, or nil if the field does not exist.
@@ -117,6 +392,103 @@ func (r *memoryIndexReader) GetCoreCacheKey() interface{} { return r }
 // MemoryIndex does not store term vectors, so this returns nil.
 func (r *memoryIndexReader) GetTermVectors(docID int) (index.Fields, error) {
 	return nil, nil
+}
+
+// GetNumericDocValues returns numeric doc values for the given field.
+func (r *memoryIndexReader) GetNumericDocValues(field string) (index.NumericDocValues, error) {
+	r.mi.mu.RLock()
+	defer r.mi.mu.RUnlock()
+	dv, ok := r.mi.docValues[field]
+	if !ok || dv.numeric == nil {
+		return nil, nil
+	}
+	return &memNumericDV{value: *dv.numeric}, nil
+}
+
+// GetBinaryDocValues returns binary doc values for the given field.
+func (r *memoryIndexReader) GetBinaryDocValues(field string) (index.BinaryDocValues, error) {
+	r.mi.mu.RLock()
+	defer r.mi.mu.RUnlock()
+	dv, ok := r.mi.docValues[field]
+	if !ok || dv.binary == nil {
+		return nil, nil
+	}
+	return &memBinaryDV{value: dv.binary}, nil
+}
+
+// GetSortedDocValues returns sorted doc values for the given field.
+func (r *memoryIndexReader) GetSortedDocValues(field string) (index.SortedDocValues, error) {
+	r.mi.mu.RLock()
+	defer r.mi.mu.RUnlock()
+	dv, ok := r.mi.docValues[field]
+	if !ok || dv.sorted == nil {
+		return nil, nil
+	}
+	return &memSortedDV{
+		memNumericDV: memNumericDV{value: 0},
+		term:         dv.sorted,
+		valueCount:   1,
+	}, nil
+}
+
+// GetSortedNumericDocValues returns sorted numeric doc values for the given field.
+func (r *memoryIndexReader) GetSortedNumericDocValues(field string) (index.SortedNumericDocValues, error) {
+	r.mi.mu.RLock()
+	defer r.mi.mu.RUnlock()
+	dv, ok := r.mi.docValues[field]
+	if !ok || dv.sortedNumeric == nil {
+		return nil, nil
+	}
+	return &memSortedNumericDV{values: dv.sortedNumeric}, nil
+}
+
+// GetSortedSetDocValues returns sorted set doc values for the given field.
+func (r *memoryIndexReader) GetSortedSetDocValues(field string) (index.SortedSetDocValues, error) {
+	r.mi.mu.RLock()
+	defer r.mi.mu.RUnlock()
+	dv, ok := r.mi.docValues[field]
+	if !ok || dv.sortedSet == nil {
+		return nil, nil
+	}
+	return &memSortedSetDV{terms: dv.sortedSet}, nil
+}
+
+// GetNormValues returns norms for the given field.
+func (r *memoryIndexReader) GetNormValues(field string) (index.NumericDocValues, error) {
+	r.mi.mu.RLock()
+	defer r.mi.mu.RUnlock()
+	mf, ok := r.mi.fields[field]
+	if !ok || len(mf.terms) == 0 {
+		return nil, nil
+	}
+	// Compute norm from field's token count, matching the
+	// DefaultSimilarity encoding used by IndexWriter:
+	// norm = IntToByte4(numTerms)
+	numTerms := len(mf.positions)
+	if numTerms <= 0 {
+		for _, freq := range mf.terms {
+			numTerms += freq
+		}
+	}
+	if numTerms <= 0 {
+		return nil, nil
+	}
+	normByte, err := util.IntToByte4(numTerms)
+	if err != nil {
+		return nil, err
+	}
+	return &memNumericDV{value: int64(normByte)}, nil
+}
+
+// GetPointValues returns point values for the given field.
+func (r *memoryIndexReader) GetPointValues(field string) (index.PointValues, error) {
+	r.mi.mu.RLock()
+	defer r.mi.mu.RUnlock()
+	pfm, ok := r.mi.pointFields[field]
+	if !ok || len(pfm.values) == 0 {
+		return nil, nil
+	}
+	return &memPointValues{meta: pfm}, nil
 }
 
 // GetLiveDocs returns nil (no deletions in a MemoryIndex).
@@ -173,10 +545,10 @@ func (mt *memoryTerms) GetSumTotalTermFreq() (int64, error) {
 	return total, nil
 }
 
-func (mt *memoryTerms) HasFreqs() bool    { return true }
-func (mt *memoryTerms) HasOffsets() bool  { return len(mt.offsets) > 0 }
+func (mt *memoryTerms) HasFreqs() bool     { return true }
+func (mt *memoryTerms) HasOffsets() bool   { return len(mt.offsets) > 0 }
 func (mt *memoryTerms) HasPositions() bool { return len(mt.positions) > 0 }
-func (mt *memoryTerms) HasPayloads() bool { return false }
+func (mt *memoryTerms) HasPayloads() bool  { return false }
 
 func (mt *memoryTerms) GetMin() (*schema.Term, error) {
 	if len(mt.terms) == 0 {
@@ -302,19 +674,19 @@ func (e *memoryTermsEnum) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (s
 // positions, and offsets.
 type memoryPostingsEnum struct {
 	schema.PostingsEnumBase
-	freq        int
-	positions   []int
-	offsets     [][2]int
-	posIdx      int
-	positioned  bool
+	freq       int
+	positions  []int
+	offsets    [][2]int
+	posIdx     int
+	positioned bool
 }
 
 func newMemoryPostingsEnum(freq int, positions []int, offsets [][2]int) *memoryPostingsEnum {
 	return &memoryPostingsEnum{
-		freq:            freq,
-		positions:       positions,
-		offsets:         offsets,
-		posIdx:          -1,
+		freq:             freq,
+		positions:        positions,
+		offsets:          offsets,
+		posIdx:           -1,
 		PostingsEnumBase: schema.NewPostingsEnumBase(-1),
 	}
 }

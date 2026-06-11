@@ -184,9 +184,19 @@ func (*IntSequenceOutputsImpl) GetNoOutput() *util.IntsRef { return intSequenceN
 // OutputToString implements Outputs.
 func (*IntSequenceOutputsImpl) OutputToString(o *util.IntsRef) string { return o.HexString() }
 
-// Merge implements Outputs.
-func (*IntSequenceOutputsImpl) Merge(_, _ *util.IntsRef) (*util.IntsRef, error) {
-	return nil, ErrUnsupportedMerge
+// Merge implements Outputs by concatenating the two int sequences.
+// This mirrors Lucene's IntSequenceOutputs which concatenates.
+func (*IntSequenceOutputsImpl) Merge(a, b *util.IntsRef) (*util.IntsRef, error) {
+	if a == intSequenceNoOutput || a.Length == 0 {
+		return b, nil
+	}
+	if b == intSequenceNoOutput || b.Length == 0 {
+		return a, nil
+	}
+	buf := make([]int, a.Length+b.Length)
+	copy(buf, a.Ints[a.Offset:a.Offset+a.Length])
+	copy(buf[a.Length:], b.Ints[b.Offset:b.Offset+b.Length])
+	return &util.IntsRef{Ints: buf, Offset: 0, Length: len(buf)}, nil
 }
 
 // RAMBytesUsed implements Outputs.
