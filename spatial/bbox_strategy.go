@@ -554,7 +554,7 @@ func (dvv *bboxDistanceValueSourceValues) Exists(doc int) bool {
 	_, maxXOk := dvv.maxXValues[doc]
 	_, minYOk := dvv.minYValues[doc]
 	_, maxYOk := dvv.maxYValues[doc]
-	return minXOk || maxXOk || minYOk || maxYOk
+	return minXOk && maxXOk && minYOk && maxYOk
 }
 
 // Ensure bboxDistanceValueSourceValues implements ValueSourceValues

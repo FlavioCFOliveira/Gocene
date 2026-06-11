@@ -2,6 +2,7 @@ package js
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"unicode"
@@ -80,7 +81,12 @@ func (b *binOp) eval(values map[string]float64) (float64, error) {
 		return l * r, nil
 	case '/':
 		if r == 0 {
-			return 0, nil
+			// Match Lucene's behavior: division by zero returns +Inf
+			// for floating-point division (not 0).
+			if l == 0 {
+				return 0, nil // 0/0 returns 0 per Lucene convention
+			}
+			return math.Inf(int(l)), nil
 		}
 		return l / r, nil
 	}
@@ -96,6 +102,9 @@ type funcCall struct {
 }
 
 func (f *funcCall) eval(values map[string]float64) (float64, error) {
+	if len(f.args) == 0 {
+		return 0, fmt.Errorf("expression: %s() requires at least 1 argument (got 0)", f.name)
+	}
 	resolved := make([]float64, len(f.args))
 	for i, a := range f.args {
 		v, err := a.eval(values)

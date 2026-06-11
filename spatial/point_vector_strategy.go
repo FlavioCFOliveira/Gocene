@@ -343,7 +343,7 @@ func (dvv *distanceValueSourceValues) StrVal(doc int) (string, error) {
 func (dvv *distanceValueSourceValues) Exists(doc int) bool {
 	_, xOk := dvv.xValues[doc]
 	_, yOk := dvv.yValues[doc]
-	return xOk || yOk
+	return xOk && yOk
 }
 
 // Ensure distanceValueSourceValues implements ValueSourceValues

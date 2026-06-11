@@ -11,6 +11,7 @@ package spatial
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/grouping"
@@ -380,57 +381,20 @@ func HaversineDistance(lat1, lon1, lat2, lon2 float64) float64 {
 
 // sin calculates sine of an angle in radians.
 func sin(x float64) float64 {
-	// Taylor series approximation for sin(x)
-	// sin(x) = x - x^3/3! + x^5/5! - x^7/7! + ...
-	x2 := x * x
-	x3 := x2 * x
-	x5 := x3 * x2
-	x7 := x5 * x2
-	return x - x3/6 + x5/120 - x7/5040
+	return math.Sin(x)
 }
 
 // cos calculates cosine of an angle in radians.
 func cos(x float64) float64 {
-	// Taylor series approximation for cos(x)
-	// cos(x) = 1 - x^2/2! + x^4/4! - x^6/6! + ...
-	x2 := x * x
-	x4 := x2 * x2
-	x6 := x4 * x2
-	return 1 - x2/2 + x4/24 - x6/720
+	return math.Cos(x)
 }
 
 // atan2 calculates the arctangent of y/x.
 func atan2(y, x float64) float64 {
-	// Using a simplified approximation
-	if x > 0 {
-		return atan(y / x)
-	} else if x < 0 {
-		if y >= 0 {
-			return atan(y/x) + 3.141592653589793
-		}
-		return atan(y/x) - 3.141592653589793
-	} else {
-		if y > 0 {
-			return 3.141592653589793 / 2
-		} else if y < 0 {
-			return -3.141592653589793 / 2
-		}
-		return 0
-	}
+	return math.Atan2(y, x)
 }
 
 // atan calculates the arctangent of x.
 func atan(x float64) float64 {
-	// Taylor series: atan(x) = x - x^3/3 + x^5/5 - x^7/7 + ...
-	if x > 1 {
-		return 3.141592653589793/2 - atan(1/x)
-	}
-	if x < -1 {
-		return -3.141592653589793/2 - atan(1/x)
-	}
-	x2 := x * x
-	x3 := x2 * x
-	x5 := x3 * x2
-	x7 := x5 * x2
-	return x - x3/3 + x5/5 - x7/7
+	return math.Atan(x)
 }

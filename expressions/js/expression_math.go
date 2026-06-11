@@ -72,5 +72,11 @@ func Haversin(lat1, lon1, lat2, lon2 float64) float64 {
 	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
 		math.Cos(lat1*math.Pi/180.0)*math.Cos(lat2*math.Pi/180.0)*
 			math.Sin(dLon/2)*math.Sin(dLon/2)
+	// Clamp a to [0, 1] to prevent NaN for antipodal/near-antipodal points
+	// where IEEE-754 rounding can push a slightly above 1.0.
+	// Matches Lucene's SloppyMath.haversinMeters() which uses min(1.0, ...).
+	if a > 1 {
+		a = 1
+	}
 	return 2 * earthRadiusKm * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
 }

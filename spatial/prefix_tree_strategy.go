@@ -501,13 +501,14 @@ func (c *BaseCell) String() string {
 
 // normalizeLongitude normalizes a longitude to the range [-180, 180].
 func normalizeLongitude(lon float64) float64 {
-	for lon < -180 {
+	// O(1) normalization using math.Mod. The loop-based approach would hang
+	// for large inputs (e.g. lon = 1e15 would iterate ~2.7 trillion times).
+	// Matches Lucene's GeoUtils.normalizeLon() which uses floorMod.
+	lon = math.Mod(lon+180, 360)
+	if lon < 0 {
 		lon += 360
 	}
-	for lon > 180 {
-		lon -= 360
-	}
-	return lon
+	return lon - 180
 }
 
 // normalizeLatitude normalizes a latitude to the range [-90, 90].
