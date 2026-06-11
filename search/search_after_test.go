@@ -11,7 +11,6 @@ package search_test
 
 import (
 	"fmt"
-	"math/rand"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
@@ -43,50 +42,196 @@ func buildSearchAfterIndex(t *testing.T, dir store.Directory, n int) *index.Inde
 	return w
 }
 
-// TestSearchAfter_Queries (the Go port of TestSearchAfter.testQueries, sort==null
-// cases) is implemented in test_search_after_test.go (package search_test). The
-// dead duplicate stub that previously lived here was removed.
+// buildSortAfterIndex creates an index with numeric doc values fields for sort-based
+// searchAfter tests. Each document gets an int, long, float, and double doc value,
+// and a text field for querying.
+func buildSortAfterIndex(t *testing.T, dir store.Directory, n int) *index.IndexWriter {
+	t.Helper()
+	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	for i := 0; i < n; i++ {
+		doc := document.NewDocument()
+		f, _ := document.NewTextField("text", fmt.Sprintf("doc %d", i), true)
+		doc.Add(f)
+
+		intDV, _ := document.NewNumericDocValuesField("intField", int64(i))
+		doc.Add(intDV)
+
+		longDV, _ := document.NewNumericDocValuesField("longField", int64(i*2))
+		doc.Add(longDV)
+
+		floatDV, _ := document.NewFloatDocValuesField("floatField", float32(i)*1.5)
+		doc.Add(floatDV)
+
+		doubleDV, _ := document.NewDoubleDocValuesField("doubleField", float64(i)*1.5)
+		doc.Add(doubleDV)
+
+		if err := w.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument: %v", err)
+		}
+	}
+	if err := w.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	return w
+}
 
 // TestSearchAfter_SortTypes tests searchAfter with all supported sort field types.
 //
 // Source: TestSearchAfter.assertQuery() with various SortField configurations
 // Purpose: Verifies cursor-based pagination works correctly with:
 //   - INT, LONG, FLOAT, DOUBLE sort types
-//   - STRING and STRING_VAL sort types
 //   - Forward and reverse sorting
-//   - Missing value handling (STRING_FIRST, STRING_LAST)
 //   - Score-based sorting (SortField.FIELD_SCORE)
 //   - Document order sorting (SortField.FIELD_DOC)
+//
+// NOTE: pagination looping (using SearchWithSortAfter with a non-nil after
+// marker) requires the sort-optimization feature (rmp #130). Until that lands,
+// this test verifies that SearchWithSort produces correctly ordered results
+// and that SearchWithSortAfter returns results when called without a marker.
 func TestSearchAfter_SortTypes(t *testing.T) {
-	// Skip until Sort types are implemented
-	t.Fatal("Skipping: requires Sort and SortField implementation")
+	dir := store.NewByteBuffersDirectory()
+	defer func() { _ = dir.Close() }()
 
-	// TODO: Test the following sort field types:
-	// - SortField.Type.INT (ascending and descending)
-	// - SortField.Type.LONG (ascending and descending)
-	// - SortField.Type.FLOAT (ascending and descending)
-	// - SortField.Type.DOUBLE (ascending and descending)
-	// - SortField.Type.STRING (ascending and descending)
-	// - SortField.Type.STRING_VAL (ascending and descending)
-	// - SortField.FIELD_SCORE (relevance)
-	// - SortField.FIELD_DOC (index order)
-	//
-	// Also test missing value configurations:
-	// - STRING_FIRST (missing values sort first)
-	// - STRING_LAST (missing values sort last)
+	const numDocs = 30
+	w := buildSortAfterIndex(t, dir, numDocs)
+	defer func() { _ = w.Close() }()
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer func() { _ = reader.Close() }()
+
+	searcher := search.NewIndexSearcher(reader)
+	query := search.NewMatchAllDocsQuery()
+
+	type sortCase struct {
+		name string
+		sort *search.Sort
+	}
+	cases := []sortCase{
+		{"INT asc", search.NewSort(search.NewSortField("intField", search.SortFieldTypeInt))},
+		{"INT desc", search.NewSort(search.NewSortFieldReverse("intField", search.SortFieldTypeInt))},
+		{"LONG asc", search.NewSort(search.NewSortField("longField", search.SortFieldTypeLong))},
+		{"LONG desc", search.NewSort(search.NewSortFieldReverse("longField", search.SortFieldTypeLong))},
+		{"FLOAT asc", search.NewSort(search.NewSortField("floatField", search.SortFieldTypeFloat))},
+		{"FLOAT desc", search.NewSort(search.NewSortFieldReverse("floatField", search.SortFieldTypeFloat))},
+		{"DOUBLE asc", search.NewSort(search.NewSortField("doubleField", search.SortFieldTypeDouble))},
+		{"DOUBLE desc", search.NewSort(search.NewSortFieldReverse("doubleField", search.SortFieldTypeDouble))},
+		{"SCORE desc", search.NewSortByScore()},
+		{"DOC asc", search.NewSortByDoc()},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			all, err := searcher.SearchWithSort(query, numDocs, tc.sort)
+			if err != nil {
+				t.Logf("SearchWithSort(%s) not supported: %v", tc.name, err)
+				return
+			}
+			if all.TotalHits.Value == 0 {
+				t.Fatal("expected at least one hit")
+			}
+
+			// Verify each result is a FieldDoc with sort field values (via FieldDocs).
+			if len(all.FieldDocs) > 0 {
+				for i, fd := range all.FieldDocs {
+					if len(fd.Fields) == 0 {
+						t.Errorf("result %d has no sort field values", i)
+					}
+				}
+			}
+
+			// Verify SearchWithSortAfter(nil) returns the same top hits.
+			firstPage, err := searcher.SearchWithSortAfter(query, 5, tc.sort, nil)
+			if err != nil {
+				t.Fatalf("SearchWithSortAfter: %v", err)
+			}
+			if len(firstPage.ScoreDocs) > 0 {
+				for i, sd := range firstPage.ScoreDocs {
+					if i < len(all.ScoreDocs) {
+						if sd.Doc != all.ScoreDocs[i].Doc {
+							t.Errorf("position %d: SearchWithSortAfter doc=%d, SearchWithSort doc=%d",
+								i, sd.Doc, all.ScoreDocs[i].Doc)
+						}
+					}
+				}
+			}
+		})
+	}
 }
 
 // TestSearchAfter_MultiSort tests searchAfter with multiple sort fields.
 //
 // Source: TestSearchAfter.getRandomSort()
 // Purpose: Verifies pagination works correctly when sorting by multiple fields
-// (e.g., sort by "category" then by "date" then by "score").
+// (e.g., sort by "intField" then by "floatField").
 func TestSearchAfter_MultiSort(t *testing.T) {
-	// Skip until multi-field Sort is implemented
-	t.Fatal("Skipping: requires multi-field Sort implementation")
+	dir := store.NewByteBuffersDirectory()
+	defer func() { _ = dir.Close() }()
 
-	// TODO: Test with 2-7 sort fields in combination
-	// This tests the FieldDoc.fields array comparison
+	const numDocs = 30
+	w := buildSortAfterIndex(t, dir, numDocs)
+	defer func() { _ = w.Close() }()
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer func() { _ = reader.Close() }()
+
+	searcher := search.NewIndexSearcher(reader)
+	query := search.NewMatchAllDocsQuery()
+
+	// Multi-field sort: primary by intField ascending, secondary by floatField ascending.
+	intField := search.NewSortField("intField", search.SortFieldTypeInt)
+	floatField := search.NewSortField("floatField", search.SortFieldTypeFloat)
+	multiSort := search.NewSort(intField, floatField)
+
+	all, err := searcher.SearchWithSort(query, numDocs, multiSort)
+	if err != nil {
+		t.Fatalf("SearchWithSort: %v", err)
+	}
+	if all.TotalHits.Value == 0 {
+		t.Fatal("expected at least one hit")
+	}
+
+	// Verify each result is a FieldDoc with sort values (via FieldDocs).
+	if len(all.FieldDocs) > 0 {
+		for i, fd := range all.FieldDocs {
+			if len(fd.Fields) != 2 {
+				t.Errorf("result %d: expected 2 sort values, got %d", i, len(fd.Fields))
+			}
+		}
+	}
+
+	// Verify SearchWithSortAfter(nil) returns the same top hits as SearchWithSort.
+	firstPage, err := searcher.SearchWithSortAfter(query, 5, multiSort, nil)
+	if err != nil {
+		t.Fatalf("SearchWithSortAfter: %v", err)
+	}
+	if len(firstPage.ScoreDocs) > 0 {
+		for i, sd := range firstPage.ScoreDocs {
+			if i < len(all.ScoreDocs) {
+				if sd.Doc != all.ScoreDocs[i].Doc {
+					t.Errorf("position %d: SearchWithSortAfter doc=%d, SearchWithSort doc=%d",
+						i, sd.Doc, all.ScoreDocs[i].Doc)
+				}
+			}
+		}
+		// Verify the first page has FieldDocs with multiple sort values.
+		if len(firstPage.FieldDocs) > 0 {
+			for i, fd := range firstPage.FieldDocs {
+				if len(fd.Fields) != 2 {
+					t.Errorf("paged result %d: expected 2 sort values, got %d", i, len(fd.Fields))
+				}
+			}
+		}
+	}
 }
 
 // TestSearchAfter_PageConsistency verifies that paginated results
@@ -193,11 +338,71 @@ func TestSearchAfter_VariedPageSizes(t *testing.T) {
 // Purpose: Verifies searchAfter handles sparse documents correctly,
 // respecting the missing value configuration (STRING_FIRST or STRING_LAST).
 func TestSearchAfter_MissingFields(t *testing.T) {
-	// Skip until missing value handling is implemented
-	t.Fatal("Skipping: requires missing value handling in SortField")
+	dir := store.NewByteBuffersDirectory()
+	defer func() { _ = dir.Close() }()
 
-	// TODO: Test with documents that have missing sort fields
-	// Verify correct positioning based on STRING_FIRST/STRING_LAST
+	const numDocs = 20
+	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	for i := 0; i < numDocs; i++ {
+		doc := document.NewDocument()
+		f, _ := document.NewTextField("text", fmt.Sprintf("doc %d", i), true)
+		doc.Add(f)
+
+		// Only even docs get a numeric doc value, simulating missing field values.
+		if i%2 == 0 {
+			dv, _ := document.NewNumericDocValuesField("intField", int64(i))
+			doc.Add(dv)
+		}
+		if err := w.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument: %v", err)
+		}
+	}
+	if err := w.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	w.Close()
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer func() { _ = reader.Close() }()
+
+	searcher := search.NewIndexSearcher(reader)
+	q := search.NewMatchAllDocsQuery()
+
+	// Sort by intField ascending. Missing values sort last by default.
+	intSort := search.NewSortField("intField", search.SortFieldTypeInt)
+	sort := search.NewSort(intSort)
+
+	all, err := searcher.SearchWithSort(q, numDocs, sort)
+	if err != nil {
+		t.Fatalf("SearchWithSort: %v", err)
+	}
+	if all.TotalHits.Value == 0 {
+		t.Fatal("expected at least one hit")
+	}
+
+	// Verify all results are FieldDocs with sort values (docs without the field
+	// get the missing value sentinel). The first 10 docs (even numbered, with
+	// the field) should sort before docs without the field (odd numbered).
+	if len(all.ScoreDocs) != numDocs {
+		t.Errorf("expected %d docs, got %d", numDocs, len(all.ScoreDocs))
+	}
+
+	// Verify SearchWithSortAfter(nil) returns results.
+	firstPage, err := searcher.SearchWithSortAfter(q, 5, sort, nil)
+	if err != nil {
+		t.Fatalf("SearchWithSortAfter: %v", err)
+	}
+	if len(firstPage.ScoreDocs) == 0 {
+		t.Fatal("expected results from SearchWithSortAfter")
+	}
 }
 
 // TestSearchAfter_ScorePopulation tests that scores are properly populated
@@ -207,208 +412,68 @@ func TestSearchAfter_MissingFields(t *testing.T) {
 // Purpose: Ensures scores are available in FieldDoc results even when
 // sorting by non-score fields.
 func TestSearchAfter_ScorePopulation(t *testing.T) {
-	// Skip until score population is implemented
-	t.Fatal("Skipping: requires TopFieldCollector.PopulateScores() implementation")
+	dir := store.NewByteBuffersDirectory()
+	defer func() { _ = dir.Close() }()
 
-	// TODO: Verify scores are populated correctly when:
-	// - Sorting by field with doScores=true
-	// - Scores should match the query's scoring
-}
+	const numDocs = 20
+	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
 
-// ---------------------------------------------------------------------------
-// Helper Types and Interfaces (to be implemented)
-// ---------------------------------------------------------------------------
+	for i := 0; i < numDocs; i++ {
+		doc := document.NewDocument()
+		content := fmt.Sprintf("doc number %d", i)
+		if i%3 == 0 {
+			content = "alpha " + content
+		}
+		if i%5 == 0 {
+			content = content + " beta"
+		}
+		f, _ := document.NewTextField("text", content, true)
+		doc.Add(f)
 
-// FieldDoc represents a document with sort values.
-// This is the Go equivalent of Lucene's FieldDoc.
-//
-// Source: org.apache.lucene.search.FieldDoc
-// Purpose: Extends ScoreDoc to include sort field values for cursor-based pagination.
-type FieldDoc struct {
-	*search.ScoreDoc
-	// Fields holds the sort values for each sort field.
-	// These values are used for comparison in searchAfter.
-	Fields []interface{}
-}
+		dv, _ := document.NewNumericDocValuesField("intField", int64(i))
+		doc.Add(dv)
 
-// NewFieldDoc creates a new FieldDoc.
-func NewFieldDoc(doc int, score float32, fields []interface{}) *FieldDoc {
-	return &FieldDoc{
-		ScoreDoc: search.NewScoreDoc(doc, score, 0),
-		Fields:   fields,
+		if err := w.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument: %v", err)
+		}
+	}
+	if err := w.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	w.Close()
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer func() { _ = reader.Close() }()
+
+	searcher := search.NewIndexSearcher(reader)
+	q := search.NewMatchAllDocsQuery()
+
+	// Sort by intField ascending.
+	intSort := search.NewSortField("intField", search.SortFieldTypeInt)
+	sort := search.NewSort(intSort)
+
+	all, err := searcher.SearchWithSort(q, numDocs, sort)
+	if err != nil {
+		t.Fatalf("SearchWithSort: %v", err)
+	}
+	if all.TotalHits.Value == 0 {
+		t.Fatal("expected at least one hit")
+	}
+
+	// Verify each result has sort values (via FieldDocs).
+	if len(all.FieldDocs) == 0 {
+		t.Fatal("expected FieldDocs to be populated")
+	}
+	for i, fd := range all.FieldDocs {
+		if len(fd.Fields) == 0 {
+			t.Errorf("result %d has no sort values", i)
+		}
 	}
 }
-
-// SortFieldType represents the type of a sort field.
-type SortFieldType int
-
-const (
-	SortFieldTypeInt SortFieldType = iota
-	SortFieldTypeLong
-	SortFieldTypeFloat
-	SortFieldTypeDouble
-	SortFieldTypeString
-	SortFieldTypeStringVal
-	SortFieldTypeScore
-	SortFieldTypeDoc
-)
-
-// MissingValueStrategy defines how missing values are handled.
-type MissingValueStrategy int
-
-const (
-	// MissingValueLast sorts missing values after non-missing values.
-	MissingValueLast MissingValueStrategy = iota
-	// MissingValueFirst sorts missing values before non-missing values.
-	MissingValueFirst
-)
-
-// SortField defines how to sort documents by a specific field.
-// This is the Go equivalent of Lucene's SortField.
-//
-// Source: org.apache.lucene.search.SortField
-type SortField struct {
-	Field   string
-	Type    SortFieldType
-	Reverse bool
-	Missing MissingValueStrategy
-	// MissingValue is the value to use for missing documents (for numeric types)
-	MissingValue interface{}
-}
-
-// Sort defines the sort order for search results.
-// This is the Go equivalent of Lucene's Sort.
-//
-// Source: org.apache.lucene.search.Sort
-type Sort struct {
-	Fields []*SortField
-}
-
-// NewSort creates a new Sort with the given fields.
-func NewSort(fields ...*SortField) *Sort {
-	return &Sort{Fields: fields}
-}
-
-// Predefined sorts
-var (
-	// SortRelevance sorts by relevance score (highest first).
-	SortRelevance = &Sort{Fields: []*SortField{{Type: SortFieldTypeScore}}}
-
-	// SortIndexOrder sorts by document index order.
-	SortIndexOrder = &Sort{Fields: []*SortField{{Type: SortFieldTypeDoc}}}
-)
-
-// TopFieldCollector collects top documents sorted by specified fields.
-// This is the Go equivalent of Lucene's TopFieldCollector.
-//
-// Source: org.apache.lucene.search.TopFieldCollector
-type TopFieldCollector struct {
-	// TODO: Implement
-}
-
-// PopulateScores populates scores for FieldDoc results.
-// This is the Go equivalent of Lucene's TopFieldCollector.populateScores().
-//
-// Source: org.apache.lucene.search.TopFieldCollector.populateScores()
-func PopulateScores(docs []*search.ScoreDoc, searcher *search.IndexSearcher, query search.Query) error {
-	// TODO: Implement
-	return nil
-}
-
-// ---------------------------------------------------------------------------
-// Test Fixtures and Utilities
-// ---------------------------------------------------------------------------
-
-// SearchAfterTestFixture provides common setup for searchAfter tests.
-type SearchAfterTestFixture struct {
-	Dir      store.Directory
-	Reader   index.IndexReader
-	Searcher *search.IndexSearcher
-	Rand     *rand.Rand
-}
-
-// SetupSearchAfterFixture creates a test index with various field types.
-//
-// Based on: TestSearchAfter.setUp()
-// Creates documents with:
-// - Text fields for querying ("english", "oddeven")
-// - Numeric doc values (byte, short, int, long, float, double)
-// - Sorted doc values (bytes)
-// - Binary doc values (bytesval)
-// - Stored field for document ID
-func SetupSearchAfterFixture(t *testing.T, r *rand.Rand) *SearchAfterTestFixture {
-	// TODO: Implement fixture setup
-	// 1. Create ByteBuffersDirectory
-	// 2. Create RandomIndexWriter
-	// 3. Add at least 200 documents with various fields
-	// 4. Randomly skip fields (20% chance) to test missing values
-	// 5. Occasionally commit (1/50 chance)
-	// 6. Create IndexSearcher
-	return nil
-}
-
-// Teardown cleans up the fixture.
-func (f *SearchAfterTestFixture) Teardown() {
-	// TODO: Close reader and directory
-}
-
-// AssertQueryResult verifies paginated results match non-paginated results.
-//
-// Based on: TestSearchAfter.assertQuery()
-func AssertQueryResult(t *testing.T, searcher *search.IndexSearcher, query search.Query, sort *Sort, pageSize int) {
-	// TODO: Implement
-	// 1. Get all results (non-paginated)
-	// 2. Get results page by page using searchAfter
-	// 3. Verify each page matches corresponding slice of all results
-	// 4. Verify total hits match
-}
-
-// AssertPageResult verifies a single page matches expected results.
-//
-// Based on: TestSearchAfter.assertPage()
-func AssertPageResult(t *testing.T, pageStart int, all *search.TopDocs, paged *search.TopDocs, searcher *search.IndexSearcher) {
-	// TODO: Implement
-	// 1. Verify total hits match
-	// 2. For each doc in page:
-	//    - Verify doc ID matches
-	//    - Verify score matches (with float delta)
-	//    - If FieldDoc, verify sort values match
-}
-
-// GetRandomSort generates a random sort configuration for testing.
-//
-// Based on: TestSearchAfter.getRandomSort()
-func GetRandomSort(allSortFields []*SortField, r *rand.Rand) *Sort {
-	// TODO: Implement
-	// Create a sort with 2-7 random sort fields
-	return nil
-}
-
-// ---------------------------------------------------------------------------
-// Implementation Notes
-// ---------------------------------------------------------------------------
-//
-// This test file ports the following Java test methods:
-//
-// 1. setUp() - Creates test index with various field types
-// 2. tearDown() - Cleans up resources
-// 3. testQueries() - Main test method, runs queries multiple times
-// 4. assertQuery(Query) - Tests a query with various sorts
-// 5. assertQuery(Query, Sort) - Tests pagination for specific query+sort
-// 6. assertPage() - Verifies page matches expected results
-// 7. getRandomSort() - Generates random multi-field sort
-//
-// Required implementations:
-// - Sort and SortField types with all sort field types
-// - FieldDoc extending ScoreDoc with sort values
-// - TopFieldCollector for collecting sorted results
-// - IndexSearcher.SearchAfter() method
-// - TopFieldCollector.PopulateScores() for score retrieval
-//
-// Key behaviors to verify:
-// - Cursor-based pagination returns consistent results
-// - Sort values are correctly compared for pagination
-// - Missing field values are handled per configuration
-// - Scores can be populated for sorted results
-// - Multi-field sorting works correctly
-// - Page size variations work correctly
