@@ -30,6 +30,12 @@ func init() {
 	// PostingsFormatByName resolves the name from PerField attributes).
 	RegisterPostingsFormat(NewLucene103PostingsFormat())
 
+	// Lucene99PostingsFormat is the backward-compatibility format for
+	// Lucene 9.9 postings (BLOCK_SIZE=128, long-based ForUtil). Gocene
+	// extends the Java contract (read-only) to support writing for
+	// round-trip testing.
+	RegisterPostingsFormat(NewLucene99PostingsFormat())
+
 	// PerField40 is the per-field dispatch wrapper format.
 	// Mirrors: org.apache.lucene.codecs.perfield.PerFieldPostingsFormat
 	// The default delegate is Lucene104; callers that need a different

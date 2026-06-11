@@ -7,10 +7,6 @@ package lucene99
 import "github.com/FlavioCFOliveira/Gocene/codecs"
 
 func init() {
-	// Lucene99PostingsFormat is a backward-compatibility read-only stub.
-	// Mirrors: org.apache.lucene.backward_codecs.lucene99.Lucene99PostingsFormat
-	codecs.RegisterPostingsFormat(codecs.NewReadOnlyPostingsFormat("Lucene99PostingsFormat"))
-
 	// Lucene99HnswScalarQuantizedVectorsFormat backward-compatibility stub.
 	// Mirrors: org.apache.lucene.backward_codecs.lucene99.Lucene99HnswScalarQuantizedVectorsFormat
 	codecs.RegisterKnnVectorsFormat(codecs.NewReadOnlyKnnVectorsFormat("Lucene99HnswScalarQuantizedVectorsFormat"))

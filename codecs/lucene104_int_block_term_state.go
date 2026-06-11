@@ -49,6 +49,16 @@ type IntBlockTermState struct {
 	//
 	// When SingletonDocID >= 0, freq is always implicitly totalTermFreq.
 	SingletonDocID int
+
+	// SkipOffset is the offset from DocStartFP where the skip data for this
+	// term begins, or -1 when docFreq <= BLOCK_SIZE (no skip data). Used
+	// by lucene99-style formats that embed skip data inline in the .doc
+	// stream.
+	//
+	// Note: the Lucene104 postings format does not use this field because it
+	// stores skip data in the separate .psm meta file. The field exists here
+	// so that backward-codecs readers can reuse the same IntBlockTermState.
+	SkipOffset int64
 }
 
 // NewIntBlockTermState returns a fresh IntBlockTermState with the Lucene104
@@ -60,6 +70,7 @@ func NewIntBlockTermState() *IntBlockTermState {
 		BlockTermState:     NewBlockTermState(),
 		LastPosBlockOffset: -1,
 		SingletonDocID:     -1,
+		SkipOffset:         -1,
 	}
 }
 
@@ -83,14 +94,15 @@ func (s *IntBlockTermState) CopyFrom(src *IntBlockTermState) {
 	s.PayStartFP = src.PayStartFP
 	s.LastPosBlockOffset = src.LastPosBlockOffset
 	s.SingletonDocID = src.SingletonDocID
+	s.SkipOffset = src.SkipOffset
 }
 
 // String returns a human-readable representation for debugging.
 func (s *IntBlockTermState) String() string {
 	return fmt.Sprintf(
-		"IntBlockTermState{docFreq=%d totalTermFreq=%d docStartFP=%d posStartFP=%d payStartFP=%d lastPosBlockOffset=%d singletonDocID=%d}",
+		"IntBlockTermState{docFreq=%d totalTermFreq=%d docStartFP=%d posStartFP=%d payStartFP=%d lastPosBlockOffset=%d singletonDocID=%d skipOffset=%d}",
 		s.DocFreq, s.TotalTermFreq,
 		s.DocStartFP, s.PosStartFP, s.PayStartFP,
-		s.LastPosBlockOffset, s.SingletonDocID,
+		s.LastPosBlockOffset, s.SingletonDocID, s.SkipOffset,
 	)
 }
