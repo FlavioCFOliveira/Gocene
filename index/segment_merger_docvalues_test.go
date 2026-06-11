@@ -75,7 +75,7 @@ func TestSegmentMerger_NumericDocValuesRoundTrip(t *testing.T) {
 	mergedSI := index.NewSegmentInfo("_merged", total, dir)
 	mergedSI.SetCodec(index.GetDefaultCodec().Name())
 
-	merger, err := index.NewSegmentMerger(codecReaders, mergedSI, nil, dir, store.IOContext{Context: store.ContextMerge})
+	merger, err := index.NewSegmentMerger(codecReaders, mergedSI, nil, nil, dir, store.IOContext{Context: store.ContextMerge})
 	if err != nil {
 		t.Fatalf("NewSegmentMerger: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestSegmentMerger_SortedDocValuesRoundTrip(t *testing.T) {
 	}
 	mergedSI := index.NewSegmentInfo("_merged", total, dir)
 	mergedSI.SetCodec(index.GetDefaultCodec().Name())
-	merger, err := index.NewSegmentMerger(codecReaders, mergedSI, nil, dir, store.IOContext{Context: store.ContextMerge})
+	merger, err := index.NewSegmentMerger(codecReaders, mergedSI, nil, nil, dir, store.IOContext{Context: store.ContextMerge})
 	if err != nil {
 		t.Fatalf("NewSegmentMerger: %v", err)
 	}
@@ -299,7 +299,7 @@ func TestSegmentMerger_SortedSetDocValuesRoundTrip(t *testing.T) {
 	}
 	mergedSI := index.NewSegmentInfo("_merged", total, dir)
 	mergedSI.SetCodec(index.GetDefaultCodec().Name())
-	merger, err := index.NewSegmentMerger(codecReaders, mergedSI, nil, dir, store.IOContext{Context: store.ContextMerge})
+	merger, err := index.NewSegmentMerger(codecReaders, mergedSI, nil, nil, dir, store.IOContext{Context: store.ContextMerge})
 	if err != nil {
 		t.Fatalf("NewSegmentMerger: %v", err)
 	}

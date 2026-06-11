@@ -271,6 +271,21 @@ func NewIndexWriter(dir store.Directory, config *IndexWriterConfig) (*IndexWrite
 	// This is needed when reopening an existing index (APPEND mode).
 	if existingSI, siErr := ReadSegmentInfos(dir); siErr == nil {
 		writer.committedSegments = existingSI.List()
+
+		// Validate that the index sort matches the existing commit. Changing the
+		// index sort on an existing index is not allowed (Lucene throws
+		// IllegalArgumentException). This check is skipped for CREATE mode
+		// (openMode == CREATE) where the directory is expected to be empty,
+		// but a stale segments_N left behind by a previous crash may still
+		// exist; in that case the existing sort must match.
+		existingSort := existingSI.GetInMemoryIndexSort()
+		configSort := config.IndexSort()
+		if !sortsCompatible(existingSort, configSort) {
+			_ = wl.Close()
+			return nil, fmt.Errorf(
+				"cannot change index sort from %v to %v: index sort cannot be changed after the index was created",
+				existingSort, configSort)
+		}
 	}
 
 	return writer, nil
@@ -300,6 +315,13 @@ func (w *IndexWriter) setTragicError(err error) {
 func (w *IndexWriter) AddDocument(doc Document) error {
 	if err := w.ensureOpen(); err != nil {
 		return err
+	}
+
+	// Validate sort field types against the DV fields in this document.
+	if sort := w.config.IndexSort(); sort != nil {
+		if err := w.validateSortFieldTypes(doc, sort); err != nil {
+			return err
+		}
 	}
 
 	// Serialize the per-document atomic unit (process → docCount.Add → flush
@@ -2175,7 +2197,7 @@ func (w *IndexWriter) mergeSegmentGroup(segs []*SegmentCommitInfo, segName strin
 	mergedSI.SetCodec(codec.Name())
 	mergedSI.SetIndexSort(w.config.IndexSort())
 
-	sm, err := NewSegmentMerger(readers, mergedSI, util.NoOpInfoStream, w.directory, store.IOContext{Context: store.ContextMerge})
+	sm, err := NewSegmentMerger(readers, mergedSI, codec, util.NoOpInfoStream, w.directory, store.IOContext{Context: store.ContextMerge})
 	if err != nil {
 		closeReaders()
 		return nil, fmt.Errorf("forceMerge: new segment merger: %w", err)
@@ -3105,7 +3127,34 @@ func (w *IndexWriter) AddDocuments(docs []Document) error {
 	if err := w.ensureOpen(); err != nil {
 		return err
 	}
+	if len(docs) == 0 {
+		return nil
+	}
+
+	// When index sorting is configured, parent field is required for document
+	// blocks (the synthetic parent marker injected into the last document is
+	// used by the index sorter to keep block children together).
 	parentFieldName := w.config.ParentField()
+	indexSort := w.config.IndexSort()
+	if indexSort != nil && len(indexSort.Fields()) > 0 && parentFieldName == "" {
+		return fmt.Errorf(
+			"a parent field must be set in order to use document blocks with index sorting; see IndexWriterConfig#setParentField")
+	}
+
+	// No document in the block may contain a field whose name matches the
+	// reserved parent field (it will be injected into the last document).
+	if parentFieldName != "" {
+		for _, doc := range docs {
+			for _, f := range doc.GetFields() {
+				if fi, ok := f.(interface{ Name() string }); ok && fi.Name() == parentFieldName {
+					return fmt.Errorf(
+						"%q is a reserved field and should not be added to any document",
+						parentFieldName)
+				}
+			}
+		}
+	}
+
 	for i, doc := range docs {
 		d := doc
 		// Inject the synthetic parent marker into the last document of the block,
@@ -3123,6 +3172,9 @@ func (w *IndexWriter) AddDocuments(docs []Document) error {
 
 // UpdateDocValues updates the doc values for documents matching the given term.
 // This is used for updating numeric doc values without re-indexing.
+//
+// Fields that participate in the index sort are not updatable via
+// UpdateDocValues (mirroring Lucene's IllegalArgumentException).
 func (w *IndexWriter) UpdateDocValues(term *Term, field string, value interface{}) error {
 	if err := w.ensureOpen(); err != nil {
 		return err
@@ -3131,8 +3183,81 @@ func (w *IndexWriter) UpdateDocValues(term *Term, field string, value interface{
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
+	// Reject UpdateDocValues on fields that participate in the index sort.
+	if sort := w.config.IndexSort(); sort != nil {
+		for _, sf := range sort.Fields() {
+			if sf.Field() == field {
+				return fmt.Errorf(
+					"cannot update doc values for field %q because it participates in the index sort",
+					field)
+			}
+		}
+	}
+
 	// Placeholder - would update doc values in the index
 	return nil
+}
+
+// validateSortFieldTypes checks that each DocValues field in the document whose
+// name matches an index-sort field carries the expected DocValues type.
+// Non-DV fields with the same name (e.g. stored or indexed fields) are
+// ignored — only explicit DocValues fields are validated.
+// Mismatches produce an error mirroring Lucene's
+// "expected field [X] to be ..." message.
+func (w *IndexWriter) validateSortFieldTypes(doc Document, sort *Sort) error {
+	fields := doc.GetFields()
+	for _, sf := range sort.Fields() {
+		fieldName := sf.Field()
+		for _, f := range fields {
+			if fi, ok := f.(interface{ Name() string }); !ok || fi.Name() != fieldName {
+				continue
+			}
+			// Found a field matching the sort field name. Check if it's a DV field.
+			dvt, ok := f.(interface{ DocValuesType() DocValuesType })
+			if !ok {
+				continue // not a DV-capable field
+			}
+			got := dvt.DocValuesType()
+			if got == DocValuesTypeNone {
+				continue // field has no doc values (e.g. stored-only); skip
+			}
+			want := sortFieldDVType(sf)
+			if want != DocValuesTypeNone && got != want {
+				return fmt.Errorf(
+					"expected field [%s] to be %v, but got %v",
+					fieldName, want, got)
+			}
+			break
+		}
+	}
+	return nil
+}
+
+// sortFieldDVType maps a SortField to the expected DocValuesType.
+// Multi-valued sorts are detected via the Selector() method:
+//   - SortedNumericSortField sets selector to "min"
+//   - SortedSetSortField sets selector to "min" and sortType to STRING
+func sortFieldDVType(sf SortField) DocValuesType {
+	sel := sf.Selector()
+	st := sf.SortType()
+	if sel != "" {
+		// Multi-valued sort fields
+		switch {
+		case st == SortTypeString:
+			return DocValuesTypeSortedSet
+		case st == SortTypeLong || st == SortTypeInt || st == SortTypeFloat || st == SortTypeDouble:
+			return DocValuesTypeSortedNumeric
+		}
+	}
+	// Single-valued sort fields
+	switch st {
+	case SortTypeString:
+		return DocValuesTypeSorted
+	case SortTypeLong, SortTypeInt, SortTypeFloat, SortTypeDouble:
+		return DocValuesTypeNumeric
+	default:
+		return DocValuesTypeNone
+	}
 }
 
 // CloneSegmentInfos returns a copy of the current SegmentInfos.

@@ -25,7 +25,9 @@ func (sm *SegmentMerger) mergePoints() error {
 		Directory:     sm.directory,
 		SegmentInfo:   sm.MergeState.SegmentInfo,
 		FieldInfos:    sm.MergeState.MergeFieldInfos,
-		SegmentSuffix: "",
+		SegmentSuffix:  "",
+			NeedsIndexSort: sm.MergeState.NeedsIndexSort,
+			IsMerge:        true,
 	}
 	writer, err := sm.codec.PointsFormat().FieldsWriter(state)
 	if err != nil {

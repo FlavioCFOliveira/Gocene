@@ -62,7 +62,9 @@ func (sm *SegmentMerger) mergeVectorValues() error {
 		Directory:     sm.directory,
 		SegmentInfo:   sm.MergeState.SegmentInfo,
 		FieldInfos:    sm.MergeState.MergeFieldInfos,
-		SegmentSuffix: "",
+		SegmentSuffix:  "",
+			NeedsIndexSort: sm.MergeState.NeedsIndexSort,
+			IsMerge:        true,
 	}
 	if err := consumer.Flush(state, nil); err != nil {
 		return fmt.Errorf("index: merge vectors: flush: %w", err)

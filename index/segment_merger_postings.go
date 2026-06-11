@@ -118,7 +118,9 @@ func (sm *SegmentMerger) mergeTerms() error {
 		Directory:     sm.directory,
 		SegmentInfo:   sm.MergeState.SegmentInfo,
 		FieldInfos:    sm.MergeState.MergeFieldInfos,
-		SegmentSuffix: "",
+		SegmentSuffix:  "",
+			NeedsIndexSort: sm.MergeState.NeedsIndexSort,
+			IsMerge:        true,
 	}
 	consumer, err := sm.codec.PostingsFormat().FieldsConsumer(state)
 	if err != nil {

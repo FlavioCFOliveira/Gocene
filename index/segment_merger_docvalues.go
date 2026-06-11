@@ -31,7 +31,9 @@ func (sm *SegmentMerger) mergeDocValues() error {
 		Directory:     sm.directory,
 		SegmentInfo:   sm.MergeState.SegmentInfo,
 		FieldInfos:    sm.MergeState.MergeFieldInfos,
-		SegmentSuffix: "",
+		SegmentSuffix:  "",
+			NeedsIndexSort: sm.MergeState.NeedsIndexSort,
+			IsMerge:        true,
 	}
 	consumer, err := sm.codec.DocValuesFormat().FieldsConsumer(state)
 	if err != nil {

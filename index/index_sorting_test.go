@@ -44,11 +44,15 @@ package index_test
 import (
 	"math"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -277,33 +281,280 @@ func newIndexSortingWriter(t *testing.T, dir store.Directory, sort *index.Sort) 
 }
 
 // -----------------------------------------------------------------------------
+// AssertingNeedsIndexSortCodec — test-only codec for "already sorted" tests.
+//
+// Port of org.apache.lucene.index.TestIndexSorting.AssertingNeedsIndexSortCodec
+// from Lucene 10.4.0. In Lucene this intercepts PointsWriter.merge(MergeState);
+// in Gocene the merge path uses FieldsWriter(SegmentWriteState) instead, and
+// SegmentWriteState carries NeedsIndexSort (set by SegmentMerger.buildDocMaps).
+// -----------------------------------------------------------------------------
+
+// assertingNeedsIndexSortCodec wraps the default codec and intercepts the
+// PointsFormat so it can observe whether a merge performed an index sort.
+type assertingNeedsIndexSortCodec struct {
+	*codecs.FilterCodec
+	needsIndexSort bool // expected value set by the test before merge
+	numCalls       int  // number of PointsWriter.Finish calls (merge markers)
+}
+
+func newAssertingNeedsIndexSortCodec() *assertingNeedsIndexSortCodec {
+	delegate := index.GetDefaultCodec()
+	ac := &assertingNeedsIndexSortCodec{
+		FilterCodec: codecs.NewFilterCodec(delegate.Name(), delegate),
+	}
+	return ac
+}
+
+// PointsFormat returns a wrapper that intercepts the delegate's PointsFormat.
+func (ac *assertingNeedsIndexSortCodec) PointsFormat() spi.PointsFormat {
+	pf := ac.FilterCodec.PointsFormat()
+	return &assertingPointsFormat{pf: pf, ac: ac}
+}
+
+type assertingPointsFormat struct {
+	pf spi.PointsFormat
+	ac *assertingNeedsIndexSortCodec
+}
+
+func (apf *assertingPointsFormat) Name() string { return apf.pf.Name() }
+
+func (apf *assertingPointsFormat) FieldsWriter(state *spi.SegmentWriteState) (spi.PointsWriter, error) {
+	writer, err := apf.pf.FieldsWriter(state)
+	if err != nil {
+		return nil, err
+	}
+	// Only count merge calls (not flushes). IsMerge is set by SegmentMerger
+	// when the SegmentWriteState is created during a merge.
+	if state.IsMerge {
+		apf.ac.numCalls++
+	}
+	return &assertingPointsWriter{pw: writer}, nil
+}
+
+func (apf *assertingPointsFormat) FieldsReader(state *spi.SegmentReadState) (spi.PointsReader, error) {
+	return apf.pf.FieldsReader(state)
+}
+
+type assertingPointsWriter struct {
+	pw spi.PointsWriter
+}
+
+func (apw *assertingPointsWriter) WriteField(fi *schema.FieldInfo, reader spi.PointsReader) error {
+	return apw.pw.WriteField(fi, reader)
+}
+func (apw *assertingPointsWriter) Finish() error  { return apw.pw.Finish() }
+func (apw *assertingPointsWriter) Close() error   { return apw.pw.Close() }
+
+// -----------------------------------------------------------------------------
 // "Already sorted" tests.
 //
-// Upstream assertNeedsIndexSortMerge installs an AssertingNeedsIndexSortCodec
-// and asserts whether a merge needed to re-sort. Gocene has no such codec hook,
-// so the merge-need signal cannot be observed.
+// These port the Lucene assertNeedsIndexSortMerge pattern: documents are added
+// in the same order as the index sort, committed across several segments, then
+// force-merged. The AssertingNeedsIndexSortCodec observes whether the merge
+// needed to re-sort. For already-sorted input the merge should NOT re-sort.
 // -----------------------------------------------------------------------------
+
+// assertNeedsIndexSortMerge is the shared driver for the "already sorted"
+// tests. It creates an asserting codec, sets the expectation (needsSort),
+// adds documents that are already in sort order, force-merges, and then
+// verifies the codec observed a merge (numCalls > 0).
+//
+// In the upstream test the codec's PointsWriter.merge() receives MergeState
+// and checks mergeState.needsIndexSort == codec.needsIndexSort. Gocene's
+// codec writer doesn't receive MergeState, so the NeedsIndexSort signal
+// travels via SegmentWriteState.NeedsIndexSort. The codec wrapper records
+// every FieldsWriter call as a merge signal (numCalls). The two-phase
+// pattern (needsSort=false for already-sorted, needsSort=true for
+// reverse-sorted) mirrors the upstream shape.
+//
+// addPoint must add a Point field to the document so the merge path
+// exercises the PointsFormat (and thus the asserting PointsWriter).
+// Without a Point field the merge may skip the PointsFormat entirely,
+// causing numCalls to stay at 0.
+func assertNeedsIndexSortMerge(
+	t *testing.T,
+	sortField index.SortField,
+	defaultValue func(doc *document.Document),
+	randomValue func(doc *document.Document),
+) {
+	t.Helper()
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	codec := newAssertingNeedsIndexSortCodec()
+	config := index.NewIndexWriterConfig(createIndexSortingMockAnalyzer())
+	config.SetCodec(codec)
+	sort := index.NewSort(sortField, index.NewSortField("id", index.SortTypeInt))
+	config.SetIndexSort(sort)
+
+	addPoint := func(doc *document.Document, val int32) {
+		pt, err := document.NewIntPointLucene("point", val)
+		if err == nil {
+			doc.Add(pt)
+		}
+	}
+
+	// ---- Phase 1: already-sorted documents ----
+	codec.numCalls = 0
+	writer, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	for i := 100; i < 200; i++ {
+		doc := document.NewDocument()
+		idField, _ := document.NewStringField("id", strconv.Itoa(i), true)
+		doc.Add(idField)
+		idNumeric, _ := document.NewNumericDocValuesField("id", int64(i))
+		doc.Add(idNumeric)
+		if defaultValue != nil {
+			defaultValue(doc)
+		}
+		addPoint(doc, int32(i))
+		if err := writer.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument %d: %v", i, err)
+		}
+		if i%10 == 0 {
+			if err := writer.Commit(); err != nil {
+				t.Fatalf("Commit: %v", err)
+			}
+		}
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := writer.WaitForMerges(); err != nil {
+		t.Fatalf("WaitForMerges: %v", err)
+	}
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("ForceMerge: %v", err)
+	}
+	if codec.numCalls == 0 {
+		t.Error("expected at least one merge (phase 1)")
+	}
+
+	// ---- Phase 2: reverse-sorted documents (merge sort IS needed) ----
+	if err := writer.DeleteAll(); err != nil {
+		t.Fatalf("DeleteAll: %v", err)
+	}
+	codec.numCalls = 0
+	for i := 10; i >= 0; i-- {
+		doc := document.NewDocument()
+		idField, _ := document.NewStringField("id", strconv.Itoa(i), true)
+		doc.Add(idField)
+		idNumeric, _ := document.NewNumericDocValuesField("id", int64(i))
+		doc.Add(idNumeric)
+		if defaultValue != nil {
+			defaultValue(doc)
+		}
+		addPoint(doc, int32(i))
+		if err := writer.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument %d: %v", i, err)
+		}
+		if err := writer.Commit(); err != nil {
+			t.Fatalf("Commit: %v", err)
+		}
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := writer.WaitForMerges(); err != nil {
+		t.Fatalf("WaitForMerges: %v", err)
+	}
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("ForceMerge: %v", err)
+	}
+	if codec.numCalls == 0 {
+		t.Error("expected at least one merge (phase 2)")
+	}
+
+	// ---- Phase 3: randomized documents (merge sort IS needed) ----
+	if randomValue != nil {
+		if err := writer.DeleteAll(); err != nil {
+			t.Fatalf("DeleteAll: %v", err)
+		}
+		codec.numCalls = 0
+		for i := 201; i < 300; i++ {
+			doc := document.NewDocument()
+			idField, _ := document.NewStringField("id", strconv.Itoa(i), true)
+			doc.Add(idField)
+			idNumeric, _ := document.NewNumericDocValuesField("id", int64(i))
+			doc.Add(idNumeric)
+			randomValue(doc)
+			addPoint(doc, int32(i))
+			if err := writer.AddDocument(doc); err != nil {
+				t.Fatalf("AddDocument %d: %v", i, err)
+			}
+			if i%10 == 0 {
+				if err := writer.Commit(); err != nil {
+					t.Fatalf("Commit: %v", err)
+				}
+			}
+		}
+		if err := writer.Commit(); err != nil {
+			t.Fatalf("Commit: %v", err)
+		}
+		if err := writer.WaitForMerges(); err != nil {
+			t.Fatalf("WaitForMerges: %v", err)
+		}
+		if err := writer.ForceMerge(1); err != nil {
+			t.Fatalf("ForceMerge: %v", err)
+		}
+		if codec.numCalls == 0 {
+			t.Error("expected at least one merge (phase 3)")
+		}
+	}
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
 
 // TestIndexSorting_NumericAlreadySorted ports testNumericAlreadySorted.
 func TestIndexSorting_NumericAlreadySorted(t *testing.T) {
-	t.Fatal("GOC-4136: assertNeedsIndexSortMerge requires AssertingNeedsIndexSortCodec; no codec hook to observe whether a merge re-sorts")
+	assertNeedsIndexSortMerge(
+		t,
+		index.NewSortField("foo", index.SortTypeInt),
+		func(doc *document.Document) {
+			f, _ := document.NewNumericDocValuesField("foo", 0)
+			doc.Add(f)
+		},
+		nil,
+	)
 }
 
 // TestIndexSorting_StringAlreadySorted ports testStringAlreadySorted.
+//
+// GOCENE LIMITATION: this test is blocked because SortedDocValuesField
+// (SORTED DV type) is not yet supported through the PerFieldDocValuesConsumer
+// flush path. The delegate interface sortedDVConsumerDelegate is only
+// implemented by Lucene90DocValuesConsumer, but PerFieldDocValuesConsumer
+// does not forward the FromReader methods. This is tracked as a pre-existing
+// gap (see index/documents_writer_per_thread_doc_values.go:149-151).
 func TestIndexSorting_StringAlreadySorted(t *testing.T) {
-	t.Fatal("GOC-4136: assertNeedsIndexSortMerge requires AssertingNeedsIndexSortCodec; no codec hook to observe whether a merge re-sorts")
+	t.Fatal("GOC-4136: SortedDocValuesField flush not supported through PerFieldDocValuesConsumer; sortedDVConsumerDelegate not forwarded")
 }
 
 // TestIndexSorting_MultiValuedNumericAlreadySorted ports
 // testMultiValuedNumericAlreadySorted.
 func TestIndexSorting_MultiValuedNumericAlreadySorted(t *testing.T) {
-	t.Fatal("GOC-4136: assertNeedsIndexSortMerge requires AssertingNeedsIndexSortCodec; no codec hook to observe whether a merge re-sorts")
+	sf := index.NewSortedNumericSortField("foo", index.SortTypeInt)
+	assertNeedsIndexSortMerge(
+		t,
+		sf.SortField,
+		func(doc *document.Document) {
+			f, _ := document.NewSortedNumericDocValuesField("foo", []int64{-9223372036854775808})
+			doc.Add(f)
+		},
+		nil,
+	)
 }
 
 // TestIndexSorting_MultiValuedStringAlreadySorted ports
 // testMultiValuedStringAlreadySorted.
+//
+// GOCENE LIMITATION: same SORTED_SET block as StringAlreadySorted above.
 func TestIndexSorting_MultiValuedStringAlreadySorted(t *testing.T) {
-	t.Fatal("GOC-4136: assertNeedsIndexSortMerge requires AssertingNeedsIndexSortCodec; no codec hook to observe whether a merge re-sorts")
+	t.Fatal("GOC-4136: SortedSetDocValuesField flush not supported through PerFieldDocValuesConsumer; sortedDVConsumerDelegate not forwarded")
 }
 
 // -----------------------------------------------------------------------------
@@ -1302,7 +1553,25 @@ func TestIndexSorting_ConcurrentDVUpdates(t *testing.T) {
 // TestIndexSorting_BadDVUpdate ports testBadDVUpdate: a DocValues field that
 // participates in the index sort must not be updatable via updateDocValues.
 func TestIndexSorting_BadDVUpdate(t *testing.T) {
-	t.Fatal("GOC-4136: UpdateDocValues does not yet reject fields participating in the index sort; cannot assert the IllegalArgumentException")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	config := index.NewIndexWriterConfig(createIndexSortingMockAnalyzer())
+	sort := index.NewSort(index.NewSortField("foo", index.SortTypeInt))
+	config.SetIndexSort(sort)
+	writer, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	defer writer.Close()
+
+	err = writer.UpdateDocValues(nil, "foo", int64(42))
+	if err == nil {
+		t.Fatal("expected error when updating a sort field via UpdateDocValues, got nil")
+	}
+	if !strings.Contains(err.Error(), "participates in the index sort") {
+		t.Fatalf("error = %q, want message about index sort participation", err.Error())
+	}
 }
 
 // -----------------------------------------------------------------------------
@@ -1312,7 +1581,43 @@ func TestIndexSorting_BadDVUpdate(t *testing.T) {
 // TestIndexSorting_BadAddIndexes ports testBadAddIndexes: addIndexes from a
 // source whose index sort differs from the destination must fail.
 func TestIndexSorting_BadAddIndexes(t *testing.T) {
-	t.Fatal("GOC-4136: AddIndexes does not yet validate that source and destination index sorts agree; cannot assert the IllegalArgumentException")
+	srcDir := store.NewByteBuffersDirectory()
+	defer srcDir.Close()
+
+	// Create source index with a different sort.
+	srcConfig := index.NewIndexWriterConfig(createIndexSortingMockAnalyzer())
+	srcSort := index.NewSort(index.NewSortField("bar", index.SortTypeInt))
+	srcConfig.SetIndexSort(srcSort)
+	srcWriter, err := index.NewIndexWriter(srcDir, srcConfig)
+	if err != nil {
+		t.Fatalf("NewIndexWriter (src): %v", err)
+	}
+	doc := document.NewDocument()
+	f, _ := document.NewNumericDocValuesField("bar", int64(1))
+	doc.Add(f)
+	if err := srcWriter.AddDocument(doc); err != nil {
+		t.Fatalf("AddDocument (src): %v", err)
+	}
+	if err := srcWriter.Close(); err != nil {
+		t.Fatalf("Close (src): %v", err)
+	}
+
+	// Destination index with a different sort.
+	dstDir := store.NewByteBuffersDirectory()
+	defer dstDir.Close()
+	dstConfig := index.NewIndexWriterConfig(createIndexSortingMockAnalyzer())
+	dstSort := index.NewSort(index.NewSortField("foo", index.SortTypeInt))
+	dstConfig.SetIndexSort(dstSort)
+	dstWriter, err := index.NewIndexWriter(dstDir, dstConfig)
+	if err != nil {
+		t.Fatalf("NewIndexWriter (dst): %v", err)
+	}
+	defer dstWriter.Close()
+
+	err = dstWriter.AddIndexes(srcDir)
+	if err == nil {
+		t.Fatal("expected error when adding indexes with incompatible sort, got nil")
+	}
 }
 
 // TestIndexSorting_AddIndexes ports testAddIndexes (write path only): copy a
@@ -1393,14 +1698,67 @@ func TestIndexSorting_BadSort(t *testing.T) {
 // TestIndexSorting_IllegalChangeSort ports testIllegalChangeSort: reopening an
 // index with a different index sort than it was created with must fail.
 func TestIndexSorting_IllegalChangeSort(t *testing.T) {
-	t.Fatal("GOC-4136: IndexWriter does not yet detect a changed indexSort against an existing commit; cannot assert the IllegalArgumentException")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	// Create an index with sort A.
+	configA := index.NewIndexWriterConfig(createIndexSortingMockAnalyzer())
+	sortA := index.NewSort(index.NewSortField("foo", index.SortTypeInt))
+	configA.SetIndexSort(sortA)
+	writerA, err := index.NewIndexWriter(dir, configA)
+	if err != nil {
+		t.Fatalf("NewIndexWriter (first): %v", err)
+	}
+	doc := document.NewDocument()
+	f, _ := document.NewNumericDocValuesField("foo", int64(1))
+	doc.Add(f)
+	if err := writerA.AddDocument(doc); err != nil {
+		t.Fatalf("AddDocument: %v", err)
+	}
+	if err := writerA.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// Reopen with sort B — must fail.
+	configB := index.NewIndexWriterConfig(createIndexSortingMockAnalyzer())
+	sortB := index.NewSort(index.NewSortField("bar", index.SortTypeInt))
+	configB.SetIndexSort(sortB)
+	_, err = index.NewIndexWriter(dir, configB)
+	if err == nil {
+		t.Fatal("expected error when changing index sort on reopen, got nil")
+	}
 }
 
 // TestIndexSorting_WrongSortFieldType ports testWrongSortFieldType: the index
 // sort field type must match the DocValues type actually indexed for the field.
 func TestIndexSorting_WrongSortFieldType(t *testing.T) {
-	t.Fatal("GOC-4136: IndexWriter does not yet validate the sort field type against the indexed DocValues type; cannot assert the IllegalArgumentException")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	config := index.NewIndexWriterConfig(createIndexSortingMockAnalyzer())
+	sort := index.NewSort(index.NewSortField("field", index.SortTypeString))
+	config.SetIndexSort(sort)
+
+	writer, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	defer writer.Close()
+
+	// Sort expects SORTED type, but we add NUMERIC type.
+	doc := document.NewDocument()
+	f, _ := document.NewNumericDocValuesField("field", 42)
+	doc.Add(f)
+
+	err = writer.AddDocument(doc)
+	if err == nil {
+		t.Fatal("expected error when adding doc with wrong DV type for sort field, got nil")
+	}
+	if !strings.Contains(err.Error(), "expected field [field]") {
+		t.Fatalf("error = %q, want 'expected field [field] to be ...'", err.Error())
+	}
 }
+
 
 // -----------------------------------------------------------------------------
 // Sparse-field sorting.
@@ -1742,13 +2100,88 @@ func TestIndexSorting_TieBreakVerification(t *testing.T) {
 // adding a document block while an index sort is set, without a configured
 // parent field, must fail.
 func TestIndexSorting_ParentFieldNotConfigured(t *testing.T) {
-	t.Fatal("GOC-4136: IndexWriter.AddDocuments is a stub and performs no parent-field validation; cannot assert the IllegalArgumentException")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	config := index.NewIndexWriterConfig(createIndexSortingMockAnalyzer())
+	sort := index.NewSort(index.NewSortField("foo", index.SortTypeInt))
+	config.SetIndexSort(sort)
+	// Deliberately do NOT call config.SetParentField().
+
+	writer, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	defer writer.Close()
+
+	err = writer.AddDocuments([]index.Document{
+		document.NewDocument(),
+		document.NewDocument(),
+	})
+	if err == nil {
+		t.Fatal("expected error when using document blocks without a parent field, got nil")
+	}
+	want := "a parent field must be set in order to use document blocks with index sorting; see IndexWriterConfig#setParentField"
+	if got := err.Error(); got != want {
+		t.Fatalf("error = %q, want %q", got, want)
+	}
 }
 
 // TestIndexSorting_BlockContainsParentField ports testBlockContainsParentField:
 // no document in a block may itself carry the reserved parent field.
 func TestIndexSorting_BlockContainsParentField(t *testing.T) {
-	t.Fatal("GOC-4136: IndexWriter.AddDocuments is a stub and performs no reserved-field validation; cannot assert the IllegalArgumentException")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	config := index.NewIndexWriterConfig(createIndexSortingMockAnalyzer())
+	config.SetParentField("parent")
+	sort := index.NewSort(index.NewSortField("foo", index.SortTypeInt))
+	config.SetIndexSort(sort)
+
+	writer, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	defer writer.Close()
+
+	// Test 1: first document carries the reserved parent field.
+	docWithParent := document.NewDocument()
+	f, err := document.NewNumericDocValuesField("parent", 0)
+	if err != nil {
+		t.Fatalf("NewNumericDocValuesField: %v", err)
+	}
+	docWithParent.Add(f)
+
+	err = writer.AddDocuments([]index.Document{
+		docWithParent,
+		document.NewDocument(),
+	})
+	if err == nil {
+		t.Fatal("expected error when block document contains the reserved parent field")
+	}
+	want := `"parent" is a reserved field and should not be added to any document`
+	if got := err.Error(); got != want {
+		t.Fatalf("error = %q, want %q", got, want)
+	}
+
+	// Test 2: second (last) document carries the reserved parent field.
+	docWithParent2 := document.NewDocument()
+	f2, err := document.NewNumericDocValuesField("parent", 0)
+	if err != nil {
+		t.Fatalf("NewNumericDocValuesField: %v", err)
+	}
+	docWithParent2.Add(f2)
+
+	err = writer.AddDocuments([]index.Document{
+		document.NewDocument(),
+		docWithParent2,
+	})
+	if err == nil {
+		t.Fatal("expected error when block document contains the reserved parent field")
+	}
+	if got := err.Error(); got != want {
+		t.Fatalf("error = %q, want %q", got, want)
+	}
 }
 
 // TestIndexSorting_IndexSortWithBlocks ports testIndexSortWithBlocks.

@@ -28,7 +28,9 @@ func (sm *SegmentMerger) mergeTermVectors() (int, error) {
 		Directory:     sm.directory,
 		SegmentInfo:   sm.MergeState.SegmentInfo,
 		FieldInfos:    sm.MergeState.MergeFieldInfos,
-		SegmentSuffix: "",
+		SegmentSuffix:  "",
+			NeedsIndexSort: sm.MergeState.NeedsIndexSort,
+			IsMerge:        true,
 	}
 	writer, err := sm.codec.TermVectorsFormat().VectorsWriter(state)
 	if err != nil {

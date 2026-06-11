@@ -37,7 +37,9 @@ func (sm *SegmentMerger) mergeNorms() error {
 		Directory:     sm.directory,
 		SegmentInfo:   sm.MergeState.SegmentInfo,
 		FieldInfos:    sm.MergeState.MergeFieldInfos,
-		SegmentSuffix: "",
+		SegmentSuffix:  "",
+			NeedsIndexSort: sm.MergeState.NeedsIndexSort,
+			IsMerge:        true,
 	}
 	consumer, err := sm.codec.NormsFormat().NormsConsumer(state)
 	if err != nil {

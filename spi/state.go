@@ -54,6 +54,22 @@ type SegmentWriteState struct {
 	//
 	// Mirrors Lucene 10.4.0 SegmentWriteState.delCountOnFlush.
 	DelCountOnFlush int
+
+	// NeedsIndexSort indicates that the merge producing this segment
+	// reorders documents to honour an index sort. It is set by
+	// SegmentMerger.buildDocMaps when a reorder is required (i.e. the
+	// source segments were not already globally sorted relative to one
+	// another). Codecs may consult it during merge to adapt their write
+	// strategy; test codecs (e.g. AssertingNeedsIndexSortCodec) use it to
+	// observe the merge-need signal.
+	//
+	// Nil during flush; only populated on the merge path.
+	NeedsIndexSort bool
+
+	// IsMerge is true when this SegmentWriteState is created during a merge
+	// (by SegmentMerger) rather than during a flush. Test codecs use it to
+	// distinguish merge calls from flush calls.
+	IsMerge bool
 }
 
 // SegmentReadState bundles the per-segment context that every codec

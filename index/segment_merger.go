@@ -56,11 +56,16 @@ type SegmentMerger struct {
 // dir is the target directory for the merged segment; note that, just like in
 // the codec APIs, dir is NOT necessarily the same as segmentInfo.Directory().
 //
+// If codec is non-nil it is used directly for the merged segment; if nil the
+// codec is resolved from the segment info's stamped codec name (falling back to
+// the registered default), preserving backward compatibility.
+//
 // It returns an error if context is not a MERGE context, mirroring the
 // IllegalArgumentException thrown by Lucene's constructor.
 func NewSegmentMerger(
 	readers []*CodecReader,
 	segmentInfo *SegmentInfo,
+	codec Codec,
 	infoStream util.InfoStream,
 	dir store.Directory,
 	context store.IOContext,
@@ -86,10 +91,12 @@ func NewSegmentMerger(
 		mergeState.LiveDocs = append(mergeState.LiveDocs, reader.GetLiveDocs())
 	}
 
-	// Resolve the codec for the merged segment: prefer the target segment's
-	// stamped codec name, falling back to the registered default. The merged
-	// payload steps (stored fields, postings, ...) write through this codec.
-	codec := resolveMergeCodec(segmentInfo)
+	// Resolve the codec for the merged segment: use the explicit codec when
+	// supplied (e.g. from IndexWriterConfig), otherwise fall back to the
+	// segment's stamped name → registered default.
+	if codec == nil {
+		codec = resolveMergeCodec(segmentInfo)
+	}
 
 	sm := &SegmentMerger{
 		directory:  dir,
