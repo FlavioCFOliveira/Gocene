@@ -65,6 +65,7 @@ func TestQueryExpansion_TermRewrite(t *testing.T) {
 	t.Logf("Query rewritten to: %v", rewritten)
 }
 
+}
 func TestQueryExpansion_BooleanRewrite(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()

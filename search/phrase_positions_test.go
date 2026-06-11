@@ -138,6 +138,7 @@ func TestPhrasePositions_String(t *testing.T) {
 		t.Errorf("String() = %q, unexpected rpt info when rptGroup == -1", s)
 	}
 
+}
 func TestPhrasePositions_StringWithRptGroup(t *testing.T) {
 	pe := newPPStubPostings(1, []int{5})
 	pp := search.NewPhrasePositions(pe, 0, 0, nil)

@@ -261,6 +261,7 @@ func TestRangeDocIdStream_MixForEachCountUpTo(t *testing.T) {
 	}
 
 // TestRangeDocIdStream_PanicOnMinGeMax verifies constructor precondition.
+}
 func TestRangeDocIdStream_PanicOnMinGeMax(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {

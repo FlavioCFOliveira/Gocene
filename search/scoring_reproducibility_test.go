@@ -260,6 +260,7 @@ func TestSearchScoringReproducibility_NewReader(t *testing.T) {
 	t.Log("New reader reproducibility test passed")
 }
 
+}
 func BenchmarkSearchScoringReproducibility_Repeated(b *testing.B) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()

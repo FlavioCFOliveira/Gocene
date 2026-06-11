@@ -96,6 +96,7 @@ func TestScoringRewrite_RewriteDegraded(t *testing.T) {
 
 // TestScoringRewrite_ConstantScoreBooleanRewriteWraps verifies that the
 // constant-score variant wraps the result in a ConstantScoreQuery.
+}
 func TestScoringRewrite_ConstantScoreBooleanRewriteWraps(t *testing.T) {
 	q := search.NewMultiTermQuery("field", nil)
 	got, err := search.ConstantScoreBooleanRewriteMethod.Rewrite(q, nil)

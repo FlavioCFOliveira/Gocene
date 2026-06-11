@@ -404,6 +404,7 @@ func TestSearchAfterScoreDoc_ScoreDimensionBoundary(t *testing.T) {
 // numHits>0) and after.Doc beyond the reader's maxDoc is rejected.
 //
 // Source: IndexSearcher.searchAfter (IndexSearcher.java lines 582-596).
+}
 func TestSearchAfterScoreDoc_InvalidArguments(t *testing.T) {
 	_, reader, cleanup := setupTestIndexN(t, 30)
 	defer cleanup()

@@ -131,6 +131,7 @@ func TestMaxScoreBulkScorer_IntegrationBasics(t *testing.T) {
 	if len(collectedDocs) == 0 {
 		t.Error("expected at least one collected doc")
 	}
+}
 
 type collectingLeafCollector struct {
 	collect func(int) error
@@ -138,4 +139,3 @@ type collectingLeafCollector struct {
 
 func (c *collectingLeafCollector) SetScorer(_ search.Scorer) error { return nil }
 func (c *collectingLeafCollector) Collect(doc int) error           { return c.collect(doc) }
-}
