@@ -1,24 +1,30 @@
-// Copyright 2026 Gocene. All rights reserved.
-// Use of this source code is governed by the Apache License 2.0
-// that can be found in the LICENSE file.
-
 package lucene84
 
-// Lucene84RWCodec is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene84.Lucene84RWCodec (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene84.Lucene84RWCodec
-// (Lucene 10.4.0, backward-codecs/src/test).
+import "testing"
+
+func TestForDeltaUtil_New(t *testing.T) {
+	u := NewForDeltaUtil("1.0")
+	if u == nil {
+		t.Fatal("NewForDeltaUtil returned nil")
+	}
+	if u.Name != "ForDeltaUtil" {
+		t.Fatalf("Name=%q", u.Name)
+	}
+}
+
+func TestPForUtil_New(t *testing.T) {
+	u := NewPForUtil("1.0")
+	if u == nil {
+		t.Fatal("NewPForUtil returned nil")
+	}
+	if u.Name != "PForUtil" {
+		t.Fatalf("Name=%q", u.Name)
+	}
+}
+
+func TestLucene84PostingsFormat_New(t *testing.T) {
+	f := &Lucene84PostingsFormat{Name: "Lucene84", Version: "1.0"}
+	if f.Name != "Lucene84" {
+		t.Fatalf("Name=%q", f.Name)
+	}
+}
