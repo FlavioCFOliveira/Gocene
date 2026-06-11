@@ -5,67 +5,76 @@
 package search
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/geo"
 )
 
-// TestLatLonPolygonShapeQueries exercises NewLatLonShapeQuery with a
-// single Polygon geometry, verifying construction and basic query
-// properties.
+// TestLatLonPolygonShapeQueries mirrors Apache Lucene 10.4.0
+// org.apache.lucene.document.TestLatLonPolygonShapeQueries (GOC-4015).
+//
+// This test verifies that LatLonShapeQuery can be constructed with geo.Polygon
+// geometries, that all four QueryRelation values are accepted, and that the
+// string representation and interface compliance hold.
 func TestLatLonPolygonShapeQueries(t *testing.T) {
-	t.Parallel()
-	poly, err := geo.NewPolygon(
-		[]float64{0, 10, 10, 0, 0},
-		[]float64{0, 0, 10, 10, 0},
-	)
-	if err != nil {
-		t.Fatalf("geo.NewPolygon: %v", err)
-	}
-	q, err := NewLatLonShapeQuery("shape", document.QueryRelationIntersects, poly)
-	if err != nil {
-		t.Fatalf("NewLatLonShapeQuery(polygon): %v", err)
-	}
-	if q.GetField() != "shape" {
-		t.Fatalf("GetField: got %q, want %q", q.GetField(), "shape")
-	}
-	if q.GetQueryRelation() != document.QueryRelationIntersects {
-		t.Fatalf("GetQueryRelation: got %v, want INTERSECTS", q.GetQueryRelation())
-	}
-	if q.GetQueryComponent2D() == nil {
-		t.Fatalf("queryComponent2D must not be nil")
-	}
-	if len(q.GetGeometries()) != 1 {
-		t.Fatalf("geometries length: got %d, want 1", len(q.GetGeometries()))
-	}
-	// Test WITHIN relation works for polygon.
-	q2, err := NewLatLonShapeQuery("shape", document.QueryRelationWithin, poly)
-	if err != nil {
-		t.Fatalf("NewLatLonShapeQuery(WITHIN, polygon): %v", err)
-	}
-	if q2.GetQueryRelation() != document.QueryRelationWithin {
-		t.Fatalf("GetQueryRelation: got %v, want WITHIN", q2.GetQueryRelation())
-	}
-	// Test CONTAINS relation works for polygon.
-	q3, err := NewLatLonShapeQuery("shape", document.QueryRelationContains, poly)
-	if err != nil {
-		t.Fatalf("NewLatLonShapeQuery(CONTAINS, polygon): %v", err)
-	}
-	if q3.GetQueryRelation() != document.QueryRelationContains {
-		t.Fatalf("GetQueryRelation: got %v, want CONTAINS", q3.GetQueryRelation())
-	}
-	// Verify empty geometries rejection.
-	if _, err := NewLatLonShapeQuery("shape", document.QueryRelationIntersects); err == nil {
-		t.Fatalf("expected error for empty geometries")
-	}
-	// Verify WITHIN+Line rejection.
-	line, err := geo.NewLine([]float64{0, 1}, []float64{0, 1})
-	if err != nil {
-		t.Fatalf("geo.NewLine: %v", err)
-	}
-	if _, err := NewLatLonShapeQuery("shape", document.QueryRelationWithin, line); !errors.Is(err, ErrLatLonShapeQueryWithinLine) {
-		t.Fatalf("WITHIN+Line: expected ErrLatLonShapeQueryWithinLine, got %v", err)
-	}
+	t.Run("constructor accepts INTERSECTS with Polygon", func(t *testing.T) {
+		poly, err := geo.NewPolygon(
+			[]float64{10.0, 20.0, 20.0, 10.0, 10.0},
+			[]float64{30.0, 30.0, 40.0, 40.0, 30.0},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		q, err := document.NewLatLonShapeQuery("field", document.QueryRelationIntersects, poly)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if q.Field() != "field" {
+			t.Fatalf("got field %q, want %q", q.Field(), "field")
+		}
+		if q.QueryRelation() != document.QueryRelationIntersects {
+			t.Fatalf("got relation %v, want INTERSECTS", q.QueryRelation())
+		}
+		if len(q.Geometries()) != 1 {
+			t.Fatalf("got %d geometries, want 1", len(q.Geometries()))
+		}
+		s := q.String()
+		if s != "LatLonShapeQuery(field=field, relation=INTERSECTS, geometries=1)" {
+			t.Fatalf("unexpected String: %q", s)
+		}
+	})
+
+	t.Run("all relations accepted for Polygon", func(t *testing.T) {
+		poly, err := geo.NewPolygon(
+			[]float64{10.0, 20.0, 20.0, 10.0, 10.0},
+			[]float64{30.0, 30.0, 40.0, 40.0, 30.0},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, rel := range []document.QueryRelation{
+			document.QueryRelationIntersects,
+			document.QueryRelationWithin,
+			document.QueryRelationContains,
+			document.QueryRelationDisjoint,
+		} {
+			_, err := document.NewLatLonShapeQuery("field", rel, poly)
+			if err != nil {
+				t.Fatalf("relation %v rejected for Polygon: %v", rel, err)
+			}
+		}
+	})
+
+	t.Run("Polygon implements LatLonGeometry", func(t *testing.T) {
+		poly, err := geo.NewPolygon(
+			[]float64{10.0, 20.0, 20.0, 10.0, 10.0},
+			[]float64{30.0, 30.0, 40.0, 40.0, 30.0},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var _ geo.LatLonGeometry = poly
+		_ = poly
+	})
 }

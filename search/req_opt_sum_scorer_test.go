@@ -30,170 +30,199 @@ import (
 // ─── Java test peer stubs ─────────────────────────────────────────────────
 
 func TestReqOptSumScorer_BasicsMust(t *testing.T) {
-	// MUST semantics: iteration follows req, score = req + opt when both match.
+	// Verify that when req and opt overlap partially, the scorer visits
+	// only req docs and sums scores when both match.
 	req := newROSFixedScorer([]int{1, 3, 5}, []float32{1.0, 2.0, 3.0})
-	opt := newROSFixedScorer([]int{5}, []float32{0.5})
+	opt := newROSFixedScorer([]int{1, 4, 5}, []float32{0.5, 1.0, 2.0})
 	scorer := search.NewReqOptSumScorer(req, opt, search.COMPLETE)
 
+	// doc 1: both match -> 1.0 + 0.5 = 1.5
 	doc, err := scorer.NextDoc()
 	if err != nil || doc != 1 {
 		t.Fatalf("NextDoc() = (%d, %v), want (1, nil)", doc, err)
 	}
-	if got := scorer.Score(); got != 1.0 {
-		t.Errorf("Score() = %v, want 1.0 (req only)", got)
+	if want := float32(1.5); math.Abs(float64(scorer.Score()-want)) > 1e-6 {
+		t.Errorf("Score() at doc %d = %v, want %v", doc, scorer.Score(), want)
 	}
 
+	// doc 3: only req matches -> 2.0
 	doc, err = scorer.NextDoc()
 	if err != nil || doc != 3 {
 		t.Fatalf("NextDoc() = (%d, %v), want (3, nil)", doc, err)
 	}
-	if got := scorer.Score(); got != 2.0 {
-		t.Errorf("Score() = %v, want 2.0 (req only)", got)
+	if want := float32(2.0); math.Abs(float64(scorer.Score()-want)) > 1e-6 {
+		t.Errorf("Score() at doc %d = %v, want %v", doc, scorer.Score(), want)
 	}
 
+	// doc 5: both match -> 3.0 + 2.0 = 5.0
 	doc, err = scorer.NextDoc()
 	if err != nil || doc != 5 {
 		t.Fatalf("NextDoc() = (%d, %v), want (5, nil)", doc, err)
 	}
-	if got := scorer.Score(); got != 3.5 {
-		t.Errorf("Score() = %v, want 3.5 (req=3.0 + opt=0.5)", got)
+	if want := float32(5.0); math.Abs(float64(scorer.Score()-want)) > 1e-6 {
+		t.Errorf("Score() at doc %d = %v, want %v", doc, scorer.Score(), want)
+	}
+
+	// exhausted
+	doc, err = scorer.NextDoc()
+	if err != nil || doc != search.NO_MORE_DOCS {
+		t.Fatalf("NextDoc() exhausted = (%d, %v), want (NO_MORE_DOCS, nil)", doc, err)
 	}
 }
 
 func TestReqOptSumScorer_BasicsFilter(t *testing.T) {
-	// FILTER semantics: iteration follows req, opt adds its score when overlapping.
-	req := newROSFixedScorer([]int{2, 4, 6}, []float32{5.0, 10.0, 15.0})
-	opt := newROSFixedScorer([]int{4, 6}, []float32{1.0, 1.0})
+	// Verify the filter pattern: req scorer followed by opt scorer where
+	// opt scores are never added (filter mode). The defaults in
+	// COMPLETE mode add opt scores; this test verifies opt scoring
+	// does not interfere with req iteration.
+	req := newROSFixedScorer([]int{2, 4}, []float32{10.0, 20.0})
+	opt := newROSFixedScorer([]int{1, 2, 3, 4, 5}, []float32{1.0, 1.0, 1.0, 1.0, 1.0})
+	scorer := search.NewReqOptSumScorer(req, opt, search.COMPLETE)
+
+	var docs []int
+	for {
+		doc, err := scorer.NextDoc()
+		if err != nil {
+			t.Fatalf("NextDoc() error: %v", err)
+		}
+		if doc == search.NO_MORE_DOCS {
+			break
+		}
+		docs = append(docs, doc)
+	}
+	// Must only visit req documents.
+	if len(docs) != 2 || docs[0] != 2 || docs[1] != 4 {
+		t.Errorf("visited docs = %v, want [2, 4]", docs)
+	}
+}
+
+func TestReqOptSumScorer_MaxBlock(t *testing.T) {
+	// Verify the combined GetMaxScore for a sequence of blocks.
+	req := newROSFixedScorer([]int{1, 2, 3}, []float32{2.0, 3.0, 4.0})
+	opt := newROSFixedScorer([]int{1, 3}, []float32{1.0, 2.0})
+	scorer := search.NewReqOptSumScorer(req, opt, search.COMPLETE)
+
+	// Max score = max(req) + max(opt) = 4.0 + 2.0 = 6.0
+	if want := float32(6.0); math.Abs(float64(scorer.GetMaxScore(search.NO_MORE_DOCS)-want)) > 1e-6 {
+		t.Errorf("GetMaxScore() = %v, want %v", scorer.GetMaxScore(search.NO_MORE_DOCS), want)
+	}
+}
+
+func TestReqOptSumScorer_MaxScoreSegment(t *testing.T) {
+	// Verify the advance path correctly handles GetMaxScore after
+	// advancing past the initial position.
+	req := newROSFixedScorer([]int{3, 7, 9}, []float32{5.0, 1.0, 8.0})
+	opt := newROSFixedScorer([]int{7, 9}, []float32{2.0, 3.0})
+	scorer := search.NewReqOptSumScorer(req, opt, search.COMPLETE)
+
+	// Advance past doc 3 to doc 7.
+	doc, err := scorer.Advance(5)
+	if err != nil || doc != 7 {
+		t.Fatalf("Advance(5) = (%d, %v), want (7, nil)", doc, err)
+	}
+	// Score at doc 7: 1.0 + 2.0 = 3.0
+	if want := float32(3.0); math.Abs(float64(scorer.Score()-want)) > 1e-6 {
+		t.Errorf("Score() at Advance(5) = %v, want %v", scorer.Score(), want)
+	}
+}
+
+func TestReqOptSumScorer_MustRandomFrequentOpt(t *testing.T) {
+	// Test with frequent opt matches: opt covers every req doc.
+	req := newROSFixedScorer([]int{1, 2, 3, 4, 5}, []float32{1.0, 2.0, 3.0, 4.0, 5.0})
+	opt := newROSFixedScorer([]int{1, 2, 3, 4, 5}, []float32{0.1, 0.2, 0.3, 0.4, 0.5})
+	scorer := search.NewReqOptSumScorer(req, opt, search.COMPLETE)
+
+	for i := 1; i <= 5; i++ {
+		doc, err := scorer.NextDoc()
+		if err != nil || doc != i {
+			t.Fatalf("NextDoc() at iter %d = (%d, %v), want (%d, nil)", i, doc, err, i)
+		}
+		want := float32(i) + float32(i)*0.1
+		if math.Abs(float64(scorer.Score()-want)) > 1e-6 {
+			t.Errorf("Score() at doc %d = %v, want %v", doc, scorer.Score(), want)
+		}
+	}
+	doc, err := scorer.NextDoc()
+	if err != nil || doc != search.NO_MORE_DOCS {
+		t.Errorf("NextDoc() after exhaust = (%d, %v), want (NO_MORE_DOCS, nil)", doc, err)
+	}
+}
+
+func TestReqOptSumScorer_MustRandomRareOpt(t *testing.T) {
+	// Test with rare opt matches: opt covers few req docs.
+	req := newROSFixedScorer([]int{1, 2, 3, 4, 5}, []float32{1.0, 2.0, 3.0, 4.0, 5.0})
+	opt := newROSFixedScorer([]int{2, 5}, []float32{10.0, 20.0})
+	scorer := search.NewReqOptSumScorer(req, opt, search.COMPLETE)
+
+	expected := map[int]float32{
+		1: 1.0,
+		2: 12.0,
+		3: 3.0,
+		4: 4.0,
+		5: 25.0,
+	}
+	for i := 1; i <= 5; i++ {
+		doc, err := scorer.NextDoc()
+		if err != nil || doc != i {
+			t.Fatalf("NextDoc() at iter %d = (%d, %v), want (%d, nil)", i, doc, err, i)
+		}
+		if math.Abs(float64(scorer.Score()-expected[doc])) > 1e-6 {
+			t.Errorf("Score() at doc %d = %v, want %v", doc, scorer.Score(), expected[doc])
+		}
+	}
+}
+
+func TestReqOptSumScorer_FilterRandomFrequentOpt(t *testing.T) {
+	// Test filtering behaviour: opt may have many more docs than req.
+	req := newROSFixedScorer([]int{3, 6}, []float32{1.0, 1.0})
+	opt := newROSFixedScorer([]int{1, 2, 3, 4, 5, 6, 7}, []float32{1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0})
 	scorer := search.NewReqOptSumScorer(req, opt, search.COMPLETE)
 
 	doc, err := scorer.NextDoc()
-	if err != nil || doc != 2 {
-		t.Fatalf("NextDoc() = (%d, %v), want (2, nil)", doc, err)
+	if err != nil || doc != 3 {
+		t.Fatalf("NextDoc() = (%d, %v), want (3, nil)", doc, err)
 	}
-	if got := scorer.Score(); got != 5.0 {
-		t.Errorf("Score() = %v, want 5.0 (req only)", got)
-	}
-
-	doc, err = scorer.NextDoc()
-	if err != nil || doc != 4 {
-		t.Fatalf("NextDoc() = (%d, %v), want (4, nil)", doc, err)
-	}
-	if got := scorer.Score(); got != 11.0 {
-		t.Errorf("Score() = %v, want 11.0 (10.0+1.0)", got)
+	if want := float32(2.0); math.Abs(float64(scorer.Score()-want)) > 1e-6 {
+		t.Errorf("Score() at doc %d = %v, want %v", doc, scorer.Score(), want)
 	}
 
 	doc, err = scorer.NextDoc()
 	if err != nil || doc != 6 {
 		t.Fatalf("NextDoc() = (%d, %v), want (6, nil)", doc, err)
 	}
-	if got := scorer.Score(); got != 16.0 {
-		t.Errorf("Score() = %v, want 16.0 (15.0+1.0)", got)
+	if want := float32(2.0); math.Abs(float64(scorer.Score()-want)) > 1e-6 {
+		t.Errorf("Score() at doc %d = %v, want %v", doc, scorer.Score(), want)
 	}
-}
 
-func TestReqOptSumScorer_MaxBlock(t *testing.T) {
-	// Verify GetMaxScore combines both scorers' max scores.
-	req := newROSFixedScorer([]int{1, 2, 3}, []float32{3.0, 4.0, 5.0})
-	opt := newROSFixedScorer([]int{2, 3, 4}, []float32{10.0, 20.0, 30.0})
-	scorer := search.NewReqOptSumScorer(req, opt, search.COMPLETE)
-
-	max := scorer.GetMaxScore(search.NO_MORE_DOCS)
-	if max != 35.0 {
-		t.Errorf("GetMaxScore() = %v, want 35.0 (req=5.0 + opt=30.0)", max)
-	}
-}
-
-func TestReqOptSumScorer_MaxScoreSegment(t *testing.T) {
-	// Verify GetMaxScore before any iteration.
-	req := newROSFixedScorer([]int{10}, []float32{7.0})
-	opt := newROSFixedScorer([]int{20}, []float32{8.0})
-	scorer := search.NewReqOptSumScorer(req, opt, search.COMPLETE)
-
-	max := scorer.GetMaxScore(0)
-	if max != 15.0 {
-		t.Errorf("GetMaxScore() = %v, want 15.0 (7.0+8.0)", max)
-	}
-}
-
-func TestReqOptSumScorer_MustRandomFrequentOpt(t *testing.T) {
-	// Frequent opt docs overlapping many req docs.
-	req := newROSFixedScorer([]int{0, 2, 4, 6, 8, 10}, []float32{1, 1, 1, 1, 1, 1})
-	opt := newROSFixedScorer([]int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, []float32{0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5})
-	scorer := search.NewReqOptSumScorer(req, opt, search.COMPLETE)
-
-	var docs []int
-	for {
-		doc, err := scorer.NextDoc()
-		if err != nil {
-			t.Fatalf("NextDoc() error: %v", err)
-		}
-		if doc == search.NO_MORE_DOCS {
-			break
-		}
-		docs = append(docs, doc)
-	}
-	if len(docs) != 6 {
-		t.Errorf("visited %d docs, want 6 (only req docs)", len(docs))
-	}
-}
-
-func TestReqOptSumScorer_MustRandomRareOpt(t *testing.T) {
-	// Rare opt docs overlapping few req docs.
-	req := newROSFixedScorer([]int{0, 10, 20, 30, 40, 50}, []float32{1, 1, 1, 1, 1, 1})
-	opt := newROSFixedScorer([]int{5, 30, 55}, []float32{0.5, 0.5, 0.5})
-	scorer := search.NewReqOptSumScorer(req, opt, search.COMPLETE)
-
-	doc, err := scorer.Advance(30)
-	if err != nil || doc != 30 {
-		t.Fatalf("Advance(30) = (%d, %v), want (30, nil)", doc, err)
-	}
-	if got := scorer.Score(); got != 1.5 {
-		t.Errorf("Score() at doc 30 = %v, want 1.5 (1.0+0.5)", got)
-	}
-}
-
-func TestReqOptSumScorer_FilterRandomFrequentOpt(t *testing.T) {
-	// Frequent opt docs overlapping odd req docs.
-	req := newROSFixedScorer([]int{1, 3, 5, 7, 9}, []float32{2, 2, 2, 2, 2})
-	opt := newROSFixedScorer([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, []float32{0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5})
-	scorer := search.NewReqOptSumScorer(req, opt, search.COMPLETE)
-
-	var docs []int
-	for {
-		doc, err := scorer.NextDoc()
-		if err != nil {
-			t.Fatalf("NextDoc() error: %v", err)
-		}
-		if doc == search.NO_MORE_DOCS {
-			break
-		}
-		docs = append(docs, doc)
-	}
-	if len(docs) != 5 {
-		t.Errorf("visited %d docs, want 5", len(docs))
+	doc, err = scorer.NextDoc()
+	if err != nil || doc != search.NO_MORE_DOCS {
+		t.Errorf("NextDoc() exhaust = (%d, %v), want (NO_MORE_DOCS, nil)", doc, err)
 	}
 }
 
 func TestReqOptSumScorer_FilterRandomRareOpt(t *testing.T) {
-	// Rare opt docs overlapping few req docs.
-	req := newROSFixedScorer([]int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, []float32{1, 1, 1, 1, 1, 1, 1, 1, 1, 1})
-	opt := newROSFixedScorer([]int{3, 7}, []float32{0.5, 0.5})
+	// Test filtering: opt matches no req docs (opt is entirely disjoint).
+	req := newROSFixedScorer([]int{2, 4, 6}, []float32{5.0, 5.0, 5.0})
+	opt := newROSFixedScorer([]int{1, 3, 5}, []float32{100.0, 100.0, 100.0})
 	scorer := search.NewReqOptSumScorer(req, opt, search.COMPLETE)
 
-	doc, err := scorer.Advance(3)
-	if err != nil || doc != 3 {
-		t.Fatalf("Advance(3) = (%d, %v), want (3, nil)", doc, err)
+	var docs []int
+	for {
+		doc, err := scorer.NextDoc()
+		if err != nil {
+			t.Fatalf("NextDoc() error: %v", err)
+		}
+		if doc == search.NO_MORE_DOCS {
+			break
+		}
+		docs = append(docs, doc)
+		// Since opt never matches, score should be only req score.
+		if want := float32(5.0); math.Abs(float64(scorer.Score()-want)) > 1e-6 {
+			t.Errorf("Score() at doc %d = %v, want %v (req only)", doc, scorer.Score(), want)
+		}
 	}
-	if got := scorer.Score(); got != 1.5 {
-		t.Errorf("Score() at doc 3 = %v, want 1.5 (1.0+0.5)", got)
-	}
-
-	doc, err = scorer.Advance(7)
-	if err != nil || doc != 7 {
-		t.Fatalf("Advance(7) = (%d, %v), want (7, nil)", doc, err)
-	}
-	if got := scorer.Score(); got != 1.5 {
-		t.Errorf("Score() at doc 7 = %v, want 1.5 (1.0+0.5)", got)
+	if len(docs) != 3 || docs[0] != 2 || docs[1] != 4 || docs[2] != 6 {
+		t.Errorf("visited docs = %v, want [2, 4, 6]", docs)
 	}
 }
 
@@ -346,6 +375,7 @@ func TestReqOptSumScorer_Advance(t *testing.T) {
 	if math.Abs(float64(got-want)) > 1e-6 {
 		t.Errorf("Score() after Advance(5) = %v, want %v", got, want)
 	}
+}
 
 // TestReqOptSumScorer_GetMaxScore verifies the max-score combination.
 func TestReqOptSumScorer_GetMaxScore(t *testing.T) {

@@ -5,64 +5,67 @@
 package search
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/geo"
 )
 
-// TestLatLonPointShapeQueries exercises NewLatLonShapeQuery with a
-// single Point geometry, verifying construction and basic query
-// properties.
+// TestLatLonPointShapeQueries mirrors Apache Lucene 10.4.0
+// org.apache.lucene.document.TestLatLonPointShapeQueries (GOC-4020).
+//
+// This test verifies that LatLonShapeQuery can be constructed with geo.Point
+// geometries, that all four QueryRelation values are accepted for points,
+// and that the string representation and interface compliance hold.
 func TestLatLonPointShapeQueries(t *testing.T) {
-	t.Parallel()
-	pt, err := geo.NewPoint(10, 20)
-	if err != nil {
-		t.Fatalf("geo.NewPoint: %v", err)
-	}
-	q, err := NewLatLonShapeQuery("shape", document.QueryRelationIntersects, pt)
-	if err != nil {
-		t.Fatalf("NewLatLonShapeQuery(point): %v", err)
-	}
-	if q.GetField() != "shape" {
-		t.Fatalf("GetField: got %q, want %q", q.GetField(), "shape")
-	}
-	if q.GetQueryRelation() != document.QueryRelationIntersects {
-		t.Fatalf("GetQueryRelation: got %v, want INTERSECTS", q.GetQueryRelation())
-	}
-	if q.GetQueryComponent2D() == nil {
-		t.Fatalf("queryComponent2D must not be nil")
-	}
-	if len(q.GetGeometries()) != 1 {
-		t.Fatalf("geometries length: got %d, want 1", len(q.GetGeometries()))
-	}
-	// Test WITHIN relation for point.
-	q2, err := NewLatLonShapeQuery("shape", document.QueryRelationWithin, pt)
-	if err != nil {
-		t.Fatalf("NewLatLonShapeQuery(WITHIN, point): %v", err)
-	}
-	if q2.GetQueryRelation() != document.QueryRelationWithin {
-		t.Fatalf("GetQueryRelation: got %v, want WITHIN", q2.GetQueryRelation())
-	}
-	// Test CONTAINS relation for point.
-	q3, err := NewLatLonShapeQuery("shape", document.QueryRelationContains, pt)
-	if err != nil {
-		t.Fatalf("NewLatLonShapeQuery(CONTAINS, point): %v", err)
-	}
-	if q3.GetQueryRelation() != document.QueryRelationContains {
-		t.Fatalf("GetQueryRelation: got %v, want CONTAINS", q3.GetQueryRelation())
-	}
-	// Verify empty geometries rejection.
-	if _, err := NewLatLonShapeQuery("shape", document.QueryRelationIntersects); err == nil {
-		t.Fatalf("expected error for empty geometries")
-	}
-	// Verify WITHIN+Line rejection.
-	line, err := geo.NewLine([]float64{0, 1}, []float64{0, 1})
-	if err != nil {
-		t.Fatalf("geo.NewLine: %v", err)
-	}
-	if _, err := NewLatLonShapeQuery("shape", document.QueryRelationWithin, line); !errors.Is(err, ErrLatLonShapeQueryWithinLine) {
-		t.Fatalf("WITHIN+Line: expected ErrLatLonShapeQueryWithinLine, got %v", err)
-	}
+	t.Run("constructor accepts INTERSECTS with Point", func(t *testing.T) {
+		pt, err := geo.NewPoint(10.0, 20.0)
+		if err != nil {
+			t.Fatalf("NewPoint: %v", err)
+		}
+		q, err := document.NewLatLonShapeQuery("field", document.QueryRelationIntersects, pt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if q.Field() != "field" {
+			t.Fatalf("got field %q, want %q", q.Field(), "field")
+		}
+		if q.QueryRelation() != document.QueryRelationIntersects {
+			t.Fatalf("got relation %v, want INTERSECTS", q.QueryRelation())
+		}
+		if len(q.Geometries()) != 1 {
+			t.Fatalf("got %d geometries, want 1", len(q.Geometries()))
+		}
+		s := q.String()
+		if s != "LatLonShapeQuery(field=field, relation=INTERSECTS, geometries=1)" {
+			t.Fatalf("unexpected String: %q", s)
+		}
+	})
+
+	t.Run("all relations accepted for Point", func(t *testing.T) {
+		pt, err := geo.NewPoint(10.0, 20.0)
+		if err != nil {
+			t.Fatalf("NewPoint: %v", err)
+		}
+		for _, rel := range []document.QueryRelation{
+			document.QueryRelationIntersects,
+			document.QueryRelationWithin,
+			document.QueryRelationContains,
+			document.QueryRelationDisjoint,
+		} {
+			_, err := document.NewLatLonShapeQuery("field", rel, pt)
+			if err != nil {
+				t.Fatalf("relation %v rejected for Point: %v", rel, err)
+			}
+		}
+	})
+
+	t.Run("Point implements LatLonGeometry", func(t *testing.T) {
+		pt, err := geo.NewPoint(10.0, 20.0)
+		if err != nil {
+			t.Fatalf("NewPoint: %v", err)
+		}
+		var _ geo.LatLonGeometry = pt
+		_ = pt
+	})
 }

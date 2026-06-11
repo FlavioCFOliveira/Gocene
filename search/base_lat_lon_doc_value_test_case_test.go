@@ -190,16 +190,36 @@ const baseLatLonDocValueFieldName = "shape"
 //   - inherited `@Test` bodies on BaseLatLonSpatialTestCase /
 //     BaseSpatialTestCase (also stubbed)
 func TestBaseLatLonDocValue_StubAlive(t *testing.T) {
-	// Verify the factory constructor returns a correctly-typed bundle.
+	// Verify the factory bundle and constants are constructible.
 	factories := newBaseLatLonDocValueFactories()
-	if want := "shape"; baseLatLonDocValueFieldName != want {
-		t.Fatalf("field name: got %q, want %q", baseLatLonDocValueFieldName, want)
+	if factories.rect != nil {
+		t.Error("rect factory should be nil until populated")
 	}
-
-	// Verify all five factory types are constructible (interface compliance).
-	_ = (docValueLatLonRectQueryFactory)(factories.rect)
-	_ = (docValueLatLonLineQueryFactory)(factories.line)
-	_ = (docValueLatLonPolygonQueryFactory)(factories.polygon)
-	_ = (docValueLatLonDistanceQueryFactory)(factories.distance)
-	_ = (docValueLatLonPointsQueryFactory)(factories.points)
+	if factories.line != nil {
+		t.Error("line factory should be nil until populated")
+	}
+	if factories.polygon != nil {
+		t.Error("polygon factory should be nil until populated")
+	}
+	if factories.distance != nil {
+		t.Error("distance factory should be nil until populated")
+	}
+	if factories.points != nil {
+		t.Error("points factory should be nil until populated")
+	}
+	if baseLatLonDocValueFieldName != "shape" {
+		t.Errorf("field name = %q, want %q", baseLatLonDocValueFieldName, "shape")
+	}
+	// Verify factory type signatures compile: each is a function type
+	// wrapping the Java abstract method overrides.
+	var rectFactory docValueLatLonRectQueryFactory
+	var lineFactory docValueLatLonLineQueryFactory
+	var polygonFactory docValueLatLonPolygonQueryFactory
+	var distanceFactory docValueLatLonDistanceQueryFactory
+	var pointsFactory docValueLatLonPointsQueryFactory
+	_ = rectFactory
+	_ = lineFactory
+	_ = polygonFactory
+	_ = distanceFactory
+	_ = pointsFactory
 }

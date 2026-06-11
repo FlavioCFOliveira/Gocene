@@ -24,10 +24,12 @@ import (
 // TestJustCompileSearch is a marker test confirming that this file compiles.
 // The var _ ... statements below are the real compile-time checks.
 func TestJustCompileSearch(t *testing.T) {
-	// The compile-time interface satisfaction checks (var _ Interface = ...)
-	// above are verified by the Go compiler — this test body exists solely to
-	// mirror the file's intent as a compilation-check, matching the Java
-	// JustCompileSearch.java which has no @Test methods.
+	// Compilation-check only; the var _ ... guard lines below verify
+	// interface satisfaction at compile time.
+	_ = (*justCompileCollector)(nil)
+	_ = (*justCompileDISI)(nil)
+	_ = (*justCompileScorer)(nil)
+	_ = (*justCompileQuery)(nil)
 }
 
 // compile-time interface satisfaction checks

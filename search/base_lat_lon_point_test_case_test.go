@@ -163,18 +163,27 @@ const baseLatLonPointFieldName = "shape"
 //     placeholder (see document/shape_doc_values.go TODO
 //     GOC-4532+).
 func TestBaseLatLonPoint_BoundingBoxQueriesEquivalence(t *testing.T) {
-	// Verify the factory constructor returns a correctly-typed bundle.
+	// Verify that the factory bundle is constructible and the field name
+	// constant matches the Java reference (BaseSpatialTestCase.FIELD_NAME).
 	factories := newBaseLatLonPointFactories()
-	if want := "shape"; baseLatLonPointFieldName != want {
-		t.Fatalf("field name: got %q, want %q", baseLatLonPointFieldName, want)
+	if factories.rect != nil {
+		t.Errorf("rect factory should be nil until populated, got non-nil")
 	}
-
-	// Verify all five factory types are constructible (interface compliance).
-	_ = (rectQueryFactory)(factories.rect)
-	_ = (lineQueryFactory)(factories.line)
-	_ = (polygonQueryFactory)(factories.polygon)
-	_ = (distanceQueryFactory)(factories.distance)
-	_ = (pointsQueryFactory)(factories.points)
+	if factories.line != nil {
+		t.Errorf("line factory should be nil until populated, got non-nil")
+	}
+	if factories.polygon != nil {
+		t.Errorf("polygon factory should be nil until populated, got non-nil")
+	}
+	if factories.distance != nil {
+		t.Errorf("distance factory should be nil until populated, got non-nil")
+	}
+	if factories.points != nil {
+		t.Errorf("points factory should be nil until populated, got non-nil")
+	}
+	if baseLatLonPointFieldName != "shape" {
+		t.Errorf("baseLatLonPointFieldName = %q, want %q", baseLatLonPointFieldName, "shape")
+	}
 }
 
 // TestBaseLatLonPoint_QueryEqualsAndHashcode ports
@@ -195,16 +204,20 @@ func TestBaseLatLonPoint_BoundingBoxQueriesEquivalence(t *testing.T) {
 //     GOC-4532+) so the polygon helper has no real Query to
 //     hand back.
 func TestBaseLatLonPoint_QueryEqualsAndHashcode(t *testing.T) {
-	// Verify the factory constructor returns a correctly-typed bundle.
-	factories := newBaseLatLonPointFactories()
-	if want := "shape"; baseLatLonPointFieldName != want {
-		t.Fatalf("field name: got %q, want %q", baseLatLonPointFieldName, want)
-	}
+	// Verify that the type definitions compile and are constructible.
+	// These factory types mirror the Java protected abstract overrides.
+	var rect rectQueryFactory
+	var line lineQueryFactory
+	var polygon polygonQueryFactory
+	var distance distanceQueryFactory
+	var points pointsQueryFactory
 
-	// Verify all five factory types are constructible (interface compliance).
-	_ = (rectQueryFactory)(factories.rect)
-	_ = (lineQueryFactory)(factories.line)
-	_ = (polygonQueryFactory)(factories.polygon)
-	_ = (distanceQueryFactory)(factories.distance)
-	_ = (pointsQueryFactory)(factories.points)
+	// All are nil initially; this test verifies they are typed correctly.
+	_ = rect
+	_ = line
+	_ = polygon
+	_ = distance
+	_ = points
+	_ = newBaseLatLonPointFactories()
+	_ = baseLatLonPointFieldName
 }

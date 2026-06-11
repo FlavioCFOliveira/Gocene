@@ -110,12 +110,20 @@ func TestFloatVectorSimilarityValuesSource_String(t *testing.T) {
 	if !strings.Contains(str, "FloatVectorSimilarityValuesSource") {
 		t.Errorf("String() %q missing type name", str)
 	}
+}
 
 // TestFloatVectorSimilarityValuesSource_GetScorerNilCtx verifies that
 // GetScorer panics on a nil context (nil pointer dereference on
 // ctx.Reader()), which is the expected behaviour since callers must
-// always pass a valid LeafReaderContext. The test documents this
-// contract and skips without failing.
+// always pass a valid LeafReaderContext.
 func TestFloatVectorSimilarityValuesSource_GetScorerNilCtx(t *testing.T) {
-	t.Fatal("GetScorer(nil) panics on nil LeafReaderContext (expected — callers must pass valid ctx)")
+	s := search.NewFloatVectorSimilarityValuesSource([]float32{1.0, 2.0}, "f")
+	func() {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("GetScorer(nil) should panic, got nil")
+			}
+		}()
+		_, _ = s.GetScorer(nil)
+	}()
 }

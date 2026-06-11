@@ -308,37 +308,38 @@ const baseXYShapeFieldName = "shape"
 //     GOC-4532+).
 //   - geo.Tessellator port (POLYGON shape-type re-roll loop).
 func TestBaseXYShape_PortStub(t *testing.T) {
-	// Verify the factory constructor returns a correctly-typed bundle.
+	// Verify that the xy-shape factory bundle and constants are
+	// constructible without panicking.
 	factories := newBaseXYShapeFactories()
-	if want := "shape"; baseXYShapeFieldName != want {
-		t.Fatalf("field name: got %q, want %q", baseXYShapeFieldName, want)
+	if factories.rect != nil {
+		t.Error("rect factory should be nil until populated")
 	}
-
-	// Verify all five factory types are constructible (interface compliance).
-	_ = (xyShapeRectQueryFactory)(factories.rect)
-	_ = (xyShapeLineQueryFactory)(factories.line)
-	_ = (xyShapePolygonQueryFactory)(factories.polygon)
-	_ = (xyShapePointsQueryFactory)(factories.points)
-	_ = (xyShapeDistanceQueryFactory)(factories.distance)
-
-	// Verify the Component2D factory types are constructible.
-	_ = (xyShapeComponent2DFactory)(factories.component2D)
-
-	// Verify the random shape factory types are constructible.
-	_ = (xyShapeRandomShapeFactory)(factories.randomShapes)
-
-	// Verify the rect accessors type is constructible.
-	_ = (xyShapeRectAccessors)(factories.rectAccess)
-
-	// Verify the encoder type is constructible.
-	_ = (xyShapeEncoder)(factories.encoder)
-
-	// Verify the shape factory type is constructible.
-	_ = (xyShapeTypeFactory)(factories.shapeFactory)
-
-	// Verify the XY shape enum values and sublist.
-	_ = xyShapeTypePoint
-	_ = xyShapeTypeLine
-	_ = xyShapeTypePolygon
-	_ = xyShapeTypeMixed
+	if factories.line != nil {
+		t.Error("line factory should be nil until populated")
+	}
+	if factories.polygon != nil {
+		t.Error("polygon factory should be nil until populated")
+	}
+	if factories.points != nil {
+		t.Error("points factory should be nil until populated")
+	}
+	if factories.distance != nil {
+		t.Error("distance factory should be nil until populated")
+	}
+	if baseXYShapeFieldName != "shape" {
+		t.Errorf("baseXYShapeFieldName = %q, want %q", baseXYShapeFieldName, "shape")
+	}
+	// Verify xy shape type constants.
+	if xyShapeTypePoint != 0 {
+		t.Errorf("xyShapeTypePoint = %d, want 0", xyShapeTypePoint)
+	}
+	if xyShapeTypeLine != 1 {
+		t.Errorf("xyShapeTypeLine = %d, want 1", xyShapeTypeLine)
+	}
+	if xyShapeTypePolygon != 2 {
+		t.Errorf("xyShapeTypePolygon = %d, want 2", xyShapeTypePolygon)
+	}
+	if xyShapeTypeMixed != 3 {
+		t.Errorf("xyShapeTypeMixed = %d, want 3", xyShapeTypeMixed)
+	}
 }

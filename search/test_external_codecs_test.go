@@ -98,10 +98,13 @@ func TestExternalCodecs_PerFieldCodec(t *testing.T) {
 	if err = w.DeleteDocuments(index.NewTerm("id", "77")); err != nil {
 		t.Fatalf("DeleteDocuments(id:77): %v", err)
 	}
+	if err = w.Commit(); err != nil {
+		t.Fatalf("Commit after delete: %v", err)
+	}
 
-	r, err := index.OpenDirectoryReaderFromWriter(w)
+	r, err := index.OpenDirectoryReader(dir)
 	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
+		t.Fatalf("OpenDirectoryReader: %v", err)
 	}
 	if r.NumDocs() != numDocs-1 {
 		t.Errorf("numDocs after first delete = %d, want %d", r.NumDocs(), numDocs-1)
@@ -119,10 +122,13 @@ func TestExternalCodecs_PerFieldCodec(t *testing.T) {
 	if err = w.ForceMerge(1); err != nil {
 		t.Fatalf("ForceMerge: %v", err)
 	}
+	if err = w.Commit(); err != nil {
+		t.Fatalf("Commit after merge: %v", err)
+	}
 
-	r, err = index.OpenDirectoryReaderFromWriter(w)
+	r, err = index.OpenDirectoryReader(dir)
 	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter (post-merge): %v", err)
+		t.Fatalf("OpenDirectoryReader (post-merge): %v", err)
 	}
 	if r.MaxDoc() != numDocs-2 {
 		t.Errorf("maxDoc after merge = %d, want %d", r.MaxDoc(), numDocs-2)
@@ -146,6 +152,7 @@ func TestExternalCodecs_PerFieldCodec(t *testing.T) {
 	if err = dir.Close(); err != nil {
 		t.Fatalf("dir.Close: %v", err)
 	}
+}
 
 // assertCount asserts that query matches exactly want documents.
 func assertCount(t *testing.T, s *search.IndexSearcher, query search.Query, want int) {

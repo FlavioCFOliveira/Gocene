@@ -215,12 +215,67 @@ func TestReqExclBulkScorer_Random(t *testing.T) {
 	for i := 0; i < iters; i++ {
 		doTestReqExclRandom(t, rng)
 	}
+}
 
 // TestReqExclBulkScorer_RandomTwoPhase ports testRandomTwoPhase().
 //
-// Degraded to t.Skip: RandomTwoPhaseView is defined in the Lucene test
-// framework module (org.apache.lucene.tests.search.RandomApproximationQuery)
-// and is not yet ported to Gocene.
+// Simplified: instead of RandomTwoPhaseView from the lucene-test-framework,
+// constructs a deterministic two-phase iterator and runs a basic exclusion
+// scenario.
 func TestReqExclBulkScorer_RandomTwoPhase(t *testing.T) {
-	t.Skip("needs RandomTwoPhaseView from lucene-test-framework — not yet ported")
+	maxDoc := 100
+
+	// Build required doc set: docs [0, 50).
+	reqBuilder := util.NewDocIdSetBuilder(maxDoc)
+	reqAdder := reqBuilder.Grow(50)
+	for i := 0; i < 50; i++ {
+		reqAdder.Add(i)
+	}
+	reqDS, err := reqBuilder.Build()
+	if err != nil {
+		t.Fatalf("req Build: %v", err)
+	}
+
+	// Build exclusion set: docs [25, 75).
+	exclBuilder := util.NewDocIdSetBuilder(maxDoc)
+	exclAdder := exclBuilder.Grow(50)
+	for i := 25; i < 75; i++ {
+		exclAdder.Add(i)
+	}
+	exclDS, err := exclBuilder.Build()
+	if err != nil {
+		t.Fatalf("excl Build: %v", err)
+	}
+
+	reqScorer := newDocIdSetWindowedScorer(reqDS)
+
+	// Create a deterministic two-phase iterator that always matches.
+	exclIter := exclDS.Iterator()
+	twoPhase := NewTwoPhaseIterator(exclIter, func() (bool, error) { return true, nil })
+
+	scorer := newReqExclBulkScorerFromTwoPhase(reqScorer, twoPhase)
+
+	actual, err := util.NewFixedBitSet(maxDoc)
+	if err != nil {
+		t.Fatalf("NewFixedBitSet(actual): %v", err)
+	}
+	collector := &collectingLeafCollector{hits: actual}
+
+	if _, err := scorer.ScoreWindow(collector, nil, 0, maxDoc); err != nil {
+		t.Fatalf("ScoreWindow: %v", err)
+	}
+
+	// Expected: docs [0, 25) (req AND NOT excl).
+	expected, err := util.NewFixedBitSet(maxDoc)
+	if err != nil {
+		t.Fatalf("NewFixedBitSet(expected): %v", err)
+	}
+	for i := 0; i < 25; i++ {
+		expected.Set(i)
+	}
+
+	if !expected.Equals(actual) {
+		t.Errorf("expected %d matches, got %d; sets differ",
+			expected.Cardinality(), actual.Cardinality())
+	}
 }

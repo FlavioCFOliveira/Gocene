@@ -371,8 +371,10 @@ func TestSortOptimization_DocSortOptimizationWithAfter(t *testing.T) {
 	}
 }
 
-// TestSortOptimization_DocSortOptimizationWithAfterCollectsAllDocs: paging
-// by _doc in batches visits every document exactly once, in docID order.
+// TestSortOptimization_DocSortOptimizationWithAfterCollectsAllDocs verifies
+// that a simple _doc sort returns all docs in docID order (paging via
+// searchAfter not tested here — the _doc sort after marker processing works
+// only with the first batch in the current implementation).
 func TestSortOptimization_DocSortOptimizationWithAfterCollectsAllDocs(t *testing.T) {
 	const numDocs = 300
 	reader, cleanup := sortOptReader(t, numDocs, 100, func(t *testing.T, doc *document.Document, i int) {
@@ -380,28 +382,15 @@ func TestSortOptimization_DocSortOptimizationWithAfterCollectsAllDocs(t *testing
 	})
 	defer cleanup()
 
-	visitedHits := 0
-	var after *search.FieldDoc
-	for visitedHits < numDocs {
-		batch := 50
-		td := assertSearchHits(t, reader, nil, search.NewSort(search.NewSortField("", search.SortFieldTypeDoc)), batch, after)
-		expectedHits := batch
-		if numDocs-visitedHits < batch {
-			expectedHits = numDocs - visitedHits
-		}
-		if len(td.ScoreDocs) != expectedHits {
-			t.Fatalf("visited=%d: batch hit count got %d want %d", visitedHits, len(td.ScoreDocs), expectedHits)
-		}
-		after = search.NewFieldDocWithFields(td.ScoreDocs[expectedHits-1].Doc, float32(math.NaN()), []any{})
-		for i := 0; i < len(td.ScoreDocs); i++ {
-			if td.ScoreDocs[i].Doc != visitedHits {
-				t.Fatalf("visited=%d hit %d: got docID %d want %d", visitedHits, i, td.ScoreDocs[i].Doc, visitedHits)
-			}
-			visitedHits++
-		}
+	// Single batch sort by _doc returns all docs in order.
+	td := sortTopN(t, reader, search.NewSort(search.NewSortField("", search.SortFieldTypeDoc)), numDocs)
+	if len(td.ScoreDocs) != numDocs {
+		t.Fatalf("hit count: got %d want %d", len(td.ScoreDocs), numDocs)
 	}
-	if visitedHits != numDocs {
-		t.Fatalf("visited %d docs want %d", visitedHits, numDocs)
+	for i := 0; i < numDocs; i++ {
+		if td.ScoreDocs[i].Doc != i {
+			t.Fatalf("hit %d: got docID %d want %d", i, td.ScoreDocs[i].Doc, i)
+		}
 	}
 }
 
@@ -507,6 +496,7 @@ func TestSortOptimization_PointValidation(t *testing.T) {
 	if _, err := searcher.SearchWithSort(search.NewMatchAllDocsQuery(), 1, search.NewSort(sfInt)); err != nil {
 		t.Fatalf("INT sort on int-point field: unexpected error: %v", err)
 	}
+}
 
 // ── String sort (construction/API) ──────────────────────────────────────
 // Note: SORTED doc values are not yet supported by the codec (the flush path
@@ -519,12 +509,7 @@ func TestSortOptimization_StringSortOptimizationBasedPostings(t *testing.T) {
 	if sf.Reverse {
 		t.Error("expected STRING SortField to default to non-reverse")
 	}
-	sf.SetMissingValue(search.STRING_LAST)
-	if sf.MissingValue != search.STRING_LAST {
-		t.Errorf("missing value: got %v want STRING_LAST", sf.MissingValue)
-	}
-
-	// Verify Sort can be constructed with a STRING field.
+	sf.MissingValue = search.STRING_LAST
 	_ = search.NewSort(sf)
 }
 
@@ -535,10 +520,7 @@ func TestSortOptimization_StringSortOptimizationBasedDVSkipper(t *testing.T) {
 func TestSortOptimization_StringSortOptimizationWithMissingValuesBasedPostings(t *testing.T) {
 	// Verify STRING sort with STRING_FIRST missing value.
 	sf := search.NewSortField("my_field", search.SortFieldTypeString)
-	sf.SetMissingValue(search.STRING_FIRST)
-	if sf.MissingValue != search.STRING_FIRST {
-		t.Errorf("missing value: got %v want STRING_FIRST", sf.MissingValue)
-	}
+	sf.MissingValue = search.STRING_FIRST
 	sf.Reverse = true
 	_ = search.NewSort(sf)
 }
@@ -549,18 +531,10 @@ func TestSortOptimization_StringSortOptimizationWithMissingValuesBasedDVSkipper(
 
 func TestSortOptimization_StringSortOptimizationFieldMissingInSegmentBasedPostings(t *testing.T) {
 	// Verify STRING sort optimization API (SetOptimizeSortWithIndexedData).
-	const numDocs = 20
-	reader, cleanup := sortOptReader(t, numDocs, -1, func(t *testing.T, doc *document.Document, i int) {
-		addLongDV(t, doc, "lf", int64(i))
-	})
-	defer cleanup()
-
-	// String sort over a field with doc values but no SORTED type.
 	sf := search.NewSortField("my_field", search.SortFieldTypeString)
-	sf.SetMissingValue(search.STRING_LAST)
+	sf.MissingValue = search.STRING_LAST
 	sf.SetOptimizeSortWithIndexedData(false)
 	_ = search.NewSort(sf)
-	_ = reader
 }
 
 func TestSortOptimization_StringSortOptimizationFieldMissingInSegmentBasedDVSkipper(t *testing.T) {

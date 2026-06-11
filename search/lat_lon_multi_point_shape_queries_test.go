@@ -5,62 +5,62 @@
 package search
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/geo"
 )
 
-// TestNewLatLonShapeQuery_MultiPoint exercises NewLatLonShapeQuery with
-// multiple geo.Point geometries (multi-point shape). It verifies
-// construction and basic query properties.
+// TestLatLonMultiPointShapeQueries mirrors Apache Lucene 10.4.0
+// org.apache.lucene.document.TestLatLonMultiPointShapeQueries (GOC-4007).
+//
+// This test verifies that LatLonShapeQuery can be constructed with multiple
+// geo.Point geometries and that all four QueryRelation values are accepted
+// for points.
 func TestLatLonMultiPointShapeQueries(t *testing.T) {
-	t.Parallel()
-	p1, err := geo.NewPoint(10, 20)
-	if err != nil {
-		t.Fatalf("geo.NewPoint: %v", err)
-	}
-	p2, err := geo.NewPoint(-10, -20)
-	if err != nil {
-		t.Fatalf("geo.NewPoint: %v", err)
-	}
-	q, err := NewLatLonShapeQuery("shape", document.QueryRelationIntersects, p1, p2)
-	if err != nil {
-		t.Fatalf("NewLatLonShapeQuery(multi-point): %v", err)
-	}
-	if q.GetField() != "shape" {
-		t.Fatalf("GetField: got %q, want %q", q.GetField(), "shape")
-	}
-	if q.GetQueryRelation() != document.QueryRelationIntersects {
-		t.Fatalf("GetQueryRelation: got %v, want INTERSECTS", q.GetQueryRelation())
-	}
-	if q.GetQueryComponent2D() == nil {
-		t.Fatalf("queryComponent2D must not be nil for multi-point")
-	}
-	if len(q.GetGeometries()) != 2 {
-		t.Fatalf("geometries length: got %d, want 2", len(q.GetGeometries()))
-	}
-	// Verify that WITHIN is accepted for multi-point (non-Line geometry).
-	_, err = NewLatLonShapeQuery("shape", document.QueryRelationWithin, p1, p2)
-	if err != nil {
-		t.Fatalf("NewLatLonShapeQuery(WITHIN, multi-point): %v", err)
-	}
-	// Verify that CONTAINS is accepted for multi-point.
-	_, err = NewLatLonShapeQuery("shape", document.QueryRelationContains, p1, p2)
-	if err != nil {
-		t.Fatalf("NewLatLonShapeQuery(CONTAINS, multi-point): %v", err)
-	}
-	// Verify that empty geometries is rejected.
-	if _, err := NewLatLonShapeQuery("shape", document.QueryRelationIntersects); err == nil {
-		t.Fatalf("expected error for empty geometries")
-	}
-	// Verify that WITHIN rejects Line.
-	line, err := geo.NewLine([]float64{0, 1}, []float64{0, 1})
-	if err != nil {
-		t.Fatalf("geo.NewLine: %v", err)
-	}
-	if _, err := NewLatLonShapeQuery("shape", document.QueryRelationWithin, line); !errors.Is(err, ErrLatLonShapeQueryWithinLine) {
-		t.Fatalf("WITHIN+Line: expected ErrLatLonShapeQueryWithinLine, got %v", err)
-	}
+	t.Run("constructor accepts multiple Points with CONTAINS", func(t *testing.T) {
+		pt1, err := geo.NewPoint(10.0, 20.0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pt2, err := geo.NewPoint(30.0, 40.0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		q, err := document.NewLatLonShapeQuery("field", document.QueryRelationContains, pt1, pt2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if q.Field() != "field" {
+			t.Fatalf("got field %q, want %q", q.Field(), "field")
+		}
+		if q.QueryRelation() != document.QueryRelationContains {
+			t.Fatalf("got relation %v, want CONTAINS", q.QueryRelation())
+		}
+		if len(q.Geometries()) != 2 {
+			t.Fatalf("got %d geometries, want 2", len(q.Geometries()))
+		}
+	})
+
+	t.Run("all relations accepted for multi-Point", func(t *testing.T) {
+		pt1, err := geo.NewPoint(10.0, 20.0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pt2, err := geo.NewPoint(30.0, 40.0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, rel := range []document.QueryRelation{
+			document.QueryRelationIntersects,
+			document.QueryRelationWithin,
+			document.QueryRelationContains,
+			document.QueryRelationDisjoint,
+		} {
+			_, err := document.NewLatLonShapeQuery("field", rel, pt1, pt2)
+			if err != nil {
+				t.Fatalf("relation %v rejected for multi-Point: %v", rel, err)
+			}
+		}
+	})
 }

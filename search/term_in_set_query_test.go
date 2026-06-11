@@ -468,6 +468,7 @@ func TestTermInSetQuery_IsConsideredCostlyByQueryCache(t *testing.T) {
 	if rewritten == nil {
 		t.Error("Rewrite should not return nil")
 	}
+}
 
 // TestTermInSetQuery_Visitor tests query visitor pattern.
 // Source: TestTermInSetQuery.testVisitor()

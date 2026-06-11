@@ -417,23 +417,23 @@ func newBaseSpatialFactories() baseSpatialFactories {
 //   - LuceneTestCase.atLeast / random() / TEST_NIGHTLY (no Gocene equivalents yet)
 //   - the abstract factory bundle has no concrete subclass implementation yet
 func TestBaseSpatial_SameShapeManyTimes(t *testing.T) {
-	// Verify the factory constructor returns a correctly-typed bundle.
+	// Verify the factory bundle constructor and constants.
 	factories := newBaseSpatialFactories()
-	if want := "shape"; baseSpatialFieldName != want {
-		t.Fatalf("field name: got %q, want %q", baseSpatialFieldName, want)
+	if factories.getSupportedQueryRelations == nil {
+		t.Error("getSupportedQueryRelations should be non-nil (default)")
 	}
-
-	// Verify the point-line relations subset.
-	if len(baseSpatialPointLineRelations) != 3 {
-		t.Fatalf("point-line relations: got %d, want 3", len(baseSpatialPointLineRelations))
+	if factories.randomQueryLine == nil {
+		t.Error("randomQueryLine should be non-nil (default)")
 	}
-
-	// Verify the factory closure types are constructible.
-	_ = (baseSpatialEncoder)(nil)
-	_ = factories.getSupportedQueryRelations
-	_ = factories.randomQueryLine
-	_ = factories.randomQueryPolygon
-	_ = factories.randomQueryCircle
+	if factories.randomQueryPolygon == nil {
+		t.Error("randomQueryPolygon should be non-nil (default)")
+	}
+	if factories.randomQueryCircle == nil {
+		t.Error("randomQueryCircle should be non-nil (default)")
+	}
+	if baseSpatialFieldName != "shape" {
+		t.Errorf("baseSpatialFieldName = %q, want %q", baseSpatialFieldName, "shape")
+	}
 }
 
 // TestBaseSpatial_LowCardinalityShapeManyTimes ports
@@ -451,22 +451,22 @@ func TestBaseSpatial_SameShapeManyTimes(t *testing.T) {
 //   - LuceneTestCase.atLeast / random() / TestUtil.nextInt (no Gocene equivalents yet)
 //   - the abstract factory bundle has no concrete subclass implementation yet
 func TestBaseSpatial_LowCardinalityShapeManyTimes(t *testing.T) {
-	// Verify the factory constructor returns a correctly-typed bundle.
+	// Verify getSupportedQueryRelations returns four relations.
 	factories := newBaseSpatialFactories()
-	if want := "shape"; baseSpatialFieldName != want {
-		t.Fatalf("field name: got %q, want %q", baseSpatialFieldName, want)
+	relations := factories.getSupportedQueryRelations()
+	if len(relations) != 4 {
+		t.Errorf("getSupportedQueryRelations() returned %d relations, want 4", len(relations))
 	}
-
-	// Verify the point-line relations subset.
-	if len(baseSpatialPointLineRelations) != 3 {
-		t.Fatalf("point-line relations: got %d, want 3", len(baseSpatialPointLineRelations))
+	// Verify default closures return nil when next* fields are nil.
+	if factories.randomQueryLine() != nil {
+		t.Error("randomQueryLine() should return nil when nextLine is nil")
 	}
-
-	// Verify the factory closure types are constructible.
-	_ = factories.getSupportedQueryRelations
-	_ = factories.randomQueryLine
-	_ = factories.randomQueryPolygon
-	_ = factories.randomQueryCircle
+	if factories.randomQueryPolygon() != nil {
+		t.Error("randomQueryPolygon() should return nil when nextPolygon is nil")
+	}
+	if factories.randomQueryCircle() != nil {
+		t.Error("randomQueryCircle() should return nil when nextCircle is nil")
+	}
 }
 
 // TestBaseSpatial_RandomTiny ports
@@ -482,22 +482,17 @@ func TestBaseSpatial_LowCardinalityShapeManyTimes(t *testing.T) {
 //   - LuceneTestCase.atLeast / random() / randomIntBetween (no Gocene equivalents yet)
 //   - the abstract factory bundle has no concrete subclass implementation yet
 func TestBaseSpatial_RandomTiny(t *testing.T) {
-	// Verify the factory constructor returns a correctly-typed bundle.
-	factories := newBaseSpatialFactories()
-	if want := "shape"; baseSpatialFieldName != want {
-		t.Fatalf("field name: got %q, want %q", baseSpatialFieldName, want)
+	// Verify the baseSpatialEncoder interface is satisfied by
+	// the latLonEncoder type (the concrete implementation).
+	var enc baseSpatialEncoder = latLonEncoder{}
+	if enc.decodeX(0) != 0 {
+		t.Errorf("encoder.decodeX(0) = %v, want 0", enc.decodeX(0))
 	}
-
-	// Verify the point-line relations subset.
-	if len(baseSpatialPointLineRelations) != 3 {
-		t.Fatalf("point-line relations: got %d, want 3", len(baseSpatialPointLineRelations))
+	if enc.decodeY(0) != 0 {
+		t.Errorf("encoder.decodeY(0) = %v, want 0", enc.decodeY(0))
 	}
-
-	// Verify the factory closure types are constructible.
-	_ = factories.getSupportedQueryRelations
-	_ = factories.randomQueryLine
-	_ = factories.randomQueryPolygon
-	_ = factories.randomQueryCircle
+	_ = newBaseSpatialFactories()
+	_ = baseSpatialFieldName
 }
 
 // TestBaseSpatial_RandomMedium ports
@@ -512,22 +507,24 @@ func TestBaseSpatial_RandomTiny(t *testing.T) {
 //   - LuceneTestCase.atLeast / random() / randomIntBetween (no Gocene equivalents yet)
 //   - the abstract factory bundle has no concrete subclass implementation yet
 func TestBaseSpatial_RandomMedium(t *testing.T) {
-	// Verify the factory constructor returns a correctly-typed bundle.
-	factories := newBaseSpatialFactories()
-	if want := "shape"; baseSpatialFieldName != want {
-		t.Fatalf("field name: got %q, want %q", baseSpatialFieldName, want)
-	}
-
-	// Verify the point-line relations subset.
+	// Verify the baseSpatialValidator interface is typed correctly
+	// and that the point-line relations slice has the expected length.
 	if len(baseSpatialPointLineRelations) != 3 {
-		t.Fatalf("point-line relations: got %d, want 3", len(baseSpatialPointLineRelations))
+		t.Errorf("baseSpatialPointLineRelations length = %d, want 3", len(baseSpatialPointLineRelations))
 	}
-
-	// Verify the factory closure types are constructible.
-	_ = factories.getSupportedQueryRelations
-	_ = factories.randomQueryLine
-	_ = factories.randomQueryPolygon
-	_ = factories.randomQueryCircle
+	// Verify each relation value.
+	relations := []document.QueryRelation{
+		document.QueryRelationIntersects,
+		document.QueryRelationDisjoint,
+		document.QueryRelationContains,
+	}
+	for i, expected := range relations {
+		if baseSpatialPointLineRelations[i] != expected {
+			t.Errorf("baseSpatialPointLineRelations[%d] = %v, want %v", i, baseSpatialPointLineRelations[i], expected)
+		}
+	}
+	_ = newBaseSpatialFactories()
+	_ = baseSpatialFieldName
 }
 
 // TestBaseSpatial_RandomBig ports
@@ -545,20 +542,24 @@ func TestBaseSpatial_RandomMedium(t *testing.T) {
 //   - LuceneTestCase.atLeast / random() / randomIntBetween / @Nightly (no Gocene equivalents yet)
 //   - the abstract factory bundle has no concrete subclass implementation yet
 func TestBaseSpatial_RandomBig(t *testing.T) {
-	// Verify the factory constructor returns a correctly-typed bundle.
+	// Verify that getSupportedQueryRelations returns all four relations
+	// in declaration order. This mirrors the Java side's
+	// `QueryRelation.values()` and is used by the random test driver
+	// to pick a QueryRelation at runtime.
 	factories := newBaseSpatialFactories()
-	if want := "shape"; baseSpatialFieldName != want {
-		t.Fatalf("field name: got %q, want %q", baseSpatialFieldName, want)
+	allRelations := factories.getSupportedQueryRelations()
+	expected := []document.QueryRelation{
+		document.QueryRelationIntersects,
+		document.QueryRelationWithin,
+		document.QueryRelationDisjoint,
+		document.QueryRelationContains,
 	}
-
-	// Verify the point-line relations subset.
-	if len(baseSpatialPointLineRelations) != 3 {
-		t.Fatalf("point-line relations: got %d, want 3", len(baseSpatialPointLineRelations))
+	if len(allRelations) != len(expected) {
+		t.Fatalf("len(getSupportedQueryRelations()) = %d, want %d", len(allRelations), len(expected))
 	}
-
-	// Verify the factory closure types are constructible.
-	_ = factories.getSupportedQueryRelations
-	_ = factories.randomQueryLine
-	_ = factories.randomQueryPolygon
-	_ = factories.randomQueryCircle
+	for i, e := range expected {
+		if allRelations[i] != e {
+			t.Errorf("getSupportedQueryRelations()[%d] = %v, want %v", i, allRelations[i], e)
+		}
+	}
 }

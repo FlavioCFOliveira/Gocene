@@ -182,18 +182,26 @@ const baseLatLonShapeFieldName = "shape"
 //     placeholder (see document/shape_doc_values.go TODO
 //     GOC-4532+).
 func TestBaseLatLonShape_BoundingBoxQueriesEquivalence(t *testing.T) {
-	// Verify the factory constructor returns a correctly-typed bundle.
+	// Verify the factory bundle and field name constant.
 	factories := newBaseLatLonShapeFactories()
-	if want := "shape"; baseLatLonShapeFieldName != want {
-		t.Fatalf("field name: got %q, want %q", baseLatLonShapeFieldName, want)
+	if factories.rect != nil {
+		t.Error("rect factory should be nil until populated")
 	}
-
-	// Verify all five factory types are constructible (interface compliance).
-	_ = (shapeRectQueryFactory)(factories.rect)
-	_ = (shapeLineQueryFactory)(factories.line)
-	_ = (shapePolygonQueryFactory)(factories.polygon)
-	_ = (shapePointsQueryFactory)(factories.points)
-	_ = (shapeDistanceQueryFactory)(factories.distance)
+	if factories.line != nil {
+		t.Error("line factory should be nil until populated")
+	}
+	if factories.polygon != nil {
+		t.Error("polygon factory should be nil until populated")
+	}
+	if factories.points != nil {
+		t.Error("points factory should be nil until populated")
+	}
+	if factories.distance != nil {
+		t.Error("distance factory should be nil until populated")
+	}
+	if baseLatLonShapeFieldName != "shape" {
+		t.Errorf("field name = %q, want %q", baseLatLonShapeFieldName, "shape")
+	}
 }
 
 // TestBaseLatLonShape_BoxQueryEqualsAndHashcode ports
@@ -214,14 +222,19 @@ func TestBaseLatLonShape_BoundingBoxQueriesEquivalence(t *testing.T) {
 //   - document.LatLonShape.NewBoxQuery is still missing so the
 //     rectQueryFactory cannot be populated.
 func TestBaseLatLonShape_BoxQueryEqualsAndHashcode(t *testing.T) {
-	// Verify the factory constructor returns a correctly-typed bundle.
-	factories := newBaseLatLonShapeFactories()
-	if want := "shape"; baseLatLonShapeFieldName != want {
-		t.Fatalf("field name: got %q, want %q", baseLatLonShapeFieldName, want)
-	}
-
-	// Verify the rect factory type is constructible.
-	_ = (shapeRectQueryFactory)(factories.rect)
+	// Verify that the factory type signatures compile.
+	var r shapeRectQueryFactory
+	var l shapeLineQueryFactory
+	var p shapePolygonQueryFactory
+	var pt shapePointsQueryFactory
+	var d shapeDistanceQueryFactory
+	_ = r
+	_ = l
+	_ = p
+	_ = pt
+	_ = d
+	_ = newBaseLatLonShapeFactories()
+	_ = baseLatLonShapeFieldName
 }
 
 // TestBaseLatLonShape_LineQueryEqualsAndHashcode ports
@@ -243,14 +256,14 @@ func TestBaseLatLonShape_BoxQueryEqualsAndHashcode(t *testing.T) {
 //   - document.LatLonShape.NewLineQuery is still missing so the
 //     lineQueryFactory cannot be populated.
 func TestBaseLatLonShape_LineQueryEqualsAndHashcode(t *testing.T) {
-	// Verify the factory constructor returns a correctly-typed bundle.
-	factories := newBaseLatLonShapeFactories()
-	if want := "shape"; baseLatLonShapeFieldName != want {
-		t.Fatalf("field name: got %q, want %q", baseLatLonShapeFieldName, want)
+	// Verify factory bundle is constructible and shapeLineQueryFactory
+	// can be assigned a nil value.
+	var lineFactory shapeLineQueryFactory
+	if lineFactory != nil {
+		t.Error("lineFactory should be nil by default")
 	}
-
-	// Verify the line factory type is constructible.
-	_ = (shapeLineQueryFactory)(factories.line)
+	_ = newBaseLatLonShapeFactories()
+	_ = baseLatLonShapeFieldName
 }
 
 // TestBaseLatLonShape_PolygonQueryEqualsAndHashcode ports
@@ -269,12 +282,16 @@ func TestBaseLatLonShape_LineQueryEqualsAndHashcode(t *testing.T) {
 //   - document.LatLonShape.NewPolygonQuery is still missing so the
 //     polygonQueryFactory cannot be populated.
 func TestBaseLatLonShape_PolygonQueryEqualsAndHashcode(t *testing.T) {
-	// Verify the factory constructor returns a correctly-typed bundle.
-	factories := newBaseLatLonShapeFactories()
-	if want := "shape"; baseLatLonShapeFieldName != want {
-		t.Fatalf("field name: got %q, want %q", baseLatLonShapeFieldName, want)
+	// Verify that the factory bundle is constructible with all nil
+	// fields (pre-population state). The existence of this test matches
+	// the pattern in BaseLatLonShapeDocValueTestCase and proves the
+	// factory types are usable without the underlying LatLonShape
+	// surface.
+	factories := baseLatLonShapeFactories{}
+	if factories.rect != nil || factories.line != nil || factories.polygon != nil ||
+		factories.points != nil || factories.distance != nil {
+		t.Error("zero-value factory should have all nil fields")
 	}
-
-	// Verify the polygon factory type is constructible.
-	_ = (shapePolygonQueryFactory)(factories.polygon)
+	_ = newBaseLatLonShapeFactories()
+	_ = baseLatLonShapeFieldName
 }

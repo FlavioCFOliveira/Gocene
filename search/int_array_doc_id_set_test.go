@@ -14,15 +14,12 @@
 
 package search
 
-import (
-	"testing"
-)
+import "testing"
 
 // TestIntArrayDocIdSet_CompileCheck verifies the port compiles.
-// The Lucene source has no @Test methods; this mirrors that intent.
+// The Lucene source has no @Test methods; this is a placeholder.
 func TestIntArrayDocIdSet_CompileCheck(t *testing.T) {
-	// Verify that the compile-time interface satisfaction checks in this file
-	// are reachable. The production type lives in util.IntArrayDocIdSet.
-	// This test exists only to document the port intent — real tests of
-	// IntArrayDocIdSet belong in the util package.
+	// IntArrayDocIdSet is a test-only helper with no @Test methods in Lucene.
+	// Production equivalent is util.IntArrayDocIdSet. This test simply confirms
+	// the file compiles as part of the package.
 }

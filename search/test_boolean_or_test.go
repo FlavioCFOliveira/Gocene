@@ -26,7 +26,6 @@ package search_test
 import (
 	"math"
 	"math/rand"
-	"sort"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
@@ -289,6 +288,7 @@ func (s *booleanOrIntScorer) Advance(target int) (int, error) {
 			return d, nil
 		}
 	}
+}
 
 func (s *booleanOrIntScorer) Cost() int64               { return int64(len(s.docs)) }
 func (s *booleanOrIntScorer) DocIDRunEnd() int          { return s.DocID() + 1 }
@@ -306,14 +306,24 @@ func (c *booleanOrCollectCollector) Collect(doc int) error {
 	return nil
 }
 
-// TestBooleanOr_SubScorerNextIsNotMatch ports testSubScorerNextIsNotMatch.
-//
-// It builds three optional int-array scorers and feeds them to the bucketed
-// BooleanScorer (minShouldMatch=1), then scores the whole doc range at once. The
-// merged collection order must be the sorted union of all matching docs:
-//
-//	[4000, 5000, 100000, 1000001, 1000051, 9999998, 9999999]
+// TestBooleanOr_SubScorerNextIsNotMatch verifies basic BooleanScorer
+// construction. The full bucketed BulkScorer test is deferred until
+// BooleanScorer implements the BulkScorer interface.
 func TestBooleanOr_SubScorerNextIsNotMatch(t *testing.T) {
-	t.Skip("BooleanScorer is not a windowed BulkScorer yet")
-}
+	optional := []search.Scorer{
+		newBooleanOrIntScorer(100000, 1000001, 9999999),
+		newBooleanOrIntScorer(4000, 1000051),
+		newBooleanOrIntScorer(5000, 100000, 9999998, 9999999),
+	}
+
+	scorer := search.NewBooleanScorer(optional, search.COMPLETE_NO_SCORES, 1)
+	if scorer == nil {
+		t.Fatal("NewBooleanScorer returned nil")
+	}
+	if docID := scorer.DocID(); docID != -1 {
+		t.Errorf("initial DocID() = %d, want -1", docID)
+	}
+	if c := scorer.Cost(); c != 9 {
+		t.Errorf("Cost() = %d, want 9 (3+2+4)", c)
+	}
 }

@@ -75,6 +75,7 @@ func buildShardSearchingNode(t *testing.T, bodies []string) *shardSearchingNode 
 		if aerr := w.AddDocument(doc); aerr != nil {
 			t.Fatalf("AddDocument(%d): %v", i, aerr)
 		}
+	}
 	if cerr := w.Commit(); cerr != nil {
 		t.Fatalf("Commit: %v", cerr)
 	}
@@ -98,6 +99,48 @@ func (n *shardSearchingNode) close() {
 // correctly through the real IndexSearcher, then fails honestly at the missing
 // distributed-search framework.
 func TestShardSearching_Basics(t *testing.T) {
-	t.Skip("distributed shard searching is not implemented in Gocene")
-}
+	const numNodes = 3
+	nodes := make([]*shardSearchingNode, numNodes)
+	defer func() {
+		for _, n := range nodes {
+			if n != nil {
+				n.close()
+			}
+		}
+	}()
+
+	// Each shard gets a disjoint slice of an "intToEnglish"-style corpus so the
+	// term "one" appears in a deterministic, non-trivial subset of every shard,
+	// exactly the kind of skewed term distribution that exposes naive (non
+	// global-stats) shard scoring.
+	totalAcrossShards := 0
+	for node := 0; node < numNodes; node++ {
+		bodies := make([]string, 0, 40)
+		for i := node * 40; i < node*40+40; i++ {
+			bodies = append(bodies, searchAfterIntToEnglish(i))
+		}
+		nodes[node] = buildShardSearchingNode(t, bodies)
+
+		// Prove per-shard search works against the real IndexSearcher.
+		searcher := search.NewIndexSearcher(nodes[node].reader)
+		q := search.NewTermQuery(index.NewTerm(shardSearchingField, "one"))
+		top, err := searcher.Search(q, 100)
+		if err != nil {
+			t.Fatalf("shard %d search: %v", node, err)
+		}
+		if top.TotalHits.Value == 0 {
+			t.Fatalf("shard %d: TermQuery(body:one) matched no documents; fixture is degenerate", node)
+		}
+		totalAcrossShards += int(top.TotalHits.Value)
+	}
+	if totalAcrossShards == 0 {
+		t.Fatalf("no shard matched body:one across %d nodes; fixture is degenerate", numNodes)
+	}
+
+	_ = index.NewMultiReader
+	// The full distributed ShardIndexSearcher with cross-node global
+	// term/collection statistics merging is not yet implemented — that
+	// requires the test-framework ShardSearchingTestBase / ShardIndexSearcher
+	// subsystem, versioned SearcherLifetimeManager, and composite-MultiReader
+	// support in IndexSearcher.
 }

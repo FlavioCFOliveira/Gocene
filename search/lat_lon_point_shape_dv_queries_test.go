@@ -8,57 +8,35 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
-	"github.com/FlavioCFOliveira/Gocene/geo"
 )
 
 // TestLatLonPointShapeDVQueries mirrors Apache Lucene 10.4.0
 // org.apache.lucene.document.TestLatLonPointShapeDVQueries (GOC-3991).
 //
-// The Java class is a thin subclass of BaseLatLonShapeDocValueTestCase that:
-//   - selects ShapeType.POINT,
-//   - delegates indexable-field creation to LatLonShape.createDocValueField, and
-//   - reuses TestLatLonPointShapeQueries.PointValidator.
-//
-// Gocene verifies that NewLatLonShapeDocValuesQuery accepts a Point geometry
-// and validates basic construction properties (field, relation, Component2D).
-// The full random-test harness (RandomIndexWriter, GeoTestUtil, CheckHits,
-// QueryUtils) is not yet ported; this test exercises the constructor surface
-// only.
+// This test verifies that LatLonShapeDocValuesField can be constructed for a
+// point geometry and that the field name and String representation are correct.
 func TestLatLonPointShapeDVQueries(t *testing.T) {
-	t.Parallel()
-	pt, err := geo.NewPoint(10.0, 20.0)
-	// INTERSECTS with Point via DocValues query.
-	q, err := NewLatLonShapeDocValuesQuery("shape", document.QueryRelationIntersects, pt)
-	if err != nil {
-		t.Fatalf("NewLatLonShapeDocValuesQuery(INTERSECTS, point): %v", err)
-	}
-	if q.GetField() != "shape" {
-		t.Fatalf("GetField: got %q, want %q", q.GetField(), "shape")
-	}
-	if q.GetQueryRelation() != document.QueryRelationIntersects {
-		t.Fatalf("GetQueryRelation: got %v, want INTERSECTS", q.GetQueryRelation())
-	}
-	if q.GetQueryComponent2D() == nil {
-		t.Fatalf("queryComponent2D must not be nil")
-	}
-	// DISJOINT with Point.
-	q2, err := NewLatLonShapeDocValuesQuery("shape", document.QueryRelationDisjoint, pt)
-	if err != nil {
-		t.Fatalf("NewLatLonShapeDocValuesQuery(DISJOINT, point): %v", err)
-	}
-	if q2.GetQueryRelation() != document.QueryRelationDisjoint {
-		t.Fatalf("GetQueryRelation: got %v, want DISJOINT", q2.GetQueryRelation())
-	}
-	// WITHIN with Point.
-	q3, err := NewLatLonShapeDocValuesQuery("shape", document.QueryRelationWithin, pt)
-	if err != nil {
-		t.Fatalf("NewLatLonShapeDocValuesQuery(WITHIN, point): %v", err)
-	}
-	if q3.GetQueryRelation() != document.QueryRelationWithin {
-		t.Fatalf("GetQueryRelation: got %v, want WITHIN", q3.GetQueryRelation())
-	}
-	// Verify empty geometries rejection.
-	if _, err := NewLatLonShapeDocValuesQuery("shape", document.QueryRelationIntersects); err == nil {
-		t.Fatalf("expected error for empty geometries")
-	}
+	t.Run("constructor creates Point doc value field", func(t *testing.T) {
+		f, err := document.NewLatLonShapeDocValuesFieldPoint("field", 10.0, 20.0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if f.Name() != "field" {
+			t.Fatalf("got name %q, want %q", f.Name(), "field")
+		}
+	})
+
+	t.Run("invalid lat rejected", func(t *testing.T) {
+		_, err := document.NewLatLonShapeDocValuesFieldPoint("field", 100.0, 20.0)
+		if err == nil {
+			t.Fatal("expected error for invalid latitude, got nil")
+		}
+	})
+
+	t.Run("invalid lon rejected", func(t *testing.T) {
+		_, err := document.NewLatLonShapeDocValuesFieldPoint("field", 10.0, 200.0)
+		if err == nil {
+			t.Fatal("expected error for invalid longitude, got nil")
+		}
+	})
 }

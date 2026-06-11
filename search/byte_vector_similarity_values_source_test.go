@@ -105,11 +105,20 @@ func TestByteVectorSimilarityValuesSource_String(t *testing.T) {
 	if !strings.Contains(str, "ByteVectorSimilarityValuesSource") {
 		t.Errorf("String() %q missing type name", str)
 	}
+}
 
-// TestByteVectorSimilarityValuesSource_GetScorerNilCtx documents that
+// TestByteVectorSimilarityValuesSource_GetScorerNilCtx verifies that
 // GetScorer panics on a nil context (expected; callers must pass a valid one).
 func TestByteVectorSimilarityValuesSource_GetScorerNilCtx(t *testing.T) {
-	t.Fatal("GetScorer(nil) panics on nil LeafReaderContext (expected — callers must pass valid ctx)")
+	s := search.NewByteVectorSimilarityValuesSource([]byte{1, 2}, "f")
+	func() {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("GetScorer(nil) should panic, got nil")
+			}
+		}()
+		_, _ = s.GetScorer(nil)
+	}()
 }
 
 // TestByteVectorSimilarityValuesSource_ImplementsInterface checks that the

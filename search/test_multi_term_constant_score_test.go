@@ -182,6 +182,7 @@ func TestMultiTermConstantScore_RangeQueryId(t *testing.T) {
 	if q1.Equals(q3) {
 		t.Error("different queries must not be equal")
 	}
+}
 
 // TestMultiTermConstantScore_RangeQueryRand ports testRangeQueryRand. Same
 // dependency on the not-yet-ported TestBaseRangeFilter signed index.

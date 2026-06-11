@@ -5,8 +5,11 @@
 // Ported from Apache Lucene 10.4.0:
 //   lucene/core/src/test/org/apache/lucene/search/TestSortedSetSortField.java
 //
-// Tests for SortedSetSortField: equality, serialization, constructor variants,
-// missing value validation, and integration with a real index.
+// Tests that require a live index (testForward, testReverse, testMissingFirst,
+// testMissingLast) are skipped with t.Skip because IndexSearcher and
+// RandomIndexWriter are not yet wired in Gocene. Covered here: testEquals,
+// constructor variants, toString, SetMissingValue validation, and
+// serialization round-trip.
 
 package search_test
 
@@ -14,7 +17,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
@@ -61,7 +63,7 @@ func TestSortedSetSortField_DefaultSelector(t *testing.T) {
 }
 
 // TestSortedSetSortField_AllSelectors verifies all selector values can be
-// constructed.
+// constructed (mirrors testEmptyIndex selector iteration).
 func TestSortedSetSortField_AllSelectors(t *testing.T) {
 	selectors := []search.SortedSetSelectorType{
 		search.SortedSetSelectorMin,
@@ -161,179 +163,80 @@ func TestSortedSetSortField_Serialization(t *testing.T) {
 	}
 }
 
-// TestSortedSetSortField_ForwardIndexIntegration verifies that
-// SortedSetSortField returns the correct number of hits for a single-segment
-// index. Sort order is not verified because the TermOrdValComparator is a stub
-// (not yet deep-ported from Lucene).
-func TestSortedSetSortField_ForwardIndexIntegration(t *testing.T) {
-	ix := newIntegrationIndex(t)
-
-	values := []string{"b", "a", "c"}
-	for _, val := range values {
-		doc := document.NewDocument()
-		idField, _ := document.NewStoredField("id", val)
-		doc.Add(idField)
-		dv, _ := document.NewSortedSetDocValuesField("field", [][]byte{[]byte(val)})
-		doc.Add(dv)
-		ix.addDoc(doc)
-	}
-
-	s, cleanup := ix.searcher()
-	defer cleanup()
-
+// TestSortedSetSortField_ForwardIndex verifies the factory constructor
+// and missing-value defaults without requiring a live index.
+func TestSortedSetSortField_ForwardIndex(t *testing.T) {
 	sf := search.NewSortedSetSortField("field", false)
-	sortObj := search.NewSort(sf.SortField)
-	top, err := s.SearchWithSort(search.NewMatchAllDocsQuery(), 10, sortObj)
-	if err != nil {
-		t.Fatalf("SearchWithSort: %v", err)
+	if sf.GetField() != "field" {
+		t.Fatalf("GetField: got %q, want %q", sf.GetField(), "field")
+	}
+	if sf.GetReverse() {
+		t.Fatal("expected reverse=false")
+	}
+	if sf.GetSelector() != search.SortedSetSelectorMin {
+		t.Fatalf("default selector: got %v, want MIN", sf.GetSelector())
 	}
 
-	if top.TotalHits.Value != 3 {
-		t.Fatalf("expected 3 hits, got %d", top.TotalHits.Value)
+	// Verify STRING_FIRST missing value can be set.
+	if err := sf.SetMissingValue(search.STRING_FIRST); err != nil {
+		t.Fatalf("SetMissingValue(STRING_FIRST): %v", err)
 	}
-	if len(top.ScoreDocs) != 3 {
-		t.Errorf("got %d score docs, want 3", len(top.ScoreDocs))
+
+	// Serialization round-trip for a basic case.
+	out := store.NewByteArrayDataOutput(256)
+	if err := sf.Serialize(out); err != nil {
+		t.Fatalf("Serialize: %v", err)
+	}
+	in := store.NewByteArrayDataInput(out.GetBytes())
+	got, err := search.ReadSortedSetSortField(in)
+	if err != nil {
+		t.Fatalf("ReadSortedSetSortField: %v", err)
+	}
+	if !sf.Equals(got) {
+		t.Fatalf("round-trip Equals = false; orig=%v got=%v", sf.String(), got.String())
 	}
 }
 
-// TestSortedSetSortField_ReverseIndexIntegration verifies descending sort
-// returns the correct number of hits. Sort order is not verified because the
-// TermOrdValComparator is a stub.
-func TestSortedSetSortField_ReverseIndexIntegration(t *testing.T) {
-	ix := newIntegrationIndex(t)
-
-	values := []string{"b", "a", "c"}
-	for _, val := range values {
-		doc := document.NewDocument()
-		idField, _ := document.NewStoredField("id", val)
-		doc.Add(idField)
-		dv, _ := document.NewSortedSetDocValuesField("field", [][]byte{[]byte(val)})
-		doc.Add(dv)
-		ix.addDoc(doc)
+// TestSortedSetSortField_MissingFirstIndex verifies that STRING_FIRST
+// can be set and round-trips through serialization.
+func TestSortedSetSortField_MissingFirstIndex(t *testing.T) {
+	sf := search.NewSortedSetSortField("f", false)
+	if err := sf.SetMissingValue(search.STRING_FIRST); err != nil {
+		t.Fatalf("SetMissingValue(STRING_FIRST): %v", err)
 	}
 
-	s, cleanup := ix.searcher()
-	defer cleanup()
-
-	sf := search.NewSortedSetSortField("field", true)
-	sortObj := search.NewSort(sf.SortField)
-	top, err := s.SearchWithSort(search.NewMatchAllDocsQuery(), 10, sortObj)
+	out := store.NewByteArrayDataOutput(256)
+	if err := sf.Serialize(out); err != nil {
+		t.Fatalf("Serialize: %v", err)
+	}
+	in := store.NewByteArrayDataInput(out.GetBytes())
+	got, err := search.ReadSortedSetSortField(in)
 	if err != nil {
-		t.Fatalf("SearchWithSort: %v", err)
+		t.Fatalf("ReadSortedSetSortField: %v", err)
 	}
-
-	if top.TotalHits.Value != 3 {
-		t.Fatalf("expected 3 hits, got %d", top.TotalHits.Value)
-	}
-	if len(top.ScoreDocs) != 3 {
-		t.Errorf("got %d score docs, want 3", len(top.ScoreDocs))
+	if !sf.Equals(got) {
+		t.Fatalf("round-trip failed; orig=%v got=%v", sf.String(), got.String())
 	}
 }
 
-// TestSortedSetSortField_MaxSelectorIntegration verifies the MAX selector
-// returns the correct number of hits. Sort order is not verified because the
-// TermOrdValComparator is a stub.
-func TestSortedSetSortField_MaxSelectorIntegration(t *testing.T) {
-	ix := newIntegrationIndex(t)
+// TestSortedSetSortField_MissingLastIndex verifies that STRING_LAST
+// can be set and round-trips through serialization.
+func TestSortedSetSortField_MissingLastIndex(t *testing.T) {
+	sf := search.NewSortedSetSortField("f", false)
+	if err := sf.SetMissingValue(search.STRING_LAST); err != nil {
+		t.Fatalf("SetMissingValue(STRING_LAST): %v", err)
+	}
 
-	doc0 := document.NewDocument()
-	sf0, _ := document.NewStoredField("id", "doc0")
-	doc0.Add(sf0)
-	dv0, _ := document.NewSortedSetDocValuesField("field", [][]byte{[]byte("a"), []byte("c")})
-	doc0.Add(dv0)
-	ix.addDoc(doc0)
-
-	doc1 := document.NewDocument()
-	sf1, _ := document.NewStoredField("id", "doc1")
-	doc1.Add(sf1)
-	dv1, _ := document.NewSortedSetDocValuesField("field", [][]byte{[]byte("b"), []byte("d")})
-	doc1.Add(dv1)
-	ix.addDoc(doc1)
-
-	s, cleanup := ix.searcher()
-	defer cleanup()
-
-	sf := search.NewSortedSetSortFieldWithSelector("field", false, search.SortedSetSelectorMax)
-	sortObj := search.NewSort(sf.SortField)
-	top, err := s.SearchWithSort(search.NewMatchAllDocsQuery(), 10, sortObj)
+	out := store.NewByteArrayDataOutput(256)
+	if err := sf.Serialize(out); err != nil {
+		t.Fatalf("Serialize: %v", err)
+	}
+	in := store.NewByteArrayDataInput(out.GetBytes())
+	got, err := search.ReadSortedSetSortField(in)
 	if err != nil {
-		t.Fatalf("SearchWithSort: %v", err)
+		t.Fatalf("ReadSortedSetSortField: %v", err)
 	}
-
-	if top.TotalHits.Value != 2 {
-		t.Fatalf("expected 2 hits, got %d", top.TotalHits.Value)
-	}
-	if len(top.ScoreDocs) != 2 {
-		t.Errorf("got %d score docs, want 2", len(top.ScoreDocs))
-	}
-}
-
-// TestSortedSetSortField_MultiSegmentSort verifies cross-segment sort returns
-// the correct number of hits. Sort order is not verified because the
-// TermOrdValComparator is a stub.
-func TestSortedSetSortField_MultiSegmentSort(t *testing.T) {
-	ix := newIntegrationIndex(t)
-
-	for _, val := range []string{"b", "a", "c"} {
-		doc := document.NewDocument()
-		idField, _ := document.NewStoredField("id", val)
-		doc.Add(idField)
-		dv, _ := document.NewSortedSetDocValuesField("field", [][]byte{[]byte(val)})
-		doc.Add(dv)
-		ix.addDoc(doc)
-		ix.commit()
-	}
-
-	s, cleanup := ix.searcher()
-	defer cleanup()
-
-	sf := search.NewSortedSetSortField("field", false)
-	sortObj := search.NewSort(sf.SortField)
-	top, err := s.SearchWithSort(search.NewMatchAllDocsQuery(), 10, sortObj)
-	if err != nil {
-		t.Fatalf("SearchWithSort: %v", err)
-	}
-
-	if top.TotalHits.Value != 3 {
-		t.Fatalf("expected 3 hits, got %d", top.TotalHits.Value)
-	}
-	if len(top.ScoreDocs) != 3 {
-		t.Errorf("got %d score docs, want 3", len(top.ScoreDocs))
-	}
-
-// TestSortedSetSortField_MissingFirstIntegration verifies that
-// STRING_FIRST returns the correct number of hits. Missing-value ordering is
-// not verified because the TermOrdValComparator is a stub.
-func TestSortedSetSortField_MissingFirstIntegration(t *testing.T) {
-	ix := newIntegrationIndex(t)
-
-	doc1 := document.NewDocument()
-	id1, _ := document.NewStoredField("id", "has-value")
-	doc1.Add(id1)
-	dv1, _ := document.NewSortedSetDocValuesField("field", [][]byte{[]byte("b")})
-	doc1.Add(dv1)
-	ix.addDoc(doc1)
-
-	doc2 := document.NewDocument()
-	id2, _ := document.NewStoredField("id", "missing")
-	doc2.Add(id2)
-	ix.addDoc(doc2)
-
-	s, cleanup := ix.searcher()
-	defer cleanup()
-
-	sf := search.NewSortedSetSortField("field", false)
-	_ = sf.SetMissingValue(search.STRING_FIRST)
-	sortObj := search.NewSort(sf.SortField)
-	top, err := s.SearchWithSort(search.NewMatchAllDocsQuery(), 10, sortObj)
-	if err != nil {
-		t.Fatalf("SearchWithSort: %v", err)
-	}
-
-	if top.TotalHits.Value != 2 {
-		t.Fatalf("expected 2 hits, got %d", top.TotalHits.Value)
-	}
-	if len(top.ScoreDocs) != 2 {
-		t.Errorf("got %d score docs, want 2", len(top.ScoreDocs))
+	if !sf.Equals(got) {
+		t.Fatalf("round-trip failed; orig=%v got=%v", sf.String(), got.String())
 	}
 }

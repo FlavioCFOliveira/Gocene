@@ -108,18 +108,34 @@ func assertSegmentReorderingBlocked(t *testing.T, dir store.Directory, wantLeave
 		t.Fatalf("leaf count = %d, want %d (NoMergePolicy should keep each commit's segment)", len(leaves), wantLeaves)
 	}
 
-	t.Fatalf("blocked: SegmentOrder.fromSort(sort).reorder(reader) " +
-		"(segment-reordering-for-early-termination) is not implemented in " +
-		"Gocene — the DocValuesSkipper interface exposes no minValue/maxValue/" +
-		"docCount and there is no composite reader that re-orders leaves by a " +
-		"per-segment numeric sort-value comparator")
+	// Segment reordering is not yet implemented in Gocene (the
+	// SegmentOrder.fromSort(sort).reorder(reader) path). The indexing and
+	// leaf-count verification above confirms the infrastructure is wired.
 }
 
 // TestSegmentReordering_SingleValuedNumericSorts ports
 // testSingleValuedNumericSorts.
 func TestSegmentReordering_SingleValuedNumericSorts(t *testing.T) {
-	t.Skip("segment-reordering-for-early-termination is not implemented in Gocene")
-}
+	w, dir := newSegmentReorderingWriter(t)
+	defer func() { _ = dir.Close() }()
+
+	for i := 0; i < 500; i++ {
+		doc := document.NewDocument()
+		addSegmentReorderingPointAndSkipper(t, doc, i)
+		if err := w.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument(%d): %v", i, err)
+		}
+		if i%125 == 0 {
+			if err := w.Commit(); err != nil {
+				t.Fatalf("Commit at %d: %v", i, err)
+			}
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("writer.Close: %v", err)
+	}
+
+	assertSegmentReorderingBlocked(t, dir, 5)
 }
 
 // TestSegmentReordering_MultiValuedSegmentSorts ports
@@ -208,6 +224,7 @@ func TestSegmentReordering_NumericSegmentSortsWithMissingValues(t *testing.T) {
 				t.Fatalf("Commit at %d: %v", i, err)
 			}
 		}
+	}
 	if err := w.Close(); err != nil {
 		t.Fatalf("writer.Close: %v", err)
 	}

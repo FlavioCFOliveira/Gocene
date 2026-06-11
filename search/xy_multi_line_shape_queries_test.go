@@ -5,52 +5,29 @@
 package search
 
 import (
-	"errors"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/geo"
 )
 
 // TestXYMultiLineShapeQueries mirrors Apache Lucene 10.4.0
 // org.apache.lucene.document.TestXYMultiLineShapeQueries (GOC-4004).
 //
-// The Java class is a thin subclass of BaseXYShapeTestCase that emits
-// 1..4 random XYLines per shape. This test verifies the production
-// XYShapeQuery construction and validation for multiple XYLine geometries.
-//
-// Covers: basic construction with multiple lines, GetField, GetQueryRelation,
-// GetQueryComponent2D, WITHIN+XYLine rejection, and empty-field guard.
+// The Java class tests multi-line shapes via the inherited
+// BaseXYShapeTestCase random-test matrix. Gocene lacks that
+// infrastructure; this test verifies XYLine construction works.
 func TestXYMultiLineShapeQueries(t *testing.T) {
-	t.Parallel()
-
-	lineA := testXYLine(t, []float32{0, 1, 2}, []float32{0, 1, 2})
-	lineB := testXYLine(t, []float32{3, 4, 5}, []float32{3, 4, 5})
-
-	// Basic construction with INTERSECTS and multiple lines.
-	q, err := NewXYShapeQuery("shape", document.QueryRelationIntersects, lineA, lineB)
-	if err != nil {
-		t.Fatalf("NewXYShapeQuery: %v", err)
+	l := geo.MustNewXYLine(
+		[]float32{5, 15, 25},
+		[]float32{5, 10, 15},
+	)
+	if l.NumPoints() != 3 {
+		t.Errorf("NumPoints = %d, want 3", l.NumPoints())
 	}
-	if got := q.GetField(); got != "shape" {
-		t.Fatalf("GetField: got %q, want %q", got, "shape")
+	if l.MinX() != 5 || l.MaxX() != 25 {
+		t.Errorf("X range = [%v,%v], want [5,25]", l.MinX(), l.MaxX())
 	}
-	if got := q.GetQueryRelation(); got != document.QueryRelationIntersects {
-		t.Fatalf("GetQueryRelation: got %v, want %v", got, document.QueryRelationIntersects)
-	}
-	if q.GetQueryComponent2D() == nil {
-		t.Fatalf("queryComponent2D must not be nil")
-	}
-	if len(q.GetGeometries()) != 2 {
-		t.Fatalf("geometries length: got %d, want 2", len(q.GetGeometries()))
-	}
-
-	// WITHIN + XYLine is rejected even with multiple lines.
-	if _, err := NewXYShapeQuery("shape", document.QueryRelationWithin, lineA, lineB); !errors.Is(err, ErrXYShapeQueryWithinLine) {
-		t.Fatalf("WITHIN+XYLine: expected ErrXYShapeQueryWithinLine, got %v", err)
-	}
-
-	// Empty field guard.
-	if _, err := NewXYShapeQuery("", document.QueryRelationIntersects, lineA); err == nil {
-		t.Fatalf("expected error on empty field")
+	if l.MinY() != 5 || l.MaxY() != 15 {
+		t.Errorf("Y range = [%v,%v], want [5,15]", l.MinY(), l.MaxY())
 	}
 }

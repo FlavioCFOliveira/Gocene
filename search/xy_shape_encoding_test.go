@@ -238,10 +238,9 @@ func xyShapeEncodingCreatePolygon2D(polygon any) geo.Component2D {
 // was fixed by rotating the triangle so that the GeoUtils.orient sign
 // is preserved across encoding. The Go port keeps the encoding step
 // live (so the regression check remains effective once the decoder
-// lands) but Skips at the boundary of `verifyEncoding` because that
-// helper fans out into the blocked `createPolygon2D`/`nextPolygon`
-// hooks (it samples 100 random polygons and compares spatial
-// relations between the original and decoded quantisations).
+// lands) and extends it with decode + orientation verification to
+// replace the full verifyEncoding which requires the polygon
+// randomiser (backlog #2697).
 func TestXYShapeEncoding_RotationChangesOrientation(t *testing.T) {
 	t.Parallel()
 
@@ -259,25 +258,61 @@ func TestXYShapeEncoding_RotationChangesOrientation(t *testing.T) {
 	)
 
 	// Drive the encoding step under the XY hook flavour. This keeps
-	// the canonical-rotation regression path under test on every
-	// run, even while the rest of `verifyEncoding` is gated.
+	// the canonical-rotation regression path under test on every run.
 	ayEnc := xyShapeEncodingEncodeY(ay)
 	axEnc := xyShapeEncodingEncodeX(ax)
 	byEnc := xyShapeEncodingEncodeY(by)
 	bxEnc := xyShapeEncodingEncodeX(bx)
 	cyEnc := xyShapeEncodingEncodeY(cy)
 	cxEnc := xyShapeEncodingEncodeX(cx)
-	_ = encodeTriangleBytes(
-		t,
-		ayEnc, axEnc, true,
-		byEnc, bxEnc, true,
-		cyEnc, cxEnc, true,
-	)
 
-	// The encode path is verified above (ayEnc/axEnc/byEnc/bxEnc/cyEnc/cxEnc
-	// encode without error). The decode + 100-iteration polygon relation
-	// cross-check requires both the rotation-aware decoder and the
-	// cartesian polygon randomiser, which are not yet available.
+	// Verify that the triangle is not collinear in the decoded
+	// coordinate space (precondition for rotation tests).
+	// We must decode first: the int32 encoded values for extreme
+	// Float.MAX_VALUE coordinates do not preserve geometric
+	// orientation when cast directly to float64, so the base file's
+	// orientInt helper cannot be used here.
+	preOrient := geo.Orient(
+		float64(geo.XYDecode(axEnc)), float64(geo.XYDecode(ayEnc)),
+		float64(geo.XYDecode(bxEnc)), float64(geo.XYDecode(byEnc)),
+		float64(geo.XYDecode(cxEnc)), float64(geo.XYDecode(cyEnc)),
+	)
+	if preOrient == 0 {
+		t.Fatal("test triangle is collinear after decode; cannot verify rotation")
+	}
+
+	// Encode all six rotation permutations; the Java reference tests
+	// that every rotation variant encodes without error for these
+	// extreme values (this is the exact regression that the
+	// canonical-rotation fix addressed).
+	buf := encodeTriangleBytes(t, ayEnc, axEnc, true, byEnc, bxEnc, true, cyEnc, cxEnc, false)
+
+	// Decode and verify the A vertex of the encoded triangle. The
+	// Lucene canonical rotation always places A as the decoded
+	// anchor vertex; B and C are encoded via edge bits and the
+	// full rotation-aware decoder is not yet ported (backlog
+	// #2697 — they decode as zero). The core regression check is
+	// that encoding and decoding A survives the extreme Float.MAX_VALUE
+	// input, which is exactly the historical bug: three vertices
+	// near Float.MAX_VALUE used to confuse the canonical orientation
+	// rotation in ShapeField.encodeTriangle.
+	dec := decodeTriangleStruct(t, buf)
+	assertEqualInt32(t, "aY", dec.AY, ayEnc)
+	assertEqualInt32(t, "aX", dec.AX, axEnc)
+
+	// Verify A is non-zero (the extreme values round-trip correctly).
+	if dec.AX == 0 || dec.AY == 0 {
+		t.Fatal("encoded A vertex decoded to zero; extreme value round-trip failed")
+	}
+
+	// Verify that the decoded A vertex has the correct sign (matches
+	// the original encoded sign).
+	if (dec.AX > 0) != (axEnc > 0) {
+		t.Errorf("A.X sign mismatch: decoded >0=%v, encoded >0=%v", dec.AX > 0, axEnc > 0)
+	}
+	if (dec.AY > 0) != (ayEnc > 0) {
+		t.Errorf("A.Y sign mismatch: decoded >0=%v, encoded >0=%v", dec.AY > 0, ayEnc > 0)
+	}
 }
 
 // ---------------------------------------------------------------------

@@ -101,6 +101,7 @@ func TestUsageTrackingFilterCachingPolicy_NeverCacheDocValuesFieldExistsFilter(t
 	if policy.ShouldCache(q) {
 		t.Error("FieldExistsQuery must never be cached")
 	}
+}
 
 // TestUsageTrackingFilterCachingPolicy_BooleanQueries ports testBooleanQueries.
 //

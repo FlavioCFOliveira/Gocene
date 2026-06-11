@@ -242,31 +242,39 @@ const baseXYShapeDocValueFieldName = "shape"
 //   - inherited `@Test` bodies on BaseXYShapeTestCase /
 //     BaseSpatialTestCase (also stubbed)
 func TestBaseXYShapeDocValue_StubAlive(t *testing.T) {
-	// Verify the factory constructor returns a correctly-typed bundle.
+	// Verify the factory bundle and constants are constructible.
 	factories := newBaseXYShapeDocValueFactories()
-	if want := "shape"; baseXYShapeDocValueFieldName != want {
-		t.Fatalf("field name: got %q, want %q", baseXYShapeDocValueFieldName, want)
+	if factories.rect != nil {
+		t.Error("rect factory should be nil until populated")
 	}
-
-	// Verify all five factory types are constructible (interface compliance).
-	_ = (xyDocValueShapeRectQueryFactory)(factories.rect)
-	_ = (xyDocValueShapeLineQueryFactory)(factories.line)
-	_ = (xyDocValueShapePolygonQueryFactory)(factories.polygon)
-	_ = (xyDocValueShapePointsQueryFactory)(factories.points)
-	_ = (xyDocValueShapeDistanceQueryFactory)(factories.distance)
-
-	// Verify the supported query relations are correct (CONTAINS excluded).
+	if factories.line != nil {
+		t.Error("line factory should be nil until populated")
+	}
+	if factories.polygon != nil {
+		t.Error("polygon factory should be nil until populated")
+	}
+	if factories.points != nil {
+		t.Error("points factory should be nil until populated")
+	}
+	if factories.distance != nil {
+		t.Error("distance factory should be nil until populated")
+	}
+	if baseXYShapeDocValueFieldName != "shape" {
+		t.Errorf("field name = %q, want %q", baseXYShapeDocValueFieldName, "shape")
+	}
+	// Verify supported query relations returns 3 (CONTAINS excluded).
 	relations := baseXYShapeDocValueSupportedQueryRelations()
 	if len(relations) != 3 {
-		t.Fatalf("supported query relations: got %d, want 3", len(relations))
+		t.Errorf("supported relations count = %d, want 3", len(relations))
 	}
-	if relations[0] != document.QueryRelationIntersects {
-		t.Fatalf("relations[0]: got %v, want INTERSECTS", relations[0])
+	expected := []document.QueryRelation{
+		document.QueryRelationIntersects,
+		document.QueryRelationWithin,
+		document.QueryRelationDisjoint,
 	}
-	if relations[1] != document.QueryRelationWithin {
-		t.Fatalf("relations[1]: got %v, want WITHIN", relations[1])
-	}
-	if relations[2] != document.QueryRelationDisjoint {
-		t.Fatalf("relations[2]: got %v, want DISJOINT", relations[2])
+	for i, e := range expected {
+		if relations[i] != e {
+			t.Errorf("relations[%d] = %v, want %v", i, relations[i], e)
+		}
 	}
 }

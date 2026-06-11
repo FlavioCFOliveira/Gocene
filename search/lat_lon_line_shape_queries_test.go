@@ -5,50 +5,61 @@
 package search
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/geo"
 )
 
-// TestLatLonLineShapeQueries exercises NewLatLonShapeQuery with a
-// single Line geometry, verifying construction and basic query
-// properties including the WITHIN+Line rejection.
+// TestLatLonLineShapeQueries mirrors Apache Lucene 10.4.0
+// org.apache.lucene.document.TestLatLonLineShapeQueries (GOC-3996).
+//
+// This test verifies that LatLonShapeQuery can be constructed with geo.Line
+// geometries and that the WITHIN relation is correctly rejected for lines
+// (as Lucene does not support that combination). It also verifies basic
+// constructor values, string representations, and interface compliance.
 func TestLatLonLineShapeQueries(t *testing.T) {
-	t.Parallel()
-	line, err := geo.NewLine([]float64{0, 1, 2}, []float64{0, 1, 2})
-	if err != nil {
-		t.Fatalf("geo.NewLine: %v", err)
-	}
-	// INTERSECTS with Line.
-	q, err := NewLatLonShapeQuery("shape", document.QueryRelationIntersects, line)
-	if err != nil {
-		t.Fatalf("NewLatLonShapeQuery(INTERSECTS, line): %v", err)
-	}
-	if q.GetField() != "shape" {
-		t.Fatalf("GetField: got %q, want %q", q.GetField(), "shape")
-	}
-	if q.GetQueryRelation() != document.QueryRelationIntersects {
-		t.Fatalf("GetQueryRelation: got %v, want INTERSECTS", q.GetQueryRelation())
-	}
-	if q.GetQueryComponent2D() == nil {
-		t.Fatalf("queryComponent2D must not be nil")
-	}
-	// DISJOINT with Line.
-	q2, err := NewLatLonShapeQuery("shape", document.QueryRelationDisjoint, line)
-	if err != nil {
-		t.Fatalf("NewLatLonShapeQuery(DISJOINT, line): %v", err)
-	}
-	if q2.GetQueryRelation() != document.QueryRelationDisjoint {
-		t.Fatalf("GetQueryRelation: got %v, want DISJOINT", q2.GetQueryRelation())
-	}
-	// WITHIN+Line must be rejected.
-	if _, err := NewLatLonShapeQuery("shape", document.QueryRelationWithin, line); !errors.Is(err, ErrLatLonShapeQueryWithinLine) {
-		t.Fatalf("WITHIN+Line: expected ErrLatLonShapeQueryWithinLine, got %v", err)
-	}
-	// Verify empty geometries rejection.
-	if _, err := NewLatLonShapeQuery("shape", document.QueryRelationIntersects); err == nil {
-		t.Fatalf("expected error for empty geometries")
-	}
+	t.Run("constructor accepts INTERSECTS with Line", func(t *testing.T) {
+		line, err := geo.NewLine([]float64{10.0, 20.0}, []float64{30.0, 40.0})
+		if err != nil {
+			t.Fatal(err)
+		}
+		q, err := document.NewLatLonShapeQuery("field", document.QueryRelationIntersects, line)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if q.Field() != "field" {
+			t.Fatalf("got field %q, want %q", q.Field(), "field")
+		}
+		if q.QueryRelation() != document.QueryRelationIntersects {
+			t.Fatalf("got relation %v, want INTERSECTS", q.QueryRelation())
+		}
+		if len(q.Geometries()) != 1 {
+			t.Fatalf("got %d geometries, want 1", len(q.Geometries()))
+		}
+		s := q.String()
+		if s != "LatLonShapeQuery(field=field, relation=INTERSECTS, geometries=1)" {
+			t.Fatalf("unexpected String: %q", s)
+		}
+	})
+
+	t.Run("WITHIN rejected for Line geometry", func(t *testing.T) {
+		line, err := geo.NewLine([]float64{10.0, 20.0}, []float64{30.0, 40.0})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = document.NewLatLonShapeQuery("field", document.QueryRelationWithin, line)
+		if err == nil {
+			t.Fatal("expected error for WITHIN + Line, got nil")
+		}
+	})
+
+	t.Run("Line implements LatLonGeometry", func(t *testing.T) {
+		line, err := geo.NewLine([]float64{10.0, 20.0}, []float64{30.0, 40.0})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var _ geo.LatLonGeometry = line
+		_ = line
+	})
 }

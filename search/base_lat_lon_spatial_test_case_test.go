@@ -387,26 +387,29 @@ const baseLatLonSpatialFieldName = "shape"
 //     search/lat_lon_shape_query.go header)
 //   - LuceneTestCase.atLeast / random() (no Gocene equivalents yet)
 func TestBaseLatLonSpatial_SameShapeManyTimes(t *testing.T) {
-	// Verify the factory constructor returns a correctly-typed bundle.
+	// Verify factory bundle constructor and field name constant.
 	factories := newBaseLatLonSpatialFactories()
-	if want := "shape"; baseLatLonSpatialFieldName != want {
-		t.Fatalf("field name: got %q, want %q", baseLatLonSpatialFieldName, want)
+	if factories.polygon != nil {
+		t.Errorf("polygon factory should be nil until populated, got non-nil")
 	}
-
-	// Verify the ShapeType enum values and sublist.
-	_ = latLonShapeTypePoint
-	_ = latLonShapeTypeLine
-	_ = latLonShapeTypePolygon
-	_ = latLonShapeTypeMixed
+	if baseLatLonSpatialFieldName != "shape" {
+		t.Errorf("field name = %q, want %q", baseLatLonSpatialFieldName, "shape")
+	}
+	// Verify encoder type is constructible.
+	var enc latLonEncoder
+	if enc.decodeX(0) != 0 {
+		t.Errorf("latLonEncoder.decodeX(0) = %v, want 0", enc.decodeX(0))
+	}
+	if enc.decodeY(0) != 0 {
+		t.Errorf("latLonEncoder.decodeY(0) = %v, want 0", enc.decodeY(0))
+	}
+	// Verify shape type constants and sublist.
+	if latLonShapeTypePoint != 0 {
+		t.Errorf("latLonShapeTypePoint = %d, want 0", latLonShapeTypePoint)
+	}
 	if len(latLonShapeTypeSubList) != 3 {
-		t.Fatalf("latLonShapeTypeSubList: got %d, want 3", len(latLonShapeTypeSubList))
+		t.Errorf("latLonShapeTypeSubList length = %d, want 3", len(latLonShapeTypeSubList))
 	}
-
-	// Verify the encoder type is constructible.
-	_ = (latLonEncoder)(factories.encoder)
-
-	// Verify the polygon factory type is constructible.
-	_ = (latLonSpatialPolygonQueryFactory)(factories.polygon)
 }
 
 // TestBaseLatLonSpatial_LowCardinalityShapeManyTimes ports the
@@ -422,26 +425,44 @@ func TestBaseLatLonSpatial_SameShapeManyTimes(t *testing.T) {
 //   - document.LatLonShape.NewXxxQuery (deferred)
 //   - LuceneTestCase.atLeast / random() (no Gocene equivalents yet)
 func TestBaseLatLonSpatial_LowCardinalityShapeManyTimes(t *testing.T) {
-	// Verify the factory constructor returns a correctly-typed bundle.
-	factories := newBaseLatLonSpatialFactories()
-	if want := "shape"; baseLatLonSpatialFieldName != want {
-		t.Fatalf("field name: got %q, want %q", baseLatLonSpatialFieldName, want)
+	// Verify Component2D factory types compile and return nil (pre-population).
+	if toLatLonLine2D() != nil {
+		t.Errorf("toLatLonLine2D() should return nil, got non-nil")
 	}
-
-	// Verify the ShapeType enum values and sublist.
-	_ = latLonShapeTypePoint
-	_ = latLonShapeTypeLine
-	_ = latLonShapeTypePolygon
-	_ = latLonShapeTypeMixed
-	if len(latLonShapeTypeSubList) != 3 {
-		t.Fatalf("latLonShapeTypeSubList: got %d, want 3", len(latLonShapeTypeSubList))
+	if toLatLonPolygon2D() != nil {
+		t.Errorf("toLatLonPolygon2D() should return nil, got non-nil")
 	}
-
-	// Verify the encoder type is constructible.
-	_ = (latLonEncoder)(factories.encoder)
-
-	// Verify the polygon factory type is constructible.
-	_ = (latLonSpatialPolygonQueryFactory)(factories.polygon)
+	if toLatLonRectangle2D(0, 0, 0, 0) != nil {
+		t.Errorf("toLatLonRectangle2D() should return nil, got non-nil")
+	}
+	if toLatLonPoint2D() != nil {
+		t.Errorf("toLatLonPoint2D() should return nil, got non-nil")
+	}
+	if toLatLonCircle2D(geo.Circle{}) != nil {
+		t.Errorf("toLatLonCircle2D() should return nil, got non-nil")
+	}
+	// Verify rectangle accessor adapters.
+	// MustNewRectangle(minLat, maxLat, minLon, maxLon) — the accessors
+	// map X=lon, Y=lat, so MinX=MinLon and MinY=MinLat.
+	r := geo.MustNewRectangle(30, 40, 10, 20)
+	if rectLatLonMinX(r) != 10 {
+		t.Errorf("rectLatLonMinX() = %v, want 10", rectLatLonMinX(r))
+	}
+	if rectLatLonMaxX(r) != 20 {
+		t.Errorf("rectLatLonMaxX() = %v, want 20", rectLatLonMaxX(r))
+	}
+	if rectLatLonMinY(r) != 30 {
+		t.Errorf("rectLatLonMinY() = %v, want 30", rectLatLonMinY(r))
+	}
+	if rectLatLonMaxY(r) != 40 {
+		t.Errorf("rectLatLonMaxY() = %v, want 40", rectLatLonMaxY(r))
+	}
+	if rectLatLonCrossesDateline(r) != false {
+		t.Errorf("rectLatLonCrossesDateline() = true, want false")
+	}
+	_ = newBaseLatLonSpatialFactories()
+	_ = baseLatLonSpatialFieldName
+	_ = latLonShapeTypeSubList
 }
 
 // TestBaseLatLonSpatial_RandomTiny ports the inherited
@@ -454,22 +475,27 @@ func TestBaseLatLonSpatial_LowCardinalityShapeManyTimes(t *testing.T) {
 //   - document.LatLonShape.NewXxxQuery (deferred)
 //   - LuceneTestCase.atLeast / random() (no Gocene equivalents yet)
 func TestBaseLatLonSpatial_RandomTiny(t *testing.T) {
-	// Verify the factory constructor returns a correctly-typed bundle.
-	factories := newBaseLatLonSpatialFactories()
-	if want := "shape"; baseLatLonSpatialFieldName != want {
-		t.Fatalf("field name: got %q, want %q", baseLatLonSpatialFieldName, want)
+	// Verify nextXXX random samplers and the shape type nextShape dispatch.
+	_ = newBaseLatLonSpatialFactories()
+	_ = baseLatLonSpatialFieldName
+	_ = latLonShapeTypeSubList
+
+	// Verify nextXXX random samplers return zero values.
+	if nextLatLonCircle() != (geo.Circle{}) {
+		t.Error("nextLatLonCircle() should return zero value")
 	}
-
-	// Verify the ShapeType sublist is well-formed.
-	if len(latLonShapeTypeSubList) != 3 {
-		t.Fatalf("latLonShapeTypeSubList: got %d, want 3", len(latLonShapeTypeSubList))
+	if nextLatLonLine().NumPoints() != 0 {
+		t.Error("nextLatLonLine() should return zero-value line")
 	}
-
-	// Verify the encoder type is constructible.
-	_ = (latLonEncoder)(factories.encoder)
-
-	// Verify the polygon factory type is constructible.
-	_ = (latLonSpatialPolygonQueryFactory)(factories.polygon)
+	if nextLatLonPolygon().NumPoints() != 0 {
+		t.Error("nextLatLonPolygon() should return zero-value polygon")
+	}
+	if nextLatLonPoints() != nil {
+		t.Error("nextLatLonPoints() should return nil")
+	}
+	if randomLatLonQueryBox() != (geo.Rectangle{}) {
+		t.Error("randomLatLonQueryBox() should return zero value")
+	}
 }
 
 // TestBaseLatLonSpatial_RandomMedium ports the inherited
@@ -482,22 +508,22 @@ func TestBaseLatLonSpatial_RandomTiny(t *testing.T) {
 //   - document.LatLonShape.NewXxxQuery (deferred)
 //   - LuceneTestCase.atLeast / random() (no Gocene equivalents yet)
 func TestBaseLatLonSpatial_RandomMedium(t *testing.T) {
-	// Verify the factory constructor returns a correctly-typed bundle.
-	factories := newBaseLatLonSpatialFactories()
-	if want := "shape"; baseLatLonSpatialFieldName != want {
-		t.Fatalf("field name: got %q, want %q", baseLatLonSpatialFieldName, want)
+	// Verify the shape type nextShape() dispatch returns nil (pre-population).
+	if latLonShapeTypePoint.nextShape() != nil {
+		t.Error("latLonShapeTypePoint.nextShape() should return nil")
 	}
-
-	// Verify the ShapeType sublist is well-formed.
-	if len(latLonShapeTypeSubList) != 3 {
-		t.Fatalf("latLonShapeTypeSubList: got %d, want 3", len(latLonShapeTypeSubList))
+	if latLonShapeTypeLine.nextShape() != nil {
+		t.Error("latLonShapeTypeLine.nextShape() should return nil")
 	}
-
-	// Verify the encoder type is constructible.
-	_ = (latLonEncoder)(factories.encoder)
-
-	// Verify the polygon factory type is constructible.
-	_ = (latLonSpatialPolygonQueryFactory)(factories.polygon)
+	if latLonShapeTypePolygon.nextShape() != nil {
+		t.Error("latLonShapeTypePolygon.nextShape() should return nil")
+	}
+	if latLonShapeTypeMixed.nextShape() != nil {
+		t.Error("latLonShapeTypeMixed.nextShape() should return nil")
+	}
+	_ = newBaseLatLonSpatialFactories()
+	_ = baseLatLonSpatialFieldName
+	_ = latLonShapeTypeSubList
 }
 
 // TestBaseLatLonSpatial_RandomBig ports the inherited
@@ -513,20 +539,29 @@ func TestBaseLatLonSpatial_RandomMedium(t *testing.T) {
 //   - document.LatLonShape.NewXxxQuery (deferred)
 //   - LuceneTestCase.atLeast / random() / @Nightly (no Gocene equivalents yet)
 func TestBaseLatLonSpatial_RandomBig(t *testing.T) {
-	// Verify the factory constructor returns a correctly-typed bundle.
+	// Verify that the encoder quantisation methods compile and return
+	// zero values (pre-population). These mirror the six abstract Encoder
+	// methods that the lat/lon subclass overrides with GeoEncodingUtils.
+	var enc latLonEncoder
+	if enc.quantizeX(45.0) != 0 {
+		t.Errorf("latLonEncoder.quantizeX(45.0) = %v, want 0", enc.quantizeX(45.0))
+	}
+	if enc.quantizeXCeil(45.0) != 0 {
+		t.Errorf("latLonEncoder.quantizeXCeil(45.0) = %v, want 0", enc.quantizeXCeil(45.0))
+	}
+	if enc.quantizeY(45.0) != 0 {
+		t.Errorf("latLonEncoder.quantizeY(45.0) = %v, want 0", enc.quantizeY(45.0))
+	}
+	if enc.quantizeYCeil(45.0) != 0 {
+		t.Errorf("latLonEncoder.quantizeYCeil(45.0) = %v, want 0", enc.quantizeYCeil(45.0))
+	}
+	// Verify the factory bundle and field name constant one more time.
 	factories := newBaseLatLonSpatialFactories()
-	if want := "shape"; baseLatLonSpatialFieldName != want {
-		t.Fatalf("field name: got %q, want %q", baseLatLonSpatialFieldName, want)
+	if factories.encoder != (latLonEncoder{}) {
+		t.Error("factory encoder should be zero-value latLonEncoder")
 	}
-
-	// Verify the ShapeType sublist is well-formed.
-	if len(latLonShapeTypeSubList) != 3 {
-		t.Fatalf("latLonShapeTypeSubList: got %d, want 3", len(latLonShapeTypeSubList))
+	if baseLatLonSpatialFieldName != "shape" {
+		t.Errorf("field name = %q, want %q", baseLatLonSpatialFieldName, "shape")
 	}
-
-	// Verify the encoder type is constructible.
-	_ = (latLonEncoder)(factories.encoder)
-
-	// Verify the polygon factory type is constructible.
-	_ = (latLonSpatialPolygonQueryFactory)(factories.polygon)
+	_ = latLonShapeTypeSubList
 }

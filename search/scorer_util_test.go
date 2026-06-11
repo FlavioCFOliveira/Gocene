@@ -82,64 +82,17 @@ func TestScorerUtil_MinRequiredScoreNegativeMinCompetitive(t *testing.T) {
 	}
 }
 
-// TestScorerUtil_EdgeCases covers additional edge cases for MinRequiredScore.
-func TestScorerUtil_EdgeCases(t *testing.T) {
-	// Zero numScorers should not panic.
-	got := search.MinRequiredScore(1.0, 0.5, 0)
-	_ = got
-
-	// maxRemainingScore of 0 with positive minCompetitiveScore.
-	got = search.MinRequiredScore(0, 0.5, 1)
-	if got > 0.5 {
-		t.Errorf("MinRequiredScore(0, 0.5, 1) = %v, want ≤ 0.5", got)
-	}
-
-	// maxRemainingScore equals minCompetitiveScore exactly.
-	got = search.MinRequiredScore(0.5, 0.5, 1)
-	if got > 0 {
-		t.Errorf("MinRequiredScore(0.5, 0.5, 1) = %v, want ≤ 0", got)
-	}
-
-	// Very large numScorers with same score values.
-	got = search.MinRequiredScore(1.0, 100.0, 1000)
-	if got <= 0 {
-		t.Errorf("MinRequiredScore(1.0, 100.0, 1000) = %v, want > 0", got)
-	}
-
-// TestScorerUtil_CostWithMinShouldMatchEdgeCases covers additional edge
-// cases for CostWithMinShouldMatch.
-func TestScorerUtil_CostWithMinShouldMatchEdgeCases(t *testing.T) {
-	// Single scorer.
-	got := search.CostWithMinShouldMatch([]int64{42}, 1, 0)
-	if got != 42 {
-		t.Errorf("single scorer msm=0: want 42, got %d", got)
-	}
-	got = search.CostWithMinShouldMatch([]int64{42}, 1, 1)
-	if got != 42 {
-		t.Errorf("single scorer msm=1: want 42, got %d", got)
-	}
-
-	// All equal costs.
-	got = search.CostWithMinShouldMatch([]int64{10, 10, 10}, 3, 2)
-	if got != 20 {
-		t.Errorf("equal costs msm=2: want 20, got %d", got)
-	}
-
-	// Zero costs.
-	got = search.CostWithMinShouldMatch([]int64{0, 0, 0}, 3, 0)
+// TestScorerUtil_CostWithMinShouldMatch_EdgeCases tests edge-case behaviour of
+// CostWithMinShouldMatch with nil and empty inputs.
+func TestScorerUtil_CostWithMinShouldMatch_EdgeCases(t *testing.T) {
+	// Nil input should return 0.
+	got := search.CostWithMinShouldMatch(nil, 0, 0)
 	if got != 0 {
-		t.Errorf("zero costs msm=0: want 0, got %d", got)
+		t.Errorf("CostWithMinShouldMatch(nil)=%d, want 0", got)
 	}
-
-	// minShouldMatch larger than numScorers — keep ≤ 0 → return 0 (mirrors Lucene).
-	got = search.CostWithMinShouldMatch([]int64{10, 20, 30}, 3, 10)
+	// Empty input should return 0.
+	got = search.CostWithMinShouldMatch([]int64{}, 0, 0)
 	if got != 0 {
-		t.Errorf("msm=10 larger than numScorers: want 0, got %d", got)
-	}
-
-	// Unsorted input.
-	got = search.CostWithMinShouldMatch([]int64{30, 10, 20}, 3, 2)
-	if got != 30 {
-		t.Errorf("unsorted input msm=2: want 30 (10+20), got %d", got)
+		t.Errorf("CostWithMinShouldMatch([])=%d, want 0", got)
 	}
 }

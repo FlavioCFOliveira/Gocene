@@ -165,6 +165,7 @@ func TestMultiTermQueryRewrites_Boosts(t *testing.T) {
 	if rewritten == nil {
 		t.Fatal("rewritten query must not be nil")
 	}
+}
 
 // TestMultiTermQueryRewrites_MaxClauseLimitations ports testMaxClauseLimitations.
 // It depends on per-RewriteMethod enforcement of the maxClauseCount limit during
