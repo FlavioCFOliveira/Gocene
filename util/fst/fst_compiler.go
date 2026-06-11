@@ -476,7 +476,11 @@ func (c *FSTCompiler[T]) addNode(nodeIn *UnCompiledNode[T]) (int64, error) {
 	maxBytesPerArcWithoutLabel := 0
 	for arcIdx := 0; arcIdx < nodeIn.numArcs; arcIdx++ {
 		arc := &nodeIn.arcs[arcIdx]
-		target := arc.target.(*CompiledNode)
+		cn, ok := arc.target.(*CompiledNode);
+	if !ok {
+		return 0, fmt.Errorf("fst_compiler: expected *CompiledNode")
+	}
+	target := cn
 		flags := 0
 		if arcIdx == lastArc {
 			flags |= BIT_LAST_ARC

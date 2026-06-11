@@ -60,8 +60,10 @@ func NewBaseCandidateMatcher[T any](searcher *search.IndexSearcher) BaseCandidat
 	}
 }
 
-// AddMatch records a match for the given document, merging with any existing match
-// using the provided resolver.
+// AddMatch records a match for the given document.
+// IMPORTANT: T must be a pointer type (e.g., *ScoringMatch) because
+// GetQueryID() is defined with a pointer receiver on QueryMatch.
+// Using a non-pointer T will cause query IDs to be silently lost.
 func (b *BaseCandidateMatcher[T]) AddMatch(match T, doc int, resolve func(T, T) T) {
 	if doc < 0 || doc >= len(b.matches) {
 		return

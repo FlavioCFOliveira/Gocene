@@ -127,7 +127,7 @@ func (h *NodeHash[T]) hashUnfrozen(node *UnCompiledNode[T]) uint64 {
 	for arcIdx := 0; arcIdx < node.numArcs; arcIdx++ {
 		arc := &node.arcs[arcIdx]
 		hash = prime*hash + uint32(arc.label)
-		target := arc.target.(*CompiledNode).node
+		cn, ok := arc.target.(*CompiledNode); if !ok { panic("node_hash: expected *CompiledNode") }; target := cn.node
 		hash = prime*hash + uint32(target^(target>>32))
 		hash = prime*hash + outputHash[T](arc.output)
 		hash = prime*hash + outputHash[T](arc.nextFinalOutput)
@@ -172,7 +172,7 @@ func (h *NodeHash[T]) entryMatchesNode(entry nodeHashEntry, nodeIn *UnCompiledNo
 		if !outputsEqual[T](uArc.output, h.scratchArc.output) {
 			return false, nil
 		}
-		if uArc.target.(*CompiledNode).node != h.scratchArc.target {
+		cn, ok := uArc.target.(*CompiledNode); if !ok { panic("node_hash: expected *CompiledNode") }; if cn.node != h.scratchArc.target {
 			return false, nil
 		}
 		if !outputsEqual[T](uArc.nextFinalOutput, h.scratchArc.nextFinalOutput) {

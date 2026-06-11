@@ -537,6 +537,10 @@ func Discretize(value, bucket int) int {
 // Returns an error if any q[i] is outside [0, 15], rather than
 // silently corrupting the output.
 func TransposeHalfByte(q []byte, quantQueryByte []byte) error {
+	if len(quantQueryByte) < len(q)*3 {
+		panic(fmt.Sprintf("TransposeHalfByte: quantQueryByte too small (%d < %d)", len(quantQueryByte), len(q)*3))
+	}
+
 	for _, v := range q {
 		if v > 15 {
 			return fmt.Errorf("quantization: TransposeHalfByte: input value %d exceeds 15", v)
@@ -666,6 +670,10 @@ func TransposeDibit(vector, packed []byte) error {
 // each carrying a value in {0, 1, 2, 3}. Mirrors Java's
 // `untransposeDibit`.
 func UntransposeDibit(packed, vector []byte) {
+	if len(packed) == 0 {
+		return // nothing to untranspose
+	}
+
 	stripeSize := len(packed) / 2
 	limit := len(vector) - 7
 	i := 0
