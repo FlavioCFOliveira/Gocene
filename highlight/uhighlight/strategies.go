@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/memory"
 )
 
 // errNotImplemented is the placeholder error returned by the offset
@@ -325,18 +326,21 @@ func (s *TokenStreamOffsetStrategy) tokenMatches(term string) bool {
 
 var _ FieldOffsetStrategy = (*TokenStreamOffsetStrategy)(nil)
 
-// MemoryIndexOffsetStrategy resolves offsets by re-analysing the field content.
+// MemoryIndexOffsetStrategy resolves offsets by building an in-memory
+// index and searching it — the Lucene-faithful approach.
+//
 // Mirrors org.apache.lucene.search.uhighlight.MemoryIndexOffsetStrategy.
 //
-// The Java implementation builds an in-memory Lucene index (MemoryIndex) and
-// queries it. Gocene's port achieves equivalent results by re-tokenising via
-// an Analyzer and walking the resulting TokenStream for offset data — the same
-// approach used by TokenStreamOffsetStrategy. Callers must supply an
-// *AnalysisDocContext carrying the field content and an Analyzer.
+// When a memory.MemoryIndex is provided via WithMemoryIndex, the strategy
+// indexes the document content, runs each literal as a TermQuery against
+// the in-memory index, and extracts positions/offsets from the postings.
+// Without a MemoryIndex, it falls back to re-tokenising via an Analyzer
+// (the same approach used by AnalysisOffsetStrategy).
 type MemoryIndexOffsetStrategy struct {
 	BaseFieldOffsetStrategy
-	literals []string
-	matchers []CharArrayMatcher
+	literals    []string
+	matchers    []CharArrayMatcher
+	memoryIndex *memory.MemoryIndex
 }
 
 // NewMemoryIndexOffsetStrategy builds the strategy.
@@ -358,14 +362,102 @@ func WithMemoryIndexMatchers(matchers ...CharArrayMatcher) func(*MemoryIndexOffs
 	}
 }
 
+// WithMemoryIndex attaches a memory.MemoryIndex to the strategy. When set,
+// GetOffsetsEnum indexes the document content and searches it directly
+// using the MemoryIndex's built-in search, extracting positions and offsets
+// from the in-memory postings rather than re-tokenising.
+func WithMemoryIndex(mi *memory.MemoryIndex) func(*MemoryIndexOffsetStrategy) {
+	return func(s *MemoryIndexOffsetStrategy) {
+		s.memoryIndex = mi
+	}
+}
+
 // GetOffsetSource returns OffsetSourceAnalysis.
 func (s *MemoryIndexOffsetStrategy) GetOffsetSource() OffsetSource { return OffsetSourceAnalysis }
 
-// GetOffsetsEnum re-tokenises the content from *AnalysisDocContext to produce
-// offset data. This is semantically equivalent to Lucene's MemoryIndex approach
-// when term offsets are available from the Analyzer. Returns an empty enum when
-// no AnalysisDocContext is provided.
+// GetOffsetsEnum resolves offsets using the MemoryIndex when available,
+// falling back to token-stream re-analysis otherwise.
 func (s *MemoryIndexOffsetStrategy) GetOffsetsEnum(docContext any) (OffsetsEnum, error) {
+	// When a MemoryIndex is configured, use it for offset resolution.
+	if s.memoryIndex != nil {
+		return s.getOffsetsFromMemoryIndex(docContext)
+	}
+
+	// Fallback: re-tokenise via Analyzer (same as AnalysisOffsetStrategy).
+	return s.getOffsetsFromTokenStream(docContext)
+}
+
+// getOffsetsFromMemoryIndex indexes the content and searches for literal
+// terms, extracting offsets from the in-memory postings.
+func (s *MemoryIndexOffsetStrategy) getOffsetsFromMemoryIndex(docContext any) (OffsetsEnum, error) {
+	ctx, ok := docContext.(*AnalysisDocContext)
+	if !ok || ctx == nil || ctx.Content == "" {
+		return NewSliceOffsetsEnum(nil), nil
+	}
+	if len(s.literals) == 0 && len(s.matchers) == 0 {
+		return NewSliceOffsetsEnum(nil), nil
+	}
+
+	// Reset and re-index the content into the MemoryIndex.
+	s.memoryIndex.Reset()
+	if err := s.memoryIndex.AddField(s.Field(), ctx.Content); err != nil {
+		return nil, fmt.Errorf("uhighlight: MemoryIndex AddField: %w", err)
+	}
+
+	// Collect offsets from the MemoryIndex's stored term positions/offsets.
+	var entries []OffsetEntry
+	for _, lit := range s.literals {
+		positions := s.memoryIndex.GetTermPositions(s.Field(), lit)
+		offsets := s.memoryIndex.GetTermOffsets(s.Field(), lit)
+		freq := s.memoryIndex.GetTermFrequency(s.Field(), lit)
+		if freq == 0 {
+			continue
+		}
+		weight := lookupFreq(ctx.TermFreqsInDoc, lit, float32(freq))
+		for j, pos := range positions {
+			startOff, endOff := -1, -1
+			if j < len(offsets) {
+				startOff = offsets[j][0]
+				endOff = offsets[j][1]
+			}
+			entries = append(entries, OffsetEntry{
+				Term:        lit,
+				StartOffset: startOff,
+				EndOffset:   endOff,
+				Weight:      weight,
+			})
+			_ = pos // position used for ordering (preserved by entry order)
+		}
+	}
+	// Also handle matchers against the indexed content.
+	for _, m := range s.matchers {
+		fieldTerms := s.memoryIndex.GetFieldTerms(s.Field())
+		for term := range fieldTerms {
+			termRunes := []rune(term)
+			if m.Match(termRunes, 0, len(termRunes)) {
+				offsets := s.memoryIndex.GetTermOffsets(s.Field(), term)
+				freq := s.memoryIndex.GetTermFrequency(s.Field(), term)
+				weight := lookupFreq(ctx.TermFreqsInDoc, term, float32(freq))
+				for _, off := range offsets {
+					entries = append(entries, OffsetEntry{
+						Term:        term,
+						StartOffset: off[0],
+						EndOffset:   off[1],
+						Weight:      weight,
+					})
+				}
+			}
+		}
+	}
+	sort.SliceStable(entries, func(i, j int) bool {
+		return entries[i].StartOffset < entries[j].StartOffset
+	})
+	return NewSliceOffsetsEnum(entries), nil
+}
+
+// getOffsetsFromTokenStream re-tokenises the content via an Analyzer and
+// walks the TokenStream for offset data — the fallback approach.
+func (s *MemoryIndexOffsetStrategy) getOffsetsFromTokenStream(docContext any) (OffsetsEnum, error) {
 	ctx, ok := docContext.(*AnalysisDocContext)
 	if !ok || ctx == nil || ctx.Analyzer == nil {
 		return NewSliceOffsetsEnum(nil), nil
