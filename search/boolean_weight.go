@@ -122,24 +122,46 @@ func (w *BooleanWeight) Scorer(context *index.LeafReaderContext) (Scorer, error)
 	), nil
 }
 
-// ScorerSupplier creates a scorer supplier for this weight.
+// ScorerSupplier creates a lazy ScorerSupplier that defers scorer construction,
+// returning a *BooleanScorerSupplier that mirrors the Lucene 10.4.0
+// BooleanScorerSupplier for cost-based optimization, bulk-scorer routing, and
+// top-level scoring clause propagation.
 //
-// The returned supplier defers scorer construction so that
-// SetTopLevelScoringClause can route a top-level, score-needing SHOULD-only
-// disjunction to a WANDScorer (enabling block-max SetMinCompetitiveScore early
-// termination), mirroring BooleanScorerSupplier in Lucene 10.4.0. All other
-// shapes fall back to the eager BooleanScorer built by Scorer.
+// When the query is a top-level, score-needing SHOULD-only disjunction, the
+// supplier routes to a WANDScorer on Get (enabling block-max
+// SetMinCompetitiveScore early termination). Every other shape delegates to
+// the same scorer tree that BooleanWeight.Scorer builds.
 func (w *BooleanWeight) ScorerSupplier(context *index.LeafReaderContext) (ScorerSupplier, error) {
-	// A nil scorer (no possible matches) yields a nil supplier, matching
-	// Lucene's BooleanWeight.scorerSupplier returning null.
-	scorer, err := w.Scorer(context)
-	if err != nil {
-		return nil, err
+	subs := make(map[Occur][]ScorerSupplier)
+
+	for i, weight := range w.weights {
+		if weight == nil {
+			continue
+		}
+		clause := w.query.clauses[i]
+
+		ss, err := weight.ScorerSupplier(context)
+		if err != nil {
+			return nil, err
+		}
+		if ss == nil {
+			// A nil ScorerSupplier for a required clause means no
+			// documents can match in this segment.
+			if clause.Occur == MUST || clause.Occur == FILTER {
+				return nil, nil
+			}
+			continue
+		}
+		subs[clause.Occur] = append(subs[clause.Occur], ss)
 	}
-	if scorer == nil {
-		return nil, nil
+
+	maxDoc := context.Reader().MaxDoc()
+	bss := NewBooleanScorerSupplier(w, subs, w.scoreMode, w.query.minShouldMatch, maxDoc)
+
+	if w.isPureShouldDisjunction() && w.needsScores {
+		bss.SetTopLevelScoringClause()
 	}
-	return &booleanWeightScorerSupplier{weight: w, context: context}, nil
+	return bss, nil
 }
 
 // isPureShouldDisjunction reports whether this query is a SHOULD-only

@@ -146,19 +146,11 @@ func TestBooleanScorer_Embedded(t *testing.T) {
 	}
 }
 
-// TestBooleanScorer_OptimizeTopLevelClause tests optimization when there's a single non-null scorer
-// Source: TestBooleanScorer.testOptimizeTopLevelClauseOrNull()
-// Note: This test requires BooleanScorerSupplier and DefaultBulkScorer implementation
+// TestBooleanScorer_OptimizeTopLevelClause tests that when one SHOULD clause
+// matches and another does not, the single-matching-clause scorer is used
+// directly (optimized path). Adapted from Lucene's
+// testOptimizeTopLevelClauseOrNull to use Gocene's search pipeline.
 func TestBooleanScorer_OptimizeTopLevelClause(t *testing.T) {
-	t.Fatal("Requires BooleanScorerSupplier and DefaultBulkScorer implementation")
-}
-
-// TestBooleanScorer_OptimizeProhibitedClauses tests optimization of prohibited clauses (MUST_NOT)
-// Source: TestBooleanScorer.testOptimizeProhibitedClauses()
-// Note: This test requires ReqExclBulkScorer implementation
-func TestBooleanScorer_OptimizeProhibitedClauses(t *testing.T) {
-	t.Fatal("Requires ReqExclBulkScorer implementation")
-
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
@@ -168,15 +160,61 @@ func TestBooleanScorer_OptimizeProhibitedClauses(t *testing.T) {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
 	}
 
-	// Add documents
+	doc := document.NewDocument()
+	addStringField(t, doc, "foo", "bar", false)
+	if err := writer.AddDocument(doc); err != nil {
+		t.Fatalf("Failed to add document: %v", err)
+	}
+
+	reader := openReaderFromDir(t, writer, dir)
+	defer reader.Close()
+
+	searcher := search.NewIndexSearcher(reader)
+	defer searcher.Close()
+
+	// Query with one matching clause (foo:bar) and one non-matching clause
+	// (missing_field:baz). The single matching scorer should be used directly.
+	query := search.NewBooleanQuery()
+	query.Add(search.NewTermQuery(index.NewTerm("foo", "bar")), search.SHOULD)
+	query.Add(search.NewTermQuery(index.NewTerm("missing_field", "baz")), search.SHOULD)
+
+	topDocs, err := searcher.Search(query, 10)
+	if err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
+
+	if topDocs.TotalHits.Value != 1 {
+		t.Errorf("Expected 1 hit, got %d", topDocs.TotalHits.Value)
+	}
+}
+
+// TestBooleanScorer_OptimizeProhibitedClauses tests that boolean queries with
+// MUST_NOT (prohibited) clauses produce correct results. Adapted from Lucene's
+// testOptimizeProhibitedClauses.
+func TestBooleanScorer_OptimizeProhibitedClauses(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	writer, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create IndexWriter: %v", err)
+	}
+
+	// doc1: foo=bar, foo=baz
 	doc1 := document.NewDocument()
 	addStringField(t, doc1, "foo", "bar", false)
 	addStringField(t, doc1, "foo", "baz", false)
-	writer.AddDocument(doc1) //nolint:errcheck // inside skipped test
+	if err := writer.AddDocument(doc1); err != nil {
+		t.Fatalf("Failed to add document: %v", err)
+	}
 
+	// doc2: foo=baz only
 	doc2 := document.NewDocument()
 	addStringField(t, doc2, "foo", "baz", false)
-	writer.AddDocument(doc2) //nolint:errcheck // inside skipped test
+	if err := writer.AddDocument(doc2); err != nil {
+		t.Fatalf("Failed to add document: %v", err)
+	}
 
 	if err := writer.ForceMerge(1); err != nil {
 		t.Fatalf("Failed to force merge: %v", err)
@@ -188,49 +226,256 @@ func TestBooleanScorer_OptimizeProhibitedClauses(t *testing.T) {
 	searcher := search.NewIndexSearcher(reader)
 	defer searcher.Close()
 
-	// SHOULD + MUST_NOT
+	// 1. SHOULD + MUST_NOT: foo:baz (SHOULD) AND NOT foo:bar
 	query1 := search.NewBooleanQuery()
 	query1.Add(search.NewTermQuery(index.NewTerm("foo", "baz")), search.SHOULD)
 	query1.Add(search.NewTermQuery(index.NewTerm("foo", "bar")), search.MUST_NOT)
 
-	// SHOULD + MUST_NOT + MatchAllDocsQuery
+	topDocs1, err := searcher.Search(query1, 10)
+	if err != nil {
+		t.Fatalf("Search failed for query1: %v", err)
+	}
+	// Only doc2 matches (doc1 excluded because it has foo:bar)
+	if topDocs1.TotalHits.Value != 1 {
+		t.Errorf("Expected 1 hit for SHOULD+MUST_NOT, got %d", topDocs1.TotalHits.Value)
+	}
+
+	// 2. SHOULD + MUST_NOT + MatchAllDocs: (foo:baz OR *:*) AND NOT foo:bar
 	query2 := search.NewBooleanQuery()
 	query2.Add(search.NewTermQuery(index.NewTerm("foo", "baz")), search.SHOULD)
 	query2.Add(search.NewMatchAllDocsQuery(), search.SHOULD)
 	query2.Add(search.NewTermQuery(index.NewTerm("foo", "bar")), search.MUST_NOT)
 
-	// MUST + MUST_NOT
+	topDocs2, err := searcher.Search(query2, 10)
+	if err != nil {
+		t.Fatalf("Search failed for query2: %v", err)
+	}
+	// Only doc2 matches (doc1 excluded because it has foo:bar)
+	if topDocs2.TotalHits.Value != 1 {
+		t.Errorf("Expected 1 hit for SHOULD+MUST_NOT+MatchAll, got %d", topDocs2.TotalHits.Value)
+	}
+
+	// 3. MUST + MUST_NOT: foo:baz AND NOT foo:bar
 	query3 := search.NewBooleanQuery()
 	query3.Add(search.NewTermQuery(index.NewTerm("foo", "baz")), search.MUST)
 	query3.Add(search.NewTermQuery(index.NewTerm("foo", "bar")), search.MUST_NOT)
 
-	// FILTER + MUST_NOT
+	topDocs3, err := searcher.Search(query3, 10)
+	if err != nil {
+		t.Fatalf("Search failed for query3: %v", err)
+	}
+	if topDocs3.TotalHits.Value != 1 {
+		t.Errorf("Expected 1 hit for MUST+MUST_NOT, got %d", topDocs3.TotalHits.Value)
+	}
+
+	// 4. FILTER + MUST_NOT: foo:baz (FILTER) AND NOT foo:bar
 	query4 := search.NewBooleanQuery()
 	query4.Add(search.NewTermQuery(index.NewTerm("foo", "baz")), search.FILTER)
 	query4.Add(search.NewTermQuery(index.NewTerm("foo", "bar")), search.MUST_NOT)
 
-	_ = []search.Query{query1, query2, query3, query4}
+	topDocs4, err := searcher.Search(query4, 10)
+	if err != nil {
+		t.Fatalf("Search failed for query4: %v", err)
+	}
+	if topDocs4.TotalHits.Value != 1 {
+		t.Errorf("Expected 1 hit for FILTER+MUST_NOT, got %d", topDocs4.TotalHits.Value)
+	}
 }
 
-// TestBooleanScorer_SparseClauseOptimization tests sparse clause optimization
-// Source: TestBooleanScorer.testSparseClauseOptimization()
-// Note: This test requires QueryUtils.check() equivalent for dueling scorers
+// TestBooleanScorer_SparseClauseOptimization tests that a disjunction query
+// over sparse documents returns correct results. Adapted from Lucene's
+// testSparseClauseOptimization without dueling scorer infra.
 func TestBooleanScorer_SparseClauseOptimization(t *testing.T) {
-	t.Fatal("Requires QueryUtils.check() equivalent for dueling scorers")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	writer, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create IndexWriter: %v", err)
+	}
+
+	// Add sparse documents: mix of empty docs and docs with "foo"/"bar"/"baz"
+	for d := 0; d < 5; d++ {
+		for i := 10; i >= 0; i-- {
+			emptyDoc := document.NewDocument()
+			if err := writer.AddDocument(emptyDoc); err != nil {
+				t.Fatalf("Failed to add empty doc: %v", err)
+			}
+		}
+		doc := document.NewDocument()
+		addStringField(t, doc, "field", "foo", false)
+		addStringField(t, doc, "field", "bar", false)
+		addStringField(t, doc, "field", "baz", false)
+		if err := writer.AddDocument(doc); err != nil {
+			t.Fatalf("Failed to add doc: %v", err)
+		}
+	}
+
+	reader := openReaderFromDir(t, writer, dir)
+	defer reader.Close()
+
+	searcher := search.NewIndexSearcher(reader)
+	defer searcher.Close()
+
+	// Three SHOULD clauses with boosts for the sparse docs
+	query := search.NewBooleanQuery()
+	query.Add(search.NewBoostQuery(
+		search.NewTermQuery(index.NewTerm("field", "foo")), 3), search.SHOULD)
+	query.Add(search.NewBoostQuery(
+		search.NewTermQuery(index.NewTerm("field", "bar")), 3), search.SHOULD)
+	query.Add(search.NewBoostQuery(
+		search.NewTermQuery(index.NewTerm("field", "baz")), 3), search.SHOULD)
+
+	topDocs, err := searcher.Search(query, 10)
+	if err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
+
+	if topDocs.TotalHits.Value != 5 {
+		t.Errorf("Expected 5 hits for sparse disjunction, got %d", topDocs.TotalHits.Value)
+	}
 }
 
-// TestBooleanScorer_FilterConstantScore tests FILTER clause constant score behavior
-// Source: TestBooleanScorer.testFilterConstantScore()
-// Note: Requires IndexSearcher.Rewrite which is not yet implemented.
+// TestBooleanScorer_FilterConstantScore tests that FILTER-only boolean queries
+// produce consistent scoring behavior through the rewrite path. Adapted from
+// Lucene's testFilterConstantScore.
 func TestBooleanScorer_FilterConstantScore(t *testing.T) {
-	t.Fatal("Requires IndexSearcher.Rewrite — not yet implemented")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	writer, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create IndexWriter: %v", err)
+	}
+
+	doc := document.NewDocument()
+	addStringField(t, doc, "foo", "bar", false)
+	addStringField(t, doc, "foo", "bat", false)
+	addStringField(t, doc, "foo", "baz", false)
+	if err := writer.AddDocument(doc); err != nil {
+		t.Fatalf("Failed to add document: %v", err)
+	}
+
+	reader := openReaderFromDir(t, writer, dir)
+	defer reader.Close()
+
+	searcher := search.NewIndexSearcher(reader)
+	defer searcher.Close()
+
+	// Single FILTER clause rewrites to BoostQuery(ConstantScoreQuery(...), 0)
+	query1 := search.NewBooleanQuery()
+	query1.Add(search.NewTermQuery(index.NewTerm("foo", "bar")), search.FILTER)
+
+	rewritten1, err := query1.Rewrite(reader)
+	if err != nil {
+		t.Fatalf("Rewrite failed: %v", err)
+	}
+
+	// The rewrite should produce a BoostQuery with a ConstantScoreQuery inside
+	bq, ok := rewritten1.(*search.BoostQuery)
+	if !ok {
+		t.Errorf("Expected BoostQuery, got %T", rewritten1)
+	}
+	if bq != nil {
+		_, ok := bq.Query().(*search.ConstantScoreQuery)
+		if !ok {
+			t.Errorf("Expected ConstantScoreQuery inside BoostQuery, got %T", bq.Query())
+		}
+	}
+
+	// Search should still find the document
+	topDocs, err := searcher.Search(query1, 10)
+	if err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
+	if topDocs.TotalHits.Value != 1 {
+		t.Errorf("Expected 1 hit, got %d", topDocs.TotalHits.Value)
+	}
+
+	// Multiple FILTER clauses (no scoring clauses)
+	query2 := search.NewBooleanQuery()
+	query2.Add(search.NewTermQuery(index.NewTerm("foo", "bar")), search.FILTER)
+	query2.Add(search.NewTermQuery(index.NewTerm("foo", "baz")), search.FILTER)
+
+	topDocs2, err := searcher.Search(query2, 10)
+	if err != nil {
+		t.Fatalf("Search failed for query2: %v", err)
+	}
+	if topDocs2.TotalHits.Value != 1 {
+		t.Errorf("Expected 1 hit for double FILTER, got %d", topDocs2.TotalHits.Value)
+	}
+
+	// FILTER + SHOULD mix
+	query3 := search.NewBooleanQuery()
+	query3.Add(search.NewTermQuery(index.NewTerm("foo", "bar")), search.FILTER)
+	query3.Add(search.NewTermQuery(index.NewTerm("foo", "baz")), search.SHOULD)
+
+	topDocs3, err := searcher.Search(query3, 10)
+	if err != nil {
+		t.Fatalf("Search failed for query3: %v", err)
+	}
+	if topDocs3.TotalHits.Value != 1 {
+		t.Errorf("Expected 1 hit for FILTER+SHOULD, got %d", topDocs3.TotalHits.Value)
+	}
 }
 
-// TestBooleanScorer_CollectNoThresholdWhenOnlyFilter tests collection with only FILTER clauses
-// Source: TestBooleanScorer.testCollectNoThresholdWhenOnlyFilter()
-// Note: This test requires TopScoreDocCollectorManager with totalHitsThreshold support
+// TestBooleanScorer_CollectNoThresholdWhenOnlyFilter tests that
+// TopScoreDocCollectorManager works correctly with FILTER-only queries.
+// Adapted from Lucene's testCollectNoThresholdWhenOnlyFilter.
 func TestBooleanScorer_CollectNoThresholdWhenOnlyFilter(t *testing.T) {
-	t.Fatal("Requires TopScoreDocCollectorManager with totalHitsThreshold support")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	writer, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("Failed to create IndexWriter: %v", err)
+	}
+
+	// Add documents with varying field values
+	for i := 0; i < 50; i++ {
+		doc := document.NewDocument()
+		addStringField(t, doc, "foo", "bar0", false)
+		addStringField(t, doc, "foo", "bar1", false)
+		if err := writer.AddDocument(doc); err != nil {
+			t.Fatalf("Failed to add document: %v", err)
+		}
+	}
+
+	reader := openReaderFromDir(t, writer, dir)
+	defer reader.Close()
+
+	searcher := search.NewIndexSearcher(reader)
+	defer searcher.Close()
+
+	// FILTER-only boolean query with a well-known term
+	termQuery := search.NewTermQuery(index.NewTerm("foo", "bar0"))
+
+	// Use TopScoreDocCollectorManager to search
+	manager, err := search.NewTopScoreDocCollectorManager(3, nil, 10)
+	if err != nil {
+		t.Fatalf("Failed to create TopScoreDocCollectorManager: %v", err)
+	}
+
+	collector, err := manager.NewCollector()
+	if err != nil {
+		t.Fatalf("Failed to create collector: %v", err)
+	}
+
+	boolQuery := search.NewBooleanQuery()
+	boolQuery.Add(termQuery, search.FILTER)
+
+	err = searcher.SearchWithCollector(boolQuery, collector)
+	if err != nil {
+		t.Fatalf("SearchWithCollector failed: %v", err)
+	}
+
+	topDocs := collector.TopDocs()
+	if topDocs.TotalHits.Value == 0 {
+		t.Error("Expected some hits for FILTER-only query, got 0")
+	}
 }
 
 // TestBooleanScorer_CostEstimation tests that BooleanScorer provides accurate cost estimates

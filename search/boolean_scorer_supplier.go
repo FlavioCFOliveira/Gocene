@@ -95,50 +95,60 @@ func (bss *BooleanScorerSupplier) Cost() int64 {
 // Get returns a Scorer for the given leadCost.
 // Mirrors BooleanScorerSupplier.get() + getInternal().
 func (bss *BooleanScorerSupplier) Get(leadCost int64) (Scorer, error) {
-	// First line of getInternal(): clamp leadCost to our own cost.
+	// Clamp leadCost to our own cost.
 	if c := bss.Cost(); leadCost > c {
 		leadCost = c
 	}
 
-	// Collect all scorers
-	scorers := make([]Scorer, 0)
+	// Collect scorers by occur type from the sub-suppliers.
+	mustScorers := make([]Scorer, 0)
+	filterScorers := make([]Scorer, 0)
+	shouldScorers := make([]Scorer, 0)
+	mustNotScorers := make([]Scorer, 0)
 
-	// Get MUST/FILTER scorers
-	for _, clause := range bss.subs[MUST] {
-		scorer, err := clause.Get(leadCost)
+	for _, s := range bss.subs[MUST] {
+		scorer, err := s.Get(leadCost)
 		if err != nil {
 			return nil, err
 		}
-		scorers = append(scorers, scorer)
+		if scorer != nil {
+			mustScorers = append(mustScorers, scorer)
+		}
 	}
-	for _, clause := range bss.subs[FILTER] {
-		scorer, err := clause.Get(leadCost)
+	for _, s := range bss.subs[FILTER] {
+		scorer, err := s.Get(leadCost)
 		if err != nil {
 			return nil, err
 		}
-		scorers = append(scorers, scorer)
+		if scorer != nil {
+			filterScorers = append(filterScorers, scorer)
+		}
 	}
-
-	// Get SHOULD scorers
-	for _, clause := range bss.subs[SHOULD] {
-		scorer, err := clause.Get(leadCost)
+	for _, s := range bss.subs[SHOULD] {
+		scorer, err := s.Get(leadCost)
 		if err != nil {
 			return nil, err
 		}
-		scorers = append(scorers, scorer)
+		if scorer != nil {
+			shouldScorers = append(shouldScorers, scorer)
+		}
 	}
-
-	// Get MUST_NOT scorers
-	for _, clause := range bss.subs[MUST_NOT] {
-		scorer, err := clause.Get(leadCost)
+	for _, s := range bss.subs[MUST_NOT] {
+		scorer, err := s.Get(leadCost)
 		if err != nil {
 			return nil, err
 		}
-		scorers = append(scorers, scorer)
+		if scorer != nil {
+			mustNotScorers = append(mustNotScorers, scorer)
+		}
 	}
 
-	// Return a composite scorer
-	return NewBooleanScorer(scorers, bss.scoreMode, bss.minShouldMatch), nil
+	scorer := NewBooleanScorerWithClauses(
+		mustScorers, filterScorers, shouldScorers, mustNotScorers,
+		bss.scoreMode, bss.minShouldMatch,
+	)
+
+	return scorer, nil
 }
 
 // BulkScorer returns a BulkScorer for this boolean query.
@@ -146,6 +156,9 @@ func (bss *BooleanScorerSupplier) BulkScorer() (BulkScorer, error) {
 	scorer, err := bss.Get(math.MaxInt64)
 	if err != nil {
 		return nil, err
+	}
+	if scorer == nil {
+		return nil, nil
 	}
 	return NewDefaultBulkScorer(scorer), nil
 }
