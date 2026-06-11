@@ -4,21 +4,35 @@
 
 package lucene50
 
-// Lucene50PostingsWriter is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene50.Lucene50PostingsWriter (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene50.Lucene50PostingsWriter
-// (Lucene 10.4.0, backward-codecs/src/test).
+import (
+	"testing"
+)
+
+// TestLucene50PostingsWriter_Constants verifies the exported format constants.
+func TestLucene50PostingsWriter_Constants(t *testing.T) {
+	if BlockSize != 128 {
+		t.Errorf("BlockSize: got %d, want 128", BlockSize)
+	}
+	if VersionStart != 0 {
+		t.Errorf("VersionStart: got %d, want 0", VersionStart)
+	}
+	if VersionImpactSkipData != 1 {
+		t.Errorf("VersionImpactSkipData: got %d, want 1", VersionImpactSkipData)
+	}
+	if VersionCurrent != VersionImpactSkipData {
+		t.Errorf("VersionCurrent: got %d, want VersionImpactSkipData", VersionCurrent)
+	}
+}
+
+// TestLucene50PostingsWriter_FormatConstructors verifies that the format
+// structs are constructed with the expected Name and Version.
+func TestLucene50PostingsWriter_FormatConstructors(t *testing.T) {
+	pf := NewLucene50PostingsFormat("v1")
+	if pf.Name != "Lucene50PostingsFormat" || pf.Version != "v1" {
+		t.Errorf("Lucene50PostingsFormat: got (%q, %q)", pf.Name, pf.Version)
+	}
+	pr := NewLucene50PostingsReader("v2")
+	if pr.Name != "Lucene50PostingsReader" || pr.Version != "v2" {
+		t.Errorf("Lucene50PostingsReader: got (%q, %q)", pr.Name, pr.Version)
+	}
+}

@@ -4,21 +4,25 @@
 
 package lucene80
 
-// BaseLucene80DocValuesFormatTestCase is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene80.BaseLucene80DocValuesFormatTestCase (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene80.BaseLucene80DocValuesFormatTestCase
-// (Lucene 10.4.0, backward-codecs/src/test).
+import (
+	"testing"
+)
+
+// TestBaseLucene80DocValuesFormatTestCase_Name verifies that the default
+// Lucene80DocValuesFormat instance reports the correct codec name.
+func TestBaseLucene80DocValuesFormatTestCase_Name(t *testing.T) {
+	f := NewLucene80DocValuesFormat()
+	if got := f.Name(); got != "Lucene80" {
+		t.Errorf("Name(): got %q, want %q", got, "Lucene80")
+	}
+}
+
+// TestBaseLucene80DocValuesFormatTestCase_Mode verifies the mode constants.
+func TestBaseLucene80DocValuesFormatTestCase_Mode(t *testing.T) {
+	if Lucene80DVModeBestSpeed != 0 {
+		t.Errorf("Lucene80DVModeBestSpeed = %d, want 0", Lucene80DVModeBestSpeed)
+	}
+	if Lucene80DVModeBestCompression != 1 {
+		t.Errorf("Lucene80DVModeBestCompression = %d, want 1", Lucene80DVModeBestCompression)
+	}
+}

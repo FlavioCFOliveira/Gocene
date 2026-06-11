@@ -4,21 +4,63 @@
 
 package lucene912
 
-// Lucene912PostingsWriter is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene912.Lucene912PostingsWriter (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene912.Lucene912PostingsWriter
-// (Lucene 10.4.0, backward-codecs/src/test).
+import (
+	"testing"
+)
+
+// TestLucene912PostingsWriter_BlockSize verifies the BlockSize constant.
+func TestLucene912PostingsWriter_BlockSize(t *testing.T) {
+	if BlockSize != 128 {
+		t.Errorf("BlockSize = %d, want 128", BlockSize)
+	}
+}
+
+// TestLucene912PostingsWriter_Extensions verifies the file extension constants.
+func TestLucene912PostingsWriter_Extensions(t *testing.T) {
+	if MetaExtension != "psm" {
+		t.Errorf("MetaExtension = %q, want %q", MetaExtension, "psm")
+	}
+	if DocExtension != "doc" {
+		t.Errorf("DocExtension = %q, want %q", DocExtension, "doc")
+	}
+	if PosExtension != "pos" {
+		t.Errorf("PosExtension = %q, want %q", PosExtension, "pos")
+	}
+	if PayExtension != "pay" {
+		t.Errorf("PayExtension = %q, want %q", PayExtension, "pay")
+	}
+}
+
+// TestLucene912PostingsWriter_LevelConstants verifies the level constants.
+func TestLucene912PostingsWriter_LevelConstants(t *testing.T) {
+	if Level1Factor != 32 {
+		t.Errorf("Level1Factor = %d, want 32", Level1Factor)
+	}
+	if Level1NumDocs != Level1Factor*BlockSize {
+		t.Errorf("Level1NumDocs = %d, want %d", Level1NumDocs, Level1Factor*BlockSize)
+	}
+}
+
+// TestLucene912PostingsWriter_WriteNotSupported verifies ErrWriteNotSupported.
+func TestLucene912PostingsWriter_WriteNotSupported(t *testing.T) {
+	if ErrWriteNotSupported == nil {
+		t.Fatal("ErrWriteNotSupported is nil")
+	}
+	if ErrWriteNotSupported.Error() == "" {
+		t.Error("ErrWriteNotSupported: empty error message")
+	}
+}
+
+// TestLucene912PostingsWriter_NewIntBlockTermState verifies the term state defaults.
+func TestLucene912PostingsWriter_NewIntBlockTermState(t *testing.T) {
+	s := NewIntBlockTermState()
+	if s.LastPosBlockOffset != -1 {
+		t.Errorf("LastPosBlockOffset = %d, want -1", s.LastPosBlockOffset)
+	}
+	if s.SingletonDocID != -1 {
+		t.Errorf("SingletonDocID = %d, want -1", s.SingletonDocID)
+	}
+	if s.BlockTermState == nil {
+		t.Error("BlockTermState is nil")
+	}
+}

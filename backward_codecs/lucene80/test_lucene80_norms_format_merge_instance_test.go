@@ -4,21 +4,24 @@
 
 package lucene80
 
-// TestLucene80NormsFormatMergeInstance is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene80.TestLucene80NormsFormatMergeInstance (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene80.TestLucene80NormsFormatMergeInstance
-// (Lucene 10.4.0, backward-codecs/src/test).
+import (
+	"testing"
+)
+
+// TestLucene80NormsFormatMergeInstance_Name verifies the NormsFormat name.
+func TestLucene80NormsFormatMergeInstance_Name(t *testing.T) {
+	f := NewLucene80NormsFormat()
+	if got := f.Name(); got != "Lucene80" {
+		t.Errorf("Name(): got %q, want %q", got, "Lucene80")
+	}
+}
+
+// TestLucene80NormsFormatMergeInstance_NormsConsumer verifies that
+// NormsConsumer returns the expected error for this read-only codec.
+func TestLucene80NormsFormatMergeInstance_NormsConsumer(t *testing.T) {
+	f := NewLucene80NormsFormat()
+	_, err := f.NormsConsumer(nil)
+	if err == nil {
+		t.Error("NormsConsumer: expected error for read-only codec, got nil")
+	}
+}

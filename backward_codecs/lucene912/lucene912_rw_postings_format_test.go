@@ -4,21 +4,52 @@
 
 package lucene912
 
-// Lucene912RWPostingsFormat is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene912.Lucene912RWPostingsFormat (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene912.Lucene912RWPostingsFormat
-// (Lucene 10.4.0, backward-codecs/src/test).
+import (
+	"errors"
+	"testing"
+)
+
+// TestLucene912RWPostingsFormat_Name verifies the format name.
+func TestLucene912RWPostingsFormat_Name(t *testing.T) {
+	f := NewLucene912PostingsFormat()
+	if got := f.Name(); got != "Lucene912" {
+		t.Errorf("Name() = %q, want %q", got, "Lucene912")
+	}
+}
+
+// TestLucene912RWPostingsFormat_FieldsConsumerError verifies that FieldsConsumer
+// returns ErrWriteNotSupported.
+func TestLucene912RWPostingsFormat_FieldsConsumerError(t *testing.T) {
+	f := NewLucene912PostingsFormat()
+	_, err := f.FieldsConsumer(nil)
+	if err == nil {
+		t.Fatal("FieldsConsumer: expected error, got nil")
+	}
+	if !errors.Is(err, ErrWriteNotSupported) {
+		t.Errorf("FieldsConsumer error = %v, want ErrWriteNotSupported", err)
+	}
+}
+
+// TestLucene912RWPostingsFormat_FieldsProducerError verifies that FieldsProducer
+// returns an error (backward format not available for reading postings).
+func TestLucene912RWPostingsFormat_FieldsProducerError(t *testing.T) {
+	f := NewLucene912PostingsFormat()
+	_, err := f.FieldsProducer(nil)
+	if err == nil {
+		t.Fatal("FieldsProducer: expected error, got nil")
+	}
+}
+
+// TestLucene912RWPostingsFormat_IntBlockTermState verifies the term state constructor.
+func TestLucene912RWPostingsFormat_IntBlockTermState(t *testing.T) {
+	s := NewIntBlockTermState()
+	if s.LastPosBlockOffset != -1 {
+		t.Errorf("LastPosBlockOffset = %d, want -1", s.LastPosBlockOffset)
+	}
+	if s.SingletonDocID != -1 {
+		t.Errorf("SingletonDocID = %d, want -1", s.SingletonDocID)
+	}
+	if s.BlockTermState == nil {
+		t.Error("BlockTermState is nil")
+	}
+}

@@ -4,21 +4,38 @@
 
 package lucene87
 
-// TestLucene87StoredFieldsFormatHighCompression is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene87.TestLucene87StoredFieldsFormatHighCompression (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene87.TestLucene87StoredFieldsFormatHighCompression
-// (Lucene 10.4.0, backward-codecs/src/test).
+import "testing"
+
+func TestLZ4WithPresetDictCompressionMode_New(t *testing.T) {
+	m := NewLZ4WithPresetDictCompressionMode("1.0")
+	if m == nil {
+		t.Fatal("NewLZ4WithPresetDictCompressionMode returned nil")
+	}
+	if m.Name != "LZ4WithPresetDictCompressionMode" {
+		t.Fatalf("got Name=%q, want %q", m.Name, "LZ4WithPresetDictCompressionMode")
+	}
+}
+
+func TestLZ4WithPresetDictCompressionMode_Version(t *testing.T) {
+	m := NewLZ4WithPresetDictCompressionMode("lz4-v2")
+	if m.Version != "lz4-v2" {
+		t.Fatalf("got Version=%q, want %q", m.Version, "lz4-v2")
+	}
+}
+
+func TestDeflateWithPresetDictCompressionMode_New(t *testing.T) {
+	m := NewDeflateWithPresetDictCompressionMode("1.0")
+	if m == nil {
+		t.Fatal("NewDeflateWithPresetDictCompressionMode returned nil")
+	}
+	if m.Name != "DeflateWithPresetDictCompressionMode" {
+		t.Fatalf("got Name=%q, want %q", m.Name, "DeflateWithPresetDictCompressionMode")
+	}
+}
+
+func TestDeflateWithPresetDictCompressionMode_Version(t *testing.T) {
+	m := NewDeflateWithPresetDictCompressionMode("deflate-v3")
+	if m.Version != "deflate-v3" {
+		t.Fatalf("got Version=%q, want %q", m.Version, "deflate-v3")
+	}
+}

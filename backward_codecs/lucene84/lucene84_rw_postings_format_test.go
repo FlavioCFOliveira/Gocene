@@ -4,21 +4,38 @@
 
 package lucene84
 
-// Lucene84RWPostingsFormat is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene84.Lucene84RWPostingsFormat (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene84.Lucene84RWPostingsFormat
-// (Lucene 10.4.0, backward-codecs/src/test).
+import "testing"
+
+func TestLucene84PostingsFormat_NewFromFormat(t *testing.T) {
+	f := NewLucene84PostingsFormat("1.0")
+	if f == nil {
+		t.Fatal("NewLucene84PostingsFormat returned nil")
+	}
+	if f.Name != "Lucene84PostingsFormat" {
+		t.Fatalf("got Name=%q, want %q", f.Name, "Lucene84PostingsFormat")
+	}
+}
+
+func TestLucene84PostingsFormat_Version(t *testing.T) {
+	f := NewLucene84PostingsFormat("test-version")
+	if f.Version != "test-version" {
+		t.Fatalf("got Version=%q, want %q", f.Version, "test-version")
+	}
+}
+
+func TestLucene84PostingsReader_New(t *testing.T) {
+	r := NewLucene84PostingsReader("1.0")
+	if r == nil {
+		t.Fatal("NewLucene84PostingsReader returned nil")
+	}
+	if r.Name != "Lucene84PostingsReader" {
+		t.Fatalf("got Name=%q, want %q", r.Name, "Lucene84PostingsReader")
+	}
+}
+
+func TestLucene84PostingsReader_Version(t *testing.T) {
+	r := NewLucene84PostingsReader("reader-v2")
+	if r.Version != "reader-v2" {
+		t.Fatalf("got Version=%q, want %q", r.Version, "reader-v2")
+	}
+}

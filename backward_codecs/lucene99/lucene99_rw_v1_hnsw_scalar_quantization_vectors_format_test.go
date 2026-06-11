@@ -4,21 +4,48 @@
 
 package lucene99
 
-// Lucene99RWV1HnswScalarQuantizationVectorsFormat is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene99.Lucene99RWV1HnswScalarQuantizationVectorsFormat (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene99.Lucene99RWV1HnswScalarQuantizationVectorsFormat
-// (Lucene 10.4.0, backward-codecs/src/test).
+import (
+	"testing"
+)
+
+// TestNewLucene99HnswScalarQuantizedVectorsFormat_V1 verifies construction
+// with a "v1" version string.
+func TestNewLucene99HnswScalarQuantizedVectorsFormat_V1(t *testing.T) {
+	f := NewLucene99HnswScalarQuantizedVectorsFormat("v1")
+	if f.Name != "Lucene99HnswScalarQuantizedVectorsFormat" {
+		t.Errorf("Name: got %q, want %q", f.Name, "Lucene99HnswScalarQuantizedVectorsFormat")
+	}
+	if f.Version != "v1" {
+		t.Errorf("Version: got %q, want %q", f.Version, "v1")
+	}
+}
+
+// TestNewLucene99SkipWriter_Defaults verifies that NewLucene99SkipWriter sets
+// Name and Version correctly.
+func TestNewLucene99SkipWriter_Defaults(t *testing.T) {
+	w := NewLucene99SkipWriter("9.9.0")
+	if w.Name != "Lucene99SkipWriter" {
+		t.Errorf("Name: got %q, want %q", w.Name, "Lucene99SkipWriter")
+	}
+	if w.Version != "9.9.0" {
+		t.Errorf("Version: got %q, want %q", w.Version, "9.9.0")
+	}
+}
+
+// TestNewLucene99SkipWriter_VersionTracking verifies that NewLucene99SkipWriter
+// stores any version string faithfully.
+func TestNewLucene99SkipWriter_VersionTracking(t *testing.T) {
+	w := NewLucene99SkipWriter("v1-hnsw-quantized")
+	if w.Version != "v1-hnsw-quantized" {
+		t.Errorf("Version: got %q, want %q", w.Version, "v1-hnsw-quantized")
+	}
+}
+
+// TestNewLucene99SkipWriter_EmptyVersion verifies that an empty version string
+// is accepted.
+func TestNewLucene99SkipWriter_EmptyVersion(t *testing.T) {
+	w := NewLucene99SkipWriter("")
+	if w.Version != "" {
+		t.Errorf("Version: got %q, want empty", w.Version)
+	}
+}

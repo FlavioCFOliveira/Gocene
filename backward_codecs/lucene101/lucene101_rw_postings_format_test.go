@@ -4,21 +4,36 @@
 
 package lucene101
 
-// Lucene101RWPostingsFormat is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene101.Lucene101RWPostingsFormat (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene101.Lucene101RWPostingsFormat
-// (Lucene 10.4.0, backward-codecs/src/test).
+import (
+	"testing"
+)
+
+// TestLucene101RWPostingsFormat_BlockSize verifies the BlockSize constant.
+func TestLucene101RWPostingsFormat_BlockSize(t *testing.T) {
+	if BlockSize != 128 {
+		t.Errorf("BlockSize = %d, want 128", BlockSize)
+	}
+}
+
+// TestLucene101RWPostingsFormat_PostingsFormatConstuctor verifies the
+// Lucene101PostingsFormat constructor and fields.
+func TestLucene101RWPostingsFormat_PostingsFormatConstuctor(t *testing.T) {
+	pf := NewLucene101PostingsFormat("10.1")
+	if pf.Name != "Lucene101PostingsFormat" {
+		t.Errorf("Name = %q, want %q", pf.Name, "Lucene101PostingsFormat")
+	}
+	if pf.Version != "10.1" {
+		t.Errorf("Version = %q, want %q", pf.Version, "10.1")
+	}
+}
+
+// TestLucene101RWPostingsFormat_CodecConstructor verifies the Lucene101Codec constructor.
+func TestLucene101RWPostingsFormat_CodecConstructor(t *testing.T) {
+	c := NewLucene101Codec("10.1.0")
+	if c.Name != "Lucene101Codec" {
+		t.Errorf("Codec.Name = %q, want %q", c.Name, "Lucene101Codec")
+	}
+	if c.Version != "10.1.0" {
+		t.Errorf("Codec.Version = %q, want %q", c.Version, "10.1.0")
+	}
+}

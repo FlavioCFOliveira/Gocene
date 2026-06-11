@@ -4,21 +4,38 @@
 
 package lucene50
 
-// TestBlockPostingsFormat2 is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene50.TestBlockPostingsFormat2 (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene50.TestBlockPostingsFormat2
-// (Lucene 10.4.0, backward-codecs/src/test).
+import (
+	"testing"
+)
+
+// TestBlockPostingsFormat2_Constants verifies the postings block constants.
+func TestBlockPostingsFormat2_Constants(t *testing.T) {
+	if BlockSize != 128 {
+		t.Errorf("BlockSize: got %d, want 128", BlockSize)
+	}
+}
+
+// TestBlockPostingsFormat2_Name verifies that format types carry the
+// expected human-readable name.
+func TestBlockPostingsFormat2_Name(t *testing.T) {
+	pf := NewLucene50PostingsFormat("")
+	if pf.Name != "Lucene50PostingsFormat" {
+		t.Errorf("PostingsFormat.Name: got %q", pf.Name)
+	}
+	pr := NewLucene50PostingsReader("")
+	if pr.Name != "Lucene50PostingsReader" {
+		t.Errorf("PostingsReader.Name: got %q", pr.Name)
+	}
+	cf := NewLucene50CompoundFormat("")
+	if cf.Name != "Lucene50CompoundFormat" {
+		t.Errorf("CompoundFormat.Name: got %q", cf.Name)
+	}
+	sf := NewLucene50StoredFieldsFormat("")
+	if sf.Name != "Lucene50StoredFieldsFormat" {
+		t.Errorf("StoredFieldsFormat.Name: got %q", sf.Name)
+	}
+	tf := NewLucene50TermVectorsFormat("")
+	if tf.Name != "Lucene50TermVectorsFormat" {
+		t.Errorf("TermVectorsFormat.Name: got %q", tf.Name)
+	}
+}

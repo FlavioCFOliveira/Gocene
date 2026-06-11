@@ -4,21 +4,41 @@
 
 package lucene99
 
-// TestLucene99HnswQuantizedVectorsFormat is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene99.TestLucene99HnswQuantizedVectorsFormat (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene99.TestLucene99HnswQuantizedVectorsFormat
-// (Lucene 10.4.0, backward-codecs/src/test).
+import (
+	"testing"
+)
+
+// TestNewOffHeapQuantizedByteVectorValues_Name verifies that
+// NewOffHeapQuantizedByteVectorValues sets the correct Name.
+func TestNewOffHeapQuantizedByteVectorValues_Name(t *testing.T) {
+	v := NewOffHeapQuantizedByteVectorValues("9.9.0")
+	if v.Name != "OffHeapQuantizedByteVectorValues" {
+		t.Errorf("Name: got %q, want %q", v.Name, "OffHeapQuantizedByteVectorValues")
+	}
+}
+
+// TestNewOffHeapQuantizedByteVectorValues_Version verifies the Version field.
+func TestNewOffHeapQuantizedByteVectorValues_Version(t *testing.T) {
+	v := NewOffHeapQuantizedByteVectorValues("test")
+	if v.Version != "test" {
+		t.Errorf("Version: got %q, want %q", v.Version, "test")
+	}
+}
+
+// TestNewLucene99HnswScalarQuantizedVectorsFormat_Name verifies the Name field
+// matches the Java class name.
+func TestNewLucene99HnswScalarQuantizedVectorsFormat_Name(t *testing.T) {
+	f := NewLucene99HnswScalarQuantizedVectorsFormat("hnsw-v0")
+	if f.Name != "Lucene99HnswScalarQuantizedVectorsFormat" {
+		t.Errorf("Name: got %q, want %q", f.Name, "Lucene99HnswScalarQuantizedVectorsFormat")
+	}
+}
+
+// TestNewLucene99HnswScalarQuantizedVectorsFormat_VersionSuffix verifies that
+// version strings with suffixes are stored faithfully.
+func TestNewLucene99HnswScalarQuantizedVectorsFormat_VersionSuffix(t *testing.T) {
+	f := NewLucene99HnswScalarQuantizedVectorsFormat("hnsw-v0")
+	if f.Version != "hnsw-v0" {
+		t.Errorf("Version: got %q, want %q", f.Version, "hnsw-v0")
+	}
+}

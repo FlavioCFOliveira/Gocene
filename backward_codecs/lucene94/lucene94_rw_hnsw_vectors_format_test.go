@@ -4,21 +4,74 @@
 
 package lucene94
 
-// Lucene94RWHnswVectorsFormat is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene94.Lucene94RWHnswVectorsFormat (in the Lucene test tree).
+import (
+	"errors"
+	"testing"
+)
+
+// TestRWHnswVectorsFormat_CustomParams verifies custom constructor params.
 //
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene94.Lucene94RWHnswVectorsFormat
-// (Lucene 10.4.0, backward-codecs/src/test).
+// In the Java test tree, Lucene94RWHnswVectorsFormat is a test-support class;
+// this test validates the production format that it would extend.
+func TestRWHnswVectorsFormat_CustomParams(t *testing.T) {
+	f := NewLucene94HnswVectorsFormatWithParams(10, 20)
+	if f.MaxConn() != 10 {
+		t.Errorf("MaxConn: got %d, want 10", f.MaxConn())
+	}
+	if f.BeamWidth() != 20 {
+		t.Errorf("BeamWidth: got %d, want 20", f.BeamWidth())
+	}
+}
+
+// TestRWHnswVectorsFormat_String verifies String() formatting.
+func TestRWHnswVectorsFormat_String(t *testing.T) {
+	f := NewLucene94HnswVectorsFormatWithParams(10, 20)
+	const want = "Lucene94HnswVectorsFormat(name=Lucene94HnswVectorsFormat, maxConn=10, beamWidth=20)"
+	if f.String() != want {
+		t.Errorf("String:\n got  %q\n want %q", f.String(), want)
+	}
+}
+
+// TestRWHnswVectorsFormat_DefaultString verifies toString with default params.
+func TestRWHnswVectorsFormat_DefaultString(t *testing.T) {
+	f := NewLucene94HnswVectorsFormat()
+	const want = "Lucene94HnswVectorsFormat(name=Lucene94HnswVectorsFormat, maxConn=16, beamWidth=100)"
+	if f.String() != want {
+		t.Errorf("String:\n got  %q\n want %q", f.String(), want)
+	}
+}
+
+// TestRWHnswVectorsFormat_GetMaxDimensions verifies the 1024-dimension cap.
+func TestRWHnswVectorsFormat_GetMaxDimensions(t *testing.T) {
+	f := NewLucene94HnswVectorsFormat()
+	if got := f.GetMaxDimensions("any"); got != 1024 {
+		t.Errorf("GetMaxDimensions: got %d, want 1024", got)
+	}
+}
+
+// TestRWHnswVectorsFormat_FieldsWriterUnsupported verifies write is forbidden.
+func TestRWHnswVectorsFormat_FieldsWriterUnsupported(t *testing.T) {
+	f := NewLucene94HnswVectorsFormat()
+	err := f.FieldsWriter()
+	if !errors.Is(err, ErrLucene94WriteUnsupported) {
+		t.Errorf("FieldsWriter: expected ErrLucene94WriteUnsupported, got %v", err)
+	}
+}
+
+// TestRWHnswVectorsFormat_Constants verifies package-level constants.
+func TestRWHnswVectorsFormat_Constants(t *testing.T) {
+	tests := []struct {
+		name string
+		got  int
+		want int
+	}{
+		{"DEFAULT_MAX_CONN", Lucene94HnswVectorsFormat_DEFAULT_MAX_CONN, 16},
+		{"DEFAULT_BEAM_WIDTH", Lucene94HnswVectorsFormat_DEFAULT_BEAM_WIDTH, 100},
+		{"MAX_DIMENSIONS", Lucene94HnswVectorsFormat_MAX_DIMENSIONS, 1024},
+	}
+	for _, tc := range tests {
+		if tc.got != tc.want {
+			t.Errorf("%s: got %d, want %d", tc.name, tc.got, tc.want)
+		}
+	}
+}

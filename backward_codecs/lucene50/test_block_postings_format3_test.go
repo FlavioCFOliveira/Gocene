@@ -4,21 +4,46 @@
 
 package lucene50
 
-// TestBlockPostingsFormat3 is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene50.TestBlockPostingsFormat3 (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene50.TestBlockPostingsFormat3
-// (Lucene 10.4.0, backward-codecs/src/test).
+import (
+	"testing"
+)
+
+// TestBlockPostingsFormat3_VersionConstants verifies the version constants.
+func TestBlockPostingsFormat3_VersionConstants(t *testing.T) {
+	if VersionStart != 0 {
+		t.Errorf("VersionStart: got %d, want 0", VersionStart)
+	}
+	if VersionImpactSkipData != 1 {
+		t.Errorf("VersionImpactSkipData: got %d, want 1", VersionImpactSkipData)
+	}
+	if VersionCurrent != VersionImpactSkipData {
+		t.Errorf("VersionCurrent != VersionImpactSkipData")
+	}
+	if BlockSize != 128 {
+		t.Errorf("BlockSize: got %d, want 128", BlockSize)
+	}
+}
+
+// TestBlockPostingsFormat3_LiveDocsFormat verifies the
+// Lucene50LiveDocsFormat constructor.
+func TestBlockPostingsFormat3_LiveDocsFormat(t *testing.T) {
+	f := NewLucene50LiveDocsFormat("v1")
+	if f.Name != "Lucene50LiveDocsFormat" {
+		t.Errorf("Name: got %q, want %q", f.Name, "Lucene50LiveDocsFormat")
+	}
+	if f.Version != "v1" {
+		t.Errorf("Version: got %q, want %q", f.Version, "v1")
+	}
+}
+
+// TestBlockPostingsFormat3_StoredFieldsFormat verifies the stored fields
+// format constructor.
+func TestBlockPostingsFormat3_StoredFieldsFormat(t *testing.T) {
+	f := NewLucene50StoredFieldsFormat("v2")
+	if f.Name != "Lucene50StoredFieldsFormat" {
+		t.Errorf("Name: got %q", f.Name)
+	}
+	if f.Version != "v2" {
+		t.Errorf("Version: got %q, want %q", f.Version, "v2")
+	}
+}

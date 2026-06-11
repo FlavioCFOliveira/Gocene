@@ -4,21 +4,36 @@
 
 package compressing
 
-// Lucene50CompressingStoredFieldsWriter is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene50.compressing.Lucene50CompressingStoredFieldsWriter (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene50.compressing.Lucene50CompressingStoredFieldsWriter
-// (Lucene 10.4.0, backward-codecs/src/test).
+import (
+	"testing"
+)
+
+// TestLucene50CompressingStoredFieldsFormat_Constructor verifies that the
+// format struct is constructed with the expected Name and Version.
+func TestLucene50CompressingStoredFieldsFormat_Constructor(t *testing.T) {
+	f := NewLucene50CompressingStoredFieldsFormat("test")
+	if f == nil {
+		t.Fatal("NewLucene50CompressingStoredFieldsFormat returned nil")
+	}
+	if f.Name != "Lucene50CompressingStoredFieldsFormat" {
+		t.Errorf("Name: got %q, want %q", f.Name, "Lucene50CompressingStoredFieldsFormat")
+	}
+	if f.Version != "test" {
+		t.Errorf("Version: got %q, want %q", f.Version, "test")
+	}
+}
+
+// TestLucene50CompressingStoredFieldsReader_Constructor verifies that the
+// reader struct is constructed with the expected Name and Version.
+func TestLucene50CompressingStoredFieldsReader_Constructor(t *testing.T) {
+	r := NewLucene50CompressingStoredFieldsReader("v1.0")
+	if r == nil {
+		t.Fatal("NewLucene50CompressingStoredFieldsReader returned nil")
+	}
+	if r.Name != "Lucene50CompressingStoredFieldsReader" {
+		t.Errorf("Name: got %q, want %q", r.Name, "Lucene50CompressingStoredFieldsReader")
+	}
+	if r.Version != "v1.0" {
+		t.Errorf("Version: got %q, want %q", r.Version, "v1.0")
+	}
+}

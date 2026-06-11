@@ -4,21 +4,30 @@
 
 package lucene102
 
-// Lucene102RWBinaryQuantizedVectorsFormat is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene102.Lucene102RWBinaryQuantizedVectorsFormat (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene102.Lucene102RWBinaryQuantizedVectorsFormat
-// (Lucene 10.4.0, backward-codecs/src/test).
+import (
+	"testing"
+)
+
+// TestLucene102RWBinaryQuantizedVectorsFormat_Constructor verifies that the
+// constructor sets correct name and version.
+func TestLucene102RWBinaryQuantizedVectorsFormat_Constructor(t *testing.T) {
+	f := NewLucene102BinaryQuantizedVectorsFormat("10.2")
+	if f.Name != "Lucene102BinaryQuantizedVectorsFormat" {
+		t.Errorf("Name = %q, want %q", f.Name, "Lucene102BinaryQuantizedVectorsFormat")
+	}
+	if f.Version != "10.2" {
+		t.Errorf("Version = %q, want %q", f.Version, "10.2")
+	}
+}
+
+// TestLucene102RWBinaryQuantizedVectorsFormat_HnswFormat verifies the HNSW
+// format constructor.
+func TestLucene102RWBinaryQuantizedVectorsFormat_HnswFormat(t *testing.T) {
+	h := NewLucene102HnswBinaryQuantizedVectorsFormat("10.2")
+	if h.Name != "Lucene102HnswBinaryQuantizedVectorsFormat" {
+		t.Errorf("Name = %q, want %q", h.Name, "Lucene102HnswBinaryQuantizedVectorsFormat")
+	}
+	if h.Version != "10.2" {
+		t.Errorf("Version = %q, want %q", h.Version, "10.2")
+	}
+}

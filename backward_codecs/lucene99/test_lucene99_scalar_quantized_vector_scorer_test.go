@@ -4,21 +4,84 @@
 
 package lucene99
 
-// TestLucene99ScalarQuantizedVectorScorer is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene99.TestLucene99ScalarQuantizedVectorScorer (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene99.TestLucene99ScalarQuantizedVectorScorer
-// (Lucene 10.4.0, backward-codecs/src/test).
+import (
+	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/store"
+)
+
+// TestNewLucene99SkipReader_InitialState verifies that a freshly constructed
+// Lucene99SkipReader can be created and closed without error.
+func TestNewLucene99SkipReader_InitialState(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	t.Cleanup(func() { _ = dir.Close() })
+	out, _ := dir.CreateOutput("skip.bin", store.IOContext{})
+	_ = out.WriteByte(0)
+	_ = out.Close()
+	in, _ := dir.OpenInput("skip.bin", store.IOContext{})
+	t.Cleanup(func() { _ = in.Close() })
+
+	r := NewLucene99SkipReader(in, 4, true, false, false)
+	if r == nil {
+		t.Fatal("NewLucene99SkipReader returned nil")
+	}
+	if err := r.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
+
+// TestNewLucene99SkipReader_HasPositions verifies that the reader correctly
+// allocates position pointers when hasPos is true.
+func TestNewLucene99SkipReader_HasPositions(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	t.Cleanup(func() { _ = dir.Close() })
+	out, _ := dir.CreateOutput("skip.bin", store.IOContext{})
+	_ = out.WriteByte(0)
+	_ = out.Close()
+	in, _ := dir.OpenInput("skip.bin", store.IOContext{})
+	t.Cleanup(func() { _ = in.Close() })
+
+	r := NewLucene99SkipReader(in, 4, true, true, true)
+	if r == nil {
+		t.Fatal("NewLucene99SkipReader returned nil")
+	}
+	if err := r.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
+
+// TestNewLucene99SkipReader_NoPositions verifies that the reader handles the
+// case where hasPos is false.
+func TestNewLucene99SkipReader_NoPositions(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	t.Cleanup(func() { _ = dir.Close() })
+	out, _ := dir.CreateOutput("skip.bin", store.IOContext{})
+	_ = out.WriteByte(0)
+	_ = out.Close()
+	in, _ := dir.OpenInput("skip.bin", store.IOContext{})
+	t.Cleanup(func() { _ = in.Close() })
+
+	r := NewLucene99SkipReader(in, 4, false, false, false)
+	if r == nil {
+		t.Fatal("NewLucene99SkipReader returned nil")
+	}
+	if err := r.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
+
+// TestTrimLucene99_Zero verifies that df=0 (an exact multiple of blockSize)
+// yields -1 — consistent with the Java implementation.
+func TestTrimLucene99_Zero(t *testing.T) {
+	if got := trimLucene99(0); got != -1 {
+		t.Errorf("trim(0): got %d, want -1", got)
+	}
+}
+
+// TestTrimLucene99_NonMultiple verifies that a df which is not an exact multiple
+// of blockSize is returned unchanged.
+func TestTrimLucene99_NonMultiple(t *testing.T) {
+	if got := trimLucene99(1); got != 1 {
+		t.Errorf("trim(1): got %d, want 1", got)
+	}
+}

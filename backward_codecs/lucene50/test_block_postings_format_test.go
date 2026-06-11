@@ -4,21 +4,43 @@
 
 package lucene50
 
-// TestBlockPostingsFormat is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene50.TestBlockPostingsFormat (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene50.TestBlockPostingsFormat
-// (Lucene 10.4.0, backward-codecs/src/test).
+import (
+	"testing"
+)
+
+// TestBlockPostingsFormat_Constants verifies the Lucene50 postings format
+// constants used by block-based postings.
+func TestBlockPostingsFormat_Constants(t *testing.T) {
+	if BlockSize != 128 {
+		t.Errorf("BlockSize: got %d, want 128", BlockSize)
+	}
+	if VersionStart != 0 {
+		t.Errorf("VersionStart: got %d, want 0", VersionStart)
+	}
+	if VersionCurrent != 1 {
+		t.Errorf("VersionCurrent: got %d, want 1", VersionCurrent)
+	}
+}
+
+// TestBlockPostingsFormat_FormatConstructors verifies that the format types
+// carry the expected Name and Version values.
+func TestBlockPostingsFormat_FormatConstructors(t *testing.T) {
+	pf := NewLucene50PostingsFormat("test")
+	if pf.Name != "Lucene50PostingsFormat" {
+		t.Errorf("Name: got %q, want %q", pf.Name, "Lucene50PostingsFormat")
+	}
+	pr := NewLucene50PostingsReader("test")
+	if pr.Name != "Lucene50PostingsReader" {
+		t.Errorf("Name: got %q, want %q", pr.Name, "Lucene50PostingsReader")
+	}
+}
+
+// TestBlockPostingsFormat_Trim verifies the trim helper used by skip writers.
+func TestBlockPostingsFormat_Trim(t *testing.T) {
+	if got := trim(128); got != 127 {
+		t.Errorf("trim(128): got %d, want 127", got)
+	}
+	if got := trim(100); got != 100 {
+		t.Errorf("trim(100): got %d, want 100", got)
+	}
+}

@@ -4,21 +4,55 @@
 
 package lucene90
 
-// Lucene90RWPostingsFormat is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene90.Lucene90RWPostingsFormat (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene90.Lucene90RWPostingsFormat
-// (Lucene 10.4.0, backward-codecs/src/test).
+import "testing"
+
+func TestLucene90PostingsFormat_New(t *testing.T) {
+	f := NewLucene90PostingsFormat("1.0")
+	if f == nil {
+		t.Fatal("NewLucene90PostingsFormat returned nil")
+	}
+	if f.Name != "Lucene90PostingsFormat" {
+		t.Fatalf("got Name=%q, want %q", f.Name, "Lucene90PostingsFormat")
+	}
+}
+
+func TestLucene90PostingsFormat_Version(t *testing.T) {
+	f := NewLucene90PostingsFormat("p90")
+	if f.Version != "p90" {
+		t.Fatalf("got Version=%q, want %q", f.Version, "p90")
+	}
+}
+
+func TestLucene90PostingsReader_New(t *testing.T) {
+	r := NewLucene90PostingsReader("1.0")
+	if r == nil {
+		t.Fatal("NewLucene90PostingsReader returned nil")
+	}
+	if r.Name != "Lucene90PostingsReader" {
+		t.Fatalf("got Name=%q, want %q", r.Name, "Lucene90PostingsReader")
+	}
+}
+
+func TestLucene90PostingsReader_Version(t *testing.T) {
+	r := NewLucene90PostingsReader("pr90")
+	if r.Version != "pr90" {
+		t.Fatalf("got Version=%q, want %q", r.Version, "pr90")
+	}
+}
+
+func TestLucene90PostingsWriter_New(t *testing.T) {
+	w := NewLucene90PostingsWriter("1.0")
+	if w == nil {
+		t.Fatal("NewLucene90PostingsWriter returned nil")
+	}
+	if w.Name != "Lucene90PostingsWriter" {
+		t.Fatalf("got Name=%q, want %q", w.Name, "Lucene90PostingsWriter")
+	}
+}
+
+func TestLucene90PostingsWriter_Version(t *testing.T) {
+	w := NewLucene90PostingsWriter("pw90")
+	if w.Version != "pw90" {
+		t.Fatalf("got Version=%q, want %q", w.Version, "pw90")
+	}
+}

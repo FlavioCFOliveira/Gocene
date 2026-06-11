@@ -4,21 +4,38 @@
 
 package compressing
 
-// TestFastDecompressionMode is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.compressing.TestFastDecompressionMode (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.compressing.TestFastDecompressionMode
-// (Lucene 10.4.0, backward-codecs/src/test).
+import (
+	"testing"
+)
+
+// TestNewDecompressor verifies that NewDecompressor builds a Decompressor with
+// the expected name and version fields.
+func TestNewDecompressor(t *testing.T) {
+	d := NewDecompressor("1.0")
+	if d.Name != "Decompressor" {
+		t.Errorf("Name: got %q want %q", d.Name, "Decompressor")
+	}
+	if d.Version != "1.0" {
+		t.Errorf("Version: got %q want %q", d.Version, "1.0")
+	}
+}
+
+// TestDecompressor_VersionVariants verifies Version preservation.
+func TestDecompressor_VersionVariants(t *testing.T) {
+	versions := []string{"", "0.9", "1.0", "2.0.0"}
+	for _, v := range versions {
+		d := NewDecompressor(v)
+		if d.Version != v {
+			t.Errorf("Version: got %q want %q", d.Version, v)
+		}
+	}
+}
+
+// TestDecompressor_UniqueInstances verifies each call returns a distinct pointer.
+func TestDecompressor_UniqueInstances(t *testing.T) {
+	a := NewDecompressor("1.0")
+	b := NewDecompressor("1.0")
+	if a == b {
+		t.Error("NewDecompressor must return a new instance on each call")
+	}
+}

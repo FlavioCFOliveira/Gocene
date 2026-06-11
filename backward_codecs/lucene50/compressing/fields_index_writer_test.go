@@ -4,21 +4,32 @@
 
 package compressing
 
-// FieldsIndexWriter is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene50.compressing.FieldsIndexWriter (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene50.compressing.FieldsIndexWriter
-// (Lucene 10.4.0, backward-codecs/src/test).
+import (
+	"testing"
+)
+
+// TestLegacyFieldsIndex_CompileTimeAssertion verifies that *LegacyFieldsIndexReader
+// satisfies the LegacyFieldsIndex interface at compile time.
+func TestLegacyFieldsIndex_CompileTimeAssertion(t *testing.T) {
+	var _ LegacyFieldsIndex = (*LegacyFieldsIndexReader)(nil)
+}
+
+// TestLegacyFieldsIndexReader_Defaults verifies that a zero-value
+// LegacyFieldsIndexReader has a non-empty String and that the no-op methods
+// work without panicking.
+func TestLegacyFieldsIndexReader_Defaults(t *testing.T) {
+	r := &LegacyFieldsIndexReader{}
+	if r.String() == "" {
+		t.Error("String(): expected non-empty")
+	}
+	if err := r.CheckIntegrity(); err != nil {
+		t.Errorf("CheckIntegrity: unexpected error: %v", err)
+	}
+	clone := r.Clone()
+	if clone == nil {
+		t.Error("Clone(): returned nil")
+	}
+	if err := r.Close(); err != nil {
+		t.Errorf("Close: unexpected error: %v", err)
+	}
+}

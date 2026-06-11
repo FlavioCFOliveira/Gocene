@@ -4,21 +4,51 @@
 
 package lucene99
 
-// Lucene99RWScalarQuantizedVectorsFormat is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene99.Lucene99RWScalarQuantizedVectorsFormat (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene99.Lucene99RWScalarQuantizedVectorsFormat
-// (Lucene 10.4.0, backward-codecs/src/test).
+import (
+	"testing"
+)
+
+// TestNewLucene99ScalarQuantizedVectorsFormat_Defaults verifies that
+// NewLucene99ScalarQuantizedVectorsFormat sets Name and Version correctly.
+func TestNewLucene99ScalarQuantizedVectorsFormat_Defaults(t *testing.T) {
+	f := NewLucene99ScalarQuantizedVectorsFormat("9.9.0")
+	if f.Name != "Lucene99ScalarQuantizedVectorsFormat" {
+		t.Errorf("Name: got %q, want %q", f.Name, "Lucene99ScalarQuantizedVectorsFormat")
+	}
+	if f.Version != "9.9.0" {
+		t.Errorf("Version: got %q, want %q", f.Version, "9.9.0")
+	}
+}
+
+// TestNewLucene99ScalarQuantizedVectorsReader_Defaults verifies that
+// NewLucene99ScalarQuantizedVectorsReader sets Name and Version correctly.
+func TestNewLucene99ScalarQuantizedVectorsReader_Defaults(t *testing.T) {
+	r := NewLucene99ScalarQuantizedVectorsReader("test")
+	if r.Name != "Lucene99ScalarQuantizedVectorsReader" {
+		t.Errorf("Name: got %q, want %q", r.Name, "Lucene99ScalarQuantizedVectorsReader")
+	}
+	if r.Version != "test" {
+		t.Errorf("Version: got %q, want %q", r.Version, "test")
+	}
+}
+
+// TestNewOffHeapQuantizedByteVectorValues_Defaults verifies that
+// NewOffHeapQuantizedByteVectorValues sets Name and Version correctly.
+func TestNewOffHeapQuantizedByteVectorValues_Defaults(t *testing.T) {
+	v := NewOffHeapQuantizedByteVectorValues("9.9.0")
+	if v.Name != "OffHeapQuantizedByteVectorValues" {
+		t.Errorf("Name: got %q, want %q", v.Name, "OffHeapQuantizedByteVectorValues")
+	}
+	if v.Version != "9.9.0" {
+		t.Errorf("Version: got %q, want %q", v.Version, "9.9.0")
+	}
+}
+
+// TestNewOffHeapQuantizedByteVectorValues_EmptyVersion verifies that an empty
+// version is accepted.
+func TestNewOffHeapQuantizedByteVectorValues_EmptyVersion(t *testing.T) {
+	v := NewOffHeapQuantizedByteVectorValues("")
+	if v.Version != "" {
+		t.Errorf("Version: got %q, want empty", v.Version)
+	}
+}

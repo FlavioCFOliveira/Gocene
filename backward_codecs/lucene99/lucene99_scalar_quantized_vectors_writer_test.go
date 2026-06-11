@@ -4,21 +4,48 @@
 
 package lucene99
 
-// Lucene99ScalarQuantizedVectorsWriter is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene99.Lucene99ScalarQuantizedVectorsWriter (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene99.Lucene99ScalarQuantizedVectorsWriter
-// (Lucene 10.4.0, backward-codecs/src/test).
+import (
+	"testing"
+)
+
+// TestNewLucene99ScalarQuantizedVectorsReader_Name verifies the reader's Name
+// field matches the Java class name.
+func TestNewLucene99ScalarQuantizedVectorsReader_Name(t *testing.T) {
+	r := NewLucene99ScalarQuantizedVectorsReader("test")
+	if r.Name != "Lucene99ScalarQuantizedVectorsReader" {
+		t.Errorf("Name: got %q, want %q", r.Name, "Lucene99ScalarQuantizedVectorsReader")
+	}
+}
+
+// TestNewLucene99ScalarQuantizedVectorsReader_Version verifies the reader's
+// Version field.
+func TestNewLucene99ScalarQuantizedVectorsReader_Version(t *testing.T) {
+	r := NewLucene99ScalarQuantizedVectorsReader("9.9.0")
+	if r.Version != "9.9.0" {
+		t.Errorf("Version: got %q, want %q", r.Version, "9.9.0")
+	}
+}
+
+// TestNewLucene99Codec_Defaults verifies that NewLucene99Codec sets Name and
+// Version correctly.
+func TestNewLucene99Codec_Defaults(t *testing.T) {
+	c := NewLucene99Codec("9.9.0")
+	if c.Name != "Lucene99Codec" {
+		t.Errorf("Name: got %q, want %q", c.Name, "Lucene99Codec")
+	}
+	if c.Version != "9.9.0" {
+		t.Errorf("Version: got %q, want %q", c.Version, "9.9.0")
+	}
+}
+
+// TestNewLucene99Codec_MultipleVersions verifies that NewLucene99Codec stores
+// different version strings correctly.
+func TestNewLucene99Codec_MultipleVersions(t *testing.T) {
+	versions := []string{"", "9.9", "9.9.0", "10.4.0", "v0", "v1"}
+	for _, v := range versions {
+		c := NewLucene99Codec(v)
+		if c.Version != v {
+			t.Errorf("Version: got %q, want %q", c.Version, v)
+		}
+	}
+}

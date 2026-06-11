@@ -4,21 +4,31 @@
 
 package lucene86
 
-// Lucene86PointsWriter is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene86.Lucene86PointsWriter (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene86.Lucene86PointsWriter
-// (Lucene 10.4.0, backward-codecs/src/test).
+import "testing"
+
+func TestLucene86PointsFormat_New(t *testing.T) {
+	f := NewLucene86PointsFormat("1.0")
+	if f == nil {
+		t.Fatal("NewLucene86PointsFormat returned nil")
+	}
+	if f.Name != "Lucene86PointsFormat" {
+		t.Fatalf("got Name=%q, want %q", f.Name, "Lucene86PointsFormat")
+	}
+}
+
+func TestLucene86PointsFormat_Version(t *testing.T) {
+	f := NewLucene86PointsFormat("v2")
+	if f.Version != "v2" {
+		t.Fatalf("got Version=%q, want %q", f.Version, "v2")
+	}
+}
+
+func TestLucene86PointsReader_New(t *testing.T) {
+	r := NewLucene86PointsReader("1.0")
+	if r == nil {
+		t.Fatal("NewLucene86PointsReader returned nil")
+	}
+	if r.Name != "Lucene86PointsReader" {
+		t.Fatalf("got Name=%q, want %q", r.Name, "Lucene86PointsReader")
+	}
+}

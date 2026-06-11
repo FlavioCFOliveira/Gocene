@@ -4,21 +4,35 @@
 
 package lucene50
 
-// Lucene50RWCompoundFormat is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene50.Lucene50RWCompoundFormat (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene50.Lucene50RWCompoundFormat
-// (Lucene 10.4.0, backward-codecs/src/test).
+import (
+	"testing"
+)
+
+// TestLucene50RWCompoundFormat_Constructor verifies that the read-write
+// compound format struct is constructed with the expected Name and Version.
+func TestLucene50RWCompoundFormat_Constructor(t *testing.T) {
+	f := NewLucene50CompoundFormat("test")
+	if f == nil {
+		t.Fatal("NewLucene50CompoundFormat returned nil")
+	}
+	if f.Name != "Lucene50CompoundFormat" {
+		t.Errorf("Name: got %q, want %q", f.Name, "Lucene50CompoundFormat")
+	}
+	if f.Version != "test" {
+		t.Errorf("Version: got %q, want %q", f.Version, "test")
+	}
+}
+
+// TestLucene50RWCompoundFormat_DifferentVersions verifies that different
+// version strings are stored correctly.
+func TestLucene50RWCompoundFormat_DifferentVersions(t *testing.T) {
+	for _, v := range []string{"", "v1", "latest"} {
+		f := NewLucene50CompoundFormat(v)
+		if f.Version != v {
+			t.Errorf("Version: got %q, want %q", f.Version, v)
+		}
+		if f.Name != "Lucene50CompoundFormat" {
+			t.Errorf("Name: got %q", f.Name)
+		}
+	}
+}

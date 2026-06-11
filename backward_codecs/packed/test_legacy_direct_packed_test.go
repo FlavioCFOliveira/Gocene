@@ -4,21 +4,75 @@
 
 package packed
 
-// TestLegacyDirectPacked is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.packed.TestLegacyDirectPacked (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.packed.TestLegacyDirectPacked
-// (Lucene 10.4.0, backward-codecs/src/test).
+import (
+	"testing"
+)
+
+// TestNewLegacyDirectReader verifies the constructor sets Name and Version.
+func TestNewLegacyDirectReader(t *testing.T) {
+	r := NewLegacyDirectReader("1.0")
+	if r.Name != "LegacyDirectReader" {
+		t.Errorf("Name: got %q want %q", r.Name, "LegacyDirectReader")
+	}
+	if r.Version != "1.0" {
+		t.Errorf("Version: got %q want %q", r.Version, "1.0")
+	}
+}
+
+// TestLegacyDirectReader_VersionVariants verifies version preservation.
+func TestLegacyDirectReader_VersionVariants(t *testing.T) {
+	versions := []string{"", "0.9", "1.0", "2.0.0"}
+	for _, v := range versions {
+		r := NewLegacyDirectReader(v)
+		if r.Version != v {
+			t.Errorf("Version: got %q want %q", r.Version, v)
+		}
+	}
+}
+
+// TestNewLegacyDirectWriter verifies the constructor sets Name and Version.
+func TestNewLegacyDirectWriter(t *testing.T) {
+	w := NewLegacyDirectWriter("1.0")
+	if w.Name != "LegacyDirectWriter" {
+		t.Errorf("Name: got %q want %q", w.Name, "LegacyDirectWriter")
+	}
+	if w.Version != "1.0" {
+		t.Errorf("Version: got %q want %q", w.Version, "1.0")
+	}
+}
+
+// TestLegacyDirectWriter_VersionVariants verifies version preservation.
+func TestLegacyDirectWriter_VersionVariants(t *testing.T) {
+	versions := []string{"", "0.9", "1.0", "2.0.0"}
+	for _, v := range versions {
+		w := NewLegacyDirectWriter(v)
+		if w.Version != v {
+			t.Errorf("Version: got %q want %q", w.Version, v)
+		}
+	}
+}
+
+// TestNewLegacyPackedInts verifies the constructor sets Name and Version.
+func TestNewLegacyPackedInts(t *testing.T) {
+	p := NewLegacyPackedInts("1.0")
+	if p.Name != "LegacyPackedInts" {
+		t.Errorf("Name: got %q want %q", p.Name, "LegacyPackedInts")
+	}
+	if p.Version != "1.0" {
+		t.Errorf("Version: got %q want %q", p.Version, "1.0")
+	}
+}
+
+// TestLegacyDirectTypes_UniqueInstances verifies each constructor returns a
+// distinct pointer.
+func TestLegacyDirectTypes_UniqueInstances(t *testing.T) {
+	if NewLegacyDirectReader("x") == NewLegacyDirectReader("x") {
+		t.Error("LegacyDirectReader must return distinct instances")
+	}
+	if NewLegacyDirectWriter("x") == NewLegacyDirectWriter("x") {
+		t.Error("LegacyDirectWriter must return distinct instances")
+	}
+	if NewLegacyPackedInts("x") == NewLegacyPackedInts("x") {
+		t.Error("LegacyPackedInts must return distinct instances")
+	}
+}

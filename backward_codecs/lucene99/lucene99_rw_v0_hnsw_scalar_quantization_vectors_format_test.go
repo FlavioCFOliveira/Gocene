@@ -4,21 +4,40 @@
 
 package lucene99
 
-// Lucene99RWV0HnswScalarQuantizationVectorsFormat is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene99.Lucene99RWV0HnswScalarQuantizationVectorsFormat (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene99.Lucene99RWV0HnswScalarQuantizationVectorsFormat
-// (Lucene 10.4.0, backward-codecs/src/test).
+import (
+	"testing"
+)
+
+// TestNewLucene99HnswScalarQuantizedVectorsFormat_Defaults verifies that
+// NewLucene99HnswScalarQuantizedVectorsFormat sets Name and Version correctly.
+func TestNewLucene99HnswScalarQuantizedVectorsFormat_Defaults(t *testing.T) {
+	f := NewLucene99HnswScalarQuantizedVectorsFormat("v0")
+	if f.Name != "Lucene99HnswScalarQuantizedVectorsFormat" {
+		t.Errorf("Name: got %q, want %q", f.Name, "Lucene99HnswScalarQuantizedVectorsFormat")
+	}
+	if f.Version != "v0" {
+		t.Errorf("Version: got %q, want %q", f.Version, "v0")
+	}
+}
+
+// TestNewLucene99HnswScalarQuantizedVectorsFormat_VersionTracking verifies that
+// different version strings are tracked correctly.
+func TestNewLucene99HnswScalarQuantizedVectorsFormat_VersionTracking(t *testing.T) {
+	versions := []string{"v0", "v1", "9.9.0", "10.4.0"}
+	for _, v := range versions {
+		f := NewLucene99HnswScalarQuantizedVectorsFormat(v)
+		if f.Version != v {
+			t.Errorf("Version: got %q, want %q", f.Version, v)
+		}
+	}
+}
+
+// TestNewLucene99HnswScalarQuantizedVectorsFormat_NameConstant verifies that the
+// Name field is always the same regardless of version.
+func TestNewLucene99HnswScalarQuantizedVectorsFormat_NameConstant(t *testing.T) {
+	f1 := NewLucene99HnswScalarQuantizedVectorsFormat("a")
+	f2 := NewLucene99HnswScalarQuantizedVectorsFormat("b")
+	if f1.Name != f2.Name {
+		t.Errorf("Name should be constant: f1.Name=%q f2.Name=%q", f1.Name, f2.Name)
+	}
+}

@@ -4,21 +4,29 @@
 
 package lucene50
 
-// TestLucene50StoredFieldsFormatHighCompression is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene50.TestLucene50StoredFieldsFormatHighCompression (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene50.TestLucene50StoredFieldsFormatHighCompression
-// (Lucene 10.4.0, backward-codecs/src/test).
+import (
+	"testing"
+)
+
+// TestLucene50StoredFieldsFormatHighCompression_Constructor verifies that
+// the stored fields format struct is constructed correctly.
+func TestLucene50StoredFieldsFormatHighCompression_Constructor(t *testing.T) {
+	f := NewLucene50StoredFieldsFormat("hc")
+	if f == nil {
+		t.Fatal("NewLucene50StoredFieldsFormat returned nil")
+	}
+	if f.Name != "Lucene50StoredFieldsFormat" {
+		t.Errorf("Name: got %q, want %q", f.Name, "Lucene50StoredFieldsFormat")
+	}
+	if f.Version != "hc" {
+		t.Errorf("Version: got %q, want %q", f.Version, "hc")
+	}
+}
+
+// TestLucene50StoredFieldsFormatHighCompression_Constants verifies the
+// block size constant used by stored fields format.
+func TestLucene50StoredFieldsFormatHighCompression_Constants(t *testing.T) {
+	if BlockSize != 128 {
+		t.Errorf("BlockSize: got %d, want 128", BlockSize)
+	}
+}

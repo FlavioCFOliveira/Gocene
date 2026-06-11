@@ -4,21 +4,73 @@
 
 package lucene91
 
-// Lucene91HnswVectorsWriter is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene91.Lucene91HnswVectorsWriter (in the Lucene test tree).
+import (
+	"testing"
+)
+
+// TestWriter_FormatConstructor verifies that Lucene91HnswVectorsFormat
+// is constructible and sets fields correctly.
 //
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene91.Lucene91HnswVectorsWriter
-// (Lucene 10.4.0, backward-codecs/src/test).
+// In the Java test tree, Lucene91HnswVectorsWriter is a test-support class; in
+// Gocene the production format that a writer would compose with is tested here.
+func TestWriter_FormatConstructor(t *testing.T) {
+	f := NewLucene91HnswVectorsFormat("9.1.0")
+	if f.Name != "Lucene91HnswVectorsFormat" {
+		t.Errorf("Name: got %q, want %q", f.Name, "Lucene91HnswVectorsFormat")
+	}
+	if f.Version != "9.1.0" {
+		t.Errorf("Version: got %q, want %q", f.Version, "9.1.0")
+	}
+}
+
+// TestWriter_FormatCustomVersion verifies a different version string.
+func TestWriter_FormatCustomVersion(t *testing.T) {
+	f := NewLucene91HnswVectorsFormat("10.4.0")
+	if f.Version != "10.4.0" {
+		t.Errorf("Version: got %q, want %q", f.Version, "10.4.0")
+	}
+}
+
+// TestWriter_ReaderConstructor verifies the reader type is constructible.
+func TestWriter_ReaderConstructor(t *testing.T) {
+	r := NewLucene91HnswVectorsReader("9.1.0")
+	if r.Name != "Lucene91HnswVectorsReader" {
+		t.Errorf("Name: got %q, want %q", r.Name, "Lucene91HnswVectorsReader")
+	}
+	if r.Version != "9.1.0" {
+		t.Errorf("Version: got %q, want %q", r.Version, "9.1.0")
+	}
+}
+
+// TestWriter_BoundsCheckerConstructor verifies the bounds checker type.
+func TestWriter_BoundsCheckerConstructor(t *testing.T) {
+	b := NewLucene91BoundsChecker("9.1.0")
+	if b.Name != "Lucene91BoundsChecker" {
+		t.Errorf("Name: got %q, want %q", b.Name, "Lucene91BoundsChecker")
+	}
+	if b.Version != "9.1.0" {
+		t.Errorf("Version: got %q, want %q", b.Version, "9.1.0")
+	}
+}
+
+// TestWriter_CodecConstructor verifies the codec type is constructible.
+func TestWriter_CodecConstructor(t *testing.T) {
+	c := NewLucene91Codec("9.1.0")
+	if c.Name != "Lucene91Codec" {
+		t.Errorf("Name: got %q, want %q", c.Name, "Lucene91Codec")
+	}
+	if c.Version != "9.1.0" {
+		t.Errorf("Version: got %q, want %q", c.Version, "9.1.0")
+	}
+}
+
+// TestWriter_NeighborArrayConstructor verifies the neighbor array type.
+func TestWriter_NeighborArrayConstructor(t *testing.T) {
+	n := NewLucene91NeighborArray("9.1.0")
+	if n.Name != "Lucene91NeighborArray" {
+		t.Errorf("Name: got %q, want %q", n.Name, "Lucene91NeighborArray")
+	}
+	if n.Version != "9.1.0" {
+		t.Errorf("Version: got %q, want %q", n.Version, "9.1.0")
+	}
+}

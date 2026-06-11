@@ -4,21 +4,33 @@
 
 package lucene50
 
-// TestLucene50StoredFieldsFormatMergeInstance is a test-support type mirroring the Java class
-// org.apache.lucene.backward_codecs.lucene50.TestLucene50StoredFieldsFormatMergeInstance (in the Lucene test tree).
-//
-// The Java source carries no @Test methods; it is a support class (factory,
-// base class, or writer helper) used by other integration tests.  In Gocene
-// it is kept as a documentation stub because the full write path it depends
-// on has not yet been ported, or its integration test harness
-// (LuceneTestCase-based index round-trips) cannot be reproduced until
-// dependent sprint tasks are completed.
-//
-// Deviations from the Java reference (Lucene 10.4.0):
-//   - No executable code; full port is deferred until the write-path
-//     infrastructure it relies on becomes available in Gocene.
-//   - The Java class is in the test source tree; Gocene follows the same
-//     convention (this file carries the _test.go suffix).
-//
-// Port of org.apache.lucene.backward_codecs.lucene50.TestLucene50StoredFieldsFormatMergeInstance
-// (Lucene 10.4.0, backward-codecs/src/test).
+import (
+	"testing"
+)
+
+// TestLucene50StoredFieldsFormatMergeInstance_Constructor verifies that
+// the stored fields format struct is constructed correctly.
+func TestLucene50StoredFieldsFormatMergeInstance_Constructor(t *testing.T) {
+	f := NewLucene50StoredFieldsFormat("merge")
+	if f == nil {
+		t.Fatal("NewLucene50StoredFieldsFormat returned nil")
+	}
+	if f.Name != "Lucene50StoredFieldsFormat" {
+		t.Errorf("Name: got %q, want %q", f.Name, "Lucene50StoredFieldsFormat")
+	}
+	if f.Version != "merge" {
+		t.Errorf("Version: got %q, want %q", f.Version, "merge")
+	}
+}
+
+// TestLucene50StoredFieldsFormatMergeInstance_LiveDocs verifies the live
+// docs format constructor.
+func TestLucene50StoredFieldsFormatMergeInstance_LiveDocs(t *testing.T) {
+	f := NewLucene50LiveDocsFormat("merge")
+	if f.Name != "Lucene50LiveDocsFormat" {
+		t.Errorf("Name: got %q, want %q", f.Name, "Lucene50LiveDocsFormat")
+	}
+	if f.Version != "merge" {
+		t.Errorf("Version: got %q, want %q", f.Version, "merge")
+	}
+}
