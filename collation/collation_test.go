@@ -157,3 +157,24 @@ func TestCollationKeyAnalyzerConstruction(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 }
+
+// TestCollationStrengthLevels_Blocker documents the gap for Sprint 14 T87.
+//
+// Java Lucene's CollationKeyAnalyzer supports PRIMARY/SECONDARY/TERTIARY/
+// IDENTICAL strength levels and NO/CANONICAL/FULL decomposition modes via
+// java.text.Collator.setStrength / setDecomposition.
+//
+// Gocene's port has two blockers:
+//   1) KeywordTokenizer does not accept AttributeFactory injection, so
+//      CollationAttributeFactory cannot be wired end-to-end.
+//   2) There is no Go-native Collator implementation with strength/decomposition
+//      levels (golang.org/x/text/collate supports strength but is not yet wired).
+//
+// This test fails loudly so the gap is tracked.
+func TestCollationStrengthLevels_Blocker(t *testing.T) {
+	const reason = "CollationKeyAnalyzer end-to-end is blocked: " +
+		"KeywordTokenizer does not accept AttributeFactory injection, " +
+		"and no Go-native Collator with strength/decomposition levels is wired. " +
+		"Sprint 14 T87 requires both blockers to be resolved."
+	t.Fatalf("blocker: %s", reason)
+}
