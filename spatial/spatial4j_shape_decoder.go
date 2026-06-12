@@ -7,6 +7,7 @@ package spatial
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
@@ -212,6 +213,203 @@ func (s *Spatial4jShapeDecoder) parseRectangleWKT(wkt string) (Shape, error) {
 	return NewRectangle(minX, minY, maxX, maxY), nil
 }
 
+// DecodeFromGeoJSON parses a GeoJSON string and returns a Shape.
+// Supported GeoJSON types:
+//   - Point: {"type":"Point","coordinates":[x,y]}
+//   - Polygon: simple axis-aligned rectangle (4 coordinates, or 5 with closing repeat)
+//   - Feature wrapping any of the above geometry types
+//
+// Parameters:
+//   - geojson: The GeoJSON string to parse
+//
+// Returns the decoded Shape or an error if parsing fails or the geometry is unsupported.
+func (s *Spatial4jShapeDecoder) DecodeFromGeoJSON(geojson string) (Shape, error) {
+	if geojson == "" {
+		return nil, fmt.Errorf("empty GeoJSON string")
+	}
+
+	// Parse top-level object to detect Feature wrapper
+	var topLevel map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(geojson), &topLevel); err != nil {
+		return nil, fmt.Errorf("invalid GeoJSON: %w", err)
+	}
+
+	typeRaw, ok := topLevel["type"]
+	if !ok {
+		return nil, fmt.Errorf("GeoJSON object missing 'type' field")
+	}
+
+	var geoType string
+	if err := json.Unmarshal(typeRaw, &geoType); err != nil {
+		return nil, fmt.Errorf("invalid GeoJSON type: %w", err)
+	}
+
+	switch geoType {
+	case "Feature":
+		geometryRaw, ok := topLevel["geometry"]
+		if !ok {
+			return nil, fmt.Errorf("Feature missing 'geometry' field")
+		}
+		return s.decodeGeoJSONGeometry(string(geometryRaw))
+	case "Point", "Polygon", "LineString":
+		return s.decodeGeoJSONGeometry(geojson)
+	default:
+		return nil, fmt.Errorf("unsupported GeoJSON type: %s", geoType)
+	}
+}
+
+// decodeGeoJSONGeometry parses a GeoJSON geometry object.
+func (s *Spatial4jShapeDecoder) decodeGeoJSONGeometry(geojson string) (Shape, error) {
+	var geom struct {
+		Type        string          `json:"type"`
+		Coordinates json.RawMessage `json:"coordinates"`
+	}
+	if err := json.Unmarshal([]byte(geojson), &geom); err != nil {
+		return nil, fmt.Errorf("invalid GeoJSON geometry: %w", err)
+	}
+
+	switch geom.Type {
+	case "Point":
+		return s.parseGeoJSONPoint(geom.Coordinates)
+	case "Polygon":
+		return s.parseGeoJSONPolygon(geom.Coordinates)
+	case "LineString":
+		return nil, fmt.Errorf("LineString is not supported")
+	default:
+		return nil, fmt.Errorf("unsupported GeoJSON geometry type: %s", geom.Type)
+	}
+}
+
+// parseGeoJSONPoint parses GeoJSON Point coordinates.
+func (s *Spatial4jShapeDecoder) parseGeoJSONPoint(raw json.RawMessage) (Shape, error) {
+	var coords []float64
+	if err := json.Unmarshal(raw, &coords); err != nil {
+		return nil, fmt.Errorf("invalid Point coordinates: %w", err)
+	}
+	if len(coords) < 2 {
+		return nil, fmt.Errorf("Point requires at least 2 coordinates, got %d", len(coords))
+	}
+	return NewPoint(coords[0], coords[1]), nil
+}
+
+// parseGeoJSONPolygon parses GeoJSON Polygon coordinates.
+// Only simple axis-aligned rectangular polygons are supported.
+func (s *Spatial4jShapeDecoder) parseGeoJSONPolygon(raw json.RawMessage) (Shape, error) {
+	var rings [][][]float64
+	if err := json.Unmarshal(raw, &rings); err != nil {
+		return nil, fmt.Errorf("invalid Polygon coordinates: %w", err)
+	}
+	if len(rings) == 0 {
+		return nil, fmt.Errorf("Polygon has no rings")
+	}
+	if len(rings) > 1 {
+		return nil, fmt.Errorf("complex Polygon with holes is not supported")
+	}
+
+	ring := rings[0]
+	n := len(ring)
+	if n < 4 {
+		return nil, fmt.Errorf("Polygon ring must have at least 4 coordinates, got %d", n)
+	}
+
+	// Detect closed ring (first == last)
+	isClosed := false
+	if n >= 2 {
+		first := ring[0]
+		last := ring[n-1]
+		if len(first) >= 2 && len(last) >= 2 && first[0] == last[0] && first[1] == last[1] {
+			isClosed = true
+		}
+	}
+
+	var coords [][]float64
+	if isClosed {
+		coords = ring[:n-1]
+		n = len(coords)
+	} else {
+		coords = ring
+	}
+
+	if n != 4 {
+		return nil, fmt.Errorf("only simple 4-coordinate polygons are supported, got %d distinct coordinates", n)
+	}
+
+	// Validate coordinates and compute bounding box
+	minX, maxX := coords[0][0], coords[0][0]
+	minY, maxY := coords[0][1], coords[0][1]
+	distinctX := make(map[float64]struct{})
+	distinctY := make(map[float64]struct{})
+
+	for i, c := range coords {
+		if len(c) < 2 {
+			return nil, fmt.Errorf("invalid coordinate at index %d in polygon ring", i)
+		}
+		x, y := c[0], c[1]
+		if x < minX {
+			minX = x
+		}
+		if x > maxX {
+			maxX = x
+		}
+		if y < minY {
+			minY = y
+		}
+		if y > maxY {
+			maxY = y
+		}
+		distinctX[x] = struct{}{}
+		distinctY[y] = struct{}{}
+	}
+
+	if len(distinctX) != 2 || len(distinctY) != 2 {
+		return nil, fmt.Errorf("polygon is not an axis-aligned rectangle")
+	}
+
+	return NewRectangle(minX, minY, maxX, maxY), nil
+}
+
+// EncodeToGeoJSON encodes a Shape to a GeoJSON string.
+// Supported shapes:
+//   - Point → GeoJSON Point
+//   - Rectangle → GeoJSON Polygon (bounding box)
+func (s *Spatial4jShapeDecoder) EncodeToGeoJSON(shape Shape) (string, error) {
+	if shape == nil {
+		return "", fmt.Errorf("cannot encode nil shape")
+	}
+
+	switch sh := shape.(type) {
+	case Point:
+		data, err := json.Marshal(map[string]interface{}{
+			"type":        "Point",
+			"coordinates": []float64{sh.X, sh.Y},
+		})
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal Point to GeoJSON: %w", err)
+		}
+		return string(data), nil
+
+	case *Rectangle:
+		ring := [][][]float64{{
+			{sh.MinX, sh.MinY},
+			{sh.MaxX, sh.MinY},
+			{sh.MaxX, sh.MaxY},
+			{sh.MinX, sh.MaxY},
+			{sh.MinX, sh.MinY},
+		}}
+		data, err := json.Marshal(map[string]interface{}{
+			"type":        "Polygon",
+			"coordinates": ring,
+		})
+		if err != nil {
+			return "", fmt.Errorf("failed to marshal Polygon to GeoJSON: %w", err)
+		}
+		return string(data), nil
+
+	default:
+		return "", fmt.Errorf("unsupported shape type for GeoJSON encoding: %T", shape)
+	}
+}
+
 // DecodeFromBytes decodes a Spatial4j native binary format.
 // Format:
 //   - Type marker (1 byte): 1=Point, 2=Rectangle, 3=Circle
@@ -253,8 +451,9 @@ func (s *Spatial4jShapeDecoder) DecodeFromReader(r io.Reader) (Shape, error) {
 
 // Spatial4j binary type markers.
 // Must match org.locationtech.spatial4j.io.BinaryCodec:
-//   TYPE_POINT = 0, TYPE_CIRCLE = 1, TYPE_RECTANGLE = 2,
-//   TYPE_PATH = 3, TYPE_SHAPE = 4
+//
+//	TYPE_POINT = 0, TYPE_CIRCLE = 1, TYPE_RECTANGLE = 2,
+//	TYPE_PATH = 3, TYPE_SHAPE = 4
 const (
 	spatial4jTypePoint     byte = 0
 	spatial4jTypeCircle    byte = 1
@@ -262,8 +461,6 @@ const (
 	spatial4jTypeLine      byte = 3 // TYPE_PATH
 	spatial4jTypePolygon   byte = 4 // TYPE_SHAPE
 )
-
-
 
 // decodePointBinary decodes a Point from binary format.
 func (s *Spatial4jShapeDecoder) decodePointBinary(r io.Reader) (Shape, error) {

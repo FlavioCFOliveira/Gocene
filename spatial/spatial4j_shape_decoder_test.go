@@ -561,6 +561,271 @@ func TestSpatial4jShapeDecoderFactory(t *testing.T) {
 	}
 }
 
+func TestSpatial4jShapeDecoder_DecodeFromGeoJSON_Point(t *testing.T) {
+	ctx := NewSpatialContext()
+	decoder := NewSpatial4jShapeDecoder(ctx)
+
+	tests := []struct {
+		name     string
+		geojson  string
+		expected Point
+	}{
+		{
+			name:     "simple point",
+			geojson:  `{"type":"Point","coordinates":[10.5,20.5]}`,
+			expected: NewPoint(10.5, 20.5),
+		},
+		{
+			name:     "point with spaces",
+			geojson:  `{"type": "Point", "coordinates": [ 10.5 , 20.5 ]}`,
+			expected: NewPoint(10.5, 20.5),
+		},
+		{
+			name:     "negative point",
+			geojson:  `{"type":"Point","coordinates":[-10.5,-20.5]}`,
+			expected: NewPoint(-10.5, -20.5),
+		},
+		{
+			name:     "origin",
+			geojson:  `{"type":"Point","coordinates":[0,0]}`,
+			expected: NewPoint(0, 0),
+		},
+		{
+			name:     "feature wrapping point",
+			geojson:  `{"type":"Feature","geometry":{"type":"Point","coordinates":[10.5,20.5]}}`,
+			expected: NewPoint(10.5, 20.5),
+		},
+		{
+			name:     "3D point (ignores Z)",
+			geojson:  `{"type":"Point","coordinates":[10.5,20.5,100]}`,
+			expected: NewPoint(10.5, 20.5),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			shape, err := decoder.DecodeFromGeoJSON(tt.geojson)
+			if err != nil {
+				t.Fatalf("decode failed: %v", err)
+			}
+
+			point, ok := shape.(Point)
+			if !ok {
+				t.Fatalf("expected Point, got %T", shape)
+			}
+
+			if point.X != tt.expected.X || point.Y != tt.expected.Y {
+				t.Errorf("expected Point(%v, %v), got Point(%v, %v)",
+					tt.expected.X, tt.expected.Y, point.X, point.Y)
+			}
+		})
+	}
+}
+
+func TestSpatial4jShapeDecoder_DecodeFromGeoJSON_Polygon(t *testing.T) {
+	ctx := NewSpatialContext()
+	decoder := NewSpatial4jShapeDecoder(ctx)
+
+	tests := []struct {
+		name     string
+		geojson  string
+		expected *Rectangle
+	}{
+		{
+			name:     "simple rectangle 4 coords",
+			geojson:  `{"type":"Polygon","coordinates":[[[0,5],[10,5],[10,20],[0,20]]]}`,
+			expected: NewRectangle(0, 5, 10, 20),
+		},
+		{
+			name:     "closed rectangle 5 coords",
+			geojson:  `{"type":"Polygon","coordinates":[[[0,5],[10,5],[10,20],[0,20],[0,5]]]}`,
+			expected: NewRectangle(0, 5, 10, 20),
+		},
+		{
+			name:     "negative rectangle",
+			geojson:  `{"type":"Polygon","coordinates":[[[-100,-50],[-10,-50],[-10,-20],[-100,-20]]]}`,
+			expected: NewRectangle(-100, -50, -10, -20),
+		},
+		{
+			name:     "feature wrapping polygon",
+			geojson:  `{"type":"Feature","geometry":{"type":"Polygon","coordinates":[[[0,5],[10,5],[10,20],[0,20]]]}}`,
+			expected: NewRectangle(0, 5, 10, 20),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			shape, err := decoder.DecodeFromGeoJSON(tt.geojson)
+			if err != nil {
+				t.Fatalf("decode failed: %v", err)
+			}
+
+			rect, ok := shape.(*Rectangle)
+			if !ok {
+				t.Fatalf("expected *Rectangle, got %T", shape)
+			}
+
+			if rect.MinX != tt.expected.MinX || rect.MinY != tt.expected.MinY ||
+				rect.MaxX != tt.expected.MaxX || rect.MaxY != tt.expected.MaxY {
+				t.Errorf("expected Rectangle(%v, %v, %v, %v), got Rectangle(%v, %v, %v, %v)",
+					tt.expected.MinX, tt.expected.MinY, tt.expected.MaxX, tt.expected.MaxY,
+					rect.MinX, rect.MinY, rect.MaxX, rect.MaxY)
+			}
+		})
+	}
+}
+
+func TestSpatial4jShapeDecoder_DecodeFromGeoJSON_Errors(t *testing.T) {
+	ctx := NewSpatialContext()
+	decoder := NewSpatial4jShapeDecoder(ctx)
+
+	tests := []struct {
+		name    string
+		geojson string
+	}{
+		{"empty", ""},
+		{"invalid json", `{invalid}`},
+		{"missing type", `{"coordinates":[0,0]}`},
+		{"unsupported type", `{"type":"LineString","coordinates":[[0,0],[1,1]]}`},
+		{"complex polygon", `{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,1],[0,0]],[[0.2,0.2],[0.8,0.2],[0.8,0.8],[0.2,0.8],[0.2,0.2]]]}`},
+		{"non-rectangular polygon", `{"type":"Polygon","coordinates":[[[0,0],[2,0],[1,1],[0,0]]]}`},
+		{"point missing coords", `{"type":"Point","coordinates":[10.5]}`},
+		{"too few polygon coords", `{"type":"Polygon","coordinates":[[[0,0],[1,0],[0,0]]]}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := decoder.DecodeFromGeoJSON(tt.geojson)
+			if err == nil {
+				t.Errorf("expected error for GeoJSON: %s", tt.geojson)
+			}
+		})
+	}
+}
+
+func TestSpatial4jShapeDecoder_EncodeToGeoJSON(t *testing.T) {
+	ctx := NewSpatialContext()
+	decoder := NewSpatial4jShapeDecoder(ctx)
+
+	t.Run("point", func(t *testing.T) {
+		point := NewPoint(10.5, 20.5)
+		geojson, err := decoder.EncodeToGeoJSON(point)
+		if err != nil {
+			t.Fatalf("encode failed: %v", err)
+		}
+
+		// Decode and verify
+		shape, err := decoder.DecodeFromGeoJSON(geojson)
+		if err != nil {
+			t.Fatalf("decode back failed: %v", err)
+		}
+
+		p, ok := shape.(Point)
+		if !ok {
+			t.Fatalf("expected Point, got %T", shape)
+		}
+
+		if p.X != 10.5 || p.Y != 20.5 {
+			t.Errorf("coordinates mismatch: expected (10.5, 20.5), got (%v, %v)", p.X, p.Y)
+		}
+	})
+
+	t.Run("rectangle", func(t *testing.T) {
+		rect := NewRectangle(0, 5, 10, 20)
+		geojson, err := decoder.EncodeToGeoJSON(rect)
+		if err != nil {
+			t.Fatalf("encode failed: %v", err)
+		}
+
+		// Should contain Polygon
+		if !contains(geojson, "Polygon") {
+			t.Errorf("expected GeoJSON to contain Polygon: %s", geojson)
+		}
+
+		// Decode and verify
+		shape, err := decoder.DecodeFromGeoJSON(geojson)
+		if err != nil {
+			t.Fatalf("decode back failed: %v", err)
+		}
+
+		r, ok := shape.(*Rectangle)
+		if !ok {
+			t.Fatalf("expected *Rectangle, got %T", shape)
+		}
+
+		if r.MinX != 0.0 || r.MinY != 5.0 || r.MaxX != 10.0 || r.MaxY != 20.0 {
+			t.Errorf("rectangle mismatch: expected (0, 5, 10, 20), got (%v, %v, %v, %v)",
+				r.MinX, r.MinY, r.MaxX, r.MaxY)
+		}
+	})
+
+	t.Run("nil shape", func(t *testing.T) {
+		_, err := decoder.EncodeToGeoJSON(nil)
+		if err == nil {
+			t.Error("expected error for nil shape")
+		}
+	})
+}
+
+func TestSpatial4jShapeDecoder_GeoJSONRoundTrip(t *testing.T) {
+	ctx := NewSpatialContext()
+	decoder := NewSpatial4jShapeDecoder(ctx)
+
+	tests := []struct {
+		name    string
+		geojson string
+	}{
+		{
+			name:    "point",
+			geojson: `{"type":"Point","coordinates":[10.5,20.5]}`,
+		},
+		{
+			name:    "rectangle 4 coords",
+			geojson: `{"type":"Polygon","coordinates":[[[0,5],[10,5],[10,20],[0,20]]]}`,
+		},
+		{
+			name:    "rectangle 5 coords",
+			geojson: `{"type":"Polygon","coordinates":[[[0,5],[10,5],[10,20],[0,20],[0,5]]]}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Decode from GeoJSON
+			decoded, err := decoder.DecodeFromGeoJSON(tt.geojson)
+			if err != nil {
+				t.Fatalf("decode from GeoJSON failed: %v", err)
+			}
+
+			// Encode back to GeoJSON
+			reencoded, err := decoder.EncodeToGeoJSON(decoded)
+			if err != nil {
+				t.Fatalf("encode to GeoJSON failed: %v", err)
+			}
+
+			// Decode the re-encoded GeoJSON and compare shapes via bounding box
+			redecoded, err := decoder.DecodeFromGeoJSON(reencoded)
+			if err != nil {
+				t.Fatalf("re-decode from GeoJSON failed: %v", err)
+			}
+
+			originalBBox := decoded.GetBoundingBox()
+			redecodedBBox := redecoded.GetBoundingBox()
+
+			if originalBBox == nil || redecodedBBox == nil {
+				t.Fatal("expected non-nil bounding boxes")
+			}
+
+			if originalBBox.MinX != redecodedBBox.MinX ||
+				originalBBox.MinY != redecodedBBox.MinY ||
+				originalBBox.MaxX != redecodedBBox.MaxX ||
+				originalBBox.MaxY != redecodedBBox.MaxY {
+				t.Errorf("bounding box mismatch after round-trip: expected %v, got %v", originalBBox, redecodedBBox)
+			}
+		})
+	}
+}
+
 // BenchmarkWKTDecoding benchmarks WKT parsing
 func BenchmarkWKTDecoding(b *testing.B) {
 	ctx := NewSpatialContext()
