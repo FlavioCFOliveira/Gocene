@@ -18,6 +18,7 @@ package taxonomywritercache
 // test with a block size that triggers the guard on the second block.
 
 import (
+	"math"
 	"testing"
 )
 
@@ -58,14 +59,14 @@ func Test2GBCharBlockArray_AppendAcrossBlocks(t *testing.T) {
 }
 
 // Test2GBCharBlockArray_OverflowGuard verifies that addBlock panics when the
-// total capacity would overflow the platform integer limit.
+// total capacity would overflow Integer.MAX_VALUE (matching Java behaviour).
 //
-// We use a blockSize equal to MaxInt/2 + 1 so that a second block exceeds the guard.
+// We use a blockSize equal to MaxInt32/2 + 1 so that a second block exceeds the guard.
 func Test2GBCharBlockArray_OverflowGuard(t *testing.T) {
-	const maxInt = int(^uint(0) >> 1)
+	const maxInt32 = math.MaxInt32
 
-	// Choose a blockSize that is > maxInt/2 so a second block triggers the guard.
-	blockSize := maxInt/2 + 2
+	// Choose a blockSize that is > MaxInt32/2 so a second block triggers the guard.
+	blockSize := maxInt32/2 + 2
 
 	defer func() {
 		if r := recover(); r == nil {
@@ -100,3 +101,4 @@ func Test2GBCharBlockArray_SubSequence(t *testing.T) {
 		t.Errorf("SubSequence(6,11): want %q, got %q", "world", s)
 	}
 }
+

@@ -4,7 +4,10 @@
 
 package taxonomywritercache
 
-import "fmt"
+import (
+	"fmt"
+	"math"
+)
 
 // defaultBlockSize matches the Java default of 32 * 1024 runes.
 const defaultBlockSize = 32 * 1024
@@ -46,8 +49,8 @@ func NewCharBlockArrayWithBlockSize(blockSize int) *CharBlockArray {
 }
 
 func (c *CharBlockArray) addBlock() {
-	// Guard against exceeding 2 GB worth of runes (matches Java comment).
-	if int64(c.blockSize)*int64(len(c.blocks)+1) > int64(^uint(0)>>1) {
+	// Guard against exceeding 2 GB worth of runes (matches Java Integer.MAX_VALUE).
+	if int64(c.blockSize)*int64(len(c.blocks)+1) > math.MaxInt32 {
 		panic("cannot store more than 2 GB in CharBlockArray")
 	}
 	b := charBlock{chars: make([]rune, c.blockSize)}
