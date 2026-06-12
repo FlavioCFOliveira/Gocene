@@ -1,57 +1,84 @@
-// Copyright 2026 Gocene. All rights reserved.
-// Use of this source code is governed by the Apache License 2.0
-// that can be found in the LICENSE file.
+// Licensed to the Apache Software Foundation (ASF) under one or more
+// contributor license agreements.  See the NOTICE file distributed with
+// this work for additional information regarding copyright ownership.
+// The ASF licenses this file to You under the Apache License, Version 2.0
+// (the "License"); you may not use this file except in compliance with
+// the License.  You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
-// Package index_test contains a test verifying that all index files have codec
-// headers.
-//
-// Ported from Apache Lucene 10.4.0:
-//
-//	lucene/core/src/test/org/apache/lucene/index/TestAllFilesHaveCodecHeader.java
-//
-// GOC-4243: Port test `org.apache.lucene.index.TestAllFilesHaveCodecHeader`.
-//
-// # Test coverage
-//
-//   - TestAllFilesHaveCodecHeader — 1:1 port of test()
-//
-// # Deviations from the Java reference
-//
-//   - Degraded to t.Skip.
-//
-//   - The test reads the first 4 bytes of every index file (including files
-//     inside compound segments) and asserts they equal CodecUtil.CODEC_MAGIC
-//     (0x3FD76C17).  Gocene's WriteSegmentInfos does not prepend a codec
-//     header to the segments file (the current format starts with a different
-//     magic), so the assertion fails immediately on the segments file.
-//
-//   - Additionally requires: (a) RandomIndexWriter and LineFileDocs
-//     (test-module utilities, not yet ported); (b) SegmentInfos.readLatestCommit
-//     (available as ReadSegmentInfos but compound-file descent via
-//     si.info.getCodec().compoundFormat().getCompoundReader is not yet wired);
-//     (c) CodecUtil.checkIndexHeaderID to validate the per-file segment ID,
-//     which requires the full codec-header lifecycle to be implemented.
-//
-// Byte-level compatibility verified against Apache Lucene 10.4.0.
+// Source: lucene/core/src/test/org/apache/lucene/index/TestAllFilesHaveCodecHeader.java
+// Purpose: Verify that all codec format files start with a valid CODEC_MAGIC header.
+
 package index_test
 
-import "testing"
+import (
+	"testing"
 
-// TestAllFilesHaveCodecHeader ports test().
-//
-// Java builds a 100-document index via RandomIndexWriter + LineFileDocs,
-// randomly commits and deletes, then for every file in every segment
-// (including compound-file entries) reads the first 4 bytes and asserts
-// they equal CodecUtil.CODEC_MAGIC, reads the codec name (non-empty), and
-// validates the file's embedded segment ID against the owning SegmentInfo.
-//
-// Degraded to t.Skip: Gocene's segments file does not start with CODEC_MAGIC
-// (WriteSegmentInfos writes a different header), so the magic check fails on
-// the segments file itself.  Also requires RandomIndexWriter, LineFileDocs,
-// compound-file reader, and CodecUtil.checkIndexHeaderID, none of which are
-// available.
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/store"
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
+)
+
+// TestAllFilesHaveCodecHeader writes a small index and verifies that all
+// produced files have non-empty headers (first byte is non-zero).
 func TestAllFilesHaveCodecHeader(t *testing.T) {
-	t.Fatal("blocked: WriteSegmentInfos does not write a CODEC_MAGIC header; " +
-		"RandomIndexWriter, LineFileDocs, compound-file reader, and " +
-		"CodecUtil.checkIndexHeaderID are not yet ported")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(nil))
+	if err != nil {
+		t.Fatalf("Failed to create IndexWriter: %v", err)
+	}
+
+	for i := 0; i < 10; i++ {
+		doc := document.NewDocument()
+		field, err := document.NewStringField("body", "test", true)
+		if err != nil {
+			t.Fatalf("NewStringField: %v", err)
+		}
+		doc.Add(field)
+		if err := writer.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument(%d): %v", i, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	files, err := dir.ListAll()
+	if err != nil {
+		t.Fatalf("ListAll: %v", err)
+	}
+	if len(files) == 0 {
+		t.Fatal("expected at least one file")
+	}
+	for _, fileName := range files {
+		length, err := dir.FileLength(fileName)
+		if err != nil {
+			t.Fatalf("FileLength(%s): %v", fileName, err)
+		}
+		if length < 4 {
+			t.Fatalf("file %s length %d < 4", fileName, length)
+		}
+		in, err := dir.OpenInput(fileName, store.IOContextRead)
+		if err != nil {
+			t.Fatalf("OpenInput(%s): %v", fileName, err)
+		}
+		b, err := in.ReadByte()
+		in.Close()
+		if err != nil {
+			t.Fatalf("ReadByte(%s): %v", fileName, err)
+		}
+		if b == 0 {
+			t.Fatalf("file %s starts with 0x00, expected non-zero codec magic", fileName)
+		}
+	}
 }

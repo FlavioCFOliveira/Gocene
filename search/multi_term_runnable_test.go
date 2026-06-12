@@ -109,8 +109,7 @@ func TestConstantScoreQuery_SearchTermQuery(t *testing.T) {
 				t.Errorf("doc %d: expected constant score 1.0, got %f", sd.Doc, sd.Score)
 			}
 		}
-	}
-})
+	})
 
 	t.Run("custom_score", func(t *testing.T) {
 		csq := search.NewConstantScoreQueryWithScore(tq, 2.5)
@@ -126,8 +125,7 @@ func TestConstantScoreQuery_SearchTermQuery(t *testing.T) {
 				t.Errorf("doc %d: expected constant score 2.5, got %f", sd.Doc, sd.Score)
 			}
 		}
-	}
-})
+	})
 }
 
 // TestPrefixQuery_Search verifies that a PrefixQuery enumerates the field's
@@ -171,8 +169,7 @@ func TestPrefixQuery_Search(t *testing.T) {
 		if got := collectDocs(t, td); !equalInts(got, want) {
 			t.Fatalf("Expected docs %v, got %v", want, got)
 		}
-	}
-})
+	})
 
 	t.Run("no_match", func(t *testing.T) {
 		q := search.NewPrefixQueryWithStrings(field, "zzz")
@@ -183,8 +180,7 @@ func TestPrefixQuery_Search(t *testing.T) {
 		if td.TotalHits.Value != 0 {
 			t.Fatalf("Expected 0 hits for prefix 'zzz', got %d", td.TotalHits.Value)
 		}
-	}
-})
+	})
 }
 
 // TestWildcardQuery_Search verifies that a WildcardQuery enumerates the field's
@@ -211,8 +207,7 @@ func TestWildcardQuery_Search(t *testing.T) {
 				t.Errorf("doc %d: expected constant score 1.0, got %f", sd.Doc, sd.Score)
 			}
 		}
-	}
-})
+	})
 
 	t.Run("single_char", func(t *testing.T) {
 		// fo?bar -> foobar (foo?bar would not match; fo?bar matches "foxbar"
@@ -227,8 +222,7 @@ func TestWildcardQuery_Search(t *testing.T) {
 		if got := collectDocs(t, td); !equalInts(got, want) {
 			t.Fatalf("Expected docs %v, got %v", want, got)
 		}
-	}
-})
+	})
 
 	t.Run("star_inside", func(t *testing.T) {
 		// f*bar -> foobar, foxbar
@@ -241,8 +235,7 @@ func TestWildcardQuery_Search(t *testing.T) {
 		if got := collectDocs(t, td); !equalInts(got, want) {
 			t.Fatalf("Expected docs %v, got %v", want, got)
 		}
-	}
-})
+	})
 
 	t.Run("no_match", func(t *testing.T) {
 		q := search.NewWildcardQueryWithStrings(field, "zzz*")
@@ -253,6 +246,5 @@ func TestWildcardQuery_Search(t *testing.T) {
 		if td.TotalHits.Value != 0 {
 			t.Fatalf("Expected 0 hits for 'zzz*', got %d", td.TotalHits.Value)
 		}
-	}
-})
+	})
 }

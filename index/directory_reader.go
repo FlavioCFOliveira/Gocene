@@ -7,6 +7,7 @@ package index
 import (
 	"fmt"
 	"strings"
+	"strconv"
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/spi"
@@ -434,18 +435,13 @@ func (r *SegmentReader) GetTermVectors(docID int) (Fields, error) {
 func (r *SegmentReader) Terms(field string) (Terms, error) {
 	if r.coreReaders != nil {
 		fields := r.coreReaders.GetFields()
-		if fields != nil {
-			terms, err := fields.Terms(field)
-			if err != nil || terms != nil {
-				return terms, err
-			}
+		if fields == nil {
+			return nil, nil
 		}
-		// Core readers don't have this field. Fall through to in-memory
-		// postings so that NRT segments with in-memory fields are searchable
-		// even when a codec name is stamped (and coreReaders was constructed).
+		return fields.Terms(field)
 	}
 
-	// In-memory fall-back 1: use in-memory postings stored on the commit info
+	// Codec-less fall-back 1: use in-memory postings stored on the commit info
 	// (present when the reader is constructed from the writer-side SegmentCommitInfo
 	// before ReadSegmentInfos discards in-memory state).
 	if r.segmentCommitInfo != nil {
@@ -454,10 +450,10 @@ func (r *SegmentReader) Terms(field string) (Terms, error) {
 		}
 	}
 
-	// In-memory fall-back 2: look up the producer in the package-level registry.
-	// This handles the common case where OpenDirectoryReader calls ReadSegmentInfos,
-	// which creates fresh SegmentCommitInfo objects without inMemoryFields, but
-	// the writer already registered the producer under (directory, segmentName).
+	// Codec-less fall-back 2: look up the producer in the package-level registry.
+	// This handles the common case where OpenDirectoryReader called ReadSegmentInfos,
+	// which created fresh SegmentCommitInfo objects without inMemoryFields, but the
+	// writer already registered the producer under (directory, segmentName).
 	if r.directory != nil && r.segmentCommitInfo != nil {
 		segName := r.segmentCommitInfo.SegmentInfo().Name()
 		if fp := LookupInMemoryFields(r.directory, segName); fp != nil {
@@ -1592,11 +1588,11 @@ func ListCommits(dir store.Directory) (IndexCommitList, error) {
 		return nil, fmt.Errorf("listCommits: list directory: %w", err)
 	}
 	for _, name := range files {
-		gen := ParseGeneration(name)
+		gen := parseSegmentsFileGeneration(name)
 		if gen <= 0 || gen >= currentGen {
 			continue // not a segments file, or already captured as latest
 		}
-		sis, readErr := readSegmentInfosFile(dir, name)
+		sis, readErr := readSegmentInfosFileByGen(dir, name, gen)
 		if readErr != nil {
 			// File may have been deleted between listing and reading; skip it.
 			continue
@@ -1612,11 +1608,23 @@ func ListCommits(dir store.Directory) (IndexCommitList, error) {
 	return commits, nil
 }
 
-// readSegmentInfosFile reads a named segments_N file from dir by generation.
-// This is used by ListCommits to enumerate prior commits.  The generation
-// must be > 0 (valid) for the call to succeed.
-func readSegmentInfosFile(dir store.Directory, name string) (*SegmentInfos, error) {
-	gen := ParseGeneration(name)
+// parseSegmentsFileGeneration extracts the generation from a segments_N
+// file name. Returns 0 if the name does not match the "segments_<N>" pattern.
+func parseSegmentsFileGeneration(name string) int64 {
+	const prefix = "segments_"
+	if !strings.HasPrefix(name, prefix) {
+		return 0
+	}
+	gen, err := strconv.ParseInt(name[len(prefix):], 10, 64)
+	if err != nil {
+		return 0
+	}
+	return gen
+}
+
+// readSegmentInfosFileByGen reads a named segments_N file from dir with the
+// given generation. Used by ListCommits to enumerate prior commits.
+func readSegmentInfosFileByGen(dir store.Directory, name string, gen int64) (*SegmentInfos, error) {
 	if gen <= 0 {
 		return nil, fmt.Errorf("not a segments file: %q", name)
 	}

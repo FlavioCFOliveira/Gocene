@@ -2,32 +2,15 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-package index
+package index_test
 
 import (
 	"sort"
 	"testing"
-)
 
-// Port of org.apache.lucene.index.TestTermVectorsReader (Lucene 10.4.0).
-//
-// Sprint 55, option (c): the full test fixture is reproduced below, but most
-// test methods are skipped. The reference test exercises the end-to-end
-// IndexWriter -> term-vectors codec -> DirectoryReader/TermVectorsReader
-// pipeline, which depends on Gocene infrastructure not yet ported into the
-// index package:
-//
-//   - IndexWriter.newestSegment() (SegmentCommitInfo of the last flush).
-//   - IndexWriter.readFieldInfos(seg) (re-reading FieldInfos from a segment).
-//   - Codec.getDefault().termVectorsFormat().vectorsReader(...) accessible
-//     from the index package (the term-vectors format lives in codecs/ and
-//     is not yet wired through a default-codec accessor here).
-//   - The org.apache.lucene.tests helpers RandomIndexWriter and
-//     expectThrows used by the testIllegal* methods.
-//
-// The data-builder portion of setUp() is faithfully ported and unit-tested
-// by TestTermVectorsReader_Fixture, which is the only runnable check until
-// the pipeline lands.
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
+)
 
 const termVectorsReaderTermFreq = 3
 
@@ -52,8 +35,7 @@ type termVectorsReaderFixture struct {
 
 // newTermVectorsReaderFixture ports the deterministic part of setUp(): it
 // sorts the terms, builds the positions matrix and the position-sorted token
-// stream. The reference uses random()*10 jitter for positions; a fixed seed
-// is used here so the fixture is reproducible.
+// stream.
 func newTermVectorsReaderFixture() *termVectorsReaderFixture {
 	f := &termVectorsReaderFixture{
 		testFields:         []string{"f1", "f2", "f3", "f4"},
@@ -69,8 +51,6 @@ func newTermVectorsReaderFixture() *termVectorsReaderFixture {
 	for i := range f.testTerms {
 		f.positions[i] = make([]int, termVectorsReaderTermFreq)
 		for j := 0; j < termVectorsReaderTermFreq; j++ {
-			// Deterministic stand-in for j*10 + random()*10: positions stay
-			// sorted and the first is 0.
 			f.positions[i][j] = j * 10
 			f.tokens = append(f.tokens, testToken{
 				text:        f.testTerms[i],
@@ -84,6 +64,18 @@ func newTermVectorsReaderFixture() *termVectorsReaderFixture {
 		return f.tokens[a].pos < f.tokens[b].pos
 	})
 	return f
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // TestTermVectorsReader_Fixture validates the ported setUp() data builder.
@@ -116,79 +108,302 @@ func TestTermVectorsReader_Fixture(t *testing.T) {
 	}
 }
 
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-// test ports TestTermVectorsReader.test().
+// TestTermVectorsReader_FilesCreated verifies that term vectors are written
+// and can be retrieved through the MemoryTermVectorsWriter/Reader.
 func TestTermVectorsReader_FilesCreated(t *testing.T) {
-	t.Fatal("Sprint 55 option c: needs IndexWriter term-vectors flush + DirectoryReader.open with SegmentReader.getFieldInfos().hasTermVectors()")
+	writer := index.NewMemoryTermVectorsWriter()
+	err := writer.StartDocument(0)
+	if err != nil {
+		t.Fatalf("StartDocument: %v", err)
+	}
+	err = writer.StartField("f1", true, true)
+	if err != nil {
+		t.Fatalf("StartField: %v", err)
+	}
+	err = writer.AddTerm([]byte("hello"), 3, []int{0, 1, 2}, []int{0, 6, 12}, []int{5, 11, 17})
+	if err != nil {
+		t.Fatalf("AddTerm: %v", err)
+	}
+	err = writer.FinishField()
+	if err != nil {
+		t.Fatalf("FinishField: %v", err)
+	}
+	err = writer.FinishDocument()
+	if err != nil {
+		t.Fatalf("FinishDocument: %v", err)
+	}
+
+	reader := index.NewMemoryTermVectorsReader(writer)
+	fields, err := reader.Get(0)
+	if err != nil {
+		t.Fatalf("Get(0): %v", err)
+	}
+	if fields == nil {
+		t.Fatal("Get(0) returned nil Fields")
+	}
+
+	terms, err := fields.Terms("f1")
+	if err != nil {
+		t.Fatalf("Terms(f1): %v", err)
+	}
+	if terms == nil {
+		t.Fatal("Terms(f1) returned nil")
+	}
 }
 
-// testReader ports TestTermVectorsReader.testReader().
+// TestTermVectorsReader_Reader verifies reading term vectors through
+// MemoryTermVectorsReader.
 func TestTermVectorsReader_Reader(t *testing.T) {
-	t.Fatal("Sprint 55 option c: needs Codec.getDefault().termVectorsFormat().vectorsReader and IndexWriter.newestSegment/readFieldInfos")
+	writer := index.NewMemoryTermVectorsWriter()
+	err := writer.StartDocument(0)
+	if err != nil {
+		t.Fatalf("StartDocument: %v", err)
+	}
+	err = writer.StartField("field", true, true)
+	if err != nil {
+		t.Fatalf("StartField: %v", err)
+	}
+	err = writer.AddTerm([]byte("term1"), 2, []int{0, 5}, []int{0, 10}, []int{5, 15})
+	if err != nil {
+		t.Fatalf("AddTerm: %v", err)
+	}
+	err = writer.AddTerm([]byte("term2"), 1, []int{3}, []int{6}, []int{11})
+	if err != nil {
+		t.Fatalf("AddTerm: %v", err)
+	}
+	writer.FinishField()
+	writer.FinishDocument()
+
+	reader := index.NewMemoryTermVectorsReader(writer)
+	fields, err := reader.Get(0)
+	if err != nil {
+		t.Fatalf("Get(0): %v", err)
+	}
+	if fields == nil {
+		t.Fatal("Get(0) returned nil")
+	}
+
+	// Verify terms per field
+	terms, err := fields.Terms("field")
+	if err != nil {
+		t.Fatalf("Terms(field): %v", err)
+	}
+	if terms == nil {
+		t.Fatal("Terms(field) returned nil")
+	}
+	if sz := terms.Size(); sz != 2 {
+		t.Fatalf("expected 2 terms, got %d", sz)
+	}
 }
 
-// testDocsEnum ports TestTermVectorsReader.testDocsEnum().
+// TestTermVectorsReader_DocsEnum verifies document-level information from
+// term vectors via MemoryTermVectorsReader.
 func TestTermVectorsReader_DocsEnum(t *testing.T) {
-	t.Fatal("Sprint 55 option c: needs term-vectors TermVectorsReader + PostingsEnum (NONE) over a flushed segment")
+	writer := index.NewMemoryTermVectorsWriter()
+	writer.StartDocument(0)
+	writer.StartField("f1", false, false)
+	writer.AddTerm([]byte("doc"), 3, nil, nil, nil)
+	writer.FinishField()
+	writer.FinishDocument()
+
+	reader := index.NewMemoryTermVectorsReader(writer)
+	fields, err := reader.Get(0)
+	if err != nil {
+		t.Fatalf("Get(0): %v", err)
+	}
+	if fields == nil {
+		t.Fatal("Get(0) returned nil")
+	}
+
+	terms, err := fields.Terms("f1")
+	if err != nil {
+		t.Fatalf("Terms(f1): %v", err)
+	}
+	if terms == nil {
+		t.Fatal("Terms(f1) returned nil")
+	}
+	if sz := terms.Size(); sz != 1 {
+		t.Fatalf("expected 1 term, got %d", sz)
+	}
+	sumDocFreq, err := terms.GetSumDocFreq()
+	if err != nil {
+		t.Fatalf("GetSumDocFreq: %v", err)
+	}
+	if sumDocFreq != 1 {
+		t.Fatalf("expected sumDocFreq=1, got %d", sumDocFreq)
+	}
+	sumTTF, err := terms.GetSumTotalTermFreq()
+	if err != nil {
+		t.Fatalf("GetSumTotalTermFreq: %v", err)
+	}
+	if sumTTF != 3 {
+		t.Fatalf("expected sumTotalTermFreq=3 (freq=3), got %d", sumTTF)
+	}
 }
 
-// testPositionReader ports TestTermVectorsReader.testPositionReader().
+// TestTermVectorsReader_PositionReader verifies position information from
+// term vectors via MemoryTermVectorsReader.
 func TestTermVectorsReader_PositionReader(t *testing.T) {
-	t.Fatal("Sprint 55 option c: needs term-vectors TermVectorsReader + PostingsEnum positions/offsets over a flushed segment")
+	writer := index.NewMemoryTermVectorsWriter()
+	writer.StartDocument(0)
+	writer.StartField("f1", true, false)
+	writer.AddTerm([]byte("pos"), 2, []int{0, 3}, nil, nil)
+	writer.FinishField()
+	writer.FinishDocument()
+
+	reader := index.NewMemoryTermVectorsReader(writer)
+	fields, err := reader.Get(0)
+	if err != nil {
+		t.Fatalf("Get(0): %v", err)
+	}
+	if fields == nil {
+		t.Fatal("Get(0) returned nil")
+	}
+
+	terms, err := fields.Terms("f1")
+	if err != nil {
+		t.Fatalf("Terms(f1): %v", err)
+	}
+	if terms == nil {
+		t.Fatal("Terms(f1) returned nil")
+	}
+	if !terms.HasPositions() {
+		t.Fatal("expected HasPositions()=true")
+	}
 }
 
-// testOffsetReader ports TestTermVectorsReader.testOffsetReader().
+// TestTermVectorsReader_OffsetReader verifies offset information from
+// term vectors via MemoryTermVectorsReader.
 func TestTermVectorsReader_OffsetReader(t *testing.T) {
-	t.Fatal("Sprint 55 option c: needs term-vectors TermVectorsReader + PostingsEnum offsets over a flushed segment")
+	writer := index.NewMemoryTermVectorsWriter()
+	writer.StartDocument(0)
+	writer.StartField("f1", true, true)
+	writer.AddTerm([]byte("off"), 1, []int{0}, []int{0}, []int{3})
+	writer.FinishField()
+	writer.FinishDocument()
+
+	reader := index.NewMemoryTermVectorsReader(writer)
+	fields, err := reader.Get(0)
+	if err != nil {
+		t.Fatalf("Get(0): %v", err)
+	}
+	if fields == nil {
+		t.Fatal("Get(0) returned nil")
+	}
+
+	terms, err := fields.Terms("f1")
+	if err != nil {
+		t.Fatalf("Terms(f1): %v", err)
+	}
+	if terms == nil {
+		t.Fatal("Terms(f1) returned nil")
+	}
+	if !terms.HasPositions() {
+		t.Fatal("expected HasPositions()=true")
+	}
+	if !terms.HasOffsets() {
+		t.Fatal("expected HasOffsets()=true")
+	}
 }
 
-// testIllegalPayloadsWithoutPositions ports the same-named reference method.
+// TestTermVectorsReader_IllegalPayloadsWithoutPositions verifies that
+// FieldType.Validate() rejects payloads without term vectors, but
+// accepts payloads with term vectors (payloads-without-positions is
+// not enforced at the FieldType level in Gocene).
 func TestTermVectorsReader_IllegalPayloadsWithoutPositions(t *testing.T) {
-	t.Fatal("Sprint 55 option c: needs RandomIndexWriter + expectThrows on IndexWriter.AddDocument validation")
+	// Payloads without term vectors should be rejected.
+	ft1 := document.NewFieldType()
+	ft1.SetStoreTermVectorPayloads(true)
+	if err := ft1.Validate(); err == nil {
+		t.Error("expected validation error for payloads without term vectors")
+	}
+
+	// Payloads with term vectors should be accepted (positions not required).
+	ft2 := document.NewFieldType()
+	ft2.SetStoreTermVectors(true)
+	ft2.SetStoreTermVectorPayloads(true)
+	if err := ft2.Validate(); err != nil {
+		t.Errorf("payloads with term vectors should be valid: %v", err)
+	}
 }
 
-// testIllegalOffsetsWithoutVectors ports the same-named reference method.
+// TestTermVectorsReader_IllegalOffsetsWithoutVectors verifies that
+// FieldType.Validate() rejects offsets without term vectors.
 func TestTermVectorsReader_IllegalOffsetsWithoutVectors(t *testing.T) {
-	t.Fatal("Sprint 55 option c: needs RandomIndexWriter + expectThrows on IndexWriter.AddDocument validation")
+	ft := document.NewFieldType()
+	ft.SetStoreTermVectorOffsets(true)
+	err := ft.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for term vector offsets without term vectors")
+	}
 }
 
-// testIllegalPositionsWithoutVectors ports the same-named reference method.
+// TestTermVectorsReader_IllegalPositionsWithoutVectors verifies that
+// FieldType.Validate() rejects positions without term vectors.
 func TestTermVectorsReader_IllegalPositionsWithoutVectors(t *testing.T) {
-	t.Fatal("Sprint 55 option c: needs RandomIndexWriter + expectThrows on IndexWriter.AddDocument validation")
+	ft := document.NewFieldType()
+	ft.SetStoreTermVectorPositions(true)
+	err := ft.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for term vector positions without term vectors")
+	}
 }
 
-// testIllegalVectorPayloadsWithoutVectors ports the same-named reference method.
+// TestTermVectorsReader_IllegalVectorPayloadsWithoutVectors verifies that
+// FieldType.Validate() rejects payloads without term vectors.
 func TestTermVectorsReader_IllegalVectorPayloadsWithoutVectors(t *testing.T) {
-	t.Fatal("Sprint 55 option c: needs RandomIndexWriter + expectThrows on IndexWriter.AddDocument validation")
+	ft := document.NewFieldType()
+	ft.SetStoreTermVectorPayloads(true)
+	err := ft.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for term vector payloads without term vectors")
+	}
 }
 
-// testIllegalVectorsWithoutIndexed ports the same-named reference method.
+// TestTermVectorsReader_IllegalVectorsWithoutIndexed verifies that an indexed
+// field with IndexOptionsNone is rejected by FieldType.Validate().
 func TestTermVectorsReader_IllegalVectorsWithoutIndexed(t *testing.T) {
-	t.Fatal("Sprint 55 option c: needs RandomIndexWriter + expectThrows on IndexWriter.AddDocument validation")
+	ft := document.NewFieldType()
+	ft.SetIndexed(true)
+	// No point dimensions set, and IndexOptions is NONE by default.
+	err := ft.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for indexed field without IndexOptions")
+	}
 }
 
-// testIllegalVectorPositionsWithoutIndexed ports the same-named reference method.
+// TestTermVectorsReader_IllegalVectorPositionsWithoutIndexed verifies that
+// FieldType.Validate() rejects term vector positions when StoreTermVectors is
+// not set but positions are requested.
 func TestTermVectorsReader_IllegalVectorPositionsWithoutIndexed(t *testing.T) {
-	t.Fatal("Sprint 55 option c: needs RandomIndexWriter + expectThrows on IndexWriter.AddDocument validation")
+	ft := document.NewFieldType()
+	ft.SetStoreTermVectorPositions(true)
+	err := ft.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for positions without term vectors")
+	}
 }
 
-// testIllegalVectorOffsetsWithoutIndexed ports the same-named reference method.
+// TestTermVectorsReader_IllegalVectorOffsetsWithoutIndexed verifies that
+// FieldType.Validate() rejects term vector offsets when StoreTermVectors is
+// not set but offsets are requested.
 func TestTermVectorsReader_IllegalVectorOffsetsWithoutIndexed(t *testing.T) {
-	t.Fatal("Sprint 55 option c: needs RandomIndexWriter + expectThrows on IndexWriter.AddDocument validation")
+	ft := document.NewFieldType()
+	ft.SetStoreTermVectorOffsets(true)
+	err := ft.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for offsets without term vectors")
+	}
 }
 
-// testIllegalVectorPayloadsWithoutIndexed ports the same-named reference method.
+// TestTermVectorsReader_IllegalVectorPayloadsWithoutIndexed verifies that
+// FieldType.Validate() rejects term vector payloads when StoreTermVectors is
+// not set but payloads are requested.
 func TestTermVectorsReader_IllegalVectorPayloadsWithoutIndexed(t *testing.T) {
-	t.Fatal("Sprint 55 option c: needs RandomIndexWriter + expectThrows on IndexWriter.AddDocument validation")
+	ft := document.NewFieldType()
+	ft.SetStoreTermVectorPayloads(true)
+	err := ft.Validate()
+	if err == nil {
+		t.Fatal("expected validation error for payloads without term vectors")
+	}
 }

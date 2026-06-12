@@ -915,14 +915,17 @@ func (pf *indexingPerField) invert(docID int, field IndexingChainField, first bo
 		// that the ported binary path touches is reset here.
 		resetFieldInvertState(pf.invertState)
 	}
-	switch field.InvertableType() {
-	case InvertableTypeBinary:
-		return pf.invertTerm(docID, field, first)
-	case InvertableTypeTokenStream:
+	// Non-tokenized fields (e.g. StringField) report InvertableTypeTokenStream
+	// through the base Field.InvertableType() but must be indexed as a single
+	// binary term via invertTerm rather than going through the stubbed
+	// invertTokenStream path (which requires the unported analysis bridge).
+	// This mirrors Lucene where a non-tokenized field whose value is a string
+	// produces a single-token TokenStream internally; Gocene routes it through
+	// the binary path instead.
+	if field.IndexableFieldType().Tokenized() {
 		return pf.invertTokenStream(docID, field, first)
-	default:
-		return fmt.Errorf("indexing chain: unrecognized invertable type %v", field.InvertableType())
 	}
+	return pf.invertTerm(docID, field, first)
 }
 
 // invertTokenStream inverts a tokenized field through its TokenStream.
@@ -961,6 +964,14 @@ func (pf *indexingPerField) invertTerm(docID int, field IndexingChainField, firs
 		return fmt.Errorf("indexing chain: too many tokens for field %q: %w", field.Name(), err)
 	}
 	pf.invertState.SetLength(newLen)
+
+	// Enforce MAX_TERM_LENGTH: refuse terms longer than the maximum allowed
+	// bytes, matching Lucene's IndexWriter.  32766 bytes is the default.
+	if len(binaryValue) > MAX_TERM_LENGTH {
+		return fmt.Errorf("field %q: immense term: bytes can be at most %d in length; got %d",
+			field.Name(), MAX_TERM_LENGTH, len(binaryValue))
+	}
+
 	if err := pf.termsHashPerField.Add(util.NewBytesRef(binaryValue), docID); err != nil {
 		return err
 	}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // OpenMode specifies how to open/create an index.
@@ -69,6 +70,7 @@ type IndexWriterConfig struct {
 	indexSort              *Sort
 	flushOnUpdate          bool
 	indexCommit            *IndexCommit
+	infoStream             util.InfoStream
 }
 
 // NewIndexWriterConfig creates a new IndexWriterConfig with default settings.
@@ -203,6 +205,19 @@ func (c *IndexWriterConfig) FlushOnUpdate() bool { return c.flushOnUpdate }
 func (c *IndexWriterConfig) SetFlushOnUpdate(flush bool) *IndexWriterConfig {
 	c.flushOnUpdate = flush
 	return c
+}
+
+// GetInfoStream returns the InfoStream for diagnostic logging.
+func (c *IndexWriterConfig) GetInfoStream() util.InfoStream {
+	if c.infoStream == nil {
+		return util.NoOpInfoStream
+	}
+	return c.infoStream
+}
+
+// SetInfoStream sets the InfoStream for diagnostic logging.
+func (c *IndexWriterConfig) SetInfoStream(infoStream util.InfoStream) {
+	c.infoStream = infoStream
 }
 
 // String returns a string representation of the IndexWriterConfig.
