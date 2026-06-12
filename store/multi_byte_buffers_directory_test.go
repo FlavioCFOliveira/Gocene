@@ -417,17 +417,13 @@ func TestMultiByteBuffersDirectory(t *testing.T) {
 }
 
 // newMultiBufferDirectory matches the shape of the Java override in
-// TestMultiByteBuffersDirectory#getDirectory(Path, int maxChunkSize). Until
-// Gocene's ByteBuffersDirectory grows a chunk-size knob, the maxChunkSize
-// argument is recorded for documentation only and the monolithic constructor
-// is used. The signature is preserved so that the chunked constructor, when
-// added, can be wired in here without touching call sites.
+// TestMultiByteBuffersDirectory#getDirectory(Path, int maxChunkSize).
 func newMultiBufferDirectory(t *testing.T, maxChunkSize int) *ByteBuffersDirectory {
 	t.Helper()
 	if maxChunkSize < 1 {
 		t.Fatalf("maxChunkSize must be >= 1, got %d", maxChunkSize)
 	}
-	return NewByteBuffersDirectory()
+	return NewByteBuffersDirectoryWithChunkSize(maxChunkSize)
 }
 
 // deterministicBytes returns n bytes from a deterministic per-call PRNG. The

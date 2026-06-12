@@ -23,6 +23,7 @@ type ByteBuffersDirectory struct {
 	files       map[string]*byteBufferFile
 	mu          sync.RWMutex
 	tempCounter atomic.Uint64
+	chunkSize   int // 0 means monolithic (single buffer), >0 means chunked
 }
 
 // byteBufferFile represents a file stored in memory.
@@ -39,6 +40,21 @@ func NewByteBuffersDirectory() *ByteBuffersDirectory {
 	return &ByteBuffersDirectory{
 		BaseDirectory: NewBaseDirectory(NewSingleInstanceLockFactory()),
 		files:         make(map[string]*byteBufferFile),
+		chunkSize:     0,
+	}
+}
+
+// NewByteBuffersDirectoryWithChunkSize creates a new in-memory directory where
+// each file is exposed as a sequence of chunks of at most chunkSize bytes.
+// This is useful for testing cross-boundary read behaviour.
+func NewByteBuffersDirectoryWithChunkSize(chunkSize int) *ByteBuffersDirectory {
+	if chunkSize < 1 {
+		panic("chunkSize must be >= 1")
+	}
+	return &ByteBuffersDirectory{
+		BaseDirectory: NewBaseDirectory(NewSingleInstanceLockFactory()),
+		files:         make(map[string]*byteBufferFile),
+		chunkSize:     chunkSize,
 	}
 }
 
@@ -162,15 +178,16 @@ func (d *ByteBuffersDirectory) OpenInput(name string, ctx IOContext) (IndexInput
 	contentCopy := make([]byte, len(file.content))
 	copy(contentCopy, file.content)
 
+	var chunks [][]byte
+	if d.chunkSize > 0 {
+		chunks = splitIntoChunks(contentCopy, d.chunkSize)
+	} else {
+		chunks = [][]byte{contentCopy}
+	}
+
 	d.AddOpenFile(name)
 
-	return &ByteBuffersIndexInput{
-		BaseIndexInput: NewBaseIndexInput(fmt.Sprintf("ByteBuffersIndexInput(name=\"%s\")", name), int64(len(contentCopy))),
-		content:        contentCopy,
-		file:           file,
-		directory:      d,
-		name:           name,
-	}, nil
+	return newByteBuffersIndexInput(chunks, fmt.Sprintf("ByteBuffersIndexInput(name=\"%s\")", name), file, d, name), nil
 }
 
 // CreateTempOutput creates a temporary output file with a unique name.
@@ -257,13 +274,83 @@ func (d *ByteBuffersDirectory) Close() error {
 }
 
 // ByteBuffersIndexInput is an IndexInput implementation for ByteBuffersDirectory.
+// It supports reading from either a monolithic byte slice or a chunked set of
+// slices, enabling cross-boundary reads when the directory is configured with
+// a chunk size.
 type ByteBuffersIndexInput struct {
 	*BaseIndexInput
-	content   []byte
+	chunks    [][]byte
+	cumLens   []int64
 	position  int64
 	file      *byteBufferFile
 	directory *ByteBuffersDirectory
 	name      string
+}
+
+// newByteBuffersIndexInput creates a new ByteBuffersIndexInput backed by the
+// given chunks. The chunks slice is owned by the caller; newByteBuffersIndexInput
+// does not copy it.
+func newByteBuffersIndexInput(chunks [][]byte, desc string, file *byteBufferFile, directory *ByteBuffersDirectory, name string) *ByteBuffersIndexInput {
+	cumLens := make([]int64, len(chunks))
+	var total int64
+	for i, chunk := range chunks {
+		cumLens[i] = total
+		total += int64(len(chunk))
+	}
+	return &ByteBuffersIndexInput{
+		BaseIndexInput: NewBaseIndexInput(desc, total),
+		chunks:         chunks,
+		cumLens:        cumLens,
+		file:           file,
+		directory:      directory,
+		name:           name,
+	}
+}
+
+// findChunk returns the chunk index and offset within that chunk for the given
+// absolute position. pos must be within [0, Length).
+func (in *ByteBuffersIndexInput) findChunk(pos int64) (int, int64) {
+	idx := sort.Search(len(in.cumLens), func(i int) bool {
+		return in.cumLens[i] > pos
+	}) - 1
+	if idx < 0 {
+		idx = 0
+	}
+	offset := pos - in.cumLens[idx]
+	return idx, offset
+}
+
+// readByteAt reads a single byte at the given absolute position without
+// changing the current position.
+func (in *ByteBuffersIndexInput) readByteAt(pos int64) (byte, error) {
+	if pos < 0 || pos >= in.Length() {
+		return 0, fmt.Errorf("position %d out of range [0, %d)", pos, in.Length())
+	}
+	idx, offset := in.findChunk(pos)
+	return in.chunks[idx][offset], nil
+}
+
+// readBytesAt reads len(b) bytes at the given absolute position without
+// changing the current position.
+func (in *ByteBuffersIndexInput) readBytesAt(pos int64, b []byte) error {
+	if pos+int64(len(b)) > in.Length() {
+		return fmt.Errorf("not enough data available at position %d", pos)
+	}
+	n := len(b)
+	for n > 0 {
+		idx, offset := in.findChunk(pos)
+		chunk := in.chunks[idx]
+		avail := int64(len(chunk)) - offset
+		toRead := int64(n)
+		if toRead > avail {
+			toRead = avail
+		}
+		copy(b[:toRead], chunk[offset:offset+toRead])
+		pos += toRead
+		n -= int(toRead)
+		b = b[toRead:]
+	}
+	return nil
 }
 
 // ReadByte reads a single byte.
@@ -271,12 +358,13 @@ func (in *ByteBuffersIndexInput) ReadByte() (byte, error) {
 	if !in.directory.IsOpen() {
 		return 0, ErrIllegalState
 	}
-
-	if in.position >= int64(len(in.content)) {
+	if in.position >= in.Length() {
 		return 0, fmt.Errorf("EOF")
 	}
-
-	b := in.content[in.position]
+	b, err := in.readByteAt(in.position)
+	if err != nil {
+		return 0, err
+	}
 	in.position++
 	in.SetFilePointer(in.position)
 	return b, nil
@@ -287,12 +375,12 @@ func (in *ByteBuffersIndexInput) ReadBytes(b []byte) error {
 	if !in.directory.IsOpen() {
 		return ErrIllegalState
 	}
-
-	if in.position+int64(len(b)) > int64(len(in.content)) {
+	if in.position+int64(len(b)) > in.Length() {
 		return fmt.Errorf("not enough data available")
 	}
-
-	copy(b, in.content[in.position:in.position+int64(len(b))])
+	if err := in.readBytesAt(in.position, b); err != nil {
+		return err
+	}
 	in.position += int64(len(b))
 	in.SetFilePointer(in.position)
 	return nil
@@ -378,7 +466,7 @@ func (in *ByteBuffersIndexInput) ReadVLong() (int64, error) {
 
 // SetPosition changes the current position.
 func (in *ByteBuffersIndexInput) SetPosition(pos int64) error {
-	if pos < 0 || pos > int64(len(in.content)) {
+	if pos < 0 || pos > in.Length() {
 		return fmt.Errorf("invalid position: %d", pos)
 	}
 	in.position = pos
@@ -389,34 +477,24 @@ func (in *ByteBuffersIndexInput) SetPosition(pos int64) error {
 // Clone returns a clone of this IndexInput.
 func (in *ByteBuffersIndexInput) Clone() IndexInput {
 	in.directory.AddOpenFile(in.name)
-	clone := &ByteBuffersIndexInput{
-		BaseIndexInput: NewBaseIndexInput(in.GetDescription(), in.Length()),
-		content:        in.content,
-		position:       in.position,
-		file:           in.file,
-		directory:      in.directory,
-		name:           in.name,
-	}
+	clone := newByteBuffersIndexInput(in.chunks, in.GetDescription(), in.file, in.directory, in.name)
+	clone.position = in.position
 	clone.SetFilePointer(in.position)
 	return clone
 }
 
-// Slice returns a subset of this IndexInput.
+// Slice returns a subset of this IndexInput. If the parent is chunked, the
+// returned input preserves chunking over the sliced range.
 func (in *ByteBuffersIndexInput) Slice(desc string, offset int64, length int64) (IndexInput, error) {
-	if offset < 0 || length < 0 || offset+length > int64(len(in.content)) {
-		return nil, fmt.Errorf("invalid slice parameters: offset=%d, length=%d, contentLength=%d", offset, length, len(in.content))
+	if offset < 0 || length < 0 || offset+length > in.Length() {
+		return nil, fmt.Errorf("invalid slice parameters: offset=%d, length=%d, contentLength=%d", offset, length, in.Length())
 	}
 
 	in.directory.AddOpenFile(in.name)
 
-	return &ByteBuffersIndexInput{
-		BaseIndexInput: NewBaseIndexInput(desc, length),
-		content:        in.content[offset : offset+length],
-		position:       0,
-		file:           in.file,
-		directory:      in.directory,
-		name:           in.name,
-	}, nil
+	newChunks := buildChunksFromSlice(in.chunks, in.cumLens, offset, length)
+	sliced := newByteBuffersIndexInput(newChunks, desc, in.file, in.directory, in.name)
+	return sliced, nil
 }
 
 // Close releases resources for this IndexInput.
@@ -431,10 +509,7 @@ func (in *ByteBuffersIndexInput) ReadByteAt(pos int64) (byte, error) {
 	if !in.directory.IsOpen() {
 		return 0, ErrIllegalState
 	}
-	if pos < 0 || pos >= int64(len(in.content)) {
-		return 0, fmt.Errorf("position %d out of range [0, %d]", pos, len(in.content))
-	}
-	return in.content[pos], nil
+	return in.readByteAt(pos)
 }
 
 // ReadLongAt reads a 64-bit value at the given position in little-endian
@@ -447,10 +522,77 @@ func (in *ByteBuffersIndexInput) ReadLongAt(pos int64) (int64, error) {
 	if !in.directory.IsOpen() {
 		return 0, ErrIllegalState
 	}
-	if pos < 0 || pos+8 > int64(len(in.content)) {
-		return 0, fmt.Errorf("position %d out of range for 8-byte read [0, %d]", pos, len(in.content))
+	if pos < 0 || pos+8 > in.Length() {
+		return 0, fmt.Errorf("position %d out of range for 8-byte read [0, %d)", pos, in.Length())
 	}
-	return int64(binary.LittleEndian.Uint64(in.content[pos : pos+8])), nil
+	buf := make([]byte, 8)
+	if err := in.readBytesAt(pos, buf); err != nil {
+		return 0, err
+	}
+	return int64(binary.LittleEndian.Uint64(buf)), nil
+}
+
+// buildChunksFromSlice creates a new chunk slice covering the byte range
+// [offset, offset+length) from the given chunks. The returned chunks are slices
+// into the original data (no copying).
+func buildChunksFromSlice(chunks [][]byte, cumLens []int64, offset int64, length int64) [][]byte {
+	if length == 0 {
+		return [][]byte{{}}
+	}
+	if len(chunks) == 0 {
+		return [][]byte{{}}
+	}
+
+	startIdx := sort.Search(len(cumLens), func(i int) bool {
+		return cumLens[i] > offset
+	}) - 1
+	if startIdx < 0 {
+		startIdx = 0
+	}
+	startOff := offset - cumLens[startIdx]
+
+	endPos := offset + length - 1
+	endIdx := sort.Search(len(cumLens), func(i int) bool {
+		return cumLens[i] > endPos
+	}) - 1
+	if endIdx < 0 {
+		endIdx = 0
+	}
+	endOff := endPos - cumLens[endIdx]
+
+	newChunks := make([][]byte, 0, endIdx-startIdx+1)
+	for i := startIdx; i <= endIdx; i++ {
+		chunk := chunks[i]
+		start := 0
+		if i == startIdx {
+			start = int(startOff)
+		}
+		end := len(chunk)
+		if i == endIdx {
+			end = int(endOff) + 1
+		}
+		newChunks = append(newChunks, chunk[start:end])
+	}
+	return newChunks
+}
+
+// splitIntoChunks splits data into chunks of at most chunkSize bytes.
+// If data is empty, it returns a single empty chunk.
+func splitIntoChunks(data []byte, chunkSize int) [][]byte {
+	if len(data) == 0 {
+		return [][]byte{{}}
+	}
+	n := (len(data) + chunkSize - 1) / chunkSize
+	chunks := make([][]byte, n)
+	for i := 0; i < n; i++ {
+		start := i * chunkSize
+		end := start + chunkSize
+		if end > len(data) {
+			end = len(data)
+		}
+		chunks[i] = data[start:end]
+	}
+	return chunks
 }
 
 // ByteBuffersIndexOutput is an IndexOutput implementation for ByteBuffersDirectory
