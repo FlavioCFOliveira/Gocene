@@ -129,21 +129,68 @@ func TestFrenchStemmer(t *testing.T) {
 	}
 }
 
-// TestStemmerInterface confirms the concrete stemmers satisfy the package-level
-// Stemmer interface, which is the contract the analysis filters consume.
-func TestStemmerInterface(t *testing.T) {
+// TestAllStemmers_SanityAndIdempotent iterates every Snowball stemmer in the
+// ext package and asserts two universal properties:
+//   1) A non-empty input never produces an empty output (sanity).
+//   2) Re-stemming the output yields the same string (idempotence).
+//
+// Sprint 14 T86: 30 language stemmers are present; accuracy fixtures from Java
+// Lucene 10.4.0 are not available for all languages, so this test provides
+// the baseline validation that every stemmer is wired and algorithmically
+// stable.
+func TestAllStemmers_SanityAndIdempotent(t *testing.T) {
 	t.Parallel()
-	var stemmers = []snowball.Stemmer{
-		NewPorterStemmer(),
-		NewEnglishStemmer(),
-		NewRussianStemmer(),
-		NewFrenchStemmer(),
+
+	stemmers := []struct {
+		name   string
+		make   func() snowball.Stemmer
+		word   string // a simple word known to exist in the language
+	}{
+		{"Arabic", func() snowball.Stemmer { return NewArabicStemmer() }, "كتاب"},
+		{"Armenian", func() snowball.Stemmer { return NewArmenianStemmer() }, "գիրք"},
+		{"Basque", func() snowball.Stemmer { return NewBasqueStemmer() }, "etxe"},
+		{"Catalan", func() snowball.Stemmer { return NewCatalanStemmer() }, "llibre"},
+		{"Danish", func() snowball.Stemmer { return NewDanishStemmer() }, "bog"},
+		{"Dutch", func() snowball.Stemmer { return NewDutchStemmer() }, "boek"},
+		{"English", func() snowball.Stemmer { return NewEnglishStemmer() }, "running"},
+		{"Estonian", func() snowball.Stemmer { return NewEstonianStemmer() }, "raamat"},
+		{"Finnish", func() snowball.Stemmer { return NewFinnishStemmer() }, "kirja"},
+		{"French", func() snowball.Stemmer { return NewFrenchStemmer() }, "chevaux"},
+		{"German", func() snowball.Stemmer { return NewGermanStemmer() }, "laufen"},
+		{"Greek", func() snowball.Stemmer { return NewGreekStemmer() }, "αγαπώ"},
+		{"Hindi", func() snowball.Stemmer { return NewHindiStemmer() }, "किताब"},
+		{"Hungarian", func() snowball.Stemmer { return NewHungarianStemmer() }, "könyv"},
+		{"Indonesian", func() snowball.Stemmer { return NewIndonesianStemmer() }, "buku"},
+		{"Irish", func() snowball.Stemmer { return NewIrishStemmer() }, "leabhar"},
+		{"Italian", func() snowball.Stemmer { return NewItalianStemmer() }, "libro"},
+		{"Lithuanian", func() snowball.Stemmer { return NewLithuanianStemmer() }, "knyga"},
+		{"Nepali", func() snowball.Stemmer { return NewNepaliStemmer() }, "पुस्तक"},
+		{"Norwegian", func() snowball.Stemmer { return NewNorwegianStemmer() }, "bok"},
+		{"Porter", func() snowball.Stemmer { return NewPorterStemmer() }, "running"},
+		{"Portuguese", func() snowball.Stemmer { return NewPortugueseStemmer() }, "livro"},
+		{"Romanian", func() snowball.Stemmer { return NewRomanianStemmer() }, "carte"},
+		{"Russian", func() snowball.Stemmer { return NewRussianStemmer() }, "книга"},
+		{"Serbian", func() snowball.Stemmer { return NewSerbianStemmer() }, "књига"},
+		{"Spanish", func() snowball.Stemmer { return NewSpanishStemmer() }, "libro"},
+		{"Swedish", func() snowball.Stemmer { return NewSwedishStemmer() }, "bok"},
+		{"Tamil", func() snowball.Stemmer { return NewTamilStemmer() }, "புத்தகம்"},
+		{"Turkish", func() snowball.Stemmer { return NewTurkishStemmer() }, "kitap"},
+		{"Yiddish", func() snowball.Stemmer { return NewYiddishStemmer() }, "בוך"},
 	}
-	for i, s := range stemmers {
-		s.SetCurrent("test")
-		s.Stem()
-		if s.GetCurrent() == "" {
-			t.Errorf("stemmer %d produced an empty stem for a non-empty input", i)
-		}
+
+	for _, tc := range stemmers {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s := tc.make()
+			once := stem(s, tc.word)
+			if once == "" {
+				t.Fatalf("%s stemmer produced empty output for non-empty input %q", tc.name, tc.word)
+			}
+			twice := stem(s, once)
+			if once != twice {
+				t.Errorf("%s stemmer not idempotent: %q -> %q -> %q", tc.name, tc.word, once, twice)
+			}
+		})
 	}
 }
