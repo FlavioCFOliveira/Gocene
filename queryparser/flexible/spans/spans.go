@@ -15,6 +15,9 @@
 package spans
 
 import (
+	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/queryparser/flexible"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
@@ -88,8 +91,12 @@ type SpanTermQueryNodeBuilder struct{}
 
 // Build builds the SpanTermQuery.
 func (b *SpanTermQueryNodeBuilder) Build(node flexible.QueryNode) (search.Query, error) {
-	// Stub: deferred until SpanTermQuery is functional.
-	return nil, nil
+	fqn, ok := node.(*flexible.FieldQueryNode)
+	if !ok {
+		return nil, fmt.Errorf("SpanTermQueryNodeBuilder expects FieldQueryNode, got %T", node)
+	}
+	term := index.NewTerm(fqn.GetField(), fqn.GetText())
+	return search.NewSpanTermQuery(term), nil
 }
 
 // SpanOrQueryNodeBuilder builds a SpanOrQuery from an OrQueryNode.
@@ -99,8 +106,29 @@ type SpanOrQueryNodeBuilder struct{}
 
 // Build builds the SpanOrQuery.
 func (b *SpanOrQueryNodeBuilder) Build(node flexible.QueryNode) (search.Query, error) {
-	// Stub: deferred until SpanOrQuery is functional.
-	return nil, nil
+	orNode, ok := node.(*flexible.OrQueryNode)
+	if !ok {
+		return nil, fmt.Errorf("SpanOrQueryNodeBuilder expects OrQueryNode, got %T", node)
+	}
+	children := orNode.GetChildren()
+	if len(children) == 0 {
+		return nil, fmt.Errorf("OrQueryNode has no children")
+	}
+
+	builder := NewSpansQueryTreeBuilder()
+	clauses := make([]search.SpanQuery, 0, len(children))
+	for _, child := range children {
+		q, err := builder.Build(child)
+		if err != nil {
+			return nil, err
+		}
+		sq, ok := q.(search.SpanQuery)
+		if !ok {
+			return nil, fmt.Errorf("child query %T is not a SpanQuery", q)
+		}
+		clauses = append(clauses, sq)
+	}
+	return search.NewSpanOrQuery(clauses...), nil
 }
 
 // SpansQueryTreeBuilder assembles the builder registry for the span query pipeline.
@@ -115,6 +143,15 @@ func NewSpansQueryTreeBuilder() *SpansQueryTreeBuilder {
 
 // Build dispatches to the registered node builders.
 func (b *SpansQueryTreeBuilder) Build(node flexible.QueryNode) (search.Query, error) {
-	// Stub: deferred.
-	return nil, nil
+	if node == nil {
+		return nil, fmt.Errorf("nil query node")
+	}
+	switch n := node.(type) {
+	case *flexible.FieldQueryNode:
+		return (&SpanTermQueryNodeBuilder{}).Build(n)
+	case *flexible.OrQueryNode:
+		return (&SpanOrQueryNodeBuilder{}).Build(n)
+	default:
+		return nil, fmt.Errorf("unsupported query node type %T", node)
+	}
 }
