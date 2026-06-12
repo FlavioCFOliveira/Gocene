@@ -4,40 +4,118 @@
 
 //go:build compat
 
-// lucene99_postings_compat_test.go is the audit anchor for the
-// backward_codecs row (verbatim from docs/compat-coverage.tsv):
-//
-//	backward_codecs	Lucene99 PostingsFormat (older skip variant)
-//	    lucene_class:  org.apache.lucene.backward_codecs.lucene99.Lucene99PostingsFormat
-//	    gocene_class:  backward_codecs/lucene99/lucene99.go
-//	    isolated:      yes:backward_codecs/lucene99/lucene99_postings_writer_test.go
-//	    integration:   yes:backward_codecs/lucene99/lucene99_rw_postings_format_test.go
-//	    binary_compat: no
-//	    gap_notes:     "No Lucene-emitted .doc/.pos fixture for v99."
-//
-// The corresponding harness scenario "bwc-lucene99-postings" is NOT
-// registered in tools/lucene-fixtures/Scenarios.java; it lives in
-// Manifest.DEFERRED_ROWS because
-// org.apache.lucene.backward_codecs.lucene99.Lucene99PostingsFormat#fieldsConsumer
-// throws UnsupportedOperationException in Lucene 10.4.0.
+// lucene99_postings_compat_test.go is the cross-engine compatibility anchor
+// for the Lucene99 postings format write path. Gocene writes the segment
+// using Lucene99PostingsFormat while keeping every other format at the
+// Lucene104 level; Lucene 10.4.0's CheckIndex is then run over the
+// directory to prove the postings can be read back.
 package backward_codecs
 
-import "testing"
+import (
+	"fmt"
+	"io"
+	"os/exec"
+	"testing"
 
-// TestLucene99Postings_Deferred surfaces the audit row in `go test -v`
-// output with the verbatim audit citation and the read-only deferral.
-func TestLucene99Postings_Deferred(t *testing.T) {
-	const (
-		auditRow  = "Lucene99 PostingsFormat (older skip variant)"
-		luceneCls = "org.apache.lucene.backward_codecs.lucene99.Lucene99PostingsFormat"
-		gocenePkg = "backward_codecs/lucene99/lucene99.go"
-		gapNotes  = "No Lucene-emitted .doc/.pos fixture for v99."
-		reason    = "Lucene 10.4.0 Lucene99PostingsFormat#fieldsConsumer throws " +
-			"UnsupportedOperationException; producing a Lucene-9.9 postings " +
-			"segment (.doc/.pos/.tim/.tip/.tmd) requires an older Lucene jar; " +
-			"covered by a future backward-compat sprint."
-	)
-	t.Skipf("deferred: %s (lucene_class=%q gocene_class=%q gap_notes=%q): %s "+
-		"(scenario %q lives in tools/lucene-fixtures/Manifest.DEFERRED_ROWS)",
-		auditRow, luceneCls, gocenePkg, gapNotes, reason, ScenarioBwcLucene99Postings)
+	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	gcompat "github.com/FlavioCFOliveira/Gocene/internal/compat"
+	"github.com/FlavioCFOliveira/Gocene/store"
+)
+
+// lucene99PostingsCodec delegates every format to Lucene104Codec except
+// postings, which are handled by Lucene99PostingsFormat. The codec name
+// remains "Lucene104" so Lucene 10.4.0 opens the segment with its own
+// Lucene104Codec; PerFieldPostingsFormat then dispatches to
+// Lucene99PostingsFormat for the fields that were written with it.
+type lucene99PostingsCodec struct {
+	*codecs.Lucene104Codec
+}
+
+// PostingsFormat returns PerFieldPostingsFormat with Lucene99PostingsFormat
+// as the default delegate. Using PerFieldPostingsFormat is required so the
+// concrete postings format name is recorded on each FieldInfo and can be
+// resolved by Lucene on the read path.
+func (c *lucene99PostingsCodec) PostingsFormat() codecs.PostingsFormat {
+	return codecs.NewPerFieldPostingsFormatWithDefault(codecs.NewLucene99PostingsFormat())
+}
+
+// payloadAnalyzer wraps StandardAnalyzer and attaches an 8-byte offset
+// payload to every token. This exercises the positions + payloads path of
+// the postings format.
+type payloadAnalyzer struct {
+	*analysis.StandardAnalyzer
+}
+
+// TokenStream builds StandardTokenizer -> LowerCaseFilter ->
+// TokenOffsetPayloadTokenFilter. PayloadAttribute is explicitly added to
+// the tokenizer's shared attribute source so the downstream filter can set
+// payloads.
+func (a *payloadAnalyzer) TokenStream(fieldName string, reader io.Reader) (analysis.TokenStream, error) {
+	tokenizer := analysis.NewStandardTokenizer()
+	if err := tokenizer.SetMaxTokenLength(a.MaxTokenLength()); err != nil {
+		return nil, err
+	}
+	if err := tokenizer.SetReader(reader); err != nil {
+		return nil, err
+	}
+	tokenizer.AddAttribute(analysis.NewPayloadAttributeImpl())
+	stream := analysis.TokenStream(analysis.NewLowerCaseFilter(tokenizer))
+	stream = analysis.NewTokenOffsetPayloadTokenFilter(stream)
+	return stream, nil
+}
+
+// TestLucene99Postings_GoceneWriteJavaCheck indexes a small corpus with
+// Gocene's Lucene99PostingsFormat and asks the Java harness to run
+// CheckIndex. A clean exit proves Lucene 10.4.0 can read the postings
+// stream, term dictionary, and segment envelope produced by Gocene.
+func TestLucene99Postings_GoceneWriteJavaCheck(t *testing.T) {
+	requireHarness(t)
+
+	dir := t.TempDir()
+	d, err := store.NewSimpleFSDirectory(dir)
+	if err != nil {
+		t.Fatalf("open dir: %v", err)
+	}
+	defer d.Close()
+
+	analyzer := &payloadAnalyzer{StandardAnalyzer: analysis.NewStandardAnalyzer()}
+	config := index.NewIndexWriterConfig(analyzer)
+	config.SetCodec(&lucene99PostingsCodec{Lucene104Codec: codecs.NewLucene104Codec()})
+
+	iw, err := index.NewIndexWriter(d, config)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	for i := 0; i < 5; i++ {
+		doc := document.NewDocument()
+		idField, _ := document.NewStringField("id", fmt.Sprintf("doc-%d", i), true)
+		doc.Add(idField)
+		bodyField, _ := document.NewTextField("body",
+			fmt.Sprintf("alpha beta gamma delta %d epsilon zeta", i), true)
+		doc.Add(bodyField)
+		if err := iw.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument: %v", err)
+		}
+	}
+
+	if err := iw.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := iw.Close(); err != nil {
+		t.Fatalf("Close writer: %v", err)
+	}
+
+	jar, err := gcompat.Locate()
+	if err != nil {
+		t.Fatalf("locate harness: %v", err)
+	}
+	cmd := exec.Command("java", "-jar", jar, "check", dir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("harness check %s failed: %v\noutput: %s", dir, err, out)
+	}
 }

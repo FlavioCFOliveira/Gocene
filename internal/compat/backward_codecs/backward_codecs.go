@@ -22,17 +22,17 @@
 //	"Lucene99 PostingsFormat (older skip variant)"
 //	    lucene_class: org.apache.lucene.backward_codecs.lucene99.Lucene99PostingsFormat
 //	    gap_notes:    "No Lucene-emitted .doc/.pos fixture for v99."
-//	    -> lucene99_postings_compat_test.go            (DEFERRED — read-only in 10.4)
+//	    -> lucene99_postings_compat_test.go            (REAL — Gocene write, Java read via CheckIndex)
 //
 //	"Lucene99 ScalarQuantized vectors"
 //	    lucene_class: org.apache.lucene.backward_codecs.lucene99.Lucene99ScalarQuantizedVectorsFormat
 //	    gap_notes:    "No Lucene fixture."
-//	    -> lucene99_scalar_quantized_compat_test.go    (DEFERRED — read-only in 10.4)
+//	    -> lucene99_scalar_quantized_compat_test.go    (REAL — Gocene write, Java read via CheckIndex)
 //
 //	"Lucene103 PostingsFormat (older variant)"
 //	    lucene_class: org.apache.lucene.backward_codecs.lucene103.Lucene103PostingsFormat
 //	    gap_notes:    "No Lucene-emitted v103 corpus."
-//	    -> lucene103_postings_compat_test.go           (DEFERRED — read-only in 10.4)
+//	    -> lucene103_postings_compat_test.go           (REAL — Gocene write, Java read via CheckIndex)
 //
 //	"Lucene40 BlockTree"
 //	    lucene_class: org.apache.lucene.backward_codecs.lucene40.blocktree.Lucene40BlockTreeTermsReader

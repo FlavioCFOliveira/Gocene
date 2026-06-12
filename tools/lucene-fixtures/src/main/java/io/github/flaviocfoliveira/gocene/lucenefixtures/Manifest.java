@@ -127,24 +127,27 @@ public final class Manifest {
                             + "covered by a future backward-compat sprint.\""},
             new String[]{"bwc-lucene99-postings", "(deferred)", "0",
                     "Lucene 10.4.0 Lucene99PostingsFormat is read-only",
-                    "gap_notes=\"No Lucene-emitted .doc/.pos fixture for v99.\"; "
+                    "gap_notes=\"Gocene-write -> Java-read validated via CheckIndex (Sprint 14 T81a).\"; "
                             + "reason=\"org.apache.lucene.backward_codecs.lucene99.Lucene99PostingsFormat#fieldsConsumer "
                             + "throws UnsupportedOperationException in Lucene 10.4.0; producing a Lucene-9.9 postings "
-                            + "segment requires an older Lucene jar; covered by a future backward-compat sprint.\""},
+                            + "segment requires an older Lucene jar. Gocene now ports the test-only Lucene99PostingsWriter "
+                            + "and validates with Java CheckIndex.\""},
             new String[]{"bwc-lucene99-scalar-quantized", "(deferred)", "0",
                     "Lucene 10.4.0 Lucene99ScalarQuantizedVectorsFormat is read-only",
-                    "gap_notes=\"No Lucene fixture.\"; "
+                    "gap_notes=\"Gocene-write -> Java-read validated via CheckIndex (Sprint 14 T81c).\"; "
                             + "reason=\"org.apache.lucene.backward_codecs.lucene99.Lucene99ScalarQuantizedVectorsFormat"
                             + "#fieldsWriter throws UnsupportedOperationException(\\\"Old codecs may only be used for reading\\\") "
                             + "in Lucene 10.4.0; producing a Lucene-9.9 scalar-quantised vectors segment requires an older "
-                            + "Lucene jar; covered by a future backward-compat sprint.\""},
+                            + "Lucene jar. Gocene now ports the test-only Lucene99ScalarQuantizedVectorsWriter "
+                            + "and validates with Java CheckIndex.\""},
             new String[]{"bwc-lucene103-postings", "(deferred)", "0",
                     "Lucene 10.4.0 Lucene103PostingsFormat is read-only",
-                    "gap_notes=\"No Lucene-emitted v103 corpus.\"; "
+                    "gap_notes=\"Gocene-write -> Java-read validated via CheckIndex (Sprint 14 T81b).\"; "
                             + "reason=\"org.apache.lucene.backward_codecs.lucene103.Lucene103PostingsFormat#fieldsConsumer "
                             + "throws UnsupportedOperationException(\\\"This postings format may not be used for writing, "
                             + "use the current postings format\\\") in Lucene 10.4.0; producing a Lucene-10.3 postings "
-                            + "segment requires an older Lucene jar; covered by a future backward-compat sprint.\""},
+                            + "segment requires an older Lucene jar. Gocene now ports the test-only Lucene103PostingsWriter "
+                            + "and validates with Java CheckIndex.\""},
             new String[]{"bwc-lucene40-blocktree", "(deferred)", "0",
                     "Lucene 10.4.0 lucene40/blocktree ships only Reader/Iterator/Frame",
                     "gap_notes=\"Only reader port; no rw or fixture test.\"; "

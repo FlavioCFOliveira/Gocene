@@ -726,38 +726,67 @@ public final class Main {
      */
     private static int runVerifyBwc(String[] args, PrintStream out, PrintStream err) {
         if (args.length != 4) {
-            err.println("usage: verify-bwc <bwc-packed64-legacy|bwc-big-endian-store> <dir> <seed>");
+            err.println("usage: verify-bwc <scenario> <dir> <seed>");
             return 1;
         }
         String which = args[1];
-        switch (which) {
-            case "bwc-packed64-legacy", "bwc-big-endian-store" -> {
-                // accepted
-            }
-            default -> {
-                err.println("invalid verify-bwc scenario (the remaining backward_codecs rows are "
-                        + "DEFERRED — see Manifest.DEFERRED_ROWS): " + which);
-                return 1;
-            }
-        }
         java.nio.file.Path source = java.nio.file.Path.of(args[2]);
         long seed = parseSeed(args[3], err);
         if (seed == Long.MIN_VALUE && !"-9223372036854775808".equals(args[3])) {
             return 1;
         }
-        try {
-            CorpusScenario scenario = Scenarios.require(which);
-            scenario.verify(source, seed);
-        } catch (IllegalArgumentException e) {
-            err.println(e.getMessage());
-            return 2;
-        } catch (IOException e) {
-            err.println("verify-bwc " + which + " failed: " + e.getMessage());
-            return 4;
+        // Scenarios that have real Java-generated fixtures.
+        switch (which) {
+            case "bwc-packed64-legacy", "bwc-big-endian-store" -> {
+                try {
+                    CorpusScenario scenario = Scenarios.require(which);
+                    scenario.verify(source, seed);
+                } catch (IllegalArgumentException e) {
+                    err.println(e.getMessage());
+                    return 2;
+                } catch (IOException e) {
+                    err.println("verify-bwc " + which + " failed: " + e.getMessage());
+                    return 4;
+                }
+                out.println("ok verify-bwc variant=" + which + " dir="
+                        + source.toAbsolutePath() + " seed=" + seed);
+                return 0;
+            }
         }
-        out.println("ok verify-bwc variant=" + which + " dir="
-                + source.toAbsolutePath() + " seed=" + seed);
-        return 0;
+        // Gocene-write -> Java-read scenarios (Sprint 14 T81).  These formats
+        // are read-only in Lucene 10.4.0, so there is no Java-generated
+        // fixture; verification means running CheckIndex on the Gocene-
+        // produced directory.
+        switch (which) {
+            case "bwc-lucene99-postings", "bwc-lucene99-scalar-quantized",
+                    "bwc-lucene103-postings" -> {
+                try (org.apache.lucene.store.FSDirectory dir = org.apache.lucene.store.FSDirectory.open(source);
+                     java.io.ByteArrayOutputStream captured = new java.io.ByteArrayOutputStream();
+                     PrintStream sink = new PrintStream(captured, true, java.nio.charset.StandardCharsets.UTF_8);
+                     org.apache.lucene.index.CheckIndex checker = new org.apache.lucene.index.CheckIndex(dir)) {
+                    checker.setInfoStream(sink, false);
+                    org.apache.lucene.index.CheckIndex.Status status = checker.checkIndex();
+                    if (status.clean) {
+                        int segs = status.segmentInfos == null ? 0 : status.segmentInfos.size();
+                        out.println("ok verify-bwc variant=" + which + " dir=" + source.toAbsolutePath()
+                                + " seed=" + seed + " segments=" + segs
+                                + " missingSegments=" + status.missingSegments
+                                + " mode=gocene-write-java-checkindex");
+                        return 0;
+                    }
+                    err.println(captured.toString(java.nio.charset.StandardCharsets.UTF_8));
+                    err.println("CheckIndex reported a non-clean index at " + source.toAbsolutePath());
+                    return 4;
+                } catch (IOException e) {
+                    err.println("verify-bwc " + which + " failed: " + e.getMessage());
+                    return 4;
+                }
+            }
+            default -> {
+                err.println("invalid verify-bwc scenario (see Manifest.DEFERRED_ROWS): " + which);
+                return 1;
+            }
+        }
     }
 
     /**
