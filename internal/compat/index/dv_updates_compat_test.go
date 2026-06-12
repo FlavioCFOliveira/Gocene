@@ -27,13 +27,9 @@
 //	(c) SegmentCommitInfo cross-check — DocValuesUpdatesFiles() maps
 //	    generation 1 to that exact pair (no extras, no omissions).
 //
-// The Gocene-side READ of the updated long value via a SegmentReader
-// is intentionally NOT exercised here: see
-// deferred_index_compat_test.go for the "Gocene SegmentReader
-// generational DV update value visibility" deferral citation. The
-// Lucene-side READ is covered by the scenario's verify() method, which
-// re-opens the index with a DirectoryReader and asserts
-// count(doc-5) == 999.
+// The Gocene-side READ of the updated long value is exercised by
+// TestDVUpdates_ValueVisibility below. The Lucene-side READ is covered
+// by the scenario's verify() method.
 package index
 
 import (
@@ -41,8 +37,84 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
+
+// TestDVUpdates_ValueVisibility (class c, formerly deferred behind BLOCKER-1)
+// opens the Lucene-emitted fixture with Gocene's DirectoryReader (core readers
+// now wired) and asserts that the updated NumericDocValues value is readable.
+// This is the Gocene-side leg of the cross-engine DV-update round-trip.
+func TestDVUpdates_ValueVisibility(t *testing.T) {
+	for _, seed := range canarySeeds {
+		seed := seed
+		t.Run("", func(t *testing.T) {
+			dirPath := generate(t, ScenarioDeletionsAndDvUpdates, seed)
+
+			dir, err := store.NewSimpleFSDirectory(dirPath)
+			if err != nil {
+				t.Fatalf("open dir: %v", err)
+			}
+			defer dir.Close()
+
+			reader, err := index.OpenDirectoryReader(dir)
+			if err != nil {
+				t.Fatalf("OpenDirectoryReader: %v", err)
+			}
+			defer reader.Close()
+
+			// Phase 2 deletes doc-3 and doc-7, so 10 docs remain alive.
+			const wantLive = 10
+			if got := reader.NumDocs(); got != wantLive {
+				t.Fatalf("NumDocs = %d, want %d", got, wantLive)
+			}
+
+			sawUpdate := false
+			for _, seg := range reader.GetSegmentReaders() {
+				dv, err := seg.GetNumericDocValues("count")
+				if err != nil {
+					t.Fatalf("GetNumericDocValues: %v", err)
+				}
+				if dv == nil {
+					t.Fatal("GetNumericDocValues returned nil")
+				}
+
+				liveDocs := seg.GetLiveDocs()
+				for d := 0; d < seg.MaxDoc(); d++ {
+					if liveDocs != nil && !liveDocs.Get(d) {
+						continue
+					}
+					has, err := dv.AdvanceExact(d)
+					if err != nil {
+						t.Fatalf("AdvanceExact(%d): %v", d, err)
+					}
+					if !has {
+						continue
+					}
+					val, err := dv.LongValue()
+					if err != nil {
+						t.Fatalf("LongValue(%d): %v", d, err)
+					}
+					// The fixture indexes doc-i as the i-th document, so doc-5 is
+					// at docID == 5 before deletes. After deletes of doc-3 and
+					// doc-7, the remaining docs are 0,1,2,4,5,6,8,9,10,11.
+					// Doc ID 5 still maps to doc-5 because deletions don't shift
+					// doc IDs in Lucene.
+					if d == 5 {
+						const wantVal = 999
+						if val != wantVal {
+							t.Fatalf("doc-5 count = %d, want %d", val, wantVal)
+						}
+						sawUpdate = true
+					}
+				}
+			}
+			if !sawUpdate {
+				t.Fatalf("did not find doc-5 with updated count==999")
+			}
+		})
+	}
+}
 
 // TestDVUpdates_GenerationalFilesPresent (class a + c) confirms the
 // generational DV-update files exist at the expected names and that

@@ -914,6 +914,21 @@ func openSegmentReader(directory store.Directory, sci *SegmentCommitInfo) (*Segm
 		fi = NewFieldInfos()
 	}
 
+	// When the segment has an updated FieldInfos generation (e.g. after a
+	// doc-values update), read the newer .fnm so that GetNumericDocValues
+	// and other doc-values accessors resolve the correct fields. The codec
+	// producers (FieldsProducer, StoredFieldsReader, etc.) were written
+	// against the base FieldInfos and stay wired to the core created below;
+	// the SegmentReader's exposed fieldInfos may be newer. Mirrors Java
+	// SegmentReader.initFieldInfos().
+	var updatedFi *FieldInfos
+	if fi != nil && sci.HasFieldInfosGen() {
+		updatedFi = readFieldInfosWithGen(directory, codec, segInfo, sci.FieldInfosGen())
+	}
+	if updatedFi != nil {
+		fi = updatedFi
+	}
+
 	// Construct SegmentCoreReaders when a codec is available. This wires the
 	// StoredFieldsReader, FieldsProducer (postings), and TermVectorsReader so
 	// that IndexSearcher.Doc and term-based searches work end-to-end.
@@ -1012,6 +1027,45 @@ func readFieldInfosFromDisk(directory store.Directory, codec Codec, segInfo *Seg
 		}()
 	}
 	fi, err := fif.Read(fnmDir, segInfo, "", store.IOContextRead)
+	if err != nil {
+		return nil
+	}
+	return fi
+}
+
+// readFieldInfosWithGen reads the .fnm FieldInfos for a segment at the given
+// field-infos generation. When a doc-values update bumps the fieldInfosGen,
+// Lucene writes a new _N_G.fnm file (where G is the generation in base-36);
+// the base _N.fnm no longer reflects the current doc-values fields. This
+// helper mirrors Java SegmentReader.initFieldInfos(). Returns nil when the
+// read fails (caller falls back to the base FieldInfos).
+func readFieldInfosWithGen(directory store.Directory, codec Codec, segInfo *SegmentInfo, gen int64) *FieldInfos {
+	if codec == nil {
+		return nil
+	}
+	fif := codec.FieldInfosFormat()
+	if fif == nil {
+		return nil
+	}
+	suffix := strconv.FormatInt(gen, 36)
+	fnmDir := directory
+	var cfsReader store.Directory
+	if segInfo.IsCompoundFile() {
+		if cf := codec.CompoundFormat(); cf != nil {
+			if r, err := cf.GetCompoundReader(directory, segInfo); err == nil {
+				fnmDir = r
+				cfsReader = r
+			}
+		}
+	}
+	if cfsReader != nil {
+		defer func() {
+			if closer, ok := cfsReader.(interface{ Close() error }); ok {
+				_ = closer.Close()
+			}
+		}()
+	}
+	fi, err := fif.Read(fnmDir, segInfo, suffix, store.IOContextRead)
 	if err != nil {
 		return nil
 	}

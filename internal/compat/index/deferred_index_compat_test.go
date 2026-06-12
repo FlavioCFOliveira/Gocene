@@ -27,22 +27,6 @@ func TestIndexAudit_DeferredRows(t *testing.T) {
 		reason    string // why this is deferred from Sprint 114 T8
 	}{
 		{
-			artefact:  "Gocene SegmentReader generational DV update value visibility",
-			luceneCls: "org.apache.lucene.index.SegmentReader",
-			gapNotes:  "DV update generational files are parsed and the file pair is registered; the actual updated value is not surfaced through a Gocene SegmentReader API in tests.",
-			reason: "Gocene's OpenDirectoryReader path uses NewSegmentReader, " +
-				"which does not yet wire core readers for the Lucene90 DV " +
-				"format on a Lucene-emitted segment (see memory-index " +
-				"reference 'gocene-segmentreader-corereaders-gap'). Reading " +
-				"the updated long value via reader.getNumericDocValues " +
-				"is therefore not exercised here. The Java-side scenario " +
-				"verify() DOES assert count(doc-5) == 999 via " +
-				"DirectoryReader.open, so the byte contract IS validated " +
-				"cross-engine; only the Gocene-side reader leg is " +
-				"deferred. Tracked separately for the SegmentReader " +
-				"core-readers wiring task.",
-		},
-		{
 			artefact:  "CheckIndex on a Gocene-round-tripped index",
 			luceneCls: "org.apache.lucene.index.CheckIndex",
 			gapNotes:  "Lucene's CheckIndex run over a Gocene-written index would confirm the writer side of the binary contract end-to-end.",
