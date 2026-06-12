@@ -105,6 +105,7 @@ func doTestSearch(t *testing.T, forceMerge bool) string {
 			}
 			fmt.Fprintf(&out, "%d %s\n", i, contents)
 		}
+	}
 	return out.String()
 }
 

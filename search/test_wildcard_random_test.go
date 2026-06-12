@@ -59,6 +59,7 @@ func assertWildcardPatternHits(t *testing.T, s *search.IndexSearcher, pattern st
 	if top.TotalHits.Value != numHits {
 		t.Errorf("incorrect hits for pattern %q: got %d, want %d", pattern, top.TotalHits.Value, numHits)
 	}
+}
 
 // TestWildcardRandom_Wildcards ports testWildcards. The reference fills the
 // 'N' placeholders with random digits; since the corpus contains every

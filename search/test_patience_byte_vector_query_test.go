@@ -61,6 +61,7 @@ func TestPatienceByteVectorQuery_ToString(t *testing.T) {
 		if !containsToken(str, want) {
 			t.Fatalf("String() %q missing %q", str, want)
 		}
+	}
 
 	rewritten, err := q.Rewrite(s.GetIndexReader())
 	if err != nil {

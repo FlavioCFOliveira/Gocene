@@ -425,6 +425,7 @@ func TestTopDocsCollector_TotalHitsRelation(t *testing.T) {
 	if totalHits.IsExact() {
 		t.Error("Expected non-exact hit count")
 	}
+}
 
 // TODO: The following tests require additional implementation:
 // - TestTopDocsCollector_SetMinCompetitiveScore: Requires TopScoreDocCollector with min competitive score tracking

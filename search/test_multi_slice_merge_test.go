@@ -53,6 +53,7 @@ func buildMultiSliceIndex(t *testing.T) (*search.IndexSearcher, func()) {
 		if i%7 == 0 {
 			ix.commit() // multiple segments, as the upstream LogMergePolicy produces
 		}
+	}
 	return ix.searcher()
 }
 

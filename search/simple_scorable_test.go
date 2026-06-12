@@ -77,4 +77,4 @@ func TestSimpleScorable_MultipleUpdates(t *testing.T) {
 		if got != v {
 			t.Errorf("after SetScore(%v): Score()=%v", v, got)
 		}
-}
+}}

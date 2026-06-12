@@ -49,6 +49,7 @@ func TestEarlyTermination_TestEarlyTermination(t *testing.T) {
 			t.Fatalf("SearchWithCollector: %v", err)
 		}
 	}
+}
 
 // earlyTerminationCollector mirrors the anonymous SimpleCollector created per leaf in
 // the upstream test. ScoreMode is COMPLETE_NO_SCORES.

@@ -706,6 +706,7 @@ func NewPhraseQueryBuilder() *PhraseQueryBuilder {
 		positions: make([]int, 0),
 		slop:      0,
 	}
+}
 
 // AddTermAtPosition adds a term at the specified position.
 func (b *PhraseQueryBuilder) AddTermAtPosition(term *index.Term, position int) *PhraseQueryBuilder {

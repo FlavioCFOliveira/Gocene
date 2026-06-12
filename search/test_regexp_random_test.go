@@ -71,6 +71,7 @@ func TestRegexpRandom_Regexps(t *testing.T) {
 		if top.TotalHits.Value != numHits {
 			t.Errorf("pattern %q (template %q): hits = %d, want %d", pattern, template, top.TotalHits.Value, numHits)
 		}
+	}
 
 	num := 1
 	for i := 0; i < num; i++ {

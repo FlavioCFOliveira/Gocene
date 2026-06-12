@@ -157,5 +157,6 @@ func explainFreq(e search.Explanation) (float32, bool) {
 		if v, ok := explainFreq(d); ok {
 			return v, true
 		}
+	}
 	return 0, false
 }

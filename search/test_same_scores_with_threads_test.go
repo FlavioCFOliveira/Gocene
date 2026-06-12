@@ -128,5 +128,6 @@ func compareTopDocs(term string, expected, actual *search.TopDocs) error {
 		if expected.ScoreDocs[hit].Score != actual.ScoreDocs[hit].Score {
 			return fmt.Errorf("query=%q: hit %d score %v != %v", term, hit, expected.ScoreDocs[hit].Score, actual.ScoreDocs[hit].Score)
 		}
+	}
 	return nil
 }

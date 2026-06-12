@@ -190,4 +190,5 @@ func regexp2CheckEqual(t *testing.T, reg string, hits1, hits2 []*search.ScoreDoc
 		if a[i].Doc != b[i].Doc {
 			t.Errorf("regexp %q: hit %d doc mismatch: smart=%d reference=%d", reg, i, a[i].Doc, b[i].Doc)
 		}
+	}
 }

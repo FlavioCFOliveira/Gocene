@@ -179,6 +179,7 @@ func matchCustomSearcherHits(t *testing.T, c *customSearcher, srt *search.Sort) 
 		sort.Ints(missing)
 		t.Fatalf("couldn't match %d sorted hits against the rank set: %v", len(missing), missing)
 	}
+}
 
 // customSearcherSort builds the (publicationDate_ STRING, FIELD_SCORE) sort.
 func customSearcherSort() *search.Sort {

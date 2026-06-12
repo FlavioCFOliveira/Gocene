@@ -272,6 +272,7 @@ func TestRangeFieldsDocValuesQuery_ToString(t *testing.T) {
 	if got, want := rangeQueryToString(q4), "foo:[[101, 124, 137] TO [138, 145, 156]]"; got != want {
 		t.Errorf("long toString = %q, want %q", got, want)
 	}
+}
 
 func TestRangeFieldsDocValuesQuery_NoData(t *testing.T) {
 	ix := newIntegrationIndex(t)

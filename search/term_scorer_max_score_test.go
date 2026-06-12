@@ -239,6 +239,7 @@ func TestTermScorerGetMaxScoreIsUpperBound(t *testing.T) {
 		if bound, score := scorer.GetMaxScore(upTo), scorer.Score(); bound < score {
 			t.Errorf("after AdvanceShallow: GetMaxScore(%d)=%v < score=%v", upTo, bound, score)
 		}
+	}
 
 	t.Logf("checked %d matching documents; global max score = %v (> 1.0 confirmed)", checkedUpper, globalMax)
 	_ = totalDocs

@@ -498,4 +498,4 @@ func TestTermScorer_TermFrequency(t *testing.T) {
 			t.Errorf("Expected doc 1 (tf=3) to have higher score than doc 0 (tf=1), got %f and %f",
 				doc1Score, doc0Score)
 		}
-}
+}}

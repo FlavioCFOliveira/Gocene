@@ -833,4 +833,5 @@ func TestTopFieldCollector_SortWithoutTotalHitTracking(t *testing.T) {
 				t.Logf("Score for doc %d with n=%d: %f", sd.Doc, n, sd.Score)
 			}
 		}
+	}
 }

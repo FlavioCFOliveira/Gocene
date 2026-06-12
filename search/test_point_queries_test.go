@@ -714,6 +714,7 @@ func TestPointQueries_InvalidPointLength(t *testing.T) {
 	if _, err := search.NewPointRangeQuery("field", make([]byte, 8), make([]byte, 4)); err == nil {
 		t.Errorf("expected an error for mismatched bound lengths")
 	}
+}
 
 func TestPointQueries_WrongNumBytes(t *testing.T) {
 	// A multi-dim range query whose total length is not divisible by numDims

@@ -125,4 +125,5 @@ func TestDateSort_TestDateSort(t *testing.T) {
 		if got := gotField.StringValue(); got != expectedOrder[i] {
 			t.Fatalf("hit %d: got %q want %q", i, got, expectedOrder[i])
 		}
+	}
 }

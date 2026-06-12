@@ -155,4 +155,5 @@ func assertSearchAfterPaginationConsistent(t *testing.T, qi int, searcher *searc
 		if paged[i].Score != all.ScoreDocs[i].Score {
 			t.Fatalf("q%d pageSize=%d hit %d: score paged=%v all=%v", qi, pageSize, i, paged[i].Score, all.ScoreDocs[i].Score)
 		}
+	}
 }

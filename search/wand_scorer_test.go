@@ -267,6 +267,7 @@ func TestWANDScorer_ScoreSum(t *testing.T) {
 	if got := ws.Score(); got < 5-eps || got > 5+eps {
 		t.Errorf("Score()=%v, want 5", got)
 	}
+}
 
 // TestWANDScorer_EmptyResult verifies no matches when no scorers match.
 func TestWANDScorer_EmptyResult(t *testing.T) {

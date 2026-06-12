@@ -190,4 +190,5 @@ func randomScalarValue(rng *rand.Rand) rune {
 		if r < 0xD800 || r > 0xDFFF {
 			return r
 		}
+	}
 }

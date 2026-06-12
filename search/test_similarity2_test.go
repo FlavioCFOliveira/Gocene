@@ -228,6 +228,7 @@ func TestSimilarity2_OmitTF(t *testing.T) {
 		query.Add(search.NewTermQuery(index.NewTerm("foo", "bar")), search.SHOULD)
 		assertHits(t, searcher, query, 1)
 	}
+}
 
 func TestSimilarity2_OmitTFAndNorms(t *testing.T) {
 	ft := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)

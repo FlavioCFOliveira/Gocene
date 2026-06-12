@@ -122,6 +122,7 @@ func TestVectorSimilarityCollector_TopDocsRelationExact(t *testing.T) {
 	if td.TotalHits.Relation != search.EQUAL_TO {
 		t.Errorf("Relation = %v, want EQUAL_TO", td.TotalHits.Relation)
 	}
+}
 
 // TestVectorSimilarityCollector_EqualThresholds verifies that
 // traversalSimilarity == resultSimilarity is valid.

@@ -694,4 +694,5 @@ func BenchmarkSearcherManager_AcquireRelease(b *testing.B) {
 		if err := sm.Release(searcher); err != nil {
 			b.Fatalf("Release: %v", err)
 		}
+	}
 }

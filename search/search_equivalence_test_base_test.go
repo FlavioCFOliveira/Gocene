@@ -54,7 +54,6 @@ func newSeqHarness(t *testing.T) *seqHarness {
 	for i := 0; i < numDocs; i++ {
 		ix.addText(seqField, seqRandomFieldContents(rng))
 	}
-}
 	s, cleanup := ix.searcher()
 	return &seqHarness{
 		t:       t,
@@ -64,7 +63,6 @@ func newSeqHarness(t *testing.T) *seqHarness {
 		cleanup: cleanup,
 	}
 }
-}
 
 func (h *seqHarness) close() { h.cleanup() }
 
@@ -73,7 +71,6 @@ func hashStringSeed(s string) int64 {
 	for i := 0; i < len(s); i++ {
 		hash = 31*hash + int64(s[i])
 	}
-}
 	return hash
 }
 
@@ -84,7 +81,6 @@ func seqRandomChar(rng *rand.Rand) byte {
 	if rng.Intn(2) == 1 {
 		c = byte('a' + rng.Intn(int(c-'a')+1))
 	}
-}
 	return c
 }
 
@@ -99,7 +95,6 @@ func seqRandomFieldContents(rng *rand.Rand) string {
 		}
 		buf = append(buf, seqRandomChar(rng))
 	}
-}
 	return string(buf)
 }
 
@@ -118,7 +113,6 @@ func (h *seqHarness) randomTermDistinct(t1 *index.Term) *index.Term {
 		}
 	}
 }
-}
 
 // randomFilter returns a random filter over the document set, mirroring
 // SearchEquivalenceTestBase.randomFilter.
@@ -126,7 +120,6 @@ func (h *seqHarness) randomFilter() search.Query {
 	if h.rng.Intn(2) == 1 {
 		return search.NewTermRangeQueryWithStrings(seqField, "a", string([]byte{seqRandomChar(h.rng)}), true, true)
 	}
-}
 	return search.NewPhraseQueryWithSlop(100, seqField,
 		index.NewTerm(seqField, string([]byte{seqRandomChar(h.rng)})),
 		index.NewTerm(seqField, string([]byte{seqRandomChar(h.rng)})))
@@ -147,12 +140,10 @@ func (h *seqHarness) docSet(q search.Query) map[int]bool {
 	if err != nil {
 		h.t.Fatalf("Search: %v", err)
 	}
-}
 	set := make(map[int]bool, len(top.ScoreDocs))
 	for _, sd := range top.ScoreDocs {
 		set[sd.Doc] = true
 	}
-}
 	return set
 }
 
@@ -165,19 +156,16 @@ func (h *seqHarness) assertSubsetOfFiltered(q1, q2, filter search.Query) {
 		q1 = h.filteredQuery(q1, filter)
 		q2 = h.filteredQuery(q2, filter)
 	}
-}
 	set1 := h.docSet(q1)
 	set2 := h.docSet(q2)
 	if len(set1) > len(set2) {
 		h.t.Fatalf("too many hits: %d > %d", len(set1), len(set2))
 	}
-}
 	for doc := range set1 {
 		if !set2[doc] {
 			h.t.Fatalf("doc %d matched by q1 but not q2", doc)
 		}
 	}
-}
 }
 
 // seqAssertSubsetOf ports assertSubsetOf(q1, q2): tests with no filter plus a few
@@ -191,7 +179,6 @@ func (h *seqHarness) seqAssertSubsetOf(q1, q2 search.Query) {
 		h.assertSubsetOfFiltered(q1, q2, filter)
 		h.assertSubsetOfFiltered(h.filteredQuery(q1, filter), h.filteredQuery(q2, filter), nil)
 	}
-}
 }
 
 // seqAssertSameSet ports assertSameSet(q1, q2).
@@ -208,12 +195,10 @@ func (h *seqHarness) scoreMap(q search.Query) map[int]float32 {
 	if err != nil {
 		h.t.Fatalf("Search: %v", err)
 	}
-}
 	m := make(map[int]float32, len(top.ScoreDocs))
 	for _, sd := range top.ScoreDocs {
 		m[sd.Doc] = sd.Score
 	}
-}
 	return m
 }
 
@@ -224,13 +209,11 @@ func (h *seqHarness) assertSameScoresFiltered(q1, q2, filter search.Query) {
 		q1 = h.filteredQuery(q1, filter)
 		q2 = h.filteredQuery(q2, filter)
 	}
-}
 	m1 := h.scoreMap(q1)
 	m2 := h.scoreMap(q2)
 	if len(m1) != len(m2) {
 		h.t.Fatalf("totalHits differ: %d != %d", len(m1), len(m2))
 	}
-}
 	for doc, s1 := range m1 {
 		s2, ok := m2[doc]
 		if !ok {
@@ -254,5 +237,4 @@ func (h *seqHarness) seqAssertSameScores(q1, q2 search.Query) {
 		h.assertSameScoresFiltered(q1, q2, filter)
 		h.assertSameScoresFiltered(h.filteredQuery(q1, filter), h.filteredQuery(q2, filter), nil)
 	}
-}
 }

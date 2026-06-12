@@ -5,6 +5,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/queryparser/xml"
+	sandbox_queries "github.com/FlavioCFOliveira/Gocene/sandbox/queries"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -53,12 +54,10 @@ func (b *LikeThisQueryBuilder) GetQuery(e *xml.Element) (search.Query, error) {
 
 var _ xml.QueryBuilder = (*LikeThisQueryBuilder)(nil)
 
-// FuzzyLikeThisQueryBuilder is a thin variant of LikeThisQueryBuilder that
-// keeps the same MoreLikeThis machinery but enables fuzzy expansion via the
-// MinTermFreq/MaxQueryTerms tunables. The full FuzzyLikeThis Java port (with
-// its custom rewrite producing FuzzyTermsQuery) is not yet available in Go,
-// so this builder downgrades to LikeThis behaviour while honouring the
-// extra attributes "ignoreTF" and "fuzzyMinSim" used by Lucene tests.
+// FuzzyLikeThisQueryBuilder builds a FuzzyLikeThisQuery from a
+// <FuzzyLikeThisQuery> element. The element's "fieldName" attribute lists
+// comma-separated fields and the text body provides the seed text. Extra
+// attributes "fuzzyMinSim", "ignoreTF" and "prefixLength" are honoured.
 type FuzzyLikeThisQueryBuilder struct {
 	Analyzer analysis.Analyzer
 }
@@ -78,22 +77,23 @@ func (b *FuzzyLikeThisQueryBuilder) GetQuery(e *xml.Element) (search.Query, erro
 	if err != nil {
 		return nil, err
 	}
-	mlt := search.NewMoreLikeThis(b.Analyzer)
-	if v := xml.GetAttributeInt(e, "minTermFreq", 0); v > 0 {
-		mlt.MinTermFreq = v
-	}
-	if v := xml.GetAttributeInt(e, "maxQueryTerms", 0); v > 0 {
-		mlt.MaxQueryTerms = v
-	}
 	fields := splitFields(fieldList)
-	if len(fields) > 0 {
-		mlt.FieldNames = fields
+	if len(fields) == 0 {
+		return nil, xml.NewParserException("no fields specified for FuzzyLikeThisQuery")
 	}
-	q, err := mlt.LikeText(text)
-	if err != nil {
-		return nil, xml.NewParserExceptionWithCause("FuzzyLikeThisQuery generation failed", err)
+
+	maxQueryTerms := xml.GetAttributeInt(e, "maxQueryTerms", 10)
+	flt := sandbox_queries.NewFuzzyLikeThisQuery(maxQueryTerms, b.Analyzer)
+
+	fuzzyMinSim := xml.GetAttributeFloat(e, "fuzzyMinSim", 0.5)
+	prefixLength := xml.GetAttributeInt(e, "prefixLength", 1)
+	ignoreTF := xml.GetAttributeBoolean(e, "ignoreTF", false)
+	flt.SetIgnoreTF(ignoreTF)
+
+	for _, field := range fields {
+		flt.AddTerms(text, field, fuzzyMinSim, prefixLength)
 	}
-	return applyBoost(e, q), nil
+	return applyBoost(e, flt), nil
 }
 
 var _ xml.QueryBuilder = (*FuzzyLikeThisQueryBuilder)(nil)
