@@ -296,3 +296,49 @@ func TestBitSetProducerInterface(t *testing.T) {
 	wrapper := NewFixedBitSetCachingWrapper(producer)
 	var _ BitSetProducer = wrapper
 }
+
+// TestQueryBitSetProducerCache verifies that QueryBitSetProducer caches
+// computed bitsets keyed by the leaf reader's core cache key.
+func TestQueryBitSetProducerCache(t *testing.T) {
+	// Use a query whose weight returns nil scorer (empty result).
+	mq := &mockQuery{}
+	producer := NewQueryBitSetProducer(mq)
+
+	segmentInfo := index.NewSegmentInfo("seg", 2, nil)
+	leaf := index.NewLeafReader(segmentInfo)
+	leaf.SetMaxDoc(2)
+
+	ctx := index.NewLeafReaderContext(leaf, nil, 0, 0)
+
+	bs1, err := producer.GetBitSet(ctx)
+	if err != nil {
+		t.Fatalf("GetBitSet error: %v", err)
+	}
+	if bs1 == nil {
+		t.Fatal("expected non-nil bitset")
+	}
+	if bs1.Cardinality() != 0 {
+		t.Fatal("expected empty bitset because scorer is nil")
+	}
+
+	// Second call with the same reader context must return the cached instance.
+	bs2, err := producer.GetBitSet(ctx)
+	if err != nil {
+		t.Fatalf("GetBitSet second call error: %v", err)
+	}
+	if bs1 != bs2 {
+		t.Fatal("expected cached bitset to be returned on second call")
+	}
+
+	// A new leaf reader (different cache key) should trigger a recompute.
+	leaf2 := index.NewLeafReader(segmentInfo)
+	leaf2.SetMaxDoc(2)
+	ctx2 := index.NewLeafReaderContext(leaf2, nil, 0, 0)
+	bs3, err := producer.GetBitSet(ctx2)
+	if err != nil {
+		t.Fatalf("GetBitSet new reader error: %v", err)
+	}
+	if bs3 == bs1 {
+		t.Fatal("expected new bitset for a different reader")
+	}
+}

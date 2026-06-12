@@ -5,6 +5,8 @@
 package join
 
 import (
+	"sync"
+
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
@@ -181,9 +183,16 @@ func trailingZeros(x uint64) int {
 // QueryBitSetProducer produces a FixedBitSet from a query.
 //
 // This is the Go port of Lucene's org.apache.lucene.search.join.QueryBitSetProducer.
+// It caches per-segment bitsets using the leaf reader's core cache key.
 type QueryBitSetProducer struct {
 	query search.Query
+	mu    sync.Mutex
+	cache map[*index.CacheKey]*FixedBitSet
 }
+
+// sentinelBitSet is used to cache a negative (no matches) result without
+// returning nil from the internal cache lookup. Mirrors Java SENTINEL.
+var sentinelBitSet = NewFixedBitSet(0)
 
 // NewQueryBitSetProducer creates a new QueryBitSetProducer for the given query.
 func NewQueryBitSetProducer(query search.Query) *QueryBitSetProducer {
@@ -197,22 +206,45 @@ func NewQueryBitSetProducer(query search.Query) *QueryBitSetProducer {
 // (with COMPLETE_NO_SCORES since BitSetProducer never needs scores), obtains a
 // Scorer for the context, and iterates the scorer setting one bit per matching
 // document.
+//
+// Results are cached per leaf reader core cache key so repeated calls for the
+// same segment reuse the computed bitset.
 func (p *QueryBitSetProducer) GetBitSet(context *index.LeafReaderContext) (*FixedBitSet, error) {
 	reader := context.LeafReader()
 	if reader == nil {
 		return NewFixedBitSet(0), nil
 	}
 	maxDoc := reader.MaxDoc()
-	bitSet := NewFixedBitSet(maxDoc)
 	if p.query == nil || maxDoc == 0 {
-		return bitSet, nil
+		return NewFixedBitSet(maxDoc), nil
+	}
+
+	// Attempt cache lookup using the leaf reader's core cache key.
+	var cacheKey *index.CacheKey
+	if ck, ok := reader.(interface{ GetCoreCacheKey() interface{} }); ok {
+		if key, ok := ck.GetCoreCacheKey().(*index.CacheKey); ok {
+			cacheKey = key
+		}
+	}
+	if cacheKey != nil {
+		p.mu.Lock()
+		if p.cache != nil {
+			if cached, ok := p.cache[cacheKey]; ok {
+				p.mu.Unlock()
+				if cached == sentinelBitSet {
+					return nil, nil
+				}
+				return cached, nil
+			}
+		}
+		p.mu.Unlock()
 	}
 
 	// Build a searcher over the leaf reader. The leaf is itself an
 	// IndexReaderInterface, so we can pass it directly.
 	leafReader, ok := reader.(index.IndexReaderInterface)
 	if !ok {
-		return bitSet, nil
+		return NewFixedBitSet(maxDoc), nil
 	}
 	searcher := search.NewIndexSearcher(leafReader)
 
@@ -227,6 +259,15 @@ func (p *QueryBitSetProducer) GetBitSet(context *index.LeafReaderContext) (*Fixe
 		return nil, err
 	}
 	if weight == nil {
+		bitSet := NewFixedBitSet(maxDoc)
+		if cacheKey != nil {
+			p.mu.Lock()
+			if p.cache == nil {
+				p.cache = make(map[*index.CacheKey]*FixedBitSet)
+			}
+			p.cache[cacheKey] = bitSet
+			p.mu.Unlock()
+		}
 		return bitSet, nil
 	}
 
@@ -235,9 +276,18 @@ func (p *QueryBitSetProducer) GetBitSet(context *index.LeafReaderContext) (*Fixe
 		return nil, err
 	}
 	if scorer == nil {
-		return bitSet, nil
+		if cacheKey != nil {
+			p.mu.Lock()
+			if p.cache == nil {
+				p.cache = make(map[*index.CacheKey]*FixedBitSet)
+			}
+			p.cache[cacheKey] = sentinelBitSet
+			p.mu.Unlock()
+		}
+		return nil, nil
 	}
 
+	bitSet := NewFixedBitSet(maxDoc)
 	for {
 		doc, err := scorer.NextDoc()
 		if err != nil {
@@ -249,7 +299,43 @@ func (p *QueryBitSetProducer) GetBitSet(context *index.LeafReaderContext) (*Fixe
 		bitSet.Set(doc)
 	}
 
+	if cacheKey != nil {
+		p.mu.Lock()
+		if p.cache == nil {
+			p.cache = make(map[*index.CacheKey]*FixedBitSet)
+		}
+		p.cache[cacheKey] = bitSet
+		p.mu.Unlock()
+	}
+
 	return bitSet, nil
+}
+
+// GetQuery returns the wrapped query.
+func (p *QueryBitSetProducer) GetQuery() search.Query {
+	return p.query
+}
+
+// String returns a string representation of this QueryBitSetProducer.
+func (p *QueryBitSetProducer) String() string {
+	return "QueryBitSetProducer(...)"
+}
+
+// Equals returns true if this QueryBitSetProducer is equal to another.
+func (p *QueryBitSetProducer) Equals(other interface{}) bool {
+	if other == nil {
+		return false
+	}
+	o, ok := other.(*QueryBitSetProducer)
+	if !ok {
+		return false
+	}
+	return p.query.Equals(o.query)
+}
+
+// HashCode returns the hash code for this QueryBitSetProducer.
+func (p *QueryBitSetProducer) HashCode() int {
+	return 31*31 + p.query.HashCode()
 }
 
 // bitSetCollector is a simple collector that sets bits for matching documents.
