@@ -1331,7 +1331,7 @@ func (w *IndexWriter) Commit() error {
 		sci.SegmentInfo().SetIndexSort(w.config.IndexSort())
 		// Write the .si file for this segment before registering it so that
 		// external tools and CheckIndex can verify per-segment integrity.
-		if err3 := writeSegmentInfo(w.directory, sci.SegmentInfo(), store.IOContextWrite); err3 != nil {
+		if err3 := writeSegmentInfo(w.directory, sci.SegmentInfo(), store.IOContextWrite, w.config.Codec()); err3 != nil {
 			return fmt.Errorf("writing .si: %w", err3)
 		}
 		si.Add(sci)
@@ -2236,7 +2236,7 @@ func (w *IndexWriter) mergeSegmentGroup(segs []*SegmentCommitInfo, segName strin
 		sciMerged.SetInMemoryFieldInfos(ms.MergeFieldInfos)
 	}
 	mergedSI.SetFiles(segFiles)
-	if err := writeSegmentInfo(w.directory, mergedSI, store.IOContextWrite); err != nil {
+	if err := writeSegmentInfo(w.directory, mergedSI, store.IOContextWrite, w.config.Codec()); err != nil {
 		closeReaders()
 		return nil, fmt.Errorf("forceMerge: write .si: %w", err)
 	}
@@ -2357,7 +2357,15 @@ func (w *IndexWriter) GetDocStats() *DocStats {
 //	WriteMapOfStrings(attributes)
 //	VInt  numSortFields = 0
 //	writeFooter()
-func writeSegmentInfo(dir store.Directory, si *SegmentInfo, context store.IOContext) error {
+func writeSegmentInfo(dir store.Directory, si *SegmentInfo, context store.IOContext, codec Codec) error {
+	if codec != nil {
+		if format := codec.SegmentInfoFormat(); format != nil {
+			return format.Write(dir, si, context)
+		}
+	}
+	// Fallback: hard-coded Lucene99 segment-info format used when no codec
+	// is configured (structural-unit-test path) or the codec does not expose
+	// a SegmentInfoFormat.
 	name := si.Name() + ".si"
 	raw, err := dir.CreateOutput(name, context)
 	if err != nil {

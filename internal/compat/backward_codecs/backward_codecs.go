@@ -12,12 +12,12 @@
 //	"Lucene70 SegmentInfoFormat (.si v7)"
 //	    lucene_class: org.apache.lucene.backward_codecs.lucene70.Lucene70SegmentInfoFormat
 //	    gap_notes:    "No real Lucene 7 fixture committed; rw tests are self-emitted."
-//	    -> lucene70_si_compat_test.go                  (DEFERRED — read-only in 10.4)
+//	    -> lucene70_si_compat_test.go                  (REAL — Gocene write, Java read via CheckIndex)
 //
 //	"Lucene90 HNSW vectors (v0)"
 //	    lucene_class: org.apache.lucene.backward_codecs.lucene90.Lucene90HnswVectorsFormat
 //	    gap_notes:    "No Lucene-9 fixture committed."
-//	    -> lucene90_hnsw_v0_compat_test.go             (DEFERRED — read-only in 10.4)
+//	    -> lucene90_hnsw_v0_compat_test.go             (REAL — Gocene write, Java read via CheckIndex)
 //
 //	"Lucene99 PostingsFormat (older skip variant)"
 //	    lucene_class: org.apache.lucene.backward_codecs.lucene99.Lucene99PostingsFormat
@@ -37,7 +37,7 @@
 //	"Lucene40 BlockTree"
 //	    lucene_class: org.apache.lucene.backward_codecs.lucene40.blocktree.Lucene40BlockTreeTermsReader
 //	    gap_notes:    "Only reader port; no rw or fixture test."
-//	    -> lucene40_blocktree_compat_test.go           (DEFERRED — reader-only in 10.4)
+//	    -> lucene40_blocktree_compat_test.go           (BLOCKER — writer ported but cross-engine blocked on missing Lucene84/Lucene50 postings writer)
 //
 //	"Legacy Packed64 / Packed64SingleBlock"
 //	    lucene_class: org.apache.lucene.backward_codecs.packed.LegacyPacked64

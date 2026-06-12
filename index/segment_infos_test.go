@@ -367,7 +367,7 @@ func TestSegmentInfos_ReadWrite(t *testing.T) {
 	sis.Add(sci2)
 
 	for _, sci := range sis.List() {
-		if err := writeSegmentInfo(dir, sci.SegmentInfo(), store.IOContextWrite); err != nil {
+		if err := writeSegmentInfo(dir, sci.SegmentInfo(), store.IOContextWrite, nil); err != nil {
 			t.Fatalf("writeSegmentInfo(%s): %v", sci.Name(), err)
 		}
 	}

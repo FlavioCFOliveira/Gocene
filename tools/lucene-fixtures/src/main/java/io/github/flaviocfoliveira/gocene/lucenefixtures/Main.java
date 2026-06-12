@@ -753,12 +753,13 @@ public final class Main {
                 return 0;
             }
         }
-        // Gocene-write -> Java-read scenarios (Sprint 14 T81).  These formats
-        // are read-only in Lucene 10.4.0, so there is no Java-generated
+        // Gocene-write -> Java-read scenarios (Sprint 14 T81 / T82).  These
+        // formats are read-only in Lucene 10.4.0, so there is no Java-generated
         // fixture; verification means running CheckIndex on the Gocene-
         // produced directory.
         switch (which) {
-            case "bwc-lucene99-postings", "bwc-lucene99-scalar-quantized",
+            case "bwc-lucene70-si", "bwc-lucene90-hnsw-v0",
+                    "bwc-lucene99-postings", "bwc-lucene99-scalar-quantized",
                     "bwc-lucene103-postings" -> {
                 try (org.apache.lucene.store.FSDirectory dir = org.apache.lucene.store.FSDirectory.open(source);
                      java.io.ByteArrayOutputStream captured = new java.io.ByteArrayOutputStream();

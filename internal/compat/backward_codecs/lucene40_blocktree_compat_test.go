@@ -26,23 +26,30 @@ package backward_codecs
 
 import "testing"
 
-// TestLucene40Blocktree_Deferred surfaces the audit row in `go test -v`
-// output with the verbatim audit citation and the reader-only deferral.
-func TestLucene40Blocktree_Deferred(t *testing.T) {
-	const (
-		auditRow  = "Lucene40 BlockTree"
-		luceneCls = "org.apache.lucene.backward_codecs.lucene40.blocktree.Lucene40BlockTreeTermsReader"
-		gocenePkg = "backward_codecs/lucene40/blocktree"
-		gapNotes  = "Only reader port; no rw or fixture test."
-		reason    = "org.apache.lucene.backward_codecs.lucene40.blocktree package " +
-			"in Lucene 10.4.0 ships ONLY Lucene40BlockTreeTermsReader / " +
-			"SegmentTermsEnum / IntersectTermsEnum / FieldReader / Stats / " +
-			"Frame (no writer class at all); producing a Lucene-4.0 BlockTree " +
-			"fixture requires the legacy lucene-codecs.jar (Lucene 4 branch), " +
-			"out of binary-compat-mandate scope (10.4.0 reference pin); " +
-			"covered by a future backward-compat sprint."
-	)
-	t.Skipf("deferred: %s (lucene_class=%q gocene_class=%q gap_notes=%q): %s "+
-		"(scenario %q lives in tools/lucene-fixtures/Manifest.DEFERRED_ROWS)",
-		auditRow, luceneCls, gocenePkg, gapNotes, reason, ScenarioBwcLucene40Blocktree)
+// TestLucene40Blocktree_Blocker documents the current gap.
+//
+// Sprint 14 T82c attempted to port the test-only Java writer
+// org.apache.lucene.backward_codecs.lucene40.blocktree.Lucene40BlockTreeTermsWriter.
+// The writer produces wire-format version 6 (.tim/.tip/.tmd) which the
+// Gocene Lucene40BlockTreeTermsReader can read, but Java CheckIndex
+// (via Lucene104Codec -> Lucene103BlockTreeTermsReader) only accepts
+// version 0. A full cross-engine test therefore requires EITHER:
+//   (a) porting Lucene84PostingsWriter or Lucene50PostingsWriter so that
+//       Java can open the segment with Lucene84PostingsFormat/
+//       Lucene50PostingsFormat (which wire Lucene40BlockTreeTermsReader), or
+//   (b) a version-0 writer that is NOT byte-faithful to the Java reference.
+//
+// The reader side in backward_codecs/lucene40/blocktree/ is fully ported
+// and exercised by package-level unit tests. The write-side cross-engine
+// leg remains blocked until a future sprint addresses the matching postings
+// writer.
+func TestLucene40Blocktree_Blocker(t *testing.T) {
+	const reason = "Lucene40BlockTreeTermsWriter (version 6) is ported in principle " +
+		"but cross-engine CheckIndex is blocked: Java Lucene104Codec only accepts " +
+		"BlockTree version 0, while the Java reference writer emits version 6. " +
+		"A matching Lucene84/Lucene50 postings writer must be ported before " +
+		"CheckIndex can validate a Gocene-written Lucene40 BlockTree segment. " +
+		"The reader side (Lucene40BlockTreeTermsReader) is fully ported and " +
+		"tested in backward_codecs/lucene40/blocktree/*_test.go."
+	t.Fatalf("blocker: %s", reason)
 }

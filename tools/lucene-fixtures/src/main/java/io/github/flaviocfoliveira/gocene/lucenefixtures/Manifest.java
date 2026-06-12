@@ -112,19 +112,20 @@ public final class Manifest {
             // older Lucene jars (or pulls fixtures from a pre-built corpus).
             new String[]{"bwc-lucene70-si", "(deferred)", "0",
                     "Lucene 10.4.0 Lucene70SegmentInfoFormat is read-only",
-                    "gap_notes=\"No real Lucene 7 fixture committed; rw tests are self-emitted.\"; "
+                    "gap_notes=\"Gocene-write -> Java-read validated via CheckIndex (Sprint 14 T82a).\"; "
                             + "reason=\"org.apache.lucene.backward_codecs.lucene70.Lucene70SegmentInfoFormat#write "
                             + "throws UnsupportedOperationException(\\\"Old formats can't be used for writing\\\") "
                             + "in Lucene 10.4.0; producing a Lucene-7-emitted .si requires an older Lucene jar "
-                            + "(7.x branch) which is out of binary-compat-mandate scope (10.4.0 reference pin); "
-                            + "covered by a future backward-compat sprint.\""},
+                            + "(7.x branch). Gocene now ports the test-only Lucene70RWSegmentInfoFormat "
+                            + "and validates with Java CheckIndex.\""},
             new String[]{"bwc-lucene90-hnsw-v0", "(deferred)", "0",
                     "Lucene 10.4.0 Lucene90HnswVectorsFormat is read-only",
-                    "gap_notes=\"No Lucene-9 fixture committed.\"; "
+                    "gap_notes=\"Gocene-write -> Java-read validated via CheckIndex (Sprint 14 T82b).\"; "
                             + "reason=\"org.apache.lucene.backward_codecs.lucene90.Lucene90HnswVectorsFormat#fieldsWriter "
                             + "throws UnsupportedOperationException(\\\"Old codecs may only be used for reading\\\") "
-                            + "in Lucene 10.4.0; producing a Lucene-9.x HNSW v0 segment requires an older Lucene jar; "
-                            + "covered by a future backward-compat sprint.\""},
+                            + "in Lucene 10.4.0; producing a Lucene-9.x HNSW v0 segment requires an older Lucene jar. "
+                            + "Gocene now ports the test-only Lucene90HnswVectorsWriter "
+                            + "and validates with Java CheckIndex.\""},
             new String[]{"bwc-lucene99-postings", "(deferred)", "0",
                     "Lucene 10.4.0 Lucene99PostingsFormat is read-only",
                     "gap_notes=\"Gocene-write -> Java-read validated via CheckIndex (Sprint 14 T81a).\"; "
