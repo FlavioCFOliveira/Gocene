@@ -56,17 +56,6 @@ func TestBackwardCodecsAudit_DeferredRows(t *testing.T) {
 				"(10.4.0 reference pin).",
 		},
 		{
-			scenario:  ScenarioBwcLucene90HnswV0,
-			artefact:  "Lucene90 HNSW vectors (v0) cross-engine fixture",
-			luceneCls: "org.apache.lucene.backward_codecs.lucene90.Lucene90HnswVectorsFormat",
-			gocenePkg: "backward_codecs/lucene90/lucene90.go",
-			gapNotes:  "No Lucene-9 fixture committed.",
-			reason: "Lucene 10.4.0 Lucene90HnswVectorsFormat#fieldsWriter throws " +
-				"UnsupportedOperationException(\"Old codecs may only be used for " +
-				"reading\"); producing a Lucene-9.x HNSW v0 segment requires an " +
-				"older Lucene jar.",
-		},
-		{
 			scenario:  ScenarioBwcLucene99Postings,
 			artefact:  "Lucene99 PostingsFormat (older skip variant) cross-engine fixture",
 			luceneCls: "org.apache.lucene.backward_codecs.lucene99.Lucene99PostingsFormat",

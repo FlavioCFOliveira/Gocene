@@ -4,41 +4,105 @@
 
 //go:build compat
 
-// lucene90_hnsw_v0_compat_test.go is the audit anchor for the
-// backward_codecs row (verbatim from docs/compat-coverage.tsv):
-//
-//	backward_codecs	Lucene90 HNSW vectors (v0)
-//	    lucene_class:  org.apache.lucene.backward_codecs.lucene90.Lucene90HnswVectorsFormat
-//	    gocene_class:  backward_codecs/lucene90/lucene90.go
-//	    isolated:      yes:backward_codecs/lucene90/lucene90_hnsw_vectors_writer_test.go
-//	    integration:   yes:backward_codecs/lucene90/lucene90_rw_hnsw_vectors_format_test.go
-//	    binary_compat: no
-//	    gap_notes:     "No Lucene-9 fixture committed."
-//
-// The corresponding harness scenario "bwc-lucene90-hnsw-v0" is NOT
-// registered in tools/lucene-fixtures/Scenarios.java; it lives in
-// Manifest.DEFERRED_ROWS because
-// org.apache.lucene.backward_codecs.lucene90.Lucene90HnswVectorsFormat#fieldsWriter
-// throws UnsupportedOperationException("Old codecs may only be used for
-// reading") in Lucene 10.4.0.
+// lucene90_hnsw_v0_compat_test.go is the cross-engine compatibility anchor
+// for the Lucene90 HNSW vectors v0 format write path. Gocene writes the
+// segment using Lucene90HnswVectorsFormat while keeping every other format at
+// the Lucene104 level; Lucene 10.4.0's CheckIndex is then run over the
+// directory to prove the HNSW v0 vectors can be read back.
 package backward_codecs
 
-import "testing"
+import (
+	"errors"
+	"fmt"
+	"os/exec"
+	"testing"
 
-// TestLucene90HnswV0_Deferred surfaces the audit row in `go test -v`
-// output with the verbatim audit citation and the read-only deferral.
-func TestLucene90HnswV0_Deferred(t *testing.T) {
-	const (
-		auditRow  = "Lucene90 HNSW vectors (v0)"
-		luceneCls = "org.apache.lucene.backward_codecs.lucene90.Lucene90HnswVectorsFormat"
-		gocenePkg = "backward_codecs/lucene90/lucene90.go"
-		gapNotes  = "No Lucene-9 fixture committed."
-		reason    = "Lucene 10.4.0 Lucene90HnswVectorsFormat#fieldsWriter throws " +
-			"UnsupportedOperationException(\"Old codecs may only be used for " +
-			"reading\"); producing a Lucene-9.x HNSW v0 segment requires an " +
-			"older Lucene jar; covered by a future backward-compat sprint."
-	)
-	t.Skipf("deferred: %s (lucene_class=%q gocene_class=%q gap_notes=%q): %s "+
-		"(scenario %q lives in tools/lucene-fixtures/Manifest.DEFERRED_ROWS)",
-		auditRow, luceneCls, gocenePkg, gapNotes, reason, ScenarioBwcLucene90HnswV0)
+	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/backward_codecs/lucene90"
+	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	gcompat "github.com/FlavioCFOliveira/Gocene/internal/compat"
+	"github.com/FlavioCFOliveira/Gocene/store"
+)
+
+// lucene90HnswVectorsFormat is a minimal KnnVectorsFormat that returns the
+// Lucene90HnswVectorsWriter on the write path. The read path is intentionally
+// unsupported because this is a test-only fixture writer; Lucene 10.4.0's own
+// backward-codecs reader is used for validation.
+type lucene90HnswVectorsFormat struct{}
+
+func (f *lucene90HnswVectorsFormat) Name() string {
+	return "Lucene90HnswVectorsFormat"
+}
+
+func (f *lucene90HnswVectorsFormat) FieldsWriter(state *codecs.SegmentWriteState) (codecs.KnnVectorsWriter, error) {
+	return lucene90.NewLucene90HnswVectorsWriter(state, 16, 100)
+}
+
+func (f *lucene90HnswVectorsFormat) FieldsReader(state *codecs.SegmentReadState) (codecs.KnnVectorsReader, error) {
+	return nil, errors.New("lucene90 hnsw: read not supported in test writer")
+}
+
+// lucene90HnswCodec delegates every format to Lucene104Codec except KNN
+// vectors, which are handled by Lucene90HnswVectorsFormat.
+// PerFieldKnnVectorsFormat is used so the concrete format name is recorded on
+// each FieldInfo and can be resolved by Lucene on the read path.
+type lucene90HnswCodec struct {
+	*codecs.Lucene104Codec
+}
+
+func (c *lucene90HnswCodec) KnnVectorsFormat() codecs.KnnVectorsFormat {
+	return codecs.NewPerFieldKnnVectorsFormatWithDefault(&lucene90HnswVectorsFormat{})
+}
+
+// TestLucene90HnswV0_GoceneWriteJavaCheck indexes a small corpus with
+// Gocene's Lucene90HnswVectorsWriter and asks the Java harness to run
+// CheckIndex. A clean exit proves Lucene 10.4.0 can read the HNSW v0 vector
+// data, metadata, and graph produced by Gocene.
+func TestLucene90HnswV0_GoceneWriteJavaCheck(t *testing.T) {
+	requireHarness(t)
+
+	dir := t.TempDir()
+	d, err := store.NewSimpleFSDirectory(dir)
+	if err != nil {
+		t.Fatalf("open dir: %v", err)
+	}
+	defer d.Close()
+
+	config := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
+	config.SetCodec(&lucene90HnswCodec{Lucene104Codec: codecs.NewLucene104Codec()})
+
+	iw, err := index.NewIndexWriter(d, config)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	for i := 0; i < 5; i++ {
+		doc := document.NewDocument()
+		idField, _ := document.NewStringField("id", fmt.Sprintf("doc-%d", i), true)
+		doc.Add(idField)
+		vecField, _ := document.NewKnnFloatVectorFieldEuclidean("vec", []float32{float32(i), float32(i + 1), float32(i + 2)})
+		doc.Add(vecField)
+		if err := iw.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument: %v", err)
+		}
+	}
+
+	if err := iw.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := iw.Close(); err != nil {
+		t.Fatalf("Close writer: %v", err)
+	}
+
+	jar, err := gcompat.Locate()
+	if err != nil {
+		t.Fatalf("locate harness: %v", err)
+	}
+	cmd := exec.Command("java", "-jar", jar, "check", dir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("harness check %s failed: %v\noutput: %s", dir, err, out)
+	}
 }
