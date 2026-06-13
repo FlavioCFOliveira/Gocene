@@ -867,6 +867,48 @@ func TestStandardAnalyzer_DefaultEmptyStopSet(t *testing.T) {
 	}
 }
 
+// TestStandardAnalyzer_EdgeCases exercises pathological and mixed-script
+// inputs that historically cause divergence between Gocene and Lucene.
+// Source: Sprint 15 T103 (rmp 225).
+func TestStandardAnalyzer_EdgeCases(t *testing.T) {
+	analyzer := NewStandardAnalyzer()
+	defer analyzer.Close()
+
+	tests := []struct {
+		name     string
+		input    string
+		expected []string
+	}{
+		{"empty", "", nil},
+		{"whitespace only", "   \t\n", nil},
+		{"control chars", "hello\x00world\x01test", []string{"hello", "world", "test"}},
+		{"very long token", strings.Repeat("a", 1025), []string{strings.Repeat("a", 255), strings.Repeat("a", 255), strings.Repeat("a", 255), strings.Repeat("a", 255), "aaaaa"}},
+		{"url http", "Visit http://example.com/path", []string{"visit", "http", "example.com", "path"}},
+		{"url https", "Check https://www.test.org?q=1", []string{"check", "https", "www.test.org", "q", "1"}},
+		{"email simple", "Contact user@example.com please", []string{"contact", "user", "example.com", "please"}},
+		{"mixed script latin+cjk", "hello世界test", []string{"hello", "世", "界", "test"}},
+		{"mixed script latin+arabic", "مرحبا hello", []string{"مرحبا", "hello"}},
+		{"nfc nfd equivalent", "café café", []string{"café", "café"}},
+		{"surrogate pair", "𠜎𠜱", []string{"𠜎", "𠜱"}},
+		{"emoji sequence", "flag 🇺🇸 text", []string{"flag", "🇺🇸", "text"}},
+		{"invisible formatting", "test​word", []string{"test", "word"}},
+		{"non-breaking space", "hello world", []string{"hello", "world"}},
+		{"zero width joiner", "family 👨‍👩‍👧", []string{"family", "👨‍", "👩‍", "👧"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tokens, err := collectTokensFromAnalyzer(analyzer, tc.input)
+			if err != nil {
+				t.Fatalf("TokenStream failed: %v", err)
+			}
+			if !reflect.DeepEqual(tokens, tc.expected) {
+				t.Errorf("got %v, want %v", tokens, tc.expected)
+			}
+		})
+	}
+}
+
 // collectTokensFromStream collects tokens from a token stream.
 func collectTokensFromStream(stream TokenStream) ([]string, error) {
 	var tokens []string
