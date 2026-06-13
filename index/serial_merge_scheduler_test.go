@@ -5,6 +5,7 @@
 package index_test
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -209,6 +210,7 @@ func TestMergeSource(t *testing.T) {
 
 // mockMergeSource is a mock implementation of MergeSource for testing.
 type mockMergeSource struct {
+	mu         sync.Mutex
 	merges     []*index.OneMerge
 	finished   []*index.OneMerge
 	mergeError error
@@ -231,15 +233,31 @@ func (m *mockMergeSource) GetNextMerge() *index.OneMerge {
 }
 
 func (m *mockMergeSource) OnMergeFinished(merge *index.OneMerge) {
+	m.mu.Lock()
 	m.finished = append(m.finished, merge)
+	m.mu.Unlock()
 }
 
 func (m *mockMergeSource) HasPendingMerges() bool {
 	return len(m.merges) > 0
 }
 
+func (m *mockMergeSource) MergeCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.mergeCount
+}
+
+func (m *mockMergeSource) FinishedCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.finished)
+}
+
 func (m *mockMergeSource) Merge(merge *index.OneMerge) error {
+	m.mu.Lock()
 	m.mergeCount++
+	m.mu.Unlock()
 	return m.mergeError
 }
 
@@ -272,11 +290,11 @@ func TestSerialMergeSchedulerWithMockSource(t *testing.T) {
 		}
 
 		// Verify all merges were processed
-		if source.mergeCount != 3 {
-			t.Errorf("source.mergeCount = %d, want 3", source.mergeCount)
+		if source.MergeCount() != 3 {
+			t.Errorf("source.mergeCount = %d, want 3", source.MergeCount())
 		}
-		if len(source.finished) != 3 {
-			t.Errorf("len(source.finished) = %d, want 3", len(source.finished))
+		if source.FinishedCount() != 3 {
+			t.Errorf("len(source.finished) = %d, want 3", source.FinishedCount())
 		}
 	})
 }

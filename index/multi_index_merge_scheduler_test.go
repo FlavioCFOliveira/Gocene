@@ -43,11 +43,11 @@ func TestMultiIndexMergeScheduler(t *testing.T) {
 		if err := s.Merge(source, index.EXPLICIT); err != nil {
 			t.Fatalf("Merge() error = %v", err)
 		}
-		if source.mergeCount != 1 {
-			t.Errorf("mergeCount = %d, want 1", source.mergeCount)
+		if source.MergeCount() != 1 {
+			t.Errorf("mergeCount = %d, want 1", source.MergeCount())
 		}
-		if len(source.finished) != 1 {
-			t.Errorf("len(finished) = %d, want 1", len(source.finished))
+		if source.FinishedCount() != 1 {
+			t.Errorf("len(finished) = %d, want 1", source.FinishedCount())
 		}
 	})
 

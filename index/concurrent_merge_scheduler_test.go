@@ -145,8 +145,8 @@ func TestConcurrentMergeSchedulerAsync(t *testing.T) {
 			t.Fatalf("Merge: %v", err)
 		}
 
-		if source.mergeCount != 5 {
-			t.Errorf("processed %d merges, want 5", source.mergeCount)
+		if source.MergeCount() != 5 {
+			t.Errorf("processed %d merges, want 5", source.MergeCount())
 		}
 	})
 
@@ -465,10 +465,10 @@ func TestConcurrentMergeScheduler_MergeStalling(t *testing.T) {
 		// Due to the asynchronous nature of goroutine lifecycle, some merges
 		// may be re-queued to pendingMerges (which the current implementation
 		// does not re-dispatch).  At minimum, at least one merge was processed.
-		if source.mergeCount == 0 {
-			t.Errorf("processed %d merges, want > 0", source.mergeCount)
+		if source.MergeCount() == 0 {
+			t.Errorf("processed %d merges, want > 0", source.MergeCount())
 		}
-		t.Logf("processed %d of %d merges with maxThreadCount=1", source.mergeCount, len(merges))
+		t.Logf("processed %d of %d merges with maxThreadCount=1", source.MergeCount(), len(merges))
 	})
 
 	t.Run("stall with max merge count of 1", func(t *testing.T) {
@@ -489,8 +489,8 @@ func TestConcurrentMergeScheduler_MergeStalling(t *testing.T) {
 			t.Fatalf("Merge with maxMergeCount=1: %v", err)
 		}
 
-		if source.mergeCount != 5 {
-			t.Errorf("processed %d merges, want 5", source.mergeCount)
+		if source.MergeCount() != 5 {
+			t.Errorf("processed %d merges, want 5", source.MergeCount())
 		}
 	})
 
@@ -525,7 +525,7 @@ func TestConcurrentMergeScheduler_SerialMergeSource(t *testing.T) {
 		t.Fatalf("SerialMerge: %v", err)
 	}
 
-	if source.mergeCount != 3 {
-		t.Errorf("serial processed %d merges, want 3", source.mergeCount)
+	if source.MergeCount() != 3 {
+		t.Errorf("serial processed %d merges, want 3", source.MergeCount())
 	}
 }
