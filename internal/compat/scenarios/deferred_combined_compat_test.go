@@ -20,9 +20,10 @@ import (
 // The SegmentReader core-readers gap was resolved (T97, rmp #219) and the
 // Gocene-write leg is covered by TestS1_GoceneWriteLeg in s1_gocene_write_test.go.
 //
+// S2 (combined-reverse-index-search) is no longer deferred:
+// The Gocene-write leg is covered by TestS2_GoceneWriteLeg in s2_gocene_write_test.go.
+//
 // Remaining deferred scenarios:
-//   S2 — single-segment scoring invariance (requires IndexWriter byte-identical
-//        to Lucene104Codec; blocked by residual write-path divergences).
 //   S3 — faceted search counts (requires BinaryDocValues/NumericDocValues
 //        from cold-open reader; partially unblocked by T97 but taxonomy
 //        ordinal reconstruction remains untested end-to-end).
@@ -42,15 +43,6 @@ func TestDeferredGoceneWriteLeg(t *testing.T) {
 		scenario string
 		reason   string
 	}{
-		{
-			scenario: scenarioS2,
-			reason: "Same Gocene SegmentReader core-readers gap as S1; the " +
-				"Gocene-write leg (Gocene produces the single-segment " +
-				"reference index from the same deterministic doc set, " +
-				"Lucene reads + verifies via verify-scoring-equivalent) " +
-				"additionally requires a Gocene-side IndexWriter parity " +
-				"with Lucene104Codec which is not yet byte-identical.",
-		},
 		{
 			scenario: scenarioS3,
 			reason: "DirectoryTaxonomyReader/Writer are now implemented (NRT " +
@@ -75,8 +67,8 @@ func TestDeferredGoceneWriteLeg(t *testing.T) {
 		},
 	}
 
-	if len(cases) != 3 {
-		t.Fatalf("expected 4 deferred combined scenarios, got %d", len(cases))
+	if len(cases) != 2 {
+		t.Fatalf("expected 2 deferred combined scenarios, got %d", len(cases))
 	}
 
 	for _, c := range cases {
