@@ -16,13 +16,18 @@ import (
 // survives any future test-discovery pruning. The Lucene-side legs are
 // exercised by TestS1..TestS6.
 //
-// The single recurring root cause is:
+// S1 (combined-multi-segment-index-search) is no longer deferred:
+// The SegmentReader core-readers gap was resolved (T97, rmp #219) and the
+// Gocene-write leg is covered by TestS1_GoceneWriteLeg in s1_gocene_write_test.go.
 //
-//   - The Gocene SegmentReader core-readers gap (OpenDirectoryReader uses
-//     NewSegmentReader without wiring coreReaders, so Terms/Postings via
-//     the leaf API fail with "core readers are nil"). This blocks the
-//     class-(c) replay leg for every scenario that reads a Lucene-emitted
-//     index (S1, S2, S3, S6).
+// Remaining deferred scenarios:
+//   S2 — single-segment scoring invariance (requires IndexWriter byte-identical
+//        to Lucene104Codec; blocked by residual write-path divergences).
+//   S3 — faceted search counts (requires BinaryDocValues/NumericDocValues
+//        from cold-open reader; partially unblocked by T97 but taxonomy
+//        ordinal reconstruction remains untested end-to-end).
+//   S6 — highlighted snippets (requires QueryParser port + UnifiedHighlighter
+//        live-Lucene byte-parity; tracked by rmp #4687).
 //
 // S4 (combined-replicator-roundtrip) is no longer deferred:
 // WriteCopyStateOrdered / ReadCopyState wire encoder+decoder were implemented
@@ -37,14 +42,6 @@ func TestDeferredGoceneWriteLeg(t *testing.T) {
 		scenario string
 		reason   string
 	}{
-		{
-			scenario: scenarioS1,
-			reason: "Gocene SegmentReader core-readers gap (audit memory " +
-				"project-gocene-segmentreader-corereaders-gap): OpenDirectoryReader " +
-				"uses NewSegmentReader without populating coreReaders, so " +
-				"reading the Lucene-emitted multi-segment index from Gocene " +
-				"to re-run BM25 scoring is not yet possible.",
-		},
 		{
 			scenario: scenarioS2,
 			reason: "Same Gocene SegmentReader core-readers gap as S1; the " +
@@ -78,7 +75,7 @@ func TestDeferredGoceneWriteLeg(t *testing.T) {
 		},
 	}
 
-	if len(cases) != 4 {
+	if len(cases) != 3 {
 		t.Fatalf("expected 4 deferred combined scenarios, got %d", len(cases))
 	}
 
