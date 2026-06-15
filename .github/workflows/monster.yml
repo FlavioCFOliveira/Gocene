@@ -1,0 +1,41 @@
+name: Monster Tests
+
+on:
+  schedule:
+    # Weekly on Sundays at 03:17 UTC (off-peak, avoids :00 and :30).
+    - cron: '17 3 * * 0'
+  workflow_dispatch:
+    inputs:
+      go_version:
+        description: 'Go version (e.g., 1.25.x, stable)'
+        required: false
+        default: 'stable'
+
+jobs:
+  monster:
+    name: Monster tests (${{ matrix.go }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ['1.25.x', 'stable']
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+
+      - name: Monster test suite
+        env:
+          GOCENE_RUN_MONSTERS: '1'
+        run: go test ./... -timeout 1800s -run 'Test2GBCharBlockArray|TestBKD_RandomBinaryBig|TestTimSorterWorstCase|Test2BPagedBytes|TestStressRamUsageEstimator|TestManyKnnDocs'
+
+      - name: Monster test suite with -race
+        env:
+          GOCENE_RUN_MONSTERS: '1'
+        run: go test -race ./... -timeout 3600s -run 'Test2GBCharBlockArray|TestBKD_RandomBinaryBig|TestTimSorterWorstCase|Test2BPagedBytes|TestStressRamUsageEstimator|TestManyKnnDocs'

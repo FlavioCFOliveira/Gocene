@@ -16,7 +16,7 @@ import (
 // Run with GOCENE_RUN_MONSTERS=1 to include this test.
 func Test2GBCharBlockArray_Monster2GBChars(t *testing.T) {
 	if os.Getenv("GOCENE_RUN_MONSTERS") != "1" {
-		t.Skip("set GOCENE_RUN_MONSTERS=1 to run this monster test (>2GB CharBlockArray)")
+		t.Fatalf("deferred: monster test %s requires GOCENE_RUN_MONSTERS=1 (>2GB CharBlockArray)", t.Name())
 	}
 	const blockSize = 32768
 	array := NewCharBlockArrayWithBlockSize(blockSize)

@@ -80,7 +80,7 @@ func TestBKD_RandomBinaryMedium(t *testing.T) {
 // doTestRandomBinary(200000). Gated behind GOCENE_RUN_MONSTERS=1.
 func TestBKD_RandomBinaryBig(t *testing.T) {
 	if os.Getenv("GOCENE_RUN_MONSTERS") != "1" {
-		t.Skip("set GOCENE_RUN_MONSTERS=1 to run this monster test (200k points)")
+		t.Fatalf("deferred: monster test %s requires GOCENE_RUN_MONSTERS=1 (200k points)", t.Name())
 	}
 	rng := verifyRNG(t)
 	doTestRandomBinary(t, rng, 200000)
