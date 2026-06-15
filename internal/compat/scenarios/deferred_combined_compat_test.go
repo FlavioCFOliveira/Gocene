@@ -24,9 +24,9 @@ import (
 // The Gocene-write leg is covered by TestS2_GoceneWriteLeg in s2_gocene_write_test.go.
 //
 // Remaining deferred scenarios:
-//   S3 — faceted search counts (requires BinaryDocValues/NumericDocValues
-//        from cold-open reader; partially unblocked by T97 but taxonomy
-//        ordinal reconstruction remains untested end-to-end).
+//   S1 — combined-multi-segment-index-search (postings format byte-parity
+//        gap: Lucene Java cannot read Gocene-produced .tim/.tip files).
+//   S2 — combined-reverse-index-search (same postings gap as S1).
 //   S6 — highlighted snippets (requires QueryParser port + UnifiedHighlighter
 //        live-Lucene byte-parity; tracked by rmp #4687).
 //
@@ -44,14 +44,14 @@ func TestDeferredGoceneWriteLeg(t *testing.T) {
 		reason   string
 	}{
 		{
-			scenario: scenarioS3,
-			reason: "DirectoryTaxonomyReader/Writer are now implemented (NRT " +
-				"path fully operational); the remaining blocker is the " +
-				"SegmentReader core-readers gap: BinaryDocValues and " +
-				"NumericDocValues are not yet readable from disk, so the " +
-				"cold-open reader cannot populate ordinal maps from the " +
-				"persisted index and FastTaxonomyFacetCounts cannot " +
-				"reconstruct parent arrays at read time.",
+			scenario: scenarioS1,
+			reason: "Postings format byte-parity gap: Lucene Java cannot read " +
+				"Gocene-produced .tim/.tip files; collectionStats is null " +
+				"during search. Tracked by postings-writer backlog.",
+		},
+		{
+			scenario: scenarioS2,
+			reason: "Same postings gap as S1 (single-segment variant).",
 		},
 		{
 			scenario: scenarioS6,
@@ -67,8 +67,8 @@ func TestDeferredGoceneWriteLeg(t *testing.T) {
 		},
 	}
 
-	if len(cases) != 2 {
-		t.Fatalf("expected 2 deferred combined scenarios, got %d", len(cases))
+	if len(cases) != 3 {
+		t.Fatalf("expected 3 deferred combined scenarios, got %d", len(cases))
 	}
 
 	for _, c := range cases {

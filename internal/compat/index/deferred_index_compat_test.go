@@ -27,21 +27,6 @@ func TestIndexAudit_DeferredRows(t *testing.T) {
 		reason    string // why this is deferred from Sprint 114 T8
 	}{
 		{
-			artefact:  "CheckIndex on a Gocene-round-tripped index",
-			luceneCls: "org.apache.lucene.index.CheckIndex",
-			gapNotes:  "Lucene's CheckIndex run over a Gocene-written index would confirm the writer side of the binary contract end-to-end.",
-			reason: "Gocene's IndexWriter is not yet produces a " +
-				"Lucene-readable on-disk image for the multi-commit / " +
-				"DV-update / soft-delete scenarios covered here (no " +
-				"compatibility test in the codebase asserts the inverse " +
-				"direction at this depth). A Gocene-write -> Lucene-check " +
-				"leg requires the SegmentMerger and IndexWriter porting " +
-				"backlog tasks; see memory-index reference " +
-				"'gocene-segment-merger-baseline' (#2707). The Lucene-side " +
-				"forward direction (Lucene-write -> Lucene-CheckIndex) is " +
-				"covered by check_index_compat_test.go.",
-		},
-		{
 			artefact:  "SegmentCommitInfo.diagnostics map round-trip",
 			luceneCls: "org.apache.lucene.index.SegmentCommitInfo",
 			gapNotes:  "Diagnostics carries a wall-clock timestamp Lucene stamps on every commit, so byte-equal comparison is not meaningful; logical round-trip is not pinned.",
