@@ -364,6 +364,13 @@ func (core *SegmentCoreReaders) GetDocValuesProducer() interface{} {
 	return core.docValuesProducer
 }
 
+// SetDocValuesProducer replaces the doc-values producer held by this core.
+// Used by openSegmentReader when it overlays a SegmentDocValuesProducer on
+// top of the base producer to handle per-generation doc-values updates.
+func (core *SegmentCoreReaders) SetDocValuesProducer(dvp interface{}) {
+	core.docValuesProducer = dvp
+}
+
 // GetNormsProducer returns the NormsProducer.
 func (core *SegmentCoreReaders) GetNormsProducer() interface{} {
 	return core.normsProducer

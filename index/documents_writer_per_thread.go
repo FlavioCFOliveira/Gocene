@@ -701,6 +701,7 @@ func (dwpt *DocumentsWriterPerThread) ProcessDocument(doc Document) error {
 			OmitNorms:                field.omitNorms,
 			Stored:                   field.isStored,
 			DocValuesType:            field.docValuesType,
+			DocValuesGen:             -1,
 		}
 		// Mark the configured parent field so the parent bit is serialised into
 		// the .fnm (Lucene94FieldInfosFormat parent bit). This makes the .fnm the

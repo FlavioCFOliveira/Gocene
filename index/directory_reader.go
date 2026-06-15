@@ -937,6 +937,61 @@ func openSegmentReader(directory store.Directory, sci *SegmentCommitInfo) (*Segm
 		if err == nil {
 			sr := NewSegmentReaderWithCore(sci, core, fi, codec)
 			sr.directory = directory
+
+			// When any field carries a doc-values generation > -1 the base
+			// producer loaded by NewSegmentCoreReaders reads the original files
+			// (_0.dvd) but misses the updated ones (_0_1_Lucene90_0.dvd).
+			// Overlay a SegmentDocValuesProducer that fans out to the correct
+			// per-generation producer for every field.  Mirrors Java
+			// SegmentReader's initFieldInfos() + SegmentCoreReaders wiring.
+			if fi != nil && fi.HasDocValues() {
+				var hasGen bool
+				it := fi.Iterator()
+				for it.HasNext() {
+					if it.Next().DocValuesGen() > -1 {
+						hasGen = true
+						break
+					}
+				}
+				if hasGen {
+					coreInfos := readFieldInfosFromDisk(directory, codec, segInfo)
+					if coreInfos == nil {
+						coreInfos = NewFieldInfos()
+					}
+					factory := func(si *SegmentCommitInfo, dir store.Directory, gen int64, infos *FieldInfos) (DocValuesProducer, error) {
+						suffix := ""
+						if gen != -1 {
+							suffix = strconv.FormatInt(gen, 36)
+						}
+						state := &SegmentReadState{
+							Directory:     dir,
+							SegmentInfo:   si.SegmentInfo(),
+							FieldInfos:    infos,
+							SegmentSuffix: suffix,
+						}
+						format := codec.DocValuesFormat()
+						if format == nil {
+							return nil, fmt.Errorf("no DocValuesFormat for codec %q", codec.Name())
+						}
+						return format.FieldsProducer(state)
+					}
+					sdv, err := NewSegmentDocValues(factory)
+					if err != nil {
+						_ = core.DecRef()
+						return nil, fmt.Errorf("openSegmentReader: SegmentDocValues init failed: %w", err)
+					}
+					dvp, err := NewSegmentDocValuesProducer(sci, directory, coreInfos, fi, sdv)
+					if err != nil {
+						_ = core.DecRef()
+						return nil, fmt.Errorf("openSegmentReader: SegmentDocValuesProducer init failed: %w", err)
+					}
+					if oldDvp, ok := core.docValuesProducer.(DocValuesProducer); ok && oldDvp != nil {
+						_ = oldDvp.Close()
+					}
+					core.SetDocValuesProducer(dvp)
+				}
+			}
+
 			loadLiveDocsFromDisk(directory, sci)
 			return sr, nil
 		}
