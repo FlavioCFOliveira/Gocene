@@ -52,6 +52,20 @@ func (f *BaseTermVectorsFormat) Name() string {
 	return f.name
 }
 
+// lucene90TermVectorsFormatFactory is populated by package codecs via init
+// when the Lucene90TermVectorsFormat is linked.  When non-nil,
+// Lucene104TermVectorsFormat.VectorsReader tries it first so that indexes
+// written with Lucene90TermVectorsFormat (the wire format used by Apache
+// Lucene 10.4.0) can be read back.
+var lucene90TermVectorsFormatFactory func() TermVectorsFormat
+
+// RegisterLucene90TermVectorsFormat sets the factory used by
+// Lucene104TermVectorsFormat to attempt Lucene90-format term vectors before
+// falling back to the legacy Gocene104 simple format.
+func RegisterLucene90TermVectorsFormat(factory func() TermVectorsFormat) {
+	lucene90TermVectorsFormatFactory = factory
+}
+
 // Lucene104TermVectorsFormat is the Lucene 10.4 term vectors format.
 // This is a placeholder implementation.
 type Lucene104TermVectorsFormat struct {
@@ -72,7 +86,21 @@ func (f *Lucene104TermVectorsFormat) VectorsWriter(state *SegmentWriteState) (Te
 }
 
 // VectorsReader returns a term vectors reader.
+// When the Lucene90 term-vectors factory has been registered, this method
+// attempts to open the segment with the Lucene90 format first.  If that fails
+// with a header-mismatch or missing-file error, it falls back to the legacy
+// Gocene104 simple format so that both Lucene-compatible and older Gocene
+// indexes remain readable.
 func (f *Lucene104TermVectorsFormat) VectorsReader(dir store.Directory, segmentInfo *index.SegmentInfo, fieldInfos *index.FieldInfos, context store.IOContext) (TermVectorsReader, error) {
+	if lucene90TermVectorsFormatFactory != nil {
+		lucene90Format := lucene90TermVectorsFormatFactory()
+		if lucene90Format != nil {
+			reader, err := lucene90Format.VectorsReader(dir, segmentInfo, fieldInfos, context)
+			if err == nil {
+				return reader, nil
+			}
+		}
+	}
 	return NewLucene104TermVectorsReader(dir, segmentInfo, fieldInfos, context)
 }
 

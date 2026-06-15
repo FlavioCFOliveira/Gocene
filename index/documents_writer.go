@@ -278,8 +278,9 @@ func (dw *DocumentsWriter) flush() error {
 
 	// Create segment commit infos for the flushed segments
 	for _, si := range segments {
-		// Write segment info to directory
-		if err := WriteSegmentInfo(si, dw.directory); err != nil {
+		// Write segment info to directory using the codec's segment-info format
+		// so that the .si file is byte-compatible with Apache Lucene 10.4.0.
+		if err := WriteSegmentInfo(si, dw.directory, dw.codec); err != nil {
 			return fmt.Errorf("failed to write segment info: %w", err)
 		}
 	}
@@ -349,8 +350,17 @@ func (dw *DocumentsWriter) nextSegmentName() string {
 }
 
 // WriteSegmentInfo writes a SegmentInfo to the directory.
-func WriteSegmentInfo(si *SegmentInfo, dir store.Directory) error {
-	// Create segment info file
+// When codec is non-nil, it delegates to codec.SegmentInfoFormat().Write so
+// the .si file is byte-compatible with Apache Lucene.  When codec is nil, a
+// minimal fallback format is used (structural-test path only).
+func WriteSegmentInfo(si *SegmentInfo, dir store.Directory, codec Codec) error {
+	if codec != nil {
+		if format := codec.SegmentInfoFormat(); format != nil {
+			return format.Write(dir, si, store.IOContextWrite)
+		}
+	}
+
+	// Fallback: minimal custom format for tests that do not wire a codec.
 	fileName := si.Name() + ".si"
 	out, err := dir.CreateOutput(fileName, store.IOContextWrite)
 	if err != nil {

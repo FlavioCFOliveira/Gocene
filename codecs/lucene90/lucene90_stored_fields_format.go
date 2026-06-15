@@ -267,6 +267,16 @@ func (f *Lucene90StoredFieldsFormat) impl(mode Lucene90StoredFieldsMode) codecs.
 	}
 }
 
+// init registers the Lucene90 stored-fields format factory so that
+// codecs.Lucene104StoredFieldsFormat can read back indexes written with
+// the Lucene90 wire format (the byte-compatible path required for
+// Apache Lucene 10.4.0 interoperability).
+func init() {
+	codecs.RegisterLucene90StoredFieldsFormat(func() codecs.StoredFieldsFormat {
+		return NewLucene90StoredFieldsFormat()
+	})
+}
+
 // Compile-time guarantee that the format satisfies
 // codecs.StoredFieldsFormat.
 var _ codecs.StoredFieldsFormat = (*Lucene90StoredFieldsFormat)(nil)

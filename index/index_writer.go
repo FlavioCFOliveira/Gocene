@@ -950,6 +950,8 @@ func (w *IndexWriter) GetReader() (*DirectoryReader, error) {
 	for _, ps := range w.pendingImportedSegments {
 		segmentName := nrtSI.GetNextSegmentName()
 		segInfo := NewSegmentInfo(segmentName, ps.numDocs, w.directory)
+		segInfo.SetVersion("10.4.0")
+		segInfo.SetMinVersion("10.4.0")
 		sci := NewSegmentCommitInfo(segInfo, ps.delCount, -1)
 		if ps.softDelCount > 0 {
 			sci.SetSoftDelCount(ps.softDelCount)
@@ -1136,6 +1138,8 @@ func (w *IndexWriter) Commit() error {
 	for _, ps := range w.pendingImportedSegments {
 		segmentName := si.GetNextSegmentName()
 		segInfo := NewSegmentInfo(segmentName, ps.numDocs, w.directory)
+		segInfo.SetVersion("10.4.0")
+		segInfo.SetMinVersion("10.4.0")
 		sci := NewSegmentCommitInfo(segInfo, ps.delCount, -1)
 		if ps.softDelCount > 0 {
 			sci.SetSoftDelCount(ps.softDelCount)
@@ -2201,6 +2205,8 @@ func (w *IndexWriter) mergeSegmentGroup(segs []*SegmentCommitInfo, segName strin
 
 	mergedSI := NewSegmentInfo(segName, totalLive, w.directory)
 	mergedSI.SetCodec(codec.Name())
+	mergedSI.SetVersion("10.4.0")
+	mergedSI.SetMinVersion("10.4.0")
 	mergedSI.SetIndexSort(w.config.IndexSort())
 
 	sm, err := NewSegmentMerger(readers, mergedSI, codec, util.NoOpInfoStream, w.directory, store.IOContext{Context: store.ContextMerge})

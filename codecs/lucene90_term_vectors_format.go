@@ -122,3 +122,13 @@ func (f *Lucene90TermVectorsFormat) BlockShift() int {
 func (f *Lucene90TermVectorsFormat) SegmentSuffix() string {
 	return Lucene90TermVectorsFormatSegmentSuffix
 }
+
+// init registers the Lucene90 term-vectors format factory so that
+// codecs.Lucene104TermVectorsFormat can read back indexes written with
+// the Lucene90 wire format (the byte-compatible path required for
+// Apache Lucene 10.4.0 interoperability).
+func init() {
+	RegisterLucene90TermVectorsFormat(func() TermVectorsFormat {
+		return NewLucene90TermVectorsFormat()
+	})
+}

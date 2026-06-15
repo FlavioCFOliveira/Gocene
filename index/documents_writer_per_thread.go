@@ -1260,6 +1260,8 @@ func (dwpt *DocumentsWriterPerThread) Flush(directory store.Directory, codec Cod
 	// Create segment info
 	segmentInfo := NewSegmentInfo(segmentName, dwpt.numDocsInRAM, directory)
 	segmentInfo.SetID(generateSegmentID())
+	segmentInfo.SetVersion("10.4.0")
+	segmentInfo.SetMinVersion("10.4.0")
 
 	// Build field infos
 	fieldInfos := dwpt.fieldInfosBuilder.Build()

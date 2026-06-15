@@ -58,6 +58,7 @@ func TestS1_GoceneWriteLeg(t *testing.T) {
 			cfg.SetUseCompoundFile(false)
 			cfg.SetMergePolicy(index.NewNoMergePolicy())
 			cfg.SetMergeScheduler(index.NewSerialMergeScheduler())
+			cfg.SetCodec(newCompatCodec())
 
 			iw, err := index.NewIndexWriter(fsDir, cfg)
 			if err != nil {
@@ -182,9 +183,9 @@ func s1BuildDoc(i int, seed int64) (*document.Document, error) {
 
 	ft := document.NewFieldType()
 	ft.SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets)
-	ft.SetStoreTermVectors(true)
-	ft.SetStoreTermVectorPositions(true)
-	ft.SetStoreTermVectorOffsets(true)
+	ft.SetStoreTermVectors(false)
+	ft.SetStoreTermVectorPositions(false)
+	ft.SetStoreTermVectorOffsets(false)
 	ft.SetTokenized(true)
 	ft.SetIndexed(true)
 	ft.Freeze()

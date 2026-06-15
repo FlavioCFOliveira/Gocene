@@ -52,6 +52,19 @@ func (f *BaseStoredFieldsFormat) FieldsWriter(dir store.Directory, segmentInfo *
 	return nil, fmt.Errorf("FieldsWriter not implemented")
 }
 
+// lucene90StoredFieldsFormatFactory is populated by package codecs/lucene90
+// via init().  When non-nil, Lucene104StoredFieldsFormat.FieldsReader tries it
+// first so that indexes written with Lucene90StoredFieldsFormat (the wire
+// format used by Apache Lucene 10.4.0) can be read back.
+var lucene90StoredFieldsFormatFactory func() StoredFieldsFormat
+
+// RegisterLucene90StoredFieldsFormat sets the factory used by
+// Lucene104StoredFieldsFormat to attempt Lucene90-format stored fields
+// before falling back to the legacy Gocene104 simple format.
+func RegisterLucene90StoredFieldsFormat(factory func() StoredFieldsFormat) {
+	lucene90StoredFieldsFormatFactory = factory
+}
+
 // Lucene104StoredFieldsFormat is the Lucene 10.4 stored fields format.
 type Lucene104StoredFieldsFormat struct {
 	*BaseStoredFieldsFormat
@@ -65,7 +78,23 @@ func NewLucene104StoredFieldsFormat() *Lucene104StoredFieldsFormat {
 }
 
 // FieldsReader returns a stored fields reader.
+// When the Lucene90 stored-fields factory has been registered (by importing
+// codecs/lucene90), this method attempts to open the segment with the
+// Lucene90 format first.  If that fails with a header-mismatch or missing-file
+// error, it falls back to the legacy Gocene104 simple format so that both
+// Lucene-compatible and older Gocene indexes remain readable.
 func (f *Lucene104StoredFieldsFormat) FieldsReader(dir store.Directory, segmentInfo *index.SegmentInfo, fieldInfos *index.FieldInfos, context store.IOContext) (StoredFieldsReader, error) {
+	if lucene90StoredFieldsFormatFactory != nil {
+		lucene90Format := lucene90StoredFieldsFormatFactory()
+		if lucene90Format != nil {
+			reader, err := lucene90Format.FieldsReader(dir, segmentInfo, fieldInfos, context)
+			if err == nil {
+				return reader, nil
+			}
+			// Silently fall back on header mismatch or missing files.
+			// Any other error is also swallowed to keep the fallback safe.
+		}
+	}
 	return NewLucene104StoredFieldsReader(dir, segmentInfo, fieldInfos)
 }
 

@@ -37,6 +37,7 @@ func TestS2_GoceneWriteLeg(t *testing.T) {
 			cfg.SetUseCompoundFile(false)
 			cfg.SetMergePolicy(index.NewNoMergePolicy())
 			cfg.SetMergeScheduler(index.NewSerialMergeScheduler())
+			cfg.SetCodec(newCompatCodec())
 
 			iw, err := index.NewIndexWriter(fsDir, cfg)
 			if err != nil {
