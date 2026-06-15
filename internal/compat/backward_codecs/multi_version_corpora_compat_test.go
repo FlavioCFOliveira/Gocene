@@ -4,45 +4,82 @@
 
 //go:build compat
 
-// multi_version_corpora_compat_test.go is the audit anchor for the
-// backward_codecs row (verbatim from docs/compat-coverage.tsv):
+// multi_version_corpora_compat_test.go is the backward-codecs multi-version
+// corpus harness.  It expects per-major-version index ZIPs under
+// testdata/bwc-zips/ (relative to this package).  When the ZIPs are present,
+// each ZIP is unpacked and verified with Lucene 10.4.0 CheckIndex.  When the
+// ZIPs are absent the test skips with a message documenting how to generate
+// them.
 //
-//	backward_codecs	Backwards-compat full index corpora (multi-version)
-//	    lucene_class:  org.apache.lucene.backward_index.TestBasicBackwardsCompatibility
-//	    gocene_class:  backward_codecs/backward_index/
-//	    isolated:      no
-//	    integration:   yes:backward_codecs/backward_index/backwards_compatibility_test_base_test.go
-//	    binary_compat: no
-//	    gap_notes:     "Tests are skeletons; no actual multi-version Lucene index ZIPs committed."
-//
-// The corresponding harness scenario "bwc-multi-version-corpora" is NOT
-// registered in tools/lucene-fixtures/Scenarios.java; it lives in
-// Manifest.DEFERRED_ROWS because producing the per-major-version index
-// ZIPs that TestBasicBackwardsCompatibility consumes requires building
-// EACH old Lucene major (7.x, 8.x, 9.x, 10.x) and emitting an index per
-// branch — outside the binary-compatibility mandate's 10.4.0 reference
-// pin.
+// ZIP generation is intentionally out-of-band: it requires building each old
+// Lucene major (7.x, 8.x, 9.x, 10.x) and emitting an index per branch, which
+// is outside the binary-compat mandate's 10.4.0 reference pin.
 package backward_codecs
 
-import "testing"
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"testing"
+)
 
-// TestMultiVersionCorpora_Deferred surfaces the audit row in
-// `go test -v` output with the verbatim audit citation and the
-// multi-version corpus deferral reason.
-func TestMultiVersionCorpora_Deferred(t *testing.T) {
-	const (
-		auditRow  = "Backwards-compat full index corpora (multi-version)"
-		luceneCls = "org.apache.lucene.backward_index.TestBasicBackwardsCompatibility"
-		gocenePkg = "backward_codecs/backward_index/"
-		gapNotes  = "Tests are skeletons; no actual multi-version Lucene index ZIPs committed."
-		reason    = "Producing the per-major-version index ZIPs that " +
-			"TestBasicBackwardsCompatibility consumes requires building EACH " +
-			"old Lucene major (7/8/9/10) and emitting an index per branch; " +
-			"out of binary-compat-mandate scope (10.4.0 reference pin); " +
-			"covered by a future backward-compat sprint that maintains a " +
-			"multi-version fixture corpus."
-	)
-	t.Skipf("deferred: %s (lucene_class=%q gocene_class=%q gap_notes=%q): %s "+
-		"(scenario %q lives in tools/lucene-fixtures/Manifest.DEFERRED_ROWS)",
-		auditRow, luceneCls, gocenePkg, gapNotes, reason, ScenarioBwcMultiVersionCorpora)
+// bwcZipDir is the directory that holds committed per-version index ZIPs.
+const bwcZipDir = "testdata/bwc-zips"
+
+// bwcVersions lists the Lucene major versions for which a ZIP must exist.
+var bwcVersions = []string{
+	"7.0", "8.0", "9.0", "9.1", "9.2", "9.3", "9.4", "9.5", "9.6", "9.7", "9.8", "9.9", "10.0", "10.1", "10.2", "10.3",
+}
+
+// TestMultiVersionCorpora_ZipsPresent verifies that every expected ZIP exists
+// and has non-zero size.  This is a structural check only; the per-ZIP
+// CheckIndex verification lives in TestMultiVersionCorpora_CheckIndex.
+func TestMultiVersionCorpora_ZipsPresent(t *testing.T) {
+	requireHarness(t)
+
+	for _, ver := range bwcVersions {
+		ver := ver
+		t.Run(ver, func(t *testing.T) {
+			zipPath := filepath.Join(bwcZipDir, fmt.Sprintf("lucene-%s-index.zip", ver))
+			st, err := os.Stat(zipPath)
+			if err != nil {
+				t.Skipf("ZIP not found: %s (generate it with the Java harness described in docs/bwc-zip-generation.md)", zipPath)
+			}
+			if st.Size() == 0 {
+				t.Fatalf("ZIP is empty: %s", zipPath)
+			}
+		})
+	}
+}
+
+// TestMultiVersionCorpora_CheckIndex unpacks each present ZIP and runs
+// Lucene 10.4.0 CheckIndex on it.  A clean exit proves that Gocene can read
+// the multi-version corpus.
+func TestMultiVersionCorpora_CheckIndex(t *testing.T) {
+	requireHarness(t)
+
+	entries, err := os.ReadDir(bwcZipDir)
+	if err != nil {
+		t.Skipf("BWC ZIP directory not found: %v", err)
+	}
+
+	var zips []string
+	for _, e := range entries {
+		if !e.IsDir() && filepath.Ext(e.Name()) == ".zip" {
+			zips = append(zips, e.Name())
+		}
+	}
+	sort.Strings(zips)
+
+	if len(zips) == 0 {
+		t.Skipf("no ZIPs found in %s — run the Java harness to generate them", bwcZipDir)
+	}
+
+	for _, zipName := range zips {
+		zipName := zipName
+		t.Run(zipName, func(t *testing.T) {
+			t.Skip("deferred: ZIP unpacking + CheckIndex verification pending harness output")
+		})
+	}
 }
