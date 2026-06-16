@@ -961,15 +961,13 @@ func (w *IndexWriter) GetReader() (*DirectoryReader, error) {
 		}
 
 		// Wire in-memory postings so the codec-less fallback works.
+		// Do not stamp a codec name on an in-memory-only segment: it has no
+		// on-disk data files, so openSegmentReader would build empty codec
+		// readers that hide the in-memory postings. The segment gets its codec
+		// name later, during Commit, once the DWPTs are flushed to real files.
 		if ps.inMemoryFields != nil {
 			sci.SetInMemoryFields(ps.inMemoryFields)
 			RegisterInMemoryFields(w.directory, segmentName, ps.inMemoryFields)
-		}
-
-		// Stamp default codec name so openSegmentReader resolves it
-		// and falls through to the codec-less path.
-		if codec := w.config.Codec(); codec != nil {
-			segInfo.SetCodec(codec.Name())
 		}
 
 		nrtSI.Add(sci)

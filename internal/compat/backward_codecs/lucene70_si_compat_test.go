@@ -13,15 +13,14 @@ package backward_codecs
 
 import (
 	"fmt"
-	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/backward_codecs/lucene70"
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	gcompat "github.com/FlavioCFOliveira/Gocene/internal/compat"
-	"github.com/FlavioCFOliveira/Gocene/backward_codecs/lucene70"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -38,11 +37,12 @@ func (c *lucene70SegmentInfoCodec) SegmentInfoFormat() codecs.SegmentInfoFormat 
 	return lucene70.NewLucene70SegmentInfoFormat()
 }
 
-// TestLucene70SegmentInfo_GoceneWriteJavaCheck indexes a small corpus with
-// Gocene's Lucene70SegmentInfoFormat and asks the Java harness to run
-// CheckIndex. A clean exit proves Lucene 10.4.0 can read the .si file
-// produced by Gocene.
-func TestLucene70SegmentInfo_GoceneWriteJavaCheck(t *testing.T) {
+// TestLucene70SegmentInfo_GoceneWriteRejection verifies that Gocene's
+// Lucene70SegmentInfoFormat rejects the write path, matching Apache Lucene
+// 10.4.0 where old formats are read-only. Lucene 10.4.0's
+// Lucene70SegmentInfoFormat.write throws UnsupportedOperationException;
+// Gocene mirrors that by returning an error from Commit.
+func TestLucene70SegmentInfo_GoceneWriteRejection(t *testing.T) {
 	requireHarness(t)
 
 	dir := t.TempDir()
@@ -60,6 +60,7 @@ func TestLucene70SegmentInfo_GoceneWriteJavaCheck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
+	defer iw.Close()
 
 	for i := 0; i < 5; i++ {
 		doc := document.NewDocument()
@@ -73,20 +74,9 @@ func TestLucene70SegmentInfo_GoceneWriteJavaCheck(t *testing.T) {
 		}
 	}
 
-	if err := iw.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := iw.Close(); err != nil {
-		t.Fatalf("Close writer: %v", err)
-	}
-
-	jar, err := gcompat.Locate()
-	if err != nil {
-		t.Fatalf("locate harness: %v", err)
-	}
-	cmd := exec.Command("java", "-jar", jar, "check", dir)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("harness check %s failed: %v\noutput: %s", dir, err, out)
+	if err := iw.Commit(); err == nil {
+		t.Fatalf("expected Commit to fail because Lucene70 segment-info format is read-only, got nil")
+	} else if !strings.Contains(err.Error(), "old formats") && !strings.Contains(err.Error(), "read-only") {
+		t.Fatalf("expected read-only error, got: %v", err)
 	}
 }

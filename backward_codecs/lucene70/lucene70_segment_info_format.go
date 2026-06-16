@@ -7,7 +7,6 @@ package lucene70
 import (
 	"fmt"
 	"math"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -93,103 +92,15 @@ func (f *Lucene70SegmentInfoFormat) Read(
 
 // Write writes a Lucene 7.0 .si file.
 //
-// Port of Lucene70RWSegmentInfoFormat.write (test-only writer in Lucene 10.4.0).
+// Port of Lucene70SegmentInfoFormat.write (Lucene 10.4.0). Production old
+// segment-info formats are read-only; Lucene provides the test-only writer as
+// Lucene70RWSegmentInfoFormat.
 func (f *Lucene70SegmentInfoFormat) Write(
 	dir gstore.Directory,
 	si *index.SegmentInfo,
 	ctx gstore.IOContext,
 ) error {
-	fileName := codecs.GetSegmentFileName(si.Name(), "", lucene70SIExtension)
-	out, err := bcstore.CreateOutput(dir, fileName, ctx)
-	if err != nil {
-		return fmt.Errorf("lucene70 segment info: create %q: %w", fileName, err)
-	}
-	defer out.Close()
-
-	si.AddFile(fileName)
-
-	if err := codecs.WriteIndexHeader(out, lucene70SICodecName, lucene70SIVersionEnd, si.GetID(), ""); err != nil {
-		return fmt.Errorf("lucene70 segment info: header: %w", err)
-	}
-
-	major, minor, bugfix := parseSegmentVersion(si.Version())
-	if err := gstore.WriteInt32LE(out, major); err != nil {
-		return fmt.Errorf("lucene70 segment info: major: %w", err)
-	}
-	if err := gstore.WriteInt32LE(out, minor); err != nil {
-		return fmt.Errorf("lucene70 segment info: minor: %w", err)
-	}
-	if err := gstore.WriteInt32LE(out, bugfix); err != nil {
-		return fmt.Errorf("lucene70 segment info: bugfix: %w", err)
-	}
-
-	if minVer, ok := si.MinVersion(); ok {
-		if err := out.WriteByte(1); err != nil {
-			return fmt.Errorf("lucene70 segment info: hasMinVersion: %w", err)
-		}
-		minMajor, minMinor, minBugfix := parseSegmentVersion(minVer)
-		if err := gstore.WriteInt32LE(out, minMajor); err != nil {
-			return fmt.Errorf("lucene70 segment info: minMajor: %w", err)
-		}
-		if err := gstore.WriteInt32LE(out, minMinor); err != nil {
-			return fmt.Errorf("lucene70 segment info: minMinor: %w", err)
-		}
-		if err := gstore.WriteInt32LE(out, minBugfix); err != nil {
-			return fmt.Errorf("lucene70 segment info: minBugfix: %w", err)
-		}
-	} else {
-		if err := out.WriteByte(0); err != nil {
-			return fmt.Errorf("lucene70 segment info: hasMinVersion: %w", err)
-		}
-	}
-
-	if err := gstore.WriteInt32LE(out, int32(si.DocCount())); err != nil {
-		return fmt.Errorf("lucene70 segment info: docCount: %w", err)
-	}
-
-	isCompoundFile := byte(255)
-	if si.IsCompoundFile() {
-		isCompoundFile = 1
-	}
-	if err := out.WriteByte(isCompoundFile); err != nil {
-		return fmt.Errorf("lucene70 segment info: isCompoundFile: %w", err)
-	}
-
-	hasBlocks := byte(255)
-	if si.HasBlocks() {
-		hasBlocks = 1
-	}
-	if err := out.WriteByte(hasBlocks); err != nil {
-		return fmt.Errorf("lucene70 segment info: hasBlocks: %w", err)
-	}
-
-	if err := gstore.WriteMapOfStrings(out, si.GetDiagnostics()); err != nil {
-		return fmt.Errorf("lucene70 segment info: diagnostics: %w", err)
-	}
-
-	files := si.Files()
-	sort.Strings(files)
-	fileSet := make(map[string]struct{}, len(files))
-	for _, f := range files {
-		fileSet[f] = struct{}{}
-	}
-	if err := gstore.WriteSetOfStrings(out, fileSet); err != nil {
-		return fmt.Errorf("lucene70 segment info: files: %w", err)
-	}
-
-	if err := gstore.WriteMapOfStrings(out, si.GetAttributes()); err != nil {
-		return fmt.Errorf("lucene70 segment info: attributes: %w", err)
-	}
-
-	if err := index.WriteSegmentInfoSort(out, si.IndexSort()); err != nil {
-		return fmt.Errorf("lucene70 segment info: index sort: %w", err)
-	}
-
-	if err := codecs.WriteFooter(out); err != nil {
-		return fmt.Errorf("lucene70 segment info: footer: %w", err)
-	}
-
-	return nil
+	return fmt.Errorf("lucene70 segment info: old formats cannot be used for writing")
 }
 
 // parseSegmentVersion parses a version string such as "10.4.0" into its
