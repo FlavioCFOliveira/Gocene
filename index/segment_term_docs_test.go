@@ -20,16 +20,6 @@ import (
 // reading docID/freq plus advance/nextDoc navigation (including the skip-list
 // boundary cases at exactly skipInterval and well beyond it).
 //
-// Pre-existing infrastructure gap: every test routes through
-// LeafReader.Terms(field).iterator()..., and OpenDirectoryReader materialises
-// each segment via NewSegmentReader (index/directory_reader.go:462/497), which
-// leaves SegmentReader.coreReaders nil. Without the codec-side wiring that
-// loads SegmentCoreReaders from disk, LeafReader.Terms returns the
-// "core readers are nil" error and none of the assertions can run. Each test
-// therefore skips with the same blocker as TestDocsAndPositions /
-// TestBinaryTerms; unskip once OpenDirectoryReader uses
-// NewSegmentReaderWithCore.
-//
 // Divergences from Lucene shared by every test below:
 //   - Lucene drives writes through DocHelper.writeDoc / RandomIndexWriter with
 //     a randomized merge policy and MockAnalyzer; Gocene exposes no randomized
@@ -40,15 +30,14 @@ import (
 //     Gocene's IndexWriter has no NRT reader and no public single-segment
 //     reader constructor, so the index is reopened from the directory after
 //     commit, matching TestDocsAndPositions / TestBinaryTerms.
-//   - Lucene's PostingsEnum.FREQS flag constant has no Gocene equivalent;
-//     TermsEnum.Postings takes a bare int, so 0 is passed.
+//   - Lucene's PostingsEnum.FREQS flag constant is mirrored by
+//     index.PostingsFlagFreqs; the helpers below pass it so frequencies are
+//     available on the returned PostingsEnum.
 //   - Lucene's DocIdSetIterator.NO_MORE_DOCS sentinel is Integer.MAX_VALUE;
 //     Gocene's PostingsEnum sentinel (index.NO_MORE_DOCS) is -1. The ports
 //     compare against index.NO_MORE_DOCS.
 //   - testBadSeek's second case ("junk", a never-indexed field) is preserved:
 //     a missing field yields a nil PostingsEnum, mirroring the Java assertNull.
-
-const segmentTermDocsBlocked = "blocked: OpenDirectoryReader builds SegmentReader without core readers (index/directory_reader.go:462/497); fix is NewSegmentReaderWithCore"
 
 // segmentTermDocsSeekCeil mirrors the Java pattern
 // "reader.terms(field).iterator(); terms.seekCeil(term); terms.postings(...)".
@@ -74,7 +63,7 @@ func segmentTermDocsSeekCeil(t *testing.T, air index.LeafReaderInterface, fieldN
 	if found == nil {
 		return nil
 	}
-	pe, err := te.Postings(0) // Java: PostingsEnum.FREQS
+	pe, err := te.Postings(index.PostingsFlagFreqs) // Java: PostingsEnum.FREQS
 	if err != nil {
 		t.Fatalf("Postings failed: %v", err)
 	}
@@ -105,7 +94,7 @@ func segmentTermDocsSeekExact(t *testing.T, air index.LeafReaderInterface, field
 	if !found {
 		return nil
 	}
-	pe, err := te.Postings(0)
+	pe, err := te.Postings(index.PostingsFlagFreqs)
 	if err != nil {
 		t.Fatalf("Postings failed: %v", err)
 	}
@@ -288,8 +277,6 @@ func expectExhausted(t *testing.T, pe index.PostingsEnum, target int) {
 // TestSegmentTermDocs ports the test() method: it merely asserts the directory
 // and its single leaf reader are non-nil after the document is written.
 func TestSegmentTermDocs(t *testing.T) {
-	t.Fatal(segmentTermDocsBlocked)
-
 	air, cleanup := segmentTermDocsTestDocLeaf(t)
 	defer cleanup()
 
@@ -301,8 +288,6 @@ func TestSegmentTermDocs(t *testing.T) {
 // TestSegmentTermDocsTermDocs ports testTermDocs: after writing the DocHelper
 // document, the term "field" in textField2 must resolve to doc 0 with freq 3.
 func TestSegmentTermDocsTermDocs(t *testing.T) {
-	t.Fatal(segmentTermDocsBlocked)
-
 	air, cleanup := segmentTermDocsTestDocLeaf(t)
 	defer cleanup()
 
@@ -331,8 +316,6 @@ func TestSegmentTermDocsTermDocs(t *testing.T) {
 // TestSegmentTermDocsBadSeek ports testBadSeek: a bad term in an existing
 // field, and any term in a never-indexed field, both yield a nil PostingsEnum.
 func TestSegmentTermDocsBadSeek(t *testing.T) {
-	t.Fatal(segmentTermDocsBlocked)
-
 	air, cleanup := segmentTermDocsTestDocLeaf(t)
 	defer cleanup()
 
@@ -351,8 +334,6 @@ func TestSegmentTermDocsBadSeek(t *testing.T) {
 // three terms whose posting lists straddle the skip-list interval — "aaa"
 // (below skipInterval), "bbb" (exactly skipInterval) and "ccc" (well beyond).
 func TestSegmentTermDocsSkipTo(t *testing.T) {
-	t.Fatal(segmentTermDocsBlocked)
-
 	air, cleanup := segmentTermDocsSkipToLeaf(t)
 	defer cleanup()
 

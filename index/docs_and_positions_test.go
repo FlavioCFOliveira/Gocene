@@ -22,16 +22,6 @@ import (
 // iteration (including buffer refill for high-frequency terms), advance/nextDoc
 // navigation, and the docID()==-1 contract before the enum is positioned.
 //
-// Pre-existing infrastructure gap: every test routes through
-// LeafReader.Terms(field).iterator().seekExact(...).postings(...), and
-// OpenDirectoryReader materialises each segment via NewSegmentReader
-// (index/directory_reader.go:462/497), which leaves SegmentReader.coreReaders
-// nil. Without the codec-side wiring that loads SegmentCoreReaders from disk,
-// LeafReader.Terms returns the "core readers are nil" error and none of the
-// assertions can run. Each test therefore skips with the same blocker as
-// TestBagOfPositions; unskip once OpenDirectoryReader uses
-// NewSegmentReaderWithCore.
-//
 // Divergences from Lucene shared by every test below:
 //   - Lucene drives writes through RandomIndexWriter with a randomized merge
 //     policy and MockAnalyzer; Gocene exposes no randomized test-writer
@@ -41,13 +31,12 @@ import (
 //   - Lucene reads via IndexWriter.getReader (near-real-time); Gocene's
 //     IndexWriter has no NRT reader, so the index is reopened from the
 //     directory after commit, matching TestBagOfPositions / TestBinaryTerms.
-//   - Lucene's PostingsEnum.ALL / FREQS / NONE flag constants have no Gocene
-//     equivalent; TermsEnum.Postings takes a bare int, so 0 is passed.
+//   - Lucene's PostingsEnum.ALL flag constant is mirrored by
+//     index.PostingsFlagAll; the helper below passes it so positions and
+//     frequencies are available on the returned PostingsEnum.
 //   - The Java field-type randomization (omitNorms, term vectors) is dropped;
 //     a plain non-stored TextField is used, since none of those options
 //     affect frequencies or positions.
-
-const docsAndPositionsBlocked = "blocked: OpenDirectoryReader builds SegmentReader without core readers (index/directory_reader.go:462/497); fix is NewSegmentReaderWithCore"
 
 // getDocsAndPositions mirrors the Java helper of the same name: it resolves the
 // PostingsEnum for term bytes in fieldName, or returns nil when the term is
@@ -72,7 +61,7 @@ func getDocsAndPositions(t *testing.T, air index.LeafReaderInterface, fieldName,
 	if !found {
 		return nil
 	}
-	pe, err := te.Postings(0) // Java: PostingsEnum.ALL
+	pe, err := te.Postings(index.PostingsFlagAll) // Java: PostingsEnum.ALL
 	if err != nil {
 		t.Fatalf("Postings failed: %v", err)
 	}
@@ -142,8 +131,6 @@ func docsAndPositionsLeaves(t *testing.T, fieldName string, docs []string) (inde
 // TestDocsAndPositionsPositionsSimple ports testPositionsSimple: term "1"
 // occurs four times per document, at positions 0, 10, 20 and 30.
 func TestDocsAndPositionsPositionsSimple(t *testing.T) {
-	t.Fatal(docsAndPositionsBlocked)
-
 	const fieldName = "field"
 	const text = "1 2 3 4 5 6 7 8 9 10 " +
 		"1 2 3 4 5 6 7 8 9 10 " +
@@ -197,8 +184,6 @@ func TestDocsAndPositionsPositionsSimple(t *testing.T) {
 // are indexed and every recorded position of a randomly chosen term is checked
 // against the enum.
 func TestDocsAndPositionsRandomPositions(t *testing.T) {
-	t.Fatal(docsAndPositionsBlocked)
-
 	const fieldName = "field"
 	numDocs := 47 + rand.Intn(47) // atLeast(47)
 	const max = 1051
@@ -292,8 +277,6 @@ func TestDocsAndPositionsRandomPositions(t *testing.T) {
 // TestDocsAndPositionsRandomDocs ports testRandomDocs: it verifies per-document
 // frequency and advance/nextDoc navigation over a randomly populated field.
 func TestDocsAndPositionsRandomDocs(t *testing.T) {
-	t.Fatal(docsAndPositionsBlocked)
-
 	const fieldName = "field"
 	numDocs := 49 + rand.Intn(49) // atLeast(49)
 	const max = 15678
@@ -381,8 +364,6 @@ func findNextDocsAndPositions(docs []int, pos, max int) int {
 // TestDocsAndPositionsLargeNumberOfPositions ports testLargeNumberOfPositions:
 // term "even" occurs 500 times per document, forcing a positions buffer refill.
 func TestDocsAndPositionsLargeNumberOfPositions(t *testing.T) {
-	t.Fatal(docsAndPositionsBlocked)
-
 	const fieldName = "field"
 	const howMany = 1000
 
@@ -435,8 +416,6 @@ func TestDocsAndPositionsLargeNumberOfPositions(t *testing.T) {
 // TestDocsAndPositionsDocsEnumStart ports testDocsEnumStart: a freshly resolved
 // PostingsEnum reports docID()==-1 until nextDoc is called.
 func TestDocsAndPositionsDocsEnumStart(t *testing.T) {
-	t.Fatal(docsAndPositionsBlocked)
-
 	const fieldName = "foo"
 	air, cleanup := docsAndPositionsLeaves(t, fieldName, []string{"bar"})
 	defer cleanup()
@@ -460,8 +439,6 @@ func TestDocsAndPositionsDocsEnumStart(t *testing.T) {
 // TestDocsAndPositionsDocsAndPositionsEnumStart ports
 // testDocsAndPositionsEnumStart: same -1 contract for a positions-enabled enum.
 func TestDocsAndPositionsDocsAndPositionsEnumStart(t *testing.T) {
-	t.Fatal(docsAndPositionsBlocked)
-
 	const fieldName = "foo"
 	air, cleanup := docsAndPositionsLeaves(t, fieldName, []string{"bar"})
 	defer cleanup()

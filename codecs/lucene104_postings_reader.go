@@ -1418,6 +1418,13 @@ func (e *blockPostingsEnum) NextDoc() (int, error) {
 // Advance advances to the first document with docID >= target.
 // Mirrors BlockPostingsEnum.advance(int).
 func (e *blockPostingsEnum) Advance(target int) (int, error) {
+	// Guard against the NO_MORE_DOCS sentinel or an out-of-range target. Lucene
+	// doc IDs are 31-bit values, so any target at or above MaxInt32 can never
+	// match a real document and means exhaustion.
+	if target >= math.MaxInt32 {
+		e.doc = index.NO_MORE_DOCS
+		return index.NO_MORE_DOCS, nil
+	}
 	if target > e.level0LastDocID || e.needsRefilling {
 		if target > e.level0LastDocID {
 			if err := e.doAdvanceShallow(target); err != nil {
