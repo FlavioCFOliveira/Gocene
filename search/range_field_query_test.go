@@ -505,6 +505,7 @@ func (p *stubRangeFieldPointValues) Intersect(visitor intersectVisitorRFQ) error
 				return err
 			}
 		}
+		return nil
 	default: // crosses
 		visitor.Grow(len(p.docIDs))
 		for i, docID := range p.docIDs {
@@ -512,11 +513,11 @@ func (p *stubRangeFieldPointValues) Intersect(visitor intersectVisitorRFQ) error
 				return err
 			}
 		}
-	return nil
+		return nil
+	}
 }
 
 // EstimatePointCount returns a rough estimate.
-}
 func (p *stubRangeFieldPointValues) EstimatePointCount(_ intersectVisitorRFQ) int64 {
 	return int64(len(p.docIDs))
 }

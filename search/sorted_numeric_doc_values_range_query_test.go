@@ -451,6 +451,7 @@ func runSortedNumericRangeQueryWithDV(
 			}
 			return false, nil
 		}
+	}
 
 	tpi := NewTwoPhaseIterator(approx, matchFn)
 	disi := tpi.AsDocIdSetIterator()
@@ -467,4 +468,4 @@ func runSortedNumericRangeQueryWithDV(
 		matched = append(matched, doc)
 	}
 	return matched
-}	}
+}

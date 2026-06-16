@@ -339,6 +339,7 @@ func TestDenseConjunctionBulkScorer_StopOnMinCompetitiveScore(t *testing.T) {
 				last, stopDoc, search.WindowSize)
 		}
 	}
+}
 
 // earlyTermLeafCollector is a LeafCollector that can stop collection early.
 type earlyTermLeafCollector struct {
@@ -349,7 +350,6 @@ type earlyTermLeafCollector struct {
 	onCollect   func(int) error
 }
 
-}
 func (c *earlyTermLeafCollector) SetScorer(s search.Scorer) error {
 	if c.onSetScorer != nil {
 		c.onSetScorer(s)

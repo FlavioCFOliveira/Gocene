@@ -195,9 +195,10 @@ func (a *randomApproximation) Advance(target int) (int, error) {
 		if _, err := a.disi.Advance(target); err != nil {
 			return search.NO_MORE_DOCS, err
 		}
-	if a.disi.DocID() == search.NO_MORE_DOCS {
-		a.doc = search.NO_MORE_DOCS
-		return a.doc, nil
+		if a.disi.DocID() == search.NO_MORE_DOCS {
+			a.doc = search.NO_MORE_DOCS
+			return a.doc, nil
+		}
 	}
 	// Return a random doc in [target, disi.docID()] — a false positive unless it
 	// equals disi.docID().
@@ -210,7 +211,6 @@ func (a *randomApproximation) Advance(target int) (int, error) {
 	return a.doc, nil
 }
 
-}
 func (a *randomApproximation) Cost() int64      { return a.disi.Cost() }
 func (a *randomApproximation) DocIDRunEnd() int { return a.doc + 1 }
 

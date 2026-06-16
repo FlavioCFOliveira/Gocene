@@ -88,6 +88,18 @@ func TestConstantScoreScorer_SatisfiesInterface(t *testing.T) {
 	var _ Scorer = NewConstantScoreScorer(1.0, COMPLETE, NewEmptyDocIdSetIterator())
 }
 
+// errIterator is a test helper: every method returns target as the
+// error. Used to confirm error propagation through the scorer.
+type errIterator struct {
+	err error
+}
+
+func (e *errIterator) DocID() int                 { return -1 }
+func (e *errIterator) NextDoc() (int, error)      { return -1, e.err }
+func (e *errIterator) Advance(_ int) (int, error) { return -1, e.err }
+func (e *errIterator) Cost() int64                { return 0 }
+func (e *errIterator) DocIDRunEnd() int           { return -1 }
+
 // TestConstantScoreScorer_NextDocPropagatesError fails the test if
 // the iterator's NextDoc error is swallowed.
 func TestConstantScoreScorer_NextDocPropagatesError(t *testing.T) {
@@ -100,16 +112,4 @@ func TestConstantScoreScorer_NextDocPropagatesError(t *testing.T) {
 	if _, err := s.Advance(0); !errors.Is(err, target) {
 		t.Fatalf("Advance: got err %v, want wrapped %v", err, target)
 	}
-
-// errIterator is a test helper: every method returns target as the
-// error. Used to confirm error propagation through the scorer.
-type errIterator struct {
-	err error
 }
-
-}
-func (e *errIterator) DocID() int                 { return -1 }
-func (e *errIterator) NextDoc() (int, error)      { return -1, e.err }
-func (e *errIterator) Advance(_ int) (int, error) { return -1, e.err }
-func (e *errIterator) Cost() int64                { return 0 }
-func (e *errIterator) DocIDRunEnd() int           { return -1 }

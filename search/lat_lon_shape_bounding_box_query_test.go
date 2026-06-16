@@ -569,6 +569,7 @@ func TestLatLonShapeBoundingBoxQuery_RelateRangeBBox_WrapsDateline(t *testing.T)
 	if got != pointCellInsideQuery && got != pointCellCrossesQuery {
 		t.Fatalf("wrapping rectangle, western cell: got %v, want INSIDE or CROSSES", got)
 	}
+}
 
 // triangleCell is a holder for the (min, max) byte payloads of a
 // triangle-range cell, used by the byte-comparator tests above.
@@ -582,7 +583,6 @@ type triangleCell struct {
 // edge dims (4..6) are zeroed. The input values are taken as
 // already-encoded int32 — useful for white-box tests that operate
 // directly on the sortable-bytes layout.
-}
 func buildTriangleCell(t *testing.T, minLat, maxLat, minLon, maxLon int32) triangleCell {
 	t.Helper()
 	const stride = shapeFieldDimBytes

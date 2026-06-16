@@ -105,6 +105,7 @@ func TestSimilarityProvider_Basics(t *testing.T) {
 		if e := w.AddDocument(doc); e != nil {
 			t.Fatalf("AddDocument: %v", e)
 		}
+	}
 	addDoc("quick brown fox", "quick brown fox")
 	addDoc("jumps over lazy brown dog", "jumps over lazy brown dog")
 
@@ -153,4 +154,4 @@ func TestSimilarityProvider_Basics(t *testing.T) {
 		t.Errorf("expected foo score (%.4f) < bar score (%.4f); per-field similarity not dispatched correctly",
 			fooDocs.ScoreDocs[0].Score, barDocs.ScoreDocs[0].Score)
 	}
-}	}
+}
