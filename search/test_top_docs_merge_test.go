@@ -179,6 +179,7 @@ func runTopDocsMergeSort(t *testing.T, useFrom bool) {
 	}
 
 	searcher := search.NewIndexSearcher(reader)
+	searcher.SetSimilarity(search.NewRawTFSimilarity())
 
 	// Every SortField the Lucene test draws from.
 	sortFields := []*search.SortField{
@@ -228,6 +229,7 @@ func runTopDocsMergeSort(t *testing.T, useFrom bool) {
 			shardHits := make([]*search.TopFieldDocs, len(segReaders))
 			for s, sr := range segReaders {
 				ss := search.NewIndexSearcher(sr)
+				ss.SetSimilarity(search.NewRawTFSimilarity())
 				sub, err := ss.SearchWithSort(query, numHits, sort)
 				if err != nil {
 					t.Fatalf("iter %d shard %d SearchWithSort: %v", iter, s, err)

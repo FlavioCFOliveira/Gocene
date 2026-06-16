@@ -32,6 +32,7 @@ type TermScorer struct {
 	postingsEnum index.PostingsEnum
 	doc          int
 	simScorer    SimScorer
+	norms        index.NumericDocValues
 	// maxScoreCache derives per-block maximum scores from the term's impacts.
 	// It is nil only when no SimScorer is available (needsScores == false), in
 	// which case GetMaxScore/AdvanceShallow fall back to the BaseScorer default.
@@ -50,12 +51,13 @@ type TermScorer struct {
 // codec exposes real per-block impacts in the future, passing that ImpactsEnum
 // in place of the SlowImpactsEnum yields tight per-block bounds with no other
 // change to this type.
-func NewTermScorer(weight Weight, postingsEnum index.PostingsEnum, simScorer SimScorer) *TermScorer {
+func NewTermScorer(weight Weight, postingsEnum index.PostingsEnum, simScorer SimScorer, norms index.NumericDocValues) *TermScorer {
 	s := &TermScorer{
 		BaseScorer:   NewBaseScorer(weight),
 		postingsEnum: postingsEnum,
 		doc:          -1,
 		simScorer:    simScorer,
+		norms:        norms,
 	}
 	if simScorer != nil && postingsEnum != nil {
 		s.maxScoreCache = newTermMaxScoreCache(postingsEnum, simScorer)
@@ -151,7 +153,15 @@ func (s *TermScorer) Score() float32 {
 	if err != nil {
 		return 0.0
 	}
-	return s.simScorer.Score(s.doc, float32(freq))
+	norm := int64(1)
+	if s.norms != nil {
+		if ok, err := s.norms.AdvanceExact(s.doc); err == nil && ok {
+			if v, err := s.norms.LongValue(); err == nil {
+				norm = v
+			}
+		}
+	}
+	return s.simScorer.Score(s.doc, float32(freq), norm)
 }
 
 // GetMaxScore returns an upper bound on the score of any document from the last

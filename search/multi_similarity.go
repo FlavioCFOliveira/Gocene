@@ -200,7 +200,10 @@ func NewMultiSimScorerWithWeight(weight *MultiSimWeight) *MultiSimScorer {
 
 // Score calculates the MultiSimilarity score.
 // Score is the weighted sum of component scores.
-func (s *MultiSimScorer) Score(doc int, freq float32) float32 {
+//
+// The norm argument is forwarded to each component scorer. MultiSimilarity
+// itself does not read norms; it aggregates the component decisions.
+func (s *MultiSimScorer) Score(doc int, freq float32, norm int64) float32 {
 	if len(s.scorers) == 0 {
 		return 0
 	}
@@ -209,7 +212,7 @@ func (s *MultiSimScorer) Score(doc int, freq float32) float32 {
 	totalScore := 0.0
 	totalWeight := 0.0
 	for i, scorer := range s.scorers {
-		score := float64(scorer.Score(doc, freq))
+		score := float64(scorer.Score(doc, freq, norm))
 		totalScore += s.similarity.weights[i] * score
 		totalWeight += s.similarity.weights[i]
 	}

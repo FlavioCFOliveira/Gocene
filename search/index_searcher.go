@@ -20,9 +20,8 @@ type IndexSearcher struct {
 	reader index.IndexReaderInterface
 
 	// similarity is the Similarity used to score matching documents. It defaults
-	// to ClassicSimilarity (matching Lucene's IndexSearcher default, which is a
-	// BM25Similarity in upstream but a TF/IDF ClassicSimilarity here) and can be
-	// overridden with SetSimilarity. Weights consult GetSimilarity when building
+	// to BM25Similarity, matching Lucene 10.4.0's IndexSearcher default, and can
+	// be overridden with SetSimilarity. Weights consult GetSimilarity when building
 	// their SimScorer, so a custom Similarity injected here flows into scoring.
 	similarity Similarity
 
@@ -33,7 +32,7 @@ type IndexSearcher struct {
 func NewIndexSearcher(reader index.IndexReaderInterface) *IndexSearcher {
 	return &IndexSearcher{
 		reader:     reader,
-		similarity: NewClassicSimilarity(),
+		similarity: NewBM25Similarity(),
 	}
 }
 
@@ -65,7 +64,7 @@ func (s *IndexSearcher) SetSimilarity(similarity Similarity) {
 //
 // This is the Go port of org.apache.lucene.search.IndexSearcher#getSimilarity.
 // It never returns nil: a freshly constructed IndexSearcher carries a
-// ClassicSimilarity default.
+// BM25Similarity default, matching Lucene 10.4.0.
 func (s *IndexSearcher) GetSimilarity() Similarity {
 	s.mu.RLock()
 	sim := s.similarity

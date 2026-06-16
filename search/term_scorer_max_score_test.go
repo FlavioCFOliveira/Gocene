@@ -87,6 +87,7 @@ func TestTermScorerGetMaxScoreIsUpperBound(t *testing.T) {
 	defer reader.Close()
 
 	searcher := search.NewIndexSearcher(reader)
+	searcher.SetSimilarity(search.NewRawTFSimilarity())
 	query := search.NewTermQuery(index.NewTerm("content", "alpha"))
 
 	// needsScores = true so the TermWeight wires a real SimScorer and the

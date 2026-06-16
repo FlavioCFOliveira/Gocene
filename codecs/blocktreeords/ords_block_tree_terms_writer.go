@@ -685,7 +685,7 @@ func (t *ordsTermsWriter) pushSinglePostings(termText *index.Term, termsEnum ind
 	hasOffsets := t.fieldInfo.IndexOptions() >= index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets
 	hasPayloads := t.fieldInfo.HasPayloads()
 
-	docCount, totalTermFreq, err := codecs.WriteTerm(pusher, postingsEnum, hasFreqs, hasPositions, hasOffsets, hasPayloads)
+	docCount, totalTermFreq, err := codecs.WriteTerm(pusher, postingsEnum, hasFreqs, hasPositions, hasOffsets, hasPayloads, nil)
 	if err != nil {
 		return nil, err
 	}

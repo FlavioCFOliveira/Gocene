@@ -19,7 +19,7 @@ type ClassicSimWeight struct {
 func NewClassicSimWeight(sim *ClassicSimilarity, collectionStats *CollectionStatistics, termStats *TermStatistics, boost float32) *ClassicSimWeight {
 	idf := 1.0
 	if termStats != nil && collectionStats != nil && termStats.DocFreq() > 0 {
-		idf = sim.Idf(collectionStats.MaxDoc(), termStats.DocFreq())
+		idf = sim.Idf(collectionStats.DocCount(), termStats.DocFreq())
 	}
 	return &ClassicSimWeight{
 		sim:             sim,
@@ -59,7 +59,11 @@ type ClassicSimScorer struct {
 func NewClassicSimScorer(similarity *ClassicSimilarity, collectionStats *CollectionStatistics, termStats *TermStatistics) *ClassicSimScorer {
 	idf := 1.0
 	if termStats != nil && collectionStats != nil && termStats.DocFreq() > 0 {
-		idf = similarity.Idf(collectionStats.MaxDoc(), termStats.DocFreq())
+		// Use the field-specific document count, matching Lucene's
+		// ClassicSimilarity.idfExplain which derives IDF from
+		// CollectionStatistics.docCount(), not maxDoc(). This prevents
+		// field-less documents from skewing the score.
+		idf = similarity.Idf(collectionStats.DocCount(), termStats.DocFreq())
 	}
 	return &ClassicSimScorer{
 		BaseSimScorer: NewBaseSimScorer(),
@@ -80,7 +84,11 @@ func NewClassicSimScorerWithWeight(weight *ClassicSimWeight) *ClassicSimScorer {
 
 // Score calculates the TF/IDF score for a document.
 // Formula: tf * idf * weight
-func (s *ClassicSimScorer) Score(doc int, freq float32) float32 {
+//
+// The norm argument mirrors Lucene's SimScorer.score(float, long) signature.
+// ClassicSimilarity's legacy Gocene scorer does not consult norms, so it is
+// intentionally ignored to preserve the existing behaviour of in-repo tests.
+func (s *ClassicSimScorer) Score(doc int, freq float32, norm int64) float32 {
 	tf := s.similarity.Tf(float64(freq))
 	score := tf * s.idf
 	if s.weight != nil {

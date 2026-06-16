@@ -157,7 +157,11 @@ func NewLMDirichletSimScorerWithWeight(weight *LMDirichletSimWeight) *LMDirichle
 
 // Score calculates the LM Dirichlet score.
 // Score = log((tf + mu * P(w|C)) / (docLen + mu))
-func (s *LMDirichletSimScorer) Score(doc int, freq float32) float32 {
+//
+// The norm argument mirrors Lucene's SimScorer.score(float, long) signature.
+// This legacy LM scorer does not consult norms; it is ignored to preserve the
+// existing behaviour of in-repo tests.
+func (s *LMDirichletSimScorer) Score(doc int, freq float32, norm int64) float32 {
 	if freq == 0 {
 		return 0
 	}

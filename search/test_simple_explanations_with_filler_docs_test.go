@@ -98,9 +98,14 @@ func newFillerExplanationTestCase(t *testing.T) *fillerExplanationTestCase {
 	if err != nil {
 		t.Fatalf("OpenDirectoryReader: %v", err)
 	}
+	searcher := search.NewIndexSearcher(reader)
+	// These explanation suites were ported against Gocene's legacy ClassicSimilarity
+	// scoring path; anchor the searcher to that similarity so the explanation
+	// trees remain stable while the IndexSearcher default follows Lucene's BM25.
+	searcher.SetSimilarity(search.NewClassicSimilarity())
 	return &fillerExplanationTestCase{
 		t:        t,
-		searcher: search.NewIndexSearcher(reader),
+		searcher: searcher,
 		cleanup: func() {
 			_ = reader.Close()
 			_ = dir.Close()

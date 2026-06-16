@@ -68,7 +68,7 @@ func (s *sim2) Coord(overlap, maxOverlap int) float32 {
 // fixedScoreSimScorer returns a constant score regardless of document or frequency.
 type fixedScoreSimScorer struct{ score float32 }
 
-func (f *fixedScoreSimScorer) Score(_ int, _ float32) float32 { return f.score }
+func (f *fixedScoreSimScorer) Score(_ int, _ float32, _ int64) float32 { return f.score }
 
 var _ Similarity = (*sim1)(nil)
 var _ Similarity = (*sim2)(nil)

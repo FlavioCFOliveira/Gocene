@@ -121,10 +121,20 @@ func (w *MultiPhraseWeight) Scorer(context *index.LeafReaderContext) (Scorer, er
 	}
 
 	queryPositions := w.query.GetPositions()
-	if w.query.slop == 0 {
-		return NewPhraseScorer(w, postings, queryPositions, w.simScorer), nil
+
+	var norms index.NumericDocValues
+	if w.needsScores {
+		if normReader, ok := leafReader.(interface {
+			GetNormValues(field string) (index.NumericDocValues, error)
+		}); ok {
+			norms, _ = normReader.GetNormValues(w.query.field)
+		}
 	}
-	return NewSloppyPhraseScorer(w, postings, queryPositions, w.simScorer, w.query.slop), nil
+
+	if w.query.slop == 0 {
+		return NewPhraseScorer(w, postings, queryPositions, w.simScorer, norms), nil
+	}
+	return NewSloppyPhraseScorer(w, postings, queryPositions, w.simScorer, w.query.slop, norms), nil
 }
 
 // ScorerSupplier creates a scorer supplier for this weight.

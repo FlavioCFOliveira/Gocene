@@ -589,7 +589,7 @@ func (tw *vbtTermsWriter) writeTerm(term *util.BytesRef, termsEnum schema.TermsE
 	hasOffsets := fi.IndexOptions() >= schema.IndexOptionsDocsAndFreqsAndPositionsAndOffsets
 	hasPayloads := fi.HasPayloads()
 
-	_, _, werr := codecs.WriteTerm(pw, postingsEnum, hasFreqs, hasPositions, hasOffsets, hasPayloads)
+	_, _, werr := codecs.WriteTerm(pw, postingsEnum, hasFreqs, hasPositions, hasOffsets, hasPayloads, nil)
 	if werr != nil {
 		return fmt.Errorf("writeTerm: WriteTerm: %w", werr)
 	}

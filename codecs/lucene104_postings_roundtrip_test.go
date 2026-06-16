@@ -46,9 +46,10 @@ func rtFieldInfos(t *testing.T, fields ...struct {
 	return fis
 }
 
-// rtWriteState builds a SegmentWriteState for the named segment in dir.
-func rtWriteState(dir store.Directory, name string, fis *index.FieldInfos) *SegmentWriteState {
-	si := index.NewSegmentInfo(name, 100, dir)
+// rtWriteState builds a SegmentWriteState for the named segment in dir,
+// sizing the segment info to accommodate maxDoc documents.
+func rtWriteState(dir store.Directory, name string, fis *index.FieldInfos, maxDoc int) *SegmentWriteState {
+	si := index.NewSegmentInfo(name, maxDoc, dir)
 	_ = si.SetID(make([]byte, 16))
 	return &SegmentWriteState{
 		Directory:   dir,
@@ -201,7 +202,7 @@ func TestLucene104PostingsFormat_MultiSegmentMultiField_RoundTrip(t *testing.T) 
 				name string
 				opts index.IndexOptions
 			}{name: "f", opts: tc.opts})
-			ws0 := rtWriteState(dir, "_0", fis0)
+			ws0 := rtWriteState(dir, "_0", fis0, 41)
 			writeSegment(t, format, ws0, "f", tc.opts)
 
 			// ─ Segment _1 (different segment name, same schema) ─
@@ -209,7 +210,7 @@ func TestLucene104PostingsFormat_MultiSegmentMultiField_RoundTrip(t *testing.T) 
 				name string
 				opts index.IndexOptions
 			}{name: "f", opts: tc.opts})
-			ws1 := rtWriteState(dir, "_1", fis1)
+			ws1 := rtWriteState(dir, "_1", fis1, 41)
 			writeSegment(t, format, ws1, "f", tc.opts)
 
 			// ─ Verify both segments independently ─
@@ -327,7 +328,7 @@ func TestLucene104PostingsFormat_MultiFieldSingleSegment_RoundTrip(t *testing.T)
 		rawFields[i].opts = f.opts
 	}
 	fis := rtFieldInfos(t, rawFields...)
-	ws := rtWriteState(dir, "_0", fis)
+	ws := rtWriteState(dir, "_0", fis, 41)
 
 	format := NewLucene104PostingsFormat()
 	consumer, err := format.FieldsConsumer(ws)
@@ -421,7 +422,7 @@ func TestLucene104PostingsFormat_MultiField_ImpactsEnum(t *testing.T) {
 			opts index.IndexOptions
 		}{"pos_field", index.IndexOptionsDocsAndFreqsAndPositions},
 	)
-	ws := rtWriteState(dir, "_0", fis)
+	ws := rtWriteState(dir, "_0", fis, numDocs)
 	consumer, err := format.FieldsConsumer(ws)
 	if err != nil {
 		t.Fatalf("FieldsConsumer: %v", err)
@@ -536,7 +537,7 @@ func TestLucene104PostingsFormat_TermMatchesAfterClose(t *testing.T) {
 		name string
 		opts index.IndexOptions
 	}{"body", index.IndexOptionsDocsAndFreqsAndPositions})
-	ws := rtWriteState(dir, "_0", fis)
+	ws := rtWriteState(dir, "_0", fis, 41)
 	consumer, err := format.FieldsConsumer(ws)
 	if err != nil {
 		t.Fatalf("FieldsConsumer: %v", err)
@@ -689,7 +690,7 @@ func TestLucene104PostingsFormat_BlockBoundaryPositions(t *testing.T) {
 		name string
 		opts index.IndexOptions
 	}{"pos", index.IndexOptionsDocsAndFreqsAndPositions})
-	ws := rtWriteState(dir, "_0", fis)
+	ws := rtWriteState(dir, "_0", fis, numDocs)
 	consumer, err := format.FieldsConsumer(ws)
 	if err != nil {
 		t.Fatalf("FieldsConsumer: %v", err)

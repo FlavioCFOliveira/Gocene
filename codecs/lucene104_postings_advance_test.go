@@ -31,7 +31,13 @@ func openPostings(t *testing.T, opts index.IndexOptions, field, text string, doc
 		name string
 		opts index.IndexOptions
 	}{name: field, opts: opts})
-	ws := rtWriteState(dir, "_0", fis)
+	maxDoc := 1
+	for _, d := range docIDs {
+		if d+1 > maxDoc {
+			maxDoc = d + 1
+		}
+	}
+	ws := rtWriteState(dir, "_0", fis, maxDoc)
 
 	consumer, err := format.FieldsConsumer(ws)
 	if err != nil {
