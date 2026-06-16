@@ -6,6 +6,8 @@ package analysis
 
 import (
 	"io"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // Tokenizer is a TokenStream whose input is a Reader.
@@ -43,8 +45,17 @@ type BaseTokenizer struct {
 
 // NewBaseTokenizer creates a new BaseTokenizer.
 func NewBaseTokenizer() *BaseTokenizer {
+	return NewBaseTokenizerWithFactory(util.DefaultAttributeFactoryInstance)
+}
+
+// NewBaseTokenizerWithFactory creates a new BaseTokenizer using the supplied
+// [util.AttributeFactory] for its [util.AttributeSource]. Panics if factory is nil.
+func NewBaseTokenizerWithFactory(factory util.AttributeFactory) *BaseTokenizer {
+	if factory == nil {
+		panic("BaseTokenizer factory must not be nil")
+	}
 	return &BaseTokenizer{
-		BaseTokenStream: *NewBaseTokenStream(),
+		BaseTokenStream: *NewBaseTokenStreamWithFactory(factory),
 		input:           nil,
 		inputFinished:   false,
 	}

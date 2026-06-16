@@ -59,8 +59,18 @@ type BaseTokenStream struct {
 // NewBaseTokenStream creates a new BaseTokenStream backed by a fresh
 // [util.AttributeSource] using [util.DefaultAttributeFactoryInstance].
 func NewBaseTokenStream() *BaseTokenStream {
+	return NewBaseTokenStreamWithFactory(util.DefaultAttributeFactoryInstance)
+}
+
+// NewBaseTokenStreamWithFactory creates a new BaseTokenStream backed by a
+// fresh [util.AttributeSource] using the supplied [util.AttributeFactory].
+// Panics if factory is nil, matching the Lucene AttributeSource constructor.
+func NewBaseTokenStreamWithFactory(factory util.AttributeFactory) *BaseTokenStream {
+	if factory == nil {
+		panic("BaseTokenStream factory must not be nil")
+	}
 	return &BaseTokenStream{
-		attributes: util.NewAttributeSource(),
+		attributes: util.NewAttributeSourceWithFactory(factory),
 	}
 }
 

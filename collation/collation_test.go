@@ -10,6 +10,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/collation/tokenattributes"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // upperKeyCollator is a deterministic, total test Collator. It maps a string to
@@ -131,12 +132,8 @@ func TestCollationAttributeFactoryCreateInstance(t *testing.T) {
 	}
 }
 
-// TestCollationKeyAnalyzerConstruction verifies the analyzer is constructed as a
-// valid Analyzer and can produce a token stream without error. (Per the type's
-// documented deviation, the current KeywordTokenizer does not yet accept an
-// AttributeFactory injection, so byte-level collation encoding at the analyzer
-// level is deferred; this test asserts the construction and stream-creation
-// contract that is in place today.)
+// TestCollationKeyAnalyzerConstruction verifies the analyzer is constructed as
+// a valid Analyzer and can produce a token stream without error.
 func TestCollationKeyAnalyzerConstruction(t *testing.T) {
 	t.Parallel()
 
@@ -158,23 +155,99 @@ func TestCollationKeyAnalyzerConstruction(t *testing.T) {
 	}
 }
 
-// TestCollationStrengthLevels_Blocker documents the gap for Sprint 14 T87.
-//
-// Java Lucene's CollationKeyAnalyzer supports PRIMARY/SECONDARY/TERTIARY/
-// IDENTICAL strength levels and NO/CANONICAL/FULL decomposition modes via
-// java.text.Collator.setStrength / setDecomposition.
-//
-// Gocene's port has two blockers:
-//   1) KeywordTokenizer does not accept AttributeFactory injection, so
-//      CollationAttributeFactory cannot be wired end-to-end.
-//   2) There is no Go-native Collator implementation with strength/decomposition
-//      levels (golang.org/x/text/collate supports strength but is not yet wired).
-//
-// This test fails loudly so the gap is tracked.
-func TestCollationStrengthLevels_Blocker(t *testing.T) {
-	const reason = "CollationKeyAnalyzer end-to-end is blocked: " +
-		"KeywordTokenizer does not accept AttributeFactory injection, " +
-		"and no Go-native Collator with strength/decomposition levels is wired. " +
-		"Sprint 14 T87 requires both blockers to be resolved."
-	t.Fatalf("blocker: %s", reason)
+// TestCollationKeyAnalyzerEndToEnd verifies that CollationKeyAnalyzer wires
+// KeywordTokenizer with CollationAttributeFactory so the emitted token's
+// BytesRef is the collation key produced by the configured Collator, not the
+// raw UTF-8 input.
+func TestCollationKeyAnalyzerEndToEnd(t *testing.T) {
+	t.Parallel()
+
+	a := NewCollationKeyAnalyzer(upperKeyCollator{})
+	ts, err := a.TokenStream("field", bytes.NewReader([]byte("Hello")))
+	if err != nil {
+		t.Fatalf("TokenStream: %v", err)
+	}
+	if ts == nil {
+		t.Fatal("TokenStream() returned nil")
+	}
+
+	hasToken, err := ts.IncrementToken()
+	if err != nil {
+		t.Fatalf("IncrementToken: %v", err)
+	}
+	if !hasToken {
+		t.Fatal("expected one token, got none")
+	}
+
+	attrSrc := ts.(interface {
+		GetAttributeSource() *util.AttributeSource
+	}).GetAttributeSource()
+	termAttr := attrSrc.GetAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
+	ref := termAttr.GetBytesRef()
+	if ref == nil {
+		t.Fatal("GetBytesRef() = nil")
+	}
+
+	want := []byte("HELLO")
+	got := ref.Bytes[ref.Offset : ref.Offset+ref.Length]
+	if !bytes.Equal(got, want) {
+		t.Errorf("collation key bytes = % x, want % x", got, want)
+	}
+
+	// The same analyzer must produce equal keys for strings that the collator
+	// deems equivalent (case-folding in this test collator).
+	ts2, err := a.TokenStream("field", bytes.NewReader([]byte("hElLo")))
+	if err != nil {
+		t.Fatalf("TokenStream for hElLo: %v", err)
+	}
+	if _, err := ts2.IncrementToken(); err != nil {
+		t.Fatalf("IncrementToken for hElLo: %v", err)
+	}
+	attrSrc2 := ts2.(interface {
+		GetAttributeSource() *util.AttributeSource
+	}).GetAttributeSource()
+	termAttr2 := attrSrc2.GetAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
+	ref2 := termAttr2.GetBytesRef()
+	got2 := ref2.Bytes[ref2.Offset : ref2.Offset+ref2.Length]
+	if !bytes.Equal(got2, want) {
+		t.Errorf("collation key bytes for hElLo = % x, want % x", got2, want)
+	}
+
+	// KeywordTokenizer emits exactly one token per input.
+	hasMore, err := ts.IncrementToken()
+	if err != nil {
+		t.Fatalf("second IncrementToken: %v", err)
+	}
+	if hasMore {
+		t.Error("expected exactly one token")
+	}
+}
+
+// TestCollationKeyAnalyzerLocaleEquivalentStrings checks that two strings the
+// configured collator treats as equal yield identical collation key bytes.
+func TestCollationKeyAnalyzerLocaleEquivalentStrings(t *testing.T) {
+	t.Parallel()
+
+	a := NewCollationKeyAnalyzer(upperKeyCollator{})
+	keyFor := func(input string) []byte {
+		ts, err := a.TokenStream("field", bytes.NewReader([]byte(input)))
+		if err != nil {
+			t.Fatalf("TokenStream(%q): %v", input, err)
+		}
+		if _, err := ts.IncrementToken(); err != nil {
+			t.Fatalf("IncrementToken(%q): %v", input, err)
+		}
+		attrSrc := ts.(interface {
+			GetAttributeSource() *util.AttributeSource
+		}).GetAttributeSource()
+		termAttr := attrSrc.GetAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
+		ref := termAttr.GetBytesRef()
+		return ref.Bytes[ref.Offset : ref.Offset+ref.Length]
+	}
+
+	aKey := keyFor("Apple")
+	bKey := keyFor("APPLE")
+	if !bytes.Equal(aKey, bKey) {
+		t.Errorf("collator-equal strings produced different keys: % x vs % x", aKey, bKey)
+	}
 }

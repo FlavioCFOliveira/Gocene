@@ -6,6 +6,8 @@ package analysis
 
 import (
 	"io"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // KeywordTokenizer is a tokenizer that emits the entire input as a single token.
@@ -40,13 +42,41 @@ type KeywordTokenizer struct {
 
 // NewKeywordTokenizer creates a new KeywordTokenizer.
 func NewKeywordTokenizer() *KeywordTokenizer {
-	t := &KeywordTokenizer{
-		BaseTokenizer: NewBaseTokenizer(),
-		done:          false,
+	return newKeywordTokenizer(nil)
+}
+
+// NewKeywordTokenizerWithFactory creates a new KeywordTokenizer that uses the
+// supplied [util.AttributeFactory] to build its attributes. This is the Go
+// equivalent of Lucene's KeywordTokenizer(AttributeFactory) constructor and
+// is required by collation analyzers that need to inject a custom
+// CharTermAttribute implementation.
+func NewKeywordTokenizerWithFactory(factory util.AttributeFactory) *KeywordTokenizer {
+	if factory == nil {
+		panic("KeywordTokenizer factory must not be nil")
+	}
+	return newKeywordTokenizer(factory)
+}
+
+// newKeywordTokenizer builds a KeywordTokenizer. If factory is non-nil the
+// tokenizer's AttributeSource and CharTermAttribute are created through it;
+// otherwise the legacy direct constructors are used, preserving the existing
+// default behaviour.
+func newKeywordTokenizer(factory util.AttributeFactory) *KeywordTokenizer {
+	var t *KeywordTokenizer
+	if factory != nil {
+		t = &KeywordTokenizer{
+			BaseTokenizer: NewBaseTokenizerWithFactory(factory),
+			done:          false,
+		}
+		t.termAttr = factory.CreateAttributeInstance(CharTermAttributeType).(CharTermAttribute)
+	} else {
+		t = &KeywordTokenizer{
+			BaseTokenizer: NewBaseTokenizer(),
+			done:          false,
+		}
+		t.termAttr = NewCharTermAttribute()
 	}
 
-	// Add attributes
-	t.termAttr = NewCharTermAttribute()
 	t.offsetAttr = NewOffsetAttribute()
 	t.posIncrAttr = NewPositionIncrementAttribute()
 
@@ -119,15 +149,29 @@ func (t *KeywordTokenizer) End() error {
 var _ Tokenizer = (*KeywordTokenizer)(nil)
 
 // KeywordTokenizerFactory creates KeywordTokenizer instances.
-type KeywordTokenizerFactory struct{}
+type KeywordTokenizerFactory struct {
+	factory util.AttributeFactory
+}
 
 // NewKeywordTokenizerFactory creates a new KeywordTokenizerFactory.
 func NewKeywordTokenizerFactory() *KeywordTokenizerFactory {
 	return &KeywordTokenizerFactory{}
 }
 
+// NewKeywordTokenizerFactoryWithFactory creates a KeywordTokenizerFactory
+// that passes the supplied [util.AttributeFactory] to each created tokenizer.
+func NewKeywordTokenizerFactoryWithFactory(factory util.AttributeFactory) *KeywordTokenizerFactory {
+	if factory == nil {
+		panic("KeywordTokenizerFactory factory must not be nil")
+	}
+	return &KeywordTokenizerFactory{factory: factory}
+}
+
 // Create creates a new KeywordTokenizer.
 func (f *KeywordTokenizerFactory) Create() Tokenizer {
+	if f.factory != nil {
+		return NewKeywordTokenizerWithFactory(f.factory)
+	}
 	return NewKeywordTokenizer()
 }
 

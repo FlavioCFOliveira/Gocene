@@ -43,20 +43,14 @@ func NewCollationKeyAnalyzer(collator tokenattributes.Collator) *CollationKeyAna
 		BaseAnalyzer: *analysis.NewAnalyzer(),
 		factory:      factory,
 	}
-	a.TokenizerFactory = analysis.NewKeywordTokenizerFactory()
+	a.TokenizerFactory = analysis.NewKeywordTokenizerFactoryWithFactory(factory)
 	return a
 }
 
 // TokenStream creates a token stream for the field, using
-// KeywordTokenizer. The stream emits a single token whose BytesRef is
-// the collation key of the entire input.
-//
-// NOTE: The current Gocene KeywordTokenizer does not accept an
-// AttributeFactory injection (unlike the Java version). Collation key
-// encoding at the attribute level is deferred until KeywordTokenizer
-// supports AttributeFactory injection. The stream structure (Tokenizer +
-// no-op filter chain) is correct; byte-level encoding will be activated
-// once the underlying tokenizer is wired to CollationAttributeFactory.
+// KeywordTokenizer with the analyzer's CollationAttributeFactory. The
+// stream emits a single token whose BytesRef is the collation key of the
+// entire input.
 func (a *CollationKeyAnalyzer) TokenStream(fieldName string, reader io.Reader) (analysis.TokenStream, error) {
 	return a.BaseAnalyzer.TokenStream(fieldName, reader)
 }
