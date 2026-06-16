@@ -81,7 +81,10 @@ func buildSingleTransitionAutomaton(termID int) *automaton.Automaton {
 // unitSimScorer returns freq * 1.0 as the score.
 type unitSimScorer struct{}
 
-func (u *unitSimScorer) Score(_ int, freq float32) float32 { return freq }
+func (u *unitSimScorer) Score(_ int, freq float32, norm int64) float32 {
+	_ = norm
+	return freq
+}
 
 var _ search.SimScorer = (*unitSimScorer)(nil)
 

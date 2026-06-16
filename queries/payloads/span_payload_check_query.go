@@ -468,7 +468,7 @@ func (s *payloadCheckScorer) Score() float32 {
 	if s.simScorer == nil {
 		return 0
 	}
-	return s.simScorer.Score(s.DocID(), s.freq)
+	return s.simScorer.Score(s.DocID(), s.freq, 1)
 }
 
 func (s *payloadCheckScorer) GetMaxScore(_ int) float32 { return 1<<24 - 1 }

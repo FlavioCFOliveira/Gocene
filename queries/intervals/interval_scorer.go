@@ -59,7 +59,7 @@ func (s *IntervalScorer) Advance(target int) (int, error) { return s.intervals.A
 // Implements search.Scorer.
 func (s *IntervalScorer) Score() float32 {
 	_ = s.ensureFreq() // errors stored internally
-	return s.simScorer.Score(s.DocID(), s.freq)
+	return s.simScorer.Score(s.DocID(), s.freq, 1)
 }
 
 // GetMaxScore returns the maximum possible score up to the given document.

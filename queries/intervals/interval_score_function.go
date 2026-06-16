@@ -51,13 +51,14 @@ type saturationSimScorer struct {
 	pivot  float32
 }
 
-func (s *saturationSimScorer) Score(doc int, freq float32) float32 {
+func (s *saturationSimScorer) Score(doc int, freq float32, norm int64) float32 {
+	_ = norm
 	return s.weight * (1.0 - s.pivot/(s.pivot+freq))
 }
 
 // Explain returns an Explanation.
 func (f *SaturationFunction) Explain(interval string, weight, sloppyFreq float32) search.Explanation {
-	score := f.Scorer(weight).Score(0, sloppyFreq)
+	score := f.Scorer(weight).Score(0, sloppyFreq, 1)
 	exp := search.MatchExplanation(score, "Saturation function on interval frequency, computed as w * S / (S + k) from:")
 	exp.AddDetail(search.MatchExplanation(weight, "w, weight of this function"))
 	exp.AddDetail(search.MatchExplanation(f.pivot, "k, pivot feature value that would give a score contribution equal to w/2"))
@@ -98,13 +99,14 @@ type sigmoidSimScorer struct {
 	pivotPow float64
 }
 
-func (s *sigmoidSimScorer) Score(doc int, freq float32) float32 {
+func (s *sigmoidSimScorer) Score(doc int, freq float32, norm int64) float32 {
+	_ = norm
 	return float32(float64(s.weight) * (1.0 - s.pivotPow/(math.Pow(float64(freq), s.exp)+s.pivotPow)))
 }
 
 // Explain returns an Explanation.
 func (f *SigmoidFunction) Explain(interval string, weight, sloppyFreq float32) search.Explanation {
-	score := f.Scorer(weight).Score(0, sloppyFreq)
+	score := f.Scorer(weight).Score(0, sloppyFreq, 1)
 	exp := search.MatchExplanation(score, "Sigmoid function on interval frequency, computed as w * S^a / (S^a + k^a) from:")
 	exp.AddDetail(search.MatchExplanation(weight, "w, weight of this function"))
 	exp.AddDetail(search.MatchExplanation(f.pivot, "k, pivot feature value that would give a score contribution equal to w/2"))

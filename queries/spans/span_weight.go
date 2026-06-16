@@ -182,7 +182,7 @@ func (w *SpanWeight) Explain(ctx *index.LeafReaderContext, doc int) (search.Expl
 	if w.SimScorer == nil {
 		return search.MatchExplanation(0, "match without score"), nil
 	}
-	score := w.SimScorer.Score(doc, freq)
+	score := w.SimScorer.Score(doc, freq, 1)
 	return search.MatchExplanation(score, "weight("+itoa(doc)+")"), nil
 }
 

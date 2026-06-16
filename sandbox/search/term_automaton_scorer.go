@@ -440,12 +440,12 @@ func (s *TermAutomatonScorer) GetOriginalSubsOnDoc() []*EnumAndScorer {
 
 // Score returns the similarity score for the current document.
 func (s *TermAutomatonScorer) Score() float32 {
-	return s.scorer.Score(s.docID, float32(s.freq))
+	return s.scorer.Score(s.docID, float32(s.freq), 1)
 }
 
 // GetMaxScore returns an upper bound on the score.
 func (s *TermAutomatonScorer) GetMaxScore(_ int) float32 {
-	return s.scorer.Score(s.docID, float32(1e30))
+	return s.scorer.Score(s.docID, float32(1e30), 1)
 }
 
 // AdvanceShallow returns search.NO_MORE_DOCS, the default defined by

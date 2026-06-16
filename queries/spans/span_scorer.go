@@ -128,7 +128,7 @@ func (s *SpanScorer) scoreCurrentDoc() float32 {
 	if s.simScorer == nil {
 		return 0
 	}
-	return s.simScorer.Score(s.DocID(), s.freq)
+	return s.simScorer.Score(s.DocID(), s.freq, 1)
 }
 
 // sloppyFreq returns the accumulated sloppy frequency; used by SpanWeight.Explain.
