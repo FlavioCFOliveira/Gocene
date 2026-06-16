@@ -7,8 +7,29 @@ package search
 import (
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/geo"
 )
+
+// decodeTriangleStruct is a thin wrapper around document.DecodeTriangle so
+// that the test can assert on individual decoded fields.  It is NOT the full
+// rotation-aware decoder (backlog #2697); for the regression tests here we
+// only need the A vertex, which is always stored at a known offset.
+func decodeTriangleStruct(t *testing.T, buf []byte) document.DecodedTriangle {
+	t.Helper()
+	dt, err := document.DecodeTriangle(buf)
+	if err != nil {
+		t.Fatalf("DecodeTriangle: %v", err)
+	}
+	return dt
+}
+
+func assertEqualInt32(t *testing.T, name string, got, want int32) {
+	t.Helper()
+	if got != want {
+		t.Errorf("%s: got %d, want %d", name, got, want)
+	}
+}
 
 // This file is the Go port of
 // lucene/core/src/test/org/apache/lucene/document/TestXYShapeEncoding.java

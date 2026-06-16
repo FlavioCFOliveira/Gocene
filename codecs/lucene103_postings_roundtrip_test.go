@@ -251,10 +251,12 @@ func (p *l103PostingsEnum) GetPayload() ([]byte, error) {
 func (p *l103PostingsEnum) Cost() int64 { return int64(len(p.term.docs)) }
 
 // l103WriteState builds a write state whose FieldInfos reflect the requested
-// options (including stored payloads).
-func l103WriteState(t *testing.T, dir store.Directory, name, field string, opts index.IndexOptions, storePayloads bool) *SegmentWriteState {
+// options (including stored payloads). maxDoc must be greater than every
+// document ID that will be written, because the block-tree writer uses it to
+// size the per-field docsSeen bit set.
+func l103WriteState(t *testing.T, dir store.Directory, name, field string, opts index.IndexOptions, storePayloads bool, maxDoc int) *SegmentWriteState {
 	t.Helper()
-	si := index.NewSegmentInfo(name, 100, dir)
+	si := index.NewSegmentInfo(name, maxDoc, dir)
 	if err := si.SetID(make([]byte, 16)); err != nil {
 		t.Fatalf("SetID: %v", err)
 	}
@@ -280,7 +282,15 @@ func l103RoundTrip(t *testing.T, opts index.IndexOptions, storePayloads bool, te
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	ws := l103WriteState(t, dir, "_0", terms.field, opts, storePayloads)
+	maxDoc := 1
+	for _, term := range terms.terms {
+		for _, doc := range term.docs {
+			if doc.docID+1 > maxDoc {
+				maxDoc = doc.docID + 1
+			}
+		}
+	}
+	ws := l103WriteState(t, dir, "_0", terms.field, opts, storePayloads, maxDoc)
 
 	rw := NewLucene103RWPostingsFormat()
 	consumer, err := rw.FieldsConsumer(ws)
@@ -569,7 +579,7 @@ func TestLucene103Postings_RoundTrip_Offsets(t *testing.T) {
 func TestLucene103PostingsFormat_FieldsConsumerReadOnly(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
-	ws := l103WriteState(t, dir, "_0", "f", index.IndexOptionsDocsAndFreqs, false)
+	ws := l103WriteState(t, dir, "_0", "f", index.IndexOptionsDocsAndFreqs, false, 1)
 	prod := NewLucene103PostingsFormat()
 	c, err := prod.FieldsConsumer(ws)
 	if err == nil {

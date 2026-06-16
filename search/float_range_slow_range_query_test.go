@@ -621,12 +621,12 @@ func (s *stubBinaryDocValues) Advance(target int) (int, error) {
 			s.idx = i
 			return s.docs[i].docID, nil
 		}
+	}
 	s.idx = len(s.docs)
 	return NO_MORE_DOCS, nil
 }
 
 // NextDoc advances to the next doc.
-}
 func (s *stubBinaryDocValues) NextDoc() (int, error) {
 	s.idx++
 	if s.idx >= len(s.docs) {

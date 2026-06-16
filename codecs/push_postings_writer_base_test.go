@@ -124,7 +124,7 @@ func TestWriteTerm_DocsOnly(t *testing.T) {
 	}
 	w := &fakePushWriter{}
 	// indexHasFreqs=false: StartDoc receives freq=-1; totalTermFreq must be -1.
-	n, ttf, err := WriteTerm(w, pe, false, false, false, false)
+	n, ttf, err := WriteTerm(w, pe, false, false, false, false, nil)
 	if err != nil {
 		t.Fatalf("WriteTerm: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestWriteTerm_WithPositions(t *testing.T) {
 	}
 	w := &fakePushWriter{}
 	// Positions require freqs; indexHasFreqs=true, indexHasPositions=true.
-	n, ttf, err := WriteTerm(w, pe, true, true, false, false)
+	n, ttf, err := WriteTerm(w, pe, true, true, false, false, nil)
 	if err != nil {
 		t.Fatalf("WriteTerm: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestWriteTerm_WithPositions(t *testing.T) {
 
 func TestWriteTerm_NilEnum(t *testing.T) {
 	t.Parallel()
-	_, _, err := WriteTerm(&fakePushWriter{}, nil, false, false, false, false)
+	_, _, err := WriteTerm(&fakePushWriter{}, nil, false, false, false, false, nil)
 	if err == nil || !errorContains(err, "nil postingsEnum") {
 		t.Errorf("expected nil-enum error, got %v", err)
 	}

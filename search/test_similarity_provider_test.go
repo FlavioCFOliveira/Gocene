@@ -68,7 +68,7 @@ func (s *sim2) Coord(overlap, maxOverlap int) float32 {
 // fixedScoreSimScorer returns a constant score regardless of document or frequency.
 type fixedScoreSimScorer struct{ score float32 }
 
-func (f *fixedScoreSimScorer) Score(_ int, _ float32) float32 { return f.score }
+func (f *fixedScoreSimScorer) Score(_ int, _ float32, _ int64) float32 { return f.score }
 
 var _ Similarity = (*sim1)(nil)
 var _ Similarity = (*sim2)(nil)
@@ -105,6 +105,7 @@ func TestSimilarityProvider_Basics(t *testing.T) {
 		if e := w.AddDocument(doc); e != nil {
 			t.Fatalf("AddDocument: %v", e)
 		}
+	}
 	addDoc("quick brown fox", "quick brown fox")
 	addDoc("jumps over lazy brown dog", "jumps over lazy brown dog")
 
@@ -153,4 +154,4 @@ func TestSimilarityProvider_Basics(t *testing.T) {
 		t.Errorf("expected foo score (%.4f) < bar score (%.4f); per-field similarity not dispatched correctly",
 			fooDocs.ScoreDocs[0].Score, barDocs.ScoreDocs[0].Score)
 	}
-}	}
+}

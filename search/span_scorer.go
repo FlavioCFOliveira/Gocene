@@ -73,8 +73,10 @@ func NewSpanScorerWithSimilarity(spans *Spans, score float32, simScorer SimScore
 // The score is computed using the sloppy frequency and similarity scorer.
 func (s *SpanScorer) Score() float32 {
 	if s.simScorer != nil {
-		// Use similarity scorer if available
-		return s.simScorer.Score(s.doc, s.freq)
+		// Use similarity scorer if available. Norms are not wired into the span
+		// scoring path yet; pass the average-length sentinel (1) to keep the
+		// legacy API contract intact.
+		return s.simScorer.Score(s.doc, s.freq, 1)
 	}
 	// Fallback to simple score * freq calculation
 	return s.score * s.freq

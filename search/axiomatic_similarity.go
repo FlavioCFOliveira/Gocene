@@ -168,7 +168,11 @@ func NewAxiomaticSimScorerWithWeight(weight *AxiomaticSimWeight) *AxiomaticSimSc
 
 // Score calculates the axiomatic score.
 // Score = boost * tf / (k + tf) * log((N + 1) / (df + 1))
-func (s *AxiomaticSimScorer) Score(doc int, freq float32) float32 {
+//
+// The norm argument mirrors Lucene's SimScorer.score(float, long) signature.
+// This legacy axiomatic scorer does not consult norms; it is ignored to preserve
+// the existing behaviour of in-repo tests.
+func (s *AxiomaticSimScorer) Score(doc int, freq float32, norm int64) float32 {
 	if freq == 0 {
 		return 0
 	}

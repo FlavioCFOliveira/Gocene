@@ -623,7 +623,7 @@ func (t *termsWriterState) pushSinglePostings(termText *index.Term, termsEnum in
 	hasOffsets := t.fieldInfo.IndexOptions() >= index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets
 	hasPayloads := t.fieldInfo.HasPayloads()
 
-	docCount, totalTermFreq, err := WriteTerm(pusher, postingsEnum, hasFreqs, hasPositions, hasOffsets, hasPayloads)
+	docCount, totalTermFreq, err := WriteTerm(pusher, postingsEnum, hasFreqs, hasPositions, hasOffsets, hasPayloads, t.docsSeen)
 	if err != nil {
 		return nil, err
 	}

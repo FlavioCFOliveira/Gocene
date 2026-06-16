@@ -191,8 +191,12 @@ func NewIBSimScorerWithWeight(weight *IBSimWeight) *IBSimScorer {
 }
 
 // Score calculates the IB score.
-// Score uses information-based divergence between actual and reference distributions
-func (s *IBSimScorer) Score(doc int, freq float32) float32 {
+// Score uses information-based divergence between actual and reference distributions.
+//
+// The norm argument mirrors Lucene's SimScorer.score(float, long) signature.
+// This legacy IB scorer does not consult norms; it is ignored to preserve the
+// existing behaviour of in-repo tests.
+func (s *IBSimScorer) Score(doc int, freq float32, norm int64) float32 {
 	if freq == 0 || s.ibStats == nil {
 		return 0
 	}

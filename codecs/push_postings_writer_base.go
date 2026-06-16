@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // PushPostingsWriterBase extends the PostingsWriterBase contract with a
@@ -58,6 +59,9 @@ type PushPostingsWriterBase interface {
 //     false (DOCS-only field), matching Java's writeTerm return contract.
 //     The caller must set state.TotalTermFreq = totalTermFreq and
 //     state.DocFreq = docCount before calling FinishTerm.
+//   - docsSeen is an optional per-field bit set used by block-tree term
+//     dictionaries to compute the number of distinct documents that contain
+//     the field. When nil the bit set is not updated.
 //
 // indexHasFreqs/indexHasPositions/indexHasOffsets/indexHasPayloads must agree
 // with the field's IndexOptions; the helper does not consult fieldInfo to
@@ -66,6 +70,7 @@ func WriteTerm(
 	writer PushPostingsWriterBase,
 	postingsEnum index.PostingsEnum,
 	indexHasFreqs, indexHasPositions, indexHasOffsets, indexHasPayloads bool,
+	docsSeen *util.FixedBitSet,
 ) (docCount int, totalTermFreq int64, err error) {
 	if postingsEnum == nil {
 		return 0, 0, fmt.Errorf("WriteTerm: nil postingsEnum")
@@ -132,6 +137,10 @@ func WriteTerm(
 					return docCount, 0, fmt.Errorf("WriteTerm: AddPosition(doc=%d, pos=%d): %w", docID, pos, perr)
 				}
 			}
+		}
+
+		if docsSeen != nil {
+			docsSeen.Set(docID)
 		}
 
 		if nerr = writer.FinishDoc(); nerr != nil {

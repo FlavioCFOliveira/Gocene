@@ -597,6 +597,7 @@ func TestDoubleRangeSlowRangeQuery_Scorer_DocValuesError(t *testing.T) {
 	if _, err := scorer.NextDoc(); err == nil || !errors.Is(err, wantErr) {
 		t.Fatalf("expected wantErr to surface from NextDoc, got %v", err)
 	}
+}
 
 // --- double-flavoured test scaffolding -------------------------------------
 
@@ -612,7 +613,6 @@ type docRangeDouble struct {
 // stubBinaryDocValues from the float test file by mapping into docRange
 // with the packed bytes pre-computed (the iterator only consults .packed,
 // the float32 min/max fields are unused once .packed is set).
-}
 func newStubBinaryDocValuesDouble(t *testing.T, docs []docRangeDouble) *stubBinaryDocValues {
 	t.Helper()
 	out := make([]docRange, len(docs))

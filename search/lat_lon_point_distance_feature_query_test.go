@@ -909,6 +909,7 @@ func TestLatLonPointDistanceFeaturePointVisitor_Compare(t *testing.T) {
 			result:        util.NewDocIdSetBuilder(1),
 			alreadyAt:     -1,
 		}
+	}
 	pack := func(lat, lon float64) []byte {
 		buf := make([]byte, 2*latLonPointBytesPerDim)
 		util.IntToSortableBytes(geo.EncodeLatitude(lat), buf, 0)
@@ -934,4 +935,4 @@ func TestLatLonPointDistanceFeaturePointVisitor_Compare(t *testing.T) {
 	if rel := v.Compare(pack(30, -5), pack(40, 0)); rel != latLonPointDistanceFeatureCellCrossesQuery {
 		t.Fatalf("expected CROSSES for boundary-crossing cell, got %v", rel)
 	}
-}	}
+}

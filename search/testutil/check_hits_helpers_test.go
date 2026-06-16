@@ -176,6 +176,8 @@ func TestCheckTopScores_TermQuery(t *testing.T) {
 	defer cleanup()
 	_ = alphaDocs
 
+	searcher.SetSimilarity(search.NewRawTFSimilarity())
+
 	q := search.NewTermQuery(index.NewTerm("content", "alpha"))
 
 	// Confirm the query produces varying scores above 1.0 so the block-max

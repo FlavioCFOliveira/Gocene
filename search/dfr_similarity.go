@@ -191,7 +191,11 @@ func NewDFRSimScorerWithWeight(weight *DFRSimWeight) *DFRSimScorer {
 
 // Score calculates the DFR score.
 // Score = boost * basicModelScore * afterEffect * normalization
-func (s *DFRSimScorer) Score(doc int, freq float32) float32 {
+//
+// The norm argument mirrors Lucene's SimScorer.score(float, long) signature.
+// This legacy DFR scorer does not consult norms; it is ignored to preserve the
+// existing behaviour of in-repo tests.
+func (s *DFRSimScorer) Score(doc int, freq float32, norm int64) float32 {
 	if freq == 0 || s.basicStats == nil {
 		return 0
 	}

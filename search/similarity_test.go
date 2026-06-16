@@ -32,25 +32,28 @@ type MockSimScorer struct {
 	score float32
 }
 
-func (s *MockSimScorer) Score(doc int, freq float32) float32 {
+func (s *MockSimScorer) Score(doc int, freq float32, norm int64) float32 {
 	return s.score
 }
 
 func TestSimilarity_Basics(t *testing.T) {
 	sim := NewMockSimilarity(10.0)
 	scorer := sim.Scorer(nil)
-	if scorer.Score(0, 1.0) != 10.0 {
-		t.Errorf("Expected score 10.0, got %f", scorer.Score(0, 1.0))
+	if scorer.Score(0, 1.0, 1) != 10.0 {
+		t.Errorf("Expected score 10.0, got %f", scorer.Score(0, 1.0, 1))
 	}
 
 }
 func TestSimilarity_BM25(t *testing.T) {
 	sim := NewBM25Similarity()
-	// Currently Scorer returns nil in BaseSimilarity, so this is just a placeholder
-	// until we implement full BM25 weighting and scoring
 	collStats := NewCollectionStatistics("field", 100, 50, 1000, 500)
 	termStats := NewTermStatistics(index.NewTerm("field", "value"), 10, 5)
-	if sim.Scorer(collStats, termStats) != nil {
-		t.Errorf("Expected nil scorer for now")
+	scorer := sim.Scorer(collStats, termStats)
+	if scorer == nil {
+		t.Fatalf("Expected non-nil BM25 scorer")
+	}
+	// score for freq=1, average norm=1 should be positive
+	if scorer.Score(0, 1.0, 1) <= 0 {
+		t.Errorf("Expected positive BM25 score, got %f", scorer.Score(0, 1.0, 1))
 	}
 }

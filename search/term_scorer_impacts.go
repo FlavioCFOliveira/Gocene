@@ -162,10 +162,13 @@ func newLegacySimImpactScorer(sim SimScorer) *legacySimImpactScorer {
 	return &legacySimImpactScorer{sim: sim}
 }
 
-// Score returns the legacy similarity score for the given impact frequency,
-// ignoring norm to match the legacy live-scoring path. The negative placeholder
-// doc is never consulted by the legacy similarities.
-func (s *legacySimImpactScorer) Score(freq float32, _ int64) float32 {
+// Score returns the legacy similarity score for the given impact frequency and
+// encoded norm. The legacy live-scoring path now consults norms for
+// similarities that use them (e.g. BM25), so the norm is forwarded so that the
+// block-max upper bound is computed with the same scoring function the live
+// scorer uses. The negative placeholder doc is never consulted by the legacy
+// similarities.
+func (s *legacySimImpactScorer) Score(freq float32, norm int64) float32 {
 	if s.sim == nil {
 		return 0
 	}
@@ -175,7 +178,7 @@ func (s *legacySimImpactScorer) Score(freq float32, _ int64) float32 {
 	if math.IsInf(float64(freq), 0) || math.IsNaN(float64(freq)) {
 		freq = math.MaxFloat32
 	}
-	return s.sim.Score(impactScorerPlaceholderDoc, freq)
+	return s.sim.Score(impactScorerPlaceholderDoc, freq, norm)
 }
 
 // impactScorerPlaceholderDoc is the doc id handed to the legacy SimScorer when

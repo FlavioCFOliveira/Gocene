@@ -126,7 +126,7 @@ func (s *SynonymScorer) Freq() float32 {
 func (s *SynonymScorer) Score() float32 {
 	freq := s.Freq()
 	if s.simScorer != nil {
-		return s.simScorer.Score(s.doc, freq)
+		return s.simScorer.Score(s.doc, freq, 1)
 	}
 	return freq
 }

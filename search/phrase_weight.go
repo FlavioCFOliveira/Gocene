@@ -42,36 +42,141 @@ func NewPhraseWeight(query *PhraseQuery, searcher *IndexSearcher, needsScores bo
 
 	if needsScores && len(query.terms) > 0 {
 		collectionStats := w.getCollectionStats(searcher)
-		termStats := w.getTermStats(searcher)
-		w.simScorer = w.similarity.Scorer(collectionStats, termStats)
+		// Lucene's PhraseWeight builds one TermStatistics per phrase term and
+		// asks the Similarity for a scorer over all of them; the resulting
+		// SimScorer sums the per-term scores for the same (freq, norm) pair.
+		// Gocene's legacy Similarity.Scorer only accepts a single TermStatistics,
+		// so we emulate the multi-term scorer by summing one legacy scorer per
+		// term. This gives phrase queries the same idf sum that Lucene produces.
+		scorers := make([]SimScorer, len(query.terms))
+		for i, term := range query.terms {
+			termStats := w.getTermStatsFor(searcher, term)
+			scorers[i] = w.similarity.Scorer(collectionStats, termStats)
+		}
+		if len(scorers) == 1 {
+			w.simScorer = scorers[0]
+		} else {
+			w.simScorer = newMultiTermSimScorer(scorers)
+		}
 	}
 
 	return w, nil
 }
 
-// getCollectionStats returns collection statistics for the phrase's field.
+// getCollectionStats returns collection statistics for the phrase's field,
+// mirroring IndexSearcher.collectionStatistics(field) from Lucene 10.4.0.
 func (w *PhraseWeight) getCollectionStats(searcher *IndexSearcher) *CollectionStatistics {
 	reader := searcher.GetIndexReader()
-	return NewCollectionStatistics(w.query.field, reader.MaxDoc(), reader.NumDocs(), -1, -1)
-}
-
-// getTermStats returns term statistics for the phrase.
-func (w *PhraseWeight) getTermStats(searcher *IndexSearcher) *TermStatistics {
-	if len(w.query.terms) == 0 {
-		return nil
+	leaves, err := reader.Leaves()
+	if err != nil || len(leaves) == 0 {
+		return NewCollectionStatistics(w.query.field, reader.MaxDoc(), reader.NumDocs(), -1, -1)
 	}
-	term := w.query.terms[0]
-	docFreq := 0
-	if reader, ok := searcher.GetIndexReader().(index.IndexReaderInterface); ok {
-		if leafReader, ok := reader.(*index.LeafReader); ok {
-			terms, err := leafReader.Terms(w.query.field)
-			if err == nil && terms != nil {
-				docFreq, _ = terms.GetDocCount()
-			}
+
+	var docCount int64
+	var sumTotalTermFreq int64
+	var sumDocFreq int64
+	for _, leafCtx := range leaves {
+		leafReader := leafCtx.LeafReader()
+		if leafReader == nil {
+			continue
+		}
+		terms, err := leafReader.Terms(w.query.field)
+		if err != nil || terms == nil {
+			continue
+		}
+		if dc, err := terms.GetDocCount(); err == nil {
+			docCount += int64(dc)
+		}
+		if sttf, err := terms.GetSumTotalTermFreq(); err == nil && sttf >= 0 {
+			sumTotalTermFreq += sttf
+		}
+		if sdf, err := terms.GetSumDocFreq(); err == nil && sdf >= 0 {
+			sumDocFreq += sdf
 		}
 	}
-	return NewTermStatistics(term, docFreq, -1)
+	if docCount == 0 {
+		return nil
+	}
+	return NewCollectionStatistics(w.query.field, reader.MaxDoc(), int(docCount), sumTotalTermFreq, sumDocFreq)
 }
+
+// getTermStatsFor returns term statistics for a single phrase term across all
+// leaves, mirroring IndexSearcher.termStatistics(term, docFreq, totalTermFreq)
+// from Lucene 10.4.0.
+func (w *PhraseWeight) getTermStatsFor(searcher *IndexSearcher, term *index.Term) *TermStatistics {
+	reader := searcher.GetIndexReader()
+	leaves, err := reader.Leaves()
+	if err != nil || len(leaves) == 0 {
+		return NewTermStatistics(term, 0, -1)
+	}
+
+	docFreq := 0
+	var totalTermFreq int64 = -1
+	for _, leafCtx := range leaves {
+		leafReader := leafCtx.LeafReader()
+		if leafReader == nil {
+			continue
+		}
+		terms, err := leafReader.Terms(w.query.field)
+		if err != nil || terms == nil {
+			continue
+		}
+		termsEnum, err := terms.GetIterator()
+		if err != nil {
+			continue
+		}
+		found, err := termsEnum.SeekExact(term)
+		if err != nil || !found {
+			continue
+		}
+		if df, err := termsEnum.DocFreq(); err == nil {
+			docFreq += df
+		}
+		if ttf, err := termsEnum.TotalTermFreq(); err == nil && ttf >= 0 {
+			if totalTermFreq < 0 {
+				totalTermFreq = 0
+			}
+			totalTermFreq += ttf
+		}
+	}
+	return NewTermStatistics(term, docFreq, totalTermFreq)
+}
+
+// multiTermSimScorer sums the scores of one SimScorer per query term, mirroring
+// Lucene's MultiSimilarity.MultiSimScorer and the behaviour of Similarity.scorer
+// when handed multiple TermStatistics. It is used by phrase queries so that the
+// phrase frequency is scored with the combined IDF of every term in the phrase.
+type multiTermSimScorer struct {
+	*BaseSimScorer
+	scorers []SimScorer
+}
+
+// newMultiTermSimScorer creates a scorer that sums the supplied per-term scorers.
+func newMultiTermSimScorer(scorers []SimScorer) *multiTermSimScorer {
+	return &multiTermSimScorer{
+		BaseSimScorer: NewBaseSimScorer(),
+		scorers:       scorers,
+	}
+}
+
+// Score returns the sum of the per-term scores for the given (doc, freq, norm).
+func (s *multiTermSimScorer) Score(doc int, freq float32, norm int64) float32 {
+	var sum float64
+	for _, sc := range s.scorers {
+		if sc != nil {
+			sum += float64(sc.Score(doc, freq, norm))
+		}
+	}
+	return float32(sum)
+}
+
+// Scorers returns the underlying per-term scorers.
+func (s *multiTermSimScorer) Scorers() []SimScorer {
+	return s.scorers
+}
+
+// Ensure multiTermSimScorer implements SimScorer.
+var _ SimScorer = (*multiTermSimScorer)(nil)
 
 // Scorer creates a scorer for this weight.
 //
@@ -125,10 +230,19 @@ func (w *PhraseWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) 
 
 	queryPositions := w.query.Positions()
 
-	if w.query.slop == 0 {
-		return NewPhraseScorer(w, postings, queryPositions, w.simScorer), nil
+	var norms index.NumericDocValues
+	if w.needsScores {
+		if normReader, ok := leafReader.(interface {
+			GetNormValues(field string) (index.NumericDocValues, error)
+		}); ok {
+			norms, _ = normReader.GetNormValues(w.query.field)
+		}
 	}
-	return NewSloppyPhraseScorer(w, postings, queryPositions, w.simScorer, w.query.slop), nil
+
+	if w.query.slop == 0 {
+		return NewPhraseScorer(w, postings, queryPositions, w.simScorer, norms), nil
+	}
+	return NewSloppyPhraseScorer(w, postings, queryPositions, w.simScorer, w.query.slop, norms), nil
 }
 
 // ScorerSupplier creates a scorer supplier for this weight.
@@ -192,12 +306,18 @@ func (w *PhraseWeight) Explain(context *index.LeafReaderContext, doc int) (Expla
 					idfFactor = score / tfValue
 				}
 				scoreExpl.AddDetail(MatchExplanation(
-					idfFactor, "idf, computed as log(maxDocs/docFreq)"))
+					idfFactor, "idf, computed as log(docCount/docFreq)"))
 				scoreExpl.AddDetail(MatchExplanationWithDetails(
 					tfValue,
 					fmt.Sprintf("tf(phraseFreq=%v), with freq of:", freq),
 					MatchExplanation(freq, fmt.Sprintf("phraseFreq=%v", freq))))
 			} else {
+				// Non-ClassicSimilarity legacy path (including the multi-term scorer
+				// built for phrase queries): the score is not necessarily equal to
+				// the raw phrase frequency. Use "with freq of:" so
+				// CheckHits.verifyExplanation does not enforce the product rule on
+				// a single freq detail.
+				scoreExpl = MatchExplanation(score, fmt.Sprintf("score(phraseFreq=%v), with freq of:", freq))
 				scoreExpl.AddDetail(MatchExplanation(freq, fmt.Sprintf("phraseFreq=%v", freq)))
 			}
 
@@ -295,17 +415,19 @@ type PhraseScorer struct {
 	postings       []index.PostingsEnum
 	queryPositions []int // expected query position for each term slot
 	simScorer      SimScorer
+	norms          index.NumericDocValues
 	doc            int
 	cachedFreq     int // phrase frequency for the current doc; computed once
 }
 
 // NewPhraseScorer creates a new PhraseScorer.
-func NewPhraseScorer(weight Weight, postings []index.PostingsEnum, queryPositions []int, simScorer SimScorer) *PhraseScorer {
+func NewPhraseScorer(weight Weight, postings []index.PostingsEnum, queryPositions []int, simScorer SimScorer, norms index.NumericDocValues) *PhraseScorer {
 	return &PhraseScorer{
 		BaseScorer:     NewBaseScorer(weight),
 		postings:       postings,
 		queryPositions: queryPositions,
 		simScorer:      simScorer,
+		norms:          norms,
 		doc:            -1,
 	}
 }
@@ -436,7 +558,15 @@ func (s *PhraseScorer) Score() float32 {
 		freq = 1
 	}
 	if s.simScorer != nil {
-		return s.simScorer.Score(s.doc, float32(freq))
+		norm := int64(1)
+		if s.norms != nil {
+			if ok, err := s.norms.AdvanceExact(s.doc); err == nil && ok {
+				if v, err := s.norms.LongValue(); err == nil {
+					norm = v
+				}
+			}
+		}
+		return s.simScorer.Score(s.doc, float32(freq), norm)
 	}
 	return float32(freq)
 }
@@ -478,18 +608,20 @@ type SloppyPhraseScorer struct {
 	postings       []index.PostingsEnum
 	queryPositions []int
 	simScorer      SimScorer
+	norms          index.NumericDocValues
 	slop           int
 	doc            int
 	cachedFreq     float32 // sloppy phrase frequency for the current doc
 }
 
 // NewSloppyPhraseScorer creates a new SloppyPhraseScorer.
-func NewSloppyPhraseScorer(weight Weight, postings []index.PostingsEnum, queryPositions []int, simScorer SimScorer, slop int) *SloppyPhraseScorer {
+func NewSloppyPhraseScorer(weight Weight, postings []index.PostingsEnum, queryPositions []int, simScorer SimScorer, slop int, norms index.NumericDocValues) *SloppyPhraseScorer {
 	return &SloppyPhraseScorer{
 		BaseScorer:     NewBaseScorer(weight),
 		postings:       postings,
 		queryPositions: queryPositions,
 		simScorer:      simScorer,
+		norms:          norms,
 		slop:           slop,
 		doc:            -1,
 	}
@@ -689,7 +821,15 @@ func sloppyCombinations(termPositions [][]int, offsets []int, slop, depth int, c
 // The sloppy phrase frequency was computed and cached by doAdvance.
 func (s *SloppyPhraseScorer) Score() float32 {
 	if s.simScorer != nil {
-		return s.simScorer.Score(s.doc, s.cachedFreq)
+		norm := int64(1)
+		if s.norms != nil {
+			if ok, err := s.norms.AdvanceExact(s.doc); err == nil && ok {
+				if v, err := s.norms.LongValue(); err == nil {
+					norm = v
+				}
+			}
+		}
+		return s.simScorer.Score(s.doc, s.cachedFreq, norm)
 	}
 	return s.cachedFreq
 }

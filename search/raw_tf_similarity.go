@@ -47,8 +47,9 @@ func (s *RawTFSimilarity) Scorer(_ *CollectionStatistics, _ *TermStatistics) Sim
 // frequency, ignoring doc and norms.
 type rawTFLegacySimScorer struct{}
 
-// Score returns the raw term frequency.
-func (rawTFLegacySimScorer) Score(_ int, freq float32) float32 { return freq }
+// Score returns the raw term frequency. The norm argument is accepted for API
+// parity with Lucene's SimScorer.score(float, long) but ignored.
+func (rawTFLegacySimScorer) Score(_ int, freq float32, _ int64) float32 { return freq }
 
 // GetDiscountOverlaps satisfies LuceneSimilarity.
 func (s *RawTFSimilarity) GetDiscountOverlaps() bool { return s.discountOverlaps }

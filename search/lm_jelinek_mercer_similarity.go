@@ -161,7 +161,11 @@ func NewLMJelinekMercerSimScorerWithWeight(weight *LMJelinekMercerSimWeight) *LM
 // Score calculates the LM Jelinek-Mercer score.
 // Score = log(lambda * P(w|d) + (1 - lambda) * P(w|C))
 // where P(w|d) = tf / docLen
-func (s *LMJelinekMercerSimScorer) Score(doc int, freq float32) float32 {
+//
+// The norm argument mirrors Lucene's SimScorer.score(float, long) signature.
+// This legacy LM scorer does not consult norms; it is ignored to preserve the
+// existing behaviour of in-repo tests.
+func (s *LMJelinekMercerSimScorer) Score(doc int, freq float32, norm int64) float32 {
 	if freq == 0 {
 		return 0
 	}

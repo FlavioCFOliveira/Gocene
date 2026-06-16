@@ -50,39 +50,86 @@ func NewTermWeight(query Query, term *index.Term, searcher *IndexSearcher, needs
 	return w
 }
 
-// getCollectionStats returns collection statistics for the term's field.
+// getCollectionStats returns collection statistics for the term's field,
+// mirroring IndexSearcher.collectionStatistics(field) from Lucene 10.4.0.
+// It sums per-field statistics across all leaf readers rather than using the
+// top-level reader's NumDocs()/MaxDoc(), which are not field-scoped.
 func (w *TermWeight) getCollectionStats(searcher *IndexSearcher) *CollectionStatistics {
 	reader := searcher.GetIndexReader()
-	return NewCollectionStatistics(w.term.Field, reader.MaxDoc(), reader.NumDocs(), -1, -1)
-}
+	leaves, err := reader.Leaves()
+	if err != nil || len(leaves) == 0 {
+		return NewCollectionStatistics(w.term.Field, reader.MaxDoc(), reader.NumDocs(), -1, -1)
+	}
 
-// getTermStats returns term statistics.
-func (w *TermWeight) getTermStats(searcher *IndexSearcher) *TermStatistics {
-	// Get doc freq for the term
-	docFreq := 0
-	if reader, ok := searcher.GetIndexReader().(index.IndexReaderInterface); ok {
-		if leafReader, ok := reader.(*index.LeafReader); ok {
-			terms, err := leafReader.Terms(w.term.Field)
-			if err == nil && terms != nil {
-				docFreq, _ = terms.GetDocCount()
-			}
-		} else if dirReader, ok := reader.(*index.DirectoryReader); ok {
-			// Sum docFreq across all leaf readers for multi-segment indexes.
-			leaves, err := dirReader.Leaves()
-			if err == nil {
-				for _, leafCtx := range leaves {
-					if lr, ok := leafCtx.Reader().(*index.LeafReader); ok {
-						terms, err := lr.Terms(w.term.Field)
-						if err == nil && terms != nil {
-							df, _ := terms.GetDocCount()
-							docFreq += df
-						}
-					}
-				}
-			}
+	var docCount int64
+	var sumTotalTermFreq int64
+	var sumDocFreq int64
+	for _, leafCtx := range leaves {
+		leafReader := leafCtx.LeafReader()
+		if leafReader == nil {
+			continue
+		}
+		terms, err := leafReader.Terms(w.term.Field)
+		if err != nil || terms == nil {
+			continue
+		}
+		if dc, err := terms.GetDocCount(); err == nil {
+			docCount += int64(dc)
+		}
+		if sttf, err := terms.GetSumTotalTermFreq(); err == nil && sttf >= 0 {
+			sumTotalTermFreq += sttf
+		}
+		if sdf, err := terms.GetSumDocFreq(); err == nil && sdf >= 0 {
+			sumDocFreq += sdf
 		}
 	}
-	return NewTermStatistics(w.term, docFreq, -1)
+	if docCount == 0 {
+		return nil
+	}
+	return NewCollectionStatistics(w.term.Field, reader.MaxDoc(), int(docCount), sumTotalTermFreq, sumDocFreq)
+}
+
+// getTermStats returns term statistics, mirroring IndexSearcher.termStatistics
+// from Lucene 10.4.0. It sums the actual term docFreq (and totalTermFreq when
+// available) across all leaf readers rather than using Terms.GetDocCount(), which
+// counts documents containing *any* term in the field.
+func (w *TermWeight) getTermStats(searcher *IndexSearcher) *TermStatistics {
+	reader := searcher.GetIndexReader()
+	leaves, err := reader.Leaves()
+	if err != nil || len(leaves) == 0 {
+		return NewTermStatistics(w.term, 0, -1)
+	}
+
+	docFreq := 0
+	var totalTermFreq int64 = -1
+	for _, leafCtx := range leaves {
+		leafReader := leafCtx.LeafReader()
+		if leafReader == nil {
+			continue
+		}
+		terms, err := leafReader.Terms(w.term.Field)
+		if err != nil || terms == nil {
+			continue
+		}
+		termsEnum, err := terms.GetIterator()
+		if err != nil {
+			continue
+		}
+		found, err := termsEnum.SeekExact(w.term)
+		if err != nil || !found {
+			continue
+		}
+		if df, err := termsEnum.DocFreq(); err == nil {
+			docFreq += df
+		}
+		if ttf, err := termsEnum.TotalTermFreq(); err == nil && ttf >= 0 {
+			if totalTermFreq < 0 {
+				totalTermFreq = 0
+			}
+			totalTermFreq += ttf
+		}
+	}
+	return NewTermStatistics(w.term, docFreq, totalTermFreq)
 }
 
 // Scorer creates a scorer for this weight.
@@ -142,7 +189,20 @@ func (w *TermWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) {
 	// would make QueryBitSetProducer drop deleted parents from the block-join
 	// parent bitset (Lucene's QueryBitSetProducer explicitly ignores acceptDocs),
 	// mis-attributing block boundaries to the next live parent (rmp #4762).
-	return NewTermScorer(w, postingsEnum, w.simScorer), nil
+
+	// Read per-leaf norms when scores are needed. Norms are an encoded length
+	// factor; a nil norms reader is equivalent to the average-length sentinel
+	// value 1, which keeps legacy similarities scoring unchanged.
+	var norms index.NumericDocValues
+	if w.needsScores {
+		if normReader, ok := leafReader.(interface {
+			GetNormValues(field string) (index.NumericDocValues, error)
+		}); ok {
+			norms, _ = normReader.GetNormValues(w.term.Field)
+		}
+	}
+
+	return NewTermScorer(w, postingsEnum, w.simScorer, norms), nil
 }
 
 // ScorerSupplier creates a scorer supplier for this weight.
@@ -208,13 +268,17 @@ func (w *TermWeight) Explain(context *index.LeafReaderContext, doc int) (Explana
 						idfFactor = score / tfValue
 					}
 					scoreExpl.AddDetail(MatchExplanation(
-						idfFactor, "idf, computed as log(maxDocs/docFreq)"))
+						idfFactor, "idf, computed as log(docCount/docFreq)"))
 					scoreExpl.AddDetail(MatchExplanationWithDetails(
 						tfValue,
 						fmt.Sprintf("tf(freq=%v), with freq of:", freq),
 						freqExpl))
 				} else {
-					// Non-ClassicSimilarity legacy path: surface the raw freq.
+					// Non-ClassicSimilarity legacy path (e.g. BM25): the score is not
+					// the raw frequency. Use "with freq of:" so
+					// CheckHits.verifyExplanation does not enforce the product rule
+					// on a single freq detail.
+					scoreExpl = MatchExplanation(score, fmt.Sprintf("score(freq=%v), with freq of:", freq))
 					scoreExpl.AddDetail(MatchExplanation(
 						float32(freq), "freq, occurrences of term within document"))
 				}

@@ -79,10 +79,13 @@ func (s *BM25Similarity) ComputeWeight(boost float32, collectionStats *Collectio
 }
 
 // Scorer creates a scorer for this similarity.
-// Returns nil until full BM25 weighting and scoring pipeline is wired through
-// IndexSearcher (scorer lookup is not yet connected to the query engine).
+//
+// It returns a working BM25 scorer that mirrors Lucene 10.4.0's
+// BM25Similarity.BM25Scorer: it precomputes the 256-entry inverse-norm cache
+// from the collection statistics and scores each document using the encoded
+// norm byte supplied by the caller.
 func (s *BM25Similarity) Scorer(collectionStats *CollectionStatistics, termStats *TermStatistics) SimScorer {
-	return nil
+	return newBM25SimScorer(s, collectionStats, termStats, nil)
 }
 
 // BM25SimWeight holds the weight for BM25 scoring.
@@ -125,84 +128,83 @@ func (w *BM25SimWeight) Scorer() SimScorer {
 }
 
 // BM25SimScorer is a scorer for BM25Similarity.
+//
+// It mirrors Lucene 10.4.0's BM25Similarity.BM25Scorer: the inverse norm
+// denominator is precomputed for all 256 possible encoded norm bytes so the
+// hot path is a single table lookup and a multiply-add.
 type BM25SimScorer struct {
 	*BaseSimScorer
 	similarity *BM25Similarity
 	weight     *BM25SimWeight
-	idf        float64
 	k1         float64
 	b          float64
+	weightVal  float64 // boost * idf
+	cache      [256]float64
 }
 
 // NewBM25SimScorer creates a new BM25SimScorer.
 func NewBM25SimScorer(similarity *BM25Similarity, collectionStats *CollectionStatistics, termStats *TermStatistics) *BM25SimScorer {
-	idf := 1.0
-	if termStats != nil && termStats.DocFreq() > 0 && collectionStats != nil {
-		idf = similarity.InverseDocumentFrequency(collectionStats.DocCount(), termStats.DocFreq())
-	}
-	return &BM25SimScorer{
-		BaseSimScorer: NewBaseSimScorer(),
-		similarity:    similarity,
-		idf:           idf,
-		k1:            similarity.k1,
-		b:             similarity.b,
-	}
+	return newBM25SimScorer(similarity, collectionStats, termStats, nil)
 }
 
 // NewBM25SimScorerWithWeight creates a new BM25SimScorer with weight.
 func NewBM25SimScorerWithWeight(weight *BM25SimWeight) *BM25SimScorer {
-	return &BM25SimScorer{
-		BaseSimScorer: NewBaseSimScorer(),
-		similarity:    weight.sim,
-		weight:        weight,
-		idf:           weight.idf,
-		k1:            weight.sim.k1,
-		b:             weight.sim.b,
-	}
+	return newBM25SimScorer(weight.sim, weight.collectionStats, weight.termStats, weight)
 }
 
-// Score calculates the BM25 score.
-// Score = idf * (tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (docLen / avgDocLen)))
-func (s *BM25SimScorer) Score(doc int, freq float32) float32 {
-	if freq == 0 {
-		return 0
+// newBM25SimScorer builds a scorer from the supplied statistics and optional
+// pre-built weight. The weight carries the normalized boost; when nil a boost of
+// 1.0 is used.
+func newBM25SimScorer(similarity *BM25Similarity, collectionStats *CollectionStatistics, termStats *TermStatistics, weight *BM25SimWeight) *BM25SimScorer {
+	idf := 1.0
+	if termStats != nil && termStats.DocFreq() > 0 && collectionStats != nil {
+		idf = similarity.InverseDocumentFrequency(collectionStats.DocCount(), termStats.DocFreq())
+	}
+	boost := 1.0
+	if weight != nil {
+		idf = weight.idf
+		boost = float64(weight.boost)
 	}
 
-	tf := float64(freq)
-
-	// Get document length from norms (simplified - assumes norm encodes doc length)
-	docLength := 1.0 // Default to average length
-
-	// Calculate average document length
 	avgDocLength := 1.0
-	if s.weight != nil && s.weight.collectionStats != nil {
-		totalDocs := float64(s.weight.collectionStats.DocCount())
-		totalTermFreq := float64(s.weight.collectionStats.SumTotalTermFreq())
-		if totalDocs > 0 {
-			avgDocLength = totalTermFreq / totalDocs
+	if collectionStats != nil && collectionStats.DocCount() > 0 {
+		totalTermFreq := float64(collectionStats.SumTotalTermFreq())
+		if totalTermFreq > 0 {
+			avgDocLength = totalTermFreq / float64(collectionStats.DocCount())
 		}
 	}
-
 	if avgDocLength == 0 {
 		avgDocLength = 1.0
 	}
 
-	// BM25 formula components
-	norm := (1 - s.b) + s.b*(docLength/avgDocLength)
-	tfComponent := tf / (tf + s.k1*norm)
-
-	// Final BM25 score
-	idf := s.idf
-	if s.weight != nil {
-		idf = float64(s.weight.idf)
+	cache := [256]float64{}
+	for i := 0; i < 256; i++ {
+		docLen := float64(luceneBM25LengthTable[i])
+		cache[i] = 1.0 / (similarity.k1 * ((1.0 - similarity.b) + similarity.b*docLen/avgDocLength))
 	}
 
-	score := idf * tfComponent
-
-	if s.weight != nil {
-		score *= float64(s.weight.boost)
+	return &BM25SimScorer{
+		BaseSimScorer: NewBaseSimScorer(),
+		similarity:    similarity,
+		weight:        weight,
+		k1:            similarity.k1,
+		b:             similarity.b,
+		weightVal:     boost * idf,
+		cache:         cache,
 	}
+}
 
+// Score calculates the BM25 score for the given frequency and encoded norm.
+//
+// The formula is rewritten as weight - weight / (1 + freq * normInverse) to
+// preserve monotonicity with float32 arithmetic, matching Lucene 10.4.0's
+// BM25Scorer.doScore implementation.
+func (s *BM25SimScorer) Score(doc int, freq float32, norm int64) float32 {
+	if freq == 0 {
+		return 0
+	}
+	normInverse := s.cache[byte(norm)]
+	score := s.weightVal - s.weightVal/(1.0+float64(freq)*normInverse)
 	return float32(score)
 }
 
