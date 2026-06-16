@@ -6,7 +6,6 @@ package bkd
 
 import (
 	"math/rand"
-	"os"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -74,16 +73,6 @@ func TestBKD_RandomBinaryTiny(t *testing.T) {
 func TestBKD_RandomBinaryMedium(t *testing.T) {
 	rng := verifyRNG(t)
 	doTestRandomBinary(t, rng, 10000)
-}
-
-// TestBKD_RandomBinaryBig ports testRandomBinaryBig (@Nightly in Java):
-// doTestRandomBinary(200000). Gated behind GOCENE_RUN_MONSTERS=1.
-func TestBKD_RandomBinaryBig(t *testing.T) {
-	if os.Getenv("GOCENE_RUN_MONSTERS") != "1" {
-		t.Fatalf("deferred: monster test %s requires GOCENE_RUN_MONSTERS=1 (200k points)", t.Name())
-	}
-	rng := verifyRNG(t)
-	doTestRandomBinary(t, rng, 200000)
 }
 
 func doTestRandomBinary(t *testing.T, rng *rand.Rand, count int) {

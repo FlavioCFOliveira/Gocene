@@ -2,22 +2,21 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
+//go:build gocene_monsters
+
 package taxonomywritercache
 
 import (
 	"math"
-	"os"
 	"testing"
 )
 
 // Test2GBCharBlockArray_Monster2GBChars ports the Java @Monster test that
 // fills >2 GB of chars to verify the capacity overflow guard.
 //
-// Run with GOCENE_RUN_MONSTERS=1 to include this test.
+// Built only when the gocene_monsters build tag is set (equivalent to
+// GOCENE_RUN_MONSTERS=1 in CI), because it allocates >2 GB of memory.
 func Test2GBCharBlockArray_Monster2GBChars(t *testing.T) {
-	if os.Getenv("GOCENE_RUN_MONSTERS") != "1" {
-		t.Fatalf("deferred: monster test %s requires GOCENE_RUN_MONSTERS=1 (>2GB CharBlockArray)", t.Name())
-	}
 	const blockSize = 32768
 	array := NewCharBlockArrayWithBlockSize(blockSize)
 
