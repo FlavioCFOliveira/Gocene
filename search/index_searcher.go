@@ -32,7 +32,7 @@ type IndexSearcher struct {
 func NewIndexSearcher(reader index.IndexReaderInterface) *IndexSearcher {
 	return &IndexSearcher{
 		reader:     reader,
-		similarity: NewBM25Similarity(),
+		similarity: NewClassicSimilarity(),
 	}
 }
 

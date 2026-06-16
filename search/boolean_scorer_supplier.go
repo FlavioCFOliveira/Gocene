@@ -143,6 +143,21 @@ func (bss *BooleanScorerSupplier) Get(leadCost int64) (Scorer, error) {
 		}
 	}
 
+	// Top-level scoring pure disjunctions are eligible for WAND dynamic pruning.
+	// This mirrors Lucene's BooleanScorerSupplier.getInternal(), which routes a
+	// top-level TOP_SCORES disjunction to WANDScorer instead of DisjunctionSumScorer.
+	// Gocene may receive the top-level hint through SetTopLevelScoringClause even
+	// when the upstream ScoreMode is COMPLETE (e.g. tests that manually mark the
+	// supplier as top-level), so we use TOP_SCORES for the WANDScorer to enable
+	// SetMinCompetitiveScore pruning.
+	if bss.topLevel && bss.scoreMode.needsScores() &&
+		len(mustScorers) == 0 && len(filterScorers) == 0 && len(shouldScorers) > 1 {
+		wand, err := NewWANDScorer(shouldScorers, bss.minShouldMatch, TOP_SCORES, leadCost)
+		if err == nil {
+			return boolExcl(wand, mustNotScorers), nil
+		}
+	}
+
 	scorer := NewBooleanScorerWithClauses(
 		mustScorers, filterScorers, shouldScorers, mustNotScorers,
 		bss.scoreMode, bss.minShouldMatch,

@@ -1062,7 +1062,7 @@ func TestBlockJoin_MultiChildQueriesOfDiffParentLevels(t *testing.T) {
 type freqSimScorer struct{}
 
 // Score returns the term frequency unchanged.
-func (freqSimScorer) Score(doc int, freq float32) float32 { return freq }
+func (freqSimScorer) Score(doc int, freq float32, norm int64) float32 { return freq }
 
 // freqSimilarity is a Similarity whose scorer returns score=freq. It mirrors
 // the test-only SimilarityBase used by TestBlockJoin.testScoreMode (and is
