@@ -35,9 +35,9 @@ func (s *ClassicSimilarity) Tf(freq float64) float64 {
 }
 
 // Idf computes the inverse document frequency.
-// ClassicSimilarity uses log(N/n) where N is total docs and n is doc frequency.
+// Mirrors Lucene's TFIDFSimilarity: 1 + log((N + 1) / (n + 1)).
 func (s *ClassicSimilarity) Idf(totalDocs, docFreq int) float64 {
-	return math.Log(float64(totalDocs) / float64(docFreq))
+	return 1.0 + math.Log(float64(totalDocs+1)/float64(docFreq+1))
 }
 
 // IdfExplain computes IDF with explanation.

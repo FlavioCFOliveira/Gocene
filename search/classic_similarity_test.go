@@ -39,11 +39,11 @@ func TestClassicSimilarity_Idf(t *testing.T) {
 		docFreq   int
 		expected  float64
 	}{
-		{100, 1, math.Log(100)},
-		{100, 10, math.Log(10)},
-		{100, 50, math.Log(2)},
-		{100, 100, math.Log(1)},
-		{1000, 10, math.Log(100)},
+		{100, 1, 1.0 + math.Log(101.0/2.0)},
+		{100, 10, 1.0 + math.Log(101.0/11.0)},
+		{100, 50, 1.0 + math.Log(101.0/51.0)},
+		{100, 100, 1.0 + math.Log(101.0/101.0)},
+		{1000, 10, 1.0 + math.Log(1001.0/11.0)},
 	}
 
 	for _, test := range tests {
@@ -81,11 +81,11 @@ func TestClassicSimilarity_ScoreTfIdf(t *testing.T) {
 
 	// Test with freq=4, totalDocs=100, docFreq=10, numTerms=4, boost=1.0
 	// tf = sqrt(4) = 2
-	// idf = log(100/10) = log(10) ≈ 2.302
+	// idf = 1 + log((100+1)/(10+1)) ≈ 3.217
 	// lengthNorm = 1/sqrt(4) = 0.5
-	// score = 2 * 2.302 * 1.0 * 0.5 ≈ 2.302
+	// score = 2 * 3.217 * 1.0 * 0.5 ≈ 3.217
 	score := sim.ScoreTfIdf(4, 100, 10, 4, 1.0)
-	expected := 2.0 * math.Log(10) * 0.5
+	expected := 2.0 * (1.0 + math.Log(101.0/11.0)) * 0.5
 	if math.Abs(score-expected) > 0.0001 {
 		t.Errorf("ScoreTfIdf(4, 100, 10, 4, 1.0) = %f, expected %f", score, expected)
 	}
