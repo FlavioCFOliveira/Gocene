@@ -327,7 +327,7 @@ func (s *Stemmer) removeAffixes(
 					if stripped == nil {
 						continue
 					}
-					pure := len(stripped) == len(word) // reference equality approximation
+					pure := sameBackingSlice(stripped, word)
 					var sOff, sLen int
 					if pure {
 						sOff = offset + i
@@ -374,7 +374,7 @@ func (s *Stemmer) removeAffixes(
 					if stripped == nil {
 						continue
 					}
-					pure := len(stripped) == len(word)
+					pure := sameBackingSlice(stripped, word)
 					var sOff, sLen int
 					if pure {
 						sOff = offset
@@ -638,4 +638,18 @@ func (s *Stemmer) newStem(stem []rune, morphDataID int) string {
 type stemCandidateProc struct {
 	context WordContext
 	process func(word []rune, offset, length, lastAffix, outerPrefix, innerPrefix, outerSuffix, innerSuffix int) bool
+}
+
+// sameBackingSlice reports whether a and b are the same slice, i.e. they share
+// the same backing array and length. It mirrors Java's reference equality check
+// "strippedWord == word" used to decide whether an affix removal produced a
+// new character array or just adjusted offsets on the existing one.
+func sameBackingSlice(a, b []rune) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	if len(a) == 0 {
+		return true
+	}
+	return &a[0] == &b[0]
 }

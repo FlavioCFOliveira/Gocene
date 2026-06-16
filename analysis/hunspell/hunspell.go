@@ -143,9 +143,12 @@ func (h *Hunspell) checkCompounds(word []rune, length int, originalCase WordCase
 func (h *Hunspell) findStem(word []rune, offset, length int, originalCase WordCase, context WordContext) *Root {
 	h.checkCanceled()
 	var result *Root
-	checkCase := context != WordContextCompoundMiddle && context != WordContextCompoundEnd
+	toCheck := originalCase
+	if context == WordContextCompoundMiddle || context == WordContextCompoundEnd {
+		toCheck = WordCaseNeutral
+	}
 	h.Stemmer.doStem(word, offset, length, context, func(stem []rune, formID, morphDataID, _, _, _, _ int) bool {
-		if checkCase && !h.acceptCase(originalCase, formID) {
+		if !h.acceptCase(toCheck, formID) {
 			return h.Dictionary.HasFlag(formID, DictionaryHiddenFlag)
 		}
 		if h.acceptsStem(formID) {
