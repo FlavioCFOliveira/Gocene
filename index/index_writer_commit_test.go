@@ -105,7 +105,8 @@ func TestCommitOnClose(t *testing.T) {
 	t.Run("documents not visible until close", func(t *testing.T) {
 		// TODO(GOC-4163): a DirectoryReader reopened mid-session does not yet
 		// observe segments committed by a separate IndexWriter on the same
-		// Directory. Re-enable once Reopen/IsCurrent reflect external commits.
+		// Directory without losing the previously committed segments.
+		// Re-enable once Reopen/IsCurrent reflect external commits correctly.
 		t.Fatal("Reopen does not yet observe externally committed segments")
 
 		dir := store.NewByteBuffersDirectory()
@@ -889,11 +890,6 @@ func TestPrepareCommitThenClose(t *testing.T) {
 // Purpose: Tests commit data preservation
 func TestCommitUserData(t *testing.T) {
 	t.Run("commit user data", func(t *testing.T) {
-		// TODO(GOC-4163): commit data set via SetLiveCommitData is not yet
-		// persisted into the segments file, so a reopened reader observes
-		// empty user data. Re-enable once commit data is round-tripped.
-		t.Fatal("SetLiveCommitData is not yet persisted to the commit point")
-
 		dir := store.NewByteBuffersDirectory()
 		defer dir.Close()
 
@@ -984,11 +980,6 @@ func TestCommitUserData(t *testing.T) {
 // Purpose: Tests that commit data is captured at commit time, not set time
 func TestCommitDataIsLive(t *testing.T) {
 	t.Run("commit data is late binding", func(t *testing.T) {
-		// TODO(GOC-4163): commit data set via SetLiveCommitData is not yet
-		// persisted to the commit point, so its late-binding semantics
-		// cannot be verified. Re-enable once commit data is round-tripped.
-		t.Fatal("SetLiveCommitData is not yet persisted to the commit point")
-
 		dir := store.NewByteBuffersDirectory()
 		defer dir.Close()
 

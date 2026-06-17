@@ -947,6 +947,14 @@ func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 		tokens = []tokenAtPos{{term: value, position: 0, posIncr: 1}}
 	}
 
+	// Enforce Lucene's MAX_TERM_LENGTH limit before indexing any token.
+	for _, tok := range tokens {
+		if len(tok.term) > MAX_TERM_LENGTH {
+			return fmt.Errorf("field %q: immense term: bytes can be at most %d in length; got %d",
+				fieldName, MAX_TERM_LENGTH, len(tok.term))
+		}
+	}
+
 	// Add each token to the inverted index at its absolute position, while
 	// accumulating the field-inversion counters that drive the per-document
 	// norm. Each token advances the field length by its term frequency and,

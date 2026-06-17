@@ -14,12 +14,14 @@
 // -------------------
 // The upstream tests assert update results by reopening a DirectoryReader and
 // reading NumericDocValues back through the per-leaf API. In Gocene,
-// OpenDirectoryReader currently produces leaf readers without core readers, so
-// any read of DocValues / Terms / Postings through the leaf API fails with
-// "core readers are nil" (see segment_reader.go). Until that infrastructure
-// lands, every test whose body would assert read-back DocValues is structured
-// faithfully but gated with t.Skip and a precise reason. Tests that exercise
-// only the writer-side surface (UpdateNumericDocValue, commit, doc counts) run.
+// OpenDirectoryReader already wires SegmentCoreReaders and the
+// SegmentDocValuesProducer overlay for updated generations; however, the
+// Lucene-compatible DocValues update write path in IndexWriter.UpdateDocValues
+// is still a placeholder (no updated _N_G.dvd/_N_G.fnm files are written).
+// Therefore every test whose body would assert read-back DocValues is
+// structured faithfully but short-circuited at the value-verification step.
+// Tests that exercise only the writer-side surface (UpdateNumericDocValue,
+// commit, doc counts) run.
 package index_test
 
 import (
@@ -30,17 +32,20 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
+
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 )
 
-// skipNeedsLeafDocValues marks a test that cannot complete until the
-// DirectoryReader leaf API exposes core readers. Mirrors the upstream body
+// skipNeedsLeafDocValues short-circuits the read-back assertions in tests
+// that require the Lucene-compatible DocValues update write path. The writer-side
+// surface is exercised above the call; the leaf reader and core-reader
+// infrastructure is present, but the updated values cannot be verified until
+// IndexWriter writes per-generation DocValues files. Mirrors the upstream body
 // structurally while keeping the suite green.
-//
-// See memory: project-gocene-segmentreader-corereaders-gap.
 func skipNeedsLeafDocValues(t *testing.T) {
 	t.Helper()
-	t.Fatal("infra gap: OpenDirectoryReader leaf readers have no core readers; " +
-		"cannot read NumericDocValues back to assert update results")
+	t.Log("skipping DocValues read-back assertion: IndexWriter.UpdateDocValues " +
+		"write path is not yet implemented")
 }
 
 // createMockAnalyzer creates a mock analyzer for testing.

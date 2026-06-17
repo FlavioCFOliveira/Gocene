@@ -27,8 +27,6 @@ import (
 // LUCENE-715 scenario cannot be exercised. Unskip once OpenMode handling and
 // write-lock acquisition land in IndexWriter.
 func TestIndexWriterLockRelease(t *testing.T) {
-	t.Fatal("IndexWriter ignores OpenMode and does not acquire a write lock")
-
 	dir, err := store.NewSimpleFSDirectory(t.TempDir())
 	if err != nil {
 		t.Fatalf("NewSimpleFSDirectory() error = %v", err)

@@ -30,10 +30,9 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// TestExceedMaxTermLength_TokenStream verifies that the token-stream inversion
-// path (which is stubbed) produces a proper error rather than silently dropping
-// the document. The token-stream bridge is not yet ported, so all tokenized
-// fields fail with a specific "not yet supported" error.
+// TestExceedMaxTermLength_TokenStream verifies that a tokenized field whose
+// analyzer produces a term longer than MAX_TERM_LENGTH is rejected with an
+// error mentioning "immense term", the field name, and the max length.
 func TestExceedMaxTermLength_TokenStream(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
@@ -45,15 +44,16 @@ func TestExceedMaxTermLength_TokenStream(t *testing.T) {
 	}
 	defer writer.Close()
 
-	// Create a tokenized field (TextField). Tokenized fields flow through
-	// invertTokenStream which is stubbed.
+	// Create a tokenized field with a single whitespace-delimited token whose
+	// UTF-8 length exceeds MAX_TERM_LENGTH. WhitespaceAnalyzer emits one token.
+	longVal := strings.Repeat("x", index.MAX_TERM_LENGTH+1)
 	doc := document.NewDocument()
 	ft := document.NewFieldType()
 	ft.SetIndexed(true)
 	ft.SetTokenized(true)
 	ft.SetIndexOptions(index.IndexOptionsDocs)
 	ft.Freeze()
-	f, err := document.NewField("content", "a", ft)
+	f, err := document.NewField("content", longVal, ft)
 	if err != nil {
 		t.Fatalf("NewField: %v", err)
 	}
@@ -61,10 +61,18 @@ func TestExceedMaxTermLength_TokenStream(t *testing.T) {
 
 	err = writer.AddDocument(doc)
 	if err == nil {
-		t.Fatal("expected error: token-stream inversion not yet supported")
+		t.Fatal("expected error for tokenized term exceeding MAX_TERM_LENGTH")
 	}
-	if !strings.Contains(err.Error(), "token-stream inversion not yet supported") {
-		t.Errorf("unexpected error message: %v", err)
+	msg := err.Error()
+	if !strings.Contains(msg, "immense term") {
+		t.Errorf("error should mention 'immense term', got: %v", msg)
+	}
+	maxLenStr := "32766"
+	if !strings.Contains(msg, maxLenStr) {
+		t.Errorf("error should mention max length %s, got: %v", maxLenStr, msg)
+	}
+	if !strings.Contains(msg, "content") {
+		t.Errorf("error should mention field name, got: %v", msg)
 	}
 }
 
