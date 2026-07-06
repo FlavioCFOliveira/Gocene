@@ -17,8 +17,6 @@
 // Known API gaps that force a skip in this file:
 //   - There is no background ForceMerge(maxNumSegments, doWait) overload.
 //   - LogMergePolicy has no SetMinMergeDocs setter.
-//   - MockDirectoryWrapper disk-usage tracking (resetMaxUsedSizeInBytes,
-//     getMaxUsedSizeInBytes) is not available.
 //   - PerField postings/doc-values formats with a merge barrier are not available
 //     (the Java testMergePerField is itself @AwaitsFix upstream).
 package index_test
@@ -185,12 +183,11 @@ func TestIndexWriterForceMerge_MaxNumSegments2(t *testing.T) {
 
 // TestIndexWriterForceMerge_TempSpaceUsage ports testForceMergeTempSpaceUsage().
 //
-// The original asserts forceMerge(1) uses at most 4X the starting index size as
-// temporary space, which requires MockDirectoryWrapper disk-usage tracking. That
-// instrumentation is unavailable, so the assertion is skipped; the index build
-// and reopen still run for real.
+// Asserts that forceMerge(1) uses at most 4X the larger of the starting and
+// final index size as temporary disk space. Uses MockDirectoryWrapper to
+// measure peak usage.
 func TestIndexWriterForceMerge_TempSpaceUsage(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
+	dir := store.NewMockDirectoryWrapper(store.NewByteBuffersDirectory())
 	defer dir.Close()
 
 	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
@@ -215,6 +212,14 @@ func TestIndexWriterForceMerge_TempSpaceUsage(t *testing.T) {
 	}
 	writer.Close()
 
+	startDiskUsage, err := dirSize(dir)
+	if err != nil {
+		t.Fatalf("dirSize() error = %v", err)
+	}
+
+	dir.ResetMaxUsedSizeInBytes()
+	dir.SetTrackDiskUsage(true)
+
 	config2 := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
 	config2.SetOpenMode(index.APPEND)
 	config2.SetMergePolicy(index.NewLogMergePolicy())
@@ -227,7 +232,34 @@ func TestIndexWriterForceMerge_TempSpaceUsage(t *testing.T) {
 	}
 	writer.Close()
 
-	t.Fatal("MockDirectoryWrapper disk-usage tracking unavailable; temp-space assertion deferred")
+	finalDiskUsage, err := dirSize(dir)
+	if err != nil {
+		t.Fatalf("dirSize() error = %v", err)
+	}
+	maxDiskUsage := dir.GetMaxUsedSizeInBytes()
+	maxStartFinal := max(startDiskUsage, finalDiskUsage)
+
+	if maxDiskUsage > 4*maxStartFinal {
+		t.Fatalf("forceMerge used too much temporary space: maxUsage=%d start=%d final=%d limit=%d",
+			maxDiskUsage, startDiskUsage, finalDiskUsage, 4*maxStartFinal)
+	}
+}
+
+// dirSize returns the sum of the lengths of every file in dir.
+func dirSize(dir store.Directory) (int64, error) {
+	names, err := dir.ListAll()
+	if err != nil {
+		return 0, err
+	}
+	var total int64
+	for _, name := range names {
+		sz, err := dir.FileLength(name)
+		if err != nil {
+			return 0, err
+		}
+		total += sz
+	}
+	return total, nil
 }
 
 // TestIndexWriterForceMerge_BackgroundForceMerge ports testBackgroundForceMerge().

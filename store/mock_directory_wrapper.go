@@ -86,6 +86,9 @@ type MockDirectoryWrapper struct {
 	maxSize     int64 // 0 = unlimited
 	maxUsedSize int64
 
+	// --- Disk-usage tracking ---
+	trackDiskUsage bool // mirrors MockDirectoryWrapper.setTrackDiskUsage
+
 	// --- Random I/O exception injection ---
 	randomIOExceptionRate       float64
 	randomIOExceptionRateOnOpen float64
@@ -386,6 +389,23 @@ func (m *MockDirectoryWrapper) GetMaxSizeInBytes() int64 {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.maxSize
+}
+
+// SetTrackDiskUsage enables or disables tracking of the peak directory size.
+// When enabled, every closed output updates maxUsedSize. This is the Go
+// analogue of Lucene's MockDirectoryWrapper.setTrackDiskUsage(boolean).
+// Tracking is disabled by default.
+func (m *MockDirectoryWrapper) SetTrackDiskUsage(track bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.trackDiskUsage = track
+}
+
+// GetTrackDiskUsage reports whether peak-directory-size tracking is enabled.
+func (m *MockDirectoryWrapper) GetTrackDiskUsage() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.trackDiskUsage
 }
 
 // GetMaxUsedSizeInBytes returns the peak storage used (bytes) in this directory.
@@ -1152,12 +1172,17 @@ func (m *mockDirIndexOutput) Close() error {
 	m.owner.mu.Unlock()
 
 	// Update maxUsedSize on close (mirrors Lucene's MockRAMOutputStream).
-	if sz, err := m.owner.sizeInBytes(); err == nil {
-		m.owner.mu.Lock()
-		if sz > m.owner.maxUsedSize {
-			m.owner.maxUsedSize = sz
+	m.owner.mu.RLock()
+	track := m.owner.trackDiskUsage
+	m.owner.mu.RUnlock()
+	if track {
+		if sz, err := m.owner.sizeInBytes(); err == nil {
+			m.owner.mu.Lock()
+			if sz > m.owner.maxUsedSize {
+				m.owner.maxUsedSize = sz
+			}
+			m.owner.mu.Unlock()
 		}
-		m.owner.mu.Unlock()
 	}
 	return m.inner.Close()
 }
