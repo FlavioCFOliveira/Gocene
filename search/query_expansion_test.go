@@ -30,7 +30,6 @@ func TestQueryExpansion_TermRewrite(t *testing.T) {
 	}
 	defer writer.Close()
 
-	// Add documents
 	for i := 0; i < 50; i++ {
 		doc := document.NewDocument()
 		idField, _ := document.NewStringField("id", string(rune('0'+i%5)), true)
@@ -42,6 +41,7 @@ func TestQueryExpansion_TermRewrite(t *testing.T) {
 		if err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
+	}
 
 	if err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
@@ -53,19 +53,18 @@ func TestQueryExpansion_TermRewrite(t *testing.T) {
 	}
 	defer reader.Close()
 
-	// Create and rewrite query
 	query := search.NewTermQuery(index.NewTerm("content", "test"))
 
 	rewritten, err := query.Rewrite(reader)
 	if err != nil {
-		t.Logf("rewrite may not be fully implemented: %v", err)
-		t.Fatal("rewrite not implemented")
+		t.Fatalf("Rewrite failed: %v", err)
 	}
 
-	t.Logf("Query rewritten to: %v", rewritten)
+	if rewritten == nil {
+		t.Fatal("Rewrite returned nil")
+	}
 }
 
-}
 func TestQueryExpansion_BooleanRewrite(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
@@ -79,14 +78,17 @@ func TestQueryExpansion_BooleanRewrite(t *testing.T) {
 	}
 	defer writer.Close()
 
-	// Add documents
 	for i := 0; i < 30; i++ {
 		doc := document.NewDocument()
 		idField, _ := document.NewStringField("id", string(rune('0'+i%5)), true)
 		doc.Add(idField)
-		writer.AddDocument(doc)
+		if err := writer.AddDocument(doc); err != nil {
+			t.Fatalf("failed to add document: %v", err)
+		}
 	}
-	writer.Commit()
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("failed to commit: %v", err)
+	}
 
 	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
@@ -94,19 +96,17 @@ func TestQueryExpansion_BooleanRewrite(t *testing.T) {
 	}
 	defer reader.Close()
 
-	// Boolean query rewrite
 	boolQuery := search.NewBooleanQuery()
 	boolQuery.Add(search.NewTermQuery(index.NewTerm("id", "1")), search.SHOULD)
 	boolQuery.Add(search.NewTermQuery(index.NewTerm("id", "2")), search.SHOULD)
 
 	rewritten, err := boolQuery.Rewrite(reader)
 	if err != nil {
-		t.Logf("rewrite may not be fully implemented: %v", err)
-		t.Fatal("rewrite not implemented")
+		t.Fatalf("Rewrite failed: %v", err)
 	}
-
-	t.Logf("Boolean query rewritten successfully")
-	_ = rewritten
+	if rewritten == nil {
+		t.Fatal("Rewrite returned nil")
+	}
 }
 
 func TestQueryExpansion_PhraseRewrite(t *testing.T) {
@@ -122,14 +122,17 @@ func TestQueryExpansion_PhraseRewrite(t *testing.T) {
 	}
 	defer writer.Close()
 
-	// Add documents
 	for i := 0; i < 20; i++ {
 		doc := document.NewDocument()
 		idField, _ := document.NewStringField("id", string(rune('0'+i%5)), true)
 		doc.Add(idField)
-		writer.AddDocument(doc)
+		if err := writer.AddDocument(doc); err != nil {
+			t.Fatalf("failed to add document: %v", err)
+		}
 	}
-	writer.Commit()
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("failed to commit: %v", err)
+	}
 
 	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
@@ -137,7 +140,6 @@ func TestQueryExpansion_PhraseRewrite(t *testing.T) {
 	}
 	defer reader.Close()
 
-	// Phrase query rewrite
 	phraseQuery := search.NewPhraseQueryBuilder().
 		AddTerm(index.NewTerm("id", "1")).
 		AddTerm(index.NewTerm("id", "2")).
@@ -145,12 +147,11 @@ func TestQueryExpansion_PhraseRewrite(t *testing.T) {
 
 	rewritten, err := phraseQuery.Rewrite(reader)
 	if err != nil {
-		t.Logf("rewrite may not be fully implemented: %v", err)
-		t.Fatal("rewrite not implemented")
+		t.Fatalf("Rewrite failed: %v", err)
 	}
-
-	t.Logf("Phrase query rewritten successfully")
-	_ = rewritten
+	if rewritten == nil {
+		t.Fatal("Rewrite returned nil")
+	}
 }
 
 func BenchmarkQueryExpansion_Rewrite(b *testing.B) {

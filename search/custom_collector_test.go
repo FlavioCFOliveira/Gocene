@@ -57,14 +57,13 @@ func TestCustomCollector_TotalHitCollector(t *testing.T) {
 	searcher := search.NewIndexSearcher(reader)
 	query := search.NewTermQuery(index.NewTerm("content", "custom"))
 
-	// Use custom collector
 	collector := search.NewTotalHitCountCollector()
 	if err := searcher.SearchWithCollector(query, collector); err != nil {
-		t.Logf("custom collector may not be fully implemented: %v", err)
-		t.Fatal("custom collector not implemented")
+		t.Fatalf("SearchWithCollector failed: %v", err)
 	}
-
-	t.Logf("Custom collector found %d hits", collector.GetTotalHits())
+	if got := collector.GetTotalHits(); got != 100 {
+		t.Errorf("total hits = %d, want 100", got)
+	}
 }
 
 func TestCustomCollector_TopDocsCollector(t *testing.T) {
@@ -80,7 +79,6 @@ func TestCustomCollector_TopDocsCollector(t *testing.T) {
 	}
 	defer writer.Close()
 
-	// Add documents
 	for i := 0; i < 50; i++ {
 		doc := document.NewDocument()
 		idField, _ := document.NewStringField("id", string(rune('0'+i%5)), true)
@@ -92,6 +90,7 @@ func TestCustomCollector_TopDocsCollector(t *testing.T) {
 		if err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
+	}
 
 	if err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
@@ -106,17 +105,15 @@ func TestCustomCollector_TopDocsCollector(t *testing.T) {
 	searcher := search.NewIndexSearcher(reader)
 	query := search.NewTermQuery(index.NewTerm("content", "collector"))
 
-	// TopDocs collector
 	topDocs, err := searcher.Search(query, 10)
 	if err != nil {
-		t.Logf("search may not be fully implemented: %v", err)
-		t.Fatal("search not implemented")
+		t.Fatalf("Search failed: %v", err)
 	}
-
-	t.Logf("TopDocs collector found %d hits", topDocs.TotalHits.Value)
+	if got := topDocs.TotalHits.Value; got != 50 {
+		t.Errorf("total hits = %d, want 50", got)
+	}
 }
 
-}
 func BenchmarkCustomCollector_Collection(b *testing.B) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()

@@ -73,11 +73,11 @@ func TestSimilarityScoring_BM25Basic(t *testing.T) {
 
 	topDocs, err := searcher.Search(query, 10)
 	if err != nil {
-		t.Logf("search may not be fully implemented: %v", err)
-		t.Fatal("search not implemented")
+		t.Fatalf("Search failed: %v", err)
 	}
-
-	t.Logf("BM25 search found %d documents", topDocs.TotalHits.Value)
+	if topDocs.TotalHits.Value != 3 {
+		t.Errorf("BM25 search found %d documents, want 3", topDocs.TotalHits.Value)
+	}
 }
 
 func TestSimilarityScoring_TFIDFBasic(t *testing.T) {
@@ -136,11 +136,11 @@ func TestSimilarityScoring_TFIDFBasic(t *testing.T) {
 
 	topDocs, err := searcher.Search(query, 10)
 	if err != nil {
-		t.Logf("search may not be fully implemented: %v", err)
-		t.Fatal("search not implemented")
+		t.Fatalf("Search failed: %v", err)
 	}
-
-	t.Logf("TF-IDF search found %d documents", topDocs.TotalHits.Value)
+	if topDocs.TotalHits.Value != 2 {
+		t.Errorf("TF-IDF search found %d documents, want 2", topDocs.TotalHits.Value)
+	}
 }
 
 func TestSimilarityScoring_DocumentFrequency(t *testing.T) {
@@ -363,11 +363,11 @@ func TestSimilarityScoring_BooleanQueryScoring(t *testing.T) {
 
 	topDocs, err := searcher.Search(boolQuery, 10)
 	if err != nil {
-		t.Logf("boolean search may not be fully implemented: %v", err)
-		t.Fatal("boolean search not implemented")
+		t.Fatalf("Search failed: %v", err)
 	}
-
-	t.Logf("Boolean query scoring found %d documents", topDocs.TotalHits.Value)
+	if topDocs.TotalHits.Value != 4 {
+		t.Errorf("Boolean query scoring found %d documents, want 4", topDocs.TotalHits.Value)
+	}
 }
 
 func TestSimilarityScoring_PhraseQueryScoring(t *testing.T) {
@@ -475,11 +475,11 @@ func TestSimilarityScoring_ScoreConsistency(t *testing.T) {
 
 	topDocs, err := searcher.Search(query, 10)
 	if err != nil {
-		t.Logf("search may not be fully implemented: %v", err)
-		t.Fatal("search not implemented")
+		t.Fatalf("Search failed: %v", err)
 	}
-
-	t.Logf("Score consistency test found %d documents", topDocs.TotalHits.Value)
+	if topDocs.TotalHits.Value != 5 {
+		t.Errorf("Score consistency test found %d documents, want 5", topDocs.TotalHits.Value)
+	}
 }
 
 func TestSimilarityScoring_BM25Parameters(t *testing.T) {

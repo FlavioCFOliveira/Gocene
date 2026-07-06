@@ -176,6 +176,7 @@ func TestTopFieldCollector_TotalHits(t *testing.T) {
 	config := index.NewIndexWriterConfig(analyzer)
 	// Disable auto-flush to control segment creation
 	config.SetRAMBufferSizeMB(256)
+	config.SetMergePolicy(index.NewNoMergePolicy())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -522,6 +523,7 @@ func TestTopFieldCollector_ConcurrentMinScore(t *testing.T) {
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
 	config := index.NewIndexWriterConfig(analyzer)
+	config.SetMergePolicy(index.NewNoMergePolicy())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -719,6 +721,7 @@ func TestTopFieldCollector_TotalHitsWithScore(t *testing.T) {
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
 	config := index.NewIndexWriterConfig(analyzer)
+	config.SetMergePolicy(index.NewNoMergePolicy())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
