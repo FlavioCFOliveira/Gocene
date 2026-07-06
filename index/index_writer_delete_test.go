@@ -833,13 +833,48 @@ func TestIndexWriterDelete_NullQuery(t *testing.T) {
 // Intent: index N docs, then delete them one by one in small batches, opening
 // a reader after each batch and verifying that NumDocs equals N minus the
 // number deleted so far. Lucene uses RandomIndexWriter + w.getReader() for NRT
-// verification between batches; the Gocene reproduction would use a plain
-// IndexWriter with a commit before each verification.
-//
-// Skipped: IndexWriter.DeleteDocuments is a no-op stub, so NumDocs never
-// decreases and every per-batch assertion fails.
+// verification between batches; Gocene reproduces the same logical checks by
+// committing after each batch and reopening the reader from the directory.
 func TestIndexWriterDelete_DeleteAllSlowly(t *testing.T) {
-	t.Fatal("infra gap: IndexWriter.DeleteDocuments is a no-op stub; delete application not ported")
+	const numDocs = 10
+	const batchSize = 3
+
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
+	modifier, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	value := 100
+	for id := 1; id <= numDocs; id++ {
+		addDoc(t, modifier, id, value)
+	}
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	deleted := 0
+	for id := 1; id <= numDocs; id++ {
+		if err := modifier.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", id))); err != nil {
+			t.Fatalf("DeleteDocuments(%d): %v", id, err)
+		}
+		deleted++
+		if deleted%batchSize == 0 || id == numDocs {
+			if err := modifier.Commit(); err != nil {
+				t.Fatalf("Commit after %d deletes: %v", deleted, err)
+			}
+			want := numDocs - deleted
+			if got := readerNumDocs(t, dir); got != want {
+				t.Fatalf("numDocs after %d deletes = %d, want %d", deleted, got, want)
+			}
+		}
+	}
+
+	if err := modifier.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -1000,10 +1035,57 @@ func TestIndexWriterDelete_OnlyDeletesDeleteAllDocs(t *testing.T) {
 // 100 new docs, proving merges still kick off after a deleteAll. Lucene
 // verifies via DirectoryReader.open(writer) and tunes
 // LogDocMergePolicy.setMinMergeDocs(1).
-//
-// Skipped: IndexWriter.DeleteAll does not clear committed segments, so the
-// original 10 docs survive and the result is 110 docs across 2 leaves instead
-// of 100 docs in 1 leaf.
 func TestIndexWriterDelete_MergingAfterDeleteAll(t *testing.T) {
-	t.Fatal("infra gap: IndexWriter.DeleteAll does not clear committed segments")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
+	modifier, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	value := 100
+	for id := 1; id <= 10; id++ {
+		addDoc(t, modifier, id, value)
+	}
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Commit initial: %v", err)
+	}
+
+	if err := modifier.DeleteAll(); err != nil {
+		t.Fatalf("DeleteAll: %v", err)
+	}
+
+	for id := 11; id <= 110; id++ {
+		addDoc(t, modifier, id, value)
+	}
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Commit after re-index: %v", err)
+	}
+
+	if err := modifier.ForceMerge(1); err != nil {
+		t.Fatalf("ForceMerge: %v", err)
+	}
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer reader.Close()
+
+	if got := reader.NumDocs(); got != 100 {
+		t.Fatalf("NumDocs = %d, want 100", got)
+	}
+	leaves, err := reader.Leaves()
+	if err != nil {
+		t.Fatalf("Leaves: %v", err)
+	}
+	if len(leaves) != 1 {
+		t.Fatalf("leaves = %d, want 1", len(leaves))
+	}
+
+	if err := modifier.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 }

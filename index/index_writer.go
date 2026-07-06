@@ -730,6 +730,13 @@ func (w *IndexWriter) maybeFlushPendingDocs() error {
 func (w *IndexWriter) flushPendingDocsLocked() error {
 	n := int(w.docCount.Load())
 	if n == 0 {
+		// No buffered documents to materialise, but deletes targeting buffered
+		// docs have no effect once the doc window is empty.  Discard them so
+		// they are not double-applied on a later commit.
+		w.pendingDeleteTerms = w.pendingDeleteTerms[:0]
+		w.pendingSoftDeletedOrdinals = w.pendingSoftDeletedOrdinals[:0]
+		w.pendingDeletedDocIDs = w.pendingDeletedDocIDs[:0]
+		w.docFieldIndex = w.docFieldIndex[:0]
 		return nil
 	}
 
@@ -1059,6 +1066,14 @@ func (w *IndexWriter) Commit() error {
 	} else {
 		// Advance generation
 		si.NextGeneration()
+	}
+
+	// Make sure every committed segment carries the live-docs ordinals that
+	// were written in prior commits.  ReadSegmentInfos only restores delGen
+	// and delCount; without the actual deleted docID set, a subsequent commit
+	// would overwrite the .liv file instead of cumulatively extending it.
+	for _, sci := range si.List() {
+		loadLiveDocsFromDisk(w.directory, sci)
 	}
 
 	// Materialise all pending segments (auto-flush + AddIndexes imports).
