@@ -13,17 +13,6 @@
 // call t.Skip with a precise reason; the index-building helpers are still
 // exercised so the port stays compilable and the gaps are explicit.
 //
-// Infrastructure gaps that drive the t.Skip calls in this file:
-//   - Delete application is not implemented: IndexWriter.DeleteDocuments and
-//     DeleteDocumentsQuery are no-op stubs and IndexWriter.TryDeleteDocument
-//     only returns a sequence number without clearing live docs, so a delete
-//     never reduces the on-disk document count.
-//   - No IndexWriter.HasDeletions: there is no way to assert that a writer
-//     observed a pending or applied deletion.
-//   - No near-real-time reader: SearcherManager is constructed from an
-//     *IndexSearcher, and OpenDirectoryReader only accepts a store.Directory,
-//     so SearcherManager(writer, ...) and DirectoryReader.open(writer) have
-//     no equivalent.
 package index_test
 
 import (
@@ -92,28 +81,6 @@ func createTryDeleteIndex(t *testing.T) store.Directory {
 // Tests
 // ---------------------------------------------------------------------------
 
-// TestTryDeleteDocument ports TestTryDelete.testTryDeleteDocument.
-func TestTryDeleteDocument(t *testing.T) {
-	dir := createTryDeleteIndex(t)
-	writer := newTryDeleteWriter(t, dir)
-	defer writer.Close()
-
-	t.Fatal("tryDeleteDocument does not clear live docs and IndexWriter has " +
-		"no HasDeletions/NRT SearcherManager: a delete cannot be observed " +
-		"until the buffered-updates / live-docs pipeline is ported")
-}
-
-// TestTryDeleteDocumentCloseAndReopen ports
-// TestTryDelete.testTryDeleteDocumentCloseAndReopen.
-func TestTryDeleteDocumentCloseAndReopen(t *testing.T) {
-	dir := createTryDeleteIndex(t)
-	writer := newTryDeleteWriter(t, dir)
-	defer writer.Close()
-
-	t.Fatal("requires DirectoryReader.open(writer) (no NRT reader) and a " +
-		"tryDeleteDocument that clears live docs so the deletion survives " +
-		"close and reopen")
-}
 
 // TestDeleteDocuments ports TestTryDelete.testDeleteDocuments.
 func TestDeleteDocuments(t *testing.T) {
@@ -149,5 +116,102 @@ func TestDeleteDocuments(t *testing.T) {
 	}
 	if reader.NumDocs() != 9 {
 		t.Fatalf("expected NumDocs=9 after deleting one of ten, got %d", reader.NumDocs())
+	}
+}
+
+// TestTryDeleteDocument ports TestTryDelete.testTryDeleteDocument.
+func TestTryDeleteDocument(t *testing.T) {
+	dir := createTryDeleteIndex(t)
+	writer := newTryDeleteWriter(t, dir)
+	defer writer.Close()
+
+	reader, err := index.OpenDirectoryReaderFromWriter(writer)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
+	}
+	defer reader.Close()
+
+	q := search.NewTermQuery(index.NewTerm("foo", "0"))
+	searcher := search.NewIndexSearcher(reader)
+	topDocs, err := searcher.Search(q, 10)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if topDocs.TotalHits.Value != 1 {
+		t.Fatalf("expected 1 hit for foo:0, got %d", topDocs.TotalHits.Value)
+	}
+
+	if ok, err := writer.TryDeleteDocument(reader, 0); err != nil {
+		t.Fatalf("TryDeleteDocument: %v", err)
+	} else if !ok {
+		t.Fatal("expected TryDeleteDocument to succeed")
+	}
+	if !writer.HasDeletions() {
+		t.Fatal("expected HasDeletions() to be true after TryDeleteDocument")
+	}
+
+	reader2, err := index.OpenDirectoryReaderFromWriter(writer)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReaderFromWriter after delete: %v", err)
+	}
+	defer reader2.Close()
+	searcher2 := search.NewIndexSearcher(reader2)
+	topDocs, err = searcher2.Search(q, 10)
+	if err != nil {
+		t.Fatalf("Search after delete: %v", err)
+	}
+	if topDocs.TotalHits.Value != 0 {
+		t.Fatalf("expected 0 hits for foo:0 after TryDeleteDocument, got %d", topDocs.TotalHits.Value)
+	}
+}
+
+// TestTryDeleteDocumentCloseAndReopen ports
+// TestTryDelete.testTryDeleteDocumentCloseAndReopen.
+func TestTryDeleteDocumentCloseAndReopen(t *testing.T) {
+	dir := createTryDeleteIndex(t)
+	writer := newTryDeleteWriter(t, dir)
+
+	reader, err := index.OpenDirectoryReaderFromWriter(writer)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
+	}
+	defer reader.Close()
+
+	q := search.NewTermQuery(index.NewTerm("foo", "0"))
+	searcher := search.NewIndexSearcher(reader)
+	topDocs, err := searcher.Search(q, 10)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if topDocs.TotalHits.Value != 1 {
+		t.Fatalf("expected 1 hit for foo:0, got %d", topDocs.TotalHits.Value)
+	}
+
+	if ok, err := writer.TryDeleteDocument(reader, 0); err != nil {
+		t.Fatalf("TryDeleteDocument: %v", err)
+	} else if !ok {
+		t.Fatal("expected TryDeleteDocument to succeed")
+	}
+
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reader2, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer reader2.Close()
+
+	searcher2 := search.NewIndexSearcher(reader2)
+	topDocs, err = searcher2.Search(q, 10)
+	if err != nil {
+		t.Fatalf("Search after reopen: %v", err)
+	}
+	if topDocs.TotalHits.Value != 0 {
+		t.Fatalf("expected 0 hits for foo:0 after commit+reopen, got %d", topDocs.TotalHits.Value)
 	}
 }

@@ -793,10 +793,12 @@ func (w *IndexWriter) flushPendingDocsLocked() error {
 	if n == 0 {
 		// No buffered documents to materialise, but deletes targeting buffered
 		// docs have no effect once the doc window is empty.  Discard them so
-		// they are not double-applied on a later commit.
+		// they are not double-applied on a later commit.  Leave
+		// pendingDeletedDocIDs (TryDeleteDocument global docIDs) untouched: they
+		// target committed segments and must survive until the next Commit/NRT
+		// reader applies them.
 		w.pendingDeleteTerms = w.pendingDeleteTerms[:0]
 		w.pendingSoftDeletedOrdinals = w.pendingSoftDeletedOrdinals[:0]
-		w.pendingDeletedDocIDs = w.pendingDeletedDocIDs[:0]
 		w.docFieldIndex = w.docFieldIndex[:0]
 		return nil
 	}
@@ -1253,6 +1255,15 @@ func (w *IndexWriter) Commit() error {
 		}
 	}
 	w.pendingDeleteQueries = w.pendingDeleteQueries[:0]
+
+	// Apply TryDeleteDocument docIDs against committed segments so that the
+	// deletion survives a writer close / directory reader reopen.
+	if len(w.pendingDeletedDocIDs) > 0 {
+		if err2 := w.applyTryDeleteDocIDsToSegmentInfos(si); err2 != nil {
+			return fmt.Errorf("commit: apply try-delete docIDs: %w", err2)
+		}
+		w.pendingDeletedDocIDs = w.pendingDeletedDocIDs[:0]
+	}
 
 	for _, ps := range w.pendingImportedSegments {
 		segmentName := ps.segmentName
@@ -1935,6 +1946,60 @@ func mapGlobalDocIDToSegment(segments []*SegmentCommitInfo, docID int) (*Segment
 		offset += maxDoc
 	}
 	return nil, -1, false
+}
+
+// applyTryDeleteDocIDsToSegmentInfos marks the in-segment ordinals corresponding
+// to each buffered TryDeleteDocument global docID as deleted and persists the
+// resulting live-docs bitmap as a byte-faithful .liv file, just like term- and
+// query-based deletes.
+func (w *IndexWriter) applyTryDeleteDocIDsToSegmentInfos(si *SegmentInfos) error {
+	if si == nil || len(w.pendingDeletedDocIDs) == 0 {
+		return nil
+	}
+	segments := si.List()
+	for _, docID := range w.pendingDeletedDocIDs {
+		sci, ord, ok := mapGlobalDocIDToSegment(segments, docID)
+		if !ok {
+			continue
+		}
+		maxDoc := sci.SegmentInfo().DocCount()
+		if ord < 0 || ord >= maxDoc {
+			continue
+		}
+		ords := sci.GetDeletedOrdinals()
+		exists := false
+		for _, o := range ords {
+			if o == ord {
+				exists = true
+				break
+			}
+		}
+		if exists {
+			continue
+		}
+		ords = append(ords, ord)
+		sort.Ints(ords)
+		sci.SetDelCount(len(ords))
+		sci.SetDeletedOrdinals(ords)
+
+		live, err := util.NewFixedBitSet(maxDoc)
+		if err != nil {
+			return fmt.Errorf("try-delete live bitset for %s: %w", sci.SegmentInfo().Name(), err)
+		}
+		for i := 0; i < maxDoc; i++ {
+			live.Set(i)
+		}
+		for _, o := range ords {
+			live.Clear(o)
+		}
+		delGen := sci.AdvanceDelGen()
+		segName := sci.SegmentInfo().Name()
+		if _, err := writeLiveDocs(w.directory, segName, sci.SegmentInfo().GetID(), delGen, live); err != nil {
+			return fmt.Errorf("try-delete write live docs for %s: %w", segName, err)
+		}
+		appendSegmentFile(sci.SegmentInfo(), liveDocsFileName(segName, delGen))
+	}
+	return nil
 }
 
 // appendSegmentFile adds fileName to the SegmentInfo's file set if not already
@@ -2699,6 +2764,26 @@ func (w *IndexWriter) HasDeletions() bool {
 		len(w.pendingDeleteQueries) > 0 ||
 		len(w.pendingDeletedDocIDs) > 0 ||
 		w.pendingCommittedDeleteCount > 0
+}
+
+// TryDeleteDocument deletes the document with the given docID as seen by the
+// supplied reader. The docID must be within the reader's MaxDoc range. The
+// deletion is buffered and becomes visible to the next NRT reader / Commit,
+// exactly like a delete-by-docID issued through the live-docs path.
+func (w *IndexWriter) TryDeleteDocument(reader IndexReaderInterface, docID int) (bool, error) {
+	if err := w.ensureOpen(); err != nil {
+		return false, err
+	}
+	if reader == nil {
+		return false, nil
+	}
+	if docID < 0 || docID >= reader.MaxDoc() {
+		return false, nil
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.pendingDeletedDocIDs = append(w.pendingDeletedDocIDs, docID)
+	return true, nil
 }
 
 // GetNumBufferedDocuments returns the number of documents currently

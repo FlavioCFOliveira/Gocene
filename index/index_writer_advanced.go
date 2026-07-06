@@ -159,46 +159,6 @@ func (w *IndexWriter) AddIndexesSlowly(dirs ...store.Directory) error {
 	return w.AddIndexes(dirs...)
 }
 
-// TryDeleteDocument attempts to delete the specified document by ID.
-// This is an expert method for NRT (Near Real-Time) readers.
-//
-// Parameters:
-//   - reader: The reader containing the document.
-//   - docID: The document ID to delete.
-//
-// Returns the sequence number if successful, or -1 if the segment was merged away.
-//
-// This implements GC-633: tryDeleteDocument
-func (w *IndexWriter) TryDeleteDocument(reader *IndexReader, docID int) (int64, error) {
-	if err := w.ensureOpen(); err != nil {
-		return -1, err
-	}
-
-	if reader == nil {
-		return -1, fmt.Errorf("reader cannot be nil")
-	}
-
-	// Check if the document exists and is not already deleted
-	if docID < 0 || docID >= reader.MaxDoc() {
-		return -1, fmt.Errorf("document ID %d out of range", docID)
-	}
-
-	// Check if document is already deleted using liveDocs
-	if reader.HasDeletions() {
-		liveDocs := reader.GetLiveDocs()
-		if liveDocs != nil && !liveDocs.Get(docID) {
-			return -1, nil // Already deleted
-		}
-	}
-
-	// Buffer the delete: record the docID as a pending deleted ordinal so the
-	// next Commit will exclude this document from the live-docs bitmap.
-	// This implements the buffered-deletes path for NRT/TryDeleteDocument.
-	w.mu.Lock()
-	w.pendingDeletedDocIDs = append(w.pendingDeletedDocIDs, docID)
-	w.mu.Unlock()
-	return w.getNextSequenceNumber(), nil
-}
 
 // FlushOnUpdate returns whether to flush on every update operation.
 //
