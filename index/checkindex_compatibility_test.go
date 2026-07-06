@@ -27,9 +27,7 @@ func TestCheckIndexCompatibility_BasicValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create writer: %v", err)
 	}
-	defer writer.Close()
 
-	// Add documents
 	for i := 0; i < 100; i++ {
 		doc := document.NewDocument()
 		idField, _ := document.NewStringField("id", string(rune('0'+i%10)), true)
@@ -39,31 +37,33 @@ func TestCheckIndexCompatibility_BasicValidation(t *testing.T) {
 		doc.Add(contentField)
 
 		if err := writer.AddDocument(doc); err != nil {
+			writer.Close()
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
 
 	if err := writer.Commit(); err != nil {
+		writer.Close()
 		t.Fatalf("failed to commit: %v", err)
 	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("failed to close writer: %v", err)
+	}
 
-	// Check index
 	checker, err := index.NewCheckIndex(dir)
 	if err != nil {
-		t.Logf("NewCheckIndex failed: %v", err)
-		t.Fatal("checkindex not implemented")
+		t.Fatalf("NewCheckIndex: %v", err)
 	}
+	defer checker.Close()
+
 	result, err := checker.CheckIndex()
 	if err != nil {
-		t.Logf("checkindex may not be fully implemented: %v", err)
-		t.Fatal("checkindex not implemented")
+		t.Fatalf("CheckIndex: %v", err)
 	}
 
 	if !result.Clean || result.NumBadSegments > 0 {
 		t.Errorf("index has errors: bad segments=%d, errors=%v", result.NumBadSegments, result.Errors)
 	}
-
-	t.Log("CheckIndex basic validation test passed")
 }
 
 func TestCheckIndexCompatibility_SegmentValidation(t *testing.T) {
@@ -77,31 +77,43 @@ func TestCheckIndexCompatibility_SegmentValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create writer: %v", err)
 	}
-	defer writer.Close()
 
-	// Create multiple segments
 	for seg := 0; seg < 3; seg++ {
 		for i := 0; i < 20; i++ {
 			doc := document.NewDocument()
 			idField, _ := document.NewStringField("id", string(rune('0'+(seg*20+i)%10)), true)
 			doc.Add(idField)
-			writer.AddDocument(doc)
+			if err := writer.AddDocument(doc); err != nil {
+				writer.Close()
+				t.Fatalf("failed to add document: %v", err)
+			}
 		}
-		writer.Commit()
+		if err := writer.Commit(); err != nil {
+			writer.Close()
+			t.Fatalf("failed to commit: %v", err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("failed to close writer: %v", err)
 	}
 
 	checker, err := index.NewCheckIndex(dir)
 	if err != nil {
-		t.Logf("NewCheckIndex failed: %v", err)
-		t.Fatal("checkindex not implemented")
+		t.Fatalf("NewCheckIndex: %v", err)
 	}
+	defer checker.Close()
+
 	result, err := checker.CheckIndex()
 	if err != nil {
-		t.Logf("checkindex may not be fully implemented: %v", err)
-		t.Fatal("checkindex not implemented")
+		t.Fatalf("CheckIndex: %v", err)
 	}
 
-	t.Logf("CheckIndex segment validation: %d segments", result.NumSegments)
+	if result.NumSegments != 3 {
+		t.Errorf("NumSegments = %d, want 3", result.NumSegments)
+	}
+	if !result.Clean || result.NumBadSegments > 0 {
+		t.Errorf("index has errors: bad segments=%d, errors=%v", result.NumBadSegments, result.Errors)
+	}
 }
 
 func TestCheckIndexCompatibility_FieldInfosValidation(t *testing.T) {
@@ -115,9 +127,7 @@ func TestCheckIndexCompatibility_FieldInfosValidation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create writer: %v", err)
 	}
-	defer writer.Close()
 
-	// Add documents with various field types
 	for i := 0; i < 50; i++ {
 		doc := document.NewDocument()
 
@@ -131,24 +141,33 @@ func TestCheckIndexCompatibility_FieldInfosValidation(t *testing.T) {
 		doc.Add(contentField)
 
 		if err := writer.AddDocument(doc); err != nil {
+			writer.Close()
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
 
-	writer.Commit()
+	if err := writer.Commit(); err != nil {
+		writer.Close()
+		t.Fatalf("failed to commit: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("failed to close writer: %v", err)
+	}
 
 	checker, err := index.NewCheckIndex(dir)
 	if err != nil {
-		t.Logf("NewCheckIndex failed: %v", err)
-		t.Fatal("checkindex not implemented")
+		t.Fatalf("NewCheckIndex: %v", err)
 	}
-	_, err = checker.CheckIndex()
+	defer checker.Close()
+
+	result, err := checker.CheckIndex()
 	if err != nil {
-		t.Logf("checkindex may not be fully implemented: %v", err)
-		t.Fatal("checkindex not implemented")
+		t.Fatalf("CheckIndex: %v", err)
 	}
 
-	t.Log("CheckIndex FieldInfos validation test passed")
+	if !result.Clean || result.NumBadSegments > 0 {
+		t.Errorf("index has errors: bad segments=%d, errors=%v", result.NumBadSegments, result.Errors)
+	}
 }
 
 func BenchmarkCheckIndexCompatibility_Validation(b *testing.B) {
