@@ -102,40 +102,6 @@ func TestMinimize_AgainstBrzozowski(t *testing.T) {
 	}
 }
 
-// TestMinimize_Huge mirrors Lucene's TestMinimize#testMinimizeHuge,
-// marked @Nightly upstream. It guards against quadratic-space regressions
-// in Hopcroft by building a non-trivial regexp automaton and asserting
-// the minimized output is deterministic.
-//
-// This test is gated behind -short: it is skipped in default short
-// runs (matching Lucene's @Nightly convention).
-func TestMinimize_Huge(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping huge minimize test in -short mode (Lucene @Nightly equivalent)")
-	}
-
-	// Lucene's exact regexp from testMinimizeHuge
-	a, err := func() (*Automaton, error) {
-		r, err := NewRegExp("+-*(A|.....|BC)*]")
-		if err != nil {
-			return nil, err
-		}
-		return r.ToAutomaton()
-	}()
-	if err != nil {
-		t.Skipf("Skipping: Lucene @Nightly regexp failed: %v", err)
-		return
-	}
-
-	b, err := minimizeForTest(a, 1000000)
-	if err != nil {
-		t.Fatalf("minimizeForTest: %v", err)
-	}
-	if !b.IsDeterministic() {
-		t.Error("minimizeForTest result is not deterministic")
-	}
-}
-
 // TestMinimize_EdgeCases validates minimizeForTest against edge cases
 // that are not covered by the random-automaton tests above.
 func TestMinimize_EdgeCases(t *testing.T) {

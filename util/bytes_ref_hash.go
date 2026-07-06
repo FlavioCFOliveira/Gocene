@@ -7,6 +7,7 @@ package util
 import (
 	"bytes"
 	"fmt"
+	"sort"
 	"time"
 )
 
@@ -168,9 +169,10 @@ func (h *BytesRefHash) Sort() []int {
 		entries[i] = entry{id: compact[i], bytes: scratch.Clone().ValidBytes()}
 	}
 
-	// Sort entries by bytes
-	IntroSort(entries, func(a, b entry) int {
-		return bytes.Compare(a.bytes, b.bytes)
+	// Sort entries by bytes. SliceStable preserves the insertion order for
+	// equal keys so the flush output is deterministic across runs.
+	sort.SliceStable(entries, func(i, j int) bool {
+		return bytes.Compare(entries[i].bytes, entries[j].bytes) < 0
 	})
 
 	// Update compact with sorted ids

@@ -7,6 +7,7 @@ package index
 import (
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -1367,8 +1368,17 @@ func (dwpt *DocumentsWriterPerThread) flushPostings(codec Codec, state *SegmentW
 	}
 	defer consumer.Close()
 
-	// Write each field's postings
-	for fieldName, fieldPostings := range dwpt.invertedIndex.fields {
+	// Write each field's postings in deterministic ascending field-name order.
+	// The underlying map iteration order is randomized in Go, so we materialise
+	// and sort the field names before dispatching to the codec's FieldsConsumer.
+	fieldNames := make([]string, 0, len(dwpt.invertedIndex.fields))
+	for fieldName := range dwpt.invertedIndex.fields {
+		fieldNames = append(fieldNames, fieldName)
+	}
+	sort.Strings(fieldNames)
+
+	for _, fieldName := range fieldNames {
+		fieldPostings := dwpt.invertedIndex.fields[fieldName]
 		// Convert to Terms format
 		terms := &postingTermsAdapter{
 			postings: fieldPostings,

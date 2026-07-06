@@ -44,7 +44,7 @@ func TestMultiVersionCorpora_ZipsPresent(t *testing.T) {
 			zipPath := filepath.Join(bwcZipDir, fmt.Sprintf("lucene-%s-index.zip", ver))
 			st, err := os.Stat(zipPath)
 			if err != nil {
-				t.Skipf("ZIP not found: %s (generate it with the Java harness described in docs/bwc-zip-generation.md)", zipPath)
+				t.Fatalf("ZIP not found: %s (generate it with the Java harness described in docs/bwc-zip-generation.md)", zipPath)
 			}
 			if st.Size() == 0 {
 				t.Fatalf("ZIP is empty: %s", zipPath)
@@ -61,7 +61,7 @@ func TestMultiVersionCorpora_CheckIndex(t *testing.T) {
 
 	entries, err := os.ReadDir(bwcZipDir)
 	if err != nil {
-		t.Skipf("BWC ZIP directory not found: %v", err)
+		t.Fatalf("BWC ZIP directory not found: %v", err)
 	}
 
 	var zips []string
@@ -73,13 +73,13 @@ func TestMultiVersionCorpora_CheckIndex(t *testing.T) {
 	sort.Strings(zips)
 
 	if len(zips) == 0 {
-		t.Skipf("no ZIPs found in %s — run the Java harness to generate them", bwcZipDir)
+		t.Fatalf("no ZIPs found in %s — run the Java harness to generate them", bwcZipDir)
 	}
 
 	for _, zipName := range zips {
 		zipName := zipName
 		t.Run(zipName, func(t *testing.T) {
-			t.Skip("deferred: ZIP unpacking + CheckIndex verification pending harness output")
+			t.Fatal("deferred: ZIP unpacking + CheckIndex verification pending harness output")
 		})
 	}
 }

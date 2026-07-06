@@ -213,7 +213,12 @@ func (f *Lucene90CompoundFormat) writeCompoundFile(entriesOut store.IndexOutput,
 		}
 		sized = append(sized, sizedFile{name: name, size: size})
 	}
-	sort.SliceStable(sized, func(i, j int) bool { return sized[i].size < sized[j].size })
+	sort.Slice(sized, func(i, j int) bool {
+		if sized[i].size != sized[j].size {
+			return sized[i].size < sized[j].size
+		}
+		return sized[i].name < sized[j].name
+	})
 
 	if err := store.WriteVInt(entriesOut, int32(len(sized))); err != nil {
 		return fmt.Errorf("lucene90 compound: write numFiles: %w", err)

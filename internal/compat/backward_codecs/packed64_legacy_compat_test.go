@@ -80,7 +80,7 @@ func TestPacked64Legacy_WriteAndVerify(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Skipf("deferred: Gocene backward_codecs/packed has no public "+
+			t.Fatalf("deferred: Gocene backward_codecs/packed has no public "+
 				"EndiannessReverser-wrapped writer yet "+
 				"(backward_codecs/store/store.go); seed=%d; "+
 				"audit gap_notes (verbatim): %q", seed, auditGap)
@@ -96,7 +96,7 @@ func TestPacked64Legacy_RoundTrip(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run("", func(t *testing.T) {
-			t.Skipf("deferred: Gocene round-trip for bwc-packed64-legacy at "+
+			t.Fatalf("deferred: Gocene round-trip for bwc-packed64-legacy at "+
 				"seed=%d requires a BE-wrapped writer in "+
 				"backward_codecs/store; audit gap_notes (verbatim): %q",
 				seed, auditGap)

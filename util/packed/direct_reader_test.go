@@ -199,7 +199,7 @@ func FuzzDirectReaderRoundTrip(f *testing.F) {
 		out := store.NewByteArrayDataOutput(64)
 		w, err := GetDirectWriter(out, n, bpv)
 		if err != nil {
-			t.Skipf("skipping bpv=%d: %v", bpv, err)
+			t.Fatalf("GetDirectWriter bpv=%d: %v", bpv, err)
 		}
 		for _, v := range values {
 			if err := w.Add(v); err != nil {

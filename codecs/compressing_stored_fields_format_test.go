@@ -877,7 +877,7 @@ func TestCompressingStoredFieldsFormat_ByteLevelCompatibility(t *testing.T) {
 				// float32(val) should equal val for these test cases
 				f32 := float32(tc.val)
 				if float64(f32) != tc.val {
-					t.Skipf("value %v not exactly representable as float32, skipped", tc.val)
+					t.Fatalf("value %v not exactly representable as float32", tc.val)
 				}
 				if len(data) < 1 {
 					t.Fatal("expected at least 1 byte")

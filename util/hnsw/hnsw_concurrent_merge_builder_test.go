@@ -91,7 +91,7 @@ func TestHnswConcurrentMergeBuilder_BuildSingleWorker(t *testing.T) {
 // identity-based.
 func TestHnswConcurrentMergeBuilder_BuildFourWorkers(t *testing.T) {
 	if runtime.GOMAXPROCS(0) < 2 {
-		t.Skip("requires GOMAXPROCS >= 2 for meaningful concurrency")
+		t.Fatal("requires GOMAXPROCS >= 2 for meaningful concurrency")
 	}
 	const numNodes = 256
 	coords := linspace(numNodes, 0, 1)
@@ -294,7 +294,7 @@ func TestHnswConcurrentMergeBuilder_SupplierErrorPropagates(t *testing.T) {
 // both runs produce structurally valid graphs.
 func TestHnswConcurrentMergeBuilder_DeterminismCaveat(t *testing.T) {
 	if runtime.GOMAXPROCS(0) < 2 {
-		t.Skip("requires GOMAXPROCS >= 2 for meaningful concurrency")
+		t.Fatal("requires GOMAXPROCS >= 2 for meaningful concurrency")
 	}
 	const numNodes = 64
 	coords := linspace(numNodes, 0, 1)

@@ -223,7 +223,7 @@ func TestConcurrentHnswMerger_Merge_SingleReader(t *testing.T) {
 // each worker claims).
 func TestConcurrentHnswMerger_Merge_MultipleReaders(t *testing.T) {
 	if runtime.GOMAXPROCS(0) < 2 {
-		t.Skip("requires GOMAXPROCS >= 2 for meaningful concurrency")
+		t.Fatal("requires GOMAXPROCS >= 2 for meaningful concurrency")
 	}
 	const n = 8
 	const total = 2 * n
@@ -299,7 +299,7 @@ func TestConcurrentHnswMerger_Merge_MultipleReaders(t *testing.T) {
 // no self-loops, every neighbour in range.
 func TestConcurrentHnswMerger_Merge_FourWorkers(t *testing.T) {
 	if runtime.GOMAXPROCS(0) < 2 {
-		t.Skip("requires GOMAXPROCS >= 2 for meaningful concurrency")
+		t.Fatal("requires GOMAXPROCS >= 2 for meaningful concurrency")
 	}
 	const seedN = 32
 	const total = 64
