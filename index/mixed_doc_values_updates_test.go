@@ -24,7 +24,9 @@ import "testing"
 // numeric and binary DV fields, reopening the reader each round (NRT or commit)
 // and verifying every live doc carries the current per-field value.
 func TestMixedDocValuesUpdates_ManyReopensAndFields(t *testing.T) {
-	t.Fatal("GOC-4202: pending DirectoryReader.openIfChanged + IndexWriter.update{Numeric,Binary}DocValue")
+	// DirectoryReader.openIfChanged is now available; the remaining blocker is
+	// IndexWriter.update{Numeric,Binary}DocValue.
+	t.Fatal("GOC-4202: pending IndexWriter.update{Numeric,Binary}DocValue; NRT openIfChanged is now available")
 }
 
 // TestMixedDocValuesUpdates_StressMultiThreading mirrors testStressMultiThreading:
@@ -32,7 +34,9 @@ func TestMixedDocValuesUpdates_ManyReopensAndFields(t *testing.T) {
 // field f*2), interleaving deletes, commits and NRT reopens, then verify the
 // control field equals binary*2 for every live doc.
 func TestMixedDocValuesUpdates_StressMultiThreading(t *testing.T) {
-	t.Fatal("GOC-4202: pending IndexWriter.updateDocValues + concurrent NRT reopen")
+	// DirectoryReader.openIfChanged is now available; the remaining blocker is
+	// IndexWriter.updateDocValues.
+	t.Fatal("GOC-4202: pending IndexWriter.updateDocValues; NRT reopen is now available")
 }
 
 // TestMixedDocValuesUpdates_UpdateDifferentDocsInDifferentGens mirrors
