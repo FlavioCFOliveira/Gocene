@@ -30,6 +30,7 @@ type UnifiedHighlighter struct {
 	analyzer         analysis.Analyzer
 	literals         []string
 	matchers         []CharArrayMatcher
+	phrases          []*PhraseInfo
 	scorer           *PassageScorer
 	formatter        PassageFormatter
 	breakIter        BreakIterator
@@ -65,6 +66,10 @@ func (h *UnifiedHighlighter) SetMaxPassages(n int) {
 // SetMaxNoHighlightPassages overrides the default (1) no-highlight
 // summary count. A value of -1 means "use MaxPassages".
 func (h *UnifiedHighlighter) SetMaxNoHighlightPassages(n int) { h.maxNoHighlight = n }
+
+// SetPhrases registers phrase queries that should be rendered as
+// contiguous highlighted spans rather than individual term matches.
+func (h *UnifiedHighlighter) SetPhrases(phrases []*PhraseInfo) { h.phrases = phrases }
 
 // SetPassageScorer overrides the default PassageScorer.
 func (h *UnifiedHighlighter) SetPassageScorer(s *PassageScorer) {
@@ -102,6 +107,7 @@ func (h *UnifiedHighlighter) Highlight(content string, termFreqs map[string]int)
 		h.field,
 		WithAnalysisLiterals(h.literals...),
 		WithAnalysisMatchers(h.matchers...),
+		WithAnalysisPhrases(h.phrases...),
 	)
 	fh := NewFieldHighlighter(
 		h.field, strat, h.breakIter, h.scorer,

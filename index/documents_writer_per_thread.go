@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -886,9 +887,11 @@ func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 	// would collapse position gaps (e.g. injected by stop filters or stacked
 	// synonyms) and break PhraseQuery / MultiPhraseQuery matching.
 	type tokenAtPos struct {
-		term     string
-		position int
-		posIncr  int
+		term        string
+		position    int
+		posIncr     int
+		startOffset int
+		endOffset   int
 	}
 	var tokens []tokenAtPos
 	if tokenized {
@@ -935,7 +938,20 @@ func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 					position += posIncr
 					if attr := src.GetAttribute(analysis.CharTermAttributeType); attr != nil {
 						if termAttr, ok := attr.(analysis.CharTermAttribute); ok {
-							tokens = append(tokens, tokenAtPos{term: termAttr.String(), position: position, posIncr: posIncr})
+							startOffset, endOffset := 0, 0
+							if oa := src.GetAttribute(analysis.OffsetAttributeType); oa != nil {
+								if offsetAttr, ok := oa.(analysis.OffsetAttribute); ok {
+									startOffset = offsetAttr.StartOffset()
+									endOffset = offsetAttr.EndOffset()
+								}
+							}
+							tokens = append(tokens, tokenAtPos{
+								term:        termAttr.String(),
+								position:    position,
+								posIncr:     posIncr,
+								startOffset: startOffset,
+								endOffset:   endOffset,
+							})
 						}
 					}
 				}
@@ -943,8 +959,18 @@ func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 		}
 	} else {
 		// Use the value directly as a single term at position 0 (posIncr 1:
-		// a non-tokenized field contributes one non-overlapping token).
-		tokens = []tokenAtPos{{term: value, position: 0, posIncr: 1}}
+		// a non-tokenized field contributes one non-overlapping token). Offsets
+		// span the entire value so that fields with offsets enabled still emit
+		// a valid (start,end) pair.
+		tokens = []tokenAtPos{{term: value, position: 0, posIncr: 1, startOffset: 0, endOffset: utf8.RuneCountInString(value)}}
+	}
+
+	// Enforce Lucene's MAX_TERM_LENGTH limit before indexing any token.
+	for _, tok := range tokens {
+		if len(tok.term) > MAX_TERM_LENGTH {
+			return fmt.Errorf("field %q: immense term: bytes can be at most %d in length; got %d",
+				fieldName, MAX_TERM_LENGTH, len(tok.term))
+		}
 	}
 
 	// Add each token to the inverted index at its absolute position, while
@@ -955,7 +981,7 @@ func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 	// FieldInvertState (length += termFreq; numOverlap++ when posIncr == 0).
 	acc := dwpt.normsAccumulatorFor(fieldName, fieldInfo)
 	for _, tok := range tokens {
-		dwpt.addTermWithFreq(docID, fieldName, tok.term, tok.position, customTermFreq, fieldPostings, fieldInfo)
+		dwpt.addTermWithFreq(docID, fieldName, tok.term, tok.position, tok.startOffset, tok.endOffset, customTermFreq, fieldPostings, fieldInfo)
 		if acc != nil {
 			acc.addToken(tok.term, customTermFreq, tok.posIncr)
 		}
@@ -964,15 +990,18 @@ func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 	return nil
 }
 
-// addTerm adds a term to the inverted index with the default initial TF of 1.
+// addTerm adds a term to the inverted index with the default initial TF of 1
+// and no character offsets.
 func (dwpt *DocumentsWriterPerThread) addTerm(docID int, fieldName, term string, position int, fieldPostings *FieldPostings, fieldInfo *FieldInfo) {
-	dwpt.addTermWithFreq(docID, fieldName, term, position, 0, fieldPostings, fieldInfo)
+	dwpt.addTermWithFreq(docID, fieldName, term, position, 0, 0, 0, fieldPostings, fieldInfo)
 }
 
 // addTermWithFreq adds a term to the inverted index.
 // initialFreq, when > 0, is used as the initial term frequency for a new
 // document entry; otherwise 1 is used (the standard Lucene default).
-func (dwpt *DocumentsWriterPerThread) addTermWithFreq(docID int, fieldName, term string, position int, initialFreq int, fieldPostings *FieldPostings, fieldInfo *FieldInfo) {
+// startOffset/endOffset are the token's character offsets and are only stored
+// when the field indexes offsets.
+func (dwpt *DocumentsWriterPerThread) addTermWithFreq(docID int, fieldName, term string, position, startOffset, endOffset int, initialFreq int, fieldPostings *FieldPostings, fieldInfo *FieldInfo) {
 	fieldPostings.mu.Lock()
 	defer fieldPostings.mu.Unlock()
 
@@ -1000,6 +1029,10 @@ func (dwpt *DocumentsWriterPerThread) addTermWithFreq(docID int, fieldName, term
 		posting.freqs[idx]++
 		if fieldInfo.IndexOptions().HasPositions() {
 			posting.positions[idx] = append(posting.positions[idx], position)
+			if fieldInfo.IndexOptions().HasOffsets() {
+				posting.startOffsets[idx] = append(posting.startOffsets[idx], startOffset)
+				posting.endOffsets[idx] = append(posting.endOffsets[idx], endOffset)
+			}
 		}
 	} else {
 		// New document
@@ -1007,6 +1040,10 @@ func (dwpt *DocumentsWriterPerThread) addTermWithFreq(docID int, fieldName, term
 		posting.freqs = append(posting.freqs, initialFreq)
 		if fieldInfo.IndexOptions().HasPositions() {
 			posting.positions = append(posting.positions, []int{position})
+			if fieldInfo.IndexOptions().HasOffsets() {
+				posting.startOffsets = append(posting.startOffsets, []int{startOffset})
+				posting.endOffsets = append(posting.endOffsets, []int{endOffset})
+			}
 		}
 	}
 }
@@ -1799,7 +1836,9 @@ func (p *postingTermsAdapter) GetSumTotalTermFreq() (int64, error) {
 }
 
 func (p *postingTermsAdapter) HasFreqs() bool   { return true }
-func (p *postingTermsAdapter) HasOffsets() bool { return false }
+func (p *postingTermsAdapter) HasOffsets() bool {
+	return p.postings.fieldInfo != nil && p.postings.fieldInfo.IndexOptions().HasOffsets()
+}
 func (p *postingTermsAdapter) HasPositions() bool {
 	return p.postings.fieldInfo != nil && p.postings.fieldInfo.IndexOptions().HasPositions()
 }
@@ -1893,7 +1932,8 @@ func (e *postingTermsEnum) Postings(flags int) (PostingsEnum, error) {
 	if !ok || len(posting.docIDs) == 0 {
 		return nil, nil
 	}
-	return &postingDataEnum{posting: posting, docIdx: -1, posIdx: -1}, nil
+	hasOffsets := e.postings.fieldInfo != nil && e.postings.fieldInfo.IndexOptions().HasOffsets()
+	return &postingDataEnum{posting: posting, docIdx: -1, posIdx: -1, hasOffsets: hasOffsets}, nil
 }
 
 func (e *postingTermsEnum) SeekExact(term *Term) (bool, error) {
@@ -1930,13 +1970,16 @@ func (e *postingTermsEnum) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (
 	return nil, nil
 }
 
-// postingDataEnum iterates over the doc/freq/position data of a single
-// Posting list. It is returned by postingTermsEnum.Postings and drives
+// postingDataEnum iterates over the doc/freq/position/offset data of a
+// single Posting list. It is returned by postingTermsEnum.Postings and drives
 // the block-tree terms writer via WriteTerm.
 type postingDataEnum struct {
-	posting *Posting
-	docIdx  int // index into posting.docIDs; -1 = before start
-	posIdx  int // index into posting.positions[docIdx]; -1 = before start
+	posting     *Posting
+	docIdx      int // index into posting.docIDs; -1 = before start
+	posIdx      int // index into posting.positions[docIdx]; -1 = before start
+	startOffset int
+	endOffset   int
+	hasOffsets  bool
 }
 
 func (p *postingDataEnum) NextDoc() (int, error) {
@@ -1971,11 +2014,25 @@ func (p *postingDataEnum) NextPosition() (int, error) {
 	if p.posIdx >= len(positions) {
 		return NO_MORE_POSITIONS, nil
 	}
+	if p.hasOffsets {
+		p.startOffset = p.posting.startOffsets[p.docIdx][p.posIdx]
+		p.endOffset = p.posting.endOffsets[p.docIdx][p.posIdx]
+	}
 	return positions[p.posIdx], nil
 }
 
-func (p *postingDataEnum) StartOffset() (int, error) { return -1, nil }
-func (p *postingDataEnum) EndOffset() (int, error)   { return -1, nil }
+func (p *postingDataEnum) StartOffset() (int, error) {
+	if !p.hasOffsets {
+		return -1, nil
+	}
+	return p.startOffset, nil
+}
+func (p *postingDataEnum) EndOffset() (int, error) {
+	if !p.hasOffsets {
+		return -1, nil
+	}
+	return p.endOffset, nil
+}
 func (p *postingDataEnum) GetPayload() ([]byte, error) {
 	return nil, nil
 }

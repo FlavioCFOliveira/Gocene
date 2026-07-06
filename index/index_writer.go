@@ -255,6 +255,19 @@ func NewIndexWriter(dir store.Directory, config *IndexWriterConfig) (*IndexWrite
 		return nil, fmt.Errorf("cannot obtain write lock - another IndexWriter may be open: %w", err)
 	}
 
+	// Validate OpenMode constraints.  APPEND requires an existing commit; CREATE
+	// and CREATE_OR_APPEND tolerate an empty directory.  If validation fails,
+	// release the write lock so callers can retry (LUCENE-715).
+	_, siErr := ReadSegmentInfos(dir)
+	indexExists := siErr == nil
+	switch config.OpenMode() {
+	case APPEND:
+		if !indexExists {
+			_ = wl.Close()
+			return nil, errors.New("no existing index found for OpenMode.APPEND")
+		}
+	}
+
 	// Create the DocumentsWriter for actual document processing
 	docWriter, docErr := NewDocumentsWriter(dir, config)
 	if docErr != nil {
@@ -335,6 +348,16 @@ func (w *IndexWriter) AddDocument(doc Document) error {
 	// concurrent flush (rmp #4772; see the addLock field documentation).
 	w.addLock.Lock()
 	defer w.addLock.Unlock()
+
+	// Enforce the configured per-writer document limit.  Mirrors Lucene's
+	// IndexWriter.reserveDocs / tooManyDocs contract.
+	if maxDocs := w.config.MaxDocs(); maxDocs > 0 {
+		if current := w.maxDocForLimit(); current >= maxDocs {
+			return fmt.Errorf(
+				"number of documents in the index cannot exceed %d (current document count is %d)",
+				maxDocs, current)
+		}
+	}
 
 	// DocumentsWriter has its own internal locking, so we don't need
 	// to hold the global lock during document processing.
@@ -490,6 +513,14 @@ func (w *IndexWriter) UpdateDocument(term *Term, doc Document) error {
 		return nil
 	}
 
+	// Append path: add new doc and record bounded delete for matching old docs.
+	// Enforce the per-writer document limit on the replacement document.
+	if maxDocs := w.config.MaxDocs(); maxDocs > 0 && w.maxDocForLimit() >= maxDocs {
+		return fmt.Errorf(
+			"number of documents in the index cannot exceed %d (current document count is %d)",
+			maxDocs, w.maxDocForLimit())
+	}
+
 	w.mu.Lock()
 
 	// Accumulate FieldInfos regardless of path.
@@ -531,7 +562,6 @@ func (w *IndexWriter) UpdateDocument(term *Term, doc Document) error {
 		return nil
 	}
 
-	// Append path: add new doc and record bounded delete for matching old docs.
 	maxOrd := int(w.docCount.Load())
 	if term != nil {
 		w.pendingDeleteTerms = append(w.pendingDeleteTerms, termWithBound{term: term, maxOrdinal: maxOrd})
@@ -655,17 +685,12 @@ type commitData struct {
 
 // SetLiveCommitData sets the commit data that will be written with the next commit.
 // This data is stored in the commit point and can be retrieved later.
-// The data is "live" meaning it can be modified until the actual commit happens.
+// The data is "live" meaning it can be modified through the provided map until
+// the actual commit happens, mirroring Lucene's late-binding semantics.
 func (w *IndexWriter) SetLiveCommitData(data map[string]string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.liveCommitData == nil {
-		w.liveCommitData = &commitData{data: make(map[string]string)}
-	}
-	// Copy the data to ensure we capture the values at commit time
-	for k, v := range data {
-		w.liveCommitData.data[k] = v
-	}
+	w.liveCommitData = &commitData{data: data}
 }
 
 // getLiveCommitData returns the current live commit data
@@ -1779,6 +1804,30 @@ func (w *IndexWriter) MaxDoc() int {
 	return committedTotal + int(w.docCount.Load())
 }
 
+// maxDocForLimit returns the document count used for MaxDocs enforcement.
+// After DeleteAll the old committed segments are pending deletion, so they do
+// not count toward the limit; otherwise the total including committed segments
+// is used, matching Lucene's IndexWriter.reserveDocs semantics.
+func (w *IndexWriter) maxDocForLimit() int {
+	w.mu.RLock()
+	pendingDeleteAll := w.pendingDeleteAll
+	w.mu.RUnlock()
+	if pendingDeleteAll {
+		return int(w.docCount.Load())
+	}
+	si, err := ReadSegmentInfos(w.directory)
+	committedTotal := 0
+	if err == nil {
+		committedTotal = si.TotalDocCount()
+	}
+	w.mu.RLock()
+	for _, ps := range w.pendingImportedSegments {
+		committedTotal += ps.numDocs
+	}
+	w.mu.RUnlock()
+	return committedTotal + int(w.docCount.Load())
+}
+
 // countPendingDeletes estimates how many buffered documents will be deleted at
 // the next Commit based on the current pendingDeleteTerms and docFieldIndex.
 // Respects ordinal bounds so UpdateDocument's replacement docs are not counted
@@ -1850,6 +1899,36 @@ func (w *IndexWriter) committedFieldHasField(fieldName string) bool {
 		}
 	}
 	return false
+}
+
+// fieldDocValuesTypeLocked returns the DocValuesType recorded for the named
+// field across the writer's pending and committed FieldInfos.  Returns
+// DocValuesTypeNone when the field is not yet known to the writer.  Must be
+// called with w.mu held.
+func (w *IndexWriter) fieldDocValuesTypeLocked(fieldName string) DocValuesType {
+	if w.pendingFieldInfos != nil {
+		if fi := w.pendingFieldInfos.GetByName(fieldName); fi != nil {
+			return fi.DocValuesType()
+		}
+	}
+	for _, sci := range w.committedSegments {
+		fi := sci.GetInMemoryFieldInfos()
+		if fi == nil {
+			continue
+		}
+		if f := fi.GetByName(fieldName); f != nil {
+			return f.DocValuesType()
+		}
+	}
+	for _, ps := range w.pendingImportedSegments {
+		if ps.fieldInfos == nil {
+			continue
+		}
+		if f := ps.fieldInfos.GetByName(fieldName); f != nil {
+			return f.DocValuesType()
+		}
+	}
+	return DocValuesTypeNone
 }
 
 // IsClosed returns true if the writer is closed.
@@ -3209,6 +3288,26 @@ func (w *IndexWriter) UpdateDocValues(term *Term, field string, value interface{
 					"cannot update doc values for field %q because it participates in the index sort",
 					field)
 			}
+		}
+	}
+
+	// Reject type-mismatched updates so that, for example, a numeric update
+	// against a binary DocValues field is caught early.  The write path is
+	// still a placeholder, but validation mirrors Lucene's
+	// IllegalArgumentException contract.
+	dvt := w.fieldDocValuesTypeLocked(field)
+	switch value.(type) {
+	case int64:
+		if dvt != DocValuesTypeNumeric {
+			return fmt.Errorf(
+				"cannot update doc values for field %q: expected numeric doc values but found %v",
+				field, dvt)
+		}
+	case []byte:
+		if dvt != DocValuesTypeBinary {
+			return fmt.Errorf(
+				"cannot update doc values for field %q: expected binary doc values but found %v",
+				field, dvt)
 		}
 	}
 

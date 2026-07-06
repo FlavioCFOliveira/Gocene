@@ -488,7 +488,7 @@ func newLucene90CompressingStoredFieldsWriter(
 	if err := gcodecs.WriteIndexHeader(
 		metaStream,
 		indexCodecName+"Meta",
-		metaVersionStart,
+		versionCurrent,
 		si.GetID(),
 		suffix,
 	); err != nil {
@@ -997,7 +997,7 @@ func newLucene90CompressingStoredFieldsReader(
 	}()
 
 	_, err = gcodecs.CheckIndexHeader(
-		metaIn, indexCodecName+"Meta", metaVersionStart, metaVersionStart, si.GetID(), suffix,
+		metaIn, indexCodecName+"Meta", versionStart, versionCurrent, si.GetID(), suffix,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("lucene90/compressing: check fdm header: %w", err)

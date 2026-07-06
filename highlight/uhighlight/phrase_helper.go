@@ -1,11 +1,21 @@
 package uhighlight
 
+// PhraseInfo describes a single position-sensitive phrase query that the
+// analysis offset strategy should highlight as a contiguous span instead of
+// individual term matches.
+type PhraseInfo struct {
+	Field     string
+	Terms     []string
+	Positions []int
+	Slop      int
+}
+
 // PhraseHelper tracks which terms participate in phrase queries and exposes
 // helpers callers use to deduce whether a hit is part of a phrase. Mirrors
 // org.apache.lucene.search.uhighlight.PhraseHelper.
 type PhraseHelper struct {
-	Field         string
-	PhraseTerms   map[string]bool
+	Field                  string
+	PhraseTerms            map[string]bool
 	HasPositionSensitivity bool
 }
 

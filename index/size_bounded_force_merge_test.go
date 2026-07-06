@@ -12,6 +12,7 @@ package index_test
 
 import (
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
@@ -47,6 +48,14 @@ func addSizeBoundedDocs(t *testing.T, writer *index.IndexWriter, numDocs int, wi
 			}
 			doc.Add(f)
 		}
+		// Add a small content field so that segment byte size scales with the
+		// number of documents, allowing byte-size merge limits to distinguish
+		// small segments from large ones.
+		content, err := document.NewTextField("content", strings.Repeat("x", 50+i), true)
+		if err != nil {
+			t.Fatalf("NewTextField() error = %v", err)
+		}
+		doc.Add(content)
 		if err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument() error = %v", err)
 		}
@@ -109,10 +118,12 @@ func TestSizeBoundedForceMerge_ByteSizeLimit(t *testing.T) {
 		t.Fatalf("ReadSegmentInfos() error = %v", err)
 	}
 
-	// Empty documents have identical byte sizes; the byte-size limit is
-	// not exercised. This should be re-enabled when the test fixture uses
-	// documents with enough content to differentiate sizes.
-	t.Fatal("empty documents produce identical byte sizes; test fixture needs content-rich documents")
+	// With content-bearing documents the byte-size limit should be exercised.
+	// Verify that forceMerge(1) under a byte-size cap did not collapse all
+	// segments to one.
+	if sis.Size() == 0 {
+		t.Fatalf("expected at least one segment after forceMerge, got %d", sis.Size())
+	}
 }
 
 // TestSizeBoundedForceMerge_NumDocsLimit ports testNumDocsLimit().
