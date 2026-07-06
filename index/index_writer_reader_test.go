@@ -592,9 +592,63 @@ func TestIndexWriterReader_DuringAddDelete(t *testing.T) {
 // testForceMergeDeletes ports testForceMergeDeletes().
 // Java deletes a document then forceMergeDeletes() to physically drop it.
 func TestIndexWriterReader_ForceMergeDeletes(t *testing.T) {
-	// DeleteDocuments is now functional (rmp #254); ForceMergeDeletes exists but
-	// does not yet preserve live documents correctly during the merge.
-	t.Fatal("DeleteDocuments is now functional; ForceMergeDeletes does not yet preserve live documents correctly")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	config := index.NewIndexWriterConfig(createTestAnalyzer())
+	config.SetMergePolicy(index.NewLogMergePolicy())
+	writer, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	addDoc := func(id string) {
+		t.Helper()
+		doc := document.NewDocument()
+		textField, err := document.NewTextField("field", "a b c", false)
+		if err != nil {
+			t.Fatalf("NewTextField: %v", err)
+		}
+		doc.Add(textField)
+		idField, err := document.NewStringField("id", id, false)
+		if err != nil {
+			t.Fatalf("NewStringField: %v", err)
+		}
+		doc.Add(idField)
+		if err := writer.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument %s: %v", id, err)
+		}
+	}
+	addDoc("0")
+	addDoc("1")
+
+	if err := writer.DeleteDocuments(index.NewTerm("id", "0")); err != nil {
+		t.Fatalf("DeleteDocuments: %v", err)
+	}
+
+	reader, err := index.OpenDirectoryReaderFromWriter(writer)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
+	}
+	if err := writer.ForceMergeDeletes(); err != nil {
+		t.Fatalf("ForceMergeDeletes: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	reader.Close()
+
+	reader2, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer reader2.Close()
+	if got := reader2.NumDocs(); got != 1 {
+		t.Errorf("NumDocs after forceMergeDeletes = %d, want 1", got)
+	}
+	if reader2.HasDeletions() {
+		t.Error("expected no deletions after forceMergeDeletes")
+	}
 }
 
 // testDeletesNumDocs ports testDeletesNumDocs().

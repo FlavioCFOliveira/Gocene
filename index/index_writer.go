@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 
@@ -195,6 +196,17 @@ type pendingSegment struct {
 	fieldInfos          *FieldInfos    // may be nil
 	deletedOrdinals     []int          // sorted doc ordinals deleted within this segment (0-based)
 	softDeletedOrdinals []int          // sorted soft-deleted doc ordinals (count in MaxDoc, not NumDocs)
+
+	// segmentName is assigned the first time this pending segment is
+	// materialised into an NRT snapshot; subsequent GetReader/Commit calls
+	// reuse it so in-memory postings registries stay aligned with the
+	// on-disk segment name.
+	segmentName string
+
+	// materialized is true once this pending segment has been folded into an
+	// NRT SegmentInfos snapshot. GetReader skips materialized segments so they
+	// are not duplicated, while Commit still writes them to disk.
+	materialized bool
 	inMemoryFields      FieldsProducer // in-memory postings (codec-less path); may be nil
 
 	// dwpts carries the raw per-thread writer state when a real codec is
@@ -1026,8 +1038,32 @@ func (w *IndexWriter) GetReader() (*DirectoryReader, error) {
 		return nil, err
 	}
 
-	for _, ps := range w.pendingImportedSegments {
+	// Push any delete ordinals computed for the NRT snapshot back to the
+	// pending segment records so that a later Commit writes the same live set.
+	for i := range w.pendingImportedSegments {
+		ps := &w.pendingImportedSegments[i]
+		if !ps.materialized {
+			continue
+		}
+		for _, sci := range nrtSI.List() {
+			if sci.SegmentInfo().Name() != ps.segmentName {
+				continue
+			}
+			ps.deletedOrdinals = sci.GetDeletedOrdinals()
+			ps.delCount = sci.DelCount()
+			ps.softDelCount = sci.SoftDelCount()
+			break
+		}
+	}
+
+	for i := range w.pendingImportedSegments {
+		ps := &w.pendingImportedSegments[i]
+		if ps.materialized {
+			continue
+		}
 		segmentName := nrtSI.GetNextSegmentName()
+		ps.segmentName = segmentName
+		ps.materialized = true
 		segInfo := NewSegmentInfo(segmentName, ps.numDocs, w.directory)
 		segInfo.SetVersion("10.4.0")
 		segInfo.SetMinVersion("10.4.0")
@@ -1052,9 +1088,6 @@ func (w *IndexWriter) GetReader() (*DirectoryReader, error) {
 		nrtSI.Add(sci)
 		w.committedSegments = append(w.committedSegments, sci)
 	}
-
-	// Clear pending segments — materialised into NRT snapshot.
-	w.pendingImportedSegments = w.pendingImportedSegments[:0]
 
 	// Save the NRT snapshot so subsequent GetReader calls include
 	// these flushed-but-not-committed segments.
@@ -1222,7 +1255,10 @@ func (w *IndexWriter) Commit() error {
 	w.pendingDeleteQueries = w.pendingDeleteQueries[:0]
 
 	for _, ps := range w.pendingImportedSegments {
-		segmentName := si.GetNextSegmentName()
+		segmentName := ps.segmentName
+		if segmentName == "" {
+			segmentName = si.GetNextSegmentName()
+		}
 		segInfo := NewSegmentInfo(segmentName, ps.numDocs, w.directory)
 		segInfo.SetVersion("10.4.0")
 		segInfo.SetMinVersion("10.4.0")
@@ -1428,6 +1464,17 @@ func (w *IndexWriter) Commit() error {
 		w.committedSegments = append(w.committedSegments, sci)
 	}
 	w.pendingImportedSegments = w.pendingImportedSegments[:0]
+
+	// Ensure the segment-name counter is past every segment that now exists,
+	// so later merges and flushes never reuse a name already on disk.
+	if maxName := si.GetMaxSegmentName(); maxName != "" && len(maxName) > 1 {
+		if n, parseErr := strconv.Atoi(maxName[1:]); parseErr == nil {
+			counter := si.Counter()
+			if int64(n+1) > counter {
+				si.SetCounter(int64(n + 1))
+			}
+		}
+	}
 
 	// Add commit data if present
 	if w.liveCommitData != nil && len(w.liveCommitData.data) > 0 {
