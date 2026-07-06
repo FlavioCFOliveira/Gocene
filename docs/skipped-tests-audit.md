@@ -9,6 +9,8 @@
 - **Total deferred `t.Fatal` calls: 660** across 33 packages
 - All deferred tests fail with descriptive blocker reasons, making the test suite informative about what remains unimplemented
 
+> **Note:** This audit is a snapshot as of 2026-06-11. Subsequent work (e.g. T105.2.1 DeleteDocuments, T105.2.2 NRT reader open/openIfChanged) has re-enabled some tests and updated blocker messages where the original dependency is now implemented. Regenerate this document after Sprint 15 closes for an accurate deferred-test count.
+
 ## Summary Table
 
 | Package | Deferred Tests | Blocker Summary |
