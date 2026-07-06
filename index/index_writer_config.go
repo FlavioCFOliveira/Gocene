@@ -71,6 +71,7 @@ type IndexWriterConfig struct {
 	flushOnUpdate          bool
 	indexCommit            *IndexCommit
 	infoStream             util.InfoStream
+	mergedSegmentWarmer    MergedSegmentWarmer
 }
 
 // NewIndexWriterConfig creates a new IndexWriterConfig with default settings.
@@ -218,6 +219,19 @@ func (c *IndexWriterConfig) GetInfoStream() util.InfoStream {
 // SetInfoStream sets the InfoStream for diagnostic logging.
 func (c *IndexWriterConfig) SetInfoStream(infoStream util.InfoStream) {
 	c.infoStream = infoStream
+}
+
+// GetMergedSegmentWarmer returns the merged-segment warmer, or nil if none is set.
+func (c *IndexWriterConfig) GetMergedSegmentWarmer() MergedSegmentWarmer {
+	return c.mergedSegmentWarmer
+}
+
+// SetMergedSegmentWarmer sets the merged-segment warmer. Passing nil disables
+// warming. Returns the receiver for fluent configuration, matching Lucene's
+// IndexWriterConfig.setMergedSegmentWarmer chaining semantics.
+func (c *IndexWriterConfig) SetMergedSegmentWarmer(warmer MergedSegmentWarmer) *IndexWriterConfig {
+	c.mergedSegmentWarmer = warmer
+	return c
 }
 
 // String returns a string representation of the IndexWriterConfig.

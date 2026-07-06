@@ -2473,6 +2473,19 @@ func (w *IndexWriter) mergeSegmentGroup(segs []*SegmentCommitInfo, segName strin
 		return nil, fmt.Errorf("forceMerge: write .si: %w", err)
 	}
 	closeReaders()
+
+	// Warm the newly merged segment before it becomes visible.
+	if warmer := w.config.GetMergedSegmentWarmer(); warmer != nil {
+		if sr, warmErr := openSegmentReader(w.directory, sciMerged); warmErr == nil {
+			if err := warmer.Warm(sr); err != nil {
+				if is := w.config.GetInfoStream(); is.IsEnabled("IW") {
+					is.Message("IW", fmt.Sprintf("merged-segment warmer failed for %s: %v", segName, err))
+				}
+			}
+			_ = sr.Close()
+		}
+	}
+
 	return sciMerged, nil
 }
 
