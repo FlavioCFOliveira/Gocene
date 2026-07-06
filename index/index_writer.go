@@ -100,6 +100,18 @@ type IndexWriter struct {
 	// on-disk latest SegmentInfos for doc-count accounting and for the next commit.
 	pinnedSegmentInfos *SegmentInfos
 
+	// lastCommittedSegmentInfos is a clone of the SegmentInfos that was last
+	// successfully written to disk by this writer. It is used by Rollback to
+	// restore the directory to the last committed state, discarding any
+	// uncommitted segments, merges, or buffered changes.
+	lastCommittedSegmentInfos *SegmentInfos
+
+	// startingFiles records the set of files that existed in the directory when
+	// this writer was created. Rollback preserves these files so that commits
+	// created before the writer was opened (e.g. under a keep-all deletion policy)
+	// are not accidentally removed.
+	startingFiles map[string]struct{}
+
 	// pendingImportedSegments holds pending segment descriptors accumulated by
 	// auto-flush (MaxBufferedDocs) and AddIndexes before the next Commit.  Each
 	// entry becomes a separate SegmentCommitInfo in the committed SegmentInfos,
@@ -290,12 +302,22 @@ func NewIndexWriter(dir store.Directory, config *IndexWriterConfig) (*IndexWrite
 	writer.closed.Store(false)
 	writer.docCount.Store(0)
 
+	// Record the files present at writer creation so Rollback can distinguish
+	// pre-existing commits from new uncommitted files.
+	if starting, err := dir.ListAll(); err == nil {
+		writer.startingFiles = make(map[string]struct{}, len(starting))
+		for _, f := range starting {
+			writer.startingFiles[f] = struct{}{}
+		}
+	}
+
 	// Populate committedSegments from existing on-disk SegmentInfos so that
 	// UpdateDocument can detect whether target fields exist in committed data.
 	// This is needed when reopening an existing index (APPEND mode).
 	existingSI, _ := ReadSegmentInfos(dir)
 	if existingSI != nil {
 		writer.committedSegments = existingSI.List()
+		writer.lastCommittedSegmentInfos = existingSI.Clone()
 	}
 
 	// If the writer is pinned to a specific prior commit, start from that
@@ -311,6 +333,9 @@ func NewIndexWriter(dir store.Directory, config *IndexWriterConfig) (*IndexWrite
 			}
 			writer.committedSegments = base.List()
 			writer.pinnedSegmentInfos = base
+			// For rollback purposes the writer's "last committed" baseline is the
+			// pinned commit, not the newest commit on disk.
+			writer.lastCommittedSegmentInfos = base.Clone()
 		}
 	}
 
@@ -1418,6 +1443,9 @@ func (w *IndexWriter) Commit() error {
 		return fmt.Errorf("failed to write segment infos: %w", err)
 	}
 
+	// Remember the committed state so Rollback can restore it later.
+	w.lastCommittedSegmentInfos = si.Clone()
+
 	// A Commit advances the on-disk generation.  Any NRT reader opened before
 	// this point must now report IsCurrent == false, so bump the NRT generation
 	// even though no new in-memory segments were flushed.
@@ -2179,32 +2207,116 @@ func (w *IndexWriter) DeleteAll() error {
 
 // Rollback rolls back all changes made since the last commit.
 // This closes the writer and returns the index to its previous state.
-// Uses atomic operations to minimize lock contention.
+//
+// Any segments flushed or merged since the last commit are removed, buffered
+// documents are discarded, and the directory is restored to the SegmentInfos
+// that was last successfully committed by this writer (or to the empty state
+// if no commit was ever performed).
 func (w *IndexWriter) Rollback() error {
 	// Fast path: check if already closed using atomic
 	if w.closed.Load() || w.tragicError.Load() != nil {
 		return nil
 	}
 
-	// Close the merge scheduler without committing
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	// Close the merge scheduler without committing.
 	if s := w.config.GetMergeScheduler(); s != nil {
 		_ = s.Close()
 	}
 
-	// Set closed atomically
-	w.closed.Store(true)
+	// Discard all pending state that was never committed.
+	w.docCount.Store(0)
+	w.pendingDeleteTerms = nil
+	w.pendingSoftDeletedOrdinals = nil
+	w.pendingDeletedDocIDs = nil
+	w.pendingDeleteQueries = nil
+	w.pendingCommittedDeleteTerms = nil
+	w.pendingCommittedDeleteCount = 0
+	w.pendingImportedSegments = nil
+	w.docFieldIndex = nil
+	w.pendingFieldInfos = nil
+	w.pendingDeleteAll = false
+	w.preparedCommit = false
+	w.clearLiveCommitData()
+	w.nrtSegmentInfos = nil
 
-	// Release the write lock.
+	if w.documentsWriter != nil {
+		w.documentsWriter.mu.Lock()
+		_ = w.documentsWriter.TakePerThreadPool()
+		w.documentsWriter.mu.Unlock()
+	}
+
+	// Determine the set of files that must survive the rollback. When the writer
+	// has committed at least once, restore that commit to disk so it becomes the
+	// latest generation again; uncommitted files are then deleted. When no
+	// commit was ever made, all writer-created files are removed.
+	var keep map[string]struct{}
+	if w.lastCommittedSegmentInfos != nil {
+		restored := w.lastCommittedSegmentInfos.Clone()
+		// Ensure the restored commit is written with a generation higher than
+		// any generation already on disk, so it unambiguously becomes the latest
+		// commit and readers reopen at the rolled-back state.
+		currentGen := restored.Generation()
+		if current, err := ReadSegmentInfos(w.directory); err == nil {
+			if current.Generation() > currentGen {
+				currentGen = current.Generation()
+			}
+		}
+		restored.SetGeneration(currentGen + 1)
+		restored.SetLastGeneration(restored.Generation())
+		if err := WriteSegmentInfos(restored, w.directory); err != nil {
+			return fmt.Errorf("rollback: write restored segment infos: %w", err)
+		}
+		w.committedSegments = restored.List()
+		keep = filesReferencedBySegmentInfos(restored)
+	} else {
+		w.committedSegments = nil
+		keep = make(map[string]struct{})
+	}
+
+	// Preserve pre-existing files (e.g. commits kept by a keep-all deletion
+	// policy) and the write lock itself.
+	for f := range w.startingFiles {
+		keep[f] = struct{}{}
+	}
+	keep[writeLockName] = struct{}{}
+
+	allFiles, err := w.directory.ListAll()
+	if err != nil {
+		return fmt.Errorf("rollback: list directory: %w", err)
+	}
+	for _, f := range allFiles {
+		if _, ok := keep[f]; !ok {
+			_ = w.directory.DeleteFile(f)
+		}
+	}
+
+	// Release the write lock and mark the writer closed.
 	if w.writeLock != nil {
 		_ = w.writeLock.Close()
 		w.writeLock = nil
 	}
-
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.preparedCommit = false
-	w.clearLiveCommitData()
+	w.closed.Store(true)
 	return nil
+}
+
+// filesReferencedBySegmentInfos returns the set of files that belong to the
+// given SegmentInfos, including the segments_N file and every segment file
+// (core files, live-docs, field-infos generations, doc-values updates).
+func filesReferencedBySegmentInfos(si *SegmentInfos) map[string]struct{} {
+	files := make(map[string]struct{})
+	if si == nil {
+		return files
+	}
+	files[si.GetFileName()] = struct{}{}
+	for _, sci := range si.List() {
+		for _, f := range sci.GetFiles() {
+			files[f] = struct{}{}
+		}
+	}
+	return files
 }
 
 // ForceMerge forces merge policy to merge segments until there are

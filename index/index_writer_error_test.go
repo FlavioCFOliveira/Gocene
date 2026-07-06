@@ -258,28 +258,27 @@ func TestIndexWriter_Rollback(t *testing.T) {
 
 		config := index.NewIndexWriterConfig(createTestAnalyzer())
 		writer, _ := index.NewIndexWriter(dir, config)
-		defer writer.Close()
-
-		// Get initial count
-		initialCount := writer.NumDocs()
 
 		// Add documents (pending)
 		for i := 0; i < 5; i++ {
 			doc := &testDocument{fields: []interface{}{}}
-			writer.AddDocument(doc)
+			if err := writer.AddDocument(doc); err != nil {
+				t.Fatalf("AddDocument: %v", err)
+			}
 		}
 
-		// TODO: Implement rollback functionality
-		// err := writer.Rollback()
-		// if err != nil {
-		//     t.Errorf("Rollback() error = %v", err)
-		// }
+		if err := writer.Rollback(); err != nil {
+			t.Fatalf("Rollback: %v", err)
+		}
 
-		// After rollback, count should return to initial
-		t.Fatal("Rollback not yet implemented")
-
-		if writer.NumDocs() != initialCount {
-			t.Errorf("After rollback, NumDocs should be %d", initialCount)
+		// After rollback the directory must contain no committed documents.
+		reader, err := index.OpenDirectoryReader(dir)
+		if err != nil {
+			t.Fatalf("OpenDirectoryReader after rollback: %v", err)
+		}
+		defer reader.Close()
+		if reader.MaxDoc() != 0 {
+			t.Errorf("after rollback MaxDoc = %d, want 0", reader.MaxDoc())
 		}
 	})
 }
