@@ -560,8 +560,6 @@ func TestIndexWriterMergePolicy_AbortMergeOnCommit(t *testing.T) {
 // Ported from: TestIndexWriterMergePolicy.testForceMergeWhileGetReader()
 // Purpose: Verifies force merge works correctly with concurrent reader acquisition
 func TestIndexWriterMergePolicy_ForceMergeWhileGetReader(t *testing.T) {
-	t.Fatal("Requires full DirectoryReader implementation")
-
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
@@ -574,16 +572,27 @@ func TestIndexWriterMergePolicy_ForceMergeWhileGetReader(t *testing.T) {
 		t.Fatalf("NewIndexWriter() error = %v", err)
 	}
 
-	doc1 := &testDocument{fields: []interface{}{}}
-	doc2 := &testDocument{fields: []interface{}{}}
+	if err := addDocForMergePolicy(writer); err != nil {
+		t.Fatalf("AddDocument() error = %v", err)
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit() error = %v", err)
+	}
+	if err := addDocForMergePolicy(writer); err != nil {
+		t.Fatalf("AddDocument() error = %v", err)
+	}
 
-	writer.AddDocument(doc1)
-	writer.Commit()
-	writer.AddDocument(doc2)
+	reader, err := writer.GetReader()
+	if err != nil {
+		t.Fatalf("GetReader() error = %v", err)
+	}
 
-	// Force merge to 1 segment
-	writer.ForceMerge(1)
+	// Force merge to 1 segment while a reader is open.
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("ForceMerge(1) error = %v", err)
+	}
 
+	reader.Close()
 	writer.Close()
 }
 
@@ -622,8 +631,6 @@ func TestIndexWriterMergePolicy_FailAfterMergeCommitted(t *testing.T) {
 // Ported from: TestIndexWriterMergePolicy.testMergeOnGetReader()
 // Purpose: Verifies that merges can be triggered when getting a near-real-time reader
 func TestIndexWriterMergePolicy_MergeOnGetReader(t *testing.T) {
-	t.Fatal("Requires full DirectoryReader implementation")
-
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
@@ -646,11 +653,14 @@ func TestIndexWriterMergePolicy_MergeOnGetReader(t *testing.T) {
 		}
 	}
 
-	writer1.Close()
+	if err := writer1.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
 
 	// Second writer with merge on getReader policy
 	config2 := index.NewIndexWriterConfig(createTestAnalyzer())
 	config2.SetMergePolicy(index.NewTieredMergePolicy())
+	config2.SetMergeScheduler(index.NewSerialMergeScheduler())
 
 	writer2, err := index.NewIndexWriter(dir, config2)
 	if err != nil {
@@ -663,9 +673,11 @@ func TestIndexWriterMergePolicy_MergeOnGetReader(t *testing.T) {
 		t.Fatalf("AddDocument() error = %v", err)
 	}
 
-	// Get reader would trigger merge
-	// reader := index.DirectoryReaderOpen(writer2)
-	// defer reader.Close()
+	reader, err := writer2.GetReader()
+	if err != nil {
+		t.Fatalf("GetReader() error = %v", err)
+	}
+	reader.Close()
 }
 
 // TestIndexWriterMergePolicy_SetDiagnostics tests setting merge diagnostics.
