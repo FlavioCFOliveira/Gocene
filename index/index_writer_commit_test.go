@@ -103,12 +103,6 @@ func TestCommitOnClose(t *testing.T) {
 	})
 
 	t.Run("documents not visible until close", func(t *testing.T) {
-		// TODO(GOC-4163): a DirectoryReader reopened mid-session does not yet
-		// observe segments committed by a separate IndexWriter on the same
-		// Directory without losing the previously committed segments.
-		// Re-enable once Reopen/IsCurrent reflect external commits correctly.
-		t.Fatal("Reopen does not yet observe externally committed segments")
-
 		dir := store.NewByteBuffersDirectory()
 		defer dir.Close()
 
@@ -328,10 +322,11 @@ func TestCommitOnCloseAbort(t *testing.T) {
 // Purpose: Tests forceMerge behavior with commit on close and rollback
 func TestCommitOnCloseForceMerge(t *testing.T) {
 	t.Run("forceMerge with rollback", func(t *testing.T) {
-		// TODO(GOC-4163): DirectoryReader.Leaves reports a single leaf for a
-		// multi-segment index, so the multi-vs-single segment assertions
-		// cannot be exercised. Re-enable once per-segment leaves are exposed.
-		t.Fatal("DirectoryReader.Leaves does not yet expose per-segment leaves")
+		// ForceMerge currently writes the merged SegmentInfos immediately, so a
+		// reader opened before writer close already sees a single segment and
+		// rollback cannot abort the merge. Re-enable once merges are held as
+		// pending until commit/close (or rollback) like Lucene.
+		t.Fatal("ForceMerge commits merged segments immediately; pending-merge/rollback semantics not yet implemented")
 
 		dir := store.NewByteBuffersDirectory()
 		defer dir.Close()
@@ -916,7 +911,7 @@ func TestCommitUserData(t *testing.T) {
 		}
 		commit := reader.GetIndexCommit()
 		if commit == nil {
-			t.Fatal("GetIndexCommit returned nil")
+			t.Fatalf("GetIndexCommit returned nil for reader with %d segments", reader.MaxDoc())
 		}
 		if len(commit.GetUserData()) != 0 {
 			t.Errorf("Expected empty user data, got %v", commit.GetUserData())
