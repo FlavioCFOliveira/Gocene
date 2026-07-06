@@ -95,6 +95,11 @@ type IndexWriter struct {
 	// from this writer's own directory. Protected by mu.
 	committedSegments []*SegmentCommitInfo
 
+	// pinnedSegmentInfos holds the SegmentInfos for an IndexWriterConfig.IndexCommit
+	// when the writer is opened against a specific past commit. It overrides the
+	// on-disk latest SegmentInfos for doc-count accounting and for the next commit.
+	pinnedSegmentInfos *SegmentInfos
+
 	// pendingImportedSegments holds pending segment descriptors accumulated by
 	// auto-flush (MaxBufferedDocs) and AddIndexes before the next Commit.  Each
 	// entry becomes a separate SegmentCommitInfo in the committed SegmentInfos,
@@ -288,15 +293,34 @@ func NewIndexWriter(dir store.Directory, config *IndexWriterConfig) (*IndexWrite
 	// Populate committedSegments from existing on-disk SegmentInfos so that
 	// UpdateDocument can detect whether target fields exist in committed data.
 	// This is needed when reopening an existing index (APPEND mode).
-	if existingSI, siErr := ReadSegmentInfos(dir); siErr == nil {
+	existingSI, _ := ReadSegmentInfos(dir)
+	if existingSI != nil {
 		writer.committedSegments = existingSI.List()
+	}
 
-		// Validate that the index sort matches the existing commit. Changing the
-		// index sort on an existing index is not allowed (Lucene throws
-		// IllegalArgumentException). This check is skipped for CREATE mode
-		// (openMode == CREATE) where the directory is expected to be empty,
-		// but a stale segments_N left behind by a previous crash may still
-		// exist; in that case the existing sort must match.
+	// If the writer is pinned to a specific prior commit, start from that
+	// commit's SegmentInfos but bump the generation/counter to the directory
+	// maximum so new commits and segments do not collide with newer commits that
+	// remain on disk.
+	if pinned := config.IndexCommit(); pinned != nil {
+		if pinnedSI := pinned.GetSegmentInfos(); pinnedSI != nil {
+			base := pinnedSI.Clone()
+			if existingSI != nil {
+				base.SetGeneration(existingSI.Generation())
+				base.SetCounter(existingSI.Counter())
+			}
+			writer.committedSegments = base.List()
+			writer.pinnedSegmentInfos = base
+		}
+	}
+
+	// Validate that the index sort matches the existing commit. Changing the
+	// index sort on an existing index is not allowed (Lucene throws
+	// IllegalArgumentException). This check is skipped for CREATE mode
+	// (openMode == CREATE) where the directory is expected to be empty,
+	// but a stale segments_N left behind by a previous crash may still
+	// exist; in that case the existing sort must match.
+	if existingSI != nil {
 		existingSort := existingSI.GetInMemoryIndexSort()
 		configSort := config.IndexSort()
 		if !sortsCompatible(existingSort, configSort) {
@@ -1905,9 +1929,18 @@ func (w *IndexWriter) Close() error {
 // Deleted and soft-deleted documents are excluded; buffered (uncommitted)
 // deletes are counted.
 func (w *IndexWriter) NumDocs() int {
-	si, err := ReadSegmentInfos(w.directory)
+	var si *SegmentInfos
+	if w.pinnedSegmentInfos != nil {
+		si = w.pinnedSegmentInfos
+	} else {
+		var err error
+		si, err = ReadSegmentInfos(w.directory)
+		if err != nil {
+			si = nil
+		}
+	}
 	committedLive := 0
-	if err == nil {
+	if si != nil {
 		committedLive = si.TotalNumDocs()
 	}
 	// Add live docs from pending imported segments (net of hard+soft deletes).
@@ -1939,9 +1972,18 @@ func (w *IndexWriter) NumDocs() int {
 // MaxDoc returns the total number of documents including deleted ones.
 // Matches Lucene's IndexWriter.maxDoc() semantics.
 func (w *IndexWriter) MaxDoc() int {
-	si, err := ReadSegmentInfos(w.directory)
+	var si *SegmentInfos
+	if w.pinnedSegmentInfos != nil {
+		si = w.pinnedSegmentInfos
+	} else {
+		var err error
+		si, err = ReadSegmentInfos(w.directory)
+		if err != nil {
+			si = nil
+		}
+	}
 	committedTotal := 0
-	if err == nil {
+	if si != nil {
 		committedTotal = si.TotalDocCount()
 	}
 	// Add documents in pending imported segments (auto-flush + AddIndexes).
