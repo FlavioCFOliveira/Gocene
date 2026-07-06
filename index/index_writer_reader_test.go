@@ -38,17 +38,106 @@ import (
 
 // testAddCloseOpen ports testAddCloseOpen().
 // Java repeatedly pulls an NRT reader from the writer mid-mutation and asserts
-// isCurrent() transitions. Needs DirectoryReader.open(writer) and updateDocument
-// / deleteDocuments to be applied.
+// isCurrent() transitions.
 func TestIndexWriterReader_AddCloseOpen(t *testing.T) {
-	t.Fatal("needs NRT DirectoryReader.open(writer); deleteDocuments/updateDocument are no-op stubs")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(createTestAnalyzer()))
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	defer writer.Close()
+
+	if err := writer.AddDocument(createTestDoc(1, "test", 2)); err != nil {
+		t.Fatalf("AddDocument: %v", err)
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	reader, err := index.OpenDirectoryReaderFromWriter(writer)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
+	}
+	if current, err := reader.IsCurrent(); err != nil || !current {
+		t.Fatalf("fresh NRT reader should be current (current=%v err=%v)", current, err)
+	}
+
+	if err := writer.AddDocument(createTestDoc(2, "test", 2)); err != nil {
+		t.Fatalf("AddDocument: %v", err)
+	}
+	if current, err := reader.IsCurrent(); err != nil || current {
+		t.Fatalf("reader should be stale after adding a document (current=%v err=%v)", current, err)
+	}
+
+	newReader, err := index.OpenIfChangedFromWriter(reader, writer)
+	if err != nil {
+		t.Fatalf("OpenIfChangedFromWriter: %v", err)
+	}
+	if newReader == nil {
+		t.Fatal("expected a new reader after adding a document")
+	}
+	reader.Close()
+	reader = newReader
+
+	if current, err := reader.IsCurrent(); err != nil || !current {
+		t.Fatalf("reopened reader should be current (current=%v err=%v)", current, err)
+	}
+	if got := reader.NumDocs(); got != 2 {
+		t.Fatalf("NumDocs = %d, want 2", got)
+	}
+	reader.Close()
 }
 
 // testUpdateDocument ports testUpdateDocument().
 // Java verifies an updated document replaces the old one and is visible via an
-// NRT reader. UpdateDocument's delete-term half is currently not applied.
+// NRT reader. The replacement document is indexed and the old committed copy
+// is deleted by the update term inside the NRT snapshot.
 func TestIndexWriterReader_UpdateDocument(t *testing.T) {
-	t.Fatal("IndexWriter.UpdateDocument does not apply the delete term; NRT reader unavailable")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(createTestAnalyzer()))
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	defer writer.Close()
+
+	if err := writer.AddDocument(createTestDoc(1, "test", 2)); err != nil {
+		t.Fatalf("AddDocument: %v", err)
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	reader, err := index.OpenDirectoryReaderFromWriter(writer)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
+	}
+	defer reader.Close()
+
+	if got := reader.NumDocs(); got != 1 {
+		t.Fatalf("NumDocs before update = %d, want 1", got)
+	}
+
+	term := index.NewTerm("id", "1")
+	if err := writer.UpdateDocument(term, createTestDoc(1, "updated", 2)); err != nil {
+		t.Fatalf("UpdateDocument: %v", err)
+	}
+
+	newReader, err := index.OpenIfChangedFromWriter(reader, writer)
+	if err != nil {
+		t.Fatalf("OpenIfChangedFromWriter: %v", err)
+	}
+	if newReader == nil {
+		t.Fatal("OpenIfChangedFromWriter returned nil: expected stale reader after update")
+	}
+	defer newReader.Close()
+
+	if got := newReader.NumDocs(); got != 1 {
+		t.Fatalf("NumDocs after update = %d, want 1", got)
+	}
 }
 
 // testIsCurrent ports testIsCurrent().

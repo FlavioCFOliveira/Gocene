@@ -312,6 +312,12 @@ type DirectoryReader struct {
 	// reader was created from a writer.  Zero means commit-pinned reader.
 	// Used by OpenIfChangedFromWriter for efficient change detection.
 	nrtGen int64
+
+	// writer holds the live IndexWriter this reader was opened from when it is
+	// an NRT reader.  It allows IsCurrent to consult the writer's pending state
+	// instead of comparing against the on-disk commit generation, which is
+	// always stale for an in-memory NRT snapshot.
+	writer *IndexWriter
 }
 
 // SegmentReader is a LeafReader for a specific segment.
@@ -1274,6 +1280,20 @@ func (r *DirectoryReader) IsCurrent() (bool, error) {
 		// No backing directory — treat as always current (nothing can change it).
 		return true, nil
 	}
+
+	// NRT reader: ask the live writer whether any uncommitted changes have
+	// happened since this snapshot was opened.
+	if r.writer != nil {
+		if r.nrtGen > 0 {
+			return r.nrtGen == r.writer.GetNRTGeneration() && !r.writer.hasUncommittedChanges(), nil
+		}
+		// Commit-pinned reader owned by a writer: treat it as current only when
+		// the writer has no uncommitted changes and the disk generation matches.
+		if r.writer.hasUncommittedChanges() {
+			return false, nil
+		}
+	}
+
 	segmentInfos, err := ReadSegmentInfos(r.directory)
 	if err != nil {
 		// No segments file means the directory is still empty — still current.

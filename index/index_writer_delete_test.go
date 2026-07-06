@@ -719,12 +719,41 @@ func TestIndexWriterDelete_DeleteAllRollback(t *testing.T) {
 
 // TestIndexWriterDelete_DeleteAllNRT ports testDeleteAllNRT.
 //
-// Skipped: the test relies on DirectoryReader.open(IndexWriter) to observe
-// uncommitted deleteAll state through a near-real-time reader. Gocene's
-// OpenDirectoryReader only accepts a store.Directory, so there is no way to
-// see the pre-commit deleteAll. Re-enable once an NRT reader API exists.
+// Intent: index and commit some documents, call DeleteAll, then open a
+// near-real-time reader directly from the writer. The NRT reader must see the
+// deleteAll without an explicit commit.
 func TestIndexWriterDelete_DeleteAllNRT(t *testing.T) {
-	t.Fatal("infra gap: no near-real-time reader (DirectoryReader.open(IndexWriter)) in Gocene")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
+	modifier, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	defer modifier.Close()
+
+	value := 100
+	for id := 1; id <= 10; id++ {
+		addDoc(t, modifier, id, value)
+	}
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	if err := modifier.DeleteAll(); err != nil {
+		t.Fatalf("DeleteAll: %v", err)
+	}
+
+	reader, err := index.OpenDirectoryReaderFromWriter(modifier)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
+	}
+	defer reader.Close()
+
+	if got := reader.NumDocs(); got != 0 {
+		t.Fatalf("NumDocs after DeleteAll = %d, want 0", got)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -955,11 +984,52 @@ func TestIndexWriterDelete_TryDeleteDocument(t *testing.T) {
 
 // TestIndexWriterDelete_NRTIsCurrentAfterDelete ports testNRTIsCurrentAfterDelete.
 //
-// Skipped: relies entirely on near-real-time readers opened from the writer
-// and on StandardDirectoryReader.isCurrent() to assert staleness after a
-// delete. Neither exists in Gocene.
+// Intent: an NRT reader opened from the writer becomes stale as soon as a
+// buffered delete is issued, even before the delete is committed to disk.
 func TestIndexWriterDelete_NRTIsCurrentAfterDelete(t *testing.T) {
-	t.Fatal("infra gap: no NRT reader open-from-writer / StandardDirectoryReader.isCurrent")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
+	modifier, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	defer modifier.Close()
+
+	value := 100
+	for id := 1; id <= 10; id++ {
+		addDoc(t, modifier, id, value)
+	}
+	if err := modifier.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	reader, err := index.OpenDirectoryReaderFromWriter(modifier)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
+	}
+	defer reader.Close()
+
+	current, err := reader.IsCurrent()
+	if err != nil {
+		t.Fatalf("IsCurrent: %v", err)
+	}
+	if !current {
+		t.Fatal("fresh NRT reader should be current")
+	}
+
+	if err := modifier.DeleteDocuments(index.NewTerm("id", "5")); err != nil {
+		t.Fatalf("DeleteDocuments: %v", err)
+	}
+
+	current, err = reader.IsCurrent()
+	if err != nil {
+		t.Fatalf("IsCurrent after delete: %v", err)
+	}
+	if current {
+		t.Fatal("NRT reader should be stale after a buffered delete")
+	}
 }
 
 // ---------------------------------------------------------------------------

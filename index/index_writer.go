@@ -964,20 +964,18 @@ func (w *IndexWriter) GetReader() (*DirectoryReader, error) {
 		}
 	}
 
-	// When no pending segments exist, open a reader from the base SIS.
-	if len(w.pendingImportedSegments) == 0 {
-		reader, err2 := OpenDirectoryReaderWithInfos(w.directory, baseSI)
-		if err2 != nil {
-			return nil, fmt.Errorf("GetReader: open reader: %w", err2)
-		}
-		reader.nrtGen = w.nrtGen.Load()
-		return reader, nil
-	}
-
-	// Build an in-memory NRT snapshot: clone the committed SIS and add one
-	// new segment per pendingImportedSegment.
+	// Build an in-memory NRT snapshot: clone the committed SIS so we can
+	// overlay buffered deletes without mutating the previous snapshot or the
+	// on-disk SegmentInfos.
 	nrtSI := baseSI.Clone()
 	nrtSI.NextGeneration()
+
+	// Apply buffered deletes (DeleteAll, term, query, docID) against the
+	// committed segments in the snapshot.  This makes an NRT reader reflect
+	// deletes issued since the last commit without requiring a disk commit.
+	if err := w.applyBufferedDeletesToSegmentCommitInfos(nrtSI); err != nil {
+		return nil, err
+	}
 
 	for _, ps := range w.pendingImportedSegments {
 		segmentName := nrtSI.GetNextSegmentName()
@@ -1021,6 +1019,7 @@ func (w *IndexWriter) GetReader() (*DirectoryReader, error) {
 		return nil, fmt.Errorf("GetReader: open reader: %w", err)
 	}
 	reader.nrtGen = w.nrtGen.Load()
+	reader.writer = w
 	return reader, nil
 }
 
@@ -1395,6 +1394,11 @@ func (w *IndexWriter) Commit() error {
 		return fmt.Errorf("failed to write segment infos: %w", err)
 	}
 
+	// A Commit advances the on-disk generation.  Any NRT reader opened before
+	// this point must now report IsCurrent == false, so bump the NRT generation
+	// even though no new in-memory segments were flushed.
+	w.nrtGen.Add(1)
+
 	// Clear the prepared commit flag
 	w.preparedCommit = false
 
@@ -1702,6 +1706,136 @@ func (w *IndexWriter) applyApproximateCommittedDeletesFor(si *SegmentInfos, term
 		existingSCI.IncrDelCount(charge)
 		remaining -= charge
 	}
+}
+
+// applyBufferedDeletesToSegmentCommitInfos merges all buffered committed
+// deletions (DeleteAll, term deletes, query deletes, and TryDeleteDocument
+// docIDs) into the supplied SegmentInfos without writing any .liv files.  This
+// is used by GetReader to build an NRT snapshot whose live-docs state reflects
+// deletes issued since the last commit.  Must be called with w.mu held.
+func (w *IndexWriter) applyBufferedDeletesToSegmentCommitInfos(si *SegmentInfos) error {
+	if si == nil {
+		return nil
+	}
+	segments := si.List()
+	if len(segments) == 0 {
+		return nil
+	}
+
+	// Resolve query deletes once for the whole snapshot.
+	var queryResults map[string][]int
+	if len(w.pendingDeleteQueries) > 0 {
+		exec := lookupQueryDeleteExecutor()
+		if exec == nil {
+			return fmt.Errorf("GetReader: no QueryDeleteExecutor registered for %d pending query deletes", len(w.pendingDeleteQueries))
+		}
+		results, err := exec(w.directory, si, w.pendingDeleteQueries)
+		if err != nil {
+			return fmt.Errorf("GetReader: execute query deletes: %w", err)
+		}
+		queryResults = results
+	}
+
+	for _, sci := range segments {
+		maxDoc := sci.SegmentInfo().DocCount()
+		if maxDoc == 0 {
+			continue
+		}
+
+		deleted := make(map[int]struct{}, maxDoc)
+		for _, ord := range sci.GetDeletedOrdinals() {
+			if ord >= 0 && ord < maxDoc {
+				deleted[ord] = struct{}{}
+			}
+		}
+
+		// DeleteAll marks every document in every committed segment as deleted.
+		if w.pendingDeleteAll {
+			for i := 0; i < maxDoc; i++ {
+				deleted[i] = struct{}{}
+			}
+		}
+
+		// Term-based deletes.
+		if len(w.pendingCommittedDeleteTerms) > 0 {
+			sr, err := openSegmentReader(w.directory, sci)
+			if err != nil {
+				return fmt.Errorf("GetReader: open segment %s: %w", sci.SegmentInfo().Name(), err)
+			}
+			err = w.collectDeletedDocIDs(sr, w.pendingCommittedDeleteTerms, deleted)
+			_ = sr.Close()
+			if err != nil {
+				return err
+			}
+		}
+
+		// Query-based deletes.
+		if queryResults != nil {
+			if docIDs, ok := queryResults[sci.SegmentInfo().Name()]; ok {
+				for _, id := range docIDs {
+					if id >= 0 && id < maxDoc {
+						deleted[id] = struct{}{}
+					}
+				}
+			}
+		}
+
+		if len(deleted) == 0 {
+			continue
+		}
+
+		ords := make([]int, 0, len(deleted))
+		for ord := range deleted {
+			ords = append(ords, ord)
+		}
+		sort.Ints(ords)
+		sci.SetDelCount(len(ords))
+		sci.SetDeletedOrdinals(ords)
+	}
+
+	// TryDeleteDocument global docIDs.
+	if len(w.pendingDeletedDocIDs) > 0 {
+		for _, docID := range w.pendingDeletedDocIDs {
+			sci, ord, ok := mapGlobalDocIDToSegment(segments, docID)
+			if !ok {
+				continue
+			}
+			maxDoc := sci.SegmentInfo().DocCount()
+			ords := sci.GetDeletedOrdinals()
+			exists := false
+			for _, o := range ords {
+				if o == ord {
+					exists = true
+					break
+				}
+			}
+			if exists {
+				continue
+			}
+			ords = append(ords, ord)
+			sort.Ints(ords)
+			sci.SetDelCount(len(ords))
+			sci.SetDeletedOrdinals(ords)
+			_ = maxDoc
+		}
+	}
+
+	return nil
+}
+
+// mapGlobalDocIDToSegment maps an IndexReader-level docID to the segment that
+// contains it and the in-segment ordinal, using the segment order in the
+// supplied SegmentInfos.  It mirrors the leaf ordering used by CompositeReader.
+func mapGlobalDocIDToSegment(segments []*SegmentCommitInfo, docID int) (*SegmentCommitInfo, int, bool) {
+	offset := 0
+	for _, sci := range segments {
+		maxDoc := sci.SegmentInfo().DocCount()
+		if docID < offset+maxDoc {
+			return sci, docID - offset, true
+		}
+		offset += maxDoc
+	}
+	return nil, -1, false
 }
 
 // appendSegmentFile adds fileName to the SegmentInfo's file set if not already
