@@ -295,8 +295,6 @@ func TestIndexWriterMergePolicy_MergeFactorChange(t *testing.T) {
 // Ported from: TestIndexWriterMergePolicy.testMaxBufferedDocsChange()
 // Purpose: Verifies behavior when maxBufferedDocs is modified
 func TestIndexWriterMergePolicy_MaxBufferedDocsChange(t *testing.T) {
-	t.Fatal("MaxBufferedDocs change test requires full IndexWriter implementation")
-
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 

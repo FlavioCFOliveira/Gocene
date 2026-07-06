@@ -141,33 +141,23 @@ func (c *IndexCommit) GetFileNames() ([]string, error) {
 	return result, nil
 }
 
-// Delete deletes this commit by removing its segments file and associated files.
+// Delete deletes this commit by removing its segments file.
+//
+// Lucene's IndexCommit.Delete works through the IndexFileDeleter's reference
+// counting: the segments file is removed immediately, and unreferenced segment
+// files are reclaimed by the next IndexWriter that opens the directory (or by
+// an active deleter).  Directly deleting segment files here is unsafe because
+// a single segment may be shared by multiple commits, which is why the old
+// implementation produced "file not found" errors when deleting older commits
+// whose segments were still live in newer commits.
 func (c *IndexCommit) Delete() error {
 	if c.directory == nil {
 		return fmt.Errorf("directory not set")
 	}
-
-	// Get all files associated with this commit
-	files, err := c.GetFileNames()
-	if err != nil {
-		// If we can't get file names (e.g., segment infos not available),
-		// at least try to delete the segments file
-		if err := c.directory.DeleteFile(c.segmentsFileName); err != nil {
-			return fmt.Errorf("deleting segments file: %w", err)
-		}
-		return nil
+	if err := c.directory.DeleteFile(c.segmentsFileName); err != nil {
+		return fmt.Errorf("deleting segments file %s: %w", c.segmentsFileName, err)
 	}
-
-	// Delete all files
-	var lastErr error
-	for _, file := range files {
-		if err := c.directory.DeleteFile(file); err != nil {
-			// Keep track of errors but try to delete all files
-			lastErr = err
-		}
-	}
-
-	return lastErr
+	return nil
 }
 
 // IsDeleted returns true if this commit has been deleted.

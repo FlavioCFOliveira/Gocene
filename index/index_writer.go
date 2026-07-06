@@ -184,6 +184,10 @@ type IndexWriter struct {
 	// remain visible across multiple GetReader calls within the same
 	// writer session.
 	nrtSegmentInfos *spi.SegmentInfos
+
+	// deleter tracks reference counts for every segment file and enforces the
+	// configured IndexDeletionPolicy on writer init and on every commit.
+	deleter *IndexFileDeleter
 }
 
 // pendingSegment captures the metadata of a segment that has been flushed from
@@ -365,6 +369,35 @@ func NewIndexWriter(dir store.Directory, config *IndexWriterConfig) (*IndexWrite
 			return nil, fmt.Errorf(
 				"cannot change index sort from %v to %v: index sort cannot be changed after the index was created",
 				existingSort, configSort)
+		}
+	}
+
+	// Wire the file deleter so that commit/rollback correctly reference-count
+	// segment files and enforce the configured deletion policy.  When the writer
+	// is pinned to a specific prior commit (SetIndexCommit), the deleter must
+	// start from that commit so it does not treat newer commits as live and then
+	// try to delete files that belong to segments already advanced by those
+	// newer commits.
+	files, _ := dir.ListAll()
+	baseForDeleter := existingSI
+	if writer.pinnedSegmentInfos != nil {
+		baseForDeleter = writer.pinnedSegmentInfos
+	}
+	if baseForDeleter == nil {
+		baseForDeleter = NewSegmentInfos()
+		baseForDeleter.SetGeneration(1)
+	}
+	if policy := config.GetIndexDeletionPolicy(); policy != nil {
+		deleter, deleterErr := NewIndexFileDeleter(files, dir, dir, policy, baseForDeleter.Clone(), config.GetInfoStream(), writer, existingSI != nil, false)
+		if deleterErr != nil {
+			_ = wl.Close()
+			return nil, fmt.Errorf("IndexFileDeleter init: %w", deleterErr)
+		}
+		writer.deleter = deleter
+		if startingDeleted := deleter.StartingCommitDeleted(); startingDeleted {
+			// The deletion policy removed the commit this writer opened on.
+			// For a pinned commit that is a valid user choice; for the latest
+			// commit it indicates the policy discarded the head.
 		}
 	}
 
@@ -758,6 +791,11 @@ func (w *IndexWriter) SetLiveCommitData(data map[string]string) {
 func (w *IndexWriter) getLiveCommitData() map[string]string {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
+	return w.getLiveCommitDataLocked()
+}
+
+// getLiveCommitDataLocked is the unlocked variant; the caller must hold w.mu.
+func (w *IndexWriter) getLiveCommitDataLocked() map[string]string {
 	if w.liveCommitData == nil {
 		return nil
 	}
@@ -1124,6 +1162,12 @@ func (w *IndexWriter) hasUncommittedChanges() bool {
 	}
 	w.mu.RLock()
 	defer w.mu.RUnlock()
+	return w.hasUncommittedChangesLocked()
+}
+
+// hasUncommittedChangesLocked is the unlocked variant; the caller must hold
+// w.mu (either read or write lock).
+func (w *IndexWriter) hasUncommittedChangesLocked() bool {
 	// Pending segments already materialised into an NRT snapshot are visible to
 	// that snapshot and do not count as "uncommitted" for currentness checks.
 	hasPendingSegments := false
@@ -1134,14 +1178,24 @@ func (w *IndexWriter) hasUncommittedChanges() bool {
 		}
 	}
 	return hasPendingSegments ||
+		w.docCount.Load() > 0 ||
 		len(w.pendingDeleteTerms) > 0 ||
 		len(w.pendingCommittedDeleteTerms) > 0 ||
 		len(w.pendingDeleteQueries) > 0 ||
+		len(w.pendingDeletedDocIDs) > 0 ||
 		w.pendingDeleteAll
 }
 
 // Commit commits all pending changes.
 func (w *IndexWriter) Commit() error {
+	return w.commitLocked(false)
+}
+
+// commitLocked is the internal commit implementation. When force is true the
+// commit is written even if no mutations are pending.  IndexWriter.Commit()
+// passes false; the writer's Close() calls Commit() directly so any
+// pending live commit data still produces a new generation.
+func (w *IndexWriter) commitLocked(force bool) error {
 	if err := w.ensureOpen(); err != nil {
 		return fmt.Errorf("cannot commit: %w", err)
 	}
@@ -1149,15 +1203,25 @@ func (w *IndexWriter) Commit() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	// Simple implementation for testing: persist segments info
-	si, err := ReadSegmentInfos(w.directory)
-	if err != nil {
-		// No segments file yet, create new one
-		si = NewSegmentInfos()
-		si.SetGeneration(1)
-	} else {
-		// Advance generation
+	// Use the writer's in-memory SegmentInfos as the base for this commit.
+	// Reliance on ReadSegmentInfos here is unsafe because a deletion policy may
+	// have deleted the latest on-disk commit after the writer opened (e.g.
+	// DeleteLastCommitPolicy).  Lucene's commitInternal always writes from the
+	// writer's own segmentInfos, not from a re-read of the directory.
+	var si *SegmentInfos
+	if w.lastCommittedSegmentInfos != nil {
+		si = w.lastCommittedSegmentInfos.Clone()
 		si.NextGeneration()
+	} else {
+		var err error
+		si, err = ReadSegmentInfos(w.directory)
+		if err != nil {
+			// No segments file yet, create new one
+			si = NewSegmentInfos()
+			si.SetGeneration(1)
+		} else {
+			si.NextGeneration()
+		}
 	}
 
 	// Make sure every committed segment carries the live-docs ordinals that
@@ -1166,6 +1230,22 @@ func (w *IndexWriter) Commit() error {
 	// would overwrite the .liv file instead of cumulatively extending it.
 	for _, sci := range si.List() {
 		loadLiveDocsFromDisk(w.directory, sci)
+	}
+
+	// If nothing has changed since the last commit, do not write a new
+	// segments_N. This avoids generating empty commits on writer.Close and
+	// keeps generation stable when no mutation occurred.  The exception is the
+	// very first commit: an empty index must still materialise a segments_N so
+	// that subsequent APPEND-mode writers can open it (rmp #105.2.5).
+	if !force && w.lastCommittedSegmentInfos != nil && !w.hasUncommittedChangesLocked() && !w.pendingDeleteAll {
+		currentData := si.GetUserData()
+		newData := w.getLiveCommitDataLocked()
+		if mapsEqual(currentData, newData) {
+			w.clearLiveCommitData()
+			w.preparedCommit = false
+			w.nrtGen.Add(1)
+			return nil
+		}
 	}
 
 	// Materialise all pending segments (auto-flush + AddIndexes imports).
@@ -1375,57 +1455,85 @@ func (w *IndexWriter) Commit() error {
 				}
 			}
 		}
-		if codecFlushed && w.config.UseCompoundFile() && codec.CompoundFormat() != nil {
-			// Collect all per-format files written for this segment (every file
-			// with the segment name prefix, excluding the infrastructure files:
-			// .si is written after CFS, .cfs/.cfe are the CFS output targets).
-			// All Gocene codec writers now use CodecUtil.writeIndexHeader /
-			// writeFooter, so every per-format file is embeddable.
-			allFiles, err3 := w.directory.ListAll()
-			if err3 != nil {
-				return fmt.Errorf("commit: list directory for CFS: %w", err3)
-			}
-			// A file belongs to this segment when ParseSegmentName resolves to
-			// the segment name. ParseSegmentName follows IndexFileNames: it
-			// strips at the first '.' or the second '_', so it matches both the
-			// plain "_0.ext" form and the per-field "_0_FormatName_suffix.ext"
-			// form used by PerFieldPostingsFormat / PerFieldKnnVectorsFormat /
-			// etc. A previous "_0." prefix match silently dropped the per-field
-			// vector files (_0_Lucene99HnswVectorsFormat_0.vem, ...) from the
-			// compound file, so the reopened reader could not find them inside
-			// the .cfs.
-			var segFiles []string
-			for _, f := range allFiles {
-				if ParseSegmentName(f) != segmentName {
-					continue
+		if codecFlushed {
+			if w.config.UseCompoundFile() && codec.CompoundFormat() != nil {
+				// Collect all per-format files written for this segment (every file
+				// with the segment name prefix, excluding the infrastructure files:
+				// .si is written after CFS, .cfs/.cfe are the CFS output targets).
+				// All Gocene codec writers now use CodecUtil.writeIndexHeader /
+				// writeFooter, so every per-format file is embeddable.
+				allFiles, err3 := w.directory.ListAll()
+				if err3 != nil {
+					return fmt.Errorf("commit: list directory for CFS: %w", err3)
 				}
-				switch GetExtension(f) {
-				case "si", "cfs", "cfe":
-					// .si is written after CFS; .cfs/.cfe are the output targets.
-				default:
-					segFiles = append(segFiles, f)
-				}
-			}
-			if len(segFiles) > 0 {
-				segInfo.SetFiles(segFiles)
-				if err3 := codec.CompoundFormat().Write(w.directory, segInfo, store.IOContextWrite); err3 != nil {
-					return fmt.Errorf("commit: write CFS for %s: %w", segmentName, err3)
-				}
-				// Delete the loose per-format files now packed into CFS.
-				for _, f := range segFiles {
-					if err3 := w.directory.DeleteFile(f); err3 != nil {
-						// Non-fatal: CFS is written; index integrity is preserved.
-						_ = err3
+				// A file belongs to this segment when ParseSegmentName resolves to
+				// the segment name. ParseSegmentName follows IndexFileNames: it
+				// strips at the first '.' or the second '_', so it matches both the
+				// plain "_0.ext" form and the per-field "_0_FormatName_suffix.ext"
+				// form used by PerFieldPostingsFormat / PerFieldKnnVectorsFormat /
+				// etc. A previous "_0." prefix match silently dropped the per-field
+				// vector files (_0_Lucene99HnswVectorsFormat_0.vem, ...) from the
+				// compound file, so the reopened reader could not find them inside
+				// the .cfs.
+				var segFiles []string
+				for _, f := range allFiles {
+					if ParseSegmentName(f) != segmentName {
+						continue
+					}
+					switch GetExtension(f) {
+					case "si", "cfs", "cfe":
+						// .si is written after CFS; .cfs/.cfe are the output targets.
+					default:
+						segFiles = append(segFiles, f)
 					}
 				}
-				segInfo.SetFiles([]string{
-					segmentName + ".cfs",
-					segmentName + ".cfe",
-					segmentName + ".si",
-				})
-				segInfo.SetCompoundFile(true)
+				if len(segFiles) > 0 {
+					segInfo.SetFiles(segFiles)
+					if err3 := codec.CompoundFormat().Write(w.directory, segInfo, store.IOContextWrite); err3 != nil {
+						return fmt.Errorf("commit: write CFS for %s: %w", segmentName, err3)
+					}
+					// Delete the loose per-format files now packed into CFS.
+					for _, f := range segFiles {
+						if err3 := w.directory.DeleteFile(f); err3 != nil {
+							// Non-fatal: CFS is written; index integrity is preserved.
+							_ = err3
+						}
+					}
+					segInfo.SetFiles([]string{
+						segmentName + ".cfs",
+						segmentName + ".cfe",
+						segmentName + ".si",
+					})
+					segInfo.SetCompoundFile(true)
+				} else {
+					segInfo.SetFiles([]string{segmentName + ".si"})
+				}
 			} else {
-				segInfo.SetFiles([]string{segmentName + ".si"})
+				// Non-CFS path: collect all per-format files written for this segment.
+				// The codec's per-format writers create files such as _0.fdt, _0.fdx,
+				// _0.fnm, etc. They must be listed on the SegmentInfo so the segment
+				// info writer records them in the .si footer and so the file deleter
+				// treats them as referenced by the new commit.
+				allFiles, err3 := w.directory.ListAll()
+				if err3 != nil {
+					return fmt.Errorf("commit: list directory for segment files: %w", err3)
+				}
+				var segFiles []string
+				for _, f := range allFiles {
+					if ParseSegmentName(f) != segmentName {
+						continue
+					}
+					switch GetExtension(f) {
+					case "cfs", "cfe":
+						// CFS output targets are only relevant in the CFS branch above.
+					default:
+						segFiles = append(segFiles, f)
+					}
+				}
+				// Ensure the .si file is listed even though it is written later in this
+				// commit path; without it the file deleter would consider it unreferenced.
+				segFiles = append(segFiles, segmentName+".si")
+				segInfo.SetFiles(segFiles)
 			}
 		}
 		if !codecFlushed {
@@ -1505,9 +1613,17 @@ func (w *IndexWriter) Commit() error {
 	si.SetInMemoryParentField(w.config.ParentField())
 	si.SetInMemoryIndexSort(w.config.IndexSort())
 
-	err = WriteSegmentInfos(si, w.directory)
-	if err != nil {
+	if err := WriteSegmentInfos(si, w.directory); err != nil {
 		return fmt.Errorf("failed to write segment infos: %w", err)
+	}
+
+	// Hand the new commit to the file deleter: it reference-counts the files,
+	// invokes the deletion policy, and removes any unreferenced segment files
+	// from prior commits.
+	if w.deleter != nil {
+		if err := w.deleter.Checkpoint(si, true); err != nil {
+			return fmt.Errorf("deleter checkpoint: %w", err)
+		}
 	}
 
 	// Remember the committed state so Rollback can restore it later.
@@ -2051,7 +2167,7 @@ func (w *IndexWriter) Close() error {
 		}
 	}()
 
-	// Try to commit changes before closing
+	// Try to commit changes before closing.
 	if err := w.Commit(); err != nil {
 		// If commit fails, we still want to close the scheduler
 		if s := w.config.GetMergeScheduler(); s != nil {
@@ -2068,10 +2184,51 @@ func (w *IndexWriter) Close() error {
 
 	// Close the merge scheduler
 	if s := w.config.GetMergeScheduler(); s != nil {
-		return s.Close()
+		if err := s.Close(); err != nil {
+			return err
+		}
+	}
+
+	// Close the file deleter, releasing reference counts.
+	if w.deleter != nil {
+		if err := w.deleter.Close(); err != nil {
+			return fmt.Errorf("deleter close: %w", err)
+		}
+		w.deleter = nil
 	}
 
 	return nil
+}
+
+// mapsEqual reports whether two string maps have identical key/value pairs.
+// A nil map and an empty map are considered equal.
+func mapsEqual(a, b map[string]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if bv, ok := b[k]; !ok || bv != v {
+			return false
+		}
+	}
+	return true
+}
+
+// filesReferencedBySegmentInfos returns the set of files that belong to the
+// given SegmentInfos, including the segments_N file and every segment file
+// (core files, live-docs, field-infos generations, doc-values updates).
+func filesReferencedBySegmentInfos(si *SegmentInfos) map[string]struct{} {
+	files := make(map[string]struct{})
+	if si == nil {
+		return files
+	}
+	files[si.GetFileName()] = struct{}{}
+	for _, sci := range si.List() {
+		for _, f := range sci.GetFiles() {
+			files[f] = struct{}{}
+		}
+	}
+	return files
 }
 
 // NumDocs returns the number of live documents in the index.
@@ -2376,19 +2533,25 @@ func (w *IndexWriter) Rollback() error {
 	var keep map[string]struct{}
 	if w.lastCommittedSegmentInfos != nil {
 		restored := w.lastCommittedSegmentInfos.Clone()
-		// Ensure the restored commit is written with a generation higher than
-		// any generation already on disk, so it unambiguously becomes the latest
-		// commit and readers reopen at the rolled-back state.
+		// Only write a new segments_N when the last committed generation is not
+		// already the latest on disk.  Otherwise the rollback is a pure cleanup:
+		// delete uncommitted files and leave the existing latest commit untouched.
+		// Writing a new generation would make readers reopen unnecessarily and
+		// break tests that expect a rollback to be invisible to an already-open
+		// reader pinned at the same commit.
 		currentGen := restored.Generation()
+		latestOnDiskGen := currentGen
 		if current, err := ReadSegmentInfos(w.directory); err == nil {
-			if current.Generation() > currentGen {
-				currentGen = current.Generation()
+			if current.Generation() > latestOnDiskGen {
+				latestOnDiskGen = current.Generation()
 			}
 		}
-		restored.SetGeneration(currentGen + 1)
-		restored.SetLastGeneration(restored.Generation())
-		if err := WriteSegmentInfos(restored, w.directory); err != nil {
-			return fmt.Errorf("rollback: write restored segment infos: %w", err)
+		if latestOnDiskGen > currentGen {
+			restored.SetGeneration(latestOnDiskGen + 1)
+			restored.SetLastGeneration(restored.Generation())
+			if err := WriteSegmentInfos(restored, w.directory); err != nil {
+				return fmt.Errorf("rollback: write restored segment infos: %w", err)
+			}
 		}
 		w.committedSegments = restored.List()
 		keep = filesReferencedBySegmentInfos(restored)
@@ -2421,23 +2584,6 @@ func (w *IndexWriter) Rollback() error {
 	}
 	w.closed.Store(true)
 	return nil
-}
-
-// filesReferencedBySegmentInfos returns the set of files that belong to the
-// given SegmentInfos, including the segments_N file and every segment file
-// (core files, live-docs, field-infos generations, doc-values updates).
-func filesReferencedBySegmentInfos(si *SegmentInfos) map[string]struct{} {
-	files := make(map[string]struct{})
-	if si == nil {
-		return files
-	}
-	files[si.GetFileName()] = struct{}{}
-	for _, sci := range si.List() {
-		for _, f := range sci.GetFiles() {
-			files[f] = struct{}{}
-		}
-	}
-	return files
 }
 
 // ForceMerge forces merge policy to merge segments until there are

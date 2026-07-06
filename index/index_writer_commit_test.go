@@ -152,7 +152,11 @@ func TestCommitOnClose(t *testing.T) {
 			if r2.NumDocs() != 14 {
 				t.Errorf("Reader incorrectly sees changes from writer: expected 14, got %d", r2.NumDocs())
 			}
-			r2.Close()
+			// When no changes occurred Reopen returns the same reader; closing it
+			// would invalidate the original reader, so only close a fresh one.
+			if r2 != reader {
+				r2.Close()
+			}
 
 			// Check if original reader is still current
 			isCurrent, _ := reader.IsCurrent()
