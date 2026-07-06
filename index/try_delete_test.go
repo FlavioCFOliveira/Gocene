@@ -33,6 +33,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -120,6 +121,33 @@ func TestDeleteDocuments(t *testing.T) {
 	writer := newTryDeleteWriter(t, dir)
 	defer writer.Close()
 
-	t.Fatal("IndexWriter.DeleteDocumentsQuery is a no-op stub and IndexWriter " +
-		"exposes no HasDeletions, so the delete cannot reduce the hit count")
+	// Delete the document whose "foo" value is "7" via a TermQuery.
+	q := search.NewTermQuery(index.NewTerm("foo", "7"))
+	if err := writer.DeleteDocumentsQuery(q); err != nil {
+		t.Fatalf("DeleteDocumentsQuery: %v", err)
+	}
+	if !writer.HasDeletions() {
+		t.Fatal("expected HasDeletions() to be true after a query delete")
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer reader.Close()
+
+	searcher := search.NewIndexSearcher(reader)
+	topDocs, err := searcher.Search(q, 10)
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if topDocs.TotalHits.Value != 0 {
+		t.Fatalf("expected 0 hits after delete, got %d", topDocs.TotalHits.Value)
+	}
+	if reader.NumDocs() != 9 {
+		t.Fatalf("expected NumDocs=9 after deleting one of ten, got %d", reader.NumDocs())
+	}
 }

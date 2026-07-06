@@ -2531,6 +2531,17 @@ func (w *IndexWriter) mergeSegmentGroup(segs []*SegmentCommitInfo, segName strin
 	return sciMerged, nil
 }
 
+// HasDeletions returns true if this writer has buffered or applied
+// deletions. It mirrors Lucene's IndexWriter.hasDeletions().
+func (w *IndexWriter) HasDeletions() bool {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return len(w.pendingDeleteTerms) > 0 ||
+		len(w.pendingDeleteQueries) > 0 ||
+		len(w.pendingDeletedDocIDs) > 0 ||
+		w.pendingCommittedDeleteCount > 0
+}
+
 // GetNumBufferedDocuments returns the number of documents currently
 // buffered in RAM. Uses atomic load for lock-free access.
 func (w *IndexWriter) GetNumBufferedDocuments() int {
