@@ -30,7 +30,6 @@ func TestSearchScoringReproducibility_TermQuery(t *testing.T) {
 	}
 	defer writer.Close()
 
-	// Add documents
 	docs := []struct {
 		id      string
 		content string
@@ -64,14 +63,12 @@ func TestSearchScoringReproducibility_TermQuery(t *testing.T) {
 	}
 	defer reader.Close()
 
-	// Search multiple times and verify scores are consistent
 	searcher := search.NewIndexSearcher(reader)
 	query := search.NewTermQuery(index.NewTerm("content", "lucene"))
 
 	topDocs1, err := searcher.Search(query, 10)
 	if err != nil {
-		t.Logf("search may not be fully implemented: %v", err)
-		t.Fatal("search not implemented")
+		t.Fatalf("Search failed: %v", err)
 	}
 
 	topDocs2, err := searcher.Search(query, 10)
@@ -79,12 +76,12 @@ func TestSearchScoringReproducibility_TermQuery(t *testing.T) {
 		t.Fatalf("second search failed: %v", err)
 	}
 
-	// Verify same number of results
 	if topDocs1.TotalHits.Value != topDocs2.TotalHits.Value {
 		t.Errorf("total hits differ: %d vs %d", topDocs1.TotalHits.Value, topDocs2.TotalHits.Value)
 	}
-
-	t.Log("Term query scoring reproducibility test passed")
+	if topDocs1.TotalHits.Value != 2 {
+		t.Errorf("total hits = %d, want 2", topDocs1.TotalHits.Value)
+	}
 }
 
 func TestSearchScoringReproducibility_BooleanQuery(t *testing.T) {
@@ -100,7 +97,6 @@ func TestSearchScoringReproducibility_BooleanQuery(t *testing.T) {
 	}
 	defer writer.Close()
 
-	// Add documents
 	for i := 0; i < 20; i++ {
 		doc := document.NewDocument()
 		idField, _ := document.NewStringField("id", string(rune('0'+i%5)), true)
@@ -124,23 +120,25 @@ func TestSearchScoringReproducibility_BooleanQuery(t *testing.T) {
 	}
 	defer reader.Close()
 
-	// Boolean query
 	searcher := search.NewIndexSearcher(reader)
 	boolQuery := search.NewBooleanQuery()
 	boolQuery.Add(search.NewTermQuery(index.NewTerm("content", "test")), search.SHOULD)
 	boolQuery.Add(search.NewTermQuery(index.NewTerm("content", "reproducible")), search.SHOULD)
 
-	// Run search multiple times
+	var last int64 = -1
 	for i := 0; i < 5; i++ {
 		topDocs, err := searcher.Search(boolQuery, 10)
 		if err != nil {
-			t.Logf("boolean search may not be fully implemented: %v", err)
-			t.Fatal("boolean search not implemented")
+			t.Fatalf("Search failed: %v", err)
 		}
-		t.Logf("Run %d: found %d documents", i+1, topDocs.TotalHits.Value)
+		if last >= 0 && topDocs.TotalHits.Value != last {
+			t.Errorf("run %d total hits = %d, previous = %d", i+1, topDocs.TotalHits.Value, last)
+		}
+		last = topDocs.TotalHits.Value
 	}
-
-	t.Log("Boolean query scoring reproducibility test passed")
+	if last != 20 {
+		t.Errorf("total hits = %d, want 20", last)
+	}
 }
 
 func TestSearchScoringReproducibility_PhraseQuery(t *testing.T) {
@@ -156,7 +154,6 @@ func TestSearchScoringReproducibility_PhraseQuery(t *testing.T) {
 	}
 	defer writer.Close()
 
-	// Add documents with phrases
 	docs := []string{
 		"quick brown fox",
 		"quick brown",
@@ -187,23 +184,26 @@ func TestSearchScoringReproducibility_PhraseQuery(t *testing.T) {
 	}
 	defer reader.Close()
 
-	// Phrase query
 	searcher := search.NewIndexSearcher(reader)
 	phraseQuery := search.NewPhraseQueryBuilder().
 		AddTerm(index.NewTerm("content", "quick")).
 		AddTerm(index.NewTerm("content", "brown")).
 		Build()
 
-	// Run multiple times
+	var last int64 = -1
 	for i := 0; i < 5; i++ {
 		topDocs, err := searcher.Search(phraseQuery, 10)
 		if err != nil {
-			t.Fatalf("phrase search failed: %v", err)
+			t.Fatalf("Search failed: %v", err)
 		}
-		t.Logf("Run %d: found %d documents", i+1, topDocs.TotalHits.Value)
+		if last >= 0 && topDocs.TotalHits.Value != last {
+			t.Errorf("run %d total hits = %d, previous = %d", i+1, topDocs.TotalHits.Value, last)
+		}
+		last = topDocs.TotalHits.Value
 	}
-
-	t.Log("Phrase query scoring reproducibility test passed")
+	if last != 3 {
+		t.Errorf("total hits = %d, want 3", last)
+	}
 }
 
 func TestSearchScoringReproducibility_NewReader(t *testing.T) {
@@ -219,7 +219,6 @@ func TestSearchScoringReproducibility_NewReader(t *testing.T) {
 	}
 	defer writer.Close()
 
-	// Add documents
 	for i := 0; i < 50; i++ {
 		doc := document.NewDocument()
 		idField, _ := document.NewStringField("id", string(rune('0'+i%5)), true)
@@ -231,6 +230,7 @@ func TestSearchScoringReproducibility_NewReader(t *testing.T) {
 		if err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
+	}
 
 	if err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
@@ -238,7 +238,7 @@ func TestSearchScoringReproducibility_NewReader(t *testing.T) {
 
 	query := search.NewTermQuery(index.NewTerm("content", "reproducibility"))
 
-	// Open new reader for each search
+	var last int64 = -1
 	for i := 0; i < 5; i++ {
 		reader, err := index.OpenDirectoryReader(dir)
 		if err != nil {
@@ -249,18 +249,20 @@ func TestSearchScoringReproducibility_NewReader(t *testing.T) {
 		topDocs, err := searcher.Search(query, 10)
 		if err != nil {
 			reader.Close()
-			t.Logf("search may not be fully implemented: %v", err)
-			t.Fatal("search not implemented")
+			t.Fatalf("Search failed: %v", err)
 		}
 
-		t.Logf("Run %d: found %d documents", i+1, topDocs.TotalHits.Value)
+		if last >= 0 && topDocs.TotalHits.Value != last {
+			t.Errorf("run %d total hits = %d, previous = %d", i+1, topDocs.TotalHits.Value, last)
+		}
+		last = topDocs.TotalHits.Value
 		reader.Close()
 	}
-
-	t.Log("New reader reproducibility test passed")
+	if last != 50 {
+		t.Errorf("total hits = %d, want 50", last)
+	}
 }
 
-}
 func BenchmarkSearchScoringReproducibility_Repeated(b *testing.B) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
