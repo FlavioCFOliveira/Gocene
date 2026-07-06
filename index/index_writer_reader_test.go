@@ -13,15 +13,11 @@
 // depend on infrastructure not yet ported are marked with t.Skip and an
 // explicit reason; the remainder run against the current implementation.
 //
-// Missing infrastructure (drives the t.Skip calls below):
-//   - IndexWriter.GetReader / DirectoryReader.open(writer): NRT reader directly
-//     from the writer, exposing uncommitted changes.
+// Missing infrastructure (drives the t.Fatal deferrals below):
 //   - DirectoryReader.openIfChanged(reader[, writer|commit]): incremental reopen.
-//   - IndexWriter.DeleteDocuments / UpdateDocument delete-term: currently no-op
-//     stubs, so deletes and updates are not applied to the index.
 //   - RandomIndexWriter, MockDirectoryWrapper, MockAnalyzer test fixtures.
 //   - IndexWriterConfig.setLeafSorter and FilterDirectoryReader leaf ordering.
-//   - DirectoryReader leaf APIs through OpenDirectoryReader (core readers nil).
+//   - SegmentReader sharing across NRT reopen.
 package index_test
 
 import (
@@ -33,6 +29,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -316,7 +313,97 @@ func TestIndexWriterReader_AddIndexes2(t *testing.T) {
 // testDeleteFromIndexWriter ports testDeleteFromIndexWriter().
 // Java deletes by term and by query and checks visibility through NRT readers.
 func TestIndexWriterReader_DeleteFromIndexWriter(t *testing.T) {
-	t.Fatal("IndexWriter.DeleteDocuments is a no-op stub; deletes are not applied")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(createTestAnalyzer()))
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	// Index 100 documents with an "id" field.
+	for i := 0; i < 100; i++ {
+		doc := document.NewDocument()
+		f, _ := document.NewStringField("id", fmt.Sprintf("id%d", i), false)
+		doc.Add(f)
+		if err := writer.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument[%d]: %v", i, err)
+		}
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	r1, err := index.OpenDirectoryReaderFromWriter(writer)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
+	}
+	defer r1.Close()
+
+	id10 := countTermHits(t, r1, "id", "id10")
+	if id10 != 1 {
+		t.Fatalf("expected 1 hit for id10 in r1, got %d", id10)
+	}
+
+	// Delete id10; it must vanish from the next NRT reader but stay in r1.
+	if err := writer.DeleteDocuments(index.NewTerm("id", "id10")); err != nil {
+		t.Fatalf("DeleteDocuments(id10): %v", err)
+	}
+	r2, err := index.OpenDirectoryReaderFromWriter(writer)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReaderFromWriter r2: %v", err)
+	}
+	defer r2.Close()
+	if countTermHits(t, r2, "id", "id10") != 0 {
+		t.Fatal("id10 should be deleted in r2")
+	}
+	if countTermHits(t, r1, "id", "id10") != 1 {
+		t.Fatal("id10 must remain visible in the older r1")
+	}
+
+	// Delete id50 by query.
+	if err := writer.DeleteDocumentsQuery(search.NewTermQuery(index.NewTerm("id", "id50"))); err != nil {
+		t.Fatalf("DeleteDocumentsQuery(id50): %v", err)
+	}
+	r3, err := index.OpenDirectoryReaderFromWriter(writer)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReaderFromWriter r3: %v", err)
+	}
+	defer r3.Close()
+	if countTermHits(t, r3, "id", "id50") != 0 {
+		t.Fatal("id50 should be deleted in r3")
+	}
+
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// Reopen from directory and verify deletions survived.
+	writer2, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(createTestAnalyzer()))
+	if err != nil {
+		t.Fatalf("NewIndexWriter reopen: %v", err)
+	}
+	defer writer2.Close()
+	r4, err := index.OpenDirectoryReaderFromWriter(writer2)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReaderFromWriter after reopen: %v", err)
+	}
+	defer r4.Close()
+	if countTermHits(t, r4, "id", "id10") != 0 || countTermHits(t, r4, "id", "id50") != 0 {
+		t.Fatal("deletions must survive writer reopen")
+	}
+}
+
+// countTermHits returns the number of documents matching a term using an
+// IndexSearcher opened over the supplied reader.
+func countTermHits(t *testing.T, reader index.IndexReaderInterface, field, text string) int {
+	t.Helper()
+	searcher := search.NewIndexSearcher(reader)
+	topDocs, err := searcher.Search(search.NewTermQuery(index.NewTerm(field, text)), 1000)
+	if err != nil {
+		t.Fatalf("Search(%s:%s): %v", field, text, err)
+	}
+	return int(topDocs.TotalHits.Value)
 }
 
 // testAddIndexesAndDoDeletesThreads ports testAddIndexesAndDoDeletesThreads().
