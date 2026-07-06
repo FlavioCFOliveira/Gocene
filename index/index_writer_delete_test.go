@@ -971,11 +971,11 @@ func TestIndexWriterDelete_DeletesCheckIndexOutput(t *testing.T) {
 // Skipped: the test opens a near-real-time reader via
 // DirectoryReader.open(writer, applyAllDeletes, writeAllDeletes), calls
 // tryDeleteDocument against both the composite reader and an individual leaf,
-// and checks StandardDirectoryReader.isCurrent(). Gocene has no NRT reader
-// open-from-writer and no isCurrent(); IndexWriter.TryDeleteDocument exists but
-// cannot be driven through this scenario without them.
+// and checks StandardDirectoryReader.isCurrent(). NRT reader and isCurrent are
+// now available; the remaining gaps are the applyAllDeletes/writeAllDeletes
+// open options and the NRT tryDeleteDocument leaf path.
 func TestIndexWriterDelete_TryDeleteDocument(t *testing.T) {
-	t.Fatal("infra gap: no NRT reader open-from-writer / StandardDirectoryReader.isCurrent")
+	t.Fatal("needs IndexWriter.TryDeleteDocument NRT path + applyAllDeletes/writeAllDeletes open options; NRT reader and IsCurrent are now available")
 }
 
 // ---------------------------------------------------------------------------
@@ -1061,7 +1061,7 @@ func TestIndexWriterDelete_OnlyDeletesTriggersMergeOnClose(t *testing.T) {
 // open triggers but does not reflect the merge, the second observes it. This
 // depends on an NRT reader opened from the writer, which Gocene lacks.
 func TestIndexWriterDelete_OnlyDeletesTriggersMergeOnGetReader(t *testing.T) {
-	t.Fatal("infra gap: no NRT reader open-from-writer to trigger/observe merge")
+	t.Fatal("needs LogDocMergePolicy.setMinMergeDocs and merge triggering on GetReader; NRT DirectoryReader.open(writer) is now available")
 }
 
 // ---------------------------------------------------------------------------
@@ -1091,7 +1091,7 @@ func TestIndexWriterDelete_OnlyDeletesTriggersMergeOnFlush(t *testing.T) {
 // TestIndexWriterDelete_DeleteAllSlowly; this method specifically validates
 // the NRT path, which Gocene lacks.
 func TestIndexWriterDelete_OnlyDeletesDeleteAllDocs(t *testing.T) {
-	t.Fatal("infra gap: no NRT reader open-from-writer to observe zero leaves")
+	t.Fatal("needs LogDocMergePolicy.setMinMergeDocs; NRT DirectoryReader.open(writer) is now available")
 }
 
 // ---------------------------------------------------------------------------

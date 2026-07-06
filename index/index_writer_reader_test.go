@@ -435,7 +435,9 @@ func TestIndexWriterReader_AfterClose(t *testing.T) {
 
 // testDuringAddIndexes ports testDuringAddIndexes() (a @Nightly stress test).
 func TestIndexWriterReader_DuringAddIndexes(t *testing.T) {
-	t.Fatal("nightly stress test; needs NRT openIfChanged and MockDirectoryWrapper")
+	// NRT openIfChanged is now available; MockDirectoryWrapper fault injection
+	// is tracked by rmp #250 (T105.2.4).
+	t.Fatal("nightly stress test; needs MockDirectoryWrapper fault injection; NRT openIfChanged is now available")
 }
 
 // testDuringAddDelete ports testDuringAddDelete().
@@ -443,19 +445,69 @@ func TestIndexWriterReader_DuringAddIndexes(t *testing.T) {
 // applied deletes are unavailable; concurrent appends are covered separately
 // by TestIndexWriterReader_ConcurrentAccess.
 func TestIndexWriterReader_DuringAddDelete(t *testing.T) {
-	t.Fatal("needs NRT openIfChanged and applied deletes")
+	// NRT openIfChanged is now available; the remaining gap is durable
+	// live-docs application on NRT reopen for the deleted documents.
+	t.Fatal("needs applied deletes on NRT reopen; NRT openIfChanged is now available")
 }
 
 // testForceMergeDeletes ports testForceMergeDeletes().
 // Java deletes a document then forceMergeDeletes() to physically drop it.
 func TestIndexWriterReader_ForceMergeDeletes(t *testing.T) {
-	t.Fatal("DeleteDocuments is a no-op stub and IndexWriter.ForceMergeDeletes is not implemented")
+	// DeleteDocuments is now functional (rmp #254); ForceMergeDeletes exists but
+	// does not yet preserve live documents correctly during the merge.
+	t.Fatal("DeleteDocuments is now functional; ForceMergeDeletes does not yet preserve live documents correctly")
 }
 
 // testDeletesNumDocs ports testDeletesNumDocs().
 // Java checks numDocs shrinks as documents are deleted.
 func TestIndexWriterReader_DeletesNumDocs(t *testing.T) {
-	t.Fatal("IndexWriter.DeleteDocuments is a no-op stub; numDocs cannot reflect deletes")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(createTestAnalyzer()))
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	defer writer.Close()
+
+	for i := 0; i < 10; i++ {
+		if err := writer.AddDocument(createTestDoc(i, "test", 2)); err != nil {
+			t.Fatalf("AddDocument: %v", err)
+		}
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer reader.Close()
+	if got, want := reader.NumDocs(), 10; got != want {
+		t.Fatalf("NumDocs before delete = %d, want %d", got, want)
+	}
+
+	for i := 0; i < 5; i++ {
+		if err := writer.DeleteDocuments(index.NewTerm("id", strconv.Itoa(i))); err != nil {
+			t.Fatalf("DeleteDocuments(%d): %v", i, err)
+		}
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit after delete: %v", err)
+	}
+
+	reader2, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader after delete: %v", err)
+	}
+	defer reader2.Close()
+	if got, want := reader2.NumDocs(), 5; got != want {
+		t.Fatalf("NumDocs after delete = %d, want %d", got, want)
+	}
+	if got, want := reader2.NumDeletedDocs(), 5; got != want {
+		t.Fatalf("NumDeletedDocs after delete = %d, want %d", got, want)
+	}
 }
 
 // testEmptyIndex ports testEmptyIndex().
@@ -501,28 +553,62 @@ func TestIndexWriterReader_SimpleMergedSegmentWarmer(t *testing.T) {
 // testReopenAfterNoRealChange ports testReopenAfterNoRealChange().
 // Java relies on openIfChanged returning nil when nothing changed.
 func TestIndexWriterReader_ReopenAfterNoRealChange(t *testing.T) {
-	t.Fatal("needs DirectoryReader.openIfChanged and NRT reader pooling")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(createTestAnalyzer()))
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	defer writer.Close()
+
+	for i := 0; i < 5; i++ {
+		if err := writer.AddDocument(createTestDoc(i, "test", 2)); err != nil {
+			t.Fatalf("AddDocument: %v", err)
+		}
+	}
+	reader, err := index.OpenDirectoryReaderFromWriter(writer)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
+	}
+	defer reader.Close()
+
+	reopened, err := index.OpenIfChangedFromWriter(reader, writer)
+	if err != nil {
+		t.Fatalf("OpenIfChangedFromWriter: %v", err)
+	}
+	if reopened != nil {
+		reopened.Close()
+		t.Fatal("OpenIfChangedFromWriter returned a new reader when nothing changed")
+	}
 }
 
 // testNRTOpenExceptions ports testNRTOpenExceptions().
 // Java injects FakeIOException via MockDirectoryWrapper while opening NRT
 // readers and checks no file handles leak.
 func TestIndexWriterReader_NRTOpenExceptions(t *testing.T) {
-	t.Fatal("needs MockDirectoryWrapper failure injection and NRT DirectoryReader.open(writer)")
+	// NRT DirectoryReader.open(writer) is now available; MockDirectoryWrapper
+	// failure injection is tracked by rmp #250 (T105.2.4).
+	t.Fatal("needs MockDirectoryWrapper failure injection; NRT DirectoryReader.open(writer) is now available")
 }
 
 // testTooManySegments ports testTooManySegments().
 // Java opens an NRT reader after each add and asserts the merge policy keeps
 // the leaf count bounded.
 func TestIndexWriterReader_TooManySegments(t *testing.T) {
-	t.Fatal("needs NRT DirectoryReader.open(writer) and reader.leaves()")
+	// NRT DirectoryReader.open(writer) and reader.Leaves() are now available;
+	// the remaining gap is merge-policy enforcement that keeps the leaf count
+	// bounded under a stream of small NRT flushes.
+	t.Fatal("needs merge-policy leaf-count enforcement; NRT open(writer) and Leaves() are now available")
 }
 
 // testReopenNRTReaderOnCommit ports testReopenNRTReaderOnCommit().
 // Java verifies SegmentReader instances are shared when reopening an NRT
 // reader against a commit point.
 func TestIndexWriterReader_ReopenNRTReaderOnCommit(t *testing.T) {
-	t.Fatal("needs NRT openIfChanged against a commit and SegmentReader sharing")
+	// NRT openIfChanged is now available; the remaining gap is SegmentReader
+	// instance sharing across reopen so unchanged segments reuse readers.
+	t.Fatal("needs SegmentReader sharing across NRT reopen; openIfChanged is now available")
 }
 
 // testIndexReaderWriterWithLeafSorter ports testIndexReaderWriterWithLeafSorter().
