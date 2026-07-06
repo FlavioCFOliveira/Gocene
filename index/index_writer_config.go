@@ -71,7 +71,8 @@ type IndexWriterConfig struct {
 	flushOnUpdate          bool
 	indexCommit            *IndexCommit
 	infoStream             util.InfoStream
-	mergedSegmentWarmer    MergedSegmentWarmer
+	mergedSegmentWarmer            MergedSegmentWarmer
+	maxFullFlushMergeWaitMillis    int64
 }
 
 // NewIndexWriterConfig creates a new IndexWriterConfig with default settings.
@@ -231,6 +232,21 @@ func (c *IndexWriterConfig) GetMergedSegmentWarmer() MergedSegmentWarmer {
 // IndexWriterConfig.setMergedSegmentWarmer chaining semantics.
 func (c *IndexWriterConfig) SetMergedSegmentWarmer(warmer MergedSegmentWarmer) *IndexWriterConfig {
 	c.mergedSegmentWarmer = warmer
+	return c
+}
+
+// MaxFullFlushMergeWaitMillis returns the maximum time (in milliseconds) that a
+// full flush will wait for merges to complete. A negative value means do not
+// wait. Mirrors IndexWriterConfig.getMaxFullFlushMergeWaitMillis.
+func (c *IndexWriterConfig) MaxFullFlushMergeWaitMillis() int64 {
+	return c.maxFullFlushMergeWaitMillis
+}
+
+// SetMaxFullFlushMergeWaitMillis sets the maximum time (in milliseconds) that
+// a full flush will wait for merges. Returns the receiver for fluent
+// configuration, matching IndexWriterConfig.setMaxFullFlushMergeWaitMillis.
+func (c *IndexWriterConfig) SetMaxFullFlushMergeWaitMillis(ms int64) *IndexWriterConfig {
+	c.maxFullFlushMergeWaitMillis = ms
 	return c
 }
 

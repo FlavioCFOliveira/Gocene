@@ -1124,7 +1124,16 @@ func (w *IndexWriter) hasUncommittedChanges() bool {
 	}
 	w.mu.RLock()
 	defer w.mu.RUnlock()
-	return len(w.pendingImportedSegments) > 0 ||
+	// Pending segments already materialised into an NRT snapshot are visible to
+	// that snapshot and do not count as "uncommitted" for currentness checks.
+	hasPendingSegments := false
+	for _, ps := range w.pendingImportedSegments {
+		if !ps.materialized {
+			hasPendingSegments = true
+			break
+		}
+	}
+	return hasPendingSegments ||
 		len(w.pendingDeleteTerms) > 0 ||
 		len(w.pendingCommittedDeleteTerms) > 0 ||
 		len(w.pendingDeleteQueries) > 0 ||
