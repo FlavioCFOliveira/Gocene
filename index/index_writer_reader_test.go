@@ -413,14 +413,83 @@ func TestIndexWriterReader_AddIndexesAndDoDeletesThreads(t *testing.T) {
 	t.Fatal("needs AddDirectoriesThreads harness and applied deletes")
 }
 
+// doTestIndexWriterReopenSegment ports Lucene's doTestIndexWriterReopenSegment.
+// It verifies that NRT readers observe segments materialised by the writer
+// before any commit is written to disk.
+func doTestIndexWriterReopenSegment(t *testing.T, doFullMerge bool) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	config := index.NewIndexWriterConfig(createTestAnalyzer())
+	writer, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	defer writer.Close()
+
+	r1, err := writer.GetReader()
+	if err != nil {
+		t.Fatalf("GetReader: %v", err)
+	}
+	if got := r1.MaxDoc(); got != 0 {
+		t.Fatalf("r1.MaxDoc = %d, want 0", got)
+	}
+
+	for i := 0; i < 100; i++ {
+		if err := writer.AddDocument(createTestDoc(i, "index1", 4)); err != nil {
+			t.Fatalf("AddDocument: %v", err)
+		}
+	}
+	if doFullMerge {
+		// ForceMerge currently operates on committed segments; materialise the
+		// first batch to disk so the merge has a segment to collapse.
+		if err := writer.Commit(); err != nil {
+			t.Fatalf("Commit before ForceMerge: %v", err)
+		}
+		if err := writer.ForceMerge(1); err != nil {
+			t.Fatalf("ForceMerge(1): %v", err)
+		}
+	}
+
+	iwr1, err := writer.GetReader()
+	if err != nil {
+		t.Fatalf("GetReader after first batch: %v", err)
+	}
+	if got := iwr1.MaxDoc(); got != 100 {
+		t.Fatalf("iwr1.MaxDoc = %d, want 100", got)
+	}
+
+	for i := 10000; i < 10100; i++ {
+		if err := writer.AddDocument(createTestDoc(i, "index1", 4)); err != nil {
+			t.Fatalf("AddDocument: %v", err)
+		}
+	}
+
+	iwr2, err := writer.GetReader()
+	if err != nil {
+		t.Fatalf("GetReader after second batch: %v", err)
+	}
+	if got := iwr2.MaxDoc(); got != 200 {
+		t.Fatalf("iwr2.MaxDoc = %d, want 200", got)
+	}
+
+	if iwr2 == r1 {
+		t.Fatal("iwr2 should be a new reader instance")
+	}
+
+	r1.Close()
+	iwr1.Close()
+	iwr2.Close()
+}
+
 // testIndexWriterReopenSegmentFullMerge ports testIndexWriterReopenSegmentFullMerge().
 func TestIndexWriterReader_IndexWriterReopenSegmentFullMerge(t *testing.T) {
-	t.Fatal("needs NRT DirectoryReader.open(writer) to observe pre-commit segments")
+	doTestIndexWriterReopenSegment(t, true)
 }
 
 // testIndexWriterReopenSegment ports testIndexWriterReopenSegment().
 func TestIndexWriterReader_IndexWriterReopenSegment(t *testing.T) {
-	t.Fatal("needs NRT DirectoryReader.open(writer) to observe pre-commit segments")
+	doTestIndexWriterReopenSegment(t, false)
 }
 
 // testMergeWarmer ports testMergeWarmer().

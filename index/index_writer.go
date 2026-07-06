@@ -1634,6 +1634,18 @@ func (w *IndexWriter) commitLocked(force bool) error {
 	// even though no new in-memory segments were flushed.
 	w.nrtGen.Add(1)
 
+	// The on-disk SegmentInfos now reflects the committed state.  Future NRT
+	// readers must read from disk rather than reuse a stale in-memory snapshot
+	// that may reference pre-commit segment names/generations (rmp #105.2.7).
+	w.nrtSegmentInfos = nil
+
+	// The DocumentsWriter's segment-name counter must stay ahead of any
+	// segment names that now exist on disk (e.g. from a previous merge or
+	// addIndexes) so the next flush does not reuse an existing name.
+	if w.documentsWriter != nil {
+		w.documentsWriter.SyncSegmentNameCounter()
+	}
+
 	// Clear the prepared commit flag
 	w.preparedCommit = false
 
@@ -2596,7 +2608,7 @@ func (w *IndexWriter) Rollback() error {
 // merges to offer (e.g. remaining segments are too large per size/doc caps).
 //
 // Without a configured merge policy, all segments are merged into one.
-func (w *IndexWriter) ForceMerge(maxNumSegments int) error {
+func (w *IndexWriter) ForceMerge(maxNumSegments int) (err error) {
 	if err := w.ensureOpen(); err != nil {
 		return err
 	}
@@ -2615,6 +2627,19 @@ func (w *IndexWriter) ForceMerge(maxNumSegments int) error {
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	defer func() {
+		// After any successful merge operation the on-disk SegmentInfos may have
+		// changed.  Invalidate the cached NRT snapshot so subsequent GetReader
+		// calls observe the merged state rather than a stale pre-merge snapshot,
+		// and resync the DocumentsWriter's segment-name counter so new flushes
+		// do not collide with segments produced by the merge.
+		if err == nil {
+			w.nrtSegmentInfos = nil
+			if w.documentsWriter != nil {
+				w.documentsWriter.SyncSegmentNameCounter()
+			}
+		}
+	}()
 
 	mp := w.config.GetMergePolicy()
 
@@ -2765,6 +2790,10 @@ func (w *IndexWriter) executeForcedMerges(si *SegmentInfos, spec *MergeSpecifica
 	if err := WriteSegmentInfos(result, w.directory); err != nil {
 		return fmt.Errorf("forceMerge: write merged segment infos: %w", err)
 	}
+	// Update the writer's committed baseline so the next Commit uses the merged
+	// SegmentInfos (and its advanced segment-name counter) instead of the pre-merge
+	// snapshot (rmp #105.2.7).
+	w.lastCommittedSegmentInfos = result.Clone()
 	w.committedSegments = result.List()
 
 	for seg := range mergedAway {
@@ -2803,6 +2832,9 @@ func (w *IndexWriter) forceMergeToOneSegment(si *SegmentInfos) error {
 	if err := WriteSegmentInfos(merged, w.directory); err != nil {
 		return fmt.Errorf("forceMerge: write merged segment infos: %w", err)
 	}
+	// Update the writer's committed baseline so the next Commit uses the merged
+	// SegmentInfos and its segment-name counter.
+	w.lastCommittedSegmentInfos = merged.Clone()
 	for _, old := range si.List() {
 		for _, f := range old.GetFiles() {
 			_ = w.directory.DeleteFile(f)
