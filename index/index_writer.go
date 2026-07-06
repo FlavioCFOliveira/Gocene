@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 
@@ -95,6 +96,23 @@ type IndexWriter struct {
 	// from this writer's own directory. Protected by mu.
 	committedSegments []*SegmentCommitInfo
 
+	// pinnedSegmentInfos holds the SegmentInfos for an IndexWriterConfig.IndexCommit
+	// when the writer is opened against a specific past commit. It overrides the
+	// on-disk latest SegmentInfos for doc-count accounting and for the next commit.
+	pinnedSegmentInfos *SegmentInfos
+
+	// lastCommittedSegmentInfos is a clone of the SegmentInfos that was last
+	// successfully written to disk by this writer. It is used by Rollback to
+	// restore the directory to the last committed state, discarding any
+	// uncommitted segments, merges, or buffered changes.
+	lastCommittedSegmentInfos *SegmentInfos
+
+	// startingFiles records the set of files that existed in the directory when
+	// this writer was created. Rollback preserves these files so that commits
+	// created before the writer was opened (e.g. under a keep-all deletion policy)
+	// are not accidentally removed.
+	startingFiles map[string]struct{}
+
 	// pendingImportedSegments holds pending segment descriptors accumulated by
 	// auto-flush (MaxBufferedDocs) and AddIndexes before the next Commit.  Each
 	// entry becomes a separate SegmentCommitInfo in the committed SegmentInfos,
@@ -178,6 +196,17 @@ type pendingSegment struct {
 	fieldInfos          *FieldInfos    // may be nil
 	deletedOrdinals     []int          // sorted doc ordinals deleted within this segment (0-based)
 	softDeletedOrdinals []int          // sorted soft-deleted doc ordinals (count in MaxDoc, not NumDocs)
+
+	// segmentName is assigned the first time this pending segment is
+	// materialised into an NRT snapshot; subsequent GetReader/Commit calls
+	// reuse it so in-memory postings registries stay aligned with the
+	// on-disk segment name.
+	segmentName string
+
+	// materialized is true once this pending segment has been folded into an
+	// NRT SegmentInfos snapshot. GetReader skips materialized segments so they
+	// are not duplicated, while Commit still writes them to disk.
+	materialized bool
 	inMemoryFields      FieldsProducer // in-memory postings (codec-less path); may be nil
 
 	// dwpts carries the raw per-thread writer state when a real codec is
@@ -285,18 +314,50 @@ func NewIndexWriter(dir store.Directory, config *IndexWriterConfig) (*IndexWrite
 	writer.closed.Store(false)
 	writer.docCount.Store(0)
 
+	// Record the files present at writer creation so Rollback can distinguish
+	// pre-existing commits from new uncommitted files.
+	if starting, err := dir.ListAll(); err == nil {
+		writer.startingFiles = make(map[string]struct{}, len(starting))
+		for _, f := range starting {
+			writer.startingFiles[f] = struct{}{}
+		}
+	}
+
 	// Populate committedSegments from existing on-disk SegmentInfos so that
 	// UpdateDocument can detect whether target fields exist in committed data.
 	// This is needed when reopening an existing index (APPEND mode).
-	if existingSI, siErr := ReadSegmentInfos(dir); siErr == nil {
+	existingSI, _ := ReadSegmentInfos(dir)
+	if existingSI != nil {
 		writer.committedSegments = existingSI.List()
+		writer.lastCommittedSegmentInfos = existingSI.Clone()
+	}
 
-		// Validate that the index sort matches the existing commit. Changing the
-		// index sort on an existing index is not allowed (Lucene throws
-		// IllegalArgumentException). This check is skipped for CREATE mode
-		// (openMode == CREATE) where the directory is expected to be empty,
-		// but a stale segments_N left behind by a previous crash may still
-		// exist; in that case the existing sort must match.
+	// If the writer is pinned to a specific prior commit, start from that
+	// commit's SegmentInfos but bump the generation/counter to the directory
+	// maximum so new commits and segments do not collide with newer commits that
+	// remain on disk.
+	if pinned := config.IndexCommit(); pinned != nil {
+		if pinnedSI := pinned.GetSegmentInfos(); pinnedSI != nil {
+			base := pinnedSI.Clone()
+			if existingSI != nil {
+				base.SetGeneration(existingSI.Generation())
+				base.SetCounter(existingSI.Counter())
+			}
+			writer.committedSegments = base.List()
+			writer.pinnedSegmentInfos = base
+			// For rollback purposes the writer's "last committed" baseline is the
+			// pinned commit, not the newest commit on disk.
+			writer.lastCommittedSegmentInfos = base.Clone()
+		}
+	}
+
+	// Validate that the index sort matches the existing commit. Changing the
+	// index sort on an existing index is not allowed (Lucene throws
+	// IllegalArgumentException). This check is skipped for CREATE mode
+	// (openMode == CREATE) where the directory is expected to be empty,
+	// but a stale segments_N left behind by a previous crash may still
+	// exist; in that case the existing sort must match.
+	if existingSI != nil {
 		existingSort := existingSI.GetInMemoryIndexSort()
 		configSort := config.IndexSort()
 		if !sortsCompatible(existingSort, configSort) {
@@ -732,10 +793,12 @@ func (w *IndexWriter) flushPendingDocsLocked() error {
 	if n == 0 {
 		// No buffered documents to materialise, but deletes targeting buffered
 		// docs have no effect once the doc window is empty.  Discard them so
-		// they are not double-applied on a later commit.
+		// they are not double-applied on a later commit.  Leave
+		// pendingDeletedDocIDs (TryDeleteDocument global docIDs) untouched: they
+		// target committed segments and must survive until the next Commit/NRT
+		// reader applies them.
 		w.pendingDeleteTerms = w.pendingDeleteTerms[:0]
 		w.pendingSoftDeletedOrdinals = w.pendingSoftDeletedOrdinals[:0]
-		w.pendingDeletedDocIDs = w.pendingDeletedDocIDs[:0]
 		w.docFieldIndex = w.docFieldIndex[:0]
 		return nil
 	}
@@ -977,8 +1040,32 @@ func (w *IndexWriter) GetReader() (*DirectoryReader, error) {
 		return nil, err
 	}
 
-	for _, ps := range w.pendingImportedSegments {
+	// Push any delete ordinals computed for the NRT snapshot back to the
+	// pending segment records so that a later Commit writes the same live set.
+	for i := range w.pendingImportedSegments {
+		ps := &w.pendingImportedSegments[i]
+		if !ps.materialized {
+			continue
+		}
+		for _, sci := range nrtSI.List() {
+			if sci.SegmentInfo().Name() != ps.segmentName {
+				continue
+			}
+			ps.deletedOrdinals = sci.GetDeletedOrdinals()
+			ps.delCount = sci.DelCount()
+			ps.softDelCount = sci.SoftDelCount()
+			break
+		}
+	}
+
+	for i := range w.pendingImportedSegments {
+		ps := &w.pendingImportedSegments[i]
+		if ps.materialized {
+			continue
+		}
 		segmentName := nrtSI.GetNextSegmentName()
+		ps.segmentName = segmentName
+		ps.materialized = true
 		segInfo := NewSegmentInfo(segmentName, ps.numDocs, w.directory)
 		segInfo.SetVersion("10.4.0")
 		segInfo.SetMinVersion("10.4.0")
@@ -1003,9 +1090,6 @@ func (w *IndexWriter) GetReader() (*DirectoryReader, error) {
 		nrtSI.Add(sci)
 		w.committedSegments = append(w.committedSegments, sci)
 	}
-
-	// Clear pending segments — materialised into NRT snapshot.
-	w.pendingImportedSegments = w.pendingImportedSegments[:0]
 
 	// Save the NRT snapshot so subsequent GetReader calls include
 	// these flushed-but-not-committed segments.
@@ -1172,8 +1256,20 @@ func (w *IndexWriter) Commit() error {
 	}
 	w.pendingDeleteQueries = w.pendingDeleteQueries[:0]
 
+	// Apply TryDeleteDocument docIDs against committed segments so that the
+	// deletion survives a writer close / directory reader reopen.
+	if len(w.pendingDeletedDocIDs) > 0 {
+		if err2 := w.applyTryDeleteDocIDsToSegmentInfos(si); err2 != nil {
+			return fmt.Errorf("commit: apply try-delete docIDs: %w", err2)
+		}
+		w.pendingDeletedDocIDs = w.pendingDeletedDocIDs[:0]
+	}
+
 	for _, ps := range w.pendingImportedSegments {
-		segmentName := si.GetNextSegmentName()
+		segmentName := ps.segmentName
+		if segmentName == "" {
+			segmentName = si.GetNextSegmentName()
+		}
 		segInfo := NewSegmentInfo(segmentName, ps.numDocs, w.directory)
 		segInfo.SetVersion("10.4.0")
 		segInfo.SetMinVersion("10.4.0")
@@ -1380,6 +1476,17 @@ func (w *IndexWriter) Commit() error {
 	}
 	w.pendingImportedSegments = w.pendingImportedSegments[:0]
 
+	// Ensure the segment-name counter is past every segment that now exists,
+	// so later merges and flushes never reuse a name already on disk.
+	if maxName := si.GetMaxSegmentName(); maxName != "" && len(maxName) > 1 {
+		if n, parseErr := strconv.Atoi(maxName[1:]); parseErr == nil {
+			counter := si.Counter()
+			if int64(n+1) > counter {
+				si.SetCounter(int64(n + 1))
+			}
+		}
+	}
+
 	// Add commit data if present
 	if w.liveCommitData != nil && len(w.liveCommitData.data) > 0 {
 		si.SetUserData(w.liveCommitData.data)
@@ -1393,6 +1500,9 @@ func (w *IndexWriter) Commit() error {
 	if err != nil {
 		return fmt.Errorf("failed to write segment infos: %w", err)
 	}
+
+	// Remember the committed state so Rollback can restore it later.
+	w.lastCommittedSegmentInfos = si.Clone()
 
 	// A Commit advances the on-disk generation.  Any NRT reader opened before
 	// this point must now report IsCurrent == false, so bump the NRT generation
@@ -1838,6 +1948,60 @@ func mapGlobalDocIDToSegment(segments []*SegmentCommitInfo, docID int) (*Segment
 	return nil, -1, false
 }
 
+// applyTryDeleteDocIDsToSegmentInfos marks the in-segment ordinals corresponding
+// to each buffered TryDeleteDocument global docID as deleted and persists the
+// resulting live-docs bitmap as a byte-faithful .liv file, just like term- and
+// query-based deletes.
+func (w *IndexWriter) applyTryDeleteDocIDsToSegmentInfos(si *SegmentInfos) error {
+	if si == nil || len(w.pendingDeletedDocIDs) == 0 {
+		return nil
+	}
+	segments := si.List()
+	for _, docID := range w.pendingDeletedDocIDs {
+		sci, ord, ok := mapGlobalDocIDToSegment(segments, docID)
+		if !ok {
+			continue
+		}
+		maxDoc := sci.SegmentInfo().DocCount()
+		if ord < 0 || ord >= maxDoc {
+			continue
+		}
+		ords := sci.GetDeletedOrdinals()
+		exists := false
+		for _, o := range ords {
+			if o == ord {
+				exists = true
+				break
+			}
+		}
+		if exists {
+			continue
+		}
+		ords = append(ords, ord)
+		sort.Ints(ords)
+		sci.SetDelCount(len(ords))
+		sci.SetDeletedOrdinals(ords)
+
+		live, err := util.NewFixedBitSet(maxDoc)
+		if err != nil {
+			return fmt.Errorf("try-delete live bitset for %s: %w", sci.SegmentInfo().Name(), err)
+		}
+		for i := 0; i < maxDoc; i++ {
+			live.Set(i)
+		}
+		for _, o := range ords {
+			live.Clear(o)
+		}
+		delGen := sci.AdvanceDelGen()
+		segName := sci.SegmentInfo().Name()
+		if _, err := writeLiveDocs(w.directory, segName, sci.SegmentInfo().GetID(), delGen, live); err != nil {
+			return fmt.Errorf("try-delete write live docs for %s: %w", segName, err)
+		}
+		appendSegmentFile(sci.SegmentInfo(), liveDocsFileName(segName, delGen))
+	}
+	return nil
+}
+
 // appendSegmentFile adds fileName to the SegmentInfo's file set if not already
 // present, preserving the existing entries.  SegmentInfo exposes Files/SetFiles
 // rather than an add-one method, so this read-modify-write keeps the .liv listed
@@ -1905,9 +2069,18 @@ func (w *IndexWriter) Close() error {
 // Deleted and soft-deleted documents are excluded; buffered (uncommitted)
 // deletes are counted.
 func (w *IndexWriter) NumDocs() int {
-	si, err := ReadSegmentInfos(w.directory)
+	var si *SegmentInfos
+	if w.pinnedSegmentInfos != nil {
+		si = w.pinnedSegmentInfos
+	} else {
+		var err error
+		si, err = ReadSegmentInfos(w.directory)
+		if err != nil {
+			si = nil
+		}
+	}
 	committedLive := 0
-	if err == nil {
+	if si != nil {
 		committedLive = si.TotalNumDocs()
 	}
 	// Add live docs from pending imported segments (net of hard+soft deletes).
@@ -1939,9 +2112,18 @@ func (w *IndexWriter) NumDocs() int {
 // MaxDoc returns the total number of documents including deleted ones.
 // Matches Lucene's IndexWriter.maxDoc() semantics.
 func (w *IndexWriter) MaxDoc() int {
-	si, err := ReadSegmentInfos(w.directory)
+	var si *SegmentInfos
+	if w.pinnedSegmentInfos != nil {
+		si = w.pinnedSegmentInfos
+	} else {
+		var err error
+		si, err = ReadSegmentInfos(w.directory)
+		if err != nil {
+			si = nil
+		}
+	}
 	committedTotal := 0
-	if err == nil {
+	if si != nil {
 		committedTotal = si.TotalDocCount()
 	}
 	// Add documents in pending imported segments (auto-flush + AddIndexes).
@@ -2137,32 +2319,116 @@ func (w *IndexWriter) DeleteAll() error {
 
 // Rollback rolls back all changes made since the last commit.
 // This closes the writer and returns the index to its previous state.
-// Uses atomic operations to minimize lock contention.
+//
+// Any segments flushed or merged since the last commit are removed, buffered
+// documents are discarded, and the directory is restored to the SegmentInfos
+// that was last successfully committed by this writer (or to the empty state
+// if no commit was ever performed).
 func (w *IndexWriter) Rollback() error {
 	// Fast path: check if already closed using atomic
 	if w.closed.Load() || w.tragicError.Load() != nil {
 		return nil
 	}
 
-	// Close the merge scheduler without committing
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	// Close the merge scheduler without committing.
 	if s := w.config.GetMergeScheduler(); s != nil {
 		_ = s.Close()
 	}
 
-	// Set closed atomically
-	w.closed.Store(true)
+	// Discard all pending state that was never committed.
+	w.docCount.Store(0)
+	w.pendingDeleteTerms = nil
+	w.pendingSoftDeletedOrdinals = nil
+	w.pendingDeletedDocIDs = nil
+	w.pendingDeleteQueries = nil
+	w.pendingCommittedDeleteTerms = nil
+	w.pendingCommittedDeleteCount = 0
+	w.pendingImportedSegments = nil
+	w.docFieldIndex = nil
+	w.pendingFieldInfos = nil
+	w.pendingDeleteAll = false
+	w.preparedCommit = false
+	w.clearLiveCommitData()
+	w.nrtSegmentInfos = nil
 
-	// Release the write lock.
+	if w.documentsWriter != nil {
+		w.documentsWriter.mu.Lock()
+		_ = w.documentsWriter.TakePerThreadPool()
+		w.documentsWriter.mu.Unlock()
+	}
+
+	// Determine the set of files that must survive the rollback. When the writer
+	// has committed at least once, restore that commit to disk so it becomes the
+	// latest generation again; uncommitted files are then deleted. When no
+	// commit was ever made, all writer-created files are removed.
+	var keep map[string]struct{}
+	if w.lastCommittedSegmentInfos != nil {
+		restored := w.lastCommittedSegmentInfos.Clone()
+		// Ensure the restored commit is written with a generation higher than
+		// any generation already on disk, so it unambiguously becomes the latest
+		// commit and readers reopen at the rolled-back state.
+		currentGen := restored.Generation()
+		if current, err := ReadSegmentInfos(w.directory); err == nil {
+			if current.Generation() > currentGen {
+				currentGen = current.Generation()
+			}
+		}
+		restored.SetGeneration(currentGen + 1)
+		restored.SetLastGeneration(restored.Generation())
+		if err := WriteSegmentInfos(restored, w.directory); err != nil {
+			return fmt.Errorf("rollback: write restored segment infos: %w", err)
+		}
+		w.committedSegments = restored.List()
+		keep = filesReferencedBySegmentInfos(restored)
+	} else {
+		w.committedSegments = nil
+		keep = make(map[string]struct{})
+	}
+
+	// Preserve pre-existing files (e.g. commits kept by a keep-all deletion
+	// policy) and the write lock itself.
+	for f := range w.startingFiles {
+		keep[f] = struct{}{}
+	}
+	keep[writeLockName] = struct{}{}
+
+	allFiles, err := w.directory.ListAll()
+	if err != nil {
+		return fmt.Errorf("rollback: list directory: %w", err)
+	}
+	for _, f := range allFiles {
+		if _, ok := keep[f]; !ok {
+			_ = w.directory.DeleteFile(f)
+		}
+	}
+
+	// Release the write lock and mark the writer closed.
 	if w.writeLock != nil {
 		_ = w.writeLock.Close()
 		w.writeLock = nil
 	}
-
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	w.preparedCommit = false
-	w.clearLiveCommitData()
+	w.closed.Store(true)
 	return nil
+}
+
+// filesReferencedBySegmentInfos returns the set of files that belong to the
+// given SegmentInfos, including the segments_N file and every segment file
+// (core files, live-docs, field-infos generations, doc-values updates).
+func filesReferencedBySegmentInfos(si *SegmentInfos) map[string]struct{} {
+	files := make(map[string]struct{})
+	if si == nil {
+		return files
+	}
+	files[si.GetFileName()] = struct{}{}
+	for _, sci := range si.List() {
+		for _, f := range sci.GetFiles() {
+			files[f] = struct{}{}
+		}
+	}
+	return files
 }
 
 // ForceMerge forces merge policy to merge segments until there are
@@ -2473,7 +2739,51 @@ func (w *IndexWriter) mergeSegmentGroup(segs []*SegmentCommitInfo, segName strin
 		return nil, fmt.Errorf("forceMerge: write .si: %w", err)
 	}
 	closeReaders()
+
+	// Warm the newly merged segment before it becomes visible.
+	if warmer := w.config.GetMergedSegmentWarmer(); warmer != nil {
+		if sr, warmErr := openSegmentReader(w.directory, sciMerged); warmErr == nil {
+			if err := warmer.Warm(sr); err != nil {
+				if is := w.config.GetInfoStream(); is.IsEnabled("IW") {
+					is.Message("IW", fmt.Sprintf("merged-segment warmer failed for %s: %v", segName, err))
+				}
+			}
+			_ = sr.Close()
+		}
+	}
+
 	return sciMerged, nil
+}
+
+// HasDeletions returns true if this writer has buffered or applied
+// deletions. It mirrors Lucene's IndexWriter.hasDeletions().
+func (w *IndexWriter) HasDeletions() bool {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return len(w.pendingDeleteTerms) > 0 ||
+		len(w.pendingDeleteQueries) > 0 ||
+		len(w.pendingDeletedDocIDs) > 0 ||
+		w.pendingCommittedDeleteCount > 0
+}
+
+// TryDeleteDocument deletes the document with the given docID as seen by the
+// supplied reader. The docID must be within the reader's MaxDoc range. The
+// deletion is buffered and becomes visible to the next NRT reader / Commit,
+// exactly like a delete-by-docID issued through the live-docs path.
+func (w *IndexWriter) TryDeleteDocument(reader IndexReaderInterface, docID int) (bool, error) {
+	if err := w.ensureOpen(); err != nil {
+		return false, err
+	}
+	if reader == nil {
+		return false, nil
+	}
+	if docID < 0 || docID >= reader.MaxDoc() {
+		return false, nil
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.pendingDeletedDocIDs = append(w.pendingDeletedDocIDs, docID)
+	return true, nil
 }
 
 // GetNumBufferedDocuments returns the number of documents currently

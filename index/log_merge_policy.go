@@ -501,70 +501,33 @@ func (p *LogMergePolicy) FindForcedDeletesMerges(
 		return nil, nil
 	}
 
-	merging := mergeContext.GetMergingSegments()
-
-	// Collect segments with deletes
-	type segInfo struct {
-		info     *SegmentCommitInfo
-		size     int64
-		delCount int
-	}
-	eligible := make([]segInfo, 0)
-
-	for sci := range infos.Iterator() {
-		if merging[sci] {
-			continue
-		}
-
-		delCount := mergeContext.NumDeletesToMerge(sci)
-		if delCount > 0 {
-			size := p.Size(sci, mergeContext)
-			eligible = append(eligible, segInfo{info: sci, size: size, delCount: delCount})
-		}
-	}
-
-	if len(eligible) == 0 {
-		return nil, nil
-	}
-
-	// Sort by delete percentage (highest first)
-	sort.Slice(eligible, func(i, j int) bool {
-		iPct := float64(eligible[i].delCount) / float64(eligible[i].info.SegmentInfo().DocCount())
-		jPct := float64(eligible[j].delCount) / float64(eligible[j].info.SegmentInfo().DocCount())
-		return iPct > jPct
-	})
-
+	// Port of Lucene's LogMergePolicy.findForcedDeletesMerges: merge every
+	// contiguous run of segments that have deletions, splitting runs longer than
+	// mergeFactor into mergeFactor-sized chunks.
 	spec := NewMergeSpecification()
-
-	// Merge segments with high delete percentages
-	for i := 0; i+p.mergeFactor <= len(eligible); i += p.mergeFactor {
-		candidate := make([]*SegmentCommitInfo, 0, p.mergeFactor)
-		var totalSize int64
-		var totalDocs int
-
-		for j := i; j < len(eligible) && len(candidate) < p.mergeFactor; j++ {
-			size := eligible[j].size
-			docs := eligible[j].info.SegmentInfo().DocCount()
-
-			if (totalSize+size > p.maxMergeSize || totalDocs+docs > p.maxMergeDocs) && len(candidate) >= 2 {
-				break
+	first := -1
+	segments := infos.List()
+	for i, info := range segments {
+		delCount := mergeContext.NumDeletesToMerge(info)
+		if delCount > 0 {
+			if first == -1 {
+				first = i
+			} else if i-first == p.mergeFactor {
+				spec.Add(NewOneMerge(segments[first:i]))
+				first = i
 			}
-
-			candidate = append(candidate, eligible[j].info)
-			totalSize += size
-			totalDocs += docs
+		} else if first != -1 {
+			spec.Add(NewOneMerge(segments[first:i]))
+			first = -1
 		}
-
-		if len(candidate) >= 2 {
-			merge := NewOneMerge(candidate)
-			spec.Add(merge)
-		}
+	}
+	if first != -1 {
+		spec.Add(NewOneMerge(segments[first:]))
 	}
 
 	if spec.Size() == 0 {
 		return nil, nil
 	}
-
 	return spec, nil
 }
 

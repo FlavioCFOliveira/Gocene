@@ -103,12 +103,6 @@ func TestCommitOnClose(t *testing.T) {
 	})
 
 	t.Run("documents not visible until close", func(t *testing.T) {
-		// TODO(GOC-4163): a DirectoryReader reopened mid-session does not yet
-		// observe segments committed by a separate IndexWriter on the same
-		// Directory without losing the previously committed segments.
-		// Re-enable once Reopen/IsCurrent reflect external commits correctly.
-		t.Fatal("Reopen does not yet observe externally committed segments")
-
 		dir := store.NewByteBuffersDirectory()
 		defer dir.Close()
 
@@ -328,10 +322,11 @@ func TestCommitOnCloseAbort(t *testing.T) {
 // Purpose: Tests forceMerge behavior with commit on close and rollback
 func TestCommitOnCloseForceMerge(t *testing.T) {
 	t.Run("forceMerge with rollback", func(t *testing.T) {
-		// TODO(GOC-4163): DirectoryReader.Leaves reports a single leaf for a
-		// multi-segment index, so the multi-vs-single segment assertions
-		// cannot be exercised. Re-enable once per-segment leaves are exposed.
-		t.Fatal("DirectoryReader.Leaves does not yet expose per-segment leaves")
+		// ForceMerge currently writes the merged SegmentInfos immediately, so a
+		// reader opened before writer close already sees a single segment and
+		// rollback cannot abort the merge. Re-enable once merges are held as
+		// pending until commit/close (or rollback) like Lucene.
+		t.Fatal("ForceMerge commits merged segments immediately; pending-merge/rollback semantics not yet implemented")
 
 		dir := store.NewByteBuffersDirectory()
 		defer dir.Close()
@@ -916,7 +911,7 @@ func TestCommitUserData(t *testing.T) {
 		}
 		commit := reader.GetIndexCommit()
 		if commit == nil {
-			t.Fatal("GetIndexCommit returned nil")
+			t.Fatalf("GetIndexCommit returned nil for reader with %d segments", reader.MaxDoc())
 		}
 		if len(commit.GetUserData()) != 0 {
 			t.Errorf("Expected empty user data, got %v", commit.GetUserData())
@@ -1146,15 +1141,82 @@ func TestCommitThreadSafety(t *testing.T) {
 	})
 }
 
+// findCommitByTag returns the IndexCommit whose user data contains the given tag value.
+func findCommitByTag(t *testing.T, dir store.Directory, tag string) *index.IndexCommit {
+	t.Helper()
+	commits, err := index.ListCommits(dir)
+	if err != nil {
+		t.Fatalf("ListCommits: %v", err)
+	}
+	for _, c := range commits {
+		if c.GetUserData()["tag"] == tag {
+			return c
+		}
+	}
+	t.Fatalf("no commit with tag=%q found among %d commits", tag, len(commits))
+	return nil
+}
+
 // TestFutureCommit verifies that an IndexWriter can be opened against an
 // older IndexCommit and that newer commits are preserved.
 // Source: TestIndexWriterCommit.testFutureCommit()
 // Purpose: Tests opening a writer on a specific past commit.
 func TestFutureCommit(t *testing.T) {
 	t.Run("open writer on past commit", func(t *testing.T) {
-		// TODO(GOC-4163): IndexWriterConfig has no SetIndexCommit, so a
-		// writer cannot be pinned to a past IndexCommit. Re-enable once
-		// SetIndexCommit is added to IndexWriterConfig.
-		t.Fatal("IndexWriterConfig.SetIndexCommit is not yet implemented")
+		dir := store.NewByteBuffersDirectory()
+		defer dir.Close()
+
+		config := index.NewIndexWriterConfig(createCommitTestAnalyzer())
+		config.SetIndexDeletionPolicy(index.NoDeletionPolicyInstance)
+		writer, err := index.NewIndexWriter(dir, config)
+		if err != nil {
+			t.Fatalf("NewIndexWriter: %v", err)
+		}
+
+		doc := document.NewDocument()
+		f, _ := document.NewTextField("content", "hello", false)
+		doc.Add(f)
+
+		if err := writer.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument: %v", err)
+		}
+		writer.SetLiveCommitData(map[string]string{"tag": "first"})
+		if err := writer.Commit(); err != nil {
+			t.Fatalf("Commit: %v", err)
+		}
+
+		if err := writer.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument: %v", err)
+		}
+		writer.SetLiveCommitData(map[string]string{"tag": "second"})
+		if err := writer.Close(); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+
+		firstCommit := findCommitByTag(t, dir, "first")
+
+		config2 := index.NewIndexWriterConfig(createCommitTestAnalyzer())
+		config2.SetOpenMode(index.APPEND)
+		config2.SetIndexDeletionPolicy(index.NoDeletionPolicyInstance)
+		config2.SetIndexCommit(firstCommit)
+		writer, err = index.NewIndexWriter(dir, config2)
+		if err != nil {
+			t.Fatalf("NewIndexWriter at first commit: %v", err)
+		}
+		if stats := writer.GetDocStats(); stats.NumDocs != 1 {
+			t.Fatalf("expected 1 doc at first commit, got %d", stats.NumDocs)
+		}
+
+		if err := writer.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument after reopen: %v", err)
+		}
+		writer.SetLiveCommitData(map[string]string{"tag": "third"})
+		if err := writer.Close(); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+
+		if findCommitByTag(t, dir, "second") == nil {
+			t.Fatal("second commit was not preserved after reopening at first commit")
+		}
 	})
 }

@@ -41,11 +41,11 @@ func NewSimpleMergedSegmentWarmer(infoStream util.InfoStream) *SimpleMergedSegme
 // them (the method signature is void / error-free in Lucene). Non-nil errors
 // are collected and returned as a single joined error so callers can surface
 // unexpected failures without crashing the merge pipeline.
-func (w *SimpleMergedSegmentWarmer) Warm(reader *LeafReader) error {
+func (w *SimpleMergedSegmentWarmer) Warm(reader SegmentWarmerLeafReader) error {
 	start := time.Now()
 	var indexedCount, docValuesCount, normsCount int
 
-	fi := reader.IndexReader.GetFieldInfos()
+	fi := reader.GetFieldInfos()
 	if fi != nil {
 		it := fi.Iterator()
 		for {
