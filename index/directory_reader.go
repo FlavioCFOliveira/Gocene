@@ -1739,12 +1739,13 @@ func ListCommits(dir store.Directory) (IndexCommitList, error) {
 
 // parseSegmentsFileGeneration extracts the generation from a segments_N
 // file name. Returns 0 if the name does not match the "segments_<N>" pattern.
+// The generation is encoded in base 36, matching Lucene's segment file naming.
 func parseSegmentsFileGeneration(name string) int64 {
 	const prefix = "segments_"
 	if !strings.HasPrefix(name, prefix) {
 		return 0
 	}
-	gen, err := strconv.ParseInt(name[len(prefix):], 10, 64)
+	gen, err := strconv.ParseInt(name[len(prefix):], 36, 64)
 	if err != nil {
 		return 0
 	}

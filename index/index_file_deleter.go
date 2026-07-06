@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -287,8 +288,15 @@ func inflateGens(infos *SegmentInfos, files []string, infoStream util.InfoStream
 	var maxSegmentGen int64 = -1 << 62
 	var maxSegmentName int64 = -1 << 62
 
-	// Per-segment max gen across liveDocs / field infos / doc values files.
-	maxPerSegmentGen := make(map[string]int64)
+	// Per-segment maxima for the generation-bearing sidecar files that Lucene
+	// advances independently: live docs (.liv), field infos (.fnm), and doc
+	// values (.dvd/.dvm).  Previously every codec file was probed with
+	// ParseGeneration, which returns 0 for the primary _N.ext files and
+	// therefore inflated delGen/fieldInfosGen/docValuesGen to 1 even when no
+	// sidecar file existed, producing non-existent files during deleter close.
+	maxDelGen := make(map[string]int64)
+	maxFieldInfosGen := make(map[string]int64)
+	maxDocValuesGen := make(map[string]int64)
 
 	for _, fileName := range files {
 		switch {
@@ -328,11 +336,22 @@ func inflateGens(infos *SegmentInfos, files []string, infoStream util.InfoStream
 				}
 			}
 
-			curGen := maxPerSegmentGen[segmentName]
-			if g := ParseGeneration(fileName); g > curGen {
-				curGen = g
+			gen := ParseGeneration(fileName)
+			ext := strings.ToLower(GetExtension(fileName))
+			switch ext {
+			case "liv":
+				if gen > maxDelGen[segmentName] {
+					maxDelGen[segmentName] = gen
+				}
+			case "fnm":
+				if gen > maxFieldInfosGen[segmentName] {
+					maxFieldInfosGen[segmentName] = gen
+				}
+			case "dvd", "dvm":
+				if gen > maxDocValuesGen[segmentName] {
+					maxDocValuesGen[segmentName] = gen
+				}
 			}
-			maxPerSegmentGen[segmentName] = curGen
 		}
 	}
 
@@ -351,34 +370,31 @@ func inflateGens(infos *SegmentInfos, files []string, infoStream util.InfoStream
 	}
 
 	for sci := range infos.Iterator() {
-		gen, ok := maxPerSegmentGen[sci.Name()]
-		if !ok {
-			continue
-		}
+		name := sci.Name()
 		// Lucene asserts presence; we tolerate absence to keep tests against
 		// hand-rolled SegmentInfos surviving — there is no observable
 		// behavior change since the next AdvanceXGen still produces +1.
-		if sci.DelGen() < gen+1 {
+		if gen, ok := maxDelGen[name]; ok && sci.DelGen() < gen+1 {
 			if infoStream.IsEnabled("IFD") {
 				infoStream.Message("IFD",
 					fmt.Sprintf("init: seg=%s set delGen=%d vs current=%d",
-						sci.Name(), gen+1, sci.DelGen()))
+						name, gen+1, sci.DelGen()))
 			}
 			sci.SetDelGen(gen + 1)
 		}
-		if sci.FieldInfosGen() < gen+1 {
+		if gen, ok := maxFieldInfosGen[name]; ok && sci.FieldInfosGen() < gen+1 {
 			if infoStream.IsEnabled("IFD") {
 				infoStream.Message("IFD",
 					fmt.Sprintf("init: seg=%s set fieldInfosGen=%d vs current=%d",
-						sci.Name(), gen+1, sci.FieldInfosGen()))
+						name, gen+1, sci.FieldInfosGen()))
 			}
 			sci.SetFieldInfosGen(gen + 1)
 		}
-		if sci.DocValuesGen() < gen+1 {
+		if gen, ok := maxDocValuesGen[name]; ok && sci.DocValuesGen() < gen+1 {
 			if infoStream.IsEnabled("IFD") {
 				infoStream.Message("IFD",
 					fmt.Sprintf("init: seg=%s set docValuesGen=%d vs current=%d",
-						sci.Name(), gen+1, sci.DocValuesGen()))
+						name, gen+1, sci.DocValuesGen()))
 			}
 			sci.SetDocValuesGen(gen + 1)
 		}
@@ -780,21 +796,40 @@ func parseSegmentsGen(fileName, prefix string) (int64, bool) {
 //
 // The parser is a thin restatement of ReadSegmentInfos to operate on a
 // caller-provided filename rather than rediscovering the latest gen.
+// readSegmentInfosByFileName reads a specific segments_N file, dispatching on
+// the magic word to either the Lucene 10.4.0 codec envelope (used by the
+// current write path) or the legacy Gocene stub format.  This mirrors the
+// dispatch in spi.ReadSegmentInfos but for a caller-supplied filename rather
+// than the latest commit in the directory.
 func readSegmentInfosByFileName(directory store.Directory, fileName string) (*SegmentInfos, error) {
 	in, err := directory.OpenInput(fileName, store.IOContextRead)
 	if err != nil {
 		return nil, err
 	}
-	defer in.Close()
 
 	magic, err := store.ReadInt32(in)
 	if err != nil {
+		_ = in.Close()
 		return nil, err
 	}
-	if magic != 0x3d767 {
+
+	switch magic {
+	case spi.CodecMagic: // 0x3FD76C17 — Lucene 10.4.0 / current Gocene format
+		gen := parseSegmentsFileGeneration(fileName)
+		return spi.ReadSegmentInfosFromHandle(in, directory, gen)
+	case 0x3d767: // legacy Gocene stub format
+		defer in.Close()
+		return readSegmentInfosByFileNameLegacy(in, directory, fileName)
+	default:
+		_ = in.Close()
 		return nil, fmt.Errorf("invalid segments file magic in %q: %x", fileName, magic)
 	}
+}
 
+// readSegmentInfosByFileNameLegacy reads the legacy Gocene segments_N format
+// (magic 0x3d767) produced by early stubs.  Kept for backward compatibility
+// with any on-disk fixtures that still use it.
+func readSegmentInfosByFileNameLegacy(in store.IndexInput, directory store.Directory, fileName string) (*SegmentInfos, error) {
 	gen, err := store.ReadInt64(in)
 	if err != nil {
 		return nil, err

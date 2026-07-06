@@ -95,6 +95,11 @@ type ConcurrentMergeScheduler struct {
 
 	// rateLimiter limits merge I/O
 	rateLimiter *MergeRateLimiter
+
+	// maxFullFlushMergeWaitMillis is the maximum time (in milliseconds) that
+	// a full flush will wait for merges. A negative value means merges run
+	// asynchronously without blocking the flush; 0 means do not wait.
+	maxFullFlushMergeWaitMillis int64
 }
 
 // NewConcurrentMergeScheduler creates a new ConcurrentMergeScheduler.
@@ -229,6 +234,22 @@ func (s *ConcurrentMergeScheduler) GetAutoIOThrottle() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.doAutoIOThrottle
+}
+
+// SetMaxFullFlushMergeWaitMillis sets the maximum time (in milliseconds) that a
+// full flush will wait for merges to complete. Negative means do not wait.
+func (s *ConcurrentMergeScheduler) SetMaxFullFlushMergeWaitMillis(ms int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.maxFullFlushMergeWaitMillis = ms
+}
+
+// GetMaxFullFlushMergeWaitMillis returns the maximum time (in milliseconds)
+// that a full flush will wait for merges.
+func (s *ConcurrentMergeScheduler) GetMaxFullFlushMergeWaitMillis() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.maxFullFlushMergeWaitMillis
 }
 
 // getEffectiveMaxThreadCount gets the effective thread count, handling auto-detect.

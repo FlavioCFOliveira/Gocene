@@ -234,9 +234,7 @@ func TestIndexWriterMergeScheduling(t *testing.T) {
 		defer dir.Close()
 
 		config := index.NewIndexWriterConfig(createTestAnalyzer())
-
-		// TODO: Set custom merge scheduler when available
-		t.Fatal("Merge scheduler configuration not yet fully implemented")
+		config.SetMergeScheduler(index.NewSerialMergeScheduler())
 
 		writer, _ := index.NewIndexWriter(dir, config)
 		defer writer.Close()
@@ -264,9 +262,23 @@ func TestIndexWriterCompoundFiles(t *testing.T) {
 		}
 
 		// Commit
-		writer.Commit()
+		if err := writer.Commit(); err != nil {
+			t.Fatalf("Commit: %v", err)
+		}
 
-		// TODO: Verify compound file creation
-		t.Fatal("Compound file verification not yet implemented")
+		// With NoCFSRatio=0 every segment should be packed into a compound file.
+		files, err := dir.ListAll()
+		if err != nil {
+			t.Fatalf("ListAll: %v", err)
+		}
+		var cfsCount int
+		for _, f := range files {
+			if index.GetExtension(f) == "cfs" {
+				cfsCount++
+			}
+		}
+		if cfsCount == 0 {
+			t.Fatal("expected at least one .cfs compound file after commit")
+		}
 	})
 }
