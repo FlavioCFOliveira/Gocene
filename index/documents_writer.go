@@ -349,6 +349,40 @@ func (dw *DocumentsWriter) nextSegmentName() string {
 	return name
 }
 
+// SyncSegmentNameCounter advances the segment-name counter so it is strictly
+// greater than any existing segment name in the directory.  This must be called
+// after external operations (commits, merges, addIndexes) that may introduce
+// segment names the DocumentsWriter has not yet seen, preventing name collisions
+// when the next flush runs.
+func (dw *DocumentsWriter) SyncSegmentNameCounter() {
+	dw.mu.Lock()
+	defer dw.mu.Unlock()
+
+	files, err := dw.directory.ListAll()
+	if err != nil {
+		return
+	}
+	var max int64 = -1
+	for _, f := range files {
+		if len(f) > 1 && f[0] == '_' {
+			var n int64
+			// Parse the numeric part; stop at the first non-digit.
+			for i := 1; i < len(f); i++ {
+				if f[i] < '0' || f[i] > '9' {
+					break
+				}
+				n = n*10 + int64(f[i]-'0')
+			}
+			if n > max {
+				max = n
+			}
+		}
+	}
+	if max >= 0 && max+1 > dw.segmentNameCounter {
+		dw.segmentNameCounter = max + 1
+	}
+}
+
 // WriteSegmentInfo writes a SegmentInfo to the directory.
 // When codec is non-nil, it delegates to codec.SegmentInfoFormat().Write so
 // the .si file is byte-compatible with Apache Lucene.  When codec is nil, a
