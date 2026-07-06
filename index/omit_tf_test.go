@@ -48,6 +48,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/index/testutil"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -139,10 +140,89 @@ func TestOmitTf_Basic(t *testing.T) {
 // Java builds a single-document index with an DOCS field via RandomIndexWriter,
 // opens an NRT reader, and asserts that docFreq == totalTermFreq and
 // getSumDocFreq == getSumTotalTermFreq for the field.
-//
-// Degraded to t.Skip: RandomIndexWriter and iw.getReader() NRT path are not
-// yet available.
 func TestOmitTf_Stats(t *testing.T) {
-	t.Fatal("needs RandomIndexWriter and iw.getReader() NRT path " +
-		"(DirectoryReader.open(IndexWriter)) not yet implemented")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	rw, err := testutil.Open(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()), 42)
+	if err != nil {
+		t.Fatalf("RandomIndexWriter.Open: %v", err)
+	}
+	defer rw.Close()
+
+	ft := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
+	ft.SetIndexOptions(index.IndexOptionsDocs)
+
+	doc := document.NewDocument()
+	f, err := document.NewField("field", "a b c", ft)
+	if err != nil {
+		t.Fatalf("NewField: %v", err)
+	}
+	doc.Add(f)
+	if err := rw.AddDocument(doc); err != nil {
+		t.Fatalf("AddDocument: %v", err)
+	}
+
+	reader, err := rw.GetReader()
+	if err != nil {
+		t.Fatalf("GetReader: %v", err)
+	}
+	defer reader.Close()
+
+	leaves, err := reader.Leaves()
+	if err != nil {
+		t.Fatalf("Leaves: %v", err)
+	}
+	if len(leaves) != 1 {
+		t.Fatalf("expected 1 leaf, got %d", len(leaves))
+	}
+	leaf, ok := leaves[0].Reader().(*index.SegmentReader)
+	if !ok {
+		t.Fatalf("leaf reader is %T, want *index.SegmentReader", leaves[0].Reader())
+	}
+
+	terms, err := leaf.Terms("field")
+	if err != nil {
+		t.Fatalf("Terms: %v", err)
+	}
+	if terms == nil {
+		t.Fatal("no terms for field")
+	}
+
+	it, err := terms.GetIterator()
+	if err != nil {
+		t.Fatalf("GetIterator: %v", err)
+	}
+	for {
+		term, err := it.Next()
+		if err != nil {
+			t.Fatalf("Next: %v", err)
+		}
+		if term == nil {
+			break
+		}
+		df, err := it.DocFreq()
+		if err != nil {
+			t.Fatalf("DocFreq: %v", err)
+		}
+		ttf, err := it.TotalTermFreq()
+		if err != nil {
+			t.Fatalf("TotalTermFreq: %v", err)
+		}
+		if int64(df) != ttf {
+			t.Fatalf("term %q: DocFreq=%d, TotalTermFreq=%d; want equal", term.Text(), df, ttf)
+		}
+	}
+
+	sumDF, err := terms.GetSumDocFreq()
+	if err != nil {
+		t.Fatalf("GetSumDocFreq: %v", err)
+	}
+	sumTTF, err := terms.GetSumTotalTermFreq()
+	if err != nil {
+		t.Fatalf("GetSumTotalTermFreq: %v", err)
+	}
+	if sumDF != sumTTF {
+		t.Fatalf("GetSumDocFreq=%d, GetSumTotalTermFreq=%d; want equal", sumDF, sumTTF)
+	}
 }
