@@ -41,7 +41,11 @@ func TestS6_GoceneWriteLeg(t *testing.T) {
 	for _, seed := range canarySeeds {
 		seed := seed
 		t.Run(strconv.FormatInt(seed, 10), func(t *testing.T) {
-			dir := t.TempDir()
+			dir, err := os.MkdirTemp("", fmt.Sprintf("gocene-s6-%d-*", seed))
+			if err != nil {
+				t.Fatalf("mkdirtemp: %v", err)
+			}
+			t.Logf("S6 Gocene dir: %s", dir)
 
 			fsDir, err := store.NewSimpleFSDirectory(dir)
 			if err != nil {

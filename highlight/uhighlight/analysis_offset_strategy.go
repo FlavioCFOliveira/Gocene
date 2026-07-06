@@ -48,6 +48,7 @@ type AnalysisOffsetStrategy struct {
 	BaseFieldOffsetStrategy
 	literals []string
 	matchers []CharArrayMatcher
+	phrases  []*PhraseInfo
 }
 
 // NewAnalysisOffsetStrategy returns the analysis strategy for field.
@@ -89,8 +90,25 @@ func WithAnalysisMatchers(matchers ...CharArrayMatcher) AnalysisSelector {
 	}
 }
 
+// WithAnalysisPhrases registers phrase queries that should be highlighted as
+// contiguous spans rather than as individual term matches.
+func WithAnalysisPhrases(phrases ...*PhraseInfo) AnalysisSelector {
+	return func(s *AnalysisOffsetStrategy) {
+		s.phrases = append(s.phrases, phrases...)
+	}
+}
+
 // GetOffsetSource returns OffsetSourceAnalysis.
 func (s *AnalysisOffsetStrategy) GetOffsetSource() OffsetSource { return OffsetSourceAnalysis }
+
+// tokenOffset holds the per-token information we need to detect phrase
+// matches while walking a re-analyzed field.
+type tokenOffset struct {
+	term     string
+	start    int
+	end      int
+	position int
+}
 
 // GetOffsetsEnum re-tokenises docContext.Content and returns an
 // OffsetsEnum walking the matched tokens in document order.
@@ -102,7 +120,7 @@ func (s *AnalysisOffsetStrategy) GetOffsetsEnum(docContext any) (OffsetsEnum, er
 	if ctx.Analyzer == nil {
 		return nil, fmt.Errorf("uhighlight: AnalysisOffsetStrategy requires a non-nil Analyzer")
 	}
-	if len(s.literals) == 0 && len(s.matchers) == 0 {
+	if len(s.literals) == 0 && len(s.matchers) == 0 && len(s.phrases) == 0 {
 		return NewSliceOffsetsEnum(nil), nil
 	}
 
@@ -118,11 +136,13 @@ func (s *AnalysisOffsetStrategy) GetOffsetsEnum(docContext any) (OffsetsEnum, er
 	}
 	termAttr, _ := src.GetAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
 	offsetAttr, _ := src.GetAttribute(analysis.OffsetAttributeType).(analysis.OffsetAttribute)
+	posIncrAttr, _ := src.GetAttribute(analysis.PositionIncrementAttributeType).(analysis.PositionIncrementAttribute)
 	if termAttr == nil || offsetAttr == nil {
 		return nil, fmt.Errorf("uhighlight: TokenStream missing CharTerm/Offset attributes (term=%T offset=%T)", termAttr, offsetAttr)
 	}
 
-	var entries []OffsetEntry
+	var tokens []tokenOffset
+	pos := -1
 	for {
 		more, err := stream.IncrementToken()
 		if err != nil {
@@ -131,18 +151,92 @@ func (s *AnalysisOffsetStrategy) GetOffsetsEnum(docContext any) (OffsetsEnum, er
 		if !more {
 			break
 		}
-		term := termAttr.String()
-		if !s.termMatches(term) {
-			continue
+		incr := 1
+		if posIncrAttr != nil {
+			incr = posIncrAttr.GetPositionIncrement()
 		}
-		entries = append(entries, OffsetEntry{
-			Term:        term,
-			StartOffset: offsetAttr.StartOffset(),
-			EndOffset:   offsetAttr.EndOffset(),
-			Weight:      lookupFreq(ctx.TermFreqsInDoc, term, 1),
+		if pos < 0 {
+			pos = incr
+		} else {
+			pos += incr
+		}
+		tokens = append(tokens, tokenOffset{
+			term:     termAttr.String(),
+			start:    offsetAttr.StartOffset(),
+			end:      offsetAttr.EndOffset(),
+			position: pos,
 		})
 	}
 	_ = stream.End()
+
+	consumed := make([]bool, len(tokens))
+	var entries []OffsetEntry
+
+	// Emit phrase spans first so overlapping single-term matches for the
+	// same offsets are skipped.
+	for _, phrase := range s.phrases {
+		if len(phrase.Terms) == 0 || len(phrase.Positions) != len(phrase.Terms) {
+			continue
+		}
+		for i := 0; i < len(tokens); i++ {
+			start := tokens[i].position
+			endPos := start
+			match := true
+			for j, want := range phrase.Terms {
+				idx := i + j
+				if idx >= len(tokens) {
+					match = false
+					break
+				}
+				got := tokens[idx].term
+				if got != want {
+					match = false
+					break
+				}
+				if j == 0 {
+					endPos = start + phrase.Positions[j]
+				} else {
+					expectedPos := start + phrase.Positions[j]
+					if tokens[idx].position != expectedPos {
+						match = false
+						break
+					}
+					if tokens[idx].position > endPos {
+						endPos = tokens[idx].position
+					}
+				}
+			}
+			if !match {
+				continue
+			}
+			spanStart := tokens[i].start
+			spanEnd := tokens[i+len(phrase.Terms)-1].end
+			for j := 0; j < len(phrase.Terms); j++ {
+				consumed[i+j] = true
+			}
+			entries = append(entries, OffsetEntry{
+				Term:        "",
+				StartOffset: spanStart,
+				EndOffset:   spanEnd,
+				Weight:      1,
+			})
+		}
+	}
+
+	for i, tok := range tokens {
+		if consumed[i] {
+			continue
+		}
+		if !s.termMatches(tok.term) {
+			continue
+		}
+		entries = append(entries, OffsetEntry{
+			Term:        tok.term,
+			StartOffset: tok.start,
+			EndOffset:   tok.end,
+			Weight:      lookupFreq(ctx.TermFreqsInDoc, tok.term, 1),
+		})
+	}
 
 	// Defensive sort: in-order by construction, but graph synonyms can
 	// re-order. FieldHighlighter requires ascending start-offsets.

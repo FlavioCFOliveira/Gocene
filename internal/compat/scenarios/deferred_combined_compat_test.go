@@ -38,30 +38,20 @@ import (
 // FST persistence and lookup was implemented and the Gocene-write
 // leg is covered by TestS5_GoceneWriteLeg in s5_gocene_write_test.go.
 //
-// Remaining deferred scenario:
-//   S6 — highlighted snippets. The Gocene highlight package exposes
-//        SimpleHighlighter/UnifiedHighlighter APIs but they do not yet
-//        implement the Lucene 10.4.0 UnifiedHighlighter builder contract
-//        (searcher + analyzer, offset-aware passage selection, and term-vector
-//        backed snippets). The read-path Lucene→Gocene leg is pinned by
-//        TestS6_HighlightQueryparserAnalysis; the Gocene-write leg needs a
-//        full UnifiedHighlighter port plus term-vector write-path parity.
+// S6 (combined-highlight-queryparser-analysis) is no longer deferred:
+// The UnifiedHighlighter builder API now uses the sentence-level break
+// iterator default and supports phrase-query spans, so the Gocene-write leg
+// is covered by TestS6_GoceneWriteLeg in s6_gocene_write_test.go.
+//
+// No combined-scenario Gocene-write legs remain deferred.
 func TestDeferredGoceneWriteLeg(t *testing.T) {
 	cases := []struct {
 		scenario string
 		reason   string
-	}{
-		{
-			scenario: scenarioS6,
-			reason: "Gocene highlight package does not yet provide a Lucene-" +
-				"compatible UnifiedHighlighter with the searcher+analyzer " +
-				"builder API and offset/term-vector backed snippets required " +
-				"to reproduce the Java S6 TSV byte-for-byte.",
-		},
-	}
+	}{}
 
-	if len(cases) != 1 {
-		t.Fatalf("expected 1 deferred combined scenario, got %d", len(cases))
+	if len(cases) != 0 {
+		t.Fatalf("expected 0 deferred combined scenarios, got %d", len(cases))
 	}
 
 	for _, c := range cases {

@@ -605,7 +605,35 @@ func (t *termsWriterState) pushSinglePostings(termText *index.Term, termsEnum in
 	}
 	_ = norms
 
-	postingsEnum, err := termsEnum.Postings(0)
+	// Compute postings-enum flags from the field's index options so that the
+	// returned PostingsEnum exposes positions, offsets and payloads as needed
+	// by the push writer. Passing 0 would only yield doc ids; in particular
+	// offsets would be reported as -1 and corrupt the .pos stream for fields
+	// that index offsets.
+	hasFreqs := t.fieldInfo.IndexOptions() >= index.IndexOptionsDocsAndFreqs
+	hasPositions := t.fieldInfo.IndexOptions() >= index.IndexOptionsDocsAndFreqsAndPositions
+	hasOffsets := t.fieldInfo.IndexOptions() >= index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets
+	hasPayloads := t.fieldInfo.HasPayloads()
+	var postingsFlags int
+	if !hasFreqs {
+		postingsFlags = 0
+	} else if !hasPositions {
+		postingsFlags = index.PostingsFlagFreqs
+	} else if !hasOffsets {
+		if hasPayloads {
+			postingsFlags = index.PostingsFlagPayloads
+		} else {
+			postingsFlags = index.PostingsFlagPositions
+		}
+	} else {
+		if hasPayloads {
+			postingsFlags = index.PostingsFlagPayloads | index.PostingsFlagOffsets
+		} else {
+			postingsFlags = index.PostingsFlagOffsets
+		}
+	}
+
+	postingsEnum, err := termsEnum.Postings(postingsFlags)
 	if err != nil {
 		return nil, err
 	}
@@ -618,10 +646,6 @@ func (t *termsWriterState) pushSinglePostings(termText *index.Term, termsEnum in
 	if !ok {
 		return nil, fmt.Errorf("Lucene103BlockTreeTermsWriter: postingsWriter %T does not implement PushPostingsWriterBase", t.parent.postingsWriter)
 	}
-	hasFreqs := t.fieldInfo.IndexOptions() >= index.IndexOptionsDocsAndFreqs
-	hasPositions := t.fieldInfo.IndexOptions() >= index.IndexOptionsDocsAndFreqsAndPositions
-	hasOffsets := t.fieldInfo.IndexOptions() >= index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets
-	hasPayloads := t.fieldInfo.HasPayloads()
 
 	docCount, totalTermFreq, err := WriteTerm(pusher, postingsEnum, hasFreqs, hasPositions, hasOffsets, hasPayloads, t.docsSeen)
 	if err != nil {
