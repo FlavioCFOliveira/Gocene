@@ -1070,10 +1070,66 @@ func TestZeroCommits(t *testing.T) {
 // Purpose: Tests transient disk usage stays bounded during merges.
 func TestCommitOnCloseDiskUsage(t *testing.T) {
 	t.Run("transient disk usage stays bounded", func(t *testing.T) {
-		// TODO(GOC-4163): requires MockDirectoryWrapper disk-usage tracking
-		// (resetMaxUsedSizeInBytes/getMaxUsedSizeInBytes/setTrackDiskUsage),
-		// which Gocene's store package does not yet provide.
-		t.Fatal("MockDirectoryWrapper disk-usage tracking not yet ported")
+		dir := store.NewMockDirectoryWrapper(store.NewByteBuffersDirectory())
+		defer dir.Close()
+
+		config := index.NewIndexWriterConfig(createCommitTestAnalyzer())
+		config.SetMaxBufferedDocs(10)
+		config.SetMergePolicy(index.NewLogMergePolicy())
+
+		writer, err := index.NewIndexWriter(dir, config)
+		if err != nil {
+			t.Fatalf("NewIndexWriter() error = %v", err)
+		}
+		for j := 0; j < 30; j++ {
+			if err := addCommitTestDoc(writer); err != nil {
+				t.Fatalf("AddDocument(%d) error = %v", j, err)
+			}
+		}
+		writer.Close()
+
+		dir.ResetMaxUsedSizeInBytes()
+		dir.SetTrackDiskUsage(true)
+		startDiskUsage := dir.GetMaxUsedSizeInBytes()
+
+		config2 := index.NewIndexWriterConfig(createCommitTestAnalyzer())
+		config2.SetOpenMode(index.APPEND)
+		config2.SetMaxBufferedDocs(10)
+		config2.SetMergeScheduler(index.NewSerialMergeScheduler())
+		config2.SetMergePolicy(index.NewLogMergePolicy())
+
+		writer, err = index.NewIndexWriter(dir, config2)
+		if err != nil {
+			t.Fatalf("NewIndexWriter(append) error = %v", err)
+		}
+		for j := 0; j < 1470; j++ {
+			if err := addCommitTestDoc(writer); err != nil {
+				t.Fatalf("AddDocument(%d) error = %v", j, err)
+			}
+		}
+		midDiskUsage := dir.GetMaxUsedSizeInBytes()
+		dir.ResetMaxUsedSizeInBytes()
+		if err := writer.ForceMerge(1); err != nil {
+			t.Fatalf("ForceMerge(1) error = %v", err)
+		}
+		writer.Close()
+
+		reader, err := index.OpenDirectoryReader(dir)
+		if err != nil {
+			t.Fatalf("OpenDirectoryReader() error = %v", err)
+		}
+		reader.Close()
+
+		endDiskUsage := dir.GetMaxUsedSizeInBytes()
+
+		if midDiskUsage >= 150*startDiskUsage {
+			t.Fatalf("writer used too much space while adding documents: mid=%d start=%d limit=%d",
+				midDiskUsage, startDiskUsage, 150*startDiskUsage)
+		}
+		if endDiskUsage >= 150*startDiskUsage {
+			t.Fatalf("writer used too much space after close: end=%d start=%d limit=%d",
+				endDiskUsage, startDiskUsage, 150*startDiskUsage)
+		}
 	})
 }
 
