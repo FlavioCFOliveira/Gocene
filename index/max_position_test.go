@@ -5,38 +5,56 @@
 package index_test
 
 import (
+	"io"
+	"strings"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/testutil"
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// max_position_test.go ports org.apache.lucene.index.TestMaxPosition
-// (LUCENE-6382).
-//
-// The upstream suite exercises the IndexWriter.MAX_POSITION bound: a token
-// stream whose accumulated positions overflow MAX_POSITION must be rejected
-// with IllegalArgumentException (testTooBigPosition), while a stream that
-// lands exactly on MAX_POSITION must be accepted and read back correctly
-// (testMaxPosition).
-//
-// Both test methods are blocked on Sprint 55 infrastructure gaps:
-//
-//   - CannedTokenStream is unimplemented, so the two tokens with explicit
-//     setPositionIncrement (one of them == IndexWriter.MAX_POSITION) cannot
-//     be produced.
-//   - DirectoryReader.open(IndexWriter) (the near-real-time open from a
-//     writer) has no Gocene equivalent; only OpenDirectoryReader(Directory)
-//     exists, and it builds each SegmentReader without core readers, so the
-//     leaf-level Terms()/Postings() path used by testMaxPosition returns
-//     "core readers are nil".
-//   - MultiTerms.getTermPostingsEnum has no Gocene helper.
-//
-// Each test below documents the verbatim upstream scenario and t.Skip's at
-// the first unreachable step, following the established pattern in
-// postings_offsets_test.go, payloads_on_vectors_test.go and flex_test.go.
-// Unskip once CannedTokenStream, the near-real-time DirectoryReader open and
-// the MultiTerms.getTermPostingsEnum read path land.
-//
-// The Gocene equivalent of IndexWriter.MAX_POSITION is the exported constant
-// index.MaxPosition (see index/mapping_multi_postings_enum.go).
+// maxPositionAnalyzer is a test-only analyzer that ignores the supplied
+// reader and always returns the same canned token sequence. It is used to
+// inject tokens with explicit position increments into the indexing chain.
+type maxPositionAnalyzer struct {
+	factory func() analysis.TokenStream
+}
+
+func (a *maxPositionAnalyzer) TokenStream(fieldName string, reader io.Reader) (analysis.TokenStream, error) {
+	return a.factory(), nil
+}
+
+func (a *maxPositionAnalyzer) Close() error { return nil }
+
+// newMaxPositionWriter creates an IndexWriter over a RAMDirectory using the
+// supplied canned-token analyzer and a simple IndexWriterConfig.
+func newMaxPositionWriter(t *testing.T, a analysis.Analyzer) (store.Directory, *index.IndexWriter) {
+	t.Helper()
+	dir := store.NewByteBuffersDirectory()
+	config := index.NewIndexWriterConfig(a)
+	writer, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	return dir, writer
+}
+
+// addMaxPositionDoc indexes one document whose "foo" field emits two "foo"
+// tokens via the supplied canned-token analyzer factory.
+func addMaxPositionDoc(t *testing.T, writer *index.IndexWriter, factory func() analysis.TokenStream) error {
+	t.Helper()
+	doc := document.NewDocument()
+	field, err := document.NewTextField("foo", "ignored", false)
+	if err != nil {
+		t.Fatalf("NewTextField: %v", err)
+	}
+	doc.Add(field)
+	return writer.AddDocument(doc)
+}
 
 // TestMaxPosition_TooBigPosition ports TestMaxPosition.testTooBigPosition.
 //
@@ -46,8 +64,34 @@ import (
 // must throw IllegalArgumentException, and a reader opened on the writer must
 // then report numDocs() == 0 (the document is not visible).
 func TestMaxPosition_TooBigPosition(t *testing.T) {
-	t.Fatal("blocked: CannedTokenStream (explicit positionIncrement tokens) unimplemented, " +
-		"and DirectoryReader.open(IndexWriter) for the numDocs()==0 visibility check has no Gocene equivalent")
+	dir, writer := newMaxPositionWriter(t, &maxPositionAnalyzer{
+		factory: func() analysis.TokenStream {
+			return testutil.NewCannedTokenStream(
+				testutil.NewTokenWithPosInc("foo", 2, 0, 3),
+				testutil.NewTokenWithPosInc("foo", index.MaxPosition, 0, 3),
+			)
+		},
+	})
+	defer writer.Close()
+
+	err := addMaxPositionDoc(t, writer, nil)
+	if err == nil {
+		t.Fatalf("AddDocument with position > MaxPosition should fail")
+	}
+	if !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("expected 'too large' error, got: %v", err)
+	}
+
+	reader, err := writer.GetReader()
+	if err != nil {
+		t.Fatalf("GetReader: %v", err)
+	}
+	defer reader.Close()
+	if got := reader.NumDocs(); got != 0 {
+		t.Fatalf("NumDocs = %d, want 0", got)
+	}
+
+	dir.Close()
 }
 
 // TestMaxPosition_MaxPosition ports TestMaxPosition.testMaxPosition.
@@ -58,6 +102,70 @@ func TestMaxPosition_TooBigPosition(t *testing.T) {
 // reader opened on the writer must report numDocs() == 1, and the PostingsEnum
 // for term "foo" must report freq()==2 with positions 0 and MAX_POSITION.
 func TestMaxPosition_MaxPosition(t *testing.T) {
-	t.Fatal("blocked: CannedTokenStream (explicit positionIncrement tokens) unimplemented, " +
-		"and the MultiTerms.getTermPostingsEnum read-back path hits 'core readers are nil' on OpenDirectoryReader")
+	dir, writer := newMaxPositionWriter(t, &maxPositionAnalyzer{
+		factory: func() analysis.TokenStream {
+			return testutil.NewCannedTokenStream(
+				testutil.NewTokenWithPosInc("foo", 1, 0, 3),
+				testutil.NewTokenWithPosInc("foo", index.MaxPosition, 0, 3),
+			)
+		},
+	})
+	defer writer.Close()
+
+	if err := addMaxPositionDoc(t, writer, nil); err != nil {
+		t.Fatalf("AddDocument: %v", err)
+	}
+
+	reader, err := writer.GetReader()
+	if err != nil {
+		t.Fatalf("GetReader: %v", err)
+	}
+	defer reader.Close()
+	if got := reader.NumDocs(); got != 1 {
+		t.Fatalf("NumDocs = %d, want 1", got)
+	}
+
+	leaves := reader.GetSegmentReaders()
+	if len(leaves) != 1 {
+		t.Fatalf("expected 1 leaf, got %d", len(leaves))
+	}
+	leaf := leaves[0]
+	terms, err := leaf.Terms("foo")
+	if err != nil {
+		t.Fatalf("Terms: %v", err)
+	}
+	postings, err := terms.GetPostingsReader("foo", schema.PostingsFlagPositions)
+	if err != nil {
+		t.Fatalf("GetPostingsReader: %v", err)
+	}
+	if postings == nil {
+		t.Fatalf("postings for 'foo' is nil")
+	}
+	docID, err := postings.NextDoc()
+	if err != nil {
+		t.Fatalf("NextDoc: %v", err)
+	}
+	if docID == schema.NO_MORE_DOCS {
+		t.Fatalf("no docs for term 'foo'")
+	}
+	freq, err := postings.Freq()
+	if err != nil {
+		t.Fatalf("Freq: %v", err)
+	}
+	if freq != 2 {
+		t.Fatalf("freq = %d, want 2", freq)
+	}
+	positions := make([]int, 0, freq)
+	for i := 0; i < freq; i++ {
+		pos, err := postings.NextPosition()
+		if err != nil {
+			t.Fatalf("NextPosition: %v", err)
+		}
+		positions = append(positions, pos)
+	}
+	if positions[0] != 0 || positions[1] != index.MaxPosition {
+		t.Fatalf("positions = %v, want [0 %d]", positions, index.MaxPosition)
+	}
+
+	dir.Close()
 }

@@ -132,6 +132,12 @@ type Posting struct {
 
 	// endOffsets holds end character offsets (if offsets are indexed)
 	endOffsets [][]int
+
+	// payloads holds per-position payload bytes (if payloads are indexed).
+	// The outer slice is parallel to docIDs; the inner slice holds one payload
+	// per position occurrence. A nil entry means "no payload for this
+	// occurrence"; an empty but non-nil slice means "empty payload".
+	payloads [][][]byte
 }
 
 // StoredFieldsBuffer holds stored field data in memory.
@@ -893,6 +899,7 @@ func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 		posIncr     int
 		startOffset int
 		endOffset   int
+		payload     []byte
 	}
 	var tokens []tokenAtPos
 	if tokenized {
@@ -937,6 +944,9 @@ func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 						}
 					}
 					position += posIncr
+					if position > MaxPosition {
+						return fmt.Errorf("position=%d is too large (> IndexWriter.MAX_POSITION=%d), field=%q", position, MaxPosition, fieldName)
+					}
 					if attr := src.GetAttribute(analysis.CharTermAttributeType); attr != nil {
 						if termAttr, ok := attr.(analysis.CharTermAttribute); ok {
 							startOffset, endOffset := 0, 0
@@ -946,12 +956,26 @@ func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 									endOffset = offsetAttr.EndOffset()
 								}
 							}
+							var payload []byte
+							if pa := src.GetAttribute(analysis.PayloadAttributeType); pa != nil {
+								if payloadAttr, ok := pa.(*analysis.PayloadAttributeImpl); ok {
+									p := payloadAttr.GetPayload()
+									if len(p) > 0 {
+										payload = make([]byte, len(p))
+										copy(payload, p)
+										if fieldInfo.IndexOptions().HasPositions() {
+											fieldInfo.SetStorePayloads()
+										}
+									}
+								}
+							}
 							tokens = append(tokens, tokenAtPos{
 								term:        termAttr.String(),
 								position:    position,
 								posIncr:     posIncr,
 								startOffset: startOffset,
 								endOffset:   endOffset,
+								payload:     payload,
 							})
 						}
 					}
@@ -982,7 +1006,9 @@ func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 	// FieldInvertState (length += termFreq; numOverlap++ when posIncr == 0).
 	acc := dwpt.normsAccumulatorFor(fieldName, fieldInfo)
 	for _, tok := range tokens {
-		dwpt.addTermWithFreq(docID, fieldName, tok.term, tok.position, tok.startOffset, tok.endOffset, customTermFreq, fieldPostings, fieldInfo)
+		if err := dwpt.addTermWithFreq(docID, fieldName, tok.term, tok.position, tok.startOffset, tok.endOffset, tok.payload, customTermFreq, fieldPostings, fieldInfo); err != nil {
+			return err
+		}
 		if acc != nil {
 			acc.addToken(tok.term, customTermFreq, tok.posIncr)
 		}
@@ -993,8 +1019,8 @@ func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 
 // addTerm adds a term to the inverted index with the default initial TF of 1
 // and no character offsets.
-func (dwpt *DocumentsWriterPerThread) addTerm(docID int, fieldName, term string, position int, fieldPostings *FieldPostings, fieldInfo *FieldInfo) {
-	dwpt.addTermWithFreq(docID, fieldName, term, position, 0, 0, 0, fieldPostings, fieldInfo)
+func (dwpt *DocumentsWriterPerThread) addTerm(docID int, fieldName, term string, position int, fieldPostings *FieldPostings, fieldInfo *FieldInfo) error {
+	return dwpt.addTermWithFreq(docID, fieldName, term, position, 0, 0, nil, 0, fieldPostings, fieldInfo)
 }
 
 // addTermWithFreq adds a term to the inverted index.
@@ -1002,9 +1028,18 @@ func (dwpt *DocumentsWriterPerThread) addTerm(docID int, fieldName, term string,
 // document entry; otherwise 1 is used (the standard Lucene default).
 // startOffset/endOffset are the token's character offsets and are only stored
 // when the field indexes offsets.
-func (dwpt *DocumentsWriterPerThread) addTermWithFreq(docID int, fieldName, term string, position, startOffset, endOffset int, initialFreq int, fieldPostings *FieldPostings, fieldInfo *FieldInfo) {
+func (dwpt *DocumentsWriterPerThread) addTermWithFreq(docID int, fieldName, term string, position, startOffset, endOffset int, payload []byte, initialFreq int, fieldPostings *FieldPostings, fieldInfo *FieldInfo) error {
 	fieldPostings.mu.Lock()
 	defer fieldPostings.mu.Unlock()
+
+	if fieldInfo.IndexOptions().HasOffsets() {
+		if startOffset < 0 || endOffset < 0 {
+			return fmt.Errorf("negative offsets are not allowed: field=%q start=%d end=%d", fieldName, startOffset, endOffset)
+		}
+		if endOffset < startOffset {
+			return fmt.Errorf("startOffset must be <= endOffset: field=%q start=%d end=%d", fieldName, startOffset, endOffset)
+		}
+	}
 
 	posting, exists := fieldPostings.terms[term]
 	if !exists {
@@ -1014,6 +1049,7 @@ func (dwpt *DocumentsWriterPerThread) addTermWithFreq(docID int, fieldName, term
 			positions:    make([][]int, 0),
 			startOffsets: make([][]int, 0),
 			endOffsets:   make([][]int, 0),
+			payloads:     make([][][]byte, 0),
 		}
 		fieldPostings.terms[term] = posting
 		dwpt.invertedIndex.numTerms++
@@ -1022,6 +1058,8 @@ func (dwpt *DocumentsWriterPerThread) addTermWithFreq(docID int, fieldName, term
 	if initialFreq <= 0 {
 		initialFreq = 1
 	}
+
+	hasPayload := len(payload) > 0
 
 	// Find or add document in posting list
 	if len(posting.docIDs) > 0 && posting.docIDs[len(posting.docIDs)-1] == docID {
@@ -1034,6 +1072,9 @@ func (dwpt *DocumentsWriterPerThread) addTermWithFreq(docID int, fieldName, term
 				posting.startOffsets[idx] = append(posting.startOffsets[idx], startOffset)
 				posting.endOffsets[idx] = append(posting.endOffsets[idx], endOffset)
 			}
+			if hasPayload {
+				posting.payloads[idx] = append(posting.payloads[idx], payload)
+			}
 		}
 	} else {
 		// New document
@@ -1045,8 +1086,14 @@ func (dwpt *DocumentsWriterPerThread) addTermWithFreq(docID int, fieldName, term
 				posting.startOffsets = append(posting.startOffsets, []int{startOffset})
 				posting.endOffsets = append(posting.endOffsets, []int{endOffset})
 			}
+			if hasPayload {
+				posting.payloads = append(posting.payloads, [][]byte{payload})
+			} else {
+				posting.payloads = append(posting.payloads, [][]byte{})
+			}
 		}
 	}
+	return nil
 }
 
 // addDocValue buffers one document's doc-values value(s) for fieldName,
@@ -1943,7 +1990,8 @@ func (e *postingTermsEnum) Postings(flags int) (PostingsEnum, error) {
 		return nil, nil
 	}
 	hasOffsets := e.postings.fieldInfo != nil && e.postings.fieldInfo.IndexOptions().HasOffsets()
-	return &postingDataEnum{posting: posting, docIdx: -1, posIdx: -1, hasOffsets: hasOffsets}, nil
+	hasPayloads := e.postings.fieldInfo != nil && e.postings.fieldInfo.HasPayloads()
+	return &postingDataEnum{posting: posting, docIdx: -1, posIdx: -1, hasOffsets: hasOffsets, hasPayloads: hasPayloads}, nil
 }
 
 func (e *postingTermsEnum) SeekExact(term *Term) (bool, error) {
@@ -1980,16 +2028,18 @@ func (e *postingTermsEnum) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (
 	return nil, nil
 }
 
-// postingDataEnum iterates over the doc/freq/position/offset data of a
-// single Posting list. It is returned by postingTermsEnum.Postings and drives
-// the block-tree terms writer via WriteTerm.
+// postingDataEnum iterates over the doc/freq/position/offset/payload data of
+// a single Posting list. It is returned by postingTermsEnum.Postings and
+// drives the block-tree terms writer via WriteTerm.
 type postingDataEnum struct {
 	posting     *Posting
 	docIdx      int // index into posting.docIDs; -1 = before start
 	posIdx      int // index into posting.positions[docIdx]; -1 = before start
 	startOffset int
 	endOffset   int
+	payload     []byte
 	hasOffsets  bool
+	hasPayloads bool
 }
 
 func (p *postingDataEnum) NextDoc() (int, error) {
@@ -2028,6 +2078,13 @@ func (p *postingDataEnum) NextPosition() (int, error) {
 		p.startOffset = p.posting.startOffsets[p.docIdx][p.posIdx]
 		p.endOffset = p.posting.endOffsets[p.docIdx][p.posIdx]
 	}
+	if p.hasPayloads {
+		if p.posIdx < len(p.posting.payloads[p.docIdx]) {
+			p.payload = p.posting.payloads[p.docIdx][p.posIdx]
+		} else {
+			p.payload = nil
+		}
+	}
 	return positions[p.posIdx], nil
 }
 
@@ -2044,7 +2101,10 @@ func (p *postingDataEnum) EndOffset() (int, error) {
 	return p.endOffset, nil
 }
 func (p *postingDataEnum) GetPayload() ([]byte, error) {
-	return nil, nil
+	if !p.hasPayloads {
+		return nil, nil
+	}
+	return p.payload, nil
 }
 
 func (p *postingDataEnum) Advance(target int) (int, error) {
