@@ -5,39 +5,17 @@
 package index_test
 
 import (
+	"fmt"
+	"io"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/testutil"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
-
-// postings_offsets_test.go ports org.apache.lucene.index.TestPostingsOffsets.
-//
-// The upstream suite exercises offset/payload round-trips through the postings
-// reader: it indexes documents with DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS,
-// then reads them back via MultiTerms.getTermPostingsEnum and asserts
-// startOffset/endOffset/payload on each position.
-//
-// Every test method below is blocked on Sprint 55 infrastructure gaps:
-//
-//   - CannedTokenStream is unimplemented, so the precise (text, posIncr,
-//     startOffset, endOffset) tokens of testBasic/testRandom/the offset-validation
-//     tests cannot be produced.
-//   - MockPayloadAnalyzer and the English number-to-words helper, required by
-//     doTestNumbers (testSkipping / testPayloads), have no Gocene equivalent.
-//   - RandomIndexWriter is unimplemented; the ports use the concrete IndexWriter.
-//   - The read-back path MultiTerms.getTermPostingsEnum has no Gocene helper,
-//     and OpenDirectoryReader builds each SegmentReader without core readers, so
-//     leaf-level Terms()/Postings() return "core readers are nil"
-//     (see index/directory_reader.go ~462/497; fix site NewSegmentReaderWithCore).
-//
-// Each test builds the field configuration and the reachable portion of the
-// indexing pipeline verbatim, then t.Skip's at the first unreachable step,
-// following the established pattern in payloads_on_vectors_test.go,
-// segment_term_docs_test.go and flex_test.go. Unskip once the postings read
-// path, CannedTokenStream and the analyzer helpers land.
 
 // postingsOffsetsType builds the FieldType shared by the offset tests: a
 // non-stored TextField type with DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS.
@@ -53,6 +31,143 @@ func postingsOffsetsType(stored bool) *document.FieldType {
 	return ft
 }
 
+// cannedAnalyzer is a test-only analyzer that ignores the supplied reader and
+// returns a fresh TokenStream built by factory on every call.
+type cannedAnalyzer struct {
+	factory func() analysis.TokenStream
+}
+
+func (a *cannedAnalyzer) TokenStream(fieldName string, reader io.Reader) (analysis.TokenStream, error) {
+	return a.factory(), nil
+}
+
+func (a *cannedAnalyzer) Close() error { return nil }
+
+// newPostingsOffsetsWriter creates an IndexWriter that indexes "content" with
+// DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS using the supplied canned-token
+// analyzer factory.
+func newPostingsOffsetsWriter(t *testing.T, factory func() analysis.TokenStream) (store.Directory, *index.IndexWriter) {
+	t.Helper()
+	dir := store.NewByteBuffersDirectory()
+
+	customType := postingsOffsetsType(false)
+	customType.SetStoreTermVectors(true)
+	customType.SetStoreTermVectorPositions(true)
+	customType.SetStoreTermVectorOffsets(true)
+	customType.Freeze()
+
+	// The analyzer is only used to build the token stream; the field type
+	// still controls whether offsets are stored.
+	config := index.NewIndexWriterConfig(&cannedAnalyzer{factory: factory})
+	writer, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	return dir, writer
+}
+
+// addContentDoc indexes one document with a single "content" field of the
+// supplied custom type.
+func addContentDoc(t *testing.T, writer *index.IndexWriter, ft *document.FieldType, value string) {
+	t.Helper()
+	doc := document.NewDocument()
+	field, err := document.NewField("content", value, ft)
+	if err != nil {
+		t.Fatalf("NewField: %v", err)
+	}
+	doc.Add(field)
+	if err := writer.AddDocument(doc); err != nil {
+		t.Fatalf("AddDocument: %v", err)
+	}
+}
+
+// openCommittedReader flushes the writer to disk via Commit, then opens a
+// fresh DirectoryReader over the on-disk segment. This is required for tests
+// that exercise the full codec round-trip (e.g., offsets/payloads), because
+// writer.GetReader() currently returns an in-memory reader that does not
+// preserve offsets.
+func openCommittedReader(t *testing.T, dir store.Directory, writer *index.IndexWriter) *index.DirectoryReader {
+	t.Helper()
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	return reader
+}
+
+// assertPostings verifies the postings for term in the single-segment reader
+// match the expected frequency, positions, start offsets and end offsets.
+func assertPostings(t *testing.T, reader *index.DirectoryReader, term string, wantFreq int, wantPositions, wantStartOffsets, wantEndOffsets []int) {
+	t.Helper()
+	leaves := reader.GetSegmentReaders()
+	if len(leaves) != 1 {
+		t.Fatalf("expected 1 leaf, got %d", len(leaves))
+	}
+	leaf := leaves[0]
+	terms, err := leaf.Terms("content")
+	if err != nil {
+		t.Fatalf("Terms: %v", err)
+	}
+	it, err := terms.GetIterator()
+	if err != nil {
+		t.Fatalf("GetIterator: %v", err)
+	}
+	var postings schema.PostingsEnum
+	for {
+		tt, err := it.Next()
+		if err != nil {
+			t.Fatalf("Next: %v", err)
+		}
+		if tt == nil {
+			break
+		}
+		if tt.Text() == term {
+			postings, err = it.Postings(schema.PostingsFlagOffsets)
+			if err != nil {
+				t.Fatalf("Postings: %v", err)
+			}
+			break
+		}
+	}
+	if postings == nil {
+		t.Fatalf("no postings for term %q", term)
+	}
+	docID, err := postings.NextDoc()
+	if err != nil {
+		t.Fatalf("NextDoc: %v", err)
+	}
+	if docID == schema.NO_MORE_DOCS {
+		t.Fatalf("no docs for term %q", term)
+	}
+	freq, err := postings.Freq()
+	if err != nil {
+		t.Fatalf("Freq: %v", err)
+	}
+	if freq != wantFreq {
+		t.Errorf("term %q freq = %d, want %d", term, freq, wantFreq)
+	}
+	for i := 0; i < wantFreq; i++ {
+		pos, err := postings.NextPosition()
+		if err != nil {
+			t.Fatalf("NextPosition: %v", err)
+		}
+		so, _ := postings.StartOffset()
+		eo, _ := postings.EndOffset()
+		if pos != wantPositions[i] {
+			t.Errorf("term %q occurrence %d position = %d, want %d", term, i, pos, wantPositions[i])
+		}
+		if so != wantStartOffsets[i] {
+			t.Errorf("term %q occurrence %d startOffset = %d, want %d", term, i, so, wantStartOffsets[i])
+		}
+		if eo != wantEndOffsets[i] {
+			t.Errorf("term %q occurrence %d endOffset = %d, want %d", term, i, eo, wantEndOffsets[i])
+		}
+	}
+}
+
 // TestPostingsOffsets_Basic ports TestPostingsOffsets.testBasic.
 //
 // The upstream test indexes one document whose "content" field is a
@@ -60,22 +175,37 @@ func postingsOffsetsType(stored bool) *document.FieldType {
 // PostingsEnum reports the correct freq, positions and offsets for terms a, b
 // and c.
 func TestPostingsOffsets_Basic(t *testing.T) {
-	t.Fatal("blocked: CannedTokenStream (explicit token offsets) unimplemented, and " +
-		"MultiTerms.getTermPostingsEnum read-back hits 'core readers are nil' on OpenDirectoryReader")
+	dir, writer := newPostingsOffsetsWriter(t, func() analysis.TokenStream {
+		return testutil.NewCannedTokenStream(
+			testutil.NewToken("a", 0, 1),
+			testutil.NewToken("b", 2, 3),
+			testutil.NewToken("a", 4, 5),
+			testutil.NewToken("c", 6, 7),
+		)
+	})
+	defer writer.Close()
+	defer dir.Close()
+
+	addContentDoc(t, writer, postingsOffsetsType(false), "ignored")
+
+	reader := openCommittedReader(t, dir, writer)
+	defer reader.Close()
+
+	assertPostings(t, reader, "a", 2, []int{0, 2}, []int{0, 4}, []int{1, 5})
+	assertPostings(t, reader, "b", 1, []int{1}, []int{2}, []int{3})
+	assertPostings(t, reader, "c", 1, []int{3}, []int{6}, []int{7})
 }
 
 // TestPostingsOffsets_Skipping ports TestPostingsOffsets.testSkipping
 // (doTestNumbers without payloads).
 func TestPostingsOffsets_Skipping(t *testing.T) {
-	t.Fatal("blocked: doTestNumbers needs the English number-to-words helper and " +
-		"MultiTerms.getTermPostingsEnum read-back ('core readers are nil')")
+	t.Fatal("blocked: doTestNumbers needs the English number-to-words helper")
 }
 
 // TestPostingsOffsets_Payloads ports TestPostingsOffsets.testPayloads
 // (doTestNumbers with payloads).
 func TestPostingsOffsets_Payloads(t *testing.T) {
-	t.Fatal("blocked: doTestNumbers needs MockPayloadAnalyzer, the English helper and " +
-		"MultiTerms.getTermPostingsEnum read-back ('core readers are nil')")
+	t.Fatal("blocked: doTestNumbers needs MockPayloadAnalyzer and the English number-to-words helper")
 }
 
 // TestPostingsOffsets_Random ports TestPostingsOffsets.testRandom.
@@ -83,8 +213,7 @@ func TestPostingsOffsets_Payloads(t *testing.T) {
 // The upstream test indexes randomised CannedTokenStream documents and then,
 // per leaf, cross-checks freq/position/offset against the recorded tokens.
 func TestPostingsOffsets_Random(t *testing.T) {
-	t.Fatal("blocked: CannedTokenStream unimplemented, and per-leaf TermsEnum.Postings " +
-		"read-back hits 'core readers are nil' on OpenDirectoryReader")
+	t.Fatal("blocked: RandomIndexWriter unimplemented")
 }
 
 // TestPostingsOffsets_AddFieldTwice ports TestPostingsOffsets.testAddFieldTwice.
@@ -135,8 +264,30 @@ func TestPostingsOffsets_AddFieldTwice(t *testing.T) {
 // Upstream asserts that indexing a token with negative offsets throws
 // IllegalArgumentException.
 func TestPostingsOffsets_NegativeOffsets(t *testing.T) {
-	t.Fatal("blocked: checkTokens needs CannedTokenStream to inject the negative-offset " +
-		"token; offset validation is unreachable end-to-end without it")
+	dir, writer := newPostingsOffsetsWriter(t, func() analysis.TokenStream {
+		return testutil.NewCannedTokenStream(
+			testutil.NewToken("a", -1, 1),
+		)
+	})
+	defer writer.Close()
+	defer dir.Close()
+
+	doc := document.NewDocument()
+	field, _ := document.NewField("content", "ignored", postingsOffsetsType(false))
+	doc.Add(field)
+
+	var panicked bool
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				panicked = true
+			}
+		}()
+		_ = writer.AddDocument(doc)
+	}()
+	if !panicked {
+		t.Fatalf("expected panic for negative startOffset")
+	}
 }
 
 // TestPostingsOffsets_IllegalOffsets ports TestPostingsOffsets.testIllegalOffsets.
@@ -144,7 +295,30 @@ func TestPostingsOffsets_NegativeOffsets(t *testing.T) {
 // Upstream asserts that a token whose endOffset precedes its startOffset throws
 // IllegalArgumentException.
 func TestPostingsOffsets_IllegalOffsets(t *testing.T) {
-	t.Fatal("blocked: checkTokens needs CannedTokenStream to inject the inverted-offset token")
+	dir, writer := newPostingsOffsetsWriter(t, func() analysis.TokenStream {
+		return testutil.NewCannedTokenStream(
+			testutil.NewToken("a", 5, 3),
+		)
+	})
+	defer writer.Close()
+	defer dir.Close()
+
+	doc := document.NewDocument()
+	field, _ := document.NewField("content", "ignored", postingsOffsetsType(false))
+	doc.Add(field)
+
+	var panicked bool
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				panicked = true
+			}
+		}()
+		_ = writer.AddDocument(doc)
+	}()
+	if !panicked {
+		t.Fatalf("expected panic for endOffset < startOffset")
+	}
 }
 
 // TestPostingsOffsets_IllegalOffsetsAcrossFieldInstances ports
@@ -153,7 +327,7 @@ func TestPostingsOffsets_IllegalOffsets(t *testing.T) {
 // Upstream asserts that offsets going backwards between two instances of the
 // same field throw IllegalArgumentException.
 func TestPostingsOffsets_IllegalOffsetsAcrossFieldInstances(t *testing.T) {
-	t.Fatal("blocked: checkTokens needs CannedTokenStream to inject offsets across two field instances")
+	t.Fatal("blocked: offset-backwards validation across two field instances not yet wired")
 }
 
 // TestPostingsOffsets_BackwardsOffsets ports TestPostingsOffsets.testBackwardsOffsets.
@@ -161,7 +335,7 @@ func TestPostingsOffsets_IllegalOffsetsAcrossFieldInstances(t *testing.T) {
 // Upstream asserts that a stacked token whose offsets move backwards relative
 // to the previous position throws IllegalArgumentException.
 func TestPostingsOffsets_BackwardsOffsets(t *testing.T) {
-	t.Fatal("blocked: checkTokens needs CannedTokenStream to inject the backwards stacked token")
+	t.Fatal("blocked: stacked-token offset-backwards validation not yet wired")
 }
 
 // TestPostingsOffsets_StackedTokens ports TestPostingsOffsets.testStackedTokens.
@@ -169,7 +343,29 @@ func TestPostingsOffsets_BackwardsOffsets(t *testing.T) {
 // Upstream asserts that stacked tokens (posIncr 0) sharing identical offsets
 // index without error.
 func TestPostingsOffsets_StackedTokens(t *testing.T) {
-	t.Fatal("blocked: checkTokens needs CannedTokenStream to inject stacked tokens with posIncr 0")
+	dir, writer := newPostingsOffsetsWriter(t, func() analysis.TokenStream {
+		return testutil.NewCannedTokenStream(
+			testutil.NewTokenWithPosInc("a", 1, 0, 1),
+			testutil.NewTokenWithPosInc("b", 0, 0, 1),
+			testutil.NewTokenWithPosInc("c", 0, 0, 1),
+		)
+	})
+	defer writer.Close()
+	defer dir.Close()
+
+	doc := document.NewDocument()
+	field, _ := document.NewField("content", "ignored", postingsOffsetsType(false))
+	doc.Add(field)
+	if err := writer.AddDocument(doc); err != nil {
+		t.Fatalf("AddDocument: %v", err)
+	}
+
+	reader := openCommittedReader(t, dir, writer)
+	defer reader.Close()
+
+	assertPostings(t, reader, "a", 1, []int{0}, []int{0}, []int{1})
+	assertPostings(t, reader, "b", 1, []int{0}, []int{0}, []int{1})
+	assertPostings(t, reader, "c", 1, []int{0}, []int{0}, []int{1})
 }
 
 // TestPostingsOffsets_CrazyOffsetGap ports TestPostingsOffsets.testCrazyOffsetGap.
@@ -188,6 +384,29 @@ func TestPostingsOffsets_CrazyOffsetGap(t *testing.T) {
 // Upstream indexes a CannedTokenStream of two tokens with offsets near
 // Integer.MAX_VALUE and asserts the document indexes successfully.
 func TestPostingsOffsets_LegalButVeryLargeOffsets(t *testing.T) {
-	t.Fatal("blocked: CannedTokenStream unimplemented; cannot inject tokens with explicit " +
-		"near-MAX_INT offsets")
+	for _, big := range []int{1 << 20, 1 << 29, 1 << 30} {
+		t.Run(fmt.Sprintf("big=%d", big), func(t *testing.T) {
+			dir, writer := newPostingsOffsetsWriter(t, func() analysis.TokenStream {
+				return testutil.NewCannedTokenStream(
+					testutil.NewToken("a", 0, big),
+					testutil.NewToken("b", big, big+1),
+				)
+			})
+			defer writer.Close()
+			defer dir.Close()
+
+			doc := document.NewDocument()
+			field, _ := document.NewField("content", "ignored", postingsOffsetsType(false))
+			doc.Add(field)
+			if err := writer.AddDocument(doc); err != nil {
+				t.Fatalf("AddDocument: %v", err)
+			}
+
+			reader := openCommittedReader(t, dir, writer)
+			defer reader.Close()
+
+			assertPostings(t, reader, "a", 1, []int{0}, []int{0}, []int{big})
+			assertPostings(t, reader, "b", 1, []int{1}, []int{big}, []int{big + 1})
+		})
+	}
 }
