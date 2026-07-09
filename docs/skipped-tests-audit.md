@@ -70,13 +70,12 @@
 | `TestSizeBoundedForceMerge` (11 calls) | `index/size_bounded_force_merge_test.go:121-369` | ForceMerge ignores LogByteSize/LogDocMergePolicy size caps; assertions deferred |
 | `TestIndexWriterWithThreads` (14 calls) | `index/index_writer_with_threads_test.go:78-155` | MockDirectoryWrapper, Document pipeline, CMS, RandomIndexWriter (Sprint 55 option c) |
 | `TestIndexWriterReader` (16 calls) | `index/index_writer_reader_test.go:44-442` | NRT reader, DeleteDocuments, MergedSegmentWarmer, SimpleMergedSegmentWarmer, setLeafSorter |
-| `TestIndexWriterDelete` (14 calls) | `index/index_writer_delete_test.go:299-898` | infra gaps: DeleteDocuments no-op stubs, NRT reader, MockDirectoryWrapper, LogDocMergePolicy |
+| `TestIndexWriterDelete` (13 calls remain) | `index/index_writer_delete_test.go:801-1340` | remaining gaps: @Monster, @Ignore, MockDirectoryWrapper.failOn/isDeleterClosed, slowFileExists, CheckIndex info-stream text, TryDeleteDocument NRT path, LogDocMergePolicy.setMinMergeDocs |
 | `TestIndexWriterError` (2 calls) | `index/index_writer_error_test.go:248-279` | MockDirectoryWrapper IO injection; Rollback not yet implemented |
 | `TestIndexWriterTragic` (2 calls) | `index/index_writer_tragic_test.go:30-37` | Tragic event injection; MockDirectory WriteSegmentInfos failure |
 | `TestIndexWriterNrtIsCurrent` | `index/index_writer_nrt_is_current_test.go:48` | needs NRT DirectoryReader.open(writer) and openIfChanged |
 | `TestIndexWriterOnDiskFull` (4 calls) | `index/index_writer_on_disk_full_test.go:52-83` | needs MockDirectoryWrapper for disk-full simulation |
 | `TestIndexWriterOutOfFileDescriptors` | `index/index_writer_out_of_file_descriptors_test.go:42` | GOC-4137: MockDirectoryWrapper fault injection |
-| `TestIndexWriterExceptions2` | `index/index_writer_exceptions2_test.go:181` | CrankyCodec/CrankyTokenFilter fault injection unavailable |
 | `TestConcurrentMergeScheduler` (4 calls) | `index/concurrent_merge_scheduler_test.go:143-404` | Full merge async/integration/stalling test requires complete IndexWriter |
 | `TestTragicIndexWriterDeadlock` (3 calls) | `index/tragic_index_writer_deadlock_test.go:30-44` | Sprint 55 option (c): MockDirectoryWrapper, CMS hooks |
 | `TestTermVectorsReader` (11 calls) | `index/term_vectors_reader_test.go:133-193` | Sprint 55 option c: needs IndexWriter term-vectors flush + SegmentReader |
