@@ -421,6 +421,21 @@ func (r *bufferedPointsReader) Close() error {
 	return nil
 }
 
+// MutablePointTreeSource is implemented by buffered point readers that can
+// expose their in-memory [PointTreeBuffer] directly. Codecs use this to drive
+// BKDWriter.WriteField (the heap path) instead of Add/Finish (the offline
+// spill path), matching Apache Lucene 10.4.0's buffered-points behaviour.
+type MutablePointTreeSource interface {
+	// MutablePointTree returns the in-memory tree and its point count.
+	MutablePointTree() (PointTreeBuffer, int)
+}
+
+// MutablePointTree exposes the in-memory buffered points as a [PointTreeBuffer]
+// so that codecs can drive BKDWriter.WriteField directly in RAM.
+func (r *bufferedPointsReader) MutablePointTree() (PointTreeBuffer, int) {
+	return r.values.Tree(), sizeOfTree(r.values.Tree())
+}
+
 // bufferedPointValues is the codec-facing [BufferedPointValues] view of
 // the buffered points. Only the iteration path (Intersect /
 // EstimatePointCount) is meaningful; the statistics accessors are

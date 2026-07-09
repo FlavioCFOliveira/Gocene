@@ -1795,6 +1795,69 @@ func (s *dwptPointsSource) CheckIntegrity() error { return nil }
 // Close is a no-op: the in-memory source holds no resources.
 func (s *dwptPointsSource) Close() error { return nil }
 
+// MutablePointTree exposes the buffered points as a [PointTreeBuffer] so
+// codecs can drive BKDWriter.WriteField directly. It returns the tree and the
+// number of buffered points.
+func (s *dwptPointsSource) MutablePointTree() (PointTreeBuffer, int) {
+	return &dwptPointTree{buf: s.buf}, len(s.buf.packedValues)
+}
+
+// dwptPointTree adapts a [PointValuesBuffer] to the [PointTreeBuffer]
+// interface used by BKDWriter.WriteField. The buffer is small (in-RAM) so the
+// simple slice-based implementation is sufficient.
+type dwptPointTree struct {
+	buf           *PointValuesBuffer
+	scratchPacked [][]byte
+	scratchDocIDs []int
+}
+
+func (t *dwptPointTree) Swap(i, j int) {
+	t.buf.packedValues[i], t.buf.packedValues[j] = t.buf.packedValues[j], t.buf.packedValues[i]
+	t.buf.docIDs[i], t.buf.docIDs[j] = t.buf.docIDs[j], t.buf.docIDs[i]
+}
+
+func (t *dwptPointTree) GetValue(i int, dst *util.BytesRef) {
+	// Always copy into a private slice. Aliasing packedValues[i] would let
+	// callers (and our own reuse of dst.Bytes) overwrite the buffer when
+	// they later write into dst.Bytes, as happens on the BKD hot path
+	// where scratch BytesRefs are reused across GetValue calls.
+	n := len(t.buf.packedValues[i])
+	if len(dst.Bytes) < n {
+		dst.Bytes = make([]byte, n)
+	}
+	copy(dst.Bytes, t.buf.packedValues[i])
+	dst.Offset = 0
+	dst.Length = n
+}
+
+func (t *dwptPointTree) GetByteAt(i, k int) byte { return t.buf.packedValues[i][k] }
+
+func (t *dwptPointTree) GetDocID(i int) int { return t.buf.docIDs[i] }
+
+func (t *dwptPointTree) Save(i, j int) {
+	// Implements the MutablePointTree#save contract used by the stable
+	// radix sorter: copy the value at slot i into the j-th position of
+	// scratch storage.
+	if t.scratchPacked == nil {
+		t.scratchPacked = make([][]byte, len(t.buf.packedValues))
+		t.scratchDocIDs = make([]int, len(t.buf.docIDs))
+	}
+	packed := make([]byte, len(t.buf.packedValues[i]))
+	copy(packed, t.buf.packedValues[i])
+	t.scratchPacked[j] = packed
+	t.scratchDocIDs[j] = t.buf.docIDs[i]
+}
+
+func (t *dwptPointTree) Restore(i, j int) {
+	// Implements the MutablePointTree#restore contract: copy scratch
+	// positions [i, j) back into the live buffer positions [i, j).
+	if t.scratchPacked == nil {
+		return
+	}
+	copy(t.buf.packedValues[i:j], t.scratchPacked[i:j])
+	copy(t.buf.docIDs[i:j], t.scratchDocIDs[i:j])
+}
+
 // getGeneratedFiles returns the list of files generated during flush.
 func (dwpt *DocumentsWriterPerThread) getGeneratedFiles(segmentName string) []string {
 	// Return the list of segment files
@@ -2128,8 +2191,53 @@ func (p *postingDataEnum) SlowAdvance(target int) (int, error) {
 	return p.Advance(target)
 }
 
+// testSegmentIDBytes, when non-nil, makes generateSegmentID return this exact
+// 16-byte id. It is used only by the binary-compatibility fixture tests so that
+// Gocene-written segment files can be compared byte-for-byte against Apache
+// Lucene 10.4.0 fixtures.
+var testSegmentIDBytes []byte
+
+// SetTestSegmentIDBytes enables a fixed 16-byte segment ID for the current
+// process. It is intended ONLY for tests that need byte-exact golden corpus
+// comparisons. Passing nil disables determinism and restores the default
+// timestamp-based generation.
+func SetTestSegmentIDBytes(id []byte) {
+	if len(id) == 0 {
+		testSegmentIDBytes = nil
+		return
+	}
+	if len(id) != 16 {
+		panic(fmt.Sprintf("SetTestSegmentIDBytes: expected 16 bytes, got %d", len(id)))
+	}
+	buf := make([]byte, 16)
+	copy(buf, id)
+	testSegmentIDBytes = buf
+}
+
+// SetTestSegmentIDSeed enables deterministic segment IDs derived from seed for
+// the current process. It is intended ONLY for tests that need byte-exact
+// golden corpus comparisons. Passing a negative seed disables determinism and
+// restores the default timestamp-based generation.
+func SetTestSegmentIDSeed(seed int64) {
+	if seed < 0 {
+		testSegmentIDBytes = nil
+		return
+	}
+	id := make([]byte, 16)
+	for i := 0; i < 8; i++ {
+		id[i] = byte(seed >> ((7 - i) * 8))
+	}
+	for i := 0; i < 8; i++ {
+		id[8+i] = byte(^seed >> ((7 - i) * 8))
+	}
+	SetTestSegmentIDBytes(id)
+}
+
 // generateSegmentID generates a unique segment ID.
 func generateSegmentID() []byte {
+	if testSegmentIDBytes != nil {
+		return testSegmentIDBytes
+	}
 	id := make([]byte, 16)
 	// Use timestamp and random data for ID
 	now := time.Now().UnixNano()

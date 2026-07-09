@@ -134,12 +134,12 @@ func (it *UpdateableDocIdSetIterator) DocIDRunEnd() int {
 //
 // This method is NOT part of the DocIdSetIterator interface; callers that
 // need it must type-assert to *UpdateableDocIdSetIterator.
-func (it *UpdateableDocIdSetIterator) IntoBitSet(upTo int, bits *util.FixedBitSet, offset int) {
+func (it *UpdateableDocIdSetIterator) IntoBitSet(upTo int, bits *util.FixedBitSet, offset int) error {
 	// Sync inner to current doc position, as the Java override does.
 	if it.in.DocID() < it.doc {
 		if _, err := it.in.Advance(it.doc); err != nil {
 			it.doc = search.NO_MORE_DOCS
-			return
+			return err
 		}
 	}
 	// Iterate from the inner's current position (not from this.doc), matching
@@ -151,10 +151,11 @@ func (it *UpdateableDocIdSetIterator) IntoBitSet(upTo int, bits *util.FixedBitSe
 		doc, err = it.in.NextDoc()
 		if err != nil {
 			it.doc = search.NO_MORE_DOCS
-			return
+			return err
 		}
 	}
 	it.doc = doc
+	return nil
 }
 
 var _ search.DocIdSetIterator = (*UpdateableDocIdSetIterator)(nil)

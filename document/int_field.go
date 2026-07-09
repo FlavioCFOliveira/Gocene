@@ -78,7 +78,7 @@ func NewIntPoints(name string, values ...int32) *IntPoint {
 	ft := PointFieldType()
 	ft.DimensionNumBytes = 4
 
-	point, _ := NewPoint(name, ft, encoded, 1, 4)
+	point, _ := NewPoint(name, ft, encoded, len(values), 4)
 	return &IntPoint{Point: *point}
 }
 

@@ -104,6 +104,52 @@ func (b *BitSetIterator) Cost() int64 {
 	return b.cost
 }
 
+// IntoBitSet copies the remaining set bits from this iterator into dest,
+// shifted by offset, up to (but not including) upTo. It provides an
+// optimized bulk path for BitSet-backed iterators and mirrors
+// org.apache.lucene.util.BitSetIterator's interaction with
+// DocIdSetIterator#intoBitSet.
+func (b *BitSetIterator) IntoBitSet(upTo int, dest *FixedBitSet, offset int) error {
+	if b.doc >= upTo {
+		return nil
+	}
+	start := b.doc + 1
+	if start < 0 {
+		start = 0
+	}
+	for {
+		if start >= upTo {
+			b.doc = upTo - 1
+			return nil
+		}
+		next := -1
+		switch bs := b.bits.(type) {
+		case *FixedBitSet:
+			next = bs.NextSetBit(start)
+		case *SparseFixedBitSet:
+			next = bs.NextSetBit(start)
+		default:
+			for i := start; i < upTo && i < b.length; i++ {
+				if b.bits.Get(i) {
+					next = i
+					break
+				}
+			}
+		}
+		if next < 0 || next >= upTo {
+			if next >= upTo {
+				b.doc = upTo - 1
+			} else {
+				b.doc = NO_MORE_DOCS
+			}
+			return nil
+		}
+		dest.Set(next + offset)
+		b.doc = next
+		start = next + 1
+	}
+}
+
 // DocIDRunEnd returns the exclusive end of the current run of consecutive
 // doc IDs and advances the iterator to the last set bit in the run.
 func (b *BitSetIterator) DocIDRunEnd() int {

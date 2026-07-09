@@ -45,6 +45,13 @@ func NewPoint(name string, ft *FieldType, values []byte, numDimensions, bytesPer
 		numDimensions: numDimensions,
 		bytesPerDim:   bytesPerDim,
 	}
+	// Stamp the dimension metadata on the FieldType so the indexing chain
+	// (which only sees the FieldType, not the concrete Point) records the
+	// correct point dimensions in FieldInfos. This matches how Lucene's
+	// IntPoint/LongPoint/FloatPoint constructors configure their internal
+	// FieldType.
+	ft.DimensionCount = numDimensions
+	ft.DimensionNumBytes = bytesPerDim
 	p.value = binaryValue(values)
 
 	return p, nil
