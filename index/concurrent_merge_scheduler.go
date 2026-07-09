@@ -100,6 +100,12 @@ type ConcurrentMergeScheduler struct {
 	// a full flush will wait for merges. A negative value means merges run
 	// asynchronously without blocking the flush; 0 means do not wait.
 	maxFullFlushMergeWaitMillis int64
+
+	// suppressExceptions, when true, causes background merge threads to
+	// swallow non-abort merge exceptions instead of reporting them to the
+	// IndexWriter. This matches Lucene's ConcurrentMergeScheduler
+	// setSuppressExceptions testing hook.
+	suppressExceptions bool
 }
 
 // NewConcurrentMergeScheduler creates a new ConcurrentMergeScheduler.
@@ -252,6 +258,29 @@ func (s *ConcurrentMergeScheduler) GetMaxFullFlushMergeWaitMillis() int64 {
 	return s.maxFullFlushMergeWaitMillis
 }
 
+// SetSuppressExceptions enables suppression of background merge exceptions.
+// While suppressed, merge goroutines still fail but do not propagate errors
+// to the IndexWriter. This is Lucene's testing-only hook.
+func (s *ConcurrentMergeScheduler) SetSuppressExceptions() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.suppressExceptions = true
+}
+
+// ClearSuppressExceptions disables suppression of background merge exceptions.
+func (s *ConcurrentMergeScheduler) ClearSuppressExceptions() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.suppressExceptions = false
+}
+
+// IsSuppressExceptions reports whether merge exceptions are currently suppressed.
+func (s *ConcurrentMergeScheduler) IsSuppressExceptions() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.suppressExceptions
+}
+
 // getEffectiveMaxThreadCount gets the effective thread count, handling auto-detect.
 func (s *ConcurrentMergeScheduler) getEffectiveMaxThreadCount() int {
 	s.mu.Lock()
@@ -381,19 +410,27 @@ func (s *ConcurrentMergeScheduler) spawnMergeThread(source MergeSource, merge *O
 		err := s.executeMerge(source, merge)
 		thread.SetError(err)
 
-		// Signal completion
-		source.OnMergeFinished(merge)
-
 		// Remove from active threads
 		s.removeMergeThread(thread)
 
 		if err != nil {
+			s.mu.Lock()
+			suppress := s.suppressExceptions
+			s.mu.Unlock()
+			if suppress {
+				// Swallow the error, matching Lucene's setSuppressExceptions.
+				return
+			}
 			select {
 			case s.mergeErrors <- err:
 			default:
 				// Error channel full, drop the error
 			}
+			return
 		}
+
+		// Signal completion only on success
+		source.OnMergeFinished(merge)
 	}()
 }
 

@@ -428,6 +428,12 @@ func (m *MockDirectoryWrapper) ResetMaxUsedSizeInBytes() error {
 	return nil
 }
 
+// SizeInBytes returns the total size in bytes of all files in the
+// wrapped directory. It mirrors Lucene's MockDirectoryWrapper.sizeInBytes().
+func (m *MockDirectoryWrapper) SizeInBytes() (int64, error) {
+	return m.sizeInBytes()
+}
+
 // sizeInBytes returns the total size in bytes of all files in the
 // underlying directory.
 func (m *MockDirectoryWrapper) sizeInBytes() (int64, error) {
