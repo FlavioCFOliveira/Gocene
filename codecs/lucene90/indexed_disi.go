@@ -560,7 +560,7 @@ func (d *IndexedDISI) DocIDRunEnd() int {
 }
 
 // IntoBitSet — not supported on Gocene's iterator surface. See package doc.
-func (d *IndexedDISI) IntoBitSet(_ int, _ []uint64, _ int) error {
+func (d *IndexedDISI) IntoBitSet(_ int, _ *util.FixedBitSet, _ int) error {
 	return ErrIntoBitSetNotSupported
 }
 

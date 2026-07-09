@@ -72,7 +72,7 @@ func NewFloatPoints(name string, values ...float32) *FloatPoint {
 	ft := PointFieldType()
 	ft.DimensionNumBytes = 4
 
-	point, _ := NewPoint(name, ft, encoded, 1, 4)
+	point, _ := NewPoint(name, ft, encoded, len(values), 4)
 	return &FloatPoint{Point: *point}
 }
 

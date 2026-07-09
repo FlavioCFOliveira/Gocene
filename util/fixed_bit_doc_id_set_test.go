@@ -548,11 +548,7 @@ func TestBitDocIdSet_RamBytesUsed(t *testing.T) {
 // TestBitDocIdSet_IntoBitSet mirrors BaseDocIdSetTestCase.testIntoBitSet().
 // The Java test exercises DocIdSetIterator.intoBitSet(upTo, dest, offset),
 // which copies the iterator's remaining bits up to upTo into dest, shifted
-// by offset. Gocene's DocIdSetIterator surface does not yet expose
-// IntoBitSet (see codecs/lucene90/indexed_disi.go lines 62, 130, 563 for
-// the standing gap and ErrIntoBitSetNotSupported). Build the wiring
-// verbatim so the test "just works" once IntoBitSet lands on the iterator
-// surface in search/doc_id_set_iterator.go (and on BitSetIterator).
+// by offset.
 func TestBitDocIdSet_IntoBitSet(t *testing.T) {
 	fs, err := NewFixedBitSet(1024)
 	if err != nil {
@@ -572,20 +568,20 @@ func TestBitDocIdSet_IntoBitSet(t *testing.T) {
 	if it == nil {
 		t.Fatal("Iterator returned nil")
 	}
-	// Iterate the iterator and collect all doc IDs. Validates that the
-	// BitSetIterator produces the exact same set of set bits as the
-	// underlying FixedBitSet, which is the functional equivalent of the
-	// IntoBitSet path in Lucene's testIntoBitSet().
+
+	dest, err := NewFixedBitSet(1024)
+	if err != nil {
+		t.Fatalf("NewFixedBitSet dest: %v", err)
+	}
+	if err := IntoBitSet(it, 1024, dest, 0); err != nil {
+		t.Fatalf("IntoBitSet: %v", err)
+	}
+
 	var got []int
-	for {
-		doc, err := it.NextDoc()
-		if err != nil {
-			t.Fatalf("NextDoc: %v", err)
+	for i := 0; i < dest.Length(); i++ {
+		if dest.Get(i) {
+			got = append(got, i)
 		}
-		if doc == NO_MORE_DOCS {
-			break
-		}
-		got = append(got, doc)
 	}
 	var expected []int
 	for i := 0; i < fs.Length(); i++ {
@@ -594,7 +590,7 @@ func TestBitDocIdSet_IntoBitSet(t *testing.T) {
 		}
 	}
 	if len(got) != len(expected) {
-		t.Fatalf("iterated %d docs, want %d", len(got), len(expected))
+		t.Fatalf("IntoBitSet wrote %d docs, want %d", len(got), len(expected))
 	}
 	for i := range got {
 		if got[i] != expected[i] {
@@ -606,8 +602,7 @@ func TestBitDocIdSet_IntoBitSet(t *testing.T) {
 // TestBitDocIdSet_IntoBitSetBoundChecks mirrors
 // BaseDocIdSetTestCase.testIntoBitSetBoundChecks(). The Java test verifies
 // that IntoBitSet raises when the target FixedBitSet is too small for the
-// requested upTo, and when offset is greater than the current doc. Same
-// underlying gap as TestBitDocIdSet_IntoBitSet.
+// requested upTo, and when offset is greater than the current doc.
 func TestBitDocIdSet_IntoBitSetBoundChecks(t *testing.T) {
 	fs, err := NewFixedBitSet(256)
 	if err != nil {
@@ -623,27 +618,45 @@ func TestBitDocIdSet_IntoBitSetBoundChecks(t *testing.T) {
 	if it == nil {
 		t.Fatal("Iterator returned nil")
 	}
-	doc, err := it.Advance(15)
+
+	// Destination too small for upTo.
+	small, err := NewFixedBitSet(30)
 	if err != nil {
-		t.Fatalf("Advance(15): %v", err)
+		t.Fatalf("NewFixedBitSet: %v", err)
 	}
-	// After Advance(15) over {20, 42}, we should land at 20.
-	if doc != 20 {
-		t.Fatalf("Advance(15) = %d, want 20", doc)
+	if err := IntoBitSet(it, 40, small, 0); err == nil {
+		t.Fatal("expected error when destination FixedBitSet is too small")
 	}
-	// Verify the remaining docs.
-	doc, err = it.NextDoc()
+
+	// Iterator positioned past upTo is rejected.
+	it2 := bitSet.Iterator()
+	if _, err := it2.Advance(25); err != nil {
+		t.Fatalf("Advance(25): %v", err)
+	}
+	dest, err := NewFixedBitSet(256)
 	if err != nil {
-		t.Fatalf("NextDoc: %v", err)
+		t.Fatalf("NewFixedBitSet dest: %v", err)
 	}
-	if doc != 42 {
-		t.Fatalf("NextDoc after Advance(15) = %d, want 42", doc)
+	if err := IntoBitSet(it2, 30, dest, 0); err == nil {
+		t.Fatal("expected error when iterator is already beyond upTo")
 	}
-	doc, err = it.NextDoc()
+
+	// Positive offset shifts bits.
+	it3 := bitSet.Iterator()
+	dest2, err := NewFixedBitSet(356)
 	if err != nil {
-		t.Fatalf("NextDoc: %v", err)
+		t.Fatalf("NewFixedBitSet dest2: %v", err)
 	}
-	if doc != NO_MORE_DOCS {
-		t.Fatalf("NextDoc after 42 = %d, want NO_MORE_DOCS", doc)
+	if err := IntoBitSet(it3, 256, dest2, 100); err != nil {
+		t.Fatalf("IntoBitSet with offset: %v", err)
+	}
+	if !dest2.Get(120) {
+		t.Fatalf("expected bit 120 to be set (20 + offset 100)")
+	}
+	if !dest2.Get(142) {
+		t.Fatalf("expected bit 142 to be set (42 + offset 100)")
+	}
+	if dest2.Get(20) || dest2.Get(42) {
+		t.Fatalf("source bits should not be set without offset")
 	}
 }

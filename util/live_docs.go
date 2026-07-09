@@ -40,6 +40,53 @@ type DocIdSetIterator interface {
 	DocIDRunEnd() int
 }
 
+// IntoBitSetter is implemented by DocIdSetIterator implementations that can
+// bulk-copy their remaining doc IDs into a FixedBitSet. It mirrors Lucene's
+// DocIdSetIterator#intoBitSet(int, FixedBitSet, int) override on concrete
+// iterator subclasses; iterators without an optimized bulk path are handled
+// by the IntoBitSet helper below.
+type IntoBitSetter interface {
+	// IntoBitSet copies doc IDs from the current position up to (but not
+	// including) upTo into bits, shifted by offset.
+	IntoBitSet(upTo int, bits *FixedBitSet, offset int) error
+}
+
+// IntoBitSet copies the remaining doc IDs from it into dest, shifted by offset.
+// If it implements IntoBitSetter the optimized implementation is used; otherwise
+// the helper falls back to iterating with NextDoc and setting individual bits.
+// This mirrors the default implementation in Lucene's abstract
+// DocIdSetIterator class.
+func IntoBitSet(it DocIdSetIterator, upTo int, dest *FixedBitSet, offset int) error {
+	if upTo < 0 {
+		return fmt.Errorf("upTo must be >= 0, got %d", upTo)
+	}
+	if offset < 0 {
+		return fmt.Errorf("offset must be >= 0, got %d", offset)
+	}
+	if offset+upTo > dest.Length() {
+		return fmt.Errorf("offset+upTo (%d) exceeds FixedBitSet length (%d)", offset+upTo, dest.Length())
+	}
+	if it.DocID() >= upTo {
+		return fmt.Errorf("iterator docID %d is already beyond upTo %d", it.DocID(), upTo)
+	}
+	if setter, ok := it.(IntoBitSetter); ok {
+		return setter.IntoBitSet(upTo, dest, offset)
+	}
+	for {
+		doc, err := it.NextDoc()
+		if err != nil {
+			return err
+		}
+		if doc == NO_MORE_DOCS {
+			return nil
+		}
+		if doc >= upTo {
+			return nil
+		}
+		dest.Set(doc + offset)
+	}
+}
+
 // LiveDocs tracks which documents are live (not deleted) in a segment.
 // This is the Go port of Lucene's LiveDocs functionality.
 type LiveDocs interface {

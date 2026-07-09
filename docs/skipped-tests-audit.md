@@ -6,7 +6,7 @@
 ## Key Findings
 
 - **Total `t.Skip` calls remaining: 0** (the no-skip policy is fully enforced)
-- **Total deferred `t.Fatal` calls: 660** across 33 packages
+- **Total deferred `t.Fatal` calls: 636** across 33 packages
 - All deferred tests fail with descriptive blocker reasons, making the test suite informative about what remains unimplemented
 
 > **Note:** This audit is a snapshot as of 2026-06-11. Subsequent work (e.g. T105.2.1 DeleteDocuments, T105.2.2 NRT reader open/openIfChanged) has re-enabled some tests and updated blocker messages where the original dependency is now implemented. Regenerate this document after Sprint 15 closes for an accurate deferred-test count.
@@ -18,11 +18,11 @@
 | `index` | 338 | NRT reader, DeleteDocuments, MockDirectoryWrapper, IndexWriter integration, ForceMerge, merge scheduler, CannedTokenStream, monster tests |
 | `search` | 140 | RandomIndexWriter, GeoTestUtil, spatial query factories, IndexSearcher, Sort/SortField, span queries, regexp flags |
 | `codecs` | 26 | Lucene99 formats, PerField codecs, DocValuesSkipper, merged vector values, term vectors, stored fields |
-| `util/bkd` | 22 | verify() helper, random seeding, MockDirectoryWrapper, bit-corruption, byte-exact comparison, offline path |
+| `util/bkd` | 2 | Monster test placeholder, byte-exact BKD golden corpus not yet validated |
 | `facets/taxonomy` | 17 | IndexWriter + FacetsCollector + DirectoryTaxonomyWriter/Reader pipeline |
 | `memory` | 13 | MemoryIndex.createSearcher(), DirectoryReader, PostingsEnum, Span queries, DocValues |
 | `facets` | 10 | RandomIndexWriter, DirectoryTaxonomyWriter, FacetsCollectorManager, DrillSideways |
-| `util` | 8 | BitDocIdSet.RamBytesUsed, DocIdSetIterator.IntoBitSet, monster / stress tests |
+| `util` | 4 | DocIdSetIterator.IntoBitSet surface gap, monster / stress tests are smoke tests only |
 | `queries/spans` | 8 | Full span query/scoring/explanation infrastructure deferred to backlog |
 | `queries/function` | 8 | Full function query explanation/sort/KNN infrastructure deferred to backlog |
 | `document` | 8 | KNN monster tests, PerFieldConsistency, point range queries |
@@ -48,7 +48,7 @@
 | `queryparser/util` | 1 | Abstract base class port |
 | `queries/function/docvalues` | 1 | Numeric DocValues + FunctionValues |
 | `facets/taxonomywritercache` | 1 | 2GB monster test |
-| **Total** | **660** | |
+| **Total** | **636** | |
 
 ## Detailed Deferred Test Listing
 
@@ -184,32 +184,12 @@
 | `TestLucene90StoredFieldsFormatHighCompression` | `codecs/lucene90_stored_fields_format_high_compression_test.go:92` | requires Mode-aware Lucene104Codec not yet ported |
 | `TestCompressingStoredFieldsFormat` (2 calls) | `codecs/compressing_stored_fields_format_test.go:570-687` | full IndexWriter integration; reference data from Lucene Java |
 
-### `util/bkd` (22 deferred tests)
+### `util/bkd` (2 deferred tests)
 
 | Test Function | File:Line | Blocker Reason |
 |---------------|-----------|----------------|
-| `TestFourBBKD` | `util/bkd/fourbbkdpoints_test.go:36` | Monster test: >4B BKD points, ~4h, many GiB (GOC-4307) |
-| `TestBKDRandom` | `util/bkd/bkd_test.go:93` | requires LuceneTestCase random() harness; deferred Sprint 56+ |
-| `TestBKDRandomMulti` | `util/bkd/bkd_test.go:103` | requires reproducible random seeding + BigInt fixture; deferred |
-| `TestBKDRandomWithMKD` | `util/bkd/bkd_test.go:114` | requires MockDirectoryWrapper + CorruptingIndexOutput |
-| `TestBKD_MultiValued` | `util/bkd/bkd_test.go:123` | requires verify() helper + MutablePointTree reopen |
-| `TestBKD_RandomBinaryTiny` | `util/bkd/bkd_test.go:129` | requires verify() helper |
-| `TestBKD_RandomTiny` | `util/bkd/bkd_test.go:135` | requires verify() helper + @Nightly gating; deferred |
-| `TestBKD_EmptyIndex` | `util/bkd/bkd_test.go:166` | requires verify() helper; deferred |
-| `TestBKD_IndexIsSingleValue` | `util/bkd/bkd_test.go:173` | requires verify() helper; deferred |
-| `TestBKD_WithAllEquals` | `util/bkd/bkd_test.go:217` | requires verify() helper; deferred |
-| `TestBKD_NegativeValues` | `util/bkd/bkd_test.go:224` | requires verify() helper; deferred |
-| `TestBKD_ZeroValue` | `util/bkd/bkd_test.go:231` | requires verify() helper; deferred |
-| `TestBKD_MultiValued` | `util/bkd/bkd_test.go:241` | requires multi-valued verify() helper + MutablePointTree reopen; deferred |
-| `TestBKD_CorruptOnPartition1` | `util/bkd/bkd_test.go:251` | requires FilterDirectory + bit-corruption helper |
-| `TestBKD_BitFlippedOnPartition1` | `util/bkd/bkd_test.go:257` | requires bit-corruption helper |
-| `TestBKD_ExactFromJava` | `util/bkd/bkd_test.go:264` | requires byte-exact comparison against Java fixture; deferred |
-| `TestBKD_DataDimensionReordering` | `util/bkd/bkd_test.go:271` | data-dim reordering not exposed by Gocene BKDWriter |
-| `TestBKD_Offline` | `util/bkd/bkd_test.go:277` | requires verify() helper exercising offline path; deferred |
-| `TestBKD_RandomLarge` | `util/bkd/bkd_test.go:284` | requires verify() helper; deferred |
-| `TestBKD_TotalPointCount` | `util/bkd/bkd_test.go:303` | requires verify() helper + totalPointCount guard; deferred |
-| `TestBKD_MissingPoint` | `util/bkd/bkd_test.go:309` | requires verify() helper; deferred |
-| `TestBKD_SparseValues` | `util/bkd/bkd_test.go:315` | requires verify() helper; deferred |
+| `Test4BBKDPoints` | `util/bkd/fourbbkdpoints_test.go:27` | Monster test (>4B BKD points, multi-GiB, hours) is a placeholder only; real Java-scale corpus gated behind `GOCENE_RUN_MONSTERS` |
+| *(golden corpus)* | `internal/compat/codecs/lucene90_points_compat_test.go` | Byte-exact BKD payload (`.kdd`/`.kdi`/`.kdm`) not yet compared against Apache Lucene 10.4.0 fixtures |
 
 ### `facets/taxonomy` (17 deferred tests)
 
@@ -236,16 +216,14 @@
 | `TestParallelDrillSideways` (3 calls) | `facets/test_parallel_drill_sideways_test.go:28-40` | requires DrillSideways + goroutine-pool + TaxonomyReader |
 | `TestFacetIntegration` (2 calls) | `facets/facet_integration_test.go:59-131` | FacetsConfig.SetIndexPath not yet implemented; DrillDownQuery not yet implemented |
 
-### `util` (8 deferred tests)
+### `util` (4 deferred tests)
 
 | Test Function | File:Line | Blocker Reason |
 |---------------|-----------|----------------|
-| `TestFixedBitDocIdSet` | `util/fixed_bit_doc_id_set_test.go:541` | BitDocIdSet.RamBytesUsed not implemented |
-| `TestFixedBitDocIdSet` (2 calls) | `util/fixed_bit_doc_id_set_test.go:571-597` | DocIdSetIterator.IntoBitSet not implemented |
-| `TestSparseFixedBitDocIdSet` | `util/sparse_fixed_bit_doc_id_set_test.go:221` | BitDocIdSet.RamBytesUsed not implemented |
-| `TestSparseFixedBitDocIdSet` (2 calls) | `util/sparse_fixed_bit_doc_id_set_test.go:245-261` | DocIdSetIterator.IntoBitSet not implemented |
-| `TestStressRamUsageEstimator` | `util/stress_ram_usage_estimator_test.go:31` | stress monster test (GOCENE_RUN_MONSTERS) |
-| `TestTwoBPagedBytes` | `util/twobpagedbytes_test.go:27` | monster test; PagedBytes.Copy not landed |
+| `TestBitDocIdSet_IntoBitSet` | `util/fixed_bit_doc_id_set_test.go:548` | DocIdSetIterator.IntoBitSet is not on the iterator surface; tests emulate the path by iterating |
+| `TestBitDocIdSet_IntoBitSetBoundChecks` | `util/fixed_bit_doc_id_set_test.go:611` | Same IntoBitSet surface gap; bounds are checked manually instead of via iterator bulk copy |
+| `TestSparseFixedBitDocIdSet_IntoBitSet` | `util/sparse_fixed_bit_doc_id_set_test.go:239` | Same IntoBitSet surface gap |
+| `TestStressRamUsageEstimator` / `Test2BPagedBytes` | `util/stress_ram_usage_estimator_test.go:16` / `util/twobpagedbytes_test.go:27` | Monster / stress tests are smoke tests only; full Java-scale corpus gated behind `GOCENE_RUN_MONSTERS` |
 
 ### `queries/spans` (8 deferred tests)
 

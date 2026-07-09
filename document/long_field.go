@@ -55,7 +55,7 @@ func NewLongPoints(name string, values ...int64) *LongPoint {
 	ft := PointFieldType()
 	ft.DimensionNumBytes = 8
 
-	point, _ := NewPoint(name, ft, encoded, 1, 8)
+	point, _ := NewPoint(name, ft, encoded, len(values), 8)
 	return &LongPoint{Point: *point}
 }
 

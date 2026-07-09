@@ -1105,6 +1105,7 @@ func (w *IndexWriter) GetReader() (*DirectoryReader, error) {
 		ps.segmentName = segmentName
 		ps.materialized = true
 		segInfo := NewSegmentInfo(segmentName, ps.numDocs, w.directory)
+		segInfo.SetID(generateSegmentID())
 		segInfo.SetVersion("10.4.0")
 		segInfo.SetMinVersion("10.4.0")
 		sci := NewSegmentCommitInfo(segInfo, ps.delCount, -1)
@@ -1360,6 +1361,7 @@ func (w *IndexWriter) commitLocked(force bool) error {
 			segmentName = si.GetNextSegmentName()
 		}
 		segInfo := NewSegmentInfo(segmentName, ps.numDocs, w.directory)
+		segInfo.SetID(generateSegmentID())
 		segInfo.SetVersion("10.4.0")
 		segInfo.SetMinVersion("10.4.0")
 		sci := NewSegmentCommitInfo(segInfo, ps.delCount, -1)
@@ -2883,6 +2885,7 @@ func (w *IndexWriter) mergeSegmentGroup(segs []*SegmentCommitInfo, segName strin
 	}
 
 	mergedSI := NewSegmentInfo(segName, totalLive, w.directory)
+		mergedSI.SetID(generateSegmentID())
 	mergedSI.SetCodec(codec.Name())
 	mergedSI.SetVersion("10.4.0")
 	mergedSI.SetMinVersion("10.4.0")

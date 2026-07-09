@@ -29,6 +29,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/bkd"
 )
 
@@ -74,7 +75,35 @@ type PointsSource interface {
 	VisitPoints(field string, fn func(docID int, packedValue []byte) error) error
 }
 
+// pointTreeSource is an optional extension of PointsSource that exposes the
+// in-memory MutablePointTree directly. When available, pointsWriter uses
+// BKDWriter.WriteField (the heap path) instead of Add/Finish (the offline
+// spill path), matching the code path Lucene 10.4.0 takes for buffered points
+// and producing byte-identical output for small in-memory trees.
+type pointTreeSource interface {
+	PointsSource
+	// MutablePointTree returns the in-memory tree and its point count.
+	index.MutablePointTreeSource
+}
+
+// mutablePointTreeWrapper adapts an index.PointTreeBuffer to the
+// bkd.MutablePointTree interface expected by BKDWriter.WriteField. The two
+// interfaces have identical method sets; the wrapper avoids importing
+// util/bkd into the index package (which would create an import cycle).
+type mutablePointTreeWrapper struct {
+	tree index.PointTreeBuffer
+}
+
+func (w *mutablePointTreeWrapper) Swap(i, j int)                   { w.tree.Swap(i, j) }
+func (w *mutablePointTreeWrapper) GetValue(i int, dst *util.BytesRef) { w.tree.GetValue(i, dst) }
+func (w *mutablePointTreeWrapper) GetByteAt(i, k int) byte         { return w.tree.GetByteAt(i, k) }
+func (w *mutablePointTreeWrapper) GetDocID(i int) int              { return w.tree.GetDocID(i) }
+func (w *mutablePointTreeWrapper) Save(i, j int)                    { w.tree.Save(i, j) }
+func (w *mutablePointTreeWrapper) Restore(i, j int)                 { w.tree.Restore(i, j) }
+
 // -----------------------------------------------------------------------------
+
+
 // pointsWriter — byte-faithful BKD writer.
 // -----------------------------------------------------------------------------
 
@@ -186,22 +215,42 @@ func (w *pointsWriter) WriteField(fieldInfo *schema.FieldInfo, reader codecs.Poi
 	}
 	defer func() { _ = writer.Close() }()
 
-	if err := src.VisitPoints(fieldInfo.Name(), func(docID int, packedValue []byte) error {
+	fieldName := fieldInfo.Name()
+	if pts, ok := reader.(pointTreeSource); ok {
+		tree, size := pts.MutablePointTree()
+		if tree != nil {
+			finalizer, err := writer.WriteField(w.metaOut, w.indexOut, w.dataOut, fieldName, &mutablePointTreeWrapper{tree: tree}, size)
+			if err != nil {
+				return fmt.Errorf("lucene90 points: field %q writeField: %w", fieldName, err)
+			}
+			if finalizer != nil {
+				if err := w.metaOut.WriteInt(int32(fieldInfo.Number())); err != nil {
+					return fmt.Errorf("lucene90 points: field %q write field number: %w", fieldName, err)
+				}
+				if err := finalizer(); err != nil {
+					return fmt.Errorf("lucene90 points: field %q finalizer: %w", fieldName, err)
+				}
+			}
+			return nil
+		}
+	}
+
+	if err := src.VisitPoints(fieldName, func(docID int, packedValue []byte) error {
 		return writer.Add(packedValue, docID)
 	}); err != nil {
-		return fmt.Errorf("lucene90 points: field %q add: %w", fieldInfo.Name(), err)
+		return fmt.Errorf("lucene90 points: field %q add: %w", fieldName, err)
 	}
 
 	finalizer, err := writer.Finish(w.metaOut, w.indexOut, w.dataOut)
 	if err != nil {
-		return fmt.Errorf("lucene90 points: field %q finish: %w", fieldInfo.Name(), err)
+		return fmt.Errorf("lucene90 points: field %q finish: %w", fieldName, err)
 	}
 	if finalizer != nil {
 		if err := w.metaOut.WriteInt(int32(fieldInfo.Number())); err != nil {
-			return fmt.Errorf("lucene90 points: field %q write field number: %w", fieldInfo.Name(), err)
+			return fmt.Errorf("lucene90 points: field %q write field number: %w", fieldName, err)
 		}
 		if err := finalizer(); err != nil {
-			return fmt.Errorf("lucene90 points: field %q finalizer: %w", fieldInfo.Name(), err)
+			return fmt.Errorf("lucene90 points: field %q finalizer: %w", fieldName, err)
 		}
 	}
 	return nil

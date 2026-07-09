@@ -57,3 +57,4 @@ func TestLucene90Points_FooterCRC(t *testing.T) {
 		})
 	}
 }
+
