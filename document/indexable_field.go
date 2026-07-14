@@ -6,6 +6,8 @@ package document
 
 import (
 	"io"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis"
 )
 
 // IndexableField is the interface implemented by all field types that can
@@ -54,6 +56,6 @@ type IndexableField interface {
 
 	// TokenStream returns a TokenStream for the field value.
 	// This is used during indexing to analyze the field content.
-	// Returns nil if the field is not tokenized.
-	// TokenStream() analysis.TokenStream
+	// Returns nil if the field was not constructed with a TokenStream value.
+	TokenStream() analysis.TokenStream
 }

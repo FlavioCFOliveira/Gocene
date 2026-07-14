@@ -14,24 +14,20 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// customTermFreqBlocked is the reason every test in this file is gated by
-// t.Skip. TestCustomTermFreq is an end-to-end test: it indexes a field backed
-// by a pre-built TokenStream, reopens a DirectoryReader and reads postings via
-// the static MultiTerms helpers. Two pre-existing infrastructure gaps block the
-// assertion path:
-//
-//   - MultiTerms exposes no getTermPostingsEnum / getTerms static helpers
-//     (index/multi_terms.go documents this as backlog #2706), so the postings
-//     and totalTermFreq assertions have no API to call.
-//   - OpenDirectoryReader materialises each segment via NewSegmentReader, which
-//     leaves SegmentReader.coreReaders nil (index/directory_reader.go), so even
-//     leaf-level Terms retrieval fails with "core readers are nil" — the same
-//     gap skipped by TestBagOfPositions.
-//
-// The port is kept faithful and complete so it can be unskipped verbatim once
-// both land.
-const customTermFreqBlocked = "blocked: MultiTerms.getTermPostingsEnum/getTerms not implemented (backlog #2706); " +
-	"OpenDirectoryReader builds SegmentReader without core readers (index/directory_reader.go)"
+// remainingCustomTermFreqBlockers collects the reasons for the tests in this
+// file that still fail under the no-skip policy. The postings read-back path
+// is now wired, but three end-to-end legs remain incomplete:
+const (
+	// termVectorsBlocked: the DWPT term-vector path is only stubbed
+	// (buildTermVector is a placeholder and flushTermVectors is not invoked).
+	termVectorsBlocked = "blocked: term-vector write/flush path not implemented (dwpt.buildTermVector placeholder)"
+	// overflowIntBlocked: per-document rollback when a term-frequency sum
+	// overflows int is not yet implemented.
+	overflowIntBlocked = "blocked: per-document rollback on term-frequency overflow not implemented"
+	// fieldInvertStateBlocked: capturing the FieldInvertState requires a
+	// SetSimilarity hook on IndexWriterConfig and a test-only similarity.
+	fieldInvertStateBlocked = "blocked: IndexWriterConfig.SetSimilarity wiring and FieldInvertState capture hook not implemented"
+)
 
 // cannedTermFreqs ports the private CannedTermFreqs TokenStream from
 // org.apache.lucene.index.TestCustomTermFreq. It emits a fixed sequence of
@@ -140,11 +136,70 @@ func commitAndClose(t *testing.T, w *index.IndexWriter) {
 	}
 }
 
+// assertCustomTermPostings checks that the term `text` in field "field" has the expected
+// (docID, freq) sequence. The field is indexed with DOCS_AND_FREQS, so frequencies
+// are requested via index.PostingsFlagFreqs.
+func assertCustomTermPostings(t *testing.T, r *index.DirectoryReader, text string, expected []postingEntry) {
+	t.Helper()
+	terms, err := r.Terms("field")
+	if err != nil {
+		t.Fatalf("Terms(field): %v", err)
+	}
+	if terms == nil {
+		t.Fatal("Terms(field) is nil")
+	}
+	te, err := terms.GetIteratorWithSeek(index.NewTerm("field", text))
+	if err != nil {
+		t.Fatalf("GetIteratorWithSeek(%q): %v", text, err)
+	}
+	if te == nil {
+		t.Fatalf("GetIteratorWithSeek(%q) is nil", text)
+	}
+	found, err := te.SeekExact(index.NewTerm("field", text))
+	if err != nil {
+		t.Fatalf("SeekExact(%q): %v", text, err)
+	}
+	if !found {
+		t.Fatalf("term %q not found", text)
+	}
+	pe, err := te.Postings(index.PostingsFlagFreqs)
+	if err != nil {
+		t.Fatalf("Postings(%q): %v", text, err)
+	}
+	if pe == nil {
+		t.Fatalf("Postings(%q) is nil", text)
+	}
+	for i, exp := range expected {
+		doc, err := pe.NextDoc()
+		if err != nil {
+			t.Fatalf("NextDoc at %d for %q: %v", i, text, err)
+		}
+		if doc != exp.doc {
+			t.Fatalf("%s doc[%d] = %d, want %d", text, i, doc, exp.doc)
+		}
+		freq, err := pe.Freq()
+		if err != nil {
+			t.Fatalf("Freq at %d for %q: %v", i, text, err)
+		}
+		if freq != exp.freq {
+			t.Fatalf("%s freq[%d] = %d, want %d", text, i, freq, exp.freq)
+		}
+	}
+	if doc, err := pe.NextDoc(); err != nil {
+		t.Fatalf("NextDoc after last for %q: %v", text, err)
+	} else if doc != -1 {
+		t.Fatalf("%s expected no more docs, got %d", text, doc)
+	}
+}
+
+type postingEntry struct {
+	doc  int
+	freq int
+}
+
 // TestCustomTermFreq_SingletonTermsOneDoc ports
 // org.apache.lucene.index.TestCustomTermFreq#testSingletonTermsOneDoc.
 func TestCustomTermFreq_SingletonTermsOneDoc(t *testing.T) {
-	t.Fatal(customTermFreqBlocked)
-
 	dir, w := newCustomFreqWriter(t)
 	defer dir.Close()
 
@@ -157,16 +212,13 @@ func TestCustomTermFreq_SingletonTermsOneDoc(t *testing.T) {
 	}
 	defer r.Close()
 
-	// Read-back assertions deferred: MultiTerms.getTermPostingsEnum is absent
-	// (backlog #2706). Expected: postings(bar) -> doc 0, freq 128;
-	// postings(foo) -> doc 0, freq 42.
+	assertCustomTermPostings(t, r, "bar", []postingEntry{{doc: 0, freq: 128}})
+	assertCustomTermPostings(t, r, "foo", []postingEntry{{doc: 0, freq: 42}})
 }
 
 // TestCustomTermFreq_SingletonTermsTwoDocs ports
 // org.apache.lucene.index.TestCustomTermFreq#testSingletonTermsTwoDocs.
 func TestCustomTermFreq_SingletonTermsTwoDocs(t *testing.T) {
-	t.Fatal(customTermFreqBlocked)
-
 	dir, w := newCustomFreqWriter(t)
 	defer dir.Close()
 
@@ -181,16 +233,13 @@ func TestCustomTermFreq_SingletonTermsTwoDocs(t *testing.T) {
 	}
 	defer r.Close()
 
-	// Read-back assertions deferred (backlog #2706). Expected:
-	// postings(bar) -> (doc 0, freq 128), (doc 1, freq 50);
-	// postings(foo) -> (doc 0, freq 42),  (doc 1, freq 50).
+	assertCustomTermPostings(t, r, "bar", []postingEntry{{doc: 0, freq: 128}, {doc: 1, freq: 50}})
+	assertCustomTermPostings(t, r, "foo", []postingEntry{{doc: 0, freq: 42}, {doc: 1, freq: 50}})
 }
 
 // TestCustomTermFreq_RepeatTermsOneDoc ports
 // org.apache.lucene.index.TestCustomTermFreq#testRepeatTermsOneDoc.
 func TestCustomTermFreq_RepeatTermsOneDoc(t *testing.T) {
-	t.Fatal(customTermFreqBlocked)
-
 	dir, w := newCustomFreqWriter(t)
 	defer dir.Close()
 
@@ -204,15 +253,13 @@ func TestCustomTermFreq_RepeatTermsOneDoc(t *testing.T) {
 	}
 	defer r.Close()
 
-	// Read-back assertions deferred (backlog #2706). Repeated terms accumulate:
-	// expected postings(bar) -> doc 0, freq 228; postings(foo) -> doc 0, freq 59.
+	assertCustomTermPostings(t, r, "bar", []postingEntry{{doc: 0, freq: 228}})
+	assertCustomTermPostings(t, r, "foo", []postingEntry{{doc: 0, freq: 59}})
 }
 
 // TestCustomTermFreq_RepeatTermsTwoDocs ports
 // org.apache.lucene.index.TestCustomTermFreq#testRepeatTermsTwoDocs.
 func TestCustomTermFreq_RepeatTermsTwoDocs(t *testing.T) {
-	t.Fatal(customTermFreqBlocked)
-
 	dir, w := newCustomFreqWriter(t)
 	defer dir.Close()
 
@@ -227,16 +274,13 @@ func TestCustomTermFreq_RepeatTermsTwoDocs(t *testing.T) {
 	}
 	defer r.Close()
 
-	// Read-back assertions deferred (backlog #2706). Expected:
-	// postings(bar) -> (doc 0, freq 228), (doc 1, freq 140);
-	// postings(foo) -> (doc 0, freq 59),  (doc 1, freq 120).
+	assertCustomTermPostings(t, r, "bar", []postingEntry{{doc: 0, freq: 228}, {doc: 1, freq: 140}})
+	assertCustomTermPostings(t, r, "foo", []postingEntry{{doc: 0, freq: 59}, {doc: 1, freq: 120}})
 }
 
 // TestCustomTermFreq_TotalTermFreq ports
 // org.apache.lucene.index.TestCustomTermFreq#testTotalTermFreq.
 func TestCustomTermFreq_TotalTermFreq(t *testing.T) {
-	t.Fatal(customTermFreqBlocked)
-
 	dir, w := newCustomFreqWriter(t)
 	defer dir.Close()
 
@@ -251,17 +295,36 @@ func TestCustomTermFreq_TotalTermFreq(t *testing.T) {
 	}
 	defer r.Close()
 
-	// Read-back assertions deferred (backlog #2706). Expected via
-	// MultiTerms.getTerms(r,"field").iterator(): seekExact(foo) totalTermFreq
-	// 179; seekExact(bar) totalTermFreq 368.
+	terms, err := r.Terms("field")
+	if err != nil {
+		t.Fatalf("Terms(field): %v", err)
+	}
+	te, err := terms.GetIteratorWithSeek(index.NewTerm("field", "foo"))
+	if err != nil {
+		t.Fatalf("GetIteratorWithSeek(foo): %v", err)
+	}
+	if _, err := te.SeekExact(index.NewTerm("field", "foo")); err != nil {
+		t.Fatalf("SeekExact(foo): %v", err)
+	}
+	if got, err := te.TotalTermFreq(); err != nil {
+		t.Fatalf("TotalTermFreq(foo): %v", err)
+	} else if got != 179 {
+		t.Fatalf("foo totalTermFreq = %d, want 179", got)
+	}
+	if _, err := te.SeekExact(index.NewTerm("field", "bar")); err != nil {
+		t.Fatalf("SeekExact(bar): %v", err)
+	}
+	if got, err := te.TotalTermFreq(); err != nil {
+		t.Fatalf("TotalTermFreq(bar): %v", err)
+	} else if got != 368 {
+		t.Fatalf("bar totalTermFreq = %d, want 368", got)
+	}
 }
 
 // TestCustomTermFreq_InvalidProx ports
 // org.apache.lucene.index.TestCustomTermFreq#testInvalidProx: positions cannot
 // be indexed alongside a custom TermFrequencyAttribute.
 func TestCustomTermFreq_InvalidProx(t *testing.T) {
-	t.Fatal(customTermFreqBlocked)
-
 	dir, w := newCustomFreqWriter(t)
 	defer dir.Close()
 	defer w.Close()
@@ -284,8 +347,6 @@ func TestCustomTermFreq_InvalidProx(t *testing.T) {
 // org.apache.lucene.index.TestCustomTermFreq#testInvalidDocsOnly: DOCS-only
 // cannot be indexed with a custom TermFrequencyAttribute.
 func TestCustomTermFreq_InvalidDocsOnly(t *testing.T) {
-	t.Fatal(customTermFreqBlocked)
-
 	dir, w := newCustomFreqWriter(t)
 	defer dir.Close()
 	defer w.Close()
@@ -309,7 +370,7 @@ func TestCustomTermFreq_InvalidDocsOnly(t *testing.T) {
 // org.apache.lucene.index.TestCustomTermFreq#testOverflowInt: the sum of term
 // freqs must fit in an int.
 func TestCustomTermFreq_OverflowInt(t *testing.T) {
-	t.Fatal(customTermFreqBlocked)
+	t.Fatal(overflowIntBlocked)
 
 	dir, w := newCustomFreqWriter(t)
 	defer dir.Close()
@@ -349,8 +410,6 @@ func TestCustomTermFreq_OverflowInt(t *testing.T) {
 // TestCustomTermFreq_InvalidTermVectorPositions ports
 // org.apache.lucene.index.TestCustomTermFreq#testInvalidTermVectorPositions.
 func TestCustomTermFreq_InvalidTermVectorPositions(t *testing.T) {
-	t.Fatal(customTermFreqBlocked)
-
 	dir, w := newCustomFreqWriter(t)
 	defer dir.Close()
 	defer w.Close()
@@ -374,8 +433,6 @@ func TestCustomTermFreq_InvalidTermVectorPositions(t *testing.T) {
 // TestCustomTermFreq_InvalidTermVectorOffsets ports
 // org.apache.lucene.index.TestCustomTermFreq#testInvalidTermVectorOffsets.
 func TestCustomTermFreq_InvalidTermVectorOffsets(t *testing.T) {
-	t.Fatal(customTermFreqBlocked)
-
 	dir, w := newCustomFreqWriter(t)
 	defer dir.Close()
 	defer w.Close()
@@ -399,7 +456,7 @@ func TestCustomTermFreq_InvalidTermVectorOffsets(t *testing.T) {
 // TestCustomTermFreq_TermVectors ports
 // org.apache.lucene.index.TestCustomTermFreq#testTermVectors.
 func TestCustomTermFreq_TermVectors(t *testing.T) {
-	t.Fatal(customTermFreqBlocked)
+	t.Fatal(termVectorsBlocked)
 
 	dir, w := newCustomFreqWriter(t)
 	defer dir.Close()
@@ -416,12 +473,79 @@ func TestCustomTermFreq_TermVectors(t *testing.T) {
 	}
 	defer r.Close()
 
-	// Read-back assertions deferred (backlog #2706). Expected via
-	// r.termVectors().get(docID).terms("field"):
-	//   doc 0: seekExact(bar) ttf 228 / postings freq 228;
-	//          seekExact(foo) ttf 59  / postings freq 59;
-	//   doc 1: seekExact(bar) ttf 140 / postings freq 140;
-	//          seekExact(foo) ttf 120 / postings freq 120.
+	// Expected once term vectors are wired:
+	// assertTermVectorDoc(t, r, 0, "bar", 228)
+	// assertTermVectorDoc(t, r, 0, "foo", 59)
+	// assertTermVectorDoc(t, r, 1, "bar", 140)
+	// assertTermVectorDoc(t, r, 1, "foo", 120)
+}
+
+// assertTermVectorDoc checks the term-vector entry for a single (docID, term)
+// on field "field". For DOCS_AND_FREQS term vectors the total term frequency
+// equals the per-document posting frequency.
+func assertTermVectorDoc(t *testing.T, r *index.DirectoryReader, docID int, text string, wantFreq int) {
+	t.Helper()
+	tv, err := r.GetTermVectors(docID)
+	if err != nil {
+		t.Fatalf("GetTermVectors(%d): %v", docID, err)
+	}
+	if tv == nil {
+		t.Fatalf("GetTermVectors(%d) is nil", docID)
+	}
+	terms, err := tv.Terms("field")
+	if err != nil {
+		t.Fatalf("Terms(field) for doc %d: %v", docID, err)
+	}
+	if terms == nil {
+		t.Fatalf("Terms(field) for doc %d is nil", docID)
+	}
+	te, err := terms.GetIteratorWithSeek(index.NewTerm("field", text))
+	if err != nil {
+		t.Fatalf("GetIteratorWithSeek(%q) for doc %d: %v", text, docID, err)
+	}
+	if te == nil {
+		t.Fatalf("GetIteratorWithSeek(%q) for doc %d is nil", text, docID)
+	}
+	found, err := te.SeekExact(index.NewTerm("field", text))
+	if err != nil {
+		t.Fatalf("SeekExact(%q) for doc %d: %v", text, docID, err)
+	}
+	if !found {
+		t.Fatalf("term %q not found for doc %d", text, docID)
+	}
+	ttf, err := te.TotalTermFreq()
+	if err != nil {
+		t.Fatalf("TotalTermFreq(%q) for doc %d: %v", text, docID, err)
+	}
+	if ttf != int64(wantFreq) {
+		t.Errorf("doc %d term %q totalTermFreq = %d, want %d", docID, text, ttf, wantFreq)
+	}
+	pe, err := te.Postings(index.PostingsFlagFreqs)
+	if err != nil {
+		t.Fatalf("Postings(%q) for doc %d: %v", text, docID, err)
+	}
+	if pe == nil {
+		t.Fatalf("Postings(%q) for doc %d is nil", text, docID)
+	}
+	doc, err := pe.NextDoc()
+	if err != nil {
+		t.Fatalf("NextDoc for doc %d term %q: %v", docID, text, err)
+	}
+	if doc != docID {
+		t.Errorf("doc %d term %q postings doc = %d, want %d", docID, text, doc, docID)
+	}
+	freq, err := pe.Freq()
+	if err != nil {
+		t.Fatalf("Freq for doc %d term %q: %v", docID, text, err)
+	}
+	if freq != wantFreq {
+		t.Errorf("doc %d term %q postings freq = %d, want %d", docID, text, freq, wantFreq)
+	}
+	if next, err := pe.NextDoc(); err != nil {
+		t.Fatalf("NextDoc after last for doc %d term %q: %v", docID, text, err)
+	} else if next != -1 {
+		t.Errorf("doc %d term %q expected no more docs, got %d", docID, text, next)
+	}
 }
 
 // TestCustomTermFreq_FieldInvertState ports
@@ -429,7 +553,7 @@ func TestCustomTermFreq_TermVectors(t *testing.T) {
 // test installs NeverForgetsSimilarity to capture the FieldInvertState and
 // asserts its aggregate counters after a single addDocument.
 func TestCustomTermFreq_FieldInvertState(t *testing.T) {
-	t.Fatal(customTermFreqBlocked + "; NeverForgetsSimilarity capture hook depends on IndexWriterConfig.SetSimilarity wiring")
+	t.Fatal(fieldInvertStateBlocked)
 
 	dir, w := newCustomFreqWriter(t)
 	defer dir.Close()
