@@ -335,6 +335,10 @@ type dwptField struct {
 	// customTermFreq, when > 0, overrides the default initial TF of 1.
 	// Used by fields such as FeatureField that encode a value as TF.
 	customTermFreq int
+	// tokenStream, when non-nil, is a pre-built TokenStream supplied by the
+	// field (e.g. CannedTermFreqs). It takes precedence over analyzer-driven
+	// tokenization for indexed tokenized fields.
+	tokenStream analysis.TokenStream
 	// Vector (KNN) attributes. hasVector is true when the field carries a
 	// KNN vector value (vectorDimension > 0). The per-document value is
 	// stored in exactly one of vectorFloatValue / vectorByteValue
@@ -392,6 +396,12 @@ type indexableFieldPromoter interface {
 // a custom initial term frequency instead of the default of 1.
 type termFrequencyProvider interface {
 	TermFrequency() int
+}
+
+// tokenStreamProvider is satisfied by fields constructed with an
+// analysis.TokenStream value (e.g. CannedTermFreqs).
+type tokenStreamProvider interface {
+	TokenStream() analysis.TokenStream
 }
 
 // indexFieldTypeProvider is satisfied by fields that expose the codec-facing
@@ -549,6 +559,9 @@ func asDwptField(fieldInterface interface{}) (*dwptField, bool) {
 	}
 	if tfp, ok := fieldInterface.(termFrequencyProvider); ok {
 		f.customTermFreq = tfp.TermFrequency()
+	}
+	if tsp, ok := fieldInterface.(tokenStreamProvider); ok {
+		f.tokenStream = tsp.TokenStream()
 	}
 
 	// Vector (KNN) attributes. The field type carries the dimension /
@@ -755,7 +768,7 @@ func (dwpt *DocumentsWriterPerThread) ProcessDocument(doc Document) error {
 		// Process based on field type
 		if field.isIndexed {
 			// Index the field in the inverted index
-			if err := dwpt.indexFieldWithValue(docID, fieldName, field.stringValue, field.isTokenized, field.customTermFreq, fieldInfo, analyzer); err != nil {
+			if err := dwpt.indexFieldWithValue(docID, fieldName, field.stringValue, field.isTokenized, field.customTermFreq, fieldInfo, analyzer, field.tokenStream); err != nil {
 				return err
 			}
 		}
@@ -862,6 +875,126 @@ func (dwpt *DocumentsWriterPerThread) getOrAddFieldInfo(fieldName string, opts F
 	return fi, nil
 }
 
+// tokenAtPos holds one token extracted from a TokenStream before it is written
+// to the in-memory inverted index.
+type tokenAtPos struct {
+	term        string
+	position    int
+	posIncr     int
+	startOffset int
+	endOffset   int
+	payload     []byte
+	termFreq    int
+}
+
+// validateCustomTermFreq enforces Lucene's constraints on fields that use a
+// custom TermFrequencyAttribute: frequencies must be indexed, and neither
+// positions nor term-vector positions/offsets may be stored. Called once the
+// token stream has proven it actually carries non-default frequencies.
+func validateCustomTermFreq(fieldName string, fieldInfo *FieldInfo) error {
+	if !fieldInfo.IndexOptions().HasFreqs() {
+		return fmt.Errorf(`field %q: must index term freq while using custom TermFrequencyAttribute`, fieldName)
+	}
+	// Term-vector positions/offsets are checked before indexed positions so
+	// that tests targeting term-vector storage get the specific error they
+	// assert (Lucene rejects both, but the more specific term-vector message
+	// matches the Java reference).
+	if fieldInfo.StoreTermVectorPositions() {
+		return fmt.Errorf(`field %q: cannot index term vector positions while using custom TermFrequencyAttribute`, fieldName)
+	}
+	if fieldInfo.StoreTermVectorOffsets() {
+		return fmt.Errorf(`field %q: cannot index term vector offsets while using custom TermFrequencyAttribute`, fieldName)
+	}
+	if fieldInfo.IndexOptions().HasPositions() {
+		return fmt.Errorf(`field %q: cannot index positions while using custom TermFrequencyAttribute`, fieldName)
+	}
+	return nil
+}
+
+// collectTokensFromStream consumes a TokenStream and returns the tokens it
+// emits, honouring PositionIncrementAttribute, TermFrequencyAttribute,
+// OffsetAttribute and PayloadAttribute. It mirrors the token-gathering loop
+// inside Lucene's IndexingChain.invert.
+func collectTokensFromStream(
+	tokenStream analysis.TokenStream,
+	fieldName string,
+	fieldInfo *FieldInfo,
+) (tokens []tokenAtPos, hasCustomTermFreq bool, err error) {
+	position := -1
+	for {
+		hasNext, err := tokenStream.IncrementToken()
+		if err != nil {
+			return nil, false, err
+		}
+		if !hasNext {
+			break
+		}
+		attrSrc, ok := tokenStream.(interface {
+			GetAttributeSource() *util.AttributeSource
+		})
+		if !ok {
+			continue
+		}
+		src := attrSrc.GetAttributeSource()
+		posIncr := 1
+		if pia := src.GetAttribute(analysis.PositionIncrementAttributeType); pia != nil {
+			if posAttr, ok := pia.(analysis.PositionIncrementAttribute); ok {
+				posIncr = posAttr.GetPositionIncrement()
+			}
+		}
+		position += posIncr
+		if position > MaxPosition {
+			return nil, false, fmt.Errorf("position=%d is too large (> IndexWriter.MAX_POSITION=%d), field=%q", position, MaxPosition, fieldName)
+		}
+		if attr := src.GetAttribute(analysis.CharTermAttributeType); attr != nil {
+			if termAttr, ok := attr.(analysis.CharTermAttribute); ok {
+				startOffset, endOffset := 0, 0
+				if oa := src.GetAttribute(analysis.OffsetAttributeType); oa != nil {
+					if offsetAttr, ok := oa.(analysis.OffsetAttribute); ok {
+						startOffset = offsetAttr.StartOffset()
+						endOffset = offsetAttr.EndOffset()
+					}
+				}
+				termFreq := 1
+				if tfa := src.GetAttribute(analysis.TermFrequencyAttributeType); tfa != nil {
+					if tfAttr, ok := tfa.(analysis.TermFrequencyAttribute); ok {
+						termFreq = tfAttr.GetTermFrequency()
+						if termFreq <= 0 {
+							termFreq = 1
+						}
+						if termFreq != 1 {
+							hasCustomTermFreq = true
+						}
+					}
+				}
+				var payload []byte
+				if pa := src.GetAttribute(analysis.PayloadAttributeType); pa != nil {
+					if payloadAttr, ok := pa.(*analysis.PayloadAttributeImpl); ok {
+						p := payloadAttr.GetPayload()
+						if len(p) > 0 {
+							payload = make([]byte, len(p))
+							copy(payload, p)
+							if fieldInfo.IndexOptions().HasPositions() {
+								fieldInfo.SetStorePayloads()
+							}
+						}
+					}
+				}
+				tokens = append(tokens, tokenAtPos{
+					term:        termAttr.String(),
+					position:    position,
+					posIncr:     posIncr,
+					startOffset: startOffset,
+					endOffset:   endOffset,
+					payload:     payload,
+					termFreq:    termFreq,
+				})
+			}
+		}
+	}
+	return tokens, hasCustomTermFreq, nil
+}
+
 // indexFieldWithValue indexes a field value in the inverted index.
 // customTermFreq, when > 0, overrides the default initial TF of 1 for the
 // indexed term (used by FeatureField which encodes a value as term frequency).
@@ -873,6 +1006,7 @@ func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 	customTermFreq int,
 	fieldInfo *FieldInfo,
 	analyzer analysis.Analyzer,
+	tokenStream analysis.TokenStream,
 ) error {
 	// Get or create field postings
 	dwpt.invertedIndex.mu.Lock()
@@ -893,91 +1027,51 @@ func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 	// of 1 yields the consecutive positions 0,1,2,...). Ignoring the increment
 	// would collapse position gaps (e.g. injected by stop filters or stacked
 	// synonyms) and break PhraseQuery / MultiPhraseQuery matching.
-	type tokenAtPos struct {
-		term        string
-		position    int
-		posIncr     int
-		startOffset int
-		endOffset   int
-		payload     []byte
-	}
 	var tokens []tokenAtPos
 	if tokenized {
-		// Use analyzer to tokenize
-		if analyzer != nil {
-			tokenStream, err := analyzer.TokenStream(fieldName, strings.NewReader(value))
+		if tokenStream != nil {
+			// Caller-supplied TokenStream takes precedence. Do not close it here;
+			// ownership remains with the caller, which typically closes it in a
+			// defer when the test finishes.
+			if resettable, ok := tokenStream.(interface{ Reset() error }); ok {
+				if err := resettable.Reset(); err != nil {
+					return err
+				}
+			}
+			var err error
+			var hasCustomTermFreq bool
+			tokens, hasCustomTermFreq, err = collectTokensFromStream(tokenStream, fieldName, fieldInfo)
 			if err != nil {
 				return err
 			}
-			if tokenStream != nil {
-				defer tokenStream.Close()
+			if hasCustomTermFreq {
+				if err := validateCustomTermFreq(fieldName, fieldInfo); err != nil {
+					return err
+				}
+			}
+		} else if analyzer != nil {
+			ts, err := analyzer.TokenStream(fieldName, strings.NewReader(value))
+			if err != nil {
+				return err
+			}
+			if ts != nil {
+				defer ts.Close()
 				// reset() must run before the first incrementToken(), mirroring
 				// Lucene's TokenStream contract; tokenizers (e.g. canned streams)
 				// rely on it to (re)initialise their cursor.
-				if resettable, ok := tokenStream.(interface{ Reset() error }); ok {
+				if resettable, ok := ts.(interface{ Reset() error }); ok {
 					if err := resettable.Reset(); err != nil {
 						return err
 					}
 				}
-				position := -1
-				for {
-					hasNext, err := tokenStream.IncrementToken()
-					if err != nil {
+				var hasCustomTermFreq bool
+				tokens, hasCustomTermFreq, err = collectTokensFromStream(ts, fieldName, fieldInfo)
+				if err != nil {
+					return err
+				}
+				if hasCustomTermFreq {
+					if err := validateCustomTermFreq(fieldName, fieldInfo); err != nil {
 						return err
-					}
-					if !hasNext {
-						break
-					}
-					// Read the term and position-increment attributes from the
-					// stream's attribute source.
-					attrSrc, ok := tokenStream.(interface {
-						GetAttributeSource() *util.AttributeSource
-					})
-					if !ok {
-						continue
-					}
-					src := attrSrc.GetAttributeSource()
-					posIncr := 1
-					if pia := src.GetAttribute(analysis.PositionIncrementAttributeType); pia != nil {
-						if posAttr, ok := pia.(analysis.PositionIncrementAttribute); ok {
-							posIncr = posAttr.GetPositionIncrement()
-						}
-					}
-					position += posIncr
-					if position > MaxPosition {
-						return fmt.Errorf("position=%d is too large (> IndexWriter.MAX_POSITION=%d), field=%q", position, MaxPosition, fieldName)
-					}
-					if attr := src.GetAttribute(analysis.CharTermAttributeType); attr != nil {
-						if termAttr, ok := attr.(analysis.CharTermAttribute); ok {
-							startOffset, endOffset := 0, 0
-							if oa := src.GetAttribute(analysis.OffsetAttributeType); oa != nil {
-								if offsetAttr, ok := oa.(analysis.OffsetAttribute); ok {
-									startOffset = offsetAttr.StartOffset()
-									endOffset = offsetAttr.EndOffset()
-								}
-							}
-							var payload []byte
-							if pa := src.GetAttribute(analysis.PayloadAttributeType); pa != nil {
-								if payloadAttr, ok := pa.(*analysis.PayloadAttributeImpl); ok {
-									p := payloadAttr.GetPayload()
-									if len(p) > 0 {
-										payload = make([]byte, len(p))
-										copy(payload, p)
-										if fieldInfo.IndexOptions().HasPositions() {
-											fieldInfo.SetStorePayloads()
-										}
-									}
-								}
-							}
-							tokens = append(tokens, tokenAtPos{
-								term:        termAttr.String(),
-								position:    position,
-								posIncr:     posIncr,
-								startOffset: startOffset,
-								endOffset:   endOffset,
-								payload:     payload,
-							})
-						}
 					}
 				}
 			}
@@ -1006,11 +1100,15 @@ func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 	// FieldInvertState (length += termFreq; numOverlap++ when posIncr == 0).
 	acc := dwpt.normsAccumulatorFor(fieldName, fieldInfo)
 	for _, tok := range tokens {
-		if err := dwpt.addTermWithFreq(docID, fieldName, tok.term, tok.position, tok.startOffset, tok.endOffset, tok.payload, customTermFreq, fieldPostings, fieldInfo); err != nil {
+		termFreq := tok.termFreq
+		if customTermFreq > 0 {
+			termFreq = customTermFreq
+		}
+		if err := dwpt.addTermWithFreq(docID, fieldName, tok.term, tok.position, tok.startOffset, tok.endOffset, tok.payload, termFreq, fieldPostings, fieldInfo); err != nil {
 			return err
 		}
 		if acc != nil {
-			acc.addToken(tok.term, customTermFreq, tok.posIncr)
+			acc.addToken(tok.term, termFreq, tok.posIncr)
 		}
 	}
 
@@ -1024,11 +1122,12 @@ func (dwpt *DocumentsWriterPerThread) addTerm(docID int, fieldName, term string,
 }
 
 // addTermWithFreq adds a term to the inverted index.
-// initialFreq, when > 0, is used as the initial term frequency for a new
-// document entry; otherwise 1 is used (the standard Lucene default).
+// termFreq is the frequency contributed by this token occurrence. It is used
+// as the initial frequency for a new document entry and is added to the
+// running total when the same document already has the term.
 // startOffset/endOffset are the token's character offsets and are only stored
 // when the field indexes offsets.
-func (dwpt *DocumentsWriterPerThread) addTermWithFreq(docID int, fieldName, term string, position, startOffset, endOffset int, payload []byte, initialFreq int, fieldPostings *FieldPostings, fieldInfo *FieldInfo) error {
+func (dwpt *DocumentsWriterPerThread) addTermWithFreq(docID int, fieldName, term string, position, startOffset, endOffset int, payload []byte, termFreq int, fieldPostings *FieldPostings, fieldInfo *FieldInfo) error {
 	fieldPostings.mu.Lock()
 	defer fieldPostings.mu.Unlock()
 
@@ -1055,17 +1154,17 @@ func (dwpt *DocumentsWriterPerThread) addTermWithFreq(docID int, fieldName, term
 		dwpt.invertedIndex.numTerms++
 	}
 
-	if initialFreq <= 0 {
-		initialFreq = 1
+	if termFreq <= 0 {
+		termFreq = 1
 	}
 
 	hasPayload := len(payload) > 0
 
 	// Find or add document in posting list
 	if len(posting.docIDs) > 0 && posting.docIDs[len(posting.docIDs)-1] == docID {
-		// Same document, increment frequency
+		// Same document, add the token's frequency to the running total.
 		idx := len(posting.docIDs) - 1
-		posting.freqs[idx]++
+		posting.freqs[idx] += termFreq
 		if fieldInfo.IndexOptions().HasPositions() {
 			posting.positions[idx] = append(posting.positions[idx], position)
 			if fieldInfo.IndexOptions().HasOffsets() {
@@ -1079,7 +1178,7 @@ func (dwpt *DocumentsWriterPerThread) addTermWithFreq(docID int, fieldName, term
 	} else {
 		// New document
 		posting.docIDs = append(posting.docIDs, docID)
-		posting.freqs = append(posting.freqs, initialFreq)
+		posting.freqs = append(posting.freqs, termFreq)
 		if fieldInfo.IndexOptions().HasPositions() {
 			posting.positions = append(posting.positions, []int{position})
 			if fieldInfo.IndexOptions().HasOffsets() {

@@ -9,6 +9,7 @@ import (
 	"io"
 	"sync"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
@@ -239,6 +240,19 @@ func (lf *LazyField) ReaderValue() io.Reader {
 		return nil
 	}
 	return real.ReaderValue()
+}
+
+// TokenStream returns the TokenStream for the field value, or nil if the
+// underlying field has no TokenStream.
+func (lf *LazyField) TokenStream() analysis.TokenStream {
+	real, err := lf.getRealValue()
+	if err != nil {
+		return nil
+	}
+	if real == nil {
+		return nil
+	}
+	return real.TokenStream()
 }
 
 // documentCollector is a StoredFieldVisitor that collects fields into a Document.

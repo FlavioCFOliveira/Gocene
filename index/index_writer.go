@@ -457,7 +457,7 @@ func (w *IndexWriter) AddDocument(doc Document) error {
 	// to hold the global lock during document processing.
 	if w.documentsWriter != nil {
 		if err := w.documentsWriter.AddDocument(doc, nil); err != nil {
-			return fmt.Errorf("failed to add document: %w", err)
+			return err
 		}
 	}
 

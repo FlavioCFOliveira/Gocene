@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
@@ -27,6 +28,7 @@ type fieldValue interface {
 	Binary() []byte
 	Reader() io.Reader
 	Numeric() interface{}
+	TokenStream() analysis.TokenStream
 }
 
 // stringValue wraps a string value.
@@ -36,6 +38,7 @@ func (v stringValue) String() string       { return string(v) }
 func (v stringValue) Binary() []byte       { return []byte(v) }
 func (v stringValue) Reader() io.Reader    { return nil }
 func (v stringValue) Numeric() interface{} { return nil }
+func (v stringValue) TokenStream() analysis.TokenStream { return nil }
 
 // binaryValue wraps a binary value.
 type binaryValue []byte
@@ -44,6 +47,7 @@ func (v binaryValue) String() string       { return string(v) }
 func (v binaryValue) Binary() []byte       { return v }
 func (v binaryValue) Reader() io.Reader    { return nil }
 func (v binaryValue) Numeric() interface{} { return nil }
+func (v binaryValue) TokenStream() analysis.TokenStream { return nil }
 
 // readerValue wraps an io.Reader.
 type readerValue struct {
@@ -54,11 +58,23 @@ func (v readerValue) String() string       { return "" }
 func (v readerValue) Binary() []byte       { return nil }
 func (v readerValue) Reader() io.Reader    { return v.r }
 func (v readerValue) Numeric() interface{} { return nil }
+func (v readerValue) TokenStream() analysis.TokenStream { return nil }
 
 // numericValue wraps a numeric value.
 type numericValue struct {
 	n interface{}
 }
+
+// tokenStreamValue wraps an analysis.TokenStream.
+type tokenStreamValue struct {
+	ts analysis.TokenStream
+}
+
+func (v tokenStreamValue) String() string       { return "" }
+func (v tokenStreamValue) Binary() []byte       { return nil }
+func (v tokenStreamValue) Reader() io.Reader    { return nil }
+func (v tokenStreamValue) Numeric() interface{} { return nil }
+func (v tokenStreamValue) TokenStream() analysis.TokenStream { return v.ts }
 
 func (v numericValue) String() string {
 	return fmt.Sprintf("%v", v.n)
@@ -66,6 +82,7 @@ func (v numericValue) String() string {
 func (v numericValue) Binary() []byte       { return nil }
 func (v numericValue) Reader() io.Reader    { return nil }
 func (v numericValue) Numeric() interface{} { return v.n }
+func (v numericValue) TokenStream() analysis.TokenStream { return nil }
 
 // NewField creates a new Field with the given name, value, and FieldType.
 // The value can be a string, []byte, io.Reader, or numeric type (int, int64, float32, float64).
@@ -100,6 +117,8 @@ func NewField(name string, value interface{}, ft *FieldType) (*Field, error) {
 		f.value = numericValue{n: float64(v)}
 	case float64:
 		f.value = numericValue{n: v}
+	case analysis.TokenStream:
+		f.value = tokenStreamValue{ts: v}
 	default:
 		return nil, fmt.Errorf("unsupported field value type: %T", value)
 	}
@@ -154,6 +173,15 @@ func (f *Field) NumericValue() interface{} {
 		return nil
 	}
 	return f.value.Numeric()
+}
+
+// TokenStream returns the analysis.TokenStream for this field, or nil if the
+// field was not constructed with a TokenStream value.
+func (f *Field) TokenStream() analysis.TokenStream {
+	if f.value == nil {
+		return nil
+	}
+	return f.value.TokenStream()
 }
 
 // IsStored returns true if the field value is stored.
