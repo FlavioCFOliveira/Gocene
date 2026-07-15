@@ -13,15 +13,13 @@
 // Verification model
 // -------------------
 // The upstream tests assert update results by reopening a DirectoryReader and
-// reading NumericDocValues back through the per-leaf API. In Gocene,
-// OpenDirectoryReader already wires SegmentCoreReaders and the
-// SegmentDocValuesProducer overlay for updated generations; however, the
-// Lucene-compatible DocValues update write path in IndexWriter.UpdateDocValues
-// is still a placeholder (no updated _N_G.dvd/_N_G.fnm files are written).
-// Therefore every test whose body would assert read-back DocValues is
-// structured faithfully but short-circuited at the value-verification step.
-// Tests that exercise only the writer-side surface (UpdateNumericDocValue,
-// commit, doc counts) run.
+// reading NumericDocValues back through the per-leaf API. Gocene's
+// OpenDirectoryReader wires SegmentCoreReaders and the SegmentDocValuesProducer
+// overlay for updated generations, and IndexWriter.UpdateDocValues now writes
+// Lucene-compatible _N_G.dvd/_N_G.dvm/_N_G.fnm files. Tests whose only blockers
+// were the write path run fully; tests that still need unported machinery
+// (NRT reopen, merges, AddIndexes, PerField codecs, index sorting, etc.) keep a
+// hard failure so the gap is visible rather than silently skipped.
 package index_test
 
 import (
@@ -310,9 +308,39 @@ func TestNumericDocValuesUpdates_Simple(t *testing.T) {
 	})
 }
 
-// TestNumericDocValuesUpdates_FewSegments ports testUpdateFewSegments.
+// TestNumericDocValuesUpdates_FewSegments ports testUpdateFewSegments (non-NRT
+// deterministic variant): multiple segments are created, a subset of docs is
+// updated, and the final values are read back through a fresh DirectoryReader.
 func TestNumericDocValuesUpdates_FewSegments(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	writer, dir := newTestWriter(t, func(c *index.IndexWriterConfig) {
+		c.SetMaxBufferedDocs(2)
+		c.SetMergePolicy(index.NewNoMergePolicy())
+	})
+	defer writer.Close()
+
+	numDocs := 10
+	want := make(map[int]int64, numDocs)
+	for i := 0; i < numDocs; i++ {
+		writer.AddDocument(createDoc(i))
+		want[i] = int64(i + 1)
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	// Deterministically update every third document.
+	for i := 0; i < numDocs; i += 3 {
+		value := int64(i+1) * 2
+		if _, err := writer.UpdateNumericDocValue(index.NewTerm("id", fmt.Sprintf("doc-%d", i)), "val", value); err != nil {
+			t.Fatalf("UpdateNumericDocValue doc-%d: %v", i, err)
+		}
+		want[i] = value
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	assertNumericDocValuesLive(t, dir, "val", want)
 }
 
 // TestNumericDocValuesUpdates_Reopen ports testReopen.
@@ -320,14 +348,76 @@ func TestNumericDocValuesUpdates_Reopen(t *testing.T) {
 	skipNeedsLeafDocValues(t)
 }
 
-// TestNumericDocValuesUpdates_UpdatesAndDeletes ports testUpdatesAndDeletes.
+// TestNumericDocValuesUpdates_UpdatesAndDeletes ports testUpdatesAndDeletes
+// (non-NRT deterministic variant): one segment gets only deletes, one gets
+// both deletes and updates, and one gets only updates.
 func TestNumericDocValuesUpdates_UpdatesAndDeletes(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	writer, dir := newTestWriter(t, func(c *index.IndexWriterConfig) {
+		c.SetMaxBufferedDocs(10)
+		c.SetMergePolicy(index.NewNoMergePolicy())
+	})
+	defer writer.Close()
+
+	for i := 0; i < 6; i++ {
+		writer.AddDocument(createDoc(i))
+		if i%2 == 1 {
+			if err := writer.Commit(); err != nil {
+				t.Fatalf("Commit after doc %d: %v", i, err)
+			}
+		}
+	}
+
+	if err := writer.DeleteDocuments(index.NewTerm("id", "doc-1")); err != nil {
+		t.Fatalf("DeleteDocuments doc-1: %v", err)
+	}
+	if err := writer.DeleteDocuments(index.NewTerm("id", "doc-2")); err != nil {
+		t.Fatalf("DeleteDocuments doc-2: %v", err)
+	}
+	if _, err := writer.UpdateNumericDocValue(index.NewTerm("id", "doc-3"), "val", 17); err != nil {
+		t.Fatalf("UpdateNumericDocValue doc-3: %v", err)
+	}
+	if _, err := writer.UpdateNumericDocValue(index.NewTerm("id", "doc-5"), "val", 17); err != nil {
+		t.Fatalf("UpdateNumericDocValue doc-5: %v", err)
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	assertNumericDocValuesLive(t, dir, "val", map[int]int64{
+		0: 1,
+		3: 17,
+		4: 5,
+		5: 17,
+	})
 }
 
-// TestNumericDocValuesUpdates_UpdatesWithDeletes ports testUpdatesWithDeletes.
+// TestNumericDocValuesUpdates_UpdatesWithDeletes ports testUpdatesWithDeletes
+// (non-NRT deterministic variant): delete and update different documents in the
+// same commit session.
 func TestNumericDocValuesUpdates_UpdatesWithDeletes(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	writer, dir := newTestWriter(t, func(c *index.IndexWriterConfig) {
+		c.SetMaxBufferedDocs(10)
+		c.SetMergePolicy(index.NewNoMergePolicy())
+	})
+	defer writer.Close()
+
+	writer.AddDocument(createDoc(0))
+	writer.AddDocument(createDoc(1))
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	if err := writer.DeleteDocuments(index.NewTerm("id", "doc-0")); err != nil {
+		t.Fatalf("DeleteDocuments: %v", err)
+	}
+	if _, err := writer.UpdateNumericDocValue(index.NewTerm("id", "doc-1"), "val", 17); err != nil {
+		t.Fatalf("UpdateNumericDocValue: %v", err)
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	assertNumericDocValuesLive(t, dir, "val", map[int]int64{1: 17})
 }
 
 // TestNumericDocValuesUpdates_MultipleDocValuesTypes ports testMultipleDocValuesTypes.
@@ -335,19 +425,72 @@ func TestNumericDocValuesUpdates_MultipleDocValuesTypes(t *testing.T) {
 	skipNeedsLeafDocValues(t)
 }
 
-// TestNumericDocValuesUpdates_MultipleNumericDocValues ports testMultipleNumericDocValues.
+// TestNumericDocValuesUpdates_MultipleNumericDocValues ports
+// testMultipleNumericDocValues: two numeric DV fields per doc; update only one
+// and verify the other is untouched.
 func TestNumericDocValuesUpdates_MultipleNumericDocValues(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	writer, dir := newTestWriter(t, func(c *index.IndexWriterConfig) {
+		c.SetMaxBufferedDocs(10)
+	})
+	defer writer.Close()
+
+	for i := 0; i < 2; i++ {
+		fields := []interface{}{}
+		idField, _ := document.NewStringField("dvUpdateKey", "dv", false)
+		fields = append(fields, idField)
+		ndv1, _ := document.NewNumericDocValuesField("ndv1", int64(i))
+		fields = append(fields, ndv1)
+		ndv2, _ := document.NewNumericDocValuesField("ndv2", int64(i))
+		fields = append(fields, ndv2)
+		writer.AddDocument(&testDocument{fields: fields})
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if _, err := writer.UpdateNumericDocValue(index.NewTerm("dvUpdateKey", "dv"), "ndv1", 17); err != nil {
+		t.Fatalf("UpdateNumericDocValue: %v", err)
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	assertNumericDocValuesLive(t, dir, "ndv1", map[int]int64{0: 17, 1: 17})
+	assertNumericDocValuesLive(t, dir, "ndv2", map[int]int64{0: 0, 1: 1})
 }
 
-// TestNumericDocValuesUpdates_DocumentWithNoValue ports testDocumentWithNoValue.
+// TestNumericDocValuesUpdates_DocumentWithNoValue ports testDocumentWithNoValue:
+// one document has no value for the field; after update all docs carry the new
+// value.
 func TestNumericDocValuesUpdates_DocumentWithNoValue(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	writer, dir := newTestWriter(t, nil)
+	defer writer.Close()
+
+	for i := 0; i < 2; i++ {
+		fields := []interface{}{}
+		idField, _ := document.NewStringField("dvUpdateKey", "dv", false)
+		fields = append(fields, idField)
+		if i == 0 {
+			ndv, _ := document.NewNumericDocValuesField("ndv", 5)
+			fields = append(fields, ndv)
+		}
+		writer.AddDocument(&testDocument{fields: fields})
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if _, err := writer.UpdateNumericDocValue(index.NewTerm("dvUpdateKey", "dv"), "ndv", 17); err != nil {
+		t.Fatalf("UpdateNumericDocValue: %v", err)
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	assertNumericDocValuesLive(t, dir, "ndv", map[int]int64{0: 17, 1: 17})
 }
 
 // TestNumericDocValuesUpdates_UpdateNonNumericDocValuesField ports
-// testUpdateNonNumericDocValuesField: updating "bdv" (a binary DV field) as
-// numeric must be rejected.
+// testUpdateNonNumericDocValuesField: updating a non-existent DV field or an
+// indexed-only field as numeric must be rejected.
 func TestNumericDocValuesUpdates_UpdateNonNumericDocValuesField(t *testing.T) {
 	writer, _ := newTestWriter(t, nil)
 	defer writer.Close()
@@ -355,13 +498,19 @@ func TestNumericDocValuesUpdates_UpdateNonNumericDocValuesField(t *testing.T) {
 	fields := []interface{}{}
 	idField, _ := document.NewStringField("key", "doc", false)
 	fields = append(fields, idField)
-	ndvField, _ := document.NewNumericDocValuesField("ndv", 5)
-	fields = append(fields, ndvField)
+	fooField, _ := document.NewStringField("foo", "bar", false)
+	fields = append(fields, fooField)
+	writer.AddDocument(&testDocument{fields: fields})
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
 	writer.AddDocument(&testDocument{fields: fields})
 
-	if _, err := writer.UpdateNumericDocValue(index.NewTerm("key", "doc"), "bdv", 17); err == nil {
-		t.Fatal("infra gap: writer does not yet reject a numeric update " +
-			"against a non-numeric DocValues field")
+	if _, err := writer.UpdateNumericDocValue(index.NewTerm("key", "doc"), "ndv", 17); err == nil {
+		t.Fatal("expected error updating non-existent DV field ndv")
+	}
+	if _, err := writer.UpdateNumericDocValue(index.NewTerm("key", "doc"), "foo", 17); err == nil {
+		t.Fatal("expected error updating indexed-only field foo as numeric DV")
 	}
 }
 
@@ -398,9 +547,39 @@ func TestNumericDocValuesUpdates_SegmentMerges(t *testing.T) {
 }
 
 // TestNumericDocValuesUpdates_UpdateDocumentByMultipleTerms ports
-// testUpdateDocumentByMultipleTerms.
+// testUpdateDocumentByMultipleTerms: when two update terms resolve to the same
+// document, the later update wins for that field.
 func TestNumericDocValuesUpdates_UpdateDocumentByMultipleTerms(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	writer, dir := newTestWriter(t, nil)
+
+	docFields := func() []interface{} {
+		fields := []interface{}{}
+		k1, _ := document.NewStringField("k1", "v1", false)
+		fields = append(fields, k1)
+		k2, _ := document.NewStringField("k2", "v2", false)
+		fields = append(fields, k2)
+		ndv, _ := document.NewNumericDocValuesField("ndv", 5)
+		fields = append(fields, ndv)
+		return fields
+	}
+
+	writer.AddDocument(&testDocument{fields: docFields()})
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	writer.AddDocument(&testDocument{fields: docFields()})
+
+	if _, err := writer.UpdateNumericDocValue(index.NewTerm("k1", "v1"), "ndv", 17); err != nil {
+		t.Fatalf("UpdateNumericDocValue k1: %v", err)
+	}
+	if _, err := writer.UpdateNumericDocValue(index.NewTerm("k2", "v2"), "ndv", 3); err != nil {
+		t.Fatalf("UpdateNumericDocValue k2: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	assertNumericDocValuesLive(t, dir, "ndv", map[int]int64{0: 3, 1: 3})
 }
 
 // TestNumericDocValuesUpdates_SortedIndex ports testSortedIndex.
@@ -530,7 +709,9 @@ func TestNumericDocValuesUpdates_UpdatesOrder(t *testing.T) {
 }
 
 // TestNumericDocValuesUpdates_UpdateAllDeletedSegment ports
-// testUpdateAllDeletedSegment.
+// testUpdateAllDeletedSegment. Blocked: writer close may force-merge the updated
+// segment, and the merge path does not yet carry per-generation doc-values
+// updates forward into the merged segment.
 func TestNumericDocValuesUpdates_UpdateAllDeletedSegment(t *testing.T) {
 	skipNeedsLeafDocValues(t)
 }
