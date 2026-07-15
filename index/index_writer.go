@@ -141,6 +141,12 @@ type IndexWriter struct {
 	// persisting a byte-faithful .liv file.  Protected by mu.
 	pendingCommittedDeleteTerms []*Term
 
+	// pendingDVUpdates buffers UpdateDocValues and TryUpdateDocValue requests
+	// until the next Commit, when they are resolved against committed segments
+	// and written as Lucene-compatible per-generation .dvd/.dvm files and a new
+	// .fnm.  Protected by mu.
+	pendingDVUpdates []pendingDocValuesUpdate
+
 	// pendingDeleteQueries holds query-based deletes (DeleteDocumentsQuery) that
 	// must be resolved against committed segments at the next Commit.  Each query
 	// is executed via an IndexSearcher opened over the committed segments; matching
@@ -1184,6 +1190,7 @@ func (w *IndexWriter) hasUncommittedChangesLocked() bool {
 		len(w.pendingCommittedDeleteTerms) > 0 ||
 		len(w.pendingDeleteQueries) > 0 ||
 		len(w.pendingDeletedDocIDs) > 0 ||
+		len(w.pendingDVUpdates) > 0 ||
 		w.pendingDeleteAll
 }
 
@@ -1594,6 +1601,17 @@ func (w *IndexWriter) commitLocked(force bool) error {
 		w.committedSegments = append(w.committedSegments, sci)
 	}
 	w.pendingImportedSegments = w.pendingImportedSegments[:0]
+
+	// Apply buffered doc-values updates to committed segments. This writes a new
+	// generation of .dvd/.dvm files and a new .fnm for each affected segment,
+	// mirroring Lucene's ReadersAndUpdates.writeFieldUpdates.
+	if err := w.applyDocValuesUpdatesLocked(si.List()); err != nil {
+		return err
+	}
+	// Keep the writer's in-memory segment list in sync with the committed state
+	// (SegmentCommitInfo objects for freshly imported segments are shared; older
+	// segments are clones and may have been advanced to new DV/FieldInfos gens).
+	w.committedSegments = si.List()
 
 	// Ensure the segment-name counter is past every segment that now exists,
 	// so later merges and flushes never reuse a name already on disk.
@@ -3941,26 +3959,40 @@ func (w *IndexWriter) UpdateDocValues(term *Term, field string, value interface{
 	}
 
 	// Reject type-mismatched updates so that, for example, a numeric update
-	// against a binary DocValues field is caught early.  The write path is
-	// still a placeholder, but validation mirrors Lucene's
-	// IllegalArgumentException contract.
+	// against a binary DocValues field is caught early.  A nil value is the
+	// "reset" update and is allowed for any existing DocValues field.
 	dvt := w.fieldDocValuesTypeLocked(field)
-	switch value.(type) {
-	case int64:
-		if dvt != DocValuesTypeNumeric {
+	if !dvt.HasDocValues() {
+		return fmt.Errorf(
+			"cannot update doc values for field %q: field has no doc values",
+			field)
+	}
+	if value != nil {
+		switch value.(type) {
+		case int64:
+			if dvt != DocValuesTypeNumeric {
+				return fmt.Errorf(
+					"cannot update doc values for field %q: expected numeric doc values but found %v",
+					field, dvt)
+			}
+		case []byte:
+			if dvt != DocValuesTypeBinary {
+				return fmt.Errorf(
+					"cannot update doc values for field %q: expected binary doc values but found %v",
+					field, dvt)
+			}
+		default:
 			return fmt.Errorf(
-				"cannot update doc values for field %q: expected numeric doc values but found %v",
-				field, dvt)
-		}
-	case []byte:
-		if dvt != DocValuesTypeBinary {
-			return fmt.Errorf(
-				"cannot update doc values for field %q: expected binary doc values but found %v",
-				field, dvt)
+				"cannot update doc values for field %q: unsupported value type %T",
+				field, value)
 		}
 	}
 
-	// Placeholder - would update doc values in the index
+	w.pendingDVUpdates = append(w.pendingDVUpdates, pendingDocValuesUpdate{
+		term:  term,
+		field: field,
+		value: value,
+	})
 	return nil
 }
 
