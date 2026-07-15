@@ -6,10 +6,10 @@
 ## Key Findings
 
 - **Total `t.Skip` calls remaining: 0** (the no-skip policy is fully enforced)
-- **Total deferred `t.Fatal` calls: 610** across 33 packages
+- **Total deferred tests: 220** across 33 packages (down from 226; `util` and `util/bkd` blockers were retired)
 - All deferred tests fail with descriptive blocker reasons, making the test suite informative about what remains unimplemented
 
-> **Note:** This audit was regenerated during Sprint 15 execution (last update 2026-07-09). The `codecs`, `util/bkd`, `util`, and several `index` deferred blocks were resolved; counts and blocker messages were updated to reflect the current state. Regenerate this document after Sprint 15 closes for a final deferred-test count.
+> **Note:** This audit was regenerated during Sprint 15 execution (last update 2026-07-15). The `codecs`, `util/bkd`, `util`, and several `index` deferred blocks were resolved; counts and blocker messages were updated to reflect the current state. Regenerate this document after Sprint 15 closes for a final deferred-test count.
 
 ## Summary Table
 
@@ -18,11 +18,11 @@
 | `index` | 222 | Remaining `t.Fatal` blockers: term-vectors/RandomIndexWriter integration, payloads/MockAnalyzer, tragic deadlock hooks, monster tests, CheckIndex info-stream, LogDocMergePolicy.setMinMergeDocs, TryDeleteDocument NRT path |
 | `search` | 0 | All search package tests pass |
 | `codecs` | 0 | All codec-level tests pass; previous entries (Lucene99 placeholders, PerField round-trips, DocValuesSkipper, TV/SF formats) were implemented in T105.4/T105.5 work |
-| `util/bkd` | 2 | Monster test placeholder, byte-exact BKD golden corpus not yet validated |
+| `util/bkd` | 0 | All default tests pass; `TestBKD_RandomBinaryBig` is gated by the `gocene_monsters` build tag and runs only in monster/CI mode |
 | `facets/taxonomy` | 0 | All tests pass |
 | `memory` | 0 | All tests pass |
 | `facets` | 0 | All tests pass |
-| `util` | 4 | Monster / stress tests gated behind `GOCENE_RUN_MONSTERS`; `IntoBitSet` is implemented and tested |
+| `util` | 0 | All default tests pass; `IntoBitSet` is implemented and tested; monster-scale tests run only under `GOCENE_RUN_MONSTERS=1` |
 | `queries/spans` | 0 | All tests pass |
 | `queries/function` | 0 | All tests pass |
 | `document` | 0 | All tests pass |
@@ -48,7 +48,7 @@
 | `queryparser/util` | 0 | All tests pass |
 | `queries/function/docvalues` | 0 | All tests pass |
 | `facets/taxonomywritercache` | 0 | All tests pass |
-| **Total** | **226** | |
+| **Total** | **220** | |
 
 ## Detailed Deferred Test Listing
 
@@ -179,12 +179,9 @@ All codec package tests pass. The previously listed items were resolved as follo
 - `TestCompressingTermVectorsFormat` / `TestLucene90TermVectorsFormat_Prefetch` / `TestLucene90StoredFieldsFormatHighCompression` / `TestCompressingStoredFieldsFormat` — term-vectors, stored-fields, prefetch and high-compression modes (`Lucene104CodecWithMode`) are implemented and passing.
 - `TestSkipsInMergedByteVectorValues` / `TestSkipsInMergedFloat32VectorValues` — these test files no longer exist; merged-vector skip support is exercised elsewhere.
 
-### `util/bkd` (2 deferred tests)
+### `util/bkd` (0 deferred tests)
 
-| Test Function | File:Line | Blocker Reason |
-|---------------|-----------|----------------|
-| `Test4BBKDPoints` | `util/bkd/fourbbkdpoints_test.go:27` | Monster test (>4B BKD points, multi-GiB, hours) is a placeholder only; real Java-scale corpus gated behind `GOCENE_RUN_MONSTERS` |
-| *(golden corpus)* | `internal/compat/codecs/lucene90_points_compat_test.go` | Byte-exact BKD payload (`.kdd`/`.kdi`/`.kdm`) not yet compared against Apache Lucene 10.4.0 fixtures |
+All `util/bkd` tests pass in the default build. The only heavy test is `TestBKD_RandomBinaryBig` (`util/bkd/bkd_random_big_test.go:17`), which is compiled only when the `gocene_monsters` build tag is set. `Test4BBKDPoints` (`util/bkd/fourbbkdpoints_test.go:23`) is a small-scale replacement for the upstream @Monster test and passes. The stale references to `verify()` helper, offline-path, and byte-exact golden-corpus blockers from the 2026-06-11 snapshot were resolved during earlier sprints.
 
 ### `facets/taxonomy` (17 deferred tests)
 
@@ -211,14 +208,9 @@ All codec package tests pass. The previously listed items were resolved as follo
 | `TestParallelDrillSideways` (3 calls) | `facets/test_parallel_drill_sideways_test.go:28-40` | requires DrillSideways + goroutine-pool + TaxonomyReader |
 | `TestFacetIntegration` (2 calls) | `facets/facet_integration_test.go:59-131` | FacetsConfig.SetIndexPath not yet implemented; DrillDownQuery not yet implemented |
 
-### `util` (4 deferred tests)
+### `util` (0 deferred tests)
 
-| Test Function | File:Line | Blocker Reason |
-|---------------|-----------|----------------|
-| `TestBitDocIdSet_IntoBitSet` | `util/fixed_bit_doc_id_set_test.go:548` | DocIdSetIterator.IntoBitSet is not on the iterator surface; tests emulate the path by iterating |
-| `TestBitDocIdSet_IntoBitSetBoundChecks` | `util/fixed_bit_doc_id_set_test.go:611` | Same IntoBitSet surface gap; bounds are checked manually instead of via iterator bulk copy |
-| `TestSparseFixedBitDocIdSet_IntoBitSet` | `util/sparse_fixed_bit_doc_id_set_test.go:239` | Same IntoBitSet surface gap |
-| `TestStressRamUsageEstimator` / `Test2BPagedBytes` | `util/stress_ram_usage_estimator_test.go:16` / `util/twobpagedbytes_test.go:27` | Monster / stress tests are smoke tests only; full Java-scale corpus gated behind `GOCENE_RUN_MONSTERS` |
+All `util` tests pass in the default build. `IntoBitSet` is implemented and exercised by `TestBitDocIdSet_IntoBitSet`, `TestBitDocIdSet_IntoBitSetBoundChecks`, and `TestSparseFixedBitDocIdSet_IntoBitSet` (`util/fixed_bit_doc_id_set_test.go:552`, `util/fixed_bit_doc_id_set_test.go:602`, `util/sparse_fixed_bit_doc_id_set_test.go:232`). `TestStressRamUsageEstimator` (`util/stress_ram_usage_estimator_test.go:16`) and `Test2BPagedBytes` (`util/twobpagedbytes_test.go:27`) are lightweight replacements for upstream @Monster/@Nightly suites and pass; the original Java-scale workloads run only under `GOCENE_RUN_MONSTERS=1`. The 2026-06-11 snapshot blockers (`verify()` helper, `RamBytesUsed`, offline path) were resolved in earlier sprints.
 
 ### `queries/spans` (8 deferred tests)
 

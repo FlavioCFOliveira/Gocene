@@ -37,15 +37,131 @@ import (
 )
 
 // skipNeedsLeafDocValues short-circuits the read-back assertions in tests
-// that require the Lucene-compatible DocValues update write path. The writer-side
-// surface is exercised above the call; the leaf reader and core-reader
-// infrastructure is present, but the updated values cannot be verified until
-// IndexWriter writes per-generation DocValues files. Mirrors the upstream body
-// structurally while keeping the suite green.
+// that depend on features beyond the Lucene-compatible DocValues update write
+// path (e.g. merges, AddIndexes, NRT reopen). It is being removed from the
+// feasible tests; the remaining unportable cases keep a hard failure so the gap
+// is visible rather than silently skipped.
 func skipNeedsLeafDocValues(t *testing.T) {
 	t.Helper()
-	t.Log("skipping DocValues read-back assertion: IndexWriter.UpdateDocValues " +
-		"write path is not yet implemented")
+	t.Fatalf("unimplemented test dependency: see test comment for remaining gap")
+}
+
+// readNumericDocValuesLive opens a DirectoryReader and returns, for every live
+// document in the index that has a value, the global doc ID -> value for the
+// given numeric DV field. Deleted documents and documents without a value for
+// the field are omitted so the map matches what an upstream TermQuery-based
+// assertion would observe.
+func readNumericDocValuesLive(t *testing.T, dir store.Directory, field string) map[int]int64 {
+	t.Helper()
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer reader.Close()
+
+	leaves, err := reader.Leaves()
+	if err != nil {
+		t.Fatalf("Leaves: %v", err)
+	}
+
+	out := make(map[int]int64)
+	docBase := 0
+	for _, leafCtx := range leaves {
+		leaf, ok := leafCtx.Reader().(*index.SegmentReader)
+		if !ok {
+			t.Fatalf("leaf reader is not *SegmentReader (%T)", leafCtx.Reader())
+		}
+		ndv, err := leaf.GetNumericDocValues(field)
+		if err != nil {
+			t.Fatalf("GetNumericDocValues: %v", err)
+		}
+		if ndv == nil {
+			docBase += leaf.MaxDoc()
+			continue
+		}
+		liveDocs := leaf.GetLiveDocs()
+		for doc := 0; doc < leaf.MaxDoc(); doc++ {
+			if liveDocs != nil && !liveDocs.Get(doc) {
+				continue
+			}
+			has, err := ndv.AdvanceExact(doc)
+			if err != nil {
+				t.Fatalf("AdvanceExact(%d): %v", doc, err)
+			}
+			if !has {
+				continue
+			}
+			v, err := ndv.LongValue()
+			if err != nil {
+				t.Fatalf("LongValue(%d): %v", doc, err)
+			}
+			out[docBase+doc] = v
+		}
+		docBase += leaf.MaxDoc()
+	}
+	return out
+}
+
+// assertNumericDocValuesLive compares the live values read back from dir for
+// field against want (global doc ID -> value).
+func assertNumericDocValuesLive(t *testing.T, dir store.Directory, field string, want map[int]int64) {
+	t.Helper()
+	got := readNumericDocValuesLive(t, dir, field)
+	if len(got) != len(want) {
+		t.Errorf("value count mismatch: got %d, want %d (got=%v want=%v)", len(got), len(want), got, want)
+	}
+	for doc, wantVal := range want {
+		gotVal, ok := got[doc]
+		if !ok {
+			t.Errorf("missing value for doc %d", doc)
+			continue
+		}
+		if gotVal != wantVal {
+			t.Errorf("doc %d: got %d, want %d", doc, gotVal, wantVal)
+		}
+	}
+}
+
+// assertNoNumericDocValues verifies that field has no NumericDocValues for any
+// live document in dir.
+func assertNoNumericDocValues(t *testing.T, dir store.Directory, field string) {
+	t.Helper()
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer reader.Close()
+
+	leaves, err := reader.Leaves()
+	if err != nil {
+		t.Fatalf("Leaves: %v", err)
+	}
+	for _, leafCtx := range leaves {
+		leaf, ok := leafCtx.Reader().(*index.SegmentReader)
+		if !ok {
+			t.Fatalf("leaf reader is not *SegmentReader (%T)", leafCtx.Reader())
+		}
+		ndv, err := leaf.GetNumericDocValues(field)
+		if err != nil {
+			t.Fatalf("GetNumericDocValues: %v", err)
+		}
+		if ndv == nil {
+			continue
+		}
+		liveDocs := leaf.GetLiveDocs()
+		for doc := 0; doc < leaf.MaxDoc(); doc++ {
+			if liveDocs != nil && !liveDocs.Get(doc) {
+				continue
+			}
+			has, err := ndv.AdvanceExact(doc)
+			if err != nil {
+				t.Fatalf("AdvanceExact(%d): %v", doc, err)
+			}
+			if has {
+				t.Errorf("doc %d has unexpected numeric value for field %q", doc, field)
+			}
+		}
+	}
 }
 
 // createMockAnalyzer creates a mock analyzer for testing.
@@ -111,7 +227,7 @@ func newTestWriter(t *testing.T, configure func(*index.IndexWriterConfig)) (*ind
 
 // TestNumericDocValuesUpdates_MultipleUpdatesSameDoc ports testMultipleUpdatesSameDoc.
 func TestNumericDocValuesUpdates_MultipleUpdatesSameDoc(t *testing.T) {
-	writer, _ := newTestWriter(t, func(c *index.IndexWriterConfig) {
+	writer, dir := newTestWriter(t, func(c *index.IndexWriterConfig) {
 		c.SetMaxBufferedDocs(3)
 	})
 	defer writer.Close()
@@ -129,9 +245,11 @@ func TestNumericDocValuesUpdates_MultipleUpdatesSameDoc(t *testing.T) {
 	if err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
-	// Upstream asserts doc-1 -> 1111111111 and doc-2 -> 2222222222 via a
-	// sorted TermQuery search.
-	skipNeedsLeafDocValues(t)
+	// doc-0 is the live doc-1; doc-1 (first doc-2) is deleted; doc-2 is the live doc-2.
+	assertNumericDocValuesLive(t, dir, "val", map[int]int64{
+		0: 1111111111,
+		2: 2222222222,
+	})
 }
 
 // TestNumericDocValuesUpdates_BiasedMixOfRandomUpdates ports testBiasedMixOfRandomUpdates.
@@ -141,7 +259,7 @@ func TestNumericDocValuesUpdates_BiasedMixOfRandomUpdates(t *testing.T) {
 
 // TestNumericDocValuesUpdates_AreFlushed ports testUpdatesAreFlushed.
 func TestNumericDocValuesUpdates_AreFlushed(t *testing.T) {
-	writer, _ := newTestWriter(t, func(c *index.IndexWriterConfig) {
+	writer, dir := newTestWriter(t, func(c *index.IndexWriterConfig) {
 		c.SetRAMBufferSizeMB(0.00000001)
 	})
 	defer writer.Close()
@@ -158,14 +276,17 @@ func TestNumericDocValuesUpdates_AreFlushed(t *testing.T) {
 	if err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
-	// Upstream asserts the update file was flushed and bytes-used dropped.
-	skipNeedsLeafDocValues(t)
+	assertNumericDocValuesLive(t, dir, "val", map[int]int64{
+		0: 5,
+		1: 2,
+		2: 3,
+	})
 }
 
 // TestNumericDocValuesUpdates_Simple ports testSimple.
 func TestNumericDocValuesUpdates_Simple(t *testing.T) {
 	docID := 0
-	writer, _ := newTestWriter(t, func(c *index.IndexWriterConfig) {
+	writer, dir := newTestWriter(t, func(c *index.IndexWriterConfig) {
 		c.SetMaxBufferedDocs(10)
 	})
 	for i := 0; i < 6; i++ {
@@ -179,8 +300,14 @@ func TestNumericDocValuesUpdates_Simple(t *testing.T) {
 		t.Fatalf("Commit: %v", err)
 	}
 	writer.Close()
-	// Upstream asserts every doc keeps id+1 except doc-1 which becomes 17.
-	skipNeedsLeafDocValues(t)
+	assertNumericDocValuesLive(t, dir, "val", map[int]int64{
+		0: 1,
+		1: 17,
+		2: 3,
+		3: 4,
+		4: 5,
+		5: 6,
+	})
 }
 
 // TestNumericDocValuesUpdates_FewSegments ports testUpdateFewSegments.
@@ -245,7 +372,7 @@ func TestNumericDocValuesUpdates_DifferentDVFormatPerField(t *testing.T) {
 
 // TestNumericDocValuesUpdates_UpdateSameDocMultipleTimes ports testUpdateSameDocMultipleTimes.
 func TestNumericDocValuesUpdates_UpdateSameDocMultipleTimes(t *testing.T) {
-	writer, _ := newTestWriter(t, nil)
+	writer, dir := newTestWriter(t, nil)
 	defer writer.Close()
 
 	writer.AddDocument(createTestDocument(0, 5))
@@ -259,8 +386,10 @@ func TestNumericDocValuesUpdates_UpdateSameDocMultipleTimes(t *testing.T) {
 	if err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
-	// Upstream asserts doc-0 -> 17 after repeated updates.
-	skipNeedsLeafDocValues(t)
+	assertNumericDocValuesLive(t, dir, "val", map[int]int64{
+		0: 17,
+		1: 6,
+	})
 }
 
 // TestNumericDocValuesUpdates_SegmentMerges ports testSegmentMerges.
@@ -353,7 +482,7 @@ func TestNumericDocValuesUpdates_TonsOfUpdates(t *testing.T) {
 
 // TestNumericDocValuesUpdates_UpdatesOrder ports testUpdatesOrder.
 func TestNumericDocValuesUpdates_UpdatesOrder(t *testing.T) {
-	writer, _ := newTestWriter(t, nil)
+	writer, dir := newTestWriter(t, nil)
 	defer writer.Close()
 
 	for _, id := range []string{"doc-0", "doc-1", "doc-2"} {
@@ -385,8 +514,19 @@ func TestNumericDocValuesUpdates_UpdatesOrder(t *testing.T) {
 	if err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
-	// Upstream asserts the last write per (term,field) wins: f1=1000000003, f2=2000000002.
-	skipNeedsLeafDocValues(t)
+	// Every doc has both upd:t1 and upd:t2, so the final f1 value is the last
+	// t1 update and f2 keeps the last t2 update.
+	want := map[int]int64{
+		0: 1000000003,
+		1: 1000000003,
+		2: 1000000003,
+	}
+	assertNumericDocValuesLive(t, dir, "f1", want)
+	assertNumericDocValuesLive(t, dir, "f2", map[int]int64{
+		0: 2000000002,
+		1: 2000000002,
+		2: 2000000002,
+	})
 }
 
 // TestNumericDocValuesUpdates_UpdateAllDeletedSegment ports
@@ -426,7 +566,7 @@ func TestNumericDocValuesUpdates_IOContext(t *testing.T) {
 // TestNumericDocValuesUpdates_MultipleFields keeps prior coverage of updates
 // spread across distinct DV field names (not a 1:1 upstream method).
 func TestNumericDocValuesUpdates_MultipleFields(t *testing.T) {
-	writer, _ := newTestWriter(t, nil)
+	writer, dir := newTestWriter(t, nil)
 	defer writer.Close()
 
 	writer.AddDocument(createTestDocumentWithField(0, "field1", 1))
@@ -444,4 +584,6 @@ func TestNumericDocValuesUpdates_MultipleFields(t *testing.T) {
 	if numDocs := writer.NumDocs(); numDocs != 2 {
 		t.Errorf("NumDocs = %d, want 2", numDocs)
 	}
+	assertNumericDocValuesLive(t, dir, "field1", map[int]int64{0: 10})
+	assertNumericDocValuesLive(t, dir, "field2", map[int]int64{1: 20})
 }

@@ -965,15 +965,22 @@ func openSegmentReader(directory store.Directory, sci *SegmentCommitInfo) (*Segm
 						coreInfos = NewFieldInfos()
 					}
 					factory := func(si *SegmentCommitInfo, dir store.Directory, gen int64, infos *FieldInfos) (DocValuesProducer, error) {
-						suffix := ""
-						if gen != -1 {
-							suffix = strconv.FormatInt(gen, 36)
+						// The base (gen == -1) producer is already open inside the core readers,
+						// possibly against the compound-file directory. Reuse it rather than
+						// reopening against |directory|, which would miss files living inside
+						// the .cfs. Per-generation update files are always written to (and
+						// read from) the raw top-level directory.
+						if gen == -1 {
+							if base, ok := core.docValuesProducer.(DocValuesProducer); ok && base != nil {
+								return base, nil
+							}
+							return nil, fmt.Errorf("base doc-values producer missing for segment %s", si.Name())
 						}
 						state := &SegmentReadState{
-							Directory:     dir,
+							Directory:     directory,
 							SegmentInfo:   si.SegmentInfo(),
 							FieldInfos:    infos,
-							SegmentSuffix: suffix,
+							SegmentSuffix: strconv.FormatInt(gen, 36),
 						}
 						format := codec.DocValuesFormat()
 						if format == nil {
@@ -991,9 +998,9 @@ func openSegmentReader(directory store.Directory, sci *SegmentCommitInfo) (*Segm
 						_ = core.DecRef()
 						return nil, fmt.Errorf("openSegmentReader: SegmentDocValuesProducer init failed: %w", err)
 					}
-					if oldDvp, ok := core.docValuesProducer.(DocValuesProducer); ok && oldDvp != nil {
-						_ = oldDvp.Close()
-					}
+					// Do not close the base producer: the overlay keeps it alive and the
+					// core's own DecRef path will release it when the SegmentReader is
+					// discarded.
 					core.SetDocValuesProducer(dvp)
 				}
 			}
@@ -1096,10 +1103,11 @@ func readFieldInfosFromDisk(directory store.Directory, codec Codec, segInfo *Seg
 
 // readFieldInfosWithGen reads the .fnm FieldInfos for a segment at the given
 // field-infos generation. When a doc-values update bumps the fieldInfosGen,
-// Lucene writes a new _N_G.fnm file (where G is the generation in base-36);
-// the base _N.fnm no longer reflects the current doc-values fields. This
-// helper mirrors Java SegmentReader.initFieldInfos(). Returns nil when the
-// read fails (caller falls back to the base FieldInfos).
+// Lucene writes a new _N_G.fnm file (where G is the generation in base-36)
+// outside the segment's compound file; the base _N.fnm lives inside the .cfs.
+// This helper therefore reads from the top-level directory, not from inside
+// the compound file. It mirrors Java SegmentReader.initFieldInfos(). Returns
+// nil when the read fails (caller falls back to the base FieldInfos).
 func readFieldInfosWithGen(directory store.Directory, codec Codec, segInfo *SegmentInfo, gen int64) *FieldInfos {
 	if codec == nil {
 		return nil
@@ -1109,24 +1117,7 @@ func readFieldInfosWithGen(directory store.Directory, codec Codec, segInfo *Segm
 		return nil
 	}
 	suffix := strconv.FormatInt(gen, 36)
-	fnmDir := directory
-	var cfsReader store.Directory
-	if segInfo.IsCompoundFile() {
-		if cf := codec.CompoundFormat(); cf != nil {
-			if r, err := cf.GetCompoundReader(directory, segInfo); err == nil {
-				fnmDir = r
-				cfsReader = r
-			}
-		}
-	}
-	if cfsReader != nil {
-		defer func() {
-			if closer, ok := cfsReader.(interface{ Close() error }); ok {
-				_ = closer.Close()
-			}
-		}()
-	}
-	fi, err := fif.Read(fnmDir, segInfo, suffix, store.IOContextRead)
+	fi, err := fif.Read(directory, segInfo, suffix, store.IOContextRead)
 	if err != nil {
 		return nil
 	}

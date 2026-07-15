@@ -5,6 +5,7 @@ package index
 
 import (
 	"fmt"
+	"sync/atomic"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
@@ -193,15 +194,12 @@ func (w *IndexWriter) GetPendingNumDocs() int {
 	return w.documentsWriter.GetNumDocsInRAM()
 }
 
-// sequenceNumber tracks the next sequence number for operations
-var sequenceNumber int64
+// sequenceNumber is a global monotonic counter for operation ordering.
+var sequenceNumber atomic.Int64
 
 // getNextSequenceNumber returns the next sequence number for operations.
-// This is used for tracking the order of changes.
+// This is used for tracking the order of changes. It must not acquire w.mu
+// because callers such as TryUpdateDocValue already hold it.
 func (w *IndexWriter) getNextSequenceNumber() int64 {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	sequenceNumber++
-	return sequenceNumber
+	return sequenceNumber.Add(1)
 }

@@ -518,24 +518,49 @@ func (sci *SegmentCommitInfo) GetDocValuesFileName() string {
 }
 
 // GetFiles returns all files associated with this segment commit.
-// This includes the segment files plus any deletion/field infos/doc values files.
+//
+// This includes the segment files plus any deletion/field-infos/doc-values
+// sidecar files. Crucially, every per-field doc-values update file recorded in
+// docValuesUpdatesFiles is returned so that a segment which updates only some
+// of its fields still protects the unchanged fields' original generation files.
+// Mirroring org.apache.lucene.index.SegmentCommitInfo.files().
 func (sci *SegmentCommitInfo) GetFiles() []string {
 	sci.mu.RLock()
 	defer sci.mu.RUnlock()
 
-	files := sci.segmentInfo.Files()
+	seen := make(map[string]struct{}, 16)
+	out := make([]string, 0, 16)
 
+	add := func(name string) {
+		if _, dup := seen[name]; dup {
+			return
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+
+	for _, f := range sci.segmentInfo.Files() {
+		add(f)
+	}
 	if sci.delGen >= 0 {
-		files = append(files, fmt.Sprintf("_%s_%d.del", sci.segmentInfo.Name()[1:], sci.delGen))
+		add(fmt.Sprintf("_%s_%d.del", sci.segmentInfo.Name()[1:], sci.delGen))
 	}
 	if sci.fieldInfosGen >= 0 {
-		files = append(files, fmt.Sprintf("_%s_%d.fnm", sci.segmentInfo.Name()[1:], sci.fieldInfosGen))
+		add(fmt.Sprintf("_%s_%d.fnm", sci.segmentInfo.Name()[1:], sci.fieldInfosGen))
 	}
 	if sci.docValuesGen >= 0 {
-		files = append(files, fmt.Sprintf("_%s_%d.dvd", sci.segmentInfo.Name()[1:], sci.docValuesGen))
+		add(fmt.Sprintf("_%s_%d.dvd", sci.segmentInfo.Name()[1:], sci.docValuesGen))
+	}
+	for f := range sci.fieldInfosFiles {
+		add(f)
+	}
+	for _, inner := range sci.docValuesUpdatesFiles {
+		for f := range inner {
+			add(f)
+		}
 	}
 
-	return files
+	return out
 }
 
 // SegmentCommitInfoList represents a list of SegmentCommitInfo.
