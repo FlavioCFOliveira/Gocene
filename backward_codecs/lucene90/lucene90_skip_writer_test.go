@@ -139,7 +139,7 @@ func TestLucene90SkipWriter_ResetSkipClearsInitialized(t *testing.T) {
 }
 
 // TestLucene90SkipWriter_BufferSkipDocsOnlyField exercises the no-positions
-// path without triggering a write (numDocs < blockSize).
+// path at the block boundary.
 func TestLucene90SkipWriter_BufferSkipDocsOnlyField(t *testing.T) {
 	docOut := newMockIndexOutput()
 	w := NewLucene90SkipWriter(4, 128, 10000, docOut, nil, nil)
@@ -148,8 +148,8 @@ func TestLucene90SkipWriter_BufferSkipDocsOnlyField(t *testing.T) {
 
 	acc := codecs.NewCompetitiveImpactAccumulator()
 	acc.Add(1, 1)
-	// numDocs = 64 < blockSize 128; no skip entry written, but must not error.
-	if err := w.BufferSkip(63, acc, 64, 0, 0, 0, 0); err != nil {
+	// BufferSkip is only invoked at skipInterval boundaries; use the first one.
+	if err := w.BufferSkip(127, acc, 128, 0, 0, 0, 0); err != nil {
 		t.Fatalf("BufferSkip: unexpected error: %v", err)
 	}
 }

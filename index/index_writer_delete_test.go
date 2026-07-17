@@ -1270,16 +1270,56 @@ func TestIndexWriterDelete_NRTIsCurrentAfterDelete(t *testing.T) {
 
 // TestIndexWriterDelete_OnlyDeletesTriggersMergeOnClose ports
 // testOnlyDeletesTriggersMergeOnClose.
-//
-// Skipped: the test depends on LogDocMergePolicy.setMinMergeDocs(1) to lower
-// the merge threshold so the under-filled segments collapse to a single leaf.
-// Gocene's LogDocMergePolicy does not port setMinMergeDocs (it inherits only
-// the byte-oriented SetMinMergeMB from LogMergePolicy, whose minMergeSize
-// default would suppress the merge under the doc-count Size function). Without
-// the knob the "1 leaf" assertion cannot be reproduced faithfully; re-enable
-// once LogDocMergePolicy exposes setMinMergeDocs.
 func TestIndexWriterDelete_OnlyDeletesTriggersMergeOnClose(t *testing.T) {
-	t.Fatal("infra gap: LogDocMergePolicy.setMinMergeDocs not ported in Gocene")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
+	cfg.SetMaxBufferedDocs(2)
+	mp := index.NewLogDocMergePolicy()
+	mp.SetMinMergeDocs(1)
+	cfg.SetMergePolicy(mp)
+	cfg.SetMergeScheduler(index.NewSerialMergeScheduler())
+
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	for i := 0; i < 38; i++ {
+		doc := document.NewDocument()
+		idField, err := document.NewStringField("id", fmt.Sprintf("%d", i), false)
+		if err != nil {
+			t.Fatalf("NewStringField: %v", err)
+		}
+		doc.Add(idField)
+		if err := w.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument %d: %v", i, err)
+		}
+	}
+	if err := w.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	for i := 0; i < 18; i++ {
+		if err := w.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
+			t.Fatalf("DeleteDocuments %d: %v", i, err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	r, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	leaves, err := r.Leaves()
+	if err != nil {
+		t.Fatalf("Leaves: %v", err)
+	}
+	if got := len(leaves); got != 1 {
+		t.Fatalf("leaves = %d, want 1", got)
+	}
+	r.Close()
 }
 
 // ---------------------------------------------------------------------------
@@ -1288,12 +1328,61 @@ func TestIndexWriterDelete_OnlyDeletesTriggersMergeOnClose(t *testing.T) {
 
 // TestIndexWriterDelete_OnlyDeletesTriggersMergeOnGetReader ports
 // testOnlyDeletesTriggersMergeOnGetReader.
-//
-// Skipped: the test exercises DirectoryReader.open(writer) twice — the first
-// open triggers but does not reflect the merge, the second observes it. This
-// depends on an NRT reader opened from the writer, which Gocene lacks.
 func TestIndexWriterDelete_OnlyDeletesTriggersMergeOnGetReader(t *testing.T) {
-	t.Fatal("needs LogDocMergePolicy.setMinMergeDocs and merge triggering on GetReader; NRT DirectoryReader.open(writer) is now available")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
+	cfg.SetMaxBufferedDocs(2)
+	mp := index.NewLogDocMergePolicy()
+	mp.SetMinMergeDocs(1)
+	cfg.SetMergePolicy(mp)
+	cfg.SetMergeScheduler(index.NewSerialMergeScheduler())
+
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	for i := 0; i < 38; i++ {
+		doc := document.NewDocument()
+		idField, err := document.NewStringField("id", fmt.Sprintf("%d", i), false)
+		if err != nil {
+			t.Fatalf("NewStringField: %v", err)
+		}
+		doc.Add(idField)
+		if err := w.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument %d: %v", i, err)
+		}
+	}
+	if err := w.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	for i := 0; i < 18; i++ {
+		if err := w.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
+			t.Fatalf("DeleteDocuments %d: %v", i, err)
+		}
+	}
+
+	// First NRT open triggers the merge but does not reflect it yet.
+	r1, err := index.OpenDirectoryReaderFromWriter(w)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
+	}
+	r1.Close()
+
+	r, err := index.OpenDirectoryReaderFromWriter(w)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReaderFromWriter second: %v", err)
+	}
+	leaves, err := r.Leaves()
+	if err != nil {
+		t.Fatalf("Leaves: %v", err)
+	}
+	if got := len(leaves); got != 1 {
+		t.Fatalf("leaves = %d, want 1", got)
+	}
+	r.Close()
+	w.Close()
 }
 
 // ---------------------------------------------------------------------------
@@ -1302,12 +1391,56 @@ func TestIndexWriterDelete_OnlyDeletesTriggersMergeOnGetReader(t *testing.T) {
 
 // TestIndexWriterDelete_OnlyDeletesTriggersMergeOnFlush ports
 // testOnlyDeletesTriggersMergeOnFlush.
-//
-// Skipped: same dependency on LogDocMergePolicy.setMinMergeDocs(1) as
-// TestIndexWriterDelete_OnlyDeletesTriggersMergeOnClose. Gocene does not port
-// that knob, so the single-leaf assertion cannot be reproduced faithfully.
 func TestIndexWriterDelete_OnlyDeletesTriggersMergeOnFlush(t *testing.T) {
-	t.Fatal("infra gap: LogDocMergePolicy.setMinMergeDocs not ported in Gocene")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
+	cfg.SetMaxBufferedDocs(2)
+	mp := index.NewLogDocMergePolicy()
+	mp.SetMinMergeDocs(1)
+	cfg.SetMergePolicy(mp)
+	cfg.SetMergeScheduler(index.NewSerialMergeScheduler())
+
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	for i := 0; i < 38; i++ {
+		doc := document.NewDocument()
+		idField, err := document.NewStringField("id", fmt.Sprintf("%d", i), false)
+		if err != nil {
+			t.Fatalf("NewStringField: %v", err)
+		}
+		doc.Add(idField)
+		if err := w.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument %d: %v", i, err)
+		}
+	}
+	if err := w.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	for i := 0; i < 18; i++ {
+		if err := w.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
+			t.Fatalf("DeleteDocuments %d: %v", i, err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	r, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	leaves, err := r.Leaves()
+	if err != nil {
+		t.Fatalf("Leaves: %v", err)
+	}
+	if got := len(leaves); got != 1 {
+		t.Fatalf("leaves = %d, want 1", got)
+	}
+	r.Close()
 }
 
 // ---------------------------------------------------------------------------
@@ -1316,14 +1449,57 @@ func TestIndexWriterDelete_OnlyDeletesTriggersMergeOnFlush(t *testing.T) {
 
 // TestIndexWriterDelete_OnlyDeletesDeleteAllDocs ports
 // testOnlyDeletesDeleteAllDocs.
-//
-// Skipped: the test reads back through DirectoryReader.open(writer) (NRT) to
-// assert that deleting every document leaves zero leaves and maxDoc 0. The
-// equivalent post-commit assertions are covered by
-// TestIndexWriterDelete_DeleteAllSlowly; this method specifically validates
-// the NRT path, which Gocene lacks.
 func TestIndexWriterDelete_OnlyDeletesDeleteAllDocs(t *testing.T) {
-	t.Fatal("needs LogDocMergePolicy.setMinMergeDocs; NRT DirectoryReader.open(writer) is now available")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
+	cfg.SetMaxBufferedDocs(2)
+	mp := index.NewLogDocMergePolicy()
+	mp.SetMinMergeDocs(1)
+	cfg.SetMergePolicy(mp)
+	cfg.SetMergeScheduler(index.NewSerialMergeScheduler())
+
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	for i := 0; i < 38; i++ {
+		doc := document.NewDocument()
+		idField, err := document.NewStringField("id", fmt.Sprintf("%d", i), false)
+		if err != nil {
+			t.Fatalf("NewStringField: %v", err)
+		}
+		doc.Add(idField)
+		if err := w.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument %d: %v", i, err)
+		}
+	}
+	if err := w.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	for i := 0; i < 38; i++ {
+		if err := w.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
+			t.Fatalf("DeleteDocuments %d: %v", i, err)
+		}
+	}
+
+	r, err := index.OpenDirectoryReaderFromWriter(w)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
+	}
+	leaves, err := r.Leaves()
+	if err != nil {
+		t.Fatalf("Leaves: %v", err)
+	}
+	if got := len(leaves); got != 0 {
+		t.Fatalf("leaves = %d, want 0", got)
+	}
+	if got := r.MaxDoc(); got != 0 {
+		t.Fatalf("MaxDoc = %d, want 0", got)
+	}
+	r.Close()
+	w.Close()
 }
 
 // ---------------------------------------------------------------------------

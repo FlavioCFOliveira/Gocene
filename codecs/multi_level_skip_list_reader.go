@@ -6,6 +6,7 @@ package codecs
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
@@ -17,9 +18,10 @@ import (
 //
 // The reader maintains a per-level cursor: skipDoc[level] is the document
 // reached by the cursor on that level and childPointer[level] is the file
-// pointer the cursor would jump to in the level below. SkipTo walks down
-// the levels, lazily decoding skip blocks until it finds the largest skip
-// entry whose doc < target.
+// pointer the cursor would jump to in the level below. SkipTo walks up to
+// the highest level that has a skip for the target, advances that level until
+// it reaches or passes the target, then walks down seeking child levels at
+// the last accepted skip entry.
 //
 // MultiLevelSkipListReader is an abstract base in Java; in Go it is a
 // concrete struct whose codec-specific decoding is supplied by an embedded
@@ -28,6 +30,8 @@ import (
 type MultiLevelSkipListReader struct {
 	// skipInterval is the number of postings between skip entries at level 0.
 	skipInterval int
+	// skipIntervalPerLevel caches skipInterval * skipMultiplier^level.
+	skipIntervalPerLevel []int
 	// skipMultiplier is the fan-out between adjacent levels.
 	skipMultiplier int
 	// maxNumberOfSkipLevels caps the height of the skip list.
@@ -43,7 +47,7 @@ type MultiLevelSkipListReader struct {
 	// independent IndexInputs the reader created via skipStream[0].Clone().
 	skipStream []store.IndexInput
 
-	// skipPointer[level] is the file pointer where the level starts.
+	// skipPointer[level] is the file pointer where the level's payload starts.
 	skipPointer []int64
 	// childPointer[level] is the file pointer in the level below that the
 	// current skip block would jump to. Level 0 has no children.
@@ -52,11 +56,16 @@ type MultiLevelSkipListReader struct {
 	// skipDoc[level] is the document id reached by the cursor on that level.
 	skipDoc []int
 
-	// lastDoc is the document id reached by the bottom-level cursor and is
-	// returned by GetDoc.
+	// numSkipped[level] is the number of postings skipped up to the current
+	// cursor on that level. It is updated when the cursor advances or when a
+	// child cursor is reset to a parent position.
+	numSkipped []int
+
+	// lastDoc is the document id of the last accepted skip entry (the one
+	// whose docId <= target). It is returned by GetDoc.
 	lastDoc int
 
-	// lastChildPointer is the child pointer of the most recent skip on level 0.
+	// lastChildPointer is the child pointer of the last accepted skip entry.
 	lastChildPointer int64
 
 	// haveSkipped indicates whether SkipTo has advanced the cursor at all.
@@ -83,7 +92,7 @@ type MultiLevelSkipListReader struct {
 	readLevelLength ReadLevelLengthFunc
 
 	// readChildPointer, when non-nil, overrides the default VLong-based child-
-	// pointer reader used in loadSkipLevels. Set via SetReadChildPointer.
+	// pointer reader used after each non-leaf skip entry. Set via SetReadChildPointer.
 	readChildPointer ReadChildPointerFunc
 }
 
@@ -101,6 +110,18 @@ type ReadLevelLengthFunc func(skipStream store.IndexInput) (int64, error)
 // from the skip stream. The default implementation reads a VLong. Override
 // to support text-format codecs (e.g. SimpleText).
 type ReadChildPointerFunc func(skipStream store.IndexInput) (int64, error)
+
+// defaultReadChildPointer is the VLong reader used when the codec does not
+// supply its own hook.
+func defaultReadChildPointer(skipStream store.IndexInput) (int64, error) {
+	return store.ReadVLong(skipStream)
+}
+
+// defaultReadLevelLength is the VLong reader used when the codec does not
+// supply its own hook.
+func defaultReadLevelLength(skipStream store.IndexInput) (int64, error) {
+	return store.ReadVLong(skipStream)
+}
 
 // SetOnSetLastSkipData registers an optional callback invoked immediately
 // before the reader advances past the current skip entry at the given level.
@@ -142,8 +163,14 @@ func NewMultiLevelSkipListReader(skipStream store.IndexInput, maxSkipLevels, ski
 		skipPointer:           make([]int64, maxSkipLevels),
 		childPointer:          make([]int64, maxSkipLevels),
 		skipDoc:               make([]int, maxSkipLevels),
+		numSkipped:            make([]int, maxSkipLevels),
+		skipIntervalPerLevel:  make([]int, maxSkipLevels),
 	}
 	r.skipStream[0] = skipStream
+	r.skipIntervalPerLevel[0] = skipInterval
+	for i := 1; i < maxSkipLevels; i++ {
+		r.skipIntervalPerLevel[i] = r.skipIntervalPerLevel[i-1] * skipMultiplier
+	}
 	return r
 }
 
@@ -157,6 +184,12 @@ func (r *MultiLevelSkipListReader) Init(skipPointer int64, df int) error {
 	for i := range r.skipDoc {
 		r.skipDoc[i] = 0
 	}
+	for i := range r.numSkipped {
+		r.numSkipped[i] = 0
+	}
+	for i := range r.childPointer {
+		r.childPointer[i] = 0
+	}
 	r.lastDoc = 0
 	r.lastChildPointer = 0
 	r.haveSkipped = false
@@ -164,7 +197,7 @@ func (r *MultiLevelSkipListReader) Init(skipPointer int64, df int) error {
 	if r.numberOfSkipLevels == 0 {
 		return nil
 	}
-	r.skipPointer[r.numberOfSkipLevels-1] = skipPointer
+	r.skipPointer[0] = skipPointer
 	return nil
 }
 
@@ -176,57 +209,50 @@ func (r *MultiLevelSkipListReader) loadSkipLevels() error {
 		return nil
 	}
 	// Position the master stream at the top level.
-	if err := r.skipStream[0].SetPosition(r.skipPointer[r.numberOfSkipLevels-1]); err != nil {
+	if err := r.skipStream[0].SetPosition(r.skipPointer[0]); err != nil {
 		return fmt.Errorf("MultiLevelSkipListReader: seek top level: %w", err)
 	}
-	// Walk top-down. For each level above 0, read the length of the level
-	// below and reserve a clone positioned at the next level's start.
+
+	// Walk top-down. For each level above 0, read the length of that level's
+	// payload and reserve a clone positioned at the level's start. Then
+	// advance the master stream past the level's payload.
+	readLevelLength := r.readLevelLength
+	if readLevelLength == nil {
+		readLevelLength = defaultReadLevelLength
+	}
+
 	for level := r.numberOfSkipLevels - 1; level > 0; level-- {
-		// Read length of the child level — use hook if provided, else VLong.
-		var childLen int64
-		var err error
-		if r.readLevelLength != nil {
-			childLen, err = r.readLevelLength(r.skipStream[0])
-		} else {
-			childLen, err = store.ReadVLong(r.skipStream[0])
-		}
+		// Read length of the current level.
+		length, err := readLevelLength(r.skipStream[0])
 		if err != nil {
 			return fmt.Errorf("MultiLevelSkipListReader: readLevelLength(level=%d): %w", level, err)
 		}
+
 		// Current position is the start of this level's payload.
-		levelStart, err := positionOf(r.skipStream[0])
-		if err != nil {
-			return fmt.Errorf("MultiLevelSkipListReader: tell(level=%d): %w", level, err)
-		}
+		levelStart := r.skipStream[0].GetFilePointer()
 		r.skipPointer[level] = levelStart
-		r.childPointer[level] = levelStart - childLen
+
 		// Clone the stream for independent advancement on this level.
 		clone := r.skipStream[0].Clone()
 		if err := clone.SetPosition(levelStart); err != nil {
 			return fmt.Errorf("MultiLevelSkipListReader: clone seek(level=%d): %w", level, err)
 		}
 		r.skipStream[level] = clone
+
+		// Move base stream beyond this level's payload.
+		if err := r.skipStream[0].SetPosition(levelStart + length); err != nil {
+			return fmt.Errorf("MultiLevelSkipListReader: skip past level(level=%d): %w", level, err)
+		}
 	}
-	// Level 0 starts wherever the master stream is now (after the top-down
-	// header walk).
-	level0Start, err := positionOf(r.skipStream[0])
-	if err != nil {
-		return fmt.Errorf("MultiLevelSkipListReader: tell(level=0): %w", err)
-	}
-	r.skipPointer[0] = level0Start
+
+	// Level 0 starts wherever the master stream is now.
+	r.skipPointer[0] = r.skipStream[0].GetFilePointer()
 	return nil
 }
 
-// positionOf reads the current file pointer of in. Centralised here because
-// store.IndexInput exposes different cursors in different builds; this
-// indirection keeps the reader portable.
-func positionOf(in store.IndexInput) (int64, error) {
-	return in.GetFilePointer(), nil
-}
-
-// SkipTo advances the cursor so that the bottom-level skipDoc is the largest
-// document id <= target reachable through the skip list. Returns the number
-// of postings skipped (not docs) — matches Java's int return value.
+// SkipTo advances the cursor to the largest skip entry whose document number
+// is less than or equal to target. Returns the number of postings skipped
+// (not docs) — matches Java's int return value.
 func (r *MultiLevelSkipListReader) SkipTo(target int) (int, error) {
 	if !r.haveSkipped {
 		if err := r.loadSkipLevels(); err != nil {
@@ -239,59 +265,134 @@ func (r *MultiLevelSkipListReader) SkipTo(target int) (int, error) {
 		return 0, nil
 	}
 
-	// Walk levels top-down; at each level, advance while the next skip
-	// would still keep us strictly below target.
-	level := r.numberOfSkipLevels - 1
-	numSkipped := 0
-	for level >= 0 {
-		for r.skipDoc[level] < target {
-			// Mirror Java's setLastSkipData(level): snapshot current state before
-			// advancing. Concrete readers (e.g. Lucene50SkipReader) use this hook
-			// to persist per-level pointers as the "last accepted" position.
-			if r.onSetLastSkipData != nil {
-				r.onSetLastSkipData(level)
-			}
-			r.lastDoc = r.skipDoc[level]
-			r.lastChildPointer = r.childPointer[level]
-
-			delta, err := r.readSkipData(level, r.skipStream[level])
-			if err != nil {
-				return numSkipped, fmt.Errorf("MultiLevelSkipListReader: readSkipData(level=%d): %w", level, err)
-			}
-			if delta == 0 {
-				// No more skip entries on this level.
-				break
-			}
-			r.skipDoc[level] += delta
-			// For non-leaf levels, read the child pointer if a hook is provided
-			// (mirrors Java's loadNextSkip: childPointer[level] = readChildPointer(...) + skipPointer[level-1]).
-			if level != 0 && r.readChildPointer != nil {
-				childPtr, cpErr := r.readChildPointer(r.skipStream[level])
-				if cpErr != nil {
-					return numSkipped, fmt.Errorf("MultiLevelSkipListReader: readChildPointer(level=%d): %w", level, cpErr)
-				}
-				r.childPointer[level] = childPtr + r.skipPointer[level-1]
-			}
-			if level == 0 {
-				numSkipped += r.skipInterval
-			}
-		}
-		// Mirror Java's seekChild(level-1): when descending, reposition the
-		// child level if the last accepted child pointer is ahead of the
-		// current position.
-		if level > 0 && r.skipStream[level-1] != nil &&
-			r.lastChildPointer > r.skipStream[level-1].GetFilePointer() {
-			if r.onSeekChild != nil {
-				r.onSeekChild(level - 1)
-			}
-			if err := r.skipStream[level-1].SetPosition(r.lastChildPointer); err != nil {
-				return numSkipped, fmt.Errorf("MultiLevelSkipListReader: seekChild(level=%d): %w", level-1, err)
-			}
-		}
-		level--
+	// Walk up the levels until we find the highest level that has a skip for
+	// this target. A level "has a skip" when its current skipDoc is still
+	// < target; higher levels may already be positioned beyond target from a
+	// previous SkipTo call.
+	level := 0
+	for level < r.numberOfSkipLevels-1 && target > r.skipDoc[level+1] {
+		level++
 	}
 
-	return numSkipped, nil
+	for level >= 0 {
+		if target > r.skipDoc[level] {
+			more, err := r.loadNextSkip(level)
+			if err != nil {
+				return r.numSkipped[0] - r.skipIntervalPerLevel[0] - 1, err
+			}
+			if !more {
+				// This level is exhausted; continue to descend (or exit if level 0).
+				continue
+			}
+		} else {
+			// No more skips needed on this level; descend to the child level,
+			// seeking it to the last accepted skip entry if necessary.
+			if level > 0 && r.lastChildPointer > r.skipStream[level-1].GetFilePointer() {
+				if err := r.seekChild(level - 1); err != nil {
+					return r.numSkipped[0] - r.skipIntervalPerLevel[0] - 1, err
+				}
+			}
+			level--
+		}
+	}
+
+	return r.numSkipped[0] - r.skipIntervalPerLevel[0] - 1, nil
+}
+
+// loadNextSkip advances the cursor on the given level by one skip entry.
+// Returns false if the level is exhausted (and shrinks numberOfSkipLevels).
+func (r *MultiLevelSkipListReader) loadNextSkip(level int) (bool, error) {
+	// Snapshot the current entry as the "last accepted" before advancing.
+	r.setLastSkipData(level)
+
+	r.numSkipped[level] += r.skipIntervalPerLevel[level]
+
+	// numSkipped may overflow a signed int; compare as unsigned. If we've
+	// passed the posting list length, this level is exhausted.
+	if compareUnsigned(r.numSkipped[level], r.docCount) > 0 {
+		r.skipDoc[level] = math.MaxInt32
+		if r.numberOfSkipLevels > level {
+			r.numberOfSkipLevels = level
+		}
+		return false, nil
+	}
+
+	delta, err := r.readSkipData(level, r.skipStream[level])
+	if err != nil {
+		return false, fmt.Errorf("MultiLevelSkipListReader: readSkipData(level=%d): %w", level, err)
+	}
+	if delta <= 0 {
+		// A non-positive delta marks the end of this skip level. (This also
+		// catches test hooks that return (0, nil) on EOF.)
+		r.skipDoc[level] = math.MaxInt32
+		if r.numberOfSkipLevels > level {
+			r.numberOfSkipLevels = level
+		}
+		return false, nil
+	}
+	r.skipDoc[level] += delta
+
+	if level != 0 {
+		readChildPtr := r.readChildPointer
+		if readChildPtr == nil {
+			readChildPtr = defaultReadChildPointer
+		}
+		childPtr, cpErr := readChildPtr(r.skipStream[level])
+		if cpErr != nil {
+			return false, fmt.Errorf("MultiLevelSkipListReader: readChildPointer(level=%d): %w", level, cpErr)
+		}
+		r.childPointer[level] = childPtr + r.skipPointer[level-1]
+	}
+
+	return true, nil
+}
+
+// setLastSkipData snapshots the current skip entry as the last accepted one.
+// This is invoked immediately before advancing the cursor.
+func (r *MultiLevelSkipListReader) setLastSkipData(level int) {
+	if r.onSetLastSkipData != nil {
+		r.onSetLastSkipData(level)
+	}
+	r.lastDoc = r.skipDoc[level]
+	r.lastChildPointer = r.childPointer[level]
+}
+
+// seekChild repositions the child level at the last accepted skip entry.
+func (r *MultiLevelSkipListReader) seekChild(level int) error {
+	if r.onSeekChild != nil {
+		r.onSeekChild(level)
+	}
+	if err := r.skipStream[level].SetPosition(r.lastChildPointer); err != nil {
+		return fmt.Errorf("MultiLevelSkipListReader: seekChild(level=%d): %w", level, err)
+	}
+	r.numSkipped[level] = r.numSkipped[level+1] - r.skipIntervalPerLevel[level+1]
+	r.skipDoc[level] = r.lastDoc
+	if level > 0 {
+		readChildPtr := r.readChildPointer
+		if readChildPtr == nil {
+			readChildPtr = defaultReadChildPointer
+		}
+		childPtr, err := readChildPtr(r.skipStream[level])
+		if err != nil {
+			return fmt.Errorf("MultiLevelSkipListReader: seekChild readChildPointer(level=%d): %w", level, err)
+		}
+		r.childPointer[level] = childPtr + r.skipPointer[level-1]
+	}
+	return nil
+}
+
+// compareUnsigned compares two int values as unsigned 32-bit integers.
+// Returns -1, 0, or 1.
+func compareUnsigned(a, b int) int {
+	ua := uint32(a)
+	ub := uint32(b)
+	if ua < ub {
+		return -1
+	}
+	if ua > ub {
+		return 1
+	}
+	return 0
 }
 
 // GetDoc returns the last document id reached by the bottom-level cursor.

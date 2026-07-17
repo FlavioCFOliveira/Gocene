@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -224,6 +224,17 @@ type pendingSegment struct {
 	// postings, and field infos on disk. nil when the writer was opened
 	// without a codec (structural-unit-test path).
 	dwpts []*DocumentsWriterPerThread
+
+	// The following fields are populated by AddIndexes (directory path) and
+	// describe a source segment whose files must be copied into the main
+	// directory when this pending segment is committed.
+	srcDir          store.Directory  // source directory (nil for flushed DWPT segments)
+	srcSegmentName  string           // source segment name used as the file prefix
+	srcFiles        []string         // source file names to copy
+	srcCompoundFile bool             // whether the source segment used a compound file
+	srcSegmentInfo  *schema.SegmentInfo // source SegmentInfo metadata to preserve binary compatibility (ID, codec, version, ...)
+	segmentID       []byte           // 16-byte segment ID assigned when first materialised (NRT/merge)
+	files           []string         // copied file names in w.directory (populated after copying)
 }
 
 // termWithBound pairs a delete term with a maximum document ordinal.
@@ -305,6 +316,30 @@ func NewIndexWriter(dir store.Directory, config *IndexWriterConfig) (*IndexWrite
 			_ = wl.Close()
 			return nil, errors.New("no existing index found for OpenMode.APPEND")
 		}
+	case CREATE:
+		// OpenMode.CREATE truncates any existing index, mirroring Lucene's
+		// IndexWriter constructor. The write lock itself is preserved.
+		if indexExists {
+			if all, err := dir.ListAll(); err == nil {
+				for _, f := range all {
+					if f == writeLockName {
+						continue
+					}
+					_ = dir.DeleteFile(f)
+				}
+			}
+			indexExists = false
+		}
+	}
+
+	// Record the files present at writer creation so Rollback can distinguish
+	// pre-existing commits from new uncommitted files. This snapshot must be
+	// taken after any CREATE truncation so it reflects the real starting state.
+	startingFiles := make(map[string]struct{})
+	if starting, err := dir.ListAll(); err == nil {
+		for _, f := range starting {
+			startingFiles[f] = struct{}{}
+		}
 	}
 
 	// Create the DocumentsWriter for actual document processing
@@ -323,15 +358,7 @@ func NewIndexWriter(dir store.Directory, config *IndexWriterConfig) (*IndexWrite
 	// Initialize atomic fields
 	writer.closed.Store(false)
 	writer.docCount.Store(0)
-
-	// Record the files present at writer creation so Rollback can distinguish
-	// pre-existing commits from new uncommitted files.
-	if starting, err := dir.ListAll(); err == nil {
-		writer.startingFiles = make(map[string]struct{}, len(starting))
-		for _, f := range starting {
-			writer.startingFiles[f] = struct{}{}
-		}
-	}
+	writer.startingFiles = startingFiles
 
 	// Populate committedSegments from existing on-disk SegmentInfos so that
 	// UpdateDocument can detect whether target fields exist in committed data.
@@ -985,6 +1012,7 @@ func (w *IndexWriter) flushPendingDocsLocked() error {
 		dwpts:               pool,
 	}
 	w.pendingImportedSegments = append(w.pendingImportedSegments, ps)
+	w.flushCount.Add(1)
 
 	// Reset pending state.
 	w.docCount.Store(0)
@@ -1114,6 +1142,7 @@ func (w *IndexWriter) GetReader() (*DirectoryReader, error) {
 		segInfo.SetID(generateSegmentID())
 		segInfo.SetVersion("10.4.0")
 		segInfo.SetMinVersion("10.4.0")
+		ps.segmentID = segInfo.GetID()
 		sci := NewSegmentCommitInfo(segInfo, ps.delCount, -1)
 		if ps.softDelCount > 0 {
 			sci.SetSoftDelCount(ps.softDelCount)
@@ -1135,6 +1164,23 @@ func (w *IndexWriter) GetReader() (*DirectoryReader, error) {
 		nrtSI.Add(sci)
 		w.committedSegments = append(w.committedSegments, sci)
 	}
+
+	// Run natural merges on the NRT snapshot so that merge-on-get-reader
+	// policies (e.g. LogDocMergePolicy with a low minMergeDocs) are honoured
+	// for the returned reader. The merged segment files are written to the
+	// directory but the on-disk segments_N is not updated until the next
+	// Commit/Close.
+	if err := w.maybeMergeSnapshot(nrtSI, GET_READER); err != nil {
+		return nil, fmt.Errorf("GetReader: maybeMergeSnapshot: %w", err)
+	}
+
+	// Promote the merged snapshot to the writer's committed baseline so the
+	// next Commit/Close writes the merged state and the segment-name counter
+	// stays past any NRT-produced segments. Without this, a later Commit could
+	// assign a segment name that collides with a merged segment whose files are
+	// already on disk.
+	w.lastCommittedSegmentInfos = nrtSI.Clone()
+	w.committedSegments = nrtSI.List()
 
 	// Save the NRT snapshot so subsequent GetReader calls include
 	// these flushed-but-not-committed segments.
@@ -1362,16 +1408,61 @@ func (w *IndexWriter) commitLocked(force bool) error {
 		w.pendingDeletedDocIDs = w.pendingDeletedDocIDs[:0]
 	}
 
-	for _, ps := range w.pendingImportedSegments {
+	for i := range w.pendingImportedSegments {
+		ps := &w.pendingImportedSegments[i]
 		segmentName := ps.segmentName
 		if segmentName == "" {
 			segmentName = si.GetNextSegmentName()
 		}
+
+		// AddIndexes (directory path) imports carry their source segment files.
+		// Copy them into the main directory now, before any per-format metadata
+		// is rewritten, and remember the renamed file list for the SegmentInfo.
+		if ps.srcDir != nil {
+			copiedFiles, err2 := w.copyImportedSegmentFiles(ps, segmentName)
+			if err2 != nil {
+				return fmt.Errorf("commit: copy imported segment files for %s: %w", segmentName, err2)
+			}
+			ps.files = copiedFiles
+		}
+
 		segInfo := NewSegmentInfo(segmentName, ps.numDocs, w.directory)
-		segInfo.SetID(generateSegmentID())
-		segInfo.SetVersion("10.4.0")
-		segInfo.SetMinVersion("10.4.0")
+		if ps.srcSegmentInfo != nil {
+			// AddIndexes (directory path) imports must preserve the source segment
+			// metadata, especially its 16-byte segment ID, so that copied files
+			// whose headers embed that ID (e.g. .cfs/.cfe data files) remain
+			// readable. This mirrors Lucene's copySegmentAsIs which reuses
+			// info.info.getId() for the renamed SegmentInfo.
+			if err2 := segInfo.SetID(ps.srcSegmentInfo.GetID()); err2 != nil {
+				return fmt.Errorf("commit: set imported segment ID for %s: %w", segmentName, err2)
+			}
+			segInfo.SetVersion(ps.srcSegmentInfo.Version())
+			if minVer, ok := ps.srcSegmentInfo.MinVersion(); ok {
+				segInfo.SetMinVersion(minVer)
+			}
+			segInfo.SetHasBlocks(ps.srcSegmentInfo.HasBlocks())
+			segInfo.SetCodec(ps.srcSegmentInfo.Codec())
+			segInfo.SetDiagnostics(ps.srcSegmentInfo.GetDiagnostics())
+			segInfo.SetAttributes(ps.srcSegmentInfo.GetAttributes())
+			segInfo.SetIndexSort(ps.srcSegmentInfo.IndexSort())
+		} else if len(ps.segmentID) == 16 {
+			// A materialised DWPT/NRT segment already wrote files (e.g. CFS during
+			// an NRT merge) with this ID in their headers. Reuse it so the final
+			// .si and any existing compound files stay consistent.
+			if err2 := segInfo.SetID(ps.segmentID); err2 != nil {
+				return fmt.Errorf("commit: set materialised segment ID for %s: %w", segmentName, err2)
+			}
+			segInfo.SetVersion("10.4.0")
+			segInfo.SetMinVersion("10.4.0")
+		} else {
+			segInfo.SetID(generateSegmentID())
+			segInfo.SetVersion("10.4.0")
+			segInfo.SetMinVersion("10.4.0")
+		}
 		sci := NewSegmentCommitInfo(segInfo, ps.delCount, -1)
+		if ps.srcSegmentInfo != nil {
+			sci.SetID(ps.srcSegmentInfo.GetID())
+		}
 		if ps.softDelCount > 0 {
 			sci.SetSoftDelCount(ps.softDelCount)
 		}
@@ -1485,18 +1576,32 @@ func (w *IndexWriter) commitLocked(force bool) error {
 				// compound file, so the reopened reader could not find them inside
 				// the .cfs.
 				var segFiles []string
+				var hasCFS bool
 				for _, f := range allFiles {
 					if ParseSegmentName(f) != segmentName {
 						continue
 					}
-					switch GetExtension(f) {
-					case "si", "cfs", "cfe":
-						// .si is written after CFS; .cfs/.cfe are the output targets.
+					ext := GetExtension(f)
+					switch ext {
+					case "si":
+						// .si is written after CFS.
+					case "cfs", "cfe":
+						// A compound file already exists for this segment (e.g. it was
+						// materialised and packed by an earlier NRT merge). Reuse it
+						// instead of creating a duplicate CFS on commit.
+						hasCFS = true
 					default:
 						segFiles = append(segFiles, f)
 					}
 				}
-				if len(segFiles) > 0 {
+				if hasCFS {
+					segInfo.SetFiles([]string{
+						segmentName + ".cfs",
+						segmentName + ".cfe",
+						segmentName + ".si",
+					})
+					segInfo.SetCompoundFile(true)
+				} else if len(segFiles) > 0 {
 					segInfo.SetFiles(segFiles)
 					if err3 := codec.CompoundFormat().Write(w.directory, segInfo, store.IOContextWrite); err3 != nil {
 						return fmt.Errorf("commit: write CFS for %s: %w", segmentName, err3)
@@ -1554,7 +1659,20 @@ func (w *IndexWriter) commitLocked(force bool) error {
 				// ReadSegmentInfos creates fresh SegmentCommitInfo objects.
 				RegisterInMemoryFields(w.directory, segmentName, ps.inMemoryFields)
 			}
+
 			segFiles := []string{segmentName + ".si"}
+
+			if ps.srcDir != nil {
+				// AddIndexes (directory path): the segment files were already copied
+				// into the main directory under the new segment name. Use that
+				// list directly, preserving the source's compound-file state, and
+				// do not repack into a new CFS.
+				segFiles = append(segFiles, ps.files...)
+				if ps.srcCompoundFile {
+					segInfo.SetCompoundFile(true)
+				}
+			}
+
 			// Persist the FieldInfos to a real .fnm so they survive a reader
 			// reopen without the removed _gocene_fi_ userData key (rmp #4785).
 			// This covers AddIndexes-imported segments (no DWPT flush) that
@@ -1565,7 +1683,20 @@ func (w *IndexWriter) commitLocked(force bool) error {
 					if err3 := fif.Write(w.directory, segInfo, "", ps.fieldInfos, store.IOContextWrite); err3 != nil {
 						return fmt.Errorf("commit: write field infos for %s: %w", segmentName, err3)
 					}
-					segFiles = append(segFiles, segmentName+".fnm")
+					// Ensure the .fnm is referenced even if the source did not
+					// include it (overwriting a copied .fnm is fine because the
+					// name is unchanged).
+					fnm := segmentName + ".fnm"
+					found := false
+					for _, f := range segFiles {
+						if f == fnm {
+							found = true
+							break
+						}
+					}
+					if !found {
+						segFiles = append(segFiles, fnm)
+					}
 					// Stamp the codec name so the reopen path
 					// (openSegmentReader) resolves a codec and reads the .fnm
 					// back as the authoritative FieldInfos source (rmp #4785).
@@ -1594,6 +1725,13 @@ func (w *IndexWriter) commitLocked(force bool) error {
 		sci.SegmentInfo().SetIndexSort(w.config.IndexSort())
 		// Write the .si file for this segment before registering it so that
 		// external tools and CheckIndex can verify per-segment integrity.
+		// If an NRT merge or an earlier partial commit already wrote a .si for
+		// this segment name, remove it so the final commit can write the definitive
+		// version with the correct file list.
+		siName := segmentName + ".si"
+		if _, statErr := w.directory.FileLength(siName); statErr == nil {
+			_ = w.directory.DeleteFile(siName)
+		}
 		if err3 := writeSegmentInfo(w.directory, sci.SegmentInfo(), store.IOContextWrite, w.config.Codec()); err3 != nil {
 			return fmt.Errorf("writing .si: %w", err3)
 		}
@@ -1615,14 +1753,10 @@ func (w *IndexWriter) commitLocked(force bool) error {
 
 	// Ensure the segment-name counter is past every segment that now exists,
 	// so later merges and flushes never reuse a name already on disk.
-	if maxName := si.GetMaxSegmentName(); maxName != "" && len(maxName) > 1 {
-		if n, parseErr := strconv.Atoi(maxName[1:]); parseErr == nil {
-			counter := si.Counter()
-			if int64(n+1) > counter {
-				si.SetCounter(int64(n + 1))
-			}
-		}
-	}
+	// UpdateCounterFromSegments parses segment names numerically (unlike the
+	// lexicographic GetMaxSegmentName), avoiding collisions when segment names
+	// cross a power of ten (e.g. _99, _100, _101).
+	si.UpdateCounterFromSegments()
 
 	// Add commit data if present
 	if w.liveCommitData != nil && len(w.liveCommitData.data) > 0 {
@@ -2060,6 +2194,27 @@ func (w *IndexWriter) applyBufferedDeletesToSegmentCommitInfos(si *SegmentInfos)
 		sci.SetDeletedOrdinals(ords)
 	}
 
+	// Drop fully-deleted segments unless the merge policy wants to keep them.
+	// This mirrors Lucene's IndexWriter behavior when building an NRT snapshot.
+	mp := w.config.GetMergePolicy()
+	pruned := make([]*SegmentCommitInfo, 0, len(segments))
+	for _, sci := range segments {
+		maxDoc := sci.SegmentInfo().DocCount()
+		if maxDoc > 0 && sci.DelCount() >= maxDoc {
+			if mp != nil && mp.KeepFullyDeletedSegment(sci) {
+				pruned = append(pruned, sci)
+			}
+			continue
+		}
+		pruned = append(pruned, sci)
+	}
+	if len(pruned) != len(segments) {
+		si.Clear()
+		for _, sci := range pruned {
+			si.Add(sci)
+		}
+	}
+
 	// TryDeleteDocument global docIDs.
 	if len(w.pendingDeletedDocIDs) > 0 {
 		for _, docID := range w.pendingDeletedDocIDs {
@@ -2209,6 +2364,17 @@ func (w *IndexWriter) Close() error {
 		// hit the same failure path.
 		w.closed.Store(true)
 		return fmt.Errorf("failed to commit during close: %w", err)
+	}
+
+	// Run natural merges selected by the merge policy before closing. Lucene
+	// calls maybeMerge during close so that a merge-on-close policy (e.g.
+	// LogDocMergePolicy.setMinMergeDocs(1)) can collapse small/deleted segments.
+	if err := w.maybeMerge(CLOSING); err != nil {
+		if s := w.config.GetMergeScheduler(); s != nil {
+			_ = s.Close()
+		}
+		w.closed.Store(true)
+		return fmt.Errorf("maybeMerge during close: %w", err)
 	}
 
 	// Set closed atomically
@@ -2752,6 +2918,156 @@ func (w *IndexWriter) forceMergeDeletesWait(doWait bool) error {
 	}
 }
 
+// naturalMergeContext is a minimal MergeContext for natural merges chosen by
+// the configured MergePolicy. Deletion counts come from the SegmentCommitInfos
+// after pending deletes have been applied.
+type naturalMergeContext struct{}
+
+func (naturalMergeContext) NumDeletesToMerge(info *SegmentCommitInfo) int { return info.DelCount() }
+func (naturalMergeContext) NumDeletedDocs(info *SegmentCommitInfo) int    { return info.DelCount() }
+func (naturalMergeContext) GetInfoStream() InfoStream                     { return nil }
+func (naturalMergeContext) GetMergingSegments() map[*SegmentCommitInfo]bool {
+	return map[*SegmentCommitInfo]bool{}
+}
+
+// maybeMerge runs natural merges selected by the configured merge policy until
+// no more merges are found. It reads the latest committed SegmentInfos, finds
+// merges, executes them, and writes a new commit if any merges occurred. This is
+// a minimal synchronous implementation used by Close and NRT GetReader to honour
+// merge-on-close/merge-on-get-reader semantics; it mirrors Lucene's
+// IndexWriter.maybeMerge but runs through the merge policy directly rather than
+// a scheduler for now.
+func (w *IndexWriter) maybeMerge(trigger MergeTrigger) error {
+	if err := w.ensureOpen(); err != nil {
+		return err
+	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	return w.maybeMergeLocked(trigger)
+}
+
+func (w *IndexWriter) maybeMergeLocked(trigger MergeTrigger) error {
+	mp := w.config.GetMergePolicy()
+	if mp == nil {
+		return nil
+	}
+
+	for {
+		si := w.lastCommittedSegmentInfos.Clone()
+		si.NextGeneration()
+
+		spec, err := mp.FindMerges(trigger, si, naturalMergeContext{})
+		if err != nil {
+			return fmt.Errorf("maybeMerge: find merges: %w", err)
+		}
+		if spec == nil || spec.Size() == 0 {
+			return nil
+		}
+
+		if err := w.executeNaturalMerges(si, spec); err != nil {
+			return fmt.Errorf("maybeMerge: execute merges: %w", err)
+		}
+
+		if err := WriteSegmentInfos(si, w.directory); err != nil {
+			return fmt.Errorf("maybeMerge: write segment infos: %w", err)
+		}
+		if w.deleter != nil {
+			if err := w.deleter.Checkpoint(si, true); err != nil {
+				return fmt.Errorf("maybeMerge: deleter checkpoint: %w", err)
+			}
+		}
+		w.lastCommittedSegmentInfos = si.Clone()
+		w.committedSegments = si.List()
+		w.nrtGen.Add(1)
+	}
+}
+
+// maybeMergeSnapshot runs natural merges against the supplied in-memory
+// SegmentInfos without writing a new segments_N file or checkpointing the
+// deleter. It is used by GetReader to compact the NRT snapshot so that a
+// merge-on-get-reader policy is reflected in the returned reader. This is a
+// deliberately simplified synchronous stand-in for Lucene's background NRT
+// merge scheduling; source segment files are deleted eagerly because the
+// snapshot is only used while the reader is alive.
+func (w *IndexWriter) maybeMergeSnapshot(si *SegmentInfos, trigger MergeTrigger) error {
+	mp := w.config.GetMergePolicy()
+	if mp == nil {
+		return nil
+	}
+
+	for {
+		spec, err := mp.FindMerges(trigger, si, naturalMergeContext{})
+		if err != nil {
+			return fmt.Errorf("maybeMergeSnapshot: find merges: %w", err)
+		}
+		if spec == nil || spec.Size() == 0 {
+			return nil
+		}
+
+		if err := w.executeNaturalMerges(si, spec); err != nil {
+			return fmt.Errorf("maybeMergeSnapshot: execute merges: %w", err)
+		}
+	}
+}
+
+// executeNaturalMerges runs the merges in spec against the supplied SegmentInfos
+// without writing a new segments_N. The caller (maybeMerge) writes the updated
+// SegmentInfos and checkpoints the deleter. Must be called with w.mu held.
+func (w *IndexWriter) executeNaturalMerges(si *SegmentInfos, spec *MergeSpecification) error {
+	mergedAway := make(map[*SegmentCommitInfo]bool)
+	for _, om := range spec.Merges {
+		for _, seg := range om.Segments {
+			mergedAway[seg] = true
+		}
+	}
+
+	result := NewSegmentInfos()
+	result.SetGeneration(si.Generation())
+	result.SetCounter(si.Counter())
+	result.SetInMemoryParentField(w.config.ParentField())
+	result.SetInMemoryIndexSort(w.config.IndexSort())
+	if userData := si.GetUserData(); len(userData) > 0 {
+		result.SetUserData(userData)
+	}
+
+	for _, sci := range si.List() {
+		if !mergedAway[sci] {
+			result.Add(sci)
+		}
+	}
+
+	for _, om := range spec.Merges {
+		if len(om.Segments) == 0 {
+			continue
+		}
+		segName := result.GetNextSegmentName()
+		merged, err := w.mergeSegmentGroup(om.Segments, segName)
+		if err != nil {
+			return err
+		}
+		if merged != nil {
+			result.Add(merged)
+		}
+	}
+
+	for seg := range mergedAway {
+		for _, f := range seg.GetFiles() {
+			_ = w.directory.DeleteFile(f)
+		}
+	}
+
+	// Transfer the updated list back into the caller's SegmentInfos.
+	si.Clear()
+	for _, sci := range result.List() {
+		si.Add(sci)
+	}
+	// Advance the counter numerically so names like _100 are ordered after _99.
+	si.UpdateCounterFromSegments()
+	return nil
+}
+
 // forceMergeContext is a minimal MergeContext for forced merges: nothing is
 // concurrently merging and deletion counts come straight from the
 // SegmentCommitInfos; the info stream is disabled.
@@ -2807,6 +3123,10 @@ func (w *IndexWriter) executeForcedMerges(si *SegmentInfos, spec *MergeSpecifica
 		}
 	}
 
+	// Advance the segment-name counter past every segment that now exists on disk,
+	// otherwise the next reader/merge will reuse a name already in use.
+	result.UpdateCounterFromSegments()
+
 	if err := WriteSegmentInfos(result, w.directory); err != nil {
 		return fmt.Errorf("forceMerge: write merged segment infos: %w", err)
 	}
@@ -2849,6 +3169,11 @@ func (w *IndexWriter) forceMergeToOneSegment(si *SegmentInfos) error {
 		// Every document was deleted: the merged index has no segments.
 		w.committedSegments = nil
 	}
+
+	// Advance the segment-name counter past the newly merged segment so later
+	// flushes/merges on this index never reuse its name.
+	merged.UpdateCounterFromSegments()
+
 	if err := WriteSegmentInfos(merged, w.directory); err != nil {
 		return fmt.Errorf("forceMerge: write merged segment infos: %w", err)
 	}
@@ -3025,6 +3350,36 @@ func (w *IndexWriter) GetSegmentCount() int {
 	return committed
 }
 
+// NewestSegment returns the newest committed segment visible to this writer,
+// or nil when no segments exist yet.  The newest segment is the one with the
+// highest segment-name generation among the currently committed/NRT segment set.
+// This mirrors Lucene's IndexWriter.newestSegment().
+func (w *IndexWriter) NewestSegment() *SegmentCommitInfo {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+
+	var source []*SegmentCommitInfo
+	if w.nrtSegmentInfos != nil {
+		source = w.nrtSegmentInfos.List()
+	} else if w.lastCommittedSegmentInfos != nil {
+		source = w.lastCommittedSegmentInfos.List()
+	}
+	if len(source) == 0 {
+		return nil
+	}
+
+	newest := source[0]
+	maxGen := ParseGeneration(newest.SegmentInfo().Name())
+	for _, sci := range source[1:] {
+		gen := ParseGeneration(sci.SegmentInfo().Name())
+		if gen > maxGen {
+			maxGen = gen
+			newest = sci
+		}
+	}
+	return newest
+}
+
 // GetBufferedDeleteTermsSize returns the number of delete terms
 // currently buffered in RAM.
 func (w *IndexWriter) GetBufferedDeleteTermsSize() int {
@@ -3050,10 +3405,7 @@ func (w *IndexWriter) GetBufferedDeleteTermsSize() int {
 
 // GetFlushCount returns the number of times the index has been flushed.
 func (w *IndexWriter) GetFlushCount() int {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	// Placeholder - would track flush count
-	return 0
+	return int(w.flushCount.Load())
 }
 
 // DocStats holds document statistics for the index.
@@ -3696,6 +4048,11 @@ func (w *IndexWriter) AddIndexes(dirs ...store.Directory) error {
 				softDelCount:    sci.SoftDelCount(),
 				fieldInfos:      fi,
 				deletedOrdinals: sci.GetDeletedOrdinals(),
+				srcDir:          dir,
+				srcSegmentName:  sci.SegmentInfo().Name(),
+				srcFiles:        sci.GetFiles(),
+				srcCompoundFile: sci.SegmentInfo().IsCompoundFile(),
+				srcSegmentInfo:  sci.SegmentInfo(),
 			}
 			w.pendingImportedSegments = append(w.pendingImportedSegments, ps)
 		}
@@ -3763,6 +4120,79 @@ func sortsCompatible(dst, src *Sort) bool {
 		}
 	}
 	return true
+}
+
+// copyImportedSegmentFiles copies the on-disk segment files for an
+// AddIndexes-imported pending segment from the source directory into this
+// writer's directory, renaming them from the source segment name to dstName.
+// The .si file is skipped because Commit writes a fresh SegmentInfo. Returns
+// the list of copied file names in the destination directory.
+func (w *IndexWriter) copyImportedSegmentFiles(ps *pendingSegment, dstName string) ([]string, error) {
+	srcFiles := ps.srcFiles
+	if len(srcFiles) == 0 {
+		all, err := ps.srcDir.ListAll()
+		if err != nil {
+			return nil, fmt.Errorf("AddIndexes: list source directory: %w", err)
+		}
+		for _, f := range all {
+			if strings.HasPrefix(f, ps.srcSegmentName) {
+				srcFiles = append(srcFiles, f)
+			}
+		}
+	}
+
+	copied := make([]string, 0, len(srcFiles))
+	for _, srcFile := range srcFiles {
+		if GetExtension(srcFile) == "si" {
+			// Commit writes a new .si with the imported segment's metadata.
+			continue
+		}
+		if !strings.HasPrefix(srcFile, ps.srcSegmentName) {
+			return nil, fmt.Errorf("AddIndexes: source file %q does not start with segment name %q", srcFile, ps.srcSegmentName)
+		}
+		dstFile := dstName + srcFile[len(ps.srcSegmentName):]
+		if err := copyDirectoryFile(ps.srcDir, w.directory, srcFile, dstFile); err != nil {
+			return nil, fmt.Errorf("AddIndexes: copy %q -> %q: %w", srcFile, dstFile, err)
+		}
+		copied = append(copied, dstFile)
+	}
+	return copied, nil
+}
+
+// copyDirectoryFile copies a single file from srcDir to dstDir using the
+// standard Directory OpenInput/CreateOutput APIs.
+func copyDirectoryFile(srcDir, dstDir store.Directory, srcName, dstName string) error {
+	srcIn, err := srcDir.OpenInput(srcName, store.IOContextRead)
+	if err != nil {
+		return err
+	}
+	defer srcIn.Close()
+
+	dstOut, err := dstDir.CreateOutput(dstName, store.IOContextWrite)
+	if err != nil {
+		return err
+	}
+
+	length := srcIn.Length()
+	const chunk = 8192
+	buf := make([]byte, chunk)
+	var written int64
+	for written < length {
+		n := chunk
+		if length-written < chunk {
+			n = int(length - written)
+		}
+		if err := srcIn.ReadBytes(buf[:n]); err != nil {
+			_ = dstOut.Close()
+			return err
+		}
+		if err := dstOut.WriteBytes(buf[:n]); err != nil {
+			_ = dstOut.Close()
+			return err
+		}
+		written += int64(n)
+	}
+	return dstOut.Close()
 }
 
 // AddIndexesFromReader adds all live documents from each provided IndexReader

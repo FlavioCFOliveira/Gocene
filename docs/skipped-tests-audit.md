@@ -6,16 +6,16 @@
 ## Key Findings
 
 - **Total `t.Skip` calls remaining: 0** (the no-skip policy is fully enforced)
-- **Total deferred tests: 220** across 33 packages (down from 226; `util` and `util/bkd` blockers were retired)
+- **Total deferred tests: 203** across 33 packages (down from 226; `util` and `util/bkd` blockers were retired; index reduced from 222 to 203 during Sprint 15 T105.6/T105.7 work)
 - All deferred tests fail with descriptive blocker reasons, making the test suite informative about what remains unimplemented
 
-> **Note:** This audit was regenerated during Sprint 15 execution (last update 2026-07-15). The `codecs`, `util/bkd`, `util`, and several `index` deferred blocks were resolved; counts and blocker messages were updated to reflect the current state. Regenerate this document after Sprint 15 closes for a final deferred-test count.
+> **Note:** This audit was partially refreshed during Sprint 15 execution (last update 2026-07-17). The `codecs`, `util/bkd`, `util`, and many `index` deferred blocks were resolved; the `index` package remains the only failing package with 203 deferred tests. Several blocker messages were updated to reflect the actual remaining root cause. A full regeneration is deferred until Sprint 15 closes.
 
 ## Summary Table
 
 | Package | Deferred Tests | Blocker Summary |
 |---------|:--------------:|-----------------|
-| `index` | 222 | Remaining `t.Fatal` blockers: term-vectors/RandomIndexWriter integration, payloads/MockAnalyzer, tragic deadlock hooks, monster tests, CheckIndex info-stream, LogDocMergePolicy.setMinMergeDocs, TryDeleteDocument NRT path |
+| `index` | 203 | Remaining `t.Fatal` blockers: term-vectors/RandomIndexWriter integration, payloads/MockAnalyzer, tragic deadlock hooks, monster tests, CheckIndex info-stream, LogDocMergePolicy.setMinMergeDocs, applied deletes on commit, DirectoryReader closed-flag |
 | `search` | 0 | All search package tests pass |
 | `codecs` | 0 | All codec-level tests pass; previous entries (Lucene99 placeholders, PerField round-trips, DocValuesSkipper, TV/SF formats) were implemented in T105.4/T105.5 work |
 | `util/bkd` | 0 | All default tests pass; `TestBKD_RandomBinaryBig` is gated by the `gocene_monsters` build tag and runs only in monster/CI mode |
@@ -48,26 +48,28 @@
 | `queryparser/util` | 0 | All tests pass |
 | `queries/function/docvalues` | 0 | All tests pass |
 | `facets/taxonomywritercache` | 0 | All tests pass |
-| **Total** | **220** | |
+| **Total** | **203** | |
 
 ## Detailed Deferred Test Listing
 
-### `index` (222 deferred tests)
+### `index` (203 deferred tests)
 
-The `index` package is the only package still failing in `go test ./...`. The detailed table below reflects the original 2026-06-11 snapshot; many entries have been resolved in Sprint 15 (DeleteDocuments, NRT reader, RandomIndexWriter, MockDirectoryWrapper disk-full tests, CheckIndex, merge scheduler, CannedTokenStream). The remaining 222 failures are concentrated in term-vector integration, payload/MockAnalyzer wiring, tragic deadlock hooks, monster tests, and a few `IndexWriter`/`LogDocMergePolicy` gaps.
+The `index` package is the only package still failing in `go test ./...`. The detailed table below reflects the original 2026-06-11 snapshot; many entries have been resolved in Sprint 15 (DeleteDocuments, NRT reader, RandomIndexWriter, MockDirectoryWrapper disk-full tests, CheckIndex, merge scheduler, CannedTokenStream, doc-values updates, merge-policy diagnostics/concurrent-flush tests). The remaining 203 failures are concentrated in term-vector integration, payload/MockAnalyzer wiring, tragic deadlock hooks, monster tests, applied deletes on commit, and a few `IndexWriter`/reader closed-flag gaps.
+
+> **T105.6/T105.7 partial refresh (2026-07-17):** The following previously-blocked tests now pass and were removed from the active failure set: `TestNewestSegment`, `TestIsCurrent_DeleteByTermIsCurrent`, `TestIsCurrent_DeleteAllIsCurrent`, `TestTryDeleteDocument`, `TestTryDeleteDocumentCloseAndReopen`, `TestStressIndexAndSearching`, `TestIndexWriterMerging_NoWaitClose`, and eight `TestIndexWriterMergePolicy_*` subtests (`CarryOverNewDeletesOnCommit`, `AbortMergeOnCommit`, `FailAfterMergeCommitted`, `SetDiagnostics`, `ForceMergeDVUpdateFileWithConcurrentFlush`, `MergeDVUpdateFileOnGetReaderWithConcurrentFlush`, `MergeDVUpdateFileOnCommitWithConcurrentFlush`, `ForceMergeWithPendingHardAndSoftDeleteFile`). Their audit rows below are marked **RESOLVED** where present.
 
 | Test Function | File:Line | Blocker Reason |
 |---------------|-----------|----------------|
-| `TestIndexWriterCommit` (multiple) | `index/index_writer_commit_test.go:109` | Reopen does not yet observe externally committed segments |
-| `TestIndexWriterCommit` | `index/index_writer_commit_test.go:333` | DirectoryReader.Leaves does not yet expose per-segment leaves |
-| `TestIndexWriterCommit` | `index/index_writer_commit_test.go:895` | SetLiveCommitData is not yet persisted to the commit point |
-| `TestIndexWriterCommit` | `index/index_writer_commit_test.go:990` | SetLiveCommitData is not yet persisted to the commit point |
-| `TestIndexWriterCommit` | `index/index_writer_commit_test.go:1085` | MockDirectoryWrapper disk-usage tracking not yet ported |
-| `TestIndexWriterCommit` | `index/index_writer_commit_test.go:1098` | RandomIndexWriter / OpenIfChanged not yet available |
-| `TestIndexWriterCommit` | `index/index_writer_commit_test.go:1111` | IndexWriterConfig.SetIndexCommit is not yet implemented |
-| `TestIndexWriterMergePolicy` (11 calls) | `index/index_writer_merge_policy_test.go:298-800` | Requires full IndexWriter/MergeScheduler/DirectoryReader/failure injection/doc values update/NRT reader/soft deletes |
+| `TestIndexWriterCommit` (multiple) | `index/index_writer_commit_test.go:109` | **RESOLVED** — TestIndexWriterCommit subtests now pass |
+| `TestIndexWriterCommit` | `index/index_writer_commit_test.go:333` | **RESOLVED** — TestIndexWriterCommit subtests now pass |
+| `TestIndexWriterCommit` | `index/index_writer_commit_test.go:895` | **RESOLVED** — TestIndexWriterCommit subtests now pass |
+| `TestIndexWriterCommit` | `index/index_writer_commit_test.go:990` | **RESOLVED** — TestIndexWriterCommit subtests now pass |
+| `TestIndexWriterCommit` | `index/index_writer_commit_test.go:1085` | **RESOLVED** — TestIndexWriterCommit subtests now pass |
+| `TestIndexWriterCommit` | `index/index_writer_commit_test.go:1098` | **RESOLVED** — TestIndexWriterCommit subtests now pass |
+| `TestIndexWriterCommit` | `index/index_writer_commit_test.go:1111` | **RESOLVED** — TestIndexWriterCommit subtests now pass |
+| `TestIndexWriterMergePolicy` (11 calls) | `index/index_writer_merge_policy_test.go:298-800` | **RESOLVED** — all 11 subtests pass after unblocking stale t.Fatal calls |
 | `TestIndexWriterMerge` (4 calls) | `index/index_writer_merge_test.go:180-270` | MergeScheduler not yet implemented, disable background merge, compound file verification |
-| `TestIndexWriterMerging` (16 calls) | `index/index_writer_merging_test.go:69-747` | AddIndexes, DirectoryReader.Open, DeleteDocuments, ForceMergeDeletes, LogMergePolicy, CMS not fully implemented |
+| `TestIndexWriterMerging` (15 calls remain) | `index/index_writer_merging_test.go:69-747` | AddIndexes, DirectoryReader.Open, DeleteDocuments, ForceMergeDeletes, LogMergePolicy, CMS not fully implemented (`NoWaitClose` resolved) |
 | `TestIndexWriterForceMerge` (4 calls) | `index/index_writer_force_merge_test.go:108-248` | ForceMerge does not honor maxNumSegments; MockDirectoryWrapper; background overload not implemented |
 | `TestSizeBoundedForceMerge` (11 calls) | `index/size_bounded_force_merge_test.go:121-369` | ForceMerge ignores LogByteSize/LogDocMergePolicy size caps; assertions deferred |
 | `TestIndexWriterWithThreads` (14 calls) | `index/index_writer_with_threads_test.go:78-155` | MockDirectoryWrapper, Document pipeline, CMS, RandomIndexWriter (Sprint 55 option c) |
@@ -97,14 +99,14 @@ The `index` package is the only package still failing in `go test ./...`. The de
 | `TestNumericDocValuesUpdates` (2 calls) | `index/numeric_doc_values_updates_test.go:42-231` | infra gap: no core readers; writer does not reject numeric update |
 | `TestMixedDocValuesUpdates` (13 calls) | `index/mixed_doc_values_updates_test.go:27-100` | GOC-4202: pending updateDocValues + NRT reopen |
 | `TestSegmentCoreReadersDV` (2 calls) | `index/segment_core_readers_dv_test.go:63-66` | GetCoreReaders()/GetDocValuesProducer() = nil (rmp #4) |
-| `TestReaderClosed` | `index/reader_closed_test.go:56` | SegmentReader without core readers; No AlreadyClosedException |
+| `TestReaderClosed` | `index/reader_closed_test.go:56` | DirectoryReader.Close does not set a closed flag; subsequent IndexSearcher.Search returns 0 hits silently instead of AlreadyClosedException |
 | `TestDocInverterPerFieldErrorInfo` (2 calls) | `index/doc_inverter_per_field_error_info_test.go:53-78` | GOC-4199: pending SetInfoStream + DocInverter error reporting |
 | `TestInfoStream` (2 calls) | `index/info_stream_test.go:73-82` | No SetInfoStream; no isEnableTestPoints (Sprint 55 option c) |
 | `TestCheckIndexCompatibility` (6 calls) | `index/checkindex_compatibility_test.go:54-148` | checkindex not implemented |
 | `TestIndexCommit` (3 calls) | `index/index_commit_test.go:99-135` | list commits / OpenDirectoryReaderAtCommitPoint not implemented |
 | `TestDeletionPolicy` (6 calls) | `index/deletion_policy_test.go:67-163` | needs functional IndexCommit.Delete + commit-generation |
-| `TestIsCurrent` (2 calls) | `index/is_current_test.go:33-42` | needs NRT IndexWriter.GetReader; DeleteDocuments is no-op stub |
-| `TestNewestSegment` | `index/newest_segment_test.go:22` | Sprint 55 option c: needs IndexWriter.newestSegment |
+| `TestIsCurrent` (2 calls) | `index/is_current_test.go:33-42` | **RESOLVED** — NRT reader and DeleteDocuments work; test passes |
+| `TestNewestSegment` | `index/newest_segment_test.go:22` | **RESOLVED** — IndexWriter.NewestSegment implemented; test passes |
 | `TestSegmentToThreadMapping` | `index/segment_to_thread_mapping_test.go:20` | IndexSearcher has no Slices/LeafSlice API |
 | `TestSumDocFreq` | `index/sum_doc_freq_test.go:39` | GOC-4173: needs RandomIndexWriter + MultiTerms |
 | `TestDocCount` | `index/doc_count_test.go:39` | GOC-4140: needs RandomIndexWriter + MultiTerms |
@@ -118,10 +120,10 @@ The `index` package is the only package still failing in `go test ./...`. The de
 | `TestTransactions` | `index/transactions_test.go:37` | port blocked: no MockDirectoryWrapper Failure |
 | `TestForceMergeForever` | `index/force_merge_forever_test.go:56` | needs IndexWriter merge-hook |
 | `TestThreadedForceMerge` | `index/threaded_force_merge_test.go:50` | DeleteDocuments(Term) is no-op stub |
-| `TestStressIndexing` | `index/stress_indexing_test.go:93` | infra gap: DeleteDocuments is no-op stub |
-| `TestStressDeletes` | `index/stress_deletes_test.go:30` | infra gap: DeleteDocuments no-op stubs |
+| `TestStressIndexing` | `index/stress_indexing_test.go:93` | **RESOLVED** — DeleteDocuments buffering works; test passes |
+| `TestStressDeletes` | `index/stress_deletes_test.go:30` | DeleteDocuments/DeleteDocumentsQuery deletes are buffered by IndexWriter but are not applied to committed segments during Commit; searches still return deleted documents |
 | `TestSoftDeletesIntegration` (2 calls) | `index/soft_deletes_integration_test.go:14-18` | SoftUpdateDocument not yet implemented |
-| `TestTryDelete` (2 calls) | `index/try_delete_test.go:112-123` | no NRT reader; DeleteDocumentsQuery no-op stub |
+| `TestTryDelete` (2 calls) | `index/try_delete_test.go:112-123` | **RESOLVED** — NRT reader and DeleteDocumentsQuery work; tests pass |
 | `TestPerSegmentDeletes` | `index/per_segment_deletes_test.go:22` | deferred: IndexWriter.MaybeMerge, HasChangesInRam, NRT reader |
 | `TestDirectoryReaderReopen` (2 calls) | `index/directory_reader_reopen_test.go:139-153` | needs openIfChanged; MockDirectoryWrapper |
 | `TestAllFilesDetectMismatchedChecksum` | `index/all_files_detect_mismatched_checksum_test.go:41` | per-file CRC32 verification not implemented |

@@ -159,16 +159,26 @@ func TestIndexCommit_DeleteCommits(t *testing.T) {
 		writer.Commit()
 	}
 
-	// Delete old commits
+	// Close the first writer before opening a second one on the same directory.
+	if err := writer.Close(); err != nil {
+		t.Fatalf("failed to close first writer: %v", err)
+	}
+
+	// Delete old commits: a new writer with KeepOnlyLastCommitDeletionPolicy will
+	// prune older commits when it commits.
 	config2 := index.NewIndexWriterConfig(analyzer)
 	config2.SetIndexDeletionPolicy(index.NewKeepOnlyLastCommitDeletionPolicy())
 
 	writer2, err := index.NewIndexWriter(dir, config2)
 	if err != nil {
-		t.Logf("new writer may not be created: %v", err)
-		t.Fatal("writer creation failed")
+		t.Fatalf("new writer may not be created: %v", err)
 	}
 	defer writer2.Close()
+
+	// Trigger the deletion policy so only the most recent commit survives.
+	if err := writer2.Commit(); err != nil {
+		t.Fatalf("second writer commit failed: %v", err)
+	}
 
 	t.Log("IndexCommit delete commits test passed")
 }

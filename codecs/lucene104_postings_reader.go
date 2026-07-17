@@ -1539,7 +1539,7 @@ func (e *blockPostingsEnum) refillLastPositionBlock() error {
 			}
 			if e.payloadLengthBuffer != nil {
 				e.payloadLengthBuffer[i] = int64(payloadLength)
-				e.posDeltaBuffer[i] = int64(code >> 1)
+				e.posDeltaBuffer[i] = int64(uint32(code) >> 1)
 				if payloadLength != 0 {
 					need := e.payloadByteUpto + payloadLength
 					if need > len(e.payloadBytes) {
@@ -1554,7 +1554,7 @@ func (e *blockPostingsEnum) refillLastPositionBlock() error {
 				}
 			} else {
 				_ = skipBytesInput(e.posIn, int64(payloadLength)) // skip unwanted payload bytes
-				e.posDeltaBuffer[i] = int64(code >> 1)
+				e.posDeltaBuffer[i] = int64(uint32(code) >> 1)
 			}
 		} else {
 			e.posDeltaBuffer[i] = int64(code)
@@ -1573,7 +1573,7 @@ func (e *blockPostingsEnum) refillLastPositionBlock() error {
 				offsetLength = int(ol)
 			}
 			if e.offsetStartDeltaBuffer != nil {
-				e.offsetStartDeltaBuffer[i] = int64(deltaCode >> 1)
+				e.offsetStartDeltaBuffer[i] = int64(uint32(deltaCode) >> 1)
 				e.offsetLengthBuffer[i] = int64(offsetLength)
 			}
 		}

@@ -62,6 +62,13 @@ type LogMergePolicy struct {
 	// levelSize is the size multiplier between levels.
 	// Default is mergeFactor.
 	levelSize int64
+
+	// sizeCalculator returns the size of a segment for merge selection.
+	// It is set by concrete policies: LogDocMergePolicy uses document count
+	// while LogMergePolicy defaults to byte size. This indirection is needed
+	// because FindMerges is defined on the base *LogMergePolicy receiver and
+	// Go does not dispatch to promoted methods on embedded concrete types.
+	sizeCalculator func(*SegmentCommitInfo, MergeContext) int64
 }
 
 // NewLogMergePolicy creates a new LogMergePolicy with default settings.
@@ -157,6 +164,10 @@ func (p *LogMergePolicy) SetNoCFSRatio(v float64) {
 // Size returns the size of a segment for merge policy purposes.
 // This may be calibrated by deletes if calibrateSizeByDeletes is true.
 func (p *LogMergePolicy) Size(info *SegmentCommitInfo, mergeContext MergeContext) int64 {
+	if p.sizeCalculator != nil {
+		return p.sizeCalculator(info, mergeContext)
+	}
+
 	byteSize := info.SegmentInfo().SizeInBytes()
 
 	if p.calibrateSizeByDeletes && mergeContext != nil {
@@ -605,28 +616,42 @@ type LogDocMergePolicy struct {
 // NewLogDocMergePolicy creates a new LogDocMergePolicy.
 // This implements GC-638: LogDocMergePolicy constructor
 func NewLogDocMergePolicy() *LogDocMergePolicy {
+	base := NewLogMergePolicy()
+	// LogDocMergePolicy measures segment size in documents, not bytes.
+	base.minMergeSize = 1000 // DEFAULT_MIN_MERGE_DOCS
+	// Byte-size caps are irrelevant for a document-count policy.
+	base.maxMergeSize = math.MaxInt64
+	base.maxMergeSizeForForcedMerge = math.MaxInt64
+	base.sizeCalculator = func(info *SegmentCommitInfo, mergeContext MergeContext) int64 {
+		docCount := int64(info.SegmentInfo().DocCount())
+		if base.calibrateSizeByDeletes && mergeContext != nil {
+			delCount := mergeContext.NumDeletesToMerge(info)
+			if docCount > 0 && delCount > 0 {
+				delRatio := float64(delCount) / float64(docCount)
+				if delRatio > 1.0 {
+					delRatio = 1.0
+				}
+				docCount = int64(float64(docCount) * (1.0 - delRatio))
+			}
+		}
+		return docCount
+	}
 	return &LogDocMergePolicy{
-		LogMergePolicy: NewLogMergePolicy(),
+		LogMergePolicy: base,
 	}
 }
 
-// Size returns the size of a segment based on document count.
-// This overrides the byte size calculation to use document count instead.
-func (p *LogDocMergePolicy) Size(info *SegmentCommitInfo, mergeContext MergeContext) int64 {
-	docCount := int64(info.SegmentInfo().DocCount())
+// GetMinMergeDocs returns the minimum segment document count for the lowest
+// level of merges.
+func (p *LogDocMergePolicy) GetMinMergeDocs() int {
+	return int(p.minMergeSize)
+}
 
-	if p.GetCalibrateSizeByDeletes() && mergeContext != nil {
-		delCount := mergeContext.NumDeletesToMerge(info)
-		if docCount > 0 && delCount > 0 {
-			delRatio := float64(delCount) / float64(docCount)
-			if delRatio > 1.0 {
-				delRatio = 1.0
-			}
-			docCount = int64(float64(docCount) * (1.0 - delRatio))
-		}
-	}
-
-	return docCount
+// SetMinMergeDocs sets the minimum segment document count for the lowest
+// level of merges. Segments with fewer docs than this value are treated as
+// candidates for full-flush merges.
+func (p *LogDocMergePolicy) SetMinMergeDocs(v int) {
+	p.minMergeSize = int64(v)
 }
 
 // String returns a string representation of the policy.

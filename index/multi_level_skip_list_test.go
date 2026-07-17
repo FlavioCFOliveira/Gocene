@@ -45,15 +45,24 @@ func TestMultiLevelSkipList(t *testing.T) {
 	}
 
 	// Writer-side hook: write the doc delta as a single byte per skip entry.
+	// The delta matches the skip interval of the level so that the skip-list
+	// shape mirrors a real Lucene skip list.
 	w := codecs.NewMultiLevelSkipListWriter(skipInterval, skipMultiplier, maxSkipLevels, df,
 		func(level int, buf *store.ByteArrayDataOutput) error {
-			return buf.WriteByte(byte(skipInterval))
+			delta := skipInterval
+			for i := 0; i < level; i++ {
+				delta *= skipMultiplier
+			}
+			return buf.WriteByte(byte(delta))
 		},
 	)
 	w.Init()
 
-	// Buffer skip entries for df 1..200.
+	// Buffer skip entries at skipInterval boundaries for df 1..200.
 	for i := 1; i <= df; i++ {
+		if i%skipInterval != 0 {
+			continue
+		}
 		if err := w.BufferSkip(i); err != nil {
 			t.Fatalf("BufferSkip(%d): %v", i, err)
 		}
@@ -92,18 +101,22 @@ func TestMultiLevelSkipList(t *testing.T) {
 	//   - target < skipInterval: no skip entry qualifies.
 	//   - target just past a skip entry: that entry is the last match.
 	//   - target far into the posting list: multiple levels are exercised.
+	//
+	// The return value of SkipTo follows Lucene's contract:
+	// numSkipped[0] - skipInterval[0] - 1, which for this data equals
+	// (last accepted doc) - 1.
 	cases := []struct {
-		target           int
-		wantDoc          int
-		minSkipped       int
+		target     int
+		wantDoc    int
+		minSkipped int
 	}{
-		{target: 1, wantDoc: 0, minSkipped: 0},               // before first skip entry
-		{target: 4, wantDoc: 0, minSkipped: 0},               // at the first skip entry → lastDoc is 0 before reading it
-		{target: 5, wantDoc: 4, minSkipped: 4},               // after first skip entry
-		{target: 17, wantDoc: 16, minSkipped: 16},            // after 4th skip entry
-		{target: 50, wantDoc: 48, minSkipped: 48},            // after 12th skip entry
-		{target: 100, wantDoc: 100, minSkipped: 100},         // on a skip entry at a high level
-		{target: 150, wantDoc: 148, minSkipped: 148},         // deep in the list
+		{target: 1, wantDoc: 0, minSkipped: -1},        // before first skip entry
+		{target: 4, wantDoc: 0, minSkipped: -1},        // at the first skip entry → lastDoc is 0 before reading it
+		{target: 5, wantDoc: 4, minSkipped: 3},         // after first skip entry
+		{target: 17, wantDoc: 16, minSkipped: 15},      // after 4th skip entry
+		{target: 50, wantDoc: 48, minSkipped: 47},      // after 12th skip entry
+		{target: 100, wantDoc: 96, minSkipped: 95},     // between level-0 entries 96 and 100
+		{target: 150, wantDoc: 148, minSkipped: 147},   // deep in the list
 	}
 	for _, tc := range cases {
 		// Reset the reader for each target.

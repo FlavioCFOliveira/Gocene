@@ -882,7 +882,9 @@ func TestAddIndexes_CascadingMerges(t *testing.T) {
 		}
 
 		// Should trigger cascading merges
-		writer.ForceMerge(1)
+		if err := writer.ForceMerge(1); err != nil {
+			t.Fatalf("ForceMerge: %v", err)
+		}
 
 		// Verify (10 * 10 = 100)
 		if writer.MaxDoc() != 100 {
