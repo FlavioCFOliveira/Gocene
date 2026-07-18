@@ -77,6 +77,7 @@ func (d *NIOFSDirectory) OpenInput(name string, ctx IOContext) (IndexInput, erro
 		path:           path,
 		name:           name,
 		directory:      d,
+		off:            0,
 		BaseIndexInput: NewBaseIndexInput(fmt.Sprintf("NIOFSIndexInput(path=\"%s\")", path), info.Size()),
 	}, nil
 }
@@ -124,6 +125,10 @@ type NIOFSIndexInput struct {
 	path      string
 	name      string
 	directory *NIOFSDirectory
+	// off is the absolute byte offset in the underlying file that corresponds
+	// to logical position 0 for this IndexInput. It is non-zero for slices and
+	// clones of slices.
+	off int64
 }
 
 // ReadByte reads a single byte from the buffered reader.
@@ -217,8 +222,8 @@ func (in *NIOFSIndexInput) SetPosition(pos int64) error {
 		return fmt.Errorf("invalid position: %d", pos)
 	}
 
-	// Seek in the underlying file
-	_, err := in.file.Seek(pos, io.SeekStart)
+	// Seek in the underlying file, accounting for the slice offset.
+	_, err := in.file.Seek(in.off+pos, io.SeekStart)
 	if err != nil {
 		return err
 	}
@@ -243,12 +248,13 @@ func (in *NIOFSIndexInput) Clone() IndexInput {
 			path:           in.path,
 			name:           in.name,
 			directory:      in.directory,
+			off:            in.off,
 		}
 	}
 
-	// Position the new file at the current position
+	// Position the new file at the current absolute position.
 	currentPos := in.GetFilePointer()
-	if _, err := file.Seek(currentPos, io.SeekStart); err != nil {
+	if _, err := file.Seek(in.off+currentPos, io.SeekStart); err != nil {
 		file.Close()
 		return &NIOFSIndexInput{
 			BaseIndexInput: NewBaseIndexInput(in.GetDescription(), in.Length()),
@@ -257,6 +263,7 @@ func (in *NIOFSIndexInput) Clone() IndexInput {
 			path:           in.path,
 			name:           in.name,
 			directory:      in.directory,
+			off:            in.off,
 		}
 	}
 
@@ -269,8 +276,9 @@ func (in *NIOFSIndexInput) Clone() IndexInput {
 		path:           in.path,
 		name:           in.name,
 		directory:      in.directory,
+		off:            in.off,
 	}
-	// Set the file pointer to match the original
+	// Set the file pointer to match the original (logical, within the slice).
 	clone.SetFilePointer(currentPos)
 	return clone
 }
@@ -287,8 +295,9 @@ func (in *NIOFSIndexInput) Slice(desc string, offset int64, length int64) (Index
 		return nil, fmt.Errorf("failed to open file for slice: %w", err)
 	}
 
-	// Seek to the offset
-	if _, err := file.Seek(offset, io.SeekStart); err != nil {
+	sliceOff := in.off + offset
+	// Seek to the absolute offset of the slice start.
+	if _, err := file.Seek(sliceOff, io.SeekStart); err != nil {
 		file.Close()
 		return nil, fmt.Errorf("failed to seek to offset: %w", err)
 	}
@@ -302,6 +311,7 @@ func (in *NIOFSIndexInput) Slice(desc string, offset int64, length int64) (Index
 		path:           in.path,
 		name:           in.name,
 		directory:      in.directory,
+		off:            sliceOff,
 	}, nil
 }
 

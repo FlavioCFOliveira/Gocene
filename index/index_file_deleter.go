@@ -7,6 +7,7 @@ package index
 import (
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -709,13 +710,17 @@ func newIndexFileDeleterCommitPoint(
 		files:            filesFromInfos(segmentInfos, true),
 		commitsToDelete:  commitsToDelete,
 	}
-	// Wire the deletion hook so policy.Delete() on the IndexCommit causes
-	// the wrapping CommitPoint to be enqueued. We do this by replacing
-	// the IndexCommit's directory with a one-shot adapter that flips our
-	// flag on the next DeleteFile call. Cheaper and clearer: expose the
-	// hook explicitly via SetDeletionHook (added below) once available;
-	// for now we mark deletion by inspecting the IndexCommit's IsDeleted
-	// after each policy call (see assertCommitsNotDeleted/deleteCommits).
+	// Wire the deletion hook so policy.Delete() on the IndexCommit enqueues
+	// this commit point. IndexFileDeleter.deleteCommits will then DecRef the
+	// commit's files and remove the segments file in the correct two-pass order.
+	ic.SetDeletionHook(func() error {
+		if cp.deleted {
+			return nil
+		}
+		cp.deleted = true
+		*commitsToDelete = append(*commitsToDelete, cp)
+		return nil
+	})
 	return cp
 }
 
@@ -726,7 +731,19 @@ type directoryAsFileDeleter struct {
 }
 
 func (d directoryAsFileDeleter) DeleteFile(name string) error {
-	return d.dir.DeleteFile(name)
+	err := d.dir.DeleteFile(name)
+	if err == nil {
+		return nil
+	}
+	// Lucene's FileDeleter ignores NoSuchFileException / FileNotFoundException
+	// when deleting: the file deleter's job is to ensure unreferenced files are
+	// removed, and an already-absent file is equivalent to success.  This avoids
+	// spurious failures when multiple commit paths converge on the same stale
+	// file (e.g. forceMerge source segments with shared deletion files).
+	if errors.Is(err, store.ErrFileNotFound) || os.IsNotExist(err) {
+		return nil
+	}
+	return err
 }
 
 // filesFromInfos materialises the file set referenced by a SegmentInfos.

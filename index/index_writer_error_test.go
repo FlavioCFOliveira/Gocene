@@ -5,41 +5,16 @@
 // Package index_test contains tests for IndexWriter error handling scenarios.
 //
 // Ported from Apache Lucene's org.apache.lucene.index.TestIndexWriter
-// Error handling test methods:
-//   - testOnDiskFull
-//   - testOnError
-//   - testOutOfFileDescriptors
-//   - testLockRelease
-//
-// GC-115: Index Tests - IndexWriter Error Handling
+// error-handling test methods.
 package index_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
-
-// errorInjectorDirectory is a test helper that can inject errors
-// into directory operations to simulate failures.
-// This follows the pattern of Lucene's MockDirectoryWrapper.
-type errorInjectorDirectory struct {
-	store.Directory
-	errorsOnCreateOutput bool
-	errorsOnClose        bool
-	writeErrors          int
-	writeErrorsRemaining int
-}
-
-func newErrorInjectorDirectory(dir store.Directory) *errorInjectorDirectory {
-	return &errorInjectorDirectory{Directory: dir}
-}
-
-func (d *errorInjectorDirectory) injectWriteErrors(count int) {
-	d.writeErrorsRemaining = count
-	d.writeErrors = count
-}
 
 // TestIndexWriter_DiskFull tests behavior when disk is full during indexing.
 // Ported from: TestIndexWriter.testOnDiskFull()
@@ -55,12 +30,8 @@ func TestIndexWriter_DiskFull(t *testing.T) {
 		}
 		defer writer.Close()
 
-		// TODO: Inject disk full error and verify proper handling
-		// Currently: test documents expected behavior
-		err = writer.Commit()
-		if err != nil {
-			// Currently no-op implementation returns nil
-			t.Logf("Commit() returned error: %v", err)
+		if err := writer.Commit(); err != nil {
+			t.Fatalf("Commit() error = %v", err)
 		}
 	})
 
@@ -79,8 +50,6 @@ func TestIndexWriter_DiskFull(t *testing.T) {
 			t.Logf("AddDocument() returned error: %v", err)
 		}
 
-		// Index should remain consistent after failed operation
-		// Currently: AddDocument is stubbed
 		if writer.IsClosed() {
 			t.Error("Writer should not be closed after recoverable error")
 		}
@@ -97,14 +66,11 @@ func TestIndexWriter_GeneralErrors(t *testing.T) {
 		config := index.NewIndexWriterConfig(createTestAnalyzer())
 		writer, _ := index.NewIndexWriter(dir, config)
 
-		// Close the writer
 		writer.Close()
 
-		// Attempt operations on closed writer
 		doc := &testDocument{fields: []interface{}{}}
 		err := writer.AddDocument(doc)
 
-		// Should return error for closed writer
 		if err == nil {
 			t.Fatal("AddDocument on closed writer should return error")
 		}
@@ -121,13 +87,11 @@ func TestIndexWriter_GeneralErrors(t *testing.T) {
 		writer, _ := index.NewIndexWriter(dir, config)
 		defer writer.Close()
 
-		// Add some documents
 		for i := 0; i < 3; i++ {
 			doc := &testDocument{fields: []interface{}{}}
 			writer.AddDocument(doc)
 		}
 
-		// Index should be in consistent state
 		numDocs := writer.NumDocs()
 		if numDocs != 3 {
 			t.Errorf("Expected 3 docs, got %d", numDocs)
@@ -139,7 +103,7 @@ func TestIndexWriter_GeneralErrors(t *testing.T) {
 // Ported from: TestIndexWriter.testOutOfFileDescriptors()
 func TestIndexWriter_ResourceExhaustion(t *testing.T) {
 	t.Run("out of file descriptors handling", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
+		dir := store.NewMockDirectoryWrapper(store.NewByteBuffersDirectory())
 		defer dir.Close()
 
 		config := index.NewIndexWriterConfig(createTestAnalyzer())
@@ -149,27 +113,53 @@ func TestIndexWriter_ResourceExhaustion(t *testing.T) {
 		}
 		defer writer.Close()
 
-		// TODO: Test behavior when file descriptors exhausted
-		// Should handle gracefully without corrupting index
-		t.Fatal("Resource exhaustion tests require directory mock injection")
+		// Inject a random IOException on every file-open operation for the next
+		// AddDocument call. This simulates transient resource exhaustion.
+		if err := writer.AddDocument(&testDocument{fields: []interface{}{}}); err != nil {
+			t.Fatalf("AddDocument before injection: %v", err)
+		}
+
+		// Inject a random IOException on every file-open operation during commit.
+		dir.SetRandomIOExceptionRateOnOpen(1.0)
+		err = writer.Commit()
+		dir.SetRandomIOExceptionRateOnOpen(0)
+
+		if err == nil {
+			t.Fatal("expected Commit to fail with injected IOException")
+		}
+		if !errors.Is(err, store.FakeIOException{}) {
+			t.Fatalf("expected FakeIOException, got %T: %v", err, err)
+		}
 	})
 
 	t.Run("recover from resource exhaustion", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
+		dir := store.NewMockDirectoryWrapper(store.NewByteBuffersDirectory())
 		defer dir.Close()
 
 		config := index.NewIndexWriterConfig(createTestAnalyzer())
 		writer, _ := index.NewIndexWriter(dir, config)
-		defer writer.Close()
 
-		// After resource exhaustion, writer should be able to continue
-		doc := &testDocument{fields: []interface{}{}}
-		err := writer.AddDocument(doc)
-
-		// Should be able to continue operations
-		if err != nil {
-			t.Errorf("AddDocument after resource exhaustion should not fail: %v", err)
+		if err := writer.AddDocument(&testDocument{fields: []interface{}{}}); err != nil {
+			t.Fatalf("AddDocument before injection: %v", err)
 		}
+
+		// First, inject an open-time IOException during commit.
+		dir.SetRandomIOExceptionRateOnOpen(1.0)
+		err := writer.Commit()
+		dir.SetRandomIOExceptionRateOnOpen(0)
+
+		if err == nil {
+			t.Fatal("expected Commit to fail with injected IOException")
+		}
+
+		// After the failure the writer may be closed by the tragic-error path.
+		// If it is still open, a subsequent operation must succeed.
+		if !writer.IsClosed() {
+			if err := writer.AddDocument(&testDocument{fields: []interface{}{}}); err != nil {
+				t.Fatalf("AddDocument after clearing injection should succeed: %v", err)
+			}
+		}
+		writer.Close()
 	})
 }
 
@@ -177,7 +167,6 @@ func TestIndexWriter_ResourceExhaustion(t *testing.T) {
 // Ported from: TestIndexWriter.testLockRelease()
 func TestIndexWriter_LockRelease(t *testing.T) {
 	t.Run("lock released after close", func(t *testing.T) {
-		// Use a directory with explicit lock factory
 		dir := store.NewByteBuffersDirectory()
 		dir.SetLockFactory(store.NewSingleInstanceLockFactory())
 		defer dir.Close()
@@ -188,13 +177,11 @@ func TestIndexWriter_LockRelease(t *testing.T) {
 			t.Fatalf("NewIndexWriter() error = %v", err)
 		}
 
-		// Close should release the lock
 		err = writer.Close()
 		if err != nil {
 			t.Errorf("Close() error = %v", err)
 		}
 
-		// Should be able to obtain lock again
 		lock, err := dir.ObtainLock("write.lock")
 		if err != nil {
 			t.Errorf("Should be able to obtain lock after writer close: %v", err)
@@ -212,16 +199,12 @@ func TestIndexWriter_LockRelease(t *testing.T) {
 		config := index.NewIndexWriterConfig(createTestAnalyzer())
 		writer, _ := index.NewIndexWriter(dir, config)
 
-		// Commit
-		err := writer.Commit()
-		if err != nil {
+		if err := writer.Commit(); err != nil {
 			t.Logf("Commit error: %v", err)
 		}
 
-		// Close writer
 		writer.Close()
 
-		// Lock should be released
 		lock, err := dir.ObtainLock("write.lock")
 		if err != nil {
 			t.Errorf("Lock should be released after error: %v", err)
@@ -236,16 +219,32 @@ func TestIndexWriter_LockRelease(t *testing.T) {
 // Ported from various TestIndexWriter IO exception tests.
 func TestIndexWriter_IOException(t *testing.T) {
 	t.Run("directory IO exception handling", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
+		dir := store.NewMockDirectoryWrapper(store.NewByteBuffersDirectory())
 		defer dir.Close()
 
 		config := index.NewIndexWriterConfig(createTestAnalyzer())
 		writer, _ := index.NewIndexWriter(dir, config)
 		defer writer.Close()
 
-		// TODO: Test with injected IO exceptions
-		// Writer should handle gracefully
-		t.Fatal("IO exception injection requires MockDirectoryWrapper implementation")
+		// Inject a deterministic failure into every guarded operation.
+		if err := writer.AddDocument(&testDocument{fields: []interface{}{}}); err != nil {
+			t.Fatalf("AddDocument before injection: %v", err)
+		}
+
+		f := &store.Failure{}
+		f.SetEval(func(d *store.MockDirectoryWrapper) error {
+			return store.FakeIOException{}
+		})
+		f.SetDoFail()
+		dir.FailOn(f)
+
+		err := writer.Commit()
+		if err == nil {
+			t.Fatal("expected Commit to fail with injected Failure")
+		}
+		if !errors.Is(err, store.FakeIOException{}) {
+			t.Fatalf("expected FakeIOException, got %T: %v", err, err)
+		}
 	})
 }
 
@@ -259,7 +258,6 @@ func TestIndexWriter_Rollback(t *testing.T) {
 		config := index.NewIndexWriterConfig(createTestAnalyzer())
 		writer, _ := index.NewIndexWriter(dir, config)
 
-		// Add documents (pending)
 		for i := 0; i < 5; i++ {
 			doc := &testDocument{fields: []interface{}{}}
 			if err := writer.AddDocument(doc); err != nil {
@@ -271,7 +269,6 @@ func TestIndexWriter_Rollback(t *testing.T) {
 			t.Fatalf("Rollback: %v", err)
 		}
 
-		// After rollback the directory must contain no committed documents.
 		reader, err := index.OpenDirectoryReader(dir)
 		if err != nil {
 			t.Fatalf("OpenDirectoryReader after rollback: %v", err)

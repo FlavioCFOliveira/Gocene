@@ -1,21 +1,23 @@
 # Skipped / Deferred Tests Audit
 
 **Generated:** 2026-06-11
+**Last updated:** 2026-07-18
 **Policy:** No-Skip policy — tests must use `t.Fatal` with a blocker description instead of `t.Skip`
 
 ## Key Findings
 
 - **Total `t.Skip` calls remaining: 0** (the no-skip policy is fully enforced)
-- **Total deferred tests: 203** across 33 packages (down from 226; `util` and `util/bkd` blockers were retired; index reduced from 222 to 203 during Sprint 15 T105.6/T105.7 work)
-- All deferred tests fail with descriptive blocker reasons, making the test suite informative about what remains unimplemented
+- **Total deferred tests: ~238** across 33 packages (`index` only; `search`, `store`, and all other packages currently pass)
+- `go test ./...` shows only the `index` package failing; the remaining `index` failures are a mix of descriptive `t.Fatal` blockers and a small set of newly-exposed assertion failures from the T105.10 rollback/commit-pinning work
+- The T105.9 mock test harness and T105.10 deleter integration resolved the previous `store`, `backward_codecs/backward_index`, deletion-policy, and search `TestExternalCodecs_PerFieldCodec` failures
 
-> **Note:** This audit was partially refreshed during Sprint 15 execution (last update 2026-07-17). The `codecs`, `util/bkd`, `util`, and many `index` deferred blocks were resolved; the `index` package remains the only failing package with 203 deferred tests. Several blocker messages were updated to reflect the actual remaining root cause. A full regeneration is deferred until Sprint 15 closes.
+> **Note:** This audit was partially refreshed during Sprint 15/T105 execution. The detailed table below still reflects the 2026-06-11 snapshot; a full regeneration is deferred until Sprint 15 closes. The summary counts above reflect the current `feature/T105-final-certification` branch state (2026-07-18).
 
 ## Summary Table
 
 | Package | Deferred Tests | Blocker Summary |
 |---------|:--------------:|-----------------|
-| `index` | 203 | Remaining `t.Fatal` blockers: term-vectors/RandomIndexWriter integration, payloads/MockAnalyzer, tragic deadlock hooks, monster tests, CheckIndex info-stream, LogDocMergePolicy.setMinMergeDocs, applied deletes on commit, DirectoryReader closed-flag |
+| `index` | ~238 | T105.10 regressions + remaining blockers: term-vectors/RandomIndexWriter integration, payloads/MockAnalyzer, tragic deadlock hooks, monster tests, CheckIndex info-stream, LogDocMergePolicy.setMinMergeDocs, applied deletes on commit, DirectoryReader closed-flag, NRT openIfChanged, numeric/binary doc-values updates on reopen, merge-scheduler/CMS hooks |
 | `search` | 0 | All search package tests pass |
 | `codecs` | 0 | All codec-level tests pass; previous entries (Lucene99 placeholders, PerField round-trips, DocValuesSkipper, TV/SF formats) were implemented in T105.4/T105.5 work |
 | `util/bkd` | 0 | All default tests pass; `TestBKD_RandomBinaryBig` is gated by the `gocene_monsters` build tag and runs only in monster/CI mode |
@@ -48,7 +50,7 @@
 | `queryparser/util` | 0 | All tests pass |
 | `queries/function/docvalues` | 0 | All tests pass |
 | `facets/taxonomywritercache` | 0 | All tests pass |
-| **Total** | **203** | |
+| **Total** | **~238** | |
 
 ## Detailed Deferred Test Listing
 
@@ -119,9 +121,9 @@ The `index` package is the only package still failing in `go test ./...`. The de
 | `TestCrashCausesCorruptIndex` | `index/crash_causes_corrupt_index_test.go:98` | GOC-4165: crash-recovery + DirectoryReader/IndexSearcher not available |
 | `TestTransactions` | `index/transactions_test.go:37` | port blocked: no MockDirectoryWrapper Failure |
 | `TestForceMergeForever` | `index/force_merge_forever_test.go:56` | needs IndexWriter merge-hook |
-| `TestThreadedForceMerge` | `index/threaded_force_merge_test.go:50` | DeleteDocuments(Term) is no-op stub |
+| `TestThreadedForceMerge` | `index/threaded_force_merge_test.go:50` | needs English.intToEnglish, MockAnalyzer/MockTokenizer, and functional DirectoryReader.leaves() count after APPEND-mode reopen |
 | `TestStressIndexing` | `index/stress_indexing_test.go:93` | **RESOLVED** — DeleteDocuments buffering works; test passes |
-| `TestStressDeletes` | `index/stress_deletes_test.go:30` | DeleteDocuments/DeleteDocumentsQuery deletes are buffered by IndexWriter but are not applied to committed segments during Commit; searches still return deleted documents |
+| `TestStressDeletes` | `index/stress_deletes_test.go:30` | **RESOLVED** — DeleteDocuments/DeleteDocumentsQuery (TermQuery routed to term-delete path) now applies deletes to committed and pending segments during Commit and NRT GetReader; test passes |
 | `TestSoftDeletesIntegration` (2 calls) | `index/soft_deletes_integration_test.go:14-18` | SoftUpdateDocument not yet implemented |
 | `TestTryDelete` (2 calls) | `index/try_delete_test.go:112-123` | **RESOLVED** — NRT reader and DeleteDocumentsQuery work; tests pass |
 | `TestPerSegmentDeletes` | `index/per_segment_deletes_test.go:22` | deferred: IndexWriter.MaybeMerge, HasChangesInRam, NRT reader |
