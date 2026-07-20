@@ -496,7 +496,6 @@ func NewIndexWriter(dir store.Directory, config *IndexWriterConfig) (*IndexWrite
 			rollbackSegmentInfos = existingSI.Clone()
 		} else {
 			initialSegmentInfos = NewSegmentInfos()
-			initialSegmentInfos.SetGeneration(1)
 			rollbackSegmentInfos = initialSegmentInfos.Clone()
 		}
 	}
@@ -1422,10 +1421,19 @@ func (w *IndexWriter) hasUncommittedChanges() bool {
 // hasUncommittedChangesLocked is the unlocked variant; the caller must hold
 // w.mu (either read or write lock).
 func (w *IndexWriter) hasUncommittedChangesLocked() bool {
-	// Any pending imported segments are uncommitted, whether they have been
-	// materialised into an NRT snapshot or not.  Materialised segments are still
-	// not durably committed and must be written by the next Commit/Close.
-	return len(w.pendingImportedSegments) > 0 ||
+	// Materialised pending imported segments are already visible to NRT readers
+	// created by GetReader, so they do not make an existing NRT reader stale.
+	// They are still uncommitted on disk and will be written by the next
+	// Commit/Close, but for reopen/isCurrent purposes they are part of the
+	// current NRT snapshot.
+	hasUnmaterialisedImports := false
+	for i := range w.pendingImportedSegments {
+		if !w.pendingImportedSegments[i].materialized {
+			hasUnmaterialisedImports = true
+			break
+		}
+	}
+	return hasUnmaterialisedImports ||
 		w.docCount.Load() > 0 ||
 		len(w.pendingDeleteTerms) > 0 ||
 		len(w.pendingCommittedDeleteTerms) > 0 ||
@@ -1468,15 +1476,19 @@ func (w *IndexWriter) commitLocked(force bool) error {
 	// writer's own segmentInfos, not from a re-read of the directory.
 	var si *SegmentInfos
 	if w.lastCommittedSegmentInfos != nil {
+		// A commit already happened in this writer session: advance from it.
 		si = w.lastCommittedSegmentInfos.Clone()
 		si.NextGeneration()
 	} else {
+		// No in-memory commit baseline yet. Re-read the directory so a new
+		// writer opened against an existing index advances from the latest
+		// on-disk commit. If the directory is empty, the very first commit must
+		// write segments_1, so advance from the initial generation 0.
 		var err error
 		si, err = ReadSegmentInfos(w.directory)
 		if err != nil {
-			// No segments file yet, create new one
 			si = NewSegmentInfos()
-			si.SetGeneration(1)
+			si.NextGeneration()
 		} else {
 			si.NextGeneration()
 		}
@@ -1495,7 +1507,7 @@ func (w *IndexWriter) commitLocked(force bool) error {
 	// keeps generation stable when no mutation occurred.  The exception is the
 	// very first commit: an empty index must still materialise a segments_N so
 	// that subsequent APPEND-mode writers can open it (rmp #105.2.5).
-	if !force && w.hasCommitted && w.lastCommittedSegmentInfos != nil && !w.hasUncommittedChangesLocked() && !w.pendingDeleteAll {
+	if !force && w.hasCommitted && w.lastCommittedSegmentInfos != nil && !w.hasUncommittedChangesLocked() && !w.pendingDeleteAll && len(w.pendingImportedSegments) == 0 {
 		currentData := si.GetUserData()
 		newData := w.getLiveCommitDataLocked()
 		if mapsEqual(currentData, newData) {
@@ -1610,6 +1622,27 @@ func (w *IndexWriter) commitLocked(force bool) error {
 			return fmt.Errorf("commit: apply try-delete docIDs: %w", err2)
 		}
 		w.pendingDeletedDocIDs = w.pendingDeletedDocIDs[:0]
+	}
+
+	// Rewrite the per-segment .si for any committed segment whose deletion
+	// state changed. applyDeletesToCommittedSegments and
+	// applyQueryDeletesToCommittedSegments advance delGen, write a new .liv
+	// file and set delCount, but the on-disk .si must also be re-serialised so
+	// it references the .liv and carries the new del metadata; otherwise the
+	// file deleter will treat the .liv as unreferenced and the next reader
+	// will not be able to load the live docs.
+	for _, sci := range si.List() {
+		if sci.DelGen() < 0 || sci.DelCount() == 0 {
+			continue
+		}
+		segmentName := sci.SegmentInfo().Name()
+		siName := segmentName + ".si"
+		if _, statErr := w.directory.FileLength(siName); statErr == nil {
+			_ = w.directory.DeleteFile(siName)
+		}
+		if err3 := writeSegmentInfo(w.directory, sci.SegmentInfo(), store.IOContextWrite, codec); err3 != nil {
+			return fmt.Errorf("commit: rewrite segment info for %s: %w", segmentName, err3)
+		}
 	}
 
 	// Ensure segment-name counter accounts for materialised pending segments so
@@ -1934,19 +1967,6 @@ func (w *IndexWriter) commitLocked(force bool) error {
 			segInfo.SetFiles(segFiles)
 		}
 
-		if len(ps.deletedOrdinals) > 0 {
-			// Persist the deletions carried through this merge/AddIndexes as a
-			// real Lucene90 .liv file and bump the segment's delGen/delCount so
-			// the reopen path (loadLiveDocsFromDisk, which reads .liv when
-			// delGen >= 0) recovers the exact live set. This replaces the legacy
-			// _gocene_del_ segments_N userData round-trip (rmp #4789): the
-			// byte-faithful .liv is now the authoritative on-disk source of
-			// deletions for merged segments, just as Lucene's IndexWriter merge
-			// path writes live docs via Lucene90LiveDocsFormat.
-			if err3 := w.persistMergedDeletions(sci, ps.deletedOrdinals); err3 != nil {
-				return fmt.Errorf("commit: persist merged deletions for %s: %w", segmentName, err3)
-			}
-		}
 		// Stamp the configured index sort onto the segment so writeSegmentInfo
 		// serialises it into the .si numSortFields block (rmp #4789), replacing
 		// the segments_N _gocene_sort_* userData keys.

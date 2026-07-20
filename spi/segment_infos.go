@@ -71,9 +71,11 @@ const defaultIndexVersion = "10.0.0"
 
 // NewSegmentInfos creates a new empty SegmentInfos.
 func NewSegmentInfos() *SegmentInfos {
+	// Match Lucene's SegmentInfos initial state: generation starts at 0 so the
+	// very first commit writes segments_1 (generation 0 + 1).
 	return &SegmentInfos{
 		segments:                 make(SegmentCommitInfoList, 0),
-		generation:               1,
+		generation:               0,
 		lastGeneration:           0,
 		version:                  0,
 		luceneVersion:            defaultIndexVersion,
@@ -392,6 +394,10 @@ func (si *SegmentInfos) Clone() *SegmentInfos {
 		indexCreatedVersionMajor: si.indexCreatedVersionMajor,
 		counter:                  si.counter,
 		userData:                 make(map[string]string, len(si.userData)),
+		// Carry forward in-memory-only metadata so clones opened by IndexWriter
+		// still see the index sort / parent field used for validation.
+		inMemoryParentField: si.inMemoryParentField,
+		inMemoryIndexSort:   si.inMemoryIndexSort,
 	}
 
 	// Deep-clone each SegmentCommitInfo so mutations through the clone (e.g.
@@ -1007,7 +1013,6 @@ func writeSegmentCommitInfoLucene104(out store.IndexOutput, sci *SegmentCommitIn
 	if err := store.WriteString(out, codec); err != nil {
 		return err
 	}
-
 
 	// Deletion generation (-1 if no deletions file).
 	if err := store.WriteInt64(out, sci.DelGen()); err != nil {

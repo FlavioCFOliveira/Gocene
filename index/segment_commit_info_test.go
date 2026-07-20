@@ -343,12 +343,12 @@ func TestSegmentCommitInfo_GetFiles(t *testing.T) {
 		t.Errorf("Expected 2 files, got %d", len(files))
 	}
 
-	// Add deletion file
+	// Add deletion file. Lucene 10.4.0 persists live docs as .liv files.
 	sci.SetDelGen(1)
 	files = sci.GetFiles()
 	foundDel := false
 	for _, f := range files {
-		if f == "_0_1.del" {
+		if f == "_0_1.liv" {
 			foundDel = true
 			break
 		}

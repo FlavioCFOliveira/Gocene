@@ -473,16 +473,11 @@ func TestSegmentReader_ReferenceCounting(t *testing.T) {
 		t.Errorf("Expected ref count 1 after DecRef, got %d", reader.GetRefCount())
 	}
 
-	// Close (which decrements ref count to 0)
+	// Close decrements the ref count to 0 and releases the shared core readers.
 	err = reader.Close()
 	if err != nil {
 		t.Fatalf("Failed to close reader: %v", err)
 	}
-
-	// Also close the underlying LeafReader to ensure proper cleanup
-	// Note: SegmentReader.Close() should ideally call LeafReader.Close()
-	// but currently it doesn't, so we call DecRef directly on the IndexReader
-	reader.DecRef()
 
 	// After close, ref count should be 0
 	if reader.GetRefCount() != 0 {
@@ -510,11 +505,8 @@ func TestSegmentReader_TryIncRef(t *testing.T) {
 	// Decrement back to 1
 	reader.DecRef()
 
-	// Close the reader (calls DecRef on core readers if present)
+	// Close the reader (calls DecRef on both the IndexReader and the core readers).
 	reader.Close()
-
-	// Also close the underlying reader
-	reader.DecRef()
 
 	// TryIncRef should fail on closed reader
 	if reader.TryIncRef() {

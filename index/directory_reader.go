@@ -838,6 +838,12 @@ func (r *SegmentReader) Close() error {
 		r.coreReaders = nil
 	}
 
+	if r.LeafReader != nil && r.IndexReader != nil {
+		if err := r.IndexReader.Close(); err != nil {
+			lastErr = err
+		}
+	}
+
 	return lastErr
 }
 

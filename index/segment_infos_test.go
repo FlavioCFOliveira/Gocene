@@ -16,8 +16,8 @@ func TestNewSegmentInfos(t *testing.T) {
 	if sis.Size() != 0 {
 		t.Errorf("Expected size=0, got %d", sis.Size())
 	}
-	if sis.Generation() != 1 {
-		t.Errorf("Expected generation=1, got %d", sis.Generation())
+	if sis.Generation() != 0 {
+		t.Errorf("Expected generation=0, got %d", sis.Generation())
 	}
 	if sis.LastGeneration() != 0 {
 		t.Errorf("Expected lastGeneration=0, got %d", sis.LastGeneration())
@@ -138,8 +138,8 @@ func TestSegmentInfos_Clear(t *testing.T) {
 func TestSegmentInfos_Generation(t *testing.T) {
 	sis := NewSegmentInfos()
 
-	if sis.Generation() != 1 {
-		t.Errorf("Expected generation=1, got %d", sis.Generation())
+	if sis.Generation() != 0 {
+		t.Errorf("Expected generation=0, got %d", sis.Generation())
 	}
 
 	sis.SetGeneration(5)

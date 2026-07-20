@@ -59,9 +59,10 @@ func TestSegmentInfosLifecycle(t *testing.T) {
 		t.Fatalf("Get(0) on empty = %v, want nil", got)
 	}
 
-	// Defaults established by NewSegmentInfos.
-	if got := infos.Generation(); got != 1 {
-		t.Errorf("initial Generation() = %d, want 1", got)
+	// Defaults established by NewSegmentInfos: generation starts at 0 so the
+	// first commit writes segments_1, matching Lucene's SegmentInfos.
+	if got := infos.Generation(); got != 0 {
+		t.Errorf("initial Generation() = %d, want 0", got)
 	}
 	if got := infos.IndexCreatedVersionMajor(); got != 10 {
 		t.Errorf("IndexCreatedVersionMajor() = %d, want 10 (Lucene 10.x)", got)
@@ -129,14 +130,15 @@ func TestSegmentInfosGenerationAndNaming(t *testing.T) {
 	t.Parallel()
 	infos := NewSegmentInfos()
 
-	if got := infos.NextGeneration(); got != 2 {
-		t.Errorf("NextGeneration() from 1 = %d, want 2", got)
+	// From the initial generation 0, the next pending generation is 1.
+	if got := infos.NextGeneration(); got != 1 {
+		t.Errorf("NextGeneration() from 0 = %d, want 1", got)
 	}
-	if got := infos.Generation(); got != 2 {
-		t.Errorf("Generation() after NextGeneration = %d, want 2", got)
+	if got := infos.Generation(); got != 1 {
+		t.Errorf("Generation() after NextGeneration = %d, want 1", got)
 	}
-	if got := infos.GetFileName(); got != "segments_2" {
-		t.Errorf("GetFileName() = %q, want segments_2", got)
+	if got := infos.GetFileName(); got != "segments_1" {
+		t.Errorf("GetFileName() = %q, want segments_1", got)
 	}
 
 	// GetNextSegmentName increments the counter and formats "_N".

@@ -543,7 +543,10 @@ func (sci *SegmentCommitInfo) GetFiles() []string {
 		add(f)
 	}
 	if sci.delGen >= 0 {
-		add(fmt.Sprintf("_%s_%d.del", sci.segmentInfo.Name()[1:], sci.delGen))
+		// Lucene 10.4.0 live-docs extension is "liv" (org.apache.lucene.codecs.
+		// lucene90.Lucene90LiveDocsFormat.EXTENSION). The legacy "del" name
+		// was a Gocene stub that no longer matches the on-disk file.
+		add(fmt.Sprintf("_%s_%d.liv", sci.segmentInfo.Name()[1:], sci.delGen))
 	}
 	if sci.fieldInfosGen >= 0 {
 		add(fmt.Sprintf("_%s_%d.fnm", sci.segmentInfo.Name()[1:], sci.fieldInfosGen))

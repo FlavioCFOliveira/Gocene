@@ -568,6 +568,11 @@ func (d *SimpleFSDirectory) CreateOutput(name string, ctx IOContext) (IndexOutpu
 }
 
 // SimpleFSIndexInput is an IndexInput implementation for SimpleFSDirectory.
+//
+// It reads from the file using ReadAt so that clones and slices share the same
+// underlying *os.File without opening additional OS file handles. This matches
+// Lucene's NIOFSIndexInput behaviour: positional reads make clones independent
+// and only the root input closes the shared file descriptor.
 type SimpleFSIndexInput struct {
 	*BaseIndexInput
 	file        *os.File
@@ -575,6 +580,7 @@ type SimpleFSIndexInput struct {
 	name        string
 	directory   *SimpleFSDirectory
 	sliceOffset int64 // file-absolute start of this slice; 0 for the root input
+	isClone     bool  // true for clones/slices; they do not own the file handle
 }
 
 // ReadByte reads a single byte.
@@ -592,12 +598,16 @@ func (in *SimpleFSIndexInput) ReadByte() (byte, error) {
 	}
 
 	b := make([]byte, 1)
-	_, err := in.file.Read(b)
+	pos := in.sliceOffset + in.GetFilePointer()
+	n, err := in.file.ReadAt(b, pos)
 	if err != nil {
 		if err == io.EOF {
 			return 0, io.EOF
 		}
 		return 0, err
+	}
+	if n == 0 {
+		return 0, io.EOF
 	}
 
 	in.SetFilePointer(in.GetFilePointer() + 1)
@@ -618,9 +628,13 @@ func (in *SimpleFSIndexInput) ReadBytes(b []byte) error {
 		return io.ErrUnexpectedEOF
 	}
 
-	n, err := io.ReadFull(in.file, b)
-	if err != nil {
+	pos := in.sliceOffset + in.GetFilePointer()
+	n, err := in.file.ReadAt(b, pos)
+	if err != nil && err != io.EOF {
 		return err
+	}
+	if n != len(b) {
+		return io.ErrUnexpectedEOF
 	}
 
 	in.SetFilePointer(in.GetFilePointer() + int64(n))
@@ -672,74 +686,37 @@ func (in *SimpleFSIndexInput) ReadString() (string, error) {
 	return ReadString(in)
 }
 
-// SetPosition changes the current position in the file.
+// SetPosition changes the current logical position in the input.
+// No OS seek is needed because ReadAt reads from an absolute offset.
 func (in *SimpleFSIndexInput) SetPosition(pos int64) error {
 	if pos < 0 || pos > in.Length() {
 		return fmt.Errorf("invalid position: %d", pos)
-	}
-	// Seek to the slice-relative position; sliceOffset adjusts for sub-slices.
-	_, err := in.file.Seek(in.sliceOffset+pos, io.SeekStart)
-	if err != nil {
-		return err
 	}
 	in.SetFilePointer(pos)
 	return nil
 }
 
 // Clone returns a clone of this IndexInput.
+// The clone shares the underlying *os.File and does not open a new handle,
+// matching Lucene's NIOFSIndexInput.clone() semantics. Only the root input
+// owns the file descriptor and closes it.
 func (in *SimpleFSIndexInput) Clone() IndexInput {
-	// Open a new file handle for the clone
-	file, err := os.Open(in.path)
-	if err != nil {
-		// In a real implementation, we'd handle this better
-		// For now, return a clone that will fail on read
-		return &SimpleFSIndexInput{
-			BaseIndexInput: NewBaseIndexInput(in.GetDescription(), in.Length()),
-			file:           nil,
-			path:           in.path,
-			name:           in.name,
-			directory:      in.directory,
-			sliceOffset:    in.sliceOffset,
-		}
-	}
-
-	// Seek clone to the start of the slice (position 0); callers use
-	// SetPosition to reposition after cloning, matching Lucene's
-	// IndexInput.clone() contract.
-	if _, seekErr := file.Seek(in.sliceOffset, io.SeekStart); seekErr != nil {
-		file.Close()
-		return &SimpleFSIndexInput{
-			BaseIndexInput: NewBaseIndexInput(in.GetDescription(), in.Length()),
-			file:           nil,
-			path:           in.path,
-			name:           in.name,
-			directory:      in.directory,
-			sliceOffset:    in.sliceOffset,
-		}
-	}
-
-	in.directory.AddOpenFile(in.name)
-
 	return &SimpleFSIndexInput{
 		BaseIndexInput: NewBaseIndexInput(in.GetDescription(), in.Length()),
-		file:           file,
+		file:           in.file,
 		path:           in.path,
 		name:           in.name,
 		directory:      in.directory,
 		sliceOffset:    in.sliceOffset,
+		isClone:        true,
 	}
 }
 
 // Slice returns a subset of this IndexInput.
+// The slice shares the underlying *os.File and does not open a new handle.
 func (in *SimpleFSIndexInput) Slice(desc string, offset int64, length int64) (IndexInput, error) {
 	if offset < 0 || length < 0 || offset+length > in.Length() {
 		return nil, fmt.Errorf("invalid slice parameters: offset=%d, length=%d, fileLength=%d", offset, length, in.Length())
-	}
-
-	// Open a new file handle for the slice
-	file, err := os.Open(in.path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open file for slice: %w", err)
 	}
 
 	// sliceOffset is file-absolute. When slicing a slice, compose with the
@@ -750,21 +727,14 @@ func (in *SimpleFSIndexInput) Slice(desc string, offset int64, length int64) (In
 	// dictionary and postings headers (rmp #4747).
 	absOffset := in.sliceOffset + offset
 
-	// Seek to the absolute offset
-	if _, err := file.Seek(absOffset, io.SeekStart); err != nil {
-		file.Close()
-		return nil, fmt.Errorf("failed to seek to offset: %w", err)
-	}
-
-	in.directory.AddOpenFile(in.name)
-
 	return &SimpleFSIndexInput{
 		BaseIndexInput: NewBaseIndexInput(desc, length),
-		file:           file,
+		file:           in.file,
 		path:           in.path,
 		name:           in.name,
 		directory:      in.directory,
 		sliceOffset:    absOffset,
+		isClone:        true,
 	}, nil
 }
 
@@ -780,8 +750,10 @@ func (in *SimpleFSIndexInput) ensureFileOpen() error {
 }
 
 // Close closes this IndexInput.
+// Clones do not own the shared *os.File and therefore do not close it. Only
+// the root input created by SimpleFSDirectory.OpenInput closes the descriptor.
 func (in *SimpleFSIndexInput) Close() error {
-	if in.file == nil {
+	if in.file == nil || in.isClone {
 		return nil
 	}
 	in.directory.RemoveOpenFile(in.name)
