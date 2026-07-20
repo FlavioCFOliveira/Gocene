@@ -277,6 +277,13 @@ func (si *SegmentInfos) Counter() int64 {
 	return si.counter
 }
 
+// GetCounter returns the current segment name counter.
+func (si *SegmentInfos) GetCounter() int64 {
+	si.mu.RLock()
+	defer si.mu.RUnlock()
+	return si.counter
+}
+
 // SetCounter sets the segment name counter.
 func (si *SegmentInfos) SetCounter(counter int64) {
 	si.mu.Lock()
