@@ -4,6 +4,7 @@ import (
 	"container/heap"
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -68,9 +69,9 @@ func TestReplicationScheduler_StartStop(t *testing.T) {
 }
 
 func TestReplicationScheduler_Schedule(t *testing.T) {
-	executed := false
+	var executed atomic.Bool
 	executor := func(ctx context.Context, task *ReplicationTask) error {
-		executed = true
+		executed.Store(true)
 		return nil
 	}
 
@@ -95,7 +96,7 @@ func TestReplicationScheduler_Schedule(t *testing.T) {
 	// Wait for execution
 	time.Sleep(150 * time.Millisecond)
 
-	if !executed {
+	if !executed.Load() {
 		t.Error("expected task to be executed")
 	}
 }
@@ -116,9 +117,9 @@ func TestReplicationScheduler_Schedule_NotRunning(t *testing.T) {
 }
 
 func TestReplicationScheduler_ScheduleRepeating(t *testing.T) {
-	executionCount := 0
+	var executionCount atomic.Int64
 	executor := func(ctx context.Context, task *ReplicationTask) error {
-		executionCount++
+		executionCount.Add(1)
 		return nil
 	}
 
@@ -139,8 +140,8 @@ func TestReplicationScheduler_ScheduleRepeating(t *testing.T) {
 	// Wait for multiple executions
 	time.Sleep(200 * time.Millisecond)
 
-	if executionCount < 2 {
-		t.Errorf("expected at least 2 executions, got %d", executionCount)
+	if executionCount.Load() < 2 {
+		t.Errorf("expected at least 2 executions, got %d", executionCount.Load())
 	}
 }
 

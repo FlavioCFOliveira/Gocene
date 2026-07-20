@@ -227,10 +227,10 @@ type IndexWriter struct {
 type pendingSegment struct {
 	numDocs             int
 	delCount            int
-	softDelCount        int            // docs soft-deleted via UpdateDocument with softDeletesField
-	fieldInfos          *FieldInfos    // may be nil
-	deletedOrdinals     []int          // sorted doc ordinals deleted within this segment (0-based)
-	softDeletedOrdinals []int          // sorted soft-deleted doc ordinals (count in MaxDoc, not NumDocs)
+	softDelCount        int         // docs soft-deleted via UpdateDocument with softDeletesField
+	fieldInfos          *FieldInfos // may be nil
+	deletedOrdinals     []int       // sorted doc ordinals deleted within this segment (0-based)
+	softDeletedOrdinals []int       // sorted soft-deleted doc ordinals (count in MaxDoc, not NumDocs)
 
 	// segmentName is assigned the first time this pending segment is
 	// materialised into an NRT snapshot; subsequent GetReader/Commit calls
@@ -241,8 +241,8 @@ type pendingSegment struct {
 	// materialized is true once this pending segment has been folded into an
 	// NRT SegmentInfos snapshot. GetReader skips materialized segments so they
 	// are not duplicated, while Commit still writes them to disk.
-	materialized bool
-	inMemoryFields      FieldsProducer // in-memory postings (codec-less path); may be nil
+	materialized   bool
+	inMemoryFields FieldsProducer // in-memory postings (codec-less path); may be nil
 
 	// dwpts carries the raw per-thread writer state when a real codec is
 	// present.  Commit calls dwpt.Flush to materialise stored fields,
@@ -253,13 +253,13 @@ type pendingSegment struct {
 	// The following fields are populated by AddIndexes (directory path) and
 	// describe a source segment whose files must be copied into the main
 	// directory when this pending segment is committed.
-	srcDir          store.Directory  // source directory (nil for flushed DWPT segments)
-	srcSegmentName  string           // source segment name used as the file prefix
-	srcFiles        []string         // source file names to copy
-	srcCompoundFile bool             // whether the source segment used a compound file
+	srcDir          store.Directory     // source directory (nil for flushed DWPT segments)
+	srcSegmentName  string              // source segment name used as the file prefix
+	srcFiles        []string            // source file names to copy
+	srcCompoundFile bool                // whether the source segment used a compound file
 	srcSegmentInfo  *schema.SegmentInfo // source SegmentInfo metadata to preserve binary compatibility (ID, codec, version, ...)
-	segmentID       []byte           // 16-byte segment ID assigned when first materialised (NRT/merge)
-	files           []string         // copied file names in w.directory (populated after copying)
+	segmentID       []byte              // 16-byte segment ID assigned when first materialised (NRT/merge)
+	files           []string            // copied file names in w.directory (populated after copying)
 }
 
 // termWithBound pairs a delete term with a maximum document ordinal.
@@ -318,8 +318,8 @@ func NewIndexWriter(dir store.Directory, config *IndexWriterConfig) (*IndexWrite
 		// The index must already carry a commit for the pinned commit to be
 		// meaningful; an index with no commit on disk is rejected.
 		if _, siErr := ReadSegmentInfos(dir); siErr != nil {
-			return nil, fmt.Errorf(
-				"cannot use IndexWriterConfig.setIndexCommit() when index has no commit: %w", siErr)
+			return nil, errors.New(
+				"cannot use IndexWriterConfig.setIndexCommit() when index has no commit")
 		}
 	}
 
@@ -436,12 +436,25 @@ func NewIndexWriter(dir store.Directory, config *IndexWriterConfig) (*IndexWrite
 					readerSegmentInfos.GetFileName(), err)
 			}
 
-			// Resume from the reader's in-memory snapshot, but keep generation and
-			// counter in sync with the directory so future commits remain write-once.
+			// Resume from the reader's in-memory snapshot, but keep generation,
+			// version, and counter in sync with the directory so future commits remain
+			// write-once.  If the reader was opened from a live writer that has since
+			// committed further generations, use the writer's latest metadata so the
+			// new writer does not collide with on-disk commits (mirrors Lucene's
+			// segmentInfos.updateGenerationVersionAndCounter(reader.writer.segmentInfos)).
 			initialSegmentInfos = readerSegmentInfos.Clone()
-			initialSegmentInfos.SetGeneration(lastCommit.Generation())
-			initialSegmentInfos.SetCounter(lastCommit.Counter())
-			initialSegmentInfos.SetLastGeneration(lastCommit.LastGeneration())
+			if writer := reader.writer; writer != nil && writer.lastCommittedSegmentInfos != nil {
+				latest := writer.lastCommittedSegmentInfos
+				initialSegmentInfos.SetGeneration(latest.Generation())
+				initialSegmentInfos.SetVersion(latest.Version())
+				initialSegmentInfos.SetCounter(latest.Counter())
+				initialSegmentInfos.SetLastGeneration(latest.LastGeneration())
+			} else {
+				initialSegmentInfos.SetGeneration(lastCommit.Generation())
+				initialSegmentInfos.SetVersion(lastCommit.Version())
+				initialSegmentInfos.SetCounter(lastCommit.Counter())
+				initialSegmentInfos.SetLastGeneration(lastCommit.LastGeneration())
+			}
 
 			// Rollback restores to the last on-disk commit, since the in-memory
 			// additions above that commit belong to the previous writer's session.
@@ -1382,6 +1395,7 @@ func (w *IndexWriter) GetReader() (*DirectoryReader, error) {
 	}
 	reader.nrtGen = w.nrtGen.Load()
 	reader.writer = w
+
 	return reader, nil
 }
 
@@ -1969,6 +1983,23 @@ func (w *IndexWriter) commitLocked(force bool) error {
 	// Record parentField and indexSort for AddIndexes validation.
 	si.SetInMemoryParentField(w.config.ParentField())
 	si.SetInMemoryIndexSort(w.config.IndexSort())
+
+	// Ensure every segment in the commit has a real .si file on disk.  Segments
+	// inherited from an NRT reader snapshot may be in-memory only (no .si was
+	// written when they were materialised by GetReader); without the .si the
+	// next reopen reads the placeholder docCount=0 and the segment appears empty.
+	// This mirrors Lucene's guarantee that a commit always persists per-segment
+	// metadata (rmp #105.10).
+	for _, sci := range si.List() {
+		siName := sci.SegmentInfo().Name() + ".si"
+		if _, statErr := w.directory.FileLength(siName); statErr == nil {
+			continue
+		}
+		if err := writeSegmentInfo(w.directory, sci.SegmentInfo(), store.IOContextWrite, w.config.Codec()); err != nil {
+			return fmt.Errorf("commit: write missing .si for %s: %w", sci.SegmentInfo().Name(), err)
+		}
+		appendSegmentFile(sci.SegmentInfo(), siName)
+	}
 
 	if err := WriteSegmentInfos(si, w.directory); err != nil {
 		return fmt.Errorf("failed to write segment infos: %w", err)
@@ -3106,49 +3137,53 @@ func (w *IndexWriter) Rollback() error {
 		w.documentsWriter.mu.Unlock()
 	}
 
-	// Determine the set of files that must survive the rollback. Use the
-	// rollback baseline captured at writer construction, which is the pinned
-	// commit (or latest on-disk commit) rather than the writer's own last
-	// committed state.
+	// Determine the set of files that must survive the rollback.  Lucene's
+	// rollbackInternal resets segmentInfos to the rollback baseline and then
+	// asks the file deleter to drop unreferenced files.  The deleter keeps a
+	// commit-point reference for every committed segments_N, so committed
+	// segment data survive a rollback even though the active segment list is
+	// rolled back.  We emulate that by preserving files referenced by the
+	// rollback baseline *and* by the writer's own last committed state, while
+	// resetting the in-memory segment list to the baseline.  We deliberately do
+	// not write a new segments_N here.
+	var keep = make(map[string]struct{})
 	var baseline *SegmentInfos
 	if w.rollbackSegmentInfos != nil {
-		baseline = w.rollbackSegmentInfos.Clone()
+		baseline = w.rollbackSegmentInfos
 	} else if w.lastCommittedSegmentInfos != nil {
-		baseline = w.lastCommittedSegmentInfos.Clone()
+		baseline = w.lastCommittedSegmentInfos
 	}
-
-	var keep map[string]struct{}
 	if baseline != nil {
-		restored := baseline.Clone()
-		// If the directory has moved past the baseline (e.g. this writer committed
-		// new segments, or a newer commit exists because the writer opened on a
-		// pinned prior commit), write a fresh segments_N beyond the newest on-disk
-		// generation so the baseline becomes the live commit again. Otherwise the
-		// rollback is pure cleanup: delete uncommitted files and leave the existing
-		// latest commit untouched.
-		baselineGen := restored.Generation()
-		latestOnDiskGen := baselineGen
-		if current, err := ReadSegmentInfos(w.directory); err == nil {
-			if current.Generation() > latestOnDiskGen {
-				latestOnDiskGen = current.Generation()
-			}
+		for f := range filesReferencedBySegmentInfos(baseline) {
+			keep[f] = struct{}{}
 		}
-		if latestOnDiskGen > baselineGen {
-			restored.SetGeneration(latestOnDiskGen + 1)
-			restored.SetLastGeneration(restored.Generation())
-			if err := WriteSegmentInfos(restored, w.directory); err != nil {
-				return fmt.Errorf("rollback: write restored segment infos: %w", err)
-			}
+	}
+	if w.lastCommittedSegmentInfos != nil {
+		for f := range filesReferencedBySegmentInfos(w.lastCommittedSegmentInfos) {
+			keep[f] = struct{}{}
 		}
-		w.lastCommittedSegmentInfos = restored.Clone()
-		w.pinnedSegmentInfos = restored.Clone()
-		w.committedSegments = restored.List()
-		keep = filesReferencedBySegmentInfos(restored)
+	}
+	if w.lastCommittedSegmentInfos != nil {
+		// Roll back the segment list to the baseline while preserving the
+		// current commit metadata (generation/version/counter) so future
+		// commits do not collide with on-disk commits.  This matches Lucene's
+		// SegmentInfos.rollbackSegmentInfos, which only replaces the segment
+		// list and leaves generation state untouched.
+		current := w.lastCommittedSegmentInfos.Clone()
+		if baseline != nil {
+			current.RollbackSegmentInfos(baseline.List())
+		}
+		w.lastCommittedSegmentInfos = current
+		w.pinnedSegmentInfos = current.Clone()
+		w.committedSegments = current.List()
+	} else if baseline != nil {
+		w.lastCommittedSegmentInfos = baseline.Clone()
+		w.pinnedSegmentInfos = baseline.Clone()
+		w.committedSegments = baseline.List()
 	} else {
 		w.lastCommittedSegmentInfos = nil
 		w.pinnedSegmentInfos = nil
 		w.committedSegments = nil
-		keep = make(map[string]struct{})
 	}
 
 	// Preserve pre-existing files (e.g. commits kept by a keep-all deletion
@@ -3637,7 +3672,7 @@ func (w *IndexWriter) mergeSegmentGroup(segs []*SegmentCommitInfo, segName strin
 	}
 
 	mergedSI := NewSegmentInfo(segName, totalLive, w.directory)
-		mergedSI.SetID(generateSegmentID())
+	mergedSI.SetID(generateSegmentID())
 	mergedSI.SetCodec(codec.Name())
 	mergedSI.SetVersion("10.4.0")
 	mergedSI.SetMinVersion("10.4.0")

@@ -6,8 +6,8 @@ package index
 
 import (
 	"fmt"
-	"strings"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/spi"
@@ -1388,6 +1388,7 @@ func (r *DirectoryReader) Close() error {
 		}
 	}
 	r.readers = nil
+	r.closed.Store(true)
 	return lastErr
 }
 

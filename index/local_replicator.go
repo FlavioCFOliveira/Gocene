@@ -37,6 +37,11 @@ type LocalReplicator struct {
 	// replicateMu serializes replication operations to make concurrent
 	// file copies safe.
 	replicateMu sync.Mutex
+
+	// replicateOpMu serializes whole Replicate() calls so that concurrent
+	// callers observe a single start/check/stop sequence instead of racing
+	// on the underlying running flag.
+	replicateOpMu sync.Mutex
 }
 
 // NewLocalReplicator creates a new LocalReplicator.
@@ -257,8 +262,13 @@ func (lr *LocalReplicator) Stop() error {
 
 // Replicate performs a single replication check. If the replicator is not
 // already running it is started for the duration of the operation and then
-// stopped. This is a convenience wrapper around Start/CheckNow/Stop.
+// stopped. This is a convenience wrapper around Start/CheckNow/Stop.  Concurrent
+// callers are serialized so that every call observes a consistent start/check/stop
+// sequence.
 func (lr *LocalReplicator) Replicate(ctx context.Context) error {
+	lr.replicateOpMu.Lock()
+	defer lr.replicateOpMu.Unlock()
+
 	lr.mu.RLock()
 	if !lr.isOpen.Load() {
 		lr.mu.RUnlock()

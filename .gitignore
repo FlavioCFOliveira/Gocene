@@ -6,6 +6,7 @@
 
 # Claude Code configuration
 .claude/
+.rmp
 
 # OS files
 .DS_Store
