@@ -9,37 +9,19 @@
 //
 // GOC-4228: Port test org.apache.lucene.index.TestIndexWriterOnError (Sprint 55).
 //
-// Port strategy (Sprint 55 option c): the Java suite has five @Test methods
-// (testOOM, testUnknownError, testLinkageError, testIOError, testCheckpoint),
-// each of which only differs in the fake VM error it injects. All five delegate
-// to the doTest(failOn) harness, which installs a MockDirectoryWrapper.Failure,
-// drives ~2000 docs through single/block adds, deletes, doc-values updates,
-// flushes and checkIndex passes, and asserts that the injected error never
-// produces index corruption and is never replaced by a different exception.
-//
-// The Go counterpart keeps a 1:1 test-method mapping. The shared harness
-// (doIndexWriterOnErrorTest) runs the non-faulted add/commit roundtrip for real,
-// proving the clean path is sound; the fault-injection assertion is gated with
-// t.Skip so each missing capability is explicit rather than silently absent.
-//
-// Known API gaps that force a skip in this file:
-//   - MockDirectoryWrapper and its Failure callback do not exist, so fake VM
-//     errors (OutOfMemoryError, UnknownError, LinkageError, IOError) cannot be
-//     injected into store operations.
-//   - callStackContains (scoping injection to IndexWriter / IndexFileDeleter
-//     frames) has no Go equivalent.
-//   - IndexWriter.Rollback / GetTragedy (tragic-exception recovery) are not
-//     wired here, so the post-error rollback assertion cannot be checked.
-//   - IndexWriter.UpdateNumericDocValue / UpdateBinaryDocValue are not
-//     implemented, so the random doc-values update branch cannot run.
-//   - DeleteDocuments accepts a single Term only; the multi-Term overload used
-//     for block-document deletes is unavailable.
-//   - TestUtil.checkIndex / checkReader fault-tolerant verification is not
-//     wired here.
+// The Java suite injects a fake VM error (OOM, UnknownError, LinkageError,
+// IOError) via MockDirectoryWrapper.Failure and verifies the index is not
+// corrupted. Gocene's Failure callback is a plain error, so each test
+// exercises the same recovery path with an injected I/O exception during a
+// Commit. The clean indexing roundtrip is driven first; then the failure is
+// enabled, a further Commit is attempted, and Rollback / segment-info recovery
+// is verified.
 package index_test
 
 import (
+	"errors"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
@@ -132,18 +114,13 @@ func newOnErrorDoc(t *testing.T, id int) *document.Document {
 }
 
 // doIndexWriterOnErrorTest ports the doTest(failOn) harness shared by all five
-// Java @Test methods. The Java harness installs a MockDirectoryWrapper.Failure
-// and asserts the injected fake VM error never corrupts the index. Gocene has
-// no fault-injection directory, so this harness drives the clean add/commit
-// roundtrip (single + deterministic delete + flush branches) to prove the
-// non-faulted path is sound, then skips the fault-injection assertion.
-//
-// failureKind names the Java Failure variant the caller stands in for, so the
-// skip message attributes the gap precisely.
+// Java @Test methods. It drives the clean add/commit roundtrip, then enables a
+// MockDirectoryWrapper failure during a subsequent commit, asserts the error is
+// propagated, rolls back, and verifies the existing commit remains readable.
 func doIndexWriterOnErrorTest(t *testing.T, failureKind string) {
 	t.Helper()
 
-	dir := store.NewByteBuffersDirectory()
+	dir := store.NewMockDirectoryWrapper(store.NewByteBuffersDirectory())
 	defer dir.Close()
 
 	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
@@ -184,43 +161,48 @@ func doIndexWriterOnErrorTest(t *testing.T, failureKind string) {
 	if err := writer.Commit(); err != nil {
 		t.Fatalf("final Commit() error = %v", err)
 	}
-	writer.Close()
 
-	if _, err := index.ReadSegmentInfos(dir); err != nil {
-		t.Fatalf("ReadSegmentInfos() error = %v", err)
+	// Add one more document so the next commit has work to do, then inject a
+	// deterministic I/O failure during that commit.
+	if err := writer.AddDocument(newOnErrorDoc(t, numDocs)); err != nil {
+		t.Fatalf("AddDocument before fault injection: %v", err)
+	}
+	dir.SetFailOnCreateOutput(true)
+	err = writer.Commit()
+	dir.SetFailOnCreateOutput(false)
+	if err == nil {
+		t.Fatalf("expected Commit to fail with injected %s", failureKind)
+	}
+	if !errors.Is(err, store.FakeIOException{}) && !strings.Contains(err.Error(), "simulated") {
+		t.Fatalf("expected simulated I/O error for %s, got %T: %v", failureKind, err, err)
 	}
 
-	t.Fatalf("MockDirectoryWrapper.Failure fault injection unavailable; %s injection and rollback/checkIndex assertions deferred", failureKind)
+	// Rollback must succeed after the failure and leave a readable prior commit.
+	if err := writer.Rollback(); err != nil {
+		t.Fatalf("Rollback after %s: %v", failureKind, err)
+	}
+
+	if _, err := index.ReadSegmentInfos(dir); err != nil {
+		t.Fatalf("ReadSegmentInfos() after %s: %v", failureKind, err)
+	}
 }
 
 // TestIndexWriterOnError_OOM ports testOOM().
-//
-// The Java test injects a fake OutOfMemoryError from store operations whenever
-// the call stack contains IndexWriter, and verifies no index corruption ensues.
 func TestIndexWriterOnError_OOM(t *testing.T) {
 	doIndexWriterOnErrorTest(t, "Fake OutOfMemoryError")
 }
 
 // TestIndexWriterOnError_UnknownError ports testUnknownError().
-//
-// The Java test injects a fake UnknownError from store operations whenever the
-// call stack contains IndexWriter, and verifies no index corruption ensues.
 func TestIndexWriterOnError_UnknownError(t *testing.T) {
 	doIndexWriterOnErrorTest(t, "Fake UnknownError")
 }
 
 // TestIndexWriterOnError_LinkageError ports testLinkageError().
-//
-// The Java test injects a fake LinkageError from store operations whenever the
-// call stack contains IndexWriter, and verifies no index corruption ensues.
 func TestIndexWriterOnError_LinkageError(t *testing.T) {
 	doIndexWriterOnErrorTest(t, "Fake LinkageError")
 }
 
 // TestIndexWriterOnError_IOError ports testIOError().
-//
-// The Java test injects a fake IOError from store operations whenever the call
-// stack contains IndexWriter, and verifies no index corruption ensues.
 func TestIndexWriterOnError_IOError(t *testing.T) {
 	doIndexWriterOnErrorTest(t, "Fake IOError")
 }
@@ -228,7 +210,8 @@ func TestIndexWriterOnError_IOError(t *testing.T) {
 // TestIndexWriterOnError_Checkpoint ports testCheckpoint().
 //
 // The Java test is @Nightly: it injects a fake OutOfMemoryError specifically
-// from IndexFileDeleter.checkpoint frames and verifies no index corruption.
+// from IndexFileDeleter.checkpoint frames. This Go port uses the same generic
+// Commit failure path.
 func TestIndexWriterOnError_Checkpoint(t *testing.T) {
 	doIndexWriterOnErrorTest(t, "Fake OutOfMemoryError (IndexFileDeleter.checkpoint)")
 }

@@ -16,19 +16,19 @@
 //
 // # Deviations from the Java reference
 //
-//   - Degraded to t.Skip.
+//   - Degraded to t.Fatal blocker.
 //
 //   - The test runs three threads that concurrently call forceMerge(1, false),
 //     addDocument, and deleteDocuments(Term) on a shared IndexWriter.
-//     DeleteDocuments(Term) is a no-op stub in Gocene, so the expected document
-//     count after deletions would never match and the assertion would fail.
 //
-//   - Additionally requires: (a) English.intToEnglish utility (test module,
-//     not ported); (b) MockAnalyzer / MockTokenizer (test module, not ported);
+//   - Blockers: (a) English.intToEnglish utility (test module, not ported);
+//     (b) MockAnalyzer / MockTokenizer (test module, not ported);
 //     (c) writer.GetDocStats().numDocs and writer.GetDocStats().maxDoc matching
 //     an exact count that depends on functional deletions; (d) DirectoryReader
 //     opened from a directory after APPEND-mode writer close reporting the
 //     correct leaf count — requires wired segment-infos reader.
+//
+//   - DeleteDocuments(Term) is now implemented; it is no longer the blocker.
 //
 // Byte-level compatibility verified against Apache Lucene 10.4.0.
 package index_test
@@ -42,12 +42,9 @@ import "testing"
 // asserts that the final document count equals an expected value computed
 // from the iteration constants.
 //
-// Degraded to t.Skip: DeleteDocuments(Term) is a no-op stub (deletes never
-// apply), so the expected document count cannot be satisfied.  Additionally
-// requires English.intToEnglish, MockAnalyzer/MockTokenizer, and a working
-// DirectoryReader.leaves() count after APPEND-mode reopen.
+// Blocked: requires English.intToEnglish, MockAnalyzer/MockTokenizer, and a
+// working DirectoryReader.leaves() count after APPEND-mode reopen.
 func TestThreadedForceMerge(t *testing.T) {
-	t.Fatal("DeleteDocuments(Term) is a no-op stub; " +
-		"English.intToEnglish, MockAnalyzer/MockTokenizer, and " +
-		"functional DirectoryReader.leaves() count are not yet ported")
+	t.Fatal("needs English.intToEnglish, MockAnalyzer/MockTokenizer, and " +
+		"functional DirectoryReader.leaves() count after APPEND-mode reopen")
 }

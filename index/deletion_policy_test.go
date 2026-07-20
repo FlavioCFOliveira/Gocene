@@ -61,7 +61,9 @@ func TestDeletionPolicy_ExpirationTime(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg.SetIndexDeletionPolicy(index.NewKeepAllDeletionPolicy())
+	writer, err := index.NewIndexWriter(dir, cfg)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -215,6 +217,7 @@ func TestDeletionPolicy_KeepNoneOnInit(t *testing.T) {
 	defer dir.Close()
 
 	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config.SetIndexDeletionPolicy(index.NewKeepAllDeletionPolicy())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -259,6 +262,7 @@ func TestDeletionPolicy_KeepLastN(t *testing.T) {
 	defer dir.Close()
 
 	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config.SetIndexDeletionPolicy(index.NewKeepAllDeletionPolicy())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -373,6 +377,7 @@ func TestDeletionPolicy_KeepLastNCommits(t *testing.T) {
 	defer dir.Close()
 
 	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config.SetIndexDeletionPolicy(index.NewKeepAllDeletionPolicy())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -460,6 +465,7 @@ func TestDeletionPolicy_SnapshotDeletionPolicy(t *testing.T) {
 	defer dir.Close()
 
 	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config.SetIndexDeletionPolicy(index.NewKeepAllDeletionPolicy())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -554,6 +560,7 @@ func TestDeletionPolicy_ListCommits(t *testing.T) {
 	defer dir.Close()
 
 	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config.SetIndexDeletionPolicy(index.NewKeepAllDeletionPolicy())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -675,6 +682,7 @@ func TestDeletionPolicy_KeepLastNCommitsOnInit(t *testing.T) {
 	defer dir.Close()
 
 	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config.SetIndexDeletionPolicy(index.NewKeepAllDeletionPolicy())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -771,6 +779,7 @@ func TestDeletionPolicy_FilterDeletedCommits(t *testing.T) {
 	defer dir.Close()
 
 	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config.SetIndexDeletionPolicy(index.NewKeepAllDeletionPolicy())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)

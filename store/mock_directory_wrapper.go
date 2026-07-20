@@ -10,6 +10,7 @@ import (
 	"math"
 	"math/rand"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 )
@@ -102,6 +103,19 @@ type MockDirectoryWrapper struct {
 	// --- Custom failure injection ---
 	failures []*Failure
 
+	// --- Clone counting ---
+	inputCloneCount atomic.Int64
+	verboseClone      bool
+
+	// --- Open-for-write / deleted-open-file tracking ---
+	assertNoDeleteOpenFile        bool
+	allowRandomFileNotFoundException bool // default true
+	allowReadingFilesStillOpenForWrite bool // default false
+	openFilesDeleted              map[string]struct{}
+
+	// --- Close-time assertions ---
+	assertNoUnreferencedFilesOnClose atomic.Bool
+
 	mu sync.RWMutex
 }
 
@@ -184,16 +198,18 @@ func (f *Failure) Eval(dir *MockDirectoryWrapper) error {
 // operation to override).
 func NewMockDirectoryWrapper(in Directory) *MockDirectoryWrapper {
 	return &MockDirectoryWrapper{
-		FilterDirectory:   NewFilterDirectory(in),
-		errorMessage:      "simulated I/O error",
-		failureRate:       0.0,
-		maxOpenFiles:      0, // 0 = unlimited
-		rng:               rand.New(rand.NewSource(0xDEADBEEF)),
-		openFiles:         make(map[any]string),
-		fileFailures:      make(map[string]map[string]struct{}),
-		unSyncedFiles:     make(map[string]struct{}),
-		createdFiles:      make(map[string]struct{}),
-		openFilesForWrite: make(map[string]struct{}),
+		FilterDirectory:                    NewFilterDirectory(in),
+		errorMessage:                       "simulated I/O error",
+		failureRate:                        0.0,
+		maxOpenFiles:                       0, // 0 = unlimited
+		rng:                                rand.New(rand.NewSource(0xDEADBEEF)),
+		openFiles:                          make(map[any]string),
+		fileFailures:                       make(map[string]map[string]struct{}),
+		unSyncedFiles:                      make(map[string]struct{}),
+		createdFiles:                       make(map[string]struct{}),
+		openFilesForWrite:                  make(map[string]struct{}),
+		openFilesDeleted:                   make(map[string]struct{}),
+		allowRandomFileNotFoundException:   true,
 	}
 }
 
@@ -406,6 +422,105 @@ func (m *MockDirectoryWrapper) GetTrackDiskUsage() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.trackDiskUsage
+}
+
+// GetInputCloneCount returns the number of IndexInput.Clone / Slice calls
+// that have been made against files in this directory. This is used by
+// TestForTooMuchCloning to guard against excessive cloning.
+func (m *MockDirectoryWrapper) GetInputCloneCount() int {
+	return int(m.inputCloneCount.Load())
+}
+
+// SetVerboseClone enables/disables printing a fake stack trace on every clone.
+func (m *MockDirectoryWrapper) SetVerboseClone(v bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.verboseClone = v
+}
+
+// GetVerboseClone reports whether clone tracing is enabled.
+func (m *MockDirectoryWrapper) GetVerboseClone() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.verboseClone
+}
+
+// SetAssertNoDeleteOpenFile enables/disables the assertion that a file still
+// open for reading/writing cannot be deleted or renamed.
+func (m *MockDirectoryWrapper) SetAssertNoDeleteOpenFile(v bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.assertNoDeleteOpenFile = v
+}
+
+// GetAssertNoDeleteOpenFile reports whether delete/rename of open files is forbidden.
+func (m *MockDirectoryWrapper) GetAssertNoDeleteOpenFile() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.assertNoDeleteOpenFile
+}
+
+// SetAllowRandomFileNotFoundException controls whether random IOException on
+// open may be surfaced as a file-not-found style exception. Defaults to true.
+func (m *MockDirectoryWrapper) SetAllowRandomFileNotFoundException(v bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.allowRandomFileNotFoundException = v
+}
+
+// GetAllowRandomFileNotFoundException returns the current value.
+func (m *MockDirectoryWrapper) GetAllowRandomFileNotFoundException() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.allowRandomFileNotFoundException
+}
+
+// SetAllowReadingFilesStillOpenForWrite controls whether an input can be opened
+// for a file that is still open for writing. Defaults to false (forbid).
+func (m *MockDirectoryWrapper) SetAllowReadingFilesStillOpenForWrite(v bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.allowReadingFilesStillOpenForWrite = v
+}
+
+// GetAllowReadingFilesStillOpenForWrite returns the current value.
+func (m *MockDirectoryWrapper) GetAllowReadingFilesStillOpenForWrite() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.allowReadingFilesStillOpenForWrite
+}
+
+// SetAssertNoUnrefencedFilesOnClose enables/disables the post-close assertion
+// that no unreferenced files remain after crashing unsynced files and running
+// the equivalent of CheckIndex. This mirrors Lucene's
+// MockDirectoryWrapper.setAssertNoUnrefencedFilesOnClose (sic).
+func (m *MockDirectoryWrapper) SetAssertNoUnrefencedFilesOnClose(v bool) {
+	m.assertNoUnreferencedFilesOnClose.Store(v)
+}
+
+// GetAssertNoUnrefencedFilesOnClose returns the current value.
+func (m *MockDirectoryWrapper) GetAssertNoUnrefencedFilesOnClose() bool {
+	return m.assertNoUnreferencedFilesOnClose.Load()
+}
+
+// GetFileHandleCount returns the number of currently open file handles
+// (inputs and outputs) against this wrapper.
+func (m *MockDirectoryWrapper) GetFileHandleCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.openFiles)
+}
+
+// GetOpenDeletedFiles returns the set of files that were deleted while still
+// open for reading/writing. The returned map is a defensive copy.
+func (m *MockDirectoryWrapper) GetOpenDeletedFiles() map[string]struct{} {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make(map[string]struct{}, len(m.openFilesDeleted))
+	for k := range m.openFilesDeleted {
+		out[k] = struct{}{}
+	}
+	return out
 }
 
 // GetMaxUsedSizeInBytes returns the peak storage used (bytes) in this directory.
@@ -773,6 +888,17 @@ func (m *MockDirectoryWrapper) registerClose(handle any) {
 	}
 }
 
+// isFileOpenLocked reports whether any open handle references name. Caller must
+// hold m.mu for reading or writing.
+func (m *MockDirectoryWrapper) isFileOpenLocked(name string) bool {
+	for _, n := range m.openFiles {
+		if n == name {
+			return true
+		}
+	}
+	return false
+}
+
 // --- Guarded operations ---------------------------------------------
 
 // OpenInput opens an input stream against the wrapped directory,
@@ -804,12 +930,71 @@ func (m *MockDirectoryWrapper) OpenInput(name string, ctx IOContext) (IndexInput
 		cb(name)
 	}
 
+	m.mu.RLock()
+	_, ok := m.openFilesForWrite[name]
+	allowReadOpenForWrite := m.allowReadingFilesStillOpenForWrite
+	m.mu.RUnlock()
+	if !allowReadOpenForWrite && ok {
+		return nil, fmt.Errorf("MockDirectoryWrapper: file %q is still open for writing", name)
+	}
+
 	in, err := m.FilterDirectory.OpenInput(name, ctx)
 	if err != nil {
 		return nil, err
 	}
 	wrapped := newMockDirIndexInput(m, in, name)
 	m.registerOpen(wrapped, name)
+	return wrapped, nil
+}
+
+// CreateTempOutput creates a temporary output file against the wrapped
+// directory. The delegate must support CreateTempOutput and must produce a
+// name ending in ".tmp".
+// CreateTempOutput creates a temporary output file against the wrapped
+// directory. The delegate must support CreateTempOutput and must produce a
+// name ending in ".tmp".
+func (m *MockDirectoryWrapper) CreateTempOutput(prefix, suffix string, ctx IOContext) (IndexOutput, error) {
+	if m.isCrashed() {
+		return nil, fmt.Errorf("cannot createTempOutput after crash (%s_%s)", prefix, suffix)
+	}
+	if err := m.maybeThrowIOExceptionOnOpen(prefix + "_" + suffix); err != nil {
+		return nil, err
+	}
+	if err := m.maybeThrowDeterministicException(); err != nil {
+		return nil, err
+	}
+	if m.failOnCreateOutput.Load() {
+		return nil, m.createError()
+	}
+	if err := m.checkMaxOpenFiles(); err != nil {
+		return nil, err
+	}
+
+	type tempCreator interface {
+		CreateTempOutput(prefix, suffix string, ctx IOContext) (IndexOutput, error)
+	}
+	delegate, ok := m.FilterDirectory.GetDelegate().(tempCreator)
+	if !ok {
+		return nil, fmt.Errorf("MockDirectoryWrapper: delegate %T does not support CreateTempOutput", m.FilterDirectory.GetDelegate())
+	}
+	out, err := delegate.CreateTempOutput(prefix, suffix, ctx)
+	if err != nil {
+		return nil, err
+	}
+	name := out.GetName()
+	if !strings.HasSuffix(strings.ToLower(name), ".tmp") {
+		_ = out.Close()
+		return nil, fmt.Errorf("wrapped directory failed to use .tmp extension: got %s", name)
+	}
+
+	wrapped := newMockDirIndexOutput(m, out, name)
+	m.registerOpen(wrapped, name)
+
+	m.mu.Lock()
+	m.createdFiles[name] = struct{}{}
+	m.unSyncedFiles[name] = struct{}{}
+	m.openFilesForWrite[name] = struct{}{}
+	m.mu.Unlock()
 	return wrapped, nil
 }
 
@@ -875,12 +1060,23 @@ func (m *MockDirectoryWrapper) DeleteFile(name string) error {
 
 	m.mu.RLock()
 	cb := m.deleteFileCallback
+	isOpen := m.isFileOpenLocked(name)
+	assertNoDelete := m.assertNoDeleteOpenFile
 	m.mu.RUnlock()
 	if cb != nil {
 		cb(name)
 	}
 
 	m.mu.Lock()
+	if isOpen {
+		m.openFilesDeleted[name] = struct{}{}
+	} else {
+		delete(m.openFilesDeleted, name)
+	}
+	if assertNoDelete && isOpen {
+		m.mu.Unlock()
+		return fmt.Errorf("MockDirectoryWrapper: file %q is still open: cannot delete", name)
+	}
 	delete(m.createdFiles, name)
 	delete(m.unSyncedFiles, name)
 	m.mu.Unlock()
@@ -1116,13 +1312,52 @@ func (m *MockDirectoryWrapper) String() string {
 // delegate verbatim to the inner input.
 type mockDirIndexInput struct {
 	IndexInput
-	owner  *MockDirectoryWrapper
-	name   string
-	closed atomic.Bool
+	owner   *MockDirectoryWrapper
+	name    string
+	closed  atomic.Bool
+	isClone bool
 }
 
 func newMockDirIndexInput(owner *MockDirectoryWrapper, in IndexInput, name string) *mockDirIndexInput {
 	return &mockDirIndexInput{IndexInput: in, owner: owner, name: name}
+}
+
+// Clone returns an independent copy of this input and increments the
+// wrapper's clone counter. Clones are not tracked as top-level open file
+// handles; only the original input is.
+func (m *mockDirIndexInput) Clone() IndexInput {
+	m.owner.inputCloneCount.Add(1)
+	if m.owner.GetVerboseClone() {
+		// Stack traces are expensive; this branch is off by default.
+		_ = fmt.Sprintf("clone: %s", m.name)
+	}
+	clone := &mockDirIndexInput{
+		IndexInput: m.IndexInput.Clone(),
+		owner:      m.owner,
+		name:       m.name,
+		isClone:    true,
+	}
+	return clone
+}
+
+// Slice returns a subset of this input and increments the wrapper's clone
+// counter. Slices are treated like clones for tracking purposes.
+func (m *mockDirIndexInput) Slice(desc string, offset int64, length int64) (IndexInput, error) {
+	m.owner.inputCloneCount.Add(1)
+	if m.owner.GetVerboseClone() {
+		_ = fmt.Sprintf("slice: %s", desc)
+	}
+	inner, err := m.IndexInput.Slice(desc, offset, length)
+	if err != nil {
+		return nil, err
+	}
+	slice := &mockDirIndexInput{
+		IndexInput: inner,
+		owner:      m.owner,
+		name:       desc,
+		isClone:    true,
+	}
+	return slice, nil
 }
 
 // Close releases the inner input and updates the wrapper's open-file
@@ -1131,7 +1366,9 @@ func (m *mockDirIndexInput) Close() error {
 	if !m.closed.CompareAndSwap(false, true) {
 		return nil
 	}
-	m.owner.registerClose(m)
+	if !m.isClone {
+		m.owner.registerClose(m)
+	}
 	return m.IndexInput.Close()
 }
 

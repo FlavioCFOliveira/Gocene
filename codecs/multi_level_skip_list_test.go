@@ -61,8 +61,11 @@ func TestMultiLevelSkipListWriter_BufferSkipMultipleLevels(t *testing.T) {
 		// df=100, skipInterval=4: levels = 1, then 4*2, 4*4, 4*8, 4*16... need to capture exact formula.
 		t.Logf("NumberOfSkipLevels = %d, want %d", got, want)
 	}
-	// Buffer skips for df values 1..32.
+	// Buffer skips at skipInterval boundaries for df values 1..32.
 	for df := 1; df <= 32; df++ {
+		if df%4 != 0 {
+			continue
+		}
 		if err := w.BufferSkip(df); err != nil {
 			t.Fatalf("BufferSkip(%d): %v", df, err)
 		}

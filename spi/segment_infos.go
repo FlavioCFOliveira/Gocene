@@ -479,6 +479,62 @@ func (si *SegmentInfos) Iterator() func(yield func(*SegmentCommitInfo) bool) {
 	}
 }
 
+// Replace replaces all segments in this instance with the segments from other,
+// while preserving generation, version, counter, luceneVersion and
+// indexCreatedVersionMajor so that future commits remain write-once. It also
+// copies lastGeneration and userData from other, matching Lucene's
+// SegmentInfos.replace.
+func (si *SegmentInfos) Replace(other *SegmentInfos) {
+	if other == nil {
+		return
+	}
+	si.mu.Lock()
+	defer si.mu.Unlock()
+
+	other.mu.RLock()
+	infos := make(SegmentCommitInfoList, len(other.segments))
+	for i, sci := range other.segments {
+		infos[i] = sci.Clone()
+	}
+	lastGen := other.lastGeneration
+	userData := make(map[string]string, len(other.userData))
+	for k, v := range other.userData {
+		userData[k] = v
+	}
+	other.mu.RUnlock()
+
+	si.segments = infos
+	si.lastGeneration = lastGen
+	si.userData = userData
+}
+
+// CreateBackupSegmentInfos returns a deep copy of every SegmentCommitInfo in
+// this SegmentInfos. This is the rollback snapshot used by IndexWriter.
+func (si *SegmentInfos) CreateBackupSegmentInfos() SegmentCommitInfoList {
+	si.mu.RLock()
+	defer si.mu.RUnlock()
+
+	list := make(SegmentCommitInfoList, len(si.segments))
+	for i, sci := range si.segments {
+		list[i] = sci.Clone()
+	}
+	return list
+}
+
+// RollbackSegmentInfos restores the segment list from the supplied backup.
+// The backup is typically produced by CreateBackupSegmentInfos. Metadata such
+// as generation and counter are left untouched so the writer can continue to
+// use the same SegmentInfos instance after a rollback.
+func (si *SegmentInfos) RollbackSegmentInfos(infos SegmentCommitInfoList) {
+	si.mu.Lock()
+	defer si.mu.Unlock()
+
+	si.segments = make(SegmentCommitInfoList, len(infos))
+	for i, sci := range infos {
+		si.segments[i] = sci.Clone()
+	}
+}
+
 // GetMaxSegmentName returns the maximum segment name (highest generation).
 // Returns empty string if there are no segments.
 func (si *SegmentInfos) GetMaxSegmentName() string {

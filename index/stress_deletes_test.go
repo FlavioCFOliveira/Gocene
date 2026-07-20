@@ -21,14 +21,7 @@ import (
 //
 // Make sure that the order of adds/deletes across threads is respected as long
 // as each ID is only changed by one thread at a time.
-//
-// Skipped: IndexWriter.DeleteDocuments / DeleteDocumentsQuery are no-op stubs in
-// Gocene and there is no near-real-time DirectoryReader.open(writer); both are
-// required by this test, so the assertions on deleted IDs cannot pass yet. See
-// index_writer_delete_test.go for the same documented infra gap.
 func TestStressDeletes(t *testing.T) {
-	t.Fatal("infra gap: DeleteDocuments(Term|Query) are no-op stubs and no NRT reader-from-writer; port retained for when delete application lands")
-
 	const numIDs = 100
 	locks := make([]sync.Mutex, numIDs)
 
@@ -48,7 +41,7 @@ func TestStressDeletes(t *testing.T) {
 
 	rng := rand.New(rand.NewSource(42))
 	numThreads := 2 + rng.Intn(5) // [2, 6]
-	deleteMode := rng.Intn(3)
+	deleteMode := rng.Intn(3)   // 0: term, 1: query, 2: mixed
 
 	var wg sync.WaitGroup
 	startingGun := make(chan struct{})
@@ -82,14 +75,17 @@ func TestStressDeletes(t *testing.T) {
 					term := index.NewTerm("id", strconv.Itoa(id))
 					byTerm := deleteMode == 0 || (deleteMode == 2 && r.Intn(2) == 0)
 					if byTerm {
-						err = w.DeleteDocuments(term)
+						if err := w.DeleteDocuments(term); err != nil {
+							locks[id].Unlock()
+							t.Errorf("DeleteDocuments: %v", err)
+							return
+						}
 					} else {
-						err = w.DeleteDocumentsQuery(search.NewTermQuery(term))
-					}
-					if err != nil {
-						locks[id].Unlock()
-						t.Errorf("DeleteDocuments: %v", err)
-						return
+						if err := w.DeleteDocumentsQuery(search.NewTermQuery(term)); err != nil {
+							locks[id].Unlock()
+							t.Errorf("DeleteDocumentsQuery: %v", err)
+							return
+						}
 					}
 					existsMu.Lock()
 					exists[id] = false

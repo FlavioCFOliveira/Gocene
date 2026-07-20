@@ -19,8 +19,6 @@ import (
 // TestNewestSegment verifies that a freshly created IndexWriter, before any
 // flush, reports no newest segment.
 func TestNewestSegment(t *testing.T) {
-	t.Fatal("Sprint 55 option c: needs IndexWriter.newestSegment (not yet ported)")
-
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
@@ -30,10 +28,10 @@ func TestNewestSegment(t *testing.T) {
 		t.Fatalf("NewIndexWriter() error = %v", err)
 	}
 
-	// IndexWriter.newestSegment() must be nil before the first flush.
-	// if seg := writer.NewestSegment(); seg != nil {
-	// 	t.Errorf("NewestSegment() = %v, want nil", seg)
-	// }
+	// IndexWriter.NewestSegment() must be nil before the first flush.
+	if seg := writer.NewestSegment(); seg != nil {
+		t.Errorf("NewestSegment() = %v, want nil", seg)
+	}
 
 	if err := writer.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)

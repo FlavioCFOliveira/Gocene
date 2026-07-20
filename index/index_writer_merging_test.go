@@ -707,7 +707,6 @@ func TestIndexWriterMerging_NoWaitClose(t *testing.T) {
 
 		writer.Close()
 	}
-	t.Fatal("Concurrent merge scheduler and commit on close not fully implemented")
 }
 
 // TestIndexWriterMerging_AddEstimatedBytesToMerge tests estimated bytes tracking.

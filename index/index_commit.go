@@ -19,7 +19,12 @@ import (
 // time of the commit. IndexCommits are used by IndexDeletionPolicy to
 // decide which commits should be kept or deleted.
 //
-// IndexCommits are immutable once created.
+// When the commit is obtained from a DirectoryReader, it also carries a
+// reference to that reader. IndexWriter uses this reference for the NRT-reader
+// reopen path and to detect stale or closed readers.
+//
+// IndexCommits are immutable once created, apart from the optional reader
+// reference which is set by the reader implementation at construction time.
 type IndexCommit struct {
 	// segmentsFileName is the name of the segments file for this commit
 	segmentsFileName string
@@ -38,6 +43,21 @@ type IndexCommit struct {
 
 	// segmentInfos holds a reference to the SegmentInfos at commit time
 	segmentInfos *SegmentInfos
+
+	// reader is the DirectoryReader this commit was obtained from, if any.
+	// It is non-nil for commits produced by StandardDirectoryReader.GetIndexCommit
+	// and nil for commits constructed from an on-disk segments_N file alone.
+	reader *DirectoryReader
+
+	// deleted is true once Delete() has been invoked.
+	deleted bool
+
+	// deletionHook, when non-nil, is invoked by Delete() instead of deleting
+	// the segments file directly. The hook is responsible for marking the commit
+	// for deletion so that IndexFileDeleter can DecRef its files in the proper
+	// order. This mirrors Lucene's IndexCommit.delete() routing through the
+	// IndexFileDeleter.
+	deletionHook func() error
 }
 
 // NewIndexCommit creates a new IndexCommit from the given SegmentInfos.
@@ -109,6 +129,26 @@ func (c *IndexCommit) GetSegmentInfos() *SegmentInfos {
 	return c.segmentInfos
 }
 
+// GetReader returns the DirectoryReader this commit was obtained from, if any.
+// Returns nil for commits that were not produced by a reader.
+func (c *IndexCommit) GetReader() *DirectoryReader {
+	return c.reader
+}
+
+// SetReader records the DirectoryReader this commit was obtained from.
+func (c *IndexCommit) SetReader(r *DirectoryReader) {
+	c.reader = r
+}
+
+// SetDeletionHook registers a callback that Delete() invokes instead of
+// directly deleting the segments file. The callback should mark the commit as
+// eligible for deletion in the owning deleter and return nil on success.
+// It is used by IndexFileDeleter so that deletion policies participate in
+// reference-counted file cleanup.
+func (c *IndexCommit) SetDeletionHook(hook func() error) {
+	c.deletionHook = hook
+}
+
 // GetFileNames returns all file names associated with this commit.
 func (c *IndexCommit) GetFileNames() ([]string, error) {
 	if c.segmentInfos == nil {
@@ -141,31 +181,53 @@ func (c *IndexCommit) GetFileNames() ([]string, error) {
 	return result, nil
 }
 
-// Delete deletes this commit by removing its segments file.
-//
-// Lucene's IndexCommit.Delete works through the IndexFileDeleter's reference
-// counting: the segments file is removed immediately, and unreferenced segment
-// files are reclaimed by the next IndexWriter that opens the directory (or by
-// an active deleter).  Directly deleting segment files here is unsafe because
-// a single segment may be shared by multiple commits, which is why the old
-// implementation produced "file not found" errors when deleting older commits
-// whose segments were still live in newer commits.
+// Delete marks this commit for deletion. When the commit is wired to an
+// IndexFileDeleter (the normal IndexWriter case), the hook is invoked: it
+// enqueues the commit so the deleter can DecRef its referenced files and remove
+// the segments file in the correct order. When no hook is present (e.g. a
+// standalone IndexCommit obtained from ListCommits), the segments file is
+// deleted directly and the deleted flag is set.
 func (c *IndexCommit) Delete() error {
+	if c.deleted {
+		return nil
+	}
+	if c.deletionHook != nil {
+		if err := c.deletionHook(); err != nil {
+			return err
+		}
+		c.deleted = true
+		return nil
+	}
 	if c.directory == nil {
 		return fmt.Errorf("directory not set")
 	}
 	if err := c.directory.DeleteFile(c.segmentsFileName); err != nil {
 		return fmt.Errorf("deleting segments file %s: %w", c.segmentsFileName, err)
 	}
+	c.deleted = true
 	return nil
 }
 
-// IsDeleted returns true if this commit has been deleted.
+// IsDeleted returns true if this commit has been deleted. A commit is deleted
+// when Delete() has been invoked on it, or — for standalone commits that are
+// not managed by an IndexFileDeleter — when its segments file no longer exists
+// in the directory. This matches the testable behavior expected by Lucene's
+// IndexCommit contract and keeps manually-constructed commit points honest.
 func (c *IndexCommit) IsDeleted() bool {
-	if c.directory == nil {
+	if c.deleted {
+		return true
+	}
+	if c.deletionHook != nil {
+		// Real commit points are managed by IndexFileDeleter; the hook sets the
+		// deleted flag once the deleter has queued the commit for cleanup.
 		return false
 	}
-	return !c.directory.FileExists(c.segmentsFileName)
+	if c.directory != nil && c.segmentsFileName != "" {
+		if _, err := c.directory.FileLength(c.segmentsFileName); err != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // String returns a string representation of this IndexCommit.

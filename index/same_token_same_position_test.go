@@ -119,8 +119,6 @@ func sameTokenDoc(t *testing.T) *document.Document {
 // org.apache.lucene.index.TestSameTokenSamePosition#test: indexing a single
 // document whose tokens repeat at the same position must not raise an error.
 func TestSameTokenSamePosition(t *testing.T) {
-	t.Fatal(sameTokenSamePositionBlocked)
-
 	dir, w := newSameTokenWriter(t)
 	defer dir.Close()
 
@@ -136,8 +134,6 @@ func TestSameTokenSamePosition(t *testing.T) {
 // org.apache.lucene.index.TestSameTokenSamePosition#testMoreDocs: the same
 // repeated-position document indexed 100 times must not raise an error.
 func TestSameTokenSamePosition_MoreDocs(t *testing.T) {
-	t.Fatal(sameTokenSamePositionBlocked)
-
 	dir, w := newSameTokenWriter(t)
 	defer dir.Close()
 

@@ -6,8 +6,8 @@ package index
 
 import (
 	"fmt"
-	"strings"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/spi"
@@ -1309,12 +1309,18 @@ func (r *DirectoryReader) GetSegmentInfos() *SegmentInfos {
 }
 
 // GetIndexCommit returns the IndexCommit that this reader is reading from.
+// The returned commit carries a reference back to this reader so that
+// IndexWriter can detect stale or closed NRT reader commits.
 func (r *DirectoryReader) GetIndexCommit() *IndexCommit {
 	if r.segmentInfos == nil {
 		return nil
 	}
 	commit := NewIndexCommit(r.segmentInfos)
 	commit.SetDirectory(r.directory)
+	// Preserve the reader reference for the NRT reopen path. The commit is
+	// obtained from a live reader, so this is safe; if the reader is later
+	// closed the IndexWriter constructor will detect it via EnsureOpen.
+	commit.SetReader(r)
 	return commit
 }
 
@@ -1382,6 +1388,7 @@ func (r *DirectoryReader) Close() error {
 		}
 	}
 	r.readers = nil
+	r.closed.Store(true)
 	return lastErr
 }
 

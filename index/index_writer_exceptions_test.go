@@ -426,7 +426,10 @@ func TestIndexWriterExceptions_DocumentsWriterExceptionFailOneDoc(t *testing.T) 
 	defer dir.Close()
 
 	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	config.SetMergePolicy(index.NewTieredMergePolicy())
+	// Use a merge policy that never merges: the test asserts that a deleted
+	// document is still counted in MaxDoc after close/reopen, and a merge-on-close
+	// would compact it away.
+	config.SetMergePolicy(index.NewNoMergePolicy())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -577,6 +580,9 @@ func TestIndexWriterExceptions_ExceptionsDuringCommit(t *testing.T) {
 	commitErr := writer.Commit()
 	if commitErr != nil {
 		t.Logf("Commit failed as expected: %v", commitErr)
+		// Disable the injected failure so Rollback can clean up without hitting
+		// the same simulated error on every directory operation.
+		failure.ClearDoFail()
 		if err := writer.Rollback(); err != nil {
 			t.Fatalf("Rollback after failed commit: %v", err)
 		}

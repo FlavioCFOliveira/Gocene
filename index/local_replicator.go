@@ -3,6 +3,7 @@ package index
 import (
 	"context"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"os"
 	"path/filepath"
@@ -29,6 +30,18 @@ type LocalReplicator struct {
 
 	// currentRevision is the current replicated revision
 	currentRevision *IndexRevision
+
+	// verifyChecksums enables post-copy checksum verification.
+	verifyChecksums bool
+
+	// replicateMu serializes replication operations to make concurrent
+	// file copies safe.
+	replicateMu sync.Mutex
+
+	// replicateOpMu serializes whole Replicate() calls so that concurrent
+	// callers observe a single start/check/stop sequence instead of racing
+	// on the underlying running flag.
+	replicateOpMu sync.Mutex
 }
 
 // NewLocalReplicator creates a new LocalReplicator.
@@ -59,9 +72,13 @@ func NewLocalReplicator(sourcePath, targetPath string) (*LocalReplicator, error)
 
 // performReplication performs the actual replication.
 func (lr *LocalReplicator) performReplication(ctx context.Context) error {
+	lr.replicateMu.Lock()
+	defer lr.replicateMu.Unlock()
+
 	lr.mu.RLock()
 	sourcePath := lr.sourcePath
 	targetPath := lr.targetPath
+	verify := lr.verifyChecksums
 	lr.mu.RUnlock()
 
 	// Ensure target directory exists
@@ -87,7 +104,7 @@ func (lr *LocalReplicator) performReplication(ctx context.Context) error {
 		sourceFile := filepath.Join(sourcePath, file)
 		targetFile := filepath.Join(targetPath, file)
 
-		bytes, err := lr.copyFile(sourceFile, targetFile)
+		bytes, err := lr.copyFile(sourceFile, targetFile, verify)
 		if err != nil {
 			return fmt.Errorf("copying file %s: %w", file, err)
 		}
@@ -143,8 +160,9 @@ func (lr *LocalReplicator) getSourceFiles(sourcePath string) ([]string, error) {
 	return files, nil
 }
 
-// copyFile copies a file from source to target.
-func (lr *LocalReplicator) copyFile(sourcePath, targetPath string) (int64, error) {
+// copyFile copies a file from source to target, optionally verifying that
+// the target bytes match the source bytes via a CRC-32 checksum.
+func (lr *LocalReplicator) copyFile(sourcePath, targetPath string, verify bool) (int64, error) {
 	// Ensure target directory exists
 	targetDir := filepath.Dir(targetPath)
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
@@ -156,22 +174,61 @@ func (lr *LocalReplicator) copyFile(sourcePath, targetPath string) (int64, error
 	if err != nil {
 		return 0, err
 	}
-	defer sourceFile.Close()
 
 	// Create target file
 	targetFile, err := os.Create(targetPath)
 	if err != nil {
+		sourceFile.Close()
 		return 0, err
 	}
-	defer targetFile.Close()
 
 	// Copy content
 	bytes, err := io.Copy(targetFile, sourceFile)
+
+	// Close explicitly so that the post-copy checksum can open the files.
+	srcErr := sourceFile.Close()
+	tgtErr := targetFile.Close()
 	if err != nil {
 		return 0, err
 	}
+	if srcErr != nil {
+		return 0, srcErr
+	}
+	if tgtErr != nil {
+		return 0, tgtErr
+	}
+
+	if verify {
+		srcCRC, err := crc32OfFile(sourcePath)
+		if err != nil {
+			return 0, fmt.Errorf("checksum source %s: %w", sourcePath, err)
+		}
+		tgtCRC, err := crc32OfFile(targetPath)
+		if err != nil {
+			return 0, fmt.Errorf("checksum target %s: %w", targetPath, err)
+		}
+		if srcCRC != tgtCRC {
+			return 0, fmt.Errorf("checksum mismatch for %s: source=%d target=%d",
+				filepath.Base(sourcePath), srcCRC, tgtCRC)
+		}
+	}
 
 	return bytes, nil
+}
+
+// crc32OfFile returns the CRC-32 IEEE checksum of the file at path.
+func crc32OfFile(path string) (uint32, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+
+	h := crc32.NewIEEE()
+	if _, err := io.Copy(h, f); err != nil {
+		return 0, err
+	}
+	return h.Sum32(), nil
 }
 
 // CheckNow checks if replication is needed and performs it.
@@ -201,6 +258,46 @@ func (lr *LocalReplicator) Start() error {
 // Stop stops the replicator.
 func (lr *LocalReplicator) Stop() error {
 	return lr.base.Stop()
+}
+
+// Replicate performs a single replication check. If the replicator is not
+// already running it is started for the duration of the operation and then
+// stopped. This is a convenience wrapper around Start/CheckNow/Stop.  Concurrent
+// callers are serialized so that every call observes a consistent start/check/stop
+// sequence.
+func (lr *LocalReplicator) Replicate(ctx context.Context) error {
+	lr.replicateOpMu.Lock()
+	defer lr.replicateOpMu.Unlock()
+
+	lr.mu.RLock()
+	if !lr.isOpen.Load() {
+		lr.mu.RUnlock()
+		return fmt.Errorf("local replicator is closed")
+	}
+	lr.mu.RUnlock()
+
+	wasRunning := lr.IsRunning()
+	if !wasRunning {
+		if err := lr.Start(); err != nil {
+			return err
+		}
+	}
+
+	err := lr.CheckNow(ctx)
+
+	if !wasRunning {
+		_ = lr.Stop()
+	}
+
+	return err
+}
+
+// SetVerifyChecksums controls whether copied files are verified with a
+// CRC-32 checksum after being written to the target directory.
+func (lr *LocalReplicator) SetVerifyChecksums(verify bool) {
+	lr.mu.Lock()
+	defer lr.mu.Unlock()
+	lr.verifyChecksums = verify
 }
 
 // IsRunning returns true if the replicator is running.

@@ -371,8 +371,7 @@ func TestReplicationFile_ConcurrentOperations(t *testing.T) {
 	go func() {
 		for i := 0; i < 100; i++ {
 			file.GetStatus()
-			file.GetProgress()
-			_ = file.TransferredBytes // Read the field to ensure no data races
+			file.GetProgress() // reads TransferredBytes under the file lock
 			time.Sleep(1 * time.Millisecond)
 		}
 		done <- true

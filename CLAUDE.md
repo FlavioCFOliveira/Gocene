@@ -67,6 +67,8 @@ Whenever you encounter pre-existing bugs during a task, fix them immediately and
 
 ## 3. Production Orientation
 
+Every action you take — whether development, fixes, evaluations, analysis, audits, or any other work — must be treated with production-grade standards.
+
 Throughout the entire work cycle (analysis → planning → development → testing), the objective must always be that the result produced is **production-grade**. You must apply not only the maximum of your knowledge but also the maximum of your effort to ensure that every piece of work is delivered as code ready to be used in production.
 
 There is no acceptable "draft" or "experimental" mode for delivered work: every commit, every closed task, every merged branch must meet production standards.
@@ -98,7 +100,7 @@ When the work requires multiple phases, planning must be performed in two distin
 
 In both stages, use `rmp` as the single source of truth.
 
-Use the **Knowledge Graph** to identify the highest-gain or highest-impact tasks, foundational tasks, and tasks that unblock other tasks or features, so that the execution order can be optimised. By default, always work from the highest-gain tasks towards the least essential.
+Use the **Knowledge Graph** to identify the highest-gain or highest-impact tasks, foundational tasks, and tasks that unblock other tasks or features, so that the execution order can be optimised. By default, always work from the highest-gain tasks towards the least essential. Foundational tasks and tasks that unblock other work are always prioritised.
 
 When a task is too large to be executed in one go by an AI agent such as Claude Code, subdivide it into smaller parts while respecting the principles already defined (in particular, the self-contained task principle).
 
@@ -117,6 +119,7 @@ Execution is the natural next step after planning. Always use `rmp` and follow t
 
 Execution notes:
 
+- You may develop **only one task at a time**, in strict sequential order. Active development work must never be parallelised across multiple tasks.
 - Whenever possible, adapt the model and its effort level to the requirements of each individual task operation.
 - Task and sprint execution is **sequential**.
 - Evaluations and audits may run in parallel, but such parallel execution must **ALWAYS be authorised by the user**.

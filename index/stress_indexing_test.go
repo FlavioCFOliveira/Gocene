@@ -90,8 +90,6 @@ func indexerWork(w *index.IndexWriter, r *rand.Rand, nextID *int) error {
 }
 
 func TestStressIndexAndSearching(t *testing.T) {
-	t.Fatal("infra gap: DeleteDocuments is a no-op stub; full roundtrip retained for when delete application lands")
-
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 

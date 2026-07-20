@@ -27,6 +27,14 @@ func (q *TermQuery) Term() *index.Term {
 	return q.term
 }
 
+// DeleteTerm implements index.TermDeleteQuery. A TermQuery on a single term
+// is semantically equivalent to deleting by that term, so IndexWriter routes
+// DeleteDocumentsQuery(TermQuery) through the term-delete path to give it the
+// same buffered-document generation semantics.
+func (q *TermQuery) DeleteTerm() *index.Term {
+	return q.term
+}
+
 func (q *TermQuery) Clone() Query {
 	return NewTermQuery(q.term.Clone())
 }
