@@ -1612,6 +1612,17 @@ func (w *IndexWriter) commitLocked(force bool) error {
 		w.pendingDeletedDocIDs = w.pendingDeletedDocIDs[:0]
 	}
 
+	// Ensure segment-name counter accounts for materialised pending segments so
+	// that auto-generated names do not collide with pre-assigned NRT names.
+	for i := range w.pendingImportedSegments {
+		if name := w.pendingImportedSegments[i].segmentName; name != "" {
+			gen := SegmentNameGeneration(name)
+			if gen >= si.GetCounter() {
+				si.SetCounter(gen + 1)
+			}
+		}
+	}
+
 	for i := range w.pendingImportedSegments {
 		ps := &w.pendingImportedSegments[i]
 		segmentName := ps.segmentName
@@ -2016,6 +2027,11 @@ func (w *IndexWriter) commitLocked(force bool) error {
 
 	// Remember the committed state so Rollback can restore it later.
 	w.lastCommittedSegmentInfos = si.Clone()
+	// Keep the pinned view in sync when no explicit pinned commit is set, so
+	// that NumDocs()/MaxDoc() reflect the latest commit while the writer is open.
+	if w.config.IndexCommit() == nil {
+		w.pinnedSegmentInfos = w.lastCommittedSegmentInfos.Clone()
+	}
 	w.hasCommitted = true
 
 	// A Commit advances the on-disk generation.  Any NRT reader opened before

@@ -5,6 +5,7 @@
 package index
 
 import (
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -165,4 +166,16 @@ func GetExtension(filename string) string {
 		return filename[idx+1:]
 	}
 	return ""
+}
+
+// SegmentNameGeneration returns the numeric generation embedded in a segment
+// name such as "_0" or "_12". It mirrors SegmentInfo.GetGeneration() without
+// requiring a full SegmentInfo value.
+func SegmentNameGeneration(name string) int64 {
+	if len(name) > 1 && name[0] == '_' {
+		var gen int64
+		fmt.Sscanf(name[1:], "%d", &gen)
+		return gen
+	}
+	return 0
 }
