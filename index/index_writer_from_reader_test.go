@@ -6,6 +6,8 @@ package index_test
 
 import (
 	"errors"
+	"fmt"
+	"math/rand"
 	"strings"
 	"testing"
 
@@ -288,11 +290,142 @@ func TestIndexWriterFromReader_NRTRollback(t *testing.T) {
 
 // testRandom ports TestIndexWriterFromReader#testRandom: a randomized sequence of
 // adds, deletes, NRT reopens, rollbacks, and commits cross-checked against
-// reader/writer doc counts. The full upstream random test requires
-// RandomIndexWriter / MockDirectoryWrapper infrastructure that Gocene has not
-// yet ported; it stays blocked on that unrelated gap.
+// reader/writer doc counts. RandomIndexWriter and the NRT reopen/rollback APIs
+// are now available, so the test is exercised directly without MockDirectoryWrapper
+// fault injection.
 func TestIndexWriterFromReader_Random(t *testing.T) {
-	t.Fatal("blocked by rmp #118-follow-up: full random test needs RandomIndexWriter and MockDirectoryWrapper infrastructure; commit-pinning/rollback itself is implemented")
+	dir := store.NewByteBuffersDirectory()
+	defer func() { _ = dir.Close() }()
+
+	cfg := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	// Empty first commit so rollbacks always have a pinned baseline.
+	if err := w.Commit(); err != nil {
+		t.Fatalf("initial Commit: %v", err)
+	}
+
+	r, err := index.OpenDirectoryReaderFromWriter(w)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
+	}
+	nrtReaderNumDocs := 0
+	writerNumDocs := 0
+	commitAfterNRT := false
+
+	liveIDs := make(map[int]struct{})
+	nrtLiveIDs := make(map[int]struct{})
+
+	rng := rand.New(rand.NewSource(0xC0FFEE))
+	numOps := 100
+	for op := 0; op < numOps; op++ {
+		if got := r.NumDocs(); got != nrtReaderNumDocs {
+			t.Fatalf("iter %d: r.NumDocs() = %d, want %d", op, got, nrtReaderNumDocs)
+		}
+		x := rng.Intn(5)
+		switch x {
+		case 0:
+			doc := document.NewDocument()
+			doc.Add(newStringField(t, "id", fmt.Sprintf("%d", op), false))
+			if err := w.AddDocument(doc); err != nil {
+				t.Fatalf("iter %d AddDocument: %v", op, err)
+			}
+			liveIDs[op] = struct{}{}
+			writerNumDocs++
+		case 1:
+			if len(liveIDs) == 0 {
+				continue
+			}
+			id := rng.Intn(op)
+			if err := w.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", id))); err != nil {
+				t.Fatalf("iter %d DeleteDocuments: %v", op, err)
+			}
+			if _, ok := liveIDs[id]; ok {
+				delete(liveIDs, id)
+				writerNumDocs--
+			}
+		case 2:
+			r2, err := index.OpenIfChangedFromWriter(r, w)
+			if err != nil {
+				t.Fatalf("iter %d OpenIfChangedFromWriter: %v", op, err)
+			}
+			if r2 != nil {
+				if err := r.Close(); err != nil {
+					t.Fatalf("iter %d close old reader: %v", op, err)
+				}
+				r = r2
+				nrtReaderNumDocs = writerNumDocs
+				nrtLiveIDs = cloneIntSet(liveIDs)
+			} else {
+				if got := r.NumDocs(); got != nrtReaderNumDocs {
+					t.Fatalf("iter %d unchanged reader NumDocs = %d, want %d", op, got, nrtReaderNumDocs)
+				}
+			}
+			commitAfterNRT = false
+		case 3:
+			if !commitAfterNRT {
+				if rng.Intn(2) == 0 {
+					if err := w.Close(); err != nil {
+						t.Fatalf("iter %d Close: %v", op, err)
+					}
+					if err := r.Close(); err != nil {
+						t.Fatalf("iter %d close r: %v", op, err)
+					}
+					r, err = index.OpenDirectoryReader(dir)
+					if err != nil {
+						t.Fatalf("iter %d OpenDirectoryReader: %v", op, err)
+					}
+					if got := r.NumDocs(); got != writerNumDocs {
+						t.Fatalf("iter %d non-NRT reader NumDocs = %d, want %d", op, got, writerNumDocs)
+					}
+					nrtReaderNumDocs = writerNumDocs
+					nrtLiveIDs = cloneIntSet(liveIDs)
+				} else {
+					if err := w.Rollback(); err != nil {
+						t.Fatalf("iter %d Rollback: %v", op, err)
+					}
+				}
+				iwc := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
+				iwc.SetIndexCommit(r.GetIndexCommit())
+				w, err = index.NewIndexWriter(dir, iwc)
+				if err != nil {
+					t.Fatalf("iter %d NewIndexWriter from commit: %v", op, err)
+				}
+				writerNumDocs = nrtReaderNumDocs
+				liveIDs = cloneIntSet(nrtLiveIDs)
+				if err := r.Close(); err != nil {
+					t.Fatalf("iter %d close pinned reader: %v", op, err)
+				}
+				r, err = index.OpenDirectoryReaderFromWriter(w)
+				if err != nil {
+					t.Fatalf("iter %d OpenDirectoryReaderFromWriter after reopen: %v", op, err)
+				}
+			}
+		case 4:
+			if err := w.Commit(); err != nil {
+				t.Fatalf("iter %d Commit: %v", op, err)
+			}
+			commitAfterNRT = true
+		}
+	}
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatalf("reader Close: %v", err)
+	}
+}
+
+// cloneIntSet returns a shallow copy of the provided int set.
+func cloneIntSet(s map[int]struct{}) map[int]struct{} {
+	out := make(map[int]struct{}, len(s))
+	for k := range s {
+		out[k] = struct{}{}
+	}
+	return out
 }
 
 // testConsistentFieldNumbers ports TestIndexWriterFromReader#testConsistentFieldNumbers:

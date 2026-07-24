@@ -17,14 +17,22 @@
 package index_test
 
 import (
+	"fmt"
 	"math/rand"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
+
+// Link the production Lucene 10.4 codec implementation so that tests in this
+// file exercise real on-disk formats instead of the in-memory fallback.
+var _ = codecs.GetDefault
 
 // TestIndexWriterMerging_Lucene tests that index merging (specifically addIndexes)
 // doesn't change the index order of documents.
@@ -108,12 +116,13 @@ func fillIndex(t *testing.T, dir store.Directory, start, numDocs int, source ran
 
 // createCountDocument creates a document with a "count" field
 func createCountDocument(count int) index.Document {
-	fields := make([]interface{}, 0, 1)
-	// TODO: Create StringField when available
-	// field, _ := document.NewStringField("count", fmt.Sprintf("%d", count), true)
-	// fields = append(fields, field)
-	_ = count // Placeholder
-	return &testDocument{fields: fields}
+	doc := document.NewDocument()
+	countField, err := document.NewStringField("count", fmt.Sprintf("%d", count), true)
+	if err != nil {
+		panic(fmt.Sprintf("createCountDocument(%d): %v", count, err))
+	}
+	doc.Add(countField)
+	return doc
 }
 
 // verifyIndex checks that documents in the index have the expected count values
@@ -179,42 +188,78 @@ func TestIndexWriterMerging_ForceMergeDeletes(t *testing.T) {
 	// assertEquals(t, 10, reader.NumDocs())
 	// reader.Close()
 
-	// Delete documents 0 and 7 using NoMergePolicy
+	// Delete documents 0 and 7 using NoMergePolicy.
 	dontMergeConfig := index.NewIndexWriterConfig(createTestAnalyzer())
-	// TODO: Set NoMergePolicy when available
-	// dontMergeConfig.SetMergePolicy(index.NewNoMergePolicy())
+	dontMergeConfig.SetMergePolicy(index.NewNoMergePolicy())
 
-	writer, _ = index.NewIndexWriter(dir, dontMergeConfig)
-	// TODO: Implement DeleteDocuments with Term when available
-	// writer.DeleteDocuments(index.NewTerm("id", "0"))
-	// writer.DeleteDocuments(index.NewTerm("id", "7"))
-	t.Fatal("DeleteDocuments with Term not yet implemented")
+	writer, err = index.NewIndexWriter(dir, dontMergeConfig)
+	if err != nil {
+		t.Fatalf("Failed to create deleter writer: %v", err)
+	}
+	if err := writer.DeleteDocuments(index.NewTerm("id", "0")); err != nil {
+		t.Fatalf("DeleteDocuments id=0: %v", err)
+	}
+	if err := writer.DeleteDocuments(index.NewTerm("id", "7")); err != nil {
+		t.Fatalf("DeleteDocuments id=7: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Failed to close deleter writer: %v", err)
+	}
 
-	writer.Close()
+	// Verify 8 live docs, 10 total.
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader after deletes: %v", err)
+	}
+	if got := reader.NumDocs(); got != 8 {
+		t.Errorf("reader.NumDocs after deletes = %d, want 8", got)
+	}
+	if got := reader.MaxDoc(); got != 10 {
+		t.Errorf("reader.MaxDoc after deletes = %d, want 10", got)
+	}
+	reader.Close()
 
-	// Verify 8 live docs, 10 total
-	// reader, _ = index.OpenDirectoryReader(dir)
-	// assertEquals(t, 8, reader.NumDocs())
-	// reader.Close()
+	// Force merge deletes.
+	forceMergeConfig := index.NewIndexWriterConfig(createTestAnalyzer())
+	forceMergeConfig.SetMergePolicy(index.NewLogMergePolicy())
+	writer, err = index.NewIndexWriter(dir, forceMergeConfig)
+	if err != nil {
+		t.Fatalf("Failed to create force-merge writer: %v", err)
+	}
+	if got := writer.GetDocStats().NumDocs; got != 8 {
+		t.Errorf("GetDocStats().NumDocs before forceMergeDeletes = %d, want 8", got)
+	}
+	if got := writer.GetDocStats().MaxDoc; got != 10 {
+		t.Errorf("GetDocStats().MaxDoc before forceMergeDeletes = %d, want 10", got)
+	}
+	if err := writer.ForceMergeDeletes(); err != nil {
+		t.Fatalf("ForceMergeDeletes: %v", err)
+	}
+	if got := writer.GetDocStats().NumDocs; got != 8 {
+		t.Errorf("GetDocStats().NumDocs after forceMergeDeletes = %d, want 8", got)
+	}
+	if got := writer.GetDocStats().MaxDoc; got != 8 {
+		t.Errorf("GetDocStats().MaxDoc after forceMergeDeletes = %d, want 8", got)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Failed to close force-merge writer: %v", err)
+	}
 
-	// Force merge deletes
-	writer, _ = index.NewIndexWriter(dir, index.NewIndexWriterConfig(createTestAnalyzer()))
-	// TODO: Implement GetDocStats when available
-	// assertEquals(t, 8, writer.GetDocStats().NumDocs)
-	// assertEquals(t, 10, writer.GetDocStats().MaxDoc)
-
-	// TODO: Implement ForceMergeDeletes when available
-	// writer.ForceMergeDeletes()
-	t.Fatal("ForceMergeDeletes not yet implemented")
-
-	// assertEquals(t, 8, writer.GetDocStats().NumDocs)
-	writer.Close()
-
-	// Verify final state
-	// reader, _ = index.OpenDirectoryReader(dir)
-	// assertEquals(t, 8, reader.MaxDoc())
-	// assertEquals(t, 8, reader.NumDocs())
-	// reader.Close()
+	// Verify final state.
+	reader, err = index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader final: %v", err)
+	}
+	defer reader.Close()
+	if got := reader.MaxDoc(); got != 8 {
+		t.Errorf("reader.MaxDoc final = %d, want 8", got)
+	}
+	if got := reader.NumDocs(); got != 8 {
+		t.Errorf("reader.NumDocs final = %d, want 8", got)
+	}
+	if reader.HasDeletions() {
+		t.Error("final reader should not report deletions after forceMergeDeletes")
+	}
 }
 
 // TestIndexWriterMerging_ForceMergeDeletes2 tests forceMergeDeletes when
@@ -246,28 +291,65 @@ func TestIndexWriterMerging_ForceMergeDeletes2(t *testing.T) {
 
 	// Delete every other document
 	dontMergeConfig := index.NewIndexWriterConfig(createTestAnalyzer())
-	// TODO: Set NoMergePolicy when available
-	// dontMergeConfig.SetMergePolicy(index.NewNoMergePolicy())
+	dontMergeConfig.SetMergePolicy(index.NewNoMergePolicy())
 
-	writer, _ = index.NewIndexWriter(dir, dontMergeConfig)
-	// TODO: Delete every other document
-	// for i := 0; i < 98; i += 2 {
-	//     writer.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i)))
-	// }
-	writer.Close()
+	writer, err = index.NewIndexWriter(dir, dontMergeConfig)
+	if err != nil {
+		t.Fatalf("Failed to create deleter writer: %v", err)
+	}
+	for i := 0; i < 98; i += 2 {
+		if err := writer.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
+			t.Fatalf("DeleteDocuments id=%d: %v", i, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Failed to close deleter writer: %v", err)
+	}
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader after deletes: %v", err)
+	}
+	if got := reader.NumDocs(); got != 49 {
+		t.Errorf("reader.NumDocs after deletes = %d, want 49", got)
+	}
+	reader.Close()
 
 	// Force merge deletes with merge factor 3
-	writer, _ = index.NewIndexWriter(dir, index.NewIndexWriterConfig(createTestAnalyzer()))
-	// TODO: Implement GetDocStats
-	// assertEquals(t, 49, writer.GetDocStats().NumDocs)
-	// writer.ForceMergeDeletes()
+	forceMergeConfig := index.NewIndexWriterConfig(createTestAnalyzer())
+	lmp3 := index.NewLogMergePolicy()
+	lmp3.SetMergeFactor(3)
+	forceMergeConfig.SetMergePolicy(lmp3)
+	writer, err = index.NewIndexWriter(dir, forceMergeConfig)
+	if err != nil {
+		t.Fatalf("Failed to create force-merge writer: %v", err)
+	}
+	if got := writer.GetDocStats().NumDocs; got != 49 {
+		t.Errorf("GetDocStats().NumDocs before forceMergeDeletes = %d, want 49", got)
+	}
+	if err := writer.ForceMergeDeletes(); err != nil {
+		t.Fatalf("ForceMergeDeletes: %v", err)
+	}
+	if got := writer.GetDocStats().NumDocs; got != 49 {
+		t.Errorf("GetDocStats().NumDocs after forceMergeDeletes = %d, want 49", got)
+	}
 	writer.Close()
 
 	// Verify
-	// reader, _ := index.OpenDirectoryReader(dir)
-	// assertEquals(t, 49, reader.MaxDoc())
-	// assertEquals(t, 49, reader.NumDocs())
-	t.Fatal("ForceMergeDeletes not yet implemented")
+	reader, err = index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader final: %v", err)
+	}
+	defer reader.Close()
+	if got := reader.MaxDoc(); got != 49 {
+		t.Errorf("reader.MaxDoc final = %d, want 49", got)
+	}
+	if got := reader.NumDocs(); got != 49 {
+		t.Errorf("reader.NumDocs final = %d, want 49", got)
+	}
+	if reader.HasDeletions() {
+		t.Error("final reader should not report deletions after forceMergeDeletes")
+	}
 }
 
 // TestIndexWriterMerging_ForceMergeDeletes3 tests forceMergeDeletes without
@@ -298,24 +380,64 @@ func TestIndexWriterMerging_ForceMergeDeletes3(t *testing.T) {
 
 	// Delete every other document
 	dontMergeConfig := index.NewIndexWriterConfig(createTestAnalyzer())
-	// TODO: Set NoMergePolicy when available
-	// dontMergeConfig.SetMergePolicy(index.NewNoMergePolicy())
+	dontMergeConfig.SetMergePolicy(index.NewNoMergePolicy())
 
-	writer, _ = index.NewIndexWriter(dir, dontMergeConfig)
-	// TODO: Delete every other document
+	writer, err = index.NewIndexWriter(dir, dontMergeConfig)
+	if err != nil {
+		t.Fatalf("Failed to create deleter writer: %v", err)
+	}
+	for i := 0; i < 98; i += 2 {
+		if err := writer.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
+			t.Fatalf("DeleteDocuments id=%d: %v", i, err)
+		}
+	}
 	writer.Close()
 
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader after deletes: %v", err)
+	}
+	if got := reader.NumDocs(); got != 49 {
+		t.Errorf("reader.NumDocs after deletes = %d, want 49", got)
+	}
+	reader.Close()
+
 	// Force merge deletes without blocking (doWait=false)
-	writer, _ = index.NewIndexWriter(dir, index.NewIndexWriterConfig(createTestAnalyzer()))
-	// TODO: Implement ForceMergeDeletes with doWait parameter
-	// writer.ForceMergeDeletes(false)
+	forceMergeConfig := index.NewIndexWriterConfig(createTestAnalyzer())
+	lmp3 := index.NewLogMergePolicy()
+	lmp3.SetMergeFactor(3)
+	forceMergeConfig.SetMergePolicy(lmp3)
+	writer, err = index.NewIndexWriter(dir, forceMergeConfig)
+	if err != nil {
+		t.Fatalf("Failed to create force-merge writer: %v", err)
+	}
+	observer, err := writer.ForceMergeDeletesWithObserver(false)
+	if err != nil {
+		t.Fatalf("ForceMergeDeletesWithObserver: %v", err)
+	}
+	if observer == nil {
+		t.Fatal("ForceMergeDeletesWithObserver returned nil observer")
+	}
+	if !observer.AwaitWithTimeout(30 * time.Second) {
+		t.Fatal("observer.AwaitWithTimeout returned false")
+	}
+	if observer.NumCompletedMerges() != observer.NumMerges() {
+		t.Errorf("NumCompletedMerges=%d, want %d", observer.NumCompletedMerges(), observer.NumMerges())
+	}
 	writer.Close()
 
 	// Verify
-	// reader, _ := index.OpenDirectoryReader(dir)
-	// assertEquals(t, 49, reader.MaxDoc())
-	// assertEquals(t, 49, reader.NumDocs())
-	t.Fatal("ForceMergeDeletes with doWait parameter not yet implemented")
+	reader, err = index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader final: %v", err)
+	}
+	defer reader.Close()
+	if got := reader.MaxDoc(); got != 49 {
+		t.Errorf("reader.MaxDoc final = %d, want 49", got)
+	}
+	if got := reader.NumDocs(); got != 49 {
+		t.Errorf("reader.NumDocs final = %d, want 49", got)
+	}
 }
 
 // TestIndexWriterMerging_ForceMergeDeletesWithObserver tests force merge
@@ -345,35 +467,69 @@ func TestIndexWriterMerging_ForceMergeDeletesWithObserver(t *testing.T) {
 
 	// Delete even documents
 	deleterConfig := index.NewIndexWriterConfig(createTestAnalyzer())
-	// TODO: Set NoMergePolicy when available
-	// deleterConfig.SetMergePolicy(index.NewNoMergePolicy())
+	deleterConfig.SetMergePolicy(index.NewNoMergePolicy())
 
-	deleter, _ := index.NewIndexWriter(dir, deleterConfig)
-	// TODO: Delete even documents
-	// for i := 0; i < 10; i++ {
-	//     if i%2 == 0 {
-	//         deleter.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i)))
-	//     }
-	// }
+	deleter, err := index.NewIndexWriter(dir, deleterConfig)
+	if err != nil {
+		t.Fatalf("Failed to create deleter writer: %v", err)
+	}
+	for i := 0; i < 10; i++ {
+		if i%2 == 0 {
+			if err := deleter.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
+				t.Fatalf("DeleteDocuments id=%d: %v", i, err)
+			}
+		}
+	}
 	deleter.Close()
 
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader after deletes: %v", err)
+	}
+	if got := reader.NumDocs(); got != 5 {
+		t.Errorf("reader.NumDocs after deletes = %d, want 5", got)
+	}
+	reader.Close()
+
 	// Force merge deletes with observer
-	iw, _ := index.NewIndexWriter(dir, index.NewIndexWriterConfig(createTestAnalyzer()))
-	// TODO: Implement GetDocStats
-	// assertEquals(t, 10, iw.GetDocStats().MaxDoc)
-	// assertEquals(t, 5, iw.GetDocStats().NumDocs)
+	forceMergeConfig := index.NewIndexWriterConfig(createTestAnalyzer())
+	forceMergeConfig.SetMergePolicy(index.NewLogMergePolicy())
+	iw, err := index.NewIndexWriter(dir, forceMergeConfig)
+	if err != nil {
+		t.Fatalf("Failed to create force-merge writer: %v", err)
+	}
+	if got := iw.GetDocStats().MaxDoc; got != 10 {
+		t.Errorf("GetDocStats().MaxDoc before forceMergeDeletes = %d, want 10", got)
+	}
+	if got := iw.GetDocStats().NumDocs; got != 5 {
+		t.Errorf("GetDocStats().NumDocs before forceMergeDeletes = %d, want 5", got)
+	}
 
-	// TODO: Implement ForceMergeDeletes with observer
-	// observer := iw.ForceMergeDeletes(false)
-	// assertTrue(t, observer.NumMerges() > 0, "Should have scheduled merges")
-	// assertTrue(t, observer.Await(30*time.Second), "Merges should complete within 30 seconds")
-	// assertEquals(t, observer.NumMerges(), observer.NumCompletedMerges(), "All merges should be completed")
-	// assertEquals(t, 5, iw.GetDocStats().MaxDoc)
-	// assertEquals(t, 5, iw.GetDocStats().NumDocs)
+	observer, err := iw.ForceMergeDeletesWithObserver(false)
+	if err != nil {
+		t.Fatalf("ForceMergeDeletesWithObserver: %v", err)
+	}
+	if observer == nil {
+		t.Fatal("ForceMergeDeletesWithObserver returned nil observer")
+	}
+	if observer.NumMerges() <= 0 {
+		t.Errorf("observer.NumMerges() = %d, want > 0", observer.NumMerges())
+	}
+	if !observer.AwaitWithTimeout(30 * time.Second) {
+		t.Fatal("observer.AwaitWithTimeout(30s) returned false")
+	}
+	if observer.NumCompletedMerges() != observer.NumMerges() {
+		t.Errorf("NumCompletedMerges=%d, want %d", observer.NumCompletedMerges(), observer.NumMerges())
+	}
+	if got := iw.GetDocStats().MaxDoc; got != 5 {
+		t.Errorf("GetDocStats().MaxDoc after forceMergeDeletes = %d, want 5", got)
+	}
+	if got := iw.GetDocStats().NumDocs; got != 5 {
+		t.Errorf("GetDocStats().NumDocs after forceMergeDeletes = %d, want 5", got)
+	}
 
-	// iw.WaitForMerges()
+	iw.WaitForMerges()
 	iw.Close()
-	t.Fatal("ForceMergeDeletes with observer not yet implemented")
 }
 
 // TestIndexWriterMerging_MergeObserverNoMerges tests MergeObserver when
@@ -396,12 +552,18 @@ func TestIndexWriterMerging_MergeObserverNoMerges(t *testing.T) {
 	writer.AddDocument(doc)
 	writer.Commit()
 
-	// TODO: Implement ForceMergeDeletes with observer
-	// observer := writer.ForceMergeDeletes(false)
-	// assertEquals(t, 0, observer.NumMerges(), "Should have zero merges")
+	observer, err := writer.ForceMergeDeletesWithObserver(false)
+	if err != nil {
+		t.Fatalf("ForceMergeDeletesWithObserver: %v", err)
+	}
+	if observer == nil {
+		t.Fatal("ForceMergeDeletesWithObserver returned nil observer")
+	}
+	if got := observer.NumMerges(); got != 0 {
+		t.Errorf("observer.NumMerges() = %d, want 0", got)
+	}
 
 	writer.Close()
-	t.Fatal("ForceMergeDeletes with observer not yet implemented")
 }
 
 // TestIndexWriterMerging_MergeObserverAwaitWithTimeout tests MergeObserver
@@ -412,7 +574,7 @@ func TestIndexWriterMerging_MergeObserverAwaitWithTimeout(t *testing.T) {
 	defer dir.Close()
 
 	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	// TODO: Set merge policy
+	config.SetMergePolicy(index.NewLogMergePolicy())
 
 	iw, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -427,20 +589,29 @@ func TestIndexWriterMerging_MergeObserverAwaitWithTimeout(t *testing.T) {
 	iw.Commit()
 
 	// Delete first 3 documents
-	// TODO: Implement DeleteDocuments
-	// iw.DeleteDocuments(index.NewTerm("id", "0"))
-	// iw.DeleteDocuments(index.NewTerm("id", "1"))
-	// iw.DeleteDocuments(index.NewTerm("id", "2"))
+	for _, id := range []int{0, 1, 2} {
+		if err := iw.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", id))); err != nil {
+			t.Fatalf("DeleteDocuments id=%d: %v", id, err)
+		}
+	}
 	iw.Commit()
 
-	// TODO: Implement ForceMergeDeletes with observer
-	// observer := iw.ForceMergeDeletes(false)
-	// assertTrue(t, observer.Await(30*time.Second), "Merges should complete within 30 seconds")
-	// assertEquals(t, observer.NumMerges(), observer.NumCompletedMerges(), "All merges should be completed")
+	observer, err := iw.ForceMergeDeletesWithObserver(false)
+	if err != nil {
+		t.Fatalf("ForceMergeDeletesWithObserver: %v", err)
+	}
+	if observer == nil {
+		t.Fatal("ForceMergeDeletesWithObserver returned nil observer")
+	}
+	if !observer.AwaitWithTimeout(30 * time.Second) {
+		t.Fatal("observer.AwaitWithTimeout(30s) returned false")
+	}
+	if observer.NumCompletedMerges() != observer.NumMerges() {
+		t.Errorf("NumCompletedMerges=%d, want %d", observer.NumCompletedMerges(), observer.NumMerges())
+	}
 
-	// iw.WaitForMerges()
+	iw.WaitForMerges()
 	iw.Close()
-	t.Fatal("ForceMergeDeletes with observer not yet implemented")
 }
 
 // TestIndexWriterMerging_MergeObserverAwaitTimeout tests MergeObserver
@@ -519,27 +690,59 @@ func TestIndexWriterMerging_ForceMergeDeletesBlockingWithObserver(t *testing.T) 
 
 	// Delete even documents
 	deleterConfig := index.NewIndexWriterConfig(createTestAnalyzer())
-	// TODO: Set NoMergePolicy when available
-	// deleterConfig.SetMergePolicy(index.NewNoMergePolicy())
+	deleterConfig.SetMergePolicy(index.NewNoMergePolicy())
 
-	deleter, _ := index.NewIndexWriter(dir, deleterConfig)
-	// TODO: Delete even documents
+	deleter, err := index.NewIndexWriter(dir, deleterConfig)
+	if err != nil {
+		t.Fatalf("Failed to create deleter writer: %v", err)
+	}
+	for i := 0; i < 10; i++ {
+		if i%2 == 0 {
+			if err := deleter.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
+				t.Fatalf("DeleteDocuments id=%d: %v", i, err)
+			}
+		}
+	}
 	deleter.Close()
 
 	// Force merge deletes with blocking (doWait=true)
-	iw, _ := index.NewIndexWriter(dir, index.NewIndexWriterConfig(createTestAnalyzer()))
-	// TODO: Implement GetDocStats
-	// assertEquals(t, 10, iw.GetDocStats().MaxDoc)
-	// assertEquals(t, 5, iw.GetDocStats().NumDocs)
+	forceMergeConfig := index.NewIndexWriterConfig(createTestAnalyzer())
+	forceMergeConfig.SetMergePolicy(index.NewLogMergePolicy())
+	iw, err := index.NewIndexWriter(dir, forceMergeConfig)
+	if err != nil {
+		t.Fatalf("Failed to create force-merge writer: %v", err)
+	}
+	if got := iw.GetDocStats().MaxDoc; got != 10 {
+		t.Errorf("GetDocStats().MaxDoc before forceMergeDeletes = %d, want 10", got)
+	}
+	if got := iw.GetDocStats().NumDocs; got != 5 {
+		t.Errorf("GetDocStats().NumDocs before forceMergeDeletes = %d, want 5", got)
+	}
 
-	// observer := iw.ForceMergeDeletes(true)
-	// assertTrue(t, observer.NumMerges() > 0, "Should have completed merges")
-	// assertTrue(t, observer.Await(), "await should return true immediately")
-	// assertEquals(t, 5, iw.GetDocStats().MaxDoc)
-	// assertEquals(t, 5, iw.GetDocStats().NumDocs)
+	observer, err := iw.ForceMergeDeletesWithObserver(true)
+	if err != nil {
+		t.Fatalf("ForceMergeDeletesWithObserver(true): %v", err)
+	}
+	if observer == nil {
+		t.Fatal("ForceMergeDeletesWithObserver returned nil observer")
+	}
+	if observer.NumMerges() <= 0 {
+		t.Errorf("observer.NumMerges() = %d, want > 0", observer.NumMerges())
+	}
+	if !observer.Await() {
+		t.Fatal("observer.Await() returned false")
+	}
+	if observer.NumCompletedMerges() != observer.NumMerges() {
+		t.Errorf("NumCompletedMerges=%d, want %d", observer.NumCompletedMerges(), observer.NumMerges())
+	}
+	if got := iw.GetDocStats().MaxDoc; got != 5 {
+		t.Errorf("GetDocStats().MaxDoc after forceMergeDeletes = %d, want 5", got)
+	}
+	if got := iw.GetDocStats().NumDocs; got != 5 {
+		t.Errorf("GetDocStats().NumDocs after forceMergeDeletes = %d, want 5", got)
+	}
 
 	iw.Close()
-	t.Fatal("ForceMergeDeletes with blocking and observer not yet implemented")
 }
 
 // TestIndexWriterMerging_BlockingModeWithNoMerges tests blocking mode when
@@ -550,8 +753,7 @@ func TestIndexWriterMerging_BlockingModeWithNoMerges(t *testing.T) {
 	defer dir.Close()
 
 	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	// TODO: Set NoMergePolicy when available
-	// config.SetMergePolicy(index.NewNoMergePolicy())
+	config.SetMergePolicy(index.NewNoMergePolicy())
 
 	iw, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -562,19 +764,35 @@ func TestIndexWriterMerging_BlockingModeWithNoMerges(t *testing.T) {
 	iw.AddDocument(doc)
 	iw.Commit()
 
-	// TODO: Implement ForceMergeDeletes with observer
-	// observer := iw.ForceMergeDeletes(true)
-	// assertEquals(t, 0, observer.NumMerges(), "Should have zero merges")
-	// assertTrue(t, observer.Await(1*time.Second), "await with timeout should return true")
-	// assertTrue(t, observer.Await(), "await should return true")
+	observer, err := iw.ForceMergeDeletesWithObserver(true)
+	if err != nil {
+		t.Fatalf("ForceMergeDeletesWithObserver(true): %v", err)
+	}
+	if observer == nil {
+		t.Fatal("ForceMergeDeletesWithObserver returned nil observer")
+	}
+	if got := observer.NumMerges(); got != 0 {
+		t.Errorf("observer.NumMerges() = %d, want 0", got)
+	}
+	if !observer.AwaitWithTimeout(1 * time.Second) {
+		t.Fatal("observer.AwaitWithTimeout(1s) returned false")
+	}
+	if !observer.Await() {
+		t.Fatal("observer.Await() returned false")
+	}
 
-	// TODO: Implement AwaitAsync
-	// future := observer.AwaitAsync()
-	// assertTrue(t, future.IsDone(), "Future should be done")
-	// assertFalse(t, future.IsCompletedExceptionally(), "Future should not be exceptional")
+	future := observer.AwaitAsync()
+	if future == nil {
+		t.Fatal("observer.AwaitAsync() returned nil future")
+	}
+	if !future.IsDone() {
+		t.Error("future.IsDone() = false, want true")
+	}
+	if future.IsCompletedExceptionally() {
+		t.Error("future.IsCompletedExceptionally() = true, want false")
+	}
 
 	iw.Close()
-	t.Fatal("ForceMergeDeletes with observer and AwaitAsync not yet implemented")
 }
 
 // TestIndexWriterMerging_SetMaxMergeDocs tests setting max merge docs (LUCENE-1013).
@@ -750,12 +968,15 @@ func TestIndexWriterMerging_AddEstimatedBytesToMerge(t *testing.T) {
 
 // createIDDocument creates a document with an "id" field
 func createIDDocument(id int) index.Document {
-	fields := make([]interface{}, 0, 1)
-	// TODO: Create StringField when available
-	// field, _ := document.NewStringField("id", fmt.Sprintf("%d", id), false)
-	// fields = append(fields, field)
-	_ = id // Placeholder
-	return &testDocument{fields: fields}
+	doc := document.NewDocument()
+	idField, err := document.NewStringField("id", fmt.Sprintf("%d", id), false)
+	if err != nil {
+		// Construction cannot fail for a plain string, but keep the panic
+		// close to the call site for debugging.
+		panic(fmt.Sprintf("createIDDocument(%d): %v", id, err))
+	}
+	doc.Add(idField)
+	return doc
 }
 
 // assertEquals is a helper for asserting equality

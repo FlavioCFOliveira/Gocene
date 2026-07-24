@@ -3384,18 +3384,29 @@ func (w *IndexWriter) ForceMerge(maxNumSegments int) (err error) {
 //
 // This is a potentially costly operation; it is rarely warranted.
 func (w *IndexWriter) ForceMergeDeletes() error {
-	return w.forceMergeDeletesWait(true)
+	_, err := w.forceMergeDeletesInternal(true)
+	return err
 }
 
-// forceMergeDeletesWait performs forceMergeDeletes. The doWait parameter is
-// accepted for API compatibility with Lucene's overload; in this synchronous
-// implementation merges always complete before the call returns.
-func (w *IndexWriter) forceMergeDeletesWait(doWait bool) error {
+// ForceMergeDeletesWithObserver performs forceMergeDeletes and returns a
+// MergeObserver describing the merges that were executed. The doWait parameter
+// is accepted for API compatibility with Lucene's overload; in Gocene's
+// synchronous implementation merges always complete before the call returns,
+// so both values behave identically and the returned observer already reports
+// every merge as completed.
+func (w *IndexWriter) ForceMergeDeletesWithObserver(doWait bool) (*MergeObserver, error) {
+	return w.forceMergeDeletesInternal(doWait)
+}
+
+// forceMergeDeletesInternal performs forceMergeDeletes and returns a
+// MergeObserver for the merges that were executed. Must be called with the
+// writer open; it performs a Commit before locking and running merges.
+func (w *IndexWriter) forceMergeDeletesInternal(doWait bool) (*MergeObserver, error) {
 	if err := w.ensureOpen(); err != nil {
-		return err
+		return nil, err
 	}
 	if err := w.Commit(); err != nil {
-		return err
+		return nil, err
 	}
 
 	w.mu.Lock()
@@ -3403,31 +3414,37 @@ func (w *IndexWriter) forceMergeDeletesWait(doWait bool) error {
 
 	mp := w.config.GetMergePolicy()
 	if mp == nil {
-		return nil
+		return NewMergeObserver(nil, 0, nil), nil
 	}
 
+	executed := NewMergeSpecification()
+	var lastErr error
 	for {
 		si, err := ReadSegmentInfos(w.directory)
 		if err != nil {
-			return nil
+			return NewMergeObserver(executed, executed.Size(), lastErr), err
 		}
 
 		ctx := &forceMergeContext{}
 		spec, err := mp.FindForcedDeletesMerges(si, ctx)
 		if err != nil {
-			return fmt.Errorf("forceMergeDeletes: find forced deletes merges: %w", err)
+			return NewMergeObserver(executed, executed.Size(), lastErr), fmt.Errorf("forceMergeDeletes: find forced deletes merges: %w", err)
 		}
 		if spec == nil || spec.Size() == 0 {
-			return nil // no segments with deletions to merge
+			break // no segments with deletions to merge
+		}
+		for _, om := range spec.Merges {
+			executed.Add(om)
 		}
 		if err := w.executeForcedMerges(si, spec); err != nil {
-			return err
+			return NewMergeObserver(executed, executed.Size()-spec.Size(), err), err
 		}
 		// Loop back in case a new round of merges is needed after old segments
 		// (with deletions) were merged away and new segments with deletions
 		// appear (e.g. a large segment with deletions was untouched because
 		// it exceeded the size cap).
 	}
+	return NewMergeObserver(executed, executed.Size(), nil), nil
 }
 
 // naturalMergeContext is a minimal MergeContext for natural merges chosen by
@@ -3492,6 +3509,10 @@ func (w *IndexWriter) maybeMergeLocked(trigger MergeTrigger) error {
 		}
 		w.lastCommittedSegmentInfos = si.Clone()
 		w.committedSegments = si.List()
+		if w.config.IndexCommit() == nil {
+			w.pinnedSegmentInfos = w.lastCommittedSegmentInfos.Clone()
+		}
+		w.nrtSegmentInfos = nil
 		w.nrtGen.Add(1)
 	}
 }
@@ -3518,7 +3539,31 @@ func (w *IndexWriter) maybeMergeSnapshot(si *SegmentInfos, trigger MergeTrigger)
 			return nil
 		}
 
-		if err := w.executeNaturalMerges(si, spec); err != nil {
+		// NRT snapshots may contain in-memory pending segments that have no codec
+		// core readers and therefore cannot be merged through the real
+		// SegmentMerger. Drop any merge that touches such a segment; it will be
+		// flushed to disk (and become mergeable) at the next Commit.
+		filtered := NewMergeSpecification()
+		for _, om := range spec.Merges {
+			if om == nil || len(om.Segments) == 0 {
+				continue
+			}
+			inMemory := false
+			for _, seg := range om.Segments {
+				if seg.GetInMemoryFields() != nil {
+					inMemory = true
+					break
+				}
+			}
+			if !inMemory {
+				filtered.Add(om)
+			}
+		}
+		if filtered.Size() == 0 {
+			return nil
+		}
+
+		if err := w.executeNaturalMerges(si, filtered); err != nil {
 			return fmt.Errorf("maybeMergeSnapshot: execute merges: %w", err)
 		}
 	}
@@ -3656,6 +3701,13 @@ func (w *IndexWriter) executeForcedMerges(si *SegmentInfos, spec *MergeSpecifica
 			return fmt.Errorf("forceMerge: deleter checkpoint: %w", err)
 		}
 	}
+	// Keep the writer's in-memory view consistent so MaxDoc()/NumDocs() reflect
+	// the merged state while the writer remains open.  When the writer was opened
+	// without an explicit IndexCommit, the pinned baseline is the latest commit.
+	if w.config.IndexCommit() == nil {
+		w.pinnedSegmentInfos = result.Clone()
+	}
+	w.nrtSegmentInfos = nil
 	// The merged commit's adoption by the deleter is what will eventually delete
 	// the source segment files; do not delete them eagerly here.
 	return nil

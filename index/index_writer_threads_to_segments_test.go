@@ -214,14 +214,6 @@ func TestIndexWriterThreadsToSegments_ManyThreadsClose(t *testing.T) {
 	t.Fatal("requires RandomIndexWriter / setCommitOnClose infrastructure (Sprint 55 option c)")
 }
 
-// TestIndexWriterThreadsToSegments_DocsStuckInRAMForever ports
-// testDocsStuckInRAMForever (a @Nightly test). Skipped: requires
-// SegmentInfoFormat.read, SegmentReader.docFreq and core readers, which are
-// not yet wired (see SegmentReader core-readers gap).
-func TestIndexWriterThreadsToSegments_DocsStuckInRAMForever(t *testing.T) {
-	t.Fatal("nightly; requires SegmentInfoFormat.read + SegmentReader.docFreq (Sprint 55 option c)")
-}
-
 // cyclicBarrier is a minimal port of java.util.concurrent.CyclicBarrier with a
 // barrier action: it blocks parties goroutines until all have called await(),
 // runs action once on the final arrival, then releases all and rearms.

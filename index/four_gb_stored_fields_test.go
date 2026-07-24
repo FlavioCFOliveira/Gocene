@@ -2,6 +2,8 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
+//go:build gocene_monsters
+
 // Package index_test contains a test for >4 GB stored-fields segments.
 //
 // Ported from Apache Lucene 10.4.0:

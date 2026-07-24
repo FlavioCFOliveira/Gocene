@@ -8,9 +8,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Gocene is a Go module that aims to be a port of Apache Lucene to modern idiomatic Golang, byte-by-byte compatible with the original Apache Lucene library.
+Gocene is a Go module that is a port of Apache Lucene to modern idiomatic Golang. Its defining goal is byte-by-byte and behaviour-by-behaviour compatibility with the original Apache Lucene library — specifically the Apache Lucene 10.4.0 reference release. Every index file, codec envelope, directory artefact, and on-disk format produced by Gocene must be readable by Apache Lucene 10.4.0 without modification, and Gocene must be able to read, without loss or reinterpretation, every binary artefact produced by Apache Lucene 10.4.0.
 
-This is an early-stage project. The module structure, packages, and development workflow are not yet established.
+Because Gocene is a port rather than a reimplementation, Lucene is the sole reference of truth. Implementation choices that deviate from observed Lucene behaviour are bugs in Gocene, not in Lucene. Correctness is measured against the Apache Lucene 10.4.0 source tree and the binaries it produces.
+
+This is an early-stage project. The module structure, packages, and development workflow are still being established, but the compatibility mandate is non-negotiable and governs all development decisions.
 
 ## Binary Compatibility Mandate (TOP-PRIORITY, NON-NEGOTIABLE)
 
@@ -29,16 +31,18 @@ This requirement supersedes every other guideline in this document. If any other
 
 3. **Byte-for-byte equality.** Default expectation is **byte-identical output** for the same logical input under the same configured codec/version. Where Lucene legitimately allows non-determinism (e.g., compression dictionaries, ordering driven by hash seeds), the divergence MUST be documented in the affected package, justified against the Lucene 10.4.0 source, and covered by a round-trip test (Gocene-write → Lucene-read → Gocene-read produces the original logical input).
 
-4. **Mandatory tests — isolated AND in combination.** Every feature, no matter how small, MUST ship with compatibility tests proving the mandate. There are two required test classes:
-   - **Isolated**: round-trip and golden-corpus tests at the unit level (this feature alone, with fixtures produced by Lucene 10.4.0).
+4. **Mandatory compatibility tests — isolated AND in combination.** Every feature, no matter how small, MUST ship with compatibility tests proving the mandate. Compatibility is not assumed, inferred, or guaranteed by code review: it must be demonstrated by tests that exercise Gocene against the Apache Lucene 10.4.0 reference. There are two required test classes:
+   - **Isolated**: round-trip and golden-corpus tests at the unit level for the feature alone, using fixtures produced by Lucene 10.4.0. At a minimum this must cover Gocene-write → Lucene-read and Lucene-write → Gocene-read for every serialized artefact the feature emits.
    - **Combined**: integration tests exercising the feature alongside the other features it composes with in real Lucene usage (e.g., codec + doc values + facets + queries used together).
-   No feature is "done" until both test classes exist and pass against a Lucene 10.4.0 corpus.
+   No feature is "done" until both test classes exist and pass against a Lucene 10.4.0 corpus. A gap in compatibility coverage must be visible as a failing test; it must never be hidden behind `t.Skip()` or a placeholder.
 
 5. **Reference of truth.** The Apache Lucene 10.4.0 source tree (see *Lucene Reference Repository* below) and binaries produced by it are the **sole** reference. Implementation choices that contradict observed Lucene behaviour are bugs in Gocene, not in Lucene.
 
 6. **Workflow consequence.** The standard workflow **Specify → Implement → Test → Document** is interpreted under this mandate:
    - *Specify* must record the exact Lucene 10.4.0 binary contract being targeted (file format, version constant, codec name, struct layout).
-   - *Test* must include compatibility tests against Lucene-produced fixtures before the task can be closed.
+   - *Implement* must follow the Lucene 10.4.0 algorithms and data structures closely enough to preserve the binary contract; Go idioms are welcome, but they must not change the serialized form or observable behaviour.
+   - *Test* must include compatibility tests against Lucene-produced fixtures before the task can be closed. Every deliverable must prove, with passing tests, that Gocene behaves as a faithful port of Lucene 10.4.0 for the functionality in question.
+   - *Document* must state the Lucene 10.4.0 source references and the compatibility test coverage for the feature.
 
 ## 1. Base Rules
 

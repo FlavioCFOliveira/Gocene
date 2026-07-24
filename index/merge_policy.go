@@ -7,6 +7,7 @@ package index
 import (
 	"fmt"
 	"math"
+	"time"
 )
 
 // MergePolicy determines when and how merges should be performed.
@@ -134,6 +135,102 @@ func (ms *MergeSpecification) Size() int {
 // String returns a string representation of the MergeSpecification.
 func (ms *MergeSpecification) String() string {
 	return fmt.Sprintf("MergeSpecification(merges=%d)", len(ms.Merges))
+}
+
+// MergeObserver exposes the status of merges scheduled by ForceMergeDeletes.
+// This is the Go port of Lucene's MergePolicy.MergeObserver.
+//
+// In Gocene's synchronous merge implementation the merges have already finished
+// when the observer is returned, so await calls return immediately and the
+// future is always done.
+type MergeObserver struct {
+	spec      *MergeSpecification
+	completed int
+	err       error
+}
+
+// NewMergeObserver creates a MergeObserver for the given specification.
+func NewMergeObserver(spec *MergeSpecification, completed int, err error) *MergeObserver {
+	return &MergeObserver{
+		spec:      spec,
+		completed: completed,
+		err:       err,
+	}
+}
+
+// NumMerges returns the number of merges in this specification.
+func (o *MergeObserver) NumMerges() int {
+	if o == nil || o.spec == nil {
+		return 0
+	}
+	return o.spec.Size()
+}
+
+// NumCompletedMerges returns the number of completed merges.
+func (o *MergeObserver) NumCompletedMerges() int {
+	if o == nil {
+		return 0
+	}
+	return o.completed
+}
+
+// Await waits for all merges to complete. In Gocene's synchronous
+// implementation this returns true immediately when no error occurred.
+func (o *MergeObserver) Await() bool {
+	if o == nil {
+		return true
+	}
+	return o.err == nil
+}
+
+// AwaitWithTimeout waits for all merges to complete, with a timeout. In
+// Gocene's synchronous implementation this returns true immediately when no
+// error occurred.
+func (o *MergeObserver) AwaitWithTimeout(timeout time.Duration) bool {
+	if o == nil {
+		return true
+	}
+	_ = timeout
+	return o.err == nil
+}
+
+// AwaitAsync returns a future that completes when all merges finish. In
+// Gocene's synchronous implementation the future is already done.
+func (o *MergeObserver) AwaitAsync() *MergeFuture {
+	if o == nil {
+		return &MergeFuture{done: true}
+	}
+	return &MergeFuture{done: o.err == nil, err: o.err}
+}
+
+// String returns a string representation of the observer.
+func (o *MergeObserver) String() string {
+	if o == nil || o.spec == nil {
+		return "MergeObserver: no merges"
+	}
+	return fmt.Sprintf("MergeObserver: %d merges", o.spec.Size())
+}
+
+// MergeFuture is a minimal future returned by MergeObserver.AwaitAsync.
+type MergeFuture struct {
+	done bool
+	err  error
+}
+
+// IsDone reports whether the future is done.
+func (f *MergeFuture) IsDone() bool {
+	if f == nil {
+		return false
+	}
+	return f.done
+}
+
+// IsCompletedExceptionally reports whether the future completed with an error.
+func (f *MergeFuture) IsCompletedExceptionally() bool {
+	if f == nil {
+		return false
+	}
+	return f.err != nil
 }
 
 // OneMerge represents a single merge operation.

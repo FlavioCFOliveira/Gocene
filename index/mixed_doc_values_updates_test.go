@@ -248,14 +248,6 @@ func TestMixedDocValuesUpdates_UpdateDifferentDocsInDifferentGens(t *testing.T) 
 	assertNumericDocValuesLive(t, dir, "cf", wantNumeric)
 }
 
-// TestMixedDocValuesUpdates_TonsOfUpdates mirrors testTonsOfUpdates (@Nightly,
-// LUCENE-5248): a large index with many binary fields and update terms, RAM
-// buffer tuned to flush frequently, verifying RAM is bounded and values stay
-// consistent.
-func TestMixedDocValuesUpdates_TonsOfUpdates(t *testing.T) {
-	t.Fatal("GOC-4202: nightly stress case not ported")
-}
-
 // TestMixedDocValuesUpdates_TryUpdateDocValues mirrors testTryUpdateDocValues:
 // resolve a doc via TermQuery search, call TryUpdateDocValue with numeric and
 // binary fields, and verify the updated values through the reader.

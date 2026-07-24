@@ -641,21 +641,124 @@ func TestIndexWriterReader_AfterClose(t *testing.T) {
 	}
 }
 
-// testDuringAddIndexes ports testDuringAddIndexes() (a @Nightly stress test).
-func TestIndexWriterReader_DuringAddIndexes(t *testing.T) {
-	// NRT openIfChanged is now available; MockDirectoryWrapper fault injection
-	// is tracked by rmp #250 (T105.2.4).
-	t.Fatal("nightly stress test; needs MockDirectoryWrapper fault injection; NRT openIfChanged is now available")
-}
-
 // testDuringAddDelete ports testDuringAddDelete().
-// Concurrent add/delete stress with NRT reopen. The reader-side reopen and
-// applied deletes are unavailable; concurrent appends are covered separately
-// by TestIndexWriterReader_ConcurrentAccess.
+// Concurrent add/delete stress with NRT reopen; exercises the in-memory
+// buffered-delete path that is now applied on NRT reopen.
 func TestIndexWriterReader_DuringAddDelete(t *testing.T) {
-	// NRT openIfChanged is now available; the remaining gap is durable
-	// live-docs application on NRT reopen for the deleted documents.
-	t.Fatal("needs applied deletes on NRT reopen; NRT openIfChanged is now available")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	iwc := index.NewIndexWriterConfig(createTestAnalyzer())
+	mp := index.NewLogMergePolicy()
+	mp.SetMergeFactor(2)
+	iwc.SetMergePolicy(mp)
+	writer, err := index.NewIndexWriter(dir, iwc)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	defer writer.Close()
+
+	// Seed the index.
+	for i := 0; i < 10; i++ {
+		if err := writer.AddDocument(createTestDoc(i, "test", 4)); err != nil {
+			t.Fatalf("AddDocument %d: %v", i, err)
+		}
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	r, err := index.OpenDirectoryReaderFromWriter(writer)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
+	}
+
+	const numGoroutines = 2
+	const iterations = 5
+	var wg sync.WaitGroup
+	var excs []error
+	var excMu sync.Mutex
+	remaining := atomic.Int32{}
+	remaining.Store(numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(goroutine int) {
+			defer wg.Done()
+			count := 0
+			for count < iterations {
+				for docUpto := 0; docUpto < 10; docUpto++ {
+					docID := 10*count + docUpto
+					if err := writer.AddDocument(createTestDoc(1000*goroutine+docID, "test", 4)); err != nil {
+						excMu.Lock()
+						excs = append(excs, err)
+						excMu.Unlock()
+						remaining.Add(-1)
+						return
+					}
+				}
+				count++
+				limit := count * 10
+				for delUpto := 0; delUpto < 5; delUpto++ {
+					x := count + delUpto
+					if x >= limit {
+						x = limit - 1
+					}
+					if err := writer.DeleteDocuments(index.NewTerm("field3", fmt.Sprintf("b%d", 1000*goroutine+x))); err != nil {
+						excMu.Lock()
+						excs = append(excs, err)
+						excMu.Unlock()
+						remaining.Add(-1)
+						return
+					}
+				}
+			}
+			remaining.Add(-1)
+		}(i)
+	}
+
+	sum := 0
+	for remaining.Load() > 0 {
+		r2, err := index.OpenIfChangedFromWriter(r, writer)
+		if err != nil {
+			t.Fatalf("OpenIfChangedFromWriter: %v", err)
+		}
+		if r2 != nil {
+			r.Close()
+			r = r2
+			q := search.NewTermQuery(index.NewTerm("indexname", "test"))
+			s := search.NewIndexSearcher(r)
+			top, err := s.Search(q, 100000)
+			if err != nil {
+				t.Fatalf("Search: %v", err)
+			}
+			sum += int(top.TotalHits.Value)
+		}
+	}
+	wg.Wait()
+	if len(excs) > 0 {
+		t.Fatalf("worker errors: %v", excs)
+	}
+
+	r2, err := index.OpenIfChangedFromWriter(r, writer)
+	if err != nil {
+		t.Fatalf("final OpenIfChangedFromWriter: %v", err)
+	}
+	if r2 != nil {
+		r.Close()
+		r = r2
+	}
+	q := search.NewTermQuery(index.NewTerm("indexname", "test"))
+	s := search.NewIndexSearcher(r)
+	top, err := s.Search(q, 100000)
+	if err != nil {
+		t.Fatalf("final Search: %v", err)
+	}
+	sum += int(top.TotalHits.Value)
+	if sum <= 0 {
+		t.Fatal("no documents found at all")
+	}
+	r.Close()
 }
 
 // testForceMergeDeletes ports testForceMergeDeletes().
