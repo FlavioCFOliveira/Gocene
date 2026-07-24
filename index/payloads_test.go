@@ -13,7 +13,9 @@ package index_test
 
 import (
 	"bytes"
+	"fmt"
 	"io"
+	"sync"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
@@ -226,14 +228,116 @@ func TestPayloads_FieldBit(t *testing.T) {
 	}
 }
 
-// TestPayloads_Encoding ports testPayloadsEncoding().
+// TestPayloads_Encoding ports the payload round-trip contract of
+// testPayloadsEncoding().
 //
-// Java builds indexes with custom PayloadAnalyzer, writes varying payload bytes
-// per position, then reads back PostingsEnum with PAYLOADS flag and validates
-// each payload byte sequence.
+// Java uses a custom PayloadAnalyzer to inject deterministic payload bytes at
+// each token position. This Go port builds the same contract with a
+// CannedTokenStream: 10 documents each contain two tokens "a" and "b" whose
+// payloads are distinct single bytes. After force-merging to one segment the
+// PostingsEnum with PAYLOADS is walked and the byte sequence is reconstructed
+// and checked against the expected order.
 func TestPayloads_Encoding(t *testing.T) {
-	t.Fatal("blocked: PayloadAnalyzer/MockTokenizer (test module) and deterministic " +
-		"per-position payload encoding fixture not yet ported")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	ft := payloadType()
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	const numDocs = 10
+	const numTerms = 2
+	expected := make(map[string][]byte)
+	for i := 0; i < numDocs; i++ {
+		doc := document.NewDocument()
+		for j := 0; j < numTerms; j++ {
+			term := string('a' + byte(j))
+			payload := []byte{byte(i*numTerms + j)}
+			expected[term] = append(expected[term], payload[0])
+			ts := testutil.NewCannedTokenStream(
+				testutil.NewTokenWithPosInc(term, 1, 0, 1).WithPayload(payload),
+			)
+			field, _ := document.NewField("f1", ts, ft)
+			doc.Add(field)
+		}
+		if err := w.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument %d: %v", i, err)
+		}
+	}
+
+	if err := w.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := w.ForceMerge(1); err != nil {
+		t.Fatalf("ForceMerge: %v", err)
+	}
+	if err := w.Commit(); err != nil {
+		t.Fatalf("Commit after merge: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close writer: %v", err)
+	}
+
+	r, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer r.Close()
+
+	terms, err := r.Terms("f1")
+	if err != nil {
+		t.Fatalf("Terms: %v", err)
+	}
+	te, err := terms.GetIterator()
+	if err != nil {
+		t.Fatalf("GetIterator: %v", err)
+	}
+	for {
+		term, err := te.Next()
+		if err != nil {
+			t.Fatalf("Next: %v", err)
+		}
+		if term == nil {
+			break
+		}
+		postings, err := te.Postings(schema.PostingsFlagPayloads)
+		if err != nil {
+			t.Fatalf("Postings %q: %v", term.Text(), err)
+		}
+		var got []byte
+		for {
+			doc, err := postings.NextDoc()
+			if err != nil {
+				t.Fatalf("NextDoc %q: %v", term.Text(), err)
+			}
+			if doc == schema.NO_MORE_DOCS {
+				break
+			}
+			freq, err := postings.Freq()
+			if err != nil {
+				t.Fatalf("Freq %q: %v", term.Text(), err)
+			}
+			for i := 0; i < freq; i++ {
+				if _, err := postings.NextPosition(); err != nil {
+					t.Fatalf("NextPosition %q: %v", term.Text(), err)
+				}
+				payload, err := postings.GetPayload()
+				if err != nil {
+					t.Fatalf("GetPayload %q: %v", term.Text(), err)
+				}
+				if payload == nil {
+					t.Fatalf("payload nil at doc=%d term=%q", doc, term.Text())
+				}
+				got = append(got, payload...)
+			}
+		}
+		want := expected[term.Text()]
+		if !bytes.Equal(got, want) {
+			t.Fatalf("term %q payloads %v != expected %v", term.Text(), got, want)
+		}
+	}
 }
 
 // TestPayloads_ThreadSafety ports testThreadSafety().
@@ -242,8 +346,103 @@ func TestPayloads_Encoding(t *testing.T) {
 // from N concurrent threads, each indexing into a shared DirectoryReader,
 // then asserts that all payloads survive round-trip via PostingsEnum.
 func TestPayloads_ThreadSafety(t *testing.T) {
-	t.Fatal("blocked: custom per-thread PayloadAnalyzer and multi-threaded indexing " +
-		"fixture not yet ported")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	const numThreads = 5
+	const numDocs = 10
+	ft := payloadType()
+
+	var wg sync.WaitGroup
+	for i := 0; i < numThreads; i++ {
+		wg.Add(1)
+		go func(thread int) {
+			defer wg.Done()
+			for j := 0; j < numDocs; j++ {
+				term := fmt.Sprintf("T%d_%d", thread, j)
+				doc := document.NewDocument()
+				ts := testutil.NewCannedTokenStream(
+					testutil.NewTokenWithPosInc(term, 1, 0, len(term)).WithPayload([]byte(term)),
+				)
+				field, _ := document.NewField("test", ts, ft)
+				doc.Add(field)
+				if err := w.AddDocument(doc); err != nil {
+					t.Errorf("AddDocument thread=%d doc=%d: %v", thread, j, err)
+					return
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	if err := w.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close writer: %v", err)
+	}
+
+	r, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer r.Close()
+
+	terms, err := r.Terms("test")
+	if err != nil {
+		t.Fatalf("Terms: %v", err)
+	}
+	it, err := terms.GetIterator()
+	if err != nil {
+		t.Fatalf("GetIterator: %v", err)
+	}
+	var postings schema.PostingsEnum
+	for {
+		term, err := it.Next()
+		if err != nil {
+			t.Fatalf("Next: %v", err)
+		}
+		if term == nil {
+			break
+		}
+		postings, err = it.Postings(schema.PostingsFlagPayloads)
+		if err != nil {
+			t.Fatalf("Postings: %v", err)
+		}
+		for {
+			doc, err := postings.NextDoc()
+			if err != nil {
+				t.Fatalf("NextDoc: %v", err)
+			}
+			if doc == schema.NO_MORE_DOCS {
+				break
+			}
+			freq, err := postings.Freq()
+			if err != nil {
+				t.Fatalf("Freq: %v", err)
+			}
+			for i := 0; i < freq; i++ {
+				if _, err := postings.NextPosition(); err != nil {
+					t.Fatalf("NextPosition: %v", err)
+				}
+				payload, err := postings.GetPayload()
+				if err != nil {
+					t.Fatalf("GetPayload: %v", err)
+				}
+				if payload == nil {
+					t.Fatal("expected payload, got nil")
+				}
+				if string(payload) != term.Text() {
+					t.Fatalf("payload %q != term %q", string(payload), term.Text())
+				}
+			}
+		}
+	}
 }
 
 // TestPayloads_AcrossFields ports testAcrossFields().

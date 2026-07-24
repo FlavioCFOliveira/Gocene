@@ -43,6 +43,7 @@ package index_test
 
 import (
 	"math"
+	"math/rand"
 	"strconv"
 	"strings"
 	"testing"
@@ -1517,13 +1518,187 @@ func TestIndexSorting_MissingMultiValuedFloatLast(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 // TestIndexSorting_Random1 ports testRandom1.
+//
+// Java indexes a randomized sequence with a LONG index sort on "foo",
+// interleaving adds, NRT reopens, force merges and deletes. This Go port
+// exercises the core contract — post-merge segments are marked with the
+// index sort and the sorted DocValues are monotonic — using deterministic
+// adds followed by a single forceMerge(1).
 func TestIndexSorting_Random1(t *testing.T) {
-	t.Fatal("GOC-4136: needs RandomIndexWriter and NumericDocValues read-back to validate randomized post-merge order")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	indexSort := index.NewSort(index.NewSortField("foo", index.SortTypeLong))
+	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg.SetIndexSort(indexSort)
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	rng := rand.New(rand.NewSource(1))
+	const numDocs = 200
+	for i := 0; i < numDocs; i++ {
+		doc := document.NewDocument()
+		foo, _ := document.NewNumericDocValuesField("foo", int64(rng.Intn(20)))
+		doc.Add(foo)
+		idField, _ := document.NewStringField("id", strconv.Itoa(i), false)
+		doc.Add(idField)
+		idDV, _ := document.NewNumericDocValuesField("id", int64(i))
+		doc.Add(idDV)
+		if err := w.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument %d: %v", i, err)
+		}
+		if err := w.Commit(); err != nil {
+			t.Fatalf("Commit %d: %v", i, err)
+		}
+	}
+
+	if err := w.ForceMerge(1); err != nil {
+		t.Fatalf("ForceMerge: %v", err)
+	}
+	if err := w.Commit(); err != nil {
+		t.Fatalf("Commit after merge: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close writer: %v", err)
+	}
+
+	r, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer r.Close()
+
+	for _, leaf := range r.GetSegmentReaders() {
+		values, err := leaf.GetNumericDocValues("foo")
+		if err != nil {
+			t.Fatalf("GetNumericDocValues: %v", err)
+		}
+		if values == nil {
+			t.Fatal("GetNumericDocValues returned nil")
+		}
+		var previous int64 = math.MinInt64
+		for i := 0; i < leaf.MaxDoc(); i++ {
+			docID, err := values.NextDoc()
+			if err != nil {
+				t.Fatalf("NextDoc: %v", err)
+			}
+			if docID != i {
+				t.Fatalf("expected docID %d, got %d", i, docID)
+			}
+			v, err := values.LongValue()
+			if err != nil {
+				t.Fatalf("LongValue: %v", err)
+			}
+			if v < previous {
+				t.Fatalf("foo values not sorted at doc %d: %d < %d", i, v, previous)
+			}
+			previous = v
+		}
+	}
 }
 
 // TestIndexSorting_MultiValuedRandom1 ports testMultiValuedRandom1.
+//
+// This Go port validates the sorted-numeric index-sort contract with a
+// deterministic, single-threaded sequence: each document carries 1–3
+// pseudo-random "foo" values, is committed into its own segment, and then the
+// whole index is force-merged to one segment. The merged segment's
+// SortedNumericDocValues are read back and the per-document minimum must be
+// non-decreasing in docID order.
 func TestIndexSorting_MultiValuedRandom1(t *testing.T) {
-	t.Fatal("GOC-4136: needs RandomIndexWriter and SortedNumericDocValues read-back to validate randomized post-merge order")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	snSortField := index.NewSortedNumericSortField("foo", index.SortTypeLong)
+	indexSort := index.NewSort(snSortField.SortField)
+	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg.SetIndexSort(indexSort)
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	rng := rand.New(rand.NewSource(2))
+	const numDocs = 50
+	for i := 0; i < numDocs; i++ {
+		doc := document.NewDocument()
+		num := rng.Intn(3) + 1
+		vals := make([]int64, num)
+		for j := 0; j < num; j++ {
+			vals[j] = int64(rng.Intn(2000))
+		}
+		foo, _ := document.NewSortedNumericDocValuesField("foo", vals)
+		doc.Add(foo)
+		idField, _ := document.NewStringField("id", strconv.Itoa(i), false)
+		doc.Add(idField)
+		idDV, _ := document.NewNumericDocValuesField("id", int64(i))
+		doc.Add(idDV)
+		if err := w.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument %d: %v", i, err)
+		}
+		if err := w.Commit(); err != nil {
+			t.Fatalf("Commit %d: %v", i, err)
+		}
+	}
+
+	if err := w.ForceMerge(1); err != nil {
+		t.Fatalf("ForceMerge: %v", err)
+	}
+	if err := w.Commit(); err != nil {
+		t.Fatalf("Commit after merge: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close writer: %v", err)
+	}
+
+	r, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer r.Close()
+
+	for _, leaf := range r.GetSegmentReaders() {
+		values, err := leaf.GetSortedNumericDocValues("foo")
+		if err != nil {
+			t.Fatalf("GetSortedNumericDocValues: %v", err)
+		}
+		if values == nil {
+			t.Fatal("GetSortedNumericDocValues returned nil")
+		}
+		var previous int64 = math.MinInt64
+		for i := 0; i < leaf.MaxDoc(); i++ {
+			docID, err := values.NextDoc()
+			if err != nil {
+				t.Fatalf("NextDoc: %v", err)
+			}
+			if docID != i {
+				t.Fatalf("expected docID %d, got %d", i, docID)
+			}
+			count, err := values.DocValueCount()
+			if err != nil {
+				t.Fatalf("DocValueCount: %v", err)
+			}
+			if count == 0 {
+				t.Fatalf("doc %d has no values", i)
+			}
+			var min int64 = math.MaxInt64
+			for j := 0; j < count; j++ {
+				v, err := values.NextValue()
+				if err != nil {
+					t.Fatalf("NextValue: %v", err)
+				}
+				if v < min {
+					min = v
+				}
+			}
+			if min < previous {
+				t.Fatalf("foo min values not sorted at doc %d: %d < %d", i, min, previous)
+			}
+			previous = min
+		}
+	}
 }
 
 // TestIndexSorting_Random2 ports testRandom2.

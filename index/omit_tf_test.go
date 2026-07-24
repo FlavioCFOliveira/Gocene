@@ -48,6 +48,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	indexTestutil "github.com/FlavioCFOliveira/Gocene/index/testutil"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -111,12 +112,68 @@ func TestOmitTf_NoPrxFile(t *testing.T) {
 // and one field that has only doc IDs (omitType = IndexOptions.DOCS), then
 // uses getOnlyLeafReader(DirectoryReader.open(ram)) to verify the FieldInfo
 // IndexOptions for each field.
-//
-// Degraded to t.Skip: getOnlyLeafReader and DirectoryReader.open require a
-// wired codec reader; NewSegmentReader does not load coreReaders from disk.
 func TestOmitTf_MixedRAM(t *testing.T) {
-	t.Fatal("needs getOnlyLeafReader + DirectoryReader.open with wired codec " +
-		"reader to read back FieldInfo.getIndexOptions() (coreReaders nil)")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	writer, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	normalType := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
+	normalType.SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions)
+	omitType := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
+	omitType.SetIndexOptions(index.IndexOptionsDocs)
+
+	for i := 0; i < 10; i++ {
+		doc := document.NewDocument()
+		nf, _ := document.NewField("normal", "normal text here", normalType)
+		of, _ := document.NewField("omit", "omit text here", omitType)
+		doc.Add(nf)
+		doc.Add(of)
+		if err := writer.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument %d: %v", i, err)
+		}
+	}
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("ForceMerge: %v", err)
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	r, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer r.Close()
+
+	leaf := indexTestutil.GetOnlyLeafReader(r)
+	infos := leaf.GetFieldInfos()
+	if infos == nil {
+		t.Fatal("GetFieldInfos returned nil")
+	}
+
+	normalInfo := infos.GetByName("normal")
+	if normalInfo == nil {
+		t.Fatal("field 'normal' not found")
+	}
+	if got, want := normalInfo.IndexOptions(), index.IndexOptionsDocsAndFreqsAndPositions; got != want {
+		t.Errorf("normal IndexOptions = %v, want %v", got, want)
+	}
+
+	omitInfo := infos.GetByName("omit")
+	if omitInfo == nil {
+		t.Fatal("field 'omit' not found")
+	}
+	if got, want := omitInfo.IndexOptions(), index.IndexOptionsDocs; got != want {
+		t.Errorf("omit IndexOptions = %v, want %v", got, want)
+	}
 }
 
 // TestOmitTf_Basic ports testBasic().
@@ -140,6 +197,95 @@ func TestOmitTf_Basic(t *testing.T) {
 // opens an NRT reader, and asserts that docFreq == totalTermFreq and
 // getSumDocFreq == getSumTotalTermFreq for the field.
 func TestOmitTf_Stats(t *testing.T) {
-	t.Fatal("needs RandomIndexWriter + DirectoryReader.open NRT reader + wired block-tree postings " +
-		"to read back term statistics (index/testutil not yet functional)")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	riw := indexTestutil.NewWithConfig(w, 1, indexTestutil.Config{
+		CommitProbability:     0,
+		ForceMergeProbability: 0,
+	})
+
+	ft := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
+	ft.SetIndexOptions(index.IndexOptionsDocs)
+	doc := document.NewDocument()
+	f1, err := document.NewField("f1", "This field has term freqs", ft)
+	if err != nil {
+		t.Fatalf("NewField: %v", err)
+	}
+	doc.Add(f1)
+	if err := riw.AddDocument(doc); err != nil {
+		t.Fatalf("AddDocument: %v", err)
+	}
+
+	r, err := riw.GetReader()
+	if err != nil {
+		t.Fatalf("GetReader: %v", err)
+	}
+	defer r.Close()
+
+	terms, err := r.Terms("f1")
+	if err != nil {
+		t.Fatalf("Terms: %v", err)
+	}
+	if terms == nil {
+		t.Fatal("Terms(f1) returned nil")
+	}
+
+	it, err := terms.GetIterator()
+	if err != nil {
+		t.Fatalf("GetIterator: %v", err)
+	}
+	var termEnum index.TermsEnum
+	for {
+		te, err := it.Next()
+		if err != nil {
+			t.Fatalf("Next: %v", err)
+		}
+		if te == nil {
+			break
+		}
+		if te.Text() == "field" {
+			termEnum = it
+			break
+		}
+	}
+	if termEnum == nil {
+		t.Fatal("no term enum for term 'field'")
+	}
+
+	docFreq, err := termEnum.DocFreq()
+	if err != nil {
+		t.Fatalf("DocFreq: %v", err)
+	}
+	totalTermFreq, err := termEnum.TotalTermFreq()
+	if err != nil {
+		t.Fatalf("TotalTermFreq: %v", err)
+	}
+	if docFreq != 1 {
+		t.Errorf("DocFreq = %d, want 1", docFreq)
+	}
+	if totalTermFreq != 1 {
+		t.Errorf("TotalTermFreq = %d, want 1", totalTermFreq)
+	}
+
+	sumDocFreq, err := terms.GetSumDocFreq()
+	if err != nil {
+		t.Fatalf("GetSumDocFreq: %v", err)
+	}
+	sumTotalTermFreq, err := terms.GetSumTotalTermFreq()
+	if err != nil {
+		t.Fatalf("GetSumTotalTermFreq: %v", err)
+	}
+	if sumDocFreq != sumTotalTermFreq {
+		t.Errorf("SumDocFreq(%d) != SumTotalTermFreq(%d)", sumDocFreq, sumTotalTermFreq)
+	}
+
+	if err := riw.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 }
