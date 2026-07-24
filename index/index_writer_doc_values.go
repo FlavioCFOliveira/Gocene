@@ -9,6 +9,7 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -91,16 +92,14 @@ func (w *IndexWriter) applyDocValuesUpdatesLocked(segs []*SegmentCommitInfo) err
 	w.pendingDVUpdates = w.pendingDVUpdates[:0]
 
 	// Determine which segments are touched by the pending updates. A segment is
-	// touched only when it actually carries at least one of the updated fields
-	// as a DocValues field.
+	// touched when any updated field is known to the writer as a DocValues field,
+	// even if that field did not exist in the segment originally.  In that case
+	// the field is added to the segment's FieldInfos and the matching documents
+	// receive the updated value.
 	for _, sci := range segs {
-		fi := sci.GetInMemoryFieldInfos()
-		if fi == nil {
-			continue
-		}
 		touched := false
 		for _, u := range updates {
-			if f := fi.GetByName(u.field); f != nil && f.DocValuesType().HasDocValues() {
+			if w.fieldDocValuesTypeLocked(u.field).HasDocValues() {
 				touched = true
 				break
 			}
@@ -136,6 +135,11 @@ func (w *IndexWriter) applyDocValuesUpdatesForSegmentLocked(
 	hasMatch := false
 	for _, u := range updates {
 		fi := sr.GetFieldInfos().GetByName(u.field)
+		if fi == nil {
+			// The field did not exist in this segment; look up the global
+			// FieldInfo so the field can be added on update.
+			fi = w.fieldInfoLocked(u.field)
+		}
 		if fi == nil || !fi.DocValuesType().HasDocValues() {
 			continue
 		}
@@ -254,32 +258,57 @@ func (w *IndexWriter) writeMergedDocValues(
 	}
 
 	// Assign a distinct doc-values generation to every updated field and build the
-	// new in-memory/on-disk FieldInfos with per-field docValuesGen values.
+	// new in-memory/on-disk FieldInfos with per-field docValuesGen values.  Fields
+	// that are being added to this segment (they exist globally but not in the
+	// segment's current FieldInfos) are merged in from the writer's global view.
 	fieldGens := make(map[string]int64, len(fieldUpdates))
+	addedFields := make(map[string]*FieldInfo, len(fieldUpdates))
 	for fieldName := range fieldUpdates {
 		fieldGens[fieldName] = nextDVGen
 		nextDVGen++
+		if currentInfos.GetByName(fieldName) == nil {
+			global := w.fieldInfoLocked(fieldName)
+			if global == nil {
+				return fmt.Errorf("field %q missing from segment %q and unknown globally", fieldName, segInfo.Name())
+			}
+			addedFields[fieldName] = global
+		}
 	}
-	newInfos := cloneFieldInfosUpdatingDVGen(currentInfos, fieldGens)
+	newInfos := cloneFieldInfosUpdatingDVGen(currentInfos, fieldGens, addedFields)
 
 	// Read current values through the existing overlay so prior generations are
 	// visible during the merge.
 	dvp := sr.docValuesDelegate()
 
-	var allNewFiles []string
+	// Snapshot the directory contents before writing so every file created by
+	// this update generation can be registered for the deleter, even when the
+	// per-field doc-values format writes files with a composite suffix that the
+	// caller cannot predict.
+	beforeFiles, err := w.directory.ListAll()
+	if err != nil {
+		return fmt.Errorf("list directory before writing DV update: %w", err)
+	}
+	beforeSet := make(map[string]struct{}, len(beforeFiles))
+	for _, f := range beforeFiles {
+		beforeSet[f] = struct{}{}
+	}
+
 	dvUpdateFiles := sci.DocValuesUpdatesFiles()
 
 	// Write one .dvd/.dvm pair per updated field, each with its own generation.
 	for fieldName, updates := range fieldUpdates {
-		fi := newInfos.GetByName(fieldName)
-		if fi == nil {
+		newFI := newInfos.GetByName(fieldName)
+		if newFI == nil {
 			return fmt.Errorf("field %q missing from cloned FieldInfos", fieldName)
 		}
+		// Read existing values through the *old* FieldInfo so the overlay
+		// producer resolves the prior generation correctly.
+		oldFI := currentInfos.GetByName(fieldName)
 		gen := fieldGens[fieldName]
 		suffix := strconv.FormatInt(gen, 36)
 
 		dvInfos := NewFieldInfos()
-		if err := dvInfos.Add(fi); err != nil {
+		if err := dvInfos.Add(newFI); err != nil {
 			return fmt.Errorf("add field %q to dv FieldInfos: %w", fieldName, err)
 		}
 		dvInfos.Freeze()
@@ -296,33 +325,33 @@ func (w *IndexWriter) writeMergedDocValues(
 		}
 
 		writeErr := func() error {
-			switch fi.DocValuesType() {
+			switch newFI.DocValuesType() {
 			case DocValuesTypeNumeric:
 				var old NumericDocValues
-				if dvp != nil {
-					old, err = dvp.GetNumeric(fi)
+				if dvp != nil && oldFI != nil {
+					old, err = dvp.GetNumeric(oldFI)
 					if err != nil {
 						return fmt.Errorf("read old numeric values for %q: %w", fieldName, err)
 					}
 				}
 				it := newMergedNumericIterator(sr.MaxDoc(), old, updates)
-				if err := consumer.AddNumericField(fi, it); err != nil {
+				if err := consumer.AddNumericField(newFI, it); err != nil {
 					return fmt.Errorf("write merged numeric field %q: %w", fieldName, err)
 				}
 			case DocValuesTypeBinary:
 				var old BinaryDocValues
-				if dvp != nil {
-					old, err = dvp.GetBinary(fi)
+				if dvp != nil && oldFI != nil {
+					old, err = dvp.GetBinary(oldFI)
 					if err != nil {
 						return fmt.Errorf("read old binary values for %q: %w", fieldName, err)
 					}
 				}
 				it := newMergedBinaryIterator(sr.MaxDoc(), old, updates)
-				if err := consumer.AddBinaryField(fi, it); err != nil {
+				if err := consumer.AddBinaryField(newFI, it); err != nil {
 					return fmt.Errorf("write merged binary field %q: %w", fieldName, err)
 				}
 			default:
-				return fmt.Errorf("unsupported doc-values type %v for field %q", fi.DocValuesType(), fieldName)
+				return fmt.Errorf("unsupported doc-values type %v for field %q", newFI.DocValuesType(), fieldName)
 			}
 			return nil
 		}()
@@ -334,15 +363,6 @@ func (w *IndexWriter) writeMergedDocValues(
 			return fmt.Errorf("close doc-values consumer for %q: %w", fieldName, closeErr)
 		}
 
-		dvdName := segInfo.Name() + "_" + suffix + ".dvd"
-		dvmName := segInfo.Name() + "_" + suffix + ".dvm"
-		allNewFiles = append(allNewFiles, dvdName, dvmName)
-
-		if dvUpdateFiles[fi.Number()] == nil {
-			dvUpdateFiles[fi.Number()] = make(map[string]struct{})
-		}
-		dvUpdateFiles[fi.Number()][dvdName] = struct{}{}
-		dvUpdateFiles[fi.Number()][dvmName] = struct{}{}
 	}
 
 	// Write a single new .fnm containing all fields with their per-gen values.
@@ -350,7 +370,44 @@ func (w *IndexWriter) writeMergedDocValues(
 	if err := codec.FieldInfosFormat().Write(w.directory, segInfo, fiSuffix, newInfos, store.IOContextWrite); err != nil {
 		return fmt.Errorf("write updated FieldInfos: %w", err)
 	}
-	allNewFiles = append(allNewFiles, segInfo.Name()+"_"+fiSuffix+".fnm")
+
+	// Discover every file this update generation produced, including composite
+	// names such as _N_G_<formatName>_<suffix>.{dvd,dvm} emitted by
+	// PerFieldDocValuesFormat.
+	afterFiles, err := w.directory.ListAll()
+	if err != nil {
+		return fmt.Errorf("list directory after writing DV update: %w", err)
+	}
+	segPrefix := segInfo.Name() + "_"
+	var allNewFiles []string
+	for _, f := range afterFiles {
+		if _, ok := beforeSet[f]; ok {
+			continue
+		}
+		if strings.HasPrefix(f, segPrefix) {
+			allNewFiles = append(allNewFiles, f)
+		}
+	}
+	if len(allNewFiles) == 0 {
+		return fmt.Errorf("no files were written for DV update of segment %s", segInfo.Name())
+	}
+
+	// Map each new file to the field whose generation appears in its name.
+	for fieldName, gen := range fieldGens {
+		genStr := "_" + strconv.FormatInt(gen, 36) + "_"
+		fi := newInfos.GetByName(fieldName)
+		if fi == nil {
+			continue
+		}
+		if dvUpdateFiles[fi.Number()] == nil {
+			dvUpdateFiles[fi.Number()] = make(map[string]struct{})
+		}
+		for _, f := range allNewFiles {
+			if strings.Contains(f, genStr) {
+				dvUpdateFiles[fi.Number()][f] = struct{}{}
+			}
+		}
+	}
 
 	// Register the generation and updated FieldInfos in memory. The segment's
 	// docValuesGen tracks the highest generation written.
@@ -376,16 +433,19 @@ func (w *IndexWriter) writeMergedDocValues(
 }
 
 // cloneFieldInfosUpdatingDVGen returns a new FieldInfos containing every field
-// in src, with the docValuesGen of fields named in gens set to the per-field
-// generation in gens.
+// in src plus any field in added that is not already present in src, with the
+// docValuesGen of fields named in gens set to the per-field generation in gens.
 func cloneFieldInfosUpdatingDVGen(
 	src *FieldInfos,
 	gens map[string]int64,
+	added map[string]*FieldInfo,
 ) *FieldInfos {
 	out := NewFieldInfos()
+	seen := make(map[string]struct{})
 	it := src.Iterator()
 	for it.HasNext() {
 		fi := it.Next()
+		seen[fi.Name()] = struct{}{}
 		opts := FieldInfoOptions{
 			IndexOptions:             fi.IndexOptions(),
 			DocValuesType:            fi.DocValuesType(),
@@ -411,6 +471,48 @@ func cloneFieldInfosUpdatingDVGen(
 			opts.DocValuesGen = gen
 		}
 		clone := schema.NewFieldInfo(fi.Name(), fi.Number(), opts)
+		for k, v := range fi.GetAttributes() {
+			clone.PutCodecAttribute(k, v)
+		}
+		_ = out.Add(clone)
+	}
+	for name, fi := range added {
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		opts := FieldInfoOptions{
+			IndexOptions:             fi.IndexOptions(),
+			DocValuesType:            fi.DocValuesType(),
+			DocValuesSkipIndexType:   fi.DocValuesSkipIndexType(),
+			DocValuesGen:             fi.DocValuesGen(),
+			Stored:                   fi.IsStored(),
+			Tokenized:                fi.IsTokenized(),
+			OmitNorms:                fi.OmitNorms(),
+			StoreTermVectors:         fi.StoreTermVectors(),
+			StoreTermVectorPositions: fi.StoreTermVectorPositions(),
+			StoreTermVectorOffsets:   fi.StoreTermVectorOffsets(),
+			StoreTermVectorPayloads:  fi.StoreTermVectorPayloads(),
+			PointDimensionCount:      fi.PointDimensionCount(),
+			PointIndexDimensionCount: fi.PointIndexDimensionCount(),
+			PointNumBytes:            fi.PointNumBytes(),
+			VectorDimension:          fi.VectorDimension(),
+			VectorEncoding:           fi.VectorEncoding(),
+			VectorSimilarityFunction: fi.VectorSimilarityFunction(),
+			IsSoftDeletesField:       fi.IsSoftDeletesField(),
+			IsParentField:            fi.IsParentField(),
+		}
+		if gen, ok := gens[name]; ok {
+			opts.DocValuesGen = gen
+		}
+		fieldNumber := fi.Number()
+		if out.GetByNumber(fieldNumber) != nil {
+			// Gocene assigns field numbers per-segment, so a field imported from
+			// another segment can collide with an existing number in this
+			// segment. Reassign to the next available local number so the added
+			// field can coexist in this segment's FieldInfos.
+			fieldNumber = out.GetNextFieldNumber()
+		}
+		clone := schema.NewFieldInfo(fi.Name(), fieldNumber, opts)
 		for k, v := range fi.GetAttributes() {
 			clone.PutCodecAttribute(k, v)
 		}

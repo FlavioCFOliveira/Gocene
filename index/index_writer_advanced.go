@@ -102,7 +102,7 @@ func (w *IndexWriter) UpdateNumericDocValue(term *Term, field string, value int6
 
 	// Use the existing UpdateDocValues method
 	if err := w.UpdateDocValues(term, field, value); err != nil {
-		return -1, fmt.Errorf("failed to update numeric doc value: %w", err)
+		return -1, err
 	}
 
 	// Return a sequence number (simplified implementation)
@@ -131,7 +131,7 @@ func (w *IndexWriter) UpdateBinaryDocValue(term *Term, field string, value []byt
 
 	// Use the existing UpdateDocValues method
 	if err := w.UpdateDocValues(term, field, value); err != nil {
-		return -1, fmt.Errorf("failed to update binary doc value: %w", err)
+		return -1, err
 	}
 
 	// Return a sequence number (simplified implementation)

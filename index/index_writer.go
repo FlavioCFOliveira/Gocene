@@ -3049,6 +3049,46 @@ func (w *IndexWriter) fieldDocValuesTypeLocked(fieldName string) DocValuesType {
 	return DocValuesTypeNone
 }
 
+// fieldHasPostingsLocked reports whether the named field is indexed with
+// postings in any of the writer's pending or committed FieldInfos.  Must be
+// called with w.mu held.
+func (w *IndexWriter) fieldHasPostingsLocked(fieldName string) bool {
+	fi := w.fieldInfoLocked(fieldName)
+	if fi == nil {
+		return false
+	}
+	return fi.IndexOptions() != IndexOptionsNone
+}
+
+// fieldInfoLocked returns the first FieldInfo found for the named field across
+// the writer's pending and committed FieldInfos, or nil if the field is not
+// yet known.  Must be called with w.mu held.
+func (w *IndexWriter) fieldInfoLocked(fieldName string) *FieldInfo {
+	if w.pendingFieldInfos != nil {
+		if f := w.pendingFieldInfos.GetByName(fieldName); f != nil {
+			return f
+		}
+	}
+	for _, sci := range w.committedSegments {
+		fi := sci.GetInMemoryFieldInfos()
+		if fi == nil {
+			continue
+		}
+		if f := fi.GetByName(fieldName); f != nil {
+			return f
+		}
+	}
+	for _, ps := range w.pendingImportedSegments {
+		if ps.fieldInfos == nil {
+			continue
+		}
+		if f := ps.fieldInfos.GetByName(fieldName); f != nil {
+			return f
+		}
+	}
+	return nil
+}
+
 // IsClosed returns true if the writer is closed.
 // Uses atomic operations for lock-free check.
 func (w *IndexWriter) IsClosed() bool {
@@ -3691,7 +3731,7 @@ func (w *IndexWriter) mergeSegmentGroup(segs []*SegmentCommitInfo, segName strin
 		if core == nil {
 			return nil, fmt.Errorf("forceMerge: segment %q has no codec core readers (cannot merge its data)", sci.SegmentInfo().Name())
 		}
-		cr := NewCodecReader(core, sr.GetLiveDocs(), sci.NumDocs())
+		cr := NewCodecReaderWithFieldInfos(core, sr.GetLiveDocs(), sci.NumDocs(), sr.GetFieldInfos())
 		cr.GetSegmentInfo().SetDocCount(sci.SegmentInfo().DocCount())
 		srs = append(srs, sr)
 		readers = append(readers, cr)
@@ -4876,6 +4916,13 @@ func (w *IndexWriter) UpdateDocValues(term *Term, field string, value interface{
 		return fmt.Errorf(
 			"cannot update doc values for field %q: field has no doc values",
 			field)
+	}
+	// Lucene only permits doc-values updates on fields that are doc-values-only:
+	// a field that is also indexed with postings cannot be updated in place.
+	if w.fieldHasPostingsLocked(field) {
+		return fmt.Errorf(
+			"Can't update [%s] doc values; the field [%s] must be doc values only field, but is also indexed with postings.",
+			dvt.String(), field)
 	}
 	if value != nil {
 		switch value.(type) {

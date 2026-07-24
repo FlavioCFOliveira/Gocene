@@ -29,11 +29,26 @@ type CodecReader struct {
 	numDocs int
 }
 
-// NewCodecReader creates a new CodecReader for the given segment.
+// NewCodecReader creates a new CodecReader for the given segment, using the
+// core readers' base FieldInfos.
 func NewCodecReader(
 	coreReaders *SegmentCoreReaders,
 	liveDocs util.Bits,
 	numDocs int,
+) *CodecReader {
+	return NewCodecReaderWithFieldInfos(coreReaders, liveDocs, numDocs, coreReaders.GetFieldInfos())
+}
+
+// NewCodecReaderWithFieldInfos creates a new CodecReader for the given segment
+// using the supplied FieldInfos. This is used when the caller has an updated
+// FieldInfos view (e.g. after doc-values updates were applied) that must be
+// visible to the merge and search machinery while the codec data readers stay
+// wired to the core readers.
+func NewCodecReaderWithFieldInfos(
+	coreReaders *SegmentCoreReaders,
+	liveDocs util.Bits,
+	numDocs int,
+	fieldInfos *FieldInfos,
 ) *CodecReader {
 	// Create a minimal SegmentInfo for the LeafReader. The actual
 	// segment info should come from the core readers or be passed in;
@@ -41,7 +56,7 @@ func NewCodecReader(
 	// (it is set properly via SetDocCount later when needed).
 	segmentInfo := NewSegmentInfo(coreReaders.GetSegmentName(), 0, nil)
 	return &CodecReader{
-		LeafReader:  NewLeafReaderWithFieldInfos(segmentInfo, coreReaders.GetFieldInfos()),
+		LeafReader:  NewLeafReaderWithFieldInfos(segmentInfo, fieldInfos),
 		coreReaders: coreReaders,
 		liveDocs:    liveDocs,
 		numDocs:     numDocs,
@@ -87,12 +102,12 @@ func (r *CodecReader) GetLiveDocs() util.Bits {
 	return r.liveDocs
 }
 
-// GetFieldInfos returns the FieldInfos for this reader.
+// GetFieldInfos returns the FieldInfos for this reader. The returned FieldInfos
+// is the view supplied at construction time (which may be an updated view that
+// includes doc-values generations), not the base FieldInfos held by the core
+// readers.
 func (r *CodecReader) GetFieldInfos() *FieldInfos {
-	if r.coreReaders == nil {
-		return nil
-	}
-	return r.coreReaders.GetFieldInfos()
+	return r.IndexReader.GetFieldInfos()
 }
 
 // Terms returns the Terms for a field.

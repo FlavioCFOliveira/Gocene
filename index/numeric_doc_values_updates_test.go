@@ -24,6 +24,7 @@ package index_test
 
 import (
 	"fmt"
+	"strconv"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
@@ -32,6 +33,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/store"
 
 	_ "github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
 // skipNeedsLeafDocValues short-circuits the read-back assertions in tests
@@ -343,9 +345,81 @@ func TestNumericDocValuesUpdates_FewSegments(t *testing.T) {
 	assertNumericDocValuesLive(t, dir, "val", want)
 }
 
-// TestNumericDocValuesUpdates_Reopen ports testReopen.
+// TestNumericDocValuesUpdates_Reopen ports testReopen: a reader opened before
+// the update continues to see the old numeric doc-values, while a reopened
+// reader sees the updated values.
 func TestNumericDocValuesUpdates_Reopen(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	writer, dir := newTestWriter(t, nil)
+	defer writer.Close()
+
+	for i := 0; i < 2; i++ {
+		if err := writer.AddDocument(createDoc(i)); err != nil {
+			t.Fatalf("AddDocument doc-%d: %v", i, err)
+		}
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	reader1, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer reader1.Close()
+
+	if _, err := writer.UpdateNumericDocValue(index.NewTerm("id", "doc-0"), "val", 10); err != nil {
+		t.Fatalf("UpdateNumericDocValue: %v", err)
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit update: %v", err)
+	}
+
+	reader2, err := reader1.Reopen()
+	if err != nil {
+		t.Fatalf("Reopen: %v", err)
+	}
+	if reader2 == reader1 {
+		t.Fatalf("expected a new reader after update")
+	}
+	defer reader2.Close()
+
+	assertReaderNumericDV := func(r *index.DirectoryReader, want int64) {
+		leaves, err := r.Leaves()
+		if err != nil {
+			t.Fatalf("Leaves: %v", err)
+		}
+		if len(leaves) != 1 {
+			t.Fatalf("expected 1 leaf, got %d", len(leaves))
+		}
+		leaf, ok := leaves[0].Reader().(*index.SegmentReader)
+		if !ok {
+			t.Fatalf("leaf reader is not *SegmentReader (%T)", leaves[0].Reader())
+		}
+		ndv, err := leaf.GetNumericDocValues("val")
+		if err != nil {
+			t.Fatalf("GetNumericDocValues: %v", err)
+		}
+		if ndv == nil {
+			t.Fatalf("GetNumericDocValues returned nil")
+		}
+		d, err := ndv.NextDoc()
+		if err != nil {
+			t.Fatalf("NextDoc: %v", err)
+		}
+		if d != 0 {
+			t.Fatalf("expected first doc 0, got %d", d)
+		}
+		v, err := ndv.LongValue()
+		if err != nil {
+			t.Fatalf("LongValue: %v", err)
+		}
+		if v != want {
+			t.Fatalf("expected value %d, got %d", want, v)
+		}
+	}
+
+	assertReaderNumericDV(reader1, 1)
+	assertReaderNumericDV(reader2, 10)
 }
 
 // TestNumericDocValuesUpdates_UpdatesAndDeletes ports testUpdatesAndDeletes
@@ -421,8 +495,168 @@ func TestNumericDocValuesUpdates_UpdatesWithDeletes(t *testing.T) {
 }
 
 // TestNumericDocValuesUpdates_MultipleDocValuesTypes ports testMultipleDocValuesTypes.
+// TestNumericDocValuesUpdates_MultipleDocValuesTypes ports testMultipleDocValuesTypes:
+// updating a numeric DV field must not corrupt other DV types (binary, sorted,
+// sorted-set) in the same segment.
 func TestNumericDocValuesUpdates_MultipleDocValuesTypes(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	writer, dir := newTestWriter(t, nil)
+	defer writer.Close()
+
+	for i := 0; i < 4; i++ {
+		fields := []interface{}{}
+		key, _ := document.NewStringField("dvUpdateKey", "dv", false)
+		fields = append(fields, key)
+		ndv, _ := document.NewNumericDocValuesField("ndv", int64(i))
+		fields = append(fields, ndv)
+		bdv, _ := document.NewBinaryDocValuesField("bdv", []byte(fmt.Sprintf("%d", i)))
+		fields = append(fields, bdv)
+		sdv, _ := document.NewSortedDocValuesField("sdv", []byte(fmt.Sprintf("%d", i)))
+		fields = append(fields, sdv)
+		ssdv, _ := document.NewSortedSetDocValuesField("ssdv", [][]byte{
+			[]byte(fmt.Sprintf("%d", i)),
+			[]byte(fmt.Sprintf("%d", i*2)),
+		})
+		fields = append(fields, ssdv)
+		writer.AddDocument(&testDocument{fields: fields})
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	if _, err := writer.UpdateNumericDocValue(index.NewTerm("dvUpdateKey", "dv"), "ndv", 17); err != nil {
+		t.Fatalf("UpdateNumericDocValue: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer reader.Close()
+
+	leaves, err := reader.Leaves()
+	if err != nil {
+		t.Fatalf("Leaves: %v", err)
+	}
+	if len(leaves) != 1 {
+		t.Fatalf("expected 1 leaf, got %d", len(leaves))
+	}
+	leaf, ok := leaves[0].Reader().(*index.SegmentReader)
+	if !ok {
+		t.Fatalf("leaf reader is not *SegmentReader (%T)", leaves[0].Reader())
+	}
+
+	ndv, err := leaf.GetNumericDocValues("ndv")
+	if err != nil {
+		t.Fatalf("GetNumericDocValues: %v", err)
+	}
+	bdv, err := leaf.GetBinaryDocValues("bdv")
+	if err != nil {
+		t.Fatalf("GetBinaryDocValues: %v", err)
+	}
+	sdv, err := leaf.GetSortedDocValues("sdv")
+	if err != nil {
+		t.Fatalf("GetSortedDocValues: %v", err)
+	}
+	ssdv, err := leaf.GetSortedSetDocValues("ssdv")
+	if err != nil {
+		t.Fatalf("GetSortedSetDocValues: %v", err)
+	}
+
+	for i := 0; i < leaf.MaxDoc(); i++ {
+		d, err := ndv.NextDoc()
+		if err != nil {
+			t.Fatalf("ndv.NextDoc: %v", err)
+		}
+		if d != i {
+			t.Fatalf("ndv: expected doc %d, got %d", i, d)
+		}
+		v, err := ndv.LongValue()
+		if err != nil {
+			t.Fatalf("ndv.LongValue(%d): %v", i, err)
+		}
+		if v != 17 {
+			t.Fatalf("ndv doc %d: got %d, want 17", i, v)
+		}
+
+		d, err = bdv.NextDoc()
+		if err != nil {
+			t.Fatalf("bdv.NextDoc: %v", err)
+		}
+		if d != i {
+			t.Fatalf("bdv: expected doc %d, got %d", i, d)
+		}
+		bv, err := bdv.BinaryValue()
+		if err != nil {
+			t.Fatalf("bdv.BinaryValue(%d): %v", i, err)
+		}
+		if string(bv) != fmt.Sprintf("%d", i) {
+			t.Fatalf("bdv doc %d: got %q, want %q", i, bv, fmt.Sprintf("%d", i))
+		}
+
+		d, err = sdv.NextDoc()
+		if err != nil {
+			t.Fatalf("sdv.NextDoc: %v", err)
+		}
+		if d != i {
+			t.Fatalf("sdv: expected doc %d, got %d", i, d)
+		}
+		ord, err := sdv.OrdValue()
+		if err != nil {
+			t.Fatalf("sdv.OrdValue(%d): %v", i, err)
+		}
+		sv, err := sdv.LookupOrd(ord)
+		if err != nil {
+			t.Fatalf("sdv.LookupOrd(%d): %v", ord, err)
+		}
+		if string(sv) != fmt.Sprintf("%d", i) {
+			t.Fatalf("sdv doc %d: got %q, want %q", i, sv, fmt.Sprintf("%d", i))
+		}
+
+		d, err = ssdv.NextDoc()
+		if err != nil {
+			t.Fatalf("ssdv.NextDoc: %v", err)
+		}
+		if d != i {
+			t.Fatalf("ssdv: expected doc %d, got %d", i, d)
+		}
+		count := 0
+		for {
+			ord, err := ssdv.NextOrd()
+			if err != nil {
+				t.Fatalf("ssdv.NextOrd(%d): %v", i, err)
+			}
+			if ord == -1 {
+				break
+			}
+			ssv, err := ssdv.LookupOrd(ord)
+			if err != nil {
+				t.Fatalf("ssdv.LookupOrd(%d): %v", ord, err)
+			}
+			var want int
+			switch count {
+			case 0:
+				want = i
+			case 1:
+				want = i * 2
+			}
+			if got, _ := strconv.Atoi(string(ssv)); got != want {
+				t.Fatalf("ssdv doc %d ord %d: got %d, want %d", i, count, got, want)
+			}
+			count++
+		}
+		if i == 0 {
+			if count != 1 {
+				t.Fatalf("ssdv doc %d: expected 1 value, got %d", i, count)
+			}
+		} else {
+			if count != 2 {
+				t.Fatalf("ssdv doc %d: expected 2 values, got %d", i, count)
+			}
+		}
+	}
 }
 
 // TestNumericDocValuesUpdates_MultipleNumericDocValues ports
@@ -593,27 +827,420 @@ func TestNumericDocValuesUpdates_ManyReopensAndFields(t *testing.T) {
 }
 
 // TestNumericDocValuesUpdates_UpdateSegmentWithNoDocValues ports
-// testUpdateSegmentWithNoDocValues.
+// testUpdateSegmentWithNoDocValues: a field that exists as doc values in one
+// segment can be added to another segment that did not originally declare it,
+// by issuing an update that targets a document in that segment.
 func TestNumericDocValuesUpdates_UpdateSegmentWithNoDocValues(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	writer, dir := newTestWriter(t, func(c *index.IndexWriterConfig) {
+		c.SetMergePolicy(index.NewNoMergePolicy())
+	})
+	defer writer.Close()
+
+	addDoc := func(id string, withNDV bool) {
+		fields := []interface{}{}
+		idField, _ := document.NewStringField("id", id, false)
+		fields = append(fields, idField)
+		if withNDV {
+			ndv, _ := document.NewNumericDocValuesField("ndv", 3)
+			fields = append(fields, ndv)
+		}
+		writer.AddDocument(&testDocument{fields: fields})
+	}
+
+	addDoc("doc0", true)
+	addDoc("doc4", false)
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit first segment: %v", err)
+	}
+
+	addDoc("doc1", false)
+	addDoc("doc2", false)
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit second segment: %v", err)
+	}
+
+	if _, err := writer.UpdateNumericDocValue(index.NewTerm("id", "doc0"), "ndv", 5); err != nil {
+		t.Fatalf("UpdateNumericDocValue doc0: %v", err)
+	}
+	if _, err := writer.UpdateNumericDocValue(index.NewTerm("id", "doc1"), "ndv", 5); err != nil {
+		t.Fatalf("UpdateNumericDocValue doc1: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer reader.Close()
+
+	leaves, err := reader.Leaves()
+	if err != nil {
+		t.Fatalf("Leaves: %v", err)
+	}
+	for _, leafCtx := range leaves {
+		leaf, ok := leafCtx.Reader().(*index.SegmentReader)
+		if !ok {
+			t.Fatalf("leaf reader is not *SegmentReader (%T)", leafCtx.Reader())
+		}
+		ndv, err := leaf.GetNumericDocValues("ndv")
+		if err != nil {
+			t.Fatalf("GetNumericDocValues: %v", err)
+		}
+		d, err := ndv.NextDoc()
+		if err != nil {
+			t.Fatalf("NextDoc: %v", err)
+		}
+		if d != 0 {
+			t.Fatalf("expected first ndv doc 0, got %d", d)
+		}
+		v, err := ndv.LongValue()
+		if err != nil {
+			t.Fatalf("LongValue: %v", err)
+		}
+		if v != 5 {
+			t.Fatalf("expected value 5, got %d", v)
+		}
+		d, err = ndv.NextDoc()
+		if err != nil {
+			t.Fatalf("NextDoc: %v", err)
+		}
+		if d <= 1 {
+			t.Fatalf("expected next ndv doc > 1, got %d", d)
+		}
+	}
 }
 
 // TestNumericDocValuesUpdates_UpdateSegmentWithNoDocValues2 ports
-// testUpdateSegmentWithNoDocValues2.
+// testUpdateSegmentWithNoDocValues2: a doc-values field can be added to a
+// segment that never declared it, then merged, and the merged segment still
+// exposes all fields correctly.
 func TestNumericDocValuesUpdates_UpdateSegmentWithNoDocValues2(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	writer, dir := newTestWriter(t, func(c *index.IndexWriterConfig) {
+		c.SetMergePolicy(index.NewNoMergePolicy())
+	})
+
+	addDoc := func(id string, extra ...interface{}) *testDocument {
+		fields := []interface{}{mustStringField(t, "id", id, false)}
+		fields = append(fields, extra...)
+		return &testDocument{fields: fields}
+	}
+
+	// First segment: doc0 has ndv, doc4 has no doc values at all.
+	writer.AddDocument(addDoc("doc0", mustNumericDocValuesField(t, "ndv", 3)))
+	writer.AddDocument(addDoc("doc4"))
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit first segment: %v", err)
+	}
+
+	// Second segment: doc1 has a different DV field "foo", doc2 has nothing.
+	writer.AddDocument(addDoc("doc1", mustNumericDocValuesField(t, "foo", 3)))
+	writer.AddDocument(addDoc("doc2"))
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit second segment: %v", err)
+	}
+
+	// Update the existing numeric DV field in the first segment.
+	if _, err := writer.UpdateNumericDocValue(index.NewTerm("id", "doc0"), "ndv", 5); err != nil {
+		t.Fatalf("UpdateNumericDocValue doc0: %v", err)
+	}
+	// Add the same DV field to the second segment by updating a document there.
+	if _, err := writer.UpdateNumericDocValue(index.NewTerm("id", "doc1"), "ndv", 5); err != nil {
+		t.Fatalf("UpdateNumericDocValue doc1: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close first writer: %v", err)
+	}
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	leaves, err := reader.Leaves()
+	if err != nil {
+		t.Fatalf("Leaves: %v", err)
+	}
+	for _, leafCtx := range leaves {
+		leaf, ok := leafCtx.Reader().(*index.SegmentReader)
+		if !ok {
+			t.Fatalf("leaf reader is not *SegmentReader (%T)", leafCtx.Reader())
+		}
+		ndv, err := leaf.GetNumericDocValues("ndv")
+		if err != nil {
+			t.Fatalf("GetNumericDocValues: %v", err)
+		}
+		d, err := ndv.NextDoc()
+		if err != nil {
+			t.Fatalf("NextDoc: %v", err)
+		}
+		if d != 0 {
+			t.Fatalf("expected first ndv doc 0, got %d", d)
+		}
+		v, err := ndv.LongValue()
+		if err != nil {
+			t.Fatalf("LongValue: %v", err)
+		}
+		if v != 5 {
+			t.Fatalf("expected value 5, got %d", v)
+		}
+		d, err = ndv.NextDoc()
+		if err != nil {
+			t.Fatalf("NextDoc: %v", err)
+		}
+		if d <= 1 {
+			t.Fatalf("expected next ndv doc > 1, got %d", d)
+		}
+	}
+	reader.Close()
+
+	// Reopen with the default merge policy and forceMerge(1).
+	config := index.NewIndexWriterConfig(createMockAnalyzer())
+	config.SetOpenMode(index.APPEND)
+	writer2, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("NewIndexWriter (append): %v", err)
+	}
+	if err := writer2.ForceMerge(1); err != nil {
+		t.Fatalf("ForceMerge(1): %v", err)
+	}
+	if err := writer2.Close(); err != nil {
+		t.Fatalf("Close merge writer: %v", err)
+	}
+
+	reader, err = index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader after merge: %v", err)
+	}
+	defer reader.Close()
+
+	leaves, err = reader.Leaves()
+	if err != nil {
+		t.Fatalf("Leaves after merge: %v", err)
+	}
+	if len(leaves) != 1 {
+		t.Fatalf("expected 1 leaf after merge, got %d", len(leaves))
+	}
+	leaf, ok := leaves[0].Reader().(*index.SegmentReader)
+	if !ok {
+		t.Fatalf("leaf reader is not *SegmentReader (%T)", leaves[0].Reader())
+	}
+	fooFI := leaf.GetFieldInfos().GetByName("foo")
+	if fooFI == nil {
+		t.Fatal("missing field foo in merged segment")
+	}
+	if fooFI.DocValuesType() != index.DocValuesTypeNumeric {
+		t.Fatalf("expected foo DocValuesType NUMERIC, got %v", fooFI.DocValuesType())
+	}
+
+	searcher := search.NewIndexSearcher(reader)
+	assertSortValue := func(queryField, queryTerm string, sortFields []*search.SortField, want []int64) {
+		t.Helper()
+		td, err := searcher.SearchWithSort(
+			search.NewTermQuery(index.NewTerm(queryField, queryTerm)),
+			1,
+			search.NewSort(sortFields...),
+		)
+		if err != nil {
+			t.Fatalf("SearchWithSort %s:%s: %v", queryField, queryTerm, err)
+		}
+		if len(td.ScoreDocs) == 0 {
+			t.Fatalf("expected hit for %s:%s", queryField, queryTerm)
+		}
+		if len(td.FieldDocs) == 0 {
+			t.Fatal("expected FieldDocs")
+		}
+		for i, w := range want {
+			got, ok := td.FieldDocs[0].Fields[i].(int64)
+			if !ok {
+				t.Fatalf("sort value %d type %T, want int64", i, td.FieldDocs[0].Fields[i])
+			}
+			if got != w {
+				t.Fatalf("sort value %d for %s:%s: got %d, want %d", i, queryField, queryTerm, got, w)
+			}
+		}
+	}
+
+	assertSortValue("id", "doc0", []*search.SortField{search.NewSortField("ndv", search.SortFieldTypeLong)}, []int64{5})
+	assertSortValue("id", "doc1", []*search.SortField{
+		search.NewSortField("ndv", search.SortFieldTypeLong),
+		search.NewSortField("foo", search.SortFieldTypeLong),
+	}, []int64{5, 3})
+	assertSortValue("id", "doc2", []*search.SortField{search.NewSortField("ndv", search.SortFieldTypeLong)}, []int64{0})
+	assertSortValue("id", "doc4", []*search.SortField{search.NewSortField("ndv", search.SortFieldTypeLong)}, []int64{0})
 }
 
 // TestNumericDocValuesUpdates_UpdateSegmentWithPostingButNoDocValues ports
-// testUpdateSegmentWithPostingButNoDocValues.
+// testUpdateSegmentWithPostingButNoDocValues: a field that is both indexed with
+// postings and has doc values cannot be updated, even if another segment only
+// has the doc-values side of the field.
 func TestNumericDocValuesUpdates_UpdateSegmentWithPostingButNoDocValues(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	writer, dir := newTestWriter(t, func(c *index.IndexWriterConfig) {
+		c.SetMergePolicy(index.NewNoMergePolicy())
+	})
+	defer writer.Close()
+
+	addDoc := func(id string, ndv bool, ndv2 bool) {
+		fields := []interface{}{}
+		idField, _ := document.NewStringField("id", id, false)
+		fields = append(fields, idField)
+		if ndv {
+			f, _ := document.NewNumericDocValuesField("ndv", 5)
+			fields = append(fields, f)
+		}
+		if ndv2 {
+			f, _ := document.NewStringField("ndv2", "10", false)
+			fields = append(fields, f)
+			f2, _ := document.NewNumericDocValuesField("ndv2", 10)
+			fields = append(fields, f2)
+		}
+		writer.AddDocument(&testDocument{fields: fields})
+	}
+
+	addDoc("doc0", true, true)
+	writer.AddDocument(&testDocument{fields: func() []interface{} {
+		id, _ := document.NewStringField("id", "doc4", false)
+		return []interface{}{id}
+	}()})
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit first segment: %v", err)
+	}
+
+	writer.AddDocument(&testDocument{fields: func() []interface{} {
+		id, _ := document.NewStringField("id", "doc1", false)
+		return []interface{}{id}
+	}()})
+	writer.AddDocument(&testDocument{fields: func() []interface{} {
+		id, _ := document.NewStringField("id", "doc2", false)
+		return []interface{}{id}
+	}()})
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit second segment: %v", err)
+	}
+
+	if _, err := writer.UpdateNumericDocValue(index.NewTerm("id", "doc1"), "ndv", 5); err != nil {
+		t.Fatalf("UpdateNumericDocValue ndv doc1: %v", err)
+	}
+	_, err := writer.UpdateNumericDocValue(index.NewTerm("id", "doc1"), "ndv2", 10)
+	if err == nil {
+		t.Fatalf("expected error updating ndv2 (postings field), got nil")
+	}
+	want := "Can't update [NUMERIC] doc values; the field [ndv2] must be doc values only field, but is also indexed with postings."
+	if err.Error() != want {
+		t.Fatalf("error message mismatch:\ngot:  %s\nwant: %s", err.Error(), want)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer reader.Close()
+
+	leaves, err := reader.Leaves()
+	if err != nil {
+		t.Fatalf("Leaves: %v", err)
+	}
+	for _, leafCtx := range leaves {
+		leaf, ok := leafCtx.Reader().(*index.SegmentReader)
+		if !ok {
+			t.Fatalf("leaf reader is not *SegmentReader (%T)", leafCtx.Reader())
+		}
+		ndv, err := leaf.GetNumericDocValues("ndv")
+		if err != nil {
+			t.Fatalf("GetNumericDocValues: %v", err)
+		}
+		d, err := ndv.NextDoc()
+		if err != nil {
+			t.Fatalf("NextDoc: %v", err)
+		}
+		if d != 0 {
+			t.Fatalf("expected first ndv doc 0, got %d", d)
+		}
+		v, err := ndv.LongValue()
+		if err != nil {
+			t.Fatalf("LongValue: %v", err)
+		}
+		if v != 5 {
+			t.Fatalf("expected value 5, got %d", v)
+		}
+		d, err = ndv.NextDoc()
+		if err != nil {
+			t.Fatalf("NextDoc: %v", err)
+		}
+		if d <= 1 {
+			t.Fatalf("expected next ndv doc > 1, got %d", d)
+		}
+	}
 }
 
 // TestNumericDocValuesUpdates_UpdateNumericDVFieldWithSameNameAsPostingField
-// ports testUpdateNumericDVFieldWithSameNameAsPostingField.
+// ports testUpdateNumericDVFieldWithSameNameAsPostingField: a field that is
+// both indexed with postings and has numeric doc values cannot be updated via
+// UpdateNumericDocValue.
 func TestNumericDocValuesUpdates_UpdateNumericDVFieldWithSameNameAsPostingField(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	writer, dir := newTestWriter(t, nil)
+
+	fields := []interface{}{}
+	idField, _ := document.NewStringField("id", "mock-value", false)
+	fields = append(fields, idField)
+	postingField, _ := document.NewStringField("f", "mock-value", false)
+	fields = append(fields, postingField)
+	ndv, _ := document.NewNumericDocValuesField("f", 5)
+	fields = append(fields, ndv)
+	writer.AddDocument(&testDocument{fields: fields})
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	_, err := writer.UpdateNumericDocValue(index.NewTerm("f", "mock-value"), "f", 17)
+	if err == nil {
+		t.Fatalf("expected error updating field with postings, got nil")
+	}
+	want := "Can't update [NUMERIC] doc values; the field [f] must be doc values only field, but is also indexed with postings."
+	if err.Error() != want {
+		t.Fatalf("error message mismatch:\ngot:  %s\nwant: %s", err.Error(), want)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer reader.Close()
+	leaves, err := reader.Leaves()
+	if err != nil {
+		t.Fatalf("Leaves: %v", err)
+	}
+	if len(leaves) != 1 {
+		t.Fatalf("expected 1 leaf, got %d", len(leaves))
+	}
+	leaf, ok := leaves[0].Reader().(*index.SegmentReader)
+	if !ok {
+		t.Fatalf("leaf reader is not *SegmentReader (%T)", leaves[0].Reader())
+	}
+	ndvReader, err := leaf.GetNumericDocValues("f")
+	if err != nil {
+		t.Fatalf("GetNumericDocValues: %v", err)
+	}
+	d, err := ndvReader.NextDoc()
+	if err != nil {
+		t.Fatalf("NextDoc: %v", err)
+	}
+	if d != 0 {
+		t.Fatalf("expected doc 0, got %d", d)
+	}
+	v, err := ndvReader.LongValue()
+	if err != nil {
+		t.Fatalf("LongValue: %v", err)
+	}
+	if v != 5 {
+		t.Fatalf("expected value 5, got %d", v)
+	}
 }
 
 // TestNumericDocValuesUpdates_StressMultiThreading ports testStressMultiThreading.

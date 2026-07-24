@@ -10,6 +10,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -221,13 +222,71 @@ func (sm *SegmentMerger) mergeFieldInfos() error {
 			if builder.GetByName(fi.Name()) != nil {
 				continue
 			}
-			if err := builder.Add(fi); err != nil {
+			// The merged segment is brand-new data, so doc-values generations and
+			// per-field format suffixes from the source segments must not be carried
+			// forward. Resetting DocValuesGen to -1 and stripping the per-field DV
+			// attributes lets the PerFieldDocValuesFormat write fresh files under
+			// the merged segment's own suffix scheme.
+			mergedFI := cloneFieldInfoForMerge(fi)
+			// Gocene does not yet share a global FieldNumbers registry across the
+			// index, so two source segments may have assigned the same number to
+			// different field names. Remap on collision so the merged FieldInfos
+			// remains valid; consumers resolve values by field name, not number.
+			if builder.GetByNumber(mergedFI.Number()) != nil {
+				mergedFI = schema.NewFieldInfo(mergedFI.Name(), builder.GetNextFieldNumber(), mergeFieldInfoOptions(mergedFI))
+			}
+			if err := builder.Add(mergedFI); err != nil {
 				return fmt.Errorf("index: merge field infos: %w", err)
 			}
 		}
 	}
 	sm.MergeState.MergeFieldInfos = builder
 	return nil
+}
+
+// mergeFieldInfoOptions extracts the options from fi so a new FieldInfo can be
+// created with a remapped field number when two source segments collide on the
+// same number.
+func mergeFieldInfoOptions(fi *FieldInfo) FieldInfoOptions {
+	return FieldInfoOptions{
+		IndexOptions:             fi.IndexOptions(),
+		DocValuesType:            fi.DocValuesType(),
+		DocValuesSkipIndexType:   fi.DocValuesSkipIndexType(),
+		DocValuesGen:             -1,
+		Stored:                   fi.IsStored(),
+		Tokenized:                fi.IsTokenized(),
+		OmitNorms:                fi.OmitNorms(),
+		StoreTermVectors:         fi.StoreTermVectors(),
+		StoreTermVectorPositions: fi.StoreTermVectorPositions(),
+		StoreTermVectorOffsets:   fi.StoreTermVectorOffsets(),
+		StoreTermVectorPayloads:  fi.StoreTermVectorPayloads(),
+		PointDimensionCount:      fi.PointDimensionCount(),
+		PointIndexDimensionCount: fi.PointIndexDimensionCount(),
+		PointNumBytes:            fi.PointNumBytes(),
+		VectorDimension:          fi.VectorDimension(),
+		VectorEncoding:           fi.VectorEncoding(),
+		VectorSimilarityFunction: fi.VectorSimilarityFunction(),
+		IsSoftDeletesField:       fi.IsSoftDeletesField(),
+		IsParentField:            fi.IsParentField(),
+	}
+}
+
+// cloneFieldInfoForMerge returns a FieldInfo suitable for the merged segment:
+// doc-values generation is reset to -1 and the per-field doc-values format
+// attributes that bind a field to a specific delegate file suffix are
+// removed so the merge writes fresh doc-values files.
+func cloneFieldInfoForMerge(fi *FieldInfo) *FieldInfo {
+	clone := schema.NewFieldInfo(fi.Name(), fi.Number(), mergeFieldInfoOptions(fi))
+	for k, v := range fi.GetAttributes() {
+		// Per-field doc-values format attributes bind a FieldInfo to the
+		// delegate file suffix used in its source segment. The merged segment
+		// writes fresh files, so those attributes must not be inherited.
+		if k == "PerFieldDocValuesFormat.format" || k == "PerFieldDocValuesFormat.suffix" {
+			continue
+		}
+		clone.PutCodecAttribute(k, v)
+	}
+	return clone
 }
 
 // hasPointValues reports whether any field in fieldInfos carries point
