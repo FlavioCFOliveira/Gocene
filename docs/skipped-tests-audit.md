@@ -1,23 +1,25 @@
 # Skipped / Deferred Tests Audit
 
 **Generated:** 2026-06-11
-**Last updated:** 2026-07-18
+**Last updated:** 2026-07-24
 **Policy:** No-Skip policy — tests must use `t.Fatal` with a blocker description instead of `t.Skip`
 
 ## Key Findings
 
 - **Total `t.Skip` calls remaining: 0** (the no-skip policy is fully enforced)
-- **Total deferred tests: ~230** across 33 packages (`index` only; `search`, `store`, and all other packages currently pass)
-- `go test ./...` shows only the `index` package failing; the remaining `index` failures are descriptive `t.Fatal` blockers for RandomIndexWriter/MockAnalyzer infrastructure, merge-scheduler hooks, CheckIndex, monster tests, and a few unrelated IndexWriter/reader gaps
-- The T105.9 mock test harness and T105.10 deleter integration resolved the previous `store`, `backward_codecs/backward_index`, deletion-policy, and search `TestExternalCodecs_PerFieldCodec` failures
+- **Total `t.Skip` calls remaining: 0** (the no-skip policy is fully enforced; `scripts/check-skips.sh` reports OK)
+- **Total deferred tests: 130** across 33 packages (`index` only; all other packages pass in the default build)
+- `go test ./...` shows only the `index` package failing. The remaining `index` failures are descriptive `t.Fatal` blockers for RandomIndexWriter/MockAnalyzer infrastructure, merge-scheduler hooks (ConcurrentMergeScheduler doMerge/doStall/mergeSuccess), CheckIndex, applied deletes on commit, NRT openIfChanged/SegmentReader sharing, term-vector/payload/offset integration, numeric/binary doc-values updates on reopen, and a few unrelated IndexWriter/reader gaps.
+- **T105.22 refresh (2026-07-24):** all @Monster/@Nightly tests that live in dedicated files (`twob_*`, `two_b_*`, `transactions_test.go`, `index_writer_delete_monster_test.go`, `index_writer_misc_monster_test.go`, `four_gb_stored_fields_test.go`, `dueling_codecs_at_night_test.go`, `two_b_postings_bytes_test.go`, `twob_positions_test.go`) are now gated behind the `gocene_monsters` build tag. A small number of @Nightly tests remain inside mixed files (`index_writer_commit_test.go`, `index_writer_on_error_test.go`) and currently pass in the default suite.
+- The T105.9 mock test harness, T105.10 deleter integration, T105.13 mock/RIW infrastructure, T105.14 numeric/binary doc-values update paths, and T105.22 merge-observer/ForceMergeDeletes/NRT in-memory merge fixes resolved large blocks of previously-deferred `index` tests.
 
-> **Note:** This audit was partially refreshed during Sprint 15/T105 execution. The detailed table below still reflects the 2026-06-11 snapshot; a full regeneration is deferred until Sprint 15 closes. The summary counts above reflect the current `feature/T105-final-certification` branch state (2026-07-18).
+> **Note:** This audit was refreshed during Sprint 15/T105 execution. The detailed table below still reflects the 2026-06-11 snapshot structure; a full regeneration is deferred until Sprint 15 closes. The summary counts above reflect the current `feature/T105.22-forcemerge-nrt-fixes` branch state (2026-07-24).
 
 ## Summary Table
 
 | Package | Deferred Tests | Blocker Summary |
 |---------|:--------------:|-----------------|
-| `index` | ~230 | remaining blockers: term-vectors/RandomIndexWriter integration, payloads/MockAnalyzer, tragic deadlock hooks, monster tests, CheckIndex info-stream, LogDocMergePolicy.setMinMergeDocs, applied deletes on commit, NRT openIfChanged/SegmentReader sharing, numeric/binary doc-values updates on reopen, merge-scheduler/CMS hooks |
+| `index` | 130 | remaining blockers: term-vectors/RandomIndexWriter integration, payloads/MockAnalyzer, tragic deadlock hooks (CMS hooks), CheckIndex info-stream, applied deletes on commit, NRT openIfChanged/SegmentReader sharing, term-vector/payload/offset integration, numeric/binary doc-values updates on reopen, merge-scheduler/CMS hooks; monster/nightly tests now gated by `gocene_monsters` |
 | `search` | 0 | All search package tests pass |
 | `codecs` | 0 | All codec-level tests pass; previous entries (Lucene99 placeholders, PerField round-trips, DocValuesSkipper, TV/SF formats) were implemented in T105.4/T105.5 work |
 | `util/bkd` | 0 | All default tests pass; `TestBKD_RandomBinaryBig` is gated by the `gocene_monsters` build tag and runs only in monster/CI mode |
@@ -50,13 +52,18 @@
 | `queryparser/util` | 0 | All tests pass |
 | `queries/function/docvalues` | 0 | All tests pass |
 | `facets/taxonomywritercache` | 0 | All tests pass |
-| **Total** | **~230** | |
+| **Total** | **130** | |
 
 ## Detailed Deferred Test Listing
 
-### `index` (195 deferred tests)
+### `index` (130 deferred tests)
 
-The `index` package is the only package still failing in `go test ./...`. The detailed table below reflects the original 2026-06-11 snapshot; many entries have been resolved in Sprint 15 (DeleteDocuments, NRT reader, commit-pinning/rollback, RandomIndexWriter, MockDirectoryWrapper disk-full tests, CheckIndex, merge scheduler, CannedTokenStream, doc-values updates, merge-policy diagnostics/concurrent-flush tests). The remaining 195 failures are concentrated in term-vector integration, payload/MockAnalyzer wiring, tragic deadlock hooks, monster tests, applied deletes on commit, NRT openIfChanged/SegmentReader sharing, and a few unrelated `IndexWriter`/reader gaps.
+The `index` package is the only package still failing in `go test ./...`. The detailed table below reflects the original 2026-06-11 snapshot structure; many entries have been resolved in Sprint 15 work (DeleteDocuments, NRT reader, commit-pinning/rollback, RandomIndexWriter, MockDirectoryWrapper disk-full tests, CheckIndex, merge scheduler, CannedTokenStream, doc-values updates, merge-policy diagnostics/concurrent-flush tests, ForceMergeDeletes staleness, merge-observer API, and NRT in-memory merge filtering in T105.22). The remaining 130 failures are concentrated in term-vector integration, payload/MockAnalyzer wiring, tragic deadlock hooks, applied deletes on commit, NRT openIfChanged/SegmentReader sharing, numeric/binary doc-values updates on reopen, and a few unrelated `IndexWriter`/reader gaps.
+
+> **T105.22 refresh (2026-07-24):**
+> - Dedicated @Monster/@Nightly index test files are now gated behind `//go:build gocene_monsters`: `twob_docs_test.go`, `twob_numeric_doc_values_test.go`, `twob_postings_test.go`, `twob_sorted_doc_values_fixed_sorted_test.go`, `twob_sorted_doc_values_ords_test.go`, `twob_terms_test.go`, `two_b_binary_doc_values_test.go`, `two_b_points_test.go`, `transactions_test.go`, plus the previously-gated `twob_positions_test.go`, `two_b_postings_bytes_test.go`, `four_gb_stored_fields_test.go`, `dueling_codecs_at_night_test.go`, `index_writer_delete_monster_test.go`, and `index_writer_misc_monster_test.go`.
+> - A small number of @Nightly tests inside mixed files (`TestCommitOnCloseDiskUsage`, `TestCommitThreadSafety` in `index_writer_commit_test.go`; `TestIndexWriterOnError_IOError` in `index_writer_on_error_test.go`) currently pass in the default suite and remain runnable until they are extracted into monster-only files.
+> - `TestCommitOnCloseForceMerge` now has an accurate blocker reflecting pending merge-commit/rollback semantics rather than a stale dependency reference.
 
 > **T105.6/T105.7 partial refresh (2026-07-17):** The following previously-blocked tests now pass and were removed from the active failure set: `TestNewestSegment`, `TestIsCurrent_DeleteByTermIsCurrent`, `TestIsCurrent_DeleteAllIsCurrent`, `TestTryDeleteDocument`, `TestTryDeleteDocumentCloseAndReopen`, `TestStressIndexAndSearching`, `TestIndexWriterMerging_NoWaitClose`, and eight `TestIndexWriterMergePolicy_*` subtests (`CarryOverNewDeletesOnCommit`, `AbortMergeOnCommit`, `FailAfterMergeCommitted`, `SetDiagnostics`, `ForceMergeDVUpdateFileWithConcurrentFlush`, `MergeDVUpdateFileOnGetReaderWithConcurrentFlush`, `MergeDVUpdateFileOnCommitWithConcurrentFlush`, `ForceMergeWithPendingHardAndSoftDeleteFile`). Their audit rows below are marked **RESOLVED** where present.
 >
@@ -403,29 +410,29 @@ All `util` tests pass in the default build. `IntoBitSet` is implemented and exer
 
 The deferred blockers cluster around a few key missing infrastructure pieces:
 
-1. **NRT (Near-Real-Time) reader** (`index`): `DirectoryReader.open(IndexWriter)` is the single most referenced blocker. Until this exists, writers cannot produce searchable readers.
+1. **NRT (Near-Real-Time) reader** (`index`): `DirectoryReader.open(IndexWriter)` and `openIfChanged(IndexWriter)` are implemented but segment sharing and reopen-after-no-change semantics still have gaps; this is the most referenced remaining blocker.
 
-2. **DeleteDocuments** (`index`): The DeleteDocuments(Term|Query) are no-op stubs. Without this, all delete-dependent features fail (forceMergeDeletes, soft deletes, mixed updates).
+2. **DeleteDocuments** (`index`): `DeleteDocuments(Term|Query)` are implemented and applied during commit/NRT GetReader, but applied deletes on commit and per-segment delete propagation still have edge-case gaps.
 
-3. **MockDirectoryWrapper** (`index`, `util/bkd`): Fault injection, disk-full simulation, and file-size tracking are not ported, blocking many error-path tests.
+3. **MockDirectoryWrapper** (`index`, `store`): Fault injection, disk-full simulation, random IOException rate, and file-size tracking are partially ported but not complete, blocking many error-path and tragic-deadlock tests.
 
-4. **RandomIndexWriter + IndexSearcher** (`search`, `facets`, `codecs`, `memory`): These integration test helpers are not ported, blocking the entire search/spatial/facets test surface.
+4. **RandomIndexWriter + IndexSearcher** (`index`, `search`, `facets`, `codecs`, `memory`): These integration test helpers are now largely ported (T105.13), but wiring with `IndexWriter.addDocument`, CannedTokenStream, and full search execution remains incomplete for several `index` tests.
 
-5. **CannedTokenStream** (`index`, `analysis`): Token injection infrastructure is missing, blocking payloads, offsets, and custom analyzer tests.
+5. **CannedTokenStream** (`index`, `analysis`): Token injection infrastructure is partially ported but not fully wired for payloads, offsets, and custom analyzer tests.
 
-6. **GeoTestUtil / spatial query factories** (`search`): ~50+ calls blocked by missing LatLonPoint/LatLonShape/LatLonDocValuesField query factories and random geometry generators.
+6. **GeoTestUtil / spatial query factories** (`search`): Spatial query tests outside the default-critical path are deferred; the default `search` package currently passes.
 
-7. **Monster tests** (`index`, `util/bkd`, `util/fst`, `document`, `facets/taxonomywritercache`): ~25 tests are stubs for multi-hour/multi-GiB tests deferred behind `GOCENE_RUN_MONSTERS=1`.
+7. **Monster tests** (`index`, `util/bkd`, `util/fst`, `document`, `facets/taxonomywritercache`): Multi-hour/multi-GiB @Monster/@Nightly tests are now gated behind `//go:build gocene_monsters` (or `GOCENE_RUN_MONSTERS=1` where already in place).
 
-8. **Full pipeline integration** (`facets`, `queries/*`, `suggest`, `expressions`, `memory`): Complete end-to-end pipelines not yet wired (facets taxonomy, span queries, function queries, suggesters, expressions).
+8. **Full pipeline integration** (`facets`, `queries/*`, `suggest`, `expressions`, `memory`): Default package tests pass; deeper end-to-end scenarios remain for future sprints.
 
-9. **SegmentReader core readers** (`index`): Core reader integration (rmp #4) not yet wired for postings, doc values, norms, term vectors.
+9. **SegmentReader core readers** (`index`): Core reader integration (rmp #4) is wired for the basic read path but not yet complete for all postings/doc-values/norms/term-vectors combinations required by some `index` integration tests.
 
-10. **IndexWriter merge pipeline** (`index`): ForceMerge/ForceMergeDeletes, merge scheduling, and merge configuration not yet fully implemented.
+10. **IndexWriter merge pipeline** (`index`): ForceMerge/ForceMergeDeletes and merge scheduling are implemented; remaining gaps are in ConcurrentMergeScheduler hooks (doMerge/doStall/mergeSuccess) and merge-commit/rollback semantics.
 
 ## Notes
 
 - All `t.Skip()` calls have been eliminated from the codebase, in compliance with the no-skip policy.
 - Each deferred test uses `t.Fatal()` with a descriptive reason, making the failing test suite informative about what remains unimplemented.
 - Blockers reference upstream Lucene 10.4.0 features, GOC ticket numbers, rmp task references, and Sprint numbers where available.
-- The `index` and `search` packages account for ~72% of all deferred tests (478 of 660), primarily due to the missing NRT reader and spatial query integration.
+- As of 2026-07-24, all deferred tests are in the `index` package (130 of 130). The `search` package and all other packages pass in the default build.
