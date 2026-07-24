@@ -20,6 +20,12 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	indexTestutil "github.com/FlavioCFOliveira/Gocene/index/testutil"
+	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -242,10 +248,71 @@ func TestIndexWriterUnicode_AllUnicodeChars(t *testing.T) {
 	}
 }
 
-// TestIndexWriterUnicode_EmbeddedFFFF ports testEmbeddedFFFF. Skipped: requires
-// an IndexWriter + DirectoryReader round-trip and docFreq term lookup.
+// TestIndexWriterUnicode_EmbeddedFFFF ports testEmbeddedFFFF.
+//
+// Java indexes two documents, one containing the term "a￿b" (with an
+// embedded U+FFFF), and asserts that DirectoryReader.docFreq returns 1 for it.
 func TestIndexWriterUnicode_EmbeddedFFFF(t *testing.T) {
-	t.Fatal("GOC-4184: IndexWriter/DirectoryReader indexing round-trip not yet ported")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	doc := document.NewDocument()
+	tf, _ := document.NewTextField("field", "a a￿b", false)
+	doc.Add(tf)
+	if err := w.AddDocument(doc); err != nil {
+		t.Fatalf("AddDocument: %v", err)
+	}
+
+	doc = document.NewDocument()
+	tf2, _ := document.NewTextField("field", "a", false)
+	doc.Add(tf2)
+	if err := w.AddDocument(doc); err != nil {
+		t.Fatalf("AddDocument: %v", err)
+	}
+
+	if err := w.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	r, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer r.Close()
+
+	terms, err := r.Terms("field")
+	if err != nil {
+		t.Fatalf("Terms: %v", err)
+	}
+	if terms == nil {
+		t.Fatal("Terms(field) returned nil")
+	}
+	te, err := terms.GetIterator()
+	if err != nil {
+		t.Fatalf("GetIterator: %v", err)
+	}
+	found, err := te.SeekExact(schema.NewTerm("field", "a￿b"))
+	if err != nil {
+		t.Fatalf("SeekExact: %v", err)
+	}
+	if !found {
+		t.Fatal("term \"a\\uffffb\" not found")
+	}
+	df, err := te.DocFreq()
+	if err != nil {
+		t.Fatalf("DocFreq: %v", err)
+	}
+	if df != 1 {
+		t.Fatalf("DocFreq = %d, want 1", df)
+	}
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 }
 
 // TestIndexWriterUnicode_InvalidUTF16 ports testInvalidUTF16 (LUCENE-510).
@@ -257,8 +324,105 @@ func TestIndexWriterUnicode_InvalidUTF16(t *testing.T) {
 }
 
 // TestIndexWriterUnicode_TermUTF16SortOrder ports testTermUTF16SortOrder.
-// Skipped: requires RandomIndexWriter, multi-segment readers and TermsEnum
-// seeking to verify codepoint sort order.
+//
+// It indexes random single-char and surrogate-pair terms, then verifies that
+// the terms dictionary iterates in Unicode code-point order.
 func TestIndexWriterUnicode_TermUTF16SortOrder(t *testing.T) {
-	t.Fatal("GOC-4184: RandomIndexWriter and TermsEnum sort-order checks not yet ported")
+	rnd := rand.New(rand.NewSource(1))
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	riw := indexTestutil.NewWithConfig(w, 1, indexTestutil.Config{
+		CommitProbability:     0,
+		ForceMergeProbability: 0,
+	})
+
+	ft := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
+	ft.Freeze()
+
+	allTerms := make(map[string]struct{})
+	const num = 200
+	for i := 0; i < num; i++ {
+		var s string
+		if rnd.Intn(2) == 0 {
+			// single char
+			var r rune
+			if rnd.Intn(2) == 0 {
+				// above surrogates
+				r = rune(rnd.Intn(0xffff-0xdfff) + 0xe000)
+			} else {
+				// below surrogates
+				r = rune(rnd.Intn(0xd800))
+			}
+			s = string(r)
+		} else {
+			// surrogate pair
+			hi := rune(rnd.Intn(0xdbff-0xd800+1) + 0xd800)
+			lo := rune(rnd.Intn(0xdfff-0xdc00+1) + 0xdc00)
+			s = string([]rune{hi, lo})
+		}
+		allTerms[s] = struct{}{}
+
+		doc := document.NewDocument()
+		f, _ := document.NewField("f", s, ft)
+		doc.Add(f)
+		if err := riw.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument %d: %v", i, err)
+		}
+		if (i+1)%42 == 0 {
+			if err := riw.Commit(); err != nil {
+				t.Fatalf("Commit %d: %v", i, err)
+			}
+		}
+	}
+
+	r, err := riw.GetReader()
+	if err != nil {
+		t.Fatalf("GetReader: %v", err)
+	}
+	defer r.Close()
+
+	terms, err := r.Terms("f")
+	if err != nil {
+		t.Fatalf("Terms: %v", err)
+	}
+	if terms == nil {
+		t.Fatal("Terms(f) returned nil")
+	}
+
+	it, err := terms.GetIterator()
+	if err != nil {
+		t.Fatalf("GetIterator: %v", err)
+	}
+	var prev string
+	seen := make(map[string]struct{})
+	for {
+		te, err := it.Next()
+		if err != nil {
+			t.Fatalf("Next: %v", err)
+		}
+		if te == nil {
+			break
+		}
+		cur := te.Text()
+		seen[cur] = struct{}{}
+		if prev != "" && cur < prev {
+			t.Errorf("terms out of order: %q before %q", prev, cur)
+		}
+		prev = cur
+	}
+
+	for term := range allTerms {
+		if _, ok := seen[term]; !ok {
+			t.Errorf("term %q not found in dictionary", term)
+		}
+	}
+
+	if err := riw.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 }

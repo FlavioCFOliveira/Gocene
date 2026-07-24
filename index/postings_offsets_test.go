@@ -7,12 +7,15 @@ package index_test
 import (
 	"fmt"
 	"io"
+	"math/rand"
+	"strconv"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis/testutil"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	indexTestutil "github.com/FlavioCFOliveira/Gocene/index/testutil"
 	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
@@ -199,7 +202,7 @@ func TestPostingsOffsets_Basic(t *testing.T) {
 // TestPostingsOffsets_Skipping ports TestPostingsOffsets.testSkipping
 // (doTestNumbers without payloads).
 func TestPostingsOffsets_Skipping(t *testing.T) {
-	t.Fatal("blocked: doTestNumbers needs the English number-to-words helper")
+	t.Fatal("blocked: doTestNumbers needs the English number-to-words helper and the block-tree postings reader trips on PostingsFlagAll (freq panic)")
 }
 
 // TestPostingsOffsets_Payloads ports TestPostingsOffsets.testPayloads
@@ -213,7 +216,215 @@ func TestPostingsOffsets_Payloads(t *testing.T) {
 // The upstream test indexes randomised CannedTokenStream documents and then,
 // per leaf, cross-checks freq/position/offset against the recorded tokens.
 func TestPostingsOffsets_Random(t *testing.T) {
-	t.Fatal("blocked: RandomIndexWriter unimplemented")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	riw := indexTestutil.NewWithConfig(w, 17, indexTestutil.Config{
+		CommitProbability:     0,
+		ForceMergeProbability: 0,
+	})
+
+	ft := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
+	ft.SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets)
+	ft.Freeze()
+
+	rng := rand.New(rand.NewSource(17))
+	const numDocs = 20
+	const numTokens = 100
+	termsByDoc := map[string]map[int][]testutil.Token{}
+
+	for docCount := 0; docCount < numDocs; docCount++ {
+		doc := document.NewDocument()
+		idField, err := document.NewNumericDocValuesField("id", int64(docCount))
+		if err != nil {
+			t.Fatalf("NumericDocValuesField %d: %v", docCount, err)
+		}
+		doc.Add(idField)
+
+		tokens := make([]testutil.Token, 0, numTokens)
+		pos := -1
+		offset := 0
+		for tokenCount := 0; tokenCount < numTokens; tokenCount++ {
+			var text string
+			switch v := rng.Intn(4); v {
+			case 0:
+				text = "a"
+			case 1:
+				text = "b"
+			case 2:
+				text = "c"
+			default:
+				text = "d"
+			}
+
+			posIncr := 1
+			if rng.Intn(2) == 0 {
+				posIncr = rng.Intn(5)
+			}
+			if tokenCount == 0 && posIncr == 0 {
+				posIncr = 1
+			}
+			offIncr := 0
+			if rng.Intn(2) == 0 {
+				offIncr = rng.Intn(5)
+			}
+			tokenOffset := rng.Intn(5)
+
+			token := testutil.NewTokenWithPosInc(text, posIncr, offset+offIncr, offset+offIncr+tokenOffset)
+			token = token.WithType(fmt.Sprintf("%d", pos+posIncr))
+			tokens = append(tokens, token)
+			if termsByDoc[text] == nil {
+				termsByDoc[text] = map[int][]testutil.Token{}
+			}
+			termsByDoc[text][docCount] = append(termsByDoc[text][docCount], token)
+
+			pos += posIncr
+			offset += offIncr + tokenOffset
+		}
+
+		field, err := document.NewField("content", testutil.NewCannedTokenStream(tokens...), ft)
+		if err != nil {
+			t.Fatalf("NewField %d: %v", docCount, err)
+		}
+		doc.Add(field)
+		if err := riw.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument %d: %v", docCount, err)
+		}
+	}
+
+	if err := riw.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	r, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer r.Close()
+
+	termsList := []string{"a", "b", "c", "d"}
+	for _, leaf := range r.GetSegmentReaders() {
+		terms, err := leaf.Terms("content")
+		if err != nil {
+			t.Fatalf("Terms: %v", err)
+		}
+		docIDToID := make([]int, leaf.MaxDoc())
+		ndv, err := leaf.GetNumericDocValues("id")
+		if err != nil {
+			t.Fatalf("GetNumericDocValues: %v", err)
+		}
+		for i := 0; i < leaf.MaxDoc(); i++ {
+			docID, err := ndv.NextDoc()
+			if err != nil {
+				t.Fatalf("NumericDocValues.NextDoc: %v", err)
+			}
+			if docID != i {
+				t.Fatalf("NumericDocValues expected docID %d, got %d", i, docID)
+			}
+			v, err := ndv.LongValue()
+			if err != nil {
+				t.Fatalf("NumericDocValues.LongValue: %v", err)
+			}
+			docIDToID[i] = int(v)
+		}
+
+		te, err := terms.GetIterator()
+		if err != nil {
+			t.Fatalf("GetIterator: %v", err)
+		}
+
+		for _, term := range termsList {
+			found, err := te.SeekExact(schema.NewTerm("content", term))
+			if err != nil {
+				t.Fatalf("SeekExact %q: %v", term, err)
+			}
+			if !found {
+				continue
+			}
+
+			docs, err := te.Postings(schema.PostingsFlagFreqs)
+			if err != nil {
+				t.Fatalf("Postings(FREQS) %q: %v", term, err)
+			}
+			for {
+				doc, err := docs.NextDoc()
+				if err != nil {
+					t.Fatalf("NextDoc(FREQS) %q: %v", term, err)
+				}
+				if doc == schema.NO_MORE_DOCS {
+					break
+				}
+				expected := termsByDoc[term][docIDToID[doc]]
+				if expected == nil {
+					t.Fatalf("term %q docID %d (id %d): no expected tokens", term, doc, docIDToID[doc])
+				}
+				freq, err := docs.Freq()
+				if err != nil {
+					t.Fatalf("Freq %q: %v", term, err)
+				}
+				if freq != len(expected) {
+					t.Fatalf("term %q docID %d: freq %d != expected %d", term, doc, freq, len(expected))
+				}
+			}
+
+			docsAndPositions, err := te.Postings(schema.PostingsFlagAll)
+			if err != nil {
+				t.Fatalf("Postings(ALL) %q: %v", term, err)
+			}
+			for {
+				doc, err := docsAndPositions.NextDoc()
+				if err != nil {
+					t.Fatalf("NextDoc(ALL) %q: %v", term, err)
+				}
+				if doc == schema.NO_MORE_DOCS {
+					break
+				}
+				expected := termsByDoc[term][docIDToID[doc]]
+				freq, err := docsAndPositions.Freq()
+				if err != nil {
+					t.Fatalf("Freq(ALL) %q: %v", term, err)
+				}
+				if freq != len(expected) {
+					t.Fatalf("term %q docID %d: freq %d != expected %d", term, doc, freq, len(expected))
+				}
+				for _, token := range expected {
+					wantPos, err := strconv.Atoi(token.Type)
+					if err != nil {
+						t.Fatalf("invalid type %q: %v", token.Type, err)
+					}
+					pos, err := docsAndPositions.NextPosition()
+					if err != nil {
+						t.Fatalf("NextPosition %q: %v", term, err)
+					}
+					if pos != wantPos {
+						t.Fatalf("term %q docID %d: position %d != expected %d", term, doc, pos, wantPos)
+					}
+					start, err := docsAndPositions.StartOffset()
+					if err != nil {
+						t.Fatalf("StartOffset %q: %v", term, err)
+					}
+					if start != token.StartOffset {
+						t.Fatalf("term %q docID %d: startOffset %d != expected %d", term, doc, start, token.StartOffset)
+					}
+					end, err := docsAndPositions.EndOffset()
+					if err != nil {
+						t.Fatalf("EndOffset %q: %v", term, err)
+					}
+					if end != token.EndOffset {
+						t.Fatalf("term %q docID %d: endOffset %d != expected %d", term, doc, end, token.EndOffset)
+					}
+				}
+			}
+		}
+	}
+
+	if err := riw.Close(); err != nil {
+		t.Fatalf("Close writer: %v", err)
+	}
 }
 
 // TestPostingsOffsets_AddFieldTwice ports TestPostingsOffsets.testAddFieldTwice.

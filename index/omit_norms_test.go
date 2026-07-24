@@ -44,6 +44,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	indexTestutil "github.com/FlavioCFOliveira/Gocene/index/testutil"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -71,14 +72,68 @@ func TestOmitNorms_MixedMergeThrowsError(t *testing.T) {
 // has norms (omitNorms=false), "f2" omits norms (omitNorms=true) — forces a
 // merge, reopens the index, and asserts that FieldInfos reports the correct
 // omitNorms flag for each field via getOnlyLeafReader(DirectoryReader).
-//
-// The test is degraded to t.Skip because OpenDirectoryReaderWithInfos creates
-// SegmentReaders without loading field infos from disk; GetFieldInfos() on the
-// resulting leaf returns an empty FieldInfos and the assertions cannot be
-// verified. Skip until NewSegmentReader initialises coreReaders from the codec.
 func TestOmitNorms_MixedRAM(t *testing.T) {
-	t.Fatal("reader-side FieldInfos not loaded by NewSegmentReader; " +
-		"GetFieldInfos on leaf returns empty FieldInfos until codec wiring is complete")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	writer, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	normsType := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
+	normsType.SetOmitNorms(false)
+	omitNormsType := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
+	omitNormsType.SetOmitNorms(true)
+
+	for i := 0; i < 25; i++ {
+		doc := document.NewDocument()
+		f1, _ := document.NewField("f1", "text with norms", normsType)
+		f2, _ := document.NewField("f2", "text without norms", omitNormsType)
+		doc.Add(f1)
+		doc.Add(f2)
+		if err := writer.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument %d: %v", i, err)
+		}
+	}
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("ForceMerge: %v", err)
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	r, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer r.Close()
+
+	leaf := indexTestutil.GetOnlyLeafReader(r)
+	infos := leaf.GetFieldInfos()
+	if infos == nil {
+		t.Fatal("GetFieldInfos returned nil")
+	}
+
+	f1 := infos.GetByName("f1")
+	if f1 == nil {
+		t.Fatal("field f1 not found")
+	}
+	if f1.OmitNorms() {
+		t.Errorf("f1.OmitNorms() = true, want false")
+	}
+
+	f2 := infos.GetByName("f2")
+	if f2 == nil {
+		t.Fatal("field f2 not found")
+	}
+	if !f2.OmitNorms() {
+		t.Errorf("f2.OmitNorms() = false, want true")
+	}
 }
 
 // TestOmitNorms_NoNrmFile ports testNoNrmFile().
