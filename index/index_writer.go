@@ -3605,6 +3605,8 @@ func (w *IndexWriter) executeNaturalMerges(si *SegmentInfos, spec *MergeSpecific
 			return err
 		}
 		if merged != nil {
+			om.Info = merged
+			w.mergeSuccess(om)
 			result.Add(merged)
 		}
 	}
@@ -3676,6 +3678,8 @@ func (w *IndexWriter) executeForcedMerges(si *SegmentInfos, spec *MergeSpecifica
 			return err
 		}
 		if merged != nil {
+			om.Info = merged
+			w.mergeSuccess(om)
 			result.Add(merged)
 		}
 	}
@@ -3869,6 +3873,13 @@ func (w *IndexWriter) HasDeletions() bool {
 		len(w.pendingDeleteQueries) > 0 ||
 		len(w.pendingDeletedDocIDs) > 0 ||
 		w.pendingCommittedDeleteCount > 0
+}
+
+// mergeSuccess is called after a merge completes successfully. It is the Go
+// analogue of Lucene's protected IndexWriter.mergeSuccess(MergePolicy.OneMerge)
+// hook; subclasses may override it to observe successful merges. The default
+// implementation does nothing.
+func (w *IndexWriter) mergeSuccess(merge *OneMerge) {
 }
 
 // TryDeleteDocument deletes the document with the given docID as seen by the

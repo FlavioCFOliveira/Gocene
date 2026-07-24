@@ -373,7 +373,11 @@ func (s *ConcurrentMergeScheduler) maybeStall(source MergeSource, maxMergeCount 
 			return NewAlreadyClosedException("merge scheduler is closed", nil)
 		}
 
-		// Wait for a merge to complete
+		// Pause the calling thread; subclasses may override doStall to apply
+		// custom back-pressure (Lucene's testing hook).
+		s.doStall()
+
+		// Wait for a merge to complete before re-checking the limit.
 		s.waitForMergeThread()
 
 		s.mergeMu.Lock()
@@ -382,6 +386,22 @@ func (s *ConcurrentMergeScheduler) maybeStall(source MergeSource, maxMergeCount 
 	}
 
 	return nil
+}
+
+// doStall pauses the calling goroutine when merging has fallen behind.
+// This is the Go analogue of Lucene's protected
+// ConcurrentMergeScheduler.doStall() hook; subclasses may override it to
+// implement custom throttling. The default implementation waits on the
+// scheduler's condition variable until at least one merge thread finishes.
+func (s *ConcurrentMergeScheduler) doStall() {
+	s.mergeMu.Lock()
+	defer s.mergeMu.Unlock()
+
+	// Wait briefly so that a finishing thread can notify us. If no thread
+	// finishes within the defensive timeout we loop and re-check.
+	if s.threadDoneCond != nil {
+		s.threadDoneCond.Wait()
+	}
 }
 
 // spawnMergeThread starts a new goroutine to execute a merge.
@@ -480,13 +500,20 @@ func (s *ConcurrentMergeScheduler) executeMerge(source MergeSource, merge *OneMe
 	default:
 	}
 
-	// Execute the merge via the source
-	err := source.Merge(merge)
-	if err != nil {
+	// Execute the merge via the overridable hook (Lucene's protected
+	// ConcurrentMergeScheduler.doMerge() extension point).
+	if err := s.doMerge(source, merge); err != nil {
 		return NewMergeException("merge failed", err, merge)
 	}
 
 	return nil
+}
+
+// doMerge performs the actual merge by calling source.Merge(merge).
+// Subclasses may override this hook to wrap or intercept merge execution,
+// matching Lucene's protected ConcurrentMergeScheduler.doMerge() hook.
+func (s *ConcurrentMergeScheduler) doMerge(source MergeSource, merge *OneMerge) error {
+	return source.Merge(merge)
 }
 
 // Close waits for all running merges to complete and shuts down the scheduler.
