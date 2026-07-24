@@ -35,9 +35,11 @@ package index_test
 import (
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // The DocHelper-equivalent field keys and texts (textField1Key, field1Text,
@@ -225,19 +227,63 @@ func TestFieldsReader_Test(t *testing.T) {
 	}
 }
 
-// TestFieldsReader_DirectoryReaderPath documents the part of
-// TestFieldsReader.test() that opens a real DirectoryReader. Gocene's
-// OpenDirectoryReader builds SegmentReaders without core readers, so
-// SegmentReader.StoredFields() is not yet usable; enable this once that gap
-// is closed.
+// TestFieldsReader_DirectoryReaderPath ports the part of
+// TestFieldsReader.test() that opens a real DirectoryReader and reads back
+// the stored document.
 func TestFieldsReader_DirectoryReaderPath(t *testing.T) {
-	t.Fatal("DirectoryReader stored-fields read-back unsupported: OpenDirectoryReader leaves SegmentReader.coreReaders nil")
+	dir := store.NewByteBuffersDirectory()
+	defer func() { _ = dir.Close() }()
+
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewStandardAnalyzer()))
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+
+	doc := document.NewDocument()
+	for _, f := range docHelperFields(t) {
+		doc.Add(f)
+	}
+	if err := w.AddDocument(doc); err != nil {
+		t.Fatalf("AddDocument: %v", err)
+	}
+	if err := w.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	r, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer func() { _ = r.Close() }()
+
+	sf, err := r.StoredFields()
+	if err != nil {
+		t.Fatalf("StoredFields: %v", err)
+	}
+	visitor := document.NewDocumentStoredFieldVisitor()
+	if err := sf.Document(0, visitor); err != nil {
+		t.Fatalf("StoredFields.Document(0): %v", err)
+	}
+	got := visitor.GetDocument()
+	if got == nil {
+		t.Fatal("StoredFields.Document returned nil document")
+	}
+	if got.Get(textField1Key) == nil {
+		t.Errorf("document missing %q", textField1Key)
+	}
+	if got.Size() != 4 {
+		t.Errorf("document has %d fields, want 4", got.Size())
+	}
 }
 
 // TestFieldsReader_Exceptions ports TestFieldsReader.testExceptions()
 // (LUCENE-1262), which injects IOExceptions into a DirectoryReader's
-// stored-fields reads via a FilterDirectory. It depends on the same
-// unsupported leaf path and on forceMerge.
+// stored-fields reads via a FilterDirectory. The reader-side stored-fields
+// implementation keeps file inputs open after DirectoryReader.open, so a
+// simple OpenInput wrapper does not trigger the read-time failure; a
+// read-time fault-injecting IndexInput wrapper is still needed.
 func TestFieldsReader_Exceptions(t *testing.T) {
-	t.Fatal("fault-injecting stored-fields read via DirectoryReader unsupported: see TestFieldsReader_DirectoryReaderPath")
+	t.Fatal("fault-injecting stored-fields read via DirectoryReader unsupported: " +
+		"the codec stored-fields reader holds open IndexInputs, so a read-time " +
+		"fault wrapper is required (see TestFieldsReader_DirectoryReaderPath)")
 }
