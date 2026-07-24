@@ -669,14 +669,14 @@ func (r *SegmentReader) docValuesDelegate() docValuesProducerDelegate {
 	return d
 }
 
-// dvFieldInfo resolves field to its FieldInfo from the core readers, returning
-// nil when the field is absent or carries no doc values. The codec producer
-// keys on the FieldInfo (in particular its number), not the field name.
+// dvFieldInfo resolves field to its FieldInfo from the segment's exposed
+// FieldInfos, returning nil when the field is absent or carries no doc
+// values. The codec producer keys on the FieldInfo (in particular its number),
+// not the field name.  The exposed FieldInfos may be newer than the core
+// readers' base FieldInfos after a doc-values update, so the lookup must use
+// the segment-level view.
 func (r *SegmentReader) dvFieldInfo(field string) *FieldInfo {
-	if r.coreReaders == nil {
-		return nil
-	}
-	fis := r.coreReaders.GetFieldInfos()
+	fis := r.GetFieldInfos()
 	if fis == nil {
 		return nil
 	}
@@ -925,6 +925,10 @@ func openSegmentReader(directory store.Directory, sci *SegmentCommitInfo) (*Segm
 	if fi == nil {
 		fi = NewFieldInfos()
 	}
+	// Keep the base FieldInfos (the one the segment's data files were written
+	// against) so the core readers are wired to the original fields/generations.
+	// Updated FieldInfos are overlaid below for the exposed SegmentReader view.
+	baseFi := fi
 
 	// When the segment has an updated FieldInfos generation (e.g. after a
 	// doc-values update), read the newer .fnm so that GetNumericDocValues
@@ -945,7 +949,7 @@ func openSegmentReader(directory store.Directory, sci *SegmentCommitInfo) (*Segm
 	// StoredFieldsReader, FieldsProducer (postings), and TermVectorsReader so
 	// that IndexSearcher.Doc and term-based searches work end-to-end.
 	if codec != nil {
-		core, err := NewSegmentCoreReaders(directory, segInfo, fi, codec, store.IOContextRead)
+		core, err := NewSegmentCoreReaders(directory, segInfo, baseFi, codec, store.IOContextRead)
 		if err == nil {
 			sr := NewSegmentReaderWithCore(sci, core, fi, codec)
 			sr.directory = directory
@@ -982,11 +986,12 @@ func openSegmentReader(directory store.Directory, sci *SegmentCommitInfo) (*Segm
 							}
 							return nil, fmt.Errorf("base doc-values producer missing for segment %s", si.Name())
 						}
+						suffix := strconv.FormatInt(gen, 36)
 						state := &SegmentReadState{
 							Directory:     directory,
 							SegmentInfo:   si.SegmentInfo(),
 							FieldInfos:    infos,
-							SegmentSuffix: strconv.FormatInt(gen, 36),
+							SegmentSuffix: suffix,
 						}
 						format := codec.DocValuesFormat()
 						if format == nil {
