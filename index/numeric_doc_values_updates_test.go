@@ -36,16 +36,6 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
-// skipNeedsLeafDocValues short-circuits the read-back assertions in tests
-// that depend on features beyond the Lucene-compatible DocValues update write
-// path (e.g. merges, AddIndexes, NRT reopen). It is being removed from the
-// feasible tests; the remaining unportable cases keep a hard failure so the gap
-// is visible rather than silently skipped.
-func skipNeedsLeafDocValues(t *testing.T) {
-	t.Helper()
-	t.Fatalf("unimplemented test dependency: see test comment for remaining gap")
-}
-
 // readNumericDocValuesLive opens a DirectoryReader and returns, for every live
 // document in the index that has a value, the global doc ID -> value for the
 // given numeric DV field. Deleted documents and documents without a value for
@@ -254,7 +244,9 @@ func TestNumericDocValuesUpdates_MultipleUpdatesSameDoc(t *testing.T) {
 
 // TestNumericDocValuesUpdates_BiasedMixOfRandomUpdates ports testBiasedMixOfRandomUpdates.
 func TestNumericDocValuesUpdates_BiasedMixOfRandomUpdates(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	// Source: TestNumericDocValuesUpdates.testBiasedMixOfRandomUpdates (l.119)
+	// Blocked: needs NRT reader + IndexSearcher sort read-back over random numeric DV updates.
+	t.Fatalf("blocked: NRT reader and IndexSearcher sort read-back over random numeric DV updates")
 }
 
 // TestNumericDocValuesUpdates_AreFlushed ports testUpdatesAreFlushed.
@@ -750,7 +742,9 @@ func TestNumericDocValuesUpdates_UpdateNonNumericDocValuesField(t *testing.T) {
 
 // TestNumericDocValuesUpdates_DifferentDVFormatPerField ports testDifferentDVFormatPerField.
 func TestNumericDocValuesUpdates_DifferentDVFormatPerField(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	// Source: TestNumericDocValuesUpdates.testDifferentDVFormatPerField (l.583)
+	// Blocked: needs per-field DocValuesFormat selection via Codec.DocValuesFormatForField.
+	t.Fatalf("blocked: per-field DocValuesFormat selection via Codec.DocValuesFormatForField")
 }
 
 // TestNumericDocValuesUpdates_UpdateSameDocMultipleTimes ports testUpdateSameDocMultipleTimes.
@@ -777,7 +771,9 @@ func TestNumericDocValuesUpdates_UpdateSameDocMultipleTimes(t *testing.T) {
 
 // TestNumericDocValuesUpdates_SegmentMerges ports testSegmentMerges.
 func TestNumericDocValuesUpdates_SegmentMerges(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	// Source: TestNumericDocValuesUpdates.testSegmentMerges (l.651)
+	// Blocked: forceMerge must carry per-generation numeric DV updates into the merged segment.
+	t.Fatalf("blocked: forceMerge must carry per-generation numeric DV updates into merged segment")
 }
 
 // TestNumericDocValuesUpdates_UpdateDocumentByMultipleTerms ports
@@ -818,12 +814,16 @@ func TestNumericDocValuesUpdates_UpdateDocumentByMultipleTerms(t *testing.T) {
 
 // TestNumericDocValuesUpdates_SortedIndex ports testSortedIndex.
 func TestNumericDocValuesUpdates_SortedIndex(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	// Source: TestNumericDocValuesUpdates.testSortedIndex (l.822)
+	// Blocked: needs index sort on numeric DV plus RandomIndexWriter NRT reader.
+	t.Fatalf("blocked: index sort on numeric DV plus RandomIndexWriter NRT reader")
 }
 
 // TestNumericDocValuesUpdates_ManyReopensAndFields ports testManyReopensAndFields.
 func TestNumericDocValuesUpdates_ManyReopensAndFields(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	// Source: TestNumericDocValuesUpdates.testManyReopensAndFields (l.943)
+	// Blocked: needs NRT openIfChanged from writer with merged DV update generations.
+	t.Fatalf("blocked: NRT openIfChanged from writer with merged DV update generations")
 }
 
 // TestNumericDocValuesUpdates_UpdateSegmentWithNoDocValues ports
@@ -1245,45 +1245,61 @@ func TestNumericDocValuesUpdates_UpdateNumericDVFieldWithSameNameAsPostingField(
 
 // TestNumericDocValuesUpdates_StressMultiThreading ports testStressMultiThreading.
 func TestNumericDocValuesUpdates_StressMultiThreading(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	// Source: TestNumericDocValuesUpdates.testStressMultiThreading (l.1296)
+	// Blocked: needs concurrent multi-field doc-values updates with NRT reopen.
+	t.Fatalf("blocked: concurrent multi-field doc-values updates with NRT reopen")
 }
 
 // TestNumericDocValuesUpdates_UpdateDifferentDocsInDifferentGens ports
 // testUpdateDifferentDocsInDifferentGens.
 func TestNumericDocValuesUpdates_UpdateDifferentDocsInDifferentGens(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	// Source: TestNumericDocValuesUpdates.testUpdateDifferentDocsInDifferentGens (l.1422)
+	// Blocked: needs multi-field updateDocValues atomicity across NRT generations.
+	t.Fatalf("blocked: multi-field updateDocValues atomicity across NRT generations")
 }
 
 // TestNumericDocValuesUpdates_ChangeCodec ports testChangeCodec.
 func TestNumericDocValuesUpdates_ChangeCodec(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	// Source: TestNumericDocValuesUpdates.testChangeCodec (l.1462)
+	// Blocked: needs per-field DocValuesFormat change across writer sessions.
+	t.Fatalf("blocked: per-field DocValuesFormat change across writer sessions")
 }
 
 // TestNumericDocValuesUpdates_AddIndexes ports testAddIndexes.
 func TestNumericDocValuesUpdates_AddIndexes(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	// Source: TestNumericDocValuesUpdates.testAddIndexes (l.1515)
+	// Blocked: AddIndexes must preserve doc-values update state.
+	t.Fatalf("blocked: AddIndexes must preserve doc-values update state")
 }
 
 // TestNumericDocValuesUpdates_AddNewFieldAfterAddIndexes ports
 // testAddNewFieldAfterAddIndexes.
 func TestNumericDocValuesUpdates_AddNewFieldAfterAddIndexes(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	// Source: TestNumericDocValuesUpdates.testAddNewFieldAfterAddIndexes (l.1577)
+	// Blocked: adding a new DV field after AddIndexes across merged FieldInfos.
+	t.Fatalf("blocked: add new DV field after AddIndexes across merged FieldInfos")
 }
 
 // TestNumericDocValuesUpdates_UpdatesAfterAddIndexes ports testUpdatesAfterAddIndexes.
 func TestNumericDocValuesUpdates_UpdatesAfterAddIndexes(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	// Source: TestNumericDocValuesUpdates.testUpdatesAfterAddIndexes (l.1645)
+	// Blocked: applying DV updates after AddIndexes with consistent FieldInfos.
+	t.Fatalf("blocked: apply DV updates after AddIndexes with consistent FieldInfos")
 }
 
 // TestNumericDocValuesUpdates_DeleteUnusedUpdatesFiles ports
 // testDeleteUnusedUpdatesFiles.
 func TestNumericDocValuesUpdates_DeleteUnusedUpdatesFiles(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	// Source: TestNumericDocValuesUpdates.testDeleteUnusedUpdatesFiles (l.1734)
+	// Blocked: obsolete .dvu files must be deleted on DV update generation bump.
+	t.Fatalf("blocked: obsolete .dvu files must be deleted on DV update generation bump")
 }
 
 // TestNumericDocValuesUpdates_TonsOfUpdates ports testTonsOfUpdates.
 func TestNumericDocValuesUpdates_TonsOfUpdates(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	// Source: TestNumericDocValuesUpdates.testTonsOfUpdates (l.1763)
+	// Blocked: large-scale numeric DV updates under tight RAM buffer.
+	t.Fatalf("blocked: large-scale numeric DV updates under tight RAM buffer")
 }
 
 // TestNumericDocValuesUpdates_UpdatesOrder ports testUpdatesOrder.
@@ -1340,7 +1356,9 @@ func TestNumericDocValuesUpdates_UpdatesOrder(t *testing.T) {
 // segment, and the merge path does not yet carry per-generation doc-values
 // updates forward into the merged segment.
 func TestNumericDocValuesUpdates_UpdateAllDeletedSegment(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	// Source: TestNumericDocValuesUpdates.testUpdateAllDeletedSegment (l.1866)
+	// Blocked: forceMerge with DV updates on a fully-deleted segment.
+	t.Fatalf("blocked: forceMerge with DV updates on fully-deleted segment")
 }
 
 // TestNumericDocValuesUpdates_UpdateTwoNonexistingTerms ports
@@ -1368,7 +1386,9 @@ func TestNumericDocValuesUpdates_UpdateTwoNonexistingTerms(t *testing.T) {
 
 // TestNumericDocValuesUpdates_IOContext ports testIOContext.
 func TestNumericDocValuesUpdates_IOContext(t *testing.T) {
-	skipNeedsLeafDocValues(t)
+	// Source: TestNumericDocValuesUpdates.testIOContext (l.1917)
+	// Blocked: NRTCachingDirectory IOContext.FlushInfo on DV update flush.
+	t.Fatalf("blocked: NRTCachingDirectory IOContext.FlushInfo on DV update flush")
 }
 
 // TestNumericDocValuesUpdates_MultipleFields keeps prior coverage of updates
