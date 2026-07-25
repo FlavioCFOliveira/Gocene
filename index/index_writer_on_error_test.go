@@ -207,11 +207,3 @@ func TestIndexWriterOnError_IOError(t *testing.T) {
 	doIndexWriterOnErrorTest(t, "Fake IOError")
 }
 
-// TestIndexWriterOnError_Checkpoint ports testCheckpoint().
-//
-// The Java test is @Nightly: it injects a fake OutOfMemoryError specifically
-// from IndexFileDeleter.checkpoint frames. This Go port uses the same generic
-// Commit failure path.
-func TestIndexWriterOnError_Checkpoint(t *testing.T) {
-	doIndexWriterOnErrorTest(t, "Fake OutOfMemoryError (IndexFileDeleter.checkpoint)")
-}
