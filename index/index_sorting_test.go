@@ -524,15 +524,20 @@ func TestIndexSorting_NumericAlreadySorted(t *testing.T) {
 }
 
 // TestIndexSorting_StringAlreadySorted ports testStringAlreadySorted.
-//
-// GOCENE LIMITATION: this test is blocked because SortedDocValuesField
-// (SORTED DV type) is not yet supported through the PerFieldDocValuesConsumer
-// flush path. The delegate interface sortedDVConsumerDelegate is only
-// implemented by Lucene90DocValuesConsumer, but PerFieldDocValuesConsumer
-// does not forward the FromReader methods. This is tracked as a pre-existing
-// gap (see index/documents_writer_per_thread_doc_values.go:149-151).
 func TestIndexSorting_StringAlreadySorted(t *testing.T) {
-	t.Fatal("GOC-4136: SortedDocValuesField flush not supported through PerFieldDocValuesConsumer; sortedDVConsumerDelegate not forwarded")
+	assertNeedsIndexSortMerge(
+		t,
+		index.NewSortField("foo", index.SortTypeString),
+		func(doc *document.Document) {
+			f, _ := document.NewSortedDocValuesField("foo", []byte("bar"))
+			doc.Add(f)
+		},
+		func(doc *document.Document) {
+			v := []byte{byte('a' + rand.Intn(26))}
+			f, _ := document.NewSortedDocValuesField("foo", v)
+			doc.Add(f)
+		},
+	)
 }
 
 // TestIndexSorting_MultiValuedNumericAlreadySorted ports
@@ -552,10 +557,21 @@ func TestIndexSorting_MultiValuedNumericAlreadySorted(t *testing.T) {
 
 // TestIndexSorting_MultiValuedStringAlreadySorted ports
 // testMultiValuedStringAlreadySorted.
-//
-// GOCENE LIMITATION: same SORTED_SET block as StringAlreadySorted above.
 func TestIndexSorting_MultiValuedStringAlreadySorted(t *testing.T) {
-	t.Fatal("GOC-4136: SortedSetDocValuesField flush not supported through PerFieldDocValuesConsumer; sortedDVConsumerDelegate not forwarded")
+	sortField := index.NewSortedSetSortField("foo", false)
+	assertNeedsIndexSortMerge(
+		t,
+		sortField.SortField,
+		func(doc *document.Document) {
+			f, _ := document.NewSortedSetDocValuesField("foo", [][]byte{[]byte("bar")})
+			doc.Add(f)
+		},
+		func(doc *document.Document) {
+			v := [][]byte{{byte('a' + rand.Intn(26))}}
+			f, _ := document.NewSortedSetDocValuesField("foo", v)
+			doc.Add(f)
+		},
+	)
 }
 
 // -----------------------------------------------------------------------------
