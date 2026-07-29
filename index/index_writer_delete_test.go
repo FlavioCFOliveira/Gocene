@@ -20,8 +20,6 @@
 //   - ForceMerge(1) does not yet rewrite a segment without its live-docs
 //     deletions, so the "has deletions" info-stream assertion after merge
 //     cannot pass.
-//   - IndexWriter.TryDeleteDocument NRT leaf semantics and the
-//     applyAllDeletes/writeAllDeletes open options are not yet implemented.
 //   - IndexWriter.flushCount polling and doAfterFlush hook are not exposed.
 //
 // DeleteDocuments, DeleteDocumentsQuery (term-equivalent queries routed to the
@@ -1070,15 +1068,86 @@ func TestIndexWriterDelete_DeletesCheckIndexOutput(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestIndexWriterDelete_TryDeleteDocument ports testTryDeleteDocument.
-//
-// Skipped: the test opens a near-real-time reader via
-// DirectoryReader.open(writer, applyAllDeletes, writeAllDeletes), calls
-// tryDeleteDocument against both the composite reader and an individual leaf,
-// and checks StandardDirectoryReader.isCurrent(). NRT reader and isCurrent are
-// now available; the remaining gaps are the applyAllDeletes/writeAllDeletes
-// open options and the NRT tryDeleteDocument leaf path.
 func TestIndexWriterDelete_TryDeleteDocument(t *testing.T) {
-	t.Fatal("needs IndexWriter.TryDeleteDocument NRT path + applyAllDeletes/writeAllDeletes open options; NRT reader and IsCurrent are now available")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	for i := 0; i < 3; i++ {
+		doc := document.NewDocument()
+		f, err := document.NewTextField("content", "x", false)
+		if err != nil {
+			t.Fatalf("NewTextField: %v", err)
+		}
+		doc.Add(f)
+		if _, err := w.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument %d: %v", i, err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// Re-open in APPEND mode with NoMergePolicy so the segment stays intact.
+	cfg2 := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
+	cfg2.SetMergePolicy(index.NewNoMergePolicy())
+	cfg2.SetOpenMode(index.APPEND)
+	w2, err := index.NewIndexWriter(dir, cfg2)
+	if err != nil {
+		t.Fatalf("NewIndexWriter append: %v", err)
+	}
+	defer w2.Close()
+
+	reader, err := index.OpenDirectoryReaderFromWriterWithOptions(w2, false, false)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReaderFromWriterWithOptions: %v", err)
+	}
+	defer reader.Close()
+
+	if ok, err := w2.TryDeleteDocument(reader, 1); err != nil {
+		t.Fatalf("TryDeleteDocument composite: %v", err)
+	} else if !ok {
+		t.Fatal("expected TryDeleteDocument on composite reader to succeed")
+	}
+
+	current, err := reader.IsCurrent()
+	if err != nil {
+		t.Fatalf("IsCurrent: %v", err)
+	}
+	if current {
+		t.Fatal("reader should be stale after TryDeleteDocument")
+	}
+
+	leaves, err := reader.Leaves()
+	if err != nil {
+		t.Fatalf("Leaves: %v", err)
+	}
+	if len(leaves) == 0 {
+		t.Fatal("expected at least one leaf")
+	}
+	leafReader := leaves[0].Reader()
+	if ok, err := w2.TryDeleteDocument(leafReader, 0); err != nil {
+		t.Fatalf("TryDeleteDocument leaf: %v", err)
+	} else if !ok {
+		t.Fatal("expected TryDeleteDocument on leaf reader to succeed")
+	}
+
+	if err := w2.Close(); err != nil {
+		t.Fatalf("Close writer: %v", err)
+	}
+
+	reader2, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer reader2.Close()
+	if reader2.NumDeletedDocs() != 2 {
+		t.Fatalf("expected 2 deleted docs, got %d", reader2.NumDeletedDocs())
+	}
 }
 
 // ---------------------------------------------------------------------------
