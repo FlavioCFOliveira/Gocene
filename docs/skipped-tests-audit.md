@@ -108,13 +108,13 @@ The `index` package is the only package still failing in `go test ./...`. The de
 | `TestIndexWriterUnicode` (3 calls) | `index/index_writer_unicode_test.go:248-263` | GOC-4184: IndexWriter/DirectoryReader round-trip not ported |
 | `TestIndexingSequenceNumbers` (4 calls) | `index/indexing_sequence_numbers_test.go:64-147` | needs AddDocument sequence numbers, NoDeletionPolicy, functional delete |
 | `TestIndexSorting` (23 calls) | `index/index_sorting_test.go:289-1762` | T105.27 refresh: TestIndexSorting_StringAlreadySorted and TestIndexSorting_MultiValuedStringAlreadySorted now pass; remaining failures need RandomIndexWriter, AddDocuments block support, StoredFields/IndexSearcher read-back |
-| `TestBinaryDocValuesUpdates` (3 calls) | `index/binary_doc_values_updates_test.go:299-1530` | infra gap: NumDocs does not subtract applied deletes |
+| `TestBinaryDocValuesUpdates` (all subtests) | `index/binary_doc_values_updates_test.go:299-1530` | **RESOLVED** — all subtests pass |
 | `TestNumericDocValuesUpdates` (15 calls) | `index/numeric_doc_values_updates_test.go:249-1391` | T105.24 refresh: 15 previously-stubbed tests now have precise blockers: NRT reader/sort read-back, per-field DocValuesFormat, forceMerge DV propagation, index sort, NRT openIfChanged, concurrent multi-field updates, multi-generation atomicity, AddIndexes DV-state transfer, .dvu file cleanup, NRTCachingDirectory IOContext |
 | `TestMixedDocValuesUpdates` (13 calls) | `index/mixed_doc_values_updates_test.go:27-100` | GOC-4202: pending updateDocValues + NRT reopen |
 | `TestSegmentCoreReadersDV` (2 calls) | `index/segment_core_readers_dv_test.go:63-66` | GetCoreReaders()/GetDocValuesProducer() = nil (rmp #4) |
 | `TestReaderClosed` | `index/reader_closed_test.go:56` | **RESOLVED** — DirectoryReader.Close sets the closed flag and IndexSearcher.Search calls EnsureOpen, returning AlreadyClosedException; test passes |
-| `TestDocInverterPerFieldErrorInfo` (2 calls) | `index/doc_inverter_per_field_error_info_test.go:53-78` | GOC-4199: pending SetInfoStream + DocInverter error reporting |
-| `TestInfoStream` (2 calls) | `index/info_stream_test.go:73-82` | No SetInfoStream; no isEnableTestPoints (Sprint 55 option c) |
+| `TestInfoStreamGetsFieldName` (was TestDocInverterPerFieldErrorInfo) | `index/doc_inverter_per_field_error_info_test.go:53-78` | **RESOLVED** — renamed to TestInfoStreamGetsFieldName and passes; throwing-analyzer error path remains deferred |
+| `TestInfoStream` (all subtests) | `index/info_stream_test.go:73-82` | **RESOLVED** — IndexWriterConfig.SetInfoStream and info-stream propagation implemented; all subtests pass |
 | `TestCheckIndexCompatibility` (6 calls) | `index/checkindex_compatibility_test.go:54-148` | **RESOLVED** — CheckIndex implementation is functional; all subtests pass |
 | `TestIndexCommit` (3 calls) | `index/index_commit_test.go:99-135` | **RESOLVED** — ListCommits, OpenDirectoryReaderAtCommit, and IndexCommit.Delete are functional; all subtests pass |
 | `TestDeletionPolicy` (6 calls) | `index/deletion_policy_test.go:67-163` | **RESOLVED** — IndexCommit.Delete and commit-generation wiring functional; all subtests pass |
