@@ -8,7 +8,7 @@
 
 - **Total `t.Skip` calls remaining: 0** (the no-skip policy is fully enforced)
 - **Total `t.Skip` calls remaining: 0** (the no-skip policy is fully enforced; `scripts/check-skips.sh` reports OK)
-- **Total deferred tests: ~97** across 33 packages (`index` only; all other packages pass in the default build). The exact count was 97 unique `FAIL` lines in the most recent `go test ./index` run.
+- **Total deferred tests: ~92** across 33 packages (`index` only; all other packages pass in the default build). The exact count was 92 unique `FAIL` lines in the most recent `go test ./index` run.
 - `go test ./...` shows only the `index` package failing. The remaining `index` failures are descriptive `t.Fatal` blockers for RandomIndexWriter/MockAnalyzer infrastructure, merge-scheduler hooks (ConcurrentMergeScheduler doMerge/doStall/mergeSuccess), CheckIndex, applied deletes on commit, NRT openIfChanged/SegmentReader sharing, term-vector/payload/offset integration, numeric/binary doc-values updates on reopen, and a few unrelated IndexWriter/reader gaps.
 - **T105.23 refresh (2026-07-24):** all @Monster/@Nightly `index` tests are now gated behind the `gocene_monsters` build tag. The previously-mixed tests `TestCommitOnCloseDiskUsage`, `TestCommitThreadSafety` (from `index_writer_commit_test.go`) and `TestIndexWriterOnError_Checkpoint` (from `index_writer_on_error_test.go`) have been extracted into `index_writer_commit_monster_test.go` and `index_writer_on_error_monster_test.go`, respectively, leaving no @Nightly / @Monster tests in default-build `index` files.
 - The T105.9 mock test harness, T105.10 deleter integration, T105.13 mock/RIW infrastructure, T105.14 numeric/binary doc-values update paths, and T105.22 merge-observer/ForceMergeDeletes/NRT in-memory merge fixes resolved large blocks of previously-deferred `index` tests.
@@ -21,7 +21,7 @@
 
 | Package | Deferred Tests | Blocker Summary |
 |---------|:--------------:|-----------------|
-| `index` | ~97 | remaining blockers: term-vectors/RandomIndexWriter integration, payloads/MockAnalyzer, tragic deadlock hooks (CMS hooks), CheckIndex info-stream post-merge, applied deletes on commit, NRT openIfChanged/SegmentReader sharing, term-vector/payload/offset integration, numeric/binary doc-values updates on reopen, merge-scheduler/CMS hooks; monster/nightly tests now gated by `gocene_monsters` |
+| `index` | ~92 | remaining blockers: term-vectors/RandomIndexWriter integration, payloads/MockAnalyzer, tragic deadlock hooks (CMS hooks), CheckIndex info-stream post-merge, applied deletes on commit, NRT openIfChanged/SegmentReader sharing, term-vector/payload/offset integration, numeric/binary doc-values updates on reopen, merge-scheduler/CMS hooks; monster/nightly tests now gated by `gocene_monsters` |
 | `search` | 0 | All search package tests pass |
 | `codecs` | 0 | All codec-level tests pass; previous entries (Lucene99 placeholders, PerField round-trips, DocValuesSkipper, TV/SF formats) were implemented in T105.4/T105.5 work |
 | `util/bkd` | 0 | All default tests pass; `TestBKD_RandomBinaryBig` is gated by the `gocene_monsters` build tag and runs only in monster/CI mode |
@@ -58,9 +58,9 @@
 
 ## Detailed Deferred Test Listing
 
-### `index` (130 deferred tests)
+### `index` (92 deferred tests)
 
-The `index` package is the only package still failing in `go test ./...`. The detailed table below reflects the original 2026-06-11 snapshot structure; many entries have been resolved in Sprint 15 work (DeleteDocuments, NRT reader, commit-pinning/rollback, RandomIndexWriter, MockDirectoryWrapper disk-full tests, CheckIndex, merge scheduler, CannedTokenStream, doc-values updates, merge-policy diagnostics/concurrent-flush tests, ForceMergeDeletes staleness, merge-observer API, and NRT in-memory merge filtering in T105.22). The remaining 130 failures are concentrated in term-vector integration, payload/MockAnalyzer wiring, tragic deadlock hooks, applied deletes on commit, NRT openIfChanged/SegmentReader sharing, numeric/binary doc-values updates on reopen, and a few unrelated `IndexWriter`/reader gaps.
+The `index` package is the only package still failing in `go test ./...`. The detailed table below reflects the original 2026-06-11 snapshot structure; many entries have been resolved in Sprint 15 work (DeleteDocuments, NRT reader, commit-pinning/rollback, RandomIndexWriter, MockDirectoryWrapper disk-full tests, CheckIndex, merge scheduler, CannedTokenStream, doc-values updates, merge-policy diagnostics/concurrent-flush tests, ForceMergeDeletes staleness, merge-observer API, NRT in-memory merge filtering, RAM-buffer flush triggering, omitNorms conflict detection, and generic `OpenIfChanged` semantics in T105.22). The remaining 92 failures are concentrated in term-vector integration, payload/MockAnalyzer wiring, tragic deadlock hooks, applied deletes on commit, NRT openIfChanged/SegmentReader sharing, numeric/binary doc-values updates on reopen, and a few unrelated `IndexWriter`/reader gaps.
 
 > **T105.22 refresh (2026-07-24):**
 > - Dedicated @Monster/@Nightly index test files are now gated behind `//go:build gocene_monsters`: `twob_docs_test.go`, `twob_numeric_doc_values_test.go`, `twob_postings_test.go`, `twob_sorted_doc_values_fixed_sorted_test.go`, `twob_sorted_doc_values_ords_test.go`, `twob_terms_test.go`, `two_b_binary_doc_values_test.go`, `two_b_points_test.go`, `transactions_test.go`, `index_writer_commit_monster_test.go`, `index_writer_on_error_monster_test.go`, plus the previously-gated `twob_positions_test.go`, `two_b_postings_bytes_test.go`, `four_gb_stored_fields_test.go`, `dueling_codecs_at_night_test.go`, `index_writer_delete_monster_test.go`, and `index_writer_misc_monster_test.go`.
@@ -70,6 +70,8 @@ The `index` package is the only package still failing in `go test ./...`. The de
 > **T105.6/T105.7 partial refresh (2026-07-17):** The following previously-blocked tests now pass and were removed from the active failure set: `TestNewestSegment`, `TestIsCurrent_DeleteByTermIsCurrent`, `TestIsCurrent_DeleteAllIsCurrent`, `TestTryDeleteDocument`, `TestTryDeleteDocumentCloseAndReopen`, `TestStressIndexAndSearching`, `TestIndexWriterMerging_NoWaitClose`, and eight `TestIndexWriterMergePolicy_*` subtests (`CarryOverNewDeletesOnCommit`, `AbortMergeOnCommit`, `FailAfterMergeCommitted`, `SetDiagnostics`, `ForceMergeDVUpdateFileWithConcurrentFlush`, `MergeDVUpdateFileOnGetReaderWithConcurrentFlush`, `MergeDVUpdateFileOnCommitWithConcurrentFlush`, `ForceMergeWithPendingHardAndSoftDeleteFile`). Their audit rows below are marked **RESOLVED** where present.
 >
 > **T105.10 final refresh (2026-07-18):** `TestIndexWriterFromReader` commit-pinning/rollback subtests are now resolved, including `AfterRollback`, `AfterCommitThenIndexKeepCommits`, `StaleNRTReader`, `ConsistentFieldNumbers`, `OnClosedReader`, `WithNoFirstCommit`, `RightAfterCommit`, `FromNonNRTReader`, `AfterCommitThenIndex`, and `NRTRollback`. The `TestIndexWriterFromReader_Random` stress test remains blocked by rmp #118-follow-up. `TestPrepareCommitRollback` and `TestIndexWriterDelete_DeleteAllRollback` also now pass.
+>
+> **T105.22 refresh (2026-07-29):** `TestIndexWriterForceMerge_BackgroundForceMerge` now passes after adding `IndexWriter.ForceMergeDoWait`. `TestNeverDelete_Indexing` passes after fixing `OpenIfChanged` to return `nil` for an already-current reader. `TestManyFields_RotatingFieldNames` passes after wiring the RAM-buffer flush trigger and fixing per-document RAM accounting. `TestIndexingSeqNos_AfterRefresh` passes with the existing NRT reader path. `TestOmitNorms_MixedMergeThrowsError` passes after adding writer-global FieldInfos tracking and cross-flush omitNorms conflict detection. The active `index` package failure count drops from 96 to 92.
 
 | Test Function | File:Line | Blocker Reason |
 |---------------|-----------|----------------|
@@ -83,7 +85,7 @@ The `index` package is the only package still failing in `go test ./...`. The de
 | `TestIndexWriterMergePolicy` (11 calls) | `index/index_writer_merge_policy_test.go:298-800` | **RESOLVED** — all 11 subtests pass after unblocking stale t.Fatal calls |
 | `TestIndexWriterMerge` (4 calls) | `index/index_writer_merge_test.go:180-270` | MergeScheduler not yet implemented, disable background merge, compound file verification |
 | `TestIndexWriterMerging` (all subtests) | `index/index_writer_merging_test.go:69-747` | **RESOLVED** — AddIndexes, DirectoryReader.Open, verifyIndex, ForceMergeDeletes, LogMergePolicy SetMaxMergeDocs all functional; all subtests pass |
-| `TestIndexWriterForceMerge` (4 calls) | `index/index_writer_force_merge_test.go:108-248` | ForceMerge does not honor maxNumSegments; MockDirectoryWrapper; background overload not implemented |
+| `TestIndexWriterForceMerge` (3 calls remain) | `index/index_writer_force_merge_test.go:108-248` | `TestIndexWriterForceMerge_BackgroundForceMerge` **RESOLVED**; remaining: `MergePerField` (@AwaitsFix upstream), size-bounded exactness, MockDirectoryWrapper |
 | `TestSizeBoundedForceMerge` (11 calls) | `index/size_bounded_force_merge_test.go:121-369` | ForceMerge ignores LogByteSize/LogDocMergePolicy size caps; assertions deferred |
 | `TestIndexWriterWithThreads` (14 calls) | `index/index_writer_with_threads_test.go:78-155` | MockDirectoryWrapper, Document pipeline, CMS, RandomIndexWriter (Sprint 55 option c) |
 | `TestIndexWriterReader` (16 calls) | `index/index_writer_reader_test.go:44-442` | NRT reader, DeleteDocuments, MergedSegmentWarmer, SimpleMergedSegmentWarmer, setLeafSorter |
@@ -106,7 +108,7 @@ The `index` package is the only package still failing in `go test ./...`. The de
 | `TestCodecs` (3 calls) | `index/codecs_test.go:52-82` | Lucene103PostingsFormat typed stubs; no postings round-trip |
 | `TestDefaultCodecPersistence` | `index/default_codec_persistence_test.go:49` | blocked on rmp #4670 — IndexWriter.Commit does not invoke codec writers |
 | `TestIndexWriterUnicode` (3 calls) | `index/index_writer_unicode_test.go:248-263` | GOC-4184: IndexWriter/DirectoryReader round-trip not ported |
-| `TestIndexingSequenceNumbers` (4 calls) | `index/indexing_sequence_numbers_test.go:64-147` | needs AddDocument sequence numbers, NoDeletionPolicy, functional delete |
+| `TestIndexingSequenceNumbers` (3 calls remain) | `index/indexing_sequence_numbers_test.go:64-147` | `TestIndexingSeqNos_AfterRefresh` **RESOLVED**; remaining stress tests need RandomIndexWriter/IndexSearcher and functional updateDocument/deleteDocuments |
 | `TestIndexSorting` (23 calls) | `index/index_sorting_test.go:289-1762` | T105.27 refresh: TestIndexSorting_StringAlreadySorted and TestIndexSorting_MultiValuedStringAlreadySorted now pass; remaining failures need RandomIndexWriter, AddDocuments block support, StoredFields/IndexSearcher read-back |
 | `TestBinaryDocValuesUpdates` (all subtests) | `index/binary_doc_values_updates_test.go:299-1530` | **RESOLVED** — all subtests pass |
 | `TestNumericDocValuesUpdates` (15 calls) | `index/numeric_doc_values_updates_test.go:249-1391` | T105.24 refresh: 15 previously-stubbed tests now have precise blockers: NRT reader/sort read-back, per-field DocValuesFormat, forceMerge DV propagation, index sort, NRT openIfChanged, concurrent multi-field updates, multi-generation atomicity, AddIndexes DV-state transfer, .dvu file cleanup, NRTCachingDirectory IOContext |
@@ -126,7 +128,7 @@ The `index` package is the only package still failing in `go test ./...`. The de
 | `TestMultiLevelSkipList` | `index/multi_level_skip_list_test.go:52` | GOC-4153: faithful port deferred |
 | `TestParallelTermEnum` | `index/parallel_term_enum_test.go:57` | needs getOnlyLeafReader + wired block-tree terms |
 | `TestParallelReaderEmptyIndex` (2 calls) | `index/parallel_reader_empty_index_test.go:53-71` | needs Directory copy + AddIndexes; DeleteDocuments |
-| `TestRollingUpdates` (2 calls) | `index/rolling_updates_test.go:43-58` | infra gap: no NRT reader; LineFileDocs not ported |
+| `TestRollingUpdates` (2 calls) | `index/rolling_updates_test.go:43-58` | NRT reader open/openIfChanged **RESOLVED**; remaining blocker is LineFileDocs test corpus |
 | `TestIndexWriterFromReader` (1 call remains) | `index/index_writer_from_reader_test.go:295` | `TestIndexWriterFromReader_Random` remains blocked by rmp #118-follow-up (RandomIndexWriter + MockDirectoryWrapper); all other commit-pinning/rollback subtests now pass |
 | `TestIndexWriterThreadsToSegments` (2 calls) | `index/index_writer_threads_to_segments_test.go:214-222` | RandomIndexWriter; nightly (Sprint 55 option c) |
 | `TestCrashCausesCorruptIndex` | `index/crash_causes_corrupt_index_test.go:98` | GOC-4165: crash-recovery + DirectoryReader/IndexSearcher not available |
@@ -150,6 +152,9 @@ The `index` package is the only package still failing in `go test ./...`. The de
 | `TestIndexUpgrader` (2 calls) | `index/index_upgrader_test.go:54-99` | upgrader not implemented |
 | `TestLongPostings` (2 calls) | `index/long_postings_test.go:50-61` | needs wired block-tree postings + RandomIndexWriter |
 | `TestCustomTermFreq` | `index/custom_term_freq_test.go:432` | NeverForgetsSimilarity capture hook depends on SetSimilarity |
+| `TestNeverDelete_Indexing` | `index/never_delete_test.go:32` | **RESOLVED** — `OpenIfChanged` now returns `nil` for an already-current reader, so the test no longer closes-and-reuses the same reader |
+| `TestManyFields_RotatingFieldNames` | `index/many_fields_test.go:76` | **RESOLVED** — RAM-buffer flush trigger wired and per-document RAM accounting fixed |
+| `TestOmitNorms_MixedMergeThrowsError` | `index/omit_norms_test.go:63` | **RESOLVED** — writer-global FieldInfos tracking detects omitNorms conflicts across DWPT flushes |
 | **NRT Stress/Search/Indexing/Concurrency/Replication suites** (5 files, ~46 calls) | `index/nrt_stress_test.go`, `index/nrt_search_test.go`, `index/nrt_indexing_test.go`, `index/nrt_concurrency_test.go`, `index/replication_integration_test.go` | Import cycle / unimplemented APIs — NRT primitives not yet fixed |
 | **Monster tests** (12 calls across 10 files) | `index/two_b_*.go`, `index/four_gb_*.go`, `index/twob_*.go` | Monster tests: >2B docs/terms/points/positions, multi-hour runtime, multi-GB heap/disk; deferred behind GOCENE_RUN_MONSTERS=1 |
 
