@@ -92,11 +92,27 @@ func TestIndexingSeqNos_Basic(t *testing.T) {
 //
 // Java adds a document, opens an NRT reader (DirectoryReader.open(w)),
 // adds a second document, and asserts the second sequence number is greater.
-//
-// Blocker: DirectoryReader.open(IndexWriter) NRT reader path is not yet
-// wired for this test.
 func TestIndexingSeqNos_AfterRefresh(t *testing.T) {
-	t.Fatal("needs DirectoryReader.open(IndexWriter) NRT reader path (not yet implemented)")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	writer := newSeqNoWriter(t, dir)
+	defer writer.Close()
+
+	a := addSeqNoDoc(t, writer, "a")
+
+	r, err := index.OpenDirectoryReaderFromWriter(writer)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatalf("Close reader: %v", err)
+	}
+
+	b := addSeqNoDoc(t, writer, "b")
+	if b <= a {
+		t.Fatalf("expected seqNo after refresh (%d) > seqNo before refresh (%d)", b, a)
+	}
 }
 
 // TestIndexingSeqNos_AfterCommit ports testAfterCommit().
