@@ -15,7 +15,6 @@
 // with t.Skip so the divergence is explicit rather than silently absent.
 //
 // Known API gaps that force a skip in this file:
-//   - There is no background ForceMerge(maxNumSegments, doWait) overload.
 //   - LogMergePolicy has no SetMinMergeDocs setter.
 //   - PerField postings/doc-values formats with a merge barrier are not available
 //     (the Java testMergePerField is itself @AwaitsFix upstream).
@@ -262,12 +261,92 @@ func dirSize(dir store.Directory) (int64, error) {
 	return total, nil
 }
 
+
 // TestIndexWriterForceMerge_BackgroundForceMerge ports testBackgroundForceMerge().
-//
-// The original calls forceMerge(1, false) to start a merge without waiting. No
-// background ForceMerge overload exists, so the case is fully skipped.
 func TestIndexWriterForceMerge_BackgroundForceMerge(t *testing.T) {
-	t.Fatal("background ForceMerge(maxNumSegments, doWait) overload not implemented")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	for pass := 0; pass < 2; pass++ {
+		cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+		cfg.SetOpenMode(index.CREATE)
+		cfg.SetMaxBufferedDocs(2)
+		lmp := index.NewLogMergePolicy()
+		lmp.SetMergeFactor(51)
+		cfg.SetMergePolicy(lmp)
+
+		writer, err := index.NewIndexWriter(dir, cfg)
+		if err != nil {
+			t.Fatalf("pass %d: NewIndexWriter: %v", pass, err)
+		}
+
+		for i := 0; i < 100; i++ {
+			if _, err := writer.AddDocument(newForceMergeDoc(t, "field", "aaa")); err != nil {
+				t.Fatalf("pass %d: AddDocument %d: %v", pass, i, err)
+			}
+		}
+
+		observer, err := writer.ForceMergeDoWait(1, false)
+		if err != nil {
+			t.Fatalf("pass %d: ForceMergeDoWait: %v", pass, err)
+		}
+
+		if pass == 0 {
+			if !observer.Await() {
+				t.Fatalf("pass %d: Await returned false", pass)
+			}
+			if err := writer.Close(); err != nil {
+				t.Fatalf("pass %d: Close: %v", pass, err)
+			}
+			reader, err := index.OpenDirectoryReader(dir)
+			if err != nil {
+				t.Fatalf("pass %d: OpenDirectoryReader: %v", pass, err)
+			}
+			leaves, err := reader.Leaves()
+			if err != nil {
+				t.Fatalf("pass %d: Leaves: %v", pass, err)
+			}
+			if len(leaves) != 1 {
+				t.Fatalf("pass %d: expected 1 leaf, got %d", pass, len(leaves))
+			}
+			reader.Close()
+		} else {
+			// Wait for the background force merge to finish, then add a new segment.
+			// The new docs must NOT be included in the already-scheduled forced merge.
+			if !observer.Await() {
+				t.Fatalf("pass %d: Await returned false", pass)
+			}
+			if _, err := writer.AddDocument(newForceMergeDoc(t, "field", "aaa")); err != nil {
+				t.Fatalf("pass %d: AddDocument extra: %v", pass, err)
+			}
+			if _, err := writer.AddDocument(newForceMergeDoc(t, "field", "aaa")); err != nil {
+				t.Fatalf("pass %d: AddDocument extra 2: %v", pass, err)
+			}
+			if err := writer.Close(); err != nil {
+				t.Fatalf("pass %d: Close: %v", pass, err)
+			}
+			reader, err := index.OpenDirectoryReader(dir)
+			if err != nil {
+				t.Fatalf("pass %d: OpenDirectoryReader: %v", pass, err)
+			}
+			leaves, err := reader.Leaves()
+			if err != nil {
+				t.Fatalf("pass %d: Leaves: %v", pass, err)
+			}
+			if len(leaves) <= 1 {
+				t.Fatalf("pass %d: expected >1 leaves after extra adds, got %d", pass, len(leaves))
+			}
+			reader.Close()
+
+			sis, err := index.ReadSegmentInfos(dir)
+			if err != nil {
+				t.Fatalf("pass %d: ReadSegmentInfos: %v", pass, err)
+			}
+			if sis.Size() != 2 {
+				t.Fatalf("pass %d: expected 2 segments, got %d", pass, sis.Size())
+			}
+		}
+	}
 }
 
 // TestIndexWriterForceMerge_MergePerField ports testMergePerField().

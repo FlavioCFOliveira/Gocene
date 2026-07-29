@@ -3494,6 +3494,83 @@ func (w *IndexWriter) ForceMerge(maxNumSegments int) (err error) {
 	}
 }
 
+// ForceMergeDoWait performs a force merge with control over whether the call
+// blocks until the merges complete.  It is the Go analogue of Lucene's
+// IndexWriter.forceMerge(int, boolean).  When doWait is true the behaviour is
+// identical to ForceMerge(int); when doWait is false the merges are registered
+// and the configured MergeScheduler runs them in the background.
+func (w *IndexWriter) ForceMergeDoWait(maxNumSegments int, doWait bool) (*MergeObserver, error) {
+	if err := w.ensureOpen(); err != nil {
+		return nil, err
+	}
+	if maxNumSegments < 1 {
+		maxNumSegments = 1
+	}
+
+	// Flush buffered documents to committed segments so the merge policy can
+	// reason over real segment sizes.
+	if err := w.Commit(); err != nil {
+		return nil, err
+	}
+
+	mp := w.config.GetMergePolicy()
+	if mp == nil {
+		return NewMergeObserver(nil, 0, nil), nil
+	}
+
+	si, err := ReadSegmentInfos(w.directory)
+	if err != nil {
+		return nil, err
+	}
+	if si.Size() <= maxNumSegments {
+		return NewMergeObserver(nil, 0, nil), nil
+	}
+
+	segsToMerge := make(map[*SegmentCommitInfo]bool, si.Size())
+	for _, sci := range si.List() {
+		segsToMerge[sci] = true
+	}
+	spec, err := mp.FindForcedMerges(si, maxNumSegments, segsToMerge, &forceMergeContext{})
+	if err != nil {
+		return nil, fmt.Errorf("forceMergeDoWait: find forced merges: %w", err)
+	}
+	if spec == nil || spec.Size() == 0 {
+		return NewMergeObserver(nil, 0, nil), nil
+	}
+
+	for _, om := range spec.Merges {
+		w.AddEstimatedBytesToMerge(om)
+	}
+
+	observer := NewMergeObserver(spec, 0, nil)
+	w.registerMerges(spec, observer)
+
+	scheduler := w.config.GetMergeScheduler()
+	if scheduler == nil {
+		for _, om := range spec.Merges {
+			if err := w.Merge(om); err != nil {
+				return observer, err
+			}
+		}
+		return observer, nil
+	}
+
+	if doWait {
+		if err := scheduler.Merge(w, EXPLICIT); err != nil {
+			return observer, err
+		}
+		if err := w.WaitForMerges(); err != nil {
+			return observer, err
+		}
+		return observer, nil
+	}
+
+	go func() {
+		_ = scheduler.Merge(w, EXPLICIT)
+	}()
+	return observer, nil
+}
+
 // GetNextMerge returns the next pending merge and moves it to the running set.
 // This implements the MergeSource interface for the configured MergeScheduler.
 func (w *IndexWriter) GetNextMerge() *OneMerge {
