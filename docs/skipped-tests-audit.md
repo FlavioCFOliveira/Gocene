@@ -87,7 +87,7 @@ The `index` package is the only package still failing in `go test ./...`. The de
 | `TestSizeBoundedForceMerge` (11 calls) | `index/size_bounded_force_merge_test.go:121-369` | ForceMerge ignores LogByteSize/LogDocMergePolicy size caps; assertions deferred |
 | `TestIndexWriterWithThreads` (14 calls) | `index/index_writer_with_threads_test.go:78-155` | MockDirectoryWrapper, Document pipeline, CMS, RandomIndexWriter (Sprint 55 option c) |
 | `TestIndexWriterReader` (16 calls) | `index/index_writer_reader_test.go:44-442` | NRT reader, DeleteDocuments, MergedSegmentWarmer, SimpleMergedSegmentWarmer, setLeafSorter |
-| `TestIndexWriterDelete` (13 calls remain) | `index/index_writer_delete_test.go:801-1340` | remaining gaps: @Monster, @Ignore, MockDirectoryWrapper.failOn/isDeleterClosed, slowFileExists, CheckIndex info-stream text, TryDeleteDocument NRT path, LogDocMergePolicy.setMinMergeDocs |
+| `TestIndexWriterDelete` (12 calls remain) | `index/index_writer_delete_test.go:801-1340` | remaining gaps: @Monster, @Ignore, MockDirectoryWrapper.failOn/isDeleterClosed, slowFileExists, CheckIndex info-stream post-merge text, LogDocMergePolicy.setMinMergeDocs; TryDeleteDocument NRT path now passes |
 | `TestIndexWriterError` (2 calls) | `index/index_writer_error_test.go:248-279` | MockDirectoryWrapper IO injection; Rollback not yet implemented |
 | `TestIndexWriterTragic` (2 calls) | `index/index_writer_tragic_test.go:30-37` | Tragic event injection; MockDirectory WriteSegmentInfos failure |
 | `TestIndexWriterNrtIsCurrent` | `index/index_writer_nrt_is_current_test.go:48` | needs NRT DirectoryReader.open(writer) and openIfChanged |

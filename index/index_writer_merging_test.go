@@ -72,15 +72,18 @@ func TestIndexWriterMerging_Lucene(t *testing.T) {
 	}
 
 	// Add indexes
-	// TODO: Implement AddIndexes when available
-	// writer.AddIndexes(indexA, indexB)
-	t.Fatal("AddIndexes not yet implemented")
+	if err := writer.AddIndexes(indexA, indexB); err != nil {
+		t.Fatalf("AddIndexes: %v", err)
+	}
 
 	// Force merge to single segment
-	// TODO: Implement ForceMerge when available
-	// writer.ForceMerge(1)
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("ForceMerge(1): %v", err)
+	}
 
-	writer.Close()
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 
 	// Verify merged index
 	if fail := verifyIndex(t, merged, 0); fail {
@@ -129,26 +132,33 @@ func createCountDocument(count int) index.Document {
 func verifyIndex(t *testing.T, directory store.Directory, startAt int) bool {
 	fail := false
 
-	// TODO: Implement DirectoryReader.Open when available
-	// reader, err := index.OpenDirectoryReader(directory)
-	// if err != nil {
-	//     t.Fatalf("Failed to open reader: %v", err)
-	// }
-	// defer reader.Close()
+	reader, err := index.OpenDirectoryReader(directory)
+	if err != nil {
+		t.Fatalf("Failed to open reader: %v", err)
+	}
+	defer reader.Close()
 
-	// max := reader.MaxDoc()
-	// storedFields := reader.StoredFields()
-	// for i := 0; i < max; i++ {
-	//     doc := storedFields.Document(i)
-	//     countField := doc.GetField("count")
-	//     expected := fmt.Sprintf("%d", i+startAt)
-	//     if countField == nil || countField.StringValue() != expected {
-	//         t.Logf("Document %d is returning document %v", i+startAt, countField)
-	//         fail = true
-	//     }
-	// }
+	max := reader.MaxDoc()
+	storedFields, err := reader.StoredFields()
+	if err != nil {
+		t.Fatalf("StoredFields: %v", err)
+	}
+	for i := 0; i < max; i++ {
+		visitor := document.NewDocumentStoredFieldVisitorFor("count")
+		if err := storedFields.Document(i, visitor); err != nil {
+			t.Logf("StoredFields.Document(%d): %v", i, err)
+			fail = true
+			continue
+		}
+		doc := visitor.GetDocument()
+		countField := doc.GetField("count")
+		expected := fmt.Sprintf("%d", i+startAt)
+		if countField == nil || countField.StringValue() != expected {
+			t.Logf("Document %d is returning document %v", i+startAt, countField)
+			fail = true
+		}
+	}
 
-	t.Fatal("DirectoryReader.Open not yet implemented")
 	return fail
 }
 
@@ -864,17 +874,13 @@ func TestIndexWriterMerging_SetMaxMergeDocs(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	// TODO: Set custom merge scheduler that verifies maxMergeDocs
-	// config.SetMergeScheduler(&maxMergeDocsVerifierScheduler{})
-	config.SetMaxBufferedDocs(2)
-	// TODO: Set LogMergePolicy
+	lmp := index.NewLogMergePolicy()
+	lmp.SetMaxMergeDocs(20)
+	lmp.SetMergeFactor(2)
 
-	// TODO: Set max merge docs to 20
-	// lmp := index.NewLogMergePolicy()
-	// lmp.SetMaxMergeDocs(20)
-	// lmp.SetMergeFactor(2)
-	// config.SetMergePolicy(lmp)
+	config := index.NewIndexWriterConfig(createTestAnalyzer())
+	config.SetMaxBufferedDocs(2)
+	config.SetMergePolicy(lmp)
 
 	iw, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -883,12 +889,33 @@ func TestIndexWriterMerging_SetMaxMergeDocs(t *testing.T) {
 
 	// Add 177 documents
 	for i := 0; i < 177; i++ {
-		doc := &testDocument{fields: []interface{}{}}
-		iw.AddDocument(doc)
+		doc := document.NewDocument()
+		f, _ := document.NewTextField("tvtest", "a b c", false)
+		doc.Add(f)
+		if _, err := iw.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument %d: %v", i, err)
+		}
 	}
 
-	iw.Close()
-	t.Fatal("LogMergePolicy with SetMaxMergeDocs not yet implemented")
+	if err := iw.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// Verify that no merged segment exceeded the configured maxMergeDocs limit.
+	reader, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer reader.Close()
+	leaves, err := reader.Leaves()
+	if err != nil {
+		t.Fatalf("Leaves: %v", err)
+	}
+	for _, leaf := range leaves {
+		if leaf.Reader().MaxDoc() > 20 {
+			t.Fatalf("segment has %d docs, exceeding maxMergeDocs=20", leaf.Reader().MaxDoc())
+		}
+	}
 }
 
 // TestIndexWriterMerging_NoWaitClose tests close without waiting during
