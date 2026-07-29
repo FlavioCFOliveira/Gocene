@@ -5251,6 +5251,87 @@ func (w *IndexWriter) UpdateDocValues(term *Term, field string, value interface{
 	return w.nextSequenceNumber(), nil
 }
 
+// SoftUpdateDocument updates a document by adding the new document and marking
+// the existing document(s) matching term as soft-deleted. The soft-delete
+// field is taken from the writer configuration (IndexWriterConfig.SoftDeletesField)
+// and its value is read from the supplied document.
+//
+// The document must contain the configured soft-deletes field with a non-nil
+// doc value. If no soft-deletes field is configured, or the document does not
+// carry it, an error is returned.
+func (w *IndexWriter) SoftUpdateDocument(term *Term, doc Document) (int64, error) {
+	if term == nil {
+		return 0, fmt.Errorf("term must not be nil for soft update")
+	}
+	softField := w.config.SoftDeletesField()
+	if softField == "" {
+		return 0, fmt.Errorf("soft deletes field is not configured")
+	}
+
+	var softValue interface{}
+	var softDVType DocValuesType
+	for _, fi := range doc.GetFields() {
+		if fn, ok := fi.(interface{ Name() string }); ok && fn.Name() == softField {
+			if dv, ok := fi.(interface{ DocValuesType() DocValuesType }); ok {
+				softDVType = dv.DocValuesType()
+				if softDVType == DocValuesTypeNone {
+					continue
+				}
+			}
+			if nv, ok := fi.(interface{ NumericValue() interface{} }); ok && nv.NumericValue() != nil {
+				switch v := nv.NumericValue().(type) {
+				case int64:
+					softValue = v
+				case int:
+					softValue = int64(v)
+				case float64:
+					softValue = int64(v)
+				}
+				break
+			}
+			if bv, ok := fi.(interface{ BinaryValue() []byte }); ok && bv.BinaryValue() != nil {
+				softValue = bv.BinaryValue()
+				break
+			}
+		}
+	}
+	if softDVType == DocValuesTypeSorted || softDVType == DocValuesTypeSortedSet || softDVType == DocValuesTypeSortedNumeric {
+		return 0, fmt.Errorf("soft-deletes field %q must be NUMERIC or BINARY, got %v", softField, softDVType)
+	}
+	if softValue == nil {
+		return 0, fmt.Errorf("document must contain soft-deletes field %q with a value", softField)
+	}
+
+	seqNo, err := w.UpdateDocument(term, doc)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := w.UpdateDocValues(term, softField, softValue); err != nil {
+		return 0, err
+	}
+	return seqNo, nil
+}
+
+// SoftUpdateDocuments atomically soft-updates a block of documents for the
+// given term. It returns the sequence number of the last document added.
+func (w *IndexWriter) SoftUpdateDocuments(term *Term, docs []Document) (int64, error) {
+	if term == nil {
+		return 0, fmt.Errorf("term must not be nil for soft update")
+	}
+	if len(docs) == 0 {
+		return 0, fmt.Errorf("no documents to soft-update")
+	}
+	var lastSeqNo int64
+	for _, doc := range docs {
+		seqNo, err := w.SoftUpdateDocument(term, doc)
+		if err != nil {
+			return 0, err
+		}
+		lastSeqNo = seqNo
+	}
+	return lastSeqNo, nil
+}
+
 // validateSortFieldTypes checks that each DocValues field in the document whose
 // name matches an index-sort field carries the expected DocValues type.
 // Non-DV fields with the same name (e.g. stored or indexed fields) are
