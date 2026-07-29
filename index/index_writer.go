@@ -706,15 +706,27 @@ func (w *IndexWriter) nextSequenceNumber() int64 {
 	return w.seqNoCounter.Add(1)
 }
 
-// reserveDocs reserves space for addedNumDocs new documents against the global
-// document cap.  Mirrors Lucene's IndexWriter.reserveDocs(long).  If the cap
-// would be exceeded, the reservation is rolled back and an IllegalArgumentError
-// with the canonical Lucene message is returned.
+// effectiveMaxDocs returns the per-writer document cap.  It is the lower of
+// the global actualMaxDocs and the IndexWriterConfig MaxDocs, when the latter
+// is set (> 0).  This preserves Gocene's existing config-level limit while also
+// honouring Lucene's global IndexWriter.setMaxDocs/getActualMaxDocs contract.
+func (w *IndexWriter) effectiveMaxDocs() int64 {
+	global := int64(GetActualMaxDocs())
+	if cfg := int64(w.config.MaxDocs()); cfg > 0 && cfg < global {
+		return cfg
+	}
+	return global
+}
+
+// reserveDocs reserves space for addedNumDocs new documents against the
+// effective document cap.  Mirrors Lucene's IndexWriter.reserveDocs(long).  If
+// the cap would be exceeded, the reservation is rolled back and an
+// IllegalArgumentError with the canonical Lucene message is returned.
 func (w *IndexWriter) reserveDocs(addedNumDocs int64) error {
 	if addedNumDocs <= 0 {
 		return nil
 	}
-	maxDocs := int64(GetActualMaxDocs())
+	maxDocs := w.effectiveMaxDocs()
 	count := w.pendingNumDocs.Add(addedNumDocs)
 	if count > maxDocs {
 		w.pendingNumDocs.Add(-addedNumDocs)
@@ -732,7 +744,7 @@ func (w *IndexWriter) testReserveDocs(addedNumDocs int64) error {
 	if addedNumDocs <= 0 {
 		return nil
 	}
-	maxDocs := int64(GetActualMaxDocs())
+	maxDocs := w.effectiveMaxDocs()
 	if w.pendingNumDocs.Load()+addedNumDocs > maxDocs {
 		return fmt.Errorf(
 			"number of documents in the index cannot exceed %d (current document count is %d; added numDocs is %d)",
@@ -3240,6 +3252,7 @@ func (w *IndexWriter) DeleteAll() (int64, error) {
 	// Clear all pending document state so that a subsequent Commit
 	// does not include stale entries from before the DeleteAll call.
 	w.docCount.Store(0)
+	w.pendingNumDocs.Store(0)
 	w.pendingDeleteTerms = nil
 	w.pendingSoftDeletedOrdinals = nil
 	w.pendingDeletedDocIDs = nil
