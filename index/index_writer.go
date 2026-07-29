@@ -697,6 +697,13 @@ func (w *IndexWriter) AddDocument(doc Document) (int64, error) {
 			return 0, err
 		}
 	}
+
+	// Auto-flush when RAM buffer threshold is reached.
+	if w.documentsWriter != nil && w.documentsWriter.ShouldFlush() {
+		if err := w.maybeFlushPendingDocs(); err != nil {
+			return 0, err
+		}
+	}
 	return w.nextSequenceNumber(), nil
 }
 
@@ -950,6 +957,13 @@ func (w *IndexWriter) UpdateDocument(term *Term, doc Document) (int64, error) {
 	// Auto-flush when MaxBufferedDocs threshold is reached.
 	maxBuf := w.config.MaxBufferedDocs()
 	if maxBuf > 0 && int(newCount) >= maxBuf {
+		if err := w.maybeFlushPendingDocs(); err != nil {
+			return 0, err
+		}
+	}
+
+	// Auto-flush when RAM buffer threshold is reached.
+	if w.documentsWriter != nil && w.documentsWriter.ShouldFlush() {
 		if err := w.maybeFlushPendingDocs(); err != nil {
 			return 0, err
 		}

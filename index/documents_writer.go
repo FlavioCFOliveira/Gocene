@@ -113,6 +113,18 @@ func (dw *DocumentsWriter) SetCodec(codec Codec) {
 	dw.codec = codec
 }
 
+// ShouldFlush reports whether the in-memory state has crossed the configured
+// flush threshold. It mirrors Lucene's DocumentsWriter#doFlush internal
+// flush-trigger check and is safe for concurrent use.
+func (dw *DocumentsWriter) ShouldFlush() bool {
+	dw.mu.RLock()
+	defer dw.mu.RUnlock()
+	if dw.flushPolicy == nil {
+		return false
+	}
+	return dw.flushPolicy.ShouldFlush(dw.numDocsInRAM, dw.bytesUsed)
+}
+
 // UpdateDocument updates a document (adds a new document, optionally deleting an old one).
 //
 // Note: this method does NOT trigger an auto-flush; the IndexWriter is
@@ -130,6 +142,7 @@ func (dw *DocumentsWriter) UpdateDocument(doc Document, analyzer analysis.Analyz
 	}
 
 	// Process the document
+	before := dwpt.GetBytesUsed()
 	if err := dwpt.ProcessDocument(doc); err != nil {
 		return err
 	}
@@ -137,8 +150,9 @@ func (dw *DocumentsWriter) UpdateDocument(doc Document, analyzer analysis.Analyz
 	dw.numDocsInRAM++
 	dw.numDocs++
 
-	// Update memory tracking
-	dw.bytesUsed += dwpt.GetBytesUsed()
+	// Update memory tracking: only count the bytes added by this document,
+	// not the entire accumulated DWPT total.
+	dw.bytesUsed += dwpt.GetBytesUsed() - before
 
 	return nil
 }
@@ -166,6 +180,7 @@ func (dw *DocumentsWriter) AddDocument(doc Document, analyzer analysis.Analyzer)
 	}
 
 	// Process the document
+	before := dwpt.GetBytesUsed()
 	if err := dwpt.ProcessDocument(doc); err != nil {
 		return err
 	}
@@ -173,8 +188,8 @@ func (dw *DocumentsWriter) AddDocument(doc Document, analyzer analysis.Analyzer)
 	dw.numDocsInRAM++
 	dw.numDocs++
 
-	// Update memory tracking
-	dw.bytesUsed += dwpt.GetBytesUsed()
+	// Update memory tracking: only count the bytes added by this document.
+	dw.bytesUsed += dwpt.GetBytesUsed() - before
 
 	return nil
 }

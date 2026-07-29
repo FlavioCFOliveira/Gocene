@@ -15,7 +15,14 @@
 
 package index_test
 
-import "testing"
+import (
+	"strconv"
+	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/store"
+)
 
 // many_fields_test.go ports org.apache.lucene.index.TestManyFields
 // (Lucene 10.4.0, core/src/test/org/apache/lucene/index/TestManyFields.java)
@@ -70,9 +77,60 @@ func TestManyFields_DiverseDocs(t *testing.T) {
 }
 
 // TestManyFields_RotatingFieldNames ports testRotatingFieldNames (LUCENE-4398):
-// it would repeatedly fill the RAM buffer with ten fresh field names per doc,
-// recycling field names past upto 5000, and assert each segment flushes after
-// a doc count within 90% of the first segment's.
+// It repeatedly fills the RAM buffer with ten fresh field names per doc,
+// recycling field names past upto 5000 to avoid unbounded FieldInfo growth,
+// and asserts each segment flushes after a doc count within 90% of the first
+// segment's.
 func TestManyFields_RotatingFieldNames(t *testing.T) {
-	t.Fatal(skipManyFieldsFlushCount)
+	dir, err := store.NewSimpleFSDirectory(t.TempDir())
+	if err != nil {
+		t.Fatalf("NewSimpleFSDirectory: %v", err)
+	}
+	defer dir.Close()
+
+	cfg := index.NewIndexWriterConfig(createTestAnalyzer())
+	cfg.SetRAMBufferSizeMB(0.2)
+	cfg.SetMaxBufferedDocs(-1)
+
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	defer w.Close()
+
+	ft := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
+	ft.SetOmitNorms(true)
+
+	upto := 0
+	firstDocCount := -1
+	for iter := 0; iter < 10; iter++ {
+		startFlushCount := w.GetFlushCount()
+		docCount := 0
+		for w.GetFlushCount() == startFlushCount {
+			doc := document.NewDocument()
+			for i := 0; i < 10; i++ {
+				fieldName := "field" + strconv.Itoa(upto)
+				f, _ := document.NewField(fieldName, "content", ft)
+				doc.Add(f)
+				upto++
+			}
+			if _, err := w.AddDocument(doc); err != nil {
+				t.Fatalf("AddDocument iter %d doc %d: %v", iter, docCount, err)
+			}
+			docCount++
+		}
+
+		if iter == 0 {
+			firstDocCount = docCount
+		}
+
+		if firstDocCount > 0 && float64(docCount)/float64(firstDocCount) <= 0.9 {
+			t.Fatalf("iter %d flushed after too few docs: first=%d current=%d", iter, firstDocCount, docCount)
+		}
+
+		if upto > 5000 {
+			upto = 0
+		}
+	}
 }
+
