@@ -150,9 +150,29 @@ func (r *spatialStubLeaf) GetContext() (index.IndexReaderContext, error) {
 func (r *spatialStubLeaf) Leaves() ([]*index.LeafReaderContext, error) { return nil, nil }
 func (r *spatialStubLeaf) StoredFields() (index.StoredFields, error)   { return nil, nil }
 func (r *spatialStubLeaf) TermVectors() (index.TermVectors, error)     { return nil, nil }
-func (r *spatialStubLeaf) GetCoreCacheKey() interface{}                { return r }
-func (r *spatialStubLeaf) GetTermVectors(_ int) (index.Fields, error)  { return nil, nil }
+func (r *spatialStubLeaf) GetCoreCacheKey() interface{}               { return r }
+func (r *spatialStubLeaf) GetTermVectors(_ int) (index.Fields, error)   { return nil, nil }
 func (r *spatialStubLeaf) Terms(field string) (index.Terms, error)     { return r.terms[field], nil }
+func (r *spatialStubLeaf) Postings(_ index.Term) (index.PostingsEnum, error)              { return nil, nil }
+func (r *spatialStubLeaf) PostingsWithFreqPositions(_ index.Term, _ int) (index.PostingsEnum, error) {
+	return nil, nil
+}
+func (r *spatialStubLeaf) GetSortedDocValues(_ string) (index.SortedDocValues, error)        { return nil, nil }
+func (r *spatialStubLeaf) GetSortedNumericDocValues(_ string) (index.SortedNumericDocValues, error) {
+	return nil, nil
+}
+func (r *spatialStubLeaf) GetSortedSetDocValues(_ string) (index.SortedSetDocValues, error)   { return nil, nil }
+func (r *spatialStubLeaf) GetNormValues(_ string) (index.NumericDocValues, error)            { return nil, nil }
+func (r *spatialStubLeaf) GetPointValues(_ string) (index.PointValues, error)                 { return nil, nil }
+func (r *spatialStubLeaf) GetFloatVectorValues(_ string) (index.FloatVectorValues, error)    { return nil, nil }
+func (r *spatialStubLeaf) GetByteVectorValues(_ string) (index.ByteVectorValues, error)       { return nil, nil }
+func (r *spatialStubLeaf) GetDocValuesSkipper(_ string) (index.DocValuesSkipper, error)        { return nil, nil }
+func (r *spatialStubLeaf) CheckIntegrity() error                                             { return nil }
+func (r *spatialStubLeaf) GetMetaData() *index.IndexReaderMetaData                            { return nil }
+func (r *spatialStubLeaf) GetSegmentInfo() *index.SegmentInfo                                  { return nil }
+func (r *spatialStubLeaf) SearchNearestVectors(_ string, _ []float32, _ int, _ util.Bits) (index.TopDocs, error) {
+	return index.TopDocs{}, nil
+}
 
 // GetNumericDocValues / GetBinaryDocValues are the inline-interface
 // hooks spatial code probes; they must be present on the concrete

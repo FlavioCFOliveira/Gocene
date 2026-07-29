@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // encodePoint4 encodes a non-negative int as a 4-byte big-endian value, the
@@ -179,8 +180,31 @@ func (r *stubPointRangeLeaf) GetContext() (index.IndexReaderContext, error) {
 func (r *stubPointRangeLeaf) Leaves() ([]*index.LeafReaderContext, error) { return nil, nil }
 func (r *stubPointRangeLeaf) StoredFields() (index.StoredFields, error)   { return nil, nil }
 func (r *stubPointRangeLeaf) TermVectors() (index.TermVectors, error)     { return nil, nil }
-func (r *stubPointRangeLeaf) GetCoreCacheKey() interface{}                { return r }
-func (r *stubPointRangeLeaf) GetTermVectors(_ int) (index.Fields, error)  { return nil, nil }
+func (r *stubPointRangeLeaf) GetCoreCacheKey() interface{}               { return r }
+func (r *stubPointRangeLeaf) GetTermVectors(_ int) (index.Fields, error)   { return nil, nil }
 func (r *stubPointRangeLeaf) Terms(_ string) (index.Terms, error)         { return nil, nil }
+func (r *stubPointRangeLeaf) Postings(_ index.Term) (index.PostingsEnum, error) {
+	return nil, nil
+}
+func (r *stubPointRangeLeaf) PostingsWithFreqPositions(_ index.Term, _ int) (index.PostingsEnum, error) {
+	return nil, nil
+}
+func (r *stubPointRangeLeaf) GetNumericDocValues(_ string) (index.NumericDocValues, error)       { return nil, nil }
+func (r *stubPointRangeLeaf) GetBinaryDocValues(_ string) (index.BinaryDocValues, error)         { return nil, nil }
+func (r *stubPointRangeLeaf) GetSortedDocValues(_ string) (index.SortedDocValues, error)         { return nil, nil }
+func (r *stubPointRangeLeaf) GetSortedNumericDocValues(_ string) (index.SortedNumericDocValues, error) {
+	return nil, nil
+}
+func (r *stubPointRangeLeaf) GetSortedSetDocValues(_ string) (index.SortedSetDocValues, error)    { return nil, nil }
+func (r *stubPointRangeLeaf) GetNormValues(_ string) (index.NumericDocValues, error)               { return nil, nil }
+func (r *stubPointRangeLeaf) GetFloatVectorValues(_ string) (index.FloatVectorValues, error)      { return nil, nil }
+func (r *stubPointRangeLeaf) GetByteVectorValues(_ string) (index.ByteVectorValues, error)        { return nil, nil }
+func (r *stubPointRangeLeaf) GetDocValuesSkipper(_ string) (index.DocValuesSkipper, error)         { return nil, nil }
+func (r *stubPointRangeLeaf) CheckIntegrity() error                                                 { return nil }
+func (r *stubPointRangeLeaf) GetMetaData() *index.IndexReaderMetaData                                { return nil }
+func (r *stubPointRangeLeaf) GetSegmentInfo() *index.SegmentInfo                                      { return nil }
+func (r *stubPointRangeLeaf) SearchNearestVectors(_ string, _ []float32, _ int, _ util.Bits) (index.TopDocs, error) {
+	return index.TopDocs{}, nil
+}
 
 var _ index.LeafReaderInterface = (*stubPointRangeLeaf)(nil)

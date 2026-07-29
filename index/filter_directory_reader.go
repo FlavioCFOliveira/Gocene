@@ -39,27 +39,94 @@ func (r *FilterDirectoryReader) Close() error {
 // LeafReader is a wrapper for a LeafReader.
 type FilterLeafReader struct {
 	*LeafReader
-	in *LeafReader
+	in LeafReaderInterface
+
+	// cacheHelper, when non-nil, overrides the cache helper exposed by this
+	// wrapper. A custom key lets callers prove that listeners registered on
+	// the wrapper are isolated from listeners on the wrapped reader.
+	cacheHelper CacheHelper
 }
 
 // NewFilterLeafReader creates a new FilterLeafReader wrapping the given reader.
-func NewFilterLeafReader(in *LeafReader) *FilterLeafReader {
+func NewFilterLeafReader(in LeafReaderInterface) *FilterLeafReader {
+	var si *SegmentInfo
+	if withSeg, ok := in.(interface{ GetSegmentInfo() *SegmentInfo }); ok {
+		si = withSeg.GetSegmentInfo()
+	}
 	return &FilterLeafReader{
-		LeafReader: in,
+		LeafReader: NewLeafReader(si),
 		in:         in,
 	}
 }
 
-// Close closes the wrapped reader.
-func (r *FilterLeafReader) Close() error {
-	if closer, ok := interface{}(r.in).(io.Closer); ok {
-		return closer.Close()
+// NewFilterLeafReaderWithCacheKey creates a FilterLeafReader that exposes a
+// fresh cache helper/key instead of delegating to the wrapped reader. This is
+// the Go equivalent of a Lucene FilterLeafReader subclass that overrides
+// getCoreCacheHelper() to return its own key.
+func NewFilterLeafReaderWithCacheKey(in LeafReaderInterface) *FilterLeafReader {
+	var si *SegmentInfo
+	if withSeg, ok := in.(interface{ GetSegmentInfo() *SegmentInfo }); ok {
+		si = withSeg.GetSegmentInfo()
+	}
+	return &FilterLeafReader{
+		LeafReader:  NewLeafReader(si),
+		in:          in,
+		cacheHelper: NewReaderCacheHelper(),
+	}
+}
+
+// GetCacheHelper returns the cache helper for this wrapper. When a custom helper
+// was requested (NewFilterLeafReaderWithCacheKey) it is returned; otherwise the
+// wrapped reader's helper is delegated to.
+func (r *FilterLeafReader) GetCacheHelper() CacheHelper {
+	if r.cacheHelper != nil {
+		return r.cacheHelper
+	}
+	if withHelper, ok := interface{}(r.in).(interface{ GetCacheHelper() CacheHelper }); ok {
+		return withHelper.GetCacheHelper()
 	}
 	return nil
 }
 
+// GetCoreCacheKey delegates to the wrapped reader.
+func (r *FilterLeafReader) GetCoreCacheKey() interface{} {
+	return r.in.GetCoreCacheKey()
+}
+
+// Close closes the wrapper and, when no custom cache helper is in use, also
+// closes the wrapped reader. A FilterLeafReader created with a custom cache
+// key (NewFilterLeafReaderWithCacheKey) owns its own IndexReader lifecycle;
+// closing it must not propagate to the wrapped reader, so listeners registered
+// on the inner reader's cache helper remain isolated.
+func (r *FilterLeafReader) Close() error {
+	// Custom cache key: this wrapper has an independent lifecycle. Notify its
+	// own closed listeners and mark it closed, but do not touch the wrapped
+	// reader.
+	if r.cacheHelper != nil {
+		if h, ok := r.cacheHelper.(*ReaderCacheHelper); ok {
+			h.SetClosed()
+			h.NotifyClosedListeners()
+		}
+		return r.IndexReader.Close()
+	}
+
+	// Default case: share the wrapped reader's lifecycle, so close it first.
+	var lastErr error
+	if closer, ok := interface{}(r.in).(io.Closer); ok {
+		if err := closer.Close(); err != nil {
+			lastErr = err
+		}
+	}
+	if err := r.IndexReader.Close(); err != nil {
+		if lastErr == nil {
+			lastErr = err
+		}
+	}
+	return lastErr
+}
+
 // GetDelegate returns the wrapped LeafReader.
-func (r *FilterLeafReader) GetDelegate() *LeafReader {
+func (r *FilterLeafReader) GetDelegate() LeafReaderInterface {
 	return r.in
 }
 
@@ -95,6 +162,9 @@ func (r *FilterLeafReader) GetTermVectors(docID int) (Fields, error) {
 
 // Terms returns the Terms for a field.
 func (r *FilterLeafReader) Terms(field string) (Terms, error) {
+	if err := r.EnsureOpen(); err != nil {
+		return nil, err
+	}
 	return r.in.Terms(field)
 }
 
@@ -198,10 +268,6 @@ func (r *FilterLeafReader) GetRefCount() int32 {
 	return r.in.GetRefCount()
 }
 
-// EnsureOpen throws an error if the reader is closed.
-func (r *FilterLeafReader) EnsureOpen() error {
-	return r.in.EnsureOpen()
-}
 
 // StoredFields returns a StoredFields instance for accessing stored fields.
 func (r *FilterLeafReader) StoredFields() (StoredFields, error) {

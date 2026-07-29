@@ -847,6 +847,20 @@ func (r *SegmentReader) Close() error {
 	return lastErr
 }
 
+// GetOnlyLeafReader returns the single leaf reader contained in reader.
+// It panics if reader has zero or more than one leaf. This mirrors Lucene's
+// LuceneTestCase.getOnlyLeafReader helper used by many index tests.
+func GetOnlyLeafReader(reader IndexReaderInterface) IndexReaderInterface {
+	leaves, err := reader.Leaves()
+	if err != nil {
+		panic(fmt.Sprintf("GetOnlyLeafReader: %v", err))
+	}
+	if len(leaves) != 1 {
+		panic(fmt.Sprintf("GetOnlyLeafReader: expected exactly one leaf, got %d", len(leaves)))
+	}
+	return leaves[0].Reader()
+}
+
 // Open opens a DirectoryReader for the given directory.
 func OpenDirectoryReader(directory store.Directory) (*DirectoryReader, error) {
 	// Read segment infos; an empty (freshly created) directory has no segments
@@ -1392,6 +1406,10 @@ func (r *DirectoryReader) GetFieldInfos() *FieldInfos {
 
 // Close closes the DirectoryReader and all segment readers.
 func (r *DirectoryReader) Close() error {
+	if err := r.EnsureOpen(); err != nil {
+		return err
+	}
+
 	var lastErr error
 	for _, reader := range r.readers {
 		if err := reader.Close(); err != nil {
@@ -1399,7 +1417,15 @@ func (r *DirectoryReader) Close() error {
 		}
 	}
 	r.readers = nil
-	r.closed.Store(true)
+
+	// Close the embedded IndexReader so its cache-helper closed listeners are
+	// notified and the closed flag is set. This mirrors Lucene's
+	// DirectoryReader.doClose() super-call to IndexReader.close().
+	if err := r.IndexReader.Close(); err != nil {
+		if lastErr == nil {
+			lastErr = err
+		}
+	}
 	return lastErr
 }
 
@@ -1508,7 +1534,7 @@ func (r *DirectoryReader) NumDeletedDocs() int {
 // EnsureOpen throws an error if the reader is closed.
 func (r *DirectoryReader) EnsureOpen() error {
 	if r.closed.Load() {
-		return ErrAlreadyClosed
+		return NewAlreadyClosedException("this IndexReader is closed", nil)
 	}
 	return nil
 }
@@ -1583,6 +1609,9 @@ func (r *DirectoryReader) TermVectors() (TermVectors, error) {
 
 // GetContext returns the reader context for this directory reader.
 func (r *DirectoryReader) GetContext() (IndexReaderContext, error) {
+	if err := r.EnsureOpen(); err != nil {
+		return nil, err
+	}
 	if r.readerContext == nil {
 		ctx, err := buildDirectoryReaderContext(r, nil)
 		if err != nil {

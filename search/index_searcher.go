@@ -214,6 +214,10 @@ func (s *IndexSearcher) SearchAfter(after *ScoreDoc, query Query, n int) (*TopDo
 
 // SearchWithCollector executes a query and collects results.
 func (s *IndexSearcher) SearchWithCollector(query Query, collector Collector) error {
+	if err := s.reader.EnsureOpen(); err != nil {
+		return err
+	}
+
 	// Rewrite query
 	rewritten, err := query.Rewrite(s.reader)
 	if err != nil {

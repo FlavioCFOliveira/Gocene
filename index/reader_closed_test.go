@@ -51,10 +51,6 @@ func TestReaderClosed(t *testing.T) {
 	// after Close therefore returns 0 hits silently instead of raising
 	// AlreadyClosedException, so the assertion below cannot hold.
 	//
-	// Unskip once OpenDirectoryReader wires SegmentCoreReaders and
-	// DirectoryReader operations reject use after Close.
-	t.Fatal("blocked: DirectoryReader.Close does not set a closed flag; subsequent IndexSearcher.Search returns 0 hits silently instead of AlreadyClosedException")
-
 	dir, err := store.NewSimpleFSDirectory(t.TempDir())
 	if err != nil {
 		t.Fatalf("Failed to open directory: %v", err)

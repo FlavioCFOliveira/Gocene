@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/bkd"
 )
 
@@ -443,9 +444,31 @@ func (r *stubNoPointValuesLeaf) GetContext() (index.IndexReaderContext, error) {
 func (r *stubNoPointValuesLeaf) Leaves() ([]*index.LeafReaderContext, error) { return nil, nil }
 func (r *stubNoPointValuesLeaf) StoredFields() (index.StoredFields, error)   { return nil, nil }
 func (r *stubNoPointValuesLeaf) TermVectors() (index.TermVectors, error)     { return nil, nil }
-func (r *stubNoPointValuesLeaf) GetCoreCacheKey() interface{}                { return r }
-func (r *stubNoPointValuesLeaf) GetTermVectors(_ int) (index.Fields, error)  { return nil, nil }
-func (r *stubNoPointValuesLeaf) Terms(_ string) (index.Terms, error)         { return nil, nil }
+func (r *stubNoPointValuesLeaf) GetCoreCacheKey() interface{}               { return r }
+func (r *stubNoPointValuesLeaf) GetTermVectors(_ int) (index.Fields, error)   { return nil, nil }
+func (r *stubNoPointValuesLeaf) Terms(_ string) (index.Terms, error)          { return nil, nil }
+func (r *stubNoPointValuesLeaf) Postings(_ index.Term) (index.PostingsEnum, error)              { return nil, nil }
+func (r *stubNoPointValuesLeaf) PostingsWithFreqPositions(_ index.Term, _ int) (index.PostingsEnum, error) {
+	return nil, nil
+}
+func (r *stubNoPointValuesLeaf) GetNumericDocValues(_ string) (index.NumericDocValues, error)      { return nil, nil }
+func (r *stubNoPointValuesLeaf) GetBinaryDocValues(_ string) (index.BinaryDocValues, error)        { return nil, nil }
+func (r *stubNoPointValuesLeaf) GetSortedDocValues(_ string) (index.SortedDocValues, error)        { return nil, nil }
+func (r *stubNoPointValuesLeaf) GetSortedNumericDocValues(_ string) (index.SortedNumericDocValues, error) {
+	return nil, nil
+}
+func (r *stubNoPointValuesLeaf) GetSortedSetDocValues(_ string) (index.SortedSetDocValues, error)   { return nil, nil }
+func (r *stubNoPointValuesLeaf) GetNormValues(_ string) (index.NumericDocValues, error)           { return nil, nil }
+func (r *stubNoPointValuesLeaf) GetFloatVectorValues(_ string) (index.FloatVectorValues, error)    { return nil, nil }
+func (r *stubNoPointValuesLeaf) GetByteVectorValues(_ string) (index.ByteVectorValues, error)       { return nil, nil }
+func (r *stubNoPointValuesLeaf) GetDocValuesSkipper(_ string) (index.DocValuesSkipper, error)        { return nil, nil }
+func (r *stubNoPointValuesLeaf) CheckIntegrity() error                                                { return nil }
+func (r *stubNoPointValuesLeaf) GetMetaData() *index.IndexReaderMetaData                               { return nil }
+func (r *stubNoPointValuesLeaf) GetSegmentInfo() *index.SegmentInfo                                     { return nil }
+func (r *stubNoPointValuesLeaf) GetPointValues(_ string) (index.PointValues, error) { return nil, nil }
+func (r *stubNoPointValuesLeaf) SearchNearestVectors(_ string, _ []float32, _ int, _ util.Bits) (index.TopDocs, error) {
+	return index.TopDocs{}, nil
+}
 
 var _ index.LeafReaderInterface = (*stubNoPointValuesLeaf)(nil)
 
