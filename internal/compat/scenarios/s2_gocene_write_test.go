@@ -49,7 +49,7 @@ func TestS2_GoceneWriteLeg(t *testing.T) {
 				if err != nil {
 					t.Fatalf("buildDoc(%d): %v", i, err)
 				}
-				if err := iw.AddDocument(doc); err != nil {
+				if _, err := iw.AddDocument(doc); err != nil {
 					t.Fatalf("AddDocument: %v", err)
 				}
 			}

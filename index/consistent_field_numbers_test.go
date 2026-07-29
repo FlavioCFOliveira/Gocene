@@ -66,7 +66,7 @@ func TestConsistentFieldNumbers_SameFieldNumbersAcrossSegments(t *testing.T) {
 		t.Fatalf("NewTextField f2: %v", err)
 	}
 	d1.Add(f2)
-	if err := writer.AddDocument(d1); err != nil {
+	if _, err := writer.AddDocument(d1); err != nil {
 		t.Fatalf("AddDocument seg1: %v", err)
 	}
 	writer.Commit()
@@ -93,7 +93,7 @@ func TestConsistentFieldNumbers_SameFieldNumbersAcrossSegments(t *testing.T) {
 		t.Fatalf("NewTextField f4: %v", err)
 	}
 	d2.Add(f4)
-	if err := writer.AddDocument(d2); err != nil {
+	if _, err := writer.AddDocument(d2); err != nil {
 		t.Fatalf("AddDocument seg2: %v", err)
 	}
 	writer.Close()
@@ -188,7 +188,7 @@ func TestConsistentFieldNumbers_AddIndexes(t *testing.T) {
 		t.Fatalf("NewTextField f2: %v", err)
 	}
 	d1.Add(f2)
-	if err := writer1.AddDocument(d1); err != nil {
+	if _, err := writer1.AddDocument(d1); err != nil {
 		t.Fatalf("AddDocument dir1: %v", err)
 	}
 	writer1.Close()
@@ -222,7 +222,7 @@ func TestConsistentFieldNumbers_AddIndexes(t *testing.T) {
 		t.Fatalf("NewTextField f4ext: %v", err)
 	}
 	d2.Add(f4ext)
-	if err := writer2.AddDocument(d2); err != nil {
+	if _, err := writer2.AddDocument(d2); err != nil {
 		t.Fatalf("AddDocument dir2: %v", err)
 	}
 	writer2.Close()
@@ -310,7 +310,7 @@ func TestConsistentFieldNumbers_FieldNumberGaps(t *testing.T) {
 			t.Fatalf("NewStoredField f3 seg3: %v", err)
 		}
 		d.Add(f3)
-		if err := writer.AddDocument(d); err != nil {
+		if _, err := writer.AddDocument(d); err != nil {
 			t.Fatalf("AddDocument seg3: %v", err)
 		}
 		writer.Close()
@@ -336,7 +336,7 @@ func TestConsistentFieldNumbers_FieldNumberGaps(t *testing.T) {
 			t.Fatalf("NewTextField f2: %v", err)
 		}
 		d.Add(f2)
-		if err := writer.AddDocument(d); err != nil {
+		if _, err := writer.AddDocument(d); err != nil {
 			t.Fatalf("AddDocument seg1: %v", err)
 		}
 		writer.Close()
@@ -362,7 +362,7 @@ func TestConsistentFieldNumbers_FieldNumberGaps(t *testing.T) {
 			t.Fatalf("NewStoredField f3: %v", err)
 		}
 		d.Add(f3)
-		if err := writer.AddDocument(d); err != nil {
+		if _, err := writer.AddDocument(d); err != nil {
 			t.Fatalf("AddDocument seg2: %v", err)
 		}
 		writer.Close()
@@ -466,7 +466,7 @@ func TestConsistentFieldNumbers_ManyFields(t *testing.T) {
 				doc.Add(f)
 			}
 		}
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument doc %d: %v", i, err)
 		}
 	}

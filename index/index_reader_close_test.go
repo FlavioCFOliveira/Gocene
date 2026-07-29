@@ -65,7 +65,7 @@ func TestIndexReaderClose_CloseUnderException(t *testing.T) {
 		t.Fatalf("NewStringField: %v", err)
 	}
 	doc.Add(field)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -144,7 +144,7 @@ func TestIndexReaderClose_RegisterListenerOnClosed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
-	if err := writer.AddDocument(document.NewDocument()); err != nil {
+	if _, err := writer.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -209,7 +209,7 @@ func TestIndexReaderClose_CoreListenerOnWrapper(t *testing.T) {
 		doc := document.NewDocument()
 		field, _ := document.NewStringField("field", fmt.Sprintf("value%d", i), false)
 		doc.Add(field)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

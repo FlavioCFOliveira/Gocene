@@ -42,7 +42,7 @@ func Test2BDocs(t *testing.T) {
 			t.Fatalf("NewStringField(%d): %v", i, err)
 		}
 		doc.Add(sf)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}

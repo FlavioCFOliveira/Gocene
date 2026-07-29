@@ -32,7 +32,7 @@ func qdAddDoc(t *testing.T, w *index.IndexWriter, id string) {
 		t.Fatalf("NewStringField: %v", err)
 	}
 	doc.Add(f)
-	if err := w.AddDocument(doc); err != nil {
+	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 }
@@ -53,7 +53,7 @@ func TestQueryDelete_AppliedAfterCommit(t *testing.T) {
 		t.Fatalf("Commit: %v", err)
 	}
 
-	if err := w.DeleteDocumentsQuery(search.NewTermQuery(index.NewTerm("id", "aaa"))); err != nil {
+	if _, err := w.DeleteDocumentsQuery(search.NewTermQuery(index.NewTerm("id", "aaa"))); err != nil {
 		t.Fatalf("DeleteDocumentsQuery: %v", err)
 	}
 	if err := w.Commit(); err != nil {
@@ -99,7 +99,7 @@ func TestQueryDelete_UnsupportedTypeErrors(t *testing.T) {
 	}
 
 	// A plain string is not a search.Query.
-	if err := w.DeleteDocumentsQuery("not-a-query"); err != nil {
+	if _, err := w.DeleteDocumentsQuery("not-a-query"); err != nil {
 		t.Fatalf("DeleteDocumentsQuery (buffering) should not error: %v", err)
 	}
 	err = w.Commit()

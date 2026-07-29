@@ -109,7 +109,7 @@ func TestS3_GoceneWriteLeg(t *testing.T) {
 					t.Fatalf("BuildWithTaxonomy: %v", err)
 				}
 
-				if err := iw.AddDocument(doc); err != nil {
+				if _, err := iw.AddDocument(doc); err != nil {
 					t.Fatalf("AddDocument: %v", err)
 				}
 			}

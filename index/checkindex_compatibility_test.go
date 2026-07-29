@@ -36,7 +36,7 @@ func TestCheckIndexCompatibility_BasicValidation(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "checkindex test", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			writer.Close()
 			t.Fatalf("failed to add document: %v", err)
 		}
@@ -83,7 +83,7 @@ func TestCheckIndexCompatibility_SegmentValidation(t *testing.T) {
 			doc := document.NewDocument()
 			idField, _ := document.NewStringField("id", string(rune('0'+(seg*20+i)%10)), true)
 			doc.Add(idField)
-			if err := writer.AddDocument(doc); err != nil {
+			if _, err := writer.AddDocument(doc); err != nil {
 				writer.Close()
 				t.Fatalf("failed to add document: %v", err)
 			}
@@ -140,7 +140,7 @@ func TestCheckIndexCompatibility_FieldInfosValidation(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "content", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			writer.Close()
 			t.Fatalf("failed to add document: %v", err)
 		}

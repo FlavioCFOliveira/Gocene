@@ -40,7 +40,7 @@ func TestReplicator_BasicReplication(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "replication test", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}

@@ -54,7 +54,7 @@ func TestSearchResultValidation_TermQuery(t *testing.T) {
 		contentField, _ := document.NewTextField("content", d.content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -138,7 +138,7 @@ func TestSearchResultValidation_BooleanQuery(t *testing.T) {
 		titleField, _ := document.NewStringField("title", d.title, true)
 		doc.Add(titleField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -220,7 +220,7 @@ func TestSearchResultValidation_PhraseQuery(t *testing.T) {
 		contentField, _ := document.NewTextField("content", d.content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -283,7 +283,7 @@ func TestSearchResultValidation_RangeQuery(t *testing.T) {
 		contentField, _ := document.NewTextField("content", content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -360,7 +360,7 @@ func TestSearchResultValidation_Sorting(t *testing.T) {
 		contentField, _ := document.NewTextField("content", d.content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -422,7 +422,7 @@ func TestSearchResultValidation_Reproducibility(t *testing.T) {
 		contentField, _ := document.NewTextField("content", content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -513,7 +513,7 @@ func TestSearchResultValidation_ScoreNormalization(t *testing.T) {
 		contentField, _ := document.NewTextField("content", d.content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -574,7 +574,7 @@ func TestSearchResultValidation_MatchAllDocs(t *testing.T) {
 		contentField, _ := document.NewTextField("content", content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -638,7 +638,7 @@ func TestSearchResultValidation_TopN(t *testing.T) {
 		contentField, _ := document.NewTextField("content", content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}

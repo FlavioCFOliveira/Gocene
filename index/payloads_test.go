@@ -201,7 +201,7 @@ func TestPayloads_FieldBit(t *testing.T) {
 	doc.Add(f1)
 	f2, _ := document.NewField("f2", "y", document.TextFieldTypeNotStored)
 	doc.Add(f2)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 
@@ -262,7 +262,7 @@ func TestPayloads_Encoding(t *testing.T) {
 			field, _ := document.NewField("f1", ts, ft)
 			doc.Add(field)
 		}
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 	}
@@ -371,7 +371,7 @@ func TestPayloads_ThreadSafety(t *testing.T) {
 				)
 				field, _ := document.NewField("test", ts, ft)
 				doc.Add(field)
-				if err := w.AddDocument(doc); err != nil {
+				if _, err := w.AddDocument(doc); err != nil {
 					t.Errorf("AddDocument thread=%d doc=%d: %v", thread, j, err)
 					return
 				}
@@ -461,14 +461,14 @@ func TestPayloads_AcrossFields(t *testing.T) {
 	doc := document.NewDocument()
 	f1, _ := document.NewField("f1", "x", payloadType())
 	doc.Add(f1)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument f1: %v", err)
 	}
 
 	doc2 := document.NewDocument()
 	f2, _ := document.NewField("f2", "x", payloadType())
 	doc2.Add(f2)
-	if err := writer.AddDocument(doc2); err != nil {
+	if _, err := writer.AddDocument(doc2); err != nil {
 		t.Fatalf("AddDocument f2: %v", err)
 	}
 
@@ -498,7 +498,7 @@ func TestPayloads_MixupDocs(t *testing.T) {
 		doc := document.NewDocument()
 		field, _ := document.NewField("f", "x", payloadType())
 		doc.Add(field)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument #%d: %v", i, err)
 		}
 	}
@@ -583,7 +583,7 @@ func TestPayloads_MixupMultiValued(t *testing.T) {
 	doc.Add(f1)
 	f2, _ := document.NewField("f", "x", payloadType())
 	doc.Add(f2)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 

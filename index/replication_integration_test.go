@@ -51,7 +51,7 @@ func createSourceIndex(t *testing.T, docCount int) string {
 		doc := document.NewDocument()
 		addTextField(t, doc, "id", fmt.Sprintf("doc-%d", i))
 		addTextField(t, doc, "content", "replication test content")
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
@@ -192,7 +192,7 @@ func TestReplicationIncremental(t *testing.T) {
 	doc := document.NewDocument()
 	addTextField(t, doc, "id", "doc-1")
 	addTextField(t, doc, "content", "second")
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -280,10 +280,10 @@ func TestReplicationWithDeletions(t *testing.T) {
 
 	writer := openWriterOnPath(t, sourceDir)
 	// Delete two documents by their unique id terms.
-	if err := writer.DeleteDocuments(index.NewTerm("id", "doc-0")); err != nil {
+	if _, err := writer.DeleteDocuments(index.NewTerm("id", "doc-0")); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
-	if err := writer.DeleteDocuments(index.NewTerm("id", "doc-2")); err != nil {
+	if _, err := writer.DeleteDocuments(index.NewTerm("id", "doc-2")); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -529,7 +529,7 @@ func createSourceIndexForBenchmark(b *testing.B, docCount int) string {
 		doc := document.NewDocument()
 		field, _ := document.NewTextField("content", "benchmark document", true)
 		doc.Add(field)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			b.Fatalf("AddDocument: %v", err)
 		}
 	}

@@ -345,7 +345,7 @@ func TestNumericDocValuesUpdates_Reopen(t *testing.T) {
 	defer writer.Close()
 
 	for i := 0; i < 2; i++ {
-		if err := writer.AddDocument(createDoc(i)); err != nil {
+		if _, err := writer.AddDocument(createDoc(i)); err != nil {
 			t.Fatalf("AddDocument doc-%d: %v", i, err)
 		}
 	}
@@ -433,10 +433,10 @@ func TestNumericDocValuesUpdates_UpdatesAndDeletes(t *testing.T) {
 		}
 	}
 
-	if err := writer.DeleteDocuments(index.NewTerm("id", "doc-1")); err != nil {
+	if _, err := writer.DeleteDocuments(index.NewTerm("id", "doc-1")); err != nil {
 		t.Fatalf("DeleteDocuments doc-1: %v", err)
 	}
-	if err := writer.DeleteDocuments(index.NewTerm("id", "doc-2")); err != nil {
+	if _, err := writer.DeleteDocuments(index.NewTerm("id", "doc-2")); err != nil {
 		t.Fatalf("DeleteDocuments doc-2: %v", err)
 	}
 	if _, err := writer.UpdateNumericDocValue(index.NewTerm("id", "doc-3"), "val", 17); err != nil {
@@ -473,7 +473,7 @@ func TestNumericDocValuesUpdates_UpdatesWithDeletes(t *testing.T) {
 		t.Fatalf("Commit: %v", err)
 	}
 
-	if err := writer.DeleteDocuments(index.NewTerm("id", "doc-0")); err != nil {
+	if _, err := writer.DeleteDocuments(index.NewTerm("id", "doc-0")); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 	if _, err := writer.UpdateNumericDocValue(index.NewTerm("id", "doc-1"), "val", 17); err != nil {

@@ -24,7 +24,7 @@ func TestFuzzyLikeThisQuery_Rewrite(t *testing.T) {
 	doc := document.NewDocument()
 	f, _ := document.NewTextField("field", "apple banana cherry", true)
 	doc.Add(f)
-	if err := iw.AddDocument(doc); err != nil {
+	if _, err := iw.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := iw.Commit(); err != nil {
@@ -81,7 +81,7 @@ func TestFuzzyLikeThisQuery_NonExistingField(t *testing.T) {
 	doc := document.NewDocument()
 	f, _ := document.NewTextField("field", "apple banana", true)
 	doc.Add(f)
-	if err := iw.AddDocument(doc); err != nil {
+	if _, err := iw.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := iw.Commit(); err != nil {
@@ -147,7 +147,7 @@ func TestFuzzyLikeThisQuery_NoMatchFirstWord(t *testing.T) {
 	doc := document.NewDocument()
 	f, _ := document.NewTextField("field", "apple banana cherry", true)
 	doc.Add(f)
-	if err := iw.AddDocument(doc); err != nil {
+	if _, err := iw.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := iw.Commit(); err != nil {

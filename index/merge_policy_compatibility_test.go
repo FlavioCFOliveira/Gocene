@@ -39,7 +39,7 @@ func TestMergePolicy_TieredMergePolicy(t *testing.T) {
 		idField, _ := document.NewStringField("id", string(rune('0'+i%10)), true)
 		doc.Add(idField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 
@@ -97,7 +97,7 @@ func TestMergePolicy_LogMergePolicy(t *testing.T) {
 		idField, _ := document.NewStringField("id", string(rune('0'+i%10)), true)
 		doc.Add(idField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -137,7 +137,7 @@ func TestMergePolicy_SegmentLayout(t *testing.T) {
 			idField, _ := document.NewStringField("id", string(rune('0'+i%10)), true)
 			doc.Add(idField)
 
-			if err := writer.AddDocument(doc); err != nil {
+			if _, err := writer.AddDocument(doc); err != nil {
 				t.Fatalf("failed to add document: %v", err)
 			}
 		}

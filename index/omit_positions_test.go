@@ -70,7 +70,7 @@ func TestOmitPositions_Basic(t *testing.T) {
 		doc := document.NewDocument()
 		field, _ := document.NewField("foo", "this is a test test", ft)
 		doc.Add(field)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 	}
@@ -160,7 +160,7 @@ func TestOmitPositions_Positions(t *testing.T) {
 	doc.Add(f1)
 	doc.Add(f2)
 	doc.Add(f3)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writer.ForceMerge(1); err != nil {
@@ -247,7 +247,7 @@ func TestOmitPositions_NoPrxFile(t *testing.T) {
 			t.Fatalf("NewField (i=%d): %v", i, err)
 		}
 		d.Add(f)
-		if err := writer.AddDocument(d); err != nil {
+		if _, err := writer.AddDocument(d); err != nil {
 			t.Fatalf("AddDocument (i=%d): %v", i, err)
 		}
 	}

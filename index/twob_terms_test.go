@@ -47,7 +47,7 @@ func Test2BTerms(t *testing.T) {
 			t.Fatalf("NewStringField(common): %v", err)
 		}
 		doc.Add(sf2)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}

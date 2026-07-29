@@ -35,7 +35,7 @@ func TestSegmentCoreReaders_AlwaysWireDocValues(t *testing.T) {
 	}
 	const numDocs = 4
 	for i := 0; i < numDocs; i++ {
-		if err := writer.AddDocument(dvTestDoc(i)); err != nil {
+		if _, err := writer.AddDocument(dvTestDoc(i)); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
@@ -104,7 +104,7 @@ func TestForceMergeMetadataOnlySegmentReopens(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewNumericDocValuesField("foo", v)
 		doc.Add(f)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 		if err := writer.Commit(); err != nil {

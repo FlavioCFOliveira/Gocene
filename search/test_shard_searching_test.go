@@ -72,7 +72,7 @@ func buildShardSearchingNode(t *testing.T, bodies []string) *shardSearchingNode 
 			t.Fatalf("NewTextField(%d): %v", i, ferr)
 		}
 		doc.Add(f)
-		if aerr := w.AddDocument(doc); aerr != nil {
+		if _, aerr := w.AddDocument(doc); aerr != nil {
 			t.Fatalf("AddDocument(%d): %v", i, aerr)
 		}
 	}

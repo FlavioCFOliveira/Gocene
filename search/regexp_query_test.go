@@ -47,7 +47,7 @@ func setupRegexpIndex(t *testing.T) (index.IndexReaderInterface, *search.IndexSe
 		t.Fatalf("NewTextField: %v", err)
 	}
 	doc.Add(f)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -297,7 +297,7 @@ func TestRegexpQuery_Rewrite(t *testing.T) {
 		t.Fatalf("NewTextField: %v", err)
 	}
 	doc.Add(f)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -340,7 +340,7 @@ func TestRegexpQuery_EmptyPattern(t *testing.T) {
 		t.Fatalf("NewTextField: %v", err)
 	}
 	doc.Add(f)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -388,7 +388,7 @@ func TestRegexpQuery_SpecialCharacters(t *testing.T) {
 		t.Fatalf("NewTextField: %v", err)
 	}
 	doc.Add(f)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -451,7 +451,7 @@ func TestRegexpQuery_Alternation(t *testing.T) {
 		t.Fatalf("NewTextField: %v", err)
 	}
 	doc.Add(f)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -495,7 +495,7 @@ func TestRegexpQuery_Quantifiers(t *testing.T) {
 		t.Fatalf("NewTextField: %v", err)
 	}
 	doc.Add(f)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -558,7 +558,7 @@ func TestRegexpQuery_Anchors(t *testing.T) {
 		t.Fatalf("NewTextField: %v", err)
 	}
 	doc.Add(f)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writer.Commit(); err != nil {

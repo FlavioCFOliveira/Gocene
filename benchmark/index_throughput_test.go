@@ -42,7 +42,7 @@ func BenchmarkIndexThroughput(b *testing.B) {
 					doc.Add(field)
 					batch[j] = doc
 				}
-				if err := iw.AddDocuments(batch); err != nil {
+				if _, err := iw.AddDocuments(batch); err != nil {
 					b.Fatal(err)
 				}
 			}

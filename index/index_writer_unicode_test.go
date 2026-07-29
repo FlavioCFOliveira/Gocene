@@ -264,14 +264,14 @@ func TestIndexWriterUnicode_EmbeddedFFFF(t *testing.T) {
 	doc := document.NewDocument()
 	tf, _ := document.NewTextField("field", "a a￿b", false)
 	doc.Add(tf)
-	if err := w.AddDocument(doc); err != nil {
+	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 
 	doc = document.NewDocument()
 	tf2, _ := document.NewTextField("field", "a", false)
 	doc.Add(tf2)
-	if err := w.AddDocument(doc); err != nil {
+	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 

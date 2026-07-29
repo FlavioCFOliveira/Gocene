@@ -93,7 +93,7 @@ func TestNorms_OnDiskRoundTrip(t *testing.T) {
 		"a b c d e f g h i j",
 	}
 	for i, body := range bodies {
-		if err := writer.AddDocument(normsTextDoc(body)); err != nil {
+		if _, err := writer.AddDocument(normsTextDoc(body)); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
@@ -163,7 +163,7 @@ func TestNorms_ForceMergePreservesNorms(t *testing.T) {
 	bodies := []string{"alpha", "alpha beta", "alpha beta gamma"}
 	lengths := []int{1, 2, 3}
 	for i, body := range bodies {
-		if err := writer.AddDocument(normsTextDoc(body)); err != nil {
+		if _, err := writer.AddDocument(normsTextDoc(body)); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 		if err := writer.Commit(); err != nil {
@@ -234,10 +234,10 @@ func TestNorms_ScoringReflectsLengthNormalization(t *testing.T) {
 
 	// doc 0: the query term in a 1-token field (short).
 	// doc 1: the same term diluted in a 6-token field (long).
-	if err := writer.AddDocument(normsTextDoc("lucene")); err != nil {
+	if _, err := writer.AddDocument(normsTextDoc("lucene")); err != nil {
 		t.Fatalf("AddDocument(0): %v", err)
 	}
-	if err := writer.AddDocument(normsTextDoc("lucene is a search engine library")); err != nil {
+	if _, err := writer.AddDocument(normsTextDoc("lucene is a search engine library")); err != nil {
 		t.Fatalf("AddDocument(1): %v", err)
 	}
 	if err := writer.Commit(); err != nil {

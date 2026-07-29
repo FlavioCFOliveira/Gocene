@@ -61,7 +61,7 @@ func mtqrReaders(t *testing.T) (single, multi, multiDupls index.IndexReaderInter
 				t.Fatalf("NewStringField: %v", ferr)
 			}
 			doc.Add(f)
-			if aerr := w.AddDocument(doc); aerr != nil {
+			if _, aerr := w.AddDocument(doc); aerr != nil {
 				t.Fatalf("AddDocument: %v", aerr)
 			}
 		}

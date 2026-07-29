@@ -84,7 +84,7 @@ func TestCrash_WhileIndexing(t *testing.T) {
 
 	const numDocs = 157
 	for i := 0; i < numDocs; i++ {
-		if err := writer.AddDocument(crashTestDoc(t)); err != nil {
+		if _, err := writer.AddDocument(crashTestDoc(t)); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
@@ -129,7 +129,7 @@ func TestCrash_WriterAfterCrash(t *testing.T) {
 
 	const firstBatch = 100
 	for i := 0; i < firstBatch; i++ {
-		if err := writer.AddDocument(crashTestDoc(t)); err != nil {
+		if _, err := writer.AddDocument(crashTestDoc(t)); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
@@ -149,7 +149,7 @@ func TestCrash_WriterAfterCrash(t *testing.T) {
 
 	const secondBatch = 57
 	for i := 0; i < secondBatch; i++ {
-		if err := writer2.AddDocument(crashTestDoc(t)); err != nil {
+		if _, err := writer2.AddDocument(crashTestDoc(t)); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
@@ -187,7 +187,7 @@ func TestCrash_AfterReopen(t *testing.T) {
 
 	const firstBatch = 100
 	for i := 0; i < firstBatch; i++ {
-		if err := writer.AddDocument(crashTestDoc(t)); err != nil {
+		if _, err := writer.AddDocument(crashTestDoc(t)); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
@@ -200,7 +200,7 @@ func TestCrash_AfterReopen(t *testing.T) {
 	// Reopen — add more documents to the same writer.
 	const secondBatch = 57
 	for i := 0; i < secondBatch; i++ {
-		if err := writer.AddDocument(crashTestDoc(t)); err != nil {
+		if _, err := writer.AddDocument(crashTestDoc(t)); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
@@ -242,7 +242,7 @@ func TestCrash_AfterClose(t *testing.T) {
 
 	const numDocs = 157
 	for i := 0; i < numDocs; i++ {
-		if err := writer.AddDocument(crashTestDoc(t)); err != nil {
+		if _, err := writer.AddDocument(crashTestDoc(t)); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
@@ -307,7 +307,7 @@ func TestCrash_AfterCloseNoWait(t *testing.T) {
 
 	const numDocs = 157
 	for i := 0; i < numDocs; i++ {
-		if err := writer.AddDocument(crashTestDoc(t)); err != nil {
+		if _, err := writer.AddDocument(crashTestDoc(t)); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}

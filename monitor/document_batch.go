@@ -68,7 +68,7 @@ func newDocumentBatchFromDocs(analyzer analysis.Analyzer, docs []*document.Docum
 		idxDocs[i] = d
 	}
 
-	if err := writer.AddDocuments(idxDocs); err != nil {
+	if _, err := writer.AddDocuments(idxDocs); err != nil {
 		_ = writer.Close()
 		_ = dir.Close()
 		return nil, fmt.Errorf("document batch: add documents: %w", err)

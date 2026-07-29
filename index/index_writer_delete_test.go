@@ -83,7 +83,7 @@ func addDoc(t *testing.T, modifier *index.IndexWriter, id, value int) {
 	doc.Add(valueField)
 	doc.Add(dvField)
 
-	if err := modifier.AddDocument(doc); err != nil {
+	if _, err := modifier.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 }
@@ -116,7 +116,7 @@ func updateDoc(t *testing.T, modifier *index.IndexWriter, id, value int) {
 	doc.Add(valueField)
 	doc.Add(dvField)
 
-	if err := modifier.UpdateDocument(index.NewTerm("id", fmt.Sprintf("%d", id)), doc); err != nil {
+	if _, err := modifier.UpdateDocument(index.NewTerm("id", fmt.Sprintf("%d", id)), doc); err != nil {
 		t.Fatalf("UpdateDocument: %v", err)
 	}
 }
@@ -207,7 +207,7 @@ func TestIndexWriterDelete_SimpleCase(t *testing.T) {
 		}
 		doc.Add(idField)
 		doc.Add(cityField)
-		if err := modifier.AddDocument(doc); err != nil {
+		if _, err := modifier.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
@@ -219,7 +219,7 @@ func TestIndexWriterDelete_SimpleCase(t *testing.T) {
 	if hc := getHitCount(t, dir, term); hc != 1 {
 		t.Fatalf("pre-delete hit count = %d, want 1", hc)
 	}
-	if err := modifier.DeleteDocuments(term); err != nil {
+	if _, err := modifier.DeleteDocuments(term); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 	if err := modifier.Commit(); err != nil {
@@ -293,7 +293,7 @@ func TestIndexWriterDelete_NonRAMDelete(t *testing.T) {
 		t.Fatalf("numDocs before delete = %d, want 7", n)
 	}
 
-	if err := modifier.DeleteDocuments(index.NewTerm("value", fmt.Sprintf("%d", value))); err != nil {
+	if _, err := modifier.DeleteDocuments(index.NewTerm("value", fmt.Sprintf("%d", value))); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 	if err := modifier.Commit(); err != nil {
@@ -343,14 +343,14 @@ func TestIndexWriterDelete_RAMDeletes(t *testing.T) {
 	addDoc(t, modifier, id+1, value)
 	id++
 
-	if err := modifier.DeleteDocuments(index.NewTerm("value", fmt.Sprintf("%d", value))); err != nil {
+	if _, err := modifier.DeleteDocuments(index.NewTerm("value", fmt.Sprintf("%d", value))); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 
 	addDoc(t, modifier, id+1, value)
 	id++
 
-	if err := modifier.DeleteDocuments(index.NewTerm("value", fmt.Sprintf("%d", value))); err != nil {
+	if _, err := modifier.DeleteDocuments(index.NewTerm("value", fmt.Sprintf("%d", value))); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 	if got := modifier.GetBufferedDeleteTermsSize(); got != 1 {
@@ -430,7 +430,7 @@ func TestIndexWriterDelete_BothDeletes(t *testing.T) {
 		id++
 		addDoc(t, modifier, id, value)
 	}
-	if err := modifier.DeleteDocuments(index.NewTerm("value", fmt.Sprintf("%d", value))); err != nil {
+	if _, err := modifier.DeleteDocuments(index.NewTerm("value", fmt.Sprintf("%d", value))); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 	if err := modifier.Commit(); err != nil {
@@ -483,11 +483,11 @@ func TestIndexWriterDelete_BatchDeletes(t *testing.T) {
 	// Delete ids 1 and 2 -> 5 remain.
 	id = 0
 	id++
-	if err := modifier.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", id))); err != nil {
+	if _, err := modifier.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", id))); err != nil {
 		t.Fatalf("DeleteDocuments(%d): %v", id, err)
 	}
 	id++
-	if err := modifier.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", id))); err != nil {
+	if _, err := modifier.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", id))); err != nil {
 		t.Fatalf("DeleteDocuments(%d): %v", id, err)
 	}
 	if err := modifier.Commit(); err != nil {
@@ -501,7 +501,7 @@ func TestIndexWriterDelete_BatchDeletes(t *testing.T) {
 	// reproduced by looping DeleteDocuments) -> 2 remain.
 	for i := 0; i < 3; i++ {
 		id++
-		if err := modifier.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", id))); err != nil {
+		if _, err := modifier.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", id))); err != nil {
 			t.Fatalf("DeleteDocuments(%d): %v", id, err)
 		}
 	}
@@ -562,7 +562,7 @@ func TestIndexWriterDelete_DeleteAllSimple(t *testing.T) {
 	addDoc(t, modifier, id, value)
 
 	// DeleteAll: marks all committed docs as deleted and clears pending state.
-	if err := modifier.DeleteAll(); err != nil {
+	if _, err := modifier.DeleteAll(); err != nil {
 		t.Fatalf("DeleteAll: %v", err)
 	}
 
@@ -634,7 +634,7 @@ func TestIndexWriterDelete_DeleteAllNoDeadLock(t *testing.T) {
 				doc.Add(valueField)
 				doc.Add(dvField)
 
-				if err := modifier.AddDocument(doc); err != nil {
+				if _, err := modifier.AddDocument(doc); err != nil {
 					t.Errorf("AddDocument: %v", err)
 					return
 				}
@@ -657,14 +657,14 @@ func TestIndexWriterDelete_DeleteAllNoDeadLock(t *testing.T) {
 			doneCount++
 		case <-time.After(time.Millisecond):
 		}
-		if err := modifier.DeleteAll(); err != nil {
+		if _, err := modifier.DeleteAll(); err != nil {
 			t.Fatalf("DeleteAll: %v", err)
 		}
 	}
 
 	wg.Wait()
 
-	if err := modifier.DeleteAll(); err != nil {
+	if _, err := modifier.DeleteAll(); err != nil {
 		t.Fatalf("final DeleteAll: %v", err)
 	}
 	if err := modifier.Close(); err != nil {
@@ -727,7 +727,7 @@ func TestIndexWriterDelete_DeleteAllRollback(t *testing.T) {
 	}
 	reader.Close()
 
-	if err := modifier.DeleteAll(); err != nil {
+	if _, err := modifier.DeleteAll(); err != nil {
 		t.Fatalf("DeleteAll: %v", err)
 	}
 	if err := modifier.Rollback(); err != nil {
@@ -772,7 +772,7 @@ func TestIndexWriterDelete_DeleteAllNRT(t *testing.T) {
 		t.Fatalf("Commit: %v", err)
 	}
 
-	if err := modifier.DeleteAll(); err != nil {
+	if _, err := modifier.DeleteAll(); err != nil {
 		t.Fatalf("DeleteAll: %v", err)
 	}
 
@@ -857,7 +857,7 @@ func TestIndexWriterDelete_ErrorInDocsWriterAdd(t *testing.T) {
 		}
 		doc.Add(cityField)
 
-		if err := modifier.AddDocument(doc); err != nil {
+		if _, err := modifier.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
@@ -898,7 +898,7 @@ func TestIndexWriterDelete_NullQuery(t *testing.T) {
 	}
 
 	q := search.NewTermQuery(index.NewTerm("nada", "nada"))
-	if err := modifier.DeleteDocumentsQuery(q); err != nil {
+	if _, err := modifier.DeleteDocumentsQuery(q); err != nil {
 		t.Fatalf("DeleteDocumentsQuery: %v", err)
 	}
 	if err := modifier.Commit(); err != nil {
@@ -948,7 +948,7 @@ func TestIndexWriterDelete_DeleteAllSlowly(t *testing.T) {
 
 	deleted := 0
 	for id := 1; id <= numDocs; id++ {
-		if err := modifier.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", id))); err != nil {
+		if _, err := modifier.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", id))); err != nil {
 			t.Fatalf("DeleteDocuments(%d): %v", id, err)
 		}
 		deleted++
@@ -1054,7 +1054,7 @@ func TestIndexWriterDelete_NRTIsCurrentAfterDelete(t *testing.T) {
 		t.Fatal("fresh NRT reader should be current")
 	}
 
-	if err := modifier.DeleteDocuments(index.NewTerm("id", "5")); err != nil {
+	if _, err := modifier.DeleteDocuments(index.NewTerm("id", "5")); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 
@@ -1095,7 +1095,7 @@ func TestIndexWriterDelete_OnlyDeletesTriggersMergeOnClose(t *testing.T) {
 			t.Fatalf("NewStringField: %v", err)
 		}
 		doc.Add(idField)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 	}
@@ -1103,7 +1103,7 @@ func TestIndexWriterDelete_OnlyDeletesTriggersMergeOnClose(t *testing.T) {
 		t.Fatalf("Commit: %v", err)
 	}
 	for i := 0; i < 18; i++ {
-		if err := w.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
+		if _, err := w.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
 			t.Fatalf("DeleteDocuments %d: %v", i, err)
 		}
 	}
@@ -1153,7 +1153,7 @@ func TestIndexWriterDelete_OnlyDeletesTriggersMergeOnGetReader(t *testing.T) {
 			t.Fatalf("NewStringField: %v", err)
 		}
 		doc.Add(idField)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 	}
@@ -1161,7 +1161,7 @@ func TestIndexWriterDelete_OnlyDeletesTriggersMergeOnGetReader(t *testing.T) {
 		t.Fatalf("Commit: %v", err)
 	}
 	for i := 0; i < 18; i++ {
-		if err := w.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
+		if _, err := w.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
 			t.Fatalf("DeleteDocuments %d: %v", i, err)
 		}
 	}
@@ -1216,7 +1216,7 @@ func TestIndexWriterDelete_OnlyDeletesTriggersMergeOnFlush(t *testing.T) {
 			t.Fatalf("NewStringField: %v", err)
 		}
 		doc.Add(idField)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 	}
@@ -1224,7 +1224,7 @@ func TestIndexWriterDelete_OnlyDeletesTriggersMergeOnFlush(t *testing.T) {
 		t.Fatalf("Commit: %v", err)
 	}
 	for i := 0; i < 18; i++ {
-		if err := w.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
+		if _, err := w.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
 			t.Fatalf("DeleteDocuments %d: %v", i, err)
 		}
 	}
@@ -1274,7 +1274,7 @@ func TestIndexWriterDelete_OnlyDeletesDeleteAllDocs(t *testing.T) {
 			t.Fatalf("NewStringField: %v", err)
 		}
 		doc.Add(idField)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 	}
@@ -1282,7 +1282,7 @@ func TestIndexWriterDelete_OnlyDeletesDeleteAllDocs(t *testing.T) {
 		t.Fatalf("Commit: %v", err)
 	}
 	for i := 0; i < 38; i++ {
-		if err := w.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
+		if _, err := w.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
 			t.Fatalf("DeleteDocuments %d: %v", i, err)
 		}
 	}
@@ -1334,7 +1334,7 @@ func TestIndexWriterDelete_MergingAfterDeleteAll(t *testing.T) {
 		t.Fatalf("Commit initial: %v", err)
 	}
 
-	if err := modifier.DeleteAll(); err != nil {
+	if _, err := modifier.DeleteAll(); err != nil {
 		t.Fatalf("DeleteAll: %v", err)
 	}
 

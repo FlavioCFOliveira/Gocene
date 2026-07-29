@@ -111,7 +111,7 @@ func TestNRTReaderWithThreadsIndexing(t *testing.T) {
 			for iter := 0; iter < numIterations; iter++ {
 				if typ == 0 {
 					i := int(seq.Add(1))
-					if err := writer.AddDocument(nrtCreateDocument(t, i, "index1", 10)); err != nil {
+					if _, err := writer.AddDocument(nrtCreateDocument(t, i, "index1", 10)); err != nil {
 						recordFailure(err)
 						return
 					}
@@ -129,7 +129,7 @@ func TestNRTReaderWithThreadsIndexing(t *testing.T) {
 						recordFailure(err)
 						return
 					}
-					if err := writer.DeleteDocuments(index.NewTerm("id", idStr)); err != nil {
+					if _, err := writer.DeleteDocuments(index.NewTerm("id", idStr)); err != nil {
 						_ = reader.Close()
 						recordFailure(err)
 						return

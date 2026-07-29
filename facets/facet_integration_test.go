@@ -68,7 +68,7 @@ func TestFacetIntegration_BasicCounting(t *testing.T) {
 			t.Fatalf("BuildWithTaxonomy: %v", err)
 		}
 
-		if err := writer.AddDocument(builtDoc); err != nil {
+		if _, err := writer.AddDocument(builtDoc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -171,7 +171,7 @@ func TestFacetIntegration_DrillDown(t *testing.T) {
 			t.Fatalf("BuildWithTaxonomy: %v", err)
 		}
 
-		if err := writer.AddDocument(builtDoc); err != nil {
+		if _, err := writer.AddDocument(builtDoc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -233,7 +233,7 @@ func TestFacetIntegration_FacetCollector(t *testing.T) {
 		contentField, _ := document.NewTextField("content", category, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -302,7 +302,7 @@ func TestFacetIntegration_MultipleDimensions(t *testing.T) {
 		priceField, _ := document.NewStringField("price", p.price, true)
 		doc.Add(priceField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -342,7 +342,7 @@ func TestFacetIntegration_RangeFacets(t *testing.T) {
 		priceField, _ := document.NewIntField("price", i*10, true)
 		doc.Add(priceField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -384,7 +384,7 @@ func TestFacetIntegration_SortedSetFacets(t *testing.T) {
 		tagField, _ := document.NewStringField("tags", tags[i%3], true)
 		doc.Add(tagField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}

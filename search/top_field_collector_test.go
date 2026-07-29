@@ -36,7 +36,7 @@ func TestTopFieldCollector_SortWithoutFillFields(t *testing.T) {
 	numDocs := 100
 	for i := 0; i < numDocs; i++ {
 		doc := document.NewDocument()
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -90,7 +90,7 @@ func TestTopFieldCollector_Sort(t *testing.T) {
 	// Add documents
 	for i := 0; i < 50; i++ {
 		doc := document.NewDocument()
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -185,7 +185,7 @@ func TestTopFieldCollector_TotalHits(t *testing.T) {
 	// Add documents and flush to create segments
 	doc := document.NewDocument()
 	for i := 0; i < 4; i++ {
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -193,7 +193,7 @@ func TestTopFieldCollector_TotalHits(t *testing.T) {
 	writer.Commit()
 
 	for i := 0; i < 6; i++ {
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -262,7 +262,7 @@ func TestTopFieldCollector_SharedHitcountCollector(t *testing.T) {
 	// Add documents
 	for i := 0; i < 50; i++ {
 		doc := document.NewDocument()
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -344,7 +344,7 @@ func TestTopFieldCollector_PopulateScores(t *testing.T) {
 		doc := document.NewDocument()
 		field, _ := document.NewTextField("f", content, true)
 		doc.Add(field)
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -404,7 +404,7 @@ func TestTopFieldCollector_RelationVsTopDocsCount(t *testing.T) {
 	doc.Add(field)
 
 	for i := 0; i < 10; i++ {
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -476,7 +476,7 @@ func TestTopFieldCollector_ComputeScoresOnlyOnce(t *testing.T) {
 		doc := document.NewDocument()
 		field, _ := document.NewTextField("text", content, true)
 		doc.Add(field)
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -532,7 +532,7 @@ func TestTopFieldCollector_ConcurrentMinScore(t *testing.T) {
 	// Add documents across multiple segments
 	for i := 0; i < 5; i++ {
 		doc := document.NewDocument()
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -541,7 +541,7 @@ func TestTopFieldCollector_ConcurrentMinScore(t *testing.T) {
 
 	for i := 0; i < 6; i++ {
 		doc := document.NewDocument()
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -550,7 +550,7 @@ func TestTopFieldCollector_ConcurrentMinScore(t *testing.T) {
 
 	for i := 0; i < 2; i++ {
 		doc := document.NewDocument()
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -615,7 +615,7 @@ func TestTopFieldCollector_RandomMinCompetitiveScore(t *testing.T) {
 			field, _ := document.NewTextField("f", "A", true)
 			doc.Add(field)
 		}
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -678,7 +678,7 @@ func TestTopFieldCollector_SetMinCompetitiveScore(t *testing.T) {
 	// Add documents
 	for i := 0; i < 10; i++ {
 		doc := document.NewDocument()
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -730,7 +730,7 @@ func TestTopFieldCollector_TotalHitsWithScore(t *testing.T) {
 	// Add documents across multiple segments
 	for i := 0; i < 4; i++ {
 		doc := document.NewDocument()
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -739,7 +739,7 @@ func TestTopFieldCollector_TotalHitsWithScore(t *testing.T) {
 
 	for i := 0; i < 6; i++ {
 		doc := document.NewDocument()
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -799,7 +799,7 @@ func TestTopFieldCollector_SortWithoutTotalHitTracking(t *testing.T) {
 	// Add documents
 	for i := 0; i < 20; i++ {
 		doc := document.NewDocument()
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}

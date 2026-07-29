@@ -59,7 +59,7 @@ func TestExceedMaxTermLength_TokenStream(t *testing.T) {
 	}
 	doc.Add(f)
 
-	err = writer.AddDocument(doc)
+	_, err = writer.AddDocument(doc)
 	if err == nil {
 		t.Fatal("expected error for tokenized term exceeding MAX_TERM_LENGTH")
 	}
@@ -104,7 +104,7 @@ func TestExceedMaxTermLength_BinaryValue(t *testing.T) {
 	}
 	doc.Add(sf)
 
-	err = writer.AddDocument(doc)
+	_, err = writer.AddDocument(doc)
 	if err == nil {
 		t.Fatal("expected error indexing term exceeding MAX_TERM_LENGTH")
 	}
@@ -155,7 +155,7 @@ func TestExceedMaxTermLength_NearBoundary(t *testing.T) {
 	}
 	doc.Add(sf)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Errorf("value at MAX_TERM_LENGTH should be accepted, got: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -182,7 +182,7 @@ func TestExceedMaxTermLength_NearBoundary(t *testing.T) {
 	}
 	doc2.Add(sf2)
 
-	err = writer2.AddDocument(doc2)
+	_, err = writer2.AddDocument(doc2)
 	if err == nil {
 		t.Fatal("expected error for value exceeding MAX_TERM_LENGTH")
 	}

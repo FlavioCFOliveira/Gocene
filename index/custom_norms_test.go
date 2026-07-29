@@ -97,7 +97,7 @@ func TestCustomNorms_FloatNorms(t *testing.T) {
 		}
 		doc.Add(f)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document %d: %v", i, err)
 		}
 		expectedNorms = append(expectedNorms, boost)

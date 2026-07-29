@@ -307,7 +307,7 @@ func (s *BookStore) rebuildLocked(books []Book) error {
 			_ = writer.Close()
 			return fmt.Errorf("build document for %q: %w", books[i].ID, err)
 		}
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			_ = writer.Close()
 			return fmt.Errorf("index %q: %w", books[i].ID, err)
 		}

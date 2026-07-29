@@ -115,7 +115,7 @@ func TestDocValuesIntegration(t *testing.T) {
 		}
 
 		// Add document
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Errorf("AddDocument() error = %v", err)
 		}

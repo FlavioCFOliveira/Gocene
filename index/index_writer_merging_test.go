@@ -104,7 +104,7 @@ func fillIndex(t *testing.T, dir store.Directory, start, numDocs int, source ran
 
 	for i := start; i < start+numDocs; i++ {
 		doc := createCountDocument(i)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -172,7 +172,7 @@ func TestIndexWriterMerging_ForceMergeDeletes(t *testing.T) {
 	// Add 10 documents
 	for i := 0; i < 10; i++ {
 		doc := createIDDocument(i)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -196,10 +196,10 @@ func TestIndexWriterMerging_ForceMergeDeletes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create deleter writer: %v", err)
 	}
-	if err := writer.DeleteDocuments(index.NewTerm("id", "0")); err != nil {
+	if _, err := writer.DeleteDocuments(index.NewTerm("id", "0")); err != nil {
 		t.Fatalf("DeleteDocuments id=0: %v", err)
 	}
-	if err := writer.DeleteDocuments(index.NewTerm("id", "7")); err != nil {
+	if _, err := writer.DeleteDocuments(index.NewTerm("id", "7")); err != nil {
 		t.Fatalf("DeleteDocuments id=7: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -282,7 +282,7 @@ func TestIndexWriterMerging_ForceMergeDeletes2(t *testing.T) {
 	// Add 98 documents
 	for i := 0; i < 98; i++ {
 		doc := createIDDocument(i)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -298,7 +298,7 @@ func TestIndexWriterMerging_ForceMergeDeletes2(t *testing.T) {
 		t.Fatalf("Failed to create deleter writer: %v", err)
 	}
 	for i := 0; i < 98; i += 2 {
-		if err := writer.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
+		if _, err := writer.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
 			t.Fatalf("DeleteDocuments id=%d: %v", i, err)
 		}
 	}
@@ -371,7 +371,7 @@ func TestIndexWriterMerging_ForceMergeDeletes3(t *testing.T) {
 	// Add 98 documents
 	for i := 0; i < 98; i++ {
 		doc := createIDDocument(i)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -387,7 +387,7 @@ func TestIndexWriterMerging_ForceMergeDeletes3(t *testing.T) {
 		t.Fatalf("Failed to create deleter writer: %v", err)
 	}
 	for i := 0; i < 98; i += 2 {
-		if err := writer.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
+		if _, err := writer.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
 			t.Fatalf("DeleteDocuments id=%d: %v", i, err)
 		}
 	}
@@ -459,7 +459,7 @@ func TestIndexWriterMerging_ForceMergeDeletesWithObserver(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		doc := createIDDocument(i)
-		if err := indexer.AddDocument(doc); err != nil {
+		if _, err := indexer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -475,7 +475,7 @@ func TestIndexWriterMerging_ForceMergeDeletesWithObserver(t *testing.T) {
 	}
 	for i := 0; i < 10; i++ {
 		if i%2 == 0 {
-			if err := deleter.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
+			if _, err := deleter.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
 				t.Fatalf("DeleteDocuments id=%d: %v", i, err)
 			}
 		}
@@ -590,7 +590,7 @@ func TestIndexWriterMerging_MergeObserverAwaitWithTimeout(t *testing.T) {
 
 	// Delete first 3 documents
 	for _, id := range []int{0, 1, 2} {
-		if err := iw.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", id))); err != nil {
+		if _, err := iw.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", id))); err != nil {
 			t.Fatalf("DeleteDocuments id=%d: %v", id, err)
 		}
 	}
@@ -642,7 +642,7 @@ func TestIndexWriterMerging_MergeObserverAwaitTimeout(t *testing.T) {
 	// Add 20 documents.
 	for i := 0; i < 20; i++ {
 		doc := createIDDocument(i)
-		if err := indexer.AddDocument(doc); err != nil {
+		if _, err := indexer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument id=%d: %v", i, err)
 		}
 	}
@@ -652,7 +652,7 @@ func TestIndexWriterMerging_MergeObserverAwaitTimeout(t *testing.T) {
 
 	// Delete first 10 documents.
 	for i := 0; i < 10; i++ {
-		if err := indexer.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
+		if _, err := indexer.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
 			t.Fatalf("DeleteDocuments id=%d: %v", i, err)
 		}
 	}
@@ -761,7 +761,7 @@ func TestIndexWriterMerging_ForceMergeDeletesBlockingWithObserver(t *testing.T) 
 	}
 	for i := 0; i < 10; i++ {
 		if i%2 == 0 {
-			if err := deleter.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
+			if _, err := deleter.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
 				t.Fatalf("DeleteDocuments id=%d: %v", i, err)
 			}
 		}
@@ -952,7 +952,7 @@ func TestIndexWriterMerging_NoWaitClose(t *testing.T) {
 					default:
 						for i := 0; i < 100; i++ {
 							doc := &testDocument{fields: []interface{}{}}
-							err := writer.AddDocument(doc)
+							_, err := writer.AddDocument(doc)
 							if err != nil {
 								// Check if already closed
 								if _, ok := err.(*index.AlreadyClosedException); ok {
@@ -1012,7 +1012,7 @@ func TestIndexWriterMerging_AddEstimatedBytesToMerge(t *testing.T) {
 	doc := &testDocument{fields: []interface{}{field}}
 
 	for i := 0; i < 10; i++ {
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

@@ -37,7 +37,7 @@ func TestIndexCommit_BasicCommit(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "index commit test", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}

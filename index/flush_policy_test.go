@@ -157,7 +157,7 @@ func (t *IndexThread) run() {
 		docIndex := int(t.pendingDocs.Load()) % len(t.docs)
 		doc := t.docs[docIndex]
 
-		if err := t.writer.AddDocument(&doc); err != nil {
+		if _, err := t.writer.AddDocument(&doc); err != nil {
 			t.mu.Lock()
 			t.err = err
 			t.mu.Unlock()

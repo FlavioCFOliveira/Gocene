@@ -41,7 +41,7 @@ func TestDocValuesCompatibility_NumericDocValues(t *testing.T) {
 		numericField, _ := document.NewNumericDocValuesField("numeric_value", int64(i))
 		doc.Add(numericField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -88,7 +88,7 @@ func TestDocValuesCompatibility_BinaryDocValues(t *testing.T) {
 		binaryField, _ := document.NewBinaryDocValuesField("binary_value", binaryData)
 		doc.Add(binaryField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -135,7 +135,7 @@ func TestDocValuesCompatibility_SortedDocValues(t *testing.T) {
 		sortedField, _ := document.NewSortedDocValuesField("category", []byte(categories[i%5]))
 		doc.Add(sortedField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -181,7 +181,7 @@ func TestDocValuesCompatibility_SortedNumericDocValues(t *testing.T) {
 		sortedNumericField, _ := document.NewSortedNumericDocValuesField("sorted_numeric", []int64{int64(i * 100)})
 		doc.Add(sortedNumericField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -229,7 +229,7 @@ func TestDocValuesCompatibility_SortedSetDocValues(t *testing.T) {
 		sortedSetField, _ := document.NewSortedSetDocValuesField("tags", [][]byte{[]byte(tag0), []byte(tag1)})
 		doc.Add(sortedSetField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -274,7 +274,7 @@ func TestDocValuesCompatibility_DocValuesIteration(t *testing.T) {
 		numericField, _ := document.NewNumericDocValuesField("sort_value", int64(i))
 		doc.Add(numericField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -319,7 +319,7 @@ func TestDocValuesCompatibility_Lucene90Format(t *testing.T) {
 		numericField, _ := document.NewNumericDocValuesField("value", int64(i*10))
 		doc.Add(numericField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -367,7 +367,7 @@ func TestDocValuesCompatibility_MissingValues(t *testing.T) {
 			doc.Add(numericField)
 		}
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}

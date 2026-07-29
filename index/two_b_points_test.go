@@ -37,7 +37,7 @@ func Test2BPoints1D(t *testing.T) {
 		doc := document.NewDocument()
 		point := document.NewLongPoint("pt", int64(i))
 		doc.Add(point)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
@@ -141,7 +141,7 @@ func Test2BPoints2D(t *testing.T) {
 			t.Fatalf("NewBinaryPointPacked(%d): %v", i, err)
 		}
 		doc.Add(bp)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}

@@ -180,7 +180,7 @@ func setupIndexForCounts2(t *testing.T) (store.Directory, taxonomy.TaxonomyReade
 		if err != nil {
 			t.Fatalf("BuildWithTaxonomy: %v", err)
 		}
-		if err := writer.AddDocument(builtDoc); err != nil {
+		if _, err := writer.AddDocument(builtDoc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

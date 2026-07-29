@@ -55,7 +55,7 @@ func TestSortRandom_RandomStringSort(t *testing.T) {
 			t.Fatalf("NewNumericDocValuesField: %v", err)
 		}
 		doc.Add(f)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

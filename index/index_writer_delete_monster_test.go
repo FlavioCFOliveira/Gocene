@@ -81,7 +81,7 @@ func doTestOperationsOnDiskFull(t *testing.T, updates bool) {
 			t.Fatalf("NewNumericDocValuesField: %v", err)
 		}
 		doc.Add(dvField)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 	}
@@ -164,12 +164,12 @@ func doTestOperationsOnDiskFull(t *testing.T, updates bool) {
 							t.Fatalf("NewNumericDocValuesField: %v", err)
 						}
 						doc.Add(dvField)
-						if err := modifier.UpdateDocument(index.NewTerm("id", fmt.Sprintf("%d", docID)), doc); err != nil {
+						if _, err := modifier.UpdateDocument(index.NewTerm("id", fmt.Sprintf("%d", docID)), doc); err != nil {
 							lastErr = err
 							break
 						}
 					} else {
-						if err := modifier.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", docID))); err != nil {
+						if _, err := modifier.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", docID))); err != nil {
 							lastErr = err
 							break
 						}

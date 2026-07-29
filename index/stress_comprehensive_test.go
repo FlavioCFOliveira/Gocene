@@ -67,7 +67,7 @@ func TestStressComprehensive_IndexingSearchMerge(t *testing.T) {
 				doc.Add(idField)
 				contentField, _ := document.NewTextField("content", fmt.Sprintf("stress content %d", j), true)
 				doc.Add(contentField)
-				if err := w.AddDocument(doc); err != nil {
+				if _, err := w.AddDocument(doc); err != nil {
 					failed.Store(true)
 					failMsg.Store(fmt.Sprintf("writer %d add doc %d: %v", id, j, err))
 					return
@@ -183,7 +183,7 @@ func TestStressComprehensive_IndexingSearchMerge_Serial(t *testing.T) {
 				doc.Add(idField)
 				contentField, _ := document.NewTextField("content", fmt.Sprintf("stress content %d", j), true)
 				doc.Add(contentField)
-				if err := w.AddDocument(doc); err != nil {
+				if _, err := w.AddDocument(doc); err != nil {
 					failed.Store(true)
 					failMsg.Store(fmt.Sprintf("writer %d add doc %d: %v", id, j, err))
 					return
@@ -267,7 +267,7 @@ func TestStressComprehensive_RapidOpenClose(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewStringField("id", fmt.Sprintf("doc-%d", i), true)
 		doc.Add(f)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("seed doc %d: %v", i, err)
 		}
 	}
@@ -302,7 +302,7 @@ func TestStressComprehensive_RapidOpenClose(t *testing.T) {
 			doc := document.NewDocument()
 			f, _ := document.NewStringField("id", fmt.Sprintf("concurrent-%d", i), true)
 				doc.Add(f)
-			if err := w.AddDocument(doc); err != nil {
+			if _, err := w.AddDocument(doc); err != nil {
 				t.Errorf("concurrent add: %v", err)
 				return
 			}
@@ -337,7 +337,7 @@ func TestStressComprehensive_ManySmallSegments(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewStringField("id", fmt.Sprintf("seg-%d", i), true)
 		doc.Add(f)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("add doc %d: %v", i, err)
 		}
 		if err := w.Commit(); err != nil {

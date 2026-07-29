@@ -26,7 +26,7 @@ func TestIndexWriterOutOfFileDescriptors(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("content", "test document", false)
 		doc.Add(f)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("baseline AddDocument(%d): %v", i, err)
 		}
 	}
@@ -41,7 +41,7 @@ func TestIndexWriterOutOfFileDescriptors(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("content", "failing test document", false)
 		doc.Add(f)
-		_ = writer.AddDocument(doc)
+		_, _ = writer.AddDocument(doc)
 	}
 
 	mock.SetRandomIOExceptionRateOnOpen(0.0)

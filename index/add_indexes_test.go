@@ -575,7 +575,7 @@ func makeAuxDir(t *testing.T, numDocs int) store.Directory {
 	for i := 0; i < numDocs; i++ {
 		doc := document.NewDocument()
 		doc.Add(mustTextField(t, "content", "aaa", true))
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			w.Close()
 			d.Close()
 			t.Fatalf("makeAuxDir: AddDocument: %v", err)
@@ -1002,7 +1002,7 @@ func TestAddIndexes_LocksBlock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open w1: %v", err)
 	}
-	if err := w1.AddDocument(document.NewDocument()); err != nil {
+	if _, err := w1.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("w1.AddDocument: %v", err)
 	}
 	if err := w1.Commit(); err != nil {

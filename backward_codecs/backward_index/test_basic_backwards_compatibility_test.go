@@ -83,7 +83,7 @@ func TestBasicBackwardsCompatibility(t *testing.T) {
 		dp := document.NewDoublePoint("doublePoint1d", float64(i))
 		doc.Add(dp)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
@@ -165,7 +165,7 @@ func TestBasicBackwardsCompatibility_DefaultCodec(t *testing.T) {
 			t.Fatalf("NewTextField: %v", err)
 		}
 		doc.Add(tf)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
@@ -227,7 +227,7 @@ func TestLucene104Roundtrip(t *testing.T) {
 	lp := document.NewLongPoint("bigcount", int64(100))
 	doc.Add(lp)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writer.Commit(); err != nil {

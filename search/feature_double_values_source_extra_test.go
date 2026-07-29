@@ -67,7 +67,7 @@ func buildFeatureIndex(t *testing.T, docSpecs [][]featureSpec) (*index.Directory
 			}
 			doc.Add(ff)
 		}
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("doc %d: AddDocument: %v", i, err)
 		}
 	}

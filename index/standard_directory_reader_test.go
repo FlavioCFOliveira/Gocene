@@ -50,7 +50,7 @@ func TestStandardDirectoryReader_TermVectorsRoundTrip(t *testing.T) {
 	doc.Add(titleField)
 	doc.Add(bodyField)
 
-	if err := w.AddDocument(doc); err != nil {
+	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Commit(); err != nil {

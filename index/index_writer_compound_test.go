@@ -45,7 +45,7 @@ func TestIndexWriter_UseCompoundFile(t *testing.T) {
 		t.Fatalf("NewTextField: %v", err)
 	}
 	doc.Add(tf)
-	if err := w.AddDocument(doc); err != nil {
+	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Commit(); err != nil {

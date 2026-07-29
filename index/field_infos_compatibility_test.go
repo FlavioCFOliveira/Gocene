@@ -44,7 +44,7 @@ func TestFieldInfos_BasicFields(t *testing.T) {
 	storedField, _ := document.NewStoredField("metadata", "stored data")
 	doc.Add(storedField)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("failed to add document: %v", err)
 	}
 
@@ -95,7 +95,7 @@ func TestFieldInfos_FieldAttributes(t *testing.T) {
 		textField, _ := document.NewTextField("text", "text content", true)
 		doc.Add(textField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -151,7 +151,7 @@ func TestFieldInfos_NumericFields(t *testing.T) {
 		doubleField, _ := document.NewDoubleField("double_field", float64(i)*2.5, true)
 		doc.Add(doubleField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -199,7 +199,7 @@ func TestFieldInfos_BinaryFields(t *testing.T) {
 		binaryField, _ := document.NewStoredFieldFromBytes("binary_data", binaryData)
 		doc.Add(binaryField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -249,7 +249,7 @@ func TestFieldInfos_FieldConsistency(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "Content body", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -304,7 +304,7 @@ func TestFieldInfos_MixedDocumentFields(t *testing.T) {
 			doc.Add(thirdField)
 		}
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -357,7 +357,7 @@ func TestFieldInfos_FieldSerialization(t *testing.T) {
 		storedField, _ := document.NewStoredField("stored_field", "stored")
 		doc.Add(storedField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}

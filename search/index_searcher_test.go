@@ -29,7 +29,7 @@ func TestIndexSearcherBasic(t *testing.T) {
 		t.Fatalf("Failed to create field: %v", err)
 	}
 	doc.Add(field)
-	err = writer.AddDocument(doc)
+	_, err = writer.AddDocument(doc)
 	if err != nil {
 		t.Fatalf("Failed to add document: %v", err)
 	}

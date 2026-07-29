@@ -68,7 +68,7 @@ func TestIndexWriterForceMerge_PartialMerge(t *testing.T) {
 			t.Fatalf("NewIndexWriter() error = %v", err)
 		}
 		for j := 0; j < numDocs; j++ {
-			if err := writer.AddDocument(doc); err != nil {
+			if _, err := writer.AddDocument(doc); err != nil {
 				t.Fatalf("AddDocument() error = %v", err)
 			}
 		}
@@ -132,7 +132,7 @@ func TestIndexWriterForceMerge_MaxNumSegments2(t *testing.T) {
 
 	for iter := 0; iter < 10; iter++ {
 		for i := 0; i < 19; i++ {
-			if err := writer.AddDocument(doc); err != nil {
+			if _, err := writer.AddDocument(doc); err != nil {
 				t.Fatalf("iter %d: AddDocument() error = %v", iter, err)
 			}
 		}
@@ -199,7 +199,7 @@ func TestIndexWriterForceMerge_TempSpaceUsage(t *testing.T) {
 		t.Fatalf("NewIndexWriter() error = %v", err)
 	}
 	for j := 0; j < 500; j++ {
-		if err := writer.AddDocument(newForceMergeDoc(t, "content", "aaa")); err != nil {
+		if _, err := writer.AddDocument(newForceMergeDoc(t, "content", "aaa")); err != nil {
 			t.Fatalf("AddDocument() error = %v", err)
 		}
 	}
@@ -207,7 +207,7 @@ func TestIndexWriterForceMerge_TempSpaceUsage(t *testing.T) {
 	if err := writer.Commit(); err != nil {
 		t.Fatalf("Commit() error = %v", err)
 	}
-	if err := writer.AddDocument(newForceMergeDoc(t, "content", "aaa")); err != nil {
+	if _, err := writer.AddDocument(newForceMergeDoc(t, "content", "aaa")); err != nil {
 		t.Fatalf("AddDocument() error = %v", err)
 	}
 	writer.Close()

@@ -98,7 +98,7 @@ func TestLucene90PointsFormat_Basic(t *testing.T) {
 		encodeInt32Sortable(i, point)
 		bp, _ := document.NewBinaryPoint("dim", point)
 		doc.Add(bp)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -225,7 +225,7 @@ func TestLucene90PointsFormat_EstimatePointCount(t *testing.T) {
 				totalValues++
 			}
 		}
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -309,7 +309,7 @@ func TestLucene90PointsFormat_EstimatePointCount2Dims(t *testing.T) {
 				totalValues++
 			}
 		}
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -351,7 +351,7 @@ func TestLucene90PointsFormat_Merge(t *testing.T) {
 		encodeInt32Sortable(i, point)
 		bp, _ := document.NewBinaryPoint("dim", point)
 		doc.Add(bp)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 		if i == 10 {
@@ -403,7 +403,7 @@ func TestLucene90PointsFormat_MultiValued(t *testing.T) {
 			bp, _ := document.NewBinaryPoint("field", point)
 			doc.Add(bp)
 		}
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -446,7 +446,7 @@ func TestLucene90PointsFormat_AllEqual(t *testing.T) {
 		doc := document.NewDocument()
 		bp, _ := document.NewBinaryPoint("field", pointValue)
 		doc.Add(bp)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -727,7 +727,7 @@ func testRandomBinaryPoints(t *testing.T, numDocs int) {
 		}
 
 		doc.Add(document.NewBinaryPointMulti("field", points))
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -808,7 +808,7 @@ func TestLucene90PointsFormat_MergeMissing(t *testing.T) {
 		encodeInt32Sortable(i, point)
 		bp, _ := document.NewBinaryPoint("field", point)
 		doc.Add(bp)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -818,7 +818,7 @@ func TestLucene90PointsFormat_MergeMissing(t *testing.T) {
 		doc := document.NewDocument()
 		tf, _ := document.NewTextField("text", "value", true)
 		doc.Add(tf)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -889,7 +889,7 @@ func TestLucene90PointsFormat_RandomDocCount(t *testing.T) {
 			bp, _ := document.NewBinaryPoint("field", point)
 			doc.Add(bp)
 		}
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -926,7 +926,7 @@ func TestLucene90PointsFormat_MismatchedFields(t *testing.T) {
 		encodeInt32Sortable(i, point)
 		bp, _ := document.NewBinaryPoint("field1", point)
 		doc.Add(bp)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -937,7 +937,7 @@ func TestLucene90PointsFormat_MismatchedFields(t *testing.T) {
 		encodeInt32Sortable(i, point)
 		bp, _ := document.NewBinaryPoint("field2", point)
 		doc.Add(bp)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -978,7 +978,7 @@ func TestLucene90PointsFormat_AllPointDocsDeleted(t *testing.T) {
 		doc.Add(sf)
 		tf, _ := document.NewTextField("x", "x", true)
 		doc.Add(tf)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -987,7 +987,7 @@ func TestLucene90PointsFormat_AllPointDocsDeleted(t *testing.T) {
 	doc := document.NewDocument()
 	tf, _ := document.NewTextField("other", "value", true)
 	doc.Add(tf)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("Failed to add document: %v", err)
 	}
 
@@ -1027,7 +1027,7 @@ func TestLucene90PointsFormat_WithExceptions(t *testing.T) {
 		encodeInt32Sortable(i, point)
 		bp, _ := document.NewBinaryPoint("field", point)
 		doc.Add(bp)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}

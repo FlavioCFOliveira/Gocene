@@ -79,7 +79,7 @@ func addContentDoc(t *testing.T, writer *index.IndexWriter, ft *document.FieldTy
 		t.Fatalf("NewField: %v", err)
 	}
 	doc.Add(field)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 }
@@ -461,7 +461,7 @@ func TestPostingsOffsets_AddFieldTwice(t *testing.T) {
 	}
 	doc.Add(field2)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("Failed to add document: %v", err)
 	}
 
@@ -494,7 +494,7 @@ func TestPostingsOffsets_NegativeOffsets(t *testing.T) {
 				panicked = true
 			}
 		}()
-		_ = writer.AddDocument(doc)
+		_, _ = writer.AddDocument(doc)
 	}()
 	if !panicked {
 		t.Fatalf("expected panic for negative startOffset")
@@ -525,7 +525,7 @@ func TestPostingsOffsets_IllegalOffsets(t *testing.T) {
 				panicked = true
 			}
 		}()
-		_ = writer.AddDocument(doc)
+		_, _ = writer.AddDocument(doc)
 	}()
 	if !panicked {
 		t.Fatalf("expected panic for endOffset < startOffset")
@@ -567,7 +567,7 @@ func TestPostingsOffsets_StackedTokens(t *testing.T) {
 	doc := document.NewDocument()
 	field, _ := document.NewField("content", "ignored", postingsOffsetsType(false))
 	doc.Add(field)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 
@@ -609,7 +609,7 @@ func TestPostingsOffsets_LegalButVeryLargeOffsets(t *testing.T) {
 			doc := document.NewDocument()
 			field, _ := document.NewField("content", "ignored", postingsOffsetsType(false))
 			doc.Add(field)
-			if err := writer.AddDocument(doc); err != nil {
+			if _, err := writer.AddDocument(doc); err != nil {
 				t.Fatalf("AddDocument: %v", err)
 			}
 

@@ -74,7 +74,7 @@ func TestNeverDelete_Indexing(t *testing.T) {
 					return
 				}
 				doc.Add(tf)
-				if err := w.AddDocument(doc); err != nil {
+				if _, err := w.AddDocument(doc); err != nil {
 					fail(err)
 					return
 				}

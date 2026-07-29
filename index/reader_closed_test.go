@@ -73,7 +73,7 @@ func TestReaderClosed(t *testing.T) {
 			t.Fatalf("Failed to create field for doc %d: %v", i, err)
 		}
 		doc.Add(field)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document %d: %v", i, err)
 		}
 	}

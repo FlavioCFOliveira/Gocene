@@ -45,7 +45,8 @@ func nrtAddIntDoc(w *index.IndexWriter, id int) error {
 	doc.Add(idField)
 	textField, _ := document.NewTextField("content", fmt.Sprintf("value %d", id), false)
 	doc.Add(textField)
-	return w.AddDocument(doc)
+	_, err := w.AddDocument(doc)
+	return err
 }
 
 // TestNRTConcurrentIndexingAndSearching verifies that reader goroutines can
@@ -314,7 +315,7 @@ func TestNRTConcurrentDeletesAndReads(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < numDocs/2; i++ {
-			if err := writer.DeleteDocuments(index.NewTerm("id", strconv.Itoa(i))); err != nil {
+			if _, err := writer.DeleteDocuments(index.NewTerm("id", strconv.Itoa(i))); err != nil {
 				t.Errorf("DeleteDocuments(%d): %v", i, err)
 				return
 			}

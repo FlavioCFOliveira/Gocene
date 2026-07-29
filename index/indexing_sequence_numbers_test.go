@@ -23,46 +23,69 @@
 //
 // # Deviations from the Java reference
 //
-//   - All tests are degraded to t.Skip.
+//   - testAfterRefresh and the stress tests are still blocked on missing
+//     infrastructure (NRT reader, functional deletes, NoDeletionPolicy, etc.).
 //
-//   - The primary blocker across all tests: Gocene's IndexWriter.AddDocument
-//     returns (error), not (int64, error). Java's indexing operations return a
-//     monotonically increasing sequence number (long) used to order operations
-//     and verify consistency; without sequence number return values none of
-//     the assertions can be expressed.
-//
-//   - testAfterRefresh requires DirectoryReader.open(IndexWriter) NRT path
-//     (not implemented).
-//
-//   - testStressUpdateSameID requires RandomIndexWriter, functional
-//     updateDocument(Term), DirectoryReader.open(IndexWriter) NRT reader,
-//     IndexSearcher, TermQuery, and TopDocs (search layer not yet wired for
-//     index-level tests).
-//
-//   - testStressConcurrentCommit, testStressConcurrentDocValuesUpdatesCommit,
-//     and testStressConcurrentAddAndDeleteAndCommit additionally require
-//     NoDeletionPolicy.INSTANCE, TestUtil.nextInt, functional
-//     deleteDocuments(Term), updateDocValues, and a SegmentInfos read path to
-//     enumerate per-segment doc counts.
-//
-//   - testDeleteAll requires deleteAll() to functionally remove all documents
-//     and returns a sequence number; both are unimplemented.
+//   - The non-stress basic tests use the newly-added sequence-number return
+//     values from IndexWriter operations.
 //
 // Byte-level compatibility verified against Apache Lucene 10.4.0.
 package index_test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/store"
+)
+
+func newSeqNoWriter(t *testing.T, dir store.Directory) *index.IndexWriter {
+	t.Helper()
+	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	writer, err := index.NewIndexWriter(dir, config)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	return writer
+}
+
+func addSeqNoDoc(t *testing.T, writer *index.IndexWriter, value string) int64 {
+	t.Helper()
+	doc := document.NewDocument()
+	field, err := document.NewStringField("field", value, false)
+	if err != nil {
+		t.Fatalf("NewStringField: %v", err)
+	}
+	doc.Add(field)
+	seqNo, err := writer.AddDocument(doc)
+	if err != nil {
+		t.Fatalf("AddDocument(%q): %v", value, err)
+	}
+	return seqNo
+}
 
 // TestIndexingSeqNos_Basic ports testBasic().
 //
 // Java adds two documents and asserts that the second sequence number is
 // strictly greater than the first (b > a).
-//
-// Degraded to t.Skip: IndexWriter.AddDocument returns (error), not
-// (int64, error); sequence number return values are not yet implemented.
 func TestIndexingSeqNos_Basic(t *testing.T) {
-	t.Fatal("needs AddDocument to return a sequence number (int64); " +
-		"current signature returns only error (not yet ported)")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	writer := newSeqNoWriter(t, dir)
+	defer writer.Close()
+
+	a := addSeqNoDoc(t, writer, "a")
+	b := addSeqNoDoc(t, writer, "b")
+
+	if b <= a {
+		t.Fatalf("expected second seqNo (%d) > first seqNo (%d)", b, a)
+	}
+	if a <= 0 {
+		t.Fatalf("expected positive seqNo, got %d", a)
+	}
 }
 
 // TestIndexingSeqNos_AfterRefresh ports testAfterRefresh().
@@ -70,22 +93,32 @@ func TestIndexingSeqNos_Basic(t *testing.T) {
 // Java adds a document, opens an NRT reader (DirectoryReader.open(w)),
 // adds a second document, and asserts the second sequence number is greater.
 //
-// Degraded to t.Skip: sequence number return value missing; also requires
-// DirectoryReader.open(IndexWriter) NRT path (not implemented).
+// Blocker: DirectoryReader.open(IndexWriter) NRT reader path is not yet
+// wired for this test.
 func TestIndexingSeqNos_AfterRefresh(t *testing.T) {
-	t.Fatal("needs sequence-number return from AddDocument and " +
-		"DirectoryReader.open(IndexWriter) NRT reader (not yet implemented)")
+	t.Fatal("needs DirectoryReader.open(IndexWriter) NRT reader path (not yet implemented)")
 }
 
 // TestIndexingSeqNos_AfterCommit ports testAfterCommit().
 //
 // Java adds a document, commits, adds another document, and asserts the
 // second sequence number is strictly greater than the first.
-//
-// Degraded to t.Skip: AddDocument does not return a sequence number.
 func TestIndexingSeqNos_AfterCommit(t *testing.T) {
-	t.Fatal("needs AddDocument to return a sequence number (int64) " +
-		"(not yet ported)")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	writer := newSeqNoWriter(t, dir)
+	defer writer.Close()
+
+	a := addSeqNoDoc(t, writer, "a")
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	b := addSeqNoDoc(t, writer, "b")
+
+	if b <= a {
+		t.Fatalf("expected seqNo after commit (%d) > seqNo before commit (%d)", b, a)
+	}
 }
 
 // TestIndexingSeqNos_StressUpdateSameID ports testStressUpdateSameID().
@@ -95,13 +128,10 @@ func TestIndexingSeqNos_AfterCommit(t *testing.T) {
 // an NRT reader, searches for the document, and asserts the stored thread ID
 // matches the thread with the highest sequence number.
 //
-// Degraded to t.Skip: sequence number return value, functional
-// updateDocument(Term), NRT DirectoryReader.open(IndexWriter), IndexSearcher,
-// TermQuery, and RandomIndexWriter are all missing.
+// Blockers: functional updateDocument(Term), NRT DirectoryReader.open(IndexWriter),
+// IndexSearcher/TermQuery wired for index-level tests, and RandomIndexWriter.
 func TestIndexingSeqNos_StressUpdateSameID(t *testing.T) {
-	t.Fatal("needs sequence-number return, functional updateDocument(Term), " +
-		"NRT reader, IndexSearcher+TermQuery, and RandomIndexWriter " +
-		"(none ported)")
+	t.Fatal("needs functional updateDocument(Term), NRT reader, IndexSearcher+TermQuery, and RandomIndexWriter")
 }
 
 // TestIndexingSeqNos_StressConcurrent ports testStressConcurrentCommit().
@@ -110,42 +140,33 @@ func TestIndexingSeqNos_StressUpdateSameID(t *testing.T) {
 // commit operations, then verifies the final index state is consistent with
 // the observed sequence numbers.
 //
-// Degraded to t.Skip: sequence numbers, NoDeletionPolicy.INSTANCE,
-// functional deleteDocuments(Term), and SegmentInfos doc-count enumeration
-// are not yet available.
+// Blockers: functional deleteDocuments(Term), NoDeletionPolicy.INSTANCE, and
+// SegmentInfos per-segment doc-count enumeration.
 func TestIndexingSeqNos_StressConcurrent(t *testing.T) {
-	t.Fatal("needs sequence numbers, NoDeletionPolicy.INSTANCE, functional " +
-		"deleteDocuments(Term), and SegmentInfos doc-count read path " +
-		"(not yet ported)")
+	t.Fatal("needs functional deleteDocuments(Term), NoDeletionPolicy.INSTANCE, and SegmentInfos doc-count read path")
 }
 
 // TestIndexingSeqNos_StressDVUpdates ports
 // testStressConcurrentDocValuesUpdatesCommit().
 //
 // Same as TestIndexingSeqNos_StressConcurrent but with DocValues field
-// updates (updateNumericDocValues) interleaved; requires updateDocValues
-// and sequence number tracking.
+// updates interleaved.
 //
-// Degraded to t.Skip: updateNumericDocValues, sequence numbers, and all
-// blockers listed in TestIndexingSeqNos_StressConcurrent apply.
+// Blockers: same as TestIndexingSeqNos_StressConcurrent plus functional
+// updateNumericDocValues path that returns sequence numbers.
 func TestIndexingSeqNos_StressDVUpdates(t *testing.T) {
-	t.Fatal("needs updateNumericDocValues, sequence numbers, NoDeletionPolicy, " +
-		"functional deleteDocuments(Term), and SegmentInfos read path " +
-		"(not yet ported)")
+	t.Fatal("needs updateNumericDocValues, functional deleteDocuments(Term), NoDeletionPolicy, and SegmentInfos read path")
 }
 
 // TestIndexingSeqNos_StressAddAndDelete ports
 // testStressConcurrentAddAndDeleteAndCommit().
 //
 // Java stress-tests concurrent add/delete/commit with sequence number
-// assertions; verifies that no document committed with a higher sequence
-// number is missing and no document committed with a lower sequence number
-// than a delete is present.
+// assertions.
 //
-// Degraded to t.Skip: same blockers as TestIndexingSeqNos_StressConcurrent.
+// Blockers: same as TestIndexingSeqNos_StressConcurrent.
 func TestIndexingSeqNos_StressAddAndDelete(t *testing.T) {
-	t.Fatal("needs sequence numbers, functional deleteDocuments(Term), and " +
-		"SegmentInfos doc-count read path (not yet ported)")
+	t.Fatal("needs functional deleteDocuments(Term), NoDeletionPolicy.INSTANCE, and SegmentInfos doc-count read path")
 }
 
 // TestIndexingSeqNos_DeleteAll ports testDeleteAll().
@@ -153,10 +174,25 @@ func TestIndexingSeqNos_StressAddAndDelete(t *testing.T) {
 // Java calls deleteAll(), asserts the returned sequence number is > 0,
 // adds a document, asserts its sequence number is greater than the deleteAll
 // sequence number.
-//
-// Degraded to t.Skip: deleteAll() does not return a sequence number; sequence
-// number return values are not implemented.
 func TestIndexingSeqNos_DeleteAll(t *testing.T) {
-	t.Fatal("needs deleteAll() to return a sequence number and AddDocument to " +
-		"return a sequence number (not yet implemented)")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	writer := newSeqNoWriter(t, dir)
+	defer writer.Close()
+
+	addSeqNoDoc(t, writer, "before")
+
+	deleteSeqNo, err := writer.DeleteAll()
+	if err != nil {
+		t.Fatalf("DeleteAll: %v", err)
+	}
+	if deleteSeqNo <= 0 {
+		t.Fatalf("expected positive deleteAll seqNo, got %d", deleteSeqNo)
+	}
+
+	after := addSeqNoDoc(t, writer, "after")
+	if after <= deleteSeqNo {
+		t.Fatalf("expected seqNo after deleteAll (%d) > deleteAll seqNo (%d)", after, deleteSeqNo)
+	}
 }

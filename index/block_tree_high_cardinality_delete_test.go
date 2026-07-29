@@ -54,7 +54,7 @@ func TestBlockTreeHighCardinality_DeleteByIDReopen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen IndexWriter: %v", err)
 	}
-	if err := writer.DeleteDocuments(index.NewTerm("id", victim)); err != nil {
+	if _, err := writer.DeleteDocuments(index.NewTerm("id", victim)); err != nil {
 		_ = writer.Close()
 		t.Fatalf("DeleteDocuments(%q): %v", victim, err)
 	}

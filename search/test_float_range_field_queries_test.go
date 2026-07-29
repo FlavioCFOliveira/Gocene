@@ -39,7 +39,7 @@ func buildFloatRangeBasicsIndex(t *testing.T, dir store.Directory) *index.Direct
 			t.Fatalf("NewFloatRangeLucene(%v,%v): %v", min, max, err)
 		}
 		doc.Add(f)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

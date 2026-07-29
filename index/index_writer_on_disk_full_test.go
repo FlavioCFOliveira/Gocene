@@ -30,7 +30,7 @@ func TestIndexWriterOnDiskFull_AddDocumentOnDiskFull(t *testing.T) {
 			hitError := false
 			indexExists := false
 			for i := 0; i < 200; i++ {
-				if err := writer.AddDocument(newDiskFullDoc()); err != nil {
+				if _, err := writer.AddDocument(newDiskFullDoc()); err != nil {
 					hitError = true
 					break
 				}
@@ -95,16 +95,16 @@ func TestIndexWriterOnDiskFull_CorruptionAfterDiskFull(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc.Add(f)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
-	if err := writer.DeleteDocuments(index.NewTerm("f", "who")); err != nil {
+	if _, err := writer.DeleteDocuments(index.NewTerm("f", "who")); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument after delete: %v", err)
 	}
 
@@ -187,7 +187,7 @@ func TestIndexWriterOnDiskFull_ImmediateDiskFull(t *testing.T) {
 	doc := document.NewDocument()
 	doc.Add(ff)
 
-	err = writer.AddDocument(doc)
+	_, err = writer.AddDocument(doc)
 	if err == nil {
 		// In Gocene, documents are buffered and only flushed during commit.
 		// The disk-full error will surface on commit.

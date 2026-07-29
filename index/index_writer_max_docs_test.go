@@ -51,7 +51,7 @@ func TestIndexWriterMaxDocsExactlyAtTrueLimit(t *testing.T) {
 			t.Fatalf("NewTextField: %v", err)
 		}
 		doc.Add(f)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
@@ -72,7 +72,7 @@ func TestIndexWriterMaxDocsExactlyAtTrueLimit(t *testing.T) {
 	doc := document.NewDocument()
 	f, _ := document.NewTextField("content", "overflow", true)
 	doc.Add(f)
-	if err := writer.AddDocument(doc); err == nil {
+	if _, err := writer.AddDocument(doc); err == nil {
 		t.Error("expected error for document beyond MaxDocs, got nil")
 	}
 }
@@ -95,7 +95,7 @@ func TestIndexWriterMaxDocsAddDocument(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("content", "aaa", true)
 		doc.Add(f)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
@@ -108,7 +108,7 @@ func TestIndexWriterMaxDocsAddDocument(t *testing.T) {
 	doc := document.NewDocument()
 	f, _ := document.NewTextField("content", "bbb", true)
 	doc.Add(f)
-	if err := writer.AddDocument(doc); err == nil {
+	if _, err := writer.AddDocument(doc); err == nil {
 		t.Error("expected error for 11th document, got nil")
 	}
 }
@@ -135,7 +135,7 @@ func TestIndexWriterMaxDocsAddDocuments(t *testing.T) {
 		doc.Add(f)
 		docs[i] = doc
 	}
-	if err := writer.AddDocuments(docs); err != nil {
+	if _, err := writer.AddDocuments(docs); err != nil {
 		t.Errorf("AddDocuments (at limit): %v", err)
 	}
 
@@ -147,7 +147,7 @@ func TestIndexWriterMaxDocsAddDocuments(t *testing.T) {
 	extra := document.NewDocument()
 	f, _ := document.NewTextField("content", "overflow", true)
 	extra.Add(f)
-	if err := writer.AddDocuments([]index.Document{extra}); err == nil {
+	if _, err := writer.AddDocuments([]index.Document{extra}); err == nil {
 		t.Error("expected error for AddDocuments beyond limit, got nil")
 	}
 }
@@ -177,7 +177,7 @@ func TestIndexWriterMaxDocsUpdateDocument(t *testing.T) {
 		doc.Add(f)
 		cf, _ := document.NewTextField("content", "initial", true)
 		doc.Add(cf)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
@@ -194,7 +194,7 @@ func TestIndexWriterMaxDocsUpdateDocument(t *testing.T) {
 	updatedDoc.Add(f)
 	cf, _ := document.NewTextField("content", "updated", true)
 	updatedDoc.Add(cf)
-	if err := writer.UpdateDocument(index.NewTerm("id", "a"), updatedDoc); err != nil {
+	if _, err := writer.UpdateDocument(index.NewTerm("id", "a"), updatedDoc); err != nil {
 		t.Errorf("UpdateDocument: %v", err)
 	}
 
@@ -227,7 +227,7 @@ func TestIndexWriterMaxDocsReclaimedDeletes(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("content", "test", true)
 		doc.Add(f)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
@@ -239,7 +239,7 @@ func TestIndexWriterMaxDocsReclaimedDeletes(t *testing.T) {
 	// Delete 5 documents by term.  After deletion NumDocs should decrease.
 	for i := 0; i < 5; i++ {
 		term := index.NewTerm("content", "test")
-		if err := writer.DeleteDocuments(term); err != nil {
+		if _, err := writer.DeleteDocuments(term); err != nil {
 			t.Fatalf("DeleteDocuments(%d): %v", i, err)
 		}
 	}
@@ -271,14 +271,14 @@ func TestIndexWriterMaxDocsReclaimedDeletesWholeSegments(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("content", "test", true)
 		doc.Add(f)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
 
 	// Delete all documents, then ForceMerge.
 	for i := 0; i < 20; i++ {
-		_ = writer.DeleteDocuments(index.NewTerm("content", "test"))
+		_, _ = writer.DeleteDocuments(index.NewTerm("content", "test"))
 	}
 
 	if err := writer.ForceMerge(1); err != nil {
@@ -304,7 +304,7 @@ func TestIndexWriterMaxDocsAddIndexes(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("content", "aux", true)
 		doc.Add(f)
-		if err := auxWriter.AddDocument(doc); err != nil {
+		if _, err := auxWriter.AddDocument(doc); err != nil {
 			t.Fatalf("aux AddDocument(%d): %v", i, err)
 		}
 	}
@@ -325,7 +325,7 @@ func TestIndexWriterMaxDocsAddIndexes(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("content", "main", true)
 		doc.Add(f)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
@@ -355,7 +355,7 @@ func TestIndexWriterMaxDocsMultiReader(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("content", "test", true)
 		doc.Add(f)
-		_ = w1.AddDocument(doc)
+		_, _ = w1.AddDocument(doc)
 	}
 	_ = w1.Close()
 
@@ -365,7 +365,7 @@ func TestIndexWriterMaxDocsMultiReader(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("content", "test", true)
 		doc.Add(f)
-		_ = w2.AddDocument(doc)
+		_, _ = w2.AddDocument(doc)
 	}
 	_ = w2.Close()
 
@@ -413,7 +413,7 @@ func TestIndexWriterMaxDocsAddTooManyIndexesDir(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("content", "test", true)
 		doc.Add(f)
-		_ = writer.AddDocument(doc)
+		_, _ = writer.AddDocument(doc)
 	}
 
 	// Create auxiliary index with docs.
@@ -422,7 +422,7 @@ func TestIndexWriterMaxDocsAddTooManyIndexesDir(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("content", "aux", true)
 		doc.Add(f)
-		_ = auxWriter.AddDocument(doc)
+		_, _ = auxWriter.AddDocument(doc)
 	}
 	_ = auxWriter.Close()
 
@@ -468,7 +468,7 @@ func TestIndexWriterMaxDocsDeleteAll(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("content", "test", true)
 		doc.Add(f)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
@@ -477,12 +477,12 @@ func TestIndexWriterMaxDocsDeleteAll(t *testing.T) {
 	overflow := document.NewDocument()
 	f, _ := document.NewTextField("content", "overflow", true)
 	overflow.Add(f)
-	if err := writer.AddDocument(overflow); err == nil {
+	if _, err := writer.AddDocument(overflow); err == nil {
 		t.Fatal("expected error before DeleteAll, got nil")
 	}
 
 	// DeleteAll resets the counter.
-	if err := writer.DeleteAll(); err != nil {
+	if _, err := writer.DeleteAll(); err != nil {
 		t.Fatalf("DeleteAll: %v", err)
 	}
 
@@ -491,7 +491,7 @@ func TestIndexWriterMaxDocsDeleteAll(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("content", "test", true)
 		doc.Add(f)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument after DeleteAll(%d): %v", i, err)
 		}
 	}
@@ -500,7 +500,7 @@ func TestIndexWriterMaxDocsDeleteAll(t *testing.T) {
 	overflow2 := document.NewDocument()
 	f2, _ := document.NewTextField("content", "overflow", true)
 	overflow2.Add(f2)
-	if err := writer.AddDocument(overflow2); err == nil {
+	if _, err := writer.AddDocument(overflow2); err == nil {
 		t.Error("expected error after DeleteAll+refill, got nil")
 	}
 }
@@ -523,7 +523,7 @@ func TestIndexWriterMaxDocsDeleteAllAfterCommit(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("content", "test", true)
 		doc.Add(f)
-		_ = writer.AddDocument(doc)
+		_, _ = writer.AddDocument(doc)
 	}
 
 	if err := writer.Commit(); err != nil {
@@ -531,7 +531,7 @@ func TestIndexWriterMaxDocsDeleteAllAfterCommit(t *testing.T) {
 	}
 
 	// DeleteAll after commit.
-	if err := writer.DeleteAll(); err != nil {
+	if _, err := writer.DeleteAll(); err != nil {
 		t.Fatalf("DeleteAll: %v", err)
 	}
 
@@ -540,7 +540,7 @@ func TestIndexWriterMaxDocsDeleteAllAfterCommit(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("content", "new", true)
 		doc.Add(f)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument after DeleteAll+Commit(%d): %v", i, err)
 		}
 	}
@@ -571,7 +571,7 @@ func TestIndexWriterMaxDocsDeleteAllMultipleThreads(t *testing.T) {
 				doc := document.NewDocument()
 				f, _ := document.NewTextField("content", "test", true)
 				doc.Add(f)
-				_ = writer.AddDocument(doc)
+				_, _ = writer.AddDocument(doc)
 			}
 		}()
 	}
@@ -581,7 +581,7 @@ func TestIndexWriterMaxDocsDeleteAllMultipleThreads(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 3; i++ {
-			_ = writer.DeleteAll()
+			_, _ = writer.DeleteAll()
 		}
 	}()
 
@@ -608,7 +608,7 @@ func TestIndexWriterMaxDocsDeleteAllAfterClose(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("content", "test", true)
 		doc.Add(f)
-		_ = w1.AddDocument(doc)
+		_, _ = w1.AddDocument(doc)
 	}
 	if err := w1.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
@@ -633,7 +633,7 @@ func TestIndexWriterMaxDocsDeleteAllAfterClose(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("content", "new", true)
 		doc.Add(f)
-		if err := w2.AddDocument(doc); err != nil {
+		if _, err := w2.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
@@ -656,7 +656,7 @@ func TestIndexWriterMaxDocsAcrossTwoIndexWriters(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("content", "test", true)
 		doc.Add(f)
-		_ = w1.AddDocument(doc)
+		_, _ = w1.AddDocument(doc)
 	}
 	if err := w1.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)

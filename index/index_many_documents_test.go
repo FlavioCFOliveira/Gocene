@@ -51,7 +51,7 @@ func TestIndexManyDocuments(t *testing.T) {
 			defer wg.Done()
 			for int(count.Add(1)-1) < numDocs {
 				doc := &testDocument{fields: []interface{}{}}
-				if err := w.AddDocument(doc); err != nil {
+				if _, err := w.AddDocument(doc); err != nil {
 					t.Errorf("AddDocument() error = %v", err)
 					return
 				}

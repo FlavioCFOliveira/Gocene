@@ -36,7 +36,7 @@ func TestIndexWriterWithThreads(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < numDocsPerThread; j++ {
 				doc := &testDocument{fields: []interface{}{}}
-				if err := writer.AddDocument(doc); err != nil {
+				if _, err := writer.AddDocument(doc); err != nil {
 					t.Errorf("Thread %d failed to add document %d: %v", threadID, j, err)
 					return
 				}
@@ -135,7 +135,7 @@ func TestIndexWriter_ConcurrentCloseDuringIndexing(t *testing.T) {
 			<-startSignal
 			for {
 				doc := &testDocument{fields: []interface{}{}}
-				err := writer.AddDocument(doc)
+				_, err := writer.AddDocument(doc)
 				if err != nil {
 					// Expect AlreadyClosedException eventually
 					return
@@ -180,7 +180,7 @@ func TestIndexWriter_UpdateDocumentsWithThreads(t *testing.T) {
 			for j := 0; j < numDocsPerThread; j++ {
 				term := index.NewTerm("id", fmt.Sprintf("%d-%d", threadID, j))
 				doc := &testDocument{fields: []interface{}{}}
-				if err := writer.UpdateDocument(term, doc); err != nil {
+				if _, err := writer.UpdateDocument(term, doc); err != nil {
 					t.Errorf("Thread %d failed to update document %d: %v", threadID, j, err)
 				}
 			}

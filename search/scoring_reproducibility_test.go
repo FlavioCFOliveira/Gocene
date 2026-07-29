@@ -48,7 +48,7 @@ func TestSearchScoringReproducibility_TermQuery(t *testing.T) {
 		contentField, _ := document.NewTextField("content", d.content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -105,7 +105,7 @@ func TestSearchScoringReproducibility_BooleanQuery(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "test reproducible scoring", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -169,7 +169,7 @@ func TestSearchScoringReproducibility_PhraseQuery(t *testing.T) {
 		contentField, _ := document.NewTextField("content", content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -227,7 +227,7 @@ func TestSearchScoringReproducibility_NewReader(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "reproducibility test", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}

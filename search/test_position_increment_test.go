@@ -41,7 +41,7 @@ func TestPositionIncrement_TestCrazy(t *testing.T) {
 		t.Fatalf("NewTextField: %v", err)
 	}
 	d.Add(f)
-	if err := w.AddDocument(d); err != nil {
+	if _, err := w.AddDocument(d); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Close(); err != nil {

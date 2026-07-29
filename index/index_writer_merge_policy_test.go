@@ -143,7 +143,8 @@ func (n *NoMergePolicy) UseCompoundFile(infos *index.SegmentInfos, mergedSegment
 // addDoc adds a simple document with a "content" field to the writer.
 func addDocForMergePolicy(writer *index.IndexWriter) error {
 	doc := &testDocument{fields: []interface{}{}}
-	return writer.AddDocument(doc)
+	_, err := writer.AddDocument(doc)
+	return err
 }
 
 // TestIndexWriterMergePolicy_NormalCase tests the normal case of merge policy operation.

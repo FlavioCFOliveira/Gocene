@@ -53,7 +53,7 @@ func TestSimilarityScoring_BM25Basic(t *testing.T) {
 		contentField, _ := document.NewTextField("content", d.content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -116,7 +116,7 @@ func TestSimilarityScoring_TFIDFBasic(t *testing.T) {
 		contentField, _ := document.NewTextField("content", d.content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -175,7 +175,7 @@ func TestSimilarityScoring_DocumentFrequency(t *testing.T) {
 		contentField, _ := document.NewTextField("content", content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -230,7 +230,7 @@ func TestSimilarityScoring_TermFrequency(t *testing.T) {
 		contentField, _ := document.NewTextField("content", d.content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -284,7 +284,7 @@ func TestSimilarityScoring_FieldLengthNorm(t *testing.T) {
 		contentField, _ := document.NewTextField("content", d.content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -339,7 +339,7 @@ func TestSimilarityScoring_BooleanQueryScoring(t *testing.T) {
 		contentField, _ := document.NewTextField("content", d.content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -402,7 +402,7 @@ func TestSimilarityScoring_PhraseQueryScoring(t *testing.T) {
 		contentField, _ := document.NewTextField("content", d.content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -455,7 +455,7 @@ func TestSimilarityScoring_ScoreConsistency(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "identical content", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -508,7 +508,7 @@ func TestSimilarityScoring_BM25Parameters(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "test content", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}

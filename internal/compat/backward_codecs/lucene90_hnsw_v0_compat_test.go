@@ -84,7 +84,7 @@ func TestLucene90HnswV0_GoceneWriteJavaCheck(t *testing.T) {
 		doc.Add(idField)
 		vecField, _ := document.NewKnnFloatVectorFieldEuclidean("vec", []float32{float32(i), float32(i + 1), float32(i + 2)})
 		doc.Add(vecField)
-		if err := iw.AddDocument(doc); err != nil {
+		if _, err := iw.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

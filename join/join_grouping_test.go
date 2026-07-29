@@ -39,7 +39,7 @@ func TestJoinGrouping_ParentChildJoin(t *testing.T) {
 		typeField, _ := document.NewStringField("type", "parent", true)
 		doc.Add(typeField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add parent: %v", err)
 		}
 	}
@@ -56,7 +56,7 @@ func TestJoinGrouping_ParentChildJoin(t *testing.T) {
 		parentField, _ := document.NewStringField("parent_id", string(rune('A'+i%5)), true)
 		doc.Add(parentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add child: %v", err)
 		}
 	}
@@ -100,7 +100,7 @@ func TestJoinGrouping_GroupingByField(t *testing.T) {
 		groupField, _ := document.NewStringField("group", group, true)
 		doc.Add(groupField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -144,7 +144,7 @@ func TestJoinGrouping_TermsQuery(t *testing.T) {
 		keyField, _ := document.NewStringField("join_key", joinKey, true)
 		doc.Add(keyField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}

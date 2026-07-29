@@ -32,7 +32,7 @@ func buildSearchAfterIndex(t *testing.T, dir store.Directory, n int) *index.Inde
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("text", fmt.Sprintf("doc %d", i), true)
 		doc.Add(f)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
@@ -69,7 +69,7 @@ func buildSortAfterIndex(t *testing.T, dir store.Directory, n int) *index.IndexW
 		doubleDV, _ := document.NewDoubleDocValuesField("doubleField", float64(i)*1.5)
 		doc.Add(doubleDV)
 
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
@@ -358,7 +358,7 @@ func TestSearchAfter_MissingFields(t *testing.T) {
 			dv, _ := document.NewNumericDocValuesField("intField", int64(i))
 			doc.Add(dv)
 		}
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
@@ -437,7 +437,7 @@ func TestSearchAfter_ScorePopulation(t *testing.T) {
 		dv, _ := document.NewNumericDocValuesField("intField", int64(i))
 		doc.Add(dv)
 
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

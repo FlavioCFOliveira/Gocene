@@ -232,6 +232,14 @@ type IndexWriter struct {
 	// from w.mu so that the MergeScheduler can poll for new merges without
 	// deadlocking against the IndexWriter's main lock.
 	pendingMergesMu sync.Mutex
+
+	// seqNoCounter assigns a strictly increasing sequence number to every
+	// indexing operation (add, update, delete, deleteAll, doc-values update).
+	// It starts at 1; 0 is reserved for "no operation / unknown".  Atomic
+	// increments make the numbering thread-safe even when addLock/commitLock
+	// are not held.  This is the Gocene equivalent of Lucene's
+	// DocumentsWriterDeleteQueue sequence numbers.
+	seqNoCounter atomic.Int64
 }
 
 // pendingSegment captures the metadata of a segment that has been flushed from
@@ -591,15 +599,19 @@ func (w *IndexWriter) setTragicError(err error) {
 // AddDocument adds a document to the index.
 // Minimizes critical section by processing document outside the global lock.
 // DocumentsWriter handles its own internal concurrency.
-func (w *IndexWriter) AddDocument(doc Document) error {
+//
+// Returns the sequence number assigned to this indexing operation. Sequence
+// numbers start at 1 and increase monotonically across all add/update/delete
+// operations on this writer.
+func (w *IndexWriter) AddDocument(doc Document) (int64, error) {
 	if err := w.ensureOpen(); err != nil {
-		return err
+		return 0, err
 	}
 
 	// Validate sort field types against the DV fields in this document.
 	if sort := w.config.IndexSort(); sort != nil {
 		if err := w.validateSortFieldTypes(doc, sort); err != nil {
-			return err
+			return 0, err
 		}
 	}
 
@@ -613,7 +625,7 @@ func (w *IndexWriter) AddDocument(doc Document) error {
 	// IndexWriter.reserveDocs / tooManyDocs contract.
 	if maxDocs := w.config.MaxDocs(); maxDocs > 0 {
 		if current := w.maxDocForLimit(); current >= maxDocs {
-			return fmt.Errorf(
+			return 0, fmt.Errorf(
 				"number of documents in the index cannot exceed %d (current document count is %d)",
 				maxDocs, current)
 		}
@@ -623,7 +635,7 @@ func (w *IndexWriter) AddDocument(doc Document) error {
 	// to hold the global lock during document processing.
 	if w.documentsWriter != nil {
 		if err := w.documentsWriter.AddDocument(doc, nil); err != nil {
-			return err
+			return 0, err
 		}
 	}
 
@@ -655,10 +667,16 @@ func (w *IndexWriter) AddDocument(doc Document) error {
 	maxBuf := w.config.MaxBufferedDocs()
 	if maxBuf > 0 && int(newCount) >= maxBuf {
 		if err := w.maybeFlushPendingDocs(); err != nil {
-			return err
+			return 0, err
 		}
 	}
-	return nil
+	return w.nextSequenceNumber(), nil
+}
+
+// nextSequenceNumber returns the next monotonically increasing sequence number
+// for an indexing operation. It is safe for concurrent use.
+func (w *IndexWriter) nextSequenceNumber() int64 {
+	return w.seqNoCounter.Add(1)
 }
 
 // addFieldToInfos adds (or merges) a field's metadata into pendingFieldInfos.
@@ -717,9 +735,9 @@ func (w *IndexWriter) addFieldToInfos(fm indexableFieldMeta) {
 //
 // Deletions in path 3 are applied to the current in-memory buffer only;
 // committed-segment deletions are applied conservatively at Commit time.
-func (w *IndexWriter) UpdateDocument(term *Term, doc Document) error {
+func (w *IndexWriter) UpdateDocument(term *Term, doc Document) (int64, error) {
 	if err := w.ensureOpen(); err != nil {
-		return err
+		return 0, err
 	}
 
 	// Serialize the per-document atomic unit (process → docCount.Add → flush
@@ -770,13 +788,13 @@ func (w *IndexWriter) UpdateDocument(term *Term, doc Document) error {
 			}
 		}
 		w.mu.Unlock()
-		return nil
+		return w.nextSequenceNumber(), nil
 	}
 
 	// Append path: add new doc and record bounded delete for matching old docs.
 	// Enforce the per-writer document limit on the replacement document.
 	if maxDocs := w.config.MaxDocs(); maxDocs > 0 && w.maxDocForLimit() >= maxDocs {
-		return fmt.Errorf(
+		return 0, fmt.Errorf(
 			"number of documents in the index cannot exceed %d (current document count is %d)",
 			maxDocs, w.maxDocForLimit())
 	}
@@ -819,7 +837,7 @@ func (w *IndexWriter) UpdateDocument(term *Term, doc Document) error {
 		w.docFieldIndex[matchOrdinal] = newEntries
 		w.pendingSoftDeletedOrdinals = append(w.pendingSoftDeletedOrdinals, matchOrdinal)
 		w.mu.Unlock()
-		return nil
+		return w.nextSequenceNumber(), nil
 	}
 
 	maxOrd := int(w.docCount.Load())
@@ -835,7 +853,7 @@ func (w *IndexWriter) UpdateDocument(term *Term, doc Document) error {
 		// also reach those flushed-but-not-committed docs (rmp #4753 follow-up).
 		if err := w.applyTermDeletesToPendingSegments([]*Term{term}); err != nil {
 			w.mu.Unlock()
-			return err
+			return 0, err
 		}
 		// Pre-commit NumDocs() estimate: if any committed segment has this field,
 		// conservatively assume one committed doc is being displaced.  Reset and
@@ -850,7 +868,7 @@ func (w *IndexWriter) UpdateDocument(term *Term, doc Document) error {
 	// Process replacement document through DocumentsWriter.
 	if w.documentsWriter != nil {
 		if err := w.documentsWriter.UpdateDocument(doc, nil, term); err != nil {
-			return fmt.Errorf("failed to update document: %w", err)
+			return 0, fmt.Errorf("failed to update document: %w", err)
 		}
 	}
 
@@ -861,19 +879,21 @@ func (w *IndexWriter) UpdateDocument(term *Term, doc Document) error {
 	maxBuf := w.config.MaxBufferedDocs()
 	if maxBuf > 0 && int(newCount) >= maxBuf {
 		if err := w.maybeFlushPendingDocs(); err != nil {
-			return err
+			return 0, err
 		}
 	}
-	return nil
+	return w.nextSequenceNumber(), nil
 }
 
 // DeleteDocuments buffers a term-based delete that will be applied at the next
 // Commit. Each document containing the given term in the given field is marked
 // for deletion; the delete count is reflected in the SegmentCommitInfo written
 // by Commit.
-func (w *IndexWriter) DeleteDocuments(term *Term) error {
+//
+// Returns the sequence number assigned to this indexing operation.
+func (w *IndexWriter) DeleteDocuments(term *Term) (int64, error) {
 	if err := w.ensureOpen(); err != nil {
-		return err
+		return 0, err
 	}
 
 	// Serialize with the per-document add/update lock so that an in-flight
@@ -900,11 +920,11 @@ func (w *IndexWriter) DeleteDocuments(term *Term) error {
 		// reach those flushed-but-not-committed docs.
 		if err := w.applyTermDeletesToPendingSegments([]*Term{term}); err != nil {
 			w.mu.Unlock()
-			return err
+			return 0, err
 		}
 	}
 	w.mu.Unlock()
-	return nil
+	return w.nextSequenceNumber(), nil
 }
 
 // DeleteDocumentsQuery buffers a query-based delete to be applied at the next
@@ -922,12 +942,14 @@ func (w *IndexWriter) DeleteDocuments(term *Term) error {
 // Execution requires a query-delete executor hook registered via
 // RegisterQueryDeleteExecutor (installed by the search package's init).
 // When no executor is registered the query is silently dropped.
-func (w *IndexWriter) DeleteDocumentsQuery(query interface{}) error {
+//
+// Returns the sequence number assigned to this indexing operation.
+func (w *IndexWriter) DeleteDocumentsQuery(query interface{}) (int64, error) {
 	if err := w.ensureOpen(); err != nil {
-		return err
+		return 0, err
 	}
 	if query == nil {
-		return nil
+		return 0, nil
 	}
 
 	// Route term-equivalent queries through the term-delete path.  This gives
@@ -939,7 +961,7 @@ func (w *IndexWriter) DeleteDocumentsQuery(query interface{}) error {
 		if term != nil {
 			return w.DeleteDocuments(term)
 		}
-		return nil
+		return 0, nil
 	}
 
 	// Serialize with the per-document add/update lock for the same generation
@@ -954,10 +976,10 @@ func (w *IndexWriter) DeleteDocumentsQuery(query interface{}) error {
 	// those flushed-but-not-committed docs.
 	if err := w.applyQueryDeletesToPendingSegments([]interface{}{query}); err != nil {
 		w.mu.Unlock()
-		return err
+		return 0, err
 	}
 	w.mu.Unlock()
-	return nil
+	return w.nextSequenceNumber(), nil
 }
 
 // QueryDeleteExecutor is a hook function that executes queries against a
@@ -3135,9 +3157,11 @@ func (w *IndexWriter) GetConfig() *LiveIndexWriterConfig {
 // DeleteAll deletes all documents in the index.
 // This method will be fully implemented when delete tracking is complete.
 // Uses atomic store to reset counter without holding global lock.
-func (w *IndexWriter) DeleteAll() error {
+//
+// Returns the sequence number assigned to this indexing operation.
+func (w *IndexWriter) DeleteAll() (int64, error) {
 	if err := w.ensureOpen(); err != nil {
-		return err
+		return 0, err
 	}
 
 	// Serialize with concurrent add/update/delete operations and with Commit,
@@ -3179,7 +3203,7 @@ func (w *IndexWriter) DeleteAll() error {
 	// Mark that all committed segments should be deleted at the next Commit.
 	w.pendingDeleteAll = true
 
-	return nil
+	return w.nextSequenceNumber(), nil
 }
 
 // Rollback rolls back all changes made since the writer opened.
@@ -5103,12 +5127,15 @@ func (f *parentMarkerField) IsParentMarker() bool         { return true }
 //
 // Gocene deviation: full block-level atomicity (single DWPT flush for the
 // whole block) is deferred to GOC-4136; documents are added individually.
-func (w *IndexWriter) AddDocuments(docs []Document) error {
+//
+// Returns the sequence number of the last document in the block, or 0 if the
+// block was empty.
+func (w *IndexWriter) AddDocuments(docs []Document) (int64, error) {
 	if err := w.ensureOpen(); err != nil {
-		return err
+		return 0, err
 	}
 	if len(docs) == 0 {
-		return nil
+		return 0, nil
 	}
 
 	// When index sorting is configured, parent field is required for document
@@ -5117,7 +5144,7 @@ func (w *IndexWriter) AddDocuments(docs []Document) error {
 	parentFieldName := w.config.ParentField()
 	indexSort := w.config.IndexSort()
 	if indexSort != nil && len(indexSort.Fields()) > 0 && parentFieldName == "" {
-		return fmt.Errorf(
+		return 0, fmt.Errorf(
 			"a parent field must be set in order to use document blocks with index sorting; see IndexWriterConfig#setParentField")
 	}
 
@@ -5127,7 +5154,7 @@ func (w *IndexWriter) AddDocuments(docs []Document) error {
 		for _, doc := range docs {
 			for _, f := range doc.GetFields() {
 				if fi, ok := f.(interface{ Name() string }); ok && fi.Name() == parentFieldName {
-					return fmt.Errorf(
+					return 0, fmt.Errorf(
 						"%q is a reserved field and should not be added to any document",
 						parentFieldName)
 				}
@@ -5135,6 +5162,7 @@ func (w *IndexWriter) AddDocuments(docs []Document) error {
 		}
 	}
 
+	var lastSeqNo int64
 	for i, doc := range docs {
 		d := doc
 		// Inject the synthetic parent marker into the last document of the block,
@@ -5143,11 +5171,13 @@ func (w *IndexWriter) AddDocuments(docs []Document) error {
 		if parentFieldName != "" && i == len(docs)-1 {
 			d = &parentFieldDoc{inner: doc, parent: parentMarkerField{name: parentFieldName}}
 		}
-		if err := w.AddDocument(d); err != nil {
-			return err
+		seqNo, err := w.AddDocument(d)
+		if err != nil {
+			return 0, err
 		}
+		lastSeqNo = seqNo
 	}
-	return nil
+	return lastSeqNo, nil
 }
 
 // UpdateDocValues updates the doc values for documents matching the given term.
@@ -5155,9 +5185,11 @@ func (w *IndexWriter) AddDocuments(docs []Document) error {
 //
 // Fields that participate in the index sort are not updatable via
 // UpdateDocValues (mirroring Lucene's IllegalArgumentException).
-func (w *IndexWriter) UpdateDocValues(term *Term, field string, value interface{}) error {
+//
+// Returns the sequence number assigned to this indexing operation.
+func (w *IndexWriter) UpdateDocValues(term *Term, field string, value interface{}) (int64, error) {
 	if err := w.ensureOpen(); err != nil {
-		return err
+		return 0, err
 	}
 
 	w.mu.Lock()
@@ -5167,7 +5199,7 @@ func (w *IndexWriter) UpdateDocValues(term *Term, field string, value interface{
 	if sort := w.config.IndexSort(); sort != nil {
 		for _, sf := range sort.Fields() {
 			if sf.Field() == field {
-				return fmt.Errorf(
+				return 0, fmt.Errorf(
 					"cannot update doc values for field %q because it participates in the index sort",
 					field)
 			}
@@ -5179,14 +5211,14 @@ func (w *IndexWriter) UpdateDocValues(term *Term, field string, value interface{
 	// "reset" update and is allowed for any existing DocValues field.
 	dvt := w.fieldDocValuesTypeLocked(field)
 	if !dvt.HasDocValues() {
-		return fmt.Errorf(
+		return 0, fmt.Errorf(
 			"cannot update doc values for field %q: field has no doc values",
 			field)
 	}
 	// Lucene only permits doc-values updates on fields that are doc-values-only:
 	// a field that is also indexed with postings cannot be updated in place.
 	if w.fieldHasPostingsLocked(field) {
-		return fmt.Errorf(
+		return 0, fmt.Errorf(
 			"Can't update [%s] doc values; the field [%s] must be doc values only field, but is also indexed with postings.",
 			dvt.String(), field)
 	}
@@ -5194,18 +5226,18 @@ func (w *IndexWriter) UpdateDocValues(term *Term, field string, value interface{
 		switch value.(type) {
 		case int64:
 			if dvt != DocValuesTypeNumeric {
-				return fmt.Errorf(
+				return 0, fmt.Errorf(
 					"cannot update doc values for field %q: expected numeric doc values but found %v",
 					field, dvt)
 			}
 		case []byte:
 			if dvt != DocValuesTypeBinary {
-				return fmt.Errorf(
+				return 0, fmt.Errorf(
 					"cannot update doc values for field %q: expected binary doc values but found %v",
 					field, dvt)
 			}
 		default:
-			return fmt.Errorf(
+			return 0, fmt.Errorf(
 				"cannot update doc values for field %q: unsupported value type %T",
 				field, value)
 		}
@@ -5216,7 +5248,7 @@ func (w *IndexWriter) UpdateDocValues(term *Term, field string, value interface{
 		field: field,
 		value: value,
 	})
-	return nil
+	return w.nextSequenceNumber(), nil
 }
 
 // validateSortFieldTypes checks that each DocValues field in the document whose

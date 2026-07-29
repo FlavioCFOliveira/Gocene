@@ -78,7 +78,7 @@ func TestDateSort_TestDateSort(t *testing.T) {
 		{"Document 5", 1192209943000},
 	}
 	for _, d := range docs {
-		if err := w.AddDocument(createDateSortDocument(t, d.text, d.time)); err != nil {
+		if _, err := w.AddDocument(createDateSortDocument(t, d.text, d.time)); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

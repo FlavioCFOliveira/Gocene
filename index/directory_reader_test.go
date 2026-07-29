@@ -25,7 +25,7 @@ func TestDirectoryReader_IsCurrent(t *testing.T) {
 	}
 
 	doc := &testDocument{fields: []interface{}{}}
-	err = writer.AddDocument(doc)
+	_, err = writer.AddDocument(doc)
 	if err != nil {
 		t.Fatalf("Failed to add document: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestDirectoryReader_IsCurrent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open IndexWriter for append: %v", err)
 	}
-	err = writer2.AddDocument(doc)
+	_, err = writer2.AddDocument(doc)
 	if err != nil {
 		t.Fatalf("Failed to add second document: %v", err)
 	}

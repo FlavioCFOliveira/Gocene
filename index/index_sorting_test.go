@@ -411,7 +411,7 @@ func assertNeedsIndexSortMerge(
 			defaultValue(doc)
 		}
 		addPoint(doc, int32(i))
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 		if i%10 == 0 {
@@ -434,7 +434,7 @@ func assertNeedsIndexSortMerge(
 	}
 
 	// ---- Phase 2: reverse-sorted documents (merge sort IS needed) ----
-	if err := writer.DeleteAll(); err != nil {
+	if _, err := writer.DeleteAll(); err != nil {
 		t.Fatalf("DeleteAll: %v", err)
 	}
 	codec.numCalls = 0
@@ -448,7 +448,7 @@ func assertNeedsIndexSortMerge(
 			defaultValue(doc)
 		}
 		addPoint(doc, int32(i))
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 		if err := writer.Commit(); err != nil {
@@ -470,7 +470,7 @@ func assertNeedsIndexSortMerge(
 
 	// ---- Phase 3: randomized documents (merge sort IS needed) ----
 	if randomValue != nil {
-		if err := writer.DeleteAll(); err != nil {
+		if _, err := writer.DeleteAll(); err != nil {
 			t.Fatalf("DeleteAll: %v", err)
 		}
 		codec.numCalls = 0
@@ -482,7 +482,7 @@ func assertNeedsIndexSortMerge(
 			doc.Add(idNumeric)
 			randomValue(doc)
 			addPoint(doc, int32(i))
-			if err := writer.AddDocument(doc); err != nil {
+			if _, err := writer.AddDocument(doc); err != nil {
 				t.Fatalf("AddDocument %d: %v", i, err)
 			}
 			if i%10 == 0 {
@@ -1562,7 +1562,7 @@ func TestIndexSorting_Random1(t *testing.T) {
 		doc.Add(idField)
 		idDV, _ := document.NewNumericDocValuesField("id", int64(i))
 		doc.Add(idDV)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 		if err := w.Commit(); err != nil {
@@ -1651,7 +1651,7 @@ func TestIndexSorting_MultiValuedRandom1(t *testing.T) {
 		doc.Add(idField)
 		idDV, _ := document.NewNumericDocValuesField("id", int64(i))
 		doc.Add(idDV)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 		if err := w.Commit(); err != nil {
@@ -1756,7 +1756,7 @@ func TestIndexSorting_BadDVUpdate(t *testing.T) {
 	}
 	defer writer.Close()
 
-	err = writer.UpdateDocValues(nil, "foo", int64(42))
+	_, err = writer.UpdateDocValues(nil, "foo", int64(42))
 	if err == nil {
 		t.Fatal("expected error when updating a sort field via UpdateDocValues, got nil")
 	}
@@ -1786,7 +1786,7 @@ func TestIndexSorting_BadAddIndexes(t *testing.T) {
 	doc := document.NewDocument()
 	f, _ := document.NewNumericDocValuesField("bar", int64(1))
 	doc.Add(f)
-	if err := srcWriter.AddDocument(doc); err != nil {
+	if _, err := srcWriter.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument (src): %v", err)
 	}
 	if err := srcWriter.Close(); err != nil {
@@ -1903,7 +1903,7 @@ func TestIndexSorting_IllegalChangeSort(t *testing.T) {
 	doc := document.NewDocument()
 	f, _ := document.NewNumericDocValuesField("foo", int64(1))
 	doc.Add(f)
-	if err := writerA.AddDocument(doc); err != nil {
+	if _, err := writerA.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writerA.Close(); err != nil {
@@ -1941,7 +1941,7 @@ func TestIndexSorting_WrongSortFieldType(t *testing.T) {
 	f, _ := document.NewNumericDocValuesField("field", 42)
 	doc.Add(f)
 
-	err = writer.AddDocument(doc)
+	_, err = writer.AddDocument(doc)
 	if err == nil {
 		t.Fatal("expected error when adding doc with wrong DV type for sort field, got nil")
 	}
@@ -2189,7 +2189,7 @@ func TestIndexSorting_DeleteAll(t *testing.T) {
 		writer.AddDocument(doc)
 	}
 
-	if err := writer.DeleteAll(); err != nil {
+	if _, err := writer.DeleteAll(); err != nil {
 		t.Errorf("DeleteAll() error = %v", err)
 	}
 	if writer.NumDocs() != 0 {
@@ -2305,7 +2305,7 @@ func TestIndexSorting_ParentFieldNotConfigured(t *testing.T) {
 	}
 	defer writer.Close()
 
-	err = writer.AddDocuments([]index.Document{
+	_, err = writer.AddDocuments([]index.Document{
 		document.NewDocument(),
 		document.NewDocument(),
 	})
@@ -2343,7 +2343,7 @@ func TestIndexSorting_BlockContainsParentField(t *testing.T) {
 	}
 	docWithParent.Add(f)
 
-	err = writer.AddDocuments([]index.Document{
+	_, err = writer.AddDocuments([]index.Document{
 		docWithParent,
 		document.NewDocument(),
 	})
@@ -2363,7 +2363,7 @@ func TestIndexSorting_BlockContainsParentField(t *testing.T) {
 	}
 	docWithParent2.Add(f2)
 
-	err = writer.AddDocuments([]index.Document{
+	_, err = writer.AddDocuments([]index.Document{
 		document.NewDocument(),
 		docWithParent2,
 	})

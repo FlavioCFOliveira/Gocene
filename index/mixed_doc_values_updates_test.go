@@ -348,7 +348,7 @@ func TestMixedDocValuesUpdates_ResetValue(t *testing.T) {
 		t.Fatalf("Commit: %v", err)
 	}
 
-	if err := writer.UpdateDocValues(index.NewTerm("id", "doc-0"), "bin", nil); err != nil {
+	if _, err := writer.UpdateDocValues(index.NewTerm("id", "doc-0"), "bin", nil); err != nil {
 		t.Fatalf("UpdateDocValues reset: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -380,7 +380,7 @@ func TestMixedDocValuesUpdates_ResetValueMultipleDocs(t *testing.T) {
 	}
 
 	for i := 1; i < numDocs-1; i++ {
-		if err := writer.UpdateDocValues(index.NewTerm("id", fmt.Sprintf("doc-%d", i)), "is_live", nil); err != nil {
+		if _, err := writer.UpdateDocValues(index.NewTerm("id", fmt.Sprintf("doc-%d", i)), "is_live", nil); err != nil {
 			t.Fatalf("UpdateDocValues reset doc %d: %v", i, err)
 		}
 	}
@@ -415,10 +415,10 @@ func TestMixedDocValuesUpdates_UpdateNotExistingFieldDV(t *testing.T) {
 	}
 
 	term := index.NewTerm("key", "doc")
-	if err := writer.UpdateDocValues(term, "bdv", int64(5)); err == nil {
+	if _, err := writer.UpdateDocValues(term, "bdv", int64(5)); err == nil {
 		t.Fatal("expected error updating binary DV field with numeric value")
 	}
-	if err := writer.UpdateDocValues(term, "ndv", []byte{1}); err == nil {
+	if _, err := writer.UpdateDocValues(term, "ndv", []byte{1}); err == nil {
 		t.Fatal("expected error updating numeric DV field with binary value")
 	}
 }
@@ -441,7 +441,7 @@ func TestMixedDocValuesUpdates_UpdateFieldWithNoPreviousDocValuesThrowsError(t *
 		t.Fatalf("Commit: %v", err)
 	}
 
-	if err := writer.UpdateDocValues(index.NewTerm("key", "doc"), "no_dv", int64(1)); err == nil {
+	if _, err := writer.UpdateDocValues(index.NewTerm("key", "doc"), "no_dv", int64(1)); err == nil {
 		t.Fatal("expected error updating field with no previous doc values")
 	}
 }
@@ -467,7 +467,7 @@ func TestMixedDocValuesUpdates_LongRunValuesReset(t *testing.T) {
 	}
 
 	for i := 1; i < numDocs-1; i++ {
-		if err := writer.UpdateDocValues(index.NewTerm("id", fmt.Sprintf("doc-%d", i)), "is_live", nil); err != nil {
+		if _, err := writer.UpdateDocValues(index.NewTerm("id", fmt.Sprintf("doc-%d", i)), "is_live", nil); err != nil {
 			t.Fatalf("UpdateDocValues reset doc %d: %v", i, err)
 		}
 	}

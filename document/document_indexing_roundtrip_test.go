@@ -41,7 +41,7 @@ func TestDocumentIndexingRoundtrip_StringField(t *testing.T) {
 	field2, _ := document.NewStringField("category", "test", true)
 	doc.Add(field2)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("failed to add document: %v", err)
 	}
 
@@ -84,7 +84,7 @@ func TestDocumentIndexingRoundtrip_TextField(t *testing.T) {
 	contentField, _ := document.NewTextField("content", "This is a test document with some content", true)
 	doc.Add(contentField)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("failed to add document: %v", err)
 	}
 
@@ -126,7 +126,7 @@ func TestDocumentIndexingRoundtrip_StoredField(t *testing.T) {
 	storedField, _ := document.NewStoredField("metadata", "{\"version\":\"1.0\",\"source\":\"test\"}")
 	doc.Add(storedField)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("failed to add document: %v", err)
 	}
 
@@ -177,7 +177,7 @@ func TestDocumentIndexingRoundtrip_NumericFields(t *testing.T) {
 	doubleField, _ := document.NewDoubleField("precision", 2.718281828, true)
 	doc.Add(doubleField)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("failed to add document: %v", err)
 	}
 
@@ -220,7 +220,7 @@ func TestDocumentIndexingRoundtrip_BinaryField(t *testing.T) {
 	binaryField, _ := document.NewBinaryPoint("data", binaryData)
 	doc.Add(binaryField)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("failed to add document: %v", err)
 	}
 
@@ -277,7 +277,7 @@ func TestDocumentIndexingRoundtrip_MultipleFields(t *testing.T) {
 	metadataField, _ := document.NewStoredField("metadata", "{\"category\":\"test\"}")
 	doc.Add(metadataField)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("failed to add document: %v", err)
 	}
 
@@ -320,7 +320,7 @@ func TestDocumentIndexingRoundtrip_BatchDocuments(t *testing.T) {
 		contentField, _ := document.NewTextField("content", fmt.Sprintf("Content of document %d", i), true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document %d: %v", i, err)
 		}
 
@@ -370,7 +370,7 @@ func TestDocumentIndexingRoundtrip_UpdateDocument(t *testing.T) {
 	contentField, _ := document.NewTextField("content", "Original content", true)
 	doc.Add(contentField)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("failed to add document: %v", err)
 	}
 
@@ -380,7 +380,7 @@ func TestDocumentIndexingRoundtrip_UpdateDocument(t *testing.T) {
 
 	// Update document
 	term := index.NewTerm("id", "doc-001")
-	if err := writer.DeleteDocuments(term); err != nil {
+	if _, err := writer.DeleteDocuments(term); err != nil {
 		t.Fatalf("failed to delete document: %v", err)
 	}
 
@@ -389,7 +389,7 @@ func TestDocumentIndexingRoundtrip_UpdateDocument(t *testing.T) {
 	newContentField, _ := document.NewTextField("content", "Updated content", true)
 	newDoc.Add(newContentField)
 
-	if err := writer.AddDocument(newDoc); err != nil {
+	if _, err := writer.AddDocument(newDoc); err != nil {
 		t.Fatalf("failed to add updated document: %v", err)
 	}
 
@@ -435,7 +435,7 @@ func TestDocumentIndexingRoundtrip_DeleteDocument(t *testing.T) {
 		idField, _ := document.NewStringField("id", fmt.Sprintf("doc-%d", i), true)
 		doc.Add(idField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -447,7 +447,7 @@ func TestDocumentIndexingRoundtrip_DeleteDocument(t *testing.T) {
 	// Delete half the documents
 	for i := 0; i < 5; i++ {
 		term := index.NewTerm("id", fmt.Sprintf("doc-%d", i))
-		if err := writer.DeleteDocuments(term); err != nil {
+		if _, err := writer.DeleteDocuments(term); err != nil {
 			t.Fatalf("failed to delete document: %v", err)
 		}
 	}
@@ -511,7 +511,7 @@ func TestDocumentIndexingRoundtrip_BinaryDataIntegrity(t *testing.T) {
 		binaryField, _ := document.NewBinaryPoint("data", pattern)
 		doc.Add(binaryField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document %d: %v", i, err)
 		}
 	}
@@ -558,7 +558,7 @@ func TestDocumentIndexingRoundtrip_LargeContent(t *testing.T) {
 	contentField, _ := document.NewTextField("content", string(largeContent), true)
 	doc.Add(contentField)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("failed to add document: %v", err)
 	}
 
@@ -608,7 +608,7 @@ func TestDocumentIndexingRoundtrip_SpecialCharacters(t *testing.T) {
 		contentField, _ := document.NewTextField("content", content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document %d: %v", i, err)
 		}
 	}
@@ -646,7 +646,7 @@ func TestDocumentIndexingRoundtrip_ReopenWriter(t *testing.T) {
 	idField1, _ := document.NewStringField("id", "doc-001", true)
 	doc1.Add(idField1)
 
-	if err := writer1.AddDocument(doc1); err != nil {
+	if _, err := writer1.AddDocument(doc1); err != nil {
 		t.Fatalf("failed to add document: %v", err)
 	}
 
@@ -667,7 +667,7 @@ func TestDocumentIndexingRoundtrip_ReopenWriter(t *testing.T) {
 	idField2, _ := document.NewStringField("id", "doc-002", true)
 	doc2.Add(idField2)
 
-	if err := writer2.AddDocument(doc2); err != nil {
+	if _, err := writer2.AddDocument(doc2); err != nil {
 		t.Fatalf("failed to add document: %v", err)
 	}
 

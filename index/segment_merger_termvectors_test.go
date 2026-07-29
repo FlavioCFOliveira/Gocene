@@ -82,7 +82,7 @@ func TestSegmentMerger_TermVectorsRoundTrip(t *testing.T) {
 	add := func(text string) {
 		doc := document.NewDocument()
 		doc.Add(tvField(t, "body", text))
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

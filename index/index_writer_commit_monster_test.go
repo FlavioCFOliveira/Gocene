@@ -131,7 +131,7 @@ func TestCommitThreadSafety(t *testing.T) {
 			doc := document.NewDocument()
 			f, _ := document.NewField("f", s, ft)
 			doc.Add(f)
-			if err := riw.AddDocument(doc); err != nil {
+			if _, err := riw.AddDocument(doc); err != nil {
 				t.Fatalf("AddDocument %d: %v", i, err)
 			}
 			if err := riw.Commit(); err != nil {

@@ -78,7 +78,7 @@ func setupTestIndex(t *testing.T) (index.IndexReaderInterface, *search.IndexSear
 			doc.Add(dataField)
 		}
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}

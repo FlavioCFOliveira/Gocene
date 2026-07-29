@@ -47,7 +47,7 @@ func TestSpatialCompatibility_PointQueries(t *testing.T) {
 		lonField, _ := document.NewFloatField("lon", float32(lon), true)
 		doc.Add(lonField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -105,7 +105,7 @@ func TestSpatialCompatibility_DistanceQuery(t *testing.T) {
 		lonField, _ := document.NewFloatField("lon", loc.lon, true)
 		doc.Add(lonField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}

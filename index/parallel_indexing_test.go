@@ -47,7 +47,7 @@ func TestParallelIndexing_ConcurrentAdds(t *testing.T) {
 				contentField, _ := document.NewTextField("content", "parallel indexing test", true)
 				doc.Add(contentField)
 
-				if err := writer.AddDocument(doc); err != nil {
+				if _, err := writer.AddDocument(doc); err != nil {
 					t.Errorf("failed to add document: %v", err)
 				}
 			}
@@ -103,7 +103,7 @@ func TestParallelIndexing_ConcurrentCommits(t *testing.T) {
 				contentField, _ := document.NewTextField("content", "concurrent commit", true)
 				doc.Add(contentField)
 
-				if err := writer.AddDocument(doc); err != nil {
+				if _, err := writer.AddDocument(doc); err != nil {
 					t.Errorf("failed to add document: %v", err)
 					return
 				}
@@ -152,7 +152,7 @@ func TestParallelIndexing_ConcurrentUpdates(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "initial", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -175,7 +175,7 @@ func TestParallelIndexing_ConcurrentUpdates(t *testing.T) {
 				doc.Add(contentField)
 
 				term := index.NewTerm("id", string(rune('0'+i%10)))
-				if err := writer.UpdateDocument(term, doc); err != nil {
+				if _, err := writer.UpdateDocument(term, doc); err != nil {
 					t.Logf("update may not be fully implemented: %v", err)
 					return
 				}

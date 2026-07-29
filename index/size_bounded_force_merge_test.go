@@ -56,7 +56,7 @@ func addSizeBoundedDocs(t *testing.T, writer *index.IndexWriter, numDocs int, wi
 			t.Fatalf("NewTextField() error = %v", err)
 		}
 		doc.Add(content)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument() error = %v", err)
 		}
 	}
@@ -269,7 +269,7 @@ func TestSizeBoundedForceMerge_SingleMergeableSegment(t *testing.T) {
 	addSizeBoundedDocs(t, writer, 3, false)
 	addSizeBoundedDocs(t, writer, 5, false)
 	addSizeBoundedDocs(t, writer, 3, false)
-	if err := writer.DeleteDocuments(index.NewTerm("id", "10")); err != nil {
+	if _, err := writer.DeleteDocuments(index.NewTerm("id", "10")); err != nil {
 		t.Fatalf("DeleteDocuments() error = %v", err)
 	}
 	writer.Close()
@@ -324,7 +324,7 @@ func TestSizeBoundedForceMerge_SingleMergeableTooLargeSegment(t *testing.T) {
 		t.Fatalf("NewIndexWriter() error = %v", err)
 	}
 	addSizeBoundedDocs(t, writer, 5, true)
-	if err := writer.DeleteDocuments(index.NewTerm("id", "4")); err != nil {
+	if _, err := writer.DeleteDocuments(index.NewTerm("id", "4")); err != nil {
 		t.Fatalf("DeleteDocuments() error = %v", err)
 	}
 	writer.Close()

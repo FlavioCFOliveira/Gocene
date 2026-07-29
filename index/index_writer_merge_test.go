@@ -54,7 +54,7 @@ func TestIndexWriterForceMerge(t *testing.T) {
 		// Add documents in three commits to create three segments.
 		for b := 0; b < 3; b++ {
 			for i := 0; i < 5; i++ {
-				if err := writer.AddDocument(&testDocument{fields: []interface{}{}}); err != nil {
+				if _, err := writer.AddDocument(&testDocument{fields: []interface{}{}}); err != nil {
 					t.Fatalf("AddDocument: %v", err)
 				}
 			}
@@ -86,7 +86,7 @@ func TestIndexWriterForceMerge(t *testing.T) {
 		// Two segments of empty documents.
 		for b := 0; b < 2; b++ {
 			for i := 0; i < 5; i++ {
-				if err := writer.AddDocument(&testDocument{fields: []interface{}{}}); err != nil {
+				if _, err := writer.AddDocument(&testDocument{fields: []interface{}{}}); err != nil {
 					t.Fatalf("AddDocument: %v", err)
 				}
 			}
@@ -98,7 +98,7 @@ func TestIndexWriterForceMerge(t *testing.T) {
 		// A delete-by-term (no-match on field-less docs) followed by ForceMerge
 		// must still merge cleanly to a single segment. Exact delete compaction
 		// is covered by TestForceMerge_CompactsDeletes.
-		if err := writer.DeleteDocuments(index.NewTerm("id", "1")); err != nil {
+		if _, err := writer.DeleteDocuments(index.NewTerm("id", "1")); err != nil {
 			t.Fatalf("DeleteDocuments: %v", err)
 		}
 		if err := writer.ForceMerge(1); err != nil {

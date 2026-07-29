@@ -38,7 +38,7 @@ func sortOptReader(t *testing.T, numDocs, flushAt int, addFields func(t *testing
 	for i := 0; i < numDocs; i++ {
 		doc := document.NewDocument()
 		addFields(t, doc, i)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 		if flushAt >= 0 && i == flushAt {

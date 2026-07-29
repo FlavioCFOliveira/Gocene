@@ -73,7 +73,7 @@ func TestDefaultCodecPersistsLuceneFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc.Add(f)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument() error = %v", err)
 	}
 	if err := writer.Commit(); err != nil {

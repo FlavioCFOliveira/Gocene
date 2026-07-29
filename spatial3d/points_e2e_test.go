@@ -92,7 +92,7 @@ func TestPointsEndToEnd_IntLongRangeAndGeo3D(t *testing.T) {
 			doc.Add(f)
 		}
 
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument[%d]: %v", i, err)
 		}
 	}

@@ -37,7 +37,7 @@ func TestIndexWriterCommit_SegmentInfosFormat(t *testing.T) {
 		t.Fatalf("NewTextField: %v", err)
 	}
 	doc.Add(field)
-	if err := w.AddDocument(doc); err != nil {
+	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 
@@ -126,7 +126,7 @@ func TestSegmentInfos_RealOnDiskRoundTrip(t *testing.T) {
 			t.Fatalf("NewTextField: %v", ferr)
 		}
 		doc.Add(f)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 	}

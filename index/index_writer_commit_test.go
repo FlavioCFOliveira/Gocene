@@ -33,7 +33,8 @@ func addCommitTestDoc(writer *index.IndexWriter) error {
 		return err
 	}
 	doc.Add(tf)
-	return writer.AddDocument(doc)
+	_, err = writer.AddDocument(doc)
+	return err
 }
 
 // addCommitTestDocWithIndex adds a document with indexed content and id
@@ -49,7 +50,8 @@ func addCommitTestDocWithIndex(writer *index.IndexWriter, idx int) error {
 		return err
 	}
 	doc.Add(sf)
-	return writer.AddDocument(doc)
+	_, err = writer.AddDocument(doc)
+	return err
 }
 
 // assertNoUnreferencedFiles checks that there are no unreferenced files after rollback
@@ -243,7 +245,7 @@ func TestCommitOnCloseAbort(t *testing.T) {
 
 		// Delete all documents with content "aaa"
 		term := index.NewTerm("content", "aaa")
-		if err := writer.DeleteDocuments(term); err != nil {
+		if _, err := writer.DeleteDocuments(term); err != nil {
 			t.Fatalf("Failed to delete documents: %v", err)
 		}
 
@@ -848,7 +850,7 @@ func TestPrepareCommitThenClose(t *testing.T) {
 
 		// Add a document
 		doc := document.NewDocument()
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 
@@ -989,7 +991,7 @@ func TestCommitDataIsLive(t *testing.T) {
 		}
 
 		doc := document.NewDocument()
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 
@@ -1099,7 +1101,7 @@ func TestFutureCommit(t *testing.T) {
 		f, _ := document.NewTextField("content", "hello", false)
 		doc.Add(f)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 		writer.SetLiveCommitData(map[string]string{"tag": "first"})
@@ -1107,7 +1109,7 @@ func TestFutureCommit(t *testing.T) {
 			t.Fatalf("Commit: %v", err)
 		}
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 		writer.SetLiveCommitData(map[string]string{"tag": "second"})
@@ -1129,7 +1131,7 @@ func TestFutureCommit(t *testing.T) {
 			t.Fatalf("expected 1 doc at first commit, got %d", stats.NumDocs)
 		}
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument after reopen: %v", err)
 		}
 		writer.SetLiveCommitData(map[string]string{"tag": "third"})

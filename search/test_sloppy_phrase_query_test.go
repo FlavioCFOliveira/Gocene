@@ -74,7 +74,7 @@ func indexOneDoc(t *testing.T, field, text string) (*IndexSearcher, func()) {
 		t.Fatalf("NewTextField: %v", err)
 	}
 	doc.Add(f)
-	if err := w.AddDocument(doc); err != nil {
+	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Commit(); err != nil {
@@ -272,7 +272,7 @@ func TestSloppyPhraseQuery_SlopWithHoles(t *testing.T) {
 			t.Fatalf("NewTextField: %v", err)
 		}
 		doc.Add(f)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

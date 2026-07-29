@@ -43,7 +43,7 @@ func TestSearch_LiveDocsExcludedCentrally(t *testing.T) {
 			t.Fatalf("NewTextField: %v", err)
 		}
 		doc.Add(body)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%s): %v", id, err)
 		}
 	}
@@ -52,7 +52,7 @@ func TestSearch_LiveDocsExcludedCentrally(t *testing.T) {
 	}
 
 	// Delete d2 and commit so the deletion is applied to the committed segment.
-	if err := writer.DeleteDocuments(index.NewTerm("id", "d2")); err != nil {
+	if _, err := writer.DeleteDocuments(index.NewTerm("id", "d2")); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 	if err := writer.Commit(); err != nil {

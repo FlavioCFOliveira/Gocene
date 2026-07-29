@@ -102,7 +102,7 @@ func TestSimilarityProvider_Basics(t *testing.T) {
 		f2, _ := document.NewTextField("bar", bar, false)
 		doc.Add(f1)
 		doc.Add(f2)
-		if e := w.AddDocument(doc); e != nil {
+		if _, e := w.AddDocument(doc); e != nil {
 			t.Fatalf("AddDocument: %v", e)
 		}
 	}

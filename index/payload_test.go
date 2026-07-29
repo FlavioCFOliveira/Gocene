@@ -39,7 +39,7 @@ func TestPayload_BasicPayload(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "payload test", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -83,7 +83,7 @@ func TestPayload_TermPayloads(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "term with payload", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -125,7 +125,7 @@ func TestPayload_PayloadInQueries(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "payload query", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}

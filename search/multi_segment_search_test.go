@@ -22,7 +22,7 @@ func setupMultiSegmentIndex(t *testing.T) (*index.IndexWriter, store.Directory, 
 		doc := document.NewDocument()
 		f, _ := document.NewStringField("id", string(rune('a'+i)), true)
 		doc.Add(f)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 		if i%2 == 0 {

@@ -95,11 +95,11 @@ func TestLiveDocsOnMerge_DeletesCarriedThroughCommit(t *testing.T) {
 			t.Fatalf("NewTextField: %v", ferr)
 		}
 		doc.Add(bodyField)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 	}
-	if err := w.DeleteDocuments(index.NewTerm("id", "c")); err != nil {
+	if _, err := w.DeleteDocuments(index.NewTerm("id", "c")); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 	if err := w.Commit(); err != nil {
@@ -168,15 +168,15 @@ func TestLiveDocsOnMerge_ForceMergeCarriesDeletes(t *testing.T) {
 			t.Fatalf("NewTextField: %v", ferr)
 		}
 		doc.Add(bodyField)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 	}
 	// Delete two buffered docs, then ForceMerge to a single segment.
-	if err := w.DeleteDocuments(index.NewTerm("id", "b")); err != nil {
+	if _, err := w.DeleteDocuments(index.NewTerm("id", "b")); err != nil {
 		t.Fatalf("DeleteDocuments b: %v", err)
 	}
-	if err := w.DeleteDocuments(index.NewTerm("id", "e")); err != nil {
+	if _, err := w.DeleteDocuments(index.NewTerm("id", "e")); err != nil {
 		t.Fatalf("DeleteDocuments e: %v", err)
 	}
 	if err := w.ForceMerge(1); err != nil {

@@ -63,7 +63,7 @@ func createTryDeleteIndex(t *testing.T) store.Directory {
 			t.Fatalf("NewStringField(foo): %v", err)
 		}
 		doc.Add(fooField)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
@@ -90,7 +90,7 @@ func TestDeleteDocuments(t *testing.T) {
 
 	// Delete the document whose "foo" value is "7" via a TermQuery.
 	q := search.NewTermQuery(index.NewTerm("foo", "7"))
-	if err := writer.DeleteDocumentsQuery(q); err != nil {
+	if _, err := writer.DeleteDocumentsQuery(q); err != nil {
 		t.Fatalf("DeleteDocumentsQuery: %v", err)
 	}
 	if !writer.HasDeletions() {

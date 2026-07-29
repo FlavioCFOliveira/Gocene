@@ -362,7 +362,8 @@ func (w *DirectoryTaxonomyWriter) indexCategoryDocument(pathStr string, parentOr
 	}
 	doc.Add(ndf)
 
-	return w.indexWriter.AddDocument(doc)
+	_, err = w.indexWriter.AddDocument(doc)
+	return err
 }
 
 // AddCategory adds a category to the taxonomy, recursively adding any missing

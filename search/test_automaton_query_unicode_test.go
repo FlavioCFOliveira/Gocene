@@ -65,7 +65,7 @@ func buildUnicodeIndex(t *testing.T) (index.IndexReaderInterface, func()) {
 			t.Fatalf("NewTextField(%q): %v", v, fErr)
 		}
 		doc.Add(f)
-		if addErr := w.AddDocument(doc); addErr != nil {
+		if _, addErr := w.AddDocument(doc); addErr != nil {
 			t.Fatalf("AddDocument(%q): %v", v, addErr)
 		}
 	}

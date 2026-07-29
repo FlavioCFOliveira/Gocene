@@ -141,12 +141,12 @@ func doIndexWriterOnErrorTest(t *testing.T, failureKind string) {
 	// deterministic and fast since no fault injection forces STARTOVER.
 	const numDocs = 200
 	for i := 0; i < numDocs; i++ {
-		if err := writer.AddDocument(newOnErrorDoc(t, i)); err != nil {
+		if _, err := writer.AddDocument(newOnErrorDoc(t, i)); err != nil {
 			t.Fatalf("AddDocument(%d) error = %v", i, err)
 		}
 		// Deterministic stand-in for the random single-doc delete branch.
 		if i%4 == 0 {
-			if err := writer.DeleteDocuments(index.NewTerm("id", strconv.Itoa(i))); err != nil {
+			if _, err := writer.DeleteDocuments(index.NewTerm("id", strconv.Itoa(i))); err != nil {
 				t.Fatalf("DeleteDocuments(%d) error = %v", i, err)
 			}
 		}
@@ -164,7 +164,7 @@ func doIndexWriterOnErrorTest(t *testing.T, failureKind string) {
 
 	// Add one more document so the next commit has work to do, then inject a
 	// deterministic I/O failure during that commit.
-	if err := writer.AddDocument(newOnErrorDoc(t, numDocs)); err != nil {
+	if _, err := writer.AddDocument(newOnErrorDoc(t, numDocs)); err != nil {
 		t.Fatalf("AddDocument before fault injection: %v", err)
 	}
 	dir.SetFailOnCreateOutput(true)

@@ -83,7 +83,7 @@ func TestCheckIndex_GoceneWrite(t *testing.T) {
 				body := words[i%len(words)] + " " + words[(i+1)%len(words)]
 				bodyField, _ := document.NewTextField("body", body, false)
 				doc.Add(bodyField)
-				if err := iw.AddDocument(doc); err != nil {
+				if _, err := iw.AddDocument(doc); err != nil {
 					t.Fatalf("AddDocument: %v", err)
 				}
 			}

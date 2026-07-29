@@ -27,7 +27,7 @@ func newRealSearcherManagerForTest(t *testing.T) *SearcherManager {
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("text", text, true)
 		doc.Add(f)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

@@ -68,7 +68,7 @@ func TestIndexCompatibility_BasicReadWrite(t *testing.T) {
 				numField, _ := document.NewIntField("num", r.Intn(10000), true)
 				doc.Add(numField)
 
-				if err := writer.AddDocument(doc); err != nil {
+				if _, err := writer.AddDocument(doc); err != nil {
 					t.Fatalf("failed to add document %d: %v", i, err)
 				}
 			}
@@ -142,7 +142,7 @@ func TestIndexCompatibility_CodecCombinations(t *testing.T) {
 					fmt.Sprintf("stored value %d", i))
 				doc.Add(storedField)
 
-				if err := writer.AddDocument(doc); err != nil {
+				if _, err := writer.AddDocument(doc); err != nil {
 					t.Fatalf("failed to add document: %v", err)
 				}
 			}
@@ -209,7 +209,7 @@ func TestIndexCompatibility_SegmentMerging(t *testing.T) {
 					fmt.Sprintf("content for document %d", i), true)
 				doc.Add(textField)
 
-				if err := writer.AddDocument(doc); err != nil {
+				if _, err := writer.AddDocument(doc); err != nil {
 					t.Fatalf("failed to add document: %v", err)
 				}
 
@@ -269,7 +269,7 @@ func TestIndexCompatibility_DirectoryOperations(t *testing.T) {
 			fmt.Sprintf("content for document %d with some text", i), true)
 		doc.Add(textField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -349,7 +349,7 @@ func TestIndexCompatibility_BinaryFormatValidation(t *testing.T) {
 		textField, _ := document.NewTextField("text", "test content", true)
 		doc.Add(textField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -412,7 +412,7 @@ func TestIndexCompatibility_ConsistentHashing(t *testing.T) {
 			textField, _ := document.NewTextField("text", content, true)
 			doc.Add(textField)
 
-			if err := writer.AddDocument(doc); err != nil {
+			if _, err := writer.AddDocument(doc); err != nil {
 				t.Fatalf("failed to add document: %v", err)
 			}
 		}
@@ -498,7 +498,7 @@ func TestIndexCompatibility_FieldTypes(t *testing.T) {
 	binaryField, _ := document.NewBinaryPoint("binary_field", binaryData)
 	doc.Add(binaryField)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("failed to add document: %v", err)
 	}
 
@@ -539,7 +539,7 @@ func TestIndexCompatibility_Deletions(t *testing.T) {
 		idField, _ := document.NewStringField("id", fmt.Sprintf("doc_%d", i), true)
 		doc.Add(idField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -551,7 +551,7 @@ func TestIndexCompatibility_Deletions(t *testing.T) {
 	// Delete some documents
 	for i := 0; i < 50; i++ {
 		term := index.NewTerm("id", fmt.Sprintf("doc_%d", i))
-		if err := writer.DeleteDocuments(term); err != nil {
+		if _, err := writer.DeleteDocuments(term); err != nil {
 			t.Fatalf("failed to delete document: %v", err)
 		}
 	}
@@ -598,7 +598,7 @@ func TestIndexCompatibility_IndexReopening(t *testing.T) {
 		idField, _ := document.NewStringField("id", fmt.Sprintf("doc_%d", i), true)
 		doc.Add(idField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -621,7 +621,7 @@ func TestIndexCompatibility_IndexReopening(t *testing.T) {
 		idField, _ := document.NewStringField("id", fmt.Sprintf("doc_%d", i), true)
 		doc.Add(idField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -666,7 +666,7 @@ func TestIndexCompatibility_FileChecksums(t *testing.T) {
 			fmt.Sprintf("content for document %d", i), true)
 		doc.Add(textField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -731,7 +731,7 @@ func TestIndexCompatibility_CrossDirectoryType(t *testing.T) {
 		doc := document.NewDocument()
 		idField, _ := document.NewStringField("id", fmt.Sprintf("doc_%d", i), true)
 		doc.Add(idField)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 	}
@@ -820,7 +820,7 @@ func TestIndexCompatibility_LargeDocumentCount(t *testing.T) {
 		idField, _ := document.NewStringField("id", fmt.Sprintf("doc_%d", i), true)
 		doc.Add(idField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document %d: %v", i, err)
 		}
 
@@ -870,7 +870,7 @@ func TestIndexCompatibility_UpdateDocument(t *testing.T) {
 	textField, _ := document.NewTextField("text", "original content", true)
 	doc.Add(textField)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("failed to add document: %v", err)
 	}
 
@@ -880,7 +880,7 @@ func TestIndexCompatibility_UpdateDocument(t *testing.T) {
 
 	// Update document (delete old + add new)
 	term := index.NewTerm("id", "doc_1")
-	if err := writer.DeleteDocuments(term); err != nil {
+	if _, err := writer.DeleteDocuments(term); err != nil {
 		t.Fatalf("failed to delete document: %v", err)
 	}
 
@@ -889,7 +889,7 @@ func TestIndexCompatibility_UpdateDocument(t *testing.T) {
 	newTextField, _ := document.NewTextField("text", "updated content", true)
 	newDoc.Add(newTextField)
 
-	if err := writer.AddDocument(newDoc); err != nil {
+	if _, err := writer.AddDocument(newDoc); err != nil {
 		t.Fatalf("failed to add updated document: %v", err)
 	}
 
@@ -1086,7 +1086,7 @@ func TestIndexCompatibility_SequenceConsistency(t *testing.T) {
 			textField, _ := document.NewTextField("text", content, true)
 			doc.Add(textField)
 
-			if err := writer.AddDocument(doc); err != nil {
+			if _, err := writer.AddDocument(doc); err != nil {
 				t.Fatalf("failed to add document: %v", err)
 			}
 
@@ -1132,7 +1132,7 @@ func TestIndexCompatibility_SegmentInfoValidation(t *testing.T) {
 		idField, _ := document.NewStringField("id", fmt.Sprintf("doc_%d", i), true)
 		doc.Add(idField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 
@@ -1210,7 +1210,7 @@ func TestIndexCompatibility_StoredFieldsAccess(t *testing.T) {
 			fmt.Sprintf("content %d", i), true)
 		doc.Add(textField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}

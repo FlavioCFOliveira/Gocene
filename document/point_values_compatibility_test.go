@@ -42,7 +42,7 @@ func TestPointValues_IntPoint(t *testing.T) {
 		intField, _ := document.NewIntField("int_value", i, true)
 		doc.Add(intField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -88,7 +88,7 @@ func TestPointValues_LongPoint(t *testing.T) {
 		longField, _ := document.NewLongField("long_value", int64(i)*1000, true)
 		doc.Add(longField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -134,7 +134,7 @@ func TestPointValues_FloatPoint(t *testing.T) {
 		floatField, _ := document.NewFloatField("float_value", float32(i)*1.5, true)
 		doc.Add(floatField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -180,7 +180,7 @@ func TestPointValues_DoublePoint(t *testing.T) {
 		doubleField, _ := document.NewDoubleField("double_value", float64(i)*2.5, true)
 		doc.Add(doubleField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -226,7 +226,7 @@ func TestPointValues_RangeQuery(t *testing.T) {
 		intPoint := document.NewIntPoint("int_value", int32(i))
 		doc.Add(intPoint)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -289,7 +289,7 @@ func TestPointValues_ExactQuery(t *testing.T) {
 		intField, _ := document.NewIntField("int_value", i*10, true)
 		doc.Add(intField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -339,7 +339,7 @@ func TestPointValues_MultipleDimensions(t *testing.T) {
 		lonField, _ := document.NewDoubleField("lon", -74.0+float64(i)*0.1, true)
 		doc.Add(lonField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -385,7 +385,7 @@ func TestPointValues_NegativeValues(t *testing.T) {
 		intField, _ := document.NewIntField("int_value", i, true)
 		doc.Add(intField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -441,7 +441,7 @@ func TestPointValues_BoundaryValues(t *testing.T) {
 		intField, _ := document.NewIntField(tv.name, tv.value, true)
 		doc.Add(intField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}

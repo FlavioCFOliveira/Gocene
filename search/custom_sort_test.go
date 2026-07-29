@@ -56,7 +56,7 @@ func buildCustomSortIndex(t testing.TB, docs []csDoc) (*search.IndexSearcher, fu
 			}
 			doc.Add(gf)
 		}
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("doc %d AddDocument: %v", i, err)
 		}
 	}

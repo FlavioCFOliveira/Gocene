@@ -201,7 +201,7 @@ func TestTermVectorsWriterDoubleOffsetCounting(t *testing.T) {
 	}
 	doc.Add(f2)
 	doc.Add(f)
-	if err := w.AddDocument(doc); err != nil {
+	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -306,7 +306,7 @@ func runTwoTermOffsetCase(t *testing.T, text string, want []offsetCheck, analyze
 	}
 	doc.Add(f)
 	doc.Add(f)
-	if err := w.AddDocument(doc); err != nil {
+	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -385,7 +385,7 @@ func TestTermVectorsWriterEndOffsetPositionWithCachingTokenFilter(t *testing.T) 
 	doc := document.NewDocument()
 	doc.Add(f)
 	doc.Add(f)
-	if err := w.AddDocument(doc); err != nil {
+	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -456,7 +456,7 @@ func runTwoFieldOffsetCase(t *testing.T, texts []string, checks []termOffsetChec
 		}
 		doc.Add(f)
 	}
-	if err := w.AddDocument(doc); err != nil {
+	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -559,10 +559,10 @@ func TestTermVectorsWriterTermVectorCorruption(t *testing.T) {
 
 		document1 := document.NewDocument()
 		document1.Add(storedField)
-		if err := writer.AddDocument(document1); err != nil {
+		if _, err := writer.AddDocument(document1); err != nil {
 			t.Fatalf("AddDocument failed: %v", err)
 		}
-		if err := writer.AddDocument(document1); err != nil {
+		if _, err := writer.AddDocument(document1); err != nil {
 			t.Fatalf("AddDocument failed: %v", err)
 		}
 
@@ -574,7 +574,7 @@ func TestTermVectorsWriterTermVectorCorruption(t *testing.T) {
 			t.Fatalf("NewField failed: %v", err)
 		}
 		document2.Add(termVectorField)
-		if err := writer.AddDocument(document2); err != nil {
+		if _, err := writer.AddDocument(document2); err != nil {
 			t.Fatalf("AddDocument failed: %v", err)
 		}
 		if err := writer.ForceMerge(1); err != nil {
@@ -656,10 +656,10 @@ func TestTermVectorsWriterTermVectorCorruption2(t *testing.T) {
 
 		document1 := document.NewDocument()
 		document1.Add(storedField)
-		if err := writer.AddDocument(document1); err != nil {
+		if _, err := writer.AddDocument(document1); err != nil {
 			t.Fatalf("AddDocument failed: %v", err)
 		}
-		if err := writer.AddDocument(document1); err != nil {
+		if _, err := writer.AddDocument(document1); err != nil {
 			t.Fatalf("AddDocument failed: %v", err)
 		}
 
@@ -671,7 +671,7 @@ func TestTermVectorsWriterTermVectorCorruption2(t *testing.T) {
 			t.Fatalf("NewField failed: %v", err)
 		}
 		document2.Add(termVectorField)
-		if err := writer.AddDocument(document2); err != nil {
+		if _, err := writer.AddDocument(document2); err != nil {
 			t.Fatalf("AddDocument failed: %v", err)
 		}
 		if err := writer.ForceMerge(1); err != nil {
@@ -733,7 +733,7 @@ func TestTermVectorsWriterTermVectorCorruption3(t *testing.T) {
 		t.Fatalf("NewIndexWriter failed: %v", err)
 	}
 	for i := 0; i < 10; i++ {
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument failed: %v", err)
 		}
 	}
@@ -746,7 +746,7 @@ func TestTermVectorsWriterTermVectorCorruption3(t *testing.T) {
 		t.Fatalf("NewIndexWriter (2) failed: %v", err)
 	}
 	for i := 0; i < 6; i++ {
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument failed: %v", err)
 		}
 	}
@@ -795,7 +795,7 @@ func TestTermVectorsWriterNoTermVectorAfterTermVector(t *testing.T) {
 		t.Fatalf("NewField failed: %v", err)
 	}
 	document1.Add(f1)
-	if err := iw.AddDocument(document1); err != nil {
+	if _, err := iw.AddDocument(document1); err != nil {
 		t.Fatalf("AddDocument failed: %v", err)
 	}
 
@@ -805,7 +805,7 @@ func TestTermVectorsWriterNoTermVectorAfterTermVector(t *testing.T) {
 		t.Fatalf("NewTextField failed: %v", err)
 	}
 	document2.Add(f2)
-	if err := iw.AddDocument(document2); err != nil {
+	if _, err := iw.AddDocument(document2); err != nil {
 		t.Fatalf("AddDocument failed: %v", err)
 	}
 	// Make first segment.
@@ -821,7 +821,7 @@ func TestTermVectorsWriterNoTermVectorAfterTermVector(t *testing.T) {
 		t.Fatalf("NewField failed: %v", err)
 	}
 	document3.Add(f3)
-	if err := iw.AddDocument(document3); err != nil {
+	if _, err := iw.AddDocument(document3); err != nil {
 		t.Fatalf("AddDocument failed: %v", err)
 	}
 	// Make 2nd segment.
@@ -852,7 +852,7 @@ func TestTermVectorsWriterNoTermVectorAfterTermVectorMerge(t *testing.T) {
 		t.Fatalf("NewField failed: %v", err)
 	}
 	document1.Add(f1)
-	if err := iw.AddDocument(document1); err != nil {
+	if _, err := iw.AddDocument(document1); err != nil {
 		t.Fatalf("AddDocument failed: %v", err)
 	}
 	if err := iw.Commit(); err != nil {
@@ -865,7 +865,7 @@ func TestTermVectorsWriterNoTermVectorAfterTermVectorMerge(t *testing.T) {
 		t.Fatalf("NewTextField failed: %v", err)
 	}
 	document2.Add(f2)
-	if err := iw.AddDocument(document2); err != nil {
+	if _, err := iw.AddDocument(document2); err != nil {
 		t.Fatalf("AddDocument failed: %v", err)
 	}
 	// Make first segment.
@@ -887,7 +887,7 @@ func TestTermVectorsWriterNoTermVectorAfterTermVectorMerge(t *testing.T) {
 	}
 	document2.Add(f3)
 	document2 = document.NewDocument()
-	if err := iw.AddDocument(document2); err != nil {
+	if _, err := iw.AddDocument(document2); err != nil {
 		t.Fatalf("AddDocument failed: %v", err)
 	}
 	// Make 2nd segment.
@@ -985,7 +985,7 @@ func doTestMixup(t *testing.T, ft1, ft2 *document.FieldType) {
 			t.Fatalf("NewStringField failed: %v", err)
 		}
 		doc.Add(idField)
-		if err := iw.AddDocument(doc); err != nil {
+		if _, err := iw.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(good %d) failed: %v", i, err)
 		}
 	}
@@ -1004,7 +1004,7 @@ func doTestMixup(t *testing.T, ft1, ft2 *document.FieldType) {
 	doc.Add(f2)
 
 	// Ensure the broken doc hits an error.
-	err = iw.AddDocument(doc)
+	_, err = iw.AddDocument(doc)
 	if err == nil {
 		t.Fatal("AddDocument(broken) succeeded, want an error")
 	}
@@ -1055,7 +1055,7 @@ func TestTermVectorsWriterNoAbortOnBadTVSettings(t *testing.T) {
 	}
 
 	doc := document.NewDocument()
-	if err := iw.AddDocument(doc); err != nil {
+	if _, err := iw.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument(empty) failed: %v", err)
 	}
 
@@ -1068,7 +1068,7 @@ func TestTermVectorsWriterNoAbortOnBadTVSettings(t *testing.T) {
 	}
 	doc.Add(badField)
 
-	if err := iw.AddDocument(doc); err == nil {
+	if _, err := iw.AddDocument(doc); err == nil {
 		t.Fatal("AddDocument(bad term-vector field) succeeded, want an error")
 	}
 

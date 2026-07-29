@@ -55,7 +55,7 @@ func TestMoreTermsBackwardsCompatibility(t *testing.T) {
 
 		// NOTE: SortedDocValuesField not yet supported by Gocene DV consumer.
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 
@@ -106,7 +106,7 @@ func TestManyTerms_Roundtrip(t *testing.T) {
 		}
 		doc.Add(sf)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}

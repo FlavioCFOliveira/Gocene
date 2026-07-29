@@ -161,7 +161,7 @@ func TestNRTStressDeleteHeavy(t *testing.T) {
 
 	// Delete half the documents.
 	for i := 0; i < 25; i++ {
-		if err := w.DeleteDocuments(index.NewTerm("id", strconv.Itoa(i))); err != nil {
+		if _, err := w.DeleteDocuments(index.NewTerm("id", strconv.Itoa(i))); err != nil {
 			t.Fatalf("DeleteDocuments(%d): %v", i, err)
 		}
 	}

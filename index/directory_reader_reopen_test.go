@@ -72,7 +72,7 @@ func TestDirectoryReaderReopen_Reopen(t *testing.T) {
 	}
 
 	// Add initial documents and commit.
-	if err := writer.AddDocument(reopenDoc(0, 2)); err != nil {
+	if _, err := writer.AddDocument(reopenDoc(0, 2)); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -99,7 +99,7 @@ func TestDirectoryReaderReopen_Reopen(t *testing.T) {
 
 	// Add more documents and commit.
 	for i := 1; i < 3; i++ {
-		if err := writer.AddDocument(reopenDoc(i, 2)); err != nil {
+		if _, err := writer.AddDocument(reopenDoc(i, 2)); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 	}
@@ -143,7 +143,7 @@ func TestDirectoryReaderReopen_CommitReopen(t *testing.T) {
 	// Write documents in batches with commits in between.
 	for batch := 0; batch < 3; batch++ {
 		for j := 0; j < 2; j++ {
-			if err := writer.AddDocument(reopenDoc(batch*2+j, 2)); err != nil {
+			if _, err := writer.AddDocument(reopenDoc(batch*2+j, 2)); err != nil {
 				t.Fatalf("AddDocument batch %d: %v", batch, err)
 			}
 		}
@@ -187,7 +187,7 @@ func TestDirectoryReaderReopen_CommitRecreate(t *testing.T) {
 	const m = 3
 	for i := 0; i < 4; i++ {
 		for j := 0; j < m; j++ {
-			if err := writer.AddDocument(reopenDoc(i*m+j, 4)); err != nil {
+			if _, err := writer.AddDocument(reopenDoc(i*m+j, 4)); err != nil {
 				t.Fatalf("AddDocument: %v", err)
 			}
 		}
@@ -246,7 +246,7 @@ func TestDirectoryReaderReopen_ThreadSafety(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 5; i++ {
-			if err := writer.AddDocument(reopenDoc(i, 2)); err != nil {
+			if _, err := writer.AddDocument(reopenDoc(i, 2)); err != nil {
 				t.Errorf("AddDocument: %v", err)
 				return
 			}
@@ -291,7 +291,7 @@ func TestDirectoryReaderReopen_ReopenOnCommit(t *testing.T) {
 
 	// Add documents and commit iteratively.
 	for i := 0; i < 3; i++ {
-		if err := writer.AddDocument(reopenDoc(i, 2)); err != nil {
+		if _, err := writer.AddDocument(reopenDoc(i, 2)); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 		if err := writer.Commit(); err != nil {
@@ -338,7 +338,7 @@ func TestDirectoryReaderReopen_OpenIfChangedNRTToCommit(t *testing.T) {
 	}
 
 	// Add document and commit.
-	if err := writer.AddDocument(reopenDoc(0, 2)); err != nil {
+	if _, err := writer.AddDocument(reopenDoc(0, 2)); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -356,7 +356,7 @@ func TestDirectoryReaderReopen_OpenIfChangedNRTToCommit(t *testing.T) {
 	nrtReader.Close()
 
 	// Add more documents without committing.
-	if err := writer.AddDocument(reopenDoc(1, 2)); err != nil {
+	if _, err := writer.AddDocument(reopenDoc(1, 2)); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 
@@ -396,7 +396,7 @@ func TestDirectoryReaderReopen_OverDecRefDuringReopen(t *testing.T) {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
 
-	if err := writer.AddDocument(reopenDoc(0, 2)); err != nil {
+	if _, err := writer.AddDocument(reopenDoc(0, 2)); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -441,7 +441,7 @@ func TestDirectoryReaderReopen_NPEAfterInvalidReindex1(t *testing.T) {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
 	for i := 0; i < 3; i++ {
-		if err := writer.AddDocument(reopenDoc(i, 2)); err != nil {
+		if _, err := writer.AddDocument(reopenDoc(i, 2)); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
@@ -468,7 +468,7 @@ func TestDirectoryReaderReopen_NPEAfterInvalidReindex1(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIndexWriter (recreate): %v", err)
 	}
-	if err := writer2.AddDocument(reopenDoc(0, 2)); err != nil {
+	if _, err := writer2.AddDocument(reopenDoc(0, 2)); err != nil {
 		t.Fatalf("AddDocument (recreate): %v", err)
 	}
 	if err := writer2.Commit(); err != nil {
@@ -553,7 +553,7 @@ func TestDirectoryReaderReopen_NRTMdeletes(t *testing.T) {
 
 	// Add documents and commit.
 	for i := 0; i < 3; i++ {
-		if err := writer.AddDocument(reopenDoc(i, 2)); err != nil {
+		if _, err := writer.AddDocument(reopenDoc(i, 2)); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
@@ -594,7 +594,7 @@ func TestDirectoryReaderReopen_ListCommits(t *testing.T) {
 	}
 
 	for i := 0; i < 4; i++ {
-		if err := writer.AddDocument(reopenDoc(i, 4)); err != nil {
+		if _, err := writer.AddDocument(reopenDoc(i, 4)); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 		if err := writer.Commit(); err != nil {

@@ -120,7 +120,7 @@ func TestParentBlockJoinKnnQueryTestCase_IndexWithNoVectorsNorParents(t *testing
 	for i := 0; i < 5; i++ {
 		d := document.NewDocument()
 		d.Add(mustStringField(t, "other", "value", false))
-		if err := w.AddDocument(d); err != nil {
+		if _, err := w.AddDocument(d); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
@@ -160,14 +160,14 @@ func TestParentBlockJoinKnnQueryTestCase_IndexWithNoParents(t *testing.T) {
 		}
 		d.Add(vf)
 		d.Add(mustStringField(t, "id", string(rune('0'+i)), true))
-		if err := w.AddDocument(d); err != nil {
+		if _, err := w.AddDocument(d); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
 	for i := 0; i < 5; i++ {
 		d := document.NewDocument()
 		d.Add(mustStringField(t, "other", "value", false))
-		if err := w.AddDocument(d); err != nil {
+		if _, err := w.AddDocument(d); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

@@ -44,7 +44,7 @@ func TestDefaultCodecParallelizesIO_TermsSeekExact(t *testing.T) {
 			t.Fatalf("NewStringField: %v", err)
 		}
 		doc.Add(f)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument[%d]: %v", i, err)
 		}
 	}
@@ -93,7 +93,7 @@ func TestDefaultCodecParallelizesIO_StoredFields(t *testing.T) {
 			t.Fatalf("NewStringField(body): %v", err)
 		}
 		doc.Add(f2)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument[%d]: %v", i, err)
 		}
 	}

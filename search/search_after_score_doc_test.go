@@ -221,7 +221,7 @@ func TestSearchAfterScoreDoc_CrossSegmentTieBreak(t *testing.T) {
 	// Two segments: 10 docs then 20 docs, all matching MatchAllDocsQuery with
 	// equal score, so ordering is purely by global docID 0..29.
 	for i := 0; i < 10; i++ {
-		if err := writer.AddDocument(document.NewDocument()); err != nil {
+		if _, err := writer.AddDocument(document.NewDocument()); err != nil {
 			t.Fatalf("AddDocument failed: %v", err)
 		}
 	}
@@ -229,7 +229,7 @@ func TestSearchAfterScoreDoc_CrossSegmentTieBreak(t *testing.T) {
 		t.Fatalf("Commit failed: %v", err)
 	}
 	for i := 0; i < 20; i++ {
-		if err := writer.AddDocument(document.NewDocument()); err != nil {
+		if _, err := writer.AddDocument(document.NewDocument()); err != nil {
 			t.Fatalf("AddDocument failed: %v", err)
 		}
 	}
@@ -337,7 +337,7 @@ func TestSearchAfterScoreDoc_ScoreDimensionBoundary(t *testing.T) {
 			t.Fatalf("NewTextField failed: %v", ferr)
 		}
 		doc.Add(field)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument failed: %v", err)
 		}
 	}

@@ -34,7 +34,7 @@ func ExampleIndexWriter() {
 		panic(err)
 	}
 	doc.Add(tf)
-	if err := w.AddDocument(doc); err != nil {
+	if _, err := w.AddDocument(doc); err != nil {
 		panic(err)
 	}
 

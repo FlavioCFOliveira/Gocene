@@ -121,7 +121,7 @@ func TestOrdinalData_DocValue(t *testing.T) {
 		if err != nil {
 			t.Fatalf("BuildWithTaxonomy: %v", err)
 		}
-		if err := writer.AddDocument(builtDoc); err != nil {
+		if _, err := writer.AddDocument(builtDoc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
@@ -189,7 +189,7 @@ func TestOrdinalData_SearchableField(t *testing.T) {
 		if err != nil {
 			t.Fatalf("BuildWithTaxonomy: %v", err)
 		}
-		if err := writer.AddDocument(builtDoc); err != nil {
+		if _, err := writer.AddDocument(builtDoc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
@@ -265,7 +265,7 @@ func TestOrdinalData_Reindex(t *testing.T) {
 		if err != nil {
 			t.Fatalf("BuildWithTaxonomy: %v", err)
 		}
-		if err := writer.AddDocument(builtDoc); err != nil {
+		if _, err := writer.AddDocument(builtDoc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
@@ -299,7 +299,7 @@ func TestOrdinalData_Reindex(t *testing.T) {
 		if err != nil {
 			t.Fatalf("BuildWithTaxonomy: %v", err)
 		}
-		if err := writer2.AddDocument(builtDoc); err != nil {
+		if _, err := writer2.AddDocument(builtDoc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

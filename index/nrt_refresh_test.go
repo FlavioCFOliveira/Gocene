@@ -36,7 +36,7 @@ func TestNRTReader_RefreshSeesUncommittedDocs(t *testing.T) {
 		doc.Add(idF)
 		bF, _ := document.NewTextField("body", body, true)
 		doc.Add(bF)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

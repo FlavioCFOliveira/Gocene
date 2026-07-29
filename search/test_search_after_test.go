@@ -75,7 +75,7 @@ func TestSearchAfter_Queries(t *testing.T) {
 			t.Fatalf("NewTextField oddeven: %v", err)
 		}
 		doc.Add(of)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 		// Force multiple segments.

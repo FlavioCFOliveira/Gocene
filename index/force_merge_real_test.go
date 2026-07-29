@@ -34,7 +34,7 @@ func fmAddDoc(t *testing.T, w *index.IndexWriter, id, body string) {
 		t.Fatalf("body field: %v", err)
 	}
 	doc.Add(bF)
-	if err := w.AddDocument(doc); err != nil {
+	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 }
@@ -138,7 +138,7 @@ func TestForceMerge_CompactsDeletes(t *testing.T) {
 		t.Fatalf("Commit 2: %v", err)
 	}
 	// Delete id:2 then force-merge: the merged segment must compact it out.
-	if err := w.DeleteDocuments(index.NewTerm("id", "2")); err != nil {
+	if _, err := w.DeleteDocuments(index.NewTerm("id", "2")); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 	if err := w.ForceMerge(1); err != nil {

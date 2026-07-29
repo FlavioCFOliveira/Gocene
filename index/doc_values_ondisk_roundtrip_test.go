@@ -77,7 +77,7 @@ func TestDocValues_OnDiskRoundTrip(t *testing.T) {
 
 	const numDocs = 5
 	for i := 0; i < numDocs; i++ {
-		if err := writer.AddDocument(dvTestDoc(i)); err != nil {
+		if _, err := writer.AddDocument(dvTestDoc(i)); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
@@ -292,7 +292,7 @@ func TestDocValues_OnDiskSparse(t *testing.T) {
 		// docs missing ndv/bdv.
 		key, _ := document.NewStringField("k", "v", false)
 		fields = append(fields, key)
-		if err := writer.AddDocument(&testDocument{fields: fields}); err != nil {
+		if _, err := writer.AddDocument(&testDocument{fields: fields}); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
@@ -367,7 +367,7 @@ func TestDocValues_OnDiskQueryEndToEnd(t *testing.T) {
 	}
 	const numDocs = 5
 	for i := 0; i < numDocs; i++ {
-		if err := writer.AddDocument(dvTestDoc(i)); err != nil {
+		if _, err := writer.AddDocument(dvTestDoc(i)); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}

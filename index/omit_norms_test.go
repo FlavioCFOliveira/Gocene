@@ -93,7 +93,7 @@ func TestOmitNorms_MixedRAM(t *testing.T) {
 		f2, _ := document.NewField("f2", "text without norms", omitNormsType)
 		doc.Add(f1)
 		doc.Add(f2)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 	}
@@ -183,7 +183,7 @@ func TestOmitNorms_NoNrmFile(t *testing.T) {
 			t.Fatalf("NewField (i=%d): %v", i, err)
 		}
 		d.Add(f)
-		if err := writer.AddDocument(d); err != nil {
+		if _, err := writer.AddDocument(d); err != nil {
 			t.Fatalf("AddDocument (i=%d): %v", i, err)
 		}
 	}

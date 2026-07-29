@@ -51,7 +51,7 @@ func TestMemoryIndex_BasicOperations(t *testing.T) {
 		contentField, _ := document.NewTextField("content", d.content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -94,7 +94,7 @@ func TestMemoryIndex_Search(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "memory search test", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -142,7 +142,7 @@ func TestMemoryIndex_LargeData(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "memory index content", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -186,7 +186,7 @@ func TestMemoryIndex_MultipleCommits(t *testing.T) {
 			contentField, _ := document.NewTextField("content", "commit test", true)
 			doc.Add(contentField)
 
-			if err := writer.AddDocument(doc); err != nil {
+			if _, err := writer.AddDocument(doc); err != nil {
 				t.Fatalf("failed to add document: %v", err)
 			}
 		}

@@ -333,7 +333,7 @@ func TestLucene90DocValuesFormat_SortedSetAroundBlockSize(t *testing.T) {
 					doc.Add(dvField)
 				}
 
-				err := writer.AddDocument(doc)
+				_, err := writer.AddDocument(doc)
 				if err != nil {
 					t.Fatalf("Failed to add document: %v", err)
 				}
@@ -415,7 +415,7 @@ func TestLucene90DocValuesFormat_SortedNumericAroundBlockSize(t *testing.T) {
 				doc.Add(dvField1)
 				doc.Add(dvField2)
 
-				err := writer.AddDocument(doc)
+				_, err := writer.AddDocument(doc)
 				if err != nil {
 					t.Fatalf("Failed to add document: %v", err)
 				}
@@ -560,7 +560,7 @@ func TestLucene90DocValuesFormat_NumericFieldJumpTables(t *testing.T) {
 			doc.Add(dvField)
 		}
 
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -623,7 +623,7 @@ func TestLucene90DocValuesFormat_ReseekAfterSkipDecompression(t *testing.T) {
 		dvField, _ := document.NewSortedDocValuesField("sdv", []byte(values[i%len(values)]))
 		doc.Add(dvField)
 
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -690,7 +690,7 @@ func TestLucene90DocValuesFormat_LargeTermsCompression(t *testing.T) {
 		dvField, _ := document.NewSortedDocValuesField("sdv", []byte(values[i%len(values)]))
 		doc.Add(dvField)
 
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -740,7 +740,7 @@ func TestLucene90DocValuesFormat_SortedTermsDictLookupOrd(t *testing.T) {
 	for i := 0; i < numDocs; i++ {
 		dvField, _ := document.NewSortedDocValuesField("foo", []byte(fmt.Sprintf("%d", i)))
 		doc.Add(dvField)
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -784,7 +784,7 @@ func TestLucene90DocValuesFormat_SortedSetTermsDictLookupOrd(t *testing.T) {
 	for i := 0; i < numDocs; i++ {
 		dvField, _ := document.NewSortedSetDocValuesField("foo", [][]byte{[]byte(fmt.Sprintf("%d", i))})
 		doc.Add(dvField)
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -829,7 +829,7 @@ func TestLucene90DocValuesFormat_TermsEnumDictionary(t *testing.T) {
 	for _, term := range terms {
 		dvField, _ := document.NewSortedDocValuesField("field", []byte(term))
 		doc.Add(dvField)
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -884,7 +884,7 @@ func TestLucene90DocValuesFormat_TermsEnumConsistency(t *testing.T) {
 	for i := 0; i < numTerms; i++ {
 		dvField, _ := document.NewSortedDocValuesField("field", []byte(stringSupplier(i)))
 		doc.Add(dvField)
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -971,7 +971,7 @@ func doTestSortedSetVsStoredFields(t *testing.T, rng *rand.Rand, numDocs, minLen
 			doc.Add(dvField)
 		}
 
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -1035,7 +1035,7 @@ func doTestSortedVsStoredFields(t *testing.T, rng *rand.Rand, numDocs int, densi
 		dvField, _ := document.NewSortedDocValuesField("dv", value)
 		doc.Add(dvField)
 
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -1111,7 +1111,7 @@ func doTestTermsEnumRandom(t *testing.T, rng *rand.Rand, numDocs int, valuesProd
 			doc.Add(dvField)
 		}
 
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -1194,7 +1194,7 @@ func doTestSparseDocValuesVsStoredFields(t *testing.T, rng *rand.Rand) {
 			doc.Add(valuesField)
 		}
 
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -1256,7 +1256,7 @@ func doTestSortedNumericBlocksOfVariousBitsPerValue(t *testing.T, rng *rand.Rand
 			doc.Add(storedField)
 		}
 
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -1303,7 +1303,7 @@ func doTestSparseNumericBlocksOfVariousBitsPerValue(t *testing.T, rng *rand.Rand
 		dvField, _ := document.NewNumericDocValuesField("dv", value)
 		doc.Add(dvField)
 
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}

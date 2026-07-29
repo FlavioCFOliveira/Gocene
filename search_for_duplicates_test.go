@@ -75,7 +75,7 @@ func TestSearchForDuplicates_Run(t *testing.T) {
 		}
 		doc.Add(ndvf)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument[%d]: %v", j, err)
 		}
 	}

@@ -193,7 +193,7 @@ func TestNRTSearchAfterDelete(t *testing.T) {
 	nrtAddDoc(t, w, "2", "deleted")
 
 	// Delete document with id "2" before opening reader.
-	if err := w.DeleteDocuments(index.NewTerm("id", "2")); err != nil {
+	if _, err := w.DeleteDocuments(index.NewTerm("id", "2")); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 
@@ -242,7 +242,7 @@ func TestNRTSearchMultipleFields(t *testing.T) {
 	}
 	doc.Add(bodyF)
 
-	if err := w.AddDocument(doc); err != nil {
+	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 

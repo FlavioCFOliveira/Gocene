@@ -58,7 +58,7 @@ func newBlockWriter(t *testing.T) (store.Directory, *index.IndexWriter) {
 // segment as block joins require.
 func addBlock(t *testing.T, w *index.IndexWriter, docs ...index.Document) {
 	t.Helper()
-	if err := w.AddDocuments(docs); err != nil {
+	if _, err := w.AddDocuments(docs); err != nil {
 		t.Fatalf("AddDocuments: %v", err)
 	}
 }

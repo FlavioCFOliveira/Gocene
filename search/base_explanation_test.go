@@ -77,7 +77,7 @@ func newExplanationTestCase(t *testing.T) *explanationTestCase {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
 	for i := range explDocFields {
-		if addErr := w.AddDocument(createExplDoc(t, i)); addErr != nil {
+		if _, addErr := w.AddDocument(createExplDoc(t, i)); addErr != nil {
 			t.Fatalf("AddDocument(%d): %v", i, addErr)
 		}
 	}

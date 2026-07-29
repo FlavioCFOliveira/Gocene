@@ -382,13 +382,13 @@ func (t *TestAutomatonQuery) Setup() error {
 	addTextField(doc3, "field", "doc three has some different stuff with numbers 1234 5678.9 and letter b")
 	addTextField(doc3, "footer", "a footer")
 
-	if err := writer.AddDocument(doc1); err != nil {
+	if _, err := writer.AddDocument(doc1); err != nil {
 		return err
 	}
-	if err := writer.AddDocument(doc2); err != nil {
+	if _, err := writer.AddDocument(doc2); err != nil {
 		return err
 	}
-	if err := writer.AddDocument(doc3); err != nil {
+	if _, err := writer.AddDocument(doc3); err != nil {
 		return err
 	}
 

@@ -46,7 +46,7 @@ func TestIndexWriterThreadsToSegments_SegmentCountOnFlushBasic(t *testing.T) {
 			defer wg.Done()
 			<-startingGun
 			doc := &testDocument{fields: []interface{}{}}
-			if err := w.AddDocument(doc); err != nil {
+			if _, err := w.AddDocument(doc); err != nil {
 				t.Errorf("thread %d: AddDocument() error = %v", threadID, err)
 				return
 			}
@@ -54,12 +54,12 @@ func TestIndexWriterThreadsToSegments_SegmentCountOnFlushBasic(t *testing.T) {
 
 			<-middleGun
 			if threadID == 0 {
-				if err := w.AddDocument(doc); err != nil {
+				if _, err := w.AddDocument(doc); err != nil {
 					t.Errorf("thread %d: AddDocument() error = %v", threadID, err)
 				}
 			} else {
 				<-finalGun
-				if err := w.AddDocument(doc); err != nil {
+				if _, err := w.AddDocument(doc); err != nil {
 					t.Errorf("thread %d: AddDocument() error = %v", threadID, err)
 				}
 			}
@@ -189,7 +189,7 @@ func TestIndexWriterThreadsToSegments_SegmentCountOnFlushRandom(t *testing.T) {
 					// We get to index on this cycle.
 					for j := 0; j < 200; j++ {
 						doc := &testDocument{fields: []interface{}{}}
-						if err := w.AddDocument(doc); err != nil {
+						if _, err := w.AddDocument(doc); err != nil {
 							t.Errorf("AddDocument() error = %v", err)
 							return
 						}

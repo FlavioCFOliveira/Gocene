@@ -44,7 +44,7 @@ func buildXYPointIndex(t *testing.T, field string, x, y float32) *index.Director
 		t.Fatalf("NewXYPointField: %v", err)
 	}
 	doc.Add(f)
-	if err := w.AddDocument(doc); err != nil {
+	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Commit(); err != nil {

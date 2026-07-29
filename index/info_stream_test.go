@@ -130,7 +130,7 @@ func TestInfoStreamConfigPropagation(t *testing.T) {
 	}
 
 	doc := &testDoc{fields: []interface{}{}}
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 
@@ -160,7 +160,7 @@ func TestTestPointsOff(t *testing.T) {
 	}
 
 	doc := &testDoc{fields: []interface{}{}}
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 
@@ -190,7 +190,7 @@ func TestTestPointsOn(t *testing.T) {
 	}
 
 	doc := &testDoc{fields: []interface{}{}}
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 

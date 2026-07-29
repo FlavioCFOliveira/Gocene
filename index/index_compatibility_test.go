@@ -52,7 +52,7 @@ func TestIndexCompatibility_UpdateDocument(t *testing.T) {
 	}
 	docA.Add(idA)
 	docA.Add(valA)
-	if err := writer.AddDocument(docA); err != nil {
+	if _, err := writer.AddDocument(docA); err != nil {
 		t.Fatalf("AddDocument A: %v", err)
 	}
 
@@ -62,7 +62,7 @@ func TestIndexCompatibility_UpdateDocument(t *testing.T) {
 		t.Fatalf("NewStringField id B: %v", err)
 	}
 	docB.Add(idB)
-	if err := writer.AddDocument(docB); err != nil {
+	if _, err := writer.AddDocument(docB); err != nil {
 		t.Fatalf("AddDocument B: %v", err)
 	}
 
@@ -85,7 +85,7 @@ func TestIndexCompatibility_UpdateDocument(t *testing.T) {
 	replacement.Add(extraR)
 
 	deleteTerm := index.NewTerm("id", "1")
-	if err := writer.UpdateDocument(deleteTerm, replacement); err != nil {
+	if _, err := writer.UpdateDocument(deleteTerm, replacement); err != nil {
 		t.Fatalf("UpdateDocument must not return an error: %v", err)
 	}
 

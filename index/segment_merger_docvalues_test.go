@@ -32,7 +32,7 @@ func TestSegmentMerger_NumericDocValuesRoundTrip(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewNumericDocValuesField("nval", v)
 		doc.Add(f)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
@@ -144,7 +144,7 @@ func TestSegmentMerger_SortedDocValuesRoundTrip(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewSortedDocValuesField("sval", []byte(v))
 		doc.Add(f)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
@@ -259,7 +259,7 @@ func TestSegmentMerger_SortedSetDocValuesRoundTrip(t *testing.T) {
 			t.Fatalf("NewSortedSetDocValuesField: %v", err)
 		}
 		doc.Add(f)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

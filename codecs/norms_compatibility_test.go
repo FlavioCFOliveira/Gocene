@@ -48,7 +48,7 @@ func TestNormsCompatibility_BasicNorms(t *testing.T) {
 		contentField, _ := document.NewTextField("content", content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -101,7 +101,7 @@ func TestNormsCompatibility_DifferentFieldLengths(t *testing.T) {
 		contentField, _ := document.NewTextField("content", content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -147,7 +147,7 @@ func TestNormsCompatibility_NoNormsField(t *testing.T) {
 		stringField, _ := document.NewStringField("category", "test", true)
 		doc.Add(stringField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -192,7 +192,7 @@ func TestNormsCompatibility_Lucene90Format(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "test content for norms", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -240,7 +240,7 @@ func TestNormsCompatibility_MultipleFieldsWithNorms(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "This is a longer content field that will have different norm values compared to the title field", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -291,7 +291,7 @@ func TestNormsCompatibility_EmptyFields(t *testing.T) {
 		contentField, _ := document.NewTextField("content", content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -337,7 +337,7 @@ func TestNormsCompatibility_NormMerging(t *testing.T) {
 			contentField, _ := document.NewTextField("content", "content for norms merging test", true)
 			doc.Add(contentField)
 
-			if err := writer.AddDocument(doc); err != nil {
+			if _, err := writer.AddDocument(doc); err != nil {
 				t.Fatalf("failed to add document: %v", err)
 			}
 		}

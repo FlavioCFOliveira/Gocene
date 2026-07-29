@@ -71,7 +71,7 @@ func TestBooleanScorer_Basic(t *testing.T) {
 	for _, value := range values {
 		doc := document.NewDocument()
 		addStringField(t, doc, "category", value, true)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -117,7 +117,7 @@ func TestBooleanScorer_Embedded(t *testing.T) {
 	addBoolScorerTextField(t, doc, "field",
 		"doctors are people who prescribe medicines of which they know little, to cure diseases of which they know less, in human beings of whom they know nothing",
 		false)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("Failed to add document: %v", err)
 	}
 
@@ -162,7 +162,7 @@ func TestBooleanScorer_OptimizeTopLevelClause(t *testing.T) {
 
 	doc := document.NewDocument()
 	addStringField(t, doc, "foo", "bar", false)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("Failed to add document: %v", err)
 	}
 
@@ -205,14 +205,14 @@ func TestBooleanScorer_OptimizeProhibitedClauses(t *testing.T) {
 	doc1 := document.NewDocument()
 	addStringField(t, doc1, "foo", "bar", false)
 	addStringField(t, doc1, "foo", "baz", false)
-	if err := writer.AddDocument(doc1); err != nil {
+	if _, err := writer.AddDocument(doc1); err != nil {
 		t.Fatalf("Failed to add document: %v", err)
 	}
 
 	// doc2: foo=baz only
 	doc2 := document.NewDocument()
 	addStringField(t, doc2, "foo", "baz", false)
-	if err := writer.AddDocument(doc2); err != nil {
+	if _, err := writer.AddDocument(doc2); err != nil {
 		t.Fatalf("Failed to add document: %v", err)
 	}
 
@@ -299,7 +299,7 @@ func TestBooleanScorer_SparseClauseOptimization(t *testing.T) {
 	for d := 0; d < 5; d++ {
 		for i := 10; i >= 0; i-- {
 			emptyDoc := document.NewDocument()
-			if err := writer.AddDocument(emptyDoc); err != nil {
+			if _, err := writer.AddDocument(emptyDoc); err != nil {
 				t.Fatalf("Failed to add empty doc: %v", err)
 			}
 		}
@@ -307,7 +307,7 @@ func TestBooleanScorer_SparseClauseOptimization(t *testing.T) {
 		addStringField(t, doc, "field", "foo", false)
 		addStringField(t, doc, "field", "bar", false)
 		addStringField(t, doc, "field", "baz", false)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add doc: %v", err)
 		}
 	}
@@ -354,7 +354,7 @@ func TestBooleanScorer_FilterConstantScore(t *testing.T) {
 	addStringField(t, doc, "foo", "bar", false)
 	addStringField(t, doc, "foo", "bat", false)
 	addStringField(t, doc, "foo", "baz", false)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("Failed to add document: %v", err)
 	}
 
@@ -439,7 +439,7 @@ func TestBooleanScorer_CollectNoThresholdWhenOnlyFilter(t *testing.T) {
 		doc := document.NewDocument()
 		addStringField(t, doc, "foo", "bar0", false)
 		addStringField(t, doc, "foo", "bar1", false)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -494,7 +494,7 @@ func TestBooleanScorer_CostEstimation(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		doc := document.NewDocument()
 		addStringField(t, doc, "field", string(rune('a'+i%26)), false)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -557,7 +557,7 @@ func TestBooleanScorer_BucketManagement(t *testing.T) {
 		if i%3 == 0 {
 			addStringField(t, doc, "field", "term3", false)
 		}
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -611,7 +611,7 @@ func TestBooleanScorer_MinShouldMatch(t *testing.T) {
 		if i >= 3 {
 			addStringField(t, doc, "field", "c", false)
 		}
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}

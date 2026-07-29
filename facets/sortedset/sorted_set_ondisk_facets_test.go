@@ -96,7 +96,7 @@ func TestSortedSetFacets_OnDiskEndToEnd(t *testing.T) {
 	}
 	for _, encoded := range docs {
 		d := &ssdvTestDoc{fields: []interface{}{facetField(t, indexField, encoded...)}}
-		if err := writer.AddDocument(d); err != nil {
+		if _, err := writer.AddDocument(d); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
@@ -187,7 +187,7 @@ func TestSortedSetFacets_OnDiskRespectsBits(t *testing.T) {
 	}
 	for _, encoded := range docs {
 		d := &ssdvTestDoc{fields: []interface{}{facetField(t, indexField, encoded...)}}
-		if err := writer.AddDocument(d); err != nil {
+		if _, err := writer.AddDocument(d); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

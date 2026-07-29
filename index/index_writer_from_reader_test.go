@@ -49,7 +49,7 @@ func TestIndexWriterFromReader_RightAfterCommit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
-	if err := w.AddDocument(document.NewDocument()); err != nil {
+	if _, err := w.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Commit(); err != nil {
@@ -82,7 +82,7 @@ func TestIndexWriterFromReader_RightAfterCommit(t *testing.T) {
 	if got := w2.GetDocStats().MaxDoc; got != 1 {
 		t.Fatalf("w2 maxDoc = %d, want 1", got)
 	}
-	if err := w2.AddDocument(document.NewDocument()); err != nil {
+	if _, err := w2.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument (w2): %v", err)
 	}
 	if got := w2.GetDocStats().MaxDoc; got != 2 {
@@ -114,7 +114,7 @@ func TestIndexWriterFromReader_FromNonNRTReader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
-	if err := w.AddDocument(document.NewDocument()); err != nil {
+	if _, err := w.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -145,7 +145,7 @@ func TestIndexWriterFromReader_FromNonNRTReader(t *testing.T) {
 	if got := w2.GetDocStats().MaxDoc; got != 1 {
 		t.Fatalf("w2 maxDoc = %d, want 1", got)
 	}
-	if err := w2.AddDocument(document.NewDocument()); err != nil {
+	if _, err := w2.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument (w2): %v", err)
 	}
 	if got := w2.GetDocStats().MaxDoc; got != 2 {
@@ -177,7 +177,7 @@ func TestIndexWriterFromReader_WithNoFirstCommit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
-	if err := w.AddDocument(document.NewDocument()); err != nil {
+	if _, err := w.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 
@@ -211,13 +211,13 @@ func TestIndexWriterFromReader_AfterCommitThenIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
-	if err := w.AddDocument(document.NewDocument()); err != nil {
+	if _, err := w.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
-	if err := w.AddDocument(document.NewDocument()); err != nil {
+	if _, err := w.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 
@@ -253,7 +253,7 @@ func TestIndexWriterFromReader_NRTRollback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
-	if err := w.AddDocument(document.NewDocument()); err != nil {
+	if _, err := w.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Commit(); err != nil {
@@ -267,7 +267,7 @@ func TestIndexWriterFromReader_NRTRollback(t *testing.T) {
 	if got := r.MaxDoc(); got != 1 {
 		t.Fatalf("MaxDoc = %d, want 1", got)
 	}
-	if err := w.AddDocument(document.NewDocument()); err != nil {
+	if _, err := w.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if got := w.GetDocStats().MaxDoc; got != 2 {
@@ -329,7 +329,7 @@ func TestIndexWriterFromReader_Random(t *testing.T) {
 		case 0:
 			doc := document.NewDocument()
 			doc.Add(newStringField(t, "id", fmt.Sprintf("%d", op), false))
-			if err := w.AddDocument(doc); err != nil {
+			if _, err := w.AddDocument(doc); err != nil {
 				t.Fatalf("iter %d AddDocument: %v", op, err)
 			}
 			liveIDs[op] = struct{}{}
@@ -339,7 +339,7 @@ func TestIndexWriterFromReader_Random(t *testing.T) {
 				continue
 			}
 			id := rng.Intn(op)
-			if err := w.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", id))); err != nil {
+			if _, err := w.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", id))); err != nil {
 				t.Fatalf("iter %d DeleteDocuments: %v", op, err)
 			}
 			if _, ok := liveIDs[id]; ok {
@@ -449,7 +449,7 @@ func TestIndexWriterFromReader_ConsistentFieldNumbers(t *testing.T) {
 		t.Fatalf("NewStringField f0: %v", err)
 	}
 	doc.Add(f0)
-	if err := w.AddDocument(doc); err != nil {
+	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 
@@ -467,7 +467,7 @@ func TestIndexWriterFromReader_ConsistentFieldNumbers(t *testing.T) {
 		t.Fatalf("NewStringField f1: %v", err)
 	}
 	doc2.Add(f1)
-	if err := w.AddDocument(doc2); err != nil {
+	if _, err := w.AddDocument(doc2); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 
@@ -509,7 +509,7 @@ func TestIndexWriterFromReader_ConsistentFieldNumbers(t *testing.T) {
 		t.Fatalf("NewStringField f0b: %v", err)
 	}
 	doc3.Add(f0b)
-	if err := w2.AddDocument(doc3); err != nil {
+	if _, err := w2.AddDocument(doc3); err != nil {
 		t.Fatalf("AddDocument (w2): %v", err)
 	}
 	if err := w2.Close(); err != nil {
@@ -527,7 +527,7 @@ func TestIndexWriterFromReader_InvalidOpenMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
-	if err := w.AddDocument(document.NewDocument()); err != nil {
+	if _, err := w.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Commit(); err != nil {
@@ -570,7 +570,7 @@ func TestIndexWriterFromReader_OnClosedReader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
-	if err := w.AddDocument(document.NewDocument()); err != nil {
+	if _, err := w.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Commit(); err != nil {
@@ -611,7 +611,7 @@ func TestIndexWriterFromReader_StaleNRTReader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
-	if err := w.AddDocument(document.NewDocument()); err != nil {
+	if _, err := w.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Commit(); err != nil {
@@ -625,7 +625,7 @@ func TestIndexWriterFromReader_StaleNRTReader(t *testing.T) {
 	if got := r.MaxDoc(); got != 1 {
 		t.Fatalf("r MaxDoc = %d, want 1", got)
 	}
-	if err := w.AddDocument(document.NewDocument()); err != nil {
+	if _, err := w.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 
@@ -670,7 +670,7 @@ func TestIndexWriterFromReader_StaleNRTReader(t *testing.T) {
 		t.Fatalf("r3 Close: %v", err)
 	}
 
-	if err := w2.AddDocument(document.NewDocument()); err != nil {
+	if _, err := w2.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument (w2): %v", err)
 	}
 	r4, err := index.OpenIfChangedFromWriter(r3, w2)
@@ -701,13 +701,13 @@ func TestIndexWriterFromReader_AfterRollback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
-	if err := w.AddDocument(document.NewDocument()); err != nil {
+	if _, err := w.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
-	if err := w.AddDocument(document.NewDocument()); err != nil {
+	if _, err := w.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 
@@ -763,13 +763,13 @@ func TestIndexWriterFromReader_AfterCommitThenIndexKeepCommits(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
-	if err := w.AddDocument(document.NewDocument()); err != nil {
+	if _, err := w.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
-	if err := w.AddDocument(document.NewDocument()); err != nil {
+	if _, err := w.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 
@@ -780,7 +780,7 @@ func TestIndexWriterFromReader_AfterCommitThenIndexKeepCommits(t *testing.T) {
 	if got := r.MaxDoc(); got != 2 {
 		t.Fatalf("r MaxDoc = %d, want 2", got)
 	}
-	if err := w.AddDocument(document.NewDocument()); err != nil {
+	if _, err := w.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 
