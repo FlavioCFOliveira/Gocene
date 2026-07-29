@@ -17,7 +17,9 @@
 //   - No MockDirectoryWrapper fault injection (disk-full, failOn/Failure),
 //     so the disk-full and error-injection tests cannot be reproduced.
 //   - No RandomIndexWriter / MockRandomMergePolicy test harness.
-//   - CheckIndex info-stream text ("has deletions") is not exposed.
+//   - ForceMerge(1) does not yet rewrite a segment without its live-docs
+//     deletions, so the "has deletions" info-stream assertion after merge
+//     cannot pass.
 //   - IndexWriter.TryDeleteDocument NRT leaf semantics and the
 //     applyAllDeletes/writeAllDeletes open options are not yet implemented.
 //   - IndexWriter.flushCount polling and doAfterFlush hook are not exposed.
@@ -989,12 +991,78 @@ func TestIndexWriterDelete_FlushPushedDeletesByRAM(t *testing.T) {
 
 // TestIndexWriterDelete_DeletesCheckIndexOutput ports testDeletesCheckIndexOutput.
 //
-// Skipped: the test asserts on the human-readable CheckIndex info-stream text
-// (it greps for the substring "has deletions"). Gocene's CheckIndex returns a
-// structured CheckIndexStatus but does not expose a configurable info-stream
-// whose text can be inspected, so the substring assertions cannot be ported.
+// It verifies that CheckIndex's info-stream output contains "has deletions" when
+// a segment carries live-docs deletions, and that force-merging away the
+// deletions removes the substring from the output.
 func TestIndexWriterDelete_DeletesCheckIndexOutput(t *testing.T) {
-	t.Fatal("infra gap: CheckIndex info-stream text ('has deletions') not exposed for inspection")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
+	cfg.SetMergePolicy(index.NewNoMergePolicy())
+	cfg.SetMaxBufferedDocs(2)
+
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("failed to create writer: %v", err)
+	}
+
+	doc := document.NewDocument()
+	idField, _ := document.NewStringField("field", "0", false)
+	doc.Add(idField)
+	if _, err := w.AddDocument(doc); err != nil {
+		t.Fatalf("failed to add document: %v", err)
+	}
+
+	doc = document.NewDocument()
+	idField, _ = document.NewStringField("field", "1", false)
+	doc.Add(idField)
+	if _, err := w.AddDocument(doc); err != nil {
+		t.Fatalf("failed to add document: %v", err)
+	}
+	if err := w.Commit(); err != nil {
+		t.Fatalf("failed to commit: %v", err)
+	}
+	if w.GetSegmentCount() != 1 {
+		t.Fatalf("expected 1 segment, got %d", w.GetSegmentCount())
+	}
+
+	if _, err := w.DeleteDocuments(index.NewTerm("field", "0")); err != nil {
+		t.Fatalf("failed to delete document: %v", err)
+	}
+	if err := w.Commit(); err != nil {
+		t.Fatalf("failed to commit: %v", err)
+	}
+	if w.GetSegmentCount() != 1 {
+		t.Fatalf("expected 1 segment after commit, got %d", w.GetSegmentCount())
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("failed to close writer: %v", err)
+	}
+
+	var out strings.Builder
+	checker, err := index.NewCheckIndex(dir)
+	if err != nil {
+		t.Fatalf("failed to create CheckIndex: %v", err)
+	}
+	checker.SetInfoStream(&out)
+	status, err := checker.CheckIndex()
+	if err != nil {
+		t.Fatalf("CheckIndex failed: %v", err)
+	}
+	if !status.Clean {
+		t.Fatal("expected clean index")
+	}
+	checker.Close()
+	if !strings.Contains(out.String(), "has deletions") {
+		t.Fatalf("expected info-stream to contain 'has deletions', got:\n%s", out.String())
+	}
+
+	// Force-merge away the deletions and re-check.  This half of the Lucene
+	// test is blocked: Gocene's ForceMerge currently preserves the live-docs
+	// file for the merged segment instead of rewriting the segment without
+	// deletions, so the info-stream still reports "has deletions".
+	t.Fatal("blocked: ForceMerge(1) must rewrite segments without live-docs deletions; see GOC-4169")
 }
 
 // ---------------------------------------------------------------------------

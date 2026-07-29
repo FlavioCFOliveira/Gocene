@@ -92,6 +92,18 @@ func (si *SegmentInfos) Size() int {
 	return len(si.segments)
 }
 
+// TotalMaxDoc returns the sum of maxDoc across all segments.  Mirrors Lucene's
+// SegmentInfos.totalMaxDoc().
+func (si *SegmentInfos) TotalMaxDoc() int {
+	si.mu.RLock()
+	defer si.mu.RUnlock()
+	total := 0
+	for _, sci := range si.segments {
+		total += sci.DocCount()
+	}
+	return total
+}
+
 // Get returns the SegmentCommitInfo at the given index.
 // Returns nil if index is out of bounds.
 func (si *SegmentInfos) Get(index int) *SegmentCommitInfo {

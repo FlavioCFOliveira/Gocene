@@ -28,6 +28,34 @@ const writeLockName = "write.lock"
 // Lucene's IndexWriter.MAX_TERM_LENGTH = ByteBlockPool.BYTE_BLOCK_SIZE - 2.
 const MAX_TERM_LENGTH = 32766
 
+// MAX_DOCS is the hard upper bound on the number of documents that may be
+// added to a single index.  It mirrors Lucene's IndexWriter.MAX_DOCS,
+// deliberately set well below Integer.MAX_VALUE to stay under the lowest
+// ArrayUtil.MAX_ARRAY_LENGTH on typical JVMs.
+const MAX_DOCS = int(^uint(0) >> 1) - 128
+
+// actualMaxDocs holds the current document cap enforced by IndexWriter.  It is
+// package-level (rather than per-writer) so Lucene's test-only
+// IndexWriter.setMaxDocs(int) / getActualMaxDocs() contract can be reproduced.
+// It starts at MAX_DOCS and may only be lowered.
+var actualMaxDocs int64 = int64(MAX_DOCS)
+
+// SetMaxDocs lowers the per-IndexWriter document cap.  It mirrors Lucene's
+// package-private IndexWriter.setMaxDocs(int), used only by tests.  Values
+// above MAX_DOCS are rejected.
+func SetMaxDocs(maxDocs int) {
+	if maxDocs > MAX_DOCS {
+		panic(fmt.Sprintf("maxDocs must be <= IndexWriter.MAX_DOCS=%d; got: %d", MAX_DOCS, maxDocs))
+	}
+	atomic.StoreInt64(&actualMaxDocs, int64(maxDocs))
+}
+
+// GetActualMaxDocs returns the current document cap.  Mirrors Lucene's
+// package-private IndexWriter.getActualMaxDocs().
+func GetActualMaxDocs() int {
+	return int(atomic.LoadInt64(&actualMaxDocs))
+}
+
 // Document represents a document to be indexed.
 // This is a minimal interface to avoid circular imports.
 type Document interface {
@@ -40,9 +68,10 @@ type IndexWriter struct {
 	config    *IndexWriterConfig
 
 	// atomic fields for lock-free access
-	closed      atomic.Bool
-	docCount    atomic.Int32
-	tragicError atomic.Pointer[error]
+	closed         atomic.Bool
+	docCount       atomic.Int32
+	tragicError    atomic.Pointer[error]
+	pendingNumDocs atomic.Int64
 
 	// mu protects shared state changes (segment infos, commit data, etc.)
 	// NOT for document-level operations which should be lock-free
@@ -528,6 +557,7 @@ func NewIndexWriter(dir store.Directory, config *IndexWriterConfig) (*IndexWrite
 	writer.lastCommittedSegmentInfos = initialSegmentInfos.Clone()
 	writer.pinnedSegmentInfos = initialSegmentInfos.Clone()
 	writer.rollbackSegmentInfos = rollbackSegmentInfos.Clone()
+	writer.pendingNumDocs.Store(int64(initialSegmentInfos.TotalMaxDoc()))
 
 	// Validate that the index sort matches the existing commit. Changing the
 	// index sort on an existing index is not allowed (Lucene throws
@@ -621,20 +651,17 @@ func (w *IndexWriter) AddDocument(doc Document) (int64, error) {
 	w.addLock.Lock()
 	defer w.addLock.Unlock()
 
-	// Enforce the configured per-writer document limit.  Mirrors Lucene's
+	// Reserve a slot against the global document cap.  Mirrors Lucene's
 	// IndexWriter.reserveDocs / tooManyDocs contract.
-	if maxDocs := w.config.MaxDocs(); maxDocs > 0 {
-		if current := w.maxDocForLimit(); current >= maxDocs {
-			return 0, fmt.Errorf(
-				"number of documents in the index cannot exceed %d (current document count is %d)",
-				maxDocs, current)
-		}
+	if err := w.reserveDocs(1); err != nil {
+		return 0, err
 	}
 
 	// DocumentsWriter has its own internal locking, so we don't need
 	// to hold the global lock during document processing.
 	if w.documentsWriter != nil {
 		if err := w.documentsWriter.AddDocument(doc, nil); err != nil {
+			w.pendingNumDocs.Add(-1)
 			return 0, err
 		}
 	}
@@ -677,6 +704,41 @@ func (w *IndexWriter) AddDocument(doc Document) (int64, error) {
 // for an indexing operation. It is safe for concurrent use.
 func (w *IndexWriter) nextSequenceNumber() int64 {
 	return w.seqNoCounter.Add(1)
+}
+
+// reserveDocs reserves space for addedNumDocs new documents against the global
+// document cap.  Mirrors Lucene's IndexWriter.reserveDocs(long).  If the cap
+// would be exceeded, the reservation is rolled back and an IllegalArgumentError
+// with the canonical Lucene message is returned.
+func (w *IndexWriter) reserveDocs(addedNumDocs int64) error {
+	if addedNumDocs <= 0 {
+		return nil
+	}
+	maxDocs := int64(GetActualMaxDocs())
+	count := w.pendingNumDocs.Add(addedNumDocs)
+	if count > maxDocs {
+		w.pendingNumDocs.Add(-addedNumDocs)
+		return fmt.Errorf(
+			"number of documents in the index cannot exceed %d (current document count is %d; added numDocs is %d)",
+			maxDocs, w.pendingNumDocs.Load(), addedNumDocs)
+	}
+	return nil
+}
+
+// testReserveDocs performs a best-effort check that the current index can
+// accept additional docs without actually reserving them.  Mirrors Lucene's
+// IndexWriter.testReserveDocs(long).
+func (w *IndexWriter) testReserveDocs(addedNumDocs int64) error {
+	if addedNumDocs <= 0 {
+		return nil
+	}
+	maxDocs := int64(GetActualMaxDocs())
+	if w.pendingNumDocs.Load()+addedNumDocs > maxDocs {
+		return fmt.Errorf(
+			"number of documents in the index cannot exceed %d (current document count is %d; added numDocs is %d)",
+			maxDocs, w.pendingNumDocs.Load(), addedNumDocs)
+	}
+	return nil
 }
 
 // addFieldToInfos adds (or merges) a field's metadata into pendingFieldInfos.
@@ -792,11 +854,9 @@ func (w *IndexWriter) UpdateDocument(term *Term, doc Document) (int64, error) {
 	}
 
 	// Append path: add new doc and record bounded delete for matching old docs.
-	// Enforce the per-writer document limit on the replacement document.
-	if maxDocs := w.config.MaxDocs(); maxDocs > 0 && w.maxDocForLimit() >= maxDocs {
-		return 0, fmt.Errorf(
-			"number of documents in the index cannot exceed %d (current document count is %d)",
-			maxDocs, w.maxDocForLimit())
+	// Reserve a slot against the global document cap.
+	if err := w.reserveDocs(1); err != nil {
+		return 0, err
 	}
 
 	w.mu.Lock()

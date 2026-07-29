@@ -873,6 +873,20 @@ func OpenDirectoryReader(directory store.Directory) (*DirectoryReader, error) {
 	return OpenDirectoryReaderWithInfos(directory, segmentInfos)
 }
 
+// OpenDirectoryReaderAtCommit opens a DirectoryReader for the given commit
+// point. This is the Go equivalent of Lucene's
+// DirectoryReader.open(IndexCommit).
+func OpenDirectoryReaderAtCommit(commit *IndexCommit) (*DirectoryReader, error) {
+	if commit == nil {
+		return nil, fmt.Errorf("commit must not be nil")
+	}
+	dir := commit.GetDirectory()
+	if dir == nil {
+		return nil, fmt.Errorf("commit has no directory")
+	}
+	return OpenDirectoryReaderWithInfos(dir, commit.GetSegmentInfos())
+}
+
 // newCompositeReaderFromSegments builds a CompositeReader from a slice of SegmentReaders.
 // An empty slice produces an empty composite reader (valid for an empty index).
 func newCompositeReaderFromSegments(readers []*SegmentReader) (*CompositeReader, error) {
@@ -1247,6 +1261,18 @@ func OpenDirectoryReaderFromWriter(writer *IndexWriter) (*DirectoryReader, error
 		return nil, fmt.Errorf("OpenDirectoryReaderFromWriter: writer must not be nil")
 	}
 	return writer.GetReader()
+}
+
+// OpenDirectoryReaderFromWriterWithOptions opens a near-real-time
+// DirectoryReader from a live IndexWriter, matching the Lucene overload
+// DirectoryReader.open(IndexWriter, applyAllDeletes, writeAllDeletes).
+// Gocene's NRT reader always applies all buffered deletes to the returned
+// snapshot, so the flags are accepted for API compatibility but do not change
+// the reader's behavior.
+func OpenDirectoryReaderFromWriterWithOptions(writer *IndexWriter, applyAllDeletes, writeAllDeletes bool) (*DirectoryReader, error) {
+	_ = applyAllDeletes
+	_ = writeAllDeletes
+	return OpenDirectoryReaderFromWriter(writer)
 }
 
 // OpenIfChangedFromWriter reopens old against the current state of a live
