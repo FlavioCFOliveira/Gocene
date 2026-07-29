@@ -8,7 +8,7 @@
 
 - **Total `t.Skip` calls remaining: 0** (the no-skip policy is fully enforced)
 - **Total `t.Skip` calls remaining: 0** (the no-skip policy is fully enforced; `scripts/check-skips.sh` reports OK)
-- **Total deferred tests: ~100** across 33 packages (`index` only; all other packages pass in the default build). The exact count was 100 unique `FAIL` lines in the most recent `go test ./index` run.
+- **Total deferred tests: ~97** across 33 packages (`index` only; all other packages pass in the default build). The exact count was 97 unique `FAIL` lines in the most recent `go test ./index` run.
 - `go test ./...` shows only the `index` package failing. The remaining `index` failures are descriptive `t.Fatal` blockers for RandomIndexWriter/MockAnalyzer infrastructure, merge-scheduler hooks (ConcurrentMergeScheduler doMerge/doStall/mergeSuccess), CheckIndex, applied deletes on commit, NRT openIfChanged/SegmentReader sharing, term-vector/payload/offset integration, numeric/binary doc-values updates on reopen, and a few unrelated IndexWriter/reader gaps.
 - **T105.23 refresh (2026-07-24):** all @Monster/@Nightly `index` tests are now gated behind the `gocene_monsters` build tag. The previously-mixed tests `TestCommitOnCloseDiskUsage`, `TestCommitThreadSafety` (from `index_writer_commit_test.go`) and `TestIndexWriterOnError_Checkpoint` (from `index_writer_on_error_test.go`) have been extracted into `index_writer_commit_monster_test.go` and `index_writer_on_error_monster_test.go`, respectively, leaving no @Nightly / @Monster tests in default-build `index` files.
 - The T105.9 mock test harness, T105.10 deleter integration, T105.13 mock/RIW infrastructure, T105.14 numeric/binary doc-values update paths, and T105.22 merge-observer/ForceMergeDeletes/NRT in-memory merge fixes resolved large blocks of previously-deferred `index` tests.
@@ -21,7 +21,7 @@
 
 | Package | Deferred Tests | Blocker Summary |
 |---------|:--------------:|-----------------|
-| `index` | ~100 | remaining blockers: term-vectors/RandomIndexWriter integration, payloads/MockAnalyzer, tragic deadlock hooks (CMS hooks), CheckIndex info-stream post-merge, applied deletes on commit, NRT openIfChanged/SegmentReader sharing, term-vector/payload/offset integration, numeric/binary doc-values updates on reopen, merge-scheduler/CMS hooks; monster/nightly tests now gated by `gocene_monsters` |
+| `index` | ~97 | remaining blockers: term-vectors/RandomIndexWriter integration, payloads/MockAnalyzer, tragic deadlock hooks (CMS hooks), CheckIndex info-stream post-merge, applied deletes on commit, NRT openIfChanged/SegmentReader sharing, term-vector/payload/offset integration, numeric/binary doc-values updates on reopen, merge-scheduler/CMS hooks; monster/nightly tests now gated by `gocene_monsters` |
 | `search` | 0 | All search package tests pass |
 | `codecs` | 0 | All codec-level tests pass; previous entries (Lucene99 placeholders, PerField round-trips, DocValuesSkipper, TV/SF formats) were implemented in T105.4/T105.5 work |
 | `util/bkd` | 0 | All default tests pass; `TestBKD_RandomBinaryBig` is gated by the `gocene_monsters` build tag and runs only in monster/CI mode |
@@ -82,7 +82,7 @@ The `index` package is the only package still failing in `go test ./...`. The de
 | `TestIndexWriterCommit` | `index/index_writer_commit_test.go:1111` | **RESOLVED** — TestIndexWriterCommit subtests now pass |
 | `TestIndexWriterMergePolicy` (11 calls) | `index/index_writer_merge_policy_test.go:298-800` | **RESOLVED** — all 11 subtests pass after unblocking stale t.Fatal calls |
 | `TestIndexWriterMerge` (4 calls) | `index/index_writer_merge_test.go:180-270` | MergeScheduler not yet implemented, disable background merge, compound file verification |
-| `TestIndexWriterMerging` (15 calls remain) | `index/index_writer_merging_test.go:69-747` | AddIndexes, DirectoryReader.Open, DeleteDocuments, ForceMergeDeletes, LogMergePolicy, CMS not fully implemented (`NoWaitClose` resolved) |
+| `TestIndexWriterMerging` (all subtests) | `index/index_writer_merging_test.go:69-747` | **RESOLVED** — AddIndexes, DirectoryReader.Open, verifyIndex, ForceMergeDeletes, LogMergePolicy SetMaxMergeDocs all functional; all subtests pass |
 | `TestIndexWriterForceMerge` (4 calls) | `index/index_writer_force_merge_test.go:108-248` | ForceMerge does not honor maxNumSegments; MockDirectoryWrapper; background overload not implemented |
 | `TestSizeBoundedForceMerge` (11 calls) | `index/size_bounded_force_merge_test.go:121-369` | ForceMerge ignores LogByteSize/LogDocMergePolicy size caps; assertions deferred |
 | `TestIndexWriterWithThreads` (14 calls) | `index/index_writer_with_threads_test.go:78-155` | MockDirectoryWrapper, Document pipeline, CMS, RandomIndexWriter (Sprint 55 option c) |
