@@ -112,7 +112,7 @@ The `index` package is the only package still failing in `go test ./...`. The de
 | `TestNumericDocValuesUpdates` (15 calls) | `index/numeric_doc_values_updates_test.go:249-1391` | T105.24 refresh: 15 previously-stubbed tests now have precise blockers: NRT reader/sort read-back, per-field DocValuesFormat, forceMerge DV propagation, index sort, NRT openIfChanged, concurrent multi-field updates, multi-generation atomicity, AddIndexes DV-state transfer, .dvu file cleanup, NRTCachingDirectory IOContext |
 | `TestMixedDocValuesUpdates` (13 calls) | `index/mixed_doc_values_updates_test.go:27-100` | GOC-4202: pending updateDocValues + NRT reopen |
 | `TestSegmentCoreReadersDV` (2 calls) | `index/segment_core_readers_dv_test.go:63-66` | GetCoreReaders()/GetDocValuesProducer() = nil (rmp #4) |
-| `TestReaderClosed` | `index/reader_closed_test.go:56` | DirectoryReader.Close does not set a closed flag; subsequent IndexSearcher.Search returns 0 hits silently instead of AlreadyClosedException |
+| `TestReaderClosed` | `index/reader_closed_test.go:56` | **RESOLVED** — DirectoryReader.Close sets the closed flag and IndexSearcher.Search calls EnsureOpen, returning AlreadyClosedException; test passes |
 | `TestDocInverterPerFieldErrorInfo` (2 calls) | `index/doc_inverter_per_field_error_info_test.go:53-78` | GOC-4199: pending SetInfoStream + DocInverter error reporting |
 | `TestInfoStream` (2 calls) | `index/info_stream_test.go:73-82` | No SetInfoStream; no isEnableTestPoints (Sprint 55 option c) |
 | `TestCheckIndexCompatibility` (6 calls) | `index/checkindex_compatibility_test.go:54-148` | **RESOLVED** — CheckIndex implementation is functional; all subtests pass |
