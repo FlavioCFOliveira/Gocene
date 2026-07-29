@@ -40,6 +40,14 @@ type ParallelPostingsArray struct {
 	// ByteStarts maps a term ID to the start offset of the first stream
 	// slice in the byte pool.
 	ByteStarts []int
+
+	// wrapper holds a pointer to the concrete postings-array subtype that
+	// embeds this base array (e.g. *TermVectorsPostingsArray or
+	// *FreqProxPostingsArray). It is used during postings-array growth to
+	// copy subtype-specific side arrays (Freqs, LastPositions, etc.) that are
+	// not visible on the base type. Set by the concrete subtype constructors
+	// and nil for the base ParallelPostingsArray itself.
+	wrapper interface{}
 }
 
 // NewParallelPostingsArray allocates a base ParallelPostingsArray with the
@@ -148,6 +156,10 @@ type TermsHashPerField struct {
 	// CreatePostingsArray returns a freshly allocated postings array of
 	// the given size. Concrete subtypes return their own embedded variant.
 	CreatePostingsArray func(size int) *ParallelPostingsArray
+	// CopyPostingsArray is invoked after a postings-array grow to copy any
+	// concrete subtype side arrays from the old array to the new one.
+	// Optional; nil means only the base fields are copied.
+	CopyPostingsArray func(src, dst *ParallelPostingsArray, numToCopy int)
 }
 
 // TermsHashPerFieldHooks bundles the four subclass-equivalent callbacks
@@ -167,6 +179,12 @@ type TermsHashPerFieldHooks struct {
 	// CreatePostingsArray returns a freshly allocated postings array of
 	// the given size. Concrete subtypes return their own embedded variant.
 	CreatePostingsArray func(size int) *ParallelPostingsArray
+	// CopyPostingsArray is invoked after a postings-array grow to copy the
+	// concrete subtype's side arrays (e.g. Freqs, LastPositions) from the
+	// old array into the new one. It is optional; when nil only the base
+	// ParallelPostingsArray fields are copied, which is sufficient for
+	// subclasses that add no side state.
+	CopyPostingsArray func(src, dst *ParallelPostingsArray, numToCopy int)
 }
 
 // NewTermsHashPerField wires a new per-field handler.
@@ -226,6 +244,7 @@ func NewTermsHashPerField(
 		AddTerm:             hooks.AddTerm,
 		NewPostingsArray:    hooks.NewPostingsArray,
 		CreatePostingsArray: hooks.CreatePostingsArray,
+		CopyPostingsArray:   hooks.CopyPostingsArray,
 	}
 	startArray := newPostingsBytesStartArray(t, bytesUsed)
 	t.bytesHash = util.NewBytesRefHashWithCapacity(termBytePool, termsHashInitSize, startArray)
@@ -531,6 +550,9 @@ func (a *postingsBytesStartArray) Grow() []int {
 	newSize := util.Oversize(old.Size+1, old.BytesPerPosting())
 	grown := a.perField.CreatePostingsArray(newSize)
 	old.CopyTo(grown, old.Size)
+	if a.perField.CopyPostingsArray != nil {
+		a.perField.CopyPostingsArray(old, grown, old.Size)
+	}
 	a.perField.PostingsArray = grown
 	if a.perField.NewPostingsArray != nil {
 		a.perField.NewPostingsArray()

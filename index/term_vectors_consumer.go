@@ -195,6 +195,20 @@ func (c *TermVectorsConsumer) Flush(state *SegmentWriteState, sortMap SorterDocM
 	// Lucene calls writer.finish(numDocs) here; the Gocene
 	// TermVectorsWriter interface does not expose a Finish method, so
 	// finalisation is deferred to Close. See the type-doc deviation.
+
+	// Rebind the writer to the final SegmentWriteState when the concrete
+	// implementation supports it.  This is required because IndexWriter.Commit
+	// creates a fresh SegmentInfo (with a new segment ID) after the writer was
+	// lazily opened during indexing, and the .tvd/.tvx headers must match the
+	// ID advertised by the .si file.
+	if stateSetter, ok := c.Writer.(interface {
+		SetSegmentWriteState(state *SegmentWriteState) error
+	}); ok {
+		if err := stateSetter.SetSegmentWriteState(state); err != nil {
+			return fmt.Errorf("index: TermVectorsConsumer flush rebind state: %w", err)
+		}
+	}
+
 	closeErr := c.Writer.Close()
 	c.Writer = nil
 	c.accountable = nil

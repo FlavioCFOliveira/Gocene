@@ -316,6 +316,27 @@ func (w *Lucene104TermVectorsWriter) Close() error {
 	return nil
 }
 
+// SetSegmentWriteState rebinds the writer to the final segment write state.
+//
+// Gocene's DocumentsWriter reserves a segment name when a DWPT is obtained from
+// the pool, so the term-vectors writer can be opened lazily during indexing with
+// the correct name.  However, IndexWriter.Commit creates a fresh SegmentInfo
+// (with a new segment ID) for the committed segment and passes it to the DWPT
+// flush methods.  Rebinding the writer to that state before Close ensures the
+// .tvd/.tvx headers carry the same segment ID that the .si file advertises.
+func (w *Lucene104TermVectorsWriter) SetSegmentWriteState(state *SegmentWriteState) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return fmt.Errorf("term vectors writer is closed")
+	}
+	if state == nil || state.SegmentInfo == nil {
+		return fmt.Errorf("SetSegmentWriteState requires a non-nil SegmentWriteState with SegmentInfo")
+	}
+	w.state = state
+	return nil
+}
+
 // writeTVD writes the term vectors data file.
 func (w *Lucene104TermVectorsWriter) writeTVD() error {
 	si := w.state.SegmentInfo
@@ -586,9 +607,13 @@ func (r *Lucene104TermVectorsReader) Get(docID int) (index.Fields, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	if docID < 0 || docID >= len(r.docs) {
-		return &index.EmptyFields{}, nil
+		return nil, nil
 	}
-	return newTV104Fields(r.docs[docID].fields), nil
+	fields := r.docs[docID].fields
+	if len(fields) == 0 {
+		return nil, nil
+	}
+	return newTV104Fields(fields), nil
 }
 
 // GetField retrieves the term vector for a specific field in a document.
@@ -664,7 +689,7 @@ type tv104Terms struct {
 func newTV104Terms(f *tv104Field) *tv104Terms { return &tv104Terms{f: f} }
 
 func (t *tv104Terms) GetIterator() (index.TermsEnum, error) {
-	return &tv104TermsEnum{terms: t.f.terms, pos: -1, field: t.f.name}, nil
+	return &tv104TermsEnum{terms: t.f.terms, pos: -1, field: t.f.name, f: t.f}, nil
 }
 
 func (t *tv104Terms) GetIteratorWithSeek(seekTerm *index.Term) (index.TermsEnum, error) {
@@ -717,6 +742,7 @@ type tv104TermsEnum struct {
 	terms []*tv104Term
 	pos   int
 	field string
+	f     *tv104Field
 }
 
 func (e *tv104TermsEnum) Next() (*index.Term, error) {
@@ -745,7 +771,7 @@ func (e *tv104TermsEnum) Postings(flags int) (index.PostingsEnum, error) {
 	if e.pos < 0 || e.pos >= len(e.terms) {
 		return nil, fmt.Errorf("iterator not positioned")
 	}
-	return nil, nil // simplified: only used for term presence checks
+	return &tv104PostingsEnum{term: e.terms[e.pos], f: e.f}, nil
 }
 
 func (e *tv104TermsEnum) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (index.PostingsEnum, error) {

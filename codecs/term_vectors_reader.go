@@ -124,6 +124,9 @@ func (r *TermVectorsReaderImpl) Get(docID int) (index.Fields, error) {
 	}
 
 	doc := r.docs[docID]
+	if len(doc.Fields) == 0 {
+		return nil, nil
+	}
 	return &termVectorFields{fields: doc.Fields}, nil
 }
 
@@ -210,9 +213,9 @@ func NewEmptyTermVectorsReader(dir store.Directory, segmentInfo *index.SegmentIn
 	}
 }
 
-// Get returns empty fields.
+// Get returns nil because this reader represents a segment with no term vectors.
 func (r *EmptyTermVectorsReader) Get(docID int) (index.Fields, error) {
-	return &index.EmptyFields{}, nil
+	return nil, nil
 }
 
 // GetField returns nil.

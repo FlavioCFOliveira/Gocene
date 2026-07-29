@@ -207,7 +207,11 @@ func (dw *DocumentsWriter) getPerThreadWriter() *DocumentsWriterPerThread {
 	if len(dw.perThreadPool) > 0 {
 		return dw.perThreadPool[0]
 	}
-	dwpt := NewDocumentsWriterPerThread(dw)
+	// Reserve a segment name up front, matching Lucene's DWPT constructor.
+	// This lets lazily-initialized codec writers (in particular the term-vectors
+	// writer) create their on-disk files under the correct segment name.
+	segmentName := dw.nextSegmentName()
+	dwpt := NewDocumentsWriterPerThread(dw, segmentName)
 	dw.perThreadPool = append(dw.perThreadPool, dwpt)
 	return dwpt
 }
@@ -243,16 +247,15 @@ func (dw *DocumentsWriter) flush() error {
 		return fmt.Errorf("documents_writer: cannot flush %d buffered documents: no codec configured", dw.numDocsInRAM)
 	}
 
-	// Generate a new segment name
-	segmentName := dw.nextSegmentName()
-
 	// Get all per-thread writers
 	dw.threadLock.RLock()
 	dwpts := make([]*DocumentsWriterPerThread, len(dw.perThreadPool))
 	copy(dwpts, dw.perThreadPool)
 	dw.threadLock.RUnlock()
 
-	// Flush each DWPT and collect segment infos
+	// Flush each DWPT and collect segment infos.  Each DWPT already reserved
+	// its segment name when it was obtained from the pool, so there is no need
+	// to generate fresh names here.
 	var segments []*SegmentInfo
 	var totalDocsFlushed int
 
@@ -261,6 +264,7 @@ func (dw *DocumentsWriter) flush() error {
 			continue // Nothing to flush in this DWPT
 		}
 
+		segmentName := dwpt.SegmentName()
 		// Flush the DWPT
 		segmentInfo, err := dwpt.Flush(dw.directory, dw.codec, segmentName)
 		if err != nil {
@@ -270,9 +274,6 @@ func (dw *DocumentsWriter) flush() error {
 		if segmentInfo != nil {
 			segments = append(segments, segmentInfo)
 			totalDocsFlushed += segmentInfo.DocCount()
-
-			// Generate next segment name for subsequent segments
-			segmentName = dw.nextSegmentName()
 		}
 	}
 

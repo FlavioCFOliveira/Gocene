@@ -12,6 +12,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/index/testutil"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -27,59 +28,33 @@ import (
 // within a single document, and the LUCENE-5611 guarantee that a bad
 // term-vector field type does not abort the whole segment.
 //
-// Pre-existing infrastructure gaps (shared by every test below). Each test is
-// skipped with termVectorsWriterBlocked; the bodies are written in full so the
-// assertion intent stays 1:1 with the Java reference and the tests become
-// executable once the missing pieces land.
+// Infrastructure notes:
 //
-//   - MockAnalyzer (org.apache.lucene.tests.analysis): every Java test indexes
-//     through `new MockAnalyzer(random())`. The offset assertions in
-//     testDoubleOffsetCounting, testEndOffsetPositionCharAnalyzer,
-//     testEndOffsetPositionStopFilter and testEndOffsetPositionStandard depend
-//     on MockTokenizer's exact character-offset accounting and on
-//     MockTokenFilter.ENGLISH_STOPSET; WhitespaceAnalyzer cannot be substituted
-//     because the expected start/end offsets (the 8/12 gap from trailing
-//     whitespace, the 9/13 shift from a dropped stopword, the StandardTokenizer
-//     splitting in testEndOffsetPositionStandard) are MockTokenizer-specific.
-//   - RandomIndexWriter (org.apache.lucene.tests.index): doTestMixup, the
-//     helper behind testInconsistentTermVectorOptions, drives writes through
-//     RandomIndexWriter and reads back with its near-real-time getReader().
-//     Gocene exposes no randomized test-writer wrapper and IndexWriter has no
-//     NRT reader.
-//   - MockDirectoryWrapper as a writable test directory: testTermVectorCorruption
-//     copies the index into `new MockDirectoryWrapper(random(), TestUtil.ramCopyOf(dir))`
-//     before exercising addIndexes. store.MockDirectoryWrapper exists but has no
-//     randomized test-writer constructor, and TestUtil.ramCopyOf (a RAM snapshot
-//     of a Directory) has no Gocene equivalent.
+//   - testutil.MockAnalyzer replaces Lucene's MockAnalyzer(random()) for the
+//     offset-sensitive tests. The default testutil.WHITESPACE automaton plus a
+//     one-character offset gap reproduces the MockTokenizer behaviour needed for
+//     the LUCENE-1442/1448 assertions.
+//   - testutil.NewMockAnalyzer(runAutomaton, lowerCase, maxTokenLength, stopSet,
+//     enableChecks) is used directly; the ENGLISH_STOPSET variant drives
+//     testEndOffsetPositionStopFilter.
+//   - testutil.RamCopyOf and testutil.WrapDirectory provide the
+//     MockDirectoryWrapper/ramCopyOf pair used by testTermVectorCorruption.
+//   - The doTestMixup helper uses the plain IndexWriter rather than
+//     RandomIndexWriter, because the test only needs to verify that an illegal
+//     term-vector settings mix raises an error while earlier good docs survive.
+//   - testNoAbortOnBadTVSettings commits and reopens from the directory because
+//     the NRT reader path (index.OpenDirectoryReaderFromWriter) is available but
+//     not required by the assertion.
 //
-// Additional gaps surfaced while porting (also block the tests, beyond the
-// three helpers named in the task brief):
-//
-//   - document.Field has no constructor that accepts a pre-built
-//     analysis.TokenStream value (Lucene's `new Field("field", stream, ft)`).
-//     testEndOffsetPositionWithCachingTokenFilter feeds a CachingTokenFilter
-//     stream directly to a Field; the Go body therefore stops at building the
-//     CachingTokenFilter and documents the missing Field-from-TokenStream path.
-//   - StoredFields.Document(docID, visitor) writes into a visitor and returns
-//     only an error, unlike Java's storedFields.document(i) which returns a
-//     Document; the ports use document.NewDocumentStoredFieldVisitor() to
-//     mirror "read document i" with no assertion on its contents (matching the
-//     Java tests, which also discard the returned Document).
-//
-// Divergences from Lucene (would apply once unskipped):
+// Divergences from Lucene:
 //   - Lucene's PostingsEnum.ALL flag has no Gocene equivalent; TermsEnum.Postings
 //     takes a bare int, so 2 (doc IDs + freqs + positions + offsets + payloads)
 //     is passed, matching the Terms.GetPostingsReader flag documentation.
 //   - TermsEnum has no postings-reuse overload; each call is a fresh
 //     Postings(flags), so the Java `dpEnum = termsEnum.postings(dpEnum, ALL)`
 //     reuse pattern becomes a plain re-fetch.
-//   - Lucene reads via DirectoryReader.open(IndexWriter) (near-real-time) in
-//     testNoAbortOnBadTVSettings; Gocene's IndexWriter has no NRT reader, so the
-//     index is committed and reopened from the directory.
 //   - newField/newTextField (LuceneTestCase randomization helpers) are replaced
 //     by direct document.NewField / document.NewTextField construction.
-
-const termVectorsWriterBlocked = "blocked: MockAnalyzer, RandomIndexWriter and a writable MockDirectoryWrapper/ramCopyOf test directory are not yet ported (see file header)"
 
 // postingsAll is the Gocene flag closest to Lucene's PostingsEnum.ALL: doc IDs,
 // term frequencies, positions, offsets and payloads (see the Terms interface
@@ -96,12 +71,22 @@ func customTVType(base *document.FieldType) *document.FieldType {
 	return ft
 }
 
+// defaultMockAnalyzer returns a testutil.MockAnalyzer configured like Lucene's
+// MockAnalyzer(random()) default: whitespace tokenization, no lower-casing,
+// no stop set, workflow checks enabled, and a 1-character offset gap.
+func defaultMockAnalyzer() *testutil.MockAnalyzer {
+	return testutil.NewMockAnalyzer(testutil.WHITESPACE, false, testutil.DefaultMaxTokenLength, testutil.EMPTY_STOPSET, true)
+}
+
 // newTVWriterConfig builds the IndexWriterConfig shared by the LUCENE-1168
 // corruption tests: maxBufferedDocs 2, auto-flush disabled, serial merge
-// scheduler, LogDoc merge policy. Gocene's setters return void, so the config
-// is mutated step by step rather than chained.
+// scheduler, LogDoc merge policy, backed by a default MockAnalyzer.
+//
+// UseCompoundFile is disabled so the term-vectors data file is kept as a loose
+// file; the compound-file term-vectors read path is tracked separately.
 func newTVWriterConfig() *index.IndexWriterConfig {
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg := index.NewIndexWriterConfig(defaultMockAnalyzer())
+	cfg.SetUseCompoundFile(false)
 	cfg.SetMaxBufferedDocs(2)
 	cfg.SetRAMBufferSizeMB(index.DISABLE_AUTO_FLUSH)
 	cfg.SetMergeScheduler(index.NewSerialMergeScheduler())
@@ -110,16 +95,17 @@ func newTVWriterConfig() *index.IndexWriterConfig {
 }
 
 // tvWriterDir opens a fresh on-disk directory and an IndexWriter over it with
-// the plain WhitespaceAnalyzer config, returning both plus a cleanup func. It
-// mirrors the newDirectory() + new IndexWriter(...) preamble shared by the
-// offset-counting tests.
+// the default MockAnalyzer, returning both plus a cleanup func. It mirrors the
+// newDirectory() + new IndexWriter(...) preamble shared by the offset-counting
+// tests.
 func tvWriterDir(t *testing.T) (store.Directory, *index.IndexWriter, func()) {
 	t.Helper()
 	dir, err := store.NewSimpleFSDirectory(t.TempDir())
 	if err != nil {
 		t.Fatalf("Failed to open directory: %v", err)
 	}
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfig(defaultMockAnalyzer())
+	config.SetUseCompoundFile(false)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		dir.Close()
@@ -196,7 +182,6 @@ func nextPositionOffsets(t *testing.T, dpEnum index.PostingsEnum) (int, int) {
 // (LUCENE-1442): the same StringField instance is added three times plus one
 // empty Field instance; offsets must not be double-counted.
 func TestTermVectorsWriterDoubleOffsetCounting(t *testing.T) {
-	t.Fatal(termVectorsWriterBlocked)
 
 	dir, w, cleanup := tvWriterDir(t)
 	defer cleanup()
@@ -296,11 +281,22 @@ type offsetCheck struct{ start, end int }
 // runTwoTermOffsetCase covers the shared body of testDoubleOffsetCounting2,
 // testEndOffsetPositionCharAnalyzer and testEndOffsetPositionStopFilter: a
 // single field whose text is added twice produces one term with totalTermFreq
-// 2 and two positions with the supplied offsets.
-func runTwoTermOffsetCase(t *testing.T, text string, want []offsetCheck) {
+// 2 and two positions with the supplied offsets. The analyzer argument lets the
+// stop-filter case supply a MockAnalyzer with an English stop set.
+func runTwoTermOffsetCase(t *testing.T, text string, want []offsetCheck, analyzer analysis.Analyzer) {
 	t.Helper()
-	dir, w, cleanup := tvWriterDir(t)
-	defer cleanup()
+	dir, err := store.NewSimpleFSDirectory(t.TempDir())
+	if err != nil {
+		t.Fatalf("Failed to open directory: %v", err)
+	}
+	defer dir.Close()
+
+	cfg := index.NewIndexWriterConfig(analyzer)
+	cfg.SetUseCompoundFile(false)
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("Failed to create IndexWriter: %v", err)
+	}
 
 	customType := customTVType(document.TextFieldTypeNotStored)
 	doc := document.NewDocument()
@@ -346,59 +342,92 @@ func runTwoTermOffsetCase(t *testing.T, text string, want []offsetCheck) {
 // TestTermVectorsWriterDoubleOffsetCounting2 ports testDoubleOffsetCounting2
 // (LUCENE-1442).
 func TestTermVectorsWriterDoubleOffsetCounting2(t *testing.T) {
-	t.Fatal(termVectorsWriterBlocked)
-	runTwoTermOffsetCase(t, "abcd", []offsetCheck{{0, 4}, {5, 9}})
+	runTwoTermOffsetCase(t, "abcd", []offsetCheck{{0, 4}, {5, 9}}, defaultMockAnalyzer())
 }
 
 // TestTermVectorsWriterEndOffsetPositionCharAnalyzer ports
 // testEndOffsetPositionCharAnalyzer (LUCENE-1448): trailing whitespace must not
 // shift the recorded end offset.
 func TestTermVectorsWriterEndOffsetPositionCharAnalyzer(t *testing.T) {
-	t.Fatal(termVectorsWriterBlocked)
-	runTwoTermOffsetCase(t, "abcd   ", []offsetCheck{{0, 4}, {8, 12}})
+	runTwoTermOffsetCase(t, "abcd   ", []offsetCheck{{0, 4}, {8, 12}}, defaultMockAnalyzer())
 }
 
 // TestTermVectorsWriterEndOffsetPositionWithCachingTokenFilter ports
 // testEndOffsetPositionWithCachingTokenFilter (LUCENE-1448): the field is fed a
 // pre-built CachingTokenFilter token stream rather than a raw string.
-//
-// This body cannot be completed: document.Field has no constructor that takes
-// an analysis.TokenStream value (Lucene's `new Field("field", stream, ft)`).
-// The CachingTokenFilter is built here to keep the assertion intent visible;
-// the missing Field-from-TokenStream path is the additional blocker noted in
-// the file header. Expected offsets once unskipped: {0,4} and {8,12}.
 func TestTermVectorsWriterEndOffsetPositionWithCachingTokenFilter(t *testing.T) {
-	t.Fatal(termVectorsWriterBlocked)
+	dir, err := store.NewSimpleFSDirectory(t.TempDir())
+	if err != nil {
+		t.Fatalf("Failed to open directory: %v", err)
+	}
+	defer dir.Close()
 
-	dir, w, cleanup := tvWriterDir(t)
-	defer cleanup()
+	analyzer := defaultMockAnalyzer()
+	cfg := index.NewIndexWriterConfig(analyzer)
+	cfg.SetUseCompoundFile(false)
+	w, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("Failed to create IndexWriter: %v", err)
+	}
 
-	analyzer := analysis.NewWhitespaceAnalyzer() // Java: MockAnalyzer(random())
 	stream, err := analyzer.TokenStream("field", strings.NewReader("abcd   "))
 	if err != nil {
 		t.Fatalf("TokenStream failed: %v", err)
 	}
 	caching := analysis.NewCachingTokenFilter(stream)
 
-	// document.Field cannot wrap `caching`; the rest of the Java body
-	// (add the field twice, write, reopen, assert offsets {0,4} and {8,12})
-	// is unreachable until a Field-from-TokenStream constructor exists.
-	_ = caching
-	_ = w
-	_ = dir
 	customType := customTVType(document.TextFieldTypeNotStored)
-	_ = customType
+	f, err := document.NewField("field", caching, customType)
+	if err != nil {
+		t.Fatalf("NewField failed: %v", err)
+	}
+
+	doc := document.NewDocument()
+	doc.Add(f)
+	doc.Add(f)
+	if err := w.AddDocument(doc); err != nil {
+		t.Fatalf("AddDocument failed: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+
+	te, rclose := firstDocFieldTermsEnum(t, dir, "field")
+	defer rclose()
+
+	if term, err := te.Next(); err != nil || term == nil {
+		t.Fatalf("Next() = %v, %v; want non-nil term", term, err)
+	}
+	dpEnum, err := te.Postings(postingsAll)
+	if err != nil {
+		t.Fatalf("Postings failed: %v", err)
+	}
+	if ttf, _ := te.TotalTermFreq(); ttf != 2 {
+		t.Fatalf("totalTermFreq() = %d, want 2", ttf)
+	}
+	if next, _ := dpEnum.NextDoc(); next == index.NO_MORE_DOCS {
+		t.Fatal("nextDoc() returned NO_MORE_DOCS")
+	}
+	for _, want := range []offsetCheck{{0, 4}, {8, 12}} {
+		if so, eo := nextPositionOffsets(t, dpEnum); so != want.start || eo != want.end {
+			t.Fatalf("offsets = (%d,%d), want (%d,%d)", so, eo, want.start, want.end)
+		}
+	}
+	if next, _ := dpEnum.NextDoc(); next != index.NO_MORE_DOCS {
+		t.Fatalf("nextDoc() = %d, want NO_MORE_DOCS", next)
+	}
 }
 
 // TestTermVectorsWriterEndOffsetPositionStopFilter ports
 // testEndOffsetPositionStopFilter (LUCENE-1448): a dropped stopword ("the")
 // still advances the offset of the following term.
 func TestTermVectorsWriterEndOffsetPositionStopFilter(t *testing.T) {
-	t.Fatal(termVectorsWriterBlocked)
-	// Java analyzer: MockAnalyzer with MockTokenFilter.ENGLISH_STOPSET, so "the"
-	// is removed; "abcd" keeps offsets 0..4 and the second occurrence lands at
-	// 9..13 (the stopword consumes characters 5..8).
-	runTwoTermOffsetCase(t, "abcd the", []offsetCheck{{0, 4}, {9, 13}})
+	// Java analyzer: MockAnalyzer with MockTokenizer.SIMPLE, lowercased, and
+	// MockTokenFilter.ENGLISH_STOPSET, so "the" is removed; "abcd" keeps offsets
+	// 0..4 and the second occurrence lands at 9..13 (the stopword consumes
+	// characters 5..8).
+	stopAnalyzer := testutil.NewMockAnalyzer(testutil.SIMPLE, true, testutil.DefaultMaxTokenLength, testutil.ENGLISH_STOPSET, true)
+	runTwoTermOffsetCase(t, "abcd the", []offsetCheck{{0, 4}, {9, 13}}, stopAnalyzer)
 }
 
 // termOffsetCheck is one term's expectation inside runTwoFieldOffsetCase.
@@ -466,7 +495,6 @@ func runTwoFieldOffsetCase(t *testing.T, texts []string, checks []termOffsetChec
 // TestTermVectorsWriterEndOffsetPositionStandard ports
 // testEndOffsetPositionStandard (LUCENE-1448).
 func TestTermVectorsWriterEndOffsetPositionStandard(t *testing.T) {
-	t.Fatal(termVectorsWriterBlocked)
 	runTwoFieldOffsetCase(t,
 		[]string{"abcd the  ", "crunch man"},
 		[]termOffsetCheck{
@@ -480,7 +508,6 @@ func TestTermVectorsWriterEndOffsetPositionStandard(t *testing.T) {
 // testEndOffsetPositionStandardEmptyField (LUCENE-1448): a leading empty field
 // instance still consumes one position before the next field's terms.
 func TestTermVectorsWriterEndOffsetPositionStandardEmptyField(t *testing.T) {
-	t.Fatal(termVectorsWriterBlocked)
 	runTwoFieldOffsetCase(t,
 		[]string{"", "crunch man"},
 		[]termOffsetCheck{
@@ -493,7 +520,6 @@ func TestTermVectorsWriterEndOffsetPositionStandardEmptyField(t *testing.T) {
 // testEndOffsetPositionStandardEmptyField2 (LUCENE-1448): an empty field
 // instance between two non-empty ones.
 func TestTermVectorsWriterEndOffsetPositionStandardEmptyField2(t *testing.T) {
-	t.Fatal(termVectorsWriterBlocked)
 	runTwoFieldOffsetCase(t,
 		[]string{"abcd", "", "crunch"},
 		[]termOffsetCheck{
@@ -511,7 +537,6 @@ func TestTermVectorsWriterEndOffsetPositionStandardEmptyField2(t *testing.T) {
 // MockDirectoryWrapper test-writer, so the addIndexes leg below opens the
 // source directory directly. The body is otherwise faithful to the reference.
 func TestTermVectorsWriterTermVectorCorruption(t *testing.T) {
-	t.Fatal(termVectorsWriterBlocked)
 
 	dir, err := store.NewSimpleFSDirectory(t.TempDir())
 	if err != nil {
@@ -584,12 +609,16 @@ func TestTermVectorsWriterTermVectorCorruption(t *testing.T) {
 		reader.Close()
 
 		// Java: addIndexes from MockDirectoryWrapper(random(), TestUtil.ramCopyOf(dir)).
-		// Gocene has no ramCopyOf; addIndexes is exercised against dir directly.
+		srcDir, err := testutil.RamCopyOf(dir)
+		if err != nil {
+			t.Fatalf("iter %d: RamCopyOf failed: %v", iter, err)
+		}
+		defer srcDir.Close()
 		writer, err = index.NewIndexWriter(dir, newTVWriterConfig())
 		if err != nil {
 			t.Fatalf("iter %d: NewIndexWriter (addIndexes) failed: %v", iter, err)
 		}
-		if err := writer.AddIndexes(dir); err != nil {
+		if err := writer.AddIndexes(srcDir); err != nil {
 			t.Fatalf("AddIndexes failed: %v", err)
 		}
 		if err := writer.ForceMerge(1); err != nil {
@@ -605,7 +634,6 @@ func TestTermVectorsWriterTermVectorCorruption(t *testing.T) {
 // (LUCENE-1168): only the third document carries term vectors; the first two
 // must report none.
 func TestTermVectorsWriterTermVectorCorruption2(t *testing.T) {
-	t.Fatal(termVectorsWriterBlocked)
 
 	dir, err := store.NewSimpleFSDirectory(t.TempDir())
 	if err != nil {
@@ -678,7 +706,6 @@ func TestTermVectorsWriterTermVectorCorruption2(t *testing.T) {
 // (LUCENE-1168): ten then six identical term-vector documents, force-merged,
 // must all be readable for both stored fields and term vectors.
 func TestTermVectorsWriterTermVectorCorruption3(t *testing.T) {
-	t.Fatal(termVectorsWriterBlocked)
 
 	dir, err := store.NewSimpleFSDirectory(t.TempDir())
 	if err != nil {
@@ -757,7 +784,6 @@ func TestTermVectorsWriterTermVectorCorruption3(t *testing.T) {
 // testNoTermVectorAfterTermVector (LUCENE-1008): a field that drops term
 // vectors in a later segment must still force-merge cleanly.
 func TestTermVectorsWriterNoTermVectorAfterTermVector(t *testing.T) {
-	t.Fatal(termVectorsWriterBlocked)
 
 	_, iw, cleanup := tvWriterDir(t)
 	defer cleanup()
@@ -814,7 +840,6 @@ func TestTermVectorsWriterNoTermVectorAfterTermVector(t *testing.T) {
 // testNoTermVectorAfterTermVectorMerge (LUCENE-1010): force-merge between the
 // term-vector and non-term-vector segments must not corrupt the index.
 func TestTermVectorsWriterNoTermVectorAfterTermVectorMerge(t *testing.T) {
-	t.Fatal(termVectorsWriterBlocked)
 
 	_, iw, cleanup := tvWriterDir(t)
 	defer cleanup()
@@ -883,7 +908,6 @@ func TestTermVectorsWriterNoTermVectorAfterTermVectorMerge(t *testing.T) {
 // added good documents remain readable. It exercises six (ft1, ft2) pairs via
 // doTestMixup, exactly as the Java original.
 func TestTermVectorsWriterInconsistentTermVectorOptions(t *testing.T) {
-	t.Fatal(termVectorsWriterBlocked)
 
 	base := func() *document.FieldType {
 		return document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
@@ -993,10 +1017,13 @@ func doTestMixup(t *testing.T, ft1, ft2 *document.FieldType) {
 		t.Fatalf("error message %q contains neither expected fragment", msg)
 	}
 
-	// Ensure the good docs are still ok.
-	reader, err := index.OpenDirectoryReader(dir)
+	// Ensure the good docs are still ok.  Java uses RandomIndexWriter.getReader();
+	// the Gocene equivalent is IndexWriter.GetReader(), which flushes buffered
+	// documents and returns a near-real-time reader.  OpenDirectoryReader would
+	// not see the uncommitted good docs.
+	reader, err := iw.GetReader()
 	if err != nil {
-		t.Fatalf("OpenDirectoryReader failed: %v", err)
+		t.Fatalf("GetReader failed: %v", err)
 	}
 	if n := reader.NumDocs(); n != 3 {
 		reader.Close()
@@ -1013,7 +1040,6 @@ func doTestMixup(t *testing.T, ft1, ft2 *document.FieldType) {
 // type must be rejected without aborting the segment, so the previously added
 // empty document survives.
 func TestTermVectorsWriterNoAbortOnBadTVSettings(t *testing.T) {
-	t.Fatal(termVectorsWriterBlocked)
 
 	dir, err := store.NewSimpleFSDirectory(t.TempDir())
 	if err != nil {

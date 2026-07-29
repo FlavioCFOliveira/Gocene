@@ -573,6 +573,9 @@ func (w fieldTypeAsIndexInterface) StoreTermVectorPositions() bool {
 	return w.ft.StoreTermVectorPositions
 }
 func (w fieldTypeAsIndexInterface) StoreTermVectorOffsets() bool { return w.ft.StoreTermVectorOffsets }
+func (w fieldTypeAsIndexInterface) StoreTermVectorPayloads() bool {
+	return w.ft.StoreTermVectorPayloads
+}
 
 // VectorDimension exposes the KNN vector dimension so the index-side
 // indexing chain can detect a vector field via its optional

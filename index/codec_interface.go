@@ -182,4 +182,8 @@ type FieldTypeInterface interface {
 
 	// StoreTermVectorOffsets returns whether term vector offsets are stored.
 	StoreTermVectorOffsets() bool
+
+	// StoreTermVectorPayloads returns whether term vector payloads are stored.
+	// Requires StoreTermVectorPositions().
+	StoreTermVectorPayloads() bool
 }

@@ -1748,7 +1748,7 @@ func (w *IndexWriter) commitLocked(force bool) error {
 				if err3 := dwpt.flushStoredFields(codec, writeState); err3 != nil {
 					return fmt.Errorf("commit: flush stored fields for %s: %w", segmentName, err3)
 				}
-				if err3 := dwpt.flushTermVectors(codec, writeState); err3 != nil {
+				if err3 := dwpt.flushTermVectors(writeState); err3 != nil {
 					return fmt.Errorf("commit: flush term vectors for %s: %w", segmentName, err3)
 				}
 				if err3 := dwpt.flushPostings(codec, writeState, fi); err3 != nil {
@@ -1941,21 +1941,27 @@ func (w *IndexWriter) commitLocked(force bool) error {
 			// on-disk source that openSegmentReader reads back.
 			if ps.fieldInfos != nil && ps.fieldInfos.Size() > 0 && codec != nil {
 				if fif := codec.FieldInfosFormat(); fif != nil {
-					if err3 := fif.Write(w.directory, segInfo, "", ps.fieldInfos, store.IOContextWrite); err3 != nil {
-						return fmt.Errorf("commit: write field infos for %s: %w", segmentName, err3)
-					}
-					// Ensure the .fnm is referenced even if the source did not
-					// include it (overwriting a copied .fnm is fine because the
-					// name is unchanged).
 					fnm := segmentName + ".fnm"
-					found := false
+					fnmCopied := false
 					for _, f := range segFiles {
 						if f == fnm {
-							found = true
+							fnmCopied = true
 							break
 						}
 					}
-					if !found {
+					// Only write a new .fnm when the source did not already supply
+					// one (AddIndexes directory path copies it under the new segment
+					// name). Rewriting an existing file is not supported by the
+					// Directory API and is unnecessary because the copied .fnm is
+					// already authoritative.
+					if !fnmCopied {
+						if err3 := fif.Write(w.directory, segInfo, "", ps.fieldInfos, store.IOContextWrite); err3 != nil {
+							return fmt.Errorf("commit: write field infos for %s: %w", segmentName, err3)
+						}
+					}
+					// Ensure the .fnm is referenced even if the source did not
+					// include it.
+					if !fnmCopied {
 						segFiles = append(segFiles, fnm)
 					}
 					// Stamp the codec name so the reopen path
