@@ -459,6 +459,9 @@ func (fi *FieldInfo) VerifyAndUpdate(opts FieldInfoOptions) error {
 		} else if fi.indexOptions != opts.IndexOptions {
 			return fmt.Errorf("inconsistent index options for field %q: have %s, got %s",
 				fi.name, fi.indexOptions, opts.IndexOptions)
+		} else if fi.omitNorms != opts.OmitNorms {
+			return fmt.Errorf("cannot change field %q from omitNorms=%v to inconsistent omitNorms=%v",
+				fi.name, fi.omitNorms, opts.OmitNorms)
 		}
 	}
 

@@ -54,16 +54,83 @@ import (
 // omitNorms=true, then attempts to add a document with the settings reversed
 // and asserts that an IllegalArgumentException is thrown with the message
 // "cannot change field \"f1\" from omitNorms=false to inconsistent omitNorms=true".
-//
-// The test is degraded to t.Skip because DocumentsWriterPerThread.ProcessDocument
-// hard-codes OmitNorms:false in the FieldInfoOptions it constructs, so the
-// omitNorms conflict is never detected at AddDocument time regardless of the
-// field type's IsOmitNorms() value. The IndexingChain path that does carry the
-// check is not exercised through the current AddDocument code path.
 func TestOmitNorms_MixedMergeThrowsError(t *testing.T) {
-	t.Fatal("omitNorms conflict detection not propagated through " +
-		"DocumentsWriterPerThread.ProcessDocument; " +
-		"IndexingChain.setIndexOptions conflict check unreachable from AddDocument")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg.SetMaxBufferedDocs(3)
+	cfg.SetMergePolicy(index.NewLogMergePolicy())
+	writer, err := index.NewIndexWriter(dir, cfg)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	defer writer.Close()
+
+	hasNormsType := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
+	hasNormsType.SetOmitNorms(false)
+	noNormsType := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
+	noNormsType.SetOmitNorms(true)
+
+	d := document.NewDocument()
+	d.Add(mustField(t, "f1", "This field has norms", hasNormsType))
+	d.Add(mustField(t, "f2", "This field has NO norms in all docs", noNormsType))
+	for i := 0; i < 30; i++ {
+		if _, err := writer.AddDocument(d); err != nil {
+			t.Fatalf("AddDocument %d: %v", i, err)
+		}
+	}
+
+	d2 := document.NewDocument()
+	d2.Add(mustField(t, "f1", "This field has NO norms", noNormsType))
+	d2.Add(mustField(t, "f2", "This field has norms", hasNormsType))
+	_, err = writer.AddDocument(d2)
+	if err == nil {
+		t.Fatal("expected error adding document with reversed omitNorms settings")
+	}
+	const want = `cannot change field "f1" from omitNorms=false to inconsistent omitNorms=true`
+	if err.Error() != want {
+		t.Fatalf("error = %q, want %q", err.Error(), want)
+	}
+
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("ForceMerge: %v", err)
+	}
+
+	r, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader: %v", err)
+	}
+	defer r.Close()
+
+	leaf := indexTestutil.GetOnlyLeafReader(r)
+	infos := leaf.GetFieldInfos()
+	if infos == nil {
+		t.Fatal("GetFieldInfos returned nil")
+	}
+	f1 := infos.GetByName("f1")
+	if f1 == nil {
+		t.Fatal("field f1 not found")
+	}
+	if f1.OmitNorms() {
+		t.Error("f1 must not omit norms")
+	}
+	f2 := infos.GetByName("f2")
+	if f2 == nil {
+		t.Fatal("field f2 not found")
+	}
+	if !f2.OmitNorms() {
+		t.Error("f2 must omit norms")
+	}
+}
+
+func mustField(t *testing.T, name, value string, ft *document.FieldType) *document.Field {
+	t.Helper()
+	f, err := document.NewField(name, value, ft)
+	if err != nil {
+		t.Fatalf("NewField %q: %v", name, err)
+	}
+	return f
 }
 
 // TestOmitNorms_MixedRAM ports testMixedRAM().

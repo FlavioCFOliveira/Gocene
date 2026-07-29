@@ -133,6 +133,12 @@ type IndexWriter struct {
 	// last commit. Set to nil after each Commit. Protected by mu.
 	pendingFieldInfos *FieldInfos
 
+	// globalFieldInfos accumulates every field seen by this writer since it was
+	// opened, mirroring Lucene's IndexWriter.globalFieldNumberMap. It survives
+	// flushes and commits so that incompatible schema changes (e.g. reversing
+	// omitNorms for an indexed field) are detected immediately. Protected by mu.
+	globalFieldInfos *FieldInfos
+
 	// committedSegments holds SegmentCommitInfos created by previous Commits,
 	// along with their in-memory FieldInfos, so that AddIndexes can read them
 	// from this writer's own directory. Protected by mu.
@@ -681,7 +687,11 @@ func (w *IndexWriter) AddDocument(doc Document) (int64, error) {
 		}
 		// Accumulate FieldInfos from fields that expose their type metadata.
 		if fm, ok := fi.(indexableFieldMeta); ok {
-			w.addFieldToInfos(fm)
+			if err := w.addFieldToInfos(fm); err != nil {
+				w.pendingNumDocs.Add(-1)
+				w.mu.Unlock()
+				return 0, err
+			}
 		}
 	}
 	w.docFieldIndex = append(w.docFieldIndex, docEntries)
@@ -762,14 +772,29 @@ func (w *IndexWriter) testReserveDocs(addedNumDocs int64) error {
 
 // addFieldToInfos adds (or merges) a field's metadata into pendingFieldInfos.
 // Must be called with w.mu held.
-func (w *IndexWriter) addFieldToInfos(fm indexableFieldMeta) {
+func (w *IndexWriter) addFieldToInfos(fm indexableFieldMeta) error {
 	if w.pendingFieldInfos == nil {
 		w.pendingFieldInfos = NewFieldInfos()
 	}
+	if w.globalFieldInfos == nil {
+		w.globalFieldInfos = NewFieldInfos()
+	}
 	name := fm.Name()
+
+	// Detect incompatible schema changes against the writer-global FieldInfos so
+	// that conflicts survive DWPT flushes (e.g. reversing omitNorms for the
+	// same indexed field name).
+	if existing := w.globalFieldInfos.GetByName(name); existing != nil {
+		if existing.IndexOptions() != IndexOptionsNone && fm.IsIndexed() && existing.OmitNorms() != fm.OmitNorms() {
+			return fmt.Errorf("cannot change field %q from omitNorms=%v to inconsistent omitNorms=%v",
+				name, existing.OmitNorms(), fm.OmitNorms())
+		}
+	}
+
 	if w.pendingFieldInfos.GetByName(name) != nil {
-		// Already registered; do not re-add (field numbers must be stable).
-		return
+		// Already registered in the current buffer; do not re-add (field numbers
+		// must be stable within a flush unit).
+		return nil
 	}
 	// parentMarkerField carries the parent-field bit (rmp #4789): when the field
 	// is the synthetic parent marker injected by AddDocuments, set IsParentField
@@ -791,9 +816,19 @@ func (w *IndexWriter) addFieldToInfos(fm indexableFieldMeta) {
 		VectorEncoding:           VectorEncodingFloat32,
 		VectorSimilarityFunction: VectorSimilarityFunctionEuclidean,
 	}
+
+	// Add to the global map if not already present, so later flushes can detect
+	// conflicts against earlier documents.
+	if w.globalFieldInfos.GetByName(name) == nil {
+		number := w.globalFieldInfos.GetNextFieldNumber()
+		gfi := NewFieldInfo(name, number, opts)
+		_ = w.globalFieldInfos.Add(gfi)
+	}
+
 	number := w.pendingFieldInfos.GetNextFieldNumber()
 	fi := NewFieldInfo(name, number, opts)
 	_ = w.pendingFieldInfos.Add(fi) // ignore duplicate-number errors; field is already checked above
+	return nil
 }
 
 // UpdateDocument updates a document in the index.
@@ -865,7 +900,10 @@ func (w *IndexWriter) UpdateDocument(term *Term, doc Document) (int64, error) {
 				continue
 			}
 			if fm, ok := fi.(indexableFieldMeta); ok {
-				w.addFieldToInfos(fm)
+				if err := w.addFieldToInfos(fm); err != nil {
+					w.mu.Unlock()
+					return 0, err
+				}
 			}
 		}
 		w.mu.Unlock()
@@ -886,7 +924,10 @@ func (w *IndexWriter) UpdateDocument(term *Term, doc Document) (int64, error) {
 			continue
 		}
 		if fm, ok := fi.(indexableFieldMeta); ok {
-			w.addFieldToInfos(fm)
+			if err := w.addFieldToInfos(fm); err != nil {
+				w.mu.Unlock()
+				return 0, err
+			}
 		}
 	}
 
