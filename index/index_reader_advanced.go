@@ -26,7 +26,10 @@ func OpenIfChanged(reader IndexReaderInterface) (IndexReaderInterface, error) {
 			return nil, err
 		}
 		if current {
-			return reader, nil
+			// Lucene's openIfChanged returns null when the reader is already
+			// up-to-date; callers rely on the nil sentinel to avoid closing the
+			// existing reader and then reusing it.
+			return nil, nil
 		}
 	}
 

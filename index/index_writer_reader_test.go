@@ -1071,9 +1071,11 @@ func TestIndexWriterReader_NRTOpenExceptions(t *testing.T) {
 // the leaf count bounded.
 func TestIndexWriterReader_TooManySegments(t *testing.T) {
 	// NRT DirectoryReader.open(writer) and reader.Leaves() are now available;
-	// the remaining gap is merge-policy enforcement that keeps the leaf count
-	// bounded under a stream of small NRT flushes.
-	t.Fatal("needs merge-policy leaf-count enforcement; NRT open(writer) and Leaves() are now available")
+	// the default merge policy is TieredMergePolicy. The remaining gap is that
+	// GetReader materialises flushed DWPTs as in-memory pending segments and
+	// maybeMergeSnapshot declines to merge in-memory segments, so the leaf count
+	// grows unbounded until a Commit writes real segment files.
+	t.Fatal("blocked: GetReader must write flushed DWPTs to disk so maybeMergeSnapshot can merge them")
 }
 
 // testReopenNRTReaderOnCommit ports testReopenNRTReaderOnCommit().
