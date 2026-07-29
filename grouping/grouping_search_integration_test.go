@@ -299,7 +299,7 @@ func TestGroupingSearch_EndToEnd_StoredFields(t *testing.T) {
 		doc.Add(idField)
 		catField, _ := document.NewStringField("category", cat, true)
 		doc.Add(catField)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

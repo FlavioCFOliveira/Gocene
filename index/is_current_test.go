@@ -40,7 +40,7 @@ func addIsCurrentDoc(t *testing.T, w *index.IndexWriter, value string) {
 		t.Fatalf("NewTextField: %v", err)
 	}
 	doc.Add(f)
-	if err := w.AddDocument(doc); err != nil {
+	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument(%q): %v", value, err)
 	}
 }
@@ -75,7 +75,7 @@ func TestIsCurrent_DeleteByTermIsCurrent(t *testing.T) {
 		t.Fatal("fresh NRT reader should be current")
 	}
 
-	if err := writer.DeleteDocuments(index.NewTerm("content", "aaa")); err != nil {
+	if _, err := writer.DeleteDocuments(index.NewTerm("content", "aaa")); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -121,7 +121,7 @@ func TestIsCurrent_DeleteAllIsCurrent(t *testing.T) {
 		t.Fatal("fresh NRT reader should be current")
 	}
 
-	if err := writer.DeleteAll(); err != nil {
+	if _, err := writer.DeleteAll(); err != nil {
 		t.Fatalf("DeleteAll: %v", err)
 	}
 	if err := writer.Commit(); err != nil {

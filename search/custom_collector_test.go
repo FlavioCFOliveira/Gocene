@@ -39,7 +39,7 @@ func TestCustomCollector_TotalHitCollector(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "custom collector test", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -87,7 +87,7 @@ func TestCustomCollector_TopDocsCollector(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "top docs collector", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}

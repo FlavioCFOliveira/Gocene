@@ -113,7 +113,7 @@ func addRandomDocs(t *testing.T, dir store.Directory, analyzer analysis.Analyzer
 			doc.Add(metaField)
 		}
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add doc %d: %v", i, err)
 		}
 

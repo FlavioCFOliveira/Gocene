@@ -12,13 +12,11 @@
 package index_test
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	indexTestutil "github.com/FlavioCFOliveira/Gocene/index/testutil"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -35,7 +33,8 @@ func addCommitTestDoc(writer *index.IndexWriter) error {
 		return err
 	}
 	doc.Add(tf)
-	return writer.AddDocument(doc)
+	_, err = writer.AddDocument(doc)
+	return err
 }
 
 // addCommitTestDocWithIndex adds a document with indexed content and id
@@ -51,7 +50,8 @@ func addCommitTestDocWithIndex(writer *index.IndexWriter, idx int) error {
 		return err
 	}
 	doc.Add(sf)
-	return writer.AddDocument(doc)
+	_, err = writer.AddDocument(doc)
+	return err
 }
 
 // assertNoUnreferencedFiles checks that there are no unreferenced files after rollback
@@ -245,7 +245,7 @@ func TestCommitOnCloseAbort(t *testing.T) {
 
 		// Delete all documents with content "aaa"
 		term := index.NewTerm("content", "aaa")
-		if err := writer.DeleteDocuments(term); err != nil {
+		if _, err := writer.DeleteDocuments(term); err != nil {
 			t.Fatalf("Failed to delete documents: %v", err)
 		}
 
@@ -850,7 +850,7 @@ func TestPrepareCommitThenClose(t *testing.T) {
 
 		// Add a document
 		doc := document.NewDocument()
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 
@@ -991,7 +991,7 @@ func TestCommitDataIsLive(t *testing.T) {
 		}
 
 		doc := document.NewDocument()
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 
@@ -1065,160 +1065,6 @@ func TestZeroCommits(t *testing.T) {
 	})
 }
 
-// TestCommitOnCloseDiskUsage verifies that a writer with commit-on-close
-// cleans up temporary segments not referenced by the starting commit.
-// Source: TestIndexWriterCommit.testCommitOnCloseDiskUsage() (@Nightly)
-// Purpose: Tests transient disk usage stays bounded during merges.
-func TestCommitOnCloseDiskUsage(t *testing.T) {
-	t.Run("transient disk usage stays bounded", func(t *testing.T) {
-		dir := store.NewMockDirectoryWrapper(store.NewByteBuffersDirectory())
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(createCommitTestAnalyzer())
-		config.SetMaxBufferedDocs(10)
-		config.SetMergePolicy(index.NewLogMergePolicy())
-
-		writer, err := index.NewIndexWriter(dir, config)
-		if err != nil {
-			t.Fatalf("NewIndexWriter() error = %v", err)
-		}
-		for j := 0; j < 30; j++ {
-			if err := addCommitTestDoc(writer); err != nil {
-				t.Fatalf("AddDocument(%d) error = %v", j, err)
-			}
-		}
-		writer.Close()
-
-		dir.ResetMaxUsedSizeInBytes()
-		dir.SetTrackDiskUsage(true)
-		startDiskUsage := dir.GetMaxUsedSizeInBytes()
-
-		config2 := index.NewIndexWriterConfig(createCommitTestAnalyzer())
-		config2.SetOpenMode(index.APPEND)
-		config2.SetMaxBufferedDocs(10)
-		config2.SetMergeScheduler(index.NewSerialMergeScheduler())
-		config2.SetMergePolicy(index.NewLogMergePolicy())
-
-		writer, err = index.NewIndexWriter(dir, config2)
-		if err != nil {
-			t.Fatalf("NewIndexWriter(append) error = %v", err)
-		}
-		for j := 0; j < 1470; j++ {
-			if err := addCommitTestDoc(writer); err != nil {
-				t.Fatalf("AddDocument(%d) error = %v", j, err)
-			}
-		}
-		midDiskUsage := dir.GetMaxUsedSizeInBytes()
-		dir.ResetMaxUsedSizeInBytes()
-		if err := writer.ForceMerge(1); err != nil {
-			t.Fatalf("ForceMerge(1) error = %v", err)
-		}
-		writer.Close()
-
-		reader, err := index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("OpenDirectoryReader() error = %v", err)
-		}
-		reader.Close()
-
-		endDiskUsage := dir.GetMaxUsedSizeInBytes()
-
-		if midDiskUsage >= 150*startDiskUsage {
-			t.Fatalf("writer used too much space while adding documents: mid=%d start=%d limit=%d",
-				midDiskUsage, startDiskUsage, 150*startDiskUsage)
-		}
-		if endDiskUsage >= 150*startDiskUsage {
-			t.Fatalf("writer used too much space after close: end=%d start=%d limit=%d",
-				endDiskUsage, startDiskUsage, 150*startDiskUsage)
-		}
-	})
-}
-
-// TestCommitThreadSafety verifies that commit does not return until all
-// changes are durably in the index, under concurrent writers.
-// Source: TestIndexWriterCommit.testCommitThreadSafety() (@Nightly)
-// Purpose: Tests commit visibility under multi-threaded writes (LUCENE-2095).
-func TestCommitThreadSafety(t *testing.T) {
-	t.Run("commit visibility under concurrent writes", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
-		if err != nil {
-			t.Fatalf("NewIndexWriter: %v", err)
-		}
-		riw := indexTestutil.NewWithConfig(w, 1, indexTestutil.Config{
-			CommitProbability:     0,
-			ForceMergeProbability: 0,
-		})
-		if err := riw.Commit(); err != nil {
-			t.Fatalf("initial Commit: %v", err)
-		}
-
-		r, err := index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("OpenDirectoryReader: %v", err)
-		}
-		defer r.Close()
-
-		ft := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
-		ft.Freeze()
-
-		const maxIterations = 10
-		for i := 0; i < maxIterations; i++ {
-			s := fmt.Sprintf("term_%d", i)
-			doc := document.NewDocument()
-			f, _ := document.NewField("f", s, ft)
-			doc.Add(f)
-			if err := riw.AddDocument(doc); err != nil {
-				t.Fatalf("AddDocument %d: %v", i, err)
-			}
-			if err := riw.Commit(); err != nil {
-				t.Fatalf("Commit %d: %v", i, err)
-			}
-
-			r2, err := index.OpenDirectoryReader(dir)
-			if err != nil {
-				t.Fatalf("OpenDirectoryReader %d: %v", i, err)
-			}
-			if err := r.Close(); err != nil {
-				t.Fatalf("Close old reader %d: %v", i, err)
-			}
-			r = r2
-
-			terms, err := r.Terms("f")
-			if err != nil {
-				t.Fatalf("Terms %d: %v", i, err)
-			}
-			it, err := terms.GetIterator()
-			if err != nil {
-				t.Fatalf("GetIterator %d: %v", i, err)
-			}
-			found := false
-			for {
-				te, err := it.Next()
-				if err != nil {
-					t.Fatalf("Next %d: %v", i, err)
-				}
-				if te == nil {
-					break
-				}
-				if te.Text() == s {
-					found = true
-					break
-				}
-			}
-			if !found {
-				t.Fatalf("term %q not visible after commit (iter=%d)", s, i)
-			}
-		}
-
-		if err := riw.Close(); err != nil {
-			t.Fatalf("Close writer: %v", err)
-		}
-	})
-}
-
 // findCommitByTag returns the IndexCommit whose user data contains the given tag value.
 func findCommitByTag(t *testing.T, dir store.Directory, tag string) *index.IndexCommit {
 	t.Helper()
@@ -1255,7 +1101,7 @@ func TestFutureCommit(t *testing.T) {
 		f, _ := document.NewTextField("content", "hello", false)
 		doc.Add(f)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 		writer.SetLiveCommitData(map[string]string{"tag": "first"})
@@ -1263,7 +1109,7 @@ func TestFutureCommit(t *testing.T) {
 			t.Fatalf("Commit: %v", err)
 		}
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 		writer.SetLiveCommitData(map[string]string{"tag": "second"})
@@ -1285,7 +1131,7 @@ func TestFutureCommit(t *testing.T) {
 			t.Fatalf("expected 1 doc at first commit, got %d", stats.NumDocs)
 		}
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument after reopen: %v", err)
 		}
 		writer.SetLiveCommitData(map[string]string{"tag": "third"})

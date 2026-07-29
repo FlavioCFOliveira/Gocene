@@ -41,9 +41,12 @@ func TestIndexWriterConfig_Defaults(t *testing.T) {
 		t.Error("Expected nil index deletion policy by default")
 	}
 
-	// Test merge scheduler
-	if conf.GetMergeScheduler() != nil {
-		t.Error("Expected nil merge scheduler by default")
+	// Test merge scheduler - Lucene LiveIndexWriterConfig defaults to ConcurrentMergeScheduler.
+	if conf.GetMergeScheduler() == nil {
+		t.Error("Expected non-nil merge scheduler by default")
+	}
+	if _, ok := conf.GetMergeScheduler().(*index.ConcurrentMergeScheduler); !ok {
+		t.Error("Expected default merge scheduler to be *ConcurrentMergeScheduler")
 	}
 
 	// Test open mode - should be CREATE_OR_APPEND

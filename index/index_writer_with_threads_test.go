@@ -63,7 +63,7 @@ func TestIndexWriterWithThreads_ConcurrentAdds(t *testing.T) {
 				doc.Add(idField)
 				contentField, _ := document.NewTextField("content", "concurrent test", true)
 				doc.Add(contentField)
-				if err := writer.AddDocument(doc); err != nil {
+				if _, err := writer.AddDocument(doc); err != nil {
 					t.Errorf("AddDocument error: %v", err)
 				}
 			}
@@ -114,7 +114,7 @@ func TestIndexWriterWithThreads_ConcurrentAddsAndCommits(t *testing.T) {
 				doc.Add(idField)
 				contentField, _ := document.NewTextField("content", "concurrent commit", true)
 				doc.Add(contentField)
-				if err := writer.AddDocument(doc); err != nil {
+				if _, err := writer.AddDocument(doc); err != nil {
 					t.Errorf("AddDocument error: %v", err)
 					return
 				}
@@ -157,7 +157,7 @@ func TestIndexWriterWithThreads_ConcurrentUpdates(t *testing.T) {
 		doc.Add(f)
 		cf, _ := document.NewTextField("content", "initial", true)
 		doc.Add(cf)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
@@ -176,7 +176,7 @@ func TestIndexWriterWithThreads_ConcurrentUpdates(t *testing.T) {
 				cf, _ := document.NewTextField("content", "updated", true)
 				doc.Add(cf)
 				term := index.NewTerm("id", string(rune('0'+i%10)))
-				_ = writer.UpdateDocument(term, doc)
+				_, _ = writer.UpdateDocument(term, doc)
 			}
 		}(u)
 	}
@@ -220,7 +220,7 @@ func TestIndexWriterWithThreads_MixedOperations(t *testing.T) {
 				doc.Add(f)
 				cf, _ := document.NewTextField("content", "mixed", true)
 				doc.Add(cf)
-				_ = writer.AddDocument(doc)
+				_, _ = writer.AddDocument(doc)
 			}
 		}(i)
 	}
@@ -237,7 +237,7 @@ func TestIndexWriterWithThreads_MixedOperations(t *testing.T) {
 				cf, _ := document.NewTextField("content", "updated", true)
 				doc.Add(cf)
 				term := index.NewTerm("id", string(rune('0'+id%5)))
-				_ = writer.UpdateDocument(term, doc)
+				_, _ = writer.UpdateDocument(term, doc)
 			}
 		}(i)
 	}
@@ -249,7 +249,7 @@ func TestIndexWriterWithThreads_MixedOperations(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < 3; j++ {
 				term := index.NewTerm("id", string(rune('0' + (id+j)%5)))
-				_ = writer.DeleteDocuments(term)
+				_, _ = writer.DeleteDocuments(term)
 			}
 		}(i)
 	}
@@ -290,7 +290,7 @@ func TestIndexWriterWithThreads_OpenTwoIndexWritersOnDifferentThreads(t *testing
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("content", "writer1", true)
 		doc.Add(f)
-		_ = w.AddDocument(doc)
+		_, _ = w.AddDocument(doc)
 		_ = w.Commit()
 	}()
 
@@ -307,7 +307,7 @@ func TestIndexWriterWithThreads_OpenTwoIndexWritersOnDifferentThreads(t *testing
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("content", "writer2", true)
 		doc.Add(f)
-		_ = w.AddDocument(doc)
+		_, _ = w.AddDocument(doc)
 		_ = w.Commit()
 	}()
 
@@ -348,7 +348,7 @@ func TestIndexWriterWithThreads_CloseWithThreads(t *testing.T) {
 				doc := document.NewDocument()
 				f, _ := document.NewTextField("content", "test", true)
 				doc.Add(f)
-				_ = writer.AddDocument(doc)
+				_, _ = writer.AddDocument(doc)
 			}
 		}()
 	}
@@ -383,7 +383,7 @@ func TestIndexWriterWithThreads_ImmediateDiskFullWithThreads(t *testing.T) {
 				doc := document.NewDocument()
 				f, _ := document.NewTextField("content", "stress", true)
 				doc.Add(f)
-				if err := writer.AddDocument(doc); err != nil {
+				if _, err := writer.AddDocument(doc); err != nil {
 					t.Errorf("AddDocument error: %v", err)
 					return
 				}
@@ -432,7 +432,7 @@ func TestIndexWriterWithThreads_RollbackAndCommitWithThreads(t *testing.T) {
 			doc := document.NewDocument()
 			f, _ := document.NewTextField("content", "test", true)
 			doc.Add(f)
-			_ = writer.AddDocument(doc)
+			_, _ = writer.AddDocument(doc)
 		}
 	}()
 
@@ -474,7 +474,7 @@ func TestIndexWriterWithThreads_UpdateSingleDocWithThreads(t *testing.T) {
 				cf, _ := document.NewTextField("content", "update", true)
 				doc.Add(cf)
 				term := index.NewTerm("id", "single")
-				_ = writer.UpdateDocument(term, doc)
+				_, _ = writer.UpdateDocument(term, doc)
 			}
 		}(ti)
 	}

@@ -36,7 +36,7 @@ func TestSortedNumericDocValues_FlushSortsAscending(t *testing.T) {
 		t.Fatalf("NewSortedNumericDocValuesField: %v", err)
 	}
 	doc.Add(sndv)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writer.Commit(); err != nil {

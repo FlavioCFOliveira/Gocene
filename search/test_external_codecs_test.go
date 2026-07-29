@@ -85,7 +85,7 @@ func TestExternalCodecs_PerFieldCodec(t *testing.T) {
 			t.Fatalf("NewStringField(id): %v", e)
 		}
 		doc.Add(idField)
-		if addErr := w.AddDocument(doc); addErr != nil {
+		if _, addErr := w.AddDocument(doc); addErr != nil {
 			t.Fatalf("AddDocument(%d): %v", i, addErr)
 		}
 		if (i+1)%10 == 0 {
@@ -95,7 +95,7 @@ func TestExternalCodecs_PerFieldCodec(t *testing.T) {
 		}
 	}
 
-	if err = w.DeleteDocuments(index.NewTerm("id", "77")); err != nil {
+	if _, err = w.DeleteDocuments(index.NewTerm("id", "77")); err != nil {
 		t.Fatalf("DeleteDocuments(id:77): %v", err)
 	}
 	if err = w.Commit(); err != nil {
@@ -116,7 +116,7 @@ func TestExternalCodecs_PerFieldCodec(t *testing.T) {
 		t.Fatalf("reader.Close: %v", err)
 	}
 
-	if err = w.DeleteDocuments(index.NewTerm("id", "44")); err != nil {
+	if _, err = w.DeleteDocuments(index.NewTerm("id", "44")); err != nil {
 		t.Fatalf("DeleteDocuments(id:44): %v", err)
 	}
 	if err = w.ForceMerge(1); err != nil {

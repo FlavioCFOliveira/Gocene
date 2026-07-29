@@ -481,6 +481,11 @@ func (ci *CheckIndex) checkSegment(segCommitInfo *SegmentCommitInfo, segmentInfo
 	ci.msgf("  Version: %s", segInfo.Version())
 	ci.msgf("  Doc count: %d", segInfo.DocCount())
 	ci.msgf("  Compound file: %v", segInfo.IsCompoundFile())
+	if segCommitInfo.HasDeletions() {
+		ci.msgf("    has deletions [delGen=%d]", segCommitInfo.DelGen())
+	} else {
+		ci.msg("    no deletions")
+	}
 
 	// Check segment files
 	if err := ci.checkSegmentFiles(segInfo); err != nil {

@@ -42,7 +42,7 @@ func buildReadOnlyIndex(t *testing.T, dir store.Directory) {
 	}
 	doc.Add(field)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("Failed to add document: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -188,7 +188,7 @@ func TestStoredFieldsRoundTrip(t *testing.T) {
 		doc.Add(mf)
 	}
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("add document: %v", err)
 	}
 	if err := writer.Commit(); err != nil {

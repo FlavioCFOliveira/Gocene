@@ -150,7 +150,7 @@ func (r *RandomIndexWriter) AddDocument(doc index.Document) error {
 	if err := r.checkOpen(); err != nil {
 		return err
 	}
-	if err := r.writer.AddDocument(doc); err != nil {
+	if _, err := r.writer.AddDocument(doc); err != nil {
 		return err
 	}
 	r.recordCall("AddDocument")
@@ -165,7 +165,7 @@ func (r *RandomIndexWriter) UpdateDocument(term *index.Term, doc index.Document)
 	if err := r.checkOpen(); err != nil {
 		return err
 	}
-	if err := r.writer.UpdateDocument(term, doc); err != nil {
+	if _, err := r.writer.UpdateDocument(term, doc); err != nil {
 		return err
 	}
 	r.recordCall("UpdateDocument")
@@ -181,7 +181,7 @@ func (r *RandomIndexWriter) DeleteDocuments(terms ...*index.Term) error {
 		return err
 	}
 	for _, t := range terms {
-		if err := r.writer.DeleteDocuments(t); err != nil {
+		if _, err := r.writer.DeleteDocuments(t); err != nil {
 			return err
 		}
 	}

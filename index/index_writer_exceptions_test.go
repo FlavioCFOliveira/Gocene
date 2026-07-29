@@ -67,7 +67,7 @@ func addExceptionTestDoc(t *testing.T, writer *index.IndexWriter) {
 		t.Fatalf("NewTextField(content): %v", err)
 	}
 	doc.Add(tf)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 }
@@ -86,7 +86,7 @@ func addExceptionTestDocEx(t *testing.T, writer *index.IndexWriter, id string) {
 		t.Fatalf("NewStringField(id): %v", err)
 	}
 	doc.Add(sf)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 }
@@ -181,7 +181,7 @@ func TestIndexWriterExceptions_RandomExceptionsThreads(t *testing.T) {
 					return
 				}
 				doc.Add(tf)
-				if err2 := writer.AddDocument(doc); err2 != nil {
+				if _, err2 := writer.AddDocument(doc); err2 != nil {
 					t.Logf("concurrent AddDocument error: %v", err2)
 				}
 			}
@@ -324,7 +324,7 @@ func TestIndexWriterExceptions_ExceptionFromTokenStream(t *testing.T) {
 			t.Fatalf("NewTextField: %v", err2)
 		}
 		doc.Add(tf)
-		if err2 := writer.AddDocument(doc); err2 != nil {
+		if _, err2 := writer.AddDocument(doc); err2 != nil {
 			t.Fatalf("AddDocument(%q): %v", text, err2)
 		}
 	}
@@ -438,7 +438,7 @@ func TestIndexWriterExceptions_DocumentsWriterExceptionFailOneDoc(t *testing.T) 
 	addExceptionTestDocEx(t, writer, "doc1")
 	addExceptionTestDocEx(t, writer, "doc2")
 
-	if err := writer.DeleteDocuments(index.NewTerm("id", "doc1")); err != nil {
+	if _, err := writer.DeleteDocuments(index.NewTerm("id", "doc1")); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -497,7 +497,7 @@ func TestIndexWriterExceptions_DocumentsWriterExceptionThreads(t *testing.T) {
 					return
 				}
 				doc.Add(sf)
-				if err2 := writer.AddDocument(doc); err2 != nil {
+				if _, err2 := writer.AddDocument(doc); err2 != nil {
 					t.Logf("AddDocument from thread %d: %v", id, err2)
 				}
 			}
@@ -846,7 +846,7 @@ func TestIndexWriterExceptions_TermVectorExceptions(t *testing.T) {
 	}
 	doc.Add(f)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument with term vectors: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -924,7 +924,7 @@ func TestIndexWriterExceptions_UpdateDocsNonAbortingException(t *testing.T) {
 		t.Fatalf("NewStringField: %v", err)
 	}
 	doc.Add(sf)
-	if err := writer.UpdateDocument(index.NewTerm("id", "doc0"), doc); err != nil {
+	if _, err := writer.UpdateDocument(index.NewTerm("id", "doc0"), doc); err != nil {
 		t.Fatalf("UpdateDocument: %v", err)
 	}
 
@@ -969,7 +969,7 @@ func TestIndexWriterExceptions_NullStoredField(t *testing.T) {
 	}
 	doc.Add(tf)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument with empty stored field: %v", err)
 	}
 	if writer.IsClosed() {
@@ -1003,7 +1003,7 @@ func TestIndexWriterExceptions_NullStoredFieldReuse(t *testing.T) {
 	}
 	doc.Add(tf)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if writer.IsClosed() {
@@ -1042,7 +1042,7 @@ func TestIndexWriterExceptions_NullStoredBytesField(t *testing.T) {
 	}
 	doc.Add(tf)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument with nil-bytes stored field: %v", err)
 	}
 	if writer.IsClosed() {
@@ -1084,7 +1084,7 @@ func TestIndexWriterExceptions_NullStoredBytesFieldReuse(t *testing.T) {
 	}
 	doc.Add(tf)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument with reused nil-bytes field: %v", err)
 	}
 	if writer.IsClosed() {
@@ -1123,7 +1123,7 @@ func TestIndexWriterExceptions_NullStoredBytesRefField(t *testing.T) {
 	}
 	doc.Add(tf)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if writer.IsClosed() {
@@ -1165,7 +1165,7 @@ func TestIndexWriterExceptions_NullStoredBytesRefFieldReuse(t *testing.T) {
 	}
 	doc.Add(tf)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if writer.IsClosed() {
@@ -1205,7 +1205,7 @@ func TestIndexWriterExceptions_NullStoredDataInputField(t *testing.T) {
 	}
 	doc.Add(tf)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if writer.IsClosed() {
@@ -1335,7 +1335,7 @@ func TestIndexWriterExceptions_TooManyTokens(t *testing.T) {
 	}
 	doc.Add(sf)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Logf("AddDocument with long value: %v (acceptable)", err)
 	}
 
@@ -1501,7 +1501,7 @@ func TestIndexWriterExceptions_ExceptionJustBeforeFlushWithPointValues(t *testin
 		ip := document.NewIntPoint("intpoint", int32(i))
 		doc.Add(ip)
 
-		if err2 := writer.AddDocument(doc); err2 != nil {
+		if _, err2 := writer.AddDocument(doc); err2 != nil {
 			t.Fatalf("AddDocument with point field: %v", err2)
 		}
 	}

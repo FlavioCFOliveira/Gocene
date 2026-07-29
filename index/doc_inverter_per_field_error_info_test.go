@@ -67,7 +67,7 @@ func TestInfoStreamGetsFieldName(t *testing.T) {
 	}
 
 	doc := simpleDoc("field1", "hello world")
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 
@@ -96,7 +96,7 @@ func TestNoExtraNoise(t *testing.T) {
 	}
 
 	doc := simpleDoc("boringFieldName", "aaa")
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 

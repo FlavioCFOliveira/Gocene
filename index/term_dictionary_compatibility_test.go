@@ -45,7 +45,7 @@ func TestTermDictionary_TermEnumeration(t *testing.T) {
 		contentField, _ := document.NewTextField("content", content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -96,7 +96,7 @@ func TestTermDictionary_TermSeeking(t *testing.T) {
 		contentField, _ := document.NewTextField("content", content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -149,7 +149,7 @@ func TestTermDictionary_TermFrequency(t *testing.T) {
 		contentField, _ := document.NewTextField("content", d.content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -201,7 +201,7 @@ func TestTermDictionary_DocumentFrequency(t *testing.T) {
 		contentField, _ := document.NewTextField("content", content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -253,7 +253,7 @@ func TestTermDictionary_TermStats(t *testing.T) {
 		contentField, _ := document.NewTextField("content", content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -301,7 +301,7 @@ func TestTermDictionary_LargeVocabulary(t *testing.T) {
 		contentField, _ := document.NewTextField("content", content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -349,7 +349,7 @@ func TestTermDictionary_MultipleFields(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "content body text", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -403,7 +403,7 @@ func TestTermDictionary_EdgeCases(t *testing.T) {
 		contentField, _ := document.NewTextField("content", d.content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}

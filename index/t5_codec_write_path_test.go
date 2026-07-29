@@ -48,7 +48,7 @@ func TestT5_CodecWritePath_AllFilesPresent(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc.Add(f)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument() error = %v", err)
 	}
 
@@ -128,7 +128,7 @@ func TestT5_CodecWritePath_CheckIndex(t *testing.T) {
 			t.Fatal(err)
 		}
 		doc.Add(dv)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d) error = %v", i, err)
 		}
 	}
@@ -195,7 +195,7 @@ func TestT5_CodecWritePath_AllFormatFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc.Add(dv)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument() error = %v", err)
 	}
 

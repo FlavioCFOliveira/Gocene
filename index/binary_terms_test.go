@@ -53,7 +53,7 @@ func TestBinaryTerms(t *testing.T) {
 		}
 		doc.Add(bytesField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document %d: %v", i, err)
 		}
 	}

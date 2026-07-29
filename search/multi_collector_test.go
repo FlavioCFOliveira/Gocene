@@ -314,7 +314,7 @@ func oneDocLeafContext(t *testing.T) (*index.LeafReaderContext, func()) {
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
-	if err := w.AddDocument(document.NewDocument()); err != nil {
+	if _, err := w.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Commit(); err != nil {
@@ -771,7 +771,7 @@ func TestMultiCollector_CollectionTerminatedExceptionHandling(t *testing.T) {
 		// the segment has content; field name/value are irrelevant to the test.
 		f, _ := document.NewTextField("content", "x", true)
 		doc.Add(f)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

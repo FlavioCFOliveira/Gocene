@@ -258,7 +258,7 @@ func TestSegmentMerger_Setup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create writer1: %v", err)
 	}
-	err = writer1.AddDocument(doc1)
+	_, err = writer1.AddDocument(doc1)
 	if err != nil {
 		t.Fatalf("Failed to add doc1: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestSegmentMerger_Setup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create writer2: %v", err)
 	}
-	err = writer2.AddDocument(doc2)
+	_, err = writer2.AddDocument(doc2)
 	if err != nil {
 		t.Fatalf("Failed to add doc2: %v", err)
 	}
@@ -342,7 +342,7 @@ func TestSegmentMerger_Merge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create writer1: %v", err)
 	}
-	err = writer1.AddDocument(doc1)
+	_, err = writer1.AddDocument(doc1)
 	if err != nil {
 		t.Fatalf("Failed to add doc1: %v", err)
 	}
@@ -362,7 +362,7 @@ func TestSegmentMerger_Merge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create writer2: %v", err)
 	}
-	err = writer2.AddDocument(doc2)
+	_, err = writer2.AddDocument(doc2)
 	if err != nil {
 		t.Fatalf("Failed to add doc2: %v", err)
 	}

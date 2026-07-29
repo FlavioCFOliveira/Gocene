@@ -142,7 +142,7 @@ func runTopDocsMergeSort(t *testing.T, useFrom bool) {
 			t.Fatalf("NewNumericDocValuesField: %v", err)
 		}
 		doc.Add(ndv)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 		// Commit periodically to force multiple segments ("shards").

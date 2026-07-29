@@ -113,7 +113,7 @@ func TestNRTDeleteOperations(t *testing.T) {
 		nrtAddDoc(t, w, strconv.Itoa(i), "todelete")
 	}
 
-	if err := w.DeleteDocuments(index.NewTerm("id", "5")); err != nil {
+	if _, err := w.DeleteDocuments(index.NewTerm("id", "5")); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 
@@ -228,7 +228,7 @@ func TestNRTReopenWithDeletes(t *testing.T) {
 	}
 	defer r1.Close()
 
-	if err := w.DeleteDocuments(index.NewTerm("id", "3")); err != nil {
+	if _, err := w.DeleteDocuments(index.NewTerm("id", "3")); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 

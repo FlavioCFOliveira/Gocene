@@ -91,7 +91,7 @@ func docsAndPositionsLeaves(t *testing.T, fieldName string, docs []string) (inde
 			t.Fatalf("Failed to create field: %v", err)
 		}
 		doc.Add(field)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}

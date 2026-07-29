@@ -53,14 +53,14 @@ func TestCheckIndex_DeletedDocs(t *testing.T) {
 			t.Fatalf("Failed to create field: %v", err)
 		}
 		doc.Add(f)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
 
 	// Delete document with field "aaa5" BEFORE ForceMerge so that the delete is
 	// processed against the current in-memory buffer during flushPendingDocsLocked.
-	if err := writer.DeleteDocuments(index.NewTerm("field", "aaa5")); err != nil {
+	if _, err := writer.DeleteDocuments(index.NewTerm("field", "aaa5")); err != nil {
 		t.Fatalf("Failed to delete document: %v", err)
 	}
 
@@ -189,13 +189,13 @@ func TestCheckIndex_ChecksumsOnly(t *testing.T) {
 		doc := document.NewDocument()
 		tf, _ := document.NewTextField("field", "value", true)
 		doc.Add(tf)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
 
 	// Add empty document
-	if err := writer.AddDocument(document.NewDocument()); err != nil {
+	if _, err := writer.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("Failed to add empty document: %v", err)
 	}
 
@@ -242,13 +242,13 @@ func TestCheckIndex_ChecksumsOnlyVerbose(t *testing.T) {
 		doc := document.NewDocument()
 		tf, _ := document.NewTextField("field", "value", true)
 		doc.Add(tf)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
 
 	// Add empty document
-	if err := writer.AddDocument(document.NewDocument()); err != nil {
+	if _, err := writer.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("Failed to add empty document: %v", err)
 	}
 
@@ -295,7 +295,7 @@ func TestCheckIndex_ObtainsLock(t *testing.T) {
 	doc := document.NewDocument()
 	tf, _ := document.NewTextField("field", "value", true)
 	doc.Add(tf)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("Failed to add document: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -354,7 +354,7 @@ func TestCheckIndex_AllValid(t *testing.T) {
 		// Point value - using BinaryPoint
 		// BinaryPoint não está implementado - ignorando por enquanto
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -627,7 +627,7 @@ func TestCheckIndex_PriorBrokenCommitPoint(t *testing.T) {
 	doc1 := document.NewDocument()
 	sf1, _ := document.NewStringField("id", "a", false)
 	doc1.Add(sf1)
-	if err := writer.AddDocument(doc1); err != nil {
+	if _, err := writer.AddDocument(doc1); err != nil {
 		t.Fatalf("Failed to add document: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -644,7 +644,7 @@ func TestCheckIndex_PriorBrokenCommitPoint(t *testing.T) {
 	doc2 := document.NewDocument()
 	sf2, _ := document.NewStringField("id", "b", false)
 	doc2.Add(sf2)
-	if err := writer.AddDocument(doc2); err != nil {
+	if _, err := writer.AddDocument(doc2); err != nil {
 		t.Fatalf("Failed to add second document: %v", err)
 	}
 	if err := writer.Commit(); err != nil {

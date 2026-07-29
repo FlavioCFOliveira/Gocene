@@ -120,7 +120,7 @@ func addCannedDoc(t *testing.T, w *index.IndexWriter, terms []string, freqs []in
 	t.Helper()
 	doc := document.NewDocument()
 	doc.Add(cannedFreqField(t, terms, freqs, ft))
-	if err := w.AddDocument(doc); err != nil {
+	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument failed: %v", err)
 	}
 }
@@ -333,7 +333,7 @@ func TestCustomTermFreq_InvalidProx(t *testing.T) {
 	ft := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
 	doc.Add(cannedFreqField(t, []string{"foo", "bar", "foo", "bar"}, []int{42, 128, 17, 100}, ft))
 
-	err := w.AddDocument(doc)
+	_, err := w.AddDocument(doc)
 	if err == nil {
 		t.Fatal("expected error indexing positions with custom TermFrequencyAttribute")
 	}
@@ -356,7 +356,7 @@ func TestCustomTermFreq_InvalidDocsOnly(t *testing.T) {
 	ft.SetIndexOptions(index.IndexOptionsDocs)
 	doc.Add(cannedFreqField(t, []string{"foo", "bar", "foo", "bar"}, []int{42, 128, 17, 100}, ft))
 
-	err := w.AddDocument(doc)
+	_, err := w.AddDocument(doc)
 	if err == nil {
 		t.Fatal("expected error indexing DOCS-only with custom TermFrequencyAttribute")
 	}
@@ -384,13 +384,13 @@ func TestCustomTermFreq_OverflowInt(t *testing.T) {
 		t.Fatalf("Failed to create field: %v", err)
 	}
 	doc.Add(field)
-	if err := w.AddDocument(doc); err != nil {
+	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument failed: %v", err)
 	}
 
 	doc2 := document.NewDocument()
 	doc2.Add(cannedFreqField(t, []string{"foo", "bar"}, []int{3, math.MaxInt32}, ft))
-	if err := w.AddDocument(doc2); err == nil {
+	if _, err := w.AddDocument(doc2); err == nil {
 		t.Fatal("expected overflow error on term freq sum")
 	}
 
@@ -420,7 +420,7 @@ func TestCustomTermFreq_InvalidTermVectorPositions(t *testing.T) {
 	ft.SetStoreTermVectorPositions(true)
 	doc.Add(cannedFreqField(t, []string{"foo", "bar", "foo", "bar"}, []int{42, 128, 17, 100}, ft))
 
-	err := w.AddDocument(doc)
+	_, err := w.AddDocument(doc)
 	if err == nil {
 		t.Fatal("expected error indexing term vector positions with custom TermFrequencyAttribute")
 	}
@@ -443,7 +443,7 @@ func TestCustomTermFreq_InvalidTermVectorOffsets(t *testing.T) {
 	ft.SetStoreTermVectorOffsets(true)
 	doc.Add(cannedFreqField(t, []string{"foo", "bar", "foo", "bar"}, []int{42, 128, 17, 100}, ft))
 
-	err := w.AddDocument(doc)
+	_, err := w.AddDocument(doc)
 	if err == nil {
 		t.Fatal("expected error indexing term vector offsets with custom TermFrequencyAttribute")
 	}

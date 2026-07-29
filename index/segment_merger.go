@@ -479,6 +479,7 @@ func (storedOnlyFieldType) GetDocValuesType() DocValuesType { return DocValuesTy
 func (storedOnlyFieldType) StoreTermVectors() bool          { return false }
 func (storedOnlyFieldType) StoreTermVectorPositions() bool  { return false }
 func (storedOnlyFieldType) StoreTermVectorOffsets() bool    { return false }
+func (storedOnlyFieldType) StoreTermVectorPayloads() bool   { return false }
 
 // mergeTermVectors is implemented in segment_merger_termvectors.go (rmp #14/#114).
 

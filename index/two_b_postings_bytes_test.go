@@ -2,6 +2,8 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
+//go:build gocene_monsters
+
 // Package index_test contains a @Monster test that indexes enough documents
 // to produce more than Integer.MAX_VALUE postings data bytes for a single term.
 //

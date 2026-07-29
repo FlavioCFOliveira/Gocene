@@ -45,7 +45,7 @@ func TestParentField_FnmRoundTrip(t *testing.T) {
 			t.Fatalf("NewTextField(body): %v", ferr)
 		}
 		doc.Add(bf)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 	}
@@ -101,7 +101,7 @@ func TestParentField_AddIndexesValidatesFromFnm(t *testing.T) {
 	doc := document.NewDocument()
 	pf, _ := document.NewStringField("srcparent", "p", true)
 	doc.Add(pf)
-	if err := sw.AddDocument(doc); err != nil {
+	if _, err := sw.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument(src): %v", err)
 	}
 	if err := sw.Close(); err != nil {

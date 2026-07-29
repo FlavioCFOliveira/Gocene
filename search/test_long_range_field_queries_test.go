@@ -40,7 +40,7 @@ func buildLongRangeBasicsIndex(t *testing.T, dir store.Directory) *index.Directo
 			t.Fatalf("NewLongRange(%v,%v): %v", min, max, err)
 		}
 		doc.Add(f)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

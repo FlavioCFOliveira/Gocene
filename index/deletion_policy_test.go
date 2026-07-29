@@ -26,7 +26,7 @@ func addPolicyDoc(t *testing.T, w *index.IndexWriter) {
 		t.Fatalf("NewStringField: %v", err)
 	}
 	doc.Add(sf)
-	if err := w.AddDocument(doc); err != nil {
+	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 }

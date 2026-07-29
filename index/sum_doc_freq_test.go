@@ -43,7 +43,7 @@ func TestSumDocFreq(t *testing.T) {
 			t.Fatalf("NewStringField: %v", err)
 		}
 		doc.Add(f)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument[%d]: %v", i, err)
 		}
 	}
@@ -63,7 +63,7 @@ func TestSumDocFreq(t *testing.T) {
 
 	// Delete some documents.
 	for i := 0; i < 10; i++ {
-		if err := writer.DeleteDocuments(index.NewTerm("field", fmt.Sprintf("term%d", i))); err != nil {
+		if _, err := writer.DeleteDocuments(index.NewTerm("field", fmt.Sprintf("term%d", i))); err != nil {
 			t.Fatalf("DeleteDocuments[%d]: %v", i, err)
 		}
 	}

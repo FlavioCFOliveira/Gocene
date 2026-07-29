@@ -196,7 +196,7 @@ func addKnnDoc(t *testing.T, iw *index.IndexWriter, field string, id int, vector
 		t.Fatalf("NewStringField(id=%d): %v", id, err)
 	}
 	doc.Add(idField)
-	if err := iw.AddDocument(doc); err != nil {
+	if _, err := iw.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument(id=%d): %v", id, err)
 	}
 }
@@ -531,7 +531,7 @@ func TestKnnGraph_MultipleVectorFields(t *testing.T) {
 			t.Fatalf("NewStringField: %v", err)
 		}
 		doc.Add(idField)
-		if err := iw.AddDocument(doc); err != nil {
+		if _, err := iw.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(doc=%d): %v", d, err)
 		}
 	}

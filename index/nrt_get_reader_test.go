@@ -34,7 +34,7 @@ func nrtAddDoc(t *testing.T, w *index.IndexWriter, id, body string) {
 		t.Fatalf("body field: %v", err)
 	}
 	doc.Add(bodyF)
-	if err := w.AddDocument(doc); err != nil {
+	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 }

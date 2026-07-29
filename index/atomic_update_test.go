@@ -74,7 +74,7 @@ func runAtomicUpdateTest(t *testing.T, directory store.Directory) {
 			}
 		}
 		doc := &testDocument{fields: []interface{}{}}
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("base AddDocument(%d) error = %v", i, err)
 		}
 	}
@@ -103,7 +103,7 @@ func runAtomicUpdateTest(t *testing.T, directory store.Directory) {
 				for id := 0; id < 100; id++ {
 					term := index.NewTerm("id", fmt.Sprintf("%d", id))
 					doc := &testDocument{fields: []interface{}{}}
-					if err := writer.UpdateDocument(term, doc); err != nil {
+					if _, err := writer.UpdateDocument(term, doc); err != nil {
 						return fmt.Errorf("UpdateDocument(id=%d): %w", id, err)
 					}
 				}

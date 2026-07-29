@@ -129,6 +129,7 @@ func NewFreqProxPostingsArray(size int, writeFreqs, writeProx, writeOffsets bool
 			a.LastOffsets = make([]int, size)
 		}
 	}
+	a.ParallelPostingsArray.wrapper = a
 	return a
 }
 
@@ -153,13 +154,13 @@ func (a *FreqProxPostingsArray) CopyTo(dst *FreqProxPostingsArray, numToCopy int
 	a.ParallelPostingsArray.CopyTo(dst.ParallelPostingsArray, numToCopy)
 	copy(dst.LastDocIDs[:numToCopy], a.LastDocIDs[:numToCopy])
 	copy(dst.LastDocCodes[:numToCopy], a.LastDocCodes[:numToCopy])
-	if a.LastPositions != nil {
+	if a.LastPositions != nil && dst.LastPositions != nil {
 		copy(dst.LastPositions[:numToCopy], a.LastPositions[:numToCopy])
 	}
-	if a.LastOffsets != nil {
+	if a.LastOffsets != nil && dst.LastOffsets != nil {
 		copy(dst.LastOffsets[:numToCopy], a.LastOffsets[:numToCopy])
 	}
-	if a.TermFreqs != nil {
+	if a.TermFreqs != nil && dst.TermFreqs != nil {
 		copy(dst.TermFreqs[:numToCopy], a.TermFreqs[:numToCopy])
 	}
 }
@@ -273,6 +274,13 @@ func NewFreqProxTermsWriterPerField(
 		AddTerm:             w.addTerm,
 		NewPostingsArray:    w.newPostingsArray,
 		CreatePostingsArray: w.createPostingsArray,
+		CopyPostingsArray: func(src, dst *ParallelPostingsArray, n int) {
+			if srcFP, ok := src.wrapper.(*FreqProxPostingsArray); ok {
+				if dstFP, ok := dst.wrapper.(*FreqProxPostingsArray); ok {
+					srcFP.CopyTo(dstFP, n)
+				}
+			}
+		},
 	}
 
 	base, err := NewTermsHashPerField(

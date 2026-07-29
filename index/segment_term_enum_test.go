@@ -24,7 +24,7 @@ func segmentTermEnumAddDoc(t *testing.T, writer *index.IndexWriter, value string
 		t.Fatalf("Failed to create field: %v", err)
 	}
 	doc.Add(field)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("Failed to add document: %v", err)
 	}
 }

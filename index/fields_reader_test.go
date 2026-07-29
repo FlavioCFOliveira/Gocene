@@ -243,7 +243,7 @@ func TestFieldsReader_DirectoryReaderPath(t *testing.T) {
 	for _, f := range docHelperFields(t) {
 		doc.Add(f)
 	}
-	if err := w.AddDocument(doc); err != nil {
+	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Commit(); err != nil {

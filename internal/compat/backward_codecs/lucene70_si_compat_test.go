@@ -69,7 +69,7 @@ func TestLucene70SegmentInfo_GoceneWriteRejection(t *testing.T) {
 		bodyField, _ := document.NewTextField("body",
 			fmt.Sprintf("alpha beta gamma delta %d epsilon zeta", i), true)
 		doc.Add(bodyField)
-		if err := iw.AddDocument(doc); err != nil {
+		if _, err := iw.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/spatial3d/geom"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // ---------------------------------------------------------------------------
@@ -111,9 +112,30 @@ func (r *stubGeo3DLeaf) GetContext() (index.IndexReaderContext, error) {
 func (r *stubGeo3DLeaf) Leaves() ([]*index.LeafReaderContext, error) { return nil, nil }
 func (r *stubGeo3DLeaf) StoredFields() (index.StoredFields, error)   { return nil, nil }
 func (r *stubGeo3DLeaf) TermVectors() (index.TermVectors, error)     { return nil, nil }
-func (r *stubGeo3DLeaf) GetCoreCacheKey() interface{}                { return r }
-func (r *stubGeo3DLeaf) GetTermVectors(_ int) (index.Fields, error)  { return nil, nil }
-func (r *stubGeo3DLeaf) Terms(_ string) (index.Terms, error)         { return nil, nil }
+func (r *stubGeo3DLeaf) GetCoreCacheKey() interface{}               { return r }
+func (r *stubGeo3DLeaf) GetTermVectors(_ int) (index.Fields, error)   { return nil, nil }
+func (r *stubGeo3DLeaf) Terms(_ string) (index.Terms, error)          { return nil, nil }
+func (r *stubGeo3DLeaf) Postings(_ index.Term) (index.PostingsEnum, error)              { return nil, nil }
+func (r *stubGeo3DLeaf) PostingsWithFreqPositions(_ index.Term, _ int) (index.PostingsEnum, error) {
+	return nil, nil
+}
+func (r *stubGeo3DLeaf) GetNumericDocValues(_ string) (index.NumericDocValues, error)      { return nil, nil }
+func (r *stubGeo3DLeaf) GetBinaryDocValues(_ string) (index.BinaryDocValues, error)        { return nil, nil }
+func (r *stubGeo3DLeaf) GetSortedDocValues(_ string) (index.SortedDocValues, error)        { return nil, nil }
+func (r *stubGeo3DLeaf) GetSortedNumericDocValues(_ string) (index.SortedNumericDocValues, error) {
+	return nil, nil
+}
+func (r *stubGeo3DLeaf) GetSortedSetDocValues(_ string) (index.SortedSetDocValues, error)   { return nil, nil }
+func (r *stubGeo3DLeaf) GetNormValues(_ string) (index.NumericDocValues, error)           { return nil, nil }
+func (r *stubGeo3DLeaf) GetFloatVectorValues(_ string) (index.FloatVectorValues, error)    { return nil, nil }
+func (r *stubGeo3DLeaf) GetByteVectorValues(_ string) (index.ByteVectorValues, error)       { return nil, nil }
+func (r *stubGeo3DLeaf) GetDocValuesSkipper(_ string) (index.DocValuesSkipper, error)        { return nil, nil }
+func (r *stubGeo3DLeaf) CheckIntegrity() error                                                { return nil }
+func (r *stubGeo3DLeaf) GetMetaData() *index.IndexReaderMetaData                               { return nil }
+func (r *stubGeo3DLeaf) GetSegmentInfo() *index.SegmentInfo                                     { return nil }
+func (r *stubGeo3DLeaf) SearchNearestVectors(_ string, _ []float32, _ int, _ util.Bits) (index.TopDocs, error) {
+	return index.TopDocs{}, nil
+}
 
 var _ index.LeafReaderInterface = (*stubGeo3DLeaf)(nil)
 

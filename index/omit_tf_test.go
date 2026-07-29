@@ -91,7 +91,7 @@ func TestOmitTf_NoPrxFile(t *testing.T) {
 			t.Fatalf("NewFieldWithType: %v", err)
 		}
 		doc.Add(f1)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 	}
@@ -133,7 +133,7 @@ func TestOmitTf_MixedRAM(t *testing.T) {
 		of, _ := document.NewField("omit", "omit text here", omitType)
 		doc.Add(nf)
 		doc.Add(of)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 	}

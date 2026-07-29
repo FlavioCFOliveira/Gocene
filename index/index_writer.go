@@ -28,6 +28,34 @@ const writeLockName = "write.lock"
 // Lucene's IndexWriter.MAX_TERM_LENGTH = ByteBlockPool.BYTE_BLOCK_SIZE - 2.
 const MAX_TERM_LENGTH = 32766
 
+// MAX_DOCS is the hard upper bound on the number of documents that may be
+// added to a single index.  It mirrors Lucene's IndexWriter.MAX_DOCS,
+// deliberately set well below Integer.MAX_VALUE to stay under the lowest
+// ArrayUtil.MAX_ARRAY_LENGTH on typical JVMs.
+const MAX_DOCS = int(^uint(0) >> 1) - 128
+
+// actualMaxDocs holds the current document cap enforced by IndexWriter.  It is
+// package-level (rather than per-writer) so Lucene's test-only
+// IndexWriter.setMaxDocs(int) / getActualMaxDocs() contract can be reproduced.
+// It starts at MAX_DOCS and may only be lowered.
+var actualMaxDocs int64 = int64(MAX_DOCS)
+
+// SetMaxDocs lowers the per-IndexWriter document cap.  It mirrors Lucene's
+// package-private IndexWriter.setMaxDocs(int), used only by tests.  Values
+// above MAX_DOCS are rejected.
+func SetMaxDocs(maxDocs int) {
+	if maxDocs > MAX_DOCS {
+		panic(fmt.Sprintf("maxDocs must be <= IndexWriter.MAX_DOCS=%d; got: %d", MAX_DOCS, maxDocs))
+	}
+	atomic.StoreInt64(&actualMaxDocs, int64(maxDocs))
+}
+
+// GetActualMaxDocs returns the current document cap.  Mirrors Lucene's
+// package-private IndexWriter.getActualMaxDocs().
+func GetActualMaxDocs() int {
+	return int(atomic.LoadInt64(&actualMaxDocs))
+}
+
 // Document represents a document to be indexed.
 // This is a minimal interface to avoid circular imports.
 type Document interface {
@@ -40,9 +68,10 @@ type IndexWriter struct {
 	config    *IndexWriterConfig
 
 	// atomic fields for lock-free access
-	closed      atomic.Bool
-	docCount    atomic.Int32
-	tragicError atomic.Pointer[error]
+	closed         atomic.Bool
+	docCount       atomic.Int32
+	tragicError    atomic.Pointer[error]
+	pendingNumDocs atomic.Int64
 
 	// mu protects shared state changes (segment infos, commit data, etc.)
 	// NOT for document-level operations which should be lock-free
@@ -103,6 +132,12 @@ type IndexWriter struct {
 	// pendingFieldInfos accumulates FieldInfos from documents added since the
 	// last commit. Set to nil after each Commit. Protected by mu.
 	pendingFieldInfos *FieldInfos
+
+	// globalFieldInfos accumulates every field seen by this writer since it was
+	// opened, mirroring Lucene's IndexWriter.globalFieldNumberMap. It survives
+	// flushes and commits so that incompatible schema changes (e.g. reversing
+	// omitNorms for an indexed field) are detected immediately. Protected by mu.
+	globalFieldInfos *FieldInfos
 
 	// committedSegments holds SegmentCommitInfos created by previous Commits,
 	// along with their in-memory FieldInfos, so that AddIndexes can read them
@@ -219,6 +254,27 @@ type IndexWriter struct {
 	// deleter tracks reference counts for every segment file and enforces the
 	// configured IndexDeletionPolicy on writer init and on every commit.
 	deleter *IndexFileDeleter
+
+	// pendingMerges holds merges that have been registered with the writer but
+	// not yet picked up by the MergeScheduler. Protected by pendingMergesMu.
+	pendingMerges []*OneMerge
+
+	// runningMerges tracks merges currently executing in the MergeScheduler.
+	// Protected by pendingMergesMu.
+	runningMerges map[*OneMerge]bool
+
+	// pendingMergesMu protects pendingMerges and runningMerges. It is separate
+	// from w.mu so that the MergeScheduler can poll for new merges without
+	// deadlocking against the IndexWriter's main lock.
+	pendingMergesMu sync.Mutex
+
+	// seqNoCounter assigns a strictly increasing sequence number to every
+	// indexing operation (add, update, delete, deleteAll, doc-values update).
+	// It starts at 1; 0 is reserved for "no operation / unknown".  Atomic
+	// increments make the numbering thread-safe even when addLock/commitLock
+	// are not held.  This is the Gocene equivalent of Lucene's
+	// DocumentsWriterDeleteQueue sequence numbers.
+	seqNoCounter atomic.Int64
 }
 
 // pendingSegment captures the metadata of a segment that has been flushed from
@@ -507,6 +563,7 @@ func NewIndexWriter(dir store.Directory, config *IndexWriterConfig) (*IndexWrite
 	writer.lastCommittedSegmentInfos = initialSegmentInfos.Clone()
 	writer.pinnedSegmentInfos = initialSegmentInfos.Clone()
 	writer.rollbackSegmentInfos = rollbackSegmentInfos.Clone()
+	writer.pendingNumDocs.Store(int64(initialSegmentInfos.TotalMaxDoc()))
 
 	// Validate that the index sort matches the existing commit. Changing the
 	// index sort on an existing index is not allowed (Lucene throws
@@ -578,15 +635,19 @@ func (w *IndexWriter) setTragicError(err error) {
 // AddDocument adds a document to the index.
 // Minimizes critical section by processing document outside the global lock.
 // DocumentsWriter handles its own internal concurrency.
-func (w *IndexWriter) AddDocument(doc Document) error {
+//
+// Returns the sequence number assigned to this indexing operation. Sequence
+// numbers start at 1 and increase monotonically across all add/update/delete
+// operations on this writer.
+func (w *IndexWriter) AddDocument(doc Document) (int64, error) {
 	if err := w.ensureOpen(); err != nil {
-		return err
+		return 0, err
 	}
 
 	// Validate sort field types against the DV fields in this document.
 	if sort := w.config.IndexSort(); sort != nil {
 		if err := w.validateSortFieldTypes(doc, sort); err != nil {
-			return err
+			return 0, err
 		}
 	}
 
@@ -596,21 +657,18 @@ func (w *IndexWriter) AddDocument(doc Document) error {
 	w.addLock.Lock()
 	defer w.addLock.Unlock()
 
-	// Enforce the configured per-writer document limit.  Mirrors Lucene's
+	// Reserve a slot against the global document cap.  Mirrors Lucene's
 	// IndexWriter.reserveDocs / tooManyDocs contract.
-	if maxDocs := w.config.MaxDocs(); maxDocs > 0 {
-		if current := w.maxDocForLimit(); current >= maxDocs {
-			return fmt.Errorf(
-				"number of documents in the index cannot exceed %d (current document count is %d)",
-				maxDocs, current)
-		}
+	if err := w.reserveDocs(1); err != nil {
+		return 0, err
 	}
 
 	// DocumentsWriter has its own internal locking, so we don't need
 	// to hold the global lock during document processing.
 	if w.documentsWriter != nil {
 		if err := w.documentsWriter.AddDocument(doc, nil); err != nil {
-			return err
+			w.pendingNumDocs.Add(-1)
+			return 0, err
 		}
 	}
 
@@ -629,7 +687,11 @@ func (w *IndexWriter) AddDocument(doc Document) error {
 		}
 		// Accumulate FieldInfos from fields that expose their type metadata.
 		if fm, ok := fi.(indexableFieldMeta); ok {
-			w.addFieldToInfos(fm)
+			if err := w.addFieldToInfos(fm); err != nil {
+				w.pendingNumDocs.Add(-1)
+				w.mu.Unlock()
+				return 0, err
+			}
 		}
 	}
 	w.docFieldIndex = append(w.docFieldIndex, docEntries)
@@ -642,22 +704,97 @@ func (w *IndexWriter) AddDocument(doc Document) error {
 	maxBuf := w.config.MaxBufferedDocs()
 	if maxBuf > 0 && int(newCount) >= maxBuf {
 		if err := w.maybeFlushPendingDocs(); err != nil {
-			return err
+			return 0, err
 		}
+	}
+
+	// Auto-flush when RAM buffer threshold is reached.
+	if w.documentsWriter != nil && w.documentsWriter.ShouldFlush() {
+		if err := w.maybeFlushPendingDocs(); err != nil {
+			return 0, err
+		}
+	}
+	return w.nextSequenceNumber(), nil
+}
+
+// nextSequenceNumber returns the next monotonically increasing sequence number
+// for an indexing operation. It is safe for concurrent use.
+func (w *IndexWriter) nextSequenceNumber() int64 {
+	return w.seqNoCounter.Add(1)
+}
+
+// effectiveMaxDocs returns the per-writer document cap.  It is the lower of
+// the global actualMaxDocs and the IndexWriterConfig MaxDocs, when the latter
+// is set (> 0).  This preserves Gocene's existing config-level limit while also
+// honouring Lucene's global IndexWriter.setMaxDocs/getActualMaxDocs contract.
+func (w *IndexWriter) effectiveMaxDocs() int64 {
+	global := int64(GetActualMaxDocs())
+	if cfg := int64(w.config.MaxDocs()); cfg > 0 && cfg < global {
+		return cfg
+	}
+	return global
+}
+
+// reserveDocs reserves space for addedNumDocs new documents against the
+// effective document cap.  Mirrors Lucene's IndexWriter.reserveDocs(long).  If
+// the cap would be exceeded, the reservation is rolled back and an
+// IllegalArgumentError with the canonical Lucene message is returned.
+func (w *IndexWriter) reserveDocs(addedNumDocs int64) error {
+	if addedNumDocs <= 0 {
+		return nil
+	}
+	maxDocs := w.effectiveMaxDocs()
+	count := w.pendingNumDocs.Add(addedNumDocs)
+	if count > maxDocs {
+		w.pendingNumDocs.Add(-addedNumDocs)
+		return fmt.Errorf(
+			"number of documents in the index cannot exceed %d (current document count is %d; added numDocs is %d)",
+			maxDocs, w.pendingNumDocs.Load(), addedNumDocs)
+	}
+	return nil
+}
+
+// testReserveDocs performs a best-effort check that the current index can
+// accept additional docs without actually reserving them.  Mirrors Lucene's
+// IndexWriter.testReserveDocs(long).
+func (w *IndexWriter) testReserveDocs(addedNumDocs int64) error {
+	if addedNumDocs <= 0 {
+		return nil
+	}
+	maxDocs := w.effectiveMaxDocs()
+	if w.pendingNumDocs.Load()+addedNumDocs > maxDocs {
+		return fmt.Errorf(
+			"number of documents in the index cannot exceed %d (current document count is %d; added numDocs is %d)",
+			maxDocs, w.pendingNumDocs.Load(), addedNumDocs)
 	}
 	return nil
 }
 
 // addFieldToInfos adds (or merges) a field's metadata into pendingFieldInfos.
 // Must be called with w.mu held.
-func (w *IndexWriter) addFieldToInfos(fm indexableFieldMeta) {
+func (w *IndexWriter) addFieldToInfos(fm indexableFieldMeta) error {
 	if w.pendingFieldInfos == nil {
 		w.pendingFieldInfos = NewFieldInfos()
 	}
+	if w.globalFieldInfos == nil {
+		w.globalFieldInfos = NewFieldInfos()
+	}
 	name := fm.Name()
+
+	// Detect incompatible schema changes against the writer-global FieldInfos so
+	// that conflicts survive DWPT flushes (e.g. reversing omitNorms for the
+	// same indexed field name).
+	if existing := w.globalFieldInfos.GetByName(name); existing != nil {
+		if existing.IndexOptions() != IndexOptionsNone && fm.IsIndexed() && existing.OmitNorms() != fm.OmitNorms() {
+			return fmt.Errorf("cannot change field %q from omitNorms=%v to inconsistent omitNorms=%v",
+				name, existing.OmitNorms(), fm.OmitNorms())
+		}
+	}
+
 	if w.pendingFieldInfos.GetByName(name) != nil {
-		// Already registered; do not re-add (field numbers must be stable).
-		return
+		// Already registered in the current buffer; do not re-add (field numbers
+		// must be stable within a flush unit).
+		return nil
 	}
 	// parentMarkerField carries the parent-field bit (rmp #4789): when the field
 	// is the synthetic parent marker injected by AddDocuments, set IsParentField
@@ -679,9 +816,19 @@ func (w *IndexWriter) addFieldToInfos(fm indexableFieldMeta) {
 		VectorEncoding:           VectorEncodingFloat32,
 		VectorSimilarityFunction: VectorSimilarityFunctionEuclidean,
 	}
+
+	// Add to the global map if not already present, so later flushes can detect
+	// conflicts against earlier documents.
+	if w.globalFieldInfos.GetByName(name) == nil {
+		number := w.globalFieldInfos.GetNextFieldNumber()
+		gfi := NewFieldInfo(name, number, opts)
+		_ = w.globalFieldInfos.Add(gfi)
+	}
+
 	number := w.pendingFieldInfos.GetNextFieldNumber()
 	fi := NewFieldInfo(name, number, opts)
 	_ = w.pendingFieldInfos.Add(fi) // ignore duplicate-number errors; field is already checked above
+	return nil
 }
 
 // UpdateDocument updates a document in the index.
@@ -704,9 +851,9 @@ func (w *IndexWriter) addFieldToInfos(fm indexableFieldMeta) {
 //
 // Deletions in path 3 are applied to the current in-memory buffer only;
 // committed-segment deletions are applied conservatively at Commit time.
-func (w *IndexWriter) UpdateDocument(term *Term, doc Document) error {
+func (w *IndexWriter) UpdateDocument(term *Term, doc Document) (int64, error) {
 	if err := w.ensureOpen(); err != nil {
-		return err
+		return 0, err
 	}
 
 	// Serialize the per-document atomic unit (process → docCount.Add → flush
@@ -753,19 +900,20 @@ func (w *IndexWriter) UpdateDocument(term *Term, doc Document) error {
 				continue
 			}
 			if fm, ok := fi.(indexableFieldMeta); ok {
-				w.addFieldToInfos(fm)
+				if err := w.addFieldToInfos(fm); err != nil {
+					w.mu.Unlock()
+					return 0, err
+				}
 			}
 		}
 		w.mu.Unlock()
-		return nil
+		return w.nextSequenceNumber(), nil
 	}
 
 	// Append path: add new doc and record bounded delete for matching old docs.
-	// Enforce the per-writer document limit on the replacement document.
-	if maxDocs := w.config.MaxDocs(); maxDocs > 0 && w.maxDocForLimit() >= maxDocs {
-		return fmt.Errorf(
-			"number of documents in the index cannot exceed %d (current document count is %d)",
-			maxDocs, w.maxDocForLimit())
+	// Reserve a slot against the global document cap.
+	if err := w.reserveDocs(1); err != nil {
+		return 0, err
 	}
 
 	w.mu.Lock()
@@ -776,7 +924,10 @@ func (w *IndexWriter) UpdateDocument(term *Term, doc Document) error {
 			continue
 		}
 		if fm, ok := fi.(indexableFieldMeta); ok {
-			w.addFieldToInfos(fm)
+			if err := w.addFieldToInfos(fm); err != nil {
+				w.mu.Unlock()
+				return 0, err
+			}
 		}
 	}
 
@@ -806,7 +957,7 @@ func (w *IndexWriter) UpdateDocument(term *Term, doc Document) error {
 		w.docFieldIndex[matchOrdinal] = newEntries
 		w.pendingSoftDeletedOrdinals = append(w.pendingSoftDeletedOrdinals, matchOrdinal)
 		w.mu.Unlock()
-		return nil
+		return w.nextSequenceNumber(), nil
 	}
 
 	maxOrd := int(w.docCount.Load())
@@ -822,7 +973,7 @@ func (w *IndexWriter) UpdateDocument(term *Term, doc Document) error {
 		// also reach those flushed-but-not-committed docs (rmp #4753 follow-up).
 		if err := w.applyTermDeletesToPendingSegments([]*Term{term}); err != nil {
 			w.mu.Unlock()
-			return err
+			return 0, err
 		}
 		// Pre-commit NumDocs() estimate: if any committed segment has this field,
 		// conservatively assume one committed doc is being displaced.  Reset and
@@ -837,7 +988,7 @@ func (w *IndexWriter) UpdateDocument(term *Term, doc Document) error {
 	// Process replacement document through DocumentsWriter.
 	if w.documentsWriter != nil {
 		if err := w.documentsWriter.UpdateDocument(doc, nil, term); err != nil {
-			return fmt.Errorf("failed to update document: %w", err)
+			return 0, fmt.Errorf("failed to update document: %w", err)
 		}
 	}
 
@@ -848,19 +999,28 @@ func (w *IndexWriter) UpdateDocument(term *Term, doc Document) error {
 	maxBuf := w.config.MaxBufferedDocs()
 	if maxBuf > 0 && int(newCount) >= maxBuf {
 		if err := w.maybeFlushPendingDocs(); err != nil {
-			return err
+			return 0, err
 		}
 	}
-	return nil
+
+	// Auto-flush when RAM buffer threshold is reached.
+	if w.documentsWriter != nil && w.documentsWriter.ShouldFlush() {
+		if err := w.maybeFlushPendingDocs(); err != nil {
+			return 0, err
+		}
+	}
+	return w.nextSequenceNumber(), nil
 }
 
 // DeleteDocuments buffers a term-based delete that will be applied at the next
 // Commit. Each document containing the given term in the given field is marked
 // for deletion; the delete count is reflected in the SegmentCommitInfo written
 // by Commit.
-func (w *IndexWriter) DeleteDocuments(term *Term) error {
+//
+// Returns the sequence number assigned to this indexing operation.
+func (w *IndexWriter) DeleteDocuments(term *Term) (int64, error) {
 	if err := w.ensureOpen(); err != nil {
-		return err
+		return 0, err
 	}
 
 	// Serialize with the per-document add/update lock so that an in-flight
@@ -887,11 +1047,11 @@ func (w *IndexWriter) DeleteDocuments(term *Term) error {
 		// reach those flushed-but-not-committed docs.
 		if err := w.applyTermDeletesToPendingSegments([]*Term{term}); err != nil {
 			w.mu.Unlock()
-			return err
+			return 0, err
 		}
 	}
 	w.mu.Unlock()
-	return nil
+	return w.nextSequenceNumber(), nil
 }
 
 // DeleteDocumentsQuery buffers a query-based delete to be applied at the next
@@ -909,12 +1069,14 @@ func (w *IndexWriter) DeleteDocuments(term *Term) error {
 // Execution requires a query-delete executor hook registered via
 // RegisterQueryDeleteExecutor (installed by the search package's init).
 // When no executor is registered the query is silently dropped.
-func (w *IndexWriter) DeleteDocumentsQuery(query interface{}) error {
+//
+// Returns the sequence number assigned to this indexing operation.
+func (w *IndexWriter) DeleteDocumentsQuery(query interface{}) (int64, error) {
 	if err := w.ensureOpen(); err != nil {
-		return err
+		return 0, err
 	}
 	if query == nil {
-		return nil
+		return 0, nil
 	}
 
 	// Route term-equivalent queries through the term-delete path.  This gives
@@ -926,7 +1088,7 @@ func (w *IndexWriter) DeleteDocumentsQuery(query interface{}) error {
 		if term != nil {
 			return w.DeleteDocuments(term)
 		}
-		return nil
+		return 0, nil
 	}
 
 	// Serialize with the per-document add/update lock for the same generation
@@ -941,10 +1103,10 @@ func (w *IndexWriter) DeleteDocumentsQuery(query interface{}) error {
 	// those flushed-but-not-committed docs.
 	if err := w.applyQueryDeletesToPendingSegments([]interface{}{query}); err != nil {
 		w.mu.Unlock()
-		return err
+		return 0, err
 	}
 	w.mu.Unlock()
-	return nil
+	return w.nextSequenceNumber(), nil
 }
 
 // QueryDeleteExecutor is a hook function that executes queries against a
@@ -1748,7 +1910,7 @@ func (w *IndexWriter) commitLocked(force bool) error {
 				if err3 := dwpt.flushStoredFields(codec, writeState); err3 != nil {
 					return fmt.Errorf("commit: flush stored fields for %s: %w", segmentName, err3)
 				}
-				if err3 := dwpt.flushTermVectors(codec, writeState); err3 != nil {
+				if err3 := dwpt.flushTermVectors(writeState); err3 != nil {
 					return fmt.Errorf("commit: flush term vectors for %s: %w", segmentName, err3)
 				}
 				if err3 := dwpt.flushPostings(codec, writeState, fi); err3 != nil {
@@ -1941,21 +2103,27 @@ func (w *IndexWriter) commitLocked(force bool) error {
 			// on-disk source that openSegmentReader reads back.
 			if ps.fieldInfos != nil && ps.fieldInfos.Size() > 0 && codec != nil {
 				if fif := codec.FieldInfosFormat(); fif != nil {
-					if err3 := fif.Write(w.directory, segInfo, "", ps.fieldInfos, store.IOContextWrite); err3 != nil {
-						return fmt.Errorf("commit: write field infos for %s: %w", segmentName, err3)
-					}
-					// Ensure the .fnm is referenced even if the source did not
-					// include it (overwriting a copied .fnm is fine because the
-					// name is unchanged).
 					fnm := segmentName + ".fnm"
-					found := false
+					fnmCopied := false
 					for _, f := range segFiles {
 						if f == fnm {
-							found = true
+							fnmCopied = true
 							break
 						}
 					}
-					if !found {
+					// Only write a new .fnm when the source did not already supply
+					// one (AddIndexes directory path copies it under the new segment
+					// name). Rewriting an existing file is not supported by the
+					// Directory API and is unnecessary because the copied .fnm is
+					// already authoritative.
+					if !fnmCopied {
+						if err3 := fif.Write(w.directory, segInfo, "", ps.fieldInfos, store.IOContextWrite); err3 != nil {
+							return fmt.Errorf("commit: write field infos for %s: %w", segmentName, err3)
+						}
+					}
+					// Ensure the .fnm is referenced even if the source did not
+					// include it.
+					if !fnmCopied {
 						segFiles = append(segFiles, fnm)
 					}
 					// Stamp the codec name so the reopen path
@@ -3116,9 +3284,11 @@ func (w *IndexWriter) GetConfig() *LiveIndexWriterConfig {
 // DeleteAll deletes all documents in the index.
 // This method will be fully implemented when delete tracking is complete.
 // Uses atomic store to reset counter without holding global lock.
-func (w *IndexWriter) DeleteAll() error {
+//
+// Returns the sequence number assigned to this indexing operation.
+func (w *IndexWriter) DeleteAll() (int64, error) {
 	if err := w.ensureOpen(); err != nil {
-		return err
+		return 0, err
 	}
 
 	// Serialize with concurrent add/update/delete operations and with Commit,
@@ -3137,6 +3307,7 @@ func (w *IndexWriter) DeleteAll() error {
 	// Clear all pending document state so that a subsequent Commit
 	// does not include stale entries from before the DeleteAll call.
 	w.docCount.Store(0)
+	w.pendingNumDocs.Store(0)
 	w.pendingDeleteTerms = nil
 	w.pendingSoftDeletedOrdinals = nil
 	w.pendingDeletedDocIDs = nil
@@ -3160,7 +3331,7 @@ func (w *IndexWriter) DeleteAll() error {
 	// Mark that all committed segments should be deleted at the next Commit.
 	w.pendingDeleteAll = true
 
-	return nil
+	return w.nextSequenceNumber(), nil
 }
 
 // Rollback rolls back all changes made since the writer opened.
@@ -3378,56 +3549,305 @@ func (w *IndexWriter) ForceMerge(maxNumSegments int) (err error) {
 	}
 }
 
+// ForceMergeDoWait performs a force merge with control over whether the call
+// blocks until the merges complete.  It is the Go analogue of Lucene's
+// IndexWriter.forceMerge(int, boolean).  When doWait is true the behaviour is
+// identical to ForceMerge(int); when doWait is false the merges are registered
+// and the configured MergeScheduler runs them in the background.
+func (w *IndexWriter) ForceMergeDoWait(maxNumSegments int, doWait bool) (*MergeObserver, error) {
+	if err := w.ensureOpen(); err != nil {
+		return nil, err
+	}
+	if maxNumSegments < 1 {
+		maxNumSegments = 1
+	}
+
+	// Flush buffered documents to committed segments so the merge policy can
+	// reason over real segment sizes.
+	if err := w.Commit(); err != nil {
+		return nil, err
+	}
+
+	mp := w.config.GetMergePolicy()
+	if mp == nil {
+		return NewMergeObserver(nil, 0, nil), nil
+	}
+
+	si, err := ReadSegmentInfos(w.directory)
+	if err != nil {
+		return nil, err
+	}
+	if si.Size() <= maxNumSegments {
+		return NewMergeObserver(nil, 0, nil), nil
+	}
+
+	segsToMerge := make(map[*SegmentCommitInfo]bool, si.Size())
+	for _, sci := range si.List() {
+		segsToMerge[sci] = true
+	}
+	spec, err := mp.FindForcedMerges(si, maxNumSegments, segsToMerge, &forceMergeContext{})
+	if err != nil {
+		return nil, fmt.Errorf("forceMergeDoWait: find forced merges: %w", err)
+	}
+	if spec == nil || spec.Size() == 0 {
+		return NewMergeObserver(nil, 0, nil), nil
+	}
+
+	for _, om := range spec.Merges {
+		w.AddEstimatedBytesToMerge(om)
+	}
+
+	observer := NewMergeObserver(spec, 0, nil)
+	w.registerMerges(spec, observer)
+
+	scheduler := w.config.GetMergeScheduler()
+	if scheduler == nil {
+		for _, om := range spec.Merges {
+			if err := w.Merge(om); err != nil {
+				return observer, err
+			}
+		}
+		return observer, nil
+	}
+
+	if doWait {
+		if err := scheduler.Merge(w, EXPLICIT); err != nil {
+			return observer, err
+		}
+		if err := w.WaitForMerges(); err != nil {
+			return observer, err
+		}
+		return observer, nil
+	}
+
+	go func() {
+		_ = scheduler.Merge(w, EXPLICIT)
+	}()
+	return observer, nil
+}
+
+// GetNextMerge returns the next pending merge and moves it to the running set.
+// This implements the MergeSource interface for the configured MergeScheduler.
+func (w *IndexWriter) GetNextMerge() *OneMerge {
+	w.pendingMergesMu.Lock()
+	defer w.pendingMergesMu.Unlock()
+
+	if err := w.ensureOpen(); err != nil {
+		return nil
+	}
+	if len(w.pendingMerges) == 0 {
+		return nil
+	}
+	merge := w.pendingMerges[0]
+	w.pendingMerges = w.pendingMerges[1:]
+	if w.runningMerges == nil {
+		w.runningMerges = make(map[*OneMerge]bool)
+	}
+	w.runningMerges[merge] = true
+	return merge
+}
+
+// OnMergeFinished is called by the MergeScheduler after a merge attempt
+// finishes. It removes the merge from the running set and notifies any
+// MergeObserver associated with the merge. This implements the MergeSource
+// interface.
+func (w *IndexWriter) OnMergeFinished(merge *OneMerge) {
+	if merge == nil {
+		return
+	}
+	w.pendingMergesMu.Lock()
+	if w.runningMerges != nil {
+		delete(w.runningMerges, merge)
+	}
+	w.pendingMergesMu.Unlock()
+
+	if merge.observer != nil {
+		merge.observer.markCompleted(merge.Error)
+	}
+}
+
+// HasPendingMerges returns true if there are merges waiting to be scheduled.
+// This implements the MergeSource interface.
+func (w *IndexWriter) HasPendingMerges() bool {
+	w.pendingMergesMu.Lock()
+	defer w.pendingMergesMu.Unlock()
+	if err := w.ensureOpen(); err != nil {
+		return false
+	}
+	return len(w.pendingMerges) > 0
+}
+
+// Merge executes a single OneMerge synchronously. It is invoked by the
+// MergeScheduler to perform the actual merge and is the MergeSource entry point
+// for scheduled merges. On success it calls mergeSuccess(merge).
+//
+// The writer's main lock is held for the duration of the merge so that
+// concurrent scheduled merges cannot generate colliding segment names or
+// overwrite each other's SegmentInfos updates.
+func (w *IndexWriter) Merge(merge *OneMerge) error {
+	if merge == nil {
+		return nil
+	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	si, err := ReadSegmentInfos(w.directory)
+	if err != nil {
+		return fmt.Errorf("Merge: read segment infos: %w", err)
+	}
+
+	mergedAway := make(map[string]bool, len(merge.Segments))
+	for _, seg := range merge.Segments {
+		mergedAway[seg.SegmentInfo().Name()] = true
+	}
+
+	result := NewSegmentInfos()
+	result.SetGeneration(si.Generation() + 1)
+	result.SetCounter(si.Counter())
+	result.SetInMemoryParentField(w.config.ParentField())
+	result.SetInMemoryIndexSort(w.config.IndexSort())
+	if userData := si.GetUserData(); len(userData) > 0 {
+		result.SetUserData(userData)
+	}
+
+	for _, sci := range si.List() {
+		if !mergedAway[sci.SegmentInfo().Name()] {
+			result.Add(sci)
+		}
+	}
+
+	segName := result.GetNextSegmentName()
+	mergedSCI, err := w.mergeSegmentGroup(merge.Segments, segName)
+	if err != nil {
+		return err
+	}
+	if mergedSCI != nil {
+		merge.Info = mergedSCI
+		w.mergeSuccess(merge)
+		result.Add(mergedSCI)
+	}
+
+	result.UpdateCounterFromSegments()
+	if err := WriteSegmentInfos(result, w.directory); err != nil {
+		return fmt.Errorf("Merge: write merged segment infos: %w", err)
+	}
+
+	w.lastCommittedSegmentInfos = result.Clone()
+	w.committedSegments = result.List()
+	if w.deleter != nil {
+		if err := w.deleter.Checkpoint(result, true); err != nil {
+			return fmt.Errorf("Merge: deleter checkpoint: %w", err)
+		}
+	}
+	if w.config.IndexCommit() == nil {
+		w.pinnedSegmentInfos = result.Clone()
+	}
+	w.nrtSegmentInfos = nil
+
+	return nil
+}
+
+// registerMerges records the merges from spec in the pending queue and binds
+// them to observer so that OnMergeFinished can update the observer as each
+// merge completes. Must not be called with pendingMergesMu held by the caller.
+func (w *IndexWriter) registerMerges(spec *MergeSpecification, observer *MergeObserver) {
+	if spec == nil || spec.Size() == 0 {
+		return
+	}
+	w.pendingMergesMu.Lock()
+	defer w.pendingMergesMu.Unlock()
+	for _, om := range spec.Merges {
+		om.observer = observer
+		w.pendingMerges = append(w.pendingMerges, om)
+	}
+}
+
 // ForceMergeDeletes forces merging of all segments that have deleted documents.
 // The merge policy determines which segments to merge (e.g. TieredMergePolicy
 // only picks segments where the deleted-doc percentage exceeds a threshold).
 //
 // This is a potentially costly operation; it is rarely warranted.
 func (w *IndexWriter) ForceMergeDeletes() error {
-	return w.forceMergeDeletesWait(true)
+	_, err := w.forceMergeDeletesInternal(true)
+	return err
 }
 
-// forceMergeDeletesWait performs forceMergeDeletes. The doWait parameter is
-// accepted for API compatibility with Lucene's overload; in this synchronous
-// implementation merges always complete before the call returns.
-func (w *IndexWriter) forceMergeDeletesWait(doWait bool) error {
+// ForceMergeDeletesWithObserver performs forceMergeDeletes and returns a
+// MergeObserver describing the merges that were scheduled. When doWait is true
+// the call blocks until the merges complete; when doWait is false the merges
+// run through the configured MergeScheduler and the returned observer can be
+// used to wait for them.
+func (w *IndexWriter) ForceMergeDeletesWithObserver(doWait bool) (*MergeObserver, error) {
+	return w.forceMergeDeletesInternal(doWait)
+}
+
+// forceMergeDeletesInternal performs forceMergeDeletes and returns a
+// MergeObserver for the merges that were scheduled. It flushes any buffered
+// changes, asks the MergePolicy for the forced-deletes merge specification,
+// registers the merges with the writer, and either runs them synchronously or
+// hands them to the configured MergeScheduler.
+func (w *IndexWriter) forceMergeDeletesInternal(doWait bool) (*MergeObserver, error) {
 	if err := w.ensureOpen(); err != nil {
-		return err
+		return nil, err
 	}
 	if err := w.Commit(); err != nil {
-		return err
+		return nil, err
 	}
-
-	w.mu.Lock()
-	defer w.mu.Unlock()
 
 	mp := w.config.GetMergePolicy()
 	if mp == nil {
-		return nil
+		return NewMergeObserver(nil, 0, nil), nil
 	}
 
-	for {
-		si, err := ReadSegmentInfos(w.directory)
-		if err != nil {
-			return nil
-		}
-
-		ctx := &forceMergeContext{}
-		spec, err := mp.FindForcedDeletesMerges(si, ctx)
-		if err != nil {
-			return fmt.Errorf("forceMergeDeletes: find forced deletes merges: %w", err)
-		}
-		if spec == nil || spec.Size() == 0 {
-			return nil // no segments with deletions to merge
-		}
-		if err := w.executeForcedMerges(si, spec); err != nil {
-			return err
-		}
-		// Loop back in case a new round of merges is needed after old segments
-		// (with deletions) were merged away and new segments with deletions
-		// appear (e.g. a large segment with deletions was untouched because
-		// it exceeded the size cap).
+	si, err := ReadSegmentInfos(w.directory)
+	if err != nil {
+		return nil, err
 	}
+
+	ctx := &forceMergeContext{}
+	spec, err := mp.FindForcedDeletesMerges(si, ctx)
+	if err != nil {
+		return nil, fmt.Errorf("forceMergeDeletes: find forced deletes merges: %w", err)
+	}
+	if spec == nil || spec.Size() == 0 {
+		return NewMergeObserver(nil, 0, nil), nil
+	}
+
+	for _, om := range spec.Merges {
+		w.AddEstimatedBytesToMerge(om)
+	}
+
+	observer := NewMergeObserver(spec, 0, nil)
+	w.registerMerges(spec, observer)
+
+	scheduler := w.config.GetMergeScheduler()
+	if scheduler == nil {
+		// No scheduler configured: execute synchronously in the caller's goroutine.
+		for _, om := range spec.Merges {
+			if err := w.Merge(om); err != nil {
+				return observer, err
+			}
+		}
+		return observer, nil
+	}
+
+	if doWait {
+		if err := scheduler.Merge(w, EXPLICIT); err != nil {
+			return observer, err
+		}
+		if err := w.WaitForMerges(); err != nil {
+			return observer, err
+		}
+		return observer, nil
+	}
+
+	// doWait == false: run the scheduler asynchronously and let the caller wait
+	// on the returned observer.
+	go func() {
+		_ = scheduler.Merge(w, EXPLICIT)
+	}()
+	return observer, nil
 }
 
 // naturalMergeContext is a minimal MergeContext for natural merges chosen by
@@ -3492,6 +3912,10 @@ func (w *IndexWriter) maybeMergeLocked(trigger MergeTrigger) error {
 		}
 		w.lastCommittedSegmentInfos = si.Clone()
 		w.committedSegments = si.List()
+		if w.config.IndexCommit() == nil {
+			w.pinnedSegmentInfos = w.lastCommittedSegmentInfos.Clone()
+		}
+		w.nrtSegmentInfos = nil
 		w.nrtGen.Add(1)
 	}
 }
@@ -3518,7 +3942,31 @@ func (w *IndexWriter) maybeMergeSnapshot(si *SegmentInfos, trigger MergeTrigger)
 			return nil
 		}
 
-		if err := w.executeNaturalMerges(si, spec); err != nil {
+		// NRT snapshots may contain in-memory pending segments that have no codec
+		// core readers and therefore cannot be merged through the real
+		// SegmentMerger. Drop any merge that touches such a segment; it will be
+		// flushed to disk (and become mergeable) at the next Commit.
+		filtered := NewMergeSpecification()
+		for _, om := range spec.Merges {
+			if om == nil || len(om.Segments) == 0 {
+				continue
+			}
+			inMemory := false
+			for _, seg := range om.Segments {
+				if seg.GetInMemoryFields() != nil {
+					inMemory = true
+					break
+				}
+			}
+			if !inMemory {
+				filtered.Add(om)
+			}
+		}
+		if filtered.Size() == 0 {
+			return nil
+		}
+
+		if err := w.executeNaturalMerges(si, filtered); err != nil {
 			return fmt.Errorf("maybeMergeSnapshot: execute merges: %w", err)
 		}
 	}
@@ -3560,6 +4008,8 @@ func (w *IndexWriter) executeNaturalMerges(si *SegmentInfos, spec *MergeSpecific
 			return err
 		}
 		if merged != nil {
+			om.Info = merged
+			w.mergeSuccess(om)
 			result.Add(merged)
 		}
 	}
@@ -3631,6 +4081,8 @@ func (w *IndexWriter) executeForcedMerges(si *SegmentInfos, spec *MergeSpecifica
 			return err
 		}
 		if merged != nil {
+			om.Info = merged
+			w.mergeSuccess(om)
 			result.Add(merged)
 		}
 	}
@@ -3656,6 +4108,13 @@ func (w *IndexWriter) executeForcedMerges(si *SegmentInfos, spec *MergeSpecifica
 			return fmt.Errorf("forceMerge: deleter checkpoint: %w", err)
 		}
 	}
+	// Keep the writer's in-memory view consistent so MaxDoc()/NumDocs() reflect
+	// the merged state while the writer remains open.  When the writer was opened
+	// without an explicit IndexCommit, the pinned baseline is the latest commit.
+	if w.config.IndexCommit() == nil {
+		w.pinnedSegmentInfos = result.Clone()
+	}
+	w.nrtSegmentInfos = nil
 	// The merged commit's adoption by the deleter is what will eventually delete
 	// the source segment files; do not delete them eagerly here.
 	return nil
@@ -3817,6 +4276,42 @@ func (w *IndexWriter) HasDeletions() bool {
 		len(w.pendingDeleteQueries) > 0 ||
 		len(w.pendingDeletedDocIDs) > 0 ||
 		w.pendingCommittedDeleteCount > 0
+}
+
+// AddEstimatedBytesToMerge computes the estimated and total merge bytes for
+// the given OneMerge, matching Lucene's IndexWriter.addEstimatedBytesToMerge.
+// It accounts for the delete ratio of each source segment so that the
+// scheduler can reason about the real I/O cost of the merge.
+func (w *IndexWriter) AddEstimatedBytesToMerge(merge *OneMerge) {
+	if merge == nil {
+		return
+	}
+	merge.EstimatedMergeBytes = 0
+	merge.TotalMergeBytes = 0
+	for _, info := range merge.Segments {
+		if info == nil || info.SegmentInfo() == nil {
+			continue
+		}
+		maxDoc := info.SegmentInfo().DocCount()
+		if maxDoc <= 0 {
+			continue
+		}
+		size := info.SegmentInfo().SizeInBytes()
+		delCount := info.DelCount()
+		if delCount > maxDoc {
+			delCount = maxDoc
+		}
+		delRatio := float64(delCount) / float64(maxDoc)
+		merge.EstimatedMergeBytes += int64(float64(size) * (1.0 - delRatio))
+		merge.TotalMergeBytes += size
+	}
+}
+
+// mergeSuccess is called after a merge completes successfully. It is the Go
+// analogue of Lucene's protected IndexWriter.mergeSuccess(MergePolicy.OneMerge)
+// hook; subclasses may override it to observe successful merges. The default
+// implementation does nothing.
+func (w *IndexWriter) mergeSuccess(merge *OneMerge) {
 }
 
 // TryDeleteDocument deletes the document with the given docID as seen by the
@@ -4837,12 +5332,15 @@ func (f *parentMarkerField) IsParentMarker() bool         { return true }
 //
 // Gocene deviation: full block-level atomicity (single DWPT flush for the
 // whole block) is deferred to GOC-4136; documents are added individually.
-func (w *IndexWriter) AddDocuments(docs []Document) error {
+//
+// Returns the sequence number of the last document in the block, or 0 if the
+// block was empty.
+func (w *IndexWriter) AddDocuments(docs []Document) (int64, error) {
 	if err := w.ensureOpen(); err != nil {
-		return err
+		return 0, err
 	}
 	if len(docs) == 0 {
-		return nil
+		return 0, nil
 	}
 
 	// When index sorting is configured, parent field is required for document
@@ -4851,7 +5349,7 @@ func (w *IndexWriter) AddDocuments(docs []Document) error {
 	parentFieldName := w.config.ParentField()
 	indexSort := w.config.IndexSort()
 	if indexSort != nil && len(indexSort.Fields()) > 0 && parentFieldName == "" {
-		return fmt.Errorf(
+		return 0, fmt.Errorf(
 			"a parent field must be set in order to use document blocks with index sorting; see IndexWriterConfig#setParentField")
 	}
 
@@ -4861,7 +5359,7 @@ func (w *IndexWriter) AddDocuments(docs []Document) error {
 		for _, doc := range docs {
 			for _, f := range doc.GetFields() {
 				if fi, ok := f.(interface{ Name() string }); ok && fi.Name() == parentFieldName {
-					return fmt.Errorf(
+					return 0, fmt.Errorf(
 						"%q is a reserved field and should not be added to any document",
 						parentFieldName)
 				}
@@ -4869,6 +5367,7 @@ func (w *IndexWriter) AddDocuments(docs []Document) error {
 		}
 	}
 
+	var lastSeqNo int64
 	for i, doc := range docs {
 		d := doc
 		// Inject the synthetic parent marker into the last document of the block,
@@ -4877,11 +5376,13 @@ func (w *IndexWriter) AddDocuments(docs []Document) error {
 		if parentFieldName != "" && i == len(docs)-1 {
 			d = &parentFieldDoc{inner: doc, parent: parentMarkerField{name: parentFieldName}}
 		}
-		if err := w.AddDocument(d); err != nil {
-			return err
+		seqNo, err := w.AddDocument(d)
+		if err != nil {
+			return 0, err
 		}
+		lastSeqNo = seqNo
 	}
-	return nil
+	return lastSeqNo, nil
 }
 
 // UpdateDocValues updates the doc values for documents matching the given term.
@@ -4889,9 +5390,11 @@ func (w *IndexWriter) AddDocuments(docs []Document) error {
 //
 // Fields that participate in the index sort are not updatable via
 // UpdateDocValues (mirroring Lucene's IllegalArgumentException).
-func (w *IndexWriter) UpdateDocValues(term *Term, field string, value interface{}) error {
+//
+// Returns the sequence number assigned to this indexing operation.
+func (w *IndexWriter) UpdateDocValues(term *Term, field string, value interface{}) (int64, error) {
 	if err := w.ensureOpen(); err != nil {
-		return err
+		return 0, err
 	}
 
 	w.mu.Lock()
@@ -4901,7 +5404,7 @@ func (w *IndexWriter) UpdateDocValues(term *Term, field string, value interface{
 	if sort := w.config.IndexSort(); sort != nil {
 		for _, sf := range sort.Fields() {
 			if sf.Field() == field {
-				return fmt.Errorf(
+				return 0, fmt.Errorf(
 					"cannot update doc values for field %q because it participates in the index sort",
 					field)
 			}
@@ -4913,14 +5416,14 @@ func (w *IndexWriter) UpdateDocValues(term *Term, field string, value interface{
 	// "reset" update and is allowed for any existing DocValues field.
 	dvt := w.fieldDocValuesTypeLocked(field)
 	if !dvt.HasDocValues() {
-		return fmt.Errorf(
+		return 0, fmt.Errorf(
 			"cannot update doc values for field %q: field has no doc values",
 			field)
 	}
 	// Lucene only permits doc-values updates on fields that are doc-values-only:
 	// a field that is also indexed with postings cannot be updated in place.
 	if w.fieldHasPostingsLocked(field) {
-		return fmt.Errorf(
+		return 0, fmt.Errorf(
 			"Can't update [%s] doc values; the field [%s] must be doc values only field, but is also indexed with postings.",
 			dvt.String(), field)
 	}
@@ -4928,18 +5431,18 @@ func (w *IndexWriter) UpdateDocValues(term *Term, field string, value interface{
 		switch value.(type) {
 		case int64:
 			if dvt != DocValuesTypeNumeric {
-				return fmt.Errorf(
+				return 0, fmt.Errorf(
 					"cannot update doc values for field %q: expected numeric doc values but found %v",
 					field, dvt)
 			}
 		case []byte:
 			if dvt != DocValuesTypeBinary {
-				return fmt.Errorf(
+				return 0, fmt.Errorf(
 					"cannot update doc values for field %q: expected binary doc values but found %v",
 					field, dvt)
 			}
 		default:
-			return fmt.Errorf(
+			return 0, fmt.Errorf(
 				"cannot update doc values for field %q: unsupported value type %T",
 				field, value)
 		}
@@ -4950,7 +5453,88 @@ func (w *IndexWriter) UpdateDocValues(term *Term, field string, value interface{
 		field: field,
 		value: value,
 	})
-	return nil
+	return w.nextSequenceNumber(), nil
+}
+
+// SoftUpdateDocument updates a document by adding the new document and marking
+// the existing document(s) matching term as soft-deleted. The soft-delete
+// field is taken from the writer configuration (IndexWriterConfig.SoftDeletesField)
+// and its value is read from the supplied document.
+//
+// The document must contain the configured soft-deletes field with a non-nil
+// doc value. If no soft-deletes field is configured, or the document does not
+// carry it, an error is returned.
+func (w *IndexWriter) SoftUpdateDocument(term *Term, doc Document) (int64, error) {
+	if term == nil {
+		return 0, fmt.Errorf("term must not be nil for soft update")
+	}
+	softField := w.config.SoftDeletesField()
+	if softField == "" {
+		return 0, fmt.Errorf("soft deletes field is not configured")
+	}
+
+	var softValue interface{}
+	var softDVType DocValuesType
+	for _, fi := range doc.GetFields() {
+		if fn, ok := fi.(interface{ Name() string }); ok && fn.Name() == softField {
+			if dv, ok := fi.(interface{ DocValuesType() DocValuesType }); ok {
+				softDVType = dv.DocValuesType()
+				if softDVType == DocValuesTypeNone {
+					continue
+				}
+			}
+			if nv, ok := fi.(interface{ NumericValue() interface{} }); ok && nv.NumericValue() != nil {
+				switch v := nv.NumericValue().(type) {
+				case int64:
+					softValue = v
+				case int:
+					softValue = int64(v)
+				case float64:
+					softValue = int64(v)
+				}
+				break
+			}
+			if bv, ok := fi.(interface{ BinaryValue() []byte }); ok && bv.BinaryValue() != nil {
+				softValue = bv.BinaryValue()
+				break
+			}
+		}
+	}
+	if softDVType == DocValuesTypeSorted || softDVType == DocValuesTypeSortedSet || softDVType == DocValuesTypeSortedNumeric {
+		return 0, fmt.Errorf("soft-deletes field %q must be NUMERIC or BINARY, got %v", softField, softDVType)
+	}
+	if softValue == nil {
+		return 0, fmt.Errorf("document must contain soft-deletes field %q with a value", softField)
+	}
+
+	seqNo, err := w.UpdateDocument(term, doc)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := w.UpdateDocValues(term, softField, softValue); err != nil {
+		return 0, err
+	}
+	return seqNo, nil
+}
+
+// SoftUpdateDocuments atomically soft-updates a block of documents for the
+// given term. It returns the sequence number of the last document added.
+func (w *IndexWriter) SoftUpdateDocuments(term *Term, docs []Document) (int64, error) {
+	if term == nil {
+		return 0, fmt.Errorf("term must not be nil for soft update")
+	}
+	if len(docs) == 0 {
+		return 0, fmt.Errorf("no documents to soft-update")
+	}
+	var lastSeqNo int64
+	for _, doc := range docs {
+		seqNo, err := w.SoftUpdateDocument(term, doc)
+		if err != nil {
+			return 0, err
+		}
+		lastSeqNo = seqNo
+	}
+	return lastSeqNo, nil
 }
 
 // validateSortFieldTypes checks that each DocValues field in the document whose

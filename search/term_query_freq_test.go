@@ -65,7 +65,7 @@ func TestTermQuery_FreqVariesWithTf(t *testing.T) {
 		}
 		doc := document.NewDocument()
 		doc.Add(field)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}

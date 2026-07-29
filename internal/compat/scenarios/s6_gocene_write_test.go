@@ -67,7 +67,7 @@ func TestS6_GoceneWriteLeg(t *testing.T) {
 
 			for i := 0; i < 12; i++ {
 				doc := s6BuildDoc(i, seed)
-				if err := iw.AddDocument(doc); err != nil {
+				if _, err := iw.AddDocument(doc); err != nil {
 					t.Fatalf("AddDocument: %v", err)
 				}
 			}

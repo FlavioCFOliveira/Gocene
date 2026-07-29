@@ -158,7 +158,7 @@ func buildMultiThreadTermVectorsIndex(t *testing.T) store.Directory {
 			t.Fatalf("NewField(%d): %v", i, ferr)
 		}
 		doc.Add(fld)
-		if aerr := w.AddDocument(doc); aerr != nil {
+		if _, aerr := w.AddDocument(doc); aerr != nil {
 			t.Fatalf("AddDocument(%d): %v", i, aerr)
 		}
 	}

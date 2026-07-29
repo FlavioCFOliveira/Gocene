@@ -44,7 +44,7 @@ func TestDocCount_Simple(t *testing.T) {
 			t.Fatalf("NewStringField: %v", err)
 		}
 		doc.Add(f)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument[%d]: %v", i, err)
 		}
 	}
@@ -67,7 +67,7 @@ func TestDocCount_Simple(t *testing.T) {
 
 	// Delete some documents by unique term and verify count drops.
 	for i := 0; i < 5; i++ {
-		if err := writer.DeleteDocuments(index.NewTerm("f", "doc")); err != nil {
+		if _, err := writer.DeleteDocuments(index.NewTerm("f", "doc")); err != nil {
 			t.Fatalf("DeleteDocuments[%d]: %v", i, err)
 		}
 	}
@@ -125,7 +125,7 @@ func TestDocCount_MultiSegment(t *testing.T) {
 				t.Fatalf("NewStringField: %v", err)
 			}
 			doc.Add(f)
-			if err := writer.AddDocument(doc); err != nil {
+			if _, err := writer.AddDocument(doc); err != nil {
 				t.Fatalf("AddDocument[%d]: %v", batch*20+i, err)
 			}
 		}

@@ -284,4 +284,22 @@ type LeafReaderInterface interface {
 	GetCoreCacheKey() interface{}
 	GetTermVectors(docID int) (Fields, error)
 	Terms(field string) (Terms, error)
+	Postings(term Term) (PostingsEnum, error)
+	PostingsWithFreqPositions(term Term, flags int) (PostingsEnum, error)
+	GetNumericDocValues(field string) (NumericDocValues, error)
+	GetBinaryDocValues(field string) (BinaryDocValues, error)
+	GetSortedDocValues(field string) (SortedDocValues, error)
+	GetSortedNumericDocValues(field string) (SortedNumericDocValues, error)
+	GetSortedSetDocValues(field string) (SortedSetDocValues, error)
+	GetNormValues(field string) (NumericDocValues, error)
+	GetPointValues(field string) (PointValues, error)
+	GetFloatVectorValues(field string) (FloatVectorValues, error)
+	GetByteVectorValues(field string) (ByteVectorValues, error)
+	GetDocValuesSkipper(field string) (DocValuesSkipper, error)
+	CheckIntegrity() error
+	GetMetaData() *IndexReaderMetaData
+	GetSegmentInfo() *SegmentInfo
+	StoredFields() (StoredFields, error)
+	TermVectors() (TermVectors, error)
+	SearchNearestVectors(field string, target []float32, k int, acceptDocs util.Bits) (TopDocs, error)
 }

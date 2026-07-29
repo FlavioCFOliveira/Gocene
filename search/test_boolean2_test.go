@@ -51,7 +51,7 @@ func setupBoolean2Index(t *testing.T) (index.IndexReaderInterface, *IndexSearche
 			t.Fatalf("NewTextField(%q): %v", text, fErr)
 		}
 		doc.Add(f)
-		if addErr := w.AddDocument(doc); addErr != nil {
+		if _, addErr := w.AddDocument(doc); addErr != nil {
 			t.Fatalf("AddDocument: %v", addErr)
 		}
 	}

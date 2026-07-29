@@ -62,7 +62,7 @@ func TestDVUpdateBackwardsCompatibility(t *testing.T) {
 		// supported by the Gocene doc values consumer. Only NumericDocValues
 		// and BinaryDocValues fields are tested here.
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
@@ -138,7 +138,7 @@ func TestDocValuesRoundtrip(t *testing.T) {
 	}
 	doc.Add(sf)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writer.Commit(); err != nil {

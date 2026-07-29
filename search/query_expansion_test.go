@@ -38,7 +38,7 @@ func TestQueryExpansion_TermRewrite(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "query rewrite test", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -82,7 +82,7 @@ func TestQueryExpansion_BooleanRewrite(t *testing.T) {
 		doc := document.NewDocument()
 		idField, _ := document.NewStringField("id", string(rune('0'+i%5)), true)
 		doc.Add(idField)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -126,7 +126,7 @@ func TestQueryExpansion_PhraseRewrite(t *testing.T) {
 		doc := document.NewDocument()
 		idField, _ := document.NewStringField("id", string(rune('0'+i%5)), true)
 		doc.Add(idField)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}

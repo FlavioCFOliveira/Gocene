@@ -46,7 +46,7 @@ func TestBoolean2Scoring(t *testing.T) {
 			t.Fatalf("Failed to create TextField: %v", err)
 		}
 		doc.Add(textField)
-		err = writer.AddDocument(doc)
+		_, err = writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}

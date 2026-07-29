@@ -37,7 +37,7 @@ func explainTestIndex(t *testing.T, values []string) (*search.IndexSearcher, *in
 			t.Fatalf("NewTextField: %v", err)
 		}
 		doc.Add(field)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

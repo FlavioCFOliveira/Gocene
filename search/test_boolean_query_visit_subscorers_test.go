@@ -47,7 +47,7 @@ func visitSubscorersIndex(t *testing.T) (*search.IndexSearcher, func()) {
 		}
 		doc.Add(f1)
 		doc.Add(f2)
-		if addErr := w.AddDocument(doc); addErr != nil {
+		if _, addErr := w.AddDocument(doc); addErr != nil {
 			t.Fatalf("AddDocument: %v", addErr)
 		}
 	}

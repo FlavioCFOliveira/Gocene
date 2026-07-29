@@ -29,7 +29,7 @@ func addRollbackPKDoc(t *testing.T, w *index.IndexWriter, pk string) {
 		t.Fatalf("NewStringField(pk): %v", err)
 	}
 	doc.Add(sf)
-	if err := w.AddDocument(doc); err != nil {
+	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument(pk=%s): %v", pk, err)
 	}
 }
@@ -77,7 +77,7 @@ func TestRollbackIntegrityWithBufferFlush(t *testing.T) {
 			t.Fatalf("NewStringField(text): %v", err)
 		}
 		doc.Add(text)
-		if err := w.UpdateDocument(index.NewTerm("pk", value), doc); err != nil {
+		if _, err := w.UpdateDocument(index.NewTerm("pk", value), doc); err != nil {
 			t.Fatalf("UpdateDocument(pk=%s): %v", value, err)
 		}
 	}

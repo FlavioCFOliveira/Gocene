@@ -113,7 +113,7 @@ func TestCrashCorruptsIndexing(t *testing.T) {
 		t.Fatalf("NewStringField: %v", err)
 	}
 	doc.Add(sf)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -130,7 +130,7 @@ func TestCrashCorruptsIndexing(t *testing.T) {
 		t.Fatalf("NewStringField: %v", err)
 	}
 	doc2.Add(sf2)
-	if err := writer.AddDocument(doc2); err != nil {
+	if _, err := writer.AddDocument(doc2); err != nil {
 		t.Fatalf("AddDocument (pre-crash): %v", err)
 	}
 

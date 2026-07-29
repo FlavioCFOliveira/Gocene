@@ -39,7 +39,7 @@ func TestIndexWriterStress_SingleThread(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "stress test content", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -91,7 +91,7 @@ func TestIndexWriterStress_ConcurrentWrites(t *testing.T) {
 				contentField, _ := document.NewTextField("content", "concurrent content", true)
 				doc.Add(contentField)
 
-				if err := writer.AddDocument(doc); err != nil {
+				if _, err := writer.AddDocument(doc); err != nil {
 					t.Errorf("failed to add document: %v", err)
 				}
 			}
@@ -140,7 +140,7 @@ func TestIndexWriterStress_RapidCommits(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "rapid commit test", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 
@@ -190,7 +190,7 @@ func TestIndexWriterStress_LargeDocuments(t *testing.T) {
 		contentField, _ := document.NewTextField("content", largeContent, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -236,7 +236,7 @@ func TestIndexWriterStress_ManyFields(t *testing.T) {
 			doc.Add(field)
 		}
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -280,7 +280,7 @@ func TestIndexWriterStress_UpdateOperations(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "initial content", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -300,7 +300,7 @@ func TestIndexWriterStress_UpdateOperations(t *testing.T) {
 
 		// Use update document
 		term := index.NewTerm("id", string(rune('0'+i%10)))
-		if err := writer.UpdateDocument(term, doc); err != nil {
+		if _, err := writer.UpdateDocument(term, doc); err != nil {
 			t.Logf("update document may not be fully implemented: %v", err)
 			break
 		}

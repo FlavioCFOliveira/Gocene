@@ -276,7 +276,7 @@ func TestIndexWriterAddDocument(t *testing.T) {
 		defer writer.Close()
 
 		doc := &testDocument{fields: []interface{}{}}
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Errorf("AddDocument() error = %v", err)
 		}
@@ -292,7 +292,7 @@ func TestIndexWriterAddDocument(t *testing.T) {
 
 		for i := 0; i < 5; i++ {
 			doc := &testDocument{fields: []interface{}{}}
-			err := writer.AddDocument(doc)
+			_, err := writer.AddDocument(doc)
 			if err != nil {
 				t.Errorf("AddDocument() iteration %d error = %v", i, err)
 			}
@@ -313,7 +313,7 @@ func TestIndexWriterUpdateDocument(t *testing.T) {
 		term := index.NewTerm("id", "1")
 		doc := &testDocument{fields: []interface{}{}}
 
-		err := writer.UpdateDocument(term, doc)
+		_, err := writer.UpdateDocument(term, doc)
 		if err != nil {
 			t.Errorf("UpdateDocument() error = %v", err)
 		}
@@ -331,7 +331,7 @@ func TestIndexWriterDeleteDocuments(t *testing.T) {
 		defer writer.Close()
 
 		term := index.NewTerm("id", "1")
-		err := writer.DeleteDocuments(term)
+		_, err := writer.DeleteDocuments(term)
 		if err != nil {
 			t.Errorf("DeleteDocuments() error = %v", err)
 		}
@@ -353,7 +353,7 @@ func TestIndexWriterWorkflow(t *testing.T) {
 		// Add documents
 		for i := 0; i < 3; i++ {
 			doc := &testDocument{fields: []interface{}{}}
-			if err := writer.AddDocument(doc); err != nil {
+			if _, err := writer.AddDocument(doc); err != nil {
 				t.Errorf("AddDocument() error = %v", err)
 			}
 		}

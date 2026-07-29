@@ -43,7 +43,7 @@ func transactionBuildIndex(t *testing.T, dir store.Directory) {
 			t.Fatalf("NewStringField: %v", err)
 		}
 		doc.Add(f)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %d: %v", id, err)
 		}
 		if id%10 == 0 {

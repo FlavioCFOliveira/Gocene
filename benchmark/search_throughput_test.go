@@ -35,7 +35,7 @@ func BenchmarkSearchThroughput(b *testing.B) {
 			b.Fatal(err)
 		}
 		doc.Add(field)
-		if err := iw.AddDocument(doc); err != nil {
+		if _, err := iw.AddDocument(doc); err != nil {
 			b.Fatal(err)
 		}
 	}

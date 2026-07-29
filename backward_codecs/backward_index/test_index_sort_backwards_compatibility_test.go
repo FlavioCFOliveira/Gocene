@@ -47,7 +47,7 @@ func TestIndexSortBackwardsCompatibility(t *testing.T) {
 		}
 		doc.Add(ndv)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
@@ -111,7 +111,7 @@ func TestIndexSortRoundtrip(t *testing.T) {
 		}
 		doc.Add(ndv)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}

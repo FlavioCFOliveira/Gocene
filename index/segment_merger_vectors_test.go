@@ -59,7 +59,7 @@ func TestSegmentMerger_VectorsRoundTrip(t *testing.T) {
 			t.Fatalf("NewKnnFloatVectorField: %v", err)
 		}
 		doc.Add(f)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
@@ -253,7 +253,7 @@ func TestForceMerge_FloatVectorsSparseDeletedRoundTrip(t *testing.T) {
 			}
 			doc.Add(f)
 		}
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %q: %v", id, err)
 		}
 	}
@@ -275,7 +275,7 @@ func TestForceMerge_FloatVectorsSparseDeletedRoundTrip(t *testing.T) {
 	}
 
 	// Delete id 2 BEFORE merging: ForceMerge must compact it out.
-	if err := w.DeleteDocuments(index.NewTerm("id", "2")); err != nil {
+	if _, err := w.DeleteDocuments(index.NewTerm("id", "2")); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 
@@ -440,7 +440,7 @@ func TestForceMerge_ByteVectorsSparseDeletedRoundTrip(t *testing.T) {
 			}
 			doc.Add(f)
 		}
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %q: %v", id, err)
 		}
 	}
@@ -459,7 +459,7 @@ func TestForceMerge_ByteVectorsSparseDeletedRoundTrip(t *testing.T) {
 		t.Fatalf("Commit seg2: %v", err)
 	}
 
-	if err := w.DeleteDocuments(index.NewTerm("id", "2")); err != nil {
+	if _, err := w.DeleteDocuments(index.NewTerm("id", "2")); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 	if err := w.ForceMerge(1); err != nil {

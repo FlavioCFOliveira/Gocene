@@ -182,7 +182,7 @@ func TestPerFieldPostingsFormat2_MergeUnusedPerFieldCodec(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("content", "aaa", false)
 		doc.Add(f)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument batch1: %v", err)
 		}
 	}
@@ -197,7 +197,7 @@ func TestPerFieldPostingsFormat2_MergeUnusedPerFieldCodec(t *testing.T) {
 		doc.Add(f1)
 		f2, _ := document.NewStringField("id", string(rune('0'+i)), true)
 		doc.Add(f2)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument batch2: %v", err)
 		}
 	}
@@ -210,7 +210,7 @@ func TestPerFieldPostingsFormat2_MergeUnusedPerFieldCodec(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("content", "bbb", false)
 		doc.Add(f)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument batch3: %v", err)
 		}
 	}
@@ -318,7 +318,7 @@ func TestPerFieldPostingsFormat2_ChangeCodecAndMerge(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("content", "aaa", false)
 		doc.Add(f)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument phase1: %v", err)
 		}
 	}
@@ -331,7 +331,7 @@ func TestPerFieldPostingsFormat2_ChangeCodecAndMerge(t *testing.T) {
 		doc.Add(f1)
 		f2, _ := document.NewStringField("id", string(rune('0'+i)), true)
 		doc.Add(f2)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument phase1.2: %v", err)
 		}
 	}
@@ -352,7 +352,7 @@ func TestPerFieldPostingsFormat2_ChangeCodecAndMerge(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("content", "bbb", false)
 		doc.Add(f)
-		if err := writer2.AddDocument(doc); err != nil {
+		if _, err := writer2.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument phase2: %v", err)
 		}
 	}
@@ -410,7 +410,7 @@ func TestPerFieldPostingsFormat2_StressPerFieldCodec(t *testing.T) {
 				f, _ := document.NewTextField(fn, "value", false)
 				doc.Add(f)
 			}
-			if err := writer.AddDocument(doc); err != nil {
+			if _, err := writer.AddDocument(doc); err != nil {
 				t.Fatalf("AddDocument round %d doc %d: %v", round, j, err)
 			}
 		}
@@ -461,7 +461,7 @@ func TestPerFieldPostingsFormat2_SameCodecDifferentInstance(t *testing.T) {
 		doc.Add(dateF)
 		contentF, _ := document.NewTextField("content", "hello", false)
 		doc.Add(contentF)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
@@ -507,7 +507,7 @@ func TestPerFieldPostingsFormat2_SameCodecDifferentParams(t *testing.T) {
 		doc.Add(idF)
 		dateF, _ := document.NewStringField("date", string(rune('0'+(i%100))), false)
 		doc.Add(dateF)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
@@ -563,7 +563,7 @@ func TestPerFieldPostingsFormat2_MergeCalledOnTwoFormats(t *testing.T) {
 	doc1.Add(f3a)
 	f4a, _ := document.NewStringField("f4", "val4", false)
 	doc1.Add(f4a)
-	if err := writer.AddDocument(doc1); err != nil {
+	if _, err := writer.AddDocument(doc1); err != nil {
 		t.Fatalf("AddDocument 1: %v", err)
 	}
 	commitAndCheck(t, writer, dir, 1)
@@ -578,7 +578,7 @@ func TestPerFieldPostingsFormat2_MergeCalledOnTwoFormats(t *testing.T) {
 	doc2.Add(f3b)
 	f4b, _ := document.NewStringField("f4", "val8", false)
 	doc2.Add(f4b)
-	if err := writer.AddDocument(doc2); err != nil {
+	if _, err := writer.AddDocument(doc2); err != nil {
 		t.Fatalf("AddDocument 2: %v", err)
 	}
 	commitAndCheck(t, writer, dir, 2)

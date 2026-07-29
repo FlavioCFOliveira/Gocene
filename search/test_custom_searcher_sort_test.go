@@ -112,7 +112,7 @@ func buildCustomSearcherSortIndex(t *testing.T) (*index.DirectoryReader, store.D
 			t.Fatalf("doc %d mandant: %v", i, merr)
 		}
 		doc.Add(mf)
-		if aerr := w.AddDocument(doc); aerr != nil {
+		if _, aerr := w.AddDocument(doc); aerr != nil {
 			t.Fatalf("doc %d AddDocument: %v", i, aerr)
 		}
 	}

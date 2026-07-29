@@ -302,7 +302,7 @@ func TestBlockJoin_SimpleFilter(t *testing.T) {
 	addBlock(t, w, makeJob(t, "ruby", 2005), makeJob(t, "java", 2006), makeResume(t, "Frank", "United States"))
 
 	// Add a skill-less parent (a parent with no job children).
-	if err := w.AddDocument(makeResume(t, "Skillless", "United Kingdom")); err != nil {
+	if _, err := w.AddDocument(makeResume(t, "Skillless", "United Kingdom")); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 
@@ -493,16 +493,16 @@ func TestBlockJoin_Random(t *testing.T) {
 				"childVal":  cVal,
 				"blockID":   parentID,
 			})
-			if err := plainW.AddDocument(plainChild); err != nil {
+			if _, err := plainW.AddDocument(plainChild); err != nil {
 				t.Fatalf("plain AddDocument: %v", err)
 			}
 		}
 
 		joinBlock = append(joinBlock, joinParent)
-		if err := joinW.AddDocuments(joinBlock); err != nil {
+		if _, err := joinW.AddDocuments(joinBlock); err != nil {
 			t.Fatalf("join AddDocuments: %v", err)
 		}
-		if err := plainW.AddDocument(plainParent); err != nil {
+		if _, err := plainW.AddDocument(plainParent); err != nil {
 			t.Fatalf("plain AddDocument: %v", err)
 		}
 
@@ -516,10 +516,10 @@ func TestBlockJoin_Random(t *testing.T) {
 	if len(deleteIDs) > 0 {
 		for _, bid := range deleteIDs {
 			delQ := search.NewTermQuery(index.NewTerm("blockID", bid))
-			if err := joinW.DeleteDocumentsQuery(delQ); err != nil {
+			if _, err := joinW.DeleteDocumentsQuery(delQ); err != nil {
 				t.Fatalf("joinW.DeleteDocumentsQuery: %v", err)
 			}
-			if err := plainW.DeleteDocumentsQuery(delQ); err != nil {
+			if _, err := plainW.DeleteDocumentsQuery(delQ); err != nil {
 				t.Fatalf("plainW.DeleteDocumentsQuery: %v", err)
 			}
 		}
@@ -779,7 +779,7 @@ func TestBlockJoin_AdvanceSingleDeletedParentNoChild(t *testing.T) {
 	)
 	// Childless parent block (parent=2, isparent=yes) — this one is deleted.
 	addBlock(t, w, newDoc(t, map[string]string{"parent": "2", "isparent": "yes"}))
-	if err := w.DeleteDocuments(index.NewTerm("parent", "2")); err != nil {
+	if _, err := w.DeleteDocuments(index.NewTerm("parent", "2")); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 	// Live block re-adding parent=2 with a child (child=2 + parent=2,isparent=yes).
@@ -885,7 +885,7 @@ func TestBlockJoin_ParentScoringBug(t *testing.T) {
 	addBlock(t, w, makeJob(t, "java", 2007), makeJob(t, "python", 2010), makeResume(t, "Lisa", "United Kingdom"))
 	addBlock(t, w, makeJob(t, "java", 2006), makeJob(t, "ruby", 2005), makeResume(t, "Frank", "United States"))
 	// Delete the first child of every parent.
-	if err := w.DeleteDocuments(index.NewTerm("skill", "java")); err != nil {
+	if _, err := w.DeleteDocuments(index.NewTerm("skill", "java")); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 	_, s := commitAndOpen(t, dir, w)
@@ -916,7 +916,7 @@ func TestBlockJoin_ToChildBlockJoinQueryExplain(t *testing.T) {
 	dir, w := newBlockWriter(t)
 	addBlock(t, w, makeJob(t, "java", 2007), makeJob(t, "python", 2010), makeResume(t, "Lisa", "United Kingdom"))
 	addBlock(t, w, makeJob(t, "java", 2006), makeJob(t, "ruby", 2005), makeResume(t, "Frank", "United States"))
-	if err := w.DeleteDocuments(index.NewTerm("skill", "java")); err != nil {
+	if _, err := w.DeleteDocuments(index.NewTerm("skill", "java")); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 	_, s := commitAndOpen(t, dir, w)

@@ -122,7 +122,7 @@ func TestSameTokenSamePosition(t *testing.T) {
 	dir, w := newSameTokenWriter(t)
 	defer dir.Close()
 
-	if err := w.AddDocument(sameTokenDoc(t)); err != nil {
+	if _, err := w.AddDocument(sameTokenDoc(t)); err != nil {
 		t.Fatalf("AddDocument failed: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -138,7 +138,7 @@ func TestSameTokenSamePosition_MoreDocs(t *testing.T) {
 	defer dir.Close()
 
 	for i := 0; i < 100; i++ {
-		if err := w.AddDocument(sameTokenDoc(t)); err != nil {
+		if _, err := w.AddDocument(sameTokenDoc(t)); err != nil {
 			t.Fatalf("AddDocument %d failed: %v", i, err)
 		}
 	}

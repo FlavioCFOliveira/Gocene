@@ -68,7 +68,7 @@ func (ix *nearestIndex) addPoint(lat, lon float64, id string) {
 		ix.t.Fatalf("NewStringField: %v", err)
 	}
 	doc.Add(sf.Field)
-	if err := ix.w.AddDocument(doc); err != nil {
+	if _, err := ix.w.AddDocument(doc); err != nil {
 		ix.t.Fatalf("AddDocument: %v", err)
 	}
 }
@@ -76,7 +76,7 @@ func (ix *nearestIndex) addPoint(lat, lon float64, id string) {
 // deleteByID deletes every document whose "id" term equals id.
 func (ix *nearestIndex) deleteByID(id string) {
 	ix.t.Helper()
-	if err := ix.w.DeleteDocuments(index.NewTerm("id", id)); err != nil {
+	if _, err := ix.w.DeleteDocuments(index.NewTerm("id", id)); err != nil {
 		ix.t.Fatalf("DeleteDocuments: %v", err)
 	}
 }

@@ -34,7 +34,7 @@ func TestTermScorer_Basic(t *testing.T) {
 		doc := document.NewDocument()
 		field, _ := document.NewTextField("field", value, true)
 		doc.Add(field)
-		err = writer.AddDocument(doc)
+		_, err = writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -112,7 +112,7 @@ func TestTermScorer_Next(t *testing.T) {
 		doc := document.NewDocument()
 		field, _ := document.NewTextField("field", value, true)
 		doc.Add(field)
-		err = writer.AddDocument(doc)
+		_, err = writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -174,7 +174,7 @@ func TestTermScorer_Advance(t *testing.T) {
 		doc := document.NewDocument()
 		field, _ := document.NewTextField("field", value, true)
 		doc.Add(field)
-		err = writer.AddDocument(doc)
+		_, err = writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}

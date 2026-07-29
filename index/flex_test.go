@@ -64,7 +64,7 @@ func TestFlex_NonFlex(t *testing.T) {
 				doc.Add(f)
 			}
 			for i := 0; i < docCount; i++ {
-				if err := writer.AddDocument(doc); err != nil {
+				if _, err := writer.AddDocument(doc); err != nil {
 					t.Fatalf("Failed to add document %d: %v", i, err)
 				}
 			}
@@ -149,7 +149,7 @@ func TestFlex_TermOrd(t *testing.T) {
 	}
 	doc.Add(f)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("Failed to add document: %v", err)
 	}
 	if err := writer.ForceMerge(1); err != nil {

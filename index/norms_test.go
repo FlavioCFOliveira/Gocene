@@ -143,7 +143,7 @@ func TestNorms_EmptyValueVsNoValue(t *testing.T) {
 
 	// Add document with no "foo" field
 	doc1 := document.NewDocument()
-	err = writer.AddDocument(doc1)
+	_, err = writer.AddDocument(doc1)
 	if err != nil {
 		t.Fatalf("Failed to add document 1: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestNorms_EmptyValueVsNoValue(t *testing.T) {
 		t.Fatalf("Failed to create text field: %v", err)
 	}
 	doc2.Add(emptyField)
-	err = writer.AddDocument(doc2)
+	_, err = writer.AddDocument(doc2)
 	if err != nil {
 		t.Fatalf("Failed to add document 2: %v", err)
 	}
@@ -251,7 +251,7 @@ func TestNorms_CustomSimilarity(t *testing.T) {
 			t.Fatalf("Failed to create field: %v", err)
 		}
 		doc.Add(field)
-		err = writer.AddDocument(doc)
+		_, err = writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document %d: %v", tc.docID, err)
 		}
@@ -297,7 +297,7 @@ func TestNorms_OmitNorms(t *testing.T) {
 		t.Fatalf("Failed to create field: %v", err)
 	}
 	doc1.Add(field1)
-	err = writer.AddDocument(doc1)
+	_, err = writer.AddDocument(doc1)
 	if err != nil {
 		t.Fatalf("Failed to add document 1: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestNorms_OmitNorms(t *testing.T) {
 		t.Fatalf("Failed to create field: %v", err)
 	}
 	doc2.Add(field2)
-	err = writer.AddDocument(doc2)
+	_, err = writer.AddDocument(doc2)
 	if err != nil {
 		t.Fatalf("Failed to add document 2: %v", err)
 	}
@@ -359,7 +359,7 @@ func TestNorms_MergeBehavior(t *testing.T) {
 			t.Fatalf("Failed to create field: %v", err)
 		}
 		doc.Add(field)
-		err = writer.AddDocument(doc)
+		_, err = writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document %d: %v", i, err)
 		}
@@ -447,7 +447,7 @@ func buildIndexWithByteNorms(t *testing.T, dir store.Directory) {
 		}
 		doc.Add(field)
 
-		err = writer.AddDocument(doc)
+		_, err = writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document %d: %v", i, err)
 		}

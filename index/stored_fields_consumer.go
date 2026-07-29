@@ -429,6 +429,7 @@ func (storedValueFieldType) GetDocValuesType() DocValuesType { return DocValuesT
 func (storedValueFieldType) StoreTermVectors() bool          { return false }
 func (storedValueFieldType) StoreTermVectorPositions() bool  { return false }
 func (storedValueFieldType) StoreTermVectorOffsets() bool    { return false }
+func (storedValueFieldType) StoreTermVectorPayloads() bool   { return false }
 
 // Compile-time assertion that the adapter satisfies IndexableField.
 var _ IndexableField = (*storedValueField)(nil)

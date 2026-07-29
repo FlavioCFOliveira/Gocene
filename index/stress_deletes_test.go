@@ -63,7 +63,7 @@ func TestStressDeletes(t *testing.T) {
 					doc := document.NewDocument()
 					f, _ := document.NewStringField("id", strconv.Itoa(id), false)
 					doc.Add(f)
-					if err := w.AddDocument(doc); err != nil {
+					if _, err := w.AddDocument(doc); err != nil {
 						locks[id].Unlock()
 						t.Errorf("AddDocument: %v", err)
 						return
@@ -75,13 +75,13 @@ func TestStressDeletes(t *testing.T) {
 					term := index.NewTerm("id", strconv.Itoa(id))
 					byTerm := deleteMode == 0 || (deleteMode == 2 && r.Intn(2) == 0)
 					if byTerm {
-						if err := w.DeleteDocuments(term); err != nil {
+						if _, err := w.DeleteDocuments(term); err != nil {
 							locks[id].Unlock()
 							t.Errorf("DeleteDocuments: %v", err)
 							return
 						}
 					} else {
-						if err := w.DeleteDocumentsQuery(search.NewTermQuery(term)); err != nil {
+						if _, err := w.DeleteDocumentsQuery(search.NewTermQuery(term)); err != nil {
 							locks[id].Unlock()
 							t.Errorf("DeleteDocumentsQuery: %v", err)
 							return

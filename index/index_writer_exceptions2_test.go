@@ -33,7 +33,7 @@ func TestIndexWriterExceptions2_Basics(t *testing.T) {
 	for i := 0; i < numDocs; i++ {
 		doc := newExceptions2Doc(t, i)
 
-		addErr := writer.AddDocument(doc)
+		_, addErr := writer.AddDocument(doc)
 		if addErr != nil {
 			var isAce *index.AlreadyClosedException
 			if errors.As(addErr, &isAce) {
@@ -47,7 +47,7 @@ func TestIndexWriterExceptions2_Basics(t *testing.T) {
 				if err != nil {
 					t.Fatalf("reopen writer at doc %d: %v", i, err)
 				}
-				if err := writer.AddDocument(doc); err != nil {
+				if _, err := writer.AddDocument(doc); err != nil {
 					t.Fatalf("re-add doc %d: %v", i, err)
 				}
 			} else {
@@ -55,7 +55,7 @@ func TestIndexWriterExceptions2_Basics(t *testing.T) {
 			}
 		} else {
 			if i%4 == 0 {
-				_ = writer.DeleteDocuments(index.NewTerm("id", strconv.Itoa(i)))
+				_, _ = writer.DeleteDocuments(index.NewTerm("id", strconv.Itoa(i)))
 			}
 		}
 

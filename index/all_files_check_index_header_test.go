@@ -51,7 +51,7 @@ func TestAllFilesCheckIndexHeader(t *testing.T) {
 			t.Fatalf("Failed to create text field: %v", err)
 		}
 		doc.Add(field)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document %d: %v", i, err)
 		}
 		if i%7 == 0 {

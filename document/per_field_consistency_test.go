@@ -105,7 +105,7 @@ func TestPerFieldConsistency_IndexedTypesRoundTrip(t *testing.T) {
 	doc.Add(sf)
 	doc.Add(ndv)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -151,14 +151,14 @@ func TestPerFieldConsistency_DocWithMissingSchemaOptionsThrowsError(t *testing.T
 		ndv, _ := NewNumericDocValuesField("x", 1)
 		doc1 := NewDocument()
 		doc1.Add(ndv)
-		if err := writer.AddDocument(doc1); err != nil {
+		if _, err := writer.AddDocument(doc1); err != nil {
 			t.Fatalf("AddDocument 1: %v", err)
 		}
 
 		sdv, _ := NewSortedDocValuesField("x", []byte("val"))
 		doc2 := NewDocument()
 		doc2.Add(sdv)
-		err := writer.AddDocument(doc2)
+		_, err := writer.AddDocument(doc2)
 		if err == nil {
 			t.Error("expected error for conflicting doc values types, got nil")
 		}
@@ -217,7 +217,7 @@ func TestPerFieldConsistency_MultipleFieldsSameName(t *testing.T) {
 	doc.Add(sf1)
 	doc.Add(sf2)
 
-	err = writer.AddDocument(doc)
+	_, err = writer.AddDocument(doc)
 	if err != nil {
 		t.Fatalf("AddDocument with compatible same-name fields: %v", err)
 	}

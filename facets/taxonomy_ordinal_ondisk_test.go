@@ -54,7 +54,7 @@ func openOrdinalIndex(t *testing.T, field string, perDoc [][]int64) (*index.Dire
 		if err != nil {
 			t.Fatalf("NewSortedNumericDocValuesField: %v", err)
 		}
-		if err := writer.AddDocument(&ordTestDoc{fields: []interface{}{f}}); err != nil {
+		if _, err := writer.AddDocument(&ordTestDoc{fields: []interface{}{f}}); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

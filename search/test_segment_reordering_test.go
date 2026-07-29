@@ -122,7 +122,7 @@ func TestSegmentReordering_SingleValuedNumericSorts(t *testing.T) {
 	for i := 0; i < 500; i++ {
 		doc := document.NewDocument()
 		addSegmentReorderingPointAndSkipper(t, doc, i)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 		if i%125 == 0 {
@@ -183,7 +183,7 @@ func TestSegmentReordering_MultiValuedSegmentSorts(t *testing.T) {
 		fp2, err := document.NewFloatField("float_points", float32(i)*1.5+1, false)
 		add(doc, fp2, err)
 
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 		if i%250 == 0 {
@@ -216,7 +216,7 @@ func TestSegmentReordering_NumericSegmentSortsWithMissingValues(t *testing.T) {
 		if i != 200 {
 			addSegmentReorderingPointAndSkipper(t, doc, i)
 		}
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 		if i%125 == 0 {

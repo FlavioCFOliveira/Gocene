@@ -814,7 +814,7 @@ func (w *IndexWriter) TryUpdateDocValue(reader IndexReaderInterface, docID int, 
 		value:       value,
 	})
 
-	return w.getNextSequenceNumber(), nil
+	return w.nextSequenceNumber(), nil
 }
 
 // validateDVValueType checks that value is compatible with the field's

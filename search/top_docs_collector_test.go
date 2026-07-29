@@ -47,7 +47,7 @@ func setupTestIndexN(t *testing.T, numDocs int) (store.Directory, index.IndexRea
 	// Add empty documents (tests use MatchAllDocsQuery)
 	for i := 0; i < numDocs; i++ {
 		doc := document.NewDocument()
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -345,7 +345,7 @@ func TestTopDocsCollector_MultiSegment(t *testing.T) {
 	// Add docs to first segment
 	for i := 0; i < 10; i++ {
 		doc := document.NewDocument()
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -355,7 +355,7 @@ func TestTopDocsCollector_MultiSegment(t *testing.T) {
 	// Add docs to second segment
 	for i := 0; i < 20; i++ {
 		doc := document.NewDocument()
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}

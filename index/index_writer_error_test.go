@@ -45,7 +45,7 @@ func TestIndexWriter_DiskFull(t *testing.T) {
 
 		doc := &testDocument{fields: []interface{}{}}
 
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Logf("AddDocument() returned error: %v", err)
 		}
@@ -69,7 +69,7 @@ func TestIndexWriter_GeneralErrors(t *testing.T) {
 		writer.Close()
 
 		doc := &testDocument{fields: []interface{}{}}
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 
 		if err == nil {
 			t.Fatal("AddDocument on closed writer should return error")
@@ -115,7 +115,7 @@ func TestIndexWriter_ResourceExhaustion(t *testing.T) {
 
 		// Inject a random IOException on every file-open operation for the next
 		// AddDocument call. This simulates transient resource exhaustion.
-		if err := writer.AddDocument(&testDocument{fields: []interface{}{}}); err != nil {
+		if _, err := writer.AddDocument(&testDocument{fields: []interface{}{}}); err != nil {
 			t.Fatalf("AddDocument before injection: %v", err)
 		}
 
@@ -139,7 +139,7 @@ func TestIndexWriter_ResourceExhaustion(t *testing.T) {
 		config := index.NewIndexWriterConfig(createTestAnalyzer())
 		writer, _ := index.NewIndexWriter(dir, config)
 
-		if err := writer.AddDocument(&testDocument{fields: []interface{}{}}); err != nil {
+		if _, err := writer.AddDocument(&testDocument{fields: []interface{}{}}); err != nil {
 			t.Fatalf("AddDocument before injection: %v", err)
 		}
 
@@ -155,7 +155,7 @@ func TestIndexWriter_ResourceExhaustion(t *testing.T) {
 		// After the failure the writer may be closed by the tragic-error path.
 		// If it is still open, a subsequent operation must succeed.
 		if !writer.IsClosed() {
-			if err := writer.AddDocument(&testDocument{fields: []interface{}{}}); err != nil {
+			if _, err := writer.AddDocument(&testDocument{fields: []interface{}{}}); err != nil {
 				t.Fatalf("AddDocument after clearing injection should succeed: %v", err)
 			}
 		}
@@ -227,7 +227,7 @@ func TestIndexWriter_IOException(t *testing.T) {
 		defer writer.Close()
 
 		// Inject a deterministic failure into every guarded operation.
-		if err := writer.AddDocument(&testDocument{fields: []interface{}{}}); err != nil {
+		if _, err := writer.AddDocument(&testDocument{fields: []interface{}{}}); err != nil {
 			t.Fatalf("AddDocument before injection: %v", err)
 		}
 
@@ -260,7 +260,7 @@ func TestIndexWriter_Rollback(t *testing.T) {
 
 		for i := 0; i < 5; i++ {
 			doc := &testDocument{fields: []interface{}{}}
-			if err := writer.AddDocument(doc); err != nil {
+			if _, err := writer.AddDocument(doc); err != nil {
 				t.Fatalf("AddDocument: %v", err)
 			}
 		}

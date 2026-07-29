@@ -42,7 +42,7 @@ func TestDocValuesMergeInstance_Numeric(t *testing.T) {
 			docValue := int64(seg*100 + i)
 			numericField, _ := document.NewNumericDocValuesField("num", docValue)
 			doc := createTestDocument(numericField)
-			if err := writer.AddDocument(doc); err != nil {
+			if _, err := writer.AddDocument(doc); err != nil {
 				t.Fatalf("Failed to add document: %v", err)
 			}
 		}
@@ -89,7 +89,7 @@ func TestDocValuesMergeInstance_Binary(t *testing.T) {
 			value := fmt.Sprintf("segment%d_doc%d", seg, i)
 			binaryField, _ := document.NewBinaryDocValuesField("binary", []byte(value))
 			doc := createTestDocument(binaryField)
-			if err := writer.AddDocument(doc); err != nil {
+			if _, err := writer.AddDocument(doc); err != nil {
 				t.Fatalf("Failed to add document: %v", err)
 			}
 		}
@@ -134,7 +134,7 @@ func TestDocValuesMergeInstance_Sorted(t *testing.T) {
 			cat := categories[(seg+i)%len(categories)]
 			sortedField, _ := document.NewSortedDocValuesField("category", []byte(cat))
 			doc := createTestDocument(sortedField)
-			if err := writer.AddDocument(doc); err != nil {
+			if _, err := writer.AddDocument(doc); err != nil {
 				t.Fatalf("Failed to add document: %v", err)
 			}
 		}
@@ -181,7 +181,7 @@ func TestDocValuesMergeInstance_SortedSet(t *testing.T) {
 			}
 			sortedSetField, _ := document.NewSortedSetDocValuesField("tags", values)
 			doc := createTestDocument(sortedSetField)
-			if err := writer.AddDocument(doc); err != nil {
+			if _, err := writer.AddDocument(doc); err != nil {
 				t.Fatalf("Failed to add document: %v", err)
 			}
 		}
@@ -225,7 +225,7 @@ func TestDocValuesMergeInstance_SortedNumeric(t *testing.T) {
 			values := []int64{int64(seg * 100), int64(i * 10), int64(seg + i)}
 			sortedNumericField, _ := document.NewSortedNumericDocValuesField("scores", values)
 			doc := createTestDocument(sortedNumericField)
-			if err := writer.AddDocument(doc); err != nil {
+			if _, err := writer.AddDocument(doc); err != nil {
 				t.Fatalf("Failed to add document: %v", err)
 			}
 		}
@@ -269,14 +269,14 @@ func TestDocValuesMergeInstance_Sparse(t *testing.T) {
 		// Add many empty documents
 		for i := 0; i < 100; i++ {
 			doc := createTestDocument() // Empty doc
-			if err := writer.AddDocument(doc); err != nil {
+			if _, err := writer.AddDocument(doc); err != nil {
 				t.Fatalf("Failed to add document: %v", err)
 			}
 		}
 		// Add one document with DocValues
 		numericField, _ := document.NewNumericDocValuesField("sparse", int64(seg))
 		doc := createTestDocument(numericField)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 		if err := writer.Commit(); err != nil {
@@ -317,7 +317,7 @@ func TestDocValuesMergeInstance_MixedTypes(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		numericField, _ := document.NewNumericDocValuesField("num", int64(i))
 		doc := createTestDocument(numericField)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -329,7 +329,7 @@ func TestDocValuesMergeInstance_MixedTypes(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		binaryField, _ := document.NewBinaryDocValuesField("binary", []byte(fmt.Sprintf("val%d", i)))
 		doc := createTestDocument(binaryField)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -341,7 +341,7 @@ func TestDocValuesMergeInstance_MixedTypes(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		sortedField, _ := document.NewSortedDocValuesField("sorted", []byte(fmt.Sprintf("sort%d", i)))
 		doc := createTestDocument(sortedField)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -383,7 +383,7 @@ func TestDocValuesMergeInstance_Deletes(t *testing.T) {
 		idField, _ := document.NewStringField("id", fmt.Sprintf("doc%d", i), true)
 		numericField, _ := document.NewNumericDocValuesField("num", int64(i))
 		doc := createTestDocument(idField, numericField)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -394,7 +394,7 @@ func TestDocValuesMergeInstance_Deletes(t *testing.T) {
 	// Delete some documents
 	for i := 0; i < 10; i++ {
 		term := index.NewTerm("id", fmt.Sprintf("doc%d", i))
-		if err := writer.DeleteDocuments(term); err != nil {
+		if _, err := writer.DeleteDocuments(term); err != nil {
 			t.Logf("DeleteDocuments not fully implemented: %v", err)
 			break
 		}
@@ -436,7 +436,7 @@ func TestDocValuesMergeInstance_UniqueValuesCompression(t *testing.T) {
 		value := uniqueValues[i%len(uniqueValues)]
 		numericField, _ := document.NewNumericDocValuesField("num", value)
 		doc := createTestDocument(numericField)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -449,7 +449,7 @@ func TestDocValuesMergeInstance_UniqueValuesCompression(t *testing.T) {
 		value := uniqueValues[i%len(uniqueValues)]
 		numericField, _ := document.NewNumericDocValuesField("num", value)
 		doc := createTestDocument(numericField)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -489,7 +489,7 @@ func TestDocValuesMergeInstance_LargeSegment(t *testing.T) {
 			numericField, _ := document.NewNumericDocValuesField("num", int64(seg*1000+i))
 			sortedField, _ := document.NewSortedDocValuesField("sort", []byte(fmt.Sprintf("val%d", i%50)))
 			doc := createTestDocument(numericField, sortedField)
-			if err := writer.AddDocument(doc); err != nil {
+			if _, err := writer.AddDocument(doc); err != nil {
 				t.Fatalf("Failed to add document: %v", err)
 			}
 		}
@@ -532,13 +532,13 @@ func TestDocValuesMergeInstance_MergeAwayAllValues(t *testing.T) {
 	idField, _ := document.NewStringField("id", "1", true)
 	sortedField, _ := document.NewSortedDocValuesField("field", []byte("hello"))
 	doc := createTestDocument(idField, sortedField)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("Failed to add document: %v", err)
 	}
 
 	// Add empty document
 	doc2 := createTestDocument()
-	if err := writer.AddDocument(doc2); err != nil {
+	if _, err := writer.AddDocument(doc2); err != nil {
 		t.Fatalf("Failed to add document: %v", err)
 	}
 
@@ -548,7 +548,7 @@ func TestDocValuesMergeInstance_MergeAwayAllValues(t *testing.T) {
 
 	// Delete the document with DocValues
 	term := index.NewTerm("id", "1")
-	if err := writer.DeleteDocuments(term); err != nil {
+	if _, err := writer.DeleteDocuments(term); err != nil {
 		t.Logf("DeleteDocuments not fully implemented: %v", err)
 	}
 

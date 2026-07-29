@@ -53,7 +53,8 @@ func addMaxPositionDoc(t *testing.T, writer *index.IndexWriter, factory func() a
 		t.Fatalf("NewTextField: %v", err)
 	}
 	doc.Add(field)
-	return writer.AddDocument(doc)
+	_, err = writer.AddDocument(doc)
+	return err
 }
 
 // TestMaxPosition_TooBigPosition ports TestMaxPosition.testTooBigPosition.

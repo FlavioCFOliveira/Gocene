@@ -54,25 +54,25 @@ const (
 
 // IndexWriterConfig holds configuration for IndexWriter.
 type IndexWriterConfig struct {
-	openMode               OpenMode
-	analyzer               analysis.Analyzer
-	ramBufferSizeMB        float64
-	maxBufferedDocs        int
-	maxBufferedDeleteTerms int
-	mergePolicy            MergePolicy
-	mergeScheduler         MergeScheduler
-	indexDeletionPolicy    IndexDeletionPolicy
-	softDeletesField       string
-	parentField            string
-	useCompoundFile        bool
-	codec                  Codec
-	maxDocs                int
-	indexSort              *Sort
-	flushOnUpdate          bool
-	indexCommit            *IndexCommit
-	infoStream             util.InfoStream
-	mergedSegmentWarmer            MergedSegmentWarmer
-	maxFullFlushMergeWaitMillis    int64
+	openMode                    OpenMode
+	analyzer                    analysis.Analyzer
+	ramBufferSizeMB             float64
+	maxBufferedDocs             int
+	maxBufferedDeleteTerms      int
+	mergePolicy                 MergePolicy
+	mergeScheduler              MergeScheduler
+	indexDeletionPolicy         IndexDeletionPolicy
+	softDeletesField            string
+	parentField                 string
+	useCompoundFile             bool
+	codec                       Codec
+	maxDocs                     int
+	indexSort                   *Sort
+	flushOnUpdate               bool
+	indexCommit                 *IndexCommit
+	infoStream                  util.InfoStream
+	mergedSegmentWarmer         MergedSegmentWarmer
+	maxFullFlushMergeWaitMillis int64
 }
 
 // NewIndexWriterConfig creates a new IndexWriterConfig with default settings.
@@ -88,10 +88,10 @@ func NewIndexWriterConfig(analyzer analysis.Analyzer) *IndexWriterConfig {
 		analyzer:               analyzer,
 		ramBufferSizeMB:        16.0,
 		maxBufferedDocs:        1000,
-		maxBufferedDeleteTerms: -1,  // Disabled by default
-		mergePolicy:            nil, // Will be set by IndexWriter
-		mergeScheduler:         nil, // Will be set by IndexWriter
-		indexDeletionPolicy:    nil, // Will be set by IndexWriter
+		maxBufferedDeleteTerms: -1,                            // Disabled by default
+		mergePolicy:            nil,                           // Will be set by IndexWriter
+		mergeScheduler:         NewConcurrentMergeScheduler(), // Default matches Lucene LiveIndexWriterConfig
+		indexDeletionPolicy:    nil,                           // Will be set by IndexWriter
 		useCompoundFile:        DefaultUseCompoundFile,
 		codec:                  GetDefaultCodec(),
 		maxDocs:                0, // 0 means unlimited

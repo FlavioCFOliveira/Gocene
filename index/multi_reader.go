@@ -209,6 +209,3 @@ func (mtv *multiReaderTermVectors) GetField(docID int, field string) (Terms, err
 
 // Ensure MultiReader implements IndexReaderInterface
 var _ IndexReaderInterface = (*MultiReader)(nil)
-
-// Ensure MultiReader implements LeafReaderInterface
-var _ LeafReaderInterface = (*MultiReader)(nil)

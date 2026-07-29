@@ -494,6 +494,62 @@ func (r *memoryIndexReader) GetPointValues(field string) (index.PointValues, err
 // GetLiveDocs returns nil (no deletions in a MemoryIndex).
 func (r *memoryIndexReader) GetLiveDocs() util.Bits { return nil }
 
+// Postings returns postings for the given term.
+func (r *memoryIndexReader) Postings(term index.Term) (index.PostingsEnum, error) {
+	return r.PostingsWithFreqPositions(term, 0)
+}
+
+// PostingsWithFreqPositions returns postings for the given term with flags.
+func (r *memoryIndexReader) PostingsWithFreqPositions(term index.Term, flags int) (index.PostingsEnum, error) {
+	terms, err := r.Terms(term.Field)
+	if err != nil {
+		return nil, err
+	}
+	if terms == nil {
+		return nil, nil
+	}
+	return terms.GetPostingsReader(term.Text(), flags)
+}
+
+// GetFloatVectorValues returns nil for memory index.
+func (r *memoryIndexReader) GetFloatVectorValues(field string) (index.FloatVectorValues, error) {
+	return nil, nil
+}
+
+// GetByteVectorValues returns nil for memory index.
+func (r *memoryIndexReader) GetByteVectorValues(field string) (index.ByteVectorValues, error) {
+	return nil, nil
+}
+
+// GetDocValuesSkipper returns nil for memory index.
+func (r *memoryIndexReader) GetDocValuesSkipper(field string) (index.DocValuesSkipper, error) {
+	return nil, nil
+}
+
+// CheckIntegrity is a no-op for the in-memory index.
+func (r *memoryIndexReader) CheckIntegrity() error {
+	return nil
+}
+
+// GetMetaData returns metadata for this reader.
+func (r *memoryIndexReader) GetMetaData() *index.IndexReaderMetaData {
+	return &index.IndexReaderMetaData{
+		HasDeletions: r.HasDeletions(),
+		NumDocs:      r.NumDocs(),
+		MaxDoc:       r.MaxDoc(),
+	}
+}
+
+// GetSegmentInfo returns nil (memory index has no segment info).
+func (r *memoryIndexReader) GetSegmentInfo() *index.SegmentInfo {
+	return nil
+}
+
+// SearchNearestVectors is not supported by the memory index.
+func (r *memoryIndexReader) SearchNearestVectors(field string, target []float32, k int, acceptDocs util.Bits) (index.TopDocs, error) {
+	return index.TopDocs{}, fmt.Errorf("SearchNearestVectors not supported by memory index")
+}
+
 // newMemoryIndexReader creates a new reader wrapping the given MemoryIndex.
 func newMemoryIndexReader(mi *MemoryIndex) *memoryIndexReader {
 	r := &memoryIndexReader{mi: mi}

@@ -73,7 +73,7 @@ func indexerWork(w *index.IndexWriter, r *rand.Rand, nextID *int) error {
 			return err
 		}
 		d.Add(contents)
-		if err := w.AddDocument(d); err != nil {
+		if _, err := w.AddDocument(d); err != nil {
 			return err
 		}
 	}
@@ -81,7 +81,7 @@ func indexerWork(w *index.IndexWriter, r *rand.Rand, nextID *int) error {
 	// Delete 5 docs.
 	deleteID := *nextID - 1
 	for j := 0; j < 5; j++ {
-		if err := w.DeleteDocuments(index.NewTerm("id", strconv.Itoa(deleteID))); err != nil {
+		if _, err := w.DeleteDocuments(index.NewTerm("id", strconv.Itoa(deleteID))); err != nil {
 			return err
 		}
 		deleteID -= 2

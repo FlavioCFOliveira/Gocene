@@ -30,31 +30,13 @@ func readerClosedAtLeast(min int) int {
 // searcher, closes the underlying DirectoryReader, and asserts that a second
 // search fails with an AlreadyClosedException.
 //
-// Two divergences from Lucene:
-//   - Lucene drives indexing through RandomIndexWriter and reads via
-//     IndexWriter.getReader (NRT). Gocene exposes neither, so this port uses
-//     the plain IndexWriter and reopens the committed index with
-//     OpenDirectoryReader, mirroring TestBinaryTerms.
-//   - Lucene's testReaderChaining (LUCENE-3800) is omitted: it depends on
-//     OwnCacheKeyMultiReader, which Gocene does not provide.
-//
-// Currently skipped: see the t.Skip below.
+// Divergence from Lucene: Lucene drives indexing through RandomIndexWriter and
+// reads via IndexWriter.getReader (NRT). Gocene exposes neither, so this port
+// uses the plain IndexWriter and reopens the committed index with
+// OpenDirectoryReader, mirroring TestBinaryTerms. Lucene's testReaderChaining
+// (LUCENE-3800) is omitted: it depends on OwnCacheKeyMultiReader, which Gocene
+// does not provide.
 func TestReaderClosed(t *testing.T) {
-	// Blocker 1 (infrastructure gap): OpenDirectoryReader materialises each
-	// segment via NewSegmentReader (index/directory_reader.go:462/497), which
-	// leaves SegmentReader.coreReaders nil; term-level searches then match no
-	// documents. Same gap that skips TestBinaryTerms.
-	//
-	// Blocker 2 (semantic gap): DirectoryReader.Close
-	// (index/directory_reader.go:597) only nils r.readers; it sets no
-	// closed flag and does not cause GetSegmentReaders to fail. A search
-	// after Close therefore returns 0 hits silently instead of raising
-	// AlreadyClosedException, so the assertion below cannot hold.
-	//
-	// Unskip once OpenDirectoryReader wires SegmentCoreReaders and
-	// DirectoryReader operations reject use after Close.
-	t.Fatal("blocked: DirectoryReader.Close does not set a closed flag; subsequent IndexSearcher.Search returns 0 hits silently instead of AlreadyClosedException")
-
 	dir, err := store.NewSimpleFSDirectory(t.TempDir())
 	if err != nil {
 		t.Fatalf("Failed to open directory: %v", err)
@@ -77,7 +59,7 @@ func TestReaderClosed(t *testing.T) {
 			t.Fatalf("Failed to create field for doc %d: %v", i, err)
 		}
 		doc.Add(field)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document %d: %v", i, err)
 		}
 	}

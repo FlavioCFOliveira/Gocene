@@ -261,7 +261,7 @@ func TestIndexReaderConsistency_DeletedDocs(t *testing.T) {
 
 	// Delete some documents
 	term := index.NewTerm("id", "0")
-	if err := writer.DeleteDocuments(term); err != nil {
+	if _, err := writer.DeleteDocuments(term); err != nil {
 		t.Logf("delete may not be fully implemented: %v", err)
 	}
 	writer.Commit()

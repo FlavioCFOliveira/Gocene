@@ -179,7 +179,7 @@ func verifyIPRanges(t *testing.T, seed int64, docRanges [][]ipRange) {
 			}
 			doc.Add(f)
 		}
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

@@ -44,7 +44,7 @@ func TestStoredFieldsCompatibility_BasicRetrieval(t *testing.T) {
 	metadataField, _ := document.NewStoredField("metadata", "metadata_value")
 	doc.Add(metadataField)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("failed to add document: %v", err)
 	}
 
@@ -98,7 +98,7 @@ func TestStoredFieldsCompatibility_CompressingCodec(t *testing.T) {
 		contentField, _ := document.NewStoredField("content", data.content)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -145,7 +145,7 @@ func TestStoredFieldsCompatibility_BinaryData(t *testing.T) {
 		binaryField, _ := document.NewStoredFieldFromBytes("binary_data", binaryData)
 		doc.Add(binaryField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -194,7 +194,7 @@ func TestStoredFieldsCompatibility_LargeContent(t *testing.T) {
 	largeField, _ := document.NewStoredFieldFromBytes("large_content", largeContent)
 	doc.Add(largeField)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("failed to add document: %v", err)
 	}
 
@@ -247,7 +247,7 @@ func TestStoredFieldsCompatibility_MultipleFields(t *testing.T) {
 		timestampField, _ := document.NewStoredField("timestamp", "2026-03-22T10:00:00Z")
 		doc.Add(timestampField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -298,7 +298,7 @@ func TestStoredFieldsCompatibility_RetrievalConsistency(t *testing.T) {
 		storedField, _ := document.NewStoredField("content", content)
 		doc.Add(storedField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -343,7 +343,7 @@ func TestStoredFieldsCompatibility_FieldUpdates(t *testing.T) {
 		versionField, _ := document.NewStoredField("version", "1.0")
 		doc.Add(versionField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -362,7 +362,7 @@ func TestStoredFieldsCompatibility_FieldUpdates(t *testing.T) {
 		versionField, _ := document.NewStoredField("version", "2.0")
 		doc.Add(versionField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}

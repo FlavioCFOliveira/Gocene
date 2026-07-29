@@ -152,7 +152,7 @@ func TestDocumentWriter_AddDocument(t *testing.T) {
 
 		// Create and add test document
 		testDoc := setupTestDoc()
-		err = writer.AddDocument(testDoc)
+		_, err = writer.AddDocument(testDoc)
 		if err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
@@ -330,7 +330,7 @@ func TestDocumentWriter_MultiValuedFields(t *testing.T) {
 		doc.Add(field1)
 		doc.Add(field2)
 
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Errorf("Failed to add document with multi-valued field: %v", err)
 		}
@@ -599,7 +599,7 @@ func TestDocumentWriter_EmptyDocument(t *testing.T) {
 		doc := &document.Document{}
 		// No fields added
 
-		err := writer.AddDocument(doc)
+		_, err := writer.AddDocument(doc)
 		if err != nil {
 			t.Errorf("Failed to add empty document: %v", err)
 		}
@@ -630,7 +630,7 @@ func TestDocumentWriter_MultipleDocuments(t *testing.T) {
 			field, _ := document.NewTextField("id", string(rune('0'+i)), true)
 			doc.Add(field)
 
-			err := writer.AddDocument(doc)
+			_, err := writer.AddDocument(doc)
 			if err != nil {
 				t.Errorf("Failed to add document %d: %v", i, err)
 			}

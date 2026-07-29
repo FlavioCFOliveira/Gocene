@@ -73,7 +73,7 @@ func checkPhraseQuery(t *testing.T, doc *document.Document, query *search.Phrase
 	}
 
 	// Add document
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("Failed to add document: %v", err)
 	}
 
@@ -260,7 +260,7 @@ func TestSloppyPhraseQuery_SlopWithHoles(t *testing.T) {
 		doc := document.NewDocument()
 		field, _ := document.NewField("lyrics", docText, ft)
 		doc.Add(field)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
@@ -329,7 +329,7 @@ func TestSloppyPhraseQuery_InfiniteFreq1(t *testing.T) {
 	field, _ := document.NewField("lyrics", docText, ft)
 	doc.Add(field)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("Failed to add document: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -414,7 +414,7 @@ func TestSloppyPhraseQuery_InfiniteFreq2(t *testing.T) {
 	field, _ := document.NewField("lyrics", docText, ft)
 	doc.Add(field)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("Failed to add document: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -509,7 +509,7 @@ func createTestIndex(t *testing.T) (store.Directory, *search.IndexSearcher, func
 		ft.Freeze()
 		field, _ := document.NewField("field", text, ft)
 		doc.Add(field)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}

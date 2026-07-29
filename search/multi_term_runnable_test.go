@@ -36,7 +36,7 @@ func buildStringFieldIndex(t *testing.T, field string, values []string) *search.
 			t.Fatalf("Failed to create StringField(%q): %v", v, err)
 		}
 		doc.Add(sf)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document %q: %v", v, err)
 		}
 	}

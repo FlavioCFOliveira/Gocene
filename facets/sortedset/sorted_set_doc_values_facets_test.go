@@ -64,7 +64,7 @@ func buildSSDVAccumulator(t *testing.T, docs [][]string) (*SortedSetDocValuesAcc
 		if err != nil {
 			t.Fatalf("NewSortedSetDocValuesField: %v", err)
 		}
-		if err := writer.AddDocument(&ssdvFacetDoc{fields: []interface{}{f}}); err != nil {
+		if _, err := writer.AddDocument(&ssdvFacetDoc{fields: []interface{}{f}}); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

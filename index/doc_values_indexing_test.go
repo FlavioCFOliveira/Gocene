@@ -32,7 +32,7 @@ func TestDocValuesIndexing_AddIndexes(t *testing.T) {
 	dir1 := store.NewByteBuffersDirectory()
 	defer dir1.Close()
 	w1 := newWriter(t, dir1)
-	if err := w1.AddDocument(docWithNumericDV("dv", 1)); err != nil {
+	if _, err := w1.AddDocument(docWithNumericDV("dv", 1)); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w1.Close(); err != nil {
@@ -42,7 +42,7 @@ func TestDocValuesIndexing_AddIndexes(t *testing.T) {
 	dir2 := store.NewByteBuffersDirectory()
 	defer dir2.Close()
 	w2 := newWriter(t, dir2)
-	if err := w2.AddDocument(docWithNumericDV("dv", 2)); err != nil {
+	if _, err := w2.AddDocument(docWithNumericDV("dv", 2)); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w2.Close(); err != nil {
@@ -73,7 +73,7 @@ func TestDocValuesIndexing_MultiValuedDocValuesField(t *testing.T) {
 	w := newWriter(t, dir)
 	f1, _ := document.NewNumericDocValuesField("field", 17)
 	f2, _ := document.NewNumericDocValuesField("field", 42)
-	if err := w.AddDocument(&testDocument{fields: []interface{}{f1, f2}}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{f1, f2}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -107,7 +107,7 @@ func TestDocValuesIndexing_DifferentTypedDocValuesField(t *testing.T) {
 	defer dir.Close()
 	w := newWriter(t, dir)
 	// First add document with numeric DV for field "field".
-	if err := w.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("field", 17)}}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("field", 17)}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	// Second document with a different DV type in the same document should fail.
@@ -115,7 +115,7 @@ func TestDocValuesIndexing_DifferentTypedDocValuesField(t *testing.T) {
 		mustNumericDVField("field", 17),
 		mustBinaryDVField("field", []byte("blah")),
 	}
-	if err := w.AddDocument(&testDocument{fields: fields}); err == nil {
+	if _, err := w.AddDocument(&testDocument{fields: fields}); err == nil {
 		t.Fatal("expected error for mixed DV types in same document, got nil")
 	}
 	if err := w.Close(); err != nil {
@@ -127,14 +127,14 @@ func TestDocValuesIndexing_DifferentTypedDocValuesField2(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 	w := newWriter(t, dir)
-	if err := w.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("field", 17)}}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("field", 17)}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	fields := []interface{}{
 		mustNumericDVField("field", 17),
 		mustSortedDVField("field", []byte("hello")),
 	}
-	if err := w.AddDocument(&testDocument{fields: fields}); err == nil {
+	if _, err := w.AddDocument(&testDocument{fields: fields}); err == nil {
 		t.Fatal("expected error for mixed DV types in same document, got nil")
 	}
 	if err := w.Close(); err != nil {
@@ -153,7 +153,7 @@ func TestDocValuesIndexing_LengthPrefixAcrossTwoPages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSortedDocValuesField: %v", err)
 	}
-	if err := w.AddDocument(&testDocument{fields: []interface{}{sortedField}}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{sortedField}}); err != nil {
 		t.Fatalf("AddDocument(big): %v", err)
 	}
 	bytes2 := make([]byte, 32764)
@@ -162,7 +162,7 @@ func TestDocValuesIndexing_LengthPrefixAcrossTwoPages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSortedDocValuesField: %v", err)
 	}
-	if err := w.AddDocument(&testDocument{fields: []interface{}{sortedField2}}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{sortedField2}}); err != nil {
 		t.Fatalf("AddDocument(big2): %v", err)
 	}
 	if err := w.Commit(); err != nil {
@@ -209,7 +209,7 @@ func TestDocValuesIndexing_DocValuesUnstored(t *testing.T) {
 			mustNumericDVField("dv", int64(i)),
 			mustStringField(t, "docId", itoa(i), false),
 		}
-		if err := w.AddDocument(&testDocument{fields: fields}); err != nil {
+		if _, err := w.AddDocument(&testDocument{fields: fields}); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
@@ -249,7 +249,7 @@ func TestDocValuesIndexing_MixedTypesSameDocument(t *testing.T) {
 		mustNumericDVField("a", 1),
 		mustSortedDVField("a", []byte("value")),
 	}
-	err := w.AddDocument(&testDocument{fields: fields})
+	_, err := w.AddDocument(&testDocument{fields: fields})
 	if err == nil {
 		t.Fatal("expected error for mixed DV types in same document, got nil")
 	}
@@ -263,7 +263,7 @@ func TestDocValuesIndexing_MixedTypesDifferentDocuments(t *testing.T) {
 	defer dir.Close()
 	w := newWriter(t, dir)
 	// First document with numeric DV.
-	if err := w.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("a", 42)}}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("a", 42)}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Commit(); err != nil {
@@ -271,7 +271,7 @@ func TestDocValuesIndexing_MixedTypesDifferentDocuments(t *testing.T) {
 	}
 	// A different DV type for the same field in a later document is accepted
 	// (per-segment field numbers are independent across commits).
-	if err := w.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("a", []byte("bar"))}}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("a", []byte("bar"))}}); err != nil {
 		t.Fatalf("AddDocument(2): %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -289,11 +289,11 @@ func TestDocValuesIndexing_AddSortedTwice(t *testing.T) {
 	defer dir.Close()
 	w := newWriter(t, dir)
 	// Single sorted value succeeds.
-	if err := w.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("field", []byte("val1"))}}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("field", []byte("val1"))}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	// A second sorted value for the same field in a different document also succeeds.
-	if err := w.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("field", []byte("val2"))}}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("field", []byte("val2"))}}); err != nil {
 		t.Fatalf("AddDocument(2): %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -314,7 +314,7 @@ func TestDocValuesIndexing_AddBinaryTwice(t *testing.T) {
 		mustBinaryDVField("field", []byte("val1")),
 		mustBinaryDVField("field", []byte("val2")),
 	}
-	if err := w.AddDocument(&testDocument{fields: fields}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: fields}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -335,7 +335,7 @@ func TestDocValuesIndexing_AddNumericTwice(t *testing.T) {
 		mustNumericDVField("field", 10),
 		mustNumericDVField("field", 20),
 	}
-	if err := w.AddDocument(&testDocument{fields: fields}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: fields}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -362,7 +362,7 @@ func TestDocValuesIndexing_TooLargeSortedBytes(t *testing.T) {
 	}
 	sdv, _ := document.NewSortedDocValuesField("field", bigVal)
 	// Document with maximum-size value should succeed.
-	if err := w.AddDocument(&testDocument{fields: []interface{}{sdv}}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{sdv}}); err != nil {
 		t.Fatalf("AddDocument(max-size): %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -384,7 +384,7 @@ func TestDocValuesIndexing_TooLargeTermSortedSetBytes(t *testing.T) {
 		bigVal[i] = 'b'
 	}
 	ssdv, _ := document.NewSortedSetDocValuesField("field", [][]byte{bigVal})
-	if err := w.AddDocument(&testDocument{fields: []interface{}{ssdv}}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{ssdv}}); err != nil {
 		t.Fatalf("AddDocument(max-size): %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -401,13 +401,13 @@ func TestDocValuesIndexing_MixedTypesDifferentSegments(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 	w := newWriter(t, dir)
-	if err := w.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("a", 1)}}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("a", 1)}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
-	if err := w.AddDocument(&testDocument{fields: []interface{}{mustBinaryDVField("a", []byte("value"))}}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{mustBinaryDVField("a", []byte("value"))}}); err != nil {
 		t.Fatalf("AddDocument(2): %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -424,16 +424,16 @@ func TestDocValuesIndexing_MixedTypesAfterDeleteAll(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 	w := newWriter(t, dir)
-	if err := w.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("a", 1)}}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("a", 1)}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
-	if err := w.DeleteAll(); err != nil {
+	if _, err := w.DeleteAll(); err != nil {
 		t.Fatalf("DeleteAll: %v", err)
 	}
-	if err := w.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("a", []byte("val"))}}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("a", []byte("val"))}}); err != nil {
 		t.Fatalf("AddDocument(2): %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -450,7 +450,7 @@ func TestDocValuesIndexing_MixedTypesAfterReopenCreate(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 	w := newWriter(t, dir)
-	if err := w.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("a", 1)}}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("a", 1)}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -462,10 +462,10 @@ func TestDocValuesIndexing_MixedTypesAfterReopenCreate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIndexWriter(CREATE): %v", err)
 	}
-	if err := w2.DeleteAll(); err != nil {
+	if _, err := w2.DeleteAll(); err != nil {
 		t.Fatalf("DeleteAll: %v", err)
 	}
-	if err := w2.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("a", []byte("val"))}}); err != nil {
+	if _, err := w2.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("a", []byte("val"))}}); err != nil {
 		t.Fatalf("AddDocument(2): %v", err)
 	}
 	if err := w2.Close(); err != nil {
@@ -482,14 +482,14 @@ func TestDocValuesIndexing_MixedTypesAfterReopenAppend1(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 	w := newWriter(t, dir)
-	if err := w.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("a", 1)}}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("a", 1)}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 	w2 := newWriter(t, dir)
-	if err := w2.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("a", []byte("val"))}}); err != nil {
+	if _, err := w2.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("a", []byte("val"))}}); err != nil {
 		t.Fatalf("AddDocument(2): %v", err)
 	}
 	if err := w2.Close(); err != nil {
@@ -507,14 +507,14 @@ func TestDocValuesIndexing_MixedTypesAfterReopenAppend2(t *testing.T) {
 	defer dir.Close()
 	w := newWriter(t, dir)
 	fields := []interface{}{mustStringField(t, "a", "plain", false)}
-	if err := w.AddDocument(&testDocument{fields: fields}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: fields}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 	w2 := newWriter(t, dir)
-	if err := w2.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("a", 42)}}); err != nil {
+	if _, err := w2.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("a", 42)}}); err != nil {
 		t.Fatalf("AddDocument(2): %v", err)
 	}
 	if err := w2.Close(); err != nil {
@@ -531,14 +531,14 @@ func TestDocValuesIndexing_MixedTypesAfterReopenAppend3(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 	w := newWriter(t, dir)
-	if err := w.AddDocument(&testDocument{fields: []interface{}{mustStringField(t, "a", "x", false)}}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{mustStringField(t, "a", "x", false)}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 	w2 := newWriter(t, dir)
-	if err := w2.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("a", 42)}}); err != nil {
+	if _, err := w2.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("a", 42)}}); err != nil {
 		t.Fatalf("AddDocument(2): %v", err)
 	}
 	if err := w2.Close(); err != nil {
@@ -564,9 +564,9 @@ func TestDocValuesIndexing_MixedTypesDifferentThreads(t *testing.T) {
 			f := mustNumericDVField("conc", int64(id))
 			if id%2 == 0 {
 				f2, _ := document.NewSortedDocValuesField("conc", []byte(itoa(id)))
-				_ = w.AddDocument(&testDocument{fields: []interface{}{f, f2}})
+				_, _ = w.AddDocument(&testDocument{fields: []interface{}{f, f2}})
 			} else {
-				_ = w.AddDocument(&testDocument{fields: []interface{}{f}})
+				_, _ = w.AddDocument(&testDocument{fields: []interface{}{f}})
 			}
 		}(i)
 	}
@@ -585,7 +585,7 @@ func TestDocValuesIndexing_MixedTypesViaAddIndexes(t *testing.T) {
 	dir1 := store.NewByteBuffersDirectory()
 	defer dir1.Close()
 	w1 := newWriter(t, dir1)
-	if err := w1.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("a", 1)}}); err != nil {
+	if _, err := w1.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("a", 1)}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w1.Close(); err != nil {
@@ -594,7 +594,7 @@ func TestDocValuesIndexing_MixedTypesViaAddIndexes(t *testing.T) {
 	dir2 := store.NewByteBuffersDirectory()
 	defer dir2.Close()
 	w2 := newWriter(t, dir2)
-	if err := w2.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("a", []byte("val"))}}); err != nil {
+	if _, err := w2.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("a", []byte("val"))}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w2.Close(); err != nil {
@@ -620,11 +620,11 @@ func TestDocValuesIndexing_IllegalTypeChange(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 	w := newWriter(t, dir)
-	if err := w.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("field", 1)}}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("field", 1)}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	// Changing DV type within the same writer session should fail.
-	if err := w.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("field", []byte("val"))}}); err == nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("field", []byte("val"))}}); err == nil {
 		t.Fatal("expected error for illegal type change, got nil")
 	}
 	if err := w.Close(); err != nil {
@@ -636,14 +636,14 @@ func TestDocValuesIndexing_IllegalTypeChangeAcrossSegments(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 	w := newWriter(t, dir)
-	if err := w.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("field", 1)}}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("field", 1)}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 	w2 := newWriter(t, dir)
-	if err := w2.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("field", []byte("val"))}}); err != nil {
+	if _, err := w2.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("field", []byte("val"))}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w2.Close(); err != nil {
@@ -660,17 +660,17 @@ func TestDocValuesIndexing_TypeChangeAfterCloseAndDeleteAll(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 	w := newWriter(t, dir)
-	if err := w.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("field", 1)}}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("field", 1)}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 	w2 := newWriter(t, dir)
-	if err := w2.DeleteAll(); err != nil {
+	if _, err := w2.DeleteAll(); err != nil {
 		t.Fatalf("DeleteAll: %v", err)
 	}
-	if err := w2.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("field", []byte("val"))}}); err != nil {
+	if _, err := w2.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("field", []byte("val"))}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w2.Close(); err != nil {
@@ -687,13 +687,13 @@ func TestDocValuesIndexing_TypeChangeAfterDeleteAll(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 	w := newWriter(t, dir)
-	if err := w.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("field", 1)}}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("field", 1)}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
-	if err := w.DeleteAll(); err != nil {
+	if _, err := w.DeleteAll(); err != nil {
 		t.Fatalf("DeleteAll: %v", err)
 	}
-	if err := w.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("field", []byte("v"))}}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("field", []byte("v"))}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -710,16 +710,16 @@ func TestDocValuesIndexing_TypeChangeAfterCommitAndDeleteAll(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 	w := newWriter(t, dir)
-	if err := w.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("field", 1)}}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("field", 1)}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
-	if err := w.DeleteAll(); err != nil {
+	if _, err := w.DeleteAll(); err != nil {
 		t.Fatalf("DeleteAll: %v", err)
 	}
-	if err := w.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("field", []byte("v"))}}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("field", []byte("v"))}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -736,7 +736,7 @@ func TestDocValuesIndexing_TypeChangeAfterOpenCreate(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 	w := newWriter(t, dir)
-	if err := w.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("field", 1)}}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("field", 1)}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -748,10 +748,10 @@ func TestDocValuesIndexing_TypeChangeAfterOpenCreate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIndexWriter(CREATE): %v", err)
 	}
-	if err := w2.DeleteAll(); err != nil {
+	if _, err := w2.DeleteAll(); err != nil {
 		t.Fatalf("DeleteAll: %v", err)
 	}
-	if err := w2.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("field", []byte("v"))}}); err != nil {
+	if _, err := w2.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("field", []byte("v"))}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w2.Close(); err != nil {
@@ -768,7 +768,7 @@ func TestDocValuesIndexing_TypeChangeViaAddIndexes(t *testing.T) {
 	dir1 := store.NewByteBuffersDirectory()
 	defer dir1.Close()
 	w1 := newWriter(t, dir1)
-	if err := w1.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("field", 1)}}); err != nil {
+	if _, err := w1.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("field", 1)}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w1.Close(); err != nil {
@@ -777,7 +777,7 @@ func TestDocValuesIndexing_TypeChangeViaAddIndexes(t *testing.T) {
 	dir2 := store.NewByteBuffersDirectory()
 	defer dir2.Close()
 	w2 := newWriter(t, dir2)
-	if err := w2.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("field", []byte("val"))}}); err != nil {
+	if _, err := w2.AddDocument(&testDocument{fields: []interface{}{mustSortedDVField("field", []byte("val"))}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w2.Close(); err != nil {
@@ -807,7 +807,7 @@ func TestDocValuesIndexing_TypeChangeViaAddIndexes2(t *testing.T) {
 	dir1 := store.NewByteBuffersDirectory()
 	defer dir1.Close()
 	w1 := newWriter(t, dir1)
-	if err := w1.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("field", 1)}}); err != nil {
+	if _, err := w1.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("field", 1)}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w1.Close(); err != nil {
@@ -819,7 +819,7 @@ func TestDocValuesIndexing_TypeChangeViaAddIndexes2(t *testing.T) {
 	if err := w2.AddIndexes(dir1); err != nil {
 		t.Fatalf("AddIndexes: %v", err)
 	}
-	if err := w2.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("field", 2)}}); err != nil {
+	if _, err := w2.AddDocument(&testDocument{fields: []interface{}{mustNumericDVField("field", 2)}}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w2.Close(); err != nil {
@@ -845,11 +845,11 @@ func TestDocValuesIndexing_SameFieldNameForPostingAndDocValue(t *testing.T) {
 		mustStringField(t, "field", "hello", true),
 		mustNumericDVField("field", 42),
 	}
-	if err := w.AddDocument(&testDocument{fields: fields}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: fields}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	// Second doc with a different DV type for the same name should fail.
-	if err := w.AddDocument(&testDocument{fields: []interface{}{
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{
 		mustStringField(t, "field", "world", true),
 		mustSortedDVField("field", []byte("sorted")),
 	}}); err == nil {
@@ -869,10 +869,10 @@ func TestDocValuesIndexing_ExcIndexingDocBeforeDocValues(t *testing.T) {
 		mustStringField(t, "text", "hello world", true),
 		mustNumericDVField("dv", 42),
 	}
-	if err := w.AddDocument(&testDocument{fields: fields}); err != nil {
+	if _, err := w.AddDocument(&testDocument{fields: fields}); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
-	if err := w.AddDocument(&testDocument{fields: []interface{}{
+	if _, err := w.AddDocument(&testDocument{fields: []interface{}{
 		mustStringField(t, "text", "second doc", true),
 		mustNumericDVField("dv", 99),
 	}}); err != nil {

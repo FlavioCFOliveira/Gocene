@@ -73,7 +73,7 @@ func TestDualPurposeField_SortedDocValuesPlusIndexed(t *testing.T) {
 				t.Fatalf("NewSortedDocValuesField: %v", err)
 			}
 			doc := &testDocument{fields: []interface{}{sf, sdv}}
-			if err := writer.AddDocument(doc); err != nil {
+			if _, err := writer.AddDocument(doc); err != nil {
 				t.Fatalf("AddDocument: %v", err)
 			}
 			if err := writer.Commit(); err != nil {
@@ -176,7 +176,7 @@ func TestDualPurposeField_NumericDocValuesPlusIndexed(t *testing.T) {
 				t.Fatalf("NewNumericDocValuesField: %v", err)
 			}
 			doc := &testDocument{fields: []interface{}{sf, ndv}}
-			if err := writer.AddDocument(doc); err != nil {
+			if _, err := writer.AddDocument(doc); err != nil {
 				t.Fatalf("AddDocument: %v", err)
 			}
 			if err := writer.Commit(); err != nil {

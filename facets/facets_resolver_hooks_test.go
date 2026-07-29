@@ -16,8 +16,15 @@ import (
 // accumulator resolver-hook tests. It returns a fixed MaxDoc and panics on
 // any operation the tests do not exercise.
 type stubLeafReader struct {
-	index.LeafReaderInterface
+	*index.LeafReader
 	maxDoc int
+}
+
+func newStubLeafReader(maxDoc int) *stubLeafReader {
+	return &stubLeafReader{
+		LeafReader: index.NewLeafReader(nil),
+		maxDoc:     maxDoc,
+	}
 }
 
 func (s *stubLeafReader) MaxDoc() int   { return s.maxDoc }
@@ -107,7 +114,7 @@ func TestTaxonomyFacetsAccumulatorResolverDrivesCounts(t *testing.T) {
 		return resolved[doc], nil
 	})
 
-	leaf := &stubLeafReader{maxDoc: 3}
+	leaf := newStubLeafReader(3)
 	md := matchingDocsWithReader(leaf, nil, 3)
 
 	if err := acc.AccumulateFromMatchingDocs([]*MatchingDocs{md}); err != nil {
@@ -133,7 +140,7 @@ func TestTaxonomyFacetsAccumulatorRespectsBits(t *testing.T) {
 		return []int{a}, nil
 	})
 
-	leaf := &stubLeafReader{maxDoc: 4}
+	leaf := newStubLeafReader(4)
 	bits := newStubBits(4, 1, 3)
 	md := matchingDocsWithReader(leaf, bits, 2)
 
@@ -154,7 +161,7 @@ func TestTaxonomyFacetsAccumulatorPropagatesResolverError(t *testing.T) {
 		return nil, want
 	})
 
-	leaf := &stubLeafReader{maxDoc: 1}
+	leaf := newStubLeafReader(1)
 	md := matchingDocsWithReader(leaf, nil, 1)
 	err := acc.AccumulateFromMatchingDocs([]*MatchingDocs{md})
 	if err == nil || !errors.Is(err, want) {
@@ -165,7 +172,7 @@ func TestTaxonomyFacetsAccumulatorPropagatesResolverError(t *testing.T) {
 func TestTaxonomyFacetsAccumulatorNoResolverIsNoOp(t *testing.T) {
 	reader := NewTaxonomyReader()
 	acc, _ := NewTaxonomyFacetsAccumulator(reader, NewFacetsConfig())
-	leaf := &stubLeafReader{maxDoc: 5}
+	leaf := newStubLeafReader(5)
 	md := matchingDocsWithReader(leaf, nil, 5)
 	if err := acc.AccumulateFromMatchingDocs([]*MatchingDocs{md}); err != nil {
 		t.Fatalf("accumulate: %v", err)
@@ -191,7 +198,7 @@ func TestConcurrentFacetsAccumulatorResolverDrivesCounts(t *testing.T) {
 		return []int{ord1, ord2}, nil
 	})
 
-	leaf := &stubLeafReader{maxDoc: 4}
+	leaf := newStubLeafReader(4)
 	md := matchingDocsWithReader(leaf, nil, 4)
 
 	if err := acc.AccumulateFromMatchingDocs([]*MatchingDocs{md}); err != nil {
@@ -211,7 +218,7 @@ func TestConcurrentFacetsAccumulatorResolverDrivesCounts(t *testing.T) {
 
 func TestConcurrentFacetsAccumulatorNoResolverIsNoOp(t *testing.T) {
 	acc, _ := NewConcurrentFacetsAccumulator(NewFacetsConfig())
-	leaf := &stubLeafReader{maxDoc: 5}
+	leaf := newStubLeafReader(5)
 	md := matchingDocsWithReader(leaf, nil, 5)
 	if err := acc.AccumulateFromMatchingDocs([]*MatchingDocs{md}); err != nil {
 		t.Fatalf("accumulate: %v", err)
@@ -235,7 +242,7 @@ func TestRandomSamplingFacetsAccumulatorResolverDrivesCounts(t *testing.T) {
 		return []int{ord}, nil
 	})
 
-	leaf := &stubLeafReader{maxDoc: 3}
+	leaf := newStubLeafReader(3)
 	md := matchingDocsWithReader(leaf, nil, 3)
 	if err := acc.AccumulateFromMatchingDocs([]*MatchingDocs{md}); err != nil {
 		t.Fatalf("accumulate: %v", err)

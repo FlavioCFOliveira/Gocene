@@ -28,7 +28,12 @@ type DocumentsWriterPerThread struct {
 	// parent is the DocumentsWriter that owns this DWPT
 	parent *DocumentsWriter
 
-	// segmentInfo holds segment information for the segment being built
+	// segmentInfo holds segment information for the segment being built.
+	// It is created with the segment name reserved when the DWPT is obtained
+	// from the DocumentsWriter pool, so that codec writers that are opened
+	// lazily during indexing (e.g. the term-vectors writer) see the real
+	// segment name from the start.  This mirrors Lucene's DWPT constructor,
+	// which receives its segment name up front.
 	segmentInfo *SegmentInfo
 
 	// fieldInfosBuilder builds field info as documents are added
@@ -63,8 +68,26 @@ type DocumentsWriterPerThread struct {
 	// FieldInvertState that Lucene accumulates during invert().
 	normsAcc map[string]*normsAccumulator
 
-	// termVectors holds term vectors per document (if enabled)
+	// termVectors holds term vectors per document (if enabled).
+	// Deprecated: the wired TermVectorsConsumer below is the active path;
+	// this buffer is retained until the legacy flushTermVectors inversion path
+	// is fully removed.
 	termVectors *TermVectorsBuffer
+
+	// termVectorsConsumer materialises term vectors for the segment via the
+	// ported Lucene TermVectorsConsumer/TermVectorsConsumerPerField pipeline.
+	termVectorsConsumer *TermVectorsConsumer
+
+	// tvFieldWriters holds the per-field TermVectorsConsumerPerField instances
+	// for the document currently being processed. It is reset at the start of
+	// every document and is the Gocene equivalent of Lucene's per-field array
+	// in IndexingChain.
+	tvFieldWriters map[string]*TermVectorsConsumerPerField
+
+	// tvFieldContexts holds the mutable token context for each tvFieldWriters
+	// entry. The context is updated before every Add call and is read by the
+	// TermVectorsAttributeProvider closures supplied to the per-field writer.
+	tvFieldContexts map[string]*tvTokenContext
 
 	// vectorValues holds the buffered KNN vector values per field, in
 	// document order. It is populated during ProcessDocument and replayed
@@ -270,8 +293,13 @@ type FieldTermVector struct {
 }
 
 // NewDocumentsWriterPerThread creates a new DWPT.
-func NewDocumentsWriterPerThread(parent *DocumentsWriter) *DocumentsWriterPerThread {
-	return &DocumentsWriterPerThread{
+//
+// segmentName is the segment name reserved for this DWPT.  Passing it at
+// construction lets lazily-initialized codec writers (in particular the
+// term-vectors writer) create files under the correct segment name, matching
+// Lucene's DWPT(segmentName, ...) constructor.
+func NewDocumentsWriterPerThread(parent *DocumentsWriter, segmentName string) *DocumentsWriterPerThread {
+	dwpt := &DocumentsWriterPerThread{
 		parent:            parent,
 		fieldInfosBuilder: NewFieldInfosBuilder(),
 		invertedIndex:     NewInvertedIndex(),
@@ -284,6 +312,19 @@ func NewDocumentsWriterPerThread(parent *DocumentsWriter) *DocumentsWriterPerThr
 		pointValues:       make(map[string]*PointValuesBuffer),
 		lastDocID:         -1,
 	}
+	if parent != nil {
+		// The segment name is reserved up front so that any codec writer opened
+		// during indexing (e.g. TermVectorsConsumer's lazy writer) sees the real
+		// segment name from the start.
+		dwpt.segmentInfo = NewSegmentInfo(segmentName, 0, parent.directory)
+		dwpt.segmentInfo.SetID(generateSegmentID())
+		dwpt.segmentInfo.SetVersion("10.4.0")
+		dwpt.segmentInfo.SetMinVersion("10.4.0")
+		dwpt.termVectorsConsumer = NewTermVectorsConsumer(parent.directory, dwpt.segmentInfo, parent.codec)
+		dwpt.tvFieldWriters = make(map[string]*TermVectorsConsumerPerField)
+		dwpt.tvFieldContexts = make(map[string]*tvTokenContext)
+	}
+	return dwpt
 }
 
 // NewInvertedIndex creates a new empty inverted index.
@@ -332,6 +373,7 @@ type dwptField struct {
 	storeTermVectors         bool
 	storeTermVectorPositions bool
 	storeTermVectorOffsets   bool
+	storeTermVectorPayloads  bool
 	// customTermFreq, when > 0, overrides the default initial TF of 1.
 	// Used by fields such as FeatureField that encode a value as TF.
 	customTermFreq int
@@ -551,6 +593,7 @@ func asDwptField(fieldInterface interface{}) (*dwptField, bool) {
 		f.storeTermVectors = ft.StoreTermVectors()
 		f.storeTermVectorPositions = ft.StoreTermVectorPositions()
 		f.storeTermVectorOffsets = ft.StoreTermVectorOffsets()
+		f.storeTermVectorPayloads = ft.StoreTermVectorPayloads()
 	}
 	// FieldTypeInterface does not expose OmitNorms, so probe the original
 	// field object directly. document.Field satisfies omitNormsGetter.
@@ -675,6 +718,52 @@ func coerceDocValuesInt64(v interface{}) (int64, bool) {
 	}
 }
 
+// termVectorFlags captures the term-vector-related flags of a field for
+// consistency checks inside a single document.
+type termVectorFlags struct {
+	storeTermVectors         bool
+	storeTermVectorPositions bool
+	storeTermVectorOffsets   bool
+	storeTermVectorPayloads  bool
+}
+
+// validateTermVectorSettings checks two rules before any per-document state is
+// mutated:
+//
+//   1. Term vectors cannot be stored for a field that is not indexed.
+//   2. Every instance of the same field name within one document must agree on
+//      its term-vector flags (storeTermVectors, positions, offsets, payloads).
+//
+// These checks mirror Lucene's IndexingChain / TermVectorsConsumerPerField
+// validation and must run early so that a bad document does not leave the DWPT
+// in a partially-populated state.
+func validateTermVectorSettings(fields []*dwptField) error {
+	first := make(map[string]termVectorFlags)
+	for _, f := range fields {
+		if f.storeTermVectors && !f.isIndexed {
+			return fmt.Errorf(
+				"cannot store term vectors for field %q when it is not indexed",
+				f.name)
+		}
+		flags := termVectorFlags{
+			storeTermVectors:         f.storeTermVectors,
+			storeTermVectorPositions: f.storeTermVectorPositions,
+			storeTermVectorOffsets:   f.storeTermVectorOffsets,
+			storeTermVectorPayloads:  f.storeTermVectorPayloads,
+		}
+		if existing, ok := first[f.name]; ok {
+			if existing != flags {
+				return fmt.Errorf(
+					"all instances of a given field name must have the same term vectors settings (field %q)",
+					f.name)
+			}
+		} else {
+			first[f.name] = flags
+		}
+	}
+	return nil
+}
+
 // ProcessDocument processes a single document.
 // This is the main entry point for indexing a document.
 func (dwpt *DocumentsWriterPerThread) ProcessDocument(doc Document) error {
@@ -684,10 +773,36 @@ func (dwpt *DocumentsWriterPerThread) ProcessDocument(doc Document) error {
 	// Get analyzer from parent
 	analyzer := dwpt.parent.analyzer
 
-	// Assign a document ID
+	// Collect and adapt every field first.  Term-vector settings must be
+	// validated before the DWPT mutates any per-document counters, field infos,
+	// postings, or stored/doc-values buffers.  A document that violates
+	// Lucene's term-vector rules must be rejected cleanly without consuming a
+	// docID or leaving partial state behind.
+	fields := make([]*dwptField, 0, len(doc.GetFields()))
+	ifaces := make([]interface{}, 0, len(doc.GetFields()))
+	for _, fieldInterface := range doc.GetFields() {
+		field, ok := asDwptField(fieldInterface)
+		if !ok {
+			continue
+		}
+		fields = append(fields, field)
+		ifaces = append(ifaces, fieldInterface)
+	}
+	if err := validateTermVectorSettings(fields); err != nil {
+		return err
+	}
+
+	// Assign a document ID only after validation has succeeded.
 	dwpt.lastDocID++
 	docID := dwpt.lastDocID
 	dwpt.numDocsInRAM++
+
+	// Reset the term-vectors pipeline for a new document.
+	if dwpt.termVectorsConsumer != nil {
+		dwpt.termVectorsConsumer.StartDocument()
+	}
+	dwpt.tvFieldWriters = make(map[string]*TermVectorsConsumerPerField)
+	dwpt.tvFieldContexts = make(map[string]*tvTokenContext)
 
 	// Track field processing for this document
 	storedDoc := &StoredDocument{
@@ -695,12 +810,8 @@ func (dwpt *DocumentsWriterPerThread) ProcessDocument(doc Document) error {
 	}
 
 	// Process each field
-	for _, fieldInterface := range doc.GetFields() {
-		field, ok := asDwptField(fieldInterface)
-		if !ok {
-			continue
-		}
-
+	for i, field := range fields {
+		fieldInterface := ifaces[i]
 		fieldName := field.name
 
 		// Build FieldInfoOptions from the flat dwptField properties.
@@ -766,9 +877,14 @@ func (dwpt *DocumentsWriterPerThread) ProcessDocument(doc Document) error {
 		}
 
 		// Process based on field type
+		var tokens []tokenAtPos
+		streamEndOffset := 0
 		if field.isIndexed {
-			// Index the field in the inverted index
-			if err := dwpt.indexFieldWithValue(docID, fieldName, field.stringValue, field.isTokenized, field.customTermFreq, fieldInfo, analyzer, field.tokenStream); err != nil {
+			// Index the field in the inverted index, capturing the tokens so the
+			// term-vectors pipeline can replay them without tokenizing twice.
+			var err error
+			tokens, streamEndOffset, err = dwpt.indexFieldWithValue(docID, fieldName, field.stringValue, field.isTokenized, field.customTermFreq, fieldInfo, analyzer, field.tokenStream)
+			if err != nil {
 				return err
 			}
 		}
@@ -793,7 +909,9 @@ func (dwpt *DocumentsWriterPerThread) ProcessDocument(doc Document) error {
 		if field.storeTermVectors {
 			// Build term vectors — requires index.IndexableField; adapt if possible.
 			if idxField, ok2 := fieldInterface.(IndexableField); ok2 {
-				dwpt.buildTermVector(docID, fieldName, idxField)
+				if err := dwpt.buildTermVector(docID, fieldName, idxField, fieldInfo, tokens, streamEndOffset, field.isTokenized, analyzer); err != nil {
+					return err
+				}
 			}
 		}
 
@@ -811,6 +929,21 @@ func (dwpt *DocumentsWriterPerThread) ProcessDocument(doc Document) error {
 			// Mirrors IndexingChain.indexPoint, which feeds the value into the
 			// field's PointValuesWriter in document order.
 			dwpt.addPointValue(docID, fieldName, field)
+		}
+	}
+
+	// Flush the per-field term-vector state into the consumer and then finish
+	// the document in the consumer. Mirrors Lucene's IndexingChain.finish()
+	// which calls termsHashPerField.finish() for every indexed field and then
+	// termVectorsConsumer.finishDocument(docID).
+	if dwpt.termVectorsConsumer != nil {
+		for _, writer := range dwpt.tvFieldWriters {
+			if err := writer.Finish(); err != nil {
+				return fmt.Errorf("finish term-vector field: %w", err)
+			}
+		}
+		if err := dwpt.termVectorsConsumer.FinishDocument(docID); err != nil {
+			return fmt.Errorf("finish term-vector document: %w", err)
 		}
 	}
 
@@ -887,6 +1020,49 @@ type tokenAtPos struct {
 	termFreq    int
 }
 
+// tvTokenContext is the mutable state behind a TermVectorsAttributeProvider
+// when DocumentsWriterPerThread replays collected tokens through a
+// TermVectorsConsumerPerField. It is updated before every Add call and is
+// read synchronously by the provider closures.
+type tvTokenContext struct {
+	cur          *tokenAtPos
+	basePosition int
+	baseOffset   int
+}
+
+func (c *tvTokenContext) startOffset() int {
+	if c == nil || c.cur == nil {
+		return 0
+	}
+	// Return the token's stream-relative offset.  The per-field
+	// FieldInvertState.offset is set to the document-level base offset before
+	// each Add call, so TermVectorsConsumerPerField.writeProx computes the
+	// absolute offset as fieldState.offset + startOffset, matching Lucene's
+	// org.apache.lucene.index.TermVectorsConsumerPerField.writeProx.
+	return c.cur.startOffset
+}
+
+func (c *tvTokenContext) endOffset() int {
+	if c == nil || c.cur == nil {
+		return 0
+	}
+	return c.cur.endOffset
+}
+
+func (c *tvTokenContext) termFrequency() int {
+	if c == nil || c.cur == nil {
+		return 1
+	}
+	return c.cur.termFreq
+}
+
+func (c *tvTokenContext) payload() *util.BytesRef {
+	if c == nil || c.cur == nil || len(c.cur.payload) == 0 {
+		return nil
+	}
+	return &util.BytesRef{Bytes: c.cur.payload}
+}
+
 // validateCustomTermFreq enforces Lucene's constraints on fields that use a
 // custom TermFrequencyAttribute: frequencies must be indexed, and neither
 // positions nor term-vector positions/offsets may be stored. Called once the
@@ -915,16 +1091,23 @@ func validateCustomTermFreq(fieldName string, fieldInfo *FieldInfo) error {
 // emits, honouring PositionIncrementAttribute, TermFrequencyAttribute,
 // OffsetAttribute and PayloadAttribute. It mirrors the token-gathering loop
 // inside Lucene's IndexingChain.invert.
+//
+// The returned streamEndOffset is the final offset reported by the stream's
+// End() method (OffsetAttribute.endOffset()).  Lucene's IndexingChain uses
+// that value, plus the analyzer offset gap, to advance the per-field offset
+// base for the next occurrence of the same field in a multi-valued document.
+// When End() is unavailable or fails to expose an OffsetAttribute, the last
+// token's endOffset is used as a fallback.
 func collectTokensFromStream(
 	tokenStream analysis.TokenStream,
 	fieldName string,
 	fieldInfo *FieldInfo,
-) (tokens []tokenAtPos, hasCustomTermFreq bool, err error) {
+) (tokens []tokenAtPos, streamEndOffset int, hasCustomTermFreq bool, err error) {
 	position := -1
 	for {
 		hasNext, err := tokenStream.IncrementToken()
 		if err != nil {
-			return nil, false, err
+			return nil, 0, false, err
 		}
 		if !hasNext {
 			break
@@ -944,7 +1127,7 @@ func collectTokensFromStream(
 		}
 		position += posIncr
 		if position > MaxPosition {
-			return nil, false, fmt.Errorf("position=%d is too large (> IndexWriter.MAX_POSITION=%d), field=%q", position, MaxPosition, fieldName)
+			return nil, 0, false, fmt.Errorf("position=%d is too large (> IndexWriter.MAX_POSITION=%d), field=%q", position, MaxPosition, fieldName)
 		}
 		if attr := src.GetAttribute(analysis.CharTermAttributeType); attr != nil {
 			if termAttr, ok := attr.(analysis.CharTermAttribute); ok {
@@ -992,12 +1175,42 @@ func collectTokensFromStream(
 			}
 		}
 	}
-	return tokens, hasCustomTermFreq, nil
+
+	// Capture the stream's final end offset exactly as Lucene's IndexingChain
+	// does after the increment-token loop (stream.end() then
+	// offsetAtt.endOffset()).
+	streamEndOffset = -1
+	if ender, ok := tokenStream.(interface{ End() error }); ok {
+		if err := ender.End(); err != nil {
+			return nil, 0, false, fmt.Errorf("end token stream for field %q: %w", fieldName, err)
+		}
+		if attrSrc, ok := tokenStream.(interface {
+			GetAttributeSource() *util.AttributeSource
+		}); ok {
+			src := attrSrc.GetAttributeSource()
+			if oa := src.GetAttribute(analysis.OffsetAttributeType); oa != nil {
+				if offsetAttr, ok := oa.(analysis.OffsetAttribute); ok {
+					streamEndOffset = offsetAttr.EndOffset()
+				}
+			}
+		}
+	}
+	if streamEndOffset < 0 {
+		if len(tokens) > 0 {
+			streamEndOffset = tokens[len(tokens)-1].endOffset
+		} else {
+			streamEndOffset = 0
+		}
+	}
+	return tokens, streamEndOffset, hasCustomTermFreq, nil
 }
 
 // indexFieldWithValue indexes a field value in the inverted index.
 // customTermFreq, when > 0, overrides the default initial TF of 1 for the
 // indexed term (used by FeatureField which encodes a value as term frequency).
+// The returned streamEndOffset is the final character offset produced by the
+// token stream; it is required by buildTermVector to advance the per-field
+// offset base across multiple instances of the same field.
 func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 	docID int,
 	fieldName string,
@@ -1007,7 +1220,7 @@ func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 	fieldInfo *FieldInfo,
 	analyzer analysis.Analyzer,
 	tokenStream analysis.TokenStream,
-) error {
+) ([]tokenAtPos, int, error) {
 	// Get or create field postings
 	dwpt.invertedIndex.mu.Lock()
 	fieldPostings, exists := dwpt.invertedIndex.fields[fieldName]
@@ -1028,50 +1241,52 @@ func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 	// would collapse position gaps (e.g. injected by stop filters or stacked
 	// synonyms) and break PhraseQuery / MultiPhraseQuery matching.
 	var tokens []tokenAtPos
+	streamEndOffset := 0
 	if tokenized {
 		if tokenStream != nil {
 			// Caller-supplied TokenStream takes precedence. Do not close it here;
 			// ownership remains with the caller, which typically closes it in a
-			// defer when the test finishes.
+			// defer when the test finishes.  We do call End() to capture the final
+			// offset, exactly as Lucene's IndexingChain.invert does after the
+			// token loop; replayable wrappers such as CachingTokenFilter expect
+			// this and tolerate repeated Reset()/End() cycles.
 			if resettable, ok := tokenStream.(interface{ Reset() error }); ok {
 				if err := resettable.Reset(); err != nil {
-					return err
+					return nil, 0, err
 				}
 			}
 			var err error
 			var hasCustomTermFreq bool
-			tokens, hasCustomTermFreq, err = collectTokensFromStream(tokenStream, fieldName, fieldInfo)
+			tokens, streamEndOffset, hasCustomTermFreq, err = collectTokensFromStream(tokenStream, fieldName, fieldInfo)
 			if err != nil {
-				return err
+				return nil, 0, err
 			}
 			if hasCustomTermFreq {
 				if err := validateCustomTermFreq(fieldName, fieldInfo); err != nil {
-					return err
+					return nil, 0, err
 				}
 			}
 		} else if analyzer != nil {
 			ts, err := analyzer.TokenStream(fieldName, strings.NewReader(value))
 			if err != nil {
-				return err
+				return nil, 0, err
 			}
 			if ts != nil {
 				defer ts.Close()
-				// reset() must run before the first incrementToken(), mirroring
-				// Lucene's TokenStream contract; tokenizers (e.g. canned streams)
-				// rely on it to (re)initialise their cursor.
-				if resettable, ok := ts.(interface{ Reset() error }); ok {
-					if err := resettable.Reset(); err != nil {
-						return err
-					}
-				}
+				// The analyzer is responsible for resetting its TokenStream after
+				// wiring the reader (Lucene's Analyzer.tokenStream contract). Calling
+				// reset() here can double-reset stateful test tokenizers such as
+				// MockTokenizer, which enforces a strict one-reset-per-session state
+				// machine. Caller-supplied TokenStreams are reset in their branch
+				// above, where ownership is explicit.
 				var hasCustomTermFreq bool
-				tokens, hasCustomTermFreq, err = collectTokensFromStream(ts, fieldName, fieldInfo)
+				tokens, streamEndOffset, hasCustomTermFreq, err = collectTokensFromStream(ts, fieldName, fieldInfo)
 				if err != nil {
-					return err
+					return nil, 0, err
 				}
 				if hasCustomTermFreq {
 					if err := validateCustomTermFreq(fieldName, fieldInfo); err != nil {
-						return err
+						return nil, 0, err
 					}
 				}
 			}
@@ -1080,14 +1295,17 @@ func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 		// Use the value directly as a single term at position 0 (posIncr 1:
 		// a non-tokenized field contributes one non-overlapping token). Offsets
 		// span the entire value so that fields with offsets enabled still emit
-		// a valid (start,end) pair.
-		tokens = []tokenAtPos{{term: value, position: 0, posIncr: 1, startOffset: 0, endOffset: utf8.RuneCountInString(value)}}
+		// a valid (start,end) pair. termFreq is 1 because there is exactly one
+		// occurrence of the value as a term.
+		runeLen := utf8.RuneCountInString(value)
+		tokens = []tokenAtPos{{term: value, position: 0, posIncr: 1, startOffset: 0, endOffset: runeLen, termFreq: 1}}
+		streamEndOffset = runeLen
 	}
 
 	// Enforce Lucene's MAX_TERM_LENGTH limit before indexing any token.
 	for _, tok := range tokens {
 		if len(tok.term) > MAX_TERM_LENGTH {
-			return fmt.Errorf("field %q: immense term: bytes can be at most %d in length; got %d",
+			return nil, 0, fmt.Errorf("field %q: immense term: bytes can be at most %d in length; got %d",
 				fieldName, MAX_TERM_LENGTH, len(tok.term))
 		}
 	}
@@ -1105,14 +1323,14 @@ func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 			termFreq = customTermFreq
 		}
 		if err := dwpt.addTermWithFreq(docID, fieldName, tok.term, tok.position, tok.startOffset, tok.endOffset, tok.payload, termFreq, fieldPostings, fieldInfo); err != nil {
-			return err
+			return nil, 0, err
 		}
 		if acc != nil {
 			acc.addToken(tok.term, termFreq, tok.posIncr)
 		}
 	}
 
-	return nil
+	return tokens, streamEndOffset, nil
 }
 
 // addTerm adds a term to the inverted index with the default initial TF of 1
@@ -1349,10 +1567,138 @@ func (dwpt *DocumentsWriterPerThread) addPointValue(docID int, fieldName string,
 	}
 }
 
-// buildTermVector builds term vector data for a field.
-func (dwpt *DocumentsWriterPerThread) buildTermVector(docID int, fieldName string, field IndexableField) {
-	// Term vectors will be populated from the inverted index during flush
-	// This is a placeholder for now
+// buildTermVector feeds the collected tokens for one occurrence of a field into
+// the document's TermVectorsConsumerPerField. It reuses the per-field writer
+// across multiple instances of the same field name within one document and
+// advances the per-field offset/position bases using the analyzer gaps when
+// the field is tokenized, matching Lucene's multi-valued field handling.
+func (dwpt *DocumentsWriterPerThread) buildTermVector(
+	docID int,
+	fieldName string,
+	field IndexableField,
+	fieldInfo *FieldInfo,
+	tokens []tokenAtPos,
+	streamEndOffset int,
+	tokenized bool,
+	analyzer analysis.Analyzer,
+) error {
+	if dwpt.termVectorsConsumer == nil {
+		return fmt.Errorf("buildTermVector: no TermVectorsConsumer")
+	}
+	if !fieldInfo.StoreTermVectors() {
+		return nil
+	}
+	if fieldInfo.IndexOptions() == IndexOptionsNone {
+		return fmt.Errorf("field %q: cannot store term vectors for a non-indexed field", fieldName)
+	}
+
+	// Reuse the per-field writer for this document, creating it on the first
+	// occurrence of the field name.
+	writer, exists := dwpt.tvFieldWriters[fieldName]
+	ctx := dwpt.tvFieldContexts[fieldName]
+	if !exists {
+		invertState := NewFieldInvertState(10, fieldName, fieldInfo.IndexOptions())
+		ctx = &tvTokenContext{}
+		attrs := TermVectorsAttributeProvider{
+			StartOffset:   func() int { return ctx.startOffset() },
+			EndOffset:     func() int { return ctx.endOffset() },
+			Payload:       func() *util.BytesRef { return ctx.payload() },
+			TermFrequency: func() int { return ctx.termFrequency() },
+		}
+		var err error
+		writer, err = NewTermVectorsConsumerPerField(invertState, dwpt.termVectorsConsumer, fieldInfo, attrs)
+		if err != nil {
+			return fmt.Errorf("buildTermVector field %q: %w", fieldName, err)
+		}
+		dwpt.tvFieldWriters[fieldName] = writer
+		dwpt.tvFieldContexts[fieldName] = ctx
+		dwpt.termVectorsConsumer.SetHasVectors()
+	}
+
+	// Start tells the writer whether this is the first instance of the field
+	// in this document and returns whether term vectors should be collected.
+	doVectors := writer.Start(field, !exists)
+	if !doVectors {
+		return nil
+	}
+
+	// Determine the per-instance end offset used to advance the base offset
+	// for the next field instance. For tokenized fields this is the final
+	// offset reported by the token stream's End() method (captured by
+	// collectTokensFromStream); for non-tokenized fields it is the rune length
+	// of the value. Lucene only applies the analyzer offset/position gaps for
+	// tokenized/analyzed fields.
+	instanceEndOffset := streamEndOffset
+	if !tokenized {
+		instanceEndOffset = utf8.RuneCountInString(field.StringValue())
+	}
+
+	// Read analyzer gaps when available; defaults match Lucene's Analyzer.
+	// Lucene only applies these gaps to tokenized/analyzed fields; non-tokenized
+	// fields advance by their value length with no extra gap.
+	positionIncrementGap := 0
+	offsetGap := 0
+	if tokenized {
+		offsetGap = 1
+		if g, ok := analyzer.(interface{ GetPositionIncrementGap() int }); ok {
+			positionIncrementGap = g.GetPositionIncrementGap()
+		}
+		if g, ok := analyzer.(interface{ GetOffsetGap() int }); ok {
+			offsetGap = g.GetOffsetGap()
+		}
+	}
+
+	// Feed every collected token to the per-field writer.
+	baseOffset := dwpt.tvBaseOffset(fieldName)
+	basePosition := dwpt.tvBasePosition(fieldName)
+	var lastPosition int
+	for i := range tokens {
+		tok := &tokens[i]
+		lastPosition = tok.position
+		ctx.cur = tok
+		writer.fieldState.SetPosition(basePosition + tok.position)
+		writer.fieldState.SetOffset(baseOffset)
+		termBytes := &util.BytesRef{Bytes: []byte(tok.term), Length: len(tok.term)}
+		if err := writer.Add(termBytes, docID); err != nil {
+			return fmt.Errorf("buildTermVector field %q term %q: %w", fieldName, tok.term, err)
+		}
+	}
+
+	// Advance the per-field base position/offset for the next instance.
+	dwpt.advanceTVBasePosition(fieldName, lastPosition+1+positionIncrementGap)
+	dwpt.advanceTVBaseOffset(fieldName, instanceEndOffset+offsetGap)
+
+	return nil
+}
+
+// tvBasePosition returns the current position base for a term-vector field.
+func (dwpt *DocumentsWriterPerThread) tvBasePosition(fieldName string) int {
+	if ctx := dwpt.tvFieldContexts[fieldName]; ctx != nil {
+		return ctx.basePosition
+	}
+	return 0
+}
+
+// advanceTVBasePosition adds delta to the field's position base.
+func (dwpt *DocumentsWriterPerThread) advanceTVBasePosition(fieldName string, delta int) {
+	if ctx := dwpt.tvFieldContexts[fieldName]; ctx != nil {
+		ctx.basePosition += delta
+	}
+}
+
+// tvBaseOffset returns the current offset base for a term-vector field.
+func (dwpt *DocumentsWriterPerThread) tvBaseOffset(fieldName string) int {
+	if ctx := dwpt.tvFieldContexts[fieldName]; ctx != nil {
+		return ctx.baseOffset
+	}
+	return 0
+}
+
+// advanceTVBaseOffset adds delta to the field's offset base.
+func (dwpt *DocumentsWriterPerThread) advanceTVBaseOffset(fieldName string, delta int) {
+	if ctx := dwpt.tvFieldContexts[fieldName]; ctx != nil {
+		ctx.baseOffset += delta
+	}
 }
 
 // estimateMemoryUsage estimates memory usage for a document.
@@ -1384,6 +1730,17 @@ func (dwpt *DocumentsWriterPerThread) GetBytesUsed() int64 {
 	return dwpt.bytesUsed
 }
 
+// SegmentName returns the segment name reserved for this DWPT, or the empty
+// string when the DWPT was created without a parent.
+func (dwpt *DocumentsWriterPerThread) SegmentName() string {
+	dwpt.mu.RLock()
+	defer dwpt.mu.RUnlock()
+	if dwpt.segmentInfo == nil {
+		return ""
+	}
+	return dwpt.segmentInfo.Name()
+}
+
 // Reset resets the DWPT for a new segment.
 func (dwpt *DocumentsWriterPerThread) Reset() {
 	dwpt.mu.Lock()
@@ -1401,6 +1758,24 @@ func (dwpt *DocumentsWriterPerThread) Reset() {
 	dwpt.vectorValues = make(map[string]*VectorValuesBuffer)
 	dwpt.pointValues = make(map[string]*PointValuesBuffer)
 	dwpt.pendingDeletes = nil
+	dwpt.tvFieldWriters = make(map[string]*TermVectorsConsumerPerField)
+	dwpt.tvFieldContexts = make(map[string]*tvTokenContext)
+	if dwpt.termVectorsConsumer != nil {
+		dwpt.termVectorsConsumer.reset()
+	}
+}
+
+// Abort discards in-memory state and closes any in-flight term-vectors writer,
+// mirroring Lucene's DocumentsWriterPerThread.abort().
+func (dwpt *DocumentsWriterPerThread) Abort() error {
+	dwpt.mu.Lock()
+	defer dwpt.mu.Unlock()
+
+	if dwpt.termVectorsConsumer != nil {
+		dwpt.termVectorsConsumer.Abort()
+	}
+	dwpt.Reset()
+	return nil
 }
 
 // PrepareFlush prepares this DWPT for flushing.
@@ -1432,7 +1807,7 @@ type FlushTicket struct {
 }
 
 // Flush flushes the DWPT data to disk.
-// Returns the new segment info.
+// Returns the segment info.
 func (dwpt *DocumentsWriterPerThread) Flush(directory store.Directory, codec Codec, segmentName string) (*SegmentInfo, error) {
 	dwpt.mu.Lock()
 	defer dwpt.mu.Unlock()
@@ -1441,11 +1816,21 @@ func (dwpt *DocumentsWriterPerThread) Flush(directory store.Directory, codec Cod
 		return nil, nil // Nothing to flush
 	}
 
-	// Create segment info
-	segmentInfo := NewSegmentInfo(segmentName, dwpt.numDocsInRAM, directory)
-	segmentInfo.SetID(generateSegmentID())
-	segmentInfo.SetVersion("10.4.0")
-	segmentInfo.SetMinVersion("10.4.0")
+	// Use the segment info created with the reserved segment name.  It was
+	// initialized when the DWPT was obtained from the pool so that lazy codec
+	// writers (in particular the term-vectors writer) already see the correct
+	// segment name.  If for some reason the DWPT has no segment info (parentless
+	// test path), fall back to synthesising one from the supplied segmentName.
+	var segmentInfo *SegmentInfo
+	if dwpt.segmentInfo != nil {
+		segmentInfo = dwpt.segmentInfo
+	} else {
+		segmentInfo = NewSegmentInfo(segmentName, dwpt.numDocsInRAM, directory)
+		segmentInfo.SetID(generateSegmentID())
+		segmentInfo.SetVersion("10.4.0")
+		segmentInfo.SetMinVersion("10.4.0")
+	}
+	segmentInfo.SetDocCount(dwpt.numDocsInRAM)
 
 	// Build field infos
 	fieldInfos := dwpt.fieldInfosBuilder.Build()
@@ -1468,13 +1853,23 @@ func (dwpt *DocumentsWriterPerThread) Flush(directory store.Directory, codec Cod
 		return nil, fmt.Errorf("failed to flush postings: %w", err)
 	}
 
-	// 3. Write field infos
+	// 3. Write term vectors
+	if dwpt.termVectorsConsumer != nil {
+		// The consumer already points to segmentInfo, but re-state it in case a
+		// parentless path created a fresh one above.
+		dwpt.termVectorsConsumer.Info = segmentInfo
+		if err := dwpt.flushTermVectors(writeState); err != nil {
+			return nil, fmt.Errorf("failed to flush term vectors: %w", err)
+		}
+	}
+
+	// 4. Write field infos
 	if err := dwpt.flushFieldInfos(codec, writeState); err != nil {
 		return nil, fmt.Errorf("failed to flush field infos: %w", err)
 	}
 
 	// Update segment files list
-	segmentInfo.SetFiles(dwpt.getGeneratedFiles(segmentName))
+	segmentInfo.SetFiles(dwpt.getGeneratedFiles(segmentInfo.Name()))
 
 	return segmentInfo, nil
 }
@@ -1554,151 +1949,14 @@ type docTermEntry struct {
 	endOffs   []int
 }
 
-// flushTermVectors writes the term vectors for all in-RAM documents to the
-// codec's TermVectorsFormat. Inverts the per-field inverted index to produce
-// per-document term vector data.
-//
-// Only invoked when at least one field in fieldInfos has StoreTermVectors=true.
-// If the codec does not provide a TermVectorsFormat, the method is a no-op.
-func (dwpt *DocumentsWriterPerThread) flushTermVectors(codec Codec, state *SegmentWriteState) error {
-	tvFmt := codec.TermVectorsFormat()
-	if tvFmt == nil {
+// flushTermVectors delegates to the wired TermVectorsConsumer. The consumer has
+// already collected per-field state during ProcessDocument and now flushes it
+// through the codec's TermVectorsWriter.
+func (dwpt *DocumentsWriterPerThread) flushTermVectors(state *SegmentWriteState) error {
+	if dwpt.termVectorsConsumer == nil {
 		return nil
 	}
-
-	// Determine which fields carry term vectors and their per-field options.
-	type tvFieldOpts struct {
-		fieldInfo    *FieldInfo
-		hasPositions bool
-		hasOffsets   bool
-		hasPayloads  bool
-	}
-	var tvFields []tvFieldOpts
-	it := state.FieldInfos.Iterator()
-	for {
-		fi := it.Next()
-		if fi == nil {
-			break
-		}
-		if fi.StoreTermVectors() {
-			tvFields = append(tvFields, tvFieldOpts{
-				fieldInfo:    fi,
-				hasPositions: fi.StoreTermVectorPositions(),
-				hasOffsets:   fi.StoreTermVectorOffsets(),
-				hasPayloads:  fi.StoreTermVectorPayloads(),
-			})
-		}
-	}
-	if len(tvFields) == 0 {
-		return nil // Nothing to write.
-	}
-
-	numDocs := dwpt.numDocsInRAM
-
-	// Build per-doc term vector data by inverting the field postings.
-	// docVectors[docID] = map[fieldName] -> []docTermEntry
-	type docTV map[string][]docTermEntry
-	docVectors := make([]docTV, numDocs)
-	for i := range docVectors {
-		docVectors[i] = make(docTV)
-	}
-
-	dwpt.invertedIndex.mu.RLock()
-	for _, opts := range tvFields {
-		fp, ok := dwpt.invertedIndex.fields[opts.fieldInfo.Name()]
-		if !ok {
-			continue
-		}
-		fp.mu.RLock()
-		for termText, posting := range fp.terms {
-			for di, docID := range posting.docIDs {
-				if docID < 0 || docID >= numDocs {
-					continue
-				}
-				entry := docTermEntry{text: termText}
-				if opts.hasPositions && di < len(posting.positions) {
-					entry.positions = posting.positions[di]
-				}
-				if opts.hasOffsets && di < len(posting.startOffsets) {
-					entry.startOffs = posting.startOffsets[di]
-					entry.endOffs = posting.endOffsets[di]
-				}
-				docVectors[docID][opts.fieldInfo.Name()] = append(
-					docVectors[docID][opts.fieldInfo.Name()], entry)
-			}
-		}
-		fp.mu.RUnlock()
-	}
-	dwpt.invertedIndex.mu.RUnlock()
-
-	// Open the writer and drive the StartDocument / StartField / StartTerm protocol.
-	tvWriter, err := tvFmt.VectorsWriter(state)
-	if err != nil {
-		return fmt.Errorf("term vectors writer: %w", err)
-	}
-	defer tvWriter.Close()
-
-	for docID := 0; docID < numDocs; docID++ {
-		fieldMap := docVectors[docID]
-
-		// Build the list of fields that have at least one term for this doc.
-		var activeFields []tvFieldOpts
-		for _, opts := range tvFields {
-			if len(fieldMap[opts.fieldInfo.Name()]) > 0 {
-				activeFields = append(activeFields, opts)
-			}
-		}
-
-		if err := tvWriter.StartDocument(len(activeFields)); err != nil {
-			return fmt.Errorf("term vectors StartDocument doc=%d: %w", docID, err)
-		}
-
-		for _, opts := range activeFields {
-			entries := fieldMap[opts.fieldInfo.Name()]
-			if err := tvWriter.StartField(opts.fieldInfo, len(entries),
-				opts.hasPositions, opts.hasOffsets, opts.hasPayloads); err != nil {
-				return fmt.Errorf("term vectors StartField doc=%d field=%s: %w",
-					docID, opts.fieldInfo.Name(), err)
-			}
-			for _, entry := range entries {
-				if err := tvWriter.StartTerm([]byte(entry.text)); err != nil {
-					return fmt.Errorf("term vectors StartTerm doc=%d field=%s term=%s: %w",
-						docID, opts.fieldInfo.Name(), entry.text, err)
-				}
-				// Determine occurrence count.
-				occurrences := 1
-				if opts.hasPositions && len(entry.positions) > 0 {
-					occurrences = len(entry.positions)
-				}
-				for i := 0; i < occurrences; i++ {
-					pos := -1
-					so, eo := -1, -1
-					if opts.hasPositions && i < len(entry.positions) {
-						pos = entry.positions[i]
-					}
-					if opts.hasOffsets && i < len(entry.startOffs) {
-						so = entry.startOffs[i]
-						eo = entry.endOffs[i]
-					}
-					if err := tvWriter.AddPosition(pos, so, eo, nil); err != nil {
-						return fmt.Errorf("term vectors AddPosition doc=%d: %w", docID, err)
-					}
-				}
-				if err := tvWriter.FinishTerm(); err != nil {
-					return err
-				}
-			}
-			if err := tvWriter.FinishField(); err != nil {
-				return err
-			}
-		}
-
-		if err := tvWriter.FinishDocument(); err != nil {
-			return fmt.Errorf("term vectors FinishDocument doc=%d: %w", docID, err)
-		}
-	}
-
-	return nil
+	return dwpt.termVectorsConsumer.Flush(state, nil)
 }
 
 // flushKnnVectors writes the buffered KNN vector values for every vector
@@ -1996,9 +2254,10 @@ func (f *simpleFieldType) GetIndexOptions() IndexOptions { return IndexOptionsNo
 func (f *simpleFieldType) GetDocValuesType() DocValuesType {
 	return DocValuesTypeNone
 }
-func (f *simpleFieldType) StoreTermVectors() bool         { return false }
-func (f *simpleFieldType) StoreTermVectorPositions() bool { return false }
-func (f *simpleFieldType) StoreTermVectorOffsets() bool   { return false }
+func (f *simpleFieldType) StoreTermVectors() bool          { return false }
+func (f *simpleFieldType) StoreTermVectorPositions() bool  { return false }
+func (f *simpleFieldType) StoreTermVectorOffsets() bool    { return false }
+func (f *simpleFieldType) StoreTermVectorPayloads() bool   { return false }
 
 // postingTermsAdapter adapts FieldPostings to Terms interface.
 type postingTermsAdapter struct {

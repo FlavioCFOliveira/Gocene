@@ -45,7 +45,7 @@ func newMultiSegmentDVReader(t *testing.T, nums []int64, sorted []string) *index
 		doc.Add(snf)
 		ssf, _ := document.NewSortedSetDocValuesField("sset", [][]byte{[]byte(sorted[i]), []byte("z-shared")})
 		doc.Add(ssf)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 		if err := writer.Commit(); err != nil { // one segment per doc

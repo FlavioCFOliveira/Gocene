@@ -407,11 +407,14 @@ func (s *SerialMergeScheduler) Merge(source MergeSource, trigger MergeTrigger) e
 			break
 		}
 
-		if err := source.Merge(merge); err != nil {
+		err := source.Merge(merge)
+		if err != nil {
+			merge.Error = err
+		}
+		source.OnMergeFinished(merge)
+		if err != nil {
 			return err
 		}
-
-		source.OnMergeFinished(merge)
 	}
 
 	return nil

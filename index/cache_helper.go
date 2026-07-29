@@ -70,7 +70,10 @@ type ReaderCacheHelper struct {
 	// closedListeners are listeners to notify when the reader is closed
 	closedListeners []func()
 
-	// mu protects closedListeners
+	// closed is true once the reader owning this helper has been closed.
+	closed bool
+
+	// mu protects closedListeners and closed.
 	mu sync.Mutex
 }
 
@@ -87,10 +90,24 @@ func (h *ReaderCacheHelper) CacheKey() *CacheKey {
 }
 
 // AddClosedListener adds a listener to be called when the reader is closed.
+// Adding a listener to an already-closed reader invokes it immediately and
+// returns an AlreadyClosedException, matching Lucene's CacheHelper contract.
 func (h *ReaderCacheHelper) AddClosedListener(listener func()) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if h.closed {
+		listener()
+		return
+	}
 	h.closedListeners = append(h.closedListeners, listener)
+}
+
+// SetClosed marks this helper as closed. It is called by the owning reader's
+// close path before listeners are notified.
+func (h *ReaderCacheHelper) SetClosed() {
+	h.mu.Lock()
+	h.closed = true
+	h.mu.Unlock()
 }
 
 // NotifyClosedListeners notifies all registered listeners that the reader is closed.

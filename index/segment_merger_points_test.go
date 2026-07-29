@@ -63,7 +63,7 @@ func TestSegmentMerger_PointsRoundTrip(t *testing.T) {
 	addPt := func(v int32) {
 		doc := document.NewDocument()
 		doc.Add(document.NewIntPoint("pt", v))
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

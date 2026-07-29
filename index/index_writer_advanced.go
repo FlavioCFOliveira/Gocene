@@ -5,7 +5,6 @@ package index
 
 import (
 	"fmt"
-	"sync/atomic"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
@@ -17,33 +16,35 @@ import (
 //   - delTerm: The term to match for deletion. If nil, no documents are deleted.
 //   - docs: The documents to add.
 //
-// Returns an error if the operation fails.
-//
-// This implements GC-629: updateDocuments
-func (w *IndexWriter) UpdateDocuments(delTerm *Term, docs []Document) error {
+// Returns the sequence number of the last document added, or an error if the
+// operation fails. This implements GC-629: updateDocuments.
+func (w *IndexWriter) UpdateDocuments(delTerm *Term, docs []Document) (int64, error) {
 	if err := w.ensureOpen(); err != nil {
-		return err
+		return 0, err
 	}
 
 	if len(docs) == 0 {
-		return fmt.Errorf("no documents to add")
+		return 0, fmt.Errorf("no documents to add")
 	}
 
 	// Delete documents matching the term if provided
 	if delTerm != nil {
-		if err := w.DeleteDocuments(delTerm); err != nil {
-			return fmt.Errorf("failed to delete documents: %w", err)
+		if _, err := w.DeleteDocuments(delTerm); err != nil {
+			return 0, fmt.Errorf("failed to delete documents: %w", err)
 		}
 	}
 
 	// Add all documents in the block
+	var lastSeqNo int64
 	for _, doc := range docs {
-		if err := w.AddDocument(doc); err != nil {
-			return fmt.Errorf("failed to add document: %w", err)
+		seqNo, err := w.AddDocument(doc)
+		if err != nil {
+			return 0, fmt.Errorf("failed to add document: %w", err)
 		}
+		lastSeqNo = seqNo
 	}
 
-	return nil
+	return lastSeqNo, nil
 }
 
 // UpdateDocumentsQuery atomically deletes documents matching the deletion query and
@@ -53,31 +54,35 @@ func (w *IndexWriter) UpdateDocuments(delTerm *Term, docs []Document) error {
 //   - delQuery: The query to match for deletion. If nil, no documents are deleted.
 //   - docs: The documents to add.
 //
-// Returns an error if the operation fails.
-func (w *IndexWriter) UpdateDocumentsQuery(delQuery interface{}, docs []Document) error {
+// Returns the sequence number of the last document added, or an error if the
+// operation fails.
+func (w *IndexWriter) UpdateDocumentsQuery(delQuery interface{}, docs []Document) (int64, error) {
 	if err := w.ensureOpen(); err != nil {
-		return err
+		return 0, err
 	}
 
 	if len(docs) == 0 {
-		return fmt.Errorf("no documents to add")
+		return 0, fmt.Errorf("no documents to add")
 	}
 
 	// Delete documents matching the query if provided
 	if delQuery != nil {
-		if err := w.DeleteDocumentsQuery(delQuery); err != nil {
-			return fmt.Errorf("failed to delete documents: %w", err)
+		if _, err := w.DeleteDocumentsQuery(delQuery); err != nil {
+			return 0, fmt.Errorf("failed to delete documents: %w", err)
 		}
 	}
 
 	// Add all documents in the block
+	var lastSeqNo int64
 	for _, doc := range docs {
-		if err := w.AddDocument(doc); err != nil {
-			return fmt.Errorf("failed to add document: %w", err)
+		seqNo, err := w.AddDocument(doc)
+		if err != nil {
+			return 0, fmt.Errorf("failed to add document: %w", err)
 		}
+		lastSeqNo = seqNo
 	}
 
-	return nil
+	return lastSeqNo, nil
 }
 
 // UpdateNumericDocValue updates a single numeric doc value for all documents
@@ -100,13 +105,7 @@ func (w *IndexWriter) UpdateNumericDocValue(term *Term, field string, value int6
 		return -1, fmt.Errorf("term cannot be nil")
 	}
 
-	// Use the existing UpdateDocValues method
-	if err := w.UpdateDocValues(term, field, value); err != nil {
-		return -1, err
-	}
-
-	// Return a sequence number (simplified implementation)
-	return w.getNextSequenceNumber(), nil
+	return w.UpdateDocValues(term, field, value)
 }
 
 // UpdateBinaryDocValue updates a single binary doc value for all documents
@@ -129,13 +128,7 @@ func (w *IndexWriter) UpdateBinaryDocValue(term *Term, field string, value []byt
 		return -1, fmt.Errorf("term cannot be nil")
 	}
 
-	// Use the existing UpdateDocValues method
-	if err := w.UpdateDocValues(term, field, value); err != nil {
-		return -1, err
-	}
-
-	// Return a sequence number (simplified implementation)
-	return w.getNextSequenceNumber(), nil
+	return w.UpdateDocValues(term, field, value)
 }
 
 // AddIndexesSlowly adds all segments from the provided directories to this index.
@@ -194,12 +187,3 @@ func (w *IndexWriter) GetPendingNumDocs() int {
 	return w.documentsWriter.GetNumDocsInRAM()
 }
 
-// sequenceNumber is a global monotonic counter for operation ordering.
-var sequenceNumber atomic.Int64
-
-// getNextSequenceNumber returns the next sequence number for operations.
-// This is used for tracking the order of changes. It must not acquire w.mu
-// because callers such as TryUpdateDocValue already hold it.
-func (w *IndexWriter) getNextSequenceNumber() int64 {
-	return sequenceNumber.Add(1)
-}

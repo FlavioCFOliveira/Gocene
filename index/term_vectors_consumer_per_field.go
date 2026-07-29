@@ -66,12 +66,14 @@ type TermVectorsPostingsArray struct {
 // the given number of term slots. All side arrays are zero-initialised,
 // mirroring the Java constructor (new int[size] for each array).
 func NewTermVectorsPostingsArray(size int) *TermVectorsPostingsArray {
-	return &TermVectorsPostingsArray{
+	pa := &TermVectorsPostingsArray{
 		ParallelPostingsArray: NewParallelPostingsArray(size),
 		Freqs:                 make([]int, size),
 		LastOffsets:           make([]int, size),
 		LastPositions:         make([]int, size),
 	}
+	pa.ParallelPostingsArray.wrapper = pa
+	return pa
 }
 
 // BytesPerPosting returns the byte cost of a single posting slot, including
@@ -81,15 +83,12 @@ func (a *TermVectorsPostingsArray) BytesPerPosting() int {
 	return a.ParallelPostingsArray.BytesPerPosting() + 3*4
 }
 
-// CopyTo copies the first numToCopy slots into dst. Mirrors Lucene's copyTo;
-// the Java original copies the full size for the side arrays, so the port
-// does the same to preserve byte-for-byte parity of the grown array.
+// CopyTo copies the first numToCopy slots into dst. Mirrors Lucene's copyTo.
 func (a *TermVectorsPostingsArray) CopyTo(dst *TermVectorsPostingsArray, numToCopy int) {
 	a.ParallelPostingsArray.CopyTo(dst.ParallelPostingsArray, numToCopy)
-	size := a.ParallelPostingsArray.Size
-	copy(dst.Freqs[:size], a.Freqs[:size])
-	copy(dst.LastOffsets[:size], a.LastOffsets[:size])
-	copy(dst.LastPositions[:size], a.LastPositions[:size])
+	copy(dst.Freqs[:numToCopy], a.Freqs[:numToCopy])
+	copy(dst.LastOffsets[:numToCopy], a.LastOffsets[:numToCopy])
+	copy(dst.LastPositions[:numToCopy], a.LastPositions[:numToCopy])
 }
 
 // TermVectorsConsumerPerField writes the per-document term vectors for a
@@ -216,6 +215,13 @@ func NewTermVectorsConsumerPerField(
 		AddTerm:             w.addTerm,
 		NewPostingsArray:    w.newPostingsArray,
 		CreatePostingsArray: w.createPostingsArray,
+		CopyPostingsArray: func(src, dst *ParallelPostingsArray, n int) {
+			if srcTV, ok := src.wrapper.(*TermVectorsPostingsArray); ok {
+				if dstTV, ok := dst.wrapper.(*TermVectorsPostingsArray); ok {
+					srcTV.CopyTo(dstTV, n)
+				}
+			}
+		},
 	}
 
 	// Lucene passes streamCount 2: stream 0 carries positions+payloads,

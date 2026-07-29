@@ -38,7 +38,7 @@ func TestIndexWriter_TragicEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc.Add(f)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 
@@ -70,7 +70,7 @@ func TestIndexWriter_TragicErrorIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc.Add(f)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 

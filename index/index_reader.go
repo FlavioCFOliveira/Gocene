@@ -165,7 +165,7 @@ func (r *IndexReader) NumDeletedDocs() int {
 // EnsureOpen throws an error if the reader is closed.
 func (r *IndexReader) EnsureOpen() error {
 	if r.closed.Load() {
-		return ErrAlreadyClosed
+		return NewAlreadyClosedException("this IndexReader is closed", nil)
 	}
 	return nil
 }
@@ -176,7 +176,7 @@ func (r *IndexReader) IncRef() error {
 	for {
 		count := r.refCount.Load()
 		if count <= 0 {
-			return ErrAlreadyClosed
+			return NewAlreadyClosedException("this IndexReader is closed", nil)
 		}
 		if r.refCount.CompareAndSwap(count, count+1) {
 			return nil
@@ -226,6 +226,7 @@ func (r *IndexReader) closeInternal() error {
 
 	// Notify cache helper listeners
 	if r.cacheHelper != nil {
+		r.cacheHelper.SetClosed()
 		r.cacheHelper.NotifyClosedListeners()
 	}
 

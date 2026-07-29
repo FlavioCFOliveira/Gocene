@@ -65,7 +65,7 @@ func buildIndex(t *testing.T, stored bool) (index.IndexReaderInterface, func()) 
 			t.Fatalf("NewTextField: %v", err)
 		}
 		doc.Add(tf)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

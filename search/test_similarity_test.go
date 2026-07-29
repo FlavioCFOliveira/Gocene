@@ -62,7 +62,7 @@ func TestSimilarity_Similarity(t *testing.T) {
 			t.Fatalf("NewTextField: %v", fErr)
 		}
 		doc.Add(f)
-		if addErr := w.AddDocument(doc); addErr != nil {
+		if _, addErr := w.AddDocument(doc); addErr != nil {
 			t.Fatalf("AddDocument: %v", addErr)
 		}
 	}

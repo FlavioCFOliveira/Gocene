@@ -113,6 +113,18 @@ func (dw *DocumentsWriter) SetCodec(codec Codec) {
 	dw.codec = codec
 }
 
+// ShouldFlush reports whether the in-memory state has crossed the configured
+// flush threshold. It mirrors Lucene's DocumentsWriter#doFlush internal
+// flush-trigger check and is safe for concurrent use.
+func (dw *DocumentsWriter) ShouldFlush() bool {
+	dw.mu.RLock()
+	defer dw.mu.RUnlock()
+	if dw.flushPolicy == nil {
+		return false
+	}
+	return dw.flushPolicy.ShouldFlush(dw.numDocsInRAM, dw.bytesUsed)
+}
+
 // UpdateDocument updates a document (adds a new document, optionally deleting an old one).
 //
 // Note: this method does NOT trigger an auto-flush; the IndexWriter is
@@ -130,6 +142,7 @@ func (dw *DocumentsWriter) UpdateDocument(doc Document, analyzer analysis.Analyz
 	}
 
 	// Process the document
+	before := dwpt.GetBytesUsed()
 	if err := dwpt.ProcessDocument(doc); err != nil {
 		return err
 	}
@@ -137,8 +150,9 @@ func (dw *DocumentsWriter) UpdateDocument(doc Document, analyzer analysis.Analyz
 	dw.numDocsInRAM++
 	dw.numDocs++
 
-	// Update memory tracking
-	dw.bytesUsed += dwpt.GetBytesUsed()
+	// Update memory tracking: only count the bytes added by this document,
+	// not the entire accumulated DWPT total.
+	dw.bytesUsed += dwpt.GetBytesUsed() - before
 
 	return nil
 }
@@ -166,6 +180,7 @@ func (dw *DocumentsWriter) AddDocument(doc Document, analyzer analysis.Analyzer)
 	}
 
 	// Process the document
+	before := dwpt.GetBytesUsed()
 	if err := dwpt.ProcessDocument(doc); err != nil {
 		return err
 	}
@@ -173,8 +188,8 @@ func (dw *DocumentsWriter) AddDocument(doc Document, analyzer analysis.Analyzer)
 	dw.numDocsInRAM++
 	dw.numDocs++
 
-	// Update memory tracking
-	dw.bytesUsed += dwpt.GetBytesUsed()
+	// Update memory tracking: only count the bytes added by this document.
+	dw.bytesUsed += dwpt.GetBytesUsed() - before
 
 	return nil
 }
@@ -207,7 +222,11 @@ func (dw *DocumentsWriter) getPerThreadWriter() *DocumentsWriterPerThread {
 	if len(dw.perThreadPool) > 0 {
 		return dw.perThreadPool[0]
 	}
-	dwpt := NewDocumentsWriterPerThread(dw)
+	// Reserve a segment name up front, matching Lucene's DWPT constructor.
+	// This lets lazily-initialized codec writers (in particular the term-vectors
+	// writer) create their on-disk files under the correct segment name.
+	segmentName := dw.nextSegmentName()
+	dwpt := NewDocumentsWriterPerThread(dw, segmentName)
 	dw.perThreadPool = append(dw.perThreadPool, dwpt)
 	return dwpt
 }
@@ -243,16 +262,15 @@ func (dw *DocumentsWriter) flush() error {
 		return fmt.Errorf("documents_writer: cannot flush %d buffered documents: no codec configured", dw.numDocsInRAM)
 	}
 
-	// Generate a new segment name
-	segmentName := dw.nextSegmentName()
-
 	// Get all per-thread writers
 	dw.threadLock.RLock()
 	dwpts := make([]*DocumentsWriterPerThread, len(dw.perThreadPool))
 	copy(dwpts, dw.perThreadPool)
 	dw.threadLock.RUnlock()
 
-	// Flush each DWPT and collect segment infos
+	// Flush each DWPT and collect segment infos.  Each DWPT already reserved
+	// its segment name when it was obtained from the pool, so there is no need
+	// to generate fresh names here.
 	var segments []*SegmentInfo
 	var totalDocsFlushed int
 
@@ -261,6 +279,7 @@ func (dw *DocumentsWriter) flush() error {
 			continue // Nothing to flush in this DWPT
 		}
 
+		segmentName := dwpt.SegmentName()
 		// Flush the DWPT
 		segmentInfo, err := dwpt.Flush(dw.directory, dw.codec, segmentName)
 		if err != nil {
@@ -270,9 +289,6 @@ func (dw *DocumentsWriter) flush() error {
 		if segmentInfo != nil {
 			segments = append(segments, segmentInfo)
 			totalDocsFlushed += segmentInfo.DocCount()
-
-			// Generate next segment name for subsequent segments
-			segmentName = dw.nextSegmentName()
 		}
 	}
 

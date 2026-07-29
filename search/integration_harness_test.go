@@ -74,7 +74,7 @@ func (ix *integrationIndex) addString(field, value string) {
 		ix.t.Fatalf("NewStringField(%q): %v", field, err)
 	}
 	doc.Add(f)
-	if err := ix.w.AddDocument(doc); err != nil {
+	if _, err := ix.w.AddDocument(doc); err != nil {
 		ix.t.Fatalf("AddDocument: %v", err)
 	}
 }
@@ -88,7 +88,7 @@ func (ix *integrationIndex) addText(field, value string) {
 		ix.t.Fatalf("NewTextField(%q): %v", field, err)
 	}
 	doc.Add(f)
-	if err := ix.w.AddDocument(doc); err != nil {
+	if _, err := ix.w.AddDocument(doc); err != nil {
 		ix.t.Fatalf("AddDocument: %v", err)
 	}
 }
@@ -96,7 +96,7 @@ func (ix *integrationIndex) addText(field, value string) {
 // addDoc adds a fully-formed document.
 func (ix *integrationIndex) addDoc(doc *document.Document) {
 	ix.t.Helper()
-	if err := ix.w.AddDocument(doc); err != nil {
+	if _, err := ix.w.AddDocument(doc); err != nil {
 		ix.t.Fatalf("AddDocument: %v", err)
 	}
 }

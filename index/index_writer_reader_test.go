@@ -46,7 +46,7 @@ func TestIndexWriterReader_AddCloseOpen(t *testing.T) {
 	}
 	defer writer.Close()
 
-	if err := writer.AddDocument(createTestDoc(1, "test", 2)); err != nil {
+	if _, err := writer.AddDocument(createTestDoc(1, "test", 2)); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -61,7 +61,7 @@ func TestIndexWriterReader_AddCloseOpen(t *testing.T) {
 		t.Fatalf("fresh NRT reader should be current (current=%v err=%v)", current, err)
 	}
 
-	if err := writer.AddDocument(createTestDoc(2, "test", 2)); err != nil {
+	if _, err := writer.AddDocument(createTestDoc(2, "test", 2)); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if current, err := reader.IsCurrent(); err != nil || current {
@@ -101,7 +101,7 @@ func TestIndexWriterReader_UpdateDocument(t *testing.T) {
 	}
 	defer writer.Close()
 
-	if err := writer.AddDocument(createTestDoc(1, "test", 2)); err != nil {
+	if _, err := writer.AddDocument(createTestDoc(1, "test", 2)); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -119,7 +119,7 @@ func TestIndexWriterReader_UpdateDocument(t *testing.T) {
 	}
 
 	term := index.NewTerm("id", "1")
-	if err := writer.UpdateDocument(term, createTestDoc(1, "updated", 2)); err != nil {
+	if _, err := writer.UpdateDocument(term, createTestDoc(1, "updated", 2)); err != nil {
 		t.Fatalf("UpdateDocument: %v", err)
 	}
 
@@ -150,7 +150,7 @@ func TestIndexWriterReader_IsCurrent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
-	if err := writer.AddDocument(createTestDoc(1, "test", 2)); err != nil {
+	if _, err := writer.AddDocument(createTestDoc(1, "test", 2)); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -183,7 +183,7 @@ func TestIndexWriterReader_IsCurrent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIndexWriter (append): %v", err)
 	}
-	if err := writer2.AddDocument(createTestDoc(2, "test", 2)); err != nil {
+	if _, err := writer2.AddDocument(createTestDoc(2, "test", 2)); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writer2.Commit(); err != nil {
@@ -214,7 +214,7 @@ func TestIndexWriterReader_AddIndexes(t *testing.T) {
 		t.Fatalf("NewIndexWriter (source): %v", err)
 	}
 	for i := 0; i < 100; i++ {
-		if err := sourceWriter.AddDocument(createTestDoc(i, "index2", 4)); err != nil {
+		if _, err := sourceWriter.AddDocument(createTestDoc(i, "index2", 4)); err != nil {
 			t.Fatalf("AddDocument (source) %d: %v", i, err)
 		}
 	}
@@ -233,7 +233,7 @@ func TestIndexWriterReader_AddIndexes(t *testing.T) {
 		t.Fatalf("NewIndexWriter (target): %v", err)
 	}
 	for i := 0; i < 100; i++ {
-		if err := targetWriter.AddDocument(createTestDoc(i, "index1", 4)); err != nil {
+		if _, err := targetWriter.AddDocument(createTestDoc(i, "index1", 4)); err != nil {
 			t.Fatalf("AddDocument (target) %d: %v", i, err)
 		}
 	}
@@ -269,7 +269,7 @@ func TestIndexWriterReader_AddIndexes2(t *testing.T) {
 		t.Fatalf("NewIndexWriter (source): %v", err)
 	}
 	for i := 0; i < 100; i++ {
-		if err := sourceWriter.AddDocument(createTestDoc(i, "index2", 4)); err != nil {
+		if _, err := sourceWriter.AddDocument(createTestDoc(i, "index2", 4)); err != nil {
 			t.Fatalf("AddDocument (source) %d: %v", i, err)
 		}
 	}
@@ -326,7 +326,7 @@ func TestIndexWriterReader_DeleteFromIndexWriter(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewStringField("id", fmt.Sprintf("id%d", i), false)
 		doc.Add(f)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument[%d]: %v", i, err)
 		}
 	}
@@ -346,7 +346,7 @@ func TestIndexWriterReader_DeleteFromIndexWriter(t *testing.T) {
 	}
 
 	// Delete id10; it must vanish from the next NRT reader but stay in r1.
-	if err := writer.DeleteDocuments(index.NewTerm("id", "id10")); err != nil {
+	if _, err := writer.DeleteDocuments(index.NewTerm("id", "id10")); err != nil {
 		t.Fatalf("DeleteDocuments(id10): %v", err)
 	}
 	r2, err := index.OpenDirectoryReaderFromWriter(writer)
@@ -362,7 +362,7 @@ func TestIndexWriterReader_DeleteFromIndexWriter(t *testing.T) {
 	}
 
 	// Delete id50 by query.
-	if err := writer.DeleteDocumentsQuery(search.NewTermQuery(index.NewTerm("id", "id50"))); err != nil {
+	if _, err := writer.DeleteDocumentsQuery(search.NewTermQuery(index.NewTerm("id", "id50"))); err != nil {
 		t.Fatalf("DeleteDocumentsQuery(id50): %v", err)
 	}
 	r3, err := index.OpenDirectoryReaderFromWriter(writer)
@@ -436,7 +436,7 @@ func doTestIndexWriterReopenSegment(t *testing.T, doFullMerge bool) {
 	}
 
 	for i := 0; i < 100; i++ {
-		if err := writer.AddDocument(createTestDoc(i, "index1", 4)); err != nil {
+		if _, err := writer.AddDocument(createTestDoc(i, "index1", 4)); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
@@ -460,7 +460,7 @@ func doTestIndexWriterReopenSegment(t *testing.T, doFullMerge bool) {
 	}
 
 	for i := 10000; i < 10100; i++ {
-		if err := writer.AddDocument(createTestDoc(i, "index1", 4)); err != nil {
+		if _, err := writer.AddDocument(createTestDoc(i, "index1", 4)); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
@@ -513,7 +513,7 @@ func TestIndexWriterReader_MergeWarmer(t *testing.T) {
 	defer writer.Close()
 
 	for i := 0; i < 5; i++ {
-		if err := writer.AddDocument(createTestDoc(i, "test", 4)); err != nil {
+		if _, err := writer.AddDocument(createTestDoc(i, "test", 4)); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 	}
@@ -529,7 +529,7 @@ func TestIndexWriterReader_MergeWarmer(t *testing.T) {
 	}
 	countAfterFirst := warmCount.Load()
 
-	if err := writer.AddDocument(createTestDoc(17, "test", 4)); err != nil {
+	if _, err := writer.AddDocument(createTestDoc(17, "test", 4)); err != nil {
 		t.Fatalf("AddDocument after merge: %v", err)
 	}
 	if err := writer.ForceMerge(1); err != nil {
@@ -565,7 +565,7 @@ func TestIndexWriterReader_AfterCommit(t *testing.T) {
 		t.Fatalf("initial Commit: %v", err)
 	}
 	for i := 0; i < 100; i++ {
-		if err := writer.AddDocument(createTestDoc(i, "test", 4)); err != nil {
+		if _, err := writer.AddDocument(createTestDoc(i, "test", 4)); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 	}
@@ -583,7 +583,7 @@ func TestIndexWriterReader_AfterCommit(t *testing.T) {
 	reader.Close()
 
 	for i := 0; i < 10; i++ {
-		if err := writer.AddDocument(createTestDoc(i, "test", 4)); err != nil {
+		if _, err := writer.AddDocument(createTestDoc(i, "test", 4)); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 	}
@@ -616,7 +616,7 @@ func TestIndexWriterReader_AfterClose(t *testing.T) {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
 	for i := 0; i < 100; i++ {
-		if err := writer.AddDocument(createTestDoc(i, "test", 4)); err != nil {
+		if _, err := writer.AddDocument(createTestDoc(i, "test", 4)); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 	}
@@ -641,21 +641,124 @@ func TestIndexWriterReader_AfterClose(t *testing.T) {
 	}
 }
 
-// testDuringAddIndexes ports testDuringAddIndexes() (a @Nightly stress test).
-func TestIndexWriterReader_DuringAddIndexes(t *testing.T) {
-	// NRT openIfChanged is now available; MockDirectoryWrapper fault injection
-	// is tracked by rmp #250 (T105.2.4).
-	t.Fatal("nightly stress test; needs MockDirectoryWrapper fault injection; NRT openIfChanged is now available")
-}
-
 // testDuringAddDelete ports testDuringAddDelete().
-// Concurrent add/delete stress with NRT reopen. The reader-side reopen and
-// applied deletes are unavailable; concurrent appends are covered separately
-// by TestIndexWriterReader_ConcurrentAccess.
+// Concurrent add/delete stress with NRT reopen; exercises the in-memory
+// buffered-delete path that is now applied on NRT reopen.
 func TestIndexWriterReader_DuringAddDelete(t *testing.T) {
-	// NRT openIfChanged is now available; the remaining gap is durable
-	// live-docs application on NRT reopen for the deleted documents.
-	t.Fatal("needs applied deletes on NRT reopen; NRT openIfChanged is now available")
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
+
+	iwc := index.NewIndexWriterConfig(createTestAnalyzer())
+	mp := index.NewLogMergePolicy()
+	mp.SetMergeFactor(2)
+	iwc.SetMergePolicy(mp)
+	writer, err := index.NewIndexWriter(dir, iwc)
+	if err != nil {
+		t.Fatalf("NewIndexWriter: %v", err)
+	}
+	defer writer.Close()
+
+	// Seed the index.
+	for i := 0; i < 10; i++ {
+		if _, err := writer.AddDocument(createTestDoc(i, "test", 4)); err != nil {
+			t.Fatalf("AddDocument %d: %v", i, err)
+		}
+	}
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	r, err := index.OpenDirectoryReaderFromWriter(writer)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
+	}
+
+	const numGoroutines = 2
+	const iterations = 5
+	var wg sync.WaitGroup
+	var excs []error
+	var excMu sync.Mutex
+	remaining := atomic.Int32{}
+	remaining.Store(numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(goroutine int) {
+			defer wg.Done()
+			count := 0
+			for count < iterations {
+				for docUpto := 0; docUpto < 10; docUpto++ {
+					docID := 10*count + docUpto
+					if _, err := writer.AddDocument(createTestDoc(1000*goroutine+docID, "test", 4)); err != nil {
+						excMu.Lock()
+						excs = append(excs, err)
+						excMu.Unlock()
+						remaining.Add(-1)
+						return
+					}
+				}
+				count++
+				limit := count * 10
+				for delUpto := 0; delUpto < 5; delUpto++ {
+					x := count + delUpto
+					if x >= limit {
+						x = limit - 1
+					}
+					if _, err := writer.DeleteDocuments(index.NewTerm("field3", fmt.Sprintf("b%d", 1000*goroutine+x))); err != nil {
+						excMu.Lock()
+						excs = append(excs, err)
+						excMu.Unlock()
+						remaining.Add(-1)
+						return
+					}
+				}
+			}
+			remaining.Add(-1)
+		}(i)
+	}
+
+	sum := 0
+	for remaining.Load() > 0 {
+		r2, err := index.OpenIfChangedFromWriter(r, writer)
+		if err != nil {
+			t.Fatalf("OpenIfChangedFromWriter: %v", err)
+		}
+		if r2 != nil {
+			r.Close()
+			r = r2
+			q := search.NewTermQuery(index.NewTerm("indexname", "test"))
+			s := search.NewIndexSearcher(r)
+			top, err := s.Search(q, 100000)
+			if err != nil {
+				t.Fatalf("Search: %v", err)
+			}
+			sum += int(top.TotalHits.Value)
+		}
+	}
+	wg.Wait()
+	if len(excs) > 0 {
+		t.Fatalf("worker errors: %v", excs)
+	}
+
+	r2, err := index.OpenIfChangedFromWriter(r, writer)
+	if err != nil {
+		t.Fatalf("final OpenIfChangedFromWriter: %v", err)
+	}
+	if r2 != nil {
+		r.Close()
+		r = r2
+	}
+	q := search.NewTermQuery(index.NewTerm("indexname", "test"))
+	s := search.NewIndexSearcher(r)
+	top, err := s.Search(q, 100000)
+	if err != nil {
+		t.Fatalf("final Search: %v", err)
+	}
+	sum += int(top.TotalHits.Value)
+	if sum <= 0 {
+		t.Fatal("no documents found at all")
+	}
+	r.Close()
 }
 
 // testForceMergeDeletes ports testForceMergeDeletes().
@@ -684,14 +787,14 @@ func TestIndexWriterReader_ForceMergeDeletes(t *testing.T) {
 			t.Fatalf("NewStringField: %v", err)
 		}
 		doc.Add(idField)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %s: %v", id, err)
 		}
 	}
 	addDoc("0")
 	addDoc("1")
 
-	if err := writer.DeleteDocuments(index.NewTerm("id", "0")); err != nil {
+	if _, err := writer.DeleteDocuments(index.NewTerm("id", "0")); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 
@@ -733,7 +836,7 @@ func TestIndexWriterReader_DeletesNumDocs(t *testing.T) {
 	defer writer.Close()
 
 	for i := 0; i < 10; i++ {
-		if err := writer.AddDocument(createTestDoc(i, "test", 2)); err != nil {
+		if _, err := writer.AddDocument(createTestDoc(i, "test", 2)); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
@@ -751,7 +854,7 @@ func TestIndexWriterReader_DeletesNumDocs(t *testing.T) {
 	}
 
 	for i := 0; i < 5; i++ {
-		if err := writer.DeleteDocuments(index.NewTerm("id", strconv.Itoa(i))); err != nil {
+		if _, err := writer.DeleteDocuments(index.NewTerm("id", strconv.Itoa(i))); err != nil {
 			t.Fatalf("DeleteDocuments(%d): %v", i, err)
 		}
 	}
@@ -825,7 +928,7 @@ func TestIndexWriterReader_SegmentWarmer(t *testing.T) {
 	f, _ := document.NewStringField("foo", "bar", false)
 	doc.Add(f)
 	for i := 0; i < 20; i++ {
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 	}
@@ -894,7 +997,7 @@ func TestIndexWriterReader_SimpleMergedSegmentWarmer(t *testing.T) {
 	f, _ := document.NewStringField("foo", "bar", true)
 	doc.Add(f)
 	for i := 0; i < 20; i++ {
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 	}
@@ -934,7 +1037,7 @@ func TestIndexWriterReader_ReopenAfterNoRealChange(t *testing.T) {
 	defer writer.Close()
 
 	for i := 0; i < 5; i++ {
-		if err := writer.AddDocument(createTestDoc(i, "test", 2)); err != nil {
+		if _, err := writer.AddDocument(createTestDoc(i, "test", 2)); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
@@ -968,9 +1071,11 @@ func TestIndexWriterReader_NRTOpenExceptions(t *testing.T) {
 // the leaf count bounded.
 func TestIndexWriterReader_TooManySegments(t *testing.T) {
 	// NRT DirectoryReader.open(writer) and reader.Leaves() are now available;
-	// the remaining gap is merge-policy enforcement that keeps the leaf count
-	// bounded under a stream of small NRT flushes.
-	t.Fatal("needs merge-policy leaf-count enforcement; NRT open(writer) and Leaves() are now available")
+	// the default merge policy is TieredMergePolicy. The remaining gap is that
+	// GetReader materialises flushed DWPTs as in-memory pending segments and
+	// maybeMergeSnapshot declines to merge in-memory segments, so the leaf count
+	// grows unbounded until a Commit writes real segment files.
+	t.Fatal("blocked: GetReader must write flushed DWPTs to disk so maybeMergeSnapshot can merge them")
 }
 
 // testReopenNRTReaderOnCommit ports testReopenNRTReaderOnCommit().
@@ -1004,7 +1109,7 @@ func TestIndexWriterReader_BasicNRT(t *testing.T) {
 	defer writer.Close()
 
 	for i := 0; i < 10; i++ {
-		if err := writer.AddDocument(createTestDoc(i, "test", 2)); err != nil {
+		if _, err := writer.AddDocument(createTestDoc(i, "test", 2)); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 	}
@@ -1035,7 +1140,7 @@ func TestIndexWriterReader_Reopen(t *testing.T) {
 	defer writer.Close()
 
 	for i := 0; i < 10; i++ {
-		if err := writer.AddDocument(createTestDoc(i, "test", 2)); err != nil {
+		if _, err := writer.AddDocument(createTestDoc(i, "test", 2)); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 	}
@@ -1053,7 +1158,7 @@ func TestIndexWriterReader_Reopen(t *testing.T) {
 	reader.Close()
 
 	for i := 10; i < 20; i++ {
-		if err := writer.AddDocument(createTestDoc(i, "test", 2)); err != nil {
+		if _, err := writer.AddDocument(createTestDoc(i, "test", 2)); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 	}
@@ -1083,7 +1188,7 @@ func TestIndexWriterReader_ConcurrentAccess(t *testing.T) {
 	}
 
 	for i := 0; i < 10; i++ {
-		if err := writer.AddDocument(createTestDoc(i, "test", 2)); err != nil {
+		if _, err := writer.AddDocument(createTestDoc(i, "test", 2)); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 	}
@@ -1101,7 +1206,7 @@ func TestIndexWriterReader_ConcurrentAccess(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
-				if err := writer.AddDocument(createTestDoc(1000*id+j, "concurrent", 2)); err != nil {
+				if _, err := writer.AddDocument(createTestDoc(1000*id+j, "concurrent", 2)); err != nil {
 					addErr.Store(&err)
 					return
 				}

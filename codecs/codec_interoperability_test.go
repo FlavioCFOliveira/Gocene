@@ -39,7 +39,7 @@ func TestCodecInteroperability_Lucene99Codec(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "test content", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -81,7 +81,7 @@ func TestCodecInteroperability_Lucene90Codec(t *testing.T) {
 		idField, _ := document.NewStringField("id", string(rune('0'+i%5)), true)
 		doc.Add(idField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -130,7 +130,7 @@ func TestCodecInteroperability_CompressingCodec(t *testing.T) {
 		contentField, _ := document.NewTextField("content", contents[i%4], true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -181,7 +181,7 @@ func TestCodecInteroperability_PerFieldPostingsFormat(t *testing.T) {
 		storedField, _ := document.NewStoredField("metadata", "stored data")
 		doc.Add(storedField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -226,7 +226,7 @@ func TestCodecInteroperability_CodecRoundtrip(t *testing.T) {
 			contentField, _ := document.NewTextField("content", "roundtrip test content", true)
 			doc.Add(contentField)
 
-			if err := writer.AddDocument(doc); err != nil {
+			if _, err := writer.AddDocument(doc); err != nil {
 				t.Fatalf("failed to add document: %v", err)
 			}
 		}
@@ -280,7 +280,7 @@ func TestCodecInteroperability_FieldInfosFormat(t *testing.T) {
 		intField, _ := document.NewIntField("int_field", i, true)
 		doc.Add(intField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -340,7 +340,7 @@ func TestCodecInteroperability_StoredFieldsFormat(t *testing.T) {
 		storedField, _ := document.NewStoredField("metadata", data.meta)
 		doc.Add(storedField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -387,7 +387,7 @@ func TestCodecInteroperability_TermVectorsFormat(t *testing.T) {
 		textField, _ := document.NewTextField("content", content, true)
 		doc.Add(textField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}

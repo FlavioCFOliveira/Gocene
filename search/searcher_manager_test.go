@@ -36,7 +36,7 @@ func TestSearcherManager_Basic(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("content", "hello world", true)
 		doc.Add(f)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
@@ -85,7 +85,7 @@ func TestSearcherManager_NRT(t *testing.T) {
 	doc := document.NewDocument()
 	f, _ := document.NewTextField("content", "initial doc", true)
 	doc.Add(f)
-	if err := w.AddDocument(doc); err != nil {
+	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := w.Commit(); err != nil {
@@ -120,7 +120,7 @@ func TestSearcherManager_NRT(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("content", "new doc", true)
 		doc.Add(f)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

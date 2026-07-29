@@ -188,7 +188,7 @@ func TestMultiValuesSource_IndexIntegration(t *testing.T) {
 		}
 		doc := document.NewDocument()
 		doc.Add(sndv)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}

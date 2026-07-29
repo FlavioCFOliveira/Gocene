@@ -57,7 +57,7 @@ func TestBinaryBackwardsCompatibility(t *testing.T) {
 	}
 	doc.Add(ndv)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -117,7 +117,7 @@ func TestBinaryBackwardsCompatibility_RawBytes(t *testing.T) {
 	}
 	doc.Add(sf)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	writer.Commit()

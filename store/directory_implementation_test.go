@@ -38,7 +38,7 @@ func TestDirectoryImplementation_ByteBuffersDirectory(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "byte buffers test", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}

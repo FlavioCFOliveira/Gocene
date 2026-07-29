@@ -33,7 +33,7 @@ func TestSegmentMerger_PostingsRoundTrip(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewTextField("body", text, true)
 		doc.Add(f)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}

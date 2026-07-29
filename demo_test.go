@@ -45,7 +45,7 @@ func TestDemo(t *testing.T) {
 	}
 	doc.Add(f)
 
-	if err := iw.AddDocument(doc); err != nil {
+	if _, err := iw.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := iw.Commit(); err != nil {

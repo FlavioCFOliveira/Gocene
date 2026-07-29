@@ -324,17 +324,30 @@ func (s *ConcurrentMergeScheduler) Merge(source MergeSource, trigger MergeTrigge
 	maxThreadCount := s.getEffectiveMaxThreadCount()
 	maxMergeCount := s.getEffectiveMaxMergeCount()
 
-	// Main merge loop
+	// Main merge loop. Drain the scheduler's internal pending queue first so
+	// merges that were re-queued because the thread limit was reached are not
+	// lost when source.GetNextMerge runs dry.
 	for {
 		// Maybe stall if too many pending merges
 		if err := s.maybeStall(source, maxMergeCount); err != nil {
 			return err
 		}
 
-		// Get next merge
-		merge := source.GetNextMerge()
+		// Prefer internal pending merges over asking the source so that
+		// re-queued merges are processed before new ones.
+		var merge *OneMerge
+		s.mergeMu.Lock()
+		if len(s.pendingMerges) > 0 {
+			merge = s.pendingMerges[0]
+			s.pendingMerges = s.pendingMerges[1:]
+		}
+		s.mergeMu.Unlock()
+
 		if merge == nil {
-			break
+			merge = source.GetNextMerge()
+			if merge == nil {
+				break
+			}
 		}
 
 		// Check if we should spawn a new merge thread
@@ -373,7 +386,11 @@ func (s *ConcurrentMergeScheduler) maybeStall(source MergeSource, maxMergeCount 
 			return NewAlreadyClosedException("merge scheduler is closed", nil)
 		}
 
-		// Wait for a merge to complete
+		// Pause the calling thread; subclasses may override doStall to apply
+		// custom back-pressure (Lucene's testing hook).
+		s.doStall()
+
+		// Wait for a merge to complete before re-checking the limit.
 		s.waitForMergeThread()
 
 		s.mergeMu.Lock()
@@ -382,6 +399,22 @@ func (s *ConcurrentMergeScheduler) maybeStall(source MergeSource, maxMergeCount 
 	}
 
 	return nil
+}
+
+// doStall pauses the calling goroutine when merging has fallen behind.
+// This is the Go analogue of Lucene's protected
+// ConcurrentMergeScheduler.doStall() hook; subclasses may override it to
+// implement custom throttling. The default implementation waits on the
+// scheduler's condition variable until at least one merge thread finishes.
+func (s *ConcurrentMergeScheduler) doStall() {
+	s.mergeMu.Lock()
+	defer s.mergeMu.Unlock()
+
+	// Wait briefly so that a finishing thread can notify us. If no thread
+	// finishes within the defensive timeout we loop and re-check.
+	if s.threadDoneCond != nil {
+		s.threadDoneCond.Wait()
+	}
 }
 
 // spawnMergeThread starts a new goroutine to execute a merge.
@@ -409,9 +442,16 @@ func (s *ConcurrentMergeScheduler) spawnMergeThread(source MergeSource, merge *O
 		// Execute the merge
 		err := s.executeMerge(source, merge)
 		thread.SetError(err)
+		if err != nil {
+			merge.Error = err
+		}
 
 		// Remove from active threads
 		s.removeMergeThread(thread)
+
+		// Always notify the merge source so bookkeeping (and observer
+		// notification) happens regardless of success or failure.
+		source.OnMergeFinished(merge)
 
 		if err != nil {
 			s.mu.Lock()
@@ -428,9 +468,6 @@ func (s *ConcurrentMergeScheduler) spawnMergeThread(source MergeSource, merge *O
 			}
 			return
 		}
-
-		// Signal completion only on success
-		source.OnMergeFinished(merge)
 	}()
 }
 
@@ -480,13 +517,20 @@ func (s *ConcurrentMergeScheduler) executeMerge(source MergeSource, merge *OneMe
 	default:
 	}
 
-	// Execute the merge via the source
-	err := source.Merge(merge)
-	if err != nil {
+	// Execute the merge via the overridable hook (Lucene's protected
+	// ConcurrentMergeScheduler.doMerge() extension point).
+	if err := s.doMerge(source, merge); err != nil {
 		return NewMergeException("merge failed", err, merge)
 	}
 
 	return nil
+}
+
+// doMerge performs the actual merge by calling source.Merge(merge).
+// Subclasses may override this hook to wrap or intercept merge execution,
+// matching Lucene's protected ConcurrentMergeScheduler.doMerge() hook.
+func (s *ConcurrentMergeScheduler) doMerge(source MergeSource, merge *OneMerge) error {
+	return source.Merge(merge)
 }
 
 // Close waits for all running merges to complete and shuts down the scheduler.

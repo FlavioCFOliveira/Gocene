@@ -38,7 +38,7 @@ func TestWriteSegmentInfo_Magic(t *testing.T) {
 
 	// AddDocument to ensure at least one segment is created.
 	doc := &testDocument{fields: []interface{}{}}
-	if err := w.AddDocument(doc); err != nil {
+	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 
@@ -97,7 +97,7 @@ func TestWriteSegmentInfo_AfterForceMerge(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		doc := &testDocument{fields: []interface{}{}}
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 		if err := w.Commit(); err != nil {

@@ -2,6 +2,8 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
+//go:build gocene_monsters
+
 // Package index_test contains tests for the index package.
 //
 // Ported from Apache Lucene's org.apache.lucene.index.Test2BPositions

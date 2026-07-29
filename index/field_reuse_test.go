@@ -79,7 +79,7 @@ func TestFieldReuse_StringFieldIndexed(t *testing.T) {
 	doc := document.NewDocument()
 	sf, _ := document.NewStringField("id", "bar", false)
 	doc.Add(sf)
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 	if err := writer.Commit(); err != nil {

@@ -40,7 +40,7 @@ func TestTermVectorsCompatibility_BasicStorage(t *testing.T) {
 	contentField, _ := document.NewTextField("content", content, true)
 	doc.Add(contentField)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("failed to add document: %v", err)
 	}
 
@@ -87,7 +87,7 @@ func TestTermVectorsCompatibility_MultipleFields(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "This is the main content of the document", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -138,7 +138,7 @@ func TestTermVectorsCompatibility_PositionsAndOffsets(t *testing.T) {
 		contentField, _ := document.NewTextField("content", content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -183,7 +183,7 @@ func TestTermVectorsCompatibility_Payloads(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "content with potential payloads", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -228,7 +228,7 @@ func TestTermVectorsCompatibility_Lucene90Format(t *testing.T) {
 		contentField, _ := document.NewTextField("content", "test content for term vectors", true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -279,7 +279,7 @@ func TestTermVectorsCompatibility_Retrieval(t *testing.T) {
 		contentField, _ := document.NewTextField("content", content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
@@ -328,7 +328,7 @@ func TestTermVectorsCompatibility_LargeDocuments(t *testing.T) {
 	contentField, _ := document.NewTextField("content", largeContent, true)
 	doc.Add(contentField)
 
-	if err := writer.AddDocument(doc); err != nil {
+	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("failed to add document: %v", err)
 	}
 
@@ -374,7 +374,7 @@ func TestTermVectorsCompatibility_MultipleTerms(t *testing.T) {
 		contentField, _ := document.NewTextField("content", content, true)
 		doc.Add(contentField)
 
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}

@@ -103,13 +103,13 @@ func TestMergeSchedulerExternal_MergeCallbacks(t *testing.T) {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
 
-	if err := writer.AddDocument(document.NewDocument()); err != nil {
+	if _, err := writer.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument #1: %v", err)
 	}
 	if err := writer.Commit(); err != nil { // trigger flush
 		t.Fatalf("Commit #1: %v", err)
 	}
-	if err := writer.AddDocument(document.NewDocument()); err != nil {
+	if _, err := writer.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument #2: %v", err)
 	}
 	if err := writer.Commit(); err != nil { // trigger flush
@@ -148,7 +148,7 @@ func TestMergeSchedulerExternal_MyMergeException(t *testing.T) {
 			t.Fatalf("NewStringField(%d): %v", i, ferr)
 		}
 		doc.Add(sf)
-		if aerr := writer.AddDocument(doc); aerr != nil {
+		if _, aerr := writer.AddDocument(doc); aerr != nil {
 			t.Fatalf("AddDocument(%d): %v", i, aerr)
 		}
 	}

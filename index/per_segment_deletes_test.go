@@ -40,7 +40,7 @@ func TestPerSegmentDeletes(t *testing.T) {
 			t.Fatalf("NewStringField: %v", err)
 		}
 		doc.Add(f)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument[%d]: %v", i, err)
 		}
 	}
@@ -56,7 +56,7 @@ func TestPerSegmentDeletes(t *testing.T) {
 			t.Fatalf("NewStringField: %v", err)
 		}
 		doc.Add(f)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument[%d]: %v", i, err)
 		}
 	}
@@ -65,7 +65,7 @@ func TestPerSegmentDeletes(t *testing.T) {
 	}
 
 	// Delete a document by term.
-	if err := writer.DeleteDocuments(index.NewTerm("id", "doc3")); err != nil {
+	if _, err := writer.DeleteDocuments(index.NewTerm("id", "doc3")); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 

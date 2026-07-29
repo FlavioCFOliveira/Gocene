@@ -421,6 +421,7 @@ func (copiedFieldType) GetDocValuesType() DocValuesType { return DocValuesTypeNo
 func (copiedFieldType) StoreTermVectors() bool          { return false }
 func (copiedFieldType) StoreTermVectorPositions() bool  { return false }
 func (copiedFieldType) StoreTermVectorOffsets() bool    { return false }
+func (copiedFieldType) StoreTermVectorPayloads() bool   { return false }
 
 // trackingTmpDirectoryWrapper is the Sprint 55 stand-in for
 // org.apache.lucene.index.TrackingTmpOutputDirectoryWrapper. It records

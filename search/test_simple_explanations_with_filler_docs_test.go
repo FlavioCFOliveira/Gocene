@@ -72,17 +72,17 @@ func newFillerExplanationTestCase(t *testing.T) *fillerExplanationTestCase {
 	}
 	fillerSeed := 0
 	for filler := 0; filler < fillerPreFillerDocs; filler++ {
-		if addErr := w.AddDocument(makeFiller(fillerSeed)); addErr != nil {
+		if _, addErr := w.AddDocument(makeFiller(fillerSeed)); addErr != nil {
 			t.Fatalf("AddDocument(pre-filler): %v", addErr)
 		}
 		fillerSeed++
 	}
 	for i := range explDocFields {
-		if addErr := w.AddDocument(createExplDoc(t, i)); addErr != nil {
+		if _, addErr := w.AddDocument(createExplDoc(t, i)); addErr != nil {
 			t.Fatalf("AddDocument(%d): %v", i, addErr)
 		}
 		for filler := 0; filler < fillerNumFillerDocs; filler++ {
-			if addErr := w.AddDocument(makeFiller(fillerSeed)); addErr != nil {
+			if _, addErr := w.AddDocument(makeFiller(fillerSeed)); addErr != nil {
 				t.Fatalf("AddDocument(filler): %v", addErr)
 			}
 			fillerSeed++

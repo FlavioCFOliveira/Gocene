@@ -58,7 +58,7 @@ func similarity2Index(t *testing.T, docs ...*document.Document) (*search.IndexSe
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
 	for _, doc := range docs {
-		if addErr := w.AddDocument(doc); addErr != nil {
+		if _, addErr := w.AddDocument(doc); addErr != nil {
 			t.Fatalf("AddDocument: %v", addErr)
 		}
 	}

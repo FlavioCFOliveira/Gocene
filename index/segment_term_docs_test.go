@@ -118,7 +118,7 @@ func segmentTermDocsTestDocLeaf(t *testing.T) (index.LeafReaderInterface, func()
 		t.Fatalf("Failed to create IndexWriter: %v", err)
 	}
 
-	if err := writer.AddDocument(readerSetupTestDoc()); err != nil {
+	if _, err := writer.AddDocument(readerSetupTestDoc()); err != nil {
 		t.Fatalf("Failed to add document: %v", err)
 	}
 	if err := writer.Commit(); err != nil {
@@ -175,7 +175,7 @@ func segmentTermDocsSkipToLeaf(t *testing.T) (index.LeafReaderInterface, func())
 			t.Fatalf("Failed to create field: %v", err)
 		}
 		doc.Add(field)
-		if err := writer.AddDocument(doc); err != nil {
+		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("Failed to add document: %v", err)
 		}
 	}
