@@ -615,55 +615,118 @@ func TestIndexWriterMerging_MergeObserverAwaitWithTimeout(t *testing.T) {
 }
 
 // TestIndexWriterMerging_MergeObserverAwaitTimeout tests MergeObserver
-// await timeout behavior.
+// await timeout behavior by using a custom MergeScheduler that stalls a merge
+// until a signal is provided.
 // Ported from: TestIndexWriterMerging.testMergeObserverAwaitTimeout()
 func TestIndexWriterMerging_MergeObserverAwaitTimeout(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	// TODO: Implement custom merge scheduler that blocks
-	// mergeStarted := make(chan struct{})
-	// allowMergeToFinish := make(chan struct{})
+	mergeStarted := make(chan struct{})
+	allowMergeToFinish := make(chan struct{})
 
-	// customScheduler := &blockingMergeScheduler{
-	//     mergeStarted: mergeStarted,
-	//     allowFinish:  allowMergeToFinish,
-	// }
+	customScheduler := &blockingMergeScheduler{
+		mergeStarted: mergeStarted,
+		allowFinish:  allowMergeToFinish,
+	}
 
 	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	// TODO: Set custom merge scheduler
+	config.SetMergePolicy(index.NewLogMergePolicy())
+	config.SetMergeScheduler(customScheduler)
 
 	indexer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
 	}
 
-	// Add 20 documents
+	// Add 20 documents.
 	for i := 0; i < 20; i++ {
 		doc := createIDDocument(i)
-		indexer.AddDocument(doc)
+		if err := indexer.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument id=%d: %v", i, err)
+		}
 	}
-	indexer.Commit()
+	if err := indexer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
 
-	// Delete first 10 documents
-	// for i := 0; i < 10; i++ {
-	//     indexer.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i)))
-	// }
-	indexer.Commit()
+	// Delete first 10 documents.
+	for i := 0; i < 10; i++ {
+		if err := indexer.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
+			t.Fatalf("DeleteDocuments id=%d: %v", i, err)
+		}
+	}
+	if err := indexer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
 
-	// TODO: Implement ForceMergeDeletes with observer
-	// observer := indexer.ForceMergeDeletes(false)
-	// if observer.NumMerges() > 0 {
-	//     <-mergeStarted
-	//     // Should timeout after 10ms
-	//     assertFalse(t, observer.Await(10*time.Millisecond), "await should timeout")
-	//     close(allowMergeToFinish)
-	// }
+	observer, err := indexer.ForceMergeDeletesWithObserver(false)
+	if err != nil {
+		t.Fatalf("ForceMergeDeletesWithObserver: %v", err)
+	}
+	if observer == nil {
+		t.Fatal("ForceMergeDeletesWithObserver returned nil observer")
+	}
+	if observer.NumMerges() == 0 {
+		t.Fatal("expected at least one merge")
+	}
 
-	// indexer.WaitForMerges()
-	indexer.Close()
-	t.Fatal("Custom merge scheduler and ForceMergeDeletes with observer not yet implemented")
+	// Wait until the scheduler has picked up the merge and is blocked.
+	<-mergeStarted
+
+	// The merge is stalled; a short await should time out.
+	if observer.AwaitWithTimeout(10 * time.Millisecond) {
+		t.Fatal("observer.AwaitWithTimeout(10ms) returned true, want timeout")
+	}
+
+	// Allow the blocked merge to finish.
+	close(allowMergeToFinish)
+
+	if !observer.AwaitWithTimeout(30 * time.Second) {
+		t.Fatal("observer.AwaitWithTimeout(30s) returned false after unblocking")
+	}
+	if observer.NumCompletedMerges() != observer.NumMerges() {
+		t.Errorf("NumCompletedMerges=%d, want %d", observer.NumCompletedMerges(), observer.NumMerges())
+	}
+
+	if err := indexer.WaitForMerges(); err != nil {
+		t.Fatalf("WaitForMerges: %v", err)
+	}
+	if err := indexer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
 }
+
+// blockingMergeScheduler is a MergeScheduler that stalls the first merge it
+// sees until allowFinish is closed. It is used to test MergeObserver timeout
+// behavior.
+type blockingMergeScheduler struct {
+	mergeStarted chan struct{}
+	allowFinish  chan struct{}
+}
+
+func (s *blockingMergeScheduler) Merge(source index.MergeSource, trigger index.MergeTrigger) error {
+	merge := source.GetNextMerge()
+	if merge == nil {
+		return nil
+	}
+	close(s.mergeStarted)
+	<-s.allowFinish
+	err := source.Merge(merge)
+	if err != nil {
+		merge.Error = err
+	}
+	source.OnMergeFinished(merge)
+	return err
+}
+
+func (s *blockingMergeScheduler) Close() error { return nil }
+
+func (s *blockingMergeScheduler) GetRunningMergeCount() int { return 0 }
+
+func (s *blockingMergeScheduler) SetMaxMerges(int) {}
+
+func (s *blockingMergeScheduler) GetMaxMerges() int { return 1 }
 
 // TestIndexWriterMerging_ForceMergeDeletesBlockingWithObserver tests blocking
 // force merge deletes with observer.
@@ -934,8 +997,7 @@ func TestIndexWriterMerging_AddEstimatedBytesToMerge(t *testing.T) {
 	defer dir.Close()
 
 	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	// TODO: Set NoMergePolicy when available
-	// config.SetMergePolicy(index.NewNoMergePolicy())
+	config.SetMergePolicy(index.NewNoMergePolicy())
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -943,25 +1005,31 @@ func TestIndexWriterMerging_AddEstimatedBytesToMerge(t *testing.T) {
 	}
 	defer writer.Close()
 
-	doc := &testDocument{fields: []interface{}{}}
-	// TODO: Add text field
-	// doc.fields = append(doc.fields, document.NewTextField("field", "content", true))
+	field, err := document.NewTextField("field", "content", true)
+	if err != nil {
+		t.Fatalf("NewTextField: %v", err)
+	}
+	doc := &testDocument{fields: []interface{}{field}}
 
 	for i := 0; i < 10; i++ {
-		writer.AddDocument(doc)
+		if err := writer.AddDocument(doc); err != nil {
+			t.Fatalf("AddDocument: %v", err)
+		}
 	}
-	// TODO: Implement Flush when available
-	// writer.Flush()
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
 
-	// TODO: Implement CloneSegmentInfos and OneMerge
-	// segmentInfos := writer.CloneSegmentInfos()
-	// merge := index.NewOneMerge(segmentInfos.AsList())
-	// writer.AddEstimatedBytesToMerge(merge)
+	segmentInfos := writer.CloneSegmentInfos()
+	if segmentInfos.Size() == 0 {
+		t.Fatal("expected at least one committed segment")
+	}
+	merge := index.NewOneMerge(segmentInfos.List())
+	writer.AddEstimatedBytesToMerge(merge)
 
-	// assertTrue(t, merge.EstimatedMergeBytes() > 0, "estimatedMergeBytes should be > 0")
-	// assertTrue(t, merge.TotalMergeBytes() > 0, "totalMergeBytes should be > 0")
-	// assertTrue(t, merge.EstimatedMergeBytes() <= merge.TotalMergeBytes(), "estimated should be <= total")
-	t.Fatal("CloneSegmentInfos, OneMerge, and AddEstimatedBytesToMerge not yet implemented")
+	assertTrue(t, merge.EstimatedMergeBytes > 0, "EstimatedMergeBytes should be > 0")
+	assertTrue(t, merge.TotalMergeBytes > 0, "TotalMergeBytes should be > 0")
+	assertTrue(t, merge.EstimatedMergeBytes <= merge.TotalMergeBytes, "estimated should be <= total")
 }
 
 // Helper functions

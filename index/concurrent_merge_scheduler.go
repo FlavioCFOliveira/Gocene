@@ -324,17 +324,30 @@ func (s *ConcurrentMergeScheduler) Merge(source MergeSource, trigger MergeTrigge
 	maxThreadCount := s.getEffectiveMaxThreadCount()
 	maxMergeCount := s.getEffectiveMaxMergeCount()
 
-	// Main merge loop
+	// Main merge loop. Drain the scheduler's internal pending queue first so
+	// merges that were re-queued because the thread limit was reached are not
+	// lost when source.GetNextMerge runs dry.
 	for {
 		// Maybe stall if too many pending merges
 		if err := s.maybeStall(source, maxMergeCount); err != nil {
 			return err
 		}
 
-		// Get next merge
-		merge := source.GetNextMerge()
+		// Prefer internal pending merges over asking the source so that
+		// re-queued merges are processed before new ones.
+		var merge *OneMerge
+		s.mergeMu.Lock()
+		if len(s.pendingMerges) > 0 {
+			merge = s.pendingMerges[0]
+			s.pendingMerges = s.pendingMerges[1:]
+		}
+		s.mergeMu.Unlock()
+
 		if merge == nil {
-			break
+			merge = source.GetNextMerge()
+			if merge == nil {
+				break
+			}
 		}
 
 		// Check if we should spawn a new merge thread
@@ -429,9 +442,16 @@ func (s *ConcurrentMergeScheduler) spawnMergeThread(source MergeSource, merge *O
 		// Execute the merge
 		err := s.executeMerge(source, merge)
 		thread.SetError(err)
+		if err != nil {
+			merge.Error = err
+		}
 
 		// Remove from active threads
 		s.removeMergeThread(thread)
+
+		// Always notify the merge source so bookkeeping (and observer
+		// notification) happens regardless of success or failure.
+		source.OnMergeFinished(merge)
 
 		if err != nil {
 			s.mu.Lock()
@@ -448,9 +468,6 @@ func (s *ConcurrentMergeScheduler) spawnMergeThread(source MergeSource, merge *O
 			}
 			return
 		}
-
-		// Signal completion only on success
-		source.OnMergeFinished(merge)
 	}()
 }
 

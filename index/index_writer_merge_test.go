@@ -191,12 +191,19 @@ func TestIndexWriterBackgroundMerge(t *testing.T) {
 		defer dir.Close()
 
 		config := index.NewIndexWriterConfig(createTestAnalyzer())
+		config.SetMergeScheduler(index.NoMergeSchedulerInstance)
 
-		// TODO: Disable background merge when API available
-		t.Fatal("Disable background merge not yet implemented")
+		if _, ok := config.GetMergeScheduler().(*index.NoMergeScheduler); !ok {
+			t.Fatal("expected NoMergeScheduler after SetMergeScheduler")
+		}
 
-		writer, _ := index.NewIndexWriter(dir, config)
+		writer, err := index.NewIndexWriter(dir, config)
+		if err != nil {
+			t.Fatalf("NewIndexWriter: %v", err)
+		}
 		defer writer.Close()
+
+		t.Log("Background merge disabled via NoMergeScheduler")
 	})
 }
 

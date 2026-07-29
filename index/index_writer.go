@@ -219,6 +219,19 @@ type IndexWriter struct {
 	// deleter tracks reference counts for every segment file and enforces the
 	// configured IndexDeletionPolicy on writer init and on every commit.
 	deleter *IndexFileDeleter
+
+	// pendingMerges holds merges that have been registered with the writer but
+	// not yet picked up by the MergeScheduler. Protected by pendingMergesMu.
+	pendingMerges []*OneMerge
+
+	// runningMerges tracks merges currently executing in the MergeScheduler.
+	// Protected by pendingMergesMu.
+	runningMerges map[*OneMerge]bool
+
+	// pendingMergesMu protects pendingMerges and runningMerges. It is separate
+	// from w.mu so that the MergeScheduler can poll for new merges without
+	// deadlocking against the IndexWriter's main lock.
+	pendingMergesMu sync.Mutex
 }
 
 // pendingSegment captures the metadata of a segment that has been flushed from
@@ -3384,6 +3397,143 @@ func (w *IndexWriter) ForceMerge(maxNumSegments int) (err error) {
 	}
 }
 
+// GetNextMerge returns the next pending merge and moves it to the running set.
+// This implements the MergeSource interface for the configured MergeScheduler.
+func (w *IndexWriter) GetNextMerge() *OneMerge {
+	w.pendingMergesMu.Lock()
+	defer w.pendingMergesMu.Unlock()
+
+	if err := w.ensureOpen(); err != nil {
+		return nil
+	}
+	if len(w.pendingMerges) == 0 {
+		return nil
+	}
+	merge := w.pendingMerges[0]
+	w.pendingMerges = w.pendingMerges[1:]
+	if w.runningMerges == nil {
+		w.runningMerges = make(map[*OneMerge]bool)
+	}
+	w.runningMerges[merge] = true
+	return merge
+}
+
+// OnMergeFinished is called by the MergeScheduler after a merge attempt
+// finishes. It removes the merge from the running set and notifies any
+// MergeObserver associated with the merge. This implements the MergeSource
+// interface.
+func (w *IndexWriter) OnMergeFinished(merge *OneMerge) {
+	if merge == nil {
+		return
+	}
+	w.pendingMergesMu.Lock()
+	if w.runningMerges != nil {
+		delete(w.runningMerges, merge)
+	}
+	w.pendingMergesMu.Unlock()
+
+	if merge.observer != nil {
+		merge.observer.markCompleted(merge.Error)
+	}
+}
+
+// HasPendingMerges returns true if there are merges waiting to be scheduled.
+// This implements the MergeSource interface.
+func (w *IndexWriter) HasPendingMerges() bool {
+	w.pendingMergesMu.Lock()
+	defer w.pendingMergesMu.Unlock()
+	if err := w.ensureOpen(); err != nil {
+		return false
+	}
+	return len(w.pendingMerges) > 0
+}
+
+// Merge executes a single OneMerge synchronously. It is invoked by the
+// MergeScheduler to perform the actual merge and is the MergeSource entry point
+// for scheduled merges. On success it calls mergeSuccess(merge).
+//
+// The writer's main lock is held for the duration of the merge so that
+// concurrent scheduled merges cannot generate colliding segment names or
+// overwrite each other's SegmentInfos updates.
+func (w *IndexWriter) Merge(merge *OneMerge) error {
+	if merge == nil {
+		return nil
+	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	si, err := ReadSegmentInfos(w.directory)
+	if err != nil {
+		return fmt.Errorf("Merge: read segment infos: %w", err)
+	}
+
+	mergedAway := make(map[string]bool, len(merge.Segments))
+	for _, seg := range merge.Segments {
+		mergedAway[seg.SegmentInfo().Name()] = true
+	}
+
+	result := NewSegmentInfos()
+	result.SetGeneration(si.Generation() + 1)
+	result.SetCounter(si.Counter())
+	result.SetInMemoryParentField(w.config.ParentField())
+	result.SetInMemoryIndexSort(w.config.IndexSort())
+	if userData := si.GetUserData(); len(userData) > 0 {
+		result.SetUserData(userData)
+	}
+
+	for _, sci := range si.List() {
+		if !mergedAway[sci.SegmentInfo().Name()] {
+			result.Add(sci)
+		}
+	}
+
+	segName := result.GetNextSegmentName()
+	mergedSCI, err := w.mergeSegmentGroup(merge.Segments, segName)
+	if err != nil {
+		return err
+	}
+	if mergedSCI != nil {
+		merge.Info = mergedSCI
+		w.mergeSuccess(merge)
+		result.Add(mergedSCI)
+	}
+
+	result.UpdateCounterFromSegments()
+	if err := WriteSegmentInfos(result, w.directory); err != nil {
+		return fmt.Errorf("Merge: write merged segment infos: %w", err)
+	}
+
+	w.lastCommittedSegmentInfos = result.Clone()
+	w.committedSegments = result.List()
+	if w.deleter != nil {
+		if err := w.deleter.Checkpoint(result, true); err != nil {
+			return fmt.Errorf("Merge: deleter checkpoint: %w", err)
+		}
+	}
+	if w.config.IndexCommit() == nil {
+		w.pinnedSegmentInfos = result.Clone()
+	}
+	w.nrtSegmentInfos = nil
+
+	return nil
+}
+
+// registerMerges records the merges from spec in the pending queue and binds
+// them to observer so that OnMergeFinished can update the observer as each
+// merge completes. Must not be called with pendingMergesMu held by the caller.
+func (w *IndexWriter) registerMerges(spec *MergeSpecification, observer *MergeObserver) {
+	if spec == nil || spec.Size() == 0 {
+		return
+	}
+	w.pendingMergesMu.Lock()
+	defer w.pendingMergesMu.Unlock()
+	for _, om := range spec.Merges {
+		om.observer = observer
+		w.pendingMerges = append(w.pendingMerges, om)
+	}
+}
+
 // ForceMergeDeletes forces merging of all segments that have deleted documents.
 // The merge policy determines which segments to merge (e.g. TieredMergePolicy
 // only picks segments where the deleted-doc percentage exceeds a threshold).
@@ -3395,18 +3545,19 @@ func (w *IndexWriter) ForceMergeDeletes() error {
 }
 
 // ForceMergeDeletesWithObserver performs forceMergeDeletes and returns a
-// MergeObserver describing the merges that were executed. The doWait parameter
-// is accepted for API compatibility with Lucene's overload; in Gocene's
-// synchronous implementation merges always complete before the call returns,
-// so both values behave identically and the returned observer already reports
-// every merge as completed.
+// MergeObserver describing the merges that were scheduled. When doWait is true
+// the call blocks until the merges complete; when doWait is false the merges
+// run through the configured MergeScheduler and the returned observer can be
+// used to wait for them.
 func (w *IndexWriter) ForceMergeDeletesWithObserver(doWait bool) (*MergeObserver, error) {
 	return w.forceMergeDeletesInternal(doWait)
 }
 
 // forceMergeDeletesInternal performs forceMergeDeletes and returns a
-// MergeObserver for the merges that were executed. Must be called with the
-// writer open; it performs a Commit before locking and running merges.
+// MergeObserver for the merges that were scheduled. It flushes any buffered
+// changes, asks the MergePolicy for the forced-deletes merge specification,
+// registers the merges with the writer, and either runs them synchronously or
+// hands them to the configured MergeScheduler.
 func (w *IndexWriter) forceMergeDeletesInternal(doWait bool) (*MergeObserver, error) {
 	if err := w.ensureOpen(); err != nil {
 		return nil, err
@@ -3415,42 +3566,59 @@ func (w *IndexWriter) forceMergeDeletesInternal(doWait bool) (*MergeObserver, er
 		return nil, err
 	}
 
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
 	mp := w.config.GetMergePolicy()
 	if mp == nil {
 		return NewMergeObserver(nil, 0, nil), nil
 	}
 
-	executed := NewMergeSpecification()
-	var lastErr error
-	for {
-		si, err := ReadSegmentInfos(w.directory)
-		if err != nil {
-			return NewMergeObserver(executed, executed.Size(), lastErr), err
-		}
-
-		ctx := &forceMergeContext{}
-		spec, err := mp.FindForcedDeletesMerges(si, ctx)
-		if err != nil {
-			return NewMergeObserver(executed, executed.Size(), lastErr), fmt.Errorf("forceMergeDeletes: find forced deletes merges: %w", err)
-		}
-		if spec == nil || spec.Size() == 0 {
-			break // no segments with deletions to merge
-		}
-		for _, om := range spec.Merges {
-			executed.Add(om)
-		}
-		if err := w.executeForcedMerges(si, spec); err != nil {
-			return NewMergeObserver(executed, executed.Size()-spec.Size(), err), err
-		}
-		// Loop back in case a new round of merges is needed after old segments
-		// (with deletions) were merged away and new segments with deletions
-		// appear (e.g. a large segment with deletions was untouched because
-		// it exceeded the size cap).
+	si, err := ReadSegmentInfos(w.directory)
+	if err != nil {
+		return nil, err
 	}
-	return NewMergeObserver(executed, executed.Size(), nil), nil
+
+	ctx := &forceMergeContext{}
+	spec, err := mp.FindForcedDeletesMerges(si, ctx)
+	if err != nil {
+		return nil, fmt.Errorf("forceMergeDeletes: find forced deletes merges: %w", err)
+	}
+	if spec == nil || spec.Size() == 0 {
+		return NewMergeObserver(nil, 0, nil), nil
+	}
+
+	for _, om := range spec.Merges {
+		w.AddEstimatedBytesToMerge(om)
+	}
+
+	observer := NewMergeObserver(spec, 0, nil)
+	w.registerMerges(spec, observer)
+
+	scheduler := w.config.GetMergeScheduler()
+	if scheduler == nil {
+		// No scheduler configured: execute synchronously in the caller's goroutine.
+		for _, om := range spec.Merges {
+			if err := w.Merge(om); err != nil {
+				return observer, err
+			}
+		}
+		return observer, nil
+	}
+
+	if doWait {
+		if err := scheduler.Merge(w, EXPLICIT); err != nil {
+			return observer, err
+		}
+		if err := w.WaitForMerges(); err != nil {
+			return observer, err
+		}
+		return observer, nil
+	}
+
+	// doWait == false: run the scheduler asynchronously and let the caller wait
+	// on the returned observer.
+	go func() {
+		_ = scheduler.Merge(w, EXPLICIT)
+	}()
+	return observer, nil
 }
 
 // naturalMergeContext is a minimal MergeContext for natural merges chosen by
@@ -3879,6 +4047,35 @@ func (w *IndexWriter) HasDeletions() bool {
 		len(w.pendingDeleteQueries) > 0 ||
 		len(w.pendingDeletedDocIDs) > 0 ||
 		w.pendingCommittedDeleteCount > 0
+}
+
+// AddEstimatedBytesToMerge computes the estimated and total merge bytes for
+// the given OneMerge, matching Lucene's IndexWriter.addEstimatedBytesToMerge.
+// It accounts for the delete ratio of each source segment so that the
+// scheduler can reason about the real I/O cost of the merge.
+func (w *IndexWriter) AddEstimatedBytesToMerge(merge *OneMerge) {
+	if merge == nil {
+		return
+	}
+	merge.EstimatedMergeBytes = 0
+	merge.TotalMergeBytes = 0
+	for _, info := range merge.Segments {
+		if info == nil || info.SegmentInfo() == nil {
+			continue
+		}
+		maxDoc := info.SegmentInfo().DocCount()
+		if maxDoc <= 0 {
+			continue
+		}
+		size := info.SegmentInfo().SizeInBytes()
+		delCount := info.DelCount()
+		if delCount > maxDoc {
+			delCount = maxDoc
+		}
+		delRatio := float64(delCount) / float64(maxDoc)
+		merge.EstimatedMergeBytes += int64(float64(size) * (1.0 - delRatio))
+		merge.TotalMergeBytes += size
+	}
 }
 
 // mergeSuccess is called after a merge completes successfully. It is the Go

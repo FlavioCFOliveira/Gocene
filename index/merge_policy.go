@@ -7,6 +7,7 @@ package index
 import (
 	"fmt"
 	"math"
+	"sync"
 	"time"
 )
 
@@ -140,22 +141,37 @@ func (ms *MergeSpecification) String() string {
 // MergeObserver exposes the status of merges scheduled by ForceMergeDeletes.
 // This is the Go port of Lucene's MergePolicy.MergeObserver.
 //
-// In Gocene's synchronous merge implementation the merges have already finished
-// when the observer is returned, so await calls return immediately and the
-// future is always done.
+// For synchronous merges the observer is created already completed, so await
+// calls return immediately. For asynchronous merges (doWait=false with a
+// background MergeScheduler) the observer tracks completion via a channel and
+// the await methods block until the scheduled merges finish or an error is
+// recorded.
 type MergeObserver struct {
 	spec      *MergeSpecification
 	completed int
 	err       error
+	mu        sync.Mutex
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 // NewMergeObserver creates a MergeObserver for the given specification.
+//
+// The completed argument is the number of merges already finished (used for
+// the synchronous path); err is any pre-existing error. When completed already
+// covers every merge, or err is non-nil, the observer's completion channel is
+// closed immediately so await calls return without blocking.
 func NewMergeObserver(spec *MergeSpecification, completed int, err error) *MergeObserver {
-	return &MergeObserver{
+	o := &MergeObserver{
 		spec:      spec,
 		completed: completed,
 		err:       err,
+		done:      make(chan struct{}),
 	}
+	if err != nil || completed >= o.NumMerges() {
+		close(o.done)
+	}
+	return o
 }
 
 // NumMerges returns the number of merges in this specification.
@@ -171,36 +187,65 @@ func (o *MergeObserver) NumCompletedMerges() int {
 	if o == nil {
 		return 0
 	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	return o.completed
 }
 
-// Await waits for all merges to complete. In Gocene's synchronous
-// implementation this returns true immediately when no error occurred.
+// Await waits for all merges to complete. It returns true when every merge
+// finishes successfully and false when any merge failed.
 func (o *MergeObserver) Await() bool {
 	if o == nil {
 		return true
 	}
+	<-o.done
+	o.mu.Lock()
+	defer o.mu.Unlock()
 	return o.err == nil
 }
 
-// AwaitWithTimeout waits for all merges to complete, with a timeout. In
-// Gocene's synchronous implementation this returns true immediately when no
-// error occurred.
+// AwaitWithTimeout waits for all merges to complete, with a timeout. It
+// returns true if every merge finished within the timeout, false if the timeout
+// elapsed before completion or if any merge failed.
 func (o *MergeObserver) AwaitWithTimeout(timeout time.Duration) bool {
 	if o == nil {
 		return true
 	}
-	_ = timeout
-	return o.err == nil
+	select {
+	case <-o.done:
+		o.mu.Lock()
+		defer o.mu.Unlock()
+		return o.err == nil
+	case <-time.After(timeout):
+		return false
+	}
 }
 
-// AwaitAsync returns a future that completes when all merges finish. In
-// Gocene's synchronous implementation the future is already done.
+// AwaitAsync returns a future that completes when all merges finish.
 func (o *MergeObserver) AwaitAsync() *MergeFuture {
 	if o == nil {
 		return &MergeFuture{done: true}
 	}
-	return &MergeFuture{done: o.err == nil, err: o.err}
+	return &MergeFuture{observer: o}
+}
+
+// markCompleted records that one merge has finished. If err is non-nil the
+// observer stores the first error it sees. The completion channel is closed once
+// either all merges finished or an error was recorded.
+func (o *MergeObserver) markCompleted(err error) {
+	if o == nil {
+		return
+	}
+	o.mu.Lock()
+	o.completed++
+	if err != nil && o.err == nil {
+		o.err = err
+	}
+	shouldClose := o.err != nil || o.completed >= o.NumMerges()
+	o.mu.Unlock()
+	if shouldClose {
+		o.closeOnce.Do(func() { close(o.done) })
+	}
 }
 
 // String returns a string representation of the observer.
@@ -213,14 +258,23 @@ func (o *MergeObserver) String() string {
 
 // MergeFuture is a minimal future returned by MergeObserver.AwaitAsync.
 type MergeFuture struct {
-	done bool
-	err  error
+	observer *MergeObserver
+	done     bool
+	err      error
 }
 
 // IsDone reports whether the future is done.
 func (f *MergeFuture) IsDone() bool {
 	if f == nil {
 		return false
+	}
+	if f.observer != nil {
+		select {
+		case <-f.observer.done:
+			return true
+		default:
+			return false
+		}
 	}
 	return f.done
 }
@@ -229,6 +283,16 @@ func (f *MergeFuture) IsDone() bool {
 func (f *MergeFuture) IsCompletedExceptionally() bool {
 	if f == nil {
 		return false
+	}
+	if f.observer != nil {
+		select {
+		case <-f.observer.done:
+			f.observer.mu.Lock()
+			defer f.observer.mu.Unlock()
+			return f.observer.err != nil
+		default:
+			return false
+		}
 	}
 	return f.err != nil
 }
@@ -280,6 +344,11 @@ type OneMerge struct {
 
 	// Error holds any error that occurred during the merge.
 	Error error
+
+	// observer is notified when this merge finishes. It is set by the
+	// IndexWriter when the merge is scheduled through the MergeScheduler and
+	// is nil for merges executed synchronously outside the scheduler.
+	observer *MergeObserver
 }
 
 // NewOneMerge creates a new OneMerge.
