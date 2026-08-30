@@ -1,257 +1,82 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Gocene is a Go module that ports the open-source Java library Apache Lucene to Go. The module aims to be a faithful port of the original library — both functionally and technically.
 
-## Roadmap
+## Overriding goal
 
-**Name:** gocene
+The overriding goal of this Go module is to make it possible to **READ AND WRITE** Lucene indexes through the `Gocene` library. The converse must hold equally: Apache Lucene must be able to read and write indexes that were created and maintained by Gocene. This means 100% binary compatibility in both directions, for both reading and writing.
 
-## Project Overview
+The reference behaviours are **always and mandatorily** those of **Apache Lucene**. Lucene defines what is correct; Gocene conforms. Where Gocene and Lucene differ in behaviour, Gocene is wrong by definition and must be corrected — never the other way round, and never by adjusting the expectation to match what Gocene currently does.
 
-Gocene is a Go module that is a port of Apache Lucene to modern idiomatic Golang. Its defining goal is byte-by-byte and behaviour-by-behaviour compatibility with the original Apache Lucene library — specifically the Apache Lucene 10.4.0 reference release. Every index file, codec envelope, directory artefact, and on-disk format produced by Gocene must be readable by Apache Lucene 10.4.0 without modification, and Gocene must be able to read, without loss or reinterpretation, every binary artefact produced by Apache Lucene 10.4.0.
+The port targets **Apache Lucene Core** version **`10.5.0`** exclusively. Any reference, behaviour, API, or file format must be checked against that exact version — never against another Lucene release.
 
-Because Gocene is a port rather than a reimplementation, Lucene is the sole reference of truth. Implementation choices that deviate from observed Lucene behaviour are bugs in Gocene, not in Lucene. Correctness is measured against the Apache Lucene 10.4.0 source tree and the binaries it produces.
+## Test framework
 
-This is an early-stage project. The module structure, packages, and development workflow are still being established, but the compatibility mandate is non-negotiable and governs all development decisions.
+Beyond the Lucene Core library itself, Lucene's **test framework must also be ported integrally to Go**, together with the core test suite it drives. This is the guarantee mechanism: the module's code is exercised by the same tests as the original and must produce **exactly the same results**.
 
-## Binary Compatibility Mandate (TOP-PRIORITY, NON-NEGOTIABLE)
+A ported component is not done because it compiles — it is done when the corresponding Lucene tests, ported faithfully, pass against it with identical outcomes. Do not weaken, skip, or rewrite a test so that Gocene passes it; a failing ported test is evidence of a defect in Gocene.
 
-This requirement supersedes every other guideline in this document. If any other rule, convention, or stylistic preference conflicts with it, this requirement wins.
+## Source of truth
 
-1. **Produce (write) and Consume (read).** Gocene **MUST** produce binary artefacts that Apache Lucene 10.4.0 can read without modification, **AND** Gocene **MUST** read, without loss or reinterpretation, every binary artefact produced by Apache Lucene 10.4.0. Compatibility is bidirectional and exact; "approximately compatible" is not compatible.
+Apache Lucene is open source. The official Git repository is cloned locally, at the exact release tag, to:
 
-2. **Scope — everything Lucene serializes.** The mandate applies to *every* byte sequence Apache Lucene 10.4.0 emits or accepts, including but not limited to:
-   - On-disk index formats: codecs, segment files, postings, doc values, stored fields, term vectors, norms, points/BKD trees, vectors/HNSW, FST dictionaries, compound files, segment infos, `.si`/`.cfs`/`.cfe`, deletes/updates files.
-   - Directory/store-level artefacts: file naming, lock files, checksum framing (`CodecUtil`), header/footer envelopes.
-   - Token-stream persistence: payloads, attribute serialisation where Lucene persists it.
-   - Query- and analysis-side persisted artefacts: synonym/stop-word binary forms, Snowball/Hunspell compiled assets, classification models, suggester FSTs/blob formats.
-   - Replication/wire formats: replicator protocol payloads, any IPC frames Lucene exposes.
-   - Facets sidecar files, grouping/join persisted state, highlight offset stores, spatial/geo encodings.
-   - Any future Lucene-serialised artefact discovered during porting.
-
-3. **Byte-for-byte equality.** Default expectation is **byte-identical output** for the same logical input under the same configured codec/version. Where Lucene legitimately allows non-determinism (e.g., compression dictionaries, ordering driven by hash seeds), the divergence MUST be documented in the affected package, justified against the Lucene 10.4.0 source, and covered by a round-trip test (Gocene-write → Lucene-read → Gocene-read produces the original logical input).
-
-4. **Mandatory compatibility tests — isolated AND in combination.** Every feature, no matter how small, MUST ship with compatibility tests proving the mandate. Compatibility is not assumed, inferred, or guaranteed by code review: it must be demonstrated by tests that exercise Gocene against the Apache Lucene 10.4.0 reference. There are two required test classes:
-   - **Isolated**: round-trip and golden-corpus tests at the unit level for the feature alone, using fixtures produced by Lucene 10.4.0. At a minimum this must cover Gocene-write → Lucene-read and Lucene-write → Gocene-read for every serialized artefact the feature emits.
-   - **Combined**: integration tests exercising the feature alongside the other features it composes with in real Lucene usage (e.g., codec + doc values + facets + queries used together).
-   No feature is "done" until both test classes exist and pass against a Lucene 10.4.0 corpus. A gap in compatibility coverage must be visible as a failing test; it must never be hidden behind `t.Skip()` or a placeholder.
-
-5. **Reference of truth.** The Apache Lucene 10.4.0 source tree (see *Lucene Reference Repository* below) and binaries produced by it are the **sole** reference. Implementation choices that contradict observed Lucene behaviour are bugs in Gocene, not in Lucene.
-
-6. **Workflow consequence.** The standard workflow **Specify → Implement → Test → Document** is interpreted under this mandate:
-   - *Specify* must record the exact Lucene 10.4.0 binary contract being targeted (file format, version constant, codec name, struct layout).
-   - *Implement* must follow the Lucene 10.4.0 algorithms and data structures closely enough to preserve the binary contract; Go idioms are welcome, but they must not change the serialized form or observable behaviour.
-   - *Test* must include compatibility tests against Lucene-produced fixtures before the task can be closed. Every deliverable must prove, with passing tests, that Gocene behaves as a faithful port of Lucene 10.4.0 for the functionality in question.
-   - *Document* must state the Lucene 10.4.0 source references and the compatibility test coverage for the feature.
-
-## 1. Base Rules
-
-1. **You are NOT AUTHORIZED to make decisions on your own.** Whenever the instructions are insufficient, unclear, non-specific, or non-concrete, or whenever they contain contradictions or ambiguities, you MUST ALWAYS ASK the user how to proceed.
-   - When asking, always provide multiple options (a, b, c, ...) and indicate which one you recommend.
-   - When several clarifications are required, present each question to the user sequentially (one at a time), not all at once.
-   - **Boundary between acting and asking:** obvious, low-risk corrections (for example, a pre-existing bug with an unequivocal solution) may proceed immediately; any decision that changes scope, expected behaviour, architecture, or requirements requires prior user approval.
-
-2. **Documentation in English.** All project documentation (including this `CLAUDE.md`) must be written in the most correct English possible, free of orthographic, grammatical, or syntactic errors. Use clear, simple, and unambiguous technical language intended for human readers.
-
-3. **Documentation faithful to the code.** Documentation must be precise and always reflect the real state of the code.
-
-4. **Workflow.** Work always follows this order: **Specify → Implement → Test → Document.**
-
-## 2. Self-Contained Development Policy
-
-All development cycles must be self-contained. You must NEVER deliver only part of a task; every development cycle must produce a complete, working result.
-
-When new needs are discovered during the course of a task — needs that were not anticipated beforehand — they must be resolved within the same development cycle, as immediately as possible. This means creating new tasks and executing them right away, rather than deferring them.
-
-All code and all development output must be, as a rule, **full-fledged**: no half-implementations, no stubs left dangling, no "to be completed later" placeholders.
-
-Tests must never use `t.Skip()`; a gap in coverage must fail, not be silenced.
-
-Whenever you encounter pre-existing bugs during a task, fix them immediately and then continue with the original task.
-
-## 3. Production Orientation
-
-Every action you take — whether development, fixes, evaluations, analysis, audits, or any other work — must be treated with production-grade standards.
-
-Throughout the entire work cycle (analysis → planning → development → testing), the objective must always be that the result produced is **production-grade**. You must apply not only the maximum of your knowledge but also the maximum of your effort to ensure that every piece of work is delivered as code ready to be used in production.
-
-There is no acceptable "draft" or "experimental" mode for delivered work: every commit, every closed task, every merged branch must meet production standards.
-
-## 4. Task Planning and Execution
-
-For operations related to Tasks or Sprints, use the `roadmap-manager` skill.
-
-Use the `rmp` tool (the roadmap-management CLI available on the system) to plan and coordinate task execution. Treat `rmp` as the **single source of truth** for planning and executing the tasks of this project. No other management mechanism may be used for this purpose.
-
-Use the **Knowledge Graph** to understand the project, its components, and the relationships between them, so that you can more easily identify the scope and impact of each task.
-
-### 4.1 Planning
-
-Carefully analyse the scope of work proposed by the user and determine whether it should be split across multiple development phases. Each phase must correspond to a solid deliverable.
-
-Every task must have a clear and objective definition of:
-
-- objectives;
-- functional requirements;
-- technical requirements;
-- acceptance criteria — the conditions that confirm the task is complete.
-
-Phases are represented as **Sprints** in the `rmp` tool and serve to group tasks.
-
-When the work requires multiple phases, planning must be performed in two distinct stages:
-1. define which phases (sprints) are necessary and the scope/objective of each;
-2. only afterwards, sprint by sprint, define the tasks within each sprint.
-
-In both stages, use `rmp` as the single source of truth.
-
-Use the **Knowledge Graph** to identify the highest-gain or highest-impact tasks, foundational tasks, and tasks that unblock other tasks or features, so that the execution order can be optimised. By default, always work from the highest-gain tasks towards the least essential. Foundational tasks and tasks that unblock other work are always prioritised.
-
-When a task is too large to be executed in one go by an AI agent such as Claude Code, subdivide it into smaller parts while respecting the principles already defined (in particular, the self-contained task principle).
-
-### 4.2 Execution
-
-Execution is the natural next step after planning. Always use `rmp` and follow this sequence:
-
-1. Check whether any open task remains unfinished so it can be continued.
-2. Identify the next task.
-3. Understand the objective of the task to be started, based on its description, functional requirements, and technical requirements.
-4. Determine the most appropriate subagent and delegate execution to them.
-5. Always validate the acceptance criteria before closing the task.
-6. Close the task with a short summary of what was done.
-7. After closing the task and before moving on to the next, perform a `git commit` following best practices, explaining what was done.
-8. Update the Knowledge Graph.
-
-Execution notes:
-
-- You may develop **only one task at a time**, in strict sequential order. Active development work must never be parallelised across multiple tasks.
-- Whenever possible, adapt the model and its effort level to the requirements of each individual task operation.
-- Task and sprint execution is **sequential**.
-- Evaluations and audits may run in parallel, but such parallel execution must **ALWAYS be authorised by the user**.
-
-### 4.3 Gitflow Integration
-
-For each task, create the appropriate branch following gitflow conventions:
-
-- **feature/** — new features and enhancements;
-- **hotfix/** — urgent bug fixes;
-- **release/** — release preparation branches.
-
-The branching workflow for each task:
-
-1. Create the appropriate branch based on the nature of the task.
-2. Develop the task on that branch.
-3. Upon completion, execute the branch closure procedure (merge to main).
-4. All operations must be confirmed by the user before execution.
-
-## 5. Knowledge Graph
-
-Manage the Knowledge Graph with the assistance of the `knowledge-authority` skill.
-
-Use the Graph features of `rmp` (Groadmap) to create, maintain (update), and query a knowledge graph for the project. This graph **MUST CONTAIN EVERYTHING** that is useful to know about the project. Examples:
-
-- which features exist and where they are specified and implemented;
-- which tests exist and what they test;
-- which components exist, how they relate, and what dependencies exist between them;
-- in which `git commit` each feature was specified, implemented, and tested;
-- the `rmp` tasks and their connection to components.
-
-The graph **MUST ALWAYS BE UPDATED on every `git commit`**, recording the changes to graph objects. Each node and edge update must identify the corresponding commit and date.
-
-**This graph is the absolute truth about the project.** Keep it as up-to-date as possible so that, before reading files, you can query the graph and obtain what you need.
-
-Create whichever node and edge types make the most sense for the project. Use the graph together with tasks and sprints to coordinate work.
-
-## 6. Never Guess
-
-All interactions on the project must be based **exclusively** on verified knowledge. You must never try to guess the intended answer.
-
-When available information is insufficient, seek answers from official or authoritative sources: specifications, RFCs, papers, books, or recognised authors in the relevant field.
-
-Use the **Knowledge Graph** as the primary source of information — both to look up what is already known and to record the relationships you discover as you go.
-
-## 7. Measure to Decide
-
-Whenever it is necessary to evaluate **performance**, **completeness** (whether something is fully done), or **correctness** (whether something behaves as required), you must ALWAYS gather evidence from the project itself to determine the answer. Decisions of this kind must be **empirical**.
-
-Concretely, this means:
-
-- Run the relevant tests, benchmarks (`go test -bench=. -benchmem`), or profilers (`pprof`) and read their output before claiming a property holds.
-- Inspect actual generated artefacts (bytes on disk, fixture outputs) rather than reasoning only about expected behaviour.
-- Cite the captured evidence (test names, benchmark numbers, byte diffs) when reporting conclusions.
-
-Assumptions, intuition, or prior recall are not acceptable substitutes for measured evidence in these three dimensions.
-
-## 8. Regression Prevention
-
-Whenever a bug is identified, create the necessary regression tests to ensure that the same bug does not recur as a consequence of future development.
-
-## 9. Team of Subagents
-
-You have at your disposal a team composed of all available subagents (global, user-defined, or project-defined).
-
-Use them collaboratively and in a complementary way so that each task is completed with maximum confidence, effectiveness, and accuracy.
-
-Each subagent should contribute proactively with their specialisation.
-
-When initiating a task, identify the most appropriate specialists (skills or agents) to understand the task scope. However, always remember: **the focus of any task is to contribute to the development of Gocene.** Avoid excessive research or analysis — the goal is implementation, not just understanding. Gather only the information necessary to complete the task.
-
-## 10. Decision Framework
-
-To decide what is expected as a project result — whether during evaluations and audits or during code implementation — follow this priority order: **correct → safe → fast.**
-
-1. **Is it correct?** Does the result match the objective, the project specification, and the applicable authoritative sources (RFCs, standards, etc.)?
-2. **Is it safe?** Does the decision or task introduce any characteristic or behaviour that compromises the safe use of the deliverable?
-3. **Is it fast?** Is it the fastest achievable without compromising correctness or safety? What can be done to maximise the performance of the deliverable?
-
-If conflicts arise between these criteria, or if difficulty arises in following them, ask the user immediately how to proceed, presenting the possible options.
-
-## 11. Segregation of Responsibilities
-
-Each package, component, and function must follow a strict pattern of segregation of responsibilities in order to maximise code reuse.
-
-## 12. Memory
-
-Use the Knowledge Graph as the memory for the project, the agents, and the skills. Leverage the relational capabilities of the graph database to optimise how you read and write your memories. Use this method to save the token cost of reading files.
-
-**ALWAYS** update the Knowledge Graph whenever project files are changed, so that you maintain the ability to understand the project through the graph.
-
-## 13. Development Guidelines
-
-When implementing Lucene features in Go:
-
-- Follow Go best practices and idioms while maintaining compatibility with Lucene's behavior.
-- Port algorithms and data structures from Lucene's Java implementation.
-- Consider how to translate Java's object-oriented patterns to Go's interface-based approach.
-- Test against Lucene's expected behavior for byte-level compatibility.
-
-## 14. Lucene Reference Repository
-
-The authoritative reference for the port is the upstream Apache Lucene source tree at release tag `releases/lucene/10.4.0` (commit `9983b7c`).
-
-- **Expected local path**: `/tmp/lucene` (shallow clone of `https://github.com/apache/lucene.git` at tag `releases/lucene/10.4.0`).
-- **If `/tmp/lucene` is absent or empty**, clone it before starting any inventory, planning, or porting task:
-
-  ```bash
-  git clone --depth=1 --branch releases/lucene/10.4.0 \
-      https://github.com/apache/lucene.git /tmp/lucene
-  ```
-
-- Module sources live under `/tmp/lucene/lucene/<module>/src/java/...` (production code), `/tmp/lucene/lucene/<module>/src/java21/...` (JDK-21 specific code, where present), and `/tmp/lucene/lucene/<module>/src/test/...` (tests). Some modules also expose `src/test-files/...` (test resources).
-- The reference tree must be treated as read-only context; never modify it.
-
-## 15. Initial Setup
-
-Once development begins, initialize the Go module:
-
-```bash
-go mod init github.com/FlavioCFOliveira/Gocene
+```
+/tmp/lucene-10.5.0        # github.com/apache/lucene @ tag releases/lucene/10.5.0
 ```
 
-## 16. Project Status
+Within that checkout:
 
-- **Port in progress (pre-v1.0):** 33 top-level packages ported from Apache Lucene 10.4.0 (see `README.md` for the package inventory). The project is in active development across 8 sprints: S1–S5 (closed), S6 (Stubbed subsystems — closed 2026-06-11), S7 (Test-suite health — closed 2026-06-11), S8 (Documentation accuracy — in progress).
-- **Known deferred items:** 660 `t.Fatal` blockers across 33 packages (see `docs/skipped-tests-audit.md`). Major gaps include: NRT reader integration, RandomIndexWriter test infrastructure, spatial/geo query factories, HNSW seeded strategies, facets/taxonomy write path, and codec format completeness (Lucene99, PerField, DocValuesSkipper).
-- **Binary-compatibility test suite in place:** the Java fixture harness under `tools/lucene-fixtures/` drives Lucene 10.4.0 directly via JDK 21 and Maven, produces deterministic fixtures pinned in `tools/lucene-fixtures/manifests/baseline.tsv` (60+ scenarios across every audited package, plus six combined end-to-end scenarios). A Go-side test layer under `internal/compat/` provides per-package round-trips behind the `compat` build tag plus integration scenarios gated by `GOCENE_COMPAT_HARNESS=1`. Note: compat coverage is currently read-path focused (Lucene→Gocene); write-path (Gocene→Lucene) legs are in progress (see `docs/compat-coverage.md`).
-- **CI gates every PR:** GitHub Actions runs a fast `build-and-test` job, a skip-guard lint gate, a race-detector job (x86_64), fuzz smoke tests, and a `compat` matrix (three operating systems × two Go versions) that exercises the fixture harness and the Go compat suite.
-- **Sprint 7 (Test-suite health) closed 2026-06-11:** refreshed `docs/skipped-tests-audit.md` (660 blockers across 33 packages), enforced blocker token convention in `scripts/check-skips.sh`, added CI/local reconciliation document, and added `Makefile` with `race-test` target.
-- **Sprint 6 (Stubbed subsystems) closed 2026-06-11:** resolved 21 PARTIAL/MISSING tasks across 10 packages — expressions compiler with full JS operators, MemoryIndex search, QueryDecomposer, CollectingMatcher, MonitorQuerySerializer, BBoxValueSource, S2PrefixTree geometry, and more.
+| What | Path (under `/tmp/lucene-10.5.0`) |
+| --- | --- |
+| Core sources | `lucene/core/src/java` |
+| Core tests | `lucene/core/src/test` |
+| Core JDK-21 specific sources | `lucene/core/src/java21` |
+| Test framework | `lucene/test-framework/src/java` |
+| Test framework resources | `lucene/test-framework/src/resources` |
+
+The reference tree is **read-only context — never modify it**.
+
+This checkout is the **absolute source of truth** for the port. Never port from memory, documentation, or a blog — read the actual Java source at the `10.5.0` tag. If the folder is missing (a machine temp folder does not survive a reboot), re-create it with a shallow clone at that tag before continuing.
+
+Gocene must stay faithful to that source: the package and file organisation, the type and member decomposition, the algorithms, and every default, constant, and reference value must mirror the original. When Gocene diverges, the divergence must be a deliberate, documented Go idiom adaptation — never an accident.
+
+### Deciding what to port, and how
+
+Every decision about **what** to port and **how** to port it is governed by fidelity to the original source. Consult, in this order:
+
+1. **Your own knowledge** of the Lucene library — to orient the problem and form the hypothesis.
+2. **The library's reference documentation** (javadoc, `CHANGES.txt`, `MIGRATE.md`) — to confirm intent and contracts.
+3. **The cloned Lucene source code** at `/tmp/lucene-10.5.0` — the most absolute source of truth.
+
+The source code always wins. Where knowledge or documentation disagrees with the checked-out code, the code is right and the decision follows the code.
+
+## Token economy
+
+This project follows a **strict token-economy policy**.
+
+Any operation that can be performed locally on the machine must be performed locally — it must not be handed to the model to do "by reasoning" or by reading large amounts of content into context. Prefer a deterministic command that produces the answer over a model pass that infers it.
+
+In practice:
+
+- Use CLI tooling to search, count, compare, list, format, build, and test, instead of reading files to work it out.
+- Before starting a task, evaluate the CLI tooling available on the machine and use whatever supports the work best; reach for a tool that already answers the question rather than reconstructing the answer in context.
+- Read only the parts of a file that are actually needed, never whole files by default.
+- Do not re-read, re-derive, or re-verify what has already been established.
+
+## Task management
+
+Use the `roadmap-manager` skill to manage all project tasks via the `rmp` CLI tool. Run `rmp --ai-help` at any time for the machine-readable command contract whenever there is any doubt about how to operate the CLI. All task tracking, progress, and sprint work must go through this CLI.
+
+## Knowledge Graph
+
+Use the `knowledge-authority` skill to manage the project's Knowledge Graph (KG).
+
+The KG must hold all information essential to the purpose of porting Lucene to Gocene: the full structure of packages, classes, and related entities of both the original Apache Lucene codebase and the ported Gocene codebase, including the mapping between them — what has already been ported and what is still missing.
+
+The KG is the central coordination piece for the Lucene → Gocene migration. It must be kept up to date continuously as work proceeds, so that at any moment it can answer the state of the migration: what is already done and what is still missing.
+
+## Git
+
+Use the `gitflow` skill for all Git management operations.
+
+**ALL** git commands must be run alone and in isolation — never chained or combined with other commands (no `&&`, `;`, or pipes joining a git command to anything else). One git command per shell invocation.
