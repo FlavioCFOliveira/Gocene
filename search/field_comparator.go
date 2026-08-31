@@ -84,7 +84,7 @@ func newSortFieldComparator(sf *SortField, numHits int) (sortFieldComparator, er
 		if sf.comparatorSource == nil {
 			return nil, fmt.Errorf("search: CUSTOM SortField %q has no FieldComparatorSource", sf.Field)
 		}
-		inner := sf.comparatorSource.NewComparator(sf, numHits)
+		inner := sf.comparatorSource.NewComparator(sf.Field, numHits, PruningNone, sf.Reverse)
 		if inner == nil {
 			return nil, fmt.Errorf("search: FieldComparatorSource for %q returned a nil comparator", sf.Field)
 		}

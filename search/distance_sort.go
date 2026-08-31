@@ -103,7 +103,7 @@ type latLonDistanceComparatorSource struct {
 	longitude float64
 }
 
-func (s *latLonDistanceComparatorSource) NewComparator(_ *SortField, numHits int) FieldComparator {
+func (s *latLonDistanceComparatorSource) NewComparator(fieldname string, numHits int, pruning Pruning, reversed bool) FieldComparator {
 	return &latLonDistanceFieldComparator{
 		inner: NewLatLonPointDistanceComparator(s.field, s.latitude, s.longitude, numHits),
 	}
@@ -173,7 +173,7 @@ type xyDistanceComparatorSource struct {
 	y     float32
 }
 
-func (s *xyDistanceComparatorSource) NewComparator(_ *SortField, numHits int) FieldComparator {
+func (s *xyDistanceComparatorSource) NewComparator(fieldname string, numHits int, pruning Pruning, reversed bool) FieldComparator {
 	return &xyDistanceFieldComparator{
 		inner: NewXYPointDistanceComparator(s.field, s.x, s.y, numHits),
 	}

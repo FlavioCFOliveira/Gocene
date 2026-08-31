@@ -33,7 +33,7 @@ func NewBlockJoinComparatorSource(parentComparator search.FieldComparator, paren
 }
 
 // NewComparator creates a new comparator for the given sort field.
-func (s *BlockJoinComparatorSource) NewComparator(field *search.SortField, numHits int) search.FieldComparator {
+func (s *BlockJoinComparatorSource) NewComparator(fieldname string, numHits int, pruning search.Pruning, reversed bool) search.FieldComparator {
 	// Return a block join comparator that wraps the parent comparator
 	return NewBlockJoinComparator(s.parentComparator, s.parentsFilter, numHits)
 }

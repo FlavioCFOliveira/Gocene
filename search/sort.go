@@ -291,8 +291,3 @@ type FieldComparator interface {
 	SetScorer(scorer Scorer)
 }
 
-// FieldComparatorSource creates FieldComparators for sorting.
-type FieldComparatorSource interface {
-	// NewComparator creates a new comparator for the given sort field.
-	NewComparator(field *SortField, numHits int) FieldComparator
-}

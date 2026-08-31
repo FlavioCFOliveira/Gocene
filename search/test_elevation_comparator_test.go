@@ -156,7 +156,7 @@ type elevationComparatorSource struct {
 	priority map[string]int
 }
 
-func (s *elevationComparatorSource) NewComparator(field *search.SortField, numHits int) search.FieldComparator {
+func (s *elevationComparatorSource) NewComparator(fieldname string, numHits int, pruning search.Pruning, reversed bool) search.FieldComparator {
 	return &elevationComparator{
 		priority: s.priority,
 		field:    field.GetField(),
