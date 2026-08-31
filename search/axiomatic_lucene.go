@@ -298,29 +298,6 @@ func axiomaticIDFLogExplain() LuceneAxiomaticExplainComponent {
 // F1EXP / F1LOG / F2EXP / F2LOG / F3EXP / F3LOG factories.
 // ============================================================================
 
-// NewLuceneAxiomaticF1EXP returns AxiomaticF1EXP(s, k) with queryLen=1.
-func NewLuceneAxiomaticF1EXP(s, k float32) *LuceneAxiomaticSimilarity {
-	hooks := LuceneAxiomaticHooks{
-		TF:          axiomaticTFGrowth,
-		LN:          axiomaticLNWithGrowth(s),
-		TFLN:        axiomaticTFLNConstant,
-		IDF:         axiomaticIDFPow(k),
-		Gamma:       axiomaticGammaZero,
-		TFExplain:   axiomaticTFGrowthExplain,
-		LNExplain:   axiomaticLNWithGrowthExplain(s),
-		TFLNExplain: axiomaticTFLNConstantExplain,
-		IDFExplain:  axiomaticIDFPowExplain(k),
-		Name:        "F1EXP",
-	}
-	return NewLuceneAxiomaticSimilarity(s, 1, k, hooks)
-}
-
-// NewLuceneAxiomaticF1EXPDefault returns the parameter-free F1EXP
-// (s=0.25, k=0.35, queryLen=1).
-func NewLuceneAxiomaticF1EXPDefault() *LuceneAxiomaticSimilarity {
-	return NewLuceneAxiomaticF1EXP(0.25, 0.35)
-}
-
 // NewLuceneAxiomaticF1LOG returns AxiomaticF1LOG(s) with queryLen=1, k=0.35.
 func NewLuceneAxiomaticF1LOG(s float32) *LuceneAxiomaticSimilarity {
 	hooks := LuceneAxiomaticHooks{
