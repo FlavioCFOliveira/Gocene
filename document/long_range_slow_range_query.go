@@ -4,7 +4,13 @@
 
 package document
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
+
+const classHashLongRangeSlowRangeQuery = 0x6c72_7372 // "lrsr"
 
 // LongRangeSlowRangeQuery is a data carrier for a slow range query over
 // LongRange doc-values fields. It mirrors the package-private class
@@ -73,6 +79,32 @@ func (q *LongRangeSlowRangeQuery) Max() []int64 {
 // QueryType returns the range query type.
 func (q *LongRangeSlowRangeQuery) QueryType() RangeFieldQueryType { return q.queryType }
 
+// HashCode mirrors Java's Objects/Arrays-based hash: a per-type constant
+// rolled through (31*h + field-hash + Arrays.hashCode(min) + Arrays.hashCode(max)).
+func (q *LongRangeSlowRangeQuery) HashCode() int {
+	h := int32(classHashLongRangeSlowRangeQuery)
+	h = 31*h + int32(stringHash(q.field))
+	h = 31*h + int32(int64SliceHash(q.min))
+	h = 31*h + int32(int64SliceHash(q.max))
+	return int(h)
+}
+
+// ToString mirrors the Java reference: optional "field:" prefix when
+// rendered out of context, followed by "[ [min0, min1, ...] TO [max0, max1, ...] ]".
+func (q *LongRangeSlowRangeQuery) ToString(field string) string {
+	var b strings.Builder
+	if q.field != field {
+		b.WriteString(q.field)
+		b.WriteByte(':')
+	}
+	b.WriteByte('[')
+	b.WriteString(formatInt64Slice(q.min))
+	b.WriteString(" TO ")
+	b.WriteString(formatInt64Slice(q.max))
+	b.WriteByte(']')
+	return b.String()
+}
+
 // String returns a human-readable representation.
 func (q *LongRangeSlowRangeQuery) String() string {
 	return fmt.Sprintf("LongRangeSlowRangeQuery(field=%s, min=%v, max=%v, type=%s)", q.field, q.min, q.max, q.queryType)
@@ -103,4 +135,38 @@ func (q *LongRangeSlowRangeQuery) Equals(other *LongRangeSlowRangeQuery) bool {
 		}
 	}
 	return true
+}
+
+func stringHash(s string) int32 {
+	var h int32
+	for i := 0; i < len(s); i++ {
+		h = 31*h + int32(s[i])
+	}
+	return h
+}
+
+func int64SliceHash(a []int64) int32 {
+	h := int32(1)
+	for _, v := range a {
+		uv := uint64(v)
+		mix := int32(uv ^ (uv >> 32))
+		h = 31*h + mix
+	}
+	return h
+}
+
+func formatInt64Slice(a []int64) string {
+	if len(a) == 0 {
+		return "[]"
+	}
+	var b strings.Builder
+	b.WriteByte('[')
+	for i, v := range a {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(strconv.FormatInt(v, 10))
+	}
+	b.WriteByte(']')
+	return b.String()
 }
