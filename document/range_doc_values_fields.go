@@ -56,45 +56,6 @@ func (f *IntRangeDocValuesField) GetMax(dim int) int32 {
 	return f.max[dim]
 }
 
-// LongRangeDocValuesField stores an N-dimensional long range.
-type LongRangeDocValuesField struct {
-	*BinaryDocValuesField
-	min []int64
-	max []int64
-}
-
-// NewLongRangeDocValuesField creates a new LongRangeDocValuesField.
-func NewLongRangeDocValuesField(name string, min, max []int64) (*LongRangeDocValuesField, error) {
-	if err := checkRangeDocValuesArgs(len(min), len(max)); err != nil {
-		return nil, err
-	}
-	encoded, err := EncodeLongRangeLucene(min, max)
-	if err != nil {
-		return nil, err
-	}
-	b, err := NewBinaryDocValuesField(name, encoded)
-	if err != nil {
-		return nil, err
-	}
-	dupMin := make([]int64, len(min))
-	dupMax := make([]int64, len(max))
-	copy(dupMin, min)
-	copy(dupMax, max)
-	return &LongRangeDocValuesField{BinaryDocValuesField: b, min: dupMin, max: dupMax}, nil
-}
-
-// GetMin returns the minimum value for the given dimension.
-func (f *LongRangeDocValuesField) GetMin(dim int) int64 {
-	mustDim(dim, len(f.min))
-	return f.min[dim]
-}
-
-// GetMax returns the maximum value for the given dimension.
-func (f *LongRangeDocValuesField) GetMax(dim int) int64 {
-	mustDim(dim, len(f.max))
-	return f.max[dim]
-}
-
 // FloatRangeDocValuesField stores an N-dimensional float range.
 type FloatRangeDocValuesField struct {
 	*BinaryDocValuesField
@@ -130,45 +91,6 @@ func (f *FloatRangeDocValuesField) GetMin(dim int) float32 {
 
 // GetMax returns the maximum value for the given dimension.
 func (f *FloatRangeDocValuesField) GetMax(dim int) float32 {
-	mustDim(dim, len(f.max))
-	return f.max[dim]
-}
-
-// DoubleRangeDocValuesField stores an N-dimensional double range.
-type DoubleRangeDocValuesField struct {
-	*BinaryDocValuesField
-	min []float64
-	max []float64
-}
-
-// NewDoubleRangeDocValuesField creates a new DoubleRangeDocValuesField.
-func NewDoubleRangeDocValuesField(name string, min, max []float64) (*DoubleRangeDocValuesField, error) {
-	if err := checkRangeDocValuesArgs(len(min), len(max)); err != nil {
-		return nil, err
-	}
-	encoded, err := EncodeDoubleRangeLucene(min, max)
-	if err != nil {
-		return nil, err
-	}
-	b, err := NewBinaryDocValuesField(name, encoded)
-	if err != nil {
-		return nil, err
-	}
-	dupMin := make([]float64, len(min))
-	dupMax := make([]float64, len(max))
-	copy(dupMin, min)
-	copy(dupMax, max)
-	return &DoubleRangeDocValuesField{BinaryDocValuesField: b, min: dupMin, max: dupMax}, nil
-}
-
-// GetMin returns the minimum value for the given dimension.
-func (f *DoubleRangeDocValuesField) GetMin(dim int) float64 {
-	mustDim(dim, len(f.min))
-	return f.min[dim]
-}
-
-// GetMax returns the maximum value for the given dimension.
-func (f *DoubleRangeDocValuesField) GetMax(dim int) float64 {
 	mustDim(dim, len(f.max))
 	return f.max[dim]
 }
