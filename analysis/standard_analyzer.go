@@ -23,14 +23,7 @@ import (
 // constructor.
 type StandardAnalyzer struct {
 	*BaseAnalyzer
-
-	// stopWords is the set of stop words to filter. Empty by
-	// default, matching the Lucene reference.
-	stopWords []string
-
-	// maxTokenLength is propagated to every StandardTokenizer
-	// created by this analyzer. Defaults to
-	// [DefaultMaxTokenLength].
+	*StopwordAnalyzerBase
 	maxTokenLength int
 }
 
@@ -39,9 +32,9 @@ type StandardAnalyzer struct {
 // `this(CharArraySet.EMPTY_SET)`).
 func NewStandardAnalyzer() *StandardAnalyzer {
 	return &StandardAnalyzer{
-		BaseAnalyzer:   NewAnalyzer(),
-		stopWords:      nil,
-		maxTokenLength: DefaultMaxTokenLength,
+		BaseAnalyzer:         NewAnalyzer(),
+		StopwordAnalyzerBase: NewEmptyStopwordAnalyzerBase(),
+		maxTokenLength:       DefaultMaxTokenLength,
 	}
 }
 
@@ -49,13 +42,25 @@ func NewStandardAnalyzer() *StandardAnalyzer {
 // the given list of stop words. Pass [EnglishStopWords] for the
 // classic English stop set.
 func NewStandardAnalyzerWithStopWords(stopWords []string) *StandardAnalyzer {
-	cp := make([]string, len(stopWords))
-	copy(cp, stopWords)
 	return &StandardAnalyzer{
-		BaseAnalyzer:   NewAnalyzer(),
-		stopWords:      cp,
-		maxTokenLength: DefaultMaxTokenLength,
+		BaseAnalyzer:         NewAnalyzer(),
+		StopwordAnalyzerBase: NewStopwordAnalyzerBase(NewCharArraySetFromCollection(stopWords, false)),
+		maxTokenLength:       DefaultMaxTokenLength,
 	}
+}
+
+// NewStandardAnalyzerFromReader builds a StandardAnalyzer using the
+// stop words from the given reader.
+func NewStandardAnalyzerFromReader(reader io.Reader) (*StandardAnalyzer, error) {
+	set, err := LoadStopwordSetFromReader(reader)
+	if err != nil {
+		return nil, err
+	}
+	return &StandardAnalyzer{
+		BaseAnalyzer:         NewAnalyzer(),
+		StopwordAnalyzerBase: NewStopwordAnalyzerBase(set),
+		maxTokenLength:       DefaultMaxTokenLength,
+	}, nil
 }
 
 // MaxTokenLength returns the max token length applied to every
@@ -96,8 +101,9 @@ func (a *StandardAnalyzer) TokenStream(fieldName string, reader io.Reader) (Toke
 		return nil, err
 	}
 	var stream TokenStream = NewLowerCaseFilter(tokenizer)
-	if len(a.stopWords) > 0 {
-		stream = NewStopFilter(stream, a.stopWords)
+	set := a.Stopwords()
+	if set != nil && set.Size() > 0 {
+		stream = NewStopFilter(stream, set.Items())
 	}
 	return stream, nil
 }
@@ -105,17 +111,16 @@ func (a *StandardAnalyzer) TokenStream(fieldName string, reader io.Reader) (Toke
 // GetStopWords returns a copy of the stop word list used by this
 // analyzer.
 func (a *StandardAnalyzer) GetStopWords() []string {
-	out := make([]string, len(a.stopWords))
-	copy(out, a.stopWords)
-	return out
+	if a.StopwordAnalyzerBase == nil {
+		return nil
+	}
+	return a.Stopwords().Items()
 }
 
 // SetStopWords replaces the stop word list. The new list is copied
 // so the caller's slice can be reused freely.
 func (a *StandardAnalyzer) SetStopWords(stopWords []string) {
-	cp := make([]string, len(stopWords))
-	copy(cp, stopWords)
-	a.stopWords = cp
+	a.StopwordAnalyzerBase = NewStopwordAnalyzerBase(NewCharArraySetFromCollection(stopWords, false))
 }
 
 // Ensure StandardAnalyzer implements Analyzer.
