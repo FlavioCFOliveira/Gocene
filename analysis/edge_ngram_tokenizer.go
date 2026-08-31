@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"errors"
 	"io"
 	"unicode/utf8"
@@ -58,8 +61,8 @@ type EdgeNGramTokenizer struct {
 	// offsetAttr holds the OffsetAttribute
 	offsetAttr OffsetAttribute
 
-	// posIncrAttr holds the PositionIncrementAttribute
-	posIncrAttr PositionIncrementAttribute
+	// posIncrAttr holds the tokenattributes.PositionIncrementAttribute
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 }
 
 // NewEdgeNGramTokenizer creates a new EdgeNGramTokenizer with the specified
@@ -87,7 +90,7 @@ func NewEdgeNGramTokenizer(minGram, maxGram int) (*EdgeNGramTokenizer, error) {
 	// Add attributes
 	t.termAttr = NewCharTermAttribute()
 	t.offsetAttr = NewOffsetAttribute()
-	t.posIncrAttr = NewPositionIncrementAttribute()
+	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
 
 	t.AddAttribute(t.termAttr)
 	t.AddAttribute(t.offsetAttr)

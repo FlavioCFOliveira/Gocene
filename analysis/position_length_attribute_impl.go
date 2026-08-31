@@ -3,7 +3,7 @@
 // that can be found in the LICENSE file.
 
 // Ported from Apache Lucene 10.4.0:
-// lucene/core/src/java/org/apache/lucene/analysis/tokenattributes/PositionLengthAttributeImpl.java
+// lucene/core/src/java/org/apache/lucene/tokenattributes/PositionLengthAttributeImpl.java
 
 package analysis
 
@@ -15,14 +15,14 @@ import (
 )
 
 // PositionLengthAttributeImpl is the Go port of Lucene's
-// org.apache.lucene.analysis.tokenattributes.PositionLengthAttributeImpl.
+// org.apache.lucene.tokenattributes.PositionLengthAttributeImpl.
 //
 // It is the exported concrete implementation of [PositionLengthAttribute].
 // The default position length is 1, matching the Lucene default.
 //
 // Lucene 10.4.0 reference:
 //
-//	lucene/core/src/java/org/apache/lucene/analysis/tokenattributes/PositionLengthAttributeImpl.java
+//	lucene/core/src/java/org/apache/lucene/tokenattributes/PositionLengthAttributeImpl.java
 type PositionLengthAttributeImpl struct {
 	positionLength int
 }

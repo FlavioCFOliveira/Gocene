@@ -11,7 +11,7 @@ import (
 )
 
 // BytesTermAttribute is the Go port of Lucene's
-// org.apache.lucene.analysis.tokenattributes.BytesTermAttribute.
+// org.apache.lucene.tokenattributes.BytesTermAttribute.
 //
 // Use BytesTermAttribute when raw term bytes are already available and
 // should be indexed directly (binary terms), as a replacement for
@@ -23,7 +23,7 @@ import (
 //
 // Lucene 10.4.0 reference:
 //
-//	lucene/core/src/java/org/apache/lucene/analysis/tokenattributes/BytesTermAttribute.java
+//	lucene/core/src/java/org/apache/lucene/tokenattributes/BytesTermAttribute.java
 type BytesTermAttribute interface {
 	TermToBytesRefAttribute
 

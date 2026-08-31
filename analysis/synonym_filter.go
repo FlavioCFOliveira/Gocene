@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -43,8 +46,8 @@ type SynonymFilter struct {
 	// termAttr holds the CharTermAttribute from the shared attribute source
 	termAttr CharTermAttribute
 
-	// posIncrAttr holds the PositionIncrementAttribute from the shared attribute source
-	posIncrAttr PositionIncrementAttribute
+	// posIncrAttr holds the tokenattributes.PositionIncrementAttribute from the shared attribute source
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 
 	// posLenAttr holds the PositionLengthAttribute from the shared attribute source
 	posLenAttr PositionLengthAttribute
@@ -137,9 +140,9 @@ func NewSynonymFilterWithOptions(input TokenStream, synonymMap *SynonymMap, igno
 		if attr != nil {
 			filter.termAttr = attr.(CharTermAttribute)
 		}
-		attr = attrSource.GetAttribute(PositionIncrementAttributeType)
+		attr = attrSource.GetAttribute(tokenattributes.PositionIncrementAttributeType)
 		if attr != nil {
-			filter.posIncrAttr = attr.(PositionIncrementAttribute)
+			filter.posIncrAttr = attr.(tokenattributes.PositionIncrementAttribute)
 		}
 		attr = attrSource.GetAttribute(PositionLengthAttributeType)
 		if attr != nil {

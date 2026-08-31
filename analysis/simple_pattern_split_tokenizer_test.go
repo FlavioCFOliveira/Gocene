@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"regexp"
 	"strings"
 	"testing"
@@ -431,10 +434,10 @@ func TestSimplePatternSplitTokenizer_PositionIncrement(t *testing.T) {
 			t.Fatalf("Expected token %d", i)
 		}
 
-		posIncrAttr := tokenizer.GetAttributeSource().GetAttribute(PositionIncrementAttributeType)
-		pia, ok := posIncrAttr.(PositionIncrementAttribute)
+		posIncrAttr := tokenizer.GetAttributeSource().GetAttribute(tokenattributes.PositionIncrementAttributeType)
+		pia, ok := posIncrAttr.(tokenattributes.PositionIncrementAttribute)
 		if !ok {
-			t.Fatalf("Failed to cast PositionIncrementAttribute")
+			t.Fatalf("Failed to cast tokenattributes.PositionIncrementAttribute")
 		}
 
 		if pia.GetPositionIncrement() != 1 {

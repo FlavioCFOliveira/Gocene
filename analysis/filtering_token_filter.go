@@ -4,6 +4,11 @@
 
 package analysis
 
+import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+)
+	
+
 // FilteringTokenFilter is the abstract base type for TokenFilters that may
 // remove tokens. Subclasses (in Go, callers) implement the AcceptFn callback;
 // IncrementToken returns only those tokens for which AcceptFn returned true,
@@ -24,10 +29,10 @@ type FilteringTokenFilter struct {
 	// the embedded BaseTokenFilter. Must be non-nil.
 	AcceptFn func() (bool, error)
 
-	// posIncrAttr is a cached lookup of the PositionIncrementAttribute on the
+	// posIncrAttr is a cached lookup of the tokenattributes.PositionIncrementAttribute on the
 	// shared AttributeSource. May be nil if the underlying stream does not
-	// expose a PositionIncrementAttribute.
-	posIncrAttr PositionIncrementAttribute
+	// expose a tokenattributes.PositionIncrementAttribute.
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 
 	// skippedPositions accumulates the position increment of tokens that
 	// AcceptFn rejected since the last accepted token (or since reset).
@@ -35,7 +40,7 @@ type FilteringTokenFilter struct {
 }
 
 // NewFilteringTokenFilter wraps the given input stream and configures the
-// AcceptFn callback. The PositionIncrementAttribute, if present on the
+// AcceptFn callback. The tokenattributes.PositionIncrementAttribute, if present on the
 // shared AttributeSource, is cached for use in IncrementToken.
 func NewFilteringTokenFilter(input TokenStream, accept func() (bool, error)) *FilteringTokenFilter {
 	f := &FilteringTokenFilter{
@@ -43,8 +48,8 @@ func NewFilteringTokenFilter(input TokenStream, accept func() (bool, error)) *Fi
 		AcceptFn:        accept,
 	}
 	if src := f.GetAttributeSource(); src != nil {
-		if attr := src.GetAttribute(PositionIncrementAttributeType); attr != nil {
-			if pi, ok := attr.(PositionIncrementAttribute); ok {
+		if attr := src.GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
+			if pi, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				f.posIncrAttr = pi
 			}
 		}

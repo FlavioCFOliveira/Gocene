@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"unicode/utf8"
 )
 
@@ -33,8 +36,8 @@ type NGramFilter struct {
 	// termAttr holds the CharTermAttribute from the shared attribute source
 	termAttr CharTermAttribute
 
-	// posIncrAttr holds the PositionIncrementAttribute from the shared attribute source
-	posIncrAttr PositionIncrementAttribute
+	// posIncrAttr holds the tokenattributes.PositionIncrementAttribute from the shared attribute source
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 
 	// offsetAttr holds the OffsetAttribute from the shared attribute source
 	offsetAttr OffsetAttribute
@@ -99,8 +102,8 @@ func NewNGramFilter(input TokenStream, minGram, maxGram int) *NGramFilter {
 		if attr := attrSrc.GetAttribute(CharTermAttributeType); attr != nil {
 			filter.termAttr = attr.(CharTermAttribute)
 		}
-		if attr := attrSrc.GetAttribute(PositionIncrementAttributeType); attr != nil {
-			filter.posIncrAttr = attr.(PositionIncrementAttribute)
+		if attr := attrSrc.GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
+			filter.posIncrAttr = attr.(tokenattributes.PositionIncrementAttribute)
 		}
 		if attr := attrSrc.GetAttribute(OffsetAttributeType); attr != nil {
 			filter.offsetAttr = attr.(OffsetAttribute)

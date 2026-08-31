@@ -11,7 +11,7 @@ import (
 )
 
 // TermToBytesRefAttribute is the Go port of Lucene's
-// org.apache.lucene.analysis.tokenattributes.TermToBytesRefAttribute.
+// org.apache.lucene.tokenattributes.TermToBytesRefAttribute.
 //
 // This attribute is requested by TermsHashPerField to index the
 // contents of a token. It can be used to customise the final byte
@@ -34,7 +34,7 @@ import (
 //
 // Lucene 10.4.0 reference:
 //
-//	lucene/core/src/java/org/apache/lucene/analysis/tokenattributes/TermToBytesRefAttribute.java
+//	lucene/core/src/java/org/apache/lucene/tokenattributes/TermToBytesRefAttribute.java
 type TermToBytesRefAttribute interface {
 	util.Attribute
 

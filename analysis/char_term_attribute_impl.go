@@ -3,7 +3,7 @@
 // that can be found in the LICENSE file.
 
 // Ported from Apache Lucene 10.4.0:
-// lucene/core/src/java/org/apache/lucene/analysis/tokenattributes/CharTermAttributeImpl.java
+// lucene/core/src/java/org/apache/lucene/tokenattributes/CharTermAttributeImpl.java
 
 package analysis
 
@@ -19,7 +19,7 @@ import (
 const minCharTermBufferSize = 10
 
 // CharTermAttributeImpl is the Go port of Lucene's
-// org.apache.lucene.analysis.tokenattributes.CharTermAttributeImpl.
+// org.apache.lucene.tokenattributes.CharTermAttributeImpl.
 //
 // It is the exported concrete implementation of [CharTermAttribute]
 // (which extends [TermToBytesRefAttribute] in Gocene). The term is
@@ -28,7 +28,7 @@ const minCharTermBufferSize = 10
 //
 // Lucene 10.4.0 reference:
 //
-//	lucene/core/src/java/org/apache/lucene/analysis/tokenattributes/CharTermAttributeImpl.java
+//	lucene/core/src/java/org/apache/lucene/tokenattributes/CharTermAttributeImpl.java
 type CharTermAttributeImpl struct {
 	termBuffer []byte
 	termLength int

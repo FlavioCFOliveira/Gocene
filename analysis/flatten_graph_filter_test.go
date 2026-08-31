@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"reflect"
 	"strings"
 	"testing"
@@ -17,7 +20,7 @@ type mockGraphTokenStream struct {
 	tokens      []mockToken
 	currentIdx  int
 	termAttr    CharTermAttribute
-	posIncrAttr PositionIncrementAttribute
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 	posLenAttr  PositionLengthAttribute
 	offsetAttr  OffsetAttribute
 }
@@ -39,7 +42,7 @@ func newMockGraphTokenStream(tokens []mockToken) *mockGraphTokenStream {
 
 	// Add attributes
 	stream.termAttr = NewCharTermAttribute()
-	stream.posIncrAttr = NewPositionIncrementAttribute()
+	stream.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
 	stream.posLenAttr = NewPositionLengthAttribute()
 	stream.offsetAttr = NewOffsetAttribute()
 
@@ -142,8 +145,8 @@ func TestFlattenGraphFilter_SynonymGraph(t *testing.T) {
 			}
 		}
 
-		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
-			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+		if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+			if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				posIncrs = append(posIncrs, posAttr.GetPositionIncrement())
 			}
 		}
@@ -208,8 +211,8 @@ func TestFlattenGraphFilter_MultiWordSynonym(t *testing.T) {
 			}
 		}
 
-		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
-			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+		if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+			if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				token.posIncr = posAttr.GetPositionIncrement()
 			}
 		}
@@ -283,8 +286,8 @@ func TestFlattenGraphFilter_Gap(t *testing.T) {
 			}
 		}
 
-		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
-			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+		if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+			if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				posIncrs = append(posIncrs, posAttr.GetPositionIncrement())
 			}
 		}
@@ -358,8 +361,8 @@ func TestFlattenGraphFilter_SingleToken(t *testing.T) {
 			}
 		}
 
-		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
-			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+		if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+			if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				posIncrs = append(posIncrs, posAttr.GetPositionIncrement())
 			}
 		}
@@ -571,8 +574,8 @@ func TestFlattenGraphFilter_MultipleSynonymsAtPosition(t *testing.T) {
 			}
 		}
 
-		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
-			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+		if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+			if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				posIncrs = append(posIncrs, posAttr.GetPositionIncrement())
 			}
 		}
@@ -705,8 +708,8 @@ func TestFlattenGraphFilter_LongPositionLength(t *testing.T) {
 			}
 		}
 
-		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
-			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+		if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+			if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				token.posIncr = posAttr.GetPositionIncrement()
 			}
 		}

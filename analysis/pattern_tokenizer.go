@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"io"
 	"regexp"
 )
@@ -54,8 +57,8 @@ type PatternTokenizer struct {
 	// offsetAttr holds the OffsetAttribute
 	offsetAttr OffsetAttribute
 
-	// posIncrAttr holds the PositionIncrementAttribute
-	posIncrAttr PositionIncrementAttribute
+	// posIncrAttr holds the tokenattributes.PositionIncrementAttribute
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 
 	// typeAttr holds the TypeAttribute
 	typeAttr TypeAttribute
@@ -118,7 +121,7 @@ func NewPatternTokenizerWithGroup(pattern *regexp.Regexp, group int) *PatternTok
 	// Add attributes
 	t.termAttr = NewCharTermAttribute()
 	t.offsetAttr = NewOffsetAttribute()
-	t.posIncrAttr = NewPositionIncrementAttribute()
+	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
 	t.typeAttr = NewTypeAttribute()
 
 	t.AddAttribute(t.termAttr)

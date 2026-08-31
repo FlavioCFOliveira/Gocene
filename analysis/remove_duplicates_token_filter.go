@@ -4,6 +4,11 @@
 
 package analysis
 
+import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+)
+	
+
 // RemoveDuplicatesTokenFilter removes duplicate tokens at the same position.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.RemoveDuplicatesTokenFilter.
@@ -29,8 +34,8 @@ type RemoveDuplicatesTokenFilter struct {
 	// termAttr holds the CharTermAttribute from the shared attribute source
 	termAttr CharTermAttribute
 
-	// posIncrAttr holds the PositionIncrementAttribute from the shared attribute source
-	posIncrAttr PositionIncrementAttribute
+	// posIncrAttr holds the tokenattributes.PositionIncrementAttribute from the shared attribute source
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 
 	// seenTokens tracks tokens that have been seen at the current position
 	seenTokens map[string]struct{}
@@ -61,8 +66,8 @@ func NewRemoveDuplicatesTokenFilter(input TokenStream) *RemoveDuplicatesTokenFil
 		if attr := attrSource.GetAttribute(CharTermAttributeType); attr != nil {
 			filter.termAttr = attr.(CharTermAttribute)
 		}
-		if attr := attrSource.GetAttribute(PositionIncrementAttributeType); attr != nil {
-			filter.posIncrAttr = attr.(PositionIncrementAttribute)
+		if attr := attrSource.GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
+			filter.posIncrAttr = attr.(tokenattributes.PositionIncrementAttribute)
 		}
 	}
 

@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"unicode/utf8"
 )
 
@@ -40,8 +43,8 @@ type EdgeNGramFilter struct {
 	// termAttr holds the CharTermAttribute from the shared attribute source
 	termAttr CharTermAttribute
 
-	// posIncrAttr holds the PositionIncrementAttribute from the shared attribute source
-	posIncrAttr PositionIncrementAttribute
+	// posIncrAttr holds the tokenattributes.PositionIncrementAttribute from the shared attribute source
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 
 	// offsetAttr holds the OffsetAttribute from the shared attribute source
 	offsetAttr OffsetAttribute
@@ -127,8 +130,8 @@ func NewEdgeNGramFilterWithOptions(input TokenStream, minGram, maxGram int, pres
 		if attr := attrSource.GetAttribute(CharTermAttributeType); attr != nil {
 			filter.termAttr = attr.(CharTermAttribute)
 		}
-		if attr := attrSource.GetAttribute(PositionIncrementAttributeType); attr != nil {
-			filter.posIncrAttr = attr.(PositionIncrementAttribute)
+		if attr := attrSource.GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
+			filter.posIncrAttr = attr.(tokenattributes.PositionIncrementAttribute)
 		}
 		if attr := attrSource.GetAttribute(OffsetAttributeType); attr != nil {
 			filter.offsetAttr = attr.(OffsetAttribute)

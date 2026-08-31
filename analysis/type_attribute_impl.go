@@ -3,7 +3,7 @@
 // that can be found in the LICENSE file.
 
 // Ported from Apache Lucene 10.4.0:
-// lucene/core/src/java/org/apache/lucene/analysis/tokenattributes/TypeAttributeImpl.java
+// lucene/core/src/java/org/apache/lucene/tokenattributes/TypeAttributeImpl.java
 
 package analysis
 
@@ -14,7 +14,7 @@ import (
 )
 
 // TypeAttributeImpl is the Go port of Lucene's
-// org.apache.lucene.analysis.tokenattributes.TypeAttributeImpl.
+// org.apache.lucene.tokenattributes.TypeAttributeImpl.
 //
 // It is the exported concrete implementation of [TypeAttribute].
 // The default type is [DefaultTypeAttributeValue] ("word"), matching
@@ -26,7 +26,7 @@ import (
 //
 // Lucene 10.4.0 reference:
 //
-//	lucene/core/src/java/org/apache/lucene/analysis/tokenattributes/TypeAttributeImpl.java
+//	lucene/core/src/java/org/apache/lucene/tokenattributes/TypeAttributeImpl.java
 type TypeAttributeImpl struct {
 	tokenType string
 }

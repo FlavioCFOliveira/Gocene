@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -122,8 +125,8 @@ func GetTokenPositions(tokenStream TokenStream) ([]int, error) {
 		if baseTs, ok := tokenStream.(interface {
 			GetAttribute(string) util.AttributeImpl
 		}); ok {
-			if attr := baseTs.GetAttribute("PositionIncrementAttribute"); attr != nil {
-				if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+			if attr := baseTs.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+				if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 					position += posAttr.GetPositionIncrement()
 					positions = append(positions, position)
 					continue

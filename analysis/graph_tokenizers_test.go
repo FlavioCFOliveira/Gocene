@@ -12,7 +12,10 @@
 
 package analysis_test
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"math/rand"
 	"strings"
 	"testing"
@@ -404,7 +407,7 @@ func tokenFromSource(src *util.AttributeSource) testutil.Token {
 		tok.StartOffset = off.StartOffset()
 		tok.EndOffset = off.EndOffset()
 	}
-	if pi, ok := src.GetAttribute(analysis.PositionIncrementAttributeType).(analysis.PositionIncrementAttribute); ok && pi != nil {
+	if pi, ok := src.GetAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute); ok && pi != nil {
 		tok.PositionIncrement = pi.GetPositionIncrement()
 	}
 	if pl, ok := src.GetAttribute(analysis.PositionLengthAttributeType).(analysis.PositionLengthAttribute); ok && pl != nil {
@@ -429,7 +432,7 @@ type removeATokensFilter struct {
 
 	pendingPosInc int
 	termAtt       analysis.CharTermAttribute
-	posIncAtt     analysis.PositionIncrementAttribute
+	posIncAtt     tokenattributes.PositionIncrementAttribute
 }
 
 func newRemoveATokensFilter(input analysis.TokenStream) *removeATokensFilter {
@@ -442,8 +445,8 @@ func newRemoveATokensFilter(input analysis.TokenStream) *removeATokensFilter {
 				f.termAtt = cta
 			}
 		}
-		if att := src.GetAttribute(analysis.PositionIncrementAttributeType); att != nil {
-			if pia, ok := att.(analysis.PositionIncrementAttribute); ok {
+		if att := src.GetAttribute(tokenattributes.PositionIncrementAttributeType); att != nil {
+			if pia, ok := att.(tokenattributes.PositionIncrementAttribute); ok {
 				f.posIncAtt = pia
 			}
 		}

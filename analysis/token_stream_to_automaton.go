@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"unicode/utf8"
 
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -111,7 +114,7 @@ func (c *TokenStreamToAutomaton) ToAutomaton(in TokenStream) (*automaton.Automat
 			}
 		}
 	}
-	posIncAtt, _ := as.GetAttribute(PositionIncrementAttributeType).(PositionIncrementAttribute)
+	posIncAtt, _ := as.GetAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
 	posLengthAttRaw := as.GetAttribute(PositionLengthAttributeType)
 	var posLengthAtt PositionLengthAttribute
 	if posLengthAttRaw != nil {

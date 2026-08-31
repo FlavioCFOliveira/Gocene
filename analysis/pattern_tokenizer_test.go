@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"regexp"
 	"strings"
 	"testing"
@@ -374,12 +377,12 @@ func TestPatternTokenizer_PositionIncrement(t *testing.T) {
 			break
 		}
 
-		posIncrAttr := tokenizer.GetAttributeSource().GetAttribute(PositionIncrementAttributeType)
+		posIncrAttr := tokenizer.GetAttributeSource().GetAttribute(tokenattributes.PositionIncrementAttributeType)
 		if posIncrAttr == nil {
-			t.Fatal("PositionIncrementAttribute is nil")
+			t.Fatal("tokenattributes.PositionIncrementAttribute is nil")
 		}
 
-		pi := posIncrAttr.(PositionIncrementAttribute)
+		pi := posIncrAttr.(tokenattributes.PositionIncrementAttribute)
 		if pi.GetPositionIncrement() != 1 {
 			t.Errorf("Token %d: position increment = %d, want 1", tokenCount, pi.GetPositionIncrement())
 		}

@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"strings"
 	"testing"
 )
@@ -345,10 +348,10 @@ func TestEdgeNGramTokenizer_PositionIncrement(t *testing.T) {
 			break
 		}
 
-		posIncrAttr := tokenizer.GetAttributeSource().GetAttribute(PositionIncrementAttributeType)
-		pia, ok := posIncrAttr.(PositionIncrementAttribute)
+		posIncrAttr := tokenizer.GetAttributeSource().GetAttribute(tokenattributes.PositionIncrementAttributeType)
+		pia, ok := posIncrAttr.(tokenattributes.PositionIncrementAttribute)
 		if !ok {
-			t.Fatalf("Failed to cast PositionIncrementAttribute")
+			t.Fatalf("Failed to cast tokenattributes.PositionIncrementAttribute")
 		}
 
 		if pia.GetPositionIncrement() != expectedIncrements[i] {

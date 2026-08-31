@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"fmt"
 	"reflect"
 
@@ -12,13 +15,13 @@ import (
 )
 
 // PackedTokenAttributeImpl is the Go port of Lucene's
-// org.apache.lucene.analysis.tokenattributes.PackedTokenAttributeImpl.
+// org.apache.lucene.tokenattributes.PackedTokenAttributeImpl.
 //
 // It packs the most common token attributes into a single struct:
 //
 //   - [CharTermAttribute] (the term text and its TermToBytesRef view)
 //   - [TypeAttribute]
-//   - [PositionIncrementAttribute]
+//   - [tokenattributes.PositionIncrementAttribute]
 //   - [PositionLengthAttribute]
 //   - [OffsetAttribute]
 //   - [TermFrequencyAttribute]
@@ -29,7 +32,7 @@ import (
 //
 // Lucene 10.4.0 reference:
 //
-//	lucene/core/src/java/org/apache/lucene/analysis/tokenattributes/PackedTokenAttributeImpl.java
+//	lucene/core/src/java/org/apache/lucene/tokenattributes/PackedTokenAttributeImpl.java
 type PackedTokenAttributeImpl struct {
 	*charTermAttribute
 
@@ -51,7 +54,7 @@ var (
 	_ CharTermAttribute               = (*PackedTokenAttributeImpl)(nil)
 	_ TermToBytesRefAttribute         = (*PackedTokenAttributeImpl)(nil)
 	_ OffsetAttribute                 = (*PackedTokenAttributeImpl)(nil)
-	_ PositionIncrementAttribute      = (*PackedTokenAttributeImpl)(nil)
+	_ tokenattributes.PositionIncrementAttribute      = (*PackedTokenAttributeImpl)(nil)
 	_ TypeAttribute                   = (*PackedTokenAttributeImpl)(nil)
 	_ PositionLengthAttribute         = (*PackedTokenAttributeImpl)(nil)
 	_ TermFrequencyAttribute          = (*PackedTokenAttributeImpl)(nil)
@@ -69,7 +72,7 @@ func (p *PackedTokenAttributeImpl) AttributeInterfaces() []reflect.Type {
 		CharTermAttributeType,
 		TermToBytesRefAttributeType,
 		OffsetAttributeType,
-		PositionIncrementAttributeType,
+		tokenattributes.PositionIncrementAttributeType,
 		PositionLengthAttributeType,
 		TypeAttributeType,
 		TermFrequencyAttributeType,
@@ -127,7 +130,7 @@ func (p *PackedTokenAttributeImpl) GetType() string { return p.tokenType }
 // SetType sets the lexical type.
 func (p *PackedTokenAttributeImpl) SetType(tokenType string) { p.tokenType = tokenType }
 
-// --- PositionIncrementAttribute -------------------------------------
+// --- tokenattributes.PositionIncrementAttribute -------------------------------------
 
 // GetPositionIncrement returns the position increment.
 func (p *PackedTokenAttributeImpl) GetPositionIncrement() int { return p.positionIncrement }
@@ -238,7 +241,7 @@ func (p *PackedTokenAttributeImpl) CopyTo(target util.AttributeImpl) {
 	if t, ok := target.(OffsetAttribute); ok {
 		t.SetOffset(p.startOffset, p.endOffset)
 	}
-	if t, ok := target.(PositionIncrementAttribute); ok {
+	if t, ok := target.(tokenattributes.PositionIncrementAttribute); ok {
 		t.SetPositionIncrement(p.positionIncrement)
 	}
 	if t, ok := target.(PositionLengthAttribute); ok {
@@ -271,7 +274,7 @@ func (p *PackedTokenAttributeImpl) ReflectWith(reflector util.AttributeReflector
 	p.charTermAttribute.ReflectWith(reflector)
 	reflector(OffsetAttributeType, "startOffset", p.startOffset)
 	reflector(OffsetAttributeType, "endOffset", p.endOffset)
-	reflector(PositionIncrementAttributeType, "positionIncrement", p.positionIncrement)
+	reflector(tokenattributes.PositionIncrementAttributeType, "positionIncrement", p.positionIncrement)
 	reflector(PositionLengthAttributeType, "positionLength", p.positionLength)
 	reflector(TypeAttributeType, "type", p.tokenType)
 	reflector(TermFrequencyAttributeType, "termFrequency", p.termFrequency)

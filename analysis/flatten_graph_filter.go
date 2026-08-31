@@ -5,9 +5,10 @@
 package analysis
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"sort"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+	
 )
 
 // FlattenGraphFilter flattens a token graph into a linear stream.
@@ -153,7 +154,7 @@ func (f *FlattenGraphFilter) initAttributes() {
 	}
 
 	// Get tokenattributes.PositionIncrementAttribute
-	if attr := attrSource.GetAttribute(tokenattributes.tokenattributes.PositionIncrementAttributeType); attr != nil {
+	if attr := attrSource.GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
 		f.posIncrAttr = attr.(tokenattributes.PositionIncrementAttribute)
 	}
 

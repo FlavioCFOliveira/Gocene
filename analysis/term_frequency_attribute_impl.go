@@ -3,7 +3,7 @@
 // that can be found in the LICENSE file.
 
 // Ported from Apache Lucene 10.4.0:
-// lucene/core/src/java/org/apache/lucene/analysis/tokenattributes/TermFrequencyAttributeImpl.java
+// lucene/core/src/java/org/apache/lucene/tokenattributes/TermFrequencyAttributeImpl.java
 
 package analysis
 
@@ -15,7 +15,7 @@ import (
 )
 
 // TermFrequencyAttributeImpl is the Go port of Lucene's
-// org.apache.lucene.analysis.tokenattributes.TermFrequencyAttributeImpl.
+// org.apache.lucene.tokenattributes.TermFrequencyAttributeImpl.
 //
 // It is the exported concrete implementation of [TermFrequencyAttribute].
 // The default term frequency is 1, matching the Lucene default.
@@ -24,7 +24,7 @@ import (
 //
 // Lucene 10.4.0 reference:
 //
-//	lucene/core/src/java/org/apache/lucene/analysis/tokenattributes/TermFrequencyAttributeImpl.java
+//	lucene/core/src/java/org/apache/lucene/tokenattributes/TermFrequencyAttributeImpl.java
 type TermFrequencyAttributeImpl struct {
 	termFrequency int
 }

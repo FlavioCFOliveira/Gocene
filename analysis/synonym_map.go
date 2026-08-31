@@ -17,7 +17,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"bytes"
 	"errors"
 	"fmt"
@@ -484,7 +487,7 @@ func (p *Parser) Analyze(text string) ([]byte, error) {
 
 	// Try to get attributes from the token stream
 	var termAttr CharTermAttribute
-	var posIncAttr PositionIncrementAttribute
+	var posIncAttr tokenattributes.PositionIncrementAttribute
 
 	if attrSrc, ok := ts.(interface{ GetAttributeSource() *util.AttributeSource }); ok {
 		as := attrSrc.GetAttributeSource()
@@ -493,8 +496,8 @@ func (p *Parser) Analyze(text string) ([]byte, error) {
 				termAttr = ta
 			}
 		}
-		if attr := as.GetAttribute(PositionIncrementAttributeType); attr != nil {
-			if pa, ok := attr.(PositionIncrementAttribute); ok {
+		if attr := as.GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
+			if pa, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				posIncAttr = pa
 			}
 		}
@@ -504,7 +507,7 @@ func (p *Parser) Analyze(text string) ([]byte, error) {
 		return nil, errors.New("CharTermAttribute not available")
 	}
 	if posIncAttr == nil {
-		return nil, errors.New("PositionIncrementAttribute not available")
+		return nil, errors.New("tokenattributes.PositionIncrementAttribute not available")
 	}
 
 	var result bytes.Buffer

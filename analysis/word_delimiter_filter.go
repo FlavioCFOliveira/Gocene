@@ -4,6 +4,11 @@
 
 package analysis
 
+import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+)
+	
+
 // WordDelimiterFilter splits tokens at word boundaries.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.miscellaneous.WordDelimiterFilter.
@@ -28,8 +33,8 @@ type WordDelimiterFilter struct {
 	// offsetAttr holds the OffsetAttribute from the shared attribute source
 	offsetAttr OffsetAttribute
 
-	// posIncAttr holds the PositionIncrementAttribute from the shared attribute source
-	posIncAttr PositionIncrementAttribute
+	// posIncAttr holds the tokenattributes.PositionIncrementAttribute from the shared attribute source
+	posIncAttr tokenattributes.PositionIncrementAttribute
 
 	// iterator is used to find word boundaries
 	iterator *WordDelimiterIterator
@@ -85,8 +90,8 @@ func NewWordDelimiterFilter(input TokenStream, splitOnCaseChange, splitOnNumeric
 		if attr := attrSrc.GetAttribute(OffsetAttributeType); attr != nil {
 			filter.offsetAttr = attr.(OffsetAttribute)
 		}
-		if attr := attrSrc.GetAttribute(PositionIncrementAttributeType); attr != nil {
-			filter.posIncAttr = attr.(PositionIncrementAttribute)
+		if attr := attrSrc.GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
+			filter.posIncAttr = attr.(tokenattributes.PositionIncrementAttribute)
 		}
 	}
 
@@ -122,8 +127,8 @@ func NewWordDelimiterFilterWithTable(input TokenStream, charTypeTable []byte, sp
 		if attr := attrSrc.GetAttribute(OffsetAttributeType); attr != nil {
 			filter.offsetAttr = attr.(OffsetAttribute)
 		}
-		if attr := attrSrc.GetAttribute(PositionIncrementAttributeType); attr != nil {
-			filter.posIncAttr = attr.(PositionIncrementAttribute)
+		if attr := attrSrc.GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
+			filter.posIncAttr = attr.(tokenattributes.PositionIncrementAttribute)
 		}
 	}
 

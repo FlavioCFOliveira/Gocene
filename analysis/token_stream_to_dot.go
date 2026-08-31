@@ -7,7 +7,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"fmt"
 	"io"
 )
@@ -42,7 +45,7 @@ func (t *TokenStreamToDot) ToDot() error {
 	// Get attribute source via BaseTokenStream if available.
 	type attrSourceProvider interface{ GetAttributeSource() interface{ GetAttribute(string) interface{} } }
 	var termAttr CharTermAttribute
-	var posIncrAttr PositionIncrementAttribute
+	var posIncrAttr tokenattributes.PositionIncrementAttribute
 	var posLenAttr PositionLengthAttribute
 	var offsetAttr OffsetAttribute
 
@@ -51,7 +54,7 @@ func (t *TokenStreamToDot) ToDot() error {
 		src := bts.GetAttributeSource()
 		if src != nil {
 			termAttr, _ = src.GetAttribute(CharTermAttributeType).(CharTermAttribute)
-			posIncrAttr, _ = src.GetAttribute(PositionIncrementAttributeType).(PositionIncrementAttribute)
+			posIncrAttr, _ = src.GetAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
 			posLenAttr, _ = src.GetAttribute(PositionLengthAttributeType).(PositionLengthAttribute)
 			offsetAttr, _ = src.GetAttribute(OffsetAttributeType).(OffsetAttribute)
 		}

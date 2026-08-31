@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"reflect"
 	"strings"
 	"testing"
@@ -55,8 +58,8 @@ func TestSynonymFilter_BasicSingleWord(t *testing.T) {
 				info.text = termAttr.String()
 			}
 		}
-		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
-			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+		if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+			if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				info.positionIncrement = posAttr.GetPositionIncrement()
 			}
 		}
@@ -124,8 +127,8 @@ func TestSynonymFilter_MultipleInputWords(t *testing.T) {
 				info.text = termAttr.String()
 			}
 		}
-		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
-			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+		if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+			if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				info.positionIncrement = posAttr.GetPositionIncrement()
 			}
 		}
@@ -234,8 +237,8 @@ func TestSynonymFilter_MixedMatch(t *testing.T) {
 				info.text = termAttr.String()
 			}
 		}
-		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
-			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+		if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+			if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				info.positionIncrement = posAttr.GetPositionIncrement()
 			}
 		}
@@ -346,8 +349,8 @@ func TestSynonymFilter_MultipleSynonyms(t *testing.T) {
 				info.text = termAttr.String()
 			}
 		}
-		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
-			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+		if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+			if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				info.positionIncrement = posAttr.GetPositionIncrement()
 			}
 		}
@@ -630,8 +633,8 @@ func TestSynonymFilter_MultiWordOutput(t *testing.T) {
 				info.text = termAttr.String()
 			}
 		}
-		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
-			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+		if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+			if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				info.positionIncrement = posAttr.GetPositionIncrement()
 			}
 		}
@@ -701,8 +704,8 @@ func TestSynonymFilter_ConsecutiveMatches(t *testing.T) {
 				info.text = termAttr.String()
 			}
 		}
-		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
-			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+		if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+			if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				info.positionIncrement = posAttr.GetPositionIncrement()
 			}
 		}
@@ -877,8 +880,8 @@ func TestSynonymFilter_LongerMatchPreferred(t *testing.T) {
 				info.text = termAttr.String()
 			}
 		}
-		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
-			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+		if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+			if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				info.positionIncrement = posAttr.GetPositionIncrement()
 			}
 		}

@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"errors"
 	"io"
 	"regexp"
@@ -47,8 +50,8 @@ type SimplePatternSplitTokenizer struct {
 	// offsetAttr holds the OffsetAttribute
 	offsetAttr OffsetAttribute
 
-	// posIncrAttr holds the PositionIncrementAttribute
-	posIncrAttr PositionIncrementAttribute
+	// posIncrAttr holds the tokenattributes.PositionIncrementAttribute
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 
 	// inputText holds the entire input text
 	inputText string
@@ -86,7 +89,7 @@ func NewSimplePatternSplitTokenizer(pattern *regexp.Regexp) (*SimplePatternSplit
 	// Add attributes
 	t.termAttr = NewCharTermAttribute()
 	t.offsetAttr = NewOffsetAttribute()
-	t.posIncrAttr = NewPositionIncrementAttribute()
+	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
 
 	t.AddAttribute(t.termAttr)
 	t.AddAttribute(t.offsetAttr)

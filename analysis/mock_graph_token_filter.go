@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"math/rand"
 
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -68,7 +71,7 @@ func (f *MockGraphTokenFilter) AfterPosition() {
 		termAtt.SetEmpty()
 		termAtt.AppendString(util.RandomUnicodeString(f.random, 10))
 	}
-	if pi, ok := f.GetAttributeSource().GetAttribute(PositionIncrementAttributeType).(PositionIncrementAttribute); ok && pi != nil {
+	if pi, ok := f.GetAttributeSource().GetAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute); ok && pi != nil {
 		pi.SetPositionIncrement(0)
 	}
 	if off, ok := f.GetAttributeSource().GetAttribute(OffsetAttributeType).(OffsetAttribute); ok && off != nil {

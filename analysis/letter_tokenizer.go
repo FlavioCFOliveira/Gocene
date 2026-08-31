@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"bufio"
 	"io"
 	"unicode"
@@ -38,8 +41,8 @@ type LetterTokenizer struct {
 	// offsetAttr holds the OffsetAttribute
 	offsetAttr OffsetAttribute
 
-	// posIncrAttr holds the PositionIncrementAttribute
-	posIncrAttr PositionIncrementAttribute
+	// posIncrAttr holds the tokenattributes.PositionIncrementAttribute
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 
 	// currentOffset tracks the current position in input
 	currentOffset int
@@ -60,7 +63,7 @@ func NewLetterTokenizer() *LetterTokenizer {
 	// Add attributes
 	t.termAttr = NewCharTermAttribute()
 	t.offsetAttr = NewOffsetAttribute()
-	t.posIncrAttr = NewPositionIncrementAttribute()
+	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
 
 	t.AddAttribute(t.termAttr)
 	t.AddAttribute(t.offsetAttr)

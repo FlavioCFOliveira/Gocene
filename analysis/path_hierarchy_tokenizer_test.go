@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"strings"
 	"testing"
 )
@@ -431,12 +434,12 @@ func TestPathHierarchyTokenizer_PositionIncrement(t *testing.T) {
 			t.Fatalf("Expected token at index %d", i)
 		}
 
-		posIncrAttr := tokenizer.GetAttributeSource().GetAttribute(PositionIncrementAttributeType)
+		posIncrAttr := tokenizer.GetAttributeSource().GetAttribute(tokenattributes.PositionIncrementAttributeType)
 		if posIncrAttr == nil {
-			t.Fatal("PositionIncrementAttribute is nil")
+			t.Fatal("tokenattributes.PositionIncrementAttribute is nil")
 		}
 
-		posIncr := posIncrAttr.(PositionIncrementAttribute).GetPositionIncrement()
+		posIncr := posIncrAttr.(tokenattributes.PositionIncrementAttribute).GetPositionIncrement()
 		if posIncr != 1 {
 			t.Errorf("Token %d position increment = %d, want 1", i, posIncr)
 		}

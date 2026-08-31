@@ -46,7 +46,7 @@ const DefaultTypeAttributeValue = "word"
 // TypeAttribute provides a way to store the token type.
 //
 // This is the Go port of
-// org.apache.lucene.analysis.tokenattributes.TypeAttribute. Token types
+// org.apache.lucene.tokenattributes.TypeAttribute. Token types
 // are short strings such as "word", "acronym", "<ALPHANUM>", ... emitted
 // by tokenizers and consumed by downstream filters.
 //
@@ -155,7 +155,7 @@ var PayloadAttributeType = reflect.TypeOf((*PayloadAttribute)(nil)).Elem()
 // tokens.
 //
 // This is the Go port of
-// org.apache.lucene.analysis.tokenattributes.PayloadAttribute.
+// org.apache.lucene.tokenattributes.PayloadAttribute.
 type PayloadAttribute interface {
 	util.AttributeImpl
 
@@ -286,7 +286,7 @@ var FlagsAttributeType = reflect.TypeOf((*FlagsAttribute)(nil)).Elem()
 // FlagsAttribute provides a way to store custom flags for a token.
 //
 // This is the Go port of
-// org.apache.lucene.analysis.tokenattributes.FlagsAttribute.
+// org.apache.lucene.tokenattributes.FlagsAttribute.
 type FlagsAttribute interface {
 	util.AttributeImpl
 
@@ -400,7 +400,7 @@ var KeywordAttributeType = reflect.TypeOf((*KeywordAttribute)(nil)).Elem()
 // (e.g., not lowercased, not stemmed).
 //
 // This is the Go port of
-// org.apache.lucene.analysis.tokenattributes.KeywordAttribute.
+// org.apache.lucene.tokenattributes.KeywordAttribute.
 type KeywordAttribute interface {
 	util.AttributeImpl
 
@@ -504,7 +504,7 @@ var PositionLengthAttributeType = reflect.TypeOf((*PositionLengthAttribute)(nil)
 // (like those produced by a shingle filter), this can be greater than 1.
 //
 // This is the Go port of
-// org.apache.lucene.analysis.tokenattributes.PositionLengthAttribute.
+// org.apache.lucene.tokenattributes.PositionLengthAttribute.
 type PositionLengthAttribute interface {
 	util.AttributeImpl
 
@@ -619,7 +619,7 @@ var TermFrequencyAttributeType = reflect.TypeOf((*TermFrequencyAttribute)(nil)).
 // TermFrequencyAttribute provides the term frequency for a token.
 //
 // This is the Go port of
-// org.apache.lucene.analysis.tokenattributes.TermFrequencyAttribute.
+// org.apache.lucene.tokenattributes.TermFrequencyAttribute.
 type TermFrequencyAttribute interface {
 	util.AttributeImpl
 

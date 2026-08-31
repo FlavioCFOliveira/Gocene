@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"reflect"
 	"strings"
 
@@ -145,7 +148,7 @@ func (ts *BaseTokenStream) Close() error {
 var canonicalAttributeInterfaces = map[string]reflect.Type{
 	"CharTermAttribute":          CharTermAttributeType,
 	"OffsetAttribute":            OffsetAttributeType,
-	"PositionIncrementAttribute": PositionIncrementAttributeType,
+	"tokenattributes.PositionIncrementAttribute": tokenattributes.PositionIncrementAttributeType,
 	"TypeAttribute":              TypeAttributeType,
 	"PayloadAttribute":           PayloadAttributeType,
 	"FlagsAttribute":             FlagsAttributeType,

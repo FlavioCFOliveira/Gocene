@@ -3,7 +3,7 @@
 // that can be found in the LICENSE file.
 
 // Ported from Apache Lucene 10.4.0:
-//   lucene/core/src/test/org/apache/lucene/analysis/tokenattributes/TestBytesRefAttImpl.java
+//   lucene/core/src/test/org/apache/lucene/tokenattributes/TestBytesRefAttImpl.java
 //
 // Deviation: assertCopyIsEqual uses Java reflection (getConstructor().newInstance()).
 // In Go the equivalent is calling NewBytesTermAttributeImpl() directly. The

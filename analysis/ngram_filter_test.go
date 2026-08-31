@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"reflect"
 	"strings"
 	"testing"
@@ -140,8 +143,8 @@ func TestNGramFilter_PositionIncrement(t *testing.T) {
 				if !hasToken {
 					break
 				}
-				if attr := ngramFilter.GetAttribute("PositionIncrementAttribute"); attr != nil {
-					if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+				if attr := ngramFilter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+					if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 						positions = append(positions, posAttr.GetPositionIncrement())
 					}
 				}

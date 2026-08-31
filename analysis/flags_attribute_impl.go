@@ -3,7 +3,7 @@
 // that can be found in the LICENSE file.
 
 // Ported from Apache Lucene 10.4.0:
-// lucene/core/src/java/org/apache/lucene/analysis/tokenattributes/FlagsAttributeImpl.java
+// lucene/core/src/java/org/apache/lucene/tokenattributes/FlagsAttributeImpl.java
 
 package analysis
 
@@ -14,14 +14,14 @@ import (
 )
 
 // FlagsAttributeImpl is the Go port of Lucene's
-// org.apache.lucene.analysis.tokenattributes.FlagsAttributeImpl.
+// org.apache.lucene.tokenattributes.FlagsAttributeImpl.
 //
 // It is the exported concrete implementation of [FlagsAttribute].
 // The flags are stored as a single int bitmask, defaulting to 0.
 //
 // Lucene 10.4.0 reference:
 //
-//	lucene/core/src/java/org/apache/lucene/analysis/tokenattributes/FlagsAttributeImpl.java
+//	lucene/core/src/java/org/apache/lucene/tokenattributes/FlagsAttributeImpl.java
 type FlagsAttributeImpl struct {
 	flags int
 }

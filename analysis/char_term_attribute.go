@@ -19,7 +19,7 @@ var CharTermAttributeType = reflect.TypeOf((*CharTermAttribute)(nil)).Elem()
 
 // CharTermAttribute stores the text of a token.
 //
-// This is the Go port of Lucene's org.apache.lucene.analysis.tokenattributes.CharTermAttribute.
+// This is the Go port of Lucene's org.apache.lucene.tokenattributes.CharTermAttribute.
 //
 // This attribute holds the actual text content of a token after tokenization.
 // Tokenizers set this attribute, and filters may modify it.

@@ -3,7 +3,7 @@
 // that can be found in the LICENSE file.
 
 // Ported from Apache Lucene 10.4.0:
-// lucene/core/src/java/org/apache/lucene/analysis/tokenattributes/KeywordAttributeImpl.java
+// lucene/core/src/java/org/apache/lucene/tokenattributes/KeywordAttributeImpl.java
 
 package analysis
 
@@ -14,14 +14,14 @@ import (
 )
 
 // KeywordAttributeImpl is the Go port of Lucene's
-// org.apache.lucene.analysis.tokenattributes.KeywordAttributeImpl.
+// org.apache.lucene.tokenattributes.KeywordAttributeImpl.
 //
 // It is the exported concrete implementation of [KeywordAttribute].
 // The default keyword flag is false, matching the Lucene default.
 //
 // Lucene 10.4.0 reference:
 //
-//	lucene/core/src/java/org/apache/lucene/analysis/tokenattributes/KeywordAttributeImpl.java
+//	lucene/core/src/java/org/apache/lucene/tokenattributes/KeywordAttributeImpl.java
 type KeywordAttributeImpl struct {
 	keyword bool
 }

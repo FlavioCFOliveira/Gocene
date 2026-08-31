@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"strings"
 	"testing"
 
@@ -135,12 +138,12 @@ func TestStopAnalyzer_PositionIncrement(t *testing.T) {
 		GetAttributeSource() *util.AttributeSource
 		GetAttribute(string) util.AttributeImpl
 	}).GetAttributeSource()
-	posIncrAttr := attrSrc.GetAttribute(PositionIncrementAttributeType)
+	posIncrAttr := attrSrc.GetAttribute(tokenattributes.PositionIncrementAttributeType)
 	if posIncrAttr == nil {
-		t.Fatal("PositionIncrementAttribute is nil")
+		t.Fatal("tokenattributes.PositionIncrementAttribute is nil")
 	}
 
-	posIncr := posIncrAttr.(PositionIncrementAttribute).GetPositionIncrement()
+	posIncr := posIncrAttr.(tokenattributes.PositionIncrementAttribute).GetPositionIncrement()
 	// After removing "the", "quick" should have increment > 1
 	// Note: This depends on whether position increment adjustment is implemented
 	t.Logf("Position increment for 'quick': %d", posIncr)

@@ -4,6 +4,11 @@
 
 package analysis
 
+import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+)
+	
+
 // StopFilter removes stop words from the token stream.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.StopFilter.
@@ -20,8 +25,8 @@ type StopFilter struct {
 	// termAttr holds the CharTermAttribute from the shared attribute source
 	termAttr CharTermAttribute
 
-	// posIncrAttr holds the PositionIncrementAttribute from the shared attribute source
-	posIncrAttr PositionIncrementAttribute
+	// posIncrAttr holds the tokenattributes.PositionIncrementAttribute from the shared attribute source
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 }
 
 // NewStopFilter creates a new StopFilter with the given stop words.
@@ -43,9 +48,9 @@ func NewStopFilter(input TokenStream, stopWords []string) *StopFilter {
 		if attr != nil {
 			filter.termAttr = attr.(CharTermAttribute)
 		}
-		attr = attrSource.GetAttribute(PositionIncrementAttributeType)
+		attr = attrSource.GetAttribute(tokenattributes.PositionIncrementAttributeType)
 		if attr != nil {
-			filter.posIncrAttr = attr.(PositionIncrementAttribute)
+			filter.posIncrAttr = attr.(tokenattributes.PositionIncrementAttribute)
 		}
 	}
 

@@ -4,6 +4,11 @@
 
 package analysis
 
+import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+)
+	
+
 // TeeSinkTokenFilter is a TokenFilter that tees tokens to multiple sinks.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.TeeSinkTokenFilter.
@@ -77,8 +82,8 @@ func (f *TeeSinkTokenFilter) IncrementToken() (bool, error) {
 			}
 		}
 
-		if attr := f.GetAttributeSource().GetAttribute(PositionIncrementAttributeType); attr != nil {
-			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+		if attr := f.GetAttributeSource().GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
+			if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				token.PositionIncrement = posAttr.GetPositionIncrement()
 			}
 		}

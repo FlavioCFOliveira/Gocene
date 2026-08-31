@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"io"
 	"unicode"
 )
@@ -101,7 +104,7 @@ func NewCJKTokenizer() *CJKTokenizer {
 	// Add attributes
 	t.AddAttribute(NewCharTermAttribute())
 	t.AddAttribute(NewOffsetAttribute())
-	t.AddAttribute(NewPositionIncrementAttribute())
+	t.AddAttribute(tokenattributes.NewPositionIncrementAttribute())
 
 	return t
 }

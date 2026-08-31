@@ -4,6 +4,11 @@
 
 package analysis
 
+import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+)
+	
+
 // CachingTokenFilter caches all tokens from the input TokenStream.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.CachingTokenFilter.
@@ -78,8 +83,8 @@ func (f *CachingTokenFilter) IncrementToken() (bool, error) {
 				}
 			}
 
-			if attr := f.GetAttributeSource().GetAttribute(PositionIncrementAttributeType); attr != nil {
-				if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+			if attr := f.GetAttributeSource().GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
+				if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 					token.positionIncrement = posAttr.GetPositionIncrement()
 				}
 			}
@@ -119,8 +124,8 @@ func (f *CachingTokenFilter) IncrementToken() (bool, error) {
 			}
 		}
 
-		if attr := f.GetAttributeSource().GetAttribute(PositionIncrementAttributeType); attr != nil {
-			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+		if attr := f.GetAttributeSource().GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
+			if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				posAttr.SetPositionIncrement(token.positionIncrement)
 			}
 		}
@@ -142,8 +147,8 @@ func (f *CachingTokenFilter) captureFinalState() {
 			f.finalOffset = offsetAttr.EndOffset()
 		}
 	}
-	if attr := f.GetAttributeSource().GetAttribute(PositionIncrementAttributeType); attr != nil {
-		if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+	if attr := f.GetAttributeSource().GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
+		if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 			f.finalPositionIncrement = posAttr.GetPositionIncrement()
 		}
 	}
@@ -168,8 +173,8 @@ func (f *CachingTokenFilter) End() error {
 			offsetAttr.SetOffset(f.finalOffset, f.finalOffset)
 		}
 	}
-	if attr := f.GetAttributeSource().GetAttribute(PositionIncrementAttributeType); attr != nil {
-		if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+	if attr := f.GetAttributeSource().GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
+		if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 			posAttr.SetPositionIncrement(f.finalPositionIncrement)
 		}
 	}

@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"reflect"
 	"strings"
 	"testing"
@@ -74,8 +77,8 @@ func TestShingleMatrixFilter_Basic(t *testing.T) {
 					}
 				}
 
-				if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
-					if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+				if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+					if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 						positions = append(positions, posAttr.GetPositionIncrement())
 					}
 				}
@@ -202,8 +205,8 @@ func TestShingleMatrixFilter_LargerSize(t *testing.T) {
 					}
 				}
 
-				if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
-					if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+				if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+					if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 						positions = append(positions, posAttr.GetPositionIncrement())
 					}
 				}
@@ -863,8 +866,8 @@ func TestShingleMatrixFilter_PositionIncrements(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
-			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+		if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+			if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				positions = append(positions, posAttr.GetPositionIncrement())
 			}
 		}
@@ -898,8 +901,8 @@ func TestShingleMatrixFilter_NoUnigramsPositionIncrements(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
-			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+		if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+			if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				positions = append(positions, posAttr.GetPositionIncrement())
 			}
 		}

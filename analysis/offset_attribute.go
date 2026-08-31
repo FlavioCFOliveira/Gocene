@@ -19,7 +19,7 @@ var OffsetAttributeType = reflect.TypeOf((*OffsetAttribute)(nil)).Elem()
 
 // OffsetAttribute stores the character offsets of a token in the original text.
 //
-// This is the Go port of Lucene's org.apache.lucene.analysis.tokenattributes.OffsetAttribute.
+// This is the Go port of Lucene's org.apache.lucene.tokenattributes.OffsetAttribute.
 //
 // Offsets are used for highlighting and to store the position of the token
 // in the original input text. StartOffset is inclusive, EndOffset is exclusive.
@@ -51,7 +51,7 @@ type OffsetAttribute interface {
 	// SetOffset is the Lucene-faithful combined setter. It panics with
 	// an explanatory message when startOffset is negative or
 	// endOffset < startOffset, matching the IllegalArgumentException
-	// thrown by org.apache.lucene.analysis.tokenattributes.OffsetAttributeImpl.
+	// thrown by org.apache.lucene.tokenattributes.OffsetAttributeImpl.
 	SetOffset(startOffset, endOffset int)
 }
 

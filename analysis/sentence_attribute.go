@@ -11,14 +11,14 @@ import (
 )
 
 // SentenceAttribute is the Go port of Lucene's
-// org.apache.lucene.analysis.tokenattributes.SentenceAttribute.
+// org.apache.lucene.tokenattributes.SentenceAttribute.
 //
 // SentenceAttribute tracks the sentence index a given token belongs to
 // (and may carry other sentence-specific data in the future).
 //
 // Lucene 10.4.0 reference:
 //
-//	lucene/core/src/java/org/apache/lucene/analysis/tokenattributes/SentenceAttribute.java
+//	lucene/core/src/java/org/apache/lucene/tokenattributes/SentenceAttribute.java
 type SentenceAttribute interface {
 	util.Attribute
 

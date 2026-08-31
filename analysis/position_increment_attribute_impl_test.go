@@ -4,19 +4,22 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"testing"
 )
 
 func TestPositionIncrementAttributeImpl_DefaultState(t *testing.T) {
-	p := NewPositionIncrementAttributeImpl()
+	p := tokenattributes.NewPositionIncrementAttribute()
 	if p.GetPositionIncrement() != 1 {
 		t.Fatalf("default position increment must be 1, got %d", p.GetPositionIncrement())
 	}
 }
 
 func TestPositionIncrementAttributeImpl_SetGet(t *testing.T) {
-	p := NewPositionIncrementAttributeImpl()
+	p := tokenattributes.NewPositionIncrementAttribute()
 	p.SetPositionIncrement(5)
 	if p.GetPositionIncrement() != 5 {
 		t.Fatalf("want 5, got %d", p.GetPositionIncrement())
@@ -24,7 +27,7 @@ func TestPositionIncrementAttributeImpl_SetGet(t *testing.T) {
 }
 
 func TestPositionIncrementAttributeImpl_SetZero(t *testing.T) {
-	p := NewPositionIncrementAttributeImpl()
+	p := tokenattributes.NewPositionIncrementAttribute()
 	p.SetPositionIncrement(0)
 	if p.GetPositionIncrement() != 0 {
 		t.Fatalf("want 0, got %d", p.GetPositionIncrement())
@@ -37,11 +40,11 @@ func TestPositionIncrementAttributeImpl_SetNegative_Panics(t *testing.T) {
 			t.Fatal("SetPositionIncrement(-1) must panic")
 		}
 	}()
-	NewPositionIncrementAttributeImpl().SetPositionIncrement(-1)
+	tokenattributes.NewPositionIncrementAttribute().SetPositionIncrement(-1)
 }
 
 func TestPositionIncrementAttributeImpl_Clear(t *testing.T) {
-	p := NewPositionIncrementAttributeImpl()
+	p := tokenattributes.NewPositionIncrementAttribute()
 	p.SetPositionIncrement(7)
 	p.Clear()
 	if p.GetPositionIncrement() != 1 {
@@ -50,7 +53,7 @@ func TestPositionIncrementAttributeImpl_Clear(t *testing.T) {
 }
 
 func TestPositionIncrementAttributeImpl_End(t *testing.T) {
-	p := NewPositionIncrementAttributeImpl()
+	p := tokenattributes.NewPositionIncrementAttribute()
 	p.SetPositionIncrement(3)
 	p.End()
 	if p.GetPositionIncrement() != 0 {
@@ -59,9 +62,9 @@ func TestPositionIncrementAttributeImpl_End(t *testing.T) {
 }
 
 func TestPositionIncrementAttributeImpl_CopyTo(t *testing.T) {
-	src := NewPositionIncrementAttributeImpl()
+	src := tokenattributes.NewPositionIncrementAttribute()
 	src.SetPositionIncrement(4)
-	dst := NewPositionIncrementAttributeImpl()
+	dst := tokenattributes.NewPositionIncrementAttribute()
 	src.CopyTo(dst)
 	if !src.Equals(dst) {
 		t.Fatal("CopyTo: destination does not equal source")
@@ -69,7 +72,7 @@ func TestPositionIncrementAttributeImpl_CopyTo(t *testing.T) {
 }
 
 func TestPositionIncrementAttributeImpl_Copy(t *testing.T) {
-	src := NewPositionIncrementAttributeImpl()
+	src := tokenattributes.NewPositionIncrementAttribute()
 	src.SetPositionIncrement(9)
 	clone, ok := src.Copy().(*PositionIncrementAttributeImpl)
 	if !ok {
@@ -81,7 +84,7 @@ func TestPositionIncrementAttributeImpl_Copy(t *testing.T) {
 }
 
 func TestPositionIncrementAttributeImpl_CloneAttribute(t *testing.T) {
-	src := NewPositionIncrementAttributeImpl()
+	src := tokenattributes.NewPositionIncrementAttribute()
 	src.SetPositionIncrement(6)
 	clone, ok := src.CloneAttribute().(*PositionIncrementAttributeImpl)
 	if !ok {
@@ -93,11 +96,11 @@ func TestPositionIncrementAttributeImpl_CloneAttribute(t *testing.T) {
 }
 
 func TestPositionIncrementAttributeImpl_Equals(t *testing.T) {
-	a := NewPositionIncrementAttributeImpl()
+	a := tokenattributes.NewPositionIncrementAttribute()
 	a.SetPositionIncrement(2)
-	b := NewPositionIncrementAttributeImpl()
+	b := tokenattributes.NewPositionIncrementAttribute()
 	b.SetPositionIncrement(2)
-	c := NewPositionIncrementAttributeImpl()
+	c := tokenattributes.NewPositionIncrementAttribute()
 	c.SetPositionIncrement(3)
 	if !a.Equals(b) {
 		t.Fatal("equal values must be equal")
@@ -108,7 +111,7 @@ func TestPositionIncrementAttributeImpl_Equals(t *testing.T) {
 }
 
 func TestPositionIncrementAttributeImpl_HashCode(t *testing.T) {
-	p := NewPositionIncrementAttributeImpl()
+	p := tokenattributes.NewPositionIncrementAttribute()
 	p.SetPositionIncrement(5)
 	if p.HashCode() != 5 {
 		t.Fatalf("hash must equal positionIncrement; want 5, got %d", p.HashCode())
@@ -116,9 +119,9 @@ func TestPositionIncrementAttributeImpl_HashCode(t *testing.T) {
 }
 
 func TestPositionIncrementAttributeImpl_AttributeInterfaces(t *testing.T) {
-	p := NewPositionIncrementAttributeImpl()
+	p := tokenattributes.NewPositionIncrementAttribute()
 	ifaces := p.AttributeInterfaces()
-	if len(ifaces) != 1 || ifaces[0] != PositionIncrementAttributeType {
+	if len(ifaces) != 1 || ifaces[0] != tokenattributes.PositionIncrementAttributeType {
 		t.Fatalf("unexpected AttributeInterfaces: %v", ifaces)
 	}
 }
@@ -129,6 +132,6 @@ func TestPositionIncrementAttributeImpl_CopyTo_WrongTarget(t *testing.T) {
 			t.Fatal("CopyTo with wrong target type must panic")
 		}
 	}()
-	src := NewPositionIncrementAttributeImpl()
+	src := tokenattributes.NewPositionIncrementAttribute()
 	src.CopyTo(NewSentenceAttributeImpl())
 }

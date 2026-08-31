@@ -17,7 +17,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -577,7 +580,7 @@ func collectSynonymTokens(t *testing.T, ts TokenStream) []synonymTokenInfo {
 
 	// Get attributes
 	var termAttr CharTermAttribute
-	var posIncrAttr PositionIncrementAttribute
+	var posIncrAttr tokenattributes.PositionIncrementAttribute
 	var posLenAttr PositionLengthAttribute
 
 	if attrSrc, ok := ts.(interface {
@@ -590,8 +593,8 @@ func collectSynonymTokens(t *testing.T, ts TokenStream) []synonymTokenInfo {
 				termAttr = ta
 			}
 		}
-		if attr := as.GetAttribute(PositionIncrementAttributeType); attr != nil {
-			if pa, ok := attr.(PositionIncrementAttribute); ok {
+		if attr := as.GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
+			if pa, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				posIncrAttr = pa
 			}
 		}
@@ -636,7 +639,7 @@ func collectSynonymTokensWithOffsets(t *testing.T, ts TokenStream) []synonymToke
 
 	// Get attributes
 	var termAttr CharTermAttribute
-	var posIncrAttr PositionIncrementAttribute
+	var posIncrAttr tokenattributes.PositionIncrementAttribute
 	var posLenAttr PositionLengthAttribute
 	var offsetAttr OffsetAttribute
 
@@ -650,8 +653,8 @@ func collectSynonymTokensWithOffsets(t *testing.T, ts TokenStream) []synonymToke
 				termAttr = ta
 			}
 		}
-		if attr := as.GetAttribute(PositionIncrementAttributeType); attr != nil {
-			if pa, ok := attr.(PositionIncrementAttribute); ok {
+		if attr := as.GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
+			if pa, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				posIncrAttr = pa
 			}
 		}

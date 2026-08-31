@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"errors"
 
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -51,13 +54,13 @@ type GraphTokenFilter struct {
 	stackSize int
 	cacheSize int
 
-	posIncAtt PositionIncrementAttribute
+	posIncAtt tokenattributes.PositionIncrementAttribute
 	offsetAtt OffsetAttribute
 	posLenAtt PositionLengthAttribute
 }
 
 // NewGraphTokenFilter wraps the given input stream and initializes the
-// graph-walk state. The PositionIncrementAttribute, OffsetAttribute and
+// graph-walk state. The tokenattributes.PositionIncrementAttribute, OffsetAttribute and
 // (optional) PositionLengthAttribute are cached for fast access.
 func NewGraphTokenFilter(input TokenStream) *GraphTokenFilter {
 	f := &GraphTokenFilter{
@@ -66,8 +69,8 @@ func NewGraphTokenFilter(input TokenStream) *GraphTokenFilter {
 		finalOffsets:      -1,
 	}
 	if src := f.GetAttributeSource(); src != nil {
-		if attr := src.GetAttribute(PositionIncrementAttributeType); attr != nil {
-			if pi, ok := attr.(PositionIncrementAttribute); ok {
+		if attr := src.GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
+			if pi, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				f.posIncAtt = pi
 			}
 		}

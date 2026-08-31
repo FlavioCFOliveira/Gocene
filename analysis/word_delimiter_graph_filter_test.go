@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"strings"
 	"testing"
 )
@@ -30,7 +33,7 @@ func collectWDGFTokens(t *testing.T, filter *WordDelimiterGraphFilter) []wdgfTok
 	}
 
 	var termAttr CharTermAttribute
-	var posIncrAttr PositionIncrementAttribute
+	var posIncrAttr tokenattributes.PositionIncrementAttribute
 	var posLenAttr PositionLengthAttribute
 	var offsetAttr OffsetAttribute
 	var typeAttr TypeAttribute
@@ -38,8 +41,8 @@ func collectWDGFTokens(t *testing.T, filter *WordDelimiterGraphFilter) []wdgfTok
 	if attr := attrSource.GetAttribute(CharTermAttributeType); attr != nil {
 		termAttr = attr.(CharTermAttribute)
 	}
-	if attr := attrSource.GetAttribute(PositionIncrementAttributeType); attr != nil {
-		posIncrAttr = attr.(PositionIncrementAttribute)
+	if attr := attrSource.GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
+		posIncrAttr = attr.(tokenattributes.PositionIncrementAttribute)
 	}
 	if attr := attrSource.GetAttribute(PositionLengthAttributeType); attr != nil {
 		posLenAttr = attr.(PositionLengthAttribute)

@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"reflect"
 	"strings"
 	"testing"
@@ -108,8 +111,8 @@ func TestRemoveDuplicatesTokenFilter_Basic(t *testing.T) {
 					}
 				}
 
-				if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
-					if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+				if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+					if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 						posIncrs = append(posIncrs, posAttr.GetPositionIncrement())
 					}
 				}
@@ -243,8 +246,8 @@ func TestRemoveDuplicatesTokenFilter_PositionIncrementAccumulation(t *testing.T)
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
-			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+		if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+			if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				posIncrs = append(posIncrs, posAttr.GetPositionIncrement())
 			}
 		}
@@ -426,7 +429,7 @@ type mockTokenStream struct {
 	tokens      []tokenInfo
 	currentIdx  int
 	termAttr    CharTermAttribute
-	posIncrAttr PositionIncrementAttribute
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 }
 
 // newMockTokenStream creates a new mock token stream with the given tokens.
@@ -439,7 +442,7 @@ func newMockTokenStream(tokens []tokenInfo) *mockTokenStream {
 
 	// Add attributes
 	stream.termAttr = NewCharTermAttribute()
-	stream.posIncrAttr = NewPositionIncrementAttribute()
+	stream.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
 	stream.AddAttribute(stream.termAttr)
 	stream.AddAttribute(stream.posIncrAttr)
 

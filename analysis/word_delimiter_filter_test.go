@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"reflect"
 	"strings"
 	"testing"
@@ -209,8 +212,8 @@ func TestWordDelimiterFilter_PositionIncrement(t *testing.T) {
 						tokens = append(tokens, termAttr.String())
 					}
 				}
-				if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
-					if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+				if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+					if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 						posIncs = append(posIncs, posAttr.GetPositionIncrement())
 					}
 				}
@@ -292,8 +295,8 @@ func TestWordDelimiterFilter_Offsets(t *testing.T) {
 						info.endOffset = offsetAttr.EndOffset()
 					}
 				}
-				if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
-					if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+				if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+					if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 						info.posInc = posAttr.GetPositionIncrement()
 					}
 				}
@@ -857,8 +860,8 @@ func TestWordDelimiterFilter_MultipleTokens(t *testing.T) {
 				tokens = append(tokens, termAttr.String())
 			}
 		}
-		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
-			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+		if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+			if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				posIncs = append(posIncs, posAttr.GetPositionIncrement())
 			}
 		}

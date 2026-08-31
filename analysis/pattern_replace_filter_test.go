@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"reflect"
 	"regexp"
 	"strings"
@@ -299,8 +302,8 @@ func TestPatternReplaceFilter_PositionIncrement(t *testing.T) {
 		if !hasToken {
 			break
 		}
-		if attr := filter.GetAttribute("PositionIncrementAttribute"); attr != nil {
-			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+		if attr := filter.GetAttribute("tokenattributes.PositionIncrementAttribute"); attr != nil {
+			if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				positions = append(positions, posAttr.GetPositionIncrement())
 			}
 		}

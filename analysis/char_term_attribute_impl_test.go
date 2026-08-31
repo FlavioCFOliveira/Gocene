@@ -3,7 +3,7 @@
 // that can be found in the LICENSE file.
 
 // Tests ported from Apache Lucene 10.4.0:
-// lucene/core/src/test/org/apache/lucene/analysis/tokenattributes/TestCharTermAttributeImpl.java
+// lucene/core/src/test/org/apache/lucene/tokenattributes/TestCharTermAttributeImpl.java
 
 package analysis
 

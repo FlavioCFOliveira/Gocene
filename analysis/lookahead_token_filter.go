@@ -5,9 +5,10 @@
 package analysis
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+	
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -84,7 +85,7 @@ func NewLookaheadTokenFilter(input TokenStream) *LookaheadTokenFilter {
 		}),
 	}
 	if src := f.GetAttributeSource(); src != nil {
-		if attr := src.GetAttribute(tokenattributes.tokenattributes.PositionIncrementAttributeType); attr != nil {
+		if attr := src.GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
 			if pi, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				f.posIncAtt = pi
 			}

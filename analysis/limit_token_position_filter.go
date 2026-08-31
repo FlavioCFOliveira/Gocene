@@ -4,6 +4,11 @@
 
 package analysis
 
+import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+)
+	
+
 // LimitTokenPositionFilter limits tokens based on their cumulative position.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.LimitTokenPositionFilter.
@@ -55,8 +60,8 @@ func (f *LimitTokenPositionFilter) IncrementToken() (bool, error) {
 	posIncrement := 1
 	attrSrc := f.GetAttributeSource()
 	if attrSrc != nil {
-		if attr := attrSrc.GetAttribute(PositionIncrementAttributeType); attr != nil {
-			if posAttr, ok := attr.(PositionIncrementAttribute); ok {
+		if attr := attrSrc.GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
+			if posAttr, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 				posIncrement = posAttr.GetPositionIncrement()
 			}
 		}

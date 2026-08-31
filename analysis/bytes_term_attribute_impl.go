@@ -11,7 +11,7 @@ import (
 )
 
 // BytesTermAttributeImpl is the Go port of Lucene's
-// org.apache.lucene.analysis.tokenattributes.BytesTermAttributeImpl.
+// org.apache.lucene.tokenattributes.BytesTermAttributeImpl.
 //
 // It backs [BytesTermAttribute] (and therefore
 // [TermToBytesRefAttribute]) with a single mutable BytesRef pointer.
@@ -20,7 +20,7 @@ import (
 //
 // Lucene 10.4.0 reference:
 //
-//	lucene/core/src/java/org/apache/lucene/analysis/tokenattributes/BytesTermAttributeImpl.java
+//	lucene/core/src/java/org/apache/lucene/tokenattributes/BytesTermAttributeImpl.java
 type BytesTermAttributeImpl struct {
 	bytes *util.BytesRef
 }

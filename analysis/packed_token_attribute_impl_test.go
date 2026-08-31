@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"reflect"
 	"testing"
 
@@ -40,7 +43,7 @@ func TestPackedTokenAttributeImpl_Defaults(t *testing.T) {
 // equal to the source and owns its own buffer (the source's term
 // buffer is not aliased into the clone).
 //
-// Source: lucene/core/src/test/org/apache/lucene/analysis/tokenattributes/TestPackedTokenAttributeImpl.java
+// Source: lucene/core/src/test/org/apache/lucene/tokenattributes/TestPackedTokenAttributeImpl.java
 func TestPackedTokenAttributeImpl_Clone(t *testing.T) {
 	src := NewPackedTokenAttributeImpl()
 	src.SetOffset(0, 5)
@@ -127,7 +130,7 @@ func TestPackedTokenAttributeImpl_AttributeReflection(t *testing.T) {
 		{reflect.TypeOf((*CharTermAttribute)(nil)).Elem(), "term", "foobar"},
 		{reflect.TypeOf((*OffsetAttribute)(nil)).Elem(), "startOffset", 6},
 		{reflect.TypeOf((*OffsetAttribute)(nil)).Elem(), "endOffset", 22},
-		{reflect.TypeOf((*PositionIncrementAttribute)(nil)).Elem(), "positionIncrement", 3},
+		{reflect.TypeOf((*tokenattributes.PositionIncrementAttribute)(nil)).Elem(), "positionIncrement", 3},
 		// The bare-struct attributes still emit their parity triples
 		// even though they do not have a Lucene-style interface; they
 		// borrow the concrete-type reflect.Type as their attType.
@@ -251,7 +254,7 @@ func TestPackedTokenAttributeImpl_CopyTo_FallbackPath(t *testing.T) {
 	if off.StartOffset() != 1 || off.EndOffset() != 5 {
 		t.Fatalf("Offset fallback: %d/%d, want 1/5", off.StartOffset(), off.EndOffset())
 	}
-	pi := NewPositionIncrementAttribute()
+	pi := tokenattributes.NewPositionIncrementAttribute()
 	src.CopyTo(pi)
 	if pi.GetPositionIncrement() != 2 {
 		t.Fatalf("PositionIncrement fallback: %d, want 2", pi.GetPositionIncrement())

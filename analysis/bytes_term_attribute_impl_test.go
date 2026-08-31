@@ -16,7 +16,7 @@ import (
 // contract: an empty copy round-trips equal, and a populated copy is
 // equal (BytesRefEquals) without being the same pointer.
 //
-// Source: lucene/core/src/test/org/apache/lucene/analysis/tokenattributes/TestBytesRefAttImpl.java
+// Source: lucene/core/src/test/org/apache/lucene/tokenattributes/TestBytesRefAttImpl.java
 func TestBytesTermAttributeImpl_CopyTo(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
 		src := NewBytesTermAttributeImpl()

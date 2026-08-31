@@ -5,9 +5,10 @@
 package analysis
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"errors"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+	
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
@@ -21,7 +22,7 @@ import (
 // transition between position nodes is emitted as a token whose
 // CharTermAttribute holds the single transition label (the value of the
 // transition's [min, max] range expanded one value at a time, matching the
-// Java reference). PositionIncrementAttribute, PositionLengthAttribute and
+// Java reference). tokenattributes.PositionIncrementAttribute, PositionLengthAttribute and
 // OffsetAttribute are set accordingly.
 //
 // The input automaton must be a finite DAG with no cycles and no incoming

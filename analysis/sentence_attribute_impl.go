@@ -11,7 +11,7 @@ import (
 )
 
 // SentenceAttributeImpl is the Go port of Lucene's
-// org.apache.lucene.analysis.tokenattributes.SentenceAttributeImpl.
+// org.apache.lucene.tokenattributes.SentenceAttributeImpl.
 //
 // The current implementation is coincidentally identical to
 // [FlagsAttribute] in shape (a single int), but the Lucene reference
@@ -20,7 +20,7 @@ import (
 //
 // Lucene 10.4.0 reference:
 //
-//	lucene/core/src/java/org/apache/lucene/analysis/tokenattributes/SentenceAttributeImpl.java
+//	lucene/core/src/java/org/apache/lucene/tokenattributes/SentenceAttributeImpl.java
 type SentenceAttributeImpl struct {
 	index int
 }

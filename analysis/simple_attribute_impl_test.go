@@ -3,7 +3,7 @@
 // that can be found in the LICENSE file.
 
 // Ported from Apache Lucene 10.4.0:
-//   lucene/core/src/test/org/apache/lucene/analysis/tokenattributes/TestSimpleAttributeImpl.java
+//   lucene/core/src/test/org/apache/lucene/tokenattributes/TestSimpleAttributeImpl.java
 //
 // Deviation: the Java test uses TestUtil.assertAttributeReflection, a
 // reflection-based helper from LuceneTestCase. In Go the defaults are
@@ -11,14 +11,19 @@
 
 package analysis
 
-import "testing"
+	
+
+import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+	"testing"
+)
 
 // TestSimpleAttributeImpl_Attributes mirrors testAttributes (Lucene 10.4.0).
 // It verifies the out-of-the-box default values of every simple attribute
 // implementation, matching the Java assertAttributeReflection assertions.
 func TestSimpleAttributeImpl_Attributes(t *testing.T) {
 	t.Run("PositionIncrementAttributeImpl", func(t *testing.T) {
-		a := NewPositionIncrementAttributeImpl()
+		a := tokenattributes.NewPositionIncrementAttribute()
 		if got := a.GetPositionIncrement(); got != 1 {
 			t.Errorf("default positionIncrement: got %d, want 1", got)
 		}

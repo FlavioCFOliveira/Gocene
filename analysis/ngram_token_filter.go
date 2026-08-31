@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"fmt"
 )
 
@@ -24,7 +27,7 @@ const EdgeNGramTokenFilterDefaultPreserveOriginal = false
 // Deviation from Lucene: the reference uses Java's captureState /
 // restoreState to preserve every attribute across the gram emission.
 // Gocene's pipeline only routes CharTermAttribute and
-// PositionIncrementAttribute, so we preserve those two explicitly;
+// tokenattributes.PositionIncrementAttribute, so we preserve those two explicitly;
 // callers that need other attributes (offsets, type, payload) should
 // keep them in the input filter where appropriate.
 type EdgeNGramTokenFilter struct {
@@ -39,7 +42,7 @@ type EdgeNGramTokenFilter struct {
 	curPosIncr  int
 
 	termAttr    CharTermAttribute
-	posIncrAttr PositionIncrementAttribute
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 }
 
 // NewEdgeNGramTokenFilter wraps input with [minGram, maxGram] gram
@@ -63,8 +66,8 @@ func NewEdgeNGramTokenFilter(input TokenStream, minGram, maxGram int, preserveOr
 		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttribute(PositionIncrementAttributeType); a != nil {
-			f.posIncrAttr = a.(PositionIncrementAttribute)
+		if a := src.GetAttribute(tokenattributes.PositionIncrementAttributeType); a != nil {
+			f.posIncrAttr = a.(tokenattributes.PositionIncrementAttribute)
 		}
 	}
 	return f, nil
@@ -180,7 +183,7 @@ type NGramTokenFilter struct {
 	originalEmitted bool
 
 	termAttr    CharTermAttribute
-	posIncrAttr PositionIncrementAttribute
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 }
 
 // NewNGramTokenFilter wraps input. minGram must be > 0 and <=
@@ -203,8 +206,8 @@ func NewNGramTokenFilter(input TokenStream, minGram, maxGram int, preserveOrigin
 		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttribute(PositionIncrementAttributeType); a != nil {
-			f.posIncrAttr = a.(PositionIncrementAttribute)
+		if a := src.GetAttribute(tokenattributes.PositionIncrementAttributeType); a != nil {
+			f.posIncrAttr = a.(tokenattributes.PositionIncrementAttribute)
 		}
 	}
 	return f, nil

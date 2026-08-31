@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"sort"
 	"strconv"
 	"strings"
@@ -338,7 +341,7 @@ type FingerprintFilter struct {
 	separator          byte
 	emitted            bool
 	termAttr           CharTermAttribute
-	posIncrAttr        PositionIncrementAttribute
+	posIncrAttr        tokenattributes.PositionIncrementAttribute
 	typeAttr           TypeAttribute
 	offsetAttr         OffsetAttribute
 }
@@ -360,8 +363,8 @@ func NewFingerprintFilterWithConfig(input TokenStream, maxOutputTokenSize int, s
 		if a := src.GetAttribute(CharTermAttributeType); a != nil {
 			f.termAttr = a.(CharTermAttribute)
 		}
-		if a := src.GetAttribute(PositionIncrementAttributeType); a != nil {
-			f.posIncrAttr = a.(PositionIncrementAttribute)
+		if a := src.GetAttribute(tokenattributes.PositionIncrementAttributeType); a != nil {
+			f.posIncrAttr = a.(tokenattributes.PositionIncrementAttribute)
 		}
 		if a := src.GetAttribute(TypeAttributeType); a != nil {
 			f.typeAttr = a.(TypeAttribute)

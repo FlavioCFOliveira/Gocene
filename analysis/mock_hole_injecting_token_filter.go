@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"math/rand"
 )
 
@@ -17,7 +20,7 @@ type MockHoleInjectingTokenFilter struct {
 
 	randomSeed int64
 	random     *rand.Rand
-	posIncAtt  PositionIncrementAttribute
+	posIncAtt  tokenattributes.PositionIncrementAttribute
 	posLenAtt  PositionLengthAttribute
 	maxPos     int
 	pos        int
@@ -33,8 +36,8 @@ func NewMockHoleInjectingTokenFilter(random *rand.Rand, input TokenStream) *Mock
 		randomSeed:      seed,
 	}
 	if src := f.GetAttributeSource(); src != nil {
-		if att := src.GetAttribute(PositionIncrementAttributeType); att != nil {
-			if pia, ok := att.(PositionIncrementAttribute); ok {
+		if att := src.GetAttribute(tokenattributes.PositionIncrementAttributeType); att != nil {
+			if pia, ok := att.(tokenattributes.PositionIncrementAttribute); ok {
 				f.posIncAtt = pia
 			}
 		}

@@ -5,11 +5,12 @@
 package analysis
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"errors"
 	"strings"
 	"unicode/utf8"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+	
 )
 
 // EmptyTokenStream is a TokenStream that produces no tokens. Useful
@@ -397,7 +398,7 @@ func NewTypeAsSynonymFilterWithConfig(input TokenStream, prefix string, ignore [
 		if a := src.GetAttribute(TypeAttributeType); a != nil {
 			f.typeAttr = a.(TypeAttribute)
 		}
-		if a := src.GetAttribute(tokenattributes.tokenattributes.PositionIncrementAttributeType); a != nil {
+		if a := src.GetAttribute(tokenattributes.PositionIncrementAttributeType); a != nil {
 			f.posIncrAttr = a.(tokenattributes.PositionIncrementAttribute)
 		}
 		if a := src.GetAttribute(FlagsAttributeType); a != nil {

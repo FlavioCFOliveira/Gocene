@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"strings"
 )
 
@@ -267,8 +270,8 @@ func (f *ShingleFilter) IncrementToken() (bool, error) {
 						oa.SetEndOffset(endToken.endOffset)
 					}
 				}
-				if attr := attrSrc.GetAttribute(PositionIncrementAttributeType); attr != nil {
-					if pa, ok := attr.(PositionIncrementAttribute); ok {
+				if attr := attrSrc.GetAttribute(tokenattributes.PositionIncrementAttributeType); attr != nil {
+					if pa, ok := attr.(tokenattributes.PositionIncrementAttribute); ok {
 						pa.SetPositionIncrement(posIncr)
 					}
 				}

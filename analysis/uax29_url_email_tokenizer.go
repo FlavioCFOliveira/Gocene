@@ -5,13 +5,14 @@
 package analysis
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"bufio"
 	"io"
 	"regexp"
 	"strings"
 	"unicode"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+	
 )
 
 // UAX29URLEmailTokenizer is a tokenizer that implements UAX#29 word boundary rules

@@ -4,7 +4,10 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"reflect"
 	"strings"
 	"testing"
@@ -98,9 +101,9 @@ func lookupCharTermAttribute(t *testing.T, stream TokenStream) CharTermAttribute
 	return term
 }
 
-// lookupPositionIncrementAttribute fetches the PositionIncrementAttribute
+// lookupPositionIncrementAttribute fetches the tokenattributes.PositionIncrementAttribute
 // from the stream's AttributeSource. Fails the test if missing.
-func lookupPositionIncrementAttribute(t *testing.T, stream TokenStream) PositionIncrementAttribute {
+func lookupPositionIncrementAttribute(t *testing.T, stream TokenStream) tokenattributes.PositionIncrementAttribute {
 	t.Helper()
 	src, ok := stream.(interface {
 		GetAttributeSource() *util.AttributeSource
@@ -109,13 +112,13 @@ func lookupPositionIncrementAttribute(t *testing.T, stream TokenStream) Position
 	if !ok {
 		t.Fatal("stream has no AttributeSource")
 	}
-	attr := src.GetAttribute("PositionIncrementAttribute")
+	attr := src.GetAttribute("tokenattributes.PositionIncrementAttribute")
 	if attr == nil {
-		t.Fatal("PositionIncrementAttribute not found")
+		t.Fatal("tokenattributes.PositionIncrementAttribute not found")
 	}
-	pos, ok := attr.(PositionIncrementAttribute)
+	pos, ok := attr.(tokenattributes.PositionIncrementAttribute)
 	if !ok {
-		t.Fatalf("attribute is not a PositionIncrementAttribute: %T", attr)
+		t.Fatalf("attribute is not a tokenattributes.PositionIncrementAttribute: %T", attr)
 	}
 	return pos
 }

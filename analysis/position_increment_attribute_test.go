@@ -4,18 +4,21 @@
 
 package analysis
 
+	
+
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"reflect"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// TestPositionIncrementAttribute_Basic tests basic PositionIncrementAttribute operations.
+// TestPositionIncrementAttribute_Basic tests basic tokenattributes.PositionIncrementAttribute operations.
 // Source: TestPositionIncrementAttribute.java
 // Purpose: Tests that position increment can be set and retrieved.
 func TestPositionIncrementAttribute_Basic(t *testing.T) {
-	attr := NewPositionIncrementAttribute()
+	attr := tokenattributes.NewPositionIncrementAttribute()
 
 	// Test initial value
 	if attr.GetPositionIncrement() != 1 {
@@ -33,7 +36,7 @@ func TestPositionIncrementAttribute_Basic(t *testing.T) {
 // Source: TestPositionIncrementAttribute.java
 // Purpose: Tests that position increment is reset when cleared.
 func TestPositionIncrementAttribute_Clear(t *testing.T) {
-	attr := NewPositionIncrementAttribute()
+	attr := tokenattributes.NewPositionIncrementAttribute()
 	attr.SetPositionIncrement(10)
 	attr.Clear()
 
@@ -46,10 +49,10 @@ func TestPositionIncrementAttribute_Clear(t *testing.T) {
 // Source: TestPositionIncrementAttribute.java
 // Purpose: Tests that position increment can be copied to another instance.
 func TestPositionIncrementAttribute_CopyTo(t *testing.T) {
-	source := NewPositionIncrementAttribute()
+	source := tokenattributes.NewPositionIncrementAttribute()
 	source.SetPositionIncrement(3)
 
-	target := NewPositionIncrementAttribute()
+	target := tokenattributes.NewPositionIncrementAttribute()
 	source.CopyTo(target)
 
 	if target.GetPositionIncrement() != 3 {
@@ -61,7 +64,7 @@ func TestPositionIncrementAttribute_CopyTo(t *testing.T) {
 // Source: TestPositionIncrementAttribute.java
 // Purpose: Tests that a deep copy can be created.
 func TestPositionIncrementAttribute_Copy(t *testing.T) {
-	original := NewPositionIncrementAttribute()
+	original := tokenattributes.NewPositionIncrementAttribute()
 	original.SetPositionIncrement(7)
 
 	copy := original.Copy()
@@ -69,25 +72,25 @@ func TestPositionIncrementAttribute_Copy(t *testing.T) {
 		t.Fatal("Copy() should return a non-nil attribute")
 	}
 
-	if posAttr, ok := copy.(PositionIncrementAttribute); ok {
+	if posAttr, ok := copy.(tokenattributes.PositionIncrementAttribute); ok {
 		if posAttr.GetPositionIncrement() != 7 {
 			t.Errorf("Copy position increment should be 7, got %d", posAttr.GetPositionIncrement())
 		}
 	} else {
-		t.Error("Copy() should return *PositionIncrementAttribute")
+		t.Error("Copy() should return *tokenattributes.PositionIncrementAttribute")
 	}
 }
 
 // TestPositionIncrementAttribute_Interface tests interface compliance.
 func TestPositionIncrementAttribute_Interface(t *testing.T) {
-	var _ util.Attribute = NewPositionIncrementAttribute()
-	var _ util.AttributeImpl = NewPositionIncrementAttribute()
+	var _ util.Attribute = tokenattributes.NewPositionIncrementAttribute()
+	var _ util.AttributeImpl = tokenattributes.NewPositionIncrementAttribute()
 }
 
 // TestPositionIncrementAttribute_Zero tests zero position increment.
 // This is valid in Lucene for overlapping tokens.
 func TestPositionIncrementAttribute_Zero(t *testing.T) {
-	attr := NewPositionIncrementAttribute()
+	attr := tokenattributes.NewPositionIncrementAttribute()
 	attr.SetPositionIncrement(0)
 
 	if attr.GetPositionIncrement() != 0 {
@@ -99,7 +102,7 @@ func TestPositionIncrementAttribute_Zero(t *testing.T) {
 // Lucene-faithful validation rejects negative values with a panic
 // (mirroring IllegalArgumentException).
 func TestPositionIncrementAttribute_SetNegative_Panics(t *testing.T) {
-	attr := NewPositionIncrementAttribute()
+	attr := tokenattributes.NewPositionIncrementAttribute()
 	defer func() {
 		if r := recover(); r == nil {
 			t.Fatal("SetPositionIncrement(-1) did not panic")
@@ -112,7 +115,7 @@ func TestPositionIncrementAttribute_SetNegative_Panics(t *testing.T) {
 // increment to 0, distinct from Clear which resets to 1 (Lucene
 // reference: PositionIncrementutil.AttributeImpl#end).
 func TestPositionIncrementAttribute_End(t *testing.T) {
-	attr := NewPositionIncrementAttribute().(*positionIncrementAttribute)
+	attr := tokenattributes.NewPositionIncrementAttribute().(*positionIncrementAttribute)
 	attr.SetPositionIncrement(4)
 	attr.End()
 	if got := attr.GetPositionIncrement(); got != 0 {
@@ -121,10 +124,10 @@ func TestPositionIncrementAttribute_End(t *testing.T) {
 }
 
 // TestPositionIncrementAttribute_ReflectWith verifies the single
-// (PositionIncrementAttribute, "positionIncrement", value) triple
+// (tokenattributes.PositionIncrementAttribute, "positionIncrement", value) triple
 // expected by the Lucene reference.
 func TestPositionIncrementAttribute_ReflectWith(t *testing.T) {
-	attr := NewPositionIncrementAttribute().(*positionIncrementAttribute)
+	attr := tokenattributes.NewPositionIncrementAttribute().(*positionIncrementAttribute)
 	attr.SetPositionIncrement(2)
 
 	var got []struct {
@@ -143,7 +146,7 @@ func TestPositionIncrementAttribute_ReflectWith(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("emitted %d triples, want 1", len(got))
 	}
-	wantType := reflect.TypeOf((*PositionIncrementAttribute)(nil)).Elem()
+	wantType := reflect.TypeOf((*tokenattributes.PositionIncrementAttribute)(nil)).Elem()
 	if got[0].k != "positionIncrement" || got[0].v != 2 || got[0].t != wantType {
 		t.Fatalf("triple=%+v, want {positionIncrement 2 %v}", got[0], wantType)
 	}
@@ -153,8 +156,8 @@ func TestPositionIncrementAttribute_ReflectWith(t *testing.T) {
 // equals/hashCode contract: equal positionIncrement => equal, hash
 // equals positionIncrement.
 func TestPositionIncrementAttribute_EqualsHashCode(t *testing.T) {
-	a := NewPositionIncrementAttribute().(*positionIncrementAttribute)
-	b := NewPositionIncrementAttribute().(*positionIncrementAttribute)
+	a := tokenattributes.NewPositionIncrementAttribute().(*positionIncrementAttribute)
+	b := tokenattributes.NewPositionIncrementAttribute().(*positionIncrementAttribute)
 	a.SetPositionIncrement(3)
 	b.SetPositionIncrement(3)
 
