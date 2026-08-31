@@ -4,39 +4,38 @@
 
 package search
 
-import "math"
+import (
+	"fmt"
+	"math"
+)
 
 // LMDirichletSimilarity implements language modeling with Dirichlet smoothing.
-// This is one of the most effective smoothing methods for language models
-// in information retrieval.
+// This is a faithful port of org.apache.lucene.search.similarities.LMDirichletSimilarity from Lucene 10.5.0.
 //
-// The formula:
-// Score = log((tf + mu * P(w|C)) / (docLen + mu))
+// The formula as defined in the original paper assigns a negative score to documents that contain the term,
+// but with fewer occurrences than predicted by the collection language model.
+// The Lucene implementation returns 0 for such documents.
+//
+// Score = boost * (log(1 + freq / (mu * P)) + log(mu / (dl + mu)))
 // where:
-// - tf is term frequency in document
+// - freq is term frequency in document
 // - mu is Dirichlet smoothing parameter (default: 2000)
-// - P(w|C) is collection language model probability
-// - docLen is document length
-//
-// Dirichlet smoothing is a Bayesian approach that interpolates between
-// the document model and the collection model based on document length.
+// - P is collection language model probability P(w|C)
+// - dl is document length
 type LMDirichletSimilarity struct {
 	*BaseSimilarity
-	mu float64 // Dirichlet smoothing parameter
+	mu float64
 }
 
-// NewLMDirichletSimilarity creates a new LMDirichletSimilarity with default parameters.
+// NewLMDirichletSimilarity creates a new LMDirichletSimilarity with the default mu value of 2000.
 func NewLMDirichletSimilarity() *LMDirichletSimilarity {
-	return &LMDirichletSimilarity{
-		BaseSimilarity: NewBaseSimilarity(),
-		mu:             2000.0,
-	}
+	return NewLMDirichletSimilarityWithParams(2000.0)
 }
 
-// NewLMDirichletSimilarityWithParams creates an LMDirichletSimilarity with custom parameters.
+// NewLMDirichletSimilarityWithParams creates an LMDirichletSimilarity with the provided mu parameter.
 func NewLMDirichletSimilarityWithParams(mu float64) *LMDirichletSimilarity {
-	if mu <= 0 {
-		mu = 2000.0
+	if math.IsNaN(mu) || math.IsInf(mu, 0) || mu < 0 {
+		panic(fmt.Sprintf("illegal mu value: %v, must be a non-negative finite value", mu))
 	}
 	return &LMDirichletSimilarity{
 		BaseSimilarity: NewBaseSimilarity(),
@@ -67,7 +66,7 @@ func (s *LMDirichletSimilarity) ComputeWeight(boost float32, collectionStats *Co
 	return NewLMDirichletSimWeight(s, collectionStats, termStats, boost)
 }
 
-// Scorer creates a scorer for this similarity.
+// Scorer creates a SimScorer for this similarity.
 func (s *LMDirichletSimilarity) Scorer(collectionStats *CollectionStatistics, termStats *TermStatistics) SimScorer {
 	return NewLMDirichletSimScorer(s, collectionStats, termStats)
 }
@@ -83,13 +82,12 @@ type LMDirichletSimWeight struct {
 
 // NewLMDirichletSimWeight creates a new LMDirichletSimWeight.
 func NewLMDirichletSimWeight(sim *LMDirichletSimilarity, collectionStats *CollectionStatistics, termStats *TermStatistics, boost float32) *LMDirichletSimWeight {
-	// Calculate collection probability: P(w|C) = F / collectionSize
 	collectionProb := 0.0
 	if collectionStats != nil && collectionStats.SumTotalTermFreq() > 0 && termStats != nil {
 		collectionProb = float64(termStats.TotalTermFreq()) / float64(collectionStats.SumTotalTermFreq())
 	}
 	if collectionProb == 0 {
-		collectionProb = 1e-10 // Small epsilon to avoid issues
+		collectionProb = 1e-10 // Small epsilon to avoid division by zero
 	}
 
 	return &LMDirichletSimWeight{
@@ -127,7 +125,6 @@ type LMDirichletSimScorer struct {
 
 // NewLMDirichletSimScorer creates a new LMDirichletSimScorer.
 func NewLMDirichletSimScorer(similarity *LMDirichletSimilarity, collectionStats *CollectionStatistics, termStats *TermStatistics) *LMDirichletSimScorer {
-	// Calculate collection probability
 	collectionProb := 0.0
 	if collectionStats != nil && collectionStats.SumTotalTermFreq() > 0 && termStats != nil {
 		collectionProb = float64(termStats.TotalTermFreq()) / float64(collectionStats.SumTotalTermFreq())
@@ -156,44 +153,74 @@ func NewLMDirichletSimScorerWithWeight(weight *LMDirichletSimWeight) *LMDirichle
 }
 
 // Score calculates the LM Dirichlet score.
-// Score = log((tf + mu * P(w|C)) / (docLen + mu))
 //
-// The norm argument mirrors Lucene's SimScorer.score(float, long) signature.
-// This legacy LM scorer does not consult norms; it is ignored to preserve the
-// existing behaviour of in-repo tests.
+// The formula: score = boost * (log(1 + freq / (mu * P)) + log(mu / (dl + mu)))
 func (s *LMDirichletSimScorer) Score(doc int, freq float32, norm int64) float32 {
 	if freq == 0 {
 		return 0
 	}
 
 	tf := float64(freq)
+	docLen := float64(luceneBM25LengthTable[byte(norm)])
 
-	// Document length (simplified - use average document length)
-	docLen := 1.0
-	if s.weight != nil && s.weight.collectionStats != nil && s.weight.collectionStats.DocCount() > 0 {
-		totalTerms := float64(s.weight.collectionStats.SumTotalTermFreq())
-		docCount := float64(s.weight.collectionStats.DocCount())
-		if docCount > 0 {
-			docLen = totalTerms / docCount
-		}
-	}
-
-	// Dirichlet smoothing: log((tf + mu * P(w|C)) / (docLen + mu))
-	numerator := tf + s.mu*s.collectionProb
-	denominator := docLen + s.mu
-
-	if denominator <= 0 {
-		return 0
-	}
-
-	score := math.Log(numerator / denominator)
-
-	// Apply boost
+	boost := 1.0
 	if s.weight != nil {
-		score *= float64(s.weight.boost)
+		boost = float64(s.weight.boost)
 	}
 
-	return float32(score)
+	// score = boost * (log(1 + freq / (mu * P)) + log(mu / (docLen + mu)))
+	termWeight := math.Log(1.0 + tf/(s.mu*s.collectionProb))
+	docNorm := math.Log(s.mu / (docLen + s.mu))
+	score := boost * (termWeight + docNorm)
+
+	if score > 0 {
+		return float32(score)
+	}
+	return 0
+}
+
+// Explain returns an explanation for the score.
+func (s *LMDirichletSimScorer) Explain(freq Explanation, norm int64) Explanation {
+	tf := freq.GetValue()
+	docLen := float64(luceneBM25LengthTable[byte(norm)])
+
+	var boost float32 = 1.0
+	if s.weight != nil {
+		boost = s.weight.boost
+	}
+
+	// Sub-explanations
+	subs := []Explanation{}
+	if boost != 1.0 {
+		subs = append(subs, NewExplanation(true, boost, "query boost"))
+	}
+
+	p := s.collectionProb
+	explP := NewExplanation(true, float32(p), "P, probability that the current term is generated by the collection")
+
+	explFreq := NewExplanation(true, tf, "freq, number of occurrences of term in the document")
+
+	subs = append(subs, NewExplanation(true, float32(s.mu), "mu"))
+
+	termWeight := math.Log(1.0 + float64(tf)/(s.mu*p))
+	weightExpl := NewExplanation(true, float32(termWeight), "term weight, computed as log(1 + freq /(mu * P)) from:")
+	weightExpl.AddDetail(explFreq)
+	weightExpl.AddDetail(explP)
+	subs = append(subs, weightExpl)
+
+	docNorm := math.Log(s.mu / (docLen + s.mu))
+	subs = append(subs, NewExplanation(true, float32(docNorm), "document norm, computed as log(mu / (dl + mu))"))
+	subs = append(subs, NewExplanation(true, float32(docLen), "dl, length of field"))
+
+	score := s.Score(0, tf, norm)
+	root := NewExplanation(true, score,
+		fmt.Sprintf("score(LMDirichletSimilarity, freq=%v), computed as boost * (term weight + document norm) from:", tf))
+
+	for _, sub := range subs {
+		root.AddDetail(sub)
+	}
+
+	return root
 }
 
 // Ensure LMDirichletSimilarity implements Similarity
