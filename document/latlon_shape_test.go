@@ -23,7 +23,7 @@ func newTriPolygon(t *testing.T) geo.Polygon {
 
 func TestLatLonShape_CreateIndexableFieldsPolygonChecked(t *testing.T) {
 	poly := newTriPolygon(t)
-	fields, err := CreateIndexableFieldsFromLatLonPolygonChecked("loc", poly, true)
+	fields, err := CreateIndexableFieldsPolygonChecked("loc", poly, true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestLatLonShape_CreateIndexableFieldsPolygonWithHoles(t *testing.T) {
 			[]float64{1, 2, 2, 1, 1},
 		),
 	)
-	fields, err := CreateIndexableFieldsFromLatLonPolygonChecked("loc", poly, false)
+	fields, err := CreateIndexableFieldsPolygonChecked("loc", poly, false)
 	if err != nil {
 		t.Fatalf("unexpected error for polygon with hole: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestLatLonShape_CreateIndexableFieldsPolygonWithHoles(t *testing.T) {
 }
 
 func TestLatLonShape_CreateIndexableFieldsPointArray(t *testing.T) {
-	fields, err := CreateIndexableFieldsFromLatLonPointArray("loc", 38.7, -9.1)
+	fields, err := CreateIndexableFieldsPoint("loc", 38.7, -9.1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -83,17 +83,17 @@ func TestLatLonShape_CreateIndexableFieldsPointArray(t *testing.T) {
 }
 
 func TestLatLonShape_CreateIndexableFieldsPointRejectsOutOfRange(t *testing.T) {
-	if _, err := CreateIndexableFieldsFromLatLonPointArray("loc", 91, 0); err == nil {
+	if _, err := CreateIndexableFieldsPoint("loc", 91, 0); err == nil {
 		t.Fatalf("expected error for lat=91")
 	}
-	if _, err := CreateIndexableFieldsFromLatLonPointArray("loc", 0, 181); err == nil {
+	if _, err := CreateIndexableFieldsPoint("loc", 0, 181); err == nil {
 		t.Fatalf("expected error for lon=181")
 	}
 }
 
 func TestLatLonShape_CreateDocValueFieldPolygon(t *testing.T) {
 	poly := newTriPolygon(t)
-	dv, err := CreateDocValueFieldFromLatLonPolygon("loc", poly)
+	dv, err := CreateDocValueFieldPolygon("loc", poly)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestLatLonShape_CreateDocValueFieldPolygon(t *testing.T) {
 
 func TestLatLonShape_CreateDocValueFieldPolygonChecked(t *testing.T) {
 	poly := newTriPolygon(t)
-	dv, err := CreateDocValueFieldFromLatLonPolygonChecked("loc", poly, true)
+	dv, err := CreateDocValueFieldPolygonChecked("loc", poly, true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestLatLonShape_CreateDocValueFieldLine(t *testing.T) {
 		[]float64{0, 1, 2},
 		[]float64{0, 1, 2},
 	)
-	dv, err := CreateDocValueFieldFromLatLonLine("loc", line)
+	dv, err := CreateDocValueFieldLine("loc", line)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestLatLonShape_CreateDocValueFieldLine(t *testing.T) {
 }
 
 func TestLatLonShape_CreateDocValueFieldPoint(t *testing.T) {
-	dv, err := CreateDocValueFieldFromLatLonPoint("loc", 38.7, -9.1)
+	dv, err := CreateDocValueFieldPoint("loc", 38.7, -9.1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

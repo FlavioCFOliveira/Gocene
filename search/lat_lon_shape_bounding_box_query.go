@@ -602,3 +602,34 @@ const shapeFieldDimBytes = 4
 // Compile-time guards.
 var _ SpatialVisitor = (*latLonShapeBoundingBoxSpatialVisitor)(nil)
 var _ Query = (*LatLonShapeBoundingBoxQuery)(nil)
+
+// NewBoxQuery creates a query to find all indexed geo shapes that intersect a defined bounding box.
+// Mirrors Lucene 10.4.0's LatLonShape.newBoxQuery.
+func NewBoxQuery(
+	field string,
+	queryRelation document.QueryRelation,
+	minLat, maxLat, minLon, maxLon float64,
+) (Query, error) {
+	// Handle dateline crossing for CONTAINS.
+	if queryRelation == document.QueryRelationContains && minLon > maxLon {
+		bq := NewBooleanQuery()
+		must1, err := NewBoxQuery(
+			field, queryRelation, minLat, maxLat, minLon, geo.MaxLonIncl)
+		if err != nil {
+			return nil, err
+		}
+		bq.Add(must1, MUST)
+		must2, err := NewBoxQuery(
+			field, queryRelation, minLat, maxLat, geo.MinLonIncl, maxLon)
+		if err != nil {
+			return nil, err
+		}
+		bq.Add(must2, MUST)
+		return bq, nil
+	}
+	rect, err := geo.NewRectangle(minLat, maxLat, minLon, maxLon)
+	if err != nil {
+		return nil, err
+	}
+	return NewLatLonShapeBoundingBoxQuery(field, queryRelation, rect)
+}

@@ -309,3 +309,50 @@ func geoRelationToSpatial(r geo.Relation) spatialRelation {
 
 // Compile-time guards: the visitor satisfies SpatialVisitor.
 var _ SpatialVisitor = (*latLonShapeSpatialVisitor)(nil)
+
+// NewLineQuery creates a query to find all indexed geo shapes that
+// intersect a provided linestring (or array of linestrings).
+// Mirrors Lucene 10.4.0's LatLonShape.newLineQuery.
+func NewLineQuery(field string, queryRelation document.QueryRelation, lines ...geo.Line) (*LatLonShapeQuery, error) {
+	geoms := make([]geo.LatLonGeometry, len(lines))
+	for i, l := range lines {
+		geoms[i] = l
+	}
+	return NewLatLonShapeQuery(field, queryRelation, geoms...)
+}
+
+// NewPolygonQuery creates a query to find all indexed geo shapes that
+// intersect a provided polygon (or array of polygons).
+// Mirrors Lucene 10.4.0's LatLonShape.newPolygonQuery.
+func NewPolygonQuery(field string, queryRelation document.QueryRelation, polygons ...geo.Polygon) (*LatLonShapeQuery, error) {
+	geoms := make([]geo.LatLonGeometry, len(polygons))
+	for i, p := range polygons {
+		geoms[i] = p
+	}
+	return NewLatLonShapeQuery(field, queryRelation, geoms...)
+}
+
+// NewPointQuery creates a query to find all indexed shapes that comply
+// the QueryRelation with the provided points.
+// Mirrors Lucene 10.4.0's LatLonShape.newPointQuery.
+func NewPointQuery(field string, queryRelation document.QueryRelation, points ...[]float64) (*LatLonShapeQuery, error) {
+	geoms := make([]geo.LatLonGeometry, len(points))
+	for i, p := range points {
+		if len(p) < 2 {
+			return nil, fmt.Errorf("point %d must have at least two coordinates (lat, lon)", i)
+		}
+		geoms[i] = geo.NewPoint(p[0], p[1])
+	}
+	return NewLatLonShapeQuery(field, queryRelation, geoms...)
+}
+
+// NewDistanceQuery creates a query to find all polygons that intersect
+// a provided circle.
+// Mirrors Lucene 10.4.0's LatLonShape.newDistanceQuery.
+func NewDistanceQuery(field string, queryRelation document.QueryRelation, circles ...geo.Circle) (*LatLonShapeQuery, error) {
+	geoms := make([]geo.LatLonGeometry, len(circles))
+	for i, c := range circles {
+		geoms[i] = c
+	}
+	return NewLatLonShapeQuery(field, queryRelation, geoms...)
+}

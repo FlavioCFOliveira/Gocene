@@ -156,3 +156,34 @@ func nilLatLonShapeDocValuesGeometry(_ *document.ShapeDocValues) geo.Geometry { 
 // explicit override exists for parity with the Java reference and
 // to make the cost source unambiguous.
 func latLonShapeDocValuesMatchCost() float32 { return 60 * 100 }
+
+// NewSlowDocValuesBoxQuery creates a docvalue query to find all geo shapes that
+// intersect a defined bounding box.
+// Mirrors Lucene 10.4.0's LatLonShape.newSlowDocValuesBoxQuery.
+func NewSlowDocValuesBoxQuery(
+	field string,
+	queryRelation document.QueryRelation,
+	minLat, maxLat, minLon, maxLon float64,
+) (Query, error) {
+	if queryRelation == document.QueryRelationContains && minLon > maxLon {
+		bq := NewBooleanQuery()
+		must1, err := NewBoxQuery(
+			field, queryRelation, minLat, maxLat, minLon, geo.MaxLonIncl)
+		if err != nil {
+			return nil, err
+		}
+		bq.Add(must1, MUST)
+		must2, err := NewBoxQuery(
+			field, queryRelation, minLat, maxLat, geo.MinLonIncl, maxLon)
+		if err != nil {
+			return nil, err
+		}
+		bq.Add(must2, MUST)
+		return bq, nil
+	}
+	rect, err := geo.NewRectangle(minLat, maxLat, minLon, maxLon)
+	if err != nil {
+		return nil, err
+	}
+	return NewLatLonShapeDocValuesQuery(field, queryRelation, rect)
+}

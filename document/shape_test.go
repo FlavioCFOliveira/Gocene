@@ -46,11 +46,11 @@ func TestShapeField_QueryRelation_String(t *testing.T) {
 }
 
 func TestLatLonShape_Point(t *testing.T) {
-	tri, err := CreateIndexableFieldsFromLatLonPoint("loc", 38.7, -9.1)
+	fields, err := CreateIndexableFieldsPoint("loc", 38.7, -9.1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tri == nil || len(tri.BinaryValue()) != ShapeFieldBytes {
+	if fields == nil || len(fields[0].BinaryValue()) != ShapeFieldBytes {
 		t.Fatalf("triangle missing/wrong length")
 	}
 }
@@ -61,7 +61,7 @@ func TestLatLonShape_PolygonStubError(t *testing.T) {
 		[]float64{0, 0, 0.5, 0.5, 0.25, 0},
 		[]float64{0, 0.5, 0.5, 0, 0.25, 0},
 	)
-	_, err := CreateIndexableFieldsFromLatLonPolygon("loc", poly)
+	_, err := CreateIndexableFieldsPolygon("loc", poly)
 	// Should not panic; either succeeds for simple triangles or returns a
 	// wrapped ErrTessellatorUnsupported. Accept both.
 	if err != nil && !errors.Is(err, geo.ErrTessellatorUnsupported) {
