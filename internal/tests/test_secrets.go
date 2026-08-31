@@ -17,6 +17,8 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 // testFrameworkPathPrefix is the canonical Go-side equivalent of Java's
@@ -40,12 +42,9 @@ var ErrAccessorAlreadySet = errors.New(
 )
 
 // ConcurrentMergeSchedulerAccess is the test-only accessor surface for
-// ConcurrentMergeScheduler internals. The full method set is intentionally
-// deferred: the Java contract pulls in types from index/, which are still in
-// flux. Production code must not depend on this interface.
-type ConcurrentMergeSchedulerAccess interface {
-	concurrentMergeSchedulerAccess()
-}
+// ConcurrentMergeScheduler internals. The full method set is now defined in the index package.
+// Production code must not depend on this interface.
+type ConcurrentMergeSchedulerAccess = index.ConcurrentMergeSchedulerAccess
 
 // FilterIndexInputAccess is the test-only accessor surface for FilterIndexInput
 // internals. See [ConcurrentMergeSchedulerAccess] for the deferred-signature
