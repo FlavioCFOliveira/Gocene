@@ -71,7 +71,7 @@ func init() {
 	// Lucene104ScalarQuantizedVectorsFormat is the scalar-quantized flat
 	// vectors format introduced in Lucene 10.4.
 	// Mirrors: org.apache.lucene.codecs.lucene104.Lucene104ScalarQuantizedVectorsFormat
-	RegisterKnnVectorsFormat(NewLucene104ScalarQuantizedVectorsFormat())
+	// Registered via blank import of codecs/lucene104.
 
 	// Lucene104HnswScalarQuantizedVectorsFormat combines HNSW graph traversal
 	// with scalar quantization. The deep-port implementation is deferred; this
