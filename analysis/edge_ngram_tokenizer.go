@@ -8,6 +8,7 @@ package analysis
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"errors"
 	"io"
 	"unicode/utf8"
@@ -65,15 +66,9 @@ type EdgeNGramTokenizer struct {
 	posIncrAttr tokenattributes.PositionIncrementAttribute
 }
 
-// NewEdgeNGramTokenizer creates a new EdgeNGramTokenizer with the specified
-// minimum and maximum n-gram sizes.
-//
-// Parameters:
-//   - minGram: the minimum n-gram size (must be >= 1)
-//   - maxGram: the maximum n-gram size (must be >= minGram)
-//
-// Returns an error if minGram or maxGram are invalid.
-func NewEdgeNGramTokenizer(minGram, maxGram int) (*EdgeNGramTokenizer, error) {
+// NewEdgeNGramTokenizerWithFactory creates a new EdgeNGramTokenizer with the specified
+// minimum and maximum n-gram sizes, using the supplied attribute factory.
+func NewEdgeNGramTokenizerWithFactory(factory util.AttributeFactory, minGram, maxGram int) (*EdgeNGramTokenizer, error) {
 	if minGram < 1 {
 		return nil, errors.New("minGram must be >= 1")
 	}
@@ -82,7 +77,7 @@ func NewEdgeNGramTokenizer(minGram, maxGram int) (*EdgeNGramTokenizer, error) {
 	}
 
 	t := &EdgeNGramTokenizer{
-		BaseTokenizer: NewBaseTokenizer(),
+		BaseTokenizer: NewBaseTokenizerWithFactory(factory),
 		minGram:       minGram,
 		maxGram:       maxGram,
 	}
@@ -97,6 +92,11 @@ func NewEdgeNGramTokenizer(minGram, maxGram int) (*EdgeNGramTokenizer, error) {
 	t.AddAttribute(t.posIncrAttr)
 
 	return t, nil
+}
+
+// NewEdgeNGramTokenizer creates a new EdgeNGramTokenizer with default attribute factory.
+func NewEdgeNGramTokenizer(minGram, maxGram int) (*EdgeNGramTokenizer, error) {
+	return NewEdgeNGramTokenizerWithFactory(util.DefaultAttributeFactoryInstance, minGram, maxGram)
 }
 
 // SetReader sets the input source for this Tokenizer.
@@ -250,9 +250,9 @@ func NewEdgeNGramTokenizerFactory(minGram, maxGram int) (*EdgeNGramTokenizerFact
 	}, nil
 }
 
-// Create creates a new EdgeNGramTokenizer.
-func (f *EdgeNGramTokenizerFactory) Create() Tokenizer {
-	tokenizer, err := NewEdgeNGramTokenizer(f.minGram, f.maxGram)
+// Create creates a new EdgeNGramTokenizer using the given AttributeFactory.
+func (f *EdgeNGramTokenizerFactory) Create(factory util.AttributeFactory) Tokenizer {
+	tokenizer, err := NewEdgeNGramTokenizerWithFactory(factory, f.minGram, f.maxGram)
 	if err != nil {
 		// This should not happen since parameters were validated in factory constructor
 		panic(err)

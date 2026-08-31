@@ -8,6 +8,7 @@ package analysis
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"io"
 )
 
@@ -109,10 +110,11 @@ func WithReverse(reverse bool) PathHierarchyTokenizerOption {
 	}
 }
 
-// NewPathHierarchyTokenizer creates a new PathHierarchyTokenizer with the given options.
-func NewPathHierarchyTokenizer(options ...PathHierarchyTokenizerOption) *PathHierarchyTokenizer {
+// NewPathHierarchyTokenizerWithFactory creates a new PathHierarchyTokenizer with the given options,
+// using the supplied attribute factory.
+func NewPathHierarchyTokenizerWithFactory(factory util.AttributeFactory, options ...PathHierarchyTokenizerOption) *PathHierarchyTokenizer {
 	t := &PathHierarchyTokenizer{
-		BaseTokenizer: NewBaseTokenizer(),
+		BaseTokenizer: NewBaseTokenizerWithFactory(factory),
 		delimiter:     '/',
 		replacement:   0, // 0 means use delimiter
 		skip:          0,
@@ -139,6 +141,11 @@ func NewPathHierarchyTokenizer(options ...PathHierarchyTokenizerOption) *PathHie
 	t.AddAttribute(t.posIncrAttr)
 
 	return t
+}
+
+// NewPathHierarchyTokenizer creates a new PathHierarchyTokenizer with default attribute factory.
+func NewPathHierarchyTokenizer(options ...PathHierarchyTokenizerOption) *PathHierarchyTokenizer {
+	return NewPathHierarchyTokenizerWithFactory(util.DefaultAttributeFactoryInstance, options...)
 }
 
 // SetReader sets the input source for this Tokenizer.
@@ -403,8 +410,8 @@ func NewPathHierarchyTokenizerFactory(options ...PathHierarchyTokenizerFactoryOp
 	return f
 }
 
-// Create creates a new PathHierarchyTokenizer.
-func (f *PathHierarchyTokenizerFactory) Create() Tokenizer {
+// Create creates a new PathHierarchyTokenizer using the given AttributeFactory.
+func (f *PathHierarchyTokenizerFactory) Create(factory util.AttributeFactory) Tokenizer {
 	opts := []PathHierarchyTokenizerOption{
 		WithDelimiter(f.delimiter),
 		WithSkip(f.skip),
@@ -415,7 +422,7 @@ func (f *PathHierarchyTokenizerFactory) Create() Tokenizer {
 		opts = append(opts, WithReplacement(f.replacement))
 	}
 
-	return NewPathHierarchyTokenizer(opts...)
+	return NewPathHierarchyTokenizerWithFactory(factory, opts...)
 }
 
 // Ensure PathHierarchyTokenizer implements Tokenizer

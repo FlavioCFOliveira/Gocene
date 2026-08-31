@@ -8,6 +8,7 @@ package analysis
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"io"
 	"unicode"
 )
@@ -96,10 +97,11 @@ type CJKTokenizer struct {
 	length int
 }
 
-// NewCJKTokenizer creates a new CJKTokenizer.
-func NewCJKTokenizer() *CJKTokenizer {
-	t := &CJKTokenizer{}
-	t.BaseTokenizer = NewBaseTokenizer()
+// NewCJKTokenizerWithFactory creates a new CJKTokenizer using the supplied factory.
+func NewCJKTokenizerWithFactory(factory util.AttributeFactory) *CJKTokenizer {
+	t := &CJKTokenizer{
+		BaseTokenizer: NewBaseTokenizerWithFactory(factory),
+	}
 
 	// Add attributes
 	t.AddAttribute(NewCharTermAttribute())
@@ -107,6 +109,11 @@ func NewCJKTokenizer() *CJKTokenizer {
 	t.AddAttribute(tokenattributes.NewPositionIncrementAttribute())
 
 	return t
+}
+
+// NewCJKTokenizer creates a new CJKTokenizer with the default attribute factory.
+func NewCJKTokenizer() *CJKTokenizer {
+	return NewCJKTokenizerWithFactory(util.DefaultAttributeFactoryInstance)
 }
 
 // SetReader sets the input reader.
@@ -246,9 +253,9 @@ func NewCJKTokenizerFactory() *CJKTokenizerFactory {
 	return &CJKTokenizerFactory{}
 }
 
-// Create creates a new CJKTokenizer.
-func (f *CJKTokenizerFactory) Create() Tokenizer {
-	return NewCJKTokenizer()
+// Create creates a new CJKTokenizer using the given AttributeFactory.
+func (f *CJKTokenizerFactory) Create(factory util.AttributeFactory) Tokenizer {
+	return NewCJKTokenizerWithFactory(factory)
 }
 
 // Ensure CJKTokenizerFactory implements TokenizerFactory
