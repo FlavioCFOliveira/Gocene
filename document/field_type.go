@@ -6,8 +6,10 @@ package document
 
 import (
 	"fmt"
+	"io"
 	"strings"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
@@ -389,7 +391,7 @@ func (ft *FieldType) GetStoreTermVectorPayloads() bool { return ft.StoreTermVect
 // GetIndexOptions returns the indexing options.
 func (ft *FieldType) GetIndexOptions() index.IndexOptions { return ft.IndexOptions }
 
-// GetDocValuesType returns the doc-values type.
+// GetDocValuesType returns the doc values type.
 func (ft *FieldType) GetDocValuesType() index.DocValuesType { return ft.DocValuesType }
 
 // DocValuesSkipIndexType returns the doc-values skip-index type.
@@ -507,7 +509,7 @@ func (ft *FieldType) String() string {
 	}
 	if ft.DocValuesSkipIndex != index.DocValuesSkipIndexTypeNone {
 		writeSep(&b)
-		fmt.Fprintf(&b, "docValuesSkipIndexType=%s", ft.DocValuesSkipIndex.String())
+		fmt.Fprintf(&b, "docValuesSkipIndexType=%s", ft.DocValuesSkipIndexType().String())
 	}
 	return b.String()
 }
@@ -557,18 +559,15 @@ func (e *FieldTypeValidationError) Error() string {
 }
 
 // fieldTypeAsIndexInterface wraps *FieldType so that it satisfies
-// index.FieldTypeInterface.  The wrapper bridges the naming mismatch between
+// index.IndexableFieldType. The wrapper bridges the naming mismatch between
 // document.FieldType's Get-prefixed term-vector methods
 // (GetStoreTermVectors/…) and the un-prefixed names required by
-// index.FieldTypeInterface (StoreTermVectors/…).
+// index.IndexableFieldType (StoreTermVectors/…).
 type fieldTypeAsIndexInterface struct{ ft *FieldType }
 
-func (w fieldTypeAsIndexInterface) IsIndexed() bool                       { return w.ft.Indexed }
-func (w fieldTypeAsIndexInterface) IsStored() bool                        { return w.ft.Stored }
-func (w fieldTypeAsIndexInterface) IsTokenized() bool                     { return w.ft.Tokenized }
-func (w fieldTypeAsIndexInterface) GetIndexOptions() index.IndexOptions   { return w.ft.IndexOptions }
-func (w fieldTypeAsIndexInterface) GetDocValuesType() index.DocValuesType { return w.ft.DocValuesType }
-func (w fieldTypeAsIndexInterface) StoreTermVectors() bool                { return w.ft.StoreTermVectors }
+func (w fieldTypeAsIndexInterface) Stored() bool                                { return w.ft.Stored }
+func (w fieldTypeAsIndexInterface) Tokenized() bool                            { return w.ft.Tokenized }
+func (w fieldTypeAsIndexInterface) StoreTermVectors() bool                     { return w.ft.StoreTermVectors }
 func (w fieldTypeAsIndexInterface) StoreTermVectorPositions() bool {
 	return w.ft.StoreTermVectorPositions
 }
@@ -576,43 +575,25 @@ func (w fieldTypeAsIndexInterface) StoreTermVectorOffsets() bool { return w.ft.S
 func (w fieldTypeAsIndexInterface) StoreTermVectorPayloads() bool {
 	return w.ft.StoreTermVectorPayloads
 }
-
-// VectorDimension exposes the KNN vector dimension so the index-side
-// indexing chain can detect a vector field via its optional
-// vectorFieldTypeProvider probe (it returns 0 for non-vector field types).
-func (w fieldTypeAsIndexInterface) VectorDimension() int { return w.ft.VectorDimension }
-
-// VectorEncoding exposes the KNN vector encoding (BYTE / FLOAT32) for the
-// indexing chain's per-document value dispatch.
-func (w fieldTypeAsIndexInterface) VectorEncoding() index.VectorEncoding {
-	return w.ft.VectorEncoding
+func (w fieldTypeAsIndexInterface) OmitNorms() bool                            { return w.ft.OmitNorms }
+func (w fieldTypeAsIndexInterface) IndexOptions() index.IndexOptions            { return w.ft.IndexOptions }
+func (w fieldTypeAsIndexInterface) DocValuesType() index.DocValuesType           { return w.ft.DocValuesType }
+func (w fieldTypeAsIndexInterface) DocValuesSkipIndexType() index.DocValuesSkipIndexType {
+	return w.ft.DocValuesSkipIndex
 }
-
-// VectorSimilarityFunction exposes the KNN similarity function recorded on
-// the FieldInfo so the codec can score vector comparisons consistently.
+func (w fieldTypeAsIndexInterface) PointDimensionCount() int                    { return w.ft.DimensionCount }
+func (w fieldTypeAsIndexInterface) PointIndexDimensionCount() int               { return w.ft.IndexDimensionCount }
+func (w fieldTypeAsIndexInterface) PointNumBytes() int                          { return w.ft.DimensionNumBytes }
+func (w fieldTypeAsIndexInterface) VectorDimension() int                         { return w.ft.VectorDimension }
+func (w fieldTypeAsIndexInterface) VectorEncoding() index.VectorEncoding       { return w.ft.VectorEncoding }
 func (w fieldTypeAsIndexInterface) VectorSimilarityFunction() index.VectorSimilarityFunction {
 	return w.ft.VectorSimilarityFunction
 }
-
-// PointDimensionCount exposes the number of point (BKD) dimensions so the
-// indexing chain can detect a point field via its optional
-// pointFieldTypeProvider probe (it returns 0 for non-point field types).
-func (w fieldTypeAsIndexInterface) PointDimensionCount() int { return w.ft.DimensionCount }
-
-// PointIndexDimensionCount exposes the number of indexed point dimensions
-// (defaults to DimensionCount when only SetDimensions(count, numBytes) was
-// configured).
-func (w fieldTypeAsIndexInterface) PointIndexDimensionCount() int {
-	return w.ft.IndexDimensionCount
+func (w fieldTypeAsIndexInterface) GetAttributes() map[string]string {
+	return w.ft.GetAttributes()
 }
 
-// PointNumBytes exposes the number of bytes per point dimension.
-func (w fieldTypeAsIndexInterface) PointNumBytes() int { return w.ft.DimensionNumBytes }
-
-// AsIndexFieldTypeInterface returns this FieldType wrapped as an
-// index.FieldTypeInterface so that document.Field can satisfy
-// index.IndexableField without renaming any struct fields.
-func (ft *FieldType) AsIndexFieldTypeInterface() index.FieldTypeInterface {
+func (ft *FieldType) AsIndexFieldTypeInterface() index.IndexableFieldType {
 	return fieldTypeAsIndexInterface{ft: ft}
 }
 
@@ -622,18 +603,103 @@ type fieldAsIndexableField struct{ f *Field }
 func (w fieldAsIndexableField) Name() string              { return w.f.name }
 func (w fieldAsIndexableField) StringValue() string       { return w.f.StringValue() }
 func (w fieldAsIndexableField) BinaryValue() []byte       { return w.f.BinaryValue() }
+func (w fieldAsIndexableField) ReaderValue() io.Reader    { return w.f.ReaderValue() }
 func (w fieldAsIndexableField) NumericValue() interface{} { return w.f.NumericValue() }
-func (w fieldAsIndexableField) FieldType() index.FieldTypeInterface {
+func (w fieldAsIndexableField) FieldType() index.IndexableFieldType {
 	return w.f.ft.AsIndexFieldTypeInterface()
 }
+func (w fieldAsIndexableField) TokenStream(analyzer analysis.Analyzer, reuse analysis.TokenStream) analysis.TokenStream {
+	return w.f.TokenStream()
+}
+func (w fieldAsIndexableField) InvertableType() index.InvertableType {
+	if w.f.ft.Tokenized {
+		return index.InvertableTypeTokenStream
+	}
+	return index.InvertableTypeBinary
+}
+func (w fieldAsIndexableField) StoredValue() index.StoredValue {
+	return fieldStoredValue{f: w.f}
+}
 
-// AsIndexableField returns this Field wrapped as an index.IndexableField.
-// This allows document.Field to participate in index.ProcessDocument without
-// requiring a direct import of the document package from the index package.
-func (f *Field) AsIndexableField() index.IndexableField {
-	return fieldAsIndexableField{f: f}
+type fieldStoredValue struct{ f *Field }
+
+func (v fieldStoredValue) Type() index.StoredValueType {
+	switch val := v.f.value.(type) {
+	case stringValue:
+		return index.StoredValueTypeString
+	case binaryValue:
+		return index.StoredValueTypeBinary
+	case numericValue:
+		switch val.n.(type) {
+		case int32:
+			return index.StoredValueTypeInteger
+		case int64:
+			return index.StoredValueTypeLong
+		case float32:
+			return index.StoredValueTypeFloat
+		case float64:
+			return index.StoredValueTypeDouble
+		}
+	}
+	return index.StoredValueTypeBinary
+}
+
+func (v fieldStoredValue) IntValue() int32 {
+	if v.f.value == nil {
+		return 0
+	}
+	if nv, ok := v.f.value.(numericValue); ok {
+		if n, ok := nv.n.(int32); ok {
+			return n
+		}
+	}
+	return 0
+}
+
+func (v fieldStoredValue) LongValue() int64 {
+	if v.f.value == nil {
+		return 0
+	}
+	if nv, ok := v.f.value.(numericValue); ok {
+		if n, ok := nv.n.(int64); ok {
+			return n
+		}
+	}
+	return 0
+}
+
+func (v fieldStoredValue) FloatValue() float32 {
+	if v.f.value == nil {
+		return 0
+	}
+	if nv, ok := v.f.value.(numericValue); ok {
+		if n, ok := nv.n.(float32); ok {
+			return n
+		}
+	}
+	return 0
+}
+
+func (v fieldStoredValue) DoubleValue() float64 {
+	if v.f.value == nil {
+		return 0
+	}
+	if nv, ok := v.f.value.(numericValue); ok {
+		if n, ok := nv.n.(float64); ok {
+			return n
+		}
+	}
+	return 0
+}
+
+func (v fieldStoredValue) BinaryValue() []byte {
+	return v.f.BinaryValue()
+}
+
+func (v fieldStoredValue) StringValue() string {
+	return v.f.StringValue()
 }
 
 // compile-time checks
-var _ index.FieldTypeInterface = fieldTypeAsIndexInterface{}
+var _ index.IndexableFieldType = fieldTypeAsIndexInterface{}
 var _ index.IndexableField = fieldAsIndexableField{}
