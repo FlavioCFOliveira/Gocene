@@ -23,6 +23,12 @@ const (
 	VectorEncodingFloat32 = schema.VectorEncodingFloat32
 )
 
+// ByteSize returns the number of bytes required to encode a scalar in this format.
+// A vector will nominally require dimension * byteSize bytes of storage.
+func (ve VectorEncoding) ByteSize() int {
+	return int(ve)
+}
+
 const (
 	VectorSimilarityFunctionEuclidean           = schema.VectorSimilarityFunctionEuclidean
 	VectorSimilarityFunctionDotProduct          = schema.VectorSimilarityFunctionDotProduct

@@ -7,6 +7,7 @@ package analysis
 import (
 	"errors"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
@@ -113,7 +114,7 @@ type automatonTokenStream struct {
 	currentEdgeIndex int
 
 	termAttr   CharTermAttribute
-	posIncAttr PositionIncrementAttribute
+	posIncAttr tokenattributes.PositionIncrementAttribute
 	posLenAttr PositionLengthAttribute
 	offsetAttr OffsetAttribute
 }
@@ -126,15 +127,15 @@ func newAutomatonTokenStream(edges [][]autEdgeToken) *automatonTokenStream {
 	// Register the attributes the Java reference adds eagerly.
 	ts.AddAttribute(NewCharTermAttribute())
 	ts.AddAttribute(NewOffsetAttribute())
-	ts.AddAttribute(NewPositionIncrementAttribute())
+	ts.AddAttribute(tokenattributes.NewPositionIncrementAttribute())
 	ts.AddAttribute(NewPositionLengthAttribute())
 
 	src := ts.GetAttributeSource()
 	if a := src.GetAttribute(CharTermAttributeType); a != nil {
 		ts.termAttr, _ = a.(CharTermAttribute)
 	}
-	if a := src.GetAttribute(PositionIncrementAttributeType); a != nil {
-		ts.posIncAttr, _ = a.(PositionIncrementAttribute)
+	if a := src.GetAttribute(tokenattributes.PositionIncrementAttributeType); a != nil {
+		ts.posIncAttr, _ = a.(tokenattributes.PositionIncrementAttribute)
 	}
 	if a := src.GetAttribute(PositionLengthAttributeType); a != nil {
 		ts.posLenAttr, _ = a.(PositionLengthAttribute)
