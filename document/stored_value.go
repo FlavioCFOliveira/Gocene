@@ -133,54 +133,54 @@ func NewStoredValueDataInput(v *index.StoredFieldDataInput) *StoredValue {
 	return &StoredValue{kind: StoredValueTypeDataInput, dsi: v}
 }
 
-// GetType returns the discriminator describing this StoredValue's payload.
-func (s *StoredValue) GetType() StoredValueType { return s.kind }
+// Type returns the discriminator describing this StoredValue's payload.
+func (s *StoredValue) Type() StoredValueType { return s.kind }
 
-// GetIntValue returns the int32 payload. Panics if the StoredValue does
+// IntValue returns the int32 payload. Panics if the StoredValue does
 // not hold an INTEGER. Mirrors Lucene's IllegalArgumentException.
-func (s *StoredValue) GetIntValue() int32 {
+func (s *StoredValue) IntValue() int32 {
 	s.expect(StoredValueTypeInteger)
 	return s.i32
 }
 
-// GetLongValue returns the int64 payload. Panics if the StoredValue does
+// LongValue returns the int64 payload. Panics if the StoredValue does
 // not hold a LONG.
-func (s *StoredValue) GetLongValue() int64 {
+func (s *StoredValue) LongValue() int64 {
 	s.expect(StoredValueTypeLong)
 	return s.i64
 }
 
-// GetFloatValue returns the float32 payload. Panics if the StoredValue does
+// FloatValue returns the float32 payload. Panics if the StoredValue does
 // not hold a FLOAT.
-func (s *StoredValue) GetFloatValue() float32 {
+func (s *StoredValue) FloatValue() float32 {
 	s.expect(StoredValueTypeFloat)
 	return s.f32
 }
 
-// GetDoubleValue returns the float64 payload. Panics if the StoredValue does
+// DoubleValue returns the float64 payload. Panics if the StoredValue does
 // not hold a DOUBLE.
-func (s *StoredValue) GetDoubleValue() float64 {
+func (s *StoredValue) DoubleValue() float64 {
 	s.expect(StoredValueTypeDouble)
 	return s.f64
 }
 
-// GetBinaryValue returns the binary payload. Panics if the StoredValue does
+// BinaryValue returns the binary payload. Panics if the StoredValue does
 // not hold a BINARY.
-func (s *StoredValue) GetBinaryValue() []byte {
+func (s *StoredValue) BinaryValue() []byte {
 	s.expect(StoredValueTypeBinary)
 	return s.bin
 }
 
-// GetStringValue returns the string payload. Panics if the StoredValue does
+// StringValue returns the string payload. Panics if the StoredValue does
 // not hold a STRING.
-func (s *StoredValue) GetStringValue() string {
+func (s *StoredValue) StringValue() string {
 	s.expect(StoredValueTypeString)
 	return s.str
 }
 
-// GetDataInputValue returns the streamed payload. Panics if the
+// DataInputValue returns the streamed payload. Panics if the
 // StoredValue does not hold a DATA_INPUT.
-func (s *StoredValue) GetDataInputValue() *index.StoredFieldDataInput {
+func (s *StoredValue) DataInputValue() *index.StoredFieldDataInput {
 	s.expect(StoredValueTypeDataInput)
 	return s.dsi
 }

@@ -7,7 +7,9 @@ package index
 import (
 	"errors"
 	"fmt"
+	"io"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -328,6 +330,7 @@ type storedValueField struct {
 	i64     int64
 	f32     float32
 	f64     float64
+	val     StoredValue
 }
 
 // newStoredValueField builds the adapter for one stored field, copying
@@ -337,7 +340,7 @@ func newStoredValueField(info *FieldInfo, value StoredValue) (*storedValueField,
 	if info == nil {
 		return nil, errors.New("index: StoredFieldsConsumer.WriteField: FieldInfo is nil")
 	}
-	f := &storedValueField{name: info.Name(), variant: value.Type()}
+	f := &storedValueField{name: info.Name(), variant: value.Type(), val: value}
 	switch value.Type() {
 	case StoredValueTypeInteger:
 		f.i32 = value.IntValue()
@@ -378,8 +381,8 @@ func newStoredValueField(info *FieldInfo, value StoredValue) (*storedValueField,
 // Name implements IndexableField.
 func (f *storedValueField) Name() string { return f.name }
 
-// FieldType implements IndexableField with a stored-only marker type.
-func (f *storedValueField) FieldType() FieldTypeInterface { return storedValueFieldType{} }
+// FieldType implements IndexableField.
+func (f *storedValueField) FieldType() IndexableFieldType { return storedValueFieldType{} }
 
 // StringValue implements IndexableField. Returns the payload only for the
 // STRING variant; "" otherwise.
@@ -396,6 +399,14 @@ func (f *storedValueField) BinaryValue() []byte {
 	if f.variant == StoredValueTypeBinary {
 		return f.bin
 	}
+	return nil
+}
+
+// ReaderValue implements IndexableField.
+func (f *storedValueField) ReaderValue() io.Reader { return nil }
+
+// TokenStream implements IndexableField.
+func (f *storedValueField) TokenStream(analyzer analysis.Analyzer, reuse analysis.TokenStream) analysis.TokenStream {
 	return nil
 }
 
@@ -416,20 +427,34 @@ func (f *storedValueField) NumericValue() interface{} {
 	}
 }
 
-// storedValueFieldType marks the adapted field as stored-only. Every
-// indexing property is false: the adapter only ever feeds a stored-fields
+// InvertableType implements IndexableField.
+func (f *storedValueField) InvertableType() InvertableType { return InvertableTypeBinary }
+
+// StoredValue implements IndexableField.
+func (f *storedValueField) StoredValue() StoredValue { return f.val }
+
+// storedValueFieldType marks the adapted field as stored-only. Every other
+// indexing property is false because the adapter only ever feeds a stored-fields
 // writer.
 type storedValueFieldType struct{}
 
-func (storedValueFieldType) IsIndexed() bool                 { return false }
-func (storedValueFieldType) IsStored() bool                  { return true }
-func (storedValueFieldType) IsTokenized() bool               { return false }
-func (storedValueFieldType) GetIndexOptions() IndexOptions   { return IndexOptionsNone }
-func (storedValueFieldType) GetDocValuesType() DocValuesType { return DocValuesTypeNone }
-func (storedValueFieldType) StoreTermVectors() bool          { return false }
-func (storedValueFieldType) StoreTermVectorPositions() bool  { return false }
-func (storedValueFieldType) StoreTermVectorOffsets() bool    { return false }
-func (storedValueFieldType) StoreTermVectorPayloads() bool   { return false }
+func (storedValueFieldType) Stored() bool                                   { return true }
+func (storedValueFieldType) Tokenized() bool                                 { return false }
+func (storedValueFieldType) StoreTermVectors() bool                          { return false }
+func (storedValueFieldType) StoreTermVectorPositions() bool                  { return false }
+func (storedValueFieldType) StoreTermVectorOffsets() bool                    { return false }
+func (storedValueFieldType) StoreTermVectorPayloads() bool                   { return false }
+func (storedValueFieldType) OmitNorms() bool                                 { return false }
+func (storedValueFieldType) IndexOptions() IndexOptions                       { return IndexOptionsNone }
+func (storedValueFieldType) DocValuesType() DocValuesType                     { return DocValuesTypeNone }
+func (storedValueFieldType) DocValuesSkipIndexType() DocValuesSkipIndexType   { return DocValuesSkipIndexTypeNone }
+func (storedValueFieldType) PointDimensionCount() int                          { return 0 }
+func (storedValueFieldType) PointIndexDimensionCount() int                     { return 0 }
+func (storedValueFieldType) PointNumBytes() int                                { return 0 }
+func (storedValueFieldType) VectorDimension() int                              { return 0 }
+func (storedValueFieldType) VectorEncoding() VectorEncoding                    { return 0 }
+func (storedValueFieldType) VectorSimilarityFunction() VectorSimilarityFunction { return 0 }
+func (storedValueFieldType) GetAttributes() map[string]string                { return nil }
 
 // Compile-time assertion that the adapter satisfies IndexableField.
 var _ IndexableField = (*storedValueField)(nil)

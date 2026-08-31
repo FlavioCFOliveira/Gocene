@@ -132,13 +132,8 @@ type CompoundFormat = spi.CompoundFormat
 // CompoundDirectory is an alias of spi.CompoundDirectory.
 type CompoundDirectory = spi.CompoundDirectory
 
-// IndexableField is an alias of spi.IndexableField — the narrow,
-// codec-facing contract that the stored-fields write path consumes.
-//
-// The document-facing IndexableField (with the wider Lucene 10.4.0 API
-// including FieldType / ReaderValue / TokenStream) lives in package
-// document and is a structural superset of this interface.
-type IndexableField = spi.IndexableField
+// IndexableField is the full, document-facing contract for fields.
+// See index/indexable_field.go for the full definition.
 
 // SegmentWriteState is an alias of spi.SegmentWriteState. The
 // SegUpdates field carries the spi.BufferedUpdatesRef marker

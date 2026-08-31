@@ -7,7 +7,9 @@ package index
 import (
 	"errors"
 	"fmt"
+	"io"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -371,8 +373,8 @@ const (
 // Name implements IndexableField.
 func (f *copiedField) Name() string { return f.name }
 
-// FieldType implements IndexableField with a stored-only marker type.
-func (f *copiedField) FieldType() FieldTypeInterface { return copiedFieldType{} }
+// FieldType implements IndexableField.
+func (f *copiedField) FieldType() IndexableFieldType { return copiedFieldType{} }
 
 // StringValue implements IndexableField.
 func (f *copiedField) StringValue() string {
@@ -389,6 +391,9 @@ func (f *copiedField) BinaryValue() []byte {
 	}
 	return nil
 }
+
+// ReaderValue implements IndexableField.
+func (f *copiedField) ReaderValue() io.Reader { return nil }
 
 // NumericValue implements IndexableField. Returns the concrete numeric
 // type matching the visitor callback that produced the field; returns nil
@@ -408,20 +413,91 @@ func (f *copiedField) NumericValue() interface{} {
 	}
 }
 
+// InvertableType implements IndexableField.
+func (f *copiedField) InvertableType() InvertableType { return InvertableTypeBinary }
+
+// StoredValue implements IndexableField.
+func (f *copiedField) StoredValue() StoredValue { return f }
+
+// TokenStream implements IndexableField.
+func (f *copiedField) TokenStream(analyzer analysis.Analyzer, reuse analysis.TokenStream) analysis.TokenStream {
+	return nil
+}
+
+// Type implements index.StoredValue.
+func (f *copiedField) Type() StoredValueType {
+	switch f.kind {
+	case copiedString:
+		return StoredValueTypeString
+	case copiedBinary:
+		return StoredValueTypeBinary
+	case copiedInt:
+		return StoredValueTypeInteger
+	case copiedLong:
+		return StoredValueTypeLong
+	case copiedFloat:
+		return StoredValueTypeFloat
+	case copiedDouble:
+		return StoredValueTypeDouble
+	default:
+		return 0
+	}
+}
+
+// IntValue implements index.StoredValue.
+func (f *copiedField) IntValue() int32 {
+	if f.kind == copiedInt {
+		return int32(f.num)
+	}
+	return 0
+}
+
+// LongValue implements index.StoredValue.
+func (f *copiedField) LongValue() int64 {
+	if f.kind == copiedLong {
+		return f.num
+	}
+	return 0
+}
+
+// FloatValue implements index.StoredValue.
+func (f *copiedField) FloatValue() float32 {
+	if f.kind == copiedFloat {
+		return f.f32
+	}
+	return 0
+}
+
+// DoubleValue implements index.StoredValue.
+func (f *copiedField) DoubleValue() float64 {
+	if f.kind == copiedDouble {
+		return f.f64
+	}
+	return 0
+}
+
 // copiedFieldType marks the copied field as stored-only. Every other
 // indexing property is false because the copier is feeding a stored-only
 // writer.
 type copiedFieldType struct{}
 
-func (copiedFieldType) IsIndexed() bool                 { return false }
-func (copiedFieldType) IsStored() bool                  { return true }
-func (copiedFieldType) IsTokenized() bool               { return false }
-func (copiedFieldType) GetIndexOptions() IndexOptions   { return IndexOptionsNone }
-func (copiedFieldType) GetDocValuesType() DocValuesType { return DocValuesTypeNone }
-func (copiedFieldType) StoreTermVectors() bool          { return false }
-func (copiedFieldType) StoreTermVectorPositions() bool  { return false }
-func (copiedFieldType) StoreTermVectorOffsets() bool    { return false }
-func (copiedFieldType) StoreTermVectorPayloads() bool   { return false }
+func (copiedFieldType) Stored() bool                                   { return true }
+func (copiedFieldType) Tokenized() bool                                 { return false }
+func (copiedFieldType) StoreTermVectors() bool                          { return false }
+func (copiedFieldType) StoreTermVectorPositions() bool                  { return false }
+func (copiedFieldType) StoreTermVectorOffsets() bool                    { return false }
+func (copiedFieldType) StoreTermVectorPayloads() bool                   { return false }
+func (copiedFieldType) OmitNorms() bool                                 { return false }
+func (copiedFieldType) IndexOptions() IndexOptions                       { return IndexOptionsNone }
+func (copiedFieldType) DocValuesType() DocValuesType                     { return DocValuesTypeNone }
+func (copiedFieldType) DocValuesSkipIndexType() DocValuesSkipIndexType   { return DocValuesSkipIndexTypeNone }
+func (copiedFieldType) PointDimensionCount() int                          { return 0 }
+func (copiedFieldType) PointIndexDimensionCount() int                     { return 0 }
+func (copiedFieldType) PointNumBytes() int                                { return 0 }
+func (copiedFieldType) VectorDimension() int                              { return 0 }
+func (copiedFieldType) VectorEncoding() VectorEncoding                    { return 0 }
+func (copiedFieldType) VectorSimilarityFunction() VectorSimilarityFunction { return 0 }
+func (copiedFieldType) GetAttributes() map[string]string                { return nil }
 
 // trackingTmpDirectoryWrapper is the Sprint 55 stand-in for
 // org.apache.lucene.index.TrackingTmpOutputDirectoryWrapper. It records
