@@ -4,120 +4,150 @@
 
 package search
 
-import "math"
+import (
+	"fmt"
+	"math"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
+// classicSimilarityProvider implements the TF/IDF hooks for ClassicSimilarity.
+type classicSimilarityProvider struct{}
+
+func (p *classicSimilarityProvider) Tf(freq float32) float32 {
+	return float32(math.Sqrt(float64(freq)))
+}
+
+func (p *classicSimilarityProvider) Idf(docFreq, docCount int64) float32 {
+	return float32(math.Log(float64(docCount+1)/float64(docFreq+1)) + 1.0)
+}
+
+func (p *classicSimilarityProvider) LengthNorm(length int) float32 {
+	if length <= 0 {
+		return 1.0
+	}
+	return float32(1.0 / math.Sqrt(float64(length)))
+}
 
 // ClassicSimilarity implements the classic Lucene TF/IDF scoring.
-// This is the original Lucene scoring formula before BM25 was introduced.
-// It uses term frequency (TF) and inverse document frequency (IDF) with
-// document length normalization.
+// It mirrors org.apache.lucene.search.similarities.ClassicSimilarity from Lucene 10.4.0.
 type ClassicSimilarity struct {
-	*BaseSimilarity
+	*TFIDFSimilarity
 }
 
-// NewClassicSimilarity creates a new ClassicSimilarity with default parameters.
+// NewClassicSimilarity creates a new ClassicSimilarity with default parameters
+// (discountOverlaps = true).
 func NewClassicSimilarity() *ClassicSimilarity {
+	return NewClassicSimilarityWithDiscount(true)
+}
+
+// NewClassicSimilarityWithDiscount creates a new ClassicSimilarity with the
+// specified discountOverlaps setting.
+func NewClassicSimilarityWithDiscount(discountOverlaps bool) *ClassicSimilarity {
 	return &ClassicSimilarity{
-		BaseSimilarity: NewBaseSimilarity(),
+		TFIDFSimilarity: NewTFIDFSimilarity(&classicSimilarityProvider{}, discountOverlaps),
 	}
 }
 
-// ComputeNorm computes the normalization value for a field.
-// In ClassicSimilarity, norms are encoded as 1/sqrt(length).
-func (s *ClassicSimilarity) ComputeNorm(field string, stats interface{}) float32 {
-	// Simplified implementation - full implementation would use norms
-	return 1.0
-}
-
-// Tf computes the term frequency component.
-// ClassicSimilarity uses sqrt(freq) for term frequency.
-func (s *ClassicSimilarity) Tf(freq float64) float64 {
-	return math.Sqrt(freq)
-}
-
-// Idf computes the inverse document frequency.
-// Mirrors Lucene's TFIDFSimilarity: 1 + log((N + 1) / (n + 1)).
-func (s *ClassicSimilarity) Idf(totalDocs, docFreq int) float64 {
-	return 1.0 + math.Log(float64(totalDocs+1)/float64(docFreq+1))
-}
-
-// IdfExplain computes IDF with explanation.
-// Similar to Lucene's ClassicSimilarity.idfExplain method.
-func (s *ClassicSimilarity) IdfExplain(totalDocs, docFreq int) float64 {
-	return s.Idf(totalDocs, docFreq)
-}
-
-// LengthNorm computes the length normalization factor.
-// In ClassicSimilarity, this is 1/sqrt(numTerms).
-func (s *ClassicSimilarity) LengthNorm(numTerms int) float64 {
-	return 1.0 / math.Sqrt(float64(numTerms))
-}
-
-// ScoreTfIdf calculates the TF/IDF score.
-// The formula is: tf * idf * boost * lengthNorm
-func (s *ClassicSimilarity) ScoreTfIdf(freq float64, totalDocs, docFreq, numTerms int, boost float64) float64 {
-	tf := s.Tf(freq)
-	idf := s.Idf(totalDocs, docFreq)
-	lengthNorm := s.LengthNorm(numTerms)
-	return tf * idf * boost * lengthNorm
-}
-
-// Score calculates the classic TF/IDF score.
-// This is a simplified version for basic scoring.
-func (s *ClassicSimilarity) Score(freq float64, totalDocs, docFreq int) float64 {
-	tf := s.Tf(freq)
-	idf := s.Idf(totalDocs, docFreq)
-	return tf * idf
-}
-
-// QueryNorm computes the query normalization factor.
-// This normalizes query weights so that the sum of squared weights equals 1.
-func (s *ClassicSimilarity) QueryNorm(sumOfSquaredWeights float32) float32 {
-	return 1.0 / float32(math.Sqrt(float64(sumOfSquaredWeights)))
-}
-
-// Coord is the coordination factor.
-// Rewards documents that contain more query terms.
-// Returns overlap / maxOverlap.
-func (s *ClassicSimilarity) Coord(overlap, maxOverlap int) float32 {
-	return float32(overlap) / float32(maxOverlap)
-}
-
-// SloppyFreq computes the sloppy term frequency.
-// Used for phrase queries with slop (proximity matching).
-func (s *ClassicSimilarity) SloppyFreq(distance int) float64 {
-	return 1.0 / (float64(distance) + 1.0)
-}
-
-// EncodeNorm encodes a normalization value.
-// In Lucene, norms are encoded as a single byte.
-func (s *ClassicSimilarity) EncodeNorm(norm float64) byte {
-	// Lucene encodes norms as bytes (0-255 range)
-	// This is a simplified encoding
-	if norm <= 0 {
-		return 0
-	}
-	if norm >= 1 {
-		return 255
-	}
-	return byte(norm * 255)
-}
-
-// DecodeNorm decodes a normalization value.
-func (s *ClassicSimilarity) DecodeNorm(encoded byte) float64 {
-	return float64(encoded) / 255.0
-}
-
-// String returns a string representation of this similarity.
+// String returns the canonical name of this similarity.
 func (s *ClassicSimilarity) String() string {
 	return "ClassicSimilarity"
 }
 
-// ComputeWeight computes the weight for a query (implements Similarity interface).
+// ComputeWeight overrides TFIDFSimilarity.ComputeWeight to return a classicWeight.
 func (s *ClassicSimilarity) ComputeWeight(boost float32, collectionStats *CollectionStatistics, termStats *TermStatistics) SimWeight {
-	return NewClassicSimWeight(s, collectionStats, termStats, boost)
+	df := int64(termStats.DocFreq())
+	dc := int64(collectionStats.DocCount())
+	idfVal := s.provider.Idf(df, dc)
+
+	return &classicWeight{
+		sim:        s,
+		collection: collectionStats,
+		termStats:  termStats,
+		boost:      boost,
+		idf:        idfVal,
+	}
 }
 
-// Scorer creates a SimScorer for scoring documents (implements Similarity interface).
+type classicWeight struct {
+	sim        *ClassicSimilarity
+	collection *CollectionStatistics
+	termStats  *TermStatistics
+	boost      float32
+	idf        float32
+}
+
+func (w *classicWeight) GetValue() float32 {
+	return w.boost * w.idf
+}
+
+func (w *classicWeight) Normalize(norm float32) {
+	w.boost *= norm
+}
+
+func (w *classicWeight) Scorer() SimScorer {
+	return w.sim.Scorer(w.collection, w.termStats)
+}
+
+// Scorer overrides TFIDFSimilarity.Scorer to return a classicScorer with
+// Java-accurate explanations.
 func (s *ClassicSimilarity) Scorer(collectionStats *CollectionStatistics, termStats *TermStatistics) SimScorer {
-	return NewClassicSimScorer(s, collectionStats, termStats)
+	df := int64(termStats.DocFreq())
+	dc := int64(collectionStats.DocCount())
+	idfVal := s.provider.Idf(df, dc)
+
+	// Java: "idf, computed as log((docCount+1)/(docFreq+1)) + 1 from:"
+	exp := NewExplanation(true, idfVal, "idf, computed as log((docCount+1)/(docFreq+1)) + 1 from:")
+	exp.AddDetail(NewExplanation(true, float32(df), "docFreq, number of documents containing term"))
+	exp.AddDetail(NewExplanation(true, float32(dc), "docCount, total number of documents with field"))
+
+	var normTable [256]float32
+	for i := 1; i < 256; i++ {
+		normTable[i] = s.provider.LengthNorm(util.Byte4ToInt(byte(i)))
+	}
+	if normTable[255] != 0 {
+		normTable[0] = 1.0 / normTable[255]
+	} else {
+		normTable[0] = 1.0
+	}
+
+	return &classicScorer{
+		sim:         s,
+		idf:         exp,
+		boost:       1.0, // Default boost for generic scorer
+		queryWeight: idfVal,
+		normTable:   normTable,
+	}
+}
+
+type classicScorer struct {
+	sim         *ClassicSimilarity
+	idf         Explanation
+	boost       float32
+	queryWeight float32
+	normTable   [256]float32
+}
+
+func (s *classicScorer) Score(doc int, freq float32, norm int64) float32 {
+	raw := s.sim.provider.Tf(freq) * s.queryWeight
+	return raw * s.normTable[byte(norm)]
+}
+
+func (s *classicScorer) Explain(freq Explanation, norm int64) Explanation {
+	tfVal := s.sim.provider.Tf(freq.GetValue())
+	normVal := s.normTable[byte(norm)]
+	score := tfVal * s.queryWeight * normVal
+
+	exp := NewExplanation(true, score, fmt.Sprintf("score(freq=%g), product of:", freq.GetValue()))
+	if s.boost != 1.0 {
+		exp.AddDetail(NewExplanation(true, s.boost, "boost"))
+	}
+	exp.AddDetail(s.idf)
+	tfExp := NewExplanation(true, tfVal, fmt.Sprintf("tf(freq=%g), with freq of:", freq.GetValue()))
+	tfExp.AddDetail(freq)
+	exp.AddDetail(tfExp)
+	if normVal != 1.0 {
+		exp.AddDetail(NewExplanation(true, normVal, fmt.Sprintf("fieldNorm(doc=%d)", norm&0xFF)))
+	}
+	return exp
 }
