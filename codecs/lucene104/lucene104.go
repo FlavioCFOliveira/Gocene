@@ -14,10 +14,8 @@ type ForUtil struct{}
 func NewForUtil() *ForUtil { return &ForUtil{} }
 
 // Lucene104Codec mirrors org.apache.lucene.codecs.lucene104.Lucene104Codec.
-type Lucene104Codec struct{}
+// It is implemented in lucene104_codec.go.
 
-// NewLucene104Codec builds a Lucene104Codec.
-func NewLucene104Codec() *Lucene104Codec { return &Lucene104Codec{} }
 
 // Lucene104HnswScalarQuantizedVectorsFormat mirrors
 // org.apache.lucene.codecs.lucene104.Lucene104HnswScalarQuantizedVectorsFormat.
