@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // MergeSource provides access to new merges and executes the actual merge.
@@ -210,25 +211,37 @@ func (p *OneMergeProgress) CheckAborted() error {
 // PauseNanos pauses the calling goroutine for at least pauseNanos nanoseconds.
 // Returns immediately if the merge is aborted or if condition returns false.
 func (p *OneMergeProgress) PauseNanos(pauseNanos int64, reason PauseReason, condition func() bool) error {
-	start := int64(0) // would be System.nanoTime() in Java
+	start := time.Now().UnixNano()
 
 	p.pauseLock.Lock()
 	defer p.pauseLock.Unlock()
 
 	remaining := pauseNanos
 	for remaining > 0 && !p.IsAborted() && (condition == nil || condition()) {
-		// In Go, we use a different approach for waiting
-		// Convert to milliseconds for the wait
-		waitMs := remaining / 1_000_000
-		if waitMs < 1 {
-			waitMs = 1
+		// In Go, we use a combination of Sleep and Cond.Wait
+		// We sleep for the remaining time, but wake up if aborted or condition changes
+		timeout := time.Duration(remaining)
+		if timeout > 50*time.Millisecond {
+			timeout = 50 * time.Millisecond
 		}
+
+		// Use a timer to wake up the Cond.Wait or simply use a channel
+		// But for simplicity and consistency with Lucene's pause logic,
+		// we can use a helper that wakes up the cond after timeout
+		go func(t time.Duration) {
+			time.Sleep(t)
+			p.Wakeup()
+		}(timeout)
+
 		p.pauseCond.Wait()
-		remaining -= pauseNanos // This is simplified; in real implementation we'd track actual time
+
+		curNS := time.Now().UnixNano()
+		remaining -= (curNS - start)
+		start = curNS
 	}
 
-	// Update pause time
-	p.pauseTimesNS[reason] += start // Simplified
+	actualPause := time.Now().UnixNano() - start
+	p.pauseTimesNS[reason] += actualPause
 
 	if p.IsAborted() {
 		return fmt.Errorf("merge aborted")
@@ -548,70 +561,3 @@ func (t *MergeThread) SetError(err error) {
 	t.err = err
 }
 
-// MergeRateLimiter limits the rate of merge I/O.
-// This is the Go port of Lucene's MergeRateLimiter.
-type MergeRateLimiter struct {
-	// mbPerSec is the target MB per second
-	mbPerSec float64
-
-	// minPauseCheckBytes is the minimum bytes between pause checks
-	minPauseCheckBytes int64
-
-	// totalBytesWritten is the total bytes written
-	totalBytesWritten int64
-
-	// lastPauseNS is the last pause time in nanoseconds
-	lastPauseNS int64
-
-	// mu protects mutable fields
-	mu sync.Mutex
-}
-
-// NewMergeRateLimiter creates a new MergeRateLimiter.
-func NewMergeRateLimiter() *MergeRateLimiter {
-	return &MergeRateLimiter{
-		mbPerSec:           float64(20.0), // Default: 20 MB/s
-		minPauseCheckBytes: 100 * 1024,    // Check every 100KB
-	}
-}
-
-// SetMBPerSec sets the target rate in MB per second.
-func (r *MergeRateLimiter) SetMBPerSec(mbPerSec float64) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.mbPerSec = mbPerSec
-}
-
-// GetMBPerSec returns the target rate in MB per second.
-func (r *MergeRateLimiter) GetMBPerSec() float64 {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.mbPerSec
-}
-
-// Pause pauses if necessary to maintain the target rate.
-// This is a simplified implementation.
-func (r *MergeRateLimiter) Pause(bytesWritten int64, progress *OneMergeProgress) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.totalBytesWritten += bytesWritten
-
-	// If rate is 0 or negative, don't throttle
-	if r.mbPerSec <= 0 {
-		return nil
-	}
-
-	// Check if we need to pause
-	// This is a simplified implementation; real rate limiting would track time
-	// and pause based on bytes written vs time elapsed
-
-	return nil
-}
-
-// TotalBytesWritten returns the total bytes written.
-func (r *MergeRateLimiter) TotalBytesWritten() int64 {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.totalBytesWritten
-}
