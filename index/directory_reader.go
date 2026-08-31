@@ -1654,7 +1654,7 @@ func (r *DirectoryReader) Leaves() ([]*LeafReaderContext, error) {
 	if err != nil {
 		return nil, err
 	}
-	return ctx.(*CompositeReaderContext).Leaves(), nil
+	return ctx.(*CompositeReaderContext).Leaves()
 }
 
 // buildDirectoryReaderContext builds the context hierarchy for a DirectoryReader.

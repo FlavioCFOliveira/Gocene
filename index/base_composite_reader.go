@@ -170,7 +170,7 @@ func (r *BaseCompositeReader) Leaves() ([]*LeafReaderContext, error) {
 	if !ok {
 		return nil, fmt.Errorf("context is not a CompositeReaderContext")
 	}
-	return compCtx.Leaves(), nil
+	return compCtx.Leaves()
 }
 
 // NumDocs returns the number of live documents.
