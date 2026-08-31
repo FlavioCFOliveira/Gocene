@@ -20,6 +20,8 @@
 package lucene104
 
 import (
+	"fmt"
+
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -27,7 +29,7 @@ import (
 // PostingsUtil provides utility functions to encode and decode postings blocks
 // for the Lucene 10.4.0 codec.
 //
-// Ports org.apache.lucene.codecs.lucene104.PostingsUtil from Lucene 10.5.0.
+// Ports org.apache.lucene.codecs.lucene104.PostingsUtil from Lucene 10.4.0.
 type PostingsUtil struct{}
 
 // ReadVIntBlock reads values that have been written using variable-length encoding and
@@ -47,11 +49,15 @@ func (p PostingsUtil) ReadVIntBlock(
 	}
 
 	if indexHasFreq && decodeFreq {
+		vlin, ok := docIn.(store.VariableLengthInput)
+		if !ok {
+			return fmt.Errorf("lucene104 postings: %T does not implement store.VariableLengthInput", docIn)
+		}
 		for i := 0; i < num; i++ {
 			freqBuffer[i] = docBuffer[i] & 0x01
-			docBuffer[i] >>= 1
+			docBuffer[i] = int32(uint32(docBuffer[i]) >> 1)
 			if freqBuffer[i] == 0 {
-				v, err := docIn.ReadVInt()
+				v, err := vlin.ReadVInt()
 				if err != nil {
 					return err
 				}
@@ -60,7 +66,7 @@ func (p PostingsUtil) ReadVIntBlock(
 		}
 	} else if indexHasFreq {
 		for i := 0; i < num; i++ {
-			docBuffer[i] >>= 1
+			docBuffer[i] = int32(uint32(docBuffer[i]) >> 1)
 		}
 	}
 
@@ -95,10 +101,14 @@ func (p PostingsUtil) WriteVIntBlock(
 	}
 
 	if writeFreqs {
+		vlout, ok := docOut.(store.VariableLengthOutput)
+		if !ok {
+			return fmt.Errorf("lucene104 postings: %T does not implement store.VariableLengthOutput", docOut)
+		}
 		for i := 0; i < num; i++ {
 			freq := freqBuffer[i]
 			if freq != 1 {
-				if err := docOut.WriteVInt(freq); err != nil {
+				if err := vlout.WriteVInt(freq); err != nil {
 					return err
 				}
 			}
