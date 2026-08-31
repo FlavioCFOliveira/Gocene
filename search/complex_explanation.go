@@ -65,9 +65,11 @@ func (e *ComplexExplanation) AddDetail(detail *ComplexExplanation) {
 }
 
 // GetDetails returns all sub-explanations.
-func (e *ComplexExplanation) GetDetails() []*ComplexExplanation {
-	result := make([]*ComplexExplanation, len(e.Details))
-	copy(result, e.Details)
+func (e *ComplexExplanation) GetDetails() []Explanation {
+	result := make([]Explanation, len(e.Details))
+	for i, detail := range e.Details {
+		result[i] = detail
+	}
 	return result
 }
 
@@ -227,7 +229,10 @@ func (f *ExplanationFormatter) Format(explanation *ComplexExplanation) string {
 }
 
 // formatWithDepth formats an explanation with a specific depth.
-func (f *ExplanationFormatter) formatWithDepth(explanation *ComplexExplanation, depth int) string {
+func (f *ExplanationFormatter) formatWithDepth(explanation Explanation, depth int) string {
+	if explanation == nil {
+		return ""
+	}
 	if f.MaxDepth >= 0 && depth > f.MaxDepth {
 		return ""
 	}

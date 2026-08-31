@@ -135,7 +135,7 @@ func (aq *AutomatonQuery) GetRewriteMethod() string {
 func (aq *AutomatonQuery) Rewrite(reader IndexReader) (Query, error) {
 	// Check if automaton is empty (matches nothing)
 	if aq.compiledAutomaton.TypeName() == "NONE" {
-		return NewMatchNoDocsQuery(), nil
+		return NewMatchNoDocsQuery("MatchNoDocsQuery"), nil
 	}
 
 	// An "ALL" automaton (e.g. a lone "*" wildcard) accepts every term, so we
@@ -259,7 +259,7 @@ func (aq *AutomatonQuery) rewriteScoringBoolean(matched [][]byte) (Query, error)
 	}
 	bq := aq.matchedTermsToBoolean(matched)
 	if bq == nil {
-		return NewMatchNoDocsQuery(), nil
+		return NewMatchNoDocsQuery("MatchNoDocsQuery"), nil
 	}
 	return bq, nil
 }
@@ -269,7 +269,7 @@ func (aq *AutomatonQuery) rewriteConstantScore(matched [][]byte) (Query, error) 
 	if matched != nil {
 		bq := aq.matchedTermsToBoolean(matched)
 		if bq == nil {
-			return NewMatchNoDocsQuery(), nil
+			return NewMatchNoDocsQuery("MatchNoDocsQuery"), nil
 		}
 		return NewConstantScoreQuery(bq), nil
 	}
@@ -292,7 +292,7 @@ func (aq *AutomatonQuery) rewriteConstantScoreBoolean(matched [][]byte) (Query, 
 	}
 	bq := aq.matchedTermsToBoolean(matched)
 	if bq == nil {
-		return NewMatchNoDocsQuery(), nil
+		return NewMatchNoDocsQuery("MatchNoDocsQuery"), nil
 	}
 	return NewConstantScoreQuery(bq), nil
 }

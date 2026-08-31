@@ -165,7 +165,7 @@ func (q *BaseKnnVectorQuery) Rewrite(reader IndexReader) (Query, error) {
 	// return MatchNoDocsQuery gracefully rather than panicking.
 	ir, ok := reader.(index.IndexReaderInterface)
 	if !ok {
-		return NewMatchNoDocsQuery(), nil
+		return NewMatchNoDocsQuery("MatchNoDocsQuery"), nil
 	}
 
 	var filterWeight Weight
@@ -175,7 +175,7 @@ func (q *BaseKnnVectorQuery) Rewrite(reader IndexReader) (Query, error) {
 			return nil, err
 		}
 		if _, ok := rewrittenFilter.(*MatchNoDocsQuery); ok {
-			return NewMatchNoDocsQuery(), nil
+			return NewMatchNoDocsQuery("MatchNoDocsQuery"), nil
 		}
 		if _, ok := rewrittenFilter.(*MatchAllDocsQuery); !ok {
 			// Build a filter BooleanQuery: filter AND field_exists.
@@ -187,7 +187,7 @@ func (q *BaseKnnVectorQuery) Rewrite(reader IndexReader) (Query, error) {
 				return nil, err
 			}
 			if _, ok := rewritten.(*MatchNoDocsQuery); ok {
-				return NewMatchNoDocsQuery(), nil
+				return NewMatchNoDocsQuery("MatchNoDocsQuery"), nil
 			}
 			// CreateWeight with nil searcher — the weight is only used for
 			// obtaining a per-leaf Scorer. Callers that need scoring must
@@ -227,7 +227,7 @@ func (q *BaseKnnVectorQuery) Rewrite(reader IndexReader) (Query, error) {
 		// No leaves produced any results (e.g. an empty index). Mirrors the
 		// Java reference, where TopDocs.merge over an empty leaf set yields an
 		// empty TopDocs that rewrites to MatchNoDocsQuery.
-		return NewMatchNoDocsQuery(), nil
+		return NewMatchNoDocsQuery("MatchNoDocsQuery"), nil
 	}
 
 	// Phase-2 optimistic re-entry when eligible.
@@ -268,7 +268,7 @@ func (q *BaseKnnVectorQuery) Rewrite(reader IndexReader) (Query, error) {
 	}
 
 	if len(topK.ScoreDocs) == 0 {
-		return NewMatchNoDocsQuery(), nil
+		return NewMatchNoDocsQuery("MatchNoDocsQuery"), nil
 	}
 	return newDocAndScoreQueryFromTopDocs(topK, leaves), nil
 }

@@ -95,7 +95,7 @@ type DFRSimWeight struct {
 
 // NewDFRSimWeight creates a new DFRSimWeight.
 func NewDFRSimWeight(sim *DFRSimilarity, collectionStats *CollectionStatistics, termStats *TermStatistics, boost float32) *DFRSimWeight {
-	stats := NewLuceneBasicStats("", boost)
+	stats := NewLuceneBasicStats("", float64(boost))
 	if collectionStats != nil {
 		stats.SetNumberOfDocuments(int64(collectionStats.DocCount()))
 		stats.SetNumberOfFieldTokens(collectionStats.SumTotalTermFreq())

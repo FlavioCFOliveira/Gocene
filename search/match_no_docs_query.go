@@ -1,0 +1,84 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
+package search
+
+import (
+	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+)
+
+// MatchNoDocsQuery is a query that matches no documents.
+type MatchNoDocsQuery struct {
+	BaseQuery
+	reason string
+}
+
+// MatchNoDocsQueryInstance is a singleton instance with a blank reason.
+var MatchNoDocsQueryInstance = NewMatchNoDocsQuery("")
+
+// NewMatchNoDocsQuery creates a new MatchNoDocsQuery.
+// Provides a reason explaining why this query was used.
+//
+// NOTE: All instances of this class are equal, even if they were constructed with distinct
+// reasons.
+func NewMatchNoDocsQuery(reason string) *MatchNoDocsQuery {
+	return &MatchNoDocsQuery{
+		reason: reason,
+	}
+}
+
+// NewMatchNoDocsQueryWithReason creates a new MatchNoDocsQuery with a reason.
+// This is an alias for NewMatchNoDocsQuery.
+func NewMatchNoDocsQueryWithReason(reason string) *MatchNoDocsQuery {
+	return NewMatchNoDocsQuery(reason)
+}
+
+func (q *MatchNoDocsQuery) Equals(other Query) bool {
+	_, ok := other.(*MatchNoDocsQuery)
+	return ok
+}
+
+func (q *MatchNoDocsQuery) HashCode() int {
+	// Return a constant hash code for this class, mirroring Java's classHash().
+	return 12345
+}
+
+func (q *MatchNoDocsQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+	return &matchNoDocsWeight{
+		BaseWeight: NewBaseWeight(q),
+	}, nil
+}
+
+func (q *MatchNoDocsQuery) String() string {
+	return fmt.Sprintf("MatchNoDocsQuery(%q)", q.reason)
+}
+
+type matchNoDocsWeight struct {
+	*BaseWeight
+}
+
+func (w *matchNoDocsWeight) Explain(context *index.LeafReaderContext, doc int) (Explanation, error) {
+	q := w.GetQuery().(*MatchNoDocsQuery)
+	return NoMatchExplanation(q.reason), nil
+}
+
+func (w *matchNoDocsWeight) ScorerSupplier(context *index.LeafReaderContext) (ScorerSupplier, error) {
+	return nil, nil
+}
+
+func (w *matchNoDocsWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
+	return true
+}
+
+func (w *matchNoDocsWeight) Count(context *index.LeafReaderContext) (int, error) {
+	return 0, nil
+}
+
+// Ensure MatchNoDocsQuery implements Query.
+var _ Query = (*MatchNoDocsQuery)(nil)
+
+// Ensure matchNoDocsWeight implements Weight.
+var _ Weight = (*matchNoDocsWeight)(nil)
