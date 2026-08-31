@@ -60,6 +60,10 @@ type QuantizedByteVectorValues interface {
 	// abstract `getScoreCorrectionConstant(int ord)`.
 	GetScoreCorrectionConstant(ord int) (float32, error)
 
+	// GetCentroidDP returns the centroid square magnitude.
+	// Mirrors Java's `getCentroidDP()`.
+	GetCentroidDP() float32
+
 	// Scorer returns a [VectorScorer] for the supplied float32 query,
 	// or an error wrapping [ErrUnsupportedOperation] when scoring is
 	// not implemented. The returned scorer may be nil when scoring is

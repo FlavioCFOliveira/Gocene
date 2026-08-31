@@ -262,6 +262,14 @@ func newOffHeapScalarQuantizedFloatVectorValues(
 	}
 }
 
+func (v *OffHeapScalarQuantizedFloatVectorValues) GetCentroidDP() float32 {
+	var dp float32
+	for _, x := range v.centroid {
+		dp += x * x
+	}
+	return dp
+}
+
 // Dimension returns the dimension of every vector stored.
 func (v *OffHeapScalarQuantizedFloatVectorValues) Dimension() int { return v.dimension }
 
