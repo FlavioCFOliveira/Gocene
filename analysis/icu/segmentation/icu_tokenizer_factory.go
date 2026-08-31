@@ -4,7 +4,10 @@
 
 package segmentation
 
-import "github.com/FlavioCFOliveira/Gocene/analysis"
+import (
+	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
 
 // ICUTokenizerFactory creates ICUTokenizer instances.
 //
@@ -41,8 +44,8 @@ func NewICUTokenizerFactoryWithConfig(config ICUTokenizerConfig) *ICUTokenizerFa
 }
 
 // Create creates a new ICUTokenizer.
-func (f *ICUTokenizerFactory) Create() analysis.Tokenizer {
-	return NewICUTokenizerWith(f.config)
+func (f *ICUTokenizerFactory) Create(factory util.AttributeFactory) analysis.Tokenizer {
+	return NewICUTokenizerWith(factory, f.config)
 }
 
 // Ensure ICUTokenizerFactory implements TokenizerFactory.

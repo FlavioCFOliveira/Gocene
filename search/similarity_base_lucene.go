@@ -50,16 +50,16 @@ type LuceneSubExplainFunc func(stats *LuceneBasicStats, freq, docLen float64) []
 // "DFRSimilarity"). Required to mirror the explain string format.
 type LuceneToStringFunc func() string
 
-// LuceneSimilarityBase mirrors org.apache.lucene.search.similarities.SimilarityBase
+// SimilarityBase mirrors org.apache.lucene.search.similarities.SimilarityBase
 // from Lucene 10.4.0. It supplies the shared `scorer()` plumbing, length
 // table, and basic-stats wiring; the concrete scoring kernel is provided
 // by the caller via LuceneScoreFunc.
 //
 // Composition over inheritance: instead of subclassing, callers embed a
-// *LuceneSimilarityBase and configure score/subExplain/toString function
+// *SimilarityBase and configure score/subExplain/toString function
 // values. This keeps the canonical surface (Scorer104, ComputeNormFromInvertState,
 // GetDiscountOverlaps) on a single struct without dragging Java's vtable.
-type LuceneSimilarityBase struct {
+type SimilarityBase struct {
 	discountOverlaps bool
 
 	score      LuceneScoreFunc
@@ -72,17 +72,17 @@ type LuceneSimilarityBase struct {
 	fillExtra func(stats *LuceneBasicStats, collectionStats *CollectionStatistics, termStats *TermStatistics)
 }
 
-// NewLuceneSimilarityBase constructs a LuceneSimilarityBase with the given
+// NewSimilarityBase constructs a SimilarityBase with the given
 // scoring kernel, optional sub-explain hook, and string name. discountOverlaps
 // defaults to true to match the no-arg Java constructor.
 //
 // score must be non-nil. subExplain may be nil (no extra details). toString
 // may be nil; the explain string then falls back to "SimilarityBase".
-func NewLuceneSimilarityBase(score LuceneScoreFunc, subExplain LuceneSubExplainFunc, toString LuceneToStringFunc) *LuceneSimilarityBase {
+func NewSimilarityBase(score LuceneScoreFunc, subExplain LuceneSubExplainFunc, toString LuceneToStringFunc) *SimilarityBase {
 	if score == nil {
-		panic("LuceneSimilarityBase: score function must not be nil")
+		panic("SimilarityBase: score function must not be nil")
 	}
-	return &LuceneSimilarityBase{
+	return &SimilarityBase{
 		discountOverlaps: true,
 		score:            score,
 		subExplain:       subExplain,
@@ -90,26 +90,26 @@ func NewLuceneSimilarityBase(score LuceneScoreFunc, subExplain LuceneSubExplainF
 	}
 }
 
-// NewLuceneSimilarityBaseWithDiscount mirrors the expert Java constructor
+// NewSimilarityBaseWithDiscount mirrors the expert Java constructor
 // that accepts the discountOverlaps flag.
-func NewLuceneSimilarityBaseWithDiscount(discountOverlaps bool, score LuceneScoreFunc, subExplain LuceneSubExplainFunc, toString LuceneToStringFunc) *LuceneSimilarityBase {
-	b := NewLuceneSimilarityBase(score, subExplain, toString)
+func NewSimilarityBaseWithDiscount(discountOverlaps bool, score LuceneScoreFunc, subExplain LuceneSubExplainFunc, toString LuceneToStringFunc) *SimilarityBase {
+	b := NewSimilarityBase(score, subExplain, toString)
 	b.discountOverlaps = discountOverlaps
 	return b
 }
 
-// GetDiscountOverlaps satisfies LuceneSimilarity.
-func (b *LuceneSimilarityBase) GetDiscountOverlaps() bool { return b.discountOverlaps }
+// GetDiscountOverlaps satisfies Similarity.
+func (b *SimilarityBase) GetDiscountOverlaps() bool { return b.discountOverlaps }
 
-// ComputeNormFromInvertState satisfies LuceneSimilarity.
-func (b *LuceneSimilarityBase) ComputeNormFromInvertState(state *index.FieldInvertState) int64 {
+// ComputeNormFromInvertState satisfies Similarity.
+func (b *SimilarityBase) ComputeNormFromInvertState(state *index.FieldInvertState) int64 {
 	return DefaultComputeNormFromInvertState(state, b.discountOverlaps)
 }
 
 // NewStats mirrors SimilarityBase.newStats — the per-term BasicStats
 // factory. Overrideable subclasses are extremely rare in Java; callers in
 // Go simply build their own stats instead of overriding.
-func (b *LuceneSimilarityBase) NewStats(field string, boost float64) *LuceneBasicStats {
+func (b *SimilarityBase) NewStats(field string, boost float64) *LuceneBasicStats {
 	return NewLuceneBasicStats(field, boost)
 }
 
@@ -122,7 +122,7 @@ func (b *LuceneSimilarityBase) NewStats(field string, boost float64) *LuceneBasi
 // Subclass-installed fillExtra hooks (e.g. LMSimilarity) run after the
 // base population so they can use the freshly-set fields when computing
 // auxiliary values like the collection probability.
-func (b *LuceneSimilarityBase) FillBasicStats(stats *LuceneBasicStats, collectionStats *CollectionStatistics, termStats *TermStatistics) {
+func (b *SimilarityBase) FillBasicStats(stats *LuceneBasicStats, collectionStats *CollectionStatistics, termStats *TermStatistics) {
 	if stats == nil || collectionStats == nil || termStats == nil {
 		return
 	}
@@ -143,7 +143,7 @@ func (b *LuceneSimilarityBase) FillBasicStats(stats *LuceneBasicStats, collectio
 // SetFillExtra installs (or clears, when nil) the subclass hook invoked at
 // the end of FillBasicStats. Intended for LMSimilarity and similar
 // subclasses that need to populate auxiliary fields.
-func (b *LuceneSimilarityBase) SetFillExtra(hook func(stats *LuceneBasicStats, collectionStats *CollectionStatistics, termStats *TermStatistics)) {
+func (b *SimilarityBase) SetFillExtra(hook func(stats *LuceneBasicStats, collectionStats *CollectionStatistics, termStats *TermStatistics)) {
 	b.fillExtra = hook
 }
 
@@ -151,13 +151,13 @@ func (b *LuceneSimilarityBase) SetFillExtra(hook func(stats *LuceneBasicStats, c
 // TermStatistics and either returns it directly (single-term query) or
 // wraps the slice in a MultiSimScorerLucene (mirroring
 // MultiSimilarity.MultiSimScorer for the multi-term path).
-func (b *LuceneSimilarityBase) Scorer104(boost float32, collectionStats *CollectionStatistics, termStats ...*TermStatistics) LuceneSimScorer {
+func (b *SimilarityBase) Scorer104(boost float32, collectionStats *CollectionStatistics, termStats ...*TermStatistics) SimScorer {
 	if len(termStats) == 0 {
 		// Degenerate input — Lucene never produces it, but we must not
 		// panic. Returning a zero-scoring stub keeps callers safe.
-		return &noopLuceneSimScorer{}
+		return &noopSimScorer{}
 	}
-	scorers := make([]LuceneSimScorer, len(termStats))
+	scorers := make([]SimScorer, len(termStats))
 	for i, ts := range termStats {
 		stats := b.NewStats(collectionStats.Field(), float64(boost))
 		b.FillBasicStats(stats, collectionStats, ts)
@@ -176,7 +176,7 @@ func (b *LuceneSimilarityBase) Scorer104(boost float32, collectionStats *Collect
 // This is the protected explain(BasicStats, Explanation, double) method
 // from Java; we expose it for callers that need raw access (e.g. the
 // per-term BasicSimScorer).
-func (b *LuceneSimilarityBase) Explain104(stats *LuceneBasicStats, freq Explanation, docLen float64) Explanation {
+func (b *SimilarityBase) Explain104(stats *LuceneBasicStats, freq Explanation, docLen float64) Explanation {
 	subs := []Explanation{}
 	if b.subExplain != nil {
 		subs = b.subExplain(stats, float64(freq.GetValue()), docLen)
@@ -197,12 +197,12 @@ func (b *LuceneSimilarityBase) Explain104(stats *LuceneBasicStats, freq Explanat
 // Score104 evaluates the configured score kernel for a single (freq, norm)
 // pair. norm is decoded into a document length through the cached length
 // table — the hot path is therefore one table lookup plus the kernel call.
-func (b *LuceneSimilarityBase) Score104(stats *LuceneBasicStats, freq float32, norm int64) float32 {
+func (b *SimilarityBase) Score104(stats *LuceneBasicStats, freq float32, norm int64) float32 {
 	return float32(b.score(stats, float64(freq), basicSimScorerLength(norm)))
 }
 
 // String returns the configured name, mirroring SimilarityBase.toString.
-func (b *LuceneSimilarityBase) String() string {
+func (b *SimilarityBase) String() string {
 	if b.toString != nil {
 		return b.toString()
 	}
@@ -215,18 +215,18 @@ func basicSimScorerLength(norm int64) float64 {
 	return float64(luceneSimLengthTable[byte(norm)])
 }
 
-// basicSimScorerLucene is the per-term LuceneSimScorer returned by
-// LuceneSimilarityBase.Scorer104. It mirrors SimilarityBase.BasicSimScorer.
+// basicSimScorerLucene is the per-term SimScorer returned by
+// SimilarityBase.Scorer104. It mirrors SimilarityBase.BasicSimScorer.
 type basicSimScorerLucene struct {
-	parent *LuceneSimilarityBase
+	parent *SimilarityBase
 	stats  *LuceneBasicStats
 }
 
-func newBasicSimScorerLucene(parent *LuceneSimilarityBase, stats *LuceneBasicStats) *basicSimScorerLucene {
+func newBasicSimScorerLucene(parent *SimilarityBase, stats *LuceneBasicStats) *basicSimScorerLucene {
 	return &basicSimScorerLucene{parent: parent, stats: stats}
 }
 
-// Score104 delegates to LuceneSimilarityBase.Score104 with the configured
+// Score104 delegates to SimilarityBase.Score104 with the configured
 // per-term stats.
 func (s *basicSimScorerLucene) Score104(freq float32, norm int64) float32 {
 	return s.parent.Score104(s.stats, freq, norm)
@@ -237,21 +237,21 @@ func (s *basicSimScorerLucene) AsBulkSimScorer() BulkSimScorer {
 	return NewDefaultBulkSimScorer(s)
 }
 
-// Explain104 delegates to LuceneSimilarityBase.Explain104 after decoding
+// Explain104 delegates to SimilarityBase.Explain104 after decoding
 // the document length from the norm byte.
 func (s *basicSimScorerLucene) Explain104(freq Explanation, norm int64) Explanation {
 	return s.parent.Explain104(s.stats, freq, basicSimScorerLength(norm))
 }
 
-// noopLuceneSimScorer scores every document as zero. Used as a defensive
+// noopSimScorer scores every document as zero. Used as a defensive
 // fallback for empty termStats slices.
-type noopLuceneSimScorer struct{}
+type noopSimScorer struct{}
 
-func (noopLuceneSimScorer) Score104(float32, int64) float32 { return 0 }
-func (n noopLuceneSimScorer) AsBulkSimScorer() BulkSimScorer {
+func (noopSimScorer) Score104(float32, int64) float32 { return 0 }
+func (n noopSimScorer) AsBulkSimScorer() BulkSimScorer {
 	return NewDefaultBulkSimScorer(n)
 }
-func (noopLuceneSimScorer) Explain104(freq Explanation, _ int64) Explanation {
+func (noopSimScorer) Explain104(freq Explanation, _ int64) Explanation {
 	return NewExplanation(false, 0, "no matching term")
 }
 
@@ -261,10 +261,10 @@ func (noopLuceneSimScorer) Explain104(freq Explanation, _ int64) Explanation {
 // MultiSimilarity is itself ported by task #760; the type lives here so
 // SimilarityBase can return it without a forward-dep on multi_similarity.go.
 type multiSimScorerLucene struct {
-	scorers []LuceneSimScorer
+	scorers []SimScorer
 }
 
-func newMultiSimScorerLucene(scorers []LuceneSimScorer) *multiSimScorerLucene {
+func newMultiSimScorerLucene(scorers []SimScorer) *multiSimScorerLucene {
 	return &multiSimScorerLucene{scorers: scorers}
 }
 
@@ -291,8 +291,8 @@ func (m *multiSimScorerLucene) Explain104(freq Explanation, norm int64) Explanat
 
 // Compile-time guarantees.
 var (
-	_ LuceneSimilarity = (*LuceneSimilarityBase)(nil)
-	_ LuceneSimScorer  = (*basicSimScorerLucene)(nil)
-	_ LuceneSimScorer  = (*multiSimScorerLucene)(nil)
-	_ LuceneSimScorer  = (*noopLuceneSimScorer)(nil)
+	_ Similarity = (*SimilarityBase)(nil)
+	_ SimScorer  = (*basicSimScorerLucene)(nil)
+	_ SimScorer  = (*multiSimScorerLucene)(nil)
+	_ SimScorer  = (*noopSimScorer)(nil)
 )

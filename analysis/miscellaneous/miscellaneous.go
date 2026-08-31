@@ -6,6 +6,7 @@
 package miscellaneous
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"errors"
 	"strings"
 
@@ -34,7 +35,7 @@ type ConcatenatingTokenStream struct {
 	initialPosInc int
 
 	offsetAttr  analysis.OffsetAttribute
-	posIncrAttr analysis.PositionIncrementAttribute
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 }
 
 // NewConcatenatingTokenStream creates a ConcatenatingTokenStream from the given sources.
@@ -50,14 +51,14 @@ func NewConcatenatingTokenStream(sources ...analysis.TokenStream) *Concatenating
 	}
 	// Initialise offset and position attributes on our own attribute source.
 	offImpl := analysis.NewOffsetAttribute()
-	posImpl := analysis.NewPositionIncrementAttributeImpl()
+	posImpl := tokenattributes.NewPositionIncrementAttribute()
 	ts.GetAttributeSource().AddAttributeImpl(offImpl)
 	ts.GetAttributeSource().AddAttributeImpl(posImpl)
 	if a := ts.GetAttributeSource().GetAttribute(analysis.OffsetAttributeType); a != nil {
 		ts.offsetAttr = a.(analysis.OffsetAttribute)
 	}
-	if a := ts.GetAttributeSource().GetAttribute(analysis.PositionIncrementAttributeType); a != nil {
-		ts.posIncrAttr = a.(analysis.PositionIncrementAttribute)
+	if a := ts.GetAttributeSource().GetAttribute(tokenattributes.PositionIncrementAttributeType); a != nil {
+		ts.posIncrAttr = a.(tokenattributes.PositionIncrementAttribute)
 	}
 	return ts
 }
@@ -154,7 +155,7 @@ type ConcatenateGraphFilter struct {
 
 	termAttr    analysis.CharTermAttribute
 	offsetAttr  analysis.OffsetAttribute
-	posIncrAttr analysis.PositionIncrementAttribute
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 
 	tokens   []string
 	tokenIdx int
@@ -183,8 +184,8 @@ func NewConcatenateGraphFilterFull(input analysis.TokenStream, tokenSeparator ru
 		if a := src.GetAttribute(analysis.OffsetAttributeType); a != nil {
 			f.offsetAttr = a.(analysis.OffsetAttribute)
 		}
-		if a := src.GetAttribute(analysis.PositionIncrementAttributeType); a != nil {
-			f.posIncrAttr = a.(analysis.PositionIncrementAttribute)
+		if a := src.GetAttribute(tokenattributes.PositionIncrementAttributeType); a != nil {
+			f.posIncrAttr = a.(tokenattributes.PositionIncrementAttribute)
 		}
 	}
 	return f

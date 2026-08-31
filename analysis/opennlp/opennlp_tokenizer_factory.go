@@ -7,6 +7,7 @@ package opennlp
 import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis/opennlp/tools"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // SPINameOpenNLP is the SPI name for OpenNLPTokenizerFactory.
@@ -40,10 +41,10 @@ func NewOpenNLPTokenizerFactory(sentenceModelName, tokenizerModelName string) *O
 }
 
 // Create creates a new OpenNLPTokenizer.
-func (f *OpenNLPTokenizerFactory) Create() analysis.Tokenizer {
+func (f *OpenNLPTokenizerFactory) Create(factory util.AttributeFactory) analysis.Tokenizer {
 	sentenceOp := tools.GetSentenceDetector(f.SentenceModelName)
 	tokenizerOp := tools.GetTokenizer(f.TokenizerModelName)
-	tok, err := NewOpenNLPTokenizer(sentenceOp, tokenizerOp)
+	tok, err := NewOpenNLPTokenizer(factory, sentenceOp, tokenizerOp)
 	if err != nil {
 		panic("OpenNLPTokenizerFactory.Create: " + err.Error())
 	}

@@ -87,10 +87,10 @@ func NewLuceneTFIDFSimilarityWithDiscount(discountOverlaps bool, tf LuceneTFIDFT
 	return s
 }
 
-// GetDiscountOverlaps satisfies LuceneSimilarity.
+// GetDiscountOverlaps satisfies Similarity.
 func (s *LuceneTFIDFSimilarity) GetDiscountOverlaps() bool { return s.discountOverlaps }
 
-// ComputeNormFromInvertState satisfies LuceneSimilarity.
+// ComputeNormFromInvertState satisfies Similarity.
 func (s *LuceneTFIDFSimilarity) ComputeNormFromInvertState(state *index.FieldInvertState) int64 {
 	return DefaultComputeNormFromInvertState(state, s.discountOverlaps)
 }
@@ -131,7 +131,7 @@ func (s *LuceneTFIDFSimilarity) IdfExplainPhrase(collectionStats *CollectionStat
 // Scorer104 mirrors TFIDFSimilarity.scorer. It pre-builds the
 // 256-entry normTable using lengthNorm(LENGTH_TABLE[i]) and wires the
 // resulting TFIDFScorer.
-func (s *LuceneTFIDFSimilarity) Scorer104(boost float32, collectionStats *CollectionStatistics, termStats ...*TermStatistics) LuceneSimScorer {
+func (s *LuceneTFIDFSimilarity) Scorer104(boost float32, collectionStats *CollectionStatistics, termStats ...*TermStatistics) SimScorer {
 	var idf Explanation
 	switch len(termStats) {
 	case 0:
@@ -233,6 +233,6 @@ func DefaultTFIDFLog(x float64) float32 {
 
 // Compile-time guarantees.
 var (
-	_ LuceneSimilarity = (*LuceneTFIDFSimilarity)(nil)
-	_ LuceneSimScorer  = (*luceneTFIDFScorer)(nil)
+	_ Similarity = (*LuceneTFIDFSimilarity)(nil)
+	_ SimScorer  = (*luceneTFIDFScorer)(nil)
 )

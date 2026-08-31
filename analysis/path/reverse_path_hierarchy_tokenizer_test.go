@@ -5,6 +5,7 @@
 package path_test
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"strings"
 	"testing"
 
@@ -32,7 +33,7 @@ func tokenizeReverse(t *testing.T, tok *path.ReversePathHierarchyTokenizer, inpu
 		}
 		term := attrSrc.GetAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute).String()
 		off := attrSrc.GetAttribute(analysis.OffsetAttributeType).(analysis.OffsetAttribute)
-		pi := attrSrc.GetAttribute(analysis.PositionIncrementAttributeType).(analysis.PositionIncrementAttribute)
+		pi := attrSrc.GetAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
 		terms = append(terms, term)
 		starts = append(starts, off.StartOffset())
 		ends = append(ends, off.EndOffset())

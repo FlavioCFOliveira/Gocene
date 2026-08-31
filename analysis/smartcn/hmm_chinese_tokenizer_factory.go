@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // HMMChineseTokenizerFactory creates HMMChineseTokenizer instances.
@@ -31,8 +32,8 @@ func NewHMMChineseTokenizerFactory(args map[string]string) (*HMMChineseTokenizer
 }
 
 // Create returns a new HMMChineseTokenizer.
-func (f *HMMChineseTokenizerFactory) Create() analysis.Tokenizer {
-	tok, err := NewHMMChineseTokenizer()
+func (f *HMMChineseTokenizerFactory) Create(factory util.AttributeFactory) analysis.Tokenizer {
+	tok, err := NewHMMChineseTokenizer(factory)
 	if err != nil {
 		// The factory contract does not return an error; panic is acceptable
 		// for init failures in tokenizer factories (mirrors Java RuntimeException).

@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // ThaiTokenizer tokenises Thai text by treating each consecutive Thai Unicode
@@ -33,21 +34,22 @@ type ThaiTokenizer struct {
 	offsetAttr analysis.OffsetAttribute
 }
 
-// NewThaiTokenizer creates a new ThaiTokenizer.
-func NewThaiTokenizer() *ThaiTokenizer {
+// NewThaiTokenizerWithFactory creates a new ThaiTokenizer using the supplied
+// attribute factory.
+func NewThaiTokenizerWithFactory(factory util.AttributeFactory) *ThaiTokenizer {
 	t := &ThaiTokenizer{
-		BaseTokenizer: analysis.NewBaseTokenizer(),
+		BaseTokenizer: analysis.NewBaseTokenizerWithFactory(factory),
 	}
-	src := t.GetAttributeSource()
-	if src != nil {
-		if a := src.GetAttribute(analysis.CharTermAttributeType); a != nil {
-			t.termAttr = a.(analysis.CharTermAttribute)
-		}
-		if a := src.GetAttribute(analysis.OffsetAttributeType); a != nil {
-			t.offsetAttr = a.(analysis.OffsetAttribute)
-		}
-	}
+	t.termAttr = factory.NewCharTermAttribute()
+	t.offsetAttr = factory.NewOffsetAttribute()
+	t.AddAttribute(t.termAttr)
+	t.AddAttribute(t.offsetAttr)
 	return t
+}
+
+// NewThaiTokenizer creates a new ThaiTokenizer with default settings.
+func NewThaiTokenizer() *ThaiTokenizer {
+	return NewThaiTokenizerWithFactory(util.DefaultAttributeFactoryInstance)
 }
 
 // SetReader sets the input reader and eagerly reads all runes.
@@ -142,7 +144,7 @@ type ThaiTokenizerFactory struct{}
 func NewThaiTokenizerFactory() *ThaiTokenizerFactory { return &ThaiTokenizerFactory{} }
 
 // Create returns a new ThaiTokenizer.
-func (f *ThaiTokenizerFactory) Create() analysis.Tokenizer { return NewThaiTokenizer() }
+func (f *ThaiTokenizerFactory) Create(factory util.AttributeFactory) analysis.Tokenizer { return NewThaiTokenizerWithFactory(factory) }
 
 // Ensure ThaiTokenizerFactory implements TokenizerFactory.
 var _ analysis.TokenizerFactory = (*ThaiTokenizerFactory)(nil)

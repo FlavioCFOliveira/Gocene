@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // UnicodeWhitespaceAnalyzer is an Analyzer that uses [UnicodeWhitespaceTokenizer].
@@ -44,6 +45,6 @@ var _ analysis.Analyzer = (*UnicodeWhitespaceAnalyzer)(nil)
 // unicodeWhitespaceTokenizerFactory is the internal TokenizerFactory.
 type unicodeWhitespaceTokenizerFactory struct{}
 
-func (f *unicodeWhitespaceTokenizerFactory) Create() analysis.Tokenizer {
-	return NewUnicodeWhitespaceTokenizer()
+func (f *unicodeWhitespaceTokenizerFactory) Create(factory util.AttributeFactory) analysis.Tokenizer {
+	return NewUnicodeWhitespaceTokenizerWithFactory(factory)
 }

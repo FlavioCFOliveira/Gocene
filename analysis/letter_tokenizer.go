@@ -7,10 +7,12 @@ package analysis
 	
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"bufio"
 	"io"
 	"unicode"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // LetterTokenizer is a tokenizer that divides text at non-letters.
@@ -54,10 +56,10 @@ type LetterTokenizer struct {
 	tokenStartOffset int
 }
 
-// NewLetterTokenizer creates a new LetterTokenizer.
-func NewLetterTokenizer() *LetterTokenizer {
+// NewLetterTokenizerWithFactory creates a new LetterTokenizer using the supplied factory.
+func NewLetterTokenizerWithFactory(factory util.AttributeFactory) *LetterTokenizer {
 	t := &LetterTokenizer{
-		BaseTokenizer: NewBaseTokenizer(),
+		BaseTokenizer: NewBaseTokenizerWithFactory(factory),
 	}
 
 	// Add attributes
@@ -70,6 +72,11 @@ func NewLetterTokenizer() *LetterTokenizer {
 	t.AddAttribute(t.posIncrAttr)
 
 	return t
+}
+
+// NewLetterTokenizer creates a new LetterTokenizer with the default attribute factory.
+func NewLetterTokenizer() *LetterTokenizer {
+	return NewLetterTokenizerWithFactory(util.DefaultAttributeFactoryInstance)
 }
 
 // SetReader sets the input source for this Tokenizer.

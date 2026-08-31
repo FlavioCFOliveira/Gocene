@@ -11,6 +11,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis/opennlp/tools"
 	analysisutil "github.com/FlavioCFOliveira/Gocene/analysis/util"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // OpenNLPTokenizer runs the OpenNLP sentence detector and tokenizer,
@@ -39,8 +40,8 @@ type OpenNLPTokenizer struct {
 
 // NewOpenNLPTokenizer constructs a tokenizer using sentenceOp to detect
 // sentence boundaries and tokenizerOp to tokenise within each sentence.
-// Both ops are required and must not be nil.
-func NewOpenNLPTokenizer(sentenceOp *tools.NLPSentenceDetectorOp, tokenizerOp *tools.NLPTokenizerOp) (*OpenNLPTokenizer, error) {
+// Both ops and the attribute factory are required.
+func NewOpenNLPTokenizer(factory util.AttributeFactory, sentenceOp *tools.NLPSentenceDetectorOp, tokenizerOp *tools.NLPTokenizerOp) (*OpenNLPTokenizer, error) {
 	if sentenceOp == nil || tokenizerOp == nil {
 		return nil, errors.New("OpenNLPTokenizer: both a sentence detector and a tokenizer are required")
 	}
@@ -52,9 +53,9 @@ func NewOpenNLPTokenizer(sentenceOp *tools.NLPSentenceDetectorOp, tokenizerOp *t
 		sentenceIndex:   -1,
 	}
 
-	t.termAtt = analysis.NewCharTermAttributeImpl()
-	t.offsetAtt = analysis.NewOffsetAttributeImpl()
-	t.sentenceAtt = analysis.NewSentenceAttributeImpl()
+	t.termAtt = factory.CreateAttributeInstance(analysis.CharTermAttributeType).(*analysis.CharTermAttributeImpl)
+	t.offsetAtt = factory.CreateAttributeInstance(analysis.OffsetAttributeType).(*analysis.OffsetAttributeImpl)
+	t.sentenceAtt = factory.CreateAttributeInstance(analysis.SentenceAttributeType).(*analysis.SentenceAttributeImpl)
 	t.AddAttribute(t.termAtt)
 	t.AddAttribute(t.offsetAtt)
 	t.AddAttribute(t.sentenceAtt)

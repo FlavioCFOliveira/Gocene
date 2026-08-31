@@ -227,7 +227,7 @@ func (w *TermWeight) ScorerSupplier(context *index.LeafReaderContext) (ScorerSup
 // "no matching term".
 //
 // Divergence from Lucene 10.4.0: the legacy [SimScorer] surface used by this
-// Weight has no Explain104 method (unlike LuceneSimScorer), so the score value
+// Weight has no Explain104 method (unlike SimScorer), so the score value
 // is taken from the live Scorer — preserving Lucene's invariant that the
 // explained value equals the scored value — rather than re-derived through a
 // SimScorer.explain call. Norms are not consulted because the legacy scoring

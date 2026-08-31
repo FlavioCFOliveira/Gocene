@@ -17,25 +17,25 @@ import (
 // for backwards compatibility; LuceneMultiSimilarity is byte-equivalent to
 // the Java reference and should be used for canonical scoring.
 type LuceneMultiSimilarity struct {
-	sims []LuceneSimilarity
+	sims []Similarity
 }
 
 // NewLuceneMultiSimilarity wraps the given Similarity slice. The slice
 // must contain at least one entry — ComputeNormFromInvertState consults
 // sims[0].
-func NewLuceneMultiSimilarity(sims []LuceneSimilarity) *LuceneMultiSimilarity {
+func NewLuceneMultiSimilarity(sims []Similarity) *LuceneMultiSimilarity {
 	if len(sims) == 0 {
 		panic("LuceneMultiSimilarity: at least one similarity is required")
 	}
-	cp := make([]LuceneSimilarity, len(sims))
+	cp := make([]Similarity, len(sims))
 	copy(cp, sims)
 	return &LuceneMultiSimilarity{sims: cp}
 }
 
 // Sims returns a copy of the underlying similarities for inspection. The
 // returned slice is independent of the wrapper's internal storage.
-func (s *LuceneMultiSimilarity) Sims() []LuceneSimilarity {
-	out := make([]LuceneSimilarity, len(s.sims))
+func (s *LuceneMultiSimilarity) Sims() []Similarity {
+	out := make([]Similarity, len(s.sims))
 	copy(out, s.sims)
 	return out
 }
@@ -54,8 +54,8 @@ func (s *LuceneMultiSimilarity) ComputeNormFromInvertState(state *index.FieldInv
 
 // Scorer104 builds a per-sub-similarity scorer and wraps them in a
 // LuceneMultiSimScorer.
-func (s *LuceneMultiSimilarity) Scorer104(boost float32, collectionStats *CollectionStatistics, termStats ...*TermStatistics) LuceneSimScorer {
-	subs := make([]LuceneSimScorer, len(s.sims))
+func (s *LuceneMultiSimilarity) Scorer104(boost float32, collectionStats *CollectionStatistics, termStats ...*TermStatistics) SimScorer {
+	subs := make([]SimScorer, len(s.sims))
 	for i, sim := range s.sims {
 		subs[i] = sim.Scorer104(boost, collectionStats, termStats...)
 	}
@@ -66,14 +66,14 @@ func (s *LuceneMultiSimilarity) Scorer104(boost float32, collectionStats *Collec
 // class is package-private; we export it because Gocene packages live in
 // the same namespace and need it for cross-module composition.
 type LuceneMultiSimScorer struct {
-	subScorers []LuceneSimScorer
+	subScorers []SimScorer
 }
 
 // NewLuceneMultiSimScorer constructs a MultiSimScorer from the given
 // sub-scorers. The slice is copied to insulate the scorer from caller
 // mutation.
-func NewLuceneMultiSimScorer(subScorers []LuceneSimScorer) *LuceneMultiSimScorer {
-	cp := make([]LuceneSimScorer, len(subScorers))
+func NewLuceneMultiSimScorer(subScorers []SimScorer) *LuceneMultiSimScorer {
+	cp := make([]SimScorer, len(subScorers))
 	copy(cp, subScorers)
 	return &LuceneMultiSimScorer{subScorers: cp}
 }
@@ -106,6 +106,6 @@ func (s *LuceneMultiSimScorer) Explain104(freq Explanation, norm int64) Explanat
 
 // Compile-time guarantees.
 var (
-	_ LuceneSimilarity = (*LuceneMultiSimilarity)(nil)
-	_ LuceneSimScorer  = (*LuceneMultiSimScorer)(nil)
+	_ Similarity = (*LuceneMultiSimilarity)(nil)
+	_ SimScorer  = (*LuceneMultiSimScorer)(nil)
 )

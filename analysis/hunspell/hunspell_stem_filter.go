@@ -5,6 +5,7 @@
 package hunspell
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
@@ -28,7 +29,7 @@ type HunspellStemFilter struct {
 
 	stemmer     *Stemmer
 	termAttr    analysis.CharTermAttribute
-	posIncAttr  analysis.PositionIncrementAttribute
+	posIncAttr  tokenattributes.PositionIncrementAttribute
 	keywordAttr analysis.KeywordAttribute
 
 	buffer      []string
@@ -65,10 +66,10 @@ func NewHunspellStemFilterFull(input analysis.TokenStream, dictionary *Dictionar
 		f.termAttr = analysis.NewCharTermAttribute()
 		src.AddAttributeImpl(f.termAttr)
 	}
-	if a := src.GetAttribute(analysis.PositionIncrementAttributeType); a != nil {
-		f.posIncAttr = a.(analysis.PositionIncrementAttribute)
+	if a := src.GetAttribute(tokenattributes.PositionIncrementAttributeType); a != nil {
+		f.posIncAttr = a.(tokenattributes.PositionIncrementAttribute)
 	} else {
-		f.posIncAttr = analysis.NewPositionIncrementAttribute()
+		f.posIncAttr = tokenattributes.NewPositionIncrementAttribute()
 		src.AddAttributeImpl(f.posIncAttr)
 	}
 	if a := src.GetAttribute(analysis.KeywordAttributeType); a != nil {

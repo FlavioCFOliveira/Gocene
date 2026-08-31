@@ -51,17 +51,17 @@ type rawTFLegacySimScorer struct{}
 // parity with Lucene's SimScorer.score(float, long) but ignored.
 func (rawTFLegacySimScorer) Score(_ int, freq float32, _ int64) float32 { return freq }
 
-// GetDiscountOverlaps satisfies LuceneSimilarity.
+// GetDiscountOverlaps satisfies Similarity.
 func (s *RawTFSimilarity) GetDiscountOverlaps() bool { return s.discountOverlaps }
 
-// ComputeNormFromInvertState satisfies LuceneSimilarity.
+// ComputeNormFromInvertState satisfies Similarity.
 func (s *RawTFSimilarity) ComputeNormFromInvertState(state *index.FieldInvertState) int64 {
 	return DefaultComputeNormFromInvertState(state, s.discountOverlaps)
 }
 
 // Scorer104 returns a SimScorer whose Score104 is `boost * freq`,
 // mirroring the anonymous Java implementation byte-for-byte.
-func (s *RawTFSimilarity) Scorer104(boost float32, _ *CollectionStatistics, _ ...*TermStatistics) LuceneSimScorer {
+func (s *RawTFSimilarity) Scorer104(boost float32, _ *CollectionStatistics, _ ...*TermStatistics) SimScorer {
 	return &rawTFSimScorer{boost: boost}
 }
 
@@ -101,6 +101,6 @@ func formatFloatGeneric(f float32) string {
 
 // Compile-time guarantees.
 var (
-	_ LuceneSimilarity = (*RawTFSimilarity)(nil)
-	_ LuceneSimScorer  = (*rawTFSimScorer)(nil)
+	_ Similarity = (*RawTFSimilarity)(nil)
+	_ SimScorer  = (*rawTFSimScorer)(nil)
 )

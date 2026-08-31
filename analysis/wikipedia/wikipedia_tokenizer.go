@@ -5,9 +5,10 @@
 package wikipedia
 
 import (
-	"io"
-
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+	"github.com/FlavioCFOliveira/Gocene/util"
+	"io"
 )
 
 // Output mode constants — mirror WikipediaTokenizer.TOKENS_ONLY etc.
@@ -34,31 +35,26 @@ type WikipediaTokenizer struct {
 
 	termAttr    analysis.CharTermAttribute
 	offsetAttr  analysis.OffsetAttribute
-	posIncrAttr analysis.PositionIncrementAttribute
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 	typeAttr    analysis.TypeAttribute
 
 	first bool
 }
 
-// NewWikipediaTokenizer creates a WikipediaTokenizer with TokensOnly output.
-func NewWikipediaTokenizer() *WikipediaTokenizer {
-	return NewWikipediaTokenizerWithMode(TokensOnly)
-}
-
 // NewWikipediaTokenizerWithMode creates a WikipediaTokenizer with the given
-// output mode (TokensOnly, UntokenizedOnly, or Both).
-func NewWikipediaTokenizerWithMode(tokenOutput int) *WikipediaTokenizer {
+// output mode (TokensOnly, UntokenizedOnly, or Both) and the supplied attribute factory.
+func NewWikipediaTokenizerWithMode(factory util.AttributeFactory, tokenOutput int) *WikipediaTokenizer {
 	t := &WikipediaTokenizer{
-		BaseTokenizer: analysis.NewBaseTokenizer(),
+		BaseTokenizer: analysis.NewBaseTokenizerWithFactory(factory),
 		scanner:       NewWikipediaTokenizerImpl(nil),
 		tokenOutput:   tokenOutput,
 		first:         true,
 	}
 
-	t.termAttr = analysis.NewCharTermAttribute()
-	t.offsetAttr = analysis.NewOffsetAttribute()
-	t.posIncrAttr = analysis.NewPositionIncrementAttribute()
-	t.typeAttr = analysis.NewTypeAttribute()
+	t.termAttr = factory.NewCharTermAttribute()
+	t.offsetAttr = factory.NewOffsetAttribute()
+	t.posIncrAttr = factory.NewPositionIncrementAttribute()
+	t.typeAttr = factory.NewTypeAttribute()
 
 	t.AddAttribute(t.termAttr)
 	t.AddAttribute(t.offsetAttr)
@@ -66,6 +62,12 @@ func NewWikipediaTokenizerWithMode(tokenOutput int) *WikipediaTokenizer {
 	t.AddAttribute(t.typeAttr)
 
 	return t
+}
+
+// NewWikipediaTokenizer creates a WikipediaTokenizer with TokensOnly output
+// and default attribute factory.
+func NewWikipediaTokenizer() *WikipediaTokenizer {
+	return NewWikipediaTokenizerWithMode(util.DefaultAttributeFactoryInstance, TokensOnly)
 }
 
 // SetReader attaches a new input reader to this tokenizer.
@@ -146,8 +148,8 @@ func NewWikipediaTokenizerFactory() *WikipediaTokenizerFactory {
 }
 
 // Create creates a new WikipediaTokenizer.
-func (f *WikipediaTokenizerFactory) Create() analysis.Tokenizer {
-	return NewWikipediaTokenizer()
+func (f *WikipediaTokenizerFactory) Create(factory util.AttributeFactory) analysis.Tokenizer {
+	return NewWikipediaTokenizerWithMode(factory, TokensOnly)
 }
 
 // Ensure WikipediaTokenizerFactory implements analysis.TokenizerFactory.

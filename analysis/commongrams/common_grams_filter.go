@@ -7,6 +7,7 @@
 package commongrams
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
@@ -22,7 +23,7 @@ const gramSeparator = '_'
 
 // CommonGramsFilter constructs bigrams for frequently occurring terms while
 // indexing. Single terms are still indexed too, with bigrams overlaid. This
-// is achieved through the use of PositionIncrementAttribute. Bigrams have a
+// is achieved through the use of tokenattributes.PositionIncrementAttribute. Bigrams have a
 // type of GramType.
 //
 // Example:
@@ -48,7 +49,7 @@ type CommonGramsFilter struct {
 	termAttr   analysis.CharTermAttribute
 	offsetAttr analysis.OffsetAttribute
 	typeAttr   analysis.TypeAttribute
-	posIncAttr analysis.PositionIncrementAttribute
+	posIncAttr tokenattributes.PositionIncrementAttribute
 	posLenAttr analysis.PositionLengthAttribute
 
 	lastStartOffset int
@@ -74,8 +75,8 @@ func NewCommonGramsFilter(input analysis.TokenStream, commonWords *analysis.Char
 	if a := as.GetAttribute(analysis.TypeAttributeType); a != nil {
 		f.typeAttr, _ = a.(analysis.TypeAttribute)
 	}
-	if a := as.GetAttribute(analysis.PositionIncrementAttributeType); a != nil {
-		f.posIncAttr, _ = a.(analysis.PositionIncrementAttribute)
+	if a := as.GetAttribute(tokenattributes.PositionIncrementAttributeType); a != nil {
+		f.posIncAttr, _ = a.(tokenattributes.PositionIncrementAttribute)
 	}
 	if a := as.GetAttribute(analysis.PositionLengthAttributeType); a != nil {
 		f.posLenAttr, _ = a.(analysis.PositionLengthAttribute)

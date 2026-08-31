@@ -11,6 +11,7 @@ import (
 	"errors"
 	"io"
 	"regexp"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // ErrNilPattern is returned when a nil pattern is passed to SimplePatternSplitTokenizer.
@@ -76,20 +77,20 @@ type SimplePatternSplitTokenizer struct {
 //	`\d+` - Split on one or more digits
 //
 // Returns an error if the pattern is nil.
-func NewSimplePatternSplitTokenizer(pattern *regexp.Regexp) (*SimplePatternSplitTokenizer, error) {
+func NewSimplePatternSplitTokenizer(factory util.AttributeFactory, pattern *regexp.Regexp) (*SimplePatternSplitTokenizer, error) {
 	if pattern == nil {
 		return nil, ErrNilPattern
 	}
 
 	t := &SimplePatternSplitTokenizer{
-		BaseTokenizer: NewBaseTokenizer(),
+		BaseTokenizer: NewBaseTokenizerWithFactory(factory),
 		pattern:       pattern,
 	}
 
 	// Add attributes
-	t.termAttr = NewCharTermAttribute()
-	t.offsetAttr = NewOffsetAttribute()
-	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
+	t.termAttr = factory.CreateAttributeInstance(CharTermAttributeType).(CharTermAttribute)
+	t.offsetAttr = factory.CreateAttributeInstance(OffsetAttributeType).(OffsetAttribute)
+	t.posIncrAttr = factory.CreateAttributeInstance(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
 
 	t.AddAttribute(t.termAttr)
 	t.AddAttribute(t.offsetAttr)
@@ -102,12 +103,12 @@ func NewSimplePatternSplitTokenizer(pattern *regexp.Regexp) (*SimplePatternSplit
 // with a pattern compiled from the given string.
 //
 // Returns an error if the pattern string is invalid.
-func NewSimplePatternSplitTokenizerWithString(patternStr string) (*SimplePatternSplitTokenizer, error) {
+func NewSimplePatternSplitTokenizerWithString(factory util.AttributeFactory, patternStr string) (*SimplePatternSplitTokenizer, error) {
 	pattern, err := regexp.Compile(patternStr)
 	if err != nil {
 		return nil, err
 	}
-	return NewSimplePatternSplitTokenizer(pattern)
+	return NewSimplePatternSplitTokenizer(factory, pattern)
 }
 
 // SetReader sets the input source for this Tokenizer.

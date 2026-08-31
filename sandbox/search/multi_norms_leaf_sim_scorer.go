@@ -35,7 +35,7 @@ type NormValuesReader interface {
 // Mirrors org.apache.lucene.sandbox.search.MultiNormsLeafSimScorer
 // (package-private in Java).
 type MultiNormsLeafSimScorer struct {
-	scorer search.LuceneSimScorer
+	scorer search.SimScorer
 	norms  index.NumericDocValues // nil when needsScores is false
 }
 
@@ -43,7 +43,7 @@ type MultiNormsLeafSimScorer struct {
 // whose norms contribute to the combined score. needsScores must be true when
 // actual scores are required; pass false for filter-only use.
 func NewMultiNormsLeafSimScorer(
-	scorer search.LuceneSimScorer,
+	scorer search.SimScorer,
 	reader NormValuesReader,
 	normFields []search.FieldAndWeight,
 	needsScores bool,
@@ -80,8 +80,8 @@ func NewMultiNormsLeafSimScorer(
 	return s, nil
 }
 
-// GetSimScorer returns the underlying LuceneSimScorer.
-func (s *MultiNormsLeafSimScorer) GetSimScorer() search.LuceneSimScorer {
+// GetSimScorer returns the underlying SimScorer.
+func (s *MultiNormsLeafSimScorer) GetSimScorer() search.SimScorer {
 	return s.scorer
 }
 

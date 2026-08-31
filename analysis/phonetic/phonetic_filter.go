@@ -5,6 +5,7 @@
 package phonetic
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"fmt"
 	"strings"
 
@@ -39,7 +40,7 @@ type PhoneticFilter struct {
 	save *util.AttributeState
 
 	termAttr   analysis.CharTermAttribute
-	posIncAttr analysis.PositionIncrementAttribute
+	posIncAttr tokenattributes.PositionIncrementAttribute
 }
 
 // NewPhoneticFilter creates a PhoneticFilter with the specified encoder and
@@ -55,8 +56,8 @@ func NewPhoneticFilter(input analysis.TokenStream, encoder Encoder, inject bool)
 		if a := src.GetAttribute(analysis.CharTermAttributeType); a != nil {
 			f.termAttr = a.(analysis.CharTermAttribute)
 		}
-		if a := src.GetAttribute(analysis.PositionIncrementAttributeType); a != nil {
-			f.posIncAttr = a.(analysis.PositionIncrementAttribute)
+		if a := src.GetAttribute(tokenattributes.PositionIncrementAttributeType); a != nil {
+			f.posIncAttr = a.(tokenattributes.PositionIncrementAttribute)
 		}
 	}
 	return f

@@ -63,26 +63,26 @@ func TestDefaultComputeNormFromInvertState_NilState(t *testing.T) {
 	}
 }
 
-// fakeLuceneSimScorer is a deterministic LuceneSimScorer used to exercise
+// fakeSimScorer is a deterministic SimScorer used to exercise
 // DefaultBulkSimScorer without dragging in a full Similarity implementation.
-type fakeLuceneSimScorer struct{}
+type fakeSimScorer struct{}
 
-func (fakeLuceneSimScorer) Score104(freq float32, norm int64) float32 {
+func (fakeSimScorer) Score104(freq float32, norm int64) float32 {
 	return freq + float32(norm)
 }
 
-func (s fakeLuceneSimScorer) AsBulkSimScorer() BulkSimScorer {
+func (s fakeSimScorer) AsBulkSimScorer() BulkSimScorer {
 	return NewDefaultBulkSimScorer(s)
 }
 
-func (fakeLuceneSimScorer) Explain104(freq Explanation, _ int64) Explanation {
+func (fakeSimScorer) Explain104(freq Explanation, _ int64) Explanation {
 	return NewExplanation(true, freq.GetValue(), "fake")
 }
 
 // TestDefaultBulkSimScorer_RoundTrip verifies that the bulk scorer matches
 // the single-document scorer for the same inputs.
 func TestDefaultBulkSimScorer_RoundTrip(t *testing.T) {
-	scorer := fakeLuceneSimScorer{}
+	scorer := fakeSimScorer{}
 	bulk := scorer.AsBulkSimScorer()
 	freqs := []float32{1, 2, 3, 4}
 	norms := []int64{10, 20, 30, 40}

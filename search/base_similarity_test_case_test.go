@@ -62,7 +62,7 @@ func baseSimilarityStatsScenarios() []simStatsScenario {
 // checkSimilarityScoring runs the BaseSimilarityTestCase scoring invariants for
 // one Similarity. allowNegative relaxes the non-negative checks for sims (like
 // Indri) whose scores may legitimately be negative.
-func checkSimilarityScoring(t *testing.T, name string, sim search.LuceneSimilarity, allowNegative bool) {
+func checkSimilarityScoring(t *testing.T, name string, sim search.Similarity, allowNegative bool) {
 	t.Helper()
 	boosts := []float32{1, 2.5}
 	freqs := []float32{1, 2, 4, 15}

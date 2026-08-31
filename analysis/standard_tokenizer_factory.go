@@ -7,6 +7,8 @@ package analysis
 import (
 	"fmt"
 	"strconv"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // StandardTokenizerFactoryName is the Lucene-faithful SPI identifier
@@ -81,9 +83,9 @@ func (f *StandardTokenizerFactory) MaxTokenLength() int {
 }
 
 // Create returns a new [StandardTokenizer] pre-configured with this
-// factory's maximum token length.
-func (f *StandardTokenizerFactory) Create() Tokenizer {
-	t := NewStandardTokenizer()
+// factory's maximum token length, using the supplied attribute factory.
+func (f *StandardTokenizerFactory) Create(factory util.AttributeFactory) Tokenizer {
+	t := NewStandardTokenizerWithFactory(factory)
 	// SetMaxTokenLength only fails for out-of-range values; the
 	// factory validates its input in NewStandardTokenizerFactoryWithArgs,
 	// so a configuration error here would be a programmer bug.

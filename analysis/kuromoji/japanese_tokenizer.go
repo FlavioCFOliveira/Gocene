@@ -5,6 +5,7 @@
 package kuromoji
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"io"
 	"unicode/utf8"
 
@@ -54,7 +55,7 @@ type JapaneseTokenizer struct {
 
 	termAttr      analysis.CharTermAttribute
 	offsetAttr    analysis.OffsetAttribute
-	posIncrAttr   analysis.PositionIncrementAttribute
+	posIncrAttr   tokenattributes.PositionIncrementAttribute
 	posLenAttr    analysis.PositionLengthAttribute
 	baseFormAttr  tokenattributes.BaseFormAttribute
 	posAttr       tokenattributes.PartOfSpeechAttribute
@@ -95,7 +96,7 @@ func NewJapaneseTokenizer(
 	// Create and register standard attributes.
 	t.termAttr = analysis.NewCharTermAttribute()
 	t.offsetAttr = analysis.NewOffsetAttribute()
-	t.posIncrAttr = analysis.NewPositionIncrementAttribute()
+	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
 	t.posLenAttr = analysis.NewPositionLengthAttribute()
 
 	t.AddAttribute(t.termAttr)

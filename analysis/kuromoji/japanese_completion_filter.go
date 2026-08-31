@@ -5,6 +5,7 @@
 package kuromoji
 
 import (
+	tokenattr "github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
@@ -164,7 +165,7 @@ type JapaneseCompletionFilter struct {
 	*analysis.BaseTokenFilter
 	termAttr    analysis.CharTermAttribute
 	offsetAttr  analysis.OffsetAttribute
-	posIncrAttr analysis.PositionIncrementAttribute
+	posIncrAttr tokenattr.PositionIncrementAttribute
 	readingAttr tokenattributes.ReadingAttribute
 
 	generator          *completionTokenGenerator
@@ -186,8 +187,8 @@ func NewJapaneseCompletionFilter(input analysis.TokenStream, mode CompletionMode
 		if a := src.GetAttribute(analysis.OffsetAttributeType); a != nil {
 			f.offsetAttr = a.(analysis.OffsetAttribute)
 		}
-		if a := src.GetAttribute(analysis.PositionIncrementAttributeType); a != nil {
-			f.posIncrAttr = a.(analysis.PositionIncrementAttribute)
+		if a := src.GetAttribute(tokenattr.PositionIncrementAttributeType); a != nil {
+			f.posIncrAttr = a.(tokenattributes.PositionIncrementAttribute)
 		}
 		if a := src.GetAttribute(tokenattributes.ReadingAttributeType); a != nil {
 			f.readingAttr = a.(tokenattributes.ReadingAttribute)

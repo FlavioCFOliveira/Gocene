@@ -5,6 +5,7 @@
 package kuromoji
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"math/big"
 	"strings"
 
@@ -83,7 +84,7 @@ type JapaneseNumberFilter struct {
 	termAttr    analysis.CharTermAttribute
 	offsetAttr  analysis.OffsetAttribute
 	keywordAttr analysis.KeywordAttribute
-	posIncrAttr analysis.PositionIncrementAttribute
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 	posLenAttr  analysis.PositionLengthAttribute
 
 	state            *util.AttributeState
@@ -108,8 +109,8 @@ func NewJapaneseNumberFilter(input analysis.TokenStream) *JapaneseNumberFilter {
 		if a := src.GetAttribute(analysis.KeywordAttributeType); a != nil {
 			f.keywordAttr = a.(analysis.KeywordAttribute)
 		}
-		if a := src.GetAttribute(analysis.PositionIncrementAttributeType); a != nil {
-			f.posIncrAttr = a.(analysis.PositionIncrementAttribute)
+		if a := src.GetAttribute(tokenattributes.PositionIncrementAttributeType); a != nil {
+			f.posIncrAttr = a.(tokenattributes.PositionIncrementAttribute)
 		}
 		if a := src.GetAttribute(analysis.PositionLengthAttributeType); a != nil {
 			f.posLenAttr = a.(analysis.PositionLengthAttribute)

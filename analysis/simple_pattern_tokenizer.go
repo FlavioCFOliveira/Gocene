@@ -8,6 +8,7 @@ package analysis
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"bufio"
 	"io"
 	"regexp"
@@ -66,48 +67,21 @@ type SimplePatternTokenizer struct {
 	matchIndex int
 }
 
-// NewSimplePatternTokenizer creates a new SimplePatternTokenizer with the given pattern.
-//
-// The pattern should be a valid regular expression that defines what constitutes
-// a token. Each match of the pattern in the input text becomes a token.
-//
-// Example patterns:
-//   - `\w+` - Match sequences of word characters
-//   - `[a-zA-Z]+` - Match sequences of letters only
-//   - `\d+` - Match sequences of digits
-//   - `[\w@.]+` - Match email-like tokens
-//
-// Returns an error if the pattern is invalid.
+// NewSimplePatternTokenizer creates a new SimplePatternTokenizer with the given pattern,
+// using the default attribute factory.
 func NewSimplePatternTokenizer(pattern string) (*SimplePatternTokenizer, error) {
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		return nil, err
 	}
-
-	t := &SimplePatternTokenizer{
-		BaseTokenizer: NewBaseTokenizer(),
-		pattern:       re,
-	}
-
-	// Add attributes
-	t.termAttr = NewCharTermAttribute()
-	t.offsetAttr = NewOffsetAttribute()
-	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
-
-	t.AddAttribute(t.termAttr)
-	t.AddAttribute(t.offsetAttr)
-	t.AddAttribute(t.posIncrAttr)
-
-	return t, nil
+	return NewSimplePatternTokenizerWithRegexp(util.DefaultAttributeFactoryInstance, re), nil
 }
 
-// NewSimplePatternTokenizerWithRegexp creates a new SimplePatternTokenizer with a pre-compiled regexp.
-//
-// This is useful when you want to reuse a compiled regular expression or need
-// to set specific regexp flags.
-func NewSimplePatternTokenizerWithRegexp(re *regexp.Regexp) *SimplePatternTokenizer {
+// NewSimplePatternTokenizerWithRegexp creates a new SimplePatternTokenizer with a pre-compiled regexp
+// and the supplied attribute factory.
+func NewSimplePatternTokenizerWithRegexp(factory util.AttributeFactory, re *regexp.Regexp) *SimplePatternTokenizer {
 	t := &SimplePatternTokenizer{
-		BaseTokenizer: NewBaseTokenizer(),
+		BaseTokenizer: NewBaseTokenizerWithFactory(factory),
 		pattern:       re,
 	}
 
@@ -226,9 +200,9 @@ func NewSimplePatternTokenizerFactory(pattern string) (*SimplePatternTokenizerFa
 	}, nil
 }
 
-// Create creates a new SimplePatternTokenizer.
-func (f *SimplePatternTokenizerFactory) Create() Tokenizer {
-	return NewSimplePatternTokenizerWithRegexp(f.compiledPattern)
+// Create creates a new SimplePatternTokenizer using the given AttributeFactory.
+func (f *SimplePatternTokenizerFactory) Create(factory util.AttributeFactory) Tokenizer {
+	return NewSimplePatternTokenizerWithRegexp(factory, f.compiledPattern)
 }
 
 // GetPattern returns the pattern string used by this factory.

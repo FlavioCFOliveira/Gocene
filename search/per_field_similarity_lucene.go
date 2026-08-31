@@ -10,7 +10,7 @@ import (
 
 // LucenePerFieldSimilarityGetter is the per-field Similarity resolver — a
 // function value replacing Java's abstract `Similarity get(String name)`.
-type LucenePerFieldSimilarityGetter func(field string) LuceneSimilarity
+type LucenePerFieldSimilarityGetter func(field string) Similarity
 
 // LucenePerFieldSimilarityWrapper mirrors org.apache.lucene.search.
 // similarities.PerFieldSimilarityWrapper from Lucene 10.4.0. It dispatches
@@ -34,11 +34,11 @@ func NewLucenePerFieldSimilarityWrapper(getter LucenePerFieldSimilarityGetter) *
 
 // Get returns the per-field Similarity. Exposed for parity with Java's
 // abstract `Similarity get(String name)`.
-func (s *LucenePerFieldSimilarityWrapper) Get(field string) LuceneSimilarity {
+func (s *LucenePerFieldSimilarityWrapper) Get(field string) Similarity {
 	return s.get(field)
 }
 
-// GetDiscountOverlaps satisfies LuceneSimilarity. There is no obvious
+// GetDiscountOverlaps satisfies Similarity. There is no obvious
 // answer at the wrapper level — Java does not override it — so we mirror
 // the no-arg Similarity default of true.
 func (s *LucenePerFieldSimilarityWrapper) GetDiscountOverlaps() bool { return true }
@@ -58,16 +58,16 @@ func (s *LucenePerFieldSimilarityWrapper) ComputeNormFromInvertState(state *inde
 
 // Scorer104 delegates to the per-field Similarity, keyed by the
 // CollectionStatistics' field name.
-func (s *LucenePerFieldSimilarityWrapper) Scorer104(boost float32, collectionStats *CollectionStatistics, termStats ...*TermStatistics) LuceneSimScorer {
+func (s *LucenePerFieldSimilarityWrapper) Scorer104(boost float32, collectionStats *CollectionStatistics, termStats ...*TermStatistics) SimScorer {
 	if collectionStats == nil {
-		return &noopLuceneSimScorer{}
+		return &noopSimScorer{}
 	}
 	sim := s.get(collectionStats.Field())
 	if sim == nil {
-		return &noopLuceneSimScorer{}
+		return &noopSimScorer{}
 	}
 	return sim.Scorer104(boost, collectionStats, termStats...)
 }
 
 // Compile-time guarantee.
-var _ LuceneSimilarity = (*LucenePerFieldSimilarityWrapper)(nil)
+var _ Similarity = (*LucenePerFieldSimilarityWrapper)(nil)

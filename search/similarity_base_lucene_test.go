@@ -67,10 +67,10 @@ func TestLuceneSimLengthTable_RoundTrip(t *testing.T) {
 	}
 }
 
-// TestLuceneSimilarityBase_FillBasicStats checks that
+// TestSimilarityBase_FillBasicStats checks that
 // FillBasicStats copies the same fields the Java reference does.
-func TestLuceneSimilarityBase_FillBasicStats(t *testing.T) {
-	sim := NewLuceneSimilarityBase(
+func TestSimilarityBase_FillBasicStats(t *testing.T) {
+	sim := NewSimilarityBase(
 		func(_ *LuceneBasicStats, freq, _ float64) float64 { return freq },
 		nil,
 		nil,
@@ -97,11 +97,11 @@ func TestLuceneSimilarityBase_FillBasicStats(t *testing.T) {
 	}
 }
 
-// TestLuceneSimilarityBase_Scorer104_Single verifies that Scorer104 returns
+// TestSimilarityBase_Scorer104_Single verifies that Scorer104 returns
 // the per-term BasicSimScorer when len(termStats) == 1 — mirroring the
 // Java early return.
-func TestLuceneSimilarityBase_Scorer104_Single(t *testing.T) {
-	sim := NewLuceneSimilarityBase(
+func TestSimilarityBase_Scorer104_Single(t *testing.T) {
+	sim := NewSimilarityBase(
 		func(stats *LuceneBasicStats, freq, docLen float64) float64 {
 			return freq * float64(stats.DocFreq()) / docLen
 		},
@@ -116,10 +116,10 @@ func TestLuceneSimilarityBase_Scorer104_Single(t *testing.T) {
 	}
 }
 
-// TestLuceneSimilarityBase_Scorer104_Multi verifies the multi-term path
+// TestSimilarityBase_Scorer104_Multi verifies the multi-term path
 // returns a multiSimScorerLucene whose Score104 sums the per-term scores.
-func TestLuceneSimilarityBase_Scorer104_Multi(t *testing.T) {
-	sim := NewLuceneSimilarityBase(
+func TestSimilarityBase_Scorer104_Multi(t *testing.T) {
+	sim := NewSimilarityBase(
 		func(_ *LuceneBasicStats, freq, _ float64) float64 { return freq },
 		nil,
 		nil,
@@ -139,37 +139,37 @@ func TestLuceneSimilarityBase_Scorer104_Multi(t *testing.T) {
 	}
 }
 
-// TestLuceneSimilarityBase_Scorer104_Empty checks the no-op fallback.
-func TestLuceneSimilarityBase_Scorer104_Empty(t *testing.T) {
-	sim := NewLuceneSimilarityBase(
+// TestSimilarityBase_Scorer104_Empty checks the no-op fallback.
+func TestSimilarityBase_Scorer104_Empty(t *testing.T) {
+	sim := NewSimilarityBase(
 		func(_ *LuceneBasicStats, _, _ float64) float64 { return 1 },
 		nil, nil,
 	)
 	collStats := NewCollectionStatistics("body", 100, 80, 800, 200)
 	sc := sim.Scorer104(1.0, collStats)
-	if _, ok := sc.(*noopLuceneSimScorer); !ok {
-		t.Fatalf("expected *noopLuceneSimScorer, got %T", sc)
+	if _, ok := sc.(*noopSimScorer); !ok {
+		t.Fatalf("expected *noopSimScorer, got %T", sc)
 	}
 	if got := sc.Score104(10, 1); got != 0 {
 		t.Fatalf("no-op score: got %v, want 0", got)
 	}
 
-// TestLuceneSimilarityBase_NilScorePanics verifies the safety check at
+// TestSimilarityBase_NilScorePanics verifies the safety check at
 // construction time.
 }
-func TestLuceneSimilarityBase_NilScorePanics(t *testing.T) {
+func TestSimilarityBase_NilScorePanics(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {
 			t.Fatal("expected panic for nil score function")
 		}
 	}()
-	NewLuceneSimilarityBase(nil, nil, nil)
+	NewSimilarityBase(nil, nil, nil)
 }
 
-// TestLuceneSimilarityBase_ComputeNormFromInvertState verifies that the
+// TestSimilarityBase_ComputeNormFromInvertState verifies that the
 // canonical norm encoder is dispatched through the base.
-func TestLuceneSimilarityBase_ComputeNormFromInvertState(t *testing.T) {
-	sim := NewLuceneSimilarityBaseWithDiscount(true,
+func TestSimilarityBase_ComputeNormFromInvertState(t *testing.T) {
+	sim := NewSimilarityBaseWithDiscount(true,
 		func(_ *LuceneBasicStats, freq, _ float64) float64 { return freq },
 		nil, nil)
 	state := index.NewFieldInvertStateFull(10, "f", index.IndexOptionsDocsAndFreqs,

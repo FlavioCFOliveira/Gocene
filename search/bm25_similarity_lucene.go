@@ -85,10 +85,10 @@ func (s *LuceneBM25Similarity) K1() float32 { return s.k1 }
 // B returns the b parameter (length normalization impact).
 func (s *LuceneBM25Similarity) B() float32 { return s.b }
 
-// GetDiscountOverlaps satisfies LuceneSimilarity.
+// GetDiscountOverlaps satisfies Similarity.
 func (s *LuceneBM25Similarity) GetDiscountOverlaps() bool { return s.discountOverlaps }
 
-// ComputeNormFromInvertState satisfies LuceneSimilarity.
+// ComputeNormFromInvertState satisfies Similarity.
 func (s *LuceneBM25Similarity) ComputeNormFromInvertState(state *index.FieldInvertState) int64 {
 	return DefaultComputeNormFromInvertState(state, s.discountOverlaps)
 }
@@ -140,7 +140,7 @@ func (s *LuceneBM25Similarity) IdfExplainPhrase(collectionStats *CollectionStati
 // Scorer104 mirrors BM25Similarity.scorer. It pre-builds the 256-entry
 // `cache` table containing the inverse of `k1 * (1 - b + b * dl / avgdl)`
 // so the hot path is a single byte index + multiply-add.
-func (s *LuceneBM25Similarity) Scorer104(boost float32, collectionStats *CollectionStatistics, termStats ...*TermStatistics) LuceneSimScorer {
+func (s *LuceneBM25Similarity) Scorer104(boost float32, collectionStats *CollectionStatistics, termStats ...*TermStatistics) SimScorer {
 	var idf Explanation
 	switch len(termStats) {
 	case 0:
@@ -267,7 +267,7 @@ func (b *luceneBM25BulkScorer) ScoreBulk(size int, freqs []float32, norms []int6
 
 // Compile-time guarantees.
 var (
-	_ LuceneSimilarity = (*LuceneBM25Similarity)(nil)
-	_ LuceneSimScorer  = (*luceneBM25Scorer)(nil)
+	_ Similarity = (*LuceneBM25Similarity)(nil)
+	_ SimScorer  = (*luceneBM25Scorer)(nil)
 	_ BulkSimScorer    = (*luceneBM25BulkScorer)(nil)
 )

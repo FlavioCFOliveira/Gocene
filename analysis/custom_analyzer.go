@@ -7,6 +7,7 @@ package analysis
 import (
 	"fmt"
 	"io"
+
 )
 
 // CustomAnalyzer is a general-purpose configurable analyzer.
@@ -76,7 +77,7 @@ func (a *CustomAnalyzer) TokenStream(fieldName string, reader io.Reader) (TokenS
 	}
 
 	// Create the tokenizer
-	tokenizer := a.tokenizerFactory.Create()
+	tokenizer := CreateDefaultTokenizer(a.tokenizerFactory)
 	if err := tokenizer.SetReader(charReader); err != nil {
 		return nil, err
 	}

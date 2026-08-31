@@ -5,6 +5,7 @@
 package commongrams
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -24,7 +25,7 @@ type CommonGramsQueryFilter struct {
 	*analysis.BaseTokenFilter
 
 	typeAttr   analysis.TypeAttribute
-	posIncAttr analysis.PositionIncrementAttribute
+	posIncAttr tokenattributes.PositionIncrementAttribute
 	posLenAttr analysis.PositionLengthAttribute
 
 	previous     *util.AttributeState
@@ -41,8 +42,8 @@ func NewCommonGramsQueryFilter(input *CommonGramsFilter) *CommonGramsQueryFilter
 	if a := as.GetAttribute(analysis.TypeAttributeType); a != nil {
 		f.typeAttr, _ = a.(analysis.TypeAttribute)
 	}
-	if a := as.GetAttribute(analysis.PositionIncrementAttributeType); a != nil {
-		f.posIncAttr, _ = a.(analysis.PositionIncrementAttribute)
+	if a := as.GetAttribute(tokenattributes.PositionIncrementAttributeType); a != nil {
+		f.posIncAttr, _ = a.(tokenattributes.PositionIncrementAttribute)
 	}
 	if a := as.GetAttribute(analysis.PositionLengthAttributeType); a != nil {
 		f.posLenAttr, _ = a.(analysis.PositionLengthAttribute)

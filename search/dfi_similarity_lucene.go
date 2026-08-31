@@ -17,7 +17,7 @@ import "fmt"
 //
 // NOTE (from Java): do NOT remove stopwords with this similarity.
 type LuceneDFISimilarity struct {
-	*LuceneSimilarityBase
+	*SimilarityBase
 	independence LuceneDFIIndependence
 }
 
@@ -67,7 +67,7 @@ func NewLuceneDFISimilarityFull(measure LuceneDFIIndependence, discountOverlaps 
 	toString := func() string {
 		return fmt.Sprintf("DFI(%s)", measure.String())
 	}
-	d.LuceneSimilarityBase = NewLuceneSimilarityBaseWithDiscount(discountOverlaps, score, subExplain, toString)
+	d.SimilarityBase = NewSimilarityBaseWithDiscount(discountOverlaps, score, subExplain, toString)
 	return d
 }
 
@@ -80,4 +80,4 @@ func (s *LuceneDFISimilarity) String() string {
 }
 
 // Compile-time guarantee.
-var _ LuceneSimilarity = (*LuceneDFISimilarity)(nil)
+var _ Similarity = (*LuceneDFISimilarity)(nil)

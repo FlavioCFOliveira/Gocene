@@ -5,9 +5,10 @@
 package classic
 
 import (
-	"io"
-
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+	"github.com/FlavioCFOliveira/Gocene/util"
+	"io"
 )
 
 // defaultMaxTokenLength mirrors StandardAnalyzer.DEFAULT_MAX_TOKEN_LENGTH.
@@ -27,22 +28,23 @@ type ClassicTokenizer struct {
 	termAttr   analysis.CharTermAttribute
 	offsetAttr analysis.OffsetAttribute
 	typeAttr   analysis.TypeAttribute
-	posIncAttr analysis.PositionIncrementAttribute
+	posIncAttr tokenattributes.PositionIncrementAttribute
 
 	skippedPositions int
 }
 
-// NewClassicTokenizer creates a ClassicTokenizer with default max token length.
-func NewClassicTokenizer() *ClassicTokenizer {
+// NewClassicTokenizerWithFactory creates a ClassicTokenizer using the supplied
+// attribute factory.
+func NewClassicTokenizerWithFactory(factory util.AttributeFactory) *ClassicTokenizer {
 	t := &ClassicTokenizer{
-		BaseTokenizer:  analysis.NewBaseTokenizer(),
+		BaseTokenizer:  analysis.NewBaseTokenizerWithFactory(factory),
 		maxTokenLength: defaultMaxTokenLength,
 	}
-	// Register attribute implementations, mirroring WhitespaceTokenizer.
-	termImpl := analysis.NewCharTermAttribute()
-	offsetImpl := analysis.NewOffsetAttribute()
-	posIncImpl := analysis.NewPositionIncrementAttribute()
-	typeImpl := analysis.NewTypeAttribute()
+	// Register attribute implementations
+	termImpl := factory.CreateAttributeInstance(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
+	offsetImpl := factory.CreateAttributeInstance(analysis.OffsetAttributeType).(analysis.OffsetAttribute)
+	posIncImpl := factory.CreateAttributeInstance(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
+	typeImpl := factory.CreateAttributeInstance(analysis.TypeAttributeType).(analysis.TypeAttribute)
 	t.AddAttribute(termImpl)
 	t.AddAttribute(offsetImpl)
 	t.AddAttribute(posIncImpl)
@@ -52,6 +54,12 @@ func NewClassicTokenizer() *ClassicTokenizer {
 	t.posIncAttr = posIncImpl
 	t.typeAttr = typeImpl
 	return t
+}
+
+// NewClassicTokenizer creates a ClassicTokenizer with default max token length
+// and default attribute factory.
+func NewClassicTokenizer() *ClassicTokenizer {
+	return NewClassicTokenizerWithFactory(util.DefaultAttributeFactoryInstance)
 }
 
 // SetMaxTokenLength sets the maximum token length. Tokens longer than this are
@@ -172,8 +180,8 @@ func NewClassicTokenizerFactoryWithLength(maxTokenLength int) *ClassicTokenizerF
 }
 
 // Create creates a new ClassicTokenizer.
-func (f *ClassicTokenizerFactory) Create() analysis.Tokenizer {
-	t := NewClassicTokenizer()
+func (f *ClassicTokenizerFactory) Create(factory util.AttributeFactory) analysis.Tokenizer {
+	t := NewClassicTokenizerWithFactory(factory)
 	t.SetMaxTokenLength(f.maxTokenLength)
 	return t
 }

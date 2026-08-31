@@ -62,6 +62,7 @@ func NewBaseTokenizerWithFactory(factory util.AttributeFactory) *BaseTokenizer {
 }
 
 // SetReader sets the input source for this Tokenizer.
+
 func (t *BaseTokenizer) SetReader(input io.Reader) error {
 	t.input = input
 	t.inputFinished = false
@@ -100,27 +101,6 @@ func (t *BaseTokenizer) End() error {
 func (t *BaseTokenizer) Close() error {
 	t.input = nil
 	return nil
-}
-
-// TokenizerFactory creates Tokenizer instances.
-//
-// This is the Go port of Lucene's TokenizerFactory interface.
-type TokenizerFactory interface {
-	// Create creates a new Tokenizer.
-	Create() Tokenizer
-}
-
-// LetterTokenizerFactory creates LetterTokenizer instances.
-type LetterTokenizerFactory struct{}
-
-// NewLetterTokenizerFactory creates a new LetterTokenizerFactory.
-func NewLetterTokenizerFactory() *LetterTokenizerFactory {
-	return &LetterTokenizerFactory{}
-}
-
-// Create creates a new LetterTokenizer.
-func (f *LetterTokenizerFactory) Create() Tokenizer {
-	return NewLetterTokenizer()
 }
 
 // Ensure LetterTokenizerFactory implements TokenizerFactory

@@ -5,6 +5,7 @@
 package commongrams_test
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"strings"
 	"testing"
 
@@ -33,15 +34,15 @@ func TestCommonGramsFilter_BasicBigrams(t *testing.T) {
 	src := cgf.GetAttributeSource()
 	var termAttr analysis.CharTermAttribute
 	var typeAttr analysis.TypeAttribute
-	var posIncAttr analysis.PositionIncrementAttribute
+	var posIncAttr tokenattributes.PositionIncrementAttribute
 	if a := src.GetAttribute(analysis.CharTermAttributeType); a != nil {
 		termAttr = a.(analysis.CharTermAttribute)
 	}
 	if a := src.GetAttribute(analysis.TypeAttributeType); a != nil {
 		typeAttr = a.(analysis.TypeAttribute)
 	}
-	if a := src.GetAttribute(analysis.PositionIncrementAttributeType); a != nil {
-		posIncAttr = a.(analysis.PositionIncrementAttribute)
+	if a := src.GetAttribute(tokenattributes.PositionIncrementAttributeType); a != nil {
+		posIncAttr = a.(tokenattributes.PositionIncrementAttribute)
 	}
 
 	type token struct {

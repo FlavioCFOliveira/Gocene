@@ -5,6 +5,7 @@
 package pattern
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"regexp"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
@@ -33,7 +34,7 @@ type PatternCaptureGroupTokenFilter struct {
 	*analysis.BaseTokenFilter
 
 	termAttr         analysis.CharTermAttribute
-	posIncrAttr      analysis.PositionIncrementAttribute
+	posIncrAttr      tokenattributes.PositionIncrementAttribute
 	matchers         []*regexp.Regexp
 	groupCounts      []int
 	currentGroups    []int // -1 = not started, 0 = exhausted, ≥1 = next group index
@@ -75,10 +76,10 @@ func NewPatternCaptureGroupTokenFilter(
 		f.termAttr = analysis.NewCharTermAttribute()
 		src.AddAttributeImpl(f.termAttr)
 	}
-	if a := src.GetAttribute(analysis.PositionIncrementAttributeType); a != nil {
-		f.posIncrAttr = a.(analysis.PositionIncrementAttribute)
+	if a := src.GetAttribute(tokenattributes.PositionIncrementAttributeType); a != nil {
+		f.posIncrAttr = a.(tokenattributes.PositionIncrementAttribute)
 	} else {
-		f.posIncrAttr = analysis.NewPositionIncrementAttribute()
+		f.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
 		src.AddAttributeImpl(f.posIncrAttr)
 	}
 	return f

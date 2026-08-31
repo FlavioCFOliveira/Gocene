@@ -16,6 +16,7 @@
 package testutil
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 )
 
@@ -161,7 +162,7 @@ type CannedTokenStream struct {
 	termAttr    analysis.CharTermAttribute
 	offsetAttr  analysis.OffsetAttribute
 	typeAttr    analysis.TypeAttribute
-	posIncrAttr analysis.PositionIncrementAttribute
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 	posLenAttr  analysis.PositionLengthAttribute
 	flagsAttr   *analysis.FlagsAttributeImpl
 	payloadAttr *analysis.PayloadAttributeImpl
@@ -196,7 +197,7 @@ func NewCannedTokenStreamWithFinal(finalPosInc, finalOffset int, tokens ...Token
 	cts.termAttr = analysis.NewCharTermAttribute()
 	cts.offsetAttr = analysis.NewOffsetAttribute()
 	cts.typeAttr = analysis.NewTypeAttributeImpl()
-	cts.posIncrAttr = analysis.NewPositionIncrementAttribute()
+	cts.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
 	cts.posLenAttr = analysis.NewPositionLengthAttributeImpl()
 	cts.flagsAttr = analysis.NewFlagsAttributeImpl()
 	cts.payloadAttr = analysis.NewPayloadAttributeImpl()
@@ -301,8 +302,8 @@ func (cts *CannedTokenStream) TypeAttribute() analysis.TypeAttribute {
 	return cts.typeAttr
 }
 
-// PositionIncrementAttribute exposes the live PositionIncrementAttribute.
-func (cts *CannedTokenStream) PositionIncrementAttribute() analysis.PositionIncrementAttribute {
+// tokenattributes.PositionIncrementAttribute exposes the live tokenattributes.PositionIncrementAttribute.
+func (cts *CannedTokenStream) tokenattributes.PositionIncrementAttribute() tokenattributes.PositionIncrementAttribute {
 	return cts.posIncrAttr
 }
 

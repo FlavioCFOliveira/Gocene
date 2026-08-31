@@ -33,7 +33,7 @@ func (c *captureSimScorer) Explain104(freqExpl search.Explanation, norm int64) s
 	return freqExpl
 }
 
-var _ search.LuceneSimScorer = (*captureSimScorer)(nil)
+var _ search.SimScorer = (*captureSimScorer)(nil)
 
 // fixedNormValues is a NumericDocValues that always returns the given value.
 type fixedNormValues struct {
@@ -63,7 +63,7 @@ func (r *singleFieldNormReader) GetNormValues(field string) (index.NumericDocVal
 }
 
 // TestMultiNormsLeafSimScorer_ScoreDelegatesFreqAndNorm verifies that Score
-// passes freq and the combined norm to the underlying LuceneSimScorer.
+// passes freq and the combined norm to the underlying SimScorer.
 func TestMultiNormsLeafSimScorer_ScoreDelegatesFreqAndNorm(t *testing.T) {
 	cap := &captureSimScorer{}
 	// Encode norm=4 → byte4 encoding, then use it as the raw norm value.
@@ -182,7 +182,7 @@ func TestMultiNormsLeafSimScorer_DuplicateFieldDeduped(t *testing.T) {
 }
 
 // TestMultiNormsLeafSimScorer_GetSimScorer verifies that GetSimScorer returns
-// the underlying LuceneSimScorer.
+// the underlying SimScorer.
 func TestMultiNormsLeafSimScorer_GetSimScorer(t *testing.T) {
 	cap := &captureSimScorer{}
 	reader := &singleFieldNormReader{field: "body", norms: &fixedNormValues{val: 1}}

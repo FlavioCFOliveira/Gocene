@@ -8,6 +8,7 @@
 package morfologik
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"strings"
 	"unicode/utf8"
 
@@ -63,7 +64,7 @@ type MorfologikFilter struct {
 
 	termAttr    analysis.CharTermAttribute
 	tagsAttr    MorphosyntacticTagsAttribute
-	posIncrAttr analysis.PositionIncrementAttribute
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 	keywordAttr analysis.KeywordAttribute
 
 	stemmer IStemmer
@@ -109,10 +110,10 @@ func NewMorfologikFilter(in analysis.TokenStream, stemmer IStemmer) *MorfologikF
 		f.tagsAttr = a.(MorphosyntacticTagsAttribute)
 	}
 
-	posImpl := analysis.NewPositionIncrementAttributeImpl()
+	posImpl := tokenattributes.NewPositionIncrementAttribute()
 	src.AddAttributeImpl(posImpl)
-	if a := src.GetAttribute(analysis.PositionIncrementAttributeType); a != nil {
-		f.posIncrAttr = a.(analysis.PositionIncrementAttribute)
+	if a := src.GetAttribute(tokenattributes.PositionIncrementAttributeType); a != nil {
+		f.posIncrAttr = a.(tokenattributes.PositionIncrementAttribute)
 	}
 
 	kwImpl := analysis.NewKeywordAttributeImpl()

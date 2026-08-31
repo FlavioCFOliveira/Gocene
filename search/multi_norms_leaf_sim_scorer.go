@@ -54,11 +54,11 @@ type normValuesReader interface {
 
 // multiNormsLeafSimScorer scores a single leaf segment across multiple norm
 // fields, combining their encoded length norms through a weighted sum before
-// delegating to a LuceneSimScorer.
+// delegating to a SimScorer.
 //
 // Mirrors org.apache.lucene.search.MultiNormsLeafSimScorer (package-private).
 type multiNormsLeafSimScorer struct {
-	scorer     LuceneSimScorer
+	scorer     SimScorer
 	bulkScorer BulkSimScorer
 	norms      index.NumericDocValues // nil when needsScores is false
 	normValues []int64                // scratch buffer for scoreRange
@@ -71,7 +71,7 @@ type multiNormsLeafSimScorer struct {
 // use where actual scores are not required (results in a nil norms source and
 // getNormValue always returns 1).
 func newMultiNormsLeafSimScorer(
-	scorer LuceneSimScorer,
+	scorer SimScorer,
 	reader normValuesReader,
 	normFields []FieldAndWeight,
 	needsScores bool,
@@ -112,8 +112,8 @@ func newMultiNormsLeafSimScorer(
 	return s, nil
 }
 
-// getSimScorer exposes the underlying LuceneSimScorer.
-func (s *multiNormsLeafSimScorer) getSimScorer() LuceneSimScorer { return s.scorer }
+// getSimScorer exposes the underlying SimScorer.
+func (s *multiNormsLeafSimScorer) getSimScorer() SimScorer { return s.scorer }
 
 // getNormValue returns the combined norm for doc. When norms is nil (no
 // needsScores, or no fields had norms) it returns 1, matching Lucene's

@@ -76,4 +76,4 @@ func NewLuceneIndriDirichletSimilarityFull(collectionModel LuceneLMCollectionMod
 func (s *LuceneIndriDirichletSimilarity) GetMu() float32 { return s.mu }
 
 // Compile-time guarantee.
-var _ LuceneSimilarity = (*LuceneIndriDirichletSimilarity)(nil)
+var _ Similarity = (*LuceneIndriDirichletSimilarity)(nil)

@@ -16,7 +16,7 @@ package search
 //
 // The legacy [IBSimilarity] struct is preserved untouched.
 type LuceneIBSimilarity struct {
-	*LuceneSimilarityBase
+	*SimilarityBase
 
 	distribution  LuceneIBDistribution
 	lambda        LuceneIBLambda
@@ -64,7 +64,7 @@ func NewLuceneIBSimilarityFull(distribution LuceneIBDistribution, lambda LuceneI
 	toString := func() string {
 		return "IB " + distribution.String() + "-" + lambda.String() + normalization.String()
 	}
-	ib.LuceneSimilarityBase = NewLuceneSimilarityBaseWithDiscount(discountOverlaps, score, subExplain, toString)
+	ib.SimilarityBase = NewSimilarityBaseWithDiscount(discountOverlaps, score, subExplain, toString)
 	return ib
 }
 
@@ -83,4 +83,4 @@ func (s *LuceneIBSimilarity) String() string {
 }
 
 // Compile-time guarantee.
-var _ LuceneSimilarity = (*LuceneIBSimilarity)(nil)
+var _ Similarity = (*LuceneIBSimilarity)(nil)

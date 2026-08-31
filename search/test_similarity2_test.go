@@ -15,7 +15,7 @@
 // Lucene-faithful Similarity classes (BM25Similarity, BooleanSimilarity,
 // AxiomaticF*, DFRSimilarity(model, effect, norm), IBSimilarity(dist, lambda,
 // norm), LM*, DFISimilarity(independence)). In Gocene those live in the
-// LuceneSimilarity family, which is a separate surface from the legacy
+// Similarity family, which is a separate surface from the legacy
 // Similarity interface that IndexSearcher.SetSimilarity accepts and TermWeight
 // scores through. This port therefore exercises the representative legacy
 // Similarity implementations Gocene exposes (one per scoring family); the

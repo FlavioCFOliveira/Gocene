@@ -5,6 +5,7 @@
 package shingle
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"fmt"
 	"strings"
 
@@ -30,7 +31,7 @@ type FixedShingleFilter struct {
 
 	termAttr   analysis.CharTermAttribute
 	offsetAttr analysis.OffsetAttribute
-	incAttr    analysis.PositionIncrementAttribute
+	incAttr    tokenattributes.PositionIncrementAttribute
 	typeAttr   analysis.TypeAttribute
 	buffer     strings.Builder
 }
@@ -65,8 +66,8 @@ func NewFixedShingleFilterFull(
 		if a := src.GetAttribute(analysis.OffsetAttributeType); a != nil {
 			f.offsetAttr = a.(analysis.OffsetAttribute)
 		}
-		if a := src.GetAttribute(analysis.PositionIncrementAttributeType); a != nil {
-			f.incAttr = a.(analysis.PositionIncrementAttribute)
+		if a := src.GetAttribute(tokenattributes.PositionIncrementAttributeType); a != nil {
+			f.incAttr = a.(tokenattributes.PositionIncrementAttribute)
 		}
 		if a := src.GetAttribute(analysis.TypeAttributeType); a != nil {
 			f.typeAttr = a.(analysis.TypeAttribute)

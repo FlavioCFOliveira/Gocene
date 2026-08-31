@@ -65,7 +65,7 @@ func (LuceneIndriCollectionModel) Name() string { return "" }
 // Subclasses configure the score/subExplain/toString hooks via the
 // constructor.
 type LuceneLMSimilarity struct {
-	*LuceneSimilarityBase
+	*SimilarityBase
 
 	collectionModel LuceneLMCollectionModel
 	name            string // e.g. "Dirichlet(2000.000000)"
@@ -101,7 +101,7 @@ func NewLuceneLMSimilarity(collectionModel LuceneLMCollectionModel, name string,
 			"collection probability"))
 		return subs
 	}
-	lm.LuceneSimilarityBase = NewLuceneSimilarityBaseWithDiscount(discountOverlaps, score, wrappedSubExplain, toString)
+	lm.SimilarityBase = NewSimilarityBaseWithDiscount(discountOverlaps, score, wrappedSubExplain, toString)
 	lm.SetFillExtra(func(stats *LuceneBasicStats, _ *CollectionStatistics, _ *TermStatistics) {
 		stats.SetCollectionProbability(collectionModel.ComputeProbability(stats))
 	})
@@ -127,5 +127,5 @@ func (s *LuceneLMSimilarity) String() string {
 var (
 	_ LuceneLMCollectionModel = LuceneDefaultCollectionModel{}
 	_ LuceneLMCollectionModel = LuceneIndriCollectionModel{}
-	_ LuceneSimilarity        = (*LuceneLMSimilarity)(nil)
+	_ Similarity        = (*LuceneLMSimilarity)(nil)
 )

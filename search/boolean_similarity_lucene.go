@@ -22,17 +22,17 @@ func NewLuceneBooleanSimilarity() *LuceneBooleanSimilarity {
 	return &LuceneBooleanSimilarity{}
 }
 
-// GetDiscountOverlaps satisfies LuceneSimilarity. Hard-coded to true to
+// GetDiscountOverlaps satisfies Similarity. Hard-coded to true to
 // match SimilarityBase/BM25 — see the Java javadoc.
 func (s *LuceneBooleanSimilarity) GetDiscountOverlaps() bool { return true }
 
-// ComputeNormFromInvertState satisfies LuceneSimilarity.
+// ComputeNormFromInvertState satisfies Similarity.
 func (s *LuceneBooleanSimilarity) ComputeNormFromInvertState(state *index.FieldInvertState) int64 {
 	return DefaultComputeNormFromInvertState(state, true)
 }
 
 // Scorer104 returns a SimScorer whose Score104 is `boost` for any freq/norm.
-func (s *LuceneBooleanSimilarity) Scorer104(boost float32, _ *CollectionStatistics, _ ...*TermStatistics) LuceneSimScorer {
+func (s *LuceneBooleanSimilarity) Scorer104(boost float32, _ *CollectionStatistics, _ ...*TermStatistics) SimScorer {
 	return &luceneBooleanScorer{boost: boost}
 }
 
@@ -59,6 +59,6 @@ func (s *luceneBooleanScorer) Explain104(_ Explanation, _ int64) Explanation {
 
 // Compile-time guarantees.
 var (
-	_ LuceneSimilarity = (*LuceneBooleanSimilarity)(nil)
-	_ LuceneSimScorer  = (*luceneBooleanScorer)(nil)
+	_ Similarity = (*LuceneBooleanSimilarity)(nil)
+	_ SimScorer  = (*luceneBooleanScorer)(nil)
 )

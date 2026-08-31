@@ -16,7 +16,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// stubSimScorer is a minimal LuceneSimScorer: score = freq * float32(norm).
+// stubSimScorer is a minimal SimScorer: score = freq * float32(norm).
 type stubSimScorer struct{}
 
 func (s *stubSimScorer) Score104(freq float32, norm int64) float32 { return freq * float32(norm) }

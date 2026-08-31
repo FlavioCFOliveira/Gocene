@@ -170,8 +170,11 @@ func NewKeywordTokenizerFactoryWithFactory(factory util.AttributeFactory) *Keywo
 	return &KeywordTokenizerFactory{factory: factory}
 }
 
-// Create creates a new KeywordTokenizer.
-func (f *KeywordTokenizerFactory) Create() Tokenizer {
+// Create creates a new KeywordTokenizer using the given AttributeFactory.
+func (f *KeywordTokenizerFactory) Create(factory util.AttributeFactory) Tokenizer {
+	if factory != nil {
+		return NewKeywordTokenizerWithFactory(factory)
+	}
 	if f.factory != nil {
 		return NewKeywordTokenizerWithFactory(f.factory)
 	}

@@ -12,6 +12,7 @@ import (
 	"reflect"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // DefaultMaxTokenLength is declared in uax29_url_email_tokenizer.go
@@ -62,14 +63,11 @@ type StandardTokenizer struct {
 	typeAttr    TypeAttribute
 }
 
-// NewStandardTokenizer creates a new StandardTokenizer with default
-// maxTokenLength ([DefaultMaxTokenLength]).
-//
-// The caller must invoke [StandardTokenizer.SetReader] before the
-// first call to IncrementToken.
-func NewStandardTokenizer() *StandardTokenizer {
+// NewStandardTokenizerWithFactory creates a new StandardTokenizer using the supplied
+// attribute factory.
+func NewStandardTokenizerWithFactory(factory util.AttributeFactory) *StandardTokenizer {
 	t := &StandardTokenizer{
-		BaseTokenizer:  NewBaseTokenizer(),
+		BaseTokenizer:  NewBaseTokenizerWithFactory(factory),
 		scanner:        newStandardTokenizerImpl(),
 		maxTokenLength: DefaultMaxTokenLength,
 	}
@@ -85,6 +83,12 @@ func NewStandardTokenizer() *StandardTokenizer {
 	t.AddAttribute(t.typeAttr)
 
 	return t
+}
+
+// NewStandardTokenizer creates a new StandardTokenizer with default
+// maxTokenLength ([DefaultMaxTokenLength]) and default attribute factory.
+func NewStandardTokenizer() *StandardTokenizer {
+	return NewStandardTokenizerWithFactory(util.DefaultAttributeFactoryInstance)
 }
 
 // MaxTokenLength returns the current maximum token length in

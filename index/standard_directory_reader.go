@@ -315,7 +315,11 @@ func (r *StandardDirectoryReader) Leaves() ([]*LeafReaderContext, error) {
 	if !ok {
 		return nil, fmt.Errorf("context is not a CompositeReaderContext")
 	}
-	return compCtx.Leaves(), nil
+	leaves, err := compCtx.Leaves()
+	if err != nil {
+		return nil, err
+	}
+	return leaves, nil
 }
 
 // Ensure StandardDirectoryReader implements IndexReaderInterface

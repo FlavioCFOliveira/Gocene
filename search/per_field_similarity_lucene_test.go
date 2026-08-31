@@ -15,7 +15,7 @@ import (
 func TestLucenePerFieldSimilarityWrapper_DispatchByField(t *testing.T) {
 	tf := NewRawTFSimilarity()
 	boolean := NewLuceneBooleanSimilarity()
-	w := NewLucenePerFieldSimilarityWrapper(func(field string) LuceneSimilarity {
+	w := NewLucenePerFieldSimilarityWrapper(func(field string) Similarity {
 		if field == "title" {
 			return boolean
 		}
@@ -42,7 +42,7 @@ func TestLucenePerFieldSimilarityWrapper_DispatchByField(t *testing.T) {
 func TestLucenePerFieldSimilarityWrapper_ComputeNormDispatch(t *testing.T) {
 	bm25Discount := NewLuceneBM25SimilarityFull(1.2, 0.75, true)
 	bm25NoDiscount := NewLuceneBM25SimilarityFull(1.2, 0.75, false)
-	w := NewLucenePerFieldSimilarityWrapper(func(field string) LuceneSimilarity {
+	w := NewLucenePerFieldSimilarityWrapper(func(field string) Similarity {
 		if field == "discount" {
 			return bm25Discount
 		}
@@ -75,7 +75,7 @@ func TestLucenePerFieldSimilarityWrapper_NilGetterPanics(t *testing.T) {
 // TestLucenePerFieldSimilarityWrapper_GetterReturnsNil verifies the
 // defensive fallback to a noop scorer.
 func TestLucenePerFieldSimilarityWrapper_GetterReturnsNil(t *testing.T) {
-	w := NewLucenePerFieldSimilarityWrapper(func(_ string) LuceneSimilarity { return nil })
+	w := NewLucenePerFieldSimilarityWrapper(func(_ string) Similarity { return nil })
 	cs := NewCollectionStatistics("title", 100, 80, 800, 200)
 	sc := w.Scorer104(1.0, cs)
 	if got := sc.Score104(7, 1); got != 0 {

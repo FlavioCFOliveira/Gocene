@@ -115,6 +115,22 @@ func AvailableTokenizers() []string {
 	return names
 }
 
+// LetterTokenizerFactory creates LetterTokenizer instances.
+type LetterTokenizerFactory struct{}
+
+// NewLetterTokenizerFactory creates a new LetterTokenizerFactory.
+func NewLetterTokenizerFactory() *LetterTokenizerFactory {
+	return &LetterTokenizerFactory{}
+}
+
+// Create creates a new LetterTokenizer using the given AttributeFactory.
+func (f *LetterTokenizerFactory) Create(factory util.AttributeFactory) Tokenizer {
+	return NewLetterTokenizerWithFactory(factory)
+}
+
+// Ensure LetterTokenizerFactory implements TokenizerFactory
+var _ TokenizerFactory = (*LetterTokenizerFactory)(nil)
+
 // CreateDefaultTokenizer is a helper that creates a Tokenizer using the default attribute factory.
 // This mirrors the no-arg create() method in Java's TokenizerFactory.
 func CreateDefaultTokenizer(f TokenizerFactory) Tokenizer {

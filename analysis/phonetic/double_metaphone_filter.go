@@ -5,6 +5,7 @@
 package phonetic
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"fmt"
 	"strings"
 
@@ -28,7 +29,7 @@ type DoubleMetaphoneFilter struct {
 	remainingTokens []*util.AttributeState
 
 	termAttr   analysis.CharTermAttribute
-	posIncAttr analysis.PositionIncrementAttribute
+	posIncAttr tokenattributes.PositionIncrementAttribute
 }
 
 // NewDoubleMetaphoneFilter creates a DoubleMetaphoneFilter with the specified
@@ -47,8 +48,8 @@ func NewDoubleMetaphoneFilter(input analysis.TokenStream, maxCodeLength int, inj
 		if a := src.GetAttribute(analysis.CharTermAttributeType); a != nil {
 			f.termAttr = a.(analysis.CharTermAttribute)
 		}
-		if a := src.GetAttribute(analysis.PositionIncrementAttributeType); a != nil {
-			f.posIncAttr = a.(analysis.PositionIncrementAttribute)
+		if a := src.GetAttribute(tokenattributes.PositionIncrementAttributeType); a != nil {
+			f.posIncAttr = a.(tokenattributes.PositionIncrementAttribute)
 		}
 	}
 	return f

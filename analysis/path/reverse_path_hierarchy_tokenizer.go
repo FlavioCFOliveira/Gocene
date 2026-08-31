@@ -6,6 +6,7 @@
 package path
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"io"
 	"strings"
 	"unicode/utf8"
@@ -45,7 +46,7 @@ type ReversePathHierarchyTokenizer struct {
 
 	termAttr    analysis.CharTermAttribute
 	offsetAttr  analysis.OffsetAttribute
-	posIncrAttr analysis.PositionIncrementAttribute
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 
 	// State populated on first IncrementToken call.
 	resultToken       strings.Builder
@@ -92,7 +93,7 @@ func NewReversePathHierarchyTokenizerFull(delimiter, replacement rune, skip int)
 
 	t.termAttr = analysis.NewCharTermAttribute()
 	t.offsetAttr = analysis.NewOffsetAttribute()
-	t.posIncrAttr = analysis.NewPositionIncrementAttribute()
+	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
 
 	t.AddAttribute(t.termAttr)
 	t.AddAttribute(t.offsetAttr)

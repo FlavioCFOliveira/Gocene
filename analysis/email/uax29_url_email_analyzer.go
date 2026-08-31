@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // DefaultMaxTokenLength is the default maximum token length for
@@ -74,7 +75,7 @@ type uax29URLEmailTokenizerFactory struct {
 	a *UAX29URLEmailAnalyzer
 }
 
-func (f *uax29URLEmailTokenizerFactory) Create() analysis.Tokenizer {
+func (f *uax29URLEmailTokenizerFactory) Create(factory util.AttributeFactory) analysis.Tokenizer {
 	t := analysis.NewUAX29URLEmailTokenizer()
 	t.SetMaxTokenLength(f.a.maxTokenLength)
 	return t

@@ -5,6 +5,7 @@
 package testutil
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"bytes"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
@@ -176,13 +177,13 @@ func AssertTokenStreamContents(t TestingT, ts analysis.TokenStream, want TokenSt
 		typeAtt, _ = ta.(analysis.TypeAttribute)
 	}
 
-	var posIncrAtt analysis.PositionIncrementAttribute
+	var posIncrAtt tokenattributes.PositionIncrementAttribute
 	if want.PositionIncrements != nil || want.FinalPositionIncrement != nil {
-		pa := src.GetAttribute(analysis.PositionIncrementAttributeType)
+		pa := src.GetAttribute(tokenattributes.PositionIncrementAttributeType)
 		if pa == nil {
-			t.Fatalf("AssertTokenStreamContents: stream has no PositionIncrementAttribute")
+			t.Fatalf("AssertTokenStreamContents: stream has no tokenattributes.PositionIncrementAttribute")
 		}
-		posIncrAtt, _ = pa.(analysis.PositionIncrementAttribute)
+		posIncrAtt, _ = pa.(tokenattributes.PositionIncrementAttribute)
 	}
 
 	var posLenAtt analysis.PositionLengthAttribute

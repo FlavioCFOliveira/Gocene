@@ -10,6 +10,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis/smartcn/hhmm"
 	analysisutil "github.com/FlavioCFOliveira/Gocene/analysis/util"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // HMMChineseTokenizer tokenises Chinese or mixed Chinese-English text.
@@ -44,7 +45,7 @@ type HMMChineseTokenizer struct {
 
 // NewHMMChineseTokenizer creates a new HMMChineseTokenizer.
 // Returns an error if the underlying WordDictionary cannot be loaded.
-func NewHMMChineseTokenizer() (*HMMChineseTokenizer, error) {
+func NewHMMChineseTokenizer(factory util.AttributeFactory) (*HMMChineseTokenizer, error) {
 	ws, err := NewWordSegmenter()
 	if err != nil {
 		return nil, err
@@ -55,9 +56,9 @@ func NewHMMChineseTokenizer() (*HMMChineseTokenizer, error) {
 		wordSegmenter:   ws,
 	}
 
-	t.termAtt = analysis.NewCharTermAttribute()
-	t.offsetAtt = analysis.NewOffsetAttribute()
-	t.typeAtt = analysis.NewTypeAttribute()
+	t.termAtt = factory.CreateAttributeInstance(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
+	t.offsetAttr = factory.CreateAttributeInstance(analysis.OffsetAttributeType).(analysis.OffsetAttribute)
+	t.typeAtt = factory.CreateAttributeInstance(analysis.TypeAttributeType).(analysis.TypeAttribute)
 	t.AddAttribute(t.termAtt)
 	t.AddAttribute(t.offsetAtt)
 	t.AddAttribute(t.typeAtt)

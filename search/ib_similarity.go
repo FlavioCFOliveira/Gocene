@@ -41,7 +41,7 @@ type IBNormalization interface {
 // IBSimilarity provides a framework for the family of information-based models.
 // It mirrors org.apache.lucene.search.similarities.IBSimilarity from Lucene 10.4.0.
 type IBSimilarity struct {
-	*LuceneSimilarityBase
+	*SimilarityBase
 	distribution  IBDistribution
 	lambda        IBLambda
 	normalization IBNormalization
@@ -83,7 +83,7 @@ func NewIBSimilarityWithDiscount(discountOverlaps bool, distribution IBDistribut
 		return fmt.Sprintf("IB %s-%s%s", ib.distribution.String(), ib.lambda.String(), ib.normalization.String())
 	}
 
-	ib.LuceneSimilarityBase = NewLuceneSimilarityBaseWithDiscount(discountOverlaps, scoreFunc, subExplainFunc, toStringFunc)
+	ib.SimilarityBase = NewSimilarityBaseWithDiscount(discountOverlaps, scoreFunc, subExplainFunc, toStringFunc)
 	return ib
 }
 

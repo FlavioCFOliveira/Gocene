@@ -33,6 +33,7 @@ This file describes the shape of the Label Property Graph (LPG) maintained in `r
 | `IMPLEMENTED_IN` / `IMPLEMENTS` / `implements` | Feature implemented in file / file implements feature |
 | `TESTS` / `TESTED_BY` / `COVERS` / `COVERED_BY` | Test coverage relationships |
 | `USES` | Dependency / usage relationship |
+| `PORTED_TO` | Java class ported to Go file | varies |
 | `PASSED_AT` | Test passed at a given commit |
 | `REALIZES` / `DELIVERS` / `delivers` | Task realizes/delivers feature |
 | `VALIDATED_BY` / `VERIFIES` | Validation relationships |

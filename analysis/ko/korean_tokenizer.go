@@ -5,6 +5,7 @@
 package ko
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"io"
 	"unicode/utf8"
 
@@ -51,7 +52,7 @@ type KoreanTokenizer struct {
 
 	termAttr    analysis.CharTermAttribute
 	offsetAttr  analysis.OffsetAttribute
-	posIncrAttr analysis.PositionIncrementAttribute
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 	posLenAttr  analysis.PositionLengthAttribute
 	posAtt      tokenattributes.PartOfSpeechAttribute
 	readingAtt  tokenattributes.ReadingAttribute
@@ -127,8 +128,8 @@ func (t *KoreanTokenizer) wireAttributes() {
 	if a := src.GetAttribute(analysis.OffsetAttributeType); a != nil {
 		t.offsetAttr, _ = a.(analysis.OffsetAttribute)
 	}
-	if a := src.GetAttribute(analysis.PositionIncrementAttributeType); a != nil {
-		t.posIncrAttr, _ = a.(analysis.PositionIncrementAttribute)
+	if a := src.GetAttribute(tokenattributes.PositionIncrementAttributeType); a != nil {
+		t.posIncrAttr, _ = a.(tokenattributes.PositionIncrementAttribute)
 	}
 	if a := src.GetAttribute(analysis.PositionLengthAttributeType); a != nil {
 		t.posLenAttr, _ = a.(analysis.PositionLengthAttribute)

@@ -16,7 +16,7 @@ import (
 func TestLuceneMultiSimilarity_CombSum(t *testing.T) {
 	a := NewRawTFSimilarity()
 	b := NewLuceneBooleanSimilarity()
-	m := NewLuceneMultiSimilarity([]LuceneSimilarity{a, b})
+	m := NewLuceneMultiSimilarity([]Similarity{a, b})
 
 	cs := NewCollectionStatistics("body", 100, 80, 800, 200)
 	ts := NewTermStatistics(index.NewTerm("body", "go"), 10, 25)
@@ -34,7 +34,7 @@ func TestLuceneMultiSimilarity_CombSum(t *testing.T) {
 func TestLuceneMultiSimilarity_ComputeNormDelegatesToZeroth(t *testing.T) {
 	a := NewLuceneBM25SimilarityFull(1.2, 0.75, true)
 	b := NewLuceneBM25SimilarityFull(1.2, 0.75, false) // different flag
-	m := NewLuceneMultiSimilarity([]LuceneSimilarity{a, b})
+	m := NewLuceneMultiSimilarity([]Similarity{a, b})
 	state := index.NewFieldInvertStateFull(10, "f", index.IndexOptionsDocsAndFreqs,
 		0, 10, 4, 0, 0, 0)
 	got := m.ComputeNormFromInvertState(state)
@@ -57,7 +57,7 @@ func TestLuceneMultiSimilarity_EmptyPanics(t *testing.T) {
 // TestLuceneMultiSimilarity_Explain verifies that the explanation tree
 // contains one detail per sub-scorer.
 func TestLuceneMultiSimilarity_Explain(t *testing.T) {
-	m := NewLuceneMultiSimilarity([]LuceneSimilarity{
+	m := NewLuceneMultiSimilarity([]Similarity{
 		NewRawTFSimilarity(),
 		NewLuceneBooleanSimilarity(),
 		NewRawTFSimilarity(),

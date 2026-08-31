@@ -6,13 +6,12 @@ package analysis
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"bufio"
 	"io"
 	"regexp"
 	"strings"
 	"unicode"
-
-	
 )
 
 // UAX29URLEmailTokenizer is a tokenizer that implements UAX#29 word boundary rules
@@ -91,16 +90,11 @@ var urlPattern = regexp.MustCompile(`^(?i)([a-z][a-z0-9+.-]*://[^\s<>"{}|\^\[\]`
 // Matches: local-part@domain.tld
 var emailPattern = regexp.MustCompile(`^(?i)([a-z0-9!#$%&'*+/=?^_` + "`" + `{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_` + "`" + `{|}~-]+)*@[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*)`)
 
-// NewUAX29URLEmailTokenizer creates a new UAX29URLEmailTokenizer with default settings.
-func NewUAX29URLEmailTokenizer() *UAX29URLEmailTokenizer {
-	return NewUAX29URLEmailTokenizerWithMaxTokenLength(DefaultMaxTokenLength)
-}
-
 // NewUAX29URLEmailTokenizerWithMaxTokenLength creates a new UAX29URLEmailTokenizer
-// with the specified maximum token length.
-func NewUAX29URLEmailTokenizerWithMaxTokenLength(maxTokenLength int) *UAX29URLEmailTokenizer {
+// with the specified maximum token length, using the supplied attribute factory.
+func NewUAX29URLEmailTokenizerWithMaxTokenLength(factory util.AttributeFactory, maxTokenLength int) *UAX29URLEmailTokenizer {
 	t := &UAX29URLEmailTokenizer{
-		BaseTokenizer:    NewBaseTokenizer(),
+		BaseTokenizer:    NewBaseTokenizerWithFactory(factory),
 		maxTokenLength:   maxTokenLength,
 		currentToken:     make([]rune, 0, 256),
 		inputBuffer:      make([]rune, 0, 4096),
@@ -119,6 +113,11 @@ func NewUAX29URLEmailTokenizerWithMaxTokenLength(maxTokenLength int) *UAX29URLEm
 	t.AddAttribute(t.posIncrAttr)
 
 	return t
+}
+
+// NewUAX29URLEmailTokenizer creates a new UAX29URLEmailTokenizer with default settings.
+func NewUAX29URLEmailTokenizer() *UAX29URLEmailTokenizer {
+	return NewUAX29URLEmailTokenizerWithMaxTokenLength(util.DefaultAttributeFactoryInstance, DefaultMaxTokenLength)
 }
 
 // SetReader sets the input source for this Tokenizer.
@@ -527,9 +526,9 @@ func NewUAX29URLEmailTokenizerFactoryWithMaxLength(maxTokenLength int) *UAX29URL
 	}
 }
 
-// Create creates a new UAX29URLEmailTokenizer.
-func (f *UAX29URLEmailTokenizerFactory) Create() Tokenizer {
-	return NewUAX29URLEmailTokenizerWithMaxTokenLength(f.maxTokenLength)
+// Create creates a new UAX29URLEmailTokenizer using the given AttributeFactory.
+func (f *UAX29URLEmailTokenizerFactory) Create(factory util.AttributeFactory) Tokenizer {
+	return NewUAX29URLEmailTokenizerWithMaxTokenLength(factory, f.maxTokenLength)
 }
 
 // Ensure UAX29URLEmailTokenizerFactory implements TokenizerFactory

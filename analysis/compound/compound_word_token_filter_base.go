@@ -5,6 +5,7 @@
 package compound
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
@@ -49,7 +50,7 @@ type CompoundWordTokenFilterBase struct {
 
 	termAttr    analysis.CharTermAttribute
 	offsetAttr  analysis.OffsetAttribute
-	posIncAttr  analysis.PositionIncrementAttribute
+	posIncAttr  tokenattributes.PositionIncrementAttribute
 
 	current *util.AttributeState
 }
@@ -86,8 +87,8 @@ func newCompoundWordTokenFilterBase(
 		if a := src.GetAttribute(analysis.OffsetAttributeType); a != nil {
 			f.offsetAttr = a.(analysis.OffsetAttribute)
 		}
-		if a := src.GetAttribute(analysis.PositionIncrementAttributeType); a != nil {
-			f.posIncAttr = a.(analysis.PositionIncrementAttribute)
+		if a := src.GetAttribute(tokenattributes.PositionIncrementAttributeType); a != nil {
+			f.posIncAttr = a.(tokenattributes.PositionIncrementAttribute)
 		}
 	}
 	return f, nil

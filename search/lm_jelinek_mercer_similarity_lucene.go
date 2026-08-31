@@ -69,4 +69,4 @@ func NewLuceneLMJelinekMercerSimilarityFull(collectionModel LuceneLMCollectionMo
 func (s *LuceneLMJelinekMercerSimilarity) GetLambda() float32 { return s.lambda }
 
 // Compile-time guarantee.
-var _ LuceneSimilarity = (*LuceneLMJelinekMercerSimilarity)(nil)
+var _ Similarity = (*LuceneLMJelinekMercerSimilarity)(nil)

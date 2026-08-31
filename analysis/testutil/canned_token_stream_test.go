@@ -5,6 +5,7 @@
 package testutil
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"bytes"
 	"testing"
 
@@ -30,7 +31,7 @@ func TestCannedTokenStream_Empty(t *testing.T) {
 	if err := cts.End(); err != nil {
 		t.Fatalf("End on empty stream: unexpected error %v", err)
 	}
-	if got := cts.PositionIncrementAttribute().GetPositionIncrement(); got != 0 {
+	if got := cts.tokenattributes.PositionIncrementAttribute().GetPositionIncrement(); got != 0 {
 		t.Errorf("finalPosInc default: got %d, want 0", got)
 	}
 	if start, end := cts.OffsetAttribute().StartOffset(), cts.OffsetAttribute().EndOffset(); start != 0 || end != 0 {
@@ -63,7 +64,7 @@ func TestCannedTokenStream_Single(t *testing.T) {
 	if got := cts.TypeAttribute().GetType(); got != analysis.DefaultTokenType {
 		t.Errorf("type default: got %q, want %q", got, analysis.DefaultTokenType)
 	}
-	if got := cts.PositionIncrementAttribute().GetPositionIncrement(); got != 1 {
+	if got := cts.tokenattributes.PositionIncrementAttribute().GetPositionIncrement(); got != 1 {
 		t.Errorf("posInc default: got %d, want 1", got)
 	}
 	if got := cts.PositionLengthAttribute().GetPositionLength(); got != 1 {
@@ -129,7 +130,7 @@ func TestCannedTokenStream_MultiPosition(t *testing.T) {
 		if start, end := cts.OffsetAttribute().StartOffset(), cts.OffsetAttribute().EndOffset(); start != w.start || end != w.end {
 			t.Errorf("token #%d offsets: got (%d,%d), want (%d,%d)", i, start, end, w.start, w.end)
 		}
-		if got := cts.PositionIncrementAttribute().GetPositionIncrement(); got != w.posInc {
+		if got := cts.tokenattributes.PositionIncrementAttribute().GetPositionIncrement(); got != w.posInc {
 			t.Errorf("token #%d posInc: got %d, want %d", i, got, w.posInc)
 		}
 		if got := cts.PositionLengthAttribute().GetPositionLength(); got != w.posLen {
@@ -208,7 +209,7 @@ func TestCannedTokenStream_OffsetsAndTypeAndPayloadAndFlags(t *testing.T) {
 	if err := cts.End(); err != nil {
 		t.Fatalf("End: unexpected error %v", err)
 	}
-	if got := cts.PositionIncrementAttribute().GetPositionIncrement(); got != 2 {
+	if got := cts.tokenattributes.PositionIncrementAttribute().GetPositionIncrement(); got != 2 {
 		t.Errorf("finalPosInc: got %d, want 2", got)
 	}
 	if start, end := cts.OffsetAttribute().StartOffset(), cts.OffsetAttribute().EndOffset(); start != 20 || end != 20 {
@@ -275,8 +276,8 @@ func TestCannedTokenStream_AttributeSourceExposesAll(t *testing.T) {
 	if src.GetAttribute(analysis.TypeAttributeType) == nil {
 		t.Error("TypeAttribute not registered")
 	}
-	if src.GetAttribute(analysis.PositionIncrementAttributeType) == nil {
-		t.Error("PositionIncrementAttribute not registered")
+	if src.GetAttribute(tokenattributes.PositionIncrementAttributeType) == nil {
+		t.Error("tokenattributes.PositionIncrementAttribute not registered")
 	}
 	if src.GetAttribute(analysis.PositionLengthAttributeType) == nil {
 		t.Error("PositionLengthAttribute not registered")

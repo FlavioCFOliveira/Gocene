@@ -18,7 +18,7 @@ var FlagsAttributeType = reflect.TypeOf((*FlagsAttribute)(nil)).Elem()
 // FlagsAttribute provides a way to set and get flags for a token.
 //
 // This is the Go port of
-// org.apache.lucene.analysis.tokenattributes.FlagsAttribute.
+// org.apache.lucene.tokenattributes.FlagsAttribute.
 type FlagsAttribute interface {
 	util.AttributeImpl
 

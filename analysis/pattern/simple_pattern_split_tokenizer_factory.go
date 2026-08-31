@@ -45,8 +45,8 @@ func NewSimplePatternSplitTokenizerFactoryFromString(pattern string) (*SimplePat
 }
 
 // Create returns a new [analysis.SimplePatternSplitTokenizer].
-func (f *SimplePatternSplitTokenizerFactory) Create() analysis.Tokenizer {
-	t, err := analysis.NewSimplePatternSplitTokenizer(f.pattern)
+func (f *SimplePatternSplitTokenizerFactory) Create(factory util.AttributeFactory) analysis.Tokenizer {
+	t, err := analysis.NewSimplePatternSplitTokenizer(factory, f.pattern)
 	if err != nil {
 		// pattern was validated at construction; this cannot happen.
 		panic("simplePatternSplitTokenizerFactory: unexpected error: " + err.Error())

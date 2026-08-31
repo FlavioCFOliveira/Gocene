@@ -40,7 +40,7 @@ type LuceneAxiomaticHooks struct {
 // score components live in LuceneAxiomaticHooks. Composition keeps the
 // hot path zero-virtual-dispatch.
 type LuceneAxiomaticSimilarity struct {
-	*LuceneSimilarityBase
+	*SimilarityBase
 
 	s        float32
 	k        float32
@@ -103,7 +103,7 @@ func NewLuceneAxiomaticSimilarityFull(discountOverlaps bool, s float32, queryLen
 		return subs
 	}
 	toString := func() string { return hooks.Name }
-	a.LuceneSimilarityBase = NewLuceneSimilarityBaseWithDiscount(discountOverlaps, score, subExplain, toString)
+	a.SimilarityBase = NewSimilarityBaseWithDiscount(discountOverlaps, score, subExplain, toString)
 	return a
 }
 
@@ -120,7 +120,7 @@ func (a *LuceneAxiomaticSimilarity) QueryLen() int { return a.queryLen }
 func (a *LuceneAxiomaticSimilarity) String() string { return a.hooks.Name }
 
 // Compile-time guarantee.
-var _ LuceneSimilarity = (*LuceneAxiomaticSimilarity)(nil)
+var _ Similarity = (*LuceneAxiomaticSimilarity)(nil)
 
 // ============================================================================
 // Shared scoring kernels used by F1/F2/F3 variants.

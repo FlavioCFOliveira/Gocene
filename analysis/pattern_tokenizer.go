@@ -8,6 +8,7 @@ package analysis
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"io"
 	"regexp"
 )
@@ -79,40 +80,11 @@ type PatternTokenizer struct {
 	splitEnd int
 }
 
-// NewPatternTokenizer creates a new PatternTokenizer in split mode.
-//
-// The pattern is used as a delimiter - tokens are the text between matches.
-// This is the default behavior matching Lucene's PatternTokenizer.
-//
-// Example:
-//
-//	pattern := regexp.MustCompile(`\s+`)
-//	tokenizer := NewPatternTokenizer(pattern)
-func NewPatternTokenizer(pattern *regexp.Regexp) *PatternTokenizer {
-	return NewPatternTokenizerWithGroup(pattern, -1)
-}
-
 // NewPatternTokenizerWithGroup creates a new PatternTokenizer in match mode
-// with a specific capturing group.
-//
-// When group is -1, the tokenizer works in split mode (pattern is delimiter).
-// When group is 0 or greater, the tokenizer works in match mode and extracts
-// the specified capturing group from each match.
-//
-// Example (extract entire matches):
-//
-//	pattern := regexp.MustCompile(`\b\w+\b`)
-//	tokenizer := NewPatternTokenizerWithGroup(pattern, 0)
-//
-// Example (extract first capturing group):
-//
-//	pattern := regexp.MustCompile(`<(\w+)>`)
-//	tokenizer := NewPatternTokenizerWithGroup(pattern, 1)
-//	// Input: "<tag1> <tag2>"
-//	// Output: "tag1", "tag2"
-func NewPatternTokenizerWithGroup(pattern *regexp.Regexp, group int) *PatternTokenizer {
+// with a specific capturing group, using the supplied attribute factory.
+func NewPatternTokenizerWithGroup(factory util.AttributeFactory, pattern *regexp.Regexp, group int) *PatternTokenizer {
 	t := &PatternTokenizer{
-		BaseTokenizer: NewBaseTokenizer(),
+		BaseTokenizer: NewBaseTokenizerWithFactory(factory),
 		pattern:       pattern,
 		group:         group,
 		matchMode:     group >= 0,
@@ -130,6 +102,11 @@ func NewPatternTokenizerWithGroup(pattern *regexp.Regexp, group int) *PatternTok
 	t.AddAttribute(t.typeAttr)
 
 	return t
+}
+
+// NewPatternTokenizer creates a new PatternTokenizer in split mode using default attribute factory.
+func NewPatternTokenizer(pattern *regexp.Regexp) *PatternTokenizer {
+	return NewPatternTokenizerWithGroup(util.DefaultAttributeFactoryInstance, pattern, -1)
 }
 
 // SetReader sets the input source for this Tokenizer.
@@ -366,9 +343,9 @@ func NewPatternTokenizerFactoryWithGroup(pattern string, group int) *PatternToke
 	}
 }
 
-// Create creates a new PatternTokenizer.
-func (f *PatternTokenizerFactory) Create() Tokenizer {
-	return NewPatternTokenizerWithGroup(f.pattern, f.group)
+// Create creates a new PatternTokenizer using the given AttributeFactory.
+func (f *PatternTokenizerFactory) Create(factory util.AttributeFactory) Tokenizer {
+	return NewPatternTokenizerWithGroup(factory, f.pattern, f.group)
 }
 
 // Ensure PatternTokenizerFactory implements TokenizerFactory

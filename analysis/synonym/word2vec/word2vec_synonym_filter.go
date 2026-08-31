@@ -5,6 +5,7 @@
 package word2vec
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"errors"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
@@ -33,7 +34,7 @@ type Word2VecSynonymFilter struct {
 	*analysis.BaseTokenFilter
 
 	termAttr    analysis.CharTermAttribute
-	posIncrAttr analysis.PositionIncrementAttribute
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 	posLenAttr  analysis.PositionLengthAttribute
 	typeAttr    analysis.TypeAttribute
 
@@ -70,7 +71,7 @@ func NewWord2VecSynonymFilter(
 	src := bf.GetAttributeSource()
 
 	termAttr := src.AddAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
-	posIncrAttr := src.AddAttribute(analysis.PositionIncrementAttributeType).(analysis.PositionIncrementAttribute)
+	posIncrAttr := src.AddAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
 	posLenAttr := src.AddAttribute(analysis.PositionLengthAttributeType).(analysis.PositionLengthAttribute)
 	typeAttr := src.AddAttribute(analysis.TypeAttributeType).(analysis.TypeAttribute)
 

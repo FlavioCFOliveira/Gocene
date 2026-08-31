@@ -6,6 +6,8 @@ package analysis
 
 import (
 	"io"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // Analyzer is the abstract base class for all analyzers.
@@ -124,7 +126,7 @@ func (a *BaseAnalyzer) TokenStream(fieldName string, reader io.Reader) (TokenStr
 	}
 
 	// Create tokenizer
-	tokenizer := a.TokenizerFactory.Create()
+	tokenizer := a.TokenizerFactory.Create(util.DefaultAttributeFactoryInstance)
 	if err := tokenizer.SetReader(reader); err != nil {
 		return nil, err
 	}

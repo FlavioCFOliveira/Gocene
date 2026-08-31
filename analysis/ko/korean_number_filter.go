@@ -5,6 +5,7 @@
 package ko
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"math/big"
 	"strings"
 
@@ -84,7 +85,7 @@ type KoreanNumberFilter struct {
 	termAttr    analysis.CharTermAttribute
 	offsetAttr  analysis.OffsetAttribute
 	keywordAttr analysis.KeywordAttribute
-	posIncrAttr analysis.PositionIncrementAttribute
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 	posLenAttr  analysis.PositionLengthAttribute
 
 	savedState        *util.AttributeState
@@ -109,8 +110,8 @@ func NewKoreanNumberFilter(input analysis.TokenStream) *KoreanNumberFilter {
 		if a := src.GetAttribute(analysis.KeywordAttributeType); a != nil {
 			f.keywordAttr, _ = a.(analysis.KeywordAttribute)
 		}
-		if a := src.GetAttribute(analysis.PositionIncrementAttributeType); a != nil {
-			f.posIncrAttr, _ = a.(analysis.PositionIncrementAttribute)
+		if a := src.GetAttribute(tokenattributes.PositionIncrementAttributeType); a != nil {
+			f.posIncrAttr, _ = a.(tokenattributes.PositionIncrementAttribute)
 		}
 		if a := src.GetAttribute(analysis.PositionLengthAttributeType); a != nil {
 			f.posLenAttr, _ = a.(analysis.PositionLengthAttribute)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis/icu/tokenattributes"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 const ioBuffer = 4096
@@ -54,21 +55,21 @@ type ICUTokenizer struct {
 // NewICUTokenizer creates a new ICUTokenizer using
 // DefaultICUTokenizerConfig(cjkAsWords=true, myanmarAsWords=true).
 func NewICUTokenizer() *ICUTokenizer {
-	return NewICUTokenizerWith(NewDefaultICUTokenizerConfig(true, true))
+	return NewICUTokenizerWith(util.DefaultAttributeFactoryInstance, NewDefaultICUTokenizerConfig(true, true))
 }
 
 // NewICUTokenizerWith creates a new ICUTokenizer with a custom config.
-func NewICUTokenizerWith(config ICUTokenizerConfig) *ICUTokenizer {
+func NewICUTokenizerWith(factory util.AttributeFactory, config ICUTokenizerConfig) *ICUTokenizer {
 	t := &ICUTokenizer{
-		BaseTokenizer: analysis.NewBaseTokenizer(),
+		BaseTokenizer: analysis.NewBaseTokenizerWithFactory(factory),
 		buffer:        make([]rune, ioBuffer),
 		config:        config,
 		breaker:       NewCompositeBreakIterator(config),
 	}
 
-	t.termAttr = analysis.NewCharTermAttribute()
-	t.offsetAttr = analysis.NewOffsetAttribute()
-	t.typeAttr = analysis.NewTypeAttribute()
+	t.termAttr = factory.NewCharTermAttribute()
+	t.offsetAttr = factory.NewOffsetAttribute()
+	t.typeAttr = factory.NewTypeAttribute()
 	t.scriptAttr = tokenattributes.NewScriptAttributeImpl()
 
 	t.AddAttribute(t.termAttr)

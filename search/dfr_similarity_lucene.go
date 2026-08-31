@@ -20,7 +20,7 @@ import (
 // The legacy [DFRSimilarity] struct is preserved untouched; this canonical
 // type lives alongside it.
 type LuceneDFRSimilarity struct {
-	*LuceneSimilarityBase
+	*SimilarityBase
 
 	basicModel    LuceneDFRBasicModel
 	afterEffect   LuceneDFRAfterEffect
@@ -65,7 +65,7 @@ func NewLuceneDFRSimilarityFull(basicModel LuceneDFRBasicModel, afterEffect Luce
 	toString := func() string {
 		return "DFR " + basicModel.String() + afterEffect.String() + normalization.String()
 	}
-	d.LuceneSimilarityBase = NewLuceneSimilarityBaseWithDiscount(discountOverlaps, score, subExplain, toString)
+	d.SimilarityBase = NewSimilarityBaseWithDiscount(discountOverlaps, score, subExplain, toString)
 	return d
 }
 
@@ -85,8 +85,8 @@ func (d *LuceneDFRSimilarity) String() string {
 
 // Explicit interface assertion to defend against accidental embedding
 // regressions. The composition above delegates GetDiscountOverlaps,
-// ComputeNormFromInvertState, Scorer104 through LuceneSimilarityBase.
-var _ LuceneSimilarity = (*LuceneDFRSimilarity)(nil)
+// ComputeNormFromInvertState, Scorer104 through SimilarityBase.
+var _ Similarity = (*LuceneDFRSimilarity)(nil)
 
 // Ensure the base method set is reachable through index.FieldInvertState —
 // guards against accidental import cycles.

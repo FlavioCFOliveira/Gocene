@@ -5,6 +5,7 @@
 package word2vec
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"encoding/base64"
 	"os"
 	"strings"
@@ -44,7 +45,7 @@ func drainFilter(t *testing.T, input analysis.TokenStream, f *Word2VecSynonymFil
 	src := f.GetAttributeSource()
 	termAttr := src.GetAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
 	typeAttr := src.GetAttribute(analysis.TypeAttributeType).(analysis.TypeAttribute)
-	posIncrAttr := src.GetAttribute(analysis.PositionIncrementAttributeType).(analysis.PositionIncrementAttribute)
+	posIncrAttr := src.GetAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
 	posLenAttr := src.GetAttribute(analysis.PositionLengthAttributeType).(analysis.PositionLengthAttribute)
 
 	var res tokenResults
@@ -77,7 +78,7 @@ type mockTokenStream struct {
 	words    []string
 	pos      int
 	termAttr analysis.CharTermAttribute
-	piAttr   analysis.PositionIncrementAttribute
+	piAttr   tokenattributes.PositionIncrementAttribute
 	plAttr   analysis.PositionLengthAttribute
 	tyAttr   analysis.TypeAttribute
 }
@@ -93,7 +94,7 @@ func newMockTokenStream(words []string) *mockTokenStream {
 	// Register concrete impls (AddAttributeImpl) so the attribute source
 	// knows about analysis attributes without relying on the default factory.
 	termImpl := analysis.NewCharTermAttribute()
-	posIncrImpl := analysis.NewPositionIncrementAttribute()
+	posIncrImpl := tokenattributes.NewPositionIncrementAttribute()
 	posLenImpl := analysis.NewPositionLengthAttribute()
 	typeImpl := analysis.NewTypeAttribute()
 
@@ -103,7 +104,7 @@ func newMockTokenStream(words []string) *mockTokenStream {
 	src.AddAttributeImpl(typeImpl.(util.AttributeImpl))
 
 	m.termAttr = src.GetAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
-	m.piAttr = src.GetAttribute(analysis.PositionIncrementAttributeType).(analysis.PositionIncrementAttribute)
+	m.piAttr = src.GetAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
 	m.plAttr = src.GetAttribute(analysis.PositionLengthAttributeType).(analysis.PositionLengthAttribute)
 	m.tyAttr = src.GetAttribute(analysis.TypeAttributeType).(analysis.TypeAttribute)
 	return m

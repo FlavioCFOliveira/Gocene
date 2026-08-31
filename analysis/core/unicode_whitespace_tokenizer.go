@@ -5,11 +5,12 @@
 package core
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"bufio"
 	"io"
 	"unicode"
-
-	"github.com/FlavioCFOliveira/Gocene/analysis"
 )
 
 // UnicodeWhitespaceTokenizer divides text at Unicode whitespace characters.
@@ -30,24 +31,30 @@ type UnicodeWhitespaceTokenizer struct {
 	scanner          *bufio.Scanner
 	termAttr         analysis.CharTermAttribute
 	offsetAttr       analysis.OffsetAttribute
-	posIncrAttr      analysis.PositionIncrementAttribute
+	posIncrAttr      tokenattributes.PositionIncrementAttribute
 	currentOffset    int
 	currentToken     []rune
 	tokenStartOffset int
 }
 
-// NewUnicodeWhitespaceTokenizer creates a new UnicodeWhitespaceTokenizer.
-func NewUnicodeWhitespaceTokenizer() *UnicodeWhitespaceTokenizer {
+// NewUnicodeWhitespaceTokenizerWithFactory creates a new UnicodeWhitespaceTokenizer using the supplied
+// attribute factory.
+func NewUnicodeWhitespaceTokenizerWithFactory(factory util.AttributeFactory) *UnicodeWhitespaceTokenizer {
 	t := &UnicodeWhitespaceTokenizer{
-		BaseTokenizer: analysis.NewBaseTokenizer(),
+		BaseTokenizer: analysis.NewBaseTokenizerWithFactory(factory),
 	}
-	t.termAttr = analysis.NewCharTermAttribute()
-	t.offsetAttr = analysis.NewOffsetAttribute()
-	t.posIncrAttr = analysis.NewPositionIncrementAttribute()
+	t.termAttr = factory.CreateAttributeInstance(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
+	t.offsetAttr = factory.CreateAttributeInstance(analysis.OffsetAttributeType).(analysis.OffsetAttribute)
+	t.posIncrAttr = factory.CreateAttributeInstance(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
 	t.AddAttribute(t.termAttr)
 	t.AddAttribute(t.offsetAttr)
 	t.AddAttribute(t.posIncrAttr)
 	return t
+}
+
+// NewUnicodeWhitespaceTokenizer creates a new UnicodeWhitespaceTokenizer with default settings.
+func NewUnicodeWhitespaceTokenizer() *UnicodeWhitespaceTokenizer {
+	return NewUnicodeWhitespaceTokenizerWithFactory(util.DefaultAttributeFactoryInstance)
 }
 
 // SetReader sets the input source for this Tokenizer.
