@@ -4,212 +4,128 @@
 
 package search
 
-import "math"
+import (
+	"fmt"
+	"math"
 
-// BM25Similarity implements BM25 scoring.
-// BM25 is a probabilistic retrieval framework that models the relevance of documents
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
+// BM25Similarity implements the BM25 similarity model.
+//
+// This is the Go port of org.apache.lucene.search.similarities.BM25Similarity.
 type BM25Similarity struct {
-	*BaseSimilarity
-	k1 float64 // Controls term frequency saturation
-	b  float64 // Controls document length normalization
+	BaseSimilarity
+	k1 float32
+	b  float32
 }
 
-// NewBM25Similarity creates a new BM25Similarity with default parameters.
-func NewBM25Similarity() *BM25Similarity {
-	return &BM25Similarity{
-		BaseSimilarity: NewBaseSimilarity(),
-		k1:             1.2,
-		b:              0.75,
+// NewBM25Similarity creates a BM25Similarity with the supplied parameter values.
+//
+// k1 controls non-linear term frequency normalization (saturation).
+// b controls to what degree document length normalizes tf values.
+// discountOverlaps is passed to BaseSimilarity.
+func NewBM25Similarity(k1, b float32, discountOverlaps bool) *BM25Similarity {
+	if math.IsInf(float64(k1), 0) || k1 < 0 {
+		panic(fmt.Sprintf("illegal k1 value: %f, must be a non-negative finite value", k1))
 	}
-}
-
-// NewBM25SimilarityWithParams creates a BM25Similarity with custom parameters.
-func NewBM25SimilarityWithParams(k1, b float64) *BM25Similarity {
-	if math.IsNaN(k1) || k1 < 0 || math.IsInf(k1, 0) {
-		panic("illegal k1 value")
-	}
-	if math.IsNaN(b) || b < 0 || b > 1 || math.IsInf(b, 0) {
-		panic("illegal b value")
+	if math.IsNaN(float64(b)) || b < 0 || b > 1 {
+		panic(fmt.Sprintf("illegal b value: %f, must be between 0 and 1", b))
 	}
 	return &BM25Similarity{
-		BaseSimilarity: NewBaseSimilarity(),
+		BaseSimilarity: BaseSimilarity{},
 		k1:             k1,
 		b:              b,
 	}
 }
 
-// K1 returns the k1 parameter.
-func (s *BM25Similarity) K1() float64 { return s.k1 }
-
-// B returns the b parameter.
-func (s *BM25Similarity) B() float64 { return s.b }
-
-// ComputeNorm computes the norm value considering document length.
-func (s *BM25Similarity) ComputeNorm(field string, stats interface{}) float32 {
-	// BM25 length normalization: encode document length
-	// For now, return 1.0 as default
-	return 1.0
+// NewBM25SimilarityWithDefaults creates a BM25Similarity with default values:
+// k1 = 1.2, b = 0.75.
+func NewBM25SimilarityWithDefaults(discountOverlaps bool) *BM25Similarity {
+	return NewBM25Similarity(1.2, 0.75, discountOverlaps)
 }
 
-// ScoreBM25 calculates the BM25 score.
-func (s *BM25Similarity) ScoreBM25(freq, docLength, avgDocLength, idf float64) float64 {
-	norm := (1 - s.b) + s.b*(docLength/avgDocLength)
-	tfComponent := freq / (freq + s.k1*norm)
-	return idf * tfComponent
+// NewBM25Similarity creates a BM25Similarity with default values:
+// k1 = 1.2, b = 0.75, discountOverlaps = true.
+func NewBM25Similarity() *BM25Similarity {
+	return NewBM25SimilarityWithDefaults(true)
 }
 
-// InverseDocumentFrequency computes IDF using Robertson/Spark Jones formula.
-func (s *BM25Similarity) InverseDocumentFrequency(totalDocs, docFreq int) float64 {
-	return math.Log(1 + (float64(totalDocs)-float64(docFreq)+0.5)/(float64(docFreq)+0.5))
+func (s *BM25Similarity) idf(docFreq, docCount int64) float32 {
+	return float32(math.Log(1 + float64(docCount-docFreq+0.5)/(float64(docFreq)+0.5)))
 }
 
-// Coord returns the coordination factor.
-func (s *BM25Similarity) Coord(overlap, maxOverlap int) float32 {
-	return float32(overlap) / float32(maxOverlap)
+func (s *BM25Similarity) avgFieldLength(collectionStats *CollectionStatistics) float32 {
+	return float32(float64(collectionStats.SumTotalTermFreq()) / float64(collectionStats.DocCount()))
 }
 
-// QueryNorm returns the query normalization value.
-func (s *BM25Similarity) QueryNorm(sumOfSquaredWeights float32) float32 {
-	return 1.0 / float32(math.Sqrt(float64(sumOfSquaredWeights)))
-}
-
-// ComputeWeight computes the weight for a term.
-func (s *BM25Similarity) ComputeWeight(boost float32, collectionStats *CollectionStatistics, termStats *TermStatistics) SimWeight {
-	return NewBM25SimWeight(s, collectionStats, termStats, boost)
-}
-
-// Scorer creates a scorer for this similarity.
-//
-// It returns a working BM25 scorer that mirrors Lucene 10.4.0's
-// BM25Similarity.BM25Scorer: it precomputes the 256-entry inverse-norm cache
-// from the collection statistics and scores each document using the encoded
-// norm byte supplied by the caller.
+// Scorer creates a SimScorer for scoring documents.
+// This satisfies the Similarity interface.
 func (s *BM25Similarity) Scorer(collectionStats *CollectionStatistics, termStats *TermStatistics) SimScorer {
-	return newBM25SimScorer(s, collectionStats, termStats, nil)
+	return s.ScorerWithBoost(1.0, collectionStats, termStats)
 }
 
-// BM25SimWeight holds the weight for BM25 scoring.
-type BM25SimWeight struct {
-	sim             *BM25Similarity
-	collectionStats *CollectionStatistics
-	termStats       *TermStatistics
-	boost           float32
-	idf             float64
-}
-
-// NewBM25SimWeight creates a new BM25SimWeight.
-func NewBM25SimWeight(sim *BM25Similarity, collectionStats *CollectionStatistics, termStats *TermStatistics, boost float32) *BM25SimWeight {
-	idf := 1.0
-	if termStats != nil && collectionStats != nil && termStats.DocFreq() > 0 {
-		idf = sim.InverseDocumentFrequency(collectionStats.DocCount(), termStats.DocFreq())
-	}
-	return &BM25SimWeight{
-		sim:             sim,
-		collectionStats: collectionStats,
-		termStats:       termStats,
-		boost:           boost,
-		idf:             idf,
-	}
-}
-
-// GetValue returns the value for this weight.
-func (w *BM25SimWeight) GetValue() float32 {
-	return w.boost * float32(w.idf)
-}
-
-// Normalize normalizes this weight.
-func (w *BM25SimWeight) Normalize(norm float32) {
-	w.boost *= norm
-}
-
-// Scorer creates a scorer for this weight.
-func (w *BM25SimWeight) Scorer() SimScorer {
-	return NewBM25SimScorerWithWeight(w)
-}
-
-// BM25SimScorer is a scorer for BM25Similarity.
-//
-// It mirrors Lucene 10.4.0's BM25Similarity.BM25Scorer: the inverse norm
-// denominator is precomputed for all 256 possible encoded norm bytes so the
-// hot path is a single table lookup and a multiply-add.
-type BM25SimScorer struct {
-	*BaseSimScorer
-	similarity *BM25Similarity
-	weight     *BM25SimWeight
-	k1         float64
-	b          float64
-	weightVal  float64 // boost * idf
-	cache      [256]float64
-}
-
-// NewBM25SimScorer creates a new BM25SimScorer.
-func NewBM25SimScorer(similarity *BM25Similarity, collectionStats *CollectionStatistics, termStats *TermStatistics) *BM25SimScorer {
-	return newBM25SimScorer(similarity, collectionStats, termStats, nil)
-}
-
-// NewBM25SimScorerWithWeight creates a new BM25SimScorer with weight.
-func NewBM25SimScorerWithWeight(weight *BM25SimWeight) *BM25SimScorer {
-	return newBM25SimScorer(weight.sim, weight.collectionStats, weight.termStats, weight)
-}
-
-// newBM25SimScorer builds a scorer from the supplied statistics and optional
-// pre-built weight. The weight carries the normalized boost; when nil a boost of
-// 1.0 is used.
-func newBM25SimScorer(similarity *BM25Similarity, collectionStats *CollectionStatistics, termStats *TermStatistics, weight *BM25SimWeight) *BM25SimScorer {
-	idf := 1.0
-	if termStats != nil && termStats.DocFreq() > 0 && collectionStats != nil {
-		idf = similarity.InverseDocumentFrequency(collectionStats.DocCount(), termStats.DocFreq())
-	}
-	boost := 1.0
-	if weight != nil {
-		idf = weight.idf
-		boost = float64(weight.boost)
-	}
-
-	avgDocLength := 1.0
-	if collectionStats != nil && collectionStats.DocCount() > 0 {
-		totalTermFreq := float64(collectionStats.SumTotalTermFreq())
-		if totalTermFreq > 0 {
-			avgDocLength = totalTermFreq / float64(collectionStats.DocCount())
+// ScorerWithBoost creates a SimScorer for scoring documents with a specific boost
+// and potentially multiple term statistics (for phrases).
+func (s *BM25Similarity) ScorerWithBoost(boost float32, collectionStats *CollectionStatistics, termStats ...*TermStatistics) SimScorer {
+	var idf float32
+	if len(termStats) == 1 {
+		idf = s.idf(int64(termStats[0].DocFreq()), int64(collectionStats.DocCount()))
+	} else {
+		var sum float64
+		for _, ts := range termStats {
+			sum += float64(s.idf(int64(ts.DocFreq()), int64(collectionStats.DocCount())))
 		}
-	}
-	if avgDocLength == 0 {
-		avgDocLength = 1.0
+		idf = float32(sum)
 	}
 
-	cache := [256]float64{}
+	avgdl := s.avgFieldLength(collectionStats)
+
+	// Precompute norm inverses to avoid division on the hot path.
+	// mirrors Java's cache = new float[256] loop.
+	cache := make([]float32, 256)
 	for i := 0; i < 256; i++ {
-		docLen := float64(luceneBM25LengthTable[i])
-		cache[i] = 1.0 / (similarity.k1 * ((1.0 - similarity.b) + similarity.b*docLen/avgDocLength))
+		doclen := float32(util.Byte4ToInt(byte(i)))
+		cache[i] = 1.0 / (s.k1 * ((1.0 - s.b) + s.b*doclen/avgdl))
 	}
 
-	return &BM25SimScorer{
-		BaseSimScorer: NewBaseSimScorer(),
-		similarity:    similarity,
-		weight:        weight,
-		k1:            similarity.k1,
-		b:             similarity.b,
-		weightVal:     boost * idf,
-		cache:         cache,
+	return &bm25Scorer{
+		boost:  boost,
+		k1:     s.k1,
+		b:      s.b,
+		idf:    idf,
+		avgdl:  avgdl,
+		cache:  cache,
+		weight: boost * idf,
 	}
 }
 
-// Score calculates the BM25 score for the given frequency and encoded norm.
+// bm25Scorer implements the SimScorer interface for BM25.
+type bm25Scorer struct {
+	boost  float32
+	k1     float32
+	b      float32
+	idf    float32
+	avgdl  float32
+	cache  []float32
+	weight float32
+}
+
+// Score computes the BM25 score for a document given its term frequency and encoded norm.
 //
-// The formula is rewritten as weight - weight / (1 + freq * normInverse) to
-// preserve monotonicity with float32 arithmetic, matching Lucene 10.4.0's
-// BM25Scorer.doScore implementation.
-func (s *BM25SimScorer) Score(doc int, freq float32, norm int64) float32 {
-	if freq == 0 {
-		return 0
-	}
-	normInverse := s.cache[byte(norm)]
-	score := s.weightVal - s.weightVal/(1.0+float64(freq)*normInverse)
-	return float32(score)
+// It uses the formula: weight - weight / (1 + freq * normInverse)
+// where weight = boost * idf and normInverse is precomputed as 1 / (k1 * (1 - b + b * dl / avgdl)).
+func (s *bm25Scorer) Score(doc int, freq float32, norm int64) float32 {
+	normInverse := s.cache[byte(norm)&0xFF]
+	return s.weight - s.weight/(1.0+freq*normInverse)
 }
 
-// Ensure BM25Similarity implements Similarity
-var _ Similarity = (*BM25Similarity)(nil)
+func (s *BM25Similarity) String() string {
+	return fmt.Sprintf("BM25(k1=%f,b=%f)", s.k1, s.b)
+}
 
-// Ensure BM25SimScorer implements SimScorer
-var _ SimScorer = (*BM25SimScorer)(nil)
+// GetK1 returns the k1 parameter.
+func (s *BM25Similarity) GetK1() float32 { return s.k1 }
+
+// GetB returns the b parameter.
+func (s *BM25Similarity) GetB() float32 { return s.b }
