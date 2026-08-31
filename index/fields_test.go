@@ -233,7 +233,7 @@ func TestMultiFields(t *testing.T) {
 	mf2.AddField("title", NewSingleTermTerms(NewTerm("title", "t2"), 1, 1)) // Duplicate field
 
 	// Combine them
-	multi := NewMultiFields(mf1, mf2)
+	multi := NewMultiFields([]Fields{mf1, mf2}, nil)
 
 	// Test Size (should count unique fields)
 	size := multi.Size()
@@ -282,7 +282,7 @@ func TestMultiFields(t *testing.T) {
 
 func TestMultiFields_Empty(t *testing.T) {
 	// Empty MultiFields
-	multi := NewMultiFields()
+	multi := NewMultiFields(nil, nil)
 
 	if multi.Size() != 0 {
 		t.Errorf("Expected Size=0, got %d", multi.Size())

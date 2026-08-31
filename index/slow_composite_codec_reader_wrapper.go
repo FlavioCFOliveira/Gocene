@@ -431,9 +431,19 @@ func (w *SlowCompositeCodecReaderWrapper) GetPostingsReader() *SlowCompositeFiel
 			subs = append(subs, fieldsProducerAsFields{p})
 		}
 	}
+	slices := make([]ReaderSlice, 0, len(w.codecReaders))
+	for i, r := range w.codecReaders {
+		if r.GetPostingsReader() != nil {
+			slices = append(slices, ReaderSlice{
+				Start:       w.docStarts[i],
+				Length:      r.MaxDoc(),
+				ReaderIndex: i,
+			})
+		}
+	}
 	return &SlowCompositeFieldsProducer{
 		producers: producers,
-		fields:    NewMultiFields(subs...),
+		fields:    NewMultiFields(subs, slices),
 	}
 }
 

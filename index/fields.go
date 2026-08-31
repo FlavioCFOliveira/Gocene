@@ -40,8 +40,6 @@ type SingleFieldFields = schema.SingleFieldFields
 // SingleFieldIterator is an alias of schema.SingleFieldIterator.
 type SingleFieldIterator = schema.SingleFieldIterator
 
-// MultiFields is an alias of schema.MultiFields.
-type MultiFields = schema.MultiFields
 
 // FieldsStats is an alias of schema.FieldsStats.
 type FieldsStats = schema.FieldsStats
@@ -61,7 +59,3 @@ func NewSingleFieldFields(field string, terms Terms) *SingleFieldFields {
 	return schema.NewSingleFieldFields(field, terms)
 }
 
-// NewMultiFields creates a new MultiFields from a list of Fields.
-func NewMultiFields(fields ...Fields) *MultiFields {
-	return schema.NewMultiFields(fields...)
-}

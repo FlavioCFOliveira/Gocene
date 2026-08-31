@@ -299,7 +299,7 @@ func TestWrapLeafReader_EmptyReader(t *testing.T) {
 // nil for a field not present in any sub-reader.
 func TestMappedMultiFields_TermsNilForAbsentField(t *testing.T) {
 	subFields := NewMemoryFields()
-	multi := NewMultiFields(subFields)
+	multi := NewMultiFields(subFields, nil)
 	ms := &MergeState{DocMaps: []DocMap{testIdentDocMap{}}}
 
 	mmf := NewMappedMultiFields(ms, multi)
@@ -320,7 +320,7 @@ func TestMappedMultiFields_Iterator(t *testing.T) {
 	subFields.AddField("alpha", &EmptyTerms{})
 	subFields.AddField("beta", &EmptyTerms{})
 
-	multi := NewMultiFields(subFields)
+	multi := NewMultiFields(subFields, nil)
 	ms := &MergeState{DocMaps: []DocMap{testIdentDocMap{}}}
 
 	mmf := NewMappedMultiFields(ms, multi)
