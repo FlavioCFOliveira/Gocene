@@ -35,6 +35,7 @@ This file describes the shape of the Label Property Graph (LPG) maintained in `r
 | `USES` | Dependency / usage relationship |
 | `PASSED_AT` | Test passed at a given commit |
 | `REALIZES` / `DELIVERS` / `delivers` | Task realizes/delivers feature |
+| `PORTED_TO` | Lucene entity ported to a Go implementation |
 | `VALIDATED_BY` / `VERIFIES` | Validation relationships |
 | `CLOSED_BY` / `CLOSES` | Task closed by commit |
 | `HAS_COMMIT` | Entity has an associated commit |

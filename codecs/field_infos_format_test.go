@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/codecs/lucene94"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
@@ -49,7 +50,7 @@ func TestLucene94FieldInfosFormat_ReadWrite(t *testing.T) {
 
 	infos := builder.Build()
 
-	format := codecs.NewLucene94FieldInfosFormat()
+	format := lucene94.NewLucene94FieldInfosFormat()
 	context := store.IOContextWrite
 
 	// Write

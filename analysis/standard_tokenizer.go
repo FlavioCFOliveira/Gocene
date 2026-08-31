@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 )
 
 // DefaultMaxTokenLength is declared in uax29_url_email_tokenizer.go
@@ -56,7 +58,7 @@ type StandardTokenizer struct {
 	// token.
 	termAttr    CharTermAttribute
 	offsetAttr  OffsetAttribute
-	posIncrAttr PositionIncrementAttribute
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 	typeAttr    TypeAttribute
 }
 
@@ -74,7 +76,7 @@ func NewStandardTokenizer() *StandardTokenizer {
 
 	t.termAttr = NewCharTermAttribute()
 	t.offsetAttr = NewOffsetAttribute()
-	t.posIncrAttr = NewPositionIncrementAttribute()
+	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
 	t.typeAttr = NewTypeAttribute()
 
 	t.AddAttribute(t.termAttr)

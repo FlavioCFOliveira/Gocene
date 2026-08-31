@@ -180,32 +180,6 @@ type IndexingChainField interface {
 	InvertableType() InvertableType
 }
 
-// InvertableType describes how an IndexableField is inverted (indexed). It is
-// the index-package mirror of Lucene's
-// org.apache.lucene.document.InvertableType (which cannot be imported here
-// without an import cycle). The ordinals match Lucene: BINARY=0,
-// TOKEN_STREAM=1.
-type InvertableType int
-
-const (
-	// InvertableTypeBinary inverts the field as a single binary term.
-	InvertableTypeBinary InvertableType = iota
-	// InvertableTypeTokenStream inverts the field through its TokenStream.
-	InvertableTypeTokenStream
-)
-
-// String returns the canonical Lucene name for the InvertableType.
-func (it InvertableType) String() string {
-	switch it {
-	case InvertableTypeBinary:
-		return "BINARY"
-	case InvertableTypeTokenStream:
-		return "TOKEN_STREAM"
-	default:
-		return fmt.Sprintf("UNKNOWN(%d)", int(it))
-	}
-}
-
 // NewIndexingChain constructs an IndexingChain.
 //
 // GAP: Lucene wires the concrete StoredFieldsConsumer / TermVectorsConsumer /

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
@@ -109,8 +110,8 @@ func (ai *AnalyzerIntegration) Tokenize(field, text string) ([]TokenInfo, error)
 					}
 
 					// Get position increment if available
-					if posIncAttr := attrSource.GetAttribute(analysis.PositionIncrementAttributeType); posIncAttr != nil {
-						if pia, ok := posIncAttr.(analysis.PositionIncrementAttribute); ok && ai.positionIncrements {
+					if posIncAttr := attrSource.GetAttribute(tokenattributes.PositionIncrementAttributeType); posIncAttr != nil {
+						if pia, ok := posIncAttr.(tokenattributes.PositionIncrementAttribute); ok && ai.positionIncrements {
 							position += pia.GetPositionIncrement()
 						} else {
 							position++
