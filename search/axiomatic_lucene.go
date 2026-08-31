@@ -342,28 +342,6 @@ func NewLuceneAxiomaticF2EXPDefault() *LuceneAxiomaticSimilarity {
 	return NewLuceneAxiomaticF2EXP(0.25, 0.35)
 }
 
-// NewLuceneAxiomaticF2LOG returns AxiomaticF2LOG(s) with queryLen=1, k=0.35.
-func NewLuceneAxiomaticF2LOG(s float32) *LuceneAxiomaticSimilarity {
-	hooks := LuceneAxiomaticHooks{
-		TF:          axiomaticTFConstant,
-		LN:          axiomaticLNConstant,
-		TFLN:        axiomaticTFLNWithGrowth(s),
-		IDF:         idfLogClosure(),
-		Gamma:       axiomaticGammaZero,
-		TFExplain:   axiomaticTFConstantExplain,
-		LNExplain:   axiomaticLNConstantExplain,
-		TFLNExplain: axiomaticTFLNWithGrowthExplain(s),
-		IDFExplain:  axiomaticIDFLogExplain(),
-		Name:        "F2LOG",
-	}
-	return NewLuceneAxiomaticSimilarity(s, 1, 0.35, hooks)
-}
-
-// NewLuceneAxiomaticF2LOGDefault returns parameter-free F2LOG.
-func NewLuceneAxiomaticF2LOGDefault() *LuceneAxiomaticSimilarity {
-	return NewLuceneAxiomaticF2LOG(0.25)
-}
-
 // NewLuceneAxiomaticF3EXP returns AxiomaticF3EXP(s, queryLen, k).
 func NewLuceneAxiomaticF3EXP(s float32, queryLen int, k float32) *LuceneAxiomaticSimilarity {
 	hooks := LuceneAxiomaticHooks{

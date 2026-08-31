@@ -25,33 +25,17 @@ type DFRSimilarity struct {
 // BasicModel represents the basic model for DFR.
 type BasicModel interface {
 	// Score computes the basic score given term and document statistics
-	Score(stats *BasicStats, tf float64) float64
+	Score(stats *LuceneBasicStats, tf float64) float64
 	// Name returns the name of this basic model
-	Name() string
-}
-
-// AfterEffect represents the after effect for DFR.
-type AfterEffect interface {
-	// Score computes the after effect score
-	Score(stats *BasicStats, tfn float64) float64
-	// Name returns the name of this after effect
 	Name() string
 }
 
 // Normalization represents term frequency normalization.
 type Normalization interface {
 	// Tfn computes the normalized term frequency
-	Tfn(stats *BasicStats, freq float64, docLen float64) float64
+	Tfn(stats *LuceneBasicStats, freq float64, docLen float64) float64
 	// Name returns the name of this normalization
 	Name() string
-}
-
-// BasicStats holds statistics needed for DFR scoring.
-type BasicStats struct {
-	TotalTermFreq int64   // Total term frequency in collection
-	DocFreq       int     // Document frequency
-	DocCount      int     // Number of documents
-	AvgDocLength  float64 // Average document length
 }
 
 // NewDFRSimilarity creates a new DFRSimilarity with default components.
@@ -60,7 +44,7 @@ func NewDFRSimilarity() *DFRSimilarity {
 	return &DFRSimilarity{
 		BaseSimilarity: NewBaseSimilarity(),
 		basicModel:     NewBasicModelPoisson(),
-		afterEffect:    NewAfterEffectLaplace(),
+		afterEffect:    NewAfterEffectL(),
 		normalization:  NewNormalizationH2(),
 	}
 }
@@ -106,23 +90,22 @@ type DFRSimWeight struct {
 	collectionStats *CollectionStatistics
 	termStats       *TermStatistics
 	boost           float32
-	basicStats      *BasicStats
+	basicStats      *LuceneBasicStats
 }
 
 // NewDFRSimWeight creates a new DFRSimWeight.
 func NewDFRSimWeight(sim *DFRSimilarity, collectionStats *CollectionStatistics, termStats *TermStatistics, boost float32) *DFRSimWeight {
-	stats := &BasicStats{}
+	stats := NewLuceneBasicStats("", boost)
 	if collectionStats != nil {
-		stats.DocCount = collectionStats.DocCount()
-		stats.TotalTermFreq = collectionStats.SumTotalTermFreq()
-		// Calculate average document length
+		stats.SetNumberOfDocuments(int64(collectionStats.DocCount()))
+		stats.SetNumberOfFieldTokens(collectionStats.SumTotalTermFreq())
 		if collectionStats.DocCount() > 0 {
-			stats.AvgDocLength = float64(collectionStats.SumTotalTermFreq()) / float64(collectionStats.DocCount())
+			stats.SetAvgFieldLength(float64(collectionStats.SumTotalTermFreq()) / float64(collectionStats.DocCount()))
 		}
 	}
 	if termStats != nil {
-		stats.DocFreq = termStats.DocFreq()
-		stats.TotalTermFreq = termStats.TotalTermFreq()
+		stats.SetDocFreq(int64(termStats.DocFreq()))
+		stats.SetTotalTermFreq(int64(termStats.TotalTermFreq()))
 	}
 	return &DFRSimWeight{
 		sim:             sim,
@@ -153,23 +136,23 @@ type DFRSimScorer struct {
 	*BaseSimScorer
 	similarity *DFRSimilarity
 	weight     *DFRSimWeight
-	basicStats *BasicStats
+	basicStats *LuceneBasicStats
 }
 
 // NewDFRSimScorer creates a new DFRSimScorer.
 func NewDFRSimScorer(similarity *DFRSimilarity, collectionStats *CollectionStatistics, termStats *TermStatistics) *DFRSimScorer {
-	stats := &BasicStats{}
+	stats := NewLuceneBasicStats("", 1.0)
 	if collectionStats != nil {
-		stats.DocCount = collectionStats.DocCount()
-		stats.TotalTermFreq = collectionStats.SumTotalTermFreq()
+		stats.SetNumberOfDocuments(int64(collectionStats.DocCount()))
+		stats.SetNumberOfFieldTokens(collectionStats.SumTotalTermFreq())
 		if collectionStats.DocCount() > 0 {
-			stats.AvgDocLength = float64(collectionStats.SumTotalTermFreq()) / float64(collectionStats.DocCount())
+			stats.SetAvgFieldLength(float64(collectionStats.SumTotalTermFreq()) / float64(collectionStats.DocCount()))
 		}
 	}
 	if termStats != nil {
-		stats.DocFreq = termStats.DocFreq()
+		stats.SetDocFreq(int64(termStats.DocFreq()))
 		if termStats.TotalTermFreq() > 0 {
-			stats.TotalTermFreq = termStats.TotalTermFreq()
+			stats.SetTotalTermFreq(int64(termStats.TotalTermFreq()))
 		}
 	}
 	return &DFRSimScorer{
@@ -201,7 +184,7 @@ func (s *DFRSimScorer) Score(doc int, freq float32, norm int64) float32 {
 	}
 
 	// Document length (simplified - assume average)
-	docLen := s.basicStats.AvgDocLength
+	docLen := s.basicStats.AvgFieldLength()
 	if docLen == 0 {
 		docLen = 1.0
 	}
@@ -210,7 +193,7 @@ func (s *DFRSimScorer) Score(doc int, freq float32, norm int64) float32 {
 	tfn := s.similarity.normalization.Tfn(s.basicStats, float64(freq), docLen)
 
 	// Apply after effect
-	afterEffectScore := s.similarity.afterEffect.Score(s.basicStats, tfn)
+	afterEffectScore := s.similarity.afterEffect.ScoreTimes1pTfn(s.basicStats) / (1.0 + tfn)
 
 	// Apply basic model
 	basicScore := s.similarity.basicModel.Score(s.basicStats, afterEffectScore)
@@ -244,9 +227,9 @@ func NewBasicModelPoisson() *BasicModelPoisson {
 
 // Score computes the Poisson score: -log(F / (N + F))
 // where F is total term frequency and N is collection size
-func (m *BasicModelPoisson) Score(stats *BasicStats, tf float64) float64 {
-	F := float64(stats.TotalTermFreq)
-	N := float64(stats.DocCount)
+func (m *BasicModelPoisson) Score(stats *LuceneBasicStats, tf float64) float64 {
+	F := float64(stats.TotalTermFreq())
+	N := float64(stats.NumberOfDocuments())
 	if F == 0 || N == 0 {
 		return 0
 	}
@@ -268,9 +251,9 @@ func NewBasicModelGeometric() *BasicModelGeometric {
 }
 
 // Score computes the Geometric score.
-func (m *BasicModelGeometric) Score(stats *BasicStats, tf float64) float64 {
-	F := float64(stats.TotalTermFreq)
-	N := float64(stats.DocCount)
+func (m *BasicModelGeometric) Score(stats *LuceneBasicStats, tf float64) float64 {
+	F := float64(stats.TotalTermFreq())
+	N := float64(stats.NumberOfDocuments())
 	if F == 0 || N == 0 {
 		return 0
 	}
@@ -281,55 +264,6 @@ func (m *BasicModelGeometric) Score(stats *BasicStats, tf float64) float64 {
 // Name returns the name of this basic model.
 func (m *BasicModelGeometric) Name() string {
 	return "Geometric"
-}
-
-// ============================================================================
-// After Effect Implementations
-// ============================================================================
-
-// AfterEffectLaplace implements Laplace after effect.
-type AfterEffectLaplace struct{}
-
-// NewAfterEffectLaplace creates a new Laplace after effect.
-func NewAfterEffectLaplace() *AfterEffectLaplace {
-	return &AfterEffectLaplace{}
-}
-
-// Score computes the Laplace after effect: (tfn + 1) / (docFreq + 1)
-func (e *AfterEffectLaplace) Score(stats *BasicStats, tfn float64) float64 {
-	n := float64(stats.DocFreq)
-	if n == 0 {
-		n = 1.0
-	}
-	return (tfn + 1.0) / (n + 1.0)
-}
-
-// Name returns the name of this after effect.
-func (e *AfterEffectLaplace) Name() string {
-	return "Laplace"
-}
-
-// AfterEffectDirichlet implements Dirichlet after effect.
-type AfterEffectDirichlet struct {
-	mu float64 // Smoothing parameter
-}
-
-// NewAfterEffectDirichlet creates a new Dirichlet after effect.
-func NewAfterEffectDirichlet(mu float64) *AfterEffectDirichlet {
-	if mu <= 0 {
-		mu = 2000.0 // Default value
-	}
-	return &AfterEffectDirichlet{mu: mu}
-}
-
-// Score computes the Dirichlet after effect.
-func (e *AfterEffectDirichlet) Score(stats *BasicStats, tfn float64) float64 {
-	return (tfn + e.mu*float64(stats.TotalTermFreq)/float64(stats.DocCount)) / (tfn + e.mu)
-}
-
-// Name returns the name of this after effect.
-func (e *AfterEffectDirichlet) Name() string {
-	return "Dirichlet"
 }
 
 // ============================================================================
@@ -353,8 +287,8 @@ func NewNormalizationH2WithParam(s float64) *NormalizationH2 {
 
 // Tfn computes the H2 normalized term frequency.
 // Formula: tfn = tf * log(1.0 + s * avgDocLength / docLength)
-func (n *NormalizationH2) Tfn(stats *BasicStats, freq float64, docLen float64) float64 {
-	avgDocLen := stats.AvgDocLength
+func (n *NormalizationH2) Tfn(stats *LuceneBasicStats, freq float64, docLen float64) float64 {
+	avgDocLen := stats.AvgFieldLength()
 	if avgDocLen == 0 {
 		avgDocLen = 1.0
 	}
@@ -386,8 +320,8 @@ func NewNormalizationH1WithParam(s float64) *NormalizationH1 {
 
 // Tfn computes the H1 normalized term frequency.
 // Formula: tfn = tf * (1.0 + s * avgDocLength) / (1.0 + s * docLength)
-func (n *NormalizationH1) Tfn(stats *BasicStats, freq float64, docLen float64) float64 {
-	avgDocLen := stats.AvgDocLength
+func (n *NormalizationH1) Tfn(stats *LuceneBasicStats, freq float64, docLen float64) float64 {
+	avgDocLen := stats.AvgFieldLength()
 	if avgDocLen == 0 {
 		avgDocLen = 1.0
 	}
@@ -408,7 +342,7 @@ func NewNormalizationNoOp() *NormalizationNoOp {
 }
 
 // Tfn returns the term frequency unchanged.
-func (n *NormalizationNoOp) Tfn(stats *BasicStats, freq float64, docLen float64) float64 {
+func (n *NormalizationNoOp) Tfn(stats *LuceneBasicStats, freq float64, docLen float64) float64 {
 	return freq
 }
 

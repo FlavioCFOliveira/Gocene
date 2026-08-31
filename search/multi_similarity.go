@@ -4,227 +4,101 @@
 
 package search
 
-import (
-	"math"
-)
-
-// MultiSimilarity combines multiple similarities using weighted sum.
-// This allows combining different scoring approaches (e.g., BM25 + DFR)
-// to potentially achieve better retrieval performance.
+// MultiSimilarity implements the CombSUM method for combining evidence from multiple similarity values.
+// This is a faithful port of org.apache.lucene.search.similarities.MultiSimilarity.
 type MultiSimilarity struct {
-	*BaseSimilarity
-	similarities []Similarity
-	weights      []float64
+	sims []Similarity
 }
 
-// NewMultiSimilarity creates a new MultiSimilarity with equal weights.
-func NewMultiSimilarity(similarities []Similarity) *MultiSimilarity {
-	if len(similarities) == 0 {
+// NewMultiSimilarity creates a MultiSimilarity which will sum the scores of the provided sims.
+func NewMultiSimilarity(sims []Similarity) *MultiSimilarity {
+	if len(sims) == 0 {
 		panic("MultiSimilarity requires at least one similarity")
 	}
-
-	// Equal weights
-	weights := make([]float64, len(similarities))
-	weight := 1.0 / float64(len(similarities))
-	for i := range weights {
-		weights[i] = weight
-	}
-
-	return &MultiSimilarity{
-		BaseSimilarity: NewBaseSimilarity(),
-		similarities:   similarities,
-		weights:        weights,
-	}
-}
-
-// NewMultiSimilarityWithWeights creates a new MultiSimilarity with custom weights.
-func NewMultiSimilarityWithWeights(similarities []Similarity, weights []float64) *MultiSimilarity {
-	if len(similarities) == 0 {
-		panic("MultiSimilarity requires at least one similarity")
-	}
-	if len(similarities) != len(weights) {
-		panic("Number of similarities must equal number of weights")
-	}
-
-	return &MultiSimilarity{
-		BaseSimilarity: NewBaseSimilarity(),
-		similarities:   similarities,
-		weights:        weights,
-	}
-}
-
-// Similarities returns the underlying similarities.
-func (s *MultiSimilarity) Similarities() []Similarity {
-	return s.similarities
-}
-
-// Weights returns the weights for each similarity.
-func (s *MultiSimilarity) Weights() []float64 {
-	return s.weights
+	return &MultiSimilarity{sims: sims}
 }
 
 // ComputeNorm computes the norm value for a field.
-// Uses weighted average of norms from component similarities.
+// Mirrors Lucene's MultiSimilarity.computeNorm: returns the norm of the first similarity.
 func (s *MultiSimilarity) ComputeNorm(field string, stats interface{}) float32 {
-	totalWeight := 0.0
-	sumNorms := 0.0
-
-	for i, sim := range s.similarities {
-		norm := float64(sim.ComputeNorm(field, stats))
-		sumNorms += s.weights[i] * norm
-		totalWeight += s.weights[i]
-	}
-
-	if totalWeight > 0 {
-		return float32(sumNorms / totalWeight)
-	}
-	return 1.0
-}
-
-// Coord returns the coordination factor.
-// Uses the first similarity's coordination.
-func (s *MultiSimilarity) Coord(overlap, maxOverlap int) float32 {
-	if len(s.similarities) > 0 {
-		return s.similarities[0].Coord(overlap, maxOverlap)
-	}
-	return float32(overlap) / float32(maxOverlap)
-}
-
-// QueryNorm returns the query normalization value.
-func (s *MultiSimilarity) QueryNorm(sumOfSquaredWeights float32) float32 {
-	return 1.0 / float32(math.Sqrt(float64(sumOfSquaredWeights)))
+	return s.sims[0].ComputeNorm(field, stats)
 }
 
 // ComputeWeight computes the weight for a term.
-func (s *MultiSimilarity) ComputeWeight(boost float32, collectionStats *CollectionStatistics, termStats *TermStatistics) SimWeight {
-	return NewMultiSimWeight(s, collectionStats, termStats, boost)
-}
-
-// Scorer creates a scorer for this similarity.
-func (s *MultiSimilarity) Scorer(collectionStats *CollectionStatistics, termStats *TermStatistics) SimScorer {
-	return NewMultiSimScorer(s, collectionStats, termStats)
-}
-
-// MultiSimWeight holds the weight for MultiSimilarity scoring.
-type MultiSimWeight struct {
-	sim             *MultiSimilarity
-	collectionStats *CollectionStatistics
-	termStats       *TermStatistics
-	boost           float32
-	weights         []SimWeight // Weights from component similarities
-}
-
-// NewMultiSimWeight creates a new MultiSimWeight.
-func NewMultiSimWeight(sim *MultiSimilarity, collectionStats *CollectionStatistics, termStats *TermStatistics, boost float32) *MultiSimWeight {
-	// Create weights from component similarities
-	weights := make([]SimWeight, len(sim.similarities))
-	for i, s := range sim.similarities {
-		weights[i] = s.ComputeWeight(boost, collectionStats, termStats)
-	}
-
-	return &MultiSimWeight{
-		sim:             sim,
+func (s *MultiSimilarity) ComputeWeight(queryWeight float32, collectionStats *CollectionStatistics, termStats *TermStatistics) SimWeight {
+	return &multiSimWeight{
+		sim:             s,
+		queryWeight:     queryWeight,
 		collectionStats: collectionStats,
 		termStats:       termStats,
-		boost:           boost,
-		weights:         weights,
 	}
 }
 
-// GetValue returns the value for this weight.
-func (w *MultiSimWeight) GetValue() float32 {
-	// Weighted average of component weights
-	totalValue := 0.0
-	totalWeight := 0.0
-	for i, weight := range w.weights {
-		totalValue += w.sim.weights[i] * float64(weight.GetValue())
-		totalWeight += w.sim.weights[i]
+// Scorer creates a SimScorer for scoring documents.
+func (s *MultiSimilarity) Scorer(collectionStats *CollectionStatistics, termStats *TermStatistics) SimScorer {
+	subScorers := make([]SimScorer, len(s.sims))
+	for i, sim := range s.sims {
+		subScorers[i] = sim.Scorer(collectionStats, termStats)
 	}
-	if totalWeight > 0 {
-		return float32(totalValue / totalWeight)
-	}
-	return w.boost
+	return &multiSimScorer{subScorers: subScorers}
 }
 
-// Normalize normalizes this weight.
-func (w *MultiSimWeight) Normalize(norm float32) {
-	w.boost *= norm
-	for _, weight := range w.weights {
-		weight.Normalize(norm)
-	}
+// Coord returns the coordination factor.
+func (s *MultiSimilarity) Coord(overlap, maxOverlap int) float32 {
+	return s.sims[0].Coord(overlap, maxOverlap)
 }
 
-// Scorer creates a scorer for this weight.
-func (w *MultiSimWeight) Scorer() SimScorer {
-	return NewMultiSimScorerWithWeight(w)
+// multiSimWeight holds the weight for MultiSimilarity scoring.
+type multiSimWeight struct {
+	sim             *MultiSimilarity
+	queryWeight     float32
+	collectionStats *CollectionStatistics
+	termStats       *TermStatistics
 }
 
-// MultiSimScorer is a scorer for MultiSimilarity.
-type MultiSimScorer struct {
-	*BaseSimScorer
-	similarity *MultiSimilarity
-	weight     *MultiSimWeight
-	scorers    []SimScorer // Scorers from component similarities
+func (w *multiSimWeight) GetValue() float32 {
+	return w.queryWeight
 }
 
-// NewMultiSimScorer creates a new MultiSimScorer.
-func NewMultiSimScorer(similarity *MultiSimilarity, collectionStats *CollectionStatistics, termStats *TermStatistics) *MultiSimScorer {
-	// Create scorers from component similarities
-	scorers := make([]SimScorer, len(similarity.similarities))
-	for i, s := range similarity.similarities {
-		scorers[i] = s.Scorer(collectionStats, termStats)
-	}
-
-	return &MultiSimScorer{
-		BaseSimScorer: NewBaseSimScorer(),
-		similarity:    similarity,
-		scorers:       scorers,
-	}
+func (w *multiSimWeight) Normalize(norm float32) {
+	// No-op in Lucene MultiSimilarity
 }
 
-// NewMultiSimScorerWithWeight creates a new MultiSimScorer with weight.
-func NewMultiSimScorerWithWeight(weight *MultiSimWeight) *MultiSimScorer {
-	// Create scorers from component weights
-	scorers := make([]SimScorer, len(weight.weights))
-	for i, w := range weight.weights {
-		scorers[i] = w.Scorer()
+func (w *multiSimWeight) Scorer() SimScorer {
+	subScorers := make([]SimScorer, len(w.sim.sims))
+	for i, sim := range w.sim.sims {
+		subScorers[i] = sim.Scorer(w.collectionStats, w.termStats)
 	}
-
-	return &MultiSimScorer{
-		BaseSimScorer: NewBaseSimScorer(),
-		similarity:    weight.sim,
-		weight:        weight,
-		scorers:       scorers,
-	}
+	return &multiSimScorer{subScorers: subScorers}
 }
 
-// Score calculates the MultiSimilarity score.
-// Score is the weighted sum of component scores.
-//
-// The norm argument is forwarded to each component scorer. MultiSimilarity
-// itself does not read norms; it aggregates the component decisions.
-func (s *MultiSimScorer) Score(doc int, freq float32, norm int64) float32 {
-	if len(s.scorers) == 0 {
-		return 0
-	}
+// multiSimScorer is a scorer that sums the scores of multiple sub-scorers.
+type multiSimScorer struct {
+	subScorers []SimScorer
+}
 
-	// Calculate weighted sum of scores
-	totalScore := 0.0
-	totalWeight := 0.0
-	for i, scorer := range s.scorers {
-		score := float64(scorer.Score(doc, freq, norm))
-		totalScore += s.similarity.weights[i] * score
-		totalWeight += s.similarity.weights[i]
+// Score calculates the combined score as the sum of scores from all sub-scorers.
+func (s *multiSimScorer) Score(doc int, freq float32, norm int64) float32 {
+	var sum float64
+	for _, sub := range s.subScorers {
+		sum += float64(sub.Score(doc, freq, norm))
 	}
+	return float32(sum)
+}
 
-	if totalWeight > 0 {
-		return float32(totalScore / totalWeight)
+// Explain104 provides an explanation for the combined score.
+func (s *multiSimScorer) Explain104(freq Explanation, norm int64) Explanation {
+	subs := make([]Explanation, 0, len(s.subScorers))
+	for _, sub := range s.subScorers {
+		if explainer, ok := sub.(interface{ Explain104(Explanation, int64) Explanation }); ok {
+			subs = append(subs, explainer.Explain104(freq, norm))
+		}
 	}
-	return 0
+	return MatchExplanationWithDetails(s.Score(0, freq.GetValue(), norm), "sum of:", subs...)
 }
 
 // Ensure MultiSimilarity implements Similarity
 var _ Similarity = (*MultiSimilarity)(nil)
 
-// Ensure MultiSimScorer implements SimScorer
-var _ SimScorer = (*MultiSimScorer)(nil)
+// Ensure multiSimScorer implements SimScorer
+var _ SimScorer = (*multiSimScorer)(nil)
