@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 )
 
 // UAX29URLEmailTokenizer is a tokenizer that implements UAX#29 word boundary rules
@@ -51,8 +53,8 @@ type UAX29URLEmailTokenizer struct {
 	// offsetAttr holds the OffsetAttribute
 	offsetAttr OffsetAttribute
 
-	// posIncrAttr holds the PositionIncrementAttribute
-	posIncrAttr PositionIncrementAttribute
+	// posIncrAttr holds the tokenattributes.PositionIncrementAttribute
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 
 	// currentOffset tracks the current position in input
 	currentOffset int
@@ -109,7 +111,7 @@ func NewUAX29URLEmailTokenizerWithMaxTokenLength(maxTokenLength int) *UAX29URLEm
 	// Add attributes
 	t.termAttr = NewCharTermAttribute()
 	t.offsetAttr = NewOffsetAttribute()
-	t.posIncrAttr = NewPositionIncrementAttribute()
+	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
 
 	t.AddAttribute(t.termAttr)
 	t.AddAttribute(t.offsetAttr)

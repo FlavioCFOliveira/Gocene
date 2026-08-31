@@ -6,6 +6,8 @@ package analysis
 
 import (
 	"sort"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 )
 
 // FlattenGraphFilter flattens a token graph into a linear stream.
@@ -43,8 +45,8 @@ type FlattenGraphFilter struct {
 	// termAttr holds the CharTermAttribute from the shared attribute source
 	termAttr CharTermAttribute
 
-	// posIncrAttr holds the PositionIncrementAttribute from the shared attribute source
-	posIncrAttr PositionIncrementAttribute
+	// posIncrAttr holds the tokenattributes.PositionIncrementAttribute from the shared attribute source
+	posIncrAttr tokenattributes.PositionIncrementAttribute
 
 	// posLenAttr holds the PositionLengthAttribute from the shared attribute source
 	posLenAttr PositionLengthAttribute
@@ -150,9 +152,9 @@ func (f *FlattenGraphFilter) initAttributes() {
 		f.termAttr = attr.(CharTermAttribute)
 	}
 
-	// Get PositionIncrementAttribute
-	if attr := attrSource.GetAttribute(PositionIncrementAttributeType); attr != nil {
-		f.posIncrAttr = attr.(PositionIncrementAttribute)
+	// Get tokenattributes.PositionIncrementAttribute
+	if attr := attrSource.GetAttribute(tokenattributes.tokenattributes.PositionIncrementAttributeType); attr != nil {
+		f.posIncrAttr = attr.(tokenattributes.PositionIncrementAttribute)
 	}
 
 	// Get PositionLengthAttribute
