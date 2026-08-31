@@ -14,73 +14,64 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
+var _ store.RateLimiter = (*MergeRateLimiter)(nil)
+
 const (
 	minPauseCheckMsec = 25
-	minPauseNs        = 2 * 1000 * 1000   // 2ms
-	maxPauseNs        = 250 * 1000 * 1000 // 250ms
+	minPauseNS        = 2 * time.Millisecond
+	maxPauseNS        = 250 * time.Millisecond
 )
 
-// MergeRateLimiter limits the rate of merge I/O.
+// MergeRateLimiter is the RateLimiter that IndexWriter assigns to each running merge,
+// to give MergeSchedulers ionice like control.
+//
 // This is the Go port of org.apache.lucene.index.MergeRateLimiter.
 type MergeRateLimiter struct {
-	// mbPerSec is the target MB per second
-	mbPerSec atomic.Uint64 // stored as math.Float64bits
+	mu sync.Mutex
 
-	// minPauseCheckBytes is the minimum bytes between pause checks
-	minPauseCheckBytes atomic.Int64
+	mbPerSec           float64
+	minPauseCheckBytes int64
 
-	// totalBytesWritten is the total bytes written
-	totalBytesWritten atomic.Int64
-
-	// lastNS is the last nano time for rate calculation
 	lastNS atomic.Int64
 
-	// mergeProgress tracks the progress of the merge and handles pausing
+	totalBytesWritten atomic.Int64
+
 	mergeProgress *OneMergeProgress
-
-	// mu protects configuration updates to ensure atomicity between mbPerSec and minPauseCheckBytes
-	mu sync.Mutex
 }
-
-var _ store.RateLimiter = (*MergeRateLimiter)(nil)
 
 // NewMergeRateLimiter creates a new MergeRateLimiter.
 func NewMergeRateLimiter(mergeProgress *OneMergeProgress) *MergeRateLimiter {
 	r := &MergeRateLimiter{
 		mergeProgress: mergeProgress,
 	}
+	// Initially no IO limit
 	r.SetMBPerSec(math.Inf(1))
 	return r
 }
 
 // SetMBPerSec sets the rate limit in MB/sec.
 func (r *MergeRateLimiter) SetMBPerSec(mbPerSec float64) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	if mbPerSec < 0.0 {
 		panic(fmt.Sprintf("mbPerSec must be positive; got: %f", mbPerSec))
 	}
 
-	r.mbPerSec.Store(math.Float64bits(mbPerSec))
-
-	// minPauseCheckBytes = min(1MB, (minPauseCheckMsec / 1000.0) * mbPerSec * 1MB)
-	checkBytes := (float64(minPauseCheckMsec) / 1000.0) * mbPerSec * 1024 * 1024
-	minPauseCheckBytes := int64(checkBytes)
-	if minPauseCheckBytes > 1024*1024 {
-		minPauseCheckBytes = 1024 * 1024
-	}
-	r.minPauseCheckBytes.Store(minPauseCheckBytes)
+	r.mu.Lock()
+	r.mbPerSec = mbPerSec
+	// NOTE: math.Inf(1) casts to MaxInt64 in the calculation
+	r.minPauseCheckBytes = int64(math.Min(1024*1024, (float64(minPauseCheckMsec)/1000.0)*mbPerSec*1024*1024))
+	r.mu.Unlock()
 
 	r.mergeProgress.Wakeup()
 }
 
 // GetMBPerSec returns the current rate limit in MB/sec.
 func (r *MergeRateLimiter) GetMBPerSec() float64 {
-	return math.Float64frombits(r.mbPerSec.Load())
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.mbPerSec
 }
 
-// GetTotalBytesWritten returns the total bytes written during the merge.
+// GetTotalBytesWritten returns total bytes written by this merge.
 func (r *MergeRateLimiter) GetTotalBytesWritten() int64 {
 	return r.totalBytesWritten.Load()
 }
@@ -92,12 +83,7 @@ func (r *MergeRateLimiter) Pause(bytes int64) int64 {
 
 	var paused int64
 	for {
-		delta, err := r.maybePause(bytes)
-		if err != nil {
-			// In Lucene, MergeAbortedException is thrown.
-			// We return 0 and let the caller handle the abort via OneMergeProgress.
-			return paused
-		}
+		delta := r.maybePause(bytes)
 		if delta < 0 {
 			break
 		}
@@ -107,88 +93,98 @@ func (r *MergeRateLimiter) Pause(bytes int64) int64 {
 	return paused
 }
 
-// GetTotalStoppedNS returns the cumulative nanoseconds the merge was STOPPED.
+// GetTotalStoppedNS returns total NS merge was stopped.
 func (r *MergeRateLimiter) GetTotalStoppedNS() int64 {
 	return r.mergeProgress.GetPauseTimes()[STOPPED]
 }
 
-// GetTotalPausedNS returns the cumulative nanoseconds the merge was PAUSED.
+// GetTotalPausedNS returns total NS merge was paused to rate limit IO.
 func (r *MergeRateLimiter) GetTotalPausedNS() int64 {
 	return r.mergeProgress.GetPauseTimes()[PAUSED]
 }
 
-func (r *MergeRateLimiter) maybePause(bytes int64) (int64, error) {
+// GetMinPauseCheckBytes returns how many bytes a caller should accumulate before invoking Pause.
+func (r *MergeRateLimiter) GetMinPauseCheckBytes() int64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.minPauseCheckBytes
+}
+
+func (r *MergeRateLimiter) maybePause(bytes int64) int64 {
 	if r.mergeProgress.IsAborted() {
-		return 0, fmt.Errorf("merge aborted")
+		// In Go, we handle the abort by returning a specific value or error.
+		// Lucene throws MergeAbortedException.
+		// Since Pause return int64, and maybePause is internal,
+		// we need to signal the abort to the caller.
+		// We'll use a sentinel or just panic if we want to match the exception,
+		// but the standard Go way is returning error.
+		// However, the RateLimiter interface does not return error.
+		// Looking at OneMergeProgress.PauseNanos, it returns error.
+		// Let's assume we'll handle abort via the loop check or a panic for simplicity
+		// if it's a critical failure, but better to use a sentinel if the interface allows.
+		// Actually, the Java code throws MergeAbortedException which is a checked exception.
+		// In Go, if we can't change the interface, we might have to panic or
+		// return a sentinel. But Pause is part of RateLimiter interface.
+		// Wait, MergeRateLimiter's Pause method in Java throws MergeAbortedException.
+		// Our store.RateLimiter interface DOES NOT return an error.
+		// This is a discrepancy.
+		panic(fmt.Errorf("merge aborted"))
 	}
 
-	rate := r.GetMBPerSec()
-	var secondsToPause float64
-	if rate == 0 {
-		secondsToPause = math.Inf(1)
-	} else {
-		secondsToPause = (float64(bytes) / 1024.0 / 1024.0) / rate
-	}
+	r.mu.Lock()
+	rate := r.mbPerSec
+	r.mu.Unlock()
+
+	secondsToPause := (float64(bytes) / 1024.0 / 1024.0) / rate
 
 	var curPauseNS int64
 
-	// Atomic update of lastNS
+	// Implement AtomicLong.updateAndGet logic
 	for {
 		last := r.lastNS.Load()
 		curNS := time.Now().UnixNano()
 		targetNS := last + int64(1e9*secondsToPause)
-
-		// Handle Infinity
-		if math.IsInf(secondsToPause, 1) {
-			targetNS = curNS + math.MaxInt64
-		}
-
 		diff := targetNS - curNS
-		if diff <= minPauseNs {
-			// Reset timeline to now
+
+		if diff <= minPauseNS.Nanoseconds() {
+			curPauseNS = 0
 			if r.lastNS.CompareAndSwap(last, curNS) {
-				curPauseNS = 0
 				break
 			}
 		} else {
-			// Keep timeline, will pause
-			if r.lastNS.CompareAndSwap(last, last) { // No-op but matches logic
-				curPauseNS = diff
+			curPauseNS = diff
+			if r.lastNS.CompareAndSwap(last, last) { // No-op to just break loop if we don't update
 				break
 			}
-			// Actually, in Java: return last.
-			// So we don't change lastNS.
-			curPauseNS = diff
-			break
 		}
 	}
 
 	if curPauseNS == 0 {
-		return -1, nil
+		return -1
 	}
 
-	if curPauseNS > maxPauseNs {
-		curPauseNS = maxPauseNs
+	pauseAmount := curPauseNS
+	if pauseAmount > maxPauseNS.Nanoseconds() {
+		pauseAmount = maxPauseNS.Nanoseconds()
 	}
 
 	start := time.Now().UnixNano()
 
 	reason := PAUSED
-	if rate == 0 {
+	if rate == 0.0 {
 		reason = STOPPED
 	}
 
-	err := r.mergeProgress.PauseNanos(curPauseNS, reason, func() bool {
-		return r.GetMBPerSec() == rate
+	err := r.mergeProgress.PauseNanos(pauseAmount, reason, func() bool {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		return rate == r.mbPerSec
 	})
+
 	if err != nil {
-		return 0, err
+		// Handle abort/interruption
+		panic(err)
 	}
 
-	return time.Now().UnixNano() - start, nil
-}
-
-// GetMinPauseCheckBytes returns how many bytes a caller should accumulate before invoking Pause.
-func (r *MergeRateLimiter) GetMinPauseCheckBytes() int64 {
-	return r.minPauseCheckBytes.Load()
+	return time.Now().UnixNano() - start
 }
