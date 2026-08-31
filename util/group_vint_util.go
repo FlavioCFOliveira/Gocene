@@ -27,7 +27,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// GroupVIntUtil ports org.apache.lucene.util.GroupVIntUtil from Lucene 10.4.0
+// GroupVIntUtil ports org.apache.lucene.util.GroupVIntUtil from Lucene 10.5.0
 // (lucene/core/src/java/org/apache/lucene/util/GroupVIntUtil.java).
 //
 // Group-varint packs four 32-bit unsigned integers into a "group". The group
