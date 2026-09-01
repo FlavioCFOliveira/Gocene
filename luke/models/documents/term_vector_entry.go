@@ -3,7 +3,7 @@ package documents
 import (
 	"fmt"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/luke/util"
+	"github.com/FlavioCFOliveira/Gocene/luke/models/util"
 )
 
 // TermVectorEntry is a holder for term vector entry representing the term and their number of occurrences, and optionally, positions in the document field.

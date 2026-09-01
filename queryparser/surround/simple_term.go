@@ -43,7 +43,24 @@ func (q *SrndTermQuery) DistanceSubQueryNotAllowed() string {
 
 // MakeLuceneQueryField produces a TermQuery on the supplied field.
 func (q *SrndTermQuery) MakeLuceneQueryField(field string, factory *BasicQueryFactory) (search.Query, error) {
-	return factory.MakeBasicTermQuery(field, q.termText)
+	query, err := factory.MakeBasicTermQuery(field, q.termText)
+	if err != nil {
+		return nil, err
+	}
+	return q.WrapWithBoost(query), nil
+}
+
+func (q *SrndTermQuery) String() string {
+	var sb strings.Builder
+	if q.quoted {
+		sb.WriteByte('"')
+	}
+	sb.WriteString(q.termText)
+	if q.quoted {
+		sb.WriteByte('"')
+	}
+	q.WeightToString(&sb)
+	return sb.String()
 }
 
 // AddSpanQueries adds a single SpanTermQuery to the factory.
@@ -80,7 +97,22 @@ func (q *SrndPrefixQuery) MakeLuceneQueryField(field string, factory *BasicQuery
 	if err := factory.tickBasicQueryBudget(); err != nil {
 		return nil, err
 	}
-	return search.NewPrefixQuery(index.NewTerm(field, q.prefix)), nil
+	query := search.NewPrefixQuery(index.NewTerm(field, q.prefix))
+	return q.WrapWithBoost(query), nil
+}
+
+func (q *SrndPrefixQuery) String() string {
+	var sb strings.Builder
+	if q.quoted {
+		sb.WriteByte('"')
+	}
+	sb.WriteString(q.prefix)
+	if q.quoted {
+		sb.WriteByte('"')
+	}
+	sb.WriteRune(q.truncator)
+	q.WeightToString(&sb)
+	return sb.String()
 }
 
 // AddSpanQueries enumerates the matching terms via the BasicQueryFactory and
@@ -124,7 +156,15 @@ func (q *SrndTruncQuery) MakeLuceneQueryField(field string, factory *BasicQueryF
 		return nil, err
 	}
 	pattern := convertWildcardPattern(q.truncated, q.truncator, q.anyChar)
-	return search.NewWildcardQuery(index.NewTerm(field, pattern)), nil
+	query := search.NewWildcardQuery(index.NewTerm(field, pattern))
+	return q.WrapWithBoost(query), nil
+}
+
+func (q *SrndTruncQuery) String() string {
+	var sb strings.Builder
+	sb.WriteString(q.truncated)
+	q.WeightToString(&sb)
+	return sb.String()
 }
 
 // AddSpanQueries queues the truncation pattern; a future enhancement may

@@ -141,11 +141,11 @@ func (ms *MergeSpecification) Add(merge *OneMerge) {
 
 // MergePolicy determines the sequence of primitive merge operations.
 type MergePolicy interface {
-	FindMerges(trigger MergeTrigger, infos SegmentInfos, ctx MergeContext) (*MergeSpecification, error)
-	FindForcedMerges(infos SegmentInfos, maxNumSegments int, segmentsToMerge map[SegmentCommitInfo]bool, ctx MergeContext) (*MergeSpecification, error)
-	FindForcedDeletesMerges(infos SegmentInfos, ctx MergeContext) (*MergeSpecification, error)
-	FindFullFlushMerges(trigger MergeTrigger, infos SegmentInfos, ctx MergeContext) (*MergeSpecification, error)
-	UseCompoundFile(infos SegmentInfos, mergedInfo SegmentCommitInfo, ctx MergeContext) (bool, error)
+	FindMerges(trigger MergeTrigger, infos *SegmentInfos, ctx MergeContext) (*MergeSpecification, error)
+	FindForcedMerges(infos *SegmentInfos, maxNumSegments int, segmentsToMerge map[*SegmentCommitInfo]bool, ctx MergeContext) (*MergeSpecification, error)
+	FindForcedDeletesMerges(infos *SegmentInfos, ctx MergeContext) (*MergeSpecification, error)
+	FindFullFlushMerges(trigger MergeTrigger, infos *SegmentInfos, ctx MergeContext) (*MergeSpecification, error)
+	UseCompoundFile(infos *SegmentInfos, mergedInfo *SegmentCommitInfo, ctx MergeContext) (bool, error)
 }
 
 // BaseMergePolicy provides default implementations for MergePolicy.

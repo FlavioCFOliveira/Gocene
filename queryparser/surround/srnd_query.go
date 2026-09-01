@@ -72,5 +72,13 @@ func (b *SrndQueryBase) WeightToString(sb *strings.Builder) {
 // IsWeighted reports whether SetWeight has been called.
 func (b *SrndQueryBase) IsWeighted() bool { return b.weightSet }
 
+// WrapWithBoost wraps the supplied query in a BoostQuery if this node is weighted.
+func (b *SrndQueryBase) WrapWithBoost(q search.Query) search.Query {
+	if b.IsWeighted() {
+		return search.NewBoostQuery(q, b.GetWeight())
+	}
+	return q
+}
+
 // IsFieldsSubQueryAcceptable defaults to true; FieldsQuery overrides this.
 func (b *SrndQueryBase) IsFieldsSubQueryAcceptable() bool { return true }

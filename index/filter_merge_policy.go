@@ -44,9 +44,14 @@ func (f *FilterMergePolicy) FindForcedDeletesMerges(infos *SegmentInfos, mc Merg
 	return f.In.FindForcedDeletesMerges(infos, mc)
 }
 
+// FindFullFlushMerges delegates to In.
+func (f *FilterMergePolicy) FindFullFlushMerges(trigger MergeTrigger, infos *SegmentInfos, mc MergeContext) (*MergeSpecification, error) {
+	return f.In.FindFullFlushMerges(trigger, infos, mc)
+}
+
 // UseCompoundFile delegates to In.
-func (f *FilterMergePolicy) UseCompoundFile(infos *SegmentInfos, merged *SegmentInfo) bool {
-	return f.In.UseCompoundFile(infos, merged)
+func (f *FilterMergePolicy) UseCompoundFile(infos *SegmentInfos, merged *SegmentCommitInfo, mc MergeContext) (bool, error) {
+	return f.In.UseCompoundFile(infos, merged, mc)
 }
 
 // GetMaxMergeDocs delegates to In.

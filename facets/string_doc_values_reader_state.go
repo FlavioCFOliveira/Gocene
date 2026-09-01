@@ -4,25 +4,30 @@
 
 package facets
 
+import (
+	"github.com/FlavioCFOliveira/Gocene/index"
+)
+
 // StringDocValuesReaderState caches the per-field state needed by
 // StringValueFacetCounts to enumerate sorted-string DocValues facets
 // efficiently. Mirrors org.apache.lucene.facet.StringDocValuesReaderState.
 type StringDocValuesReaderState struct {
-	Field      string
-	UniqueOrds int
+	Reader      index.IndexReaderInterface
+	Field       string
+	UniqueOrds  int
 	// OrdToTerm caches the ordinal-to-term mapping captured at construction
 	// time. Index i holds the term associated with ordinal i.
 	OrdToTerm []string
 }
 
-// NewStringDocValuesReaderState builds a state object for the supplied field
-// and ordinal-to-term mapping.
-func NewStringDocValuesReaderState(field string, ordToTerm []string) *StringDocValuesReaderState {
+// NewStringDocValuesReaderState builds a state object for the supplied field and ordinal-to-term mapping.
+func NewStringDocValuesReaderState(reader index.IndexReaderInterface, field string, ordToTerm []string) *StringDocValuesReaderState {
 	out := make([]string, len(ordToTerm))
 	copy(out, ordToTerm)
 	return &StringDocValuesReaderState{
-		Field:      field,
-		UniqueOrds: len(out),
+		Reader:      reader,
+		Field:       field,
+		UniqueOrds:  len(out),
 		OrdToTerm:  out,
 	}
 }
