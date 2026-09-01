@@ -127,14 +127,7 @@ func (p *Geo3DPoint) String() string {
 }
 
 // ---------------------------------------------------------------------------
-// Geo3DDocValuesField — stub
-//
-// Port of org.apache.lucene.spatial3d.Geo3DDocValuesField.
-// ---------------------------------------------------------------------------
-
 // Geo3DDocValuesField is a doc-values field storing an XYZ location.
-//
-// Full implementation deferred to backlog #2693.
 //
 // Port of org.apache.lucene.spatial3d.Geo3DDocValuesField.
 type Geo3DDocValuesField struct {
@@ -237,70 +230,328 @@ func FromPath(pm *geom.PlanetModel, pathLatitudes, pathLongitudes []float64, pat
 	return geom.MakeGeoPath(pm, radiusRadians, points)
 }
 
-// ---------------------------------------------------------------------------
-// Geo3DPointSortField / comparators -- stubs
+// NewGeo3DPointSort creates a SortField that orders documents by distance to a Geo3D shape.
 //
-// Ports of org.apache.lucene.spatial3d.Geo3DPointSortField,
-// Geo3DPointOutsideSortField, Geo3DPointDistanceComparator,
-// Geo3DPointOutsideDistanceComparator.
-//
-// All depend on SortField/FieldComparator infrastructure deferred to #2693.
-// ---------------------------------------------------------------------------
+// Port of Geo3DDocValuesField.newDistanceSort and newPathSort.
+func NewGeo3DPointSort(field string, pm *geom.PlanetModel, shape geom.GeoDistanceShape, reverse bool) *search.SortField {
+	source := &Geo3DPointSortFieldSource{
+		field:       field,
+		planetModel: pm,
+		shape:       shape,
+	}
+	return search.NewSortFieldCustom(field, source, reverse)
+}
 
-// Geo3DPointSortField is a SortField that sorts by distance to a Geo3D shape.
+// NewGeo3DPointOutsideSort creates a SortField that orders documents by outside distance to a Geo3D shape.
 //
-// Port of org.apache.lucene.spatial3d.Geo3DPointSortField.
-type Geo3DPointSortField struct {
+// Port of Geo3DDocValuesField.newOutsideDistanceSort, newOutsideBoxSort, etc.
+func NewGeo3DPointOutsideSort(field string, pm *geom.PlanetModel, shape geom.GeoOutsideDistance, reverse bool) *search.SortField {
+	source := &Geo3DPointOutsideSortFieldSource{
+		field:       field,
+		planetModel: pm,
+		shape:       shape,
+	}
+	return search.NewSortFieldCustom(field, source, reverse)
+}
+
+// Geo3DPointSortFieldSource creates a Geo3DPointDistanceComparator.
+type Geo3DPointSortFieldSource struct {
 	field       string
-	shape       geom.GeoShape
 	planetModel *geom.PlanetModel
+	shape       geom.GeoDistanceShape
 }
 
-// NewGeo3DPointSortField constructs a Geo3DPointSortField.
-func NewGeo3DPointSortField(field string, pm *geom.PlanetModel, shape geom.GeoShape) *Geo3DPointSortField {
-	return &Geo3DPointSortField{field: field, planetModel: pm, shape: shape}
+func (s *Geo3DPointSortFieldSource) NewComparator(fieldname string, numHits int, pruning search.Pruning, reversed bool) search.FieldComparator {
+	return NewGeo3DPointDistanceComparator(fieldname, s.planetModel, s.shape, numHits)
 }
 
-// String returns a human-readable representation.
-func (s *Geo3DPointSortField) String() string {
-	return fmt.Sprintf("Geo3DPointSortField{field=%s}", s.field)
-}
-
-// Geo3DPointOutsideSortField is a SortField that sorts by outside-distance to a Geo3D shape.
-//
-// Port of org.apache.lucene.spatial3d.Geo3DPointOutsideSortField.
-type Geo3DPointOutsideSortField struct {
+// Geo3DPointOutsideSortFieldSource creates a Geo3DPointOutsideDistanceComparator.
+type Geo3DPointOutsideSortFieldSource struct {
 	field       string
-	shape       geom.GeoShape
 	planetModel *geom.PlanetModel
+	shape       geom.GeoOutsideDistance
 }
 
-// NewGeo3DPointOutsideSortField constructs a Geo3DPointOutsideSortField.
-func NewGeo3DPointOutsideSortField(field string, pm *geom.PlanetModel, shape geom.GeoShape) *Geo3DPointOutsideSortField {
-	return &Geo3DPointOutsideSortField{field: field, planetModel: pm, shape: shape}
-}
-
-// String returns a human-readable representation.
-func (s *Geo3DPointOutsideSortField) String() string {
-	return fmt.Sprintf("Geo3DPointOutsideSortField{field=%s}", s.field)
+func (s *Geo3DPointOutsideSortFieldSource) NewComparator(fieldname string, numHits int, pruning search.Pruning, reversed bool) search.FieldComparator {
+	return NewGeo3DPointOutsideDistanceComparator(fieldname, s.planetModel, s.shape, numHits)
 }
 
 // Geo3DPointDistanceComparator computes in-shape distance for sorting.
 //
 // Port of org.apache.lucene.spatial3d.Geo3DPointDistanceComparator.
-// Deferred to #2693.
 type Geo3DPointDistanceComparator struct {
-	field       string
-	planetModel *geom.PlanetModel
-	shape       geom.GeoShape
+	field         string
+	planetModel   *geom.PlanetModel
+	distanceShape geom.GeoDistanceShape
+	values        []float64
+	bottomDist    float64
+	topValue      float64
+	currentDocs   index.SortedNumericDocValues
+	pqBounds      *geom.XYZBounds
+	setBottomCount int
+}
+
+func NewGeo3DPointDistanceComparator(field string, pm *geom.PlanetModel, shape geom.GeoDistanceShape, numHits int) *Geo3DPointDistanceComparator {
+	return &Geo3DPointDistanceComparator{
+		field:         field,
+		planetModel:   pm,
+		distanceShape: shape,
+		values:        make([]float64, numHits),
+	}
+}
+
+func (c *Geo3DPointDistanceComparator) Compare(slot1, slot2 int) int {
+	if c.values[slot1] < c.values[slot2] {
+		return -1
+	} else if c.values[slot1] > c.values[slot2] {
+		return 1
+	}
+	return 0
+}
+
+func (c *Geo3DPointDistanceComparator) SetBottom(slot int) {
+	c.bottomDist = c.values[slot]
+	if c.setBottomCount < 1024 || (c.setBottomCount&0x3F) == 0x3F {
+		bounds := &geom.XYZBounds{}
+		c.distanceShape.GetDistanceBounds(bounds, geom.Arc, c.bottomDist)
+		c.pqBounds = bounds
+	}
+	c.setBottomCount++
+}
+
+func (c *Geo3DPointDistanceComparator) SetTopValue(value float64) {
+	c.topValue = value
+}
+
+func (c *Geo3DPointDistanceComparator) CompareBottom(doc int) (int, error) {
+	if doc > c.currentDocs.DocID() {
+		c.currentDocs.Advance(doc)
+	}
+	if doc < c.currentDocs.DocID() {
+		if c.bottomDist < math.Inf(1) {
+			return -1, nil
+		}
+		return 0, nil
+	}
+
+	numValues := c.currentDocs.DocValueCount()
+	cmp := -1
+	encoder := geom.NewDocValueEncoder(c.planetModel)
+
+	for i := 0; i < numValues; i++ {
+		encoded := c.currentDocs.NextValue()
+		x := encoder.DecodeXValue(encoded)
+		y := encoder.DecodeYValue(encoded)
+		z := encoder.DecodeZValue(encoded)
+
+		if c.pqBounds != nil {
+			if x > c.pqBounds.MaximumX() || x < c.pqBounds.MinimumX() ||
+				y > c.pqBounds.MaximumY() || y < c.pqBounds.MinimumY() ||
+				z > c.pqBounds.MaximumZ() || z < c.pqBounds.MinimumZ() {
+				continue
+			}
+		}
+
+		dist := c.distanceShape.ComputeDistance(geom.Arc, x, y, z)
+		if c.bottomDist < dist {
+			cmp = 1
+		} else if c.bottomDist > dist {
+			cmp = -1
+		} else {
+			cmp = 0
+		}
+	}
+	return cmp, nil
+}
+
+func (c *Geo3DPointDistanceComparator) Copy(slot, doc int) error {
+	c.values[slot] = c.computeMinimumDistance(doc)
+	return nil
+}
+
+func (c *Geo3DPointDistanceComparator) SetReader(reader index.IndexReader) error {
+	dv, err := reader.SortedNumericDocValues(c.field)
+	if err != nil {
+		return fmt.Errorf("geo3d: SetReader: %w", err)
+	}
+	c.currentDocs = dv
+	return nil
+}
+
+func (c *Geo3DPointDistanceComparator) Value(slot int) any {
+	return c.values[slot] * c.planetModel.MeanRadius
+}
+
+func (c *Geo3DPointDistanceComparator) CompareTop(doc int) (int, error) {
+	dist := c.computeMinimumDistance(doc)
+	if c.topValue < dist {
+		return -1, nil
+	} else if c.topValue > dist {
+		return 1, nil
+	}
+	return 0, nil
+}
+
+func (c *Geo3DPointDistanceComparator) computeMinimumDistance(doc int) float64 {
+	if doc > c.currentDocs.DocID() {
+		c.currentDocs.Advance(doc)
+	}
+	minValue := math.Inf(1)
+	if doc == c.currentDocs.DocID() {
+		numValues := c.currentDocs.DocValueCount()
+		encoder := geom.NewDocValueEncoder(c.planetModel)
+		for i := 0; i < numValues; i++ {
+			encoded := c.currentDocs.NextValue()
+			dist := c.distanceShape.ComputeDistance(
+				geom.Arc,
+				encoder.DecodeXValue(encoded),
+				encoder.DecodeYValue(encoded),
+				encoder.DecodeZValue(encoded))
+			if dist < minValue {
+				minValue = dist
+			}
+		}
+	}
+	return minValue
+}
+
+func (c *Geo3DPointDistanceComparator) ComputeMinimumDistanceMock(encoded int64) float64 {
+	encoder := geom.NewDocValueEncoder(c.planetModel)
+	return c.distanceShape.ComputeDistance(
+		geom.Arc,
+		encoder.DecodeXValue(encoded),
+		encoder.DecodeYValue(encoded),
+		encoder.DecodeZValue(encoded))
 }
 
 // Geo3DPointOutsideDistanceComparator computes outside-shape distance for sorting.
 //
 // Port of org.apache.lucene.spatial3d.Geo3DPointOutsideDistanceComparator.
-// Deferred to #2693.
 type Geo3DPointOutsideDistanceComparator struct {
-	field       string
-	planetModel *geom.PlanetModel
-	shape       geom.GeoShape
+	field         string
+	planetModel   *geom.PlanetModel
+	distanceShape geom.GeoOutsideDistance
+	values        []float64
+	bottomDist    float64
+	topValue      float64
+	currentDocs   index.SortedNumericDocValues
+}
+
+func NewGeo3DPointOutsideDistanceComparator(field string, pm *geom.PlanetModel, shape geom.GeoOutsideDistance, numHits int) *Geo3DPointOutsideDistanceComparator {
+	return &Geo3DPointOutsideDistanceComparator{
+		field:         field,
+		planetModel:   pm,
+		distanceShape: shape,
+		values:        make([]float64, numHits),
+	}
+}
+
+func (c *Geo3DPointOutsideDistanceComparator) Compare(slot1, slot2 int) int {
+	if c.values[slot1] < c.values[slot2] {
+		return -1
+	} else if c.values[slot1] > c.values[slot2] {
+		return 1
+	}
+	return 0
+}
+
+func (c *Geo3DPointOutsideDistanceComparator) SetBottom(slot int) {
+	c.bottomDist = c.values[slot]
+}
+
+func (c *Geo3DPointOutsideDistanceComparator) SetTopValue(value float64) {
+	c.topValue = value
+}
+
+func (c *Geo3DPointOutsideDistanceComparator) CompareBottom(doc int) (int, error) {
+	if doc > c.currentDocs.DocID() {
+		c.currentDocs.Advance(doc)
+	}
+	if doc < c.currentDocs.DocID() {
+		if c.bottomDist < math.Inf(1) {
+			return -1, nil
+		}
+		return 0, nil
+	}
+
+	numValues := c.currentDocs.DocValueCount()
+	cmp := -1
+	encoder := geom.NewDocValueEncoder(c.planetModel)
+
+	for i := 0; i < numValues; i++ {
+		encoded := c.currentDocs.NextValue()
+		x := encoder.DecodeXValue(encoded)
+		y := encoder.DecodeYValue(encoded)
+		z := encoder.DecodeZValue(encoded)
+
+		dist := c.distanceShape.ComputeOutsideDistance(geom.Arc, x, y, z)
+		if c.bottomDist < dist {
+			cmp = 1
+		} else if c.bottomDist > dist {
+			cmp = -1
+		} else {
+			cmp = 0
+		}
+	}
+	return cmp, nil
+}
+
+func (c *Geo3DPointOutsideDistanceComparator) Copy(slot, doc int) error {
+	c.values[slot] = c.computeMinimumDistance(doc)
+	return nil
+}
+
+func (c *Geo3DPointOutsideDistanceComparator) SetReader(reader index.IndexReader) error {
+	dv, err := reader.SortedNumericDocValues(c.field)
+	if err != nil {
+		return fmt.Errorf("geo3d: SetReader: %w", err)
+	}
+	c.currentDocs = dv
+	return nil
+}
+
+func (c *Geo3DPointOutsideDistanceComparator) Value(slot int) any {
+	return c.values[slot] * c.planetModel.MeanRadius
+}
+
+func (c *Geo3DPointOutsideDistanceComparator) CompareTop(doc int) (int, error) {
+	dist := c.computeMinimumDistance(doc)
+	if c.topValue < dist {
+		return -1, nil
+	} else if c.topValue > dist {
+		return 1, nil
+	}
+	return 0, nil
+}
+
+func (c *Geo3DPointOutsideDistanceComparator) computeMinimumDistance(doc int) float64 {
+	if doc > c.currentDocs.DocID() {
+		c.currentDocs.Advance(doc)
+	}
+	minValue := math.Inf(1)
+	if doc == c.currentDocs.DocID() {
+		numValues := c.currentDocs.DocValueCount()
+		encoder := geom.NewDocValueEncoder(c.planetModel)
+		for i := 0; i < numValues; i++ {
+			encoded := c.currentDocs.NextValue()
+			dist := c.distanceShape.ComputeOutsideDistance(
+				geom.Arc,
+				encoder.DecodeXValue(encoded),
+				encoder.DecodeYValue(encoded),
+				encoder.DecodeZValue(encoded))
+			if dist < minValue {
+				minValue = dist
+			}
+		}
+	}
+	return minValue
+}
+
+func (c *Geo3DPointOutsideDistanceComparator) ComputeMinimumDistanceMock(encoded int64) float64 {
+	encoder := geom.NewDocValueEncoder(c.planetModel)
+	return c.distanceShape.ComputeOutsideDistance(
+		geom.Arc,
+		encoder.DecodeXValue(encoded),
+		encoder.DecodeYValue(encoded),
+		encoder.DecodeZValue(encoded))
 }

@@ -375,3 +375,121 @@ func (pm *PlanetModel) SurfacePointOnBearing(from *GeoPoint, dist, bearing float
 
 	return NewGeoPointModel(pm, phi2, lambda2)
 }
+
+// DocValueEncoder handles encoding/decoding from lat/lon (decimal degrees)
+// into sortable doc value numerics (integers).
+type DocValueEncoder struct {
+	planetModel    *PlanetModel
+	inverseXFactor float64
+	inverseYFactor float64
+	inverseZFactor float64
+	xFactor        float64
+	yFactor        float64
+	zFactor        float64
+	xStep          float64
+	yStep          float64
+	zStep          float64
+}
+
+const stepFudge = 10.0
+const inverseMaximumValue = 1.0 / float64(0x1FFFFF)
+
+func NewDocValueEncoder(pm *PlanetModel) *DocValueEncoder {
+	invX := (pm.GetMaximumXValue() - pm.GetMinimumXValue()) * inverseMaximumValue
+	invY := (pm.GetMaximumYValue() - pm.GetMinimumYValue()) * inverseMaximumValue
+	invZ := (pm.GetMaximumZValue() - pm.GetMinimumZValue()) * inverseMaximumValue
+
+	return &DocValueEncoder{
+		planetModel:    pm,
+		inverseXFactor: invX,
+		inverseYFactor: invY,
+		inverseZFactor: invZ,
+		xFactor:        1.0 / invX,
+		yFactor:        1.0 / invY,
+		zFactor:        1.0 / invZ,
+		xStep:          invX * stepFudge,
+		yStep:          invY * stepFudge,
+		zStep:          invZ * stepFudge,
+	}
+}
+
+func (e *DocValueEncoder) EncodePoint(p *GeoPoint) int64 {
+	return e.EncodePointXYZ(p.X, p.Y, p.Z)
+}
+
+func (e *DocValueEncoder) EncodePointXYZ(x, y, z float64) int64 {
+	xEnc := e.encodeX(x)
+	yEnc := e.encodeY(y)
+	zEnc := e.encodeZ(z)
+	return (int64(xEnc&0x1FFFFF) << 42) |
+		(int64(yEnc&0x1FFFFF) << 21) |
+		int64(zEnc&0x1FFFFF)
+}
+
+func (e *DocValueEncoder) DecodePoint(docValue int64) *GeoPoint {
+	return &GeoPoint{
+		Vector: Vector{
+			X: e.decodeX(int32((docValue >> 42) & 0x1FFFFF)),
+			Y: e.decodeY(int32((docValue >> 21) & 0x1FFFFF)),
+			Z: e.decodeZ(int32(docValue & 0x1FFFFF)),
+		},
+	}
+}
+
+func (e *DocValueEncoder) DecodeXValue(docValue int64) float64 {
+	return e.decodeX(int32((docValue >> 42) & 0x1FFFFF))
+}
+
+func (e *DocValueEncoder) DecodeYValue(docValue int64) float64 {
+	return e.decodeY(int32((docValue >> 21) & 0x1FFFFF))
+}
+
+func (e *DocValueEncoder) DecodeZValue(docValue int64) float64 {
+	return e.decodeZ(int32(docValue & 0x1FFFFF))
+}
+
+func (e *DocValueEncoder) encodeX(x float64) int32 {
+	if x > e.planetModel.GetMaximumXValue() {
+		panic("x value exceeds planet model maximum")
+	} else if x < e.planetModel.GetMinimumXValue() {
+		panic("x value less than planet model minimum")
+	}
+	return int32(math.Floor((x-e.planetModel.GetMinimumXValue())*e.xFactor + 0.5))
+}
+
+func (e *DocValueEncoder) decodeX(x int32) float64 {
+	return float64(x)*e.inverseXFactor + e.planetModel.GetMinimumXValue()
+}
+
+func (e *DocValueEncoder) encodeY(y float64) int32 {
+	if y > e.planetModel.GetMaximumYValue() {
+		panic("y value exceeds planet model maximum")
+	} else if y < e.planetModel.GetMinimumYValue() {
+		panic("y value less than planet model minimum")
+	}
+	return int32(math.Floor((y-e.planetModel.GetMinimumYValue())*e.yFactor + 0.5))
+}
+
+func (e *DocValueEncoder) decodeY(y int32) float64 {
+	return float64(y)*e.inverseYFactor + e.planetModel.GetMinimumYValue()
+}
+
+func (e *DocValueEncoder) encodeZ(z float64) int32 {
+	if z > e.planetModel.GetMaximumZValue() {
+		panic("z value exceeds planet model maximum")
+	} else if z < e.planetModel.GetMinimumZValue() {
+		panic("z value less than planet model minimum")
+	}
+	return int32(math.Floor((z-e.planetModel.GetMinimumZValue())*e.zFactor + 0.5))
+}
+
+func (e *DocValueEncoder) decodeZ(z int32) float64 {
+	return float64(z)*e.inverseZFactor + e.planetModel.GetMinimumZValue()
+}
+
+func (e *DocValueEncoder) RoundDownX(v float64) float64 { return v - e.xStep }
+func (e *DocValueEncoder) RoundUpX(v float64) float64   { return v + e.xStep }
+func (e *DocValueEncoder) RoundDownY(v float64) float64 { return v - e.yStep }
+func (e *DocValueEncoder) RoundUpY(v float64) float64   { return v + e.yStep }
+func (e *DocValueEncoder) RoundDownZ(v float64) float64 { return v - e.zStep }
+func (e *DocValueEncoder) RoundUpZ(v float64) float64   { return v + e.zStep }
