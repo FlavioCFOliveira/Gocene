@@ -6,300 +6,311 @@ package index
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// CodecReader is a LeafReader that reads from a codec.
+// CodecReader is a LeafReader implemented by codec APIs.
 // This is the Go port of Lucene's org.apache.lucene.index.CodecReader.
 //
-// CodecReader is the bridge between LeafReader and SegmentReader.
-// It provides access to the underlying codec readers for postings,
-// stored fields, and term vectors.
-type CodecReader struct {
-	*LeafReader
+// In Lucene, this is an abstract class. In Gocene, we use an interface for the
+// abstract methods and a base struct (baseCodecReader) to provide the common
+// LeafReader implementation.
+type CodecReader interface {
+	LeafReader
 
-	// coreReaders holds the shared core readers for this segment
-	coreReaders *SegmentCoreReaders
+	// GetFieldsReader retrieves the underlying StoredFieldsReader.
+	GetFieldsReader() StoredFieldsReader
 
-	// liveDocs indicates which documents are live (nil if all docs are live)
-	liveDocs util.Bits
+	// GetTermVectorsReader retrieves the underlying TermVectorsReader.
+	GetTermVectorsReader() TermVectorsReader
 
-	// numDocs is the number of live documents
-	numDocs int
+	// GetNormsReader retrieves the underlying NormsProducer.
+	GetNormsReader() NormsProducer
+
+	// GetDocValuesReader retrieves the underlying DocValuesProducer.
+	GetDocValuesReader() DocValuesProducer
+
+	// GetPostingsReader retrieves the underlying FieldsProducer.
+	GetPostingsReader() FieldsProducer
+
+	// GetPointsReader retrieves the underlying PointsReader.
+	GetPointsReader() PointsReader
+
+	// GetVectorReader retrieves the underlying KnnVectorsReader.
+	GetVectorReader() KnnVectorsReader
 }
 
-// NewCodecReader creates a new CodecReader for the given segment, using the
-// core readers' base FieldInfos.
-func NewCodecReader(
-	coreReaders *SegmentCoreReaders,
-	liveDocs util.Bits,
-	numDocs int,
-) *CodecReader {
-	return NewCodecReaderWithFieldInfos(coreReaders, liveDocs, numDocs, coreReaders.GetFieldInfos())
+// baseCodecReader provides the common implementation of LeafReader methods
+// by delegating to the CodecReader interface.
+type baseCodecReader struct {
+	impl CodecReader
 }
 
-// NewCodecReaderWithFieldInfos creates a new CodecReader for the given segment
-// using the supplied FieldInfos. This is used when the caller has an updated
-// FieldInfos view (e.g. after doc-values updates were applied) that must be
-// visible to the merge and search machinery while the codec data readers stay
-// wired to the core readers.
-func NewCodecReaderWithFieldInfos(
-	coreReaders *SegmentCoreReaders,
-	liveDocs util.Bits,
-	numDocs int,
-	fieldInfos *FieldInfos,
-) *CodecReader {
-	// Create a minimal SegmentInfo for the LeafReader. The actual
-	// segment info should come from the core readers or be passed in;
-	// this stub is kept for the LeafReader contract, with docCount=0
-	// (it is set properly via SetDocCount later when needed).
-	segmentInfo := NewSegmentInfo(coreReaders.GetCoreCacheKey().(util.Directory), "v1.0.0", "v1.0.0", coreReaders.GetSegmentName(), 0, false, false, coreReaders.GetCodec(), nil, nil, nil, nil)
-	return &CodecReader{
-		LeafReader:  NewLeafReaderWithFieldInfos(segmentInfo, fieldInfos),
-		coreReaders: coreReaders,
-		liveDocs:    liveDocs,
-		numDocs:     numDocs,
-	}
+// NewBaseCodecReader creates a baseCodecReader wrapping the given CodecReader implementation.
+func NewBaseCodecReader(impl CodecReader) *baseCodecReader {
+	return &baseCodecReader{impl: impl}
 }
 
-// GetCoreReaders returns the SegmentCoreReaders.
-func (r *CodecReader) GetCoreReaders() *SegmentCoreReaders {
-	return r.coreReaders
-}
-
-// DocCount returns the total number of documents (including deleted).
-func (r *CodecReader) DocCount() int {
-	if r.coreReaders == nil {
-		return 0
-	}
-	// Return maxDoc from segment info
-	return r.LeafReader.DocCount()
-}
-
-// NumDocs returns the number of live documents.
-func (r *CodecReader) NumDocs() int {
-	return r.numDocs
-}
-
-// MaxDoc returns the maximum document ID plus one.
-func (r *CodecReader) MaxDoc() int {
-	return r.LeafReader.MaxDoc()
-}
-
-// HasDeletions returns true if this reader has deleted documents.
-func (r *CodecReader) HasDeletions() bool {
-	return r.liveDocs != nil
-}
-
-// NumDeletedDocs returns the number of deleted documents.
-func (r *CodecReader) NumDeletedDocs() int {
-	return r.MaxDoc() - r.numDocs
-}
-
-// GetLiveDocs returns the live docs Bits, or nil if all docs are live.
-func (r *CodecReader) GetLiveDocs() util.Bits {
-	return r.liveDocs
-}
-
-// GetFieldInfos returns the FieldInfos for this reader. The returned FieldInfos
-// is the view supplied at construction time (which may be an updated view that
-// includes doc-values generations), not the base FieldInfos held by the core
-// readers.
-func (r *CodecReader) GetFieldInfos() *FieldInfos {
-	return r.IndexReader.GetFieldInfos()
-}
-
-// Terms returns the Terms for a field.
-func (r *CodecReader) Terms(field string) (Terms, error) {
-	if r.coreReaders == nil {
-		return nil, fmt.Errorf("codec reader not initialized")
-	}
-	fields := r.coreReaders.GetFields()
-	if fields == nil {
-		return nil, nil
-	}
-	return fields.Terms(field)
-}
-
-// StoredFields returns a StoredFields instance for accessing stored fields.
-func (r *CodecReader) StoredFields() (StoredFields, error) {
-	if r.coreReaders == nil {
-		return nil, fmt.Errorf("codec reader not initialized")
-	}
-	sfReader := r.coreReaders.GetStoredFieldsReader()
-	if sfReader == nil {
+func (b *baseCodecReader) StoredFields() (StoredFields, error) {
+	reader := b.impl.GetFieldsReader()
+	if reader == nil {
 		return NewEmptyStoredFields(), nil
 	}
-	return NewStoredFields(sfReader, r.liveDocs), nil
+	return &storedFieldsWrapper{
+		reader: reader,
+		maxDoc: b.impl.MaxDoc(),
+	}, nil
 }
 
-// TermVectors returns a TermVectors instance for accessing term vectors.
-func (r *CodecReader) TermVectors() (TermVectors, error) {
-	if r.coreReaders == nil {
-		return nil, fmt.Errorf("codec reader not initialized")
+type storedFieldsWrapper struct {
+	reader StoredFieldsReader
+	maxDoc int
+}
+
+func (w *storedFieldsWrapper) Prefetch(docID int) error {
+	if docID < 0 || docID >= w.maxDoc {
+		return fmt.Errorf("docID %d out of range [0, %d)", docID, w.maxDoc)
 	}
-	tvReader := r.coreReaders.GetTermVectorsReader()
-	if tvReader == nil {
+	return w.reader.Prefetch(docID)
+}
+
+func (w *storedFieldsWrapper) Document(docID int, visitor StoredFieldVisitor) error {
+	if docID < 0 || docID >= w.maxDoc {
+		return fmt.Errorf("docID %d out of range [0, %d)", docID, w.maxDoc)
+	}
+	return w.reader.Document(docID, visitor)
+}
+
+func (b *baseCodecReader) TermVectors() (TermVectors, error) {
+	reader := b.impl.GetTermVectorsReader()
+	if reader == nil {
 		return NewEmptyTermVectors(), nil
 	}
-	return NewTermVectors(tvReader, r.liveDocs), nil
+	return reader, nil
 }
 
-// GetTermVectors returns the term vectors for a document.
-func (r *CodecReader) GetTermVectors(docID int) (Fields, error) {
-	tv, err := r.TermVectors()
-	if err != nil {
-		return nil, err
-	}
-	if tv == nil {
+func (b *baseCodecReader) Terms(field string) (Terms, error) {
+	fi := b.impl.GetFieldInfos().FieldInfo(field)
+	if fi == nil || fi.IndexOptions == IndexOptionsNone {
+		// Field does not exist or does not index postings
 		return nil, nil
 	}
-	return tv.Get(docID)
+	return b.impl.GetPostingsReader().Terms(field)
 }
 
-// IncRef increments the reference count on the core readers.
-func (r *CodecReader) IncRef() error {
-	if r.coreReaders == nil {
-		return fmt.Errorf("codec reader not initialized")
+func (b *baseCodecReader) GetNumericDocValues(field string) (NumericDocValues, error) {
+	fi := b.getDVField(field, DocValuesTypeNumeric)
+	if fi == nil {
+		return nil, nil
 	}
-	return r.coreReaders.IncRef()
+	return b.impl.GetDocValuesReader().GetNumeric(fi), nil
 }
 
-// DecRef decrements the reference count on the core readers.
-func (r *CodecReader) DecRef() error {
-	if r.coreReaders == nil {
+func (b *baseCodecReader) GetBinaryDocValues(field string) (BinaryDocValues, error) {
+	fi := b.getDVField(field, DocValuesTypeBinary)
+	if fi == nil {
+		return nil, nil
+	}
+	return b.impl.GetDocValuesReader().GetBinary(fi), nil
+}
+
+func (b *baseCodecReader) GetSortedDocValues(field string) (SortedDocValues, error) {
+	fi := b.getDVField(field, DocValuesTypeSorted)
+	if fi == nil {
+		return nil, nil
+	}
+	return b.impl.GetDocValuesReader().GetSorted(fi), nil
+}
+
+func (b *baseCodecReader) GetSortedNumericDocValues(field string) (SortedNumericDocValues, error) {
+	fi := b.getDVField(field, DocValuesTypeSortedNumeric)
+	if fi == nil {
+		return nil, nil
+	}
+	return b.impl.GetDocValuesReader().GetSortedNumeric(fi), nil
+}
+
+func (b *baseCodecReader) GetSortedSetDocValues(field string) (SortedSetDocValues, error) {
+	fi := b.getDVField(field, DocValuesTypeSortedSet)
+	if fi == nil {
+		return nil, nil
+	}
+	return b.impl.GetDocValuesReader().GetSortedSet(fi), nil
+}
+
+func (b *baseCodecReader) GetDocValuesSkipper(field string) (DocValuesSkipper, error) {
+	fi := b.impl.GetFieldInfos().FieldInfo(field)
+	if fi == nil || fi.DocValuesSkipIndexType == DocValuesSkipIndexTypeNone {
+		return nil, nil
+	}
+	return b.impl.GetDocValuesReader().GetSkipper(fi), nil
+}
+
+func (b *baseCodecReader) GetNormValues(field string) (NumericDocValues, error) {
+	fi := b.impl.GetFieldInfos().FieldInfo(field)
+	if fi == nil || !fi.HasNorms() {
+		// Field does not exist or does not index norms
+		return nil, nil
+	}
+	return b.impl.GetNormsReader().GetNorms(fi), nil
+}
+
+func (b *baseCodecReader) GetPointValues(field string) (PointValues, error) {
+	fi := b.impl.GetFieldInfos().FieldInfo(field)
+	if fi == nil || fi.PointDimensionCount == 0 {
+		// Field does not exist or does not index points
+		return nil, nil
+	}
+	return b.impl.GetPointsReader().GetValues(field), nil
+}
+
+func (b *baseCodecReader) GetFloatVectorValues(field string) (FloatVectorValues, error) {
+	fi := b.impl.GetFieldInfos().FieldInfo(field)
+	if fi == nil || fi.VectorDimension == 0 || fi.VectorEncoding != VectorEncodingFloat32 {
+		// Field does not exist or does not index vectors
+		return nil, nil
+	}
+	return b.impl.GetVectorReader().GetFloatVectorValues(field), nil
+}
+
+func (b *baseCodecReader) GetByteVectorValues(field string) (ByteVectorValues, error) {
+	fi := b.impl.GetFieldInfos().FieldInfo(field)
+	if fi == nil || fi.VectorDimension == 0 || fi.VectorEncoding != VectorEncodingByte {
+		// Field does not exist or does not index vectors
+		return nil, nil
+	}
+	return b.impl.GetVectorReader().GetByteVectorValues(field), nil
+}
+
+func (b *baseCodecReader) SearchNearestVectors(field string, target []float32, k int, acceptDocs util.Bits) (TopDocs, error) {
+	fi := b.impl.GetFieldInfos().FieldInfo(field)
+	if fi == nil || fi.VectorDimension == 0 || fi.VectorEncoding != VectorEncodingFloat32 {
+		// Field does not exist or does not index vectors
+		return TopDocs{}, nil
+	}
+	return b.impl.GetVectorReader().Search(field, target, k, acceptDocs)
+}
+
+func (b *baseCodecReader) SearchNearestVectorsByte(field string, target []byte, k int, acceptDocs util.Bits) (TopDocs, error) {
+	fi := b.impl.GetFieldInfos().FieldInfo(field)
+	if fi == nil || fi.VectorDimension == 0 || fi.VectorEncoding != VectorEncodingByte {
+		// Field does not exist or does not index vectors
+		return TopDocs{}, nil
+	}
+	return b.impl.GetVectorReader().SearchByte(field, target, k, acceptDocs)
+}
+
+func (b *baseCodecReader) CheckIntegrity() error {
+	if b.impl.GetPostingsReader() != nil {
+		if err := b.impl.GetPostingsReader().CheckIntegrity(); err != nil {
+			return err
+		}
+	}
+	if b.impl.GetNormsReader() != nil {
+		if err := b.impl.GetNormsReader().CheckIntegrity(); err != nil {
+			return err
+		}
+	}
+	if b.impl.GetDocValuesReader() != nil {
+		if err := b.impl.GetDocValuesReader().CheckIntegrity(); err != nil {
+			return err
+		}
+	}
+	if b.impl.GetFieldsReader() != nil {
+		if err := b.impl.GetFieldsReader().CheckIntegrity(); err != nil {
+			return err
+		}
+	}
+	if b.impl.GetTermVectorsReader() != nil {
+		if err := b.impl.GetTermVectorsReader().CheckIntegrity(); err != nil {
+			return err
+		}
+	}
+	if b.impl.GetPointsReader() != nil {
+		if err := b.impl.GetPointsReader().CheckIntegrity(); err != nil {
+			return err
+		}
+	}
+	if b.impl.GetVectorReader() != nil {
+		if err := b.impl.GetVectorReader().CheckIntegrity(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (b *baseCodecReader) getDVField(field string, dvType DocValuesType) *FieldInfo {
+	fi := b.impl.GetFieldInfos().FieldInfo(field)
+	if fi == nil {
 		return nil
 	}
-	return r.coreReaders.DecRef()
-}
-
-// TryIncRef tries to increment the reference count.
-func (r *CodecReader) TryIncRef() bool {
-	if r.coreReaders == nil {
-		return false
-	}
-	return r.coreReaders.GetRefCount() > 0 && r.coreReaders.IncRef() == nil
-}
-
-// GetRefCount returns the current reference count.
-func (r *CodecReader) GetRefCount() int32 {
-	if r.coreReaders == nil {
-		return 0
-	}
-	return r.coreReaders.GetRefCount()
-}
-
-// Close closes the codec reader.
-func (r *CodecReader) Close() error {
-	return r.DecRef()
-}
-
-// GetCoreCacheKey returns the core cache key for this reader.
-func (r *CodecReader) GetCoreCacheKey() interface{} {
-	if r.coreReaders == nil {
+	if fi.DocValuesType == DocValuesTypeNone {
 		return nil
 	}
-	return NewCoreCacheKey(r.coreReaders.GetSegmentName())
-}
-
-// GetTermVectorsReader returns the TermVectorsReader for this segment.
-// Returns nil if term vectors are not available.
-func (r *CodecReader) GetTermVectorsReader() TermVectorsReader {
-	if r.coreReaders == nil {
+	if fi.DocValuesType != dvType {
 		return nil
 	}
-	return r.coreReaders.GetTermVectorsReader()
+	return fi
 }
 
-// GetStoredFieldsReader returns the StoredFieldsReader for this segment.
-func (r *CodecReader) GetStoredFieldsReader() StoredFieldsReader {
-	if r.coreReaders == nil {
-		return nil
-	}
-	return r.coreReaders.GetStoredFieldsReader()
+// Default methods for LeafReader that baseCodecReader must implement if it's to be used as one.
+// These are usually provided by the implementation of LeafReader (like SegmentReader)
+// but since baseCodecReader is the base for CodecReader, it should handle them.
+
+func (b *baseCodecReader) DocID() int {
+	return b.impl.DocID()
 }
 
-// GetFieldsReader returns the FieldsProducer for this segment.
-func (r *CodecReader) GetFieldsReader() FieldsProducer {
-	if r.coreReaders == nil {
-		return nil
-	}
-	return r.coreReaders.GetFields()
+func (b *baseCodecReader) MaxDoc() int {
+	return b.impl.MaxDoc()
 }
 
-// GetPostingsReader returns the FieldsProducer for this segment (provides postings access).
-// Returns nil if postings are not available.
-func (r *CodecReader) GetPostingsReader() FieldsProducer {
-	if r.coreReaders == nil {
-		return nil
-	}
-	return r.coreReaders.GetFields()
+func (b *baseCodecReader) DocFreq(term Term) (int, error) {
+	return b.impl.DocFreq(term)
 }
 
-// GetDocValuesReader returns the DocValuesProducer for this segment.
-// Returns nil if doc values are not available.
-func (r *CodecReader) GetDocValuesReader() interface{} {
-	if r.coreReaders == nil {
-		return nil
-	}
-	return r.coreReaders.GetDocValuesProducer()
+func (b *baseCodecReader) TotalTermFreq(term Term) (int64, error) {
+	return b.impl.TotalTermFreq(term)
 }
 
-// GetNormsReader returns the NormsProducer for this segment.
-// Returns nil if norms are not available.
-func (r *CodecReader) GetNormsReader() interface{} {
-	if r.coreReaders == nil {
-		return nil
-	}
-	return r.coreReaders.GetNormsProducer()
+func (b *baseCodecReader) Postings(term Term, flags int) (PostingsEnum, error) {
+	return b.impl.Postings(term, flags)
 }
 
-// GetPointsReader returns the PointsReader for this segment.
-// Returns nil if points are not available.
-func (r *CodecReader) GetPointsReader() interface{} {
-	if r.coreReaders == nil {
-		return nil
-	}
-	return r.coreReaders.GetPointsReader()
+func (b *baseCodecReader) GetLiveDocs() util.Bits {
+	return b.impl.GetLiveDocs()
 }
 
-// GetVectorReader returns the KnnVectorsReader for this segment.
-// Returns nil if vectors are not available.
-func (r *CodecReader) GetVectorReader() interface{} {
-	if r.coreReaders == nil {
-		return nil
-	}
-	return r.coreReaders.GetVectorReader()
+func (b *baseCodecReader) GetMetaData() *IndexReaderMetaData {
+	return b.impl.GetMetaData()
 }
 
-// Ensure CodecReader implements the expected interfaces
-var _ LeafReaderInterface = (*CodecReader)(nil)
+func (b *baseCodecReader) GetSegmentInfo() *SegmentInfo {
+	return b.impl.GetSegmentInfo()
+}
 
-// LeafReaderInterface defines the interface for a leaf reader.
-// This is separated from IndexReaderInterface to allow for type assertions.
-type LeafReaderInterface interface {
-	IndexReaderInterface
-	// LeafReader specific methods
-	GetCoreCacheKey() interface{}
-	GetTermVectors(docID int) (Fields, error)
-	Terms(field string) (Terms, error)
-	Postings(term Term) (PostingsEnum, error)
-	PostingsWithFreqPositions(term Term, flags int) (PostingsEnum, error)
-	GetNumericDocValues(field string) (NumericDocValues, error)
-	GetBinaryDocValues(field string) (BinaryDocValues, error)
-	GetSortedDocValues(field string) (SortedDocValues, error)
-	GetSortedNumericDocValues(field string) (SortedNumericDocValues, error)
-	GetSortedSetDocValues(field string) (SortedSetDocValues, error)
-	GetNormValues(field string) (NumericDocValues, error)
-	GetPointValues(field string) (PointValues, error)
-	GetFloatVectorValues(field string) (FloatVectorValues, error)
-	GetByteVectorValues(field string) (ByteVectorValues, error)
-	GetDocValuesSkipper(field string) (DocValuesSkipper, error)
-	CheckIntegrity() error
-	GetMetaData() *IndexReaderMetaData
-	GetSegmentInfo() *SegmentInfo
-	StoredFields() (StoredFields, error)
-	TermVectors() (TermVectors, error)
-	SearchNearestVectors(field string, target []float32, k int, acceptDocs util.Bits) (TopDocs, error)
+func (b *baseCodecReader) Close() error {
+	return b.impl.Close()
+}
+
+func (b *baseCodecReader) IncRef() error {
+	return b.impl.IncRef()
+}
+
+func (b *baseCodecReader) DecRef() error {
+	return b.impl.DecRef()
+}
+
+func (b *baseCodecReader) TryIncRef() bool {
+	return b.impl.TryIncRef()
+}
+
+func (b *baseCodecReader) GetRefCount() int32 {
+	return b.impl.GetRefCount()
+}
+
+func (b *baseCodecReader) GetContext() (IndexReaderContext, error) {
+	return b.impl.GetContext()
 }
