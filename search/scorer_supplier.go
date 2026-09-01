@@ -1,39 +1,26 @@
-// Copyright 2026 Gocene. All rights reserved.
-// Use of this source code is governed by the Apache License 2.0
-// that can be found in the LICENSE file.
-
 package search
 
-// ScorerSupplier provides a lazy way to create Scorers.
-// It allows for cost-based optimization before creating the actual scorer.
+// ScorerSupplier is a supplier of Scorer. This allows to get an estimate of the cost
+// before building the Scorer.
 type ScorerSupplier interface {
-	// Get returns a Scorer for the given leadCost.
-	// The leadCost is an estimate of the number of documents that the scorer
-	// will be asked to score.
+	// Get the Scorer. This may not return nil and must be called at most once.
+	//
+	// leadCost: Cost of the scorer that will be used in order to lead iteration.
+	// This can be interpreted as an upper bound of the number of times that
+	// DocIdSetIterator.NextDoc, DocIdSetIterator.Advance and TwoPhaseIterator.Matches
+	// will be called. Under doubt, pass math.MaxInt64, which will produce a Scorer
+	// that has good iteration capabilities.
 	Get(leadCost int64) (Scorer, error)
 
-	// Cost returns an estimate of the number of documents this scorer will match.
+	// Cost gets an estimate of the Scorer that would be returned by Get.
+	// This may be a costly operation, so it should only be called if necessary.
 	Cost() int64
 
-	// SetTopLevelScoringClause marks this as a top-level scoring clause.
-	// This is used for optimizations when scoring is needed.
-	SetTopLevelScoringClause()
-}
+	// SetTopLevelScoringClause informs this ScorerSupplier that its returned scorers
+	// produce scores that get passed to the collector, as opposed to partial scores
+	// that then need to get combined (e.g. summed up).
+	SetTopLevelScoringClause() error
 
-// BaseScorerSupplier provides common functionality for ScorerSupplier implementations.
-type BaseScorerSupplier struct {
-	cost int64
+	// BulkScorer gets a scorer that is optimized for bulk-scoring.
+	BulkScorer() (BulkScorer, error)
 }
-
-// NewBaseScorerSupplier creates a new BaseScorerSupplier.
-func NewBaseScorerSupplier(cost int64) *BaseScorerSupplier {
-	return &BaseScorerSupplier{cost: cost}
-}
-
-// Cost returns the estimated cost.
-func (s *BaseScorerSupplier) Cost() int64 {
-	return s.cost
-}
-
-// SetTopLevelScoringClause is a no-op default implementation.
-func (s *BaseScorerSupplier) SetTopLevelScoringClause() {}
