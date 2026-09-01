@@ -40,24 +40,22 @@ type UnescapedCharSequence struct {
 	wasEscaped []bool
 }
 
-// NewUnescapedCharSequence creates an UnescapedCharSequence by scanning s for
-// backslash-escaped characters. The escape character itself is consumed.
-func NewUnescapedCharSequence(s string) *UnescapedCharSequence {
-	runes := []rune(s)
-	chars := make([]rune, 0, len(runes))
-	wasEscaped := make([]bool, 0, len(runes))
-
-	for i := 0; i < len(runes); i++ {
-		if runes[i] == '\\' && i+1 < len(runes) {
-			i++
-			chars = append(chars, runes[i])
-			wasEscaped = append(wasEscaped, true)
-		} else {
-			chars = append(chars, runes[i])
-			wasEscaped = append(wasEscaped, false)
-		}
+// NewUnescapedCharSequence creates a non-escaped UnescapedCharSequence.
+func NewUnescapedCharSequence(text string) *UnescapedCharSequence {
+	runes := []rune(text)
+	return &UnescapedCharSequence{
+		chars:      runes,
+		wasEscaped: make([]bool, len(runes)),
 	}
-	return &UnescapedCharSequence{chars: chars, wasEscaped: wasEscaped}
+}
+
+// NewUnescapedCharSequenceFromParts creates an UnescapedCharSequence from an existing buffer.
+func NewUnescapedCharSequenceFromParts(chars []rune, wasEscaped []bool, offset, length int) *UnescapedCharSequence {
+	newChars := make([]rune, length)
+	newWasEscaped := make([]bool, length)
+	copy(newChars, chars[offset:offset+length])
+	copy(newWasEscaped, wasEscaped[offset:offset+length])
+	return &UnescapedCharSequence{chars: newChars, wasEscaped: newWasEscaped}
 }
 
 // Length returns the number of (unescaped) characters.
@@ -75,11 +73,24 @@ func (u *UnescapedCharSequence) String() string { return string(u.chars) }
 // ToStringEscaped reconstructs the string, re-inserting backslashes for
 // characters that were originally escaped.
 func (u *UnescapedCharSequence) ToStringEscaped() string {
+	return u.ToStringEscapedWithChars([]rune{'\\'})
+}
+
+// ToStringEscapedWithChars reconstructs the string, re-inserting backslashes for
+// characters that are in the enabledChars list AND were originally escaped.
+func (u *UnescapedCharSequence) ToStringEscapedWithChars(enabledChars []rune) string {
 	var sb strings.Builder
 	sb.Grow(len(u.chars) + len(u.wasEscaped))
 	for i, ch := range u.chars {
-		if u.wasEscaped[i] {
+		if ch == '\\' {
 			sb.WriteRune('\\')
+		} else {
+			for _, ec := range enabledChars {
+				if ch == ec && u.wasEscaped[i] {
+					sb.WriteRune('\\')
+					break
+				}
+			}
 		}
 		sb.WriteRune(ch)
 	}
@@ -88,10 +99,7 @@ func (u *UnescapedCharSequence) ToStringEscaped() string {
 
 // SubSequence returns a new UnescapedCharSequence for the half-open range [start, end).
 func (u *UnescapedCharSequence) SubSequence(start, end int) *UnescapedCharSequence {
-	return &UnescapedCharSequence{
-		chars:      u.chars[start:end],
-		wasEscaped: u.wasEscaped[start:end],
-	}
+	return NewUnescapedCharSequenceFromParts(u.chars, u.wasEscaped, start, end-start)
 }
 
 // QueryNodeOperation provides utility operations on QueryNode trees.
