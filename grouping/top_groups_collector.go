@@ -4,69 +4,74 @@
 
 package grouping
 
-// TopGroupsCollector is a single-pass grouping collector that retains the
-// top-N hits per group keyed by an arbitrary comparator. Mirrors
-// org.apache.lucene.search.grouping.TopGroupsCollector.
-type TopGroupsCollector[T comparable] struct {
-	docsPerGroup int
-	compare      func(a, b float64) bool
-	hits         map[T][]hitDoc
+import (
+	"sort"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
+)
+
+// TopGroupsCollector collects the top groups for a query.
+//
+// This is the Go port of Lucene's org.apache.lucene.search.grouping.TopGroupsCollector.
+type TopGroupsCollector struct {
+	selector GroupSelector
+	reducer  GroupReducer
+	topN     int
+	groups   map[interface{}]*SearchGroup
 }
 
-type hitDoc struct {
-	docID int
-	score float64
-}
-
-// NewTopGroupsCollector builds a collector that retains up to docsPerGroup
-// docs per group, ordered by compare(a, b) which returns true when a should
-// rank ahead of b. Use a descending comparator (a > b) for highest-score-wins.
-func NewTopGroupsCollector[T comparable](docsPerGroup int, compare func(a, b float64) bool) *TopGroupsCollector[T] {
-	if docsPerGroup < 1 {
-		docsPerGroup = 1
-	}
-	if compare == nil {
-		compare = func(a, b float64) bool { return a > b }
-	}
-	return &TopGroupsCollector[T]{
-		docsPerGroup: docsPerGroup,
-		compare:      compare,
-		hits:         make(map[T][]hitDoc),
+func NewTopGroupsCollector(selector GroupSelector, reducer GroupReducer, topN int) *TopGroupsCollector {
+	return &TopGroupsCollector{
+		selector: selector,
+		reducer:  reducer,
+		topN:     topN,
+		groups:   make(map[interface{}]*SearchGroup),
 	}
 }
 
-// Collect records a (group, docID, score) tuple. When the per-group queue is
-// full and score does not rank ahead of the weakest entry the tuple is dropped.
-func (c *TopGroupsCollector[T]) Collect(group T, docID int, score float64) {
-	cur := c.hits[group]
-	if len(cur) < c.docsPerGroup {
-		cur = append(cur, hitDoc{docID: docID, score: score})
-		c.hits[group] = cur
+// Collect collects the document.
+func (c *TopGroupsCollector) Collect(doc int, context *index.LeafReaderContext) {
+	groupKey, ok := c.selector.GetGroup(context, doc)
+	if !ok {
 		return
 	}
-	worst := 0
-	for i := 1; i < len(cur); i++ {
-		if c.compare(cur[worst].score, cur[i].score) {
-			worst = i
+
+	group, exists := c.groups[groupKey]
+	if !exists {
+		group = &SearchGroup{
+			GroupKey: groupKey,
+			Docs:     []int{},
 		}
+		c.groups[groupKey] = group
 	}
-	if c.compare(score, cur[worst].score) {
-		cur[worst] = hitDoc{docID: docID, score: score}
-		c.hits[group] = cur
-	}
+
+	group.Docs = append(group.Docs, doc)
 }
 
-// GetDocsAndScores returns the per-group docs and scores in collection order.
-func (c *TopGroupsCollector[T]) GetDocsAndScores(group T) ([]int, []float64) {
-	src := c.hits[group]
-	docs := make([]int, len(src))
-	scores := make([]float64, len(src))
-	for i, h := range src {
-		docs[i] = h.docID
-		scores[i] = h.score
+// Finish finishes the collection and reduces the groups.
+func (c *TopGroupsCollector) Finish() *TopGroups {
+	var finalGroups []*SearchGroup
+	for key, group := range c.groups {
+		reducedDocs := group.Docs
+		if c.reducer != nil {
+			reducedDocs = c.reducer.Reduce(key, group.Docs)
+		}
+		finalGroups = append(finalGroups, &SearchGroup{
+			GroupKey: key,
+			Docs:     reducedDocs,
+		})
 	}
-	return docs, scores
-}
 
-// GroupCount returns the number of groups holding at least one document.
-func (c *TopGroupsCollector[T]) GroupCount() int { return len(c.hits) }
+	// Sort and limit to topN.
+	// Simplification: sort by number of docs.
+	sort.Slice(finalGroups, func(i, j int) bool {
+		return len(finalGroups[i].Docs) > len(finalGroups[j].Docs)
+	})
+
+	if len(finalGroups) > c.topN {
+		finalGroups = finalGroups[:c.topN]
+	}
+
+	return &TopGroups{Groups: finalGroups}
+}
