@@ -13,13 +13,13 @@ const (
 func (o Occur) String() string {
 	switch o {
 	case MUST:
-		return "MUST"
+		return "+"
 	case SHOULD:
-		return "SHOULD"
+		return ""
 	case MUST_NOT:
-		return "MUST_NOT"
+		return "-"
 	case FILTER:
-		return "FILTER"
+		return "#"
 	default:
 		return "UNKNOWN"
 	}
@@ -32,6 +32,9 @@ type BooleanClause struct {
 }
 
 func NewBooleanClause(query Query, occur Occur) *BooleanClause {
+	if query == nil {
+		panic("Query must not be null")
+	}
 	return &BooleanClause{
 		query: query,
 		occur: occur,
@@ -48,4 +51,12 @@ func (c *BooleanClause) Occur() Occur {
 
 func (c *BooleanClause) IsRequired() bool {
 	return c.occur == MUST || c.occur == FILTER
+}
+
+func (c *BooleanClause) IsProhibited() bool {
+	return c.occur == MUST_NOT
+}
+
+func (c *BooleanClause) IsScoring() bool {
+	return c.occur == MUST || c.occur == SHOULD
 }
