@@ -1,98 +1,131 @@
-// Copyright 2026 Gocene. All rights reserved.
-// Use of this source code is governed by the Apache License 2.0
-// that can be found in the LICENSE file.
-
 package join
 
-// BlockJoinSelectorType picks which child value bubbles up to the parent
-// when the join query reduces several children into a single parent score.
-// Mirrors org.apache.lucene.search.join.BlockJoinSelector.Type.
+import (
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
+// BlockJoinSelectorType picks one value from a block of documents.
 type BlockJoinSelectorType int
 
 const (
-	// BlockJoinMin picks the smallest child value.
-	BlockJoinMin BlockJoinSelectorType = iota
-	// BlockJoinMax picks the largest child value.
-	BlockJoinMax
-	// BlockJoinAvg returns the arithmetic mean of the child values.
-	BlockJoinAvg
-	// BlockJoinSum returns the sum of the child values.
-	BlockJoinSum
+	// BlockJoinSelectorMin only consider the minimum value from the block when sorting.
+	BlockJoinSelectorMin BlockJoinSelectorType = iota
+	// BlockJoinSelectorMax only consider the maximum value from the block when sorting.
+	BlockJoinSelectorMax
 )
 
-// ReduceLongs reduces an int64 slice under the given selector. The semantics
-// mirror Lucene's BlockJoinSelector long-value reduction.
-func ReduceLongs(t BlockJoinSelectorType, values []int64) int64 {
-	if len(values) == 0 {
-		return 0
-	}
+func (t BlockJoinSelectorType) String() string {
 	switch t {
-	case BlockJoinMin:
-		m := values[0]
-		for _, v := range values[1:] {
-			if v < m {
-				m = v
-			}
-		}
-		return m
-	case BlockJoinMax:
-		m := values[0]
-		for _, v := range values[1:] {
-			if v > m {
-				m = v
-			}
-		}
-		return m
-	case BlockJoinSum:
-		var s int64
-		for _, v := range values {
-			s += v
-		}
-		return s
-	case BlockJoinAvg:
-		var s int64
-		for _, v := range values {
-			s += v
-		}
-		return s / int64(len(values))
+	case BlockJoinSelectorMin:
+		return "MIN"
+	case BlockJoinSelectorMax:
+		return "MAX"
+	default:
+		return "BlockJoinSelectorType"
 	}
-	return 0
 }
 
-// ReduceDoubles reduces a float64 slice under the given selector.
-func ReduceDoubles(t BlockJoinSelectorType, values []float64) float64 {
-	if len(values) == 0 {
-		return 0
+// WrapBits returns a Bits instance that returns true if, and only if, any of the children of the
+// given parent document has a value.
+func WrapBits(docsWithValue util.Bits, parents *util.FixedBitSet, children *util.FixedBitSet) util.Bits {
+	return &blockJoinBits{
+		docsWithValue: docsWithValue,
+		parents:       parents,
+		children:      children,
 	}
-	switch t {
-	case BlockJoinMin:
-		m := values[0]
-		for _, v := range values[1:] {
-			if v < m {
-				m = v
-			}
-		}
-		return m
-	case BlockJoinMax:
-		m := values[0]
-		for _, v := range values[1:] {
-			if v > m {
-				m = v
-			}
-		}
-		return m
-	case BlockJoinSum:
-		var s float64
-		for _, v := range values {
-			s += v
-		}
-		return s
-	case BlockJoinAvg:
-		var s float64
-		for _, v := range values {
-			s += v
-		}
-		return s / float64(len(values))
+}
+
+type blockJoinBits struct {
+	docsWithValue util.Bits
+	parents       *util.FixedBitSet
+	children      *util.FixedBitSet
+}
+
+func (b *blockJoinBits) Get(docID int) bool {
+	if !b.parents.Get(docID) {
+		panic("this selector may only be used on parent documents")
 	}
-	return 0
+
+	if docID == 0 {
+		return false
+	}
+
+	firstPotentialChild := b.parents.PrevSetBit(docID-1) + 1
+	if firstPotentialChild == docID {
+		return false
+	}
+	for child := b.children.NextSetBit(firstPotentialChild, docID); child != -1 && child < docID; child = b.children.NextSetBit(child+1, docID) {
+		if b.docsWithValue.Get(child) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (b *blockJoinBits) Length() int {
+	return b.docsWithValue.Length()
+}
+
+// WrapSortedSet wraps the provided SortedSetDocValues in order to only select one value per parent
+// among its children using the configured selection type. When a parent has
+// children with missing values, we sort missing values according to sortMissingLast.
+func WrapSortedSet(sortedSet index.SortedSetDocValues, selection BlockJoinSelectorType, parents *util.FixedBitSet, children search.DocIdSetIterator, sortMissingLast bool) index.SortedDocValues {
+	var values index.SortedDocValues
+	switch selection {
+	case BlockJoinSelectorMin:
+		values = search.WrapSortedSet(sortedSet, search.SortedSetSelectorMin)
+	case BlockJoinSelectorMax:
+		values = search.WrapSortedSet(sortedSet, search.SortedSetSelectorMax)
+	default:
+		panic("invalid selection type")
+	}
+	return wrapSorted(values, selection, parents, children, sortMissingLast)
+}
+
+// WrapSortedDocValues wraps the provided SortedDocValues in order to only select one value per parent among
+// its children using the configured selection type. When a parent has children
+// with missing values, we sort missing values according to sortMissingLast.
+func WrapSortedDocValues(values index.SortedDocValues, selection BlockJoinSelectorType, parents *util.FixedBitSet, children search.DocIdSetIterator, sortMissingLast bool) index.SortedDocValues {
+	if values.DocID() != -1 {
+		panic("values iterator was already consumed")
+	}
+	return wrapSorted(values, selection, parents, children, sortMissingLast)
+}
+
+// WrapSortedNumeric wraps the provided SortedNumericDocValues in order to only select one value per parent
+// among its children using the configured selection type. When a parent has children with missing values,
+// childMissingValue participates in the min/max selection.
+func WrapSortedNumeric(sortedNumerics index.SortedNumericDocValues, selection BlockJoinSelectorType, parents *util.FixedBitSet, children search.DocIdSetIterator, childMissingValue *int64) index.NumericDocValues {
+	var values index.NumericDocValues
+	switch selection {
+	case BlockJoinSelectorMin:
+		values = search.WrapSortedNumeric(sortedNumerics, search.SortedNumericSelectorMin)
+	case BlockJoinSelectorMax:
+		values = search.WrapSortedNumeric(sortedNumerics, search.SortedNumericSelectorMax)
+	default:
+		panic("invalid selection type")
+	}
+	return wrapNumeric(values, selection, parents, children, childMissingValue)
+}
+
+// WrapNumericDocValues wraps the provided NumericDocValues, iterating over only child documents, in order to
+// only select one value per parent among its children using the configured selection type.
+func WrapNumericDocValues(values index.NumericDocValues, selection BlockJoinSelectorType, parents *util.FixedBitSet, children search.DocIdSetIterator) index.NumericDocValues {
+	if values.DocID() != -1 {
+		panic("values iterator was already consumed")
+	}
+	return wrapNumeric(values, selection, parents, children, nil)
+}
+
+// WrapNumericDocValuesWithMissing wraps the provided NumericDocValues, iterating over only child documents, in order to
+// only select one value per parent among its children using the configured selection type. When a parent has children with missing values,
+// missingValue participates in the min/max selection.
+func WrapNumericDocValuesWithMissing(values index.NumericDocValues, selection BlockJoinSelectorType, parents *util.FixedBitSet, children search.DocIdSetIterator, missingValue *int64) index.NumericDocValues {
+	if values.DocID() != -1 {
+		panic("values iterator was already consumed")
+	}
+	return wrapNumeric(values, selection, parents, children, missingValue)
 }

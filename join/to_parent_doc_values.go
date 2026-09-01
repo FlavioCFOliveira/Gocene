@@ -1,402 +1,390 @@
-// Copyright 2026 Gocene. All rights reserved.
-// Use of this source code is governed by the Apache License 2.0
-// that can be found in the LICENSE file.
-
 package join
 
 import (
+	"fmt"
+
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// accumulator accumulates per-child doc values into a single parent value.
-// reset is called on the first child; increment is called on each subsequent
-// child in the same parent block.
 type accumulator interface {
-	reset(childDoc int) error
-	increment(childDoc int) error
+	Reset() error
+	Increment() error
+	GetChildrenWithValuesCount() int
 }
 
-// toParentDocValues is a DocIdSetIterator that advances over parent documents
-// whose child block contains at least one child with a doc-value entry.
-// It drives an accumulator that computes the representative (MIN/MAX) value
-// across all children in the block.
-//
-// Mirrors the inner class ToParentDocValues in
-// org.apache.lucene.search.join.ToParentDocValues.
 type toParentDocValues struct {
-	parents         util.BitSet
-	docID           int
-	collector       accumulator
-	seen            bool
-	childWithValues search.DocIdSetIterator
+	parents                *util.FixedBitSet
+	childWithValues        search.DocIdSetIterator
+	collector              accumulator
+	docID                  int
+	hasChildWithMissingValue bool
+	seen                   bool
 }
 
-func newToParentDocValues(
-	children search.DocIdSetIterator,
-	parents util.BitSet,
-	col accumulator,
-) *toParentDocValues {
-	return &toParentDocValues{
-		parents:         parents,
-		docID:           -1,
-		collector:       col,
-		childWithValues: children,
-	}
+func (t *toParentDocValues) DocID() int {
+	return t.docID
 }
 
-// DocID returns the current document ID.
-func (t *toParentDocValues) DocID() int { return t.docID }
-
-// NextDoc advances to the next parent document that has at least one child
-// with a value.
-func (t *toParentDocValues) NextDoc() (int, error) {
-	if t.docID == search.NO_MORE_DOCS {
-		return search.NO_MORE_DOCS, nil
+func (t *toParentDocValues) NextDoc() int {
+	if t.docID == search.NoMoreDocs {
+		return search.NoMoreDocs
 	}
 
-	// Advance child cursor past the current parent if needed.
 	if t.childWithValues.DocID() < t.docID || t.docID == -1 {
-		if _, err := t.childWithValues.NextDoc(); err != nil {
-			return search.NO_MORE_DOCS, err
-		}
+		t.childWithValues.NextDoc()
 	}
-	if t.childWithValues.DocID() == search.NO_MORE_DOCS {
-		t.docID = search.NO_MORE_DOCS
-		return t.docID, nil
+	if t.childWithValues.DocID() == search.NoMoreDocs {
+		t.docID = search.NoMoreDocs
+		return t.docID
 	}
 
-	// Find the parent of the current child.
-	nextParentDocID := t.parents.NextSetBitBounded(t.childWithValues.DocID())
-	if nextParentDocID == search.NO_MORE_DOCS {
-		t.docID = search.NO_MORE_DOCS
-		return t.docID, nil
-	}
+	// assert t.parents.Get(t.childWithValues.DocID()) == false
 
-	// Accumulate the first child's value.
-	if err := t.collector.reset(t.childWithValues.DocID()); err != nil {
-		return search.NO_MORE_DOCS, err
+	nextParentDocID := t.parents.NextSetBit(t.childWithValues.DocID())
+	if err := t.collector.Reset(); err != nil {
+		panic(err)
 	}
 	t.seen = true
 
-	// Accumulate remaining children in the same block.
 	for {
-		childDocID, err := t.childWithValues.NextDoc()
-		if err != nil {
-			return search.NO_MORE_DOCS, err
-		}
-		if childDocID > nextParentDocID {
+		childDocID := t.childWithValues.NextDoc()
+		if childDocID > nextParentDocID || childDocID == search.NoMoreDocs {
 			break
 		}
-		if err := t.collector.increment(childDocID); err != nil {
-			return search.NO_MORE_DOCS, err
+		if err := t.collector.Increment(); err != nil {
+			panic(err)
 		}
 	}
 
 	t.docID = nextParentDocID
-	return t.docID, nil
+	prevParentDocID := t.parents.PrevSetBit(t.docID - 1)
+	totalChildren := t.docID - prevParentDocID - 1
+	t.hasChildWithMissingValue = t.collector.GetChildrenWithValuesCount() < totalChildren
+
+	return t.docID
 }
 
-// Advance advances to the first parent document >= target that has children
-// with values.
-func (t *toParentDocValues) Advance(target int) (int, error) {
+func (t *toParentDocValues) Advance(target int) int {
 	if target >= t.parents.Length() {
-		t.docID = search.NO_MORE_DOCS
-		return t.docID, nil
+		t.docID = search.NoMoreDocs
+		return t.docID
 	}
 	if target == 0 {
-		return t.NextDoc()
+		if t.DocID() == -1 {
+			return t.NextDoc()
+		}
+		return t.DocID()
 	}
 	prevParentDocID := t.parents.PrevSetBit(target - 1)
-	if prevParentDocID >= 0 && t.childWithValues.DocID() <= prevParentDocID {
-		if _, err := t.childWithValues.Advance(prevParentDocID + 1); err != nil {
-			return search.NO_MORE_DOCS, err
-		}
+	if t.childWithValues.DocID() <= prevParentDocID {
+		t.childWithValues.Advance(prevParentDocID + 1)
 	}
 	return t.NextDoc()
 }
 
-// AdvanceExact advances to exactly targetParentDocID and reports whether
-// any child in its block has a value.
-func (t *toParentDocValues) AdvanceExact(targetParentDocID int) (bool, error) {
+func (t *toParentDocValues) AdvanceExact(targetParentDocID int) bool {
 	if targetParentDocID < t.docID {
-		return false, nil
+		panic(fmt.Sprintf("target must be after the current document: current=%d target=%d", t.docID, targetParentDocID))
 	}
-	previousDocID := t.docID
+	previousDocId := t.docID
 	t.docID = targetParentDocID
-	if targetParentDocID == previousDocID {
-		return t.seen, nil
+	if targetParentDocID == previousDocId {
+		return t.seen
 	}
+	t.docID = targetParentDocID
 	t.seen = false
+	t.hasChildWithMissingValue = false
 
 	if !t.parents.Get(targetParentDocID) {
-		return false, nil
+		return false
 	}
-
-	var prevParentDocID int
-	if t.docID == 0 {
-		prevParentDocID = -1
+	prevParentDocId := 0
+	if t.docID != 0 {
+		prevParentDocId = t.parents.PrevSetBit(t.docID - 1)
 	} else {
-		prevParentDocID = t.parents.PrevSetBit(t.docID - 1)
+		prevParentDocId = -1
 	}
-
+	totalChildren := t.docID - prevParentDocId - 1
 	childDoc := t.childWithValues.DocID()
-	if childDoc <= prevParentDocID {
-		var err error
-		childDoc, err = t.childWithValues.Advance(prevParentDocID + 1)
-		if err != nil {
-			return false, err
-		}
+	if childDoc <= prevParentDocId {
+		childDoc = t.childWithValues.Advance(prevParentDocId + 1)
 	}
-	if childDoc >= t.docID {
-		return false, nil
+	if childDoc >= t.docID || childDoc == search.NoMoreDocs {
+		return false
 	}
 
 	if t.childWithValues.DocID() < t.docID {
-		if err := t.collector.reset(t.childWithValues.DocID()); err != nil {
-			return false, err
+		if err := t.collector.Reset(); err != nil {
+			panic(err)
 		}
 		t.seen = true
-		if _, err := t.childWithValues.NextDoc(); err != nil {
-			return false, err
-		}
+		t.childWithValues.NextDoc()
 	}
 
 	if !t.seen {
-		return false, nil
+		return false
 	}
 
-	for doc := t.childWithValues.DocID(); doc < t.docID; {
-		if err := t.collector.increment(doc); err != nil {
-			return false, err
+	for doc := t.childWithValues.DocID(); doc < t.docID && doc != search.NoMoreDocs; doc = t.childWithValues.NextDoc() {
+		if err := t.collector.Increment(); err != nil {
+			panic(err)
 		}
-		next, err := t.childWithValues.NextDoc()
-		if err != nil {
-			return false, err
-		}
-		doc = next
 	}
-	return true, nil
+	t.hasChildWithMissingValue = t.collector.GetChildrenWithValuesCount() < totalChildren
+	return true
 }
 
-// Cost implements DocIdSetIterator.
-func (t *toParentDocValues) Cost() int64 { return 0 }
-
-// DocIDRunEnd implements DocIdSetIterator (Gocene extension).
-func (t *toParentDocValues) DocIDRunEnd() int { return t.docID + 1 }
-
-// ── SortedDVsAccumulator ─────────────────────────────────────────────────────
-
-// sortedDVsAccumulator accumulates MIN or MAX ordinal across children, then
-// exposes the result through the SortedDocValues interface.
-type sortedDVsAccumulator struct {
-	values    index.SortedDocValues
-	selection BlockJoinSelectorType
-	ord       int
-	iter      *toParentDocValues
+func (t *toParentDocValues) Cost() int64 {
+	return 0
 }
 
-func newSortedDVsAccumulator(
-	values index.SortedDocValues,
-	selection BlockJoinSelectorType,
-	parents util.BitSet,
-	children search.DocIdSetIterator,
-) *sortedDVsAccumulator {
-	a := &sortedDVsAccumulator{values: values, selection: selection, ord: -1}
-	a.iter = newToParentDocValues(children, parents, a)
-	return a
+func (t *toParentDocValues) HasChildWithMissingValue() bool {
+	return t.hasChildWithMissingValue
 }
 
-func (a *sortedDVsAccumulator) reset(childDoc int) error {
-	ord, err := index.SortedOrdAt(a.values, childDoc)
-	if err != nil {
-		return err
-	}
-	a.ord = ord
+type sortedDVs struct {
+	values          index.SortedDocValues
+	selection       BlockJoinSelectorType
+	missingOrd      int
+	ord             int
+	childrenCount   int
+	iter            *toParentDocValues
+}
+
+func (s *sortedDVs) DocID() int {
+	return s.iter.DocID()
+}
+
+func (s *sortedDVs) Reset() error {
+	s.ord = s.values.OrdValue()
+	s.childrenCount = 1
 	return nil
 }
 
-func (a *sortedDVsAccumulator) increment(childDoc int) error {
-	ord, err := index.SortedOrdAt(a.values, childDoc)
-	if err != nil {
-		return err
-	}
-	switch a.selection {
-	case BlockJoinMin:
-		if ord < a.ord {
-			a.ord = ord
+func (s *sortedDVs) Increment() error {
+	switch s.selection {
+	case BlockJoinSelectorMin:
+		if s.values.OrdValue() < s.ord {
+			s.ord = s.values.OrdValue()
 		}
-	case BlockJoinMax:
-		if ord > a.ord {
-			a.ord = ord
+	case BlockJoinSelectorMax:
+		if s.values.OrdValue() > s.ord {
+			s.ord = s.values.OrdValue()
 		}
 	}
+	s.childrenCount++
 	return nil
 }
 
-// ── SortedDocValues facade ────────────────────────────────────────────────────
-
-// sortedDVsWrapper wraps sortedDVsAccumulator and exposes index.SortedDocValues.
-type sortedDVsWrapper struct {
-	acc *sortedDVsAccumulator
+func (s *sortedDVs) GetChildrenWithValuesCount() int {
+	return s.childrenCount
 }
 
-func (w *sortedDVsWrapper) DocID() int { return w.acc.iter.DocID() }
-
-func (w *sortedDVsWrapper) NextDoc() (int, error) { return w.acc.iter.NextDoc() }
-
-func (w *sortedDVsWrapper) Advance(target int) (int, error) { return w.acc.iter.Advance(target) }
-
-// AdvanceExact mirrors the Lucene iterator surface (rmp #4709
-// additive). It positions the parent-doc cursor at the target parent and
-// reports whether any child of that parent contributed a value. It delegates to
-// the idempotent toParentDocValues.AdvanceExact so re-testing the same parent
-// (e.g. CompareBottom then Copy on the same doc, as TopFieldCollector does) does
-// not consume the iterator — matching Lucene's NumericDocValues#advanceExact.
-func (w *sortedDVsWrapper) AdvanceExact(target int) (bool, error) {
-	return w.acc.iter.AdvanceExact(target)
+func (s *sortedDVs) NextDoc() int {
+	return s.iter.NextDoc()
 }
 
-// BinaryValue returns the term bytes bound to the current parent's
-// MIN/MAX child ord. Mirrors SortedDocValues.binaryValue().
-func (w *sortedDVsWrapper) BinaryValue() ([]byte, error) {
-	if w.acc.ord < 0 {
-		return nil, nil
+func (s *sortedDVs) Advance(target int) int {
+	return s.iter.Advance(target)
+}
+
+func (s *sortedDVs) AdvanceExact(target int) bool {
+	return s.iter.AdvanceExact(target)
+}
+
+func (s *sortedDVs) OrdValue() int {
+	if s.iter.HasChildWithMissingValue() {
+		switch s.selection {
+		case BlockJoinSelectorMin:
+			if s.missingOrd < s.ord {
+				return s.missingOrd
+			}
+			return s.ord
+		case BlockJoinSelectorMax:
+			if s.missingOrd > s.ord {
+				return s.missingOrd
+			}
+			return s.ord
+		}
 	}
-	return w.acc.values.LookupOrd(w.acc.ord)
+	return s.ord
 }
 
-// OrdValue returns the MIN/MAX child ord captured at the current
-// parent. Mirrors SortedDocValues.ordValue().
-func (w *sortedDVsWrapper) OrdValue() (int, error) { return w.acc.ord, nil }
-
-// LongValue surfaces the inherited NumericDocValues accessor — for a
-// sorted wrapper this is the current ord cast to int64.
-func (w *sortedDVsWrapper) LongValue() (int64, error) { return int64(w.acc.ord), nil }
-
-func (w *sortedDVsWrapper) LookupOrd(ord int) ([]byte, error) {
-	return w.acc.values.LookupOrd(ord)
+func (s *sortedDVs) LookupOrd(ord int) (*util.BytesRef, error) {
+	return s.values.LookupOrd(ord)
 }
 
-func (w *sortedDVsWrapper) GetValueCount() int { return w.acc.values.GetValueCount() }
-
-// Cost delegates to the underlying children-side iterator.
-func (w *sortedDVsWrapper) Cost() int64 { return w.acc.values.Cost() }
-
-// ── NumericDVAccumulator ─────────────────────────────────────────────────────
-
-// numericDVsAccumulator accumulates MIN or MAX long value across children, then
-// exposes the result through the NumericDocValues interface.
-type numericDVsAccumulator struct {
-	values    index.NumericDocValues
-	selection BlockJoinSelectorType
-	value     int64
-	iter      *toParentDocValues
+func (s *sortedDVs) GetValueCount() int {
+	return s.values.GetValueCount()
 }
 
-func newNumericDVsAccumulator(
-	values index.NumericDocValues,
-	selection BlockJoinSelectorType,
-	parents util.BitSet,
-	children search.DocIdSetIterator,
-) *numericDVsAccumulator {
-	a := &numericDVsAccumulator{values: values, selection: selection}
-	a.iter = newToParentDocValues(children, parents, a)
-	return a
+func (s *sortedDVs) Cost() int64 {
+	return s.values.Cost()
 }
 
-func (a *numericDVsAccumulator) reset(childDoc int) error {
-	v, _, err := index.NumericValueAt(a.values, childDoc)
-	if err != nil {
-		return err
-	}
-	a.value = v
+type numDV struct {
+	values          index.NumericDocValues
+	selection       BlockJoinSelectorType
+	missingValue    *int64
+	value           int64
+	childrenCount   int
+	iter            *toParentDocValues
+}
+
+func (n *numDV) Reset() error {
+	n.value = n.values.LongValue()
+	n.childrenCount = 1
 	return nil
 }
 
-func (a *numericDVsAccumulator) increment(childDoc int) error {
-	v, _, err := index.NumericValueAt(a.values, childDoc)
-	if err != nil {
-		return err
-	}
-	switch a.selection {
-	case BlockJoinMin:
-		if v < a.value {
-			a.value = v
+func (n *numDV) Increment() error {
+	switch n.selection {
+	case BlockJoinSelectorMin:
+		if n.values.LongValue() < n.value {
+			n.value = n.values.LongValue()
 		}
-	case BlockJoinMax:
-		if v > a.value {
-			a.value = v
+	case BlockJoinSelectorMax:
+		if n.values.LongValue() > n.value {
+			n.value = n.values.LongValue()
 		}
 	}
+	n.childrenCount++
 	return nil
 }
 
-// ── NumericDocValues facade ───────────────────────────────────────────────────
-
-// numericDVsWrapper wraps numericDVsAccumulator and exposes index.NumericDocValues.
-type numericDVsWrapper struct {
-	acc *numericDVsAccumulator
+func (n *numDV) GetChildrenWithValuesCount() int {
+	return n.childrenCount
 }
 
-func (w *numericDVsWrapper) DocID() int { return w.acc.iter.DocID() }
-
-func (w *numericDVsWrapper) NextDoc() (int, error) { return w.acc.iter.NextDoc() }
-
-func (w *numericDVsWrapper) Advance(target int) (int, error) { return w.acc.iter.Advance(target) }
-
-// AdvanceExact (rmp #4709 additive) positions the parent-doc cursor at the
-// target parent and reports whether any child of that parent contributed a
-// value. It delegates to the idempotent toParentDocValues.AdvanceExact so
-// re-testing the same parent does not consume the iterator (TopFieldCollector
-// calls CompareBottom then Copy on the same doc). Monotonic; matches Lucene's
-// NumericDocValues#advanceExact.
-func (w *numericDVsWrapper) AdvanceExact(target int) (bool, error) {
-	return w.acc.iter.AdvanceExact(target)
+func (n *numDV) NextDoc() int {
+	return n.iter.NextDoc()
 }
 
-// LongValue returns the MIN/MAX child value captured at the current
-// parent. Mirrors NumericDocValues.longValue().
-func (w *numericDVsWrapper) LongValue() (int64, error) { return w.acc.value, nil }
-
-// Cost delegates to the underlying children-side iterator.
-func (w *numericDVsWrapper) Cost() int64 { return w.acc.values.Cost() }
-
-// ── Public factory functions ─────────────────────────────────────────────────
-
-// WrapSortedDocValues creates a SortedDocValues that iterates over parent
-// documents and reports the MIN or MAX ordinal across all children in each
-// block that have a value.
-//
-// Mirrors ToParentDocValues.wrap(SortedDocValues, Type, BitSet,
-// DocIdSetIterator).
-func WrapSortedDocValues(
-	values index.SortedDocValues,
-	selection BlockJoinSelectorType,
-	parents util.BitSet,
-	children search.DocIdSetIterator,
-) index.SortedDocValues {
-	acc := newSortedDVsAccumulator(values, selection, parents, children)
-	return &sortedDVsWrapper{acc: acc}
+func (n *numDV) Advance(target int) int {
+	return n.iter.Advance(target)
 }
 
-// WrapNumericDocValues creates a NumericDocValues that iterates over parent
-// documents and reports the MIN or MAX long value across all children in each
-// block that have a value.
-//
-// Mirrors ToParentDocValues.wrap(NumericDocValues, Type, BitSet,
-// DocIdSetIterator).
-func WrapNumericDocValues(
-	values index.NumericDocValues,
-	selection BlockJoinSelectorType,
-	parents util.BitSet,
-	children search.DocIdSetIterator,
-) index.NumericDocValues {
-	acc := newNumericDVsAccumulator(values, selection, parents, children)
-	return &numericDVsWrapper{acc: acc}
+func (n *numDV) AdvanceExact(target int) bool {
+	return n.iter.AdvanceExact(target)
 }
 
-// interface compliance
-var _ index.SortedDocValues = (*sortedDVsWrapper)(nil)
-var _ index.NumericDocValues = (*numericDVsWrapper)(nil)
+func (n *numDV) LongValue() int64 {
+	if n.missingValue != nil && n.iter.HasChildWithMissingValue() {
+		switch n.selection {
+		case BlockJoinSelectorMin:
+			if *n.missingValue < n.value {
+				return *n.missingValue
+			}
+			return n.value
+		case BlockJoinSelectorMax:
+			if *n.missingValue > n.value {
+				return *n.missingValue
+			}
+			return n.value
+		}
+	}
+	return n.value
+}
+
+func (n *numDV) DocID() int {
+	return n.iter.DocID()
+}
+
+func (n *numDV) Cost() int64 {
+	return n.values.Cost()
+}
+
+func wrapSorted(values index.SortedDocValues, selection BlockJoinSelectorType, parents *util.FixedBitSet, children search.DocIdSetIterator, sortMissingLast bool) index.SortedDocValues {
+	missingOrd := -1
+	if sortMissingLast {
+		missingOrd = 2147483647
+	}
+	s := &sortedDVs{
+		values:     values,
+		selection:  selection,
+		missingOrd: missingOrd,
+	}
+	s.iter = &toParentDocValues{
+		parents:         parents,
+		childWithValues: intersectTwoIterators(children, values),
+		collector:       s,
+	}
+	return s
+}
+
+func wrapNumeric(values index.NumericDocValues, selection BlockJoinSelectorType, parents *util.FixedBitSet, children search.DocIdSetIterator, missingValue *int64) index.NumericDocValues {
+	n := &numDV{
+		values:       values,
+		selection:    selection,
+		missingValue: missingValue,
+	}
+	n.iter = &toParentDocValues{
+		parents:         parents,
+		childWithValues: intersectTwoIterators(children, values),
+		collector:       n,
+	}
+	return n
+}
+
+type intersectTwoIterators struct {
+	it1, it2 search.DocIdSetIterator
+}
+
+func intersectTwoIterators(it1, it2 search.DocIdSetIterator) search.DocIdSetIterator {
+	return &intersectTwoIterators{it1: it1, it2: it2}
+}
+
+func (i *intersectTwoIterators) DocID() int {
+	return i.it1.DocID()
+}
+
+func (i *intersectTwoIterators) NextDoc() int {
+	for {
+		d1 := i.it1.NextDoc()
+		d2 := i.it2.NextDoc()
+		if d1 == search.NoMoreDocs || d2 == search.NoMoreDocs {
+			return search.NoMoreDocs
+		}
+		if d1 == d2 {
+			return d1
+		}
+		if d1 < d2 {
+			i.it2.Advance(d1)
+		} else {
+			i.it1.Advance(d2)
+		}
+	}
+}
+
+func (i *intersectTwoIterators) Advance(target int) int {
+	i.it1.Advance(target)
+	i.it2.Advance(target)
+	for {
+		d1 := i.it1.DocID()
+		d2 := i.it2.DocID()
+		if d1 == search.NoMoreDocs || d2 == search.NoMoreDocs {
+			return search.NoMoreDocs
+		}
+		if d1 == d2 {
+			return d1
+		}
+		if d1 < d2 {
+			i.it1.NextDoc()
+		} else {
+			i.it2.NextDoc()
+		}
+	}
+}
+
+func (i *intersectTwoIterators) AdvanceExact(target int) bool {
+	if i.it1.AdvanceExact(target) && i.it2.AdvanceExact(target) {
+		return true
+	}
+	return false
+}
+
+func (i *intersectTwoIterators) Cost() int64 {
+	return i.it1.Cost() + i.it2.Cost()
+}
