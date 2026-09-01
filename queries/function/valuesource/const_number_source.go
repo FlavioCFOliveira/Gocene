@@ -4,6 +4,8 @@
 
 package valuesource
 
+import "github.com/FlavioCFOliveira/Gocene/queries/function"
+
 // ConstNumberSource is the abstract contract shared by all constant
 // numeric value sources. Concrete implementations expose typed accessors
 // so callers don't need to construct FunctionValues for what is
@@ -11,6 +13,7 @@ package valuesource
 //
 // Go port of org.apache.lucene.queries.function.valuesource.ConstNumberSource.
 type ConstNumberSource interface {
+	function.ValueSource
 	GetInt() int32
 	GetLong() int64
 	GetFloat() float32
