@@ -82,3 +82,4 @@ func (b *SrndQueryBase) WrapWithBoost(q search.Query) search.Query {
 
 // IsFieldsSubQueryAcceptable defaults to true; FieldsQuery overrides this.
 func (b *SrndQueryBase) IsFieldsSubQueryAcceptable() bool { return true }
+// test
