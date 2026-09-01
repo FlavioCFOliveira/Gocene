@@ -25,8 +25,8 @@ func NewValueSourceGroupSelector(valueSource function.ValueSource, context map[a
 	}
 }
 
-func (s *ValueSourceGroupSelector) SetNextReader(readerContext index.LeafReaderContext) error {
-	values, err := s.valueSource.GetValues(s.context, &readerContext)
+func (s *ValueSourceGroupSelector) SetNextReader(readerContext *index.LeafReaderContext) error {
+	values, err := s.valueSource.GetValues(s.context, readerContext)
 	if err != nil {
 		return err
 	}

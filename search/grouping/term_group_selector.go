@@ -10,7 +10,7 @@ import (
 // TermGroupSelector implements GroupSelector for terms (binary values).
 type TermGroupSelector struct {
 	field     string
-	values    []string
+	values    [][]byte
 	ordsToIDs map[int]int
 
 	docValues index.SortedDocValues
@@ -24,11 +24,12 @@ type TermGroupSelector struct {
 func NewTermGroupSelector(field string) *TermGroupSelector {
 	return &TermGroupSelector{
 		field:     field,
+		groupId:   -1,
 		ordsToIDs: make(map[int]int),
 	}
 }
 
-func (s *TermGroupSelector) SetNextReader(readerContext index.LeafReaderContext) error {
+func (s *TermGroupSelector) SetNextReader(readerContext *index.LeafReaderContext) error {
 	var err error
 	s.docValues, err = index.GetSortedDocValues(readerContext.Reader(), s.field)
 	if err != nil {
@@ -37,7 +38,7 @@ func (s *TermGroupSelector) SetNextReader(readerContext index.LeafReaderContext)
 
 	s.ordsToIDs = make(map[int]int)
 	for i, val := range s.values {
-		ord, err := s.docValues.LookupTerm([]byte(val))
+		ord, err := s.docValues.LookupTerm(val)
 		if err == nil && ord >= 0 {
 			s.ordsToIDs[ord] = i
 		}
@@ -80,9 +81,8 @@ func (s *TermGroupSelector) AdvanceTo(doc int) (State, error) {
 		return StateSkip, err
 	}
 
-	valStr := string(val)
 	s.groupId = len(s.values)
-	s.values = append(s.values, valStr)
+	s.values = append(s.values, val)
 	s.ordsToIDs[ord] = s.groupId
 
 	return StateAccept, nil
@@ -92,7 +92,7 @@ func (s *TermGroupSelector) CurrentValue() ([]byte, error) {
 	if s.groupId == -1 {
 		return nil, nil
 	}
-	return []byte(s.values[s.groupId]), nil
+	return s.values[s.groupId], nil
 }
 
 func (s *TermGroupSelector) CopyValue() ([]byte, error) {
@@ -109,13 +109,13 @@ func (s *TermGroupSelector) CopyValue() ([]byte, error) {
 }
 
 func (s *TermGroupSelector) SetGroups(groups []SearchGroup[[]byte]) {
-	s.values = make([]string, 0)
+	s.values = make([][]byte, 0)
 	s.ordsToIDs = make(map[int]int)
 	for _, group := range groups {
 		if group.GroupValue == nil {
 			s.includeEmpty = true
 		} else {
-			s.values = append(s.values, string(*group.GroupValue))
+			s.values = append(s.values, group.GroupValue)
 		}
 	}
 	s.secondPass = true

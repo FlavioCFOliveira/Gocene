@@ -72,8 +72,8 @@ func NewLongRangeGroupSelector(source search.LongValuesSource, rangeFactory *Lon
 	}
 }
 
-func (s *LongRangeGroupSelector) SetNextReader(readerContext index.LeafReaderContext) error {
-	s.context = readerContext
+func (s *LongRangeGroupSelector) SetNextReader(readerContext *index.LeafReaderContext) error {
+	s.context = *readerContext
 	return nil
 }
 
@@ -122,8 +122,8 @@ func (s *LongRangeGroupSelector) CopyValue() (LongRange, error) {
 func (s *LongRangeGroupSelector) SetGroups(groups []SearchGroup[LongRange]) {
 	s.inSecondPass = make(map[LongRange]struct{})
 	for _, group := range groups {
-		if group.GroupValue == nil { // Note: this assumes GroupValue is a pointer or can be nil.
-                                   // In Go, for a struct, we might need a pointer if it can be null.
+		if group.GroupValue == nil { 
+                                   
 			s.includeEmpty = true
 		} else {
 			s.inSecondPass[*group.GroupValue] = struct{}{}
@@ -195,8 +195,8 @@ func NewDoubleRangeGroupSelector(source search.DoubleValuesSource, rangeFactory 
 	}
 }
 
-func (s *DoubleRangeGroupSelector) SetNextReader(readerContext index.LeafReaderContext) error {
-	s.context = readerContext
+func (s *DoubleRangeGroupSelector) SetNextReader(readerContext *index.LeafReaderContext) error {
+	s.context = *readerContext
 	return nil
 }
 
