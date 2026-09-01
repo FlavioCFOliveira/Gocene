@@ -41,7 +41,7 @@ func newBaseIntervalNode(name string, children []QueryNode) *baseIntervalNode {
 func (n *baseIntervalNode) GetFunctionName() string { return n.name }
 
 // formatChildren returns "fn(c1, c2, ...)".
-func (n *baseIntervalNode) formatChildren(escapeSpecialSyntax bool) string {
+func (n *baseIntervalNode) formatChildren(escapeSyntax EscapeQuerySyntax) string {
 	var sb strings.Builder
 	sb.WriteString(n.name)
 	sb.WriteRune('(')
@@ -49,7 +49,7 @@ func (n *baseIntervalNode) formatChildren(escapeSpecialSyntax bool) string {
 		if i > 0 {
 			sb.WriteString(", ")
 		}
-		sb.WriteString(child.ToQueryString(escapeSpecialSyntax))
+		sb.WriteString(child.ToQueryString(escapeSyntax))
 	}
 	sb.WriteRune(')')
 	return sb.String()
@@ -65,7 +65,7 @@ func NewOrderedIntervalNode(children []QueryNode) *OrderedIntervalNode {
 }
 
 // ToQueryString returns ORDERED(c1, c2, ...).
-func (n *OrderedIntervalNode) ToQueryString(e bool) string { return n.formatChildren(e) }
+func (n *OrderedIntervalNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string { return n.formatChildren(escapeSyntax) }
 
 // CloneTree deep-copies this node.
 func (n *OrderedIntervalNode) CloneTree() QueryNode {
@@ -94,7 +94,7 @@ func NewUnorderedIntervalNode(children []QueryNode) *UnorderedIntervalNode {
 }
 
 // ToQueryString returns UNORDERED(c1, c2, ...).
-func (n *UnorderedIntervalNode) ToQueryString(e bool) string { return n.formatChildren(e) }
+func (n *UnorderedIntervalNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string { return n.formatChildren(escapeSyntax) }
 
 // CloneTree deep-copies this node.
 func (n *UnorderedIntervalNode) CloneTree() QueryNode {
@@ -123,7 +123,7 @@ func NewUnorderedNoOverlapsIntervalNode(children []QueryNode) *UnorderedNoOverla
 }
 
 // ToQueryString returns UNORDERED_NO_OVERLAPS(c1, c2, ...).
-func (n *UnorderedNoOverlapsIntervalNode) ToQueryString(e bool) string { return n.formatChildren(e) }
+func (n *UnorderedNoOverlapsIntervalNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string { return n.formatChildren(escapeSyntax) }
 
 // CloneTree deep-copies this node.
 func (n *UnorderedNoOverlapsIntervalNode) CloneTree() QueryNode {
@@ -150,7 +150,7 @@ func NewOrIntervalNode(children []QueryNode) *OrIntervalNode {
 }
 
 // ToQueryString returns OR(c1, c2, ...).
-func (n *OrIntervalNode) ToQueryString(e bool) string { return n.formatChildren(e) }
+func (n *OrIntervalNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string { return n.formatChildren(escapeSyntax) }
 
 // CloneTree deep-copies this node.
 func (n *OrIntervalNode) CloneTree() QueryNode {
@@ -179,7 +179,7 @@ func NewPhraseIntervalNode(children []QueryNode) *PhraseIntervalNode {
 }
 
 // ToQueryString returns PHRASE(c1, c2, ...).
-func (n *PhraseIntervalNode) ToQueryString(e bool) string { return n.formatChildren(e) }
+func (n *PhraseIntervalNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string { return n.formatChildren(escapeSyntax) }
 
 // CloneTree deep-copies this node.
 func (n *PhraseIntervalNode) CloneTree() QueryNode {
@@ -209,14 +209,14 @@ func newAnalyticIntervalNode(name string, param int, children []QueryNode) *anal
 	}
 }
 
-func (n *analyticIntervalNode) ToQueryString(escapeSpecialSyntax bool) string {
+func (n *analyticIntervalNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string {
 	var sb strings.Builder
 	sb.WriteString(n.name)
 	sb.WriteRune('(')
 	sb.WriteString(strconv.Itoa(n.param))
 	for _, child := range n.GetChildren() {
 		sb.WriteString(", ")
-		sb.WriteString(child.ToQueryString(escapeSpecialSyntax))
+		sb.WriteString(child.ToQueryString(escapeSyntax))
 	}
 	sb.WriteRune(')')
 	return sb.String()
@@ -335,7 +335,7 @@ func NewBeforeIntervalNode(left, right QueryNode) *BeforeIntervalNode {
 }
 
 // ToQueryString returns BEFORE(left, right).
-func (n *BeforeIntervalNode) ToQueryString(e bool) string { return n.formatChildren(e) }
+func (n *BeforeIntervalNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string { return n.formatChildren(escapeSyntax) }
 
 // CloneTree deep-copies this node.
 func (n *BeforeIntervalNode) CloneTree() QueryNode {
@@ -367,7 +367,7 @@ func NewAfterIntervalNode(left, right QueryNode) *AfterIntervalNode {
 }
 
 // ToQueryString returns AFTER(left, right).
-func (n *AfterIntervalNode) ToQueryString(e bool) string { return n.formatChildren(e) }
+func (n *AfterIntervalNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string { return n.formatChildren(escapeSyntax) }
 
 // CloneTree deep-copies this node.
 func (n *AfterIntervalNode) CloneTree() QueryNode {
@@ -399,7 +399,7 @@ func NewContainedByIntervalNode(small, big QueryNode) *ContainedByIntervalNode {
 }
 
 // ToQueryString returns CONTAINED_BY(small, big).
-func (n *ContainedByIntervalNode) ToQueryString(e bool) string { return n.formatChildren(e) }
+func (n *ContainedByIntervalNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string { return n.formatChildren(escapeSyntax) }
 
 // CloneTree deep-copies this node.
 func (n *ContainedByIntervalNode) CloneTree() QueryNode {
@@ -431,7 +431,7 @@ func NewContainingIntervalNode(big, small QueryNode) *ContainingIntervalNode {
 }
 
 // ToQueryString returns CONTAINING(big, small).
-func (n *ContainingIntervalNode) ToQueryString(e bool) string { return n.formatChildren(e) }
+func (n *ContainingIntervalNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string { return n.formatChildren(escapeSyntax) }
 
 // CloneTree deep-copies this node.
 func (n *ContainingIntervalNode) CloneTree() QueryNode {

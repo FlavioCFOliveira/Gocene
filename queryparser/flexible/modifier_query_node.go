@@ -60,7 +60,7 @@ func (n *ModifierQueryNode) SetModifier(modifier Modifier) {
 }
 
 // ToQueryString returns the query string representation.
-func (n *ModifierQueryNode) ToQueryString(escapeSpecialSyntax bool) string {
+func (n *ModifierQueryNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string {
 	var sb strings.Builder
 
 	if n.modifier != ModifierNone {
@@ -69,7 +69,7 @@ func (n *ModifierQueryNode) ToQueryString(escapeSpecialSyntax bool) string {
 
 	children := n.GetChildren()
 	if len(children) > 0 {
-		sb.WriteString(children[0].ToQueryString(escapeSpecialSyntax))
+		sb.WriteString(children[0].ToQueryString(escapeSyntax))
 	}
 
 	return sb.String()
@@ -130,12 +130,12 @@ func (n *BoostQueryNode) SetValue(value float64) {
 }
 
 // ToQueryString returns the query string representation.
-func (n *BoostQueryNode) ToQueryString(escapeSpecialSyntax bool) string {
+func (n *BoostQueryNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string {
 	var sb strings.Builder
 
 	children := n.GetChildren()
 	if len(children) > 0 {
-		sb.WriteString(children[0].ToQueryString(escapeSpecialSyntax))
+		sb.WriteString(children[0].ToQueryString(escapeSyntax))
 	}
 
 	if n.value != 1.0 {
@@ -209,7 +209,7 @@ func (n *FuzzyQueryNode) SetPrefixLength(prefixLength int) {
 }
 
 // ToQueryString returns the query string representation.
-func (n *FuzzyQueryNode) ToQueryString(escapeSpecialSyntax bool) string {
+func (n *FuzzyQueryNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string {
 	var sb strings.Builder
 
 	if n.GetField() != "" {
@@ -217,11 +217,7 @@ func (n *FuzzyQueryNode) ToQueryString(escapeSpecialSyntax bool) string {
 		sb.WriteString(":")
 	}
 
-	if escapeSpecialSyntax {
-		sb.WriteString(escapeQueryString(n.GetText()))
-	} else {
-		sb.WriteString(n.GetText())
-	}
+	sb.WriteString(escapeSyntax.Escape(n.GetText(), "en", EscapeNormal))
 
 	sb.WriteString("~")
 	if n.minSimilarity != 0.5 {
@@ -346,7 +342,7 @@ func (n *RangeQueryNode) IsUpperInclusive() bool {
 }
 
 // ToQueryString returns the query string representation.
-func (n *RangeQueryNode) ToQueryString(escapeSpecialSyntax bool) string {
+func (n *RangeQueryNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string {
 	var sb strings.Builder
 
 	if n.field != "" {
@@ -362,20 +358,16 @@ func (n *RangeQueryNode) ToQueryString(escapeSpecialSyntax bool) string {
 
 	if n.lower == "*" {
 		sb.WriteString("*")
-	} else if escapeSpecialSyntax {
-		sb.WriteString(escapeQueryString(n.lower))
 	} else {
-		sb.WriteString(n.lower)
+		sb.WriteString(escapeSyntax.Escape(n.lower, "en", EscapeNormal))
 	}
 
 	sb.WriteString(" TO ")
 
 	if n.upper == "*" {
 		sb.WriteString("*")
-	} else if escapeSpecialSyntax {
-		sb.WriteString(escapeQueryString(n.upper))
 	} else {
-		sb.WriteString(n.upper)
+		sb.WriteString(escapeSyntax.Escape(n.upper, "en", EscapeNormal))
 	}
 
 	if n.upperBound == BoundInclusive {
@@ -445,7 +437,7 @@ func (n *PhraseSlopQueryNode) SetSlop(slop int) {
 }
 
 // ToQueryString returns the query string representation.
-func (n *PhraseSlopQueryNode) ToQueryString(escapeSpecialSyntax bool) string {
+func (n *PhraseSlopQueryNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string {
 	var sb strings.Builder
 
 	if n.GetField() != "" {
@@ -454,11 +446,7 @@ func (n *PhraseSlopQueryNode) ToQueryString(escapeSpecialSyntax bool) string {
 	}
 
 	sb.WriteString("\"")
-	if escapeSpecialSyntax {
-		sb.WriteString(escapeQueryString(n.GetText()))
-	} else {
-		sb.WriteString(n.GetText())
-	}
+	sb.WriteString(escapeSyntax.Escape(n.GetText(), "en", EscapeNormal))
 	sb.WriteString("\"")
 
 	if n.slop != 0 {
@@ -506,7 +494,7 @@ func NewGroupQueryNode(child QueryNode) *GroupQueryNode {
 }
 
 // ToQueryString returns the query string representation.
-func (n *GroupQueryNode) ToQueryString(escapeSpecialSyntax bool) string {
+func (n *GroupQueryNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string {
 	var sb strings.Builder
 
 	sb.WriteString("(")
@@ -516,7 +504,7 @@ func (n *GroupQueryNode) ToQueryString(escapeSpecialSyntax bool) string {
 		if i > 0 {
 			sb.WriteString(" ")
 		}
-		sb.WriteString(child.ToQueryString(escapeSpecialSyntax))
+		sb.WriteString(child.ToQueryString(escapeSyntax))
 	}
 
 	sb.WriteString(")")
@@ -561,7 +549,7 @@ func NewMatchAllDocsQueryNode() *MatchAllDocsQueryNode {
 }
 
 // ToQueryString returns the query string representation.
-func (n *MatchAllDocsQueryNode) ToQueryString(escapeSpecialSyntax bool) string {
+func (n *MatchAllDocsQueryNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string {
 	return "*:*"
 }
 
@@ -597,7 +585,7 @@ func NewMatchNoDocsQueryNode() *MatchNoDocsQueryNode {
 }
 
 // ToQueryString returns the query string representation.
-func (n *MatchNoDocsQueryNode) ToQueryString(escapeSpecialSyntax bool) string {
+func (n *MatchNoDocsQueryNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string {
 	return "+ - + -"
 }
 

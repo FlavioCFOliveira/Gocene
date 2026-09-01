@@ -5,8 +5,11 @@
 package index
 
 import (
+	"bytes"
 	"math"
 	"sort"
+
+	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
 // IndexSorter sorts documents during flush and merge operations.
@@ -120,7 +123,7 @@ type docCompareFn func(a, b int) int
 // (GetNumericDocValues / GetSortedDocValues returns nil) fall back to
 // identity ordering for that dimension, which is correct: all docs sort equal
 // on that field and the next field breaks the tie.
-func buildFieldComparators(reader *LeafReader, fields []SortField, numDocs int) ([]docCompareFn, error) {
+func buildFieldComparators(reader *LeafReader, fields []*SortField, numDocs int) ([]docCompareFn, error) {
 	cmps := make([]docCompareFn, 0, len(fields))
 	for _, sf := range fields {
 		cmp, err := buildFieldComparator(reader, sf, numDocs)
@@ -133,21 +136,16 @@ func buildFieldComparators(reader *LeafReader, fields []SortField, numDocs int) 
 }
 
 // buildFieldComparator builds a single doc comparator for one SortField.
-func buildFieldComparator(reader *LeafReader, sf SortField, numDocs int) (docCompareFn, error) {
+func buildFieldComparator(reader *LeafReader, sf *SortField, numDocs int) (docCompareFn, error) {
 	reverseMul := 1
 	if sf.Descending() {
 		reverseMul = -1
 	}
 
-	// Check if it's a BinarySortField for index sorting.
-	// We use a type assertion here. In Gocene, SortField is a struct,
-	// so if sf is passed by value, we can't assert to *BinarySortField.
-	// However, the buildFieldComparators function takes []SortField.
-	// I should check if the input slice was actually []*SortField or if I need to adjust.
-	// Wait, buildFieldComparators is: func buildFieldComparators(reader *LeafReader, fields []SortField, numDocs int)
-	// And buildFieldComparator is: func buildFieldComparator(reader *LeafReader, sf SortField, numDocs int)
-	// Since sf is a value, I cannot assert it to *search.BinarySortField unless it was a pointer.
-	// Let me check how SortField is handled in Gocene.
+	// If this is a BinarySortField, use the specialized binary comparator.
+	if bsf, ok := any(sf).(*search.BinarySortField); ok {
+		return buildBinaryComparator(reader, bsf, numDocs, reverseMul)
+	}
 
 	switch sf.SortType() {
 	case SortTypeInt:
@@ -166,7 +164,54 @@ func buildFieldComparator(reader *LeafReader, sf SortField, numDocs int) (docCom
 	}
 }
 
-func buildIntComparator(reader *LeafReader, sf SortField, numDocs, reverseMul int) (docCompareFn, error) {
+func buildBinaryComparator(reader *LeafReader, bsf *search.BinarySortField, numDocs, reverseMul int) (docCompareFn, error) {
+	values := make([][]byte, numDocs)
+	dvs, err := reader.GetBinaryDocValues(bsf.Field)
+	if err != nil {
+		return nil, err
+	}
+	if dvs != nil {
+		for {
+			docID, err := dvs.NextDoc()
+			if err != nil {
+				return nil, err
+			}
+			if docID < 0 || docID >= numDocs {
+				break
+			}
+			val, err := dvs.BinaryValue()
+			if err != nil {
+				return nil, err
+			}
+			// Store a copy of the value to avoid issues with the iterator's shared buffer.
+			cp := make([]byte, len(val))
+			copy(cp, val)
+			values[docID] = cp
+		}
+	}
+
+	return func(a, b int) int {
+		va, vb := values[a], values[b]
+		if va == nil || vb == nil {
+			if va == vb {
+				return 0
+			}
+			// missingFirst => null < present; missingLast => present < null
+			c := -1
+			if va != nil {
+				c = 1
+			}
+			if bsf.MissingValue == search.STRING_LAST {
+				c = -c
+			}
+			return c * reverseMul
+		}
+		res := bytes.Compare(va, vb)
+		return res * reverseMul
+	}, nil
+}
+
+func buildIntComparator(reader *LeafReader, sf *SortField, numDocs, reverseMul int) (docCompareFn, error) {
 	values := make([]int32, numDocs)
 	var missingVal int32
 	if mv, ok := sf.MissingValue().(int32); ok {
@@ -213,7 +258,7 @@ func buildIntComparator(reader *LeafReader, sf SortField, numDocs, reverseMul in
 	}, nil
 }
 
-func buildLongComparator(reader *LeafReader, sf SortField, numDocs, reverseMul int) (docCompareFn, error) {
+func buildLongComparator(reader *LeafReader, sf *SortField, numDocs, reverseMul int) (docCompareFn, error) {
 	values := make([]int64, numDocs)
 	var missingVal int64
 	if mv, ok := sf.MissingValue().(int64); ok {
@@ -256,7 +301,7 @@ func buildLongComparator(reader *LeafReader, sf SortField, numDocs, reverseMul i
 	}, nil
 }
 
-func buildFloatComparator(reader *LeafReader, sf SortField, numDocs, reverseMul int) (docCompareFn, error) {
+func buildFloatComparator(reader *LeafReader, sf *SortField, numDocs, reverseMul int) (docCompareFn, error) {
 	values := make([]float32, numDocs)
 	var missingVal float32
 	if mv, ok := sf.MissingValue().(float32); ok {
@@ -302,7 +347,7 @@ func buildFloatComparator(reader *LeafReader, sf SortField, numDocs, reverseMul 
 	}, nil
 }
 
-func buildDoubleComparator(reader *LeafReader, sf SortField, numDocs, reverseMul int) (docCompareFn, error) {
+func buildDoubleComparator(reader *LeafReader, sf *SortField, numDocs, reverseMul int) (docCompareFn, error) {
 	values := make([]float64, numDocs)
 	var missingVal float64
 	if mv, ok := sf.MissingValue().(float64); ok {
@@ -346,7 +391,7 @@ func buildDoubleComparator(reader *LeafReader, sf SortField, numDocs, reverseMul
 	}, nil
 }
 
-func buildStringOrdComparator(reader *LeafReader, sf SortField, numDocs, reverseMul int) (docCompareFn, error) {
+func buildStringOrdComparator(reader *LeafReader, sf *SortField, numDocs, reverseMul int) (docCompareFn, error) {
 	// String fields are sorted by their SortedDocValues ordinal.
 	// Ordinal -1 means "no value"; the placement relative to present values is
 	// controlled by SortField.missingValue (SortField.STRING_FIRST or STRING_LAST).

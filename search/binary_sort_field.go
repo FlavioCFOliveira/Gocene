@@ -10,12 +10,6 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-// BinaryDocValuesProvider is an interface for components that can provide BinaryDocValues for a field.
-// This avoids a circular dependency between the search and index packages.
-type BinaryDocValuesProvider interface {
-	GetBinaryDocValues(field string) (spi.BinaryDocValues, error)
-}
-
 // BinarySortField is a SortField for BinaryDocValues, usable as an index sort.
 // It is the Go port of Lucene's org.apache.lucene.search.BinarySortField.
 type BinarySortField struct {
@@ -59,8 +53,18 @@ func (bsf *BinarySortField) ProviderName() string {
 }
 
 // GetSortKeyDocValues returns the per-document sort key, as a BinaryDocValues.
-func (bsf *BinarySortField) GetSortKeyDocValues(provider BinaryDocValuesProvider) (spi.BinaryDocValues, error) {
+// The provider is passed in to avoid a circular dependency.
+func (bsf *BinarySortField) GetSortKeyDocValues(provider interface{ GetBinaryDocValues(field string) (spi.BinaryDocValues, error) }) (spi.BinaryDocValues, error) {
 	return provider.GetBinaryDocValues(bsf.Field)
+}
+
+func (bsf *BinarySortField) GetComparator(numHits int, pruning Pruning) FieldComparator {
+	return NewBinaryFieldComparator(
+		numHits,
+		bsf.Field,
+		bsf.MissingValue == STRING_LAST,
+		bsf,
+	)
 }
 
 func (bsf *BinarySortField) String() string {

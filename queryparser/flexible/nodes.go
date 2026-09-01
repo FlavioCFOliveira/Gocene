@@ -63,7 +63,7 @@ func NewDeletedQueryNode() *DeletedQueryNode {
 }
 
 // ToQueryString returns an empty string — deleted nodes contribute nothing.
-func (n *DeletedQueryNode) ToQueryString(_ bool) string { return "" }
+func (n *DeletedQueryNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string { return "" }
 
 // CloneTree deep-copies this node.
 func (n *DeletedQueryNode) CloneTree() QueryNode {
@@ -103,7 +103,7 @@ func (n *AnyQueryNode) SetMinimumMatchingElements(min int) {
 }
 
 // ToQueryString returns "(<child1> OR <child2> ...)/N".
-func (n *AnyQueryNode) ToQueryString(escapeSpecialSyntax bool) string {
+func (n *AnyQueryNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string {
 	children := n.GetChildren()
 	var sb strings.Builder
 	sb.WriteString("(")
@@ -111,7 +111,7 @@ func (n *AnyQueryNode) ToQueryString(escapeSpecialSyntax bool) string {
 		if i > 0 {
 			sb.WriteString(" OR ")
 		}
-		sb.WriteString(child.ToQueryString(escapeSpecialSyntax))
+		sb.WriteString(child.ToQueryString(escapeSyntax))
 	}
 	sb.WriteString(")/")
 	sb.WriteString(strconv.Itoa(n.minimumMatchingElements))
@@ -150,7 +150,7 @@ func NewNoTokenFoundQueryNode(field, text string, begin, end int) *NoTokenFoundQ
 }
 
 // ToQueryString returns an empty string — no token means no query contribution.
-func (n *NoTokenFoundQueryNode) ToQueryString(_ bool) string { return "" }
+func (n *NoTokenFoundQueryNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string { return "" }
 
 // CloneTree deep-copies this node.
 func (n *NoTokenFoundQueryNode) CloneTree() QueryNode {
@@ -193,7 +193,7 @@ func (n *OpaqueQueryNode) GetSchema() string { return n.schema }
 func (n *OpaqueQueryNode) GetValue() string { return n.value }
 
 // ToQueryString returns "@schema:value".
-func (n *OpaqueQueryNode) ToQueryString(_ bool) string {
+func (n *OpaqueQueryNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string {
 	return "@" + n.schema + ":" + n.value
 }
 
@@ -240,7 +240,7 @@ func (n *PathQueryNode) GetPathElements() []string {
 }
 
 // ToQueryString returns the path joined with '/'.
-func (n *PathQueryNode) ToQueryString(_ bool) string {
+func (n *PathQueryNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string {
 	return strings.Join(n.pathElements, "/")
 }
 
@@ -296,7 +296,7 @@ func (n *ProximityQueryNode) GetDistance() int { return n.distance }
 func (n *ProximityQueryNode) GetProximityType() ProximityType { return n.proximityType }
 
 // ToQueryString returns a human-readable proximity expression.
-func (n *ProximityQueryNode) ToQueryString(escapeSpecialSyntax bool) string {
+func (n *ProximityQueryNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string {
 	var typeName string
 	switch n.proximityType {
 	case ProximitySentence:
@@ -305,9 +305,7 @@ func (n *ProximityQueryNode) ToQueryString(escapeSpecialSyntax bool) string {
 		typeName = "WORD"
 	}
 	text := n.GetText()
-	if escapeSpecialSyntax {
-		text = escapeQueryString(text)
-	}
+	text = escapeSyntax.Escape(text, "en", EscapeNormal)
 	return fmt.Sprintf("%s:%s~%s/%d", n.GetField(), text, typeName, n.distance)
 }
 
@@ -341,7 +339,7 @@ func NewQuotedFieldQueryNode(field, text string, begin, end int) *QuotedFieldQue
 }
 
 // ToQueryString returns field:"text".
-func (n *QuotedFieldQueryNode) ToQueryString(escapeSpecialSyntax bool) string {
+func (n *QuotedFieldQueryNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string {
 	var sb strings.Builder
 	if n.GetField() != "" {
 		sb.WriteString(n.GetField())
@@ -349,9 +347,7 @@ func (n *QuotedFieldQueryNode) ToQueryString(escapeSpecialSyntax bool) string {
 	}
 	sb.WriteString(`"`)
 	text := n.GetText()
-	if escapeSpecialSyntax {
-		text = escapeQueryString(text)
-	}
+	text = escapeSyntax.Escape(text, "en", EscapeNormal)
 	sb.WriteString(text)
 	sb.WriteString(`"`)
 	return sb.String()
@@ -399,12 +395,12 @@ func (n *SlopQueryNode) GetValue() int { return n.value }
 func (n *SlopQueryNode) SetValue(value int) { n.value = value }
 
 // ToQueryString appends ~slop to the child's representation.
-func (n *SlopQueryNode) ToQueryString(escapeSpecialSyntax bool) string {
+func (n *SlopQueryNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string {
 	children := n.GetChildren()
 	if len(children) == 0 {
 		return ""
 	}
-	return children[0].ToQueryString(escapeSpecialSyntax) + "~" + strconv.Itoa(n.value)
+	return children[0].ToQueryString(escapeSyntax) + "~" + strconv.Itoa(n.value)
 }
 
 // CloneTree deep-copies this node.
@@ -451,7 +447,7 @@ func (n *TokenizedPhraseQueryNode) GetField() string { return n.field }
 func (n *TokenizedPhraseQueryNode) SetField(field string) { n.field = field }
 
 // ToQueryString emits field:"token1 token2 ...".
-func (n *TokenizedPhraseQueryNode) ToQueryString(escapeSpecialSyntax bool) string {
+func (n *TokenizedPhraseQueryNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string {
 	var sb strings.Builder
 	if n.field != "" {
 		sb.WriteString(n.field)
@@ -462,7 +458,7 @@ func (n *TokenizedPhraseQueryNode) ToQueryString(escapeSpecialSyntax bool) strin
 		if i > 0 {
 			sb.WriteString(" ")
 		}
-		sb.WriteString(child.ToQueryString(escapeSpecialSyntax))
+		sb.WriteString(child.ToQueryString(escapeSyntax))
 	}
 	sb.WriteString(`"`)
 	return sb.String()

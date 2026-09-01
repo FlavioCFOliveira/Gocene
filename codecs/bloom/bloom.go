@@ -1,6 +1,13 @@
-// Package bloom implements org.apache.lucene.codecs.bloom: bloom-filter
-// support for the term dictionary.
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
 package bloom
+
+import (
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
+)
 
 // HashFunction is the contract every bloom-filter hash satisfies. Mirrors
 // org.apache.lucene.codecs.bloom.HashFunction.
@@ -57,8 +64,9 @@ var _ HashFunction = (*MurmurHash64)(nil)
 // FuzzySet is the bloom-filter-like set used by Lucene to short-circuit
 // term lookups. Mirrors org.apache.lucene.codecs.bloom.FuzzySet.
 type FuzzySet struct {
-	Bits []uint64
-	Hash HashFunction
+	Bits              []uint64
+	Hash              HashFunction
+	targetMaxSaturation float32
 }
 
 // NewFuzzySet builds a FuzzySet sized to capacity bits.
@@ -69,7 +77,19 @@ func NewFuzzySet(capacityBits int, hash HashFunction) *FuzzySet {
 	if hash == nil {
 		hash = NewMurmurHash64(0)
 	}
-	return &FuzzySet{Bits: make([]uint64, (capacityBits+63)/64), Hash: hash}
+	return &FuzzySet{
+		Bits:                make([]uint64, (capacityBits+63)/64),
+		Hash:                hash,
+		targetMaxSaturation: 0.1023,
+	}
+}
+
+// CreateOptimalSet builds a set targeting a max false-positive rate.
+func CreateOptimalSet(numDocs int, targetFPR float32) *FuzzySet {
+	// Optimal number of bits for a given FPR is -n*ln(p)/(ln 2)^2
+	// For p=0.1, this is approx 4.8 bits per element. Lucene uses 10 for simplicity.
+	capacityBits := numDocs * 10
+	return NewFuzzySet(capacityBits, NewMurmurHash64(0))
 }
 
 // Add inserts data into the set.
@@ -80,8 +100,7 @@ func (s *FuzzySet) Add(data []byte) {
 	s.Bits[idx/64] |= 1 << (idx % 64)
 }
 
-// MayContain returns true if data has possibly been added. False positives
-// are possible (per the bloom-filter contract); false negatives are not.
+// MayContain returns true if data has possibly been added.
 func (s *FuzzySet) MayContain(data []byte) bool {
 	h := s.Hash.Hash(data)
 	bits := uint64(len(s.Bits)) * 64
@@ -89,23 +108,60 @@ func (s *FuzzySet) MayContain(data []byte) bool {
 	return s.Bits[idx/64]&(1<<(idx%64)) != 0
 }
 
+// GetSaturation returns the current saturation of the set.
+func (s *FuzzySet) GetSaturation() float32 {
+	var setBits int64
+	for _, word := range s.Bits {
+		setBits += int64(popcount(word))
+	}
+	return float32(setBits) / float32(len(s.Bits)*64)
+}
+
+func popcount(x uint64) int {
+	// Standard popcount implementation
+	x -= (x >> 1) & 0x5555555555555555
+	x = (x & 0x3333333333333333) + ((x >> 2) & 0x3333333333333333)
+	x = (x + (x >> 4)) & 0x0f0f0f0f0f0f0f0f
+	x += (x >> 8)
+	x += (x >> 16)
+	x += (x >> 32)
+	return int(x & 0x7f)
+}
+
+// GetTargetMaxSaturation returns the target max saturation.
+func (s *FuzzySet) GetTargetMaxSaturation() float32 {
+	return s.targetMaxSaturation
+}
+
+// Downsize shrinks the set if it's sparse.
+func (s *FuzzySet) Downsize(targetMaxSaturation float32) *FuzzySet {
+	// Simplified downsize for now: in a real implementation, this would
+	// re-evaluate the necessary size.
+	return s
+}
+
 // BloomFilterFactory is the contract that builds FuzzySet instances per
 // field. Mirrors org.apache.lucene.codecs.bloom.BloomFilterFactory.
 type BloomFilterFactory interface {
-	NewFilter(numDocs int) *FuzzySet
+	GetSetForField(state *index.SegmentWriteState, info *schema.FieldInfo) *FuzzySet
+	IsSaturated(bloomFilter *FuzzySet, fieldInfo *schema.FieldInfo) bool
 }
 
-// DefaultBloomFilterFactory sizes the bit-array based on numDocs * 10 bits
-// (a 1% false-positive rate). Mirrors
-// org.apache.lucene.codecs.bloom.DefaultBloomFilterFactory.
+// DefaultBloomFilterFactory sizes the bit-array based on numDocs * 10 bits.
+// Mirrors org.apache.lucene.codecs.bloom.DefaultBloomFilterFactory.
 type DefaultBloomFilterFactory struct{}
 
-// NewFilter sizes the bloom filter from the document count.
-func (DefaultBloomFilterFactory) NewFilter(numDocs int) *FuzzySet {
-	if numDocs < 1 {
-		numDocs = 1
-	}
-	return NewFuzzySet(numDocs*10, NewMurmurHash64(0))
+func (DefaultBloomFilterFactory) GetSetForField(state *index.SegmentWriteState, info *schema.FieldInfo) *FuzzySet {
+	return CreateOptimalSet(state.SegmentInfo.MaxDoc(), 0.1023)
+}
+
+func (DefaultBloomFilterFactory) IsSaturated(bloomFilter *FuzzySet, fieldInfo *schema.FieldInfo) bool {
+	return bloomFilter.GetSaturation() > 0.9
+}
+
+// Downsize is a default implementation provided by the factory.
+func Downsize(fieldInfo *schema.FieldInfo, initialSet *FuzzySet) *FuzzySet {
+	return initialSet.Downsize(initialSet.GetTargetMaxSaturation())
 }
 
 var _ BloomFilterFactory = DefaultBloomFilterFactory{}
@@ -114,12 +170,12 @@ var _ BloomFilterFactory = DefaultBloomFilterFactory{}
 // the underlying format with a per-field bloom filter. Mirrors
 // org.apache.lucene.codecs.bloom.BloomFilteringPostingsFormat.
 type BloomFilteringPostingsFormat struct {
-	Inner   any
+	Inner   spi.PostingsFormat
 	Factory BloomFilterFactory
 }
 
 // NewBloomFilteringPostingsFormat builds the wrapper.
-func NewBloomFilteringPostingsFormat(inner any, factory BloomFilterFactory) *BloomFilteringPostingsFormat {
+func NewBloomFilteringPostingsFormat(inner spi.PostingsFormat, factory BloomFilterFactory) *BloomFilteringPostingsFormat {
 	if factory == nil {
 		factory = DefaultBloomFilterFactory{}
 	}

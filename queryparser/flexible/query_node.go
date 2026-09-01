@@ -23,7 +23,7 @@ type QueryNode interface {
 	String() string
 
 	// ToQueryString returns the query string representation of this node.
-	ToQueryString(escapeSpecialSyntax bool) string
+	ToQueryString(escapeSyntax EscapeQuerySyntax) string
 
 	// CloneTree creates a deep copy of this node and its children.
 	CloneTree() QueryNode
@@ -46,11 +46,20 @@ type QueryNode interface {
 	// AddChild adds a child node.
 	AddChild(child QueryNode)
 
+	// AddChildren adds multiple child nodes.
+	AddChildren(children []QueryNode)
+
 	// RemoveChild removes a child node.
 	RemoveChild(child QueryNode) bool
 
-	// ReplaceChild replaces an existing child with a new one.
-	ReplaceChild(existingChild, newChild QueryNode) bool
+	// RemoveFromParent removes this node from its parent.
+	RemoveFromParent()
+
+	// UnsetTag removes a tag.
+	UnsetTag(key string)
+
+	// GetTagMap returns a copy of all tags attached to this query node.
+	GetTagMap() map[string]interface{}
 }
 
 // QueryNodeImpl is the base implementation of QueryNode.
@@ -91,13 +100,13 @@ func (n *QueryNodeImpl) SetTag(key string, value interface{}) {
 
 // String returns a string representation of this node.
 func (n *QueryNodeImpl) String() string {
-	return n.ToQueryString(false)
+	return n.ToQueryString(NewEscapeQuerySyntaxImpl())
 }
 
 // ToQueryString returns the query string representation of this node.
 // This base implementation returns a generic representation.
 // Subclasses should override this method.
-func (n *QueryNodeImpl) ToQueryString(escapeSpecialSyntax bool) string {
+func (n *QueryNodeImpl) ToQueryString(escapeSyntax EscapeQuerySyntax) string {
 	if n.IsLeaf() {
 		return ""
 	}
@@ -108,7 +117,7 @@ func (n *QueryNodeImpl) ToQueryString(escapeSpecialSyntax bool) string {
 		if i > 0 {
 			sb.WriteString(" ")
 		}
-		sb.WriteString(child.ToQueryString(escapeSpecialSyntax))
+		sb.WriteString(child.ToQueryString(escapeSyntax))
 	}
 	return sb.String()
 }
@@ -187,6 +196,13 @@ func (n *QueryNodeImpl) AddChild(child QueryNode) {
 	}
 }
 
+// AddChildren adds multiple child nodes.
+func (n *QueryNodeImpl) AddChildren(children []QueryNode) {
+	for _, child := range children {
+		n.AddChild(child)
+	}
+}
+
 // RemoveChild removes a child node.
 // Returns true if the child was found and removed.
 func (n *QueryNodeImpl) RemoveChild(child QueryNode) bool {
@@ -202,6 +218,13 @@ func (n *QueryNodeImpl) RemoveChild(child QueryNode) bool {
 		}
 	}
 	return false
+}
+
+// RemoveFromParent removes this query node from its parent.
+func (n *QueryNodeImpl) RemoveFromParent() {
+	if n.parent != nil {
+		n.parent.RemoveChild(n)
+	}
 }
 
 // ReplaceChild replaces an existing child with a new one.
@@ -251,11 +274,23 @@ func (n *QueryNodeImpl) HasTag(key string) bool {
 	return exists
 }
 
-// RemoveTag removes a tag.
-func (n *QueryNodeImpl) RemoveTag(key string) {
+// UnsetTag removes a tag.
+func (n *QueryNodeImpl) UnsetTag(key string) {
 	if n.tags != nil {
 		delete(n.tags, key)
 	}
+}
+
+// GetTagMap returns a copy of all tags attached to this query node.
+func (n *QueryNodeImpl) GetTagMap() map[string]interface{} {
+	if n.tags == nil {
+		return make(map[string]interface{})
+	}
+	copyMap := make(map[string]interface{}, len(n.tags))
+	for k, v := range n.tags {
+		copyMap[k] = v
+	}
+	return copyMap
 }
 
 // ClearTags removes all tags.
