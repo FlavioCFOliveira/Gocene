@@ -11,7 +11,7 @@
 // Porting notes / divergences from the Java original:
 //
 //   - DocHelper is not yet ported. This file builds an equivalent set of
-//     fields (textField1/2/3 and noTFField) inline, using document.FieldType
+//     fields (textField1/2/3 and noTFField) inline, using index.FieldType
 //     directly since Gocene's FieldType exposes plain exported fields rather
 //     than Lucene's getter/setter surface.
 //
@@ -54,7 +54,7 @@ import (
 //	textField2 - TYPE_STORED + store term vectors (+positions +offsets)
 //	textField3 - TYPE_STORED + omitNorms
 //	noTFField  - TYPE_STORED + IndexOptions DOCS only
-func docHelperFields(t *testing.T) []*document.Field {
+func docHelperFields(t *testing.T) []*index.Field {
 	t.Helper()
 
 	type spec struct {
@@ -71,7 +71,7 @@ func docHelperFields(t *testing.T) []*document.Field {
 		{noTFKey, noTFText, false, false, index.IndexOptionsDocs},
 	}
 
-	fields := make([]*document.Field, 0, len(specs))
+	fields := make([]*index.Field, 0, len(specs))
 	for _, s := range specs {
 		ft := document.NewFieldType()
 		ft.Stored = true
@@ -100,7 +100,7 @@ func docHelperFields(t *testing.T) []*document.Field {
 // storedRoundTrip writes the given fields as a single stored document into a
 // codecs.StoredFieldsReaderImpl and returns the reader, mirroring what a real
 // stored-fields codec would produce on disk.
-func storedRoundTrip(t *testing.T, fields []*document.Field) *codecs.StoredFieldsReaderImpl {
+func storedRoundTrip(t *testing.T, fields []*index.Field) *codecs.StoredFieldsReaderImpl {
 	t.Helper()
 
 	storedFields := make([]codecs.StoredField, 0, len(fields))
@@ -129,7 +129,7 @@ func TestFieldsReader_Test(t *testing.T) {
 	// these back off the reconstructed Document; Gocene's stored-fields
 	// pipeline does not carry FieldType metadata into the visitor, so the
 	// configuration is asserted on the indexed fields directly.
-	byName := make(map[string]*document.Field, len(fields))
+	byName := make(map[string]*index.Field, len(fields))
 	for _, f := range fields {
 		byName[f.Name()] = f
 	}

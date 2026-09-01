@@ -75,7 +75,7 @@ func (c *cannedTermFreqs) Reset() error {
 }
 
 // docsAndFreqsType returns a non-stored TextField type indexing DOCS_AND_FREQS.
-func docsAndFreqsType() *document.FieldType {
+func docsAndFreqsType() *index.FieldType {
 	ft := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
 	ft.SetIndexOptions(index.IndexOptionsDocsAndFreqs)
 	return ft
@@ -106,7 +106,7 @@ func newCustomFreqWriter(t *testing.T) (store.Directory, *index.IndexWriter) {
 
 // cannedFreqField builds the Field used throughout the test: a "field"-named
 // field backed by a cannedTermFreqs TokenStream and the given FieldType.
-func cannedFreqField(t *testing.T, terms []string, freqs []int, ft *document.FieldType) *document.Field {
+func cannedFreqField(t *testing.T, terms []string, freqs []int, ft *index.FieldType) *index.Field {
 	t.Helper()
 	field, err := document.NewField("field", newCannedTermFreqs(terms, freqs), ft)
 	if err != nil {
@@ -116,7 +116,7 @@ func cannedFreqField(t *testing.T, terms []string, freqs []int, ft *document.Fie
 }
 
 // addCannedDoc adds a single document holding one cannedFreqField.
-func addCannedDoc(t *testing.T, w *index.IndexWriter, terms []string, freqs []int, ft *document.FieldType) {
+func addCannedDoc(t *testing.T, w *index.IndexWriter, terms []string, freqs []int, ft *index.FieldType) {
 	t.Helper()
 	doc := document.NewDocument()
 	doc.Add(cannedFreqField(t, terms, freqs, ft))

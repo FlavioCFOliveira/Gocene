@@ -51,15 +51,7 @@ type ParallelPostingsArray struct {
 }
 
 // NewParallelPostingsArray allocates a base ParallelPostingsArray with the
-// given number of term slots. All three side arrays are zero-initialised.
-func NewParallelPostingsArray(size int) *ParallelPostingsArray {
-	return &ParallelPostingsArray{
-		Size:          size,
-		TextStarts:    make([]int, size),
-		AddressOffset: make([]int, size),
-		ByteStarts:    make([]int, size),
-	}
-}
+// given number of term slots. This is now defined in parallel_postings_array.go.
 
 // BytesPerPosting returns the number of bytes that a single term posting
 // occupies in the side arrays. Mirrors Lucene's BYTES_PER_POSTING (3 ints).

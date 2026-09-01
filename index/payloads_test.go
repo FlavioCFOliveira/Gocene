@@ -28,7 +28,7 @@ import (
 )
 
 // payloadType is a FieldType that indexes positions and payloads.
-func payloadType() *document.FieldType {
+func payloadType() *index.FieldType {
 	ft := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
 	ft.SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions)
 	return ft

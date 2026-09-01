@@ -91,7 +91,7 @@ func textDoc(t *testing.T, field, value string) *document.Document {
 }
 
 // customDoc builds a document with a single field using the supplied FieldType.
-func customDoc(t *testing.T, field, value string, ft *document.FieldType) *document.Document {
+func customDoc(t *testing.T, field, value string, ft *index.FieldType) *document.Document {
 	t.Helper()
 	doc := document.NewDocument()
 	f, err := document.NewField(field, value, ft)

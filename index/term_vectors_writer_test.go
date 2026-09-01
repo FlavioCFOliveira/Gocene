@@ -63,7 +63,7 @@ const postingsAll = 2
 
 // customTVType builds a FieldType cloned from base with all three term-vector
 // options enabled, mirroring the repeated FieldType setup in the Java tests.
-func customTVType(base *document.FieldType) *document.FieldType {
+func customTVType(base *index.FieldType) *index.FieldType {
 	ft := document.NewFieldTypeFrom(base)
 	ft.SetStoreTermVectors(true)
 	ft.SetStoreTermVectorPositions(true)
@@ -909,7 +909,7 @@ func TestTermVectorsWriterNoTermVectorAfterTermVectorMerge(t *testing.T) {
 // doTestMixup, exactly as the Java original.
 func TestTermVectorsWriterInconsistentTermVectorOptions(t *testing.T) {
 
-	base := func() *document.FieldType {
+	base := func() *index.FieldType {
 		return document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
 	}
 
@@ -963,7 +963,7 @@ func TestTermVectorsWriterInconsistentTermVectorOptions(t *testing.T) {
 //
 // Java drives this through RandomIndexWriter and reads back with its NRT
 // getReader(); Gocene uses the plain IndexWriter and reopens the directory.
-func doTestMixup(t *testing.T, ft1, ft2 *document.FieldType) {
+func doTestMixup(t *testing.T, ft1, ft2 *index.FieldType) {
 	t.Helper()
 	dir, err := store.NewSimpleFSDirectory(t.TempDir())
 	if err != nil {

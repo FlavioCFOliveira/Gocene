@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-package document
+package index
 
 import (
 	"fmt"
@@ -10,12 +10,11 @@ import (
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 // FieldType describes the properties of a field.
 //
-// This is the Go port of Lucene's org.apache.lucene.document.FieldType
+// This is the Go port of Lucene's org.apache.lucene.index.FieldType
 // (Apache Lucene 10.4.0). The struct preserves the public contract of the
 // Java original while remaining idiomatic Go.
 //
@@ -73,17 +72,17 @@ type FieldType struct {
 	OmitNorms bool
 
 	// IndexOptions controls what information is stored in the postings lists.
-	// See index.IndexOptions for details.
-	IndexOptions index.IndexOptions
+	// See IndexOptions for details.
+	IndexOptions IndexOptions
 
 	// DocValuesType determines the type of per-document values stored.
-	// See index.DocValuesType for details.
-	DocValuesType index.DocValuesType
+	// See DocValuesType for details.
+	DocValuesType DocValuesType
 
 	// DocValuesSkipIndex controls whether a skip index is built for the
-	// associated numeric doc-values. See index.DocValuesSkipIndexType.
+	// associated numeric doc-values. See DocValuesSkipIndexType.
 	// Added in Lucene 10.x.
-	DocValuesSkipIndex index.DocValuesSkipIndexType
+	DocValuesSkipIndex DocValuesSkipIndexType
 
 	// DimensionCount is the number of dimensions for point fields.
 	// Only used for Point-based fields (IntPoint, LongPoint, etc.).
@@ -102,10 +101,10 @@ type FieldType struct {
 	VectorDimension int
 
 	// VectorEncoding controls how vector values are encoded.
-	VectorEncoding index.VectorEncoding
+	VectorEncoding VectorEncoding
 
 	// VectorSimilarityFunction controls the similarity used by the KNN search.
-	VectorSimilarityFunction index.VectorSimilarityFunction
+	VectorSimilarityFunction VectorSimilarityFunction
 
 	// attributes is the lazily-allocated string->string attribute map.
 	attributes map[string]string
@@ -126,16 +125,16 @@ type FieldType struct {
 //   - VectorSimilarityFunction=EUCLIDEAN
 func NewFieldType() *FieldType {
 	return &FieldType{
-		IndexOptions:             index.IndexOptionsNone,
-		DocValuesType:            index.DocValuesTypeNone,
-		DocValuesSkipIndex:       index.DocValuesSkipIndexTypeNone,
-		VectorEncoding:           index.VectorEncodingFloat32,
-		VectorSimilarityFunction: index.VectorSimilarityFunctionEuclidean,
+		IndexOptions:             IndexOptionsNone,
+		DocValuesType:            DocValuesTypeNone,
+		DocValuesSkipIndex:       DocValuesSkipIndexTypeNone,
+		VectorEncoding:           VectorEncodingFloat32,
+		VectorSimilarityFunction: VectorSimilarityFunctionEuclidean,
 	}
 }
 
 // NewLuceneFieldType creates a new FieldType with Lucene-canonical defaults
-// matching org.apache.lucene.document.FieldType (Tokenized=true).
+// matching org.apache.lucene.index.FieldType (Tokenized=true).
 //
 // Use this when porting Lucene code where the caller relies on the JVM
 // default for Tokenized.
@@ -260,14 +259,14 @@ func (ft *FieldType) SetStoreTermVectorPayloads(store bool) *FieldType {
 }
 
 // SetIndexOptions sets the indexing options.
-func (ft *FieldType) SetIndexOptions(options index.IndexOptions) *FieldType {
+func (ft *FieldType) SetIndexOptions(options IndexOptions) *FieldType {
 	ft.checkFrozen()
 	ft.IndexOptions = options
 	return ft
 }
 
 // SetDocValuesType sets the doc values type.
-func (ft *FieldType) SetDocValuesType(docValuesType index.DocValuesType) *FieldType {
+func (ft *FieldType) SetDocValuesType(docValuesType DocValuesType) *FieldType {
 	ft.checkFrozen()
 	ft.DocValuesType = docValuesType
 	return ft
@@ -275,7 +274,7 @@ func (ft *FieldType) SetDocValuesType(docValuesType index.DocValuesType) *FieldT
 
 // SetDocValuesSkipIndexType sets the doc-values skip-index type.
 // Added in Lucene 10.x.
-func (ft *FieldType) SetDocValuesSkipIndexType(skip index.DocValuesSkipIndexType) *FieldType {
+func (ft *FieldType) SetDocValuesSkipIndexType(skip DocValuesSkipIndexType) *FieldType {
 	ft.checkFrozen()
 	ft.DocValuesSkipIndex = skip
 	return ft
@@ -330,7 +329,7 @@ func (ft *FieldType) SetDimensionsIndexed(dimensionCount, indexDimensionCount, d
 
 // SetVectorAttributes configures KNN vector indexing parameters.
 // Mirrors Lucene's setVectorAttributes(int, VectorEncoding, VectorSimilarityFunction).
-func (ft *FieldType) SetVectorAttributes(numDimensions int, encoding index.VectorEncoding, similarity index.VectorSimilarityFunction) *FieldType {
+func (ft *FieldType) SetVectorAttributes(numDimensions int, encoding VectorEncoding, similarity VectorSimilarityFunction) *FieldType {
 	ft.checkFrozen()
 	if numDimensions <= 0 {
 		panic(fmt.Sprintf("vector numDimensions must be > 0; got %d", numDimensions))
@@ -389,13 +388,13 @@ func (ft *FieldType) GetStoreTermVectorOffsets() bool { return ft.StoreTermVecto
 func (ft *FieldType) GetStoreTermVectorPayloads() bool { return ft.StoreTermVectorPayloads }
 
 // GetIndexOptions returns the indexing options.
-func (ft *FieldType) GetIndexOptions() index.IndexOptions { return ft.IndexOptions }
+func (ft *FieldType) GetIndexOptions() IndexOptions { return ft.IndexOptions }
 
 // GetDocValuesType returns the doc values type.
-func (ft *FieldType) GetDocValuesType() index.DocValuesType { return ft.DocValuesType }
+func (ft *FieldType) GetDocValuesType() DocValuesType { return ft.DocValuesType }
 
 // DocValuesSkipIndexType returns the doc-values skip-index type.
-func (ft *FieldType) DocValuesSkipIndexType() index.DocValuesSkipIndexType {
+func (ft *FieldType) DocValuesSkipIndexType() DocValuesSkipIndexType {
 	return ft.DocValuesSkipIndex
 }
 
@@ -412,10 +411,10 @@ func (ft *FieldType) PointNumBytes() int { return ft.DimensionNumBytes }
 func (ft *FieldType) GetVectorDimension() int { return ft.VectorDimension }
 
 // GetVectorEncoding returns the KNN vector encoding.
-func (ft *FieldType) GetVectorEncoding() index.VectorEncoding { return ft.VectorEncoding }
+func (ft *FieldType) GetVectorEncoding() VectorEncoding { return ft.VectorEncoding }
 
 // GetVectorSimilarityFunction returns the KNN vector similarity function.
-func (ft *FieldType) GetVectorSimilarityFunction() index.VectorSimilarityFunction {
+func (ft *FieldType) GetVectorSimilarityFunction() VectorSimilarityFunction {
 	return ft.VectorSimilarityFunction
 }
 
@@ -436,7 +435,7 @@ func (ft *FieldType) Validate() error {
 	// If indexed via the inverted index (no point dimensions), IndexOptions
 	// must be set. Point-only indexed fields (e.g. IntField/LongField) keep
 	// IndexOptions=NONE — the index path is the BKD tree, not the postings.
-	if ft.Indexed && ft.IndexOptions == index.IndexOptionsNone && ft.DimensionCount == 0 {
+	if ft.Indexed && ft.IndexOptions == IndexOptionsNone && ft.DimensionCount == 0 {
 		return &FieldTypeValidationError{msg: "indexed field cannot have IndexOptionsNone"}
 	}
 
@@ -458,7 +457,7 @@ func (ft *FieldType) String() string {
 	if ft.Stored {
 		b.WriteString("stored")
 	}
-	if ft.IndexOptions != index.IndexOptionsNone {
+	if ft.IndexOptions != IndexOptionsNone {
 		writeSep(&b)
 		b.WriteString("indexed")
 		writeSep(&b)
@@ -503,11 +502,11 @@ func (ft *FieldType) String() string {
 		writeSep(&b)
 		fmt.Fprintf(&b, "vectorSimilarityFunction=%s", ft.VectorSimilarityFunction.String())
 	}
-	if ft.DocValuesType != index.DocValuesTypeNone {
+	if ft.DocValuesType != DocValuesTypeNone {
 		writeSep(&b)
 		fmt.Fprintf(&b, "docValuesType=%s", ft.DocValuesType.String())
 	}
-	if ft.DocValuesSkipIndex != index.DocValuesSkipIndexTypeNone {
+	if ft.DocValuesSkipIndex != DocValuesSkipIndexTypeNone {
 		writeSep(&b)
 		fmt.Fprintf(&b, "docValuesSkipIndexType=%s", ft.DocValuesSkipIndexType().String())
 	}
@@ -559,10 +558,10 @@ func (e *FieldTypeValidationError) Error() string {
 }
 
 // fieldTypeAsIndexInterface wraps *FieldType so that it satisfies
-// index.IndexableFieldType. The wrapper bridges the naming mismatch between
-// document.FieldType's Get-prefixed term-vector methods
+// IndexableFieldType. The wrapper bridges the naming mismatch between
+// index.FieldType's Get-prefixed term-vector methods
 // (GetStoreTermVectors/…) and the un-prefixed names required by
-// index.IndexableFieldType (StoreTermVectors/…).
+// IndexableFieldType (StoreTermVectors/…).
 type fieldTypeAsIndexInterface struct{ ft *FieldType }
 
 func (w fieldTypeAsIndexInterface) Stored() bool                                { return w.ft.Stored }
@@ -576,28 +575,28 @@ func (w fieldTypeAsIndexInterface) StoreTermVectorPayloads() bool {
 	return w.ft.StoreTermVectorPayloads
 }
 func (w fieldTypeAsIndexInterface) OmitNorms() bool                            { return w.ft.OmitNorms }
-func (w fieldTypeAsIndexInterface) IndexOptions() index.IndexOptions            { return w.ft.IndexOptions }
-func (w fieldTypeAsIndexInterface) DocValuesType() index.DocValuesType           { return w.ft.DocValuesType }
-func (w fieldTypeAsIndexInterface) DocValuesSkipIndexType() index.DocValuesSkipIndexType {
+func (w fieldTypeAsIndexInterface) IndexOptions() IndexOptions            { return w.ft.IndexOptions }
+func (w fieldTypeAsIndexInterface) DocValuesType() DocValuesType           { return w.ft.DocValuesType }
+func (w fieldTypeAsIndexInterface) DocValuesSkipIndexType() DocValuesSkipIndexType {
 	return w.ft.DocValuesSkipIndex
 }
 func (w fieldTypeAsIndexInterface) PointDimensionCount() int                    { return w.ft.DimensionCount }
 func (w fieldTypeAsIndexInterface) PointIndexDimensionCount() int               { return w.ft.IndexDimensionCount }
 func (w fieldTypeAsIndexInterface) PointNumBytes() int                          { return w.ft.DimensionNumBytes }
 func (w fieldTypeAsIndexInterface) VectorDimension() int                         { return w.ft.VectorDimension }
-func (w fieldTypeAsIndexInterface) VectorEncoding() index.VectorEncoding       { return w.ft.VectorEncoding }
-func (w fieldTypeAsIndexInterface) VectorSimilarityFunction() index.VectorSimilarityFunction {
+func (w fieldTypeAsIndexInterface) VectorEncoding() VectorEncoding       { return w.ft.VectorEncoding }
+func (w fieldTypeAsIndexInterface) VectorSimilarityFunction() VectorSimilarityFunction {
 	return w.ft.VectorSimilarityFunction
 }
 func (w fieldTypeAsIndexInterface) GetAttributes() map[string]string {
 	return w.ft.GetAttributes()
 }
 
-func (ft *FieldType) AsIndexFieldTypeInterface() index.IndexableFieldType {
+func (ft *FieldType) AsIndexFieldTypeInterface() IndexableFieldType {
 	return fieldTypeAsIndexInterface{ft: ft}
 }
 
-// fieldAsIndexableField wraps *Field so that it satisfies index.IndexableField.
+// fieldAsIndexableField wraps *Field so that it satisfies IndexableField.
 type fieldAsIndexableField struct{ f *Field }
 
 func (w fieldAsIndexableField) Name() string              { return w.f.name }
@@ -605,43 +604,43 @@ func (w fieldAsIndexableField) StringValue() string       { return w.f.StringVal
 func (w fieldAsIndexableField) BinaryValue() []byte       { return w.f.BinaryValue() }
 func (w fieldAsIndexableField) ReaderValue() io.Reader    { return w.f.ReaderValue() }
 func (w fieldAsIndexableField) NumericValue() interface{} { return w.f.NumericValue() }
-func (w fieldAsIndexableField) FieldType() index.IndexableFieldType {
+func (w fieldAsIndexableField) FieldType() IndexableFieldType {
 	return w.f.ft.AsIndexFieldTypeInterface()
 }
 func (w fieldAsIndexableField) TokenStream(analyzer analysis.Analyzer, reuse analysis.TokenStream) analysis.TokenStream {
-	return w.f.TokenStream()
+	return w.f.TokenStream(analyzer, reuse)
 }
-func (w fieldAsIndexableField) InvertableType() index.InvertableType {
+func (w fieldAsIndexableField) InvertableType() InvertableType {
 	if w.f.ft.Tokenized {
-		return index.InvertableTypeTokenStream
+		return InvertableTypeTokenStream
 	}
-	return index.InvertableTypeBinary
+	return InvertableTypeBinary
 }
-func (w fieldAsIndexableField) StoredValue() index.StoredValue {
+func (w fieldAsIndexableField) StoredValue() StoredValue {
 	return fieldStoredValue{f: w.f}
 }
 
 type fieldStoredValue struct{ f *Field }
 
-func (v fieldStoredValue) Type() index.StoredValueType {
+func (v fieldStoredValue) Type() StoredValueType {
 	switch val := v.f.value.(type) {
 	case stringValue:
-		return index.StoredValueTypeString
+		return StoredValueTypeString
 	case binaryValue:
-		return index.StoredValueTypeBinary
+		return StoredValueTypeBinary
 	case numericValue:
 		switch val.n.(type) {
 		case int32:
-			return index.StoredValueTypeInteger
+			return StoredValueTypeInteger
 		case int64:
-			return index.StoredValueTypeLong
+			return StoredValueTypeLong
 		case float32:
-			return index.StoredValueTypeFloat
+			return StoredValueTypeFloat
 		case float64:
-			return index.StoredValueTypeDouble
+			return StoredValueTypeDouble
 		}
 	}
-	return index.StoredValueTypeBinary
+	return StoredValueTypeBinary
 }
 
 func (v fieldStoredValue) IntValue() int32 {
@@ -701,5 +700,5 @@ func (v fieldStoredValue) StringValue() string {
 }
 
 // compile-time checks
-var _ index.IndexableFieldType = fieldTypeAsIndexInterface{}
-var _ index.IndexableField = fieldAsIndexableField{}
+var _ IndexableFieldType = fieldTypeAsIndexInterface{}
+var _ IndexableField = fieldAsIndexableField{}

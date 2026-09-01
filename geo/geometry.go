@@ -13,7 +13,20 @@
 // spatial-relationship engine.
 package geo
 
+// Relation represents the relation between a range and a query.
+type Relation int
+
+const (
+	// CellOutsideQuery means the cell is outside the query.
+	CellOutsideQuery Relation = iota
+	// CellInsideQuery means the cell is inside the query.
+	CellInsideQuery
+	// CellCrossesQuery means the cell crosses the query boundary.
+	CellCrossesQuery
+)
+
 // Geometry is the base contract for all geometric primitives in the geo
+
 // package. It is the Go port of org.apache.lucene.geo.Geometry.
 //
 // In Lucene the equivalent type is an abstract class with a single

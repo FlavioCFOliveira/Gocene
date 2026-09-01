@@ -20,7 +20,7 @@ import (
 )
 
 // tvField builds a tokenized, term-vector-with-positions field.
-func tvField(t *testing.T, name, value string) *document.Field {
+func tvField(t *testing.T, name, value string) *index.Field {
 	t.Helper()
 	ft := document.NewFieldType()
 	ft.SetIndexed(true)

@@ -124,7 +124,7 @@ func TestOmitNorms_MixedMergeThrowsError(t *testing.T) {
 	}
 }
 
-func mustField(t *testing.T, name, value string, ft *document.FieldType) *document.Field {
+func mustField(t *testing.T, name, value string, ft *index.FieldType) *index.Field {
 	t.Helper()
 	f, err := document.NewField(name, value, ft)
 	if err != nil {

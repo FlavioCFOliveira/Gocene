@@ -18,7 +18,7 @@ import (
 // payloads enabled. Offsets are toggled to mirror random().nextBoolean() in
 // the upstream test; here a deterministic value is used so the test is
 // reproducible.
-func payloadsOnVectorsCustomType() *document.FieldType {
+func payloadsOnVectorsCustomType() *index.FieldType {
 	ft := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
 	ft.SetStoreTermVectors(true)
 	ft.SetStoreTermVectorPositions(true)

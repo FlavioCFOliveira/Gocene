@@ -91,15 +91,15 @@ func newSameTokenWriter(t *testing.T) (store.Directory, *index.IndexWriter) {
 
 // sameTokenSamePositionBlocked gates every test in this file. The upstream
 // tests index a TextField constructed directly from a pre-built TokenStream
-// (new TextField("eng", new BugReproTokenStream())). Gocene's document.Field
+// (new TextField("eng", new BugReproTokenStream())). Gocene's index.Field
 // has no TokenStream-accepting constructor and no TokenStreamValue setter
 // (document/field.go, document/field_setters.go), so the field carrying
 // bugReproTokenStream cannot be built and the document cannot be indexed.
 // This is the same gap that keeps every TestCustomTermFreq port skipped.
 //
 // The port is kept faithful and complete so it can be unskipped verbatim once
-// document.Field gains a TokenStream value type.
-const sameTokenSamePositionBlocked = "blocked: document.Field has no TokenStream " +
+// index.Field gains a TokenStream value type.
+const sameTokenSamePositionBlocked = "blocked: index.Field has no TokenStream " +
 	"value type (document/field.go, document/field_setters.go); same gap as TestCustomTermFreq"
 
 // sameTokenDoc builds a document with a single "eng" TextField backed by a

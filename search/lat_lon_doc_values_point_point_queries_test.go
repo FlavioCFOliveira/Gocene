@@ -94,7 +94,7 @@ const latLonDocValuesPointShapeType = latLonShapeTypePoint
 //	return []*document.LatLonDocValuesField{f}
 //
 // The signature uses the concrete `*document.LatLonDocValuesField`
-// rather than a `document.Field` interface because the Java side
+// rather than a `index.Field` interface because the Java side
 // returns `Field[]`, not `IndexableField[]`, and the LatLon
 // doc-values flavour is monomorphic. The slice return shape (rather
 // than a single pointer) preserves the Java `Field[]` contract so the

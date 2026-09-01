@@ -528,7 +528,7 @@ func checkFieldNumber(t *testing.T, fis *index.FieldInfos, number int, expectedN
 //
 // All modes produce fields with IndexOptions=DOCS_AND_FREQS_AND_POSITIONS
 // and various combinations of Stored, Tokenized, and StoreTermVectors flags.
-func getField(number int) *document.Field {
+func getField(number int) *index.Field {
 	mode := number % 16
 	fieldName := strconv.Itoa(number)
 

@@ -4,18 +4,18 @@ import "github.com/FlavioCFOliveira/Gocene/util"
 
 const bytesPerPosting = 3 * 4 // 3 * Integer.BYTES
 
-// parallelPostingsArray stores state for parallel postings.
+// ParallelPostingsArray stores state for parallel postings.
 // It is a port of org.apache.lucene.index.ParallelPostingsArray.
-type parallelPostingsArray struct {
+type ParallelPostingsArray struct {
 	size          int
 	textStarts    []int32 // maps term ID to the terms's text start in the bytesHash
 	addressOffset []int32 // maps term ID to current stream address
 	byteStarts    []int32 // maps term ID to stream start offset in the byte pool
 }
 
-// NewParallelPostingsArray creates a new parallelPostingsArray with the given size.
-func NewParallelPostingsArray(size int) *parallelPostingsArray {
-	return &parallelPostingsArray{
+// NewParallelPostingsArray creates a new ParallelPostingsArray with the given size.
+func NewParallelPostingsArray(size int) *ParallelPostingsArray {
+	return &ParallelPostingsArray{
 		size:          size,
 		textStarts:    make([]int32, size),
 		addressOffset: make([]int32, size),
@@ -23,22 +23,22 @@ func NewParallelPostingsArray(size int) *parallelPostingsArray {
 	}
 }
 
-func (p *parallelPostingsArray) bytesPerPosting() int {
+func (p *ParallelPostingsArray) bytesPerPosting() int {
 	return bytesPerPosting
 }
 
-func (p *parallelPostingsArray) newInstance(size int) *parallelPostingsArray {
+func (p *ParallelPostingsArray) newInstance(size int) *ParallelPostingsArray {
 	return NewParallelPostingsArray(size)
 }
 
-func (p *parallelPostingsArray) grow() *parallelPostingsArray {
+func (p *ParallelPostingsArray) grow() *ParallelPostingsArray {
 	newSize := util.Oversize(p.size+1, p.bytesPerPosting())
 	newArray := p.newInstance(newSize)
 	p.copyTo(newArray, p.size)
 	return newArray
 }
 
-func (p *parallelPostingsArray) copyTo(toArray *parallelPostingsArray, numToCopy int) {
+func (p *ParallelPostingsArray) copyTo(toArray *ParallelPostingsArray, numToCopy int) {
 	copy(toArray.textStarts, p.textStarts[:numToCopy])
 	copy(toArray.addressOffset, p.addressOffset[:numToCopy])
 	copy(toArray.byteStarts, p.byteStarts[:numToCopy])

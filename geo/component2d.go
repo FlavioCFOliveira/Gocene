@@ -3,45 +3,6 @@
 
 package geo
 
-// Relation describes the spatial relationship between a bounding box
-// (or cell) and a query shape. It mirrors
-// org.apache.lucene.index.PointValues.Relation, which is the type
-// returned by Component2D.relate in Java.
-//
-// The geo package declares its own Relation rather than importing the
-// codecs package definition to preserve a clean dependency layer: geo
-// is a low-level primitive package and must not depend on codecs.
-type Relation int
-
-const (
-	// CellInsideQuery means the cell is fully contained inside the
-	// query shape; every point in the cell satisfies the query.
-	CellInsideQuery Relation = iota
-
-	// CellOutsideQuery means the cell does not intersect the query
-	// shape; no point in the cell satisfies the query.
-	CellOutsideQuery
-
-	// CellCrossesQuery means the cell partially intersects the query
-	// shape; some points may satisfy the query and some may not.
-	CellCrossesQuery
-)
-
-// String returns the symbolic name of the relation, matching the Java
-// enum constant names from PointValues.Relation.
-func (r Relation) String() string {
-	switch r {
-	case CellInsideQuery:
-		return "CELL_INSIDE_QUERY"
-	case CellOutsideQuery:
-		return "CELL_OUTSIDE_QUERY"
-	case CellCrossesQuery:
-		return "CELL_CROSSES_QUERY"
-	default:
-		return "UNKNOWN"
-	}
-}
-
 // WithinRelation is the result type of the withinX family of
 // Component2D methods. It mirrors
 // org.apache.lucene.geo.Component2D.WithinRelation.

@@ -578,10 +578,10 @@ func createTestAnalyzer() analysis.Analyzer {
 }
 
 func createTestDocument(fields ...interface{}) *testDocument {
-	var docFields []*document.Field
+	var docFields []*index.Field
 	for _, f := range fields {
 		switch field := f.(type) {
-		case *document.Field:
+		case *index.Field:
 			docFields = append(docFields, field)
 		case *document.NumericDocValuesField:
 			docFields = append(docFields, field.Field)
@@ -604,7 +604,7 @@ func createTestDocument(fields ...interface{}) *testDocument {
 
 // testDocument is a simple document implementation for testing
 type testDocument struct {
-	fields []*document.Field
+	fields []*index.Field
 }
 
 func (d *testDocument) GetFields() []interface{} {
@@ -615,7 +615,7 @@ func (d *testDocument) GetFields() []interface{} {
 	return result
 }
 
-func (d *testDocument) GetField(name string) *document.Field {
+func (d *testDocument) GetField(name string) *index.Field {
 	for _, f := range d.fields {
 		if f.Name() == name {
 			return f
@@ -624,12 +624,12 @@ func (d *testDocument) GetField(name string) *document.Field {
 	return nil
 }
 
-func (d *testDocument) AddField(field *document.Field) {
+func (d *testDocument) AddField(field *index.Field) {
 	d.fields = append(d.fields, field)
 }
 
 func (d *testDocument) RemoveField(name string) {
-	var newFields []*document.Field
+	var newFields []*index.Field
 	for _, f := range d.fields {
 		if f.Name() != name {
 			newFields = append(newFields, f)

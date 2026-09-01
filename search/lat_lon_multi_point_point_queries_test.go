@@ -134,7 +134,7 @@ func nextLatLonMultiPointShape() []geo.Point { return nil }
 //	return out
 //
 // The signature uses the concrete `*document.LatLonPoint` rather than a
-// `document.Field` interface because the Java side returns `Field[]`,
+// `index.Field` interface because the Java side returns `Field[]`,
 // not `IndexableField[]`, and the LatLon flavour is monomorphic.
 func createLatLonMultiPointIndexableFields(
 	name string,

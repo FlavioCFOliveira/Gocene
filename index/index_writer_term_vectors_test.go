@@ -19,8 +19,8 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// tvTextField builds a document.Field with term vectors and positions enabled.
-func tvTextField(name, value string) (*document.Field, error) {
+// tvTextField builds a index.Field with term vectors and positions enabled.
+func tvTextField(name, value string) (*index.Field, error) {
 	ft := document.NewFieldType()
 	ft.SetIndexed(true)
 	ft.SetStored(false)

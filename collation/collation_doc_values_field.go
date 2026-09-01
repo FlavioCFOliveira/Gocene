@@ -61,7 +61,7 @@ func (f *CollationDocValuesField) Name() string {
 func (f *CollationDocValuesField) SetStringValue(value string) {
 	key := f.collator.CollationKey(value)
 	// Replace the underlying binary value in the embedded Field.
-	// document.SortedDocValuesField embeds *document.Field; we reach
+	// document.SortedDocValuesField embeds *index.Field; we reach
 	// into it via SetBinaryValue if present, or via direct mutation.
 	f.SortedDocValuesField.Field.SetBinaryValue(key)
 }

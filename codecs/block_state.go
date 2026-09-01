@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 // BlockState represents the state of a compressed block of documents.
@@ -51,7 +51,7 @@ type BlockState struct {
 // fieldBlockInfo tracks information about a field within a block.
 type fieldBlockInfo struct {
 	Name             string
-	Type             document.FieldType
+	Type             index.FieldType
 	NumValues        int
 	NumDocsWithField int
 	MinValue         interface{}

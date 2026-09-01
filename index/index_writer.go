@@ -335,20 +335,20 @@ type docFieldEntry struct {
 }
 
 // docFieldNamer is a minimal interface satisfied by any field type that
-// exposes a name and a string value; document.Field satisfies this via the
+// exposes a name and a string value; index.Field satisfies this via the
 // Name() and StringValue() methods added on *Field.
 type docFieldNamer interface {
 	Name() string
 	StringValue() string
 }
 
-// indexableFieldMeta is satisfied by document.Field (and all its subtypes)
+// indexableFieldMeta is satisfied by index.Field (and all its subtypes)
 // without a direct import of the document package.  It exposes the per-field
 // metadata needed to build a FieldInfo.  All return types are from the index
 // package or primitives — no circular import.
 type indexableFieldMeta interface {
 	Name() string
-	// Field-level metadata mirrors document.FieldType's accessor surface.
+	// Field-level metadata mirrors index.FieldType's accessor surface.
 	IsStored() bool
 	IsIndexed() bool
 	IsTokenized() bool

@@ -350,9 +350,9 @@ func NewTermVectorsBuffer() *TermVectorsBuffer {
 
 // dwptField is a flat duck-type interface for a field accepted by ProcessDocument.
 // Rather than nesting a FieldType() call (whose return type varies between
-// document.Field and index.IndexableField), all field-type properties are
-// promoted to the top level.  This allows both document.Field (which returns
-// *document.FieldType from FieldType()) and index.IndexableField (which returns
+// index.Field and index.IndexableField), all field-type properties are
+// promoted to the top level.  This allows both index.Field (which returns
+// *index.FieldType from FieldType()) and index.IndexableField (which returns
 // index.FieldTypeInterface) to be adapted to a common surface without any
 // circular import.
 //
@@ -418,16 +418,16 @@ type dwptField struct {
 }
 
 // omitNormsGetter is a narrow interface satisfied by field types that expose
-// OmitNorms (e.g. document.FieldType via its IsOmitNorms() method, and
-// document.Field via OmitNorms()). The FieldTypeInterface used by codec-facing
+// OmitNorms (e.g. index.FieldType via its IsOmitNorms() method, and
+// index.Field via OmitNorms()). The FieldTypeInterface used by codec-facing
 // fields does not include OmitNorms, so we use a separate assertion.
 type omitNormsGetter interface {
 	OmitNorms() bool
 }
 
-// indexableFieldPromoter is satisfied by document.Field via its
+// indexableFieldPromoter is satisfied by index.Field via its
 // AsIndexableField() method.  Using this intermediate interface lets the index
-// package coerce a document.Field — which cannot directly satisfy
+// package coerce a index.Field — which cannot directly satisfy
 // index.IndexableField due to the FieldType() return-type mismatch — into a
 // proper IndexableField without importing the document package.
 type indexableFieldPromoter interface {
@@ -456,7 +456,7 @@ type indexFieldTypeProvider interface {
 }
 
 // vectorFieldTypeProvider is satisfied by a field type that advertises KNN
-// vector attributes. document.FieldType (via its
+// vector attributes. index.FieldType (via its
 // fieldTypeAsIndexInterface bridge) implements it once a field has been
 // configured with SetVectorAttributes; non-vector field types do not.
 //
@@ -488,7 +488,7 @@ type byteVectorValueProvider interface {
 }
 
 // pointFieldTypeProvider is satisfied by a field type that advertises
-// multi-dimensional point (BKD) attributes. document.FieldType (via its
+// multi-dimensional point (BKD) attributes. index.FieldType (via its
 // fieldTypeAsIndexInterface bridge) implements it once a field has been
 // configured with SetDimensions; non-point field types report 0 dimensions.
 //
@@ -528,7 +528,7 @@ type sortedSetValuesProvider interface {
 // structural type assertions.  It supports two concrete field layouts:
 //
 //  1. index.IndexableField (codec-facing, FieldType() returns FieldTypeInterface).
-//  2. document.Field — coerced via its AsIndexableField() bridge method.
+//  2. index.Field — coerced via its AsIndexableField() bridge method.
 //
 // Returns (nil, false) when the field does not expose the minimal surface.
 //
@@ -536,7 +536,7 @@ type sortedSetValuesProvider interface {
 // longer carries FieldType(); fields that need to advertise codec-facing
 // type properties must do so via a separate FieldType() FieldTypeInterface
 // method. The original incoming value is preferred over the (possibly
-// wrapped) IndexableField projection so that document.Field instances —
+// wrapped) IndexableField projection so that index.Field instances —
 // which satisfy spi.IndexableField directly but only expose
 // FieldTypeInterface through their explicit AsIndexableField() bridge —
 // are routed through the bridge.
@@ -546,10 +546,10 @@ func asDwptField(fieldInterface interface{}) (*dwptField, bool) {
 	}
 
 	// If the value exposes the legacy AsIndexableField() bridge (i.e.
-	// document.Field) always prefer it: that wrapper carries the
+	// index.Field) always prefer it: that wrapper carries the
 	// FieldType() FieldTypeInterface accessor that the indexing chain
 	// needs to populate dwptField.isStored / .isIndexed / etc. The raw
-	// document.Field type also satisfies spi.IndexableField but does
+	// index.Field type also satisfies spi.IndexableField but does
 	// not expose FieldTypeInterface, which would leave those flags at
 	// their zero value and break the on-disk persistence of stored /
 	// indexed / docvalues fields.
@@ -596,7 +596,7 @@ func asDwptField(fieldInterface interface{}) (*dwptField, bool) {
 		f.storeTermVectorPayloads = ft.StoreTermVectorPayloads()
 	}
 	// FieldTypeInterface does not expose OmitNorms, so probe the original
-	// field object directly. document.Field satisfies omitNormsGetter.
+	// field object directly. index.Field satisfies omitNormsGetter.
 	if ong, ok := fieldInterface.(omitNormsGetter); ok {
 		f.omitNorms = ong.OmitNorms()
 	}
@@ -652,7 +652,7 @@ func asDwptField(fieldInterface interface{}) (*dwptField, bool) {
 		f.pointNumBytes = ptp.PointNumBytes()
 		// The packed value comes from the concrete document.Point via its
 		// PointValues() accessor; fields that encode the packed bytes as the
-		// field's binary value (e.g. document.Field produced by
+		// field's binary value (e.g. index.Field produced by
 		// Geo3DPoint.ToIndexableFields) expose it through BinaryValue()
 		// instead. Prefer the explicit accessor, fall back to the binary
 		// value.

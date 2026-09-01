@@ -35,14 +35,14 @@ func NewStoredFieldsTester(t *testing.T) *StoredFieldsTester {
 // SeedField is a mock document.IndexableField implementation for testing.
 type SeedField struct {
 	name         string
-	fieldType    *document.FieldType
+	fieldType    *index.FieldType
 	stringValue  string
 	binaryValue  []byte
 	numericValue interface{}
 }
 
 func (f *SeedField) Name() string                   { return f.name }
-func (f *SeedField) FieldType() *document.FieldType { return f.fieldType }
+func (f *SeedField) FieldType() *index.FieldType { return f.fieldType }
 func (f *SeedField) StringValue() string            { return f.stringValue }
 func (f *SeedField) BinaryValue() []byte            { return f.binaryValue }
 func (f *SeedField) NumericValue() interface{}      { return f.numericValue }

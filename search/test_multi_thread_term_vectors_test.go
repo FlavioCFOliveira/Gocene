@@ -131,7 +131,7 @@ func mttvIntToEnglish(i int) string {
 
 // mttvTermVectorFieldType mirrors the FieldType the reference builds:
 // TextField.TYPE_STORED with tokenized=false and term vectors enabled.
-func mttvTermVectorFieldType() *document.FieldType {
+func mttvTermVectorFieldType() *index.FieldType {
 	ft := document.NewFieldType()
 	ft.Indexed = true
 	ft.Stored = true

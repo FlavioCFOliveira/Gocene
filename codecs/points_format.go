@@ -9,6 +9,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/geo"
 )
 
 // PointsFormat is an alias of [spi.PointsFormat]. rmp #4769 lifted the
@@ -96,38 +97,10 @@ type IntersectVisitor interface {
 
 	// Compare compares the given range with the query.
 	// Returns the relation between the range and the query.
-	Compare(minPackedValue, maxPackedValue []byte) Relation
+	Compare(minPackedValue, maxPackedValue []byte) geo.Relation
 
 	// Grow is called to grow the visitor's internal data structures.
 	Grow(count int)
-}
-
-// Relation represents the relation between a range and a query.
-type Relation int
-
-const (
-	// RelationCellOutsideQuery means the cell is outside the query.
-	RelationCellOutsideQuery Relation = iota
-
-	// RelationCellInsideQuery means the cell is inside the query.
-	RelationCellInsideQuery
-
-	// RelationCellCrossesQuery means the cell crosses the query boundary.
-	RelationCellCrossesQuery
-)
-
-// String returns the string representation of the Relation.
-func (r Relation) String() string {
-	switch r {
-	case RelationCellOutsideQuery:
-		return "CELL_OUTSIDE_QUERY"
-	case RelationCellInsideQuery:
-		return "CELL_INSIDE_QUERY"
-	case RelationCellCrossesQuery:
-		return "CELL_CROSSES_QUERY"
-	default:
-		return fmt.Sprintf("UNKNOWN(%d)", r)
-	}
 }
 
 // PointsWriterHelper is a helper for writing points.

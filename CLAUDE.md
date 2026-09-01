@@ -8,9 +8,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Gocene is a Go module that is a port of Apache Lucene to modern idiomatic Golang. Its defining goal is byte-by-byte and behaviour-by-behaviour compatibility with the original Apache Lucene library — specifically the Apache Lucene 10.4.0 reference release. Every index file, codec envelope, directory artefact, and on-disk format produced by Gocene must be readable by Apache Lucene 10.4.0 without modification, and Gocene must be able to read, without loss or reinterpretation, every binary artefact produced by Apache Lucene 10.4.0.
+Gocene is a Go module that is a port of Apache Lucene to modern idiomatic Golang. Its defining goal is byte-by-byte and behaviour-by-behaviour compatibility with the original Apache Lucene library — specifically the Apache Lucene 10.5.0 reference release. Every index file, codec envelope, directory artefact, and on-disk format produced by Gocene must be readable by Apache Lucene 10.5.0 without modification, and Gocene must be able to read, without loss or reinterpretation, every binary artefact produced by Apache Lucene 10.5.0.
 
-Because Gocene is a port rather than a reimplementation, Lucene is the sole reference of truth. Implementation choices that deviate from observed Lucene behaviour are bugs in Gocene, not in Lucene. Correctness is measured against the Apache Lucene 10.4.0 source tree and the binaries it produces.
+Because Gocene is a port rather than a reimplementation, Lucene is the sole reference of truth. Implementation choices that deviate from observed Lucene behaviour are bugs in Gocene, not in Lucene. Correctness is measured against the Apache Lucene 10.5.0 source tree and the binaries it produces.
 
 This is an early-stage project. The module structure, packages, and development workflow are still being established, but the compatibility mandate is non-negotiable and governs all development decisions.
 
@@ -18,9 +18,9 @@ This is an early-stage project. The module structure, packages, and development 
 
 This requirement supersedes every other guideline in this document. If any other rule, convention, or stylistic preference conflicts with it, this requirement wins.
 
-1. **Produce (write) and Consume (read).** Gocene **MUST** produce binary artefacts that Apache Lucene 10.4.0 can read without modification, **AND** Gocene **MUST** read, without loss or reinterpretation, every binary artefact produced by Apache Lucene 10.4.0. Compatibility is bidirectional and exact; "approximately compatible" is not compatible.
+1. **Produce (write) and Consume (read).** Gocene **MUST** produce binary artefacts that Apache Lucene 10.5.0 can read without modification, **AND** Gocene **MUST** read, without loss or reinterpretation, every binary artefact produced by Apache Lucene 10.5.0. Compatibility is bidirectional and exact; "approximately compatible" is not compatible.
 
-2. **Scope — everything Lucene serializes.** The mandate applies to *every* byte sequence Apache Lucene 10.4.0 emits or accepts, including but not limited to:
+2. **Scope — everything Lucene serializes.** The mandate applies to *every* byte sequence Apache Lucene 10.5.0 emits or accepts, including but not limited to:
    - On-disk index formats: codecs, segment files, postings, doc values, stored fields, term vectors, norms, points/BKD trees, vectors/HNSW, FST dictionaries, compound files, segment infos, `.si`/`.cfs`/`.cfe`, deletes/updates files.
    - Directory/store-level artefacts: file naming, lock files, checksum framing (`CodecUtil`), header/footer envelopes.
    - Token-stream persistence: payloads, attribute serialisation where Lucene persists it.
@@ -29,20 +29,20 @@ This requirement supersedes every other guideline in this document. If any other
    - Facets sidecar files, grouping/join persisted state, highlight offset stores, spatial/geo encodings.
    - Any future Lucene-serialised artefact discovered during porting.
 
-3. **Byte-for-byte equality.** Default expectation is **byte-identical output** for the same logical input under the same configured codec/version. Where Lucene legitimately allows non-determinism (e.g., compression dictionaries, ordering driven by hash seeds), the divergence MUST be documented in the affected package, justified against the Lucene 10.4.0 source, and covered by a round-trip test (Gocene-write → Lucene-read → Gocene-read produces the original logical input).
+3. **Byte-for-byte equality.** Default expectation is **byte-identical output** for the same logical input under the same configured codec/version. Where Lucene legitimately allows non-determinism (e.g., compression dictionaries, ordering driven by hash seeds), the divergence MUST be documented in the affected package, justified against the Lucene 10.5.0 source, and covered by a round-trip test (Gocene-write → Lucene-read → Gocene-read produces the original logical input).
 
-4. **Mandatory compatibility tests — isolated AND in combination.** Every feature, no matter how small, MUST ship with compatibility tests proving the mandate. Compatibility is not assumed, inferred, or guaranteed by code review: it must be demonstrated by tests that exercise Gocene against the Apache Lucene 10.4.0 reference. There are two required test classes:
-   - **Isolated**: round-trip and golden-corpus tests at the unit level for the feature alone, using fixtures produced by Lucene 10.4.0. At a minimum this must cover Gocene-write → Lucene-read and Lucene-write → Gocene-read for every serialized artefact the feature emits.
+4. **Mandatory compatibility tests — isolated AND in combination.** Every feature, no matter how small, MUST ship with compatibility tests proving the mandate. Compatibility is not assumed, inferred, or guaranteed by code review: it must be demonstrated by tests that exercise Gocene against the Apache Lucene 10.5.0 reference. There are two required test classes:
+   - **Isolated**: round-trip and golden-corpus tests at the unit level for the feature alone, using fixtures produced by Lucene 10.5.0. At a minimum this must cover Gocene-write → Lucene-read and Lucene-write → Gocene-read for every serialized artefact the feature emits.
    - **Combined**: integration tests exercising the feature alongside the other features it composes with in real Lucene usage (e.g., codec + doc values + facets + queries used together).
-   No feature is "done" until both test classes exist and pass against a Lucene 10.4.0 corpus. A gap in compatibility coverage must be visible as a failing test; it must never be hidden behind `t.Skip()` or a placeholder.
+   No feature is "done" until both test classes exist and pass against a Lucene 10.5.0 corpus. A gap in compatibility coverage must be visible as a failing test; it must never be hidden behind `t.Skip()` or a placeholder.
 
-5. **Reference of truth.** The Apache Lucene 10.4.0 source tree (see *Lucene Reference Repository* below) and binaries produced by it are the **sole** reference. Implementation choices that contradict observed Lucene behaviour are bugs in Gocene, not in Lucene.
+5. **Reference of truth.** The Apache Lucene 10.5.0 source tree (see *Lucene Reference Repository* below) and binaries produced by it are the **sole** reference. Implementation choices that contradict observed Lucene behaviour are bugs in Gocene, not in Lucene.
 
 6. **Workflow consequence.** The standard workflow **Specify → Implement → Test → Document** is interpreted under this mandate:
-   - *Specify* must record the exact Lucene 10.4.0 binary contract being targeted (file format, version constant, codec name, struct layout).
-   - *Implement* must follow the Lucene 10.4.0 algorithms and data structures closely enough to preserve the binary contract; Go idioms are welcome, but they must not change the serialized form or observable behaviour.
-   - *Test* must include compatibility tests against Lucene-produced fixtures before the task can be closed. Every deliverable must prove, with passing tests, that Gocene behaves as a faithful port of Lucene 10.4.0 for the functionality in question.
-   - *Document* must state the Lucene 10.4.0 source references and the compatibility test coverage for the feature.
+   - *Specify* must record the exact Lucene 10.5.0 binary contract being targeted (file format, version constant, codec name, struct layout).
+   - *Implement* must follow the Lucene 10.5.0 algorithms and data structures closely enough to preserve the binary contract; Go idioms are welcome, but they must not change the serialized form or observable behaviour.
+   - *Test* must include compatibility tests against Lucene-produced fixtures before the task can be closed. Every deliverable must prove, with passing tests, that Gocene behaves as a faithful port of Lucene 10.5.0 for the functionality in question.
+   - *Document* must state the Lucene 10.5.0 source references and the compatibility test coverage for the feature.
 
 ## 1. Base Rules
 
@@ -226,13 +226,13 @@ When implementing Lucene features in Go:
 
 ## 14. Lucene Reference Repository
 
-The authoritative reference for the port is the upstream Apache Lucene source tree at release tag `releases/lucene/10.4.0` (commit `9983b7c`).
+The authoritative reference for the port is the upstream Apache Lucene source tree at release tag `releases/lucene/10.5.0` (commit `9983b7c`).
 
-- **Expected local path**: `/tmp/lucene` (shallow clone of `https://github.com/apache/lucene.git` at tag `releases/lucene/10.4.0`).
+- **Expected local path**: `/tmp/lucene` (shallow clone of `https://github.com/apache/lucene.git` at tag `releases/lucene/10.5.0`).
 - **If `/tmp/lucene` is absent or empty**, clone it before starting any inventory, planning, or porting task:
 
   ```bash
-  git clone --depth=1 --branch releases/lucene/10.4.0 \
+  git clone --depth=1 --branch releases/lucene/10.5.0 \
       https://github.com/apache/lucene.git /tmp/lucene
   ```
 
@@ -249,9 +249,9 @@ go mod init github.com/FlavioCFOliveira/Gocene
 
 ## 16. Project Status
 
-- **Port in progress (pre-v1.0):** 33 top-level packages ported from Apache Lucene 10.4.0 (see `README.md` for the package inventory). The project is in active development across 8 sprints: S1–S5 (closed), S6 (Stubbed subsystems — closed 2026-06-11), S7 (Test-suite health — closed 2026-06-11), S8 (Documentation accuracy — in progress).
+- **Port in progress (pre-v1.0):** 33 top-level packages ported from Apache Lucene 10.5.0 (see `README.md` for the package inventory). The project is in active development across 8 sprints: S1–S5 (closed), S6 (Stubbed subsystems — closed 2026-06-11), S7 (Test-suite health — closed 2026-06-11), S8 (Documentation accuracy — in progress).
 - **Known deferred items:** 660 `t.Fatal` blockers across 33 packages (see `docs/skipped-tests-audit.md`). Major gaps include: NRT reader integration, RandomIndexWriter test infrastructure, spatial/geo query factories, HNSW seeded strategies, facets/taxonomy write path, and codec format completeness (Lucene99, PerField, DocValuesSkipper).
-- **Binary-compatibility test suite in place:** the Java fixture harness under `tools/lucene-fixtures/` drives Lucene 10.4.0 directly via JDK 21 and Maven, produces deterministic fixtures pinned in `tools/lucene-fixtures/manifests/baseline.tsv` (60+ scenarios across every audited package, plus six combined end-to-end scenarios). A Go-side test layer under `internal/compat/` provides per-package round-trips behind the `compat` build tag plus integration scenarios gated by `GOCENE_COMPAT_HARNESS=1`. Note: compat coverage is currently read-path focused (Lucene→Gocene); write-path (Gocene→Lucene) legs are in progress (see `docs/compat-coverage.md`).
+- **Binary-compatibility test suite in place:** the Java fixture harness under `tools/lucene-fixtures/` drives Lucene 10.5.0 directly via JDK 21 and Maven, produces deterministic fixtures pinned in `tools/lucene-fixtures/manifests/baseline.tsv` (60+ scenarios across every audited package, plus six combined end-to-end scenarios). A Go-side test layer under `internal/compat/` provides per-package round-trips behind the `compat` build tag plus integration scenarios gated by `GOCENE_COMPAT_HARNESS=1`. Note: compat coverage is currently read-path focused (Lucene→Gocene); write-path (Gocene→Lucene) legs are in progress (see `docs/compat-coverage.md`).
 - **CI gates every PR:** GitHub Actions runs a fast `build-and-test` job, a skip-guard lint gate, a race-detector job (x86_64), fuzz smoke tests, and a `compat` matrix (three operating systems × two Go versions) that exercises the fixture harness and the Go compat suite.
 - **Sprint 7 (Test-suite health) closed 2026-06-11:** refreshed `docs/skipped-tests-audit.md` (660 blockers across 33 packages), enforced blocker token convention in `scripts/check-skips.sh`, added CI/local reconciliation document, and added `Makefile` with `race-test` target.
 - **Sprint 6 (Stubbed subsystems) closed 2026-06-11:** resolved 21 PARTIAL/MISSING tasks across 10 packages — expressions compiler with full JS operators, MemoryIndex search, QueryDecomposer, CollectingMatcher, MonitorQuerySerializer, BBoxValueSource, S2PrefixTree geometry, and more.

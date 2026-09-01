@@ -24,7 +24,7 @@ import (
 // non-stored TextField type with DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS.
 // Upstream toggles term vectors with random().nextBoolean(); a deterministic
 // value is used here for reproducibility.
-func postingsOffsetsType(stored bool) *document.FieldType {
+func postingsOffsetsType(stored bool) *index.FieldType {
 	base := document.TextFieldTypeNotStored
 	if stored {
 		base = document.TextFieldTypeStored
@@ -71,7 +71,7 @@ func newPostingsOffsetsWriter(t *testing.T, factory func() analysis.TokenStream)
 
 // addContentDoc indexes one document with a single "content" field of the
 // supplied custom type.
-func addContentDoc(t *testing.T, writer *index.IndexWriter, ft *document.FieldType, value string) {
+func addContentDoc(t *testing.T, writer *index.IndexWriter, ft *index.FieldType, value string) {
 	t.Helper()
 	doc := document.NewDocument()
 	field, err := document.NewField("content", value, ft)

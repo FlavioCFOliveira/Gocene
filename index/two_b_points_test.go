@@ -130,7 +130,7 @@ func Test2BPoints2D(t *testing.T) {
 		encoded[13] = byte(v2 >> 16)
 		encoded[14] = byte(v2 >> 8)
 		encoded[15] = byte(v2)
-		bp, err := document.NewBinaryPointPacked("pt2d", encoded, func() *document.FieldType {
+		bp, err := document.NewBinaryPointPacked("pt2d", encoded, func() *index.FieldType {
 			ft := document.NewFieldType()
 			ft.SetIndexed(true)
 			ft.SetDimensions(2, 8)

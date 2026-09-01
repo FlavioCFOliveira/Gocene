@@ -1,7 +1,7 @@
 package io.github.flaviocfoliveira.gocene.lucenefixtures.scenarios;
 
 import org.apache.lucene.document.Document;
-import org.apache.lucene.document.Field;
+import org.apache.lucene.index.Field;
 import org.apache.lucene.document.StringField;
 
 /**

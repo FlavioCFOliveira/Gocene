@@ -2,20 +2,19 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-package document
+package index
 
 import (
 	"fmt"
 	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 // Field is the base struct for all field types.
 // It stores a field name and value along with indexing metadata.
 //
-// This is the Go port of Lucene's org.apache.lucene.document.Field.
+// This is the Go port of Lucene's org.apache.lucene.index.Field.
 type Field struct {
 	name  string
 	value fieldValue
@@ -132,8 +131,8 @@ func (f *Field) Name() string {
 }
 
 // FieldType returns the FieldType for this field.
-func (f *Field) FieldType() *FieldType {
-	return f.ft
+func (f *Field) FieldType() IndexableFieldType {
+	return f.ft.AsIndexFieldTypeInterface()
 }
 
 // StringValue returns the string value of the field.
@@ -177,11 +176,24 @@ func (f *Field) NumericValue() interface{} {
 
 // TokenStream returns the analysis.TokenStream for this field, or nil if the
 // field was not constructed with a TokenStream value.
-func (f *Field) TokenStream() analysis.TokenStream {
+func (f *Field) TokenStream(analyzer analysis.Analyzer, reuse analysis.TokenStream) analysis.TokenStream {
 	if f.value == nil {
 		return nil
 	}
 	return f.value.TokenStream()
+}
+
+// InvertableType returns the invertable type for this field.
+func (f *Field) InvertableType() InvertableType {
+	if f.ft.Tokenized {
+		return InvertableTypeTokenStream
+	}
+	return InvertableTypeBinary
+}
+
+// StoredValue returns the stored value for this field.
+func (f *Field) StoredValue() StoredValue {
+	return fieldStoredValue{f: f}
 }
 
 // IsStored returns true if the field value is stored.
@@ -200,12 +212,12 @@ func (f *Field) IsTokenized() bool {
 }
 
 // IndexOptions returns the index options for this field.
-func (f *Field) IndexOptions() index.IndexOptions {
+func (f *Field) IndexOptions() IndexOptions {
 	return f.ft.IndexOptions
 }
 
 // DocValuesType returns the doc values type for this field.
-func (f *Field) DocValuesType() index.DocValuesType {
+func (f *Field) DocValuesType() DocValuesType {
 	return f.ft.DocValuesType
 }
 

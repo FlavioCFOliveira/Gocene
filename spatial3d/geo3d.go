@@ -52,7 +52,7 @@ import (
 
 // geo3dPointType is the FieldType for a Geo3DPoint: 3 dimensions × 4 bytes.
 // Mirrors Lucene's static Geo3DPoint.TYPE = new FieldType(); setDimensions(3,4); freeze().
-var geo3dPointType *document.FieldType
+var geo3dPointType *index.FieldType
 
 func init() {
 	geo3dPointType = document.NewFieldType()

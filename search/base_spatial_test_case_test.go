@@ -209,7 +209,7 @@ type baseSpatialFactories struct {
 	// createIndexableFields mirrors `protected abstract Field[]
 	// createIndexableFields(String field, Object shape)` (Java line
 	// 146). Returns the Triangle field array used to index the shape.
-	createIndexableFields func(field string, shape any) []document.Field
+	createIndexableFields func(field string, shape any) []index.Field
 
 	// nextLine mirrors `protected abstract Object nextLine()` (Java
 	// line 157).

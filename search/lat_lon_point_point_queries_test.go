@@ -106,7 +106,7 @@ const latLonPointShapeType = latLonShapeTypePoint
 //	return []*document.LatLonPoint{f}
 //
 // The signature uses the concrete `*document.LatLonPoint` rather than a
-// `document.Field` interface because the Java side returns `Field[]`,
+// `index.Field` interface because the Java side returns `Field[]`,
 // not `IndexableField[]`, and the LatLon flavour is monomorphic. The
 // return type is a slice (not a single pointer) for parity with the
 // multi-point sibling's signature; the slice has length 1 in the
