@@ -1,6 +1,7 @@
 package surround
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -64,6 +65,37 @@ func NewOrQuery(children []SrndQuery, infix bool, operatorName string) *OrQuery 
 // MakeLuceneQueryField produces a BooleanQuery with SHOULD clauses.
 func (q *OrQuery) MakeLuceneQueryField(field string, factory *BasicQueryFactory) (search.Query, error) {
 	return makeBooleanQuery(q.children, field, factory, search.SHOULD)
+}
+
+// DistanceSubQueryNotAllowed returns the reason why this node cannot
+// participate in a DistanceQuery, or the empty string when the node is
+// acceptable. Mirrors org.apache.lucene.queryparser.surround.query.OrQuery.
+func (q *OrQuery) DistanceSubQueryNotAllowed() string {
+	for _, child := range q.children {
+		if dsq, ok := child.(DistanceSubQuery); ok {
+			if reason := dsq.DistanceSubQueryNotAllowed(); reason != "" {
+				return reason
+			}
+		} else {
+			return fmt.Sprintf("subquery not allowed: %v", child)
+		}
+	}
+	return ""
+}
+
+// AddSpanQueries contributes one or more SpanQuery clauses to the supplied
+// factory. Mirrors org.apache.lucene.queryparser.surround.query.OrQuery.
+func (q *OrQuery) AddSpanQueries(factory *SpanNearClauseFactory) error {
+	for _, child := range q.children {
+		dsq, ok := child.(DistanceSubQuery)
+		if !ok {
+			return NewParseException("distance query child is not a SimpleTerm/DistanceSubQuery")
+		}
+		if err := dsq.AddSpanQueries(factory); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // NotQuery represents `A NOT B NOT ...`. Mirrors
