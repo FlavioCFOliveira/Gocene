@@ -217,16 +217,6 @@ func (dw *DocumentsWriter) UpdateDocuments(docs []Document, analyzer api.Analyze
 }
 
 // getPerThreadWriter returns a per-thread writer.
-// Must be called with dw.mu held (via AddDocument/UpdateDocument).
-//
-// All documents within a single flush unit are accumulated in the same DWPT
-// so that the codec-flush path in IndexWriter.Commit writes exactly one
-// segment per pendingSegment entry. A new DWPT is created only when the
-// pool is empty (after TakePerThreadPool resets it between flushes).
-//
-// Safety: concurrent callers serialize at the dw.mu level (AddDocument holds
-// dw.mu for the entire document-processing call), so returning pool[0] to
-// all callers is race-free.
 func (dw *DocumentsWriter) getPerThreadWriter() *DocumentsWriterPerThread {
 	dw.threadLock.Lock()
 	defer dw.threadLock.Unlock()
@@ -241,6 +231,13 @@ func (dw *DocumentsWriter) getPerThreadWriter() *DocumentsWriterPerThread {
 	dwpt := NewDocumentsWriterPerThread(dw, segmentName)
 	dw.perThreadPool = append(dw.perThreadPool, dwpt)
 	return dwpt
+}
+
+// GetPerThreadPool returns the current DWPT pool.
+func (dw *DocumentsWriter) GetPerThreadPool() []*DocumentsWriterPerThread {
+	dw.threadLock.RLock()
+	defer dw.threadLock.RUnlock()
+	return dw.perThreadPool
 }
 
 // TakePerThreadPool returns the current DWPT pool and resets it.
@@ -353,6 +350,36 @@ func (dw *DocumentsWriter) Close() error {
 
 	dw.closed = true
 	return nil
+}
+
+// FlushNextBuffer flushes the next available per-thread writer.
+// Returns true if a buffer was flushed, false otherwise.
+func (dw *DocumentsWriter) FlushNextBuffer() bool {
+	dw.threadLock.Lock()
+	if len(dw.perThreadPool) == 0 {
+		dw.threadLock.Unlock()
+		return false
+	}
+	dwpt := dw.perThreadPool[0]
+	dw.perThreadPool = dw.perThreadPool[1:]
+	dw.threadLock.Unlock()
+
+	if dwpt.GetNumDocs() == 0 {
+		return false
+	}
+
+	segmentName := dwpt.SegmentName()
+	segmentInfo, err := dwpt.Flush(dw.directory, dw.codec, segmentName)
+	if err != nil {
+		panic(fmt.Sprintf("failed to flush segment %s: %v", segmentName, err))
+	}
+
+	if segmentInfo != nil {
+		if err := WriteSegmentInfo(segmentInfo, dw.directory, dw.codec); err != nil {
+			panic(fmt.Sprintf("failed to write segment info: %v", err))
+		}
+	}
+	return true
 }
 
 // GetNumDocs returns the total number of documents.

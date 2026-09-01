@@ -452,6 +452,36 @@ func (w *IndexWriter) GetReader(applyAllDeletes bool) (*DirectoryReader, error) 
 	return reader, nil
 }
 
+func (w *IndexWriter) GetConfig() *IndexWriterConfig {
+	return w.config
+}
+
+func (w *IndexWriter) GetAnalyzer() analysis.Analyzer {
+	return w.config.analyzer
+}
+
+func (w *IndexWriter) GetDirectory() util.Directory {
+	return w.dirOrig
+}
+
+func (w *IndexWriter) IsClosed() bool {
+	return w.closed.Load()
+}
+
+func (w *IndexWriter) GetDocWriterThreadPoolSize() int {
+	return len(w.docWriter.GetPerThreadPool())
+}
+
+func (w *IndexWriter) GetSegmentCount() int {
+	w.segmentInfos.mu.Lock()
+	defer w.segmentInfos.mu.Unlock()
+	return len(w.segmentInfos.Iterator())
+}
+
+func (w *IndexWriter) FlushNextBuffer() bool {
+	return w.docWriter.FlushNextBuffer()
+}
+
 func (w *IndexWriter) Close() error {
 	if !w.closing.Swap(true) {
 		return nil
