@@ -1,602 +1,225 @@
-// Copyright 2026 Gocene. All rights reserved.
-// Use of this source code is governed by the Apache License 2.0
-// that can be found in the LICENSE file.
-
 package index
 
 import (
 	"fmt"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
-// MergePolicy determines when and how merges should be performed.
-// This is the Go port of Lucene's org.apache.lucene.index.MergePolicy.
-//
-// MergePolicy defines how merges are selected and when they should be executed.
-// The two main implementations are:
-//   - TieredMergePolicy: Groups segments by size into tiers, merging similar-sized segments
-//   - LogMergePolicy: Merges the smallest segments (legacy, less efficient)
-type MergePolicy interface {
-	// FindMerges finds merges needed for the given segment infos.
-	// Returns a MergeSpecification containing the merges to perform, or nil if no merges are needed.
-	// The mergeContext provides information about currently merging segments and delete counts.
-	FindMerges(trigger MergeTrigger, infos *SegmentInfos, mergeContext MergeContext) (*MergeSpecification, error)
-
-	// FindForcedMerges finds forced merges (e.g., for optimizing the index).
-	// This is used to reduce the number of segments to maxSegmentCount or fewer.
-	// segmentsToMerge maps segments to whether they must be merged (true for original segments).
-	FindForcedMerges(infos *SegmentInfos, maxSegmentCount int, segmentsToMerge map[*SegmentCommitInfo]bool, mergeContext MergeContext) (*MergeSpecification, error)
-
-	// FindForcedDeletesMerges finds merges necessary to expunge deleted documents.
-	FindForcedDeletesMerges(infos *SegmentInfos, mergeContext MergeContext) (*MergeSpecification, error)
-
-	// UseCompoundFile returns true if segments should use compound files.
-	// Compound files pack all segment files into a single .cfs/.cfe file pair.
-	UseCompoundFile(infos *SegmentInfos, mergedSegmentInfo *SegmentInfo) bool
-
-	// GetMaxMergeDocs returns the maximum number of documents that can be merged.
-	GetMaxMergeDocs() int
-
-	// SetMaxMergeDocs sets the maximum number of documents that can be merged.
-	SetMaxMergeDocs(maxMergeDocs int)
-
-	// GetMaxMergedSegmentBytes returns the maximum size of a merged segment in bytes.
-	GetMaxMergedSegmentBytes() int64
-
-	// SetMaxMergedSegmentBytes sets the maximum size of a merged segment in bytes.
-	SetMaxMergedSegmentBytes(maxMergedSegmentBytes int64)
-
-	// NumDeletesToMerge returns the number of deletes that a merge would claim on the given segment.
-	// This method will by default return the sum of the del count on disk and the pending delete count.
-	NumDeletesToMerge(info *SegmentCommitInfo, delCount int) int
-
-	// KeepFullyDeletedSegment returns true if the segment should be kept even if fully deleted.
-	KeepFullyDeletedSegment(info *SegmentCommitInfo) bool
-}
-
-// MergeTrigger indicates what triggered a merge.
-// This is the Go port of Lucene's org.apache.lucene.index.MergeTrigger.
-type MergeTrigger int
+// PauseReason describes why a merge thread was paused.
+type PauseReason int
 
 const (
-	// SEGMENT_FLUSH is triggered by a segment flush.
-	SEGMENT_FLUSH MergeTrigger = iota
-	// FULL_FLUSH is triggered by a full flush. Full flushes can be caused by a commit,
-	// NRT reader reopen or a close call on the index writer.
-	FULL_FLUSH
-	// EXPLICIT is triggered explicitly by the user.
-	EXPLICIT
-	// MERGE_FINISHED is triggered by a successfully finished merge.
-	MERGE_FINISHED
-	// CLOSING is triggered by a closing IndexWriter.
-	CLOSING
-	// COMMIT is triggered on commit.
-	COMMIT
-	// GET_READER is triggered on opening NRT readers.
-	GET_READER
-	// ADD_INDEXES is triggered by an IndexWriter.addIndexes operation.
-	ADD_INDEXES
-	// CLOSED_WRITER is deprecated: use CLOSING instead.
-	// This is kept for backward compatibility.
-	CLOSED_WRITER
+	PauseReasonStopped PauseReason = iota
+	PauseReasonPaused
+	PauseReasonOther
 )
 
-// String returns the string representation of the MergeTrigger.
-func (t MergeTrigger) String() string {
-	switch t {
-	case SEGMENT_FLUSH:
-		return "SEGMENT_FLUSH"
-	case FULL_FLUSH:
-		return "FULL_FLUSH"
-	case EXPLICIT:
-		return "EXPLICIT"
-	case MERGE_FINISHED:
-		return "MERGE_FINISHED"
-	case CLOSING:
-		return "CLOSING"
-	case COMMIT:
-		return "COMMIT"
-	case GET_READER:
-		return "GET_READER"
-	case ADD_INDEXES:
-		return "ADD_INDEXES"
-	case CLOSED_WRITER:
-		return "CLOSED_WRITER"
+func (pr PauseReason) String() string {
+	switch pr {
+	case PauseReasonStopped:
+		return "STOPPED"
+	case PauseReasonPaused:
+		return "PAUSED"
+	case PauseReasonOther:
+		return "OTHER"
 	default:
-		return fmt.Sprintf("UNKNOWN(%d)", t)
+		return "UNKNOWN"
 	}
 }
 
-// MergeSpecification holds a set of merges to perform.
-// This is the Go port of Lucene's org.apache.lucene.index.MergePolicy.MergeSpecification.
+// OneMergeProgress encapsulates the logic to pause, resume, or abort a merge thread.
+type OneMergeProgress struct {
+	wakeupChan   chan struct{}
+	pauseTimesNS map[PauseReason]*atomic.Int64
+	aborted      atomic.Bool
+}
+
+func NewOneMergeProgress() *OneMergeProgress {
+	p := &OneMergeProgress{
+		wakeupChan:   make(chan struct{}, 1),
+		pauseTimesNS: make(map[PauseReason]*atomic.Int64),
+	}
+	for _, reason := range []PauseReason{PauseReasonStopped, PauseReasonPaused, PauseReasonOther} {
+		p.pauseTimesNS[reason] = &atomic.Int64{}
+	}
+	return p
+}
+
+// Abort the merge this progress tracks at the next possible moment.
+func (p *OneMergeProgress) Abort() {
+	p.aborted.Store(true)
+	p.Wakeup()
+}
+
+// IsAborted returns the aborted state of this merge.
+func (p *OneMergeProgress) IsAborted() bool {
+	return p.aborted.Load()
+}
+
+// PauseNanos pauses the calling goroutine for at least pauseNanos nanoseconds unless
+// the merge is aborted or the external condition returns false.
+func (p *OneMergeProgress) PauseNanos(pauseNanos int64, reason PauseReason, condition func() bool) {
+	start := time.Now()
+	timeUpdate := p.pauseTimesNS[reason]
+
+	for pauseNanos > 0 && !p.aborted.Load() && condition() {
+		timeout := time.Duration(pauseNanos)
+		
+		timer := time.NewTimer(timeout)
+		select {
+		case <-p.wakeupChan:
+			timer.Stop()
+			elapsed := time.Since(start).Nanoseconds()
+			pauseNanos -= elapsed
+		case <-timer.C:
+			pauseNanos = 0
+		}
+	}
+	
+	timeUpdate.Add(time.Since(start).Nanoseconds())
+}
+
+// Wakeup requests a wakeup for any threads stalled in PauseNanos.
+func (p *OneMergeProgress) Wakeup() {
+	select {
+	case p.wakeupChan <- struct{}{}:
+	default:
+	}
+}
+
+// GetPauseTimes returns pause reasons and associated times in nanoseconds.
+func (p *OneMergeProgress) GetPauseTimes() map[PauseReason]int64 {
+	res := make(map[PauseReason]int64)
+	for k, v := range p.pauseTimesNS {
+		res[k] = v.Load()
+	}
+	return res
+}
+
+// OneMerge provides the information necessary to perform an individual primitive merge operation.
+type OneMerge struct {
+	// MergeCompleted is used to signal when the merge is done.
+	MergeCompleted chan bool
+	
+	// Internal fields used by IndexWriter
+	Info              SegmentCommitInfo
+	RegisterDone      bool
+	MergeGen          int64
+	IsExternal        bool
+	MaxNumSegments    int
+	UsesPooledReaders bool
+	
+	EstimatedMergeBytes atomic.Int64
+	TotalMergeBytes     atomic.Int64
+	
+	// MergeReaders is used by IndexWriter
+	MergeReaders []any // Replace any with actual MergeReader type when available
+	
+	// Segments to be merged.
+	Segments []SegmentCommitInfo
+}
+
+func NewOneMerge(segments []SegmentCommitInfo) *OneMerge {
+	return &OneMerge{
+		MergeCompleted: make(chan bool, 1),
+		Segments:       segments,
+		MaxNumSegments:  -1,
+	}
+}
+
+// MergeSpecification describes the set of merges that should be done.
 type MergeSpecification struct {
-	// Merges is the list of merges to perform.
 	Merges []*OneMerge
 }
 
-// NewMergeSpecification creates a new MergeSpecification.
-func NewMergeSpecification() *MergeSpecification {
-	return &MergeSpecification{
-		Merges: make([]*OneMerge, 0),
-	}
-}
-
-// Add adds a merge to the specification.
 func (ms *MergeSpecification) Add(merge *OneMerge) {
 	ms.Merges = append(ms.Merges, merge)
 }
 
-// Size returns the number of merges in the specification.
-func (ms *MergeSpecification) Size() int {
-	return len(ms.Merges)
+// MergePolicy determines the sequence of primitive merge operations.
+type MergePolicy interface {
+	FindMerges(trigger MergeTrigger, infos SegmentInfos, ctx MergeContext) (*MergeSpecification, error)
+	FindForcedMerges(infos SegmentInfos, maxNumSegments int, segmentsToMerge map[SegmentCommitInfo]bool, ctx MergeContext) (*MergeSpecification, error)
+	FindForcedDeletesMerges(infos SegmentInfos, ctx MergeContext) (*MergeSpecification, error)
+	FindFullFlushMerges(trigger MergeTrigger, infos SegmentInfos, ctx MergeContext) (*MergeSpecification, error)
+	UseCompoundFile(infos SegmentInfos, mergedInfo SegmentCommitInfo, ctx MergeContext) (bool, error)
 }
 
-// String returns a string representation of the MergeSpecification.
-func (ms *MergeSpecification) String() string {
-	return fmt.Sprintf("MergeSpecification(merges=%d)", len(ms.Merges))
-}
-
-// MergeObserver exposes the status of merges scheduled by ForceMergeDeletes.
-// This is the Go port of Lucene's MergePolicy.MergeObserver.
-//
-// For synchronous merges the observer is created already completed, so await
-// calls return immediately. For asynchronous merges (doWait=false with a
-// background MergeScheduler) the observer tracks completion via a channel and
-// the await methods block until the scheduled merges finish or an error is
-// recorded.
-type MergeObserver struct {
-	spec      *MergeSpecification
-	completed int
-	err       error
-	mu        sync.Mutex
-	done      chan struct{}
-	closeOnce sync.Once
-}
-
-// NewMergeObserver creates a MergeObserver for the given specification.
-//
-// The completed argument is the number of merges already finished (used for
-// the synchronous path); err is any pre-existing error. When completed already
-// covers every merge, or err is non-nil, the observer's completion channel is
-// closed immediately so await calls return without blocking.
-func NewMergeObserver(spec *MergeSpecification, completed int, err error) *MergeObserver {
-	o := &MergeObserver{
-		spec:      spec,
-		completed: completed,
-		err:       err,
-		done:      make(chan struct{}),
-	}
-	if err != nil || completed >= o.NumMerges() {
-		close(o.done)
-	}
-	return o
-}
-
-// NumMerges returns the number of merges in this specification.
-func (o *MergeObserver) NumMerges() int {
-	if o == nil || o.spec == nil {
-		return 0
-	}
-	return o.spec.Size()
-}
-
-// NumCompletedMerges returns the number of completed merges.
-func (o *MergeObserver) NumCompletedMerges() int {
-	if o == nil {
-		return 0
-	}
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	return o.completed
-}
-
-// Await waits for all merges to complete. It returns true when every merge
-// finishes successfully and false when any merge failed.
-func (o *MergeObserver) Await() bool {
-	if o == nil {
-		return true
-	}
-	<-o.done
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	return o.err == nil
-}
-
-// AwaitWithTimeout waits for all merges to complete, with a timeout. It
-// returns true if every merge finished within the timeout, false if the timeout
-// elapsed before completion or if any merge failed.
-func (o *MergeObserver) AwaitWithTimeout(timeout time.Duration) bool {
-	if o == nil {
-		return true
-	}
-	select {
-	case <-o.done:
-		o.mu.Lock()
-		defer o.mu.Unlock()
-		return o.err == nil
-	case <-time.After(timeout):
-		return false
-	}
-}
-
-// AwaitAsync returns a future that completes when all merges finish.
-func (o *MergeObserver) AwaitAsync() *MergeFuture {
-	if o == nil {
-		return &MergeFuture{done: true}
-	}
-	return &MergeFuture{observer: o}
-}
-
-// markCompleted records that one merge has finished. If err is non-nil the
-// observer stores the first error it sees. The completion channel is closed once
-// either all merges finished or an error was recorded.
-func (o *MergeObserver) markCompleted(err error) {
-	if o == nil {
-		return
-	}
-	o.mu.Lock()
-	o.completed++
-	if err != nil && o.err == nil {
-		o.err = err
-	}
-	shouldClose := o.err != nil || o.completed >= o.NumMerges()
-	o.mu.Unlock()
-	if shouldClose {
-		o.closeOnce.Do(func() { close(o.done) })
-	}
-}
-
-// String returns a string representation of the observer.
-func (o *MergeObserver) String() string {
-	if o == nil || o.spec == nil {
-		return "MergeObserver: no merges"
-	}
-	return fmt.Sprintf("MergeObserver: %d merges", o.spec.Size())
-}
-
-// MergeFuture is a minimal future returned by MergeObserver.AwaitAsync.
-type MergeFuture struct {
-	observer *MergeObserver
-	done     bool
-	err      error
-}
-
-// IsDone reports whether the future is done.
-func (f *MergeFuture) IsDone() bool {
-	if f == nil {
-		return false
-	}
-	if f.observer != nil {
-		select {
-		case <-f.observer.done:
-			return true
-		default:
-			return false
-		}
-	}
-	return f.done
-}
-
-// IsCompletedExceptionally reports whether the future completed with an error.
-func (f *MergeFuture) IsCompletedExceptionally() bool {
-	if f == nil {
-		return false
-	}
-	if f.observer != nil {
-		select {
-		case <-f.observer.done:
-			f.observer.mu.Lock()
-			defer f.observer.mu.Unlock()
-			return f.observer.err != nil
-		default:
-			return false
-		}
-	}
-	return f.err != nil
-}
-
-// OneMerge represents a single merge operation.
-// This is the Go port of Lucene's org.apache.lucene.index.MergePolicy.OneMerge.
-type OneMerge struct {
-	// Segments are the segments to be merged.
-	Segments []*SegmentCommitInfo
-
-	// MaxNumDocs is the maximum number of documents in the merged segment.
-	MaxNumDocs int
-
-	// TotalDocCount is the total document count (including deleted docs).
-	TotalDocCount int
-
-	// TotalNumDocs is the total live document count.
-	TotalNumDocs int
-
-	// EstimatedMergeBytes is the estimated size in bytes of the merged segment.
-	EstimatedMergeBytes int64
-
-	// TotalMergeBytes is the sum of sizeInBytes of all SegmentInfos.
-	TotalMergeBytes int64
-
-	// Info is the resulting segment info (set after merge).
-	Info *SegmentCommitInfo
-
-	// RegisterDone is true if the merge was registered with the IndexWriter.
-	RegisterDone bool
-
-	// MergeGen is the generation number for this merge.
-	MergeGen int64
-
-	// IsExternal is true if this is an external merge (from addIndexes).
-	IsExternal bool
-
-	// MaxNumSegments is the max number of segments for forced merges (-1 for non-forced).
-	MaxNumSegments int
-
-	// UsesPooledReaders is true if pooled readers are used.
-	UsesPooledReaders bool
-
-	// MergeStartNS is the start time of the merge in nanoseconds.
-	MergeStartNS int64
-
-	// Progress controls pause/stop/resume for the merge thread.
-	Progress *OneMergeProgress
-
-	// Error holds any error that occurred during the merge.
-	Error error
-
-	// observer is notified when this merge finishes. It is set by the
-	// IndexWriter when the merge is scheduled through the MergeScheduler and
-	// is nil for merges executed synchronously outside the scheduler.
-	observer *MergeObserver
-}
-
-// NewOneMerge creates a new OneMerge.
-func NewOneMerge(segments []*SegmentCommitInfo) *OneMerge {
-	if len(segments) == 0 {
-		// Allow empty segments list for addIndexes operations
-	}
-
-	merge := &OneMerge{
-		Segments:          segments,
-		TotalDocCount:     0,
-		TotalNumDocs:      0,
-		MaxNumSegments:    -1,
-		Progress:          NewOneMergeProgress(),
-		UsesPooledReaders: true,
-	}
-
-	// Calculate totals
-	for _, seg := range segments {
-		merge.TotalDocCount += seg.DocCount()
-		merge.TotalNumDocs += seg.NumDocs()
-	}
-
-	return merge
-}
-
-// NewOneMergeFromReaders creates a OneMerge from CodecReaders.
-// Used for addIndexes operations.
-func NewOneMergeFromReaders() *OneMerge {
-	return &OneMerge{
-		Segments:          make([]*SegmentCommitInfo, 0),
-		TotalDocCount:     0,
-		TotalNumDocs:      0,
-		MaxNumSegments:    -1,
-		Progress:          NewOneMergeProgress(),
-		UsesPooledReaders: true,
-	}
-}
-
-// String returns a string representation of the OneMerge.
-func (om *OneMerge) String() string {
-	return fmt.Sprintf("OneMerge(segments=%d, totalDocs=%d)", len(om.Segments), om.TotalDocCount)
-}
-
-// SegmentsSize returns the number of segments in this merge.
-func (om *OneMerge) SegmentsSize() int {
-	return len(om.Segments)
-}
-
-// EstimateMergeBytes estimates the total size of the merge in bytes.
-func (om *OneMerge) EstimateMergeBytes() int64 {
-	if om.EstimatedMergeBytes > 0 {
-		return om.EstimatedMergeBytes
-	}
-
-	var total int64
-	for _, seg := range om.Segments {
-		total += seg.SegmentInfo().SizeInBytes()
-	}
-	om.EstimatedMergeBytes = total
-	return total
-}
-
-// Abort aborts the merge at the next possible moment.
-func (om *OneMerge) Abort() {
-	if om.Progress != nil {
-		om.Progress.Abort()
-	}
-}
-
-// IsAborted returns true if the merge has been aborted.
-func (om *OneMerge) IsAborted() bool {
-	if om.Progress == nil {
-		return false
-	}
-	return om.Progress.IsAborted()
-}
-
-// CheckAborted returns an error if the merge has been aborted.
-func (om *OneMerge) CheckAborted() error {
-	if om.Progress == nil {
-		return nil
-	}
-	return om.Progress.CheckAborted()
-}
-
-// GetProgress returns the merge progress.
-func (om *OneMerge) GetProgress() *OneMergeProgress {
-	return om.Progress
-}
-
-// BaseMergePolicy provides common functionality for merge policies.
-// This is the Go port of Lucene's org.apache.lucene.index.MergePolicy.BaseMergePolicy.
+// BaseMergePolicy provides default implementations for MergePolicy.
 type BaseMergePolicy struct {
-	maxMergeDocs          int
-	maxMergedSegmentBytes int64
+	noCFSRatio       float64
+	maxCFSSegmentSize int64
 }
 
-// NewBaseMergePolicy creates a new BaseMergePolicy.
-func NewBaseMergePolicy() *BaseMergePolicy {
+func NewBaseMergePolicy(noCFSRatio float64, maxCFSSegmentSize int64) *BaseMergePolicy {
 	return &BaseMergePolicy{
-		maxMergeDocs:          math.MaxInt32,
-		maxMergedSegmentBytes: 5 * 1024 * 1024 * 1024, // 5GB default
+		noCFSRatio:       noCFSRatio,
+		maxCFSSegmentSize: maxCFSSegmentSize,
 	}
 }
 
-// GetMaxMergeDocs returns the maximum number of documents that can be merged.
-func (p *BaseMergePolicy) GetMaxMergeDocs() int {
-	return p.maxMergeDocs
-}
+// Default constants
+const (
+	DefaultNoCFSRatio       = 1.0
+	DefaultMaxCFSSegmentSize = math.MaxInt64
+)
 
-// SetMaxMergeDocs sets the maximum number of documents that can be merged.
-func (p *BaseMergePolicy) SetMaxMergeDocs(maxMergeDocs int) {
-	p.maxMergeDocs = maxMergeDocs
-}
-
-// GetMaxMergedSegmentBytes returns the maximum size of a merged segment in bytes.
-func (p *BaseMergePolicy) GetMaxMergedSegmentBytes() int64 {
-	return p.maxMergedSegmentBytes
-}
-
-// SetMaxMergedSegmentBytes sets the maximum size of a merged segment in bytes.
-func (p *BaseMergePolicy) SetMaxMergedSegmentBytes(maxMergedSegmentBytes int64) {
-	p.maxMergedSegmentBytes = maxMergedSegmentBytes
-}
-
-// FindMerges finds merges (must be implemented by subclasses).
-func (p *BaseMergePolicy) FindMerges(trigger MergeTrigger, infos *SegmentInfos, mergeContext MergeContext) (*MergeSpecification, error) {
-	return nil, fmt.Errorf("FindMerges not implemented")
-}
-
-// FindForcedMerges finds forced merges (must be implemented by subclasses).
-func (p *BaseMergePolicy) FindForcedMerges(infos *SegmentInfos, maxSegmentCount int, segmentsToMerge map[*SegmentCommitInfo]bool, mergeContext MergeContext) (*MergeSpecification, error) {
-	return nil, fmt.Errorf("FindForcedMerges not implemented")
-}
-
-// FindForcedDeletesMerges finds forced deletes merges (must be implemented by subclasses).
-func (p *BaseMergePolicy) FindForcedDeletesMerges(infos *SegmentInfos, mergeContext MergeContext) (*MergeSpecification, error) {
-	return nil, fmt.Errorf("FindForcedDeletesMerges not implemented")
-}
-
-// NumDeletesToMerge returns the number of deletes that a merge would claim on the given segment.
-// By default, this returns the delCount unchanged.
-func (p *BaseMergePolicy) NumDeletesToMerge(info *SegmentCommitInfo, delCount int) int {
-	return delCount
-}
-
-// KeepFullyDeletedSegment returns false by default (don't keep fully deleted segments).
-func (p *BaseMergePolicy) KeepFullyDeletedSegment(info *SegmentCommitInfo) bool {
-	return false
-}
-
-// Size returns the byte size of the segment, pro-rated by percentage of non-deleted documents.
-// This is the Go port of Lucene's MergePolicy.size().
-func (p *BaseMergePolicy) Size(info *SegmentCommitInfo, mergeContext MergeContext) int64 {
-	byteSize := info.SegmentInfo().SizeInBytes()
-	delCount := mergeContext.NumDeletesToMerge(info)
-	maxDoc := info.SegmentInfo().DocCount()
-
-	if maxDoc <= 0 {
-		return byteSize
+// UseCompoundFile returns true if a new segment should use the compound file format.
+func (bmp *BaseMergePolicy) UseCompoundFile(infos SegmentInfos, mergedInfo SegmentCommitInfo, ctx MergeContext) (bool, error) {
+	if bmp.noCFSRatio == 0.0 {
+		return false, nil
 	}
-
-	delRatio := float64(delCount) / float64(maxDoc)
-	if delRatio > 1.0 {
-		delRatio = 1.0
+	
+	mergedInfoSize, err := bmp.size(mergedInfo, ctx)
+	if err != nil {
+		return false, err
 	}
-
-	return int64(float64(byteSize) * (1.0 - delRatio))
-}
-
-// IsMerged returns true if this segment is already fully merged (has no pending deletes,
-// is in the same directory as the writer, and matches the current compound file setting).
-func (p *BaseMergePolicy) IsMerged(infos *SegmentInfos, info *SegmentCommitInfo, mergeContext MergeContext) bool {
-	if mergeContext == nil {
-		return false
+	
+	if bmp.maxCFSSegmentSize != DefaultMaxCFSSegmentSize && mergedInfoSize > bmp.maxCFSSegmentSize {
+		return false, nil
 	}
-	delCount := mergeContext.NumDeletesToMerge(info)
-	return delCount == 0
-}
-
-// Message prints a debug message to the info stream if enabled.
-func (p *BaseMergePolicy) Message(message string, mergeContext MergeContext) {
-	if mergeContext != nil {
-		if infoStream := mergeContext.GetInfoStream(); infoStream != nil {
-			if infoStream.IsEnabled("MP") {
-				infoStream.Message("MP", message)
-			}
+	
+	if bmp.noCFSRatio >= 1.0 {
+		return true, nil
+	}
+	
+	var totalSize int64
+	for _, info := range infos {
+		s, err := bmp.size(info, ctx)
+		if err != nil {
+			return false, err
 		}
+		totalSize += s
 	}
+	
+	return float64(mergedInfoSize) <= bmp.noCFSRatio*float64(totalSize), nil
 }
 
-// Verbose returns true if the info stream is in verbose mode.
-func (p *BaseMergePolicy) Verbose(mergeContext MergeContext) bool {
-	if mergeContext == nil {
-		return false
+func (bmp *BaseMergePolicy) size(info SegmentCommitInfo, ctx MergeContext) (int64, error) {
+	byteSize := info.SizeInBytes()
+	delCount := ctx.NumDeletesToMerge(info)
+	
+	if !bmp.assertDelCount(delCount, info) {
+		return 0, fmt.Errorf("invalid delete count %d for segment %v", delCount, info)
 	}
-	infoStream := mergeContext.GetInfoStream()
-	if infoStream == nil {
-		return false
+	
+	maxDoc := info.Info().MaxDoc()
+	if maxDoc <= 0 {
+		return byteSize, nil
 	}
-	return infoStream.IsEnabled("MP")
+	
+	delRatio := float64(delCount) / float64(maxDoc)
+	
+	return int64(float64(byteSize) * (1.0 - delRatio)), nil
 }
 
-// UseCompoundFile returns whether to use compound files (default: false).
-func (p *BaseMergePolicy) UseCompoundFile(infos *SegmentInfos, mergedSegmentInfo *SegmentInfo) bool {
-	return false
+func (bmp *BaseMergePolicy) assertDelCount(delCount int, info SegmentCommitInfo) bool {
+	return delCount <= info.Info().MaxDoc()
 }
 
-// sizeToMB converts bytes to megabytes as int64.
-func sizeToMB(bytes int64) int64 {
-	return bytes / (1024 * 1024)
-}
-
-// mbToBytes converts megabytes to bytes.
-func mbToBytes(mb int64) int64 {
-	return mb * 1024 * 1024
-}
-
-// MergePolicyConfig holds configuration for merge policies.
-type MergePolicyConfig struct {
-	// MaxMergeAtOnce is the maximum number of segments to merge at once.
-	MaxMergeAtOnce int
-
-	// MaxMergeAtOnceExplicit is the maximum number of segments to merge at once for explicit merges.
-	MaxMergeAtOnceExplicit int
-
-	// MaxMergedSegmentMB is the maximum size of a merged segment in MB.
-	MaxMergedSegmentMB int64
-
-	// FloorSegmentMB is the minimum segment size to consider for merging in MB.
-	FloorSegmentMB int64
-
-	// MaxMergeDocs is the maximum number of documents to merge.
-	MaxMergeDocs int
-
-	// NoCFSRatio is the ratio of non-compound file segments.
-	NoCFSRatio float64
-}
-
-// DefaultMergePolicyConfig returns a default MergePolicyConfig.
-func DefaultMergePolicyConfig() MergePolicyConfig {
-	return MergePolicyConfig{
-		MaxMergeAtOnce:         10,
-		MaxMergeAtOnceExplicit: 30,
-		MaxMergedSegmentMB:     5120, // 5GB
-		FloorSegmentMB:         2,
-		MaxMergeDocs:           math.MaxInt32,
-		NoCFSRatio:             0.0,
-	}
+func (bmp *BaseMergePolicy) MaxFullFlushMergeSize() int64 {
+	return 0
 }

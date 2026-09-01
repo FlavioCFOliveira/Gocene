@@ -1,28 +1,38 @@
-// Copyright 2026 Gocene. All rights reserved.
-// Use of this source code is governed by the Apache License 2.0
-// that can be found in the LICENSE file.
-
 package index
 
-// MergeTrigger indicates the event that triggered the merge.
-// Mirrors org.apache.lucene.index.MergeTrigger from Apache Lucene 10.5.0.
+// MergeTrigger is passed to MergePolicy.FindMerges to indicate the event that triggered the merge.
 type MergeTrigger int
 
 const (
-	// MergeTriggerSegmentFlush: Merge was triggered by a segment flush.
 	MergeTriggerSegmentFlush MergeTrigger = iota
-	// MergeTriggerFullFlush: Merge was triggered by a full flush (commit, NRT reopen, or close).
 	MergeTriggerFullFlush
-	// MergeTriggerExplicit: Merge has been triggered explicitly by the user.
 	MergeTriggerExplicit
-	// MergeTriggerMergeFinished: Merge was triggered by a successfully finished merge.
 	MergeTriggerMergeFinished
-	// MergeTriggerClosing: Merge was triggered by a closing IndexWriter.
 	MergeTriggerClosing
-	// MergeTriggerCommit: Merge was triggered on commit.
 	MergeTriggerCommit
-	// MergeTriggerGetReader: Merge was triggered on opening NRT readers.
 	MergeTriggerGetReader
-	// MergeTriggerAddIndexes: Merge was triggered by an IndexWriter.AddIndexes operation.
 	MergeTriggerAddIndexes
 )
+
+func (mt MergeTrigger) String() string {
+	switch mt {
+	case MergeTriggerSegmentFlush:
+		return "SEGMENT_FLUSH"
+	case MergeTriggerFullFlush:
+		return "FULL_FLUSH"
+	case MergeTriggerExplicit:
+		return "EXPLICIT"
+	case MergeTriggerMergeFinished:
+		return "MERGE_FINISHED"
+	case MergeTriggerClosing:
+		return "CLOSING"
+	case MergeTriggerCommit:
+		return "COMMIT"
+	case MergeTriggerGetReader:
+		return "GET_READER"
+	case MergeTriggerAddIndexes:
+		return "ADD_INDEXES"
+	default:
+		return "UNKNOWN"
+	}
+}
