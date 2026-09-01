@@ -79,7 +79,7 @@ func (n *FieldQueryNode) SetPosition(position int) {
 }
 
 // ToQueryString returns the query string representation.
-func (n *FieldQueryNode) ToQueryString(escapeSpecialSyntax bool) string {
+func (n *FieldQueryNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string {
 	var sb strings.Builder
 
 	if n.field != "" {
@@ -87,11 +87,7 @@ func (n *FieldQueryNode) ToQueryString(escapeSpecialSyntax bool) string {
 		sb.WriteString(":")
 	}
 
-	if escapeSpecialSyntax {
-		sb.WriteString(escapeQueryString(n.text))
-	} else {
-		sb.WriteString(n.text)
-	}
+	sb.WriteString(escapeSyntax.Escape(n.text, "en", EscapeNormal))
 
 	return sb.String()
 }
@@ -115,18 +111,47 @@ func (n *FieldQueryNode) CloneTree() QueryNode {
 	return cloned
 }
 
-// escapeQueryString escapes special characters in the query string.
-func escapeQueryString(s string) string {
-	// Simple escaping for special characters
-	specialChars := []string{"\\", "+", "-", "&&", "||", "!", "(", ")", "{", "}", "[", "]", "^", "\"", "~", "*", "?", ":", "/"}
-	result := s
-	for _, char := range specialChars {
-		result = strings.ReplaceAll(result, char, "\\"+char)
-	}
-	return result
-}
-
 // String returns a string representation of this node.
 func (n *FieldQueryNode) String() string {
 	return fmt.Sprintf("<field start=%d end=%d field=%s text=%s>", n.begin, n.end, n.field, n.text)
+}
+
+// QuotedFieldQueryNode represents phrase query. Example: "life is great"
+type QuotedFieldQueryNode struct {
+	*FieldQueryNode
+}
+
+// NewQuotedFieldQueryNode creates a new QuotedFieldQueryNode.
+func NewQuotedFieldQueryNode(field, text string, begin, end int) *QuotedFieldQueryNode {
+	return &QuotedFieldQueryNode{
+		FieldQueryNode: NewFieldQueryNode(field, text, begin, end),
+	}
+}
+
+// ToQueryString returns the query string representation.
+func (n *QuotedFieldQueryNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string {
+	text := escapeSyntax.Escape(n.GetText(), "en", EscapeNormal)
+	if n.GetField() == "" || n.GetField() == "_plain" {
+		return fmt.Sprintf("\"%s\"", text)
+	}
+	return fmt.Sprintf("%s:\"%s\"", n.GetField(), text)
+}
+
+// String returns a string representation of this node.
+func (n *QuotedFieldQueryNode) String() string {
+	return fmt.Sprintf("<quotedfield start=%d end=%d field=%s term=%s>", n.GetBegin(), n.GetEnd(), n.GetField(), n.GetText())
+}
+
+// CloneTree creates a deep copy of this node.
+func (n *QuotedFieldQueryNode) CloneTree() QueryNode {
+	cloned := &QuotedFieldQueryNode{
+		FieldQueryNode: NewFieldQueryNode(n.GetField(), n.GetText(), n.GetBegin(), n.GetEnd()),
+	}
+
+	// Copy tags
+	for _, key := range n.GetTagKeys() {
+		cloned.SetTag(key, n.GetTag(key))
+	}
+
+	return cloned
 }

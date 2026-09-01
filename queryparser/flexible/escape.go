@@ -36,10 +36,10 @@ var wildcardChars = []rune{'*', '?'}
 var escapableTermExtraFirstChars = []rune{'+', '-', '@'}
 
 var escapableTermChars = []rune{
-	'\"', '<', '>', '=', '!', '(', ')', '^', '[', '{', ':', ']', '}', '~', '/',
+	'\x22', '<', '>', '=', '!', '(', ')', '^', '[', '{', ':', ']', '}', '~', '/',
 }
 
-var escapableQuotedChars = []rune{'\"'}
+var escapableQuotedChars = []rune{'\x22'}
 
 var escapableWhiteChars = []rune{' ', '\t', '\n', '\r', '\f', '\b', '　'}
 
@@ -184,7 +184,8 @@ func (e *EscapeQuerySyntaxImpl) escapeIgnoringCase(stringVal string, sequence1 s
 			result.WriteString(stringVal[copyStart:firstIndex])
 			result.WriteString(escapeChar)
 			result.WriteString(stringVal[firstIndex : firstIndex+sequence1Length])
-			copyStart = start = firstIndex + sequence1Length
+			start = firstIndex + sequence1Length
+				copyStart = start
 		} else {
 			start = firstIndex + 1
 		}
