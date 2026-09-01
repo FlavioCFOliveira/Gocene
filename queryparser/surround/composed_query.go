@@ -39,18 +39,61 @@ func (c *ComposedQuery) GetOperatorName() string { return c.operatorName }
 // IsInfix reports whether the operator was used in infix position.
 func (c *ComposedQuery) IsInfix() bool { return c.infix }
 
-// AndQuery represents `A AND B AND ...`. Mirrors
-// org.apache.lucene.queryparser.surround.query.AndQuery.
-type AndQuery struct{ *ComposedQuery }
-
-// NewAndQuery builds an AND composite.
-func NewAndQuery(children []SrndQuery, infix bool, operatorName string) *AndQuery {
-	return &AndQuery{ComposedQuery: NewComposedQuery(children, infix, operatorName)}
+// IsFieldsSubQueryAcceptable reports whether at least one subquery is acceptable.
+// Mirrors org.apache.lucene.queryparser.surround.query.ComposedQuery.
+func (c *ComposedQuery) IsFieldsSubQueryAcceptable() bool {
+	for _, child := range c.children {
+		if child.IsFieldsSubQueryAcceptable() {
+			return true
+		}
+	}
+	return false
 }
 
-// MakeLuceneQueryField produces a BooleanQuery with MUST clauses.
-func (q *AndQuery) MakeLuceneQueryField(field string, factory *BasicQueryFactory) (search.Query, error) {
-	return makeBooleanQuery(q.children, field, factory, search.MUST)
+// String returns the string representation of the composed query.
+// Mirrors org.apache.lucene.queryparser.surround.query.ComposedQuery.
+func (c *ComposedQuery) String() string {
+	var sb strings.Builder
+	if c.IsInfix() {
+		c.infixToString(&sb)
+	} else {
+		c.prefixToString(&sb)
+	}
+	c.SrndQueryBase.WeightToString(&sb)
+	return sb.String()
+}
+
+func (c *ComposedQuery) getBracketOpen() string { return "(" }
+
+func (c *ComposedQuery) getBracketClose() string { return ")" }
+
+func (c *ComposedQuery) getPrefixSeparator() string { return ", " }
+
+func (c *ComposedQuery) infixToString(sb *strings.Builder) {
+	sb.WriteString(c.getBracketOpen())
+	if len(c.children) > 0 {
+		sb.WriteString(c.children[0].String())
+		for _, child := range c.children[1:] {
+			sb.WriteString(" ")
+			sb.WriteString(c.GetOperatorName())
+			sb.WriteString(" ")
+			sb.WriteString(child.String())
+		}
+	}
+	sb.WriteString(c.getBracketClose())
+}
+
+func (c *ComposedQuery) prefixToString(sb *strings.Builder) {
+	sb.WriteString(c.GetOperatorName())
+	sb.WriteString(c.getBracketOpen())
+	if len(c.children) > 0 {
+		sb.WriteString(c.children[0].String())
+		for _, child := range c.children[1:] {
+			sb.WriteString(c.getPrefixSeparator())
+			sb.WriteString(child.String())
+		}
+	}
+	sb.WriteString(c.getBracketClose())
 }
 
 // OrQuery represents `A OR B OR ...`. Mirrors

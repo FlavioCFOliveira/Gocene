@@ -1,6 +1,11 @@
 package surround
 
-import "github.com/FlavioCFOliveira/Gocene/search"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/FlavioCFOliveira/Gocene/search"
+)
 
 // SrndQuery is the base interface satisfied by every surround query node.
 // It mirrors the abstract org.apache.lucene.queryparser.surround.query.SrndQuery
@@ -20,6 +25,9 @@ type SrndQuery interface {
 
 	// SetWeight stamps a boost factor on this node.
 	SetWeight(w float32)
+
+	// String returns the string representation of the query.
+	String() string
 }
 
 // SrndQueryBase is the embedding helper that supplies the boost handling and
@@ -41,6 +49,24 @@ func (b *SrndQueryBase) GetWeight() float32 {
 func (b *SrndQueryBase) SetWeight(w float32) {
 	b.weight = w
 	b.weightSet = true
+}
+
+// GetWeightString returns the string representation of the weight.
+func (b *SrndQueryBase) GetWeightString() string {
+	return fmt.Sprintf("%g", b.GetWeight())
+}
+
+// GetWeightOperator returns the weight operator.
+func (b *SrndQueryBase) GetWeightOperator() string {
+	return "^"
+}
+
+// WeightToString appends the weight part of a query to the supplied builder.
+func (b *SrndQueryBase) WeightToString(sb *strings.Builder) {
+	if b.IsWeighted() {
+		sb.WriteString(b.GetWeightOperator())
+		sb.WriteString(b.GetWeightString())
+	}
 }
 
 // IsWeighted reports whether SetWeight has been called.
