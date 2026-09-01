@@ -7,39 +7,21 @@ package analysis
 import (
 	"io"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// Analyzer is the abstract base class for all analyzers.
-//
-// This is the Go port of Lucene's org.apache.lucene.analysis.Analyzer.
-//
-// An Analyzer is responsible for creating a TokenStream that processes
-// text. The TokenStream is created by the TokenStreamComponents, which
-// consists of a Tokenizer (source) and zero or more TokenFilters.
-//
-// Typical usage:
-//
-//	analyzer := NewStandardAnalyzer()
-//	stream := analyzer.TokenStream("field", strings.NewReader("text to analyze"))
-//	defer stream.Close()
-//
-//	for stream.IncrementToken() {
-//		// Process token
-//	}
-type Analyzer interface {
-	// TokenStream creates a TokenStream for analyzing text from a Reader.
-	// The fieldName parameter identifies the field being analyzed.
-	TokenStream(fieldName string, reader io.Reader) (TokenStream, error)
-
-	// Close releases resources held by this Analyzer.
-	Close() error
-}
+// Analyzer is a type alias for api.Analyzer to maintain backward compatibility
+// within the analysis package.
+type Analyzer = api.Analyzer
 
 // AnalyzerInterface is a convenience interface for analyzer factories.
 type AnalyzerInterface interface {
-	Analyzer
+	api.Analyzer
 }
+
+// TokenStream is a type alias for api.TokenStream.
+type TokenStream = api.TokenStream
 
 // TokenStreamComponents holds the Tokenizer and TokenStream chain.
 //
@@ -49,12 +31,12 @@ type TokenStreamComponents struct {
 	source Tokenizer
 
 	// sink is the final TokenStream in the chain (may be the source itself)
-	sink TokenStream
+	sink api.TokenStream
 }
 
 // NewTokenStreamComponents creates TokenStreamComponents.
 // If sink is nil, the source is used as the sink.
-func NewTokenStreamComponents(source Tokenizer, sink TokenStream) *TokenStreamComponents {
+func NewTokenStreamComponents(source Tokenizer, sink api.TokenStream) *TokenStreamComponents {
 	if sink == nil {
 		sink = source
 	}
@@ -70,12 +52,12 @@ func (tsc *TokenStreamComponents) GetSource() Tokenizer {
 }
 
 // GetSink returns the final TokenStream.
-func (tsc *TokenStreamComponents) GetSink() TokenStream {
+func (tsc *TokenStreamComponents) GetSink() api.TokenStream {
 	return tsc.sink
 }
 
 // SetSink sets the final TokenStream.
-func (tsc *TokenStreamComponents) SetSink(sink TokenStream) {
+func (tsc *TokenStreamComponents) SetSink(sink api.TokenStream) {
 	tsc.sink = sink
 }
 
@@ -120,7 +102,7 @@ func (a *BaseAnalyzer) AddTokenFilter(factory TokenFilterFactory) {
 }
 
 // TokenStream creates a TokenStream for analyzing text.
-func (a *BaseAnalyzer) TokenStream(fieldName string, reader io.Reader) (TokenStream, error) {
+func (a *BaseAnalyzer) TokenStream(fieldName string, reader io.Reader) (api.TokenStream, error) {
 	if a.TokenizerFactory == nil {
 		return nil, nil
 	}
@@ -132,7 +114,7 @@ func (a *BaseAnalyzer) TokenStream(fieldName string, reader io.Reader) (TokenStr
 	}
 
 	// Build filter chain
-	var stream TokenStream = tokenizer
+	var stream api.TokenStream = tokenizer
 	for _, factory := range a.TokenFilterFactories {
 		stream = factory.Create(stream)
 	}
