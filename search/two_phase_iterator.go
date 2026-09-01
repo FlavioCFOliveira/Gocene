@@ -63,6 +63,12 @@ func NewTwoPhaseIteratorWithMatchCost(approximation DocIdSetIterator, matchesFun
 // Matches(). Lower is cheaper. Mirrors TwoPhaseIterator.matchCost().
 func (tpi *TwoPhaseIterator) MatchCost() float32 { return tpi.matchCost }
 
+// DocIDRunEnd returns the end of the run of consecutive doc IDs that match
+// the approximation and contain the current doc ID.
+func (tpi *TwoPhaseIterator) DocIDRunEnd() int {
+	return tpi.approximation.DocIDRunEnd()
+}
+
 // Approximation returns the approximation iterator.
 // This iterator produces candidate documents that may or may not match.
 func (tpi *TwoPhaseIterator) Approximation() DocIdSetIterator {
@@ -157,9 +163,9 @@ func (it *TwoPhaseIteratorAsDocIdSetIterator) Cost() int64 {
 }
 
 // DocIDRunEnd returns the end of the current run.
-// Since matches are sparse, we return the current doc + 1.
+// It mirrors the approximation's DocIDRunEnd.
 func (it *TwoPhaseIteratorAsDocIdSetIterator) DocIDRunEnd() int {
-	return it.twoPhase.approximation.DocID() + 1
+	return it.twoPhase.approximation.DocIDRunEnd()
 }
 
 // IntoBitSet loads matching documents into a FixedBitSet.

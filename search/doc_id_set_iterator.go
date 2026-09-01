@@ -19,6 +19,11 @@ type DocIdSetIterator interface {
 	// Advance advances to the first beyond the current whose document number is >= target.
 	Advance(target int) (int, error)
 
+	// DocIDRunEnd returns the end of the run of consecutive doc IDs that match
+	// this iterator and that contains the current docID.
+	// Returns one plus the last doc ID of the run.
+	DocIDRunEnd() int
+
 	// Cost returns the estimated cost of this iterator.
 	Cost() int64
 }
