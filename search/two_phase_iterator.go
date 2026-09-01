@@ -162,8 +162,28 @@ func (it *TwoPhaseIteratorAsDocIdSetIterator) DocIDRunEnd() int {
 	return it.twoPhase.approximation.DocID() + 1
 }
 
-// Ensure TwoPhaseIteratorAsDocIdSetIterator implements DocIdSetIterator
-var _ DocIdSetIterator = (*TwoPhaseIteratorAsDocIdSetIterator)(nil)
+// IntoBitSet loads matching documents into a FixedBitSet.
+//
+// Mirrors TwoPhaseIterator.intoBitSet(int, FixedBitSet, int) in Lucene.
+func (tpi *TwoPhaseIterator) IntoBitSet(upTo int, bitSet util.BitSet, offset int) error {
+	doc := tpi.approximation.DocID()
+	for doc < upTo {
+		matches, err := tpi.Matches()
+		if err != nil {
+			return err
+		}
+		if matches {
+			bitSet.Set(doc - offset)
+		}
+		var errNext error
+		doc, errNext = tpi.approximation.NextDoc()
+		if errNext != nil {
+			return errNext
+		}
+	}
+	return nil
+}
+
 
 // AsDocIdSetIterator returns this TwoPhaseIterator as a DocIdSetIterator.
 // This is a convenience method that wraps the two-phase iterator.
