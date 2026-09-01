@@ -60,18 +60,58 @@ func (b *DocAndFloatFeatureBuffer) GrowNoCopy(minSize int) {
 		newDocs := make([]int, minSize)
 		copy(newDocs, b.Docs)
 		b.Docs = newDocs
-		b.Features = make([]float32, len(b.Docs))
+
+		newFeatures := make([]float32, minSize)
+		copy(newFeatures, b.Features)
+		b.Features = newFeatures
 	}
 }
 
 func (b *DocAndFloatFeatureBuffer) Apply(liveDocs util.Bits) {
 	newSize := 0
 	for i := 0; i < b.Size; i++ {
-		if liveDocs.Get(b.Docs[i]) {
+		if liveDocs != nil && liveDocs.Get(b.Docs[i]) {
 			b.Docs[newSize] = b.Docs[i]
 			b.Features[newSize] = b.Features[i]
 			newSize++
 		}
 	}
 	b.Size = newSize
+}
+
+// DefaultTwoPhaseIterator returns nil, mirroring the default implementation in Lucene.
+func DefaultTwoPhaseIterator() TwoPhaseIterator {
+	return nil
+}
+
+// DefaultAdvanceShallow returns NO_MORE_DOCS, mirroring the default implementation in Lucene.
+func DefaultAdvanceShallow(target int) (int, error) {
+	return NO_MORE_DOCS, nil
+}
+
+// DefaultNextDocsAndScores provides the default implementation of Scorer.NextDocsAndScores.
+func DefaultNextDocsAndScores(s Scorer, upTo int, liveDocs util.Bits, buffer *DocAndFloatFeatureBuffer) error {
+	batchSize := 64
+	buffer.GrowNoCopy(batchSize)
+	size := 0
+	iterator := s.Iterator()
+	doc := s.DocID()
+	for doc < upTo && size < batchSize {
+		if doc >= 0 && (liveDocs == nil || liveDocs.Get(doc)) {
+			score, err := s.Score()
+			if err != nil {
+				return err
+			}
+			buffer.Docs[size] = doc
+			buffer.Features[size] = score
+			size++
+		}
+		nextDoc, err := iterator.NextDoc()
+		if err != nil {
+			return err
+		}
+		doc = nextDoc
+	}
+	buffer.Size = size
+	return nil
 }
