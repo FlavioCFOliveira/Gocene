@@ -6,411 +6,185 @@ package index
 
 import (
 	"fmt"
-	"sync"
 	"sync/atomic"
 
-	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// SegmentCoreReaders holds core readers that are shared (unchanged) when
-// SegmentReader is cloned or reopened.
+// SegmentCoreReaders holds core readers that are shared (unchanged) when SegmentReader is cloned or reopened.
 //
 // This is the Go port of Lucene's org.apache.lucene.index.SegmentCoreReaders.
-//
-// SegmentCoreReaders manages the lifecycle of codec readers (FieldsProducer,
-// TermVectorsReader, StoredFieldsReader) for a segment. These readers are
-// reference-counted and shared across multiple SegmentReader instances.
 type SegmentCoreReaders struct {
-	// refCount is the reference count for this core
-	refCount atomic.Int32
+	ref int32
 
-	// fields is the postings (FieldsProducer) reader
-	fields FieldsProducer
+	Fields spi.FieldsProducer
+	Norms  spi.NormsProducer
 
-	// termVectorsReader is the term vectors reader
-	termVectorsReader TermVectorsReader
-
-	// storedFieldsReader is the stored fields reader
-	storedFieldsReader StoredFieldsReader
-
-	// docValuesProducer is the doc values producer (codecs.DocValuesProducer)
-	docValuesProducer interface{}
-
-	// normsProducer is the norms producer (codecs.NormsProducer)
-	normsProducer interface{}
-
-	// pointsReader is the points reader (codecs.PointsReader)
-	pointsReader interface{}
-
-	// vectorsReader is the KNN vectors reader (codecs.KnnVectorsReader)
-	vectorsReader interface{}
-
-	// fieldInfos is the field infos for this segment
-	fieldInfos *FieldInfos
-
-	// segmentName is the name of the segment
-	segmentName string
-
-	// directory is the directory containing the segment
-	directory store.Directory
-
-	// cfsReader is the compound file reader (nil if segment is not compound)
-	cfsReader CompoundDirectory
-
-	// closedListeners are listeners to notify when the core is closed
-	closedListeners []func()
-
-	// mu protects closedListeners
-	mu sync.Mutex
-
-	// closed indicates if the core has been closed
-	closed bool
+	fieldsReaderOrig    spi.StoredFieldsReader
+	termVectorsReaderOrig spi.TermVectorsReader
+	pointsReader        spi.PointsReader
+	knnVectorsReader    spi.KnnVectorsReader
+	cfsReader           spi.CompoundDirectory
+	segment             string
+	coreFieldInfos      *FieldInfos
 }
 
-// NewSegmentCoreReaders creates a new SegmentCoreReaders for the given segment.
-//
-// This function initializes all codec readers (FieldsProducer, TermVectorsReader,
-// StoredFieldsReader) for the segment using the provided codec.
-func NewSegmentCoreReaders(
-	directory store.Directory,
-	segmentInfo *SegmentInfo,
-	fieldInfos *FieldInfos,
-	codec Codec,
-	context store.IOContext,
-) (*SegmentCoreReaders, error) {
-	core := &SegmentCoreReaders{
-		refCount:    atomic.Int32{},
-		fieldInfos:  fieldInfos,
-		segmentName: segmentInfo.Name(),
-		directory:   directory,
-	}
-	core.refCount.Store(1)
+func NewSegmentCoreReaders(dir util.Directory, si *SegmentCommitInfo, context util.IOContext) (*SegmentCoreReaders, error) {
+	codec := si.Info.GetCodec()
+	var cfsDir util.Directory
+	var cfsReader spi.CompoundDirectory
 
-	// Determine the directory to use for reading segment files.
-	// If the segment is stored in a compound file, open the compound reader
-	// and use it as the directory for all codec readers.
-	var cfsDir store.Directory
-	if segmentInfo.IsCompoundFile() {
-		compoundFormat := codec.CompoundFormat()
-		if compoundFormat == nil {
-			core.decRef()
-			return nil, fmt.Errorf("segment uses compound file but codec has no CompoundFormat")
-		}
-		cfsReader, err := compoundFormat.GetCompoundReader(directory, segmentInfo)
+	if si.Info.GetUseCompoundFile() {
+		var err error
+		cfsReader, cfsDir, err = codec.CompoundFormat().GetCompoundReader(dir, si.Info)
 		if err != nil {
-			core.decRef()
-			return nil, fmt.Errorf("opening compound reader: %w", err)
+			return nil, err
 		}
-		core.cfsReader = cfsReader
-		cfsDir = cfsReader
 	} else {
-		cfsDir = directory
+		cfsReader = nil
+		cfsDir = dir
 	}
 
-	// Create the segment read state using the compound directory (or raw dir)
-	readState := &SegmentReadState{
-		Directory:     cfsDir,
-		SegmentInfo:   segmentInfo,
-		FieldInfos:    fieldInfos,
-		SegmentSuffix: "",
+	segment := si.Info.Name
+	coreFieldInfos, err := codec.FieldInfosFormat().Read(cfsDir, si.Info, "", context)
+	if err != nil {
+		return nil, err
 	}
 
-	// Initialize FieldsProducer (postings) if there are indexed fields
-	if fieldInfos.HasPostings() {
-		postingsFormat := codec.PostingsFormat()
-		if postingsFormat != nil {
-			fieldsProducer, err := postingsFormat.FieldsProducer(readState)
-			if err != nil {
-				core.decRef()
-				return nil, fmt.Errorf("creating fields producer: %w", err)
-			}
-			core.fields = fieldsProducer
+	segmentReadState := NewSegmentReadState(cfsDir, si.Info, coreFieldInfos, context)
+
+	var fields spi.FieldsProducer
+	if coreFieldInfos.HasPostings() {
+		fields, err = codec.PostingsFormat().FieldsProducer(segmentReadState)
+		if err != nil {
+			return nil, err
 		}
 	}
 
-	// Initialize TermVectorsReader if there are term vectors
-	if fieldInfos.HasTermVectors() {
-		termVectorsFormat := codec.TermVectorsFormat()
-		if termVectorsFormat != nil {
-			tvReader, err := termVectorsFormat.VectorsReader(cfsDir, segmentInfo, fieldInfos, context)
-			if err != nil {
-				core.decRef()
-				return nil, fmt.Errorf("creating term vectors reader: %w", err)
-			}
-			core.termVectorsReader = tvReader
+	var norms spi.NormsProducer
+	if coreFieldInfos.HasNorms() {
+		norms, err = codec.NormsFormat().NormsProducer(segmentReadState)
+		if err != nil {
+			return nil, err
 		}
 	}
 
-	// Initialize StoredFieldsReader. A failure here is non-fatal: the segment
-	// may not have stored fields (e.g., a taxonomy directory stores only doc
-	// values), or the codec header may differ between Gocene and Lucene 10.4.0
-	// (the Gocene-side simple stored-fields format uses "Gocene104StoredFieldsData"
-	// while Java's compressing format uses "Lucene90StoredFieldsFastData").
-	// Callers that request stored fields will receive a nil reader, which panics
-	// early rather than silently serving wrong data.
-	storedFieldsFormat := codec.StoredFieldsFormat()
-	if storedFieldsFormat != nil {
-		sfReader, err := storedFieldsFormat.FieldsReader(cfsDir, segmentInfo, fieldInfos, context)
-		if err == nil {
-			core.storedFieldsReader = sfReader
+	fieldsReader, err := codec.StoredFieldsFormat().FieldsReader(cfsDir, si.Info, coreFieldInfos, context)
+	if err != nil {
+		return nil, err
+	}
+
+	var tvReader spi.TermVectorsReader
+	if coreFieldInfos.HasTermVectors() {
+		tvReader, err = codec.TermVectorsFormat().VectorsReader(cfsDir, si.Info, coreFieldInfos, context)
+		if err != nil {
+			return nil, err
 		}
 	}
 
-	// Initialize the KNN vectors reader if any field carries vector values.
-	// Mirrors the SegmentCoreReaders constructor in Lucene, which opens
-	// codec.knnVectorsFormat().fieldsReader(state) when
-	// fieldInfos.hasVectorValues().
-	if fieldInfos.HasVectorValues() {
-		knnFormat := codec.KnnVectorsFormat()
-		if knnFormat != nil {
-			vrReader, err := knnFormat.FieldsReader(readState)
-			if err != nil {
-				core.decRef()
-				return nil, fmt.Errorf("creating knn vectors reader: %w", err)
-			}
-			core.vectorsReader = vrReader
+	var pointsReader spi.PointsReader
+	if coreFieldInfos.HasPointValues() {
+		pointsReader, err = codec.PointsFormat().FieldsReader(segmentReadState)
+		if err != nil {
+			return nil, err
 		}
 	}
 
-	// Initialize the doc-values producer if any field carries doc values.
-	// Mirrors the SegmentCoreReaders constructor in Lucene, which opens
-	// codec.docValuesFormat().fieldsProducer(state) when
-	// fieldInfos.hasDocValues().
-	if fieldInfos.HasDocValues() {
-		docValuesFormat := codec.DocValuesFormat()
-		if docValuesFormat != nil {
-			dvProducer, err := docValuesFormat.FieldsProducer(readState)
-			if err != nil {
-				core.decRef()
-				return nil, fmt.Errorf("creating doc values producer: %w", err)
-			}
-			core.docValuesProducer = dvProducer
+	var knnReader spi.KnnVectorsReader
+	if coreFieldInfos.HasVectorValues() {
+		knnReader, err = codec.KnnVectorsFormat().FieldsReader(segmentReadState)
+		if err != nil {
+			return nil, err
 		}
 	}
 
-	// Initialize the norms producer if any field carries norms. Mirrors the
-	// SegmentCoreReaders constructor in Lucene, which opens
-	// codec.normsFormat().normsProducer(state) when fieldInfos.hasNorms().
-	if fieldInfos.HasNorms() {
-		normsFormat := codec.NormsFormat()
-		if normsFormat != nil {
-			normsProducer, err := normsFormat.NormsProducer(readState)
-			if err != nil {
-				core.decRef()
-				return nil, fmt.Errorf("creating norms producer: %w", err)
-			}
-			core.normsProducer = normsProducer
-		}
-	}
-
-	// Initialize the points (BKD) reader if any field indexes point values.
-	// Mirrors the SegmentCoreReaders constructor in Lucene, which opens
-	// codec.pointsFormat().fieldsReader(state) when
-	// fieldInfos.hasPointValues().
-	if fieldInfos.HasPointValues() {
-		pointsFormat := codec.PointsFormat()
-		if pointsFormat != nil {
-			ptReader, err := pointsFormat.FieldsReader(readState)
-			if err != nil {
-				core.decRef()
-				return nil, fmt.Errorf("creating points reader: %w", err)
-			}
-			core.pointsReader = ptReader
-		}
-	}
-
-	return core, nil
+	return &SegmentCoreReaders{
+		ref:                  1,
+		Fields:               fields,
+		Norms:                norms,
+		fieldsReaderOrig:    fieldsReader,
+		termVectorsReaderOrig: tvReader,
+		pointsReader:        pointsReader,
+		knnVectorsReader:    knnReader,
+		cfsReader:           cfsReader,
+		segment:             segment,
+		coreFieldInfos:      coreFieldInfos,
+	}, nil
 }
 
-// IncRef increments the reference count.
-// Returns an error if the core is already closed.
-func (core *SegmentCoreReaders) IncRef() error {
+func (s *SegmentCoreReaders) GetRefCount() int32 {
+	return atomic.LoadInt32(&s.ref)
+}
+
+func (s *SegmentCoreReaders) IncRef() error {
 	for {
-		count := core.refCount.Load()
+		count := atomic.LoadInt32(&s.ref)
 		if count <= 0 {
 			return fmt.Errorf("SegmentCoreReaders is already closed")
 		}
-		if core.refCount.CompareAndSwap(count, count+1) {
+		if atomic.CompareAndSwapInt32(&s.ref, count, count+1) {
 			return nil
 		}
 	}
 }
 
-// DecRef decrements the reference count.
-// When the count reaches zero, all readers are closed.
-func (core *SegmentCoreReaders) DecRef() error {
-	if core.refCount.Add(-1) == 0 {
-		return core.close()
+func (s *SegmentCoreReaders) DecRef() error {
+	if atomic.AddInt32(&s.ref, -1) == 0 {
+		// Close all readers
+		if s.Fields != nil {
+			s.Fields.Close()
+		}
+		if s.termVectorsReaderOrig != nil {
+			s.termVectorsReaderOrig.Close()
+		}
+		if s.fieldsReaderOrig != nil {
+			s.fieldsReaderOrig.Close()
+		}
+		if s.cfsReader != nil {
+			s.cfsReader.Close()
+		}
+		if s.Norms != nil {
+			s.Norms.Close()
+		}
+		if s.pointsReader != nil {
+			s.pointsReader.Close()
+		}
+		if s.knnVectorsReader != nil {
+			s.knnVectorsReader.Close()
+		}
 	}
 	return nil
 }
 
-// decRef is the internal version that doesn't return error
-func (core *SegmentCoreReaders) decRef() {
-	if core.refCount.Add(-1) == 0 {
-		core.close()
-	}
+func (s *SegmentCoreReaders) GetSegmentName() string {
+	return s.segment
 }
 
-// close closes all readers and notifies listeners.
-func (core *SegmentCoreReaders) close() error {
-	core.mu.Lock()
-	defer core.mu.Unlock()
-
-	if core.closed {
-		return nil
-	}
-	core.closed = true
-
-	var lastErr error
-
-	// Close fields producer
-	if core.fields != nil {
-		if err := core.fields.Close(); err != nil {
-			lastErr = err
-		}
-	}
-
-	// Close term vectors reader
-	if core.termVectorsReader != nil {
-		if err := core.termVectorsReader.Close(); err != nil {
-			lastErr = err
-		}
-	}
-
-	// Close stored fields reader
-	if core.storedFieldsReader != nil {
-		if err := core.storedFieldsReader.Close(); err != nil {
-			lastErr = err
-		}
-	}
-
-	// Close doc values producer
-	if core.docValuesProducer != nil {
-		if closer, ok := core.docValuesProducer.(interface{ Close() error }); ok {
-			if err := closer.Close(); err != nil {
-				lastErr = err
-			}
-		}
-	}
-
-	// Close norms producer
-	if core.normsProducer != nil {
-		if closer, ok := core.normsProducer.(interface{ Close() error }); ok {
-			if err := closer.Close(); err != nil {
-				lastErr = err
-			}
-		}
-	}
-
-	// Close points reader
-	if core.pointsReader != nil {
-		if closer, ok := core.pointsReader.(interface{ Close() error }); ok {
-			if err := closer.Close(); err != nil {
-				lastErr = err
-			}
-		}
-	}
-
-	// Close vectors reader
-	if core.vectorsReader != nil {
-		if closer, ok := core.vectorsReader.(interface{ Close() error }); ok {
-			if err := closer.Close(); err != nil {
-				lastErr = err
-			}
-		}
-	}
-
-	// Close compound file reader
-	if core.cfsReader != nil {
-		if err := core.cfsReader.Close(); err != nil {
-			lastErr = err
-		}
-	}
-
-	// Notify listeners
-	for _, listener := range core.closedListeners {
-		listener()
-	}
-	core.closedListeners = nil
-
-	return lastErr
+func (s *SegmentCoreReaders) GetFieldInfos() *FieldInfos {
+	return s.coreFieldInfos
 }
 
-// GetRefCount returns the current reference count.
-func (core *SegmentCoreReaders) GetRefCount() int32 {
-	return core.refCount.Load()
+func (s *SegmentCoreReaders) GetStoredFieldsReader() spi.StoredFieldsReader {
+	return s.fieldsReaderOrig
 }
 
-// GetFields returns the FieldsProducer (postings reader).
-// Returns nil if there are no indexed fields.
-func (core *SegmentCoreReaders) GetFields() FieldsProducer {
-	return core.fields
+func (s *SegmentCoreReaders) GetTermVectorsReader() spi.TermVectorsReader {
+	return s.termVectorsReaderOrig
 }
 
-// GetTermVectorsReader returns the TermVectorsReader.
-// Returns nil if there are no term vectors.
-func (core *SegmentCoreReaders) GetTermVectorsReader() TermVectorsReader {
-	return core.termVectorsReader
+func (s *SegmentCoreReaders) GetFields() spi.FieldsProducer {
+	return s.Fields
 }
 
-// GetStoredFieldsReader returns the StoredFieldsReader.
-func (core *SegmentCoreReaders) GetStoredFieldsReader() StoredFieldsReader {
-	return core.storedFieldsReader
+func (s *SegmentCoreReaders) GetNormsProducer() spi.NormsProducer {
+	return s.Norms
 }
 
-// GetDocValuesProducer returns the DocValuesProducer.
-func (core *SegmentCoreReaders) GetDocValuesProducer() interface{} {
-	return core.docValuesProducer
+func (s *SegmentCoreReaders) GetPointsReader() spi.PointsReader {
+	return s.pointsReader
 }
 
-// SetDocValuesProducer replaces the doc-values producer held by this core.
-// Used by openSegmentReader when it overlays a SegmentDocValuesProducer on
-// top of the base producer to handle per-generation doc-values updates.
-func (core *SegmentCoreReaders) SetDocValuesProducer(dvp interface{}) {
-	core.docValuesProducer = dvp
-}
-
-// GetNormsProducer returns the NormsProducer.
-func (core *SegmentCoreReaders) GetNormsProducer() interface{} {
-	return core.normsProducer
-}
-
-// GetPointsReader returns the PointsReader.
-func (core *SegmentCoreReaders) GetPointsReader() interface{} {
-	return core.pointsReader
-}
-
-// GetVectorReader returns the KnnVectorsReader.
-func (core *SegmentCoreReaders) GetVectorReader() interface{} {
-	return core.vectorsReader
-}
-
-// GetFieldInfos returns the FieldInfos for this core.
-func (core *SegmentCoreReaders) GetFieldInfos() *FieldInfos {
-	return core.fieldInfos
-}
-
-// GetSegmentName returns the segment name.
-func (core *SegmentCoreReaders) GetSegmentName() string {
-	return core.segmentName
-}
-
-// GetDirectory returns the directory containing the segment.
-func (core *SegmentCoreReaders) GetDirectory() store.Directory {
-	return core.directory
-}
-
-// AddClosedListener adds a listener to be notified when the core is closed.
-func (core *SegmentCoreReaders) AddClosedListener(listener func()) {
-	core.mu.Lock()
-	defer core.mu.Unlock()
-	core.closedListeners = append(core.closedListeners, listener)
-}
-
-// IsClosed returns true if the core has been closed.
-func (core *SegmentCoreReaders) IsClosed() bool {
-	core.mu.Lock()
-	defer core.mu.Unlock()
-	return core.closed
+func (s *SegmentCoreReaders) GetVectorReader() spi.KnnVectorsReader {
+	return s.knnVectorsReader
 }

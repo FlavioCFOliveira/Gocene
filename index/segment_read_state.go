@@ -5,47 +5,45 @@
 package index
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // SegmentReadState is a holder class for common parameters used during read.
-// Mirrors org.apache.lucene.index.SegmentReadState from Apache Lucene 10.5.0.
+//
+// This is the Go port of Lucene's org.apache.lucene.index.SegmentReadState.
 type SegmentReadState struct {
 	// Directory where this segment is read from.
-	Directory store.Directory
+	Directory util.Directory
+
 	// SegmentInfo describing this segment.
 	SegmentInfo *SegmentInfo
+
 	// FieldInfos describing all fields in this segment.
 	FieldInfos *FieldInfos
+
 	// Context to pass to Directory.OpenInput.
-	Context store.IOContext
+	Context util.IOContext
+
 	// SegmentSuffix is a unique suffix for any postings files read for this segment.
 	SegmentSuffix string
 }
 
-// NewSegmentReadState constructs a SegmentReadState.
-func NewSegmentReadState(dir store.Directory, info *SegmentInfo, fieldInfos *FieldInfos, context store.IOContext) *SegmentReadState {
-	return NewSegmentReadStateWithSuffix(dir, info, fieldInfos, context, "")
-}
-
-// NewSegmentReadStateWithSuffix constructs a SegmentReadState with a segment suffix.
-func NewSegmentReadStateWithSuffix(dir store.Directory, info *SegmentInfo, fieldInfos *FieldInfos, context store.IOContext, segmentSuffix string) *SegmentReadState {
+func NewSegmentReadState(dir util.Directory, info *SegmentInfo, fieldInfos *FieldInfos, context util.IOContext) *SegmentReadState {
 	return &SegmentReadState{
 		Directory:     dir,
 		SegmentInfo:   info,
 		FieldInfos:    fieldInfos,
 		Context:       context,
-		SegmentSuffix: segmentSuffix,
+		SegmentSuffix: "",
 	}
 }
 
-// NewSegmentReadStateFromOther creates a SegmentReadState from another, with a new segment suffix.
-func NewSegmentReadStateFromOther(other *SegmentReadState, newSegmentSuffix string) *SegmentReadState {
+func NewSegmentReadStateWithSuffix(dir util.Directory, info *SegmentInfo, fieldInfos *FieldInfos, context util.IOContext, suffix string) *SegmentReadState {
 	return &SegmentReadState{
-		Directory:     other.Directory,
-		SegmentInfo:   other.SegmentInfo,
-		FieldInfos:    other.FieldInfos,
-		Context:       other.Context,
-		SegmentSuffix: newSegmentSuffix,
+		Directory:     dir,
+		SegmentInfo:   info,
+		FieldInfos:    fieldInfos,
+		Context:       context,
+		SegmentSuffix: suffix,
 	}
 }

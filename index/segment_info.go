@@ -5,89 +5,171 @@
 package index
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/schema"
-	"github.com/FlavioCFOliveira/Gocene/store"
+	"fmt"
+	"strings"
+	"sync"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// This file is the index-side facade for the SegmentInfo type family
-// after the SPI unification (rmp #4669 / Sprint 117 phase 1). The
-// canonical declaration site lives in schema/; index/ re-exports the
-// types as Go aliases so callers that historically reached for
-// index.SegmentInfo, index.NewSegmentInfo, index.Sort, etc. keep
-// compiling without churn.
-//
-// Aliasing a struct with `type X = schema.X` makes the index-package
-// identifier indistinguishable from its schema counterpart at the type
-// system level: methods declared on *schema.SegmentInfo are visible via
-// *index.SegmentInfo, and instances are interchangeable across package
-// boundaries. Constants and free functions cannot be aliased; they are
-// re-exported below as wrappers or var-redeclarations.
-
-// SegmentInfo is an alias of schema.SegmentInfo.
-type SegmentInfo = schema.SegmentInfo
-
-// Sort is an alias of schema.Sort.
-type Sort = schema.Sort
-
-// SortField is an alias of schema.SortField.
-type SortField = schema.SortField
-
-// SortType is an alias of schema.SortType.
-type SortType = schema.SortType
-
-// SortedNumericSortField is an alias of schema.SortedNumericSortField.
-type SortedNumericSortField = schema.SortedNumericSortField
-
-// SortedSetSortField is an alias of schema.SortedSetSortField.
-type SortedSetSortField = schema.SortedSetSortField
-
-// SegmentInfoList is an alias of schema.SegmentInfoList.
-type SegmentInfoList = schema.SegmentInfoList
-
-// SortType constants — Go does not allow aliasing typed constants, so
-// they are re-declared as values of the aliased type.
 const (
-	SortTypeString = schema.SortTypeString
-	SortTypeLong   = schema.SortTypeLong
-	SortTypeInt    = schema.SortTypeInt
-	SortTypeFloat  = schema.SortTypeFloat
-	SortTypeDouble = schema.SortTypeDouble
+	No  = -1
+	Yes = 1
 )
 
-// SortRELEVANCE re-exports schema.SortRELEVANCE.
-var SortRELEVANCE = schema.SortRELEVANCE
+// SegmentInfo provides information about a segment such as its name, directory, and files related to the segment.
+//
+// This is the Go port of Lucene's org.apache.lucene.index.SegmentInfo.
+type SegmentInfo struct {
+	// name is the unique segment name in the directory.
+	Name string
 
-// NewSegmentInfo re-exports schema.NewSegmentInfo.
-func NewSegmentInfo(name string, docCount int, dir store.Directory) *SegmentInfo {
-	return schema.NewSegmentInfo(name, docCount, dir)
+	// dir is where this segment resides.
+	Dir util.Directory
+
+	maxDoc int
+
+	isCompoundFile bool
+
+	// id uniquely identifies this segment.
+	id []byte
+
+	codec spi.Codec
+
+	diagnostics map[string]string
+
+	attributes map[string]string
+
+	// indexSort tracks the sort order of this segment.
+	indexSort any // Simplified as 'any' for now, will refine if a Sort type is available.
+
+	// version tracks the Lucene version this segment was created with.
+	version string
+
+	// minVersion tracks the minimum version that contributed documents to a segment.
+	minVersion string
+
+	hasBlocks bool
+
+	setFiles map[string]struct{}
+
+	mu sync.RWMutex
 }
 
-// NewSort re-exports schema.NewSort.
-func NewSort(fields ...SortField) *Sort {
-	return schema.NewSort(fields...)
+func NewSegmentInfo(dir util.Directory, version string, minVersion string, name string, maxDoc int, isCompoundFile bool, hasBlocks bool, codec spi.Codec, diagnostics map[string]string, id []byte, attributes map[string]string, indexSort any) *SegmentInfo {
+	return &SegmentInfo{
+		Dir:               dir,
+		version:           version,
+		minVersion:        minVersion,
+		Name:              name,
+		maxDoc:            maxDoc,
+		isCompoundFile:    isCompoundFile,
+		hasBlocks:         hasBlocks,
+		codec:             codec,
+		diagnostics:       diagnostics,
+		id:                id,
+		attributes:        attributes,
+		indexSort:         indexSort,
+		setFiles:          make(map[string]struct{}),
+	}
 }
 
-// NewSortField re-exports schema.NewSortField.
-func NewSortField(name string, sortType SortType) SortField {
-	return schema.NewSortField(name, sortType)
+func (s *SegmentInfo) GetUseCompoundFile() bool {
+	return s.isCompoundFile
 }
 
-// NewSortFieldFull re-exports schema.NewSortFieldFull.
-func NewSortFieldFull(name string, sortType SortType, descending bool) SortField {
-	return schema.NewSortFieldFull(name, sortType, descending)
+func (s *SegmentInfo) SetUseCompoundFile(isCompoundFile bool) {
+	s.isCompoundFile = isCompoundFile
 }
 
-// NewSortFromFields re-exports schema.NewSortFromFields.
-func NewSortFromFields(fields []SortField) *Sort {
-	return schema.NewSortFromFields(fields)
+func (s *SegmentInfo) GetHasBlocks() bool {
+	return s.hasBlocks
 }
 
-// NewSortedNumericSortField re-exports schema.NewSortedNumericSortField.
-func NewSortedNumericSortField(name string, sortType SortType) *SortedNumericSortField {
-	return schema.NewSortedNumericSortField(name, sortType)
+func (s *SegmentInfo) SetHasBlocks() {
+	s.hasBlocks = true
 }
 
-// NewSortedSetSortField re-exports schema.NewSortedSetSortField.
-func NewSortedSetSortField(name string, reverse bool) *SortedSetSortField {
-	return schema.NewSortedSetSortField(name, reverse)
+func (s *SegmentInfo) SetCodec(codec spi.Codec) {
+	if codec == nil {
+		panic("codec must be non-null")
+	}
+	s.codec = codec
+}
+
+func (s *SegmentInfo) GetCodec() spi.Codec {
+	return s.codec
+}
+
+func (s *SegmentInfo) MaxDoc() int {
+	if s.maxDoc == -1 {
+		panic("maxDoc isn't set yet")
+	}
+	return s.maxDoc
+}
+
+func (s *SegmentInfo) SetMaxDoc(maxDoc int) {
+	if s.maxDoc != -1 {
+		panic(fmt.Sprintf("maxDoc was already set: this.maxDoc=%d vs maxDoc=%d", s.maxDoc, maxDoc))
+	}
+	s.maxDoc = maxDoc
+}
+
+func (s *SegmentInfo) Files() map[string]struct{} {
+	if s.setFiles == nil {
+		panic("files were not computed yet")
+	}
+	return s.setFiles
+}
+
+func (s *SegmentInfo) SetFiles(files []string) {
+	s.setFiles = make(map[string]struct{})
+	for _, f := range files {
+		s.AddFile(f)
+	}
+}
+
+func (s *SegmentInfo) AddFile(file string) {
+	// In Lucene, it uses IndexFileNames.stripSegmentName(file).
+	// For now, we'll assume it's already formatted or just add it.
+	s.setFiles[file] = struct{}{}
+}
+
+func (s *SegmentInfo) GetAttribute(key string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.attributes[key]
+}
+
+func (s *SegmentInfo) PutAttribute(key, value string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	oldValue := s.attributes[key]
+	s.attributes[key] = value
+	return oldValue
+}
+
+func (s *SegmentInfo) GetAttributes() map[string]string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.attributes
+}
+
+func (s *SegmentInfo) GetVersion() string {
+	return s.version
+}
+
+func (s *SegmentInfo) GetMinVersion() string {
+	return s.minVersion
+}
+
+func (s *SegmentInfo) GetId() []byte {
+	idCopy := make([]byte, len(s.id))
+	copy(idCopy, s.id)
+	return idCopy
+}
+
+func (s *SegmentInfo) String() string {
+	return fmt.Sprintf("%s(%s):%c%d", s.Name, s.version, byte('c'), s.maxDoc)
 }

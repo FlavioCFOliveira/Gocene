@@ -54,7 +54,7 @@ func NewCodecReaderWithFieldInfos(
 	// segment info should come from the core readers or be passed in;
 	// this stub is kept for the LeafReader contract, with docCount=0
 	// (it is set properly via SetDocCount later when needed).
-	segmentInfo := NewSegmentInfo(coreReaders.GetSegmentName(), 0, nil)
+	segmentInfo := NewSegmentInfo(coreReaders.GetCoreCacheKey().(util.Directory), "v1.0.0", "v1.0.0", coreReaders.GetSegmentName(), 0, false, false, coreReaders.GetCodec(), nil, nil, nil, nil)
 	return &CodecReader{
 		LeafReader:  NewLeafReaderWithFieldInfos(segmentInfo, fieldInfos),
 		coreReaders: coreReaders,
