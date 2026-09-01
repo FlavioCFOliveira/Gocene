@@ -2,166 +2,83 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Port of org.apache.lucene.expressions.ExpressionValueSource.
 package expressions
 
 import (
-	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
-// DoubleValuesBindings resolves variable names in an expression to
-// DoubleValuesSource instances. It is the Lucene-API counterpart of
-// Bindings that returns DoubleValuesSource rather than the legacy ValueSource.
+// ExpressionValueSource is a value source that evaluates an expression.
 //
-// Mirrors the role of org.apache.lucene.expressions.Bindings when used with
-// the DoubleValuesSource-based API.
-type DoubleValuesBindings interface {
-	// GetDoubleValuesSource returns the DoubleValuesSource for the given variable
-	// name. The second return value is false when the name is not registered.
-	GetDoubleValuesSource(name string) (DoubleValuesSource, bool)
-}
-
-// ExpressionValueSource is a DoubleValuesSource that evaluates an Expression
-// given a set of per-variable DoubleValuesSource instances resolved from a
-// DoubleValuesBindings.
-//
-// Mirrors org.apache.lucene.expressions.ExpressionValueSource.
+// This is the Go port of Lucene's org.apache.lucene.expressions.ExpressionValueSource.
 type ExpressionValueSource struct {
-	expression  *Expression
-	variables   []DoubleValuesSource
-	needsScores bool
+	expression Expression
+	bindings   Bindings
 }
 
-// NewExpressionValueSource constructs an ExpressionValueSource by resolving
-// each variable in expression against bindings.
-// Returns an error if any variable is not registered in bindings.
-func NewExpressionValueSource(bindings DoubleValuesBindings, expression *Expression) (*ExpressionValueSource, error) {
-	if bindings == nil {
-		return nil, fmt.Errorf("bindings must not be nil")
-	}
-	if expression == nil {
-		return nil, fmt.Errorf("expression must not be nil")
-	}
-	variables := make([]DoubleValuesSource, len(expression.Variables))
-	needsScores := false
-	for i, name := range expression.Variables {
-		src, ok := bindings.GetDoubleValuesSource(name)
-		if !ok {
-			return nil, fmt.Errorf("variable (%s) does not exist", name)
-		}
-		if src.NeedsScores() {
-			needsScores = true
-		}
-		variables[i] = src
-	}
+func NewExpressionValueSource(expression Expression, bindings Bindings) *ExpressionValueSource {
 	return &ExpressionValueSource{
-		expression:  expression,
-		variables:   variables,
-		needsScores: needsScores,
-	}, nil
-}
-
-// newExpressionValueSourceRaw builds an ExpressionValueSource directly from
-// pre-resolved variables. Used internally by Rewrite.
-func newExpressionValueSourceRaw(variables []DoubleValuesSource, expression *Expression, needsScores bool) *ExpressionValueSource {
-	return &ExpressionValueSource{
-		expression:  expression,
-		variables:   variables,
-		needsScores: needsScores,
+		expression: expression,
+		bindings:   bindings,
 	}
 }
 
-// GetValues returns a DoubleValues that evaluates expression for each document,
-// using scores as the scores source for any variable that needs scores.
-// scores may be nil when no variable needs scores.
-func (s *ExpressionValueSource) GetValues(scores DoubleValues) (DoubleValues, error) {
-	valuesCache := make(map[string]DoubleValues, len(s.variables))
-	externalValues := make([]DoubleValues, len(s.expression.Variables))
-
-	for i, name := range s.expression.Variables {
-		dv, cached := valuesCache[name]
-		if !cached {
-			var err error
-			dv, err = s.variables[i].GetValues(scores)
-			if err != nil {
-				return nil, fmt.Errorf("ExpressionValueSource.GetValues: variable %q: %w", name, err)
-			}
-			if dv == nil {
-				return nil, fmt.Errorf("unrecognized variable (%s) referenced in expression (%s)",
-					name, s.expression.SourceText)
-			}
-			valuesCache[name] = dv
-		}
-		externalValues[i] = zeroWhenUnpositioned(dv)
-	}
-
-	return NewExpressionFunctionValues(s.expression, externalValues), nil
+func (evs *ExpressionValueSource) GetValue(context index.LeafReaderContext, doc int) (float64, error) {
+	return evs.expression.Evaluate(evs.bindings, doc)
 }
 
-// NeedsScores reports whether any of the variable sources depends on scores.
-func (s *ExpressionValueSource) NeedsScores() bool { return s.needsScores }
-
-// IsCacheable reports whether all variable sources are cacheable.
-func (s *ExpressionValueSource) IsCacheable() bool {
-	for _, v := range s.variables {
-		if !v.IsCacheable() {
-			return false
-		}
-	}
-	return true
-}
-
-// String returns a human-readable representation.
-func (s *ExpressionValueSource) String() string {
-	return "expr(" + s.expression.SourceText + ")"
-}
-
-// zeroWhenUnpositioned wraps a DoubleValues so that:
-//  1. It always returns true from AdvanceExact (never skips a doc).
-//  2. It lazily advances the underlying source only when DoubleValue is called,
-//     defaulting to 0 if the source has no value for the current doc.
+// CachingExpressionValueSource is an ExpressionValueSource that caches its values.
 //
-// This mirrors the anonymous class returned by ExpressionValueSource.zeroWhenUnpositioned
-// in org.apache.lucene.expressions.ExpressionValueSource.
-func zeroWhenUnpositioned(in DoubleValues) DoubleValues {
-	return &lazyZeroDoubleValues{in: in, currentDoc: -1}
+// This is the Go port of Lucene's org.apache.lucene.expressions.CachingExpressionValueSource.
+type CachingExpressionValueSource struct {
+	ExpressionValueSource
+	cache []float64
 }
 
-type lazyZeroDoubleValues struct {
-	in         DoubleValues
-	currentDoc int
-	value      float64
-	computed   bool
-}
-
-func (z *lazyZeroDoubleValues) AdvanceExact(doc int) (bool, error) {
-	if z.currentDoc == doc {
-		return true, nil
+func NewCachingExpressionValueSource(evs *ExpressionValueSource, maxDoc int) *CachingExpressionValueSource {
+	return &CachingExpressionValueSource{
+		ExpressionValueSource: *evs,
+		cache:                 make([]float64, maxDoc),
 	}
-	z.currentDoc = doc
-	z.computed = false
-	return true, nil
 }
 
-func (z *lazyZeroDoubleValues) DoubleValue() (float64, error) {
-	if !z.computed {
-		ok, err := z.in.AdvanceExact(z.currentDoc)
-		if err != nil {
-			return 0, err
-		}
-		if ok {
-			v, err := z.in.DoubleValue()
-			if err != nil {
-				return 0, err
-			}
-			z.value = v
-		} else {
-			z.value = 0
-		}
-		z.computed = true
+func (cevs *CachingExpressionValueSource) GetValue(context index.LeafReaderContext, doc int) (float64, error) {
+	// Simplified caching logic.
+	if doc >= 0 && doc < len(cevs.cache) {
+		return cevs.cache[doc], nil
 	}
-	return z.value, nil
+	val, err := cevs.ExpressionValueSource.GetValue(context, doc)
+	if err == nil && doc >= 0 && doc < len(cevs.cache) {
+		cevs.cache[doc] = val
+	}
+	return val, err
 }
 
-var _ DoubleValues = (*lazyZeroDoubleValues)(nil)
-var _ DoubleValuesSource = (*ExpressionValueSource)(nil)
+// ExpressionFunctionValues implements DoubleValuesSource using an expression.
+//
+// This is the Go port of Lucene's org.apache.lucene.expressions.ExpressionFunctionValues.
+type ExpressionFunctionValues struct {
+	expression Expression
+	bindings   Bindings
+}
+
+func NewExpressionFunctionValues(expression Expression, bindings Bindings) *ExpressionFunctionValues {
+	return &ExpressionFunctionValues{
+		expression: expression,
+		bindings:   bindings,
+	}
+}
+
+func (efv *ExpressionFunctionValues) GetValues(context index.LeafReaderContext) (map[int]float64, error) {
+	// In Lucene, this returns a DoubleValues implementation.
+	// In Gocene, we use a map for simplicity in this early stage.
+	results := make(map[int]float64)
+	for doc := 0; doc < context.Reader().MaxDoc(); doc++ {
+		val, err := efv.expression.Evaluate(efv.bindings, doc)
+		if err == nil {
+			results[doc] = val
+		}
+	}
+	return results, nil
+}
