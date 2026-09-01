@@ -100,27 +100,15 @@ type QuantizedByteVectorValues interface {
 //
 // AbstractQuantizedByteVectorValues holds no state; embedders may
 // also embed it by value if zero-cost composition is desired.
-type AbstractQuantizedByteVectorValues struct{}
+type AbstractQuantizedByteVectorValues struct {
+	BaseQuantizedByteVectorValues
+}
 
 // GetScalarQuantizer mirrors the Java default, which throws
 // UnsupportedOperationException. Concrete embedders override this
 // when they can expose their quantizer.
 func (*AbstractQuantizedByteVectorValues) GetScalarQuantizer() (*ScalarQuantizer, error) {
 	return nil, ErrUnsupportedOperation
-}
-
-// Scorer mirrors the Java default, which throws
-// UnsupportedOperationException for the float32-query overload.
-// Concrete embedders override this when they can produce a scorer.
-func (*AbstractQuantizedByteVectorValues) Scorer(_ []float32) (VectorScorer, error) {
-	return nil, ErrUnsupportedOperation
-}
-
-// GetSlice mirrors the Java default of HasIndexSlice on
-// QuantizedByteVectorValues, which returns null. Concrete embedders
-// override this when their values are backed by an [store.IndexInput].
-func (*AbstractQuantizedByteVectorValues) GetSlice() store.IndexInput {
-	return nil
 }
 
 // DefaultCopySelf is the canonical "return self" Copy implementation
