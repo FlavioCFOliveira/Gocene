@@ -56,7 +56,7 @@ func (emptyQueryVisitor) ConsumeTerms(query Query, terms ...*index.Term) {}
 func (emptyQueryVisitor) ConsumeTermsMatching(query Query, field string, automaton func() ByteRunAutomaton) {
 }
 func (emptyQueryVisitor) VisitLeaf(query Query)         {}
-func (emptyQueryVisitor) AcceptField(field string) bool { return true }
+func (emptyQueryVisitor) AcceptField(field string) bool { return false }
 func (emptyQueryVisitor) GetSubVisitor(o Occur, p Query) QueryVisitor {
 	return EmptyQueryVisitor
 }
@@ -70,7 +70,9 @@ type TermCollectorVisitor struct {
 
 // NewTermCollectorVisitor creates a TermCollectorVisitor with an empty set.
 func NewTermCollectorVisitor() *TermCollectorVisitor {
-	return &TermCollectorVisitor{Terms: make(map[string]*index.Term)}
+	v := &TermCollectorVisitor{Terms: make(map[string]*index.Term)}
+	v.Visitor = v
+	return v
 }
 
 // ConsumeTerms adds each provided term to the collector.
@@ -86,13 +88,20 @@ func (v *TermCollectorVisitor) ConsumeTerms(query Query, terms ...*index.Term) {
 // EmptyQueryVisitorBase provides default no-op implementations for the optional
 // methods, so test/utility visitors only need to override the methods they care
 // about.
-type EmptyQueryVisitorBase struct{}
+type EmptyQueryVisitorBase struct {
+	// Visitor is the outer visitor instance. It is used by GetSubVisitor to
+	// implement the default "return this" behavior from Lucene's QueryVisitor.
+	Visitor QueryVisitor
+}
 
 func (EmptyQueryVisitorBase) ConsumeTerms(query Query, terms ...*index.Term) {}
 func (EmptyQueryVisitorBase) ConsumeTermsMatching(query Query, field string, automaton func() ByteRunAutomaton) {
 }
 func (EmptyQueryVisitorBase) VisitLeaf(query Query)         {}
 func (EmptyQueryVisitorBase) AcceptField(field string) bool { return true }
-func (EmptyQueryVisitorBase) GetSubVisitor(o Occur, p Query) QueryVisitor {
-	return EmptyQueryVisitor
+func (b EmptyQueryVisitorBase) GetSubVisitor(o Occur, p Query) QueryVisitor {
+	if o == MUST_NOT {
+		return EmptyQueryVisitor
+	}
+	return b.Visitor
 }
