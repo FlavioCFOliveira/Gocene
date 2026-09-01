@@ -1,6 +1,21 @@
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
+//
+// Licensed to the Apache Software Foundation (ASF) under one or more
+// contributor license agreements.  See the NOTICE file distributed with
+// this work for additional information regarding copyright ownership.
+// The ASF licenses this file to You under the Apache License, Version 2.0
+// (the "License"); you may not use this file except in compliance with
+// the License.  You may obtain a copy of the License at
+//
+//	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package search
 
@@ -8,60 +23,30 @@ import (
 	"math"
 )
 
+// Ported from Apache Lucene 10.5.0:
+//   lucene/core/src/java/org/apache/lucene/search/LogOddsFusionScorer.java
+
+// LogOddsFusionScorer combines sub-scorer outputs (assumed to be probabilities
+// in (0, 1)) via log-odds fusion with multiplicative confidence scaling.
+//
+// Mirrors org.apache.lucene.search.LogOddsFusionScorer (Lucene 10.5.0).
+type LogOddsFusionScorer struct {
+	*DisjunctionScorer
+	subScorers     []Scorer
+	totalClauses   int
+	scalingFactor  float32
+	signalWeights  []float32
+	logitMin       []float32
+	logitMax       []float32
+	scorerIndexMap map[Scorer]int
+}
+
 const (
 	clampMin = 1e-7
 	clampMax = 1.0 - 1e-7
 )
 
-// clampProbability restricts a probability to the range [clampMin, clampMax].
-func clampProbability(p float32) float32 {
-	if p < clampMin {
-		return clampMin
-	}
-	if p > clampMax {
-		return clampMax
-	}
-	return p
-}
-
-// logit computes the log-odds of a probability p: ln(p / (1 - p)).
-func logit(p float32) float32 {
-	clamped := clampProbability(p)
-	return float32(math.Log(float64(clamped / (1.0 - clamped))))
-}
-
-// sigmoid computes the sigmoid of x: 1 / (1 + exp(-x)).
-func sigmoid(x float32) float32 {
-	if x >= 0 {
-		return float32(1.0 / (1.0 + math.Exp(float64(-x))))
-	}
-	expX := math.Exp(float64(x))
-	return float32(expX / (1.0 + expX))
-}
-
-// softplus computes log(1 + exp(x)).
-// For x > 20, softplus(x) ≈ x.
-func softplus(x float32) float32 {
-	if x > 20.0 {
-		return x
-	}
-	return float32(math.Log1p(math.Exp(float64(x))))
-}
-
-// LogOddsFusionScorer combines sub-scorer outputs via log-odds fusion.
-// It embeds DisjunctionScorer to leverage the union iteration logic.
-type LogOddsFusionScorer struct {
-	*DisjunctionScorer
-	subScorers    []Scorer
-	totalClauses  int
-	scalingFactor float32
-	signalWeights []float32
-	logitMin      []float32
-	logitMax      []float32
-	scorerIndexMap map[*Scorer]int
-}
-
-// NewLogOddsFusionScorer creates a new LogOddsFusionScorer.
+// NewLogOddsFusionScorer constructs a LogOddsFusionScorer.
 func NewLogOddsFusionScorer(
 	subScorers []Scorer,
 	totalClauses int,
@@ -72,28 +57,58 @@ func NewLogOddsFusionScorer(
 	scoreMode ScoreMode,
 	leadCost int64,
 ) *LogOddsFusionScorer {
-	base := newDisjunctionScorer(subScorers, scoreMode, leadCost)
+	ds := newDisjunctionScorer(subScorers, scoreMode, leadCost)
 
 	scalingFactor := float32(math.Pow(float64(totalClauses), float64(alpha)))
 
-	var indexMap map[*Scorer]int
+	var indexMap map[Scorer]int
 	if signalWeights != nil {
-		indexMap = make(map[*Scorer]int, len(subScorers))
+		indexMap = make(map[Scorer]int, len(subScorers))
 		for i, s := range subScorers {
 			indexMap[s] = i
 		}
 	}
 
 	return &LogOddsFusionScorer{
-		DisjunctionScorer: base,
-		subScorers:        subScorers,
-		totalClauses:      totalClauses,
-		scalingFactor:     scalingFactor,
-		signalWeights:     signalWeights,
-		logitMin:          logitMin,
-		logitMax:          logitMax,
+		DisjunctionScorer: ds,
+		subScorers:         subScorers,
+		totalClauses:       totalClauses,
+		scalingFactor:      scalingFactor,
+		signalWeights:      signalWeights,
+		logitMin:           logitMin,
+		logitMax:           logitMax,
 		scorerIndexMap:     indexMap,
 	}
+}
+
+func clampProbability(p float32) float32 {
+	if p < clampMin {
+		return clampMin
+	}
+	if p > clampMax {
+		return clampMax
+	}
+	return p
+}
+
+func logit(p float32) float32 {
+	clamped := clampProbability(p)
+	return float32(math.Log(float64(clamped / (1.0 - clamped))))
+}
+
+func sigmoid(x float32) float32 {
+	if x >= 0 {
+		return float32(1.0 / (1.0 + math.Exp(float64(-x))))
+	}
+	expX := math.Exp(float64(x))
+	return float32(expX / (1.0 + expX))
+}
+
+func softplus(x float32) float32 {
+	if x > 20.0 {
+		return x
+	}
+	return float32(math.Log1p(math.Exp(float64(x))))
 }
 
 func (s *LogOddsFusionScorer) gateLogit(rawLogit float32, signalIndex int) float32 {
@@ -114,30 +129,32 @@ func (s *LogOddsFusionScorer) gateLogit(rawLogit float32, signalIndex int) float
 	return softplus(rawLogit)
 }
 
-// Score returns the fused score for the current document.
+// Score overrides DisjunctionScorer.Score by calling the specialized scoreTopList.
 func (s *LogOddsFusionScorer) Score() float32 {
-	topList, err := s.DisjunctionScorer.getSubMatches()
+	topList, err := s.getSubMatches()
 	if err != nil {
 		return 0
 	}
 	return s.scoreTopList(topList)
 }
 
+// scoreTopList implements the Log-Odds Fusion formula.
 func (s *LogOddsFusionScorer) scoreTopList(topList *DisiWrapper) float32 {
 	var logitSum float64
 	for w := topList; w != nil; w = w.next {
 		subScore := w.scorable.Score()
-
-		idx := 0
+		idx := -1
 		if s.scorerIndexMap != nil {
-			if foundIdx, ok := s.scorerIndexMap[w.scorer]; ok {
-				idx = foundIdx
-			}
+			idx = s.scorerIndexMap[w.scorer]
 		}
 
-		gated := s.gateLogit(logit(subScore), idx)
+		signalIdx := 0
+		if idx >= 0 {
+			signalIdx = idx
+		}
+		gated := s.gateLogit(logit(subScore), signalIdx)
 
-		if s.signalWeights != nil {
+		if s.scorerIndexMap != nil && idx >= 0 {
 			logitSum += float64(s.signalWeights[idx] * gated)
 		} else {
 			logitSum += float64(gated)
@@ -150,18 +167,16 @@ func (s *LogOddsFusionScorer) scoreTopList(topList *DisiWrapper) float32 {
 	} else {
 		scaledLogit = float32((logitSum / float64(s.totalClauses)) * float64(s.scalingFactor))
 	}
-
 	return sigmoid(scaledLogit)
 }
 
-// GetMaxScore returns an upper bound on the score for any document up to upTo.
+// GetMaxScore returns an upper bound on the score for any document ≤ upTo.
 func (s *LogOddsFusionScorer) GetMaxScore(upTo int) float32 {
 	var maxLogitSum float64
 	for i, scorer := range s.subScorers {
 		if scorer.DocID() <= upTo {
 			maxSubScore := scorer.GetMaxScore(upTo)
 			gated := s.gateLogit(logit(maxSubScore), i)
-
 			if s.signalWeights != nil {
 				maxLogitSum += float64(s.signalWeights[i] * gated)
 			} else {
@@ -176,6 +191,5 @@ func (s *LogOddsFusionScorer) GetMaxScore(upTo int) float32 {
 	} else {
 		scaledLogit = float32((maxLogitSum / float64(s.totalClauses)) * float64(s.scalingFactor))
 	}
-
 	return sigmoid(scaledLogit)
 }
