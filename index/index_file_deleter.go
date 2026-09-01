@@ -665,8 +665,8 @@ func (d *IndexFileDeleter) assertCommitsNotDeleted(commits []*indexFileDeleterCo
 // embedded *IndexCommit so they can be handed to IndexDeletionPolicy. The
 // returned slice shares state with d.commits: the policy's Delete() flips
 // the CommitPoint's deleted flag and enqueues it in commitsToDelete.
-func (d *IndexFileDeleter) commitsAsIndexCommits() []*IndexCommit {
-	out := make([]*IndexCommit, 0, len(d.commits))
+func (d *IndexFileDeleter) commitsAsIndexCommits() []Commit {
+	out := make([]Commit, 0, len(d.commits))
 	for _, cp := range d.commits {
 		out = append(out, cp.indexCommit)
 	}

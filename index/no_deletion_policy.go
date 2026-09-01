@@ -17,10 +17,10 @@ type NoDeletionPolicy struct{}
 var NoDeletionPolicyInstance IndexDeletionPolicy = &NoDeletionPolicy{}
 
 // OnInit is a no-op.
-func (n *NoDeletionPolicy) OnInit(_ []*IndexCommit) error { return nil }
+func (n *NoDeletionPolicy) OnInit(_ []Commit) error { return nil }
 
 // OnCommit is a no-op.
-func (n *NoDeletionPolicy) OnCommit(_ []*IndexCommit) error { return nil }
+func (n *NoDeletionPolicy) OnCommit(_ []Commit) error { return nil }
 
 // Clone returns the same singleton; NoDeletionPolicy has no state.
 func (n *NoDeletionPolicy) Clone() IndexDeletionPolicy { return n }

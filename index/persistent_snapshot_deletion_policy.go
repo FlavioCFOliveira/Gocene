@@ -104,9 +104,7 @@ func (psdp *PersistentSnapshotDeletionPolicy) msgf(format string, args ...interf
 	}
 }
 
-// Snapshot creates a snapshot of the given commit and persists it to disk.
-// Returns the generation of the snapshotted commit.
-func (psdp *PersistentSnapshotDeletionPolicy) Snapshot(commit *IndexCommit) (int64, error) {
+func (psdp *PersistentSnapshotDeletionPolicy) Snapshot(commit Commit) (int64, error) {
 	gen, err := psdp.SnapshotDeletionPolicy.Snapshot(commit)
 	if err != nil {
 		return 0, err
@@ -124,7 +122,7 @@ func (psdp *PersistentSnapshotDeletionPolicy) Snapshot(commit *IndexCommit) (int
 }
 
 // SnapshotGeneration creates a snapshot by generation and persists it.
-func (psdp *PersistentSnapshotDeletionPolicy) SnapshotGeneration(commits []*IndexCommit, generation int64) error {
+func (psdp *PersistentSnapshotDeletionPolicy) SnapshotGeneration(commits []Commit, generation int64) error {
 	if err := psdp.SnapshotDeletionPolicy.SnapshotGeneration(commits, generation); err != nil {
 		return err
 	}
@@ -304,7 +302,7 @@ func getCurrentTimestamp() int64 {
 
 // OnInit is called when IndexWriter is initialized.
 // It applies any pending snapshots loaded from disk.
-func (psdp *PersistentSnapshotDeletionPolicy) OnInit(commits []*IndexCommit) error {
+func (psdp *PersistentSnapshotDeletionPolicy) OnInit(commits []Commit) error {
 	// Call parent's OnInit
 	if err := psdp.SnapshotDeletionPolicy.OnInit(commits); err != nil {
 		return err
