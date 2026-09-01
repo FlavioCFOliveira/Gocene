@@ -6,94 +6,101 @@ package search
 
 import (
 	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
-// SpanWithinQuery matches spans that are within another span.
-// This is the Go port of Lucene's org.apache.lucene.search.spans.SpanWithinQuery.
+// SpanWithinQuery matches spans from the 'little' query that are contained within
+// a span from the 'big' query.
+// This is the Go port of Lucene's org.apache.lucene.queries.spans.SpanWithinQuery.
 type SpanWithinQuery struct {
-	BaseSpanQuery
-	big   SpanQuery
-	small SpanQuery
+	*SpanContainQuery
 }
 
-// NewSpanWithinQuery creates a new SpanWithinQuery.
-// big: the containing span query
-// small: the contained span query
-func NewSpanWithinQuery(big, small SpanQuery) *SpanWithinQuery {
-	if big.GetField() != small.GetField() {
-		return nil
-	}
-
+// NewSpanWithinQuery constructs a SpanWithinQuery.
+func NewSpanWithinQuery(big, little SpanQuery) *SpanWithinQuery {
 	return &SpanWithinQuery{
-		BaseSpanQuery: *NewBaseSpanQuery(big.GetField()),
-		big:           big,
-		small:         small,
+		SpanContainQuery: NewSpanContainQuery(big, little),
 	}
-}
-
-// Big returns the big (containing) query.
-func (q *SpanWithinQuery) Big() SpanQuery {
-	return q.big
-}
-
-// Small returns the small (contained) query.
-func (q *SpanWithinQuery) Small() SpanQuery {
-	return q.small
-}
-
-// Rewrite rewrites this query to a more primitive form.
-func (q *SpanWithinQuery) Rewrite(reader IndexReader) (Query, error) {
-	return q, nil
 }
 
 // CreateWeight creates a Weight for this query.
-func (q *SpanWithinQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	return NewSpanWeight(q, nil), nil
+func (q *SpanWithinQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (SpanWeight, error) {
+	bigWeight, err := q.big.CreateWeight(searcher, needsScores, boost)
+	if err != nil {
+		return nil, err
+	}
+	littleWeight, err := q.little.CreateWeight(searcher, needsScores, boost)
+	if err != nil {
+		return nil, err
+	}
+	return &SpanWithinWeight{
+		SpanContainWeight: &SpanContainWeight{
+			SpanWeight:    NewSpanWeight(q, nil),
+			bigWeight:     bigWeight,
+			littleWeight: littleWeight,
+		},
+		searcher:    searcher,
+		boost:       boost,
+		needsScores: needsScores,
+	}, nil
 }
 
-// Clone creates a copy of this query.
-func (q *SpanWithinQuery) Clone() Query {
-	return &SpanWithinQuery{
-		BaseSpanQuery: *NewBaseSpanQuery(q.field),
-		big:           q.big.Clone().(SpanQuery),
-		small:         q.small.Clone().(SpanQuery),
-	}
+// SpanWithinWeight is the Weight implementation for SpanWithinQuery.
+type SpanWithinWeight struct {
+	*SpanContainWeight
+	searcher    *IndexSearcher
+	boost       float32
+	needsScores bool
 }
 
-// Equals checks if this query equals another.
-func (q *SpanWithinQuery) Equals(other Query) bool {
-	if other == nil {
-		return false
+func (w *SpanWithinWeight) GetSpans(ctx *index.LeafReaderContext, requiredPostings int) (Spans, error) {
+	bigSpans, err := w.bigWeight.GetSpans(ctx, requiredPostings)
+	if err != nil {
+		return nil, err
 	}
-	if o, ok := other.(*SpanWithinQuery); ok {
-		return q.field == o.field &&
-			q.big.Equals(o.big) &&
-			q.small.Equals(o.small)
+	if bigSpans == nil {
+		return nil, nil
 	}
-	return false
+	littleSpans, err := w.littleWeight.GetSpans(ctx, requiredPostings)
+	if err != nil {
+		return nil, err
+	}
+	if littleSpans == nil {
+		return nil, nil
+	}
+
+	return NewContainSpans(bigSpans, littleSpans, littleSpans, true), nil
 }
 
-// HashCode returns a hash code for this query.
-func (q *SpanWithinQuery) HashCode() int {
-	h := 17
-	h = 31*h + len(q.field)
-	for i := 0; i < len(q.field); i++ {
-		h = 31*h + int(q.field[i])
-	}
-	h = 31*h + q.big.HashCode()
-	h = 31*h + q.small.HashCode()
-	return h
+func (w *SpanWithinWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
+	return w.bigWeight.IsCacheable(ctx) && w.littleWeight.IsCacheable(ctx)
 }
 
-// String returns a string representation of the query.
+func (w *SpanWithinWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) {
+	spans, err := w.GetSpans(context, index.PostingsFlagPositions)
+	if err != nil {
+		return nil, err
+	}
+	if spans == nil {
+		return nil, nil
+	}
+	return NewSpanScorer(spans, w.boost), nil
+}
+
+func (w *SpanWithinWeight) ScorerSupplier(context *index.LeafReaderContext) (ScorerSupplier, error) {
+	scorer, err := w.Scorer(context)
+	if err != nil {
+		return nil, err
+	}
+	if scorer == nil {
+		return nil, nil
+	}
+	return NewScorerSupplierAdapter(scorer), nil
+}
+
 func (q *SpanWithinQuery) String(field string) string {
-	if field == "" || field != q.field {
-		return fmt.Sprintf("SpanWithinQuery(field=%s, big=%s, small=%s)",
-			q.field, q.big.String(q.field), q.small.String(q.field))
-	}
-	return fmt.Sprintf("SpanWithinQuery(big=%s, small=%s)",
-		q.big.String(q.field), q.small.String(q.field))
+	return q.SpanContainQuery.String(field, "SpanWithin")
 }
 
-// Ensure SpanWithinQuery implements SpanQuery
 var _ SpanQuery = (*SpanWithinQuery)(nil)

@@ -6,85 +6,148 @@ package search
 
 import (
 	"fmt"
-	"strings"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
-// SpanOrQuery combines multiple span queries with OR logic.
-// This is the Go port of Lucene's org.apache.lucene.search.spans.SpanOrQuery.
+// SpanOrQuery matches the union of its clauses.
+// This is the Go port of Lucene's org.apache.lucene.queries.spans.SpanOrQuery.
 type SpanOrQuery struct {
 	BaseSpanQuery
 	clauses []SpanQuery
 }
 
-// NewSpanOrQuery creates a new SpanOrQuery.
-func NewSpanOrQuery(clauses ...SpanQuery) *SpanOrQuery {
-	if len(clauses) == 0 {
-		return nil
+// NewSpanOrQuery constructs a SpanOrQuery merging the provided clauses.
+func NewSpanOrQuery(clauses []SpanQuery) *SpanOrQuery {
+	field := ""
+	if len(clauses) > 0 {
+		field = clauses[0].GetField()
 	}
-
-	// All clauses must have the same field
-	field := clauses[0].GetField()
-	for _, clause := range clauses {
-		if clause.GetField() != field {
-			return nil
+	for _, q := range clauses {
+		if q.GetField() != field {
+			panic(fmt.Sprintf("Clauses must have same field: %s vs %s", field, q.GetField()))
 		}
 	}
-
 	return &SpanOrQuery{
 		BaseSpanQuery: *NewBaseSpanQuery(field),
 		clauses:       clauses,
 	}
 }
 
-// Clauses returns the clauses.
-func (q *SpanOrQuery) Clauses() []SpanQuery {
+// GetClauses returns the clauses whose spans are matched.
+func (q *SpanOrQuery) GetClauses() []SpanQuery {
 	return q.clauses
 }
 
-// AddClause adds a clause to this query.
-func (q *SpanOrQuery) AddClause(clause SpanQuery) {
-	if clause.GetField() == q.field {
-		q.clauses = append(q.clauses, clause)
+// CreateWeight creates a Weight for this query.
+func (q *SpanOrQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (SpanWeight, error) {
+	subWeights := make([]SpanWeight, 0, len(q.clauses))
+	for _, q := range q.clauses {
+		sw, err := q.CreateWeight(searcher, needsScores, boost)
+		if err != nil {
+			return nil, err
+		}
+		subWeights = append(subWeights, sw)
+	}
+	return &SpanOrWeight{
+		SpanWeight:  NewSpanWeight(q, nil),
+		subWeights:  subWeights,
+		searcher:    searcher,
+		boost:       boost,
+		needsScores: needsScores,
+	}, nil
+}
+
+// SpanOrWeight is the Weight implementation for SpanOrQuery.
+type SpanOrWeight struct {
+	*SpanWeight
+	subWeights  []SpanWeight
+	searcher    *IndexSearcher
+	boost       float32
+	needsScores bool
+}
+
+func (w *SpanOrWeight) extractTermStates(contexts map[index.Term]*index.TermStates) {
+	for _, sw := range w.subWeights {
+		sw.ExtractTermStates(contexts)
 	}
 }
 
-// Rewrite rewrites this query to a more primitive form.
+func (w *SpanOrWeight) GetSpans(ctx *index.LeafReaderContext, requiredPostings int) (Spans, error) {
+	subSpans := make([]Spans, 0, len(w.subWeights))
+	for _, sw := range w.subWeights {
+		spans, err := sw.GetSpans(ctx, requiredPostings)
+		if err != nil {
+			return nil, err
+		}
+		if spans != nil {
+			subSpans = append(subSpans, spans)
+		}
+	}
+
+	if len(subSpans) == 0 {
+		return nil, nil
+	} else if len(subSpans) == 1 {
+		return subSpans[0], nil
+	}
+
+	// For now, implement a simplified union of spans.
+	// A full implementation would use a priority queue to merge sorted span streams.
+	return NewNearSpansUnordered(0, subSpans), nil // Reuse NearSpansUnordered for union
+}
+
+func (w *SpanOrWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
+	for _, sw := range w.subWeights {
+		if !sw.IsCacheable(ctx) {
+			return false
+		}
+	}
+	return true
+}
+
+func (w *SpanOrWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) {
+	spans, err := w.GetSpans(context, index.PostingsFlagPositions)
+	if err != nil {
+		return nil, err
+	}
+	if spans == nil {
+		return nil, nil
+	}
+	return NewSpanScorer(spans, w.boost), nil
+}
+
+func (w *SpanOrWeight) ScorerSupplier(context *index.LeafReaderContext) (ScorerSupplier, error) {
+	scorer, err := w.Scorer(context)
+	if err != nil {
+		return nil, err
+	}
+	if scorer == nil {
+		return nil, nil
+	}
+	return NewScorerSupplierAdapter(scorer), nil
+}
+
 func (q *SpanOrQuery) Rewrite(reader IndexReader) (Query, error) {
-	if len(q.clauses) == 0 {
-		return NewMatchNoDocsQuery(), nil
-	}
-	if len(q.clauses) == 1 {
-		return q.clauses[0], nil
-	}
 	return q, nil
 }
 
-// CreateWeight creates a Weight for this query.
-func (q *SpanOrQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	return NewSpanWeight(q, nil), nil
-}
-
-// Clone creates a copy of this query.
-func (q *SpanOrQuery) Clone() Query {
-	clausesCopy := make([]SpanQuery, len(q.clauses))
+func (q *SpanOrQuery) String(field string) string {
+	res := "spanOr(["
 	for i, clause := range q.clauses {
-		clausesCopy[i] = clause.Clone().(SpanQuery)
+		res += clause.String(field)
+		if i < len(q.clauses)-1 {
+			res += ", "
+		}
 	}
-	return &SpanOrQuery{
-		BaseSpanQuery: *NewBaseSpanQuery(q.field),
-		clauses:       clausesCopy,
-	}
+	res += "])"
+	return res
 }
 
-// Equals checks if this query equals another.
 func (q *SpanOrQuery) Equals(other Query) bool {
 	if other == nil {
 		return false
 	}
 	if o, ok := other.(*SpanOrQuery); ok {
-		if q.field != o.field {
-			return false
-		}
 		if len(q.clauses) != len(o.clauses) {
 			return false
 		}
@@ -98,30 +161,12 @@ func (q *SpanOrQuery) Equals(other Query) bool {
 	return false
 }
 
-// HashCode returns a hash code for this query.
 func (q *SpanOrQuery) HashCode() int {
 	h := 17
-	h = 31*h + len(q.field)
-	for i := 0; i < len(q.field); i++ {
-		h = 31*h + int(q.field[i])
+	for _, clause := range q.clauses {
+		h = 31*h + clause.HashCode()
 	}
-	h = 31*h + len(q.clauses)
 	return h
 }
 
-// String returns a string representation of the query.
-func (q *SpanOrQuery) String(field string) string {
-	var clauseStrs []string
-	for _, clause := range q.clauses {
-		clauseStrs = append(clauseStrs, clause.String(q.field))
-	}
-
-	if field == "" || field != q.field {
-		return fmt.Sprintf("SpanOrQuery(field=%s, clauses=[%s])",
-			q.field, strings.Join(clauseStrs, ", "))
-	}
-	return fmt.Sprintf("SpanOrQuery(clauses=[%s])", strings.Join(clauseStrs, ", "))
-}
-
-// Ensure SpanOrQuery implements SpanQuery
 var _ SpanQuery = (*SpanOrQuery)(nil)

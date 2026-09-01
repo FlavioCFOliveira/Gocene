@@ -4,18 +4,46 @@
 
 package search
 
-import "github.com/FlavioCFOliveira/Gocene/index"
+import (
+	"github.com/FlavioCFOliveira/Gocene/index"
+)
 
 // GC-1002: Spans iterator interface
 // Spans is an iterator over span matches for (doc, start, end) tuples.
 // This is the Go port of Lucene's org.apache.lucene.search.spans.Spans.
-//
-// Spans has two backends. The array backend (docs/starts/ends) replays a
-// pre-computed list of single-position spans and is used by callers that build
-// spans eagerly. The postings backend (postings != nil) iterates a term's
-// PostingsEnum lazily and faithfully reproduces Lucene's TermSpans: one span
-// per term occurrence, with zero width and endPosition == startPosition + 1.
-type Spans struct {
+type Spans interface {
+	// NextDoc advances to the next document.
+	NextDoc() (int, error)
+	// Advance advances to the specified document.
+	Advance(target int) (int, error)
+	// DocID returns the current document ID.
+	DocID() int
+	// NextStartPosition advances to the next start position. It returns -1
+	// (Lucene's Spans.NO_MORE_POSITIONS) once every occurrence has been consumed.
+	NextStartPosition() (int, error)
+	// StartPosition returns the start position.
+	StartPosition() int
+	// EndPosition returns the end position.
+	EndPosition() int
+	// Freq returns the frequency of spans in the current document.
+	Freq() int
+	// Width returns the width of the current span.
+	Width() int
+	// Cost returns the estimated cost of iterating through all documents.
+	Cost() int64
+	// DocIDRunEnd returns the end of the current run of consecutive doc IDs.
+	DocIDRunEnd() int
+	// Collect adds all matching spans to the supplied collector.
+	Collect(collector *SpanCollector)
+	// PositionsCost returns the cost of iterating positions.
+	PositionsCost() float32
+	// AsTwoPhaseIterator returns the iterator as a two-phase iterator.
+	AsTwoPhaseIterator() *TwoPhaseIterator
+}
+
+// BaseSpans is the default implementation of Spans.
+// It supports both array-backed and postings-backed iteration.
+type BaseSpans struct {
 	doc      int
 	freq     int
 	position int
@@ -26,15 +54,15 @@ type Spans struct {
 	ends     []int
 	index    int
 
-	// postings, when non-nil, switches Spans into TermSpans mode: positions are
+	// postings, when non-nil, switches BaseSpans into TermSpans mode: positions are
 	// drained from the term's PostingsEnum rather than the array backend.
 	postings index.PostingsEnum
 	count    int // number of positions consumed in the current document
 }
 
 // NewSpans creates a new array-backed Spans iterator.
-func NewSpans(docs []int, starts []int, ends []int) *Spans {
-	return &Spans{
+func NewSpans(docs []int, starts []int, ends []int) Spans {
+	return &BaseSpans{
 		doc:    -1,
 		docs:   docs,
 		starts: starts,
@@ -46,8 +74,8 @@ func NewSpans(docs []int, starts []int, ends []int) *Spans {
 // NewTermSpans creates a postings-backed Spans over a single term's positions.
 // It is the Go port of org.apache.lucene.queries.spans.TermSpans: the supplied
 // PostingsEnum must have been opened with positions (PostingsEnum.POSITIONS).
-func NewTermSpans(postings index.PostingsEnum) *Spans {
-	return &Spans{
+func NewTermSpans(postings index.PostingsEnum) Spans {
+	return &BaseSpans{
 		doc:      -1,
 		position: -1,
 		postings: postings,
@@ -55,13 +83,11 @@ func NewTermSpans(postings index.PostingsEnum) *Spans {
 	}
 }
 
-// postingsBacked reports whether this Spans drains positions from a PostingsEnum.
-func (s *Spans) postingsBacked() bool {
+func (s *BaseSpans) postingsBacked() bool {
 	return s.postings != nil
 }
 
-// NextDoc advances to the next document.
-func (s *Spans) NextDoc() (int, error) {
+func (s *BaseSpans) NextDoc() (int, error) {
 	if s.postingsBacked() {
 		d, err := s.postings.NextDoc()
 		if err != nil {
@@ -82,8 +108,7 @@ func (s *Spans) NextDoc() (int, error) {
 	return s.doc, nil
 }
 
-// Advance advances to the specified document.
-func (s *Spans) Advance(target int) (int, error) {
+func (s *BaseSpans) Advance(target int) (int, error) {
 	if s.postingsBacked() {
 		d, err := postingsAdvanceTo(s.postings, target)
 		if err != nil {
@@ -110,9 +135,7 @@ func (s *Spans) Advance(target int) (int, error) {
 	return NO_MORE_DOCS, nil
 }
 
-// onPostingsDoc resets the position state after the underlying PostingsEnum
-// settles on a new document, mirroring TermSpans.nextDoc/advance.
-func (s *Spans) onPostingsDoc(d int) (int, error) {
+func (s *BaseSpans) onPostingsDoc(d int) (int, error) {
 	if d == index.NO_MORE_DOCS {
 		s.doc = NO_MORE_DOCS
 		s.position = -1
@@ -130,14 +153,11 @@ func (s *Spans) onPostingsDoc(d int) (int, error) {
 	return s.doc, nil
 }
 
-// DocID returns the current document ID.
-func (s *Spans) DocID() int {
+func (s *BaseSpans) DocID() int {
 	return s.doc
 }
 
-// NextStartPosition advances to the next start position. It returns -1
-// (Lucene's Spans.NO_MORE_POSITIONS) once every occurrence has been consumed.
-func (s *Spans) NextStartPosition() (int, error) {
+func (s *BaseSpans) NextStartPosition() (int, error) {
 	if s.postingsBacked() {
 		if s.count == s.freq {
 			s.position = -1
@@ -158,17 +178,14 @@ func (s *Spans) NextStartPosition() (int, error) {
 	return -1, nil
 }
 
-// StartPosition returns the start position.
-func (s *Spans) StartPosition() int {
+func (s *BaseSpans) StartPosition() int {
 	if s.postingsBacked() {
 		return s.position
 	}
 	return s.start
 }
 
-// EndPosition returns the end position. For the postings (TermSpans) backend it
-// is startPosition + 1, matching Lucene's TermSpans.endPosition().
-func (s *Spans) EndPosition() int {
+func (s *BaseSpans) EndPosition() int {
 	if s.postingsBacked() {
 		if s.position == -1 {
 			return -1
@@ -178,40 +195,34 @@ func (s *Spans) EndPosition() int {
 	return s.end
 }
 
-// Freq returns the frequency of spans in the current document.
-func (s *Spans) Freq() int {
+func (s *BaseSpans) Freq() int {
 	if s.postingsBacked() {
 		return s.freq
 	}
 	return s.end - s.start
 }
 
-// Width returns the width of the current span. The postings (TermSpans) backend
-// always reports 0, matching Lucene's TermSpans.width().
-func (s *Spans) Width() int {
+func (s *BaseSpans) Width() int {
 	if s.postingsBacked() {
 		return 0
 	}
 	return s.end - s.start
 }
 
-// Cost returns the estimated cost of iterating through all documents.
-func (s *Spans) Cost() int64 {
+func (s *BaseSpans) Cost() int64 {
 	if s.postingsBacked() {
 		return s.postings.Cost()
 	}
 	return int64(len(s.docs))
 }
 
-// DocIDRunEnd returns the end of the current run of consecutive doc IDs.
-func (s *Spans) DocIDRunEnd() int {
+func (s *BaseSpans) DocIDRunEnd() int {
 	if s.doc == NO_MORE_DOCS {
 		return NO_MORE_DOCS
 	}
 	if s.postingsBacked() {
 		return s.doc + 1
 	}
-	// Find the end of consecutive doc IDs
 	end := s.doc + 1
 	for i := s.index + 1; i < len(s.docs); i++ {
 		if s.docs[i] == end {
@@ -223,11 +234,32 @@ func (s *Spans) DocIDRunEnd() int {
 	return end
 }
 
-// Ensure Spans implements DocIdSetIterator
-var _ DocIdSetIterator = (*Spans)(nil)
+func (s *BaseSpans) Collect(collector *SpanCollector) {
+	for s.DocID() != NO_MORE_DOCS {
+		start := s.StartPosition()
+		for start != -1 {
+			collector.AddSpan(s.DocID(), start, s.EndPosition())
+			start = s.NextStartPosition()
+		}
+		s.NextDoc()
+	}
+}
+
+func (s *BaseSpans) PositionsCost() float32 {
+	if s.postingsBacked() {
+		// This is a simplified estimate. In a real implementation,
+		// we would use the term's actual cost.
+		return 4.0
+	}
+	return 0.0
+}
+
+func (s *BaseSpans) AsTwoPhaseIterator() *TwoPhaseIterator {
+	return NewTwoPhaseIterator(s)
+}
 
 // EmptySpans is a Spans with no documents.
-var EmptySpans = &Spans{
+var EmptySpans = &BaseSpans{
 	doc:    NO_MORE_DOCS,
 	docs:   []int{},
 	starts: []int{},

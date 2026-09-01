@@ -15,7 +15,7 @@ import "math"
 // similarity-based scoring with position-aware adjustments.
 type SpanScorer struct {
 	// spans is the underlying Spans iterator
-	spans *Spans
+	spans Spans
 
 	// simScorer is the similarity scorer for computing term weights
 	simScorer SimScorer
@@ -43,7 +43,7 @@ type SpanScorer struct {
 // Parameters:
 //   - spans: the Spans iterator providing (doc, start, end) tuples
 //   - score: base score weight for this scorer
-func NewSpanScorer(spans *Spans, score float32) *SpanScorer {
+func NewSpanScorer(spans Spans, score float32) *SpanScorer {
 	return &SpanScorer{
 		spans:      spans,
 		score:      score,
@@ -56,7 +56,7 @@ func NewSpanScorer(spans *Spans, score float32) *SpanScorer {
 }
 
 // NewSpanScorerWithSimilarity creates a SpanScorer with similarity scoring.
-func NewSpanScorerWithSimilarity(spans *Spans, score float32, simScorer SimScorer) *SpanScorer {
+func NewSpanScorerWithSimilarity(spans Spans, score float32, simScorer SimScorer) *SpanScorer {
 	return &SpanScorer{
 		spans:      spans,
 		simScorer:  simScorer,
@@ -189,7 +189,7 @@ func (s *SpanScorer) doEndCurrentDoc() {
 }
 
 // Spans returns the underlying Spans.
-func (s *SpanScorer) Spans() *Spans {
+func (s *SpanScorer) Spans() Spans {
 	return s.spans
 }
 

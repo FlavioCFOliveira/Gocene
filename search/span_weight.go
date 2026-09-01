@@ -60,13 +60,7 @@ func (sw *SpanWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) {
 
 	// For now, create a simple scorer that doesn't actually match spans
 	// This is a placeholder implementation that should be overridden by specific span query weights
-	spans := &Spans{
-		doc:    -1,
-		docs:   []int{},
-		starts: []int{},
-		ends:   []int{},
-		index:  -1,
-	}
+	spans := NewSpans([]int{}, []int{}, []int{})
 	return NewSpanScorer(spans, 1.0), nil
 }
 
@@ -123,7 +117,7 @@ func (sw *SpanWeight) Matches(context *index.LeafReaderContext, doc int) (Matche
 }
 
 // GetSpans returns a Spans object for iterating over span matches
-func (sw *SpanWeight) GetSpans(ctx *index.LeafReaderContext, requiredPostings int) (*Spans, error) {
+func (sw *SpanWeight) GetSpans(ctx *index.LeafReaderContext, requiredPostings int) (Spans, error) {
 	return EmptySpans, nil
 }
 

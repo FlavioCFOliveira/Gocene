@@ -6,11 +6,13 @@ package search
 
 import (
 	"fmt"
-	"strings"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
-// SpanNearQuery matches spans that are near each other within a specified slop distance.
-// This is the Go port of Lucene's org.apache.lucene.search.spans.SpanNearQuery.
+// SpanNearQuery matches spans which are near one another. One can specify slop, the maximum number of
+// intervening unmatched positions, as well as whether matches are required to be in-order.
+// This is the Go port of Lucene's org.apache.lucene.queries.spans.SpanNearQuery.
 type SpanNearQuery struct {
 	BaseSpanQuery
 	clauses []SpanQuery
@@ -18,23 +20,19 @@ type SpanNearQuery struct {
 	inOrder bool
 }
 
-// NewSpanNearQuery creates a new SpanNearQuery.
-// clauses: the span queries to match near each other
-// slop: the maximum distance between spans
-// inOrder: whether the spans must appear in the same order as the clauses
+// NewSpanNearQuery constructs a SpanNearQuery.
 func NewSpanNearQuery(clauses []SpanQuery, slop int, inOrder bool) *SpanNearQuery {
-	if len(clauses) == 0 {
-		return nil
+	field := ""
+	if len(clauses) > 0 {
+		field = clauses[0].GetField()
 	}
-
-	// All clauses must have the same field
-	field := clauses[0].GetField()
-	for _, clause := range clauses {
-		if clause.GetField() != field {
-			return nil
+	for _, q := range clauses {
+		if q.GetField() != field {
+			// In a real implementation, this should return an error.
+			// For now, we panic to match Lucene's IllegalArgumentException.
+			panic(fmt.Sprintf("Clauses must have same field: %s vs %s", field, q.GetField()))
 		}
 	}
-
 	return &SpanNearQuery{
 		BaseSpanQuery: *NewBaseSpanQuery(field),
 		clauses:       clauses,
@@ -43,61 +41,140 @@ func NewSpanNearQuery(clauses []SpanQuery, slop int, inOrder bool) *SpanNearQuer
 	}
 }
 
-// Clauses returns the clauses.
-func (q *SpanNearQuery) Clauses() []SpanQuery {
+// GetClauses returns the clauses whose spans are matched.
+func (q *SpanNearQuery) GetClauses() []SpanQuery {
 	return q.clauses
 }
 
-// Slop returns the slop value.
-func (q *SpanNearQuery) Slop() int {
+// GetSlop returns the maximum number of intervening unmatched positions permitted.
+func (q *SpanNearQuery) GetSlop() int {
 	return q.slop
 }
 
-// InOrder returns whether the query requires in-order matching.
-func (q *SpanNearQuery) InOrder() bool {
+// IsInOrder returns true if order is important.
+func (q *SpanNearQuery) IsInOrder() bool {
 	return q.inOrder
 }
 
-// Rewrite rewrites this query to a more primitive form.
+// CreateWeight creates a Weight for this query.
+func (q *SpanNearQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (SpanWeight, error) {
+	subWeights := make([]SpanWeight, 0, len(q.clauses))
+	for _, q := range q.clauses {
+		sw, err := q.CreateWeight(searcher, needsScores, boost)
+		if err != nil {
+			return nil, err
+		}
+		subWeights = append(subWeights, sw)
+	}
+	return &SpanNearWeight{
+		SpanWeight:  NewSpanWeight(q, nil), // similarity handled by subweights/scorer
+		subWeights:   subWeights,
+		searcher:     searcher,
+		boost:        boost,
+		needsScores:  needsScores,
+	}, nil
+}
+
+// SpanNearWeight is the Weight implementation for SpanNearQuery.
+type SpanNearWeight struct {
+	*SpanWeight
+	subWeights  []SpanWeight
+	searcher    *IndexSearcher
+	boost       float32
+	needsScores bool
+}
+
+func (w *SpanNearWeight) extractTermStates(contexts map[index.Term]*index.TermStates) {
+	for _, sw := range w.subWeights {
+		sw.ExtractTermStates(contexts)
+	}
+}
+
+func (w *SpanNearWeight) GetSpans(ctx *index.LeafReaderContext, requiredPostings int) (Spans, error) {
+	leafReader := ctx.LeafReader()
+	if leafReader == nil {
+		return nil, nil
+	}
+	terms := leafReader.Terms(w.SpanQuery.GetField())
+	if terms == nil {
+		return nil, nil
+	}
+
+	subSpans := make([]Spans, 0, len(w.subWeights))
+	for _, sw := range w.subWeights {
+		subSpan, err := sw.GetSpans(ctx, requiredPostings)
+		if err != nil {
+			return nil, err
+		}
+		if subSpan != nil {
+			subSpans = append(subSpans, subSpan)
+		} else {
+			return nil, nil // all required
+		}
+	}
+
+	if !w.inOrder {
+		return NewNearSpansUnordered(w.slop, subSpans), nil
+	}
+	return NewNearSpansOrdered(w.slop, subSpans), nil
+}
+
+func (w *SpanNearWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
+	for _, sw := range w.subWeights {
+		if !sw.IsCacheable(ctx) {
+			return false
+		}
+	}
+	return true
+}
+
+func (w *SpanNearWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) {
+	spans, err := w.GetSpans(context, index.PostingsFlagPositions)
+	if err != nil {
+		return nil, err
+	}
+	if spans == nil {
+		return nil, nil
+	}
+	// For simplicity, use a constant score for now.
+	// Real SpanNearQuery scoring is more complex.
+	return NewSpanScorer(spans, w.boost), nil
+}
+
+func (w *SpanNearWeight) ScorerSupplier(context *index.LeafReaderContext) (ScorerSupplier, error) {
+	scorer, err := w.Scorer(context)
+	if err != nil {
+		return nil, err
+	}
+	if scorer == nil {
+		return nil, nil
+	}
+	return NewScorerSupplierAdapter(scorer), nil
+}
+
 func (q *SpanNearQuery) Rewrite(reader IndexReader) (Query, error) {
-	if len(q.clauses) == 0 {
-		return NewMatchNoDocsQuery(), nil
-	}
-	if len(q.clauses) == 1 {
-		return q.clauses[0], nil
-	}
+	// Simplified rewrite: just return self.
 	return q, nil
 }
 
-// CreateWeight creates a Weight for this query.
-func (q *SpanNearQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	return NewSpanWeight(q, nil), nil
-}
-
-// Clone creates a copy of this query.
-func (q *SpanNearQuery) Clone() Query {
-	clausesCopy := make([]SpanQuery, len(q.clauses))
+func (q *SpanNearQuery) String(field string) string {
+	res := "spanNear(["
 	for i, clause := range q.clauses {
-		clausesCopy[i] = clause.Clone().(SpanQuery)
+		res += clause.String(field)
+		if i < len(q.clauses)-1 {
+			res += ", "
+		}
 	}
-	return &SpanNearQuery{
-		BaseSpanQuery: *NewBaseSpanQuery(q.field),
-		clauses:       clausesCopy,
-		slop:          q.slop,
-		inOrder:       q.inOrder,
-	}
+	res += fmt.Sprintf("], %d, %v)", q.slop, q.inOrder)
+	return res
 }
 
-// Equals checks if this query equals another.
 func (q *SpanNearQuery) Equals(other Query) bool {
 	if other == nil {
 		return false
 	}
 	if o, ok := other.(*SpanNearQuery); ok {
-		if q.field != o.field || q.slop != o.slop || q.inOrder != o.inOrder {
-			return false
-		}
-		if len(q.clauses) != len(o.clauses) {
+		if q.inOrder != o.inOrder || q.slop != o.slop || len(q.clauses) != len(o.clauses) {
 			return false
 		}
 		for i := range q.clauses {
@@ -110,35 +187,16 @@ func (q *SpanNearQuery) Equals(other Query) bool {
 	return false
 }
 
-// HashCode returns a hash code for this query.
 func (q *SpanNearQuery) HashCode() int {
 	h := 17
-	h = 31*h + len(q.field)
-	for i := 0; i < len(q.field); i++ {
-		h = 31*h + int(q.field[i])
-	}
-	h = 31*h + len(q.clauses)
 	h = 31*h + q.slop
 	if q.inOrder {
 		h = 31*h + 1
 	}
+	for _, clause := range q.clauses {
+		h = 31*h + clause.HashCode()
+	}
 	return h
 }
 
-// String returns a string representation of the query.
-func (q *SpanNearQuery) String(field string) string {
-	var clauseStrs []string
-	for _, clause := range q.clauses {
-		clauseStrs = append(clauseStrs, clause.String(q.field))
-	}
-
-	if field == "" || field != q.field {
-		return fmt.Sprintf("SpanNearQuery(field=%s, clauses=[%s], slop=%d, inOrder=%v)",
-			q.field, strings.Join(clauseStrs, ", "), q.slop, q.inOrder)
-	}
-	return fmt.Sprintf("SpanNearQuery(clauses=[%s], slop=%d, inOrder=%v)",
-		strings.Join(clauseStrs, ", "), q.slop, q.inOrder)
-}
-
-// Ensure SpanNearQuery implements SpanQuery
 var _ SpanQuery = (*SpanNearQuery)(nil)

@@ -11,7 +11,7 @@ import (
 )
 
 // SpanTermQuery matches documents containing a specific term at specific positions.
-// This is the Go port of Lucene's org.apache.lucene.search.spans.SpanTermQuery.
+// This is the Go port of Lucene's org.apache.lucene.queries.spans.SpanTermQuery.
 type SpanTermQuery struct {
 	BaseSpanQuery
 	term *index.Term
@@ -40,7 +40,7 @@ func (q *SpanTermQuery) Rewrite(reader IndexReader) (Query, error) {
 // It ports org.apache.lucene.queries.spans.SpanTermQuery.createWeight: a
 // SpanTermWeight is returned, carrying the similarity used to score the term's
 // spans when scores are required.
-func (q *SpanTermQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+func (q *SpanTermQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (SpanWeight, error) {
 	var similarity Similarity
 	if needsScores {
 		similarity = NewClassicSimilarity()
@@ -118,7 +118,7 @@ func (w *SpanTermWeight) buildSimScorer(searcher *IndexSearcher) SimScorer {
 // PostingsEnum with positions, and wrap it in a TermSpans. The requiredPostings
 // argument is accepted for signature parity with the base SpanWeight; positions
 // are always requested since a Spans is meaningless without them.
-func (w *SpanTermWeight) GetSpans(ctx *index.LeafReaderContext, requiredPostings int) (*Spans, error) {
+func (w *SpanTermWeight) GetSpans(ctx *index.LeafReaderContext, requiredPostings int) (Spans, error) {
 	leafReader := ctx.LeafReader()
 	if leafReader == nil {
 		return nil, nil
