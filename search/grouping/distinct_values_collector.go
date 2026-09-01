@@ -122,13 +122,48 @@ func (m *DistinctValuesCollectorManager[T, R]) NewCollector() (search.Collector,
 }
 
 func (m *DistinctValuesCollectorManager[T, R]) Reduce(collectors []search.Collector) ([]GroupCount[T, R], error) {
-	// Distinct values are typically just merged using a set across all collectors.
-	// For now, we just return the results from the first collector as a simplification,
-	// but a real implementation would merge sets from all collectors.
 	if len(collectors) == 0 {
 		return nil, nil
 	}
 
-	collector := collectors[0].(*DistinctValuesCollector[T, R])
-	return collector.GetGroups(), nil
+	// Merge distinct values from all collectors
+	firstCollector := collectors[0].(*DistinctValuesCollector[T, R])
+	groups := firstCollector.groups
+
+	// We use a map of maps to accumulate distinct values per group
+	mergedValues := make(map[T]map[any]R)
+
+	for _, c := range collectors {
+		collector, ok := c.(*DistinctValuesCollector[T, R])
+		if !ok {
+			continue
+		}
+
+		for _, group := range collector.groups {
+			valColl := collector.groupReducer.GetCollector(group.GroupValue)
+			vc := valColl.(*valuesCollector[R])
+
+			if mergedValues[group.GroupValue] == nil {
+				mergedValues[group.GroupValue] = make(map[any]R)
+			}
+			for k, v := range vc.values {
+				mergedValues[group.GroupValue][k] = v
+			}
+		}
+	}
+
+	res := make([]GroupCount[T, R], 0, len(groups))
+	for _, group := range groups {
+		uniqueValues := make([]R, 0, len(mergedValues[group.GroupValue]))
+		for _, v := range mergedValues[group.GroupValue] {
+			uniqueValues = append(uniqueValues, v)
+		}
+
+		res = append(res, GroupCount[T, R]{
+			GroupValue:   *group.GroupValue,
+			UniqueValues: uniqueValues,
+		})
+	}
+
+	return res, nil
 }

@@ -234,16 +234,104 @@ func (c *BlockGroupingCollector) Collect(doc int) error {
 func (c *BlockGroupingCollector) DoSetNextReader(readerContext *index.LeafReaderContext) error {
 	c.subDocUpto = 0
 	c.docBase = readerContext.docBase
-	// lastDocPerGroup is a Weight. We need its scorer.
-	// In Java: lastDocPerGroup.scorer(readerContext).iterator()
-	// We'll assume search.Weight has a GetScorer method.
-	// Wait, Weight is a struct/interface in Gocene? Let me check.
-	// For now, I'll just put a placeholder or assume we have the iterator.
+
+	scorer, err := c.lastDocPerGroup.Scorer(readerContext)
+	if err != nil {
+		return err
+	}
+	if scorer == nil {
+		c.lastDocPerGroupBits = nil
+	} else {
+		c.lastDocPerGroupBits = scorer.Iterator()
+	}
+
 	c.currentReaderContext = readerContext
 	for i := 0; i < len(c.comparators); i++ {
 		c.leafComparators[i] = c.comparators[i].GetLeafComparator(readerContext)
 	}
 	return nil
+}
+
+type score struct {
+	val float32
+}
+
+func (s *score) Score() float32 {
+	return s.val
+}
+
+func (c *BlockGroupingCollector) GetTopGroups(withinGroupSort *search.Sort, groupOffset, withinGroupOffset, maxDocsPerGroup int) *TopGroups[any] {
+	if groupOffset >= c.groupQueue.Len() {
+		return nil
+	}
+
+	totalGroupedHitCount := 0
+	maxScore := float32(-math.MaxFloat32)
+	groupSortByRelevance := c.groupSort.IsRelevance()
+
+	numGroups := c.groupQueue.Len() - groupOffset
+	groups := make([]*GroupDocs[any], numGroups)
+
+	for downTo := numGroups - 1; downTo >= 0; downTo-- {
+		og := heap.Pop(c.groupQueue).(*oneGroup)
+
+		var collector search.Collector
+		withinGroupSortByRelevance := withinGroupSort.IsRelevance()
+
+		if withinGroupSortByRelevance {
+			if !c.needsScores {
+				panic("cannot sort by relevance within group: needsScores=false")
+			}
+			collector = search.NewTopScoreDocCollector(maxDocsPerGroup, nil)
+		} else {
+			collector = search.NewTopFieldCollector(withinGroupSort, maxDocsPerGroup)
+		}
+
+		fakeScorer := &score{}
+		groupMaxScore := float32(math.NaN())
+		leafCollector := collector.GetLeafCollector(og.readerContext)
+		leafCollector.SetScorer(fakeScorer)
+
+		for docIDX := 0; docIDX < og.count; docIDX++ {
+			doc := og.docs[docIDX]
+			if c.needsScores {
+				fakeScorer.val = og.scores[docIDX]
+				if !withinGroupSortByRelevance {
+					groupMaxScore = nonNANmax(groupMaxScore, fakeScorer.val)
+				}
+			}
+			leafCollector.Collect(doc)
+		}
+		totalGroupedHitCount += og.count
+
+		groupSortValues := make([]any, len(c.comparators))
+		for sortFieldIDX := 0; sortFieldIDX < len(c.comparators); sortFieldIDX++ {
+			groupSortValues[sortFieldIDX] = c.comparators[sortFieldIDX].Value(og.comparatorSlot)
+		}
+
+		topDocs := collector.TopDocs(withinGroupOffset, maxDocsPerGroup)
+		if withinGroupSortByRelevance && len(topDocs.ScoreDocs) > 0 {
+			groupMaxScore = topDocs.ScoreDocs[0].Score
+		}
+
+		groups[downTo] = &GroupDocs[any]{
+			Score:           float32(math.NaN()),
+			MaxScore:       groupMaxScore,
+			TotalHits:       search.TotalHits{Value: topDocs.TotalHits, Relation: search.TotalHitsEqual},
+			ScoreDocs:       topDocs.ScoreDocs,
+			GroupValue:      nil, // BlockGroupingCollector cannot compute groupValue
+			GroupSortValues: groupSortValues,
+		}
+		if !groupSortByRelevance {
+			maxScore = nonNANmax(maxScore, groupMaxScore)
+		}
+	}
+
+	if groupSortByRelevance && len(groups) > 0 {
+		maxScore = groups[0].MaxScore
+	}
+
+	return NewTopGroups(c.groupSort.Fields, withinGroupSort.Fields, c.totalHitCount, totalGroupedHitCount, groups, maxScore)
 }
 
 func (c *BlockGroupingCollector) Finish() error {
