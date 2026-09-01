@@ -5,7 +5,7 @@ import (
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
 type oneGroup struct {
