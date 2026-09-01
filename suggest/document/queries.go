@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
 // CompletionScorer ranks completion hits by weight. Mirrors
@@ -28,8 +30,8 @@ func (s *CompletionScorer) Score(weight int64, boost float32) float32 {
 // CompletionQuery is the base completion query. Mirrors
 // org.apache.lucene.search.suggest.document.CompletionQuery.
 type CompletionQuery struct {
-	Term    string
-	Filter  search.Query
+	Term         string
+	Filter       search.Query
 	DefaultBoost float32
 }
 
@@ -94,6 +96,91 @@ func (q *ContextQuery) AddContext(context string, boost float32, exact bool) {
 
 func (q *ContextQuery) AddAllContexts() {
 	q.MatchAll = true
+}
+
+// CreateWeight produces the weight for the context query.
+func (q *ContextQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (*ContextCompletionWeight, error) {
+	innerWeight := &CompletionWeight{
+		Query: q.Inner,
+		Boost: boost,
+	}
+
+	ctxAutomaton := q.toContextAutomaton()
+
+	return &ContextCompletionWeight{
+		Query:           q,
+		Automaton:       ctxAutomaton,
+		InnerWeight:     innerWeight,
+		ContextMap:      q.Contexts,
+		ContextLengths:   q.getContextLengths(),
+		CurrentBoost:    0,
+		CurrentContext:  "",
+	}, nil
+}
+
+func (q *ContextQuery) toContextAutomaton() *automaton.Automaton {
+	if q.MatchAll || len(q.Contexts) == 0 {
+		return automaton.Operations.Concatenate(
+			automaton.Operations.Repeat(automaton.Automata.MakeAnyString()),
+			automaton.Automata.MakeChar(0x1F), // SEP_LABEL
+		)
+	}
+
+	var automataList []*automaton.Automaton
+	for ctx, meta := range q.Contexts {
+		ctxAuto := automaton.Automata.MakeString(ctx)
+		if !meta.Exact {
+			ctxAuto = automaton.Operations.Union(ctxAuto, automaton.Operations.Repeat(automaton.Automata.MakeAnyString()))
+		}
+		automataList = append(automataList, automaton.Operations.Concatenate(ctxAuto, automaton.Automata.MakeChar(0x1F)))
+	}
+	return automaton.Operations.Determinize(automaton.Operations.Union(automataList), 1000)
+}
+
+func (q *ContextQuery) getContextLengths() []int {
+	lengths := make([]int, 0, len(q.Contexts))
+	for ctx := range q.Contexts {
+		lengths = append(lengths, len(ctx))
+	}
+	for i := 0; i < len(lengths); i++ {
+		for j := i + 1; j < len(lengths); j++ {
+			if lengths[i] < lengths[j] {
+				lengths[i], lengths[j] = lengths[j], lengths[i]
+			}
+		}
+	}
+	return lengths
+}
+
+// ContextCompletionWeight is the weight for the context query.
+type ContextCompletionWeight struct {
+	Query          *ContextQuery
+	Automaton      *automaton.Automaton
+	InnerWeight    *CompletionWeight
+	ContextMap     map[string]ContextMetaData
+	ContextLengths  []int
+	CurrentBoost    float32
+	CurrentContext  string
+}
+
+func (w *ContextCompletionWeight) SetNextMatch(pathPrefix []int) {
+	for _, length := range w.ContextLengths {
+		if length > len(pathPrefix) {
+			continue
+		}
+		ctx := string(pathPrefix[:length])
+		if meta, ok := w.ContextMap[ctx]; ok {
+			w.CurrentBoost = meta.Boost
+			w.CurrentContext = ctx
+			return
+		}
+	}
+	w.CurrentBoost = 0
+	w.CurrentContext = ""
+}
+
+func (w *ContextCompletionWeight) Boost() float32 {
+	return w.CurrentBoost + w.InnerWeight.Boost
 }
 
 // PrefixCompletionQuery is the prefix-based completion query. Mirrors
