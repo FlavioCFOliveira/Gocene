@@ -103,6 +103,7 @@ func (p *OneMergeProgress) GetPauseTimes() map[PauseReason]int64 {
 type OneMerge struct {
 	// MergeCompleted is used to signal when the merge is done.
 	MergeCompleted chan bool
+	completed      atomic.Bool
 	
 	// Internal fields used by IndexWriter
 	Info              SegmentCommitInfo
@@ -130,6 +131,17 @@ func NewOneMerge(segments []SegmentCommitInfo) *OneMerge {
 	}
 }
 
+func (m *OneMerge) String() string {
+	res := ""
+	for i, s := range m.Segments {
+		if i > 0 {
+			res += " "
+		}
+		res += s.String()
+	}
+	return res
+}
+
 // MergeSpecification describes the set of merges that should be done.
 type MergeSpecification struct {
 	Merges []*OneMerge
@@ -137,6 +149,14 @@ type MergeSpecification struct {
 
 func (ms *MergeSpecification) Add(merge *OneMerge) {
 	ms.Merges = append(ms.Merges, merge)
+}
+
+func (ms *MergeSpecification) String() string {
+	res := "MergeSpec:"
+	for i, m := range ms.Merges {
+		res += fmt.Sprintf("\n  %d: %s", i+1, m.String())
+	}
+	return res
 }
 
 // MergePolicy determines the sequence of primitive merge operations.
@@ -222,4 +242,86 @@ func (bmp *BaseMergePolicy) assertDelCount(delCount int, info SegmentCommitInfo)
 
 func (bmp *BaseMergePolicy) MaxFullFlushMergeSize() int64 {
 	return 0
+}
+
+// MergeObserver is an observer for merge operations.
+// This is the Go port of Lucene's org.apache.lucene.index.MergePolicy.MergeObserver.
+type MergeObserver struct {
+	spec *MergeSpecification
+}
+
+func NewMergeObserver(spec *MergeSpecification) *MergeObserver {
+	return &MergeObserver{spec: spec}
+}
+
+// NumMerges returns the number of merges in this specification.
+func (o *MergeObserver) NumMerges() int {
+	if o.spec == nil {
+		return 0
+	}
+	return len(o.spec.Merges)
+}
+
+// NumCompletedMerges returns the number of completed merges in this specification.
+func (o *MergeObserver) NumCompletedMerges() int {
+	if o.spec == nil {
+		return 0
+	}
+	completed := 0
+	for _, m := range o.spec.Merges {
+		if m.completed.Load() {
+			completed++
+		}
+	}
+	return completed
+}
+
+// Await waits for all merges in this specification to complete.
+// Returns true if all merges completed successfully or no merges were needed, false on error.
+func (o *MergeObserver) Await() bool {
+	if o.spec == nil {
+		return true
+	}
+	for _, m := range o.spec.Merges {
+		if !<-m.MergeCompleted {
+			return false
+		}
+	}
+	return true
+}
+
+// AwaitWithTimeout waits for all merges in this specification to complete, with timeout.
+func (o *MergeObserver) AwaitWithTimeout(timeout time.Duration) bool {
+	if o.spec == nil {
+		return true
+	}
+
+	done := make(chan bool, 1)
+	go func() {
+		done <- o.Await()
+	}()
+
+	select {
+	case res := <-done:
+		return res
+	case <-time.After(timeout):
+		return false
+	}
+}
+
+// AwaitAsync returns a channel that closes when all merges finish.
+func (o *MergeObserver) AwaitAsync() <-chan struct{} {
+	res := make(chan struct{})
+	go func() {
+		o.Await()
+		close(res)
+	}()
+	return res
+}
+
+func (o *MergeObserver) String() string {
+	if o.spec == nil {
+		return "MergeObserver: no merges"
+	}
+	return fmt.Sprintf("MergeObserver: %d merges\n%s", o.NumMerges(), o.spec.String())
 }
