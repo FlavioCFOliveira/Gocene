@@ -18,7 +18,7 @@ type WordlistLoader struct{}
 // GetWordSet reads lines from a reader and returns a set of words.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.WordlistLoader.getWordSet.
-func GetWordSet(reader io.Reader) ([]string, error) {
+func GetWordSet(reader io.Reader) (*CharArraySet, error) {
 	return GetWordSetWithComment(reader, "")
 }
 
@@ -26,8 +26,8 @@ func GetWordSet(reader io.Reader) ([]string, error) {
 // omitting lines that start with the given comment string.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.WordlistLoader.getWordSet(Reader, String, CharArraySet).
-func GetWordSetWithComment(reader io.Reader, comment string) ([]string, error) {
-	var words []string
+func GetWordSetWithComment(reader io.Reader, comment string) (*CharArraySet, error) {
+	set := NewCharArraySet(16, false)
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -38,19 +38,19 @@ func GetWordSetWithComment(reader io.Reader, comment string) ([]string, error) {
 		if line == "" {
 			continue
 		}
-		words = append(words, line)
+		set.Add([]rune(line))
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
-	return words, nil
+	return set, nil
 }
 
 // GetSnowballWordSet reads stopwords from a stopword list in Snowball format.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.WordlistLoader.getSnowballWordSet.
-func GetSnowballWordSet(reader io.Reader) ([]string, error) {
-	var words []string
+func GetSnowballWordSet(reader io.Reader) (*CharArraySet, error) {
+	set := NewCharArraySet(16, false)
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -60,12 +60,12 @@ func GetSnowballWordSet(reader io.Reader) ([]string, error) {
 		parts := strings.Fields(line)
 		for _, p := range parts {
 			if p != "" {
-				words = append(words, p)
+				set.Add([]rune(p))
 			}
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
-	return words, nil
+	return set, nil
 }
