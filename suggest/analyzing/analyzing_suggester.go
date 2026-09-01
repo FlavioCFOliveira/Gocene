@@ -30,8 +30,12 @@ package analyzing
 //     medium corpora; for very large corpora callers may wrap the iterator.
 
 import (
+	"bufio"
 	"bytes"
+	"encoding/binary"
+	"errors"
 	"fmt"
+	"io"
 	"math"
 	"sort"
 	"strings"
@@ -113,6 +117,8 @@ type AnalyzingSuggester struct {
 	maxSurfaceForms    int
 	maxGraphExpansions int
 
+	tempDir util.TempDirectory
+
 	// fst is nil until Build is called.
 	fst *fstp.FST[pairOutputsType]
 	// count is the number of (analyzed-path, surface) pairs added.
@@ -155,6 +161,12 @@ func NewAnalyzingSuggesterFull(
 	if maxGraphExpansions < 1 && maxGraphExpansions != -1 {
 		panic(fmt.Sprintf("maxGraphExpansions must be -1 or > 0, got %d", maxGraphExpansions))
 	}
+
+	tempDir, err := util.NewOSTempDirectory(tempFileNamePrefix)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create temp directory: %v", err))
+	}
+
 	return &AnalyzingSuggester{
 		indexAnalyzer:              indexAnalyzer,
 		queryAnalyzer:              queryAnalyzer,
@@ -164,6 +176,7 @@ func NewAnalyzingSuggesterFull(
 		maxGraphExpansions:         maxGraphExpansions,
 		preservePositionIncrements: preservePositionIncrements,
 		tempFileNamePrefix:         tempFileNamePrefix,
+		tempDir:                    tempDir,
 	}
 }
 
@@ -179,14 +192,32 @@ func (s *AnalyzingSuggester) Build(it suggest.InputIterator) error {
 
 	ts2a := s.getTokenStreamToAutomaton()
 
-	// Collect all encoded byte-sequence tuples in memory.
-	var encoded [][]byte
+	// Create temp input file.
+	tempInputPath, err := s.tempDir.CreateTempFile(s.tempFileNamePrefix, "input")
+	if err != nil {
+		return err
+	}
+
+	wc, err := s.tempDir.Create(tempInputPath)
+	if err != nil {
+		return err
+	}
+
+	// We use a simple length-prefixed format for OfflineSorter:
+	// 2-byte big-endian length + entry bytes.
+	// entry bytes are encoded as [short analyzedLen][analyzed bytes][int cost][surface bytes]
+	// (when hasPayloads: [short surfaceLen][surface bytes][payload bytes])
+
+	// We use a bufio.Writer to avoid too many small writes.
+	importBuf := bufio.NewWriter(wc)
+
 	var newCount int64
 	s.maxAnalyzedPathsForOneInput = 0
 
 	for {
 		surface, weight, payload, _, ok, err := it.Next()
 		if err != nil {
+			wc.Close()
 			return err
 		}
 		if !ok {
@@ -195,18 +226,20 @@ func (s *AnalyzingSuggester) Build(it suggest.InputIterator) error {
 		surfaceRef := &util.BytesRef{Bytes: surface, Offset: 0, Length: len(surface)}
 		a, err := s.toAutomaton(surfaceRef, ts2a)
 		if err != nil {
+			wc.Close()
 			return err
 		}
 		finiteIt, err := automaton.NewLimitedFiniteStringsIterator(a, s.maxGraphExpansions)
 		if err != nil {
+			wc.Close()
 			return err
 		}
 		pathCount := 0
-		scratchIntsBuilder := util.NewIntsRefBuilder()
 		scratchBytesBuilder := util.NewBytesRefBuilder()
 		for {
 			intsRef, err2 := finiteIt.Next()
 			if err2 != nil {
+				wc.Close()
 				return err2
 			}
 			if intsRef == nil {
@@ -214,70 +247,85 @@ func (s *AnalyzingSuggester) Build(it suggest.InputIterator) error {
 			}
 			pathCount++
 			newCount++
-			// Convert IntsRef → BytesRef (each int is a byte label).
 			analyzedBytes := fstp.ToBytesRef(intsRef, scratchBytesBuilder)
 			analyzedLen := analyzedBytes.Length
 			if analyzedLen > math.MaxInt16-2 {
+				wc.Close()
 				return fmt.Errorf("analyzed form too long: %d", analyzedLen)
 			}
 			surfaceLen := len(surface)
 			if s.hasPayloads && surfaceLen > math.MaxInt16-2 {
+				wc.Close()
 				return fmt.Errorf("surface form too long: %d", surfaceLen)
 			}
 			if s.hasPayloads {
 				for _, b := range surface {
 					if b == payloadSep {
+						wc.Close()
 						return fmt.Errorf("surface form cannot contain unit separator 0x1F")
 					}
 				}
 			}
 
-			// Encode: [short analyzedLen][analyzed bytes][int cost][surface bytes]
-			// (when hasPayloads: [short surfaceLen][surface bytes][payload bytes])
+			// Encode entry.
 			requiredLen := 2 + analyzedLen + 4 + surfaceLen
 			if s.hasPayloads {
 				requiredLen += 2 + len(payload)
 			}
-			buf := make([]byte, requiredLen)
-			out := store.NewByteArrayDataOutputAt(buf, 0)
-			if err3 := out.WriteShort(int16(analyzedLen)); err3 != nil {
-				return err3
-			}
-			if err3 := out.WriteBytes(analyzedBytes.Bytes[analyzedBytes.Offset : analyzedBytes.Offset+analyzedLen]); err3 != nil {
-				return err3
-			}
-			if err3 := out.WriteInt(int32(encodeWeight(weight))); err3 != nil {
-				return err3
-			}
+			entry := make([]byte, requiredLen)
+			out := store.NewByteArrayDataOutputAt(entry, 0)
+			out.WriteShort(int16(analyzedLen))
+			out.WriteBytes(analyzedBytes.Bytes[analyzedBytes.Offset : analyzedBytes.Offset+analyzedLen])
+			out.WriteInt(int32(encodeWeight(weight)))
 			if s.hasPayloads {
-				if err3 := out.WriteShort(int16(surfaceLen)); err3 != nil {
-					return err3
-				}
-				if err3 := out.WriteBytes(surface); err3 != nil {
-					return err3
-				}
-				if err3 := out.WriteBytes(payload); err3 != nil {
-					return err3
-				}
+				out.WriteShort(int16(surfaceLen))
+				out.WriteBytes(surface)
+				out.WriteBytes(payload)
 			} else {
-				if err3 := out.WriteBytes(surface); err3 != nil {
-					return err3
-				}
+				out.WriteBytes(surface)
 			}
-			encoded = append(encoded, buf[:out.GetPosition()])
-			_ = scratchIntsBuilder // used for FST add phase below
+
+			// Write length prefix (2 bytes big-endian) + entry.
+			lenBuf := make([]byte, 2)
+			binary.BigEndian.PutUint16(lenBuf, uint16(len(entry)))
+			if _, err := importBuf.Write(lenBuf); err != nil {
+				wc.Close()
+				return err
+			}
+			if _, err := importBuf.Write(entry); err != nil {
+				wc.Close()
+				return err
+			}
 		}
 		if pathCount > s.maxAnalyzedPathsForOneInput {
 			s.maxAnalyzedPathsForOneInput = pathCount
 		}
 	}
+	importBuf.Flush()
+	wc.Close()
 
-	// Sort by (analyzedForm, cost, surface).
-	sort.SliceStable(encoded, func(i, j int) bool {
-		return analyzingComparator(encoded[i], encoded[j], s.hasPayloads) < 0
-	})
+	// Sort the input file.
+	sorter, err := util.NewOfflineSorter(s.tempDir, s.tempFileNamePrefix, util.WithComparator(func(a, b []byte) int {
+		return analyzingComparator(a, b, s.hasPayloads)
+	}))
+	if err != nil {
+		return err
+	}
+	tempSortedFileName, err := sorter.Sort(tempInputPath)
+	if err != nil {
+		return err
+	}
+	_ = s.tempDir.Remove(tempInputPath)
 
-	// Build FST from sorted entries.
+	// Read sorted entries and build FST.
+	sortedRc, err := s.tempDir.Open(tempSortedFileName)
+	if err != nil {
+		return err
+	}
+	defer sortedRc.Close()
+
+	// Use the same framing as OfflineSorter.
+	binaryReader := bufio.NewReader(sortedRc)
 	fstCompiler := fstp.NewFSTCompilerBuilder[pairOutputsType](
 		fstp.InputTypeByte1, pairOutputs).Build()
 
@@ -286,41 +334,40 @@ func (s *AnalyzingSuggester) Build(it suggest.InputIterator) error {
 	seenSurfaces := make(map[string]struct{})
 	dedup := 0
 
-	for _, entry := range encoded {
-		in := store.NewByteArrayDataInput(entry)
-		analyzedLenI, err := in.ReadShort()
-		if err != nil {
+	for {
+		lenBuf := make([]byte, 2)
+		if _, err := io.ReadFull(binaryReader, lenBuf); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
 			return err
 		}
+		entryLen := int(binary.BigEndian.Uint16(lenBuf))
+		entry := make([]byte, entryLen)
+		if _, err := io.ReadFull(binaryReader, entry); err != nil {
+			return err
+		}
+
+		in := store.NewByteArrayDataInput(entry)
+		analyzedLenI, _ := in.ReadShort()
 		analyzedLen := int(uint16(analyzedLenI))
 		analyzed := make([]byte, analyzedLen)
-		if err := in.ReadBytes(analyzed); err != nil {
-			return err
-		}
-		costI, err := in.ReadInt()
-		if err != nil {
-			return err
-		}
+		in.ReadBytes(analyzed)
+		costI, _ := in.ReadInt()
 		cost := int64(uint32(costI))
 
 		var surfaceBytes []byte
 		var payloadStartPos int
 		if s.hasPayloads {
-			sfLenI, err := in.ReadShort()
-			if err != nil {
-				return err
-			}
+			sfLenI, _ := in.ReadShort()
 			sfLen := int(uint16(sfLenI))
 			surfaceBytes = make([]byte, sfLen)
-			if err := in.ReadBytes(surfaceBytes); err != nil {
-				return err
-			}
+			in.ReadBytes(surfaceBytes)
 			payloadStartPos = in.GetPosition()
 		} else {
 			surfaceBytes = entry[in.GetPosition():]
 		}
 
-		// Dedup logic (same as Java).
 		if previousAnalyzed == nil {
 			previousAnalyzed = analyzed
 			seenSurfaces[string(surfaceBytes)] = struct{}{}
@@ -339,7 +386,6 @@ func (s *AnalyzingSuggester) Build(it suggest.InputIterator) error {
 			seenSurfaces = map[string]struct{}{string(surfaceBytes): {}}
 		}
 
-		// Append END_BYTE + dedup byte to analyzed form.
 		fstInput := make([]byte, analyzedLen+2)
 		copy(fstInput, analyzed)
 		fstInput[analyzedLen] = endByte
@@ -352,7 +398,6 @@ func (s *AnalyzingSuggester) Build(it suggest.InputIterator) error {
 		if !s.hasPayloads {
 			outputPair = pairOutputs.NewPair(cost, &util.BytesRef{Bytes: surfaceBytes, Offset: 0, Length: len(surfaceBytes)})
 		} else {
-			// surface + PAYLOAD_SEP + payload
 			payloadBytes := entry[payloadStartPos:]
 			merged := make([]byte, len(surfaceBytes)+1+len(payloadBytes))
 			copy(merged, surfaceBytes)
@@ -376,6 +421,7 @@ func (s *AnalyzingSuggester) Build(it suggest.InputIterator) error {
 		return err
 	}
 	s.count = newCount
+	_ = s.tempDir.Remove(tempSortedFileName)
 	return nil
 }
 
@@ -473,7 +519,7 @@ func (s *AnalyzingSuggester) LookupResults(key string, _ [][]byte, onlyMorePopul
 	var scratchArc fstp.Arc[pairOutputsType]
 	var results []*suggest.LookupResult
 
-	prefixPaths, err := IntersectPrefixPaths(lookupAutomaton, s.fst)
+	prefixPaths, err := fstp.IntersectPrefixPaths(lookupAutomaton, s.fst)
 	if err != nil {
 		return nil, err
 	}
