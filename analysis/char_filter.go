@@ -5,7 +5,9 @@
 package analysis
 
 import (
+	"fmt"
 	"io"
+	"sync"
 )
 
 // CharFilter is the base class for character filters.
@@ -75,6 +77,29 @@ func (cf *CharFilter) Close() error {
 type CharFilterFactory interface {
 	// Create creates a new CharFilter wrapping the given reader.
 	Create(input io.Reader) *CharFilter
+}
+
+var (
+	charFilterRegistry = make(map[string]func(map[string]string) CharFilterFactory)
+	charFilterMu       sync.RWMutex
+)
+
+// RegisterCharFilterFactory registers a char filter factory creator.
+func RegisterCharFilterFactory(name string, creator func(map[string]string) CharFilterFactory) {
+	charFilterMu.Lock()
+	defer charFilterMu.Unlock()
+	charFilterRegistry[name] = creator
+}
+
+// ForName looks up a char filter factory by name from the registry.
+func ForName(name string, args map[string]string) (CharFilterFactory, error) {
+	charFilterMu.RLock()
+	creator, ok := charFilterRegistry[name]
+	charFilterMu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("char filter factory not found: %s", name)
+	}
+	return creator(args), nil
 }
 
 // BaseCharFilterFactory is a base implementation of CharFilterFactory.

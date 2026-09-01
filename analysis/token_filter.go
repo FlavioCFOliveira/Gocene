@@ -4,7 +4,12 @@
 
 package analysis
 
-import "github.com/FlavioCFOliveira/Gocene/util"
+import (
+	"fmt"
+	"sync"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
 
 // TokenFilter is a TokenStream that wraps another TokenStream.
 //
@@ -83,6 +88,29 @@ func (f *BaseTokenFilter) Close() error {
 type TokenFilterFactory interface {
 	// Create creates a TokenFilter wrapping the given input.
 	Create(input TokenStream) TokenFilter
+}
+
+var (
+	tokenFilterRegistry = make(map[string]func(map[string]string) TokenFilterFactory)
+	tokenFilterMu       sync.RWMutex
+)
+
+// RegisterTokenFilterFactory registers a token filter factory creator.
+func RegisterTokenFilterFactory(name string, creator func(map[string]string) TokenFilterFactory) {
+	tokenFilterMu.Lock()
+	defer tokenFilterMu.Unlock()
+	tokenFilterRegistry[name] = creator
+}
+
+// ForName looks up a token filter factory by name from the registry.
+func ForName(name string, args map[string]string) (TokenFilterFactory, error) {
+	tokenFilterMu.RLock()
+	creator, ok := tokenFilterRegistry[name]
+	tokenFilterMu.RUnlock()
+	if !ok {
+		return nil, fmt.Errorf("token filter factory not found: %s", name)
+	}
+	return creator(args), nil
 }
 
 // LowerCaseFilterFactory creates LowerCaseFilter instances.

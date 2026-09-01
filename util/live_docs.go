@@ -14,6 +14,9 @@ const NO_MORE_DOCS = 2147483647
 type DocIdSet interface {
 	// Iterator returns a DocIdSetIterator over the documents in this set.
 	Iterator() DocIdSetIterator
+
+	// RamBytesUsed returns the RAM usage of this set in bytes.
+	RamBytesUsed() int64
 }
 
 // DocIdSetIterator iterates over document IDs.
