@@ -40,6 +40,9 @@ type DocumentsWriter struct {
 	// threadLock protects perThreadPool access
 	threadLock sync.RWMutex
 
+	// deleteQueue holds pending delete operations
+	deleteQueue *DocumentsWriterDeleteQueue
+
 	// numDocsInRAM tracks documents in memory across all threads
 	numDocsInRAM int
 
@@ -92,15 +95,27 @@ func (p *DefaultFlushPolicy) ShouldFlush(numDocs int, ramUsed int64) bool {
 }
 
 // NewDocumentsWriter creates a new DocumentsWriter.
-func NewDocumentsWriter(directory store.Directory, config *IndexWriterConfig) (*DocumentsWriter, error) {
+func NewDocumentsWriter(
+	notifications *FlushNotifications,
+	version int,
+	pendingNumDocs *atomic.Int64,
+	useCompoundFile bool,
+	newSegmentName func() string,
+	config *IndexWriterConfig,
+	dirOrig store.Directory,
+	dir store.Directory,
+	fnm *FieldNumbers,
+	infoStream InfoStream,
+) (*DocumentsWriter, error) {
 	dw := &DocumentsWriter{
-		directory:          directory,
+		directory:          dir,
 		analyzer:           config.analyzer,
 		config:             config,
 		codec:              config.Codec(),
 		perThreadPool:      make([]*DocumentsWriterPerThread, 0),
 		flushPolicy:        NewDefaultFlushPolicy(config.maxBufferedDocs, config.ramBufferSizeMB),
 		segmentNameCounter: 0,
+		deleteQueue:        NewDocumentsWriterDeleteQueue(infoStream),
 	}
 
 	return dw, nil
@@ -125,13 +140,25 @@ func (dw *DocumentsWriter) ShouldFlush() bool {
 	return dw.flushPolicy.ShouldFlush(dw.numDocsInRAM, dw.bytesUsed)
 }
 
+// GetNextSequenceNumber returns the next sequence number from the delete queue.
+func (dw *DocumentsWriter) GetNextSequenceNumber() int64 {
+	return dw.deleteQueue.GetNextSequenceNumber()
+}
+
 // UpdateDocument updates a document (adds a new document, optionally deleting an old one).
 //
 // Note: this method does NOT trigger an auto-flush; the IndexWriter is
 // responsible for all flush coordination (see AddDocument doc comment).
-func (dw *DocumentsWriter) UpdateDocument(doc Document, analyzer api.Analyzer, term *Term) error {
+func (dw *DocumentsWriter) UpdateDocument(doc Document, analyzer api.Analyzer, term *Term) (int64, error) {
 	dw.mu.Lock()
 	defer dw.mu.Unlock()
+
+	// If term is provided, add a delete operation to the queue
+	var seqNo int64
+	if term != nil {
+		node := NewTermNode(*term)
+		seqNo = dw.deleteQueue.Add(node)
+	}
 
 	// Get a per-thread writer
 	dwpt := dw.getPerThreadWriter()
@@ -144,7 +171,7 @@ func (dw *DocumentsWriter) UpdateDocument(doc Document, analyzer api.Analyzer, t
 	// Process the document
 	before := dwpt.GetBytesUsed()
 	if err := dwpt.ProcessDocument(doc); err != nil {
-		return err
+		return 0, err
 	}
 
 	dw.numDocsInRAM++
@@ -154,7 +181,12 @@ func (dw *DocumentsWriter) UpdateDocument(doc Document, analyzer api.Analyzer, t
 	// not the entire accumulated DWPT total.
 	dw.bytesUsed += dwpt.GetBytesUsed() - before
 
-	return nil
+	// If no term was provided, we still need a sequence number for the addition
+	if term == nil {
+		seqNo = dw.GetNextSequenceNumber()
+	}
+
+	return seqNo, nil
 }
 
 // AddDocument adds a document to the index.
@@ -167,41 +199,21 @@ func (dw *DocumentsWriter) UpdateDocument(doc Document, analyzer api.Analyzer, t
 // segment files directly to disk without registering them in the SegmentInfos,
 // causing "file already exists" errors when Commit later tried to create
 // segments under the same names.
-func (dw *DocumentsWriter) AddDocument(doc Document, analyzer api.Analyzer) error {
-	dw.mu.Lock()
-	defer dw.mu.Unlock()
-
-	// Get a per-thread writer
-	dwpt := dw.getPerThreadWriter()
-
-	// Use the provided analyzer or the default one
-	if analyzer == nil {
-		analyzer = dw.analyzer
-	}
-
-	// Process the document
-	before := dwpt.GetBytesUsed()
-	if err := dwpt.ProcessDocument(doc); err != nil {
-		return err
-	}
-
-	dw.numDocsInRAM++
-	dw.numDocs++
-
-	// Update memory tracking: only count the bytes added by this document.
-	dw.bytesUsed += dwpt.GetBytesUsed() - before
-
-	return nil
+func (dw *DocumentsWriter) AddDocument(doc Document, analyzer api.Analyzer) (int64, error) {
+	return dw.UpdateDocument(doc, analyzer, nil)
 }
 
 // UpdateDocuments updates multiple documents.
-func (dw *DocumentsWriter) UpdateDocuments(docs []Document, analyzer api.Analyzer, term *Term) error {
+func (dw *DocumentsWriter) UpdateDocuments(docs []Document, analyzer api.Analyzer, term *Term) (int64, error) {
+	var lastSeqNo int64
 	for _, doc := range docs {
-		if err := dw.UpdateDocument(doc, analyzer, term); err != nil {
-			return err
+		seqNo, err := dw.UpdateDocument(doc, analyzer, term)
+		if err != nil {
+			return 0, err
 		}
+		lastSeqNo = seqNo
 	}
-	return nil
+	return lastSeqNo, nil
 }
 
 // getPerThreadWriter returns a per-thread writer.
@@ -399,7 +411,31 @@ func (dw *DocumentsWriter) SyncSegmentNameCounter() {
 	}
 }
 
+// DeleteTerms deletes documents matching the given terms.
+func (dw *DocumentsWriter) DeleteTerms(terms []Term) (int64, error) {
+	dw.mu.Lock()
+	defer dw.mu.Unlock()
+
+	if len(terms) == 0 {
+		return dw.GetNextSequenceNumber(), nil
+	}
+
+	var node Node
+	if len(terms) == 1 {
+		node = NewTermNode(terms[0])
+	} else {
+		// Use a term array node for multiple terms
+		node = &termArrayNode{
+			terms: terms,
+		}
+	}
+
+	seqNo := dw.deleteQueue.Add(node)
+	return seqNo, nil
+}
+
 // WriteSegmentInfo writes a SegmentInfo to the directory.
+
 // When codec is non-nil, it delegates to codec.SegmentInfoFormat().Write so
 // the .si file is byte-compatible with Apache Lucene.  When codec is nil, a
 // minimal fallback format is used (structural-test path only).

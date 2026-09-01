@@ -265,6 +265,7 @@ func NewIndexWriter(d util.Directory, conf *IndexWriterConfig) (*IndexWriter, er
 		writer.dirOrig,
 		writer.dir,
 		writer.globalFieldNumberMap,
+		writer.liveConfig.GetInfoStream(),
 	)
 
 	writer.readerPool = NewReaderPool(
