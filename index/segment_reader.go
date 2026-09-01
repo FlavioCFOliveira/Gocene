@@ -343,8 +343,60 @@ func (r *SegmentReader) TryIncRef() bool {
 
 // GetRefCount returns the current reference count.
 func (r *SegmentReader) GetRefCount() int32 {
+n
+	// GetCoreCacheHelper returns a CacheHelper for the core data of this leaf.
+	func (r *SegmentReader) GetCoreCacheHelper() CacheHelper {
+		if r.coreReaders != nil {
+			return r.coreReaders.GetCacheHelper()
+		}
+		return nil
+	}
+
+	// GetReaderCacheHelper returns a CacheHelper for the reader.
+	func (r *SegmentReader) GetReaderCacheHelper() CacheHelper {
+		return r.GetCacheHelper()
+	}
 	if r.coreReaders != nil {
+n
+	// GetCoreCacheHelper returns a CacheHelper for the core data of this leaf.
+	func (r *SegmentReader) GetCoreCacheHelper() CacheHelper {
+		if r.coreReaders != nil {
+			return r.coreReaders.GetCacheHelper()
+		}
+		return nil
+	}
+
+	// GetReaderCacheHelper returns a CacheHelper for the reader.
+	func (r *SegmentReader) GetReaderCacheHelper() CacheHelper {
+		return r.GetCacheHelper()
+	}
 		return r.coreReaders.GetRefCount()
+n
+	// GetCoreCacheHelper returns a CacheHelper for the core data of this leaf.
+	func (r *SegmentReader) GetCoreCacheHelper() CacheHelper {
+		if r.coreReaders != nil {
+			return r.coreReaders.GetCacheHelper()
+		}
+		return nil
+	}
+
+	// GetReaderCacheHelper returns a CacheHelper for the reader.
+	func (r *SegmentReader) GetReaderCacheHelper() CacheHelper {
+		return r.GetCacheHelper()
+	}
+	}
+n
+	// GetCoreCacheHelper returns a CacheHelper for the core data of this leaf.
+	func (r *SegmentReader) GetCoreCacheHelper() CacheHelper {
+		if r.coreReaders != nil {
+			return r.coreReaders.GetCacheHelper()
+		}
+		return nil
+	}
+
+	// GetReaderCacheHelper returns a CacheHelper for the reader.
+	func (r *SegmentReader) GetReaderCacheHelper() CacheHelper {
+		return r.GetCacheHelper()
 	}
 	return 1
 }

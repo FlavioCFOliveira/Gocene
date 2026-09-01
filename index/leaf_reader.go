@@ -19,6 +19,9 @@ type LeafReader interface {
 	// MaxDoc returns the maximum document ID (one past the last doc).
 	MaxDoc() int
 
+	// NumDocs returns the number of live documents.
+	NumDocs() int
+
 	// DocFreq returns the number of documents containing the term.
 	DocFreq(term Term) (int, error)
 
@@ -93,6 +96,12 @@ type LeafReader interface {
 
 	// GetRefCount returns the current reference count.
 	GetRefCount() int32
+
+	// GetCoreCacheHelper returns a CacheHelper for the core data of this leaf.
+	GetCoreCacheHelper() CacheHelper
+
+	// GetReaderCacheHelper returns a CacheHelper for the reader.
+	GetReaderCacheHelper() CacheHelper
 }
 
 // IndexReaderMetaData provides metadata about a LeafReader.

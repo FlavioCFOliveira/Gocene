@@ -44,6 +44,7 @@ func (f *FilterLeafReader) GetDelegate() LeafReader {
 
 func (f *FilterLeafReader) DocID() int                                  { return f.in.DocID() }
 func (f *FilterLeafReader) MaxDoc() int                                { return f.in.MaxDoc() }
+func (f *FilterLeafReader) NumDocs() int                                  { return f.in.NumDocs() }
 func (f *FilterLeafReader) DocFreq(term Term) (int, error)             { return f.in.DocFreq(term) }
 func (f *FilterLeafReader) TotalTermFreq(term Term) (int64, error)      { return f.in.TotalTermFreq(term) }
 func (f *FilterLeafReader) Terms(field string) (Terms, error)           { return f.in.Terms(field) }
@@ -97,6 +98,9 @@ func (f *FilterLeafReader) IncRef() error { return f.in.IncRef() }
 func (f *FilterLeafReader) DecRef() error { return f.in.DecRef() }
 func (f *FilterLeafReader) TryIncRef() bool { return f.in.TryIncRef() }
 func (f *FilterLeafReader) GetRefCount() int32 { return f.in.GetRefCount() }
+
+func (f *FilterLeafReader) GetCoreCacheHelper() CacheHelper { return f.in.GetCoreCacheHelper() }
+func (f *FilterLeafReader) GetReaderCacheHelper() CacheHelper { return f.in.GetReaderCacheHelper() }
 
 func (f *FilterLeafReader) String() string {
 	return fmt.Sprintf("FilterLeafReader(%v)", f.in)
