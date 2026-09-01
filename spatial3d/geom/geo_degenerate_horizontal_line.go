@@ -129,7 +129,7 @@ func (l *GeoDegenerateHorizontalLine) Expand(angle float64) GeoBBox {
 		newLeftLon = -math.Pi
 		newRightLon = math.Pi
 	}
-	bbox, err := MakeGeoBBox(l.PlanetModelField, newTopLat, newBottomLat, newLeftLon, newRightLon)
+	bbox, err := MakeGeoBBox(l.GetPlanetModel(), newTopLat, newBottomLat, newLeftLon, newRightLon)
 	if err != nil {
 		return nil
 	}
@@ -140,7 +140,7 @@ func (l *GeoDegenerateHorizontalLine) Expand(angle float64) GeoBBox {
 //
 // Port of GeoDegenerateHorizontalLine.intersects(Plane,GeoPoint[],Membership...).
 func (l *GeoDegenerateHorizontalLine) Intersects(p *Plane, notablePoints []*GeoPoint, bounds ...Membership) bool {
-	return p.Intersects(l.PlanetModelField, l.f.plane, notablePoints, l.f.planePoints, bounds, l.f.leftPlane, l.f.rightPlane)
+	return p.Intersects(l.GetPlanetModel(), l.f.plane, notablePoints, l.f.planePoints, bounds, l.f.leftPlane, l.f.rightPlane)
 }
 
 // intersectsShape is the GeoShape-level intersection check used by GetRelationship.
@@ -170,9 +170,9 @@ func (l *GeoDegenerateHorizontalLine) GetRelationship(geoShape GeoShape) int {
 //
 // Port of GeoDegenerateHorizontalLine.getBounds.
 func (l *GeoDegenerateHorizontalLine) GetBounds(bounds Bounds) {
-	geoBaseGetBounds(l, l.PlanetModelField, bounds)
+	geoBaseGetBounds(l, l.GetPlanetModel(), bounds)
 	bounds.
-		AddHorizontalPlane(l.PlanetModelField, l.f.latitude, l.f.plane, l.f.leftPlane, l.f.rightPlane).
+		AddHorizontalPlane(l.GetPlanetModel(), l.f.latitude, l.f.plane, l.f.leftPlane, l.f.rightPlane).
 		AddPoint(l.f.lhc).
 		AddPoint(l.f.rhc)
 }
@@ -180,7 +180,7 @@ func (l *GeoDegenerateHorizontalLine) GetBounds(bounds Bounds) {
 // String returns a debug representation.
 func (l *GeoDegenerateHorizontalLine) String() string {
 	return fmt.Sprintf("GeoDegenerateHorizontalLine: {planetmodel=%v, latitude=%g(%g), leftlon=%g(%g), rightLon=%g(%g)}",
-		l.PlanetModelField,
+		l.GetPlanetModel(),
 		l.f.latitude, l.f.latitude*180.0/math.Pi,
 		l.f.leftLon, l.f.leftLon*180.0/math.Pi,
 		l.f.rightLon, l.f.rightLon*180.0/math.Pi)

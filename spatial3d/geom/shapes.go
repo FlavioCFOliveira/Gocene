@@ -234,7 +234,7 @@ func (p *GeoDegeneratePoint) GetEdgePoints() []*GeoPoint {
 //
 // Port of GeoDegeneratePoint.getBounds.
 func (p *GeoDegeneratePoint) GetBounds(bounds Bounds) {
-	geoBaseGetBounds(p, p.PlanetModelField, bounds)
+	geoBaseGetBounds(p, p.GetPlanetModel(), bounds)
 	bounds.AddPoint(p.point)
 }
 
@@ -449,10 +449,10 @@ func (s *GeoS2ShapeImpl) GetEdgePoints() []*GeoPoint {
 //
 // Port of GeoS2Shape.intersects(Plane,GeoPoint[],Membership...).
 func (s *GeoS2ShapeImpl) Intersects(p *Plane, notablePoints []*GeoPoint, bounds ...Membership) bool {
-	return p.Intersects(s.PlanetModelField, &s.plane1.Plane, notablePoints, s.plane1Points, bounds, s.plane2, s.plane4) ||
-		p.Intersects(s.PlanetModelField, &s.plane2.Plane, notablePoints, s.plane2Points, bounds, s.plane3, s.plane1) ||
-		p.Intersects(s.PlanetModelField, &s.plane3.Plane, notablePoints, s.plane3Points, bounds, s.plane4, s.plane2) ||
-		p.Intersects(s.PlanetModelField, &s.plane4.Plane, notablePoints, s.plane4Points, bounds, s.plane1, s.plane3)
+	return p.Intersects(s.GetPlanetModel(), &s.plane1.Plane, notablePoints, s.plane1Points, bounds, s.plane2, s.plane4) ||
+		p.Intersects(s.GetPlanetModel(), &s.plane2.Plane, notablePoints, s.plane2Points, bounds, s.plane3, s.plane1) ||
+		p.Intersects(s.GetPlanetModel(), &s.plane3.Plane, notablePoints, s.plane3Points, bounds, s.plane4, s.plane2) ||
+		p.Intersects(s.GetPlanetModel(), &s.plane4.Plane, notablePoints, s.plane4Points, bounds, s.plane1, s.plane3)
 }
 
 // GetBounds accumulates bounding information.
@@ -460,10 +460,10 @@ func (s *GeoS2ShapeImpl) Intersects(p *Plane, notablePoints []*GeoPoint, bounds 
 // Port of GeoS2Shape.getBounds.
 func (s *GeoS2ShapeImpl) GetBounds(bounds Bounds) {
 	bounds.
-		AddPlane(s.PlanetModelField, &s.plane1.Plane, s.plane2, s.plane4).
-		AddPlane(s.PlanetModelField, &s.plane2.Plane, s.plane3, s.plane1).
-		AddPlane(s.PlanetModelField, &s.plane3.Plane, s.plane4, s.plane2).
-		AddPlane(s.PlanetModelField, &s.plane4.Plane, s.plane1, s.plane3).
+		AddPlane(s.GetPlanetModel(), &s.plane1.Plane, s.plane2, s.plane4).
+		AddPlane(s.GetPlanetModel(), &s.plane2.Plane, s.plane3, s.plane1).
+		AddPlane(s.GetPlanetModel(), &s.plane3.Plane, s.plane4, s.plane2).
+		AddPlane(s.GetPlanetModel(), &s.plane4.Plane, s.plane1, s.plane3).
 		AddPoint(s.point1).
 		AddPoint(s.point2).
 		AddPoint(s.point3).

@@ -187,7 +187,7 @@ func (c *GeoExactCircle) GetEdgePoints() []*GeoPoint { return c.f.edgePoints }
 //
 // Port of GeoExactCircle.intersects(Plane,GeoPoint[],Membership...).
 func (c *GeoExactCircle) Intersects(p *Plane, notablePoints []*GeoPoint, bounds ...Membership) bool {
-	pm := c.PlanetModelField
+	pm := c.GetPlanetModel()
 	for _, sl := range c.f.circleSlices {
 		var extraBounds []Membership
 		if sl.plane1 != nil {
@@ -207,9 +207,9 @@ func (c *GeoExactCircle) Intersects(p *Plane, notablePoints []*GeoPoint, bounds 
 //
 // Port of GeoExactCircle.getBounds.
 func (c *GeoExactCircle) GetBounds(bounds Bounds) {
-	geoBaseGetBounds(c, c.PlanetModelField, bounds)
+	geoBaseGetBounds(c, c.GetPlanetModel(), bounds)
 	bounds.AddPoint(c.f.center)
-	pm := c.PlanetModelField
+	pm := c.GetPlanetModel()
 	for _, sl := range c.f.circleSlices {
 		var extraBounds []Membership
 		if sl.plane1 != nil {
@@ -228,7 +228,7 @@ func (c *GeoExactCircle) GetBounds(bounds Bounds) {
 // String returns a debug representation.
 func (c *GeoExactCircle) String() string {
 	return fmt.Sprintf("GeoExactCircle: {planetmodel=%v, center=%v, radius=%g(%g), accuracy=%g}",
-		c.PlanetModelField, c.f.center, c.f.radius, c.f.radius*180.0/math.Pi, c.f.actualAccuracy)
+		c.GetPlanetModel(), c.f.center, c.f.radius, c.f.radius*180.0/math.Pi, c.f.actualAccuracy)
 }
 
 var (

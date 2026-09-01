@@ -122,7 +122,7 @@ func (v *GeoDegenerateVerticalLine) Expand(angle float64) GeoBBox {
 		newLeftLon = -math.Pi
 		newRightLon = math.Pi
 	}
-	bbox, err := MakeGeoBBox(v.PlanetModelField, newTopLat, newBottomLat, newLeftLon, newRightLon)
+	bbox, err := MakeGeoBBox(v.GetPlanetModel(), newTopLat, newBottomLat, newLeftLon, newRightLon)
 	if err != nil {
 		return nil
 	}
@@ -133,7 +133,7 @@ func (v *GeoDegenerateVerticalLine) Expand(angle float64) GeoBBox {
 //
 // Port of GeoDegenerateVerticalLine.intersects(Plane,GeoPoint[],Membership...).
 func (v *GeoDegenerateVerticalLine) Intersects(p *Plane, notablePoints []*GeoPoint, bounds ...Membership) bool {
-	return p.Intersects(v.PlanetModelField, v.f.plane, notablePoints, v.f.planePoints, bounds, v.f.boundingPlane, v.f.topPlane, v.f.bottomPlane)
+	return p.Intersects(v.GetPlanetModel(), v.f.plane, notablePoints, v.f.planePoints, bounds, v.f.boundingPlane, v.f.topPlane, v.f.bottomPlane)
 }
 
 // intersectsShape is the GeoShape-level intersection check used by GetRelationship.
@@ -162,8 +162,8 @@ func (v *GeoDegenerateVerticalLine) GetRelationship(geoShape GeoShape) int {
 //
 // Port of GeoDegenerateVerticalLine.getBounds.
 func (v *GeoDegenerateVerticalLine) GetBounds(bounds Bounds) {
-	geoBaseGetBounds(v, v.PlanetModelField, bounds)
-	pm := v.PlanetModelField
+	geoBaseGetBounds(v, v.GetPlanetModel(), bounds)
+	pm := v.GetPlanetModel()
 	bounds.
 		AddVerticalPlane(pm, v.f.longitude, v.f.plane, v.f.boundingPlane, v.f.topPlane, v.f.bottomPlane).
 		AddPoint(v.f.uhc).

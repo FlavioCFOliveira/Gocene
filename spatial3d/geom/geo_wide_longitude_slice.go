@@ -115,7 +115,7 @@ func (s *GeoWideLongitudeSlice) Expand(angle float64) GeoBBox {
 		newLeftLon = -math.Pi
 		newRightLon = math.Pi
 	}
-	bbox, err := MakeGeoBBox(s.PlanetModelField, math.Pi*0.5, -math.Pi*0.5, newLeftLon, newRightLon)
+	bbox, err := MakeGeoBBox(s.GetPlanetModel(), math.Pi*0.5, -math.Pi*0.5, newLeftLon, newRightLon)
 	if err != nil {
 		return nil
 	}
@@ -126,7 +126,7 @@ func (s *GeoWideLongitudeSlice) Expand(angle float64) GeoBBox {
 //
 // Port of GeoWideLongitudeSlice.intersects(Plane,GeoPoint[],Membership...).
 func (s *GeoWideLongitudeSlice) Intersects(p *Plane, notablePoints []*GeoPoint, bounds ...Membership) bool {
-	pm := s.PlanetModelField
+	pm := s.GetPlanetModel()
 	// Wide: intersection can ignore the left/right cross-bounds.
 	return p.Intersects(pm, &s.f.leftPlane.Plane, notablePoints, s.f.planePoints, bounds) ||
 		p.Intersects(pm, &s.f.rightPlane.Plane, notablePoints, s.f.planePoints, bounds)
@@ -151,8 +151,8 @@ func (s *GeoWideLongitudeSlice) GetRelationship(geoShape GeoShape) int {
 //
 // Port of GeoWideLongitudeSlice.getBounds.
 func (s *GeoWideLongitudeSlice) GetBounds(bounds Bounds) {
-	geoBaseGetBounds(s, s.PlanetModelField, bounds)
-	pm := s.PlanetModelField
+	geoBaseGetBounds(s, s.GetPlanetModel(), bounds)
+	pm := s.GetPlanetModel()
 	bounds.
 		IsWide().
 		AddVerticalPlane(pm, s.f.leftLon, &s.f.leftPlane.Plane).
@@ -165,7 +165,7 @@ func (s *GeoWideLongitudeSlice) GetBounds(bounds Bounds) {
 // String returns a debug representation.
 func (s *GeoWideLongitudeSlice) String() string {
 	return fmt.Sprintf("GeoWideLongitudeSlice: {planetmodel=%v, leftlon=%g(%g), rightlon=%g(%g)}",
-		s.PlanetModelField,
+		s.GetPlanetModel(),
 		s.f.leftLon, s.f.leftLon*180.0/math.Pi,
 		s.f.rightLon, s.f.rightLon*180.0/math.Pi)
 }

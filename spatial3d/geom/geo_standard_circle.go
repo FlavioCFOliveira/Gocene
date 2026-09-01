@@ -133,7 +133,7 @@ func (c *GeoStandardCircle) Intersects(p *Plane, notablePoints []*GeoPoint, boun
 	if c.circlePlane == nil {
 		return false
 	}
-	return c.circlePlane.Intersects(c.PlanetModelField, p, notablePoints, circlePoints, bounds)
+	return c.circlePlane.Intersects(c.GetPlanetModel(), p, notablePoints, circlePoints, bounds)
 }
 
 // GetBounds accumulates the circle's bounding information.
@@ -142,12 +142,12 @@ func (c *GeoStandardCircle) Intersects(p *Plane, notablePoints []*GeoPoint, boun
 // by Plane.recordBounds is approximated here by adding the centre and edge
 // points; see the package deviation note. isWithin is unaffected.
 func (c *GeoStandardCircle) GetBounds(bounds Bounds) {
-	geoBaseGetBounds(c, c.PlanetModelField, bounds)
+	geoBaseGetBounds(c, c.GetPlanetModel(), bounds)
 	if c.circlePlane == nil {
 		return
 	}
 	bounds.AddPoint(c.center)
-	bounds.AddPlane(c.PlanetModelField, &c.circlePlane.Plane)
+	bounds.AddPlane(c.GetPlanetModel(), &c.circlePlane.Plane)
 	for _, ep := range c.edgePoints {
 		bounds.AddPoint(ep)
 	}
@@ -156,7 +156,7 @@ func (c *GeoStandardCircle) GetBounds(bounds Bounds) {
 // String returns a debug representation.
 func (c *GeoStandardCircle) String() string {
 	return fmt.Sprintf("GeoStandardCircle: {planetmodel=%v, center=%v, radius=%g(%g)}",
-		c.PlanetModelField, c.center, c.cutoffAngle, c.cutoffAngle*180.0/math.Pi)
+		c.GetPlanetModel(), c.center, c.cutoffAngle, c.cutoffAngle*180.0/math.Pi)
 }
 
 var (

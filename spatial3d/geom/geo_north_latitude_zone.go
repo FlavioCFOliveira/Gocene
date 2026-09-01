@@ -78,7 +78,7 @@ func (z *GeoNorthLatitudeZone) GetEdgePoints() []*GeoPoint { return z.f.edgePoin
 // Port of GeoNorthLatitudeZone.expand.
 func (z *GeoNorthLatitudeZone) Expand(angle float64) GeoBBox {
 	newBottomLat := z.f.bottomLat - angle
-	bbox, err := MakeGeoBBox(z.PlanetModelField, math.Pi*0.5, newBottomLat, -math.Pi, math.Pi)
+	bbox, err := MakeGeoBBox(z.GetPlanetModel(), math.Pi*0.5, newBottomLat, -math.Pi, math.Pi)
 	if err != nil {
 		return nil
 	}
@@ -89,7 +89,7 @@ func (z *GeoNorthLatitudeZone) Expand(angle float64) GeoBBox {
 //
 // Port of GeoNorthLatitudeZone.intersects(Plane,GeoPoint[],Membership...).
 func (z *GeoNorthLatitudeZone) Intersects(p *Plane, notablePoints []*GeoPoint, bounds ...Membership) bool {
-	return p.Intersects(z.PlanetModelField, &z.f.bottomPlane.Plane, notablePoints, northLatZonePlanePoints, bounds)
+	return p.Intersects(z.GetPlanetModel(), &z.f.bottomPlane.Plane, notablePoints, northLatZonePlanePoints, bounds)
 }
 
 // intersectsShape is the GeoShape-level intersection check used by GetRelationship.
@@ -110,14 +110,14 @@ func (z *GeoNorthLatitudeZone) GetRelationship(geoShape GeoShape) int {
 //
 // Port of GeoNorthLatitudeZone.getBounds.
 func (z *GeoNorthLatitudeZone) GetBounds(bounds Bounds) {
-	geoBaseGetBounds(z, z.PlanetModelField, bounds)
-	bounds.AddHorizontalPlane(z.PlanetModelField, z.f.bottomLat, &z.f.bottomPlane.Plane)
+	geoBaseGetBounds(z, z.GetPlanetModel(), bounds)
+	bounds.AddHorizontalPlane(z.GetPlanetModel(), z.f.bottomLat, &z.f.bottomPlane.Plane)
 }
 
 // String returns a debug representation.
 func (z *GeoNorthLatitudeZone) String() string {
 	return fmt.Sprintf("GeoNorthLatitudeZone: {planetmodel=%v, bottomlat=%g(%g)}",
-		z.PlanetModelField, z.f.bottomLat, z.f.bottomLat*180.0/math.Pi)
+		z.GetPlanetModel(), z.f.bottomLat, z.f.bottomLat*180.0/math.Pi)
 }
 
 var (

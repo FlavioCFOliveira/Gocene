@@ -118,7 +118,7 @@ func (s *GeoLongitudeSlice) Expand(angle float64) GeoBBox {
 		newLeftLon = -math.Pi
 		newRightLon = math.Pi
 	}
-	bbox, err := MakeGeoBBox(s.PlanetModelField, math.Pi*0.5, -math.Pi*0.5, newLeftLon, newRightLon)
+	bbox, err := MakeGeoBBox(s.GetPlanetModel(), math.Pi*0.5, -math.Pi*0.5, newLeftLon, newRightLon)
 	if err != nil {
 		return nil
 	}
@@ -129,7 +129,7 @@ func (s *GeoLongitudeSlice) Expand(angle float64) GeoBBox {
 //
 // Port of GeoLongitudeSlice.intersects(Plane,GeoPoint[],Membership...).
 func (s *GeoLongitudeSlice) Intersects(p *Plane, notablePoints []*GeoPoint, bounds ...Membership) bool {
-	pm := s.PlanetModelField
+	pm := s.GetPlanetModel()
 	return p.Intersects(pm, &s.f.leftPlane.Plane, notablePoints, s.f.planePoints, bounds, s.f.rightPlane) ||
 		p.Intersects(pm, &s.f.rightPlane.Plane, notablePoints, s.f.planePoints, bounds, s.f.leftPlane)
 }
@@ -153,8 +153,8 @@ func (s *GeoLongitudeSlice) GetRelationship(geoShape GeoShape) int {
 //
 // Port of GeoLongitudeSlice.getBounds.
 func (s *GeoLongitudeSlice) GetBounds(bounds Bounds) {
-	geoBaseGetBounds(s, s.PlanetModelField, bounds)
-	pm := s.PlanetModelField
+	geoBaseGetBounds(s, s.GetPlanetModel(), bounds)
+	pm := s.GetPlanetModel()
 	bounds.
 		AddVerticalPlane(pm, s.f.leftLon, &s.f.leftPlane.Plane, s.f.rightPlane).
 		AddVerticalPlane(pm, s.f.rightLon, &s.f.rightPlane.Plane, s.f.leftPlane).
@@ -165,7 +165,7 @@ func (s *GeoLongitudeSlice) GetBounds(bounds Bounds) {
 // String returns a debug representation.
 func (s *GeoLongitudeSlice) String() string {
 	return fmt.Sprintf("GeoLongitudeSlice: {planetmodel=%v, leftlon=%g(%g), rightlon=%g(%g)}",
-		s.PlanetModelField,
+		s.GetPlanetModel(),
 		s.f.leftLon, s.f.leftLon*180.0/math.Pi,
 		s.f.rightLon, s.f.rightLon*180.0/math.Pi)
 }

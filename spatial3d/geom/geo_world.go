@@ -28,7 +28,7 @@ func (w *GeoWorld) GetRadius() float64 { return 3.141592653589793 /* math.Pi */ 
 func (w *GeoWorld) GetCenter() *GeoPoint {
 	if w.originPoint == nil {
 		// Lazily initialise if constructed from the stub in shapes.go.
-		w.originPoint = &GeoPoint{Vector: Vector{X: w.PlanetModelField.XYScaling}}
+		w.originPoint = &GeoPoint{Vector: Vector{X: w.GetPlanetModel().XYScaling}}
 	}
 	return w.originPoint
 }
@@ -53,12 +53,12 @@ func (w *GeoWorld) Intersects(_ *Plane, _ []*GeoPoint, _ ...Membership) bool { r
 //
 // Port of GeoWorld.getBounds.
 func (w *GeoWorld) GetBounds(bounds Bounds) {
-	geoBaseGetBounds(w, w.PlanetModelField, bounds)
+	geoBaseGetBounds(w, w.GetPlanetModel(), bounds)
 }
 
 // String returns a debug representation.
 func (w *GeoWorld) String() string {
-	return fmt.Sprintf("GeoWorld: {planetmodel=%v}", w.PlanetModelField)
+	return fmt.Sprintf("GeoWorld: {planetmodel=%v}", w.GetPlanetModel())
 }
 
 var (

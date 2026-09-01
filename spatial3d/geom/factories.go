@@ -14,7 +14,7 @@ import (
 // ---------------------------------------------------------------------------
 
 func makeBase(pm *PlanetModel) GeoBaseShape {
-	return GeoBaseShape{BasePlanetObject: BasePlanetObject{PlanetModelField: pm}}
+	return GeoBaseShape{BasePlanetObject: BasePlanetObject{planetModel: pm}}
 }
 
 func makeMem(pm *PlanetModel) GeoBaseMembershipShape {

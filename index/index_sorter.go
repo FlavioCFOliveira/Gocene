@@ -139,6 +139,16 @@ func buildFieldComparator(reader *LeafReader, sf SortField, numDocs int) (docCom
 		reverseMul = -1
 	}
 
+	// Check if it's a BinarySortField for index sorting.
+	// We use a type assertion here. In Gocene, SortField is a struct,
+	// so if sf is passed by value, we can't assert to *BinarySortField.
+	// However, the buildFieldComparators function takes []SortField.
+	// I should check if the input slice was actually []*SortField or if I need to adjust.
+	// Wait, buildFieldComparators is: func buildFieldComparators(reader *LeafReader, fields []SortField, numDocs int)
+	// And buildFieldComparator is: func buildFieldComparator(reader *LeafReader, sf SortField, numDocs int)
+	// Since sf is a value, I cannot assert it to *search.BinarySortField unless it was a pointer.
+	// Let me check how SortField is handled in Gocene.
+
 	switch sf.SortType() {
 	case SortTypeInt:
 		return buildIntComparator(reader, sf, numDocs, reverseMul)

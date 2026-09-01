@@ -146,7 +146,7 @@ func (r *GeoNorthRectangle) Expand(angle float64) GeoBBox {
 		newLeftLon = -math.Pi
 		newRightLon = math.Pi
 	}
-	bbox, err := MakeGeoBBox(r.PlanetModelField, math.Pi*0.5, newBottomLat, newLeftLon, newRightLon)
+	bbox, err := MakeGeoBBox(r.GetPlanetModel(), math.Pi*0.5, newBottomLat, newLeftLon, newRightLon)
 	if err != nil {
 		return nil
 	}
@@ -157,7 +157,7 @@ func (r *GeoNorthRectangle) Expand(angle float64) GeoBBox {
 //
 // Port of GeoNorthRectangle.intersects(Plane,GeoPoint[],Membership...).
 func (r *GeoNorthRectangle) Intersects(p *Plane, notablePoints []*GeoPoint, bounds ...Membership) bool {
-	pm := r.PlanetModelField
+	pm := r.GetPlanetModel()
 	return p.Intersects(pm, &r.f.bottomPlane.Plane, notablePoints, r.f.bottomPlanePoints, bounds, r.f.leftPlane, r.f.rightPlane) ||
 		p.Intersects(pm, &r.f.leftPlane.Plane, notablePoints, r.f.leftPlanePoints, bounds, r.f.rightPlane, r.f.bottomPlane) ||
 		p.Intersects(pm, &r.f.rightPlane.Plane, notablePoints, r.f.rightPlanePoints, bounds, r.f.leftPlane, r.f.bottomPlane)
@@ -183,8 +183,8 @@ func (r *GeoNorthRectangle) GetRelationship(geoShape GeoShape) int {
 //
 // Port of GeoNorthRectangle.getBounds.
 func (r *GeoNorthRectangle) GetBounds(bounds Bounds) {
-	geoBaseGetBounds(r, r.PlanetModelField, bounds)
-	pm := r.PlanetModelField
+	geoBaseGetBounds(r, r.GetPlanetModel(), bounds)
+	pm := r.GetPlanetModel()
 	bounds.
 		AddHorizontalPlane(pm, r.f.bottomLat, &r.f.bottomPlane.Plane, r.f.leftPlane, r.f.rightPlane).
 		AddVerticalPlane(pm, r.f.leftLon, &r.f.leftPlane.Plane, r.f.bottomPlane, r.f.rightPlane).
@@ -197,7 +197,7 @@ func (r *GeoNorthRectangle) GetBounds(bounds Bounds) {
 // String returns a debug representation.
 func (r *GeoNorthRectangle) String() string {
 	return fmt.Sprintf("GeoNorthRectangle: {planetmodel=%v, bottomlat=%g(%g), leftlon=%g(%g), rightlon=%g(%g)}",
-		r.PlanetModelField,
+		r.GetPlanetModel(),
 		r.f.bottomLat, r.f.bottomLat*180.0/math.Pi,
 		r.f.leftLon, r.f.leftLon*180.0/math.Pi,
 		r.f.rightLon, r.f.rightLon*180.0/math.Pi)

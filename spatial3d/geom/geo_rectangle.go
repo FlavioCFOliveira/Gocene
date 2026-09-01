@@ -131,7 +131,7 @@ func (r *GeoRectangle) Expand(angle float64) GeoBBox {
 		newLeftLon = -math.Pi
 		newRightLon = math.Pi
 	}
-	bbox, err := MakeGeoBBox(r.PlanetModelField, newTopLat, newBottomLat, newLeftLon, newRightLon)
+	bbox, err := MakeGeoBBox(r.GetPlanetModel(), newTopLat, newBottomLat, newLeftLon, newRightLon)
 	if err != nil {
 		return nil
 	}
@@ -142,7 +142,7 @@ func (r *GeoRectangle) Expand(angle float64) GeoBBox {
 //
 // Port of GeoRectangle.intersects(Plane,GeoPoint[],Membership...).
 func (r *GeoRectangle) Intersects(p *Plane, notablePoints []*GeoPoint, bounds ...Membership) bool {
-	pm := r.PlanetModelField
+	pm := r.GetPlanetModel()
 	return p.Intersects(pm, &r.topPlane.Plane, notablePoints, r.topPlanePoints, bounds, r.bottomPlane, r.leftPlane, r.rightPlane) ||
 		p.Intersects(pm, &r.bottomPlane.Plane, notablePoints, r.bottomPlanePoints, bounds, r.topPlane, r.leftPlane, r.rightPlane) ||
 		p.Intersects(pm, &r.leftPlane.Plane, notablePoints, r.leftPlanePoints, bounds, r.rightPlane, r.topPlane, r.bottomPlane) ||
@@ -153,8 +153,8 @@ func (r *GeoRectangle) Intersects(p *Plane, notablePoints []*GeoPoint, bounds ..
 //
 // Port of GeoRectangle.getBounds.
 func (r *GeoRectangle) GetBounds(bounds Bounds) {
-	geoBaseGetBounds(r, r.PlanetModelField, bounds)
-	pm := r.PlanetModelField
+	geoBaseGetBounds(r, r.GetPlanetModel(), bounds)
+	pm := r.GetPlanetModel()
 	bounds.
 		AddHorizontalPlane(pm, r.topLat, &r.topPlane.Plane, r.bottomPlane, r.leftPlane, r.rightPlane).
 		AddVerticalPlane(pm, r.rightLon, &r.rightPlane.Plane, r.topPlane, r.bottomPlane, r.leftPlane).
@@ -169,7 +169,7 @@ func (r *GeoRectangle) GetBounds(bounds Bounds) {
 // String returns a debug representation.
 func (r *GeoRectangle) String() string {
 	return fmt.Sprintf("GeoRectangle: {planetmodel=%v, toplat=%g, bottomlat=%g, leftlon=%g, rightlon=%g}",
-		r.PlanetModelField, r.topLat, r.bottomLat, r.leftLon, r.rightLon)
+		r.GetPlanetModel(), r.topLat, r.bottomLat, r.leftLon, r.rightLon)
 }
 
 var (

@@ -135,7 +135,7 @@ func (p *GeoConvexPolygon) GetEdgePoints() []*GeoPoint { return p.edgePoints }
 //
 // Port of GeoConvexPolygon.intersects(Plane,GeoPoint[],Membership...).
 func (p *GeoConvexPolygon) Intersects(pl *Plane, notablePoints []*GeoPoint, bounds ...Membership) bool {
-	pm := p.PlanetModelField
+	pm := p.GetPlanetModel()
 	for edgeIndex, edge := range p.edges {
 		if p.isInternalEdges[edgeIndex] {
 			continue
@@ -156,7 +156,7 @@ func (p *GeoConvexPolygon) Intersects(pl *Plane, notablePoints []*GeoPoint, boun
 //
 // Port of GeoConvexPolygon.getBounds.
 func (p *GeoConvexPolygon) GetBounds(bounds Bounds) {
-	pm := p.PlanetModelField
+	pm := p.GetPlanetModel()
 	polygonLocalBounds(bounds, pm, p.localIsWithin)
 	for _, point := range p.points {
 		bounds.AddPoint(point)
@@ -170,7 +170,7 @@ func (p *GeoConvexPolygon) GetBounds(bounds Bounds) {
 
 // String returns a debug representation.
 func (p *GeoConvexPolygon) String() string {
-	return fmt.Sprintf("GeoConvexPolygon: {planetmodel=%v, points=%v}", p.PlanetModelField, p.points)
+	return fmt.Sprintf("GeoConvexPolygon: {planetmodel=%v, points=%v}", p.GetPlanetModel(), p.points)
 }
 
 var (
@@ -297,7 +297,7 @@ func (p *GeoConcavePolygon) GetEdgePoints() []*GeoPoint { return p.edgePoints }
 //
 // Port of GeoConcavePolygon.intersects(Plane,GeoPoint[],Membership...).
 func (p *GeoConcavePolygon) Intersects(pl *Plane, notablePoints []*GeoPoint, bounds ...Membership) bool {
-	pm := p.PlanetModelField
+	pm := p.GetPlanetModel()
 	for edgeIndex, edge := range p.edges {
 		if p.isInternalEdges[edgeIndex] {
 			continue
@@ -318,7 +318,7 @@ func (p *GeoConcavePolygon) Intersects(pl *Plane, notablePoints []*GeoPoint, bou
 //
 // Port of GeoConcavePolygon.getBounds.
 func (p *GeoConcavePolygon) GetBounds(bounds Bounds) {
-	pm := p.PlanetModelField
+	pm := p.GetPlanetModel()
 	polygonLocalBounds(bounds, pm, p.localIsWithin)
 	bounds.IsWide()
 	for _, point := range p.points {
@@ -333,7 +333,7 @@ func (p *GeoConcavePolygon) GetBounds(bounds Bounds) {
 
 // String returns a debug representation.
 func (p *GeoConcavePolygon) String() string {
-	return fmt.Sprintf("GeoConcavePolygon: {planetmodel=%v, points=%v}", p.PlanetModelField, p.points)
+	return fmt.Sprintf("GeoConcavePolygon: {planetmodel=%v, points=%v}", p.GetPlanetModel(), p.points)
 }
 
 var (

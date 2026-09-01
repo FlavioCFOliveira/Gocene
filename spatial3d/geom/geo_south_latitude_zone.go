@@ -78,7 +78,7 @@ func (z *GeoSouthLatitudeZone) GetEdgePoints() []*GeoPoint { return z.f.edgePoin
 // Port of GeoSouthLatitudeZone.expand.
 func (z *GeoSouthLatitudeZone) Expand(angle float64) GeoBBox {
 	newTopLat := z.f.topLat + angle
-	bbox, err := MakeGeoBBox(z.PlanetModelField, newTopLat, -math.Pi*0.5, -math.Pi, math.Pi)
+	bbox, err := MakeGeoBBox(z.GetPlanetModel(), newTopLat, -math.Pi*0.5, -math.Pi, math.Pi)
 	if err != nil {
 		return nil
 	}
@@ -89,7 +89,7 @@ func (z *GeoSouthLatitudeZone) Expand(angle float64) GeoBBox {
 //
 // Port of GeoSouthLatitudeZone.intersects(Plane,GeoPoint[],Membership...).
 func (z *GeoSouthLatitudeZone) Intersects(p *Plane, notablePoints []*GeoPoint, bounds ...Membership) bool {
-	return p.Intersects(z.PlanetModelField, &z.f.topPlane.Plane, notablePoints, southLatZonePlanePoints, bounds)
+	return p.Intersects(z.GetPlanetModel(), &z.f.topPlane.Plane, notablePoints, southLatZonePlanePoints, bounds)
 }
 
 // intersectsShape is the GeoShape-level intersection check used by GetRelationship.
@@ -110,14 +110,14 @@ func (z *GeoSouthLatitudeZone) GetRelationship(geoShape GeoShape) int {
 //
 // Port of GeoSouthLatitudeZone.getBounds.
 func (z *GeoSouthLatitudeZone) GetBounds(bounds Bounds) {
-	geoBaseGetBounds(z, z.PlanetModelField, bounds)
-	bounds.AddHorizontalPlane(z.PlanetModelField, z.f.topLat, &z.f.topPlane.Plane)
+	geoBaseGetBounds(z, z.GetPlanetModel(), bounds)
+	bounds.AddHorizontalPlane(z.GetPlanetModel(), z.f.topLat, &z.f.topPlane.Plane)
 }
 
 // String returns a debug representation.
 func (z *GeoSouthLatitudeZone) String() string {
 	return fmt.Sprintf("GeoSouthLatitudeZone: {planetmodel=%v, toplat=%g(%g)}",
-		z.PlanetModelField, z.f.topLat, z.f.topLat*180.0/math.Pi)
+		z.GetPlanetModel(), z.f.topLat, z.f.topLat*180.0/math.Pi)
 }
 
 var (

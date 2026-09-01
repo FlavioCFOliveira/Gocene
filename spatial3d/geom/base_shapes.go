@@ -7,12 +7,7 @@ package geom
 // BasePlanetObject is the base for objects tied to a PlanetModel.
 //
 // Port of org.apache.lucene.spatial3d.geom.BasePlanetObject.
-type BasePlanetObject struct {
-	PlanetModelField *PlanetModel
-}
-
-// GetPlanetModel returns the associated PlanetModel.
-func (b *BasePlanetObject) GetPlanetModel() *PlanetModel { return b.PlanetModelField }
+// (Implemented in base_planet_object.go)
 
 // GeoBaseShape is the abstract base for all geo shapes.
 //

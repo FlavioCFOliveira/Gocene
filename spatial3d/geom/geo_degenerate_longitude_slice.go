@@ -86,7 +86,7 @@ func (s *GeoDegenerateLongitudeSlice) Expand(angle float64) GeoBBox {
 		newLeftLon = -math.Pi
 		newRightLon = math.Pi
 	}
-	bbox, err := MakeGeoBBox(s.PlanetModelField, math.Pi*0.5, -math.Pi*0.5, newLeftLon, newRightLon)
+	bbox, err := MakeGeoBBox(s.GetPlanetModel(), math.Pi*0.5, -math.Pi*0.5, newLeftLon, newRightLon)
 	if err != nil {
 		return nil
 	}
@@ -97,7 +97,7 @@ func (s *GeoDegenerateLongitudeSlice) Expand(angle float64) GeoBBox {
 //
 // Port of GeoDegenerateLongitudeSlice.intersects(Plane,GeoPoint[],Membership...).
 func (s *GeoDegenerateLongitudeSlice) Intersects(p *Plane, notablePoints []*GeoPoint, bounds ...Membership) bool {
-	return p.Intersects(s.PlanetModelField, s.f.plane, notablePoints, s.f.planePoints, bounds, s.f.boundingPlane)
+	return p.Intersects(s.GetPlanetModel(), s.f.plane, notablePoints, s.f.planePoints, bounds, s.f.boundingPlane)
 }
 
 // intersectsShape is the GeoShape-level intersection check used by GetRelationship.
@@ -126,8 +126,8 @@ func (s *GeoDegenerateLongitudeSlice) GetRelationship(geoShape GeoShape) int {
 //
 // Port of GeoDegenerateLongitudeSlice.getBounds.
 func (s *GeoDegenerateLongitudeSlice) GetBounds(bounds Bounds) {
-	geoBaseGetBounds(s, s.PlanetModelField, bounds)
-	pm := s.PlanetModelField
+	geoBaseGetBounds(s, s.GetPlanetModel(), bounds)
+	pm := s.GetPlanetModel()
 	bounds.
 		AddVerticalPlane(pm, s.f.longitude, s.f.plane, s.f.boundingPlane).
 		AddPoint(pm.NorthPole).
@@ -137,7 +137,7 @@ func (s *GeoDegenerateLongitudeSlice) GetBounds(bounds Bounds) {
 // String returns a debug representation.
 func (s *GeoDegenerateLongitudeSlice) String() string {
 	return fmt.Sprintf("GeoDegenerateLongitudeSlice: {planetmodel=%v, longitude=%g(%g)}",
-		s.PlanetModelField, s.f.longitude, s.f.longitude*180.0/math.Pi)
+		s.GetPlanetModel(), s.f.longitude, s.f.longitude*180.0/math.Pi)
 }
 
 var (

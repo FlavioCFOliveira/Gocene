@@ -145,7 +145,7 @@ func (l *GeoWideDegenerateHorizontalLine) Expand(angle float64) GeoBBox {
 		newLeftLon = -math.Pi
 		newRightLon = math.Pi
 	}
-	bbox, err := MakeGeoBBox(l.PlanetModelField, newTopLat, newBottomLat, newLeftLon, newRightLon)
+	bbox, err := MakeGeoBBox(l.GetPlanetModel(), newTopLat, newBottomLat, newLeftLon, newRightLon)
 	if err != nil {
 		return nil
 	}
@@ -156,7 +156,7 @@ func (l *GeoWideDegenerateHorizontalLine) Expand(angle float64) GeoBBox {
 //
 // Port of GeoWideDegenerateHorizontalLine.intersects(Plane,GeoPoint[],Membership...).
 func (l *GeoWideDegenerateHorizontalLine) Intersects(p *Plane, notablePoints []*GeoPoint, bounds ...Membership) bool {
-	return p.Intersects(l.PlanetModelField, l.f.plane, notablePoints, l.f.planePoints, bounds, l.f.eitherBound)
+	return p.Intersects(l.GetPlanetModel(), l.f.plane, notablePoints, l.f.planePoints, bounds, l.f.eitherBound)
 }
 
 // intersectsShape is the GeoShape-level intersection check used by GetRelationship.
@@ -185,10 +185,10 @@ func (l *GeoWideDegenerateHorizontalLine) GetRelationship(geoShape GeoShape) int
 //
 // Port of GeoWideDegenerateHorizontalLine.getBounds.
 func (l *GeoWideDegenerateHorizontalLine) GetBounds(bounds Bounds) {
-	geoBaseGetBounds(l, l.PlanetModelField, bounds)
+	geoBaseGetBounds(l, l.GetPlanetModel(), bounds)
 	bounds.
 		IsWide().
-		AddHorizontalPlane(l.PlanetModelField, l.f.latitude, l.f.plane, l.f.eitherBound).
+		AddHorizontalPlane(l.GetPlanetModel(), l.f.latitude, l.f.plane, l.f.eitherBound).
 		AddPoint(l.f.lhc).
 		AddPoint(l.f.rhc)
 }
@@ -196,7 +196,7 @@ func (l *GeoWideDegenerateHorizontalLine) GetBounds(bounds Bounds) {
 // String returns a debug representation.
 func (l *GeoWideDegenerateHorizontalLine) String() string {
 	return fmt.Sprintf("GeoWideDegenerateHorizontalLine: {planetmodel=%v, latitude=%g(%g), leftlon=%g(%g), rightLon=%g(%g)}",
-		l.PlanetModelField,
+		l.GetPlanetModel(),
 		l.f.latitude, l.f.latitude*180.0/math.Pi,
 		l.f.leftLon, l.f.leftLon*180.0/math.Pi,
 		l.f.rightLon, l.f.rightLon*180.0/math.Pi)

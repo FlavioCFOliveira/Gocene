@@ -1,0 +1,33 @@
+     * no merges were scheduled.
+     *
+     * @param timeout maximum time to wait
+     * @param unit time unit for timeout
+     * @return {@code true} if all merges completed within timeout or no merges were needed, {@code
+     *     false} on timeout or error
+     */
+    public boolean await(long timeout, TimeUnit unit) {
+      return spec == null || spec.await(timeout, unit);
+    }
+
+    /**
+     * Returns a {@link CompletableFuture} that completes when all merges finish. Returns an
+     * already-completed future if no merges were scheduled.
+     *
+     * @return future that completes when merges finish
+     */
+    public CompletableFuture<Void> awaitAsync() {
+      return spec == null
+          ? CompletableFuture.completedFuture(null)
+          : spec.getMergeCompletedFutures();
+    }
+
+    @Override
+    public String toString() {
+      if (spec == null) {
+        return "MergeObserver: no merges";
+      }
+      return String.format(
+          Locale.ROOT, "MergeObserver: %d merges\n%s", numMerges(), spec.toString());
+    }
+  }
+}
