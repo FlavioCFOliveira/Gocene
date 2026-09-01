@@ -55,13 +55,13 @@ func glueTogether(arrays ...[]*GeoPoint) []*GeoPoint {
 	return out
 }
 
-// IsWithin is deferred to concrete types — returns false.
+// IsWithin is implemented by concrete solid types.
 func (b *BaseXYZSolid) IsWithin(_, _, _ float64) bool { return false }
 
-// GetEdgePoints returns nil — deferred to #2693.
+// GetEdgePoints is implemented by concrete solid types.
 func (b *BaseXYZSolid) GetEdgePoints() []*GeoPoint { return nil }
 
-// GetRelationship returns RelDisjoint — deferred to #2693.
+// GetRelationship is implemented by concrete solid types.
 func (b *BaseXYZSolid) GetRelationship(_ GeoShape) int { return RelDisjoint }
 
 // ---------------------------------------------------------------------------
@@ -117,7 +117,7 @@ func NewStandardXYZSolid(pm *PlanetModel, minX, maxX, minY, maxY, minZ, maxZ flo
 	}
 
 	s := &StandardXYZSolid{
-		BaseXYZSolid: BaseXYZSolid{BasePlanetObject: BasePlanetObject{PlanetModelField: pm}},
+		BaseXYZSolid: BaseXYZSolid{BasePlanetObject: BasePlanetObject{planetModel: pm}},
 		minX:         minX, maxX: maxX,
 		minY: minY, maxY: maxY,
 		minZ: minZ, maxZ: maxZ,
@@ -364,7 +364,7 @@ func isAreaInsideShape(path GeoShape, edgePoints []*GeoPoint) int {
 }
 
 // zVerticalPlane is the vertical plane normal to the Z axis through the origin.
-var zVerticalPlane = NewPlane(1, 0, 0, 0)
+var zVerticalPlane = NewPlane(0, 0, 1, 0)
 
 // String returns a debug representation.
 func (s *StandardXYZSolid) String() string {
@@ -391,7 +391,7 @@ type DXDYDZSolid struct {
 // NewDXDYDZSolid constructs a point solid.
 func NewDXDYDZSolid(pm *PlanetModel, x, y, z float64) *DXDYDZSolid {
 	s := &DXDYDZSolid{
-		BaseXYZSolid: BaseXYZSolid{BasePlanetObject: BasePlanetObject{PlanetModelField: pm}},
+		BaseXYZSolid: BaseXYZSolid{BasePlanetObject: BasePlanetObject{planetModel: pm}},
 		x: x, y: y, z: z,
 	}
 	s.isOnSurface = pm.PointOnSurfaceXYZ(x, y, z)
@@ -461,7 +461,7 @@ type DXDYZSolid struct {
 // NewDXDYZSolid constructs a DXDYZSolid.
 func NewDXDYZSolid(pm *PlanetModel, x, y, minZ, maxZ float64) *DXDYZSolid {
 	s := &DXDYZSolid{
-		BaseXYZSolid: BaseXYZSolid{BasePlanetObject: BasePlanetObject{PlanetModelField: pm}},
+		BaseXYZSolid: BaseXYZSolid{BasePlanetObject: BasePlanetObject{planetModel: pm}},
 		x: x, y: y, minZ: minZ, maxZ: maxZ,
 	}
 	xPlane := NewPlaneFromVectorD(xUnitVector, -x)
@@ -527,7 +527,7 @@ type DXYDZSolid struct {
 // NewDXYDZSolid constructs a DXYDZSolid.
 func NewDXYDZSolid(pm *PlanetModel, x, minY, maxY, z float64) *DXYDZSolid {
 	s := &DXYDZSolid{
-		BaseXYZSolid: BaseXYZSolid{BasePlanetObject: BasePlanetObject{PlanetModelField: pm}},
+		BaseXYZSolid: BaseXYZSolid{BasePlanetObject: BasePlanetObject{planetModel: pm}},
 		x: x, minY: minY, maxY: maxY, z: z,
 	}
 	xPlane := NewPlaneFromVectorD(xUnitVector, -x)
@@ -597,7 +597,7 @@ type DXYZSolid struct {
 // NewDXYZSolid constructs a DXYZSolid.
 func NewDXYZSolid(pm *PlanetModel, x, minY, maxY, minZ, maxZ float64) *DXYZSolid {
 	s := &DXYZSolid{
-		BaseXYZSolid: BaseXYZSolid{BasePlanetObject: BasePlanetObject{PlanetModelField: pm}},
+		BaseXYZSolid: BaseXYZSolid{BasePlanetObject: BasePlanetObject{planetModel: pm}},
 		x: x, minY: minY, maxY: maxY, minZ: minZ, maxZ: maxZ,
 	}
 	worldMinX := pm.GetMinimumXValue()
@@ -698,7 +698,7 @@ type XDYDZSolid struct {
 // NewXDYDZSolid constructs a XDYDZSolid.
 func NewXDYDZSolid(pm *PlanetModel, minX, maxX, y, z float64) *XDYDZSolid {
 	s := &XDYDZSolid{
-		BaseXYZSolid: BaseXYZSolid{BasePlanetObject: BasePlanetObject{PlanetModelField: pm}},
+		BaseXYZSolid: BaseXYZSolid{BasePlanetObject: BasePlanetObject{planetModel: pm}},
 		minX: minX, maxX: maxX, y: y, z: z,
 	}
 	yPlane := NewPlaneFromVectorD(yUnitVector, -y)
@@ -768,7 +768,7 @@ type XDYZSolid struct {
 // NewXDYZSolid constructs a XDYZSolid.
 func NewXDYZSolid(pm *PlanetModel, minX, maxX, y, minZ, maxZ float64) *XDYZSolid {
 	s := &XDYZSolid{
-		BaseXYZSolid: BaseXYZSolid{BasePlanetObject: BasePlanetObject{PlanetModelField: pm}},
+		BaseXYZSolid: BaseXYZSolid{BasePlanetObject: BasePlanetObject{planetModel: pm}},
 		minX: minX, maxX: maxX, y: y, minZ: minZ, maxZ: maxZ,
 	}
 	worldMinY := pm.GetMinimumYValue()
@@ -873,7 +873,7 @@ type XYDZSolid struct {
 // NewXYDZSolid constructs a XYDZSolid.
 func NewXYDZSolid(pm *PlanetModel, minX, maxX, minY, maxY, z float64) *XYDZSolid {
 	s := &XYDZSolid{
-		BaseXYZSolid: BaseXYZSolid{BasePlanetObject: BasePlanetObject{PlanetModelField: pm}},
+		BaseXYZSolid: BaseXYZSolid{BasePlanetObject: BasePlanetObject{planetModel: pm}},
 		minX: minX, maxX: maxX, minY: minY, maxY: maxY, z: z,
 	}
 	worldMinZ := pm.GetMinimumZValue()
