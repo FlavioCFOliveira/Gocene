@@ -8,24 +8,39 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
+// getComparableKey converts a value to a comparable key for map usage.
+func getComparableKey[T any](val T) any {
+	switch v := any(val).(type) {
+	case []byte:
+		return string(v)
+	default:
+		return v
+	}
+}
+
 // FirstPassGroupingCollector is the first of two passes necessary to collect grouped hits.
-// This pass gathers the top N sorted groups.
+// This pass gathers the top N sorted groups. Groups are defined by a GroupSelector.
 type FirstPassGroupingCollector[T any] struct {
 	search.BaseSimpleCollector
 	groupSelector               GroupSelector[T]
 	ignoreDocsWithoutGroupField bool
-	comparators                  []search.FieldComparator
-	leafComparators              []search.LeafFieldComparator
-	reversed                    []int
-	topNGroups                  int
-	needsScores                 bool
-	groupMap                    map[any]*CollectedSearchGroup[T]
-	compIDXEnd                  int
-	orderedGroups               []*CollectedSearchGroup[T]
-	docBase                     int
-	spareSlot                   int
+
+	comparators     []search.FieldComparator
+	leafComparators []search.LeafFieldComparator
+	reversed       []int
+	topNGroups     int
+	needsScores    bool
+	groupMap       map[any]*CollectedSearchGroup[T]
+	compIDXEnd     int
+
+	// Set once we reach topNGroups unique groups:
+	orderedGroups []*CollectedSearchGroup[T]
+
+	docBase    int
+	spareSlot  int
 }
 
+// NewFirstPassGroupingCollector creates the first pass collector.
 func NewFirstPassGroupingCollector[T any](groupSelector GroupSelector[T], groupSort *search.Sort, topNGroups int, ignoreDocsWithoutGroupField bool) *FirstPassGroupingCollector[T] {
 	if topNGroups < 1 {
 		panic("topNGroups must be >= 1")
@@ -33,7 +48,9 @@ func NewFirstPassGroupingCollector[T any](groupSelector GroupSelector[T], groupS
 
 	sortFields := groupSort.Fields
 	comparators := make([]search.FieldComparator, len(sortFields))
+	leafComparators := make([]search.LeafFieldComparator, len(sortFields))
 	reversed := make([]int, len(sortFields))
+
 	for i, sf := range sortFields {
 		// use topNGroups + 1 so we have a spare slot to use for comparing:
 		comparators[i] = sf.GetComparator(topNGroups+1, search.PruningNone)
@@ -48,7 +65,7 @@ func NewFirstPassGroupingCollector[T any](groupSelector GroupSelector[T], groupS
 		groupSelector:               groupSelector,
 		ignoreDocsWithoutGroupField:   ignoreDocsWithoutGroupField,
 		comparators:                  comparators,
-		leafComparators:              make([]search.LeafFieldComparator, len(sortFields)),
+		leafComparators:              leafComparators,
 		reversed:                    reversed,
 		topNGroups:                  topNGroups,
 		needsScores:                 groupSort.NeedsScores(),
@@ -144,27 +161,28 @@ func (c *FirstPassGroupingCollector[T]) Collect(doc int) error {
 		return nil
 	}
 
-	group, ok := c.groupMap[any(groupValue)]
+	key := getComparableKey(groupValue)
+	group, ok := c.groupMap[key]
 	if !ok {
-		return c.collectNewGroup(doc)
+		return c.collectNewGroup(doc, groupValue)
 	}
 	return c.collectExistingGroup(doc, group)
 }
 
-func (c *FirstPassGroupingCollector[T]) collectNewGroup(doc int) error {
+func (c *FirstPassGroupingCollector[T]) collectNewGroup(doc int, groupValue T) error {
 	if len(c.groupMap) < c.topNGroups {
 		sg := &CollectedSearchGroup[T]{}
 		val, err := c.groupSelector.CopyValue()
 		if err != nil {
 			return err
 		}
-		sg.GroupValue = &val
+		sg.GroupValue = val
 		sg.ComparatorSlot = len(c.groupMap)
 		sg.TopDoc = c.docBase + doc
 		for _, fc := range c.leafComparators {
 			fc.Copy(sg.ComparatorSlot, doc)
 		}
-		c.groupMap[any(val)] = sg
+		c.groupMap[getComparableKey(val)] = sg
 
 		if len(c.groupMap) == c.topNGroups {
 			c.buildSortedSet()
@@ -178,22 +196,20 @@ func (c *FirstPassGroupingCollector[T]) collectNewGroup(doc int) error {
 
 	bottomGroup := c.orderedGroups[len(c.orderedGroups)-1]
 	// Need to remove it from the sorted set and the map
-	// But since we're using a slice, we just remove the last element
 	c.orderedGroups = c.orderedGroups[:len(c.orderedGroups)-1]
-	delete(c.groupMap, any(*bottomGroup.GroupValue))
+	delete(c.groupMap, getComparableKey(bottomGroup.GroupValue))
 
 	val, err := c.groupSelector.CopyValue()
 	if err != nil {
 		return err
 	}
-	bottomGroup.GroupValue = &val
+	bottomGroup.GroupValue = val
 	bottomGroup.TopDoc = c.docBase + doc
 	for _, fc := range c.leafComparators {
 		fc.Copy(bottomGroup.ComparatorSlot, doc)
 	}
-	c.groupMap[any(val)] = bottomGroup
+	c.groupMap[getComparableKey(val)] = bottomGroup
 
-	// We need to re-insert it into the sorted slice
 	c.insertSorted(bottomGroup)
 
 	lastComparatorSlot := c.orderedGroups[len(c.orderedGroups)-1].ComparatorSlot
