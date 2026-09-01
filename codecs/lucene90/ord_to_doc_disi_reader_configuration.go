@@ -6,8 +6,6 @@ package lucene90
 
 import (
 	"fmt"
-
-	"github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
 )
 
 type OrdToDocDISIReaderConfiguration struct {

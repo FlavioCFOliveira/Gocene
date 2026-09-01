@@ -484,11 +484,29 @@ func (r *ReadersAndUpdates) DropReaders() error {
 
 // GetReadOnlyClone is the entry-point that Lucene uses to hand a fresh
 // SegmentReader (with replacement live-docs) to consumers that must see
-// the latest deletes. The alternate constructor it relies on
-// ({@code new SegmentReader(info, reader, liveDocs, hardLiveDocs, numDocs,
-// applyAllDeletes)}) is not ported in Gocene. See file header.
+// the latest deletes.
 func (r *ReadersAndUpdates) GetReadOnlyClone() (*SegmentReader, error) {
-	return nil, ErrReadersAndUpdatesReadOnlyCloneUnsupported
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.reader == nil {
+		r.reader = NewSegmentReader(r.info)
+	}
+
+	liveDocs := r.pendingDeletes.GetLiveDocs()
+	if liveDocs != nil {
+		return NewSegmentReaderClone(
+			r.info,
+			r.reader,
+			liveDocs,
+			r.pendingDeletes.GetHardLiveDocs(),
+			r.pendingDeletes.NumDocs(),
+			true), nil
+	}
+
+	// liveDocs == nil and reader != nil. That can only be if there are no deletes
+	r.reader.IncRef()
+	return r.reader, nil
 }
 
 // NumDeletesToMerge returns the number of deletes that would be applied
@@ -499,16 +517,19 @@ func (r *ReadersAndUpdates) NumDeletesToMerge(_ MergePolicy) (int, error) {
 	return 0, ErrReadersAndUpdatesMergeReaderUnsupported
 }
 
-// GetLiveDocs returns a snapshot of the live docs. The full
-// PendingDeletes.getLiveDocs surface is not yet ported. See file header.
+// GetLiveDocs returns a snapshot of the live docs.
 func (r *ReadersAndUpdates) GetLiveDocs() (util.Bits, error) {
-	return nil, ErrReadersAndUpdatesLiveDocsUnsupported
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.pendingDeletes.GetLiveDocs(), nil
 }
 
 // GetHardLiveDocs returns the live-docs bits excluding soft-deleted
-// documents. Not yet ported. See file header.
+// documents.
 func (r *ReadersAndUpdates) GetHardLiveDocs() (util.Bits, error) {
-	return nil, ErrReadersAndUpdatesLiveDocsUnsupported
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.pendingDeletes.GetHardLiveDocs(), nil
 }
 
 // DropChanges discards any pending changes against this segment.
@@ -525,11 +546,11 @@ func (r *ReadersAndUpdates) DropChanges() {
 	r.DropMergingUpdates()
 }
 
-// WriteLiveDocs flushes any pending live-docs changes to disk. The
-// underlying PendingDeletes.writeLiveDocs entry point is not yet ported.
-// See file header.
-func (r *ReadersAndUpdates) WriteLiveDocs(_ any) (bool, error) {
-	return false, ErrReadersAndUpdatesLiveDocsUnsupported
+// WriteLiveDocs flushes any pending live-docs changes to disk.
+func (r *ReadersAndUpdates) WriteLiveDocs(dir store.Directory) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.pendingDeletes.WriteLiveDocs(dir)
 }
 
 // WriteFieldUpdates flushes pending DV updates to disk, writing one

@@ -23,14 +23,36 @@ type SegmentReader struct {
 	// directory is the source directory; used to look up in-memory postings
 	// from the package-level registry when coreReaders is nil.
 	directory store.Directory
+	liveDocs          util.Bits
+	hardLiveDocs      util.Bits
+	isNRT             bool
+	numDocs           int
 }
 
 // NewSegmentReader creates a new SegmentReader.
 func NewSegmentReader(segmentCommitInfo *SegmentCommitInfo) *SegmentReader {
-	return &SegmentReader{
+	sr := &SegmentReader{
 		segmentCommitInfo: segmentCommitInfo,
 		fieldInfos:        segmentCommitInfo.GetInMemoryFieldInfos(),
 	}
+	sr.initLiveDocs()
+	return sr
+}
+
+func (r *SegmentReader) initLiveDocs() {
+	if r.segmentCommitInfo == nil {
+		return
+	}
+	if r.segmentCommitInfo.HasDeletions() {
+		// Read live docs from codec
+		liveDocs, err := r.codec.LiveDocsFormat().ReadLiveDocs(r.directory, r.segmentCommitInfo, store.IOContextReadOnce)
+		if err != nil {
+			panic(fmt.Sprintf("failed to read live docs for seg=%s: %v", r.segmentCommitInfo, err))
+		}
+		r.liveDocs = liveDocs
+		r.hardLiveDocs = liveDocs
+	}
+	r.numDocs = r.segmentCommitInfo.SegmentInfo().DocCount() - r.segmentCommitInfo.GetDelCount()
 }
 
 // NewSegmentReaderWithCore creates a new SegmentReader with core readers.
@@ -40,11 +62,36 @@ func NewSegmentReaderWithCore(
 	fieldInfos *FieldInfos,
 	codec Codec,
 ) *SegmentReader {
-	return &SegmentReader{
+	sr := &SegmentReader{
 		segmentCommitInfo: segmentCommitInfo,
 		coreReaders:       coreReaders,
 		fieldInfos:        fieldInfos,
 		codec:             codec,
+	}
+	sr.initLiveDocs()
+	return sr
+}
+
+// NewSegmentReaderClone creates a new SegmentReader sharing core from a previous SegmentReader
+// and using the provided liveDocs, and recording whether those liveDocs were carried in ram (isNRT=true).
+func NewSegmentReaderClone(
+	si *SegmentCommitInfo,
+	sr *SegmentReader,
+	liveDocs util.Bits,
+	hardLiveDocs util.Bits,
+	numDocs int,
+	isNRT bool,
+) *SegmentReader {
+	return &SegmentReader{
+		segmentCommitInfo: si,
+		coreReaders:       sr.coreReaders,
+		fieldInfos:        sr.fieldInfos,
+		codec:             sr.codec,
+		directory:         sr.directory,
+		liveDocs:          liveDocs,
+		hardLiveDocs:      hardLiveDocs,
+		isNRT:             isNRT,
+		numDocs:           numDocs,
 	}
 }
 
@@ -297,6 +344,16 @@ func (r *SegmentReader) GetMetaData() *IndexReaderMetaData {
 		NumDocs:      r.NumDocs(),
 		MaxDoc:       r.MaxDoc(),
 	}
+}
+
+// GetLiveDocs returns a bitset of live (not deleted) docs.
+func (r *SegmentReader) GetLiveDocs() util.Bits {
+	return r.liveDocs
+}
+
+// GetHardLiveDocs returns the live-docs bits excluding documents that are not live due to soft-deletes.
+func (r *SegmentReader) GetHardLiveDocs() util.Bits {
+	return r.hardLiveDocs
 }
 
 // GetContext returns the reader context for this leaf reader.

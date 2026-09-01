@@ -82,17 +82,47 @@ func OpenStandardDirectoryReader(directory store.Directory) (*StandardDirectoryR
 	return OpenStandardDirectoryReaderWithInfos(directory, segmentInfos)
 }
 
-// OpenStandardDirectoryReaderWithInfos opens a StandardDirectoryReader with existing SegmentInfos.
-//
-// Each segment is materialised through openSegmentReader, which resolves the
-// segment's codec and constructs SegmentCoreReaders (StoredFieldsReader,
-// FieldsProducer, TermVectorsReader, NormsProducer, PointsReader,
-// KnnVectorsReader, DocValuesProducer) so that the standard leaf-level read
-// path (GetTermVectors, Terms, Postings, document retrieval) is wired
-// end-to-end. Earlier revisions instantiated bare SegmentReader instances via
-// NewSegmentReader, which left coreReaders == nil and caused
-// "core readers are nil" failures on any read-back from disk.
-func OpenStandardDirectoryReaderWithInfos(directory store.Directory, segmentInfos *SegmentInfos) (*StandardDirectoryReader, error) {
+// Open opens a StandardDirectoryReader with NRT support.
+func Open(
+	iw *IndexWriter,
+	readerFactory func(*SegmentCommitInfo) (*ReadersAndUpdates, error),
+	segmentInfos *SegmentInfos,
+	applyAllDeletes bool,
+	writeAllDeletes bool,
+) (*StandardDirectoryReader, error) {
+	readers := make([]*SegmentReader, 0, segmentInfos.Size())
+	for i := 0; i < segmentInfos.Size(); i++ {
+		segmentCommitInfo := segmentInfos.Get(i)
+		var segmentReader *SegmentReader
+		if applyAllDeletes {
+			rau, err := readerFactory(segmentCommitInfo)
+			if err != nil {
+				for _, opened := range readers {
+					opened.Close()
+				}
+				return nil, fmt.Errorf("failed to get reader factory for %s: %w", segmentCommitInfo.SegmentInfo().Name(), err)
+			}
+			segmentReader, err = rau.GetReadOnlyClone()
+			if err != nil {
+				for _, opened := range readers {
+					opened.Close()
+				}
+				return nil, fmt.Errorf("failed to get read-only clone for %s: %w", segmentCommitInfo.SegmentInfo().Name(), err)
+			}
+		} else {
+			segmentReader, err := openSegmentReader(iw.dir, segmentCommitInfo)
+			if err != nil {
+				for _, opened := range readers {
+					opened.Close()
+				}
+				return nil, fmt.Errorf("opening segment reader for %s: %w", segmentCommitInfo.SegmentInfo().Name(), err)
+			}
+		}
+		readers = append(readers, segmentReader)
+	}
+
+	return NewStandardDirectoryReader(iw.dir, readers, segmentInfos, segmentInfos, true)
+}
 	readers := make([]*SegmentReader, 0, segmentInfos.Size())
 	for i := 0; i < segmentInfos.Size(); i++ {
 		segmentCommitInfo := segmentInfos.Get(i)

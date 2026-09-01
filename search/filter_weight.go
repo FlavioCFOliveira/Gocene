@@ -29,11 +29,11 @@ func (w *FilterWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
 	return w.in.IsCacheable(ctx)
 }
 
-func (w *FilterWeight) Explain(ctx *index.LeafReaderContext, doc int) Explanation {
+func (w *FilterWeight) Explain(ctx *index.LeafReaderContext, doc int) (Explanation, error) {
 	return w.in.Explain(ctx, doc)
 }
 
-func (w *FilterWeight) Matches(ctx *index.LeafReaderContext, doc int) Matches {
+func (w *FilterWeight) Matches(ctx *index.LeafReaderContext, doc int) (Matches, error) {
 	return w.in.Matches(ctx, doc)
 }
 
