@@ -94,8 +94,33 @@ func NewSimpleTermRewriteQuery(srndQuery SimpleTerm, fieldName string, qf *Basic
 
 // Rewrite expands the SimpleTerm against the current BasicQueryFactory state
 // and returns the resulting query.
-func (q *SimpleTermRewriteQuery) Rewrite(_ search.IndexReader) (search.Query, error) {
-	return q.st.MakeLuceneQueryField(q.fieldName, q.qf)
+func (q *SimpleTermRewriteQuery) Rewrite(reader search.IndexReader) (search.Query, error) {
+	visitor := NewMatchingTermVisitor()
+	if err := q.st.Visit(visitor, reader, q.fieldName); err != nil {
+		return nil, err
+	}
+
+	matchedTerms := visitor.Terms()
+	if len(matchedTerms) == 0 {
+		return search.NewMatchNoDocsQuery("no matching terms"), nil
+	}
+
+	if len(matchedTerms) == 1 {
+		// Single match: return the TermQuery produced by the original SimpleTerm.
+		return q.st.MakeLuceneQueryField(q.fieldName, q.qf)
+	}
+
+	// Multiple matches: return a BooleanQuery (OR) of all matched terms.
+	bq := search.NewBooleanQuery()
+	for _, term := range matchedTerms {
+		tq, err := q.qf.MakeBasicTermQuery(q.fieldName, term.Text())
+		if err != nil {
+			return nil, err
+		}
+		bq.AddClause(search.NewBooleanClause(tq, search.SHOULD))
+	}
+
+	return q.st.WrapWithBoost(bq), nil
 }
 
 // Clone returns a copy of this query.
