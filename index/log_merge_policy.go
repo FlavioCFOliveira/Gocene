@@ -14,17 +14,6 @@ import (
 // using a logarithmic tiering approach.
 //
 // This is the Go port of Lucene's org.apache.lucene.index.LogMergePolicy.
-//
-// LogMergePolicy is a legacy merge policy that is less efficient than TieredMergePolicy
-// but is kept for backward compatibility. It merges the smallest segments first,
-// using a logarithmic approach to determine which segments to merge.
-//
-// The policy works by:
-//   - Computing the level of each segment based on its size
-//   - Grouping segments into levels
-//   - Merging segments within the same level when there are enough of them
-//
-// This implements GC-636: LogMergePolicy base class
 type LogMergePolicy struct {
 	*BaseMergePolicy
 
@@ -72,7 +61,6 @@ type LogMergePolicy struct {
 }
 
 // NewLogMergePolicy creates a new LogMergePolicy with default settings.
-// This implements GC-636: LogMergePolicy constructor
 func NewLogMergePolicy() *LogMergePolicy {
 	return &LogMergePolicy{
 		BaseMergePolicy:            NewBaseMergePolicy(),
@@ -268,42 +256,34 @@ func (p *LogMergePolicy) FindMerges(trigger MergeTrigger, infos *SegmentInfos, m
 }
 
 // getLevelSizes groups segments by level based on their sizes.
+// Implements the logarithmic tiering scale: level = floor(log(size / minMergeSize) / log(mergeFactor))
 func (p *LogMergePolicy) getLevelSizes(segments []logSegInfo) [][]logSegInfo {
 	if len(segments) == 0 {
 		return nil
 	}
 
-	// Group segments into levels based on size
-	levels := make([][]logSegInfo, 0)
-	currentLevel := make([]logSegInfo, 0)
+	levelsMap := make(map[int][]logSegInfo)
+	maxLevel := 0
 
 	for _, seg := range segments {
-		if len(currentLevel) == 0 {
-			currentLevel = append(currentLevel, seg)
-		} else {
-			// Check if this segment belongs in the current level
-			// Segments within a factor of levelSize of each other are in the same level
-			firstSize := currentLevel[0].size
-			if firstSize == 0 {
-				firstSize = 1
-			}
-			segSize := seg.size
-			if segSize == 0 {
-				segSize = 1
-			}
+		size := seg.size
+		if size < p.minMergeSize {
+			size = p.minMergeSize
+		}
 
-			// Check if sizes are within a factor of levelSize
-			if segSize >= firstSize && segSize/firstSize <= p.levelSize {
-				currentLevel = append(currentLevel, seg)
-			} else {
-				levels = append(levels, currentLevel)
-				currentLevel = []logSegInfo{seg}
-			}
+		level := int(math.Floor(math.Log(float64(size)/float64(p.minMergeSize)) / math.Log(float64(p.mergeFactor))))
+		levelsMap[level] = append(levelsMap[level], seg)
+		if level > maxLevel {
+			maxLevel = level
 		}
 	}
 
-	if len(currentLevel) > 0 {
-		levels = append(levels, currentLevel)
+	levels := make([][]logSegInfo, 0, len(levelsMap))
+	// Process levels in ascending order
+	for i := 0; i <= maxLevel; i++ {
+		if level, ok := levelsMap[i]; ok {
+			levels = append(levels, level)
+		}
 	}
 
 	return levels
@@ -312,14 +292,6 @@ func (p *LogMergePolicy) getLevelSizes(segments []logSegInfo) [][]logSegInfo {
 // FindForcedMerges finds forced merges to reduce segment count.
 //
 // Ported from Lucene's LogMergePolicy.findForcedMerges (Java).
-// Algorithm:
-//  1. Find the rightmost segment that needs merging.
-//  2. If any segment exceeds maxMergeSizeForForcedMerge or maxMergeDocs,
-//     delegate to findForcedMergesSizeLimit (merge eligible groups around
-//     the oversized segments).
-//  3. Otherwise, delegate to findForcedMergesMaxNumSegments: create full
-//     (mergeFactor-sized) merges from the right, then handle leftovers as
-//     a single partial merge sized to reach exactly maxSegmentCount.
 func (p *LogMergePolicy) FindForcedMerges(
 	infos *SegmentInfos,
 	maxSegmentCount int,
@@ -367,10 +339,6 @@ func (p *LogMergePolicy) FindForcedMerges(
 
 // findForcedMergesMaxNumSegments returns merges to reach exactly
 // maxSegmentCount when no segment exceeds the size/doc caps.
-// It creates full (mergeFactor-sized) merges from the rightmost segment
-// inward, then handles leftovers with a single partial merge.
-//
-// Ported from Lucene's LogMergePolicy.findForcedMergesMaxNumSegments.
 func (p *LogMergePolicy) findForcedMergesMaxNumSegments(
 	infos *SegmentInfos,
 	maxSegmentCount int,
@@ -381,9 +349,6 @@ func (p *LogMergePolicy) findForcedMergesMaxNumSegments(
 	spec := NewMergeSpecification()
 	segments := infos.List()
 
-	// First, create all "full" merges (mergeFactor segments each) from the
-	// right. The loop stops when a full merge would overshoot — i.e. when
-	// fewer than mergeFactor segments remain to reach maxSegmentCount.
 	for last-maxSegmentCount+1 >= p.mergeFactor {
 		from := last - p.mergeFactor
 		candidates := make([]*SegmentCommitInfo, p.mergeFactor)
@@ -394,10 +359,8 @@ func (p *LogMergePolicy) findForcedMergesMaxNumSegments(
 		last -= p.mergeFactor
 	}
 
-	// Only when there are no full merges pending do we add a partial merge.
 	if spec.Size() == 0 {
 		if maxSegmentCount == 1 {
-			// Merge everything down to one segment.
 			if last > 1 || !p.IsMerged(infos, infos.Get(0), mergeContext) {
 				candidates := make([]*SegmentCommitInfo, last)
 				for j := 0; j < last; j++ {
@@ -406,8 +369,6 @@ func (p *LogMergePolicy) findForcedMergesMaxNumSegments(
 				spec.Add(NewOneMerge(candidates))
 			}
 		} else if last > maxSegmentCount {
-			// We must merge exactly (last - maxSegmentCount + 1) segments
-			// to leave maxSegmentCount. Pick the cheapest contiguous block.
 			finalMergeSize := last - maxSegmentCount + 1
 			bestSize := int64(0)
 			bestStart := 0
@@ -438,10 +399,7 @@ func (p *LogMergePolicy) findForcedMergesMaxNumSegments(
 }
 
 // findForcedMergesSizeLimit returns merges for segments when some segments
-// exceed the maxMergeSizeForForcedMerge or maxMergeDocs caps. It scans from
-// the right, skipping oversized segments and merging eligible groups.
-//
-// Ported from Lucene's LogMergePolicy.findForcedMergesSizeLimit.
+// exceed the maxMergeSizeForForcedMerge or maxMergeDocs caps.
 func (p *LogMergePolicy) findForcedMergesSizeLimit(
 	infos *SegmentInfos,
 	last int,
@@ -459,8 +417,6 @@ func (p *LogMergePolicy) findForcedMergesSizeLimit(
 			int64(sci.SegmentInfo().DocCount()) > int64(p.maxMergeDocs)
 
 		if tooLarge {
-			// Skip this segment and add a merge for the segments to its right
-			// (if more than 1, or if the sole right segment is not already merged).
 			rightCount := last - start - 1
 			if rightCount > 1 || (rightCount == 1 && !p.IsMerged(infos, infos.Get(start+1), mergeContext)) {
 				candidates := make([]*SegmentCommitInfo, rightCount)
@@ -471,7 +427,6 @@ func (p *LogMergePolicy) findForcedMergesSizeLimit(
 			}
 			last = start
 		} else if last-start == p.mergeFactor {
-			// mergeFactor eligible segments found, add them as a merge.
 			candidates := make([]*SegmentCommitInfo, p.mergeFactor)
 			for j := 0; j < p.mergeFactor; j++ {
 				candidates[j] = segments[start+j]
@@ -482,7 +437,6 @@ func (p *LogMergePolicy) findForcedMergesSizeLimit(
 		start--
 	}
 
-	// Add any left-over segments, unless there is just 1 already fully merged.
 	leftCount := last
 	if leftCount > 0 {
 		first := 0
@@ -502,7 +456,6 @@ func (p *LogMergePolicy) findForcedMergesSizeLimit(
 }
 
 // FindForcedDeletesMerges finds merges to expunge deleted documents.
-// This implements GC-636: LogMergePolicy.FindForcedDeletesMerges
 func (p *LogMergePolicy) FindForcedDeletesMerges(
 	infos *SegmentInfos,
 	mergeContext MergeContext,
@@ -512,9 +465,6 @@ func (p *LogMergePolicy) FindForcedDeletesMerges(
 		return nil, nil
 	}
 
-	// Port of Lucene's LogMergePolicy.findForcedDeletesMerges: merge every
-	// contiguous run of segments that have deletions, splitting runs longer than
-	// mergeFactor into mergeFactor-sized chunks.
 	spec := NewMergeSpecification()
 	first := -1
 	segments := infos.List()
@@ -551,7 +501,6 @@ func (p *LogMergePolicy) UseCompoundFile(infos *SegmentInfos, mergedSegmentInfo 
 		return true
 	}
 
-	// Calculate total index size
 	var totalSize int64
 	for sci := range infos.Iterator() {
 		totalSize += sci.SegmentInfo().SizeInBytes()
@@ -584,15 +533,11 @@ func (p *LogMergePolicy) String() string {
 }
 
 // LogByteSizeMergePolicy merges segments based on their byte size.
-// This is the Go port of Lucene's org.apache.lucene.index.LogByteSizeMergePolicy.
-//
-// This implements GC-637: LogByteSizeMergePolicy
 type LogByteSizeMergePolicy struct {
 	*LogMergePolicy
 }
 
 // NewLogByteSizeMergePolicy creates a new LogByteSizeMergePolicy.
-// This implements GC-637: LogByteSizeMergePolicy constructor
 func NewLogByteSizeMergePolicy() *LogByteSizeMergePolicy {
 	return &LogByteSizeMergePolicy{
 		LogMergePolicy: NewLogMergePolicy(),
@@ -604,7 +549,6 @@ func (p *LogByteSizeMergePolicy) String() string {
 	return fmt.Sprintf("[LogByteSizeMergePolicy: minMergeMB=%.1f, maxMergeMB=%.1f, mergeFactor=%d, maxMergeDocs=%d]",
 		p.GetMinMergeMB(), p.GetMaxMergeMB(), p.GetMergeFactor(), p.GetMaxMergeDocs())
 }
-
 
 // Ensure interfaces are implemented
 var _ MergePolicy = (*LogMergePolicy)(nil)
