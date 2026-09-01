@@ -4,147 +4,39 @@
 
 package analysis
 
-import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
-)
-	
-
-// StopFilter removes stop words from the token stream.
+// StopFilter is a token filter that removes stop words.
 //
-// This is the Go port of Lucene's org.apache.lucene.analysis.StopFilter.
-//
-// Stop words are common words that are filtered out because they don't
-// carry much semantic meaning (e.g., "the", "a", "is", "in").
-// This filter removes tokens that match any word in the stop set.
+// This is the Go port of Lucene's org.apache.lucene.analysis.core.StopFilter.
 type StopFilter struct {
-	*BaseTokenFilter
-
-	// stopWords is the set of words to filter out
+	*FilteringTokenFilter
 	stopWords map[string]struct{}
-
-	// termAttr holds the CharTermAttribute from the shared attribute source
-	termAttr CharTermAttribute
-
-	// posIncrAttr holds the tokenattributes.PositionIncrementAttribute from the shared attribute source
-	posIncrAttr tokenattributes.PositionIncrementAttribute
 }
 
-// NewStopFilter creates a new StopFilter with the given stop words.
-func NewStopFilter(input TokenStream, stopWords []string) *StopFilter {
-	filter := &StopFilter{
-		BaseTokenFilter: NewBaseTokenFilter(input),
-		stopWords:       make(map[string]struct{}, len(stopWords)),
+func NewStopFilter(source TokenStream, stopWords []string) *StopFilter {
+	sw := make(map[string]struct{})
+	for _, w := range stopWords {
+		sw[w] = struct{}{}
 	}
 
-	// Build stop word set
-	for _, word := range stopWords {
-		filter.stopWords[word] = struct{}{}
-	}
-
-	// Get attributes from the shared AttributeSource
-	attrSource := filter.GetAttributeSource()
-	if attrSource != nil {
-		attr := attrSource.GetAttribute(CharTermAttributeType)
-		if attr != nil {
-			filter.termAttr = attr.(CharTermAttribute)
-		}
-		attr = attrSource.GetAttribute(tokenattributes.PositionIncrementAttributeType)
-		if attr != nil {
-			filter.posIncrAttr = attr.(tokenattributes.PositionIncrementAttribute)
-		}
-	}
-
-	return filter
-}
-
-// NewStopFilterWithEnglishStopWords creates a StopFilter with English stop words.
-func NewStopFilterWithEnglishStopWords(input TokenStream) *StopFilter {
-	return NewStopFilter(input, EnglishStopWords)
-}
-
-// IncrementToken advances to the next token, skipping stop words.
-func (f *StopFilter) IncrementToken() (bool, error) {
-	increments := 0
-
-	for {
-		hasToken, err := f.input.IncrementToken()
-		if err != nil {
-			return false, err
-		}
-		if !hasToken {
-			return false, nil
-		}
-
-		increments++
-
-		if f.termAttr != nil {
-			token := f.termAttr.String()
-			if _, isStopWord := f.stopWords[token]; !isStopWord {
-				// Not a stop word - adjust position increment and return
-				if f.posIncrAttr != nil && increments > 1 {
-					f.posIncrAttr.SetPositionIncrement(f.posIncrAttr.GetPositionIncrement() + increments - 1)
-				}
-				return true, nil
-			}
-			// This is a stop word - continue to next token
-		} else {
-			// No term attribute - just return the token
-			return true, nil
-		}
-	}
-}
-
-// IsStopWord checks if a word is in the stop word set.
-func (f *StopFilter) IsStopWord(word string) bool {
-	_, exists := f.stopWords[word]
-	return exists
-}
-
-// AddStopWord adds a word to the stop word set.
-func (f *StopFilter) AddStopWord(word string) {
-	f.stopWords[word] = struct{}{}
-}
-
-// RemoveStopWord removes a word from the stop word set.
-func (f *StopFilter) RemoveStopWord(word string) {
-	delete(f.stopWords, word)
-}
-
-// Ensure StopFilter implements TokenFilter
-var _ TokenFilter = (*StopFilter)(nil)
-
-// StopFilterFactory creates StopFilter instances.
-type StopFilterFactory struct {
-	stopWords *CharArraySet
-}
-
-// NewStopFilterFactory creates a new StopFilterFactory with default English stop words.
-func NewStopFilterFactory() *StopFilterFactory {
-	return NewStopFilterFactoryWithWords(GetWordSetFromStrings(EnglishStopWords, true))
-}
-
-// NewStopFilterFactoryWithWords creates a new StopFilterFactory with custom stop words.
-func NewStopFilterFactoryWithWords(stopWords *CharArraySet) *StopFilterFactory {
-	return &StopFilterFactory{
-		stopWords: stopWords,
-	}
-}
-
-// Create creates a StopFilter wrapping the given input.
-func (f *StopFilterFactory) Create(input TokenStream) TokenFilter {
-	// Convert CharArraySet to []string for the StopFilter
-	words := make([]string, 0, f.stopWords.Size())
-	f.stopWords.ForEach(func(item string) bool {
-		words = append(words, item)
-		return true
+	filter := NewFilteringTokenFilter(source, func(t Token) bool {
+		_, isStop := sw[t.Term]
+		return !isStop
 	})
-	return NewStopFilter(input, words)
+
+	return &StopFilter{
+		FilteringTokenFilter: filter,
+		stopWords:            sw,
+	}
 }
 
-// GetStopWords returns the stop words set.
-func (f *StopFilterFactory) GetStopWords() *CharArraySet {
-	return f.stopWords
+func (f *StopFilter) Reset() error {
+	return f.FilteringTokenFilter.Reset()
 }
 
-// Ensure StopFilterFactory implements TokenFilterFactory
-var _ TokenFilterFactory = (*StopFilterFactory)(nil)
+func (f *StopFilter) Next() (Token, bool) {
+	return f.FilteringTokenFilter.Next()
+}
+
+func (f *StopFilter) Close() error {
+	return f.FilteringTokenFilter.Close()
+}
